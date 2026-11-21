@@ -8,11 +8,11 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Sprite is a frame of an atlas placed in a drawing: moved, turned, scaled, flipped and faded about its origin.
+// Sprite is a frame of an atlas placed in a drawing: moved, turned, scaled, flipped, faded, blended and masked about its origin.
 //
 // Its zero value draws nothing, as its scale and alpha are 0: NewSprite returns one at full size and opacity.
 //
-// A sprite has no tint: a Canvas has no way to recolor one image alone (no layer to composite it in), and a composite mode such as multiply would mix with everything drawn under it.
+// A sprite has no tint: a Canvas has no way to recolor one image alone (no layer to composite it in); Blend sets how the sprite mixes with what is already drawn under it, as Drawing.SetComposite does.
 type Sprite struct {
 	// Frame is the picture it draws now; a zero Frame draws nothing.
 	Frame Frame
@@ -28,6 +28,10 @@ type Sprite struct {
 	FlipX, FlipY bool
 	// Alpha is its opacity, from 0, which draws nothing, to 1. It replaces the drawing's alpha for the sprite, as Drawing.SetAlpha does.
 	Alpha float32
+	// Blend is how the sprite mixes with what is already in the drawing, as Drawing.SetComposite does; the zero value is CompositeSourceOver.
+	Blend core.CompositeOp
+	// Mask, if set, clips the sprite to a shape in the drawing's coordinates before drawing it.
+	Mask *Mask
 	// Z orders the sprites of a batch: a higher Z draws over a lower one, and sprites with the same Z draw in the batch's order.
 	Z int
 }
@@ -43,24 +47,42 @@ type Batch struct {
 	Atlas *Atlas
 	// Sprites are the sprites it draws.
 	Sprites []*Sprite
+	// Mask, if set, clips the whole batch to a shape in the drawing's coordinates.
+	Mask *Mask
 
 	order []*Sprite
 }
 
-// Draw draws the batch's sprites into d with one DrawImageFrom each, lowest Z first. It leaves d's state as it found it: a sprite that turns, mirrors or fades draws between Save and Restore.
+// Draw draws the batch's sprites into d with one DrawImageFrom each, lowest Z first. It leaves d's state as it found it: a sprite that turns, mirrors, fades, blends or clips draws between Save and Restore.
 func (b *Batch) Draw(d *core.Drawing) {
-	b.order = append(b.order[:0], b.Sprites...)
-	slices.SortStableFunc(b.order, func(x, y *Sprite) int { return cmp.Compare(x.Z, y.Z) })
-	for _, s := range b.order {
-		s.draw(d, b.Atlas.Image)
+	draw := func(d *core.Drawing) {
+		b.order = append(b.order[:0], b.Sprites...)
+		slices.SortStableFunc(b.order, func(x, y *Sprite) int { return cmp.Compare(x.Z, y.Z) })
+		for _, s := range b.order {
+			s.draw(d, b.Atlas.Image)
+		}
+		clear(b.order)
 	}
-	clear(b.order)
+	if b.Mask != nil {
+		DrawMasked(d, *b.Mask, draw)
+		return
+	}
+	draw(d)
 }
 
 func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 	f := s.Frame
 	if f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
 		return
+	}
+	var masked bool
+	if s.Mask != nil {
+		switch s.Mask.state() {
+		case maskEmpty:
+			return
+		case maskActive:
+			masked = true
+		}
 	}
 	// The matrix a, b, c, dd, e, ff takes a point of the untrimmed frame to the drawing: mirrored in the frame's box (a flip takes x to Width-x), moved so the origin is at 0, 0, scaled, turned and moved to X, Y.
 	sx, sy := s.ScaleX, s.ScaleY
@@ -85,9 +107,16 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 
 	// Unturned and unmirrored, the frame's rectangle is only moved and scaled, and draws with no transform.
 	plain := b == 0 && c == 0 && a > 0 && dd > 0
-	saved := !plain || s.Alpha < 1
+	blended := s.Blend != core.CompositeSourceOver
+	saved := !plain || s.Alpha < 1 || blended || masked
 	if saved {
 		d.Save()
+	}
+	if masked {
+		s.Mask.clip(d)
+	}
+	if blended {
+		d.SetComposite(s.Blend)
 	}
 	if s.Alpha < 1 {
 		d.SetAlpha(s.Alpha)
