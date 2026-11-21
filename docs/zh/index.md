@@ -18,10 +18,22 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`，所有包共用的固定步长循环 |
 | `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | 图集、帧、动画、精灵，以及绘制到 `Canvas` 中的批次 |
 | `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | `Mixer` 及其音效和音乐 |
+| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | 基于触摸区域和鼠标按键的命名动作与轴，支持 `core.Storage` 持久化 |
+| `tilemap` | `github.com/nsgo-dev/game/packages/game/tilemap` | [tilemap](tilemap.md) | 2D 相机、视锥裁剪瓦片地图、Tiled `.tmj` 加载、动画瓦片与射线查询 |
+| `scene` | `github.com/nsgo-dev/game/packages/game/scene` | [scene](scene.md) | 世界/屏幕图层、命中测试、场景栈与过渡动画 |
+| `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` 重叠检测、`MoveAndSlide` 瓦片滑动解析与 `World` 空间查询 |
+| `screen` | `github.com/nsgo-dev/game/packages/game/screen` | [screen](screen.md) | 虚拟分辨率 `Viewport` 缩放、像素对齐与移动端安全区 |
+| `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | 按场景异步加载的资源组、响应式进度与 `LoadingScreen` |
+| `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont 位图字体与 `DrawPlatform` 平台矢量文本 |
+| `particles` | `github.com/nsgo-dev/game/packages/game/particles` | [particles](particles.md) | 确定性 2D 粒子发射器 `Emitter`、发射形状、爆发与生命周期曲线 |
+| `save` | `github.com/nsgo-dev/game/packages/game/save` | [save](save.md) | 带版本号的 JSON 存档槽、结构迁移与原子备份恢复 |
+| `debug` | `github.com/nsgo-dev/game/packages/game/debug` | [debug](debug.md) | 帧耗时图、碰撞线框、场景检查器及 `-tags release` 零开销裁剪 |
+| `flow` | `github.com/nsgo-dev/game/packages/game/flow` | [flow](flow.md) | 游戏时钟 `Timers`、`Machine[S]`、`Seq`/`Parallel`/`Race` 与类型化事件 `Bus` |
+| `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | 固定步长 `Tween`、`Timeline` 与相机运镜补间 |
+| `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为与行为树 |
+| `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | 增量输入录制/回放（`Recorder`/`Player`）与确定性测试断言 |
 
-计划中的包：用于输入动作的 `input`（[#3](https://github.com/nsgo-dev/game/issues/3)），用于瓦片地图和相机的 `tilemap`（[#5](https://github.com/nsgo-dev/game/issues/5)），用于绘制图层、命中测试和场景切换的 `scene`（[#6](https://github.com/nsgo-dev/game/issues/6)），以及一个可以玩的示例游戏（[#8](https://github.com/nsgo-dev/game/issues/8)）。
-
-各包 API 的单页速查见[包](packages.md)。
+核心包 API 的单页速查见[包](packages.md)。
 
 ## 安装
 
