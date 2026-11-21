@@ -1,0 +1,20 @@
+import "github.com/nsgo-dev/game/packages/game/sprite"
+
+//go:embed hero.json
+var heroJSON []byte
+
+atlas, err := sprite.LoadAtlas(core.Src("asset:hero.png"), heroJSON)
+if err != nil {
+	return err
+}
+walk := atlas.Animations["walk"]
+hero := sprite.NewSprite(walk.Frame())
+hero.X, hero.Y = 120, 80
+batch := &sprite.Batch{Atlas: atlas, Sprites: []*sprite.Sprite{&hero}}
+
+// In Loop.Update:
+walk.Update(dt)
+hero.Frame = walk.Frame()
+
+// In the Canvas's Draw:
+batch.Draw(d)
