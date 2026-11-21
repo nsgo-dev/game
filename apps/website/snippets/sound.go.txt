@@ -1,0 +1,19 @@
+import (
+	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/nsgo/audio"
+)
+
+mixer := sound.NewMixer(cx, "sound")
+mixer.SetVolume("music", 0.6)
+
+music := mixer.Music("music")
+music.Play(audio.Source{URI: "asset:theme.m4a"}, 2*time.Second)
+
+jump := audio.Source{URI: "asset:jump.wav"}
+audio.LoadSound(cx, jump, func(s *audio.Sound, err error) {
+	if err != nil {
+		return
+	}
+	effect := mixer.Effect(s, "effects", 4)
+	effect.Play(audio.Voice{Volume: 0.8})
+})

@@ -1,0 +1,24 @@
+import (
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+func Ball(cx *core.Scope) core.Node {
+	var x, last float32
+	alpha := core.NewSignal(cx, 0.0)
+	loop := &game.Loop{
+		Rate: 60,
+		Update: func(dt time.Duration) {
+			last = x
+			x += 120 * float32(dt.Seconds())
+		},
+		Draw: func(a float64) { alpha.Set(a) },
+	}
+	loop.Run(cx)
+	return core.Canvas{Draw: func(d *core.Drawing, _ core.Size) {
+		at := last + (x-last)*float32(alpha.Get())
+		d.SetFillColor(core.RGB(0xff5a1f)).FillRect(at, 40, 16, 16)
+	}}
+}
