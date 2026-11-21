@@ -4,6 +4,8 @@ go 1.27.3
 
 tool github.com/nsgo-dev/nsgo/cmd/nsgo
 
+require github.com/nsgo-dev/nsgo v0.2.0
+
 require (
 	github.com/andybalholm/brotli v1.3.0 // indirect
 	github.com/dop251/goja v0.0.0-20261027234916-5f913d1693d9 // indirect
@@ -11,7 +13,6 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
-	github.com/nsgo-dev/nsgo v0.2.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
