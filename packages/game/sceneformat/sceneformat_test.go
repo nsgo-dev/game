@@ -259,6 +259,58 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(got, explicit) {
 		t.Fatalf("explicit round-trip mismatch:\ngot:  %+v\nwant: %+v", got, explicit)
 	}
+
+	// Verify 2D YAML output never emits optional 3D keys when unset.
+	for _, key := range []string{"posZ:", "rotX:", "rotY:", "rotZ:", "scaleZ:", "depth:", "mesh:"} {
+		if bytes.Contains(encoded1, []byte(key)) {
+			t.Fatalf("2D scene YAML unexpectedly emitted 3D key %q:\n%s", key, encoded1)
+		}
+	}
+
+	// Verify 3D transform fields round-trip cleanly alongside existing 2D fields.
+	doc3D := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "3D Room",
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "world",
+				Space: sceneformat.SpaceWorld,
+				Objects: []sceneformat.ObjectDoc{
+					{
+						ID:     "crate_1",
+						Name:   "Crate",
+						X:      12.5,
+						Y:      4.0,
+						PosZ:   -18.25,
+						RotX:   0.25,
+						RotY:   1.5,
+						RotZ:   -0.5,
+						ScaleX: sceneformat.Float32(1.5),
+						ScaleY: sceneformat.Float32(2.0),
+						ScaleZ: sceneformat.Float32(0.75),
+						Depth:  24,
+						Mesh:   "box",
+						Z:      3,
+					},
+					{
+						ID:     "flat_marker",
+						ScaleZ: sceneformat.Float32(0),
+					},
+				},
+			},
+		},
+	}
+	encoded3D, err := sceneformat.Encode(doc3D)
+	if err != nil {
+		t.Fatalf("Encode 3D: %v", err)
+	}
+	got3D, err := sceneformat.Parse(encoded3D)
+	if err != nil {
+		t.Fatalf("Parse 3D: %v", err)
+	}
+	if !reflect.DeepEqual(got3D, doc3D) {
+		t.Fatalf("3D round-trip mismatch:\ngot:  %+v\nwant: %+v", got3D, doc3D)
+	}
 }
 
 type externalResolver struct {
@@ -344,6 +396,7 @@ func TestValidationErrors(t *testing.T) {
 		{name: "duplicate_object_id_across_layers", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: dup\n  - name: b\n    objects:\n      - id: dup\n", wantSub: "duplicate object id"},
 		{name: "alpha_over_one", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: 1.5\n", wantSub: "alpha"},
 		{name: "alpha_negative", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: -0.1\n", wantSub: "alpha"},
+		{name: "negative_depth", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        depth: -4\n", wantSub: "depth"},
 		{name: "incomplete_sprite", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", wantSub: "both atlas and frame"},
 		{name: "unknown_tilemap_ref", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      ref: missing\n", wantSub: "unknown tilemap"},
 		{name: "top_level_tilemap_ref", yaml: "version: 1\ntilemaps:\n  m:\n    ref: other\n", wantSub: "cannot use ref"},

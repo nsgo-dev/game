@@ -141,14 +141,25 @@ type ObjectDoc struct {
 	// X and Y are where the object's origin sits in its layer's coordinate space.
 	X float32 `yaml:"x,omitempty"`
 	Y float32 `yaml:"y,omitempty"`
+	// PosZ is the optional 3D world Z coordinate (depth in 3D scenes), distinct from 2D draw order Z.
+	PosZ float32 `yaml:"posZ,omitempty"`
 	// OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.
 	OriginX float32 `yaml:"originX,omitempty"`
 	OriginY float32 `yaml:"originY,omitempty"`
-	// Rotation turns the object clockwise in radians about its origin.
+	// Rotation turns the object clockwise in radians about its origin in 2D space.
 	Rotation float32 `yaml:"rotation,omitempty"`
-	// ScaleX and ScaleY scale the object about its origin; nil defaults to 1. Negative mirrors.
+	// RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.
+	RotX float32 `yaml:"rotX,omitempty"`
+	RotY float32 `yaml:"rotY,omitempty"`
+	RotZ float32 `yaml:"rotZ,omitempty"`
+	// ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.
 	ScaleX *float32 `yaml:"scaleX,omitempty"`
 	ScaleY *float32 `yaml:"scaleY,omitempty"`
+	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
+	// Depth is the optional 3D extent along the Z axis in world units; 0 uses a default extent.
+	Depth float32 `yaml:"depth,omitempty"`
+	// Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.
+	Mesh string `yaml:"mesh,omitempty"`
 	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
 	FlipX bool `yaml:"flipX,omitempty"`
 	FlipY bool `yaml:"flipY,omitempty"`
@@ -178,6 +189,14 @@ func (o *ObjectDoc) EffectiveScaleY() float32 {
 		return 1
 	}
 	return *o.ScaleY
+}
+
+// EffectiveScaleZ returns ScaleZ, defaulting to 1 when nil.
+func (o *ObjectDoc) EffectiveScaleZ() float32 {
+	if o == nil || o.ScaleZ == nil {
+		return 1
+	}
+	return *o.ScaleZ
 }
 
 // EffectiveAlpha returns Alpha, defaulting to 1 when nil.
@@ -398,14 +417,22 @@ func validateInlineTilemap(where string, tm *TilemapDoc) error {
 }
 
 func validateObject(layer string, o *ObjectDoc) error {
-	if !isFinite(o.X) || !isFinite(o.Y) || !isFinite(o.OriginX) || !isFinite(o.OriginY) || !isFinite(o.Rotation) {
+	if !isFinite(o.X) || !isFinite(o.Y) || !isFinite(o.PosZ) ||
+		!isFinite(o.OriginX) || !isFinite(o.OriginY) ||
+		!isFinite(o.Rotation) || !isFinite(o.RotX) || !isFinite(o.RotY) || !isFinite(o.RotZ) {
 		return fmt.Errorf("sceneformat: layer %q object %q has non-finite transform", layer, o.ID)
+	}
+	if !isFinite(o.Depth) || o.Depth < 0 {
+		return fmt.Errorf("sceneformat: layer %q object %q depth %v must be finite and non-negative", layer, o.ID, o.Depth)
 	}
 	if o.ScaleX != nil && !isFinite(*o.ScaleX) {
 		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleX", layer, o.ID)
 	}
 	if o.ScaleY != nil && !isFinite(*o.ScaleY) {
 		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleY", layer, o.ID)
+	}
+	if o.ScaleZ != nil && !isFinite(*o.ScaleZ) {
+		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleZ", layer, o.ID)
 	}
 	if o.Alpha != nil {
 		if !isFinite(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1 {

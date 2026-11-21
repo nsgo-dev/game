@@ -184,9 +184,14 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize
 }
 
-// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active Tool.
+// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool.
 func (e *Editor) HandleCanvasPress(x, y float32) {
 	if e == nil || e.playing {
+		return
+	}
+	if e.ViewMode == ViewMode3D {
+		vw, vh := e.ViewportSize()
+		e.HandleViewport3DPress(x, y, vw, vh)
 		return
 	}
 	switch e.Tool {
@@ -240,9 +245,14 @@ func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 	return e.CanvasToWorld(x, y)
 }
 
-// DrawViewport renders the active scene and, when in edit mode, the selection outline and tile grid overlay.
-func (e *Editor) DrawViewport(d *core.Drawing, _ core.Size) {
+// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode,
+// the appropriate editor overlays (tile grid + selection outline in 2D, grid + axes + boxes + gizmo in 3D).
+func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	if e == nil || d == nil {
+		return
+	}
+	if e.ViewMode == ViewMode3D {
+		e.DrawViewport3D(d, size)
 		return
 	}
 	scene := e.ActiveScene()
@@ -354,6 +364,7 @@ func (e *Editor) applyCameraTransform(d *core.Drawing) {
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	vw, vh := ed.ViewportSize()
+	var lastPan core.Point
 
 	return core.View{
 		TestID: "editor-viewport-container",
@@ -366,21 +377,52 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			Overflow:       core.Hidden,
 		},
 		Children: []core.Node{
-			core.Canvas{
-				TestID: "editor-viewport",
-				Label:  "Scene Viewport",
+			core.View{
+				TestID: "editor-viewport-frame",
 				Style: core.Style{
-					Width:       core.Pt(core.Points(vw)),
-					Height:      core.Pt(core.Points(vh)),
-					BorderWidth: 1,
-					BorderColor: colors.Line(),
+					Width:  core.Pt(core.Points(vw)),
+					Height: core.Pt(core.Points(vh)),
 				},
-				OnPress: func(ev core.PressEvent) {
-					ed.HandleCanvasPress(float32(ev.Position.X), float32(ev.Position.Y))
+				OnWheel: func(ev core.WheelEvent) {
+					if ed.ViewMode == ViewMode3D {
+						ed.HandleViewport3DWheel(float32(ev.Delta.Y))
+					}
 				},
-				Draw: func(d *core.Drawing, size core.Size) {
-					_ = rev.Get()
-					ed.DrawViewport(d, size)
+				OnPan: func(ev core.PanEvent) {
+					if ed.ViewMode != ViewMode3D {
+						return
+					}
+					switch ev.Phase {
+					case core.GestureBegan:
+						lastPan = ev.Translation
+					case core.GestureChanged:
+						dx := float32(ev.Translation.X - lastPan.X)
+						dy := float32(ev.Translation.Y - lastPan.Y)
+						lastPan = ev.Translation
+						ed.Camera3D.Orbit(-dx*0.01, dy*0.01)
+						ed.notify()
+					case core.GestureEnded, core.GestureCancelled:
+						lastPan = core.Point{}
+					}
+				},
+				Children: []core.Node{
+					core.Canvas{
+						TestID: "editor-viewport",
+						Label:  "Scene Viewport",
+						Style: core.Style{
+							Width:       core.Pt(core.Points(vw)),
+							Height:      core.Pt(core.Points(vh)),
+							BorderWidth: 1,
+							BorderColor: colors.Line(),
+						},
+						OnPress: func(ev core.PressEvent) {
+							ed.HandleCanvasPress(float32(ev.Position.X), float32(ev.Position.Y))
+						},
+						Draw: func(d *core.Drawing, size core.Size) {
+							_ = rev.Get()
+							ed.DrawViewport(d, size)
+						},
+					},
 				},
 			},
 		},

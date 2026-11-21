@@ -81,6 +81,39 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		}
 	}
 
+	viewModeBtn := func(testID, label string, mode ViewMode) core.Node {
+		return ui.ToggleButton{
+			TestID: testID,
+			Text:   label,
+			On: func() bool {
+				_ = rev.Get()
+				return ed.ViewMode == mode
+			},
+			OnChange: func(on bool) {
+				if on {
+					ed.SetViewMode(mode)
+				}
+			},
+		}
+	}
+
+	gizmoBtn := func(testID, label string, mode GizmoMode3D) core.Node {
+		return ui.ToggleButton{
+			TestID:   testID,
+			Text:     label,
+			Disabled: notPlaying,
+			On: func() bool {
+				_ = rev.Get()
+				return ed.GizmoMode == mode
+			},
+			OnChange: func(on bool) {
+				if on {
+					ed.SetGizmoMode3D(mode)
+				}
+			},
+		}
+	}
+
 	return core.View{
 		TestID: "editor-toolbar",
 		Style: core.Style{
@@ -116,14 +149,39 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Label: "Editor Tools",
 						Children: []core.Node{
 							ui.ToolbarGroup{
-								Label: "Tools",
+								Label: "View Mode",
 								Children: []core.Node{
-									toolBtn("tool-select", "Select", ToolSelect),
-									toolBtn("tool-move", "Move", ToolMove),
-									toolBtn("tool-place", "Place", ToolPlace),
-									toolBtn("tool-paint", "Paint", ToolPaintTile),
-									toolBtn("tool-erase", "Erase", ToolEraseTile),
-									toolBtn("tool-fill", "Fill", ToolFillTile),
+									viewModeBtn("view-mode-2d", "2D", ViewMode2D),
+									viewModeBtn("view-mode-3d", "3D", ViewMode3D),
+								},
+							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.ViewMode == ViewMode3D
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return ui.ToolbarGroup{
+										Label: "3D Gizmo",
+										Children: []core.Node{
+											gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
+											gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
+											gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
+										},
+									}
+								},
+								Else: func(cx *core.Scope) core.Node {
+									return ui.ToolbarGroup{
+										Label: "Tools",
+										Children: []core.Node{
+											toolBtn("tool-select", "Select", ToolSelect),
+											toolBtn("tool-move", "Move", ToolMove),
+											toolBtn("tool-place", "Place", ToolPlace),
+											toolBtn("tool-paint", "Paint", ToolPaintTile),
+											toolBtn("tool-erase", "Erase", ToolEraseTile),
+											toolBtn("tool-fill", "Fill", ToolFillTile),
+										},
+									}
 								},
 							},
 						},
@@ -245,7 +303,10 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					if ed.Playing() {
 						mode = "Play"
 					}
-					return fmt.Sprintf("Mode: %s | Tool: %s | Layer: %s", mode, ed.Tool.String(), ed.ActiveLayer)
+					if ed.ViewMode == ViewMode3D {
+						return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
+					}
+					return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.Tool.String(), ed.ActiveLayer)
 				},
 				Style: core.Style{
 					FontSize: 11,
