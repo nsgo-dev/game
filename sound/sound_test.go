@@ -1,15 +1,17 @@
-package game_test
+package sound_test
 
 import (
 	"math"
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/sound"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 var (
 	playsAudio = core.Environment{Audio: true}
@@ -25,9 +27,9 @@ const (
 // mixed is an app with a mixer, a click in "effects" limited to 4 at once and music in "music".
 type mixed struct {
 	app   *nsgotest.App
-	mixer *game.Mixer
-	click *game.Sound
-	music *game.Music
+	mixer *sound.Mixer
+	click *sound.Effect
+	music *sound.Music
 }
 
 func startMixed(t *testing.T, opts ...nsgotest.Option) *mixed {
@@ -37,13 +39,13 @@ func startMixed(t *testing.T, opts ...nsgotest.Option) *mixed {
 		a.AudioDurations = map[string]time.Duration{clickURI: 100 * time.Millisecond, trackA: time.Minute, trackB: time.Minute}
 	}}, opts...)
 	m.app = nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		m.mixer = game.NewMixer(cx, "sound")
+		m.mixer = sound.NewMixer(cx, "sound")
 		audio.LoadSound(cx, audio.Source{URI: clickURI}, func(s *audio.Sound, err error) {
 			if err != nil {
 				t.Errorf("load the click: %v", err)
 				return
 			}
-			m.click = m.mixer.Sound(s, "effects", 4)
+			m.click = m.mixer.Effect(s, "effects", 4)
 		})
 		m.music = m.mixer.Music("music")
 		return core.View{}

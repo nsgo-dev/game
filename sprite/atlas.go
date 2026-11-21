@@ -1,4 +1,4 @@
-package game
+package sprite
 
 import (
 	"bytes"
@@ -52,17 +52,17 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("game: atlas: %w", err)
+		return nil, fmt.Errorf("sprite: atlas: %w", err)
 	}
 	frames, err := atlasFrames(file.Frames)
 	if err != nil {
-		return nil, fmt.Errorf("game: atlas: %w", err)
+		return nil, fmt.Errorf("sprite: atlas: %w", err)
 	}
 	scale := float32(1)
 	if len(file.Meta.Scale) > 0 {
 		s, err := looseNumber(file.Meta.Scale)
 		if err != nil || s <= 0 {
-			return nil, fmt.Errorf("game: atlas: meta.scale %s is not a positive number", file.Meta.Scale)
+			return nil, fmt.Errorf("sprite: atlas: meta.scale %s is not a positive number", file.Meta.Scale)
 		}
 		scale = float32(s)
 	}
@@ -71,10 +71,10 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	ordered := make([]Frame, len(frames))
 	for i, f := range frames {
 		if f.Rotated {
-			return nil, fmt.Errorf("game: atlas: frame %q is rotated; export the atlas with rotation off", f.Name)
+			return nil, fmt.Errorf("sprite: atlas: frame %q is rotated; export the atlas with rotation off", f.Name)
 		}
 		if _, ok := a.Frames[f.Name]; ok {
-			return nil, fmt.Errorf("game: atlas: two frames are named %q", f.Name)
+			return nil, fmt.Errorf("sprite: atlas: two frames are named %q", f.Name)
 		}
 		fr := Frame{
 			Name: f.Name,
@@ -94,24 +94,24 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	}
 	for _, tag := range file.Meta.FrameTags {
 		if tag.From < 0 || tag.To < tag.From || tag.To >= len(frames) {
-			return nil, fmt.Errorf("game: atlas: tag %q runs from frame %d to %d of %d", tag.Name, tag.From, tag.To, len(frames))
+			return nil, fmt.Errorf("sprite: atlas: tag %q runs from frame %d to %d of %d", tag.Name, tag.From, tag.To, len(frames))
 		}
 		repeat := 0
 		if len(tag.Repeat) > 0 {
 			r, err := looseNumber(tag.Repeat)
 			if err != nil || r < 0 || r != float64(int(r)) {
-				return nil, fmt.Errorf("game: atlas: tag %q repeats %s times", tag.Name, tag.Repeat)
+				return nil, fmt.Errorf("sprite: atlas: tag %q repeats %s times", tag.Name, tag.Repeat)
 			}
 			repeat = int(r)
 		}
 		order, err := tagOrder(tag.From, tag.To, tag.Direction, repeat)
 		if err != nil {
-			return nil, fmt.Errorf("game: atlas: tag %q: %w", tag.Name, err)
+			return nil, fmt.Errorf("sprite: atlas: tag %q: %w", tag.Name, err)
 		}
 		anim := Animation{Loop: repeat == 0, Frames: make([]AnimationFrame, len(order))}
 		for i, n := range order {
 			if frames[n].Duration <= 0 {
-				return nil, fmt.Errorf("game: atlas: tag %q: frame %q has no duration", tag.Name, frames[n].Name)
+				return nil, fmt.Errorf("sprite: atlas: tag %q: frame %q has no duration", tag.Name, frames[n].Name)
 			}
 			anim.Frames[i] = AnimationFrame{Frame: ordered[n], Duration: time.Duration(frames[n].Duration) * time.Millisecond}
 		}

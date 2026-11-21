@@ -1,8 +1,8 @@
-package game
+package sprite
 
 import "time"
 
-// Animation plays frames one after another, each for its own duration, moved on by Update with a Loop's fixed steps.
+// Animation plays frames one after another, each for its own duration, moved on by Update with a game.Loop's fixed steps.
 //
 // An Animation is a value that keeps where it is in its frames, so each sprite plays its own copy of one: copy it from an Atlas's Animations, or write one by hand.
 type Animation struct {

@@ -11,6 +11,16 @@ The loop, input actions, sound and scene switching are shared by both stages. It
 
 Not started. The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047), and its tasks are this repository's issues. The engine-side primitives it needs (key-up and held keys, display frame times, gamepads, audio everywhere, a batched `DrawAtlas`, the GPU view) are tracked in NSGo.
 
+## Layout
+
+- `game`: the fixed-step `Loop` every package shares.
+- `game/sprite`: atlases, frames, animations, sprites and batches drawn into a `Canvas`.
+- `game/sound`: the `Mixer`, its effects and music.
+- `game/input`: input actions ([#3](https://github.com/nsgo-dev/game/issues/3)).
+- `game/tilemap`: tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)).
+- `game/scene`: drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)).
+- `examples`: a playable sample game ([#8](https://github.com/nsgo-dev/game/issues/8)).
+
 ## Targets
 
 macOS, iOS, Windows, Linux, Android and the web.

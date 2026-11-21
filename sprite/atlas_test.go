@@ -1,4 +1,4 @@
-package game_test
+package sprite_test
 
 import (
 	_ "embed"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -23,8 +23,8 @@ var (
 var heroImage = core.ImageSource{URI: "asset:hero.png"}
 
 func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
-	frame := func(n int) game.Frame {
-		return []game.Frame{
+	frame := func(n int) sprite.Frame {
+		return []sprite.Frame{
 			{Name: "hero 0.aseprite", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
 			{Name: "hero 1.aseprite", X: 16, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
 			{Name: "hero 2.aseprite", X: 32, Y: 0, W: 12, H: 14, OffsetX: 2, OffsetY: 1, Width: 16, Height: 16},
@@ -32,14 +32,14 @@ func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
 		}[n]
 	}
 	durations := []time.Duration{100 * time.Millisecond, 100 * time.Millisecond, 150 * time.Millisecond, 200 * time.Millisecond}
-	animation := func(loop bool, frames ...int) game.Animation {
-		a := game.Animation{Loop: loop}
+	animation := func(loop bool, frames ...int) sprite.Animation {
+		a := sprite.Animation{Loop: loop}
 		for _, n := range frames {
-			a.Frames = append(a.Frames, game.AnimationFrame{Frame: frame(n), Duration: durations[n]})
+			a.Frames = append(a.Frames, sprite.AnimationFrame{Frame: frame(n), Duration: durations[n]})
 		}
 		return a
 	}
-	want := map[string]game.Animation{
+	want := map[string]sprite.Animation{
 		"walk": animation(true, 0, 1, 2, 3),
 		// Ping-pong loops back without showing either end twice.
 		"sway": animation(true, 1, 2, 3, 2),
@@ -52,7 +52,7 @@ func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
 		data []byte
 	}{{"hash", asepriteHash}, {"array", asepriteArray}} {
 		t.Run(tc.name, func(t *testing.T) {
-			a, err := game.LoadAtlas(heroImage, tc.data)
+			a, err := sprite.LoadAtlas(heroImage, tc.data)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,12 +75,12 @@ func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
 }
 
 func TestATexturePackerHashLoadsInTheImagesPoints(t *testing.T) {
-	a, err := game.LoadAtlas(core.ImageSource{URI: "asset:items@2x.png"}, texturePackerHash)
+	a, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:items@2x.png"}, texturePackerHash)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// meta.scale is 2: the 2x image's pixels are halved into points.
-	want := map[string]game.Frame{
+	want := map[string]sprite.Frame{
 		"gem.png":  {Name: "gem.png", X: 1, Y: 1, W: 20, H: 20, Width: 20, Height: 20},
 		"coin.png": {Name: "coin.png", X: 22, Y: 1, W: 12, H: 14, OffsetX: 4, OffsetY: 3, Width: 20, Height: 20},
 	}
@@ -107,7 +107,7 @@ func TestLoadAtlasRefusesWhatItCannotDraw(t *testing.T) {
 		{"tag frame without a duration", `{"frames": {"a": {"frame": {"x":0,"y":0,"w":8,"h":8}}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0}]}}`, "no duration"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := game.LoadAtlas(heroImage, []byte(tc.json))
+			_, err := sprite.LoadAtlas(heroImage, []byte(tc.json))
 			if err == nil || !strings.Contains(err.Error(), tc.err) {
 				t.Fatalf("error %v, want one saying %q", err, tc.err)
 			}
