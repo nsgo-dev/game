@@ -205,3 +205,97 @@ func TestDisposingTheScopeEndsTheLoop(t *testing.T) {
 	app.Advance(time.Second)
 	c.expect(t, 60, 60)
 }
+
+func TestLoopKeepsDisplayAwakeInForegroundAndSleepsWhenPaused(t *testing.T) {
+	var stop func()
+	l := &game.Loop{}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		stop = l.Run(cx)
+		return core.View{}
+	})
+	if len(app.Awake) != 1 || !app.Awake[0].Display {
+		t.Fatalf("active awake holds = %+v, want 1 display hold", app.Awake)
+	}
+	firstID := app.Awake[0].ID
+
+	// Moving to background releases the hold so the display may sleep.
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	if len(app.Awake) != 0 {
+		t.Fatalf("background awake holds = %+v, want none", app.Awake)
+	}
+	if len(app.AwakeReleases) != 1 || app.AwakeReleases[0] != firstID {
+		t.Fatalf("background releases = %v, want [%d]", app.AwakeReleases, firstID)
+	}
+
+	// Returning to foreground acquires a fresh display hold.
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	if len(app.Awake) != 1 || !app.Awake[0].Display {
+		t.Fatalf("resumed awake holds = %+v, want 1 display hold", app.Awake)
+	}
+
+	// Stopping the loop releases the hold and ignores later lifecycle changes.
+	app.Post(stop)
+	app.Settle()
+	if len(app.Awake) != 0 {
+		t.Fatalf("stopped awake holds = %+v, want none", app.Awake)
+	}
+	app.Post(stop)
+	app.Settle()
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	if len(app.Awake) != 0 {
+		t.Fatalf("post-stop awake holds = %+v, want none", app.Awake)
+	}
+}
+
+func TestLoopStartingInBackgroundDoesNotKeepAwakeUntilForeground(t *testing.T) {
+	l := &game.Loop{}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{Lifecycle: core.LifecycleBackground}))
+	if len(app.Awake) != 0 || len(app.AwakeHolds) != 0 {
+		t.Fatalf("background start holds = %+v / %+v, want none", app.Awake, app.AwakeHolds)
+	}
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	if len(app.Awake) != 1 || !app.Awake[0].Display {
+		t.Fatalf("foreground holds = %+v, want 1 display hold", app.Awake)
+	}
+}
+
+func TestDisposingScopeOrStoppingInUpdateReleasesKeepAwake(t *testing.T) {
+	t.Run("dispose", func(t *testing.T) {
+		var shown *core.Signal[bool]
+		l := &game.Loop{}
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			shown = core.NewSignal(cx, true)
+			return core.Show{When: shown.Get, Then: func(cx *core.Scope) core.Node {
+				l.Run(cx)
+				return core.View{}
+			}}
+		})
+		if len(app.Awake) != 1 {
+			t.Fatalf("active holds = %+v, want 1", app.Awake)
+		}
+		app.Post(func() { shown.Set(false) })
+		app.Settle()
+		if len(app.Awake) != 0 {
+			t.Fatalf("holds after scope dispose = %+v, want none", app.Awake)
+		}
+	})
+	t.Run("stop_in_update", func(t *testing.T) {
+		var stop func()
+		l := &game.Loop{Update: func(time.Duration) { stop() }}
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			stop = l.Run(cx)
+			return core.View{}
+		})
+		if len(app.Awake) != 1 {
+			t.Fatalf("active holds = %+v, want 1", app.Awake)
+		}
+		app.FastForward(20 * time.Millisecond)
+		if len(app.Awake) != 0 {
+			t.Fatalf("holds after stop in Update = %+v, want none", app.Awake)
+		}
+	})
+}
