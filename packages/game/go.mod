@@ -1,4 +1,4 @@
-module github.com/nsgo-dev/game
+module github.com/nsgo-dev/game/packages/game
 
 go 1.27.3
 
