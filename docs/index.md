@@ -1,0 +1,46 @@
+# Overview
+
+game is a game layer for [NSGo](https://nsgo.dev) apps, written in Go. A game draws into one NSGo view, a `Canvas`, a pixel buffer or a shader, and its HUD and menus stay ordinary native NSGo views on top. It uses only NSGo's public API (`core`, `audio`, and later `gamepad`), so an app that does not import it links none of it.
+
+> The project is early: the packages below work and are tested, but their APIs will change. A starter template and a getting-started guide come with [#38](https://github.com/nsgo-dev/game/issues/38).
+
+## Stages
+
+1. **2D**: a fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn at 60 fps or the display's rate.
+2. **3D**: meshes, cameras, lights and glTF models drawn with depth on a GPU view NSGo adds for it ([nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)).
+
+The loop, input actions, sound and scene switching are shared by both stages, so 3D adds drawing without replacing them. The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047); its tasks are this repository's issues and the engine primitives NSGo adds for it.
+
+## Packages
+
+| Package | Import path | What it holds |
+| --- | --- | --- |
+| `game` | `github.com/nsgo-dev/game/packages/game` | `Loop`, the fixed-step loop every package shares |
+| `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | Atlases, frames, animations, sprites and batches drawn into a `Canvas` |
+| `sound` | `github.com/nsgo-dev/game/packages/game/sound` | The `Mixer`, its effects and music |
+
+Planned: `input` for input actions ([#3](https://github.com/nsgo-dev/game/issues/3)), `tilemap` for tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)), `scene` for drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)), and a playable example game ([#8](https://github.com/nsgo-dev/game/issues/8)).
+
+Each package is described in [Packages](packages.md).
+
+## Install
+
+The module needs Go 1.27 and NSGo v0.2 or later:
+
+```sh
+go get github.com/nsgo-dev/game/packages/game
+```
+
+## How a frame runs
+
+A game is an NSGo component. It starts a `game.Loop` on its scope, which runs on NSGo's `RequestAnimationFrame`:
+
+1. Each display frame adds the time since the last one and runs `Update` once for each whole fixed step it holds, zero or more times.
+2. `Update` moves the game's state by the fixed `dt`, advancing animations and timers.
+3. `Draw` runs once, with how far the frame falls into the next step, and sets a signal the game's `Canvas` reads, so the canvas draws again without a commit of the view tree.
+
+While the window is in the background, the loop runs no updates and the mixer plays nothing; both resume from where they were.
+
+## Targets
+
+macOS, iOS, Windows, Linux, Android and the web. HarmonyOS, mini programs, watchOS and tvOS are outside the first stage.
