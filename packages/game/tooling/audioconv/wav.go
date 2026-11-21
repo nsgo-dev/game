@@ -10,6 +10,10 @@ import (
 	"os"
 )
 
+// maxWAVChunkSize caps a single WAVE chunk the decoder will buffer, so a malformed
+// or hostile header cannot exhaust memory before the stream is known to be short.
+const maxWAVChunkSize = 256 << 20
+
 const (
 	waveFormatPCM        uint16 = 1
 	waveFormatIEEEFloat  uint16 = 3
@@ -112,6 +116,11 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 			hasFmt = true
 
 		case "data":
+			// The chunk size is untrusted: bound it before allocating so a
+			// corrupt header cannot ask for gigabytes of memory.
+			if size > maxWAVChunkSize {
+				return nil, fmt.Errorf("audioconv: data chunk of %d bytes exceeds the %d-byte limit", size, maxWAVChunkSize)
+			}
 			rawData = make([]byte, size)
 			if _, err := io.ReadFull(r, rawData); err != nil {
 				return nil, fmt.Errorf("audioconv: data chunk: %w", err)

@@ -484,6 +484,9 @@ func DecodeKVD(kvdBytes []byte) (map[string][]byte, error) {
 		prevKey = key
 		val := make([]byte, len(entry)-(nul+1))
 		copy(val, entry[nul+1:])
+		// buildKVD writes a NUL terminator after each value, and the reader must
+		// drop it or every value read back carries a trailing zero byte.
+		val = bytes.TrimRight(val, "\x00")
 		out[key] = val
 
 		pos += n
