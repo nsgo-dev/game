@@ -37,6 +37,8 @@ type Drawable struct {
 	OnTouch func(hit HitResult, ev core.TouchEvent)
 	// Z orders the drawable relative to other items in its layer: a higher Z draws over a lower one.
 	Z int
+	// Y is the vertical baseline coordinate used when its Layer's DepthSort is SortY (unless overridden by Layer.SortKey).
+	Y float32
 	// Visible controls whether the drawable is drawn and hit-tested.
 	Visible bool
 }
@@ -78,16 +80,42 @@ type Layer struct {
 	// Items are the batches, tilemaps, and custom drawables in the layer.
 	Items []Item
 
-	order []Item
+	// ParallaxX and ParallaxY scale how fast a SpaceWorld layer scrolls relative to Scene.Camera.
+	// On a struct literal without SetParallax/NewLayer/NewParallaxLayer, zero values default to 1.0.
+	ParallaxX, ParallaxY float32
+	// OffsetX and OffsetY shift the layer's content in layer coordinates.
+	OffsetX, OffsetY float32
+	// RepeatX and RepeatY tile a SpaceWorld layer seamlessly across the camera's visible region using RepeatWidth and RepeatHeight as periods.
+	RepeatX, RepeatY bool
+	// RepeatWidth and RepeatHeight are the horizontal and vertical repeat periods in layer points when RepeatX / RepeatY are enabled.
+	RepeatWidth, RepeatHeight float32
+
+	// DepthSort controls how items and sprites within the layer are depth-sorted during Draw and HitTest.
+	DepthSort SortMode
+	// SortKey optionally supplies a custom depth key for items in SortY (or SortCustom when SortFunc is nil).
+	SortKey func(Item) float32
+	// SpriteSortKey optionally supplies a custom depth key for sprites in SortY (after Sprite.Z) or SortCustom.
+	SpriteSortKey func(*sprite.Sprite) float32
+	// SortFunc supplies a custom item comparator when DepthSort is SortCustom.
+	SortFunc func(a, b Item) int
+
+	parallaxSet  bool
+	order        []Item
+	entries      []drawEntry
+	scratchBatch sprite.Batch
+	scratchOne   [1]*sprite.Sprite
 }
 
 // NewLayer returns a visible Layer with the given name, coordinate space, and draw order.
 func NewLayer(name string, space Space, order int) *Layer {
 	return &Layer{
-		Name:    name,
-		Space:   space,
-		Visible: true,
-		Order:   order,
+		Name:        name,
+		Space:       space,
+		Visible:     true,
+		Order:       order,
+		ParallaxX:   1,
+		ParallaxY:   1,
+		parallaxSet: true,
 	}
 }
 
@@ -132,34 +160,9 @@ func (l *Layer) draw(d *core.Drawing, cam *tilemap.Camera) {
 	if l == nil || !l.Visible || len(l.Items) == 0 {
 		return
 	}
-	items := l.sortedItems()
-	defer clear(l.order)
-
-	useCam := l.Space == SpaceWorld && cam != nil
-	if useCam {
-		d.Save()
-		cam.Apply(d)
-	}
-	var tmCam *tilemap.Camera
-	if useCam {
-		tmCam = cam
-	}
-	for _, it := range items {
-		if it.Tilemap != nil {
-			it.Tilemap.Draw(d, tmCam)
-		}
-		if it.Batch != nil && it.Batch.Atlas != nil {
-			it.Batch.Draw(d)
-		}
-		if it.Drawable != nil && it.Drawable.Visible && it.Drawable.Draw != nil {
-			d.Save()
-			it.Drawable.Draw(d)
-			d.Restore()
-		}
-	}
-	if useCam {
-		d.Restore()
-	}
+	l.entries = l.buildDrawEntries(l.entries)
+	defer clear(l.entries)
+	l.drawWithParallax(d, cam, l.entries)
 }
 
 func (l *Layer) update(dt time.Duration) {

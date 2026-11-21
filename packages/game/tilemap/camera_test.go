@@ -366,3 +366,35 @@ func TestCameraShakeOffsetsAndReturnsToExactZero(t *testing.T) {
 		t.Fatalf("after cancel: ShakeOffset = %+v, want exact (0, 0)", off)
 	}
 }
+
+func TestCameraParallaxScalesPositionAndShake(t *testing.T) {
+	cam := &tilemap.Camera{
+		X:         120,
+		Y:         -80,
+		Zoom:      2,
+		Rotation:  math.Pi / 8,
+		Width:     320,
+		Height:    180,
+		ShakeSeed: 9,
+	}
+	cam.Shake(10, 200*time.Millisecond)
+	shake := cam.ShakeOffset()
+
+	p := cam.Parallax(0.5, 0.25)
+	wantX := (120 + float32(shake.X)) * 0.5
+	wantY := (-80 + float32(shake.Y)) * 0.25
+	if math.Abs(float64(p.X-wantX)) > 1e-4 || math.Abs(float64(p.Y-wantY)) > 1e-4 {
+		t.Fatalf("Parallax(0.5, 0.25) pos = (%g, %g), want (%g, %g)", p.X, p.Y, wantX, wantY)
+	}
+	if p.Zoom != cam.Zoom || p.Rotation != cam.Rotation || p.Width != cam.Width || p.Height != cam.Height {
+		t.Fatalf("Parallax did not preserve zoom/rotation/size: %+v vs %+v", p, *cam)
+	}
+	if p.ShakeOffset() != (core.Point{}) {
+		t.Fatalf("Parallax camera should have shake baked into X/Y with zero residual shake: %+v", p.ShakeOffset())
+	}
+
+	var nilCam *tilemap.Camera
+	if got := nilCam.Parallax(0.5, 0.5); got != (tilemap.Camera{}) {
+		t.Fatalf("nil Camera.Parallax = %+v, want zero Camera", got)
+	}
+}
