@@ -35,6 +35,19 @@ type Theme struct {
 	FocusWidth float32
 	// Font is the default font used by text-bearing widgets.
 	Font core.Font
+
+	// PanelFrame optionally draws stylized or nine-slice frames for Panel widgets.
+	PanelFrame FrameDrawer
+	// ButtonFrame optionally draws stylized or nine-slice frames for Button widgets.
+	ButtonFrame FrameDrawer
+	// FrameDrawer optionally draws stylized or nine-slice frames when a widget has no specific frame drawer.
+	FrameDrawer FrameDrawer
+	// TextDrawer optionally replaces default Canvas FillText rendering (for example, with a bitmap font renderer).
+	TextDrawer TextDrawer
+	// TextMeasurer optionally provides text dimensions for layout when using a custom TextDrawer.
+	TextMeasurer TextMeasurer
+	// FocusRing optionally customizes the focus ring drawn around focused widgets.
+	FocusRing *FocusRingStyle
 }
 
 // DefaultTheme returns a high-contrast dark theme suited for in-game overlays and menus.

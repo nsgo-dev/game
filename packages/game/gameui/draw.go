@@ -37,28 +37,72 @@ func drawCustomBackground(d *core.Drawing, fn func(*core.Drawing, core.Bounds), 
 	d.Restore()
 }
 
-func drawFocusRing(d *core.Drawing, b core.Bounds, radius float32, theme *Theme) {
-	if theme.FocusedBorder == 0 || theme.FocusedBorder == core.Transparent || theme.FocusWidth <= 0 {
-		return
+func drawCustomFrame(d *core.Drawing, b core.Bounds, state WidgetState, drawBg func(*core.Drawing, core.Bounds), frame FrameDrawer, ns *NineSlice, themeFrame, fallbackFrame FrameDrawer) bool {
+	if drawBg != nil {
+		drawCustomBackground(d, drawBg, b)
+		return true
 	}
-	x, y := float32(b.Origin.X), float32(b.Origin.Y)
-	w, h := float32(b.Size.Width), float32(b.Size.Height)
-	if w <= 0 || h <= 0 {
-		return
+	if frame != nil {
+		d.Save()
+		frame(d, b, state)
+		d.Restore()
+		return true
 	}
-	d.SetStrokeColor(theme.FocusedBorder).
-		SetLineWidth(theme.FocusWidth).
-		StrokePath(rectPath(x, y, w, h, radius))
+	if ns != nil {
+		d.Save()
+		ns.Draw(d, b)
+		d.Restore()
+		return true
+	}
+	if themeFrame != nil {
+		d.Save()
+		themeFrame(d, b, state)
+		d.Restore()
+		return true
+	}
+	if fallbackFrame != nil {
+		d.Save()
+		fallbackFrame(d, b, state)
+		d.Restore()
+		return true
+	}
+	return false
 }
 
-func (p *Panel) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
+func drawText(d *core.Drawing, widgetDrawer TextDrawer, theme *Theme, params TextDrawParams) {
+	if widgetDrawer != nil {
+		d.Save()
+		widgetDrawer(d, params)
+		d.Restore()
+		return
+	}
+	if theme != nil && theme.TextDrawer != nil {
+		d.Save()
+		theme.TextDrawer(d, params)
+		d.Restore()
+		return
+	}
+	d.SetFillColor(params.Color).
+		SetTextAlign(params.Align).
+		SetTextBaseline(params.Baseline).
+		FillText(params.Text, params.X, params.Y, params.Font)
+}
+
+func drawFocusRing(d *core.Drawing, b core.Bounds, radius float32, theme *Theme) {
+	var style *FocusRingStyle
+	if theme != nil {
+		style = theme.FocusRing
+	}
+	DrawFocusRing(d, b, radius, style, theme)
+}
+
+func (p *Panel) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	b := p.bounds
 	w, h := float32(b.Size.Width), float32(b.Size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if p.DrawBackground != nil {
-		drawCustomBackground(d, p.DrawBackground, b)
+	if drawCustomFrame(d, b, state, p.DrawBackground, p.FrameDrawer, p.NineSlice, theme.PanelFrame, theme.FrameDrawer) {
 		return
 	}
 	x, y := float32(b.Origin.X), float32(b.Origin.Y)
@@ -82,27 +126,25 @@ func (p *Panel) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
 	}
 }
 
-func (b *VBox) draw(d *core.Drawing, _ *Theme, _ WidgetState) {
-	if b.DrawBackground != nil && b.bounds.Size.Width > 0 && b.bounds.Size.Height > 0 {
-		drawCustomBackground(d, b.DrawBackground, b.bounds)
+func (b *VBox) draw(d *core.Drawing, _ *Theme, state WidgetState) {
+	if b.bounds.Size.Width > 0 && b.bounds.Size.Height > 0 {
+		drawCustomFrame(d, b.bounds, state, b.DrawBackground, b.FrameDrawer, b.NineSlice, nil, nil)
 	}
 }
 
-func (b *HBox) draw(d *core.Drawing, _ *Theme, _ WidgetState) {
-	if b.DrawBackground != nil && b.bounds.Size.Width > 0 && b.bounds.Size.Height > 0 {
-		drawCustomBackground(d, b.DrawBackground, b.bounds)
+func (b *HBox) draw(d *core.Drawing, _ *Theme, state WidgetState) {
+	if b.bounds.Size.Width > 0 && b.bounds.Size.Height > 0 {
+		drawCustomFrame(d, b.bounds, state, b.DrawBackground, b.FrameDrawer, b.NineSlice, nil, nil)
 	}
 }
 
-func (l *Label) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
+func (l *Label) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	b := l.bounds
 	w, h := float32(b.Size.Width), float32(b.Size.Height)
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if l.DrawBackground != nil {
-		drawCustomBackground(d, l.DrawBackground, b)
-	}
+	drawCustomFrame(d, b, state, l.DrawBackground, l.FrameDrawer, l.NineSlice, nil, nil)
 	if l.Text == "" {
 		return
 	}
@@ -123,10 +165,16 @@ func (l *Label) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
 	case core.TextAlignEnd, core.TextAlignRight:
 		tx = x + w
 	}
-	d.SetFillColor(col).
-		SetTextAlign(align).
-		SetTextBaseline(core.BaselineMiddle).
-		FillText(l.Text, tx, y+h/2, font)
+	drawText(d, l.TextDrawer, theme, TextDrawParams{
+		Text:     l.Text,
+		X:        tx,
+		Y:        y + h/2,
+		Font:     font,
+		Color:    col,
+		Align:    align,
+		Baseline: core.BaselineMiddle,
+		Bounds:   b,
+	})
 }
 
 func (b *Button) draw(d *core.Drawing, theme *Theme, state WidgetState) {
@@ -152,9 +200,7 @@ func (b *Button) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 		fill = theme.Hover
 	}
 
-	if b.DrawBackground != nil {
-		drawCustomBackground(d, b.DrawBackground, rect)
-	} else {
+	if !drawCustomFrame(d, rect, state, b.DrawBackground, b.FrameDrawer, b.NineSlice, theme.ButtonFrame, theme.FrameDrawer) {
 		shape := rectPath(x, y, w, h, radius)
 		d.SetFillColor(fill).FillPath(shape, core.NonZero)
 		if border != 0 && border != core.Transparent && theme.BorderWidth > 0 {
@@ -168,10 +214,16 @@ func (b *Button) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 
 	if b.Text != "" {
 		font := resolveFont(b.Font, theme.Font)
-		d.SetFillColor(textColor).
-			SetTextAlign(core.TextAlignCenter).
-			SetTextBaseline(core.BaselineMiddle).
-			FillText(b.Text, x+w/2, y+h/2, font)
+		drawText(d, b.TextDrawer, theme, TextDrawParams{
+			Text:     b.Text,
+			X:        x + w/2,
+			Y:        y + h/2,
+			Font:     font,
+			Color:    textColor,
+			Align:    core.TextAlignCenter,
+			Baseline: core.BaselineMiddle,
+			Bounds:   rect,
+		})
 	}
 }
 
@@ -184,9 +236,7 @@ func (t *Toggle) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
 	radius := resolveRadius(0, theme.CornerRadius)
 
-	if t.DrawBackground != nil {
-		drawCustomBackground(d, t.DrawBackground, rect)
-	} else if !state.Disabled {
+	if !drawCustomFrame(d, rect, state, t.DrawBackground, t.FrameDrawer, t.NineSlice, nil, nil) && !state.Disabled {
 		if state.Pressed {
 			d.SetFillColor(theme.Active).FillPath(rectPath(x, y, w, h, radius), core.NonZero)
 		} else if state.Hovered {
@@ -272,10 +322,16 @@ func (t *Toggle) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 
 	if t.Label != "" {
 		gap := max(theme.Padding*0.75, 8)
-		d.SetFillColor(textColor).
-			SetTextAlign(core.TextAlignStart).
-			SetTextBaseline(core.BaselineMiddle).
-			FillText(t.Label, indicatorRight+gap, cy, font)
+		drawText(d, t.TextDrawer, theme, TextDrawParams{
+			Text:     t.Label,
+			X:        indicatorRight + gap,
+			Y:        cy,
+			Font:     font,
+			Color:    textColor,
+			Align:    core.TextAlignStart,
+			Baseline: core.BaselineMiddle,
+			Bounds:   rect,
+		})
 	}
 }
 
@@ -288,9 +344,7 @@ func (s *Slider) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
 	radius := resolveRadius(0, theme.CornerRadius)
 
-	if s.DrawBackground != nil {
-		drawCustomBackground(d, s.DrawBackground, rect)
-	} else if !state.Disabled {
+	if !drawCustomFrame(d, rect, state, s.DrawBackground, s.FrameDrawer, s.NineSlice, nil, nil) && !state.Disabled {
 		if state.Pressed {
 			d.SetFillColor(theme.Active).FillPath(rectPath(x, y, w, h, radius), core.NonZero)
 		} else if state.Hovered {
@@ -318,10 +372,16 @@ func (s *Slider) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	cy := y + h/2
 	if s.Label != "" {
 		font := resolveFont(s.Font, theme.Font)
-		d.SetFillColor(textColor).
-			SetTextAlign(core.TextAlignStart).
-			SetTextBaseline(core.BaselineMiddle).
-			FillText(s.Label, x+4, cy, font)
+		drawText(d, s.TextDrawer, theme, TextDrawParams{
+			Text:     s.Label,
+			X:        x + 4,
+			Y:        cy,
+			Font:     font,
+			Color:    textColor,
+			Align:    core.TextAlignStart,
+			Baseline: core.BaselineMiddle,
+			Bounds:   rect,
+		})
 	}
 
 	tr := s.trackRect
@@ -356,7 +416,7 @@ func (s *Slider) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	}
 }
 
-func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
+func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	rect := p.bounds
 	w, h := float32(rect.Size.Width), float32(rect.Size.Height)
 	if w <= 0 || h <= 0 {
@@ -365,9 +425,7 @@ func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
 	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
 	radius := min(resolveRadius(0, theme.CornerRadius), h/2)
 
-	if p.DrawBackground != nil {
-		drawCustomBackground(d, p.DrawBackground, rect)
-	} else {
+	if !drawCustomFrame(d, rect, state, p.DrawBackground, p.FrameDrawer, p.NineSlice, nil, nil) {
 		track := p.TrackColor
 		if track == 0 {
 			track = theme.Track
@@ -391,11 +449,94 @@ func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, _ WidgetState) {
 
 	if p.Label != "" {
 		font := resolveFont(p.Font, theme.Font)
-		d.SetFillColor(theme.Text).
-			SetTextAlign(core.TextAlignCenter).
-			SetTextBaseline(core.BaselineMiddle).
-			FillText(p.Label, x+w/2, y+h/2, font)
+		drawText(d, p.TextDrawer, theme, TextDrawParams{
+			Text:     p.Label,
+			X:        x + w/2,
+			Y:        y + h/2,
+			Font:     font,
+			Color:    theme.Text,
+			Align:    core.TextAlignCenter,
+			Baseline: core.BaselineMiddle,
+			Bounds:   rect,
+		})
 	}
 }
 
 func (s *Spacer) draw(_ *core.Drawing, _ *Theme, _ WidgetState) {}
+
+func (l *List) draw(d *core.Drawing, theme *Theme, state WidgetState) {
+	rect := l.bounds
+	w, h := float32(rect.Size.Width), float32(rect.Size.Height)
+	if w <= 0 || h <= 0 {
+		return
+	}
+	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
+	radius := resolveRadius(0, theme.CornerRadius)
+
+	if !drawCustomFrame(d, rect, state, l.DrawBackground, l.FrameDrawer, l.NineSlice, theme.PanelFrame, theme.FrameDrawer) {
+		bg := theme.PanelBackground
+		if state.Disabled {
+			bg = theme.Disabled
+		}
+		shape := rectPath(x, y, w, h, radius)
+		d.SetFillColor(bg).FillPath(shape, core.NonZero)
+		if theme.PanelBorder != 0 && theme.PanelBorder != core.Transparent && theme.BorderWidth > 0 {
+			d.SetStrokeColor(theme.PanelBorder).SetLineWidth(theme.BorderWidth).StrokePath(shape)
+		}
+	}
+
+	font := resolveFont(l.Font, theme.Font)
+	itemR := min(radius*0.75, 4)
+	padX := max(theme.Padding*0.6, 6)
+
+	for i, item := range l.Items {
+		if i >= len(l.itemRects) {
+			break
+		}
+		ir := l.itemRects[i]
+		iw, ih := float32(ir.Size.Width), float32(ir.Size.Height)
+		if iw <= 0 || ih <= 0 {
+			continue
+		}
+		ix, iy := float32(ir.Origin.X), float32(ir.Origin.Y)
+		selected := i == l.Selected
+		rowHovered := !state.Disabled && ((l.hoveredOne == i+1) || (state.Hovered && l.hoveredOne == 0 && selected))
+		rowPressed := !state.Disabled && ((l.pressedOne == i+1) || (state.Pressed && l.pressedOne == 0 && selected))
+
+		fill := theme.Background
+		textColor := theme.Text
+		switch {
+		case state.Disabled:
+			fill = theme.Disabled
+			textColor = theme.DisabledText
+		case rowPressed && selected:
+			fill = theme.AccentActive
+		case rowPressed:
+			fill = theme.Active
+		case rowHovered && selected:
+			fill = theme.AccentHover
+		case rowHovered:
+			fill = theme.Hover
+		case selected:
+			fill = theme.Accent
+		}
+
+		d.SetFillColor(fill).FillPath(rectPath(ix, iy, iw, ih, itemR), core.NonZero)
+		if item != "" {
+			drawText(d, l.TextDrawer, theme, TextDrawParams{
+				Text:     item,
+				X:        ix + padX,
+				Y:        iy + ih/2,
+				Font:     font,
+				Color:    textColor,
+				Align:    core.TextAlignStart,
+				Baseline: core.BaselineMiddle,
+				Bounds:   ir,
+			})
+		}
+	}
+
+	if state.Focused && !state.Disabled {
+		drawFocusRing(d, rect, radius, theme)
+	}
+}

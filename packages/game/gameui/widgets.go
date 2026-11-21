@@ -27,6 +27,8 @@ type Panel struct {
 	Border         core.Color
 	CornerRadius   float32 // 0 uses Theme.CornerRadius; < 0 uses square corners.
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
 
 	bounds core.Bounds
 }
@@ -72,6 +74,8 @@ type VBox struct {
 	Flex           float32
 	Hidden         bool
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
 
 	bounds core.Bounds
 }
@@ -110,6 +114,8 @@ type HBox struct {
 	Flex           float32
 	Hidden         bool
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
 
 	bounds core.Bounds
 }
@@ -148,6 +154,9 @@ type Label struct {
 	Align          Align
 	Hidden         bool
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
 
 	bounds core.Bounds
 }
@@ -183,7 +192,11 @@ type Button struct {
 	Flex           float32
 	Align          Align
 	Hidden         bool
+	Nav            NavOverrides
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
 
 	bounds core.Bounds
 }
@@ -221,7 +234,11 @@ type Toggle struct {
 	Flex           float32
 	Align          Align
 	Hidden         bool
+	Nav            NavOverrides
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
 
 	bounds core.Bounds
 }
@@ -263,7 +280,11 @@ type Slider struct {
 	Flex           float32
 	Align          Align
 	Hidden         bool
+	Nav            NavOverrides
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
 
 	bounds    core.Bounds
 	trackRect core.Bounds
@@ -368,6 +389,9 @@ type ProgressBar struct {
 	Align          Align
 	Hidden         bool
 	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
 
 	bounds core.Bounds
 }
@@ -438,6 +462,97 @@ func (s *Spacer) spec() layoutSpec {
 func (s *Spacer) focusable() bool         { return false }
 func (s *Spacer) childWidgets() []Widget  { return nil }
 func (s *Spacer) setBounds(r core.Bounds) { s.bounds = r }
+
+// List is a focusable vertical list of selectable items supporting pointer and keyboard/gamepad selection.
+type List struct {
+	Items          []string
+	Selected       int
+	ItemHeight     float32
+	Spacing        float32
+	OnSelect       func(index int, item string)
+	Disabled       bool
+	Font           core.Font
+	Width          float32
+	Height         float32
+	MinWidth       float32
+	MinHeight      float32
+	Flex           float32
+	Align          Align
+	Hidden         bool
+	Nav            NavOverrides
+	DrawBackground func(*core.Drawing, core.Bounds)
+	FrameDrawer    FrameDrawer
+	NineSlice      *NineSlice
+	TextDrawer     TextDrawer
+
+	bounds     core.Bounds
+	itemRects  []core.Bounds
+	hoveredOne int // 1-based item index; 0 means none
+	pressedOne int // 1-based item index; 0 means none
+}
+
+// Bounds returns the list's laid-out rectangle.
+func (l *List) Bounds() core.Bounds { return l.bounds }
+
+// ItemBounds returns the laid-out rectangle for item at index, or zero Bounds if out of range.
+func (l *List) ItemBounds(index int) core.Bounds {
+	if index < 0 || index >= len(l.itemRects) {
+		return core.Bounds{}
+	}
+	return l.itemRects[index]
+}
+
+// ItemAt returns the 0-based index of the item containing p, or -1 if none.
+func (l *List) ItemAt(p core.Point) int {
+	for i, r := range l.itemRects {
+		if r.Contains(p) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Select updates Selected to index (clamped into [0, len(Items)-1]) and invokes OnSelect.
+// Returns false when the list is disabled or empty.
+func (l *List) Select(index int) bool {
+	if l.Disabled || len(l.Items) == 0 {
+		return false
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(l.Items) {
+		index = len(l.Items) - 1
+	}
+	l.Selected = index
+	if l.OnSelect != nil {
+		l.OnSelect(index, l.Items[index])
+	}
+	return true
+}
+
+func (l *List) effectiveItemHeight(theme *Theme) float32 {
+	if l.ItemHeight > 0 {
+		return l.ItemHeight
+	}
+	font := resolveFont(l.Font, theme.Font)
+	return max(float32(font.Size)+theme.Padding, 28)
+}
+
+func (l *List) spec() layoutSpec {
+	return layoutSpec{
+		Width:     l.Width,
+		Height:    l.Height,
+		MinWidth:  l.MinWidth,
+		MinHeight: l.MinHeight,
+		Flex:      l.Flex,
+		Align:     l.Align,
+		Hidden:    l.Hidden,
+	}
+}
+func (l *List) focusable() bool         { return !l.Disabled && !l.Hidden }
+func (l *List) childWidgets() []Widget  { return nil }
+func (l *List) setBounds(r core.Bounds) { l.bounds = r }
 
 func clampf(v, lo, hi float32) float32 {
 	if v < lo {
