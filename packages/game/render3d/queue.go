@@ -103,6 +103,11 @@ type Queue struct {
 	FrustumNO bool
 	// DisableInstancing emits one InstanceBatch per opaque draw when true.
 	DisableInstancing bool
+	// Occluder is an optional software depth-buffer / Hi-Z occlusion buffer
+	// (#380). When non-nil, [Queue.Build] skips frustum-visible items whose
+	// WorldBounds fail [OcclusionBuffer.TestAABB] and records them in
+	// [RenderStats.Occluded].
+	Occluder *OcclusionBuffer
 	// TextureBytes and BufferBytes are optional resident GPU memory totals
 	// copied into RenderPlan.Stats for budget checking.
 	TextureBytes uint64
@@ -120,10 +125,19 @@ func (q *Queue) ResetLODHistory() {
 	clear(q.prevLOD)
 }
 
-// Build culls items against the frustum of viewProj, selects active LODs,
-// sorts opaque and transparent queues, builds instanced batches, and computes
-// exact [RenderStats].
+// Build culls items against the frustum of viewProj (and against [Queue.Occluder]
+// when non-nil), selects active LODs, sorts opaque and transparent queues,
+// builds instanced batches, and computes exact [RenderStats].
 func (q *Queue) Build(viewProj math3d.Mat4, camPos math3d.Vec3, items []DrawItem) RenderPlan {
+	return q.BuildWithOcclusion(viewProj, camPos, items, q.Occluder)
+}
+
+// BuildWithOcclusion performs the same culling, LOD selection, sorting, and
+// batching pipeline as [Queue.Build] using the provided [OcclusionBuffer]
+// (which may be nil to disable occlusion culling). Items that pass frustum
+// culling but fail [OcclusionBuffer.TestAABB] are skipped and counted in both
+// [RenderStats.Occluded] and [RenderStats.CulledItems].
+func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, items []DrawItem, occluder *OcclusionBuffer) RenderPlan {
 	q.opaque = q.opaque[:0]
 	q.transparent = q.transparent[:0]
 	q.batches = q.batches[:0]
@@ -146,6 +160,11 @@ func (q *Queue) Build(viewProj math3d.Mat4, camPos math3d.Vec3, items []DrawItem
 		item := &items[i]
 		if !frustum.IntersectsAABB(item.WorldBounds) {
 			stats.CulledItems++
+			continue
+		}
+		if occluder != nil && !occluder.TestAABB(item.WorldBounds, viewProj) {
+			stats.CulledItems++
+			stats.Occluded++
 			continue
 		}
 
