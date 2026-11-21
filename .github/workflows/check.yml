@@ -19,7 +19,7 @@ jobs:
   # iOS builds need cgo against Xcode's SDKs, which Linux has none of, so Linux vets every other target and a Mac vets iOS, side by side.
   check:
     name: Build and vet
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -45,7 +45,7 @@ jobs:
 
   apple:
     name: Build and vet (iOS)
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 20
     steps:
       - name: Check out
