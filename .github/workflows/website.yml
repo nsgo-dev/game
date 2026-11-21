@@ -1,6 +1,6 @@
 name: Website
 
-# Builds the site in apps/website, every page prerendered to static HTML, and deploys it to GitHub Pages. Daily too, so the roadmap follows the issues.
+# Builds the site in apps/website, every page prerendered to static HTML, and deploys it to GitHub Pages. It builds again as this repository's issues change, so the roadmap follows them, and hourly for the NSGo issues under nsgo-dev/nsgo#1047, whose changes cannot trigger a workflow here.
 on:
   push:
     branches:
@@ -18,8 +18,10 @@ on:
       - "package.json"
       - "bun.lock"
       - ".github/workflows/website.yml"
+  issues:
+    types: [opened, edited, closed, reopened, deleted, transferred]
   schedule:
-    - cron: "17 4 * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
