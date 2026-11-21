@@ -5,7 +5,7 @@ Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated s
 ## Requirements
 
 - **Go 1.27** or later.
-- **NSGo v0.2** or later, installed as a Go tool (`go tool nsgo`).
+- **NSGo v0.2** or later to build the game. Scaffolding uses an NSGo command with [Go module template support](https://nsgo.dev/docs/getting-started/#templates-from-go-modules).
 - For iOS builds: macOS with Xcode.
 - For running on Android devices or emulators: `adb` (Android SDK Platform-Tools). Building an `android_arm64` APK needs only Go.
 
@@ -13,27 +13,28 @@ Run `go tool nsgo doctor` inside a project to check what toolchains this machine
 
 ## Create a project
 
-You can start either from an empty directory with `nsgo init`, or by copying the repository's `template/` directory as a pre-wired starter project.
-
-To start from an empty directory:
+Install a version of the NSGo command that supports Go module templates. The revision that first added the feature is available as a Go module version. Make sure Go's binary directory (`GOBIN`, or `GOPATH/bin` by default) is on your `PATH`.
 
 ```sh
-mkdir mygame && cd mygame
-go mod init example.com/mygame
-go get github.com/nsgo-dev/nsgo@latest
-go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@latest
-go tool nsgo init
-go get github.com/nsgo-dev/game/packages/game
+go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.2.1-0.20261121150907-9e612921df1a
+nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
+cd mygame
+go tool nsgo dev
 ```
 
-`nsgo init` writes `nsgo.yaml`, `app.go` and `app_test.go`. Add `resources/` for files your game loads at runtime (`asset:` images and audio) and `assets/` for project files that are not copied into the bundle directly, such as app icons:
+The starter includes an animated sprite, tap-to-score input, and tests. Edit the app's display name and identifier in `nsgo.yaml` for your game.
+
+To start from a checkout of this repository, copy `template/template/` to a new directory. Rename `go.mod.tmpl` to `go.mod` and replace `{{.Module}}` on the first line with your module path. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
+
+Add `resources/` for files your game loads at runtime and `assets/` for files the tool uses to build the app, such as app icons:
 
 ```text
 mygame/
 ├─ go.mod
 ├─ nsgo.yaml
-├─ app.go
-├─ app_test.go
+├─ main.go
+├─ game.go
+├─ game_test.go
 ├─ resources/
 │  ├─ hero.png
 │  ├─ hero.json
