@@ -602,3 +602,34 @@ func TestAnalyticsNilProviderErrorsAndMemoryMode(t *testing.T) {
 		t.Fatal("event sent after reset to ConsentUnknown")
 	}
 }
+
+func TestAnalyticsTracksPersistedConsentOnEveryEvent(t *testing.T) {
+	prov := &fakeAnalyticsProvider{}
+	var an *liveops.Analytics
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		an = liveops.NewAnalytics(cx.Storage(), "game.consent", prov)
+		return core.View{}
+	})
+	if err := an.SetConsent(liveops.ConsentGranted); err != nil {
+		t.Fatalf("SetConsent(Granted): %v", err)
+	}
+	if !an.Track("before_revocation", nil) || len(prov.events) != 1 {
+		t.Fatalf("expected one consented event, got %d", len(prov.events))
+	}
+
+	// Revoking consent outside this instance, as a settings screen backed by the
+	// same storage would, must stop the next Track call.
+	app.Storage().RemoveItem("game.consent")
+	if an.Consent() != liveops.ConsentUnknown {
+		t.Fatalf("Consent after external clear = %v, want ConsentUnknown", an.Consent())
+	}
+	if an.Track("after_revocation", nil) {
+		t.Fatal("Track returned true after consent was revoked externally")
+	}
+	if err := an.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if prov.flushes != 0 {
+		t.Fatalf("Flush reached the provider after revocation: %d", prov.flushes)
+	}
+}

@@ -124,7 +124,12 @@ func (a *Analytics) SetProvider(provider AnalyticsProvider) {
 
 // Consent returns the current ConsentState.
 // When backed by core.Storage, reading Consent inside a reactive computation subscribes it to storage changes.
-func (a *Analytics) Consent() ConsentState {
+func (a *Analytics) Consent() ConsentState { return a.consentState() }
+
+// consentState resolves consent from storage when one backs the instance, so
+// Track and Flush see a revocation or grant made through another instance or
+// by clearing storage, not a stale in-memory cache.
+func (a *Analytics) consentState() ConsentState {
 	a.mu.RLock()
 	hasStore := a.hasStore
 	store := a.store
@@ -168,8 +173,8 @@ func (a *Analytics) SetConsent(state ConsentState) error {
 // When consent is ConsentUnknown or ConsentDenied, or when no provider is configured, Track drops the event immediately without buffering and returns false.
 // When consent is granted, props is defensively copied before dispatch and Track returns whether provider.Send succeeded.
 func (a *Analytics) Track(name string, props map[string]any) bool {
+	consent := a.consentState()
 	a.mu.RLock()
-	consent := a.consent
 	provider := a.provider
 	nowFn := a.now
 	a.mu.RUnlock()
@@ -196,8 +201,8 @@ func (a *Analytics) Track(name string, props map[string]any) bool {
 // Flush flushes the configured provider when Consent is ConsentGranted.
 // When consent is not granted or no provider is set, Flush is a no-op returning nil.
 func (a *Analytics) Flush() error {
+	consent := a.consentState()
 	a.mu.RLock()
-	consent := a.consent
 	provider := a.provider
 	a.mu.RUnlock()
 
