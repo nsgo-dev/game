@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -16,10 +17,51 @@ type Loop struct {
 	Rate int
 	// MaxSteps is the most updates one frame runs, Rate/10 (a tenth of a second's updates) and at least 1 when 0. A frame that would run more drops the whole steps past it, so an Update slower than its step, or a long hitch, slows the game rather than making each frame run more updates than the last.
 	MaxSteps int
+	// Paused stops Update from advancing with display time while Draw keeps running. Unpausing resumes from the current frame without a catch-up backlog.
+	Paused bool
+	// TimeScale scales simulated time, 1 when 0 or less (or not finite). Update still receives the fixed 1/Rate step, so 0.5 runs half as many updates a second and 2 runs twice as many.
+	TimeScale float64
+	// DrawRate caps Draw to at most DrawRate calls a second, uncapped when 0 or less. Update still runs at Rate.
+	DrawRate int
+	// OnDemand skips Draw on frames where no Update ran, unless MarkDirty has been called since the last Draw.
+	OnDemand bool
 	// Update moves the game on by dt, which is always 1/Rate seconds.
 	Update func(dt time.Duration)
 	// Draw draws the frame; alpha, from 0 up to but not including 1, is how far the frame falls between the last update and the next.
 	Draw func(alpha float64)
+
+	pendingSteps int
+	dirty        bool
+}
+
+// SetPaused pauses or resumes the loop's updates without accumulating a catch-up backlog.
+func (l *Loop) SetPaused(paused bool) {
+	l.Paused = paused
+	if !paused {
+		l.pendingSteps = 0
+	}
+}
+
+// SetTimeScale sets the simulation time scale; values at or below 0 run at 1.
+func (l *Loop) SetTimeScale(scale float64) {
+	l.TimeScale = scale
+}
+
+// Step queues n fixed updates to run on the next display frame while Paused is true, redrawing afterward. Values at or below 0 do nothing.
+func (l *Loop) Step(n int) {
+	if n > 0 {
+		l.pendingSteps += n
+	}
+}
+
+// StepOnce queues one fixed update to run on the next display frame while Paused is true.
+func (l *Loop) StepOnce() {
+	l.Step(1)
+}
+
+// MarkDirty requests a Draw on the next frame when OnDemand is true.
+func (l *Loop) MarkDirty() {
+	l.dirty = true
 }
 
 // Run starts the loop on cx's display frames until cx is disposed or stop is called.
@@ -56,6 +98,9 @@ type loopRun struct {
 	period, owed time.Duration
 	// acc is the time added but not yet run as updates.
 	acc time.Duration
+	// drawAcc is the frame time since the last capped Draw; drawn says Draw has run since the run started, resumed or went idle.
+	drawAcc time.Duration
+	drawn   bool
 }
 
 // resume starts the run's frames from now, unless they run.
@@ -87,28 +132,107 @@ func (r *loopRun) pause() {
 func (r *loopRun) frame(at time.Time) {
 	r.cancel = r.cx.RequestAnimationFrame(r.frame)
 	// A display's frame time (nsgo-dev/nsgo#1048) may fall before the time the run resumed at, read from cx's clock, so a frame never counts as going back in time: that would take time off acc and skip the frames' updates until it was paid back.
-	r.acc += r.smooth(max(0, at.Sub(r.last)))
+	rawDt := max(0, at.Sub(r.last))
 	r.last = at
 	step := r.loop.step()
 	steps := 0
-	for r.acc >= step {
-		if steps == r.loop.maxSteps() {
+	var drawDt time.Duration
+	if r.loop.Paused {
+		r.period = 0
+		r.owed = 0
+		drawDt = rawDt
+		if n := r.loop.pendingSteps; n > 0 {
+			r.loop.pendingSteps = 0
+			r.acc = 0
+			for range n {
+				steps++
+				if r.loop.Update != nil {
+					r.loop.Update(step)
+				}
+				// Update may have stopped the loop.
+				if r.cancel == nil {
+					return
+				}
+			}
+		} else if r.acc >= step {
 			r.acc %= step
-			break
 		}
-		r.acc -= step
-		steps++
-		if r.loop.Update != nil {
-			r.loop.Update(step)
+	} else {
+		r.loop.pendingSteps = 0
+		dt := r.smooth(rawDt)
+		drawDt = dt
+		add := scaleDuration(dt, r.loop.timeScale())
+		if add > math.MaxInt64-r.acc {
+			r.acc = math.MaxInt64
+		} else {
+			r.acc += add
 		}
-		// Update may have stopped the loop.
-		if r.cancel == nil {
-			return
+		for r.acc >= step {
+			if steps == r.loop.maxSteps() {
+				r.acc %= step
+				break
+			}
+			r.acc -= step
+			steps++
+			if r.loop.Update != nil {
+				r.loop.Update(step)
+			}
+			// Update may have stopped or paused the loop.
+			if r.cancel == nil {
+				return
+			}
+			if r.loop.Paused {
+				r.acc = 0
+				r.period = 0
+				r.owed = 0
+				break
+			}
 		}
 	}
+	if steps > 0 {
+		r.loop.dirty = true
+	}
+	shouldDraw := !r.loop.OnDemand || r.loop.dirty
+	if !r.canDraw(drawDt, shouldDraw) {
+		return
+	}
+	r.loop.dirty = false
 	if r.loop.Draw != nil {
 		r.loop.Draw(float64(r.acc) / float64(step))
 	}
+}
+
+// canDraw advances the draw-rate pace by dt and reports whether Draw runs on this frame.
+func (r *loopRun) canDraw(dt time.Duration, shouldDraw bool) bool {
+	drawStep := r.loop.drawStep()
+	if drawStep <= 0 {
+		r.drawAcc = 0
+		r.drawn = shouldDraw
+		return shouldDraw
+	}
+	if !r.drawn {
+		if !shouldDraw {
+			return false
+		}
+		r.drawn = true
+		r.drawAcc = 0
+		return true
+	}
+	if dt > math.MaxInt64-r.drawAcc {
+		r.drawAcc = math.MaxInt64
+	} else {
+		r.drawAcc += dt
+	}
+	if r.drawAcc < drawStep {
+		return false
+	}
+	if !shouldDraw {
+		r.drawn = false
+		r.drawAcc = 0
+		return false
+	}
+	r.drawAcc %= drawStep
+	return true
 }
 
 // smooth adds the frame length dt to owed and returns the time the frame adds, taking it off owed: the average frame length while owed stays within half of it, else everything owed, starting the average over from dt.
@@ -142,4 +266,29 @@ func (l *Loop) maxSteps() int {
 		return l.MaxSteps
 	}
 	return max(1, l.rate()/10)
+}
+
+func (l *Loop) timeScale() float64 {
+	if l.TimeScale <= 0 || math.IsNaN(l.TimeScale) || math.IsInf(l.TimeScale, 0) {
+		return 1
+	}
+	return l.TimeScale
+}
+
+func (l *Loop) drawStep() time.Duration {
+	if l.DrawRate <= 0 {
+		return 0
+	}
+	return time.Second / time.Duration(l.DrawRate)
+}
+
+func scaleDuration(d time.Duration, scale float64) time.Duration {
+	if scale == 1 || d <= 0 {
+		return d
+	}
+	scaled := float64(d) * scale
+	if scaled >= float64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return time.Duration(math.Round(scaled))
 }

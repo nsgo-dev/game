@@ -299,3 +299,299 @@ func TestDisposingScopeOrStoppingInUpdateReleasesKeepAwake(t *testing.T) {
 		}
 	})
 }
+
+func TestPausedSkipsUpdatesWithoutACatchUp(t *testing.T) {
+	c := count(game.Loop{Paused: true})
+	app := start(t, &c.Loop)
+
+	app.Advance(time.Second)
+	c.expect(t, 0, 60)
+
+	app.Post(func() { c.SetPaused(false) })
+	app.Settle()
+	app.Advance(time.Second)
+	c.expect(t, 60, 120)
+
+	app.Post(func() { c.SetPaused(true) })
+	app.Settle()
+	app.FastForward(500 * time.Millisecond)
+	app.Advance(time.Second)
+	c.expect(t, 60, 181)
+
+	app.Post(func() { c.SetPaused(false) })
+	app.Settle()
+	app.Advance(time.Second)
+	c.expect(t, 120, 241)
+}
+
+func TestPauseFromUpdateEndsTheFramesUpdates(t *testing.T) {
+	updates, draws := 0, 0
+	var l *game.Loop
+	l = &game.Loop{
+		Update: func(time.Duration) {
+			updates++
+			if updates == 2 {
+				l.SetPaused(true)
+			}
+		},
+		Draw: func(alpha float64) {
+			draws++
+			if alpha < 0 || alpha >= 1 {
+				t.Errorf("draw %d: alpha %v, want it in [0, 1)", draws, alpha)
+			}
+		},
+	}
+	app := start(t, l)
+	// A frame that holds three steps stops updating after the second pauses the loop.
+	app.FastForward(50 * time.Millisecond)
+	if updates != 2 || draws != 1 {
+		t.Fatalf("%d updates and %d draws, want 2 and 1", updates, draws)
+	}
+	app.Advance(time.Second)
+	if updates != 2 || draws != 61 {
+		t.Fatalf("after 1 s paused: %d updates and %d draws, want 2 and 61", updates, draws)
+	}
+}
+
+func TestTimeScaleScalesSimulationWithTheFixedStep(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		scale float64
+		want  int
+	}{
+		{"half", 0.5, 30},
+		{"double", 2.0, 120},
+		{"zero", 0, 60},
+		{"negative", -1, 60},
+		{"nan", math.NaN(), 60},
+		{"inf", math.Inf(1), 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var updates, draws int
+			wantStep := time.Second / 60
+			l := &game.Loop{
+				Rate:      60,
+				TimeScale: tc.scale,
+				Update: func(dt time.Duration) {
+					updates++
+					if dt != wantStep {
+						t.Errorf("update %d: dt %v, want %v", updates, dt, wantStep)
+					}
+				},
+				Draw: func(alpha float64) {
+					draws++
+					if alpha < 0 || alpha >= 1 {
+						t.Errorf("draw %d: alpha %v, want it in [0, 1)", draws, alpha)
+					}
+				},
+			}
+			app := start(t, l)
+			app.Advance(time.Second)
+			if updates != tc.want || draws != 60 {
+				t.Fatalf("after 1 s: %d updates and %d draws, want %d and 60", updates, draws, tc.want)
+			}
+			app.Advance(9 * time.Second)
+			if updates != 10*tc.want || draws != 600 {
+				t.Fatalf("after 10 s: %d updates and %d draws, want %d and 600", updates, draws, 10*tc.want)
+			}
+		})
+	}
+}
+
+func TestSetTimeScaleChangesSpeedWhileRunning(t *testing.T) {
+	c := count(game.Loop{Rate: 60})
+	app := start(t, &c.Loop)
+
+	app.Advance(time.Second)
+	c.expect(t, 60, 60)
+
+	app.Post(func() { c.SetTimeScale(0.5) })
+	app.Settle()
+	app.Advance(time.Second)
+	c.expect(t, 90, 120)
+
+	app.Post(func() { c.SetTimeScale(2.0) })
+	app.Settle()
+	app.Advance(time.Second)
+	c.expect(t, 210, 180)
+}
+
+func TestStepRunsFixedUpdatesWhilePaused(t *testing.T) {
+	wantStep := time.Second / 60
+	var updates, draws int
+	var lastAlpha float64
+	l := &game.Loop{
+		Rate:     60,
+		Paused:   true,
+		OnDemand: true,
+		Update: func(dt time.Duration) {
+			updates++
+			if dt != wantStep {
+				t.Errorf("update %d: dt %v, want %v", updates, dt, wantStep)
+			}
+		},
+		Draw: func(alpha float64) {
+			draws++
+			lastAlpha = alpha
+		},
+	}
+	app := start(t, l)
+
+	app.Advance(time.Second)
+	if updates != 0 || draws != 0 {
+		t.Fatalf("while idle: %d updates and %d draws, want 0 and 0", updates, draws)
+	}
+
+	app.Post(func() { l.Step(1) })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if updates != 1 || draws != 1 || lastAlpha != 0 {
+		t.Fatalf("after Step(1): %d updates, %d draws, alpha %v; want 1, 1, 0", updates, draws, lastAlpha)
+	}
+
+	app.Post(func() { l.StepOnce() })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if updates != 2 || draws != 2 {
+		t.Fatalf("after StepOnce(): %d updates and %d draws, want 2 and 2", updates, draws)
+	}
+
+	app.Post(func() { l.Step(3) })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if updates != 5 || draws != 3 {
+		t.Fatalf("after Step(3): %d updates and %d draws, want 5 and 3", updates, draws)
+	}
+
+	app.Post(func() {
+		l.Step(0)
+		l.Step(-2)
+	})
+	app.Settle()
+	app.Advance(time.Second)
+	if updates != 5 || draws != 3 {
+		t.Fatalf("after non-positive Step and 1 s idle: %d updates and %d draws, want 5 and 3", updates, draws)
+	}
+}
+
+func TestStopFromUpdateEndsAStep(t *testing.T) {
+	var stop func()
+	updates, draws := 0, 0
+	l := &game.Loop{
+		Paused: true,
+		Update: func(time.Duration) {
+			updates++
+			if updates == 2 {
+				stop()
+			}
+		},
+		Draw: func(float64) { draws++ },
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		stop = l.Run(cx)
+		return core.View{}
+	})
+	app.Post(func() { l.Step(3) })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if updates != 2 || draws != 0 {
+		t.Fatalf("%d updates and %d draws, want 2 and 0", updates, draws)
+	}
+}
+
+func TestDrawRateCapsDrawsWhileUpdatesKeepToRate(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		rate      int
+		drawRate  int
+		wantUpd   int
+		wantDraws int
+	}{
+		{"30 on 60 Hz", 60, 30, 60, 30},
+		{"20 at 120 Hz updates", 120, 20, 120, 20},
+		{"above display rate", 60, 120, 60, 60},
+		{"uncapped zero", 60, 0, 60, 60},
+		{"uncapped negative", 60, -10, 60, 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := count(game.Loop{Rate: tc.rate, DrawRate: tc.drawRate})
+			app := start(t, &c.Loop)
+			app.Advance(time.Second)
+			c.expect(t, tc.wantUpd, tc.wantDraws)
+			app.Advance(9 * time.Second)
+			c.expect(t, 10*tc.wantUpd, 10*tc.wantDraws)
+		})
+	}
+}
+
+func TestOnDemandDrawsOnlyOnUpdatesOrMarkDirty(t *testing.T) {
+	c := count(game.Loop{Paused: true, OnDemand: true})
+	app := start(t, &c.Loop)
+
+	app.Advance(time.Second)
+	c.expect(t, 0, 0)
+
+	app.Post(func() { c.MarkDirty() })
+	app.Settle()
+	app.Advance(time.Second)
+	c.expect(t, 0, 1)
+
+	app.Post(func() { c.MarkDirty() })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	c.expect(t, 0, 2)
+
+	app.Advance(time.Second)
+	c.expect(t, 0, 2)
+}
+
+func TestOnDemandSkipsFramesWithoutUpdates(t *testing.T) {
+	// 30 updates/s on 60 Hz display frames: half the frames run no update and skip Draw.
+	c := count(game.Loop{Rate: 30, OnDemand: true})
+	app := start(t, &c.Loop)
+	app.Advance(time.Second)
+	c.expect(t, 30, 30)
+}
+
+func TestOnDemandPreservesDirtyAcrossDrawRateCap(t *testing.T) {
+	c := count(game.Loop{Paused: true, OnDemand: true, DrawRate: 30})
+	app := start(t, &c.Loop)
+
+	app.Advance(time.Second)
+	c.expect(t, 0, 0)
+
+	// First MarkDirty after idle draws on the next frame immediately.
+	app.Post(func() { c.MarkDirty() })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	c.expect(t, 0, 1)
+
+	// A second MarkDirty right away waits for the 30 fps draw interval without dropping the dirty flag.
+	app.Post(func() { c.MarkDirty() })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	c.expect(t, 0, 1)
+	app.Advance(17 * time.Millisecond)
+	c.expect(t, 0, 2)
+}
+
+func TestMarkDirtyFromDrawRequestsTheNextFrame(t *testing.T) {
+	draws := 0
+	var l *game.Loop
+	l = &game.Loop{
+		Paused:   true,
+		OnDemand: true,
+		Draw: func(float64) {
+			draws++
+			if draws == 1 {
+				l.MarkDirty()
+			}
+		},
+	}
+	l.MarkDirty()
+	app := start(t, l)
+	app.Advance(time.Second)
+	if draws != 2 {
+		t.Fatalf("%d draws, want 2", draws)
+	}
+}
