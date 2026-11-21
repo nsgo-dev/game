@@ -1,0 +1,473 @@
+package sceneformat_test
+
+import (
+	"bytes"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+var (
+	caveTilesAtlas = &sprite.Atlas{
+		Image: core.ImageSource{URI: "asset:cave_tiles.png"},
+		Frames: map[string]sprite.Frame{
+			"1": {Name: "1", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
+			"2": {Name: "2", X: 16, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
+		},
+	}
+	actorsAtlas = &sprite.Atlas{
+		Image: core.ImageSource{URI: "asset:actors.png"},
+		Frames: map[string]sprite.Frame{
+			"hero":  {Name: "hero", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
+			"torch": {Name: "torch", X: 16, Y: 0, W: 8, H: 12, OffsetX: 4, OffsetY: 2, Width: 16, Height: 16},
+		},
+	}
+	uiAtlas = &sprite.Atlas{
+		Image: core.ImageSource{URI: "asset:ui.png"},
+		Frames: map[string]sprite.Frame{
+			"heart": {Name: "heart", X: 0, Y: 0, W: 8, H: 8, Width: 8, Height: 8},
+		},
+	}
+	caveResolver = sceneformat.AtlasMap{
+		"cave_tiles": caveTilesAtlas,
+		"actors":     actorsAtlas,
+		"ui":         uiAtlas,
+	}
+)
+
+func readTestdata(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("read testdata %q: %v", name, err)
+	}
+	return data
+}
+
+func TestCaveRoomDrawsExpectedOps(t *testing.T) {
+	raw := readTestdata(t, "cave_room.scene.yaml")
+	doc, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	built, err := sceneformat.Build(doc, caveResolver)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Verify layer ordering: floor (0), actors (10), debug_overlay (50), hud (100).
+	var gotLayers []string
+	for _, l := range built.Layers {
+		gotLayers = append(gotLayers, l.Name)
+	}
+	wantLayers := []string{"floor", "actors", "debug_overlay", "hud"}
+	if !reflect.DeepEqual(gotLayers, wantLayers) {
+		t.Fatalf("layer order = %v, want %v", gotLayers, wantLayers)
+	}
+
+	// Non-sprite logic objects are still indexed and carry their components and properties.
+	exit := built.Object("exit_trigger")
+	if exit == nil || exit.Sprite != nil {
+		t.Fatalf("exit_trigger = %+v, want built non-sprite object", exit)
+	}
+	if exit.Layer != "actors" {
+		t.Fatalf("exit_trigger.Layer = %q, want %q", exit.Layer, "actors")
+	}
+	if locked, ok := exit.Doc.Properties["locked"].(bool); !ok || locked {
+		t.Fatalf("exit_trigger.Properties[locked] = %#v, want false", exit.Doc.Properties["locked"])
+	}
+
+	bgColor, err := core.ParseColor("#141824")
+	if err != nil {
+		t.Fatalf("ParseColor: %v", err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "scene", Style: core.Style{Width: core.Pt(320), Height: core.Pt(180)}, Draw: func(d *core.Drawing, _ core.Size) {
+				built.Draw(d)
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(320), Height: core.Pt(180)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// Background fill over virtual viewport.
+				d.Save().SetFillColor(bgColor).FillRect(0, 0, 320, 180).Restore()
+				// Layer "floor" (order 0, world; camera is identity at center 160,90 zoom 1):
+				// data: [1, 2, 2, 1,  1, 0, 0, 1]
+				tilesImg := caveTilesAtlas.Image
+				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 0, 0, 16, 16)
+				d.DrawImageFrom(tilesImg, 16, 0, 16, 16, 16, 0, 16, 16)
+				d.DrawImageFrom(tilesImg, 16, 0, 16, 16, 32, 0, 16, 16)
+				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 48, 0, 16, 16)
+				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 0, 16, 16, 16)
+				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 48, 16, 16, 16)
+				// Layer "actors" (order 10, world):
+				// torch (z: 1, flipX: true, alpha: 0.75, trimmed 8x12 at offset 4,2 in 16x16 box, x: 96, y: 32)
+				// draws before hero (z: 5, x: 48, y: 40, origin 8,8 -> top-left at 40, 32).
+				actorsImg := actorsAtlas.Image
+				d.Save().SetAlpha(0.75).Transform(-1, 0, 0, 1, 112, 32).DrawImageFrom(actorsImg, 16, 0, 8, 12, 4, 2, 8, 12).Restore()
+				d.DrawImageFrom(actorsImg, 0, 0, 16, 16, 40, 32, 16, 16)
+				// Layer "debug_overlay" (order 50) has visible: false and draws nothing.
+				// Layer "hud" (order 100, screen): heart at (8, 8).
+				d.DrawImageFrom(uiAtlas.Image, 0, 0, 8, 8, 8, 8, 8, 8)
+			}},
+		}}
+	})
+
+	got, want := app.Find("scene").Ops, app.Find("hand").Ops
+	if len(got) == 0 {
+		t.Fatal("scene drew no operations")
+	}
+	sameOps(t, got, want)
+}
+
+func TestCameraTransformsWorldLayersAndPreservesInterleavedAtlasZOrder(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "Camera & Z Order",
+		VirtualWidth:  200,
+		VirtualHeight: 100,
+		Camera: &sceneformat.CameraDoc{
+			// Requested X=500 is clamped against bounds [0..200] with halfW = (200/2)/2 = 50 -> maxX = 150.
+			X:        500,
+			Y:        40,
+			Zoom:     sceneformat.Float32(2),
+			Rotation: math.Pi / 2,
+			Bounds:   &sceneformat.BoundsDoc{X: 0, Y: 0, Width: 200, Height: 200},
+		},
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "mixed_world",
+				Space: sceneformat.SpaceWorld,
+				Order: 1,
+				Objects: []sceneformat.ObjectDoc{
+					// Three objects alternating atlases across Z: 10 (actors), 0 (actors), 5 (ui).
+					// Expected draw order: z=0 (actors), z=5 (ui), z=10 (actors).
+					{ID: "top_hero", X: 30, Y: 10, Z: 10, Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}},
+					{ID: "low_hero", X: 10, Y: 10, Z: 0, Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}},
+					{ID: "mid_heart", X: 20, Y: 10, Z: 5, Sprite: &sceneformat.SpriteRef{Atlas: "ui", Frame: "heart"}},
+				},
+			},
+			{
+				Name:  "hud",
+				Space: sceneformat.SpaceScreen,
+				Order: 2,
+				Objects: []sceneformat.ObjectDoc{
+					{ID: "hud_heart", X: 4, Y: 6, Sprite: &sceneformat.SpriteRef{Atlas: "ui", Frame: "heart"}},
+				},
+			},
+		},
+	}
+
+	built, err := sceneformat.Build(doc, caveResolver)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(built.Layer("mixed_world").Batches) != 3 {
+		t.Fatalf("mixed_world batches = %d, want 3 to preserve atlas-interleaved Z order", len(built.Layer("mixed_world").Batches))
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "scene", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
+				built.Draw(d)
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// World layer under clamped camera: center (100, 50), zoom 2, rot -pi/2, cam (150, 40).
+				d.Save().Translate(100, 50).Scale(2, 2).Rotate(-math.Pi/2).Translate(-150, -40)
+				d.DrawImageFrom(actorsAtlas.Image, 0, 0, 16, 16, 10, 10, 16, 16)
+				d.DrawImageFrom(uiAtlas.Image, 0, 0, 8, 8, 20, 10, 8, 8)
+				d.DrawImageFrom(actorsAtlas.Image, 0, 0, 16, 16, 30, 10, 16, 16)
+				d.Restore()
+				// Screen layer ignores camera completely.
+				d.DrawImageFrom(uiAtlas.Image, 0, 0, 8, 8, 4, 6, 8, 8)
+			}},
+		}}
+	})
+	sameOps(t, app.Find("scene").Ops, app.Find("hand").Ops)
+}
+
+func TestEncodeParseRoundTrip(t *testing.T) {
+	raw := readTestdata(t, "cave_room.scene.yaml")
+	doc1, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse initial: %v", err)
+	}
+	encoded1, err := sceneformat.Encode(doc1)
+	if err != nil {
+		t.Fatalf("Encode 1: %v", err)
+	}
+	encoded2, err := sceneformat.Encode(doc1)
+	if err != nil {
+		t.Fatalf("Encode 2: %v", err)
+	}
+	if !bytes.Equal(encoded1, encoded2) {
+		t.Fatalf("Encode is not deterministic:\n--- 1 ---\n%s\n--- 2 ---\n%s", encoded1, encoded2)
+	}
+	doc2, err := sceneformat.Parse(encoded1)
+	if err != nil {
+		t.Fatalf("Parse re-encoded: %v", err)
+	}
+	if !reflect.DeepEqual(doc1, doc2) {
+		t.Fatalf("round-trip mismatch:\ngot:  %+v\nwant: %+v", doc2, doc1)
+	}
+
+	// Verify explicit zero values (scaleX: 0, alpha: 0, visible: false) and inline/external tilemaps also round-trip identically.
+	explicit := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "Explicit Zeroes",
+		Tilemaps: map[string]*sceneformat.TilemapDoc{
+			"ext": {Source: "maps/cave.tmj"},
+		},
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:    "inline_layer",
+				Space:   sceneformat.SpaceWorld,
+				Visible: sceneformat.Bool(false),
+				Tilemap: &sceneformat.TilemapDoc{
+					TileWidth: 16, TileHeight: 16, Width: 2, Height: 1,
+					Tileset: "cave_tiles", Data: []int{1, 2},
+				},
+				Objects: []sceneformat.ObjectDoc{
+					{
+						ID:     "ghost",
+						ScaleX: sceneformat.Float32(0),
+						ScaleY: sceneformat.Float32(-1),
+						Alpha:  sceneformat.Float32(0),
+					},
+				},
+			},
+		},
+	}
+	out, err := sceneformat.Encode(explicit)
+	if err != nil {
+		t.Fatalf("Encode explicit: %v", err)
+	}
+	got, err := sceneformat.Parse(out)
+	if err != nil {
+		t.Fatalf("Parse explicit: %v", err)
+	}
+	if !reflect.DeepEqual(got, explicit) {
+		t.Fatalf("explicit round-trip mismatch:\ngot:  %+v\nwant: %+v", got, explicit)
+	}
+}
+
+type externalResolver struct {
+	sceneformat.AtlasMap
+	maps map[string]*sceneformat.TilemapDoc
+}
+
+func (r externalResolver) Tilemap(source string) (*sceneformat.TilemapDoc, error) {
+	tm, ok := r.maps[source]
+	if !ok {
+		return nil, fmt.Errorf("tilemap %q not found", source)
+	}
+	return tm, nil
+}
+
+func TestExternalTilemapResolver(t *testing.T) {
+	yamlSrc := []byte(`version: 1
+name: External Map
+layers:
+  - name: ground
+    space: world
+    tilemap:
+      source: maps/cave.tmj
+`)
+	doc, err := sceneformat.Parse(yamlSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// Plain AtlasMap does not implement TilemapResolver.
+	if _, err := sceneformat.Build(doc, caveResolver); err == nil {
+		t.Fatal("expected Build error when TilemapResolver is missing")
+	}
+
+	res := externalResolver{
+		AtlasMap: caveResolver,
+		maps: map[string]*sceneformat.TilemapDoc{
+			"maps/cave.tmj": {
+				TileWidth: 16, TileHeight: 16, Width: 2, Height: 1,
+				Tileset: "cave_tiles", Data: []int{2, 1},
+			},
+		},
+	}
+	built, err := sceneformat.Build(doc, res)
+	if err != nil {
+		t.Fatalf("Build with TilemapResolver: %v", err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "scene", Style: core.Style{Width: core.Pt(64), Height: core.Pt(32)}, Draw: func(d *core.Drawing, _ core.Size) {
+				built.Draw(d)
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(64), Height: core.Pt(32)}, Draw: func(d *core.Drawing, _ core.Size) {
+				d.DrawImageFrom(caveTilesAtlas.Image, 16, 0, 16, 16, 0, 0, 16, 16)
+				d.DrawImageFrom(caveTilesAtlas.Image, 0, 0, 16, 16, 16, 0, 16, 16)
+			}},
+		}}
+	})
+	sameOps(t, app.Find("scene").Ops, app.Find("hand").Ops)
+}
+
+func TestValidationErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantSub string
+	}{
+		{name: "empty", yaml: "   \n", wantSub: "empty"},
+		{name: "bad_yaml", yaml: "version: [1, 2", wantSub: "decode"},
+		{name: "unknown_field", yaml: "version: 1\nbogusField: true\n", wantSub: "not found"},
+		{name: "trailing_doc", yaml: "version: 1\n---\nversion: 1\n", wantSub: "trailing"},
+		{name: "missing_version", yaml: "name: No Version\n", wantSub: "unsupported version"},
+		{name: "future_version", yaml: "version: 2\n", wantSub: "unsupported version"},
+		{name: "half_virtual_size", yaml: "version: 1\nvirtualWidth: 320\n", wantSub: "virtualWidth"},
+		{name: "negative_virtual_size", yaml: "version: 1\nvirtualWidth: -10\nvirtualHeight: 10\n", wantSub: "non-negative"},
+		{name: "bad_background_color", yaml: "version: 1\nbackgroundColor: not-a-color\n", wantSub: "backgroundColor"},
+		{name: "zero_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: 0\n", wantSub: "zoom"},
+		{name: "negative_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: -1\n", wantSub: "zoom"},
+		{name: "bad_camera_bounds", yaml: "version: 1\ncamera:\n  bounds:\n    width: 0\n    height: 100\n", wantSub: "bounds"},
+		{name: "empty_layer_name", yaml: "version: 1\nlayers:\n  - space: world\n", wantSub: "empty name"},
+		{name: "duplicate_layer_name", yaml: "version: 1\nlayers:\n  - name: bg\n  - name: bg\n", wantSub: "duplicate layer"},
+		{name: "invalid_space", yaml: "version: 1\nlayers:\n  - name: bg\n    space: isometric\n", wantSub: "invalid space"},
+		{name: "empty_object_id", yaml: "version: 1\nlayers:\n  - name: bg\n    objects:\n      - name: Nameless\n", wantSub: "empty id"},
+		{name: "duplicate_object_id_across_layers", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: dup\n  - name: b\n    objects:\n      - id: dup\n", wantSub: "duplicate object id"},
+		{name: "alpha_over_one", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: 1.5\n", wantSub: "alpha"},
+		{name: "alpha_negative", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: -0.1\n", wantSub: "alpha"},
+		{name: "incomplete_sprite", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", wantSub: "both atlas and frame"},
+		{name: "unknown_tilemap_ref", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      ref: missing\n", wantSub: "unknown tilemap"},
+		{name: "top_level_tilemap_ref", yaml: "version: 1\ntilemaps:\n  m:\n    ref: other\n", wantSub: "cannot use ref"},
+		{name: "tilemap_mixed_modes", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      source: a.tmj\n      tileset: cave_tiles\n", wantSub: "cannot combine"},
+		{name: "tilemap_bad_data_len", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 2\n      tileset: cave_tiles\n      data: [1, 2, 3]\n", wantSub: "3 tile entries"},
+		{name: "tilemap_negative_gid", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: cave_tiles\n      data: [1, -1]\n", wantSub: "negative id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sceneformat.Parse([]byte(tc.yaml))
+			if err == nil {
+				t.Fatalf("Parse succeeded, want error containing %q", tc.wantSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSub)
+			}
+		})
+	}
+
+	// Non-finite float transforms rejected by Validate / Encode.
+	nanDoc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{
+			Name:    "world",
+			Objects: []sceneformat.ObjectDoc{{ID: "o", X: float32(math.NaN())}},
+		}},
+	}
+	if _, err := sceneformat.Encode(nanDoc); err == nil {
+		t.Fatal("Encode accepted NaN transform")
+	}
+	if err := sceneformat.Validate(nil); err == nil {
+		t.Fatal("Validate accepted nil SceneDoc")
+	}
+}
+
+func TestBuildErrors(t *testing.T) {
+	t.Run("missing_atlas", func(t *testing.T) {
+		doc := &sceneformat.SceneDoc{
+			Version: sceneformat.CurrentVersion,
+			Layers: []sceneformat.LayerDoc{{
+				Name: "a",
+				Objects: []sceneformat.ObjectDoc{{
+					ID:     "o",
+					Sprite: &sceneformat.SpriteRef{Atlas: "nope", Frame: "hero"},
+				}},
+			}},
+		}
+		if _, err := sceneformat.Build(doc, caveResolver); err == nil || !strings.Contains(err.Error(), "nope") {
+			t.Fatalf("err = %v, want missing atlas error", err)
+		}
+	})
+
+	t.Run("missing_frame", func(t *testing.T) {
+		doc := &sceneformat.SceneDoc{
+			Version: sceneformat.CurrentVersion,
+			Layers: []sceneformat.LayerDoc{{
+				Name: "a",
+				Objects: []sceneformat.ObjectDoc{{
+					ID:     "o",
+					Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "missing_frame"},
+				}},
+			}},
+		}
+		if _, err := sceneformat.Build(doc, caveResolver); err == nil || !strings.Contains(err.Error(), "missing_frame") {
+			t.Fatalf("err = %v, want missing frame error", err)
+		}
+	})
+
+	t.Run("missing_tileset_frame", func(t *testing.T) {
+		doc := &sceneformat.SceneDoc{
+			Version: sceneformat.CurrentVersion,
+			Layers: []sceneformat.LayerDoc{{
+				Name: "floor",
+				Tilemap: &sceneformat.TilemapDoc{
+					TileWidth: 16, TileHeight: 16, Width: 1, Height: 1,
+					Tileset: "cave_tiles", Data: []int{99},
+				},
+			}},
+		}
+		if _, err := sceneformat.Build(doc, caveResolver); err == nil || !strings.Contains(err.Error(), `"99"`) {
+			t.Fatalf("err = %v, want missing tile frame 99 error", err)
+		}
+	})
+
+	t.Run("nil_resolver_with_sprites", func(t *testing.T) {
+		doc := &sceneformat.SceneDoc{
+			Version: sceneformat.CurrentVersion,
+			Layers: []sceneformat.LayerDoc{{
+				Name: "a",
+				Objects: []sceneformat.ObjectDoc{{
+					ID:     "o",
+					Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
+				}},
+			}},
+		}
+		if _, err := sceneformat.Build(doc, nil); err == nil || !strings.Contains(err.Error(), "nil resolver") {
+			t.Fatalf("err = %v, want nil resolver error", err)
+		}
+	})
+}
+
+// sameOps fails t unless got and want are the same operations, their numbers within float rounding.
+func sameOps(t *testing.T, got, want []core.DrawOp) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%d ops, want %d:\n%+v\nwant:\n%+v", len(got), len(want), got, want)
+	}
+	for i := range want {
+		g, w := got[i], want[i]
+		near := func(a, b float32) bool { return math.Abs(float64(a-b)) < 1e-4 }
+		gf := []float32{g.X, g.Y, g.X1, g.Y1, g.X2, g.Y2, g.W, g.H, g.R, g.A, g.A0, g.A1, g.RY}
+		wf := []float32{w.X, w.Y, w.X1, w.Y1, w.X2, w.Y2, w.W, w.H, w.R, w.A, w.A0, w.A1, w.RY}
+		for j := range gf {
+			if !near(gf[j], wf[j]) {
+				t.Fatalf("op %d is %+v, want %+v", i, g, w)
+			}
+		}
+		if g.Kind != w.Kind || !reflect.DeepEqual(g.Image, w.Image) {
+			t.Fatalf("op %d is %+v, want %+v", i, g, w)
+		}
+		g.X, g.Y, g.X1, g.Y1, g.X2, g.Y2, g.W, g.H, g.R, g.A, g.A0, g.A1, g.RY = w.X, w.Y, w.X1, w.Y1, w.X2, w.Y2, w.W, w.H, w.R, w.A, w.A0, w.A1, w.RY
+		g.Image = w.Image
+		if !reflect.DeepEqual(g, w) {
+			t.Fatalf("op %d is %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

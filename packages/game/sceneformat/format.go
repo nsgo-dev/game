@@ -1,0 +1,426 @@
+package sceneformat
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+
+	"github.com/nsgo-dev/nsgo/core"
+	"go.yaml.in/yaml/v3"
+)
+
+// CurrentVersion is the scene format schema version supported by this package.
+const CurrentVersion = 1
+
+// Space is the coordinate space a layer draws in.
+type Space string
+
+const (
+	// SpaceWorld draws the layer under the scene's camera transform.
+	SpaceWorld Space = "world"
+	// SpaceScreen draws the layer directly in canvas coordinates, ignoring the camera.
+	SpaceScreen Space = "screen"
+)
+
+// SceneDoc is the root of a versioned YAML scene document.
+type SceneDoc struct {
+	// Version is the schema version; it must equal CurrentVersion (1).
+	Version int `yaml:"version"`
+	// Name is the scene's human-readable name.
+	Name string `yaml:"name,omitempty"`
+	// VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.
+	VirtualWidth  float32 `yaml:"virtualWidth,omitempty"`
+	VirtualHeight float32 `yaml:"virtualHeight,omitempty"`
+	// BackgroundColor is an optional CSS color string parsed with core.ParseColor.
+	BackgroundColor string `yaml:"backgroundColor,omitempty"`
+	// Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.
+	Camera *CameraDoc `yaml:"camera,omitempty"`
+	// Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.
+	Tilemaps map[string]*TilemapDoc `yaml:"tilemaps,omitempty"`
+	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order.
+	Layers []LayerDoc `yaml:"layers,omitempty"`
+}
+
+// CameraDoc describes a 2D camera transform for world-space layers.
+type CameraDoc struct {
+	// X and Y are the world coordinates centered in the virtual viewport (or mapped to the origin when virtual dimensions are 0).
+	X float32 `yaml:"x,omitempty"`
+	Y float32 `yaml:"y,omitempty"`
+	// Zoom is the camera zoom factor; nil defaults to 1. Must be positive when set.
+	Zoom *float32 `yaml:"zoom,omitempty"`
+	// Rotation turns the camera clockwise in radians; world geometry rotates by -Rotation around (X, Y).
+	Rotation float32 `yaml:"rotation,omitempty"`
+	// Bounds optionally clamps the camera view inside a world rectangle.
+	Bounds *BoundsDoc `yaml:"bounds,omitempty"`
+}
+
+// EffectiveZoom returns the camera's zoom factor, defaulting to 1 when Zoom is nil.
+func (c *CameraDoc) EffectiveZoom() float32 {
+	if c == nil || c.Zoom == nil {
+		return 1
+	}
+	return *c.Zoom
+}
+
+// BoundsDoc is an axis-aligned rectangle in world coordinates.
+type BoundsDoc struct {
+	X      float32 `yaml:"x,omitempty"`
+	Y      float32 `yaml:"y,omitempty"`
+	Width  float32 `yaml:"width"`
+	Height float32 `yaml:"height"`
+}
+
+// LayerDoc is one ordered layer in a scene.
+type LayerDoc struct {
+	// Name uniquely identifies the layer within the scene.
+	Name string `yaml:"name"`
+	// Space is SpaceWorld or SpaceScreen; empty defaults to SpaceWorld.
+	Space Space `yaml:"space,omitempty"`
+	// Order sets draw order across layers: lower values draw first, ties keep document order.
+	Order int `yaml:"order,omitempty"`
+	// Visible controls whether the layer draws; nil defaults to true.
+	Visible *bool `yaml:"visible,omitempty"`
+	// Tilemap optionally attaches a tilemap (by Ref, external Source, or inline grid) drawn beneath Objects.
+	Tilemap *TilemapDoc `yaml:"tilemap,omitempty"`
+	// Objects are the placed objects in this layer.
+	Objects []ObjectDoc `yaml:"objects,omitempty"`
+}
+
+// IsVisible reports whether the layer is visible, defaulting to true when Visible is nil.
+func (l *LayerDoc) IsVisible() bool {
+	return l == nil || l.Visible == nil || *l.Visible
+}
+
+// EffectiveSpace returns SpaceWorld when Space is empty, and l.Space otherwise.
+func (l *LayerDoc) EffectiveSpace() Space {
+	if l == nil || l.Space == "" {
+		return SpaceWorld
+	}
+	return l.Space
+}
+
+// TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.
+type TilemapDoc struct {
+	// Ref names an entry in SceneDoc.Tilemaps. Only valid on a layer's Tilemap.
+	Ref string `yaml:"ref,omitempty"`
+	// Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.
+	Source string `yaml:"source,omitempty"`
+	// TileWidth and TileHeight are each tile's size in points for an inline grid.
+	TileWidth  int `yaml:"tileWidth,omitempty"`
+	TileHeight int `yaml:"tileHeight,omitempty"`
+	// Width and Height are the inline grid dimensions in tiles.
+	Width  int `yaml:"width,omitempty"`
+	Height int `yaml:"height,omitempty"`
+	// Tileset is the atlas name providing frames keyed by 1-based tile ID ("1", "2", ...).
+	Tileset string `yaml:"tileset,omitempty"`
+	// Data holds Width*Height row-major tile IDs; 0 is an empty cell.
+	Data []int `yaml:"data,omitempty,flow"`
+}
+
+// IsRef reports whether t references a top-level tilemap by name.
+func (t *TilemapDoc) IsRef() bool { return t != nil && t.Ref != "" }
+
+// IsExternal reports whether t references an external tilemap source file.
+func (t *TilemapDoc) IsExternal() bool { return t != nil && t.Source != "" }
+
+// IsInline reports whether t carries an inline tile grid.
+func (t *TilemapDoc) IsInline() bool {
+	return t != nil && (t.TileWidth != 0 || t.TileHeight != 0 || t.Width != 0 || t.Height != 0 || t.Tileset != "" || len(t.Data) > 0)
+}
+
+// ObjectDoc is one entity or visual object placed on a layer.
+type ObjectDoc struct {
+	// ID uniquely identifies the object across the entire scene.
+	ID string `yaml:"id"`
+	// Name is an optional human-readable display name.
+	Name string `yaml:"name,omitempty"`
+	// Prefab optionally names a prefab or archetype template.
+	Prefab string `yaml:"prefab,omitempty"`
+	// X and Y are where the object's origin sits in its layer's coordinate space.
+	X float32 `yaml:"x,omitempty"`
+	Y float32 `yaml:"y,omitempty"`
+	// OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.
+	OriginX float32 `yaml:"originX,omitempty"`
+	OriginY float32 `yaml:"originY,omitempty"`
+	// Rotation turns the object clockwise in radians about its origin.
+	Rotation float32 `yaml:"rotation,omitempty"`
+	// ScaleX and ScaleY scale the object about its origin; nil defaults to 1. Negative mirrors.
+	ScaleX *float32 `yaml:"scaleX,omitempty"`
+	ScaleY *float32 `yaml:"scaleY,omitempty"`
+	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
+	FlipX bool `yaml:"flipX,omitempty"`
+	FlipY bool `yaml:"flipY,omitempty"`
+	// Alpha is the object's opacity in [0, 1]; nil defaults to 1.
+	Alpha *float32 `yaml:"alpha,omitempty"`
+	// Z orders objects within the layer; lower Z draws first, ties keep slice order.
+	Z int `yaml:"z,omitempty"`
+	// Sprite optionally binds the object to a frame in a sprite.Atlas.
+	Sprite *SpriteRef `yaml:"sprite,omitempty"`
+	// Components holds structured component data keyed by component type name.
+	Components map[string]any `yaml:"components,omitempty"`
+	// Properties holds arbitrary custom metadata for gameplay scripts or editors.
+	Properties map[string]any `yaml:"properties,omitempty"`
+}
+
+// EffectiveScaleX returns ScaleX, defaulting to 1 when nil.
+func (o *ObjectDoc) EffectiveScaleX() float32 {
+	if o == nil || o.ScaleX == nil {
+		return 1
+	}
+	return *o.ScaleX
+}
+
+// EffectiveScaleY returns ScaleY, defaulting to 1 when nil.
+func (o *ObjectDoc) EffectiveScaleY() float32 {
+	if o == nil || o.ScaleY == nil {
+		return 1
+	}
+	return *o.ScaleY
+}
+
+// EffectiveAlpha returns Alpha, defaulting to 1 when nil.
+func (o *ObjectDoc) EffectiveAlpha() float32 {
+	if o == nil || o.Alpha == nil {
+		return 1
+	}
+	return *o.Alpha
+}
+
+// SpriteRef identifies one frame inside a named sprite.Atlas.
+type SpriteRef struct {
+	Atlas string `yaml:"atlas"`
+	Frame string `yaml:"frame"`
+}
+
+// Bool returns a pointer to v for optional YAML boolean fields such as LayerDoc.Visible.
+func Bool(v bool) *bool { return &v }
+
+// Float32 returns a pointer to v for optional YAML float fields such as ScaleX, ScaleY, Alpha and Zoom.
+func Float32(v float32) *float32 { return &v }
+
+// Parse decodes a YAML scene document and validates it. Unknown YAML fields and trailing YAML documents are rejected.
+func Parse(data []byte) (*SceneDoc, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, fmt.Errorf("sceneformat: empty scene document")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var doc SceneDoc
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("sceneformat: decode: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("sceneformat: unexpected trailing YAML document")
+		}
+		return nil, fmt.Errorf("sceneformat: decode: %w", err)
+	}
+	if err := Validate(&doc); err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
+// Encode validates doc and serializes it as deterministic 2-space YAML.
+func Encode(doc *SceneDoc) ([]byte, error) {
+	if err := Validate(doc); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("sceneformat: encode: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("sceneformat: encode: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// Validate checks that doc conforms to version 1 schema rules.
+func Validate(doc *SceneDoc) error {
+	if doc == nil {
+		return errors.New("sceneformat: nil scene document")
+	}
+	if doc.Version != CurrentVersion {
+		return fmt.Errorf("sceneformat: unsupported version %d (want %d)", doc.Version, CurrentVersion)
+	}
+	if !isFinite(doc.VirtualWidth) || !isFinite(doc.VirtualHeight) || doc.VirtualWidth < 0 || doc.VirtualHeight < 0 {
+		return fmt.Errorf("sceneformat: virtual size (%v, %v) must be finite and non-negative", doc.VirtualWidth, doc.VirtualHeight)
+	}
+	if (doc.VirtualWidth == 0) != (doc.VirtualHeight == 0) {
+		return fmt.Errorf("sceneformat: virtualWidth (%v) and virtualHeight (%v) must both be positive or both be 0", doc.VirtualWidth, doc.VirtualHeight)
+	}
+	if doc.BackgroundColor != "" {
+		if _, err := core.ParseColor(doc.BackgroundColor); err != nil {
+			return fmt.Errorf("sceneformat: backgroundColor %q: %w", doc.BackgroundColor, err)
+		}
+	}
+	if doc.Camera != nil {
+		if err := validateCamera(doc.Camera); err != nil {
+			return err
+		}
+	}
+	for name, tm := range doc.Tilemaps {
+		if name == "" {
+			return errors.New("sceneformat: tilemaps contains an empty key")
+		}
+		if err := validateTilemap(fmt.Sprintf("tilemap %q", name), tm, false, nil); err != nil {
+			return err
+		}
+	}
+
+	layerNames := make(map[string]struct{}, len(doc.Layers))
+	objectIDs := make(map[string]struct{})
+	for i := range doc.Layers {
+		l := &doc.Layers[i]
+		if l.Name == "" {
+			return fmt.Errorf("sceneformat: layer %d has an empty name", i)
+		}
+		if _, dup := layerNames[l.Name]; dup {
+			return fmt.Errorf("sceneformat: duplicate layer name %q", l.Name)
+		}
+		layerNames[l.Name] = struct{}{}
+
+		switch l.Space {
+		case "", SpaceWorld, SpaceScreen:
+		default:
+			return fmt.Errorf("sceneformat: layer %q has invalid space %q (want %q or %q)", l.Name, l.Space, SpaceWorld, SpaceScreen)
+		}
+		if l.Tilemap != nil {
+			if err := validateTilemap(fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps); err != nil {
+				return err
+			}
+		}
+		for j := range l.Objects {
+			o := &l.Objects[j]
+			if o.ID == "" {
+				return fmt.Errorf("sceneformat: layer %q object %d has an empty id", l.Name, j)
+			}
+			if _, dup := objectIDs[o.ID]; dup {
+				return fmt.Errorf("sceneformat: duplicate object id %q", o.ID)
+			}
+			objectIDs[o.ID] = struct{}{}
+			if err := validateObject(l.Name, o); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateCamera(c *CameraDoc) error {
+	if !isFinite(c.X) || !isFinite(c.Y) || !isFinite(c.Rotation) {
+		return errors.New("sceneformat: camera x, y and rotation must be finite")
+	}
+	if c.Zoom != nil {
+		if !isFinite(*c.Zoom) || *c.Zoom <= 0 {
+			return fmt.Errorf("sceneformat: camera zoom %v must be finite and positive", *c.Zoom)
+		}
+	}
+	if c.Bounds != nil {
+		b := c.Bounds
+		if !isFinite(b.X) || !isFinite(b.Y) || !isFinite(b.Width) || !isFinite(b.Height) {
+			return errors.New("sceneformat: camera bounds must be finite")
+		}
+		if b.Width <= 0 || b.Height <= 0 {
+			return fmt.Errorf("sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
+		}
+	}
+	return nil
+}
+
+func validateTilemap(where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc) error {
+	if tm == nil {
+		return fmt.Errorf("sceneformat: %s is nil", where)
+	}
+	isRef := tm.IsRef()
+	isExt := tm.IsExternal()
+	isInline := tm.IsInline()
+
+	modes := 0
+	if isRef {
+		modes++
+	}
+	if isExt {
+		modes++
+	}
+	if isInline {
+		modes++
+	}
+	if modes == 0 {
+		return fmt.Errorf("sceneformat: %s must specify ref, source or inline tile grid", where)
+	}
+	if modes > 1 {
+		return fmt.Errorf("sceneformat: %s cannot combine ref, source and inline tile grid", where)
+	}
+	if isRef {
+		if !allowRef {
+			return fmt.Errorf("sceneformat: %s cannot use ref in top-level tilemaps", where)
+		}
+		if _, ok := table[tm.Ref]; !ok {
+			return fmt.Errorf("sceneformat: %s references unknown tilemap %q", where, tm.Ref)
+		}
+		return nil
+	}
+	if isExt {
+		return nil
+	}
+	return validateInlineTilemap(where, tm)
+}
+
+func validateInlineTilemap(where string, tm *TilemapDoc) error {
+	if tm.TileWidth <= 0 || tm.TileHeight <= 0 {
+		return fmt.Errorf("sceneformat: %s tileWidth (%d) and tileHeight (%d) must be positive", where, tm.TileWidth, tm.TileHeight)
+	}
+	if tm.Width <= 0 || tm.Height <= 0 {
+		return fmt.Errorf("sceneformat: %s width (%d) and height (%d) must be positive", where, tm.Width, tm.Height)
+	}
+	if tm.Tileset == "" {
+		return fmt.Errorf("sceneformat: %s requires a tileset name", where)
+	}
+	want := tm.Width * tm.Height
+	if len(tm.Data) != want {
+		return fmt.Errorf("sceneformat: %s has %d tile entries, want %d (%dx%d)", where, len(tm.Data), want, tm.Width, tm.Height)
+	}
+	for i, gid := range tm.Data {
+		if gid < 0 {
+			return fmt.Errorf("sceneformat: %s tile at index %d has negative id %d", where, i, gid)
+		}
+	}
+	return nil
+}
+
+func validateObject(layer string, o *ObjectDoc) error {
+	if !isFinite(o.X) || !isFinite(o.Y) || !isFinite(o.OriginX) || !isFinite(o.OriginY) || !isFinite(o.Rotation) {
+		return fmt.Errorf("sceneformat: layer %q object %q has non-finite transform", layer, o.ID)
+	}
+	if o.ScaleX != nil && !isFinite(*o.ScaleX) {
+		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleX", layer, o.ID)
+	}
+	if o.ScaleY != nil && !isFinite(*o.ScaleY) {
+		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleY", layer, o.ID)
+	}
+	if o.Alpha != nil {
+		if !isFinite(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1 {
+			return fmt.Errorf("sceneformat: layer %q object %q alpha %v must be in [0, 1]", layer, o.ID, *o.Alpha)
+		}
+	}
+	if o.Sprite != nil {
+		if o.Sprite.Atlas == "" || o.Sprite.Frame == "" {
+			return fmt.Errorf("sceneformat: layer %q object %q sprite requires both atlas and frame", layer, o.ID)
+		}
+	}
+	return nil
+}
+
+func isFinite(v float32) bool {
+	f := float64(v)
+	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
