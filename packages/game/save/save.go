@@ -3,6 +3,8 @@
 // Each slot holds a {"version": N, "data": ...} envelope. When a Store loads a save written by an older version, it runs its registered migrations one version at a time (v to v+1) before unmarshaling into the caller's value; a save from a newer version is refused with ErrFutureVersion rather than read into an older shape.
 //
 // Writes keep the previous valid save as a backup before replacing the primary copy (with a write, sync and rename on disk, or a backup key in core.Storage), so a failed write leaves the last good save intact and a corrupted primary falls back to the backup on Load.
+//
+// Player settings (audio, bindings, display, locale, accessibility and custom preferences) are persisted separately via SettingsStore and DefaultSettingsStore outside the save-slot namespace, so deleting or clearing save slots never touches player settings, and LoadAndApply wires loaded settings to game subsystems on startup.
 package save
 
 import (
@@ -174,6 +176,24 @@ func (s *Store) Delete(slot string) error {
 	return s.backend.Delete(slot)
 }
 
+// DeleteAll removes every save slot and its backup copy. Player settings stored alongside save slots are never touched.
+func (s *Store) DeleteAll() error {
+	if s.backend == nil {
+		return errors.New("save: store has no backend")
+	}
+	slots, err := s.Slots()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, slot := range slots {
+		if err := s.backend.Delete(slot); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Exists reports whether slot has a stored save or backup copy.
 func (s *Store) Exists(slot string) bool {
 	if validateSlot(slot) != nil || s.backend == nil {
@@ -187,7 +207,23 @@ func (s *Store) Slots() ([]string, error) {
 	if s.backend == nil {
 		return nil, errors.New("save: store has no backend")
 	}
-	return s.backend.Slots()
+	raw, err := s.backend.Slots()
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	slots := make([]string, 0, len(raw))
+	for _, slot := range raw {
+		if validateSlot(slot) == nil {
+			slots = append(slots, slot)
+		}
+	}
+	if len(slots) == 0 {
+		return nil, nil
+	}
+	return slots, nil
 }
 
 func (s *Store) version() int {
@@ -198,34 +234,37 @@ func (s *Store) version() int {
 }
 
 func (s *Store) decode(slot string, payload []byte, dst any) error {
+	return decodeEnvelope(slot, payload, s.version(), s.Migrations, dst)
+}
+
+func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any) error {
 	env, err := parseEnvelope(payload)
 	if err != nil {
-		return fmt.Errorf("save: load %q: %w", slot, err)
+		return fmt.Errorf("save: load %q: %w", name, err)
 	}
-	target := s.version()
 	if env.Version > target {
-		return fmt.Errorf("save: load %q: save version %d exceeds current version %d: %w", slot, env.Version, target, ErrFutureVersion)
+		return fmt.Errorf("save: load %q: save version %d exceeds current version %d: %w", name, env.Version, target, ErrFutureVersion)
 	}
 	data := env.Data
 	for v := env.Version; v < target; v++ {
 		var fn Migration
-		if s.Migrations != nil {
-			fn = s.Migrations[v]
+		if migrations != nil {
+			fn = migrations[v]
 		}
 		if fn == nil {
-			return fmt.Errorf("save: load %q: no migration from version %d to %d: %w", slot, v, v+1, ErrMissingMigration)
+			return fmt.Errorf("save: load %q: no migration from version %d to %d: %w", name, v, v+1, ErrMissingMigration)
 		}
 		next, err := fn(data)
 		if err != nil {
-			return fmt.Errorf("save: load %q: migrate version %d to %d: %w", slot, v, v+1, err)
+			return fmt.Errorf("save: load %q: migrate version %d to %d: %w", name, v, v+1, err)
 		}
 		if len(next) == 0 || !json.Valid(next) {
-			return fmt.Errorf("save: load %q: migration %d to %d returned invalid JSON: %w", slot, v, v+1, ErrCorrupt)
+			return fmt.Errorf("save: load %q: migration %d to %d returned invalid JSON: %w", name, v, v+1, ErrCorrupt)
 		}
 		data = next
 	}
 	if err := unmarshalClean(data, dst); err != nil {
-		return fmt.Errorf("save: load %q: unmarshal: %w", slot, err)
+		return fmt.Errorf("save: load %q: unmarshal: %w", name, err)
 	}
 	return nil
 }
@@ -292,6 +331,9 @@ func validateSlot(slot string) error {
 	}
 	if isWindowsReserved(slot) {
 		return fmt.Errorf("%w: %q", ErrInvalidSlot, slot)
+	}
+	if strings.EqualFold(slot, settingsKey) {
+		return fmt.Errorf("%w: %q is reserved for settings", ErrInvalidSlot, slot)
 	}
 	return nil
 }
