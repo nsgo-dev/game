@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -44,6 +45,9 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	}
 	if raw.Width < 0 || raw.Height < 0 {
 		return nil, fmt.Errorf("tilemap: tiled: map size %dx%d must be non-negative", raw.Width, raw.Height)
+	}
+	if raw.Width > 0 && raw.Height > 0 && raw.Width > math.MaxInt/raw.Height {
+		return nil, fmt.Errorf("tilemap: tiled: map size %dx%d overflows", raw.Width, raw.Height)
 	}
 	if raw.TileWidth <= 0 || raw.TileHeight <= 0 {
 		return nil, fmt.Errorf("tilemap: tiled: tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight)
@@ -211,8 +215,8 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		if len(tile.Animation) > 0 {
 			frames := make([]TileAnimFrame, len(tile.Animation))
 			for j, f := range tile.Animation {
-				if f.Duration < 0 {
-					return nil, fmt.Errorf("tile %d animation frame %d has negative duration %d", tile.ID, j, f.Duration)
+				if f.Duration < 0 || int64(f.Duration) > math.MaxInt64/int64(time.Millisecond) {
+					return nil, fmt.Errorf("tilemap: tiled: tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration)
 				}
 				frames[j] = TileAnimFrame{
 					TileID:   f.TileID,
@@ -302,6 +306,9 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			}
 			if lh <= 0 {
 				lh = m.Height
+			}
+			if lw > 0 && lh > 0 && lw > math.MaxInt/lh {
+				return fmt.Errorf("tilemap: tiled: layer %q size %dx%d overflows", raw.Name, lw, lh)
 			}
 			var data []uint32
 			if len(raw.Data) > 0 {

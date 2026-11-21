@@ -1,0 +1,100 @@
+name: Quality
+
+# Runs rendering golden tests, performance baseline checks, WebAssembly size
+# budget enforcement, and fuzz smoke tests for file loaders.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: Golden rendering tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Run golden tests
+        working-directory: packages/game
+        run: go tool nsgo test ./gametest
+
+  benchmarks:
+    name: Performance baselines
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Run benchmarks and check baselines
+        working-directory: packages/game
+        run: |
+          set -o pipefail
+          go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap | tee /tmp/game-bench.txt
+          go run ./cmd/benchcheck -baseline ../../benchmarks/baseline.json -input /tmp/game-bench.txt
+
+  web-size-budget:
+    name: WebAssembly size budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Check wasm size against budget
+        working-directory: packages/game
+        run: go run ./cmd/sizecheck -budget ../../benchmarks/web-budget.json
+
+  fuzz:
+    name: Fuzz file loaders
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Fuzz LoadAtlas
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzLoadAtlas$ -fuzztime=10s ./sprite
+      - name: Fuzz LoadTiled
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzLoadTiled$ -fuzztime=10s ./tilemap

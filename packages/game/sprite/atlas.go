@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -89,7 +90,7 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	scale := float32(1)
 	if len(file.Meta.Scale) > 0 {
 		s, err := looseNumber(file.Meta.Scale)
-		if err != nil || s <= 0 {
+		if err != nil || math.IsNaN(s) || math.IsInf(s, 0) || s <= 0 {
 			return nil, fmt.Errorf("sprite: atlas: meta.scale %s is not a positive number", file.Meta.Scale)
 		}
 		scale = float32(s)
@@ -128,7 +129,7 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 		repeat := 0
 		if len(tag.Repeat) > 0 {
 			r, err := looseNumber(tag.Repeat)
-			if err != nil || r < 0 || r != float64(int(r)) {
+			if err != nil || math.IsNaN(r) || math.IsInf(r, 0) || r < 0 || r > 100000 || r != float64(int(r)) {
 				return nil, fmt.Errorf("sprite: atlas: tag %q repeats %s times", tag.Name, tag.Repeat)
 			}
 			repeat = int(r)
@@ -139,7 +140,7 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 		}
 		anim := Animation{Loop: repeat == 0, Frames: make([]AnimationFrame, len(order))}
 		for i, n := range order {
-			if frames[n].Duration <= 0 {
+			if frames[n].Duration <= 0 || int64(frames[n].Duration) > math.MaxInt64/int64(time.Millisecond) {
 				return nil, fmt.Errorf("sprite: atlas: tag %q: frame %q has no duration", tag.Name, frames[n].Name)
 			}
 			anim.Frames[i] = AnimationFrame{Frame: ordered[n], Duration: time.Duration(frames[n].Duration) * time.Millisecond}
@@ -223,7 +224,11 @@ func atlasFrames(raw json.RawMessage) ([]packedFrame, error) {
 		if err := dec.Decode(&f); err != nil {
 			return nil, err
 		}
-		f.Name = t.(string)
+		name, ok := t.(string)
+		if !ok {
+			return nil, fmt.Errorf("frame key is not a string")
+		}
+		f.Name = name
 		frames = append(frames, f)
 	}
 	return frames, nil
