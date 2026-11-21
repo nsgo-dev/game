@@ -66,6 +66,7 @@ type Actions struct {
 	motionSnap map[string]float64
 	motionInit map[string]bool
 	motionGap  uint64
+	pads       []*VirtualPad
 
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
@@ -80,6 +81,7 @@ type Actions struct {
 	latched   map[string]bool
 	curr      map[string]bool
 	prev      map[string]bool
+	padAxes   map[string]float64
 }
 
 // NewActions returns an Actions with no bindings.
@@ -143,12 +145,50 @@ func (a *Actions) AxisBinding(name string) (negative, positive string, ok bool) 
 	return ax.negative, ax.positive, ok
 }
 
+// Trigger latches action name so it registers as pressed on the next Step call, even if name has no physical Input bindings.
+func (a *Actions) Trigger(name string) {
+	if name == "" {
+		return
+	}
+	if a.latched == nil {
+		a.latched = make(map[string]bool)
+	}
+	a.latched[name] = true
+}
+
+// BindVirtualPad connects pad to a so its virtual buttons drive their bound actions and its virtual sticks drive their named axes on each Step.
+func (a *Actions) BindVirtualPad(pad *VirtualPad) {
+	if pad == nil {
+		return
+	}
+	if !slices.Contains(a.pads, pad) {
+		a.pads = append(a.pads, pad)
+	}
+	pad.actions = a
+	a.syncRaw()
+}
+
+// UnbindVirtualPad disconnects pad from a.
+func (a *Actions) UnbindVirtualPad(pad *VirtualPad) {
+	if pad == nil {
+		return
+	}
+	if i := slices.Index(a.pads, pad); i >= 0 {
+		a.pads = slices.Delete(a.pads, i, i+1)
+	}
+	if pad.actions == a {
+		pad.actions = nil
+	}
+	a.syncRaw()
+}
+
 // Step samples the current input state into the step snapshot. Call it once at the start of each game.Loop.Update step.
 func (a *Actions) Step() {
 	a.prev, a.curr = a.curr, a.prev
 	clear(a.curr)
-	if len(a.bindings) > 0 && a.curr == nil {
-		a.curr = make(map[string]bool, len(a.bindings))
+	clear(a.padAxes)
+	if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0) && a.curr == nil {
+		a.curr = make(map[string]bool, len(a.bindings)+len(a.latched))
 	}
 	for name := range a.bindings {
 		now := a.activeNow(name)
@@ -159,8 +199,47 @@ func (a *Actions) Step() {
 			a.curr[name] = true
 		}
 	}
+	for _, pad := range a.pads {
+		for _, btn := range pad.Buttons {
+			if btn == nil || btn.Action == "" {
+				continue
+			}
+			if _, bound := a.bindings[btn.Action]; bound {
+				continue
+			}
+			now := a.padPressed(btn.Action)
+			if a.rawActive != nil {
+				a.rawActive[btn.Action] = now
+			}
+			if now || a.latched[btn.Action] {
+				a.curr[btn.Action] = true
+			}
+		}
+		for _, stick := range pad.Sticks {
+			if stick == nil {
+				continue
+			}
+			a.recordPadAxis(stick.axisXKey(), stick.AxisX)
+			a.recordPadAxis(stick.axisYKey(), stick.AxisY)
+		}
+	}
+	for name, ok := range a.latched {
+		if ok {
+			a.curr[name] = true
+		}
+	}
 	clear(a.latched)
 	a.stepMotion()
+}
+
+func (a *Actions) recordPadAxis(name string, v float64) {
+	if name == "" || v == 0 {
+		return
+	}
+	if a.padAxes == nil {
+		a.padAxes = make(map[string]float64)
+	}
+	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
 // Reset clears active touches, held mouse buttons, pending latches, motion readings and the current step snapshot, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
@@ -176,6 +255,10 @@ func (a *Actions) Reset() {
 	clear(a.curr)
 	clear(a.prev)
 	a.resetMotion()
+	clear(a.padAxes)
+	for _, pad := range a.pads {
+		pad.Reset()
+	}
 }
 
 // Pressed reports whether name is held during the current step.
@@ -197,7 +280,8 @@ func (a *Actions) JustReleased(name string) bool {
 //
 // For an axis bound with BindAxis, its negative action contributes -1 and its positive action contributes +1.
 // For an axis bound with BindMotionAxis, the calibrated and dead-zoned motion reading contributes a value in [-1, 1].
-// When both are bound to the same axis name, their contributions are summed and clamped to [-1, 1].
+// An analog value from a VirtualPad stick bound to the same axis name is added too.
+// When more than one is bound to the same axis name, their contributions are summed and clamped to [-1, 1].
 // Otherwise Axis returns 1 when action name is pressed and 0 when it is not.
 func (a *Actions) Axis(name string) float64 {
 	var v float64
@@ -214,6 +298,10 @@ func (a *Actions) Axis(name string) float64 {
 	if _, ok := a.motionAxes[name]; ok {
 		hasAxis = true
 		v += a.motionSnap[name]
+	}
+	if pv, ok := a.padAxes[name]; ok {
+		hasAxis = true
+		v = clampAxis(v + pv)
 	}
 	if hasAxis {
 		return clampUnit(v)
@@ -258,6 +346,9 @@ func (a *Actions) OnTouch(ev core.TouchEvent) {
 				}
 			}
 		}
+	}
+	for _, pad := range a.pads {
+		pad.handleTouch(ev, a.MapPoint)
 	}
 	a.syncRaw()
 }
@@ -356,7 +447,7 @@ func (a *Actions) Attach(v *core.View) {
 
 // syncRaw updates rawActive for every bound action and latches any rising edge so a tap between two Step calls is not lost.
 func (a *Actions) syncRaw() {
-	if len(a.bindings) == 0 {
+	if len(a.bindings) == 0 && len(a.pads) == 0 {
 		return
 	}
 	if a.rawActive == nil {
@@ -372,6 +463,24 @@ func (a *Actions) syncRaw() {
 		}
 		a.rawActive[name] = now
 	}
+	for _, pad := range a.pads {
+		for _, btn := range pad.Buttons {
+			if btn == nil || btn.Action == "" {
+				continue
+			}
+			if _, bound := a.bindings[btn.Action]; bound {
+				continue
+			}
+			now := a.padPressed(btn.Action)
+			if now && !a.rawActive[btn.Action] {
+				if a.latched == nil {
+					a.latched = make(map[string]bool)
+				}
+				a.latched[btn.Action] = true
+			}
+			a.rawActive[btn.Action] = now
+		}
+	}
 }
 
 func (a *Actions) activeNow(name string) bool {
@@ -380,7 +489,26 @@ func (a *Actions) activeNow(name string) bool {
 			return true
 		}
 	}
+	return a.padPressed(name)
+}
+
+func (a *Actions) padPressed(name string) bool {
+	for _, pad := range a.pads {
+		if pad.Pressed(name) {
+			return true
+		}
+	}
 	return false
+}
+
+func clampAxis(v float64) float64 {
+	if v < -1 {
+		return -1
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func (a *Actions) inputActive(in Input) bool {
