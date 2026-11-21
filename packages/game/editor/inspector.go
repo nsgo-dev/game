@@ -1,0 +1,748 @@
+package editor
+
+import (
+	"fmt"
+	"math"
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
+)
+
+// SetProperty sets a typed custom property on objectID through History.
+// Supported value types include string, int, float64, float32, and bool.
+func (e *Editor) SetProperty(objectID, key string, value any) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if key == "" {
+		return fmt.Errorf("editor: property key must not be empty")
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", objectID)
+	}
+
+	oldVal, existed := obj.Properties[key]
+	if existed && reflect.DeepEqual(oldVal, value) {
+		return nil
+	}
+
+	e.History.Execute(&setPropertyCmd{
+		ed:        e,
+		objectID:  objectID,
+		key:       key,
+		wasNilMap: obj.Properties == nil,
+		existed:   existed,
+		oldVal:    cloneAny(oldVal),
+		newVal:    cloneAny(value),
+	})
+	return nil
+}
+
+// DeleteProperty removes key from objectID's Properties map through History.
+func (e *Editor) DeleteProperty(objectID, key string) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", objectID)
+	}
+	oldVal, existed := obj.Properties[key]
+	if !existed {
+		return nil
+	}
+	e.History.Execute(&deletePropertyCmd{
+		ed:       e,
+		objectID: objectID,
+		key:      key,
+		oldVal:   cloneAny(oldVal),
+	})
+	return nil
+}
+
+// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History.
+func (e *Editor) SetComponentField(objectID, componentName, field string, value any) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if componentName == "" || field == "" {
+		return fmt.Errorf("editor: component name and field must not be empty")
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", objectID)
+	}
+
+	var compMap map[string]any
+	compExisted := false
+	if obj.Components != nil {
+		if raw, ok := obj.Components[componentName]; ok {
+			compExisted = true
+			m, ok := raw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("editor: component %q on %q is not a map", componentName, objectID)
+			}
+			compMap = m
+		}
+	}
+
+	var oldVal any
+	fieldExisted := false
+	if compMap != nil {
+		oldVal, fieldExisted = compMap[field]
+		if fieldExisted && reflect.DeepEqual(oldVal, value) {
+			return nil
+		}
+	}
+
+	e.History.Execute(&setComponentFieldCmd{
+		ed:          e,
+		objectID:    objectID,
+		component:   componentName,
+		field:       field,
+		wasNilComps: obj.Components == nil,
+		compExisted: compExisted,
+		existed:     fieldExisted,
+		oldVal:      cloneAny(oldVal),
+		newVal:      cloneAny(value),
+	})
+	return nil
+}
+
+type setPropertyCmd struct {
+	ed        *Editor
+	objectID  string
+	key       string
+	wasNilMap bool
+	existed   bool
+	oldVal    any
+	newVal    any
+}
+
+func (c *setPropertyCmd) Label() string { return "Set property " + c.key }
+
+func (c *setPropertyCmd) Do() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil {
+		return
+	}
+	if obj.Properties == nil {
+		obj.Properties = make(map[string]any)
+	}
+	obj.Properties[c.key] = cloneAny(c.newVal)
+	c.ed.Status = "Updated " + c.key
+}
+
+func (c *setPropertyCmd) Undo() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil {
+		return
+	}
+	if !c.existed {
+		delete(obj.Properties, c.key)
+		if c.wasNilMap && len(obj.Properties) == 0 {
+			obj.Properties = nil
+		}
+		return
+	}
+	if obj.Properties == nil {
+		obj.Properties = make(map[string]any)
+	}
+	obj.Properties[c.key] = cloneAny(c.oldVal)
+}
+
+type deletePropertyCmd struct {
+	ed       *Editor
+	objectID string
+	key      string
+	oldVal   any
+}
+
+func (c *deletePropertyCmd) Label() string { return "Delete property " + c.key }
+
+func (c *deletePropertyCmd) Do() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil || obj.Properties == nil {
+		return
+	}
+	delete(obj.Properties, c.key)
+	if len(obj.Properties) == 0 {
+		obj.Properties = nil
+	}
+}
+
+func (c *deletePropertyCmd) Undo() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil {
+		return
+	}
+	if obj.Properties == nil {
+		obj.Properties = make(map[string]any)
+	}
+	obj.Properties[c.key] = cloneAny(c.oldVal)
+}
+
+type setComponentFieldCmd struct {
+	ed          *Editor
+	objectID    string
+	component   string
+	field       string
+	wasNilComps bool
+	compExisted bool
+	existed     bool
+	oldVal      any
+	newVal      any
+}
+
+func (c *setComponentFieldCmd) Label() string {
+	return "Set " + c.component + "." + c.field
+}
+
+func (c *setComponentFieldCmd) Do() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil {
+		return
+	}
+	if obj.Components == nil {
+		obj.Components = make(map[string]any)
+	}
+	m, ok := obj.Components[c.component].(map[string]any)
+	if !ok || m == nil {
+		m = make(map[string]any)
+		obj.Components[c.component] = m
+	}
+	m[c.field] = cloneAny(c.newVal)
+	c.ed.Status = "Updated " + c.component + "." + c.field
+}
+
+func (c *setComponentFieldCmd) Undo() {
+	obj, _, _ := c.ed.FindObject(c.objectID)
+	if obj == nil || obj.Components == nil {
+		return
+	}
+	if !c.compExisted {
+		delete(obj.Components, c.component)
+		if c.wasNilComps && len(obj.Components) == 0 {
+			obj.Components = nil
+		}
+		return
+	}
+	m, ok := obj.Components[c.component].(map[string]any)
+	if !ok || m == nil {
+		return
+	}
+	if !c.existed {
+		delete(m, c.field)
+		return
+	}
+	m[c.field] = cloneAny(c.oldVal)
+}
+
+// inspectorSchemaKey computes a stable signature of the selected object ID and its
+// property/component field names + kinds so InspectorView only remounts controls when
+// selection or field layout changes (preserving input focus during value edits).
+func inspectorSchemaKey(ed *Editor) string {
+	obj, layer := ed.SelectedObject()
+	if obj == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(layer)
+	b.WriteByte(':')
+	b.WriteString(obj.ID)
+
+	if len(obj.Properties) > 0 {
+		keys := sortedMapKeys(obj.Properties)
+		b.WriteString("|P:")
+		for _, k := range keys {
+			b.WriteString(k)
+			b.WriteByte('=')
+			b.WriteString(valueKindTag(obj.Properties[k]))
+			b.WriteByte(',')
+		}
+	}
+	if len(obj.Components) > 0 {
+		compNames := sortedMapKeys(obj.Components)
+		b.WriteString("|C:")
+		for _, cn := range compNames {
+			b.WriteString(cn)
+			b.WriteByte('{')
+			if m, ok := obj.Components[cn].(map[string]any); ok {
+				for _, fk := range sortedMapKeys(m) {
+					b.WriteString(fk)
+					b.WriteByte('=')
+					b.WriteString(valueKindTag(m[fk]))
+					b.WriteByte(',')
+				}
+			}
+			b.WriteByte('}')
+		}
+	}
+	return b.String()
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func valueKindTag(v any) string {
+	switch v.(type) {
+	case bool:
+		return "bool"
+	case int, int64, int32:
+		return "int"
+	case float64, float32:
+		return "float"
+	default:
+		return "string"
+	}
+}
+
+// InspectorView renders the right-side Property Inspector panel for the selected object.
+func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	colors := ui.ColorsOf(cx)
+	schema := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		return inspectorSchemaKey(ed)
+	})
+
+	return core.View{
+		TestID: "editor-inspector",
+		Style: core.Style{
+			Width:       core.Pt(272),
+			Background:  colors.Inset(),
+			Borders:     core.Edges{Left: 1},
+			BorderColor: colors.Line(),
+			Padding:     core.All(10),
+			Gap:         8,
+		},
+		Children: []core.Node{
+			core.Text{
+				Content: "Inspector",
+				Style: core.Style{
+					FontSize:   13,
+					FontWeight: 700,
+					Color:      colors.Text(),
+				},
+			},
+			ui.ScrollView{
+				Style: core.Style{
+					FlexGrow: 1,
+				},
+				ContentStyle: core.Style{
+					Gap: 10,
+				},
+				Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						if schema.Get() == "" {
+							return core.Text{
+								TestID:  "inspector-empty",
+								Content: "No object selected",
+								Style: core.Style{
+									FontSize: 12,
+									Color:    colors.Muted(),
+								},
+							}
+						}
+						obj, layerName := ed.SelectedObject()
+						if obj == nil {
+							return nil
+						}
+						return inspectorFieldsView(cx, ed, rev, obj.ID, layerName)
+					}),
+				},
+			},
+		},
+	}
+}
+
+func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID, layerName string) core.Node {
+	colors := ui.ColorsOf(cx)
+	disabled := func() bool {
+		_ = rev.Get()
+		return ed.Playing()
+	}
+
+	sectionHeader := func(title string) core.Node {
+		return core.Text{
+			Content: title,
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 700,
+				Color:      colors.Muted(),
+			},
+		}
+	}
+
+	fieldRow := func(label string, control core.Node) core.Node {
+		return core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: label,
+					Style: core.Style{
+						Width:    core.Pt(76),
+						FontSize: 12,
+						Color:    colors.Text(),
+					},
+				},
+				core.View{
+					Style:    core.Style{FlexGrow: 1},
+					Children: []core.Node{control},
+				},
+			},
+		}
+	}
+
+	nodes := []core.Node{
+		core.View{
+			Style: core.Style{
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifySpaceBetween,
+				Gap:            6,
+			},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{Gap: 2},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "inspector-object-id",
+							Content: objID,
+							Style: core.Style{
+								FontSize:   13,
+								FontWeight: 700,
+								Color:      colors.Text(),
+							},
+						},
+						ui.Badge{
+							Text:    layerName,
+							Variant: ui.BadgeNeutral,
+						},
+					},
+				},
+				ui.Button{
+					TestID:   "inspector-delete",
+					Text:     "Delete",
+					Size:     ui.SizeSmall,
+					Variant:  ui.ButtonOutline,
+					Disabled: disabled,
+					OnPress: func() {
+						_ = ed.DeleteObject(objID)
+					},
+				},
+			},
+		},
+
+		fieldRow("Name", ui.Input{
+			TestID:   "inspector-name",
+			Label:    "Object Name",
+			Disabled: disabled,
+			Value: func() string {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return o.Name
+				}
+				return ""
+			},
+			OnChange: func(text string) {
+				_ = ed.SetObjectName(objID, text)
+			},
+		}),
+
+		sectionHeader("TRANSFORM"),
+		fieldRow("X", ui.NumberInput{
+			TestID:   "inspector-x",
+			Label:    "X",
+			Step:     1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.X)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					_ = ed.MoveObject(objID, float32(v), o.Y)
+				}
+			},
+		}),
+		fieldRow("Y", ui.NumberInput{
+			TestID:   "inspector-y",
+			Label:    "Y",
+			Step:     1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.Y)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					_ = ed.MoveObject(objID, o.X, float32(v))
+				}
+			},
+		}),
+		fieldRow("Rotation", ui.NumberInput{
+			TestID:   "inspector-rotation",
+			Label:    "Rotation",
+			Step:     0.1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.Rotation)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				_ = ed.RotateObject(objID, float32(v))
+			},
+		}),
+		fieldRow("Scale X", ui.NumberInput{
+			TestID:   "inspector-scale-x",
+			Label:    "Scale X",
+			Step:     0.1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.EffectiveScaleX())
+				}
+				return 1
+			},
+			OnChange: func(v float64) {
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					_ = ed.ScaleObject(objID, float32(v), o.EffectiveScaleY())
+				}
+			},
+		}),
+		fieldRow("Scale Y", ui.NumberInput{
+			TestID:   "inspector-scale-y",
+			Label:    "Scale Y",
+			Step:     0.1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.EffectiveScaleY())
+				}
+				return 1
+			},
+			OnChange: func(v float64) {
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					_ = ed.ScaleObject(objID, o.EffectiveScaleX(), float32(v))
+				}
+			},
+		}),
+		fieldRow("Alpha", ui.NumberInput{
+			TestID:   "inspector-alpha",
+			Label:    "Alpha",
+			Min:      0,
+			Max:      1,
+			Step:     0.05,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.EffectiveAlpha())
+				}
+				return 1
+			},
+			OnChange: func(v float64) {
+				_ = ed.SetObjectAlpha(objID, float32(v))
+			},
+		}),
+		fieldRow("Z", ui.NumberInput{
+			TestID:   "inspector-z",
+			Label:    "Z",
+			Step:     1,
+			Disabled: disabled,
+			Value: func() float64 {
+				_ = rev.Get()
+				if o, _, _ := ed.FindObject(objID); o != nil {
+					return float64(o.Z)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				_ = ed.SetObjectZ(objID, int(math.Round(v)))
+			},
+		}),
+	}
+
+	obj, _, _ := ed.FindObject(objID)
+	if obj != nil && len(obj.Properties) > 0 {
+		nodes = append(nodes, sectionHeader("PROPERTIES"))
+		for _, k := range sortedMapKeys(obj.Properties) {
+			key := k
+			sample := obj.Properties[key]
+			ctrl := typedFieldControl(
+				"inspector-prop-"+key,
+				key,
+				sample,
+				disabled,
+				func() any {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return o.Properties[key]
+					}
+					return nil
+				},
+				func(val any) {
+					_ = ed.SetProperty(objID, key, val)
+				},
+			)
+			nodes = append(nodes, fieldRow(key, ctrl))
+		}
+	}
+
+	if obj != nil && len(obj.Components) > 0 {
+		nodes = append(nodes, sectionHeader("COMPONENTS"))
+		for _, compName := range sortedMapKeys(obj.Components) {
+			cn := compName
+			m, ok := obj.Components[cn].(map[string]any)
+			if !ok {
+				continue
+			}
+			nodes = append(nodes, core.Text{
+				Content: cn,
+				Style: core.Style{
+					FontSize:   12,
+					FontWeight: 600,
+					Color:      colors.Text(),
+				},
+			})
+			for _, fieldKey := range sortedMapKeys(m) {
+				fk := fieldKey
+				sample := m[fk]
+				ctrl := typedFieldControl(
+					"inspector-comp-"+cn+"-"+fk,
+					cn+"."+fk,
+					sample,
+					disabled,
+					func() any {
+						_ = rev.Get()
+						if o, _, _ := ed.FindObject(objID); o != nil && o.Components != nil {
+							if cm, ok := o.Components[cn].(map[string]any); ok {
+								return cm[fk]
+							}
+						}
+						return nil
+					},
+					func(val any) {
+						_ = ed.SetComponentField(objID, cn, fk, val)
+					},
+				)
+				nodes = append(nodes, fieldRow(fk, ctrl))
+			}
+		}
+	}
+
+	return core.View{
+		Style:    core.Style{Gap: 8},
+		Children: nodes,
+	}
+}
+
+func typedFieldControl(
+	testID, label string,
+	sample any,
+	disabled func() bool,
+	get func() any,
+	set func(any),
+) core.Node {
+	switch sample.(type) {
+	case bool:
+		return ui.Checkbox{
+			TestID:   testID,
+			Label:    label,
+			Disabled: disabled,
+			Checked: func() bool {
+				b, _ := get().(bool)
+				return b
+			},
+			OnChange: func(checked bool) {
+				set(checked)
+			},
+		}
+	case int, int64, int32:
+		return ui.NumberInput{
+			TestID:   testID,
+			Label:    label,
+			Step:     1,
+			Disabled: disabled,
+			Value: func() float64 {
+				switch n := get().(type) {
+				case int:
+					return float64(n)
+				case int64:
+					return float64(n)
+				case int32:
+					return float64(n)
+				case float64:
+					return n
+				default:
+					return 0
+				}
+			},
+			OnChange: func(v float64) {
+				set(int(math.Round(v)))
+			},
+		}
+	case float64, float32:
+		return ui.NumberInput{
+			TestID:   testID,
+			Label:    label,
+			Step:     0.1,
+			Disabled: disabled,
+			Value: func() float64 {
+				switch n := get().(type) {
+				case float64:
+					return n
+				case float32:
+					return float64(n)
+				case int:
+					return float64(n)
+				default:
+					return 0
+				}
+			},
+			OnChange: func(v float64) {
+				set(v)
+			},
+		}
+	default:
+		return ui.Input{
+			TestID:   testID,
+			Label:    label,
+			Disabled: disabled,
+			Value: func() string {
+				if v := get(); v != nil {
+					return fmt.Sprint(v)
+				}
+				return ""
+			},
+			OnChange: func(text string) {
+				set(text)
+			},
+		}
+	}
+}

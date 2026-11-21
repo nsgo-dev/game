@@ -1,0 +1,1017 @@
+package editor
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"os"
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+// ErrPlaying is returned when an edit operation is attempted while Play mode is active.
+var ErrPlaying = errors.New("editor: cannot edit scene while playing")
+
+// Tool selects the active viewport interaction mode.
+type Tool int
+
+const (
+	ToolSelect Tool = iota
+	ToolMove
+	ToolPlace
+	ToolPaintTile
+	ToolEraseTile
+	ToolFillTile
+)
+
+// String returns a human-readable label for the tool.
+func (t Tool) String() string {
+	switch t {
+	case ToolSelect:
+		return "Select"
+	case ToolMove:
+		return "Move"
+	case ToolPlace:
+		return "Place"
+	case ToolPaintTile:
+		return "Paint Tile"
+	case ToolEraseTile:
+		return "Erase Tile"
+	case ToolFillTile:
+		return "Fill Tile"
+	default:
+		return "Unknown"
+	}
+}
+
+// Prefab is a reusable object template that PlaceObject and PlacePrefab can instantiate.
+type Prefab struct {
+	Name       string
+	Sprite     *sceneformat.SpriteRef
+	OriginX    float32
+	OriginY    float32
+	ScaleX     *float32
+	ScaleY     *float32
+	FlipX      bool
+	FlipY      bool
+	Alpha      *float32
+	Z          int
+	Components map[string]any
+	Properties map[string]any
+}
+
+// Editor owns the editable SceneDoc, its resolved BuiltScene, undo/redo History,
+// viewport tool/selection state, asset browser selection, and play-mode lifecycle.
+type Editor struct {
+	Doc           *sceneformat.SceneDoc
+	Built         *sceneformat.BuiltScene
+	BuildErr      error
+	History       *History
+	Resolver      sceneformat.AssetResolver
+	Prefabs       map[string]Prefab
+	SelectedID    string
+	ActiveLayer   string
+	Tool          Tool
+	ActiveTileID  int
+	SelectedAsset *AssetEntry
+	Status        string
+	FilePath      string
+
+	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
+	OnSave func(data []byte) error
+	// OnPlayUpdate runs on every fixed simulation step while Play mode is active.
+	OnPlayUpdate func(scene *sceneformat.BuiltScene, dt time.Duration)
+	// OnPlayDraw runs on every render frame while Play mode is active.
+	OnPlayDraw func(scene *sceneformat.BuiltScene, alpha float64)
+	// PlayRate is the fixed update rate in Hz during Play mode (defaults to 60 when <= 0).
+	PlayRate int
+
+	playing      bool
+	playSnapshot []byte
+	playStop     func()
+	playScene    *sceneformat.BuiltScene
+	playSteps    int
+	playFrames   int
+
+	scope        *core.Scope
+	revision     uint64
+	nextID       int
+	nextListener uint64
+	listeners    map[uint64]func()
+}
+
+// DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
+func DefaultSceneDoc() *sceneformat.SceneDoc {
+	return &sceneformat.SceneDoc{
+		Version:         sceneformat.CurrentVersion,
+		Name:            "Untitled Scene",
+		VirtualWidth:    640,
+		VirtualHeight:   360,
+		BackgroundColor: "#141824",
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "main",
+				Space: sceneformat.SpaceWorld,
+				Order: 0,
+			},
+		},
+	}
+}
+
+// New constructs an Editor over doc and resolver. If doc is nil, DefaultSceneDoc() is used.
+func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor, error) {
+	if doc == nil {
+		doc = DefaultSceneDoc()
+	}
+	if err := sceneformat.Validate(doc); err != nil {
+		return nil, err
+	}
+	ed := &Editor{
+		Doc:          doc,
+		History:      NewHistory(),
+		Resolver:     resolver,
+		Prefabs:      make(map[string]Prefab),
+		Tool:         ToolSelect,
+		ActiveTileID: 1,
+		Status:       "Ready",
+		listeners:    make(map[uint64]func()),
+	}
+	if len(doc.Layers) > 0 {
+		ed.ActiveLayer = doc.Layers[0].Name
+	}
+	ed.History.onChange = func() {
+		ed.afterMutate()
+	}
+	ed.Rebuild()
+	return ed, nil
+}
+
+// Revision returns a monotonically increasing counter bumped on every state change.
+func (e *Editor) Revision() uint64 {
+	return e.revision
+}
+
+// Subscribe registers fn to run whenever editor state changes and returns an unsubscribe function.
+func (e *Editor) Subscribe(fn func()) func() {
+	if e == nil || fn == nil {
+		return func() {}
+	}
+	e.nextListener++
+	id := e.nextListener
+	if e.listeners == nil {
+		e.listeners = make(map[uint64]func())
+	}
+	e.listeners[id] = fn
+	return func() {
+		delete(e.listeners, id)
+	}
+}
+
+// AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls.
+func (e *Editor) AttachScope(cx *core.Scope) {
+	e.scope = cx
+}
+
+func (e *Editor) notify() {
+	e.revision++
+	for _, fn := range e.listeners {
+		fn()
+	}
+}
+
+func (e *Editor) afterMutate() {
+	// Ensure SelectedID still points to an existing object.
+	if e.SelectedID != "" {
+		if obj, _, _ := e.FindObject(e.SelectedID); obj == nil {
+			e.SelectedID = ""
+		}
+	}
+	e.Rebuild()
+	e.notify()
+}
+
+// Rebuild resolves e.Doc against e.Resolver into e.Built.
+func (e *Editor) Rebuild() {
+	if e.Doc == nil {
+		e.Built = nil
+		e.BuildErr = nil
+		return
+	}
+	built, err := sceneformat.Build(e.Doc, e.Resolver)
+	if err != nil {
+		e.BuildErr = err
+		return
+	}
+	e.Built = built
+	e.BuildErr = nil
+}
+
+// ActiveScene returns the live play scene when playing, or the edit BuiltScene otherwise.
+func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
+	if e.playing && e.playScene != nil {
+		return e.playScene
+	}
+	return e.Built
+}
+
+// SetTool switches the active viewport tool.
+func (e *Editor) SetTool(t Tool) {
+	if e.Tool == t {
+		return
+	}
+	e.Tool = t
+	e.Status = "Tool: " + t.String()
+	e.notify()
+}
+
+// SetActiveLayer selects the layer targeted by object placement and tile painting.
+func (e *Editor) SetActiveLayer(name string) bool {
+	if e.layerIndex(name) < 0 {
+		return false
+	}
+	e.ActiveLayer = name
+	e.notify()
+	return true
+}
+
+// SetActiveTileID sets the tile GID used by PaintTile and FloodFillTile tools.
+func (e *Editor) SetActiveTileID(id int) {
+	if id < 0 {
+		return
+	}
+	e.ActiveTileID = id
+	e.notify()
+}
+
+// OpenYAML parses data as a sceneformat.SceneDoc, replaces the active document,
+// clears undo/redo history, and rebuilds the scene.
+func (e *Editor) OpenYAML(data []byte) error {
+	if e.playing {
+		if err := e.Stop(); err != nil {
+			return err
+		}
+	}
+	doc, err := sceneformat.Parse(data)
+	if err != nil {
+		return err
+	}
+	e.Doc = doc
+	e.SelectedID = ""
+	if len(doc.Layers) > 0 {
+		e.ActiveLayer = doc.Layers[0].Name
+	} else {
+		e.ActiveLayer = ""
+	}
+	e.Status = "Opened scene"
+	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
+	e.History.Clear()
+	return nil
+}
+
+// SaveYAML encodes the current edit SceneDoc to deterministic YAML.
+// If Play mode is active, it returns a copy of the pre-play snapshot so runtime
+// simulation state never leaks into saved YAML.
+func (e *Editor) SaveYAML() ([]byte, error) {
+	if e.playing && len(e.playSnapshot) > 0 {
+		out := make([]byte, len(e.playSnapshot))
+		copy(out, e.playSnapshot)
+		return out, nil
+	}
+	return sceneformat.Encode(e.Doc)
+}
+
+// OpenFile reads a YAML scene file from path and loads it into the editor.
+func (e *Editor) OpenFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := e.OpenYAML(data); err != nil {
+		return err
+	}
+	e.FilePath = path
+	e.Status = "Opened " + path
+	e.notify()
+	return nil
+}
+
+// SaveFile encodes the scene to YAML and writes it to path.
+func (e *Editor) SaveFile(path string) error {
+	data, err := e.SaveYAML()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	e.FilePath = path
+	e.Status = "Saved " + path
+	e.notify()
+	return nil
+}
+
+// Undo reverts the last edit in History (no-op while playing).
+func (e *Editor) Undo() bool {
+	if e.playing {
+		return false
+	}
+	ok := e.History.Undo()
+	if ok {
+		e.Status = "Undo"
+		e.notify()
+	}
+	return ok
+}
+
+// Redo re-applies the last undone edit in History (no-op while playing).
+func (e *Editor) Redo() bool {
+	if e.playing {
+		return false
+	}
+	ok := e.History.Redo()
+	if ok {
+		e.Status = "Redo"
+		e.notify()
+	}
+	return ok
+}
+
+// SelectObject selects the object with ID id (or clears selection if id == "").
+// Returns true if selection succeeded (or cleared).
+func (e *Editor) SelectObject(id string) bool {
+	if id == "" {
+		if e.SelectedID != "" {
+			e.SelectedID = ""
+			e.notify()
+		}
+		return true
+	}
+	if obj, _, _ := e.FindObject(id); obj == nil {
+		return false
+	}
+	if e.SelectedID != id {
+		e.SelectedID = id
+		e.Status = "Selected " + id
+		e.notify()
+	}
+	return true
+}
+
+// SelectedObject returns the currently selected ObjectDoc and its layer name, or nil, "".
+func (e *Editor) SelectedObject() (*sceneformat.ObjectDoc, string) {
+	if e.SelectedID == "" || e.Doc == nil {
+		return nil, ""
+	}
+	obj, li, _ := e.FindObject(e.SelectedID)
+	if obj == nil {
+		return nil, ""
+	}
+	return obj, e.Doc.Layers[li].Name
+}
+
+// FindObject locates an object by ID across all layers.
+func (e *Editor) FindObject(id string) (*sceneformat.ObjectDoc, int, int) {
+	if e.Doc == nil || id == "" {
+		return nil, -1, -1
+	}
+	for li := range e.Doc.Layers {
+		layer := &e.Doc.Layers[li]
+		for oi := range layer.Objects {
+			if layer.Objects[oi].ID == id {
+				return &layer.Objects[oi], li, oi
+			}
+		}
+	}
+	return nil, -1, -1
+}
+
+func (e *Editor) layerIndex(name string) int {
+	if e.Doc == nil {
+		return -1
+	}
+	for i := range e.Doc.Layers {
+		if e.Doc.Layers[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (e *Editor) resolveLayerIndex(layerName string) (int, error) {
+	if e.Doc == nil || len(e.Doc.Layers) == 0 {
+		return -1, errors.New("editor: scene has no layers")
+	}
+	if layerName == "" {
+		layerName = e.ActiveLayer
+	}
+	if layerName == "" {
+		return 0, nil
+	}
+	idx := e.layerIndex(layerName)
+	if idx < 0 {
+		return -1, fmt.Errorf("editor: layer %q not found", layerName)
+	}
+	return idx, nil
+}
+
+func (e *Editor) generateObjectID(base string) string {
+	if base == "" {
+		base = "obj"
+	}
+	for {
+		e.nextID++
+		candidate := fmt.Sprintf("%s_%d", base, e.nextID)
+		if obj, _, _ := e.FindObject(candidate); obj == nil {
+			return candidate
+		}
+	}
+}
+
+// PlaceObject adds obj to layerName (or ActiveLayer when empty) as an undoable command,
+// merging defaults from e.Prefabs when obj.Prefab matches a registered prefab.
+// Returns the placed object's unique ID.
+func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (string, error) {
+	if e.playing {
+		return "", ErrPlaying
+	}
+	li, err := e.resolveLayerIndex(layerName)
+	if err != nil {
+		return "", err
+	}
+
+	placed := cloneObjectDoc(obj)
+	if placed.Prefab != "" {
+		if pf, ok := e.Prefabs[placed.Prefab]; ok {
+			applyPrefabDefaults(&placed, pf)
+		}
+	}
+	if placed.ID == "" {
+		base := placed.Name
+		if base == "" && placed.Prefab != "" {
+			base = placed.Prefab
+		}
+		if base == "" && placed.Sprite != nil {
+			base = placed.Sprite.Frame
+		}
+		placed.ID = e.generateObjectID(base)
+	} else if existing, _, _ := e.FindObject(placed.ID); existing != nil {
+		return "", fmt.Errorf("editor: duplicate object id %q", placed.ID)
+	}
+
+	if err := validateObjectForEditor(&placed); err != nil {
+		return "", err
+	}
+
+	cmd := &placeObjectCmd{
+		ed:           e,
+		layerName:    e.Doc.Layers[li].Name,
+		obj:          placed,
+		prevSelected: e.SelectedID,
+	}
+	e.History.Execute(cmd)
+	return placed.ID, nil
+}
+
+// PlacePrefab instantiates a registered prefab at (x, y) on layerName as an undoable command.
+func (e *Editor) PlacePrefab(layerName, prefabName string, x, y float32) (string, error) {
+	pf, ok := e.Prefabs[prefabName]
+	if !ok {
+		return "", fmt.Errorf("editor: prefab %q not found", prefabName)
+	}
+	name := pf.Name
+	if name == "" {
+		name = prefabName
+	}
+	return e.PlaceObject(layerName, sceneformat.ObjectDoc{
+		Name:   name,
+		Prefab: prefabName,
+		X:      x,
+		Y:      y,
+	})
+}
+
+// DeleteObject removes the object with ID id from the scene as an undoable command.
+func (e *Editor) DeleteObject(id string) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	obj, li, oi := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	cmd := &deleteObjectCmd{
+		ed:           e,
+		layerName:    e.Doc.Layers[li].Name,
+		index:        oi,
+		obj:          cloneObjectDoc(*obj),
+		wasNilSlice:  false,
+		prevSelected: e.SelectedID,
+	}
+	e.History.Execute(cmd)
+	return nil
+}
+
+// MoveObject sets object id's position to (x, y) as an undoable command.
+func (e *Editor) MoveObject(id string, x, y float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return errors.New("editor: position must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.X == x && obj.Y == y {
+		return nil
+	}
+	e.History.Execute(&moveObjectCmd{
+		ed:   e,
+		id:   id,
+		oldX: obj.X,
+		oldY: obj.Y,
+		newX: x,
+		newY: y,
+	})
+	return nil
+}
+
+// RotateObject sets object id's rotation (in radians) as an undoable command.
+func (e *Editor) RotateObject(id string, radians float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(radians) {
+		return errors.New("editor: rotation must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Rotation == radians {
+		return nil
+	}
+	e.History.Execute(&rotateObjectCmd{
+		ed:     e,
+		id:     id,
+		oldRot: obj.Rotation,
+		newRot: radians,
+	})
+	return nil
+}
+
+// ScaleObject sets object id's scale to (sx, sy) as an undoable command.
+func (e *Editor) ScaleObject(id string, sx, sy float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return errors.New("editor: scale must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.ScaleX != nil && *obj.ScaleX == sx && obj.ScaleY != nil && *obj.ScaleY == sy {
+		return nil
+	}
+	e.History.Execute(&scaleObjectCmd{
+		ed:        e,
+		id:        id,
+		oldScaleX: cloneFloat32Ptr(obj.ScaleX),
+		oldScaleY: cloneFloat32Ptr(obj.ScaleY),
+		newScaleX: sceneformat.Float32(sx),
+		newScaleY: sceneformat.Float32(sy),
+	})
+	return nil
+}
+
+// SetObjectAlpha sets object id's opacity in [0, 1] as an undoable command.
+func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(alpha) || alpha < 0 || alpha > 1 {
+		return fmt.Errorf("editor: alpha %v must be in [0, 1]", alpha)
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Alpha != nil && *obj.Alpha == alpha {
+		return nil
+	}
+	e.History.Execute(&alphaObjectCmd{
+		ed:       e,
+		id:       id,
+		oldAlpha: cloneFloat32Ptr(obj.Alpha),
+		newAlpha: sceneformat.Float32(alpha),
+	})
+	return nil
+}
+
+// SetObjectZ sets object id's within-layer draw order Z as an undoable command.
+func (e *Editor) SetObjectZ(id string, z int) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Z == z {
+		return nil
+	}
+	e.History.Execute(&zObjectCmd{
+		ed:   e,
+		id:   id,
+		oldZ: obj.Z,
+		newZ: z,
+	})
+	return nil
+}
+
+// SetObjectName sets object id's display name as an undoable command.
+func (e *Editor) SetObjectName(id, name string) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Name == name {
+		return nil
+	}
+	e.History.Execute(&nameObjectCmd{
+		ed:      e,
+		id:      id,
+		oldName: obj.Name,
+		newName: name,
+	})
+	return nil
+}
+
+// --- Commands (all look up target on e.Doc dynamically so Stop/snapshot restore never invalidates history) ---
+
+type placeObjectCmd struct {
+	ed           *Editor
+	layerName    string
+	obj          sceneformat.ObjectDoc
+	prevSelected string
+	wasNilSlice  bool
+}
+
+func (c *placeObjectCmd) Label() string { return "Place object " + c.obj.ID }
+
+func (c *placeObjectCmd) Do() {
+	li := c.ed.layerIndex(c.layerName)
+	if li < 0 {
+		return
+	}
+	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
+	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
+	c.ed.SelectedID = c.obj.ID
+	c.ed.Status = "Placed " + c.obj.ID
+}
+
+func (c *placeObjectCmd) Undo() {
+	li := c.ed.layerIndex(c.layerName)
+	if li < 0 {
+		return
+	}
+	objs := c.ed.Doc.Layers[li].Objects
+	for i := len(objs) - 1; i >= 0; i-- {
+		if objs[i].ID == c.obj.ID {
+			objs = append(objs[:i], objs[i+1:]...)
+			break
+		}
+	}
+	if len(objs) == 0 && c.wasNilSlice {
+		objs = nil
+	}
+	c.ed.Doc.Layers[li].Objects = objs
+	c.ed.SelectedID = c.prevSelected
+}
+
+type deleteObjectCmd struct {
+	ed           *Editor
+	layerName    string
+	index        int
+	obj          sceneformat.ObjectDoc
+	wasNilSlice  bool
+	prevSelected string
+}
+
+func (c *deleteObjectCmd) Label() string { return "Delete object " + c.obj.ID }
+
+func (c *deleteObjectCmd) Do() {
+	li := c.ed.layerIndex(c.layerName)
+	if li < 0 {
+		return
+	}
+	objs := c.ed.Doc.Layers[li].Objects
+	if c.index >= 0 && c.index < len(objs) && objs[c.index].ID == c.obj.ID {
+		objs = append(objs[:c.index], objs[c.index+1:]...)
+	} else {
+		for i := range objs {
+			if objs[i].ID == c.obj.ID {
+				objs = append(objs[:i], objs[i+1:]...)
+				break
+			}
+		}
+	}
+	c.ed.Doc.Layers[li].Objects = objs
+	if c.ed.SelectedID == c.obj.ID {
+		c.ed.SelectedID = ""
+	}
+	c.ed.Status = "Deleted " + c.obj.ID
+}
+
+func (c *deleteObjectCmd) Undo() {
+	li := c.ed.layerIndex(c.layerName)
+	if li < 0 {
+		return
+	}
+	objs := c.ed.Doc.Layers[li].Objects
+	idx := c.index
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > len(objs) {
+		idx = len(objs)
+	}
+	objs = append(objs, sceneformat.ObjectDoc{})
+	copy(objs[idx+1:], objs[idx:])
+	objs[idx] = cloneObjectDoc(c.obj)
+	c.ed.Doc.Layers[li].Objects = objs
+	c.ed.SelectedID = c.prevSelected
+}
+
+type moveObjectCmd struct {
+	ed         *Editor
+	id         string
+	oldX, oldY float32
+	newX, newY float32
+}
+
+func (c *moveObjectCmd) Label() string { return "Move " + c.id }
+
+func (c *moveObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.X = c.newX
+		obj.Y = c.newY
+	}
+}
+
+func (c *moveObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.X = c.oldX
+		obj.Y = c.oldY
+	}
+}
+
+type rotateObjectCmd struct {
+	ed     *Editor
+	id     string
+	oldRot float32
+	newRot float32
+}
+
+func (c *rotateObjectCmd) Label() string { return "Rotate " + c.id }
+
+func (c *rotateObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Rotation = c.newRot
+	}
+}
+
+func (c *rotateObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Rotation = c.oldRot
+	}
+}
+
+type scaleObjectCmd struct {
+	ed                   *Editor
+	id                   string
+	oldScaleX, oldScaleY *float32
+	newScaleX, newScaleY *float32
+}
+
+func (c *scaleObjectCmd) Label() string { return "Scale " + c.id }
+
+func (c *scaleObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.ScaleX = cloneFloat32Ptr(c.newScaleX)
+		obj.ScaleY = cloneFloat32Ptr(c.newScaleY)
+	}
+}
+
+func (c *scaleObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.ScaleX = cloneFloat32Ptr(c.oldScaleX)
+		obj.ScaleY = cloneFloat32Ptr(c.oldScaleY)
+	}
+}
+
+type alphaObjectCmd struct {
+	ed       *Editor
+	id       string
+	oldAlpha *float32
+	newAlpha *float32
+}
+
+func (c *alphaObjectCmd) Label() string { return "Set alpha " + c.id }
+
+func (c *alphaObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Alpha = cloneFloat32Ptr(c.newAlpha)
+	}
+}
+
+func (c *alphaObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Alpha = cloneFloat32Ptr(c.oldAlpha)
+	}
+}
+
+type zObjectCmd struct {
+	ed   *Editor
+	id   string
+	oldZ int
+	newZ int
+}
+
+func (c *zObjectCmd) Label() string { return "Set Z " + c.id }
+
+func (c *zObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Z = c.newZ
+	}
+}
+
+func (c *zObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Z = c.oldZ
+	}
+}
+
+type nameObjectCmd struct {
+	ed      *Editor
+	id      string
+	oldName string
+	newName string
+}
+
+func (c *nameObjectCmd) Label() string { return "Rename " + c.id }
+
+func (c *nameObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Name = c.newName
+	}
+}
+
+func (c *nameObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Name = c.oldName
+	}
+}
+
+// --- Cloning & validation helpers ---
+
+func applyPrefabDefaults(dst *sceneformat.ObjectDoc, pf Prefab) {
+	if dst.Name == "" && pf.Name != "" {
+		dst.Name = pf.Name
+	}
+	if dst.Sprite == nil && pf.Sprite != nil {
+		sp := *pf.Sprite
+		dst.Sprite = &sp
+	}
+	if dst.OriginX == 0 && pf.OriginX != 0 {
+		dst.OriginX = pf.OriginX
+	}
+	if dst.OriginY == 0 && pf.OriginY != 0 {
+		dst.OriginY = pf.OriginY
+	}
+	if dst.ScaleX == nil && pf.ScaleX != nil {
+		dst.ScaleX = cloneFloat32Ptr(pf.ScaleX)
+	}
+	if dst.ScaleY == nil && pf.ScaleY != nil {
+		dst.ScaleY = cloneFloat32Ptr(pf.ScaleY)
+	}
+	if !dst.FlipX && pf.FlipX {
+		dst.FlipX = true
+	}
+	if !dst.FlipY && pf.FlipY {
+		dst.FlipY = true
+	}
+	if dst.Alpha == nil && pf.Alpha != nil {
+		dst.Alpha = cloneFloat32Ptr(pf.Alpha)
+	}
+	if dst.Z == 0 && pf.Z != 0 {
+		dst.Z = pf.Z
+	}
+	if len(pf.Components) > 0 {
+		if dst.Components == nil {
+			dst.Components = make(map[string]any, len(pf.Components))
+		}
+		for k, v := range pf.Components {
+			if _, exists := dst.Components[k]; !exists {
+				dst.Components[k] = cloneAny(v)
+			}
+		}
+	}
+	if len(pf.Properties) > 0 {
+		if dst.Properties == nil {
+			dst.Properties = make(map[string]any, len(pf.Properties))
+		}
+		for k, v := range pf.Properties {
+			if _, exists := dst.Properties[k]; !exists {
+				dst.Properties[k] = cloneAny(v)
+			}
+		}
+	}
+}
+
+func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
+	if o.ID == "" {
+		return errors.New("editor: object id must not be empty")
+	}
+	if !isFiniteFloat32(o.X) || !isFiniteFloat32(o.Y) || !isFiniteFloat32(o.OriginX) || !isFiniteFloat32(o.OriginY) || !isFiniteFloat32(o.Rotation) {
+		return errors.New("editor: object transform must be finite")
+	}
+	if o.ScaleX != nil && !isFiniteFloat32(*o.ScaleX) {
+		return errors.New("editor: object scaleX must be finite")
+	}
+	if o.ScaleY != nil && !isFiniteFloat32(*o.ScaleY) {
+		return errors.New("editor: object scaleY must be finite")
+	}
+	if o.Alpha != nil && (!isFiniteFloat32(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1) {
+		return fmt.Errorf("editor: object alpha %v must be in [0, 1]", *o.Alpha)
+	}
+	if o.Sprite != nil && (o.Sprite.Atlas == "" || o.Sprite.Frame == "") {
+		return errors.New("editor: object sprite requires both atlas and frame")
+	}
+	return nil
+}
+
+func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {
+	out := o
+	out.ScaleX = cloneFloat32Ptr(o.ScaleX)
+	out.ScaleY = cloneFloat32Ptr(o.ScaleY)
+	out.Alpha = cloneFloat32Ptr(o.Alpha)
+	if o.Sprite != nil {
+		sp := *o.Sprite
+		out.Sprite = &sp
+	}
+	if o.Components != nil {
+		out.Components = cloneMap(o.Components)
+	}
+	if o.Properties != nil {
+		out.Properties = cloneMap(o.Properties)
+	}
+	return out
+}
+
+func cloneFloat32Ptr(p *float32) *float32 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = cloneAny(v)
+	}
+	return out
+}
+
+func cloneAny(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		return cloneMap(x)
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = cloneAny(x[i])
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func isFiniteFloat32(v float32) bool {
+	f := float64(v)
+	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
