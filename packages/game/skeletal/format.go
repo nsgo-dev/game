@@ -245,6 +245,12 @@ func Load(data []byte) (*SkeletonData, error) {
 	return sd, nil
 }
 
+// Compile validates cross-references in a hand-built SkeletonData and builds
+// the dense lookup indices and topological bone evaluation order its runtime
+// needs. Data loaded from a document is compiled already, and calling Compile
+// again is harmless.
+func (sd *SkeletonData) Compile() error { return sd.compile() }
+
 // compile validates cross-references and builds dense lookup indices and a
 // topological bone evaluation order.
 func (sd *SkeletonData) compile() error {
