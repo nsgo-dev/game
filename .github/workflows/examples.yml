@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
-          - macos-15
+          - depot-ubuntu-24.04-4
+          - depot-macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -45,7 +45,7 @@ jobs:
 
   check:
     name: Check and build web (Cave Run)
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -75,7 +75,7 @@ jobs:
 
   apple:
     name: Check Cave Run (iOS)
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 20
     steps:
       - name: Check out

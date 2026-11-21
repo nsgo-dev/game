@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
-          - macos-15
+          - depot-ubuntu-24.04-4
+          - depot-macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -43,7 +43,7 @@ jobs:
 
   check:
     name: Build and vet
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -69,7 +69,7 @@ jobs:
 
   apple:
     name: Build and vet (iOS)
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -92,7 +92,7 @@ jobs:
       - test
       - check
       - apple
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 10
     permissions:
       contents: write
