@@ -25,6 +25,8 @@ game/
 ├─ apps/website/     the site at https://game.nsgo.dev
 ├─ examples/         sample games
 └─ docs/
+   ├─ en/            the site's docs in English
+   └─ zh/            the same pages in Simplified Chinese
 ```
 
 Import the packages from `github.com/nsgo-dev/game/packages/game`:

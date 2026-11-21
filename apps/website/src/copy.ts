@@ -1,0 +1,201 @@
+import type { Lang } from './i18n'
+
+// The site's words, as nsgo.dev keeps its own in website/src/copy.ts. Add English and Chinese together; Chinese headings, titles and labels omit the trailing 。, body sentences keep it. Names of packages, types and code stay in English.
+
+const en = {
+  nav: {
+    skip: 'Skip to content',
+    primary: 'Primary',
+    home: 'Home',
+    docs: 'Docs',
+    roadmap: 'Roadmap',
+    nsgo: 'NSGo',
+    github: 'GitHub',
+    menu: 'Menu',
+    close: 'Close menu',
+    language: 'Language',
+    theme: { label: 'Appearance', light: 'Light', dark: 'Dark', system: 'System' },
+  },
+  site: {
+    title: 'NSGo Game: a Go game layer for NSGo',
+    description: 'A game layer for NSGo apps, written in Go: a fixed-step loop, sprites and sound, then 3D.',
+  },
+  home: {
+    badge: 'Early: APIs will change',
+    title: ['Games in Go,', 'on every NSGo target.'],
+    // Around the link to NSGo.
+    lead: [
+      'A game layer for ',
+      ' apps: a fixed-step loop, sprites and sound drawn into one native view, with the HUD and menus as ordinary NSGo views on top. It uses only NSGo’s public API, so an app that does not import it links none of it.',
+    ],
+    docs: 'Read the docs',
+    stages: {
+      eyebrow: 'Roadmap',
+      title: 'Two stages',
+      lead: '2D first, then 3D on the same loop, input, sound and scenes.',
+      label: (n: number) => `Stage ${n}`,
+      twoD: 'A fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn into a Canvas, a pixel buffer or a shader.',
+      threeD: 'Meshes, cameras, lights and glTF models on a GPU view NSGo adds for it. The loop, input, sound and scenes carry over.',
+      targetsLabel: 'Targets',
+      targetsTitle: 'Where NSGo runs',
+      more: 'Roadmap',
+    },
+    packages: {
+      eyebrow: 'Packages',
+      title: 'Three packages so far',
+      lead: 'Each is its own import, tested, and described in the reference.',
+      loop: 'Fixed-step updates on the display’s frames, one interpolated draw per frame. Pauses in the background.',
+      sprite: 'Atlases from TexturePacker or Aseprite, frame animations, and Z-ordered batches drawn into a Canvas.',
+      sound: 'A mixer with saved master and group volumes, per-sound limits, and music that crossfades.',
+      examples: 'Examples',
+    },
+  },
+  cta: {
+    title: 'Make a game with NSGo',
+    body: 'Read how a frame runs, then follow the plan on GitHub.',
+  },
+  footer: {
+    tagline: 'A game layer for NSGo apps, written in Go.',
+    columns: { project: 'Project', nsgo: 'NSGo', community: 'Community', legal: 'Legal' },
+    website: 'Website',
+    plan: 'Plan (nsgo#1047)',
+    issues: 'Issues',
+    nsgoGithub: 'NSGo on GitHub',
+    license: 'License (Apache-2.0)',
+    bottom: '© 2026 ONEO. Apache-2.0.',
+    top: 'Back to top',
+  },
+  docs: {
+    titleSuffix: 'NSGo Game Docs',
+    nav: 'Docs',
+    pages: 'Pages',
+    onThisPage: 'On this page',
+    previous: 'Previous',
+    next: 'Next',
+    edit: 'Edit this page',
+    fallback: 'This page is not translated yet, so it shows the English one.',
+  },
+  roadmap: {
+    title: 'Roadmap — NSGo Game',
+    description: 'Open and closed issues of nsgo-dev/game and its plan in NSGo, by stage and area.',
+    heading: 'Roadmap',
+    // Around the links to the repository's issues and to the plan.
+    intro: ['The issues of ', ' and the tasks of its plan, ', ', by stage and area.'],
+    // Around the date the issues were read.
+    asOf: [' As of ', '.'],
+    // Around the reason and the link to the plan.
+    unavailable: ['This build could not read the issues from GitHub (', '). See them on ', '.'],
+    stage: (n: number) => `Stage ${n}`,
+    closed: (closed: number, total: number) => `${closed} of ${total} closed`,
+    open: 'Open',
+    closedState: 'Closed',
+    other: 'Other',
+    dateLocale: 'en',
+  },
+  notFound: {
+    title: 'Page not found — NSGo Game',
+    heading: 'Page not found',
+    body: 'Nothing is at this address.',
+    where: 'Where to go',
+  },
+  ui: { copy: 'Copy', copied: 'Copied' },
+}
+
+export type Copy = typeof en
+
+const zh: Copy = {
+  nav: {
+    skip: '跳到正文',
+    primary: '主导航',
+    home: '首页',
+    docs: '文档',
+    roadmap: '路线图',
+    nsgo: 'NSGo',
+    github: 'GitHub',
+    menu: '打开菜单',
+    close: '关闭菜单',
+    language: '语言',
+    theme: { label: '外观', light: '浅色', dark: '深色', system: '跟随系统' },
+  },
+  site: {
+    title: 'NSGo Game：用 Go 为 NSGo 写游戏',
+    description: '用 Go 编写的 NSGo 应用游戏层：先是固定步长循环、精灵和声音，然后是 3D。',
+  },
+  home: {
+    badge: '早期阶段：API 还会变化',
+    title: ['用 Go 写游戏', '在 NSGo 的每个平台上运行'],
+    lead: [
+      '为 ',
+      ' 应用提供的游戏层：固定步长循环、精灵和声音绘制在同一个原生视图中，HUD 和菜单则是叠在上面的普通 NSGo 视图。它只使用 NSGo 的公开 API，没有导入它的应用不会链接其中任何代码。',
+    ],
+    docs: '阅读文档',
+    stages: {
+      eyebrow: '路线图',
+      title: '两个阶段',
+      lead: '先做 2D，再在同一套循环、输入、声音和场景之上做 3D。',
+      label: (n: number) => `阶段 ${n}`,
+      twoD: '固定步长循环、输入动作、精灵、瓦片地图、场景和声音，绘制到 Canvas、像素缓冲区或着色器中。',
+      threeD: '在 NSGo 为此新增的 GPU 视图上绘制网格、相机、光照和 glTF 模型。循环、输入、声音和场景直接沿用。',
+      targetsLabel: '目标平台',
+      targetsTitle: 'NSGo 能运行的平台',
+      more: '查看路线图',
+    },
+    packages: {
+      eyebrow: '包',
+      title: '目前有三个包',
+      lead: '每个包单独导入，都有测试，并在参考文档中有说明。',
+      loop: '在显示器的帧上做固定步长更新，每帧插值绘制一次。进入后台时暂停。',
+      sprite: '读取 TexturePacker 或 Aseprite 导出的图集，播放帧动画，并按 Z 顺序批量绘制到 Canvas 中。',
+      sound: '混音器：保存主音量和分组音量，限制每个声音同时播放的数量，音乐切换时交叉淡化。',
+      examples: '示例',
+    },
+  },
+  cta: {
+    title: '用 NSGo 做一个游戏',
+    body: '先了解一帧是如何运行的，再到 GitHub 上关注开发计划。',
+  },
+  footer: {
+    tagline: '用 Go 编写的 NSGo 应用游戏层。',
+    columns: { project: '项目', nsgo: 'NSGo', community: '社区', legal: '许可' },
+    website: '官网',
+    plan: '开发计划（nsgo#1047）',
+    issues: 'Issues',
+    nsgoGithub: 'NSGo 的 GitHub',
+    license: '许可证（Apache-2.0）',
+    bottom: '© 2026 ONEO。Apache-2.0。',
+    top: '回到顶部',
+  },
+  docs: {
+    titleSuffix: 'NSGo Game 文档',
+    nav: '文档',
+    pages: '目录',
+    onThisPage: '本页内容',
+    previous: '上一页',
+    next: '下一页',
+    edit: '编辑此页',
+    fallback: '这一页还没有中文版，下面显示的是英文原文。',
+  },
+  roadmap: {
+    title: '路线图 — NSGo Game',
+    description: '按阶段和领域列出 nsgo-dev/game 及其在 NSGo 中的开发计划的 issue，包括未关闭和已关闭的。',
+    heading: '路线图',
+    intro: ['按阶段和领域列出 ', ' 的 issue，以及开发计划 ', ' 中的任务。'],
+    asOf: ['数据截至 ', '。'],
+    unavailable: ['这次构建没能从 GitHub 读取 issue（', '）。请到 ', ' 查看。'],
+    stage: (n: number) => `阶段 ${n}`,
+    closed: (closed: number, total: number) => `已关闭 ${closed} / ${total}`,
+    open: '未关闭',
+    closedState: '已关闭',
+    other: '其他',
+    dateLocale: 'zh-CN',
+  },
+  notFound: {
+    title: '页面不存在 — NSGo Game',
+    heading: '页面不存在',
+    body: '这个地址上没有内容。',
+    where: '前往',
+  },
+  ui: { copy: '复制', copied: '已复制' },
+}
+
+export const copies: Record<Lang, Copy> = { en, zh }

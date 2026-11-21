@@ -1,4 +1,4 @@
-// Build-time content: the docs from the repository's Markdown, the home page's Go snippets, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read or fetched in the browser.
+// Build-time content: the docs from the repository's Markdown in each language, the home page's Go snippets, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read or fetched in the browser.
 
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -12,11 +12,14 @@ import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
 import type { DocHeading, DocPage, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import type { Lang } from '../src/i18n'
 
 const REPO = 'nsgo-dev/game'
 const PLAN = { repo: 'nsgo-dev/nsgo', number: 1047 }
 const SNIPPETS: Snippet['id'][] = ['loop', 'sprite', 'sound']
 const THEMES = { light: 'github-light', dark: 'github-dark' } as const
+// The docs' languages, each a directory of docs/: English has every page, and a page another language lacks shows the English one.
+const LANGS = ['en', 'zh'] as const satisfies readonly Lang[]
 
 const modules = {
   'virtual:docs': loadDocsModule,
@@ -55,7 +58,10 @@ export function siteContent(): Plugin {
       if (!(name in modules) || !ctx) return undefined
       const moduleId = name as ModuleId
       if (moduleId === 'virtual:docs') {
-        for (const file of await markdownFiles(ctx.docsDir)) this.addWatchFile(path.join(ctx.docsDir, file))
+        for (const lang of LANGS) {
+          const dir = path.join(ctx.docsDir, lang)
+          for (const file of await markdownFiles(dir)) this.addWatchFile(path.join(dir, file))
+        }
       }
       if (moduleId === 'virtual:snippets') {
         for (const snippet of SNIPPETS) this.addWatchFile(path.join(ctx.snippetsDir, `${snippet}.go.txt`))
@@ -78,13 +84,20 @@ async function markdownFiles(dir: string): Promise<string[]> {
   return files.sort((a, b) => (a === 'index.md' ? -1 : b === 'index.md' ? 1 : a.localeCompare(b)))
 }
 
+// Each language lists English's pages in English's order, its own translation where it has one.
 async function loadDocsModule(ctx: Context): Promise<string> {
-  const pages: DocPage[] = []
-  for (const file of await markdownFiles(ctx.docsDir)) {
-    const source = await readFile(path.join(ctx.docsDir, file), 'utf8')
-    pages.push(await renderDoc(file.slice(0, -'.md'.length), source, ctx))
+  const english = await markdownFiles(path.join(ctx.docsDir, 'en'))
+  const docs = {} as Record<Lang, DocPage[]>
+  for (const lang of LANGS) {
+    const own = new Set(await markdownFiles(path.join(ctx.docsDir, lang)))
+    docs[lang] = []
+    for (const file of english) {
+      const from: Lang = own.has(file) ? lang : 'en'
+      const source = await readFile(path.join(ctx.docsDir, from, file), 'utf8')
+      docs[lang].push(await renderDoc(file.slice(0, -'.md'.length), source, { lang, from }, ctx))
+    }
   }
-  return `export const docs = ${JSON.stringify(pages)}`
+  return `export const docs = ${JSON.stringify(docs)}`
 }
 
 // MdNode is the part of an mdast node this file reads and writes.
@@ -96,20 +109,21 @@ interface MdNode {
   value?: string
 }
 
-async function renderDoc(slug: string, source: string, ctx: Context): Promise<DocPage> {
+// lang is the language the page is shown in, from the one its Markdown is written in: the two differ when lang has no translation of it.
+async function renderDoc(slug: string, source: string, { lang, from }: { lang: Lang; from: Lang }, ctx: Context): Promise<DocPage> {
   const meta = { title: slug, description: '' }
   const headings: DocHeading[] = []
   const file = await unified()
     .use(remarkParse)
     .use(remarkGfm)
-    .use(docTransform(meta, ctx) as UnifiedPlugin)
+    .use(docTransform(meta, lang, from, ctx) as UnifiedPlugin)
     .use(remarkRehype)
     .use(rehypeSlug)
     .use(collectHeadings(headings) as UnifiedPlugin)
     .use(rehypeShiki, { themes: THEMES, defaultColor: false })
     .use(rehypeStringify)
     .process(source)
-  return { slug, title: meta.title, description: meta.description, html: String(file), headings }
+  return { slug, title: meta.title, description: meta.description, html: String(file), headings, fallback: from !== lang, source: `docs/${from}/${slug}.md` }
 }
 
 // HastNode is the part of a hast node collectHeadings reads.
@@ -140,8 +154,8 @@ function hastText(node: HastNode): string {
   return (node.children ?? []).map(hastText).join('')
 }
 
-// docTransform takes the first heading out as the page's title and its first paragraph as its description, and points the Markdown's links at the site's docs routes or at the files on GitHub.
-function docTransform(meta: { title: string; description: string }, ctx: Context) {
+// docTransform takes the first heading out as the page's title and its first paragraph as its description, and points the Markdown's links at the site's docs routes in lang or at the files on GitHub.
+function docTransform(meta: { title: string; description: string }, lang: Lang, from: Lang, ctx: Context) {
   return () => (tree: MdNode) => {
     const children = tree.children ?? []
     const h1 = children.findIndex((n) => n.type === 'heading' && n.depth === 1)
@@ -152,20 +166,21 @@ function docTransform(meta: { title: string; description: string }, ctx: Context
     const paragraph = children.find((n) => n.type === 'paragraph')
     if (paragraph) meta.description = textOf(paragraph)
     walk(tree, (node) => {
-      if ((node.type === 'link' || node.type === 'definition') && node.url) node.url = rewriteLink(node.url, ctx)
+      if ((node.type === 'link' || node.type === 'definition') && node.url) node.url = rewriteLink(node.url, lang, from, ctx)
     })
   }
 }
 
-function rewriteLink(url: string, ctx: Context): string {
+// A link to another page stays in lang, so a Chinese page, or the English one shown in its place, links to Chinese pages.
+function rewriteLink(url: string, lang: Lang, from: Lang, ctx: Context): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('#') || url.startsWith('//')) return url
   const [target = '', hash = ''] = url.split(/(?=#)/)
   if (target.endsWith('.md') && !target.includes('/')) {
     const slug = target.slice(0, -'.md'.length)
-    return `${ctx.base}docs/${slug === 'index' ? '' : `${slug}/`}${hash}`
+    return `${ctx.base}${lang === 'en' ? '' : `${lang}/`}docs/${slug === 'index' ? '' : `${slug}/`}${hash}`
   }
-  // Anything else is a file or directory of the repository, relative to docs/.
-  const repoPath = path.posix.normalize(path.posix.join('docs', target))
+  // Anything else is a file or directory of the repository, relative to the Markdown's directory, docs/<from>/.
+  const repoPath = path.posix.normalize(path.posix.join('docs', from, target))
   return `https://github.com/${REPO}/blob/main/${repoPath}${hash}`
 }
 

@@ -9,6 +9,10 @@ export interface DocPage {
   html: string
   // headings are the page's second- and third-level headings, in order, for its contents list.
   headings: DocHeading[]
+  // fallback is true when the page's language has no translation of it, so it shows the English one.
+  fallback: boolean
+  // source is the Markdown's path in the repository, such as docs/zh/index.md, for the page's edit link.
+  source: string
 }
 
 export interface DocHeading {

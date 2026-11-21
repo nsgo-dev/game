@@ -45,7 +45,7 @@ jobs:
           bun-version: "1.4.4"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      # The site's base path: "/" on its custom domain, "/game/" on nsgo-dev.github.io until one is set. A pull request, which deploys nothing, builds for "/".
+      # The site's base path and origin: "/" on its custom domain, "/game/" on nsgo-dev.github.io until one is set. A pull request, which deploys nothing, builds for "/" on the domain in public/CNAME.
       - name: Configure Pages
         id: pages
         if: github.event_name != 'pull_request'
@@ -53,6 +53,7 @@ jobs:
       - name: Build, typecheck and prerender
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bun run build
       - name: Upload the Pages artifact
