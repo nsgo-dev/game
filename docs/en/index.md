@@ -32,6 +32,19 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors and behavior trees |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | Delta-encoded input `Recorder`/`Player` and deterministic test assertions |
+| `math2d` | `github.com/nsgo-dev/game/packages/game/math2d` | [math2d](math2d.md) | Shared 2D `Vec2`, `Rect`, `Circle` and `Affine` types with lossless `core` conversions |
+| `gameui` | `github.com/nsgo-dev/game/packages/game/gameui` | [gameui](gameui.md) | In-canvas box-layout menus, virtual-resolution scaling, spatial focus nav and world-anchored views |
+| `lights2d` | `github.com/nsgo-dev/game/packages/game/lights2d` | [lights2d](lights2d.md) | 2D ambient darkness, point/cone lights, visibility-polygon shadows and normal-mapped sprites |
+| `a11y` | `github.com/nsgo-dev/game/packages/game/a11y` | [a11y](a11y.md) | Live captions, color-blind palettes and CVD simulation, persisted assist options and accessible menus |
+| `l10n` | `github.com/nsgo-dev/game/packages/game/l10n` | [l10n](l10n.md) | JSON string tables with CLDR plurals, script `FontSet`, RTL visual ordering and per-language asset catalogs |
+| `perf` | `github.com/nsgo-dev/game/packages/game/perf` | [perf](perf.md) | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
+| `net` | `github.com/nsgo-dev/game/packages/game/net` | [net](net.md) | Cross-target WebSocket/UDP/loopback transports, delta replication and lockstep/rollback netcode |
+| `modding` | `github.com/nsgo-dev/game/packages/game/modding` | [modding](modding.md) | Capability-sandboxed TSX `"game"` modding API and `mod.json` dependency/lifecycle manager |
+| `math3d` | `github.com/nsgo-dev/game/packages/game/math3d` | [math3d](math3d.md) | 3D vectors, matrices, quaternions, transforms, bounds, rays, frustums and conventions |
+| `scene3d` | `github.com/nsgo-dev/game/packages/game/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
+| `anim3d` | `github.com/nsgo-dev/game/packages/game/anim3d` | [anim3d](anim3d.md) | 3D pose state machines, 1D/2D blend spaces, bone-masked/additive layers, clip events, IK and root motion |
+| `world3d` | `github.com/nsgo-dev/game/packages/game/world3d` | [world3d](world3d.md) | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, scattered foliage and floating-origin streaming |
+| `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos and GPU budgets |
 
 For a single-page summary of the core APIs, see [Packages](packages.md).
 

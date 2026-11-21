@@ -12,6 +12,41 @@ const NARROW = '(max-width: 820px)'
 // Before the first paint on narrow screens, fold the pages above the article, as nsgo.dev's docs do.
 const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector('.docs__nav').open = false;`
 
+type GroupKey = 'guides' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
+
+const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonly string[] }[] = [
+  { key: 'guides', slugs: ['index', 'getting-started', 'packages', 'shipping'] },
+  {
+    key: 'core2d',
+    slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'text', 'particles', 'save', 'debug', 'flow', 'tween', 'ai', 'replay'],
+  },
+  { key: 'extended2d', slugs: ['math2d', 'gameui', 'lights2d', 'a11y', 'l10n', 'perf'] },
+  { key: 'multiplayerModding', slugs: ['net', 'modding'] },
+  { key: 'threeD', slugs: ['math3d', 'scene3d', 'anim3d', 'world3d', 'render3d'] },
+]
+
+function groupDocs(pages: DocPage[]): { key: GroupKey; items: DocPage[] }[] {
+  const bySlug = new Map(pages.map((p) => [p.slug, p]))
+  const assigned = new Set<string>()
+  const groups: { key: GroupKey; items: DocPage[] }[] = []
+
+  for (const spec of SIDEBAR_GROUPS) {
+    const items: DocPage[] = []
+    for (const slug of spec.slugs) {
+      const page = bySlug.get(slug)
+      if (page) {
+        items.push(page)
+        assigned.add(slug)
+      }
+    }
+    if (items.length > 0) groups.push({ key: spec.key, items })
+  }
+
+  const remaining = pages.filter((p) => !assigned.has(p.slug))
+  if (remaining.length > 0) groups.push({ key: 'other', items: remaining })
+  return groups
+}
+
 export function findDoc(lang: Lang, slug: string): DocPage | undefined {
   return docs[lang].find((d) => d.slug === slug)
 }
@@ -38,7 +73,8 @@ function DocLink({ lang, doc, children, className }: { lang: Lang; doc: DocPage;
 export function DocView({ doc }: { doc: DocPage }) {
   const lang = useLang()
   const copy = copies[lang]
-  const pages = docs[lang]
+  const groups = groupDocs(docs[lang])
+  const pages = groups.flatMap((g) => g.items)
   const nav = useRef<HTMLDetailsElement>(null)
   const prose = useRef<HTMLDivElement>(null)
   const current = useCurrentHeading(doc)
@@ -61,17 +97,20 @@ export function DocView({ doc }: { doc: DocPage }) {
             <Icon name="chevron" size={14} />
           </summary>
           <nav aria-label={copy.docs.nav}>
-            <div className="docs__group">
-              <ul>
-                {pages.map((d) => (
-                  <li key={d.slug}>
-                    <DocLink lang={lang} doc={d}>
-                      {d.title}
-                    </DocLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {groups.map((group) => (
+              <div key={group.key} className="docs__group">
+                <p className="docs__group-title">{copy.docs.groups[group.key]}</p>
+                <ul>
+                  {group.items.map((d) => (
+                    <li key={d.slug}>
+                      <DocLink lang={lang} doc={d}>
+                        {d.title}
+                      </DocLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </nav>
         </details>
         <script dangerouslySetInnerHTML={{ __html: FOLD_SCRIPT }} />

@@ -1,0 +1,87 @@
+# scene3d
+
+`game/scene3d` 提供 3D 场景树（含脏标记传播）、命名插槽与类型化附件、用于大规模裁剪与查询的动态胖 AABB / SAH `BVH`、透视与正交相机及轨道/第一人称/第三人称控制器，以及屏幕空间 3D 拾取。
+
+```go
+import "github.com/nsgo-dev/game/packages/game/scene3d"
+```
+
+所有变换、投影、视锥体与射线均遵循 [math3d](math3d.md) 约定（右手 Y 轴向上、列主序、`[0, 1]` NDC 深度）。
+
+## 节点层级、插槽与附件
+
+使用 `NewScene()` 与 `NewNode(name)` 构建场景树，确保默认变换、可见性、图层和包围盒正确初始化：
+
+```go
+sc := scene3d.NewScene()
+hero := scene3d.NewNode("hero")
+hero.SetPosition(math3d.Vec3{X: 0, Y: 0, Z: -4})
+hero.SetLocalBounds(math3d.AABB{Min: math3d.Vec3{X: -0.5, Y: 0, Z: -0.5}, Max: math3d.Vec3{X: 0.5, Y: 1.8, Z: 0.5}})
+
+// 定义命名插槽并挂载武器节点：
+hero.DefineSocket("hand_r", math3d.Transform{
+	Pos:   math3d.Vec3{X: 0.4, Y: 1.1, Z: -0.2},
+	Rot:   math3d.QuatIdentity(),
+	Scale: math3d.Vec3One(),
+})
+sword := scene3d.NewNode("sword")
+_ = hero.Attach("hand_r", sword)
+
+// 在任意节点上存取类型化业务数据：
+hero.SetAttachment("hp", 100)
+hp, ok := scene3d.AttachmentAs[int](hero, "hp")
+_ = sc.Add(hero)
+_, _ = hp, ok
+```
+
+支持 `Reparent` / `ReparentKeepWorld`、`Detach`、`FindByName`、`FindByTag`、`Walk`、`WorldTransform()`、`WorldMatrix()`、`WorldBounds()` 与 `HierarchyBounds()`。调用 `sc.UpdateTransforms()` 仅更新脏子树，并自动同步内部 BVH。
+
+## 动态胖 AABB / SAH `BVH` 与空间查询
+
+`Scene` 内置动态胖 AABB 包围体层次树（`BVH`），可在万级乃至五万级节点场景中高效执行裁剪与查询：
+
+```go
+sc.UpdateTransforms()
+
+// 视锥体裁剪（用 CullFrustumInto 复用切片可避免分配）：
+visible = sc.CullFrustumInto(cam.Frustum(), visible[:0])
+
+// 球体、盒体与射线查询：
+nearby := sc.QuerySphere(math3d.Sphere{Center: heroPos, Radius: 12})
+inBox := sc.QueryAABB(triggerBox)
+hit, ok := sc.RaycastFirst(ray, scene3d.LayerAll)
+_, _, _, _ = nearby, inBox, hit, ok
+```
+
+大批量加载关卡节点后调用 `sc.RebuildBVH()` 可按表面积启发式（SAH）重建平衡树。也可独立创建 `scene3d.NewBVH()`（`Insert`、`Update`、`Remove`、`Rebuild`、`QueryFrustum`、`QueryAABB`、`QuerySphere`、`Raycast`、`RaycastAll`）。
+
+## 相机与控制器
+
+通过 `NewPerspectiveCamera` / `NewOrthographicCamera` 创建相机（或用 `cam.SyncFromNode(node)` 跟随场景节点），并搭配三种内置控制器：
+
+| 控制器 | 构造函数 | 核心方法 |
+| --- | --- | --- |
+| `OrbitController` | `NewOrbitController(target, dist)` | `Orbit`、`Zoom`、`Pan`、`SetTarget`、`SetAngles`、`Snap`、`Update(cam, dt)` |
+| `FPSController` | `NewFPSController(pos)` | `Look(dYaw, dPitch)`、`Move(fwd, right, up, dt)`、`Apply(cam)`（`Grounded` 锁定在 XZ 平面移动） |
+| `ThirdPersonController` | `NewThirdPersonController()` | `Snap`、`Update(cam, targetPos, targetForward, dt)`，支持防穿墙回调 `ObstructionCheck` |
+
+```go
+cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 3, Z: 8}, math3d.DegToRad(60), 16.0/9.0, 0.1, 300)
+tp := scene3d.NewThirdPersonController()
+tp.ObstructionCheck = scene3d.SceneObstructionCheck(sc, scene3d.LayerDefault, hero)
+
+// 在 game.Loop.Update 中：
+tp.Update(cam, heroPos, heroForward, dt)
+```
+
+## 3D 拾取
+
+为可拾取节点挂载 `Collider`（`*MeshCollider` 或 `*SphereCollider`；未设置时回退到 `LocalBounds`），即可从屏幕坐标直接拾取：
+
+```go
+if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.LayerAll); ok {
+	fmt.Printf("picked %s at %v (tri %d)\n", hit.Node.Name, hit.Point, hit.TriangleIndex)
+}
+```
+
+需要按由近到远获取全部命中时使用 `PickAll`，底层基于 `cam.ScreenRay(screenX, screenY, viewW, viewH)`；将 3D 世界坐标投影回 2D 视口坐标请使用 `cam.WorldToScreen`。
