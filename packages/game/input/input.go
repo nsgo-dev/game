@@ -1,0 +1,405 @@
+// Package input turns touch regions and mouse buttons into named actions and axes, sampled once per game.Loop step and saved in core.Storage across launches.
+package input
+
+import (
+	"slices"
+
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+// InputKind says what kind of physical input an Input watches.
+type InputKind uint8
+
+const (
+	// InputNone is the zero Input, which is never active.
+	InputNone InputKind = iota
+	// InputTouchRegion is active while any touch finger lies inside a rectangle.
+	InputTouchRegion
+	// InputMouseButton is active while a mouse button is held down on the view.
+	InputMouseButton
+	// InputMouseRegion is active while a mouse button is held down inside a rectangle.
+	InputMouseRegion
+)
+
+// Input is one physical trigger bound to an action: a touch region, a mouse button or a mouse button in a region.
+//
+// Make one with TouchRegion, MouseButton or MouseRegion. Its zero value is never active.
+type Input struct {
+	Kind   InputKind
+	Bounds core.Bounds
+	Button core.MouseButton
+}
+
+// TouchRegion returns an input that is active while any touch finger lies inside rect: from its origin, included, to its far edges, excluded, as core.Bounds.Contains tests.
+func TouchRegion(rect core.Bounds) Input {
+	return Input{Kind: InputTouchRegion, Bounds: rect}
+}
+
+// MouseButton returns an input that is active while button is held down on the view. core.MouseButtonNone is never active.
+func MouseButton(button core.MouseButton) Input {
+	return Input{Kind: InputMouseButton, Button: button}
+}
+
+// MouseRegion returns an input that is active while button is held down and the mouse lies inside rect, as core.Bounds.Contains tests. core.MouseButtonNone is never active.
+func MouseRegion(rect core.Bounds, button core.MouseButton) Input {
+	return Input{Kind: InputMouseRegion, Bounds: rect, Button: button}
+}
+
+type axisBinding struct {
+	negative string
+	positive string
+}
+
+// Actions maps touch regions and mouse buttons to named actions and axes, sampled once per fixed game.Loop step.
+//
+// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave and OnContextMenu) and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
+//
+// The zero value is ready to use. Actions' methods are called on the engine's goroutine, as core.View's callbacks and Loop.Update are.
+type Actions struct {
+	// MapPoint, when set, transforms a touch or mouse position from the view's coordinates before testing TouchRegion and MouseRegion bounds, such as mapping a view to a letterboxed virtual canvas. Returning false ignores the point for region tests.
+	MapPoint func(core.Point) (core.Point, bool)
+
+	bindings map[string][]Input
+	axes     map[string]axisBinding
+
+	// Raw physical state as reported by events.
+	touches     map[int]core.Point
+	mousePos    core.Point
+	hasMousePos bool
+	pressDown   bool
+	moveButton  core.MouseButton
+	rightPulse  bool
+
+	// Per-action rising-edge latches and step snapshots.
+	rawActive map[string]bool
+	latched   map[string]bool
+	curr      map[string]bool
+	prev      map[string]bool
+}
+
+// NewActions returns an Actions with no bindings.
+func NewActions() *Actions {
+	return &Actions{}
+}
+
+// Bind binds name to inputs, replacing any previous inputs for name. Calling Bind with no inputs unbinds name.
+func (a *Actions) Bind(name string, inputs ...Input) {
+	if len(inputs) == 0 {
+		a.Unbind(name)
+		return
+	}
+	if a.bindings == nil {
+		a.bindings = make(map[string][]Input)
+	}
+	a.bindings[name] = slices.Clone(inputs)
+	if a.rawActive == nil {
+		a.rawActive = make(map[string]bool)
+	}
+	a.rawActive[name] = a.activeNow(name)
+	delete(a.latched, name)
+}
+
+// Unbind removes all inputs bound to name.
+func (a *Actions) Unbind(name string) {
+	delete(a.bindings, name)
+	delete(a.rawActive, name)
+	delete(a.latched, name)
+}
+
+// Bindings returns a copy of the inputs currently bound to name, or nil if name is unbound.
+func (a *Actions) Bindings(name string) []Input {
+	in := a.bindings[name]
+	if len(in) == 0 {
+		return nil
+	}
+	return slices.Clone(in)
+}
+
+// BindAxis binds axis name to two opposite actions: negative drives it toward -1 and positive toward +1. Calling BindAxis with two empty names unbinds the axis.
+func (a *Actions) BindAxis(name, negative, positive string) {
+	if negative == "" && positive == "" {
+		a.UnbindAxis(name)
+		return
+	}
+	if a.axes == nil {
+		a.axes = make(map[string]axisBinding)
+	}
+	a.axes[name] = axisBinding{negative: negative, positive: positive}
+}
+
+// UnbindAxis removes the axis binding for name.
+func (a *Actions) UnbindAxis(name string) {
+	delete(a.axes, name)
+}
+
+// AxisBinding returns the negative and positive action names bound to axis name.
+func (a *Actions) AxisBinding(name string) (negative, positive string, ok bool) {
+	ax, ok := a.axes[name]
+	return ax.negative, ax.positive, ok
+}
+
+// Step samples the current input state into the step snapshot. Call it once at the start of each game.Loop.Update step.
+func (a *Actions) Step() {
+	a.prev, a.curr = a.curr, a.prev
+	clear(a.curr)
+	if len(a.bindings) > 0 && a.curr == nil {
+		a.curr = make(map[string]bool, len(a.bindings))
+	}
+	for name := range a.bindings {
+		now := a.activeNow(name)
+		if a.rawActive != nil {
+			a.rawActive[name] = now
+		}
+		if now || a.latched[name] {
+			a.curr[name] = true
+		}
+	}
+	clear(a.latched)
+}
+
+// Reset clears active touches, held mouse buttons, pending latches and the current step snapshot, keeping all action and axis bindings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+func (a *Actions) Reset() {
+	clear(a.touches)
+	a.mousePos = core.Point{}
+	a.hasMousePos = false
+	a.pressDown = false
+	a.moveButton = core.MouseButtonNone
+	a.rightPulse = false
+	clear(a.rawActive)
+	clear(a.latched)
+	clear(a.curr)
+	clear(a.prev)
+}
+
+// Pressed reports whether name is held during the current step.
+func (a *Actions) Pressed(name string) bool {
+	return a.curr[name]
+}
+
+// JustPressed reports whether name became pressed on the current step and was not pressed on the previous step.
+func (a *Actions) JustPressed(name string) bool {
+	return a.curr[name] && !a.prev[name]
+}
+
+// JustReleased reports whether name was pressed on the previous step and is no longer pressed on the current step.
+func (a *Actions) JustReleased(name string) bool {
+	return !a.curr[name] && a.prev[name]
+}
+
+// Axis returns the value of name in [-1, 1] for the current step. For an axis bound with BindAxis, it returns -1 when only its negative action is pressed, +1 when only its positive action is pressed, and 0 when neither or both are pressed. Otherwise it returns 1 when action name is pressed and 0 when it is not.
+func (a *Actions) Axis(name string) float64 {
+	if ax, ok := a.axes[name]; ok {
+		var v float64
+		if ax.negative != "" && a.Pressed(ax.negative) {
+			v -= 1
+		}
+		if ax.positive != "" && a.Pressed(ax.positive) {
+			v += 1
+		}
+		return v
+	}
+	if a.Pressed(name) {
+		return 1
+	}
+	return 0
+}
+
+// OnTouch records a touch event from a view's OnTouch callback.
+func (a *Actions) OnTouch(ev core.TouchEvent) {
+	switch ev.Phase {
+	case core.TouchStart, core.TouchMove:
+		if len(ev.Touches) > 0 && a.touches == nil {
+			a.touches = make(map[int]core.Point, len(ev.Touches))
+		}
+		for _, t := range ev.Touches {
+			a.touches[t.ID] = t.Position
+		}
+	case core.TouchEnd, core.TouchCancel:
+		if len(ev.Touches) == 0 {
+			if ev.Phase == core.TouchCancel {
+				clear(a.touches)
+			}
+		} else {
+			hasChanged := false
+			for _, t := range ev.Touches {
+				if t.Changed {
+					hasChanged = true
+					break
+				}
+			}
+			for _, t := range ev.Touches {
+				if t.Changed || !hasChanged {
+					delete(a.touches, t.ID)
+				} else {
+					if a.touches == nil {
+						a.touches = make(map[int]core.Point, len(ev.Touches))
+					}
+					a.touches[t.ID] = t.Position
+				}
+			}
+		}
+	}
+	a.syncRaw()
+}
+
+// OnPressDown records a primary pointer press from a view's OnPressDown callback. Keyboard presses and presses synthesized while a touch finger is active are ignored so touches only trigger TouchRegion bindings.
+func (a *Actions) OnPressDown(ev core.PressEvent) {
+	if ev.Keyboard || len(a.touches) > 0 {
+		return
+	}
+	a.mousePos = ev.Position
+	a.hasMousePos = true
+	a.pressDown = true
+	a.syncRaw()
+}
+
+// OnPressUp records a primary pointer release from a view's OnPressUp callback.
+func (a *Actions) OnPressUp(ev core.PressEvent) {
+	if !ev.Keyboard && len(a.touches) == 0 {
+		a.mousePos = ev.Position
+		a.hasMousePos = true
+	}
+	a.pressDown = false
+	if a.moveButton == core.MouseButtonLeft {
+		a.moveButton = core.MouseButtonNone
+	}
+	a.syncRaw()
+}
+
+// OnMouseMove records mouse movement and any held button from a view's OnMouseMove callback.
+func (a *Actions) OnMouseMove(ev core.MouseEvent) {
+	a.mousePos = ev.Position
+	a.hasMousePos = true
+	prev := a.moveButton
+	a.moveButton = ev.PressedButton
+	if prev == core.MouseButtonLeft && ev.PressedButton != core.MouseButtonLeft {
+		a.pressDown = false
+	}
+	a.syncRaw()
+}
+
+// OnMouseLeave clears held mouse buttons when the pointer leaves the view.
+func (a *Actions) OnMouseLeave(ev core.MouseEvent) {
+	a.mousePos = ev.Position
+	a.hasMousePos = false
+	a.pressDown = false
+	a.moveButton = core.MouseButtonNone
+	a.syncRaw()
+}
+
+// OnContextMenu records a secondary (right) click from a view's OnContextMenu callback as a single-step pulse of core.MouseButtonRight at ev.Position.
+func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
+	a.mousePos = ev.Position
+	a.hasMousePos = true
+	a.rightPulse = true
+	a.syncRaw()
+	a.rightPulse = false
+	a.syncRaw()
+}
+
+// Attach wires a's touch, press, mouse and context-menu handlers onto v, chaining any callbacks already set on v.
+func (a *Actions) Attach(v *core.View) {
+	if v == nil {
+		return
+	}
+	if prev := v.OnTouch; prev != nil {
+		v.OnTouch = func(ev core.TouchEvent) { a.OnTouch(ev); prev(ev) }
+	} else {
+		v.OnTouch = a.OnTouch
+	}
+	if prev := v.OnPressDown; prev != nil {
+		v.OnPressDown = func(ev core.PressEvent) { a.OnPressDown(ev); prev(ev) }
+	} else {
+		v.OnPressDown = a.OnPressDown
+	}
+	if prev := v.OnPressUp; prev != nil {
+		v.OnPressUp = func(ev core.PressEvent) { a.OnPressUp(ev); prev(ev) }
+	} else {
+		v.OnPressUp = a.OnPressUp
+	}
+	if prev := v.OnMouseMove; prev != nil {
+		v.OnMouseMove = func(ev core.MouseEvent) { a.OnMouseMove(ev); prev(ev) }
+	} else {
+		v.OnMouseMove = a.OnMouseMove
+	}
+	if prev := v.OnMouseLeave; prev != nil {
+		v.OnMouseLeave = func(ev core.MouseEvent) { a.OnMouseLeave(ev); prev(ev) }
+	} else {
+		v.OnMouseLeave = a.OnMouseLeave
+	}
+	if prev := v.OnContextMenu; prev != nil {
+		v.OnContextMenu = func(ev core.ContextMenuEvent) { a.OnContextMenu(ev); prev(ev) }
+	} else {
+		v.OnContextMenu = a.OnContextMenu
+	}
+}
+
+// syncRaw updates rawActive for every bound action and latches any rising edge so a tap between two Step calls is not lost.
+func (a *Actions) syncRaw() {
+	if len(a.bindings) == 0 {
+		return
+	}
+	if a.rawActive == nil {
+		a.rawActive = make(map[string]bool, len(a.bindings))
+	}
+	for name := range a.bindings {
+		now := a.activeNow(name)
+		if now && !a.rawActive[name] {
+			if a.latched == nil {
+				a.latched = make(map[string]bool)
+			}
+			a.latched[name] = true
+		}
+		a.rawActive[name] = now
+	}
+}
+
+func (a *Actions) activeNow(name string) bool {
+	for _, in := range a.bindings[name] {
+		if a.inputActive(in) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Actions) inputActive(in Input) bool {
+	switch in.Kind {
+	case InputTouchRegion:
+		for _, pt := range a.touches {
+			if p, ok := a.mapPoint(pt); ok && in.Bounds.Contains(p) {
+				return true
+			}
+		}
+	case InputMouseButton:
+		return a.mouseButtonDown(in.Button)
+	case InputMouseRegion:
+		if !a.hasMousePos || !a.mouseButtonDown(in.Button) {
+			return false
+		}
+		if p, ok := a.mapPoint(a.mousePos); ok && in.Bounds.Contains(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Actions) mouseButtonDown(b core.MouseButton) bool {
+	if b == core.MouseButtonNone {
+		return false
+	}
+	if b == core.MouseButtonLeft {
+		return a.pressDown || a.moveButton == core.MouseButtonLeft
+	}
+	if b == core.MouseButtonRight && a.rightPulse {
+		return true
+	}
+	return a.moveButton == b
+}
+
+func (a *Actions) mapPoint(p core.Point) (core.Point, bool) {
+	if a.MapPoint == nil {
+		return p, true
+	}
+	return a.MapPoint(p)
+}
