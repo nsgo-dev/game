@@ -10,14 +10,14 @@ game/
 ├─ packages/
 │  └─ game/          Go module github.com/nsgo-dev/game/packages/game
 ├─ examples/         playable sample games built on the game layer
-├─ template/         minimal starter project for new games
+├─ template/         Go module publishing the starter from template/template/
 ├─ docs/
 │  ├─ en/            site documentation in English
 │  └─ zh/            the same pages in Simplified Chinese
 └─ apps/website/     the site at https://game.nsgo.dev
 ```
 
-The root `go.work` includes `./packages/game`. The `nsgo` CLI is declared as a `tool` dependency in `packages/game/go.mod`, so run `go tool nsgo ...` from `packages/game` (just as CI does).
+The root `go.work` links the starter and examples to `./packages/game`. The `nsgo` CLI is declared as a `tool` dependency in `packages/game/go.mod`, so run `go tool nsgo ...` from `packages/game` (just as CI does).
 
 ## Development setup
 

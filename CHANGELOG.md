@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game`: fixed-step `Loop` built on NSGo's `RequestAnimationFrame`, pausing in the background and interpolating draw frames.
 - `game/sprite`: atlases, frames, animations, sprites and batches drawn into a `Canvas`.
 - `game/sound`: `Mixer` for sound effects and music, with background pause and resume.
+- Create a runnable starter game with `nsgo init -template github.com/nsgo-dev/game/template` (#38 by @houko).
 - Website and documentation in English and Simplified Chinese (`apps/website`, `docs/en`, `docs/zh`).
 
 ### Fixed

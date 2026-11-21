@@ -5,7 +5,7 @@
 ## 环境要求
 
 - **Go 1.27** 或更高版本。
-- **NSGo v0.2** 或更高版本，作为 Go 工具安装（`go tool nsgo`）。
+- 构建游戏需要 **NSGo v0.2** 或更新版本。生成项目需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令。
 - 构建 iOS 目标：需要 macOS 和 Xcode。
 - 在 Android 真机或模拟器上运行：需要 `adb`（Android SDK Platform-Tools）。仅构建 `android_arm64` 的 APK 只需要 Go。
 
@@ -13,27 +13,28 @@
 
 ## 创建项目
 
-你可以直接复制仓库中的 `template/` 目录作为起手模板，也可以在空目录里用 `nsgo init` 初始化一个新项目。
-
-从空目录创建：
+安装支持 Go 模块模板的 NSGo 命令。首次加入该功能的修订版本可通过 Go 模块版本安装。请将 Go 的可执行文件目录（`GOBIN`，默认是 `GOPATH/bin`）加入 `PATH`。
 
 ```sh
-mkdir mygame && cd mygame
-go mod init example.com/mygame
-go get github.com/nsgo-dev/nsgo@latest
-go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@latest
-go tool nsgo init
-go get github.com/nsgo-dev/game/packages/game
+go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.2.1-0.20261121150907-9e612921df1a
+nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
+cd mygame
+go tool nsgo dev
 ```
 
-`nsgo init` 会生成 `nsgo.yaml`、`app.go` 和 `app_test.go`。添加 `resources/` 目录存放游戏运行时加载的资源（`asset:` 图片和音频），添加 `assets/` 目录存放打包时使用的项目文件（例如应用图标，不会直接原样复制到资源目录）：
+起手模板包含精灵动画、点击得分和测试。在 `nsgo.yaml` 里修改游戏的显示名称和应用标识。
+
+如果你已经检出了本仓库，可以把 `template/template/` 复制到新目录。将 `go.mod.tmpl` 改名为 `go.mod`，并将第一行的 `{{.Module}}` 替换为自己的模块路径。也可以在仓库根目录运行 `go tool nsgo dev ./template/template`，直接启动模板游戏。
+
+把游戏在运行时加载的文件放入 `resources/`，把应用图标等构建时需要的文件放入 `assets/`：
 
 ```text
 mygame/
 ├─ go.mod
 ├─ nsgo.yaml
-├─ app.go
-├─ app_test.go
+├─ main.go
+├─ game.go
+├─ game_test.go
 ├─ resources/
 │  ├─ hero.png
 │  ├─ hero.json
