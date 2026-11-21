@@ -228,10 +228,13 @@ func NewWorld() *World {
 	}
 }
 
-// AddBody copies b into w, normalizes its ID, orientation, mass, and inertia
+// AddBody copies b into w, normalizes its ID, reassigning an explicit ID that is already taken,, orientation, mass, and inertia
 // fields, and returns a pointer to the stored body.
 func (w *World) AddBody(b Body) *Body {
-	if b.ID == 0 {
+	// An explicit ID that is already taken would alias two bodies in the pair
+	// cache, so it is reassigned a fresh one instead; callers that need a
+	// stable handle keep the returned pointer.
+	if b.ID <= 0 || w.bodyByID(b.ID) != nil {
 		w.nextID++
 		b.ID = w.nextID
 	} else if b.ID >= w.nextID {
@@ -276,6 +279,16 @@ func (w *World) AddBody(b Body) *Body {
 	*stored = b
 	w.bodies = append(w.bodies, stored)
 	return stored
+}
+
+// bodyByID returns the body stored with id, or nil when none is.
+func (w *World) bodyByID(id int) *Body {
+	for _, b := range w.bodies {
+		if b.ID == id {
+			return b
+		}
+	}
+	return nil
 }
 
 // RemoveBody removes the body with the given ID, preserving deterministic order
