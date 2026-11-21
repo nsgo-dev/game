@@ -604,7 +604,7 @@ func closestOrDeepestPointSegmentBox(segA, segB Vec3, box Box) Vec3 {
 		}
 		if pm.Z < bMin.Z {
 			qa += d.Z * d.Z
-			qb += d.Z * (segA.Z - bMax.Z)
+			qb += d.Z * (segA.Z - bMin.Z)
 		} else if pm.Z > bMax.Z {
 			qa += d.Z * d.Z
 			qb += d.Z * (segA.Z - bMax.Z)
