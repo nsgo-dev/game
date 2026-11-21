@@ -10,9 +10,19 @@ import (
 const storageVersion = 1
 
 type savedBindings struct {
-	Version int                     `json:"version"`
-	Actions map[string][]savedInput `json:"actions,omitempty"`
-	Axes    map[string]savedAxis    `json:"axes,omitempty"`
+	Version    int                        `json:"version"`
+	Actions    map[string][]savedInput    `json:"actions,omitempty"`
+	Axes       map[string]savedAxis       `json:"axes,omitempty"`
+	MotionAxes map[string]savedMotionAxis `json:"motion_axes,omitempty"`
+}
+
+type savedMotionAxis struct {
+	Axis        string  `json:"axis"`
+	DeadZone    float64 `json:"dead_zone,omitempty"`
+	Sensitivity float64 `json:"sensitivity,omitempty"`
+	MaxRange    float64 `json:"max_range,omitempty"`
+	Smoothing   float64 `json:"smoothing,omitempty"`
+	Invert      bool    `json:"invert,omitempty"`
 }
 
 type savedInput struct {
@@ -54,6 +64,23 @@ func (a *Actions) Save(store core.Storage, key string) error {
 		doc.Axes = make(map[string]savedAxis, len(a.axes))
 		for name, ax := range a.axes {
 			doc.Axes[name] = savedAxis{Negative: ax.negative, Positive: ax.positive}
+		}
+	}
+	if len(a.motionAxes) > 0 {
+		doc.MotionAxes = make(map[string]savedMotionAxis, len(a.motionAxes))
+		for name, mb := range a.motionAxes {
+			axName, err := encodeMotionAxis(mb.axis)
+			if err != nil {
+				return fmt.Errorf("input: save %q: motion axis %q: %w", key, name, err)
+			}
+			doc.MotionAxes[name] = savedMotionAxis{
+				Axis:        axName,
+				DeadZone:    mb.opts.DeadZone,
+				Sensitivity: mb.opts.Sensitivity,
+				MaxRange:    mb.opts.MaxRange,
+				Smoothing:   mb.opts.Smoothing,
+				Invert:      mb.opts.Invert,
+			}
 		}
 	}
 	data, err := json.Marshal(doc)
@@ -107,8 +134,35 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 		}
 	}
 
+	var motionAxes map[string]motionAxisBinding
+	if len(doc.MotionAxes) > 0 {
+		motionAxes = make(map[string]motionAxisBinding, len(doc.MotionAxes))
+		for name, ma := range doc.MotionAxes {
+			ax, err := decodeMotionAxis(ma.Axis)
+			if err != nil {
+				return false, fmt.Errorf("input: load %q: motion axis %q: %w", key, name, err)
+			}
+			if ax == MotionAxisNone {
+				continue
+			}
+			motionAxes[name] = motionAxisBinding{
+				axis: ax,
+				opts: MotionAxisOptions{
+					DeadZone:    ma.DeadZone,
+					Sensitivity: ma.Sensitivity,
+					MaxRange:    ma.MaxRange,
+					Smoothing:   ma.Smoothing,
+					Invert:      ma.Invert,
+				},
+			}
+		}
+	}
+
 	a.bindings = bindings
 	a.axes = axes
+	a.motionAxes = motionAxes
+	clear(a.motionSnap)
+	clear(a.motionInit)
 	clear(a.latched)
 	clear(a.rawActive)
 	if len(a.bindings) > 0 {
