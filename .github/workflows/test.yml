@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
-          - macos-15
+          - depot-ubuntu-24.04-4
+          - depot-macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
