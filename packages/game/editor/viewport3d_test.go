@@ -636,3 +636,62 @@ func TestEditor3DViewportUIRenderingAndControls(t *testing.T) {
 		t.Fatalf("ViewMode after toggle back = %v, want ViewMode2D", ed.ViewMode)
 	}
 }
+
+// A 3D gizmo drag must be reachable from real pointer input on the mounted
+// editor, not just from the model's Begin/Update/End methods.
+func TestEditor3DGizmoDragThroughMountedUI(t *testing.T) {
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{
+		ID:    "cube",
+		Name:  "Cube",
+		X:     0,
+		Y:     0,
+		PosZ:  0,
+		Depth: 16,
+	})
+	ed.Camera3D = editor.OrbitCamera3D{
+		Target:   [3]float32{0, 0, 0},
+		Yaw:      0.65,
+		Pitch:    0.55,
+		Distance: 200,
+		FOV:      float32(math.Pi / 3),
+		Near:     0.5,
+		Far:      5000,
+	}
+	ed.SelectObject("cube")
+	ed.SetGizmoMode3D(editor.Gizmo3DTranslate)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 720))
+	if ed.ViewMode != editor.ViewMode3D {
+		t.Fatalf("ViewMode = %v, want ViewMode3D", ed.ViewMode)
+	}
+
+	vw, vh := ed.ViewportSize()
+	gLen := ed.GizmoLength3D([3]float32{0, 0, 0})
+	startPt := [3]float32{gLen * 0.6, 0, 0}
+	endPt := [3]float32{gLen*0.6 + 25, 0, 0}
+	sx0, sy0, _, vis0 := ed.Camera3D.Project(startPt, vw, vh)
+	sx1, sy1, _, vis1 := ed.Camera3D.Project(endPt, vw, vh)
+	if !vis0 || !vis1 {
+		t.Fatal("gizmo drag points are not visible")
+	}
+
+	app.DragAt("id:editor-viewport-frame",
+		core.Point{X: core.Points(sx0), Y: core.Points(sy0)},
+		core.Point{X: core.Points(sx1 - sx0), Y: core.Points(sy1 - sy0)})
+
+	obj, _, _ := ed.FindObject("cube")
+	if obj == nil {
+		t.Fatal("cube disappeared after the drag")
+	}
+	assertNear32(t, "dragged cube X", obj.X, 25, 0.5)
+	if n := ed.History.Len(); n < 1 {
+		t.Fatalf("history entries after a gizmo drag = %d, want the drag recorded", n)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo after a gizmo drag returned false")
+	}
+	obj, _, _ = ed.FindObject("cube")
+	assertNear32(t, "cube X after undo", obj.X, 0, 0.5)
+}
