@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -362,6 +363,9 @@ func (e *Editor) OpenYAML(data []byte) error {
 	}
 	e.Doc = doc
 	e.SelectedID = ""
+	// The loaded scene did not come from the current path, so a later Save must
+	// not overwrite the previously opened file with unrelated content.
+	e.FilePath = ""
 	if len(doc.Layers) > 0 {
 		e.ActiveLayer = doc.Layers[0].Name
 	} else {
@@ -406,13 +410,41 @@ func (e *Editor) SaveFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileAtomic(path, data); err != nil {
 		return err
 	}
 	e.FilePath = path
 	e.Status = "Saved " + path
 	e.notify()
 	return nil
+}
+
+// writeFileAtomic writes data to a temporary file beside path and renames it
+// over path, so a crash or a failed write never truncates the previous scene.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".scene-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Undo reverts the last edit in History (no-op while playing).
