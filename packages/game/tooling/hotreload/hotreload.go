@@ -94,6 +94,14 @@ func (w *Watcher) Generation() int {
 	return w.Version.Get()
 }
 
+// Dir returns the cleaned root directory being watched.
+func (w *Watcher) Dir() string {
+	if w == nil {
+		return ""
+	}
+	return w.dir
+}
+
 // Stop halts background polling. It is safe to call more than once and is registered automatically on the watcher's scope cleanup.
 func (w *Watcher) Stop() {
 	if w == nil {
