@@ -1,4 +1,5 @@
-// Package scene3d provides a 3D scene graph, named socket attachments, spatial
+// Package scene3d provides a 3D scene graph, named socket attachments, a
+// dynamic AABB Bounding Volume Hierarchy ([BVH]), BVH-accelerated spatial
 // queries, perspective and orthographic cameras, camera controllers (orbit,
 // first-person, third-person follow), and screen-space picking built on math3d.
 //

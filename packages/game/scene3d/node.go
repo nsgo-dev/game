@@ -26,8 +26,8 @@ var (
 // Node is a transformable element in a 3D scene hierarchy.
 //
 // Always construct nodes with [NewNode] so Local defaults to TransformIdentity,
-// Visible defaults to true, Layer defaults to LayerDefault, and LocalBounds
-// defaults to AABBEmpty.
+// Visible and Enabled default to true, Layer defaults to LayerDefault, and
+// LocalBounds defaults to AABBEmpty.
 //
 // World transforms, matrices, and bounds are cached and recomputed lazily when
 // dirty. Prefer the setter methods (SetLocal, SetPosition, SetRotation,
@@ -37,6 +37,7 @@ type Node struct {
 	Name        string
 	Local       math3d.Transform
 	Visible     bool
+	Enabled     bool
 	Layer       uint32
 	LocalBounds math3d.AABB
 	Tags        []string
@@ -47,10 +48,16 @@ type Node struct {
 	parent   *Node
 	children []*Node
 	sockets  map[string]*Node
+	scene    *Scene
+	id       uint64
 
 	initialized       bool
 	dirty             bool
 	boundsDirty       bool
+	hasBVH            bool
+	bvhQueued         bool
+	bvhHandle         BVHHandle
+	dirtyUpdates      uint64
 	cachedLocal       math3d.Transform
 	cachedLocalBounds math3d.AABB
 	worldTransform    math3d.Transform
@@ -58,13 +65,14 @@ type Node struct {
 	worldBounds       math3d.AABB
 }
 
-// NewNode returns a new visible Node with an identity local transform,
+// NewNode returns a new visible, enabled Node with an identity local transform,
 // LayerDefault, and an empty local bounding box.
 func NewNode(name string) *Node {
 	return &Node{
 		Name:        name,
 		Local:       math3d.TransformIdentity(),
 		Visible:     true,
+		Enabled:     true,
 		Layer:       LayerDefault,
 		LocalBounds: math3d.AABBEmpty(),
 		dirty:       true,
@@ -119,6 +127,9 @@ func (n *Node) AddChild(child *Node) error {
 	}
 	n.children = append(n.children, child)
 	child.parent = n
+	if n.scene != nil {
+		child.attachToScene(n.scene)
+	}
 	child.MarkDirty()
 	return nil
 }
@@ -140,8 +151,48 @@ func (n *Node) RemoveChild(child *Node) bool {
 			delete(n.sockets, name)
 		}
 	}
+	if child.scene != nil {
+		child.detachFromScene()
+	}
 	child.MarkDirty()
 	return true
+}
+
+func (n *Node) attachToScene(s *Scene) {
+	if n.scene == s {
+		return
+	}
+	if n.scene != nil {
+		n.detachFromScene()
+	}
+	n.scene = s
+	if n.id == 0 {
+		s.nextNodeID++
+		n.id = s.nextNodeID
+	}
+	s.queueBVH(n)
+	for _, c := range n.children {
+		c.attachToScene(s)
+	}
+}
+
+func (n *Node) detachFromScene() {
+	s := n.scene
+	if s == nil {
+		return
+	}
+	if n.hasBVH {
+		if s.bvh != nil {
+			s.bvh.Remove(n.bvhHandle)
+		}
+		n.bvhHandle = BVHHandle{}
+		n.hasBVH = false
+	}
+	n.bvhQueued = false
+	n.scene = nil
+	for _, c := range n.children {
+		c.detachFromScene()
+	}
 }
 
 // Reparent moves n under newParent while keeping n's Local transform unchanged.
@@ -179,6 +230,34 @@ func (n *Node) ReparentKeepWorld(newParent *Node) error {
 	}
 	n.SetLocal(newParent.WorldTransform().Inverse().Mul(world))
 	return nil
+}
+
+// SetParent moves n under newParent (or detaches it to root when newParent is
+// nil). When keepWorld is true, n.Local is adjusted so n preserves its current
+// world transform; when false, n.Local is left unchanged.
+func (n *Node) SetParent(newParent *Node, keepWorld bool) error {
+	if keepWorld {
+		return n.ReparentKeepWorld(newParent)
+	}
+	return n.Reparent(newParent)
+}
+
+// Detach removes n from its current parent. When keepWorld is true, n.Local is
+// updated to n's prior world transform so its world pose is preserved exactly.
+// Returns true if n had a parent and was detached.
+func (n *Node) Detach(keepWorld bool) bool {
+	if n == nil || n.parent == nil {
+		return false
+	}
+	if keepWorld {
+		world := n.WorldTransform()
+		if !n.parent.RemoveChild(n) {
+			return false
+		}
+		n.SetLocal(world)
+		return true
+	}
+	return n.parent.RemoveChild(n)
 }
 
 // FindByName searches n and its descendants in pre-order for the first node
@@ -219,7 +298,7 @@ func (n *Node) walk(fn func(*Node) bool) bool {
 	return true
 }
 
-// EffectiveVisible reports whether n and every ancestor up to the root are visible.
+// EffectiveVisible reports whether n and every ancestor up to the root have Visible == true.
 func (n *Node) EffectiveVisible() bool {
 	for p := n; p != nil; p = p.parent {
 		if !p.Visible {
@@ -227,6 +306,42 @@ func (n *Node) EffectiveVisible() bool {
 		}
 	}
 	return n != nil
+}
+
+// EffectiveEnabled reports whether n and every ancestor up to the root have Enabled == true.
+func (n *Node) EffectiveEnabled() bool {
+	for p := n; p != nil; p = p.parent {
+		if !p.Enabled {
+			return false
+		}
+	}
+	return n != nil
+}
+
+// isActiveVisible reports whether n and every ancestor are both Visible and Enabled.
+func (n *Node) isActiveVisible() bool {
+	for p := n; p != nil; p = p.parent {
+		if !p.Visible || !p.Enabled {
+			return false
+		}
+	}
+	return n != nil
+}
+
+// SetVisible sets n.Visible.
+func (n *Node) SetVisible(visible bool) {
+	if n == nil {
+		return
+	}
+	n.Visible = visible
+}
+
+// SetEnabled sets n.Enabled.
+func (n *Node) SetEnabled(enabled bool) {
+	if n == nil {
+		return
+	}
+	n.Enabled = enabled
 }
 
 // SetLocal replaces n.Local and marks n and all descendants dirty.
@@ -257,12 +372,18 @@ func (n *Node) SetScale(scale math3d.Vec3) {
 func (n *Node) SetLocalBounds(bounds math3d.AABB) {
 	n.LocalBounds = bounds
 	n.boundsDirty = true
+	if n.scene != nil {
+		n.scene.queueBVH(n)
+	}
 }
 
 // SetCollider assigns a narrow-phase Collider to n and invalidates cached world bounds.
 func (n *Node) SetCollider(c Collider) {
 	n.Collider = c
 	n.boundsDirty = true
+	if n.scene != nil {
+		n.scene.queueBVH(n)
+	}
 }
 
 // FitBoundsToCollider copies n.Collider.LocalBounds() into n.LocalBounds when
@@ -282,8 +403,12 @@ func (n *Node) MarkDirty() {
 	}
 	n.dirty = true
 	n.boundsDirty = true
+	if n.scene != nil {
+		n.scene.queueBVH(n)
+	}
 	for _, c := range n.children {
-		if !c.dirty || !c.boundsDirty {
+		needQueue := c.scene != nil && !c.bvhQueued && (c.hasBVH || !c.LocalBounds.Empty() || c.Collider != nil)
+		if !c.dirty || !c.boundsDirty || needQueue {
 			c.MarkDirty()
 		}
 	}
@@ -295,6 +420,15 @@ func (n *Node) IsDirty() bool {
 		return false
 	}
 	return n.dirty || !n.initialized || n.Local != n.cachedLocal
+}
+
+// DirtyUpdates returns the cumulative number of times n's cached world
+// transform and matrix have been recomputed.
+func (n *Node) DirtyUpdates() uint64 {
+	if n == nil {
+		return 0
+	}
+	return n.dirtyUpdates
 }
 
 // syncDirtyAncestors detects direct field mutations to Local on n or any
@@ -328,6 +462,7 @@ func (n *Node) ensureWorld() {
 	n.initialized = true
 	n.dirty = false
 	n.boundsDirty = true
+	n.dirtyUpdates++
 }
 
 // WorldTransform returns n's composed world-space TRS transform, recomputing
@@ -376,15 +511,15 @@ func (n *Node) WorldBounds() math3d.AABB {
 	return n.worldBounds
 }
 
-// HierarchyBounds returns the union of WorldBounds for n and all visible
-// descendants in its subtree.
+// HierarchyBounds returns the union of WorldBounds for n and all visible,
+// enabled descendants in its subtree.
 func (n *Node) HierarchyBounds() math3d.AABB {
-	if n == nil || !n.Visible {
+	if n == nil || !n.Visible || !n.Enabled {
 		return math3d.AABBEmpty()
 	}
 	bounds := n.WorldBounds()
 	for _, c := range n.children {
-		if c.Visible {
+		if c.Visible && c.Enabled {
 			bounds = bounds.Union(c.HierarchyBounds())
 		}
 	}
