@@ -55,6 +55,8 @@ type World struct {
 	codecOrder []string
 	codecByKey map[typeKey]string
 
+	hierarchy *Hierarchy2D
+
 	disposed bool
 }
 
@@ -112,6 +114,9 @@ func (w *World) Destroy(e Entity) {
 	if !w.Alive(e) {
 		return
 	}
+	if w.hierarchy != nil {
+		w.hierarchy.onWorldDestroy(e)
+	}
 	idx := e.Index()
 	w.alive[idx] = false
 	gen := w.gens[idx] + 1
@@ -164,6 +169,9 @@ func (w *World) Clear() {
 	if w.disposed {
 		return
 	}
+	if w.hierarchy != nil {
+		w.hierarchy.clear()
+	}
 	for _, s := range w.stores {
 		s.clear()
 	}
@@ -184,6 +192,9 @@ func (w *World) Clear() {
 
 // Reset removes all entities and releases entity and component backing storage while keeping registered codecs intact.
 func (w *World) Reset() {
+	if w.hierarchy != nil {
+		w.hierarchy.reset()
+	}
 	for _, s := range w.stores {
 		s.reset()
 	}

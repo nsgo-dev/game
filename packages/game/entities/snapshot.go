@@ -222,6 +222,9 @@ func (w *World) Restore(snap WorldSnapshot) error {
 			w.stores = append(w.stores, next)
 		}
 	}
+	if w.hierarchy != nil {
+		w.hierarchy.onWorldRestore()
+	}
 	return nil
 }
 
