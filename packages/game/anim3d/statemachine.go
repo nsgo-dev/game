@@ -89,6 +89,16 @@ type Clip struct {
 	Loop       bool
 	JointCount int
 	Tracks     []JointTrack
+	Events     []ClipEvent
+}
+
+// AddEvent appends ev to the clip's Events slice and keeps Events sorted by Time.
+func (c *Clip) AddEvent(ev ClipEvent) {
+	if c == nil {
+		return
+	}
+	c.Events = append(c.Events, ev)
+	SortClipEvents(c.Events)
 }
 
 // jointCount returns the effective number of joints covered by the clip.
@@ -129,17 +139,31 @@ func (c *Clip) Sample(t time.Duration) Pose {
 	if c == nil {
 		return Pose{}
 	}
+	return c.sampleClamped(c.NormalizeTime(t))
+}
+
+// sampleClamped evaluates the clip at t clamped to [0, Duration] without wrapping
+// Duration back to 0.
+func (c *Clip) sampleClamped(t time.Duration) Pose {
+	if c == nil {
+		return Pose{}
+	}
 	n := c.jointCount()
 	pose := NewPose(n)
 	if n == 0 {
 		return pose
 	}
-	st := c.NormalizeTime(t)
+	if t < 0 {
+		t = 0
+	}
+	if c.Duration > 0 && t > c.Duration {
+		t = c.Duration
+	}
 	for _, tr := range c.Tracks {
 		if tr.JointIndex < 0 || tr.JointIndex >= n {
 			continue
 		}
-		pose.Joints[tr.JointIndex] = sampleTrack(tr, st)
+		pose.Joints[tr.JointIndex] = sampleTrack(tr, t)
 	}
 	return pose
 }
@@ -250,11 +274,21 @@ func scaleDuration(dt time.Duration, speed float32) time.Duration {
 	return time.Duration(float64(dt) * float64(speed))
 }
 
-// State binds a named state in a StateMachine to an animation Clip.
+// State binds a named state in a StateMachine to an animation Clip, a
+// BlendSpace1D, a BlendSpace2D, or a custom PoseSampler.
+//
+// Resolution priority when more than one pose source is populated is:
+// Blend1D > Blend2D > Sampler > Clip.
 type State struct {
-	Name  string
-	Clip  *Clip
-	Speed float32 // playback speed multiplier; 0 defaults to 1.0
+	Name       string
+	Clip       *Clip
+	Blend1D    *BlendSpace1D
+	Blend2D    *BlendSpace2D
+	Sampler    PoseSampler
+	ParamName  string  // optional StateMachine parameter name for Blend1D
+	ParamXName string  // optional StateMachine X parameter name for Blend2D
+	ParamYName string  // optional StateMachine Y parameter name for Blend2D
+	Speed      float32 // playback speed multiplier; 0 defaults to 1.0
 }
 
 // Transition defines a conditional crossfade between two states in a StateMachine.
@@ -266,11 +300,12 @@ type Transition struct {
 	When          func() bool
 }
 
-// StateMachine drives 3D skeletal clip playback and smooth crossfades between
-// named animation states on fixed Update steps.
+// StateMachine drives 3D skeletal clip and blend-space playback, event dispatch,
+// and smooth crossfades between named animation states on fixed Update steps.
 type StateMachine struct {
 	states      map[string]State
 	transitions []Transition
+	params      map[string]float32
 
 	current     string
 	currentTime time.Duration
@@ -282,12 +317,16 @@ type StateMachine struct {
 	prevTime      time.Duration
 	hasSnapshot   bool
 	prevSnapshot  Pose
+
+	dispatcher     EventDispatcher
+	eventMinWeight float32
 }
 
 // NewStateMachine creates a StateMachine starting in initialState.
 func NewStateMachine(initialState string) *StateMachine {
 	return &StateMachine{
 		states:  make(map[string]State),
+		params:  make(map[string]float32),
 		current: initialState,
 	}
 }
@@ -307,6 +346,48 @@ func (sm *StateMachine) AddState(state State) {
 // AddTransition appends a conditional transition evaluated in registration order.
 func (sm *StateMachine) AddTransition(tr Transition) {
 	sm.transitions = append(sm.transitions, tr)
+}
+
+// SetParam sets a named float32 parameter on the state machine. Blend-space
+// states bound to that parameter name automatically read it during Update and Pose.
+func (sm *StateMachine) SetParam(name string, value float32) {
+	if sm.params == nil {
+		sm.params = make(map[string]float32)
+	}
+	sm.params[name] = value
+}
+
+// Param returns the value of the named float32 parameter, or 0 if unset.
+func (sm *StateMachine) Param(name string) float32 {
+	if sm.params == nil {
+		return 0
+	}
+	return sm.params[name]
+}
+
+// OnEvent registers a callback invoked synchronously whenever an animation event
+// fires during Update.
+func (sm *StateMachine) OnEvent(fn func(FiredEvent)) {
+	sm.dispatcher.OnEvent(fn)
+}
+
+// DrainEvents returns all FiredEvents collected since the last DrainEvents call
+// and clears the internal event buffer.
+func (sm *StateMachine) DrainEvents() []FiredEvent {
+	return sm.dispatcher.Drain()
+}
+
+// SetEventWeightThreshold configures the minimum active blend weight in [0, 1]
+// required for a state (or blend-space clip) to fire events during crossfades.
+// A threshold of 0 (the default) fires events for any clip with weight > 0.
+func (sm *StateMachine) SetEventWeightThreshold(minWeight float32) {
+	sm.eventMinWeight = math3d.Clamp(minWeight, 0, 1)
+}
+
+// EventWeightThreshold returns the configured minimum blend weight threshold
+// for event firing.
+func (sm *StateMachine) EventWeightThreshold() float32 {
+	return sm.eventMinWeight
 }
 
 // SetState transitions directly to name over blendDuration. It returns false if
@@ -349,8 +430,9 @@ func (sm *StateMachine) BlendProgress() float32 {
 	return math3d.Clamp(float32(sm.blendElapsed)/float32(sm.blendDuration), 0, 1)
 }
 
-// Update evaluates conditional transitions, advances clip playback and any active
-// crossfade by dt, and returns the resulting Pose.
+// Update evaluates conditional transitions, advances clip and blend-space playback
+// and any active crossfade by dt, dispatches triggered animation events, and
+// returns the resulting Pose.
 func (sm *StateMachine) Update(dt time.Duration) Pose {
 	if dt < 0 {
 		dt = 0
@@ -377,14 +459,23 @@ func (sm *StateMachine) Update(dt time.Duration) Pose {
 		}
 	}
 
+	// Compute active weights for event threshold filtering across this step.
+	currWeight := float32(1)
+	prevWeight := float32(0)
+	if sm.blending && sm.blendDuration > 0 {
+		progress := math3d.Clamp(float32(sm.blendElapsed+dt)/float32(sm.blendDuration), 0, 1)
+		currWeight = progress
+		prevWeight = 1 - progress
+	}
+
 	if st, ok := sm.states[sm.current]; ok {
-		sm.currentTime = advanceClipTime(st.Clip, sm.currentTime, scaleDuration(dt, st.Speed))
+		sm.currentTime = sm.advanceState(st, sm.currentTime, dt, currWeight)
 	}
 
 	if sm.blending {
 		if !sm.hasSnapshot {
 			if prev, ok := sm.states[sm.prevState]; ok {
-				sm.prevTime = advanceClipTime(prev.Clip, sm.prevTime, scaleDuration(dt, prev.Speed))
+				sm.prevTime = sm.advanceState(prev, sm.prevTime, dt, prevWeight)
 			}
 		}
 		sm.blendElapsed += dt
@@ -427,6 +518,7 @@ func (sm *StateMachine) beginTransition(to string, blendDuration time.Duration) 
 		sm.prevState = ""
 		sm.hasSnapshot = false
 		sm.prevSnapshot = Pose{}
+		sm.resetState(to)
 		return
 	}
 
@@ -446,14 +538,125 @@ func (sm *StateMachine) beginTransition(to string, blendDuration time.Duration) 
 	sm.blending = true
 	sm.blendElapsed = 0
 	sm.blendDuration = blendDuration
+	sm.resetState(to)
+}
+
+func (sm *StateMachine) resetState(name string) {
+	st, ok := sm.states[name]
+	if !ok {
+		return
+	}
+	switch {
+	case st.Blend1D != nil:
+		st.Blend1D.Reset()
+	case st.Blend2D != nil:
+		st.Blend2D.Reset()
+	case st.Sampler != nil:
+		if r, ok := st.Sampler.(interface{ Reset() }); ok {
+			r.Reset()
+		}
+	}
+}
+
+func (sm *StateMachine) syncStateParams(st State) {
+	if st.Blend1D != nil {
+		sm.syncBlend1DParam(st.Blend1D, st.ParamName)
+		return
+	}
+	if st.Blend2D != nil {
+		sm.syncBlend2DParams(st.Blend2D, st.ParamXName, st.ParamYName)
+		return
+	}
+	switch s := st.Sampler.(type) {
+	case *BlendSpace1D:
+		sm.syncBlend1DParam(s, st.ParamName)
+	case *BlendSpace2D:
+		sm.syncBlend2DParams(s, st.ParamXName, st.ParamYName)
+	}
+}
+
+func (sm *StateMachine) syncBlend1DParam(bs *BlendSpace1D, stateParam string) {
+	name := stateParam
+	if name == "" {
+		name = bs.ParamName
+	}
+	if name != "" {
+		bs.SetParam(sm.Param(name))
+	}
+}
+
+func (sm *StateMachine) syncBlend2DParams(bs *BlendSpace2D, stateParamX, stateParamY string) {
+	nx := stateParamX
+	if nx == "" {
+		nx = bs.ParamXName
+	}
+	ny := stateParamY
+	if ny == "" {
+		ny = bs.ParamYName
+	}
+	if nx == "" && ny == "" {
+		return
+	}
+	x, y := bs.Params()
+	if nx != "" {
+		x = sm.Param(nx)
+	}
+	if ny != "" {
+		y = sm.Param(ny)
+	}
+	bs.SetParams(x, y)
+}
+
+func (sm *StateMachine) advanceState(st State, curr time.Duration, dt time.Duration, weight float32) time.Duration {
+	sm.syncStateParams(st)
+	scaled := scaleDuration(dt, st.Speed)
+
+	switch {
+	case st.Blend1D != nil:
+		st.Blend1D.updateWithEvents(scaled, st.Name, weight, sm.eventMinWeight, sm.dispatcher.Emit)
+		return curr + scaled
+	case st.Blend2D != nil:
+		st.Blend2D.updateWithEvents(scaled, st.Name, weight, sm.eventMinWeight, sm.dispatcher.Emit)
+		return curr + scaled
+	case st.Sampler != nil:
+		switch s := st.Sampler.(type) {
+		case *BlendSpace1D:
+			s.updateWithEvents(scaled, st.Name, weight, sm.eventMinWeight, sm.dispatcher.Emit)
+		case *BlendSpace2D:
+			s.updateWithEvents(scaled, st.Name, weight, sm.eventMinWeight, sm.dispatcher.Emit)
+		default:
+			st.Sampler.Update(scaled)
+		}
+		return curr + scaled
+	case st.Clip != nil:
+		next := advanceClipTime(st.Clip, curr, scaled)
+		if scaled > 0 && st.Clip.Duration > 0 && len(st.Clip.Events) > 0 && weightPassesThreshold(weight, sm.eventMinWeight) {
+			sm.dispatcher.DispatchClip(st.Clip, st.Name, float32(curr.Seconds()), float32((curr + scaled).Seconds()), weight)
+		}
+		return next
+	default:
+		return curr
+	}
 }
 
 func (sm *StateMachine) sampleState(name string, t time.Duration) Pose {
 	st, ok := sm.states[name]
-	if !ok || st.Clip == nil {
+	if !ok {
 		return Pose{}
 	}
-	return st.Clip.Sample(t)
+	sm.syncStateParams(st)
+	switch {
+	case st.Blend1D != nil:
+		return st.Blend1D.Pose()
+	case st.Blend2D != nil:
+		return st.Blend2D.Pose()
+	case st.Sampler != nil:
+		return st.Sampler.Pose()
+	case st.Clip != nil:
+		return st.Clip.Sample(t)
+	default:
+		return Pose{}
+	}
 }
 
 func advanceClipTime(c *Clip, curr, delta time.Duration) time.Duration {
