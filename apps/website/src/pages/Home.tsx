@@ -4,6 +4,7 @@ import { snippets } from 'virtual:snippets'
 import { Eyebrow, SpeedLines } from '../components/Brand'
 import { CopyCommand } from '../components/CopyCommand'
 import { Cta } from '../components/Footer'
+import { HeroField } from '../components/HeroField'
 import { Icon, type IconName } from '../components/Icon'
 import type { Snippet } from '../content/types'
 import { copies } from '../copy'
@@ -50,7 +51,7 @@ export function Home() {
   return (
     <>
       <section className="hero">
-        <div className="hero__glow" aria-hidden="true" />
+        <HeroField />
         <div className="container hero__inner">
           <div className="hero__copy">
             <span className="pill">

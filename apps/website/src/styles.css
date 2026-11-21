@@ -699,8 +699,9 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   overflow-x: clip;
 }
 
-/* A blue light behind the hero and faint dots. Both start behind the translucent header and fade in under it, so neither ends at a hard edge, and fade out down the hero. */
-.hero__glow {
+/* A blue light behind the hero, centred on the heading (`--glow-x`, `--glow-y`, set by HeroField), and faint dots. Both start behind the translucent header and fade in under it, so neither ends at a hard edge, and fade out down the hero. Where WebGL runs, the field's shader draws the dots instead, faint under the copy's words. */
+.hero__glow,
+.hero-field {
   --fade: linear-gradient(transparent, #000 calc(var(--header-height) + 48px), #000 40%, transparent);
   position: absolute;
   top: calc(-1 * var(--header-height));
@@ -710,9 +711,39 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   mask-image: var(--fade);
   -webkit-mask-image: var(--fade);
   pointer-events: none;
+}
+
+.hero__glow {
   background:
-    radial-gradient(600px 380px at 50% 45%, var(--glow), transparent 70%),
+    radial-gradient(600px 380px at var(--glow-x, 50%) var(--glow-y, 45%), var(--glow), transparent 70%),
     radial-gradient(var(--border) 1px, transparent 1px) 0 0 / 22px 22px;
+}
+
+.hero__glow--shaded {
+  background: radial-gradient(600px 380px at var(--glow-x, 50%) var(--glow-y, 45%), var(--glow), transparent 70%);
+}
+
+/* The count of dots the visitor has lit, small in the hero's corner. */
+.hero__score {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hero__score-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--blue);
+  box-shadow: 0 0 6px var(--blue);
 }
 
 .hero__inner {

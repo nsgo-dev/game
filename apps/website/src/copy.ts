@@ -22,6 +22,8 @@ const en = {
   },
   home: {
     badge: 'Early: APIs will change',
+    // The hero's counter of the dots the visitor has lit, read out before the number.
+    lit: 'Dots you lit',
     title: ['Games in Go,', 'on every NSGo target.'],
     // Around the link to NSGo.
     lead: [
@@ -123,6 +125,7 @@ const zh: Copy = {
   },
   home: {
     badge: '早期阶段：API 还会变化',
+    lit: '你点亮的点数',
     title: ['用 Go 写游戏', '在 NSGo 的每个平台上运行'],
     lead: [
       '为 ',
