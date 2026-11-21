@@ -148,7 +148,7 @@ function useCurrentHeading(doc: DocPage): string | undefined {
   return current
 }
 
-// addCopyButtons puts a copy button beside each code block of the rendered Markdown, not in it, so it stays in the corner while the code scrolls sideways.
+// addCopyButtons frames each code block of the rendered Markdown as an editor pane: a title bar naming its language, with a copy button in the bar rather than in the code, so it stays put while the code scrolls sideways.
 function addCopyButtons(root: HTMLElement | null, words: { copy: string; copied: string }): () => void {
   if (!root) return () => {}
   const timers: number[] = []
@@ -157,6 +157,12 @@ function addCopyButtons(root: HTMLElement | null, words: { copy: string; copied:
     const wrap = document.createElement('div')
     wrap.className = 'prose__code'
     pre.replaceWith(wrap)
+    const bar = document.createElement('div')
+    bar.className = 'prose__bar'
+    const name = document.createElement('span')
+    name.className = 'prose__lang'
+    name.textContent = /language-([\w-]+)/.exec(`${pre.className} ${pre.querySelector('code')?.className ?? ''}`)?.[1] ?? 'text'
+    bar.append(name)
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'prose__copy'
@@ -181,7 +187,8 @@ function addCopyButtons(root: HTMLElement | null, words: { copy: string; copied:
         }, 1600),
       )
     })
-    wrap.append(pre, button)
+    bar.append(button)
+    wrap.append(bar, pre)
   })
   return () => timers.forEach((t) => window.clearTimeout(t))
 }

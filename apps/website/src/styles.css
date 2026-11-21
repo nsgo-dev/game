@@ -1,59 +1,82 @@
-/* The site of nsgo-dev/game, in the design of NSGo's own site (nsgo.dev, website/src/styles in nsgo-dev/nsgo): its tokens, header, footer, buttons, eyebrows, cards, code and docs, so the two read as one family. White by default, with the mark's blue: its gradient (#4da3ff to #007aff) for the moments that matter and its skewed speed lines (.speed-lines) as the motif. */
+/* The site of nsgo-dev/game. It keeps NSGo's mark and its blue (#4da3ff to #007aff), and has its own look: a game engine's HUD, dark first. Sections and cards are panels with thin lines and corner brackets (.hud), labels and numbers are monospace micro-labels (.hud-label), and the hero's playfield is framed as a viewport with live readouts under it. Body text stays in the system sans so the docs read as long-form. */
 
 :root {
-  --bg: #ffffff;
-  --soft: #f6f7f9;
+  --bg: #f3f5f9;
+  --soft: #e9edf3;
   --surface: #ffffff;
-  --border: #e7e8ec;
-  --border-strong: #d5d7dd;
-  --text: #0c0d10;
-  --muted: #666a73;
-  --faint: #8d919a;
+  --border: #d5dbe5;
+  --border-strong: #b3bccb;
+  --text: #0b1220;
+  --muted: #4c5668;
+  --faint: #5f697b;
   --blue: #007aff;
-  --blue-ink: #0062cc;
-  --blue-soft: #eef5ff;
+  --blue-ink: #0057b7;
+  --blue-soft: #e3efff;
   --gradient: linear-gradient(135deg, #4da3ff, #007aff);
-  --glow: rgb(0 122 255 / 14%);
+  --glow: rgb(0 122 255 / 16%);
   --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
   --shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 12px 32px -12px rgb(16 24 40 / 14%);
   --shadow-lg: 0 2px 6px rgb(16 24 40 / 5%), 0 40px 80px -32px rgb(16 24 40 / 28%);
 
+  /* The HUD: corner brackets, the faint grid behind sections, the hero's scanlines, the game button and the glow of a hovered or focused panel. */
+  --corner: #0a6fe0;
+  --grid: rgb(11 18 32 / 5%);
+  --scan: rgb(11 18 32 / 4%);
+  --button: #0a5fc0;
+  --button-top: #0d6bd6;
+  --button-text: #ffffff;
+  --button-depth: #06418a;
+  --edge-glow: 0 0 0 1px var(--blue), 0 0 18px -2px rgb(0 122 255 / 35%);
+  --ok: #0d7a3e;
+  --ok-soft: #e1f5e9;
+
   /* Code, in GitHub's light colors (Shiki's github-light); the dark appearance takes its dark ones. */
   --editor: #f8f9fb;
-  --editor-bar: #f0f2f5;
-  --editor-border: #e4e6eb;
+  --editor-bar: #eef1f5;
+  --editor-border: #d5dbe5;
   --editor-text: #1f2328;
-  --editor-muted: #6e7781;
+  --editor-muted: #57606a;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Noto Sans Mono', monospace;
   --header-height: 56px;
-  --radius: 18px;
+  --radius: 3px;
 
   color-scheme: light;
 }
 
 html[data-theme='dark'] {
-  --bg: #0b0c0f;
-  --soft: #111318;
-  --surface: #14161b;
-  --border: #23262d;
-  --border-strong: #31353e;
-  --text: #f3f4f6;
-  --muted: #a0a4ad;
-  --faint: #7d818b;
+  --bg: #07090d;
+  --soft: #0b0f16;
+  --surface: #0e131c;
+  --border: #1d2533;
+  --border-strong: #2c3648;
+  --text: #e9eef6;
+  --muted: #a2acbd;
+  --faint: #838da0;
   --blue: #3d9bff;
-  --blue-ink: #6cb2ff;
-  --blue-soft: rgb(61 155 255 / 12%);
-  --glow: rgb(61 155 255 / 18%);
+  --blue-ink: #74b6ff;
+  --blue-soft: rgb(61 155 255 / 13%);
+  --glow: rgb(61 155 255 / 20%);
   --shadow-sm: none;
   --shadow: 0 12px 32px -12px rgb(0 0 0 / 60%);
   --shadow-lg: 0 40px 80px -32px rgb(0 0 0 / 80%);
 
-  --editor: #0f1115;
-  --editor-bar: #171a20;
-  --editor-border: #262a32;
+  --corner: #3d9bff;
+  --grid: rgb(120 160 220 / 5%);
+  --scan: rgb(0 0 0 / 22%);
+  --button: #3d9bff;
+  --button-top: #6cb2ff;
+  --button-text: #03111f;
+  --button-depth: #1257a8;
+  --edge-glow: 0 0 0 1px var(--blue), 0 0 22px -2px rgb(61 155 255 / 45%);
+  --ok: #5fd68f;
+  --ok-soft: rgb(95 214 143 / 12%);
+
+  --editor: #0a0e15;
+  --editor-bar: #111722;
+  --editor-border: #1d2533;
   --editor-text: #e6edf3;
   --editor-muted: #8b949e;
 
@@ -101,7 +124,7 @@ main {
 }
 
 ::selection {
-  background: rgb(0 122 255 / 20%);
+  background: rgb(0 122 255 / 28%);
 }
 
 a {
@@ -143,7 +166,30 @@ pre {
 
 :focus-visible {
   outline: 2px solid var(--blue);
-  outline-offset: 2px;
+  outline-offset: 3px;
+}
+
+/* Everything that moves holds still when less motion is asked for; the hero's field draws one still frame of its own accord. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .container {
@@ -157,8 +203,8 @@ pre {
   left: 16px;
   z-index: 100;
   padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--blue);
+  border-radius: var(--radius);
   background: var(--surface);
   font-size: 13px;
   transition: top 0.15s ease;
@@ -186,14 +232,113 @@ html:not([data-theme='dark']) .logo--dark {
   color: transparent;
 }
 
-/* The mark's speed lines before a section's name. */
+/* HUD ------------------------------------------------------------- */
+
+/* A panel: a thin line around it and a bracket in each corner, drawn as eight short bars of one background so they need no markup. A panel holding a link or button glows along its edge while hovered or focused. */
+.hud {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.hud::before,
+.hero__frame::before {
+  --arm: 12px;
+  --weight: 2px;
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background:
+    linear-gradient(var(--corner) 0 0) left top / var(--arm) var(--weight),
+    linear-gradient(var(--corner) 0 0) left top / var(--weight) var(--arm),
+    linear-gradient(var(--corner) 0 0) right top / var(--arm) var(--weight),
+    linear-gradient(var(--corner) 0 0) right top / var(--weight) var(--arm),
+    linear-gradient(var(--corner) 0 0) left bottom / var(--arm) var(--weight),
+    linear-gradient(var(--corner) 0 0) left bottom / var(--weight) var(--arm),
+    linear-gradient(var(--corner) 0 0) right bottom / var(--arm) var(--weight),
+    linear-gradient(var(--corner) 0 0) right bottom / var(--weight) var(--arm);
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.hud:not(.roadmap-stage):has(a:hover, button:hover, a:focus-visible, button:focus-visible),
+.roadmap-group:has(a:hover, a:focus-visible) {
+  border-color: var(--blue);
+  box-shadow: var(--edge-glow);
+}
+
+/* A monospace micro-label: a panel's kind and number, a readout's name. */
+.hud-label {
+  color: var(--blue-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* A status chip: its icon and word say the state, its color only repeats it. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip--cleared {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.chip--locked {
+  border-style: dashed;
+  color: var(--faint);
+}
+
+/* A segmented bar, a segment per issue (--segments of them, set inline); the gaps narrow as the count grows so a long stage still fits a phone. */
+.segments {
+  display: flex;
+  gap: min(3px, calc(100% / var(--segments, 10) / 3));
+  height: 10px;
+}
+
+.segments span {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--border-strong) 75%, transparent);
+}
+
+.segments .is-on {
+  background: var(--blue);
+  box-shadow: 0 0 6px -1px var(--blue);
+}
+
+/* The mark's speed lines before a section's name, as a micro-label. */
 .eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--blue-ink);
-  font-size: 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .eyebrow .speed-lines {
@@ -204,19 +349,24 @@ html:not([data-theme='dark']) .logo--dark {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 14px 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.pill .speed-lines {
-  color: var(--blue);
+.pill__dot {
+  width: 7px;
+  height: 7px;
+  background: var(--blue);
+  box-shadow: 0 0 8px var(--blue);
 }
 
 /* Buttons and links ------------------------------------------------- */
@@ -225,54 +375,76 @@ html:not([data-theme='dark']) .logo--dark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 9px;
   height: 40px;
   padding: 0 18px;
   border: 1px solid transparent;
-  border-radius: 999px;
-  font-size: 14.5px;
-  font-weight: 600;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   white-space: nowrap;
+  cursor: pointer;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.08s ease;
 }
 
 .btn--large {
   height: 48px;
   padding: 0 24px;
-  font-size: 15.5px;
+  font-size: 14px;
 }
 
+/* The game button: chunky, lit from the top, standing on a darker edge it presses down into. */
 .btn--primary {
-  background: var(--gradient);
-  color: #ffffff;
-  box-shadow: 0 6px 16px -6px rgb(0 122 255 / 55%);
+  border-color: var(--button-depth);
+  background: linear-gradient(var(--button-top), var(--button));
+  color: var(--button-text);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    0 4px 0 var(--button-depth),
+    0 8px 20px -8px var(--blue);
 }
 
 .btn--primary:hover {
-  box-shadow: 0 10px 22px -8px rgb(0 122 255 / 65%);
-  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    0 4px 0 var(--button-depth),
+    0 0 0 3px var(--glow),
+    0 10px 26px -8px var(--blue);
 }
 
+.btn--primary:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 20%),
+    0 1px 0 var(--button-depth);
+}
+
+/* The outline HUD button. */
 .btn--secondary {
   border-color: var(--border-strong);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  color: var(--text);
 }
 
 .btn--secondary:hover {
-  border-color: var(--faint);
+  border-color: var(--blue);
+  box-shadow: var(--edge-glow);
+}
+
+.btn--secondary:active {
+  transform: translateY(1px);
 }
 
 .btn--light {
   background: #ffffff;
   color: #0062cc;
-}
-
-.btn--light:hover {
-  transform: translateY(-1px);
 }
 
 .btn--ghost {
@@ -285,10 +457,11 @@ html:not([data-theme='dark']) .logo--dark {
 }
 
 .btn svg {
+  flex: none;
   transition: transform 0.15s ease;
 }
 
-.btn:hover svg {
+.btn--secondary:hover svg {
   transform: translateX(2px);
 }
 
@@ -299,7 +472,7 @@ html:not([data-theme='dark']) .logo--dark {
   height: 36px;
   padding: 0 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-size: 13px;
@@ -323,10 +496,11 @@ html:not([data-theme='dark']) .logo--dark {
   gap: 10px;
   max-width: 100%;
   height: 42px;
-  padding: 0 6px 0 16px;
+  padding: 0 6px 0 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--soft);
+  border-left: 2px solid var(--blue);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
   font-size: 13.5px;
 }
 
@@ -348,7 +522,7 @@ html:not([data-theme='dark']) .logo--dark {
   width: 30px;
   height: 30px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -369,8 +543,8 @@ html:not([data-theme='dark']) .logo--dark {
   position: sticky;
   top: 0;
   z-index: 40;
-  border-bottom: 1px solid transparent;
-  background: color-mix(in srgb, var(--bg) 64%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: saturate(1.8) blur(20px);
   transition: border-color 0.2s ease;
 }
@@ -414,22 +588,25 @@ html:not([data-theme='dark']) .logo--dark {
   gap: 6px;
   height: 32px;
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   color: var(--muted);
   font-size: 14.5px;
   font-weight: 500;
   transition:
     background 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .header__links a:hover {
   color: var(--text);
 }
 
+/* The current page: lit, with a bar under it as a selected tab. */
 .header__links a[aria-current='page'] {
-  background: var(--soft);
+  background: var(--blue-soft);
   color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--blue);
 }
 
 .header__external {
@@ -442,7 +619,7 @@ html:not([data-theme='dark']) .logo--dark {
   gap: 6px;
   height: 36px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   color: var(--muted);
   font-size: 14px;
   font-weight: 500;
@@ -520,7 +697,7 @@ html:not([data-theme='dark']) .logo--dark {
   height: 36px;
   padding: 0 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-size: 14px;
@@ -566,8 +743,8 @@ html:not([data-theme='dark']) .logo--dark {
   display: grid;
   min-width: 180px;
   padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -602,7 +779,7 @@ html:not([data-theme='dark']) .logo--dark {
   height: 38px;
   padding: 0 12px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 2px;
   background: transparent;
   color: var(--text);
   font-size: 14px;
@@ -640,7 +817,7 @@ html:not([data-theme='dark']) .logo--dark {
   display: none;
 }
 
-html:not([data-theme-preference]) .theme-menu__icon--light,
+html:not([data-theme-preference]) .theme-menu__icon--dark,
 html[data-theme-preference='light'] .theme-menu__icon--light,
 html[data-theme-preference='dark'] .theme-menu__icon--dark,
 html[data-theme-preference='system'] .theme-menu__icon--system {
@@ -653,8 +830,13 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   padding: 80px 0;
 }
 
+/* A faint grid behind the section, as an editor's viewport has. */
 .section--soft {
-  background: var(--soft);
+  border-block: 1px solid var(--border);
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 32px 32px,
+    var(--soft);
 }
 
 .section--next {
@@ -695,7 +877,9 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
 
 .hero {
   position: relative;
-  padding: 56px 0 72px;
+  display: flex;
+  flex-direction: column;
+  padding: 56px 0 40px;
   overflow-x: clip;
 }
 
@@ -723,27 +907,92 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   background: radial-gradient(600px 380px at var(--glow-x, 50%) var(--glow-y, 45%), var(--glow), transparent 70%);
 }
 
-/* The count of dots the visitor has lit, small in the hero's corner. */
-.hero__score {
+/* The playfield framed as a game's viewport: corner brackets a little inside the hero, a hairline between them, and faint scanlines over the field. Decorative; the readouts under the copy say what the field is doing. */
+.hero__frame {
   position: absolute;
-  right: 20px;
-  bottom: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
+  inset: 14px max(12px, calc((100% - 1320px) / 2)) 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: repeating-linear-gradient(transparent 0 2px, var(--scan) 2px 3px);
   pointer-events: none;
-  user-select: none;
 }
 
-.hero__score-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--blue);
-  box-shadow: 0 0 6px var(--blue);
+.hero__frame::before {
+  --arm: 22px;
+}
+
+/* The readouts: the field's fixed step, the frame rate it measures, its sprites and the visitor's score. */
+/* HeroField renders the readouts before the copy; they show after it. */
+.hero__hud {
+  position: relative;
+  order: 1;
+  margin-top: 56px;
+}
+
+.hud-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0;
+  border-block: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  font-family: var(--font-mono);
+}
+
+.hud-strip__item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 22px;
+}
+
+.hud-strip__item + .hud-strip__item {
+  border-left: 1px solid var(--border);
+}
+
+.hud-strip dt {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hud-strip dd {
+  min-width: 4ch;
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-strip__item--score dd {
+  color: var(--blue-ink);
+  text-shadow: 0 0 10px var(--glow);
+}
+
+@media (max-width: 560px) {
+  .hud-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hud-strip__item {
+    justify-content: space-between;
+    padding: 9px 14px;
+  }
+
+  .hud-strip__item + .hud-strip__item {
+    border-left: 0;
+  }
+
+  .hud-strip__item:nth-child(even) {
+    border-left: 1px solid var(--border);
+  }
+
+  .hud-strip__item:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
 }
 
 .hero__inner {
@@ -792,46 +1041,51 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 12px;
-  margin-top: 44px;
+  gap: 14px;
+  margin-top: 40px;
 }
 
 .hero .command {
   margin-top: 20px;
 }
 
-/* Features: a bento of cards. */
+/* Stages: a row of panels. */
 
 .bento {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .bento__card {
   display: flex;
   flex-direction: column;
-  padding: 22px 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  padding: 20px 22px 22px;
+}
+
+.bento__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
 }
 
 .bento__icon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  margin-bottom: 14px;
-  border-radius: 12px;
-  background: var(--blue-soft);
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
   color: var(--blue);
 }
 
 .bento__card h3 {
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 700;
   letter-spacing: -0.015em;
 }
 
@@ -843,38 +1097,28 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
 
 .bento__card p a {
   color: var(--blue-ink);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
 
 .bento__card p a:hover {
   text-decoration: underline;
 }
 
-.bento__label {
-  color: var(--blue-ink);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .chips li {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--soft);
-  font-size: 13.5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   font-weight: 500;
-}
-
-.chips li:nth-child(-n + 5) {
-  border-color: transparent;
-  background: var(--blue-soft);
-  color: var(--blue-ink);
 }
 
 @media (max-width: 960px) {
@@ -889,64 +1133,97 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   }
 }
 
-/* Code: what to know beside an editor and what it shows. */
+/* Packages as levels: a panel each, its number and status on top; the locked ones dimmer, with their area's progress and the issue they are planned in. */
 
-.code {
+.levels {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  align-items: center;
-  gap: 48px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
-.code .section__head {
-  margin-bottom: 36px;
-}
-
-.code__points {
-  display: grid;
-  gap: 22px;
-}
-
-.code__points li {
+.level {
   display: flex;
-  gap: 16px;
+  flex-direction: column;
+  padding: 18px 20px 20px;
 }
 
-.code__n {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--blue-soft);
-  color: var(--blue-ink);
-  font-size: 13px;
+.level__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.level h3 {
+  font-family: var(--font-mono);
+  font-size: 19px;
   font-weight: 700;
 }
 
-.code__points strong {
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.code__points strong a:hover {
+.level h3 a:hover {
   color: var(--blue-ink);
 }
 
-.code__points p {
-  margin-top: 2px;
+.level p {
+  margin-top: 4px;
+  margin-bottom: 14px;
   color: var(--muted);
   font-size: 15px;
 }
 
+.level--locked {
+  border-style: dashed;
+  background: transparent;
+}
+
+.level--locked::before {
+  --corner: var(--border-strong);
+}
+
+.level--locked h3 {
+  color: var(--muted);
+}
+
+.level__plan {
+  display: grid;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.level__xp {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.level__plan a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  color: var(--blue-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.level__plan a:hover {
+  text-decoration: underline;
+}
+
 .code__path {
-  display: inline-block;
+  display: block;
   max-width: 100%;
-  margin-top: 8px;
-  padding: 5px 10px;
+  margin-top: auto;
+  padding: 6px 10px;
   overflow-wrap: anywhere;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
   background: var(--soft);
   color: var(--blue-ink);
   font-size: 12.5px;
@@ -954,29 +1231,30 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
 
 .code__demo {
   min-width: 0;
+  margin-top: 28px;
 }
 
+/* The editor: a pane with a tab per file. */
 .editor {
-  overflow: hidden;
-  border: 1px solid var(--editor-border);
-  border-radius: var(--radius);
+  border-color: var(--editor-border);
   background: var(--editor);
-  box-shadow: var(--shadow);
   color: var(--editor-text);
 }
 
 .editor__tabs {
   display: flex;
-  gap: 20px;
-  padding: 0 22px;
+  gap: 0;
+  overflow-x: auto;
   border-bottom: 1px solid var(--editor-border);
+  background: var(--editor-bar);
 }
 
 .editor__tab {
-  height: 44px;
+  height: 40px;
   margin-bottom: -1px;
-  padding: 0;
+  padding: 0 18px;
   border: 0;
+  border-right: 1px solid var(--editor-border);
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--editor-muted);
@@ -989,8 +1267,13 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   color: var(--editor-text);
 }
 
+.editor__tab:focus-visible {
+  outline-offset: -3px;
+}
+
 .editor__tab[aria-selected='true'] {
-  border-bottom-color: var(--editor-text);
+  border-bottom-color: var(--blue);
+  background: var(--editor);
   color: var(--editor-text);
 }
 
@@ -1006,9 +1289,14 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
 }
 
 @media (max-width: 960px) {
-  .code {
+  .levels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .levels {
     grid-template-columns: 1fr;
-    gap: 48px;
   }
 }
 
@@ -1068,16 +1356,16 @@ html[data-theme='dark'] .shiki span {
 }
 
 .cta {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 32px 48px;
   padding: 44px 48px;
-  overflow: hidden;
-  border-radius: 24px;
-  background: var(--gradient);
-  color: #ffffff;
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--border));
+  background:
+    radial-gradient(520px 240px at 85% 50%, var(--glow), transparent 70%),
+    repeating-linear-gradient(transparent 0 2px, var(--scan) 2px 3px),
+    var(--surface);
 }
 
 /* Behind the buttons, whole within the card from its top padding to its bottom. */
@@ -1089,8 +1377,8 @@ html[data-theme='dark'] .shiki span {
   height: calc(100% - 48px);
   max-height: 140px;
   aspect-ratio: 40 / 44;
-  color: #ffffff;
-  opacity: 0.12;
+  color: var(--blue);
+  opacity: 0.1;
 }
 
 .cta__copy,
@@ -1106,14 +1394,14 @@ html[data-theme='dark'] .shiki span {
 
 .cta__copy p {
   margin-top: 8px;
-  color: rgb(255 255 255 / 85%);
+  color: var(--muted);
   font-size: 17px;
 }
 
 .cta__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
 }
 
 .footer {
@@ -1137,8 +1425,12 @@ html[data-theme='dark'] .shiki span {
 
 .footer__column h3 {
   margin-bottom: 10px;
-  font-size: 13.5px;
-  font-weight: 650;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .footer__column ul {
@@ -1230,16 +1522,55 @@ html[data-theme='dark'] .shiki span {
   overflow-y: auto;
 }
 
+/* The pages and the contents as an editor's side panels: a line around each and a monospace title bar. */
+.docs__nav,
+.docs__toc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.docs__nav summary,
+.docs__toc p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--soft);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .docs__nav summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.docs__nav summary::-webkit-details-marker {
   display: none;
 }
 
-.docs__toc p {
-  margin-bottom: 8px;
-  padding: 0 12px;
-  color: var(--faint);
-  font-size: 12.5px;
-  font-weight: 600;
+.docs__nav summary svg {
+  transition: transform 0.15s ease;
+}
+
+.docs__nav[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.docs__nav:not([open]) summary {
+  border-bottom: 0;
+}
+
+.docs__nav nav,
+.docs__toc ul {
+  padding: 8px 6px;
 }
 
 .docs__group ul {
@@ -1249,8 +1580,9 @@ html[data-theme='dark'] .shiki span {
 
 .docs__group a {
   display: block;
-  padding: 5px 12px;
-  border-radius: 8px;
+  padding: 5px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 0 2px 2px 0;
   color: var(--muted);
   font-size: 13.5px;
   transition:
@@ -1263,8 +1595,9 @@ html[data-theme='dark'] .shiki span {
 }
 
 .docs__group a[aria-current='page'] {
+  border-left-color: var(--blue);
   background: var(--blue-soft);
-  color: var(--blue-ink);
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -1293,7 +1626,8 @@ html[data-theme='dark'] .shiki span {
   margin: 0 0 24px;
   padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-left: 2px solid var(--blue);
+  border-radius: var(--radius);
   background: var(--soft);
   color: var(--muted);
   font-size: 14.5px;
@@ -1324,19 +1658,26 @@ html[data-theme='dark'] .shiki span {
 .docs__pager a {
   display: grid;
   gap: 2px;
-  padding: 16px 20px;
+  padding: 14px 18px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  transition: border-color 0.15s ease;
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .docs__pager a:hover {
   border-color: var(--blue);
+  box-shadow: var(--edge-glow);
 }
 
 .docs__pager span {
   color: var(--faint);
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .docs__pager strong {
@@ -1353,13 +1694,11 @@ html[data-theme='dark'] .shiki span {
   position: relative;
   display: grid;
   gap: 1px;
-  border-left: 1px solid var(--border);
 }
 
 .docs__toc a {
   display: block;
-  margin-left: -1px;
-  padding: 3px 12px;
+  padding: 3px 10px;
   border-left: 2px solid transparent;
   color: var(--muted);
   font-size: 13px;
@@ -1379,7 +1718,7 @@ html[data-theme='dark'] .shiki span {
 }
 
 .docs__toc-3 a {
-  padding-left: 24px;
+  padding-left: 22px;
 }
 
 /* The article ------------------------------------------------------- */
@@ -1455,7 +1794,7 @@ html[data-theme='dark'] .shiki span {
 
 .prose :not(pre) > code {
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 3px;
   background: var(--soft);
   font-size: 0.88em;
 }
@@ -1464,7 +1803,8 @@ html[data-theme='dark'] .shiki span {
 .prose blockquote {
   padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-left: 2px solid var(--blue);
+  border-radius: var(--radius);
   background: var(--soft);
   font-size: 15px;
 }
@@ -1473,16 +1813,39 @@ html[data-theme='dark'] .shiki span {
   margin-bottom: 0;
 }
 
+/* A code block as an editor pane: a title bar naming the language, with the copy button in it. */
 .prose__code {
-  position: relative;
   margin: 0 0 16px;
+  overflow: hidden;
+  border: 1px solid var(--editor-border);
+  border-radius: var(--radius);
+  background: var(--editor);
+}
+
+.prose__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 4px 0 14px;
+  border-bottom: 1px solid var(--editor-border);
+  background: var(--editor-bar);
+}
+
+.prose__lang {
+  color: var(--editor-muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .prose pre {
   padding: 12px 16px;
   overflow-x: auto;
   border: 1px solid var(--editor-border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--editor) !important;
   color: var(--editor-text);
   font-size: 13px;
@@ -1492,35 +1855,30 @@ html[data-theme='dark'] .shiki span {
 
 .prose__code pre {
   margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
 }
 
 .prose__copy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--editor-border);
-  border-radius: 8px;
-  background: var(--editor-bar);
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
   color: var(--editor-muted);
   cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 0.15s ease,
-    color 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .prose__copy:hover {
   color: var(--editor-text);
 }
 
-.prose__code:hover .prose__copy,
-.prose__copy:focus-visible,
-.prose__copy.is-copied {
-  opacity: 1;
+.prose__copy:focus-visible {
+  outline-offset: -2px;
 }
 
 .prose__copy.is-copied {
@@ -1571,40 +1929,12 @@ html[data-theme='dark'] .shiki span {
     max-height: none;
   }
 
-  .docs__nav {
-    border: 1px solid var(--border);
-    border-radius: 14px;
-  }
-
   .docs__nav summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    font-weight: 600;
-    list-style: none;
-    cursor: pointer;
-  }
-
-  .docs__nav summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .docs__nav summary svg {
-    color: var(--faint);
-    transition: transform 0.15s ease;
-  }
-
-  .docs__nav[open] summary svg {
-    transform: rotate(180deg);
-  }
-
-  .docs__nav nav {
-    padding: 0 4px 12px;
+    height: 44px;
   }
 }
 
-/* Roadmap: a page head as nsgo.dev's benchmarks page has, then each stage's areas as cards. */
+/* Roadmap: a page head, then each stage as a panel with its progress as an experience bar, and its areas as quest lists. */
 
 .page-head {
   padding: 36px 0 4px;
@@ -1637,7 +1967,8 @@ html[data-theme='dark'] .shiki span {
   margin: 32px 0 72px;
   padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-left: 2px solid var(--blue);
+  border-radius: var(--radius);
   background: var(--soft);
   font-size: 14.5px;
 }
@@ -1651,7 +1982,8 @@ html[data-theme='dark'] .shiki span {
 }
 
 .roadmap-stage {
-  padding-top: 48px;
+  margin-top: 36px;
+  padding: 24px 24px 12px;
 }
 
 .roadmap-stage__head {
@@ -1662,8 +1994,11 @@ html[data-theme='dark'] .shiki span {
   margin-bottom: 24px;
 }
 
+.roadmap-stage__head .eyebrow {
+  grid-column: 1 / -1;
+}
+
 .roadmap-stage__head h2 {
-  grid-column: 1;
   font-size: clamp(24px, 3vw, 30px);
   font-weight: 700;
   line-height: 1.2;
@@ -1671,26 +2006,24 @@ html[data-theme='dark'] .shiki span {
 }
 
 .roadmap-stage__count {
-  grid-column: 2;
-  grid-row: 2;
+  display: grid;
+  justify-items: end;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13.5px;
   font-variant-numeric: tabular-nums;
 }
 
-.progress {
-  grid-column: 1 / -1;
-  height: 6px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: var(--border);
+.roadmap-stage__xp {
+  color: var(--blue-ink);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
-.progress span {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--gradient);
+.roadmap-stage__head .segments {
+  grid-column: 1 / -1;
+  height: 12px;
 }
 
 .roadmap-groups {
@@ -1701,17 +2034,41 @@ html[data-theme='dark'] .shiki span {
 .roadmap-group {
   break-inside: avoid;
   margin-bottom: 12px;
-  padding: 18px 20px 14px;
+  padding: 0 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .roadmap-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   margin-bottom: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--soft);
   font-size: 14px;
   font-weight: 650;
+}
+
+.roadmap-group h3 .hud-label {
+  font-size: 11px;
+}
+
+.roadmap-group__count {
+  margin-left: auto;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roadmap-group ul {
+  padding: 0 14px;
 }
 
 .issue {
@@ -1733,21 +2090,34 @@ html[data-theme='dark'] .shiki span {
   font-size: 12.5px;
 }
 
-/* The mark's skewed square: outlined while open, filled once closed. */
+/* A quest's marker: an empty box while open, a filled box with a check once closed, so the shape tells as well as the color. */
 .issue__state {
+  display: grid;
   flex: none;
-  width: 8px;
-  height: 8px;
+  place-items: center;
+  width: 12px;
+  height: 12px;
   border: 1.5px solid var(--border-strong);
   border-radius: 2px;
-  transform: skewX(-10deg);
+  transform: translateY(1px);
 }
 
 .issue--closed .issue__state {
   border-color: var(--blue);
   background: var(--blue);
+  color: var(--button-text);
+}
+
+.issue__state svg {
+  stroke-width: 3.5;
 }
 
 .issue--closed a {
   color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .roadmap-stage {
+    padding: 20px 14px 8px;
+  }
 }

@@ -1,6 +1,8 @@
 import { roadmap } from 'virtual:roadmap'
 import type { RoadmapIssue, RoadmapStage } from '../content/types'
 import { Eyebrow } from '../components/Brand'
+import { Icon } from '../components/Icon'
+import { Segments } from '../components/Segments'
 import { type Copy, copies } from '../copy'
 import { type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL, PLAN_URL } from '../links'
@@ -48,22 +50,35 @@ function Stage({ stage, index, copy }: { stage: RoadmapStage; index: number; cop
   const total = stage.open + stage.closed
   const titleId = `stage-${stage.id}`
   return (
-    <section className="roadmap-stage" aria-labelledby={titleId}>
+    <section className="roadmap-stage hud" aria-labelledby={titleId}>
       <div className="roadmap-stage__head">
         <Eyebrow>{copy.stage(index)}</Eyebrow>
         <h2 id={titleId}>{stage.title}</h2>
-        <p className="roadmap-stage__count">{copy.closed(stage.closed, total)}</p>
-        <div className="progress" aria-hidden="true">
-          <span style={{ width: `${total === 0 ? 0 : (stage.closed / total) * 100}%` }} />
-        </div>
+        <p className="roadmap-stage__count">
+          <span className="roadmap-stage__xp" aria-hidden="true">
+            {copy.xp} {stage.closed}/{total}
+          </span>
+          <span>{copy.closed(stage.closed, total)}</span>
+        </p>
+        <Segments closed={stage.closed} total={total} />
       </div>
       <div className="roadmap-groups">
         {stage.groups.map((group) => {
           // Areas are the words issue titles start with, kept as they are, except the one for titles with none.
           const area = group.area === 'Other' ? copy.other : group.area
+          const done = group.issues.filter((issue) => issue.state === 'closed').length
           return (
             <section key={group.area} className="roadmap-group" aria-label={area}>
-              <h3>{area}</h3>
+              <h3>
+                <span className="hud-label">{copy.quest}</span>
+                <span className="roadmap-group__name">{area}</span>
+                <span className="roadmap-group__count">
+                  <span className="sr-only">{copy.closed(done, group.issues.length)}</span>
+                  <span aria-hidden="true">
+                    {done}/{group.issues.length}
+                  </span>
+                </span>
+              </h3>
               <ul>
                 {group.issues.map((issue) => (
                   <Issue key={`${issue.repo}#${issue.number}`} issue={issue} copy={copy} />
@@ -81,7 +96,9 @@ function Issue({ issue, copy }: { issue: RoadmapIssue; copy: Copy['roadmap'] }) 
   const ref = issue.repo === 'nsgo-dev/game' ? `#${issue.number}` : `nsgo#${issue.number}`
   return (
     <li className={`issue issue--${issue.state}`}>
-      <span className="issue__state" role="img" aria-label={issue.state === 'closed' ? copy.closedState : copy.open} />
+      <span className="issue__state" role="img" aria-label={issue.state === 'closed' ? copy.closedState : copy.open}>
+        {issue.state === 'closed' && <Icon name="check" size={9} />}
+      </span>
       <a href={issue.url} lang="en">
         <span className="issue__ref">{ref}</span> {issue.title}
       </a>

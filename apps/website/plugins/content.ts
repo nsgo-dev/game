@@ -120,7 +120,8 @@ async function renderDoc(slug: string, source: string, { lang, from }: { lang: L
     .use(remarkRehype)
     .use(rehypeSlug)
     .use(collectHeadings(headings) as UnifiedPlugin)
-    .use(rehypeShiki, { themes: THEMES, defaultColor: false })
+    // The language class names the block in its editor pane's title bar.
+    .use(rehypeShiki, { themes: THEMES, defaultColor: false, addLanguageClass: true })
     .use(rehypeStringify)
     .process(source)
   return { slug, title: meta.title, description: meta.description, html: String(file), headings, fallback: from !== lang, source: `docs/${from}/${slug}.md` }

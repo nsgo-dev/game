@@ -3,7 +3,7 @@ import { copies } from '../copy'
 import { useLang } from '../i18n'
 import { THEME_EVENT } from '../lib/theme'
 
-// The hero's background, ported from nsgo.dev's HeroField and made a small playfield. The dot grid is drawn by a WebGL shader, with a slow noise field lighting patches of dots blue, brightest around the heading, and a ring of lit dots spreading from the heading every few seconds. On it a few glowing square sprites step from dot to dot on a fixed 60 Hz update, drawn between steps as game.Loop draws, turning at random dots and leaving trails of lit dots. The pointer is the player: dots light up around it and part as through a lens, some sprites steer towards it and others away, and a click or tap sends out a burst of sparks and shakes the field a little. A counter in the hero's corner shows how many dots the visitor has lit. The grid and sprites fade under the copy's words so they keep a quiet ground.
+// The hero's background, ported from nsgo.dev's HeroField and made a small playfield. The dot grid is drawn by a WebGL shader, with a slow noise field lighting patches of dots blue, brightest around the heading, and a ring of lit dots spreading from the heading every few seconds. On it a few glowing square sprites step from dot to dot on a fixed 60 Hz update, drawn between steps as game.Loop draws, turning at random dots and leaving trails of lit dots. The pointer is the player: dots light up around it and part as through a lens, some sprites steer towards it and others away, and a click or tap sends out a burst of sparks and shakes the field a little. A strip of readouts under the field shows what it is doing: the fixed step it updates on, the frame rate it measures, its sprites and how many dots the visitor has lit. The grid and sprites fade under the copy's words so they keep a quiet ground.
 // The prerendered page shows the CSS dots of `.hero__glow`; the shader starts after hydration, once the browser is idle, and the CSS dots give way to it. Without WebGL the CSS dots stay; with less motion asked for, one still frame is drawn, the sprites stand still and clicks send nothing. Either way the glow centres on the heading.
 
 const vertex = `
@@ -152,8 +152,9 @@ const FIRST_RING = 900
 const RING_EVERY = 2200
 
 const CELL = 22
-// The fixed update step, as game.Loop's 60 Hz, and the most steps one frame catches up on.
-const STEP = 1000 / 60
+// The fixed update rate and step, as game.Loop's 60 Hz, and the most steps one frame catches up on.
+const RATE = 60
+const STEP = 1000 / RATE
 const MAX_STEPS = 8
 // How long lit dots take to fade: the sprites' trails and the visitor's.
 const TRAIL_FADE = 1.4
@@ -187,6 +188,12 @@ type Sprite = {
   // Steers towards the pointer, or away from it.
   bold: boolean
 }
+
+// What the readouts show. fps is null while the field is not animating: before it starts, without WebGL, with less motion asked for, or paused.
+export type FieldStats = { fps: number | null; sprites: number; score: number }
+
+// How often the measured frame rate is sampled.
+const FPS_WINDOW = 500
 
 type Spark = { x: number; y: number; vx: number; vy: number; age: number; life: number }
 
@@ -244,7 +251,7 @@ function placeGlow(hero: HTMLElement, layer: HTMLElement): () => void {
 }
 
 // Starts the field on the canvas. Returns its cleanup, or null where WebGL is missing or the shader does not build, leaving the CSS dots.
-function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (count: number) => void, onLost: () => void): (() => void) | null {
+function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onStats: (stats: FieldStats) => void, onLost: () => void): (() => void) | null {
   const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false })
   if (!gl) return null
   const release = () => gl.getExtension('WEBGL_lose_context')?.loseContext()
@@ -331,7 +338,16 @@ function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (coun
   const spriteData = new Float32Array(SPRITES * 4)
   const sparkData = new Float32Array(SPARKS * 4)
   let count = 0
-  let told = 0
+  // Frames drawn since the window began, and the rate the last window measured.
+  let frames = 0
+  let windowStart = -1
+  let fps: number | null = null
+  let told: FieldStats = { fps: null, sprites: 0, score: 0 }
+  const report = () => {
+    if (told.fps === fps && told.sprites === sprites.length && told.score === count) return
+    told = { fps, sprites: sprites.length, score: count }
+    onStats(told)
+  }
 
   const inside = (col: number, row: number) => col >= bounds.left && col <= bounds.right && row >= bounds.top && row <= bounds.bottom
   const quietAt = (col: number, row: number) => Math.abs(col * CELL - calm.x) < calm.w + CELL && Math.abs(row * CELL - calm.y) < calm.h + CELL
@@ -461,8 +477,18 @@ function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (coun
         update()
         behind -= STEP
       }
+      frames++
+      if (windowStart < 0) windowStart = now
+      else if (now - windowStart >= FPS_WINDOW) {
+        fps = Math.round((frames * 1000) / (now - windowStart))
+        frames = 0
+        windowStart = now
+      }
     } else {
       last = -1
+      fps = null
+      windowStart = -1
+      frames = 0
     }
     // Drawn between the last step and the next.
     const blend = moving ? behind / STEP : 1
@@ -501,11 +527,13 @@ function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (coun
     gl.uniform1i(sparkCount, Math.min(sparks.length, SPARKS))
     gl.uniform2f(shakeAt, (Math.random() * 2 - 1) * amount, (Math.random() * 2 - 1) * amount)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
-    if (count !== told) {
-      told = count
-      onScore(count)
-    }
+    report()
     if (visible && !document.hidden && (moving || !settled)) frame = requestAnimationFrame(draw)
+    else {
+      // Stopped until the next redraw, which starts a new window.
+      windowStart = -1
+      frames = 0
+    }
   }
   const redraw = () => {
     if (frame) cancelAnimationFrame(frame)
@@ -623,6 +651,10 @@ function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (coun
   }
   const shown = () => {
     if (!document.hidden) redraw()
+    else {
+      fps = null
+      report()
+    }
   }
   const lost = (event: Event) => {
     event.preventDefault()
@@ -677,13 +709,13 @@ function startField(canvas: HTMLCanvasElement, hero: HTMLElement, onScore: (coun
   }
 }
 
-// The glow layer, the canvas over it and the counter of lit dots, placed inside `.hero`.
+// The glow layer, the canvas over it, the viewport's frame and the strip of readouts, placed inside `.hero`.
 export function HeroField() {
-  const label = copies[useLang()].home.lit
+  const hud = copies[useLang()].home.hud
   const glow = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [shaded, setShaded] = useState(false)
-  const [score, setScore] = useState(0)
+  const [stats, setStats] = useState<FieldStats>({ fps: null, sprites: 0, score: 0 })
 
   useEffect(() => {
     const layer = glow.current
@@ -694,7 +726,10 @@ export function HeroField() {
     let stop: (() => void) | null = null
     // Off the hydration's critical path: the CSS dots show until the browser is idle.
     const begin = () => {
-      stop = startField(field, hero, setScore, () => setShaded(false))
+      stop = startField(field, hero, setStats, () => {
+        setShaded(false)
+        setStats({ fps: null, sprites: 0, score: 0 })
+      })
       if (stop) setShaded(true)
     }
     // Safari has no idle callback; a timeout still lets hydration finish first.
@@ -708,16 +743,46 @@ export function HeroField() {
     }
   }, [])
 
+  // Without the field, before it starts or where WebGL is missing, every readout is empty rather than made up.
+  const step = shaded ? `${STEP.toFixed(1)} ms` : null
+  const fps = shaded && stats.fps !== null ? String(stats.fps).padStart(2, '0') : null
+  const sprites = shaded ? String(stats.sprites) : null
   return (
     <>
       <div ref={glow} className={shaded ? 'hero__glow hero__glow--shaded' : 'hero__glow'} aria-hidden="true" />
       <canvas ref={canvas} className="hero-field" aria-hidden="true" />
-      {shaded && (
-        <div className="hero__score" role="img" aria-label={`${label}: ${score}`}>
-          <span className="hero__score-dot" aria-hidden="true" />
-          {score}
-        </div>
-      )}
+      <div className="hero__frame" aria-hidden="true" />
+      <div className="container hero__hud">
+        <dl className="hud-strip" aria-label={hud.label}>
+          <Readout label={hud.step} name={hud.stepName} idle={hud.idle} value={step} spoken={step} />
+          <Readout label={hud.fps} name={hud.fpsName} idle={hud.idle} value={fps} spoken={stats.fps === null ? null : String(stats.fps)} />
+          <Readout label={hud.sprites} name={hud.spritesName} idle={hud.idle} value={sprites} spoken={sprites} />
+          <Readout
+            label={hud.score}
+            name={hud.scoreName}
+            idle={hud.idle}
+            value={shaded ? String(stats.score).padStart(4, '0') : null}
+            spoken={shaded ? String(stats.score) : null}
+            score
+          />
+        </dl>
+      </div>
     </>
+  )
+}
+
+// One readout: the short label and the value shown, and for screen readers the readout's name and the value without padding.
+function Readout({ label, name, idle, value, spoken, score }: { label: string; name: string; idle: string; value: string | null; spoken: string | null; score?: boolean }) {
+  return (
+    <div className={score ? 'hud-strip__item hud-strip__item--score' : 'hud-strip__item'}>
+      <dt>
+        <span aria-hidden="true">{label}</span>
+        <span className="sr-only">{name}</span>
+      </dt>
+      <dd>
+        <span aria-hidden="true">{value ?? (score ? '----' : '--')}</span>
+        <span className="sr-only">{spoken ?? idle}</span>
+      </dd>
+    </div>
   )
 }

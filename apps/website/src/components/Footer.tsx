@@ -48,17 +48,18 @@ export function Cta() {
   const copy = copies[lang]
   return (
     <section className="container cta-wrap">
-      <div className="cta">
+      <div className="cta hud">
         <SpeedLines className="cta__lines" />
         <div className="cta__copy">
           <h2>{copy.cta.title}</h2>
           <p>{copy.cta.body}</p>
         </div>
         <div className="cta__actions">
-          <Link className="btn btn--light btn--large" to={routes[lang].docs}>
+          <Link className="btn btn--primary btn--large" to={routes[lang].docs}>
+            <Icon name="play" size={14} />
             {copy.home.docs}
           </Link>
-          <a className="btn btn--ghost btn--large" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+          <a className="btn btn--secondary btn--large" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
             {copy.nav.github}
           </a>
         </div>
