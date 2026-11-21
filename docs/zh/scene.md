@@ -1,0 +1,117 @@
+# scene
+
+`game/scene` 按顺序组合世界空间与屏幕空间图层，在视图坐标中对精灵和自定义绘制项做命中测试，并管理场景生命周期、叠加栈和过渡动画。
+
+```go
+import "github.com/nsgo-dev/game/packages/game/scene"
+```
+
+## Scene、图层与 Drawable
+
+`Scene` 持有一个共享的 `*tilemap.Camera` 和一组按 `Order` 稳定升序绘制的 `*Layer`。每个图层可以运行在 `SpaceWorld`（受 `Scene.Camera` 变换）或 `SpaceScreen`（直接以视图坐标绘制，适合 HUD）：
+
+```go
+sc := scene.NewScene(cam)
+
+terrain := sc.AddLayer(scene.NewLayer("terrain", scene.SpaceWorld, 0))
+terrain.AddTilemap(levelMap)
+
+actors := sc.AddLayer(scene.NewLayer("actors", scene.SpaceWorld, 10))
+actors.AddBatch(actorBatch)
+
+hud := sc.AddLayer(scene.NewLayer("hud", scene.SpaceScreen, 100))
+hud.AddDrawable(scene.NewDrawable(func(d *core.Drawing) {
+	drawMinimap(d)
+}))
+```
+
+- **图层项**：通过 `AddTilemap`、`AddBatch`、`AddDrawable` 或显式 `AddItem(scene.Item{...})` 添加。同一图层内的各项按 `Z` 稳定升序绘制。
+- **`Drawable`**：封装自定义 `Draw`、`Update`、`Hit`、`OnPress` 和 `OnTouch` 回调，自带 `Z` 与 `Visible` 字段。零值的 `Visible` 为 `false`，建议用 `scene.NewDrawable(fn)` 创建。
+- **`Scene.Update(dt)`** 按图层顺序推进 `Camera`、瓦片地图和自定义 `Drawable`；**`Scene.Draw(d)`** 绘制所有可见图层，并在完成后恢复 `d` 的变换与画笔状态。
+
+## 命中测试与输入派发
+
+`Scene.HitTest(p)` 按绘制的逆序（最高 `Layer.Order` 优先，再按最高项/精灵 `Z` 优先）测试视图坐标点 `p`：`SpaceWorld` 图层会先经由 `Camera.ViewToWorld` 转换，`SpaceScreen` 图层则直接在视图坐标下判定：
+
+```go
+if hit, ok := sc.HitTest(ev.Position); ok {
+	if hit.Sprite != nil {
+		selectUnit(hit.Sprite, hit.Point)
+	}
+}
+```
+
+需要获取穿透所有层的命中列表时，使用 `HitTestAll(p)`（按从顶层到底层排序）。
+
+### 自定义命中区域与回调
+
+默认情况下，精灵使用其变换后的未裁剪画框做命中测试（`SpriteContains` / `SpriteToLocal`）。可用 `SetSpriteHit` 覆盖判定形状或绑定按压/触摸回调（用 `ClearSpriteHit` 移除）：
+
+```go
+sc.SetSpriteHit(&coinSprite, scene.HitOptions{
+	Hit: scene.SpriteLocalHit(&coinSprite, scene.CircleHit(core.Point{X: 8, Y: 8}, 7)),
+	OnPress: func(hit scene.HitResult, ev core.PressEvent) {
+		collectCoin()
+	},
+})
+```
+
+内置的 `HitFunc` 辅助函数包括 `RectHit(bounds)`、`CircleHit(center, radius)`、`PolygonHit(vertices...)` 和 `SpriteLocalHit(sp, local)`。将 `HitOptions{Ignore: true}` 设为 `true` 可让装饰性精灵忽略点击和触摸。
+
+调用 `sc.DispatchPress(ev)` 和 `sc.DispatchTouch(ev)` 可直接把视图事件派发给最顶层的命中目标（若目标只设置了 `OnPress` 而未设置 `OnTouch`，`DispatchTouch` 会在 `TouchStart` 时回退调用 `OnPress`）。
+
+## Manager、场景栈与过渡动画
+
+`Manager` 在父级 `*core.Scope` 下管理 `*Controller` 场景栈。每个进入的场景都会在 `Enter(cx)` 中获得独立的子 `*core.Scope`，在该子作用域下创建的循环、信号、计时器和音频会在场景退出时自动释放：
+
+```go
+mgr := scene.NewManager(cx)
+
+play := &scene.Controller{
+	Scene: gameScene,
+	Enter: func(scx *core.Scope) {
+		// 归属本场景子作用域的资源
+		startLevelMusic(scx)
+	},
+	Pause:  func() { pauseSimulation() },
+	Resume: func() { resumeSimulation() },
+	Exit:   func() { cleanupLevel() },
+	Update: func(dt time.Duration) {
+		gameScene.Update(dt)
+	},
+}
+
+pauseMenu := &scene.Controller{
+	Scene:       pauseScene,
+	Transparent: true, // 在下方继续绘制被暂停的场景
+}
+
+mgr.Switch(play, scene.Fade(400*time.Millisecond, core.RGB(0x000000)))
+// 之后压入暂停界面而不退出主场景：
+mgr.Push(pauseMenu)
+// 弹出并恢复主场景：
+mgr.Pop()
+```
+
+### 过渡动画
+
+向 `mgr.Switch(next, tr)` 传入 `*Transition`：
+
+| 构造函数 | 视觉效果 |
+| --- | --- |
+| `Fade(d, color)` | 前半段将旧场景淡出到 `color`，后半段从 `color` 淡入新场景（`color` 为透明或 0 时直接交叉淡化）。 |
+| `Crossfade(d)` | 在 `d` 时长内直接从旧场景交叉淡化到新场景。 |
+| `Wipe(d, dir)` | 沿 `DirectionLeft`、`DirectionRight`、`DirectionUp` 或 `DirectionDown` 方向擦除切换。 |
+| `CustomTransition(d, draw)` | 按缓动后的 `progress`（`[0, 1]`）调用自定义绘制函数，并传入 `drawOld` 与 `drawNew`。 |
+
+可将 `tr.Curve` 设为任意 `core.Curve` 缓动曲线。过渡进行期间（`mgr.Transitioning()` 为 `true`），新场景会立即进入，旧场景保留至过渡结束再退出并销毁其子作用域。
+
+在 `game.Loop` 和 `core.Canvas` 中驱动管理器：
+
+```go
+// 在 Loop.Update 中：
+mgr.Update(dt)
+
+// 在 Canvas.Draw 中（自动订阅场景切换与过渡帧）：
+mgr.Draw(d, size, alpha.Get())
+```

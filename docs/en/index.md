@@ -18,10 +18,22 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`, the fixed-step loop every package shares |
 | `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | Atlases, frames, animations, sprites and batches drawn into a `Canvas` |
 | `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | The `Mixer`, its effects and music |
+| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | Named actions and axes from touch regions and mouse buttons, persisted in `core.Storage` |
+| `tilemap` | `github.com/nsgo-dev/game/packages/game/tilemap` | [tilemap](tilemap.md) | 2D `Camera`, culled tilemaps, Tiled `.tmj` loader, animated tiles and raycasts |
+| `scene` | `github.com/nsgo-dev/game/packages/game/scene` | [scene](scene.md) | World/screen layers, hit testing, scene stacks and animated transitions |
+| `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
+| `screen` | `github.com/nsgo-dev/game/packages/game/screen` | [screen](screen.md) | Virtual resolution `Viewport` scaling, pixel snapping and safe-area rectangles |
+| `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
+| `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont bitmap fonts and platform text via `DrawPlatform` |
+| `particles` | `github.com/nsgo-dev/game/packages/game/particles` | [particles](particles.md) | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and lifetime curves |
+| `save` | `github.com/nsgo-dev/game/packages/game/save` | [save](save.md) | Versioned JSON save slots, schema migrations and atomic backup recovery |
+| `debug` | `github.com/nsgo-dev/game/packages/game/debug` | [debug](debug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
+| `flow` | `github.com/nsgo-dev/game/packages/game/flow` | [flow](flow.md) | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race` and typed event `Bus` |
+| `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |
+| `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors and behavior trees |
+| `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | Delta-encoded input `Recorder`/`Player` and deterministic test assertions |
 
-Planned: `input` for input actions ([#3](https://github.com/nsgo-dev/game/issues/3)), `tilemap` for tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)), `scene` for drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)), and a playable example game ([#8](https://github.com/nsgo-dev/game/issues/8)).
-
-For a single-page summary of every package's API, see [Packages](packages.md).
+For a single-page summary of the core APIs, see [Packages](packages.md).
 
 ## Install
 
