@@ -1,0 +1,95 @@
+name: Examples
+
+# Tests and cross-checks the Cave Run sample game, and builds its web bundle.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: examples-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Cave Run (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/caverun/go.sum
+            packages/game/go.sum
+      - name: Test Cave Run
+        working-directory: examples/caverun
+        run: go tool nsgo test ./...
+
+  check:
+    name: Check and build web (Cave Run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/caverun/go.sum
+            packages/game/go.sum
+      - name: Check Cave Run targets
+        working-directory: examples/caverun
+        run: go tool nsgo check -target macos,windows,linux,android,web
+      - name: Build Cave Run web bundle
+        working-directory: examples/caverun
+        run: go tool nsgo build -target web -output dist
+      - name: Upload Cave Run web artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: caverun-web
+          path: examples/caverun/dist
+          if-no-files-found: error
+
+  apple:
+    name: Check Cave Run (iOS)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/caverun/go.sum
+            packages/game/go.sum
+      - name: Check Cave Run iOS targets
+        working-directory: examples/caverun
+        run: go tool nsgo check -target ios,ios_simulator

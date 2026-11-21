@@ -1,0 +1,10 @@
+name: Cave Run
+id: dev.nsgo.caverun
+version: 0.1.0
+
+dev:
+  target: native
+
+build:
+  output: dist
+  targets: [macos, windows, linux, android, web]
