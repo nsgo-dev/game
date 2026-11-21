@@ -20,15 +20,15 @@ type BudgetFile struct {
 
 // Measurement stores measured raw and gzip-compressed WebAssembly sizes.
 type Measurement struct {
-	RawBytes  int64
-	GzipBytes int64
+	RawBytes  int64 `json:"raw_bytes"`
+	GzipBytes int64 `json:"gzip_bytes"`
 }
 
 // BudgetReport holds the result of comparing a Measurement against a BudgetFile.
 type BudgetReport struct {
-	Budget     BudgetFile
-	Measured   Measurement
-	Violations []string
+	Budget     BudgetFile  `json:"budget"`
+	Measured   Measurement `json:"measured"`
+	Violations []string    `json:"violations,omitempty"`
 }
 
 // Passed reports whether both raw and gzipped sizes are within budget.
