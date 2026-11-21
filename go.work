@@ -5,5 +5,6 @@ use (
 	./template
 	./examples/starburst
 	./examples/slidegem
+	./examples/cryptquest
 )
 
