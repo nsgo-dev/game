@@ -1054,6 +1054,21 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   margin-top: 20px;
 }
 
+/* The targets under the command: a label and a row of chips, centered and wrapping on phones. */
+.hero__targets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 12px;
+  margin-top: 24px;
+}
+
+.hero__targets .chips {
+  justify-content: center;
+  margin-top: 0;
+}
+
 /* Stages: a panel each, its number and progress on top, its name linking to the stage on the roadmap over the whole panel; a row of five on wide screens, a list on narrow ones. */
 
 .stages {

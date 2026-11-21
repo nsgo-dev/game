@@ -23,6 +23,7 @@ const en = {
   },
   home: {
     badge: 'Early: APIs will change',
+    targets: 'Targets',
     // The readouts under the hero's playfield: a short label shown, and the name a screen reader reads before the value.
     hud: {
       label: 'Playfield readouts',
@@ -201,6 +202,7 @@ const zh: Copy = {
   },
   home: {
     badge: '早期阶段：API 还会变化',
+    targets: '目标平台',
     hud: {
       label: '游戏区读数',
       step: '步长',

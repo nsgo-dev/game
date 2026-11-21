@@ -30,6 +30,9 @@ const LEVELS: Level[] = [
   { id: 'scene', name: 'scene', issue: 6, shipped: false },
 ]
 
+// The targets the game layer runs on, as NSGo builds for them.
+const TARGETS = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
+
 const PACKAGES = LEVELS.filter((level): level is Extract<Level, { shipped: true }> => level.shipped)
 
 // areaProgress is the closed and total issues of the roadmap area headed by this repository's issue, the issue and everything below it, or null when the build could not read the roadmap or no area is headed by it.
@@ -90,6 +93,14 @@ export function Home() {
               </a>
             </div>
             <CopyCommand command="go get github.com/nsgo-dev/game/packages/game" />
+            <div className="hero__targets">
+              <span className="hud-label">{copy.targets}</span>
+              <ul className="chips" aria-label={copy.targets}>
+                {TARGETS.map((target) => (
+                  <li key={target}>{target}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </section>
