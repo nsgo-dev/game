@@ -1,0 +1,179 @@
+name: Release
+
+# Runs the full test and cross-target check suite on release tags, then publishes a GitHub Release with notes extracted from CHANGELOG.md.
+# Supports both repository tags (v0.1.0) and Go submodule tags (packages/game/v0.1.0, used by Go for github.com/nsgo-dev/game/packages/game).
+on:
+  push:
+    tags:
+      - "v*"
+      - "packages/game/v*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Test
+        working-directory: packages/game
+        run: go tool nsgo test ./...
+
+  check:
+    name: Build and vet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Check Go formatting
+        run: |
+          unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Build and vet every target but iOS
+        working-directory: packages/game
+        run: go tool nsgo check -target macos,windows,linux,android,web
+
+  apple:
+    name: Build and vet (iOS)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Build and vet iOS
+        working-directory: packages/game
+        run: go tool nsgo check -target ios,ios_simulator
+
+  release:
+    name: Publish release
+    needs:
+      - test
+      - check
+      - apple
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f CHANGELOG.md ]; then
+            echo "Error: CHANGELOG.md not found." >&2
+            exit 1
+          fi
+
+          # Strip the optional Go submodule prefix (packages/game/) to match the CHANGELOG.md heading.
+          version="${TAG#packages/game/}"
+          version_no_v="${version#v}"
+
+          status=0
+          awk -v ver="$version" -v ver_no_v="$version_no_v" '
+            /^## / {
+              if (in_section) {
+                in_section = 0
+                next
+              }
+              heading = substr($0, 4)
+              sub(/^[[:space:]]+/, "", heading)
+              token = heading
+              sub(/[[:space:]].*$/, "", token)
+              if (substr(token, 1, 1) == "[" && substr(token, length(token), 1) == "]") {
+                token = substr(token, 2, length(token) - 2)
+              }
+              if (!found && (token == ver || token == ver_no_v)) {
+                in_section = 1
+                found = 1
+              }
+              next
+            }
+            in_section && /^\[[^]]+\]:[[:space:]]+/ {
+              in_section = 0
+              next
+            }
+            in_section {
+              lines[++n] = $0
+            }
+            END {
+              if (!found) exit 2
+              start = 1
+              while (start <= n && lines[start] ~ /^[[:space:]]*$/) start++
+              end = n
+              while (end >= start && lines[end] ~ /^[[:space:]]*$/) end--
+              if (start > end) exit 3
+              for (i = start; i <= end; i++) print lines[i]
+            }
+          ' CHANGELOG.md > release-notes.md || status=$?
+
+          if [ "$status" -eq 2 ]; then
+            echo "Error: no section for '$version' found in CHANGELOG.md (expected a heading such as '## $version - YYYY-MM-DD' or '## [$version_no_v] - YYYY-MM-DD')." >&2
+            exit 1
+          elif [ "$status" -eq 3 ]; then
+            echo "Error: section for '$version' in CHANGELOG.md is empty." >&2
+            exit 1
+          elif [ "$status" -ne 0 ]; then
+            echo "Error: failed to extract release notes for '$version' from CHANGELOG.md." >&2
+            exit 1
+          fi
+      - name: Create GitHub Release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          version="${TAG#packages/game/}"
+          if [[ "$version" == *-* ]]; then
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --prerelease
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+          fi

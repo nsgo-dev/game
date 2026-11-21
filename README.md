@@ -52,8 +52,18 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 
 macOS, iOS, Windows, Linux, Android and the web. See [Building and Shipping](docs/en/shipping.md).
 macOS, iOS, Windows, Linux, Android and the web.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, local test and cross-target check commands, coding conventions and pull request guidelines.
+
+
+## Compatibility
+
+| `game` | Go | NSGo |
+| --- | --- | --- |
+| Unreleased / `v0.1.0` | 1.27+ | v0.2.0+ |
+
+## Networking
+
+`game/net` provides cross-target WebSocket, UDP and loopback transports with snapshot replication and deterministic lockstep/rollback helpers over `game.Loop` ([#41](https://github.com/nsgo-dev/game/issues/41)). Matchmaking, hosted backends and account services stay out of the `game` layer: games use Go's standard library or any networking package directly. Local multiplayer on one device belongs in `game/input` ([#3](https://github.com/nsgo-dev/game/issues/3), [#128](https://github.com/nsgo-dev/game/issues/128)).
 
