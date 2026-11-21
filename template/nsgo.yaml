@@ -1,6 +1,7 @@
 name: Starter Game
 id: dev.nsgo.startergame
 version: 0.1.0
+game: true
 
 # macOS and iOS use assets/AppIcon.icon, or assets/AppIcon.icns on macOS; the
 # other targets, and Apple ones without those, use assets/Icon.png.

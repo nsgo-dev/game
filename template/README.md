@@ -30,7 +30,7 @@ It demonstrates:
      go mod tidy
      ```
 
-3. Update `name` and `id` in `nsgo.yaml` for your game.
+3. Update `name` and `id` in `nsgo.yaml` for your game. The starter sets `game: true` for NSGo versions with [game packaging metadata](https://github.com/nsgo-dev/nsgo/issues/1217).
 
 ## Running and Testing
 
