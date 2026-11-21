@@ -24,7 +24,7 @@ type Loop struct {
 
 // Run starts the loop on cx's display frames until cx is disposed or stop is called.
 //
-// The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates.
+// The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground it keeps the display awake (core.Scope.KeepAwake), releasing the hold when paused, stopped or disposed.
 //
 // A frame's time is the engine's clock as it runs the frame, not the display's (nsgo-dev/nsgo#1048), so it varies with when the engine gets to the frame, and the loop smooths it: a frame counts as the average frame length while the time it owes the clock stays within half a frame, and pays all it owes when a frame is unlike those before, so the updates keep to the clock while the loop runs.
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
@@ -48,6 +48,8 @@ type loopRun struct {
 	cx   *core.Scope
 	// cancel cancels the frame the run waits for, nil while it is paused.
 	cancel func()
+	// releaseAwake releases the display keep-awake hold, nil while it is paused.
+	releaseAwake func()
 	// last is the time of the last frame, or of the start or resumption.
 	last time.Time
 	// period is the average frame length, 0 before the first frame; owed is the frame time not yet added to acc, below 0 when a frame was taken to last longer than it did.
@@ -63,8 +65,11 @@ func (r *loopRun) resume() {
 	}
 	r.last = r.cx.Now()
 	r.owed = 0
-	// cx owns the frame rather than the effect that resumes, so what Update and Draw make lives as long as cx, as it would in a frame cx asked for itself.
-	r.cx.Run(func() { r.cancel = r.cx.RequestAnimationFrame(r.frame) })
+	// cx owns the frame and keep-awake hold rather than the effect that resumes, so what Update and Draw make lives as long as cx, as it would in a frame cx asked for itself.
+	r.cx.Run(func() {
+		r.releaseAwake = r.cx.KeepAwake("game loop", core.KeepAwakeOptions{Display: true})
+		r.cancel = r.cx.RequestAnimationFrame(r.frame)
+	})
 }
 
 // pause stops the run's frames until resume.
@@ -72,6 +77,10 @@ func (r *loopRun) pause() {
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
+	}
+	if r.releaseAwake != nil {
+		r.releaseAwake()
+		r.releaseAwake = nil
 	}
 }
 
