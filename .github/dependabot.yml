@@ -1,0 +1,21 @@
+# NSGo comes as its own pull request as soon as a release is out, so an API change surfaces as a failing check on it. Every action in .github/workflows is pinned to a commit SHA, and Dependabot keeps those pins current.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: build
+    allow:
+      - dependency-name: github.com/nsgo-dev/nsgo
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]

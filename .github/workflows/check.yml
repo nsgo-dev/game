@@ -1,0 +1,59 @@
+name: Check
+
+# Checks Go formatting, and builds and vets every target with the nsgo tool; test.yml runs the tests.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # iOS builds need cgo against Xcode's SDKs, which Linux has none of, so Linux vets every other target and a Mac vets iOS, side by side.
+  check:
+    name: Build and vet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check Go formatting
+        run: |
+          unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Build and vet every target but iOS
+        run: go tool nsgo check -target macos,windows,linux,android,web
+
+  apple:
+    name: Build and vet (iOS)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and vet iOS
+        run: go tool nsgo check -target ios,ios_simulator
