@@ -2,7 +2,9 @@ package assets
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/audio"
@@ -49,6 +51,7 @@ type customEntry struct {
 type Group struct {
 	m    *Manager
 	name string
+	fs   fs.FS
 
 	specs []assetSpec
 	index map[string]int
@@ -94,6 +97,18 @@ func newGroup(m *Manager, name string) *Group {
 
 // Name returns the group's name.
 func (g *Group) Name() string { return g.name }
+
+// SetFS mounts fsys as the primary file system for this group's file-backed
+// assets, such as a downloaded DLC zip archive. When set, asset URIs in this
+// group are read from fsys first and fall back to the Manager's asset reader
+// if a file is not present in fsys.
+func (g *Group) SetFS(fsys fs.FS) *Group {
+	g.fs = fsys
+	return g
+}
+
+// FS returns the file system mounted on this group via SetFS, or nil.
+func (g *Group) FS() fs.FS { return g.fs }
 
 // AddAtlas adds a sprite atlas whose JSON is read from jsonURI and parsed with
 // sprite.LoadAtlas for img. When img names a URI without inline Data or Pixels,
@@ -325,12 +340,32 @@ func (g *Group) Load(onDone func(error)) {
 		g.errSig.Set(nil)
 	})
 
-	readFn := g.m.readAssetFunc()
+	readFn := g.readAssetFunc()
 	specs := make([]assetSpec, len(g.specs))
 	copy(specs, g.specs)
 
 	for _, spec := range specs {
 		g.startSpec(gen, loadCtx, readFn, spec)
+	}
+}
+
+func (g *Group) readAssetFunc() func(context.Context, string) ([]byte, error) {
+	baseRead := g.m.readAssetFunc()
+	fsys := g.fs
+	if fsys == nil {
+		return baseRead
+	}
+	return func(ctx context.Context, uri string) ([]byte, error) {
+		data, err := defaultReadAsset(fsys, ctx, uri)
+		if err == nil {
+			return data, nil
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			if fallbackData, fallbackErr := baseRead(ctx, uri); fallbackErr == nil {
+				return fallbackData, nil
+			}
+		}
+		return nil, err
 	}
 }
 
