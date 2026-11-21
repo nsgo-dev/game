@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -36,6 +37,21 @@ type Frame struct {
 	Width, Height float32
 	// PivotX and PivotY are the frame's pivot in the untrimmed picture, in points from its top left: TexturePacker's per-frame pivot, or 0 when the export gives none. NewSprite puts the sprite's origin here.
 	PivotX, PivotY float32
+}
+
+// Rect returns the frame's source rectangle in the atlas image.
+func (f Frame) Rect() math2d.Rect {
+	return math2d.Rect{X: f.X, Y: f.Y, W: f.W, H: f.H}
+}
+
+// Offset returns the trimmed frame's offset inside the untrimmed picture.
+func (f Frame) Offset() math2d.Vec2 {
+	return math2d.Vec2{X: f.OffsetX, Y: f.OffsetY}
+}
+
+// Size returns the untrimmed picture's size.
+func (f Frame) Size() math2d.Vec2 {
+	return math2d.Vec2{X: f.Width, Y: f.Height}
 }
 
 // LoadAtlas reads the JSON atlas data that TexturePacker ("JSON (Hash)" and "JSON (Array)") or Aseprite (json-hash and json-array) exports for img, the image it packed.

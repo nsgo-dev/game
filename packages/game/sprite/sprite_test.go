@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -268,4 +269,55 @@ func TestMasksClipRectCircleEllipseAndPolygonAndRestore(t *testing.T) {
 		}}
 	})
 	sameOps(t, app.Find("masked").Ops, app.Find("hand").Ops)
+}
+
+func TestSpriteAndFrameMath2D(t *testing.T) {
+	coin := sheet.Frames["coin"]
+	if got := coin.Rect(); got != (math2d.Rect{X: 16, Y: 0, W: 8, H: 10}) {
+		t.Fatalf("Frame.Rect() = %+v", got)
+	}
+	if got := coin.Offset(); got != math2d.V2(4, 3) {
+		t.Fatalf("Frame.Offset() = %v", got)
+	}
+	if got := coin.Size(); got != math2d.V2(16, 16) {
+		t.Fatalf("Frame.Size() = %v", got)
+	}
+
+	s := sprite.NewSprite(sheet.Frames["hero"])
+	s.X, s.Y = 50, 60
+	s.OriginX, s.OriginY = 8, 8
+	s.ScaleX, s.ScaleY = 2, 2
+	if s.Pos() != math2d.V2(50, 60) || s.Origin() != math2d.V2(8, 8) || s.Scale() != math2d.V2(2, 2) {
+		t.Fatalf("Pos/Origin/Scale mismatch: %v %v %v", s.Pos(), s.Origin(), s.Scale())
+	}
+	// 16×16 hero scaled 2× about center (8, 8) at (50, 60) -> [34, 66) × [44, 76).
+	wantBounds := math2d.Rect{X: 34, Y: 44, W: 32, H: 32}
+	if got := s.Bounds(); !got.ApproxEqual(wantBounds, 1e-4) {
+		t.Fatalf("Bounds() = %+v, want %+v", got, wantBounds)
+	}
+
+	// Rotated 90° about center keeps the same 32×32 square bounds.
+	s.Rotation = math.Pi / 2
+	if got := s.Bounds(); !got.ApproxEqual(wantBounds, 1e-4) {
+		t.Fatalf("rotated Bounds() = %+v, want %+v", got, wantBounds)
+	}
+	// Transform maps untrimmed center (8, 8) to (50, 60).
+	if got := s.Transform().TransformPoint(math2d.V2(8, 8)); !got.ApproxEqual(math2d.V2(50, 60), 1e-4) {
+		t.Fatalf("Transform(origin) = %v, want (50, 60)", got)
+	}
+
+	// Flipped coin keeps its 16×16 box at (200, 0) while mirroring points inside it.
+	fc := sprite.NewSprite(coin)
+	fc.X, fc.FlipX = 200, true
+	if got := fc.Transform().TransformPoint(math2d.V2(4, 3)); !got.ApproxEqual(math2d.V2(212, 3), 1e-4) {
+		t.Fatalf("flipped Transform(4, 3) = %v, want (212, 3)", got)
+	}
+	if got := fc.Bounds(); !got.ApproxEqual(math2d.Rect{X: 200, Y: 0, W: 16, H: 16}, 1e-4) {
+		t.Fatalf("flipped Bounds() = %+v", got)
+	}
+
+	// Zero sprite has empty bounds.
+	if got := (sprite.Sprite{}).Bounds(); !got.Empty() {
+		t.Fatalf("zero Sprite.Bounds() = %+v, want empty", got)
+	}
 }
