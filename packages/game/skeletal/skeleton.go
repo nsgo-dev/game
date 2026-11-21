@@ -72,6 +72,11 @@ type Skeleton struct {
 // NewSkeleton returns a skeleton for data drawing frames from atlas, at full
 // scale and opacity in its bind pose. If data defines a "default" skin, it is
 // active initially.
+//
+// NewSkeleton panics when data does not compile, such as a hand-built
+// SkeletonData with a duplicate bone name, an unknown parent or a cycle: an
+// invalid rig would otherwise render every bone at the drawing's origin and
+// report nothing.
 func NewSkeleton(data *SkeletonData, atlas *sprite.Atlas) *Skeleton {
 	s := &Skeleton{
 		ScaleX: 1,
@@ -83,8 +88,8 @@ func NewSkeleton(data *SkeletonData, atlas *sprite.Atlas) *Skeleton {
 	if data == nil {
 		return s
 	}
-	if data.boneIndex == nil {
-		_ = data.compile()
+	if err := data.Compile(); err != nil {
+		panic(fmt.Sprintf("skeletal: NewSkeleton: %v", err))
 	}
 
 	nb := len(data.Bones)
