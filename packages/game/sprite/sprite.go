@@ -32,9 +32,9 @@ type Sprite struct {
 	Z int
 }
 
-// NewSprite returns a sprite of f at full size and opacity, its origin at the frame's top left.
+// NewSprite returns a sprite of f at full size and opacity, its origin at the frame's pivot (the top left when f has none).
 func NewSprite(f Frame) Sprite {
-	return Sprite{Frame: f, ScaleX: 1, ScaleY: 1, Alpha: 1}
+	return Sprite{Frame: f, OriginX: f.PivotX, OriginY: f.PivotY, ScaleX: 1, ScaleY: 1, Alpha: 1}
 }
 
 // Batch draws sprites of one atlas into a drawing, in Z order.
