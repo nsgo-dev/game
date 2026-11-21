@@ -1,0 +1,6 @@
+name: Starburst
+id: dev.nsgo.game.starburst
+version: 0.1.0
+
+dev:
+  target: native
