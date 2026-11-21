@@ -118,6 +118,16 @@ func decodeChecksumMsg(src []byte) (tick uint32, peer PeerID, sum uint64, ok boo
 		true
 }
 
+// hasPeer reports whether id is one of the session's peers.
+func (s *LockstepSession) hasPeer(id PeerID) bool {
+	for _, p := range s.peers {
+		if p == id {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizePeers(transport Transport, peers []PeerID) []PeerID {
 	seen := make(map[PeerID]struct{})
 	out := make([]PeerID, 0, len(peers)+1)
@@ -245,7 +255,7 @@ func (s *LockstepSession) Poll() {
 		}
 		switch pkt.Payload[0] {
 		case syncMsgInputSingle:
-			if in, valid := decodeInputFrame(pkt.Payload[1:]); valid {
+			if in, valid := decodeInputFrame(pkt.Payload[1:]); valid && pkt.From == in.Peer && s.hasPeer(in.Peer) {
 				s.recordInput(in)
 			}
 		case syncMsgInputBundle:
@@ -260,10 +270,12 @@ func (s *LockstepSession) Poll() {
 					break
 				}
 				src = src[inputFrameWireSize:]
-				s.recordInput(in)
+				if pkt.From == in.Peer && s.hasPeer(in.Peer) {
+					s.recordInput(in)
+				}
 			}
 		case syncMsgChecksum:
-			if tick, peer, sum, valid := decodeChecksumMsg(pkt.Payload[1:]); valid {
+			if tick, peer, sum, valid := decodeChecksumMsg(pkt.Payload[1:]); valid && pkt.From == peer && s.hasPeer(peer) {
 				s.recordRemoteChecksum(tick, peer, sum)
 			}
 		}
@@ -353,7 +365,7 @@ func (s *LockstepSession) pruneChecksums(executedTick uint32) {
 }
 
 func (s *LockstepSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
-	if peer == s.localID {
+	if peer == s.localID || !s.hasPeer(peer) {
 		return
 	}
 	m := s.remoteChecksums[tick]
@@ -571,7 +583,7 @@ func (s *RollbackSession) Poll() error {
 		}
 		switch pkt.Payload[0] {
 		case syncMsgInputSingle:
-			if in, valid := decodeInputFrame(pkt.Payload[1:]); valid {
+			if in, valid := decodeInputFrame(pkt.Payload[1:]); valid && pkt.From == in.Peer && s.isPeer(in.Peer) {
 				if mis, tick := s.ingestRemoteInput(in); mis {
 					if !hasMispredict || tick < earliestMispredict {
 						earliestMispredict = tick
@@ -591,6 +603,9 @@ func (s *RollbackSession) Poll() error {
 					break
 				}
 				src = src[inputFrameWireSize:]
+				if pkt.From != in.Peer || !s.isPeer(in.Peer) {
+					continue
+				}
 				if mis, tick := s.ingestRemoteInput(in); mis {
 					if !hasMispredict || tick < earliestMispredict {
 						earliestMispredict = tick
@@ -599,7 +614,7 @@ func (s *RollbackSession) Poll() error {
 				}
 			}
 		case syncMsgChecksum:
-			if tick, peer, sum, valid := decodeChecksumMsg(pkt.Payload[1:]); valid {
+			if tick, peer, sum, valid := decodeChecksumMsg(pkt.Payload[1:]); valid && pkt.From == peer && s.isPeer(peer) {
 				s.recordRemoteChecksum(tick, peer, sum)
 			}
 		}
@@ -640,8 +655,25 @@ func (s *RollbackSession) storeConfirmed(in InputFrame) {
 	m[in.Peer] = in
 }
 
+// maxRollbackLeadTicks bounds how far ahead of the current tick a remote input
+// may be stored, so a peer cannot grow the future-input maps without limit.
+const maxRollbackLeadTicks = 512
+
+// isPeer reports whether id is one of the session's peers.
+func (s *RollbackSession) isPeer(id PeerID) bool {
+	for _, p := range s.peers {
+		if p == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *RollbackSession) ingestRemoteInput(in InputFrame) (mispredicted bool, tick uint32) {
-	if in.Peer == s.localID {
+	if in.Peer == s.localID || !s.isPeer(in.Peer) {
+		return false, 0
+	}
+	if in.Tick > s.currentTick+maxRollbackLeadTicks {
 		return false, 0
 	}
 	// Ignore duplicate already-confirmed inputs.
@@ -775,6 +807,9 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 }
 
 func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
+	if !s.isPeer(peer) || peer == s.localID || tick > s.currentTick+maxRollbackLeadTicks {
+		return
+	}
 	if peer == s.localID {
 		return
 	}

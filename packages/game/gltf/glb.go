@@ -52,6 +52,9 @@ func parseGLB(data []byte) (jsonChunk []byte, binChunk []byte, err error) {
 		chunkType := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
 		offset += glbChunkHdr
 
+		if chunkLen%4 != 0 {
+			return nil, nil, fmt.Errorf("gltf: GLB chunk %d length %d is not 4-byte aligned", chunkIndex, chunkLen)
+		}
 		if chunkLen > totalLen-offset {
 			return nil, nil, fmt.Errorf("gltf: GLB chunk %d length %d exceeds remaining %d bytes", chunkIndex, chunkLen, totalLen-offset)
 		}

@@ -16,6 +16,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - `game/editor`: the 3D gizmo drags now start from real pointer input on the mounted viewport (a press that becomes a pan picks a handle, then moves it) instead of being reachable only from the model API.
+- `game/entities`: world snapshots keep parent-child links, restored dead slots advance their generation so stale handles cannot alias, oversized snapshot indices are rejected before allocating, and iteration bounds are documented and enforced.
+- `game/save`: a literal `null` payload is rejected so backup recovery engages, and a failed decode no longer mutates the caller's value through shared maps or pointers.
+- `game/net`: inputs and checksums are only accepted from the peer that sent them, the client ignores snapshots from anyone but its server, rollback inputs are bounded to a small future window, snapshot entity counts are validated before allocating, and a delta the client cannot apply asks the server for a full snapshot.
+- `game/gltf`: required extensions that are not implemented are refused instead of silently loading zeroed data, inverse-bind-matrix counts follow the spec, scene roots that are children are rejected, GLB chunks must be 4-byte aligned, and animation key times are validated.
+- `game/anim3d`: a NaN blend parameter clamps instead of panicking, and asking for the current state no longer restarts it every frame (`Restart` replays it explicitly).
 - `game/net`: UDP refuses `ChannelReliableOrdered` with `ErrUnsupportedChannel` instead of silently dropping lockstep and rollback packets it cannot retransmit.
 
 - `game/ai`: traversal costs below 1 are clamped so A*'s distance heuristic stays admissible and paths stay optimal.

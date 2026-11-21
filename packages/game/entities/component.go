@@ -134,6 +134,12 @@ func (s *Store[T]) Remove(e Entity) {
 }
 
 // Each calls fn for every entity carrying T in deterministic dense order until fn returns false.
+// Each visits every entity carrying T in dense (insertion) order until fn returns false.
+//
+// A callback may destroy the entity it was handed, but not add or remove other
+// entities/components of this store: a removal elsewhere swaps the last entry
+// into the removed slot, which can skip or revisit an entity. Use EachSafe when
+// the callback needs to touch other entities of the same store.
 func (s *Store[T]) Each(fn func(Entity, *T) bool) {
 	for i := 0; i < len(s.dense); {
 		e := s.dense[i]

@@ -149,11 +149,15 @@ func (w *World) Count() int {
 }
 
 // Each calls fn for every live entity in w in ascending slot-index order until fn returns false.
+// Entities spawned during iteration are not visited.
 func (w *World) Each(fn func(Entity) bool) {
 	if w.count == 0 || w.disposed {
 		return
 	}
-	for i := 0; i < len(w.alive); i++ {
+	// Entities spawned during iteration are not visited: the bound is the
+	// live set as it stood when Each began.
+	limit := len(w.alive)
+	for i := 0; i < limit; i++ {
 		if !w.alive[i] {
 			continue
 		}

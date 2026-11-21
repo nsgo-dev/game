@@ -21,7 +21,7 @@ var (
 )
 
 // maxSnapshotIndex caps the slot table size restored from a snapshot to prevent unbounded allocation from corrupted data.
-const maxSnapshotIndex = 1 << 24
+const maxSnapshotIndex = 1 << 20
 
 type componentCodec struct {
 	name   string
@@ -37,7 +37,10 @@ type WorldSnapshot struct {
 
 // EntitySnapshot captures one live entity's generational handle and its serialized components in sorted type-name order.
 type EntitySnapshot struct {
-	Index      uint32              `json:"index"`
+	Index uint32 `json:"index"`
+	// Parent is the slot index of this entity's hierarchy parent, when the
+	// snapshot recorded one; it is nil for a root entity.
+	Parent     *uint32             `json:"parent,omitempty"`
 	Generation uint32              `json:"generation"`
 	Components []ComponentSnapshot `json:"components,omitempty"`
 }
@@ -119,6 +122,13 @@ func (w *World) Snapshot() (WorldSnapshot, error) {
 			Index:      uint32(i),
 			Generation: w.gens[i],
 		}
+		if w.hierarchy != nil && int(i) < len(w.hierarchy.nodes) {
+			n := &w.hierarchy.nodes[i]
+			if n.entity == e && n.parent != Zero {
+				pi := n.parent.Index()
+				es.Parent = &pi
+			}
+		}
 		for _, name := range w.codecOrder {
 			codec := w.codecs[name]
 			raw, ok, err := codec.encode(w, e)
@@ -149,30 +159,75 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	}
 
 	tmp := &World{}
+	var links [][2]Entity
 	if len(snap.Entities) > 0 {
 		var maxIdx uint32
-		seen := make(map[uint32]struct{}, len(snap.Entities))
+		gens := make(map[uint32]uint32, len(snap.Entities))
 		for _, es := range snap.Entities {
 			if es.Generation == 0 {
 				return fmt.Errorf("entities: index %d has zero generation: %w", es.Index, ErrInvalidSnapshot)
 			}
-			if es.Index > maxSnapshotIndex {
+			if es.Index >= maxSnapshotIndex {
 				return fmt.Errorf("entities: index %d exceeds limit: %w", es.Index, ErrInvalidSnapshot)
 			}
-			if _, dup := seen[es.Index]; dup {
+			if _, dup := gens[es.Index]; dup {
 				return fmt.Errorf("entities: duplicate entity index %d: %w", es.Index, ErrInvalidSnapshot)
 			}
-			seen[es.Index] = struct{}{}
+			gens[es.Index] = es.Generation
 			if es.Index > maxIdx {
 				maxIdx = es.Index
 			}
 		}
-
+		// Validate the recorded parent links before touching w: the parent must
+		// exist in the snapshot and the links must form a forest, born in the
+		// same order Restore writes them.
+		for _, es := range snap.Entities {
+			if es.Parent == nil {
+				continue
+			}
+			if *es.Parent == es.Index {
+				return fmt.Errorf("entities: entity %d is its own parent: %w", es.Index, ErrInvalidSnapshot)
+			}
+			parentGen, ok := gens[*es.Parent]
+			if !ok {
+				return fmt.Errorf("entities: entity %d has unknown parent %d: %w", es.Index, *es.Parent, ErrInvalidSnapshot)
+			}
+			links = append(links, [2]Entity{
+				makeEntity(es.Index, es.Generation),
+				makeEntity(*es.Parent, parentGen),
+			})
+		}
+		parentOf := make(map[uint32]uint32, len(snap.Entities))
+		for _, es := range snap.Entities {
+			if es.Parent != nil {
+				parentOf[es.Index] = *es.Parent
+			}
+		}
+		for start := range parentOf {
+			steps := 0
+			for at := start; ; {
+				parent, ok := parentOf[at]
+				if !ok {
+					break
+				}
+				steps++
+				if steps > len(parentOf) {
+					return fmt.Errorf("entities: hierarchy cycle through entity %d: %w", start, ErrInvalidSnapshot)
+				}
+				at = parent
+			}
+		}
 		size := int(maxIdx) + 1
 		tmp.gens = make([]uint32, size)
 		tmp.alive = make([]bool, size)
 		for i := range tmp.gens {
-			tmp.gens[i] = 1
+			if i < len(w.gens) && w.gens[i] > 0 {
+				// A dead slot must not reuse a generation this world already
+				// issued, or a stale handle would alias after the load.
+				tmp.gens[i] = w.gens[i] + 1
+			} else {
+				tmp.gens[i] = 1
+			}
 		}
 		for _, es := range snap.Entities {
 			tmp.gens[es.Index] = es.Generation
@@ -222,8 +277,21 @@ func (w *World) Restore(snap WorldSnapshot) error {
 			w.stores = append(w.stores, next)
 		}
 	}
-	if w.hierarchy != nil {
-		w.hierarchy.onWorldRestore()
+	h := w.hierarchy
+	if h != nil {
+		h.onWorldRestore()
+	}
+	if len(links) > 0 {
+		if h == nil {
+			h = NewHierarchy2D(w)
+		}
+		// keepWorld=false: the local transforms already hold the saved locals.
+		for _, link := range links {
+			if err := h.SetParent(link[0], link[1], false); err != nil {
+				return fmt.Errorf("entities: restore hierarchy: %w", err)
+			}
+		}
+		h.Sync()
 	}
 	return nil
 }

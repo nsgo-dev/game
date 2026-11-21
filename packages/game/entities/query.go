@@ -12,6 +12,8 @@ func Each1[A any](w *World, fn func(Entity, *A) bool) {
 
 // Each2 visits every live entity in w carrying both A and B until fn returns false.
 // It drives iteration from the smaller sparse set and checks membership in the other in O(1) time, with deterministic order, no reflection and zero heap allocations.
+//
+// A callback may destroy the entity it was handed, but must not add or remove other entities/components of the queried stores.
 func Each2[A, B any](w *World, fn func(Entity, *A, *B) bool) {
 	sa := existingStore[A](w)
 	if sa == nil || len(sa.dense) == 0 {

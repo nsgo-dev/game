@@ -396,8 +396,23 @@ func (sm *StateMachine) SetState(name string, blendDuration time.Duration) bool 
 	if _, ok := sm.states[name]; !ok {
 		return false
 	}
-	if name == sm.current && !sm.blending {
+	if name == sm.current {
+		// Asking for the state that is already playing (or fading in) is a
+		// no-op; a caller that wants to replay it calls Restart.
 		return true
+	}
+	sm.beginTransition(name, blendDuration)
+	return true
+}
+
+// Restart replays a state from its beginning, crossfading from itself when
+// name is the current state and blendDuration is positive.
+func (sm *StateMachine) Restart(name string, blendDuration time.Duration) bool {
+	if _, ok := sm.states[name]; !ok {
+		return false
+	}
+	if name != sm.current {
+		return sm.SetState(name, blendDuration)
 	}
 	sm.beginTransition(name, blendDuration)
 	return true

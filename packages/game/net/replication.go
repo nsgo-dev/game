@@ -51,6 +51,9 @@ const (
 	replMsgSnapshotFull  byte = 1
 	replMsgSnapshotDelta byte = 2
 	replMsgSnapshotAck   byte = 3
+	// replMsgResync asks the server to send a full snapshot because the client
+	// no longer holds the baseline a delta needs.
+	replMsgResync byte = 4
 )
 
 const (
@@ -249,25 +252,40 @@ func (w *ServerWorld) drainAcks() {
 		if !ok {
 			return
 		}
-		if len(pkt.Payload) < 2 || pkt.Payload[0] != replMsgSnapshotAck {
+		if len(pkt.Payload) < 1 {
 			continue
 		}
-		ackTick, n := binary.Uvarint(pkt.Payload[1:])
-		if n <= 0 {
-			continue
-		}
-		t := uint32(ackTick)
-		if _, exists := w.history[t]; !exists {
-			continue
-		}
-		ps := w.peers[pkt.From]
-		if ps == nil {
-			ps = &peerReplState{}
-			w.peers[pkt.From] = ps
-		}
-		if !ps.hasAck || t > ps.ackedTick {
-			ps.ackedTick = t
-			ps.hasAck = true
+		switch pkt.Payload[0] {
+		case replMsgSnapshotAck:
+			if len(pkt.Payload) < 2 {
+				continue
+			}
+			ackTick, n := binary.Uvarint(pkt.Payload[1:])
+			if n <= 0 {
+				continue
+			}
+			t := uint32(ackTick)
+			if _, exists := w.history[t]; !exists {
+				continue
+			}
+			ps := w.peers[pkt.From]
+			if ps == nil {
+				ps = &peerReplState{}
+				w.peers[pkt.From] = ps
+			}
+			if !ps.hasAck || t > ps.ackedTick {
+				ps.ackedTick = t
+				ps.hasAck = true
+			}
+		case replMsgResync:
+			// The peer cannot apply deltas from its last ack any more (its
+			// baseline was pruned or a snapshot was lost): send it a full one.
+			ps := w.peers[pkt.From]
+			if ps == nil {
+				ps = &peerReplState{}
+				w.peers[pkt.From] = ps
+			}
+			ps.hasAck = false
 		}
 	}
 }
@@ -541,6 +559,8 @@ type ClientWorld struct {
 	predicted          map[EntityID]*predictedTracker
 	reconciliations    int
 	lastReconcileError float32
+	// lastResyncTick is the tick of the last resync request, to space them out.
+	lastResyncTick uint32
 }
 
 // NewClientWorld creates a replication client connected to serverID via transport.
@@ -585,6 +605,11 @@ func (c *ClientWorld) Poll() int {
 		if len(pkt.Payload) == 0 {
 			continue
 		}
+		// Only the configured server is authoritative; anyone else cannot
+		// inject snapshots.
+		if pkt.From != c.serverID {
+			continue
+		}
 		switch pkt.Payload[0] {
 		case replMsgSnapshotFull:
 			if c.applyFull(pkt.Payload[1:]) {
@@ -597,6 +622,20 @@ func (c *ClientWorld) Poll() int {
 		}
 	}
 	return applied
+}
+
+// resyncIntervalTicks spaces out resync requests so a burst of undeliverable
+// deltas sends only one request.
+const resyncIntervalTicks = 30
+
+// requestResync asks the server for a full snapshot, at most once every
+// resyncIntervalTicks ticks.
+func (c *ClientWorld) requestResync(tick uint32) {
+	if c.lastResyncTick != 0 && tick >= c.lastResyncTick && tick-c.lastResyncTick < resyncIntervalTicks {
+		return
+	}
+	c.lastResyncTick = tick
+	_ = c.transport.Send(c.serverID, ChannelUnreliable, []byte{replMsgResync})
 }
 
 func (c *ClientWorld) applyFull(src []byte) bool {
@@ -617,7 +656,7 @@ func (c *ClientWorld) applyFull(src []byte) bool {
 	src = src[n:]
 	// Every entity needs at least one byte of id, so a count beyond the payload
 	// is a corrupt packet, not a reason to allocate a huge map.
-	if count > uint64(len(src)) {
+	if count > uint64(len(src)/2) {
 		return false
 	}
 
@@ -655,6 +694,9 @@ func (c *ClientWorld) applyDelta(src []byte) bool {
 
 	base, ok := c.byTick[baseTick]
 	if !ok {
+		// Without the baseline this delta can never apply. Ask the server for a
+		// full snapshot instead of dropping every later delta silently.
+		c.requestResync(tick)
 		return false
 	}
 

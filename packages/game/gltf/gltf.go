@@ -272,6 +272,15 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 	if err := doc.ComputeWorldMatrices(); err != nil {
 		return nil, err
 	}
+	for _, ext := range doc.ExtensionsRequired {
+		switch ext {
+		case "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_variants":
+		default:
+			// Loading without it would silently substitute zeros or defaults
+			// for the data the extension supplies (Draco, meshopt, basisu…).
+			return nil, fmt.Errorf("gltf: required extension %q is not supported", ext)
+		}
+	}
 
 	return doc, nil
 }
@@ -1050,6 +1059,9 @@ func (d *Document) loadScenes(defaultScene *int, raws []rawScene) error {
 			if rootIdx < 0 || rootIdx >= len(d.Nodes) {
 				return fmt.Errorf("gltf: scene %d references invalid root node %d", i, rootIdx)
 			}
+			if d.Nodes[rootIdx].Parent >= 0 {
+				return fmt.Errorf("gltf: scene %d root node %d is a child of node %d", i, rootIdx, d.Nodes[rootIdx].Parent)
+			}
 		}
 		d.Scenes[i] = Scene{
 			Name:   rs.Name,
@@ -1095,9 +1107,11 @@ func (d *Document) loadSkins(raws []rawSkin, decodedBytes *uint64) error {
 			if err != nil {
 				return fmt.Errorf("gltf: skin %d inverseBindMatrices: %w", i, err)
 			}
-			if len(ibms) != len(rs.Joints) {
-				return fmt.Errorf("gltf: skin %d inverseBindMatrices count %d != joints count %d", i, len(ibms), len(rs.Joints))
+			if len(ibms) < len(rs.Joints) {
+				return fmt.Errorf("gltf: skin %d inverseBindMatrices count %d < joints count %d", i, len(ibms), len(rs.Joints))
 			}
+			// The spec allows extra matrices; only the joints' rows are used.
+			ibms = ibms[:len(rs.Joints)]
 		} else {
 			ibms = make([]math3d.Mat4, len(rs.Joints))
 			for j := range ibms {
@@ -1173,6 +1187,17 @@ func (d *Document) loadAnimations(raws []rawAnimation, decodedBytes *uint64) err
 			times, err := d.ReadScalar(*rs.Input)
 			if err != nil {
 				return fmt.Errorf("gltf: animation %d channel %d input: %w", ai, ci, err)
+			}
+			if len(times) == 0 {
+				return fmt.Errorf("gltf: animation %d channel %d has no key times", ai, ci)
+			}
+			for k, t := range times {
+				if math.IsNaN(float64(t)) || math.IsInf(float64(t), 0) || t < 0 {
+					return fmt.Errorf("gltf: animation %d channel %d key time %d is not a finite non-negative number", ai, ci, k)
+				}
+				if k > 0 && t <= times[k-1] {
+					return fmt.Errorf("gltf: animation %d channel %d key times are not strictly increasing", ai, ci)
+				}
 			}
 
 			outAcc := d.Accessors[*rs.Output]

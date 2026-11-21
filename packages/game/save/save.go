@@ -8,6 +8,7 @@
 package save
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -286,6 +287,12 @@ func parseEnvelope(payload []byte) (envelope, error) {
 	if env.Version < 1 || len(env.Data) == 0 || !json.Valid(env.Data) {
 		return envelope{}, ErrCorrupt
 	}
+	// A literal null (or a scalar) is never a legitimate save body; accepting it
+	// would "load" an empty value and skip the backup that may be intact.
+	data := bytes.TrimSpace(env.Data)
+	if len(data) == 0 || (data[0] != '{' && data[0] != '[') {
+		return envelope{}, ErrCorrupt
+	}
 	return env, nil
 }
 
@@ -301,7 +308,13 @@ func unmarshalClean(data []byte, dst any) error {
 		return json.Unmarshal(data, dst)
 	}
 	tmp := reflect.New(rv.Elem().Type())
-	tmp.Elem().Set(rv.Elem())
+	// Deep-copy the base value first: a shallow copy shares maps, slices and
+	// pointers, which encoding/json mutates in place on the way to a failure.
+	if base, err := json.Marshal(rv.Elem().Interface()); err == nil {
+		if err := json.Unmarshal(base, tmp.Interface()); err == nil {
+			rv.Elem().Set(tmp.Elem())
+		}
+	}
 	if err := json.Unmarshal(data, tmp.Interface()); err != nil {
 		return err
 	}

@@ -387,6 +387,14 @@ func TestFileBackendCorruptPrimaryRecoversFromBackup(t *testing.T) {
 			},
 		},
 		{
+			name: "NullPayload",
+			corrupt: func(t *testing.T, primary string) {
+				if err := os.WriteFile(primary, []byte(`{"version":1,"data":null}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
 			name: "PrimaryRemoved",
 			corrupt: func(t *testing.T, primary string) {
 				if err := os.Remove(primary); err != nil {

@@ -262,6 +262,11 @@ func (bs *BlendSpace1D) bracket(param float32) (int, int, float32) {
 	if idx <= 0 {
 		return 0, 0, 0
 	}
+	if idx >= n {
+		// A NaN or +Inf parameter never compares true, so Search returns n;
+		// clamp to the last sample instead of indexing past the slice.
+		return n - 1, n - 1, 0
+	}
 	if bs.samples[idx].Param == param {
 		return idx, idx, 0
 	}
