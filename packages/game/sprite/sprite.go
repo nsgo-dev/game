@@ -2,9 +2,9 @@ package sprite
 
 import (
 	"cmp"
-	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -41,6 +41,43 @@ func NewSprite(f Frame) Sprite {
 	return Sprite{Frame: f, OriginX: f.PivotX, OriginY: f.PivotY, ScaleX: 1, ScaleY: 1, Alpha: 1}
 }
 
+// Pos returns the sprite's position (X, Y) in the drawing.
+func (s Sprite) Pos() math2d.Vec2 { return math2d.Vec2{X: s.X, Y: s.Y} }
+
+// Origin returns the sprite's origin (OriginX, OriginY) in its untrimmed frame.
+func (s Sprite) Origin() math2d.Vec2 { return math2d.Vec2{X: s.OriginX, Y: s.OriginY} }
+
+// Scale returns the sprite's scale (ScaleX, ScaleY).
+func (s Sprite) Scale() math2d.Vec2 { return math2d.Vec2{X: s.ScaleX, Y: s.ScaleY} }
+
+// Transform returns the 2D affine transform taking a point of the untrimmed frame to the drawing:
+// mirrored in the frame's box when flipped, moved so the origin is at (0, 0), scaled, turned and moved to (X, Y).
+func (s Sprite) Transform() math2d.Affine {
+	var fx, tx float32 = 1, 0
+	if s.FlipX {
+		fx, tx = -1, s.Frame.Width
+	}
+	var fy, ty float32 = 1, 0
+	if s.FlipY {
+		fy, ty = -1, s.Frame.Height
+	}
+	local := math2d.Affine{A: fx, D: fy, Tx: tx - s.OriginX, Ty: ty - s.OriginY}
+	return math2d.TRS(s.Pos(), s.Rotation, s.Scale()).Mul(local)
+}
+
+// Bounds returns the axis-aligned bounding rectangle of the sprite's untrimmed frame in the drawing,
+// or the zero Rect when the sprite has an empty frame or zero scale.
+func (s Sprite) Bounds() math2d.Rect {
+	if s.Frame.W <= 0 || s.Frame.H <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
+		return math2d.Rect{}
+	}
+	w, h := s.Frame.Width, s.Frame.Height
+	if w == 0 && h == 0 {
+		w, h = s.Frame.W, s.Frame.H
+	}
+	return s.Transform().TransformRect(math2d.Rect{W: w, H: h})
+}
+
 // Batch draws sprites of one atlas into a drawing, in Z order.
 type Batch struct {
 	// Atlas is where the sprites' frames are.
@@ -75,6 +112,7 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 	if f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
 		return
 	}
+
 	var masked bool
 	if s.Mask != nil {
 		switch s.Mask.state() {
@@ -84,31 +122,13 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 			masked = true
 		}
 	}
-	// The matrix a, b, c, dd, e, ff takes a point of the untrimmed frame to the drawing: mirrored in the frame's box (a flip takes x to Width-x), moved so the origin is at 0, 0, scaled, turned and moved to X, Y.
-	sx, sy := s.ScaleX, s.ScaleY
-	var tx, ty float32
-	if s.FlipX {
-		sx, tx = -sx, f.Width
-	}
-	if s.FlipY {
-		sy, ty = -sy, f.Height
-	}
-	u0 := s.ScaleX * (tx - s.OriginX)
-	v0 := s.ScaleY * (ty - s.OriginY)
-	sin, cos := float32(0), float32(1)
-	if s.Rotation != 0 {
-		sn, cs := math.Sincos(float64(s.Rotation))
-		sin, cos = float32(sn), float32(cs)
-	}
-	a, b := cos*sx, sin*sx
-	c, dd := -sin*sy, cos*sy
-	e := s.X + cos*u0 - sin*v0
-	ff := s.Y + sin*u0 + cos*v0
+	m := s.Transform()
 
 	// Unturned and unmirrored, the frame's rectangle is only moved and scaled, and draws with no transform.
-	plain := b == 0 && c == 0 && a > 0 && dd > 0
+	plain := m.B == 0 && m.C == 0 && m.A > 0 && m.D > 0
 	blended := s.Blend != core.CompositeSourceOver
 	saved := !plain || s.Alpha < 1 || blended || masked
+
 	if saved {
 		d.Save()
 	}
@@ -122,9 +142,9 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 		d.SetAlpha(s.Alpha)
 	}
 	if plain {
-		d.DrawImageFrom(img, f.X, f.Y, f.W, f.H, e+a*f.OffsetX, ff+dd*f.OffsetY, a*f.W, dd*f.H)
+		d.DrawImageFrom(img, f.X, f.Y, f.W, f.H, m.Tx+m.A*f.OffsetX, m.Ty+m.D*f.OffsetY, m.A*f.W, m.D*f.H)
 	} else {
-		d.Transform(a, b, c, dd, e, ff).DrawImageFrom(img, f.X, f.Y, f.W, f.H, f.OffsetX, f.OffsetY, f.W, f.H)
+		d.Transform(m.A, m.B, m.C, m.D, m.Tx, m.Ty).DrawImageFrom(img, f.X, f.Y, f.W, f.H, f.OffsetX, f.OffsetY, f.W, f.H)
 	}
 	if saved {
 		d.Restore()
