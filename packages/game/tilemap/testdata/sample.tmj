@@ -1,0 +1,199 @@
+{
+  "width": 4,
+  "height": 3,
+  "tilewidth": 16,
+  "tileheight": 16,
+  "orientation": "orthogonal",
+  "infinite": false,
+  "properties": [
+    {"name": "title", "type": "string", "value": "Cavern"},
+    {"name": "level", "type": "int", "value": 3},
+    {"name": "gravity", "type": "float", "value": 9.81},
+    {"name": "dark", "type": "bool", "value": true},
+    {"name": "ambient", "type": "color", "value": "#80204060"},
+    {"name": "music", "type": "file", "value": "audio/cavern.ogg"},
+    {"name": "entry", "type": "object", "value": 2}
+  ],
+  "tilesets": [
+    {
+      "firstgid": 1,
+      "name": "terrain",
+      "image": "terrain.png",
+      "tilewidth": 16,
+      "tileheight": 16,
+      "columns": 4,
+      "tilecount": 8,
+      "spacing": 2,
+      "margin": 1,
+      "properties": [
+        {"name": "biome", "type": "string", "value": "stone"}
+      ],
+      "tiles": [
+        {
+          "id": 0,
+          "properties": [
+            {"name": "solid", "type": "bool", "value": true},
+            {"name": "friction", "type": "float", "value": 0.75}
+          ]
+        },
+        {
+          "id": 1,
+          "properties": [
+            {"name": "one-way", "type": "bool", "value": true}
+          ]
+        },
+        {
+          "id": 2,
+          "animation": [
+            {"tileid": 2, "duration": 100},
+            {"tileid": 3, "duration": 200},
+            {"tileid": 4, "duration": 150}
+          ]
+        }
+      ]
+    },
+    {
+      "firstgid": 9,
+      "source": "tilesets/props.tsj"
+    }
+  ],
+  "layers": [
+    {
+      "name": "ground",
+      "type": "tilelayer",
+      "width": 4,
+      "height": 3,
+      "opacity": 1,
+      "visible": true,
+      "data": [
+        1, 2147483649, 1073741825, 3221225473,
+        2684354561, 1610612737, 536870913, 3758096385,
+        2, 3, 9, 10
+      ],
+      "properties": [
+        {"name": "kind", "type": "string", "value": "collision"}
+      ]
+    },
+    {
+      "name": "overlay",
+      "type": "tilelayer",
+      "width": 4,
+      "height": 3,
+      "offsetx": 4,
+      "offsety": -2,
+      "opacity": 0.5,
+      "visible": true,
+      "data": [
+        0, 0, 0, 0,
+        0, 9, 0, 0,
+        0, 0, 0, 0
+      ],
+      "properties": [
+        {"name": "parallax", "type": "float", "value": 1.25}
+      ]
+    },
+    {
+      "name": "hidden",
+      "type": "tilelayer",
+      "width": 4,
+      "height": 3,
+      "opacity": 1,
+      "visible": false,
+      "data": [
+        1, 1, 1, 1,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+      ]
+    },
+    {
+      "name": "entities",
+      "type": "objectgroup",
+      "offsetx": 2,
+      "offsety": 3,
+      "opacity": 1,
+      "visible": true,
+      "properties": [
+        {"name": "active", "type": "bool", "value": true}
+      ],
+      "objects": [
+        {
+          "id": 1,
+          "name": "exit",
+          "type": "trigger",
+          "x": 48,
+          "y": 16,
+          "width": 16,
+          "height": 32,
+          "rotation": 15,
+          "visible": true,
+          "properties": [
+            {"name": "next", "type": "string", "value": "level2"},
+            {"name": "delay", "type": "int", "value": 500},
+            {"name": "fade", "type": "float", "value": 0.5},
+            {"name": "locked", "type": "bool", "value": false},
+            {"name": "glow", "type": "color", "value": "#ff8800"},
+            {"name": "script", "type": "file", "value": "scripts/exit.lua"},
+            {"name": "linked", "type": "object", "value": 2}
+          ]
+        },
+        {
+          "id": 2,
+          "name": "spawn",
+          "class": "marker",
+          "x": 8,
+          "y": 24,
+          "point": true,
+          "visible": true
+        },
+        {
+          "id": 3,
+          "name": "lamp",
+          "type": "light",
+          "x": 20,
+          "y": 10,
+          "width": 12,
+          "height": 8,
+          "ellipse": true,
+          "visible": true
+        },
+        {
+          "id": 4,
+          "name": "ramp",
+          "type": "slope",
+          "x": 16,
+          "y": 32,
+          "polygon": [
+            {"x": 0, "y": 0},
+            {"x": 16, "y": 0},
+            {"x": 16, "y": -8}
+          ],
+          "visible": true
+        },
+        {
+          "id": 5,
+          "name": "patrol",
+          "type": "path",
+          "x": 4,
+          "y": 8,
+          "polyline": [
+            {"x": 0, "y": 0},
+            {"x": 20, "y": 0},
+            {"x": 20, "y": 12}
+          ],
+          "visible": true
+        },
+        {
+          "id": 6,
+          "name": "chest",
+          "type": "pickup",
+          "x": 32,
+          "y": 48,
+          "width": 16,
+          "height": 16,
+          "gid": 2147483657,
+          "visible": false
+        }
+      ]
+    }
+  ]
+}
