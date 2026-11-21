@@ -3,7 +3,10 @@ package editor_test
 import (
 	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -715,5 +718,33 @@ func TestCameraTransformHitTestingAndFileRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(other.Doc, ed.Doc) {
 		t.Fatalf("OpenFile doc mismatch:\ngot:  %#v\nwant: %#v", other.Doc, ed.Doc)
+	}
+
+	// A save writes through a temporary file renamed into place, leaving no
+	// temporary behind in the target's directory.
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("SaveFile left a temporary file %q", e.Name())
+		}
+	}
+
+	// Opening YAML directly clears the save target: the document did not come
+	// from the file that was open, so Save must not overwrite it.
+	opened, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := opened.OpenFile(path); err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if err := opened.OpenYAML([]byte("version: 1\nname: Other\n")); err != nil {
+		t.Fatalf("OpenYAML: %v", err)
+	}
+	if opened.FilePath != "" {
+		t.Fatalf("OpenYAML kept FilePath %q, want empty", opened.FilePath)
 	}
 }

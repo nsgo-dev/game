@@ -325,7 +325,10 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	idx := 0
 	for li := range e.Doc.Layers {
 		layer := &e.Doc.Layers[li]
-		visible := layer.IsVisible()
+		// Screen-space layers hold HUD and menu objects at canvas coordinates,
+		// so they are neither drawn as 3D wireframes nor pickable in 3D; the
+		// flat index still advances for them to stay in step with Objects3D.
+		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen
 		for oi := range layer.Objects {
 			if visible {
 				bmin, bmax := e.ObjectAABB3D(&layer.Objects[oi])
@@ -618,17 +621,32 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 				if st.startTransform.ScaleX != nil {
 					base = float64(*st.startTransform.ScaleX)
 				}
+				if base == 0 {
+					// A zero scale would stay zero under a multiplicative drag,
+					// so start the drag from a unit scale instead.
+					base = 1
+				}
 				obj.ScaleX = sceneformat.Float32(float32(base * factor))
 			case Axis3DY:
 				base := float64(1)
 				if st.startTransform.ScaleY != nil {
 					base = float64(*st.startTransform.ScaleY)
 				}
+				if base == 0 {
+					// A zero scale would stay zero under a multiplicative drag,
+					// so start the drag from a unit scale instead.
+					base = 1
+				}
 				obj.ScaleY = sceneformat.Float32(float32(base * factor))
 			case Axis3DZ:
 				base := float64(1)
 				if st.startTransform.ScaleZ != nil {
 					base = float64(*st.startTransform.ScaleZ)
+				}
+				if base == 0 {
+					// A zero scale would stay zero under a multiplicative drag,
+					// so start the drag from a unit scale instead.
+					base = 1
 				}
 				obj.ScaleZ = sceneformat.Float32(float32(base * factor))
 			}
@@ -939,7 +957,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 	var items []drawable3D
 	for li := range e.Doc.Layers {
 		layer := &e.Doc.Layers[li]
-		if !layer.IsVisible() {
+		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}
 		for oi := range layer.Objects {
