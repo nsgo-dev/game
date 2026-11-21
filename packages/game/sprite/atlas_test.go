@@ -18,6 +18,8 @@ var (
 	asepriteArray []byte
 	//go:embed testdata/texturepacker-hash.json
 	texturePackerHash []byte
+	//go:embed testdata/texturepacker-array.json
+	texturePackerArray []byte
 )
 
 var heroImage = core.ImageSource{URI: "asset:hero.png"}
@@ -74,21 +76,30 @@ func TestAnAsepriteExportLoadsWithItsTagsAsAnimations(t *testing.T) {
 	}
 }
 
-func TestATexturePackerHashLoadsInTheImagesPoints(t *testing.T) {
-	a, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:items@2x.png"}, texturePackerHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// meta.scale is 2: the 2x image's pixels are halved into points.
+func TestATexturePackerExportLoadsInTheImagesPoints(t *testing.T) {
+	// meta.scale is 2: the 2x image's pixels are halved into points, and pivots scale with the untrimmed size in points.
 	want := map[string]sprite.Frame{
-		"gem.png":  {Name: "gem.png", X: 1, Y: 1, W: 20, H: 20, Width: 20, Height: 20},
-		"coin.png": {Name: "coin.png", X: 22, Y: 1, W: 12, H: 14, OffsetX: 4, OffsetY: 3, Width: 20, Height: 20},
+		"gem.png":  {Name: "gem.png", X: 1, Y: 1, W: 20, H: 20, Width: 20, Height: 20, PivotX: 10, PivotY: 10},
+		"coin.png": {Name: "coin.png", X: 22, Y: 1, W: 12, H: 14, OffsetX: 4, OffsetY: 3, Width: 20, Height: 20, PivotX: 10, PivotY: 10},
+		"flag.png": {Name: "flag.png", X: 35, Y: 1, W: 10, H: 18, OffsetX: 2, OffsetY: 1, Width: 16, Height: 20, PivotX: 4, PivotY: 20},
+		"key.png":  {Name: "key.png", X: 46, Y: 1, W: 8, H: 12, Width: 8, Height: 12},
 	}
-	if !reflect.DeepEqual(a.Frames, want) {
-		t.Errorf("frames %+v, want %+v", a.Frames, want)
-	}
-	if a.Animations != nil {
-		t.Errorf("animations %+v, want none", a.Animations)
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{{"hash", texturePackerHash}, {"array", texturePackerArray}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:items@2x.png"}, tc.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(a.Frames, want) {
+				t.Errorf("frames %+v, want %+v", a.Frames, want)
+			}
+			if a.Animations != nil {
+				t.Errorf("animations %+v, want none", a.Animations)
+			}
+		})
 	}
 }
 

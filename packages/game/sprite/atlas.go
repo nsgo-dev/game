@@ -32,11 +32,13 @@ type Frame struct {
 	OffsetX, OffsetY float32
 	// Width and Height are the untrimmed picture's size, which sprites place and flip the frame in: W and H for a frame packed untrimmed.
 	Width, Height float32
+	// PivotX and PivotY are the frame's pivot in the untrimmed picture, in points from its top left: TexturePacker's per-frame pivot, or 0 when the export gives none. NewSprite puts the sprite's origin here.
+	PivotX, PivotY float32
 }
 
 // LoadAtlas reads the JSON atlas data that TexturePacker ("JSON (Hash)" and "JSON (Array)") or Aseprite (json-hash and json-array) exports for img, the image it packed.
 //
-// Its rectangles are in the image's pixels, which it divides by the export's meta.scale, so img measures its points as a 1x image does. Aseprite's frame tags become Animations, each frame for the duration the export gives it, in the tag's direction, looping unless the tag has a repeat count. Frames a packer rotated are refused: export with rotation off.
+// Its rectangles are in the image's pixels, which it divides by the export's meta.scale, so img measures its points as a 1x image does. TexturePacker's per-frame pivot becomes the frame's PivotX and PivotY, in points of the untrimmed picture. Aseprite's frame tags become Animations, each frame for the duration the export gives it, in the tag's direction, looping unless the tag has a repeat count. Frames a packer rotated are refused: export with rotation off.
 func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	var file struct {
 		Frames json.RawMessage `json:"frames"`
@@ -85,6 +87,7 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 			fr.OffsetX, fr.OffsetY = f.SpriteSourceSize.X/scale, f.SpriteSourceSize.Y/scale
 			fr.Width, fr.Height = f.SourceSize.W/scale, f.SourceSize.H/scale
 		}
+		fr.PivotX, fr.PivotY = f.Pivot.X*fr.Width, f.Pivot.Y*fr.Height
 		a.Frames[f.Name] = fr
 		ordered[i] = fr
 	}
@@ -128,12 +131,18 @@ type packedFrame struct {
 	Trimmed          bool   `json:"trimmed"`
 	SpriteSourceSize rect   `json:"spriteSourceSize"`
 	SourceSize       rect   `json:"sourceSize"`
+	// Pivot is TexturePacker's, as a fraction of the untrimmed picture's size.
+	Pivot point `json:"pivot"`
 	// Duration is Aseprite's, in milliseconds.
 	Duration int `json:"duration"`
 }
 
 type rect struct {
 	X, Y, W, H float32
+}
+
+type point struct {
+	X, Y float32
 }
 
 // atlasFrames reads the frames of an export, an array of frames with a filename each or an object of frames by name, in the order the export lists them, which Aseprite's tags count frames in.
