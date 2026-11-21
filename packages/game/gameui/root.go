@@ -481,14 +481,15 @@ func (r *Root) OnKeyDown(ev core.KeyEvent) bool {
 }
 
 func (r *Root) mapPoint(p core.Point) (core.Point, bool) {
-	if r.Viewport == nil {
-		return p, true
+	vp, ok := p, true
+	if r.Viewport != nil {
+		vp, ok = r.Viewport.WindowToVirtual(p)
 	}
-	local := core.Point{
-		X: p.X - r.bounds.Origin.X,
-		Y: p.Y - r.bounds.Origin.Y,
-	}
-	return r.Viewport.WindowToVirtual(local)
+	// The root's layout origin is a virtual-canvas offset, so subtract it after
+	// converting the window point into virtual points. The converted point is
+	// returned even when it falls outside the viewport, so an active drag keeps
+	// tracking along the axis that stayed in bounds.
+	return core.Point{X: vp.X - r.bounds.Origin.X, Y: vp.Y - r.bounds.Origin.Y}, ok
 }
 
 func clearListHover(w Widget) {
