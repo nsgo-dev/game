@@ -42,6 +42,13 @@ type CharacterController struct {
 	OnCeiling bool
 	// IgnoreBodyID optionally ignores a body with this ID during movement queries.
 	IgnoreBodyID int
+	// Mask filters which body and static collider layers block the character
+	// (0 defaults to LayerAll).
+	Mask LayerMask
+}
+
+func (c *CharacterController) effectiveMask() LayerMask {
+	return effectiveLayer(c.Mask)
 }
 
 // NewCharacterController returns a CharacterController at pos with the given
@@ -397,14 +404,42 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 		return RaycastHit{}, false
 	}
 	ray := Ray{Origin: from, Dir: delta, MaxDist: maxDist}
+	mask := c.effectiveMask()
 	var best RaycastHit
 	found := false
 	for _, b := range world.bodies {
-		if b.ID == c.IgnoreBodyID {
+		if b.ID == c.IgnoreBodyID || b.IsTrigger {
+			continue
+		}
+		if (effectiveLayer(b.Layer) & mask) == 0 {
 			continue
 		}
 		if h, ok := RaycastShape(ray, b.WorldShape()); ok {
 			h.Body = b
+			if !found || h.T < best.T {
+				best = h
+				found = true
+			}
+		}
+	}
+	for _, tm := range world.triMeshes {
+		if (effectiveLayer(tm.Layer) & mask) == 0 {
+			continue
+		}
+		if h, ok := tm.Raycast(ray); ok {
+			h.TriMesh = tm
+			if !found || h.T < best.T {
+				best = h
+				found = true
+			}
+		}
+	}
+	for _, hf := range world.heightfields {
+		if (effectiveLayer(hf.Layer) & mask) == 0 {
+			continue
+		}
+		if h, ok := hf.Raycast(ray); ok {
+			h.Heightfield = hf
 			if !found || h.T < best.T {
 				best = h
 				found = true
@@ -495,9 +530,13 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 		Vec3{X: max(b0.Max().X, b1.Max().X), Y: max(b0.Max().Y, b1.Max().Y), Z: max(b0.Max().Z, b1.Max().Z)}.Add(pad),
 	)
 
+	mask := c.effectiveMask()
 	var candidates []Shape
 	for _, b := range world.bodies {
-		if b.ID == c.IgnoreBodyID {
+		if b.ID == c.IgnoreBodyID || b.IsTrigger {
+			continue
+		}
+		if (effectiveLayer(b.Layer) & mask) == 0 {
 			continue
 		}
 		ws := b.WorldShape()
@@ -505,27 +544,64 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 			candidates = append(candidates, ws)
 		}
 	}
-	if len(candidates) == 0 {
+	var meshTris []Triangle
+	for _, tm := range world.triMeshes {
+		if (effectiveLayer(tm.Layer) & mask) == 0 {
+			continue
+		}
+		if !aabbOverlap(sweptBounds, tm.Bounds) {
+			continue
+		}
+		tm.QueryTriangles(sweptBounds, func(tri Triangle) {
+			if aabbOverlap(sweptBounds, tri.Bounds()) {
+				meshTris = append(meshTris, tri)
+			}
+		})
+	}
+	var hfTris []Triangle
+	for _, hf := range world.heightfields {
+		if (effectiveLayer(hf.Layer) & mask) == 0 {
+			continue
+		}
+		if !aabbOverlap(sweptBounds, hf.Bounds) {
+			continue
+		}
+		hf.QueryTriangles(sweptBounds, func(tri Triangle) {
+			if aabbOverlap(sweptBounds, tri.Bounds()) {
+				hfTris = append(hfTris, tri)
+			}
+		})
+	}
+	if len(candidates) == 0 && len(meshTris) == 0 && len(hfTris) == 0 {
 		return startPos.Add(delta), Vec3{}, false
 	}
 
 	testOpposing := func(pos Vec3) (Contact, bool) {
-		capShape := CapsuleShape(c.capsuleAt(pos))
+		cap := c.capsuleAt(pos)
+		capShape := CapsuleShape(cap)
 		var best Contact
 		found := false
-		for _, ws := range candidates {
-			ct := TestShapes(capShape, ws)
+		consider := func(ct Contact) {
 			if !ct.Hit {
-				continue
+				return
 			}
 			// Only block the sweep with surfaces facing against the motion.
 			if ct.Normal.Dot(dir) >= -1e-4 {
-				continue
+				return
 			}
 			if !found || ct.Depth > best.Depth {
 				best = ct
 				found = true
 			}
+		}
+		for _, ws := range candidates {
+			consider(TestShapes(capShape, ws))
+		}
+		for _, tri := range meshTris {
+			consider(TestCapsuleTriangle(cap, tri))
+		}
+		for _, tri := range hfTris {
+			consider(testShapeHeightfieldTriangle(capShape, tri))
 		}
 		return best, found
 	}
@@ -563,10 +639,14 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, bool) {
 	capShape := CapsuleShape(c.capsuleAt(pos))
 	capBounds := capShape.Bounds()
+	mask := c.effectiveMask()
 	var best Contact
 	found := false
 	for _, b := range world.bodies {
-		if b.ID == c.IgnoreBodyID {
+		if b.ID == c.IgnoreBodyID || b.IsTrigger {
+			continue
+		}
+		if (effectiveLayer(b.Layer) & mask) == 0 {
 			continue
 		}
 		ws := b.WorldShape()
@@ -574,6 +654,34 @@ func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, b
 			continue
 		}
 		if ct := TestShapes(capShape, ws); ct.Hit {
+			if !found || ct.Depth > best.Depth {
+				best = ct
+				found = true
+			}
+		}
+	}
+	for _, tm := range world.triMeshes {
+		if (effectiveLayer(tm.Layer) & mask) == 0 {
+			continue
+		}
+		if !aabbOverlap(capBounds, tm.Bounds) {
+			continue
+		}
+		if ct := tm.TestShape(capShape); ct.Hit {
+			if !found || ct.Depth > best.Depth {
+				best = ct
+				found = true
+			}
+		}
+	}
+	for _, hf := range world.heightfields {
+		if (effectiveLayer(hf.Layer) & mask) == 0 {
+			continue
+		}
+		if !aabbOverlap(capBounds, hf.Bounds) {
+			continue
+		}
+		if ct := hf.TestShape(capShape); ct.Hit {
 			if !found || ct.Depth > best.Depth {
 				best = ct
 				found = true

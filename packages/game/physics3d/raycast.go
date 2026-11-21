@@ -9,10 +9,15 @@ type Ray struct {
 	MaxDist float32
 }
 
-// RaycastHit describes where a ray intersects a shape or body.
+// RaycastHit describes where a ray intersects a shape, body, or static collider.
 type RaycastHit struct {
-	// Body is the hit body for World raycasts, or nil for standalone shape raycasts.
+	// Body is the hit body for World raycasts, or nil for standalone shape,
+	// triangle-mesh, or heightfield hits.
 	Body *Body
+	// TriMesh is the hit triangle-mesh collider when the ray struck a static mesh.
+	TriMesh *TriMeshCollider
+	// Heightfield is the hit heightfield collider when the ray struck terrain.
+	Heightfield *HeightfieldCollider
 	// T is the normalized hit fraction in [0, 1] along the ray's MaxDist
 	// (or along the segment from -> to for World.Raycast).
 	T float32
