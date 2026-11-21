@@ -101,12 +101,16 @@ func (o *Overlay) Toggle() {
 	o.SetVisible(!o.visible)
 }
 
-// RecordFrame records one frame's total, update and draw durations into the ring buffer and refreshes the visible overlay graph.
+// RecordFrame records one frame's total, update and draw durations into the ring buffer, samples the attached GCMonitor (if any), and refreshes the visible overlay graph.
 func (o *Overlay) RecordFrame(total, update, draw time.Duration) {
 	if o == nil {
 		return
 	}
-	o.stats.Record(total, update, draw)
+	var gcHitch bool
+	if o.opts.GC != nil {
+		gcHitch = o.opts.GC.SampleFrame(total).Hitched
+	}
+	o.stats.record(total, update, draw, gcHitch)
 	if !o.visible {
 		return
 	}
@@ -175,6 +179,38 @@ func (o *Overlay) Stats() *FrameStats {
 		return nil
 	}
 	return &o.stats
+}
+
+// Console returns the Console attached to the overlay via Options.Console, or nil.
+func (o *Overlay) Console() *Console {
+	if o == nil {
+		return nil
+	}
+	return o.opts.Console
+}
+
+// Profiler returns the Profiler attached to the overlay via Options.Profiler, or nil.
+func (o *Overlay) Profiler() *Profiler {
+	if o == nil {
+		return nil
+	}
+	return o.opts.Profiler
+}
+
+// Memory returns the MemoryTracker attached to the overlay via Options.Memory, or nil.
+func (o *Overlay) Memory() *MemoryTracker {
+	if o == nil {
+		return nil
+	}
+	return o.opts.Memory
+}
+
+// GC returns the GCMonitor attached to the overlay via Options.GC, or nil.
+func (o *Overlay) GC() *GCMonitor {
+	if o == nil {
+		return nil
+	}
+	return o.opts.GC
 }
 
 // SetScenes updates the scene inspector's snapshot list and immediately refreshes the inspector view. It is used when Options.Scenes is nil.
@@ -292,6 +328,30 @@ var (
 		FontSize:   11,
 		Color:      core.RGB(0x64748B),
 	}
+	sectionDividerStyle = core.Style{
+		Gap:         4,
+		Padding:     core.Edges{Top: 6},
+		Borders:     core.Edges{Top: 1},
+		BorderColor: core.RGBA(0x334155, 0.7),
+	}
+	alertTextStyle = core.Style{
+		FontFamily:  core.FontMonospace,
+		FontSize:    11,
+		FontVariant: core.FontTabularNums,
+		Color:       core.RGB(0xF87171),
+	}
+	gcHitchTextStyle = core.Style{
+		FontFamily:  core.FontMonospace,
+		FontSize:    11,
+		FontVariant: core.FontTabularNums,
+		Color:       core.RGB(0xE879F9),
+	}
+	consoleOverlayAnchorStyle = core.Style{
+		Position: core.Absolute,
+		Bottom:   core.Pt(8),
+		Left:     core.Pt(8),
+		ZIndex:   1001,
+	}
 )
 
 // View attaches the overlay to cx and returns a non-intrusive native NSGo overlay node positioned over the game view.
@@ -303,29 +363,50 @@ func (o *Overlay) View(cx *core.Scope) core.Node {
 	return core.Show{
 		When: o.Visible,
 		Then: func(cx *core.Scope) core.Node {
-			return core.View{
+			children := []core.Node{
+				core.Text{
+					TestID:      "debug-frame-stats",
+					Style:       readoutTextStyle,
+					ContentFunc: o.frameReadout,
+				},
+				core.Canvas{
+					TestID: "debug-frame-graph",
+					Style:  core.Style{Width: core.Pt(240), Height: core.Pt(64)},
+					Draw: func(d *core.Drawing, size core.Size) {
+						if o.frameSig != nil {
+							_ = o.frameSig.Get()
+						}
+						o.stats.DrawGraph(d, size, o.targetFPS())
+					},
+				},
+			}
+			if o.opts.GC != nil {
+				children = append(children, o.gcSummaryView())
+			}
+			if o.opts.Profiler != nil {
+				children = append(children, o.profilerScopesView())
+			}
+			if o.opts.Memory != nil {
+				children = append(children, o.memorySummaryView())
+			}
+			children = append(children, o.sceneInspectorView())
+
+			hud := core.View{
 				TestID:        "debug-overlay",
 				PointerEvents: core.PointerEventsNone,
 				Style:         overlayPanelStyle,
-				Children: []core.Node{
-					core.Text{
-						TestID:      "debug-frame-stats",
-						Style:       readoutTextStyle,
-						ContentFunc: o.frameReadout,
-					},
-					core.Canvas{
-						TestID: "debug-frame-graph",
-						Style:  core.Style{Width: core.Pt(240), Height: core.Pt(64)},
-						Draw: func(d *core.Drawing, size core.Size) {
-							if o.frameSig != nil {
-								_ = o.frameSig.Get()
-							}
-							o.stats.DrawGraph(d, size, o.targetFPS())
-						},
-					},
-					o.sceneInspectorView(),
-				},
+				Children:      children,
 			}
+			if o.opts.Console == nil {
+				return hud
+			}
+			return core.Group([]core.Node{
+				hud,
+				core.View{
+					Style:    consoleOverlayAnchorStyle,
+					Children: []core.Node{ConsoleView(cx, o.opts.Console)},
+				},
+			})
 		},
 	}
 }
@@ -360,15 +441,138 @@ func (o *Overlay) currentScenes() []SceneSnapshot {
 	return o.scenes
 }
 
+func (o *Overlay) gcSummaryView() core.Node {
+	return core.View{
+		TestID: "debug-gc",
+		Style:  sectionDividerStyle,
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if o.frameSig != nil {
+					_ = o.frameSig.Get()
+				}
+				gc := o.opts.GC
+				ms := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+				hitches := gc.RecentHitches()
+				header := fmt.Sprintf("GC (%d cycles · %s heap)", gc.TotalCycles(), formatBytes(int64(gc.HeapObjectsBytes())))
+				line := fmt.Sprintf("last %.2fms · max %.2fms · hitches %d", ms(gc.LastPause()), ms(gc.MaxPause()), hitches)
+				lineStyle := layerLabelStyle
+				if hitches > 0 {
+					lineStyle = gcHitchTextStyle
+				}
+				return core.Group([]core.Node{
+					core.Text{Content: header, Style: sectionHeaderStyle},
+					core.Text{Content: line, Style: lineStyle},
+				})
+			}),
+		},
+	}
+}
+
+func (o *Overlay) profilerScopesView() core.Node {
+	return core.View{
+		TestID: "debug-profiler",
+		Style:  sectionDividerStyle,
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if o.frameSig != nil {
+					_ = o.frameSig.Get()
+				}
+				scopes := o.opts.Profiler.TopScopes(6)
+				if len(scopes) == 0 {
+					return core.Text{
+						Content: "Scopes: none",
+						Style:   mutedTextStyle,
+					}
+				}
+				ms := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+				nodes := make([]core.Node, 0, len(scopes)+1)
+				nodes = append(nodes, core.Text{
+					Content: fmt.Sprintf("Scopes (%d)", len(scopes)),
+					Style:   sectionHeaderStyle,
+				})
+				for _, sc := range scopes {
+					val := fmt.Sprintf("%.2fms (avg %.2f, x%d)", ms(sc.Total), ms(sc.Avg), sc.Calls)
+					nodes = append(nodes, core.View{
+						Style: core.Style{
+							Direction:      core.Row,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            8,
+						},
+						Children: []core.Node{
+							core.Text{Content: sc.Name, Style: layerLabelStyle},
+							core.Text{Content: val, Style: layerCountStyle},
+						},
+					})
+				}
+				return core.Group(nodes)
+			}),
+		},
+	}
+}
+
+func (o *Overlay) memorySummaryView() core.Node {
+	return core.View{
+		TestID: "debug-memory",
+		Style:  sectionDividerStyle,
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				if o.frameSig != nil {
+					_ = o.frameSig.Get()
+				}
+				mem := o.opts.Memory
+				total := mem.TotalBytes()
+				budget := mem.TotalBudget()
+				header := "Memory: " + formatBytes(total)
+				headerStyle := sectionHeaderStyle
+				if budget > 0 {
+					header += " / " + formatBytes(budget)
+					if total > budget {
+						headerStyle = alertTextStyle
+					}
+				}
+				groups := mem.Groups()
+				if len(groups) == 0 {
+					return core.Text{
+						Content: header,
+						Style:   headerStyle,
+					}
+				}
+				nodes := make([]core.Node, 0, len(groups)+1)
+				nodes = append(nodes, core.Text{
+					Content: header,
+					Style:   headerStyle,
+				})
+				for _, g := range groups {
+					val := formatBytes(g.TotalBytes)
+					valStyle := layerCountStyle
+					if g.Budget > 0 {
+						val += " / " + formatBytes(g.Budget)
+						if g.OverBudget {
+							valStyle = alertTextStyle
+						}
+					}
+					nodes = append(nodes, core.View{
+						Style: core.Style{
+							Direction:      core.Row,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            8,
+						},
+						Children: []core.Node{
+							core.Text{Content: g.Group, Style: layerLabelStyle},
+							core.Text{Content: val, Style: valStyle},
+						},
+					})
+				}
+				return core.Group(nodes)
+			}),
+		},
+	}
+}
+
 func (o *Overlay) sceneInspectorView() core.Node {
 	return core.View{
 		TestID: "debug-scene-inspector",
-		Style: core.Style{
-			Gap:         4,
-			Padding:     core.Edges{Top: 6},
-			Borders:     core.Edges{Top: 1},
-			BorderColor: core.RGBA(0x334155, 0.7),
-		},
+		Style:  sectionDividerStyle,
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				scenes := o.currentScenes()

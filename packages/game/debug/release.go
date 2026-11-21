@@ -45,6 +45,18 @@ func (*Overlay) WrapLoop(*game.Loop) {}
 // Stats returns a no-op FrameStats in release builds.
 func (*Overlay) Stats() *FrameStats { return &releaseStats }
 
+// Console returns a no-op Console in release builds.
+func (*Overlay) Console() *Console { return &releaseConsole }
+
+// Profiler returns a no-op Profiler in release builds.
+func (*Overlay) Profiler() *Profiler { return &releaseProfiler }
+
+// Memory returns a no-op MemoryTracker in release builds.
+func (*Overlay) Memory() *MemoryTracker { return &releaseMemoryTracker }
+
+// GC returns a no-op GCMonitor in release builds.
+func (*Overlay) GC() *GCMonitor { return &releaseGCMonitor }
+
 // SetScenes is a no-op in release builds.
 func (*Overlay) SetScenes([]SceneSnapshot) {}
 
