@@ -1,7 +1,6 @@
 package gameui
 
 import (
-	"math"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -13,6 +12,11 @@ type Root struct {
 	Child Widget
 	// Theme styles all widgets under this Root; nil uses DefaultTheme.
 	Theme *Theme
+	// Viewport optionally maps a fixed virtual resolution onto the physical window bounds,
+	// applying scaling and letterboxing in Draw and mapping window pointer/touch input into virtual coordinates.
+	Viewport *Viewport
+	// FocusRing optionally overrides the focus ring style drawn around the focused widget.
+	FocusRing *FocusRingStyle
 
 	bounds     core.Bounds
 	focusables []Widget
@@ -30,15 +34,27 @@ func NewRoot(child Widget) *Root {
 }
 
 func (r *Root) theme() Theme {
-	return resolveTheme(r.Theme)
+	th := resolveTheme(r.Theme)
+	if r.FocusRing != nil {
+		th.FocusRing = r.FocusRing
+	}
+	return th
 }
 
 // Bounds returns the bounds from the last Layout or Draw call.
 func (r *Root) Bounds() core.Bounds { return r.bounds }
 
 // Layout computes exact rectangles for every widget in the tree inside bounds and refreshes the focusable widget list.
+// When Viewport is set, bounds specifies the physical window rectangle and the widget tree is laid out in virtual coordinates.
 func (r *Root) Layout(bounds core.Bounds) {
 	r.bounds = bounds
+	layoutBounds := bounds
+	if r.Viewport != nil {
+		if bounds.Size.Width > 0 && bounds.Size.Height > 0 {
+			r.Viewport.SetWindowSize(bounds.Size)
+		}
+		layoutBounds = r.Viewport.VirtualBounds()
+	}
 	if r.Child == nil {
 		r.focusables = r.focusables[:0]
 		r.focusIdx = -1
@@ -52,12 +68,13 @@ func (r *Root) Layout(bounds core.Bounds) {
 	if r.Child.spec().Hidden {
 		zeroTreeBounds(r.Child)
 	} else {
-		r.Child.layout(bounds, &th)
+		r.Child.layout(layoutBounds, &th)
 	}
 	r.syncFocusables()
 }
 
 // Draw lays out the tree into bounds and draws every visible widget into d.
+// When Viewport is set, Draw renders letterbox bars and transforms d into the virtual resolution.
 // Caller drawing state (transform, colors, stroke settings, alpha, text align/baseline, and current path) is preserved.
 func (r *Root) Draw(d *core.Drawing, bounds core.Bounds) {
 	if d == nil || r.Child == nil {
@@ -68,9 +85,33 @@ func (r *Root) Draw(d *core.Drawing, bounds core.Bounds) {
 		return
 	}
 	th := r.theme()
+	if r.Viewport != nil {
+		d.Save()
+		if bounds.Origin.X != 0 || bounds.Origin.Y != 0 {
+			d.Translate(float32(bounds.Origin.X), float32(bounds.Origin.Y))
+		}
+		r.Viewport.Draw(d, func(d *core.Drawing, _ core.Bounds) {
+			r.drawWidget(d, r.Child, &th)
+		})
+		d.Restore()
+		return
+	}
 	d.Save()
 	r.drawWidget(d, r.Child, &th)
 	d.Restore()
+}
+
+// DrawWithViewport renders the UI tree using vp without permanently replacing r.Viewport.
+func (r *Root) DrawWithViewport(d *core.Drawing, vp Viewport) {
+	prev := r.Viewport
+	r.Viewport = &vp
+	r.Draw(d, core.Bounds{
+		Size: core.Size{
+			Width:  core.Points(vp.WindowWidth),
+			Height: core.Points(vp.WindowHeight),
+		},
+	})
+	r.Viewport = prev
 }
 
 func (r *Root) drawWidget(d *core.Drawing, w Widget, theme *Theme) {
@@ -104,6 +145,8 @@ func isDisabled(w Widget) bool {
 	case *Toggle:
 		return v.Disabled
 	case *Slider:
+		return v.Disabled
+	case *List:
 		return v.Disabled
 	default:
 		return false
@@ -261,7 +304,8 @@ func (r *Root) FocusPrev() bool {
 }
 
 // MoveFocus moves focus geometrically in direction (dx, dy) (for arrow keys and gamepad D-pad/stick),
-// wrapping along the axis when reaching an edge, and falling back to linear order if layout has not run.
+// checking explicit per-widget NavOverrides first, wrapping along the axis when reaching an edge,
+// and falling back to linear order if layout has not run.
 func (r *Root) MoveFocus(dx, dy int) bool {
 	r.syncFocusables()
 	if len(r.focusables) == 0 || (dx == 0 && dy == 0) {
@@ -275,6 +319,12 @@ func (r *Root) MoveFocus(dx, dy int) bool {
 	}
 
 	cur := r.focusables[r.focusIdx]
+	if dir := dirToNavAction(dx, dy); dir != NavNone {
+		if target := widgetNavOverrides(cur).For(dir); target != nil && target != cur && r.isInFocusables(target) {
+			return r.SetFocus(target)
+		}
+	}
+
 	cb := cur.Bounds()
 	if cb.Size.Width <= 0 && cb.Size.Height <= 0 {
 		if dy > 0 || (dy == 0 && dx > 0) {
@@ -283,59 +333,9 @@ func (r *Root) MoveFocus(dx, dy int) bool {
 		return r.FocusPrev()
 	}
 
-	dirX, dirY := float64(dx), float64(dy)
-	norm := math.Hypot(dirX, dirY)
-	dirX /= norm
-	dirY /= norm
-
-	cx := float64(cb.Origin.X) + float64(cb.Size.Width)/2
-	cy := float64(cb.Origin.Y) + float64(cb.Size.Height)/2
-
-	bestIdx := -1
-	bestScore := math.Inf(1)
-
-	wrapIdx := -1
-	wrapPrimary := math.Inf(1) // most negative primary = farthest on opposite side
-	wrapPerp := math.Inf(1)
-
-	const eps = 0.5
-	for i, cand := range r.focusables {
-		if i == r.focusIdx {
-			continue
-		}
-		nb := cand.Bounds()
-		if nb.Size.Width <= 0 && nb.Size.Height <= 0 {
-			continue
-		}
-		nx := float64(nb.Origin.X) + float64(nb.Size.Width)/2
-		ny := float64(nb.Origin.Y) + float64(nb.Size.Height)/2
-		vx := nx - cx
-		vy := ny - cy
-
-		primary := vx*dirX + vy*dirY
-		perp := math.Abs(vx*(-dirY) + vy*dirX)
-
-		if primary > eps {
-			score := primary + perp*2.5
-			if score < bestScore-1e-6 {
-				bestScore = score
-				bestIdx = i
-			}
-		} else if primary < -eps && math.Abs(primary) >= perp*0.5 {
-			// Candidate lies along the opposite direction for edge wrap-around.
-			if primary < wrapPrimary-1e-6 || (math.Abs(primary-wrapPrimary) <= 1e-6 && perp < wrapPerp) {
-				wrapPrimary = primary
-				wrapPerp = perp
-				wrapIdx = i
-			}
-		}
-	}
-
-	if bestIdx >= 0 {
-		return r.SetFocusIndex(bestIdx)
-	}
-	if wrapIdx >= 0 {
-		return r.SetFocusIndex(wrapIdx)
+	nextIdx := spatialFindNext(r.focusables, r.focusIdx, dx, dy, true)
+	if nextIdx >= 0 {
+		return r.SetFocusIndex(nextIdx)
 	}
 	return false
 }
@@ -368,6 +368,15 @@ func activateWidget(w Widget) bool {
 			v.OnChange(v.Checked)
 		}
 		return true
+	case *List:
+		if v.Disabled || len(v.Items) == 0 {
+			return false
+		}
+		idx := v.Selected
+		if idx < 0 || idx >= len(v.Items) {
+			idx = 0
+		}
+		return v.Select(idx)
 	default:
 		return false
 	}
@@ -375,6 +384,7 @@ func activateWidget(w Widget) bool {
 
 // Adjust steps the currently focused adjustable widget by delta steps (e.g. -1 or +1).
 // For a Slider, Value moves by delta * step within [Min, Max]. For a Toggle, delta > 0 checks it and delta < 0 unchecks it.
+// For a List, Selected steps by delta clamped to the available items.
 func (r *Root) Adjust(delta float32) bool {
 	r.syncFocusables()
 	if !r.hasFocus || r.focused == nil || delta == 0 {
@@ -400,6 +410,19 @@ func (r *Root) Adjust(delta float32) bool {
 			}
 		}
 		return true
+	case *List:
+		if v.Disabled || len(v.Items) == 0 {
+			return false
+		}
+		step := int(delta)
+		if step == 0 {
+			if delta > 0 {
+				step = 1
+			} else {
+				step = -1
+			}
+		}
+		return v.Select(v.Selected + step)
 	default:
 		return false
 	}
@@ -457,10 +480,38 @@ func (r *Root) OnKeyDown(ev core.KeyEvent) bool {
 	}
 }
 
+func (r *Root) mapPoint(p core.Point) (core.Point, bool) {
+	if r.Viewport == nil {
+		return p, true
+	}
+	local := core.Point{
+		X: p.X - r.bounds.Origin.X,
+		Y: p.Y - r.bounds.Origin.Y,
+	}
+	return r.Viewport.WindowToVirtual(local)
+}
+
+func clearListHover(w Widget) {
+	if l, ok := w.(*List); ok {
+		l.hoveredOne = 0
+	}
+}
+
+func clearListPress(w Widget) {
+	if l, ok := w.(*List); ok {
+		l.pressedOne = 0
+	}
+}
+
 // HitTest returns the topmost enabled, focusable widget containing p, or nil.
+// When Viewport is set, p is mapped from window coordinates into virtual coordinates and points inside letterbox bars return nil.
 func (r *Root) HitTest(p core.Point) Widget {
 	r.syncFocusables()
-	return r.hitTest(p)
+	vp, ok := r.mapPoint(p)
+	if !ok {
+		return nil
+	}
+	return r.hitTest(vp)
 }
 
 func (r *Root) hitTest(p core.Point) Widget {
@@ -490,13 +541,29 @@ func hitTestWidget(w Widget, p core.Point) Widget {
 // Returns true if the pointer is over an interactive widget or dragging a Slider.
 func (r *Root) OnPointerMove(p core.Point) bool {
 	r.syncFocusables()
+	vp, ok := r.mapPoint(p)
 	if r.dragging != nil {
 		r.hovered = r.dragging
-		r.dragging.setFromX(float32(p.X))
+		r.dragging.setFromX(float32(vp.X))
 		return true
 	}
-	hit := r.hitTest(p)
+	if !ok {
+		clearListHover(r.hovered)
+		r.hovered = nil
+		return false
+	}
+	hit := r.hitTest(vp)
+	if r.hovered != hit {
+		clearListHover(r.hovered)
+	}
 	r.hovered = hit
+	if l, isList := hit.(*List); isList {
+		if idx := l.ItemAt(vp); idx >= 0 {
+			l.hoveredOne = idx + 1
+		} else {
+			l.hoveredOne = 0
+		}
+	}
 	return hit != nil
 }
 
@@ -504,7 +571,19 @@ func (r *Root) OnPointerMove(p core.Point) bool {
 // Returns true if an interactive widget was hit.
 func (r *Root) OnPointerDown(p core.Point) bool {
 	r.syncFocusables()
-	hit := r.hitTest(p)
+	vp, ok := r.mapPoint(p)
+	clearListPress(r.pressed)
+	if !ok {
+		clearListHover(r.hovered)
+		r.hovered = nil
+		r.pressed = nil
+		r.dragging = nil
+		return false
+	}
+	hit := r.hitTest(vp)
+	if r.hovered != hit {
+		clearListHover(r.hovered)
+	}
 	r.hovered = hit
 	r.pressed = hit
 	r.dragging = nil
@@ -512,51 +591,101 @@ func (r *Root) OnPointerDown(p core.Point) bool {
 		return false
 	}
 	r.SetFocus(hit)
-	if s, ok := hit.(*Slider); ok {
-		r.dragging = s
-		s.setFromX(float32(p.X))
+	switch w := hit.(type) {
+	case *Slider:
+		r.dragging = w
+		w.setFromX(float32(vp.X))
+	case *List:
+		if idx := w.ItemAt(vp); idx >= 0 {
+			w.hoveredOne = idx + 1
+			w.pressedOne = idx + 1
+		}
 	}
 	return true
 }
 
-// OnPointerUp finishes any active press or Slider drag, activating a Button or Toggle when released inside it.
+// OnPointerUp finishes any active press or Slider drag, activating a Button, Toggle, or List item when released inside it.
 // Returns true if a press or drag was handled.
 func (r *Root) OnPointerUp(p core.Point) bool {
 	r.syncFocusables()
+	vp, ok := r.mapPoint(p)
 	wasPressed := r.pressed
 	wasDragging := r.dragging
+	var pressedListIdx int
+	if l, isList := wasPressed.(*List); isList {
+		pressedListIdx = l.pressedOne - 1
+		l.pressedOne = 0
+	}
 	r.pressed = nil
 	r.dragging = nil
 
-	hit := r.hitTest(p)
+	if !ok {
+		clearListHover(r.hovered)
+		r.hovered = nil
+		if wasDragging != nil {
+			wasDragging.setFromX(float32(vp.X))
+			return true
+		}
+		return wasPressed != nil
+	}
+
+	hit := r.hitTest(vp)
+	if r.hovered != hit {
+		clearListHover(r.hovered)
+	}
 	r.hovered = hit
+	if l, isList := hit.(*List); isList {
+		if idx := l.ItemAt(vp); idx >= 0 {
+			l.hoveredOne = idx + 1
+		} else {
+			l.hoveredOne = 0
+		}
+	}
 
 	if wasDragging != nil {
-		wasDragging.setFromX(float32(p.X))
+		wasDragging.setFromX(float32(vp.X))
 		return true
 	}
 	if wasPressed != nil && wasPressed == hit {
+		if l, isList := wasPressed.(*List); isList {
+			if idx := l.ItemAt(vp); idx >= 0 && (pressedListIdx < 0 || pressedListIdx == idx) {
+				l.Select(idx)
+				return true
+			}
+			return true
+		}
 		activateWidget(wasPressed)
 		return true
 	}
 	return wasPressed != nil
 }
 
-// OnPress handles a core.Canvas PressEvent directly (tapping/clicking a Button, Toggle, or Slider, or activating the focused widget on keyboard press).
+// OnPress handles a core.Canvas PressEvent directly (tapping/clicking a Button, Toggle, Slider, or List, or activating the focused widget on keyboard press).
 func (r *Root) OnPress(ev core.PressEvent) bool {
 	r.syncFocusables()
 	if ev.Keyboard {
 		return r.Activate()
 	}
-	hit := r.hitTest(ev.Position)
+	vp, ok := r.mapPoint(ev.Position)
+	if !ok {
+		return false
+	}
+	hit := r.hitTest(vp)
 	if hit == nil {
 		return false
 	}
 	r.SetFocus(hit)
 	r.hovered = hit
-	if s, ok := hit.(*Slider); ok {
-		s.setFromX(float32(ev.Position.X))
+	switch w := hit.(type) {
+	case *Slider:
+		w.setFromX(float32(vp.X))
 		return true
+	case *List:
+		if idx := w.ItemAt(vp); idx >= 0 {
+			return w.Select(idx)
+		}
+		return activateWidget(w)
+	default:
+		return activateWidget(hit)
 	}
-	return activateWidget(hit)
 }

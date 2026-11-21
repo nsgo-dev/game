@@ -16,6 +16,13 @@ func approxTextSize(text string, font core.Font) (w, h float32) {
 	return w, h
 }
 
+func measureText(text string, font core.Font, theme *Theme) (w, h float32) {
+	if theme != nil && theme.TextMeasurer != nil {
+		return theme.TextMeasurer(text, font)
+	}
+	return approxTextSize(text, font)
+}
+
 func applySizeConstraints(prefW, prefH float32, sp layoutSpec) core.Size {
 	w, h := prefW, prefH
 	if sp.Width > 0 {
@@ -112,13 +119,13 @@ func (b *HBox) measure(theme *Theme) core.Size {
 
 func (l *Label) measure(theme *Theme) core.Size {
 	font := resolveFont(l.Font, theme.Font)
-	tw, th := approxTextSize(l.Text, font)
+	tw, th := measureText(l.Text, font, theme)
 	return applySizeConstraints(tw, th, l.spec())
 }
 
 func (b *Button) measure(theme *Theme) core.Size {
 	font := resolveFont(b.Font, theme.Font)
-	tw, th := approxTextSize(b.Text, font)
+	tw, th := measureText(b.Text, font, theme)
 	pad := max(theme.Padding, 4)
 	prefW := tw + 2*pad
 	prefH := max(th+pad, 32)
@@ -127,7 +134,7 @@ func (b *Button) measure(theme *Theme) core.Size {
 
 func (t *Toggle) measure(theme *Theme) core.Size {
 	font := resolveFont(t.Font, theme.Font)
-	tw, th := approxTextSize(t.Label, font)
+	tw, th := measureText(t.Label, font, theme)
 	boxSize := max(float32(font.Size)*1.15, 18)
 	indicatorW := boxSize
 	if t.Style == ToggleSwitch {
@@ -146,7 +153,7 @@ func (s *Slider) measure(theme *Theme) core.Size {
 	font := resolveFont(s.Font, theme.Font)
 	prefW := float32(160)
 	if s.Label != "" {
-		lw, _ := approxTextSize(s.Label, font)
+		lw, _ := measureText(s.Label, font, theme)
 		prefW += lw + max(theme.Padding*0.75, 8)
 	}
 	prefH := max(float32(font.Size)+theme.Padding, 28)
@@ -157,7 +164,7 @@ func (p *ProgressBar) measure(theme *Theme) core.Size {
 	font := resolveFont(p.Font, theme.Font)
 	prefH := float32(16)
 	if p.Label != "" {
-		_, th := approxTextSize(p.Label, font)
+		_, th := measureText(p.Label, font, theme)
 		prefH = max(th+6, 22)
 	}
 	return applySizeConstraints(160, prefH, p.spec())
@@ -165,6 +172,25 @@ func (p *ProgressBar) measure(theme *Theme) core.Size {
 
 func (s *Spacer) measure(_ *Theme) core.Size {
 	return applySizeConstraints(0, 0, s.spec())
+}
+
+func (l *List) measure(theme *Theme) core.Size {
+	font := resolveFont(l.Font, theme.Font)
+	pad := max(theme.Padding*0.5, 4)
+	itemH := l.effectiveItemHeight(theme)
+	spacing := max(0, l.Spacing)
+	maxW := float32(140)
+	for _, item := range l.Items {
+		tw, _ := measureText(item, font, theme)
+		if tw+2*pad > maxW {
+			maxW = tw + 2*pad
+		}
+	}
+	prefH := itemH + 2*pad
+	if len(l.Items) > 0 {
+		prefH = float32(len(l.Items))*itemH + float32(len(l.Items)-1)*spacing + 2*pad
+	}
+	return applySizeConstraints(maxW, prefH, l.spec())
 }
 
 // --- Layout implementations ---
@@ -455,7 +481,7 @@ func (s *Slider) layout(bounds core.Bounds, theme *Theme) {
 
 	if s.Label != "" {
 		font := resolveFont(s.Font, theme.Font)
-		lw, _ := approxTextSize(s.Label, font)
+		lw, _ := measureText(s.Label, font, theme)
 		gap := max(theme.Padding*0.75, 8)
 		labelReserve := min(lw+gap, w*0.45)
 		tx = x + labelReserve + pad*0.5
@@ -465,5 +491,38 @@ func (s *Slider) layout(bounds core.Bounds, theme *Theme) {
 	s.trackRect = core.Bounds{
 		Origin: core.Point{X: core.Points(tx), Y: core.Points(y)},
 		Size:   core.Size{Width: core.Points(tw), Height: core.Points(h)},
+	}
+}
+
+func (l *List) layout(bounds core.Bounds, theme *Theme) {
+	l.bounds = bounds
+	if len(l.Items) == 0 {
+		l.itemRects = l.itemRects[:0]
+		return
+	}
+	pad := min(max(theme.Padding*0.25, 2), min(float32(bounds.Size.Width), float32(bounds.Size.Height))*0.2)
+	innerX := float32(bounds.Origin.X) + pad
+	innerY := float32(bounds.Origin.Y) + pad
+	innerW := max(0, float32(bounds.Size.Width)-2*pad)
+	innerH := max(0, float32(bounds.Size.Height)-2*pad)
+	spacing := max(0, l.Spacing)
+	totalSpacing := spacing * float32(len(l.Items)-1)
+	itemH := l.effectiveItemHeight(theme)
+	if avail := max(0, innerH-totalSpacing); float32(len(l.Items))*itemH > avail && len(l.Items) > 0 {
+		itemH = avail / float32(len(l.Items))
+	}
+
+	if cap(l.itemRects) < len(l.Items) {
+		l.itemRects = make([]core.Bounds, len(l.Items))
+	} else {
+		l.itemRects = l.itemRects[:len(l.Items)]
+	}
+	cy := innerY
+	for i := range l.Items {
+		l.itemRects[i] = core.Bounds{
+			Origin: core.Point{X: core.Points(innerX), Y: core.Points(cy)},
+			Size:   core.Size{Width: core.Points(innerW), Height: core.Points(itemH)},
+		}
+		cy += itemH + spacing
 	}
 }
