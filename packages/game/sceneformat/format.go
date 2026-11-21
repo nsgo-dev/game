@@ -404,6 +404,13 @@ func validateInlineTilemap(where string, tm *TilemapDoc) error {
 	if tm.Tileset == "" {
 		return fmt.Errorf("sceneformat: %s requires a tileset name", where)
 	}
+	// Multiply as int64 and cap the grid before comparing lengths: a crafted
+	// width and height could otherwise overflow to a small product, pass the
+	// length check and panic the runtime builder on its tile index.
+	const maxTilesPerTilemap = 1 << 24
+	if int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {
+		return fmt.Errorf("sceneformat: %s is %dx%d, more than %d tiles", where, tm.Width, tm.Height, maxTilesPerTilemap)
+	}
 	want := tm.Width * tm.Height
 	if len(tm.Data) != want {
 		return fmt.Errorf("sceneformat: %s has %d tile entries, want %d (%dx%d)", where, len(tm.Data), want, tm.Width, tm.Height)
