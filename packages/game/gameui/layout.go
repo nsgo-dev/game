@@ -329,11 +329,32 @@ func layoutLinear(vertical bool, bounds core.Bounds, padding core.Edges, spacing
 	avail := max(0, innerMain-totalSpacing)
 	var leftover float32
 	if fixedSum > avail && fixedSum > 0 {
-		// Shrink fixed children proportionally so they never overlap or overflow container bounds.
-		scale := avail / fixedSum
+		// The fixed children alone overflow: give every flex child its minimum
+		// (its measured size when it declares none), then scale the whole row
+		// into the available run so nothing is laid out at zero size.
+		var flexMinSum float32
 		for i := range visible {
-			if flexes[i] <= 0 {
-				mainSizes[i] *= scale
+			if flexes[i] > 0 {
+				minMain := flexMins[i]
+				if minMain <= 0 {
+					if vertical {
+						minMain = float32(prefs[i].Height)
+					} else {
+						minMain = float32(prefs[i].Width)
+					}
+				}
+				flexMins[i] = minMain
+				flexMinSum += minMain
+			}
+		}
+		if total := fixedSum + flexMinSum; total > 0 {
+			scale := avail / total
+			for i := range visible {
+				if flexes[i] > 0 {
+					mainSizes[i] = flexMins[i] * scale
+				} else {
+					mainSizes[i] *= scale
+				}
 			}
 		}
 	} else {
