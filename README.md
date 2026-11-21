@@ -51,3 +51,9 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 ## Targets
 
 macOS, iOS, Windows, Linux, Android and the web. See [Building and Shipping](docs/en/shipping.md).
+macOS, iOS, Windows, Linux, Android and the web.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, local test and cross-target check commands, coding conventions and pull request guidelines.
+

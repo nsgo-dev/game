@@ -1,0 +1,93 @@
+name: Showcase submission
+description: Submit a game or starter built with NSGo Game to the website showcase.
+title: "[Showcase]: "
+labels: ["showcase"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share what you built with `nsgo-dev/game` to have it listed on [game.nsgo.dev/showcase](https://game.nsgo.dev/showcase/).
+
+  - type: input
+    id: title
+    attributes:
+      label: Game title
+      description: Display name of your game or project.
+      placeholder: e.g. Starlight Drift
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Short description
+      description: 1–2 sentences describing the game and which `game` packages it uses.
+      placeholder: A 2D arcade racer built with game.Loop, sprite batches, and sound.Mixer.
+    validations:
+      required: true
+
+  - type: input
+    id: author
+    attributes:
+      label: Author
+      description: Your name, handle, or studio name.
+      placeholder: e.g. @your-handle
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Repository or playable URL
+      description: Link to the source repository, release page, or playable web build.
+      placeholder: https://github.com/you/your-game
+    validations:
+      required: true
+
+  - type: input
+    id: play_url
+    attributes:
+      label: Playable demo URL (optional)
+      description: Separate link to a live web build or store page, if different from the repository URL.
+      placeholder: https://you.github.io/your-game/
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: targets
+    attributes:
+      label: Targets
+      description: Select every target your game builds and runs on.
+      options:
+        - label: macOS
+        - label: iOS
+        - label: Windows
+        - label: Linux
+        - label: Android
+        - label: Web
+
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Comma-separated genre or feature tags (3–4 short tags work best).
+      placeholder: e.g. Platformer, Tilemap, Sprite, Sound
+    validations:
+      required: false
+
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: SPDX identifier or license name.
+      placeholder: e.g. Apache-2.0, MIT, Proprietary
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or clip (optional)
+      description: Attach a screenshot or link to a short gameplay clip.
+    validations:
+      required: false

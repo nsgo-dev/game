@@ -1,11 +1,11 @@
 import { Link } from '@tanstack/react-router'
 import { copies } from '../copy'
 import { type Lang, routes, useLang } from '../i18n'
-import { GITHUB_URL, LICENSE_URL, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
+import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
 import { Logo, SpeedLines } from './Brand'
 import { Icon } from './Icon'
 
-type FooterLink = { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'roadmap'] } | { label: string; href: string }
+type FooterLink = { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'showcase' | 'roadmap'] } | { label: string; href: string }
 
 function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
   const copy = copies[lang]
@@ -16,6 +16,7 @@ function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
       links: [
         { label: copy.nav.home, to: to.home },
         { label: copy.nav.docs, to: to.docs },
+        { label: copy.nav.showcase, to: to.showcase },
         { label: copy.nav.roadmap, to: to.roadmap },
       ],
     },
@@ -32,6 +33,7 @@ function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
       links: [
         { label: copy.nav.github, href: GITHUB_URL },
         { label: copy.footer.issues, href: `${GITHUB_URL}/issues` },
+        { label: copy.footer.contributing, href: CONTRIBUTING_URL },
         { label: copy.footer.nsgoGithub, href: NSGO_GITHUB_URL },
       ],
     },
