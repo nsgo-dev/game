@@ -1,4 +1,4 @@
-// Package input turns touch regions and mouse buttons into named actions and axes, sampled once per game.Loop step and saved in core.Storage across launches.
+// Package input turns touch regions, mouse buttons, and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
 package input
 
 import (
@@ -59,8 +59,13 @@ type Actions struct {
 	// MapPoint, when set, transforms a touch or mouse position from the view's coordinates before testing TouchRegion and MouseRegion bounds, such as mapping a view to a letterboxed virtual canvas. Returning false ignores the point for region tests.
 	MapPoint func(core.Point) (core.Point, bool)
 
-	bindings map[string][]Input
-	axes     map[string]axisBinding
+	bindings   map[string][]Input
+	axes       map[string]axisBinding
+	motionAxes map[string]motionAxisBinding
+	motion     *MotionInput
+	motionSnap map[string]float64
+	motionInit map[string]bool
+	motionGap  uint64
 
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
@@ -155,9 +160,10 @@ func (a *Actions) Step() {
 		}
 	}
 	clear(a.latched)
+	a.stepMotion()
 }
 
-// Reset clears active touches, held mouse buttons, pending latches and the current step snapshot, keeping all action and axis bindings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, pending latches, motion readings and the current step snapshot, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}
@@ -169,6 +175,7 @@ func (a *Actions) Reset() {
 	clear(a.latched)
 	clear(a.curr)
 	clear(a.prev)
+	a.resetMotion()
 }
 
 // Pressed reports whether name is held during the current step.
@@ -186,17 +193,30 @@ func (a *Actions) JustReleased(name string) bool {
 	return !a.curr[name] && a.prev[name]
 }
 
-// Axis returns the value of name in [-1, 1] for the current step. For an axis bound with BindAxis, it returns -1 when only its negative action is pressed, +1 when only its positive action is pressed, and 0 when neither or both are pressed. Otherwise it returns 1 when action name is pressed and 0 when it is not.
+// Axis returns the value of name in [-1, 1] for the current step.
+//
+// For an axis bound with BindAxis, its negative action contributes -1 and its positive action contributes +1.
+// For an axis bound with BindMotionAxis, the calibrated and dead-zoned motion reading contributes a value in [-1, 1].
+// When both are bound to the same axis name, their contributions are summed and clamped to [-1, 1].
+// Otherwise Axis returns 1 when action name is pressed and 0 when it is not.
 func (a *Actions) Axis(name string) float64 {
+	var v float64
+	hasAxis := false
 	if ax, ok := a.axes[name]; ok {
-		var v float64
+		hasAxis = true
 		if ax.negative != "" && a.Pressed(ax.negative) {
 			v -= 1
 		}
 		if ax.positive != "" && a.Pressed(ax.positive) {
 			v += 1
 		}
-		return v
+	}
+	if _, ok := a.motionAxes[name]; ok {
+		hasAxis = true
+		v += a.motionSnap[name]
+	}
+	if hasAxis {
+		return clampUnit(v)
 	}
 	if a.Pressed(name) {
 		return 1
