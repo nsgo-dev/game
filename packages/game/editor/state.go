@@ -46,14 +46,88 @@ func (t Tool) String() string {
 	}
 }
 
+// ViewMode selects whether the editor viewport renders and edits in 2D or 3D.
+type ViewMode int
+
+const (
+	ViewMode2D ViewMode = iota
+	ViewMode3D
+)
+
+// String returns a human-readable label for the view mode.
+func (m ViewMode) String() string {
+	switch m {
+	case ViewMode2D:
+		return "2D"
+	case ViewMode3D:
+		return "3D"
+	default:
+		return "Unknown"
+	}
+}
+
+// GizmoMode3D selects the active 3D transform gizmo operation.
+type GizmoMode3D int
+
+const (
+	Gizmo3DTranslate GizmoMode3D = iota
+	Gizmo3DRotate
+	Gizmo3DScale
+)
+
+// String returns a human-readable label for the 3D gizmo mode.
+func (m GizmoMode3D) String() string {
+	switch m {
+	case Gizmo3DTranslate:
+		return "Translate"
+	case Gizmo3DRotate:
+		return "Rotate"
+	case Gizmo3DScale:
+		return "Scale"
+	default:
+		return "Unknown"
+	}
+}
+
+// GizmoAxis3D identifies an axis handle on a 3D transform gizmo.
+type GizmoAxis3D int
+
+const (
+	Axis3DNone GizmoAxis3D = iota
+	Axis3DX
+	Axis3DY
+	Axis3DZ
+)
+
+// String returns a human-readable label for the gizmo axis.
+func (a GizmoAxis3D) String() string {
+	switch a {
+	case Axis3DX:
+		return "X"
+	case Axis3DY:
+		return "Y"
+	case Axis3DZ:
+		return "Z"
+	default:
+		return "None"
+	}
+}
+
 // Prefab is a reusable object template that PlaceObject and PlacePrefab can instantiate.
 type Prefab struct {
 	Name       string
 	Sprite     *sceneformat.SpriteRef
+	PosZ       float32
 	OriginX    float32
 	OriginY    float32
+	RotX       float32
+	RotY       float32
+	RotZ       float32
 	ScaleX     *float32
 	ScaleY     *float32
+	ScaleZ     *float32
+	Depth      float32
+	Mesh       string
 	FlipX      bool
 	FlipY      bool
 	Alpha      *float32
@@ -74,6 +148,9 @@ type Editor struct {
 	SelectedID    string
 	ActiveLayer   string
 	Tool          Tool
+	ViewMode      ViewMode
+	GizmoMode     GizmoMode3D
+	Camera3D      OrbitCamera3D
 	ActiveTileID  int
 	SelectedAsset *AssetEntry
 	Status        string
@@ -95,6 +172,7 @@ type Editor struct {
 	playSteps    int
 	playFrames   int
 
+	drag3D       drag3DState
 	scope        *core.Scope
 	revision     uint64
 	nextID       int
@@ -134,6 +212,9 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		Resolver:     resolver,
 		Prefabs:      make(map[string]Prefab),
 		Tool:         ToolSelect,
+		ViewMode:     ViewMode2D,
+		GizmoMode:    Gizmo3DTranslate,
+		Camera3D:     DefaultOrbitCamera3D(),
 		ActiveTileID: 1,
 		Status:       "Ready",
 		listeners:    make(map[uint64]func()),
@@ -223,6 +304,28 @@ func (e *Editor) SetTool(t Tool) {
 	}
 	e.Tool = t
 	e.Status = "Tool: " + t.String()
+	e.notify()
+}
+
+// SetViewMode switches the editor viewport between 2D and 3D modes.
+func (e *Editor) SetViewMode(mode ViewMode) {
+	if e.ViewMode == mode {
+		return
+	}
+	e.CancelGizmoDrag3D()
+	e.ViewMode = mode
+	e.Status = "View: " + mode.String()
+	e.notify()
+}
+
+// SetGizmoMode3D switches the active 3D transform gizmo mode (Translate, Rotate, or Scale).
+func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
+	if e.GizmoMode == mode {
+		return
+	}
+	e.CancelGizmoDrag3D()
+	e.GizmoMode = mode
+	e.Status = "Gizmo: " + mode.String()
 	e.notify()
 }
 
@@ -655,6 +758,191 @@ func (e *Editor) SetObjectName(id, name string) error {
 	return nil
 }
 
+// Transform3D snapshots an object's 3D transform fields (preserving nil Scale pointers
+// so Undo restores unset YAML fields byte-for-byte).
+type Transform3D struct {
+	X, Y, PosZ       float32
+	RotX, RotY, RotZ float32
+	ScaleX           *float32
+	ScaleY           *float32
+	ScaleZ           *float32
+}
+
+func captureTransform3D(o *sceneformat.ObjectDoc) Transform3D {
+	return Transform3D{
+		X:      o.X,
+		Y:      o.Y,
+		PosZ:   o.PosZ,
+		RotX:   o.RotX,
+		RotY:   o.RotY,
+		RotZ:   o.RotZ,
+		ScaleX: cloneFloat32Ptr(o.ScaleX),
+		ScaleY: cloneFloat32Ptr(o.ScaleY),
+		ScaleZ: cloneFloat32Ptr(o.ScaleZ),
+	}
+}
+
+func applyTransform3D(o *sceneformat.ObjectDoc, t Transform3D) {
+	o.X = t.X
+	o.Y = t.Y
+	o.PosZ = t.PosZ
+	o.RotX = t.RotX
+	o.RotY = t.RotY
+	o.RotZ = t.RotZ
+	o.ScaleX = cloneFloat32Ptr(t.ScaleX)
+	o.ScaleY = cloneFloat32Ptr(t.ScaleY)
+	o.ScaleZ = cloneFloat32Ptr(t.ScaleZ)
+}
+
+func equalFloat32Ptr(a, b *float32) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func equalTransform3D(a, b Transform3D) bool {
+	return a.X == b.X && a.Y == b.Y && a.PosZ == b.PosZ &&
+		a.RotX == b.RotX && a.RotY == b.RotY && a.RotZ == b.RotZ &&
+		equalFloat32Ptr(a.ScaleX, b.ScaleX) &&
+		equalFloat32Ptr(a.ScaleY, b.ScaleY) &&
+		equalFloat32Ptr(a.ScaleZ, b.ScaleZ)
+}
+
+// MoveObject3D sets object id's 3D position (x, y, posZ) as an undoable command.
+func (e *Editor) MoveObject3D(id string, x, y, posZ float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(posZ) {
+		return errors.New("editor: 3D position must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	before := captureTransform3D(obj)
+	after := before
+	after.X, after.Y, after.PosZ = x, y, posZ
+	if equalTransform3D(before, after) {
+		return nil
+	}
+	e.History.Execute(&transform3DCmd{
+		ed:     e,
+		id:     id,
+		label:  "Move 3D " + id,
+		before: before,
+		after:  after,
+	})
+	return nil
+}
+
+// RotateObject3D sets object id's 3D Euler rotation (rotX, rotY, rotZ) in radians as an undoable command.
+func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(rotX) || !isFiniteFloat32(rotY) || !isFiniteFloat32(rotZ) {
+		return errors.New("editor: 3D rotation must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	before := captureTransform3D(obj)
+	after := before
+	after.RotX, after.RotY, after.RotZ = rotX, rotY, rotZ
+	if equalTransform3D(before, after) {
+		return nil
+	}
+	e.History.Execute(&transform3DCmd{
+		ed:     e,
+		id:     id,
+		label:  "Rotate 3D " + id,
+		before: before,
+		after:  after,
+	})
+	return nil
+}
+
+// ScaleObject3D sets object id's 3D scale (sx, sy, sz) as an undoable command.
+func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) || !isFiniteFloat32(sz) {
+		return errors.New("editor: 3D scale must be finite")
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	before := captureTransform3D(obj)
+	after := before
+	after.ScaleX = sceneformat.Float32(sx)
+	after.ScaleY = sceneformat.Float32(sy)
+	after.ScaleZ = sceneformat.Float32(sz)
+	if equalTransform3D(before, after) {
+		return nil
+	}
+	e.History.Execute(&transform3DCmd{
+		ed:     e,
+		id:     id,
+		label:  "Scale 3D " + id,
+		before: before,
+		after:  after,
+	})
+	return nil
+}
+
+// SetObjectDepth sets object id's 3D depth extent as an undoable command.
+func (e *Editor) SetObjectDepth(id string, depth float32) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	if !isFiniteFloat32(depth) || depth < 0 {
+		return fmt.Errorf("editor: depth %v must be finite and non-negative", depth)
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Depth == depth {
+		return nil
+	}
+	e.History.Execute(&depthObjectCmd{
+		ed:       e,
+		id:       id,
+		oldDepth: obj.Depth,
+		newDepth: depth,
+	})
+	return nil
+}
+
+// SetObjectMesh sets object id's optional 3D mesh name as an undoable command.
+func (e *Editor) SetObjectMesh(id, mesh string) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	if obj.Mesh == mesh {
+		return nil
+	}
+	e.History.Execute(&meshObjectCmd{
+		ed:      e,
+		id:      id,
+		oldMesh: obj.Mesh,
+		newMesh: mesh,
+	})
+	return nil
+}
+
 // --- Commands (all look up target on e.Doc dynamically so Stop/snapshot restore never invalidates history) ---
 
 type placeObjectCmd struct {
@@ -881,6 +1169,75 @@ func (c *nameObjectCmd) Undo() {
 	}
 }
 
+type transform3DCmd struct {
+	ed     *Editor
+	id     string
+	label  string
+	before Transform3D
+	after  Transform3D
+}
+
+func (c *transform3DCmd) Label() string {
+	if c.label != "" {
+		return c.label
+	}
+	return "Transform 3D " + c.id
+}
+
+func (c *transform3DCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		applyTransform3D(obj, c.after)
+	}
+}
+
+func (c *transform3DCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		applyTransform3D(obj, c.before)
+	}
+}
+
+type depthObjectCmd struct {
+	ed       *Editor
+	id       string
+	oldDepth float32
+	newDepth float32
+}
+
+func (c *depthObjectCmd) Label() string { return "Set depth " + c.id }
+
+func (c *depthObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Depth = c.newDepth
+	}
+}
+
+func (c *depthObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Depth = c.oldDepth
+	}
+}
+
+type meshObjectCmd struct {
+	ed      *Editor
+	id      string
+	oldMesh string
+	newMesh string
+}
+
+func (c *meshObjectCmd) Label() string { return "Set mesh " + c.id }
+
+func (c *meshObjectCmd) Do() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Mesh = c.newMesh
+	}
+}
+
+func (c *meshObjectCmd) Undo() {
+	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
+		obj.Mesh = c.oldMesh
+	}
+}
+
 // --- Cloning & validation helpers ---
 
 func applyPrefabDefaults(dst *sceneformat.ObjectDoc, pf Prefab) {
@@ -891,17 +1248,38 @@ func applyPrefabDefaults(dst *sceneformat.ObjectDoc, pf Prefab) {
 		sp := *pf.Sprite
 		dst.Sprite = &sp
 	}
+	if dst.PosZ == 0 && pf.PosZ != 0 {
+		dst.PosZ = pf.PosZ
+	}
 	if dst.OriginX == 0 && pf.OriginX != 0 {
 		dst.OriginX = pf.OriginX
 	}
 	if dst.OriginY == 0 && pf.OriginY != 0 {
 		dst.OriginY = pf.OriginY
 	}
+	if dst.RotX == 0 && pf.RotX != 0 {
+		dst.RotX = pf.RotX
+	}
+	if dst.RotY == 0 && pf.RotY != 0 {
+		dst.RotY = pf.RotY
+	}
+	if dst.RotZ == 0 && pf.RotZ != 0 {
+		dst.RotZ = pf.RotZ
+	}
 	if dst.ScaleX == nil && pf.ScaleX != nil {
 		dst.ScaleX = cloneFloat32Ptr(pf.ScaleX)
 	}
 	if dst.ScaleY == nil && pf.ScaleY != nil {
 		dst.ScaleY = cloneFloat32Ptr(pf.ScaleY)
+	}
+	if dst.ScaleZ == nil && pf.ScaleZ != nil {
+		dst.ScaleZ = cloneFloat32Ptr(pf.ScaleZ)
+	}
+	if dst.Depth == 0 && pf.Depth != 0 {
+		dst.Depth = pf.Depth
+	}
+	if dst.Mesh == "" && pf.Mesh != "" {
+		dst.Mesh = pf.Mesh
 	}
 	if !dst.FlipX && pf.FlipX {
 		dst.FlipX = true
@@ -941,14 +1319,22 @@ func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
 	if o.ID == "" {
 		return errors.New("editor: object id must not be empty")
 	}
-	if !isFiniteFloat32(o.X) || !isFiniteFloat32(o.Y) || !isFiniteFloat32(o.OriginX) || !isFiniteFloat32(o.OriginY) || !isFiniteFloat32(o.Rotation) {
+	if !isFiniteFloat32(o.X) || !isFiniteFloat32(o.Y) || !isFiniteFloat32(o.PosZ) ||
+		!isFiniteFloat32(o.OriginX) || !isFiniteFloat32(o.OriginY) ||
+		!isFiniteFloat32(o.Rotation) || !isFiniteFloat32(o.RotX) || !isFiniteFloat32(o.RotY) || !isFiniteFloat32(o.RotZ) {
 		return errors.New("editor: object transform must be finite")
+	}
+	if !isFiniteFloat32(o.Depth) || o.Depth < 0 {
+		return fmt.Errorf("editor: object depth %v must be finite and non-negative", o.Depth)
 	}
 	if o.ScaleX != nil && !isFiniteFloat32(*o.ScaleX) {
 		return errors.New("editor: object scaleX must be finite")
 	}
 	if o.ScaleY != nil && !isFiniteFloat32(*o.ScaleY) {
 		return errors.New("editor: object scaleY must be finite")
+	}
+	if o.ScaleZ != nil && !isFiniteFloat32(*o.ScaleZ) {
+		return errors.New("editor: object scaleZ must be finite")
 	}
 	if o.Alpha != nil && (!isFiniteFloat32(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1) {
 		return fmt.Errorf("editor: object alpha %v must be in [0, 1]", *o.Alpha)
@@ -963,6 +1349,7 @@ func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {
 	out := o
 	out.ScaleX = cloneFloat32Ptr(o.ScaleX)
 	out.ScaleY = cloneFloat32Ptr(o.ScaleY)
+	out.ScaleZ = cloneFloat32Ptr(o.ScaleZ)
 	out.Alpha = cloneFloat32Ptr(o.Alpha)
 	if o.Sprite != nil {
 		sp := *o.Sprite

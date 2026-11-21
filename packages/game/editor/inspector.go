@@ -251,6 +251,8 @@ func inspectorSchemaKey(ed *Editor) string {
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString(ed.ViewMode.String())
+	b.WriteByte(':')
 	b.WriteString(layer)
 	b.WriteByte(':')
 	b.WriteString(obj.ID)
@@ -586,6 +588,134 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				_ = ed.SetObjectZ(objID, int(math.Round(v)))
 			},
 		}),
+	}
+
+	if ed.ViewMode == ViewMode3D {
+		nodes = append(nodes,
+			sectionHeader("TRANSFORM 3D"),
+			fieldRow("Pos Z", ui.NumberInput{
+				TestID:   "inspector-pos-z",
+				Label:    "Pos Z",
+				Step:     1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.PosZ)
+					}
+					return 0
+				},
+				OnChange: func(v float64) {
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						_ = ed.MoveObject3D(objID, o.X, o.Y, float32(v))
+					}
+				},
+			}),
+			fieldRow("Rot X", ui.NumberInput{
+				TestID:   "inspector-rot-x",
+				Label:    "Rot X",
+				Step:     0.1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.RotX)
+					}
+					return 0
+				},
+				OnChange: func(v float64) {
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						_ = ed.RotateObject3D(objID, float32(v), o.RotY, o.RotZ)
+					}
+				},
+			}),
+			fieldRow("Rot Y", ui.NumberInput{
+				TestID:   "inspector-rot-y",
+				Label:    "Rot Y",
+				Step:     0.1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.RotY)
+					}
+					return 0
+				},
+				OnChange: func(v float64) {
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						_ = ed.RotateObject3D(objID, o.RotX, float32(v), o.RotZ)
+					}
+				},
+			}),
+			fieldRow("Rot Z", ui.NumberInput{
+				TestID:   "inspector-rot-z",
+				Label:    "Rot Z",
+				Step:     0.1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.RotZ)
+					}
+					return 0
+				},
+				OnChange: func(v float64) {
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						_ = ed.RotateObject3D(objID, o.RotX, o.RotY, float32(v))
+					}
+				},
+			}),
+			fieldRow("Scale Z", ui.NumberInput{
+				TestID:   "inspector-scale-z",
+				Label:    "Scale Z",
+				Step:     0.1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.EffectiveScaleZ())
+					}
+					return 1
+				},
+				OnChange: func(v float64) {
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						_ = ed.ScaleObject3D(objID, o.EffectiveScaleX(), o.EffectiveScaleY(), float32(v))
+					}
+				},
+			}),
+			fieldRow("Depth", ui.NumberInput{
+				TestID:   "inspector-depth",
+				Label:    "Depth",
+				Min:      0,
+				Step:     1,
+				Disabled: disabled,
+				Value: func() float64 {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return float64(o.Depth)
+					}
+					return 0
+				},
+				OnChange: func(v float64) {
+					_ = ed.SetObjectDepth(objID, float32(v))
+				},
+			}),
+			fieldRow("Mesh", ui.Input{
+				TestID:   "inspector-mesh",
+				Label:    "Mesh",
+				Disabled: disabled,
+				Value: func() string {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return o.Mesh
+					}
+					return ""
+				},
+				OnChange: func(text string) {
+					_ = ed.SetObjectMesh(objID, text)
+				},
+			}),
+		)
 	}
 
 	obj, _, _ := ed.FindObject(objID)
