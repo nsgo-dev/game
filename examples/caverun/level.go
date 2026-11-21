@@ -363,7 +363,10 @@ func (l *levelState) updateDemo(dt time.Duration) {
 	for i := range l.gems {
 		l.gems[i].anim.Update(dt)
 	}
+	// updateDemo runs without the level's own update, so snapshot the previous
+	// positions itself; syncSprites interpolates against prevX.
 	for i := range l.slimes {
+		l.slimes[i].prevX = l.slimes[i].x
 		l.updateSlime(&l.slimes[i], dt)
 	}
 	l.dustEmitter.Update(dt)
@@ -501,7 +504,10 @@ func (l *levelState) update(dt time.Duration, in stepInput) {
 	}
 
 	// Update slimes.
+	// updateDemo runs without the level's own update, so snapshot the previous
+	// positions itself; syncSprites interpolates against prevX.
 	for i := range l.slimes {
+		l.slimes[i].prevX = l.slimes[i].x
 		l.updateSlime(&l.slimes[i], dt)
 	}
 
