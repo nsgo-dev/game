@@ -77,7 +77,8 @@ func (r *loopRun) pause() {
 
 func (r *loopRun) frame(at time.Time) {
 	r.cancel = r.cx.RequestAnimationFrame(r.frame)
-	r.acc += r.smooth(at.Sub(r.last))
+	// A display's frame time (nsgo-dev/nsgo#1048) may fall before the time the run resumed at, read from cx's clock, so a frame never counts as going back in time: that would take time off acc and skip the frames' updates until it was paid back.
+	r.acc += r.smooth(max(0, at.Sub(r.last)))
 	r.last = at
 	step := r.loop.step()
 	steps := 0
