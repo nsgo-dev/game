@@ -15,7 +15,7 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { name: 'color-scheme', content: 'light dark' },
-      { name: 'theme-color', content: '#07090d' },
+      { name: 'theme-color', content: '#f3f5f9' },
     ],
     links: [
       { rel: 'stylesheet', href: css },
@@ -49,9 +49,9 @@ function Document({ children }: { children: ReactNode }) {
   const path = useLangPath()
   const missing = useNotFound()
   const zhHref = lang === 'en' && !missing ? localeHref('zh', path) : null
-  // The appearance is dark until the inline script, which runs before the first paint, applies the stored one, so the html element's attributes differ from the server's by design.
+  // The appearance is light until the inline script, which runs before the first paint, applies the stored one, so the html element's attributes differ from the server's by design.
   return (
-    <html lang={htmlLang(lang)} data-theme="dark" suppressHydrationWarning>
+    <html lang={htmlLang(lang)} data-theme="light" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />

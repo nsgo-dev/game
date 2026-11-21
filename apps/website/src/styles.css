@@ -817,7 +817,7 @@ html:not([data-theme='dark']) .logo--dark {
   display: none;
 }
 
-html:not([data-theme-preference]) .theme-menu__icon--dark,
+html:not([data-theme-preference]) .theme-menu__icon--light,
 html[data-theme-preference='light'] .theme-menu__icon--light,
 html[data-theme-preference='dark'] .theme-menu__icon--dark,
 html[data-theme-preference='system'] .theme-menu__icon--system {

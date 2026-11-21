@@ -1,4 +1,4 @@
-// The appearance the site shows, kept as nsgo.dev keeps it: `nsgo-theme` holds light, dark or system; absent is dark, the game site's own default (nsgo.dev's is light). THEME_SCRIPT applies it before the first paint; setPreference switches it.
+// The appearance the site shows, kept as nsgo.dev keeps it: `nsgo-theme` holds light, dark or system; absent is light, as on nsgo.dev. THEME_SCRIPT applies it before the first paint; setPreference switches it.
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 export type Theme = 'light' | 'dark'
@@ -10,15 +10,15 @@ export const THEME_EVENT = 'nsgo-theme'
 
 // Runs inline in the head, after the theme-color meta, so the page never paints in the wrong appearance.
 export const THEME_SCRIPT = `(function () {
-  var theme = 'dark';
+  var theme = 'light';
   var pref = null;
   try {
     pref = localStorage.getItem('${KEY}');
-    if (pref === 'light' || (pref === 'system' && !matchMedia('(prefers-color-scheme: dark)').matches)) theme = 'light';
+    if (pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) theme = 'dark';
   } catch (error) {}
   var root = document.documentElement;
   root.dataset.theme = theme;
-  root.dataset.themePreference = pref === 'light' || pref === 'system' ? pref : 'dark';
+  root.dataset.themePreference = pref === 'dark' || pref === 'system' ? pref : 'light';
   root.style.colorScheme = theme;
   var meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', theme === 'dark' ? '${DARK_COLOR}' : '${LIGHT_COLOR}');
@@ -27,11 +27,11 @@ export const THEME_SCRIPT = `(function () {
 export function readPreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(KEY)
-    if (stored === 'light' || stored === 'system') return stored
+    if (stored === 'dark' || stored === 'system') return stored
   } catch {
-    // Storage can be unavailable; show dark.
+    // Storage can be unavailable; show light.
   }
-  return 'dark'
+  return 'light'
 }
 
 export function applyTheme(): void {
