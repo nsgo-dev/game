@@ -42,6 +42,16 @@ type fileFingerprint struct {
 	modTime time.Time
 	size    int64
 	hash    [sha256.Size]byte
+	// hashedAt is when hash was computed from the file's contents.
+	hashedAt time.Time
+}
+
+// racyWindow is how close to hashedAt a modification time may be for the fingerprint to vouch for the contents by modification time and size alone. File systems keep modification times at a granularity (a kernel tick on Linux, two seconds on FAT), so a write of the same length within that granularity after hashing leaves both unchanged; as git does for racily clean index entries, such a fingerprint compares contents again.
+const racyWindow = 2 * time.Second
+
+// statUnchanged reports whether info shows the fingerprinted contents for certain: the same modification time and size, with the modification time far enough before hashedAt that a later write would have moved it.
+func (fp fileFingerprint) statUnchanged(modTime time.Time, size int64) bool {
+	return fp.exists && modTime.Equal(fp.modTime) && size == fp.size && fp.hashedAt.Sub(modTime) >= racyWindow
 }
 
 type fileEntry struct {
@@ -305,7 +315,7 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 	size := info.Size()
 
 	if !entry.hasPending {
-		if entry.delivered.exists && modTime.Equal(entry.delivered.modTime) && size == entry.delivered.size {
+		if entry.delivered.statUnchanged(modTime, size) {
 			return nil, false
 		}
 		data, err := os.ReadFile(entry.fullPath)
@@ -314,10 +324,11 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 		}
 		sum := sha256.Sum256(data)
 		fp := fileFingerprint{
-			exists:  true,
-			modTime: modTime,
-			size:    size,
-			hash:    sum,
+			exists:   true,
+			modTime:  modTime,
+			size:     size,
+			hash:     sum,
+			hashedAt: now,
 		}
 		if entry.delivered.exists && sum == entry.delivered.hash {
 			entry.delivered = fp
@@ -341,10 +352,11 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 		}
 		sum := sha256.Sum256(data)
 		fp := fileFingerprint{
-			exists:  true,
-			modTime: modTime,
-			size:    size,
-			hash:    sum,
+			exists:   true,
+			modTime:  modTime,
+			size:     size,
+			hash:     sum,
+			hashedAt: now,
 		}
 		if entry.delivered.exists && sum == entry.delivered.hash {
 			entry.delivered = fp
@@ -368,10 +380,11 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 	sum := sha256.Sum256(data)
 	if sum != entry.pending.hash {
 		entry.pending = fileFingerprint{
-			exists:  true,
-			modTime: modTime,
-			size:    size,
-			hash:    sum,
+			exists:   true,
+			modTime:  modTime,
+			size:     size,
+			hash:     sum,
+			hashedAt: now,
 		}
 		entry.pendingAt = now
 		return nil, false
@@ -405,10 +418,11 @@ func snapshotFile(path string) fileFingerprint {
 		return fileFingerprint{}
 	}
 	return fileFingerprint{
-		exists:  true,
-		modTime: info.ModTime(),
-		size:    info.Size(),
-		hash:    sha256.Sum256(data),
+		exists:   true,
+		modTime:  info.ModTime(),
+		size:     info.Size(),
+		hash:     sha256.Sum256(data),
+		hashedAt: time.Now(),
 	}
 }
 

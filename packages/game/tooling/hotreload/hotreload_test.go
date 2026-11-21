@@ -311,3 +311,37 @@ func TestDisposingScopeStopsWatcher(t *testing.T) {
 		t.Fatalf("got %d callbacks after scope disposal, want 0", calls.Load())
 	}
 }
+
+func TestSameLengthWriteWithinTimestampGranularityIsSeen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.json")
+	if err := os.WriteFile(path, []byte(`{"v":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got atomic.Value
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		w := hotreload.NewWatcher(cx, dir,
+			hotreload.WithPollInterval(20*time.Millisecond),
+			hotreload.WithDebounce(20*time.Millisecond),
+		)
+		w.Watch("a.json", func(data []byte) { got.Store(string(data)) })
+		return core.View{}
+	})
+
+	// The same length within the file system's timestamp granularity: size and modification time both stay as they were.
+	if err := os.WriteFile(path, []byte(`{"v":2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	app.WaitUntil(time.Second, func() bool {
+		v, _ := got.Load().(string)
+		return v == `{"v":2}`
+	})
+}
