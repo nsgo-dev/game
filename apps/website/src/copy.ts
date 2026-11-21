@@ -22,6 +22,20 @@ const en = {
   },
   home: {
     badge: 'Early: APIs will change',
+    // The readouts under the hero's playfield: a short label shown, and the name a screen reader reads before the value.
+    hud: {
+      label: 'Playfield readouts',
+      step: 'Step',
+      stepName: 'Fixed update step',
+      fps: 'FPS',
+      fpsName: 'Measured frames per second',
+      sprites: 'Sprites',
+      spritesName: 'Sprites',
+      score: 'Score',
+      scoreName: 'Dots you lit',
+      // In place of a value while the field is not running.
+      idle: 'not running',
+    },
     title: ['Games in Go,', 'on every NSGo target.'],
     // Around the link to NSGo.
     lead: [
@@ -43,11 +57,21 @@ const en = {
     packages: {
       eyebrow: 'Packages',
       title: 'Three packages so far',
-      lead: 'Each is its own import, tested, and described in the reference.',
+      lead: 'Each is its own import, tested, and described in the reference. The next ones are planned in issues.',
       loop: 'Fixed-step updates on the display’s frames, one interpolated draw per frame. Pauses in the background.',
       sprite: 'Atlases from TexturePacker or Aseprite, frame animations, and Z-ordered batches drawn into a Canvas.',
       sound: 'A mixer with saved master and group volumes, per-sound limits, and music that crossfades.',
+      input: 'Named actions bound to keys, gamepads, touch regions and the mouse.',
+      tilemap: 'A camera, and tilemaps from Tiled drawn only where the camera sees.',
+      scene: 'Drawing layers, hit testing for touch and mouse, and switching between scenes.',
       examples: 'Examples',
+      level: (n: number) => `Level ${String(n).padStart(2, '0')}`,
+      cleared: 'Cleared',
+      locked: 'Locked',
+      // Before the link to the issue a locked package is planned in.
+      plan: 'Plan',
+      // The closed issues of a locked package's area on the roadmap.
+      progress: (closed: number, total: number) => `${closed} of ${total} issues closed`,
     },
   },
   cta: {
@@ -87,6 +111,9 @@ const en = {
     unavailable: ['This build could not read the issues from GitHub (', '). See them on ', '.'],
     stage: (n: number) => `Stage ${n}`,
     closed: (closed: number, total: number) => `${closed} of ${total} closed`,
+    // The short label before a stage's closed and total issues, as a game shows experience.
+    xp: 'XP',
+    quest: 'Area',
     open: 'Open',
     closedState: 'Closed',
     other: 'Other',
@@ -123,6 +150,18 @@ const zh: Copy = {
   },
   home: {
     badge: '早期阶段：API 还会变化',
+    hud: {
+      label: '游戏区读数',
+      step: '步长',
+      stepName: '固定更新步长',
+      fps: 'FPS',
+      fpsName: '实测每秒帧数',
+      sprites: '精灵',
+      spritesName: '精灵数',
+      score: '得分',
+      scoreName: '你点亮的点数',
+      idle: '未运行',
+    },
     title: ['用 Go 写游戏', '在 NSGo 的每个平台上运行'],
     lead: [
       '为 ',
@@ -143,11 +182,19 @@ const zh: Copy = {
     packages: {
       eyebrow: '包',
       title: '目前有三个包',
-      lead: '每个包单独导入，都有测试，并在参考文档中有说明。',
+      lead: '每个包单独导入，都有测试，并在参考文档中有说明。后续的包已在 issue 中规划。',
       loop: '在显示器的帧上做固定步长更新，每帧插值绘制一次。进入后台时暂停。',
       sprite: '读取 TexturePacker 或 Aseprite 导出的图集，播放帧动画，并按 Z 顺序批量绘制到 Canvas 中。',
       sound: '混音器：保存主音量和分组音量，限制每个声音同时播放的数量，音乐切换时交叉淡化。',
+      input: '把命名动作绑定到按键、手柄、触摸区域和鼠标。',
+      tilemap: '相机，以及从 Tiled 读取、只绘制相机所见部分的瓦片地图。',
+      scene: '绘制图层、触摸和鼠标的命中测试，以及场景切换。',
       examples: '示例',
+      level: (n: number) => `关卡 ${String(n).padStart(2, '0')}`,
+      cleared: '已完成',
+      locked: '未解锁',
+      plan: '计划',
+      progress: (closed: number, total: number) => `已关闭 ${closed} / ${total} 个 issue`,
     },
   },
   cta: {
@@ -184,6 +231,8 @@ const zh: Copy = {
     unavailable: ['这次构建没能从 GitHub 读取 issue（', '）。请到 ', ' 查看。'],
     stage: (n: number) => `阶段 ${n}`,
     closed: (closed: number, total: number) => `已关闭 ${closed} / ${total}`,
+    xp: '进度',
+    quest: '领域',
     open: '未关闭',
     closedState: '已关闭',
     other: '其他',
