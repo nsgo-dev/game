@@ -115,6 +115,44 @@ func (s Shape) Translated(offset Vec3) Shape {
 	}
 }
 
+// Transformed returns a copy of s rotated by rot around the local origin and
+// translated by pos. For identity rotations, it is identical to Translated(pos).
+// For axis-aligned Box shapes, a non-identity rotation computes the tight
+// world-space AABB enclosing the rotated box.
+func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
+	if rot.IsIdentity() {
+		return s.Translated(pos)
+	}
+	switch s.Kind {
+	case ShapeBox:
+		ex := rot.RotateVec(Vec3{X: s.Box.HalfExtents.X})
+		ey := rot.RotateVec(Vec3{Y: s.Box.HalfExtents.Y})
+		ez := rot.RotateVec(Vec3{Z: s.Box.HalfExtents.Z})
+		he := Vec3{
+			X: abs32(ex.X) + abs32(ey.X) + abs32(ez.X),
+			Y: abs32(ex.Y) + abs32(ey.Y) + abs32(ez.Y),
+			Z: abs32(ex.Z) + abs32(ey.Z) + abs32(ez.Z),
+		}
+		return BoxShape(Box{
+			Center:      rot.RotateVec(s.Box.Center).Add(pos),
+			HalfExtents: he,
+		})
+	case ShapeSphere:
+		return SphereShape(Sphere{
+			Center: rot.RotateVec(s.Sphere.Center).Add(pos),
+			Radius: s.Sphere.Radius,
+		})
+	case ShapeCapsule:
+		return CapsuleShape(Capsule{
+			A:      rot.RotateVec(s.Capsule.A).Add(pos),
+			B:      rot.RotateVec(s.Capsule.B).Add(pos),
+			Radius: s.Capsule.Radius,
+		})
+	default:
+		return s
+	}
+}
+
 // Bounds returns a tight axis-aligned bounding Box enclosing s.
 func (s Shape) Bounds() Box {
 	switch s.Kind {
