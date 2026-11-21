@@ -13,7 +13,7 @@ import "github.com/nsgo-dev/game/packages/game/net"
 | 传输实现 | 构造函数 | 适用平台与场景 |
 | --- | --- | --- |
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。 |
-| `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台（桌面/移动）低延迟数据报通信。 |
+| `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台（桌面/移动）低延迟数据报通信。UDP 没有重传与排序保证，因此会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输。 |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
 ```go

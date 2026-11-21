@@ -16,7 +16,10 @@ import (
 type Channel uint8
 
 const (
-	// ChannelReliableOrdered guarantees delivery in send order.
+	// ChannelReliableOrdered guarantees delivery in send order. A transport
+	// that cannot provide that guarantee refuses it with ErrUnsupportedChannel
+	// rather than silently dropping packets; UDP has no retransmission, so
+	// lockstep and rollback need WebSocket or loopback instead.
 	ChannelReliableOrdered Channel = 0
 	// ChannelUnreliable delivers best-effort packets that may be dropped or reordered.
 	ChannelUnreliable Channel = 1
@@ -70,6 +73,9 @@ var (
 	ErrInvalidPacket = errors.New("net: invalid packet")
 	// ErrPayloadTooLarge is returned when a payload exceeds transport limits.
 	ErrPayloadTooLarge = errors.New("net: payload too large")
+	// ErrUnsupportedChannel is returned when a transport cannot provide the
+	// delivery guarantees the requested channel asks for.
+	ErrUnsupportedChannel = errors.New("net: channel not supported by transport")
 )
 
 const wireHeaderSize = 5
