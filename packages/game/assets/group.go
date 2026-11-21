@@ -629,6 +629,23 @@ func (g *Group) failLoad(gen uint64, err error) {
 // references for GC, cancels any in-flight load, and resets progress to 0 so
 // the group can be loaded again later.
 //
+// Reset drops the group's asset specs and loaded resources, cancels any in-flight
+// load, and leaves the group idle so a new asset set (such as a freshly mounted
+// DLC pack) can be registered into it. Concurrent mounts of the same group must
+// be serialized by the caller.
+func (g *Group) Reset() {
+	if g == nil {
+		return
+	}
+	g.releaseResources(!g.m.isDisposed())
+	g.specs = nil
+	g.index = make(map[string]int)
+	g.fs = nil
+	if !g.m.isDisposed() {
+		g.m.cx.Batch(func() { g.totalSig.Set(0) })
+	}
+}
+
 // Keeping decoded atlas images pinned outside NSGo's 64-source canvas cache
 // waits on nsgo-dev/nsgo#1127.
 func (g *Group) Release() {

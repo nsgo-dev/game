@@ -793,9 +793,9 @@ func (d *DLCManager) FetchGroup(
 			return
 		}
 		g := loader.Group(groupName)
-		if g.state == stateLoaded {
-			g.Release()
-		}
+		// A reused group must forget the previous pack's specs; otherwise its
+		// next load reads the old pack's asset list against the new pack.
+		g.Reset()
 		g.SetFS(packFS)
 		if registerFn != nil {
 			if err := registerFn(g, packFS); err != nil {
@@ -1018,7 +1018,38 @@ func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (*zip.
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid zip archive: %v", ErrCorruptPack, err)
 	}
+	if err := validatePackZip(zr); err != nil {
+		return nil, err
+	}
 	return zr, nil
+}
+
+const (
+	maxPackEntries       = 1 << 15
+	maxPackFileUnpacked  = 256 << 20
+	maxPackTotalUnpacked = 1 << 30
+)
+
+// validatePackZip bounds what a downloaded pack can expand to, so a hostile or
+// corrupt archive cannot exhaust memory when an asset is read.
+func validatePackZip(zr *zip.Reader) error {
+	if zr == nil {
+		return fmt.Errorf("%w: nil zip archive", ErrCorruptPack)
+	}
+	if len(zr.File) > maxPackEntries {
+		return fmt.Errorf("%w: %d entries exceeds the %d limit", ErrCorruptPack, len(zr.File), maxPackEntries)
+	}
+	var total uint64
+	for _, f := range zr.File {
+		if f.UncompressedSize64 > maxPackFileUnpacked {
+			return fmt.Errorf("%w: entry %q unpacks to %d bytes, more than %d", ErrCorruptPack, f.Name, f.UncompressedSize64, maxPackFileUnpacked)
+		}
+		total += f.UncompressedSize64
+		if total > maxPackTotalUnpacked {
+			return fmt.Errorf("%w: pack unpacks to more than %d bytes", ErrCorruptPack, maxPackTotalUnpacked)
+		}
+	}
+	return nil
 }
 
 func (d *DLCManager) lockKey(key string) func() {

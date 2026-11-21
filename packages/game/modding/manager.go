@@ -462,7 +462,13 @@ func (m *Manager) Reload(id string) error {
 		return fmt.Errorf("%w: %q", ErrModDisabled, id)
 	}
 	m.unloadMod(mod)
-	if data, err := fs.ReadFile(mod.fsys, "mod.json"); err == nil {
+	data, readErr := fs.ReadFile(mod.fsys, "mod.json")
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		mod.state = StateFailed
+		mod.err = fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)
+		return mod.err
+	}
+	if readErr == nil {
 		manifest, err := ParseManifest(data)
 		if err != nil {
 			mod.state = StateFailed
@@ -499,10 +505,21 @@ func (m *Manager) Reload(id string) error {
 			manifests = append(manifests, other.manifest)
 		}
 		manifests = append(manifests, manifest)
-		if _, err := ResolveOrder(manifests); err != nil {
+		ordered, err := ResolveOrder(manifests)
+		if err != nil {
 			mod.state = StateFailed
 			mod.err = err
 			return mod.err
+		}
+		// A reload may change dependencies; adopt the resolved order so Step
+		// and Emit keep running in topological order.
+		m.order = m.order[:0]
+		for i := range ordered {
+			entryID := ordered[i].ID
+			if other := m.mods[entryID]; other != nil {
+				other.order = i
+			}
+			m.order = append(m.order, entryID)
 		}
 	}
 	mod.state = StateDiscovered

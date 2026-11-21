@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- `game/assets`: `asset:` URIs are confined to the `assets` directory (and `file://` is refused while a pack is mounted), downloaded packs are capped by entry count and unpacked size before mounting, mounting a pack into a reused group resets the group's previous specs, and `Group.Reset` cancels an in-flight load and forgets old specs.
+- `game/modding`: a reload adopts the re-resolved topological order and reports (rather than swallows) a manifest read error.
+
 - `game/editor`: the 3D gizmo drags now start from real pointer input on the mounted viewport (a press that becomes a pan picks a handle, then moves it) instead of being reachable only from the model API.
 - `game/entities`: world snapshots keep parent-child links, restored dead slots advance their generation so stale handles cannot alias, oversized snapshot indices are rejected before allocating, and iteration bounds are documented and enforced.
 - `game/save`: a literal `null` payload is rejected so backup recovery engages, and a failed decode no longer mutates the caller's value through shared maps or pointers.

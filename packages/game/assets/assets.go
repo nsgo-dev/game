@@ -466,9 +466,18 @@ func defaultReadAsset(fsys fs.FS, ctx context.Context, uri string) ([]byte, erro
 		if fsys != nil {
 			return fs.ReadFile(fsys, rel)
 		}
-		return os.ReadFile(filepath.Join("assets", filepath.FromSlash(rel)))
+		// The default store is rooted at assets/: refuse anything that escapes
+		// it, such as "asset:../secret" or an absolute path.
+		if !fs.ValidPath(rel) {
+			return nil, fmt.Errorf("assets: asset path %q is not inside the assets directory", uri)
+		}
+		return fs.ReadFile(os.DirFS("assets"), rel)
 	}
 	if p, ok := strings.CutPrefix(uri, "file://"); ok {
+		// A mounted pack may only read its own files; file:// is about the host.
+		if fsys != nil {
+			return nil, fmt.Errorf("assets: file:// URI %q is not allowed from a mounted pack", uri)
+		}
 		return os.ReadFile(filepath.FromSlash(p))
 	}
 	if fsys != nil {
