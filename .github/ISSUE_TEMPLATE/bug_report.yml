@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a bug in a game package, example, template, or website.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. If the issue is in the underlying NSGo engine rather than `nsgo-dev/game`, please file it in [nsgo-dev/nsgo](https://github.com/nsgo-dev/nsgo/issues).
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target platform
+      description: Which target platform did the bug happen on?
+      options:
+        - macOS
+        - iOS
+        - Windows
+        - Linux
+        - Android
+        - Web
+    validations:
+      required: true
+
+  - type: input
+    id: game_version
+    attributes:
+      label: nsgo-dev/game version or commit
+      description: Module version from go.mod or git commit SHA.
+      placeholder: e.g. main (abc1234) or v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: nsgo_version
+    attributes:
+      label: NSGo version
+      description: Version of github.com/nsgo-dev/nsgo in go.mod.
+      placeholder: e.g. v0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      description: Output of `go version`.
+      placeholder: e.g. go1.27.3 darwin/arm64
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps or code to reproduce the issue.
+      placeholder: |
+        1. Run `go tool nsgo test ./...` or start the app with ...
+        2. Trigger ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include error messages, logs, or stack traces.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Minimal repo link, screenshots, or notes on other affected targets.
+    validations:
+      required: false

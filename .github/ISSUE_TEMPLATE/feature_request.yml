@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a new API, package improvement, example, or documentation update.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / package
+      description: Which part of the repository does this proposal cover?
+      options:
+        - game (Loop)
+        - sprite
+        - sound
+        - input
+        - tilemap
+        - scene
+        - examples / template
+        - docs / website
+        - 3D
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What problem or use case are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+      description: Sketch the Go types, methods, or user-facing behavior you have in mind.
+      placeholder: |
+        ```go
+        // Sketch the proposed API here
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true (including tests or target coverage) for this issue to be complete?
+      placeholder: |
+        - [ ] Works across all supported targets
+        - [ ] Covered by deterministic `nsgotest` tests
+        - [ ] Documented in `docs/en/` and `docs/zh/`
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any trade-offs or alternative designs you evaluated.
+    validations:
+      required: false

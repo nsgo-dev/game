@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: NSGo engine issues
+    url: https://github.com/nsgo-dev/nsgo/issues
+    about: Report engine-level bugs or request NSGo primitives (frame timing, input, audio backends, GPU view).
+  - name: Discussions
+    url: https://github.com/nsgo-dev/game/discussions
+    about: Ask questions, share ideas, or discuss game architecture with the community.
+  - name: Documentation
+    url: https://game.nsgo.dev/docs/
+    about: Read the package overview, frame lifecycle, and API reference.
