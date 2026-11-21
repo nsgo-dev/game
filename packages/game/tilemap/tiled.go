@@ -22,19 +22,25 @@ type TilesetLoader struct {
 	LoadImage func(imagePath string) (core.ImageSource, error)
 }
 
-// LoadTiled parses a Tiled JSON map (.tmj) into a Tilemap, loading any external .tsj tilesets and resolving tileset images through resolve.
+// LoadTiled parses a Tiled JSON map (.tmj) into a Tilemap, loading any external .tsj tilesets and resolving tileset and image-layer images through resolve.
 //
-// Orthogonal maps with uncompressed JSON tile data, embedded and external tilesets, GID flip flags, object layers, custom properties and tile animations are supported.
+// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, image layers, nested group layers, embedded and external tilesets, GID flip flags, object layers, custom properties and tile animations are supported.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	var raw tiledMap
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("tilemap: tiled: %w", err)
 	}
-	if raw.Orientation != "" && raw.Orientation != "orthogonal" {
-		return nil, fmt.Errorf("tilemap: tiled: orientation %q is not supported; only orthogonal maps are supported", raw.Orientation)
+	orientation, err := parseTiledOrientation(raw.Orientation)
+	if err != nil {
+		return nil, err
 	}
-	if raw.Infinite {
-		return nil, fmt.Errorf("tilemap: tiled: infinite maps are not supported")
+	staggerAxis, err := parseTiledStaggerAxis(raw.StaggerAxis)
+	if err != nil {
+		return nil, err
+	}
+	staggerIndex, err := parseTiledStaggerIndex(raw.StaggerIndex)
+	if err != nil {
+		return nil, err
 	}
 	if raw.Width < 0 || raw.Height < 0 {
 		return nil, fmt.Errorf("tilemap: tiled: map size %dx%d must be non-negative", raw.Width, raw.Height)
@@ -49,11 +55,16 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	}
 
 	m := &Tilemap{
-		Width:      raw.Width,
-		Height:     raw.Height,
-		TileWidth:  raw.TileWidth,
-		TileHeight: raw.TileHeight,
-		Properties: props,
+		Width:         raw.Width,
+		Height:        raw.Height,
+		TileWidth:     raw.TileWidth,
+		TileHeight:    raw.TileHeight,
+		Orientation:   orientation,
+		StaggerAxis:   staggerAxis,
+		StaggerIndex:  staggerIndex,
+		HexSideLength: raw.HexSideLength,
+		Infinite:      raw.Infinite,
+		Properties:    props,
 	}
 
 	for i, ref := range raw.Tilesets {
@@ -88,10 +99,47 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 		return cmp.Compare(a.FirstGID, b.FirstGID)
 	})
 
-	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, true); err != nil {
+	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, 1, 1, true, resolve); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func parseTiledOrientation(s string) (Orientation, error) {
+	switch s {
+	case "", "orthogonal":
+		return OrientationOrthogonal, nil
+	case "isometric":
+		return OrientationIsometric, nil
+	case "staggered":
+		return OrientationStaggered, nil
+	case "hexagonal":
+		return OrientationHexagonal, nil
+	default:
+		return 0, fmt.Errorf("tilemap: tiled: orientation %q is not supported", s)
+	}
+}
+
+func parseTiledStaggerAxis(s string) (StaggerAxis, error) {
+	switch s {
+	case "", "y":
+		return StaggerY, nil
+	case "x":
+		return StaggerX, nil
+	default:
+		return 0, fmt.Errorf("tilemap: tiled: staggeraxis %q is not supported", s)
+	}
+}
+
+func parseTiledStaggerIndex(s string) (StaggerIndex, error) {
+	switch s {
+	case "", "odd":
+		return StaggerOdd, nil
+	case "even":
+		return StaggerEven, nil
+	default:
+		return 0, fmt.Errorf("tilemap: tiled: staggerindex %q is not supported", s)
+	}
 }
 
 func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string, resolve TilesetLoader) (*Tileset, error) {
@@ -197,7 +245,7 @@ func flagsFromProperties(p Properties) TileFlags {
 	return flags
 }
 
-func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentOpacity float32, parentVisible bool) error {
+func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader) error {
 	for _, raw := range layers {
 		visible := parentVisible
 		if raw.Visible != nil {
@@ -209,6 +257,14 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 		}
 		ox := parentOX + raw.OffsetX
 		oy := parentOY + raw.OffsetY
+		px := parentPX
+		if raw.ParallaxX != nil {
+			px *= *raw.ParallaxX
+		}
+		py := parentPY
+		if raw.ParallaxY != nil {
+			py *= *raw.ParallaxY
+		}
 
 		props, err := parseProperties(raw.Properties)
 		if err != nil {
@@ -223,6 +279,23 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			if raw.Compression != "" {
 				return fmt.Errorf("tilemap: tiled: layer %q uses compression %q; export uncompressed JSON tile data", raw.Name, raw.Compression)
 			}
+			if len(raw.Chunks) > 0 {
+				layer, err := buildChunkedTileLayer(m, raw, ox, oy, px, py, opacity, visible, props)
+				if err != nil {
+					return err
+				}
+				m.addTileLayer(layer)
+				if m.Infinite {
+					if layer.Width > m.Width {
+						m.Width = layer.Width
+					}
+					if layer.Height > m.Height {
+						m.Height = layer.Height
+					}
+				}
+				continue
+			}
+
 			lw, lh := raw.Width, raw.Height
 			if lw <= 0 {
 				lw = m.Width
@@ -239,13 +312,45 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 					return fmt.Errorf("tilemap: tiled: layer %q has %d tiles, want %d (%dx%d)", raw.Name, len(data), lw*lh, lw, lh)
 				}
 			}
-			m.Layers = append(m.Layers, TileLayer{
+			m.addTileLayer(TileLayer{
 				Name:       raw.Name,
 				Width:      lw,
 				Height:     lh,
+				StartX:     raw.StartX,
+				StartY:     raw.StartY,
 				Data:       data,
 				OffsetX:    ox,
 				OffsetY:    oy,
+				ParallaxX:  px,
+				ParallaxY:  py,
+				Opacity:    opacity,
+				Visible:    visible,
+				Properties: props,
+			})
+
+		case "imagelayer":
+			var img core.ImageSource
+			if raw.Image != "" {
+				if resolve.LoadImage != nil {
+					img, err = resolve.LoadImage(raw.Image)
+					if err != nil {
+						return fmt.Errorf("tilemap: tiled: image layer %q load image %q: %w", raw.Name, raw.Image, err)
+					}
+				} else {
+					img = core.ImageSource{URI: raw.Image}
+				}
+			}
+			m.addImageLayer(ImageLayer{
+				Name:       raw.Name,
+				Image:      img,
+				Width:      raw.ImageWidth,
+				Height:     raw.ImageHeight,
+				OffsetX:    ox,
+				OffsetY:    oy,
+				ParallaxX:  px,
+				ParallaxY:  py,
+				RepeatX:    raw.RepeatX,
+				RepeatY:    raw.RepeatY,
 				Opacity:    opacity,
 				Visible:    visible,
 				Properties: props,
@@ -308,12 +413,88 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			})
 
 		case "group":
-			if err := loadTiledLayers(m, raw.Layers, ox, oy, opacity, visible); err != nil {
+			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
+	type parsedChunk struct {
+		x, y, w, h int
+		data       []uint32
+	}
+	chunks := make([]parsedChunk, len(raw.Chunks))
+	var minX, minY, maxX, maxY int
+	for i, rc := range raw.Chunks {
+		if rc.Width <= 0 || rc.Height <= 0 {
+			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height)
+		}
+		var cdata []uint32
+		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
+			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d data: %w", raw.Name, i, err)
+		}
+		if len(cdata) != rc.Width*rc.Height {
+			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d has %d tiles, want %d (%dx%d)", raw.Name, i, len(cdata), rc.Width*rc.Height, rc.Width, rc.Height)
+		}
+		chunks[i] = parsedChunk{x: rc.X, y: rc.Y, w: rc.Width, h: rc.Height, data: cdata}
+		if i == 0 {
+			minX, minY = rc.X, rc.Y
+			maxX, maxY = rc.X+rc.Width, rc.Y+rc.Height
+		} else {
+			if rc.X < minX {
+				minX = rc.X
+			}
+			if rc.Y < minY {
+				minY = rc.Y
+			}
+			if rc.X+rc.Width > maxX {
+				maxX = rc.X + rc.Width
+			}
+			if rc.Y+rc.Height > maxY {
+				maxY = rc.Y + rc.Height
+			}
+		}
+	}
+
+	// Preserve stagger parity when normalizing staggered/hex infinite chunks into a 0-based grid.
+	if m.Orientation == OrientationStaggered || m.Orientation == OrientationHexagonal {
+		if m.StaggerAxis == StaggerX && (minX&1) != 0 {
+			minX--
+		} else if m.StaggerAxis == StaggerY && (minY&1) != 0 {
+			minY--
+		}
+	}
+
+	lw := maxX - minX
+	lh := maxY - minY
+	data := make([]uint32, lw*lh)
+	for _, ch := range chunks {
+		for r := range ch.h {
+			dstRow := (ch.y - minY + r) * lw
+			srcRow := r * ch.w
+			copy(data[dstRow+(ch.x-minX):dstRow+(ch.x-minX)+ch.w], ch.data[srcRow:srcRow+ch.w])
+		}
+	}
+
+	tx, ty := m.tileOrigin(minX, minY)
+	return TileLayer{
+		Name:       raw.Name,
+		Width:      lw,
+		Height:     lh,
+		StartX:     minX,
+		StartY:     minY,
+		Data:       data,
+		OffsetX:    ox + tx,
+		OffsetY:    oy + ty,
+		ParallaxX:  px,
+		ParallaxY:  py,
+		Opacity:    opacity,
+		Visible:    visible,
+		Properties: props,
+	}, nil
 }
 
 func convertPoints(pts []tiledPoint) []core.Point {
@@ -375,15 +556,18 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 }
 
 type tiledMap struct {
-	Width       int               `json:"width"`
-	Height      int               `json:"height"`
-	TileWidth   float32           `json:"tilewidth"`
-	TileHeight  float32           `json:"tileheight"`
-	Orientation string            `json:"orientation"`
-	Infinite    bool              `json:"infinite"`
-	Layers      []tiledLayer      `json:"layers"`
-	Tilesets    []tiledTilesetRef `json:"tilesets"`
-	Properties  []tiledProperty   `json:"properties"`
+	Width         int               `json:"width"`
+	Height        int               `json:"height"`
+	TileWidth     float32           `json:"tilewidth"`
+	TileHeight    float32           `json:"tileheight"`
+	Orientation   string            `json:"orientation"`
+	StaggerAxis   string            `json:"staggeraxis"`
+	StaggerIndex  string            `json:"staggerindex"`
+	HexSideLength float32           `json:"hexsidelength"`
+	Infinite      bool              `json:"infinite"`
+	Layers        []tiledLayer      `json:"layers"`
+	Tilesets      []tiledTilesetRef `json:"tilesets"`
+	Properties    []tiledProperty   `json:"properties"`
 }
 
 type tiledTilesetRef struct {
@@ -419,18 +603,36 @@ type tiledAnimFrameJSON struct {
 	Duration int    `json:"duration"`
 }
 
+type tiledChunk struct {
+	X      int             `json:"x"`
+	Y      int             `json:"y"`
+	Width  int             `json:"width"`
+	Height int             `json:"height"`
+	Data   json.RawMessage `json:"data"`
+}
+
 type tiledLayer struct {
 	Name        string          `json:"name"`
 	Type        string          `json:"type"`
 	Width       int             `json:"width"`
 	Height      int             `json:"height"`
+	StartX      int             `json:"startx"`
+	StartY      int             `json:"starty"`
 	OffsetX     float32         `json:"offsetx"`
 	OffsetY     float32         `json:"offsety"`
+	ParallaxX   *float32        `json:"parallaxx"`
+	ParallaxY   *float32        `json:"parallaxy"`
 	Opacity     *float32        `json:"opacity"`
 	Visible     *bool           `json:"visible"`
 	Encoding    string          `json:"encoding"`
 	Compression string          `json:"compression"`
 	Data        json.RawMessage `json:"data"`
+	Chunks      []tiledChunk    `json:"chunks"`
+	Image       string          `json:"image"`
+	ImageWidth  float32         `json:"imagewidth"`
+	ImageHeight float32         `json:"imageheight"`
+	RepeatX     bool            `json:"repeatx"`
+	RepeatY     bool            `json:"repeaty"`
 	Objects     []tiledObject   `json:"objects"`
 	Layers      []tiledLayer    `json:"layers"`
 	Properties  []tiledProperty `json:"properties"`
