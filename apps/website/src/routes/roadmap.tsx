@@ -1,18 +1,19 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { roadmap } from 'virtual:roadmap'
 import type { RoadmapIssue, RoadmapStage } from '../content/types'
+import { Eyebrow } from '../components/Brand'
 import { GITHUB_URL, PLAN_URL } from '../links'
 
 export const Route = createFileRoute('/roadmap')({
   head: () => ({
-    meta: [{ title: 'Roadmap · game' }, { name: 'description', content: 'Open and closed issues of nsgo-dev/game and its plan in NSGo, by stage and area.' }],
+    meta: [{ title: 'Roadmap — NSGo Game' }, { name: 'description', content: 'Open and closed issues of nsgo-dev/game and its plan in NSGo, by stage and area.' }],
   }),
   component: Roadmap,
 })
 
 function Roadmap() {
   return (
-    <div className="roadmap">
+    <div className="container roadmap">
       <header className="page-head">
         <h1>Roadmap</h1>
         <p>
@@ -40,19 +41,20 @@ function Stage({ stage, index }: { stage: RoadmapStage; index: number }) {
   const total = stage.open + stage.closed
   const titleId = `stage-${stage.id}`
   return (
-    <section className={`roadmap-stage stage-${stage.id}`} aria-labelledby={titleId}>
-      <div className="stage-head">
-        <h2 id={titleId}>
-          <span className="stage-tag">Stage {index}</span> {stage.title}
-        </h2>
-        <p className="progress-label">
+    <section className="roadmap-stage" aria-labelledby={titleId}>
+      <div className="roadmap-stage__head">
+        <Eyebrow>Stage {index}</Eyebrow>
+        <h2 id={titleId}>{stage.title}</h2>
+        <p className="roadmap-stage__count">
           {stage.closed} of {total} closed
         </p>
-        <progress max={total} value={stage.closed} aria-hidden="true" />
+        <div className="progress" aria-hidden="true">
+          <span style={{ width: `${total === 0 ? 0 : (stage.closed / total) * 100}%` }} />
+        </div>
       </div>
-      <div className="groups">
+      <div className="roadmap-groups">
         {stage.groups.map((group) => (
-          <section key={group.area} className="group" aria-label={group.area}>
+          <section key={group.area} className="roadmap-group" aria-label={group.area}>
             <h3>{group.area}</h3>
             <ul>
               {group.issues.map((issue) => (
@@ -69,10 +71,10 @@ function Stage({ stage, index }: { stage: RoadmapStage; index: number }) {
 function Issue({ issue }: { issue: RoadmapIssue }) {
   const ref = issue.repo === 'nsgo-dev/game' ? `#${issue.number}` : `nsgo#${issue.number}`
   return (
-    <li className={`issue ${issue.state}`}>
-      <span className="state" role="img" aria-label={issue.state === 'closed' ? 'Closed' : 'Open'} />
+    <li className={`issue issue--${issue.state}`}>
+      <span className="issue__state" role="img" aria-label={issue.state === 'closed' ? 'Closed' : 'Open'} />
       <a href={issue.url}>
-        <span className="ref">{ref}</span> {issue.title}
+        <span className="issue__ref">{ref}</span> {issue.title}
       </a>
     </li>
   )

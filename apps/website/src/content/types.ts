@@ -7,6 +7,14 @@ export interface DocPage {
   description: string
   // html is the page's Markdown rendered at build time, without its first heading, which is title.
   html: string
+  // headings are the page's second- and third-level headings, in order, for its contents list.
+  headings: DocHeading[]
+}
+
+export interface DocHeading {
+  depth: 2 | 3
+  id: string
+  text: string
 }
 
 export interface Snippet {

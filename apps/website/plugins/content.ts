@@ -11,7 +11,7 @@ import remarkRehype from 'remark-rehype'
 import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
-import type { DocPage, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import type { DocHeading, DocPage, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
 
 const REPO = 'nsgo-dev/game'
 const PLAN = { repo: 'nsgo-dev/nsgo', number: 1047 }
@@ -98,16 +98,46 @@ interface MdNode {
 
 async function renderDoc(slug: string, source: string, ctx: Context): Promise<DocPage> {
   const meta = { title: slug, description: '' }
+  const headings: DocHeading[] = []
   const file = await unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(docTransform(meta, ctx) as UnifiedPlugin)
     .use(remarkRehype)
     .use(rehypeSlug)
+    .use(collectHeadings(headings) as UnifiedPlugin)
     .use(rehypeShiki, { themes: THEMES, defaultColor: false })
     .use(rehypeStringify)
     .process(source)
-  return { slug, title: meta.title, description: meta.description, html: String(file) }
+  return { slug, title: meta.title, description: meta.description, html: String(file), headings }
+}
+
+// HastNode is the part of a hast node collectHeadings reads.
+interface HastNode {
+  type: string
+  tagName?: string
+  properties?: { id?: unknown }
+  value?: string
+  children?: HastNode[]
+}
+
+// collectHeadings records each h2 and h3 with the id rehype-slug gave it, for the page's contents list.
+function collectHeadings(headings: DocHeading[]) {
+  return () => (tree: HastNode) => {
+    const visit = (node: HastNode) => {
+      if (node.type === 'element' && (node.tagName === 'h2' || node.tagName === 'h3') && typeof node.properties?.id === 'string') {
+        headings.push({ depth: node.tagName === 'h2' ? 2 : 3, id: node.properties.id, text: hastText(node) })
+        return
+      }
+      for (const child of node.children ?? []) visit(child)
+    }
+    visit(tree)
+  }
+}
+
+function hastText(node: HastNode): string {
+  if (node.type === 'text') return node.value ?? ''
+  return (node.children ?? []).map(hastText).join('')
 }
 
 // docTransform takes the first heading out as the page's title and its first paragraph as its description, and points the Markdown's links at the site's docs routes or at the files on GitHub.
