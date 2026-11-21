@@ -310,3 +310,29 @@ func verifyPath(t *testing.T, g ai.Grid, path []ai.Cell, start, goal ai.Cell, di
 		}
 	}
 }
+
+func TestAStarClampsSubUnitTerrainCosts(t *testing.T) {
+	// The distance heuristic assumes every step costs at least 1, so a cheaper
+	// cell is clamped rather than allowed to make the heuristic overestimate.
+	cm := ai.NewCostMap(3, 1)
+	cm.SetCost(1, 0, 0.25)
+	if got := cm.MoveCost(1, 0); got != 1 {
+		t.Fatalf("MoveCost of a 0.25 cost = %v, want the clamped 1", got)
+	}
+
+	f := ai.GridFunc{Cols: 3, Rows: 1, Cost: func(col, row int) float64 { return 0.5 }}
+	if got := f.MoveCost(1, 0); got != 1 {
+		t.Fatalf("GridFunc MoveCost of a 0.5 cost = %v, want the clamped 1", got)
+	}
+
+	path, cost, ok := ai.NewAStar().Find(cm, ai.Cell{Col: 0}, ai.Cell{Col: 2})
+	if !ok {
+		t.Fatal("expected a path")
+	}
+	if math.Abs(cost-2) > 1e-9 {
+		t.Fatalf("cost = %v, want 2 for a two-step path", cost)
+	}
+	if len(path) != 3 {
+		t.Fatalf("path = %v, want three cells", path)
+	}
+}

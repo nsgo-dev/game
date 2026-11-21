@@ -101,12 +101,14 @@ func (m *CostMap) Walkable(col, row int) bool {
 }
 
 // MoveCost returns the traversal cost of entering (col, row), or 1 if unset.
+// Costs below 1 are clamped to 1 so a cheaper cell cannot make the distance
+// heuristic overestimate and break A*'s optimality.
 func (m *CostMap) MoveCost(col, row int) float64 {
 	if col < 0 || col >= m.cols || row < 0 || row >= m.rows {
 		return 1
 	}
 	c := m.costs[row*m.cols+col]
-	if c <= 0 || math.IsInf(c, 0) || math.IsNaN(c) {
+	if c < 1 || math.IsInf(c, 0) || math.IsNaN(c) {
 		return 1
 	}
 	return c
@@ -125,7 +127,7 @@ func (m *CostMap) SetWalkable(col, row int, walkable bool) {
 	}
 }
 
-// SetCost sets the traversal cost for (col, row). Negative, infinite or NaN costs mark the cell unwalkable; 0 restores the default cost of 1.
+// SetCost sets the traversal cost for (col, row). Negative, infinite or NaN costs mark the cell unwalkable; 0 or a cost below 1 restores the default cost of 1, as the distance heuristic assumes every step costs at least 1.
 func (m *CostMap) SetCost(col, row int, cost float64) {
 	if col < 0 || col >= m.cols || row < 0 || row >= m.rows {
 		return
@@ -133,6 +135,9 @@ func (m *CostMap) SetCost(col, row int, cost float64) {
 	if cost < 0 || math.IsInf(cost, 0) || math.IsNaN(cost) {
 		m.costs[row*m.cols+col] = -1
 		return
+	}
+	if cost < 1 {
+		cost = 0
 	}
 	m.costs[row*m.cols+col] = cost
 }
@@ -160,13 +165,14 @@ func (f GridFunc) Walkable(col, row int) bool {
 	return f.Walk(col, row)
 }
 
-// MoveCost returns Cost(col, row) or 1 when Cost is nil or returns a non-positive value.
+// MoveCost returns Cost(col, row) or 1 when Cost is nil or returns a value
+// below 1: the distance heuristic assumes every step costs at least 1.
 func (f GridFunc) MoveCost(col, row int) float64 {
 	if f.Cost == nil {
 		return 1
 	}
 	c := f.Cost(col, row)
-	if c <= 0 || math.IsInf(c, 0) || math.IsNaN(c) {
+	if c < 1 || math.IsInf(c, 0) || math.IsNaN(c) {
 		return 1
 	}
 	return c
