@@ -30,6 +30,11 @@ func (w *Watcher) Generation() int {
 	return w.Version.Get()
 }
 
+// Dir returns "" in release builds.
+func (w *Watcher) Dir() string {
+	return ""
+}
+
 // Stop is a no-op in release builds.
 func (w *Watcher) Stop() {}
 
