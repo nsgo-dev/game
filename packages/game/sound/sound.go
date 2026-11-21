@@ -22,6 +22,8 @@ type Mixer struct {
 	// sounds are the effects whose playbacks may still play; music what Music made.
 	sounds map[*Effect]struct{}
 	music  []*Music
+	// effects are the bus DSP chains set per group.
+	effects map[string]EffectChain
 }
 
 // NewMixer returns a mixer that keeps its volumes in cx's storage under keys starting with key, such as "sound", and lives as long as cx.
@@ -189,6 +191,9 @@ type track struct {
 	level, from float32
 	// playing says the track was asked to play and not to pause since; done that it ended or failed, so it plays no more.
 	playing, done bool
+	// next is the armed loop track handed off to when an intro track ends, nil for a single track; preloaded says Preload was called on this track.
+	next      *track
+	preloaded bool
 }
 
 // Music returns music played through the mixer in group, which plays nothing until Play.
@@ -220,6 +225,7 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 		mu.stopFade = nil
 	}
 	if mu.current != nil {
+		mu.current.cancelNext()
 		mu.out = append(mu.out, mu.current)
 	}
 	mu.current = t
@@ -227,14 +233,15 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 		o.from = o.level
 	}
 	step := func(progress float64) {
-		if t != nil {
-			t.level = float32(progress)
+		if mu.current != nil {
+			mu.current.level = float32(progress)
 		}
 		for _, o := range mu.out {
 			o.level = o.from * float32(1-progress)
 		}
 		if progress >= 1 {
 			for _, o := range mu.out {
+				o.cancelNext()
 				o.p.Close()
 			}
 			mu.out = nil
@@ -277,5 +284,9 @@ func (t *track) apply(gain float32) {
 	if !t.playing {
 		t.p.Play(nil)
 		t.playing = true
+	}
+	if t.next != nil && !t.next.preloaded {
+		t.next.p.Preload()
+		t.next.preloaded = true
 	}
 }
