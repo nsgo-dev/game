@@ -2,3 +2,10 @@
 # The nsgo tool's caches and build output
 .nsgo/
 /examples/*/dist/
+
+# The website's dependencies and build output
+node_modules/
+/apps/website/dist/
+/apps/website/.output/
+/apps/website/.tanstack/
+/apps/website/src/routeTree.gen.ts
