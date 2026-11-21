@@ -2,7 +2,7 @@
 
 game is a game layer for [NSGo](https://nsgo.dev) apps, written in Go. A game draws into one NSGo view, a `Canvas`, a pixel buffer or a shader, and its HUD and menus stay ordinary native NSGo views on top. It uses only NSGo's public API (`core`, `audio`, and later `gamepad`), so an app that does not import it links none of it.
 
-> The project is early: the packages below work and are tested, but their APIs will change. A starter template and a getting-started guide come with [#38](https://github.com/nsgo-dev/game/issues/38).
+> The project is early: the packages below work and are tested, but their APIs will change. Start with [Getting Started](getting-started.md) to build and run a game.
 
 ## Stages
 
@@ -13,15 +13,15 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 
 ## Packages
 
-| Package | Import path | What it holds |
-| --- | --- | --- |
-| `game` | `github.com/nsgo-dev/game/packages/game` | `Loop`, the fixed-step loop every package shares |
-| `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | Atlases, frames, animations, sprites and batches drawn into a `Canvas` |
-| `sound` | `github.com/nsgo-dev/game/packages/game/sound` | The `Mixer`, its effects and music |
+| Package | Import path | Guide | What it holds |
+| --- | --- | --- | --- |
+| `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`, the fixed-step loop every package shares |
+| `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | Atlases, frames, animations, sprites and batches drawn into a `Canvas` |
+| `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | The `Mixer`, its effects and music |
 
 Planned: `input` for input actions ([#3](https://github.com/nsgo-dev/game/issues/3)), `tilemap` for tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)), `scene` for drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)), and a playable example game ([#8](https://github.com/nsgo-dev/game/issues/8)).
 
-Each package is described in [Packages](packages.md).
+For a single-page summary of every package's API, see [Packages](packages.md).
 
 ## Install
 
@@ -44,3 +44,5 @@ While the window is in the background, the loop runs no updates and the mixer pl
 ## Targets
 
 macOS, iOS, Windows, Linux, Android and the web. HarmonyOS, mini programs, watchOS and tvOS are outside the first stage.
+
+See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six targets.

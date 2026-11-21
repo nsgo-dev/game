@@ -1,0 +1,148 @@
+# sound
+
+`game/sound` layers a persistent volume `Mixer`, voice-limited sound `Effect`s, crossfading `Music`, and automatic background muting on top of NSGo's `audio` package.
+
+```go
+import (
+	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/nsgo/audio"
+)
+```
+
+All `Mixer`, `Effect` and `Music` methods run on the engine's goroutine, just like `audio`'s methods. From any other goroutine, dispatch through `cx.Post`. Ship audio files under `resources/` as **WAV**, **AAC (`.m4a`)** or **MP3**.
+
+## Mixer and persistent volumes
+
+A `Mixer` holds one master volume and a volume for every group name your game uses (for example `"effects"`, `"music"` and `"ui"`). Every volume is in `[0, 1]` and defaults to `1`.
+
+```go
+mixer := sound.NewMixer(cx, "sound")
+```
+
+`NewMixer(cx, key)` stores values in `cx.Storage()` (`core.Storage`) under:
+
+- `<key>.master`
+- `<key>.group.<group>`
+
+Volumes persist automatically across app launches. Passing values outside `[0, 1]` clamps them (and `NaN` resets to `1`). If storage is full, `SetMaster` and `SetVolume` return `*core.StorageFullError` and keep the previous volume.
+
+### Reactive settings UI
+
+`Master()` and `Volume(group)` read from `core.Storage`, so calling them inside a reactive view function subscribes that view to volume changes automatically:
+
+```go
+core.Text{
+	ContentFunc: func() string {
+		return fmt.Sprintf("Music: %.0f%%", mixer.Volume("music")*100)
+	},
+}
+```
+
+### How volume changes take effect
+
+- **Effects**: each playback uses `voice.Volume * mixer.Volume(group) * mixer.Master()`. Volume changes apply to effects started afterwards; a short sound already playing keeps its starting volume, except setting its group or master volume to `0` stops it immediately ([nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)).
+- **Music**: active tracks update live at `mixer.Volume(group) * mixer.Master()`, pausing when the effective gain reaches `0` and resuming from the same position when raised above `0`.
+
+## Effect and voice limits
+
+Short sounds (under 8 MiB encoded and 5 seconds decoded) are decoded into memory once with `audio.LoadSound`, then wrapped in a mixer `Effect`:
+
+```go
+var hit *sound.Effect
+audio.LoadSound(cx, audio.Source{URI: "asset:sounds/hit.wav"}, func(s *audio.Sound, err error) {
+	if err != nil {
+		return
+	}
+	hit = mixer.Effect(s, "effects", 4)
+})
+```
+
+The third argument (`limit`) caps how many overlapping playbacks of that sound may run at once (`0` means no per-effect cap, still bounded by the platform's 32 concurrent sound voices). This prevents rapid bursts — such as coins or footsteps — from starving every other sound.
+
+- `Play(v audio.Voice) bool` starts a playback and reports whether it played. It returns `false` when effective gain is `0`, the app is in the background, or `Limit` playbacks are still active (tracked by `s.Duration()` divided by `v.Rate`, where `Rate` is clamped to `[0.5, 2]` and `0` means `1`). It does not evict an older playing voice ([nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)).
+- `Stop()` stops every playback of that sound (and any other `*audio.Sound` sharing the same source).
+- Close the underlying `*audio.Sound` when you no longer need it, or let `cx`'s scope disposal free it.
+
+```go
+if hit != nil {
+	hit.Play(audio.Voice{Volume: 0.9, Rate: 1.05})
+}
+```
+
+## Music and crossfades
+
+`mixer.Music(group)` plays streaming tracks through `audio.Player`, one active track at a time, with smooth crossfades:
+
+```go
+music := mixer.Music("music")
+music.Loop = true
+music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
+```
+
+- `Loop`: when `true`, tracks started by subsequent `Play` calls loop at their end.
+- `Play(src, fade)`: fades the new track in over `fade` while fading all currently playing tracks out on display frames (`core.Scope.Animate`), closing faded-out players once they reach silence. When `fade <= 0`, it switches immediately. Starting another `Play` mid-crossfade smoothly fades out the incoming track from its current level.
+- `Stop(fade)`: fades active music out over `fade` and closes its players (`fade <= 0` stops immediately).
+
+On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAllowed`) until the user interacts with the page; start music from a button press or first tap/click.
+
+## Background muting
+
+`NewMixer` watches `cx.Env().Lifecycle()`:
+
+- When the app enters **`core.LifecycleBackground`** (minimized, hidden or covered on desktop; backgrounded on iOS or Android), the mixer stops playing effects, drops new `Effect.Play` calls, and pauses music.
+- When the window returns to **`core.LifecycleActive`** or **`core.LifecycleInactive`** (visible, even unfocused on desktop), music resumes from where it paused and effects can play again.
+
+## Testing with nsgotest
+
+Enable virtual audio in `nsgotest` with `nsgotest.Environment(core.Environment{Audio: true})` and configure decoded durations on `app.AudioDurations` to test voice limits, crossfades, persistence and background muting deterministically:
+
+```go
+package mygame_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/nsgo/audio"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+func TestMixerCrossfadeAndMute(t *testing.T) {
+	var mixer *sound.Mixer
+	var music *sound.Music
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mixer = sound.NewMixer(cx, "sound")
+		music = mixer.Music("music")
+		music.Loop = true
+		return core.View{}
+	},
+		nsgotest.Environment(core.Environment{Audio: true}),
+		func(a *nsgotest.App) {
+			a.AudioDurations = map[string]time.Duration{
+				"asset:a.m4a": time.Minute,
+				"asset:b.m4a": time.Minute,
+			}
+		},
+	)
+
+	mixer.SetVolume("music", 0.5)
+	music.Play(audio.Source{URI: "asset:a.m4a"}, 0)
+	music.Play(audio.Source{URI: "asset:b.m4a"}, time.Second)
+	app.Advance(1100 * time.Millisecond)
+
+	if !app.Players[0].Closed || !app.Players[1].Playing {
+		t.Fatalf("expected track A closed and track B playing")
+	}
+
+	app.SetEnvironment(core.Environment{Audio: true, Lifecycle: core.LifecycleBackground})
+	app.Settle()
+	if app.Players[1].Playing {
+		t.Fatal("expected music paused in background")
+	}
+}
+```
