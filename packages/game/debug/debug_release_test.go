@@ -3,6 +3,8 @@
 package debug_test
 
 import (
+	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -118,5 +120,88 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 
 	if n := len(app.Find("canvas").Ops); n != 0 {
 		t.Fatalf("canvas recorded %d ops in release build, want 0", n)
+	}
+
+	// Console release stubs.
+	c := debug.NewConsole()
+	vFloat := 1.5
+	vInt := 3
+	vBool := true
+	c.RegisterCommand("cmd", "help", func([]string) (string, error) {
+		t.Error("console command invoked in release build")
+		return "bad", nil
+	})
+	c.RegisterFloat("f", 0, 10, &vFloat)
+	c.RegisterInt("i", 0, 10, &vInt)
+	c.RegisterBool("b", &vBool)
+	if out, err := c.Exec("set f 9"); out != "" || err != nil || vFloat != 1.5 {
+		t.Fatalf("Console.Exec in release = (%q, %v), vFloat=%v", out, err, vFloat)
+	}
+	if len(c.History()) != 0 || c.HistoryPrev() != "" || c.HistoryNext() != "" || len(c.Entries()) != 0 || len(c.Complete("s")) != 0 {
+		t.Fatal("Console history/entries/complete returned data in release build")
+	}
+	if err := c.SaveTunables(app.Storage(), "k"); err != nil {
+		t.Fatalf("SaveTunables in release error = %v", err)
+	}
+	if err := c.LoadTunables(app.Storage(), "k"); err != nil {
+		t.Fatalf("LoadTunables in release error = %v", err)
+	}
+	_ = debug.ConsoleView(nil, c)
+
+	// Profiler release stubs.
+	p := debug.NewProfiler(300)
+	p.SetNow(time.Now)
+	p.SetTraceContext(context.Background())
+	p.StartRecording(10)
+	p.BeginFrame()
+	tok := p.Begin("physics")
+	p.End(tok)
+	p.Scope("render").End()
+	p.EndFrame()
+	p.StopRecording()
+	if p.Recording() || p.RecordedFrames() != 0 || len(p.TopScopes(5)) != 0 {
+		t.Fatal("Profiler recorded data in release build")
+	}
+	var traceBuf bytes.Buffer
+	if err := p.WriteChromeTrace(&traceBuf); err != nil || traceBuf.Len() != 0 {
+		t.Fatalf("WriteChromeTrace in release = (len=%d, err=%v), want (0, nil)", traceBuf.Len(), err)
+	}
+
+	// MemoryTracker release stubs + pure estimates.
+	mem := debug.NewMemoryTracker()
+	mem.SetBudget("lvl", 10)
+	mem.SetTotalBudget(10)
+	mem.Track("lvl", "a.png", debug.AssetImage, 1000)
+	if mem.GroupBytes("lvl") != 0 || mem.TotalBytes() != 0 || mem.TotalBudget() != 0 || len(mem.Groups()) != 0 {
+		t.Fatal("MemoryTracker recorded bytes in release build")
+	}
+	if err := mem.CheckBudget("lvl"); err != nil {
+		t.Fatalf("CheckBudget in release error = %v", err)
+	}
+	if err := mem.CheckAllBudgets(); err != nil {
+		t.Fatalf("CheckAllBudgets in release error = %v", err)
+	}
+	mem.Untrack("lvl", "a.png")
+	mem.ReleaseGroup("lvl")
+	if debug.EstimateImageBytes(4, 4) != 64 || debug.EstimatePCMBytes(10, 2, 2) != 40 {
+		t.Fatal("Estimate helpers returned wrong values in release build")
+	}
+
+	// GCMonitor and alloc helper release stubs.
+	gc := debug.NewGCMonitor(60)
+	if sample := gc.SampleFrame(16 * time.Millisecond); sample != (debug.GCFrameSample{}) {
+		t.Fatalf("GCMonitor.SampleFrame in release = %+v, want zero", sample)
+	}
+	if gc.TotalCycles() != 0 || gc.MaxPause() != 0 || gc.LastPause() != 0 || gc.RecentHitches() != 0 || gc.HeapObjectsBytes() != 0 || gc.Len() != 0 || gc.At(0) != (debug.GCFrameSample{}) || gc.Latest() != (debug.GCFrameSample{}) {
+		t.Fatal("GCMonitor returned non-zero metrics in release build")
+	}
+	if got := debug.MeasureAllocs(10, func() { _ = make([]byte, 64) }); got != 0 {
+		t.Fatalf("MeasureAllocs in release = %v, want 0", got)
+	}
+	debug.AssertZeroAllocs(t, 10, func() { _ = make([]byte, 64) })
+
+	// Overlay accessors in release build.
+	if dbg.Console() == nil || dbg.Profiler() == nil || dbg.Memory() == nil || dbg.GC() == nil {
+		t.Fatal("Overlay release accessors returned nil")
 	}
 }

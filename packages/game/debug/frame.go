@@ -20,6 +20,10 @@ type FrameStats struct {
 //
 // Negative durations are clamped to zero. When total is zero and update or draw is positive, total defaults to update+draw.
 func (s *FrameStats) Record(total, update, draw time.Duration) {
+	s.record(total, update, draw, false)
+}
+
+func (s *FrameStats) record(total, update, draw time.Duration, gcHitch bool) {
 	if s == nil {
 		return
 	}
@@ -35,7 +39,7 @@ func (s *FrameStats) Record(total, update, draw time.Duration) {
 	if total == 0 && update+draw > 0 {
 		total = update + draw
 	}
-	s.samples[s.head] = FrameSample{Total: total, Update: update, Draw: draw}
+	s.samples[s.head] = FrameSample{Total: total, Update: update, Draw: draw, GCHitch: gcHitch}
 	s.head = (s.head + 1) % FrameHistory
 	if s.count < FrameHistory {
 		s.count++
@@ -132,14 +136,15 @@ func (s *FrameStats) MaxTotal() time.Duration {
 }
 
 var (
-	graphBGColor    = core.RGBA(0x0F172A, 0.9)
-	graphIdleColor  = core.RGBA(0x94A3B8, 0.25)
-	graphUpdColor   = core.RGB(0x38BDF8)
-	graphDrawColor  = core.RGB(0xF59E0B)
-	graphOverColor  = core.RGB(0xEF4444)
-	graphRefColor   = core.RGBA(0x22C55E, 0.85)
-	graphLabelColor = core.RGBA(0x86EFAC, 0.95)
-	graphRefDash    = []float32{4, 3}
+	graphBGColor      = core.RGBA(0x0F172A, 0.9)
+	graphIdleColor    = core.RGBA(0x94A3B8, 0.25)
+	graphUpdColor     = core.RGB(0x38BDF8)
+	graphDrawColor    = core.RGB(0xF59E0B)
+	graphOverColor    = core.RGB(0xEF4444)
+	graphGCHitchColor = core.RGB(0xE879F9)
+	graphRefColor     = core.RGBA(0x22C55E, 0.85)
+	graphLabelColor   = core.RGBA(0x86EFAC, 0.95)
+	graphRefDash      = []float32{4, 3}
 )
 
 // DrawGraph records a stacked update+draw bar graph of the retained frame samples into d, filling size, with a reference line at targetFPS (60 when 0 or less).
@@ -192,6 +197,10 @@ func (s *FrameStats) DrawGraph(d *core.Drawing, size core.Size, targetFPS float6
 				col = graphOverColor
 			}
 			d.SetFillColor(col).FillRect(x, h-updH-drwH, drawW, drwH)
+		}
+		if sample.GCHitch {
+			markerH := min(float32(3), h)
+			d.SetFillColor(graphGCHitchColor).FillRect(x, 0, drawW, markerH)
 		}
 	}
 
