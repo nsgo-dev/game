@@ -1,0 +1,10 @@
+{
+  "max_total_bytes": 6291456,
+  "max_per_abi_bytes": 4194304,
+  "max_category_bytes": {
+    "native_libs": 4194304,
+    "dex": 1048576,
+    "manifest_meta": 524288
+  },
+  "note": "Android AAB size budget for ./cmd/wasmprobe (go tool nsgo build -target android -channel store). Baseline measured ~1.64 MiB archive (~1.40 MiB arm64-v8a native_libs compressed / ~4.00 MiB uncompressed, ~245 KiB dex); budget allows 6.00 MiB total and 4.00 MiB per ABI."
+}
