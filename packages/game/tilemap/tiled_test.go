@@ -349,8 +349,8 @@ func TestLoadTiledGroupLayerAndErrors(t *testing.T) {
 		name string
 		json string
 	}{
-		{"isometric", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"orientation":"isometric"}`},
-		{"infinite", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"infinite":true}`},
+		{"unknown orientation", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"orientation":"diagonal"}`},
+		{"bad chunk tile count", `{"width":0,"height":0,"tilewidth":16,"tileheight":16,"infinite":true,"layers":[{"name":"a","type":"tilelayer","chunks":[{"x":0,"y":0,"width":2,"height":2,"data":[1,2]}]}]}`},
 		{"zero tile size", `{"width":1,"height":1,"tilewidth":0,"tileheight":16}`},
 		{"missing LoadJSON", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"tilesets":[{"firstgid":1,"source":"ext.tsj"}]}`},
 		{"encoded layer", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[{"name":"a","type":"tilelayer","encoding":"base64","data":"AAAA"}]}`},

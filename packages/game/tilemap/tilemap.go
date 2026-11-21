@@ -321,12 +321,45 @@ type TileLayer struct {
 	Name       string
 	Width      int
 	Height     int
+	StartX     int
+	StartY     int
 	Data       []uint32
 	OffsetX    float32
 	OffsetY    float32
+	ParallaxX  float32
+	ParallaxY  float32
 	Opacity    float32
 	Visible    bool
 	Properties Properties
+}
+
+// ImageLayer is an image layer (such as a sky, parallax backdrop, or foreground overlay) drawn in map layer order.
+type ImageLayer struct {
+	Name       string
+	Image      core.ImageSource
+	Width      float32
+	Height     float32
+	OffsetX    float32
+	OffsetY    float32
+	ParallaxX  float32
+	ParallaxY  float32
+	RepeatX    bool
+	RepeatY    bool
+	Opacity    float32
+	Visible    bool
+	Properties Properties
+}
+
+type layerKind uint8
+
+const (
+	layerKindTile layerKind = iota
+	layerKindImage
+)
+
+type layerRef struct {
+	kind  layerKind
+	index int
 }
 
 // NewTileLayer returns a visible TileLayer at full opacity. When data is nil it allocates a width*height slice.
@@ -408,19 +441,27 @@ type cellKey struct {
 	col, row int
 }
 
-// Tilemap is an orthogonal grid of tiles, tilesets, object layers, custom properties and per-tile collision flags.
+// Tilemap is a tiled world of tile layers, image layers, tilesets, object layers, custom properties and per-tile collision flags.
 type Tilemap struct {
-	Width      int
-	Height     int
-	TileWidth  float32
-	TileHeight float32
-	Layers     []TileLayer
-	Tilesets   []*Tileset
-	Objects    []ObjectLayer
-	Properties Properties
+	Width         int
+	Height        int
+	TileWidth     float32
+	TileHeight    float32
+	Orientation   Orientation
+	StaggerAxis   StaggerAxis
+	StaggerIndex  StaggerIndex
+	HexSideLength float32
+	Infinite      bool
+	Layers        []TileLayer
+	ImageLayers   []ImageLayer
+	Tilesets      []*Tileset
+	Objects       []ObjectLayer
+	Properties    Properties
 
-	tileFlags map[uint32]TileFlags
-	cellFlags map[cellKey]TileFlags
+	tileFlags  map[uint32]TileFlags
+	cellFlags  map[cellKey]TileFlags
+	layerOrder []layerRef
+	caches     map[int]*LayerCache
 }
 
 // New constructs an empty Tilemap of width by height tiles sized tileWidth by tileHeight points.
@@ -434,8 +475,11 @@ func New(width, height int, tileWidth, tileHeight float32, tilesets ...*Tileset)
 	}
 }
 
-// WorldBounds returns the world rectangle covering the whole map, from (0, 0) to (Width*TileWidth, Height*TileHeight).
+// WorldBounds returns the world rectangle covering the whole map for its Orientation.
 func (m *Tilemap) WorldBounds() core.Bounds {
+	if m.Orientation != OrientationOrthogonal {
+		return m.projectedWorldBounds(m.Width, m.Height)
+	}
 	return core.Bounds{
 		Size: core.Size{
 			Width:  core.Points(float32(m.Width) * m.TileWidth),
@@ -454,6 +498,16 @@ func (m *Tilemap) Layer(name string) *TileLayer {
 	return nil
 }
 
+// ImageLayer returns the first image layer with the given name, or nil if none matches.
+func (m *Tilemap) ImageLayer(name string) *ImageLayer {
+	for i := range m.ImageLayers {
+		if m.ImageLayers[i].Name == name {
+			return &m.ImageLayers[i]
+		}
+	}
+	return nil
+}
+
 // ObjectLayer returns the first object layer with the given name, or nil if none matches.
 func (m *Tilemap) ObjectLayer(name string) *ObjectLayer {
 	for i := range m.Objects {
@@ -464,38 +518,16 @@ func (m *Tilemap) ObjectLayer(name string) *ObjectLayer {
 	return nil
 }
 
-// TileAt returns the raw GID (including flip flags) at (col, row) in layer index, or 0 if out of bounds.
-func (m *Tilemap) TileAt(layer, col, row int) uint32 {
-	if layer < 0 || layer >= len(m.Layers) {
-		return 0
-	}
-	l := &m.Layers[layer]
-	lw, lh := m.layerSize(l)
-	if col < 0 || row < 0 || col >= lw || row >= lh {
-		return 0
-	}
-	idx := row*lw + col
-	if idx >= len(l.Data) {
-		return 0
-	}
-	return l.Data[idx]
+func (m *Tilemap) addTileLayer(l TileLayer) {
+	idx := len(m.Layers)
+	m.Layers = append(m.Layers, l)
+	m.layerOrder = append(m.layerOrder, layerRef{kind: layerKindTile, index: idx})
 }
 
-// SetTile writes a raw GID at (col, row) in layer index; out-of-bounds calls are ignored.
-func (m *Tilemap) SetTile(layer, col, row int, gid uint32) {
-	if layer < 0 || layer >= len(m.Layers) {
-		return
-	}
-	l := &m.Layers[layer]
-	lw, lh := m.layerSize(l)
-	if col < 0 || row < 0 || col >= lw || row >= lh {
-		return
-	}
-	idx := row*lw + col
-	if idx >= len(l.Data) {
-		return
-	}
-	l.Data[idx] = gid
+func (m *Tilemap) addImageLayer(l ImageLayer) {
+	idx := len(m.ImageLayers)
+	m.ImageLayers = append(m.ImageLayers, l)
+	m.layerOrder = append(m.layerOrder, layerRef{kind: layerKindImage, index: idx})
 }
 
 // TilesetForGID finds the tileset owning gid and returns it along with the 0-based local tile ID.
@@ -551,22 +583,178 @@ func (m *Tilemap) Update(dt time.Duration) {
 	}
 }
 
-// Draw draws every visible tile layer into d in order, culling to cam's visible world region when cam is non-nil.
+// Draw draws every visible tile layer and image layer into d in map layer order, culling to cam's visible world region when cam is non-nil.
 //
 // Draw draws in world coordinates: call cam.Apply(d) before Draw (and any world-space sprites) to position the view.
 func (m *Tilemap) Draw(d *core.Drawing, cam *Camera) {
+	if len(m.layerOrder) == 0 {
+		for i := range m.ImageLayers {
+			m.DrawImageLayer(d, &m.ImageLayers[i], cam)
+		}
+		for i := range m.Layers {
+			m.DrawLayer(d, &m.Layers[i], cam)
+		}
+		return
+	}
+	var drawnTile []bool
+	var drawnImage []bool
+	if len(m.Layers) > 0 {
+		drawnTile = make([]bool, len(m.Layers))
+	}
+	if len(m.ImageLayers) > 0 {
+		drawnImage = make([]bool, len(m.ImageLayers))
+	}
+	for _, ref := range m.layerOrder {
+		switch ref.kind {
+		case layerKindTile:
+			if ref.index >= 0 && ref.index < len(m.Layers) && !drawnTile[ref.index] {
+				drawnTile[ref.index] = true
+				m.DrawLayer(d, &m.Layers[ref.index], cam)
+			}
+		case layerKindImage:
+			if ref.index >= 0 && ref.index < len(m.ImageLayers) && !drawnImage[ref.index] {
+				drawnImage[ref.index] = true
+				m.DrawImageLayer(d, &m.ImageLayers[ref.index], cam)
+			}
+		}
+	}
+	for i := range m.ImageLayers {
+		if !drawnImage[i] {
+			m.DrawImageLayer(d, &m.ImageLayers[i], cam)
+		}
+	}
 	for i := range m.Layers {
-		m.DrawLayer(d, &m.Layers[i], cam)
+		if !drawnTile[i] {
+			m.DrawLayer(d, &m.Layers[i], cam)
+		}
 	}
 }
 
-// DrawLayer draws one tile layer into d, visiting only the tile columns and rows overlapping cam.VisibleBounds() when cam is non-nil.
+func effectiveLayerOffset(ox, oy, px, py float32, cam *Camera) (float32, float32) {
+	if cam == nil {
+		return ox, oy
+	}
+	cx := cam.X + cam.shakeX
+	cy := cam.Y + cam.shakeY
+	if px != 0 && px != 1 {
+		ox += cx * (1 - px)
+	}
+	if py != 0 && py != 1 {
+		oy += cy * (1 - py)
+	}
+	return ox, oy
+}
+
+// DrawImageLayer draws one image layer into d, applying its visibility, opacity, offset, parallax factor, and repeat flags.
+func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera) {
+	if layer == nil || !layer.Visible || layer.Opacity <= 0 {
+		return
+	}
+	if layer.Image.URI == "" && len(layer.Image.Data) == 0 && layer.Image.Pixels == nil {
+		return
+	}
+	ox, oy := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+
+	w := layer.Width
+	if w <= 0 {
+		w = float32(layer.Image.Size.Width)
+	}
+	if w <= 0 && layer.Image.Pixels != nil {
+		w = float32(layer.Image.Pixels.Bounds().Dx())
+	}
+	h := layer.Height
+	if h <= 0 {
+		h = float32(layer.Image.Size.Height)
+	}
+	if h <= 0 && layer.Image.Pixels != nil {
+		h = float32(layer.Image.Pixels.Bounds().Dy())
+	}
+
+	drawOne := func(x, y float32) {
+		if w > 0 && h > 0 {
+			d.DrawImageIn(layer.Image, x, y, w, h)
+		} else {
+			d.DrawImage(layer.Image, x, y)
+		}
+	}
+
+	saved := false
+	if layer.Opacity < 1 {
+		d.Save().SetAlpha(layer.Opacity)
+		saved = true
+	}
+
+	if (layer.RepeatX && w > 0) || (layer.RepeatY && h > 0) {
+		var bounds core.Bounds
+		if cam != nil {
+			bounds = cam.VisibleBounds()
+		} else {
+			bounds = m.WorldBounds()
+		}
+		minCol, maxCol := 0, 0
+		if layer.RepeatX && w > 0 && bounds.Size.Width > 0 {
+			minX := float64(bounds.Origin.X)
+			maxX := minX + float64(bounds.Size.Width)
+			minCol = int(math.Floor((minX - float64(ox)) / float64(w)))
+			maxCol = int(math.Ceil((maxX-float64(ox))/float64(w))) - 1
+		}
+		minRow, maxRow := 0, 0
+		if layer.RepeatY && h > 0 && bounds.Size.Height > 0 {
+			minY := float64(bounds.Origin.Y)
+			maxY := minY + float64(bounds.Size.Height)
+			minRow = int(math.Floor((minY - float64(oy)) / float64(h)))
+			maxRow = int(math.Ceil((maxY-float64(oy))/float64(h))) - 1
+		}
+		for row := minRow; row <= maxRow; row++ {
+			for col := minCol; col <= maxCol; col++ {
+				drawOne(ox+float32(col)*w, oy+float32(row)*h)
+			}
+		}
+	} else {
+		drawOne(ox, oy)
+	}
+
+	if saved {
+		d.Restore()
+	}
+}
+
+func (m *Tilemap) maxExtraTileSize() (extraW, extraH float64) {
+	for _, ts := range m.Tilesets {
+		if ts == nil {
+			continue
+		}
+		if ew := float64(ts.TileWidth - m.TileWidth); ew > extraW {
+			extraW = ew
+		}
+		if eh := float64(ts.TileHeight - m.TileHeight); eh > extraH {
+			extraH = eh
+		}
+	}
+	return extraW, extraH
+}
+
+// DrawLayer draws one tile layer into d, visiting only the visible tiles overlapping cam.VisibleBounds() when cam is non-nil.
+//
+// When the layer has a clean static cache created via CacheStaticLayer, DrawLayer draws it in a single DrawImageFrom operation.
 func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 	if layer == nil || !layer.Visible || layer.Opacity <= 0 {
 		return
 	}
 	lw, lh := m.layerSize(layer)
 	if lw <= 0 || lh <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 || len(layer.Data) == 0 {
+		return
+	}
+
+	offX, offY := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+
+	if cache := m.layerCacheFor(layer); cache != nil && !cache.Dirty && cache.Pixels != nil {
+		m.drawCachedLayer(d, layer, cache, cam, offX, offY)
+		return
+	}
+
+	if m.Orientation != OrientationOrthogonal {
+		m.drawProjectedLayer(d, layer, cam, offX, offY)
 		return
 	}
 
@@ -577,22 +765,11 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
 			return
 		}
-		extraW, extraH := float64(0), float64(0)
-		for _, ts := range m.Tilesets {
-			if ts == nil {
-				continue
-			}
-			if ew := float64(ts.TileWidth - m.TileWidth); ew > extraW {
-				extraW = ew
-			}
-			if eh := float64(ts.TileHeight - m.TileHeight); eh > extraH {
-				extraH = eh
-			}
-		}
+		extraW, extraH := m.maxExtraTileSize()
 		tw, th := float64(m.TileWidth), float64(m.TileHeight)
-		minX := float64(vb.Origin.X) - float64(layer.OffsetX)
+		minX := float64(vb.Origin.X) - float64(offX)
 		maxX := minX + float64(vb.Size.Width)
-		minY := float64(vb.Origin.Y) - float64(layer.OffsetY)
+		minY := float64(vb.Origin.Y) - float64(offY)
 		maxY := minY + float64(vb.Size.Height)
 
 		minCol = max(0, int(math.Floor((minX-extraW)/tw)))
@@ -628,8 +805,8 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 				d.Save().SetAlpha(layer.Opacity)
 				savedLayer = true
 			}
-			dstX := layer.OffsetX + float32(col)*m.TileWidth
-			dstY := layer.OffsetY + float32(row+1)*m.TileHeight - th
+			dstX := offX + float32(col)*m.TileWidth
+			dstY := offY + float32(row+1)*m.TileHeight - th
 			flags := gid & FlipMask
 			if flags == 0 {
 				d.DrawImageFrom(img, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
