@@ -20,6 +20,8 @@ type Atlas struct {
 	Frames map[string]Frame
 	// Animations are the atlas's animations by name: an Aseprite export's frame tags. Copy one to play it.
 	Animations map[string]Animation
+	// Slices are the atlas's nine-slice insets by name: an Aseprite export's nine-slice entries in meta.slices.
+	Slices map[string]Insets
 }
 
 // Frame is one picture in an atlas: a part of its image, which a packer may have trimmed of the transparent border the picture had.
@@ -38,7 +40,7 @@ type Frame struct {
 
 // LoadAtlas reads the JSON atlas data that TexturePacker ("JSON (Hash)" and "JSON (Array)") or Aseprite (json-hash and json-array) exports for img, the image it packed.
 //
-// Its rectangles are in the image's pixels, which it divides by the export's meta.scale, so img measures its points as a 1x image does. TexturePacker's per-frame pivot becomes the frame's PivotX and PivotY, in points of the untrimmed picture. Aseprite's frame tags become Animations, each frame for the duration the export gives it, in the tag's direction, looping unless the tag has a repeat count. Frames a packer rotated are refused: export with rotation off.
+// Its rectangles are in the image's pixels, which it divides by the export's meta.scale, so img measures its points as a 1x image does. TexturePacker's per-frame pivot becomes the frame's PivotX and PivotY, in points of the untrimmed picture. Aseprite's frame tags become Animations, each frame for the duration the export gives it, in the tag's direction, looping unless the tag has a repeat count; nine-slice entries in meta.slices become Slices. Frames a packer rotated are refused: export with rotation off.
 func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	var file struct {
 		Frames json.RawMessage `json:"frames"`
@@ -51,6 +53,14 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 				Direction string          `json:"direction"`
 				Repeat    json.RawMessage `json:"repeat"`
 			} `json:"frameTags"`
+			Slices []struct {
+				Name string `json:"name"`
+				Keys []struct {
+					Frame  int   `json:"frame"`
+					Bounds rect  `json:"bounds"`
+					Center *rect `json:"center"`
+				} `json:"keys"`
+			} `json:"slices"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
@@ -119,6 +129,25 @@ func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 			anim.Frames[i] = AnimationFrame{Frame: ordered[n], Duration: time.Duration(frames[n].Duration) * time.Millisecond}
 		}
 		a.Animations[tag.Name] = anim
+	}
+
+	for _, sl := range file.Meta.Slices {
+		if len(sl.Keys) == 0 || sl.Keys[0].Center == nil {
+			continue
+		}
+		b, c := sl.Keys[0].Bounds, sl.Keys[0].Center
+		if c.X < 0 || c.Y < 0 || c.W < 0 || c.H < 0 || c.X+c.W > b.W || c.Y+c.H > b.H {
+			return nil, fmt.Errorf("sprite: atlas: slice %q center falls outside its bounds", sl.Name)
+		}
+		if a.Slices == nil {
+			a.Slices = make(map[string]Insets)
+		}
+		a.Slices[sl.Name] = Insets{
+			Left:   c.X / scale,
+			Top:    c.Y / scale,
+			Right:  (b.W - c.X - c.W) / scale,
+			Bottom: (b.H - c.Y - c.H) / scale,
+		}
 	}
 	return a, nil
 }

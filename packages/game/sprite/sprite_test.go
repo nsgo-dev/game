@@ -143,3 +143,129 @@ func TestNewSpriteUsesTheFramesPivotAsItsOrigin(t *testing.T) {
 	})
 	sameOps(t, app.Find("batch").Ops, app.Find("hand").Ops)
 }
+
+func TestSpriteBlendModesRecordCompositeAndRestore(t *testing.T) {
+	img := sheet.Image
+	normal := sprite.NewSprite(sheet.Frames["hero"])
+	normal.X, normal.Y = 0, 0
+
+	additive := sprite.NewSprite(sheet.Frames["hero"])
+	additive.X, additive.Y = 20, 0
+	additive.Blend = core.CompositeLighter
+
+	multiplyFaded := sprite.NewSprite(sheet.Frames["coin"])
+	multiplyFaded.X, multiplyFaded.Y = 40, 0
+	multiplyFaded.Blend = core.CompositeMultiply
+	multiplyFaded.Alpha = 0.5
+
+	screenAfter := sprite.NewSprite(sheet.Frames["hero"])
+	screenAfter.X, screenAfter.Y = 60, 0
+	screenAfter.Blend = core.CompositeScreen
+
+	trailing := sprite.NewSprite(sheet.Frames["hero"])
+	trailing.X, trailing.Y = 80, 0
+
+	batch := &sprite.Batch{
+		Atlas:   sheet,
+		Sprites: []*sprite.Sprite{&normal, &additive, &multiplyFaded, &screenAfter, &trailing},
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(200), Height: core.Pt(60)}, Draw: func(d *core.Drawing, _ core.Size) {
+				batch.Draw(d)
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(200), Height: core.Pt(60)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// Default CompositeSourceOver records no Save/SetComposite/Restore.
+				d.DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16)
+				// Additive blend.
+				d.Save().SetComposite(core.CompositeLighter).DrawImageFrom(img, 0, 0, 16, 16, 20, 0, 16, 16).Restore()
+				// Multiply blend + alpha share one Save/Restore.
+				d.Save().SetComposite(core.CompositeMultiply).SetAlpha(0.5).DrawImageFrom(img, 16, 0, 8, 10, 44, 3, 8, 10).Restore()
+				// Screen blend.
+				d.Save().SetComposite(core.CompositeScreen).DrawImageFrom(img, 0, 0, 16, 16, 60, 0, 16, 16).Restore()
+				// Subsequent normal sprite draws without Save/Restore.
+				d.DrawImageFrom(img, 0, 0, 16, 16, 80, 0, 16, 16)
+			}},
+		}}
+	})
+	sameOps(t, app.Find("batch").Ops, app.Find("hand").Ops)
+}
+
+func TestMasksClipRectCircleEllipseAndPolygonAndRestore(t *testing.T) {
+	img := sheet.Image
+	polyPts := []core.Point{{X: 10, Y: 10}, {X: 50, Y: 10}, {X: 30, Y: 40}}
+	polyMask := sprite.PolygonMask(polyPts)
+	// Mutating the caller's slice must not alter the mask.
+	polyPts[0] = core.Point{X: 999, Y: 999}
+
+	rectMask := sprite.RectMask(core.Bounds{Origin: core.Point{X: 4, Y: 6}, Size: core.Size{Width: 20, Height: 12}})
+	circleMask := sprite.CircleMask(32, 32, 16)
+	ellipseMask := sprite.EllipseMask(50, 50, 20, 10)
+
+	rectSprite := sprite.NewSprite(sheet.Frames["hero"])
+	rectSprite.X, rectSprite.Y = 4, 6
+	rectSprite.Mask = &rectMask
+
+	circleSprite := sprite.NewSprite(sheet.Frames["hero"])
+	circleSprite.X, circleSprite.Y = 24, 24
+	circleSprite.Mask = &circleMask
+
+	emptyCircle := sprite.CircleMask(10, 10, 0)
+	hiddenSprite := sprite.NewSprite(sheet.Frames["hero"])
+	hiddenSprite.Mask = &emptyCircle
+
+	unmaskedAfter := sprite.NewSprite(sheet.Frames["hero"])
+	unmaskedAfter.X, unmaskedAfter.Y = 80, 10
+
+	spriteBatch := &sprite.Batch{
+		Atlas:   sheet,
+		Sprites: []*sprite.Sprite{&rectSprite, &circleSprite, &hiddenSprite, &unmaskedAfter},
+	}
+
+	batchMaskedSprite := sprite.NewSprite(sheet.Frames["hero"])
+	batchMaskedSprite.X, batchMaskedSprite.Y = 12, 12
+	maskedBatch := &sprite.Batch{
+		Atlas:   sheet,
+		Mask:    &polyMask,
+		Sprites: []*sprite.Sprite{&batchMaskedSprite},
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "masked", Style: core.Style{Width: core.Pt(120), Height: core.Pt(120)}, Draw: func(d *core.Drawing, _ core.Size) {
+				spriteBatch.Draw(d)
+				maskedBatch.Draw(d)
+				sprite.DrawMasked(d, ellipseMask, func(d *core.Drawing) {
+					d.DrawImageFrom(img, 0, 0, 16, 16, 42, 42, 16, 16)
+				})
+				// Zero mask runs draw directly without Save/Clip/Restore.
+				sprite.DrawMasked(d, sprite.Mask{}, func(d *core.Drawing) {
+					d.DrawImageFrom(img, 0, 0, 16, 16, 0, 80, 16, 16)
+				})
+				// Degenerate masks skip draw completely.
+				sprite.DrawMasked(d, sprite.RectMask(core.Bounds{Size: core.Size{Width: 0, Height: 10}}), func(d *core.Drawing) {
+					d.DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16)
+				})
+				sprite.DrawMasked(d, sprite.PolygonMask([]core.Point{{X: 0, Y: 0}, {X: 10, Y: 10}}), func(d *core.Drawing) {
+					d.DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16)
+				})
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(120), Height: core.Pt(120)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// Rectangular sprite mask.
+				d.Save().BeginPath().Rect(4, 6, 20, 12).Clip().BeginPath().DrawImageFrom(img, 0, 0, 16, 16, 4, 6, 16, 16).Restore()
+				// Circular sprite mask.
+				d.Save().BeginPath().Arc(32, 32, 16, 0, 2*math.Pi, false).Clip().BeginPath().DrawImageFrom(img, 0, 0, 16, 16, 24, 24, 16, 16).Restore()
+				// Unmasked sprite after clipped sprites draws normally.
+				d.DrawImageFrom(img, 0, 0, 16, 16, 80, 10, 16, 16)
+				// Polygonal batch mask.
+				d.Save().BeginPath().MoveTo(10, 10).LineTo(50, 10).LineTo(30, 40).ClosePath().Clip().BeginPath().DrawImageFrom(img, 0, 0, 16, 16, 12, 12, 16, 16).Restore()
+				// Elliptical DrawMasked.
+				d.Save().BeginPath().Ellipse(50, 50, 20, 10).Clip().BeginPath().DrawImageFrom(img, 0, 0, 16, 16, 42, 42, 16, 16).Restore()
+				// Zero Mask draws without Save/Clip/Restore.
+				d.DrawImageFrom(img, 0, 0, 16, 16, 0, 80, 16, 16)
+			}},
+		}}
+	})
+	sameOps(t, app.Find("masked").Ops, app.Find("hand").Ops)
+}

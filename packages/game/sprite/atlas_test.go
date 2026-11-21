@@ -116,6 +116,7 @@ func TestLoadAtlasRefusesWhatItCannotDraw(t *testing.T) {
 		{"unknown direction", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0, "direction": "sideways"}]}}`, "unknown direction"},
 		{"bad scale", `{"frames": {"a": {` + frame + `}}, "meta": {"scale": "0"}}`, "meta.scale"},
 		{"tag frame without a duration", `{"frames": {"a": {"frame": {"x":0,"y":0,"w":8,"h":8}}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0}]}}`, "no duration"},
+		{"slice center outside bounds", `{"frames": {"a": {` + frame + `}}, "meta": {"slices": [{"name": "bad", "keys": [{"frame": 0, "bounds": {"x":0,"y":0,"w":8,"h":8}, "center": {"x":2,"y":2,"w":8,"h":4}}]}]}}`, "outside its bounds"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := sprite.LoadAtlas(heroImage, []byte(tc.json))
@@ -123,5 +124,36 @@ func TestLoadAtlasRefusesWhatItCannotDraw(t *testing.T) {
 				t.Fatalf("error %v, want one saying %q", err, tc.err)
 			}
 		})
+	}
+}
+
+func TestLoadAtlasReadsAsepriteNineSlices(t *testing.T) {
+	data := `{
+		"frames": {
+			"panel.png": {"frame": {"x":0,"y":0,"w":64,"h":48}, "sourceSize": {"w":64,"h":48}, "duration": 100}
+		},
+		"meta": {
+			"scale": "2",
+			"slices": [
+				{
+					"name": "panel",
+					"keys": [{"frame": 0, "bounds": {"x":0,"y":0,"w":64,"h":48}, "center": {"x":12,"y":8,"w":36,"h":30}}]
+				},
+				{
+					"name": "hitbox",
+					"keys": [{"frame": 0, "bounds": {"x":4,"y":4,"w":20,"h":20}}]
+				}
+			]
+		}
+	}`
+	a, err := sprite.LoadAtlas(heroImage, []byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]sprite.Insets{
+		"panel": {Left: 6, Top: 4, Right: 8, Bottom: 5},
+	}
+	if !reflect.DeepEqual(a.Slices, want) {
+		t.Fatalf("slices %+v, want %+v", a.Slices, want)
 	}
 }
