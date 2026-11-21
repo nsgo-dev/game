@@ -291,6 +291,7 @@ func (s *LockstepSession) Step() bool {
 	s.sim.Step(ordered)
 	delete(s.inputs, executedTick)
 	s.tick++
+	s.pruneChecksums(executedTick)
 
 	if s.checksumInterval > 0 && (executedTick+1)%s.checksumInterval == 0 {
 		sum := s.sim.Checksum()
@@ -307,8 +308,16 @@ func (s *LockstepSession) Step() bool {
 	return true
 }
 
+// maxLockstepLeadTicks bounds how far ahead of the current tick an input may be
+// recorded, so a peer cannot grow the input map without bound.
+const maxLockstepLeadTicks = 256
+
+// lockstepChecksumHistory is how many ticks of checksums a lockstep session keeps
+// for desync reports.
+const lockstepChecksumHistory = 256
+
 func (s *LockstepSession) recordInput(in InputFrame) {
-	if in.Tick < s.tick {
+	if in.Tick < s.tick || in.Tick > s.tick+maxLockstepLeadTicks {
 		return
 	}
 	m := s.inputs[in.Tick]
@@ -317,6 +326,30 @@ func (s *LockstepSession) recordInput(in InputFrame) {
 		s.inputs[in.Tick] = m
 	}
 	m[in.Peer] = in
+}
+
+// pruneChecksums drops checksum and desync history older than the retention
+// window so a long session does not accumulate it forever.
+func (s *LockstepSession) pruneChecksums(executedTick uint32) {
+	if executedTick < lockstepChecksumHistory {
+		return
+	}
+	floor := executedTick - lockstepChecksumHistory
+	for t := range s.localChecksums {
+		if t < floor {
+			delete(s.localChecksums, t)
+		}
+	}
+	for t := range s.remoteChecksums {
+		if t < floor {
+			delete(s.remoteChecksums, t)
+		}
+	}
+	for k := range s.reportedDesync {
+		if k.tick < floor {
+			delete(s.reportedDesync, k)
+		}
+	}
 }
 
 func (s *LockstepSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
