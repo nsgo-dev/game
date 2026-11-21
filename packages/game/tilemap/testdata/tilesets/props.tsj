@@ -1,0 +1,28 @@
+{
+  "name": "props",
+  "image": "props.png",
+  "tilewidth": 16,
+  "tileheight": 16,
+  "columns": 2,
+  "tilecount": 4,
+  "properties": [
+    {"name": "theme", "type": "string", "value": "dungeon"}
+  ],
+  "tiles": [
+    {
+      "id": 0,
+      "properties": [
+        {"name": "loot", "type": "string", "value": "gold"},
+        {"name": "value", "type": "int", "value": 100},
+        {"name": "tint", "type": "color", "value": "#00ccff"}
+      ]
+    },
+    {
+      "id": 1,
+      "properties": [
+        {"name": "flags", "type": "int", "value": 4},
+        {"name": "breakable", "type": "bool", "value": true}
+      ]
+    }
+  ]
+}
