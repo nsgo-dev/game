@@ -4,6 +4,7 @@ package net_test
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 	"time"
 
@@ -173,5 +174,18 @@ func TestUDPTransportRoundTrip(t *testing.T) {
 	pkt2 := waitPacket(t, u1, 2*time.Second)
 	if pkt2.From != 2 || !bytes.Equal(pkt2.Payload, reply) {
 		t.Fatalf("unexpected UDP reply: %+v", pkt2)
+	}
+}
+
+func TestUDPRefusesTheReliableChannel(t *testing.T) {
+	// UDP cannot retransmit or reorder, so it must refuse the reliable channel
+	// rather than let lockstep and rollback lose inputs silently.
+	u, err := gamenet.ListenUDP("127.0.0.1:0", 1)
+	if err != nil {
+		t.Fatalf("ListenUDP: %v", err)
+	}
+	defer func() { _ = u.Close() }()
+	if err := u.Send(2, gamenet.ChannelReliableOrdered, []byte("input")); !errors.Is(err, gamenet.ErrUnsupportedChannel) {
+		t.Fatalf("reliable send over UDP = %v, want ErrUnsupportedChannel", err)
 	}
 }

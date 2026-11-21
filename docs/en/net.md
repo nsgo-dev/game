@@ -13,7 +13,7 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 | Transport | Constructor | Targets & use case |
 | --- | --- | --- |
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. |
-| `UDPTransport` | `ListenUDP` + `AddPeer` | Native targets (desktop/mobile) for low-latency datagrams. |
+| `UDPTransport` | `ListenUDP` + `AddPeer` | Native targets (desktop/mobile) for low-latency datagrams. It has no retransmission or ordering, so it refuses `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport. |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
 ```go
