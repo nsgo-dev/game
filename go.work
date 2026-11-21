@@ -4,5 +4,6 @@ use (
 	./packages/game
 	./template
 	./examples/starburst
+	./examples/slidegem
 )
 
