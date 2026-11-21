@@ -475,6 +475,35 @@ func (m *Manager) Reload(id string) error {
 			return mod.err
 		}
 		mod.manifest = manifest
+		// Re-apply the checks DiscoverFS made, so a mod updated on disk cannot
+		// load against an incompatible game version or unsatisfiable dependencies.
+		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
+			ok, err := CheckConstraint(m.opts.GameVersion, manifest.GameVersion)
+			if err != nil {
+				mod.state = StateFailed
+				mod.err = fmt.Errorf("modding: reload mod %q gameVersion: %w", id, err)
+				return mod.err
+			}
+			if !ok {
+				mod.state = StateFailed
+				mod.err = fmt.Errorf("%w: reloaded mod %q requires game version %s, host is %s",
+					ErrVersionMismatch, id, manifest.GameVersion, m.opts.GameVersion)
+				return mod.err
+			}
+		}
+		manifests := make([]ModManifest, 0, len(m.mods))
+		for otherID, other := range m.mods {
+			if otherID == id || other.manifest.ID == "" {
+				continue
+			}
+			manifests = append(manifests, other.manifest)
+		}
+		manifests = append(manifests, manifest)
+		if _, err := ResolveOrder(manifests); err != nil {
+			mod.state = StateFailed
+			mod.err = err
+			return mod.err
+		}
 	}
 	mod.state = StateDiscovered
 	mod.err = nil
@@ -716,19 +745,25 @@ func (m *Manager) Close() {
 		return
 	}
 	m.closed = true
-	m.unloadAll()
-}
-
-func (m *Manager) unloadAll() {
-	for i := len(m.order) - 1; i >= 0; i-- {
-		if mod := m.mods[m.order[i]]; mod != nil {
-			m.unloadMod(mod)
-		}
+	if m.unloadAll() {
+		// Disposing the mods' scopes removed any panels they contributed; tell
+		// the host so it stops rendering nodes from disposed scopes.
+		m.bumpPanels()
 	}
 }
 
-func (m *Manager) unloadMod(mod *managedMod) {
-	var hadPanels bool
+func (m *Manager) unloadAll() (hadPanels bool) {
+	for i := len(m.order) - 1; i >= 0; i-- {
+		if mod := m.mods[m.order[i]]; mod != nil {
+			if m.unloadMod(mod) {
+				hadPanels = true
+			}
+		}
+	}
+	return hadPanels
+}
+
+func (m *Manager) unloadMod(mod *managedMod) (hadPanels bool) {
 	if mod.api != nil {
 		mod.logs = slices.Clone(mod.api.logs)
 		hadPanels = mod.api.cleanup()
@@ -742,9 +777,10 @@ func (m *Manager) unloadMod(mod *managedMod) {
 		mod.scope.Dispose()
 		mod.scope = nil
 	}
-	if hadPanels && !m.closed {
+	if hadPanels {
 		m.notifyPanelsChanged()
 	}
+	return hadPanels
 }
 
 func (m *Manager) runMod(mod *managedMod, fn func()) (ok bool) {
@@ -809,6 +845,12 @@ func (m *Manager) notifyPanelsChanged() {
 	if m.closed {
 		return
 	}
+	m.bumpPanels()
+}
+
+// bumpPanels advances the panel version and tells the host even while the
+// manager is closing, because the last change is the panels going away.
+func (m *Manager) bumpPanels() {
 	m.panelSeq++
 	m.panelVersion.Set(m.panelSeq)
 	if m.opts.Bridge.OnPanelsChange != nil {
@@ -906,7 +948,10 @@ func (m *Manager) modStorageKey(modID, key string) string {
 	if prefix == "" {
 		prefix = "modding"
 	}
-	return prefix + ".mod." + modID + "." + key
+	// Escape the mod ID's own dots (and any escape marker) so "a" + "b.c" and
+	// "a.b" + "c" cannot collide on the same storage key.
+	escapedID := strings.ReplaceAll(strings.ReplaceAll(modID, "%", "%25"), ".", "%2E")
+	return prefix + ".mod." + escapedID + "." + key
 }
 
 func (m *Manager) modStorageGet(modID, key string) (string, bool) {
