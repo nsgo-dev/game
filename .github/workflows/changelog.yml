@@ -20,7 +20,7 @@ permissions:
 jobs:
   changelog:
     name: Check CHANGELOG.md
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Skip when labeled skip-changelog

@@ -17,3 +17,4 @@ As in Godot, whose scenes and resources are text files, and unlike engines that 
 - Each task in its own Git worktree and branch, never the main checkout; conventional commits; a PR per issue.
 - Vet and test from `packages/game` with `go tool nsgo check` and `go tool nsgo test`, never `go vet` or `go test` directly.
 - Keep `docs/en` and `docs/zh` equivalent, and update them with the code.
+- Run every CI job on Depot's runners (`depot-ubuntu-24.04`, `depot-ubuntu-24.04-4`, `depot-macos-15`), declared in `.github/actionlint.yaml`; `check.yml` fails a workflow that uses a GitHub-hosted label.

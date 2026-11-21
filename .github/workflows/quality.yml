@@ -19,7 +19,7 @@ permissions:
 jobs:
   golden:
     name: Golden rendering tests
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 15
     steps:
       - name: Check out
@@ -38,7 +38,7 @@ jobs:
 
   benchmarks:
     name: Performance baselines
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 15
     steps:
       - name: Check out
@@ -60,7 +60,7 @@ jobs:
 
   web-size-budget:
     name: WebAssembly size budget
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 15
     steps:
       - name: Check out
@@ -81,7 +81,7 @@ jobs:
 
   android-size-budget:
     name: Android AAB size budget
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -109,7 +109,7 @@ jobs:
 
   ios-size-budget:
     name: iOS IPA size budget
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 20
     steps:
       - name: Check out
@@ -137,7 +137,7 @@ jobs:
 
   fuzz:
     name: Fuzz file loaders
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 15
     steps:
       - name: Check out

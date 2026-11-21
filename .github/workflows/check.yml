@@ -39,6 +39,14 @@ jobs:
             printf '%s\n' "$unformatted"
             exit 1
           fi
+      - name: Run every job on Depot's runners
+        run: |
+          # Every job runs on Depot (AGENTS.md); a GitHub-hosted label slipping in fails here.
+          bad=$(grep -nE '^\s*(runs-on:|-)\s*(ubuntu|macos|windows)-' .github/workflows/*.yml || true)
+          if [ -n "$bad" ]; then
+            printf '%s\n' "$bad"
+            exit 1
+          fi
       - name: Build and vet every target but iOS
         working-directory: packages/game
         run: go tool nsgo check -target macos,windows,linux,android,web
