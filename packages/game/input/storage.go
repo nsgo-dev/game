@@ -1,0 +1,229 @@
+package input
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/nsgo-dev/nsgo/core"
+)
+
+const storageVersion = 1
+
+type savedBindings struct {
+	Version int                     `json:"version"`
+	Actions map[string][]savedInput `json:"actions,omitempty"`
+	Axes    map[string]savedAxis    `json:"axes,omitempty"`
+}
+
+type savedInput struct {
+	Kind   string       `json:"kind"`
+	Bounds *savedBounds `json:"bounds,omitempty"`
+	Button string       `json:"button,omitempty"`
+}
+
+type savedBounds struct {
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
+	W float32 `json:"w"`
+	H float32 `json:"h"`
+}
+
+type savedAxis struct {
+	Negative string `json:"negative,omitempty"`
+	Positive string `json:"positive,omitempty"`
+}
+
+// Save writes all of a's action and axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
+func (a *Actions) Save(store core.Storage, key string) error {
+	doc := savedBindings{Version: storageVersion}
+	if len(a.bindings) > 0 {
+		doc.Actions = make(map[string][]savedInput, len(a.bindings))
+		for name, list := range a.bindings {
+			out := make([]savedInput, len(list))
+			for i, in := range list {
+				enc, err := encodeInput(in)
+				if err != nil {
+					return fmt.Errorf("input: save %q: action %q: %w", key, name, err)
+				}
+				out[i] = enc
+			}
+			doc.Actions[name] = out
+		}
+	}
+	if len(a.axes) > 0 {
+		doc.Axes = make(map[string]savedAxis, len(a.axes))
+		for name, ax := range a.axes {
+			doc.Axes[name] = savedAxis{Negative: ax.negative, Positive: ax.positive}
+		}
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("input: save %q: %w", key, err)
+	}
+	return store.SetItem(key, string(data))
+}
+
+// Load replaces a's action and axis bindings with those saved in store under key, and reports whether key was present.
+//
+// When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON or uses an unknown format, Load leaves a's bindings untouched and returns false and an error.
+func (a *Actions) Load(store core.Storage, key string) (bool, error) {
+	raw, ok := store.GetItem(key)
+	if !ok {
+		return false, nil
+	}
+	var doc savedBindings
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return false, fmt.Errorf("input: load %q: %w", key, err)
+	}
+	if doc.Version != storageVersion {
+		return false, fmt.Errorf("input: load %q: unsupported version %d", key, doc.Version)
+	}
+	var bindings map[string][]Input
+	if len(doc.Actions) > 0 {
+		bindings = make(map[string][]Input, len(doc.Actions))
+		for name, list := range doc.Actions {
+			if len(list) == 0 {
+				continue
+			}
+			decoded := make([]Input, len(list))
+			for i, item := range list {
+				in, err := decodeInput(item)
+				if err != nil {
+					return false, fmt.Errorf("input: load %q: action %q: %w", key, name, err)
+				}
+				decoded[i] = in
+			}
+			bindings[name] = decoded
+		}
+	}
+	var axes map[string]axisBinding
+	if len(doc.Axes) > 0 {
+		axes = make(map[string]axisBinding, len(doc.Axes))
+		for name, ax := range doc.Axes {
+			if ax.Negative == "" && ax.Positive == "" {
+				continue
+			}
+			axes[name] = axisBinding{negative: ax.Negative, positive: ax.Positive}
+		}
+	}
+
+	a.bindings = bindings
+	a.axes = axes
+	clear(a.latched)
+	clear(a.rawActive)
+	if len(a.bindings) > 0 {
+		if a.rawActive == nil {
+			a.rawActive = make(map[string]bool, len(a.bindings))
+		}
+		for name := range a.bindings {
+			a.rawActive[name] = a.activeNow(name)
+		}
+	}
+	return true, nil
+}
+
+func encodeInput(in Input) (savedInput, error) {
+	switch in.Kind {
+	case InputNone:
+		return savedInput{Kind: "none"}, nil
+	case InputTouchRegion:
+		return savedInput{Kind: "touch_region", Bounds: encodeBounds(in.Bounds)}, nil
+	case InputMouseButton:
+		btn, err := encodeMouseButton(in.Button)
+		if err != nil {
+			return savedInput{}, err
+		}
+		return savedInput{Kind: "mouse_button", Button: btn}, nil
+	case InputMouseRegion:
+		btn, err := encodeMouseButton(in.Button)
+		if err != nil {
+			return savedInput{}, err
+		}
+		return savedInput{Kind: "mouse_region", Bounds: encodeBounds(in.Bounds), Button: btn}, nil
+	default:
+		return savedInput{}, fmt.Errorf("unknown input kind %d", in.Kind)
+	}
+}
+
+func decodeInput(in savedInput) (Input, error) {
+	switch in.Kind {
+	case "none":
+		return Input{Kind: InputNone}, nil
+	case "touch_region":
+		if in.Bounds == nil {
+			return Input{}, fmt.Errorf("touch_region is missing bounds")
+		}
+		return TouchRegion(decodeBounds(*in.Bounds)), nil
+	case "mouse_button":
+		btn, err := decodeMouseButton(in.Button)
+		if err != nil {
+			return Input{}, err
+		}
+		return MouseButton(btn), nil
+	case "mouse_region":
+		if in.Bounds == nil {
+			return Input{}, fmt.Errorf("mouse_region is missing bounds")
+		}
+		btn, err := decodeMouseButton(in.Button)
+		if err != nil {
+			return Input{}, err
+		}
+		return MouseRegion(decodeBounds(*in.Bounds), btn), nil
+	default:
+		return Input{}, fmt.Errorf("unknown input kind %q", in.Kind)
+	}
+}
+
+func encodeBounds(b core.Bounds) *savedBounds {
+	return &savedBounds{
+		X: float32(b.Origin.X),
+		Y: float32(b.Origin.Y),
+		W: float32(b.Size.Width),
+		H: float32(b.Size.Height),
+	}
+}
+
+func decodeBounds(b savedBounds) core.Bounds {
+	return core.Bounds{
+		Origin: core.Point{X: core.Points(b.X), Y: core.Points(b.Y)},
+		Size:   core.Size{Width: core.Points(b.W), Height: core.Points(b.H)},
+	}
+}
+
+func encodeMouseButton(b core.MouseButton) (string, error) {
+	switch b {
+	case core.MouseButtonNone:
+		return "", nil
+	case core.MouseButtonLeft:
+		return "left", nil
+	case core.MouseButtonRight:
+		return "right", nil
+	case core.MouseButtonMiddle:
+		return "middle", nil
+	case core.MouseButtonBack:
+		return "back", nil
+	case core.MouseButtonForward:
+		return "forward", nil
+	default:
+		return "", fmt.Errorf("unknown mouse button %d", b)
+	}
+}
+
+func decodeMouseButton(s string) (core.MouseButton, error) {
+	switch s {
+	case "":
+		return core.MouseButtonNone, nil
+	case "left":
+		return core.MouseButtonLeft, nil
+	case "right":
+		return core.MouseButtonRight, nil
+	case "middle":
+		return core.MouseButtonMiddle, nil
+	case "back":
+		return core.MouseButtonBack, nil
+	case "forward":
+		return core.MouseButtonForward, nil
+	default:
+		return core.MouseButtonNone, fmt.Errorf("unknown mouse button %q", s)
+	}
+}
