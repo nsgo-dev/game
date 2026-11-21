@@ -94,12 +94,14 @@ func (g *Grid) FillRect(col, row, w, h int, flags TileFlags) {
 	}
 }
 
-// Body is a movable physics shape with velocity and tile contact state.
+// Body is a movable physics shape with velocity, collision filtering and tile contact state.
 type Body struct {
 	ID       int
 	Tag      string
 	Shape    Shape
 	VX, VY   float32
+	Layer    LayerMask
+	Mask     LayerMask
 	Grounded bool
 	// OnCeiling, OnLeftWall and OnRightWall report tile contacts from the last MoveAndSlide call.
 	OnCeiling   bool

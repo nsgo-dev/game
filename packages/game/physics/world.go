@@ -51,10 +51,13 @@ type RaycastHit struct {
 	TileFlags TileFlags
 }
 
-// World holds bodies and an optional TileGrid for spatial queries.
+// World holds bodies, triggers and an optional TileGrid for spatial queries.
 type World struct {
-	Bodies []*Body
-	Tiles  TileGrid
+	Bodies   []*Body
+	Triggers []*Trigger
+	Tiles    TileGrid
+
+	triggerActive map[*Trigger][]*Body
 }
 
 // Add appends non-nil bodies to w.Bodies.
@@ -85,17 +88,24 @@ func (w *World) QueryOverlap(shape Shape) []OverlapHit {
 
 // QueryOverlapMask returns all bodies and tiles matching mask that overlap shape in deterministic order.
 func (w *World) QueryOverlapMask(shape Shape, mask QueryMask) []OverlapHit {
+	return w.QueryOverlapLayer(shape, mask, LayerAll)
+}
+
+// QueryOverlapLayer returns all bodies and tiles matching mask and layerMask that overlap shape in deterministic order.
+// A zero layerMask defaults to LayerAll; bodies match when their effective Layer shares at least one bit with layerMask.
+func (w *World) QueryOverlapLayer(shape Shape, mask QueryMask, layerMask LayerMask) []OverlapHit {
 	if shape.Empty() {
 		return nil
 	}
 	if mask == 0 {
 		mask = QueryAll
 	}
+	layerMask = effectiveLayer(layerMask)
 	var hits []OverlapHit
 
 	if mask&QueryBodies != 0 {
 		for _, b := range w.Bodies {
-			if b == nil || b.Shape.Empty() {
+			if b == nil || b.Shape.Empty() || (b.layer()&layerMask) == 0 {
 				continue
 			}
 			if c := TestShapes(shape, b.Shape); c.Hit {
@@ -146,9 +156,15 @@ func (w *World) QueryOverlapMask(shape Shape, mask QueryMask) []OverlapHit {
 
 // QueryPoint returns all bodies in World.Bodies whose shape contains (x, y), in World.Bodies order.
 func (w *World) QueryPoint(x, y float32) []*Body {
+	return w.QueryPointLayer(x, y, LayerAll)
+}
+
+// QueryPointLayer returns all bodies in World.Bodies matching layerMask whose shape contains (x, y), in World.Bodies order.
+func (w *World) QueryPointLayer(x, y float32, layerMask LayerMask) []*Body {
+	layerMask = effectiveLayer(layerMask)
 	var hits []*Body
 	for _, b := range w.Bodies {
-		if b != nil && b.Shape.Contains(x, y) {
+		if b != nil && (b.layer()&layerMask) != 0 && b.Shape.Contains(x, y) {
 			hits = append(hits, b)
 		}
 	}
@@ -159,16 +175,23 @@ func (w *World) QueryPoint(x, y float32) []*Body {
 // sorted by ascending distance T in [0, 1]. Equal distances keep bodies (in World.Bodies order)
 // before tiles (in traversal order).
 func (w *World) Raycast(from, to core.Point, mask QueryMask) []RaycastHit {
+	return w.RaycastLayer(from, to, mask, LayerAll)
+}
+
+// RaycastLayer casts a segment from from to to against targets selected by mask and layerMask
+// and returns every hit sorted by ascending distance T in [0, 1].
+func (w *World) RaycastLayer(from, to core.Point, mask QueryMask, layerMask LayerMask) []RaycastHit {
 	if mask == 0 {
 		mask = QueryAll
 	}
+	layerMask = effectiveLayer(layerMask)
 	fx, fy := float64(from.X), float64(from.Y)
 	dx, dy := float64(to.X)-fx, float64(to.Y)-fy
 
 	var hits []RaycastHit
 	if mask&QueryBodies != 0 {
 		for _, b := range w.Bodies {
-			if b == nil || b.Shape.Empty() {
+			if b == nil || b.Shape.Empty() || (b.layer()&layerMask) == 0 {
 				continue
 			}
 			if h, ok := raycastShape(fx, fy, dx, dy, b.Shape); ok {
@@ -191,9 +214,15 @@ func (w *World) Raycast(from, to core.Point, mask QueryMask) []RaycastHit {
 
 // RaycastFirst returns the closest hit along the segment from from to to matching mask.
 func (w *World) RaycastFirst(from, to core.Point, mask QueryMask) (RaycastHit, bool) {
+	return w.RaycastFirstLayer(from, to, mask, LayerAll)
+}
+
+// RaycastFirstLayer returns the closest hit along the segment from from to to matching mask and layerMask.
+func (w *World) RaycastFirstLayer(from, to core.Point, mask QueryMask, layerMask LayerMask) (RaycastHit, bool) {
 	if mask == 0 {
 		mask = QueryAll
 	}
+	layerMask = effectiveLayer(layerMask)
 	fx, fy := float64(from.X), float64(from.Y)
 	dx, dy := float64(to.X)-fx, float64(to.Y)-fy
 
@@ -203,7 +232,7 @@ func (w *World) RaycastFirst(from, to core.Point, mask QueryMask) (RaycastHit, b
 
 	if mask&QueryBodies != 0 {
 		for _, b := range w.Bodies {
-			if b == nil || b.Shape.Empty() {
+			if b == nil || b.Shape.Empty() || (b.layer()&layerMask) == 0 {
 				continue
 			}
 			if h, ok := raycastShape(fx, fy, dx, dy, b.Shape); ok {
