@@ -10,7 +10,7 @@ import (
 
 // Mixer sets how loud a game's sounds and music play: a master volume and a volume for each group the app names, such as "effects", "music" and "ui", each from 0 to 1 and 1 until set. It keeps them in the app's storage (core.Storage), so they hold across launches, and plays nothing while the app is in the background.
 //
-// A sound plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies to the sounds played after it and to music as it plays. A short sound already playing keeps the volume it started with, as audio.Sound has no way to change it, except that a group or master volume of 0 stops it.
+// A sound plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies to the sounds played after it and to music as it plays. A short sound already playing keeps the volume it started with, as audio.Sound has no way to change it, except that a group or master volume of 0 stops it (nsgo-dev/nsgo#1088).
 //
 // The mixer's methods, its sounds' and its music's are called on the engine's goroutine, as audio's are.
 type Mixer struct {
@@ -113,7 +113,7 @@ func (m *Mixer) Sound(s *audio.Sound, group string, limit int) *Sound {
 	return &Sound{Group: group, Limit: limit, m: m, sound: s}
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, and reports whether it did. It plays nothing while that is 0, while the app is in the background, or while Limit playbacks still play, counting each as playing for the sound's duration at its rate; it does not stop one that plays to make room, as audio.Sound stops only all of them.
+// Play starts a playback of the sound at v's volume times its group's and the master volume, and reports whether it did. It plays nothing while that is 0, while the app is in the background, or while Limit playbacks still play, counting each as playing for the sound's duration at its rate; it does not stop one that plays to make room, as audio.Sound stops only all of them (nsgo-dev/nsgo#1088).
 func (s *Sound) Play(v audio.Voice) bool {
 	now := s.m.cx.Now()
 	n := 0
@@ -260,7 +260,7 @@ func (mu *Music) apply() {
 	}
 }
 
-// apply plays the track at gain times its level, or pauses it where that is 0, as an audio.Player takes a volume of 0 for 1.
+// apply plays the track at gain times its level, or pauses it where that is 0, as an audio.Player takes a volume of 0 for 1 (nsgo-dev/nsgo#1088).
 func (t *track) apply(gain float32) {
 	if t.done {
 		return
