@@ -7,4 +7,6 @@
 // MoveAndSlide advances a Body over a fixed game.Loop step against any TileGrid (or the concrete Grid), resolving solid walls, floors, ceilings and one-way platforms without tunneling at high speeds.
 //
 // World groups bodies and an optional TileGrid for deterministic overlap, point and raycast queries.
+//
+// DrawShape, DrawBody, DrawContact, DrawTileContacts, DrawTileGrid, DrawWorld and DrawRaycast record zoom-compensated debug overlays into a core.Drawing; builds tagged release compile them to no-ops.
 package physics
