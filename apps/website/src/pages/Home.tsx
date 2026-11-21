@@ -15,29 +15,31 @@ import { GITHUB_URL, issueUrl, nsgoUrl } from '../links'
 
 export const homeHead = (lang: Lang) => pageHead(lang, '', copies[lang].site.title, copies[lang].site.description)
 
-// The game layer's packages as levels, in the order nsgo#1047 plans them: each names its task in this repository, and the shipped ones their import path and example. A level is cleared once its package ships; the rest are locked, with their area's progress from the roadmap.
+// The game layer's packages as levels, in the order nsgo#1047 plans them: each names its task in this repository, and the shipped ones their import path and example. A level is cleared once its package ships; the rest are locked, with the progress of the roadmap area their task heads.
 type Level = { id: 'loop' | 'sprite' | 'sound' | 'input' | 'tilemap' | 'scene'; name: string; issue: number } & (
   | { shipped: true; snippet: Snippet['id']; file: string; path: string; anchor: string }
-  | { shipped: false; area: string }
+  | { shipped: false }
 )
 
 const LEVELS: Level[] = [
   { id: 'loop', name: 'Loop', issue: 2, shipped: true, snippet: 'loop', file: 'loop.go', path: 'github.com/nsgo-dev/game/packages/game', anchor: 'loop' },
   { id: 'sprite', name: 'sprite', issue: 4, shipped: true, snippet: 'sprite', file: 'sprite.go', path: 'github.com/nsgo-dev/game/packages/game/sprite', anchor: 'sprite' },
   { id: 'sound', name: 'sound', issue: 7, shipped: true, snippet: 'sound', file: 'sound.go', path: 'github.com/nsgo-dev/game/packages/game/sound', anchor: 'sound' },
-  { id: 'input', name: 'input', issue: 3, shipped: false, area: 'Input' },
-  { id: 'tilemap', name: 'tilemap', issue: 5, shipped: false, area: 'Tilemap' },
-  { id: 'scene', name: 'scene', issue: 6, shipped: false, area: 'Scenes' },
+  { id: 'input', name: 'input', issue: 3, shipped: false },
+  { id: 'tilemap', name: 'tilemap', issue: 5, shipped: false },
+  { id: 'scene', name: 'scene', issue: 6, shipped: false },
 ]
 
 const PACKAGES = LEVELS.filter((level): level is Extract<Level, { shipped: true }> => level.shipped)
 
-// areaProgress is the closed and total issues of a roadmap area, or null when the build could not read the roadmap or it has no such area.
-function areaProgress(area: string): { closed: number; total: number } | null {
+// areaProgress is the closed and total issues of the roadmap area headed by this repository's issue, the issue and everything below it, or null when the build could not read the roadmap or no area is headed by it.
+function areaProgress(issue: number): { closed: number; total: number } | null {
   if (roadmap.status !== 'ok') return null
-  const issues = roadmap.stages.flatMap((stage) => stage.groups.filter((group) => group.area === area).flatMap((group) => group.issues))
-  if (!issues.length) return null
-  return { closed: issues.filter((issue) => issue.state === 'closed').length, total: issues.length }
+  for (const stage of roadmap.stages) {
+    const group = stage.groups.find((g) => g.epic?.repo === 'nsgo-dev/game' && g.epic.number === issue)
+    if (group) return { closed: group.closed, total: group.open + group.closed }
+  }
+  return null
 }
 
 const TARGETS = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
@@ -164,7 +166,7 @@ export function Home() {
 function LevelCard({ level, n }: { level: Level; n: number }) {
   const lang = useLang()
   const copy = copies[lang].home.packages
-  const progress = level.shipped ? null : areaProgress(level.area)
+  const progress = level.shipped ? null : areaProgress(level.issue)
   return (
     <li className={level.shipped ? 'level hud' : 'level hud level--locked'}>
       <div className="level__top">

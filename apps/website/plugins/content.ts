@@ -223,13 +223,44 @@ async function loadSnippetsModule(ctx: Context): Promise<string> {
 
 // ---- Roadmap ----
 
-interface ApiIssue {
+// The roadmap is the issue tree under the plan, read with GitHub's GraphQL API: the plan's sub-issues are its stages, a stage's sub-issues its areas, and everything below an area is listed under it. A level of the tree is one request for up to 100 issues, so a build takes a handful of requests rather than one per issue. GraphQL needs a token; without GITHUB_TOKEN a local build shows the roadmap as unavailable.
+
+const GRAPHQL_URL = 'https://api.github.com/graphql'
+// Up to 100 issues a request asks for the sub-issues of, and up to 100 sub-issues for each: 10,000 nodes, well inside GitHub's limit of 500,000.
+const PAGE = 100
+
+const ISSUE_FIELDS = `fragment IssueFields on Issue { id number title state url repository { nameWithOwner } subIssuesSummary { total } }`
+const SUB_ISSUES = `subIssues(first: ${PAGE}) { pageInfo { hasNextPage endCursor } nodes { ...IssueFields } }`
+
+interface GqlPageInfo {
+  hasNextPage: boolean
+  endCursor: string | null
+}
+
+interface GqlIssue {
+  id: string
   number: number
   title: string
-  state: string
-  html_url: string
-  repository_url: string
-  pull_request?: unknown
+  state: 'OPEN' | 'CLOSED'
+  url: string
+  repository: { nameWithOwner: string }
+  subIssuesSummary: { total: number }
+}
+
+interface GqlConnection<T> {
+  pageInfo: GqlPageInfo
+  nodes: T[]
+}
+
+type GqlStage = GqlIssue & { body: string; subIssues: GqlConnection<GqlIssue> }
+
+// TreeNode is an issue of the plan's tree with the sub-issues read so far.
+interface TreeNode {
+  id: string
+  issue: RoadmapIssue
+  // total is how many sub-issues GitHub says the issue has.
+  total: number
+  children: TreeNode[]
 }
 
 async function loadRoadmapModule(): Promise<string> {
@@ -247,88 +278,205 @@ async function loadRoadmapModule(): Promise<string> {
 }
 
 async function fetchRoadmap(): Promise<Roadmap> {
-  const [gameIssues, planIssues] = await Promise.all([
-    fetchAll(`/repos/${REPO}/issues?state=all`),
-    fetchAll(`/repos/${PLAN.repo}/issues/${PLAN.number}/sub_issues`),
-  ])
-  const issues = new Map<string, RoadmapIssue>()
-  for (const raw of [...gameIssues, ...planIssues]) {
-    if (raw.pull_request) continue
-    const repo = raw.repository_url.split('/repos/')[1] ?? REPO
-    issues.set(`${repo}#${raw.number}`, {
-      repo,
-      number: raw.number,
-      title: raw.title,
-      state: raw.state === 'closed' ? 'closed' : 'open',
-      url: raw.html_url,
-    })
-  }
-  const stages: RoadmapStage[] = [
-    { id: '2d', title: '2D', groups: [], open: 0, closed: 0 },
-    { id: '3d', title: '3D', groups: [], open: 0, closed: 0 },
-  ]
-  const groups = new Map<string, RoadmapGroup>()
-  for (const issue of issues.values()) {
-    const { area, stage } = classify(issue)
-    const target = stages.find((s) => s.id === stage)!
-    target[issue.state]++
-    const key = `${stage}/${area}`
-    let group = groups.get(key)
-    if (!group) {
-      group = { area, issues: [] }
-      groups.set(key, group)
-      target.groups.push(group)
-    }
-    group.issues.push(issue)
-  }
-  for (const stage of stages) {
-    for (const group of stage.groups) group.issues.sort((a, b) => a.number - b.number)
-    // The game's areas in the order their first issue was filed, then NSGo's.
-    stage.groups.sort((a, b) => rank(a) - rank(b))
-  }
-  return { status: 'ok', fetchedAt: new Date().toISOString(), stages }
-}
-
-const ENGINE_AREA = 'NSGo'
-
-// classify puts a game issue in the area its title starts with ("Input: actions from keys" is in Input) and a stage by that area; NSGo's issues are one area, in 3D when about 3D or the GPU view.
-function classify(issue: RoadmapIssue): { area: string; stage: RoadmapStage['id'] } {
-  if (issue.repo !== REPO) {
-    return { area: ENGINE_AREA, stage: /\b3D\b|\bGPU view\b/.test(issue.title) ? '3d' : '2d' }
-  }
-  const colon = issue.title.indexOf(':')
-  const area = colon > 0 ? (issue.title.slice(0, colon).split(' ')[0] ?? 'Other') : 'Other'
-  return { area, stage: area === '3D' ? '3d' : '2d' }
-}
-
-function rank(group: RoadmapGroup): number {
-  const first = Math.min(...group.issues.map((i) => i.number))
-  if (group.area === ENGINE_AREA) return Number.MAX_SAFE_INTEGER - 1
-  if (group.area === 'Other') return Number.MAX_SAFE_INTEGER
-  return first
-}
-
-async function fetchAll(endpoint: string): Promise<ApiIssue[]> {
-  const headers: Record<string, string> = {
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'game-website-build',
-  }
   const token = process.env.GITHUB_TOKEN
-  if (token) headers.Authorization = `Bearer ${token}`
-  const all: ApiIssue[] = []
-  for (let page = 1; ; page++) {
-    const sep = endpoint.includes('?') ? '&' : '?'
-    const res = await fetch(`https://api.github.com${endpoint}${sep}per_page=100&page=${page}`, {
-      headers,
-      signal: AbortSignal.timeout(20_000),
+  if (!token) throw new Error('GITHUB_TOKEN is not set, and GitHub’s GraphQL API needs a token')
+  const client = new GraphQL(token)
+  const [stages, gameIssues] = await Promise.all([fetchTree(client), fetchGameIssues(client)])
+  const planned = new Set<string>()
+  const roadmapStages = stages.map((stage, index) => {
+    const built = buildStage(stage, index)
+    for (const node of descendants(stage.node)) planned.add(issueKey(node.issue))
+    return built
+  })
+  const unplanned = gameIssues.filter((issue) => !planned.has(issueKey(issue))).sort((a, b) => a.number - b.number)
+  console.info(`[roadmap] ${client.requests} GraphQL requests; ${roadmapStages.map((s) => `stage ${s.number} ${s.closed}/${s.open + s.closed}`).join(', ')}; ${unplanned.length} unplanned`)
+  return { status: 'ok', fetchedAt: new Date().toISOString(), stages: roadmapStages, unplanned }
+}
+
+// fetchTree reads the plan's stages with their bodies and two levels below them in one request, then each further level, a request per 100 issues that have sub-issues.
+async function fetchTree(client: GraphQL): Promise<{ node: TreeNode; body: string }[]> {
+  const data = await client.query<{ repository: { issue: { subIssues: GqlConnection<GqlStage> } | null } }>(
+    `query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        issue(number: $number) {
+          subIssues(first: ${PAGE}) { pageInfo { hasNextPage endCursor } nodes { ...IssueFields body ${SUB_ISSUES} } }
+        }
+      }
+    }
+    ${ISSUE_FIELDS}`,
+    { owner: PLAN.repo.split('/')[0], name: PLAN.repo.split('/')[1], number: PLAN.number },
+  )
+  const plan = data.repository.issue
+  if (!plan) throw new Error(`${PLAN.repo}#${PLAN.number} was not found`)
+  if (plan.subIssues.pageInfo.hasNextPage) throw new Error(`${PLAN.repo}#${PLAN.number} has more than ${PAGE} stages`)
+  // Issues whose sub-issues are still to be read, and those with more pages of them.
+  let pending: TreeNode[] = []
+  const more: { node: TreeNode; after: string }[] = []
+  const attach = (node: TreeNode, connection: GqlConnection<GqlIssue>) => {
+    for (const raw of connection.nodes) {
+      const child = treeNode(raw)
+      node.children.push(child)
+      if (child.total > 0) pending.push(child)
+    }
+    if (connection.pageInfo.hasNextPage && connection.pageInfo.endCursor) more.push({ node, after: connection.pageInfo.endCursor })
+  }
+  const stages = plan.subIssues.nodes.map((raw) => {
+    const node = treeNode(raw)
+    attach(node, raw.subIssues)
+    return { node, body: raw.body }
+  })
+  while (pending.length || more.length) {
+    const level = pending
+    pending = []
+    for (let i = 0; i < level.length; i += PAGE) {
+      const batch = level.slice(i, i + PAGE)
+      const result = await client.query<{ nodes: ({ id: string; subIssues: GqlConnection<GqlIssue> } | null)[] }>(
+        `query($ids: [ID!]!) { nodes(ids: $ids) { ... on Issue { id ${SUB_ISSUES} } } }
+        ${ISSUE_FIELDS}`,
+        { ids: batch.map((node) => node.id) },
+      )
+      result.nodes.forEach((raw, j) => {
+        if (raw) attach(batch[j]!, raw.subIssues)
+      })
+    }
+    // An issue with more than 100 sub-issues reads the rest a page at a time.
+    for (const { node, after } of more.splice(0)) {
+      const result = await client.query<{ node: { subIssues: GqlConnection<GqlIssue> } | null }>(
+        `query($id: ID!, $after: String!) { node(id: $id) { ... on Issue { subIssues(first: ${PAGE}, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...IssueFields } } } } }
+        ${ISSUE_FIELDS}`,
+        { id: node.id, after },
+      )
+      if (result.node) attach(node, result.node.subIssues)
+    }
+  }
+  return stages
+}
+
+// fetchGameIssues reads every issue of the game's repository, to list those in no stage.
+async function fetchGameIssues(client: GraphQL): Promise<RoadmapIssue[]> {
+  const [owner, name] = REPO.split('/')
+  const issues: RoadmapIssue[] = []
+  let after: string | null = null
+  do {
+    const data: { repository: { issues: GqlConnection<Omit<GqlIssue, 'id' | 'subIssuesSummary'>> } } = await client.query(
+      `query($owner: String!, $name: String!, $after: String) {
+        repository(owner: $owner, name: $name) {
+          issues(first: ${PAGE}, after: $after, orderBy: { field: CREATED_AT, direction: ASC }) {
+            pageInfo { hasNextPage endCursor }
+            nodes { number title state url repository { nameWithOwner } }
+          }
+        }
+      }`,
+      { owner, name, after },
+    )
+    const page = data.repository.issues
+    for (const raw of page.nodes) issues.push(toIssue(raw))
+    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
+  } while (after)
+  return issues
+}
+
+function treeNode(raw: GqlIssue): TreeNode {
+  return { id: raw.id, issue: toIssue(raw), total: raw.subIssuesSummary.total, children: [] }
+}
+
+function toIssue(raw: Pick<GqlIssue, 'number' | 'title' | 'state' | 'url' | 'repository'>): RoadmapIssue {
+  return { repo: raw.repository.nameWithOwner, number: raw.number, title: raw.title, state: raw.state === 'CLOSED' ? 'closed' : 'open', url: raw.url }
+}
+
+function issueKey(issue: RoadmapIssue): string {
+  return `${issue.repo}#${issue.number}`
+}
+
+// descendants lists the issues below node, depth first in GitHub's order.
+function descendants(node: TreeNode): TreeNode[] {
+  return node.children.flatMap((child) => [child, ...descendants(child)])
+}
+
+const STAGE_TITLE = /^Games stage (\d+):\s*(.+)$/i
+
+// buildStage turns a stage's subtree into areas: each sub-issue with sub-issues of its own is an area listing everything below it, and the rest share one group after them.
+function buildStage({ node, body }: { node: TreeNode; body: string }, index: number): RoadmapStage {
+  const match = STAGE_TITLE.exec(node.issue.title)
+  const title = match ? match[2]! : node.issue.title
+  const stage: RoadmapStage = {
+    number: match ? Number(match[1]) : index + 1,
+    title: title.charAt(0).toUpperCase() + title.slice(1),
+    description: stageDescription(body),
+    url: node.issue.url,
+    groups: [],
+    open: 0,
+    closed: 0,
+  }
+  const single: RoadmapGroup = { epic: null, area: '', items: [], open: 0, closed: 0 }
+  for (const child of node.children) {
+    if (child.children.length === 0) {
+      single.items.push({ ...child.issue, depth: 0 })
+      single[child.issue.state]++
+      continue
+    }
+    const group: RoadmapGroup = { epic: child.issue, area: areaName(child.issue.title), items: [], open: 0, closed: 0 }
+    group[child.issue.state]++
+    const visit = (parent: TreeNode, depth: 0 | 1) => {
+      for (const item of parent.children) {
+        group.items.push({ ...item.issue, depth })
+        group[item.issue.state]++
+        visit(item, 1)
+      }
+    }
+    visit(child, 0)
+    stage.groups.push(group)
+  }
+  if (single.items.length) stage.groups.push(single)
+  for (const group of stage.groups) {
+    stage.open += group.open
+    stage.closed += group.closed
+  }
+  return stage
+}
+
+// areaName is an epic's title up to its colon, without a leading tag such as "[Feature]": "Input: named actions…" is Input.
+function areaName(title: string): string {
+  const untagged = title.replace(/^\[[^\]]*\]\s*/, '')
+  const colon = untagged.indexOf(':')
+  return colon > 0 ? untagged.slice(0, colon) : untagged
+}
+
+// stageDescription is the first paragraph of the stage issue's Context section, or of its body, without the sentence naming the plan it belongs to.
+function stageDescription(body: string): string {
+  const text = body.replace(/\r\n/g, '\n')
+  const context = /^#{1,6}\s*Context\s*\n([\s\S]*?)(?=^#{1,6}\s|$(?![\s\S]))/im.exec(text)
+  const paragraphs = (context ? context[1]! : text).split(/\n\s*\n/).map((p) => p.trim().replace(/\s*\n\s*/g, ' '))
+  const first = paragraphs.find((p) => p && !p.startsWith('#')) ?? ''
+  return first
+    .replace(/^A stage of [\w/-]*#\d+\.\s*/i, '')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+}
+
+class GraphQL {
+  requests = 0
+  constructor(private readonly token: string) {}
+
+  async query<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    this.requests++
+    const res = await fetch(GRAPHQL_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'game-website-build',
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(30_000),
     })
     if (!res.ok) {
-      const hint = res.status === 403 || res.status === 429 ? ' (rate limited; set GITHUB_TOKEN)' : ''
-      throw new Error(`GET ${endpoint} answered ${res.status} ${res.statusText}${hint}`)
+      const hint = res.status === 403 || res.status === 429 ? ' (rate limited)' : ''
+      throw new Error(`GraphQL answered ${res.status} ${res.statusText}${hint}`)
     }
-    const batch = (await res.json()) as ApiIssue[]
-    all.push(...batch)
-    if (batch.length < 100) return all
+    const json = (await res.json()) as { data?: T; errors?: { message: string }[] }
+    if (json.errors?.length) throw new Error(`GraphQL: ${json.errors.map((e) => e.message).join('; ')}`)
+    if (!json.data) throw new Error('GraphQL answered without data')
+    return json.data
   }
 }

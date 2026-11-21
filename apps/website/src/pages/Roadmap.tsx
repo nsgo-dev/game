@@ -1,5 +1,5 @@
 import { roadmap } from 'virtual:roadmap'
-import type { RoadmapIssue, RoadmapStage } from '../content/types'
+import type { RoadmapGroup, RoadmapIssue, RoadmapItem, RoadmapStage } from '../content/types'
 import { Eyebrow } from '../components/Brand'
 import { Icon } from '../components/Icon'
 import { Segments } from '../components/Segments'
@@ -9,7 +9,7 @@ import { GITHUB_URL, PLAN_URL } from '../links'
 
 export const roadmapHead = (lang: Lang) => pageHead(lang, 'roadmap/', copies[lang].roadmap.title, copies[lang].roadmap.description)
 
-// The issues' titles are GitHub's, in English in either language; the page's own words follow its language.
+// The issues' titles and the stages' descriptions are GitHub's, in English in either language; the page's own words, the stages' names among them, follow its language.
 export function Roadmap() {
   const copy = copies[useLang()].roadmap
   return (
@@ -32,7 +32,12 @@ export function Roadmap() {
         </p>
       </header>
       {roadmap.status === 'ok' ? (
-        roadmap.stages.map((stage, i) => <Stage key={stage.id} stage={stage} index={i + 1} copy={copy} />)
+        <>
+          {roadmap.stages.map((stage) => (
+            <Stage key={stage.number} stage={stage} copy={copy} />
+          ))}
+          {roadmap.unplanned.length > 0 && <Unplanned issues={roadmap.unplanned} copy={copy} />}
+        </>
       ) : (
         <p className="notice" role="status">
           {copy.unavailable[0]}
@@ -46,64 +51,110 @@ export function Roadmap() {
   )
 }
 
-function Stage({ stage, index, copy }: { stage: RoadmapStage; index: number; copy: Copy['roadmap'] }) {
+function Stage({ stage, copy }: { stage: RoadmapStage; copy: Copy['roadmap'] }) {
   const total = stage.open + stage.closed
-  const titleId = `stage-${stage.id}`
+  const titleId = `stage-${stage.number}`
+  const name = copy.stageNames[stage.number - 1]
   return (
     <section className="roadmap-stage hud" aria-labelledby={titleId}>
       <div className="roadmap-stage__head">
-        <Eyebrow>{copy.stage(index)}</Eyebrow>
-        <h2 id={titleId}>{stage.title}</h2>
+        <Eyebrow>{copy.stage(stage.number)}</Eyebrow>
+        <h2 id={titleId}>
+          <a href={stage.url} lang={name ? undefined : 'en'}>
+            {name ?? stage.title}
+          </a>
+        </h2>
         <p className="roadmap-stage__count">
           <span className="roadmap-stage__xp" aria-hidden="true">
             {copy.xp} {stage.closed}/{total}
           </span>
           <span>{copy.closed(stage.closed, total)}</span>
         </p>
+        {stage.description && (
+          <p className="roadmap-stage__desc" lang="en">
+            {stage.description}
+          </p>
+        )}
         <Segments closed={stage.closed} total={total} />
       </div>
       <div className="roadmap-groups">
-        {stage.groups.map((group) => {
-          // Areas are the words issue titles start with, kept as they are, except the one for titles with none.
-          const area = group.area === 'Other' ? copy.other : group.area
-          const done = group.issues.filter((issue) => issue.state === 'closed').length
-          return (
-            <section key={group.area} className="roadmap-group" aria-label={area}>
-              <h3>
-                <span className="hud-label">{copy.quest}</span>
-                <span className="roadmap-group__name">{area}</span>
-                <span className="roadmap-group__count">
-                  <span className="sr-only">{copy.closed(done, group.issues.length)}</span>
-                  <span aria-hidden="true">
-                    {done}/{group.issues.length}
-                  </span>
-                </span>
-              </h3>
-              <ul>
-                {group.issues.map((issue) => (
-                  <Issue key={`${issue.repo}#${issue.number}`} issue={issue} copy={copy} />
-                ))}
-              </ul>
-            </section>
-          )
-        })}
+        {stage.groups.map((group) => (
+          <Group key={group.epic ? issueKey(group.epic) : 'single'} group={group} copy={copy} />
+        ))}
       </div>
     </section>
   )
 }
 
-function Issue({ issue, copy }: { issue: RoadmapIssue; copy: Copy['roadmap'] }) {
-  const ref = issue.repo === 'nsgo-dev/game' ? `#${issue.number}` : `nsgo#${issue.number}`
+function Group({ group, copy }: { group: RoadmapGroup; copy: Copy['roadmap'] }) {
+  const total = group.open + group.closed
+  const area = group.epic ? group.area : copy.single
   return (
-    <li className={`issue issue--${issue.state}`}>
+    <section className="roadmap-group" aria-label={area}>
+      <h3>
+        <span className="hud-label">{copy.quest}</span>
+        {group.epic ? (
+          <a className="roadmap-group__name" href={group.epic.url} title={group.epic.title} lang="en">
+            {area} <span className="issue__ref">{issueRef(group.epic)}</span>
+          </a>
+        ) : (
+          <span className="roadmap-group__name">{area}</span>
+        )}
+        <span className="roadmap-group__count">
+          <span className="sr-only">{copy.closed(group.closed, total)}</span>
+          <span aria-hidden="true">
+            {group.closed}/{total}
+          </span>
+        </span>
+      </h3>
+      <ul>
+        {group.items.map((item) => (
+          <Issue key={issueKey(item)} issue={item} copy={copy} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// nsgo-dev/game's issues in no stage of the plan, so none drop out of the page unseen.
+function Unplanned({ issues, copy }: { issues: RoadmapIssue[]; copy: Copy['roadmap'] }) {
+  return (
+    <section className="roadmap-stage hud" aria-labelledby="stage-unplanned">
+      <div className="roadmap-stage__head">
+        <h2 id="stage-unplanned">{copy.unplanned}</h2>
+        <p className="roadmap-stage__desc">{copy.unplannedCount(issues.length)}</p>
+      </div>
+      <div className="roadmap-group">
+        <ul>
+          {issues.map((issue) => (
+            <Issue key={issueKey(issue)} issue={issue} copy={copy} />
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+function Issue({ issue, copy }: { issue: RoadmapIssue | RoadmapItem; copy: Copy['roadmap'] }) {
+  const nested = 'depth' in issue && issue.depth === 1
+  return (
+    <li className={`issue issue--${issue.state}${nested ? ' issue--nested' : ''}`}>
       <span className="issue__state" role="img" aria-label={issue.state === 'closed' ? copy.closedState : copy.open}>
         {issue.state === 'closed' && <Icon name="check" size={9} />}
       </span>
       <a href={issue.url} lang="en">
-        <span className="issue__ref">{ref}</span> {issue.title}
+        <span className="issue__ref">{issueRef(issue)}</span> {issue.title}
       </a>
     </li>
   )
+}
+
+function issueRef(issue: RoadmapIssue): string {
+  return issue.repo === 'nsgo-dev/game' ? `#${issue.number}` : `nsgo#${issue.number}`
+}
+
+function issueKey(issue: RoadmapIssue): string {
+  return `${issue.repo}#${issue.number}`
 }
 
 function formatDate(iso: string, locale: string): string {

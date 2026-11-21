@@ -2035,6 +2035,24 @@ html[data-theme='dark'] .shiki span {
   font-variant-numeric: tabular-nums;
 }
 
+.roadmap-stage__head h2 a:hover,
+.roadmap-group__name:hover {
+  color: var(--blue-ink);
+}
+
+/* The stage issue's description under its name, the count beside both. */
+.roadmap-stage__desc {
+  max-width: 72ch;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.roadmap-stage__head:has(.roadmap-stage__desc) .roadmap-stage__count {
+  grid-row: span 2;
+  align-self: end;
+}
+
 .roadmap-stage__xp {
   color: var(--blue-ink);
   font-family: var(--font-mono);
@@ -2093,6 +2111,21 @@ html[data-theme='dark'] .shiki span {
   padding: 0 14px;
 }
 
+.roadmap-group > ul:first-child {
+  padding-top: 10px;
+}
+
+.roadmap-group__name .issue__ref {
+  margin-left: 2px;
+  font-weight: 400;
+}
+
+/* Anything deeper than an area's own sub-issues, one step in, its marker under the text of the line above. */
+.issue.issue--nested {
+  padding-left: 22px;
+  font-size: 14px;
+}
+
 .issue {
   display: flex;
   align-items: baseline;
@@ -2141,6 +2174,14 @@ html[data-theme='dark'] .shiki span {
 @media (max-width: 560px) {
   .roadmap-stage {
     padding: 20px 14px 8px;
+  }
+
+  .roadmap-stage__desc {
+    grid-column: 1 / -1;
+  }
+
+  .roadmap-stage__head:has(.roadmap-stage__desc) .roadmap-stage__count {
+    grid-row: auto;
   }
 }
 

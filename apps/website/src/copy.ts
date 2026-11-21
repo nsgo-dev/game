@@ -111,22 +111,27 @@ const en = {
   },
   roadmap: {
     title: 'Roadmap — NSGo Game',
-    description: 'Open and closed issues of nsgo-dev/game and its plan in NSGo, by stage and area.',
+    description: 'The plan for games on NSGo in five stages: every open and closed issue under it in nsgo-dev/game and NSGo, by area.',
     heading: 'Roadmap',
     // Around the links to the repository's issues and to the plan.
-    intro: ['The issues of ', ' and the tasks of its plan, ', ', by stage and area.'],
+    intro: ['The issues of ', ' and NSGo under its plan, ', ', by stage and area.'],
     // Around the date the issues were read.
     asOf: [' As of ', '.'],
     // Around the reason and the link to the plan.
     unavailable: ['This build could not read the issues from GitHub (', '). See them on ', '.'],
     stage: (n: number) => `Stage ${n}`,
+    // A stage's name by its number, in place of its issue's English title; empty where the title is shown as it is.
+    stageNames: [] as string[],
     closed: (closed: number, total: number) => `${closed} of ${total} closed`,
     // The short label before a stage's closed and total issues, as a game shows experience.
     xp: 'XP',
     quest: 'Area',
     open: 'Open',
     closedState: 'Closed',
-    other: 'Other',
+    // The group of a stage's sub-issues that have none of their own.
+    single: 'Single issues',
+    unplanned: 'Unplanned',
+    unplannedCount: (n: number) => `${n} ${n === 1 ? 'issue' : 'issues'} of nsgo-dev/game in no stage of the plan.`,
     dateLocale: 'en',
   },
   showcase: {
@@ -269,18 +274,21 @@ const zh: Copy = {
   },
   roadmap: {
     title: '路线图 — NSGo Game',
-    description: '按阶段和领域列出 nsgo-dev/game 及其在 NSGo 中的开发计划的 issue，包括未关闭和已关闭的。',
+    description: 'NSGo 游戏开发计划的五个阶段：按领域列出计划之下 nsgo-dev/game 和 NSGo 的全部 issue，包括未关闭和已关闭的。',
     heading: '路线图',
-    intro: ['按阶段和领域列出 ', ' 的 issue，以及开发计划 ', ' 中的任务。'],
+    intro: ['按阶段和领域列出 ', ' 和 NSGo 在开发计划 ', ' 之下的 issue。'],
     asOf: ['数据截至 ', '。'],
     unavailable: ['这次构建没能从 GitHub 读取 issue（', '）。请到 ', ' 查看。'],
     stage: (n: number) => `阶段 ${n}`,
+    stageNames: ['NSGo 底层能力', '2D 游戏层', '3D', '工具、编辑器与项目格式', '发布、运营与社区'],
     closed: (closed: number, total: number) => `已关闭 ${closed} / ${total}`,
     xp: '进度',
     quest: '领域',
     open: '未关闭',
     closedState: '已关闭',
-    other: '其他',
+    single: '单独的 issue',
+    unplanned: '未规划',
+    unplannedCount: (n: number) => `nsgo-dev/game 中有 ${n} 个 issue 不在计划的任何阶段中。`,
     dateLocale: 'zh-CN',
   },
   showcase: {
