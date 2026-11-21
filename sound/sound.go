@@ -1,4 +1,4 @@
-package game
+package sound
 
 import (
 	"strconv"
@@ -10,17 +10,17 @@ import (
 
 // Mixer sets how loud a game's sounds and music play: a master volume and a volume for each group the app names, such as "effects", "music" and "ui", each from 0 to 1 and 1 until set. It keeps them in the app's storage (core.Storage), so they hold across launches, and plays nothing while the app is in the background.
 //
-// A sound plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies to the sounds played after it and to music as it plays. A short sound already playing keeps the volume it started with, as audio.Sound has no way to change it, except that a group or master volume of 0 stops it (nsgo-dev/nsgo#1088).
+// An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies to the effects played after it and to music as it plays. A short sound already playing keeps the volume it started with, as audio.Sound has no way to change it, except that a group or master volume of 0 stops it (nsgo-dev/nsgo#1088).
 //
-// The mixer's methods, its sounds' and its music's are called on the engine's goroutine, as audio's are.
+// The mixer's methods, its effects' and its music's are called on the engine's goroutine, as audio's are.
 type Mixer struct {
 	cx    *core.Scope
 	store core.Storage
 	key   string
 	// background says the app is in the background, where nothing plays.
 	background bool
-	// sounds are the sounds whose playbacks may still play; music what Music made.
-	sounds map[*Sound]struct{}
+	// sounds are the effects whose playbacks may still play; music what Music made.
+	sounds map[*Effect]struct{}
 	music  []*Music
 }
 
@@ -28,7 +28,7 @@ type Mixer struct {
 //
 // The mixer mutes everything while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone: it stops the sounds playing, pauses the music and plays the music on from there as the window shows again.
 func NewMixer(cx *core.Scope, key string) *Mixer {
-	m := &Mixer{cx: cx, store: cx.Storage(), key: key, sounds: map[*Sound]struct{}{}}
+	m := &Mixer{cx: cx, store: cx.Storage(), key: key, sounds: map[*Effect]struct{}{}}
 	cx.Effect(func() {
 		m.background = cx.Env().Lifecycle() == core.LifecycleBackground
 		m.apply()
@@ -96,8 +96,8 @@ func (m *Mixer) apply() {
 	}
 }
 
-// Sound is a short sound played through a mixer, in a group and with a limit of its own.
-type Sound struct {
+// Effect is a short sound played through a mixer, in a group and with a limit of its own.
+type Effect struct {
 	// Group is the group whose volume the sound plays at.
 	Group string
 	// Limit is the most playbacks of the sound at once, so a burst of it does not take every voice; 0 for none but the platform's 32 for all sounds.
@@ -108,13 +108,13 @@ type Sound struct {
 	ends []time.Time
 }
 
-// Sound returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
-func (m *Mixer) Sound(s *audio.Sound, group string, limit int) *Sound {
-	return &Sound{Group: group, Limit: limit, m: m, sound: s}
+// Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
+func (m *Mixer) Effect(s *audio.Sound, group string, limit int) *Effect {
+	return &Effect{Group: group, Limit: limit, m: m, sound: s}
 }
 
 // Play starts a playback of the sound at v's volume times its group's and the master volume, and reports whether it did. It plays nothing while that is 0, while the app is in the background, or while Limit playbacks still play, counting each as playing for the sound's duration at its rate; it does not stop one that plays to make room, as audio.Sound stops only all of them (nsgo-dev/nsgo#1088).
-func (s *Sound) Play(v audio.Voice) bool {
+func (s *Effect) Play(v audio.Voice) bool {
 	now := s.m.cx.Now()
 	n := 0
 	for _, end := range s.ends {
@@ -136,14 +136,14 @@ func (s *Sound) Play(v audio.Voice) bool {
 }
 
 // Stop stops every playback of the sound, and of every other sound of the same source, as audio.Sound.Stop does.
-func (s *Sound) Stop() {
+func (s *Effect) Stop() {
 	s.sound.Stop()
 	s.ends = nil
 	delete(s.m.sounds, s)
 }
 
 // playing says a playback of the sound may still play at now.
-func (s *Sound) playing(now time.Time) bool {
+func (s *Effect) playing(now time.Time) bool {
 	for _, end := range s.ends {
 		if end.After(now) {
 			return true
