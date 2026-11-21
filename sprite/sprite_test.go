@@ -1,39 +1,41 @@
-package game_test
+package sprite_test
 
 import (
 	"math"
 	"reflect"
 	"testing"
 
-	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
 // sheet is an atlas of a 16 by 16 hero and a coin trimmed to 8 by 10 of its 16 by 16.
-var sheet = &game.Atlas{
+var sheet = &sprite.Atlas{
 	Image: core.ImageSource{URI: "asset:sheet.png"},
-	Frames: map[string]game.Frame{
+	Frames: map[string]sprite.Frame{
 		"hero": {Name: "hero", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
 		"coin": {Name: "coin", X: 16, Y: 0, W: 8, H: 10, OffsetX: 4, OffsetY: 3, Width: 16, Height: 16},
 	},
 }
 
 func TestABatchDrawsWhatHandWrittenCallsDraw(t *testing.T) {
-	sprite := func(frame string, edit func(s *game.Sprite)) *game.Sprite {
-		s := game.NewSprite(sheet.Frames[frame])
+	place := func(frame string, edit func(s *sprite.Sprite)) *sprite.Sprite {
+		s := sprite.NewSprite(sheet.Frames[frame])
 		edit(&s)
 		return &s
 	}
-	batch := &game.Batch{Atlas: sheet, Sprites: []*game.Sprite{
+	batch := &sprite.Batch{Atlas: sheet, Sprites: []*sprite.Sprite{
 		// Listed first, drawn last.
-		sprite("hero", func(s *game.Sprite) { s.X, s.Y, s.Z = 10, 20, 1 }),
-		sprite("hero", func(s *game.Sprite) { s.X, s.Y, s.OriginX, s.OriginY, s.ScaleX, s.ScaleY = 50, 50, 8, 8, 2, 2 }),
-		sprite("hero", func(s *game.Sprite) { s.X, s.Y, s.OriginX, s.OriginY, s.Rotation = 100, 100, 8, 8, math.Pi/2 }),
-		sprite("coin", func(s *game.Sprite) { s.X, s.FlipX = 200, true }),
-		sprite("coin", func(s *game.Sprite) { s.X, s.Y, s.Alpha = 300, 40, 0.5 }),
-		sprite("hero", func(s *game.Sprite) { s.Alpha = 0 }),
-		sprite("hero", func(s *game.Sprite) { s.Frame = game.Frame{} }),
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.Z = 10, 20, 1 }),
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.OriginX, s.OriginY, s.ScaleX, s.ScaleY = 50, 50, 8, 8, 2, 2 }),
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.OriginX, s.OriginY, s.Rotation = 100, 100, 8, 8, math.Pi/2 }),
+		place("coin", func(s *sprite.Sprite) { s.X, s.FlipX = 200, true }),
+		place("coin", func(s *sprite.Sprite) { s.X, s.Y, s.Alpha = 300, 40, 0.5 }),
+		place("hero", func(s *sprite.Sprite) { s.Alpha = 0 }),
+		place("hero", func(s *sprite.Sprite) { s.Frame = sprite.Frame{} }),
 	}}
 	first := batch.Sprites[0]
 	img := sheet.Image
@@ -95,9 +97,9 @@ func sameOps(t *testing.T, got, want []core.DrawOp) {
 }
 
 func TestNewSpriteDrawsTheFrameAtItsTopLeft(t *testing.T) {
-	s := game.NewSprite(sheet.Frames["coin"])
+	s := sprite.NewSprite(sheet.Frames["coin"])
 	s.X, s.Y = 7, 9
-	b := game.Batch{Atlas: sheet, Sprites: []*game.Sprite{&s}}
+	b := sprite.Batch{Atlas: sheet, Sprites: []*sprite.Sprite{&s}}
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return core.View{Children: []core.Node{
 			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(40), Height: core.Pt(40)}, Draw: func(d *core.Drawing, _ core.Size) { b.Draw(d) }},
