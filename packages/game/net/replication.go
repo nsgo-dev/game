@@ -615,6 +615,11 @@ func (c *ClientWorld) applyFull(src []byte) bool {
 		return false
 	}
 	src = src[n:]
+	// Every entity needs at least one byte of id, so a count beyond the payload
+	// is a corrupt packet, not a reason to allocate a huge map.
+	if count > uint64(len(src)) {
+		return false
+	}
 
 	entities := make(map[EntityID]EntityState, count)
 	var zero ComponentState
@@ -658,6 +663,9 @@ func (c *ClientWorld) applyDelta(src []byte) bool {
 		return false
 	}
 	src = src[n:]
+	if numDespawns > uint64(len(src)) {
+		return false
+	}
 
 	despawns := make(map[EntityID]struct{}, numDespawns)
 	for range numDespawns {
@@ -931,12 +939,11 @@ func lerp32(a, b, t float32) float32 {
 }
 
 func lerpAngle32(a, b, t float32) float32 {
-	diff := float64(b - a)
-	for diff > math.Pi {
-		diff -= 2 * math.Pi
-	}
-	for diff < -math.Pi {
-		diff += 2 * math.Pi
+	// Normalize in one step rather than by repeated subtraction, which would
+	// spin almost forever on a huge or non-finite rotation.
+	diff := math.Remainder(float64(b-a), 2*math.Pi)
+	if math.IsNaN(diff) || math.IsInf(diff, 0) {
+		return a
 	}
 	return a + float32(diff)*t
 }

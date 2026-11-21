@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -465,12 +466,16 @@ func (s *WebSocketServer) acceptLoop() {
 }
 
 func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
+	// Bound the handshake so a client that connects and sends nothing cannot
+	// occupy a goroutine and socket forever.
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	br := bufio.NewReader(conn)
 	req, err := http.ReadRequest(br)
 	if err != nil {
 		_ = conn.Close()
 		return
 	}
+	_ = conn.SetReadDeadline(time.Time{})
 	secKey := strings.TrimSpace(req.Header.Get("Sec-WebSocket-Key"))
 	if secKey == "" || !strings.EqualFold(strings.TrimSpace(req.Header.Get("Upgrade")), "websocket") {
 		_, _ = io.WriteString(conn, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
