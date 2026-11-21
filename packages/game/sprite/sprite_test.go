@@ -111,3 +111,35 @@ func TestNewSpriteDrawsTheFrameAtItsTopLeft(t *testing.T) {
 	})
 	sameOps(t, app.Find("batch").Ops, app.Find("hand").Ops)
 }
+
+func TestNewSpriteUsesTheFramesPivotAsItsOrigin(t *testing.T) {
+	atlas, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:items@2x.png"}, texturePackerHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coin := sprite.NewSprite(atlas.Frames["coin.png"])
+	if coin.OriginX != 10 || coin.OriginY != 10 {
+		t.Fatalf("coin origin is %v, %v, want 10, 10", coin.OriginX, coin.OriginY)
+	}
+	coin.X, coin.Y = 30, 40
+
+	flag := sprite.NewSprite(atlas.Frames["flag.png"])
+	if flag.OriginX != 4 || flag.OriginY != 20 {
+		t.Fatalf("flag origin is %v, %v, want 4, 20", flag.OriginX, flag.OriginY)
+	}
+	flag.X, flag.Y = 50, 60
+
+	b := sprite.Batch{Atlas: atlas, Sprites: []*sprite.Sprite{&coin, &flag}}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) { b.Draw(d) }},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
+				// coin's untrimmed box sits at 20, 30 (30-10, 40-10); its trimmed part is 4, 3 inside it.
+				d.DrawImageFrom(atlas.Image, 22, 1, 12, 14, 24, 33, 12, 14)
+				// flag's untrimmed box sits at 46, 40 (50-4, 60-20); its trimmed part is 2, 1 inside it.
+				d.DrawImageFrom(atlas.Image, 35, 1, 10, 18, 48, 41, 10, 18)
+			}},
+		}}
+	})
+	sameOps(t, app.Find("batch").Ops, app.Find("hand").Ops)
+}
