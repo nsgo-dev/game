@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -1199,5 +1200,12 @@ func TestSkinnedAndAnimatedWithExtrasAndAllInterpolations(t *testing.T) {
 	atEnd := anim.Sample(2.0)
 	if !atEnd[2].Scale.ApproxEqual(math3d.Vec3{X: 2, Y: 3, Z: 4}, 1e-6) {
 		t.Fatalf("step scale at t=2 = %v, want (2,3,4)", atEnd[2].Scale)
+	}
+}
+
+func TestLoadRejectsUnsupportedRequiredExtension(t *testing.T) {
+	doc := []byte(`{"asset":{"version":"2.0"},"extensionsRequired":["KHR_draco_mesh_compression"],"scenes":[{"nodes":[]}],"scene":0}`)
+	if _, err := gltf.Load(doc, nil); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("Load with a required unsupported extension = %v, want an error naming it", err)
 	}
 }

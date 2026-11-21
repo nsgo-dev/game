@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -992,5 +993,87 @@ func BenchmarkSpawnDestroy100k(b *testing.B) {
 		for j := 0; j < count; j++ {
 			w.Destroy(buf[j])
 		}
+	}
+}
+
+// A world snapshot must keep parent-child links, not restore every entity as a root.
+func TestWorldSnapshotRestoresHierarchy(t *testing.T) {
+	w := entities.NewWorld()
+	registerGameCodecs(t, w)
+	if err := entities.RegisterCodec[entities.Transform2D](w, "transform2d"); err != nil {
+		t.Fatalf("RegisterCodec[Transform2D]: %v", err)
+	}
+	h := entities.NewHierarchy2D(w)
+	grand := w.Spawn()
+	parent := w.Spawn()
+	child := w.Spawn()
+	h.SetLocal(grand, entities.NewTransform2D(1, 0))
+	h.SetLocal(parent, entities.NewTransform2D(10, 0))
+	h.SetLocal(child, entities.NewTransform2D(2, 0))
+	if err := h.SetParent(parent, grand, false); err != nil {
+		t.Fatalf("SetParent(parent, grand): %v", err)
+	}
+	if err := h.SetParent(child, parent, false); err != nil {
+		t.Fatalf("SetParent(child, parent): %v", err)
+	}
+
+	snap, err := w.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	restored := entities.NewWorld()
+	registerGameCodecs(t, restored)
+	if err := entities.RegisterCodec[entities.Transform2D](restored, "transform2d"); err != nil {
+		t.Fatalf("RegisterCodec[Transform2D]: %v", err)
+	}
+	entities.NewHierarchy2D(restored)
+	if err := restored.Restore(snap); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	h2 := restored.Hierarchy2D()
+	if p, ok := h2.Parent(child); !ok || p != parent {
+		t.Fatalf("restored parent of child = %v, %v, want %v", p, ok, parent)
+	}
+	if p, ok := h2.Parent(parent); !ok || p != grand {
+		t.Fatalf("restored parent of parent = %v, %v, want %v", p, ok, grand)
+	}
+	wt, ok := entities.Get[entities.WorldTransform2D](restored, child)
+	if !ok {
+		t.Fatal("child has no world transform after restore")
+	}
+	if math.Abs(float64(wt.X-13)) > 1e-5 || math.Abs(float64(wt.Y)) > 1e-5 {
+		t.Fatalf("restored world transform = (%v, %v), want (13, 0)", wt.X, wt.Y)
+	}
+}
+
+func TestRestoreRejectsOversizedIndex(t *testing.T) {
+	w := entities.NewWorld()
+	hi := uint32(1 << 20)
+	err := w.Restore(entities.WorldSnapshot{Entities: []entities.EntitySnapshot{{Index: hi, Generation: 1}}})
+	if !errors.Is(err, entities.ErrInvalidSnapshot) {
+		t.Fatalf("Restore(oversized index) = %v, want ErrInvalidSnapshot", err)
+	}
+}
+
+func TestRestoreAdvancesDeadSlotGenerations(t *testing.T) {
+	w := entities.NewWorld()
+	registerGameCodecs(t, w)
+	a := w.Spawn()
+	w.Destroy(a)
+	_ = w.Spawn() // keeps a live entity so the snapshot is non-empty
+	snap, err := w.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if err := w.Restore(snap); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	c := w.Spawn() // reuses the freed slot
+	if c == a {
+		t.Fatalf("spawn after restore reused stale handle %v", a)
+	}
+	if w.Alive(a) {
+		t.Fatalf("stale handle %v is alive after restore", a)
 	}
 }
