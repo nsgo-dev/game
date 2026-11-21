@@ -10,6 +10,10 @@
 //     [math3d.FrustumFromMat4] (or [math3d.FrustumFromMat4NO] when
 //     [Queue.FrustumNO] is set) and discards items whose world AABB lies
 //     outside the view volume.
+//   - Software occlusion culling (#380): [OcclusionBuffer] rasterizes static
+//     [Occluder] volumes conservatively into a low-resolution CPU depth buffer,
+//     builds a max-Z Hi-Z mip pyramid, and performs O(1) zero-false-negative
+//     AABB visibility queries integrated into [Queue.BuildWithOcclusion].
 //   - Levels of detail (#247): selects the active [LODLevel] per visible item
 //     from camera distance and projected screen-height ratio with configurable
 //     hysteresis ([SelectLOD]) to eliminate boundary popping.

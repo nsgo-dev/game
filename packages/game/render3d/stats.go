@@ -7,6 +7,7 @@ import "fmt"
 type RenderStats struct {
 	TotalItems       int
 	CulledItems      int
+	Occluded         int
 	VisibleItems     int
 	OpaqueDraws      int
 	TransparentDraws int
@@ -26,6 +27,7 @@ func (s RenderStats) Add(other RenderStats) RenderStats {
 	return RenderStats{
 		TotalItems:       s.TotalItems + other.TotalItems,
 		CulledItems:      s.CulledItems + other.CulledItems,
+		Occluded:         s.Occluded + other.Occluded,
 		VisibleItems:     s.VisibleItems + other.VisibleItems,
 		OpaqueDraws:      s.OpaqueDraws + other.OpaqueDraws,
 		TransparentDraws: s.TransparentDraws + other.TransparentDraws,
@@ -43,12 +45,13 @@ func (s RenderStats) Add(other RenderStats) RenderStats {
 // Summary returns a concise human-readable diagnostic line for overlays or logs.
 func (s RenderStats) Summary() string {
 	return fmt.Sprintf(
-		"draws=%d (batches=%d transparent=%d) visible=%d/%d tris=%d verts=%d switches=pipe:%d/mat:%d mem=tex:%dB/buf:%dB",
+		"draws=%d (batches=%d transparent=%d) visible=%d/%d (occluded=%d) tris=%d verts=%d switches=pipe:%d/mat:%d mem=tex:%dB/buf:%dB",
 		s.TotalDrawCalls,
 		s.InstancedBatches,
 		s.TransparentDraws,
 		s.VisibleItems,
 		s.TotalItems,
+		s.Occluded,
 		s.Triangles,
 		s.Vertices,
 		s.PipelineSwitches,
