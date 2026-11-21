@@ -263,34 +263,91 @@ func (s *Scene) walkHits(p core.Point, yield func(HitResult) bool) {
 		if l == nil || !l.Visible || len(l.Items) == 0 {
 			continue
 		}
-		pt := p
-		if l.Space == SpaceWorld && s.Camera != nil {
-			pt = s.Camera.ViewToWorld(p)
+		entries := l.buildDrawEntries(nil)
+		if len(entries) == 0 {
+			continue
 		}
 
-		items := slices.Clone(l.Items)
-		slices.SortStableFunc(items, func(a, b Item) int {
-			return cmp.Compare(a.z(), b.z())
-		})
-
-		for ii := len(items) - 1; ii >= 0; ii-- {
-			it := items[ii]
-			if it.Drawable != nil && it.Drawable.Visible && it.Drawable.Hit != nil {
-				if it.Drawable.Hit(pt) {
-					r := HitResult{
-						Layer:     l,
-						Space:     l.Space,
-						Point:     pt,
-						ViewPoint: p,
-						Drawable:  it.Drawable,
+		if l.Space == SpaceWorld && s.Camera != nil {
+			pcam := l.parallaxCamera(s.Camera)
+			pt := pcam.ViewToWorld(p)
+			minCol, maxCol, minRow, maxRow, rx, ry := l.repeatRanges(pcam.VisibleBounds())
+			if !rx && !ry {
+				if !s.walkLayerEntries(l, entries, p, pt, yield) {
+					return
+				}
+				continue
+			}
+			if rx {
+				c := int(math.Floor(float64(pt.X) / float64(l.RepeatWidth)))
+				if c < minCol || c > maxCol {
+					minCol, maxCol = c, c
+				}
+			}
+			if ry {
+				r := int(math.Floor(float64(pt.Y) / float64(l.RepeatHeight)))
+				if r < minRow || r > maxRow {
+					minRow, maxRow = r, r
+				}
+			}
+			for row := maxRow; row >= minRow; row-- {
+				var ty float32
+				if ry {
+					ty = float32(row) * l.RepeatHeight
+				}
+				for col := maxCol; col >= minCol; col-- {
+					var tx float32
+					if rx {
+						tx = float32(col) * l.RepeatWidth
 					}
-					if !yield(r) {
+					localPt := core.Point{
+						X: pt.X - core.Points(tx),
+						Y: pt.Y - core.Points(ty),
+					}
+					if !s.walkLayerEntries(l, entries, p, localPt, yield) {
 						return
 					}
 				}
 			}
-			if it.Batch != nil && len(it.Batch.Sprites) > 0 {
-				sprites := slices.Clone(it.Batch.Sprites)
+			continue
+		}
+
+		pt := core.Point{
+			X: p.X - core.Points(l.OffsetX),
+			Y: p.Y - core.Points(l.OffsetY),
+		}
+		if !s.walkLayerEntries(l, entries, p, pt, yield) {
+			return
+		}
+	}
+}
+
+func (s *Scene) walkLayerEntries(l *Layer, entries []drawEntry, viewP, localP core.Point, yield func(HitResult) bool) bool {
+	for ei := len(entries) - 1; ei >= 0; ei-- {
+		e := entries[ei]
+		switch e.kind {
+		case entryDrawable:
+			if e.drawable != nil && e.drawable.Visible && e.drawable.Hit != nil {
+				if e.drawable.Hit(localP) {
+					r := HitResult{
+						Layer:     l,
+						Space:     l.Space,
+						Point:     localP,
+						ViewPoint: viewP,
+						Drawable:  e.drawable,
+					}
+					if !yield(r) {
+						return false
+					}
+				}
+			}
+		case entrySprite:
+			if !s.testSpriteHit(l, e.batch, e.sprite, viewP, localP, yield) {
+				return false
+			}
+		case entryBatch:
+			if e.batch != nil && len(e.batch.Sprites) > 0 {
+				sprites := slices.Clone(e.batch.Sprites)
 				slices.SortStableFunc(sprites, func(a, b *sprite.Sprite) int {
 					var az, bz int
 					if a != nil {
@@ -302,40 +359,45 @@ func (s *Scene) walkHits(p core.Point, yield func(HitResult) bool) {
 					return cmp.Compare(az, bz)
 				})
 				for si := len(sprites) - 1; si >= 0; si-- {
-					sp := sprites[si]
-					if sp == nil {
-						continue
-					}
-					var opts HitOptions
-					if s.spriteHits != nil {
-						opts = s.spriteHits[sp]
-					}
-					if opts.Ignore {
-						continue
-					}
-					var matched bool
-					if opts.Hit != nil {
-						matched = opts.Hit(pt)
-					} else {
-						matched = SpriteContains(sp, pt)
-					}
-					if matched {
-						r := HitResult{
-							Layer:     l,
-							Space:     l.Space,
-							Point:     pt,
-							ViewPoint: p,
-							Sprite:    sp,
-							Batch:     it.Batch,
-						}
-						if !yield(r) {
-							return
-						}
+					if !s.testSpriteHit(l, e.batch, sprites[si], viewP, localP, yield) {
+						return false
 					}
 				}
 			}
 		}
 	}
+	return true
+}
+
+func (s *Scene) testSpriteHit(l *Layer, batch *sprite.Batch, sp *sprite.Sprite, viewP, localP core.Point, yield func(HitResult) bool) bool {
+	if sp == nil {
+		return true
+	}
+	var opts HitOptions
+	if s.spriteHits != nil {
+		opts = s.spriteHits[sp]
+	}
+	if opts.Ignore {
+		return true
+	}
+	var matched bool
+	if opts.Hit != nil {
+		matched = opts.Hit(localP)
+	} else {
+		matched = SpriteContains(sp, localP)
+	}
+	if !matched {
+		return true
+	}
+	r := HitResult{
+		Layer:     l,
+		Space:     l.Space,
+		Point:     localP,
+		ViewPoint: viewP,
+		Sprite:    sp,
+		Batch:     batch,
+	}
+	return yield(r)
 }
 
 // DispatchPress hit-tests ev.Position and invokes the topmost hit target's OnPress callback when set, returning whether a callback ran.

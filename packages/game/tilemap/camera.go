@@ -212,6 +212,21 @@ func (c *Camera) ShakeOffset() core.Point {
 	return core.Point{X: core.Points(c.shakeX), Y: core.Points(c.shakeY)}
 }
 
+// Parallax returns a Camera with c's zoom, rotation, and viewport size whose position (including any active shake offset) is scaled by factorX and factorY.
+func (c *Camera) Parallax(factorX, factorY float32) Camera {
+	if c == nil {
+		return Camera{}
+	}
+	return Camera{
+		X:        (c.X + c.shakeX) * factorX,
+		Y:        (c.Y + c.shakeY) * factorY,
+		Zoom:     c.Zoom,
+		Rotation: c.Rotation,
+		Width:    c.Width,
+		Height:   c.Height,
+	}
+}
+
 func (c *Camera) sampleShake(decay float64) {
 	r := (0.5 + 0.5*c.shakeRNG.Float64()) * float64(c.shakeIntensity) * decay
 	theta := c.shakeRNG.Float64() * 2 * math.Pi
