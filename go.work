@@ -6,5 +6,6 @@ use (
 	./examples/starburst
 	./examples/slidegem
 	./examples/cryptquest
+	./examples/caverun
 )
 
