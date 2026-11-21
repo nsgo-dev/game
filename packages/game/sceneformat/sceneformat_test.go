@@ -402,6 +402,7 @@ func TestValidationErrors(t *testing.T) {
 		{name: "top_level_tilemap_ref", yaml: "version: 1\ntilemaps:\n  m:\n    ref: other\n", wantSub: "cannot use ref"},
 		{name: "tilemap_mixed_modes", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      source: a.tmj\n      tileset: cave_tiles\n", wantSub: "cannot combine"},
 		{name: "tilemap_bad_data_len", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 2\n      tileset: cave_tiles\n      data: [1, 2, 3]\n", wantSub: "3 tile entries"},
+		{name: "tilemap_dimensions_overflow", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 100000000\n      height: 100000000\n      tileset: cave_tiles\n      data: []\n", wantSub: "more than"},
 		{name: "tilemap_negative_gid", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: cave_tiles\n      data: [1, -1]\n", wantSub: "negative id"},
 	}
 	for _, tc := range cases {
