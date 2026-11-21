@@ -1,12 +1,18 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { GITHUB_URL, NSGO_URL } from '../links'
+import { copies } from '../copy'
+import { routes, useLang } from '../i18n'
+import { GITHUB_URL, nsgoUrl } from '../links'
 import { Logo } from './Brand'
 import { Icon } from './Icon'
+import { LanguageSwitch } from './LanguageSwitch'
 import { ThemeSwitch } from './ThemeSwitch'
 
-// nsgo.dev's header: the mark and the name, the pages, then the appearance menu and GitHub. Narrow screens fold the pages under a menu button.
+// nsgo.dev's header: the mark and the name, the pages, then the language and appearance menus and GitHub. Narrow screens fold the pages under a menu button.
 export function Header() {
+  const lang = useLang()
+  const copy = copies[lang].nav
+  const to = routes[lang]
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
@@ -35,30 +41,31 @@ export function Header() {
   return (
     <header className={className} id="top">
       <div className="container header__inner">
-        <Link className="brand" to="/" aria-label="NSGo Game">
+        <Link className="brand" to={to.home} aria-label="NSGo Game">
           <Logo size={26} />
           <span className="brand__name">NSGo Game</span>
         </Link>
 
-        <nav id="site-menu" className="header__links" aria-label="Primary">
-          <Link to="/" activeOptions={{ exact: true }} activeProps={current} onClick={close}>
-            Home
+        <nav id="site-menu" className="header__links" aria-label={copy.primary}>
+          <Link to={to.home} activeOptions={{ exact: true }} activeProps={current} onClick={close}>
+            {copy.home}
           </Link>
-          <Link to="/docs/" activeProps={current} onClick={close}>
-            Docs
+          <Link to={to.docs} activeProps={current} onClick={close}>
+            {copy.docs}
           </Link>
-          <Link to="/roadmap/" activeProps={current} onClick={close}>
-            Roadmap
+          <Link to={to.roadmap} activeProps={current} onClick={close}>
+            {copy.roadmap}
           </Link>
-          <a href={NSGO_URL} target="_blank" rel="noopener noreferrer" onClick={close}>
-            NSGo
+          <a href={nsgoUrl(lang)} target="_blank" rel="noopener noreferrer" onClick={close}>
+            {copy.nsgo}
             <Icon name="external" size={13} className="header__external" />
           </a>
         </nav>
 
         <div className="header__actions">
+          <LanguageSwitch />
           <ThemeSwitch />
-          <a className="header__github" href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+          <a className="header__github" href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label={copy.github}>
             <Icon name="github" size={18} />
           </a>
           <button
@@ -66,7 +73,7 @@ export function Header() {
             className="icon-button header__burger"
             aria-expanded={open}
             aria-controls="site-menu"
-            aria-label={open ? 'Close menu' : 'Menu'}
+            aria-label={open ? copy.close : copy.menu}
             onClick={() => setOpen((was) => !was)}
           >
             <Icon name="menu" size={18} className="header__burger-open" />

@@ -1,7 +1,8 @@
 // The modules plugins/content.ts serves.
 
 declare module 'virtual:docs' {
-  export const docs: import('./types').DocPage[]
+  // Each language's pages, in the same order.
+  export const docs: Record<import('../i18n').Lang, import('./types').DocPage[]>
 }
 
 declare module 'virtual:snippets' {
