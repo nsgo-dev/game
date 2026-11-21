@@ -78,10 +78,25 @@ export function siteContent(): Plugin {
 
 // ---- Docs ----
 
+// Sidebar order for the docs; any additional pages sort alphabetically after these.
+const DOC_ORDER = [
+  'index.md',
+  'getting-started.md',
+  'packages.md',
+  'loop.md',
+  'sprite.md',
+  'sound.md',
+  '3d-models-blender.md',
+  'shipping.md',
+] as const
+
 async function markdownFiles(dir: string): Promise<string[]> {
   const files = (await readdir(dir)).filter((f) => f.endsWith('.md'))
-  // index first, the rest by name.
-  return files.sort((a, b) => (a === 'index.md' ? -1 : b === 'index.md' ? 1 : a.localeCompare(b)))
+  const rankOf = (file: string) => {
+    const idx = DOC_ORDER.indexOf(file as (typeof DOC_ORDER)[number])
+    return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER
+  }
+  return files.sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b))
 }
 
 // Each language lists English's pages in English's order, its own translation where it has one.
