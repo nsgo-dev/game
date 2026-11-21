@@ -1,0 +1,71 @@
+# lights2d
+
+`game/lights2d` 为 NSGo 画布提供 2D 光照能力：环境暗场层、点光源与聚光灯、基于遮挡体的精确 2D 可见性多边形阴影，以及 CPU 切线空间法线贴图精灵着色。
+
+```go
+import "github.com/nsgo-dev/game/packages/game/lights2d"
+```
+
+## 环境暗场、点光源与聚光灯
+
+创建带有 `Ambient` 环境色与 `*Light` 列表的 `Scene`，在 `Canvas.Draw` 中绘制完 2D 世界后叠加绘制：
+
+```go
+torch := lights2d.NewLight(160, 120, 180, core.RGB(255, 196, 120))
+torch.CastShadows = true
+
+flashlight := lights2d.NewLight(240, 140, 260, core.RGB(220, 235, 255))
+flashlight.ConeAngle = 0          // 弧度：0 为 +X，pi/2 为 +Y
+flashlight.ConeSpread = math.Pi / 3
+flashlight.CastShadows = true
+
+lighting := &lights2d.Scene{
+	Ambient: core.RGBA(12, 16, 30, 0.85),
+	Lights:  []*lights2d.Light{torch, flashlight},
+}
+
+// 在 Canvas.Draw 中绘制完瓦片和精灵之后：
+lighting.Draw(d, worldBounds)
+```
+
+- `NewLight(x, y, radius, color)` 创建默认启用的全向点光源，`Intensity: 1`，二次衰减 `Falloff: 2`。
+- 将 `ConeSpread` 设为 `(0, 2*math.Pi)` 即可变为方向聚光灯，沿 `ConeAngle` 做 smoothstep 角度衰减。
+- 可用 `light.AttenuationAt(x, y)` 或 `scene.EvaluateAt(x, y)` 在 CPU 侧查询任意世界坐标的精确照度。
+
+## 可见性多边形阴影遮挡体
+
+通过 `RectOccluder`、`PolygonOccluder` 或 `SegmentOccluder` 将墙体、柱子或瓦片碰撞体加入 `Scene.Occluders`：
+
+```go
+lighting.Occluders = []lights2d.Occluder{
+	lights2d.RectOccluder(core.Bounds{Origin: core.Point{X: 200, Y: 90}, Size: core.Size{Width: 48, Height: 64}}),
+	lights2d.SegmentOccluder(lights2d.Segment{
+		A: core.Point{X: 80, Y: 180},
+		B: core.Point{X: 160, Y: 180},
+	}),
+}
+```
+
+当 `light.CastShadows` 为 `true` 时，`Scene.Draw` 会用 `VisibilityPolygon(origin, radius, occluders)` 裁剪该光源。你也可以直接调用几何辅助函数实现潜行视野、视线判断或战争迷雾：
+
+| 函数 | 用途 |
+| --- | --- |
+| `VisibilityPolygon(origin, radius, occluders)` | 计算从 `origin` 出发在 `radius` 范围内的有序 2D 可见多边形。 |
+| `Visible(origin, target, occluders)` | 判断 `origin` 到 `target` 的连线是否被遮挡体阻断。 |
+| `PointInPolygon(p, poly)` | 测试点 `p` 是否位于可见多边形内。 |
+
+## 法线贴图精灵
+
+为像素画或手绘 2D 精灵配上一张切线空间法线贴图（`*image.NRGBA`），即可获得随光源方向变化的立体高光与凹凸感：
+
+```go
+knight := lights2d.NewNormalSprite(diffuseImg, normalMapImg)
+knight.X = 160
+knight.Y = 120
+knight.LightZ = 48 // 光源相对精灵平面的虚拟 Z 高度
+
+// 在 Canvas.Draw 中：
+knight.Draw(d, lighting)
+```
+
+`NormalSprite` 会缓存 CPU 着色后的像素缓冲，仅当精灵坐标、`LightZ`、环境光或影响范围内的光源/遮挡体变化时才重新计算。若原地修改了 `Diffuse` 或 `NormalMap` 像素，请调用 `knight.Invalidate()`；若需离线烘焙自定义缓冲，可直接调用 `ShadeNormalMap`、`ShadeNormalMapWithOccluders` 或 `scene.ShadeNormalMap`。

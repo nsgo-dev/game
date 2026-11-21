@@ -1,0 +1,71 @@
+# lights2d
+
+`game/lights2d` adds 2D lighting to NSGo canvases: an ambient darkness layer, point and directional cone lights, exact 2D visibility-polygon shadows from occluders, and CPU tangent-space normal-mapped sprite shading.
+
+```go
+import "github.com/nsgo-dev/game/packages/game/lights2d"
+```
+
+## Ambient layer, point lights, and spotlights
+
+Create a `Scene` with an `Ambient` color and a slice of `*Light`, then draw it over your 2D world inside `Canvas.Draw`:
+
+```go
+torch := lights2d.NewLight(160, 120, 180, core.RGB(255, 196, 120))
+torch.CastShadows = true
+
+flashlight := lights2d.NewLight(240, 140, 260, core.RGB(220, 235, 255))
+flashlight.ConeAngle = 0          // radians: 0 = +X, pi/2 = +Y
+flashlight.ConeSpread = math.Pi / 3
+flashlight.CastShadows = true
+
+lighting := &lights2d.Scene{
+	Ambient: core.RGBA(12, 16, 30, 0.85),
+	Lights:  []*lights2d.Light{torch, flashlight},
+}
+
+// Inside Canvas.Draw, after drawing tiles and sprites:
+lighting.Draw(d, worldBounds)
+```
+
+- `NewLight(x, y, radius, color)` creates an enabled omnidirectional light with `Intensity: 1` and quadratic `Falloff: 2`.
+- Setting `ConeSpread` in `(0, 2*math.Pi)` turns a light into a directional spotlight with smoothstep angular falloff around `ConeAngle`.
+- Query exact CPU illumination at any world coordinate with `light.AttenuationAt(x, y)` or `scene.EvaluateAt(x, y)`.
+
+## Visibility-polygon shadow casters
+
+Populate `Scene.Occluders` from walls, pillars, or tile colliders using `RectOccluder`, `PolygonOccluder`, or `SegmentOccluder`:
+
+```go
+lighting.Occluders = []lights2d.Occluder{
+	lights2d.RectOccluder(core.Bounds{Origin: core.Point{X: 200, Y: 90}, Size: core.Size{Width: 48, Height: 64}}),
+	lights2d.SegmentOccluder(lights2d.Segment{
+		A: core.Point{X: 80, Y: 180},
+		B: core.Point{X: 160, Y: 180},
+	}),
+}
+```
+
+When `light.CastShadows` is `true`, `Scene.Draw` clips that light against `VisibilityPolygon(origin, radius, occluders)`. You can also call the geometry helpers directly for stealth, line-of-sight, or fog-of-war checks:
+
+| Helper | Purpose |
+| --- | --- |
+| `VisibilityPolygon(origin, radius, occluders)` | Returns the ordered 2D polygon visible from `origin` within `radius`. |
+| `Visible(origin, target, occluders)` | Reports whether the segment from `origin` to `target` is unobstructed. |
+| `PointInPolygon(p, poly)` | Tests whether point `p` lies inside a visibility polygon. |
+
+## Normal-mapped sprites
+
+Give 2D pixel art or painted sprites directional rim and bump highlights using a tangent-space normal map (`*image.NRGBA`):
+
+```go
+knight := lights2d.NewNormalSprite(diffuseImg, normalMapImg)
+knight.X = 160
+knight.Y = 120
+knight.LightZ = 48 // virtual Z height of lights above the sprite plane
+
+// Inside Canvas.Draw:
+knight.Draw(d, lighting)
+```
+
+`NormalSprite` caches the CPU-shaded pixel buffer and only re-shades when the sprite position, `LightZ`, ambient color, or affecting lights/occluders change. Call `knight.Invalidate()` if you mutate `Diffuse` or `NormalMap` pixels in place, or use `ShadeNormalMap`, `ShadeNormalMapWithOccluders`, and `scene.ShadeNormalMap` directly when baking custom buffers.
