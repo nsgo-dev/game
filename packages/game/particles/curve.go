@@ -12,6 +12,9 @@ type FloatStop struct {
 // An empty curve returns 1 at any age.
 type FloatCurve []FloatStop
 
+// Curve is an alias for FloatCurve.
+type Curve = FloatCurve
+
 // At returns the curve's value at normalized age t, clamped to [0, 1].
 func (c FloatCurve) At(t float32) float32 {
 	if len(c) == 0 {

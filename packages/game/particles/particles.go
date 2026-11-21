@@ -19,7 +19,7 @@ const (
 type Particle struct {
 	// Frame is the atlas frame this particle draws.
 	Frame sprite.Frame
-	// X and Y are the particle's position in the drawing.
+	// X and Y are the particle's position in the drawing (or emitter-local coordinates when Emitter.Space is SpaceLocal).
 	X, Y float32
 	// VX and VY are the particle's velocity in points per second.
 	VX, VY float32
@@ -46,12 +46,16 @@ type Particle struct {
 //
 // Two emitters configured with the same fields and Seed and stepped identically produce bit-for-bit identical particles and draw operations.
 type Emitter struct {
-	// Atlas holds the image that Frames reference. Draw does nothing when Atlas is nil.
+	// Atlas holds the image that Frames reference. Draw skips particle sprites when Atlas is nil.
 	Atlas *sprite.Atlas
 	// Frames are the atlas frames particles choose from at spawn time.
 	Frames []sprite.Frame
 	// X and Y are the emitter's position in the drawing.
 	X, Y float32
+	// Rotation is the emitter's rotation in radians, clockwise on the screen.
+	Rotation float32
+	// Space controls whether particles simulate in world space (SpaceWorld, default) or emitter-local space (SpaceLocal).
+	Space SimulationSpace
 	// Shape controls where particles spawn relative to X, Y; its zero value is Point.
 	Shape Shape
 	// Rate is how many particles emit per second during Update; 0 or less disables continuous emission.
@@ -83,6 +87,12 @@ type Emitter struct {
 	Seed uint64
 	// Z sets the sprite Z order used when drawing this emitter's particles.
 	Z int
+	// Collision configures optional particle collision detection and response against a Collider.
+	Collision CollisionConfig
+	// Trail, when non-nil, automatically attaches a 2D ribbon trail to each emitted particle.
+	Trail *TrailConfig
+	// SubEmitters configures child bursts triggered on particle birth, death, or collision.
+	SubEmitters []SubEmitterRule
 
 	particles []Particle
 	sprites   []sprite.Sprite
@@ -90,32 +100,194 @@ type Emitter struct {
 	rng       *rand.Rand
 	seeded    bool
 	emitAcc   float64
+
+	attachFn          func() (float32, float32)
+	attachTransformFn func() (float32, float32, float32)
+	prevX, prevY      float32
+	hasPrevPos        bool
+
+	particleTrails []*Trail
+	fadingTrails   []*Trail
+	trailPool      []*Trail
+
+	children []*Emitter
+	subDepth int
 }
 
-// Update advances live particles by dt, removes expired ones, and emits new particles at Rate.
+// Update advances live particles by dt, removes expired ones, resolves collisions, updates trails and sub-emitters, and emits new particles at Rate.
 // Non-positive dt does nothing.
 func (e *Emitter) Update(dt time.Duration) {
 	if dt <= 0 {
 		return
 	}
+
+	// Sync position/rotation from any attached target.
+	if e.attachTransformFn != nil {
+		if !e.hasPrevPos {
+			e.prevX, e.prevY = e.X, e.Y
+			e.hasPrevPos = true
+		}
+		e.X, e.Y, e.Rotation = e.attachTransformFn()
+	} else if e.attachFn != nil {
+		if !e.hasPrevPos {
+			e.prevX, e.prevY = e.X, e.Y
+			e.hasPrevPos = true
+		}
+		e.X, e.Y = e.attachFn()
+	}
+
+	// Advance existing child sub-emitters before triggering new bursts from this step's events.
+	for _, ch := range e.children {
+		if ch != nil {
+			ch.Update(dt)
+		}
+	}
+
 	dtSec := float32(dt.Seconds())
+
+	// Update fading trails from previously expired particles.
+	if len(e.fadingTrails) > 0 {
+		fw := 0
+		for _, tr := range e.fadingTrails {
+			tr.Update(dtSec)
+			if tr.PointCount() > 0 {
+				e.fadingTrails[fw] = tr
+				fw++
+			} else {
+				e.releaseTrail(tr)
+			}
+		}
+		clear(e.fadingTrails[fw:])
+		e.fadingTrails = e.fadingTrails[:fw]
+	}
+
+	collideActive := e.Collision.Enabled && e.Collision.Mode != CollideNone && e.Collision.Collider != nil
+	hasSubs := len(e.SubEmitters) > 0 && e.subDepth < maxSubEmitterDepth
+	hasTrails := e.Trail != nil || len(e.particleTrails) > 0
+	isLocal := e.Space == SpaceLocal
+
 	write := 0
 	for i := range e.particles {
 		p := e.particles[i]
+		var tr *Trail
+		if hasTrails && i < len(e.particleTrails) {
+			tr = e.particleTrails[i]
+		}
+
 		p.Age += dt
 		if p.Age >= p.Lifetime {
+			if tr != nil {
+				tr.Update(dtSec)
+				if tr.PointCount() > 0 {
+					e.fadingTrails = append(e.fadingTrails, tr)
+				} else {
+					e.releaseTrail(tr)
+				}
+			}
+			if hasSubs {
+				wx, wy := e.localToWorld(p.X, p.Y)
+				wvx, wvy := e.localVelToWorld(p.VX, p.VY)
+				e.triggerSubEmitters(TriggerOnDeath, wx, wy, wvx, wvy)
+			}
 			continue
 		}
+
+		prevPX, prevPY := p.X, p.Y
 		p.VX += e.GravityX * dtSec
 		p.VY += e.GravityY * dtSec
 		p.X += p.VX * dtSec
 		p.Y += p.VY * dtSec
+
+		if collideActive {
+			wPrevX, wPrevY := prevPX, prevPY
+			wx, wy := p.X, p.Y
+			if isLocal {
+				wPrevX, wPrevY = e.localToWorld(prevPX, prevPY)
+				wx, wy = e.localToWorld(p.X, p.Y)
+			}
+			hit, hitX, hitY, nx, ny := e.Collision.Collider.ResolveParticle(wPrevX, wPrevY, wx, wy, e.Collision.Radius)
+			if hit {
+				var wvx, wvy float32
+				if hasSubs {
+					wvx, wvy = e.localVelToWorld(p.VX, p.VY)
+					e.triggerSubEmitters(TriggerOnCollision, hitX, hitY, wvx, wvy)
+				}
+				switch e.Collision.Mode {
+				case CollideKill:
+					if tr != nil {
+						tr.Update(dtSec)
+						if tr.PointCount() > 0 {
+							e.fadingTrails = append(e.fadingTrails, tr)
+						} else {
+							e.releaseTrail(tr)
+						}
+					}
+					if hasSubs {
+						e.triggerSubEmitters(TriggerOnDeath, hitX, hitY, wvx, wvy)
+					}
+					continue
+				case CollideStop:
+					if isLocal {
+						p.X, p.Y = e.worldToLocal(hitX, hitY)
+					} else {
+						p.X, p.Y = hitX, hitY
+					}
+					p.VX, p.VY = 0, 0
+				case CollideBounce:
+					lnx, lny := nx, ny
+					if isLocal {
+						p.X, p.Y = e.worldToLocal(hitX, hitY)
+						lnx, lny = e.worldDirToLocal(nx, ny)
+					} else {
+						p.X, p.Y = hitX, hitY
+					}
+					vn := p.VX*lnx + p.VY*lny
+					if vn < 0 {
+						restitution := e.Collision.Bounce
+						if restitution < 0 {
+							restitution = 0
+						}
+						friction := clamp01(e.Collision.Friction)
+						tx := p.VX - vn*lnx
+						ty := p.VY - vn*lny
+						damp := 1 - friction
+						tx *= damp
+						ty *= damp
+						vnNew := -vn * restitution
+						p.VX = tx + vnNew*lnx
+						p.VY = ty + vnNew*lny
+					}
+				}
+			}
+		}
+
 		e.evalCurves(&p)
 		e.particles[write] = p
+		if hasTrails {
+			if tr == nil && e.Trail != nil {
+				tr = e.acquireTrail(*e.Trail)
+				tr.AddPoint(prevPX, prevPY)
+			}
+			if tr != nil {
+				tr.Update(dtSec)
+				tr.AddPoint(p.X, p.Y)
+			}
+			if write < len(e.particleTrails) {
+				e.particleTrails[write] = tr
+			} else {
+				e.particleTrails = append(e.particleTrails, tr)
+			}
+		}
 		write++
 	}
 	clear(e.particles[write:])
 	e.particles = e.particles[:write]
+	if hasTrails {
+		if write < len(e.particleTrails) {
+			clear(e.particleTrails[write:])
+			e.particleTrails = e.particleTrails[:write]
+		}
+	}
 
 	if e.Rate > 0 {
 		e.emitAcc += float64(e.Rate) * dt.Seconds()
@@ -129,16 +301,34 @@ func (e *Emitter) Update(dt time.Duration) {
 			if n > 0 {
 				e.initRNG()
 				e.ensureCap()
-				for range n {
-					e.spawn()
+				interpolate := !isLocal && e.hasPrevPos && n > 1 && (e.prevX != e.X || e.prevY != e.Y)
+				if interpolate {
+					dx := e.X - e.prevX
+					dy := e.Y - e.prevY
+					invN := float32(1) / float32(n)
+					for k := range n {
+						frac := float32(k+1) * invN
+						e.spawnAt(e.prevX+dx*frac, e.prevY+dy*frac, 0, 0)
+					}
+				} else {
+					for range n {
+						e.spawnAt(e.X, e.Y, 0, 0)
+					}
 				}
 			}
 		}
 	}
+
+	e.prevX, e.prevY = e.X, e.Y
+	e.hasPrevPos = true
 }
 
 // Burst immediately emits up to count particles without waiting for Update or requiring Rate > 0, stopping at MaxParticles.
 func (e *Emitter) Burst(count int) {
+	e.burstWithInheritedVel(count, 0, 0)
+}
+
+func (e *Emitter) burstWithInheritedVel(count int, ivx, ivy float32) {
 	if count <= 0 {
 		return
 	}
@@ -152,75 +342,151 @@ func (e *Emitter) Burst(count int) {
 	e.initRNG()
 	e.ensureCap()
 	for range count {
-		e.spawn()
+		e.spawnAt(e.X, e.Y, ivx, ivy)
 	}
 }
 
-// Draw draws all live particles into d through a reusable sprite.Batch, oldest first.
+// Draw draws particle trails, all live particles through a reusable sprite.Batch (oldest first), and any managed child sub-emitters into d.
 func (e *Emitter) Draw(d *core.Drawing) {
-	if e.Atlas == nil || len(e.particles) == 0 {
+	if d == nil {
 		return
 	}
-	n := len(e.particles)
-	capWant := max(n, e.maxParticles())
-	if cap(e.sprites) < n {
-		e.sprites = make([]sprite.Sprite, n, capWant)
-	} else {
-		e.sprites = e.sprites[:n]
-	}
-	if cap(e.batch.Sprites) < n {
-		e.batch.Sprites = make([]*sprite.Sprite, n, capWant)
-	} else {
-		e.batch.Sprites = e.batch.Sprites[:n]
-	}
-	for i := range e.particles {
-		p := &e.particles[i]
-		ox, oy := p.Frame.Width/2, p.Frame.Height/2
-		if ox == 0 {
-			ox = p.Frame.W / 2
+
+	if len(e.fadingTrails) > 0 || len(e.particleTrails) > 0 {
+		localTrail := e.Space == SpaceLocal
+		if localTrail {
+			d.Save()
+			d.Translate(e.X, e.Y)
+			if e.Rotation != 0 {
+				d.Rotate(e.Rotation)
+			}
 		}
-		if oy == 0 {
-			oy = p.Frame.H / 2
+		for _, tr := range e.fadingTrails {
+			if tr != nil {
+				tr.Draw(d)
+			}
 		}
-		e.sprites[i] = sprite.Sprite{
-			Frame:    p.Frame,
-			X:        p.X,
-			Y:        p.Y,
-			OriginX:  ox,
-			OriginY:  oy,
-			Rotation: p.Rotation,
-			ScaleX:   p.Size,
-			ScaleY:   p.Size,
-			Alpha:    p.Alpha,
-			Z:        e.Z,
+		for _, tr := range e.particleTrails {
+			if tr != nil {
+				tr.Draw(d)
+			}
 		}
-		e.batch.Sprites[i] = &e.sprites[i]
+		if localTrail {
+			d.Restore()
+		}
 	}
-	e.batch.Atlas = e.Atlas
-	e.batch.Draw(d)
+
+	if e.Atlas != nil && len(e.particles) > 0 {
+		n := len(e.particles)
+		capWant := max(n, e.maxParticles())
+		if cap(e.sprites) < n {
+			e.sprites = make([]sprite.Sprite, n, capWant)
+		} else {
+			e.sprites = e.sprites[:n]
+		}
+		if cap(e.batch.Sprites) < n {
+			e.batch.Sprites = make([]*sprite.Sprite, n, capWant)
+		} else {
+			e.batch.Sprites = e.batch.Sprites[:n]
+		}
+
+		isLocal := e.Space == SpaceLocal
+		var sinR, cosR float32
+		hasLocalRot := isLocal && e.Rotation != 0
+		if hasLocalRot {
+			sn, cs := math.Sincos(float64(e.Rotation))
+			sinR, cosR = float32(sn), float32(cs)
+		}
+
+		for i := range e.particles {
+			p := &e.particles[i]
+			ox, oy := p.Frame.Width/2, p.Frame.Height/2
+			if ox == 0 {
+				ox = p.Frame.W / 2
+			}
+			if oy == 0 {
+				oy = p.Frame.H / 2
+			}
+			sx, sy, srot := p.X, p.Y, p.Rotation
+			if isLocal {
+				if hasLocalRot {
+					sx = e.X + cosR*p.X - sinR*p.Y
+					sy = e.Y + sinR*p.X + cosR*p.Y
+					srot = p.Rotation + e.Rotation
+				} else {
+					sx = e.X + p.X
+					sy = e.Y + p.Y
+				}
+			}
+			e.sprites[i] = sprite.Sprite{
+				Frame:    p.Frame,
+				X:        sx,
+				Y:        sy,
+				OriginX:  ox,
+				OriginY:  oy,
+				Rotation: srot,
+				ScaleX:   p.Size,
+				ScaleY:   p.Size,
+				Alpha:    p.Alpha,
+				Z:        e.Z,
+			}
+			e.batch.Sprites[i] = &e.sprites[i]
+		}
+		e.batch.Atlas = e.Atlas
+		e.batch.Draw(d)
+	}
+
+	for _, ch := range e.children {
+		if ch != nil {
+			ch.Draw(d)
+		}
+	}
 }
 
-// Count returns the number of currently live particles.
+// Count returns the number of currently live particles in this emitter (excluding child sub-emitters).
 func (e *Emitter) Count() int { return len(e.particles) }
 
 // Particles returns the live particles in spawn order.
 // The returned slice is backed by the emitter's storage and reused on subsequent updates; copy it to retain a snapshot.
 func (e *Emitter) Particles() []Particle { return e.particles }
 
-// Clear removes all live particles and resets the fractional emission accumulator without resetting the PRNG.
+// Clear removes all live particles, trails, and child sub-emitter particles, and resets the fractional emission accumulator without resetting the PRNG.
 func (e *Emitter) Clear() {
 	clear(e.particles)
 	e.particles = e.particles[:0]
 	clear(e.batch.Sprites)
 	e.batch.Sprites = e.batch.Sprites[:0]
 	e.emitAcc = 0
+	e.hasPrevPos = false
+
+	for _, tr := range e.particleTrails {
+		e.releaseTrail(tr)
+	}
+	clear(e.particleTrails)
+	e.particleTrails = e.particleTrails[:0]
+	for _, tr := range e.fadingTrails {
+		e.releaseTrail(tr)
+	}
+	clear(e.fadingTrails)
+	e.fadingTrails = e.fadingTrails[:0]
+
+	for _, ch := range e.children {
+		if ch != nil {
+			ch.Clear()
+		}
+	}
 }
 
-// Reset clears all live particles and re-seeds the PRNG from Seed so subsequent updates replay identically.
+// Reset clears all live particles, trails, and child sub-emitters and re-seeds the PRNG from Seed so subsequent updates replay identically.
 func (e *Emitter) Reset() {
 	e.Clear()
 	e.rng = nil
 	e.seeded = false
+	for _, ch := range e.children {
+		if ch != nil {
+			ch.Reset()
+		}
+	}
 }
 
 func (e *Emitter) maxParticles() int {
@@ -246,7 +512,7 @@ func (e *Emitter) ensureCap() {
 	}
 }
 
-func (e *Emitter) spawn() {
+func (e *Emitter) spawnAt(originX, originY, ivx, ivy float32) {
 	var frame sprite.Frame
 	switch len(e.Frames) {
 	case 0:
@@ -259,20 +525,56 @@ func (e *Emitter) spawn() {
 	dx, dy := e.Shape.sample(e.rng)
 	speed := e.randFloat(e.SpeedMin, e.SpeedMax)
 	angle := e.randFloat(e.AngleMin, e.AngleMax)
+
+	var px, py float32
+	if e.Space == SpaceLocal {
+		px, py = dx, dy
+	} else {
+		if e.Rotation != 0 {
+			rsin, rcos := math.Sincos(float64(e.Rotation))
+			dx, dy = float32(float64(dx)*rcos-float64(dy)*rsin), float32(float64(dx)*rsin+float64(dy)*rcos)
+			angle += e.Rotation
+		}
+		px, py = originX+dx, originY+dy
+	}
+
 	sin, cos := math.Sincos(float64(angle))
+	vx := speed * float32(cos)
+	vy := speed * float32(sin)
+	if ivx != 0 || ivy != 0 {
+		vx += ivx
+		vy += ivy
+	}
 
 	p := Particle{
 		Frame:           frame,
-		X:               e.X + dx,
-		Y:               e.Y + dy,
-		VX:              speed * float32(cos),
-		VY:              speed * float32(sin),
+		X:               px,
+		Y:               py,
+		VX:              vx,
+		VY:              vy,
 		Lifetime:        e.nextLifetime(),
 		initialRotation: e.randFloat(e.InitialRotationMin, e.InitialRotationMax),
 		rotationSpeed:   e.randFloat(e.RotationSpeedMin, e.RotationSpeedMax),
 	}
 	e.evalCurves(&p)
 	e.particles = append(e.particles, p)
+
+	if e.Trail != nil {
+		tr := e.acquireTrail(*e.Trail)
+		tr.AddPoint(p.X, p.Y)
+		for len(e.particleTrails) < len(e.particles)-1 {
+			e.particleTrails = append(e.particleTrails, nil)
+		}
+		e.particleTrails = append(e.particleTrails, tr)
+	} else if len(e.particleTrails) > 0 {
+		e.particleTrails = append(e.particleTrails, nil)
+	}
+
+	if len(e.SubEmitters) > 0 && e.subDepth < maxSubEmitterDepth {
+		wx, wy := e.localToWorld(p.X, p.Y)
+		wvx, wvy := e.localVelToWorld(p.VX, p.VY)
+		e.triggerSubEmitters(TriggerOnBirth, wx, wy, wvx, wvy)
+	}
 }
 
 func (e *Emitter) nextLifetime() time.Duration {
