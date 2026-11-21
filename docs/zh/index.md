@@ -2,7 +2,7 @@
 
 game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏绘制在一个 NSGo 视图中，可以是 `Canvas`、像素缓冲区或着色器，HUD 和菜单仍然是叠在上面的普通原生 NSGo 视图。它只使用 NSGo 的公开 API（`core`、`audio`，之后还有 `gamepad`），所以没有导入它的应用不会链接其中任何代码。
 
-> 项目还处在早期：下面的包已经可用并有测试，但 API 还会变化。入门模板和入门指南会随 [#38](https://github.com/nsgo-dev/game/issues/38) 一起提供。
+> 项目还处在早期：下面的包已经可用并有测试，但 API 还会变化。从[快速开始](getting-started.md)入手创建并运行一个游戏。
 
 ## 阶段
 
@@ -13,15 +13,15 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 
 ## 包
 
-| 包 | 导入路径 | 内容 |
-| --- | --- | --- |
-| `game` | `github.com/nsgo-dev/game/packages/game` | `Loop`，所有包共用的固定步长循环 |
-| `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | 图集、帧、动画、精灵，以及绘制到 `Canvas` 中的批次 |
-| `sound` | `github.com/nsgo-dev/game/packages/game/sound` | `Mixer` 及其音效和音乐 |
+| 包 | 导入路径 | 指南 | 内容 |
+| --- | --- | --- | --- |
+| `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`，所有包共用的固定步长循环 |
+| `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | 图集、帧、动画、精灵，以及绘制到 `Canvas` 中的批次 |
+| `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | `Mixer` 及其音效和音乐 |
 
 计划中的包：用于输入动作的 `input`（[#3](https://github.com/nsgo-dev/game/issues/3)），用于瓦片地图和相机的 `tilemap`（[#5](https://github.com/nsgo-dev/game/issues/5)），用于绘制图层、命中测试和场景切换的 `scene`（[#6](https://github.com/nsgo-dev/game/issues/6)），以及一个可以玩的示例游戏（[#8](https://github.com/nsgo-dev/game/issues/8)）。
 
-每个包的说明见[包](packages.md)。
+各包 API 的单页速查见[包](packages.md)。
 
 ## 安装
 
@@ -44,3 +44,5 @@ go get github.com/nsgo-dev/game/packages/game
 ## 目标平台
 
 macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS 和 tvOS 不在第一阶段的范围内。
+
+关于六个目标平台的图标、签名、公证、商店打包与 `nsgo check` 验证，见[构建与发布](shipping.md)。

@@ -31,15 +31,22 @@ game/
 
 Import the packages from `github.com/nsgo-dev/game/packages/game`:
 
-- `game`: the fixed-step `Loop` every package shares.
-- `game/sprite`: atlases, frames, animations, sprites and batches drawn into a `Canvas`.
-- `game/sound`: the `Mixer`, its effects and music.
+- `game`: the fixed-step `Loop` every package shares ([guide](docs/en/loop.md)).
+- `game/sprite`: atlases, frames, animations, sprites and batches drawn into a `Canvas` ([guide](docs/en/sprite.md)).
+- `game/sound`: the `Mixer`, its effects and music ([guide](docs/en/sound.md)).
 - `game/input`: input actions ([#3](https://github.com/nsgo-dev/game/issues/3)).
 - `game/tilemap`: tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)).
 - `game/scene`: drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)).
 
 `examples` will hold a playable sample game ([#8](https://github.com/nsgo-dev/game/issues/8)).
 
+## Docs
+
+- [Overview](docs/en/index.md) ([中文](docs/zh/index.md))
+- [Getting Started](docs/en/getting-started.md) ([中文](docs/zh/getting-started.md))
+- [Packages](docs/en/packages.md) ([中文](docs/zh/packages.md)): [Loop](docs/en/loop.md), [sprite](docs/en/sprite.md), [sound](docs/en/sound.md)
+- [Building and Shipping](docs/en/shipping.md) ([中文](docs/zh/shipping.md))
+
 ## Targets
 
-macOS, iOS, Windows, Linux, Android and the web.
+macOS, iOS, Windows, Linux, Android and the web. See [Building and Shipping](docs/en/shipping.md).

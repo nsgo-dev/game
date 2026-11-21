@@ -1,0 +1,177 @@
+# Loop
+
+`game.Loop` 在 NSGo 作用域的显示帧上驱动固定步长更新与插值绘制，并在应用进入后台时自动暂停。
+
+```go
+import "github.com/nsgo-dev/game/packages/game"
+```
+
+## 固定步长如何工作
+
+不同显示器的刷新率各不相同（60 Hz、90 Hz、120 Hz 或可变刷新率）。如果直接拿每帧原始时间差推进物理逻辑，跳跃高度和碰撞结果会随刷新率变化。
+
+`Loop` 把逻辑模拟和画面绘制解耦：
+
+```go
+type Loop struct {
+	Rate     int                    // 每秒更新次数，0 表示 60
+	MaxSteps int                    // 单帧最多运行的更新次数，0 表示 max(1, Rate/10)
+	Update   func(dt time.Duration) // 按固定步长 dt（始终为 1/Rate 秒）推进游戏状态
+	Draw     func(alpha float64)    // 绘制这一帧，alpha 在 [0, 1) 之间
+}
+
+func (l *Loop) Run(cx *core.Scope) (stop func())
+```
+
+在 NSGo 的 `RequestAnimationFrame` 触发每个显示帧时：
+
+1. 循环把距上一帧经过的时间累加到累加器中。
+2. 只要累加器里还包含至少一个完整步长（`time.Second / time.Duration(Rate)`），就减去一个步长并调用一次 `Update(step)`。单个显示帧可能运行零次、一次或多次更新。
+3. 当剩余时间不足一个完整步长时，以 `alpha = float64(acc) / float64(step)`（范围 `[0, 1)`）调用一次 `Draw(alpha)`。
+
+`Run` 每一帧都会读取 `Rate`、`MaxSteps`、`Update` 和 `Draw`，所以你可以在循环运行期间随时替换回调或调整频率。
+
+## 用 alpha 做插值
+
+当显示刷新率不能被 `Rate` 整除时（例如在 120 Hz 显示器上跑 60 Hz 模拟），直接绘制 `Update` 的最新状态会产生肉眼可见的抖动，因为有的显示帧跑 0 次更新，有的跑 1 次。
+
+做法是在 `Update` 中保存上一步和当前步的位置，在 `Draw` 中把 `alpha` 写入 `core.Signal[float64]`，并在 `core.Canvas.Draw` 中插值：
+
+```go
+func Ball(cx *core.Scope) core.Node {
+	var x, last float32
+	alpha := core.NewSignal(cx, 0.0)
+
+	loop := &game.Loop{
+		Rate: 60,
+		Update: func(dt time.Duration) {
+			last = x
+			x += 120 * float32(dt.Seconds())
+		},
+		Draw: func(a float64) {
+			alpha.Set(a)
+		},
+	}
+	loop.Run(cx)
+
+	return core.Canvas{
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+		Draw: func(d *core.Drawing, _ core.Size) {
+			at := last + (x-last)*float32(alpha.Get())
+			d.SetFillColor(core.RGB(0xff5a1f)).FillRect(at, 40, 16, 16)
+		},
+	}
+}
+```
+
+由于只有 `Canvas.Draw` 读取了 `alpha`，每次更新它只会触发画布重绘，不会重新计算或提交外层视图树。
+
+## 卡顿保护与 MaxSteps
+
+如果某一帧耗时远超平常（例如调试器断点、单帧过重或设备卡顿），试图一次性补跑所有落下的步长会让下一帧更慢，陷入“死亡螺旋”。
+
+`MaxSteps` 限制单个显示帧最多执行多少次 `Update`：
+
+- 当 `MaxSteps <= 0` 时，默认值为 `max(1, Rate/10)`，即 0.1 秒内的步数（60 Hz 下为 6 步，120 Hz 下为 12 步）。
+- 当单帧达到 `MaxSteps` 上限时，循环会丢弃超出的完整步长（`acc %= step`）并直接进入 `Draw`。此时游戏会短暂变慢，而不是彻底卡死。
+
+如果物理计算较重，可以显式设一个更小的上限（例如 `MaxSteps: 3`）：
+
+```go
+loop := &game.Loop{
+	Rate:     60,
+	MaxSteps: 3,
+	Update:   stepWorld,
+	Draw:     renderWorld,
+}
+```
+
+## 帧时间平滑
+
+在 NSGo 暴露显示器硬件帧时间戳之前（[nsgo#1048](https://github.com/nsgo-dev/nsgo/issues/1048)，本仓库跟踪在 [#27](https://github.com/nsgo-dev/game/issues/27)），每帧时间戳来自回调执行时的引擎时钟。
+
+`Loop` 会平滑这些回调到达时间的抖动：只要平滑后的平均帧长与时钟之间的差值在半帧以内，每帧就按平均帧长推进；一旦出现真正的卡顿或刷新率变化，它会立刻结算全部差值并重新开始平均。同时负的时间差会被截断为 0，确保恢复运行不会让累加器倒退。
+
+## 后台暂停与停止
+
+`Loop.Run` 会监听 `cx.Env().Lifecycle()`：
+
+- **`core.LifecycleBackground`**（桌面端窗口最小化、隐藏或被完全遮挡；iOS/Android 应用退到后台）：循环取消挂起的帧请求，不再运行任何更新。
+- **`core.LifecycleActive` 或 `core.LifecycleInactive`**（窗口可见，包括桌面端失焦但可见）：循环照常运行。从后台切回前台时，它会把时钟锚点重置为 `cx.Now()`，离开期间不会触发任何补帧更新。
+
+以下任一情况发生时，循环会永久结束：
+
+- 作用域 `cx` 被销毁（例如切换页面，或用 `core.Show` 隐藏组件）；
+- 调用 `Run` 返回的 `stop` 函数。
+
+重复调用 `stop()` 是安全的，在 `Update` 内部调用同样安全：如果 `Update` 停止了循环，当前帧后续的更新和 `Draw` 都不会再执行，应用前后台切换也不会重启它。
+
+```go
+var stop func()
+loop := &game.Loop{
+	Update: func(dt time.Duration) {
+		if gameOver {
+			stop()
+		}
+	},
+	Draw: func(alpha float64) {
+		frame.Set(alpha)
+	},
+}
+stop = loop.Run(cx)
+```
+
+## 使用 nsgotest 测试
+
+`nsgotest` 在虚拟时钟上以确定性的方式运行显示帧（每 16.667 ms 一帧，即每秒 60 帧），因此无需 `time.Sleep` 就能测试游戏循环、`MaxSteps` 卡顿和后台暂停行为。
+
+```go
+package mygame_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+func TestLoopSimulation(t *testing.T) {
+	updates := 0
+	l := &game.Loop{
+		Rate:     60,
+		MaxSteps: 4,
+		Update: func(dt time.Duration) {
+			updates++
+		},
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	})
+
+	// Advance 按帧推进一整秒。
+	app.Advance(time.Second)
+	if updates != 60 {
+		t.Fatalf("got %d updates, want 60", updates)
+	}
+
+	// FastForward 在单帧内跨越 500 ms，用来测试 MaxSteps 上限。
+	app.FastForward(500 * time.Millisecond)
+	if updates != 64 {
+		t.Fatalf("got %d updates after hitch, want 64", updates)
+	}
+
+	// 进入后台时循环暂停，恢复后不补跑更新。
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	app.Advance(time.Second)
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	if updates != 64 {
+		t.Fatalf("got %d updates while backgrounded, want 64", updates)
+	}
+}
+```
