@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- `game/editor`: the 3D gizmo drags now start from real pointer input on the mounted viewport (a press that becomes a pan picks a handle, then moves it) instead of being reachable only from the model API.
+- `game/net`: UDP refuses `ChannelReliableOrdered` with `ErrUnsupportedChannel` instead of silently dropping lockstep and rollback packets it cannot retransmit.
+
 - `game/ai`: traversal costs below 1 are clamped so A*'s distance heuristic stays admissible and paths stay optimal.
 - `game/net`: angle interpolation normalizes rotations in one step, snapshot counts are validated before allocating, WebSocket handshakes time out, and lockstep inputs and checksum history are bounded.
 - `game/modding`: reloading a mod re-checks its game version and dependencies, closing the manager notifies listeners that panels went away, and mod storage keys cannot collide across mod IDs.

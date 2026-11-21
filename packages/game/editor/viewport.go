@@ -365,6 +365,14 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	colors := ui.ColorsOf(cx)
 	vw, vh := ed.ViewportSize()
 	var lastPan core.Point
+	// The 3D gizmo drag starts where the finger (or pointer) went down; pan
+	// events carry only their translation, so the down point is tracked from
+	// touch events on the frame.
+	var pressPos core.Point
+	var hasPress bool
+	// began3D says a pan that began with a press owns a 3D drag to finish;
+	// the touch that ends may be reported before the pan's end event.
+	var began3D bool
 
 	return core.View{
 		TestID: "editor-viewport-container",
@@ -388,6 +396,23 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						ed.HandleViewport3DWheel(float32(ev.Delta.Y))
 					}
 				},
+				OnTouch: func(ev core.TouchEvent) {
+					if ed.ViewMode != ViewMode3D {
+						return
+					}
+					switch ev.Phase {
+					case core.TouchStart:
+						for _, t := range ev.Touches {
+							if t.Changed {
+								pressPos = t.Position
+								hasPress = true
+								return
+							}
+						}
+					case core.TouchEnd, core.TouchCancel:
+						hasPress = false
+					}
+				},
 				OnPan: func(ev core.PanEvent) {
 					if ed.ViewMode != ViewMode3D {
 						return
@@ -395,13 +420,30 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					switch ev.Phase {
 					case core.GestureBegan:
 						lastPan = ev.Translation
+						began3D = hasPress
+						if began3D {
+							// A press that turns into a pan first picks a gizmo
+							// handle under the press point, and orbits otherwise.
+							ed.BeginViewport3DDrag(float32(pressPos.X), float32(pressPos.Y), vw, vh, false)
+						}
 					case core.GestureChanged:
+						if hasPress {
+							ed.UpdateViewport3DDrag(
+								float32(pressPos.X)+float32(ev.Translation.X),
+								float32(pressPos.Y)+float32(ev.Translation.Y),
+							)
+							break
+						}
 						dx := float32(ev.Translation.X - lastPan.X)
 						dy := float32(ev.Translation.Y - lastPan.Y)
 						lastPan = ev.Translation
 						ed.Camera3D.Orbit(-dx*0.01, dy*0.01)
 						ed.notify()
 					case core.GestureEnded, core.GestureCancelled:
+						if began3D {
+							ed.EndViewport3DDrag()
+							began3D = false
+						}
 						lastPan = core.Point{}
 					}
 				},
