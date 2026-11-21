@@ -46,13 +46,18 @@ const en = {
     docs: 'Read the docs',
     stages: {
       eyebrow: 'Roadmap',
-      title: 'Two stages',
-      lead: '2D first, then 3D on the same loop, input, sound and scenes.',
+      title: 'Five stages',
+      lead: 'From what NSGo itself needs for games to getting them to players, each stage tracked in issues.',
       label: (n: number) => `Stage ${n}`,
-      twoD: 'A fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn into a Canvas, a pixel buffer or a shader.',
-      threeD: 'Meshes, cameras, lights and glTF models on a GPU view NSGo adds for it. The loop, input, sound and scenes carry over.',
-      targetsLabel: 'Targets',
-      targetsTitle: 'Where NSGo runs',
+      // A stage's name and one line by its number; a stage past these shows its issue's English title and description.
+      names: ['NSGo primitives games need', '2D game layer', '3D', 'Tools, editor and project format', 'Shipping, operations and community'],
+      lines: [
+        'Input, frame timing, canvas, audio, haptics and sensors in NSGo itself.',
+        'The loop, sprites, tilemaps, scenes, physics, sound and saves.',
+        'A GPU view in NSGo, then meshes, cameras, lights and 3D physics.',
+        'The CLI, MCP for agents, the editor and a project of text files.',
+        'Releases, store uploads, live operations, examples and docs.',
+      ],
       more: 'Roadmap',
     },
     packages: {
@@ -122,6 +127,8 @@ const en = {
     stage: (n: number) => `Stage ${n}`,
     // A stage's name by its number, in place of its issue's English title; empty where the title is shown as it is.
     stageNames: [] as string[],
+    // A stage's description by its number, in place of the first paragraph of its issue's Context; empty where that English paragraph is shown as it is.
+    stageDescriptions: [] as string[],
     closed: (closed: number, total: number) => `${closed} of ${total} closed`,
     // The short label before a stage's closed and total issues, as a game shows experience.
     xp: 'XP',
@@ -170,6 +177,9 @@ const en = {
 
 export type Copy = typeof en
 
+// The stages' Chinese names, on the home page and the roadmap.
+const ZH_STAGE_NAMES = ['NSGo 底层能力', '2D 游戏层', '3D', '工具、编辑器与项目格式', '发布、运营与社区']
+
 const zh: Copy = {
   nav: {
     skip: '跳到正文',
@@ -211,13 +221,17 @@ const zh: Copy = {
     docs: '阅读文档',
     stages: {
       eyebrow: '路线图',
-      title: '两个阶段',
-      lead: '先做 2D，再在同一套循环、输入、声音和场景之上做 3D。',
+      title: '五个阶段',
+      lead: '从 NSGo 自身为游戏补齐的能力，到把游戏交到玩家手中，每个阶段都在 issue 中跟踪。',
       label: (n: number) => `阶段 ${n}`,
-      twoD: '固定步长循环、输入动作、精灵、瓦片地图、场景和声音，绘制到 Canvas、像素缓冲区或着色器中。',
-      threeD: '在 NSGo 为此新增的 GPU 视图上绘制网格、相机、光照和 glTF 模型。循环、输入、声音和场景直接沿用。',
-      targetsLabel: '目标平台',
-      targetsTitle: 'NSGo 能运行的平台',
+      names: ZH_STAGE_NAMES,
+      lines: [
+        'NSGo 自身的输入、帧计时、画布、音频、触觉反馈与传感器。',
+        '循环、精灵、瓦片地图、场景、物理、声音和存档。',
+        'NSGo 新增的 GPU 视图，以及网格、相机、光照和 3D 物理。',
+        '命令行工具、面向智能体的 MCP、编辑器和由文本文件组成的项目。',
+        '发布、应用商店上传、线上运营、示例和文档。',
+      ],
       more: '查看路线图',
     },
     packages: {
@@ -280,7 +294,14 @@ const zh: Copy = {
     asOf: ['数据截至 ', '。'],
     unavailable: ['这次构建没能从 GitHub 读取 issue（', '）。请到 ', ' 查看。'],
     stage: (n: number) => `阶段 ${n}`,
-    stageNames: ['NSGo 底层能力', '2D 游戏层', '3D', '工具、编辑器与项目格式', '发布、运营与社区'],
+    stageNames: ZH_STAGE_NAMES,
+    stageDescriptions: [
+      '游戏层需要 NSGo 本身提供的能力：输入（按键、手柄、指针和触摸）、帧计时与显示器、画布和图像功能、音频、触觉反馈与传感器，以及手机平台功能。其中大部分对所有 NSGo 应用都有用，不只是游戏。',
+      'nsgo-dev/game 的 2D 包：循环、输入动作、精灵、瓦片地图、场景、相机、物理、光照、骨骼动画、粒子、文本、游戏 UI、特效、声音、存档、资源、本地化、无障碍、AI，以及构成 2D 游戏的其余部分。',
+      'NSGo 上的 3D：NSGo 新增的 GPU 视图（nsgo#1059）、nsgo-dev/game 的 3D 包（game#9）、3D 物理，以及关于 XR 的决定。',
+      '游戏是怎样做出来的：命令行工具、面向智能体的 MCP、编辑器、资源工具、调试、回放与质量检查、由 AI 能一次读完的文本文件组成的项目，以及 NSGo 自身的工具支持。',
+      '把游戏交到玩家手中并保持运行：发布、应用商店打包与上传、线上运营、平台服务、真机检查、示例、文档与社区，以及围绕支持平台的范围决定。',
+    ],
     closed: (closed: number, total: number) => `已关闭 ${closed} / ${total}`,
     xp: '进度',
     quest: '领域',

@@ -6,7 +6,7 @@ import { Eyebrow } from '../components/Brand'
 import { CopyCommand } from '../components/CopyCommand'
 import { Cta } from '../components/Footer'
 import { HeroField } from '../components/HeroField'
-import { Icon, type IconName } from '../components/Icon'
+import { Icon } from '../components/Icon'
 import { Segments } from '../components/Segments'
 import type { Snippet } from '../content/types'
 import { copies } from '../copy'
@@ -42,12 +42,20 @@ function areaProgress(issue: number): { closed: number; total: number } | null {
   return null
 }
 
-const TARGETS = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
+// The plan's stages: from the roadmap the build read, or by number alone when it could not read it.
+type StageCard = { number: number; title?: string; description?: string; progress?: { closed: number; total: number } }
 
-const STAGES: { icon: IconName; title: string; body: 'twoD' | 'threeD'; link?: { href: string; text: string } }[] = [
-  { icon: 'image', title: '2D', body: 'twoD' },
-  { icon: 'box', title: '3D', body: 'threeD', link: { href: 'https://github.com/nsgo-dev/nsgo/issues/1059', text: 'nsgo#1059' } },
-]
+const STAGE_COUNT = 5
+
+function stageCards(): StageCard[] {
+  if (roadmap.status !== 'ok') return Array.from({ length: STAGE_COUNT }, (_, i) => ({ number: i + 1 }))
+  return roadmap.stages.map((stage) => ({
+    number: stage.number,
+    title: stage.title,
+    description: stage.description,
+    progress: { closed: stage.closed, total: stage.open + stage.closed },
+  }))
+}
 
 export function Home() {
   const lang = useLang()
@@ -93,46 +101,11 @@ export function Home() {
             <h2>{copy.stages.title}</h2>
             <p>{copy.stages.lead}</p>
           </header>
-          <ul className="bento">
-            {STAGES.map((stage, index) => (
-              <li key={stage.title} className="bento__card hud">
-                <span className="bento__top">
-                  <span className="hud-label">
-                    {copy.stages.label(index + 1)} · {stage.title}
-                  </span>
-                  <span className="bento__icon">
-                    <Icon name={stage.icon} size={16} />
-                  </span>
-                </span>
-                <h3>{stage.title}</h3>
-                <p>
-                  {copy.stages[stage.body]}
-                  {stage.link && (
-                    <>
-                      {' '}
-                      (<a href={stage.link.href}>{stage.link.text}</a>)
-                    </>
-                  )}
-                </p>
-              </li>
+          <ol className="stages">
+            {stageCards().map((stage) => (
+              <StageCardView key={stage.number} stage={stage} />
             ))}
-            <li className="bento__card hud">
-              <span className="bento__top">
-                <span className="hud-label">
-                  {copy.stages.targetsLabel} · {TARGETS.length}
-                </span>
-                <span className="bento__icon">
-                  <Icon name="globe" size={16} />
-                </span>
-              </span>
-              <h3>{copy.stages.targetsTitle}</h3>
-              <ul className="chips" aria-label={copy.stages.targetsLabel}>
-                {TARGETS.map((target) => (
-                  <li key={target}>{target}</li>
-                ))}
-              </ul>
-            </li>
-          </ul>
+          </ol>
           <Link className="btn btn--secondary section__more" to={to.roadmap}>
             {copy.stages.more}
             <Icon name="arrow" size={14} />
@@ -160,6 +133,37 @@ export function Home() {
 
       <Cta />
     </>
+  )
+}
+
+// A stage as a panel: its number and progress, its name and one line, linking to the stage on the roadmap. A stage the site has no words for shows its issue's English title and description.
+function StageCardView({ stage }: { stage: StageCard }) {
+  const lang = useLang()
+  const copy = copies[lang].home
+  const name = copy.stages.names[stage.number - 1]
+  const line = copy.stages.lines[stage.number - 1]
+  const { progress } = stage
+  return (
+    <li className="stage hud">
+      <div className="stage__top">
+        <span className="hud-label">{copy.stages.label(stage.number)}</span>
+        {progress && (
+          <span className="stage__xp">
+            <span className="sr-only">{copy.packages.progress(progress.closed, progress.total)}</span>
+            <span aria-hidden="true">
+              {progress.closed}/{progress.total}
+            </span>
+          </span>
+        )}
+      </div>
+      <h3>
+        <Link to={routes[lang].roadmap} hash={`stage-${stage.number}`} lang={name ? undefined : 'en'}>
+          {name ?? stage.title}
+        </Link>
+      </h3>
+      {(line ?? stage.description) && <p lang={line ? undefined : 'en'}>{line ?? stage.description}</p>}
+      {progress && <Segments closed={progress.closed} total={progress.total} />}
+    </li>
   )
 }
 

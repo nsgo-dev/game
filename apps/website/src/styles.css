@@ -1054,60 +1054,108 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   margin-top: 20px;
 }
 
-/* Stages: a row of panels. */
+/* Stages: a panel each, its number and progress on top, its name linking to the stage on the roadmap over the whole panel; a row of five on wide screens, a list on narrow ones. */
 
-.bento {
+.stages {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.bento__card {
+.stage {
   display: flex;
   flex-direction: column;
-  padding: 20px 22px 22px;
+  gap: 6px;
+  padding: 16px 18px 18px;
 }
 
-.bento__top {
+.stage__top {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px dashed var(--border);
+  gap: 10px;
+  margin-bottom: 4px;
 }
 
-.bento__icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--blue);
-}
-
-.bento__card h3 {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-}
-
-.bento__card p {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 15px;
-}
-
-.bento__card p a {
+.stage__xp {
   color: var(--blue-ink);
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
-.bento__card p a:hover {
-  text-decoration: underline;
+.stage h3 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.stage h3 a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.stage h3 a:hover {
+  color: var(--blue-ink);
+}
+
+.stage p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.stage .segments {
+  height: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  box-sizing: content-box;
+}
+
+@media (max-width: 1080px) {
+  .stages {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 16px;
+    padding: 12px 16px 14px;
+  }
+
+  .stage__top {
+    display: contents;
+  }
+
+  .stage__top .hud-label {
+    grid-column: 1 / -1;
+  }
+
+  .stage__xp {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: baseline;
+  }
+
+  .stage h3 {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .stage p {
+    grid-column: 1 / -1;
+  }
+
+  .stage .segments {
+    grid-column: 1 / -1;
+    padding-top: 8px;
+  }
 }
 
 .chips {
@@ -1124,18 +1172,6 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   font-family: var(--font-mono);
   font-size: 12.5px;
   font-weight: 500;
-}
-
-@media (max-width: 960px) {
-  .bento {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .bento {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Packages as levels: a panel each, its number and status on top; the locked ones dimmer, with their area's progress and the issue they are planned in. */

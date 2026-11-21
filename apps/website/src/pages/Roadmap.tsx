@@ -9,7 +9,7 @@ import { GITHUB_URL, PLAN_URL } from '../links'
 
 export const roadmapHead = (lang: Lang) => pageHead(lang, 'roadmap/', copies[lang].roadmap.title, copies[lang].roadmap.description)
 
-// The issues' titles and the stages' descriptions are GitHub's, in English in either language; the page's own words, the stages' names among them, follow its language.
+// The issues' titles are GitHub's, in English in either language; the page's own words follow its language, the stages' names and descriptions among them, and a stage the copy has no words for shows its issue's English title and description.
 export function Roadmap() {
   const copy = copies[useLang()].roadmap
   return (
@@ -55,6 +55,8 @@ function Stage({ stage, copy }: { stage: RoadmapStage; copy: Copy['roadmap'] }) 
   const total = stage.open + stage.closed
   const titleId = `stage-${stage.number}`
   const name = copy.stageNames[stage.number - 1]
+  const translated = copy.stageDescriptions[stage.number - 1]
+  const description = translated ?? stage.description
   return (
     <section className="roadmap-stage hud" aria-labelledby={titleId}>
       <div className="roadmap-stage__head">
@@ -70,9 +72,9 @@ function Stage({ stage, copy }: { stage: RoadmapStage; copy: Copy['roadmap'] }) 
           </span>
           <span>{copy.closed(stage.closed, total)}</span>
         </p>
-        {stage.description && (
-          <p className="roadmap-stage__desc" lang="en">
-            {stage.description}
+        {description && (
+          <p className="roadmap-stage__desc" lang={translated ? undefined : 'en'}>
+            {description}
           </p>
         )}
         <Segments closed={stage.closed} total={total} />
