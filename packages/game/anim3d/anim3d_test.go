@@ -519,3 +519,27 @@ func TestRootMotionExtractionLoopWrapAndStripping(t *testing.T) {
 		t.Fatalf("stripped rot = %v, want identity", stripped.Joints[0].Rot)
 	}
 }
+
+func TestBlendPosesWeightCrossingZeroIsContinuous(t *testing.T) {
+	// #546: with pose 0 inactive the old first-active reference made a tiny
+	// weight on pose 0 flip the hemisphere of another pose, popping the blend.
+	x := math3d.Vec3{X: 1}
+	q0 := math3d.QuatFromAxisAngle(x, math.Pi/3*2) // 120 degrees
+	q2 := math3d.QuatFromAxisAngle(x, math.Pi/3*4) // 240 degrees
+	id := math3d.TransformIdentity()
+	poses := []anim3d.Pose{
+		{Joints: []math3d.Transform{{Rot: q0}}},
+		{Joints: []math3d.Transform{id}},
+		{Joints: []math3d.Transform{{Rot: q2}}},
+	}
+	a := anim3d.BlendPosesWeighted(poses, []float32{0, 0.5, 0.5})
+	b := anim3d.BlendPosesWeighted(poses, []float32{1e-4, 0.5, 0.5})
+	qa, qb := a.Joints[0].Rot.Norm(), b.Joints[0].Rot.Norm()
+	dot := qa.Dot(qb)
+	if dot < 0 {
+		dot = -dot
+	}
+	if angle := 2 * math.Acos(float64(dot)); angle > 0.5 {
+		t.Fatalf("blend changed by %.1f degrees when pose 0's weight crossed zero", angle*180/math.Pi)
+	}
+}
