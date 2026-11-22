@@ -112,7 +112,10 @@ func ProjectScreenRatio(bounds math3d.AABB, viewProj math3d.Mat4) float32 {
 	center := bounds.Center()
 	clip := viewProj.MulVec4(center.Vec4(1))
 	if clip.W <= 1e-6 {
-		return 0
+		// The center is at or behind the camera while the bounds still reach
+		// the view (a floor or a giant body). Take the finest LOD rather than
+		// the coarsest; the frustum culls what is wholly behind (#546).
+		return 1
 	}
 	// Row 1 of P*V has XYZ length equal to the vertical projection scale
 	// (f = cot(fovY/2) for perspective, 2/(top-bottom) for orthographic).

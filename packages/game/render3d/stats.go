@@ -37,8 +37,10 @@ func (s RenderStats) Add(other RenderStats) RenderStats {
 		Vertices:         s.Vertices + other.Vertices,
 		MaterialSwitches: s.MaterialSwitches + other.MaterialSwitches,
 		PipelineSwitches: s.PipelineSwitches + other.PipelineSwitches,
-		TextureBytes:     s.TextureBytes + other.TextureBytes,
-		BufferBytes:      s.BufferBytes + other.BufferBytes,
+		// Resident memory belongs to the target, not to a pass: summing the
+		// same textures and buffers once per pass would fail budget checks.
+		TextureBytes: max(s.TextureBytes, other.TextureBytes),
+		BufferBytes:  max(s.BufferBytes, other.BufferBytes),
 	}
 }
 

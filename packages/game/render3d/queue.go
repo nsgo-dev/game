@@ -122,6 +122,7 @@ type Queue struct {
 	batches     []InstanceBatch
 	transforms  []math3d.Mat4
 	prevLOD     map[uint64]int
+	lodSeen     map[uint64]struct{}
 }
 
 // ResetLODHistory clears cached per-ID LOD indices used for hysteresis.
@@ -146,6 +147,9 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 	q.transparent = q.transparent[:0]
 	q.batches = q.batches[:0]
 	q.transforms = q.transforms[:0]
+	if q.lodSeen != nil {
+		clear(q.lodSeen)
+	}
 
 	// Always use the [-1, 1] extraction: it is correct for NO projections and
 	// conservative for ZO ones, while the [0, 1] extraction silently culls the
@@ -190,15 +194,23 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 			if lodIdx >= 0 {
 				lv := item.LODs[lodIdx]
 				meshID = lv.MeshID
-				if lv.Triangles > 0 || lv.Vertices > 0 {
+				// A level may override only one count; keep the item's other
+				// count rather than reporting zero (#546).
+				if lv.Triangles > 0 {
 					tris = lv.Triangles
+				}
+				if lv.Vertices > 0 {
 					verts = lv.Vertices
 				}
 				if q.LODHysteresis > 0 && item.ID != 0 {
 					if q.prevLOD == nil {
 						q.prevLOD = make(map[uint64]int)
 					}
+					if q.lodSeen == nil {
+						q.lodSeen = make(map[uint64]struct{})
+					}
 					q.prevLOD[item.ID] = lodIdx
+					q.lodSeen[item.ID] = struct{}{}
 				}
 			}
 		}
@@ -259,6 +271,14 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 			Vertices:   first.Vertices,
 		})
 		i = end
+	}
+
+	// Hysteresis history only serves IDs still submitted; evict the rest so
+	// transient IDs do not accumulate (#546).
+	for id := range q.prevLOD {
+		if _, ok := q.lodSeen[id]; !ok {
+			delete(q.prevLOD, id)
+		}
 	}
 
 	stats.OpaqueDraws = len(q.opaque)
