@@ -285,7 +285,9 @@ func (m Mat4) Inverse() (Mat4, bool) {
 	c0 := a20*a31 - a21*a30
 
 	det := s0*c5 - s1*c4 + s2*c3 + s3*c2 - s4*c1 + s5*c0
-	if math.Abs(det) < 1e-12 {
+	// An absolute cutoff rejected invertible matrices with a tiny uniform
+	// scale; only a singular or non-finite determinant is not invertible.
+	if det == 0 || math.IsNaN(det) || math.IsInf(det, 0) {
 		return Mat4{}, false
 	}
 	invDet := 1.0 / det
@@ -541,7 +543,7 @@ func (m Mat4) Decompose() (pos Vec3, rot Quat, scale Vec3, ok bool) {
 	sy := c1.Len()
 	sz := c2.Len()
 
-	if sx < 1e-7 || sy < 1e-7 || sz < 1e-7 {
+	if sx < 1e-18 || sy < 1e-18 || sz < 1e-18 {
 		return pos, QuatIdentity(), Vec3{sx, sy, sz}, false
 	}
 
@@ -552,6 +554,12 @@ func (m Mat4) Decompose() (pos Vec3, rot Quat, scale Vec3, ok bool) {
 	r0 := c0.Scale(1 / sx)
 	r1 := c1.Scale(1 / sy)
 	r2 := c2.Scale(1 / sz)
+	// A shear cannot be represented as TRS; accepting it produced a rotation
+	// matrix that rebuilt a different transform (up to 0.63 wrong for glTF).
+	const orthoEps = 1e-4
+	if absf(r0.Dot(r1)) > orthoEps || absf(r0.Dot(r2)) > orthoEps || absf(r1.Dot(r2)) > orthoEps {
+		return pos, QuatIdentity(), Vec3{sx, sy, sz}, false
+	}
 
 	rotMat := Mat4{
 		r0.X, r0.Y, r0.Z, 0,

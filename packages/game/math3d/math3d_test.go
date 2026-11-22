@@ -954,3 +954,41 @@ func TestAngledFrustumAndEdgeCases(t *testing.T) {
 		t.Fatalf("back-facing triangle hit = (%v, %v), want (5, true)", tt, hit)
 	}
 }
+
+func TestDecomposeRefusesShearAndAcceptsTinyScale(t *testing.T) {
+	// #546: shear was silently accepted as TRS, rebuilding a different matrix.
+	shear := math3d.Mat4{
+		1, 0, 0, 0,
+		0.5, 1, 0, 0,
+		0, 0, 1, 0,
+		5, 6, 7, 1,
+	}
+	if _, _, _, ok := shear.Decompose(); ok {
+		t.Fatal("sheared matrix decomposed as TRS")
+	}
+	// A uniform 1e-8 scale is invertible and representable, despite a tiny determinant.
+	tiny := math3d.Mat4{
+		1e-8, 0, 0, 0,
+		0, 1e-8, 0, 0,
+		0, 0, 1e-8, 0,
+		1, 2, 3, 1,
+	}
+	pos, rot, scale, ok := tiny.Decompose()
+	if !ok {
+		t.Fatal("tiny-scale matrix was refused")
+	}
+	if scale.X < 9e-9 || scale.X > 1.1e-8 {
+		t.Fatalf("scale = %+v, want ~1e-8", scale)
+	}
+	rebuild := math3d.TRS(pos, rot, scale)
+	if !rebuild.ApproxEqual(tiny, 1e-7) {
+		t.Fatalf("rebuild = %+v, want %+v", rebuild, tiny)
+	}
+	inv, ok := tiny.Inverse()
+	if !ok {
+		t.Fatal("tiny invertible matrix refused by Inverse")
+	}
+	if !inv.Mul(tiny).ApproxEqual(math3d.Mat4Identity(), 1e-6) {
+		t.Fatalf("inverse product = %+v, want identity", inv.Mul(tiny))
+	}
+}
