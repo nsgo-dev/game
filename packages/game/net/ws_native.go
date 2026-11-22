@@ -25,6 +25,7 @@ import (
 const (
 	wsMagicGUID      = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 	maxWSMessageSize = 4 << 20 // 4 MiB safety cap
+	wsWriteTimeout   = 10 * time.Second
 
 	wsOpContinuation = 0x0
 	wsOpText         = 0x1
@@ -39,6 +40,13 @@ func wsAcceptKey(key string) string {
 	h.Write([]byte(strings.TrimSpace(key)))
 	h.Write([]byte(wsMagicGUID))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+func writeWSFrameDeadline(conn stdnet.Conn, opcode byte, masked bool, payload []byte) error {
+	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	err := writeWSFrame(conn, opcode, masked, payload)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 func writeWSFrame(w io.Writer, opcode byte, masked bool, payload []byte) error {
@@ -281,13 +289,13 @@ func (wt *WebSocketTransport) readLoop() {
 		switch op {
 		case wsOpPing:
 			wt.writeMu.Lock()
-			_ = writeWSFrame(wt.conn, wsOpPong, true, payload)
+			_ = writeWSFrameDeadline(wt.conn, wsOpPong, true, payload)
 			wt.writeMu.Unlock()
 		case wsOpPong:
 			continue
 		case wsOpClose:
 			wt.writeMu.Lock()
-			_ = writeWSFrame(wt.conn, wsOpClose, true, nil)
+			_ = writeWSFrameDeadline(wt.conn, wsOpClose, true, nil)
 			wt.writeMu.Unlock()
 			return
 		case wsOpBinary, wsOpText:
@@ -360,10 +368,7 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 	defer wt.writeMu.Unlock()
 	wt.seq[ch]++
 	frame := encodeWireFrame(ch, wt.seq[ch], payload)
-	if err := writeWSFrame(wt.conn, wsOpBinary, true, frame); err != nil {
-		return err
-	}
-	return nil
+	return writeWSFrameDeadline(wt.conn, wsOpBinary, true, frame)
 }
 
 // Recv pops the next received packet without blocking.
@@ -404,7 +409,11 @@ func (wt *WebSocketTransport) Close() error {
 	wt.closed = true
 	wt.mu.Unlock()
 
+	// Break a Send already blocked on a client that does not read, then send
+	// the close frame with its own short deadline.
+	_ = wt.conn.SetWriteDeadline(time.Now())
 	wt.writeMu.Lock()
+	_ = wt.conn.SetWriteDeadline(time.Now().Add(time.Second))
 	_ = writeWSFrame(wt.conn, wsOpClose, true, nil)
 	wt.writeMu.Unlock()
 	return wt.conn.Close()
@@ -558,13 +567,13 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 		switch op {
 		case wsOpPing:
 			c.writeMu.Lock()
-			_ = writeWSFrame(c.conn, wsOpPong, false, payload)
+			_ = writeWSFrameDeadline(c.conn, wsOpPong, false, payload)
 			c.writeMu.Unlock()
 		case wsOpPong:
 			continue
 		case wsOpClose:
 			c.writeMu.Lock()
-			_ = writeWSFrame(c.conn, wsOpClose, false, nil)
+			_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
 			c.writeMu.Unlock()
 			return
 		case wsOpBinary, wsOpText:
@@ -648,7 +657,7 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 		c.writeMu.Lock()
 		c.seq[ch]++
 		frame := encodeWireFrame(ch, c.seq[ch], payload)
-		err := writeWSFrame(c.conn, wsOpBinary, false, frame)
+		err := writeWSFrameDeadline(c.conn, wsOpBinary, false, frame)
 		c.writeMu.Unlock()
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -704,7 +713,7 @@ func (s *WebSocketServer) Close() error {
 
 	for _, c := range clients {
 		c.writeMu.Lock()
-		_ = writeWSFrame(c.conn, wsOpClose, false, nil)
+		_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
 		c.writeMu.Unlock()
 		_ = c.conn.Close()
 	}
