@@ -457,3 +457,16 @@ func (f Frustum) IntersectsAABB(b AABB) bool {
 	}
 	return true
 }
+
+// IsFinite reports whether x is neither NaN nor an infinity.
+func (v Vec3) IsFinite() bool {
+	return !math.IsNaN(float64(v.X)) && !math.IsInf(float64(v.X), 0) &&
+		!math.IsNaN(float64(v.Y)) && !math.IsInf(float64(v.Y), 0) &&
+		!math.IsNaN(float64(v.Z)) && !math.IsInf(float64(v.Z), 0)
+}
+
+// IsFinite reports whether both corners are finite. A NaN bound is not empty
+// (its comparisons are false) and would otherwise poison spatial indexes.
+func (a AABB) IsFinite() bool {
+	return a.Min.IsFinite() && a.Max.IsFinite()
+}
