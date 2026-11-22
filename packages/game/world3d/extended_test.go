@@ -772,3 +772,22 @@ func TestChunkStreamerAsyncRaceBudgetAndClose(t *testing.T) {
 		t.Fatalf("load/unload mismatch after Close: loaded=%d unloaded=%d", gotLoaded, gotUnloaded)
 	}
 }
+
+func TestGridMapBoundsFollowLibraryRevision(t *testing.T) {
+	// #546: replacing a tile definition must invalidate cached chunk bounds.
+	lib := world3d.NewMeshLibrary()
+	id := lib.Add(world3d.MeshTileDef{LocalBounds: math3d.AABB{
+		Min: math3d.Vec3{X: -0.5, Y: -0.5, Z: -0.5}, Max: math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5},
+	}})
+	g := world3d.NewGridMap(math3d.Vec3{X: 1, Y: 1, Z: 1}, lib)
+	g.SetCell(world3d.GridCoord{}, id, 0)
+	if got := g.Bounds().Max.X; got > 1 {
+		t.Fatalf("bounds before replacement = %v, want <= 1", got)
+	}
+	lib.Add(world3d.MeshTileDef{ID: id, LocalBounds: math3d.AABB{
+		Min: math3d.Vec3{X: -2, Y: -2, Z: -2}, Max: math3d.Vec3{X: 2, Y: 2, Z: 2},
+	}})
+	if got := g.Bounds().Max.X; got < 2 {
+		t.Fatalf("bounds after replacement = %v, want the new ±2 bounds", got)
+	}
+}
