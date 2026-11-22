@@ -23,9 +23,11 @@ import (
 )
 
 const (
-	wsMagicGUID      = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	maxWSMessageSize = 4 << 20 // 4 MiB safety cap
-	wsWriteTimeout   = 10 * time.Second
+	wsMagicGUID        = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	maxWSMessageSize   = 4 << 20 // 4 MiB safety cap
+	wsWriteTimeout     = 10 * time.Second
+	wsDialTimeout      = 10 * time.Second
+	wsHandshakeTimeout = 10 * time.Second
 
 	wsOpContinuation = 0x0
 	wsOpText         = 0x1
@@ -168,6 +170,28 @@ type WebSocketTransport struct {
 	closed bool
 }
 
+// webSocketHostPort joins the URL's host and port, defaulting by scheme and
+// keeping IPv6 literals bracketed; checking for a colon cannot tell a port from
+// an IPv6 address (#546).
+func webSocketHostPort(u *url.URL) (string, error) {
+	host := u.Hostname()
+	if host == "" {
+		return "", errors.New("net: websocket url has no host")
+	}
+	port := u.Port()
+	if port == "" {
+		switch u.Scheme {
+		case "ws":
+			port = "80"
+		case "wss":
+			port = "443"
+		default:
+			return "", fmt.Errorf("net: unsupported websocket scheme %q", u.Scheme)
+		}
+	}
+	return stdnet.JoinHostPort(host, port), nil
+}
+
 // DialWebSocket opens an RFC 6455 WebSocket connection to rawURL (ws:// or wss://)
 // and returns a Transport ready for non-blocking Send/Recv.
 func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
@@ -175,29 +199,22 @@ func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("net: parse websocket url: %w", err)
 	}
-	host := u.Host
-	switch u.Scheme {
-	case "ws":
-		if !strings.Contains(host, ":") {
-			host += ":80"
-		}
-	case "wss":
-		if !strings.Contains(host, ":") {
-			host += ":443"
-		}
-	default:
-		return nil, fmt.Errorf("net: unsupported websocket scheme %q", u.Scheme)
+	host, err := webSocketHostPort(u)
+	if err != nil {
+		return nil, err
 	}
 
+	dialer := &stdnet.Dialer{Timeout: wsDialTimeout}
 	var conn stdnet.Conn
 	if u.Scheme == "wss" {
-		conn, err = tls.Dial("tcp", host, &tls.Config{ServerName: u.Hostname()})
+		conn, err = tls.DialWithDialer(dialer, "tcp", host, &tls.Config{ServerName: u.Hostname()})
 	} else {
-		conn, err = stdnet.Dial("tcp", host)
+		conn, err = dialer.Dial("tcp", host)
 	}
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 
 	var keyBytes [16]byte
 	if _, err := rand.Read(keyBytes[:]); err != nil {
@@ -259,6 +276,7 @@ func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
 		}
 	}
 
+	_ = conn.SetDeadline(time.Time{})
 	wt := &WebSocketTransport{
 		conn:     conn,
 		br:       br,
