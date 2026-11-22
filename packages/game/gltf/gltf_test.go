@@ -1209,3 +1209,36 @@ func TestLoadRejectsUnsupportedRequiredExtension(t *testing.T) {
 		t.Fatalf("Load with a required unsupported extension = %v, want an error naming it", err)
 	}
 }
+
+func TestOptionalExtensionPayloadsArePreserved(t *testing.T) {
+	// #546: optional extensions were dropped instead of kept on the public types.
+	const src = `{
+		"asset":{"version":"2.0"},
+		"buffers":[{"byteLength":4,"uri":"data:application/octet-stream;base64,AAECAw=="}],
+		"bufferViews":[{"buffer":0,"byteLength":4,"extensions":{"EXT_bv":{"which":"bv"}}}],
+		"textures":[{"extensions":{"EXT_tex":{"which":"tex"}}}],
+		"materials":[{"extensions":{"EXT_mat":{"which":"mat"}}}],
+		"nodes":[{"extensions":{"EXT_node":{"which":"node"}}}],
+		"scenes":[{"nodes":[0]}],
+		"scene":0
+	}`
+	doc, err := gltf.Load([]byte(src), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		ext  map[string]json.RawMessage
+	}{{"bufferView", doc.BufferViews[0].Extensions}, {"texture", doc.Textures[0].Extensions}, {"material", doc.Materials[0].Extensions}, {"node", doc.Nodes[0].Extensions}} {
+		payload, ok := tc.ext["EXT_"+map[string]string{"bufferView": "bv", "texture": "tex", "material": "mat", "node": "node"}[tc.name]]
+		if !ok {
+			t.Fatalf("%s extension missing from %v", tc.name, tc.ext)
+		}
+		var got struct {
+			Which string `json:"which"`
+		}
+		if err := json.Unmarshal(payload, &got); err != nil || got.Which == "" {
+			t.Fatalf("%s extension payload = %s, %v", tc.name, payload, err)
+		}
+	}
+}
