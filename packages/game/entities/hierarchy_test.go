@@ -833,3 +833,23 @@ func BenchmarkHierarchyPartialDirty10k(b *testing.B) {
 		}
 	}
 }
+
+func TestHierarchyKeepWorldRefusesShear(t *testing.T) {
+	// #546: a non-uniformly scaled rotated parent can require a sheared local
+	// transform; decomposing it into TRS silently moved the child.
+	w := entities.NewWorld()
+	h := entities.NewHierarchy2D(w)
+	parent := w.Spawn()
+	child := w.Spawn()
+	h.SetLocal(parent, entities.Transform2D{Rotation: 0.7, ScaleX: 3, ScaleY: 1})
+	h.SetLocal(child, entities.Transform2D{Rotation: 0.4, ScaleX: 1, ScaleY: 1})
+	if err := h.SetParent(child, parent, true); !errors.Is(err, entities.ErrNotDecomposable) {
+		t.Fatalf("SetParent keepWorld = %v, want ErrNotDecomposable", err)
+	}
+	if p, ok := h.Parent(child); ok {
+		t.Fatalf("child was reparented to %v despite the refusal", p)
+	}
+	if got, _ := h.Local(child); got.Rotation != 0.4 || got.ScaleX != 1 || got.ScaleY != 1 {
+		t.Fatalf("local transform changed to %+v", got)
+	}
+}
