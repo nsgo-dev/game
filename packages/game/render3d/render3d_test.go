@@ -89,6 +89,54 @@ func TestFrustumKeepsNearGeometryWithNOProjections(t *testing.T) {
 	}
 }
 
+func TestLODOverrideKeepsTheOtherCount(t *testing.T) {
+	// #546: a level that sets only Triangles must not zero the base Vertices.
+	vp, camPos := testCamera()
+	item := render3d.DrawItem{
+		ID: 1, MeshID: 1, MaterialID: 1, PipelineID: 1,
+		WorldBounds: unitBoxAt(math3d.Vec3{Z: -10}, 1),
+		Triangles:   100, Vertices: 200,
+		LODs: []render3d.LODLevel{{MeshID: 2, Triangles: 50}},
+	}
+	var q render3d.Queue
+	plan := q.Build(vp, camPos, []render3d.DrawItem{item})
+	if len(plan.Opaque) != 1 {
+		t.Fatalf("visible = %d, want 1", len(plan.Opaque))
+	}
+	if got := plan.Opaque[0].Triangles; got != 50 {
+		t.Errorf("Triangles = %d, want 50", got)
+	}
+	if got := plan.Opaque[0].Vertices; got != 200 {
+		t.Errorf("Vertices = %d, want the base 200", got)
+	}
+	if plan.Stats.Vertices != 200 {
+		t.Errorf("stats Vertices = %d, want 200", plan.Stats.Vertices)
+	}
+}
+
+func TestRenderStatsAddKeepsResidentMemory(t *testing.T) {
+	// Resident memory is per target, not per pass; summing it double-counts.
+	a := render3d.RenderStats{TextureBytes: 1 << 20, BufferBytes: 1 << 19}
+	b := render3d.RenderStats{TextureBytes: 1 << 20, BufferBytes: 1 << 19}
+	sum := a.Add(b)
+	if sum.TextureBytes != 1<<20 || sum.BufferBytes != 1<<19 {
+		t.Errorf("resident memory = tex:%d buf:%d, want 1MB/512KB", sum.TextureBytes, sum.BufferBytes)
+	}
+	if sum.VisibleItems != 0 {
+		t.Errorf("VisibleItems = %d, want 0", sum.VisibleItems)
+	}
+}
+
+func TestProjectScreenRatioBehindCenterIsFinestLOD(t *testing.T) {
+	// A giant object whose center is at or behind the camera must not read as
+	// zero and pick the coarsest LOD; the frustum culls wholly behind geometry.
+	vp, _ := testCamera()
+	bounds := unitBoxAt(math3d.Vec3{Z: 5}, 50)
+	if got := render3d.ProjectScreenRatio(bounds, vp); got != 1 {
+		t.Errorf("ProjectScreenRatio = %v, want 1", got)
+	}
+}
+
 func TestOpaqueSortingAndStateSwitchMinimization(t *testing.T) {
 	vp, camPos := testCamera()
 	// Deliberately interleaved pipelines, materials, meshes, and depths.
