@@ -55,8 +55,13 @@ func BlendPosesWeighted(poses []Pose, weights []float32) Pose {
 		var pos math3d.Vec3
 		var scale math3d.Vec3
 		var rot math3d.Quat
-		var refRot math3d.Quat
-		hasRef := false
+		// The hemisphere reference is pose 0's joint, independent of that
+		// pose's weight: taking the first active pose made the reference flip
+		// when a weight crossed zero, popping the blend up to 180° (#546).
+		refRot := id.Rot.Norm()
+		if len(poses[0].Joints) > j {
+			refRot = poses[0].Joints[j].Rot.Norm()
+		}
 
 		for i := range count {
 			w := weights[i]
@@ -73,10 +78,7 @@ func BlendPosesWeighted(poses []Pose, weights []float32) Pose {
 			scale = scale.Add(jt.Scale.Scale(nw))
 
 			q := jt.Rot.Norm()
-			if !hasRef {
-				refRot = q
-				hasRef = true
-			} else if q.Dot(refRot) < 0 {
+			if q.Dot(refRot) < 0 {
 				q = math3d.Quat{X: -q.X, Y: -q.Y, Z: -q.Z, W: -q.W}
 			}
 			rot.X += q.X * nw
