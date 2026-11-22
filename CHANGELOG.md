@@ -28,6 +28,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/net`: UDP refuses `ChannelReliableOrdered` with `ErrUnsupportedChannel` instead of silently dropping lockstep and rollback packets it cannot retransmit.
 
 - `game/ai`: traversal costs below 1 are clamped so A*'s distance heuristic stays admissible and paths stay optimal.
+- `game/render3d`: OpenGL-depth projections keep their near geometry, LOD levels that override one vertex/triangle count keep the other, hysteresis history evicts unseen IDs, `RenderStats.Add` does not double-count resident memory, transparent sorting uses clip-space depth, a stale occlusion buffer refuses another view, and an object whose center is behind the camera takes the finest LOD.
+- `game/scene3d`/`game/world3d`: `Node.WorldBounds` unions the mesh and collider bounds, non-finite bounds and rays are rejected, and `MeshLibrary` revisions invalidate `GridMap` chunk bounds.
+- `game/math3d`: `Decompose` refuses sheared matrices and accepts tiny invertible scales, `Inverse` only rejects a singular or non-finite determinant, and RMF frames initialize from the first non-zero tangent when the first points coincide.
+- `game/net`: WebSocket writes have deadlines and `Close` breaks a blocked `Send`, full snapshots cap their entity count before allocating, and `DialWebSocket` has dial/handshake deadlines and parses IPv6 hosts.
+- `game/save`: storage slot keys escape dots so overlapping prefixes cannot collide, and a file slot that differs from an existing one only by case or Unicode normalization is refused.
+- `game/entities`: a keep-world reparent that needs shear returns `ErrNotDecomposable` instead of silently changing the world transform.
+- `game/gltf`: optional extension payloads are preserved on `BufferView`, `Texture`, `Material` and `Node`.
+- `game/physics3d`: box inertia uses the analytic 1/3 coefficient, and `Body.LockRotation` disables rotation on a dynamic body.
+- `game/anim3d`: quaternion blending uses a weight-independent hemisphere reference so a weight crossing zero no longer pops the pose.
 - `game/net`: angle interpolation normalizes rotations in one step, snapshot counts are validated before allocating, WebSocket handshakes time out, and lockstep inputs and checksum history are bounded.
 - `game/modding`: reloading a mod re-checks its game version and dependencies, closing the manager notifies listeners that panels went away, and mod storage keys cannot collide across mod IDs.
 - `game/liveops`: tracking and flushing read the persisted consent choice, so a revocation made elsewhere stops events immediately.
