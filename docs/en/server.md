@@ -43,3 +43,20 @@ go build ./server/cmd/dedicatedserver
 ```
 
 It builds with the plain Go toolchain and no NSGo runtime.
+
+## Matchmaking
+
+`Matchmaker` queues `Ticket`s by mode and region and fills rooms of `RoomSize` players:
+
+```go
+mm := server.NewMatchmaker(4)
+mm.BaseWindow = 100       // rating difference allowed at enqueue time
+mm.WindowGrowthPerSecond = 10
+mm.MaxWindow = 400
+mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
+rooms := mm.Match()       // []server.Room with TicketIDs and Players
+```
+
+A ticket's party is placed whole or not at all. The default rule fills rooms oldest-first and adds a ticket only when its rating difference from the room's oldest ticket fits within **both** tickets' current windows: `BaseWindow + WindowGrowthPerSecond * waited`, capped by `MaxWindow`. Matches never mix beyond the newer ticket's window, and an old ticket's window widening lets it meet a later arrival. `Cancel(id)` removes a waiting ticket without disturbing the rest; `Waiting` lists the queue oldest-first.
+
+Set `Rule` to replace the matching function; it receives a group of tickets with the same mode and region, the room size and a `window` function, and returns `Room`s. The matchmaker removes the tickets listed in each returned room.
