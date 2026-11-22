@@ -62,8 +62,12 @@ type ResolvedDraw struct {
 	LODIndex   int // selected index into DrawItem.LODs, or -1 if LODs is empty
 	Transform  math3d.Mat4
 	DistanceSq float32
-	Triangles  uint32
-	Vertices   uint32
+	// SortDepth is the center's clip-space depth after perspective divide:
+	// larger is farther. Ordering by it keeps transparent draws correct
+	// off-axis and under rotation, where Euclidean distance misorders (#546).
+	SortDepth float32
+	Triangles uint32
+	Vertices  uint32
 }
 
 // InstanceBatch groups consecutive opaque/alpha-mask draws sharing an identical
@@ -215,6 +219,12 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 			}
 		}
 
+		clip := viewProj.MulVec4(center.Vec4(1))
+		sortDepth := clip.Z
+		if abs := float32(math.Abs(float64(clip.W))); abs > 1e-9 {
+			sortDepth /= clip.W
+		}
+
 		draw := ResolvedDraw{
 			ID:         item.ID,
 			MeshID:     meshID,
@@ -224,6 +234,7 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 			LODIndex:   lodIdx,
 			Transform:  item.Transform,
 			DistanceSq: distSq,
+			SortDepth:  sortDepth,
 			Triangles:  tris,
 			Vertices:   verts,
 		}
@@ -345,15 +356,15 @@ func cmpOpaque(a, b ResolvedDraw) int {
 	if c := cmp.Compare(a.Blend, b.Blend); c != 0 {
 		return c
 	}
-	if c := cmp.Compare(a.DistanceSq, b.DistanceSq); c != 0 {
+	if c := cmp.Compare(a.SortDepth, b.SortDepth); c != 0 {
 		return c
 	}
 	return cmp.Compare(a.ID, b.ID)
 }
 
 func cmpTransparent(a, b ResolvedDraw) int {
-	// Strictly back-to-front: larger DistanceSq comes first.
-	if c := cmp.Compare(b.DistanceSq, a.DistanceSq); c != 0 {
+	// Strictly back-to-front by clip-space depth; larger is farther.
+	if c := cmp.Compare(b.SortDepth, a.SortDepth); c != 0 {
 		return c
 	}
 	if c := cmp.Compare(a.PipelineID, b.PipelineID); c != 0 {

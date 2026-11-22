@@ -137,6 +137,27 @@ func TestProjectScreenRatioBehindCenterIsFinestLOD(t *testing.T) {
 	}
 }
 
+func TestTransparentSortUsesViewDepthOffAxis(t *testing.T) {
+	// #546: Euclidean distance orders these wrongly; clip-space depth does not.
+	vp, camPos := testCamera()
+	items := []render3d.DrawItem{
+		// Viewed 10 units deep but far off axis.
+		{ID: 1, MeshID: 1, MaterialID: 1, PipelineID: 1, Blend: render3d.BlendAlphaBlend,
+			WorldBounds: unitBoxAt(math3d.Vec3{X: 10, Z: -5}, 0.2), Triangles: 12, Vertices: 8},
+		// On axis but 2 units deeper; Euclidean distance is smaller.
+		{ID: 2, MeshID: 1, MaterialID: 1, PipelineID: 1, Blend: render3d.BlendAlphaBlend,
+			WorldBounds: unitBoxAt(math3d.Vec3{Z: -7}, 0.2), Triangles: 12, Vertices: 8},
+	}
+	var q render3d.Queue
+	plan := q.Build(vp, camPos, items)
+	if len(plan.Transparent) != 2 {
+		t.Fatalf("transparent = %d, want 2", len(plan.Transparent))
+	}
+	if plan.Transparent[0].ID != 2 || plan.Transparent[1].ID != 1 {
+		t.Fatalf("transparent order = [%d %d], want [2 1]", plan.Transparent[0].ID, plan.Transparent[1].ID)
+	}
+}
+
 func TestOpaqueSortingAndStateSwitchMinimization(t *testing.T) {
 	vp, camPos := testCamera()
 	// Deliberately interleaved pipelines, materials, meshes, and depths.
