@@ -97,9 +97,13 @@ type Queue struct {
 	// LODHysteresis is the relative deadband [0, 0.5] used by [SelectLOD] when
 	// DrawItem.ID != 0 to prevent LOD popping near distance/screen thresholds.
 	LODHysteresis float32
-	// FrustumNO selects OpenGL [-1, 1] depth frustum extraction when true.
-	// By default (false), [math3d.FrustumFromMat4] ([0, 1] WebGPU/Metal depth)
-	// is used.
+	// FrustumNO is kept for source compatibility and ignored: [Queue.Build]
+	// always extracts the [-1, 1] form, which is conservative for both depth
+	// conventions. A [0, 1] extraction of an OpenGL [-1, 1] matrix, such as
+	// [math3d.OrthoNO] or [math3d.PerspectiveNO], puts the near plane halfway
+	// into the view and culls visible geometry; the [-1, 1] form only admits
+	// a thin slab in front of a [0, 1] projection's near plane, which the
+	// depth test still discards.
 	FrustumNO bool
 	// DisableInstancing emits one InstanceBatch per opaque draw when true.
 	DisableInstancing bool
@@ -143,12 +147,10 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 	q.batches = q.batches[:0]
 	q.transforms = q.transforms[:0]
 
-	var frustum math3d.Frustum
-	if q.FrustumNO {
-		frustum = math3d.FrustumFromMat4NO(viewProj)
-	} else {
-		frustum = math3d.FrustumFromMat4(viewProj)
-	}
+	// Always use the [-1, 1] extraction: it is correct for NO projections and
+	// conservative for ZO ones, while the [0, 1] extraction silently culls the
+	// near half of an NO projection (#546).
+	frustum := math3d.FrustumFromMat4NO(viewProj)
 
 	stats := RenderStats{
 		TotalItems:   len(items),
