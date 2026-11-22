@@ -106,6 +106,8 @@ type BufferView struct {
 	ByteStride int
 	Target     int
 	Extras     json.RawMessage
+	// Extensions keeps unsupported optional extension payloads by name.
+	Extensions map[string]json.RawMessage
 }
 
 // AccessorSparseIndices describes the index buffer of a sparse accessor.
@@ -421,6 +423,7 @@ func (d *Document) loadBufferViews(raws []rawBufferView) error {
 			ByteStride: rv.ByteStride,
 			Target:     rv.Target,
 			Extras:     cloneRawMessage(rv.Extras),
+			Extensions: cloneExtensions(rv.Extensions),
 		}
 	}
 	return nil
@@ -563,10 +566,11 @@ func (d *Document) loadTextures(raws []rawTexture) error {
 			}
 		}
 		d.Textures[i] = Texture{
-			Name:    rt.Name,
-			Sampler: samplerIdx,
-			Source:  sourceIdx,
-			Extras:  cloneRawMessage(rt.Extras),
+			Name:       rt.Name,
+			Sampler:    samplerIdx,
+			Source:     sourceIdx,
+			Extras:     cloneRawMessage(rt.Extras),
+			Extensions: cloneExtensions(rt.Extensions),
 		}
 	}
 	return nil
@@ -635,6 +639,7 @@ func (d *Document) loadMaterials(raws []rawMaterial) error {
 			AlphaCutoff:     0.5,
 			DoubleSided:     rm.DoubleSided,
 			Extras:          cloneRawMessage(rm.Extras),
+			Extensions:      cloneExtensions(rm.Extensions),
 		}
 		if rm.AlphaMode != "" {
 			switch AlphaMode(rm.AlphaMode) {
@@ -993,6 +998,7 @@ func (d *Document) loadNodes(raws []rawNode) error {
 			Camera:      -1,
 			Weights:     rn.Weights,
 			Extras:      cloneRawMessage(rn.Extras),
+			Extensions:  cloneExtensions(rn.Extensions),
 		}
 
 		if rn.Mesh != nil {
@@ -1777,6 +1783,19 @@ func (d *Document) ReadWeights(accessorIndex int) ([]math3d.Vec4, error) {
 	return out, nil
 }
 
+// cloneExtensions deep-copies each extension payload so a Document never
+// aliases the decoder's memory.
+func cloneExtensions(in map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(in))
+	for name, payload := range in {
+		out[name] = cloneRawMessage(payload)
+	}
+	return out
+}
+
 func cloneRawMessage(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -1825,17 +1844,18 @@ type rawScene struct {
 }
 
 type rawNode struct {
-	Name        string          `json:"name"`
-	Children    []int           `json:"children"`
-	Matrix      []float32       `json:"matrix"`
-	Translation []float32       `json:"translation"`
-	Rotation    []float32       `json:"rotation"`
-	Scale       []float32       `json:"scale"`
-	Mesh        *int            `json:"mesh"`
-	Skin        *int            `json:"skin"`
-	Camera      *int            `json:"camera"`
-	Weights     []float32       `json:"weights"`
-	Extras      json.RawMessage `json:"extras"`
+	Name        string                     `json:"name"`
+	Children    []int                      `json:"children"`
+	Matrix      []float32                  `json:"matrix"`
+	Translation []float32                  `json:"translation"`
+	Rotation    []float32                  `json:"rotation"`
+	Scale       []float32                  `json:"scale"`
+	Mesh        *int                       `json:"mesh"`
+	Skin        *int                       `json:"skin"`
+	Camera      *int                       `json:"camera"`
+	Weights     []float32                  `json:"weights"`
+	Extras      json.RawMessage            `json:"extras"`
+	Extensions  map[string]json.RawMessage `json:"extensions"`
 }
 
 type rawCamera struct {
@@ -1868,13 +1888,14 @@ type rawBuffer struct {
 }
 
 type rawBufferView struct {
-	Name       string          `json:"name"`
-	Buffer     int             `json:"buffer"`
-	ByteOffset int             `json:"byteOffset"`
-	ByteLength int             `json:"byteLength"`
-	ByteStride int             `json:"byteStride"`
-	Target     int             `json:"target"`
-	Extras     json.RawMessage `json:"extras"`
+	Name       string                     `json:"name"`
+	Buffer     int                        `json:"buffer"`
+	ByteOffset int                        `json:"byteOffset"`
+	ByteLength int                        `json:"byteLength"`
+	ByteStride int                        `json:"byteStride"`
+	Target     int                        `json:"target"`
+	Extras     json.RawMessage            `json:"extras"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
 }
 
 type rawAccessor struct {
@@ -1926,10 +1947,11 @@ type rawImage struct {
 }
 
 type rawTexture struct {
-	Name    string          `json:"name"`
-	Sampler *int            `json:"sampler"`
-	Source  *int            `json:"source"`
-	Extras  json.RawMessage `json:"extras"`
+	Name       string                     `json:"name"`
+	Sampler    *int                       `json:"sampler"`
+	Source     *int                       `json:"source"`
+	Extras     json.RawMessage            `json:"extras"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
 }
 
 type rawTextureInfo struct {

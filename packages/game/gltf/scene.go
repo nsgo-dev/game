@@ -29,12 +29,13 @@ type Node struct {
 	// LocalMatrix (authored via the glTF "matrix" property) rather than TRS.
 	// When false, ComputeWorldMatrices recomputes LocalMatrix from Translation,
 	// Rotation, and Scale.
-	HasMatrix bool
-	Mesh      int
-	Skin      int
-	Camera    int
-	Weights   []float32
-	Extras    json.RawMessage
+	HasMatrix  bool
+	Mesh       int
+	Skin       int
+	Camera     int
+	Weights    []float32
+	Extras     json.RawMessage
+	Extensions map[string]json.RawMessage
 }
 
 // Transform returns the node's local TRS transform.

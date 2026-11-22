@@ -57,10 +57,11 @@ type Sampler struct {
 // Texture binds an Image source with an optional Sampler.
 // Sampler and Source are -1 when unset.
 type Texture struct {
-	Name    string
-	Sampler int
-	Source  int
-	Extras  json.RawMessage
+	Name       string
+	Sampler    int
+	Source     int
+	Extras     json.RawMessage
+	Extensions map[string]json.RawMessage
 }
 
 // Image represents an embedded or external texture image.
@@ -148,6 +149,8 @@ type Material struct {
 	DoubleSided              bool
 	Unlit                    bool // KHR_materials_unlit
 	Extras                   json.RawMessage
+	// Extensions keeps unsupported optional extension payloads by name.
+	Extensions map[string]json.RawMessage
 }
 
 // MaterialVariant represents an entry in KHR_materials_variants.
