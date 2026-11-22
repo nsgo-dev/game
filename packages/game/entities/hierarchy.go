@@ -10,6 +10,9 @@ var (
 	ErrCycle = errors.New("entities: hierarchy cycle")
 	// ErrDeadEntity reports a hierarchy operation attempted on Zero or an entity that is not alive in the World.
 	ErrDeadEntity = errors.New("entities: dead entity")
+	// ErrNotDecomposable reports a keep-world reparent whose exact relative
+	// transform contains shear and cannot be stored as a Transform2D.
+	ErrNotDecomposable = errors.New("entities: relative transform is not decomposable to TRS")
 )
 
 // Transform2D is an entity's local 2D transform relative to its parent (or to world space when the entity is a root).
@@ -241,7 +244,11 @@ func (h *Hierarchy2D) SetParent(child, parent Entity, keepWorld bool) error {
 		if lp, ok := h.localStore.Get(child); ok {
 			hidden = lp.Hidden
 		}
-		h.localStore.Set(child, relativeTransform(pw, cw, hidden))
+		rel, ok := relativeTransform(pw, cw, hidden)
+		if !ok {
+			return ErrNotDecomposable
+		}
+		h.localStore.Set(child, rel)
 	}
 
 	h.unlinkFromParent(child)
@@ -916,7 +923,7 @@ func decomposeAffine(m [6]float32) (x, y, rot, sx, sy float32) {
 	return x, y, rot, float32(scaleX), float32(scaleY)
 }
 
-func relativeTransform(parent, child WorldTransform2D, hidden bool) Transform2D {
+func relativeTransform(parent, child WorldTransform2D, hidden bool) (Transform2D, bool) {
 	pa, pb := float64(parent.Matrix[0]), float64(parent.Matrix[1])
 	pc, pd := float64(parent.Matrix[2]), float64(parent.Matrix[3])
 	ptx, pty := float64(parent.Matrix[4]), float64(parent.Matrix[5])
@@ -943,6 +950,12 @@ func relativeTransform(parent, child WorldTransform2D, hidden bool) Transform2D 
 
 		scaleX := math.Sqrt(ra*ra + rb*rb)
 		scaleY := math.Sqrt(rc*rc + rd*rd)
+		// TRS columns are orthogonal. A non-orthogonal relative matrix is a
+		// shear that Transform2D cannot carry; decomposing it would silently
+		// change the child's world transform (#546).
+		if math.Abs(ra*rc+rb*rd) > 1e-4*scaleX*scaleY {
+			return Transform2D{}, false
+		}
 		if ra*rd-rb*rc < 0 {
 			scaleY = -scaleY
 		}
@@ -959,7 +972,7 @@ func relativeTransform(parent, child WorldTransform2D, hidden bool) Transform2D 
 			ScaleX:   float32(scaleX),
 			ScaleY:   float32(scaleY),
 			Hidden:   hidden,
-		}
+		}, true
 	}
 
 	// Singular parent (e.g. zero scale): fall back cleanly without NaN/Inf.
@@ -977,5 +990,5 @@ func relativeTransform(parent, child WorldTransform2D, hidden bool) Transform2D 
 		ScaleX:   sx,
 		ScaleY:   sy,
 		Hidden:   hidden,
-	}
+	}, true
 }
