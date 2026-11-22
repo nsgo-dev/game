@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/sound`: `Mixer` for sound effects and music, with background pause and resume.
 - Create a runnable starter game with `nsgo init -template github.com/nsgo-dev/game/template` (#38 by @houko).
 - Website and documentation in English and Simplified Chinese (`apps/website`, `docs/en`, `docs/zh`).
+- `game/server`: headless fixed-step `Runner` for dedicated servers, with several matches at their own rates, overrun reports and bounded signal shutdown (#549).
 
 ### Fixed
 

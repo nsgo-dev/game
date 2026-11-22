@@ -1,0 +1,45 @@
+# server
+
+`github.com/nsgo-dev/game/packages/game/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
+
+游戏传给 [`game.Loop`](loop.md) 的 `Update` 函数在服务器上原样运行：两边都用相同的固定 `1/Rate` 步长，所以专用服务器与客户端共享同一套模拟。
+
+## Runner
+
+```go
+r := &server.Runner{
+	Matches: []*server.Match{
+		{Name: "match-1", Rate: 60, Update: update},
+		{Name: "match-2", Rate: 30, Update: update},
+	},
+	OnOverrun: func(m *server.Match, lag time.Duration, missed int) {
+		log.Printf("%s 超时 %v（错过 %d tick）", m.Name, lag, missed)
+	},
+}
+if err := r.Run(ctx); err != nil { ... }
+```
+
+`Runner.Run` 会阻塞到 context 取消，然后等待每场比赛当前 tick 完成并调用其 `OnStop` 后返回。每场比赛在自己的 goroutine 上按各自速率运行。
+
+## Tick 与超时
+
+每步为 `1/Rate` 秒（`Rate` 为 0 或负数时按 60 Hz）。`Update` 超过一步时，`Runner` 调用 `OnOverrun` 报告延迟时间与错过的整步数。错过的 tick **不会**补跑：下一次 tick 从慢更新返回的时刻开始计时，所以更新变慢会拖慢比赛，而不是爆发式补帧。
+
+## 停止
+
+专用服务器通常配合 `signal.NotifyContext`：
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+defer stop()
+```
+
+收到 SIGTERM/SIGINT 后 context 结束；runner 让当前 tick 完成，再调用 `OnStop`（例如通知对端、落盘状态）并返回。要让停止有界，`Update` 必须及时返回。
+
+可运行示例位于 `server/cmd/dedicatedserver`：
+
+```sh
+go build ./server/cmd/dedicatedserver
+```
+
+它用普通 Go 工具链构建，不需要 NSGo 运行时。
