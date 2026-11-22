@@ -283,12 +283,28 @@ func (c *splineCore) buildTable() {
 	c.length = float32(cumLen)
 	c.table = table
 
-	if c.length <= 0 || table[0].tan.LenSq() < 1e-12 {
+	if c.length <= 0 {
 		return
 	}
+	// A curve whose first points coincide has a zero tangent at t=0. Take the
+	// first non-zero tangent as the initial direction so the whole frame table
+	// is not left with zero Up/Right vectors (#546).
+	firstTan := table[0].tan
+	if firstTan.LenSq() < 1e-12 {
+		for i := 1; i <= totalSteps; i++ {
+			if table[i].tan.LenSq() >= 1e-12 {
+				firstTan = table[i].tan
+				break
+			}
+		}
+	}
+	if firstTan.LenSq() < 1e-12 {
+		return
+	}
+	table[0].tan = firstTan
 
 	// Build Rotation-Minimizing Frames via Double Reflection parallel transport.
-	table[0].up = orthoUp(table[0].tan, Vec3Up())
+	table[0].up = orthoUp(firstTan, Vec3Up())
 	for i := range totalSteps {
 		if table[i+1].tan.LenSq() < 1e-12 {
 			table[i+1].tan = table[i].tan
