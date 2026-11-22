@@ -43,3 +43,20 @@ go build ./server/cmd/dedicatedserver
 ```
 
 它用普通 Go 工具链构建，不需要 NSGo 运行时。
+
+## 匹配
+
+`Matchmaker` 按模式和地区排队 `Ticket`，按 `RoomSize` 人组成房间：
+
+```go
+mm := server.NewMatchmaker(4)
+mm.BaseWindow = 100       // 入队时允许的评分差
+mm.WindowGrowthPerSecond = 10
+mm.MaxWindow = 400
+mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
+rooms := mm.Match()       // []server.Room，含 TicketIDs 与 Players
+```
+
+同票队伍整体入房，不会被拆分。默认规则从等待最久的票开始补房：候选票与房内最老票的评分差必须同时落在**双方**当前窗口内——`BaseWindow + WindowGrowthPerSecond * 等待秒数`，并由 `MaxWindow` 封顶。匹配不会超出较新票的窗口；老票窗口随时间扩大后可以匹配后来的玩家。`Cancel(id)` 只移除该票，不影响其他等待者；`Waiting` 按等待时间从旧到新列出队列。
+
+可设置 `Rule` 替换匹配函数；它收到同一模式/地区的一组票、房间大小和 `window` 函数，返回若干 `Room`；matchmaker 会移除各房间列出的票。
