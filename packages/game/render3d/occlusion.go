@@ -284,6 +284,10 @@ type OcclusionBuffer struct {
 
 	hasGeometry  bool
 	pyramidBuilt bool
+	// rasterView is the view the buffer was rasterized for. TestAABB returns
+	// true (no cull) for another view so a stale buffer cannot false-cull.
+	rasterView math3d.Mat4
+	rasterSet  bool
 }
 
 // NewOcclusionBuffer allocates a reusable [OcclusionBuffer] of size
@@ -400,6 +404,9 @@ func (b *OcclusionBuffer) Rasterize(viewProj math3d.Mat4, occluders ...Occluder)
 	if b == nil || len(occluders) == 0 {
 		return
 	}
+
+	b.rasterView = viewProj
+	b.rasterSet = true
 
 	var frustum math3d.Frustum
 	if b.DepthNO {
@@ -846,6 +853,11 @@ func (b *OcclusionBuffer) TestAABB(bounds math3d.AABB, viewProj math3d.Mat4) boo
 		return false
 	}
 	if b == nil || !b.hasGeometry {
+		return true
+	}
+	if b.rasterSet && b.rasterView != viewProj {
+		// The buffer was rasterized for another view; a test against this one
+		// would produce false culls. Leave the item visible (#546).
 		return true
 	}
 	if !b.pyramidBuilt {
