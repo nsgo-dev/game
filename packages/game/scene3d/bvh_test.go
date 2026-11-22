@@ -997,3 +997,30 @@ func BenchmarkScene10kNodesUpdate(b *testing.B) {
 		}
 	})
 }
+
+func TestBVHRejectsNonFiniteBoundsAndRays(t *testing.T) {
+	// #546: NaN bounds used to poison the tree; NaN rays could report a hit.
+	b := scene3d.NewBVH()
+	box := math3d.AABB{Min: math3d.Vec3{X: -0.5, Y: -0.5, Z: -0.5}, Max: math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}}
+	if h := b.Insert(1, box, nil); h == (scene3d.BVHHandle{}) {
+		t.Fatal("finite insert returned an invalid handle")
+	}
+	nan := float32(math.NaN())
+	bad := math3d.AABB{Min: math3d.Vec3{X: nan, Y: -0.5, Z: -0.5}, Max: math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}}
+	if h := b.Insert(2, bad, nil); h != (scene3d.BVHHandle{}) {
+		t.Fatal("non-finite insert returned a valid handle")
+	}
+	region := math3d.AABB{Min: math3d.Vec3{X: -2, Y: -2, Z: -2}, Max: math3d.Vec3{X: 2, Y: 2, Z: 2}}
+	hits := b.QueryAABB(region, nil)
+	if len(hits) != 1 {
+		t.Fatalf("QueryAABB after rejected insert = %d hits, want 1", len(hits))
+	}
+	visited := 0
+	b.Raycast(math3d.Ray{Origin: math3d.Vec3Zero(), Dir: math3d.Vec3{X: nan, Y: 0, Z: -1}}, 10, func(scene3d.BVHHandle, float32) bool {
+		visited++
+		return true
+	})
+	if visited != 0 {
+		t.Fatalf("non-finite ray visited %d leaves, want 0", visited)
+	}
+}

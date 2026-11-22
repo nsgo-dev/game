@@ -228,7 +228,7 @@ func (b *BVH) freeLeafIdx(idx int32) {
 // into b and returns its handle. If bounds is empty, Insert returns an invalid
 // zero BVHHandle without modifying b.
 func (b *BVH) Insert(id uint64, bounds math3d.AABB, userData any) BVHHandle {
-	if b == nil || bounds.Empty() {
+	if b == nil || bounds.Empty() || !bounds.IsFinite() {
 		return BVHHandle{}
 	}
 	b.initIfZero()
@@ -265,7 +265,7 @@ func (b *BVH) Insert(id uint64, bounds math3d.AABB, userData any) BVHHandle {
 // Returns true if h was valid and updated, or false if h is invalid/removed or
 // newBounds is empty.
 func (b *BVH) Update(h BVHHandle, newBounds math3d.AABB) bool {
-	if b == nil || newBounds.Empty() {
+	if b == nil || newBounds.Empty() || !newBounds.IsFinite() {
 		return false
 	}
 	leaf, _ := b.lookupLeaf(h)
@@ -922,7 +922,7 @@ func (b *BVH) QueryFrustum(frustum math3d.Frustum, out []BVHHandle) []BVHHandle 
 //
 // Pass a reused slice (e.g. buf[:0]) for zero-allocation queries.
 func (b *BVH) QueryAABB(region math3d.AABB, out []BVHHandle) []BVHHandle {
-	if b == nil || b.count == 0 || b.root == bvhNull || region.Empty() {
+	if b == nil || b.count == 0 || b.root == bvhNull || region.Empty() || !region.IsFinite() {
 		if b != nil {
 			b.lastQueryVisited = 0
 		}
@@ -1165,7 +1165,8 @@ func (b *BVH) Raycast(ray math3d.Ray, maxDist float32, visit func(h BVHHandle, h
 // raycastShrink is an internal helper that lets callers (such as
 // Scene.RaycastFirst) shrink maxDist dynamically as closer hits are discovered.
 func (b *BVH) raycastShrink(ray math3d.Ray, maxDist float32, visit func(h BVHHandle, userData any, hitDist float32) (newMaxDist float32, cont bool)) {
-	if b == nil || b.count == 0 || b.root == bvhNull || maxDist < 0 || math.IsNaN(float64(maxDist)) {
+	if b == nil || b.count == 0 || b.root == bvhNull || maxDist < 0 || math.IsNaN(float64(maxDist)) ||
+		!ray.Origin.IsFinite() || !ray.Dir.IsFinite() || ray.Dir.LenSq() == 0 {
 		if b != nil {
 			b.lastQueryVisited = 0
 		}
