@@ -804,3 +804,15 @@ func TestCameraSyncFromSocketAndColliderTransforms(t *testing.T) {
 		t.Fatalf("unexpected HierarchyBounds: %+v", hb)
 	}
 }
+
+func TestWorldBoundsUnionsMeshAndCollider(t *testing.T) {
+	// #546: a collider extending past the visual mesh must stay queryable.
+	n := scene3d.NewNode("body")
+	mesh := math3d.AABB{Min: math3d.Vec3{X: -0.5, Y: -0.5, Z: -0.5}, Max: math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}}
+	n.SetLocalBounds(mesh)
+	n.SetCollider(&scene3d.SphereCollider{Radius: 3})
+	wb := n.WorldBounds()
+	if wb.Max.X < 2.99 || wb.Min.X > -2.99 {
+		t.Fatalf("WorldBounds = [%v, %v], want the collider's ±3", wb.Min, wb.Max)
+	}
+}

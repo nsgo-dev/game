@@ -125,9 +125,10 @@ type MeshTileDef struct {
 // MeshLibrary is a registry of MeshTileDef entries indexed by ID and Name.
 // Tile ID 0 is reserved to denote an empty grid cell.
 type MeshLibrary struct {
-	byID   map[uint16]MeshTileDef
-	byName map[string]uint16
-	nextID uint16
+	byID     map[uint16]MeshTileDef
+	byName   map[string]uint16
+	nextID   uint16
+	revision uint64
 }
 
 // NewMeshLibrary returns an empty MeshLibrary ready to register tile definitions.
@@ -176,6 +177,7 @@ func (l *MeshLibrary) Add(def MeshTileDef) uint16 {
 	if def.Name != "" {
 		l.byName[def.Name] = def.ID
 	}
+	l.revision++
 	return def.ID
 }
 
@@ -212,6 +214,15 @@ func (l *MeshLibrary) Len() int {
 		return 0
 	}
 	return len(l.byID)
+}
+
+// Revision returns a counter that changes whenever Add replaces or registers a
+// definition, so caches derived from the library can invalidate.
+func (l *MeshLibrary) Revision() uint64 {
+	if l == nil {
+		return 0
+	}
+	return l.revision
 }
 
 type gltfLibraryDoc struct {
@@ -396,6 +407,9 @@ type GridMap struct {
 	chunks     map[gridChunkKey]*gridChunk
 	count      int
 	batchIndex map[gridBatchKey]int
+	// libRevision is the MeshLibrary revision the chunks' bounds were built
+	// from; a changed library invalidates every chunk's cached bounds.
+	libRevision uint64
 }
 
 // NewGridMap creates an empty GridMap with the given cell dimensions and tile
@@ -597,6 +611,12 @@ func (g *GridMap) localTileBounds(c GridCoord, cell GridCell, def MeshTileDef, h
 }
 
 func (g *GridMap) chunkWorldBounds(ch *gridChunk) math3d.AABB {
+	if rev := g.Library.Revision(); rev != g.libRevision {
+		g.libRevision = rev
+		for _, other := range g.chunks {
+			other.dirtyBounds = true
+		}
+	}
 	if ch.dirtyBounds {
 		b := math3d.AABBEmpty()
 		for c, cell := range ch.cells {

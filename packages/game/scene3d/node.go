@@ -485,28 +485,29 @@ func (n *Node) WorldMatrix() math3d.Mat4 {
 	return n.worldMat
 }
 
-// WorldBounds returns the tight world-space AABB enclosing n's LocalBounds
-// (or its Collider's local bounds when LocalBounds is empty), recomputing
-// lazily when dirty. Returns AABBEmpty if n has no bounds.
+// WorldBounds returns the tight world-space AABB enclosing both n's LocalBounds
+// and its Collider's local bounds, recomputing lazily when dirty. A collider
+// that extends past the visual mesh must stay queryable by BVH and raycasts.
+// Returns AABBEmpty if n has no bounds.
 func (n *Node) WorldBounds() math3d.AABB {
 	if n == nil {
 		return math3d.AABBEmpty()
 	}
 	n.ensureWorld()
-	if n.LocalBounds.Empty() {
-		if n.Collider != nil {
-			b := n.Collider.LocalBounds()
-			if !b.Empty() {
-				return b.Transform(n.worldMat)
-			}
+	bounds := n.LocalBounds
+	if n.Collider != nil {
+		if b := n.Collider.LocalBounds(); !b.Empty() {
+			bounds = bounds.Union(b)
 		}
+	}
+	if bounds.Empty() {
 		return math3d.AABBEmpty()
 	}
-	if !n.boundsDirty && n.LocalBounds == n.cachedLocalBounds {
+	if !n.boundsDirty && bounds == n.cachedLocalBounds {
 		return n.worldBounds
 	}
-	n.worldBounds = n.LocalBounds.Transform(n.worldMat)
-	n.cachedLocalBounds = n.LocalBounds
+	n.worldBounds = bounds.Transform(n.worldMat)
+	n.cachedLocalBounds = bounds
 	n.boundsDirty = false
 	return n.worldBounds
 }
