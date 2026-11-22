@@ -849,3 +849,21 @@ func TestSamplingZeroAllocations(t *testing.T) {
 	_ = sinkTr
 	_ = sinkMat
 }
+
+func TestCurveFrameWithCoincidentFirstPoints(t *testing.T) {
+	// #546: p1 == p0 makes the tangent at t=0 zero; the frame table used to
+	// return zero Up/Right vectors for the whole curve.
+	p0 := math3d.Vec3{X: 0, Y: 0, Z: 0}
+	curve := math3d.NewCubicBezier3D(p0, p0,
+		math3d.Vec3{X: 1, Y: 0, Z: 0},
+		math3d.Vec3{X: 2, Y: 3, Z: 0})
+	for _, tt := range []float32{0, 0.1, 0.5, 1} {
+		f := curve.FrameAt(tt, math3d.Vec3Up())
+		if f.Tangent.LenSq() < 1e-6 || f.Up.LenSq() < 1e-6 || f.Right.LenSq() < 1e-6 {
+			t.Fatalf("frame(%v) = tan:%+v up:%+v right:%+v, want non-zero axes", tt, f.Tangent, f.Up, f.Right)
+		}
+		if dot := f.Tangent.Dot(f.Up); dot > 1e-4 || dot < -1e-4 {
+			t.Fatalf("frame(%v) axes not orthogonal: dot = %v", tt, dot)
+		}
+	}
+}
