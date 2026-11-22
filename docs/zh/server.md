@@ -44,6 +44,7 @@ go build ./server/cmd/dedicatedserver
 
 它用普通 Go 工具链构建，不需要 NSGo 运行时。
 
+
 ## 匹配
 
 `Matchmaker` 按模式和地区排队 `Ticket`，按 `RoomSize` 人组成房间：
@@ -54,9 +55,33 @@ mm.BaseWindow = 100       // 入队时允许的评分差
 mm.WindowGrowthPerSecond = 10
 mm.MaxWindow = 400
 mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
-rooms := mm.Match()       // []server.Room，含 TicketIDs 与 Players
+rooms := mm.Match()       // []server.Matchup，含 TicketIDs 与 Players
 ```
 
 同票队伍整体入房，不会被拆分。默认规则从等待最久的票开始补房：候选票与房内最老票的评分差必须同时落在**双方**当前窗口内——`BaseWindow + WindowGrowthPerSecond * 等待秒数`，并由 `MaxWindow` 封顶。匹配不会超出较新票的窗口；老票窗口随时间扩大后可以匹配后来的玩家。`Cancel(id)` 只移除该票，不影响其他等待者；`Waiting` 按等待时间从旧到新列出队列。
 
-可设置 `Rule` 替换匹配函数；它收到同一模式/地区的一组票、房间大小和 `window` 函数，返回若干 `Room`；matchmaker 会移除各房间列出的票。
+可设置 `Rule` 替换匹配函数；它收到同一模式/地区的一组票、房间大小和 `window` 函数，返回若干 `Matchup`；matchmaker 会移除各房间列出的票。
+
+## 房间
+
+`Rooms` 把 peer 分成相互独立的房间，每场比赛有独立生命周期与各自的收件箱：
+
+```go
+rs := server.NewRooms()
+rs.EmptyTimeout = 30 * time.Second
+rs.Snapshot = func(r *server.Room) []byte { return encodeWorldState(r) }
+room, _ := rs.Create(4, true)             // 容量 4，私有并带房间码
+join, _ := rs.JoinCode(room.Code(), peer) // 或 rs.Join(room.ID(), peer)
+room.Start()                              // epoch 1, tick 0
+room.Advance()                            // 运行中 tick 加一
+room.End()
+room.Start()                              // epoch 2, tick 0：新一场比赛
+rs.Leave(room.ID(), peer)
+rs.Tick()                                 // 关闭空置超过 EmptyTimeout 的房间
+```
+
+- 房间的 `Deliver`/`Recv` 只接受和暴露本房间成员的包，所以两个房间互不可见。
+- 对运行中房间 `Join` 会调用 `Snapshot`，连同当前 epoch 与 tick 返回；加入者先应用完整状态，再处理增量。
+- `End` 后 `Start` 会推进 epoch 并清零 tick，客户端无需等待计数器越过旧值即可丢弃上一场比赛的 tick 状态。
+- 私有房间的 `Code` 可由 `JoinCode` 使用；满员返回 `ErrRoomFull`，未知房间码返回 `ErrRoomNotFound`。
+- 最后一个成员离开后，房间在 `Tick` 运行且空置超过 `EmptyTimeout` 时关闭。
