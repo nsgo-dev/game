@@ -739,3 +739,45 @@ func TestEmptyFileBackendDirReturnsErrors(t *testing.T) {
 		t.Fatal("Slots on empty dir succeeded, want error")
 	}
 }
+
+func TestStorageBackendEscapesSlotKeys(t *testing.T) {
+	// #546: prefix "save" with slot "slot.x" used to share a key with prefix
+	// "save.slot" and slot "x".
+	app, _, _ := startStorageApp(t)
+	s1 := save.NewStore(save.StorageBackend(app.Storage(), "save"))
+	s2 := save.NewStore(save.StorageBackend(app.Storage(), "save.slot"))
+	if err := s1.Save("slot.x", playerState{Name: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.Save("x", playerState{Name: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	var got1, got2 playerState
+	if err := s1.Load("slot.x", &got1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.Load("x", &got2); err != nil {
+		t.Fatal(err)
+	}
+	if got1.Name != "first" || got2.Name != "second" {
+		t.Fatalf("loads = %q and %q, want first and second", got1.Name, got2.Name)
+	}
+}
+
+func TestFileBackendRefusesCaseAndNormalizationCollisions(t *testing.T) {
+	// #546: Autosave/autosave address one file on a case-insensitive file
+	// system, as do composed and decomposed spellings after normalization.
+	store := save.NewStore(save.FileBackend(t.TempDir()))
+	if err := store.Save("Autosave", playerState{Name: "upper"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("autosave", playerState{Name: "lower"}); !errors.Is(err, save.ErrInvalidSlot) {
+		t.Fatalf("case-only slot save = %v, want ErrInvalidSlot", err)
+	}
+	if err := store.Save("café", playerState{Name: "nfc"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("cafe\u0301", playerState{Name: "nfd"}); !errors.Is(err, save.ErrInvalidSlot) {
+		t.Fatalf("normalization-only slot save = %v, want ErrInvalidSlot", err)
+	}
+}

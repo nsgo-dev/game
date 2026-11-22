@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -55,8 +57,18 @@ func (b *storageBackend) backupPrefix() string {
 	return b.prefix + ".bak."
 }
 
-func (b *storageBackend) primaryKey(slot string) string { return b.primaryPrefix() + slot }
-func (b *storageBackend) backupKey(slot string) string  { return b.backupPrefix() + slot }
+// escapeSlotKey keeps a slot name from colliding with a prefix boundary or a
+// backup key: a dot, the separator between a prefix and the slot kind, is
+// encoded, so prefix "save" with slot "slot.x" cannot share a key with prefix
+// "save.slot" and slot "x" (#546).
+func escapeSlotKey(slot string) string {
+	return strings.NewReplacer(".", "%2E", "%", "%25").Replace(slot)
+}
+
+func (b *storageBackend) primaryKey(slot string) string {
+	return b.primaryPrefix() + escapeSlotKey(slot)
+}
+func (b *storageBackend) backupKey(slot string) string { return b.backupPrefix() + escapeSlotKey(slot) }
 
 func (b *storageBackend) Read(slot string) ([]byte, error) {
 	v, ok := b.store.GetItem(b.primaryKey(slot))
@@ -170,6 +182,9 @@ func (b *fileBackend) Write(slot string, data []byte) error {
 	if b.dir == "" {
 		return errEmptyDir
 	}
+	if existing, collides := b.caseCollision(slot); collides {
+		return fmt.Errorf("%w: %q collides with existing slot %q on a case-insensitive file system", ErrInvalidSlot, slot, existing)
+	}
 	if err := os.MkdirAll(b.dir, 0o755); err != nil {
 		return fmt.Errorf("save: create directory %q: %w", b.dir, err)
 	}
@@ -216,6 +231,22 @@ func (b *fileBackend) Delete(slot string) error {
 	}
 	syncDir(b.dir)
 	return nil
+}
+
+// caseCollision reports an existing slot whose Unicode-normalized, case-folded
+// name equals slot's, which would address the same file on a case-insensitive
+// file system (Autosave/autosave) or after normalization (#546).
+func (b *fileBackend) caseCollision(slot string) (string, bool) {
+	slots, err := b.Slots()
+	if err != nil {
+		return "", false
+	}
+	for _, existing := range slots {
+		if existing != slot && strings.EqualFold(norm.NFC.String(existing), norm.NFC.String(slot)) {
+			return existing, true
+		}
+	}
+	return "", false
 }
 
 func (b *fileBackend) Exists(slot string) bool {
