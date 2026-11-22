@@ -85,3 +85,25 @@ rs.Tick()                                 // close rooms empty for EmptyTimeout
 - `Start` after `End` advances the epoch and resets the tick, so clients can drop the old match's tick state without waiting for the counter to wrap.
 - A private room's `Code` is accepted by `JoinCode`; a full room returns `ErrRoomFull`, an unknown code `ErrRoomNotFound`.
 - A room that loses its last member closes after `EmptyTimeout` when `Tick` runs.
+
+## Rate limits and input validation
+
+`Guard` enforces a per-peer policy before packets reach a room or simulation:
+
+```go
+g := server.NewGuard(server.Limits{
+	PacketsPerSecond:   60,
+	BytesPerSecond:     64 << 10,
+	MaxMessageSize:     8 << 10,
+	MaxPendingReliable: 256 << 10,
+}, server.LimitDisconnect)
+g.Validate = func(peer net.PeerID, p net.Packet) error { return checkInput(p) }
+action, err := g.Check(peer, packet)
+```
+
+- Token buckets for packets and bytes with optional bursts; `LimitThrottle`/`LimitDrop` refuse the packet and keep the peer connected, `LimitDisconnect` refuses the peer from then on (`GuardDisconnect`).
+- `MaxMessageSize` rejects an oversized packet before it is buffered; `ReserveReliable`/`ReleaseReliable` bound reserved reliable bytes.
+- `Validate` runs only for an admitted packet; a non-nil error drops it with `ErrInvalidInput`, increments that peer's `Violations`, and never reaches the simulation.
+- `Stats(peer)` reports packets, bytes, dropped, violations and pending reliable bytes per peer; `Reset` forgets a reconnecting peer. Per-peer state and O(1) checks leave other peers' ticks unaffected.
+
+The guard is transport-agnostic: call `Check` at the packet loop and act on the returned `GuardAction`.
