@@ -3,6 +3,7 @@ package net
 import (
 	"bufio"
 	stdnet "net"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -34,5 +35,23 @@ func TestWebSocketCloseUnblocksSend(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Close stayed blocked behind Send")
+	}
+}
+
+func TestWebSocketHostPortHandlesIPv6AndDefaultPorts(t *testing.T) {
+	// #546: a colon test mistook an IPv6 literal for an existing port.
+	for _, tc := range []struct{ raw, want string }{
+		{"ws://[::1]/app", "[::1]:80"},
+		{"ws://[::1]:8080/app", "[::1]:8080"},
+		{"wss://example.com/app", "example.com:443"},
+	} {
+		u, err := url.Parse(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := webSocketHostPort(u)
+		if err != nil || got != tc.want {
+			t.Fatalf("%s host = %q, %v; want %q", tc.raw, got, err, tc.want)
+		}
 	}
 }
