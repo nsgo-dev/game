@@ -69,6 +69,26 @@ func TestFrustumCulling(t *testing.T) {
 	}
 }
 
+func TestFrustumKeepsNearGeometryWithNOProjections(t *testing.T) {
+	// #546: a [0, 1] frustum extraction of an OpenGL [-1, 1] projection puts
+	// the near plane halfway into the view and culls visible geometry. The
+	// conservative [-1, 1] extraction must keep all three boxes.
+	items := []render3d.DrawItem{
+		{ID: 1, MeshID: 1, MaterialID: 1, PipelineID: 1, WorldBounds: unitBoxAt(math3d.Vec3{Z: -1}, 0.5), Triangles: 12, Vertices: 8},
+		{ID: 2, MeshID: 1, MaterialID: 1, PipelineID: 1, WorldBounds: unitBoxAt(math3d.Vec3{Z: -50}, 0.5), Triangles: 12, Vertices: 8},
+		{ID: 3, MeshID: 1, MaterialID: 1, PipelineID: 1, WorldBounds: unitBoxAt(math3d.Vec3{Z: -90}, 0.5), Triangles: 12, Vertices: 8},
+	}
+	ortho := math3d.OrthoNO(-2, 2, -2, 2, 0.1, 100)
+	var q render3d.Queue
+	if plan := q.Build(ortho, math3d.Vec3Zero(), items); plan.Stats.VisibleItems != 3 {
+		t.Fatalf("OrthoNO with default Queue: visible = %d, want 3", plan.Stats.VisibleItems)
+	}
+	perspective := math3d.PerspectiveNO(math3d.DegToRad(60), 1, 0.1, 100)
+	if plan := q.Build(perspective, math3d.Vec3Zero(), items); plan.Stats.VisibleItems != 3 {
+		t.Fatalf("PerspectiveNO with default Queue: visible = %d, want 3", plan.Stats.VisibleItems)
+	}
+}
+
 func TestOpaqueSortingAndStateSwitchMinimization(t *testing.T) {
 	vp, camPos := testCamera()
 	// Deliberately interleaved pipelines, materials, meshes, and depths.
