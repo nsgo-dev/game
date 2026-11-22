@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/server`: headless fixed-step `Runner` for dedicated servers, with several matches at their own rates, overrun reports and bounded signal shutdown (#549).
 - `game/server`: a matchmaking queue with per-mode/region tickets, widening skill windows, whole parties and a pluggable rule (#552).
 - `game/server`: rooms with capacity, private codes, a waiting/running/ended match lifecycle and fresh epochs, per-room packet inboxes, late-join full snapshots and empty-room timeouts (#551).
+- `game/server`: per-peer packet/byte rate limits with throttle/drop/disconnect policies, message and pending-reliable caps, and an input validator with per-peer violation counts (#555).
 
 ### Fixed
 

@@ -85,3 +85,25 @@ rs.Tick()                                 // 关闭空置超过 EmptyTimeout 的
 - `End` 后 `Start` 会推进 epoch 并清零 tick，客户端无需等待计数器越过旧值即可丢弃上一场比赛的 tick 状态。
 - 私有房间的 `Code` 可由 `JoinCode` 使用；满员返回 `ErrRoomFull`，未知房间码返回 `ErrRoomNotFound`。
 - 最后一个成员离开后，房间在 `Tick` 运行且空置超过 `EmptyTimeout` 时关闭。
+
+## 速率限制与输入校验
+
+`Guard` 在包进入房间或模拟前执行每个 peer 的策略：
+
+```go
+g := server.NewGuard(server.Limits{
+	PacketsPerSecond:   60,
+	BytesPerSecond:     64 << 10,
+	MaxMessageSize:     8 << 10,
+	MaxPendingReliable: 256 << 10,
+}, server.LimitDisconnect)
+g.Validate = func(peer net.PeerID, p net.Packet) error { return checkInput(p) }
+action, err := g.Check(peer, packet)
+```
+
+- 包与字节使用令牌桶，可配 burst；`LimitThrottle`/`LimitDrop` 拒绝该包但保持连接，`LimitDisconnect` 之后拒绝该 peer（返回 `GuardDisconnect`）。
+- `MaxMessageSize` 在缓冲前拒绝超大包；`ReserveReliable`/`ReleaseReliable` 限制待处理可靠字节。
+- `Validate` 只对已通过的包运行；返回非 nil 错误时丢弃该包、返回 `ErrInvalidInput`、累加该 peer 的 `Violations`，且绝不会进入模拟。
+- `Stats(peer)` 返回该 peer 的包数、字节数、丢弃数、违规数与待处理可靠字节；`Reset` 用于重连 peer。状态按 peer 隔离、检查 O(1)，不影响其他 peer 的 tick。
+
+`Guard` 与传输无关：在收包循环调用 `Check`，按返回的 `GuardAction` 处理即可。
