@@ -638,6 +638,11 @@ func (c *ClientWorld) requestResync(tick uint32) {
 	_ = c.transport.Send(c.serverID, ChannelUnreliable, []byte{replMsgResync})
 }
 
+// MaxEntitiesPerSnapshot bounds a full snapshot's entity count. The map is
+// allocated before each entity is read, so a corrupt 3.8MB packet claiming a
+// million entities would reserve hundreds of megabytes before failing (#546).
+const MaxEntitiesPerSnapshot = 1 << 16
+
 func (c *ClientWorld) applyFull(src []byte) bool {
 	tickVal, n := binary.Uvarint(src)
 	if n <= 0 {
@@ -656,7 +661,7 @@ func (c *ClientWorld) applyFull(src []byte) bool {
 	src = src[n:]
 	// Every entity needs at least one byte of id, so a count beyond the payload
 	// is a corrupt packet, not a reason to allocate a huge map.
-	if count > uint64(len(src)/2) {
+	if count > uint64(len(src)/2) || count > MaxEntitiesPerSnapshot {
 		return false
 	}
 
