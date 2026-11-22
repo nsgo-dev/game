@@ -33,7 +33,7 @@ type Ticket struct {
 }
 
 // Match is a set of tickets assigned to one room.
-type Room struct {
+type Matchup struct {
 	Mode, Region string
 	TicketIDs    []uint64
 	Players      []string
@@ -43,7 +43,7 @@ type Room struct {
 // window reports a ticket's current skill window at the rule's time. The
 // default rule fills rooms with parties whose ratings fit; a game can replace
 // it for custom matching.
-type Rule func(tickets []*Ticket, roomSize int, window func(*Ticket) float64) []Room
+type Rule func(tickets []*Ticket, roomSize int, window func(*Ticket) float64) []Matchup
 
 // Matchmaker queues tickets per mode and region and groups them into rooms.
 // The zero value is not ready; construct one with NewMatchmaker.
@@ -142,7 +142,7 @@ func (m *Matchmaker) Waiting() []Ticket {
 
 // Match forms rooms from the waiting tickets, removes their tickets and
 // returns the matches. Tickets that cannot fill a room stay queued.
-func (m *Matchmaker) Match() []Room {
+func (m *Matchmaker) Match() []Matchup {
 	if m == nil || len(m.queue) == 0 {
 		return nil
 	}
@@ -178,7 +178,7 @@ func (m *Matchmaker) Match() []Room {
 		return order[i][1] < order[j][1]
 	})
 
-	var out []Room
+	var out []Matchup
 	for _, key := range order {
 		rule := m.Rule
 		if rule == nil {
@@ -196,7 +196,7 @@ func (m *Matchmaker) Match() []Room {
 
 // defaultRule fills rooms oldest-first, adding whole parties whose ratings fit
 // within both the oldest ticket's current window and their own.
-func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) []Room {
+func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) []Matchup {
 	if roomSize <= 0 || len(tickets) == 0 {
 		return nil
 	}
@@ -208,7 +208,7 @@ func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) 
 		return remaining[i].ID < remaining[j].ID
 	})
 
-	var matches []Room
+	var matches []Matchup
 	for i := 0; i < len(remaining); {
 		anchor := remaining[i]
 		if len(anchor.Party) > roomSize {
@@ -235,14 +235,14 @@ func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) 
 			i++
 			continue
 		}
-		matches = append(matches, combineRoom(room))
+		matches = append(matches, combineMatchup(room))
 		remaining = append(remaining[:i], remaining[i+1:]...)
 	}
 	return matches
 }
 
-func combineRoom(room []*Ticket) Room {
-	result := Room{Mode: room[0].Mode, Region: room[0].Region}
+func combineMatchup(room []*Ticket) Matchup {
+	result := Matchup{Mode: room[0].Mode, Region: room[0].Region}
 	for _, t := range room {
 		result.TicketIDs = append(result.TicketIDs, t.ID)
 		result.Players = append(result.Players, t.Party...)

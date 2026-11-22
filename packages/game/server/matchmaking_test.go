@@ -100,11 +100,11 @@ func TestMatchmakerCancelLeavesOthersAtThousand(t *testing.T) {
 
 func TestMatchmakerCustomRule(t *testing.T) {
 	mm := server.NewMatchmaker(2)
-	mm.Rule = func(tickets []*server.Ticket, _ int, _ func(*server.Ticket) float64) []server.Room {
+	mm.Rule = func(tickets []*server.Ticket, _ int, _ func(*server.Ticket) float64) []server.Matchup {
 		if len(tickets) < 2 {
 			return nil
 		}
-		return []server.Room{{
+		return []server.Matchup{{
 			Mode: tickets[0].Mode, Region: tickets[0].Region,
 			TicketIDs: []uint64{tickets[0].ID, tickets[1].ID},
 			Players:   append(append([]string(nil), tickets[0].Party...), tickets[1].Party...),

@@ -44,6 +44,7 @@ go build ./server/cmd/dedicatedserver
 
 It builds with the plain Go toolchain and no NSGo runtime.
 
+
 ## Matchmaking
 
 `Matchmaker` queues `Ticket`s by mode and region and fills rooms of `RoomSize` players:
@@ -54,9 +55,33 @@ mm.BaseWindow = 100       // rating difference allowed at enqueue time
 mm.WindowGrowthPerSecond = 10
 mm.MaxWindow = 400
 mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
-rooms := mm.Match()       // []server.Room with TicketIDs and Players
+rooms := mm.Match()       // []server.Matchup with TicketIDs and Players
 ```
 
 A ticket's party is placed whole or not at all. The default rule fills rooms oldest-first and adds a ticket only when its rating difference from the room's oldest ticket fits within **both** tickets' current windows: `BaseWindow + WindowGrowthPerSecond * waited`, capped by `MaxWindow`. Matches never mix beyond the newer ticket's window, and an old ticket's window widening lets it meet a later arrival. `Cancel(id)` removes a waiting ticket without disturbing the rest; `Waiting` lists the queue oldest-first.
 
-Set `Rule` to replace the matching function; it receives a group of tickets with the same mode and region, the room size and a `window` function, and returns `Room`s. The matchmaker removes the tickets listed in each returned room.
+Set `Rule` to replace the matching function; it receives a group of tickets with the same mode and region, the room size and a `window` function, and returns `Matchup`s. The matchmaker removes the tickets listed in each returned room.
+
+## Rooms
+
+`Rooms` groups peers into independent rooms with a per-match lifecycle and its own packet inboxes:
+
+```go
+rs := server.NewRooms()
+rs.EmptyTimeout = 30 * time.Second
+rs.Snapshot = func(r *server.Room) []byte { return encodeWorldState(r) }
+room, _ := rs.Create(4, true)             // capacity 4, private with a code
+join, _ := rs.JoinCode(room.Code(), peer) // or rs.Join(room.ID(), peer)
+room.Start()                              // epoch 1, tick 0
+room.Advance()                            // tick 1 while running
+room.End()
+room.Start()                              // epoch 2, tick 0: a fresh match
+rs.Leave(room.ID(), peer)
+rs.Tick()                                 // close rooms empty for EmptyTimeout
+```
+
+- A room's `Deliver`/`Recv` only accept and expose packets of its own members, so two rooms never see each other's traffic.
+- `Join` on a running match calls `Snapshot` and returns it with the current epoch and tick; the joiner applies that full state before deltas.
+- `Start` after `End` advances the epoch and resets the tick, so clients can drop the old match's tick state without waiting for the counter to wrap.
+- A private room's `Code` is accepted by `JoinCode`; a full room returns `ErrRoomFull`, an unknown code `ErrRoomNotFound`.
+- A room that loses its last member closes after `EmptyTimeout` when `Tick` runs.
