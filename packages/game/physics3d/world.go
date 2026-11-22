@@ -39,9 +39,14 @@ type Body struct {
 	Mass float32
 	// InvMass is 1/Mass for dynamic bodies and 0 for static bodies.
 	InvMass float32
-	// InvInertia is the body's inverse rotational inertia. When 0 on a dynamic
-	// body, AddBody computes an isotropic approximation from Shape and Mass.
+	// InvInertia is the body's inverse rotational inertia. When <= 0 on a
+	// dynamic body, AddBody computes an isotropic approximation from Shape and
+	// Mass unless LockRotation is set.
 	InvInertia float32
+	// LockRotation keeps a dynamic body from rotating: InvInertia becomes 0
+	// and angular impulses are ignored, which InvInertia == 0 alone could not
+	// express while 0 also meant "compute a default" (#546).
+	LockRotation bool
 	// Restitution is the bounciness in [0, 1].
 	Restitution float32
 	// Friction is the Coulomb friction coefficient (>= 0).
@@ -141,7 +146,10 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 		inertia = 0.4 * mass * r * r
 	case ShapeBox:
 		e := shape.Box.HalfExtents
-		inertia = 0.4 * mass * (e.X*e.X + e.Y*e.Y + e.Z*e.Z)
+		// An isotropic box approximation: each axis' moment is
+		// (1/3) m (e_y² + e_z²), averaging to (1/3) m Σe². The old 0.4
+		// coefficient was 1.8× too high for a cube (#546).
+		inertia = mass * (e.X*e.X + e.Y*e.Y + e.Z*e.Z) / 3
 	case ShapeCapsule:
 		r := shape.Capsule.Radius
 		lSq := shape.Capsule.B.Sub(shape.Capsule.A).LenSq()
@@ -257,7 +265,10 @@ func (w *World) AddBody(b Body) *Body {
 		} else if b.Mass <= 0 {
 			b.Mass = 1 / b.InvMass
 		}
-		if b.InvInertia <= 0 {
+		if b.LockRotation {
+			b.InvInertia = 0
+			b.AngVel = Vec3{}
+		} else if b.InvInertia <= 0 {
 			b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
 		}
 	}

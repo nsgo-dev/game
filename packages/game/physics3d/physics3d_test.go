@@ -654,3 +654,29 @@ func TestCharacterControllerStairsSlopesAndWalls(t *testing.T) {
 		}
 	})
 }
+
+func TestBoxInertiaAndLockRotation(t *testing.T) {
+	// #546: box inertia used the sphere's 0.4 coefficient (1.8× too high for
+	// a cube), and InvInertia == 0 could not lock a body's rotation.
+	w := physics3d.NewWorld()
+	box := w.AddBody(physics3d.Body{
+		Mass:  2,
+		Shape: physics3d.Shape{Kind: physics3d.ShapeBox, Box: physics3d.Box{HalfExtents: physics3d.Vec3{X: 1, Y: 1, Z: 1}}},
+	})
+	// (1/3) m Σe² = 2; the isotropic inverse is 0.5.
+	if math.Abs(float64(box.InvInertia-0.5)) > 1e-5 {
+		t.Fatalf("box InvInertia = %v, want 0.5", box.InvInertia)
+	}
+	locked := w.AddBody(physics3d.Body{
+		Mass:         2,
+		LockRotation: true,
+		Shape:        physics3d.Shape{Kind: physics3d.ShapeBox, Box: physics3d.Box{HalfExtents: physics3d.Vec3{X: 1, Y: 1, Z: 1}}},
+	})
+	if locked.InvInertia != 0 {
+		t.Fatalf("locked InvInertia = %v, want 0", locked.InvInertia)
+	}
+	locked.ApplyAngularImpulse(physics3d.Vec3{Y: 1})
+	if locked.AngVel != (physics3d.Vec3{}) {
+		t.Fatalf("locked body gained angular velocity %+v", locked.AngVel)
+	}
+}
