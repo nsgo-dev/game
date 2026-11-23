@@ -118,6 +118,16 @@ type Animation struct {
 	Loop bool `yaml:"loop,omitempty"`
 	// Tracks are the clip's keyed properties; each target and property pair appears once.
 	Tracks []Track `yaml:"tracks,omitempty"`
+	// Events are named cues on the clip's timeline in time order, such as a footstep sound, which a player reports as playback crosses them.
+	Events []Event `yaml:"events,omitempty"`
+}
+
+// Event is one named cue on an Animation's timeline.
+type Event struct {
+	// Time is where the event sits, from 0 to the clip's Length; events must be in non-decreasing Time order.
+	Time float32 `yaml:"time"`
+	// Name says what happens, such as "footstep"; it must not be empty.
+	Name string `yaml:"name"`
 }
 
 // Track keys one numeric property of one target over an Animation's length.
@@ -133,7 +143,7 @@ type Track struct {
 // Kind returns KindAnimation.
 func (a *Animation) Kind() Kind { return KindAnimation }
 
-// Validate checks the header, the length and every track.
+// Validate checks the header, the length, every track and every event.
 func (a *Animation) Validate() error {
 	if a == nil {
 		return fmt.Errorf("resource: nil animation")
@@ -158,6 +168,17 @@ func (a *Animation) Validate() error {
 		seen[p] = struct{}{}
 		if err := validateKeys(fmt.Sprintf("animation track %q %q", tr.Target, tr.Property), tr.Keys, 0, a.Length); err != nil {
 			return err
+		}
+	}
+	for i, ev := range a.Events {
+		if ev.Name == "" {
+			return fmt.Errorf("resource: animation event %d has an empty name", i)
+		}
+		if !isFinite(ev.Time) || ev.Time < 0 || ev.Time > a.Length {
+			return fmt.Errorf("resource: animation event %d time %v must be in [0, %v]", i, ev.Time, a.Length)
+		}
+		if i > 0 && ev.Time < a.Events[i-1].Time {
+			return fmt.Errorf("resource: animation event %d time %v must not be before the previous event's %v", i, ev.Time, a.Events[i-1].Time)
 		}
 	}
 	return nil
