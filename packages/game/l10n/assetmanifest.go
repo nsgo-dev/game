@@ -1,0 +1,245 @@
+package l10n
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"slices"
+	"strings"
+
+	"go.yaml.in/yaml/v3"
+)
+
+// AssetManifestVersion is the asset manifest schema version this package reads and writes.
+const AssetManifestVersion = 1
+
+// AssetManifest is the versioned YAML document that maps logical asset names to per-locale paths and names asset groups. A manifest looks like this:
+//
+//	version: 1
+//	base_locale: en
+//	assets:
+//	  voice/intro.wav:
+//	    en: locales/en/voice/intro.wav
+//	    ja: locales/ja/voice/intro.wav
+//	groups:
+//	  voice:
+//	    - voice/intro.wav
+//
+// ParseAssetManifest decodes it strictly and EncodeAssetManifest writes it back in canonical form, so a manifest that EncodeAssetManifest wrote survives a load and save unchanged.
+type AssetManifest struct {
+	// Version is the schema version; it must equal AssetManifestVersion.
+	Version int `yaml:"version"`
+	// BaseLocale is the optional fallback locale, written in normalized BCP-47 form (for example "en" or "zh-Hans").
+	BaseLocale string `yaml:"base_locale,omitempty"`
+	// Assets maps a logical asset name (a clean slash-separated path such as "voice/intro.wav") to its variants, each a normalized locale mapped to a non-empty asset path.
+	Assets map[string]map[string]string `yaml:"assets,omitempty"`
+	// Groups maps a group name to the logical asset names it reloads on a locale switch. Members are clean asset names without duplicates; a group may name assets that the manifest itself does not list.
+	Groups map[string][]string `yaml:"groups,omitempty"`
+}
+
+// ParseAssetManifest decodes and validates a YAML asset manifest. Unknown fields, duplicate keys, trailing YAML documents, a missing or unsupported version, and names or locales that are not in canonical form are refused.
+func ParseAssetManifest(data []byte) (*AssetManifest, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("l10n: empty asset manifest")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var m AssetManifest
+	if err := dec.Decode(&m); err != nil {
+		return nil, fmt.Errorf("l10n: decode asset manifest: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("l10n: unexpected trailing YAML document in asset manifest")
+		}
+		return nil, fmt.Errorf("l10n: decode asset manifest: %w", err)
+	}
+	if err := ValidateAssetManifest(&m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// EncodeAssetManifest validates m and writes it as deterministic 2-space YAML: fields in schema order, map keys sorted, and group members sorted.
+func EncodeAssetManifest(m *AssetManifest) ([]byte, error) {
+	if err := ValidateAssetManifest(m); err != nil {
+		return nil, err
+	}
+	out := *m
+	if len(m.Groups) > 0 {
+		out.Groups = make(map[string][]string, len(m.Groups))
+		for g, names := range m.Groups {
+			sorted := slices.Clone(names)
+			slices.Sort(sorted)
+			if sorted == nil {
+				sorted = []string{}
+			}
+			out.Groups[g] = sorted
+		}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&out); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("l10n: encode asset manifest: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("l10n: encode asset manifest: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// ValidateAssetManifest checks m against the version 1 schema: the version, a normalized base locale, clean asset names with at least one variant each, normalized variant locales with non-empty paths that carry no surrounding spaces, and non-empty group names whose members are clean and unique.
+func ValidateAssetManifest(m *AssetManifest) error {
+	if m == nil {
+		return errors.New("l10n: nil asset manifest")
+	}
+	switch m.Version {
+	case AssetManifestVersion:
+	case 0:
+		return fmt.Errorf("l10n: asset manifest is missing version (want %d)", AssetManifestVersion)
+	default:
+		return fmt.Errorf("l10n: unsupported asset manifest version %d (want %d)", m.Version, AssetManifestVersion)
+	}
+	if m.BaseLocale != "" {
+		if err := checkCanonicalLocale(m.BaseLocale); err != nil {
+			return fmt.Errorf("l10n: asset manifest base_locale: %w", err)
+		}
+	}
+	for _, name := range sortedKeys(m.Assets) {
+		if err := checkCanonicalAssetName(name); err != nil {
+			return fmt.Errorf("l10n: asset manifest assets: %w", err)
+		}
+		variants := m.Assets[name]
+		if len(variants) == 0 {
+			return fmt.Errorf("l10n: asset %q has no locale variants", name)
+		}
+		for _, loc := range sortedKeys(variants) {
+			if err := checkCanonicalLocale(loc); err != nil {
+				return fmt.Errorf("l10n: asset %q: %w", name, err)
+			}
+			p := variants[loc]
+			if p == "" {
+				return fmt.Errorf("l10n: asset %q locale %q has an empty path", name, loc)
+			}
+			if strings.TrimSpace(p) != p {
+				return fmt.Errorf("l10n: asset %q locale %q path %q has surrounding spaces", name, loc, p)
+			}
+		}
+	}
+	for _, group := range sortedKeys(m.Groups) {
+		if group == "" || strings.TrimSpace(group) != group {
+			return fmt.Errorf("l10n: asset manifest group name %q must be non-empty without surrounding spaces", group)
+		}
+		seen := make(map[string]struct{}, len(m.Groups[group]))
+		for _, name := range m.Groups[group] {
+			if err := checkCanonicalAssetName(name); err != nil {
+				return fmt.Errorf("l10n: asset group %q: %w", group, err)
+			}
+			if _, dup := seen[name]; dup {
+				return fmt.Errorf("l10n: asset group %q lists %q more than once", group, name)
+			}
+			seen[name] = struct{}{}
+		}
+	}
+	return nil
+}
+
+// LoadAssetManifestYAML parses a YAML asset manifest with ParseAssetManifest and merges it into c with ApplyAssetManifest. Nothing is merged when the manifest is invalid.
+func (c *AssetCatalog) LoadAssetManifestYAML(data []byte) error {
+	m, err := ParseAssetManifest(data)
+	if err != nil {
+		return err
+	}
+	return c.ApplyAssetManifest(m)
+}
+
+// ApplyAssetManifest validates m and merges it into c: a non-empty BaseLocale replaces c's base locale, every variant is registered (replacing an existing path for the same asset and locale), and group members are added to their groups.
+func (c *AssetCatalog) ApplyAssetManifest(m *AssetManifest) error {
+	if err := ValidateAssetManifest(m); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if m.BaseLocale != "" {
+		c.baseLocale = m.BaseLocale
+		if c.currentLocale == "" {
+			c.currentLocale = m.BaseLocale
+		}
+	}
+	for name, variants := range m.Assets {
+		for loc, p := range variants {
+			c.registerLocked(name, loc, p)
+		}
+	}
+	for group, names := range m.Groups {
+		c.registerGroupLocked(group, names...)
+	}
+	return nil
+}
+
+// AssetManifest returns a snapshot of c as a manifest: its base locale, every registered variant, and every group with its members sorted. The result shares no maps or slices with c.
+func (c *AssetCatalog) AssetManifest() *AssetManifest {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	m := &AssetManifest{Version: AssetManifestVersion, BaseLocale: c.baseLocale}
+	if len(c.assets) > 0 {
+		m.Assets = make(map[string]map[string]string, len(c.assets))
+		for name, variants := range c.assets {
+			m.Assets[name] = maps.Clone(variants)
+		}
+	}
+	if len(c.groups) > 0 {
+		m.Groups = make(map[string][]string, len(c.groups))
+		for group, members := range c.groups {
+			names := make([]string, 0, len(members))
+			for name := range members {
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			m.Groups[group] = names
+		}
+	}
+	return m
+}
+
+// MarshalAssetManifestYAML writes c's AssetManifest snapshot with EncodeAssetManifest.
+func (c *AssetCatalog) MarshalAssetManifestYAML() ([]byte, error) {
+	return EncodeAssetManifest(c.AssetManifest())
+}
+
+func checkCanonicalLocale(loc string) error {
+	norm := NormalizeLocale(loc)
+	if norm == "" {
+		return fmt.Errorf("empty locale %q", loc)
+	}
+	if norm != loc {
+		return fmt.Errorf("locale %q must be written as %q", loc, norm)
+	}
+	return nil
+}
+
+func checkCanonicalAssetName(name string) error {
+	clean := cleanAssetName(name)
+	if clean == "" {
+		return fmt.Errorf("invalid asset name %q", name)
+	}
+	if clean != name {
+		return fmt.Errorf("asset name %q must be written as %q", name, clean)
+	}
+	return nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
