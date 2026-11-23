@@ -10,14 +10,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// recordingDoc is the YAML form of a Recording. Field order here is the key order Encode writes.
+// recordingDoc is the YAML form of a Recording. Field order here is the key order Encode writes. Seed and TotalSteps are pointers so a missing key is refused rather than read as 0, which would replay from the wrong seed or as an empty run.
 type recordingDoc struct {
 	Version    int       `yaml:"version"`
-	Seed       uint64    `yaml:"seed"`
+	Seed       *uint64   `yaml:"seed"`
 	Rate       int       `yaml:"rate"`
 	Actions    []string  `yaml:"actions,omitempty,flow"`
 	Axes       []string  `yaml:"axes,omitempty,flow"`
-	TotalSteps int       `yaml:"total_steps"`
+	TotalSteps *int      `yaml:"total_steps"`
 	Steps      []stepDoc `yaml:"steps,omitempty"`
 }
 
@@ -49,7 +49,7 @@ type axisValue struct {
 // axisValues is an ordered mapping from axis name to value. It keeps the order written in the file so a load and save round trip does not reorder keys.
 type axisValues []axisValue
 
-// MarshalYAML writes the axis values as a flow mapping in slice order.
+// MarshalYAML writes the axis values as a flow mapping in slice order. Negative zero is written as 0, because YAML reads the plain scalar -0 back as the integer 0 and the text would otherwise change on the next save.
 func (a axisValues) MarshalYAML() (any, error) {
 	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
 	for _, av := range a {
@@ -57,7 +57,11 @@ func (a axisValues) MarshalYAML() (any, error) {
 		if err := k.Encode(av.name); err != nil {
 			return nil, err
 		}
-		if err := v.Encode(av.value); err != nil {
+		value := av.value
+		if value == 0 {
+			value = 0
+		}
+		if err := v.Encode(value); err != nil {
 			return nil, err
 		}
 		n.Content = append(n.Content, &k, &v)
@@ -65,7 +69,7 @@ func (a axisValues) MarshalYAML() (any, error) {
 	return n, nil
 }
 
-// UnmarshalYAML reads a mapping from axis name to number, keeping key order and refusing repeated names.
+// UnmarshalYAML reads a mapping from axis name to number, keeping key order and refusing repeated names. A written -0.0 is read as 0 so every zero decodes and encodes the same way.
 func (a *axisValues) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("line %d: axes must map axis names to values", node.Line)
@@ -84,6 +88,9 @@ func (a *axisValues) UnmarshalYAML(node *yaml.Node) error {
 		seen[av.name] = struct{}{}
 		if err := v.Decode(&av.value); err != nil {
 			return err
+		}
+		if av.value == 0 {
+			av.value = 0
 		}
 		out = append(out, av)
 	}
@@ -109,13 +116,14 @@ func (r *Recording) Encode() ([]byte, error) {
 	if err := r.Validate(); err != nil {
 		return nil, err
 	}
+	seed, totalSteps := r.Seed, r.TotalSteps
 	doc := recordingDoc{
 		Version:    r.Version,
-		Seed:       r.Seed,
+		Seed:       &seed,
 		Rate:       r.Rate,
 		Actions:    r.Actions,
 		Axes:       r.Axes,
-		TotalSteps: r.TotalSteps,
+		TotalSteps: &totalSteps,
 	}
 	if len(r.Events) > 0 {
 		doc.Steps = make([]stepDoc, len(r.Events))
@@ -159,7 +167,7 @@ func (r *Recording) Encode() ([]byte, error) {
 
 // Decode reads a Recording from the YAML text Encode writes, including text a person has edited, and validates it.
 //
-// Unknown keys, a missing step number, names that are not in the header's actions or axes, and trailing YAML documents are refused. Steps must be listed in increasing order. A recording with another version, such as the compact JSON of version 1, is refused with an error naming that version.
+// Unknown keys, a missing seed, total_steps or step number, names that are not in the header's actions or axes, and trailing YAML documents are refused. Steps must be listed in increasing order. A recording with another version, such as the compact JSON of version 1, is refused with an error naming that version.
 func Decode(data []byte) (*Recording, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("replay: decode: empty recording")
@@ -193,13 +201,19 @@ func Decode(data []byte) (*Recording, error) {
 		return nil, fmt.Errorf("replay: decode: %w", err)
 	}
 
+	if doc.Seed == nil {
+		return nil, errors.New("replay: decode: missing seed")
+	}
+	if doc.TotalSteps == nil {
+		return nil, errors.New("replay: decode: missing total_steps")
+	}
 	rec := &Recording{
 		Version:    doc.Version,
-		Seed:       doc.Seed,
+		Seed:       *doc.Seed,
 		Rate:       doc.Rate,
 		Actions:    doc.Actions,
 		Axes:       doc.Axes,
-		TotalSteps: doc.TotalSteps,
+		TotalSteps: *doc.TotalSteps,
 	}
 	if err := validateNames("action", rec.Actions); err != nil {
 		return nil, err

@@ -1,6 +1,7 @@
 package replay_test
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,6 +216,7 @@ func TestEncodeQuotesAwkwardNames(t *testing.T) {
 func FuzzDecode(f *testing.F) {
 	f.Add([]byte(readGolden(f)))
 	f.Add([]byte("version: 2\nseed: 1\nrate: 60\nactions: [a]\naxes: [x]\ntotal_steps: 3\nsteps:\n  - {step: 0, press: [a], axes: {x: -0}}\n  - {step: 2, release: [a]}\n"))
+	f.Add([]byte("version: 2\nseed: 1\nrate: 60\naxes: [x]\ntotal_steps: 1\nsteps:\n  - {step: 0, axes: {x: -0.0}}\n"))
 	f.Add([]byte("version: 2\nseed: 0\nrate: 1\ntotal_steps: 0\n"))
 	f.Add([]byte("version: 2\nseed: 1\nrate: 60\nactions: []\ntotal_steps: 2\nsteps:\n  - {step: 1}\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -261,5 +263,40 @@ func BenchmarkEncode(b *testing.B) {
 		if _, err := rec.Encode(); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestNegativeZeroAxisIsWrittenAsZero checks that -0, whether written by hand or set in code, encodes as 0 so a second load and save does not change the text.
+func TestNegativeZeroAxisIsWrittenAsZero(t *testing.T) {
+	const want = "version: 2\nseed: 1\nrate: 60\naxes: [x]\ntotal_steps: 1\nsteps:\n  - {step: 0, axes: {x: 0}}\n"
+	rec, err := replay.Decode([]byte("version: 2\nseed: 1\nrate: 60\naxes: [x]\ntotal_steps: 1\nsteps:\n  - {step: 0, axes: {x: -0.0}}\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if v := rec.Events[0].Axes[0].Value; math.Signbit(v) {
+		t.Fatalf("decoded axis value = %v, want +0", v)
+	}
+	out, err := rec.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if string(out) != want {
+		t.Fatalf("Encode of decoded -0.0:\n got:\n%s\nwant:\n%s", out, want)
+	}
+
+	built := &replay.Recording{
+		Version:    replay.FormatVersion,
+		Seed:       1,
+		Rate:       60,
+		Axes:       []string{"x"},
+		TotalSteps: 1,
+		Events:     []replay.StepEvent{{Step: 0, Axes: []replay.AxisChange{{Index: 0, Value: math.Copysign(0, -1)}}}},
+	}
+	out, err = built.Encode()
+	if err != nil {
+		t.Fatalf("Encode built: %v", err)
+	}
+	if string(out) != want {
+		t.Fatalf("Encode of code-built -0:\n got:\n%s\nwant:\n%s", out, want)
 	}
 }
