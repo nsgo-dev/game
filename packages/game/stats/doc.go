@@ -4,7 +4,7 @@
 //
 //	clamp((base + sum of add values) * product of mul values)
 //
-// or, while any override modifier is present, clamp(the override with the highest priority, the latest added among equal priorities). Timed modifiers count calls of Sheet.Step, which a game makes once per fixed step of its game.Loop, so a modifier that lasts n steps is removed by exactly the n-th Step after it was added.
+// or, while any override modifier is present, clamp(the override with the highest priority, the latest added among equal priorities). Adds and muls are applied in the order they were added; with float64 arithmetic that order can change the last digits of a result (0.1 + 0.2 + 0.3 is not exactly 0.3 + 0.1 + 0.2). A sum or product that overflows float64 saturates at the largest finite value of its sign, so values are always finite and within their bounds. Sheet.Refresh replaces a source's modifiers in a single change. Timed modifiers count calls of Sheet.Step, which a game makes once per fixed step of its game.Loop, so a modifier that lasts n steps is removed by exactly the n-th Step after it was added.
 //
 // Stat definitions and named effects (groups of modifiers, such as an item's bonuses or a buff) are written in a versioned YAML file read with Parse and written with Encode.
 //

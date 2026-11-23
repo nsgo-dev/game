@@ -238,10 +238,24 @@ func TestApplyStacksAndRefresh(t *testing.T) {
 		t.Fatalf("two stacks: attack = %v, want 20", s.Value("attack"))
 	}
 	s.Step()
-	// Refresh: drop the old stacks and apply once more for a full duration.
-	s.RemoveSource("buff:rage")
-	if _, err := s.Apply("buff:rage", rage); err != nil {
+	// Refresh drops both old stacks and applies one for a full duration, reporting only the net change.
+	var got []stats.Change
+	s.OnChange = func(c stats.Change) { got = append(got, c) }
+	if _, err := s.Refresh("buff:rage", rage); err != nil {
 		t.Fatal(err)
+	}
+	if want := []stats.Change{{Stat: "attack", Old: 20, New: 15}}; !slices.Equal(got, want) {
+		t.Fatalf("Refresh changes = %+v, want %+v", got, want)
+	}
+	got = nil
+	if _, err := s.Refresh("buff:rage", rage); err != nil || len(got) != 0 {
+		t.Fatalf("refreshing an unchanged buff: err=%v changes=%+v, want none", err, got)
+	}
+	if _, err := s.Refresh("buff:rage", stats.Effect{Name: "bad", Modifiers: []stats.Modifier{{Stat: "missing", Op: stats.OpAdd, Value: 1}}}); !errors.Is(err, stats.ErrUnknownStat) {
+		t.Fatalf("invalid Refresh: %v", err)
+	}
+	if len(s.Modifiers()) != 1 || s.Value("attack") != 15 {
+		t.Fatalf("invalid Refresh changed the sheet: %+v attack=%v", s.Modifiers(), s.Value("attack"))
 	}
 	s.Step()
 	if s.Value("attack") != 15 {
@@ -302,7 +316,37 @@ func TestOnChangeMayChangeTheSheet(t *testing.T) {
 	}
 }
 
+func TestOverflowSaturatesWithinBounds(t *testing.T) {
+	s := newSheet(t, stats.Def{Name: "x", Base: 1e308, Max: stats.Float(100)}, stats.Def{Name: "y", Base: 1e308})
+	var got []stats.Change
+	s.OnChange = func(c stats.Change) { got = append(got, c) }
+	mustAdd(t, s, "a", stats.Modifier{Stat: "x", Op: stats.OpAdd, Value: 1e308})
+	mustAdd(t, s, "a", stats.Modifier{Stat: "y", Op: stats.OpAdd, Value: 1e308})
+	if s.Value("x") != 100 || s.Value("y") != math.MaxFloat64 {
+		t.Fatalf("overflowed sum: x=%v y=%v, want 100 and MaxFloat64", s.Value("x"), s.Value("y"))
+	}
+	mustAdd(t, s, "a", stats.Modifier{Stat: "x", Op: stats.OpMul, Value: 0})
+	mustAdd(t, s, "a", stats.Modifier{Stat: "y", Op: stats.OpMul, Value: -2})
+	if s.Value("x") != 0 || s.Value("y") != -math.MaxFloat64 {
+		t.Fatalf("after mul: x=%v y=%v, want 0 and -MaxFloat64", s.Value("x"), s.Value("y"))
+	}
+	got = nil
+	mustAdd(t, s, "a", stats.Modifier{Stat: "x", Op: stats.OpAdd, Value: 0})
+	if len(got) != 0 {
+		t.Fatalf("unchanged value reported: %+v", got)
+	}
+}
+
 func TestSheetErrors(t *testing.T) {
+	for _, d := range []stats.Def{
+		{Name: "a", Base: math.NaN()},
+		{Name: "a", Min: stats.Float(inf())},
+		{Name: "a", Max: stats.Float(math.NaN())},
+	} {
+		if _, err := stats.NewSheet(d); !errors.Is(err, stats.ErrInvalidValue) {
+			t.Fatalf("NewSheet(%+v) = %v, want ErrInvalidValue", d, err)
+		}
+	}
 	if _, err := stats.NewSheet(stats.Def{Name: "a"}, stats.Def{Name: "a"}); !errors.Is(err, stats.ErrDuplicateStat) {
 		t.Fatalf("duplicate: %v", err)
 	}
@@ -478,12 +522,22 @@ func TestParseRefusesInvalidFiles(t *testing.T) {
 			"  - name: e\n    modifiers:\n      - stat: a\n        op: add\n        value: 2\n",
 		"trailing document": "version: 1\nstats: []\n---\nversion: 1\n",
 	}
+	sentinels := map[string]error{
+		"duplicate stat": stats.ErrDuplicateStat,
+		"nan base":       stats.ErrInvalidValue,
+		"unknown op":     stats.ErrInvalidOp,
+		"unknown stat":   stats.ErrUnknownStat,
+		"inf value":      stats.ErrInvalidValue,
+		"negative steps": stats.ErrInvalidSteps,
+	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
 			if f, err := stats.Parse([]byte(src)); err == nil {
 				t.Fatalf("Parse accepted %q as %+v", src, f)
 			} else if !strings.HasPrefix(err.Error(), "stats: ") {
 				t.Fatalf("error %q lacks the package prefix", err)
+			} else if want := sentinels[name]; want != nil && !errors.Is(err, want) {
+				t.Fatalf("error %q does not wrap %v", err, want)
 			}
 		})
 	}
