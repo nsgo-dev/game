@@ -39,6 +39,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |
 | `animclip` | `github.com/nsgo-dev/game/packages/game/animclip` | [animclip](animclip.md) | Animation clips that key any registered property, played on scene objects through `tween.Timeline` |
 | `cards` | `github.com/nsgo-dev/game/packages/game/cards` | [cards](cards.md) | Drag and drop between board slots with snap and return, fanned hands, decks, piles and grids, and YAML board files |
+| `rooms` | `github.com/nsgo-dev/game/packages/game/rooms` | [rooms](rooms.md) | Room maps with per-room camera bounds and cut, slide or fade transitions between them |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors and behavior trees |
 | `rts` | `github.com/nsgo-dev/game/packages/game/rts` | [rts](rts.md) | Flow fields, a `Crowd` of many units with separation, YAML formations, box/click selection and control groups |
 | `procgen` | `github.com/nsgo-dev/game/packages/game/procgen` | [procgen](procgen.md) | Seeded BSP rooms, cellular-automata caves and wave function collapse from YAML rules, with connectivity checks and tilemap painting |
