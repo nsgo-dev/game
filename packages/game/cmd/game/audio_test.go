@@ -146,8 +146,8 @@ func TestAudioValidationErrors(t *testing.T) {
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "a.wav")
 	writeTestWAV(t, inPath, 44100, 1, 0.2)
-	if code, _ := runAudio(t, &audioconv.Encoder{}, []string{"-in", inPath, "-out", filepath.Join(dir, "b.wav"), "-peak-db", "-1", "-rms-db", "-14"}); code != 1 {
-		t.Fatalf("conflicting peak/rms exit %d, want 1", code)
+	if code, _ := runAudio(t, &audioconv.Encoder{}, []string{"-in", inPath, "-out", filepath.Join(dir, "b.wav"), "-peak-db", "-1", "-rms-db", "-14"}); code != 2 {
+		t.Fatalf("conflicting peak/rms exit %d, want 2", code)
 	}
 }
 
