@@ -40,7 +40,7 @@ const gameFileVersion = 1
 // exportPlatforms are the platforms a game.yaml export preset may name, each a name nsgo build -target accepts.
 var exportPlatforms = []string{"macos", "windows", "linux", "ios", "tvos", "watchos", "android", "harmonyos", "web", "miniprogram"}
 
-// exportTargets are the NSGo v0.3.0 build targets a preset may list, from the unexported targets list in its cmd/nsgo/build.go, since NSGo exports none; each belongs to the platform before its first underscore.
+// exportTargets are the NSGo v0.3.0 build targets a preset may list, from the unexported targets list in its cmd/nsgo/build.go, since NSGo exports none; each belongs to the platform before its first underscore (nsgo-dev/nsgo#2259).
 var exportTargets = []string{
 	"macos_arm64", "macos_x64", "macos_universal",
 	"windows_arm64", "windows_x64",
