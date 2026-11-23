@@ -29,16 +29,17 @@ func modFS(files map[string]string) fstest.MapFS {
 
 func TestDiscoverAndDependencyOrdering(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"addon/mod.json": `{
-			"id": "addon-mod",
-			"name": "Addon Mod",
-			"version": "1.0.0",
-			"author": "Tester",
-			"entry": "mod.tsx",
-			"capabilities": ["emitEvent", "readState", "writeState"],
-			"dependencies": { "base-mod": "^1.0.0" },
-			"gameVersion": ">=0.2.0"
-		}`,
+		"addon/mod.yaml": `manifestVersion: 1
+id: addon-mod
+name: Addon Mod
+version: "1.0.0"
+author: Tester
+entry: mod.tsx
+gameVersion: ">=0.2.0"
+capabilities: [emitEvent, readState, writeState]
+dependencies:
+  base-mod: "^1.0.0"
+`,
 		"addon/mod.tsx": `import { log, onStep, emit, getState, setState } from "game";
 log("addon loaded");
 onStep((dt) => {
@@ -47,14 +48,14 @@ onStep((dt) => {
 	setState("stepOrder", order);
 	emit("addon:tick", { dt });
 });`,
-		"base/mod.json": `{
-			"id": "base-mod",
-			"name": "Base Mod",
-			"version": "1.2.0",
-			"entry": "mod.js",
-			"capabilities": ["readState", "writeState"],
-			"gameVersion": ">=0.1.0"
-		}`,
+		"base/mod.yaml": `manifestVersion: 1
+id: base-mod
+name: Base Mod
+version: "1.2.0"
+entry: mod.js
+gameVersion: ">=0.1.0"
+capabilities: [readState, writeState]
+`,
 		"base/mod.js": `import { log, onStep, onEvent, getState, setState } from "game";
 log("base loaded");
 let ticks = 0;
@@ -132,11 +133,17 @@ func TestDiscoverFromDirectoryOnDisk(t *testing.T) {
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"id":"hello-disk","name":"Hello Disk","version":"1.0.0","entry":"mod.ts","capabilities":["readState"]}`
+	manifest := `manifestVersion: 1
+id: hello-disk
+name: Hello Disk
+version: "1.0.0"
+entry: mod.ts
+capabilities: [readState]
+`
 	script := `import { log, modInfo } from "game";
 const info = modInfo();
 log("disk:" + info.id + "@" + info.version);`
-	if err := os.WriteFile(filepath.Join(modDir, "mod.json"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(modDir, "mod.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(modDir, "mod.ts"), []byte(script), 0o644); err != nil {
@@ -175,36 +182,76 @@ func TestDependencyRejectionCycleMissingAndVersionMismatch(t *testing.T) {
 		{
 			name: "missing dependency",
 			files: map[string]string{
-				"a/mod.json": `{"id":"mod-a","name":"A","version":"1.0.0","entry":"mod.js","dependencies":{"missing-lib":"^1.0.0"}}`,
-				"a/mod.js":   `export {};`,
+				"a/mod.yaml": `manifestVersion: 1
+id: mod-a
+name: A
+version: "1.0.0"
+entry: mod.js
+dependencies:
+  missing-lib: "^1.0.0"
+`,
+				"a/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrMissingDependency,
 		},
 		{
 			name: "2-node cycle",
 			files: map[string]string{
-				"a/mod.json": `{"id":"mod-a","name":"A","version":"1.0.0","entry":"mod.js","dependencies":{"mod-b":"*"}}`,
-				"a/mod.js":   `export {};`,
-				"b/mod.json": `{"id":"mod-b","name":"B","version":"1.0.0","entry":"mod.js","dependencies":{"mod-a":"*"}}`,
-				"b/mod.js":   `export {};`,
+				"a/mod.yaml": `manifestVersion: 1
+id: mod-a
+name: A
+version: "1.0.0"
+entry: mod.js
+dependencies:
+  mod-b: "*"
+`,
+				"a/mod.js": `export {};`,
+				"b/mod.yaml": `manifestVersion: 1
+id: mod-b
+name: B
+version: "1.0.0"
+entry: mod.js
+dependencies:
+  mod-a: "*"
+`,
+				"b/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrCyclicDependency,
 		},
 		{
 			name: "self dependency",
 			files: map[string]string{
-				"a/mod.json": `{"id":"mod-a","name":"A","version":"1.0.0","entry":"mod.js","dependencies":{"mod-a":"^1.0.0"}}`,
-				"a/mod.js":   `export {};`,
+				"a/mod.yaml": `manifestVersion: 1
+id: mod-a
+name: A
+version: "1.0.0"
+entry: mod.js
+dependencies:
+  mod-a: "^1.0.0"
+`,
+				"a/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrCyclicDependency,
 		},
 		{
 			name: "dependency version mismatch",
 			files: map[string]string{
-				"base/mod.json": `{"id":"base","name":"Base","version":"1.2.0","entry":"mod.js"}`,
-				"base/mod.js":   `export {};`,
-				"ext/mod.json":  `{"id":"ext","name":"Ext","version":"1.0.0","entry":"mod.js","dependencies":{"base":">=2.0.0"}}`,
-				"ext/mod.js":    `export {};`,
+				"base/mod.yaml": `manifestVersion: 1
+id: base
+name: Base
+version: "1.2.0"
+entry: mod.js
+`,
+				"base/mod.js": `export {};`,
+				"ext/mod.yaml": `manifestVersion: 1
+id: ext
+name: Ext
+version: "1.0.0"
+entry: mod.js
+dependencies:
+  base: ">=2.0.0"
+`,
+				"ext/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrVersionMismatch,
 		},
@@ -212,18 +259,34 @@ func TestDependencyRejectionCycleMissingAndVersionMismatch(t *testing.T) {
 			name:    "game version mismatch",
 			gameVer: "0.2.0",
 			files: map[string]string{
-				"a/mod.json": `{"id":"mod-a","name":"A","version":"1.0.0","entry":"mod.js","gameVersion":">=1.0.0"}`,
-				"a/mod.js":   `export {};`,
+				"a/mod.yaml": `manifestVersion: 1
+id: mod-a
+name: A
+version: "1.0.0"
+entry: mod.js
+gameVersion: ">=1.0.0"
+`,
+				"a/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrVersionMismatch,
 		},
 		{
 			name: "duplicate id",
 			files: map[string]string{
-				"d1/mod.json": `{"id":"dup","name":"D1","version":"1.0.0","entry":"mod.js"}`,
-				"d1/mod.js":   `export {};`,
-				"d2/mod.json": `{"id":"dup","name":"D2","version":"1.0.0","entry":"mod.js"}`,
-				"d2/mod.js":   `export {};`,
+				"d1/mod.yaml": `manifestVersion: 1
+id: dup
+name: D1
+version: "1.0.0"
+entry: mod.js
+`,
+				"d1/mod.js": `export {};`,
+				"d2/mod.yaml": `manifestVersion: 1
+id: dup
+name: D2
+version: "1.0.0"
+entry: mod.js
+`,
+				"d2/mod.js": `export {};`,
 			},
 			wantErr: modding.ErrDuplicateMod,
 		},
@@ -245,13 +308,13 @@ func TestDependencyRejectionCycleMissingAndVersionMismatch(t *testing.T) {
 
 func TestGameAPIWithGameLoop(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"spawner/mod.json": `{
-			"id": "spawner",
-			"name": "Wave Spawner",
-			"version": "1.0.0",
-			"entry": "mod.tsx",
-			"capabilities": ["readState", "spawnEntity", "emitEvent", "audio", "storage"]
-		}`,
+		"spawner/mod.yaml": `manifestVersion: 1
+id: spawner
+name: Wave Spawner
+version: "1.0.0"
+entry: mod.tsx
+capabilities: [readState, spawnEntity, emitEvent, audio, storage]
+`,
 		"spawner/mod.tsx": `import { onStep, registerHook, emit, spawn, getState, setState, playSound, log, storageGet, storageSet } from "game";
 
 let elapsed = 0;
@@ -366,13 +429,13 @@ export function currentWave(): number {
 
 func TestCapabilitySandboxingBlocksUnauthorizedCalls(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"readonly/mod.json": `{
-			"id": "readonly",
-			"name": "Read Only Mod",
-			"version": "1.0.0",
-			"entry": "mod.tsx",
-			"capabilities": ["readState"]
-		}`,
+		"readonly/mod.yaml": `manifestVersion: 1
+id: readonly
+name: Read Only Mod
+version: "1.0.0"
+entry: mod.tsx
+capabilities: [readState]
+`,
 		"readonly/mod.tsx": `import { log, getState, setState, spawn, emit, playSound, storageSet, mountPanel } from "game";
 
 function check(name: string, fn: () => void) {
@@ -393,13 +456,13 @@ check("storage", () => storageSet("k", "v"));
 check("ui", () => mountPanel("p", () => null));
 check("eval", () => { new Function("return 1")(); });`,
 
-		"narrowed/mod.json": `{
-			"id": "narrowed",
-			"name": "Requests Spawn But Host Denies",
-			"version": "1.0.0",
-			"entry": "mod.js",
-			"capabilities": ["readState", "spawnEntity"]
-		}`,
+		"narrowed/mod.yaml": `manifestVersion: 1
+id: narrowed
+name: Requests Spawn But Host Denies
+version: "1.0.0"
+entry: mod.js
+capabilities: [readState, spawnEntity]
+`,
 		"narrowed/mod.js": `import { spawn } from "game";
 spawn("dragon", 1, 2);`,
 	})
@@ -470,16 +533,33 @@ spawn("dragon", 1, 2);`,
 
 func TestFaultIsolationAcrossSyntaxLoadAndStepErrors(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"syntax/mod.json": `{"id":"bad-syntax","name":"Bad Syntax","version":"1.0.0","entry":"mod.js"}`,
-		"syntax/mod.js":   `function broken( { return ;;;`,
+		"syntax/mod.yaml": `manifestVersion: 1
+id: bad-syntax
+name: Bad Syntax
+version: "1.0.0"
+entry: mod.js
+`,
+		"syntax/mod.js": `function broken( { return ;;;`,
 
-		"entry/mod.json": `{"id":"bad-entry","name":"Bad Entry","version":"1.0.0","entry":"mod.js","capabilities":["writeState"]}`,
+		"entry/mod.yaml": `manifestVersion: 1
+id: bad-entry
+name: Bad Entry
+version: "1.0.0"
+entry: mod.js
+capabilities: [writeState]
+`,
 		"entry/mod.js": `import { log, onStep, setState } from "game";
 log("before crash");
 onStep(() => setState("badEntryStepped", true));
 throw new Error("boom at init");`,
 
-		"stepper/mod.json": `{"id":"bad-step","name":"Bad Step","version":"1.0.0","entry":"mod.js","capabilities":["writeState"]}`,
+		"stepper/mod.yaml": `manifestVersion: 1
+id: bad-step
+name: Bad Step
+version: "1.0.0"
+entry: mod.js
+capabilities: [writeState]
+`,
 		"stepper/mod.js": `import { onStep, setState } from "game";
 let n = 0;
 onStep(() => {
@@ -490,7 +570,13 @@ onStep(() => {
 	}
 });`,
 
-		"healthy/mod.json": `{"id":"healthy","name":"Healthy Mod","version":"1.0.0","entry":"mod.js","capabilities":["writeState"]}`,
+		"healthy/mod.yaml": `manifestVersion: 1
+id: healthy
+name: Healthy Mod
+version: "1.0.0"
+entry: mod.js
+capabilities: [writeState]
+`,
 		"healthy/mod.js": `import { onStep, onEvent, setState } from "game";
 let steps = 0;
 let pings = 0;
@@ -562,7 +648,13 @@ func TestDisableUnloadReloadAndStoragePersistence(t *testing.T) {
 	if err := os.MkdirAll(modDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"id":"counter","name":"Counter","version":"1.0.0","entry":"mod.js","capabilities":["readState","writeState"]}`
+	manifest := `manifestVersion: 1
+id: counter
+name: Counter
+version: "1.0.0"
+entry: mod.js
+capabilities: [readState, writeState]
+`
 	v1 := `import { onStep, getState, setState } from "game";
 onStep(() => {
 	setState("count", (getState("count") || 0) + 1);
@@ -571,7 +663,7 @@ onStep(() => {
 onStep(() => {
 	setState("count", (getState("count") || 0) + 10);
 });`
-	if err := os.WriteFile(filepath.Join(modDir, "mod.json"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(modDir, "mod.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(modDir, "mod.js"), []byte(v1), 0o644); err != nil {
@@ -675,13 +767,13 @@ onStep(() => {
 
 func TestTSXUIPanelMountingAndCleanup(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"hud/mod.json": `{
-			"id": "hud-mod",
-			"name": "HUD Mod",
-			"version": "1.0.0",
-			"entry": "mod.tsx",
-			"capabilities": ["ui"]
-		}`,
+		"hud/mod.yaml": `manifestVersion: 1
+id: hud-mod
+name: HUD Mod
+version: "1.0.0"
+entry: mod.tsx
+capabilities: [ui]
+`,
 		"hud/mod.tsx": `import { signal, Text, View } from "nsgo";
 import { onStep, mountPanel } from "game";
 
@@ -783,13 +875,13 @@ func TestGameAPIDTSAndDeclarations(t *testing.T) {
 
 func TestScopeDisposalAndSetGrantAndEventDepthGuard(t *testing.T) {
 	fsys := modFS(map[string]string{
-		"ping/mod.json": `{
-			"id": "ping",
-			"name": "Ping",
-			"version": "1.0.0",
-			"entry": "mod.js",
-			"capabilities": ["emitEvent", "spawnEntity", "writeState"]
-		}`,
+		"ping/mod.yaml": `manifestVersion: 1
+id: ping
+name: Ping
+version: "1.0.0"
+entry: mod.js
+capabilities: [emitEvent, spawnEntity, writeState]
+`,
 		"ping/mod.js": `import { onEvent, emit, spawn, setState, log } from "game";
 let hits = 0;
 onEvent("bounce", () => {

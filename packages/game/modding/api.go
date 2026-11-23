@@ -31,7 +31,7 @@ var (
 	ErrVersionMismatch = errors.New("modding: incompatible version")
 	// ErrCyclicDependency is returned when mod dependencies form a cycle.
 	ErrCyclicDependency = errors.New("modding: cyclic dependency")
-	// ErrInvalidManifest is returned when a mod.json manifest fails parsing or validation.
+	// ErrInvalidManifest is returned when a mod.yaml manifest fails parsing or validation.
 	ErrInvalidManifest = errors.New("modding: invalid manifest")
 	// ErrModDisabled is returned when attempting to load a disabled mod.
 	ErrModDisabled = errors.New("modding: mod is disabled")
