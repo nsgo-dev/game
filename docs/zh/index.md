@@ -59,6 +59,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `leaderboard` | `github.com/nsgo-dev/game/packages/game/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
 | `leaderboard/selfhost` | `github.com/nsgo-dev/game/packages/game/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
 | `inventory` | `github.com/nsgo-dev/game/packages/game/inventory` | [inventory](inventory.md) | YAML 道具定义、可堆叠的格子容器、带类型的装备槽与存档快照 |
+| `ability` | `github.com/nsgo-dev/game/packages/game/ability` | [ability](ability.md) | YAML 技能集与逐步推进的 `Caster`：由输入动作触发的消耗、冷却、充能、施法与引导时间以及条件 |
 | `modding` | `github.com/nsgo-dev/game/packages/game/modding` | [modding](modding.md) | 能力沙箱隔离的 TSX `"game"` 模组 API 与 `mod.yaml` 依赖/生命周期管理器 |
 | `math3d` | `github.com/nsgo-dev/game/packages/game/math3d` | [math3d](math3d.md) | 3D 向量、矩阵、四元数、变换、包围体、射线、视锥体与统一数学约定 |
 | `scene3d` | `github.com/nsgo-dev/game/packages/game/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
