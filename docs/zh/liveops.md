@@ -12,7 +12,7 @@ import "github.com/nsgo-dev/game/packages/game/liveops"
 | --- | --- | --- |
 | **崩溃报告**（[#195](https://github.com/nsgo-dev/game/issues/195)） | 纳入范围 | 与服务商无关的 panic 捕获，附带固定大小步长环形缓冲区、堆栈、元数据和可选状态快照。 |
 | **统计分析**（[#198](https://github.com/nsgo-dev/game/issues/198)） | 纳入范围 | 与服务商无关、严格以显式同意为前提的事件 API，同意状态保存在 `core.Storage`。未显式同意前不会发送也不会缓存任何事件。 |
-| **云存档**（[#196](https://github.com/nsgo-dev/game/issues/196)） | 纳入范围（接口） | 当前提供与平台无关的 `CloudSync` 接口和 `CloudSyncer` 冲突解决（[#539](https://github.com/nsgo-dev/game/issues/539)）；iCloud、Play Games、Steam Cloud 等内置适配器等待平台云存档绑定就绪。 |
+| **云存档**（[#196](https://github.com/nsgo-dev/game/issues/196)） | 纳入范围（接口与自部署后端） | 当前提供与平台无关的 `CloudSync` 接口、`CloudSyncer` 冲突解决（[#539](https://github.com/nsgo-dev/game/issues/539)），以及访问自部署 [cloudsave](cloudsave.md) 服务的 `CloudClient`（[#557](https://github.com/nsgo-dev/game/issues/557)）；iCloud、Play Games、Steam Cloud 等内置适配器等待平台云存档绑定就绪。 |
 | **应用内购买**（[#369](https://github.com/nsgo-dev/game/issues/369)） | 纳入范围 | 基于 NSGo 购买服务的 `Purchases`：消耗型商品恰好一次入账到存档，解锁项与订阅来自商店权益，支持恢复购买、“询问后购买”和可选的服务器校验。 |
 | **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
@@ -69,7 +69,9 @@ analytics.Track("level_complete", map[string]any{"level": 1})
 
 ## 云存档
 
-`CloudSync` 定义了与服务商无关的存档槽位接口（`Load`、`Save`、`Delete`、`List`，以及 `ErrSlotNotFound` 和 `ErrCloudUnavailable` 哨兵错误）。游戏目前可以针对自有后端或内存测试替身实现该接口；iCloud、Google Play Games 和 Steam Cloud 的平台适配器等待平台云存档绑定就绪（[#196](https://github.com/nsgo-dev/game/issues/196)）。
+`CloudSync` 定义了与服务商无关的存档槽位接口（`Load`、`Save`、`Delete`、`List`，以及 `ErrSlotNotFound` 和 `ErrCloudUnavailable` 哨兵错误，另有表示后端上限的 `ErrSlotTooLarge` 和 `ErrTooManySlots`）。`ConditionalCloudSync` 增加了 `SaveIf` 和 `DeleteIf`，它们只在槽位仍保存着调用方读到的负载（以 `PayloadHash` 标识）时才写入。
+
+`CloudClient` 是自部署 [cloudsave](cloudsave.md) 服务（[#557](https://github.com/nsgo-dev/game/issues/557)）的 `ConditionalCloudSync`：经 HTTPS 访问的按账号划分的槽位，通过[账号服务](accounts.md)登录，有大小上限，并为每个槽位保留最近几个版本，供 `Versions`、`LoadVersion` 和 `Restore` 使用。游戏也可以针对自有后端或内存测试替身实现 `CloudSync`；iCloud、Google Play Games 和 Steam Cloud 的平台适配器等待平台云存档绑定就绪（[#196](https://github.com/nsgo-dev/game/issues/196)）。
 
 ### 解决冲突（[#539](https://github.com/nsgo-dev/game/issues/539)）
 
@@ -109,7 +111,7 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 
 - 同步器为每个槽位记住基线：上次同步后两端共同持有的内容哈希（`sha256:…`）和云端修订号，以 JSON 文本保存在 `State` 的 `StateKey` 前缀下（为空时用 `DefaultSyncStateKey`）。
 - `Sync` 按名称顺序处理本地、云端或同步状态中出现过的每个槽位。只有一端与基线不同时，把这一端复制到另一端（`OutcomeUploaded`、`OutcomeDownloaded`、`OutcomeDeletedCloud`、`OutcomeDeletedLocal`）。两端都与基线不同且彼此也不同时，该槽位就是冲突。从未同步过某槽位的设备若持有与云端不同的副本，同样视为冲突，绝不直接覆盖。
-- 每次写云端前，同步器都会重新读取云端副本；如果其间另一台设备已上传，该槽位以 `ErrCloudChanged` 失败，不写入任何内容，下次同步会看到新副本。
+- 每次写云端前，同步器都会重新读取云端副本；如果其间另一台设备已上传，该槽位以 `ErrCloudChanged` 失败，不写入任何内容，下次同步会看到新副本。当 `Cloud` 实现了 `ConditionalCloudSync`（`CloudClient` 即是）时，写入本身以该副本为条件，因此在重新读取之后才落地的上传也会以同样方式失败，而不会被覆盖。
 - 失败的槽位（损坏的负载、不安全的槽位名、`Ask` 返回错误）会被跳过，错误合并进返回值，其余槽位照常同步；`ErrCloudUnavailable` 或已结束的 context 会中止同步。
 
 每个 `Conflict` 为两端各带一个 `SaveVersion`：是否存在（某一端可能删除了该槽位）、修订号、哈希、修改时间、写入设备、游戏 `Summarize` 给出的摘要以及原始数据。各策略如下：
@@ -128,7 +130,7 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 
 `Backend()` 通过 `Unwrap` 暴露本地后端，因此基于它创建的设置存储（`save.NewDefaultSettingsStore(syncer.Backend())`）会把设置保存在本地后端自己的设置键下，设置永远不会作为槽位同步。
 
-`CloudSyncer` 不支持并发使用；请在应用代码运行的地方调用它，这是 `core.Storage` 的要求。`CloudSync` 没有条件写入，因此另一台设备的上传若恰好落在同步器重新读取与自身写入之间，仍可能被覆盖；这个窗口只隔一次 `Load` 和一次 `Save`。
+`CloudSyncer` 不支持并发使用；请在应用代码运行的地方调用它，这是 `core.Storage` 的要求。普通的 `CloudSync` 没有条件写入，因此另一台设备的上传若恰好落在同步器重新读取与自身写入之间，仍可能被覆盖；这个窗口只隔一次 `Load` 和一次 `Save`。`ConditionalCloudSync` 消除了这个窗口。
 
 ## 应用内购买
 

@@ -12,7 +12,7 @@ import "github.com/nsgo-dev/game/packages/game/liveops"
 | --- | --- | --- |
 | **Crash reports** ([#195](https://github.com/nsgo-dev/game/issues/195)) | In scope | Provider-agnostic panic capture with a fixed-size step ring buffer, stack trace, metadata and optional state snapshot. |
 | **Analytics** ([#198](https://github.com/nsgo-dev/game/issues/198)) | In scope | Provider-agnostic, strictly consent-gated event API backed by `core.Storage`. Zero events are sent or buffered before explicit opt-in consent. |
-| **Cloud saves** ([#196](https://github.com/nsgo-dev/game/issues/196)) | In scope (interface) | Provider-agnostic `CloudSync` interface and `CloudSyncer` conflict resolution ([#539](https://github.com/nsgo-dev/game/issues/539)) today; built-in platform adapters (iCloud, Play Games, Steam Cloud) wait on platform cloud-save bindings. |
+| **Cloud saves** ([#196](https://github.com/nsgo-dev/game/issues/196)) | In scope (interface and self-hosted backend) | Provider-agnostic `CloudSync` interface, `CloudSyncer` conflict resolution ([#539](https://github.com/nsgo-dev/game/issues/539)) and `CloudClient` for the self-hosted [cloudsave](cloudsave.md) service ([#557](https://github.com/nsgo-dev/game/issues/557)) today; built-in platform adapters (iCloud, Play Games, Steam Cloud) wait on platform cloud-save bindings. |
 | **In-app purchases** ([#369](https://github.com/nsgo-dev/game/issues/369)) | In scope | `Purchases` over NSGo's purchase services: consumables credited into the save exactly once, unlocks and subscriptions from the store's entitlements, restore, Ask to Buy and an optional server check. |
 | **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
 
@@ -69,7 +69,9 @@ analytics.Track("level_complete", map[string]any{"level": 1})
 
 ## Cloud saves
 
-`CloudSync` defines the provider-agnostic slot interface (`Load`, `Save`, `Delete`, `List`, with sentinel errors `ErrSlotNotFound` and `ErrCloudUnavailable`). Games can implement it over their own backend or an in-memory test double today; platform adapters for iCloud, Google Play Games and Steam Cloud wait on platform cloud-save bindings ([#196](https://github.com/nsgo-dev/game/issues/196)).
+`CloudSync` defines the provider-agnostic slot interface (`Load`, `Save`, `Delete`, `List`, with sentinel errors `ErrSlotNotFound` and `ErrCloudUnavailable`, and `ErrSlotTooLarge` and `ErrTooManySlots` for a backend's limits). `ConditionalCloudSync` adds `SaveIf` and `DeleteIf`, which write only while the slot still holds the payload the caller read, identified by `PayloadHash`.
+
+`CloudClient` is the `ConditionalCloudSync` of the self-hosted [cloudsave](cloudsave.md) service ([#557](https://github.com/nsgo-dev/game/issues/557)): per-account slots over HTTPS, signed in through the [account service](accounts.md), with a size limit and the last few versions of each slot kept for `Versions`, `LoadVersion` and `Restore`. Games can also implement `CloudSync` over their own backend or an in-memory test double; platform adapters for iCloud, Google Play Games and Steam Cloud wait on platform cloud-save bindings ([#196](https://github.com/nsgo-dev/game/issues/196)).
 
 ### Resolving conflicts ([#539](https://github.com/nsgo-dev/game/issues/539))
 
@@ -109,7 +111,7 @@ How a conflict is detected:
 
 - For each slot the syncer remembers the base: the content hash (`sha256:…`) and cloud revision both sides held after the last sync, kept as JSON text in `State` under `StateKey` (`DefaultSyncStateKey` when empty).
 - `Sync` visits every slot known locally, in the cloud or in the sync state, in name order. When only one side differs from the base, that side is copied to the other (`OutcomeUploaded`, `OutcomeDownloaded`, `OutcomeDeletedCloud`, `OutcomeDeletedLocal`). When both differ from the base and from each other, the slot is a conflict. A device that has never synced a slot and holds a different copy from the cloud is a conflict too, never an overwrite.
-- Before every cloud write the syncer reads the cloud copy again; if another device uploaded in between, the slot fails with `ErrCloudChanged`, nothing is written, and the next sync sees the new copy.
+- Before every cloud write the syncer reads the cloud copy again; if another device uploaded in between, the slot fails with `ErrCloudChanged`, nothing is written, and the next sync sees the new copy. When `Cloud` implements `ConditionalCloudSync`, as `CloudClient` does, the write itself is conditional on that copy, so an upload landing after the re-read fails the same way instead of being overwritten.
 - A slot that fails (a corrupt payload, an unsafe slot name, `Ask` returning an error) is skipped and its error joined into the result while the others still sync; `ErrCloudUnavailable` or a done context stops the sync.
 
 Each `Conflict` carries a `SaveVersion` for both sides: whether it exists (a side may have deleted the slot), its revision, hash, modified time, writing device, the game's `Summarize` text and the raw data. The policies:
@@ -128,7 +130,7 @@ Cloud payloads are JSON text with a fixed key order: `format` (`CloudSaveFormat`
 
 `Backend()` exposes the local backend through `Unwrap`, so a settings store built on it (`save.NewDefaultSettingsStore(syncer.Backend())`) keeps settings under the local backend's own settings key, and settings are never synced as a slot.
 
-A `CloudSyncer` is not safe for concurrent use; call it where the app's code runs, as `core.Storage` requires. `CloudSync` has no conditional write, so an upload by another device that lands between the syncer's re-read and its own write can still be overwritten; the window is a single `Load` and `Save` apart.
+A `CloudSyncer` is not safe for concurrent use; call it where the app's code runs, as `core.Storage` requires. With a plain `CloudSync`, which has no conditional write, an upload by another device that lands between the syncer's re-read and its own write can still be overwritten; the window is a single `Load` and `Save` apart. A `ConditionalCloudSync` closes it.
 
 ## In-app purchases
 
