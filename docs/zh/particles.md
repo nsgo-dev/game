@@ -202,4 +202,4 @@ cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./p
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
-在 AMD Ryzen 9 3900X 上它们分别约需 1.3 ms 和 2.0 ms，远低于 60 fps 一帧的 16.7 ms。
+在 AMD Ryzen 9 3900X（Linux）上它们分别约需 1.3 ms 和 2.0 ms。这只是推进粒子并记录绘制操作的 CPU 开销：不包括平台每帧回放约 5000 次图像绘制的开销，也不包括垃圾回收器回收每次绘制所分配内存的开销，因此不能据此认为设备能保持 60 fps。macOS 上用 `--nsgo-fps` 测得的 60 fps 读数尚未记录（[nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)）。
