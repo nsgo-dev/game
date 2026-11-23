@@ -1,0 +1,57 @@
+version: 1
+quests:
+  - id: welcome
+    title: quest.welcome.title
+    autoStart: true
+    objectives:
+      - id: meet-elder
+        kind: talk
+        target: elder
+        text: quest.welcome.meet-elder
+  - id: rat-problem
+    title: quest.rats.title
+    description: quest.rats.description
+    requires: [welcome]
+    ordered: true
+    objectives:
+      - id: talk-innkeeper
+        kind: talk
+        target: innkeeper
+      - id: find-cellar
+        kind: reach
+        target: cellar
+      - id: kill-rats
+        kind: defeat
+        target: rat
+        count: 5
+      - id: tails
+        kind: collect
+        target: rat-tail
+        count: 3
+        optional: true
+      - id: report
+        kind: talk
+        target: innkeeper
+    rewards:
+      - kind: gold
+        id: coin
+        amount: 50
+      - kind: item
+        id: cellar-key
+  - id: herbs
+    title: quest.herbs.title
+    requires: [welcome]
+    repeatable: true
+    objectives:
+      - id: moonleaf
+        kind: collect
+        target: moonleaf
+        count: 4
+      - id: sunroot
+        kind: collect
+        target: sunroot
+        count: 2
+    rewards:
+      - kind: xp
+        id: xp
+        amount: 20
