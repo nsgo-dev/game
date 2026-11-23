@@ -18,7 +18,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`，所有包共用的固定步长循环 |
 | `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | 图集、帧、动画、精灵，以及绘制到 `Canvas` 中的批次 |
 | `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | `Mixer` 及其音效和音乐 |
-| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | 基于触摸区域、鼠标按键、键盘按键和指针锁定鼠标视角的命名动作与轴，支持 `core.Storage` 持久化 |
+| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | 基于触摸区域、鼠标按键、键盘按键、指针锁定鼠标视角和游戏手柄的命名动作与轴，支持 `core.Storage` 持久化 |
 | `tilemap` | `github.com/nsgo-dev/game/packages/game/tilemap` | [tilemap](tilemap.md) | 2D 相机、视锥裁剪瓦片地图、Tiled `.tmj` 加载、动画瓦片与射线查询 |
 | `scene` | `github.com/nsgo-dev/game/packages/game/scene` | [scene](scene.md) | 世界/屏幕图层、命中测试、场景栈与过渡动画 |
 | `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` 重叠检测、`MoveAndSlide` 瓦片滑动解析与 `World` 空间查询 |

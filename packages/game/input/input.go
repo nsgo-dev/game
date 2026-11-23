@@ -1,11 +1,11 @@
-// Package input turns touch regions, mouse buttons, relative mouse motion under a pointer lock, keyboard keys and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
-// Package input turns touch regions, mouse buttons, keyboard keys and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
+// Package input turns touch regions, mouse buttons, relative mouse motion under a pointer lock, keyboard keys, game controller buttons and sticks, and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
 package input
 
 import (
 	"slices"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 )
 
 // InputKind says what kind of physical input an Input watches.
@@ -24,11 +24,13 @@ const (
 	InputKey
 	// InputKeyCode is active while a keyboard key at a physical position, named as core.KeyEvent.Code names it, is held.
 	InputKeyCode
+	// InputGamepadButton is active while a button is pressed on a game controller the Actions reads.
+	InputGamepadButton
 )
 
-// Input is one physical trigger bound to an action: a touch region, a mouse button, a mouse button in a region, a key or a key's physical position.
+// Input is one physical trigger bound to an action: a touch region, a mouse button, a mouse button in a region, a key, a key's physical position or a game controller button.
 //
-// Make one with TouchRegion, MouseButton, MouseRegion, Key or KeyCode. Its zero value is never active.
+// Make one with TouchRegion, MouseButton, MouseRegion, Key, KeyCode or GamepadButton. Its zero value is never active.
 type Input struct {
 	Kind   InputKind
 	Bounds core.Bounds
@@ -37,6 +39,8 @@ type Input struct {
 	Key string
 	// Code is the physical position of an InputKeyCode, such as "KeyW" or "ArrowLeft".
 	Code string
+	// PadButton is the controller button of an InputGamepadButton input.
+	PadButton gamepad.Button
 }
 
 // TouchRegion returns an input that is active while any touch finger lies inside rect: from its origin, included, to its far edges, excluded, as core.Bounds.Contains tests.
@@ -59,9 +63,9 @@ type axisBinding struct {
 	positive string
 }
 
-// Actions maps touch regions, mouse buttons, relative mouse motion under a pointer lock and keyboard keys to named actions and axes, sampled once per fixed game.Loop step.
+// Actions maps touch regions, mouse buttons, relative mouse motion under a pointer lock, keyboard keys and game controllers to named actions and axes, sampled once per fixed game.Loop step.
 //
-// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave, OnContextMenu, OnPointerDelta, OnKeyDown and OnKeyUp), call WatchKeys to hear the keys held anywhere on the window, and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
+// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave, OnContextMenu, OnPointerDelta, OnKeyDown and OnKeyUp), call WatchKeys to hear the keys held anywhere on the window, call WatchGamepads to read game controllers, and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
 //
 // The zero value is ready to use. Actions' methods are called on the engine's goroutine, as core.View's callbacks and Loop.Update are.
 type Actions struct {
@@ -84,6 +88,14 @@ type Actions struct {
 	pendingDY     float64
 	stepDX        float64
 	stepDY        float64
+
+	// Game controllers: the scope polled on each Step, the last state read, the selected controller and the stick axes bound with BindGamepadAxis.
+	gpScope *core.Scope
+	gpPads  []gamepad.Pad
+	gpID    int
+	gpOne   bool
+	gpAxes  map[string]gamepadAxisBinding
+	gpSnap  map[string]float64
 
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
@@ -212,6 +224,7 @@ func (a *Actions) UnbindVirtualPad(pad *VirtualPad) {
 
 // Step samples the current input state into the step snapshot. Call it once at the start of each game.Loop.Update step.
 func (a *Actions) Step() {
+	a.pollGamepads()
 	a.prev, a.curr = a.curr, a.prev
 	clear(a.curr)
 	clear(a.padAxes)
@@ -259,6 +272,7 @@ func (a *Actions) Step() {
 	clear(a.latched)
 	a.stepMotion()
 	a.stepPointer()
+	a.stepGamepadAxes()
 }
 
 func (a *Actions) recordPadAxis(name string, v float64) {
@@ -271,8 +285,7 @@ func (a *Actions) recordPadAxis(name string, v float64) {
 	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
-// Reset clears active touches, held mouse buttons, held keys, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
-// Reset clears active touches, held mouse buttons, held keys, pending latches, motion readings and the current step snapshot, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, held keys, the last game controller state read, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}
@@ -288,6 +301,8 @@ func (a *Actions) Reset() {
 	clear(a.prev)
 	a.resetMotion()
 	a.resetPointer()
+	a.gpPads = a.gpPads[:0]
+	clear(a.gpSnap)
 	clear(a.padAxes)
 	for _, pad := range a.pads {
 		pad.Reset()
@@ -314,6 +329,7 @@ func (a *Actions) JustReleased(name string) bool {
 // For an axis bound with BindAxis, its negative action contributes -1 and its positive action contributes +1.
 // For an axis bound with BindMotionAxis, the calibrated and dead-zoned motion reading contributes a value in [-1, 1].
 // For an axis bound with BindPointerAxis, the step's scaled relative mouse motion contributes, as Delta reads it.
+// For an axis bound with BindGamepadAxis, the dead-zoned stick reading of the controllers a reads contributes a value in [-1, 1].
 // An analog value from a VirtualPad stick bound to the same axis name is added too.
 // When more than one is bound to the same axis name, their contributions are summed and clamped to [-1, 1].
 // Otherwise Axis returns 1 when action name is pressed and 0 when it is not.
@@ -336,6 +352,10 @@ func (a *Actions) Axis(name string) float64 {
 	if _, ok := a.pointerAxes[name]; ok {
 		hasAxis = true
 		v += a.Delta(name)
+	}
+	if _, ok := a.gpAxes[name]; ok {
+		hasAxis = true
+		v += a.gpSnap[name]
 	}
 	if pv, ok := a.padAxes[name]; ok {
 		hasAxis = true
@@ -574,6 +594,8 @@ func (a *Actions) inputActive(in Input) bool {
 		}
 	case InputMouseButton:
 		return a.mouseButtonDown(in.Button)
+	case InputGamepadButton:
+		return a.gamepadButtonDown(in.PadButton)
 	case InputMouseRegion:
 		if !a.hasMousePos || !a.mouseButtonDown(in.Button) {
 			return false
