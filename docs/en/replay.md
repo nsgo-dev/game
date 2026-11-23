@@ -71,7 +71,7 @@ steps:
 
 Steps count from 0 and must be listed in increasing order below `total_steps`. An action stays pressed from the step that presses it until a step releases it, and an axis keeps its value until a later step sets another. An edited file replays as edited: move a press to another step, change an axis value or add a line, and `LoadFile` and `Player` follow it.
 
-`Decode` refuses unknown keys, a line without `step`, names missing from the header and trailing YAML documents, and names the step or line at fault. `Encode` always writes the same bytes for the same recording, so loading a file it wrote and saving it again changes nothing. Comments and block-style entries you add are read, but a program that saves the recording again writes the canonical one-line form without them. The conventional extension is `.replay.yaml`. Version 1, the earlier compact JSON form, is no longer read.
+`Decode` refuses unknown keys, a missing `seed` or `total_steps`, a line without `step`, names missing from the header and trailing YAML documents, and names the step or line at fault. `Encode` always writes the same bytes for the same recording, so loading a file it wrote and saving it again changes nothing; an axis value written as `-0.0` is read as `0`. Comments and block-style entries you add are read, but a program that saves the recording again writes the canonical one-line form without them. The conventional extension is `.replay.yaml`. Version 1, the earlier compact JSON form, is no longer read.
 
 ## Playing back a Recording
 
