@@ -100,7 +100,7 @@ mvp := proj.Mul(view).Mul(model)
 - **`Sphere`**：包围球 `{Center, Radius}`，支持 `Contains`、`IntersectsSphere` 与 `IntersectsAABB`。
 - **`Plane`**：平面 `{Normal, D}`，满足 `Normal · p + D = 0`。经 `Normalized()` 归一化后，`SignedDist(p)` 返回有符号欧氏距离（法线指向的一侧为正）。
 - **`Ray`**：射线 `P(t) = Origin + t * Dir`（`t >= 0`），提供 `IntersectAABB`（slab 算法）、`IntersectSphere`、`IntersectPlane` 与 `IntersectTriangle`（双面 Möller–Trumbore 算法，返回 `(t, u, v, hit)`）。平行判定按向量长度取相对阈值，很小的三角形和很短的射线方向也能命中。
-- **`Frustum`**：由 6 个指向内部、已归一化的平面（`FrustumLeft` 至 `FrustumFar`）组成的视锥体，使用 Gribb–Hartmann 算法从任意透视或正交视图投影矩阵提取（`[0, 1]` 用 `FrustumFromMat4`，`[-1, 1]` 用 `FrustumFromMat4NO`），支持 `ContainsPoint`、`IntersectsSphere` 与 `IntersectsAABB`。
+- **`Frustum`**：由 6 个指向内部、已归一化的平面（`FrustumLeft` 至 `FrustumFar`）组成的视锥体，使用 Gribb–Hartmann 算法从任意透视或正交视图投影矩阵提取（`[0, 1]` 用 `FrustumFromMat4`，`[-1, 1]` 用 `FrustumFromMat4NO`），支持 `ContainsPoint`、`IntersectsSphere` 与 `IntersectsAABB`。恰好落在平面上的点视为在内部，并按平面到原点的距离留出少量余量，避免浮点舍入把远处远平面上的几何体剔除。
 
 ```go
 view := math3d.LookAt(math3d.Vec3{X: 0, Y: 3, Z: 8}, math3d.Vec3Zero(), math3d.Vec3Up())
@@ -111,3 +111,10 @@ if frustum.IntersectsAABB(worldBounds) {
 	// 物体在视锥体内，需要绘制。
 }
 ```
+
+## 曲线
+
+`QuadraticBezier3D`、`CubicBezier3D`、`CubicHermite3D`、`HermiteSpline3D` 和 `CatmullRom3D` 共用 `Curve3D` 接口：`Point`、`Tangent`、`Length`、按弧长查找（`DistanceToT`、`PointAtDistance`），以及供沿路径移动的相机和物体使用的旋转最小化标架（`FrameAt`、`FrameAtDistance`）。
+
+- `NewHermiteSpline3D` 对 `tangents` 中没有对应项的点使用均匀 Catmull-Rom 切线 `(next - previous) / 2`；希望曲线在某点停住时，显式传入零切线。
+- `NewCatmullRom3DAlpha` 的 `alpha` 为 0 时是均匀样条，即使相邻点重合，节点间距也保持均匀；默认的 `NewCatmullRom3D` 是向心参数化（`alpha` 为 0.5）。
