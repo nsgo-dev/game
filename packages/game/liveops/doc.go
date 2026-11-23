@@ -1,4 +1,4 @@
-// Package liveops holds provider-agnostic live operations primitives for NSGo games: crash reports, consent-gated analytics, a cloud-save sync interface and in-app purchases credited into the save. It links no third-party analytics, crash-reporting or ad SDKs.
+// Package liveops holds provider-agnostic live operations primitives for NSGo games: crash reports, consent-gated analytics, a cloud-save sync interface and in-app purchases credited into the save. It links no third-party analytics, crash-reporting, ad or payment SDKs.
 //
 // # Scope (#194)
 //
