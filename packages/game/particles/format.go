@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -14,16 +15,35 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"go.yaml.in/yaml/v3"
 )
 
-// FormatVersion is the current schema version written by MarshalConfigJSON and accepted by UnmarshalConfigJSON.
+// FormatVersion is the current schema version of an emitter definition, written by MarshalConfigYAML and MarshalConfigJSON and required by UnmarshalConfigYAML and UnmarshalConfigJSON.
 const FormatVersion = 1
 
 const maxConfigSubDepth = 8
 
-type jsonDuration time.Duration
+type docDuration time.Duration
 
-func (d jsonDuration) MarshalJSON() ([]byte, error) {
+// MarshalYAML writes the duration in time.Duration.String form, such as "1.25s".
+func (d docDuration) MarshalYAML() (any, error) {
+	return time.Duration(d).String(), nil
+}
+
+// UnmarshalYAML accepts only a duration string such as "500ms" or "1.5s"; a bare number is refused because its unit would be ambiguous.
+func (d *docDuration) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
+		return fmt.Errorf("line %d: duration %q must be a string such as \"500ms\" or \"1.5s\"", value.Line, value.Value)
+	}
+	parsed, err := time.ParseDuration(value.Value)
+	if err != nil {
+		return fmt.Errorf("line %d: invalid duration %q: %w", value.Line, value.Value, err)
+	}
+	*d = docDuration(parsed)
+	return nil
+}
+
+func (d docDuration) MarshalJSON() ([]byte, error) {
 	td := time.Duration(d)
 	if td == math.MinInt64 {
 		return strconv.AppendInt(nil, int64(td), 10), nil
@@ -31,7 +51,7 @@ func (d jsonDuration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(td.String())
 }
 
-func (d *jsonDuration) UnmarshalJSON(data []byte) error {
+func (d *docDuration) UnmarshalJSON(data []byte) error {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		*d = 0
@@ -50,34 +70,74 @@ func (d *jsonDuration) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid duration %q: %w", s, err)
 		}
-		*d = jsonDuration(parsed)
+		*d = docDuration(parsed)
 		return nil
 	}
 	var ns int64
 	if err := json.Unmarshal(trimmed, &ns); err != nil {
 		return fmt.Errorf("invalid duration %s: %w", string(trimmed), err)
 	}
-	*d = jsonDuration(ns)
+	*d = docDuration(ns)
 	return nil
 }
 
-type jsonColor core.Color
+type docColor core.Color
 
-func (c jsonColor) MarshalJSON() ([]byte, error) {
-	var buf [11]byte
-	buf[0] = '"'
-	buf[1] = '#'
+// hex returns the color as "#rrggbbaa" in lowercase.
+func (c docColor) hex() string {
+	var buf [9]byte
+	buf[0] = '#'
 	v := uint32(c)
-	const hex = "0123456789abcdef"
+	const digits = "0123456789abcdef"
 	for i := range 8 {
 		shift := uint((7 - i) * 4)
-		buf[2+i] = hex[(v>>shift)&0xf]
+		buf[1+i] = digits[(v>>shift)&0xf]
 	}
-	buf[10] = '"'
-	return buf[:], nil
+	return string(buf[:])
 }
 
-func (c *jsonColor) UnmarshalJSON(data []byte) error {
+// parseHexColor parses "#rrggbb" (opaque) or "#rrggbbaa".
+func parseHexColor(s string) (docColor, error) {
+	if !strings.HasPrefix(s, "#") {
+		return 0, fmt.Errorf("invalid color %q: must start with #", s)
+	}
+	hexPart := s[1:]
+	if len(hexPart) != 6 && len(hexPart) != 8 {
+		return 0, fmt.Errorf("invalid color %q: expected #rrggbb or #rrggbbaa", s)
+	}
+	v, err := strconv.ParseUint(hexPart, 16, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid color %q: %w", s, err)
+	}
+	if len(hexPart) == 6 {
+		return docColor((uint32(v) << 8) | 0xff), nil
+	}
+	return docColor(uint32(v)), nil
+}
+
+func (c docColor) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.hex())
+}
+
+// MarshalYAML writes the color as a double-quoted "#rrggbbaa" string, since an unquoted # would start a YAML comment.
+func (c docColor) MarshalYAML() (any, error) {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Style: yaml.DoubleQuotedStyle, Value: c.hex()}, nil
+}
+
+// UnmarshalYAML accepts only a quoted "#rrggbb" or "#rrggbbaa" string.
+func (c *docColor) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
+		return fmt.Errorf("line %d: color %q must be a quoted string such as \"#ff8800\" or \"#ff8800cc\"", value.Line, value.Value)
+	}
+	parsed, err := parseHexColor(value.Value)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", value.Line, err)
+	}
+	*c = parsed
+	return nil
+}
+
+func (c *docColor) UnmarshalJSON(data []byte) error {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		*c = 0
@@ -93,156 +153,242 @@ func (c *jsonColor) UnmarshalJSON(data []byte) error {
 			*c = 0
 			return nil
 		}
-		if !strings.HasPrefix(s, "#") {
-			return fmt.Errorf("invalid color %q: must start with #", s)
+		parsed, err := parseHexColor(s)
+		if err != nil {
+			return err
 		}
-		hexPart := s[1:]
-		switch len(hexPart) {
-		case 6:
-			v, err := strconv.ParseUint(hexPart, 16, 32)
-			if err != nil {
-				return fmt.Errorf("invalid color %q: %w", s, err)
-			}
-			*c = jsonColor((uint32(v) << 8) | 0xff)
-			return nil
-		case 8:
-			v, err := strconv.ParseUint(hexPart, 16, 32)
-			if err != nil {
-				return fmt.Errorf("invalid color %q: %w", s, err)
-			}
-			*c = jsonColor(uint32(v))
-			return nil
-		default:
-			return fmt.Errorf("invalid color %q: expected #rrggbb or #rrggbbaa", s)
-		}
+		*c = parsed
+		return nil
 	}
 	var raw uint32
 	if err := json.Unmarshal(trimmed, &raw); err != nil {
 		return fmt.Errorf("invalid color %s: %w", string(trimmed), err)
 	}
-	*c = jsonColor(raw)
+	*c = docColor(raw)
 	return nil
 }
 
-type jsonFloatStop struct {
-	T     float32 `json:"t"`
-	Value float32 `json:"value"`
+type floatStopDoc struct {
+	T     float32 `json:"t" yaml:"t"`
+	Value float32 `json:"value" yaml:"value"`
 }
 
-type jsonColorStop struct {
-	T     float32   `json:"t"`
-	Color jsonColor `json:"color"`
+type colorStopDoc struct {
+	T     float32  `json:"t" yaml:"t"`
+	Color docColor `json:"color" yaml:"color"`
 }
 
-type jsonShape struct {
-	Kind   string  `json:"kind,omitempty"`
-	Radius float32 `json:"radius,omitempty"`
-	Width  float32 `json:"width,omitempty"`
-	Height float32 `json:"height,omitempty"`
+type shapeDoc struct {
+	Kind   string  `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Radius float32 `json:"radius,omitempty" yaml:"radius,omitempty"`
+	Width  float32 `json:"width,omitempty" yaml:"width,omitempty"`
+	Height float32 `json:"height,omitempty" yaml:"height,omitempty"`
 }
 
-type jsonCollision struct {
-	Enabled  bool    `json:"enabled,omitempty"`
-	Mode     string  `json:"mode,omitempty"`
-	Bounce   float32 `json:"bounce,omitempty"`
-	Friction float32 `json:"friction,omitempty"`
-	Radius   float32 `json:"radius,omitempty"`
+type collisionDoc struct {
+	Enabled  bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Mode     string  `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Bounce   float32 `json:"bounce,omitempty" yaml:"bounce,omitempty"`
+	Friction float32 `json:"friction,omitempty" yaml:"friction,omitempty"`
+	Radius   float32 `json:"radius,omitempty" yaml:"radius,omitempty"`
 }
 
-type jsonTrail struct {
-	MaxPoints     int             `json:"maxPoints,omitempty"`
-	Lifetime      float32         `json:"lifetime,omitempty"`
-	MinDistance   float32         `json:"minDistance,omitempty"`
-	Width         float32         `json:"width,omitempty"`
-	WidthCurve    []jsonFloatStop `json:"widthCurve,omitempty"`
-	ColorGradient []jsonColorStop `json:"colorGradient,omitempty"`
-	Color         *jsonColor      `json:"color,omitempty"`
-	TextureURI    string          `json:"textureURI,omitempty"`
+type trailDoc struct {
+	MaxPoints     int            `json:"maxPoints,omitempty" yaml:"maxPoints,omitempty"`
+	Lifetime      float32        `json:"lifetime,omitempty" yaml:"lifetime,omitempty"`
+	MinDistance   float32        `json:"minDistance,omitempty" yaml:"minDistance,omitempty"`
+	Width         float32        `json:"width,omitempty" yaml:"width,omitempty"`
+	WidthCurve    []floatStopDoc `json:"widthCurve,omitempty" yaml:"widthCurve,omitempty"`
+	ColorGradient []colorStopDoc `json:"colorGradient,omitempty" yaml:"colorGradient,omitempty"`
+	Color         *docColor      `json:"color,omitempty" yaml:"color,omitempty"`
+	TextureURI    string         `json:"textureURI,omitempty" yaml:"textureURI,omitempty"`
 }
 
-type jsonSubEmitter struct {
-	Trigger         string      `json:"trigger,omitempty"`
-	BurstCount      int         `json:"burstCount,omitempty"`
-	InheritVelocity float32     `json:"inheritVelocity,omitempty"`
-	Config          *jsonConfig `json:"config,omitempty"`
+type subEmitterDoc struct {
+	Trigger         string     `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	BurstCount      int        `json:"burstCount,omitempty" yaml:"burstCount,omitempty"`
+	InheritVelocity float32    `json:"inheritVelocity,omitempty" yaml:"inheritVelocity,omitempty"`
+	Config          *configDoc `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
-type jsonConfig struct {
-	Version            int              `json:"version,omitempty"`
-	X                  float32          `json:"x,omitempty"`
-	Y                  float32          `json:"y,omitempty"`
-	Rotation           float32          `json:"rotation,omitempty"`
-	Space              string           `json:"space,omitempty"`
-	Shape              *jsonShape       `json:"shape,omitempty"`
-	Rate               float32          `json:"rate,omitempty"`
-	MaxParticles       int              `json:"maxParticles,omitempty"`
-	LifetimeMin        jsonDuration     `json:"lifetimeMin,omitempty"`
-	LifetimeMax        jsonDuration     `json:"lifetimeMax,omitempty"`
-	SpeedMin           float32          `json:"speedMin,omitempty"`
-	SpeedMax           float32          `json:"speedMax,omitempty"`
-	AngleMin           float32          `json:"angleMin,omitempty"`
-	AngleMax           float32          `json:"angleMax,omitempty"`
-	GravityX           float32          `json:"gravityX,omitempty"`
-	GravityY           float32          `json:"gravityY,omitempty"`
-	InitialRotationMin float32          `json:"initialRotationMin,omitempty"`
-	InitialRotationMax float32          `json:"initialRotationMax,omitempty"`
-	RotationSpeedMin   float32          `json:"rotationSpeedMin,omitempty"`
-	RotationSpeedMax   float32          `json:"rotationSpeedMax,omitempty"`
-	SizeCurve          []jsonFloatStop  `json:"sizeCurve,omitempty"`
-	AlphaCurve         []jsonFloatStop  `json:"alphaCurve,omitempty"`
-	RotationCurve      []jsonFloatStop  `json:"rotationCurve,omitempty"`
-	ColorCurve         []jsonColorStop  `json:"colorCurve,omitempty"`
-	Seed               uint64           `json:"seed,omitempty"`
-	Z                  int              `json:"z,omitempty"`
-	FrameNames         []string         `json:"frameNames,omitempty"`
-	Collision          *jsonCollision   `json:"collision,omitempty"`
-	Trail              *jsonTrail       `json:"trail,omitempty"`
-	SubEmitters        []jsonSubEmitter `json:"subEmitters,omitempty"`
+type configDoc struct {
+	Version            int             `json:"version,omitempty" yaml:"version,omitempty"`
+	X                  float32         `json:"x,omitempty" yaml:"x,omitempty"`
+	Y                  float32         `json:"y,omitempty" yaml:"y,omitempty"`
+	Rotation           float32         `json:"rotation,omitempty" yaml:"rotation,omitempty"`
+	Space              string          `json:"space,omitempty" yaml:"space,omitempty"`
+	Shape              *shapeDoc       `json:"shape,omitempty" yaml:"shape,omitempty"`
+	Rate               float32         `json:"rate,omitempty" yaml:"rate,omitempty"`
+	MaxParticles       int             `json:"maxParticles,omitempty" yaml:"maxParticles,omitempty"`
+	LifetimeMin        docDuration     `json:"lifetimeMin,omitempty" yaml:"lifetimeMin,omitempty"`
+	LifetimeMax        docDuration     `json:"lifetimeMax,omitempty" yaml:"lifetimeMax,omitempty"`
+	SpeedMin           float32         `json:"speedMin,omitempty" yaml:"speedMin,omitempty"`
+	SpeedMax           float32         `json:"speedMax,omitempty" yaml:"speedMax,omitempty"`
+	AngleMin           float32         `json:"angleMin,omitempty" yaml:"angleMin,omitempty"`
+	AngleMax           float32         `json:"angleMax,omitempty" yaml:"angleMax,omitempty"`
+	GravityX           float32         `json:"gravityX,omitempty" yaml:"gravityX,omitempty"`
+	GravityY           float32         `json:"gravityY,omitempty" yaml:"gravityY,omitempty"`
+	InitialRotationMin float32         `json:"initialRotationMin,omitempty" yaml:"initialRotationMin,omitempty"`
+	InitialRotationMax float32         `json:"initialRotationMax,omitempty" yaml:"initialRotationMax,omitempty"`
+	RotationSpeedMin   float32         `json:"rotationSpeedMin,omitempty" yaml:"rotationSpeedMin,omitempty"`
+	RotationSpeedMax   float32         `json:"rotationSpeedMax,omitempty" yaml:"rotationSpeedMax,omitempty"`
+	SizeCurve          []floatStopDoc  `json:"sizeCurve,omitempty" yaml:"sizeCurve,omitempty"`
+	AlphaCurve         []floatStopDoc  `json:"alphaCurve,omitempty" yaml:"alphaCurve,omitempty"`
+	RotationCurve      []floatStopDoc  `json:"rotationCurve,omitempty" yaml:"rotationCurve,omitempty"`
+	ColorCurve         []colorStopDoc  `json:"colorCurve,omitempty" yaml:"colorCurve,omitempty"`
+	Seed               uint64          `json:"seed,omitempty" yaml:"seed,omitempty"`
+	Z                  int             `json:"z,omitempty" yaml:"z,omitempty"`
+	FrameNames         []string        `json:"frameNames,omitempty" yaml:"frameNames,omitempty"`
+	Collision          *collisionDoc   `json:"collision,omitempty" yaml:"collision,omitempty"`
+	Trail              *trailDoc       `json:"trail,omitempty" yaml:"trail,omitempty"`
+	SubEmitters        []subEmitterDoc `json:"subEmitters,omitempty" yaml:"subEmitters,omitempty"`
 }
 
-// MarshalConfigJSON encodes cfg into the versioned JSON emitter definition format (version: 1).
+// MarshalConfigYAML encodes cfg as a versioned YAML emitter definition (version: 1) with fixed key order and 2-space indentation, so saving the same Config always yields the same bytes.
+func MarshalConfigYAML(cfg Config) ([]byte, error) {
+	doc, err := configToDoc(cfg, true, 0)
+	if err != nil {
+		return nil, err
+	}
+	var root yaml.Node
+	if err := root.Encode(doc); err != nil {
+		return nil, fmt.Errorf("particles: encode config YAML: %w", err)
+	}
+	plainYAMLKeys(&root)
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("particles: encode config YAML: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("particles: encode config YAML: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// UnmarshalConfigYAML decodes a versioned YAML emitter definition into a Config. It refuses unknown fields, a key with no value, a second YAML document, a version other than FormatVersion, durations that are not strings such as "500ms", and colors that are not quoted "#rrggbb" or "#rrggbbaa" strings.
+func UnmarshalConfigYAML(data []byte) (Config, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return Config{}, errors.New("particles: empty config YAML")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var root yaml.Node
+	if err := dec.Decode(&root); err != nil {
+		if errors.Is(err, io.EOF) {
+			return Config{}, errors.New("particles: empty config YAML")
+		}
+		return Config{}, fmt.Errorf("particles: decode config YAML: %w", err)
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Config{}, errors.New("particles: unexpected trailing YAML document in config")
+		}
+		return Config{}, fmt.Errorf("particles: decode config YAML: %w", err)
+	}
+	if err := refuseYAMLNulls(&root); err != nil {
+		return Config{}, err
+	}
+
+	strict := yaml.NewDecoder(bytes.NewReader(data))
+	strict.KnownFields(true)
+	var doc configDoc
+	if err := strict.Decode(&doc); err != nil {
+		return Config{}, fmt.Errorf("particles: decode config YAML: %w", err)
+	}
+	if doc.Version != FormatVersion {
+		return Config{}, fmt.Errorf("particles: unsupported config version %d (want %d)", doc.Version, FormatVersion)
+	}
+	return configFromDoc(&doc, 0)
+}
+
+// plainYAMLKeys writes every mapping key without quotes. The encoder quotes "y" because YAML 1.1 read it as a boolean, but the schema's keys are all plain identifiers and YAML 1.2 (which the decoder follows) reads "y" as a string, so a hand-written `y: 120` saves back unchanged.
+func plainYAMLKeys(n *yaml.Node) {
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i < len(n.Content); i += 2 {
+			n.Content[i].Style = 0
+		}
+	}
+	for _, child := range n.Content {
+		plainYAMLKeys(child)
+	}
+}
+
+// refuseYAMLNulls rejects a mapping value or list item with no value. The schema has no field where null means anything, and the usual cause is an unquoted color such as `color: #ff8800`, which YAML reads as a comment. Aliases are not followed, since their anchors are checked where they are defined.
+func refuseYAMLNulls(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range n.Content {
+			if n.Kind == yaml.SequenceNode && isYAMLNull(child) {
+				return fmt.Errorf("particles: line %d: list item has no value", child.Line)
+			}
+			if err := refuseYAMLNulls(child); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key, value := n.Content[i], n.Content[i+1]
+			if isYAMLNull(value) {
+				return fmt.Errorf("particles: line %d: %q has no value (quote colors such as \"#ff8800\": an unquoted # starts a YAML comment)", key.Line, key.Value)
+			}
+			if err := refuseYAMLNulls(value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isYAMLNull(n *yaml.Node) bool {
+	return n.Kind == yaml.ScalarNode && n.ShortTag() == "!!null"
+}
+
+// MarshalConfigJSON encodes cfg into the versioned JSON form of the emitter definition (version: 1). Files people write use YAML (MarshalConfigYAML, SaveConfigFile); the JSON form is for programs that exchange definitions as JSON.
 func MarshalConfigJSON(cfg Config) ([]byte, error) {
-	doc, err := configToJSON(cfg, true, 0)
+	doc, err := configToDoc(cfg, true, 0)
 	if err != nil {
 		return nil, err
 	}
 	return json.MarshalIndent(doc, "", "  ")
 }
 
-// UnmarshalConfigJSON decodes a versioned JSON emitter definition into a Config.
+// UnmarshalConfigJSON decodes the versioned JSON form of an emitter definition into a Config.
 func UnmarshalConfigJSON(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return Config{}, errors.New("particles: empty config JSON")
 	}
-	var doc jsonConfig
+	var doc configDoc
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return Config{}, fmt.Errorf("particles: decode config JSON: %w", err)
 	}
 	if doc.Version != FormatVersion {
 		return Config{}, fmt.Errorf("particles: unsupported config version %d (want %d)", doc.Version, FormatVersion)
 	}
-	return configFromJSON(&doc, 0)
+	return configFromDoc(&doc, 0)
 }
 
-// LoadConfigFile reads and decodes a versioned emitter definition JSON file from disk.
+// LoadConfigFile reads and decodes a versioned YAML emitter definition file from disk.
 func LoadConfigFile(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, err
 	}
-	return UnmarshalConfigJSON(data)
+	return UnmarshalConfigYAML(data)
 }
 
-// SaveConfigFile encodes cfg to versioned JSON and writes it to path.
+// SaveConfigFile encodes cfg as a versioned YAML emitter definition and writes it to path.
 func SaveConfigFile(path string, cfg Config) error {
-	data, err := MarshalConfigJSON(cfg)
+	data, err := MarshalConfigYAML(cfg)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
 }
 
-// LoadConfigFS reads and decodes a versioned emitter definition JSON file from fsys.
+// LoadConfigFS reads and decodes a versioned YAML emitter definition file from fsys.
 func LoadConfigFS(fsys fs.FS, name string) (Config, error) {
 	if fsys == nil {
 		return Config{}, errors.New("particles: nil fs.FS")
@@ -251,26 +397,26 @@ func LoadConfigFS(fsys fs.FS, name string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return UnmarshalConfigJSON(data)
+	return UnmarshalConfigYAML(data)
 }
 
-func configToJSON(cfg Config, includeVersion bool, depth int) (*jsonConfig, error) {
+func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error) {
 	if depth > maxConfigSubDepth {
 		return nil, fmt.Errorf("particles: sub-emitter nesting exceeds max depth %d", maxConfigSubDepth)
 	}
 	if err := validateConfigFloats(cfg); err != nil {
 		return nil, err
 	}
-	doc := &jsonConfig{
+	doc := &configDoc{
 		X:                  cfg.X,
 		Y:                  cfg.Y,
 		Rotation:           cfg.Rotation,
 		Space:              cfg.Space.String(),
-		Shape:              shapeToJSON(cfg.Shape),
+		Shape:              shapeToDoc(cfg.Shape),
 		Rate:               cfg.Rate,
 		MaxParticles:       cfg.MaxParticles,
-		LifetimeMin:        jsonDuration(cfg.LifetimeMin),
-		LifetimeMax:        jsonDuration(cfg.LifetimeMax),
+		LifetimeMin:        docDuration(cfg.LifetimeMin),
+		LifetimeMax:        docDuration(cfg.LifetimeMax),
 		SpeedMin:           cfg.SpeedMin,
 		SpeedMax:           cfg.SpeedMax,
 		AngleMin:           cfg.AngleMin,
@@ -281,10 +427,10 @@ func configToJSON(cfg Config, includeVersion bool, depth int) (*jsonConfig, erro
 		InitialRotationMax: cfg.InitialRotationMax,
 		RotationSpeedMin:   cfg.RotationSpeedMin,
 		RotationSpeedMax:   cfg.RotationSpeedMax,
-		SizeCurve:          floatCurveToJSON(cfg.SizeCurve),
-		AlphaCurve:         floatCurveToJSON(cfg.AlphaCurve),
-		RotationCurve:      floatCurveToJSON(cfg.RotationCurve),
-		ColorCurve:         colorCurveToJSON(cfg.ColorCurve),
+		SizeCurve:          floatCurveToDoc(cfg.SizeCurve),
+		AlphaCurve:         floatCurveToDoc(cfg.AlphaCurve),
+		RotationCurve:      floatCurveToDoc(cfg.RotationCurve),
+		ColorCurve:         colorCurveToDoc(cfg.ColorCurve),
 		Seed:               cfg.Seed,
 		Z:                  cfg.Z,
 		FrameNames:         append([]string(nil), cfg.FrameNames...),
@@ -295,7 +441,7 @@ func configToJSON(cfg Config, includeVersion bool, depth int) (*jsonConfig, erro
 
 	col := cfg.Collision
 	if col.Enabled || col.Mode != CollideNone || col.Bounce != 0 || col.Friction != 0 || col.Radius != 0 {
-		doc.Collision = &jsonCollision{
+		doc.Collision = &collisionDoc{
 			Enabled:  col.Enabled,
 			Mode:     col.Mode.String(),
 			Bounce:   col.Bounce,
@@ -305,30 +451,30 @@ func configToJSON(cfg Config, includeVersion bool, depth int) (*jsonConfig, erro
 	}
 
 	if cfg.Trail != nil {
-		jt := &jsonTrail{
+		jt := &trailDoc{
 			MaxPoints:     cfg.Trail.MaxPoints,
 			Lifetime:      cfg.Trail.Lifetime,
 			MinDistance:   cfg.Trail.MinDistance,
 			Width:         cfg.Trail.Width,
-			WidthCurve:    floatCurveToJSON(cfg.Trail.WidthCurve),
-			ColorGradient: colorCurveToJSON(cfg.Trail.ColorGradient),
+			WidthCurve:    floatCurveToDoc(cfg.Trail.WidthCurve),
+			ColorGradient: colorCurveToDoc(cfg.Trail.ColorGradient),
 			TextureURI:    cfg.Trail.Texture.URI,
 		}
 		if cfg.Trail.Color != 0 {
-			jc := jsonColor(cfg.Trail.Color)
+			jc := docColor(cfg.Trail.Color)
 			jt.Color = &jc
 		}
 		doc.Trail = jt
 	}
 
 	if len(cfg.SubEmitters) > 0 {
-		doc.SubEmitters = make([]jsonSubEmitter, len(cfg.SubEmitters))
+		doc.SubEmitters = make([]subEmitterDoc, len(cfg.SubEmitters))
 		for i, rule := range cfg.SubEmitters {
-			subDoc, err := configToJSON(rule.Config, false, depth+1)
+			subDoc, err := configToDoc(rule.Config, false, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			doc.SubEmitters[i] = jsonSubEmitter{
+			doc.SubEmitters[i] = subEmitterDoc{
 				Trigger:         rule.Trigger.String(),
 				BurstCount:      rule.BurstCount,
 				InheritVelocity: rule.InheritVelocity,
@@ -339,7 +485,7 @@ func configToJSON(cfg Config, includeVersion bool, depth int) (*jsonConfig, erro
 	return doc, nil
 }
 
-func configFromJSON(doc *jsonConfig, depth int) (Config, error) {
+func configFromDoc(doc *configDoc, depth int) (Config, error) {
 	if doc == nil {
 		return Config{}, nil
 	}
@@ -350,7 +496,7 @@ func configFromJSON(doc *jsonConfig, depth int) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	shape, err := shapeFromJSON(doc.Shape)
+	shape, err := shapeFromDoc(doc.Shape)
 	if err != nil {
 		return Config{}, err
 	}
@@ -374,10 +520,10 @@ func configFromJSON(doc *jsonConfig, depth int) (Config, error) {
 		InitialRotationMax: doc.InitialRotationMax,
 		RotationSpeedMin:   doc.RotationSpeedMin,
 		RotationSpeedMax:   doc.RotationSpeedMax,
-		SizeCurve:          floatCurveFromJSON(doc.SizeCurve),
-		AlphaCurve:         floatCurveFromJSON(doc.AlphaCurve),
-		RotationCurve:      floatCurveFromJSON(doc.RotationCurve),
-		ColorCurve:         colorCurveFromJSON(doc.ColorCurve),
+		SizeCurve:          floatCurveFromDoc(doc.SizeCurve),
+		AlphaCurve:         floatCurveFromDoc(doc.AlphaCurve),
+		RotationCurve:      floatCurveFromDoc(doc.RotationCurve),
+		ColorCurve:         colorCurveFromDoc(doc.ColorCurve),
 		Seed:               doc.Seed,
 		Z:                  doc.Z,
 		FrameNames:         append([]string(nil), doc.FrameNames...),
@@ -403,8 +549,8 @@ func configFromJSON(doc *jsonConfig, depth int) (Config, error) {
 			Lifetime:      doc.Trail.Lifetime,
 			MinDistance:   doc.Trail.MinDistance,
 			Width:         doc.Trail.Width,
-			WidthCurve:    floatCurveFromJSON(doc.Trail.WidthCurve),
-			ColorGradient: colorCurveFromJSON(doc.Trail.ColorGradient),
+			WidthCurve:    floatCurveFromDoc(doc.Trail.WidthCurve),
+			ColorGradient: colorCurveFromDoc(doc.Trail.ColorGradient),
 		}
 		if doc.Trail.Color != nil {
 			tc.Color = core.Color(*doc.Trail.Color)
@@ -424,7 +570,7 @@ func configFromJSON(doc *jsonConfig, depth int) (Config, error) {
 			}
 			var subCfg Config
 			if sub.Config != nil {
-				subCfg, err = configFromJSON(sub.Config, depth+1)
+				subCfg, err = configFromDoc(sub.Config, depth+1)
 				if err != nil {
 					return Config{}, err
 				}
@@ -496,20 +642,20 @@ func validateConfigFloats(cfg Config) error {
 	return nil
 }
 
-func shapeToJSON(s Shape) *jsonShape {
+func shapeToDoc(s Shape) *shapeDoc {
 	switch s.kind {
 	case shapeCircle:
-		return &jsonShape{Kind: "circle", Radius: s.radius}
+		return &shapeDoc{Kind: "circle", Radius: s.radius}
 	case shapeRing:
-		return &jsonShape{Kind: "ring", Radius: s.radius}
+		return &shapeDoc{Kind: "ring", Radius: s.radius}
 	case shapeRect:
-		return &jsonShape{Kind: "rect", Width: s.width, Height: s.height}
+		return &shapeDoc{Kind: "rect", Width: s.width, Height: s.height}
 	default:
-		return &jsonShape{Kind: "point"}
+		return &shapeDoc{Kind: "point"}
 	}
 }
 
-func shapeFromJSON(js *jsonShape) (Shape, error) {
+func shapeFromDoc(js *shapeDoc) (Shape, error) {
 	if js == nil || js.Kind == "" || js.Kind == "point" {
 		return Point(), nil
 	}
@@ -564,18 +710,18 @@ func parseSubEmitterTrigger(s string) (SubEmitterTrigger, error) {
 	}
 }
 
-func floatCurveToJSON(c FloatCurve) []jsonFloatStop {
+func floatCurveToDoc(c FloatCurve) []floatStopDoc {
 	if len(c) == 0 {
 		return nil
 	}
-	out := make([]jsonFloatStop, len(c))
+	out := make([]floatStopDoc, len(c))
 	for i, s := range c {
-		out[i] = jsonFloatStop{T: s.T, Value: s.Value}
+		out[i] = floatStopDoc{T: s.T, Value: s.Value}
 	}
 	return out
 }
 
-func floatCurveFromJSON(stops []jsonFloatStop) FloatCurve {
+func floatCurveFromDoc(stops []floatStopDoc) FloatCurve {
 	if len(stops) == 0 {
 		return nil
 	}
@@ -586,18 +732,18 @@ func floatCurveFromJSON(stops []jsonFloatStop) FloatCurve {
 	return out
 }
 
-func colorCurveToJSON(c ColorCurve) []jsonColorStop {
+func colorCurveToDoc(c ColorCurve) []colorStopDoc {
 	if len(c) == 0 {
 		return nil
 	}
-	out := make([]jsonColorStop, len(c))
+	out := make([]colorStopDoc, len(c))
 	for i, s := range c {
-		out[i] = jsonColorStop{T: s.T, Color: jsonColor(s.Color)}
+		out[i] = colorStopDoc{T: s.T, Color: docColor(s.Color)}
 	}
 	return out
 }
 
-func colorCurveFromJSON(stops []jsonColorStop) ColorCurve {
+func colorCurveFromDoc(stops []colorStopDoc) ColorCurve {
 	if len(stops) == 0 {
 		return nil
 	}
@@ -648,7 +794,7 @@ func (e *Emitter) ReloadConfig(cfg Config) {
 		}
 	}
 
-	// Preserve runtime Collider when reloading from JSON where Collider is nil.
+	// Preserve the runtime Collider, which a loaded definition cannot carry.
 	prevCollider := e.Collision.Collider
 	e.Collision = cloned.Collision
 	if e.Collision.Collider == nil {
@@ -701,7 +847,7 @@ func NewHotConfig(initial Config) *HotConfig {
 	}
 }
 
-// LoadHotConfigFile loads a versioned JSON emitter definition from path and returns a HotConfig bound to that file path.
+// LoadHotConfigFile loads a versioned YAML emitter definition from path and returns a HotConfig bound to that file path.
 func LoadHotConfigFile(path string) (*HotConfig, error) {
 	cfg, err := LoadConfigFile(path)
 	if err != nil {
@@ -786,10 +932,10 @@ func (h *HotConfig) Apply(cfg Config) {
 	}
 }
 
-// ReloadBytes decodes versioned JSON bytes and, if valid, applies the new Config to all bound Emitters.
-// Invalid JSON returns an error and leaves the current Config and Emitters unchanged.
+// ReloadBytes decodes a versioned YAML emitter definition and, if valid, applies the new Config to all bound Emitters.
+// An invalid definition returns an error and leaves the current Config and Emitters unchanged.
 func (h *HotConfig) ReloadBytes(data []byte) error {
-	cfg, err := UnmarshalConfigJSON(data)
+	cfg, err := UnmarshalConfigYAML(data)
 	if err != nil {
 		return err
 	}
@@ -797,7 +943,7 @@ func (h *HotConfig) ReloadBytes(data []byte) error {
 	return nil
 }
 
-// ReloadFile reads a versioned JSON file from path (or the stored file path if path is empty) and applies it.
+// ReloadFile reads a versioned YAML emitter definition from path (or the stored file path if path is empty) and applies it.
 func (h *HotConfig) ReloadFile(path string) error {
 	h.mu.Lock()
 	if path == "" {
@@ -823,10 +969,10 @@ func (h *HotConfig) ReloadHook() func(path string) error {
 	}
 }
 
-// StageBytes decodes versioned JSON bytes from a background watcher thread without touching Emitters yet.
+// StageBytes decodes a versioned YAML emitter definition from a background watcher thread without touching Emitters yet.
 // Call Flush from the game loop thread to apply the staged config safely.
 func (h *HotConfig) StageBytes(data []byte) error {
-	cfg, err := UnmarshalConfigJSON(data)
+	cfg, err := UnmarshalConfigYAML(data)
 	if err != nil {
 		return err
 	}
