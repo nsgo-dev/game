@@ -15,7 +15,7 @@ const NSGoFileName = "nsgo.yaml"
 // Platforms are the export preset platforms, each a name nsgo build -target accepts.
 var Platforms = []string{"macos", "windows", "linux", "ios", "tvos", "watchos", "android", "harmonyos", "web", "miniprogram"}
 
-// nsgoTargets mirror the targets NSGo v0.2.0's nsgo build accepts (the unexported targets list in cmd/nsgo/build.go), since NSGo exports no list of its own; update it when NSGo adds a target.
+// nsgoTargets mirror the targets NSGo v0.2.0's nsgo build accepts (the unexported targets list in cmd/nsgo/build.go), since NSGo exports no list of its own; update it when NSGo adds a target (nsgo-dev/nsgo#2259).
 var nsgoTargets = []string{
 	"macos_arm64", "macos_x64",
 	"windows_arm64", "windows_x64",
