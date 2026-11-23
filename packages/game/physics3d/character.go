@@ -45,6 +45,31 @@ type CharacterController struct {
 	// Mask filters which body and static collider layers block the character
 	// (0 defaults to LayerAll).
 	Mask LayerMask
+	// PushForce is the horizontal force in newtons the character applies to a dynamic body it walks into, so crates and barrels give way instead of acting as walls. 0 leaves dynamic bodies blocking the character like static ones.
+	//
+	// The controller is not a body in the World, so dynamic bodies do not collide with it on their own; to let them, add a kinematic body that follows Pos and set IgnoreBodyID to its ID (#546).
+	PushForce float32
+
+	pushes []characterPush
+}
+
+// characterPush is a dynamic body the character walked into during one Move, with the horizontal wall normal facing the character.
+type characterPush struct {
+	body   *Body
+	normal Vec3
+}
+
+// notePush records that the character pressed against b, once per body per Move.
+func (c *CharacterController) notePush(b *Body, wallN Vec3) {
+	if b == nil || b.Static || b.Kinematic || b.InvMass == 0 || b.IsTrigger {
+		return
+	}
+	for i := range c.pushes {
+		if c.pushes[i].body == b {
+			return
+		}
+	}
+	c.pushes = append(c.pushes, characterPush{body: b, normal: wallN})
 }
 
 func (c *CharacterController) effectiveMask() LayerMask {
@@ -124,6 +149,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	}
 
 	dtSec := float32(dt.Seconds())
+	c.pushes = c.pushes[:0]
 	maxSlope := c.maxSlopeAngle()
 	minGroundY := float32(math.Cos(float64(maxSlope)))
 
@@ -253,6 +279,14 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		}
 	}
 
+	if c.PushForce > 0 {
+		for _, push := range c.pushes {
+			push.body.ApplyImpulse(push.normal.Neg().Scale(c.PushForce * dtSec))
+		}
+	}
+	clear(c.pushes)
+	c.pushes = c.pushes[:0]
+
 	return MoveResult{
 		Pos:          c.Pos,
 		Grounded:     c.Grounded,
@@ -295,7 +329,7 @@ func (c *CharacterController) slideHorizontal(world *World, startPos, disp Vec3,
 				break
 			}
 			candPos := res.pos.Add(rem)
-			contact, ok := c.deepestOverlap(world, candPos)
+			contact, body, ok := c.deepestOverlapBody(world, candPos)
 			if !ok {
 				res.pos = candPos
 				break
@@ -323,6 +357,7 @@ func (c *CharacterController) slideHorizontal(world *World, startPos, disp Vec3,
 					res.pos = candPos.Add(n.Scale(contact.Depth + contactSkin))
 					break
 				}
+				c.notePush(body, wallN)
 				denom := wallN.Dot(n)
 				push := contact.Depth + contactSkin
 				if denom > 0.1 {
@@ -637,10 +672,17 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 }
 
 func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, bool) {
+	ct, _, ok := c.deepestOverlapBody(world, pos)
+	return ct, ok
+}
+
+// deepestOverlapBody returns the deepest contact at pos and the body it came from, or nil for a triangle mesh or heightfield.
+func (c *CharacterController) deepestOverlapBody(world *World, pos Vec3) (Contact, *Body, bool) {
 	capShape := CapsuleShape(c.capsuleAt(pos))
 	capBounds := capShape.Bounds()
 	mask := c.effectiveMask()
 	var best Contact
+	var bestBody *Body
 	found := false
 	for _, b := range world.bodies {
 		if b.ID == c.IgnoreBodyID || b.IsTrigger {
@@ -656,6 +698,7 @@ func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, b
 		if ct := TestShapes(capShape, ws); ct.Hit {
 			if !found || ct.Depth > best.Depth {
 				best = ct
+				bestBody = b
 				found = true
 			}
 		}
@@ -670,6 +713,7 @@ func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, b
 		if ct := tm.TestShape(capShape); ct.Hit {
 			if !found || ct.Depth > best.Depth {
 				best = ct
+				bestBody = nil
 				found = true
 			}
 		}
@@ -684,11 +728,12 @@ func (c *CharacterController) deepestOverlap(world *World, pos Vec3) (Contact, b
 		if ct := hf.TestShape(capShape); ct.Hit {
 			if !found || ct.Depth > best.Depth {
 				best = ct
+				bestBody = nil
 				found = true
 			}
 		}
 	}
-	return best, found
+	return best, bestBody, found
 }
 
 func (c *CharacterController) depenetrate(world *World, pos Vec3, minGroundY float32) Vec3 {

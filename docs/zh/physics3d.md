@@ -36,7 +36,7 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 - 胶囊的线段穿过盒体时，`TestBoxCapsule` 在盒体各面轴与“边轴叉乘线段方向”中取穿透最浅的轴，因此把盒体沿 `Normal*Depth` 移动即可让整个胶囊分离。两个交叉的胶囊，以及球心落在胶囊轴线上的球，得到垂直于轴线的法线，而不是任意方向。
 - `world.QueryOverlap(shape)` 按确定的插入顺序返回所有重叠的刚体。
 
-射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。
+射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。起点位于盒体、球体或胶囊内部的射线在 `T` 为 0 处命中，`Point` 为起点，`Normal` 沿射线反方向（`-Dir`）。
 
 ## 刚体动力学
 
@@ -68,6 +68,8 @@ loop := &game.Loop{
 
 单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场做扫掠，在第一次重叠处停下，因此高速刚体不会穿过薄的几何体。高速动态刚体之间不做扫掠。
 
+`HingeJoint.Angle` 会跨步累计，持续转动的铰链会报告超过 ±π 的角度，`MinAngle`/`MaxAngle` 也可以跨越一圈以上。`DistanceJoint` 在距离位于 `[MinDistance, MaxDistance]` 之内时是松弛的；`Stiffness` 和 `Damping` 只让上下限变软，若要静止长度为 `L` 的弹簧，把两个上下限都设为 `L`。
+
 ## 角色控制器
 
 `CharacterController` 通过 `Move(world, wishMove, dt)` 在 `World` 中移动一个运动学胶囊（`Pos` 为脚底位置，尺寸为 `Radius` 和 `Height`）：
@@ -76,6 +78,7 @@ loop := &game.Loop{
 - 阻止攀爬超过 `MaxSlopeAngle` 的陡坡，并在重力作用下沿陡坡滑落。
 - 在验证头顶净空、水平前进增益和可站立踏面后，自动迈上不超过 `StepHeight` 的台阶。
 - 遇到竖直墙面时干净停止，斜向撞墙时沿墙面切向滑行而不穿透。
+- 以 `PushForce`（牛顿）推动走进的动态刚体；默认值 0 时动态刚体像墙一样挡住角色。
 
 ```go
 cc := physics3d.NewCharacterController(physics3d.Vec3{Y: 0}, 0.3, 1.8)
@@ -86,3 +89,5 @@ loop := &game.Loop{
 	},
 }
 ```
+
+角色控制器不是 `World` 中的刚体，因此动态刚体自身不会与它碰撞。需要碰撞时，添加一个跟随 `Pos` 的运动学刚体，并把 `IgnoreBodyID` 设为它的 ID。

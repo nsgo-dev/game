@@ -348,3 +348,77 @@ func TestAddBodySanitizesNonFiniteAndKeepsMasslessKinematic(t *testing.T) {
 		t.Fatalf("body position went non-finite: %v", b.Pos)
 	}
 }
+
+func TestHingeAngleContinuesPastPi(t *testing.T) {
+	w := physics3d.NewWorld()
+	w.Gravity = physics3d.Vec3{}
+	frame := w.AddBody(physics3d.NewStaticBody(physics3d.SphereShape(physics3d.Sphere{Radius: 0.1}), physics3d.Vec3{}))
+	wheel := w.AddBody(physics3d.NewDynamicBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.05, Z: 0.05}}), physics3d.Vec3{X: 0.5}, 1))
+	hinge := physics3d.NewHingeJoint(frame, wheel, physics3d.Vec3{}, physics3d.Vec3{X: -0.5}, physics3d.Vec3{Y: 1})
+	hinge.CollideConnected = false
+	hinge.EnableLimits = true
+	hinge.MinAngle = 0
+	hinge.MaxAngle = 3 * math.Pi
+	hinge.MotorTargetVel = 3
+	hinge.MotorMaxTorque = 50
+	w.AddJoint(hinge)
+	prev := hinge.Angle()
+	for range 240 {
+		w.Step(step60)
+		a := hinge.Angle()
+		if a < prev-0.2 {
+			t.Fatalf("hinge angle jumped back from %v to %v", prev, a)
+		}
+		prev = a
+	}
+	if prev < 2*math.Pi {
+		t.Fatalf("motor turning for 4 s at 3 rad/s reached only %v rad", prev)
+	}
+	if prev > 3*math.Pi+0.1 {
+		t.Fatalf("hinge passed its 3*pi limit: %v rad", prev)
+	}
+}
+
+func TestRaycastFromInsideFacesTheRay(t *testing.T) {
+	ray := physics3d.Ray{Origin: physics3d.Vec3{X: 0.2, Y: 0.1}, Dir: physics3d.Vec3{X: 1}, MaxDist: 5}
+	want := physics3d.Vec3{X: -1}
+	shapes := map[string]physics3d.Shape{
+		"box":     physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 1, Y: 1, Z: 1}}),
+		"sphere":  physics3d.SphereShape(physics3d.Sphere{Radius: 1}),
+		"capsule": physics3d.CapsuleShape(physics3d.Capsule{A: physics3d.Vec3{Y: -1}, B: physics3d.Vec3{Y: 1}, Radius: 1}),
+	}
+	for name, s := range shapes {
+		h, ok := physics3d.RaycastShape(ray, s)
+		if !ok || h.T != 0 || h.Normal != want {
+			t.Fatalf("%s: inside hit = %+v, %v; want T 0 and normal %v", name, h, ok, want)
+		}
+	}
+}
+
+func TestCharacterPushesDynamicBody(t *testing.T) {
+	newWorld := func() (*physics3d.World, *physics3d.Body) {
+		w := physics3d.NewWorld()
+		w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 20, Y: 0.5, Z: 20}}), physics3d.Vec3{Y: -0.5}))
+		crate := w.AddBody(physics3d.NewDynamicBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}}), physics3d.Vec3{X: 1.5, Y: 0.5}, 5))
+		return w, crate
+	}
+	run := func(push float32) (crateX, charX float32) {
+		w, crate := newWorld()
+		cc := physics3d.NewCharacterController(physics3d.Vec3{}, 0.3, 1.8)
+		cc.StepHeight = 0.2
+		cc.PushForce = push
+		for range 120 {
+			cc.Move(w, physics3d.Vec3{X: 2}, step60)
+			w.Step(step60)
+		}
+		return crate.Pos.X, cc.Pos.X
+	}
+	blockedCrate, blockedChar := run(0)
+	if blockedCrate > 1.55 || blockedChar > 0.75 {
+		t.Fatalf("without PushForce the crate moved to %v and the character reached %v", blockedCrate, blockedChar)
+	}
+	pushedCrate, pushedChar := run(400)
+	if pushedCrate < 2 || pushedChar < blockedChar+0.4 {
+		t.Fatalf("with PushForce the crate reached %v and the character %v (blocked: %v)", pushedCrate, pushedChar, blockedChar)
+	}
+}

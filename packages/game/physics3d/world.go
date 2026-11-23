@@ -144,21 +144,25 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 		return 0
 	}
 	var inertia float32
+	// center is the shape's centroid in body space; a shape offset from the body origin rotates about the origin, so the parallel-axis term m|center|² is added (#546).
+	var center Vec3
 	switch shape.Kind {
 	case ShapeSphere:
 		r := shape.Sphere.Radius
 		inertia = 0.4 * mass * r * r
+		center = shape.Sphere.Center
 	case ShapeBox:
 		e := shape.Box.HalfExtents
-		// An isotropic box approximation: each axis' moment is
-		// (1/3) m (e_y² + e_z²), averaging to (1/3) m Σe². The old 0.4
-		// coefficient was 1.8× too high for a cube (#546).
-		inertia = mass * (e.X*e.X + e.Y*e.Y + e.Z*e.Z) / 3
+		// An isotropic box approximation: each axis' moment is (1/3) m (e_y² + e_z²) for half extents e, and the mean of the three is (2/9) m Σe², which is (2/3) m e² for a cube (#546).
+		inertia = mass * (e.X*e.X + e.Y*e.Y + e.Z*e.Z) * 2 / 9
+		center = shape.Box.Center
 	case ShapeCapsule:
 		r := shape.Capsule.Radius
 		lSq := shape.Capsule.B.Sub(shape.Capsule.A).LenSq()
 		inertia = mass * (0.4*r*r + lSq/12.0)
+		center = shape.Capsule.A.Add(shape.Capsule.B).Scale(0.5)
 	}
+	inertia += mass * center.LenSq()
 	minI := 1e-4 * mass
 	if inertia < minI {
 		inertia = minI

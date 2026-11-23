@@ -286,8 +286,9 @@ func solveFullOrientationPosition(a, b *Body, refRelRot Quat, stiffness float32)
 	applyAngularPositionCorrection(a, b, axis, angle*stiffness)
 }
 
-// DistanceJoint constrains the distance between anchor points on BodyA and BodyB
-// within [MinDistance, MaxDistance] with optional spring stiffness and damping.
+// DistanceJoint constrains the distance between anchor points on BodyA and BodyB within [MinDistance, MaxDistance] with optional spring stiffness and damping.
+//
+// The joint is slack while the distance is inside the range: Stiffness and Damping soften the limits rather than pull toward a rest length. For a spring with a rest length L, set MinDistance and MaxDistance both to L; for a soft rope, set MinDistance to 0.
 type DistanceJoint struct {
 	BodyA, BodyB     *Body
 	LocalAnchorA     Vec3
@@ -636,6 +637,8 @@ type HingeJoint struct {
 	motorImpulse   float32
 	limitImpulse   float32
 	limitState     int // 0 = none, -1 = below min, +1 = above max
+	// angle is the unwrapped hinge angle at the last Prepare, so Angle can continue past ±pi instead of jumping to the other end of the range (#546).
+	angle float32
 }
 
 // NewHingeJoint creates a HingeJoint between a and b around localAxis.
@@ -692,9 +695,24 @@ func (j *HingeJoint) initReference() {
 	j.refInitialized = true
 }
 
-// Angle returns the current signed hinge rotation angle in radians in [-pi, pi]
-// measured around the hinge axis from the initial relative orientation.
+// Angle returns the signed hinge rotation in radians around the hinge axis from the initial relative orientation.
+//
+// The angle is tracked across steps, so a hinge that keeps turning reports 3*pi/2 rather than -pi/2 and limits beyond ±pi, such as a valve with MaxAngle 4*pi, work. It assumes the hinge turns less than pi per step.
 func (j *HingeJoint) Angle() float32 {
+	return j.angle + wrapPi(j.rawAngle()-j.angle)
+}
+
+// wrapPi maps a to [-pi, pi).
+func wrapPi(a float32) float32 {
+	w := math.Mod(float64(a)+math.Pi, 2*math.Pi)
+	if w < 0 {
+		w += 2 * math.Pi
+	}
+	return float32(w - math.Pi)
+}
+
+// rawAngle returns the hinge angle in [-pi, pi].
+func (j *HingeJoint) rawAngle() float32 {
 	j.initReference()
 	axA, _ := j.localAxes()
 	_, rotA, _, _, _, _ := bodyKinematics(j.BodyA)
@@ -716,6 +734,7 @@ func (j *HingeJoint) Angle() float32 {
 func (j *HingeJoint) Prepare(dt float32) {
 	_ = dt
 	j.initReference()
+	j.angle = j.Angle()
 	j.motorImpulse = 0
 	j.limitImpulse = 0
 	j.limitState = 0

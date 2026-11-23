@@ -663,9 +663,17 @@ func TestBoxInertiaAndLockRotation(t *testing.T) {
 		Mass:  2,
 		Shape: physics3d.Shape{Kind: physics3d.ShapeBox, Box: physics3d.Box{HalfExtents: physics3d.Vec3{X: 1, Y: 1, Z: 1}}},
 	})
-	// (1/3) m Σe² = 2; the isotropic inverse is 0.5.
-	if math.Abs(float64(box.InvInertia-0.5)) > 1e-5 {
-		t.Fatalf("box InvInertia = %v, want 0.5", box.InvInertia)
+	// A 2x2x2 cube of mass 2 has I = (1/12) m (2² + 2²) = 4/3 about every axis, so the inverse is 0.75.
+	if math.Abs(float64(box.InvInertia-0.75)) > 1e-5 {
+		t.Fatalf("box InvInertia = %v, want 0.75", box.InvInertia)
+	}
+	// The same cube centered 1 unit from the body origin adds m d² = 2 (parallel-axis theorem): 1/(4/3 + 2) = 0.3.
+	offset := w.AddBody(physics3d.Body{
+		Mass:  2,
+		Shape: physics3d.Shape{Kind: physics3d.ShapeBox, Box: physics3d.Box{Center: physics3d.Vec3{X: 1}, HalfExtents: physics3d.Vec3{X: 1, Y: 1, Z: 1}}},
+	})
+	if math.Abs(float64(offset.InvInertia-0.3)) > 1e-5 {
+		t.Fatalf("offset box InvInertia = %v, want 0.3", offset.InvInertia)
 	}
 	locked := w.AddBody(physics3d.Body{
 		Mass:         2,

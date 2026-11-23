@@ -25,7 +25,7 @@ type RaycastHit struct {
 	Distance float32
 	// Point is the world-space intersection point.
 	Point Vec3
-	// Normal is the outward unit surface normal at Point.
+	// Normal is the outward unit surface normal at Point. A ray that starts inside a box, sphere or capsule hits at T 0 with Point at the origin and Normal facing back along the ray (-Dir), since no surface was crossed.
 	Normal Vec3
 }
 
@@ -125,16 +125,12 @@ func RaycastSphere(ray Ray, s Sphere) (RaycastHit, bool) {
 	b := m.Dot(dir)
 	c := m.Dot(m) - s.Radius*s.Radius
 	if c <= 0 {
-		// Origin is inside or on the sphere surface.
-		normal := m.Norm()
-		if normal.LenSq() == 0 {
-			normal = dir.Neg()
-		}
+		// Origin is inside or on the sphere surface: report it like RaycastBox does, facing the ray (#546).
 		return RaycastHit{
 			T:        0,
 			Distance: 0,
 			Point:    ray.Origin,
-			Normal:   normal,
+			Normal:   dir.Neg(),
 		}, true
 	}
 	if b > 0 {
@@ -184,15 +180,12 @@ func RaycastCapsule(ray Ray, c Capsule) (RaycastHit, bool) {
 	closest := closestPointOnSegment(c.A, c.B, ray.Origin)
 	toOrigin := ray.Origin.Sub(closest)
 	if toOrigin.LenSq() <= c.Radius*c.Radius {
-		normal := toOrigin.Norm()
-		if normal.LenSq() == 0 {
-			normal = dir.Neg()
-		}
+		// Inside: report like RaycastBox and RaycastSphere, facing the ray (#546).
 		return RaycastHit{
 			T:        0,
 			Distance: 0,
 			Point:    ray.Origin,
-			Normal:   normal,
+			Normal:   dir.Neg(),
 		}, true
 	}
 
