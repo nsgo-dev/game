@@ -791,3 +791,61 @@ func TestGridMapBoundsFollowLibraryRevision(t *testing.T) {
 		t.Fatalf("bounds after replacement = %v, want the new ±2 bounds", got)
 	}
 }
+
+func TestFoliageBoundingRadiusKeepsLargeInstancesInRange(t *testing.T) {
+	hm := &world3d.Heightmap{Cols: 11, Rows: 11, CellSize: 10, HeightScale: 1, Origin: math3d.Vec3{X: -50, Z: -50}, Heights: make([]float32, 121)}
+	layer := world3d.FoliageLayer{Density: 0.02, MinScale: 1, MaxScale: 1, BaseMaxDistance: 200, Seed: 7}
+	camPos := math3d.Vec3{Y: 2, Z: 60}
+	view := math3d.LookAt(camPos, math3d.Vec3{Z: -50}, math3d.Vec3Up())
+	frustum := math3d.FrustumFromMat4(math3d.Perspective(math3d.DegToRad(90), 1, 0.1, 500).Mul(view))
+	prof := world3d.QualityProfile{DensityScale: 1, MaxDistance: 40, FadeStartRatio: 0.5}
+
+	pivotOnly := world3d.Scatter(hm, layer, math3d.AABB{}).CollectVisible(camPos, frustum, prof, nil)
+	layer.BoundingRadius = 15 // a tree whose crown reaches 15 m from its pivot
+	trees := world3d.Scatter(hm, layer, math3d.AABB{}).CollectVisible(camPos, frustum, prof, nil)
+	if len(trees) <= len(pivotOnly) {
+		t.Fatalf("15 m trees kept %d instances, pivot-only kept %d; want more", len(trees), len(pivotOnly))
+	}
+	for _, inst := range trees {
+		d := math3d.Vec3{X: inst.Transform[12], Y: inst.Transform[13], Z: inst.Transform[14]}.Dist(camPos)
+		if d-15 >= 40 {
+			t.Fatalf("tree whose nearest point is %v away exceeds MaxDistance 40", d-15)
+		}
+		if d-15 <= 19.9 && inst.Fade != 1 {
+			t.Fatalf("tree whose nearest point is %v away has Fade %v, want 1", d-15, inst.Fade)
+		}
+	}
+}
+
+func TestHeightmapRaycastSeesTerrainAboveCachedRange(t *testing.T) {
+	hm := &world3d.Heightmap{Cols: 3, Rows: 3, CellSize: 1, HeightScale: 1, Heights: make([]float32, 9)}
+	ray := math3d.Ray{Origin: math3d.Vec3{X: 1, Y: 10, Z: 1}, Dir: math3d.Vec3{X: 0.01, Y: -1}}
+	if _, ok := hm.Raycast(ray, 100); !ok {
+		t.Fatal("ray onto flat terrain missed")
+	}
+	hm.Heights[4] = 5 // raised in place: the raycast must see it without any cache refresh
+	hit, ok := hm.Raycast(ray, 100)
+	if !ok || hit.Point.Y < 4 {
+		t.Fatalf("ray after raising the center sample = %+v, %v; want a hit on the raised peak", hit, ok)
+	}
+}
+
+func TestZeroChunkStreamerDoesNotPanic(t *testing.T) {
+	var s world3d.ChunkStreamer[int]
+	s.Update(world3d.WorldPos64{X: 100})
+	_ = s.LoadedChunks()
+	_, _ = s.Get(world3d.ChunkCoord{})
+	s.Close()
+}
+
+func TestMeshLibraryAddStopsWhenIDsRunOut(t *testing.T) {
+	lib := world3d.NewMeshLibrary()
+	for i := range math.MaxUint16 {
+		if id := lib.Add(world3d.MeshTileDef{}); id == 0 {
+			t.Fatalf("Add %d returned 0 before the IDs ran out", i)
+		}
+	}
+	if id := lib.Add(world3d.MeshTileDef{}); id != 0 {
+		t.Fatalf("Add with every ID taken = %d, want 0", id)
+	}
+}

@@ -210,7 +210,7 @@ func (h *Heightmap) cellVertices(cx, cz int) (v00, v10, v01, v11 math3d.Vec3) {
 }
 
 // Raycast intersects ray with the heightmap using 2D grid DDA traversal paired
-// with exact Möller-Trumbore triangle intersection. Distance and maxDist are
+// with exact Möller-Trumbore triangle intersection. It visits only the cells under the ray, O(Cols+Rows) at most, and never scans the whole height grid. Distance and maxDist are
 // measured in world-space Euclidean units (ray.Dir need not be unit-length).
 func (h *Heightmap) Raycast(ray math3d.Ray, maxDist float32) (TerrainHit, bool) {
 	if !h.valid() || maxDist < 0 {
@@ -225,10 +225,11 @@ func (h *Heightmap) Raycast(ray math3d.Ray, maxDist float32) (TerrainHit, bool) 
 		Dir:    ray.Dir.Scale(1 / dirLen),
 	}
 
-	bounds := h.Bounds()
-	// Pad Y slightly so flat heightmaps (Min.Y == Max.Y) never miss grazing rays.
-	bounds.Min.Y -= 1e-4
-	bounds.Max.Y += 1e-4
+	// Clip the ray to the terrain's XZ footprint only. Bounds() scans every sample (milliseconds on a large map), and the DDA below already visits only the O(Cols+Rows) cells under the ray, so the Y range is not needed for correctness (#546).
+	bounds := math3d.AABB{
+		Min: math3d.Vec3{X: h.Origin.X, Y: -math.MaxFloat32, Z: h.Origin.Z},
+		Max: math3d.Vec3{X: h.Origin.X + float32(h.Cols-1)*h.CellSize, Y: math.MaxFloat32, Z: h.Origin.Z + float32(h.Rows-1)*h.CellSize},
+	}
 
 	tMin, tMax, hitAABB := unitRay.IntersectAABB(bounds)
 	if !hitAABB || tMin > maxDist {

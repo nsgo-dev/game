@@ -120,6 +120,8 @@ type FoliageLayer struct {
 	DensityMap      *DensityMap // optional normalized density mask across terrain bounds
 	BaseMaxDistance float32     // default maximum draw distance in world units
 	Seed            uint64      // deterministic PRNG seed
+	// BoundingRadius is the radius, at scale 1, of a sphere around the mesh pivot that encloses the mesh. When > 0, frustum culling uses each instance's scaled sphere and the draw distance and fade are measured from the sphere's nearest point, so a large tree is kept while any part of it is within range (#546). When <= 0, culling assumes a unit-radius mesh and distances are measured from the pivot.
+	BoundingRadius float32
 }
 
 // FoliageInstance is a visible scattered instance ready for instanced rendering.
@@ -129,10 +131,9 @@ type FoliageInstance struct {
 }
 
 type foliageChunk struct {
-	bounds   math3d.AABB
-	start    int
-	count    int
-	maxScale float32
+	bounds math3d.AABB
+	start  int
+	count  int
 }
 
 // FoliageField holds deterministically scattered, spatially chunked foliage
@@ -141,6 +142,8 @@ type FoliageField struct {
 	Layer      FoliageLayer
 	chunks     []foliageChunk
 	transforms []math3d.Mat4
+	radii      []float32 // per-instance world bounding radius, parallel to transforms
+	sphereDist bool      // measure draw distance from the bounding sphere (Layer.BoundingRadius > 0)
 	bounds     math3d.AABB
 }
 
@@ -231,6 +234,12 @@ func Scatter(hm *Heightmap, layer FoliageLayer, region math3d.AABB) *FoliageFiel
 		estTotal = 2_000_000
 	}
 	field.transforms = make([]math3d.Mat4, 0, estTotal)
+	field.radii = make([]float32, 0, estTotal)
+	meshRadius := layer.BoundingRadius
+	field.sphereDist = meshRadius > 0
+	if meshRadius <= 0 {
+		meshRadius = 1
+	}
 	field.chunks = make([]foliageChunk, 0, nx*nz)
 
 	up := math3d.Vec3Up()
@@ -261,7 +270,6 @@ func Scatter(hm *Heightmap, layer FoliageLayer, region math3d.AABB) *FoliageFiel
 
 			start := len(field.transforms)
 			cBounds := math3d.AABBEmpty()
-			chunkMaxScale := float32(0)
 
 			for range candidates {
 				x := x0 + rng.float32()*dx
@@ -303,22 +311,20 @@ func Scatter(hm *Heightmap, layer FoliageLayer, region math3d.AABB) *FoliageFiel
 
 				mat := math3d.TRS(math3d.Vec3{X: x, Y: y, Z: z}, rot, math3d.Vec3{X: scale, Y: scale, Z: scale})
 				field.transforms = append(field.transforms, mat)
+				r := scale * meshRadius
+				field.radii = append(field.radii, r)
 
 				p := math3d.Vec3{X: x, Y: y, Z: z}
-				pad := math3d.Vec3{X: scale, Y: scale, Z: scale}
+				pad := math3d.Vec3{X: r, Y: r, Z: r}
 				cBounds = cBounds.ExpandPoint(p.Sub(pad)).ExpandPoint(p.Add(pad))
-				if scale > chunkMaxScale {
-					chunkMaxScale = scale
-				}
 			}
 
 			count := len(field.transforms) - start
 			if count > 0 {
 				field.chunks = append(field.chunks, foliageChunk{
-					bounds:   cBounds,
-					start:    start,
-					count:    count,
-					maxScale: chunkMaxScale,
+					bounds: cBounds,
+					start:  start,
+					count:  count,
 				})
 				field.bounds = field.bounds.Union(cBounds)
 			}
@@ -422,6 +428,7 @@ func (f *FoliageField) CollectVisible(
 		}
 
 		chunkSlice := transforms[ch.start : ch.start+limit]
+		chunkRadii := f.radii[ch.start : ch.start+limit]
 
 		// Fast path: entire chunk is inside frustum and inside fade start distance.
 		if rel == frustumInside && fullyInsideFade {
@@ -434,37 +441,10 @@ func (f *FoliageField) CollectVisible(
 			continue
 		}
 
-		// Chunk fully inside frustum, needs per-instance distance/fade test only.
-		if rel == frustumInside {
-			for j := range chunkSlice {
-				m := &chunkSlice[j]
-				dx := m[12] - camPos.X
-				dy := m[13] - camPos.Y
-				dz := m[14] - camPos.Z
-				d2 := dx*dx + dy*dy + dz*dz
-				if d2 >= maxDistSq {
-					continue
-				}
-				fade := float32(1)
-				if d2 > fadeStartSq {
-					if invFadeSpan == 0 {
-						continue
-					}
-					t := (float32(math.Sqrt(float64(d2))) - fadeStart) * invFadeSpan
-					fade = 1 - t*t*(3-2*t)
-				}
-				out = append(out, FoliageInstance{
-					Transform: *m,
-					Fade:      fade,
-				})
-			}
-			continue
-		}
-
-		// Chunk straddles one or more frustum planes: test sphere(pos, maxScale) per instance.
-		negR := -ch.maxScale
+		// Distance and fade use the nearest point of each instance's bounding sphere when the layer has a BoundingRadius, otherwise its pivot.
 		for j := range chunkSlice {
 			m := &chunkSlice[j]
+			r := chunkRadii[j]
 			px, py, pz := m[12], m[13], m[14]
 
 			fade := float32(1)
@@ -472,20 +452,18 @@ func (f *FoliageField) CollectVisible(
 				dx := px - camPos.X
 				dy := py - camPos.Y
 				dz := pz - camPos.Z
-				d2 := dx*dx + dy*dy + dz*dz
-				if d2 >= maxDistSq {
-					continue
+				reach := float32(0)
+				if f.sphereDist {
+					reach = r
 				}
-				if d2 > fadeStartSq {
-					if invFadeSpan == 0 {
-						continue
-					}
-					t := (float32(math.Sqrt(float64(d2))) - fadeStart) * invFadeSpan
-					fade = 1 - t*t*(3-2*t)
+				var ok bool
+				fade, ok = instanceFade(dx*dx+dy*dy+dz*dz, reach, maxDist, fadeStart, invFadeSpan)
+				if !ok {
+					continue
 				}
 			}
 
-			if !sphereInFrustumPlanes(planes, px, py, pz, negR) {
+			if rel != frustumInside && !sphereInFrustumPlanes(planes, px, py, pz, -r) {
 				continue
 			}
 			out = append(out, FoliageInstance{
@@ -496,6 +474,24 @@ func (f *FoliageField) CollectVisible(
 	}
 
 	return out
+}
+
+// instanceFade returns the fade of an instance whose pivot is sqrt(d2) from the camera and whose bounding sphere has radius r, measuring from the sphere's nearest point, and whether it is within maxDist at all.
+func instanceFade(d2, r, maxDist, fadeStart, invFadeSpan float32) (float32, bool) {
+	reach := maxDist + r
+	if d2 >= reach*reach {
+		return 0, false
+	}
+	start := fadeStart + r
+	if d2 <= start*start {
+		return 1, true
+	}
+	if invFadeSpan == 0 {
+		return 0, false
+	}
+	t := (float32(math.Sqrt(float64(d2))) - r - fadeStart) * invFadeSpan
+	t = math3d.Clamp(t, 0, 1)
+	return 1 - t*t*(3-2*t), true
 }
 
 func effectiveMaxDistance(qualityMax, baseMax float32) float32 {

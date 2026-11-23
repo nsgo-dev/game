@@ -34,7 +34,7 @@ _ = sc.Add(hero)
 _, _ = hp, ok
 ```
 
-Use `Reparent` / `ReparentKeepWorld`, `Detach`, `FindByName`, `FindByTag`, `Walk`, `WorldTransform()`, `WorldMatrix()`, `WorldBounds()`, and `HierarchyBounds()`. Calling `sc.UpdateTransforms()` propagates only dirty subtrees and keeps the scene's internal BVH in sync.
+Use `Reparent` / `ReparentKeepWorld`, `Detach`, `FindByName`, `FindByTag`, `Walk`, `WorldTransform()`, `WorldMatrix()`, `WorldBounds()`, and `HierarchyBounds()`. Calling `sc.UpdateTransforms()` propagates only dirty subtrees and queues the changed nodes for the scene's internal BVH; every query applies the queue first, and `sc.SyncBVH()` applies it on demand.
 
 ## Dynamic fat-AABB / SAH `BVH` and spatial queries
 
@@ -97,7 +97,7 @@ loop := &game.Loop{
 
 ## 3D picking
 
-Attach a `Collider` (`*MeshCollider` or `*SphereCollider`) to pickable nodes (or fall back to `LocalBounds`) and pick directly from pointer coordinates:
+Attach a `Collider` (`*MeshCollider` or `*SphereCollider`) to pickable nodes (or fall back to `LocalBounds`) and pick directly from pointer coordinates. A node's world bounds cover both its `LocalBounds` and its collider. `MeshCollider` caches its bounds: replacing `Triangles` is picked up automatically, while editing vertices in place needs `collider.MarkDirty()` and `node.MarkDirty()`. Visibility filtering is memoized per query, so hits deep in a hierarchy do not each walk every ancestor.
 
 ```go
 if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.LayerAll); ok {

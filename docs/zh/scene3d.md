@@ -34,7 +34,7 @@ _ = sc.Add(hero)
 _, _ = hp, ok
 ```
 
-支持 `Reparent` / `ReparentKeepWorld`、`Detach`、`FindByName`、`FindByTag`、`Walk`、`WorldTransform()`、`WorldMatrix()`、`WorldBounds()` 与 `HierarchyBounds()`。调用 `sc.UpdateTransforms()` 仅更新脏子树，并自动同步内部 BVH。
+支持 `Reparent` / `ReparentKeepWorld`、`Detach`、`FindByName`、`FindByTag`、`Walk`、`WorldTransform()`、`WorldMatrix()`、`WorldBounds()` 与 `HierarchyBounds()`。调用 `sc.UpdateTransforms()` 仅更新脏子树，并把变化的节点加入内部 BVH 的待同步队列；每次查询都会先应用该队列，也可以调用 `sc.SyncBVH()` 立即应用。
 
 ## 动态胖 AABB / SAH `BVH` 与空间查询
 
@@ -97,7 +97,7 @@ loop := &game.Loop{
 
 ## 3D 拾取
 
-为可拾取节点挂载 `Collider`（`*MeshCollider` 或 `*SphereCollider`；未设置时回退到 `LocalBounds`），即可从屏幕坐标直接拾取：
+为可拾取节点挂载 `Collider`（`*MeshCollider` 或 `*SphereCollider`；未设置时回退到 `LocalBounds`），即可从屏幕坐标直接拾取。节点的世界包围盒同时覆盖 `LocalBounds` 与碰撞体。`MeshCollider` 会缓存包围盒：替换 `Triangles` 会被自动发现，原地修改顶点后则需调用 `collider.MarkDirty()` 和 `node.MarkDirty()`。可见性过滤在每次查询内做了记忆化，层级很深的命中不会各自遍历全部祖先。
 
 ```go
 if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.LayerAll); ok {

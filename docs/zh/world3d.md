@@ -38,7 +38,7 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 
 ## 模块化 3D `GridMap`
 
-在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`）、碰撞盒提取、DDA 射线检测以及带视锥裁剪的实例化合批：
+在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`）、碰撞盒提取、按区块裁剪的射线检测（沿射线对区块排序，再逐个测试区块中被占用的格子）以及带视锥裁剪的实例化合批：
 
 ```go
 lib, err := world3d.LoadMeshLibraryFromGLTF(gltfBytes) // 或使用 world3d.NewMeshLibrary()
@@ -77,7 +77,9 @@ quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
 
-返回的每个 `FoliageInstance` 包含世界变换 `Transform` 以及 `[0, 1]` 范围的平滑远距淡出系数 `Fade`。
+返回的每个 `FoliageInstance` 包含世界变换 `Transform` 以及 `[0, 1]` 范围的平滑远距淡出系数 `Fade`。将 `FoliageLayer.BoundingRadius` 设为缩放为 1 时、以网格轴心为球心并包住整个网格的球半径后，裁剪与可视距离都使用每个实例缩放后的包围球，并从球面最近点开始计算，因此大树只要有一部分在范围内就会保留。未设置时，裁剪假定网格半径为 1，距离从轴心开始计算。
+
+`Heightmap.Raycast` 只遍历射线经过的格子，不会扫描整个高度网格。
 
 ## 浮点原点与区块流式加载
 
@@ -100,6 +102,7 @@ defer streamer.Close()
 // 每帧更新：
 if rebased, shift := origin.Update(playerLocalPos); rebased {
 	rebaseSceneObjects(shift) // 用 world3d.RebaseMat4(m, shift) 平移矩阵
+	playerLocalPos = playerLocalPos.Add(shift) // 玩家与其他物体一起平移
 }
 streamer.Update(origin.LocalToWorld(playerLocalPos))
 ```

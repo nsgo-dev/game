@@ -21,22 +21,38 @@ type Collider interface {
 // MeshCollider performs exact double-sided ray-triangle intersection against a
 // triangle soup stored in node-local space. Every 3 consecutive vertices in
 // Triangles form one triangle (v0, v1, v2).
+//
+// LocalBounds is cached: replacing or resizing Triangles is detected automatically, but after editing vertices of the same slice in place call MarkDirty.
 type MeshCollider struct {
 	Triangles []math3d.Vec3
+
+	boundsData *math3d.Vec3
+	boundsLen  int
+	bounds     math3d.AABB
+	boundsOK   bool
 }
 
 // LocalBounds returns the tight local-space AABB containing all complete
-// triangles in m.Triangles.
+// triangles in m.Triangles. The result is cached until Triangles is replaced or resized or MarkDirty is called, so node syncs and picks do not rescan every triangle (#546).
 func (m *MeshCollider) LocalBounds() math3d.AABB {
 	n := len(m.Triangles) - len(m.Triangles)%3
 	if n == 0 {
 		return math3d.AABBEmpty()
 	}
+	if m.boundsOK && m.boundsLen == len(m.Triangles) && m.boundsData == &m.Triangles[0] {
+		return m.bounds
+	}
 	b := math3d.AABBEmpty()
 	for i := range n {
 		b = b.ExpandPoint(m.Triangles[i])
 	}
+	m.bounds, m.boundsData, m.boundsLen, m.boundsOK = b, &m.Triangles[0], len(m.Triangles), true
 	return b
+}
+
+// MarkDirty drops the cached LocalBounds after vertices in Triangles were edited in place. Call the owning node's MarkDirty too so its world bounds and BVH entry refresh.
+func (m *MeshCollider) MarkDirty() {
+	m.boundsOK = false
 }
 
 // IntersectRay tests worldRay against every triangle in m using

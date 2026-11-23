@@ -63,6 +63,9 @@ type Node struct {
 	worldTransform    math3d.Transform
 	worldMat          math3d.Mat4
 	worldBounds       math3d.AABB
+	// visGen and visOK memoize Scene.activeVisible for one scene query (Scene.visGen), so hits under a deep chain do not each walk every ancestor (#546).
+	visGen uint64
+	visOK  bool
 }
 
 // NewNode returns a new visible, enabled Node with an identity local transform,
@@ -312,16 +315,6 @@ func (n *Node) EffectiveVisible() bool {
 func (n *Node) EffectiveEnabled() bool {
 	for p := n; p != nil; p = p.parent {
 		if !p.Enabled {
-			return false
-		}
-	}
-	return n != nil
-}
-
-// isActiveVisible reports whether n and every ancestor are both Visible and Enabled.
-func (n *Node) isActiveVisible() bool {
-	for p := n; p != nil; p = p.parent {
-		if !p.Visible || !p.Enabled {
 			return false
 		}
 	}

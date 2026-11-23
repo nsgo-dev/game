@@ -193,8 +193,12 @@ type chunkErrEntry struct {
 // ChunkStreamer asynchronously streams 2D world chunks around a moving
 // WorldPos64 with bounded worker concurrency, per-frame integration budgets,
 // hysteresis unloading, and cancellation of stale in-flight loads.
+//
+// Build one with NewChunkStreamer. A zero ChunkStreamer is usable too: it behaves like NewChunkStreamer with a zero config (synchronous, no loader, 64-unit chunks) instead of panicking (#546).
 type ChunkStreamer[T any] struct {
 	cfg ChunkStreamerConfig[T]
+
+	initOnce sync.Once
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -214,6 +218,18 @@ type ChunkStreamer[T any] struct {
 // when cfg.Workers > 0. Call Close when finished to stop workers and unload
 // remaining chunks cleanly.
 func NewChunkStreamer[T any](cfg ChunkStreamerConfig[T]) *ChunkStreamer[T] {
+	s := &ChunkStreamer[T]{cfg: cfg}
+	s.initOnce.Do(s.setup)
+	for range s.cfg.Workers {
+		s.wg.Add(1)
+		go s.worker()
+	}
+	return s
+}
+
+// setup normalizes the config and allocates the streamer's state; it runs once, from NewChunkStreamer or from the first method called on a zero ChunkStreamer.
+func (s *ChunkStreamer[T]) setup() {
+	cfg := &s.cfg
 	if cfg.ChunkSize <= 0 {
 		cfg.ChunkSize = 64
 	}
@@ -226,22 +242,10 @@ func NewChunkStreamer[T any](cfg ChunkStreamerConfig[T]) *ChunkStreamer[T] {
 	if cfg.Workers < 0 {
 		cfg.Workers = 0
 	}
-
-	rootCtx, rootCancel := context.WithCancel(context.Background())
-	s := &ChunkStreamer[T]{
-		cfg:        cfg,
-		rootCtx:    rootCtx,
-		rootCancel: rootCancel,
-		loaded:     make(map[ChunkCoord]T),
-		inFlight:   make(map[ChunkCoord]chunkInFlight),
-	}
+	s.rootCtx, s.rootCancel = context.WithCancel(context.Background())
+	s.loaded = make(map[ChunkCoord]T)
+	s.inFlight = make(map[ChunkCoord]chunkInFlight)
 	s.cond = sync.NewCond(&s.mu)
-
-	for range cfg.Workers {
-		s.wg.Add(1)
-		go s.worker()
-	}
-	return s
 }
 
 func (s *ChunkStreamer[T]) worker() {
@@ -333,6 +337,7 @@ func (s *ChunkStreamer[T]) Update(worldPos WorldPos64) {
 	if s == nil {
 		return
 	}
+	s.initOnce.Do(s.setup)
 	center := worldPos.ChunkCoord(s.cfg.ChunkSize)
 
 	var unloaded []chunkEntry[T]
@@ -537,6 +542,7 @@ func (s *ChunkStreamer[T]) Get(coord ChunkCoord) (T, bool) {
 	if s == nil {
 		return zero, false
 	}
+	s.initOnce.Do(s.setup)
 	s.mu.Lock()
 	data, ok := s.loaded[coord]
 	s.mu.Unlock()
@@ -548,6 +554,7 @@ func (s *ChunkStreamer[T]) LoadedChunks() []ChunkCoord {
 	if s == nil {
 		return nil
 	}
+	s.initOnce.Do(s.setup)
 	s.mu.Lock()
 	out := make([]ChunkCoord, 0, len(s.loaded))
 	for coord := range s.loaded {
@@ -563,6 +570,7 @@ func (s *ChunkStreamer[T]) PendingCount() int {
 	if s == nil {
 		return 0
 	}
+	s.initOnce.Do(s.setup)
 	s.mu.Lock()
 	n := len(s.inFlight)
 	s.mu.Unlock()
@@ -575,6 +583,7 @@ func (s *ChunkStreamer[T]) ReadyCount() int {
 	if s == nil {
 		return 0
 	}
+	s.initOnce.Do(s.setup)
 	s.mu.Lock()
 	n := len(s.ready)
 	s.mu.Unlock()
@@ -588,6 +597,7 @@ func (s *ChunkStreamer[T]) Close() {
 	if s == nil {
 		return
 	}
+	s.initOnce.Do(s.setup)
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()

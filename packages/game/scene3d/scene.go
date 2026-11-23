@@ -25,6 +25,38 @@ type Scene struct {
 	queryScratch     []BVHHandle
 	nextNodeID       uint64
 	lastDirtyUpdates int
+	visGen           uint64
+	visPath          []*Node
+}
+
+// beginVisibilityQuery starts a new memoization generation for activeVisible.
+func (s *Scene) beginVisibilityQuery() {
+	s.visGen++
+}
+
+// activeVisible reports whether n and every ancestor are Visible and Enabled, memoizing the answer for every node on the path in the current query generation. A query over k hits in a tree of depth d costs O(k + nodes on their paths) instead of O(k*d).
+func (s *Scene) activeVisible(n *Node) bool {
+	if n == nil {
+		return false
+	}
+	gen := s.visGen
+	path := s.visPath[:0]
+	result := true
+	for p := n; p != nil; p = p.parent {
+		if p.visGen == gen {
+			result = p.visOK
+			break
+		}
+		path = append(path, p)
+	}
+	for i := len(path) - 1; i >= 0; i-- {
+		q := path[i]
+		result = result && q.Visible && q.Enabled
+		q.visGen, q.visOK = gen, result
+	}
+	clear(path)
+	s.visPath = path[:0]
+	return n.visOK
 }
 
 // NewScene returns a new Scene with an initialized root Node named "root" and
@@ -231,11 +263,12 @@ func (s *Scene) CullFrustumInto(frustum math3d.Frustum, out []*Node) []*Node {
 	}
 	s.SyncBVH()
 	bvh := s.ensureBVH()
+	s.beginVisibilityQuery()
 	handles := bvh.QueryFrustum(frustum, s.queryScratch[:0])
 	s.queryScratch = handles
 	for _, h := range handles {
 		n, ok := bvh.leaves[h.index-1].userData.(*Node)
-		if ok && n.isActiveVisible() {
+		if ok && s.activeVisible(n) {
 			out = append(out, n)
 		}
 	}
@@ -267,6 +300,7 @@ func (s *Scene) QueryAABB(box math3d.AABB) []*Node {
 	}
 	s.SyncBVH()
 	bvh := s.ensureBVH()
+	s.beginVisibilityQuery()
 	handles := bvh.QueryAABB(box, s.queryScratch[:0])
 	s.queryScratch = handles
 	if len(handles) == 0 {
@@ -275,7 +309,7 @@ func (s *Scene) QueryAABB(box math3d.AABB) []*Node {
 	out := make([]*Node, 0, len(handles))
 	for _, h := range handles {
 		n, ok := bvh.leaves[h.index-1].userData.(*Node)
-		if ok && n.isActiveVisible() {
+		if ok && s.activeVisible(n) {
 			out = append(out, n)
 		}
 	}
@@ -294,6 +328,7 @@ func (s *Scene) QuerySphere(sphere math3d.Sphere) []*Node {
 	}
 	s.SyncBVH()
 	bvh := s.ensureBVH()
+	s.beginVisibilityQuery()
 	handles := bvh.QuerySphere(sphere.Center, sphere.Radius, s.queryScratch[:0])
 	s.queryScratch = handles
 	if len(handles) == 0 {
@@ -302,7 +337,7 @@ func (s *Scene) QuerySphere(sphere math3d.Sphere) []*Node {
 	out := make([]*Node, 0, len(handles))
 	for _, h := range handles {
 		n, ok := bvh.leaves[h.index-1].userData.(*Node)
-		if ok && n.isActiveVisible() {
+		if ok && s.activeVisible(n) {
 			out = append(out, n)
 		}
 	}
@@ -322,10 +357,11 @@ func (s *Scene) Raycast(ray math3d.Ray, layerMask uint32) []RayHit {
 	}
 	s.SyncBVH()
 	bvh := s.ensureBVH()
+	s.beginVisibilityQuery()
 	var hits []RayHit
 	bvh.raycastShrink(ray, float32(math.Inf(1)), func(_ BVHHandle, userData any, _ float32) (float32, bool) {
 		n, ok := userData.(*Node)
-		if !ok || n.Layer&layerMask == 0 || !n.isActiveVisible() {
+		if !ok || n.Layer&layerMask == 0 || !s.activeVisible(n) {
 			return float32(math.Inf(1)), true
 		}
 		if hit, ok := intersectNode(n, ray); ok {
@@ -359,12 +395,13 @@ func (s *Scene) RaycastFirst(ray math3d.Ray, layerMask uint32) (RayHit, bool) {
 	}
 	s.SyncBVH()
 	bvh := s.ensureBVH()
+	s.beginVisibilityQuery()
 	var best RayHit
 	bestT := float32(math.Inf(1))
 	found := false
 	bvh.raycastShrink(ray, bestT, func(_ BVHHandle, userData any, _ float32) (float32, bool) {
 		n, ok := userData.(*Node)
-		if !ok || n.Layer&layerMask == 0 || !n.isActiveVisible() {
+		if !ok || n.Layer&layerMask == 0 || !s.activeVisible(n) {
 			return bestT, true
 		}
 		hit, ok := intersectNode(n, ray)
@@ -457,12 +494,13 @@ func SceneObstructionCheck(scene *Scene, layerMask uint32, ignore ...*Node) func
 		}
 		scene.SyncBVH()
 		bvh := scene.ensureBVH()
+		scene.beginVisibilityQuery()
 		ray := math3d.Ray{Origin: from, Dir: dir}
 		bestT := float32(1.0)
 		blocked := false
 		bvh.raycastShrink(ray, bestT, func(_ BVHHandle, userData any, _ float32) (float32, bool) {
 			n, ok := userData.(*Node)
-			if !ok || n.Layer&layerMask == 0 || !n.isActiveVisible() {
+			if !ok || n.Layer&layerMask == 0 || !scene.activeVisible(n) {
 				return bestT, true
 			}
 			for _, ig := range ignore {
