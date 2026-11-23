@@ -15,9 +15,9 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. Clients authenticate with a token and the server assigns their IDs (see below). |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`, `DialUDP` | Native targets (desktop/mobile) for low-latency datagrams to a server, with the same handshake as WebSocket and every datagram bound to its session. |
 | `UDPTransport` | `ListenUDP` + `AddPeer` | Native peer-to-peer datagrams between endpoints that know each other's addresses: a datagram is accepted only from the address registered for the ID it claims. |
+| `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
 UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport.
-| `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
 ```go
 hub := net.NewLoopbackHub(net.LoopbackConfig{
@@ -76,11 +76,12 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 ```
 
 - `NextEvent` checks grace periods and idle timeouts when it is called, so a server polls it every tick alongside `Recv`. While a peer is inside its grace period, `Send` to it returns `ErrDisconnected` and `Peers` leaves it out.
-- `Close` on a client is a goodbye: the server reports `PeerLeft` at once instead of holding the session.
+- `Close` on a client is a goodbye: the server reports `PeerLeft` at once instead of holding the session. `Reconnect` is not, even while the connection is still open: the browser closes its old socket with a code the server counts as a drop.
+- A server holds at most `Auth.MaxPeers` sessions (1024 by default), counting peers inside their grace period; past it, clients are rejected with the reason `server full`. Without `Verify` anyone may join, so set it on any server reachable from the internet.
 - A resume proves itself with a secret from the previous welcome, which the server replaces on every handshake; an ID alone cannot take over a session. Past the grace period, `Reconnect` joins again as a new peer when the token is still valid.
 - In the browser, `DialWebSocket` returns at once: `State` is `ConnConnecting` and `LocalID` is 0 until the welcome arrives, and packets sent before then are queued. A refusal moves it to `ConnDisconnected` with the `*RejectError` in `Err`.
-- After the UDP handshake, each client is bound to the address it shook hands from and to a per-session key: every datagram carries a truncated HMAC-SHA256 tag and a sequence number checked against a replay window, so a spoofed or replayed datagram is dropped and cannot move the peer. Datagrams are authenticated, not encrypted. A `UDPClient` pings while idle; a client silent for `Auth.IdleTimeout` (10 seconds by default) counts as dropped. The server answers only hellos of at least 128 bytes and never replies with more than it received.
-- The token and resume secret travel in the handshake, so use `wss://` for WebSocket in production.
+- After the UDP handshake, each client is bound to the address it shook hands from and to a per-session key: every datagram carries a truncated HMAC-SHA256 tag and a sequence number checked against a replay window, so a spoofed or replayed datagram is dropped and cannot move the peer. Datagrams are authenticated, not encrypted. A `UDPClient` pings every second while idle; a client silent for `Auth.IdleTimeout` (10 seconds by default, never less than 3) counts as dropped. The server answers only hellos of at least 128 bytes and never replies with more than it received.
+- The handshake is not encrypted: the hello carries the token, and the welcome carries the resume secret and, for UDP, the session key. Use `wss://` for WebSocket in production. UDP has no such layer, so its binding stops only attackers who cannot see the traffic: anyone who observes a handshake (shared Wi-Fi, any hop on the path) can forge that session's datagrams and resume it from their own address. Issue UDP tokens that are short-lived and single-use, and prefer WebSocket over `wss://` where an on-path observer is a concern.
 
 ## Server-authoritative delta replication
 

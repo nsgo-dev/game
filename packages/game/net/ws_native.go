@@ -154,8 +154,7 @@ func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked
 	return fin, opcode, payload, masked, nil
 }
 
-// WebSocketTransport is a client-side RFC 6455 WebSocket Transport.
-// Binary WebSocket frames carry the 5-byte channel+seq wire header.
+// WebSocketTransport is a client-side RFC 6455 WebSocket Transport. Binary WebSocket frames carry the 5-byte channel+seq wire header.
 //
 // The first message each way is the connection handshake: the client presents its token and the server answers with the ID it assigned, or a reason for refusing. A dropped client keeps its session on the server for Auth.GracePeriod, and Reconnect resumes it with the same ID.
 type WebSocketTransport struct {
@@ -301,11 +300,7 @@ func clientHandshake(conn stdnet.Conn, br *bufio.Reader, token []byte, res resum
 	if !fin || op != wsOpBinary {
 		return welcome{}, ErrInvalidPacket
 	}
-	w, err := decodeServerHandshake(payload)
-	if err == nil && w.nonce != h.nonce {
-		err = ErrInvalidPacket
-	}
-	return w, err
+	return acceptServerHandshake(payload, h.nonce)
 }
 
 // dialWebSocketConn opens the TCP (or TLS) connection and performs the HTTP upgrade. The returned connection still has the handshake deadline set.
@@ -469,8 +464,7 @@ func (wt *WebSocketTransport) notify() {
 	}
 }
 
-// Send frames payload with the 5-byte channel+seq header and sends it as a masked
-// RFC 6455 binary WebSocket frame to the server. It returns ErrDisconnected while the connection is down.
+// Send frames payload with the 5-byte channel+seq header and sends it as a masked RFC 6455 binary WebSocket frame to the server. It returns ErrDisconnected while the connection is down.
 func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error {
 	wt.mu.Lock()
 	state, conn, serverID := wt.state, wt.conn, wt.serverID
@@ -768,8 +762,7 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 	}
 
 	client := &wsClientConn{conn: conn, br: br}
-	// Hold the client's write lock until the welcome is out, so no game packet
-	// overtakes it once the session is visible to Send.
+	// Hold the client's write lock until the welcome is out, so no game packet overtakes it once the session is visible to Send.
 	client.writeMu.Lock()
 	reply, ok := s.admit(h, client)
 	if reply != nil {
@@ -806,15 +799,17 @@ func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 		reply := encodeWelcome(s.table.welcomeFor(sess, h.nonce, true))
 		s.mu.Unlock()
 		if old != nil {
-			// A half-open connection the server had not noticed yet; its read
-			// loop sees it is no longer the session's link and reports nothing.
+			// A half-open connection the server had not noticed yet; its read loop sees it is no longer the session's link and reports nothing.
 			_ = old.conn.Close()
 		}
 		s.notify()
 		return reply, true
 	}
-	id := s.table.reserve()
+	id, ok := s.table.reserve()
 	s.mu.Unlock()
+	if !ok {
+		return encodeReject(h.nonce, reasonServerFull, 0), false
+	}
 
 	reason, ok := s.table.verify(id, h.token)
 
@@ -834,7 +829,7 @@ func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 	return encodeWelcome(s.table.welcomeFor(sess, h.nonce, false)), true
 }
 
-// clientGone ends a client's connection: a close frame is a leave, anything else a drop that keeps the session for the grace period. A connection that a resume already replaced reports nothing.
+// clientGone ends a client's connection: a close frame is a leave unless it carries wsCloseReconnect, and anything else is a drop that keeps the session for the grace period. A connection that a resume already replaced reports nothing.
 func (s *WebSocketServer) clientGone(c *wsClientConn, goodbye bool) {
 	s.mu.Lock()
 	if !s.closed {
@@ -875,7 +870,8 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 			c.writeMu.Lock()
 			_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
 			c.writeMu.Unlock()
-			goodbye = true
+			// A browser cannot drop its socket without a close frame, so a client that closes to reconnect says so with its close code.
+			goodbye = wsCloseCode(payload) != wsCloseReconnect
 			return
 		case wsOpBinary, wsOpText:
 			if !fin {
@@ -906,6 +902,14 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 			}
 		}
 	}
+}
+
+// wsCloseCode returns the status code of a close frame's payload, or 0 when it has none.
+func wsCloseCode(payload []byte) uint16 {
+	if len(payload) < 2 {
+		return 0
+	}
+	return binary.BigEndian.Uint16(payload)
 }
 
 func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {

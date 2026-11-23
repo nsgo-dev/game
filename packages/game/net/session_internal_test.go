@@ -105,7 +105,7 @@ func TestRejectNeverOutgrowsTheHello(t *testing.T) {
 func TestSessionTableGraceAndResume(t *testing.T) {
 	clock := newFakeClock()
 	tab := newSessionTable(Auth{GracePeriod: 5 * time.Second, Now: clock.Now}, 1, false)
-	id := tab.reserve()
+	id := mustReserve(t, tab)
 	if id != 2 {
 		t.Fatalf("first ID = %d, want 2", id)
 	}
@@ -155,7 +155,7 @@ func TestSessionTableGraceAndResume(t *testing.T) {
 
 func TestSessionTableWithoutGraceLeavesAtOnce(t *testing.T) {
 	tab := newSessionTable(Auth{}, 1, false)
-	s := tab.commit(tab.reserve(), time.Now())
+	s := tab.commit(mustReserve(t, tab), time.Now())
 	tab.drop(s, time.Now())
 	if tab.sessions[s.id] != nil {
 		t.Fatal("dropped session kept without a grace period")
@@ -173,15 +173,86 @@ func TestSessionTableSkipsServerAndLiveIDs(t *testing.T) {
 	tab.next = 0
 	var got []PeerID
 	for range 4 {
-		got = append(got, tab.reserve())
+		got = append(got, mustReserve(t, tab))
 	}
 	if want := []PeerID{1, 2, 4, 5}; !slicesEqual(got, want) {
 		t.Fatalf("IDs = %v, want %v", got, want)
 	}
 	tab.release(2)
 	tab.next = 1
-	if id := tab.reserve(); id != 2 {
+	if id := mustReserve(t, tab); id != 2 {
 		t.Fatalf("after release reserve = %d, want the freed 2", id)
+	}
+}
+
+func mustReserve(t *testing.T, tab *sessionTable) PeerID {
+	t.Helper()
+	id, ok := tab.reserve()
+	if !ok {
+		t.Fatalf("reserve refused with %d sessions", len(tab.sessions))
+	}
+	return id
+}
+
+func TestSessionTableCapsSessions(t *testing.T) {
+	clock := newFakeClock()
+	tab := newSessionTable(Auth{MaxPeers: 2, GracePeriod: time.Second, Now: clock.Now}, 1, false)
+	a := tab.commit(mustReserve(t, tab), clock.Now())
+	pending := mustReserve(t, tab)
+	if _, ok := tab.reserve(); ok {
+		t.Fatal("reserved past MaxPeers with a pending handshake counted")
+	}
+	tab.release(pending)
+
+	// A peer inside its grace period still holds its place until the grace period ends.
+	tab.commit(mustReserve(t, tab), clock.Now())
+	tab.drop(a, clock.Now())
+	if _, ok := tab.reserve(); ok {
+		t.Fatal("reserved past MaxPeers with a peer in its grace period counted")
+	}
+	clock.Advance(time.Second)
+	tab.expire(clock.Now())
+	mustReserve(t, tab)
+
+	if got := newSessionTable(Auth{}, 1, false).maxPeers; got != defaultMaxPeers {
+		t.Fatalf("default MaxPeers = %d, want %d", got, defaultMaxPeers)
+	}
+}
+
+func TestSessionTableRaisesShortIdleTimeouts(t *testing.T) {
+	for _, tc := range []struct {
+		set, want time.Duration
+	}{
+		{0, 10 * time.Second}, {time.Second, udpMinIdle}, {udpMinIdle, udpMinIdle}, {5 * time.Second, 5 * time.Second},
+	} {
+		if got := newSessionTable(Auth{IdleTimeout: tc.set}, 1, true).idle; got != tc.want {
+			t.Errorf("IdleTimeout %v gives %v, want %v", tc.set, got, tc.want)
+		}
+	}
+	if got := newSessionTable(Auth{IdleTimeout: time.Second}, 1, false).idle; got != 0 {
+		t.Errorf("a WebSocket table has idle timeout %v", got)
+	}
+}
+
+// TestAcceptServerHandshake covers the reply check the browser client runs on its first message, which has no runtime browser test.
+func TestAcceptServerHandshake(t *testing.T) {
+	var nonce, other [hsNonceSize]byte
+	nonce[0], other[0] = 1, 2
+	w := welcome{nonce: nonce, peer: 5, server: 1, resumed: true}
+	w.secret[3] = 4
+	if got, err := acceptServerHandshake(encodeWelcome(w), nonce); err != nil || got != w {
+		t.Fatalf("welcome = %+v, %v", got, err)
+	}
+	w.nonce = other
+	if _, err := acceptServerHandshake(encodeWelcome(w), nonce); !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("welcome for another hello = %v, want ErrInvalidPacket", err)
+	}
+	var rej *RejectError
+	if _, err := acceptServerHandshake(encodeReject(nonce, reasonServerFull, 0), nonce); !errors.As(err, &rej) || rej.Reason != reasonServerFull {
+		t.Fatalf("reject = %v", err)
+	}
+	if _, err := acceptServerHandshake(encodeWireFrame(ChannelReliableOrdered, 1, []byte("game")), nonce); !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("a game frame before the welcome = %v, want ErrInvalidPacket", err)
 	}
 }
 

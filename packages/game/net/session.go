@@ -11,7 +11,7 @@ import (
 
 // Auth configures the connection handshake that ListenWebSocket and ListenUDPServer run before a peer may send or receive game packets.
 //
-// The zero value accepts every client, assigns its ID and treats a dropped connection as a leave.
+// The zero value accepts every client, assigns its ID and treats a dropped connection as a leave. A server reachable from the internet should set Verify: without it anyone may join, up to MaxPeers.
 type Auth struct {
 	// Verify checks the credential a client presented and the ID the server is about to assign it. A non-nil error rejects the client: it never reaches Recv, Peers or NextEvent, and the error's text is sent back as the reason. Nil accepts every client.
 	//
@@ -19,8 +19,10 @@ type Auth struct {
 	Verify func(peer PeerID, token []byte) error
 	// GracePeriod is how long a dropped peer keeps its ID and session. A client that reconnects within it resumes with the same ID and NextEvent reports PeerResumed; once it passes, NextEvent reports PeerLeft. Zero reports PeerLeft as soon as the connection drops.
 	GracePeriod time.Duration
-	// IdleTimeout is how long a UDP peer may stay silent before the server counts it as dropped; 10 seconds when zero. UDP clients ping every second while idle. WebSocket servers rely on the TCP connection instead and ignore it.
+	// IdleTimeout is how long a UDP peer may stay silent before the server counts it as dropped; 10 seconds when zero. UDP clients ping every second while idle, so a gap of up to 2 seconds is normal, and a value below 3 seconds is raised to 3 seconds. WebSocket servers rely on the TCP connection instead and ignore it.
 	IdleTimeout time.Duration
+	// MaxPeers is the most sessions the server holds at once, counting peers inside their grace period and handshakes waiting on Verify; 1024 when zero. A client past it is rejected with the reason "server full", so a flood of handshakes cannot grow the server without bound.
+	MaxPeers int
 	// Now is the clock for grace periods and idle timeouts; nil uses time.Now.
 	Now func() time.Time
 }
@@ -140,6 +142,17 @@ const (
 
 	// udpMinHello is the smallest hello a UDP server answers. A reply is never longer than the hello that caused it, so the server cannot amplify a spoofed request.
 	udpMinHello = 128
+
+	// udpMinIdle is the shortest Auth.IdleTimeout a UDP server uses: a client pings once a second, checked on a one-second ticker, so a healthy idle client can go up to 2 seconds between datagrams.
+	udpMinIdle = 3 * time.Second
+
+	// defaultMaxPeers is Auth.MaxPeers when zero.
+	defaultMaxPeers = 1024
+	// reasonServerFull is the rejection a client gets once the server holds Auth.MaxPeers sessions.
+	reasonServerFull = "server full"
+
+	// wsCloseReconnect is the WebSocket close code (from the range RFC 6455 leaves to applications) a client sends when it closes a socket to reconnect. The server counts it as a drop that keeps the session for the grace period, not as a goodbye.
+	wsCloseReconnect = 4000
 
 	hsHelloHeader   = 2 + hsNonceSize + 4 + hsSecretSize + 2
 	hsWelcomeSize   = 2 + hsNonceSize + 4 + 4 + 1 + hsSecretSize + hsKeySize
@@ -268,6 +281,15 @@ func decodeServerHandshake(b []byte) (welcome, error) {
 	}
 }
 
+// acceptServerHandshake parses the server's reply to the hello with nonce. A welcome for another hello is ErrInvalidPacket and a rejection is a *RejectError.
+func acceptServerHandshake(b []byte, nonce [hsNonceSize]byte) (welcome, error) {
+	w, err := decodeServerHandshake(b)
+	if err == nil && w.nonce != nonce {
+		return welcome{}, ErrInvalidPacket
+	}
+	return w, err
+}
+
 // newHello builds a client hello for token, resuming the session in res when it has one.
 func newHello(token []byte, res resumeState) (hello, error) {
 	if len(token) > MaxTokenSize {
@@ -304,17 +326,22 @@ type sessionTable struct {
 	serverID PeerID
 	next     PeerID
 	idle     time.Duration // UDP only; zero disables idle drops
+	maxPeers int
 	sessions map[PeerID]*session
 	events   []PeerEvent
 }
 
 func newSessionTable(auth Auth, serverID PeerID, udp bool) *sessionTable {
-	t := &sessionTable{auth: auth, serverID: serverID, next: serverID + 1, sessions: make(map[PeerID]*session)}
+	t := &sessionTable{auth: auth, serverID: serverID, next: serverID + 1, maxPeers: auth.MaxPeers, sessions: make(map[PeerID]*session)}
+	if t.maxPeers <= 0 {
+		t.maxPeers = defaultMaxPeers
+	}
 	if udp {
 		t.idle = auth.IdleTimeout
 		if t.idle <= 0 {
 			t.idle = 10 * time.Second
 		}
+		t.idle = max(t.idle, udpMinIdle)
 	}
 	return t
 }
@@ -351,15 +378,18 @@ func (t *sessionTable) resume(h hello, now time.Time) *session {
 	return s
 }
 
-// reserve allocates an unused ID and holds it while Verify runs.
-func (t *sessionTable) reserve() PeerID {
+// reserve allocates an unused ID and holds it while Verify runs. It returns false once the table holds maxPeers sessions.
+func (t *sessionTable) reserve() (PeerID, bool) {
+	if len(t.sessions) >= t.maxPeers {
+		return 0, false
+	}
 	for t.next == 0 || t.next == t.serverID || t.sessions[t.next] != nil {
 		t.next++
 	}
 	id := t.next
 	t.next++
 	t.sessions[id] = &session{id: id, pending: true}
-	return id
+	return id, true
 }
 
 // commit turns a reserved ID into a connected session.

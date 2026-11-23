@@ -636,3 +636,285 @@ func BenchmarkSealUDP(b *testing.B) {
 		}
 	}
 }
+
+// rawWSHello upgrades a raw connection to srv, sends h and returns the server's reply.
+func rawWSHello(t *testing.T, srv *WebSocketServer, h hello) (stdnet.Conn, *bufio.Reader, welcome, error) {
+	t.Helper()
+	conn, br := rawUpgrade(t, srv)
+	t.Cleanup(func() { _ = conn.Close() })
+	if err := writeWSFrame(conn, wsOpBinary, true, encodeHello(h, 0)); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	_, _, payload, _, err := readWSFrame(br)
+	if err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	w, err := acceptServerHandshake(payload, h.nonce)
+	return conn, br, w, err
+}
+
+func closePayload(code uint16) []byte {
+	return []byte{byte(code >> 8), byte(code)}
+}
+
+// The browser cannot drop a socket without a close frame, so its Reconnect closes with wsCloseReconnect; the server must keep the session for it.
+func TestWebSocketReconnectCloseCodeKeepsTheSession(t *testing.T) {
+	clock := newFakeClock()
+	srv, _ := listenWS(t, tokenAuth(clock, time.Minute, nil))
+
+	h, _ := newHello([]byte("good"), resumeState{})
+	conn, br, w, err := rawWSHello(t, srv, h)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+		t.Fatalf("event = %+v, want joined", ev)
+	}
+	if err := writeWSFrame(conn, wsOpClose, true, closePayload(wsCloseReconnect)); err != nil {
+		t.Fatalf("write close: %v", err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, w.peer}) {
+		t.Fatalf("event = %+v, want dropped, not left", ev)
+	}
+	_, _, _, _, _ = readWSFrame(br)
+
+	h, _ = newHello([]byte("good"), resumeState{peer: w.peer, secret: w.secret})
+	conn, _, w2, err := rawWSHello(t, srv, h)
+	if err != nil || w2.peer != w.peer || !w2.resumed {
+		t.Fatalf("resume after a reconnect close = %+v, %v", w2, err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerResumed, w.peer}) {
+		t.Fatalf("event = %+v, want resumed", ev)
+	}
+
+	// A close frame with any other code is a goodbye.
+	if err := writeWSFrame(conn, wsOpClose, true, closePayload(1000)); err != nil {
+		t.Fatalf("write close: %v", err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, w.peer}) {
+		t.Fatalf("event = %+v, want left", ev)
+	}
+}
+
+func TestWebSocketReconnectWhileOpenKeepsTheID(t *testing.T) {
+	clock := newFakeClock()
+	srv, url := listenWS(t, tokenAuth(clock, time.Minute, nil))
+	cli, err := DialWebSocket(url, []byte("good"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+	id := cli.LocalID()
+	_ = nextEvent(t, srv, srv.changed)
+
+	if err := cli.Reconnect(); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if cli.LocalID() != id || !cli.Resumed() || cli.State() != ConnOpen {
+		t.Fatalf("after reconnect ID=%d resumed=%v state=%v, want %d resumed and open", cli.LocalID(), cli.Resumed(), cli.State(), id)
+	}
+	if err := cli.Send(PeerBroadcast, ChannelReliableOrdered, []byte("still me")); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if pkt := recvOn(t, srv, srv.changed); pkt.From != id || string(pkt.Payload) != "still me" {
+		t.Fatalf("server got %+v", pkt)
+	}
+	// The old connection either ended before the new hello (dropped, then resumed) or was replaced by it (nothing); the peer never leaves.
+	var kinds []PeerEventKind
+	for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
+		if ev.Peer != id {
+			t.Fatalf("event for peer %d", ev.Peer)
+		}
+		kinds = append(kinds, ev.Kind)
+	}
+	if len(kinds) != 0 && !slicesEqual(kinds, []PeerEventKind{PeerDropped, PeerResumed}) {
+		t.Fatalf("events = %v, want none or [dropped resumed]", kinds)
+	}
+}
+
+func TestWebSocketResumeReplacesALiveConnection(t *testing.T) {
+	clock := newFakeClock()
+	srv, url := listenWS(t, tokenAuth(clock, time.Minute, nil))
+	cli, err := DialWebSocket(url, []byte("good"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+	id := cli.LocalID()
+	_ = nextEvent(t, srv, srv.changed)
+
+	// A half-open connection the server has not noticed: the client comes back on a new one with its secret.
+	cli.mu.Lock()
+	res := cli.resume
+	cli.mu.Unlock()
+	h, _ := newHello([]byte("good"), res)
+	_, br, w, err := rawWSHello(t, srv, h)
+	if err != nil || w.peer != id || !w.resumed {
+		t.Fatalf("resume of a live session = %+v, %v", w, err)
+	}
+	awaitChange(t, cli.changed, "the replaced connection to close", func() bool { return cli.State() == ConnDisconnected })
+	expectNoEvent(t, srv)
+
+	if err := srv.Send(id, ChannelReliableOrdered, []byte("moved")); err != nil {
+		t.Fatalf("server send: %v", err)
+	}
+	_, _, payload, _, err := readWSFrame(br)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, _, p, err := decodeWireFrame(payload); err != nil || string(p) != "moved" {
+		t.Fatalf("new connection got %q, %v", p, err)
+	}
+}
+
+func TestWebSocketServerRejectsPastMaxPeers(t *testing.T) {
+	srv, url := listenWS(t, Auth{MaxPeers: 1})
+	a, err := DialWebSocket(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = a.Close() }()
+	_, err = DialWebSocket(url, nil)
+	var rej *RejectError
+	if !errors.As(err, &rej) || rej.Reason != reasonServerFull {
+		t.Fatalf("dial past MaxPeers = %v, want %q", err, reasonServerFull)
+	}
+	if p := srv.Peers(); len(p) != 1 || p[0] != a.LocalID() {
+		t.Fatalf("Peers = %v", p)
+	}
+}
+
+// udpExchange sends one datagram on raw and returns the reply.
+func udpExchange(t *testing.T, raw stdnet.Conn, dgram []byte) []byte {
+	t.Helper()
+	if _, err := raw.Write(dgram); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = raw.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 2048)
+	n, err := raw.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return buf[:n]
+}
+
+func dialRawUDP(t *testing.T, srv *UDPServer) stdnet.Conn {
+	t.Helper()
+	raw, err := stdnet.Dial("udp", srv.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	return raw
+}
+
+func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
+	srv := listenUDPServer(t, Auth{})
+	raw := dialRawUDP(t, srv)
+	h, _ := newHello(nil, resumeState{})
+	dgram := encodeHello(h, udpMinHello)
+
+	// The first welcome is lost on the way, so the client sends the same hello again.
+	first := udpExchange(t, raw, dgram)
+	again := udpExchange(t, raw, dgram)
+	if !bytes.Equal(first, again) {
+		t.Fatal("a retransmitted hello got a different welcome")
+	}
+	w, err := acceptServerHandshake(again, h.nonce)
+	if err != nil {
+		t.Fatalf("welcome: %v", err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+		t.Fatalf("event = %+v, want one join", ev)
+	}
+	expectNoEvent(t, srv)
+	if p := srv.Peers(); len(p) != 1 {
+		t.Fatalf("Peers = %v, want one session", p)
+	}
+}
+
+func TestUDPServerRejectsAnotherHandshakeVersion(t *testing.T) {
+	srv := listenUDPServer(t, Auth{})
+	raw := dialRawUDP(t, srv)
+	h := encodeHello(hello{}, udpMinHello)
+	h[1] = hsVersion + 1
+	reply := udpExchange(t, raw, h)
+	if len(reply) > len(h) {
+		t.Fatalf("reply of %d bytes to a %d-byte hello", len(reply), len(h))
+	}
+	if _, err := decodeServerHandshake(reply); !strings.Contains(errString(err), hsReasonVersion) {
+		t.Fatalf("reply = %v, want a version rejection", err)
+	}
+	expectNoEvent(t, srv)
+}
+
+func TestUDPResumeMovesALiveSession(t *testing.T) {
+	clock := newFakeClock()
+	srv := listenUDPServer(t, tokenAuth(clock, time.Minute, nil))
+	cli, err := DialUDP(srv.Addr().String(), []byte("good"))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+	id := cli.LocalID()
+	_ = nextEvent(t, srv, srv.changed)
+
+	// The client's NAT mapping changed: it resumes from a new address while the server still counts it connected.
+	cli.mu.Lock()
+	res := cli.resume
+	cli.mu.Unlock()
+	raw := dialRawUDP(t, srv)
+	h, _ := newHello([]byte("good"), res)
+	w, err := acceptServerHandshake(udpExchange(t, raw, encodeHello(h, udpMinHello)), h.nonce)
+	if err != nil || w.peer != id || !w.resumed {
+		t.Fatalf("resume of a live session = %+v, %v", w, err)
+	}
+	expectNoEvent(t, srv)
+
+	if err := srv.Send(id, ChannelUnreliable, []byte("moved")); err != nil {
+		t.Fatalf("server send: %v", err)
+	}
+	_ = raw.SetReadDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 2048)
+	n, err := raw.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if hdr, ok := parseSealed(buf[:n]); !ok || hdr.peer != id || !openUDP(&w.key, buf[:n]) || string(buf[udpSealedHeader:n]) != "moved" {
+		t.Fatalf("new address got %x, want the packet sealed with the new key", buf[:n])
+	}
+}
+
+func TestUDPServerRejectsAHelloFloodPastMaxPeers(t *testing.T) {
+	srv := listenUDPServer(t, Auth{MaxPeers: 3})
+	raw := dialRawUDP(t, srv)
+	var welcomed, full int
+	for range 8 {
+		h, _ := newHello(nil, resumeState{})
+		dgram := encodeHello(h, udpMinHello)
+		reply := udpExchange(t, raw, dgram)
+		if len(reply) > len(dgram) {
+			t.Fatalf("reply of %d bytes to a %d-byte hello", len(reply), len(dgram))
+		}
+		_, err := acceptServerHandshake(reply, h.nonce)
+		var rej *RejectError
+		switch {
+		case err == nil:
+			welcomed++
+		case errors.As(err, &rej) && rej.Reason == reasonServerFull:
+			full++
+		default:
+			t.Fatalf("reply = %v", err)
+		}
+	}
+	if welcomed != 3 || full != 5 {
+		t.Fatalf("welcomed %d and refused %d, want 3 and 5", welcomed, full)
+	}
+	srv.mu.Lock()
+	sessions, nonces := len(srv.table.sessions), len(srv.byNonce)
+	srv.mu.Unlock()
+	if sessions != 3 || nonces != 3 {
+		t.Fatalf("server holds %d sessions and %d nonces, want 3 each", sessions, nonces)
+	}
+}

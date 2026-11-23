@@ -123,6 +123,8 @@ type udpLink struct {
 // UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client runs the connection handshake before its packets reach Recv: Auth.Verify checks its token and the server assigns its ID. After that the client is bound to the address it shook hands from and to a per-session key, so a datagram from another address, or without the key, is dropped instead of reaching Recv or moving the peer.
 //
 // UDP has no connection, so a client that stays silent for Auth.IdleTimeout counts as dropped; DialUDP clients ping every second while idle. Datagrams are authenticated, not encrypted.
+//
+// The binding stops attackers who cannot see the traffic. The handshake itself travels in the clear: the hello carries the token, and the welcome carries the session key and resume secret. Anyone who can observe it, on shared Wi-Fi or any hop on the path, can forge datagrams for the session and resume it from their own address, taking it over. Issue UDP tokens that are short-lived and single-use, and use WebSocket over wss:// where an on-path observer is a concern.
 type UDPServer struct {
 	conn     stdnet.PacketConn
 	serverID PeerID
@@ -206,8 +208,7 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 	now := s.table.now()
 	s.table.expire(now)
 
-	// A retransmitted hello whose welcome was lost gets the same welcome again
-	// rather than a second session.
+	// A retransmitted hello whose welcome was lost gets the same welcome again rather than a second session.
 	if id, ok := s.byNonce[h.nonce]; ok {
 		if sess := s.table.sessions[id]; sess != nil {
 			if link, ok := sess.link.(*udpLink); ok && link.nonce == h.nonce && sameUDPAddr(link.addr, from) {
@@ -224,8 +225,11 @@ func (s *UDPServer) admit(h hello, from stdnet.Addr, limit int) []byte {
 		s.notify()
 		return reply
 	}
-	id := s.table.reserve()
+	id, ok := s.table.reserve()
 	s.mu.Unlock()
+	if !ok {
+		return encodeReject(h.nonce, reasonServerFull, limit)
+	}
 
 	reason, ok := s.table.verify(id, h.token)
 
