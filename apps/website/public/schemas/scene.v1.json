@@ -1,0 +1,350 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/scene.v1.json",
+  "title": "NSGo game scene (version 1)",
+  "description": "SceneDoc is the root of a versioned YAML scene document.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal CurrentVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is the scene's human-readable name.",
+      "type": "string"
+    },
+    "virtualWidth": {
+      "description": "VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.",
+      "type": "number",
+      "minimum": 0
+    },
+    "virtualHeight": {
+      "description": "VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.",
+      "type": "number",
+      "minimum": 0
+    },
+    "backgroundColor": {
+      "description": "BackgroundColor is an optional CSS color string parsed with core.ParseColor.",
+      "type": "string"
+    },
+    "camera": {
+      "description": "Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/CameraDoc"
+        }
+      ]
+    },
+    "tilemaps": {
+      "description": "Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/TilemapDoc"
+      }
+    },
+    "layers": {
+      "description": "Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/LayerDoc"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BoundsDoc": {
+      "description": "BoundsDoc is an axis-aligned rectangle in world coordinates.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X and Y are the rectangle's top-left corner.",
+          "type": "number"
+        },
+        "y": {
+          "description": "X and Y are the rectangle's top-left corner.",
+          "type": "number"
+        },
+        "width": {
+          "description": "Width and Height are the rectangle's size; both must be positive.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "description": "Width and Height are the rectangle's size; both must be positive.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "CameraDoc": {
+      "description": "CameraDoc describes a 2D camera transform for world-space layers.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X and Y are the world coordinates centered in the virtual viewport (or mapped to the origin when virtual dimensions are 0).",
+          "type": "number"
+        },
+        "y": {
+          "description": "X and Y are the world coordinates centered in the virtual viewport (or mapped to the origin when virtual dimensions are 0).",
+          "type": "number"
+        },
+        "zoom": {
+          "description": "Zoom is the camera zoom factor; nil defaults to 1. Must be positive when set.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rotation": {
+          "description": "Rotation turns the camera clockwise in radians; world geometry rotates by -Rotation around (X, Y).",
+          "type": "number"
+        },
+        "bounds": {
+          "description": "Bounds optionally clamps the camera view inside a world rectangle.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BoundsDoc"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "LayerDoc": {
+      "description": "LayerDoc is one ordered layer in a scene.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the layer within the scene.",
+          "type": "string",
+          "minLength": 1
+        },
+        "space": {
+          "description": "Space is SpaceWorld or SpaceScreen; empty defaults to SpaceWorld.",
+          "type": "string",
+          "enum": [
+            "world",
+            "screen"
+          ]
+        },
+        "order": {
+          "description": "Order sets draw order across layers: lower values draw first, ties keep document order.",
+          "type": "integer"
+        },
+        "visible": {
+          "description": "Visible controls whether the layer draws; nil defaults to true.",
+          "type": "boolean"
+        },
+        "tilemap": {
+          "description": "Tilemap optionally attaches a tilemap (by Ref, external Source, or inline grid) drawn beneath Objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TilemapDoc"
+            }
+          ]
+        },
+        "objects": {
+          "description": "Objects are the placed objects in this layer.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObjectDoc"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "ObjectDoc": {
+      "description": "ObjectDoc is one entity or visual object placed on a layer.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies the object across the entire scene.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Name is an optional human-readable display name.",
+          "type": "string"
+        },
+        "prefab": {
+          "description": "Prefab optionally names a prefab or archetype template.",
+          "type": "string"
+        },
+        "x": {
+          "description": "X and Y are where the object's origin sits in its layer's coordinate space.",
+          "type": "number"
+        },
+        "y": {
+          "description": "X and Y are where the object's origin sits in its layer's coordinate space.",
+          "type": "number"
+        },
+        "posZ": {
+          "description": "PosZ is the optional 3D world Z coordinate (depth in 3D scenes), distinct from 2D draw order Z.",
+          "type": "number"
+        },
+        "originX": {
+          "description": "OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.",
+          "type": "number"
+        },
+        "originY": {
+          "description": "OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.",
+          "type": "number"
+        },
+        "rotation": {
+          "description": "Rotation turns the object clockwise in radians about its origin in 2D space.",
+          "type": "number"
+        },
+        "rotX": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "type": "number"
+        },
+        "rotY": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "type": "number"
+        },
+        "rotZ": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "type": "number"
+        },
+        "scaleX": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number"
+        },
+        "scaleY": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number"
+        },
+        "scaleZ": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number"
+        },
+        "depth": {
+          "description": "Depth is the optional 3D extent along the Z axis in world units; 0 uses a default extent.",
+          "type": "number",
+          "minimum": 0
+        },
+        "mesh": {
+          "description": "Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.",
+          "type": "string"
+        },
+        "flipX": {
+          "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
+          "type": "boolean"
+        },
+        "flipY": {
+          "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
+          "type": "boolean"
+        },
+        "alpha": {
+          "description": "Alpha is the object's opacity in [0, 1]; nil defaults to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "z": {
+          "description": "Z orders objects within the layer; lower Z draws first, ties keep slice order.",
+          "type": "integer"
+        },
+        "sprite": {
+          "description": "Sprite optionally binds the object to a frame in a sprite.Atlas.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SpriteRef"
+            }
+          ]
+        },
+        "components": {
+          "description": "Components holds structured component data keyed by component type name.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "properties": {
+          "description": "Properties holds arbitrary custom metadata for gameplay scripts or editors.",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "SpriteRef": {
+      "description": "SpriteRef identifies one frame inside a named sprite.Atlas.",
+      "type": "object",
+      "properties": {
+        "atlas": {
+          "description": "Atlas names the sprite.Atlas an AssetResolver looks up.",
+          "type": "string",
+          "minLength": 1
+        },
+        "frame": {
+          "description": "Frame names the frame inside the atlas.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "atlas",
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "TilemapDoc": {
+      "description": "TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Ref names an entry in SceneDoc.Tilemaps. Only valid on a layer's Tilemap.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.",
+          "type": "string"
+        },
+        "tileWidth": {
+          "description": "TileWidth and TileHeight are each tile's size in points for an inline grid.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "tileHeight": {
+          "description": "TileWidth and TileHeight are each tile's size in points for an inline grid.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "description": "Width and Height are the inline grid dimensions in tiles.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "description": "Width and Height are the inline grid dimensions in tiles.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "tileset": {
+          "description": "Tileset is the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
+          "type": "string"
+        },
+        "data": {
+          "description": "Data holds Width*Height row-major tile IDs; 0 is an empty cell.",
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

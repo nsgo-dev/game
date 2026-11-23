@@ -133,6 +133,7 @@ Moving, deleting or undoing an object in the editor carries its children along, 
 ### Example
 
 ```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
 name: Cave Room
 virtualWidth: 320
@@ -214,6 +215,10 @@ built.Draw(d)
 ```
 
 `Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
+
+### Schema
+
+The scene format's JSON Schema is published at `https://game.nsgo.dev/schemas/scene.v1.json` (`sceneformat.SchemaURL`). `Encode` starts every file with `sceneformat.SchemaComment`, the `# yaml-language-server: $schema=…` line, so VS Code's YAML extension and other editors with a YAML language server validate and complete a scene as it is written. See [Schemas for YAML files](schemas.md).
 
 ### Component types
 

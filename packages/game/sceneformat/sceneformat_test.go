@@ -213,6 +213,9 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 	if !bytes.Equal(encoded1, encoded2) {
 		t.Fatalf("Encode is not deterministic:\n--- 1 ---\n%s\n--- 2 ---\n%s", encoded1, encoded2)
 	}
+	if !bytes.HasPrefix(encoded1, []byte(sceneformat.SchemaComment+"\nversion: 1\n")) {
+		t.Fatalf("Encode does not start with the schema comment and version:\n%s", encoded1)
+	}
 	doc2, err := sceneformat.Parse(encoded1)
 	if err != nil {
 		t.Fatalf("Parse re-encoded: %v", err)
