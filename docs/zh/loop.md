@@ -138,8 +138,8 @@ closeMenu := func() { loop.SetPaused(false) }
 
 - 循环运行且未处于 `Paused` 时隐藏系统栏；处于 `Paused`、调用 `stop` 或 `cx` 被销毁时恢复系统栏，因此替换掉游戏视图的菜单页面同样会让系统栏回来。
 - 循环在启动或从后台返回时隐藏系统栏，`Immersive` 或 `Paused` 的变化在下一帧生效（若由 `Update` 暂停，则在同一帧生效），且只在状态改变时才向平台发出请求。应用处于后台时，系统栏保持原样。
-- 隐藏和显示系统栏可能改变平台报告的安全区边距（例如 HarmonyOS 在系统栏隐藏期间只保留屏幕挖孔区域），因此请用 [`screen.SafeGameRectForEnv`](screen.md#移动端-hud-安全区) 布局 HUD，它会随边距变化而更新。
-- 让一个循环负责系统栏：每个隐藏过系统栏的运行在暂停或结束时都会把它们恢复。以 NSGo 页面或对话框显示的菜单也可以设置 `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`，在显示期间覆盖窗口的设置。
+- 隐藏和显示系统栏可能改变平台报告的安全区边距（例如 HarmonyOS 在系统栏隐藏期间只保留屏幕挖孔区域），因此请用 [`screen.Viewport.SafeGameRectForEnv`](screen.md#移动端-hud-安全区) 布局 HUD，它会随边距变化而更新。
+- 同一窗口中的循环共享系统栏：只要有任何设置了 `Immersive` 的循环在进行游戏，系统栏就保持隐藏，直到最后一个这样的循环暂停或结束时才恢复。在上一个场景的循环仍然存活时启动自己循环的场景（例如场景过渡期间），在旧循环被销毁后系统栏仍保持隐藏；下方场景暂停自己的循环时，被推入场景的循环也会让系统栏保持隐藏。以 NSGo 页面或对话框显示的菜单也可以设置 `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`，在显示期间覆盖窗口的设置。
 
 ## 使用 nsgotest 测试
 

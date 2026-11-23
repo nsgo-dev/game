@@ -2,6 +2,7 @@ package game
 
 import (
 	"math"
+	"sync"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -73,9 +74,9 @@ func (l *Loop) MarkDirty() {
 //
 // A frame adds the time between its display time and the last frame's, as core.Scope.RequestAnimationFrame gives it: the display's own frame time where the platform stamps one, so the frame length is the display's rather than when the engine got to the frame, and the graph clock's otherwise. The first frame after the loop starts or resumes adds the time from then to its display time, which may lie a frame ahead where the display stamps a frame with when it will show, so the loop's time is the shown frame's. A frame stamped before the time the loop started or resumed adds nothing, and the next frame adds the time from then.
 //
-// With Immersive set, the run hides the system bars while the game plays and shows them again when it is paused, stopped or disposed. One loop at a time should own the bars, as each run that showed them asks for them back when it ends.
+// With Immersive set, the run hides the system bars while the game plays and shows them again when it is paused, stopped or disposed. Runs in the same window share the bars: they stay hidden while any of them plays with Immersive set, and come back once the last of those pauses or ends, so a scene that starts its own loop before the last scene's loop is disposed keeps them hidden.
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
-	r := &loopRun{loop: l, cx: cx}
+	r := &loopRun{loop: l, cx: cx, env: cx.Env()}
 	stopEffect := cx.Effect(func() {
 		if cx.Env().Lifecycle() == core.LifecycleBackground {
 			r.pause()
@@ -94,10 +95,18 @@ func (l *Loop) Run(cx *core.Scope) (stop func()) {
 // setImmersive asks for the system bars hidden or shown. NSGo's nsgotest records the status bar without its Immersive field (nsgotest.StatusBarConfig), so the tests replace this to see what the loop asks for.
 var setImmersive = mobile.Immersive
 
+// immersiveRuns counts, for each window's environment, the runs that want the system bars hidden. mobile.Immersive patches the one app-wide setting of the window, so a run that pauses or ends shows the bars again only when no other run in the window still wants them hidden.
+var (
+	immersiveMu   sync.Mutex
+	immersiveRuns = map[*core.Env]int{}
+)
+
 // loopRun is one Run of a Loop.
 type loopRun struct {
 	loop *Loop
 	cx   *core.Scope
+	// env is cx's environment, which keys the run's share of immersiveRuns.
+	env *core.Env
 	// cancel cancels the frame the run waits for, nil while it is paused.
 	cancel func()
 	// releaseAwake releases the display keep-awake hold, nil while it is paused.
@@ -109,21 +118,36 @@ type loopRun struct {
 	// drawAcc is the frame time since the last capped Draw; drawn says Draw has run since the run started, resumed or went idle.
 	drawAcc time.Duration
 	drawn   bool
-	// immersive says the run has hidden the system bars and not yet shown them again; ended says stop ran or cx was disposed.
+	// immersive says the run counts in immersiveRuns as wanting the system bars hidden; ended says stop ran or cx was disposed.
 	immersive, ended bool
 }
 
-// syncImmersive hides the system bars while the game plays with Immersive set, and shows them again otherwise, asking only when that changes.
+// syncImmersive counts the run as wanting the system bars hidden while the game plays with Immersive set, hiding them when it is the first such run in its window and showing them again when the last one stops wanting them hidden.
 func (r *loopRun) syncImmersive() {
 	want := r.loop.Immersive && !r.loop.Paused && !r.ended
 	if want == r.immersive {
 		return
 	}
 	r.immersive = want
-	setImmersive(r.cx, want)
+	immersiveMu.Lock()
+	n := immersiveRuns[r.env]
+	if want {
+		n++
+	} else {
+		n--
+	}
+	if n > 0 {
+		immersiveRuns[r.env] = n
+	} else {
+		delete(immersiveRuns, r.env)
+	}
+	immersiveMu.Unlock()
+	if (want && n == 1) || (!want && n == 0) {
+		setImmersive(r.cx, want)
+	}
 }
 
-// end ends the run for good, showing the system bars it hid. Stopping pauses the run first, while disposing cx cancels the frame and keep-awake hold that cx owns.
+// end ends the run for good, giving up its share of the hidden system bars. Stopping pauses the run first, while disposing cx cancels the frame and keep-awake hold that cx owns.
 func (r *loopRun) end() {
 	r.ended = true
 	r.syncImmersive()
