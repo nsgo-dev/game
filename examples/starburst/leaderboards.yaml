@@ -1,0 +1,4 @@
+version: 1
+leaderboards:
+  - name: high-score
+    gameCenter: dev.nsgo.game.starburst.high_score
