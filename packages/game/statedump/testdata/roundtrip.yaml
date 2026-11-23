@@ -1,0 +1,66 @@
+version: 1
+seed: 18446744073709551615
+rate: 60
+steps: 3
+scene:
+  depth: 1
+  current: fade
+  transitioning: true
+  progress: 0.25
+values:
+  long: 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word '
+  rng:
+    state: 9223372036854775813
+entities:
+  - index: 0
+    generation: 1
+    components:
+      - type: a
+        data:
+          z: 1
+          a:
+            - true
+            - false
+            - null
+          m: {}
+          s: []
+          n: -0
+          f: 1.5e+300
+          g: 1E-7
+          big: 123456789012345678901234567890
+      - type: b
+        data:
+          - "true"
+          - "1"
+          - "1.5"
+          - "null"
+          - "~"
+          - "yes"
+          - "2001-12-14"
+          - ""
+          - '  lead'
+          - 'trail '
+          - 'a: b'
+          - '- x'
+          - '#c'
+          - |
+            multi
+            line
+          - "tab\there"
+          - é中
+          - <&>
+          - "0x10"
+          - "1e3"
+          - ".inf"
+      - type: c
+        data: plain
+      - type: d
+        data:
+          "1": 1
+          "true": 2
+          "null": 3
+          "": 4
+          'key with: colon': 5
+  - index: 4
+    generation: 7
+    parent: 0

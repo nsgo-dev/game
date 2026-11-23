@@ -117,3 +117,5 @@ func TestLevel1ClearReplay(t *testing.T) {
 ```
 
 `Run` drives `step` exactly `rec.TotalSteps` times at `rec.StepDuration()` and returns the final state; `AssertEndState` compares it against `want` using your `equal` function (or `reflect.DeepEqual` when `nil`) and fails the test with a clear diagnostic on mismatch.
+
+To check the whole state rather than a hand-picked struct, dump it as text with [`statedump.Run`](statedump.md) and compare it against a golden file.

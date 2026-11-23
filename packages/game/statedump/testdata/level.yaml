@@ -1,0 +1,52 @@
+version: 1
+seed: 42
+rate: 60
+steps: 90
+scene:
+  depth: 2
+  current: pause
+values:
+  best:
+    at: 1.5
+    name: ann
+  score: 40
+  step: 90
+entities:
+  - index: 0
+    generation: 1
+    components:
+      - type: health
+        data:
+          hp: 100
+          tags:
+            - hero
+            - "yes"
+            - "1"
+      - type: name
+        data: |-
+          player: one
+          second line
+      - type: pos
+        data:
+          x: 4.0000009393637015e-7
+          y: 12
+  - index: 1
+    generation: 1
+    parent: 0
+    components:
+      - type: name
+        data: sword
+      - type: pos
+        data:
+          x: 1
+          y: 0
+  - index: 3
+    generation: 3
+    components:
+      - type: health
+        data:
+          hp: 3
+      - type: pos
+        data:
+          x: 227
+          y: 177
