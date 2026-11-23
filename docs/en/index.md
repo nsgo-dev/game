@@ -49,6 +49,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `a11y` | `github.com/nsgo-dev/game/packages/game/a11y` | [a11y](a11y.md) | Live captions, color-blind palettes and CVD simulation, persisted assist options and accessible menus |
 | `l10n` | `github.com/nsgo-dev/game/packages/game/l10n` | [l10n](l10n.md) | JSON string tables with CLDR plurals, script `FontSet`, RTL visual ordering and per-language asset catalogs |
 | `perf` | `github.com/nsgo-dev/game/packages/game/perf` | [perf](perf.md) | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
+| `idle` | `github.com/nsgo-dev/game/packages/game/idle` | [idle](idle.md) | `Number` past float64's range, capped offline progress and short/scientific/locale formatting of large numbers |
 | `net` | `github.com/nsgo-dev/game/packages/game/net` | [net](net.md) | Cross-target WebSocket/UDP/loopback transports, delta replication and lockstep/rollback netcode |
 | `server` | `github.com/nsgo-dev/game/packages/game/server` | [server](server.md) | Headless fixed-step `Runner` for dedicated servers: several matches at their own rates, overrun reports and bounded signal shutdown |
 | `accounts` | `github.com/nsgo-dev/game/packages/game/accounts` | [accounts](accounts.md) | Self-hosted player accounts: guests upgraded to email or a linked platform/OAuth identity, argon2id passwords, SQLite/Postgres stores and Ed25519 tokens game servers verify offline |
