@@ -13,9 +13,17 @@ var ErrInvalidConfig = errors.New("procgen: invalid config")
 // MaxSide is the largest Width or Height any generator accepts.
 const MaxSide = 1 << 16
 
+// MaxCells is the largest Width*Height any generator accepts. It keeps cell counts within int on 32-bit targets and cell indexes within int32, and bounds a level's memory.
+const MaxCells = 1 << 24
+
+// tooManyCells reports whether a width by height level has more than MaxCells cells, without computing a product that could overflow int.
+func tooManyCells(width, height int) bool {
+	return width > 0 && height > 0 && width > MaxCells/height
+}
+
 // BSPConfig configures BSP. Zero fields take the defaults given on each field.
 type BSPConfig struct {
-	// Width and Height are the level's size in cells. The outermost ring of cells is always Wall, so both must be at least MinLeaf+2 and at most MaxSide.
+	// Width and Height are the level's size in cells. The outermost ring of cells is always Wall, so both must be at least MinLeaf+2 and at most MaxSide, and Width*Height at most MaxCells.
 	Width, Height int
 	// MinLeaf is the smallest side of a partition, in cells; a partition is split while one of its sides is at least twice MinLeaf. The default is 10, and it must be at least MinRoom+2*Padding.
 	MinLeaf int
@@ -46,6 +54,8 @@ func (c BSPConfig) validate() error {
 	switch {
 	case c.Width > MaxSide || c.Height > MaxSide:
 		return fmt.Errorf("%w: BSP size %dx%d exceeds MaxSide", ErrInvalidConfig, c.Width, c.Height)
+	case tooManyCells(c.Width, c.Height):
+		return fmt.Errorf("%w: BSP size %dx%d exceeds MaxCells", ErrInvalidConfig, c.Width, c.Height)
 	case c.MinLeaf < 1 || c.MinLeaf > MaxSide:
 		return fmt.Errorf("%w: BSP MinLeaf %d is outside [1, MaxSide]", ErrInvalidConfig, c.MinLeaf)
 	case c.MinRoom < 1 || c.MinRoom > c.MinLeaf:

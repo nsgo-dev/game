@@ -49,3 +49,13 @@ func BenchmarkRegions80x50(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkWFC64x64(b *testing.B) {
+	cfg := procgen.WFCConfig{Width: 64, Height: 64, Rules: loadRules(b)}
+	b.ReportAllocs()
+	for i := range b.N {
+		if _, err := procgen.WFC(random.New(uint64(i)), cfg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

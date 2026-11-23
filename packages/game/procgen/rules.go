@@ -101,7 +101,7 @@ func EncodeRules(r *Rules) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks r against the version 1 schema: the version, at least one tile, unique non-empty names, positive finite weights, and neighbor entries that name known tiles as exactly one horizontal or vertical pair, each listed once.
+// Validate checks r against the version 1 schema: the version, at least one tile, unique non-empty names, positive finite weights whose sum is finite, and neighbor entries that name known tiles as exactly one horizontal or vertical pair, each listed once.
 func (r *Rules) Validate() error {
 	if r.Version != RulesVersion {
 		return fmt.Errorf("procgen: unsupported rules version %d (want %d)", r.Version, RulesVersion)
@@ -110,6 +110,7 @@ func (r *Rules) Validate() error {
 		return errors.New("procgen: rules have no tiles")
 	}
 	index := make(map[string]int, len(r.Tiles))
+	total := 0.0
 	for i, t := range r.Tiles {
 		if t.Name == "" {
 			return fmt.Errorf("procgen: tile %d has no name", i)
@@ -121,6 +122,11 @@ func (r *Rules) Validate() error {
 			return fmt.Errorf("procgen: tile %q weight %v must be positive and finite", t.Name, t.Weight)
 		}
 		index[t.Name] = i
+		total += t.Weight
+	}
+	// WFC picks tiles with random.Stream.WeightedIndex, which panics when the weights overflow float64.
+	if math.IsInf(total, 0) {
+		return errors.New("procgen: tile weights sum to more than the largest float64")
 	}
 	seen := make(map[Neighbor]bool, len(r.Neighbors))
 	for i, n := range r.Neighbors {
