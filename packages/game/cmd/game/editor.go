@@ -22,6 +22,9 @@ var editorCommand = &command{
 	args:    "[project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]",
 	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named",
 	define:  defineEditor,
+	complete: map[string]completion{
+		"": filePaths,
+	},
 }
 
 func defineEditor(a *app, fs *flag.FlagSet) func() error {

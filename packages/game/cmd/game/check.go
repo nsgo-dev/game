@@ -17,6 +17,9 @@ var checkCommand = &command{
 	args:    "[dir]",
 	summary: "Check the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to",
 	define:  defineCheck,
+	complete: map[string]completion{
+		"": filePaths,
+	},
 }
 
 func defineCheck(a *app, fs *flag.FlagSet) func() error {

@@ -22,6 +22,10 @@ var devCommand = &command{
 	args:    "[dir] [nsgo dev flags]",
 	summary: "Run the game with nsgo dev, reloading its assets in the running game when they are saved",
 	define:  defineDev,
+	complete: map[string]completion{
+		"assets": filePaths,
+		"":       filePaths,
+	},
 }
 
 // devRun is one nsgo dev that game dev starts: the command line and what it adds to the environment.

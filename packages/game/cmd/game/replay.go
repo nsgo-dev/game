@@ -21,6 +21,9 @@ var replayCommand = &command{
 	args:    "[directory ...]",
 	summary: "Check the input recordings under the directories and play them headless through their replay tests, failing on a mismatch",
 	define:  defineReplay,
+	complete: map[string]completion{
+		"": filePaths,
+	},
 }
 
 func defineReplay(a *app, fs *flag.FlagSet) func() error {
