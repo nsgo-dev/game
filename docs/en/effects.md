@@ -82,6 +82,20 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse
 
 Any other node works too, such as a `core.Timing` a game starts when the player is hit. Values that change only now and then can come from `UniformsFunc`, at the cost of a commit each change.
 
+## Bloom
+
+`Bloom()` returns a ready effect that makes the frame's highlights glow in one pass, with no texture between passes: over each point it adds the bright part of its input at the point and at 16 points around it, on an inner ring at half the radius and an outer ring at the radius. Its uniforms are `Threshold`, the luminance from 0 to 1 above which a pixel glows; `Intensity`, how much glow is added, where 0 or less, the default, draws the frame as it is and 1 to 2 is a strong bloom; and `Radius`, how far in the frame's pixels the glow reaches.
+
+```go
+post := effects.MustCompile(effects.Bloom(), effects.Effect{Name: "invert", Source: invert})
+effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
+```
+
+- The glow adds light: colors stay premultiplied, and a translucent pixel near a highlight becomes more opaque.
+- Each point reads its input 17 times, and a chain runs the effects before it at each of them, so put `Bloom` first or after effects that read their input once.
+- It approximates a blurred bright pass: at a large radius the glow is a soft star rather than a smooth disc. Keep `Radius` to a few pixels of the frame, and animate `Intensity` for a pulse.
+- `Bloom` carries its own `Reference`, so a chain with it draws a reference picture headless.
+
 ## Reference pictures
 
 Headless tests have no GPU, so `Chain.Reference(frame, width, height, uniforms)` draws the chain on the CPU with each effect's `Reference` function, at the per-effect uniforms a `View` would set, mapping each output pixel's center onto the frame as the GPU does. `Float` reads a number uniform, and a uniform left out is 0, as on the GPU. Compare the result with a golden PNG from `gametest`:

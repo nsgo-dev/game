@@ -82,6 +82,20 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse
 
 其他节点同样可用，例如玩家受击时启动的 `core.Timing`。偶尔才变化的值可以来自 `UniformsFunc`，代价是每次变化一次提交。
 
+## 泛光
+
+`Bloom()` 返回一个现成的效果，在一个通道内让画面的高光发光，通道之间不经过纹理：它在每个点上叠加该点及其周围 16 个点处输入的高亮部分，这 16 个点分布在半径一半处的内环和半径处的外环上。它的 uniform 有：`Threshold`，0 到 1 的亮度，高于它的像素才发光；`Intensity`，叠加多少光晕，0 或更小（默认 0）时按原样绘制画面，1 到 2 是很强的泛光；`Radius`，光晕以画面像素计能扩散多远。
+
+```go
+post := effects.MustCompile(effects.Bloom(), effects.Effect{Name: "invert", Source: invert})
+effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}}}
+```
+
+- 光晕是叠加的光：颜色保持预乘，高光附近的半透明像素会变得更不透明。
+- 每个点会读取输入 17 次，而效果链会在每个读取点上重新运行它之前的效果，因此把 `Bloom` 放在最前面，或放在只读取一次输入的效果之后。
+- 它近似的是模糊后的高亮通道：半径较大时光晕呈柔和的星形，而不是平滑的圆盘。`Radius` 保持在画面的几个像素以内，想要脉动效果就给 `Intensity` 做动画。
+- `Bloom` 自带 `Reference`，因此包含它的效果链可以在无头环境下绘制参考图。
+
 ## 参考图
 
 无头测试没有 GPU，因此 `Chain.Reference(frame, width, height, uniforms)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，使用 `View` 会设置的各效果 uniform，并像 GPU 一样把每个输出像素的中心映射到画面上。`Float` 读取数值 uniform，未给出的 uniform 为 0，与 GPU 一致。将结果与 `gametest` 的 golden PNG 比较：
