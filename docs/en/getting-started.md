@@ -5,7 +5,7 @@ Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated s
 ## Requirements
 
 - **Go 1.27** or later.
-- **NSGo v0.2** or later to build the game. Scaffolding uses an NSGo command with [Go module template support](https://nsgo.dev/docs/getting-started/#templates-from-go-modules).
+- **NSGo `v0.3.0`** or later to build the game. Scaffolding uses an NSGo command with [Go module template support](https://nsgo.dev/docs/getting-started/#templates-from-go-modules).
 - For iOS builds: macOS with Xcode.
 - For running on Android devices or emulators: `adb` (Android SDK Platform-Tools). Building an `android_arm64` APK needs only Go.
 
@@ -13,10 +13,10 @@ Run `go tool nsgo doctor` inside a project to check what toolchains this machine
 
 ## Create a project
 
-Install a version of the NSGo command that supports Go module templates. The revision that first added the feature is available as a Go module version. Make sure Go's binary directory (`GOBIN`, or `GOPATH/bin` by default) is on your `PATH`.
+Install a version of the NSGo command that supports Go module templates, such as the NSGo release this repository builds against. Make sure Go's binary directory (`GOBIN`, or `GOPATH/bin` by default) is on your `PATH`.
 
 ```sh
-go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.2.1-0.20261121150907-9e612921df1a
+go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0
 nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
 cd mygame
 go tool nsgo dev

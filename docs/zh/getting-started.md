@@ -5,7 +5,7 @@
 ## 环境要求
 
 - **Go 1.27** 或更高版本。
-- 构建游戏需要 **NSGo v0.2** 或更新版本。生成项目需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令。
+- 构建游戏需要 **NSGo `v0.3.0`** 或更新版本。生成项目需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令。
 - 构建 iOS 目标：需要 macOS 和 Xcode。
 - 在 Android 真机或模拟器上运行：需要 `adb`（Android SDK Platform-Tools）。仅构建 `android_arm64` 的 APK 只需要 Go。
 
@@ -13,10 +13,10 @@
 
 ## 创建项目
 
-安装支持 Go 模块模板的 NSGo 命令。首次加入该功能的修订版本可通过 Go 模块版本安装。请将 Go 的可执行文件目录（`GOBIN`，默认是 `GOPATH/bin`）加入 `PATH`。
+安装支持 Go 模块模板的 NSGo 命令，例如本仓库构建所用的 NSGo 发行版。请将 Go 的可执行文件目录（`GOBIN`，默认是 `GOPATH/bin`）加入 `PATH`。
 
 ```sh
-go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.2.1-0.20261121150907-9e612921df1a
+go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0
 nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
 cd mygame
 go tool nsgo dev
