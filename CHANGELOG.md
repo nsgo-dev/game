@@ -27,6 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged (#29).
 - `game/sound`: 2D positional effects, with `Listener2D` panning an effect by where it sits across the camera's view and attenuating it with distance (linear or inverse rolloff), and `Effect.PlayAt` and `Cue.PlayAt` (#105).
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
+- `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 
 ### Changed
 
