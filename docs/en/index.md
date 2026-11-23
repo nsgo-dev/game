@@ -62,6 +62,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `inventory` | `github.com/nsgo-dev/game/packages/game/inventory` | [inventory](inventory.md) | Item definitions in YAML, stacking slot containers, typed equipment slots and save snapshots |
 | `ability` | `github.com/nsgo-dev/game/packages/game/ability` | [ability](ability.md) | YAML ability sets and a per-step `Caster`: costs, cooldowns, charges, cast and channel times and conditions driven by input actions |
 | `quest` | `github.com/nsgo-dev/game/packages/game/quest` | [quest](quest.md) | YAML quest books with collect/reach/defeat/talk objectives, prerequisites and rewards, advanced by bus events and saved as snapshots |
+| `loot` | `github.com/nsgo-dev/game/packages/game/loot` | [loot](loot.md) | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity counters on seeded streams |
 | `modding` | `github.com/nsgo-dev/game/packages/game/modding` | [modding](modding.md) | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` dependency/lifecycle manager |
 | `math3d` | `github.com/nsgo-dev/game/packages/game/math3d` | [math3d](math3d.md) | 3D vectors, matrices, quaternions, transforms, bounds, rays, frustums and conventions |
 | `scene3d` | `github.com/nsgo-dev/game/packages/game/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
