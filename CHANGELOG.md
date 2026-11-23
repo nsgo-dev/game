@@ -30,7 +30,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
-- `game/rooms`: versioned YAML room maps (also built from LDtk levels or Tiled rectangles) and a `Director` that clamps the camera to the room the player enters and plays its cut, slide or fade transition (#523).
 
 ### Changed
 
