@@ -25,8 +25,8 @@ leaderboards:
 | `version` | 格式版本，`1` |
 | `leaderboards` | 排行榜列表，按游戏列出的顺序 |
 | `name` | 游戏自己给排行榜起的键；不可重复，不含控制字符，首尾不能有空白 |
-| `gameCenter` | 在 App Store Connect 注册的排行榜 ID |
-| `playGames` | Google Play 管理中心生成的排行榜 ID |
+| `gameCenter` | 在 App Store Connect 注册的排行榜 ID；不能与其他排行榜重复 |
+| `playGames` | Google Play 管理中心生成的排行榜 ID；不能与其他排行榜重复 |
 
 每个排行榜至少要有一个 ID，ID 最多 100 个字符，只能是 ASCII 字母、数字、`.`、`_` 或 `-`。排序方式、分数格式和重置周期在 App Store Connect 和 Play 管理中心里设置，不写在目录里。
 
