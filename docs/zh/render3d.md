@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -66,6 +66,57 @@ pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 ```
 
 参考测试通过 `gpu.NewSoftwareRenderer` 无头渲染同一个场景，分别使用在 `game.Loop` 上环绕的透视相机和正交相机，并把每一帧与 `render3d/testdata/golden/camera_perspective.png` 和 `camera_orthographic.png` 比较；设置 `UPDATE_GOLDEN=1` 会重写这两张图。
+
+## 网格缓冲（`Mesh`、`GPUMesh`）
+
+`Mesh` 是 CPU 上的三角形列表几何体：`Positions`（必填）、`Normals` 与 `UVs`（各自为空或与顶点一一对应）以及 `Indices`（非索引网格留空）。这些字段与 glTF 图元的 `Positions`、`Normals`、`TexCoords0`、`Indices` 类型相同，正面按逆时针环绕，与 glTF 和 [math3d](math3d.md) 一致。`UploadMesh` 校验网格后，在 [NSGo GPU 视图](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md) 的 `gpu.Device` 上创建顶点缓冲，带索引时再创建索引缓冲。缓冲归属于传入的作用域，作用域销毁或调用 `GPUMesh.Close` 时释放：
+
+```go
+gpu.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady: func(dev *gpu.Device) {
+		if mesh == nil { // 设备丢失后 OnReady 会再次运行，此时 NSGo 已经恢复了保留的缓冲
+			mesh, err = render3d.UploadMesh(cx, dev, render3d.Mesh{
+				Positions: prim.Positions,
+				Normals:   prim.Normals,
+				UVs:       prim.TexCoords0,
+				Indices:   prim.Indices,
+			}, render3d.MeshUpload{Label: "crate", Retained: true})
+		}
+		pipe, err = dev.CreatePipeline(cx, gpu.PipelineDesc{
+			Vertex:        gpu.ShaderStage{Module: shader, EntryPoint: "vs_main"},
+			Fragment:      gpu.ShaderStage{Module: shader, EntryPoint: "fs_main"},
+			VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
+			Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: gpu.CullBack},
+			DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
+			Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat()}},
+		})
+	},
+	OnFrame: func(frame *gpu.Frame) {
+		pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
+		pass.SetPipeline(pipe)
+		mesh.Draw(pass) // 或者 mesh.Bind(pass) 后自行调用 DrawIndexedInstanced
+		pass.End()
+		frame.Submit()
+	},
+})
+```
+
+所有网格共用同一种交错的小端布局，每个顶点 32 字节，因此一条管线可以绘制任意网格；缺少的法线或 UV 写为零：
+
+| 属性 | `@location` | 格式 | 偏移 |
+| --- | --- | --- | --- |
+| 位置 | 0（`MeshPositionLocation`） | `float32x3` | 0 |
+| 法线 | 1（`MeshNormalLocation`） | `float32x3` | 12 |
+| UV | 2（`MeshUVLocation`） | `float32x2` | 24 |
+
+网格最多 65,535 个顶点时索引写为 `uint16`，超过则写为 `uint32`，因此 `uint16` 缓冲里永远不会出现 WebGL 2 始终视为图元重启的索引 0xFFFF；索引数据按 WebGPU 的要求补零到 4 字节的倍数。这里只使用 GPU 视图所有后端都接受的格式：macOS 与 iOS 的 Metal、Windows 的 Direct3D 11、Linux 的 OpenGL 3.3、Web 的 WebGPU 或 WebGL 2、Android 的 OpenGL ES 3.0。本包的测试在无界面 `nsgotest` 的软件设备上绘制网格，分别使用完整能力和 WebGL 2 与 OpenGL ES 3.0 后端的能力（`nsgotest.NoGPUCompute`）；在各硬件后端上的绘制目前还没有自动化测试覆盖。
+
+- `Mesh.Validate` 拒绝空网格、与顶点数不符的属性数、非有限值、不完整的三角形和越界索引；所有错误都包装 `ErrInvalidMesh`，网格无效时 `UploadMesh` 不会创建任何缓冲。
+- `Mesh.AppendVertexData` 与 `Mesh.AppendIndexData` 把缓冲字节写入调用方持有的切片，容量足够时不分配内存，可用于通过 `Device.WriteBuffer` 或环形缓冲流式更新几何体。它们不做校验：请先调用 `Mesh.Validate`，无效网格写出的字节没有定义。
+- `MeshUpload.Retained` 会保留一份 CPU 副本，设备丢失后 NSGo 重建缓冲，同一个 `GPUMesh` 可以继续绘制，因此保留的网格只需像示例那样上传一次；如果在 `OnReady` 里重新上传网格，则不必开启。
+- 网格不是 `Valid` 时（上传失败得到 nil、已关闭、作用域已销毁，或设备丢失时没有保留），`GPUMesh.Draw` 与 `GPUMesh.Bind` 不记录任何命令，因此不会用之前网格留下绑定的缓冲去绘制。
+- `GPUMesh.Bounds` 是物体空间包围盒，变换后即为 `DrawItem.WorldBounds`；`GPUMesh.ByteSize` 是占用的显存，用于 `RenderStats` 与预算。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 

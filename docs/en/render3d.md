@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers for the NSGo GPU view and the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -66,6 +66,57 @@ pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 ```
 
 The reference tests render the same scene headless through `gpu.NewSoftwareRenderer` with a perspective and an orthographic camera orbiting on `game.Loop`, and compare each frame with `render3d/testdata/golden/camera_perspective.png` and `camera_orthographic.png`; `UPDATE_GOLDEN=1` rewrites them.
+
+## Mesh buffers (`Mesh`, `GPUMesh`)
+
+A `Mesh` is triangle-list geometry on the CPU: `Positions` (required), `Normals` and `UVs` (each empty or one per position) and `Indices` (empty for a non-indexed mesh). The fields have the same types as a glTF primitive's `Positions`, `Normals`, `TexCoords0` and `Indices`, and front faces wind counter-clockwise as in glTF and [math3d](math3d.md). `UploadMesh` validates the mesh and creates its vertex buffer and, when indexed, its index buffer on the [NSGo GPU view](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md)'s `gpu.Device`. The buffers belong to the scope you pass and are released when it is disposed or when you call `GPUMesh.Close`:
+
+```go
+gpu.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady: func(dev *gpu.Device) {
+		if mesh == nil { // OnReady runs again after a device loss; NSGo has already restored the retained buffers
+			mesh, err = render3d.UploadMesh(cx, dev, render3d.Mesh{
+				Positions: prim.Positions,
+				Normals:   prim.Normals,
+				UVs:       prim.TexCoords0,
+				Indices:   prim.Indices,
+			}, render3d.MeshUpload{Label: "crate", Retained: true})
+		}
+		pipe, err = dev.CreatePipeline(cx, gpu.PipelineDesc{
+			Vertex:        gpu.ShaderStage{Module: shader, EntryPoint: "vs_main"},
+			Fragment:      gpu.ShaderStage{Module: shader, EntryPoint: "fs_main"},
+			VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
+			Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: gpu.CullBack},
+			DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
+			Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat()}},
+		})
+	},
+	OnFrame: func(frame *gpu.Frame) {
+		pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
+		pass.SetPipeline(pipe)
+		mesh.Draw(pass) // or mesh.Bind(pass) and your own DrawIndexedInstanced
+		pass.End()
+		frame.Submit()
+	},
+})
+```
+
+Every mesh uses one interleaved little-endian layout of 32 bytes per vertex, so one pipeline draws any of them; a missing normal or UV is written as zeros:
+
+| Attribute | `@location` | Format | Offset |
+| --- | --- | --- | --- |
+| position | 0 (`MeshPositionLocation`) | `float32x3` | 0 |
+| normal | 1 (`MeshNormalLocation`) | `float32x3` | 12 |
+| UV | 2 (`MeshUVLocation`) | `float32x2` | 24 |
+
+Indices are written as `uint16` while the mesh has at most 65,535 vertices and as `uint32` beyond that, so the index 0xFFFF, which WebGL 2 always treats as a primitive restart, is never used in a `uint16` buffer; index data is zero-padded to a multiple of four bytes as WebGPU requires. Only formats that every GPU view backend accepts are used: Metal on macOS and iOS, Direct3D 11 on Windows, OpenGL 3.3 on Linux, WebGPU or WebGL 2 on the web and OpenGL ES 3.0 on Android. The package's tests draw meshes on the software device of headless `nsgotest`, with both the full capabilities and those of the WebGL 2 and OpenGL ES 3.0 backends (`nsgotest.NoGPUCompute`); drawing on each hardware backend is not yet covered by an automated test.
+
+- `Mesh.Validate` rejects an empty mesh, attribute counts that do not match the positions, non-finite values, partial triangles and out-of-range indices; every error wraps `ErrInvalidMesh`, and `UploadMesh` creates nothing for an invalid mesh.
+- `Mesh.AppendVertexData` and `Mesh.AppendIndexData` write the buffer bytes into a slice you own without allocating when it has capacity, for streaming geometry through `Device.WriteBuffer` or a ring buffer. They do not validate: call `Mesh.Validate` first, since the bytes written for an invalid mesh are unspecified.
+- `MeshUpload.Retained` keeps a CPU copy so NSGo recreates the buffers after a device loss and the same `GPUMesh` draws again, so upload a retained mesh only once, as in the example; leave it off when `OnReady` uploads the meshes again.
+- `GPUMesh.Draw` and `GPUMesh.Bind` record nothing for a mesh that is not `Valid` (nil after a failed upload, closed, its scope disposed, or not retained across a device loss), so it never draws with buffers an earlier mesh left bound.
+- `GPUMesh.Bounds` is the object-space box to transform into `DrawItem.WorldBounds`, and `GPUMesh.ByteSize` the GPU memory for `RenderStats` and budgets.
 
 ## 3D debug draw and transform gizmos
 
