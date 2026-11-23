@@ -15,7 +15,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `Node2D` tree, `CanvasLayer` | `scene.Scene` layers in world or screen space | [scene](scene.md) |
 | `Node3D` tree, groups | `scene3d.Node` tree, `FindByTag` | [scene3d](scene3d.md) |
 | Instantiating a scene as a template | `entities.Prefab`, or a scene object's `prefab` field | [Entities](entities.md) |
-| `Resource`, `.tres`, `ResourceLoader` | Images and sounds under `resources/`, data through `assets.Manager` with `WithFS` | [assets](assets.md) |
+| `Resource`, `.tres`, `ResourceLoader` | YAML resource files in a `resource.Library`; images and sounds under `resources/`; data through `assets.Manager` with `WithFS` | [resource](resources.md), [assets](assets.md) |
 | Signals, `connect`, `emit` | `flow.Bus` with `Subscribe` and `Publish`; `core.Signal` for UI state | [flow](flow.md) |
 | `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`, `tween.Timeline` | [tween](tween.md) |
@@ -48,6 +48,8 @@ There is no single node class that everything inherits from. Pick the piece that
 2D coordinates match Godot's: X right, Y down, rotation clockwise in radians. 3D matches too: right-handed, Y up, `-Z` forward, one unit a metre (see [math3d](math3d.md) and [3D Models from Blender](3d-models-blender.md)).
 
 ## Resources
+
+Godot's `.tres` resources map to [resource](resources.md) files: one YAML document each, with a `type` and `version` header, for materials, curves, gradients, animation clips, UI themes, sound bus layouts and physics materials. A `resource.Library` loads them from an `fs.FS` by path and keeps one value per path, as `ResourceLoader` caches a loaded resource.
 
 Images and sounds the game loads at runtime go in `resources/` and are opened by `"asset:<path>"` URIs, such as `core.Src("asset:hero.png")`, on every target. Data that `assets.Manager` reads itself, such as atlas JSON, raw bytes and your own parsed files, comes from the file system you give it: embed it with `//go:embed` and pass `assets.NewManager(cx, assets.WithFS(fsys))`, or pass `WithReadAsset` for custom storage. Without either, the manager reads an `assets/` directory relative to the working directory, which works only for desktop runs from the project root. `assets.Manager` loads atlases, sounds, images, bytes and your own parsed files in named groups off the engine goroutine, reports progress as signals for a loading screen and releases a group when its scene ends. See [assets](assets.md).
 

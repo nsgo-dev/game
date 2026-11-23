@@ -15,7 +15,7 @@
 | `Node2D` 树、`CanvasLayer` | 世界空间或屏幕空间的 `scene.Scene` 图层 | [scene](scene.md) |
 | `Node3D` 树、分组 | `scene3d.Node` 树、`FindByTag` | [scene3d](scene3d.md) |
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |
-| `Resource`、`.tres`、`ResourceLoader` | `resources/` 下的图像和声音，数据通过带 `WithFS` 的 `assets.Manager` 读取 | [assets](assets.md) |
+| `Resource`、`.tres`、`ResourceLoader` | 放进 `resource.Library` 的 YAML 资源文件；`resources/` 下的图像和声音；数据通过带 `WithFS` 的 `assets.Manager` 读取 | [resource](resources.md)、[assets](assets.md) |
 | 信号、`connect`、`emit` | `flow.Bus` 的 `Subscribe` 与 `Publish`；界面状态用 `core.Signal` | [flow](flow.md) |
 | `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
@@ -48,6 +48,8 @@ Godot 的场景是一棵保存下来的节点树，可以实例化，也可以�
 2D 坐标与 Godot 一致：X 向右，Y 向下，旋转以弧度计、顺时针为正。3D 也一致：右手系，Y 向上，`-Z` 朝前，一个单位为一米（见 [math3d](math3d.md) 和[从 Blender 导入 3D 模型](3d-models-blender.md)）。
 
 ## 资源
+
+Godot 的 `.tres` 资源对应 [resource](resources.md) 文件：每个文件是一个带 `type` 和 `version` 头的 YAML 文档，用于材质、曲线、渐变、动画片段、UI 主题、声音总线布局和物理材质。`resource.Library` 按路径从 `fs.FS` 加载它们，每个路径只保留一个值，就像 `ResourceLoader` 缓存已加载的资源。
 
 游戏运行时加载的图像和声音放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` URI 打开，例如 `core.Src("asset:hero.png")`。`assets.Manager` 自己读取的数据，例如图集 JSON、原始字节和你自己解析的文件，来自你交给它的文件系统：用 `//go:embed` 嵌入后传入 `assets.NewManager(cx, assets.WithFS(fsys))`，或者用 `WithReadAsset` 接入自定义存储。两者都不传时，它读取相对于工作目录的 `assets/` 目录，只有在项目根目录下运行桌面版时才能用。`assets.Manager` 在引擎 goroutine 之外按命名资源组加载图集、声音、图像、字节和你自己解析的文件，以信号形式报告进度供加载界面使用，并在场景结束时释放资源组。见 [assets](assets.md)。
 
