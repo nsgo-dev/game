@@ -63,7 +63,7 @@ Blender 默认使用右手 **Z-up** 视口（`+X` 向右、`+Y` 朝屏幕内、`
   - 使用法线贴图时勾选 `Tangents`，避免不同渲染器计算出的切线空间不一致。
   - 若着色器不需要顶点色，取消勾选 `Vertex Colors`。
 - **Data → Material**：`Materials` 选择 `Export`，图像格式选 `Automatic`（PNG/JPEG）或在目标平台支持时使用 `WebP`。
-- **Data → Compression**：默认**不要勾选 Draco 网格压缩**，以便纯 Go glTF 解析器直接读取而无需额外引入 C++/Wasm Draco 解码器。
+- **Data → Compression**：迭代期间**不勾选 Draco 网格压缩**，文件便于检查；发布的资产在意下载体积时再开启。`game/gltf` 用纯 Go 解码 Draco（见[压缩几何数据](#压缩几何数据)）。
 
 ### 蒙皮网格与动画
 
@@ -198,6 +198,25 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 - **Z-up 的 OBJ 文件**（CAD 软件或旧版 3ds Max 导出）：在 `bpy.ops.wm.obj_import(...)` 中传入 `up_axis="Z"`，让 Blender 导入时先转正，再以 `export_yup=True` 导出。
 - **Mixamo 多动作 FBX**：先下载一份带蒙皮（`With Skin`）的角色基础文件，再按 `Without Skin` 下载其余动作，把各个 Action 导入同一个 `.blend` 文件并推入 NLA 轨道，最后合并导出为单个 `.glb`。
 - **独立检查与优化**：导出后可用 `gltf-transform inspect model.glb` 查看节点树、包围盒与贴图占用，并用 Khronos 官方的 `gltf_validator` 做严格规范校验。
+
+## 压缩几何数据
+
+`game/gltf` 用纯 Go 解码两种常见的 glTF 几何压缩扩展，无需 C++ 或 Wasm 解码器，压缩文件与普通文件一样通过 `gltf.Load` 和 `gltf.LoadFS` 加载：
+
+| 扩展 | 压缩对象 | 常见生成工具 |
+| --- | --- | --- |
+| `KHR_draco_mesh_compression` | 整个三角形图元：连接关系与量化后的属性 | Blender 导出器（*Data → Compression*）、`gltf-pipeline -d`、`gltf-transform draco` |
+| `EXT_meshopt_compression`、`KHR_meshopt_compression` | 单个 buffer view：顶点属性、三角形与索引列表、动画关键帧 | `gltfpack -c`、`gltf-transform meshopt` |
+| `KHR_mesh_quantization` | 以整数存储的位置、法线与纹理坐标，通常与 meshopt 搭配 | `gltfpack`、`gltf-transform quantize` |
+
+各读取接口返回的就是解码后的数据：`Primitive.Positions`、`Indices` 等属性、`ReadVec3` 等函数、动画通道与蒙皮看到的都是未压缩的值。标记为 meshopt 回退的 buffer 不会被读取，因此把未压缩回退数据放在独立可选 `.bin` 中的 `.glb` 在缺少该文件时也能加载。
+
+如何选择：
+
+- **Draco** 对密集的静态网格压缩率最高，但解码较慢，且可能改变顶点的顺序和数量，因此与未压缩文件对比的工具必须按数值而非索引匹配。量化有损：Blender 默认 14 位的位置精度足以应付道具，大型网格请检查近景效果。
+- **meshopt** 解码快得多，保持顶点顺序，还能压缩动画数据，适合蒙皮角色和由大量小网格组成的场景。它的滤波器（octahedral、quaternion、exponential、color）有损；不加滤波器的属性流、三角形流和索引流无损。
+
+两种解码器的每次分配都以文档声明的数量为上限，并与未压缩数据计入同一份单次加载预算；格式错误的数据流返回错误而不会 panic。其他必需扩展（如 `KHR_texture_basisu`）在加载时仍会被拒绝。
 
 ## 往返校验示例模型
 

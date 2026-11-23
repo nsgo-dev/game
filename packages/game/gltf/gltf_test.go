@@ -1204,7 +1204,7 @@ func TestSkinnedAndAnimatedWithExtrasAndAllInterpolations(t *testing.T) {
 }
 
 func TestLoadRejectsUnsupportedRequiredExtension(t *testing.T) {
-	doc := []byte(`{"asset":{"version":"2.0"},"extensionsRequired":["KHR_draco_mesh_compression"],"scenes":[{"nodes":[]}],"scene":0}`)
+	doc := []byte(`{"asset":{"version":"2.0"},"extensionsRequired":["KHR_texture_basisu"],"scenes":[{"nodes":[]}],"scene":0}`)
 	if _, err := gltf.Load(doc, nil); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("Load with a required unsupported extension = %v, want an error naming it", err)
 	}

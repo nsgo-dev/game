@@ -88,7 +88,7 @@ type Asset struct {
 	Extras     json.RawMessage
 }
 
-// Buffer holds resolved binary buffer bytes.
+// Buffer holds resolved binary buffer bytes. For a buffer that meshopt-compressed bufferViews decode into (an EXT_meshopt_compression or KHR_meshopt_compression fallback or placeholder buffer), Data holds the decompressed views and the buffer's own URI is never fetched.
 type Buffer struct {
 	Name       string
 	URI        string
@@ -144,6 +144,9 @@ type Accessor struct {
 	Max           []float32
 	Sparse        *AccessorSparse
 	Extras        json.RawMessage
+
+	// decoded holds tightly packed element data that replaces the bufferView, filled from a KHR_draco_mesh_compression primitive.
+	decoded []byte
 }
 
 // Document is a parsed glTF 2.0 / GLB asset with resolved buffers, decoded
@@ -227,10 +230,15 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 		resolver:           resolver,
 	}
 
-	if err := doc.loadBuffers(raw.Buffers, binChunk, resolver); err != nil {
+	var decodedBytes uint64
+	placeholders, err := doc.loadBuffers(raw.Buffers, binChunk, resolver, meshoptTargets(raw.BufferViews), &decodedBytes)
+	if err != nil {
 		return nil, err
 	}
 	if err := doc.loadBufferViews(raw.BufferViews); err != nil {
+		return nil, err
+	}
+	if err := doc.decodeMeshoptViews(raw.BufferViews, placeholders, &decodedBytes); err != nil {
 		return nil, err
 	}
 	if err := doc.loadAccessors(raw.Accessors); err != nil {
@@ -255,7 +263,6 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 		return nil, err
 	}
 
-	var decodedBytes uint64
 	if err := doc.loadMeshes(raw.Meshes, &decodedBytes); err != nil {
 		return nil, err
 	}
@@ -276,10 +283,10 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 	}
 	for _, ext := range doc.ExtensionsRequired {
 		switch ext {
-		case "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_variants":
+		case "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_variants", "KHR_mesh_quantization",
+			extDraco, extMeshoptEXT, extMeshoptKHR:
 		default:
-			// Loading without it would silently substitute zeros or defaults
-			// for the data the extension supplies (Draco, meshopt, basisu…).
+			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
 			return nil, fmt.Errorf("gltf: required extension %q is not supported", ext)
 		}
 	}
@@ -357,37 +364,48 @@ func decodeDataURI(uri string) ([]byte, error) {
 
 // --- Loaders for each glTF section ---
 
-func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver BufferResolver) error {
+// loadBuffers resolves every buffer's bytes and returns the set of meshopt placeholder buffers: those tagged as fallback, and URI-less ones that compressed bufferViews decode into. A placeholder gets zeroed storage of its byteLength, charged to decodedBytes, instead of being fetched.
+func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver BufferResolver, meshoptTargets map[int]bool, decodedBytes *uint64) (map[int]bool, error) {
 	d.Buffers = make([]Buffer, len(raws))
+	placeholders := make(map[int]bool)
 	for i, rb := range raws {
 		if rb.ByteLength < 0 {
-			return fmt.Errorf("gltf: buffer %d has negative byteLength %d", i, rb.ByteLength)
+			return nil, fmt.Errorf("gltf: buffer %d has negative byteLength %d", i, rb.ByteLength)
 		}
+		fallback, err := isMeshoptFallback(rb)
+		if err != nil {
+			return nil, fmt.Errorf("gltf: buffer %d: %w", i, err)
+		}
+		glbChunk := rb.URI == "" && i == 0 && binChunk != nil
 		var data []byte
 		switch {
+		case fallback || (rb.URI == "" && !glbChunk && meshoptTargets[i]):
+			if err := chargeDecodedBytes(decodedBytes, uint64(rb.ByteLength)); err != nil {
+				return nil, err
+			}
+			data = make([]byte, rb.ByteLength)
+			placeholders[i] = true
 		case rb.URI == "":
 			if i != 0 || binChunk == nil {
-				return fmt.Errorf("gltf: buffer %d has empty URI without GLB BIN chunk", i)
+				return nil, fmt.Errorf("gltf: buffer %d has empty URI without GLB BIN chunk", i)
 			}
 			data = binChunk
 		case strings.HasPrefix(rb.URI, "data:"):
-			var err error
 			data, err = decodeDataURI(rb.URI)
 			if err != nil {
-				return fmt.Errorf("gltf: buffer %d: %w", i, err)
+				return nil, fmt.Errorf("gltf: buffer %d: %w", i, err)
 			}
 		default:
 			if resolver == nil {
-				return fmt.Errorf("gltf: buffer %d external URI %q requires a BufferResolver", i, rb.URI)
+				return nil, fmt.Errorf("gltf: buffer %d external URI %q requires a BufferResolver", i, rb.URI)
 			}
-			var err error
 			data, err = resolver(rb.URI)
 			if err != nil {
-				return fmt.Errorf("gltf: resolve buffer %d (%q): %w", i, rb.URI, err)
+				return nil, fmt.Errorf("gltf: resolve buffer %d (%q): %w", i, rb.URI, err)
 			}
 		}
 		if len(data) < rb.ByteLength {
-			return fmt.Errorf("gltf: buffer %d data length %d < declared byteLength %d", i, len(data), rb.ByteLength)
+			return nil, fmt.Errorf("gltf: buffer %d data length %d < declared byteLength %d", i, len(data), rb.ByteLength)
 		}
 		// Trim any GLB 4-byte alignment padding to exact declared byteLength.
 		data = data[:rb.ByteLength]
@@ -399,7 +417,7 @@ func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver Buffe
 			Extras:     cloneRawMessage(rb.Extras),
 		}
 	}
-	return nil
+	return placeholders, nil
 }
 
 func (d *Document) loadBufferViews(raws []rawBufferView) error {
@@ -776,6 +794,13 @@ func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) error {
 				matIdx = *rp.Material
 				if matIdx < 0 || matIdx >= len(d.Materials) {
 					return fmt.Errorf("gltf: mesh %d primitive %d invalid material %d", mi, pi, matIdx)
+				}
+			}
+
+			if _, ok := rp.Extensions[extDraco]; ok {
+				var err error
+				if mode, err = d.decodeDracoPrimitive(mi, pi, rp, mode, decodedBytes); err != nil {
+					return err
 				}
 			}
 
@@ -1318,6 +1343,13 @@ func (d *Document) resolveAccessor(accessorIndex int) (*Accessor, []byte, int, i
 	}
 	if acc.Count < 0 {
 		return nil, nil, 0, 0, fmt.Errorf("gltf: accessor %d negative count %d", accessorIndex, acc.Count)
+	}
+
+	if acc.decoded != nil {
+		if uint64(len(acc.decoded)) != uint64(acc.Count)*uint64(elemSize) {
+			return nil, nil, 0, 0, fmt.Errorf("gltf: accessor %d decoded data does not match count %d", accessorIndex, acc.Count)
+		}
+		return acc, acc.decoded, elemSize, elemSize, nil
 	}
 
 	if acc.BufferView < 0 {
@@ -1881,10 +1913,11 @@ type rawCameraOrthographic struct {
 }
 
 type rawBuffer struct {
-	Name       string          `json:"name"`
-	URI        string          `json:"uri"`
-	ByteLength int             `json:"byteLength"`
-	Extras     json.RawMessage `json:"extras"`
+	Name       string                     `json:"name"`
+	URI        string                     `json:"uri"`
+	ByteLength int                        `json:"byteLength"`
+	Extras     json.RawMessage            `json:"extras"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
 }
 
 type rawBufferView struct {
