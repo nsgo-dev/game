@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && tsc --noEmit",
+    "build": "vite build && tsc --noEmit && bun scripts/check-api.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "playground": "bun scripts/build-playground.ts"

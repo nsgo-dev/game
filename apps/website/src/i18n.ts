@@ -19,8 +19,8 @@ declare const __SITE_ORIGIN__: string
 
 // The router's paths of each language's pages, for typed links.
 export const routes = {
-  en: { home: '/', docs: '/docs/', doc: '/docs/$slug/', playground: '/playground/', playgroundExample: '/playground/$example/', showcase: '/showcase/', roadmap: '/roadmap/' },
-  zh: { home: '/zh/', docs: '/zh/docs/', doc: '/zh/docs/$slug/', playground: '/zh/playground/', playgroundExample: '/zh/playground/$example/', showcase: '/zh/showcase/', roadmap: '/zh/roadmap/' },
+  en: { home: '/', docs: '/docs/', doc: '/docs/$slug/', api: '/docs/api/', apiPackage: '/docs/api/$/', playground: '/playground/', playgroundExample: '/playground/$example/', showcase: '/showcase/', roadmap: '/roadmap/' },
+  zh: { home: '/zh/', docs: '/zh/docs/', doc: '/zh/docs/$slug/', api: '/zh/docs/api/', apiPackage: '/zh/docs/api/$/', playground: '/zh/playground/', playgroundExample: '/zh/playground/$example/', showcase: '/zh/showcase/', roadmap: '/zh/roadmap/' },
 } as const
 
 // splitPath parts a router path, such as /zh/docs/packages/, into its language and the path below it, docs/packages/. The router's paths do not hold the base path, but an address the browser shows may, so splitPath strips it too.

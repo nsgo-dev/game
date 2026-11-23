@@ -1,5 +1,6 @@
-// Build-time content: the docs from the repository's Markdown in each language, the home page's Go snippets, the playground's example sources, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read from the repository or fetched from GitHub in the browser.
+// Build-time content: the docs from the repository's Markdown in each language, the API reference from the Go packages' doc comments, the home page's Go snippets, the playground's example sources, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read from the repository or fetched from GitHub in the browser.
 
+import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import rehypeShiki from '@shikijs/rehype'
@@ -12,7 +13,7 @@ import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
 import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
-import type { DocHeading, DocPage, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPage, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
 import type { Lang } from '../src/i18n'
 
 const REPO = 'nsgo-dev/game'
@@ -32,6 +33,10 @@ const modules = {
 const PLAYGROUND_SOURCE = 'virtual:playground/'
 type ModuleId = keyof typeof modules
 
+// A package's page of the API reference is the module virtual:api/<page>, which the reference's route imports on demand, so no page's script carries another package's API.
+const API_MODULE = 'virtual:api'
+const API_PACKAGE = `${API_MODULE}/`
+
 interface Context {
   root: string
   base: string
@@ -39,12 +44,20 @@ interface Context {
   snippetsDir: string
   examplesDir: string
   publicDir: string
+  // goModule is the directory of the Go module the API reference documents.
+  goModule: string
 }
 
 export function siteContent(): Plugin {
   let ctx: Context | undefined
-  // The client and server builds both load each module; the roadmap is fetched once for both.
+  // The client and server builds both load each module; the roadmap is fetched, and the API reference generated, once for both.
   const cache = new Map<ModuleId, Promise<string>>()
+  let api: Promise<ApiBuild> | undefined
+  const apiBuild = () => {
+    if (!ctx) throw new Error('the API reference was asked for before the config was resolved')
+    api ??= buildApi(ctx)
+    return api
+  }
   return {
     name: 'game-site-content',
     configResolved(config) {
@@ -55,11 +68,32 @@ export function siteContent(): Plugin {
         snippetsDir: path.resolve(config.root, 'snippets'),
         examplesDir: path.resolve(config.root, '../../examples'),
         publicDir: config.publicDir,
+        goModule: path.resolve(config.root, '../../packages/game'),
       }
+    },
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url?.split('?')[0] !== `${server.config.base}${API_JSON}`) return next()
+        try {
+          const build = await apiBuild()
+          if (build.status !== 'ok') throw new Error(build.reason)
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.end(build.json)
+        } catch (error) {
+          next(error)
+        }
+      })
     },
     resolveId(id) {
       if (id.startsWith(PLAYGROUND_SOURCE) && isPlaygroundId(id.slice(PLAYGROUND_SOURCE.length))) return `\0${id}`
+      if (id === API_MODULE || id.startsWith(API_PACKAGE)) return `\0${id}`
       return id in modules ? `\0${id}` : undefined
+    },
+    async generateBundle() {
+      // The JSON for agents is a file of the client's build, beside the pages.
+      if (this.environment.name !== 'client') return
+      const build = await apiBuild()
+      if (build.status === 'ok') this.emitFile({ type: 'asset', fileName: API_JSON, source: build.json })
     },
     async load(id) {
       if (!id.startsWith('\0')) return undefined
@@ -70,6 +104,13 @@ export function siteContent(): Plugin {
         for (const file of await playgroundFiles(dir)) this.addWatchFile(path.join(dir, file))
         return loadPlaygroundSource(ctx, example)
       }
+      if (name.startsWith(API_PACKAGE) && ctx) {
+        const build = await apiBuild()
+        const pkg = build.status === 'ok' ? build.packages.get(name.slice(API_PACKAGE.length)) : undefined
+        if (!pkg) throw new Error(`${name}: no such package`)
+        return `export default ${JSON.stringify(pkg)}`
+      }
+      if (name === API_MODULE && ctx) return loadApiModule(await apiBuild())
       if (!(name in modules) || !ctx) return undefined
       const moduleId = name as ModuleId
       if (moduleId === 'virtual:docs') {
@@ -232,6 +273,60 @@ function walk(node: MdNode, visit: (node: MdNode) => void) {
 function textOf(node: MdNode): string {
   if (node.value !== undefined) return node.value
   return (node.children ?? []).map(textOf).join('')
+}
+
+// ---- API reference ----
+
+// The reference is what cmd/gameapi in the Go module writes: run with -html for the pages, which show each doc comment as HTML, and without it for API_JSON, the JSON published for agents. Without Go, a local build shows the reference as unavailable; a deploy needs it.
+
+const API_JSON = 'api.json'
+
+type ApiBuild =
+  | { status: 'ok'; json: string; summaries: ApiSummary[]; packages: Map<string, ApiPackage> }
+  | { status: 'unavailable'; reason: string }
+
+async function buildApi(ctx: Context): Promise<ApiBuild> {
+  try {
+    const [html, json] = await Promise.all([gameapi(ctx, ['-html']), gameapi(ctx, [])])
+    const ref = JSON.parse(html) as ApiReference
+    const packages = new Map<string, ApiPackage>()
+    const summaries: ApiSummary[] = []
+    for (const pkg of ref.packages) {
+      // The pages show the doc comments as HTML, so the text of each is left out of their scripts.
+      packages.set(pkg.page, JSON.parse(JSON.stringify(pkg, (key, value) => (key === 'doc' ? undefined : value))) as ApiPackage)
+      summaries.push({ importPath: pkg.importPath, name: pkg.name, page: pkg.page, synopsis: pkg.synopsis, platforms: pkg.platforms ?? [] })
+    }
+    console.info(`[api] ${ref.packages.length} packages of ${ref.module}`)
+    return { status: 'ok', json, summaries, packages }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    if (process.env.CI) throw new Error(`api: ${reason}`)
+    console.warn(`[api] skipped: ${reason}`)
+    return { status: 'unavailable', reason }
+  }
+}
+
+function gameapi(ctx: Context, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('go', ['run', './cmd/gameapi', ...args], { cwd: ctx.goModule, maxBuffer: 256 << 20 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(`go run ./cmd/gameapi ${args.join(' ')}: ${stderr.trim() || error.message}`))
+      else resolve(stdout)
+    })
+  })
+}
+
+// virtual:api lists the packages and imports each one's page module on demand.
+function loadApiModule(build: ApiBuild): string {
+  if (build.status !== 'ok') return `export const api = ${JSON.stringify({ status: 'unavailable', reason: build.reason })}\nexport const loadApiPackage = async () => undefined`
+  const loaders = build.summaries.map((s) => `  ${JSON.stringify(s.page)}: () => import(${JSON.stringify(API_PACKAGE + s.page)}),`).join('\n')
+  return `export const api = ${JSON.stringify({ status: 'ok', packages: build.summaries })}
+const loaders = {
+${loaders}
+}
+export async function loadApiPackage(page) {
+  const load = Object.hasOwn(loaders, page) ? loaders[page] : undefined
+  return load ? (await load()).default : undefined
+}`
 }
 
 // ---- Snippets ----
