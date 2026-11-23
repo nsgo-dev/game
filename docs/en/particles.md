@@ -182,7 +182,7 @@ From a background goroutine, call `StageBytes` and apply the staged definition o
 
 ## Performance
 
-Each live particle is one sprite in the emitter's `sprite.Batch`, so a frame records one image draw per particle. Until `sprite.Batch` draws with a single `DrawAtlas` call ([nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)), each of those draws also allocates once inside NSGo's `Drawing`.
+Each live particle is one sprite in the emitter's `sprite.Batch`. Untinted particles, those without a `ColorCurve` or with a white one, draw in runs of one `DrawAtlas` call each ([nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)). A particle tinted by a non-white `ColorCurve` keeps its own image draw, which also allocates once inside NSGo's `Drawing`, so tinting thousands of particles costs more than fading them with `AlphaCurve`.
 
 `examples/fountain` is the stress scene for this: four seeded fountains topped up to 5000 live particles after every fixed step, all rotating and fading. Run it with NSGo's performance monitor and read the FPS line at the top right, with the window visible (a covered window pauses `game.Loop`):
 
@@ -193,13 +193,13 @@ go tool nsgo dev -fps
 
 The up and down arrow keys move the particle count by 1000 (from 1000 to 20000) to find where a machine drops below its display rate, and `R` restarts the scene from its seed.
 
-Two benchmarks track the CPU side of a frame:
+Two benchmarks track the CPU side of a frame, one for each way a particle is drawn:
 
 ```sh
-# One Update and one Draw of a 5000-particle emitter
+# One Update and one Draw of 5000 tinted particles, one image draw each
 cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
-# One step and one draw of the whole fountain scene
+# One step and one draw of the fountain scene's 5000 untinted particles, in DrawAtlas runs
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
-On an AMD Ryzen 9 3900X (Linux) they take about 1.3 ms and 2.0 ms. That is only the CPU cost of stepping the particles and recording their draw operations: it leaves out the platform replaying about 5000 image draws per frame and the garbage collector reclaiming the allocation each draw makes, so it is not evidence that a device holds 60 fps. A 60 fps reading on macOS with `--nsgo-fps` has not been recorded yet ([nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)).
+On an AMD Ryzen 9 3900X (Linux) they take about 1.7 ms with 5000 allocations and 1.8 ms with 25 allocations. That is only the CPU cost of stepping the particles and recording their draw operations: it leaves out the platform drawing about 5000 images per frame, and for tinted particles the garbage collector reclaiming the allocation each draw makes, so it is not evidence that a device holds 60 fps. A 60 fps reading on macOS with `--nsgo-fps` has not been recorded yet ([nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)).

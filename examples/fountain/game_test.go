@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -105,17 +106,15 @@ func TestViewDrawsEveryParticle(t *testing.T) {
 			}
 		}
 	}
-	images := 0
-	for _, op := range app.Find("fountain-canvas").Ops {
-		if op.Kind == core.DrawImage {
-			if op.Image == nil || op.Image.Pixels == nil {
-				t.Fatalf("DrawImage op without the procedural atlas: %+v", op)
-			}
-			images++
+	// sprite.Batch draws runs of particles with one DrawAtlas, so count the images drawn rather than the ops.
+	images := gametest.ImageDraws(app.Find("fountain-canvas").Ops)
+	for _, im := range images {
+		if im.Image.Pixels == nil {
+			t.Fatalf("image draw without the procedural atlas: %+v", im)
 		}
 	}
-	if images != visible || visible < DefaultTarget*9/10 {
-		t.Fatalf("drew %d images for %d visible of %d particles", images, visible, DefaultTarget)
+	if len(images) != visible || visible < DefaultTarget*9/10 {
+		t.Fatalf("drew %d images for %d visible of %d particles", len(images), visible, DefaultTarget)
 	}
 	if got := app.Find("hud-count").Text; got != "5000 particles" {
 		t.Fatalf("hud-count = %q, want %q", got, "5000 particles")

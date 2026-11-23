@@ -182,7 +182,7 @@ watcher.Watch("fx/fire.yaml", func(data []byte) {
 
 ## 性能
 
-每个存活粒子都是发射器 `sprite.Batch` 中的一个精灵，因此每帧会为每个粒子记录一次图像绘制。在 `sprite.Batch` 改为一次 `DrawAtlas` 调用绘制（[nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)）之前，每次这样的绘制还会在 NSGo 的 `Drawing` 内部分配一次内存。
+每个存活粒子都是发射器 `sprite.Batch` 中的一个精灵。未着色的粒子（没有 `ColorCurve` 或 `ColorCurve` 为白色）按连续的一段合并为一次 `DrawAtlas` 调用绘制（[nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)）。被非白色 `ColorCurve` 着色的粒子仍各自单独绘制一次图像，并在 NSGo 的 `Drawing` 内部分配一次内存，因此给数千个粒子着色比用 `AlphaCurve` 淡出它们开销更大。
 
 `examples/fountain` 是对应的压力测试场景：四个按种子生成的喷泉在每个固定步之后补足到 5000 个存活粒子，全部带旋转和淡出。用 NSGo 的性能监视器运行它，并在窗口可见时读取右上角的 FPS 一行（窗口被遮挡时 `game.Loop` 会暂停）：
 
@@ -193,13 +193,13 @@ go tool nsgo dev -fps
 
 上下方向键以 1000 为步长调整粒子数（1000 到 20000），用来找出机器跌破显示刷新率的位置；`R` 按种子重新开始场景。
 
-两个基准测试跟踪一帧中 CPU 的部分：
+两个基准测试跟踪一帧中 CPU 的部分，分别对应粒子的两种绘制方式：
 
 ```sh
-# 5000 个粒子的发射器执行一次 Update 和一次 Draw
+# 5000 个着色粒子执行一次 Update 和一次 Draw，每个粒子单独绘制一次图像
 cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
-# 整个喷泉场景执行一个固定步和一次绘制
+# 喷泉场景的 5000 个未着色粒子执行一个固定步和一次绘制，按 DrawAtlas 分段绘制
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
-在 AMD Ryzen 9 3900X（Linux）上它们分别约需 1.3 ms 和 2.0 ms。这只是推进粒子并记录绘制操作的 CPU 开销：不包括平台每帧回放约 5000 次图像绘制的开销，也不包括垃圾回收器回收每次绘制所分配内存的开销，因此不能据此认为设备能保持 60 fps。macOS 上用 `--nsgo-fps` 测得的 60 fps 读数尚未记录（[nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)）。
+在 AMD Ryzen 9 3900X（Linux）上它们分别约需 1.7 ms（5000 次内存分配）和 1.8 ms（25 次内存分配）。这只是推进粒子并记录绘制操作的 CPU 开销：不包括平台每帧绘制约 5000 张图像的开销，对着色粒子也不包括垃圾回收器回收每次绘制所分配内存的开销，因此不能据此认为设备能保持 60 fps。macOS 上用 `--nsgo-fps` 测得的 60 fps 读数尚未记录（[nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)）。
