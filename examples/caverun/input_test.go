@@ -72,7 +72,22 @@ func jumpPeak(app *nsgotest.App, g *caveRun, press func()) float32 {
 
 func TestKeyboardPauseRestartAndSwarm(t *testing.T) {
 	app, g := startCaveRun(t)
+
+	// F on the title screen, where its hint shows, turns the swarm on for the run it starts; F again during play turns it off.
+	app.Key("f")
+	app.Advance(2 * testFrame)
+	if !g.swarm.Get() || g.level.swarm == nil {
+		t.Fatal("F on the title screen did not turn the firefly swarm on")
+	}
 	startWithEnter(t, app, g)
+	if g.level.swarm == nil {
+		t.Fatal("the run started from the title screen dropped the firefly swarm")
+	}
+	app.Key("f")
+	app.Advance(2 * testFrame)
+	if g.swarm.Get() || g.level.swarm != nil {
+		t.Fatal("F during play did not turn the firefly swarm off")
+	}
 
 	app.KeyDown("d")
 	app.Advance(300 * time.Millisecond)

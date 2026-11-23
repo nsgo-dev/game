@@ -67,6 +67,9 @@ func TestFireflySwarmDraws1000MovingSpritesInOneAtlasCall(t *testing.T) {
 		if float64(s.X) < float64(view.Origin.X)-float64(swarmMargin)-1 || float64(s.X) > float64(view.Origin.X+view.Size.Width)+float64(swarmMargin)+1 {
 			t.Fatalf("firefly %d at x=%.1f is outside the view %v", i, s.X, view)
 		}
+		if float64(s.Y) < float64(view.Origin.Y)-float64(swarmMargin)-1 || float64(s.Y) > float64(view.Origin.Y+view.Size.Height)+float64(swarmMargin)+1 {
+			t.Fatalf("firefly %d at y=%.1f is outside the view %v", i, s.Y, view)
+		}
 	}
 	if got, want := app.Find("id:hud-sprites").Text, "SPRITES 1012"; got != want {
 		t.Fatalf("hud-sprites = %q, want %q", got, want)
