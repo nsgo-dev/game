@@ -24,6 +24,8 @@ const en = {
   home: {
     badge: 'Early: APIs will change',
     targets: 'Targets',
+    // Under the target chips: why consoles are not among them (#496).
+    consoles: 'Not consoles: Switch, PlayStation and Xbox SDKs are under NDA and need C toolchains.',
     // The readouts under the hero's playfield: a short label shown, and the name a screen reader reads before the value.
     hud: {
       label: 'Playfield readouts',
@@ -203,6 +205,7 @@ const zh: Copy = {
   home: {
     badge: '早期阶段：API 还会变化',
     targets: '目标平台',
+    consoles: '不支持游戏主机：Switch、PlayStation 和 Xbox 的 SDK 受保密协议约束，且需要 C 工具链。',
     hud: {
       label: '游戏区读数',
       step: '步长',

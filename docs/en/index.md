@@ -71,6 +71,8 @@ While the window is in the background, the loop runs no updates and the mixer pl
 
 macOS, iOS, Windows, Linux, Android and the web. HarmonyOS, mini programs, watchOS and tvOS are outside the first stage.
 
+Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and need C toolchains, and NSGo and this repository are Go only, with no hand-written C.
+
 See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six targets.
 
 ### VR and AR

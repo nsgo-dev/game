@@ -108,6 +108,8 @@ Pass `-installers=false` if you only want the raw unpacked app directories on de
 | iOS | `ios`, `ios_simulator` | `.ipa` | `.ipa` | macOS + Xcode |
 | Android | `android_arm64` (`android`), `android_x64` | `.apk` | `.aab` | Any host (`android_x64` needs NDK) |
 
+Consoles (Nintendo Switch, PlayStation and Xbox) are not targets: their SDKs are under NDA and need C toolchains, and NSGo is Go only.
+
 ### macOS
 
 Build Apple Silicon, Intel, or both:
