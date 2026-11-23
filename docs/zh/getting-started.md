@@ -239,4 +239,5 @@ if jump != nil {
 
 - 跟着[教程](tutorial.md)分九章从空项目做出一款完整的游戏 Star Catcher，直到构建发布包。
 - 阅读各个包的详细指南：[Loop](loop.md)、[sprite](sprite.md) 和 [sound](sound.md)，或查阅汇总的[包](packages.md)参考。
+- 试玩并阅读示例平台跳跃游戏 [Cave Run](https://github.com/nsgo-dev/game/tree/main/examples/caverun)：它用到了 Loop、键盘、游戏手柄、触控和鼠标上的输入动作、精灵批次、带镜头的 Tiled 地图、场景、声音分组以及原生 HUD 和暂停菜单，带有 1000 个精灵的压力模式，以及在无界面环境中把关卡一直玩到终点的测试。
 - 准备好检查所有目标平台并构建 macOS、Windows、Linux、Web、iOS 和 Android 发布包时，阅读[构建与发布](shipping.md)。

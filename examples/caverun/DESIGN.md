@@ -19,15 +19,19 @@
 
 ## 3. Controls
 
-All gameplay inputs are mapped through named `input` actions so keyboard, gamepad, touch, and mouse work identically:
+All gameplay inputs are mapped through named `input` actions (`bindControls` in `game.go`) so keyboard, gamepad, touch, and mouse work identically. `input.Actions.WatchKeys` hears held keys anywhere on the window and `WatchGamepads` reads every connected controller; one `Actions.Step` per fixed step samples them all:
 
 | Action | Keyboard | Gamepad | Touch / Mouse |
 | --- | --- | --- | --- |
-| Move Left | `A`, `←` | D-Pad Left, Left Stick `< -0.3` | On-screen Left button (HUD overlay) |
-| Move Right | `D`, `→` | D-Pad Right, Left Stick `> 0.3` | On-screen Right button (HUD overlay) |
-| Jump | `Space`, `W`, `↑`, `Z` | South (`A` / Cross) | On-screen Jump button (HUD overlay) |
+| Move Left | `A`, `←` | D-Pad Left, Left Stick `< -0.3` | On-screen Left button (HUD overlay), lower-left canvas region |
+| Move Right | `D`, `→` | D-Pad Right, Left Stick `> 0.3` | On-screen Right button (HUD overlay), lower-middle canvas region |
+| Jump | `Space`, `W`, `↑`, `Z` | South (`A` / Cross) | On-screen Jump button (HUD overlay), lower-right canvas region |
+| Start / Play Again | `Enter` (or Jump on the title) | `Start` / Menu | Play / Play Again buttons |
 | Pause / Resume | `Esc`, `P` | `Start` / Menu | Native HUD Pause button |
 | Quick Restart | `R` | `Select` / Back | Pause / End overlay Restart button |
+| 1000-firefly stress swarm | `F` | North (`Y` / Triangle) | Pause menu Fireflies button |
+
+The stick reads as an analog axis with an axial dead zone of `0.3`, so a half push walks at half speed. A pause, restart or scene change resets the actions, and a key or button held through it stays inactive until it is released.
 
 Movement uses responsive platformer feel: short coyote time (`~100 ms`), jump input buffering (`~100 ms`), and variable jump height when releasing Jump early.
 
@@ -93,14 +97,15 @@ All audio assets are uncompressed 16-bit mono PCM WAV files at `22050 Hz`, route
 Keeping with NSGo's architecture, gameplay renders into a single `core.Canvas` while UI chrome stays native NSGo views overlaid on top:
 
 - **In-Game HUD**: Top-left hearts + collected gem counter (`3/8`), top-center score, top-right Pause button; optional bottom touch controls rendered on touch/mobile viewports.
-- **Pause Menu**: Semi-transparent native modal pausing `game.Loop` and ducking/pausing music, with **Resume**, **Restart**, and **Music / SFX Volume** controls persisted by `sound.Mixer`.
+- **Pause Menu**: Semi-transparent native modal pausing `game.Loop` and ducking/pausing music, with **Resume**, **Restart**, **Fireflies** (the stress swarm), and **Music / SFX Volume** controls persisted by `sound.Mixer`. While the swarm is on, the score pill also shows the frame's sprite count (`SPRITES 1012`).
 - **End Overlays**: **Cave Cleared** (score breakdown, gems collected, replay) and **Try Again** (instant restart on 0 hearts).
 
 ## 8. Performance Targets & Headless `nsgotest` Plan
 
-- **Runtime Budget**: Steady `60 fps` on desktop, mobile, and WebAssembly with a single sprite `Batch` draw call per frame, camera-culled tilemap rendering, and zero per-frame heap allocations in the `Update`/`Draw` hot path.
+- **Runtime Budget**: Hold the display's rate on desktop and the web, and `60 fps` on iOS and Android, with 1000 moving sprites on screen, measured with NSGo's `--nsgo-fps` monitor and recorded in `README.md`.
+- **Stress Swarm**: `swarm.go` adds 1000 fireflies (`swarmSize`) that drift and twinkle over the camera's view, all at the same `Z` and below full opacity, so `sprite.Batch` draws the whole swarm with one `DrawAtlas`. Moving them allocates nothing; NSGo v0.3.0's `Drawing` still copies each image draw's source onto the heap, so the tilemap's tiles allocate on every frame, and the swarm adds only its one `DrawAtlas`'s copies. `BenchmarkLevel1000Sprites` measures a step and a step plus the frame's drawing with the swarm on.
 - **Headless Completion Test (`nsgotest`)**:
   1. Boot the `caverun` app in a headless `nsgotest` harness with deterministic fixed-step ticks (`1/60 s`).
-  2. Drive the explorer from `spawn` across Chambers 1–3 using scripted `input` holds/releases (jumping the starter bridge, both lava pits, both slimes, and ascending to the Upper Shrine).
+  2. Drive the explorer from `spawn` across Chambers 1–3 using scripted holds/releases (jumping the starter bridge, both lava pits, both slimes, and ascending to the Upper Shrine), once each with the HUD buttons, held keyboard keys, a game controller, and held keys with the 1000-firefly swarm on.
   3. Assert at least one gem pickup increments score (`+100`) and triggers the `spark` animation, no unhandled panics occur, and reaching `goal` transitions the scene to the Victory state within a bounded step count.
   4. Verify pause/resume freezes simulation time and volume changes propagate cleanly through `sound.Mixer`.
