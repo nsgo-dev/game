@@ -134,8 +134,7 @@ func NewManager(cx *core.Scope, opts ManagerOptions) *Manager {
 	return m
 }
 
-// Discover scans immediate subdirectories of dir for mod.json manifests, validates them,
-// resolves dependency order, and registers them with the manager.
+// Discover scans immediate subdirectories of dir for mod.yaml manifests, validates them, resolves dependency order, and registers them with the manager.
 func (m *Manager) Discover(dir string) ([]ModManifest, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -147,9 +146,7 @@ func (m *Manager) Discover(dir string) ([]ModManifest, error) {
 	return m.DiscoverFS(os.DirFS(dir))
 }
 
-// DiscoverFS scans immediate subdirectories of fsys for mod.json manifests, validates them,
-// checks GameVersion compatibility and entry file existence, resolves dependency order via
-// topological sort, and registers them with the manager.
+// DiscoverFS scans immediate subdirectories of fsys for mod.yaml manifests ([ManifestFile]), validates them, checks GameVersion compatibility and entry file existence, resolves dependency order via topological sort, and registers them with the manager. Subdirectories without a manifest are skipped; one that still has only a mod.json is refused with [ErrInvalidManifest].
 //
 // If validation or dependency resolution fails, existing loaded mods are left untouched.
 func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
@@ -166,10 +163,14 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 			continue
 		}
 		dirName := entry.Name()
-		manifestPath := path.Join(dirName, "mod.json")
+		manifestPath := path.Join(dirName, ManifestFile)
 		data, err := fs.ReadFile(fsys, manifestPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
+				// A directory with only the old JSON manifest is refused rather than skipped, so a mod is never silently left out.
+				if _, legacyErr := fs.Stat(fsys, path.Join(dirName, legacyManifestFile)); legacyErr == nil {
+					return nil, fmt.Errorf("%w: %s: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, dirName, ManifestFile)
+				}
 				continue
 			}
 			return nil, fmt.Errorf("modding: read %s: %w", manifestPath, err)
@@ -462,7 +463,7 @@ func (m *Manager) Reload(id string) error {
 		return fmt.Errorf("%w: %q", ErrModDisabled, id)
 	}
 	m.unloadMod(mod)
-	data, readErr := fs.ReadFile(mod.fsys, "mod.json")
+	data, readErr := fs.ReadFile(mod.fsys, ManifestFile)
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
 		mod.state = StateFailed
 		mod.err = fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)

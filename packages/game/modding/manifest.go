@@ -1,16 +1,19 @@
 package modding
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/tsx/pkg"
+	"go.yaml.in/yaml/v3"
 )
 
 // Capability is a bitmask of permissions granted to a mod.
@@ -134,6 +137,48 @@ func (c *Capability) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalYAML encodes c as a flow sequence of canonical capability names in table order, so a manifest's capabilities always serialize the same way regardless of how they were listed.
+func (c Capability) MarshalYAML() (any, error) {
+	node := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+	for _, name := range c.Names() {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
+	}
+	return node, nil
+}
+
+// UnmarshalYAML decodes a YAML sequence of canonical capability names (such as readState) into c. Unknown, non-canonical and repeated names are refused.
+func (c *Capability) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.SequenceNode {
+		return fmt.Errorf("%w: line %d: capabilities must be a sequence of names", ErrInvalidManifest, value.Line)
+	}
+	var mask Capability
+	for _, item := range value.Content {
+		if item.Kind != yaml.ScalarNode || item.ShortTag() != "!!str" {
+			return fmt.Errorf("%w: line %d: capability must be a name", ErrInvalidManifest, item.Line)
+		}
+		flag, ok := capabilityByName(item.Value)
+		if !ok {
+			return fmt.Errorf("%w: line %d: unknown capability %q", ErrInvalidManifest, item.Line, item.Value)
+		}
+		if mask&flag != 0 {
+			return fmt.Errorf("%w: line %d: capability %q listed twice", ErrInvalidManifest, item.Line, item.Value)
+		}
+		mask |= flag
+	}
+	*c = mask
+	return nil
+}
+
+// capabilityByName looks up a capability by its exact canonical name.
+func capabilityByName(name string) (Capability, bool) {
+	for _, entry := range capabilityTable {
+		if entry.name == name {
+			return entry.flag, true
+		}
+	}
+	return CapNone, false
+}
+
 // pkgCapabilities translates modding capabilities into NSGo's package sandbox capabilities.
 // Network, clipboard, secrets, and other system permissions remain closed by default.
 func (c Capability) pkgCapabilities() pkg.Capabilities {
@@ -142,23 +187,58 @@ func (c Capability) pkgCapabilities() pkg.Capabilities {
 	}
 }
 
-// ModManifest describes a mod, typically loaded from mod.json in a mod's directory.
+// ManifestFile is the name of the manifest file [Manager] reads from each mod's directory.
+const ManifestFile = "mod.yaml"
+
+// legacyManifestFile is the JSON manifest name read before mod.yaml; DiscoverFS refuses a mod that has only this file.
+const legacyManifestFile = "mod.json"
+
+// ManifestVersion is the mod manifest schema version this package reads and writes.
+const ManifestVersion = 1
+
+// ModManifest describes a mod. Mod authors write it as YAML in a [ManifestFile] (mod.yaml) in the mod's directory; [ParseManifest] reads it and [EncodeManifest] writes it.
 type ModManifest struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	Author       string            `json:"author,omitempty"`
-	Description  string            `json:"description,omitempty"`
-	Entry        string            `json:"entry"`
-	Capabilities Capability        `json:"capabilities,omitempty"`
-	Dependencies map[string]string `json:"dependencies,omitempty"`
-	GameVersion  string            `json:"gameVersion,omitempty"`
+	// ManifestVersion is the schema version of the manifest file; it must equal [ManifestVersion].
+	ManifestVersion int `yaml:"manifestVersion" json:"manifestVersion"`
+	// ID uniquely identifies the mod, such as com.example.boss-rush.
+	ID string `yaml:"id" json:"id"`
+	// Name is the mod's human-readable name.
+	Name string `yaml:"name" json:"name"`
+	// Version is the mod's own semantic version, which dependency constraints are checked against.
+	Version string `yaml:"version" json:"version"`
+	// Author optionally names the mod's author.
+	Author string `yaml:"author,omitempty" json:"author,omitempty"`
+	// Description optionally describes the mod.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Entry is the entry script's slash-separated path relative to the mod's directory.
+	Entry string `yaml:"entry" json:"entry"`
+	// GameVersion optionally constrains the host game versions the mod runs on, such as ">=0.2.0".
+	GameVersion string `yaml:"gameVersion,omitempty" json:"gameVersion,omitempty"`
+	// Capabilities lists the game API capabilities the mod requests.
+	Capabilities Capability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	// Dependencies maps the IDs of mods this mod requires to version constraints.
+	Dependencies map[string]string `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 }
 
-// ParseManifest parses and validates a mod.json manifest.
+// ParseManifest parses and validates a mod.yaml manifest. Unknown fields, duplicate keys, trailing YAML documents and a missing or unsupported manifestVersion are refused.
 func ParseManifest(data []byte) (ModManifest, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return ModManifest{}, fmt.Errorf("%w: empty manifest", ErrInvalidManifest)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	var m ModManifest
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := dec.Decode(&m); err != nil {
+		if errors.Is(err, ErrInvalidManifest) {
+			return ModManifest{}, err
+		}
+		return ModManifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return ModManifest{}, fmt.Errorf("%w: unexpected trailing YAML document", ErrInvalidManifest)
+		}
 		return ModManifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
 	}
 	if err := m.Validate(); err != nil {
@@ -167,11 +247,32 @@ func ParseManifest(data []byte) (ModManifest, error) {
 	return m, nil
 }
 
+// EncodeManifest validates m and writes it as deterministic 2-space YAML: fields in a fixed order, capabilities in canonical order and dependencies sorted by ID, so [ParseManifest] reads back an equal manifest and encoding that again gives the same bytes.
+func EncodeManifest(m ModManifest) ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(m); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("modding: encode manifest: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("modding: encode manifest: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
 // validEntryExtensions are the script extensions supported for a mod's entry file.
 var validEntryExtensions = []string{".tsx", ".ts", ".jsx", ".js", ".mjs"}
 
-// Validate checks that m has a valid ID, name, version, entry path, and version constraints.
+// Validate checks that m has the supported manifest version, a valid ID, name, version, entry path, capabilities, and version constraints.
 func (m ModManifest) Validate() error {
+	if m.ManifestVersion != ManifestVersion {
+		return fmt.Errorf("%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
+	}
 	if !validModID(m.ID) {
 		return fmt.Errorf("%w: invalid mod id %q", ErrInvalidManifest, m.ID)
 	}
@@ -183,6 +284,9 @@ func (m ModManifest) Validate() error {
 	}
 	if err := validateEntryPath(m.Entry); err != nil {
 		return fmt.Errorf("%w: mod %q entry %q: %v", ErrInvalidManifest, m.ID, m.Entry, err)
+	}
+	if m.Capabilities&^CapAll != 0 {
+		return fmt.Errorf("%w: mod %q has undefined capability bits %#x", ErrInvalidManifest, m.ID, uint32(m.Capabilities&^CapAll))
 	}
 	if m.GameVersion != "" {
 		if err := ValidateConstraint(m.GameVersion); err != nil {

@@ -1,0 +1,9 @@
+manifestVersion: 1
+id: com.example.boss-rush
+name: Boss Rush
+version: 1.2.0
+author: Example Studio
+description: Spawns a slime every five seconds and shows a HUD badge while the rush runs.
+entry: mod.tsx
+gameVersion: '>=0.2.0'
+capabilities: [readState, spawnEntity, emitEvent, ui]
