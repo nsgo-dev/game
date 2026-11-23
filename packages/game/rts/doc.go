@@ -1,0 +1,4 @@
+// Package rts provides the unit-control layer of a real-time strategy game: flow fields that steer many units toward a goal over an ai.Grid, a Crowd that moves those units with separation and wall sliding, formations defined in versioned YAML, box and click selection, and numbered control groups.
+//
+// Everything is deterministic and steps on game.Loop's fixed steps with no background goroutines: the same orders on the same grid move the same units to the same places on every run on the same CPU architecture. Positions are float32, and Go may fuse a multiply and an add into one instruction on arm64 but not on x64, so the same orders can end a few ulps apart on different architectures; a lockstep multiplayer game across architectures should exchange state from an authoritative host rather than rely on each peer stepping its own Crowd.
+package rts

@@ -1,0 +1,19 @@
+version: 1
+formations:
+  - name: line
+    shape: line
+    spacing: 1.5
+  - name: double-line
+    shape: line
+    spacing: 1.5
+    width: 12
+  - name: column
+    shape: column
+    spacing: 1.2
+    width: 2
+  - name: box
+    shape: box
+    spacing: 1.2
+  - name: wedge
+    shape: wedge
+    spacing: 1.5
