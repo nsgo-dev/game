@@ -88,7 +88,9 @@ hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
 - `Gain(pos)` 在 `Near` 以内为 `1`，在 `Far` 及更远处为 `0`，两者之间按 `Rolloff` 衰减：`RolloffLinear`（默认）为直线下降，`RolloffInverse` 按 `Near / 距离` 下降并重新缩放，使其在 `Far` 处恰好为 `0`。`Far` 不大于 `Near`、为无穷大或 `NaN` 时关闭距离衰减。
 - `Pan(pos)` 是音效在画面横向上的偏移除以 `PanWidth`，限制在 `[-1, 1]`；`PanWidth` 为 `0` 时取 `Far`。正上方或正下方的音效居中播放。
 - `PlayAt(l, pos, v)` 以 `v.Volume * l.Gain(pos)` 播放，再像 `Play` 一样乘上分组音量和主音量，并用 `l.Pan(pos)` 替换 `v.Pan`。超出 `Far` 时返回 `false`、不播放，因此听不到的音效不会占用发声数，也不计入 `Limit`。
-- `Voice(pos, v)` 返回 `PlayAt` 会使用的 voice，用于直接播放 `audio.Sound`；请先检查 `Gain`，因为 `audio` 会把音量 `0` 当作满音量播放。
+- `Cue.PlayAt(l, pos)` 像 `Play` 一样选出 cue 的下一个变体，并以该变体的音量和音高通过其音效的 `PlayAt` 播放，因此随机化的脚步声、击打声也能定位。
+- `Voice(pos, v)` 返回 `PlayAt` 会使用的 voice，用于直接播放 `audio.Sound`。音效听不到时会设置 `Muted`，因为 `audio` 会把音量 `0` 当作满音量播放。
+- 摄像机旋转只影响声像，距离不受其影响；`Rotation` 为无穷大或 `NaN` 时按 `0` 处理。
 
 声像和音量在播放开始时就已确定，因为 NSGo 的 `audio.Playback` 播放后无法再修改声像。它适合短音效；跟随移动声源的长音需要重新播放。
 
