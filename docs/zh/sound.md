@@ -40,7 +40,7 @@ core.Text{
 
 ### 音量变化何时生效
 
-- **音效（`Effect`）**：每次播放的实际音量为 `voice.Volume * mixer.Volume(group) * mixer.Master()`。音量调整作用于之后开始播放的音效；已经在播放的短音效保持开始时的音量，但如果将其分组音量或主音量设为 `0`，它会立即停止（[nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)）。
+- **音效（`Effect`）**：每次播放的实际音量为 `voice.Volume * mixer.Volume(group) * mixer.Master()`。音量调整会通过每次播放的 `audio.Playback` 立即作用于正在播放的音效，也作用于之后开始的音效。分组音量或主音量降为 `0` 时，正在播放的音效会静音继续播放，音量恢复后重新可闻。
 - **音乐（`Music`）**：正在播放的音轨会实时更新为 `mixer.Volume(group) * mixer.Master()`；有效音量为 `0` 时暂停，调高后从暂停位置继续播放。
 
 ## Effect 与并发发声上限
@@ -59,7 +59,7 @@ audio.LoadSound(cx, audio.Source{URI: "asset:sounds/hit.wav"}, func(s *audio.Sou
 
 第三个参数 `limit` 限制该音效同时最多有几个重叠播放（`0` 表示不设单独上限，仍受平台全部声音最多 32 个并发发声通道的约束），避免连续拾取金币或脚步声占满全部声道。
 
-- `Play(v audio.Voice) bool` 启动一次播放并返回是否真的播放了。有效音量为 `0`、应用在后台，或者仍有 `Limit` 个播放在进行中时返回 `false`（并发计数按 `s.Duration()` 除以 `v.Rate` 推算，`Rate` 截断在 `[0.5, 2]`，`0` 视为 `1`）。它不会打断正在播放的旧声音来腾出名额（[nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)）。
+- `Play(v audio.Voice) bool` 启动一次播放并返回是否真的播放了。有效音量为 `0`（包括设置了 `Muted` 的 voice）或应用在后台时返回 `false`。仍有 `Limit` 个播放在进行时，它会停止其中最早的一个来腾出名额，让最新的声音被听到；自然播放结束的播放会直接让出名额，不会停止其他播放。无法单独控制播放的后端会按开始时的设置播放，不受上限和之后音量变化的约束；NSGo 所有支持音频的后端都可以单独控制。
 - `Stop()` 停止该音效的所有播放（以及共享同一音频源的其他 `*audio.Sound`）。
 - 不再需要该音效时调用底层 `*audio.Sound` 的 `Close()`，或等待 `cx` 作用域销毁时自动释放。
 
@@ -105,7 +105,7 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 ```
 
 - `Loop`：设为 `true` 后，之后通过 `Play` 启动的音轨都会在播完时循环。
-- `Play(src, fade)`：按显示帧（`core.Scope.Animate`）在 `fade` 时长内把新音轨淡入、同时把正在播放的音轨淡出，旧音轨静音后立即关闭。`fade <= 0` 时立即切换。在一次交叉淡化尚未完成时再次调用 `Play`，正在淡入的音轨也会从当前音量平滑淡出。
+- `Play(src, fade)`：立即以静音状态开始播放新音轨，按显示帧（`core.Scope.Animate`）在 `fade` 时长内把它淡入、同时把正在播放的音轨淡出，旧音轨静音后立即关闭。`fade <= 0` 时立即切换。在一次交叉淡化尚未完成时再次调用 `Play`，正在淡入的音轨也会从当前音量平滑淡出。
 - `Stop(fade)`：在 `fade` 时长内淡出并关闭所有音乐播放器（`fade <= 0` 时立即停止）。
 
 在 Web 平台上，浏览器有自动播放策略，在首次用户交互前会拒绝播放（`audio.NotAllowed`）；请在按钮点击或玩家首次操作时启动音乐。
@@ -114,8 +114,8 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 
 `NewMixer` 会监听 `cx.Env().Lifecycle()`：
 
-- 应用进入 **`core.LifecycleBackground`**（桌面端最小化、隐藏或被完全遮挡；iOS 或 Android 退到后台）时，混音器会停止所有正在播放的音效、忽略新的 `Effect.Play` 调用，并暂停音乐。
-- 窗口回到 **`core.LifecycleActive`** 或 **`core.LifecycleInactive`**（窗口可见，包括桌面端失焦状态）时，音乐从暂停处继续，音效也恢复播放。
+- 应用进入 **`core.LifecycleBackground`**（桌面端最小化、隐藏或被完全遮挡；iOS 或 Android 退到后台）时，混音器会把正在播放的音效静音、忽略新的 `Effect.Play` 调用，并暂停音乐。
+- 窗口回到 **`core.LifecycleActive`** 或 **`core.LifecycleInactive`**（窗口可见，包括桌面端失焦状态）时，音乐从暂停处继续，仍在播放的音效恢复原来的音量，新的音效也可以播放。
 
 ## 为过场动画挂起
 

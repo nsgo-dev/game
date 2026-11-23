@@ -93,14 +93,14 @@ A `Mixer` sets how loud a game's sounds and music play: a master volume and a vo
 - `NewMixer(cx, key)` keeps the volumes in the app's storage (`core.Storage`) under keys starting with `key`, so they hold across launches.
 - `Master`, `SetMaster`, `Volume(group)` and `SetVolume(group, v)` read and set them. Read in a computation, a volume subscribes it to changes; a set fails with a `*core.StorageFullError` when the storage is full.
 - An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume.
-- A volume change applies to the effects played after it and to music as it plays. A short sound already playing keeps the volume it started with, except that a group or master volume of 0 stops it ([nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)).
-- While the window is in the background, the mixer stops the sounds playing, pauses the music, and plays the music on from there when the window shows again. `Suspend()` does the same until the `resume` it returns is called, as a cutscene does while it plays ([cutscene](cutscene.md)).
+- A volume change applies at once to the effects playing and to music as it plays. An effect whose group or master volume reaches 0 plays on in silence and is heard again as the volume comes back.
+- While the window is in the background, the mixer silences the effects playing and pauses the music; when the window shows again, it restores the effects still playing and plays the music on from there. `Suspend()` does the same until the `resume` it returns is called, as a cutscene does while it plays ([cutscene](cutscene.md)).
 
 ### Effect
 
 `mixer.Effect(s, group, limit)` plays an `*audio.Sound` through the mixer in a group, at most `limit` playbacks at once (0 for no limit of its own, under the platform's 32 for all sounds), so a burst of one sound does not take every voice.
 
-`Play(voice)` starts a playback and reports whether it did. It plays nothing while the volume is 0, while the app is in the background, or while `Limit` playbacks still play. `Stop()` stops every playback of the sound.
+`Play(voice)` starts a playback and reports whether it did. It plays nothing while the volume is 0 or while the app is in the background. With `Limit` playbacks still playing, it stops the oldest to make room. `Stop()` stops every playback of the sound.
 
 ### Music
 

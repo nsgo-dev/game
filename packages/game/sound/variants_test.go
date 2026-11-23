@@ -663,16 +663,23 @@ func TestCueMixerPlaybackWithNsgotest(t *testing.T) {
 		}
 	}
 
-	// Voice limit (2 per clip) is enforced on rapid playback without advancing clock.
-	// With 3 clips and limit 2 each, at most 6 can play concurrently.
-	rapidPlayed := 0
-	for range 12 {
-		if _, ok := cue.Play(); ok {
-			rapidPlayed++
+	// The voice limit of 2 per clip holds on rapid playback without advancing the clock: each new play stops its clip's oldest, so at most 6 play at once.
+	for i := range 12 {
+		if _, ok := cue.Play(); !ok {
+			t.Fatalf("rapid play %d did not play", i)
 		}
 	}
-	if rapidPlayed > 6 {
-		t.Fatalf("rapid playback exceeded per-clip voice limits: played=%d, want <= 6", rapidPlayed)
+	app.Settle()
+	for _, uri := range uris {
+		live := 0
+		for _, p := range byURI[uri].Playbacks {
+			if !p.Ended {
+				live++
+			}
+		}
+		if live > 2 {
+			t.Fatalf("%s has %d playbacks playing, want at most 2", uri, live)
+		}
 	}
 
 	// Stop calls Stop on all clip effects.

@@ -32,6 +32,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game`, `template` and the examples build against NSGo `v0.3.0` instead of v0.2.0, so the key-up, gamepad, frame-time, `DrawAtlas`, GPU view and other engine APIs released since v0.2.0 are available; NSGo's changes since v0.2.0 needed no source change in this repository, and NSGo now brings its goja fork `github.com/nsgo-dev/goja` in place of `github.com/dop251/goja` (#567).
 - `game/particles`: `Emitter.Draw` now tints each particle's sprite by its `ColorCurve` RGB, where it previously applied only the curve's alpha, so particle definitions with a non-white `colorCurve` draw in that color (#29).
 - `game`: `Loop` adds each frame's time from `RequestAnimationFrame` as it is, the display's own frame time where the platform stamps one, and no longer smooths it (#27).
+- `game/sound`: group, master and background volume changes now reach effects already playing through NSGo's `audio.Playback`, silencing them at 0 instead of stopping them; an `Effect` at its `Limit` stops its oldest playback to play a new one instead of refusing it; and a crossfade's new music track starts at once, muted, instead of waiting paused for the fade's first frame (#31).
 
 ### Fixed
 
