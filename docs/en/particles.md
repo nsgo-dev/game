@@ -75,7 +75,7 @@ Curves evaluate a particle's normalized age `t = Age / Lifetime` in `[0, 1]` by 
 - **`SizeCurve` (`FloatCurve`)**: uniform sprite scale over life (empty = `1`).
 - **`AlphaCurve` (`FloatCurve`)**: opacity over life (empty = `1`).
 - **`RotationCurve` (`FloatCurve`)**: additive rotation in radians over life (empty = `0`).
-- **`ColorCurve` (`ColorCurve`)**: linear RGBA interpolation stored on `Particle.Color` (empty = opaque white). Note: sprite tinting waits for [nsgo-dev/game#29](https://github.com/nsgo-dev/game/issues/29), so `Draw` currently multiplies `ColorCurve`'s alpha channel with `AlphaCurve`.
+- **`ColorCurve` (`ColorCurve`)**: linear RGBA interpolation stored on `Particle.Color` (empty = opaque white). `Draw` tints each particle's sprite by the color's RGB, and multiplies its alpha channel with `AlphaCurve`.
 
 ```go
 glow := particles.ColorCurve{

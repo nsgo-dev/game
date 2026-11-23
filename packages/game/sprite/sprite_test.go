@@ -321,3 +321,61 @@ func TestSpriteAndFrameMath2D(t *testing.T) {
 		t.Fatalf("zero Sprite.Bounds() = %+v, want empty", got)
 	}
 }
+
+func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
+	img := sheet.Image
+	red := core.RGB(0xff4020)
+	place := func(frame string, edit func(s *sprite.Sprite)) *sprite.Sprite {
+		s := sprite.NewSprite(sheet.Frames[frame])
+		edit(&s)
+		return &s
+	}
+	batch := &sprite.Batch{Atlas: sheet, Sprites: []*sprite.Sprite{
+		// Tinted alone: one tinted draw, no state to save.
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.Tint = 10, 10, red }),
+		// Turned, faded and blended: the tint rides on the same draw inside Save and Restore.
+		place("hero", func(s *sprite.Sprite) {
+			s.X, s.Y, s.OriginX, s.OriginY, s.Rotation, s.Alpha, s.Blend, s.Tint = 60, 60, 8, 8, math.Pi/2, 0.5, core.CompositeLighter, core.RGBA(0x00ff80, 0.5)
+		}),
+		// Trimmed and mirrored.
+		place("coin", func(s *sprite.Sprite) { s.X, s.FlipX, s.Tint = 100, true, red }),
+		// Opaque white and the zero color leave the picture as it is.
+		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 120, core.RGB(0xffffff) }),
+		place("hero", func(s *sprite.Sprite) { s.X = 140 }),
+		// A tint with no alpha draws nothing.
+		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 160, core.RGBA(0xff0000, 0) }),
+	}}
+	backdrop := func(d *core.Drawing) { d.SetFillColor(core.RGB(0x204060)).FillRect(0, 0, 200, 100) }
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
+				backdrop(d)
+				batch.Draw(d)
+			}},
+			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
+				backdrop(d)
+				d.DrawTintedImageFrom(img, red, 0, 0, 16, 16, 10, 10, 16, 16)
+				d.Save().SetComposite(core.CompositeLighter).SetAlpha(0.5).Transform(0, 1, -1, 0, 68, 52).DrawTintedImageFrom(img, core.RGBA(0x00ff80, 0.5), 0, 0, 16, 16, 0, 0, 16, 16).Restore()
+				d.Save().Transform(-1, 0, 0, 1, 116, 0).DrawTintedImageFrom(img, red, 16, 0, 8, 10, 4, 3, 8, 10).Restore()
+				d.DrawImageFrom(img, 0, 0, 16, 16, 120, 0, 16, 16)
+				d.DrawImageFrom(img, 0, 0, 16, 16, 140, 0, 16, 16)
+			}},
+		}}
+	})
+	got := app.Find("batch").Ops
+	sameOps(t, got, app.Find("hand").Ops)
+
+	// The tint belongs to the image draw alone: only the blended sprite changes the composite, so nothing recolors the backdrop drawn before the sprites.
+	tinted := 0
+	for _, op := range got {
+		if op.Kind == core.DrawComposite && op.Composite != core.CompositeLighter {
+			t.Fatalf("a tinted sprite set composite %v", op.Composite)
+		}
+		if op.Kind == core.DrawImage && op.Tinted {
+			tinted++
+		}
+	}
+	if tinted != 3 {
+		t.Fatalf("%d tinted image draws, want 3", tinted)
+	}
+}

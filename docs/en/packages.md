@@ -57,11 +57,11 @@ An `Animation` plays frames one after another, each for its own duration, moved 
 
 ### Sprite and Batch
 
-A `Sprite` is a frame placed in a drawing: moved (`X`, `Y`), turned (`Rotation`, in radians, clockwise), scaled (`ScaleX`, `ScaleY`; negative mirrors), flipped inside its untrimmed frame (`FlipX`, `FlipY`) and faded (`Alpha`) about its origin (`OriginX`, `OriginY`). `Z` orders the sprites of a batch.
+A `Sprite` is a frame placed in a drawing: moved (`X`, `Y`), turned (`Rotation`, in radians, clockwise), scaled (`ScaleX`, `ScaleY`; negative mirrors), flipped inside its untrimmed frame (`FlipX`, `FlipY`), faded (`Alpha`) and tinted (`Tint`) about its origin (`OriginX`, `OriginY`). `Z` orders the sprites of a batch.
 
-Its zero value draws nothing; `NewSprite(f)` returns one at full size and opacity. A sprite has no tint yet ([#29](https://github.com/nsgo-dev/game/issues/29)).
+Its zero value draws nothing; `NewSprite(f)` returns one at full size and opacity. A tint multiplies only the sprite's own pixels, leaving what is drawn under it unchanged.
 
-A `Batch` draws sprites of one atlas into a `core.Drawing`, lowest `Z` first and in the batch's order for the same `Z`, with one `DrawImageFrom` each. It leaves the drawing's state as it found it. Drawing a batch with NSGo's batched `DrawAtlas` is [#28](https://github.com/nsgo-dev/game/issues/28).
+A `Batch` draws sprites of one atlas into a `core.Drawing`, lowest `Z` first and in the batch's order for the same `Z`, with one `DrawImageFrom` each, or `DrawTintedImageFrom` for a tinted sprite. It leaves the drawing's state as it found it. Drawing a batch with NSGo's batched `DrawAtlas` is [#28](https://github.com/nsgo-dev/game/issues/28).
 
 ```go
 walk := atlas.Animations["walk"]

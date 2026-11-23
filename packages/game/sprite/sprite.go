@@ -8,11 +8,11 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Sprite is a frame of an atlas placed in a drawing: moved, turned, scaled, flipped, faded, blended and masked about its origin.
+// Sprite is a frame of an atlas placed in a drawing: moved, turned, scaled, flipped, faded, tinted, blended and masked about its origin.
 //
 // Its zero value draws nothing, as its scale and alpha are 0: NewSprite returns one at full size and opacity.
 //
-// A sprite has no tint: a Canvas has no way to recolor one image alone (no layer to composite it in); Blend sets how the sprite mixes with what is already drawn under it, as Drawing.SetComposite does.
+// Tint recolors only the sprite's own pixels, leaving what is drawn under it unchanged; Blend sets how the sprite mixes with what is already drawn under it, as Drawing.SetComposite does.
 type Sprite struct {
 	// Frame is the picture it draws now; a zero Frame draws nothing.
 	Frame Frame
@@ -28,6 +28,8 @@ type Sprite struct {
 	FlipX, FlipY bool
 	// Alpha is its opacity, from 0, which draws nothing, to 1. It replaces the drawing's alpha for the sprite, as Drawing.SetAlpha does.
 	Alpha float32
+	// Tint multiplies each of the picture's sRGB and alpha channels by the matching channel of a color before the sprite is composited, as Drawing.DrawTintedImageFrom does: core.RGB(0xff0000) keeps only its red, and a tint's alpha fades it on top of Alpha. Transparent pixels stay transparent, so the tint never reaches what is drawn under the sprite. The zero value, like opaque white, leaves the picture as it is.
+	Tint core.Color
 	// Blend is how the sprite mixes with what is already in the drawing, as Drawing.SetComposite does; the zero value is CompositeSourceOver.
 	Blend core.CompositeOp
 	// Mask, if set, clips the sprite to a shape in the drawing's coordinates before drawing it.
@@ -90,7 +92,7 @@ type Batch struct {
 	order []*Sprite
 }
 
-// Draw draws the batch's sprites into d with one DrawImageFrom each, lowest Z first. It leaves d's state as it found it: a sprite that turns, mirrors, fades, blends or clips draws between Save and Restore.
+// Draw draws the batch's sprites into d with one DrawImageFrom each, or one DrawTintedImageFrom for a tinted sprite, lowest Z first. It leaves d's state as it found it: a sprite that turns, mirrors, fades, blends or clips draws between Save and Restore.
 func (b *Batch) Draw(d *core.Drawing) {
 	draw := func(d *core.Drawing) {
 		b.order = append(b.order[:0], b.Sprites...)
@@ -107,9 +109,18 @@ func (b *Batch) Draw(d *core.Drawing) {
 	draw(d)
 }
 
+// untinted is opaque white, the tint that leaves a picture as it is.
+var untinted = core.RGB(0xffffff)
+
 func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 	f := s.Frame
 	if f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
+		return
+	}
+	// The zero color and opaque white leave the picture unchanged, so they draw untinted.
+	tinted := s.Tint != 0 && s.Tint != untinted
+	if tinted && s.Tint&0xff == 0 {
+		// A tint with no alpha multiplies every pixel's alpha to 0.
 		return
 	}
 
@@ -141,10 +152,16 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 	if s.Alpha < 1 {
 		d.SetAlpha(s.Alpha)
 	}
+	x, y, w, h := f.OffsetX, f.OffsetY, f.W, f.H
 	if plain {
-		d.DrawImageFrom(img, f.X, f.Y, f.W, f.H, m.Tx+m.A*f.OffsetX, m.Ty+m.D*f.OffsetY, m.A*f.W, m.D*f.H)
+		x, y, w, h = m.Tx+m.A*f.OffsetX, m.Ty+m.D*f.OffsetY, m.A*f.W, m.D*f.H
 	} else {
-		d.Transform(m.A, m.B, m.C, m.D, m.Tx, m.Ty).DrawImageFrom(img, f.X, f.Y, f.W, f.H, f.OffsetX, f.OffsetY, f.W, f.H)
+		d.Transform(m.A, m.B, m.C, m.D, m.Tx, m.Ty)
+	}
+	if tinted {
+		d.DrawTintedImageFrom(img, s.Tint, f.X, f.Y, f.W, f.H, x, y, w, h)
+	} else {
+		d.DrawImageFrom(img, f.X, f.Y, f.W, f.H, x, y, w, h)
 	}
 	if saved {
 		d.Restore()
