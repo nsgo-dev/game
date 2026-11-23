@@ -27,7 +27,7 @@ lights.DisableShadows = !p.Shadows
 foliage := world3d.DefaultQualityProfile(world3d.QualityLevelFor(quality.Low))
 ```
 
-`ResolutionScale` does not lower the resolution of a `core.Canvas`: NSGo v0.2.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it. Nothing in this repository applies `ResolutionScale` yet, Starburst included: it is a value for a game to apply to the buffers it sizes itself.
+`ResolutionScale` does not lower the resolution of a `core.Canvas`: NSGo v0.3.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it. Nothing in this repository applies `ResolutionScale` yet, Starburst included: it is a value for a game to apply to the buffers it sizes itself.
 
 ## The starting level
 
