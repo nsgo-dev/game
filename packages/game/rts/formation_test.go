@@ -2,6 +2,7 @@ package rts_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -214,4 +215,13 @@ func FuzzParseFormations(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestLayoutHugeWidth(t *testing.T) {
+	for _, shape := range []rts.Shape{rts.ShapeLine, rts.ShapeColumn, rts.ShapeBox} {
+		f := rts.Formation{Shape: shape, Spacing: 1, Width: math.MaxInt}
+		if got := f.Layout(nil, 2); len(got) != 2 || got[0].Row != 0 || got[1].Row != 0 {
+			t.Fatalf("%s with the largest width laid out %+v", shape, got)
+		}
+	}
 }

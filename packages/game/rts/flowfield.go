@@ -22,6 +22,7 @@ type FlowField struct {
 
 	cols, rows int
 	goals      []ai.Cell
+	request    []ai.Cell // the goals the last Build was given, valid or not, so the field can be built again from them
 	cost       []float32
 	enter      []float32
 	vec        []math2d.Vec2
@@ -43,9 +44,10 @@ func NewFlowField(origin math2d.Vec2, cellSize float32) *FlowField {
 
 // Build integrates g toward goals, replacing whatever the field held, and reports whether at least one goal is an in-bounds walkable cell. Goals that are out of bounds or blocked are ignored.
 //
-// Stepping into a cell costs the step's length (1, or sqrt(2) diagonally) times the cell's cost, which comes from g's MoveCost when g is an ai.CostGrid (values below 1 count as 1, as ai.AStar treats them) and is 1 otherwise, so a cell's integration cost equals the cost ai.AStar finds from it to the nearest goal. Build reuses the field's buffers, so rebuilding a field of the same size allocates nothing.
+// Stepping into a cell costs the step's length (1, or sqrt(2) diagonally) times the cell's cost, which comes from g's MoveCost when g is an ai.CostGrid (values of 0 or less, and non-finite ones, count as 1, as ai.AStar treats them) and is 1 otherwise, so a cell's integration cost equals the cost ai.AStar finds from it to the nearest goal. Build reuses the field's buffers, so rebuilding a field of the same size allocates nothing.
 func (f *FlowField) Build(g ai.Grid, goals ...ai.Cell) bool {
 	f.goals = f.goals[:0]
+	f.request = append(f.request[:0], goals...)
 	if g == nil {
 		f.resize(0, 0)
 		return false
@@ -180,7 +182,7 @@ var fieldSteps = [8]fieldStep{
 
 func moveCost(g ai.CostGrid, col, row int) float32 {
 	c := g.MoveCost(col, row)
-	if !(c >= 1) || math.IsInf(c, 0) {
+	if !(c > 0) || math.IsInf(c, 0) {
 		return 1
 	}
 	return float32(c)

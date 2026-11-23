@@ -233,3 +233,21 @@ func mazeGrid(cols, rows int) *ai.CostMap {
 	}
 	return g
 }
+
+// halfCost is a game-defined cost grid whose roads cost less than an open cell.
+type halfCost struct{ *ai.BoolGrid }
+
+func (halfCost) MoveCost(col, row int) float64 { return 0.5 }
+
+func TestFlowFieldSubUnitCostsMatchAStar(t *testing.T) {
+	g := halfCost{ai.NewBoolGrid(6, 1)}
+	f := rts.NewFlowField(math2d.Vec2{}, 1)
+	f.Build(g, ai.Cell{Col: 5, Row: 0})
+	_, cost, ok := ai.NewAStar().Find(g, ai.Cell{Col: 0, Row: 0}, ai.Cell{Col: 5, Row: 0})
+	if !ok || cost != 2.5 {
+		t.Fatalf("A* cost = %v, %v, want 2.5", cost, ok)
+	}
+	if got := f.Cost(0, 0); !near(got, float32(cost)) {
+		t.Fatalf("field cost = %v, A* = %v", got, cost)
+	}
+}

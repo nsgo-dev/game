@@ -93,7 +93,9 @@ func rowWidths(shape Shape, width, n int) []int {
 			per = width
 		}
 	}
-	out := make([]int, 0, (n+per-1)/per)
+	// A width beyond n changes nothing, and clamping it first keeps the row count from overflowing for a huge width.
+	per = max(1, min(per, n))
+	out := make([]int, 0, n/per+1)
 	for n > 0 {
 		k := min(per, n)
 		out = append(out, k)

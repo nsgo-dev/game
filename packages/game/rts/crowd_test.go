@@ -2,6 +2,8 @@ package rts_test
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -61,13 +63,16 @@ func moveThousand(t *testing.T, target math2d.Vec2) {
 
 	start := time.Now()
 	n := c.Move(ids, rts.MoveOrder{Target: target, Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 0.9}})
+	moveTime := time.Since(start)
 	if n != 1000 {
 		t.Fatalf("Move ordered %d units, want 1000", n)
 	}
-	steps := 0
 	const maxSteps = 60 * 90
-	for ; steps < maxSteps; steps++ {
+	times := make([]time.Duration, 0, maxSteps)
+	for len(times) < maxSteps {
+		t0 := time.Now()
 		c.Step(step)
+		times = append(times, time.Since(t0))
 		done := true
 		for _, u := range c.Units() {
 			if u.State != rts.Arrived {
@@ -79,7 +84,7 @@ func moveThousand(t *testing.T, target math2d.Vec2) {
 			break
 		}
 	}
-	elapsed := time.Since(start)
+	steps := len(times)
 	if steps == maxSteps {
 		moving := 0
 		for _, u := range c.Units() {
@@ -89,10 +94,16 @@ func moveThousand(t *testing.T, target math2d.Vec2) {
 		}
 		t.Fatalf("%d of 1000 units still moving after %d steps", moving, steps)
 	}
-	perFrame := elapsed / time.Duration(steps+1)
-	t.Logf("1000 units arrived in %d steps (%.1f s of game time), %v per step", steps, float64(steps)/60, perFrame)
-	if perFrame > frameBudget {
-		t.Fatalf("%v per step exceeds the 60 fps frame budget of %v", perFrame, frameBudget)
+	var total time.Duration
+	for _, d := range times {
+		total += d
+	}
+	slices.Sort(times)
+	// The 99th percentile bounds the steps a player would see as dropped frames, while leaving room for the odd step a busy test machine preempts.
+	p99 := times[(len(times)*99+99)/100-1]
+	t.Logf("1000 units arrived in %d steps (%.1f s of game time): %v per step on average, %v at the 99th percentile, %v at worst; the order took %v", steps, float64(steps)/60, total/time.Duration(steps), p99, times[len(times)-1], moveTime)
+	if p99 > frameBudget {
+		t.Fatalf("99th percentile step of %v exceeds the 60 fps frame budget of %v", p99, frameBudget)
 	}
 	if b := c.Fields().Builds(); b > 2 {
 		t.Fatalf("the group built %d flow fields, want them shared", b)
@@ -307,5 +318,117 @@ func BenchmarkMove1000(b *testing.B) {
 		c.Fields().Clear()
 		c.Move(ids, rts.MoveOrder{Target: targets[i%2]})
 		i++
+	}
+}
+
+func TestCrowdRebuildReroutesUnitsOnEvictedFields(t *testing.T) {
+	// A wall down the middle with two gaps, one near the top and one near the bottom.
+	g := ai.NewBoolGrid(40, 20)
+	for r := range 20 {
+		if r != 2 && r != 3 && r != 16 && r != 17 {
+			g.SetWalkable(20, r, false)
+		}
+	}
+	c := rts.NewCrowd(g, rts.CrowdOptions{FieldCacheSize: 2})
+	group := spawnBlock(c, 4, 2, math2d.Vec2{X: 5.5, Y: 2.5})
+	c.Move(group, rts.MoveOrder{Target: math2d.Vec2{X: 35, Y: 3}, Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 1}})
+	for range 30 {
+		c.Step(step)
+	}
+	// Later orders push the group's fields out of the cache.
+	other := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 5.5, Y: 10.5}, Radius: 0.35})
+	for i := range 10 {
+		c.Move([]rts.UnitID{other}, rts.MoveOrder{Target: math2d.Vec2{X: 2.5 + float32(i), Y: 10.5}})
+	}
+	g.SetWalkable(20, 2, false)
+	g.SetWalkable(20, 3, false)
+	c.Rebuild()
+	for range 60 * 30 {
+		c.Step(step)
+	}
+	for _, id := range group {
+		u, _ := c.Unit(id)
+		if u.State != rts.Arrived {
+			t.Fatalf("unit %d %v at %v after the top gap closed, want it arrived through the bottom gap", u.ID, u.State, u.Pos)
+		}
+	}
+}
+
+func TestCrowdRebuildStopsUnitsWhoseGoalsAreBlocked(t *testing.T) {
+	g := ai.NewBoolGrid(10, 10)
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	id := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 1.5, Y: 1.5}, Radius: 0.35})
+	c.Move([]rts.UnitID{id}, rts.MoveOrder{Target: math2d.Vec2{X: 8.5, Y: 8.5}})
+	c.Step(step)
+	for col := 6; col < 10; col++ {
+		for row := 6; row < 10; row++ {
+			g.SetWalkable(col, row, false)
+		}
+	}
+	c.Rebuild()
+	if u, _ := c.Unit(id); u.State != rts.Idle {
+		t.Fatalf("unit ordered into a cell now blocked is %v, want idle", u.State)
+	}
+	if _, ok := c.Fields().Field(ai.Cell{Col: 8, Row: 8}); ok {
+		t.Fatal("the cache still serves a field whose only goal is blocked")
+	}
+}
+
+// strictGrid indexes its rows directly, as a game's own tilemap might, so any out-of-bounds query panics.
+type strictGrid [][]bool
+
+func (g strictGrid) GridSize() (cols, rows int) { return len(g[0]), len(g) }
+func (g strictGrid) Walkable(col, row int) bool { return g[row][col] }
+
+func TestCrowdNeverQueriesCellsOutsideTheGrid(t *testing.T) {
+	g := make(strictGrid, 10)
+	for r := range g {
+		g[r] = make([]bool, 10)
+		for c := range g[r] {
+			g[r][c] = r > 0 && c > 0 && r < 9 && c < 9
+		}
+	}
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	// Bodies wider than half a cell, starting inside the blocked border, including its corners.
+	var ids []rts.UnitID
+	for _, p := range []math2d.Vec2{{X: 0.5, Y: 0.5}, {X: 9.5, Y: 9.5}, {X: 0.5, Y: 5}, {X: 5, Y: 9.5}} {
+		ids = append(ids, c.Add(rts.UnitSpec{Pos: p, Radius: 0.8}))
+	}
+	for range 60 {
+		c.Step(step)
+	}
+	c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 5, Y: 5}})
+	for range 120 {
+		c.Step(step)
+	}
+}
+
+func TestCrowdSanitizesNonFiniteOptions(t *testing.T) {
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	for _, opts := range []rts.CrowdOptions{
+		{Origin: math2d.Vec2{X: nan, Y: inf}, CellSize: nan, Separation: nan, Gap: nan, ArriveRadius: nan, DirectRange: nan, Responsiveness: nan},
+		{CellSize: inf, Separation: inf, Gap: inf, ArriveRadius: inf, DirectRange: inf, Responsiveness: inf},
+	} {
+		c := rts.NewCrowd(ai.NewBoolGrid(20, 20), opts)
+		ids := spawnBlock(c, 9, 3, math2d.Vec2{X: 2.5, Y: 2.5})
+		c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 15, Y: 15}})
+		for range 60 * 10 {
+			c.Step(step)
+		}
+		for _, u := range c.Units() {
+			if math.IsNaN(float64(u.Pos.X)) || math.IsNaN(float64(u.Pos.Y)) || u.State != rts.Arrived {
+				t.Fatalf("options %+v: unit %d %v at %v", opts, u.ID, u.State, u.Pos)
+			}
+		}
+	}
+}
+
+func TestCrowdStepsHugeUnits(t *testing.T) {
+	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{})
+	c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 5, Y: 5}, Radius: 1e6})
+	c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 6, Y: 5}, Radius: 0.4})
+	// A body wider than the map costs no more than the map to keep inside it.
+	for range 10 {
+		c.Step(step)
 	}
 }

@@ -75,27 +75,27 @@ type Unit struct {
 
 // CrowdOptions tunes a Crowd. The zero value works for units about half a cell wide.
 type CrowdOptions struct {
-	// Origin is the world position of the top-left corner of grid cell (0, 0).
+	// Origin is the world position of the top-left corner of grid cell (0, 0); a non-finite coordinate counts as 0.
 	Origin math2d.Vec2
-	// CellSize is the width and height of a grid cell in world units; 0 or less uses 1.
+	// CellSize is the width and height of a grid cell in world units; 0 or less, or a non-finite value, uses 1.
 	CellSize float32
 	// FieldCacheSize is the number of flow fields kept for reuse; 0 or less uses DefaultFieldCacheSize.
 	FieldCacheSize int
-	// Separation scales the push between overlapping units; 0 or less uses 1.
+	// Separation scales the push between overlapping units; 0 or less, or a non-finite value, uses 1.
 	Separation float32
-	// Gap is extra room units keep between their bodies, in world units; negative values count as 0.
+	// Gap is extra room units keep between their bodies, in world units; negative and non-finite values count as 0.
 	Gap float32
-	// ArriveRadius is how close a unit gets to its target to count as arrived; 0 or less uses the unit's radius.
+	// ArriveRadius is how close a unit gets to its target to count as arrived; 0 or less, or a non-finite value, uses the unit's radius.
 	ArriveRadius float32
-	// DirectRange is the distance within which a unit that can see its target walks straight to it instead of following its flow field; 0 or less uses 6 cells.
+	// DirectRange is the distance within which a unit that can see its target walks straight to it instead of following its flow field; 0 or less, or a non-finite value, uses 6 cells.
 	DirectRange float32
-	// Responsiveness is how quickly a unit's velocity turns to its desired velocity, per second; 0 or less uses 8.
+	// Responsiveness is how quickly a unit's velocity turns to its desired velocity, per second; 0 or less, or a non-finite value, uses 8.
 	Responsiveness float32
 }
 
 // Crowd moves many units over an ai.Grid. Units follow shared flow fields to their targets, keep apart from each other, and slide along blocked cells and the grid's edge.
 //
-// Step advances every unit by one fixed step and runs in O(n) for n units: neighbors are found through a uniform bucket grid rebuilt each step without allocating, and each unit reads its flow field in constant time. Forces are computed from the positions at the start of the step for every unit before any unit moves, so the result does not depend on the order units were added in. A Crowd is not safe for concurrent use.
+// Step advances every unit by one fixed step in O(n + b) time for n units, where b is the number of neighbor buckets, each as wide as the largest unit's reach or a cell, covering the units' bounding box: neighbors are found through that bucket grid, rebuilt each step without allocating once its buffers have grown, and each unit reads its flow field in constant time. Forces are computed from the positions at the start of the step for every unit before any unit moves, so the result does not depend on the order units move in within a step. It does depend on the order units were added in, which sets their IDs and the order their pushes are summed, so a replay must add the same units in the same order. A Crowd is not safe for concurrent use.
 type Crowd struct {
 	grid   ai.Grid
 	opts   CrowdOptions
@@ -114,16 +114,25 @@ type Crowd struct {
 // NewCrowd returns an empty crowd moving units over grid.
 func NewCrowd(grid ai.Grid, opts CrowdOptions) *Crowd {
 	opts.CellSize = validCellSize(opts.CellSize)
-	if opts.Separation <= 0 {
+	if !finite(opts.Origin.X) {
+		opts.Origin.X = 0
+	}
+	if !finite(opts.Origin.Y) {
+		opts.Origin.Y = 0
+	}
+	if !(opts.Separation > 0) || !finite(opts.Separation) {
 		opts.Separation = 1
 	}
-	if opts.Gap < 0 {
+	if !(opts.Gap >= 0) || !finite(opts.Gap) {
 		opts.Gap = 0
 	}
-	if opts.DirectRange <= 0 {
+	if !(opts.ArriveRadius > 0) || !finite(opts.ArriveRadius) {
+		opts.ArriveRadius = 0
+	}
+	if !(opts.DirectRange > 0) || !finite(opts.DirectRange) {
 		opts.DirectRange = 6 * opts.CellSize
 	}
-	if opts.Responsiveness <= 0 {
+	if !(opts.Responsiveness > 0) || !finite(opts.Responsiveness) {
 		opts.Responsiveness = 8
 	}
 	return &Crowd{
@@ -137,8 +146,35 @@ func NewCrowd(grid ai.Grid, opts CrowdOptions) *Crowd {
 // Grid returns the grid the crowd moves over.
 func (c *Crowd) Grid() ai.Grid { return c.grid }
 
-// Fields returns the crowd's flow field cache. Call its Rebuild after changing the grid.
+// Fields returns the crowd's flow field cache. After changing the grid, call the Crowd's Rebuild rather than the cache's, so fields the cache has since dropped but units still follow are rebuilt too.
 func (c *Crowd) Fields() *FieldCache { return c.fields }
+
+// Rebuild integrates every flow field the crowd's units follow, and every field in its cache, again over the grid, in place, so the units see a change to the grid (a wall built, a bridge destroyed) on their next step. Call it after changing the grid's walkable cells or costs.
+//
+// Units whose own paths around walls were planned on the old grid plan them again. Units whose field no longer has a walkable goal, because every cell their order sent them to is now blocked, stop where they stand, as after Stop.
+func (c *Crowd) Rebuild() {
+	done := make(map[*FlowField]bool, len(c.fields.entries))
+	for _, e := range c.fields.entries {
+		done[e.field] = true
+	}
+	c.fields.Rebuild()
+	for i := range c.units {
+		u := &c.units[i]
+		u.path, u.pathIdx = u.path[:0], 0
+		f := u.field
+		if f == nil || done[f] {
+			continue
+		}
+		done[f] = true
+		c.fields.builds++
+		f.Build(c.grid, f.request...)
+	}
+	for i := range c.units {
+		if u := &c.units[i]; u.field != nil && len(u.field.Goals()) == 0 {
+			c.Stop(u.ID)
+		}
+	}
+}
 
 // Options returns the crowd's options with defaults filled in.
 func (c *Crowd) Options() CrowdOptions { return c.opts }
@@ -284,12 +320,20 @@ func (c *Crowd) Step(dt time.Duration) {
 	c.accel = c.accel[:n]
 
 	maxRadius := float32(0)
+	lo := math2d.Vec2{X: float32(math.Inf(1)), Y: float32(math.Inf(1))}
+	hi := math2d.Vec2{X: float32(math.Inf(-1)), Y: float32(math.Inf(-1))}
 	for i := range c.units {
-		maxRadius = max(maxRadius, c.units[i].Radius)
+		u := &c.units[i]
+		maxRadius = max(maxRadius, u.Radius)
+		lo = math2d.Vec2{X: min(lo.X, u.Pos.X), Y: min(lo.Y, u.Pos.Y)}
+		hi = math2d.Vec2{X: max(hi.X, u.Pos.X), Y: max(hi.Y, u.Pos.Y)}
 	}
+	if n == 0 {
+		lo, hi = math2d.Vec2{}, math2d.Vec2{}
+	}
+	// The buckets cover only the units' bounding box, so a step's cost follows the units rather than the size of the map.
 	reach := 2*maxRadius + c.opts.Gap
-	cols, rows := c.gridSize()
-	c.buckets.rebuild(c.units, c.opts.Origin, max(reach, c.opts.CellSize), float32(cols)*c.opts.CellSize, float32(rows)*c.opts.CellSize)
+	c.buckets.rebuild(c.units, lo, max(reach, c.opts.CellSize), hi.X-lo.X, hi.Y-lo.Y)
 
 	for i := range c.units {
 		c.accel[i] = c.steer(i)
@@ -460,7 +504,7 @@ func arrive(toTarget math2d.Vec2, dist, maxSpeed, slowRadius float32) math2d.Vec
 // settle updates u's move state after it moved.
 func (c *Crowd) settle(u *Unit) {
 	radius := c.opts.ArriveRadius
-	if radius <= 0 {
+	if radius == 0 {
 		radius = u.Radius
 	}
 	dist := u.Pos.Dist(u.Target)
@@ -490,8 +534,13 @@ func (c *Crowd) cellAt(p math2d.Vec2) (ai.Cell, bool) {
 	return cellAt(p, c.opts.Origin, c.opts.CellSize, cols, rows)
 }
 
+// walkable reports whether (col, row) is inside the grid and walkable. It checks the bounds itself because ai.Grid leaves out-of-bounds cells to each implementation, and a game's own grid may index a slice with them.
 func (c *Crowd) walkable(col, row int) bool {
-	return c.grid != nil && c.grid.Walkable(col, row)
+	if c.grid == nil || col < 0 || row < 0 {
+		return false
+	}
+	cols, rows := c.grid.GridSize()
+	return col < cols && row < rows && c.grid.Walkable(col, row)
 }
 
 // slide pushes u's body out of blocked cells and back inside the grid, dropping the part of its velocity that points into a wall so it slides along it.
@@ -519,11 +568,11 @@ func (c *Crowd) pushOut(p math2d.Vec2, r float32, vel *math2d.Vec2) math2d.Vec2 
 			cell, _ = c.cellAt(p)
 		}
 	}
-	span := int(math.Ceil(float64(r/cs))) + 1
-	for dr := -span; dr <= span; dr++ {
-		for dc := -span; dc <= span; dc++ {
-			col, row := cell.Col+dc, cell.Row+dr
-			if col < 0 || row < 0 || col >= cols || row >= rows || c.walkable(col, row) {
+	// The cells a body can touch, clamped to the grid so a body wider than the map costs no more than the map.
+	span := int(min(math.Ceil(float64(r/cs)), float64(max(cols, rows)))) + 1
+	for row := max(cell.Row-span, 0); row <= min(cell.Row+span, rows-1); row++ {
+		for col := max(cell.Col-span, 0); col <= min(cell.Col+span, cols-1); col++ {
+			if c.walkable(col, row) {
 				continue
 			}
 			box := math2d.Rect{X: o.X + float32(col)*cs, Y: o.Y + float32(row)*cs, W: cs, H: cs}
@@ -654,8 +703,9 @@ func (b *bucketGrid) rebuild(units []Unit, origin math2d.Vec2, size, width, heig
 	b.rows = max(1, int(math.Ceil(float64(height/size))))
 	n := b.cols * b.rows
 	if cap(b.start) < n+1 {
-		b.start = make([]int32, n+1)
-		b.cursor = make([]int32, n)
+		// Room for twice as many buckets, so a group spreading out as it moves does not reallocate on every step.
+		b.start = make([]int32, n+1, 2*n+1)
+		b.cursor = make([]int32, n, 2*n)
 	}
 	b.start = b.start[:n+1]
 	b.cursor = b.cursor[:n]
