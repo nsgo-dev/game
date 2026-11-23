@@ -12,6 +12,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/worldmap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+	"go.yaml.in/yaml/v3"
 )
 
 func loadCastle(t testing.TB) *worldmap.Map {
@@ -125,6 +126,30 @@ func TestVisitPrefersTheCurrentArea(t *testing.T) {
 	}
 	if _, err := m.Enter("nowhere"); !errors.Is(err, worldmap.ErrUnknownRoom) {
 		t.Fatalf("Enter(nowhere) = %v, want ErrUnknownRoom", err)
+	}
+}
+
+func TestVisitWithNoCurrentRoomTakesDefinitionOrder(t *testing.T) {
+	// A room of a named area comes first and overlaps a later default-area room.
+	m, err := worldmap.New(&worldmap.Doc{Version: worldmap.Version, Rooms: []worldmap.RoomDoc{
+		{ID: "a", Area: "b", Width: 10, Height: 10},
+		{ID: "c", Width: 10, Height: 10},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := m.RoomAt(math2d.Vec2{X: 5, Y: 5}); !ok || id != "a" {
+		t.Fatalf("RoomAt with no current room = %q, %v; want a", id, ok)
+	}
+	if id, first := m.Visit(math2d.Vec2{X: 5, Y: 5}); id != "a" || !first {
+		t.Fatalf("first Visit = %q, %v; want a, true", id, first)
+	}
+	if _, err := m.Enter("c"); err != nil {
+		t.Fatal(err)
+	}
+	m.Reset()
+	if id, _ := m.Visit(math2d.Vec2{X: 5, Y: 5}); id != "a" {
+		t.Fatalf("Visit after Reset = %q, want a", id)
 	}
 }
 
@@ -350,6 +375,48 @@ func TestStateJSONRefusesUnknownFields(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"version":1,"visited":["hall"]}`), &s); err != nil || !slices.Equal(s.Visited, []string{"hall"}) {
 		t.Fatalf("valid state: %v, %+v", err, s)
+	}
+}
+
+func TestStateYAMLRoundTripsAndRefusesUnknownFields(t *testing.T) {
+	m := loadCastle(t)
+	discoverSome(t, m)
+	want := m.State()
+	out, err := yaml.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got worldmap.State
+	if err := yaml.Unmarshal(out, &got); err != nil {
+		t.Fatalf("Unmarshal(%s): %v", out, err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("YAML round trip = %+v, want %+v", got, want)
+	}
+	again, err := yaml.Marshal(got)
+	if err != nil || string(again) != string(out) {
+		t.Fatalf("second encode differs (err %v):\n%s\n%s", err, out, again)
+	}
+	restored := loadCastle(t)
+	if err := restored.Restore(got); err != nil || !reflect.DeepEqual(restored.State(), want) {
+		t.Fatalf("Restore from YAML: %v", err)
+	}
+
+	var s worldmap.State
+	if err := yaml.Unmarshal([]byte("version: 1\nvisited: [hall]\nbogus: 3\n"), &s); !errors.Is(err, worldmap.ErrInvalidState) {
+		t.Fatalf("unknown field: %v", err)
+	}
+	if err := yaml.Unmarshal([]byte("version: 1\nvisited: []\nmarkers:\n  - {id: p, kind: k, room: hall, x: 1, \"y\": 2, z: 3}\n"), &s); !errors.Is(err, worldmap.ErrInvalidState) {
+		t.Fatalf("unknown marker field: %v", err)
+	}
+	var slot struct {
+		Map worldmap.State `yaml:"map"`
+	}
+	if err := yaml.Unmarshal([]byte("map:\n  version: 1\n  visited: [hall]\n  extra: true\n"), &slot); !errors.Is(err, worldmap.ErrInvalidState) {
+		t.Fatalf("unknown field in a nested state: %v", err)
+	}
+	if err := yaml.Unmarshal([]byte("map:\n  version: 1\n  visited: [hall]\n"), &slot); err != nil || !slices.Equal(slot.Map.Visited, []string{"hall"}) {
+		t.Fatalf("valid nested state: %v, %+v", err, slot.Map)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"go.yaml.in/yaml/v3"
 )
 
 // StateVersion is the schema version of State values written by Map.State and accepted by Map.Restore.
@@ -169,7 +170,7 @@ func (m *Map) AreaBounds(area string) (math2d.Rect, bool) {
 	return b, ok
 }
 
-// RoomAt returns the ID of the room containing p (half-open bounds, as math2d.Rect.Contains). When rooms of different areas overlap, the current room wins, then rooms of the current area, then the first room in definition order.
+// RoomAt returns the ID of the room containing p (half-open bounds, as math2d.Rect.Contains). When rooms of different areas overlap, the current room wins, then rooms of the current area, then the first room in definition order; with no current room, the first room in definition order wins.
 func (m *Map) RoomAt(p math2d.Vec2) (string, bool) {
 	i := m.roomAt(p)
 	if i < 0 {
@@ -183,12 +184,14 @@ func (m *Map) roomAt(p math2d.Vec2) int {
 		return m.current
 	}
 	first := -1
-	area := m.currentArea()
 	for i := range m.rooms {
 		if !m.rooms[i].Bounds.Contains(p) {
 			continue
 		}
-		if m.rooms[i].Area == area {
+		if m.current < 0 {
+			return i
+		}
+		if m.rooms[i].Area == m.rooms[m.current].Area {
 			return i
 		}
 		if first < 0 {
@@ -214,7 +217,7 @@ func (m *Map) Status(id string) Discovery {
 	return m.status[i]
 }
 
-// Visit marks the room under the player's position p as visited and makes it the current room. It returns that room's ID and whether this is the first visit; when p is in no room, it returns "" and false and keeps the current room.
+// Visit marks the room under the player's position p (chosen as RoomAt does) as visited and makes it the current room. It returns that room's ID and whether this is the first visit; when p is in no room, it returns "" and false and keeps the current room.
 func (m *Map) Visit(p math2d.Vec2) (id string, first bool) {
 	i := m.roomAt(p)
 	if i < 0 {
@@ -383,7 +386,7 @@ func (m *Map) Reset() {
 	clear(m.pinIDs)
 }
 
-// State is what a Map has discovered, in a form a save.Store slot (JSON) or a YAML file can hold. Lists are sorted, so equal states encode to equal bytes.
+// State is what a Map has discovered, in a form a save.Store slot (JSON) or a YAML file can hold. Lists are sorted, so equal states encode to equal bytes. Decoding from either format refuses unknown fields.
 type State struct {
 	// Version is the state schema version; Map.State writes StateVersion.
 	Version int `json:"version" yaml:"version"`
@@ -408,6 +411,24 @@ func (s *State) UnmarshalJSON(data []byte) error {
 	}
 	if dec.More() {
 		return fmt.Errorf("%w: trailing data", ErrInvalidState)
+	}
+	*s = State(v)
+	return nil
+}
+
+// UnmarshalYAML decodes a State from YAML, refusing unknown fields as UnmarshalJSON does.
+func (s *State) UnmarshalYAML(n *yaml.Node) error {
+	type plain State
+	// A yaml.Node has no known-fields check of its own, so re-encode it and decode with a strict decoder.
+	data, err := yaml.Marshal(n)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidState, err)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var v plain
+	if err := dec.Decode(&v); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidState, err)
 	}
 	*s = State(v)
 	return nil

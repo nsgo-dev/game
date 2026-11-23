@@ -2,7 +2,7 @@
 //
 // # Map Definitions
 //
-// A map is defined in a versioned YAML document (Doc): rooms with an ID, an optional name and area, world-space bounds and links to neighbouring rooms, plus fixed markers such as save points or bosses. Parse refuses unknown fields, unsupported versions, duplicate IDs, links to missing rooms and rooms that overlap inside one area; Encode writes deterministic 2-space YAML that round-trips through Parse unchanged.
+// A map is defined in a versioned YAML document (Doc): rooms with an ID, an optional name and area, world-space bounds and links to neighbouring rooms, plus fixed markers such as save points or bosses. Parse refuses unknown fields, unsupported versions, duplicate IDs, links to missing rooms and rooms that overlap inside one area; Encode writes deterministic 2-space YAML that parses back to an equal Doc and encodes again to the same bytes; comments and hand-written formatting are not preserved.
 //
 // # Discovery
 //

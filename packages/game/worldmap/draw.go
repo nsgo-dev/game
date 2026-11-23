@@ -5,11 +5,11 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Style sets the colors and sizes DrawMinimap and DrawWorldMap use. A zero (fully transparent) color leaves that part out, and a zero size uses DefaultStyle's.
+// Style sets the colors and sizes DrawMinimap and DrawWorldMap use. A zero (fully transparent) color leaves that part out, except Current (see below), and a zero size uses DefaultStyle's.
 type Style struct {
 	// Background fills the whole destination rectangle first.
 	Background core.Color
-	// Visited, Revealed and Current fill visited rooms, revealed rooms and the current room.
+	// Visited, Revealed and Current fill visited rooms, revealed rooms and the current room. A transparent Current fills the current room with Visited, so it is drawn like any other visited room.
 	Visited, Revealed, Current core.Color
 	// Border outlines every drawn room with BorderWidth.
 	Border      core.Color
@@ -98,9 +98,9 @@ func (p Projection) RectToMap(r math2d.Rect) math2d.Rect {
 	return math2d.Rect{X: o.X, Y: o.Y, W: r.W * p.Scale, H: r.H * p.Scale}
 }
 
-// MinimapProjection centers the world point center in dst at scale map points per world unit; a scale <= 0 behaves as 1.
+// MinimapProjection centers the world point center in dst at scale map points per world unit; a scale that is not positive and finite behaves as 1. The Offset is not finite when center is not, or when center*scale overflows float32.
 func MinimapProjection(dst core.Bounds, center math2d.Vec2, scale float32) Projection {
-	if !(scale > 0) {
+	if !(scale > 0) || !finite(scale) {
 		scale = 1
 	}
 	c := math2d.FromBounds(dst).Center()
@@ -128,16 +128,19 @@ func (m *Map) WorldMapProjection(dst core.Bounds, area string, padding float32) 
 	return Projection{Scale: scale, Offset: math2d.Vec2{X: bc.X - ac.X*scale, Y: bc.Y - ac.Y*scale}}, true
 }
 
-// DrawMinimap draws the discovered rooms of the current room's area (the default area when there is no current room) around the player's world position, at scale map points per world unit, clipped to dst. The player's square is drawn at the center of dst.
+// DrawMinimap draws the discovered rooms of the current room's area (the default area when there is no current room) around the player's world position, at scale map points per world unit, clipped to dst. The player's square is drawn at the center of dst. It draws nothing when the projection is not finite (see MinimapProjection), such as for a NaN or infinite player position.
 func (m *Map) DrawMinimap(d *core.Drawing, dst core.Bounds, player math2d.Vec2, scale float32, style *Style) {
 	if d == nil {
 		return
 	}
 	proj := MinimapProjection(dst, player, scale)
+	if !finite(proj.Offset.X) || !finite(proj.Offset.Y) {
+		return
+	}
 	m.draw(d, dst, proj, m.currentArea(), player, true, style)
 }
 
-// DrawWorldMap draws the discovered rooms of area fitted into dst (see WorldMapProjection). When player is not nil and the current room is in area, the player's square is drawn at that world position. It draws nothing when the map has no such area.
+// DrawWorldMap draws the discovered rooms of area fitted into dst (see WorldMapProjection). When player is not nil and finite and the current room is in area, the player's square is drawn at that world position. It draws nothing when the map has no such area.
 func (m *Map) DrawWorldMap(d *core.Drawing, dst core.Bounds, area string, player *math2d.Vec2, style *Style) {
 	if d == nil {
 		return
@@ -148,7 +151,7 @@ func (m *Map) DrawWorldMap(d *core.Drawing, dst core.Bounds, area string, player
 		return
 	}
 	var at math2d.Vec2
-	show := player != nil && m.current >= 0 && m.currentArea() == area
+	show := player != nil && finite(player.X) && finite(player.Y) && m.current >= 0 && m.currentArea() == area
 	if show {
 		at = *player
 	}

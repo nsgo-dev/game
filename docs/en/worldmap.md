@@ -40,7 +40,7 @@ markers:
     label: Gate shrine
 ```
 
-`Parse` refuses unknown fields, other versions, duplicate IDs, links to missing rooms (or the same pair listed twice), sizes that are not positive and rooms that overlap inside one area; rooms in different areas may overlap. `Encode` writes the same YAML back with a fixed key order, so `Parse` then `Encode` leaves the file unchanged. The encoder quotes the key `"y"` because YAML 1.1 reads a bare `y` as a boolean; both forms parse.
+`Parse` refuses unknown fields, other versions, duplicate IDs, links to missing rooms (or the same pair listed twice), sizes that are not positive (or that float32 rounding erases at the room's position), areas too large for float32 and rooms that overlap inside one area; rooms in different areas may overlap. `Encode` writes canonical YAML with a fixed key order: it parses back to the same `Doc` and encodes again to the same bytes. Comments, flow style and other formatting of a hand-written file are not kept, so a file saved with `Encode` loses them. The encoder quotes the key `"y"` because YAML 1.1 reads a bare `y` as a boolean; both forms parse.
 
 `Load(data)` parses a file and builds a `*Map`; `New(doc)` builds one from a `Doc` you made in code.
 
@@ -67,7 +67,7 @@ m.RevealArea("crypt")    // or a whole area
 | `Status(id)` | `Unknown`, `Revealed` or `Visited`. |
 | `Visited()`, `Revealed()` | Sorted room IDs. |
 | `Explored(area)` | Visited and total rooms of an area, for a completion percentage. |
-| `RoomAt(p)` | The room containing `p`. Where areas overlap, the current room wins, then the current area, then definition order. |
+| `RoomAt(p)` | The room containing `p`. Where areas overlap, the current room wins, then the current area, then definition order; with no current room, definition order alone decides. `Visit` picks its room the same way. |
 
 ## Markers
 
@@ -98,7 +98,7 @@ if err := store.Load("slot1", &s); err == nil {
 }
 ```
 
-`Restore` checks the whole state first and returns `ErrInvalidState` without changing the map when the version differs, a room is unknown or listed twice, the current room was not visited or a marker is invalid. Decoding a `State` from JSON refuses unknown fields. A save that names a room the definition no longer has is refused, so when a game renames or removes rooms, add a `save.WithMigration` step that rewrites the saved IDs. `Reset` forgets everything discovered.
+`Restore` checks the whole state first and returns `ErrInvalidState` without changing the map when the version differs, a room is unknown or listed twice, the current room was not visited or a marker is invalid. Decoding a `State` from JSON or YAML refuses unknown fields. A save that names a room the definition no longer has is refused, so when a game renames or removes rooms, add a `save.WithMigration` step that rewrites the saved IDs. `Reset` forgets everything discovered.
 
 ## Drawing
 
@@ -119,9 +119,9 @@ core.Canvas{
 m.DrawWorldMap(d, core.Bounds{Size: size}, "", &player, &style)
 ```
 
-- `DrawMinimap` centers the player in the rectangle at a fixed scale and draws the current room's area.
-- `DrawWorldMap` fits every room of the area, discovered or not, into the rectangle inset by `Style.Padding`, so the layout does not shift as the player explores. The player is drawn only when the current room is in that area.
-- `Style` sets the background, the fills of visited, revealed and current rooms, borders, links between discovered rooms, marker colors (`MarkerKinds` per kind) and sizes. A transparent color leaves that part out; `nil` uses `DefaultStyle()`.
+- `DrawMinimap` centers the player in the rectangle at a fixed scale and draws the current room's area. A scale that is not positive and finite counts as 1; a NaN or infinite player position draws nothing.
+- `DrawWorldMap` fits every room of the area, discovered or not, into the rectangle inset by `Style.Padding`, so the layout does not shift as the player explores. The player is drawn only when the current room is in that area and the position is finite.
+- `Style` sets the background, the fills of visited, revealed and current rooms, borders, links between discovered rooms, marker colors (`MarkerKinds` per kind) and sizes. A transparent color leaves that part out, except `Current`: a transparent `Current` fills the current room with `Visited`. `nil` uses `DefaultStyle()`.
 - `WorldMapProjection` and `MinimapProjection` return the `Projection` a view uses. `ToWorld` turns a tap on the map into a world point, for example to place a marker with `RoomAt` and `AddMarker`.
 
 Drawing the same map twice records the same operations, and a map restored from a save draws exactly as the one that was saved.

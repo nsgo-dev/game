@@ -40,7 +40,7 @@ markers:
     label: Gate shrine
 ```
 
-`Parse` 拒绝未知字段、其他版本、重复 ID、指向不存在房间的连接（或同一对房间列了两次）、非正尺寸，以及同一区域内互相重叠的房间；不同区域的房间可以重叠。`Encode` 以固定键序写回同样的 YAML，因此先 `Parse` 再 `Encode` 不会改动文件。YAML 1.1 会把裸写的 `y` 读成布尔值，所以编码器给键 `"y"` 加引号；两种写法都能解析。
+`Parse` 拒绝未知字段、其他版本、重复 ID、指向不存在房间的连接（或同一对房间列了两次）、非正尺寸（或在房间所在位置被 float32 舍入抹掉的尺寸）、超出 float32 范围的区域，以及同一区域内互相重叠的房间；不同区域的房间可以重叠。`Encode` 以固定键序写出规范的 YAML：它解析回同一个 `Doc`，再次编码得到相同的字节。手写文件里的注释、流式写法等格式不会保留，用 `Encode` 保存的文件会丢掉它们。YAML 1.1 会把裸写的 `y` 读成布尔值，所以编码器给键 `"y"` 加引号；两种写法都能解析。
 
 `Load(data)` 解析文件并构建 `*Map`；`New(doc)` 从代码里构造的 `Doc` 构建。
 
@@ -67,7 +67,7 @@ m.RevealArea("crypt")    // 或显示整个区域
 | `Status(id)` | `Unknown`、`Revealed` 或 `Visited`。 |
 | `Visited()`、`Revealed()` | 排好序的房间 ID。 |
 | `Explored(area)` | 区域内已到访房间数与总房间数，用于计算完成度。 |
-| `RoomAt(p)` | 包含 `p` 的房间。区域重叠时依次优先当前房间、当前区域、定义顺序。 |
+| `RoomAt(p)` | 包含 `p` 的房间。区域重叠时依次优先当前房间、当前区域、定义顺序；没有当前房间时只看定义顺序。`Visit` 以同样的方式选择房间。 |
 
 ## 标记
 
@@ -98,7 +98,7 @@ if err := store.Load("slot1", &s); err == nil {
 }
 ```
 
-`Restore` 先检查整个状态：版本不同、房间未知或重复、当前房间未到访或标记无效时返回 `ErrInvalidState`，地图保持不变。从 JSON 解码 `State` 时拒绝未知字段。存档里出现定义中已不存在的房间会被拒绝，所以游戏重命名或删除房间时，要添加一个 `save.WithMigration` 步骤改写存档里的 ID。`Reset` 清空所有发现。
+`Restore` 先检查整个状态：版本不同、房间未知或重复、当前房间未到访或标记无效时返回 `ErrInvalidState`，地图保持不变。从 JSON 或 YAML 解码 `State` 时拒绝未知字段。存档里出现定义中已不存在的房间会被拒绝，所以游戏重命名或删除房间时，要添加一个 `save.WithMigration` 步骤改写存档里的 ID。`Reset` 清空所有发现。
 
 ## 绘制
 
@@ -119,9 +119,9 @@ core.Canvas{
 m.DrawWorldMap(d, core.Bounds{Size: size}, "", &player, &style)
 ```
 
-- `DrawMinimap` 以固定比例把玩家放在矩形中心，绘制当前房间所在区域。
-- `DrawWorldMap` 把区域内所有房间（无论是否已发现）适配进按 `Style.Padding` 内缩后的矩形，因此玩家探索时布局不会移动。只有当前房间在该区域内时才绘制玩家。
-- `Style` 设置背景、已到访/已显示/当前房间的填充色、边框、已发现房间之间的连线、标记颜色（`MarkerKinds` 按种类设置）及尺寸。透明颜色表示不画该部分；传 `nil` 使用 `DefaultStyle()`。
+- `DrawMinimap` 以固定比例把玩家放在矩形中心，绘制当前房间所在区域。比例不是有限正数时按 1 处理；玩家位置为 NaN 或无穷大时什么都不画。
+- `DrawWorldMap` 把区域内所有房间（无论是否已发现）适配进按 `Style.Padding` 内缩后的矩形，因此玩家探索时布局不会移动。只有当前房间在该区域内且位置有限时才绘制玩家。
+- `Style` 设置背景、已到访/已显示/当前房间的填充色、边框、已发现房间之间的连线、标记颜色（`MarkerKinds` 按种类设置）及尺寸。透明颜色表示不画该部分，`Current` 除外：`Current` 透明时用 `Visited` 填充当前房间。传 `nil` 使用 `DefaultStyle()`。
 - `WorldMapProjection` 和 `MinimapProjection` 返回视图使用的 `Projection`。`ToWorld` 把地图上的点击转换成世界坐标，例如配合 `RoomAt` 和 `AddMarker` 放置标记。
 
 同一张地图绘制两次记录的操作完全相同，从存档恢复的地图与存档时的地图绘制结果一致。
