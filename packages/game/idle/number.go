@@ -1,6 +1,7 @@
 package idle
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -62,7 +63,7 @@ func isPlain(v float64) bool {
 	return a == 0 || a >= plainMin && a < plainMax
 }
 
-// New returns the Number equal to f. It panics if f is NaN or infinite.
+// New returns the Number nearest f: f itself for magnitudes from 1e-300 up to 1e300, and within one unit in the last place of f beyond, where the decimal mantissa's precision does not line up with float64's. It panics if f is NaN or infinite.
 func New(f float64) Number {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		panic("idle: New of a non-finite float64")
@@ -145,12 +146,7 @@ func canon(m float64, e int64) Number {
 	}
 	if de >= plainBottom && de <= plainTop {
 		// Reading the mantissa's shortest digits with the exponent rounds the decimal once, so NewExp(1.23, 45) is the float64 nearest 1.23e45, as Parse("1.23e45") is.
-		var buf [40]byte
-		text := strconv.AppendFloat(buf[:0], dm, 'e', -1, 64)
-		text = text[:len(text)-len("e+00")]
-		text = append(text, 'e')
-		text = strconv.AppendInt(text, de, 10)
-		v, _ := strconv.ParseFloat(string(text), 64)
+		v := decimalFloat(dm, de, -1)
 		if isPlain(v) {
 			return Number{m: v}
 		}
@@ -159,6 +155,20 @@ func canon(m float64, e int64) Number {
 	}
 	return Number{m: dm, e: de}
 }
+
+// decimalFloat returns the float64 nearest m's digits × 10^e, for a mantissa with 1 ≤ |m| < 10, rounding the whole decimal once. prec is the number of digits after the point, as strconv.AppendFloat takes it: -1 reads the shortest digits that identify m, and exactDigits reads m's exact binary value. Past float64's range the result is ±Inf or a signed zero.
+func decimalFloat(m float64, e int64, prec int) float64 {
+	var buf [80]byte
+	text := strconv.AppendFloat(buf[:0], m, 'e', prec, 64)
+	text = text[:len(text)-len("e+00")]
+	text = append(text, 'e')
+	text = strconv.AppendInt(text, e, 10)
+	v, _ := strconv.ParseFloat(string(text), 64)
+	return v
+}
+
+// exactDigits is enough fraction digits to write any float64 in [1, 10) exactly, since its binary fraction has at most 52 bits.
+const exactDigits = 52
 
 // parts returns n's normalized mantissa and exponent.
 func (n Number) parts() (float64, int64) {
@@ -346,19 +356,17 @@ func (n Number) Max(o Number) Number {
 	return n
 }
 
-// Float64 returns the float64 nearest n, ±Inf when |n| exceeds float64's range and 0 or a subnormal when it is below the smallest normal float64.
+// Float64 returns the float64 nearest n: n itself for magnitudes from 1e-300 up to 1e300, ±Inf when |n| exceeds float64's range, and 0 or a subnormal when it is below the smallest normal float64.
 func (n Number) Float64() float64 {
 	switch {
 	case n.e == 0:
 		return n.m
 	case n.e > 308:
 		return math.Copysign(math.Inf(1), n.m)
-	case n.e > 0:
-		return n.m * pow10(n.e)
-	default:
-		// Two divisions reach the subnormal range, which one power of ten past 1e308 cannot.
-		return n.m / plainMax / pow10(-n.e-300)
+	case n.e < -400:
+		return math.Copysign(0, n.m)
 	}
+	return decimalFloat(n.m, n.e, exactDigits)
 }
 
 // Log10 returns log10(|n|), -Inf for zero. It is meant for display, such as progress bars over many orders of magnitude; its last bits may differ between platforms, so game state should not depend on it.
@@ -471,7 +479,22 @@ func (n *Number) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// Parse reads a decimal number: an optional sign, digits with an optional point, and an optional exponent, such as "42", "-0.5", "1.23e45" or "7E+400". The exponent may exceed float64's range up to ±MaxExponent. Spaces, underscores, hexadecimal, "inf" and "NaN" are refused with ErrSyntax; an exponent beyond the range returns ErrRange.
+// UnmarshalJSON implements json.Unmarshaler. It accepts the string MarshalText writes and also a JSON number, so a person can type 1500 for a Number field in a JSON data file; null leaves n unchanged, as encoding/json does for other types.
+func (n *Number) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		return n.UnmarshalText([]byte(s))
+	}
+	return n.UnmarshalText(data)
+}
+
+// Parse reads a decimal number: an optional sign, digits with an optional point, and an optional exponent, such as "42", "-0.5", "1.23e45" or "7E+400". The exponent may exceed float64's range up to ±MaxExponent. Spaces, underscores, hexadecimal, "inf" and "NaN" are refused with ErrSyntax; a value whose power of ten lies beyond the range returns ErrRange, and zero is 0 whatever its exponent.
 func Parse(s string) (Number, error) {
 	n, err := parse(s)
 	if err != nil {
@@ -539,11 +562,9 @@ scan:
 				return Number{}, ErrSyntax
 			}
 		}
-		v, err := strconv.ParseInt(s[start:], 10, 64)
-		if err != nil || v > MaxExponent+1 || v < -MaxExponent-1 {
-			return Number{}, ErrRange
-		}
-		exp = v
+		// The text is all digits, so the only possible error is overflow, where ParseInt returns the int64 limit of that sign; clampExp keeps exp + lead from overflowing, and the check below refuses it.
+		v, _ := strconv.ParseInt(s[start:], 10, 64)
+		exp = clampExp(v)
 	}
 	if len(sig) == 0 {
 		return Number{}, nil

@@ -8,7 +8,7 @@ import (
 type Notation uint8
 
 const (
-	// Short divides by the locale's largest unit at or below the value: 1.23K and 4.5B in English, 1.23万 and 4.5亿 in Chinese. Values below the first unit are positional, and values past the last unit's range switch to Scientific.
+	// Short divides by the locale's largest unit at or below the value: 1.23K and 4.5B in English, 1.23万 and 4.5亿 in Chinese. Values below the first unit are positional, and values past the last unit's range, or that would need more than 21 integer digits, as in a gap between two units of a custom locale, switch to Scientific.
 	Short Notation = iota
 	// Scientific writes one integer digit and a power of ten, such as 1.23e45. Values below 1000 are positional.
 	Scientific
@@ -42,6 +42,9 @@ const DefaultDigits = 3
 
 // maxDigits is the most significant digits a float64 mantissa carries.
 const maxDigits = 17
+
+// maxIntDigits is the most integer digits positional, Full and Short output writes; a value that would need more is scientific, so no locale can make Format write an unbounded string.
+const maxIntDigits = 21
 
 // Format writes Numbers for display in a notation and locale. The zero Format writes Short notation with three significant digits in English: 1234 is "1.23K", 1e45 is "1Qad".
 //
@@ -156,20 +159,17 @@ func (f Format) layout(loc *Locale, e int64) layout {
 		}
 		return layout{kind: scaled, unit: e - e%3, letter: e / 3}
 	case Full:
-		if e < 21 {
+		if e < maxIntDigits {
 			return layout{kind: positional, group: true}
 		}
 		return layout{kind: scientific}
 	}
 	us := loc.Units
-	if len(us) == 0 {
-		if e < 21 {
+	if len(us) == 0 || e < int64(us[0].Exp) {
+		if e < maxIntDigits {
 			return layout{kind: positional, group: true}
 		}
 		return layout{kind: scientific}
-	}
-	if e < int64(us[0].Exp) {
-		return layout{kind: positional, group: true}
 	}
 	i := len(us) - 1
 	for int64(us[i].Exp) > e {
@@ -183,6 +183,10 @@ func (f Format) layout(loc *Locale, e int64) layout {
 		if e >= int64(us[i].Exp+step) {
 			return layout{kind: scientific}
 		}
+	}
+	if e-int64(us[i].Exp) >= maxIntDigits {
+		// A gap between a locale's units, or a first or only unit far above 10^3, would otherwise need more integer digits than any display can hold.
+		return layout{kind: scientific}
 	}
 	return layout{kind: scaled, unit: int64(us[i].Exp), suffix: us[i].Suffix}
 }

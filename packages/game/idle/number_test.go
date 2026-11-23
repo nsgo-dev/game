@@ -267,11 +267,89 @@ func TestParse(t *testing.T) {
 		{"1e1000000000000000001", idle.ErrRange},
 		{"10e1000000000000000000", idle.ErrRange},
 		{"1e-1000000000000000001", idle.ErrRange},
+		{"1e-99999999999999999999", idle.ErrRange},
+		{"1e1000000000000000002", idle.ErrRange},
 	}
 	for _, c := range bad {
 		if _, err := idle.Parse(c.in); !errors.Is(err, c.want) {
 			t.Errorf("Parse(%q) error = %v, want %v", c.in, err, c.want)
 		}
+	}
+}
+
+// TestParseExponentAfterLead checks that Parse judges the range by the leading digit's power of ten, not the written exponent.
+func TestParseExponentAfterLead(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want idle.Number
+	}{
+		{"0e9999999999999999999", idle.Number{}},
+		{"-0.000e-99999999999999999999", idle.Number{}},
+		{"0.001e1000000000000000002", idle.NewExp(1, idle.MaxExponent-1)},
+		{"1000e-1000000000000000002", idle.NewExp(1, -idle.MaxExponent+1)},
+	} {
+		got, err := idle.Parse(c.in)
+		if err != nil || got != c.want {
+			t.Errorf("Parse(%q) = %v, %v, want %v", c.in, got, err, c.want)
+		}
+	}
+}
+
+// TestNewFloat64Precision pins how closely New and Float64 keep a float64: exactly inside the plain range, and within one unit in the last place beyond, where a decimal mantissa cannot hold every float64.
+func TestNewFloat64Precision(t *testing.T) {
+	ulps := func(a, b float64) uint64 {
+		x, y := math.Float64bits(a), math.Float64bits(b)
+		if x > y {
+			return x - y
+		}
+		return y - x
+	}
+	// A fixed linear congruential sequence of bit patterns, so the test is deterministic.
+	state := uint64(0x9e3779b97f4a7c15)
+	for range 20000 {
+		state = state*6364136223846793005 + 1442695040888963407
+		f := math.Float64frombits(state >> 1)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			continue
+		}
+		got := idle.New(f).Float64()
+		a := math.Abs(f)
+		if a == 0 || a >= 1e-300 && a < 1e300 {
+			if got != f {
+				t.Fatalf("New(%v).Float64() = %v, want it exactly", f, got)
+			}
+		} else if ulps(got, f) > 1 {
+			t.Fatalf("New(%v).Float64() = %v, more than one ulp away", f, got)
+		}
+	}
+}
+
+func TestJSONNumbers(t *testing.T) {
+	type wallet struct {
+		Gold idle.Number `json:"gold"`
+		Gems idle.Number `json:"gems"`
+	}
+	var w wallet
+	if err := json.Unmarshal([]byte(`{"gold":1500,"gems":-2.5E+3}`), &w); err != nil {
+		t.Fatal(err)
+	}
+	if w.Gold != idle.New(1500) || w.Gems != idle.New(-2500) {
+		t.Errorf("JSON numbers = %+v", w)
+	}
+	w = wallet{Gold: idle.New(7)}
+	if err := json.Unmarshal([]byte(`{"gold":null,"gems":"1.5e400"}`), &w); err != nil {
+		t.Fatal(err)
+	}
+	if w.Gold != idle.New(7) || w.Gems != idle.NewExp(1.5, 400) {
+		t.Errorf("JSON null and string = %+v", w)
+	}
+	for _, in := range []string{`{"gold":"lots"}`, `{"gold":true}`, `{"gold":[1]}`} {
+		if err := json.Unmarshal([]byte(in), &w); err == nil {
+			t.Errorf("json.Unmarshal(%s) accepted", in)
+		}
+	}
+	if err := json.Unmarshal([]byte(`{"gold":"1e2000000000000000000"}`), &w); !errors.Is(err, idle.ErrRange) {
+		t.Errorf("JSON out of range: %v", err)
 	}
 }
 

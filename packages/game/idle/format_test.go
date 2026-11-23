@@ -246,6 +246,37 @@ func BenchmarkFormatFull(b *testing.B) {
 	}
 }
 
+// TestFormatBoundsIntegerDigits checks that a custom locale whose units leave a gap, or start far above 10^3, writes scientific output rather than a string of zeros.
+func TestFormatBoundsIntegerDigits(t *testing.T) {
+	gapped := &idle.Locale{Version: 1, Name: "x-gap", Decimal: ".", Group: ",", Exponent: "e", Units: []idle.Unit{{Exp: 3, Suffix: "K"}, {Exp: 1000000, Suffix: "X"}}}
+	high := &idle.Locale{Version: 1, Name: "x-high", Decimal: ".", Group: ",", Exponent: "e", Units: []idle.Unit{{Exp: 1000000, Suffix: "X"}}}
+	for _, l := range []*idle.Locale{gapped, high} {
+		if err := l.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkFormat(t, idle.Format{Locale: gapped}, []formatCase{
+		{idle.New(1500), "1.5K"},
+		{idle.NewExp(1, 23), "100000000000000000000K"},
+		{idle.NewExp(1, 24), "1e24"},
+		{idle.NewExp(1, 999999), "1e999999"},
+		{idle.NewExp(1.5, 1000000), "1.5X"},
+		{idle.NewExp(1, 1000020), "100000000000000000000X"},
+		{idle.NewExp(1, 1000021), "1e1000021"},
+	})
+	checkFormat(t, idle.Format{Locale: high}, []formatCase{
+		{idle.NewExp(1, 20), "100,000,000,000,000,000,000"},
+		{idle.NewExp(1, 21), "1e21"},
+		{idle.NewExp(1, 999999), "1e999999"},
+		{idle.NewExp(2, 1000000), "2X"},
+	})
+	n := idle.NewExp(1, 999999)
+	buf := make([]byte, 0, 64)
+	if allocs := testing.AllocsPerRun(100, func() { buf = idle.Format{Locale: gapped}.Append(buf[:0], n) }); allocs != 0 {
+		t.Errorf("gapped Append allocates %v times", allocs)
+	}
+}
+
 // TestDocumentedTable checks the notation table in docs/en/idle.md and docs/zh/idle.md.
 func TestDocumentedTable(t *testing.T) {
 	formats := []idle.Format{

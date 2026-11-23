@@ -24,15 +24,15 @@ if gold.Cmp(cost) >= 0 {
 
 - `Add`, `Sub`, `Mul`, `Div`, `Scale`, `Pow` (an integer power by repeated squaring), `Neg`, `Abs`, `Min` and `Max` return new values; `Div` by zero panics.
 - `Cmp`, `Sign` and `IsZero` compare; equal values are also `==`, since every value has one representation.
-- `Mantissa` and `Exponent` give the decimal parts, `Float64` the nearest float64 (±Inf past its range), and `Log10` a float for progress bars.
+- `Mantissa` and `Exponent` give the decimal parts, `Float64` a float64 (±Inf past its range), and `Log10` a float for progress bars. Inside the plain range `New(f).Float64()` is exactly `f`; beyond it the decimal mantissa keeps `f` within one unit in the last place.
 - Results past 10^`MaxExponent` saturate to the largest value of that sign, and magnitudes below 10^-`MaxExponent` become zero.
 - Every operation is a plain IEEE-754 float64 operation with no fused multiply-add, so the same sequence gives the same bits on every platform; the package's tests pin one on linux/amd64 and darwin/arm64. `Log10` is the exception and is meant only for display.
 
 ### Text in saves and data files
 
-A `Number` reads and writes itself as text, so it is a string in a JSON save slot (`"gold":"1.23e45"`) and a plain scalar in YAML data a person writes (`cost: 7.5e400`). `String` writes positional text for exponents from -6 to 20 (`1500`, `0.25`) and scientific beyond (`1.23e45`), with the shortest digits that read back exactly, so `Parse(n.String())` returns `n`.
+A `Number` reads and writes itself as text, so it is a string in a JSON save slot (`"gold":"1.23e45"`) and a plain scalar in YAML data a person writes (`cost: 7.5e400`). JSON also accepts a plain number (`"cost":1500`), and `null` leaves the field unchanged. `String` writes positional text for exponents from -6 to 20 (`1500`, `0.25`) and scientific beyond (`1.23e45`), with the shortest digits that read back exactly, so `Parse(n.String())` returns `n`.
 
-`Parse` takes an optional sign, digits with an optional point and an optional exponent up to ±`MaxExponent`. It refuses spaces, underscores, hexadecimal, `inf` and `NaN` with `ErrSyntax`, and exponents past the range with `ErrRange`.
+`Parse` takes an optional sign, digits with an optional point and an optional exponent. It refuses spaces, underscores, hexadecimal, `inf` and `NaN` with `ErrSyntax`, and values whose leading digit lies past the range with `ErrRange`; the range is judged after the digits, so `0.001e1000000000000000002` is 10^(`MaxExponent`-1) and zero is 0 whatever its exponent.
 
 ## Offline progress
 
@@ -57,7 +57,7 @@ if away.Credited > 0 {
 }
 ```
 
-- `Cap` is the longest absence credited (0 for none), `Min` the shortest (shorter credits nothing), and `Efficiency` the fraction of the online rate earned while away (0 means the full rate). Negative values panic.
+- `Cap` is the longest absence credited (0 for none), `Min` the shortest (shorter credits nothing), and `Efficiency` the fraction of the online rate earned while away (0 means the full rate). Negative values, a non-finite `Efficiency` and a `Min` above a non-zero `Cap` panic.
 - `Earn` returns rate × credited seconds × efficiency; `Absence` returns only the `Away` record, for a game that computes its own rewards.
 - `Away.Steps(step)` splits the credited time into whole fixed steps and a remainder, for a game that replays its simulation step by step instead of multiplying a rate.
 - The difference is wall-clock time: monotonic readings are dropped, so time asleep counts and a timestamp read back from a save compares like one taken now. Time zones do not matter.
@@ -86,7 +86,7 @@ var buf []byte
 buf = hud.Append(buf[:0], gold) // no allocation when buf has room
 ```
 
-- `Short` divides by the locale's largest unit at or below the value: K, M, B, T, Qa, Qi, Sx, Sp, Oc, No, Dc, Ud, Dd, Td, Qad, Qid, Sxd, Spd, Ocd, Nod and Vg (10^3 to 10^63) in English, and the myriad units 万, 亿, 兆, 京, 垓, 秭, 穰, 沟, 涧, 正 and 载 (10^4 to 10^44) in Chinese. Values below the first unit are positional with grouping (`9,999`), and values past the last unit's range are scientific.
+- `Short` divides by the locale's largest unit at or below the value: K, M, B, T, Qa, Qi, Sx, Sp, Oc, No, Dc, Ud, Dd, Td, Qad, Qid, Sxd, Spd, Ocd, Nod and Vg (10^3 to 10^63) in English, and the myriad units 万, 亿, 兆, 京, 垓, 秭, 穰, 沟, 涧, 正 and 载 (10^4 to 10^44) in Chinese. Values below the first unit are positional with grouping (`9,999`), and values past the last unit's range are scientific, as is any value that would need more than 21 integer digits, such as one in a wide gap between a custom locale's units.
 - `Scientific` writes one integer digit (`1.23e45`), `Engineering` a power of ten that is a multiple of three (`12.3e45`), and `Letters` K, M, B and T followed by aa, ab, … zz, aaa and so on, which never runs out. All three are positional below 1000.
 - `Full` writes every integer digit with grouping (`1,234,567`) up to 10^21, then scientific.
 - `Digits` is the number of significant digits (default 3, at most 17). Integer digits are never dropped: 123456 is `123K`, and 1234 in `Full` is `1,234`.
@@ -123,6 +123,6 @@ idle.Format{Notation: idle.Full, Digits: 6, Locale: de}.Format(idle.New(1234.5))
 ```
 
 - `version` must be 1, and unknown fields and trailing documents are refused.
-- `decimal` and `exponent` are required, and `group` may be empty for no grouping; none may contain an ASCII digit or sign, and `decimal` and `group` must differ.
-- `units` lists units in ascending `exp` order, from 1 to 1000000, with distinct, non-empty suffixes. A suffix carries its own spacing, such as `' million'`.
+- `decimal` and `exponent` are required, and `group` may be empty for no grouping; none may contain an ASCII digit or sign, and all three must differ.
+- `units` lists units in ascending `exp` order, from 1 to 1000000, with distinct, non-empty suffixes that are neither separator and do not start with `exponent`. A suffix carries its own spacing, such as `' million'`.
 - `EncodeLocale` writes the canonical form: fields in a fixed order and 2-space indentation, so `ParseLocale` followed by `EncodeLocale` reproduces the same bytes. `Validate` checks a locale built in code.
