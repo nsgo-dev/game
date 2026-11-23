@@ -1,0 +1,213 @@
+package rhythm
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
+	"go.yaml.in/yaml/v3"
+)
+
+// CalibrationsVersion is the calibration file schema version this package reads and writes.
+const CalibrationsVersion = 1
+
+// Limits a calibration file is validated against.
+const (
+	// MaxOffsetMsAbs is the largest offset, either way, a device may keep: ten seconds.
+	MaxOffsetMsAbs = 10_000
+	// MaxDevices is the most devices a calibration file may keep.
+	MaxDevices = 256
+	// MaxDeviceKey is the longest device key, in bytes.
+	MaxDeviceKey = 256
+)
+
+// Calibrations are the offsets calibration measured on each device, as the YAML text an OffsetStore keeps:
+//
+//	version: 1
+//	devices:
+//	  ios/iPhone15,2:
+//	    audioMs: 182.5
+//	    videoMs: 21
+//
+// Devices are written in key order, so the same offsets always encode to the same text, and ParseCalibrations reads it back unchanged.
+type Calibrations struct {
+	// Version is the schema version; it must be CalibrationsVersion.
+	Version int `yaml:"version"`
+	// Devices are the offsets by device key, such as DeviceKey returns.
+	Devices map[string]DeviceOffsets `yaml:"devices,omitempty"`
+}
+
+// DeviceOffsets are a device's Offsets in milliseconds, as written.
+type DeviceOffsets struct {
+	// AudioMs is Offsets.Audio in milliseconds.
+	AudioMs float64 `yaml:"audioMs"`
+	// VideoMs is Offsets.Video in milliseconds.
+	VideoMs float64 `yaml:"videoMs"`
+}
+
+// Offsets returns d as durations, rounded to the nanosecond.
+func (d DeviceOffsets) Offsets() Offsets {
+	return Offsets{Audio: msDuration(d.AudioMs), Video: msDuration(d.VideoMs)}
+}
+
+// DeviceOffsetsOf returns o in milliseconds.
+func DeviceOffsetsOf(o Offsets) DeviceOffsets {
+	return DeviceOffsets{AudioMs: durationMs(o.Audio), VideoMs: durationMs(o.Video)}
+}
+
+func msDuration(ms float64) time.Duration { return time.Duration(math.Round(ms * 1e6)) }
+
+func durationMs(d time.Duration) float64 { return float64(d) / 1e6 }
+
+// Validate reports the first way c breaks the version 1 schema: a wrong version, too many devices, an empty or overlong key, or an offset that is not a number within ±MaxOffsetMsAbs.
+func (c *Calibrations) Validate() error {
+	if c == nil {
+		return errors.New("rhythm: nil calibrations")
+	}
+	if c.Version != CalibrationsVersion {
+		return fmt.Errorf("rhythm: calibrations version %d, want %d", c.Version, CalibrationsVersion)
+	}
+	if len(c.Devices) > MaxDevices {
+		return fmt.Errorf("rhythm: %d devices, at most %d", len(c.Devices), MaxDevices)
+	}
+	for k, d := range c.Devices {
+		if strings.TrimSpace(k) == "" || len(k) > MaxDeviceKey {
+			return fmt.Errorf("rhythm: device key %q is empty or longer than %d bytes", k, MaxDeviceKey)
+		}
+		for _, ms := range []float64{d.AudioMs, d.VideoMs} {
+			if !finite(ms) || math.Abs(ms) > MaxOffsetMsAbs {
+				return fmt.Errorf("rhythm: device %q: offset %v ms is not within ±%d", k, ms, MaxOffsetMsAbs)
+			}
+		}
+	}
+	return nil
+}
+
+// ParseCalibrations decodes a YAML calibration file and validates it. Unknown fields, a second YAML document and a fractional version are refused.
+func ParseCalibrations(data []byte) (*Calibrations, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("rhythm: empty calibrations")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var c Calibrations
+	if err := dec.Decode(&c); err != nil {
+		return nil, fmt.Errorf("rhythm: decode calibrations: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("rhythm: calibrations have a second YAML document")
+		}
+		return nil, fmt.Errorf("rhythm: decode calibrations: %w", err)
+	}
+	if err := requireIntegers(data, []string{"version"}, nil); err != nil {
+		return nil, err
+	}
+	// An empty map is written as none, so it reads back as none.
+	if len(c.Devices) == 0 {
+		c.Devices = nil
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// EncodeCalibrations validates c and writes it as deterministic 2-space YAML, devices in key order.
+func EncodeCalibrations(c *Calibrations) ([]byte, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return encodeYAML(c)
+}
+
+// DeviceKey returns a key for the device cx runs on: its OS and hardware model, such as "ios/iPhone15,2", or the OS and "unknown" where the platform names no model, as the web does. NSGo names no audio output route, so a game that wants separate offsets for headphones and speakers adds its own suffix, such as "/bluetooth", chosen by the player.
+func DeviceKey(cx *core.Scope) string {
+	env := cx.Env()
+	model := strings.TrimSpace(core.Untracked(cx, env.DeviceModel))
+	if model == "" {
+		model = "unknown"
+	}
+	sys := strings.TrimSpace(string(core.Untracked(cx, env.OS)))
+	if sys == "" {
+		sys = "unknown"
+	}
+	key := sys + "/" + model
+	if len(key) > MaxDeviceKey {
+		key = key[:MaxDeviceKey]
+	}
+	return key
+}
+
+// OffsetStore keeps each device's offsets as a Calibrations YAML document in the app's storage (core.Storage) under one key, so they hold across launches and a player who moves their save to another device calibrates that device anew.
+type OffsetStore struct {
+	store core.Storage
+	key   string
+}
+
+// NewOffsetStore returns a store keeping its document in cx's storage under key, such as "rhythm.calibration".
+func NewOffsetStore(cx *core.Scope, key string) *OffsetStore {
+	return &OffsetStore{store: cx.Storage(), key: key}
+}
+
+// Load returns the document kept, an empty one when none is, or why the text kept is not one. Read in a computation, it subscribes it to changes, as core.Storage does.
+func (s *OffsetStore) Load() (*Calibrations, error) {
+	text, ok := s.store.GetItem(s.key)
+	if !ok {
+		return &Calibrations{Version: CalibrationsVersion}, nil
+	}
+	return ParseCalibrations([]byte(text))
+}
+
+// Get returns device's offsets and whether they are kept; a document that is not readable keeps none.
+func (s *OffsetStore) Get(device string) (Offsets, bool) {
+	c, err := s.Load()
+	if err != nil {
+		return Offsets{}, false
+	}
+	d, ok := c.Devices[device]
+	return d.Offsets(), ok
+}
+
+// Set keeps o for device, rounded to the nanosecond as milliseconds, alongside the other devices'. A document that is not readable, such as one a later schema wrote, is replaced. It fails when o or device is out of range, or with a *core.StorageFullError when the storage is full, keeping what it held.
+func (s *OffsetStore) Set(device string, o Offsets) error {
+	c, err := s.Load()
+	if err != nil {
+		c = &Calibrations{Version: CalibrationsVersion}
+	}
+	devices := maps.Clone(c.Devices)
+	if devices == nil {
+		devices = map[string]DeviceOffsets{}
+	}
+	devices[device] = DeviceOffsetsOf(o)
+	return s.save(&Calibrations{Version: CalibrationsVersion, Devices: devices})
+}
+
+// Remove forgets device's offsets. It fails as Set does, and also when the document kept is not readable, which it leaves as it is.
+func (s *OffsetStore) Remove(device string) error {
+	c, err := s.Load()
+	if err != nil {
+		return err
+	}
+	if _, ok := c.Devices[device]; !ok {
+		return nil
+	}
+	devices := maps.Clone(c.Devices)
+	delete(devices, device)
+	return s.save(&Calibrations{Version: CalibrationsVersion, Devices: devices})
+}
+
+func (s *OffsetStore) save(c *Calibrations) error {
+	text, err := EncodeCalibrations(c)
+	if err != nil {
+		return err
+	}
+	return s.store.SetItem(s.key, string(text))
+}
