@@ -176,7 +176,7 @@ func Encode(p *Project) ([]byte, error) {
 	return encode(p)
 }
 
-// Validate checks that p follows the version 1 schema: known version, relative slash-separated paths that stay inside the project, settings in range, known formats, and no two targets writing the same file.
+// Validate checks that p follows the version 1 schema: known version, relative slash-separated paths that stay inside the project, settings in range, known formats, no two targets writing the same file, no atlas writing its pages where an atlas reads its images, and no cache where the manifest lists assets.
 func Validate(p *Project) error {
 	if p == nil {
 		return errors.New("assetbuild: nil project")
@@ -190,12 +190,15 @@ func Validate(p *Project) error {
 			return fmt.Errorf("assetbuild: cache: %w", err)
 		}
 	}
-	outs := map[string]string{}
+	// files maps each single file a target writes to the target; atlas pages are checked against it by name, since how many pages an atlas writes is known only when it is packed.
+	files := map[string]string{}
+	var order []string
 	claim := func(out, owner string) error {
-		if other, dup := outs[out]; dup {
+		if other, dup := files[out]; dup {
 			return fmt.Errorf("assetbuild: %s writes %s, which %s also writes", owner, out, other)
 		}
-		outs[out] = owner
+		files[out] = owner
+		order = append(order, out)
 		return nil
 	}
 	if err := claim(a.CachePath(), "the cache"); err != nil {
@@ -206,9 +209,21 @@ func Validate(p *Project) error {
 		if err := validateAtlas(at); err != nil {
 			return fmt.Errorf("assetbuild: %s: %w", where, err)
 		}
-		// Pages are named after the atlas, so two atlases in one folder must not share a name.
-		if err := claim(path.Join(at.Out, at.Name)+".*", where); err != nil {
-			return err
+		for j, prev := range a.Atlases[:i] {
+			if prev.Out != at.Out {
+				continue
+			}
+			if page, clash := pagesClash(prev.Name, at.Name); clash {
+				return fmt.Errorf("assetbuild: %s writes %s, which atlases[%d] also writes", where, path.Join(at.Out, page), j)
+			}
+		}
+	}
+	// An atlas whose pages land where an atlas reads its images would pack its own pages on the next run, so it would never be up to date.
+	for i, at := range a.Atlases {
+		for j, src := range a.Atlases {
+			if scannedUnder(at.Out, src.In) {
+				return fmt.Errorf("assetbuild: atlases[%d] writes its pages to %s, inside atlases[%d]'s images in %s; write them elsewhere or to a folder whose name starts with a dot", i, at.Out, j, src.In)
+			}
 		}
 	}
 	for i, t := range a.Textures {
@@ -236,8 +251,73 @@ func Validate(p *Project) error {
 		if err := claim(m.Out, "manifest"); err != nil {
 			return err
 		}
+		// The cache is saved after the manifest is generated, so a cache the manifest's scan reaches would be listed as an asset one run later.
+		if scannedUnder(a.CachePath(), m.In) {
+			return fmt.Errorf("assetbuild: cache %s is inside the manifest's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), m.In)
+		}
+	}
+	for _, f := range order {
+		for i, at := range a.Atlases {
+			if path.Dir(f) == at.Out && isPage(at.Name, path.Base(f)) {
+				return fmt.Errorf("assetbuild: %s writes %s, which atlases[%d] also writes", files[f], f, i)
+			}
+		}
 	}
 	return nil
+}
+
+// isPage reports whether base is the name of a page file game pack writes for the atlas name: name.png and name.json, or name-N.png and name-N.json when the atlas needs several pages.
+func isPage(name, base string) bool {
+	ext := path.Ext(base)
+	if ext != ".png" && ext != ".json" {
+		return false
+	}
+	stem := strings.TrimSuffix(base, ext)
+	if stem == name {
+		return true
+	}
+	n, ok := strings.CutPrefix(stem, name+"-")
+	if !ok || n == "" {
+		return false
+	}
+	for _, c := range n {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// pagesClash reports whether atlases named a and b, written to one folder, can write a page file of the same name, and returns that file's name.
+func pagesClash(a, b string) (string, bool) {
+	switch {
+	case a == b || isPage(a, b+".png"):
+		return b + ".png", true
+	case isPage(b, a+".png"):
+		return a + ".png", true
+	}
+	return "", false
+}
+
+// scannedUnder reports whether p is dir or inside it with no path element below dir that starts with a dot, so a scan of dir that skips dot-prefixed names, as game pack's and game manifest's scans do, reaches p.
+func scannedUnder(p, dir string) bool {
+	var rest string
+	switch {
+	case p == dir:
+		return true
+	case dir == ".":
+		rest = p
+	case strings.HasPrefix(p, dir+"/"):
+		rest = p[len(dir)+1:]
+	default:
+		return false
+	}
+	for _, e := range strings.Split(rest, "/") {
+		if strings.HasPrefix(e, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 func validateAtlas(a Atlas) error {
