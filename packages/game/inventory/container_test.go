@@ -279,9 +279,10 @@ func TestContainerRestoreRejectsBadStateUnchanged(t *testing.T) {
 // TestRandomOperationsKeepInvariants runs a seeded sequence of every operation over two containers and checks after each step that no stack exceeds its maximum, empty slots are zero values, and items are only created by Add and destroyed by Remove.
 func TestRandomOperationsKeepInvariants(t *testing.T) {
 	cat := testCatalog(t)
-	items := []string{"potion", "arrow", "iron-helm", "old-key"}
+	items := []string{"potion", "arrow", "iron-helm", "gold-ring", "silver-ring", "old-key"}
 	a := newBag(t, cat, 6)
 	b := newBag(t, cat, 4)
+	gear := newGear(t, cat)
 	rng := rand.New(rand.NewPCG(515, 1))
 	total := map[string]int{}
 	for step := range 5000 {
@@ -292,7 +293,8 @@ func TestRandomOperationsKeepInvariants(t *testing.T) {
 			src, dst = b, a
 		}
 		i, j := rng.IntN(src.Len()), rng.IntN(dst.Len())
-		switch rng.IntN(7) {
+		slot := gearSlots[rng.IntN(len(gearSlots))].Name
+		switch rng.IntN(9) {
 		case 0:
 			rem, err := src.Add(item, n)
 			if err != nil {
@@ -315,6 +317,10 @@ func TestRandomOperationsKeepInvariants(t *testing.T) {
 			_, _ = src.Transfer(i, dst)
 		case 6:
 			_ = src.Move(i, rng.IntN(src.Len()))
+		case 7:
+			_ = gear.Equip(slot, src, i)
+		case 8:
+			_ = gear.Unequip(slot, dst)
 		}
 		for _, c := range []*inventory.Container{a, b} {
 			for k, s := range c.Slots() {
@@ -327,8 +333,17 @@ func TestRandomOperationsKeepInvariants(t *testing.T) {
 				}
 			}
 		}
+		equipped := map[string]int{}
+		for _, s := range gearSlots {
+			if it, ok := gear.Equipped(s.Name); ok {
+				if !gear.CanEquip(s.Name, it) {
+					t.Fatalf("step %d: %q equipped in %q", step, it, s.Name)
+				}
+				equipped[it]++
+			}
+		}
 		for _, it := range items {
-			if got := a.Count(it) + b.Count(it); got != total[it] {
+			if got := a.Count(it) + b.Count(it) + equipped[it]; got != total[it] {
 				t.Fatalf("step %d: %s count = %d, want %d", step, it, got, total[it])
 			}
 		}

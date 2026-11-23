@@ -32,7 +32,7 @@ type ItemDef struct {
 	Description string `yaml:"description,omitempty"`
 	// Icon is an optional asset URI for the item's icon, such as "asset:icons/potion.png".
 	Icon string `yaml:"icon,omitempty"`
-	// MaxStack is how many of the item one slot holds, in [1, MaxStackLimit]; 0 (omitted) means 1.
+	// MaxStack is how many of the item one slot holds, in [1, MaxStackLimit]; 0 means 1 and is written by omitting the field, since Parse refuses an explicit "maxStack: 0".
 	MaxStack int `yaml:"maxStack,omitempty"`
 	// Equip is the equipment kind the item fits, matched against EquipSlot.Kind; empty means the item cannot be equipped.
 	Equip string `yaml:"equip,omitempty"`
@@ -124,7 +124,29 @@ func Parse(data []byte) (*Catalog, error) {
 	if doc.Version != CurrentVersion {
 		return nil, fmt.Errorf("inventory: unsupported item catalog version %d (want %d)", doc.Version, CurrentVersion)
 	}
+	if err := refuseExplicitZeroStack(data); err != nil {
+		return nil, err
+	}
 	return newCatalog(doc.Items)
+}
+
+// refuseExplicitZeroStack rejects a written "maxStack: 0". ItemDef.MaxStack treats 0 as omitted and Encode leaves it out, so accepting the explicit spelling would make a load-and-save round trip drop the line.
+func refuseExplicitZeroStack(data []byte) error {
+	var stacks struct {
+		Items []struct {
+			ID       string `yaml:"id"`
+			MaxStack *int   `yaml:"maxStack"`
+		} `yaml:"items"`
+	}
+	if err := yaml.Unmarshal(data, &stacks); err != nil {
+		return fmt.Errorf("inventory: decode item catalog: %w", err)
+	}
+	for _, it := range stacks.Items {
+		if it.MaxStack != nil && *it.MaxStack == 0 {
+			return fmt.Errorf("inventory: item %q maxStack 0 must be in [1, %d] or omitted", it.ID, MaxStackLimit)
+		}
+	}
+	return nil
 }
 
 // Encode writes the catalog as deterministic 2-space YAML (definitions in catalog order, stats keys sorted) that Parse reads back unchanged.
