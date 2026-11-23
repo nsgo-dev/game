@@ -35,7 +35,7 @@ if err := store.Load("slot1", &p); errors.Is(err, save.ErrNotFound) {
 }
 ```
 
-使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（同时删除主存档与备份，删除不存在的槽位返回 `nil`）管理存档槽。来自游戏外部的槽位名（例如云端列表）可用 `save.ValidateSlot(name)` 按同样的规则检查后再交给 `Backend`。
+使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（同时删除主存档与备份，删除不存在的槽位返回 `nil`）管理存档槽。来自游戏外部的槽位名（例如云端列表）可用 `save.ValidateSlot(name)` 按同样的规则检查后再交给 `Backend`。包装另一个后端的 `Backend`（例如 `liveops.CloudSyncer.Backend()`）可以通过 `Unwrap() Backend` 方法暴露被包装的后端；基于包装器创建的设置存储会把设置保存在与被包装后端完全相同的位置。
 
 ## 版本信封与数据迁移
 

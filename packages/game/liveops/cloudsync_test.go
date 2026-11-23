@@ -23,7 +23,9 @@ import (
 type memCloud struct {
 	slots map[string][]byte
 	// beforeSave, when set, runs before each Save, so a test can model another device uploading in between.
-	beforeSave  func(slot string)
+	beforeSave func(slot string)
+	// failSave, when set, makes Save of the slots it returns true for fail with ErrCloudUnavailable.
+	failSave    func(slot string) bool
 	unavailable bool
 }
 
@@ -41,7 +43,7 @@ func (c *memCloud) Load(_ context.Context, slot string) ([]byte, error) {
 }
 
 func (c *memCloud) Save(_ context.Context, slot string, data []byte) error {
-	if c.unavailable {
+	if c.unavailable || c.failSave != nil && c.failSave(slot) {
 		return liveops.ErrCloudUnavailable
 	}
 	if hook := c.beforeSave; hook != nil {
@@ -345,29 +347,37 @@ func TestCloudSyncPolicyNewest(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown local time keeps both", func(t *testing.T) {
+	t.Run("a write that bypassed Backend has an unknown time and keeps both", func(t *testing.T) {
 		_, a, b := syncedPair(t, nil)
 		a.save(t, "main", progress{Level: 5, Note: "phone"}, time.Hour)
 		a.sync(t)
-		// A write that bypasses CloudSyncer.Backend carries no time, but is still detected.
+		// The tablet's last stamp is from its download at epoch; a later write that bypasses CloudSyncer.Backend must not inherit it.
+		b.now = epoch.Add(5 * time.Hour)
 		raw, _ := json.Marshal(map[string]any{"version": 1, "data": progress{Level: 9, Note: "raw"}})
-		local := save.StorageBackend(b.app.Storage(), "save")
-		if err := local.Write("main", raw); err != nil {
+		if err := save.StorageBackend(b.app.Storage(), "save").Write("main", raw); err != nil {
 			t.Fatal(err)
-		}
-		for _, k := range b.app.Storage().Keys() {
-			if strings.HasPrefix(k, liveops.DefaultSyncStateKey+".") {
-				v, _ := b.app.Storage().GetItem(k)
-				var st map[string]any
-				_ = json.Unmarshal([]byte(v), &st)
-				delete(st, "local_modified")
-				out, _ := json.Marshal(st)
-				_ = b.app.Storage().SetItem(k, string(out))
-			}
 		}
 		r := outcomeOf(t, b.sync(t), "main")
 		if r.Outcome != liveops.OutcomeKeptBoth || r.Conflict == nil || !r.Conflict.Local.Modified.IsZero() {
 			t.Fatalf("tablet sync = %+v", r)
+		}
+		if got := b.load(t, r.Fork); got.Level != 9 {
+			t.Fatalf("fork = %+v", got)
+		}
+	})
+
+	t.Run("a bypassing write uploads with the sync time, not a stale stamp", func(t *testing.T) {
+		cloud, _, b := syncedPair(t, nil)
+		b.now = epoch.Add(3 * time.Hour)
+		raw, _ := json.Marshal(map[string]any{"version": 1, "data": progress{Level: 4, Note: "raw"}})
+		if err := save.StorageBackend(b.app.Storage(), "save").Write("main", raw); err != nil {
+			t.Fatal(err)
+		}
+		if got := outcomeOf(t, b.sync(t), "main").Outcome; got != liveops.OutcomeUploaded {
+			t.Fatalf("tablet sync = %v", got)
+		}
+		if v, _ := cloudProgress(t, cloud, "main"); !v.Modified.Equal(b.now) {
+			t.Fatalf("uploaded modified = %v, want %v", v.Modified, b.now)
 		}
 	})
 
@@ -417,10 +427,16 @@ func TestCloudSyncPolicyKeepBoth(t *testing.T) {
 		t.Fatalf("phone fork = %+v", got)
 	}
 	for _, d := range []*device{a, b} {
+		var names []string
 		for _, s := range d.sync(t).Slots {
 			if s.Outcome != liveops.OutcomeUpToDate {
 				t.Fatalf("not in step after keep-both: %+v", s)
 			}
+			names = append(names, s.Slot)
+		}
+		// Every result is a real slot, not an escaped storage key.
+		if want := []string{"main", "main.conflict-tablet"}; !slices.Equal(names, want) {
+			t.Fatalf("synced slots = %q, want %q", names, want)
 		}
 	}
 
@@ -514,6 +530,168 @@ func TestCloudSyncFirstSyncOnNewDevice(t *testing.T) {
 	}
 	if got := outcomeOf(t, c.sync(t), "main").Outcome; got != liveops.OutcomeUpToDate {
 		t.Fatalf("identical first sync = %v", got)
+	}
+}
+
+func TestCloudSyncForkUploadFailureIsRetried(t *testing.T) {
+	cloud, a, b := syncedPair(t, func(o *liveops.CloudSyncOptions) { o.Policy = liveops.PolicyKeepBoth })
+	makeConflict(t, cloud, a, b, time.Hour, 2*time.Hour)
+
+	cloud.failSave = func(slot string) bool { return strings.Contains(slot, ".conflict-") }
+	if _, err := b.syncer.Sync(context.Background()); !errors.Is(err, liveops.ErrCloudUnavailable) {
+		t.Fatalf("sync with failing fork upload = %v", err)
+	}
+	// The local copy is safe in the fork, and the slot itself is untouched.
+	if got := b.load(t, "main.conflict-tablet"); got.Level != 7 {
+		t.Fatalf("local fork = %+v", got)
+	}
+	if got := b.load(t, "main"); got.Level != 7 {
+		t.Fatalf("main after failed fork = %+v", got)
+	}
+
+	// The next sync reuses the fork instead of creating "-2", and uploads it.
+	cloud.failSave = nil
+	res := b.sync(t)
+	if r := outcomeOf(t, res, "main"); r.Outcome != liveops.OutcomeKeptBoth || r.Fork != "main.conflict-tablet" {
+		t.Fatalf("retry = %+v", r)
+	}
+	if got := b.load(t, "main"); got.Level != 5 {
+		t.Fatalf("main after retry = %+v", got)
+	}
+	if _, p := cloudProgress(t, cloud, "main.conflict-tablet"); p.Level != 7 {
+		t.Fatalf("cloud fork = %+v", p)
+	}
+	var names []string
+	for name := range cloud.slots {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	if want := []string{"main", "main.conflict-tablet"}; !slices.Equal(names, want) {
+		t.Fatalf("cloud slots = %q, want %q", names, want)
+	}
+	for _, r := range b.sync(t).Slots {
+		if r.Outcome != liveops.OutcomeUpToDate {
+			t.Fatalf("not in step after retry: %+v", r)
+		}
+	}
+}
+
+func TestCloudSyncForkOfLongSlot(t *testing.T) {
+	_, a, b := syncedPair(t, func(o *liveops.CloudSyncOptions) { o.Policy = liveops.PolicyKeepBoth })
+	// Both names share their first 173 bytes, and the shortened fork name would cut the two-byte "é" in half.
+	long1 := strings.Repeat("s", 173) + "é" + strings.Repeat("x", 20)
+	long2 := strings.Repeat("s", 173) + "é" + strings.Repeat("y", 20)
+	for _, slot := range []string{long1, long2} {
+		a.save(t, slot, progress{Level: 1, Note: "start"}, 0)
+	}
+	a.sync(t)
+	b.sync(t)
+	for _, slot := range []string{long1, long2} {
+		a.save(t, slot, progress{Level: 5, Note: "phone"}, time.Hour)
+		b.save(t, slot, progress{Level: 7, Note: "tablet"}, 2*time.Hour)
+	}
+	a.sync(t)
+	res := b.sync(t)
+	f1, f2 := outcomeOf(t, res, long1).Fork, outcomeOf(t, res, long2).Fork
+	for _, f := range []string{f1, f2} {
+		if f == "" || len(f) > 200 || save.ValidateSlot(f) != nil || !strings.HasSuffix(f, ".conflict-tablet") {
+			t.Fatalf("fork name %q (%d bytes)", f, len(f))
+		}
+		if got := b.load(t, f); got.Level != 7 {
+			t.Fatalf("fork %q = %+v", f, got)
+		}
+	}
+	if f1 == f2 {
+		t.Fatalf("forks of different slots share the name %q", f1)
+	}
+}
+
+func TestCloudSyncResolveLater(t *testing.T) {
+	var pending []liveops.Conflict
+	cloud, a, b := syncedPair(t, func(o *liveops.CloudSyncOptions) {
+		o.Policy = liveops.PolicyAsk
+		// The game queues the conflict for its dialog instead of blocking the sync.
+		o.Ask = func(_ context.Context, c liveops.Conflict) (liveops.Choice, error) {
+			pending = append(pending, c)
+			return liveops.ChoiceDefer, nil
+		}
+	})
+	makeConflict(t, cloud, a, b, time.Hour, 2*time.Hour)
+	if r := outcomeOf(t, b.sync(t), "main"); r.Outcome != liveops.OutcomeDeferred || len(pending) != 1 {
+		t.Fatalf("sync = %+v", r)
+	}
+	ctx := context.Background()
+	c := pending[0]
+
+	if _, err := b.syncer.Resolve(ctx, c, liveops.Choice(9)); err == nil {
+		t.Fatal("Resolve accepted an unknown choice")
+	}
+	if r, err := b.syncer.Resolve(ctx, c, liveops.ChoiceDefer); err != nil || r.Outcome != liveops.OutcomeDeferred {
+		t.Fatalf("Resolve defer = %+v, %v", r, err)
+	}
+
+	// The player kept playing while the dialog was open: the answer no longer applies.
+	b.save(t, "main", progress{Level: 8, Note: "tablet"}, 3*time.Hour)
+	if _, err := b.syncer.Resolve(ctx, c, liveops.ChoiceCloud); !errors.Is(err, liveops.ErrConflictChanged) {
+		t.Fatalf("stale Resolve = %v", err)
+	}
+	if got := b.load(t, "main"); got.Level != 8 {
+		t.Fatalf("stale Resolve wrote locally: %+v", got)
+	}
+
+	// Sync again, then answer the current conflict.
+	b.sync(t)
+	c = pending[len(pending)-1]
+	r, err := b.syncer.Resolve(ctx, c, liveops.ChoiceLocal)
+	if err != nil || r.Outcome != liveops.OutcomeKeptLocal || r.Discarded == nil || r.Conflict == nil || r.Conflict.Local.Summary != "Level 8 (tablet)" {
+		t.Fatalf("Resolve local = %+v, %v", r, err)
+	}
+	if v, p := cloudProgress(t, cloud, "main"); p.Level != 8 || v.Device != "tablet" {
+		t.Fatalf("cloud after Resolve = %+v", p)
+	}
+	if got := outcomeOf(t, b.sync(t), "main").Outcome; got != liveops.OutcomeUpToDate {
+		t.Fatalf("sync after Resolve = %v", got)
+	}
+
+	// Resolving again is refused: both sides now hold the same copy.
+	if _, err := b.syncer.Resolve(ctx, c, liveops.ChoiceCloud); !errors.Is(err, liveops.ErrConflictChanged) {
+		t.Fatalf("second Resolve = %v", err)
+	}
+}
+
+func TestCloudSyncLeavesSettingsAlone(t *testing.T) {
+	cloud := newMemCloud()
+	d := newDevice(t, "phone", cloud, nil)
+	// Settings saved before the syncer was adopted.
+	old := save.DefaultSettings()
+	old.Locale = "ja"
+	if err := save.NewStorageSettingsStore(d.app.Storage(), "save").Save(old); err != nil {
+		t.Fatal(err)
+	}
+	settings := save.NewDefaultSettingsStore(d.syncer.Backend())
+	got, err := settings.Load()
+	if err != nil || got.Locale != "ja" {
+		t.Fatalf("settings through syncer backend = %+v, %v", got, err)
+	}
+	got.Locale = "fr"
+	if err := settings.Save(got); err != nil {
+		t.Fatal(err)
+	}
+	d.save(t, "main", progress{Level: 1}, 0)
+
+	// A stray state key for a name that is not a slot is ignored rather than failing every sync.
+	_ = d.app.Storage().SetItem(liveops.DefaultSyncStateKey+".settings", `{"version":1,"revision":0}`)
+	res := d.sync(t)
+	if len(res.Slots) != 1 || res.Slots[0].Slot != "main" {
+		t.Fatalf("synced slots = %+v", res.Slots)
+	}
+	if _, ok := cloud.slots["settings"]; ok {
+		t.Fatal("settings uploaded as a save slot")
+	}
+	for _, k := range d.app.Storage().Keys() {
+		if k == "save.slot.settings" {
+			t.Fatalf("settings stored as a save slot: %q", d.app.Storage().Keys())
+		}
 	}
 }
 
@@ -700,6 +878,7 @@ func TestCloudSaveEnvelopeRoundTrip(t *testing.T) {
 		"bad device":     strings.Replace(want, `"phone"`, `"my phone"`, 1),
 		"both data":      strings.Replace(want, `"device"`, `"data_base64": "", "device"`, 1),
 		"trailing value": want + "{}",
+		"max revision":   strings.Replace(want, `"revision": 3`, `"revision": 9223372036854775807`, 1),
 	} {
 		if _, err := liveops.DecodeCloudSave([]byte(payload)); !errors.Is(err, liveops.ErrCorruptCloudSave) {
 			t.Errorf("%s: decode error = %v", name, err)

@@ -30,7 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
-- `game/liveops`: `CloudSyncer` detects save slots changed both locally and in the cloud since the last sync and resolves them by policy (newest, keep both as a fork slot, or ask the player with a summary of each), with revisioned JSON cloud payloads and `save.ValidateSlot` for names from outside the game (#539).
+- `game/liveops`: `CloudSyncer` detects save slots changed both locally and in the cloud since the last sync and resolves them by policy (newest, keep both as a fork slot, or ask the player with a summary of each and apply the answer later with `Resolve`), with revisioned JSON cloud payloads, `save.ValidateSlot` for names from outside the game, and an `Unwrap` method that settings stores see through (#539).
 
 ### Changed
 
@@ -43,6 +43,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - `game/assets`: `asset:` URIs are confined to the `assets` directory (and `file://` is refused while a pack is mounted), downloaded packs are capped by entry count and unpacked size before mounting, mounting a pack into a reused group resets the group's previous specs, and `Group.Reset` cancels an in-flight load and forgets old specs.
 - `game/modding`: a reload adopts the re-resolved topological order and reports (rather than swallows) a manifest read error.
+- `game/save`: `StorageBackend.Slots` returns slot names that contain `.` or `%` as written, not as their escaped storage keys (#539).
 
 - `game/editor`: the 3D gizmo drags now start from real pointer input on the mounted viewport (a press that becomes a pan picks a handle, then moves it) instead of being reachable only from the model API.
 - `game/entities`: world snapshots keep parent-child links, restored dead slots advance their generation so stale handles cannot alias, oversized snapshot indices are rejected before allocating, and iteration bounds are documented and enforced.

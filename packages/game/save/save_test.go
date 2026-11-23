@@ -781,3 +781,32 @@ func TestFileBackendRefusesCaseAndNormalizationCollisions(t *testing.T) {
 		t.Fatalf("normalization-only slot save = %v, want ErrInvalidSlot", err)
 	}
 }
+
+func TestStorageBackendSlotsReturnsSlotNames(t *testing.T) {
+	// Slots must list the names a Store accepts, not their escaped storage keys.
+	app, store, _ := startStorageApp(t)
+	for _, slot := range []string{"profile.1", "a%2Eb", "main.conflict-tablet"} {
+		if err := store.Save(slot, playerState{Name: slot}); err != nil {
+			t.Fatalf("Save %q: %v", slot, err)
+		}
+		// A second save also leaves a backup key behind.
+		if err := store.Save(slot, playerState{Name: slot, Level: 2}); err != nil {
+			t.Fatalf("Save %q: %v", slot, err)
+		}
+	}
+	// A key escapeSlotKey cannot produce belongs to no slot.
+	_ = app.Storage().SetItem("save.slot.raw.dot", "{}")
+	slots, err := store.Slots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"a%2Eb", "main.conflict-tablet", "profile.1"}; !slices.Equal(slots, want) {
+		t.Fatalf("Slots = %q, want %q", slots, want)
+	}
+	for _, slot := range slots {
+		var got playerState
+		if err := store.Load(slot, &got); err != nil || got.Name != slot {
+			t.Fatalf("Load %q = %+v, %v", slot, got, err)
+		}
+	}
+}

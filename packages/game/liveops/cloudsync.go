@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,6 +39,8 @@ var (
 	ErrCorruptSyncState = errors.New("liveops: corrupt cloud sync state")
 	// ErrCloudChanged reports that the cloud copy of a slot changed between CloudSyncer reading it and writing it, such as when another device uploaded at the same moment. Nothing was written; the next sync sees the new copy.
 	ErrCloudChanged = errors.New("liveops: cloud save changed during sync")
+	// ErrConflictChanged reports that a slot passed to CloudSyncer.Resolve no longer holds the copies of the Conflict it was given, because a save or a sync changed either side since. Nothing was written; sync again to see the current conflict, if any.
+	ErrConflictChanged = errors.New("liveops: save changed since the conflict was reported")
 	// ErrInvalidDevice reports a device ID that is empty, longer than 64 bytes or not made of ASCII letters, digits, '-' and '_'.
 	ErrInvalidDevice = errors.New("liveops: invalid device id")
 )
@@ -76,7 +79,7 @@ const (
 	ChoiceDefer Choice = iota
 	// ChoiceLocal keeps this device's copy and overwrites (or deletes) the cloud copy.
 	ChoiceLocal
-	// ChoiceCloud keeps the cloud copy and overwrites (or deletes) this device's copy; the local save backend keeps the overwritten copy as its backup.
+	// ChoiceCloud keeps the cloud copy and overwrites (or deletes) this device's copy. SlotResult.Discarded holds the replaced copy; when it was a valid save envelope and the cloud copy exists, the local save backend also keeps it as its backup.
 	ChoiceCloud
 	// ChoiceBoth keeps the cloud copy in the slot and moves this device's copy into a fork slot on both sides. When one side deleted the slot it keeps the copy that exists.
 	ChoiceBoth
@@ -114,11 +117,11 @@ const (
 	OutcomeDeletedLocal
 	// OutcomeKeptLocal means a conflict was resolved in favour of the local copy; SlotResult.Discarded holds the cloud copy it replaced.
 	OutcomeKeptLocal
-	// OutcomeKeptCloud means a conflict was resolved in favour of the cloud copy; SlotResult.Discarded holds the local copy it replaced, which the local save backend also keeps as its backup.
+	// OutcomeKeptCloud means a conflict was resolved in favour of the cloud copy; SlotResult.Discarded holds the local copy it replaced. When that copy was a valid save envelope and the cloud copy exists, the local save backend also keeps it as its backup; otherwise Discarded is the only copy left.
 	OutcomeKeptCloud
 	// OutcomeKeptBoth means a conflict was resolved by keeping the cloud copy in the slot and moving the local copy to SlotResult.Fork on both sides.
 	OutcomeKeptBoth
-	// OutcomeDeferred means a conflict was left unresolved under PolicyAsk; nothing was written.
+	// OutcomeDeferred means a conflict was left unresolved, by ChoiceDefer under PolicyAsk or passed to CloudSyncer.Resolve; nothing was written.
 	OutcomeDeferred
 )
 
@@ -156,7 +159,7 @@ type SaveVersion struct {
 	Revision int64
 	// Hash is "sha256:" followed by the hex SHA-256 of Data.
 	Hash string
-	// Modified is when the copy was last written, zero when unknown (a local write that bypassed CloudSyncer.Backend, or a plain cloud payload).
+	// Modified is when the copy was last written, zero when unknown (a local write that bypassed CloudSyncer.Backend, or a plain cloud payload). A local time counts only for the exact copy it was recorded with: a later write that bypassed Backend makes it unknown.
 	Modified time.Time
 	// Device is the ID of the device that wrote the copy, empty when unknown.
 	Device string
@@ -166,7 +169,7 @@ type SaveVersion struct {
 	Data []byte
 }
 
-// Conflict is a slot whose local and cloud copies both changed since this device last synced it, passed to CloudSyncOptions.Ask under PolicyAsk.
+// Conflict is a slot whose local and cloud copies both changed since this device last synced it, passed to CloudSyncOptions.Ask under PolicyAsk and reported in SlotResult.Conflict. Pass it back to CloudSyncer.Resolve to apply the player's choice later.
 type Conflict struct {
 	// Slot is the save slot name.
 	Slot string
@@ -221,7 +224,7 @@ type CloudSyncOptions struct {
 	Device string
 	// Policy resolves conflicts; PolicyNewest when zero.
 	Policy ConflictPolicy
-	// Ask answers each conflict under PolicyAsk, typically by showing the player both summaries. It is required with PolicyAsk. An error leaves the slot untouched and is returned by the sync.
+	// Ask answers each conflict under PolicyAsk. It is required with PolicyAsk. It runs inside the sync, on the app's thread, so it must return without waiting for the player: to ask through a dialog, keep the Conflict, return ChoiceDefer, show both summaries, and apply the answer with CloudSyncer.Resolve. An error leaves the slot untouched and is returned by the sync.
 	Ask func(ctx context.Context, c Conflict) (Choice, error)
 	// Summarize returns a short, player-facing description of a save payload for Conflict summaries. Optional.
 	Summarize func(slot string, data []byte) string
@@ -234,6 +237,8 @@ type CloudSyncOptions struct {
 // It remembers, per slot, the content hash and cloud revision both sides agreed on at the last sync (the base). On each sync it compares the local copy, the cloud copy and the base: when only one side differs from the base that side is copied to the other, and when both differ (and from each other) the slot is a conflict. Cloud payloads are JSON text carrying the revision, content hash, modified time and writing device next to the save data.
 //
 // Write saves through Backend so that each local write is stamped with its time for PolicyNewest and conflict summaries. A CloudSyncer is not safe for concurrent use; call it where the app's code runs, as core.Storage requires.
+//
+// Before every cloud write it reads the cloud copy again and refuses to write when it changed (ErrCloudChanged). CloudSync has no conditional write, so an upload by another device that lands between that read and the write can still be overwritten; the window is a single Load and Save apart.
 type CloudSyncer struct {
 	local     save.Backend
 	cloud     CloudSync
@@ -302,10 +307,13 @@ func validateDevice(id string) error {
 	return nil
 }
 
-// Backend returns the local save backend wrapped so that every Write and Delete is stamped with the current time in the slot's sync state. Pass it to save.NewStore so PolicyNewest and conflict summaries know when each local copy was written.
+// Backend returns the local save backend wrapped so that every Write and Delete is stamped with the current time in the slot's sync state. Pass it to save.NewStore so PolicyNewest and conflict summaries know when each local copy was written. Its Unwrap method returns the local backend, so a save.SettingsStore built on it keeps settings where the local backend does.
 func (s *CloudSyncer) Backend() save.Backend { return trackedBackend{s} }
 
 type trackedBackend struct{ s *CloudSyncer }
+
+// Unwrap returns the local backend, so save sees through the wrapper (settings stores keep their own key and are never synced).
+func (b trackedBackend) Unwrap() save.Backend { return b.s.local }
 
 func (b trackedBackend) Read(slot string) ([]byte, error)       { return b.s.local.Read(slot) }
 func (b trackedBackend) ReadBackup(slot string) ([]byte, error) { return b.s.local.ReadBackup(slot) }
@@ -316,23 +324,27 @@ func (b trackedBackend) Write(slot string, data []byte) error {
 	if err := b.s.local.Write(slot, data); err != nil {
 		return err
 	}
-	return b.s.stampLocal(slot)
+	return b.s.stampLocal(slot, hashData(data))
 }
 
 func (b trackedBackend) Delete(slot string) error {
 	if err := b.s.local.Delete(slot); err != nil {
 		return err
 	}
-	return b.s.stampLocal(slot)
+	return b.s.stampLocal(slot, "")
 }
 
-func (s *CloudSyncer) stampLocal(slot string) error {
+// stampLocal records that the local copy of slot, with content hash hash ("" after a delete), was written now. Names that are not save slots, such as "settings" written by a settings store on a backend without Unwrap, are not synced and get no state.
+func (s *CloudSyncer) stampLocal(slot, hash string) error {
+	if save.ValidateSlot(slot) != nil {
+		return nil
+	}
 	st, err := s.loadState(slot)
 	if err != nil {
 		// A corrupt record must not block saving; start it over with only the stamp, which turns the next sync of this slot into a first sync.
 		st = syncState{}
 	}
-	st.LocalModified = formatTime(s.now())
+	st.LocalModified, st.LocalHash = formatTime(s.now()), hash
 	return s.storeState(slot, st)
 }
 
@@ -390,21 +402,10 @@ func (s *CloudSyncer) allSlots(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// SyncSlot reconciles one slot. On error nothing has been written for the slot, except that a failure after a conflict fork was created leaves the fork in place.
+// SyncSlot reconciles one slot. On error nothing has been written for the slot, except that a failure after a conflict fork was created leaves the fork in place; the next sync uploads it and reuses it rather than creating another.
 func (s *CloudSyncer) SyncSlot(ctx context.Context, slot string) (SlotResult, error) {
 	res := SlotResult{Slot: slot}
-	if err := save.ValidateSlot(slot); err != nil {
-		return res, fmt.Errorf("liveops: sync: %w", err)
-	}
-	st, err := s.loadState(slot)
-	if err != nil {
-		return res, err
-	}
-	local, err := s.readLocal(slot)
-	if err != nil {
-		return res, err
-	}
-	cloud, err := s.readCloud(ctx, slot)
+	st, local, cloud, err := s.readSides(ctx, slot)
 	if err != nil {
 		return res, err
 	}
@@ -426,11 +427,58 @@ func (s *CloudSyncer) SyncSlot(ctx context.Context, slot string) (SlotResult, er
 		return res, err
 	}
 
-	local.Revision = st.Revision
-	if t, err := parseTime(st.LocalModified); err == nil && local.Exists {
-		local.Modified = t
+	c := s.conflict(slot, st, local, cloud)
+	res.Conflict = &c
+	choice, err := s.decide(ctx, c)
+	if err != nil {
+		return res, fmt.Errorf("liveops: resolve conflict in %q: %w", slot, err)
 	}
+	return s.apply(ctx, res, choice)
+}
+
+// Resolve applies choice to a conflict reported earlier, typically one that Ask answered with ChoiceDefer so the game could show the player both copies outside the sync. It reads both sides again and applies choice only while they still hold the copies in c (the same existence, content hash and cloud revision); otherwise it writes nothing and returns ErrConflictChanged. ChoiceDefer writes nothing. Resolve works under every policy and does not call Ask.
+func (s *CloudSyncer) Resolve(ctx context.Context, c Conflict, choice Choice) (SlotResult, error) {
+	res := SlotResult{Slot: c.Slot}
+	if choice < ChoiceDefer || choice > ChoiceBoth {
+		return res, fmt.Errorf("liveops: resolve conflict in %q: unknown choice %d", c.Slot, int(choice))
+	}
+	st, local, cloud, err := s.readSides(ctx, c.Slot)
+	if err != nil {
+		return res, err
+	}
+	if local.Exists != c.Local.Exists || local.Hash != c.Local.Hash || cloud.Exists != c.Cloud.Exists || cloud.Hash != c.Cloud.Hash || cloud.Revision != c.Cloud.Revision || local.Hash == cloud.Hash {
+		return res, fmt.Errorf("liveops: resolve conflict in %q: %w", c.Slot, ErrConflictChanged)
+	}
+	cur := s.conflict(c.Slot, st, local, cloud)
+	res.Conflict = &cur
+	return s.apply(ctx, res, choice)
+}
+
+// readSides validates slot and reads its sync state, local copy and cloud copy.
+func (s *CloudSyncer) readSides(ctx context.Context, slot string) (syncState, SaveVersion, SaveVersion, error) {
+	if err := save.ValidateSlot(slot); err != nil {
+		return syncState{}, SaveVersion{}, SaveVersion{}, fmt.Errorf("liveops: sync: %w", err)
+	}
+	st, err := s.loadState(slot)
+	if err != nil {
+		return syncState{}, SaveVersion{}, SaveVersion{}, err
+	}
+	local, err := s.readLocal(slot)
+	if err != nil {
+		return syncState{}, SaveVersion{}, SaveVersion{}, err
+	}
+	cloud, err := s.readCloud(ctx, slot)
+	if err != nil {
+		return syncState{}, SaveVersion{}, SaveVersion{}, err
+	}
+	return st, local, cloud, nil
+}
+
+// conflict fills in the local side's sync metadata and both summaries.
+func (s *CloudSyncer) conflict(slot string, st syncState, local, cloud SaveVersion) Conflict {
+	local.Revision = st.Revision
 	if local.Exists {
+		local.Modified = st.localTime(local.Hash)
 		local.Device = s.device
 	}
 	if s.summarize != nil {
@@ -441,16 +489,16 @@ func (s *CloudSyncer) SyncSlot(ctx context.Context, slot string) (SlotResult, er
 			cloud.Summary = s.summarize(slot, cloud.Data)
 		}
 	}
-	c := Conflict{Slot: slot, Local: local, Cloud: cloud}
-	res.Conflict = &c
+	return Conflict{Slot: slot, Local: local, Cloud: cloud}
+}
 
-	choice, err := s.decide(ctx, c)
-	if err != nil {
-		return res, fmt.Errorf("liveops: resolve conflict in %q: %w", slot, err)
-	}
-	if choice == ChoiceBoth && (!local.Exists || !cloud.Exists) {
+// apply carries out choice for the conflict in res.
+func (s *CloudSyncer) apply(ctx context.Context, res SlotResult, choice Choice) (SlotResult, error) {
+	c := *res.Conflict
+	slot := c.Slot
+	if choice == ChoiceBoth && (!c.Local.Exists || !c.Cloud.Exists) {
 		// Keeping both of a deleted and a changed copy means keeping the changed one.
-		if local.Exists {
+		if c.Local.Exists {
 			choice = ChoiceLocal
 		} else {
 			choice = ChoiceCloud
@@ -461,25 +509,26 @@ func (s *CloudSyncer) SyncSlot(ctx context.Context, slot string) (SlotResult, er
 		res.Outcome = OutcomeDeferred
 		return res, nil
 	case ChoiceLocal:
-		if _, err := s.pushLocal(ctx, slot, local, cloud); err != nil {
+		if _, err := s.pushLocal(ctx, slot, c.Local, c.Cloud); err != nil {
 			return res, err
 		}
-		discarded := cloud
+		discarded := c.Cloud
 		res.Outcome, res.Discarded = OutcomeKeptLocal, &discarded
 		return res, nil
 	case ChoiceCloud:
-		if _, err := s.applyCloud(slot, cloud); err != nil {
+		if _, err := s.applyCloud(slot, c.Cloud); err != nil {
 			return res, err
 		}
-		discarded := local
+		discarded := c.Local
 		res.Outcome, res.Discarded = OutcomeKeptCloud, &discarded
 		return res, nil
 	case ChoiceBoth:
-		fork, err := s.fork(ctx, slot, local, cloud)
+		fork, err := s.fork(ctx, slot, c.Local, c.Cloud)
+		res.Fork = fork
 		if err != nil {
 			return res, err
 		}
-		res.Outcome, res.Fork = OutcomeKeptBoth, fork
+		res.Outcome = OutcomeKeptBoth
 		return res, nil
 	default:
 		return res, fmt.Errorf("liveops: resolve conflict in %q: unknown choice %d", slot, int(choice))
@@ -552,7 +601,7 @@ func (s *CloudSyncer) applyCloud(slot string, cloud SaveVersion) (SyncOutcome, e
 	}
 	st := syncState{Revision: cloud.Revision, Hash: cloud.Hash}
 	if !cloud.Modified.IsZero() {
-		st.LocalModified = formatTime(cloud.Modified)
+		st.LocalModified, st.LocalHash = formatTime(cloud.Modified), cloud.Hash
 	}
 	return OutcomeDownloaded, s.storeState(slot, st)
 }
@@ -577,15 +626,16 @@ func (s *CloudSyncer) pushLocal(ctx context.Context, slot string, local, prev Sa
 	if err != nil {
 		return 0, err
 	}
-	modified, err := parseTime(st.LocalModified)
-	if err != nil || modified.IsZero() {
+	// A time recorded for another copy, such as the one before a write that bypassed Backend, does not describe this one.
+	modified := st.localTime(local.Hash)
+	if modified.IsZero() {
 		modified = s.now()
 	}
 	next := SaveVersion{Exists: true, Revision: prev.Revision + 1, Hash: local.Hash, Modified: modified, Device: s.device, Data: local.Data}
 	if err := s.upload(ctx, slot, next); err != nil {
 		return 0, err
 	}
-	return OutcomeUploaded, s.storeState(slot, syncState{Revision: next.Revision, Hash: next.Hash, LocalModified: formatTime(modified)})
+	return OutcomeUploaded, s.storeState(slot, syncState{Revision: next.Revision, Hash: next.Hash, LocalModified: formatTime(modified), LocalHash: next.Hash})
 }
 
 func (s *CloudSyncer) upload(ctx context.Context, slot string, v SaveVersion) error {
@@ -599,24 +649,40 @@ func (s *CloudSyncer) upload(ctx context.Context, slot string, v SaveVersion) er
 	return nil
 }
 
-// fork moves the local copy into a new slot on both sides, then replaces the local slot with the cloud copy. The local fork is written first, so the local copy is never only in memory.
+// fork moves the local copy into a fork slot on both sides, then replaces the local slot with the cloud copy. The local fork and its sync state are written first, so the local copy is never only in memory and a failed upload is retried by the next sync, which also finds and reuses this fork instead of creating another.
 func (s *CloudSyncer) fork(ctx context.Context, slot string, local, cloud SaveVersion) (string, error) {
-	name, err := s.forkName(ctx, slot)
+	name, reuse, err := s.forkName(ctx, slot, local.Hash)
 	if err != nil {
 		return "", err
 	}
-	if err := s.local.Write(name, local.Data); err != nil {
-		return "", fmt.Errorf("liveops: write conflict copy %q: %w", name, err)
+	if !reuse {
+		if err := s.local.Write(name, local.Data); err != nil {
+			return "", fmt.Errorf("liveops: write conflict copy %q: %w", name, err)
+		}
+		modified := local.Modified
+		if modified.IsZero() {
+			modified = s.now()
+		}
+		// Never synced (no base hash), so the next sync of the fork uploads it if this one fails.
+		if err := s.storeState(name, syncState{LocalModified: formatTime(modified), LocalHash: local.Hash}); err != nil {
+			return name, err
+		}
 	}
-	modified := local.Modified
-	if modified.IsZero() {
-		modified = s.now()
-	}
-	forked := SaveVersion{Exists: true, Revision: 1, Hash: local.Hash, Modified: modified, Device: s.device, Data: local.Data}
-	if err := s.upload(ctx, name, forked); err != nil {
+	cur, err := s.readCloud(ctx, name)
+	if err != nil {
 		return name, err
 	}
-	if err := s.storeState(name, syncState{Revision: 1, Hash: local.Hash, LocalModified: formatTime(modified)}); err != nil {
+	forked := SaveVersion{Exists: true, Hash: local.Hash, Data: local.Data}
+	if cur.Hash == local.Hash {
+		st, err := s.loadState(name)
+		if err != nil {
+			return name, err
+		}
+		st.Revision, st.Hash = cur.Revision, cur.Hash
+		if err := s.storeState(name, st); err != nil {
+			return name, err
+		}
+	} else if _, err := s.pushLocal(ctx, name, forked, cur); err != nil {
 		return name, err
 	}
 	if _, err := s.applyCloud(slot, cloud); err != nil {
@@ -625,29 +691,74 @@ func (s *CloudSyncer) fork(ctx context.Context, slot string, local, cloud SaveVe
 	return name, nil
 }
 
-// forkName returns "<slot>.conflict-<device>", or with "-2", "-3" and so on appended, choosing the first name no side uses.
-func (s *CloudSyncer) forkName(ctx context.Context, slot string) (string, error) {
+// maxForkSlotLen is the longest slot name save.ValidateSlot accepts.
+const maxForkSlotLen = 200
+
+// forkName returns the fork slot for a conflict in slot whose local copy has content hash hash: "<slot>.conflict-<device>", or with "-2", "-3" and so on appended. It reuses (reuse true) a name that already holds this very copy locally and is absent from the cloud or holds the same copy there, left by an earlier fork that failed part way; otherwise it chooses the first name no side uses. When slot is too long for the name to fit, the slot part is shortened and followed by '~' and 8 hex digits of the slot's SHA-256, so forks of different long slots stay distinct.
+func (s *CloudSyncer) forkName(ctx context.Context, slot, hash string) (string, bool, error) {
 	cloud, err := s.cloud.List(ctx)
 	if err != nil {
-		return "", fmt.Errorf("liveops: list cloud saves: %w", err)
+		return "", false, fmt.Errorf("liveops: list cloud saves: %w", err)
 	}
-	base := slot + ".conflict-" + s.device
 	for n := 1; ; n++ {
-		name := base
+		suffix := ".conflict-" + s.device
 		if n > 1 {
-			name += "-" + strconv.Itoa(n)
+			suffix += "-" + strconv.Itoa(n)
 		}
+		name := forkSlotName(slot, suffix)
 		if err := save.ValidateSlot(name); err != nil {
-			return "", fmt.Errorf("liveops: conflict copy of %q: %w", slot, err)
+			return "", false, fmt.Errorf("liveops: conflict copy of %q: %w", slot, err)
 		}
-		if s.local.Exists(name) || slices.Contains(cloud, name) {
+		inCloud := slices.Contains(cloud, name)
+		if s.local.Exists(name) {
+			v, err := s.readLocal(name)
+			if err != nil {
+				return "", false, err
+			}
+			if v.Hash != hash {
+				continue
+			}
+			if !inCloud {
+				return name, true, nil
+			}
+			cv, err := s.readCloud(ctx, name)
+			if err != nil {
+				return "", false, err
+			}
+			if cv.Hash == hash {
+				return name, true, nil
+			}
+			continue
+		}
+		if inCloud {
 			continue
 		}
 		if _, ok := s.state.GetItem(s.stateKey(name)); ok {
 			continue
 		}
-		return name, nil
+		return name, false, nil
 	}
+}
+
+// forkSlotName joins slot and suffix, shortening slot when the result would be longer than a slot name may be.
+func forkSlotName(slot, suffix string) string {
+	if len(slot)+len(suffix) <= maxForkSlotLen {
+		return slot + suffix
+	}
+	sum := sha256.Sum256([]byte(slot))
+	tag := "~" + hex.EncodeToString(sum[:4])
+	keep := maxForkSlotLen - len(suffix) - len(tag)
+	head := slot[:max(keep, 0)]
+	// Do not split a multi-byte character.
+	for len(head) > 0 {
+		if r, size := utf8.DecodeLastRuneInString(head); r != utf8.RuneError || size > 1 {
+			break
+		}
+		head = head[:len(head)-1]
+	}
+	// The cut must not leave a '.' that would join the tag into a "..", or a trailing space or dot.
+	head = strings.TrimRight(head, ". ")
+	return head + tag + suffix
 }
 
 // ---- cloud payload ----
@@ -700,7 +811,7 @@ func EncodeCloudSave(v SaveVersion) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DecodeCloudSave reads a cloud payload. A JSON object whose "format" is CloudSaveFormat is decoded strictly (unknown fields, a newer version, a hash that does not match the data or a malformed value return an error wrapping ErrCorruptCloudSave); any other payload is a plain save written without CloudSyncer and is returned as revision 0 with no modified time or device.
+// DecodeCloudSave reads a cloud payload. A JSON object whose "format" is CloudSaveFormat is decoded strictly (unknown fields, a newer version, a revision below 1 or at math.MaxInt64, a hash that does not match the data or a malformed value return an error wrapping ErrCorruptCloudSave); any other payload is a plain save written without CloudSyncer and is returned as revision 0 with no modified time or device.
 func DecodeCloudSave(raw []byte) (SaveVersion, error) {
 	if !isEnvelope(raw) {
 		return SaveVersion{Exists: true, Hash: hashData(raw), Data: raw}, nil
@@ -717,7 +828,8 @@ func DecodeCloudSave(raw []byte) (SaveVersion, error) {
 	if env.Version < 1 || env.Version > CloudSaveVersion {
 		return SaveVersion{}, fmt.Errorf("%w: unsupported version %d", ErrCorruptCloudSave, env.Version)
 	}
-	if env.Revision < 1 {
+	// The largest revision is refused too: the next upload could not increment it.
+	if env.Revision < 1 || env.Revision == math.MaxInt64 {
 		return SaveVersion{}, fmt.Errorf("%w: revision %d", ErrCorruptCloudSave, env.Revision)
 	}
 	if env.Device != "" && validateDevice(env.Device) != nil {
@@ -796,6 +908,20 @@ type syncState struct {
 	Hash string `json:"hash,omitempty"`
 	// LocalModified is when the local copy was last written, RFC 3339 UTC.
 	LocalModified string `json:"local_modified,omitempty"`
+	// LocalHash is the content hash of the local copy LocalModified was recorded for ("" for a deletion). A local copy with another hash was written without CloudSyncer.Backend, so its time is unknown.
+	LocalHash string `json:"local_hash,omitempty"`
+}
+
+// localTime returns LocalModified when it was recorded for the local copy with content hash hash, and the zero time otherwise.
+func (st syncState) localTime(hash string) time.Time {
+	if st.LocalHash != hash {
+		return time.Time{}
+	}
+	t, err := parseTime(st.LocalModified)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func (s *CloudSyncer) stateKey(slot string) string {
@@ -807,8 +933,13 @@ func (s *CloudSyncer) stateSlots() []string {
 	unescape := strings.NewReplacer("%2E", ".", "%25", "%")
 	var out []string
 	for _, k := range s.state.Keys() {
-		if rest, ok := strings.CutPrefix(k, pref); ok && !strings.Contains(rest, ".") {
-			out = append(out, unescape.Replace(rest))
+		rest, ok := strings.CutPrefix(k, pref)
+		if !ok || strings.Contains(rest, ".") {
+			continue
+		}
+		// A name that is not a save slot is not synced; skipping it keeps one stray key from failing every Sync.
+		if slot := unescape.Replace(rest); save.ValidateSlot(slot) == nil {
+			out = append(out, slot)
 		}
 	}
 	return out

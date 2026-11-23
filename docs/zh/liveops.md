@@ -82,7 +82,8 @@ syncer, err := liveops.NewCloudSyncer(liveops.CloudSyncOptions{
 	Device: deviceID, // 1 到 64 个 ASCII 字母、数字、'-' 或 '_'
 	Policy: liveops.PolicyAsk,
 	Ask: func(ctx context.Context, c liveops.Conflict) (liveops.Choice, error) {
-		return showConflictDialog(c.Local, c.Cloud) // ChoiceLocal、ChoiceCloud、ChoiceBoth 或 ChoiceDefer
+		pending = append(pending, c) // 交给游戏的冲突对话框展示
+		return liveops.ChoiceDefer, nil
 	},
 	Summarize: func(slot string, data []byte) string { return describeSave(data) }, // "第 12 关，已玩 3 小时 40 分"
 })
@@ -94,6 +95,12 @@ store := save.NewStore(syncer.Backend()) // 为每次本地写入记下时间
 res, err := syncer.Sync(ctx)
 for _, r := range res.Conflicts() {
 	log.Printf("%s: %s", r.Slot, r.Outcome)
+}
+
+// 稍后，玩家在对话框中选定一份副本时：
+r, err := syncer.Resolve(ctx, c, liveops.ChoiceLocal) // 或 ChoiceCloud、ChoiceBoth
+if errors.Is(err, liveops.ErrConflictChanged) {
+	// 对话框打开期间，存档或同步改动了该槽位：重新同步，并就新的冲突再次询问。
 }
 ```
 
@@ -108,12 +115,16 @@ for _, r := range res.Conflicts() {
 
 | 策略 | 行为 |
 | --- | --- |
-| `PolicyNewest`（默认） | 保留修改时间较晚的副本并覆盖另一份（`OutcomeKeptLocal` 或 `OutcomeKeptCloud`）。任一时间未知（例如绕过 `Backend()` 的写入）或两者相等时保留两份。一端删除、另一端修改时保留修改后的副本。 |
-| `PolicyKeepBoth` | 槽位中保留云端副本，把本地副本在两端都移到 `<slot>.conflict-<device>`（依次再用 `-2`、`-3`……）（`OutcomeKeptBoth`，`SlotResult.Fork`）。在覆盖任何内容之前先在本地写好分叉副本。删除对修改时保留修改。 |
+| `PolicyNewest`（默认） | 保留修改时间较晚的副本并覆盖另一份（`OutcomeKeptLocal` 或 `OutcomeKeptCloud`）。任一时间未知（例如未经 `Backend()` 写入的本地副本；记下的时间只对应记录时的那份副本）或两者相等时保留两份。一端删除、另一端修改时保留修改后的副本。 |
+| `PolicyKeepBoth` | 槽位中保留云端副本，把本地副本在两端都移到 `<slot>.conflict-<device>`（依次再用 `-2`、`-3`……）（`OutcomeKeptBoth`，`SlotResult.Fork`）。该名称超过 200 字节的槽位名上限时，槽位部分会被截短，并在其后加上 `~` 和槽位名 SHA-256 的 8 位十六进制。在覆盖任何内容之前，先在本地写好分叉副本及其同步状态，因此上传失败时，下次同步会上传同一个分叉，而不是再建一个。删除对修改时保留修改。 |
 | `PolicyAsk` | 用冲突调用 `Ask` 并执行其 `Choice`：`ChoiceLocal`、`ChoiceCloud`、`ChoiceBoth`（同 `PolicyKeepBoth`）或 `ChoiceDefer`；`ChoiceDefer` 不写入任何内容，下次同步再次询问。`Ask` 返回错误时两份副本都保持不变。 |
 
-只要某次解决替换了一份副本，`SlotResult.Discarded` 都会返回它，方便游戏展示或归档；本地后端也会把被替换的本地副本保留为备份（`ReadBackup`）。
+`Ask` 在同步过程中、在应用线程上运行，因此不能等待玩家作答。要通过对话框询问，就保存 `Conflict`、返回 `ChoiceDefer`、展示两份摘要，再用 `Resolve(ctx, conflict, choice)` 执行玩家的选择，如上例所示。`Resolve` 会重新读取两端，只有两端仍持有玩家看到的那两份副本（是否存在、哈希和云端修订号都相同）时才执行选择；否则不写入任何内容并返回 `ErrConflictChanged`。它在任何策略下都可用。
+
+只要某次解决替换了一份副本，`SlotResult.Discarded` 都会返回它，方便游戏展示或归档。被替换的本地副本是有效的存档信封且云端副本存在时，本地后端也会把它保留为备份（`ReadBackup`）；云端副本是删除，或本地副本不是存档信封时，`Discarded` 是仅存的一份。
 
 云端负载是键顺序固定的 JSON 文本：`format`（`CloudSaveFormat`）、`version`（`CloudSaveVersion`）、`revision`、`hash`、`modified`（RFC 3339，UTC）、`device` 和 `data`；`data` 是按原样保存存档的字符串（非 UTF-8 数据改用 `data_base64`）。`DecodeCloudSave` 以 `ErrCorruptCloudSave` 拒绝未知字段、更新的版本、尾随数据以及与数据不符的哈希；把 `EncodeCloudSave` 写出的负载解码后再编码，得到的字节完全相同。没有格式标记的云端负载（由直接使用 `CloudSync` 的游戏写入）按修订号 0 读取，并在下次上传时升级。云端槽位名在交给本地后端之前会先经 `save.ValidateSlot` 检查。
 
-`CloudSyncer` 不支持并发使用；请在应用代码运行的地方调用它，这是 `core.Storage` 的要求。
+`Backend()` 通过 `Unwrap` 暴露本地后端，因此基于它创建的设置存储（`save.NewDefaultSettingsStore(syncer.Backend())`）会把设置保存在本地后端自己的设置键下，设置永远不会作为槽位同步。
+
+`CloudSyncer` 不支持并发使用；请在应用代码运行的地方调用它，这是 `core.Storage` 的要求。`CloudSync` 没有条件写入，因此另一台设备的上传若恰好落在同步器重新读取与自身写入之间，仍可能被覆盖；这个窗口只隔一次 `Load` 和一次 `Save`。

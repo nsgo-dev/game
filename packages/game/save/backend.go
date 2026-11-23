@@ -16,6 +16,8 @@ import (
 var errEmptyDir = errors.New("save: file backend requires a non-empty directory")
 
 // Backend stores and retrieves raw save payloads and their backup copies by validated slot name.
+//
+// A Backend that wraps another, such as one that records each write, can expose it with an Unwrap() Backend method. A SettingsStore built on the wrapper then keeps settings exactly where it would on the wrapped backend, without passing them through the wrapper.
 type Backend interface {
 	// Read returns the primary payload for slot, or an error wrapping ErrNotFound if absent.
 	Read(slot string) ([]byte, error)
@@ -57,12 +59,15 @@ func (b *storageBackend) backupPrefix() string {
 	return b.prefix + ".bak."
 }
 
-// escapeSlotKey keeps a slot name from colliding with a prefix boundary or a
-// backup key: a dot, the separator between a prefix and the slot kind, is
-// encoded, so prefix "save" with slot "slot.x" cannot share a key with prefix
-// "save.slot" and slot "x" (#546).
+// escapeSlotKey keeps a slot name from colliding with a prefix boundary or a backup key: a dot, the separator between a prefix and the slot kind, is encoded, so prefix "save" with slot "slot.x" cannot share a key with prefix "save.slot" and slot "x" (#546).
 func escapeSlotKey(slot string) string {
 	return strings.NewReplacer(".", "%2E", "%", "%25").Replace(slot)
+}
+
+// unescapeSlotKey reverses escapeSlotKey, reporting false for a key part escapeSlotKey cannot have produced (such as a raw dot), which belongs to no slot.
+func unescapeSlotKey(key string) (string, bool) {
+	slot := strings.NewReplacer("%2E", ".", "%25", "%").Replace(key)
+	return slot, escapeSlotKey(slot) == key
 }
 
 func (b *storageBackend) primaryKey(slot string) string {
@@ -119,15 +124,16 @@ func (b *storageBackend) Slots() ([]string, error) {
 	bPref := b.backupPrefix()
 	seen := make(map[string]struct{})
 	for _, k := range b.store.Keys() {
-		var slot string
+		var escaped string
 		if s, ok := strings.CutPrefix(k, pPref); ok {
-			slot = s
+			escaped = s
 		} else if s, ok := strings.CutPrefix(k, bPref); ok {
-			slot = s
+			escaped = s
 		} else {
 			continue
 		}
-		if validateSlot(slot) == nil {
+		slot, ok := unescapeSlotKey(escaped)
+		if ok && validateSlot(slot) == nil {
 			seen[slot] = struct{}{}
 		}
 	}
