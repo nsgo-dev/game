@@ -178,6 +178,16 @@ function Stage({ example, name, copy }: { example: PlaygroundExample; name: stri
   )
 }
 
+// fileFromHash is the file name an address's fragment names. A shared link can carry a fragment that is not valid percent-encoding, such as #%, and that names the fragment as written rather than failing the page.
+function fileFromHash(hash: string): string {
+  const raw = hash.slice(1)
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 // SourcePane shows the example's files as the home page's editor does, a tab each, loading their highlighted text once the page is up. The file shown is the address's fragment, such as #game.go, so a link can open the page on it.
 function SourcePane({ example, copy }: { example: PlaygroundExample; copy: PlaygroundCopy }) {
   const [source, setSource] = useState<PlaygroundSource | null>(null)
@@ -190,7 +200,7 @@ function SourcePane({ example, copy }: { example: PlaygroundExample; copy: Playg
     void sources[example.id]().then((loaded) => {
       if (live) setSource(loaded)
     })
-    const fromHash = files.findIndex((file) => file.name === decodeURIComponent(window.location.hash.slice(1)))
+    const fromHash = files.findIndex((file) => file.name === fileFromHash(window.location.hash))
     if (fromHash >= 0) setSelected(fromHash)
     return () => {
       live = false

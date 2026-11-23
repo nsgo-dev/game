@@ -78,6 +78,14 @@ export function siteContent(): Plugin {
           for (const file of await markdownFiles(dir)) this.addWatchFile(path.join(dir, file))
         }
       }
+      if (moduleId === 'virtual:playground') {
+        // The line counts follow the sources, and a build made while the dev server runs shows up once its nsgo.json is written.
+        for (const id of PLAYGROUND_IDS) {
+          const dir = path.join(ctx.examplesDir, id)
+          for (const file of await playgroundFiles(dir)) this.addWatchFile(path.join(dir, file))
+          this.addWatchFile(path.join(ctx.publicDir, PLAYGROUND_BUILDS, id, 'nsgo.json'))
+        }
+      }
       if (moduleId === 'virtual:snippets') {
         for (const snippet of SNIPPETS) this.addWatchFile(path.join(ctx.snippetsDir, `${snippet}.go.txt`))
       }
