@@ -22,6 +22,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `tilemap` | `github.com/nsgo-dev/game/packages/game/tilemap` | [tilemap](tilemap.md) | 2D `Camera`, culled tilemaps, Tiled `.tmj` loader, animated tiles and raycasts |
 | `scene` | `github.com/nsgo-dev/game/packages/game/scene` | [scene](scene.md) | World/screen layers, hit testing, scene stacks and animated transitions |
 | `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
+| `platformer` | `github.com/nsgo-dev/game/packages/game/platformer` | [platformer](platformer.md) | Platformer `Controller` on `CharacterBody`: coyote time, jump buffer, variable jump height, wall slide and wall jump from a YAML config |
 | `screen` | `github.com/nsgo-dev/game/packages/game/screen` | [screen](screen.md) | Virtual resolution `Viewport` scaling, pixel snapping, safe-area rectangles and video settings |
 | `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/packages/game/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
