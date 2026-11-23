@@ -96,6 +96,8 @@ type Actions struct {
 	gpOne   bool
 	gpAxes  map[string]gamepadAxisBinding
 	gpSnap  map[string]float64
+	// gpMuted holds, per controller ID, a bit mask of the buttons held across Reset, which stay inactive until released.
+	gpMuted map[int]uint32
 
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
@@ -285,7 +287,7 @@ func (a *Actions) recordPadAxis(name string, v float64) {
 	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
-// Reset clears active touches, held mouse buttons, held keys, the last game controller state read, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, held keys, the last game controller state read, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; a game controller button held across Reset stays inactive until it is released, as a held mouse button does. UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}
@@ -301,6 +303,7 @@ func (a *Actions) Reset() {
 	clear(a.prev)
 	a.resetMotion()
 	a.resetPointer()
+	a.muteHeldButtons()
 	a.gpPads = a.gpPads[:0]
 	clear(a.gpSnap)
 	clear(a.padAxes)

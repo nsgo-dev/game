@@ -209,6 +209,111 @@ func TestGamepadSelectionAndSeveralControllers(t *testing.T) {
 	}
 }
 
+func TestGamepadButtonHeldAcrossResetStaysInactiveUntilReleased(t *testing.T) {
+	h := startPadHarness(t, bindPadDefaults)
+	h.app.ConnectGamepad(1, "Xbox Wireless Controller")
+	h.app.SetGamepadButton(1, gamepad.ButtonSouth, 1)
+	if s := h.step(); !s.jumpJust {
+		t.Fatalf("press: %+v", s)
+	}
+
+	// A scene change resets the actions while South is still held: the new scene must not see a fresh press.
+	h.app.Post(h.actions.Reset)
+	h.app.Settle()
+	for range 2 {
+		if s := h.step(); s.jump || s.jumpJust {
+			t.Fatalf("button held across Reset registered: %+v", s)
+		}
+	}
+	// Another button pressed after Reset is not affected.
+	h.app.SetGamepadButton(1, gamepad.ButtonRT, 1)
+	if s := h.step(); !s.fire || s.jump {
+		t.Fatalf("fresh trigger after Reset: %+v", s)
+	}
+
+	h.app.SetGamepadButton(1, gamepad.ButtonSouth, 0)
+	if s := h.step(); s.jump || s.jumpUp {
+		t.Fatalf("release of a muted button: %+v", s)
+	}
+	h.app.SetGamepadButton(1, gamepad.ButtonSouth, 1)
+	if s := h.step(); !s.jump || !s.jumpJust {
+		t.Fatalf("press after release: %+v", s)
+	}
+}
+
+func TestWatchGamepadsNilReleasesControllerInputs(t *testing.T) {
+	h := startPadHarness(t, bindPadDefaults)
+	h.app.ConnectGamepad(1, "DualSense")
+	h.app.SetGamepadButton(1, gamepad.ButtonSouth, 1)
+	h.app.SetGamepadAxis(1, gamepad.AxisLeftX, 1)
+	if s := h.step(); !s.jump || s.move != 1 {
+		t.Fatalf("before detaching: %+v", s)
+	}
+
+	h.app.Post(func() { h.actions.WatchGamepads(nil) })
+	h.app.Settle()
+	if s := h.step(); s.jump || !s.jumpUp || s.move != 0 {
+		t.Fatalf("after WatchGamepads(nil): %+v", s)
+	}
+	if pads := h.actions.Gamepads(); len(pads) != 0 {
+		t.Fatalf("Gamepads() after WatchGamepads(nil) = %+v", pads)
+	}
+}
+
+// denyGamepads is a core.Access that refuses only core.AccessGamepad.
+type denyGamepads struct{}
+
+func (denyGamepads) Allows(req core.AccessRequest) bool { return req.Permission != core.AccessGamepad }
+func (denyGamepads) WebHosts() []string                 { return nil }
+
+func TestWatchGamepadsReadsNothingWhenAccessIsRefused(t *testing.T) {
+	a := input.NewActions()
+	bindPadDefaults(a)
+	var last padStep
+	steps := 0
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.ProvideAccess(denyGamepads{})
+		a.WatchGamepads(cx)
+		loop := &game.Loop{
+			Rate: 60,
+			Update: func(time.Duration) {
+				a.Step()
+				steps++
+				last = padStep{jump: a.Pressed("jump"), move: a.Axis("move")}
+			},
+		}
+		loop.Run(cx)
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{Gamepads: true}))
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.SetGamepadButton(1, gamepad.ButtonSouth, 1)
+	app.SetGamepadAxis(1, gamepad.AxisLeftX, 1)
+	for before := steps; steps < before+2; {
+		app.Advance(frameStep)
+	}
+	if last.jump || last.move != 0 {
+		t.Fatalf("controller read although core.AccessGamepad is refused: %+v", last)
+	}
+	if pads := a.Gamepads(); len(pads) != 0 {
+		t.Fatalf("Gamepads() = %+v, want none", pads)
+	}
+}
+
+func TestGamepadsSortByIDWithExtremeIDs(t *testing.T) {
+	a := input.NewActions()
+	a.BindGamepadAxis("x", gamepad.AxisLeftX, input.GamepadAxisOptions{DeadZone: -1})
+	// Both read the same distance from center, so the axis keeps the first controller in ID order.
+	a.OnGamepads([]gamepad.Pad{
+		pad(math.MaxInt, nil, [4]float32{0.5, 0}),
+		pad(math.MinInt, nil, [4]float32{-0.5, 0}),
+	})
+	a.Step()
+	if pads := a.Gamepads(); len(pads) != 2 || pads[0].ID != math.MinInt || pads[1].ID != math.MaxInt {
+		t.Fatalf("Gamepads() IDs = %v, want [MinInt MaxInt]", []int{pads[0].ID, pads[1].ID})
+	}
+	expectAxis(t, "tie keeps the lowest ID", a.Axis("x"), -0.5)
+}
+
 func pad(id int, buttons map[gamepad.Button]float32, axes [gamepad.AxisCount]float32) gamepad.Pad {
 	p := gamepad.Pad{ID: id, Axes: axes}
 	for b, v := range buttons {
@@ -344,8 +449,12 @@ func TestGamepadBindingsSaveAndLoad(t *testing.T) {
 	}
 
 	invalid := map[string]string{
-		"unknown gamepad button": `{"version":1,"actions":{"jump":[{"kind":"gamepad_button","button":"turbo"}]}}`,
-		"unknown gamepad axis":   `{"version":1,"gamepad_axes":{"move":{"axis":"left_z"}}}`,
+		"unknown gamepad button":     `{"version":1,"actions":{"jump":[{"kind":"gamepad_button","button":"turbo"}]}}`,
+		"unknown gamepad axis":       `{"version":1,"gamepad_axes":{"move":{"axis":"left_z"}}}`,
+		"unknown gamepad axis field": `{"version":1,"gamepad_axes":{"m":{"axis":"left_x","bogus":1}}}`,
+		"misspelled dead zone":       `{"version":1,"gamepad_axes":{"m":{"axis":"left_x","deadzone":0.3}}}`,
+		"unknown top-level field":    `{"version":1,"gamepad_axes":{},"keyboard":{}}`,
+		"trailing data":              `{"version":1}{}`,
 	}
 	for name, raw := range invalid {
 		if err := store.SetItem("bad", raw); err != nil {
@@ -359,6 +468,44 @@ func TestGamepadBindingsSaveAndLoad(t *testing.T) {
 		if !slices.Equal(c.Bindings("jump"), []input.Input{input.GamepadButton(gamepad.ButtonEast)}) {
 			t.Fatalf("%s: failed Load changed bindings", name)
 		}
+	}
+}
+
+func TestGamepadAxisNonFiniteOptionsStillSave(t *testing.T) {
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return core.View{} })
+	store := app.Storage()
+	nan, inf := math.NaN(), math.Inf(1)
+
+	a := input.NewActions()
+	a.BindGamepadAxis("nan", gamepad.AxisLeftX, input.GamepadAxisOptions{DeadZone: nan, Sensitivity: nan})
+	a.BindGamepadAxis("inf", gamepad.AxisLeftY, input.GamepadAxisOptions{DeadZone: inf, Sensitivity: -inf})
+	a.BindGamepadAxis("off", gamepad.AxisRightX, input.GamepadAxisOptions{DeadZone: -inf, Sensitivity: inf})
+	want := map[string]input.GamepadAxisOptions{
+		"nan": {},
+		"inf": {DeadZone: 1},
+		"off": {DeadZone: -1},
+	}
+	pads := []gamepad.Pad{pad(0, nil, [4]float32{0.1, 0.9, 0.1, 0})}
+	a.OnGamepads(pads)
+	a.Step()
+	before := map[string]float64{}
+	for name, opts := range want {
+		if _, got, _ := a.GamepadAxisBinding(name); got != opts {
+			t.Fatalf("%s: options %+v, want %+v", name, got, opts)
+		}
+		before[name] = a.Axis(name)
+	}
+	if err := a.Save(store, "controls"); err != nil {
+		t.Fatalf("Save with non-finite options: %v", err)
+	}
+	b := input.NewActions()
+	if ok, err := b.Load(store, "controls"); !ok || err != nil {
+		t.Fatalf("Load = (%v, %v)", ok, err)
+	}
+	b.OnGamepads(pads)
+	b.Step()
+	for name := range want {
+		expectAxis(t, name+" after round trip", b.Axis(name), before[name])
 	}
 }
 
