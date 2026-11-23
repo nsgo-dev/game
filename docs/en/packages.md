@@ -2,6 +2,8 @@
 
 What each package holds and how its parts behave, from the packages' doc comments. The full API is in the Go doc of each package.
 
+Every library package also has runnable examples: `Example` functions in its `example_test.go` that show the main use of its types. They appear with the package's Go doc (on pkg.go.dev, for instance), and `go tool nsgo test` runs each one and checks what it prints against its `// Output:` comment, so an example that no longer matches the code fails the tests. The `cmd` and `internal` packages have none, as their Go doc is not published.
+
 ## Loop
 
 ```go

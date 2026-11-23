@@ -2,6 +2,8 @@
 
 每个包包含什么、各部分如何工作，内容来自包的文档注释。完整的 API 见各个包的 Go doc。
 
+每个库包还带有可运行的示例：`example_test.go` 中的 `Example` 函数，展示包中各类型的主要用法。它们随包的 Go doc 一起显示（例如在 pkg.go.dev 上），`go tool nsgo test` 会运行每个示例，并把它的输出与 `// Output:` 注释比对，所以与代码不再相符的示例会让测试失败。`cmd` 和 `internal` 下的包不带示例，因为它们的 Go doc 不会发布。
+
 ## Loop
 
 ```go
