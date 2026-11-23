@@ -178,3 +178,41 @@ func TestStopFromUpdateShowsTheBars(t *testing.T) {
 	app.Advance(time.Second)
 	expectImmersive(t, asked, true, false)
 }
+
+func TestRunsInAWindowShareTheBars(t *testing.T) {
+	asked := recordImmersive(t)
+	a := &Loop{Immersive: true}
+	b := &Loop{Immersive: true}
+	var showA *core.Signal[bool]
+	var stopB func()
+	var root *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		root = cx
+		showA = core.NewSignal(cx, true)
+		return core.Show{When: showA.Get, Then: func(cx *core.Scope) core.Node {
+			a.Run(cx)
+			return core.View{}
+		}}
+	})
+	expectImmersive(t, asked, true)
+
+	// A second loop starting while the first plays asks for nothing new, as a scene entering under a transition would.
+	app.Post(func() { stopB = b.Run(root) })
+	app.Settle()
+	app.Advance(time.Second / 60)
+	expectImmersive(t, asked, true)
+
+	// Disposing the first loop's scope, or pausing it as a pushed scene's Pause would, leaves the bars hidden while the second plays.
+	app.Post(func() { a.SetPaused(true) })
+	app.Settle()
+	app.Advance(time.Second / 60)
+	app.Post(func() { showA.Set(false) })
+	app.Settle()
+	app.Advance(time.Second)
+	expectImmersive(t, asked, true)
+
+	// The last run that wants them hidden brings them back.
+	app.Post(stopB)
+	app.Settle()
+	expectImmersive(t, asked, true, false)
+}
