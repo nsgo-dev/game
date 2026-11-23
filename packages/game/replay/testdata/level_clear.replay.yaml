@@ -1,0 +1,23 @@
+version: 2
+seed: 99537266
+rate: 60
+actions: [left, right, jump, dash]
+axes: [move_x]
+total_steps: 254
+steps:
+  - {step: 6, press: [right], axes: {move_x: 1}}
+  - {step: 39, press: [left], release: [right], axes: {move_x: -1}}
+  - {step: 50, press: [right], release: [left], axes: {move_x: 1}}
+  - {step: 81, release: [right], axes: {move_x: 0}}
+  - {step: 85, press: [jump, dash]}
+  - {step: 95, release: [jump, dash]}
+  - {step: 101, press: [dash]}
+  - {step: 102, release: [dash]}
+  - {step: 105, press: [right], axes: {move_x: 1}}
+  - {step: 125, press: [jump]}
+  - {step: 133, release: [jump]}
+  - {step: 159, press: [left], axes: {move_x: 0}}
+  - {step: 165, release: [left], axes: {move_x: 1}}
+  - {step: 179, press: [jump]}
+  - {step: 195, release: [jump]}
+  - {step: 250, release: [right], axes: {move_x: 0}}

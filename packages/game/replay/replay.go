@@ -1,21 +1,17 @@
-// Package replay records per-step game input to compact versioned files and plays it back deterministically for debugging and automated tests.
+// Package replay records per-step game input to versioned YAML text files and plays it back deterministically for debugging and automated tests.
 package replay
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math"
-	"os"
 	"slices"
-	"strings"
 	"time"
 )
 
-// FormatVersion is the version written to every Recording and accepted by Decode.
-const FormatVersion = 1
+// FormatVersion is the version written to every Recording and the only one Decode accepts.
+//
+// Version 2 is the YAML text format described in Encode; version 1 was a compact JSON form that is no longer read.
+const FormatVersion = 2
 
 const defaultRate = 60
 
@@ -32,31 +28,44 @@ type ActionSource interface {
 
 // Recording holds a game's random seed, fixed step rate, watched action and axis names, total step count and delta-encoded step events.
 //
-// Only steps where at least one watched action's pressed state or watched axis's value changed from the previous step appear in Events, keeping long recordings compact.
+// Only steps where at least one watched action's pressed state or watched axis's value changed from the previous step appear in Events, keeping long recordings compact. Encode writes a Recording as YAML text with one line per event, and Decode reads that text back.
 type Recording struct {
-	Version    int         `json:"version"`
-	Seed       uint64      `json:"seed"`
-	Rate       int         `json:"rate"`
-	Actions    []string    `json:"actions,omitempty"`
-	Axes       []string    `json:"axes,omitempty"`
-	TotalSteps int         `json:"total_steps"`
-	Events     []StepEvent `json:"events,omitempty"`
+	// Version is the format version; it must equal FormatVersion.
+	Version int
+	// Seed is the random seed the recorded run started from.
+	Seed uint64
+	// Rate is the fixed step rate in steps per second.
+	Rate int
+	// Actions are the watched action names that StepEvent.Press and StepEvent.Release index into.
+	Actions []string
+	// Axes are the watched axis names that AxisChange.Index indexes into.
+	Axes []string
+	// TotalSteps is the number of recorded steps, including steps without events.
+	TotalSteps int
+	// Events are the steps where input changed, in strictly increasing Step order.
+	Events []StepEvent
 }
 
 // StepEvent holds the action and axis changes that occurred on Step.
 //
 // Press and Release hold indices into Recording.Actions. Axes holds index-to-value updates into Recording.Axes.
 type StepEvent struct {
-	Step    int          `json:"s"`
-	Press   []int        `json:"p,omitempty"`
-	Release []int        `json:"r,omitempty"`
-	Axes    []AxisChange `json:"a,omitempty"`
+	// Step is the zero-based step the changes take effect on.
+	Step int
+	// Press lists the actions that became pressed on Step.
+	Press []int
+	// Release lists the actions that were released on Step.
+	Release []int
+	// Axes lists the axes whose value changed on Step.
+	Axes []AxisChange
 }
 
 // AxisChange records a new value for Recording.Axes[Index].
 type AxisChange struct {
-	Index int     `json:"i"`
-	Value float64 `json:"v"`
+	// Index is the position of the axis in Recording.Axes.
+	Index int
+	// Value is the axis value from this step on.
+	Value float64
 }
 
 // StepDuration returns the fixed duration of one step, 1/Rate seconds (1/60 s when Rate <= 0).
@@ -109,7 +118,7 @@ func (r *Recording) Validate() error {
 			}
 			if seenAction != nil {
 				if _, dup := seenAction[idx]; dup {
-					return fmt.Errorf("replay: step %d duplicate action index %d", ev.Step, idx)
+					return fmt.Errorf("replay: step %d lists action %q more than once", ev.Step, r.Actions[idx])
 				}
 				seenAction[idx] = struct{}{}
 			}
@@ -120,7 +129,7 @@ func (r *Recording) Validate() error {
 			}
 			if seenAction != nil {
 				if _, dup := seenAction[idx]; dup {
-					return fmt.Errorf("replay: step %d duplicate action index %d", ev.Step, idx)
+					return fmt.Errorf("replay: step %d lists action %q more than once", ev.Step, r.Actions[idx])
 				}
 				seenAction[idx] = struct{}{}
 			}
@@ -135,11 +144,11 @@ func (r *Recording) Validate() error {
 				return fmt.Errorf("replay: step %d axis index %d out of range [0, %d)", ev.Step, ch.Index, len(r.Axes))
 			}
 			if math.IsNaN(ch.Value) || math.IsInf(ch.Value, 0) {
-				return fmt.Errorf("replay: step %d axis %d has non-finite value", ev.Step, ch.Index)
+				return fmt.Errorf("replay: step %d axis %q has a non-finite value", ev.Step, r.Axes[ch.Index])
 			}
 			if seenAxis != nil {
 				if _, dup := seenAxis[ch.Index]; dup {
-					return fmt.Errorf("replay: step %d duplicate axis index %d", ev.Step, ch.Index)
+					return fmt.Errorf("replay: step %d lists axis %q more than once", ev.Step, r.Axes[ch.Index])
 				}
 				seenAxis[ch.Index] = struct{}{}
 			}
@@ -190,98 +199,4 @@ func (r *Recording) Clone() *Recording {
 		}
 	}
 	return out
-}
-
-// Encode validates r and encodes it as compact JSON.
-func (r *Recording) Encode() ([]byte, error) {
-	if err := r.Validate(); err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(r)
-	if err != nil {
-		return nil, fmt.Errorf("replay: encode: %w", err)
-	}
-	return data, nil
-}
-
-// Decode decodes a JSON-encoded Recording and validates its version and structure.
-func Decode(data []byte) (*Recording, error) {
-	var rec Recording
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("replay: decode: %w", err)
-	}
-	if err := rec.Validate(); err != nil {
-		return nil, err
-	}
-	return &rec, nil
-}
-
-// EncodeGzip validates r, encodes it as JSON, and compresses the result with gzip.
-func (r *Recording) EncodeGzip() ([]byte, error) {
-	raw, err := r.Encode()
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	if _, err := zw.Write(raw); err != nil {
-		_ = zw.Close()
-		return nil, fmt.Errorf("replay: gzip encode: %w", err)
-	}
-	if err := zw.Close(); err != nil {
-		return nil, fmt.Errorf("replay: gzip encode: %w", err)
-	}
-	return buf.Bytes(), nil
-}
-
-// DecodeGzip decompresses a gzip-encoded Recording and validates its version and structure.
-func DecodeGzip(data []byte) (*Recording, error) {
-	zr, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("replay: gzip decode: %w", err)
-	}
-	defer zr.Close()
-	raw, err := io.ReadAll(zr)
-	if err != nil {
-		return nil, fmt.Errorf("replay: gzip decode: %w", err)
-	}
-	return Decode(raw)
-}
-
-// SaveFile writes rec to path as JSON, or as gzip-compressed JSON when path ends with ".gz".
-func SaveFile(path string, rec *Recording) error {
-	var (
-		data []byte
-		err  error
-	)
-	if strings.HasSuffix(path, ".gz") {
-		data, err = rec.EncodeGzip()
-	} else {
-		data, err = rec.Encode()
-	}
-	if err != nil {
-		return fmt.Errorf("replay: save %q: %w", path, err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("replay: save %q: %w", path, err)
-	}
-	return nil
-}
-
-// LoadFile reads and decodes a Recording from path, accepting both plain JSON and gzip-compressed files.
-func LoadFile(path string) (*Recording, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("replay: load %q: %w", path, err)
-	}
-	var rec *Recording
-	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-		rec, err = DecodeGzip(data)
-	} else {
-		rec, err = Decode(data)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("replay: load %q: %w", path, err)
-	}
-	return rec, nil
 }
