@@ -15,7 +15,7 @@ Both are Go, so most of your game logic moves over unchanged. What changes is th
 | `DrawImageOptions.GeoM`, `ColorScale` alpha | `sprite.Sprite` position, origin, rotation, scale, flip and `Alpha` | [sprite](sprite.md) |
 | A hand-written scene switcher | `scene.Manager` with transitions | [scene](scene.md) |
 | A slice of structs you update yourself | `entities.World`, components and systems | [Entities](entities.md) |
-| `//go:embed` plus `ebitenutil.NewImageFromFile` | `resources/`, `"asset:"` URIs and `assets.Manager` | [assets](assets.md) |
+| `//go:embed` plus `ebitenutil.NewImageFromFile` | `"asset:"` URIs for images and sounds, `//go:embed` with `assets.WithFS` for data | [assets](assets.md) |
 | Channels or callbacks between systems | `flow.Bus`; `core.Signal` for UI state | [flow](flow.md) |
 | `inpututil.IsKeyJustPressed`, touch IDs | `input.Actions` with `JustPressed` and touch regions | [input](input.md) |
 | Your own AABB checks | `physics` shapes, `MoveAndSlide`, `RigidWorld` | [physics](physics.md) |
@@ -48,7 +48,7 @@ For 3D, `scene3d.Node` is a transform hierarchy with sockets, tags and picking. 
 
 ## Resources
 
-Put runtime files under `resources/`; NSGo packages them for every target, and `"asset:hero.png"` opens one anywhere, including the web, where Ebitengine needs files embedded or fetched. You can still embed JSON with `//go:embed`. `assets.Manager` loads atlases, sounds, images and your own parsed files in named groups off the engine goroutine, exposes progress for a loading screen and releases a group when its scene ends. See [assets](assets.md).
+Put images and sounds under `resources/`; NSGo packages them for every target, and `core.Src("asset:hero.png")` opens one anywhere, including the web, where Ebitengine needs files embedded or fetched. Data that `assets.Manager` reads itself, such as atlas JSON, raw bytes and level files, still comes from `//go:embed`: pass the embedded file system with `assets.NewManager(cx, assets.WithFS(fsys))`, or pass `WithReadAsset` for custom storage. `assets.Manager` loads atlases, sounds, images and your own parsed files in named groups off the engine goroutine, exposes progress for a loading screen and releases a group when its scene ends. See [assets](assets.md).
 
 ## Signals
 
@@ -72,7 +72,7 @@ Call `actions.Step()` at the start of each `Update`; a tap that starts and ends 
 
 ## Physics
 
-Ebitengine has no physics, so this is new rather than a port. [physics](physics.md) holds box and circle overlap tests, `MoveAndSlide` for platformer bodies against a tile grid with one-way platforms, trigger areas, and raycasts. [2D Rigid Bodies](physics2d-rigid.md) adds a deterministic rigid-body solver with distance, spring and revolute joints, and [physics3d](physics3d.md) covers 3D bodies and a capsule character controller. All of them step on the loop's fixed `dt` in the same screen space the drawing uses.
+Ebitengine has no physics, so this is new rather than a port. [physics](physics.md) holds box and circle overlap tests, `MoveAndSlide` for platformer bodies against a tile grid with one-way platforms, trigger areas, and raycasts. [2D Rigid Bodies](physics2d-rigid.md) adds a deterministic rigid-body solver with distance, spring and revolute joints, and [physics3d](physics3d.md) covers 3D bodies and a capsule character controller. All of them step on the loop's fixed `dt`. The 2D packages work in the same Y-down screen space the drawing uses, while physics3d works in the 3D space: right-handed, Y up, units in metres.
 
 ## Export
 

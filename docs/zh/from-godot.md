@@ -15,7 +15,7 @@
 | `Node2D` 树、`CanvasLayer` | 世界空间或屏幕空间的 `scene.Scene` 图层 | [scene](scene.md) |
 | `Node3D` 树、分组 | `scene3d.Node` 树、`FindByTag` | [scene3d](scene3d.md) |
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |
-| `Resource`、`.tres`、`ResourceLoader` | `resources/` 下的文件、`assets.Manager` 资源组 | [assets](assets.md) |
+| `Resource`、`.tres`、`ResourceLoader` | `resources/` 下的图像和声音，数据通过带 `WithFS` 的 `assets.Manager` 读取 | [assets](assets.md) |
 | 信号、`connect`、`emit` | `flow.Bus` 的 `Subscribe` 与 `Publish`；界面状态用 `core.Signal` | [flow](flow.md) |
 | `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
@@ -49,7 +49,7 @@ Godot 的场景是一棵保存下来的节点树，可以实例化，也可以�
 
 ## 资源
 
-游戏运行时加载的文件放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` URI 打开。`assets.Manager` 在引擎 goroutine 之外按命名资源组加载图集、声音、图像、字节和你自己解析的文件，以信号形式报告进度供加载界面使用，并在场景结束时释放资源组。见 [assets](assets.md)。
+游戏运行时加载的图像和声音放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` URI 打开，例如 `core.Src("asset:hero.png")`。`assets.Manager` 自己读取的数据，例如图集 JSON、原始字节和你自己解析的文件，来自你交给它的文件系统：用 `//go:embed` 嵌入后传入 `assets.NewManager(cx, assets.WithFS(fsys))`，或者用 `WithReadAsset` 接入自定义存储。两者都不传时，它读取相对于工作目录的 `assets/` 目录，只有在项目根目录下运行桌面版时才能用。`assets.Manager` 在引擎 goroutine 之外按命名资源组加载图集、声音、图像、字节和你自己解析的文件，以信号形式报告进度供加载界面使用，并在场景结束时释放资源组。见 [assets](assets.md)。
 
 这里没有导入步骤，也没有 `.import` 附属文件。文件按生成它的工具写出的格式直接读取：TexturePacker 和 Aseprite 图集（[sprite](sprite.md)）、Tiled 地图（[tilemap](tilemap.md)）以及 glTF 模型（[从 Blender 导入 3D 模型](3d-models-blender.md)）。你自己的 `Resource` 子类，写成 YAML 或 JSON 文件并解码到 Go 结构体，像场景格式一样拒绝未知字段。
 
@@ -91,7 +91,7 @@ Godot 的输入映射在这里是一个 `input.Actions` 值：把名字绑定到
 - **`RigidBody2D` 与关节**：`physics.RigidWorld` 加上盒形和圆形的 `RigidBody`；`RevoluteJoint` 对应 `PinJoint2D`，`SpringJoint` 对应 `DampedSpringJoint2D`，`DistanceJoint` 是定长杆。见 [2D 刚体](physics2d-rigid.md)。
 - **3D**：`physics3d.CharacterController` 像 `CharacterBody3D` 一样让胶囊体走过斜坡和台阶，`physics3d.World` 推进盒体、球体和胶囊体刚体。见 [physics3d](physics3d.md)。
 
-形状只有盒形和圆形（3D 中是盒体、球体和胶囊体），没有凹多边形碰撞体。
+2D 形状只有盒形和圆形，2D 中没有凹多边形碰撞体。3D 中物体是盒体、球体和胶囊体，静态的关卡几何可以用三角网格或高度场参与碰撞：`ConcavePolygonShape3D` 对应用 `World.AddTriMesh` 加入的 `physics3d.TriMeshCollider`，`HeightMapShape3D` 对应用 `World.AddHeightfield` 加入的 `physics3d.HeightfieldCollider`。
 
 ## 导出
 

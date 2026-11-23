@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 - **零 FFI 开销**：重叠查询、射线检测、刚体步进和角色移动直接在 Go 值上运行，没有 cgo 调用边界成本。
 - **按位一致的确定性**：配合 `game.Loop` 的固定步长推进 `World`，宽相、窄相、冲量求解和位置修正都按固定的刚体与接触顺序执行，不依赖 map 遍历顺序或墙钟时间，相同的初始状态在多次运行中产生完全一致的轨迹。
 
-包的能力范围保持克制和清晰：轴对齐包围盒（Box）、球体（Sphere）和胶囊体（Capsule）、精确的重叠与射线查询、平动刚体求解，以及胶囊角色控制器。完整三角网格碰撞、关节约束和旋转惯性张量不在初始包的范围内。
+包的能力范围保持克制和清晰：轴对齐包围盒（Box）、球体（Sphere）和胶囊体（Capsule）、精确的重叠与射线查询、平动刚体求解，以及胶囊角色控制器。静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）和高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）可以与物体和角色控制器碰撞；关节约束和旋转惯性张量不在初始包的范围内。
 
 ## 坐标系约定
 
