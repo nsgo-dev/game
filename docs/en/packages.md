@@ -14,6 +14,8 @@ go run ./cmd/gameapi -out api.json
 
 `-html` adds each doc comment rendered as HTML, as the site's pages show it. The reference is read from the files the linux, macos, windows, android, ios and web targets build in a development build; packages main, `internal` directories and `testdata` are left out.
 
+Every library package also has runnable examples: `Example` functions in its `example_test.go` that show the main use of its types. They appear with the package's Go doc (on pkg.go.dev, for instance), and `go tool nsgo test` runs each one and checks what it prints against its `// Output:` comment, so an example that no longer matches the code fails the tests. The `cmd` and `internal` packages have none, as their Go doc is not published.
+
 ## Loop
 
 ```go
