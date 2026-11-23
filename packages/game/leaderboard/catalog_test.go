@@ -104,6 +104,8 @@ func TestParseRefusesInvalidCatalogs(t *testing.T) {
 		"padded name":     {"version: 1\nleaderboards:\n  - name: \" a\"\n    gameCenter: x\n", "whitespace"},
 		"control in name": {"version: 1\nleaderboards:\n  - name: \"a\\tb\"\n    gameCenter: x\n", "control character"},
 		"duplicate name":  {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n  - name: a\n    playGames: y\n", "duplicate board name"},
+		"duplicate gc id": {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n  - name: b\n    gameCenter: x\n", "reuses the gameCenter ID"},
+		"duplicate pg id": {"version: 1\nleaderboards:\n  - name: a\n    playGames: x\n  - name: b\n    playGames: x\n", "reuses the playGames ID"},
 		"no ids":          {"version: 1\nleaderboards:\n  - name: a\n", "no platform ID"},
 		"bad id":          {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: \"has space\"\n", "gameCenter"},
 		"long id":         {"version: 1\nleaderboards:\n  - name: a\n    playGames: " + long + "\n", "at most 100"},

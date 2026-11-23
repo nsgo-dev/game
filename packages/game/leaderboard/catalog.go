@@ -108,7 +108,7 @@ func (c *Catalog) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks c against the version 1 schema: a supported version, at least one board, unique non-empty names without control characters or surrounding whitespace, and at least one well-formed platform ID per board.
+// Validate checks c against the version 1 schema: a supported version, at least one board, unique non-empty names without control characters or surrounding whitespace, at least one well-formed platform ID per board, and no two boards sharing a Game Center or Play Games ID.
 func (c *Catalog) Validate() error {
 	if c == nil {
 		return errors.New("leaderboard: nil catalog")
@@ -120,6 +120,8 @@ func (c *Catalog) Validate() error {
 		return errors.New("leaderboard: catalog declares no leaderboards")
 	}
 	seen := make(map[string]struct{}, len(c.Leaderboards))
+	seenGC := make(map[string]string, len(c.Leaderboards))
+	seenPG := make(map[string]string, len(c.Leaderboards))
 	for i, b := range c.Leaderboards {
 		if err := validateName(b.Name); err != nil {
 			return fmt.Errorf("leaderboard: board %d: %w", i, err)
@@ -136,6 +138,22 @@ func (c *Catalog) Validate() error {
 		}
 		if err := validateID(b.PlayGames); err != nil {
 			return fmt.Errorf("leaderboard: board %q playGames: %w", b.Name, err)
+		}
+		checkID := func(provider string, ids map[string]string, id string) error {
+			if id == "" {
+				return nil
+			}
+			if other, dup := ids[id]; dup {
+				return fmt.Errorf("leaderboard: board %q reuses the %s ID %q of board %q", b.Name, provider, id, other)
+			}
+			ids[id] = b.Name
+			return nil
+		}
+		if err := checkID("gameCenter", seenGC, b.GameCenter); err != nil {
+			return err
+		}
+		if err := checkID("playGames", seenPG, b.PlayGames); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -163,6 +163,10 @@ func (s *Service) SignIn(done func(Player, error)) {
 		return
 	}
 	gameservices.Authenticate(s.cx, func(p Player, err error) {
+		if err == nil && !p.Authenticated {
+			// A backend that answers nil without a player has not signed anyone in.
+			err = ErrUnauthenticated
+		}
 		switch {
 		case err == nil:
 			s.player.Set(p)

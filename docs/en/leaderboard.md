@@ -25,8 +25,8 @@ leaderboards:
 | `version` | Schema version, `1` |
 | `leaderboards` | The boards, in the order the game lists them |
 | `name` | The game's own key for the board; unique, no control characters or surrounding whitespace |
-| `gameCenter` | The leaderboard ID registered in App Store Connect |
-| `playGames` | The leaderboard ID the Google Play Console generated |
+| `gameCenter` | The leaderboard ID registered in App Store Connect; no two boards share one |
+| `playGames` | The leaderboard ID the Google Play Console generated; no two boards share one |
 
 A board needs at least one ID, and an ID is at most 100 ASCII letters, digits, `.`, `_` or `-`. Sort order, score format and reset period are set in App Store Connect and the Play Console, not in the catalog.
 
