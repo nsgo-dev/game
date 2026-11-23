@@ -22,7 +22,7 @@ type Collider interface {
 // triangle soup stored in node-local space. Every 3 consecutive vertices in
 // Triangles form one triangle (v0, v1, v2).
 //
-// LocalBounds is cached: replacing or resizing Triangles is detected automatically, but after editing vertices of the same slice in place call MarkDirty.
+// LocalBounds is cached: replacing or resizing Triangles is detected automatically, but after editing vertices of the same slice in place call MarkDirty. Either way the owning node's world bounds and BVH entry refresh only when the node is marked dirty, so call the node's MarkDirty (or SetCollider) after changing Triangles, or BVH-driven raycasts and picks keep testing the old bounds.
 type MeshCollider struct {
 	Triangles []math3d.Vec3
 

@@ -97,7 +97,7 @@ loop := &game.Loop{
 
 ## 3D 拾取
 
-为可拾取节点挂载 `Collider`（`*MeshCollider` 或 `*SphereCollider`；未设置时回退到 `LocalBounds`），即可从屏幕坐标直接拾取。节点的世界包围盒同时覆盖 `LocalBounds` 与碰撞体。`MeshCollider` 会缓存包围盒：替换 `Triangles` 会被自动发现，原地修改顶点后则需调用 `collider.MarkDirty()` 和 `node.MarkDirty()`。可见性过滤在每次查询内做了记忆化，层级很深的命中不会各自遍历全部祖先。
+为可拾取节点挂载 `Collider`（`*MeshCollider` 或 `*SphereCollider`；未设置时回退到 `LocalBounds`），即可从屏幕坐标直接拾取。节点的世界包围盒同时覆盖 `LocalBounds` 与碰撞体。`MeshCollider` 会缓存自身包围盒，并能发现 `Triangles` 被替换，但节点的世界包围盒和 BVH 条目只有在节点被标记为脏时才会刷新：替换 `Triangles` 后调用 `node.MarkDirty()`（或用 `node.SetCollider` 重新设置碰撞体），原地修改顶点后则需同时调用 `collider.MarkDirty()` 和 `node.MarkDirty()`。可见性过滤在每次查询内做了记忆化，层级很深的命中不会各自遍历全部祖先。
 
 ```go
 if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.LayerAll); ok {

@@ -97,7 +97,7 @@ loop := &game.Loop{
 
 ## 3D picking
 
-Attach a `Collider` (`*MeshCollider` or `*SphereCollider`) to pickable nodes (or fall back to `LocalBounds`) and pick directly from pointer coordinates. A node's world bounds cover both its `LocalBounds` and its collider. `MeshCollider` caches its bounds: replacing `Triangles` is picked up automatically, while editing vertices in place needs `collider.MarkDirty()` and `node.MarkDirty()`. Visibility filtering is memoized per query, so hits deep in a hierarchy do not each walk every ancestor.
+Attach a `Collider` (`*MeshCollider` or `*SphereCollider`) to pickable nodes (or fall back to `LocalBounds`) and pick directly from pointer coordinates. A node's world bounds cover both its `LocalBounds` and its collider. `MeshCollider` caches its own bounds and notices when `Triangles` is replaced, but the node's world bounds and BVH entry refresh only when the node is marked dirty: after replacing `Triangles` call `node.MarkDirty()` (or assign the collider again with `node.SetCollider`), and after editing vertices in place call both `collider.MarkDirty()` and `node.MarkDirty()`. Visibility filtering is memoized per query, so hits deep in a hierarchy do not each walk every ancestor.
 
 ```go
 if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.LayerAll); ok {

@@ -13,6 +13,9 @@ import "github.com/nsgo-dev/game/packages/game/anim3d"
 创建 `StateMachine`，每个状态可绑定单个 `*Clip`、`*BlendSpace1D`（如按速度混合待机 -> 行走 -> 奔跑）、`*BlendSpace2D`（多方向平移）或任意自定义 `PoseSampler`：
 
 ```go
+// 移动类片段需要循环，所以设置 Loop；混合空间中 Loop 为 false 的片段只播放一遍并停在最后一帧。
+idleClip.Loop, walkClip.Loop, runClip.Loop = true, true, true
+
 loco := anim3d.NewBlendSpace1D(
 	anim3d.BlendSample1D{Param: 0.0, Clip: idleClip},
 	anim3d.BlendSample1D{Param: 2.0, Clip: walkClip, FootPhaseOffset: 0.0},

@@ -13,6 +13,9 @@ All joint transforms follow [math3d](math3d.md) conventions (right-handed Y-up).
 Build a `StateMachine` whose states sample single `*Clip`s, `*BlendSpace1D` (for example idle -> walk -> run by speed), `*BlendSpace2D` (directional strafing), or any custom `PoseSampler`:
 
 ```go
+// Locomotion clips cycle, so mark them looping; a blend-space sample whose clip has Loop false plays once and holds its last frame.
+idleClip.Loop, walkClip.Loop, runClip.Loop = true, true, true
+
 loco := anim3d.NewBlendSpace1D(
 	anim3d.BlendSample1D{Param: 0.0, Clip: idleClip},
 	anim3d.BlendSample1D{Param: 2.0, Clip: walkClip, FootPhaseOffset: 0.0},
