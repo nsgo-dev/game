@@ -70,6 +70,8 @@ type structPlan struct {
 	// fields lists each column once, in struct declaration order, under the name MarshalYAML writes.
 	fields []fieldBinding
 	n      int
+	// shadowed names the first column claimed by more than one field; CSV and JSON keep the first field, YAML refuses the type because the other field could never be saved or loaded.
+	shadowed string
 }
 
 func buildStructPlan(t reflect.Type) (*structPlan, error) {
@@ -109,6 +111,8 @@ func collectFields(t reflect.Type, prefix []int, plan *structPlan) {
 		if _, exists := plan.exact[colName]; !exists {
 			plan.exact[colName] = fb
 			plan.fields = append(plan.fields, fb)
+		} else if plan.shadowed == "" {
+			plan.shadowed = colName
 		}
 		low := strings.ToLower(colName)
 		if _, exists := plan.lower[low]; !exists {

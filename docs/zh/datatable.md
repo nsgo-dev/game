@@ -54,9 +54,10 @@ enemies, err := datatable.LoadFile[Enemy]("data/enemies.yaml")
 YAML 数据表是严格的，拼写错误会在加载时报错，而不是悄悄丢掉一个值：
 
 - 缺少 `version`、版本不是 1，或顶层出现 `version` 和 `rows` 以外的键；
-- 没有 `version`/`rows` 映射、直接写成行列表的文件；
+- 没有 `version`/`rows` 映射、直接写成行列表的文件，或 `---` 之后的第二个 YAML 文档；
 - 行中的键不对应任何列（`datatable.ErrUnknownField`），包括标签为 `-` 的字段；
 - 同一行把同一列设置两次，例如同时写 `hp` 和 `HP`（`datatable.ErrDuplicateField`）；
+- 合并键（`<<: *defaults`）：锚点和别名可以加载，但每一行都要写出自己的列；
 - 字段类型容纳不了的值，例如 `speed: fast` 或给 `int8` 写 300。
 
 行内的错误是 `*datatable.CellError`，带有文件、从 1 开始的行号、列名和值：
@@ -73,6 +74,8 @@ if errors.As(err, &ce) {
 ## 保存数据表
 
 `MarshalYAML(rows)` 和 `SaveYAML(path, rows)` 写出同一格式，供编辑器或生成数据的脚本使用。输出是确定的：先写 `version`，再按结构体声明顺序写出每一行的每一列，两空格缩进，列表写在一行内，字符串只在 YAML 需要时加引号，nil 指针写为 `null`，时长写为其 `String` 形式。`SaveYAML` 保存的文件经加载再保存后逐字节不变。nil 列表和空列表都写为 `[]`。非有限浮点数以及加载器无法读取的字段类型（map、结构体、接口）会报错。
+
+每一列只对应一个字段：如果行类型里有两个字段共用一个列名，例如两个字段都标记为 `hp`，或嵌入结构体的 `name` 与外层结构体自己的 `name`，`LoadYAML` 和 `MarshalYAML` 都会拒绝这个类型，因为两者中只有一个能被写出和读回。请给每个字段各自的标签，或把其中一个标记为 `-`。
 
 ```go
 if err := datatable.SaveYAML("data/enemies.yaml", enemies); err != nil {

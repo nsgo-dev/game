@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"reflect"
@@ -16,22 +17,50 @@ import (
 const (
 	yamlVersionKey = "version"
 	yamlRowsKey    = "rows"
+	yamlMergeTag   = "!!merge"
 )
+
+// errYAMLMergeKey refuses a merge key (<<) by name, rather than as an unknown field, so a designer sharing row defaults through an anchor learns that every row must spell out its own columns.
+var errYAMLMergeKey = errors.New("merge keys (<<) are not supported; write each column in the row")
+
+// buildYAMLPlan is buildStructPlan for the YAML paths, which also refuse a row type in which two fields share a column name, since only the first of them could be saved or loaded.
+func buildYAMLPlan(t reflect.Type) (*structPlan, error) {
+	plan, err := buildStructPlan(t)
+	if err != nil {
+		return nil, err
+	}
+	if plan.shadowed != "" {
+		return nil, fmt.Errorf("datatable: %v has more than one field for column %q; give each field its own table tag or tag one of them \"-\"", t, plan.shadowed)
+	}
+	return plan, nil
+}
 
 // LoadYAML parses a versioned YAML data table into []T.
 //
-// The document is a mapping with two keys: version, which must equal FormatVersion, and rows, a list of mappings whose keys name fields of T by their table tag, json tag or Go field name (matched exactly first, then case-insensitively). A missing or empty rows key is an empty table. Any other top-level key, a missing or unsupported version, a row key that names no field (ErrUnknownField) and a field set twice in one row (ErrDuplicateField) are refused; errors inside a row are a *CellError naming the 1-based row and the field.
+// The document is a mapping with two keys: version, which must equal FormatVersion, and rows, a list of mappings whose keys name fields of T by their table tag, json tag or Go field name (matched exactly first, then case-insensitively). A missing or empty rows key is an empty table. Any other top-level key, a missing or unsupported version, a row key that names no field (ErrUnknownField) and a field set twice in one row (ErrDuplicateField) are refused, as are a merge key (<<), a second YAML document in the same file, and a row type in which two fields share a column name; errors inside a row are a *CellError naming the 1-based row and the field.
 func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 	var zero T
-	plan, err := buildStructPlan(reflect.TypeOf(zero))
+	plan, err := buildYAMLPlan(reflect.TypeOf(zero))
 	if err != nil {
 		return nil, err
 	}
 
 	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
+	if err := dec.Decode(&doc); err != nil {
+		if !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
+		}
+	} else {
+		// Like LoadJSON's trailing-data check: a second document would otherwise be ignored, along with any unknown keys or version in it.
+		var extra yaml.Node
+		if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+			if err != nil {
+				return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
+			}
+			return nil, fmt.Errorf("%s: line %d: unexpected second YAML document; a data table is one document", displayFile(filename), extra.Line)
+		}
 	}
 	var root *yaml.Node
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
@@ -53,6 +82,9 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 		vNode := resolveYAMLAlias(root.Content[i+1], 0)
 		if kNode == nil || kNode.Kind != yaml.ScalarNode {
 			return nil, fmt.Errorf("%s: line %d: top-level keys must be scalars", displayFile(filename), root.Content[i].Line)
+		}
+		if kNode.Tag == yamlMergeTag {
+			return nil, fmt.Errorf("%s: line %d: %v", displayFile(filename), kNode.Line, errYAMLMergeKey)
 		}
 		switch kNode.Value {
 		case yamlVersionKey:
@@ -116,6 +148,15 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 					Err:   errors.New("row keys must be scalars"),
 				}
 			}
+			if kNode.Tag == yamlMergeTag {
+				return nil, &CellError{
+					File:  filename,
+					Row:   rowNum,
+					Field: kNode.Value,
+					Value: formatYAMLNode(vNode),
+					Err:   errYAMLMergeKey,
+				}
+			}
 			fieldName := kNode.Value
 			fb, ok := plan.lookup(fieldName)
 			if !ok {
@@ -155,10 +196,10 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 
 // MarshalYAML encodes rows as a versioned YAML data table that LoadYAML reads back.
 //
-// The output is deterministic: version first, then rows, each row writing every field of T in struct declaration order under its table tag, json tag or Go field name, with two-space indentation. Lists are written inline ([a, b]), a nil pointer as null, and a time.Duration as its String form (such as 1.5s). A nil list and an empty list are both written as [], which loads back as an empty list. Non-finite floats and field types LoadYAML cannot read (maps, structs, interfaces) are an error.
+// The output is deterministic: version first, then rows, each row writing every field of T in struct declaration order under its table tag, json tag or Go field name, with two-space indentation. Lists are written inline ([a, b]), a nil pointer as null, and a time.Duration as its String form (such as 1.5s). A nil list and an empty list are both written as [], which loads back as an empty list. Non-finite floats, field types LoadYAML cannot read (maps, structs, interfaces) and a row type in which two fields share a column name are an error.
 func MarshalYAML[T any](rows []T) ([]byte, error) {
 	var zero T
-	plan, err := buildStructPlan(reflect.TypeOf(zero))
+	plan, err := buildYAMLPlan(reflect.TypeOf(zero))
 	if err != nil {
 		return nil, err
 	}

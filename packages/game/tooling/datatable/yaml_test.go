@@ -177,6 +177,10 @@ func TestLoadYAMLIsStrict(t *testing.T) {
 		{name: "ignored field is unknown", data: "version: 1\nrows:\n  - Ignored: x\n", row: 1, field: "Ignored", is: datatable.ErrUnknownField},
 		{name: "duplicate field by case", data: "version: 1\nrows:\n  - hp: 1\n    HP: 2\n", row: 1, field: "HP", is: datatable.ErrDuplicateField},
 		{name: "duplicate field by tag and name", data: "version: 1\nrows:\n  - armor: 1\n    Armor: 2\n", row: 1, field: "Armor", is: datatable.ErrDuplicateField},
+		{name: "second document", data: "version: 1\nrows:\n  - enemy_id: goblin\n---\nversion: 9\nbogus: 1\n", want: "unexpected second YAML document"},
+		{name: "empty second document", data: "version: 1\nrows: []\n---\n", want: "unexpected second YAML document"},
+		{name: "merge key in a row", data: "version: 1\nrows:\n  - &b {enemy_id: a, display_name: x}\n  - <<: *b\n    enemy_id: b\n", want: "merge keys (<<) are not supported", row: 2, field: "<<"},
+		{name: "merge key replacing version", data: "<<: {version: 1}\nrows: []\n", want: "merge keys (<<) are not supported"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -285,5 +289,48 @@ func TestYAMLTableHotReload(t *testing.T) {
 	got := tbl.Rows()
 	if len(got) != 2 || got[0].HP != 65 || got[0].Speed != 4.2 || got[1].ID != "orc" || got[1].HP != 110 {
 		t.Fatalf("reloaded rows = %+v", got)
+	}
+}
+
+type shadowBase struct {
+	ID   string `table:"id"`
+	Name string `table:"name"`
+}
+
+// shadowedByEmbedding has two fields for "name": the embedded one, declared first, and its own.
+type shadowedByEmbedding struct {
+	shadowBase
+	Name string `table:"name"`
+}
+
+// sharedTag has two fields tagged "hp".
+type sharedTag struct {
+	ID string `table:"id"`
+	A  int    `table:"hp"`
+	B  int    `table:"hp"`
+}
+
+func TestYAMLRefusesTypesWithSharedColumns(t *testing.T) {
+	const data = "version: 1\nrows:\n  - id: a\n"
+	if _, err := datatable.MarshalYAML([]shadowedByEmbedding{{shadowBase: shadowBase{ID: "a", Name: "base"}, Name: "outer"}}); err == nil || !strings.Contains(err.Error(), `column "name"`) {
+		t.Fatalf("MarshalYAML(shadowedByEmbedding) error = %v, want a shared column error", err)
+	}
+	if _, err := datatable.LoadYAML[shadowedByEmbedding]("t.yaml", []byte(data)); err == nil || !strings.Contains(err.Error(), `column "name"`) {
+		t.Fatalf("LoadYAML[shadowedByEmbedding] error = %v, want a shared column error", err)
+	}
+	if _, err := datatable.MarshalYAML([]sharedTag{{ID: "a", A: 1, B: 2}}); err == nil || !strings.Contains(err.Error(), `column "hp"`) {
+		t.Fatalf("MarshalYAML(sharedTag) error = %v, want a shared column error", err)
+	}
+	if _, err := datatable.LoadYAML[sharedTag]("t.yaml", []byte(data)); err == nil || !strings.Contains(err.Error(), `column "hp"`) {
+		t.Fatalf("LoadYAML[sharedTag] error = %v, want a shared column error", err)
+	}
+
+	// CSV keeps reading such a type as before: the first field declared takes the column.
+	rows, err := datatable.LoadCSV[sharedTag]("t.csv", []byte("id,hp\na,7\n"))
+	if err != nil {
+		t.Fatalf("LoadCSV[sharedTag]: %v", err)
+	}
+	if want := []sharedTag{{ID: "a", A: 7}}; !reflect.DeepEqual(rows, want) {
+		t.Fatalf("LoadCSV[sharedTag] = %+v, want %+v", rows, want)
 	}
 }
