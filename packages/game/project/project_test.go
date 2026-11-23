@@ -152,7 +152,8 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"region size":            head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, region: {width: 0, height: 1}}]}]}\n",
 		"axis without actions":   head + "input: {axes: [{name: x}]}\n",
 		"axis undeclared action": head + "input: {actions: [{name: a}], axes: [{name: x, negative: a, positive: b}]}\n",
-		"duplicate axis":         head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}], motionAxes: [{name: x, axis: tiltX}]}\n",
+		"duplicate axis":         head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}, {name: x, positive: a}]}\n",
+		"duplicate motion axis":  head + "input: {motionAxes: [{name: m, axis: tiltX}, {name: m, axis: tiltY}]}\n",
 		"motion axis":            head + "input: {motionAxes: [{name: m, axis: tilt}]}\n",
 		"motion dead zone":       head + "input: {motionAxes: [{name: m, axis: tiltX, deadZone: 1}]}\n",
 		"motion sensitivity":     head + "input: {motionAxes: [{name: m, axis: gyroZ, sensitivity: -1}]}\n",
@@ -297,6 +298,32 @@ func TestBindInputBindsMotionAxes(t *testing.T) {
 	}
 }
 
+func TestAnAxisAndAMotionAxisMayShareAName(t *testing.T) {
+	f, err := project.Parse([]byte("version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\ninput:\n  actions:\n    - name: left\n      bindings:\n        - kind: touchRegion\n          region: {width: 100, height: 100}\n    - name: right\n      bindings:\n        - kind: touchRegion\n          region: {x: 100, width: 100, height: 100}\n  axes:\n    - {name: steer, negative: left, positive: right}\n  motionAxes:\n    - {name: steer, axis: tiltX, maxRange: 1}\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	a := input.NewActions()
+	f.BindInput(a)
+	// Tilting left (-0.4) while holding right (+1) steers +0.6: Actions.Axis sums both.
+	const g = 9.80665
+	a.OnMotion(core.MotionSample{Sensor: core.SensorAccelerometer, Vector: core.SensorVector{X: -0.4 * g}})
+	a.OnTouch(core.TouchEvent{Phase: core.TouchStart, Touches: []core.Touch{{ID: 1, Position: core.Point{X: 150, Y: 50}, Changed: true}}})
+	a.Step()
+	if got := a.Axis("steer"); got < 0.6-1e-6 || got > 0.6+1e-6 {
+		t.Fatalf("steer = %v, want 0.6", got)
+	}
+	for _, dup := range []string{
+		"  axes:\n    - {name: steer, negative: left}\n    - {name: steer, positive: right}\n",
+		"  motionAxes:\n    - {name: steer, axis: tiltX}\n    - {name: steer, axis: tiltY}\n",
+	} {
+		src := "version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\ninput:\n  actions:\n    - name: left\n    - name: right\n" + dup
+		if _, err := project.Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), "duplicate") {
+			t.Fatalf("Parse of a duplicate name = %v", err)
+		}
+	}
+}
+
 func TestConfigureMixer(t *testing.T) {
 	f := project.MustParse(readGolden(t))
 	var m *sound.Mixer
@@ -315,8 +342,8 @@ func TestConfigureMixer(t *testing.T) {
 	if n := len(m.GroupEffects("sfx")); n != 4 {
 		t.Fatalf("sfx has %d effects, want 4", n)
 	}
-	if m.GroupEffects("ui") != nil {
-		t.Fatal("a bus without effects kept the chain set before")
+	if n := len(m.GroupEffects("ui")); n != 1 {
+		t.Fatalf("a bus without effects left %d effects of the chain set in code, want 1", n)
 	}
 
 	// The configured chain is the sound package's: a gain of 0.5 halves a sample.

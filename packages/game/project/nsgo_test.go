@@ -118,3 +118,26 @@ func TestSyncNSGoRefusesMalformedFiles(t *testing.T) {
 		t.Fatal("CheckNSGo of an invalid File succeeded")
 	}
 }
+
+func TestSyncNSGoTreatsAnEmptyBuildAsMissing(t *testing.T) {
+	src := []byte("name: Old\nbuild:\n")
+	minimal := project.MustParse([]byte("version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\n"))
+	out, err := minimal.SyncNSGo(src)
+	if err != nil {
+		t.Fatalf("SyncNSGo without export: %v", err)
+	}
+	if want := "name: G\nid: dev.example.g\nversion: \"1\"\n"; string(out) != want {
+		t.Fatalf("SyncNSGo without export = %q, want %q", out, want)
+	}
+	f := project.MustParse(readGolden(t))
+	out, err = f.SyncNSGo(src)
+	if err != nil {
+		t.Fatalf("SyncNSGo with export: %v", err)
+	}
+	if err := f.CheckNSGo(out); err != nil {
+		t.Fatalf("CheckNSGo after SyncNSGo: %v\n%s", err, out)
+	}
+	if err := minimal.CheckNSGo([]byte("name: G\nid: dev.example.g\nversion: \"1\"\nbuild:\n")); err != nil {
+		t.Fatalf("CheckNSGo with an empty build: %v", err)
+	}
+}

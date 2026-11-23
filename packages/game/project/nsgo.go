@@ -151,6 +151,11 @@ func (f *File) SyncNSGo(nsgoYAML []byte) ([]byte, error) {
 	setScalar(root, "appearance", o.Appearance)
 
 	build := mappingValue(root, "build")
+	if isNull(build) {
+		// NSGo reads an empty build key as no build settings: treat it as missing.
+		deleteKey(root, "build")
+		build = nil
+	}
 	if build == nil && (o.Build.Output != "" || len(o.Build.Targets) > 0) {
 		build = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		root.Content = append(root.Content, scalarNode("build"), build)
@@ -198,6 +203,11 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 		return m.Content[i+1]
 	}
 	return nil
+}
+
+// isNull reports whether n is a null scalar, such as the value of a key written with nothing after it.
+func isNull(n *yaml.Node) bool {
+	return n != nil && n.Kind == yaml.ScalarNode && n.Tag == "!!null"
 }
 
 func deleteKey(m *yaml.Node, key string) {

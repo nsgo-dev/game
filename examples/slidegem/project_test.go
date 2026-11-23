@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 //go:embed nsgo.yaml
@@ -20,5 +21,12 @@ func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	}
 	if canonical, err := project.Encode(gameProject); err != nil || !bytes.Equal(canonical, gameYAML) {
 		t.Fatalf("game.yaml is not canonical (%v); run gameproject fmt:\n%s", err, canonical)
+	}
+}
+
+func TestRootTitlesTheWindowFromTheProject(t *testing.T) {
+	app := nsgotest.Start(t, Root)
+	if app.Title != gameProject.Title() {
+		t.Fatalf("window title = %q, want %q", app.Title, gameProject.Title())
 	}
 }

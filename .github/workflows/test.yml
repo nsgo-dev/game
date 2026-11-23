@@ -74,3 +74,30 @@ jobs:
         env:
           ACCOUNTS_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
         run: go tool nsgo test ./accounts/pgstore/...
+
+  starter:
+    name: Test the starter against its pinned modules
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: template/template/go.sum
+      # A game made with nsgo init -template builds against the packages/game version go.mod.tmpl pins, not this checkout: test a copy outside the workspace so a stale pin fails here.
+      - name: Test a game made from the starter
+        env:
+          GOWORK: "off"
+        run: |
+          dir="$RUNNER_TEMP/startergame"
+          cp -R template/template "$dir"
+          sed 's|{{.Module}}|example.com/startergame|' "$dir/go.mod.tmpl" > "$dir/go.mod"
+          rm "$dir/go.mod.tmpl"
+          cd "$dir"
+          go tool nsgo test ./...

@@ -81,7 +81,7 @@ export:
 | `name`, `id`, `appVersion` | The game's display name, its reverse-DNS identifier and its release version. |
 | `window` | The main window's starting content size in points (`width`, `height`, both required), its resize limits (`minWidth`, `minHeight`, `maxWidth`, `maxHeight`; 0 is no limit), `resizable` (true when left out), an optional `title` and `appearance` (`light` or `dark`; left out, the app follows the system). |
 | `display` | The virtual resolution a `screen.Viewport` maps onto the window: `width`, `height`, `mode` (`fit` when left out, `fill`, `stretch` or `expand`), `integerScale`, `pixelSnap` and the CSS `barColor` of letterbox bars. Left out, the game draws at the window's size. |
-| `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a `button`) or `mouseRegion` (both), where `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields. An action without bindings is declared for code to bind or an axis to read. |
+| `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a `button`) or `mouseRegion` (both), where `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields; a motion axis may share its name with an axis, and `Actions.Axis` sums both. An action without bindings is declared for code to bind or an axis to read. |
 | `audio` | The default `master` volume and the `buses`, each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`). |
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. |
@@ -105,13 +105,20 @@ func main() {
 		nsgo.Appearance(gameProject.Appearance()),
 	)
 }
+
+func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
+	// ...
+}
 ```
+
+`nsgo.Run` has no title option, so the root component sets the title with `desktop.SetTitle`: `Title()` is `window.title`, or `name` without one.
 
 The rest of the file applies to the game's own objects:
 
 - `Viewport()` returns the `screen.Viewport` of `display`, and false without one.
 - `BindInput(actions)` binds the input map into an `input.Actions`, replacing bindings of the same names and keeping others, such as ones that follow a layout computed in code. `Region(action)` returns the first region bound to an action, where the game draws its on-screen control.
-- `ConfigureMixer(mixer)` gives a `sound.Mixer` the default master volume and each bus's default volume (`SetDefaultMaster`, `SetDefaultVolume`) and DSP chain. A volume the player set and the mixer kept in storage wins over the default.
+- `ConfigureMixer(mixer)` gives a `sound.Mixer` the default master volume and each bus's default volume (`SetDefaultMaster`, `SetDefaultVolume`) and DSP chain. A volume the player set and the mixer kept in storage wins over the default. A bus without effects leaves the chain the game set in code, as an action without bindings leaves its bindings.
 - `LoadAutoloads(fsys)` reads every autoloaded scene, parsing and validating it as a scene document, and every resource from an `fs.FS` rooted at the project, such as an `embed.FS`, and fails on the first file that is missing or invalid. `Loaded.Main()` is the main scene.
 
 ## game.yaml and nsgo.yaml
@@ -124,7 +131,7 @@ NSGo's own `nsgo.yaml` sits beside `game.yaml` and repeats some of its settings.
 | `appearance` | `window.appearance` |
 | `build.output`, `build.targets` | `export.output`, the presets' targets in order |
 
-`SyncNSGo` writes these fields into an `nsgo.yaml`, keeping its other keys (`dev`, `icon` and the rest) and its comments, and `CheckNSGo` reports each field that disagrees. Everything else in `nsgo.yaml` stays NSGo's.
+`SyncNSGo` writes these fields into an `nsgo.yaml`, keeping its other keys (`dev`, `icon` and the rest) and its comments, and `CheckNSGo` reports each field that disagrees. Both read an empty `build:` key as no build settings, as NSGo does. Everything else in `nsgo.yaml` stays NSGo's.
 
 ## The gameproject command
 
@@ -144,7 +151,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## In the editor
 
-`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project with the scene when it was edited, and leaves an unedited `game.yaml` as written, comments included. `gameeditor <dir>` opens a project from the command line.
+`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names, and empties the undo history. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project when it was edited, before the scene and even when the scene has no file to save to, and leaves an unedited `game.yaml` as written, comments included. `gameeditor <dir>` opens a project from the command line.
 
 ## The starter and the examples
 

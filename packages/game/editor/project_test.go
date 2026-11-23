@@ -194,3 +194,63 @@ func TestToolbarSaveWritesAnEditedProjectOnly(t *testing.T) {
 		t.Fatalf("after Save: %+v, %v", f, err)
 	}
 }
+
+// writeBareProject writes a game.yaml named name with no main scene into a new directory and returns the directory.
+func writeBareProject(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	data := "version: 1\nname: " + name + "\nid: dev.example.bare\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\n"
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestOpenProjectDropsTheHistoryOfTheProjectBefore(t *testing.T) {
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(writeEditorProject(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.EditProject("rename", func(f *project.File) { f.Name = "Demo Deluxe" }); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeBareProject(t, "Bare")
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if ed.History.CanUndo() || ed.History.CanRedo() {
+		t.Fatal("the history of the project opened before survived OpenProject")
+	}
+	ed.History.Undo()
+	if ed.Project.Name != "Bare" || ed.ProjectDirty() {
+		t.Fatalf("after Undo the project is %q (dirty %v), want the unedited Bare", ed.Project.Name, ed.ProjectDirty())
+	}
+}
+
+func TestToolbarSaveWritesAProjectWithoutAMainScene(t *testing.T) {
+	dir := writeBareProject(t, "Bare")
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680))
+	app.Post(func() {
+		if err := ed.EditProject("version", func(f *project.File) { f.AppVersion = "1.1.0" }); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:toolbar-save")
+	f, err := project.Check(os.DirFS(dir))
+	if err != nil || f.AppVersion != "1.1.0" {
+		t.Fatalf("after Save: %+v, %v", f, err)
+	}
+	if ed.ProjectDirty() || strings.HasPrefix(ed.Status, "Save error") {
+		t.Fatalf("after Save: dirty %v, status %q", ed.ProjectDirty(), ed.Status)
+	}
+}

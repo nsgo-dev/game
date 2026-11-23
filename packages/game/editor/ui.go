@@ -252,6 +252,18 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Variant:  ui.ButtonOutline,
 						Disabled: notPlaying,
 						OnPress: func() {
+							// An edited project file is saved first, whether or not the scene can be; an unedited one is left as written, comments included.
+							if ed.ProjectDirty() {
+								if err := ed.SaveProject(); err != nil {
+									ed.Status = "Save error: " + err.Error()
+									ed.notify()
+									return
+								}
+								if ed.OnSave == nil && ed.FilePath == "" {
+									// Only the project has a file to save to: the scene was never opened from or saved to one.
+									return
+								}
+							}
 							data, err := ed.SaveYAML()
 							if err != nil {
 								ed.Status = "Save error: " + err.Error()
@@ -276,13 +288,6 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								ed.Status = "Save error: no save path; open or save the scene to a file first"
 								ed.notify()
 								return
-							}
-							// An edited project file is saved with the scene; an unedited one is left as written, comments included.
-							if ed.ProjectDirty() {
-								if err := ed.SaveProject(); err != nil {
-									ed.Status = "Save error: " + err.Error()
-									ed.notify()
-								}
 							}
 						},
 					},

@@ -551,7 +551,7 @@ func validateInput(in *Input) error {
 			}
 		}
 	}
-	axes := make(map[string]struct{}, len(in.Axes)+len(in.MotionAxes))
+	axes := make(map[string]struct{}, len(in.Axes))
 	for i, ax := range in.Axes {
 		if err := validateName(fmt.Sprintf("input axis %d", i), ax.Name); err != nil {
 			return err
@@ -569,14 +569,16 @@ func validateInput(in *Input) error {
 			}
 		}
 	}
+	// A motion axis may share its name with an axis: input.Actions.Axis sums both, as input.Actions.BindMotionAxis documents.
+	motion := make(map[string]struct{}, len(in.MotionAxes))
 	for i, m := range in.MotionAxes {
 		if err := validateName(fmt.Sprintf("input motion axis %d", i), m.Name); err != nil {
 			return err
 		}
-		if _, dup := axes[m.Name]; dup {
-			return fmt.Errorf("project: duplicate input axis %q", m.Name)
+		if _, dup := motion[m.Name]; dup {
+			return fmt.Errorf("project: duplicate input motion axis %q", m.Name)
 		}
-		axes[m.Name] = struct{}{}
+		motion[m.Name] = struct{}{}
 		if !slices.Contains(motionAxes, m.Axis) {
 			return fmt.Errorf("project: input motion axis %q axis %q must be one of %s", m.Name, m.Axis, strings.Join(motionAxes, ", "))
 		}
