@@ -65,7 +65,7 @@ quests:
 
 Each objective has an `id` (unique in its quest), a `kind` (`collect`, `reach`, `defeat` or `talk`), a `target` (the item, place, enemy or character ID events must name), an optional `count` (default 1), `optional` and `text`. A reward has an optional `kind` (such as `item`, `xp` or `gold`), an `id` and an `amount` (default 1). The package only reports rewards, so they can name anything a game defines, including inventory items or stats.
 
-`quest.Parse` and `quest.LoadFS` refuse unknown fields, a wrong version, duplicate or empty IDs, unknown kinds, negative counts, prerequisites that name a missing quest, and prerequisite cycles; every error wraps `quest.ErrInvalidBook`. `quest.Encode` writes the book back as 2-space YAML with fields in a fixed order and no generated values, so loading and saving a book changes nothing.
+`quest.Parse` and `quest.LoadFS` refuse unknown fields, a wrong version, duplicate or empty IDs, unknown kinds, negative counts, prerequisites that name a missing quest, and prerequisite cycles; every error wraps `quest.ErrInvalidBook`. `quest.Encode` writes the book back in canonical form: 2-space YAML with fields in a fixed order, `requires` in flow style and everything else in block style, empty lists and default values left out, and no generated values. Loading and saving a book in that form, like the example above, changes nothing, and `quest.Parse(quest.Encode(book))` always equals the parsed book. A file in another form comes back canonical, and YAML comments are not kept, so put designer notes in `description` or `text`.
 
 ## Running quests
 
@@ -99,18 +99,19 @@ flow.Publish(&bus, quest.Reached{Place: "cellar"})
 
 `Collected`, `Reached`, `Defeated` and `Talked` are shorthands for `quest.Event{Kind, Target, Amount}`; an `Amount` below 1 counts as 1. Without a bus, call `log.Handle(event)` directly.
 
-Quests move through four states:
+Quests move through five states:
 
 | State | Meaning |
 | --- | --- |
-| `Inactive` | Not started, or abandoned |
+| `Inactive` | Not started |
 | `Active` | Objectives accept events |
 | `Completed` | Every required objective is complete |
 | `Failed` | The game called `Fail`; `Start` retries it |
+| `Abandoned` | The player called `Abandon`; `Start` takes it up again |
 
 - `Start(id)` begins a quest with no progress. It returns `ErrNotStartable` while a prerequisite is incomplete, while the quest is active, or after it completed unless it is `repeatable`.
-- `StartReady()` starts every `autoStart` quest whose prerequisites are complete. A log calls it after each completion, so quest chains follow on by themselves.
-- `Fail(id)` and `Abandon(id)` end an active quest; abandoning drops its progress.
+- `StartReady()` starts every `autoStart` quest that has never started and whose prerequisites are complete. A log calls it after each completion, so quest chains follow on by themselves.
+- `Fail(id)` and `Abandon(id)` end an active quest; abandoning drops its progress. Neither state is restarted by `StartReady`, so an `autoStart` quest the player abandoned stays abandoned, across saves too, until the game calls `Start`.
 - `SetProgress(quest, objective, n)` mirrors a value the game already tracks, such as how many of an item the inventory holds.
 - `State`, `Quests(state)`, `Objectives(id)` and `Objective(quest, objective)` feed a journal or HUD. An objective is `ObjectiveLocked`, `ObjectiveActive` or `ObjectiveDone`.
 
@@ -150,4 +151,6 @@ if err := log.Restore(s.Quests); err != nil {
 log.StartReady()
 ```
 
-`Restore` checks the whole snapshot before changing anything and delivers no updates. It refuses (with `ErrInvalidSnapshot`) a wrong version, quests or objectives the book no longer has, progress outside an objective's range, and an active quest whose required objectives are already complete. When a content update removes or renames quests or objectives, or lowers a count, register a `save.Migration` that rewrites the old snapshot.
+`Restore` checks the whole snapshot before changing anything and delivers no updates. It refuses (with `ErrInvalidSnapshot`) a wrong version, quests or objectives the book no longer has, progress outside an objective's range, and progress a log cannot reach: a quest whose prerequisite is missing from the snapshot (or, unless the prerequisite is `repeatable`, not completed), an abandoned quest with progress, progress in an `ordered` quest past an incomplete required objective, and an active quest whose required objectives are already complete. When a content update removes or renames quests or objectives, lowers a count or adds a prerequisite, register a `save.Migration` that rewrites the old snapshot.
+
+A save slot written before the game tracked quests decodes its missing field to the zero `quest.Snapshot`; `Restore` takes that as no progress and resets every quest to `Inactive`.

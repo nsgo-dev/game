@@ -126,15 +126,25 @@ func TestSnapshotJSONIsStable(t *testing.T) {
 }
 
 func TestRestoreRefusesInvalidSnapshots(t *testing.T) {
+	welcome := quest.QuestRecord{ID: "welcome", State: quest.Completed, Progress: map[string]int{"meet-elder": 1}}
+	with := func(recs ...quest.QuestRecord) quest.Snapshot {
+		return quest.Snapshot{Version: 1, Quests: append([]quest.QuestRecord{welcome}, recs...)}
+	}
 	cases := map[string]quest.Snapshot{
-		"version":         {Version: 2},
-		"unknown quest":   {Version: 1, Quests: []quest.QuestRecord{{ID: "nope", State: quest.Active}}},
-		"duplicate":       {Version: 1, Quests: []quest.QuestRecord{{ID: "welcome", State: quest.Active}, {ID: "welcome", State: quest.Active}}},
-		"inactive":        {Version: 1, Quests: []quest.QuestRecord{{ID: "welcome", State: quest.Inactive}}},
-		"unknown obj":     {Version: 1, Quests: []quest.QuestRecord{{ID: "herbs", State: quest.Active, Progress: map[string]int{"nope": 1}}}},
-		"over count":      {Version: 1, Quests: []quest.QuestRecord{{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": 5}}}},
-		"negative":        {Version: 1, Quests: []quest.QuestRecord{{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": -1}}}},
-		"active but done": {Version: 1, Quests: []quest.QuestRecord{{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": 4, "sunroot": 2}}}},
+		"version":                 {Version: 2},
+		"version 0 quests":        {Quests: []quest.QuestRecord{welcome}},
+		"unknown quest":           with(quest.QuestRecord{ID: "nope", State: quest.Active}),
+		"duplicate":               {Version: 1, Quests: []quest.QuestRecord{{ID: "welcome", State: quest.Active}, {ID: "welcome", State: quest.Active}}},
+		"inactive":                {Version: 1, Quests: []quest.QuestRecord{{ID: "welcome", State: quest.Inactive}}},
+		"unknown obj":             with(quest.QuestRecord{ID: "herbs", State: quest.Active, Progress: map[string]int{"nope": 1}}),
+		"over count":              with(quest.QuestRecord{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": 5}}),
+		"negative":                with(quest.QuestRecord{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": -1}}),
+		"active but done":         with(quest.QuestRecord{ID: "herbs", State: quest.Active, Progress: map[string]int{"moonleaf": 4, "sunroot": 2}}),
+		"abandoned with progress": with(quest.QuestRecord{ID: "herbs", State: quest.Abandoned, Progress: map[string]int{"moonleaf": 1}}),
+		"missing prerequisite":    {Version: 1, Quests: []quest.QuestRecord{{ID: "herbs", State: quest.Active}}},
+		"prerequisite not done":   {Version: 1, Quests: []quest.QuestRecord{{ID: "welcome", State: quest.Active}, {ID: "rat-problem", State: quest.Completed}}},
+		"ordered out of turn":     with(quest.QuestRecord{ID: "rat-problem", State: quest.Active, Progress: map[string]int{"kill-rats": 2}}),
+		"ordered skips required":  with(quest.QuestRecord{ID: "rat-problem", State: quest.Failed, Progress: map[string]int{"talk-innkeeper": 1, "report": 1}}),
 	}
 	for name, snap := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -152,5 +162,78 @@ func TestRestoreRefusesInvalidSnapshots(t *testing.T) {
 	var s quest.Snapshot
 	if err := json.Unmarshal([]byte(`{"version":1,"quests":[{"id":"herbs","state":"sleeping"}]}`), &s); err == nil {
 		t.Fatal("unknown state name decoded")
+	}
+}
+
+func TestRestoreAcceptsReachableSnapshots(t *testing.T) {
+	welcome := quest.QuestRecord{ID: "welcome", State: quest.Completed, Progress: map[string]int{"meet-elder": 1}}
+	cases := map[string]quest.Snapshot{
+		// An optional objective left incomplete never gates the required ones after it.
+		"ordered with optional": {Version: 1, Quests: []quest.QuestRecord{welcome,
+			{ID: "rat-problem", State: quest.Completed, Progress: map[string]int{"talk-innkeeper": 1, "find-cellar": 1, "kill-rats": 5, "report": 1}},
+		}},
+		"ordered in progress": {Version: 1, Quests: []quest.QuestRecord{welcome,
+			{ID: "rat-problem", State: quest.Active, Progress: map[string]int{"talk-innkeeper": 1, "find-cellar": 1, "kill-rats": 2}},
+		}},
+		"abandoned": {Version: 1, Quests: []quest.QuestRecord{welcome, {ID: "herbs", State: quest.Abandoned}}},
+	}
+	for name, snap := range cases {
+		t.Run(name, func(t *testing.T) {
+			l, _ := newVillageLog(t)
+			if err := l.Restore(snap); err != nil {
+				t.Fatalf("Restore: %v", err)
+			}
+			if !reflect.DeepEqual(l.Snapshot(), snap) {
+				t.Fatalf("Snapshot after Restore = %+v, want %+v", l.Snapshot(), snap)
+			}
+		})
+	}
+
+	// A repeatable prerequisite may run again after the quest that needs it began.
+	b := &quest.Book{Version: 1, Quests: []quest.Quest{
+		{ID: "daily", Repeatable: true, Objectives: []quest.Objective{{ID: "o", Kind: quest.KindDefeat, Target: "slime"}}},
+		{ID: "after", Requires: []string{"daily"}, Objectives: []quest.Objective{{ID: "o", Kind: quest.KindReach, Target: "gate"}}},
+	}}
+	l, err := quest.NewLog(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []func() error{
+		func() error { return l.Start("daily") },
+		func() error { l.Handle(quest.Defeated{Enemy: "slime"}.Event()); return nil },
+		func() error { return l.Start("after") },
+		func() error { return l.Start("daily") },
+		func() error { return l.Abandon("daily") },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := quest.NewLog(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := again.Restore(l.Snapshot()); err != nil {
+		t.Fatalf("Restore with a restarted repeatable prerequisite: %v", err)
+	}
+}
+
+func TestRestoreZeroSnapshotMeansNoProgress(t *testing.T) {
+	// A slot saved before the game tracked quests decodes its missing quests field to the zero Snapshot.
+	var old gameSave
+	if err := json.Unmarshal([]byte(`{"gold":3}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := newVillageLog(t)
+	l.StartReady()
+	l.Handle(quest.Talked{Character: "elder"}.Event())
+	if err := l.Restore(old.Quests); err != nil {
+		t.Fatalf("Restore(zero) = %v", err)
+	}
+	if got := l.Snapshot(); len(got.Quests) != 0 {
+		t.Fatalf("Restore(zero) kept progress: %+v", got)
+	}
+	if n := l.StartReady(); n != 1 || l.State("welcome") != quest.Active {
+		t.Fatalf("StartReady after Restore(zero) = %d, welcome %s", n, l.State("welcome"))
 	}
 }

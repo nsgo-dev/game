@@ -72,6 +72,42 @@ func TestEncodeRoundTripIsLossless(t *testing.T) {
 	}
 }
 
+func TestEncodeWritesCanonicalForm(t *testing.T) {
+	cases := map[string]struct{ src, want string }{
+		"empty quests": {"version: 1\nquests: []\n", "version: 1\n"},
+		"empty lists": {
+			"version: 1\nquests:\n  - id: q\n    requires: []\n    objectives:\n      - {id: a, kind: talk, target: npc}\n    rewards: []\n",
+			"version: 1\nquests:\n  - id: q\n    objectives:\n      - id: a\n        kind: talk\n        target: npc\n",
+		},
+		"comments": {
+			"# designer note\nversion: 1\nquests:\n  - id: q # main\n    objectives:\n      - id: a\n        kind: talk\n        target: npc\n",
+			"version: 1\nquests:\n  - id: q\n    objectives:\n      - id: a\n        kind: talk\n        target: npc\n",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			b, err := quest.Parse([]byte(c.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			out, err := quest.Encode(b)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+			if string(out) != c.want {
+				t.Fatalf("Encode =\n%s\nwant\n%s", out, c.want)
+			}
+			again, err := quest.Parse(out)
+			if err != nil {
+				t.Fatalf("Parse(Encode): %v", err)
+			}
+			if !reflect.DeepEqual(again, b) {
+				t.Fatalf("Parse(Encode(b)) = %#v, want %#v", again, b)
+			}
+		})
+	}
+}
+
 func TestParseRefusesInvalidBooks(t *testing.T) {
 	const ok = "    objectives:\n      - {id: a, kind: talk, target: npc}\n"
 	cases := map[string]string{
@@ -143,6 +179,9 @@ func FuzzParse(f *testing.F) {
 		again, err := quest.Parse(out)
 		if err != nil {
 			t.Fatalf("Parse(Encode(b)): %v\n%s", err, out)
+		}
+		if !reflect.DeepEqual(again, b) {
+			t.Fatalf("Parse(Encode(b)) differs from b:\n%#v\n%#v", again, b)
 		}
 		out2, err := quest.Encode(again)
 		if err != nil || !bytes.Equal(out, out2) {

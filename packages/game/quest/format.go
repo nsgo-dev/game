@@ -125,7 +125,7 @@ func (b *Book) Quest(id string) *Quest {
 	return nil
 }
 
-// Parse decodes a YAML quest book and validates it. Unknown fields and trailing YAML documents are refused.
+// Parse decodes a YAML quest book and validates it. Unknown fields and trailing YAML documents are refused. An empty list, such as `requires: []`, decodes the same as an omitted one (nil), so a parsed book equals Parse(Encode(book)).
 func Parse(data []byte) (*Book, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("%w: empty document", ErrInvalidBook)
@@ -146,7 +146,24 @@ func Parse(data []byte) (*Book, error) {
 	if err := Validate(&b); err != nil {
 		return nil, err
 	}
+	normalize(&b)
 	return &b, nil
+}
+
+// normalize turns empty lists into nil, the form Encode omits, so Parse(Encode(b)) is deeply equal to b.
+func normalize(b *Book) {
+	if len(b.Quests) == 0 {
+		b.Quests = nil
+	}
+	for i := range b.Quests {
+		q := &b.Quests[i]
+		if len(q.Requires) == 0 {
+			q.Requires = nil
+		}
+		if len(q.Rewards) == 0 {
+			q.Rewards = nil
+		}
+	}
 }
 
 // LoadFS reads and parses the quest book at name in fsys.
@@ -162,7 +179,7 @@ func LoadFS(fsys fs.FS, name string) (*Book, error) {
 	return b, nil
 }
 
-// Encode validates b and writes it as deterministic YAML with 2-space indentation, fields in declaration order and no generated values, so Parse(Encode(b)) equals b.
+// Encode validates b and writes it in canonical form: deterministic YAML with 2-space indentation, fields in declaration order, `requires` in flow style and everything else in block style, empty lists and zero values omitted, and no generated values. Parse(Encode(b)) equals b for a book from Parse, and Encode(Parse(f)) gives back f byte for byte when f is already canonical. A file that is not canonical comes back in canonical form, and YAML comments are not kept.
 func Encode(b *Book) ([]byte, error) {
 	if err := Validate(b); err != nil {
 		return nil, err
