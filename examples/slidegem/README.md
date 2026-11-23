@@ -13,6 +13,7 @@ A touch-first 6×6 match-3 sliding-gem puzzle game built with the NSGo 2D Game S
   - `screen.Viewport` (`ModeFit`) scaling with `ViewToGame` coordinate mapping and `input.Actions` supporting both tap-tap selection and direct touch/mouse swipe swaps.
   - Native NSGo HUD overlay (`Score`, `Best`, `Moves`, `Hint`, `New Game`, and `Play Again`) respecting `screen.SafeRectForEnv`.
   - Versioned high-score persistence via `save.NewStorageStore`.
+- **Achievements (`achievements.go`, `achievements.yaml`)**: four achievements declared with their Game Center and Play Games IDs and tracked by `achievements.Tracker` in app storage. The game signs in with `achievements.SignIn`, reports progress made before or without sign-in once signed in, shows the unlocked achievement in the status line, and opens the platform's achievements screen from the **Trophies** button. The IDs in `achievements.yaml` stand for the ones you create in App Store Connect and Play Console for your own app.
 
 ## Running & Testing
 

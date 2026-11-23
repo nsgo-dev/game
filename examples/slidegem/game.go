@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/achievements"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/save"
@@ -17,6 +18,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/tween"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gameservices"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -87,6 +89,7 @@ type slideGemGame struct {
 	bounceTL *tween.Timeline
 	sparkles particles.Emitter
 	store    *save.Store
+	trophies *achievements.Tracker
 	mixer    *sound.Mixer
 	chimeSFX *sound.Effect
 	bounceFX *sound.Effect
@@ -99,6 +102,8 @@ type slideGemGame struct {
 	bounces    int
 	swaps      int
 	hintCount  int
+	// unlockNote is the latest achievement unlocked this turn, kept as the status line once the turn settles.
+	unlockNote string
 
 	viewBounds core.Size
 
@@ -126,6 +131,7 @@ type slideGemGame struct {
 	gameOverSig *core.Signal[bool]
 	statusSig   *core.Signal[string]
 	frameTick   *core.Signal[uint64]
+	signedIn    *core.Signal[bool]
 }
 
 // Root constructs the SlideGem game root node with the default deterministic seed.
@@ -154,6 +160,7 @@ func newSlideGem(cx *core.Scope, seed uint64) (*slideGemGame, core.Node) {
 		atlas:     atlas,
 		batch:     sprite.Batch{Atlas: atlas},
 		store:     store,
+		trophies:  newAchievementTracker(cx),
 		mixer:     sound.NewMixer(cx, "slidegem.sound"),
 		bestScore: stats.BestScore,
 		sparkles: particles.Emitter{
@@ -185,7 +192,17 @@ func newSlideGem(cx *core.Scope, seed uint64) (*slideGemGame, core.Node) {
 		gameOverSig: core.NewSignal(cx, false),
 		statusSig:   core.NewSignal(cx, "Tap or swipe adjacent gems"),
 		frameTick:   core.NewSignal(cx, uint64(0)),
+		signedIn:    core.NewSignal(cx, false),
 	}
+
+	g.trophies.OnUnlock(func(d achievements.Definition) {
+		g.unlockNote = "Achievement unlocked: " + d.Title
+		g.statusSig.Set(g.unlockNote)
+	})
+	// Sign in to Game Center or Play Games where the platform has one; progress made before or without it is kept and reported once signed in.
+	achievements.SignIn(cx, g.trophies, func(_ gameservices.Player, err error) {
+		g.signedIn.Set(err == nil)
+	})
 
 	g.loadAudio()
 	g.bindCellActions()
@@ -332,6 +349,18 @@ func (g *slideGemGame) buildTree() core.Node {
 									AlignItems: core.AlignCenter,
 								},
 								Children: []core.Node{
+									core.Show{
+										When: g.signedIn.Get,
+										Then: func(*core.Scope) core.Node {
+											return ui.Button{
+												Text:    "Trophies",
+												Variant: ui.ButtonSecondary,
+												Size:    ui.SizeSmall,
+												TestID:  "btn-trophies",
+												OnPress: func() { gameservices.ShowAchievements(g.cx) },
+											}
+										},
+									},
 									ui.Button{
 										Text:    "Hint",
 										Variant: ui.ButtonSecondary,
@@ -725,6 +754,7 @@ func (g *slideGemGame) resolveMatches() {
 			g.board.FinishTurn()
 			g.movesSig.Set(g.board.MovesLeft)
 			g.comboSig.Set(0)
+			idle := g.idleStatus()
 			if g.board.GameOver {
 				g.gameOverSig.Set(true)
 				g.statusSig.Set("Out of moves!")
@@ -733,7 +763,7 @@ func (g *slideGemGame) resolveMatches() {
 				g.syncGridVisDropIn()
 				return
 			} else {
-				g.statusSig.Set("Tap or swipe adjacent gems")
+				g.statusSig.Set(idle)
 			}
 		}
 		g.phase = phaseIdle
@@ -750,6 +780,7 @@ func (g *slideGemGame) resolveMatches() {
 		g.statusSig.Set(fmt.Sprintf("Match! +%d", points))
 	}
 	g.recordBestScore(g.board.Score)
+	g.recordClear(len(matches.Cells))
 
 	if g.chimeSFX != nil {
 		rate := min(float32(2.0), 1.0+float32(g.board.Combo-1)*0.15)
@@ -960,6 +991,7 @@ func (g *slideGemGame) newGame() {
 	g.movesSig.Set(g.board.MovesLeft)
 	g.comboSig.Set(0)
 	g.gameOverSig.Set(false)
+	g.unlockNote = ""
 	g.statusSig.Set("Tap or swipe adjacent gems")
 	g.syncGridVisDropIn()
 	g.playTap()
