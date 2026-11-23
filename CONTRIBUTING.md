@@ -14,7 +14,9 @@ game/
 ├─ docs/
 │  ├─ en/            site documentation in English
 │  └─ zh/            the same pages in Simplified Chinese
-└─ apps/website/     the site at https://game.nsgo.dev
+├─ apps/website/     the site at https://game.nsgo.dev
+├─ changelog.d/      changelog fragments, folded into CHANGELOG.md at release
+└─ tools/changelog/  the command that checks and folds them
 ```
 
 The root `go.work` links the starter and examples to `./packages/game`. The `nsgo` CLI is declared as a `tool` dependency in `packages/game/go.mod`, so run `go tool nsgo ...` from `packages/game` (just as CI does).
@@ -69,7 +71,8 @@ bun run build      # Vite build, prerender, and tsc --noEmit
 1. **Keep PRs focused.** One issue or cohesive change per pull request. Before starting a large feature, open an issue or comment on the existing roadmap issue to align on the API.
 2. **Verify locally before opening.** Ensure `gofmt -l` outputs nothing, `go tool nsgo test ./...` passes, and `go tool nsgo check` passes for your targets. For `docs/` or `apps/website/` changes, ensure `bun run build` exits `0`.
 3. **Link the issue.** Include `Fixes #<number>` (or `Refs #<number>` for partial work) in the pull request description.
-4. **Show visual changes.** Attach screenshots or a short recording for website, example, or rendering changes.
+4. **Add a changelog fragment.** A change to `packages/`, `examples/` or `template/` adds a file to `changelog.d/` instead of editing `CHANGELOG.md`, as [changelog.d/README.md](changelog.d/README.md) describes. An internal change takes the `skip-changelog` label instead.
+5. **Show visual changes.** Attach screenshots or a short recording for website, example, or rendering changes.
 
 ## Engine-level issues
 

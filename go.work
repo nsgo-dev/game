@@ -7,5 +7,6 @@ use (
 	./examples/slidegem
 	./examples/cryptquest
 	./examples/caverun
+	./tools/changelog
 )
 
