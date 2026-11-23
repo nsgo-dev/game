@@ -179,3 +179,27 @@ watcher.Watch("fx/fire.yaml", func(data []byte) {
 ```
 
 在后台 goroutine 中调用 `StageBytes`，再在游戏循环中用 `Flush` 应用暂存的定义。
+
+## 性能
+
+每个存活粒子都是发射器 `sprite.Batch` 中的一个精灵，因此每帧会为每个粒子记录一次图像绘制。在 `sprite.Batch` 改为一次 `DrawAtlas` 调用绘制（[nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)）之前，每次这样的绘制还会在 NSGo 的 `Drawing` 内部分配一次内存。
+
+`examples/fountain` 是对应的压力测试场景：四个按种子生成的喷泉在每个固定步之后补足到 5000 个存活粒子，全部带旋转和淡出。用 NSGo 的性能监视器运行它，并在窗口可见时读取右上角的 FPS 一行（窗口被遮挡时 `game.Loop` 会暂停）：
+
+```sh
+cd examples/fountain
+go tool nsgo dev -fps
+```
+
+上下方向键以 1000 为步长调整粒子数（1000 到 20000），用来找出机器跌破显示刷新率的位置；`R` 按种子重新开始场景。
+
+两个基准测试跟踪一帧中 CPU 的部分：
+
+```sh
+# 5000 个粒子的发射器执行一次 Update 和一次 Draw
+cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
+# 整个喷泉场景执行一个固定步和一次绘制
+cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
+```
+
+在 AMD Ryzen 9 3900X 上它们分别约需 1.3 ms 和 2.0 ms，远低于 60 fps 一帧的 16.7 ms。

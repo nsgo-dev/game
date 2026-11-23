@@ -8,6 +8,6 @@ use (
 	./examples/cryptquest
 	./examples/caverun
 	./examples/tutorial
+	./examples/fountain
 	./tools/changelog
 )
-

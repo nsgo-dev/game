@@ -179,3 +179,27 @@ watcher.Watch("fx/fire.yaml", func(data []byte) {
 ```
 
 From a background goroutine, call `StageBytes` and apply the staged definition on the game loop with `Flush`.
+
+## Performance
+
+Each live particle is one sprite in the emitter's `sprite.Batch`, so a frame records one image draw per particle. Until `sprite.Batch` draws with a single `DrawAtlas` call ([nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)), each of those draws also allocates once inside NSGo's `Drawing`.
+
+`examples/fountain` is the stress scene for this: four seeded fountains topped up to 5000 live particles after every fixed step, all rotating and fading. Run it with NSGo's performance monitor and read the FPS line at the top right, with the window visible (a covered window pauses `game.Loop`):
+
+```sh
+cd examples/fountain
+go tool nsgo dev -fps
+```
+
+The up and down arrow keys move the particle count by 1000 (from 1000 to 20000) to find where a machine drops below its display rate, and `R` restarts the scene from its seed.
+
+Two benchmarks track the CPU side of a frame:
+
+```sh
+# One Update and one Draw of a 5000-particle emitter
+cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./particles
+# One step and one draw of the whole fountain scene
+cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
+```
+
+On an AMD Ryzen 9 3900X they take about 1.3 ms and 2.0 ms, well inside the 16.7 ms of a 60 fps frame.
