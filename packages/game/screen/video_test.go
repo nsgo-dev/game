@@ -292,6 +292,60 @@ func TestStopReleasesTheDrop(t *testing.T) {
 	}
 }
 
+func TestDisposingTheOwnerReleasesTheDropAndTheWindow(t *testing.T) {
+	got := recordFullScreen(t)
+	l := &game.Loop{}
+	v := &screen.Video{Loop: l}
+	var root *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		root = cx
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{LowPowerMode: core.LowPowerOn}))
+	// Run outside a computation, so the child scope is the owner that disposal releases.
+	var owner *core.Scope
+	app.Post(func() {
+		owner = root.Child()
+		v.Run(owner)
+	})
+	app.Settle()
+	apply(app, v, save.DefaultSettings().Display)
+	if l.DrawRate != screen.DefaultLowPowerCap {
+		t.Fatalf("DrawRate %d, want %d", l.DrawRate, screen.DefaultLowPowerCap)
+	}
+	app.Post(owner.Dispose)
+	app.Settle()
+	if v.Dropped() || l.DrawRate != 0 {
+		t.Fatalf("after dispose: Dropped %v, DrawRate %d", v.Dropped(), l.DrawRate)
+	}
+	s := save.DefaultSettings().Display
+	s.Fullscreen = true
+	apply(app, v, s)
+	if len(*got) != 0 {
+		t.Fatalf("Apply after dispose sent %v, want nothing", *got)
+	}
+}
+
+func TestDroppedUpdatesTheComputationsReadingIt(t *testing.T) {
+	v := &screen.Video{}
+	var seen []bool
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		v.Run(cx)
+		cx.Effect(func() { seen = append(seen, v.Dropped()) })
+		return core.View{}
+	}, nsgotest.Environment(twoDisplays))
+	apply(app, v, save.DefaultSettings().Display)
+	env := twoDisplays
+	env.ThermalState = core.ThermalCritical
+	app.SetEnvironment(env)
+	app.SetEnvironment(twoDisplays)
+	if len(seen) == 0 || seen[len(seen)-1] {
+		t.Fatalf("Dropped seen %v, want it to end false", seen)
+	}
+	if !slices.Contains(seen, true) {
+		t.Fatalf("Dropped seen %v, want true while constrained", seen)
+	}
+}
+
 func ExampleVideo() {
 	l := &game.Loop{}
 	v := &screen.Video{Loop: l}
