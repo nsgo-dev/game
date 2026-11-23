@@ -100,7 +100,7 @@ A `Mixer` sets how loud a game's sounds and music play: a master volume and a vo
 
 `mixer.Effect(s, group, limit)` plays an `*audio.Sound` through the mixer in a group, at most `limit` playbacks at once (0 for no limit of its own, under the platform's 32 for all sounds), so a burst of one sound does not take every voice.
 
-`Play(voice)` starts a playback and reports whether it did. It plays nothing while the volume is 0 or while the app is in the background. With `Limit` playbacks still playing, it stops the oldest to make room. `Stop()` stops every playback of the sound.
+`Play(voice)` starts a playback and reports whether it did. It plays nothing while the volume is 0, for a voice with `Muted` set, or while the app is in the background. With `Limit` playbacks still playing, it stops the oldest to make room. `Stop()` stops every playback of the sound.
 
 ### Music
 

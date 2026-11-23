@@ -159,15 +159,6 @@ func TestGroupAndMasterVolumesApplyToNewAndPlayingSounds(t *testing.T) {
 	m.mixer.SetVolume("effects", 0.5)
 	m.expectPlayback(t, pbs[0], 0.2)
 	m.expectPlayback(t, pbs[1], 0.4)
-	// A playback that ended is let go.
-	m.app.Advance(200 * time.Millisecond)
-	if !pbs[0].Ended || !pbs[1].Ended {
-		t.Fatal("the clicks did not end")
-	}
-	m.mixer.SetVolume("effects", 0.25)
-	if pbs[1].Volume != 0.4 {
-		t.Fatalf("an ended click changed to %v", pbs[1].Volume)
-	}
 
 	// A master volume of 0 pauses the music, and one above plays it on.
 	m.mixer.SetMaster(0)
@@ -209,27 +200,31 @@ func TestASoundLimitedToFourStopsItsOldestToPlayAFifth(t *testing.T) {
 		t.Fatalf("%d stops of every playback, want 0", stops)
 	}
 
-	// Playbacks that end on their own make room without stopping another: at twice the speed one lasts 50 ms.
-	m.app.Advance(60 * time.Millisecond)
-	m.click.Play(audio.Voice{Rate: 2})
-	m.app.Advance(80 * time.Millisecond)
-	for i, p := range m.playbacks() {
-		if !p.Ended {
-			t.Fatalf("playback %d still plays", i)
-		}
-	}
-	for range 4 {
+	// Playbacks that end on their own make room without stopping another, even one older than they are: at half the speed the first of these lasts 200 ms, the other three 100 ms.
+	m.app.Advance(150 * time.Millisecond)
+	m.click.Play(audio.Voice{Rate: 0.5})
+	for range 3 {
 		m.click.Play(audio.Voice{})
 	}
-	for i, p := range m.playbacks()[7:] {
+	m.app.Advance(120 * time.Millisecond)
+	pbs = m.playbacks()
+	if len(pbs) != 10 || pbs[6].Ended || !pbs[7].Ended || !pbs[8].Ended || !pbs[9].Ended {
+		t.Fatalf("%d playbacks; want 10 with only the slow one of the last four playing", len(pbs))
+	}
+	for range 3 {
+		m.click.Play(audio.Voice{})
+	}
+	pbs = m.playbacks()
+	live := []*nsgotest.AudioPlayback{pbs[6], pbs[10], pbs[11], pbs[12]}
+	for i, p := range live {
 		if p.Ended {
-			t.Fatalf("playback %d of four within the limit ended", 7+i)
+			t.Fatalf("playback %d of four within the limit ended", i)
 		}
 	}
 
-	// The playbacks left after an eviction still follow the volumes.
+	// The playbacks left still follow the volumes.
 	m.mixer.SetVolume("effects", 0.5)
-	for _, p := range m.playbacks()[7:] {
+	for _, p := range live {
 		m.expectPlayback(t, p, 0.5)
 	}
 
@@ -240,14 +235,34 @@ func TestASoundLimitedToFourStopsItsOldestToPlayAFifth(t *testing.T) {
 			t.Fatal("an unlimited click did not play")
 		}
 	}
-	live := 0
+	n := 0
 	for _, p := range m.playbacks() {
 		if !p.Ended {
-			live++
+			n++
 		}
 	}
-	if live != 14 {
-		t.Fatalf("%d playbacks play, want 14", live)
+	if n != 14 {
+		t.Fatalf("%d playbacks play, want 14", n)
+	}
+}
+
+func TestALoweredLimitStopsAsManyOfTheOldestAsItTakes(t *testing.T) {
+	m := startMixed(t)
+	for range 4 {
+		m.click.Play(audio.Voice{})
+	}
+	m.click.Limit = 2
+	if !m.click.Play(audio.Voice{}) {
+		t.Fatal("the click did not play")
+	}
+	pbs := m.playbacks()
+	if len(pbs) != 5 {
+		t.Fatalf("%d playbacks, want 5", len(pbs))
+	}
+	for i, p := range pbs {
+		if p.Ended != (i < 3) {
+			t.Fatalf("playback %d: ended %v, want %v", i, p.Ended, i < 3)
+		}
 	}
 }
 

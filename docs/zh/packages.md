@@ -100,7 +100,7 @@ import "github.com/nsgo-dev/game/packages/game/sound"
 
 `mixer.Effect(s, group, limit)` 通过混音器在某个分组中播放一个 `*audio.Sound`，同时最多 `limit` 个播放（0 表示自身不设上限，只受平台对所有声音的 32 个上限约束），这样同一个声音连续触发时不会占满所有发声通道。
 
-`Play(voice)` 开始一次播放，并报告是否真的播放了。音量为 0 或应用在后台时，它不会播放。仍有 `Limit` 个播放在进行时，它会停止最早的一个来腾出名额。`Stop()` 停止这个声音的所有播放。
+`Play(voice)` 开始一次播放，并报告是否真的播放了。音量为 0、voice 设置了 `Muted` 或应用在后台时，它不会播放。仍有 `Limit` 个播放在进行时，它会停止最早的一个来腾出名额。`Stop()` 停止这个声音的所有播放。
 
 ### Music
 
