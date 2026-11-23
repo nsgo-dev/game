@@ -63,7 +63,7 @@ While it plays:
 - `Options.Mixer` is suspended (`Mixer.Suspend`, see [sound](sound.md)): effects stop and music pauses, then plays on from there.
 - The display is kept awake, and the video pauses while the app is in the background and plays on as it returns.
 
-`done` receives a `Result`: its `Reason` (`Finished`, `Skipped`, `Stopped` or `Failed`), the `Position` the video reached as the platform last reported it, and for `Failed` the platform's `*core.MediaError` in `Err`. The loop and the mixer are back by the time `done` runs, so it can switch scenes or play the next cutscene. `Play` returns an error, and plays nothing, for a cutscene with no source, an unknown fit or a negative `skipAfter`; playing a cutscene while another plays stops the first, whose `done` is told `Stopped`. `Stop` ends the one playing, skippable or not. Disposing the player's scope stops a cutscene without calling `done`, and still sets the loop and the mixer back.
+`done` receives a `Result`: its `Reason` (`Finished`, `Skipped`, `Stopped` or `Failed`), the `Position` the video reached as the platform last reported it, and for `Failed` the platform's `*core.MediaError` in `Err`. The loop and the mixer are back by the time `done` runs, so it can switch scenes or play the next cutscene. `Play` returns an error, and plays nothing, for a cutscene with no source, an unknown fit or a negative `skipAfter`; playing a cutscene while another plays stops the first, whose `done` is told `Stopped`. If that `done` plays a cutscene of its own, that one plays instead, and `Play` returns `cutscene.ErrReplaced`, playing nothing and never calling its own `done`. `Stop` ends the one playing, skippable or not. Disposing the player's scope stops a cutscene without calling `done`, and still sets the loop and the mixer back.
 
 ## Between scenes
 
@@ -79,7 +79,7 @@ if err != nil {
 scenes.Switch(intro, nil)
 ```
 
-Leaving the scene some other way before the cutscene ends stops it without calling `done`.
+Leaving the scene some other way before the cutscene ends stops it without calling `done`. That holds when switching from one cutscene scene to another of the same player with a transition too, although the new scene enters before the old one exits.
 
 ## Skipping
 
@@ -98,7 +98,7 @@ core.Show{When: player.CanSkip, Then: func(*core.Scope) core.Node {
 }}
 ```
 
-When the platform pauses the video itself, for a call or headphones unplugged, a press or a skip key plays it on rather than skipping it.
+When the platform pauses the video itself, for a call or headphones unplugged, a press or a skip key plays it on rather than skipping it. It stays paused until then, also when the window loses or regains focus; only returning from the background plays it on by itself.
 
 ## Audio routing
 
