@@ -33,7 +33,7 @@ type Loop struct {
 	Update func(dt time.Duration)
 	// Draw draws the frame; alpha, from 0 up to but not including 1, is how far the frame falls between the last update and the next.
 	Draw func(alpha float64)
-	// FrameTime, when set, receives each display frame's length before the loop smooths it, the time since the last frame or since the run started or resumed, ahead of the frame's updates. It is what frame-time statistics such as quality.Selector's read; a frame that ends a pause in the background measures from the time the window showed again, not the time away. It fires while Paused is set too, so a caller measuring only frames that simulate skips those itself.
+	// FrameTime, when set, receives each frame's length, the time it adds (0 for a frame stamped before the run started or resumed), ahead of the frame's updates. It is what frame-time statistics such as quality.Selector's read; a frame that ends a pause in the background measures from the time the window showed again, not the time away. It fires while Paused is set too, so a caller measuring only frames that simulate skips those itself.
 	FrameTime func(dt time.Duration)
 
 	pendingSteps int

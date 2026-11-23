@@ -27,7 +27,7 @@ lights.DisableShadows = !p.Shadows
 foliage := world3d.DefaultQualityProfile(world3d.QualityLevelFor(quality.Low))
 ```
 
-`ResolutionScale` 不会降低 `core.Canvas` 本身的分辨率：NSGo v0.2.0 总是按显示器的完整像素密度绘制画布，没有先以较小尺寸渲染再放大的设置。目前本仓库中还没有任何地方应用 `ResolutionScale`，Starburst 也不例外：它是留给游戏自己应用到其自行分配尺寸的缓冲区上的数值。
+`ResolutionScale` 不会降低 `core.Canvas` 本身的分辨率：NSGo v0.3.0 总是按显示器的完整像素密度绘制画布，没有先以较小尺寸渲染再放大的设置。目前本仓库中还没有任何地方应用 `ResolutionScale`，Starburst 也不例外：它是留给游戏自己应用到其自行分配尺寸的缓冲区上的数值。
 
 ## 起始档位
 
