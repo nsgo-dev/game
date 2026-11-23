@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/text/unicode/norm"
 
@@ -25,7 +28,7 @@ type Backend interface {
 	ReadBackup(slot string) ([]byte, error)
 	// Write saves data as the primary payload for slot, preserving any existing valid primary as the backup first.
 	Write(slot string, data []byte) error
-	// Delete removes both primary and backup payloads for slot. Deleting an absent slot returns nil.
+	// Delete removes both primary and backup payloads for slot, the backup first so an interrupted Delete never leaves a backup that resurrects the slot. Deleting an absent slot returns nil.
 	Delete(slot string) error
 	// Exists reports whether a primary or backup payload exists for slot.
 	Exists(slot string) bool
@@ -106,8 +109,8 @@ func (b *storageBackend) Write(slot string, data []byte) error {
 }
 
 func (b *storageBackend) Delete(slot string) error {
-	b.store.RemoveItem(b.primaryKey(slot))
 	b.store.RemoveItem(b.backupKey(slot))
+	b.store.RemoveItem(b.primaryKey(slot))
 	return nil
 }
 
@@ -149,12 +152,13 @@ func (b *storageBackend) Slots() ([]string, error) {
 }
 
 type fileBackend struct {
-	dir string
+	dir       string
+	sweepOnce sync.Once
 }
 
 // FileBackend returns a Backend that keeps each slot as <slot>.json and its backup as <slot>.json.bak inside dir (such as cx.DataDir()).
 //
-// Writes stage data into a synced temporary file in dir, preserve any existing valid primary in <slot>.json.bak, and atomically rename the temporary file into place. On the web, where Scope.DataDir is empty, use StorageBackend instead.
+// Writes stage data into a synced temporary file in dir, preserve any existing valid primary in <slot>.json.bak, atomically rename the temporary file into place and sync the directory, reporting a failed directory sync as a write error. The first Write removes .save-*.tmp files that an interrupted write left more than an hour ago. On the web, where Scope.DataDir is empty, use StorageBackend instead.
 func FileBackend(dir string) Backend {
 	return &fileBackend{dir: dir}
 }
@@ -194,6 +198,7 @@ func (b *fileBackend) Write(slot string, data []byte) error {
 	if err := os.MkdirAll(b.dir, 0o755); err != nil {
 		return fmt.Errorf("save: create directory %q: %w", b.dir, err)
 	}
+	b.sweepOnce.Do(func() { sweepStaleTemps(b.dir) })
 
 	tmpName, err := writeTempFile(b.dir, data)
 	if err != nil {
@@ -218,7 +223,9 @@ func (b *fileBackend) Write(slot string, data []byte) error {
 		return fmt.Errorf("save: write %q: %w", slot, err)
 	}
 	renamed = true
-	syncDir(b.dir)
+	if err := syncDir(b.dir); err != nil {
+		return fmt.Errorf("save: write %q: %w", slot, err)
+	}
 	return nil
 }
 
@@ -226,16 +233,15 @@ func (b *fileBackend) Delete(slot string) error {
 	if b.dir == "" {
 		return errEmptyDir
 	}
-	var firstErr error
-	for _, p := range []string{b.primaryPath(slot), b.backupPath(slot)} {
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
-			firstErr = err
+	// The backup goes first: removing the primary first and stopping there left a backup that Load recovered, resurrecting the deleted slot (#546).
+	for _, p := range []string{b.backupPath(slot), b.primaryPath(slot)} {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("save: delete %q: %w", slot, err)
 		}
 	}
-	if firstErr != nil {
-		return fmt.Errorf("save: delete %q: %w", slot, firstErr)
+	if err := syncDir(b.dir); err != nil {
+		return fmt.Errorf("save: delete %q: %w", slot, err)
 	}
-	syncDir(b.dir)
 	return nil
 }
 
@@ -343,16 +349,45 @@ func writeAtomicFile(dir, target string, data []byte) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	syncDir(dir)
-	return nil
+	return syncDir(dir)
 }
 
-// syncDir flushes directory metadata after a rename or removal where the platform supports syncing a directory.
-func syncDir(dir string) {
-	d, err := os.Open(dir)
+// staleTempAge is how old a .save-*.tmp file must be before a Write treats it as left behind by an interrupted write rather than one in progress.
+const staleTempAge = time.Hour
+
+// sweepStaleTemps removes .save-*.tmp staging files older than staleTempAge; a crash between staging and rename used to leave them forever (#546). Errors are ignored: a file that cannot be removed now is tried again by the next backend.
+func sweepStaleTemps(dir string) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
-	_ = d.Sync()
-	_ = d.Close()
+	cutoff := time.Now().Add(-staleTempAge)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, ".save-") || !strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
+// syncDir flushes directory metadata after a rename or removal so the change survives a crash. Windows cannot sync a directory handle and needs no separate sync for renames, so it is skipped there; anywhere else a failure is returned instead of silently losing durability (#546).
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("sync directory: %w", err)
+	}
+	err = d.Sync()
+	if cerr := d.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fmt.Errorf("sync directory: %w", err)
+	}
+	return nil
 }
