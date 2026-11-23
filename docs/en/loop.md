@@ -86,11 +86,9 @@ loop := &game.Loop{
 }
 ```
 
-## Frame time smoothing
+## Frame time
 
-Until NSGo exposes the display's hardware frame timestamps ([nsgo#1048](https://github.com/nsgo-dev/nsgo/issues/1048), tracked for `game` in [#27](https://github.com/nsgo-dev/game/issues/27)), each frame's timestamp comes from the engine clock when the callback runs.
-
-`Loop` smooths jitter in those arrival times: while the difference between the smoothed running average and the clock stays within half a frame period, each frame advances by the average period; when a genuine hitch or rate change happens, it flushes the exact owed time immediately and restarts the average. It also clamps negative deltas to zero so resuming can never move the accumulator backward.
+Each frame adds the time between its timestamp and the previous frame's, exactly as `RequestAnimationFrame` gives it. Where the platform stamps its display frames, that is the display's own frame time, so a frame's length is the display's rather than when the engine got to the frame; elsewhere it is the graph clock's. The first frame after the loop starts or resumes adds the time from then to its timestamp, which may lie a frame ahead where the display stamps a frame with when it will show, so the loop's time is the shown frame's. A frame stamped before the time the loop started or resumed adds nothing, so resuming never moves the accumulator backward, and the next frame adds the time from then.
 
 ## Background pause and stopping
 
