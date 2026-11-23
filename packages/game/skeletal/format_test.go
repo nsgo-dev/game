@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -248,6 +249,15 @@ func TestEncodeRejectsInvalidRigs(t *testing.T) {
 		{"duration beyond MaxSeconds", func(sd *skeletal.SkeletonData) {
 			sd.Animations = map[string]*skeletal.Animation{"a": {Name: "a", Duration: (skeletal.MaxSeconds + 1) * time.Second}}
 		}, "not a number of seconds"},
+		{"bezier points on a linear curve", func(sd *skeletal.SkeletonData) {
+			sd.Animations = anim(skeletal.BoneTimeline{Rotate: []skeletal.FloatKeyframe{{Curve: skeletal.CurveLinear, Bezier: [4]float32{1, 2, 3, 4}}}})
+		}, `bezier control points given for a "linear" curve`},
+		{"bezier points on a stepped curve", func(sd *skeletal.SkeletonData) {
+			sd.Animations = anim(skeletal.BoneTimeline{Translate: []skeletal.Vec2Keyframe{{Curve: skeletal.CurveStepped, Bezier: [4]float32{0, 0, 0.5, 0}}}})
+		}, `bezier control points given for a "stepped" curve`},
+		{"animation name differs from its key", func(sd *skeletal.SkeletonData) {
+			sd.Animations = map[string]*skeletal.Animation{"a": {Name: "zzz", Duration: time.Second}}
+		}, `animation "a" has Name "zzz"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -264,6 +274,65 @@ func TestEncodeRejectsInvalidRigs(t *testing.T) {
 	}
 	if _, err := skeletal.Encode(nil); err == nil {
 		t.Fatal("Encode(nil) succeeded")
+	}
+}
+
+// TestEncodeSortsNamesInByteOrder checks that names are sorted as sort.Strings sorts them, not in yaml.v3's natural order, which would put a2 before a10 and a_1 after a2.
+func TestEncodeSortsNamesInByteOrder(t *testing.T) {
+	names := []string{"a_1", "a10", "a2", "B", "a", "a-b"}
+	sd := &skeletal.SkeletonData{Version: skeletal.FormatVersion, Animations: map[string]*skeletal.Animation{}}
+	for _, n := range names {
+		sd.Animations[n] = &skeletal.Animation{Duration: time.Second}
+	}
+	out, err := skeletal.Encode(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
+			got = append(got, strings.TrimSuffix(strings.TrimSpace(line), ":"))
+		}
+	}
+	want := []string{"B", "a", "a-b", "a10", "a2", "a_1"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("animation order %v, want %v; output:\n%s", got, want, out)
+	}
+}
+
+// TestEncodeWritesPlainDecimals checks that numbers never use exponent notation, which YAML 1.1 readers such as PyYAML read as strings, and that the plain text still loads to the same values.
+func TestEncodeWritesPlainDecimals(t *testing.T) {
+	sd := &skeletal.SkeletonData{
+		Version: skeletal.FormatVersion,
+		Bones:   []skeletal.BoneData{{Name: "root", Y: 1e6, Rotation: 1e-7, ScaleX: -1.5e-7, ScaleY: 3.4028235e38, Length: 1.25e20}},
+		Animations: map[string]*skeletal.Animation{
+			"a": {Duration: skeletal.MaxSeconds * time.Second},
+		},
+	}
+	out, err := skeletal.Encode(sd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"{name: root, y: 1000000, rotation: 0.0000001, scaleX: -0.00000015, scaleY: 340282350000000000000000000000000000000, length: 125000000000000000000}",
+		"duration: 1000000\n",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if regexp.MustCompile(`[0-9][eE][-+]?[0-9]`).Match(out) {
+		t.Fatalf("output has exponent notation:\n%s", out)
+	}
+	back, err := skeletal.Load(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := back.Bones[0], sd.Bones[0]; got != want {
+		t.Fatalf("bone loaded as %+v, want %+v", got, want)
+	}
+	if got := back.Animations["a"].Duration; got != skeletal.MaxSeconds*time.Second {
+		t.Fatalf("duration loaded as %v", got)
 	}
 }
 

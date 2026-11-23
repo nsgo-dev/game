@@ -2,7 +2,7 @@
 //
 // # Format decision
 //
-// Rigs use an open, versioned YAML format (.skel.yaml, version 1) that Load reads and Encode writes. Choosing an open schema over Spine's export avoids Spine's proprietary runtime license, matches NSGo's screen coordinates directly, and is simple to export from DragonBones, Blender or custom scripts. Like every file a game's author edits, a rig is plain text: one bone, slot, attachment or keyframe per line, so it can be edited by hand and reviewed as a diff. JSON is YAML flow syntax, so a version-1 rig written as JSON loads too.
+// Rigs use an open, versioned YAML format (.skel.yaml, version 1) that Load reads and Encode writes. Choosing an open schema over Spine's export avoids Spine's proprietary runtime license, matches NSGo's screen coordinates directly, and is simple to export from DragonBones, Blender or custom scripts. Like every file a game's author edits, a rig is plain text: one bone, slot, attachment or keyframe per line, so it can be edited by hand and reviewed as a diff. A version-1 rig written as JSON loads too when the JSON is also valid YAML: keys spelled exactly as the schema spells them (matching is case-sensitive) and no `\/` escape, which YAML does not have.
 //
 // Load is strict: it rejects unknown fields, duplicate keys, trailing documents, unsupported versions and non-finite numbers, as well as every structural error listed on Load.
 //
@@ -23,7 +23,7 @@
 //
 // # Canonical form
 //
-// Encode writes one canonical form: keys in schema order, skins, attachments, animations and timelines sorted by name, each bone, slot, attachment and keyframe as a one-line flow mapping, and fields equal to their defaults left out, except that keyframes always write their time and values and animations their duration. Loading a canonical file and encoding it gives the same bytes back, and loading what Encode wrote gives the same rig. Comments and anchors are not kept.
+// Encode writes one canonical form: keys in schema order, skins, attachments, animations and timelines sorted by name in plain byte order (as sort.Strings sorts them), each bone, slot, attachment and keyframe as a one-line flow mapping, fields equal to their defaults left out, except that keyframes always write their time and values and animations their duration, and numbers in plain decimal notation, never with an exponent. Loading a canonical file and encoding it gives the same bytes back, and loading what Encode wrote gives the same rig. Comments and anchors are not kept.
 //
 // # Sample
 //

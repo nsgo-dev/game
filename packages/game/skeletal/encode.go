@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -11,9 +14,9 @@ import (
 
 // Encode serializes sd as a version-1 .skel.yaml document and checks that the result loads.
 //
-// The output is deterministic: keys follow the schema's order, skins, animations and timelines are sorted by name, every bone, slot, attachment and keyframe sits on one line in flow style, and values equal to their defaults are left out, except that keyframes always spell out their time and values and animations their duration. Encoding the result of Load gives the same bytes back for a file already in this form, and loading the result of Encode gives data equal to sd.
+// The output is deterministic: keys follow the schema's order, skins, attachments, animations and timelines are sorted by name in byte order, numbers are written in plain decimal notation without an exponent, every bone, slot, attachment and keyframe sits on one line in flow style, and values equal to their defaults are left out, except that keyframes always spell out their time and values and animations their duration. Encoding the result of Load gives the same bytes back for a file already in this form, and loading the result of Encode gives data equal to sd.
 //
-// Encode reports an error, and writes nothing, when sd would not load: a missing or dangling name, a cycle, an unknown curve, a non-finite number, a time outside [0, MaxSeconds] or any other rule Load enforces. It does not modify sd.
+// Encode reports an error, and writes nothing, when sd would not load: a missing or dangling name, a cycle, an unknown curve, a non-finite number, a time outside [0, MaxSeconds], Bezier control points on a curve that is not CurveBezier, an Animation whose Name differs from its key in Animations, or any other rule Load enforces. It does not modify sd.
 func Encode(sd *SkeletonData) ([]byte, error) {
 	if sd == nil {
 		return nil, errors.New("skeletal: encode nil SkeletonData")
@@ -22,10 +25,15 @@ func Encode(sd *SkeletonData) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	var doc yaml.Node
+	if err := doc.Encode(raw); err != nil {
+		return nil, fmt.Errorf("skeletal: encode: %w", err)
+	}
+	plainDecimals(&doc)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(raw); err != nil {
+	if err := enc.Encode(&doc); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("skeletal: encode: %w", err)
 	}
@@ -72,9 +80,9 @@ func encodeRaw(sd *SkeletonData) (*rawSkeleton, error) {
 		}
 	}
 	if len(sd.Skins) > 0 {
-		raw.Skins = make(map[string]map[string]rawAttach, len(sd.Skins))
+		raw.Skins = make(sortedMap[sortedMap[rawAttach]], len(sd.Skins))
 		for skinName, skin := range sd.Skins {
-			slots := make(map[string]rawAttach, len(skin))
+			slots := make(sortedMap[rawAttach], len(skin))
 			for slotName, a := range skin {
 				slots[slotName] = rawAttach{
 					Frame:    a.Frame,
@@ -95,6 +103,10 @@ func encodeRaw(sd *SkeletonData) (*rawSkeleton, error) {
 		for animName, anim := range sd.Animations {
 			if anim == nil {
 				return nil, fmt.Errorf("skeletal: animation %q is nil", animName)
+			}
+			// The file keys an animation only by its map key, which Load copies into Name, so a different Name would not survive a round trip.
+			if anim.Name != "" && anim.Name != animName {
+				return nil, fmt.Errorf("skeletal: animation %q has Name %q, which differs from its key", animName, anim.Name)
 			}
 			ra, err := encodeAnimation(animName, anim)
 			if err != nil {
@@ -173,12 +185,18 @@ func encodeAnimation(name string, anim *Animation) (rawAnimation, error) {
 	return ra, nil
 }
 
-// encodeCurve names c for the file and returns its control points only for a Bezier curve, the one curve that uses them.
+// encodeCurve names c for the file and returns its control points only for a Bezier curve, the one curve that uses them. Like Load, it refuses control points on any other curve rather than dropping them.
 func encodeCurve(c CurveType, bezier [4]float32) (string, []float32, error) {
 	switch c {
 	case CurveLinear:
+		if bezier != [4]float32{} {
+			return "", nil, errors.New(`bezier control points given for a "linear" curve`)
+		}
 		return "", nil, nil
 	case CurveStepped:
+		if bezier != [4]float32{} {
+			return "", nil, errors.New(`bezier control points given for a "stepped" curve`)
+		}
 		return "stepped", nil, nil
 	case CurveBezier:
 		return "bezier", bezier[:], nil
@@ -198,6 +216,80 @@ func omitDefault(v, def float32) *float32 {
 		return nil
 	}
 	return &v
+}
+
+// sortedMap is a string-keyed map of the schema that Encode writes with its keys in plain byte order. yaml.v3 would otherwise sort them in its own natural order, which compares runs of digits by value and puts letters before punctuation, so a file sorted by an ordinary string sort would not be canonical.
+type sortedMap[V any] map[string]V
+
+// MarshalYAML writes m as a block mapping with its keys sorted by sort.Strings.
+func (m sortedMap[V]) MarshalYAML() (any, error) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	n := &yaml.Node{Kind: yaml.MappingNode, Content: make([]*yaml.Node, 0, 2*len(keys))}
+	for _, k := range keys {
+		var kn, vn yaml.Node
+		// Encoding the key, rather than building a plain scalar, keeps yaml.v3's quoting of names that would otherwise read as another type, such as "true" or "1".
+		if err := kn.Encode(k); err != nil {
+			return nil, err
+		}
+		if err := vn.Encode(m[k]); err != nil {
+			return nil, err
+		}
+		n.Content = append(n.Content, &kn, &vn)
+	}
+	return n, nil
+}
+
+// plainDecimals rewrites every plain float scalar under n that yaml.v3 wrote with an exponent (1e+06, 1e-07) in plain decimal notation (1000000, 0.0000001). The digits are moved, never recomputed, so the text still reads back to the same float32 or float64, and YAML 1.1 readers such as PyYAML, which need a '.' in a float, still read a number.
+func plainDecimals(n *yaml.Node) {
+	if n.Kind == yaml.ScalarNode && n.Style == 0 && n.ShortTag() == "!!float" {
+		n.Value = expandExponent(n.Value)
+		// Clear the !!float tag the parse left, so a whole number such as 1000000 is written plain rather than as "!!float 1000000"; it reads back as a number either way.
+		n.Tag = ""
+	}
+	for _, c := range n.Content {
+		plainDecimals(c)
+	}
+}
+
+// expandExponent rewrites a number in Go's 'g' notation, such as -1.5e-07, in 'f' notation with the same digits, such as -0.00000015. Text without an exponent, including .inf and .nan, is returned unchanged.
+func expandExponent(s string) string {
+	i := strings.IndexAny(s, "eE")
+	if i < 0 {
+		return s
+	}
+	exp, err := strconv.Atoi(s[i+1:])
+	if err != nil {
+		return s
+	}
+	mant, sign := s[:i], ""
+	if mant != "" && (mant[0] == '-' || mant[0] == '+') {
+		if mant[0] == '-' {
+			sign = "-"
+		}
+		mant = mant[1:]
+	}
+	intPart, frac, _ := strings.Cut(mant, ".")
+	digits := strings.TrimLeft(intPart+frac, "0")
+	if digits == "" {
+		return sign + "0"
+	}
+	// point is where the decimal point falls within digits once the exponent is applied.
+	point := len(intPart) - (len(intPart+frac) - len(digits)) + exp
+	digits = strings.TrimRight(digits, "0")
+	var out string
+	switch {
+	case point <= 0:
+		out = "0." + strings.Repeat("0", -point) + digits
+	case point >= len(digits):
+		out = digits + strings.Repeat("0", point-len(digits))
+	default:
+		out = digits[:point] + "." + digits[point:]
+	}
+	return sign + out
 }
 
 // flowNode encodes v as a single-line flow mapping, used for the schema's records (bones, slots, attachments and keyframes) so each one is one line in a diff.

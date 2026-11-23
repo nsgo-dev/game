@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 - **Native screen coordinates**: Uses the same coordinate system as `sprite` and `core.Drawing` (`+X` right, `+Y` down, rotations in radians clockwise on the screen), so rig data and runtime transforms match without axis flips or unit conversion.
 - **Simple to export**: The flat layout (bones, slots, skins, animations) makes writing a short exporter from DragonBones, Blender or custom tools — or authoring rigs by hand — straightforward.
 - **Strict and versioned**: Every file carries `version: 1`; `Load` rejects missing or unsupported versions, unknown fields, duplicate keys, trailing documents and non-finite numbers (`.nan`, `.inf`).
-- **JSON still loads**: JSON is YAML flow syntax, so a version-1 rig written as JSON, as earlier releases read it, loads unchanged; `Encode` writes it back as YAML.
+- **JSON still loads**: A version-1 rig written as JSON, as earlier releases read it, loads too when the JSON is also valid YAML: keys spelled exactly as the schema spells them (matching is case-sensitive) and no `\/` escape, which YAML does not have. `Encode` writes it back as YAML.
 
 ## Coordinates and units
 
@@ -124,10 +124,10 @@ animations:
 
 `Encode` writes one canonical form, so saving a rig never produces a diff by itself:
 
-- Keys follow the schema order above; skins, attachments, animations and timelines are sorted by name; bones and slots keep their order.
+- Keys follow the schema order above; skins, attachments, animations and timelines are sorted by name in plain byte order, as `sort.Strings` sorts them (`B` before `a`, `a10` before `a2`); bones and slots keep their order.
 - Every bone, slot, attachment and keyframe is one flow mapping on its own line.
 - Fields equal to their defaults are left out, except that a keyframe always writes its `time` and values and an animation always writes its `duration`.
-- Numbers use the shortest text that reads back to the same value, and times read back to the same nanosecond.
+- Numbers use the shortest digits that read back to the same value, in plain decimal notation without an exponent (`1000000`, `0.0000001`), so YAML 1.1 readers such as PyYAML read them as numbers; times read back to the same nanosecond.
 - Comments, anchors and other formatting are not kept.
 
 Loading a file already in this form and encoding it gives the same bytes back, and loading what `Encode` wrote gives the same rig. `Encode` refuses, with the same errors as `Load`, any rig `Load` would refuse.
