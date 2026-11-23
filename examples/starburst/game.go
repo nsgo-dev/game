@@ -102,7 +102,10 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 	gc.Loop = &game.Loop{
 		Rate: StepRate,
 		FrameTime: func(dt time.Duration) {
-			gc.Quality.Observe(dt)
+			// Paused and game-over frames simulate nothing, so they are cheap and would step the level up toward one gameplay cannot hold.
+			if !gc.Arena.Paused && !gc.Arena.GameOver {
+				gc.Quality.Observe(dt)
+			}
 		},
 		Update: func(dt time.Duration) {
 			gc.stepInput(cx)
@@ -198,7 +201,7 @@ func (gc *GameController) ToggleStress() {
 // qualitySettings is the order the HUD's quality button steps through.
 var qualitySettings = []string{quality.SettingAuto, "low", "medium", "high"}
 
-// CycleQuality steps the quality setting from auto through low, medium and high and back to auto, applies it, and stores it in the player's settings. The setting applies for this run even when storing it fails, and the error is returned.
+// CycleQuality steps the quality setting from auto through low, medium and high and back to auto, applies it, and stores it in the player's settings. The setting applies for this run even when storing it fails, and the error is returned. Settings that cannot be read, such as ones a newer build wrote, are left as they are rather than overwritten with defaults.
 func (gc *GameController) CycleQuality() error {
 	current := gc.Quality.Setting()
 	next := qualitySettings[0]
@@ -212,9 +215,10 @@ func (gc *GameController) CycleQuality() error {
 		return err
 	}
 	gc.qualitySig.Set(qualityLabel(gc.Quality))
+	// Load returns the defaults with a nil error when nothing is stored yet.
 	stored, err := gc.settings.Load()
 	if err != nil {
-		stored = save.DefaultSettings()
+		return err
 	}
 	stored.Display.Quality = gc.Quality.Setting()
 	return gc.settings.Save(stored)

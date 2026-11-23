@@ -27,7 +27,7 @@ lights.DisableShadows = !p.Shadows
 foliage := world3d.DefaultQualityProfile(world3d.QualityLevelFor(quality.Low))
 ```
 
-`ResolutionScale` does not lower the resolution of a `core.Canvas`: NSGo v0.2.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it.
+`ResolutionScale` does not lower the resolution of a `core.Canvas`: NSGo v0.2.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it. Nothing in this repository applies `ResolutionScale` yet, Starburst included: it is a value for a game to apply to the buffers it sizes itself.
 
 ## The starting level
 
@@ -64,11 +64,17 @@ sel.OnChange = func(_ quality.Level, p quality.Preset) { arena.ApplyQuality(p) }
 arena.ApplyQuality(sel.Preset())
 
 loop := &game.Loop{
-	FrameTime: func(dt time.Duration) { sel.Observe(dt) },
-	Update:    arena.Step,
-	Draw:      draw,
+	FrameTime: func(dt time.Duration) {
+		if !arena.Paused {
+			sel.Observe(dt)
+		}
+	},
+	Update: arena.Step,
+	Draw:   draw,
 }
 ```
+
+`FrameTime` keeps firing while the loop or the game is paused. Skip observing frames that simulate nothing, such as a pause or game-over screen: they are cheap and would step the level up toward one gameplay cannot hold.
 
 A `Selector` is not safe for concurrent use; call it from the scope that runs the loop.
 
@@ -84,18 +90,17 @@ if s, err := store.Load(); err == nil {
 
 // From the settings menu:
 if err := sel.SetSetting("high"); err == nil {
-	s, err := store.Load()
-	if err != nil {
-		s = save.DefaultSettings()
+	// Load returns the defaults when nothing is stored yet; any other error, such as settings a newer build wrote, keeps the setting for this run only.
+	if s, err := store.Load(); err == nil {
+		s.Display.Quality = sel.Setting()
+		_ = store.Save(s)
 	}
-	s.Display.Quality = sel.Setting()
-	_ = store.Save(s)
 }
 ```
 
 ## The configuration file
 
-A game can keep its presets, device rules and adaptation in a YAML file. `ParseConfig` refuses unknown fields, a missing or other `version`, scales outside (0, 1], duplicate device rules, unknown levels or operating systems, and trailing documents. `EncodeConfig` writes fields in a fixed order, so a file read and written back is unchanged.
+A game can keep its presets, device rules and adaptation in a YAML file. `ParseConfig` refuses unknown fields, a missing or other `version`, scales outside (0, 1], duplicate device rules, device models with leading or trailing spaces, unknown levels or operating systems, and trailing documents. `EncodeConfig` writes fields in a fixed order, so a file read and written back is unchanged.
 
 ```yaml
 version: 1
@@ -128,7 +133,7 @@ adapt:
 | `adapt` field | Range | Default |
 | --- | --- | --- |
 | `off` | `true` keeps the starting level for the whole run | `false` |
-| `target_fps` | 1 to 240 | 30 |
+| `target_fps` | 3 to 240 (below 3 fps a slow frame would be over the half second the selector ignores) | 30 |
 | `window_frames` | 10 to 3600 | 90 |
 | `upgrade_windows` | 1 to 100 | 4 |
 

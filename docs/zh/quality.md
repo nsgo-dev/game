@@ -27,7 +27,7 @@ lights.DisableShadows = !p.Shadows
 foliage := world3d.DefaultQualityProfile(world3d.QualityLevelFor(quality.Low))
 ```
 
-`ResolutionScale` 不会降低 `core.Canvas` 本身的分辨率：NSGo v0.2.0 总是按显示器的完整像素密度绘制画布，没有先以较小尺寸渲染再放大的设置。
+`ResolutionScale` 不会降低 `core.Canvas` 本身的分辨率：NSGo v0.2.0 总是按显示器的完整像素密度绘制画布，没有先以较小尺寸渲染再放大的设置。目前本仓库中还没有任何地方应用 `ResolutionScale`，Starburst 也不例外：它是留给游戏自己应用到其自行分配尺寸的缓冲区上的数值。
 
 ## 起始档位
 
@@ -64,11 +64,17 @@ sel.OnChange = func(_ quality.Level, p quality.Preset) { arena.ApplyQuality(p) }
 arena.ApplyQuality(sel.Preset())
 
 loop := &game.Loop{
-	FrameTime: func(dt time.Duration) { sel.Observe(dt) },
-	Update:    arena.Step,
-	Draw:      draw,
+	FrameTime: func(dt time.Duration) {
+		if !arena.Paused {
+			sel.Observe(dt)
+		}
+	},
+	Update: arena.Step,
+	Draw:   draw,
 }
 ```
+
+循环或游戏暂停时 `FrameTime` 仍会被调用。不模拟任何东西的帧（如暂停或游戏结束画面）应跳过不计：这些帧开销很小，计入后会把档位升到实际游戏撑不住的档位。
 
 `Selector` 不能并发使用，请在运行循环的作用域里调用它。
 
@@ -84,18 +90,17 @@ if s, err := store.Load(); err == nil {
 
 // From the settings menu:
 if err := sel.SetSetting("high"); err == nil {
-	s, err := store.Load()
-	if err != nil {
-		s = save.DefaultSettings()
+	// Load returns the defaults when nothing is stored yet; any other error, such as settings a newer build wrote, keeps the setting for this run only.
+	if s, err := store.Load(); err == nil {
+		s.Display.Quality = sel.Setting()
+		_ = store.Save(s)
 	}
-	s.Display.Quality = sel.Setting()
-	_ = store.Save(s)
 }
 ```
 
 ## 配置文件
 
-游戏可以把预设、设备规则和调整参数写在一个 YAML 文件里。`ParseConfig` 会拒绝未知字段、缺失或不支持的 `version`、超出 (0, 1] 的缩放值、重复的设备规则、未知的档位或操作系统，以及多余的文档。`EncodeConfig` 按固定的字段顺序输出，因此读入再写回的文件保持不变。
+游戏可以把预设、设备规则和调整参数写在一个 YAML 文件里。`ParseConfig` 会拒绝未知字段、缺失或不支持的 `version`、超出 (0, 1] 的缩放值、重复的设备规则、首尾带空格的设备型号、未知的档位或操作系统，以及多余的文档。`EncodeConfig` 按固定的字段顺序输出，因此读入再写回的文件保持不变。
 
 ```yaml
 version: 1
@@ -128,7 +133,7 @@ adapt:
 | `adapt` 字段 | 范围 | 默认值 |
 | --- | --- | --- |
 | `off` | `true` 时整局保持起始档位 | `false` |
-| `target_fps` | 1 到 240 | 30 |
+| `target_fps` | 3 到 240（低于 3 fps 时慢帧会超过选择器忽略的半秒上限） | 30 |
 | `window_frames` | 10 到 3600 | 90 |
 | `upgrade_windows` | 1 到 100 | 4 |
 
