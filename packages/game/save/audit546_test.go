@@ -110,3 +110,75 @@ func TestWriteSweepsStaleTempFiles(t *testing.T) {
 		t.Fatalf("a temp file that may belong to a write in progress was removed: %v", err)
 	}
 }
+
+// failingReadBackend is a FileBackend whose primary reads fail with a transient error that is not ErrNotFound.
+type failingReadBackend struct {
+	save.Backend
+}
+
+var errTransient = errors.New("input/output error")
+
+func (b failingReadBackend) Read(string) ([]byte, error) { return nil, errTransient }
+
+func TestLoadDoesNotRepairOverPrimaryThatFailedToRead(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileStore(dir)
+	if err := store.Save("slot1", playerState{Name: "Older", Level: 1}); err != nil {
+		t.Fatal(err)
+	}
+	newer := playerState{Name: "Newer", Level: 2}
+	if err := store.Save("slot1", newer); err != nil {
+		t.Fatal(err)
+	}
+	var got playerState
+	if err := save.NewStore(failingReadBackend{save.FileBackend(dir)}).Load("slot1", &got); err != nil || got.Name != "Older" {
+		t.Fatalf("Load with a failing primary read = (%+v, %v), want the backup", got, err)
+	}
+	got = playerState{}
+	if err := store.Load("slot1", &got); err != nil || !equalPlayer(got, newer) {
+		t.Fatalf("after a transient read failure Load = (%+v, %v), want the newer primary %+v", got, err, newer)
+	}
+}
+
+func TestLoadLeavesUnusableJSONPrimaryAlone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		primary string
+		wantErr error
+	}{
+		// A newer build's envelope with a field this build does not know is a future version, not corruption.
+		"future envelope": {`{"version":2,"data":{"name":"Future"},"checksum":"abc"}`, save.ErrFutureVersion},
+		// An unusable object of the current version falls back to the backup but is not overwritten by it.
+		"unknown field": {`{"version":1,"data":{"name":"Odd"},"checksum":"abc"}`, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			store := save.NewFileStore(dir)
+			if err := store.Save("slot1", playerState{Name: "Backup", Level: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Save("slot1", playerState{Name: "Primary", Level: 2}); err != nil {
+				t.Fatal(err)
+			}
+			primary := filepath.Join(dir, "slot1.json")
+			if err := os.WriteFile(primary, []byte(tc.primary), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var got playerState
+			err := store.Load("slot1", &got)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("Load err = %v, want %v", err, tc.wantErr)
+				}
+			} else if err != nil || got.Name != "Backup" {
+				t.Fatalf("Load = (%+v, %v), want the backup", got, err)
+			}
+			data, err := os.ReadFile(primary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tc.primary {
+				t.Fatalf("primary was rewritten to %s", data)
+			}
+		})
+	}
+}
