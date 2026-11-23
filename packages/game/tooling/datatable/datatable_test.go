@@ -88,26 +88,28 @@ dragon,Ancient Wyrm,1200,40,6.25,true,flying|fire|boss,900,2s,should_skip
 		}
 	]`
 	yamlData := `
-- enemy_id: goblin
-  display_name: Cave Goblin
-  hp: 45
-  armor: 2
-  move_speed: 3.5
-  is_boss: false
-  tags:
-    - melee
-    - scout
-  drop_ids: [101, 102]
-  cooldown: 500ms
-- enemy_id: dragon
-  display_name: Ancient Wyrm
-  hp: 1200
-  armor: 40
-  move_speed: 6.25
-  is_boss: true
-  tags: [flying, fire, boss]
-  drop_ids: [900]
-  cooldown: 2s
+version: 1
+rows:
+  - enemy_id: goblin
+    display_name: Cave Goblin
+    hp: 45
+    armor: 2
+    move_speed: 3.5
+    is_boss: false
+    tags:
+      - melee
+      - scout
+    drop_ids: [101, 102]
+    cooldown: 500ms
+  - enemy_id: dragon
+    display_name: Ancient Wyrm
+    hp: 1200
+    Armor: 40
+    move_speed: 6.25
+    is_boss: true
+    tags: [flying, fire, boss]
+    drop_ids: [900]
+    cooldown: 2s
 `
 
 	want := wantEnemies()
@@ -201,12 +203,14 @@ func TestBadCellsReportFileRowAndField(t *testing.T) {
 
 	t.Run("YAML bad float cell", func(t *testing.T) {
 		yml := `
-- enemy_id: slime
-  hp: 10
-  move_speed: 1.25
-- enemy_id: ghost
-  hp: 30
-  move_speed: fast
+version: 1
+rows:
+  - enemy_id: slime
+    hp: 10
+    move_speed: 1.25
+  - enemy_id: ghost
+    hp: 30
+    move_speed: fast
 `
 		_, err := datatable.LoadYAML[Enemy]("enemies.yaml", []byte(yml))
 		var ce *datatable.CellError
