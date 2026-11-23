@@ -65,12 +65,12 @@ type Relay struct {
 	queue    int
 
 	mu        sync.Mutex
+	srv       RelayServer // the server Serve was first called with
 	serving   bool
 	pending   map[PeerID]string // verified, not yet joined
 	sessionOf map[PeerID]string
 	sessions  map[string]*relaySession
 	writers   map[PeerID]*relayWriter
-	epoch     uint32
 	forwarded uint64
 	dropped   uint64
 	writersWG sync.WaitGroup
@@ -78,7 +78,9 @@ type Relay struct {
 
 type relaySession struct {
 	members []PeerID // sorted
-	dirty   bool
+	// epoch counts membership changes and wraps; resending an unchanged membership keeps it.
+	epoch uint32
+	dirty bool
 }
 
 // relayWriter sends one member's frames on its own goroutine, so a member whose connection is slow delays only itself.
@@ -157,14 +159,25 @@ func (r *Relay) Stats() RelayStats {
 	return RelayStats{Sessions: len(r.sessions), Peers: len(r.sessionOf), Forwarded: r.forwarded, Dropped: r.dropped}
 }
 
-// Serve forwards srv's packets until ctx ends, then stops the members' writers and returns ctx's error. srv must have been created with r.Auth, and a relay serves one server at a time; a second concurrent Serve returns an error. Serve does not close srv.
+// Serve forwards srv's packets until ctx ends, then stops the members' writers and returns ctx's error. srv must have been created with r.Auth. A relay serves one server for its lifetime: Serve may be called again on the same server after it returns, and the clients still connected keep their sessions, but a concurrent Serve or a Serve on another server returns an error. Serve does not close srv.
 func (r *Relay) Serve(ctx context.Context, srv RelayServer) error {
 	r.mu.Lock()
-	if r.serving {
+	switch {
+	case r.serving:
 		r.mu.Unlock()
 		return errors.New("net: relay is already serving")
+	case r.srv != nil && r.srv != srv:
+		r.mu.Unlock()
+		return errors.New("net: relay serves another server")
 	}
+	r.srv = srv
 	r.serving = true
+	for id := range r.sessionOf {
+		r.startWriterLocked(srv, id)
+	}
+	for _, s := range r.sessions {
+		s.dirty = true
+	}
 	r.mu.Unlock()
 	defer r.stop()
 
@@ -195,16 +208,13 @@ func (r *Relay) Serve(ctx context.Context, srv RelayServer) error {
 	}
 }
 
-// stop closes every writer, waits for them and forgets all sessions, so the relay can serve again.
+// stop closes every writer and waits for them. Sessions are kept, so a later Serve on the same server goes on forwarding for the clients still connected.
 func (r *Relay) stop() {
 	r.mu.Lock()
 	for id, w := range r.writers {
 		close(w.q)
 		delete(r.writers, id)
 	}
-	clear(r.sessionOf)
-	clear(r.sessions)
-	clear(r.pending)
 	r.serving = false
 	r.mu.Unlock()
 	r.writersWG.Wait()
@@ -245,9 +255,15 @@ func (r *Relay) joinedLocked(srv RelayServer, id PeerID) {
 	}
 	if i, found := slices.BinarySearch(s.members, id); !found {
 		s.members = slices.Insert(s.members, i, id)
+		s.epoch++
 	}
 	s.dirty = true
 	r.sessionOf[id] = name
+	r.startWriterLocked(srv, id)
+}
+
+// startWriterLocked starts the goroutine that sends a member's queued frames.
+func (r *Relay) startWriterLocked(srv RelayServer, id PeerID) {
 	w := &relayWriter{q: make(chan []byte, r.queue)}
 	r.writers[id] = w
 	r.writersWG.Add(1)
@@ -273,6 +289,7 @@ func (r *Relay) leftLocked(id PeerID) {
 	s := r.sessions[name]
 	if i, found := slices.BinarySearch(s.members, id); found {
 		s.members = slices.Delete(s.members, i, i+1)
+		s.epoch++
 	}
 	if len(s.members) == 0 {
 		delete(r.sessions, name)
@@ -333,7 +350,7 @@ func (r *Relay) markAllDirty() {
 	}
 }
 
-// flushMembers sends each changed session's membership to its members, in session-name order so output is deterministic.
+// flushMembers sends each dirty session's membership to its members, in session-name order so output is deterministic.
 func (r *Relay) flushMembers() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -347,8 +364,7 @@ func (r *Relay) flushMembers() {
 	for _, name := range names {
 		s := r.sessions[name]
 		s.dirty = false
-		r.epoch++
-		frame := encodeRelayMembers(r.epoch, s.members)
+		frame := encodeRelayMembers(s.epoch, s.members)
 		for _, id := range s.members {
 			r.enqueueLocked(id, frame)
 		}

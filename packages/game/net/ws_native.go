@@ -176,6 +176,9 @@ type WebSocketTransport struct {
 	resumed  bool
 	inbox    []Packet
 	changed  chan struct{}
+
+	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
+	admissions uint64
 }
 
 // webSocketHostPort joins the URL's host and port, defaulting by scheme and
@@ -266,6 +269,9 @@ func (wt *WebSocketTransport) connect() error {
 	wt.localID, wt.serverID = w.peer, w.server
 	wt.resume = resumeState{peer: w.peer, secret: w.secret}
 	wt.resumed = w.resumed
+	if !w.resumed {
+		wt.admissions++
+	}
 	wt.state = ConnOpen
 	wt.err = nil
 	wt.mu.Unlock()
@@ -538,6 +544,13 @@ func (wt *WebSocketTransport) Resumed() bool {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
 	return wt.resumed
+}
+
+// relayAdmissions counts the handshakes that admitted the client as a new peer.
+func (wt *WebSocketTransport) relayAdmissions() uint64 {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.admissions
 }
 
 // Close sends a WebSocket close frame and closes the underlying connection. The server reports PeerLeft at once rather than holding the session for a reconnect.
