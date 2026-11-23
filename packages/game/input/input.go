@@ -1,4 +1,4 @@
-// Package input turns touch regions, mouse buttons, and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
+// Package input turns touch regions, mouse buttons, relative mouse motion under a pointer lock, and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
 package input
 
 import (
@@ -52,7 +52,7 @@ type axisBinding struct {
 
 // Actions maps touch regions and mouse buttons to named actions and axes, sampled once per fixed game.Loop step.
 //
-// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave and OnContextMenu) and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
+// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave, OnContextMenu and OnPointerDelta) and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
 //
 // The zero value is ready to use. Actions' methods are called on the engine's goroutine, as core.View's callbacks and Loop.Update are.
 type Actions struct {
@@ -67,6 +67,14 @@ type Actions struct {
 	motionInit map[string]bool
 	motionGap  uint64
 	pads       []*VirtualPad
+
+	// Relative mouse motion under the pointer lock: pending adds up between steps, step is the current snapshot.
+	pointerAxes   map[string]pointerAxisBinding
+	unlockPointer func()
+	pendingDX     float64
+	pendingDY     float64
+	stepDX        float64
+	stepDY        float64
 
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
@@ -230,6 +238,7 @@ func (a *Actions) Step() {
 	}
 	clear(a.latched)
 	a.stepMotion()
+	a.stepPointer()
 }
 
 func (a *Actions) recordPadAxis(name string, v float64) {
@@ -242,7 +251,7 @@ func (a *Actions) recordPadAxis(name string, v float64) {
 	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
-// Reset clears active touches, held mouse buttons, pending latches, motion readings and the current step snapshot, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, pending latches, motion readings, relative mouse motion and the current step snapshot, and releases a pointer lock from LockPointer, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}
@@ -255,6 +264,7 @@ func (a *Actions) Reset() {
 	clear(a.curr)
 	clear(a.prev)
 	a.resetMotion()
+	a.resetPointer()
 	clear(a.padAxes)
 	for _, pad := range a.pads {
 		pad.Reset()
@@ -280,6 +290,7 @@ func (a *Actions) JustReleased(name string) bool {
 //
 // For an axis bound with BindAxis, its negative action contributes -1 and its positive action contributes +1.
 // For an axis bound with BindMotionAxis, the calibrated and dead-zoned motion reading contributes a value in [-1, 1].
+// For an axis bound with BindPointerAxis, the step's scaled relative mouse motion contributes, as Delta reads it.
 // An analog value from a VirtualPad stick bound to the same axis name is added too.
 // When more than one is bound to the same axis name, their contributions are summed and clamped to [-1, 1].
 // Otherwise Axis returns 1 when action name is pressed and 0 when it is not.
@@ -298,6 +309,10 @@ func (a *Actions) Axis(name string) float64 {
 	if _, ok := a.motionAxes[name]; ok {
 		hasAxis = true
 		v += a.motionSnap[name]
+	}
+	if _, ok := a.pointerAxes[name]; ok {
+		hasAxis = true
+		v += a.Delta(name)
 	}
 	if pv, ok := a.padAxes[name]; ok {
 		hasAxis = true
@@ -408,7 +423,7 @@ func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
 	a.syncRaw()
 }
 
-// Attach wires a's touch, press, mouse and context-menu handlers onto v, chaining any callbacks already set on v.
+// Attach wires a's touch, press, mouse, context-menu and pointer-lock motion handlers onto v, chaining any callbacks already set on v.
 func (a *Actions) Attach(v *core.View) {
 	if v == nil {
 		return
@@ -442,6 +457,11 @@ func (a *Actions) Attach(v *core.View) {
 		v.OnContextMenu = func(ev core.ContextMenuEvent) { a.OnContextMenu(ev); prev(ev) }
 	} else {
 		v.OnContextMenu = a.OnContextMenu
+	}
+	if prev := v.OnPointerDelta; prev != nil {
+		v.OnPointerDelta = func(dx, dy float64) { a.OnPointerDelta(dx, dy); prev(dx, dy) }
+	} else {
+		v.OnPointerDelta = a.OnPointerDelta
 	}
 }
 

@@ -18,7 +18,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `game` | `github.com/nsgo-dev/game/packages/game` | [Loop](loop.md) | `Loop`, the fixed-step loop every package shares |
 | `sprite` | `github.com/nsgo-dev/game/packages/game/sprite` | [sprite](sprite.md) | Atlases, frames, animations, sprites and batches drawn into a `Canvas` |
 | `sound` | `github.com/nsgo-dev/game/packages/game/sound` | [sound](sound.md) | The `Mixer`, its effects and music |
-| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | Named actions and axes from touch regions and mouse buttons, persisted in `core.Storage` |
+| `input` | `github.com/nsgo-dev/game/packages/game/input` | [input](input.md) | Named actions and axes from touch regions, mouse buttons and pointer-lock mouselook, persisted in `core.Storage` |
 | `tilemap` | `github.com/nsgo-dev/game/packages/game/tilemap` | [tilemap](tilemap.md) | 2D `Camera`, culled tilemaps, Tiled `.tmj` loader, animated tiles and raycasts |
 | `scene` | `github.com/nsgo-dev/game/packages/game/scene` | [scene](scene.md) | World/screen layers, hit testing, scene stacks and animated transitions |
 | `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
