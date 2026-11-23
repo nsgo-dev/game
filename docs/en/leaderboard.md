@@ -76,6 +76,8 @@ Every callback runs on the engine goroutine after the call that started it has r
 
 `Submit`, `Show` and `Scores` check the first three before reaching the platform.
 
+A game that needs one board across platforms, or a board on platforms without a game service, runs the [self-hosted leaderboard service](leaderboard-selfhost.md) instead.
+
 ## Testing
 
 nsgotest gives every test app its own fake game service:

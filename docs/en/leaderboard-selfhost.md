@@ -1,0 +1,137 @@
+# leaderboard/selfhost
+
+```go
+import "github.com/nsgo-dev/game/packages/game/leaderboard/selfhost"
+```
+
+`leaderboard/selfhost` is a self-hostable leaderboard service for games that run on several platforms or on platforms without a game service (the web, Windows, Linux). Where [`leaderboard`](leaderboard.md) shows Game Center's and Play Games' own boards, this service keeps one board for every platform, keyed by the account the [account service](accounts.md) signs players in to, so a score from a browser and a score from a phone land on the same board.
+
+It is server-side code. It needs only the standard library, the YAML package and `accounts/token`, so it links none of the account service's password hashing or database drivers.
+
+| Package | What it holds |
+| --- | --- |
+| `leaderboard/selfhost` | `Service`, `Config`, the `Store` interface with `MemoryStore` and `FileStore`, `ProofSigner` and the HTTP `Handler` |
+| `leaderboard/selfhost/cmd/leaderboardd` | A standalone HTTP server with its scores in a directory |
+
+## Declaring boards
+
+The service reads its boards from a versioned YAML file:
+
+```yaml
+version: 1
+proofTTL: 10m
+boards:
+  - name: high-score
+    order: descending
+    reset: allTime
+  - name: weekly-sprint
+    order: ascending
+    reset: weekly
+    weekStart: monday
+    keep: 4
+    validation: signed
+    min: 1
+    max: 3600000
+serverKeys:
+  - id: 2317febd373fcbcd
+    key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
+```
+
+| Field | Meaning |
+| --- | --- |
+| `version` | Schema version, `1` |
+| `proofTTL` | How old a game server's score proof may be, from `1s` to `24h`; `10m` when absent |
+| `boards` | The boards, in the order the service lists them |
+| `name` | The board's key in URLs and in the data directory: `a-z`, `0-9`, `.`, `_` and `-`, up to 64 characters, starting with a letter or digit |
+| `order` | `descending` ranks the highest score first (points), `ascending` the lowest (times) |
+| `reset` | `allTime`, `daily` (midnight UTC) or `weekly` (midnight UTC on `weekStart`) |
+| `weekStart` | The day a weekly board resets on, a lowercase English weekday; `monday` when absent |
+| `keep` | How many earlier periods of a daily or weekly board stay readable after a reset, 1 to 1000; 1 when absent |
+| `validation` | `signed` accepts a score only with a game server's proof; absent trusts the player's client |
+| `min`, `max` | The scores the board accepts; at most 2^53-1 either way, so every score survives a JSON number in JavaScript |
+| `serverKeys` | The Ed25519 public keys game servers sign proofs with; a `signed` board needs at least one |
+
+`ParseConfig` refuses unknown fields, duplicate keys, other versions and a second YAML document. Optional fields keep what the file says, and `Config.Marshal` writes the fields in the order above, so a file in that form parses and marshals back byte for byte.
+
+## Ranking
+
+A board ranks each account's best score in its current period. A score only counts when it beats the account's best, by the board's order; an equal score keeps the earlier one. Equal scores rank by who reached them first, then by account ID, so every entry has its own rank.
+
+Periods are in UTC. A daily or weekly board starts a new, empty period at its reset, and the period before stays readable, with as many earlier ones as `keep` says. Each period has an ID: `all` for an all-time board, otherwise the UTC date it starts on, such as `2026-11-23`. A query names its period as `current` (the default), `previous`, or an earlier period's ID.
+
+```go
+svc, err := selfhost.New(ctx, cfg, selfhost.Options{
+	Store:  store,      // selfhost.OpenFileStore("scores", selfhost.FileStoreOptions{})
+	Tokens: verifier,   // a token.Verifier for the account service's key set
+	Logger: slog.Default(),
+})
+
+res, err := svc.Submit(ctx, selfhost.Submission{Board: "high-score", Account: claims.Subject, Score: 4200})
+// res.Entry.Rank, res.Improved, res.Period.ID
+
+page, err := svc.Top(ctx, "high-score", "current", 0, 25)               // ranks 1-25
+near, err := svc.Around(ctx, "weekly-sprint", "previous", account, 5)   // 5 above and 5 below
+pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // these accounts, ranked
+```
+
+| Method | What it does |
+| --- | --- |
+| `Submit` | Records a score in the board's current period; `Result.Improved` reports whether it became the account's best |
+| `Top` | Up to `limit` entries (at most 100) from rank `offset+1` |
+| `Around` | The account's entry with up to `radius` entries (at most 50) each side, shifted at either end so the window keeps its size |
+| `Friends` | The entries of up to 200 accounts the game supplies (a platform friend list, its own social graph), each with its rank on the whole board |
+| `Rank` | One account's entry |
+| `Boards` | Every board with its current period and the earlier periods still readable |
+
+Errors are `ErrUnknownBoard`, `ErrUnknownPeriod` (no such period, or no longer kept), `ErrNotRanked`, `ErrInvalidAccount`, `ErrScoreOutOfRange`, `ErrProofRequired`, `ErrInvalidProof`, `ErrProofExpired` and `ErrInvalidQuery`.
+
+Each period is an order-statistic skip list in memory, so every query costs O(log n) plus the entries it returns. On a board of a million accounts the benchmarks take about 7 µs for the top 100, 60 µs for 100 entries deep in the board, 40 µs around an account and 10 µs to submit (`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`); a benchmark fails when a query takes more than 50 ms.
+
+## Server-validated scores
+
+A client can send any score it likes. A board with `validation: signed` accepts a score only with a proof from the game server: after the server decides a match or checks a replay, it signs the board, the account and the score, and hands the proof to that player's client, which submits it beside the score.
+
+```go
+key, err := token.ParsePrivateKey(pemData) // from leaderboardd genkey
+prover, err := selfhost.NewProofSigner(key)
+proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
+// send proof to the player with the match result
+```
+
+A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over the board, account, score and time. The service refuses a missing proof (`ErrProofRequired`), one signed by a key not in `serverKeys`, for another board, account or score, or issued in the future (`ErrInvalidProof`), and one older than `proofTTL` (`ErrProofExpired`). `Options.Leeway` allows for clock skew between the machines. Because a proof names the account, a player cannot submit someone else's.
+
+## HTTP
+
+`Service.Handler` serves the service as JSON. Every request carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens`, and its subject is the account a score is submitted for, so a player can only submit their own scores.
+
+| Request | Response |
+| --- | --- |
+| `GET /v1/boards` | `{"boards": [{"name", "order", "reset", "validation", "current", "previous"}]}` |
+| `POST /v1/boards/{board}/scores` `{"score", "proof"}` | `{"period", "entry", "total", "improved"}` |
+| `GET /v1/boards/{board}/top?period=&offset=&limit=` | a page; `limit` 25 when absent |
+| `GET /v1/boards/{board}/around?period=&radius=` | a page around the token's account; `radius` 5 when absent |
+| `POST /v1/boards/{board}/friends?period=` `{"accounts": [id]}` | a page of those accounts |
+
+A page is `{"board", "period", "total", "entries"}`, a period `{"id", "start", "end"}` (no `start` or `end` for an all-time board) and an entry `{"rank", "account", "score", "achieved"}`. Errors are `{"error": code}`: `invalid_token` 401; `proof_required`, `invalid_proof` and `proof_expired` 403; `unknown_board`, `unknown_period` and `not_ranked` 404; `bad_request`, `invalid_account` and `score_out_of_range` 400; `request_too_large` 413; `unavailable` 503; `internal` 500.
+
+Entries carry account IDs; a game that shows names looks them up in its own profiles. Put the handler behind TLS and a rate limiter.
+
+## Storage
+
+The service keeps its records in a `Store`. `NewMemoryStore` is for tests. `OpenFileStore` keeps one JSON Lines file per board period at `<dir>/<board>/<period>.jsonl`, a line per new best score:
+
+```json
+{"account":"3f9a...","score":4200,"achieved":"2026-11-24T09:15:02.5Z"}
+```
+
+`New` loads the files. It cuts off a last line a crash left half written, rewrites a file whose lines are mostly superseded scores with one line per account, and deletes the periods boards no longer keep; a reset deletes them as it happens. Scores of a board removed from the configuration stay on disk and are not served. `FileStoreOptions.Sync` flushes every write to the disk, for a machine that may lose power. A `Store` of your own implements `Load`, `Save` and `Drop`.
+
+## leaderboardd
+
+```sh
+leaderboardd init   -config leaderboards.yaml
+leaderboardd genkey -key server.pem
+leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
+```
+
+`init` writes a configuration with one all-time `high-score` board to edit. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM.
