@@ -66,7 +66,7 @@ Contact impulses act at the contact point, so friction makes a sliding sphere ro
 
 Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), and on `Wake`, `ApplyImpulse` and the removal of bodies, meshes or joints.
 
-A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first overlap, so fast bodies do not tunnel through thin geometry. Fast dynamic bodies are not swept against each other.
+A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
 
 `HingeJoint.Angle` is tracked across steps, so a hinge that keeps turning reports angles past ±π and `MinAngle`/`MaxAngle` can span more than one turn. A `DistanceJoint` is slack while its distance is inside `[MinDistance, MaxDistance]`; `Stiffness` and `Damping` soften the limits, so for a spring with rest length `L` set both limits to `L`.
 

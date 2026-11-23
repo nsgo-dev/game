@@ -59,12 +59,12 @@ type characterPush struct {
 	normal Vec3
 }
 
-// notePush records that the character pressed against b, once per body per Move.
-func (c *CharacterController) notePush(b *Body, wallN Vec3) {
+// notePush records that the character pressed against b, once per body per slide; from is where the current slide's pushes start in c.pushes.
+func (c *CharacterController) notePush(b *Body, wallN Vec3, from int) {
 	if b == nil || b.Static || b.Kinematic || b.InvMass == 0 || b.IsTrigger {
 		return
 	}
-	for i := range c.pushes {
+	for i := from; i < len(c.pushes); i++ {
 		if c.pushes[i].body == b {
 			return
 		}
@@ -200,12 +200,15 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		}
 
 		normalRes := c.slideHorizontal(world, startPos, moveDisp, minGroundY)
+		// Pushes recorded so far belong to the plain slide; the step-up probe appends its own after them, and only the path Move commits keeps its pushes, so a body the probe merely touched, or one the character steps onto, is not shoved (#546).
+		normalPushes := len(c.pushes)
 
 		// Attempt automatic stair step-up when blocked by a wall while grounded.
 		didStep := false
 		if normalRes.hitWall && c.StepHeight > 0 && (wasGrounded || normalRes.hitGround) && !jumping {
 			normalHoriz := Vec3{X: normalRes.pos.X - startPos.X, Z: normalRes.pos.Z - startPos.Z}
 			if stepPos, landNormal, ok := c.tryStepUp(world, startPos, horizDisp, normalHoriz.LenSq(), minGroundY); ok {
+				c.pushes = append(c.pushes[:0], c.pushes[normalPushes:]...)
 				c.Pos = stepPos
 				steppedUp = true
 				didStep = true
@@ -218,6 +221,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		}
 
 		if !didStep {
+			c.pushes = c.pushes[:normalPushes]
 			c.Pos = normalRes.pos
 			c.OnWall = c.OnWall || normalRes.hitWall
 			c.OnCeiling = c.OnCeiling || normalRes.hitCeiling
@@ -310,6 +314,7 @@ type slideResult struct {
 // non-walkable surfaces.
 func (c *CharacterController) slideHorizontal(world *World, startPos, disp Vec3, minGroundY float32) slideResult {
 	res := slideResult{pos: startPos}
+	pushFrom := len(c.pushes)
 	totalLen := disp.Len()
 	if totalLen <= 1e-7 {
 		return res
@@ -357,7 +362,7 @@ func (c *CharacterController) slideHorizontal(world *World, startPos, disp Vec3,
 					res.pos = candPos.Add(n.Scale(contact.Depth + contactSkin))
 					break
 				}
-				c.notePush(body, wallN)
+				c.notePush(body, wallN, pushFrom)
 				denom := wallN.Dot(n)
 				push := contact.Depth + contactSkin
 				if denom > 0.1 {
