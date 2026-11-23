@@ -55,7 +55,7 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 			// nsgo test prints its results, a benchmark's included, on standard error, so both streams are read.
 			var out nsgoOutput
 			for _, dir := range dirs {
-				// nsgo test v0.3.0 prints only the first result of a benchmark run with -count above 1, because go test -json attributes the later results to the package rather than the benchmark, so each run is a process of its own with -count=1.
+				// nsgo test v0.3.0 prints only the first result of a benchmark run with -count above 1, because go test -json attributes the later results to the package rather than the benchmark, so each run is a process of its own with -count=1 (nsgo-dev/nsgo#2273).
 				for range *count {
 					args := []string{"test", "-bench", *pattern, dir, "-benchmem", "-benchtime=" + *benchtime, "-count=1"}
 					if err := out.run(a, args); err != nil {
