@@ -61,7 +61,7 @@ import "github.com/nsgo-dev/game/packages/game/sprite"
 
 它的零值不绘制任何内容；`NewSprite(f)` 返回一个原始尺寸、完全不透明的精灵。着色只与精灵自身的像素相乘，不会改变它下方已绘制的内容。
 
-`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序，每个精灵调用一次 `DrawImageFrom`，着色的精灵则调用 `DrawTintedImageFrom`。它会把绘图的状态恢复成绘制前的样子。用 NSGo 的批量 `DrawAtlas` 绘制批次见 [#28](https://github.com/nsgo-dev/game/issues/28)。
+`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序。相邻且只做了平移、旋转和等比缩放的精灵合并为一次 NSGo `DrawAtlas`；镜像、非等比缩放、着色、设置了混合方式或遮罩的精灵各自调用一次 `DrawImageFrom`，着色的精灵调用 `DrawTintedImageFrom`。它会把绘图的状态恢复成绘制前的样子。
 
 ```go
 walk := atlas.Animations["walk"]

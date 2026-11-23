@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/skeletal"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -378,11 +379,11 @@ func TestBindPoseDrawMatchesHandWrittenOps(t *testing.T) {
 	})
 
 	got := app.Find("skel").Ops
-	if len(got) != 6 {
-		t.Fatalf("got %d draw ops, want 6", len(got))
+	if n := len(gametest.ImageDraws(got)); n != 6 {
+		t.Fatalf("got %d image draws, want 6", n)
 	}
 	sameOps(t, got, app.Find("batch").Ops)
-	sameOps(t, got, app.Find("hand").Ops)
+	gametest.AssertSameImages(t, got, app.Find("hand").Ops)
 }
 
 func TestSkinSwitchingAndSlotAttachmentOverride(t *testing.T) {
@@ -413,15 +414,15 @@ func TestSkinSwitchingAndSlotAttachmentOverride(t *testing.T) {
 			}},
 		}}
 	})
-	ops := app.Find("skel").Ops
+	ims := gametest.ImageDraws(app.Find("skel").Ops)
 	// 5 visible slots in order: arm_l (arm_back, X=0), torso (torso_armor, X=80), head (helmet, X=96), leg_r (leg_front, X=64), arm_r (sword, X=112).
 	wantSrcX := []float32{0, 80, 96, 64, 112}
-	if len(ops) != len(wantSrcX) {
-		t.Fatalf("got %d ops, want %d: %+v", len(ops), len(wantSrcX), ops)
+	if len(ims) != len(wantSrcX) {
+		t.Fatalf("got %d image draws, want %d: %+v", len(ims), len(wantSrcX), ims)
 	}
 	for i, wx := range wantSrcX {
-		if ops[i].X1 != wx {
-			t.Fatalf("op %d src X = %v, want %v", i, ops[i].X1, wx)
+		if ims[i].SX != wx {
+			t.Fatalf("image draw %d src X = %v, want %v", i, ims[i].SX, wx)
 		}
 	}
 
@@ -434,8 +435,8 @@ func TestSkinSwitchingAndSlotAttachmentOverride(t *testing.T) {
 			}},
 		}}
 	})
-	if got := len(app2.Find("skel").Ops); got != 6 {
-		t.Fatalf("after ClearAttachment got %d ops, want 6", got)
+	if got := len(gametest.ImageDraws(app2.Find("skel").Ops)); got != 6 {
+		t.Fatalf("after ClearAttachment got %d image draws, want 6", got)
 	}
 }
 
@@ -520,8 +521,8 @@ func TestAnimationPlaybackOnGameLoop(t *testing.T) {
 		}}
 	})
 	foundBlink := false
-	for _, op := range appBlink.Find("w").Ops {
-		if op.Kind == core.DrawImage && op.X1 == 48 {
+	for _, im := range gametest.ImageDraws(appBlink.Find("w").Ops) {
+		if im.SX == 48 {
 			foundBlink = true
 		}
 	}

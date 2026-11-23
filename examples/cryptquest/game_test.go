@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -288,8 +289,8 @@ func TestFullPlayableLoopRendersExpectedCanvasDrawOps(t *testing.T) {
 		counts[op.Kind]++
 	}
 
-	if counts[core.DrawImage] < 20 {
-		t.Fatalf("expected tilemap + sprite DrawImage ops (>=20), got %d", counts[core.DrawImage])
+	if n := len(gametest.ImageDraws(canvas.Ops)); n < 20 {
+		t.Fatalf("expected tilemap + sprite image draws (>=20), got %d", n)
 	}
 	if counts[core.DrawFillText] < 1 {
 		t.Fatalf("expected DrawFillText ops from text.DrawPlatform, got %d", counts[core.DrawFillText])

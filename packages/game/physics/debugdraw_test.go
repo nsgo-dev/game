@@ -534,6 +534,12 @@ func TestDebugDrawAlignsWithSpritesAtEveryZoom(t *testing.T) {
 					cur = affine2D{float64(op.X1), float64(op.Y1), float64(op.X2), float64(op.Y2), float64(op.X), float64(op.Y)}
 				case core.DrawImage:
 					spriteRects = append(spriteRects, rectCorners(cur, op.X, op.Y, op.W, op.H))
+				case core.DrawAtlas:
+					for _, s := range *op.Atlas {
+						x := s.Transform
+						m := cur.then(affine2D{float64(x.SCos), float64(x.SSin), -float64(x.SSin), float64(x.SCos), float64(x.TX), float64(x.TY)})
+						spriteRects = append(spriteRects, rectCorners(m, 0, 0, float32(s.Rect.Size.Width), float32(s.Rect.Size.Height)))
+					}
 				case core.DrawRect:
 					physRects = append(physRects, rectCorners(cur, op.X, op.Y, op.W, op.H))
 				case core.DrawLineWidth:

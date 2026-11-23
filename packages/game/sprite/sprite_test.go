@@ -48,10 +48,9 @@ func TestABatchDrawsWhatHandWrittenCallsDraw(t *testing.T) {
 			}},
 			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(400), Height: core.Pt(200)}, Draw: func(d *core.Drawing, _ core.Size) {
 				d.Translate(5, 5)
-				// Twice the size about its center at 50, 50.
-				d.DrawImageFrom(img, 0, 0, 16, 16, 34, 34, 32, 32)
-				// A quarter turn about its center at 100, 100.
-				d.Save().Transform(0, 1, -1, 0, 108, 92).DrawImageFrom(img, 0, 0, 16, 16, 0, 0, 16, 16).Restore()
+				// Twice the size about its center at 50, 50, and a quarter turn about its center at 100, 100, in one DrawAtlas.
+				hero := core.Bounds{Size: core.Size{Width: 16, Height: 16}}
+				d.DrawAtlas(img, []core.Bounds{hero, hero}, []core.RSXform{{SCos: 2, TX: 34, TY: 34}, {SSin: 1, TX: 108, TY: 92}}, nil)
 				// Mirrored in its 16-point box at 200, 0: the trimmed part's left edge, 4 in, goes to 212.
 				d.Save().Transform(-1, 0, 0, 1, 216, 0).DrawImageFrom(img, 16, 0, 8, 10, 4, 3, 8, 10).Restore()
 				d.Save().SetAlpha(0.5).DrawImageFrom(img, 16, 0, 8, 10, 304, 43, 8, 10).Restore()
@@ -87,6 +86,20 @@ func sameOps(t *testing.T, got, want []core.DrawOp) {
 		}
 		if g.Kind != w.Kind || !reflect.DeepEqual(g.Image, w.Image) {
 			t.Fatalf("op %d is %+v, want %+v", i, g, w)
+		}
+		if g.Atlas != nil && w.Atlas != nil {
+			ga, wa := *g.Atlas, *w.Atlas
+			if len(ga) != len(wa) {
+				t.Fatalf("op %d draws %d sprites, want %d: %+v, want %+v", i, len(ga), len(wa), ga, wa)
+			}
+			for j := range wa {
+				a, b := ga[j], wa[j]
+				if a.Rect != b.Rect || !near(a.Transform.SCos, b.Transform.SCos) || !near(a.Transform.SSin, b.Transform.SSin) ||
+					!near(a.Transform.TX, b.Transform.TX) || !near(a.Transform.TY, b.Transform.TY) || !near(a.Alpha, b.Alpha) {
+					t.Fatalf("op %d sprite %d is %+v, want %+v", i, j, a, b)
+				}
+			}
+			g.Atlas = w.Atlas
 		}
 		// The rest are the same exactly.
 		g.X, g.Y, g.X1, g.Y1, g.X2, g.Y2, g.W, g.H, g.R, g.A, g.A0, g.A1, g.RY = w.X, w.Y, w.X1, w.Y1, w.X2, w.Y2, w.W, w.H, w.R, w.A, w.A0, w.A1, w.RY
@@ -135,10 +148,10 @@ func TestNewSpriteUsesTheFramesPivotAsItsOrigin(t *testing.T) {
 		return core.View{Children: []core.Node{
 			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) { b.Draw(d) }},
 			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
-				// coin's untrimmed box sits at 20, 30 (30-10, 40-10); its trimmed part is 4, 3 inside it.
-				d.DrawImageFrom(atlas.Image, 22, 1, 12, 14, 24, 33, 12, 14)
-				// flag's untrimmed box sits at 46, 40 (50-4, 60-20); its trimmed part is 2, 1 inside it.
-				d.DrawImageFrom(atlas.Image, 35, 1, 10, 18, 48, 41, 10, 18)
+				// coin's untrimmed box sits at 20, 30 (30-10, 40-10) and its trimmed part 4, 3 inside it; flag's sits at 46, 40 (50-4, 60-20) and its trimmed part 2, 1 inside it.
+				d.DrawAtlas(atlas.Image,
+					[]core.Bounds{{Origin: core.Point{X: 22, Y: 1}, Size: core.Size{Width: 12, Height: 14}}, {Origin: core.Point{X: 35, Y: 1}, Size: core.Size{Width: 10, Height: 18}}},
+					[]core.RSXform{{SCos: 1, TX: 24, TY: 33}, {SCos: 1, TX: 48, TY: 41}}, nil)
 			}},
 		}}
 	})

@@ -168,8 +168,29 @@ batch.Draw(d)
 ```
 
 - **Ordering**: `Draw` stably sorts sprites into an internal scratch slice by ascending `Z` (lowest `Z` drawn first, equal `Z` in the order `Sprites` lists them). `batch.Sprites` itself is never reordered.
-- **Drawing state**: `Draw` leaves `d`'s transform and alpha exactly as it found them, wrapping transformed, mirrored or translucent sprites in `Save`/`Restore`. Unrotated, unmirrored sprites at full opacity draw directly without pushing a transform.
-- **Draw calls**: today each visible sprite emits one `DrawImageFrom`; NSGo's batched `DrawAtlas` is tracked in [#28](https://github.com/nsgo-dev/game/issues/28).
+- **Drawing state**: `Draw` leaves `d`'s transform, alpha, composite and clip exactly as it found them.
+- **Draw calls**: consecutive sprites, in Z order, that are only moved, rotated and scaled evenly (`ScaleX == ScaleY`, or both flips together) with the default `Blend` and no `Mask` of their own draw with one NSGo `DrawAtlas`. A mirrored, unevenly scaled, blended or masked sprite, and a run of only one sprite, draws with its own `DrawImageFrom`, wrapped in `Save`/`Restore` when it is turned, mirrored, faded, blended or masked.
+- **Alpha in a run**: a run of sprites at full opacity keeps the drawing's alpha, as a single sprite does. A run of faded sprites draws between `Save` and `Restore` with the alpha set to `1` and each sprite's own `Alpha`, so `Alpha` still replaces the drawing's alpha. A change from opaque to faded sprites starts a new run.
+
+The picture is the same as one `DrawImageFrom` per sprite: the tests replay both recordings and compare every drawn rectangle, a fuzz test does so for random batches, and `gametest.RenderOps` renders both to identical pixels.
+
+### Cost before and after `DrawAtlas`
+
+`BenchmarkBatchRecord` records a frame of 1,000 and 5,000 moving sprites, a fifth of them rotated and scaled, with one `DrawImageFrom` each (`per-sprite`) and with `DrawAtlas` (`atlas`). `sprites/60Hz` is how many sprites the recording alone fits into one 16.7 ms frame:
+
+```sh
+cd packages/game
+go tool nsgo test ./sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -benchtime 2s
+```
+
+Readings from 2026-11-23 on a shared 24-core x86-64 Linux machine; the times move with the machine's load, the allocations do not:
+
+| Sprites | Time per frame | Allocations per frame | Sprites per 60 Hz frame |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 219 µs → 81 µs | 1,000 → 3 | 76,000 → 206,400 |
+| 5,000 | 926 µs → 586 µs | 5,000 → 3 | 90,000 → 142,300 |
+
+Recording is the smaller part of a frame: the platform still draws every sprite. NSGo's own [many-sprite comparison](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/performance.md#canvas-atlas-batching) of `DrawAtlas` against one `DrawImageFrom` per sprite measured 5,000 sprites rising from 29.3 to 39.9 frames per second on a Pixel 3 XL, from 55.5 to 60.0 in headless Chromium and from 6.6 to 7.8 on macOS, with 1,000 sprites already at 60 frames per second on Android and Chromium.
 
 ## Testing with nsgotest
 
@@ -190,3 +211,5 @@ if len(ops) == 0 {
 	t.Fatal("expected sprite draw operations")
 }
 ```
+
+A batch records its sprites in `DrawAtlas` operations as well as `DrawImageFrom` ones, so check what it drew with `gametest.ImageDraws(ops)` rather than by counting `DrawImage` operations. It returns each drawn rectangle of an image, with its source rectangle, its corners on the canvas, its alpha and its composite, however it was recorded. `gametest.AssertSameImages(t, got, want)` compares two recordings that way, such as a batch against hand-written `DrawImageFrom` calls, and `gametest.RenderOps` renders `DrawAtlas` too.

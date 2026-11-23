@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -664,7 +665,8 @@ func TestDepthSortYOrderInterleavingAndHitTest(t *testing.T) {
 		}}
 	})
 
-	sameOps(t, app.Find("got").Ops, app.Find("want").Ops)
+	// The layer draws its Y-sorted sprites one at a time and the batch draws them in one DrawAtlas: the same images in the same places.
+	gametest.AssertSameImages(t, app.Find("got").Ops, app.Find("want").Ops)
 
 	// Verify batch.Sprites slice was NOT mutated.
 	if !reflect.DeepEqual(batch.Sprites, origOrder) {
@@ -799,7 +801,7 @@ func TestDepthSortCustomKeysAndSortFunc(t *testing.T) {
 			},
 		}}
 	})
-	sameOps(t, appIso.Find("got").Ops, appIso.Find("want").Ops)
+	gametest.AssertSameImages(t, appIso.Find("got").Ops, appIso.Find("want").Ops)
 
 	// Overlap (60, 50): A (key 60) is drawn after B (key 50), so A wins HitTest!
 	if hit, ok := scIso.HitTest(core.Point{X: 60, Y: 50}); !ok || hit.Sprite != &a {
