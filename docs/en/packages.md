@@ -94,7 +94,7 @@ A `Mixer` sets how loud a game's sounds and music play: a master volume and a vo
 - `Master`, `SetMaster`, `Volume(group)` and `SetVolume(group, v)` read and set them. Read in a computation, a volume subscribes it to changes; a set fails with a `*core.StorageFullError` when the storage is full.
 - An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume.
 - A volume change applies to the effects played after it and to music as it plays. A short sound already playing keeps the volume it started with, except that a group or master volume of 0 stops it ([nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)).
-- While the window is in the background, the mixer stops the sounds playing, pauses the music, and plays the music on from there when the window shows again.
+- While the window is in the background, the mixer stops the sounds playing, pauses the music, and plays the music on from there when the window shows again. `Suspend()` does the same until the `resume` it returns is called, as a cutscene does while it plays ([cutscene](cutscene.md)).
 
 ### Effect
 

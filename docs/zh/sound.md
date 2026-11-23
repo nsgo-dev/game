@@ -92,6 +92,18 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 - 应用进入 **`core.LifecycleBackground`**（桌面端最小化、隐藏或被完全遮挡；iOS 或 Android 退到后台）时，混音器会停止所有正在播放的音效、忽略新的 `Effect.Play` 调用，并暂停音乐。
 - 窗口回到 **`core.LifecycleActive`** 或 **`core.LifecycleInactive`**（窗口可见，包括桌面端失焦状态）时，音乐从暂停处继续，音效也恢复播放。
 
+## 为过场动画挂起
+
+`mixer.Suspend()` 像进入后台一样让混音器静音，直到调用它返回的 `resume` 函数为止：正在播放的音效停止，新的 `Effect.Play` 调用不再发声，音乐暂停，恢复后从暂停处继续。挂起可以嵌套，只有每个 `Suspend` 都恢复之后混音器才重新发声；同一个 `resume` 调用两次不会多做什么。`mixer.Suspended()` 报告是否还有未恢复的挂起。
+
+```go
+resume := mixer.Suspend()
+// ……其他东西在占用扬声器……
+resume()
+```
+
+[cutscene](cutscene.md) 的 `Player` 在视频播放期间会挂起混音器。
+
 ## 使用 nsgotest 测试
 
 在 `nsgotest` 中传入 `nsgotest.Environment(core.Environment{Audio: true})` 并设置 `app.AudioDurations`，即可确定性地测试并发上限、交叉淡化、持久化存储和后台静音：

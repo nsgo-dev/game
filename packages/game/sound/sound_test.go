@@ -250,6 +250,56 @@ func TestTheBackgroundMutesAndTheForegroundRestores(t *testing.T) {
 	expectPlayer(t, m.player(t, 0), true, 0.5)
 }
 
+func TestSuspendSilencesUntilEveryHoldResumes(t *testing.T) {
+	m := startMixed(t)
+	m.mixer.SetVolume("music", 0.5)
+	m.music.Play(audio.Source{URI: trackA}, 0)
+	m.click.Play(audio.Voice{})
+	expectPlayer(t, m.player(t, 0), true, 0.5)
+
+	first := m.mixer.Suspend()
+	second := m.mixer.Suspend()
+	m.app.Settle()
+	if !m.mixer.Suspended() {
+		t.Fatal("the mixer is not suspended")
+	}
+	if stops := m.app.Sounds[0].Stops; stops != 1 {
+		t.Fatalf("%d stops, want 1", stops)
+	}
+	expectPlayer(t, m.player(t, 0), false, 0)
+	if m.click.Play(audio.Voice{}) {
+		t.Fatal("a click played while suspended")
+	}
+	at := m.app.Players[0].Position
+	m.app.Advance(time.Second)
+	if m.app.Players[0].Position != at {
+		t.Fatal("the music played on while suspended")
+	}
+
+	// Resuming one hold twice does not release the other.
+	first()
+	first()
+	expectPlayer(t, m.player(t, 0), false, 0)
+	if !m.mixer.Suspended() {
+		t.Fatal("the mixer resumed with a hold left")
+	}
+	second()
+	expectPlayer(t, m.player(t, 0), true, 0.5)
+	if m.mixer.Suspended() || !m.click.Play(audio.Voice{}) {
+		t.Fatal("no click played after the mixer resumed")
+	}
+
+	// Music started while suspended waits for the resume.
+	resume := m.mixer.Suspend()
+	m.music.Play(audio.Source{URI: trackB}, 0)
+	m.app.Settle()
+	if ps := m.app.Players; len(ps) > 1 && ps[1].Playing {
+		t.Fatal("music started while suspended plays")
+	}
+	resume()
+	expectPlayer(t, m.player(t, 1), true, 0.5)
+}
+
 func TestACrossfadeEndsWithOnlyTheNewTrackAtFullGroupVolume(t *testing.T) {
 	m := startMixed(t)
 	m.mixer.SetVolume("music", 0.5)
