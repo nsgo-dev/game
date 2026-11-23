@@ -1,6 +1,6 @@
 # input
 
-`game/input` turns touch regions, mouse buttons and relative mouse motion under a pointer lock into named actions and axes, sampled once per `game.Loop` step and persisted across launches in `core.Storage`.
+`game/input` turns touch regions, mouse buttons, relative mouse motion under a pointer lock and keyboard keys into named actions and axes, sampled once per `game.Loop` step and persisted across launches in `core.Storage`.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/input"
@@ -18,13 +18,18 @@ actions := input.NewActions()
 // Touch zones in virtual canvas coordinates (e.g. 320×180)
 actions.Bind("left",
 	input.TouchRegion(core.Bounds{X: 0, Y: 100, Width: 70, Height: 80}),
+	input.Key("left"),     // by name, following the keyboard layout
+	input.KeyCode("KeyA"), // by physical position
 )
 actions.Bind("right",
 	input.TouchRegion(core.Bounds{X: 70, Y: 100, Width: 70, Height: 80}),
+	input.Key("right"),
+	input.KeyCode("KeyD"),
 )
 actions.Bind("jump",
 	input.TouchRegion(core.Bounds{X: 220, Y: 100, Width: 100, Height: 80}),
 	input.MouseButton(core.MouseButtonLeft),
+	input.Key("space"),
 )
 actions.Bind("interact",
 	input.MouseRegion(core.Bounds{X: 260, Y: 10, Width: 50, Height: 30}, core.MouseButtonLeft),
@@ -41,6 +46,8 @@ Physical `Input` constructors:
 | `TouchRegion(rect)` | Any active touch finger lies inside `rect` (`core.Bounds.Contains`). |
 | `MouseButton(btn)` | `btn` is held down anywhere on the attached view. |
 | `MouseRegion(rect, btn)` | `btn` is held down and the pointer lies inside `rect`. |
+| `Key(name)` | The key `name` is held, named as `core.KeyEvent.Key` names it (`"a"`, `"space"`, `"left"`, `"shift"`), matched without regard to case. A letter follows the keyboard layout. |
+| `KeyCode(code)` | The key at physical position `code` is held, named as `core.KeyEvent.Code` names it (`"KeyW"`, `"ArrowLeft"`), the same key on every layout. |
 
 Calling `Bind(name, ...)` replaces previous bindings for `name`; calling `Bind(name)` with no inputs or `Unbind(name)` clears it. Inspect bindings with `Bindings(name)` and `AxisBinding(name)`, and remove an axis with `UnbindAxis(name)`.
 
@@ -56,11 +63,30 @@ view := core.View{
 actions.Attach(&view)
 ```
 
-You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`, `OnPressUp`, `OnMouseMove`, `OnMouseLeave`, `OnContextMenu`, and `OnPointerDelta`.
+You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`, `OnPressUp`, `OnMouseMove`, `OnMouseLeave`, `OnContextMenu`, `OnPointerDelta`, `OnKeyDown`, and `OnKeyUp`.
 
 - `OnPressDown` ignores keyboard presses and synthetic presses fired while a touch finger is active so touches only trigger `TouchRegion` bindings.
 - `OnContextMenu` records a right click as a single-step pulse of `core.MouseButtonRight` at `ev.Position`.
 - `OnMouseLeave` releases held mouse buttons when the pointer exits the view.
+
+## Hearing keys
+
+A view hears keys only while it has the keyboard focus, and a click presses a view without focusing it, so a game usually hears them on the whole window instead. Call `WatchKeys` once, from the scope that runs the loop:
+
+```go
+actions.WatchKeys(cx)
+loop.Run(cx)
+```
+
+`WatchKeys` follows NSGo's `core.KeysDown` and `core.KeyCodesDown` until the scope is disposed or the returned `stop` is called. Keys typed into a text input or composed by an input method are never held.
+
+`Attach` also wires `OnKeyDown` and `OnKeyUp`, which hear keys while the view itself has the keyboard focus, such as a `Focusable` game view on a desktop. `OnKeyDown` consumes a key bound to an action, so the keymap's bindings and the view's own Return and Space do not take it too; an unbound key passes on. A held key's auto-repeat changes nothing.
+
+Either way:
+
+- A held key keeps its action `Pressed` on every step until it comes up, and a key that goes down and up between two steps is latched for one step, as a tap is.
+- Two actions bound to opposite keys drive an axis with `BindAxis`: `Axis` is `-1` with the negative key held, `+1` with the positive one, and `0` with both or neither.
+- Every held key comes up as the window loses the keyboard focus, firing `JustReleased` on the next step, so no action stays held while the player is in another window.
 
 ### Mapping view coordinates to a virtual canvas
 
@@ -101,7 +127,7 @@ loop := &game.Loop{
 
 - **Tap latching**: a brief tap that both starts and ends between two fixed steps is latched so `Pressed` and `JustPressed` still register for one step, followed by `JustReleased` on the next step.
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
-- **`Reset()`**: clears active touches, held buttons, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+- **`Reset()`**: clears active touches, held buttons, held keys, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
 
 ## Mouselook through pointer lock
 
