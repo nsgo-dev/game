@@ -69,6 +69,29 @@ if hit != nil {
 }
 ```
 
+## 2D 定位音效
+
+`Listener2D` 从 2D 摄像机所在的位置收听摆放在世界中的音效：摄像机左边的音效偏向左声道播放，右边的偏向右声道，离得越远声音越小。
+
+```go
+listener := sound.Listener2D{
+	Position: math2d.V2(cam.X, cam.Y),
+	Rotation: cam.Rotation,
+	Near:     64,  // 64 个世界单位以内为满音量
+	Far:      640, // 640 以外静音
+	Rolloff:  sound.RolloffInverse,
+}
+hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
+```
+
+- `Position` 和 `Rotation` 跟随摄像机，例如取 `tilemap.Camera` 的 `X`、`Y` 和 `Rotation`，这样摄像机旋转时左右仍按画面来算。距离以世界单位计，不受摄像机缩放影响。
+- `Gain(pos)` 在 `Near` 以内为 `1`，在 `Far` 及更远处为 `0`，两者之间按 `Rolloff` 衰减：`RolloffLinear`（默认）为直线下降，`RolloffInverse` 按 `Near / 距离` 下降并重新缩放，使其在 `Far` 处恰好为 `0`。`Far` 不大于 `Near`、为无穷大或 `NaN` 时关闭距离衰减。
+- `Pan(pos)` 是音效在画面横向上的偏移除以 `PanWidth`，限制在 `[-1, 1]`；`PanWidth` 为 `0` 时取 `Far`。正上方或正下方的音效居中播放。
+- `PlayAt(l, pos, v)` 以 `v.Volume * l.Gain(pos)` 播放，再像 `Play` 一样乘上分组音量和主音量，并用 `l.Pan(pos)` 替换 `v.Pan`。超出 `Far` 时返回 `false`、不播放，因此听不到的音效不会占用发声数，也不计入 `Limit`。
+- `Voice(pos, v)` 返回 `PlayAt` 会使用的 voice，用于直接播放 `audio.Sound`；请先检查 `Gain`，因为 `audio` 会把音量 `0` 当作满音量播放。
+
+声像和音量在播放开始时就已确定，因为 NSGo 的 `audio.Playback` 播放后无法再修改声像。它适合短音效；跟随移动声源的长音需要重新播放。
+
 ## Music 与交叉淡化
 
 `mixer.Music(group)` 通过 `audio.Player` 播放较长的流式音轨，同一时间只播一首，并支持平滑的交叉淡化（crossfade）：
