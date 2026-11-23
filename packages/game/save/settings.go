@@ -70,13 +70,19 @@ func (a *AudioSettings) UnmarshalJSON(data []byte) error {
 
 // DisplaySettings holds player display and presentation preferences.
 type DisplaySettings struct {
-	Fullscreen       bool   `json:"fullscreen"`
-	DisplayIndex     int    `json:"display_index"`
-	ScaleMode        string `json:"scale_mode,omitempty"`
-	IntegerScale     bool   `json:"integer_scale"`
-	FrameCap         int    `json:"frame_cap"`
-	VSync            bool   `json:"vsync"`
-	AutoDropLowPower bool   `json:"auto_drop_low_power"`
+	// Fullscreen puts the window in borderless full screen on the chosen display; false keeps it windowed.
+	Fullscreen bool `json:"fullscreen"`
+	// DisplayID is the ID, from core.Env.Displays, of the display full screen uses. It names a display the same way across launches and display changes, so a UI that offers displays sets it; when it is empty or the display is not connected, DisplayIndex chooses instead.
+	DisplayID string `json:"display_id,omitempty"`
+	// DisplayIndex is the position in core.Env.Displays of the display full screen uses when DisplayID is empty or not connected; out of range keeps the window's current display.
+	DisplayIndex int    `json:"display_index"`
+	ScaleMode    string `json:"scale_mode,omitempty"`
+	IntegerScale bool   `json:"integer_scale"`
+	// FrameCap is the most frames drawn a second, uncapped when 0.
+	FrameCap int  `json:"frame_cap"`
+	VSync    bool `json:"vsync"`
+	// AutoDropLowPower lowers the frame cap while the system is in low-power mode or under serious thermal pressure, and restores it once the condition clears.
+	AutoDropLowPower bool `json:"auto_drop_low_power"`
 }
 
 // AccessibilitySettings holds player accessibility preferences.
@@ -148,6 +154,7 @@ func (s *Settings) Validate() {
 	if s.Display.DisplayIndex < 0 {
 		s.Display.DisplayIndex = 0
 	}
+	s.Display.DisplayID = strings.TrimSpace(s.Display.DisplayID)
 	if s.Display.FrameCap < 0 {
 		s.Display.FrameCap = 0
 	}

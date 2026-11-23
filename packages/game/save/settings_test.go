@@ -163,6 +163,7 @@ func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 		}
 		want.Display = save.DisplaySettings{
 			Fullscreen:       true,
+			DisplayID:        "display-2",
 			DisplayIndex:     1,
 			ScaleMode:        "integer",
 			IntegerScale:     true,
@@ -1044,4 +1045,13 @@ func TestSettingsIsolatedOnEmptyPrefixAndCustomBackend(t *testing.T) {
 			t.Fatalf("settings on custom backend after DeleteAll = (%+v, %v), want it", got, err)
 		}
 	})
+}
+
+func TestSettingsValidateTrimsDisplayID(t *testing.T) {
+	s := save.DefaultSettings()
+	s.Display.DisplayID = "  display-2 \n"
+	s.Validate()
+	if s.Display.DisplayID != "display-2" {
+		t.Fatalf("DisplayID = %q, want %q", s.Display.DisplayID, "display-2")
+	}
 }
