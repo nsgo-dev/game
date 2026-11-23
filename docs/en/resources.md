@@ -86,7 +86,7 @@ stops:
 
 ### animation
 
-A clip of numeric property tracks keyed from `0` to `length` seconds. `target` is the path of the object or node a track drives, relative to the one the clip plays on (empty is that one), and each target and property pair has one track.
+A clip of numeric property tracks keyed from `0` to `length` seconds. `target` is the path of the object or node a track drives, relative to the one the clip plays on (empty is that one), and each target and property pair has one track. `events` are named cues in time order, each at a `time` from `0` to `length`, which a player reports as playback crosses them.
 
 ```yaml
 type: animation
@@ -105,9 +105,12 @@ tracks:
         interp: smooth
       - time: 1.5
         value: 1
+events:
+  - time: 0.75
+    name: flare
 ```
 
-`Animation.Sample(t, set)` wraps or clamps `t` to the clip (`ClipTime`) and calls `set` with each track's target, property and value.
+`Animation.Sample(t, set)` wraps or clamps `t` to the clip (`ClipTime`) and calls `set` with each track's target, property and value. [animclip](animclip.md) plays a clip on scene objects, with its properties checked against the registered component types, and the [editor's animation panel](editor.md#animation-editor) keys and saves clips.
 
 ### theme
 
