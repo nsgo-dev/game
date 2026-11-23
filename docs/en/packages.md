@@ -25,7 +25,7 @@ func (l *Loop) Run(cx *core.Scope) (stop func())
 - A frame that would run more than `MaxSteps` updates drops the whole steps past it, so an `Update` slower than its step, or a long hitch, slows the game rather than making each frame run more updates than the last.
 - `Run` starts the loop until the scope is disposed or `stop` is called. It reads the fields on each frame, so a game may change them while the loop runs.
 - The loop pauses while the scope's window is in the background (`core.Env.Lifecycle`) and resumes from the time it shows again, so the time away runs no updates.
-- A frame's time is the engine's clock as it runs the frame ([nsgo#1048](https://github.com/nsgo-dev/nsgo/issues/1048)); the loop smooths it, so updates keep to the clock. Using the display's frame time is [#27](https://github.com/nsgo-dev/game/issues/27).
+- A frame's time is the display's frame time where the platform stamps one, and the graph clock's otherwise; the loop adds it as it is.
 
 ## sprite
 
