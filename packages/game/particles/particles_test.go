@@ -713,7 +713,7 @@ func TestColorCurveTintsParticleSprites(t *testing.T) {
 	}
 }
 
-// BenchmarkEmitter5000UpdateDraw measures one fixed step and one frame's draw of 5000 live rotating, fading particles through the emitter's sprite.Batch.
+// BenchmarkEmitter5000UpdateDraw measures one fixed step and one frame's draw of 5000 live rotating, fading particles through the emitter's sprite.Batch. Its ColorCurve tints every particle, so it measures the path where each particle keeps its own image draw rather than joining a DrawAtlas run.
 func BenchmarkEmitter5000UpdateDraw(b *testing.B) {
 	const count = 5000
 	e := newConfiguredEmitter(7)
