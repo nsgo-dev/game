@@ -12,10 +12,25 @@ const NARROW = '(max-width: 820px)'
 // Before the first paint on narrow screens, fold the pages above the article, as nsgo.dev's docs do.
 const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector('.docs__nav').open = false;`
 
-type GroupKey = 'guides' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
+type GroupKey = 'guides' | 'tutorial' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
 
 const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonly string[] }[] = [
   { key: 'guides', slugs: ['index', 'getting-started', 'playground', 'packages', 'shipping'] },
+  {
+    key: 'tutorial',
+    slugs: [
+      'tutorial',
+      'tutorial-01-empty-project',
+      'tutorial-02-game-loop',
+      'tutorial-03-input',
+      'tutorial-04-sprites',
+      'tutorial-05-rules',
+      'tutorial-06-screens',
+      'tutorial-07-sound',
+      'tutorial-08-save',
+      'tutorial-09-ship',
+    ],
+  },
   {
     key: 'core2d',
     slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'flow', 'tween', 'ai', 'replay', 'cutscene'],

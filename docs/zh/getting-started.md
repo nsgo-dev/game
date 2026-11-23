@@ -237,5 +237,6 @@ if jump != nil {
 
 ## 下一步
 
+- 跟着[教程](tutorial.md)分九章从空项目做出一款完整的游戏 Star Catcher，直到构建发布包。
 - 阅读各个包的详细指南：[Loop](loop.md)、[sprite](sprite.md) 和 [sound](sound.md)，或查阅汇总的[包](packages.md)参考。
 - 准备好检查所有目标平台并构建 macOS、Windows、Linux、Web、iOS 和 Android 发布包时，阅读[构建与发布](shipping.md)。
