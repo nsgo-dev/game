@@ -11,8 +11,7 @@ import (
 
 const jsWSOpen = 1
 
-// WebSocketTransport wraps the browser WebAssembly WebSocket API,
-// multiplexing the same 5-byte channel+seq wire header as native builds.
+// WebSocketTransport wraps the browser WebAssembly WebSocket API, multiplexing the same 5-byte channel+seq wire header as native builds.
 //
 // The browser connects asynchronously: DialWebSocket returns at once, sends the connection handshake when the socket opens, and the transport becomes ConnOpen when the server's welcome arrives. Until then LocalID is 0, and Send queues packets to flush after the welcome. A refusal moves it to ConnDisconnected with a *RejectError in Err.
 type WebSocketTransport struct {
@@ -52,14 +51,14 @@ func DialWebSocket(rawURL string, token []byte) (*WebSocketTransport, error) {
 	return wt, nil
 }
 
-// Reconnect closes the current browser socket, if any, and opens a new one that resumes the session: within the server's grace period the client keeps its ID, and Resumed reports true once State is ConnOpen again. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes.
+// Reconnect closes the current browser socket, if any, and opens a new one that resumes the session: within the server's grace period the client keeps its ID, and Resumed reports true once State is ConnOpen again. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes. The old socket closes with a code that tells the server to keep the session, so Reconnect works while the connection is still open too.
 func (wt *WebSocketTransport) Reconnect() error {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
 	if wt.state == ConnClosed {
 		return ErrClosed
 	}
-	wt.releaseLocked()
+	wt.releaseLocked(true)
 	return wt.openLocked()
 }
 
@@ -129,14 +128,12 @@ func (wt *WebSocketTransport) onMessage(ws js.Value, buf []byte) {
 	}
 	switch wt.state {
 	case ConnConnecting:
-		w, err := decodeServerHandshake(buf)
-		if err == nil && w.nonce != wt.nonce {
-			err = ErrInvalidPacket
-		}
+		w, err := acceptServerHandshake(buf, wt.nonce)
 		if err != nil {
 			wt.state, wt.err = ConnDisconnected, err
 			wt.mu.Unlock()
-			ws.Call("close")
+			// A garbled welcome may still have admitted the client, so leave the session for Reconnect to resume.
+			ws.Call("close", wsCloseReconnect)
 			return
 		}
 		wt.localID, wt.serverID = w.peer, w.server
@@ -171,8 +168,8 @@ func sendJS(ws js.Value, frame []byte) {
 	ws.Call("send", u8)
 }
 
-// releaseLocked detaches and closes the current browser socket and releases its callbacks.
-func (wt *WebSocketTransport) releaseLocked() {
+// releaseLocked detaches and closes the current browser socket and releases its callbacks. With reconnect it closes with wsCloseReconnect, which the server counts as a drop that keeps the session, rather than as a goodbye.
+func (wt *WebSocketTransport) releaseLocked(reconnect bool) {
 	if wt.ws.IsNull() || wt.ws.IsUndefined() {
 		return
 	}
@@ -181,7 +178,11 @@ func (wt *WebSocketTransport) releaseLocked() {
 	ws.Set("onmessage", js.Null())
 	ws.Set("onclose", js.Null())
 	ws.Set("onerror", js.Null())
-	ws.Call("close")
+	if reconnect {
+		ws.Call("close", wsCloseReconnect)
+	} else {
+		ws.Call("close")
+	}
 	for _, f := range wt.funcs {
 		f.Release()
 	}
@@ -189,8 +190,7 @@ func (wt *WebSocketTransport) releaseLocked() {
 	wt.ws = js.Null()
 }
 
-// Send transmits payload framed with the 5-byte channel+seq header over the browser WebSocket.
-// Frames sent before the server's welcome are queued and flushed when it arrives; Send returns ErrDisconnected while the connection is down.
+// Send transmits payload framed with the 5-byte channel+seq header over the browser WebSocket. Frames sent before the server's welcome are queued and flushed when it arrives; Send returns ErrDisconnected while the connection is down.
 func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
@@ -285,6 +285,6 @@ func (wt *WebSocketTransport) Close() error {
 	}
 	wt.state = ConnClosed
 	wt.pending = nil
-	wt.releaseLocked()
+	wt.releaseLocked(false)
 	return nil
 }

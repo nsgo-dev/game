@@ -15,9 +15,9 @@ import "github.com/nsgo-dev/game/packages/game/net"
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。客户端用令牌认证，ID 由服务端分配（见下文）。 |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟数据报通信，握手与 WebSocket 相同，每个数据报都绑定到其会话。 |
 | `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：只接受来自其所声称 ID 已登记地址的数据报。 |
+| `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
 UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输。
-| `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
 ```go
 hub := net.NewLoopbackHub(net.LoopbackConfig{
@@ -76,11 +76,12 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 ```
 
 - `NextEvent` 在被调用时检查宽限期与空闲超时，因此服务端应在每个 tick 与 `Recv` 一起轮询它。peer 处于宽限期内时，向它 `Send` 会返回 `ErrDisconnected`，`Peers` 也不会列出它。
-- 客户端调用 `Close` 即为主动告别：服务端立即报告 `PeerLeft`，不再为其保留会话。
+- 客户端调用 `Close` 即为主动告别：服务端立即报告 `PeerLeft`，不再为其保留会话。`Reconnect` 则不算告别，即使连接仍处于打开状态也是如此：浏览器关闭旧连接时会带上一个关闭码，服务端据此将其视为掉线。
+- 服务端最多保留 `Auth.MaxPeers` 个会话（默认 1024），处于宽限期内的 peer 也计算在内；超出后客户端会以原因 `server full` 被拒绝。不设置 `Verify` 时任何人都能加入，因此可从互联网访问的服务端务必设置它。
 - 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
 - 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
-- UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时会发送心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
-- 令牌与恢复密钥都在握手中传输，生产环境的 WebSocket 请使用 `wss://`。
+- UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时每秒发送一次心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
+- 握手不加密：握手请求携带令牌，欢迎消息携带恢复密钥，UDP 的欢迎消息还携带会话密钥。生产环境的 WebSocket 请使用 `wss://`。UDP 没有这样一层加密，它的地址与密钥绑定只能防住看不到流量的攻击者：任何能观察到握手的人（共享 Wi-Fi、路径上的任一跳）都能伪造该会话的数据报，并从自己的地址恢复该会话。UDP 令牌应短期有效且只能使用一次；若需防范路径上的窃听者，优先使用 `wss://` 上的 WebSocket。
 
 ## 服务端权威增量复制
 

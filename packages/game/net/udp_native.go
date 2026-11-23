@@ -93,8 +93,7 @@ func (u *UDPTransport) readLoop() {
 		copy(cp, payload)
 
 		u.mu.Lock()
-		// Only a registered peer's own address may speak for it: the From
-		// header is chosen by the sender, so it never registers or moves a peer.
+		// Only a registered peer's own address may speak for it: the From header is chosen by the sender, so it never registers or moves a peer.
 		if addr, ok := u.peers[from]; ok && !u.closed && sameUDPAddr(addr, remoteAddr) {
 			u.inbox = append(u.inbox, Packet{
 				From:    from,
