@@ -1,0 +1,25 @@
+type: busLayout
+version: 1
+name: Default
+buses:
+  - name: music
+    effects:
+      - lowPass:
+          cutoffHz: 8000
+          q: 0.7
+  - name: effects
+    effects:
+      - reverb:
+          roomSize: 0.5
+          damping: 0.4
+          wet: 0.2
+      - delay:
+          seconds: 0.25
+          feedback: 0.3
+          wet: 0.15
+      - gain:
+          factor: 0.8
+      - bitcrush:
+          bits: 8
+          downsample: 2
+  - name: ui

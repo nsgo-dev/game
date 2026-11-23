@@ -1,0 +1,10 @@
+type: gradient
+version: 1
+name: Sunset
+stops:
+  - offset: 0
+    color: '#ffcc66'
+  - offset: 0.5
+    color: '#ff6633'
+  - offset: 1
+    color: '#331a4d'

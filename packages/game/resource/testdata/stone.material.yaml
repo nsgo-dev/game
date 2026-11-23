@@ -1,0 +1,8 @@
+type: material
+version: 1
+name: Stone
+baseColor: '#8a8f99'
+texture: textures/stone.png
+opacity: 0.75
+blend: multiply
+roughness: 0.9

@@ -3,6 +3,7 @@
 package hotreload
 
 import (
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -46,3 +47,6 @@ func (w *Watcher) WatchAtlas(string, core.ImageSource, func(*sprite.Atlas, error
 
 // WatchPattern is a no-op in release builds.
 func (w *Watcher) WatchPattern(string, func(string, []byte)) {}
+
+// WatchResources is a no-op in release builds.
+func (w *Watcher) WatchResources(*resource.Library, func(string, error)) {}

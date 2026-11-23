@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/core"
@@ -36,6 +37,7 @@ func TestReleaseWatcherIsANoOp(t *testing.T) {
 		watcher.Watch("hero.json", func([]byte) { calls.Add(1) })
 		watcher.WatchAtlas("hero.json", core.ImageSource{URI: "asset:hero.png"}, func(*sprite.Atlas, error) { calls.Add(1) })
 		watcher.WatchPattern(".json", func(string, []byte) { calls.Add(1) })
+		watcher.WatchResources(resource.NewLibrary(os.DirFS(dir)), func(string, error) { calls.Add(1) })
 		return core.View{}
 	})
 
