@@ -189,6 +189,133 @@ func TestReloadSkipsReleasedGroups(t *testing.T) {
 	}
 }
 
+func TestReloadSkipsFilesAPackGroupReadsFromItsOwnFS(t *testing.T) {
+	const sharedURI = "asset:data/shared.txt"
+	base := fstest.MapFS{
+		"sprites/hero.json": {Data: []byte(heroAtlasJSON)},
+		"fonts/pixel.fnt":   {Data: []byte("BMFont-v1")},
+		"data/shared.txt":   {Data: []byte("shared v1")},
+	}
+	pack := fstest.MapFS{
+		"sprites/hero.json": {Data: []byte(heroAtlasJSON)},
+		"fonts/pixel.fnt":   {Data: []byte("pack font")},
+	}
+	var mgr *assets.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = assets.NewManager(cx, assets.WithFS(base))
+		mgr.Group("base").
+			AddAtlas("hero", heroJSONURI, core.Src(heroPNGURI)).
+			AddBytes("font", fontURI)
+		mgr.Group("dlc").SetFS(pack).
+			AddAtlas("packHero", heroJSONURI, core.Src(heroPNGURI)).
+			AddBytes("packFont", fontURI).
+			AddBytes("shared", sharedURI)
+		for _, name := range []string{"base", "dlc"} {
+			mgr.LoadGroup(name, func(err error) {
+				if err != nil {
+					t.Errorf("LoadGroup(%s): %v", name, err)
+				}
+			})
+		}
+		return core.Canvas{Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)}}
+	}, envWithMedia()...)
+	app.WaitUntil(time.Second, func() bool { return mgr.Group("base").Done() && mgr.Group("dlc").Done() })
+
+	var (
+		atlasNames, fontNames, sharedNames []string
+		err                                error
+		packHero                           *sprite.Atlas
+		packFont, shared                   []byte
+	)
+	app.Post(func() {
+		atlasNames, err = mgr.Reload(heroJSONURI, []byte(heroAtlasJSONWithJump))
+		if err != nil {
+			return
+		}
+		fontNames, err = mgr.Reload(fontURI, []byte("BMFont-v2"))
+		if err != nil {
+			return
+		}
+		sharedNames, err = mgr.Reload(sharedURI, []byte("shared v2"))
+		packHero, _ = mgr.Atlas("packHero")
+		packFont, _ = mgr.Bytes("packFont")
+		shared, _ = mgr.Bytes("shared")
+	})
+	app.Settle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(atlasNames, []string{"hero"}) || !slices.Equal(fontNames, []string{"font"}) {
+		t.Fatalf("reloaded %v and %v, want only the base group's [hero] and [font]", atlasNames, fontNames)
+	}
+	if len(packHero.Frames) != 2 || string(packFont) != "pack font" {
+		t.Fatalf("the pack's own files changed: %d frames, font %q", len(packHero.Frames), packFont)
+	}
+	// The pack has no data/shared.txt, so its group read the base file and shows the edit.
+	if !slices.Equal(sharedNames, []string{"shared"}) || string(shared) != "shared v2" {
+		t.Fatalf("shared = %v %q, want [shared] %q", sharedNames, shared, "shared v2")
+	}
+}
+
+func TestReloadFollowsTheDensityTheScreenShows(t *testing.T) {
+	const (
+		heroImage   = "asset:images/hero.png"
+		heroImage2x = "asset:images/hero@2x.png"
+		sheet2x     = "asset:sprites/hero@2x.png"
+	)
+	var mgr *assets.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = assets.NewManager(cx, assets.WithFS(fstest.MapFS{"sprites/hero.json": {Data: []byte(heroAtlasJSON)}}))
+		// Inline bytes keep the test off image prefetching; Reload matches by URI either way.
+		mgr.Group("ui").
+			AddImage("hero", core.ImageSource{URI: heroImage, Scales: core.ScalesOf(1, 2), Data: []byte("embedded")}).
+			AddAtlas("sheet", heroJSONURI, core.ImageSource{URI: heroPNGURI, Scales: core.ScalesOf(1, 2), Data: []byte("embedded sheet")})
+		mgr.LoadGroup("ui", func(err error) {
+			if err != nil {
+				t.Errorf("LoadGroup: %v", err)
+			}
+		})
+		return core.Canvas{Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)}}
+	}, nsgotest.Environment(core.Environment{PixelRatio: 2}))
+	app.WaitUntil(time.Second, func() bool { return mgr.Group("ui").Done() })
+
+	reload := func(uri, data string) ([]string, core.ImageSource, *sprite.Atlas) {
+		t.Helper()
+		var (
+			names []string
+			err   error
+			img   core.ImageSource
+			sheet *sprite.Atlas
+		)
+		app.Post(func() {
+			names, err = mgr.Reload(uri, []byte(data))
+			img, _ = mgr.Image("hero")
+			sheet, _ = mgr.Atlas("sheet")
+		})
+		app.Settle()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names, img, sheet
+	}
+
+	// A 2x screen does not show the 1x file: saving it changes nothing.
+	names, img, sheet := reload(heroImage, "1x")
+	if len(names) != 0 || string(img.Data) != "embedded" || img.Scales != core.ScalesOf(1, 2) {
+		t.Fatalf("saving the 1x file replaced %v: %+v", names, img)
+	}
+	for i, data := range []string{"2x v1", "2x v2"} {
+		names, img, _ = reload(heroImage2x, data)
+		if !slices.Equal(names, []string{"hero"}) || string(img.Data) != data || img.URI != heroImage2x || img.Density() != 2 {
+			t.Fatalf("save %d of the 2x file: %v, %+v (density %v)", i+1, names, img, img.Density())
+		}
+	}
+	names, _, sheet = reload(sheet2x, "sheet 2x")
+	if !slices.Equal(names, []string{"sheet"}) || string(sheet.Image.Data) != "sheet 2x" || sheet.Image.Density() != 2 || len(sheet.Frames) != 2 {
+		t.Fatalf("saving the atlas's 2x image: %v, %+v", names, sheet.Image)
+	}
+}
+
 // mustAtlas returns the hero atlas the manager holds, read on the engine goroutine.
 func mustAtlas(t *testing.T, app *nsgotest.App, mgr *assets.Manager) *sprite.Atlas {
 	t.Helper()

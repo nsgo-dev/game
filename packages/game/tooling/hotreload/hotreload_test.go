@@ -345,3 +345,49 @@ func TestSameLengthWriteWithinTimestampGranularityIsSeen(t *testing.T) {
 		return v == `{"v":2}`
 	})
 }
+
+func TestWatchPatternSeesChangesToFilesItDidNotHashAtRegistration(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	for name, data := range map[string]string{"edited.json": `{"v":1}`, "kept.json": `{"k":1}`} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Files saved long before the game started are fingerprinted by modification time and size alone.
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seen := map[string]string{}
+	var calls atomic.Int32
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		w := hotreload.NewWatcher(cx, dir,
+			hotreload.WithPollInterval(20*time.Millisecond),
+			hotreload.WithDebounce(20*time.Millisecond),
+		)
+		w.WatchPattern("", func(relPath string, data []byte) {
+			seen[relPath] = string(data)
+			calls.Add(1)
+		})
+		return core.View{}
+	})
+
+	// The same length, so only the modification time tells the edit apart from the unhashed fingerprint.
+	if err := os.WriteFile(filepath.Join(dir, "edited.json"), []byte(`{"v":2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.json"), []byte(`{"n":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.WaitUntil(time.Second, func() bool { return calls.Load() >= 2 })
+	app.Settle()
+
+	if seen["edited.json"] != `{"v":2}` || seen["new.json"] != `{"n":1}` {
+		t.Fatalf("seen = %v, want the edit and the new file", seen)
+	}
+	if _, ok := seen["kept.json"]; ok || calls.Load() != 2 {
+		t.Fatalf("seen = %v after %d calls, want the unchanged file left alone", seen, calls.Load())
+	}
+}

@@ -161,6 +161,6 @@ go tool game dev -target native -fps
 go tool game dev ./mygame -lang fr
 ```
 
-运行 `go tool nsgo dev`：它构建游戏、启动游戏，并在 Go 代码改动时重新构建；同时把资源所在位置告诉运行中的游戏，即 `-assets` 的绝对路径（默认是项目目录下的 `resources`，也就是 `"asset:"` URI 指向的目录），放在环境变量 `NSGO_GAME_ASSETS` 里。游戏用 `hotreload.NewDevWatcher` 在这个目录上启动监视器后，它已加载的图集、图片或数据文件在保存后一秒内就会在游戏里更新，无需重启；见[保存时重新加载](assets.md#保存时重新加载)。第一个不是参数标志的位置参数是项目目录，省略时为 `.`，其后的参数原样传给 `nsgo dev`；`-target` 和 `-fps` 也会传过去。`nsgo dev` 的输出就是 game dev 的输出，Control+C 会同时停止两者。`nsgo dev` 失败时 `go tool game dev` 以 1 退出。
+运行 `go tool nsgo dev`：它构建游戏、启动游戏，并在 Go 代码改动时重新构建；同时把资源所在位置告诉运行中的游戏，即 `-assets` 的绝对路径（默认是项目目录下的 `resources`），放在环境变量 `NSGO_GAME_ASSETS` 里，`hotreload.DevAssetsDir` 返回的就是它。它必须是游戏的 `assets.Manager` 读取 `"asset:"` URI 的目录：用 `assets.WithFS(os.DirFS(hotreload.DevAssetsDir()))` 创建的 Manager，因为没有 `WithFS` 的 `Manager` 读取的是运行 `game dev` 的目录下的 `assets/`。游戏用 `hotreload.NewDevWatcher` 在这个目录上启动监视器后，它已加载的图集、图片或数据文件在保存后一秒内就会在游戏里更新，无需重启；见[保存时重新加载](assets.md#保存时重新加载)。第一个不是参数标志的位置参数是项目目录，省略时为 `.`，其后的参数原样传给 `nsgo dev`；`-target` 和 `-fps` 也会传过去；目录之后的参数里如果有 `-target`，就以它为准，与 `nsgo dev` 的处理一致。`nsgo dev` 的输出就是 game dev 的输出，Control+C 会同时停止两者。`nsgo dev` 失败时 `go tool game dev` 以 1 退出。
 
-资源在 `native` 和 `tui` 目标上重新加载，这两种目标的应用运行在本机并读取这些文件。在网页和手机上，应用访问不到资源目录，game dev 会提示这一点，游戏要等 `nsgo dev` 重新构建后才拿到资源改动。没有资源目录时，game dev 照常运行 `nsgo dev`，并提示资源不会重新加载。游戏用 `go:embed` 嵌入的资源属于二进制的一部分：这类文件改动时 `nsgo dev` 会重新构建并重启游戏，而监视器的重新加载会在那之前先显示改动。
+资源在 `native` 和 `tui` 目标上重新加载，带 `-android-host` 的 `android` 目标也可以，这些目标的应用的 Go 代码运行在本机并读取这些文件。在网页和手机上，应用访问不到资源目录，game dev 会提示这一点，游戏要等 `nsgo dev` 重新构建后才拿到资源改动。没有资源目录时，game dev 照常运行 `nsgo dev`，并提示资源不会重新加载。游戏用 `go:embed` 嵌入的资源属于二进制的一部分：这类文件改动时 `nsgo dev` 会重新构建并重启游戏，而监视器的重新加载会在那之前先显示改动。

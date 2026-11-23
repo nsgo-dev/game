@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/tooling/hotreload"
@@ -40,7 +41,7 @@ var startNSGoDev = runNSGoDev
 var nativeTargets = map[string]bool{"native": true, "tui": true}
 
 func defineDev(a *app, fs *flag.FlagSet) func() error {
-	assetsDir := fs.String("assets", "resources", "the directory the game's \"asset:\" URIs name, relative to the project directory, which the running game watches")
+	assetsDir := fs.String("assets", "resources", "the directory, relative to the project directory, that the running game watches and its assets.Manager reads \"asset:\" URIs from, given to the game as hotreload.DevAssetsDir")
 	target := fs.String("target", "", "the nsgo dev target, nsgo.yaml's dev.target when empty; assets reload on native and tui")
 	fps := fs.Bool("fps", false, "show NSGo's performance monitor in the running game")
 
@@ -83,11 +84,14 @@ func defineDev(a *app, fs *flag.FlagSet) func() error {
 			fmt.Fprintf(a.stderr, "game dev: no asset directory at %s; assets will not reload\n", assets)
 		} else {
 			env = append(env, hotreload.AssetsDirEnv+"="+assets)
-			t := *target
+			t, androidHost := passedTarget(passthrough)
+			if t == "" {
+				t = *target
+			}
 			if t == "" {
 				t = projectDevTarget(project)
 			}
-			if nativeTargets[t] {
+			if nativeTargets[t] || t == "android" && androidHost {
 				fmt.Fprintf(a.stderr, "game dev: reloading assets from %s\n", assets)
 			} else {
 				fmt.Fprintf(a.stderr, "game dev: assets reload on the native and tui targets, not %s, whose app cannot read %s\n", t, assets)
@@ -104,6 +108,31 @@ func splitDevArgs(args []string) (dir string, passthrough []string) {
 		return args[0], args[1:]
 	}
 	return "", args
+}
+
+// passedTarget returns the -target among the flags passed on to nsgo dev, "" when there is none, and whether -android-host, which runs an Android app's Go on this machine, is set. nsgo dev parses them after game dev's own -target, so the last one there wins.
+func passedTarget(args []string) (target string, androidHost bool) {
+	for i := 0; i < len(args); i++ {
+		name, ok := strings.CutPrefix(args[i], "-")
+		if !ok {
+			continue
+		}
+		name = strings.TrimPrefix(name, "-")
+		name, value, hasValue := strings.Cut(name, "=")
+		switch name {
+		case "target":
+			if hasValue {
+				target = value
+			} else if i+1 < len(args) {
+				i++
+				target = args[i]
+			}
+		case "android-host":
+			on, err := strconv.ParseBool(value)
+			androidHost = !hasValue || err == nil && on
+		}
+	}
+	return target, androidHost
 }
 
 // projectDevTarget returns the dev.target of the nsgo.yaml in dir, "native" (nsgo dev's default) when it names none or cannot be read.
