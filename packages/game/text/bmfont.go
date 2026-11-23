@@ -1,5 +1,4 @@
-// Package text draws bitmap fonts (AngelCode BMFont) through sprite batches
-// and platform-rendered text through core.Drawing.
+// Package text draws bitmap fonts (AngelCode BMFont) through sprite batches, signed-distance-field fonts that stay sharp at any size on the screen or in 3D world space (SDFFont, WorldText), and platform-rendered text through core.Drawing.
 package text
 
 import (
@@ -112,6 +111,13 @@ type bmfontData struct {
 	pages         []bmfontPage
 	chars         []bmfontChar
 	kernings      []bmfontKerning
+	// field is the distanceField record that msdf-bmfont-xml writes for signed-distance-field fonts; LoadBMFont ignores it and LoadSDFFont requires it.
+	field *bmfontField
+}
+
+type bmfontField struct {
+	fieldType     string
+	distanceRange float32
 }
 
 type bmfontPage struct {
@@ -322,6 +328,19 @@ func parseBMFontText(data []byte) (bmfontData, error) {
 					return bmfontData{}, fmt.Errorf("line %d: kernings count: %w", lineNo+1, err)
 				}
 			}
+		case "distanceField":
+			if out.field != nil {
+				return bmfontData{}, fmt.Errorf("line %d: duplicate distanceField record", lineNo+1)
+			}
+			field := &bmfontField{fieldType: kvs["fieldType"]}
+			if v, ok := kvs["distanceRange"]; ok {
+				n, err := parseFloat32(v)
+				if err != nil {
+					return bmfontData{}, fmt.Errorf("line %d: distanceField distanceRange: %w", lineNo+1, err)
+				}
+				field.distanceRange = n
+			}
+			out.field = field
 		case "kerning":
 			k, err := parseKerningKVs(kvs)
 			if err != nil {
@@ -503,6 +522,10 @@ type xmlBMFont struct {
 			Page     int     `xml:"page,attr"`
 		} `xml:"char"`
 	} `xml:"chars"`
+	DistanceField *struct {
+		FieldType     string  `xml:"fieldType,attr"`
+		DistanceRange float32 `xml:"distanceRange,attr"`
+	} `xml:"distanceField"`
 	Kernings struct {
 		Kernings []struct {
 			First  *int    `xml:"first,attr"`
@@ -527,6 +550,9 @@ func parseBMFontXML(data []byte) (bmfontData, error) {
 		out.lineHeight = doc.Common.LineHeight
 		out.base = doc.Common.Base
 		out.expectedPages = doc.Common.Pages
+	}
+	if doc.DistanceField != nil {
+		out.field = &bmfontField{fieldType: doc.DistanceField.FieldType, distanceRange: doc.DistanceField.DistanceRange}
 	}
 	for i, p := range doc.Pages.Pages {
 		if p.ID == nil {

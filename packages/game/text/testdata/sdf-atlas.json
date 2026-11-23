@@ -1,0 +1,13 @@
+{
+  "atlas": {"type": "msdf", "distanceRange": 4, "distanceRangeMiddle": 0, "size": 16, "width": 64, "height": 32, "yOrigin": "bottom"},
+  "name": "Test SDF",
+  "metrics": {"emSize": 1, "lineHeight": 1.5, "ascender": 1.25, "descender": -0.25, "underlineY": -0.125, "underlineThickness": 0.0625},
+  "glyphs": [
+    {"unicode": 32, "advance": 0.25},
+    {"unicode": 73, "advance": 0.5, "planeBounds": {"left": -0.25, "bottom": -0.25, "right": 0.5, "top": 1.25}, "atlasBounds": {"left": 0, "bottom": 8, "right": 12, "top": 32}},
+    {"unicode": 79, "advance": 1, "planeBounds": {"left": -0.25, "bottom": -0.25, "right": 1, "top": 1.25}, "atlasBounds": {"left": 16, "bottom": 8, "right": 36, "top": 32}}
+  ],
+  "kerning": [
+    {"unicode1": 73, "unicode2": 79, "advance": -0.0625}
+  ]
+}

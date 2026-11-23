@@ -165,3 +165,6 @@ jobs:
       - name: Fuzz ParseManifest
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzParseManifest$ -fuzztime=10s ./modding
+      - name: Fuzz LoadSDFFont
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzLoadSDFFont$ -fuzztime=10s ./text
