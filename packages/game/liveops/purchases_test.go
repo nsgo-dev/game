@@ -132,7 +132,7 @@ func TestBuyCreditsAConsumableIntoTheSaveAndFinishesIt(t *testing.T) {
 		t.Fatalf("saved %+v, finished %v", got, s.app.Finished)
 	}
 	r := s.app.PurchaseRequests
-	if i := slices.IndexFunc(r, func(r core.PurchaseRequest) bool { return r.Command == core.PurchaseBuy }); i < 0 || r[i].Quantity != 2 {
+	if i := slices.IndexFunc(r, func(r nsgotest.PurchaseRequest) bool { return r.Action == nsgotest.PurchaseBuy }); i < 0 || r[i].Quantity != 2 {
 		t.Fatalf("requests %+v", r)
 	}
 }
@@ -206,7 +206,9 @@ func TestAFailedSaveLeavesTheTransactionUnfinishedAndCreditsItOnce(t *testing.T)
 
 func TestAskToBuyWaitsThenDeliversTheApprovedPurchase(t *testing.T) {
 	s := open(t)
-	s.app.PurchaseAnswer = func(core.PurchaseRequest) (core.Transaction, error) { return core.Transaction{}, core.PurchasePending }
+	s.app.PurchaseAnswer = func(nsgotest.PurchaseRequest) (core.Transaction, error) {
+		return core.Transaction{}, core.PurchasePending
+	}
 	var pending []bool
 	s.cx.Effect(func() { pending = append(pending, s.purchases.Pending("coins.100")) })
 	if res, err := s.buy("coins.100", 1); res != liveops.BuyPending || err != nil {
@@ -229,7 +231,9 @@ func TestAskToBuyWaitsThenDeliversTheApprovedPurchase(t *testing.T) {
 // The approver declines: the store sends no transaction, so the purchase stays pending until a later one of the product arrives.
 func TestADeclinedAskToBuyStaysPendingUntilALaterPurchase(t *testing.T) {
 	s := open(t)
-	s.app.PurchaseAnswer = func(core.PurchaseRequest) (core.Transaction, error) { return core.Transaction{}, core.PurchasePending }
+	s.app.PurchaseAnswer = func(nsgotest.PurchaseRequest) (core.Transaction, error) {
+		return core.Transaction{}, core.PurchasePending
+	}
 	if res, err := s.buy("unlock.noads", 1); res != liveops.BuyPending || err != nil {
 		t.Fatalf("buy: %v, %v", res, err)
 	}
@@ -248,7 +252,7 @@ func TestADeclinedAskToBuyStaysPendingUntilALaterPurchase(t *testing.T) {
 
 func TestCancelAndFailureAnswerApart(t *testing.T) {
 	s := open(t)
-	s.app.PurchaseAnswer = func(core.PurchaseRequest) (core.Transaction, error) {
+	s.app.PurchaseAnswer = func(nsgotest.PurchaseRequest) (core.Transaction, error) {
 		return core.Transaction{}, core.PurchaseCancelled
 	}
 	if res, err := s.buy("coins.100", 1); res != liveops.BuyCancelled || err != nil {
@@ -328,11 +332,11 @@ func TestRestoreBringsBackAnUnlockOnReinstall(t *testing.T) {
 	if reinstalled.state.Coins != 0 || reinstalled.credits != 0 {
 		t.Fatalf("restore credited %d coins", reinstalled.state.Coins)
 	}
-	var cmds []core.PurchaseCommand
+	var cmds []nsgotest.PurchaseAction
 	for _, r := range reinstalled.app.PurchaseRequests {
-		cmds = append(cmds, r.Command)
+		cmds = append(cmds, r.Action)
 	}
-	if !slices.Equal(cmds, []core.PurchaseCommand{core.PurchaseEntitlements, core.PurchaseSync, core.PurchaseEntitlements}) {
+	if !slices.Equal(cmds, []nsgotest.PurchaseAction{nsgotest.PurchaseEntitlements, nsgotest.PurchaseSync, nsgotest.PurchaseEntitlements}) {
 		t.Fatalf("requests %v", cmds)
 	}
 

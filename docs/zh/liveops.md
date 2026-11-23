@@ -132,7 +132,7 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 
 ## 应用内购买
 
-`Purchases` 基于 NSGo 的购买服务（`cx.Purchase`、`cx.OnPurchaseUpdate`、`cx.CurrentEntitlements`、`cx.SyncPurchases`）出售游戏的商品。它只在 `cx.Env().CanPurchase()` 为 true 时可用，在 NSGo v0.2.0 中即 macOS、iOS 和 tvOS 上 `nsgo.yaml` 设置了 `apple.purchases: true` 的构建所连接的 App Store；其他平台上 `Buy` 以 `core.PurchasesUnavailable` 失败，`Available` 返回 false。
+`Purchases` 基于 NSGo 的购买服务（`cx.Purchase`、`cx.OnPurchaseUpdate`、`cx.CurrentEntitlements`、`cx.SyncPurchases`）出售游戏的商品。它只在 `cx.Env().CanPurchase()` 为 true 时可用，在 NSGo v0.3.0 中即 macOS、iOS 和 tvOS 上 `nsgo.yaml` 设置了 `apple.purchases: true` 的构建所连接的 App Store；其他平台上 `Buy` 以 `core.PurchasesUnavailable` 失败，`Available` 返回 false。
 
 - 消耗型商品只入账一次。把 `Ledger` 放进存档，与 `Credit` 修改的状态放在一起：`Purchases` 先调用 `Credit`，把交易 ID 记入账本，再调用 `Save`，之后才完成（finish）交易。在保存前被杀掉，入账和记录一起丢失，商店会在下次启动时再次交付该交易；在保存后被杀掉，下次启动会在账本中找到该 ID，只完成交易而不重复入账。`Save` 失败时交易保持未完成。
 - 非消耗型商品和订阅是“拥有”而非“入账”：`Owned(product)` 读取商店的权益（`NewPurchases` 启动时加载，`Refresh` 重新加载），并用 `cx.WallTime()` 判断订阅是否过期。在响应式计算中读取 `Owned` 和 `Pending`，购买、退款和恢复购买会自动更新视图；应用运行期间到期的订阅要到下次读取或 `Refresh` 时才会反映出来，因此请在应用回到前台时调用 `Refresh`。同一商品较旧的交易（例如启动时作为未完成交易再次交付的已过期续订）不会取代较新的交易。
@@ -166,4 +166,4 @@ showNoAds := !shop.Owned("com.example.noads")
 
 测试通过 `nsgotest` 驱动购买：用 `nsgotest.Environment(core.Environment{Purchases: true})` 启动应用并设置 `app.Products`；用 `app.PurchaseAnswer` 模拟取消或“询问后购买”，用 `app.UpdatePurchase` 模拟批准或退款，用 `nsgotest.UnfinishedTransactions` 加 `nsgotest.Storage` 模拟完成交易前被杀掉的一次运行，用 `app.Entitlements` 加 `Restore` 模拟重装。`liveops/purchases_test.go` 覆盖了以上每种情况。
 
-要在 StoreKit Testing 下手动验证恢复购买：在 iOS 应用的 Xcode scheme 中加入包含一个非消耗型商品的 StoreKit 配置文件，以 `apple.purchases: true` 构建，在模拟器中购买该商品，删除并重新安装应用，然后按下游戏的“恢复购买”按钮，`Owned` 会再次报告拥有该商品。NSGo v0.2.0 在 Android 上没有商店（Google Play Billing 等待 [nsgo#353](https://github.com/nsgo-dev/nsgo/issues/353)）。
+要在 StoreKit Testing 下手动验证恢复购买：在 iOS 应用的 Xcode scheme 中加入包含一个非消耗型商品的 StoreKit 配置文件，以 `apple.purchases: true` 构建，在模拟器中购买该商品，删除并重新安装应用，然后按下游戏的“恢复购买”按钮，`Owned` 会再次报告拥有该商品。NSGo v0.3.0 在 Android 上没有商店（Google Play Billing 等待 [nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)）。
