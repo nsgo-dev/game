@@ -138,6 +138,30 @@ func CollectClipEvents(events []ClipEvent, prevTime, nextTime, duration float32,
 	return fired
 }
 
+// collectDirected collects events between two unwrapped playback times in either direction. A forward step (next > prev) is CollectClipEvents; a backward step mirrors time (t -> duration - t) so reverse playback fires each event it crosses exactly once, in the order it crosses them, with the same seam rules as forward playback (#546).
+func collectDirected(events []ClipEvent, prev, next, duration float64, loop bool) []ClipEvent {
+	if next >= prev {
+		return CollectClipEvents(events, float32(prev), float32(next), float32(duration), loop)
+	}
+	if len(events) == 0 || duration <= 0 {
+		return nil
+	}
+	mirrored := make([]ClipEvent, 0, len(events))
+	for _, ev := range events {
+		if ev.Time < 0 || float64(ev.Time) > duration {
+			continue
+		}
+		m := ev
+		m.Time = float32(duration - float64(ev.Time))
+		mirrored = append(mirrored, m)
+	}
+	fired := CollectClipEvents(mirrored, float32(duration-prev), float32(duration-next), float32(duration), loop)
+	for i := range fired {
+		fired[i].Time = float32(duration - float64(fired[i].Time))
+	}
+	return fired
+}
+
 func modFloat64(x, period float64) float64 {
 	r := math.Mod(x, period)
 	if r < 0 {

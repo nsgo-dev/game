@@ -13,7 +13,7 @@ import (
 //
 // Bone lengths |mid - root| and |end - mid| are preserved exactly. Unreachable
 // targets (farther than l1+l2 or closer than |l1-l2|) are clamped cleanly along
-// the root-to-target axis without NaN or stretching.
+// the root-to-target axis without NaN or stretching. When one bone has zero length the other bone alone is aimed at the target; when both do, the chain is returned unchanged.
 //
 // Returned delta rotations satisfy:
 //   - root.Add(rootRot.RotateVec3(mid.Sub(root))) == newMid
@@ -25,12 +25,28 @@ func SolveTwoBoneIK(root, mid, end, target, pole math3d.Vec3) (newMid, newEnd ma
 	lowerVec := end.Sub(mid)
 	l1 := upperVec.Len()
 	l2 := lowerVec.Len()
-	if l1 < eps || l2 < eps {
-		return mid, end, math3d.QuatIdentity(), math3d.QuatIdentity()
-	}
-
 	toTarget := target.Sub(root)
 	dist := toTarget.Len()
+
+	// A zero-length bone leaves a one-bone chain, which still aims at the target instead of ignoring it (#546).
+	switch {
+	case l1 < eps && l2 < eps:
+		return mid, end, math3d.QuatIdentity(), math3d.QuatIdentity()
+	case l1 < eps:
+		toT := target.Sub(mid)
+		if toT.Len() < eps {
+			return mid, end, math3d.QuatIdentity(), math3d.QuatIdentity()
+		}
+		midRot = quatFromTo(lowerVec, toT, arbitraryPerpendicular(lowerVec.Scale(1/l2)))
+		return mid, mid.Add(midRot.RotateVec3(lowerVec)), math3d.QuatIdentity(), midRot
+	case l2 < eps:
+		if dist < eps {
+			return mid, end, math3d.QuatIdentity(), math3d.QuatIdentity()
+		}
+		rootRot = quatFromTo(upperVec, toTarget, arbitraryPerpendicular(upperVec.Scale(1/l1)))
+		newMid = root.Add(rootRot.RotateVec3(upperVec))
+		return newMid, newMid.Add(rootRot.RotateVec3(lowerVec)), rootRot, math3d.QuatIdentity()
+	}
 
 	var dir math3d.Vec3
 	if dist < eps {

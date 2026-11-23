@@ -104,6 +104,8 @@ const (
 //   - Pos:   target.Pos - reference.Pos
 //   - Rot:   target.Rot * reference.Rot.Conj() (normalized)
 //   - Scale: component-wise target.Scale / reference.Scale (1 when reference scale is 0)
+//
+// A joint that target does not have (past len(target.Joints)) gets the identity delta, so it leaves the base pose unchanged instead of applying the negated reference.
 func MakeAdditivePose(target Pose, reference Pose) Pose {
 	n := max(len(target.Joints), len(reference.Joints))
 	if n == 0 {
@@ -112,10 +114,11 @@ func MakeAdditivePose(target Pose, reference Pose) Pose {
 	id := math3d.TransformIdentity()
 	out := make([]math3d.Transform, n)
 	for i := range n {
-		tj := id
-		if i < len(target.Joints) {
-			tj = target.Joints[i]
+		if i >= len(target.Joints) {
+			out[i] = id
+			continue
 		}
+		tj := target.Joints[i]
 		rj := id
 		if i < len(reference.Joints) {
 			rj = reference.Joints[i]
@@ -183,7 +186,7 @@ func ApplyAdditivePose(base Pose, additive Pose, strength float32, mask *BoneMas
 }
 
 // BlendPosesMasked blends overlay over base by weight (clamped to [0, 1])
-// multiplied per joint by mask (if non-nil).
+// multiplied per joint by mask (if non-nil). A joint that overlay does not have (past len(overlay.Joints)) keeps the base transform rather than blending toward identity.
 func BlendPosesMasked(base, overlay Pose, weight float32, mask *BoneMask) Pose {
 	n := max(len(base.Joints), len(overlay.Joints))
 	if n == 0 {
@@ -197,10 +200,11 @@ func BlendPosesMasked(base, overlay Pose, weight float32, mask *BoneMask) Pose {
 		if i < len(base.Joints) {
 			bj = base.Joints[i]
 		}
-		oj := id
-		if i < len(overlay.Joints) {
-			oj = overlay.Joints[i]
+		if i >= len(overlay.Joints) {
+			out[i] = bj
+			continue
 		}
+		oj := overlay.Joints[i]
 		w := baseW
 		if mask != nil {
 			w *= mask.Weight(i)
@@ -224,6 +228,8 @@ func BlendPosesMasked(base, overlay Pose, weight float32, mask *BoneMask) Pose {
 // For LayerAdditive layers, if ReferencePose is non-nil, MakeAdditivePose is
 // computed relative to ReferencePose; if nil, the sampled pose is treated as an
 // already-delta additive pose (equivalently, relative to identity).
+//
+// When a layer plays a Clip, only the joints the clip has a track for take part: an override layer leaves the other joints at the pose below it, and an additive layer adds nothing to them.
 type AnimLayer struct {
 	Name          string
 	Mode          LayerBlendMode
@@ -359,10 +365,12 @@ func (ls *LayerStack) Evaluate() Pose {
 			continue
 		}
 		var layerPose Pose
+		var clip *Clip
 		switch {
 		case layer.Sampler != nil:
 			layerPose = layer.Sampler.Pose()
 		case layer.Clip != nil:
+			clip = layer.Clip
 			layerPose = sampleLayerClip(layer.Clip, layer.Time, layer.Loop)
 		default:
 			continue
@@ -376,9 +384,27 @@ func (ls *LayerStack) Evaluate() Pose {
 			if layer.ReferencePose != nil {
 				addPose = MakeAdditivePose(layerPose, *layer.ReferencePose)
 			}
+			if clip != nil {
+				// A joint without a track samples as identity, which against a reference pose is the negated reference; it must add nothing (#546).
+				id := math3d.TransformIdentity()
+				for j := range addPose.Joints {
+					if !clip.hasTrack(j) {
+						addPose.Joints[j] = id
+					}
+				}
+			}
 			pose = ApplyAdditivePose(pose, addPose, w, layer.Mask)
 		default: // LayerOverride
+			below := pose
 			pose = BlendPosesMasked(pose, layerPose, w, layer.Mask)
+			if clip != nil {
+				// A joint without a track would otherwise snap to identity (#546).
+				for j := range min(len(pose.Joints), len(below.Joints)) {
+					if !clip.hasTrack(j) {
+						pose.Joints[j] = below.Joints[j]
+					}
+				}
+			}
 		}
 	}
 	return pose
@@ -412,6 +438,17 @@ func sampleLayerClip(clip *Clip, tSec float32, loop bool) Pose {
 		}
 	}
 	return clip.sampleClamped(time.Duration(t * float64(time.Second)))
+}
+
+// hasTrack reports whether the clip animates joint j with at least one channel.
+func (c *Clip) hasTrack(j int) bool {
+	for i := range c.Tracks {
+		tr := &c.Tracks[i]
+		if tr.JointIndex == j && (len(tr.Translations) > 0 || len(tr.Rotations) > 0 || len(tr.Scales) > 0) {
+			return true
+		}
+	}
+	return false
 }
 
 func safeDivOne(num, den float32) float32 {
