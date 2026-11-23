@@ -13,11 +13,9 @@ import (
 )
 
 const (
-	TileSize      = 16
-	MapCols       = 24
-	MapRows       = 16
-	VirtualWidth  = 320
-	VirtualHeight = 200
+	TileSize = 16
+	MapCols  = 24
+	MapRows  = 16
 )
 
 // Global tile IDs matching the tileset frame order in buildWorldMap.

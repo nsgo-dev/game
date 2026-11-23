@@ -106,6 +106,7 @@ import "github.com/nsgo-dev/game/packages/game/sound"
 
 - `NewMixer(cx, key)` 把音量保存在应用的存储（`core.Storage`）中，键以 `key` 开头，所以音量在多次启动之间保持不变。
 - `Master`、`SetMaster`、`Volume(group)` 和 `SetVolume(group, v)` 读取和设置音量。在计算中读取音量时，这个计算会订阅音量的变化；存储已满时，设置会以 `*core.StorageFullError` 失败。
+- `SetDefaultMaster` 和 `SetDefaultVolume(group, v)` 设置玩家调整之前的默认音量，例如项目文件中的音量，不写入存储。
 - 音效的播放音量是它自己这次播放的音量乘以所在分组的音量和主音量，音乐的播放音量是所在分组的音量乘以主音量。
 - 音量的变化立即作用于正在播放的音效和音乐。分组音量或主音量降为 0 时，正在播放的音效静音继续播放，音量恢复后重新可闻。
 - 窗口在后台时，混音器会把正在播放的音效静音并暂停音乐；窗口再次显示时，恢复仍在播放的音效的音量，并从暂停处继续播放音乐。`Suspend()` 也会这样做，直到调用它返回的 `resume` 为止，过场动画播放期间就是如此（[cutscene](cutscene.md)）。

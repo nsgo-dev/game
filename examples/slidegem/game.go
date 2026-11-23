@@ -23,10 +23,6 @@ import (
 )
 
 const (
-	// VirtualWidth and VirtualHeight define SlideGem's portrait-friendly virtual canvas.
-	VirtualWidth  float32 = 420
-	VirtualHeight float32 = 620
-
 	// Board layout inside virtual coordinates (leaves top space for HUD and bottom space for status).
 	BoardOriginX float32 = 30
 	BoardOriginY float32 = 148
@@ -147,15 +143,10 @@ func newSlideGem(cx *core.Scope, seed uint64) (*slideGemGame, core.Node) {
 	_ = store.Load(saveSlotName, &stats)
 
 	g := &slideGemGame{
-		cx:    cx,
-		seed:  seed,
-		board: NewBoard(seed),
-		viewport: screen.Viewport{
-			Width:    VirtualWidth,
-			Height:   VirtualHeight,
-			Mode:     screen.ModeFit,
-			BarColor: core.RGB(0x0B1020),
-		},
+		cx:        cx,
+		seed:      seed,
+		board:     NewBoard(seed),
+		viewport:  gameViewport,
 		actions:   input.NewActions(),
 		atlas:     atlas,
 		batch:     sprite.Batch{Atlas: atlas},
@@ -224,6 +215,7 @@ func newSlideGem(cx *core.Scope, seed uint64) (*slideGemGame, core.Node) {
 }
 
 func (g *slideGemGame) loadAudio() {
+	gameProject.ConfigureMixer(g.mixer)
 	audio.LoadSound(g.cx, audio.Source{Data: buildChimeWAV()}, func(s *audio.Sound, err error) {
 		if err == nil && s != nil {
 			g.chimeSFX = g.mixer.Effect(s, "sfx", 6)

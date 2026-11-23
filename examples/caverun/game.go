@@ -45,11 +45,11 @@ const (
 // stickDeadZone is the left stick deflection below which the explorer stands still.
 const stickDeadZone = 0.3
 
-// Virtual-space input regions (in 320x180 virtual canvas coordinates).
+// Virtual-space input regions, as game.yaml binds them (in virtual canvas coordinates).
 var (
-	touchRegionLeft  = core.Bounds{Origin: core.Point{X: 0, Y: 116}, Size: core.Size{Width: 72, Height: 64}}
-	touchRegionRight = core.Bounds{Origin: core.Point{X: 72, Y: 116}, Size: core.Size{Width: 72, Height: 64}}
-	touchRegionJump  = core.Bounds{Origin: core.Point{X: 224, Y: 116}, Size: core.Size{Width: 96, Height: 64}}
+	touchRegionLeft  = projectRegion("left")
+	touchRegionRight = projectRegion("right")
+	touchRegionJump  = projectRegion("jump")
 )
 
 type caveRun struct {
@@ -104,17 +104,10 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 	}
 
 	g := &caveRun{
-		cx:     cx,
-		env:    cx.Env(),
-		assets: assets,
-		viewport: screen.Viewport{
-			Width:        virtualWidth,
-			Height:       virtualHeight,
-			Mode:         screen.ModeFit,
-			IntegerScale: true,
-			PixelSnap:    true,
-			BarColor:     core.RGB(0x0b0d17),
-		},
+		cx:          cx,
+		env:         cx.Env(),
+		assets:      assets,
+		viewport:    gameViewport,
 		scenes:      scene.NewManager(cx),
 		actions:     input.NewActions(),
 		mixer:       sound.NewMixer(cx, "caverun.sound"),
@@ -130,6 +123,7 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 		sprites:     core.NewSignal(cx, 0),
 	}
 
+	gameProject.ConfigureMixer(g.mixer)
 	g.music = g.mixer.Music(soundGroupMusic)
 	g.music.Loop = true
 	g.loadAudio(cx)
@@ -330,27 +324,21 @@ func (g *caveRun) toggleMute() {
 	}
 }
 
-// bindControls binds Cave Run's actions to the keyboard, game controllers, touch and the mouse. Touch and mouse regions are in the 320x180 virtual canvas, which Actions.MapPoint maps view points into.
+// bindControls binds Cave Run's actions to touch and the mouse, as game.yaml's input map does, and to the keyboard and game controllers, which game.yaml cannot bind. Touch and mouse regions are in the virtual canvas, which Actions.MapPoint maps view points into.
 func bindControls(a *input.Actions) {
-	a.Bind(actionLeft,
+	gameProject.BindInput(a)
+	a.Bind(actionLeft, append(a.Bindings(actionLeft),
 		input.Key("a"), input.Key("left"),
 		input.GamepadButton(gamepad.ButtonDPadLeft),
-		input.TouchRegion(touchRegionLeft),
-		input.MouseRegion(touchRegionLeft, core.MouseButtonLeft),
-	)
-	a.Bind(actionRight,
+	)...)
+	a.Bind(actionRight, append(a.Bindings(actionRight),
 		input.Key("d"), input.Key("right"),
 		input.GamepadButton(gamepad.ButtonDPadRight),
-		input.TouchRegion(touchRegionRight),
-		input.MouseRegion(touchRegionRight, core.MouseButtonLeft),
-	)
-	a.Bind(actionJump,
+	)...)
+	a.Bind(actionJump, append(a.Bindings(actionJump),
 		input.Key("space"), input.Key("w"), input.Key("up"), input.Key("z"),
 		input.GamepadButton(gamepad.ButtonSouth),
-		input.TouchRegion(touchRegionJump),
-		input.MouseRegion(touchRegionJump, core.MouseButtonLeft),
-	)
-	a.BindAxis(actionMove, actionLeft, actionRight)
+	)...)
 	a.BindGamepadAxis(actionMove, gamepad.AxisLeftX, input.GamepadAxisOptions{DeadZone: stickDeadZone, Axial: true})
 
 	a.Bind(actionConfirm, input.Key("enter"), input.GamepadButton(gamepad.ButtonStart))

@@ -17,9 +17,7 @@ import (
 )
 
 const (
-	virtualWidth  float32 = 320
-	virtualHeight float32 = 180
-	maxHearts             = 3
+	maxHearts = 3
 
 	playerBoxW      float32 = 10
 	playerBoxH      float32 = 14

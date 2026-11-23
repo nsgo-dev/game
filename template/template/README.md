@@ -9,7 +9,12 @@ It demonstrates:
 - A native NSGo HUD (`core.Text` and `base.Button`) layered above the canvas with safe-area padding and pass-through pointer events.
 - Headless tests using `nsgotest.Main` and `nsgotest.Start`.
 
-Edit the app's display name and identifier in `nsgo.yaml` before shipping it.
+The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
+
+```sh
+go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+```
 
 ## Running and Testing
 
@@ -55,7 +60,9 @@ go tool nsgo build -target ios,android_arm64
 
 ## Layout
 
-- `main.go` — entry point (`nsgo.Run(Root)`).
+- `game.yaml` — the project file: the game's name, id and version, its window and its export presets per platform, with a virtual resolution, an input map, audio buses and autoloaded scenes and resources to add as the game grows.
+- `project.go` — embeds `game.yaml` as `Project`.
+- `main.go` — entry point (`nsgo.Run(Root, ...)` with the window from `Project`).
 - `game.go` — fixed-step `game.Loop`, procedural two-frame `sprite.Atlas`, `core.Canvas`, and native HUD overlay.
-- `game_test.go` — headless `nsgotest` and unit tests.
-- `nsgo.yaml` — NSGo app metadata, dev settings, and build targets.
+- `game_test.go`, `project_test.go` — headless `nsgotest` and unit tests, and a check that `game.yaml` is canonical and `nsgo.yaml` agrees with it.
+- `nsgo.yaml` — NSGo app metadata and dev settings; its name, id, version, appearance and build output and targets follow `game.yaml`.

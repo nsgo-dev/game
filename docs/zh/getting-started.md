@@ -22,7 +22,7 @@ cd mygame
 go tool nsgo dev
 ```
 
-起手模板包含精灵动画、点击得分和测试。在 `nsgo.yaml` 里修改游戏的显示名称和应用标识。
+起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中：在那里修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
 如果你已经检出了本仓库，可以把 `template/template/` 复制到新目录。将 `go.mod.tmpl` 改名为 `go.mod`，并将第一行的 `{{.Module}}` 替换为自己的模块路径。也可以在仓库根目录运行 `go tool nsgo dev ./template/template`，直接启动模板游戏。
 
@@ -31,8 +31,10 @@ go tool nsgo dev
 ```text
 mygame/
 ├─ go.mod
+├─ game.yaml
 ├─ nsgo.yaml
 ├─ main.go
+├─ project.go
 ├─ game.go
 ├─ game_test.go
 ├─ resources/

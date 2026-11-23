@@ -1,0 +1,53 @@
+version: 1
+name: Starburst
+id: dev.nsgo.game.starburst
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+  minWidth: 480
+  minHeight: 270
+  appearance: dark
+display:
+  width: 480
+  height: 270
+  mode: fit
+  pixelSnap: true
+  barColor: '#04070e'
+input:
+  actions:
+    - name: move_left
+      bindings:
+        - kind: touchRegion
+          region: {x: 8, "y": 184, width: 44, height: 42}
+    - name: move_right
+      bindings:
+        - kind: touchRegion
+          region: {x: 80, "y": 184, width: 44, height: 42}
+    - name: move_up
+      bindings:
+        - kind: touchRegion
+          region: {x: 44, "y": 148, width: 44, height: 42}
+    - name: move_down
+      bindings:
+        - kind: touchRegion
+          region: {x: 44, "y": 220, width: 44, height: 42}
+    - name: fire
+      bindings:
+        - kind: mouseButton
+          button: left
+        - kind: touchRegion
+          region: {x: 256, "y": 56, width: 216, height: 146}
+    - name: nova
+      bindings:
+        - kind: mouseButton
+          button: right
+        - kind: touchRegion
+          region: {x: 392, "y": 204, width: 78, height: 56}
+  axes:
+    - name: move_x
+      negative: move_left
+      positive: move_right
+    - name: move_y
+      negative: move_up
+      positive: move_down

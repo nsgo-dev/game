@@ -22,7 +22,7 @@ cd mygame
 go tool nsgo dev
 ```
 
-The starter includes an animated sprite, tap-to-score input, and tests. Edit the app's display name and identifier in `nsgo.yaml` for your game.
+The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md): edit the game's name and identifier there, then run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
 
 To start from a checkout of this repository, copy `template/template/` to a new directory. Rename `go.mod.tmpl` to `go.mod` and replace `{{.Module}}` on the first line with your module path. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
 
@@ -31,8 +31,10 @@ Add `resources/` for files your game loads at runtime and `assets/` for files th
 ```text
 mygame/
 ├─ go.mod
+├─ game.yaml
 ├─ nsgo.yaml
 ├─ main.go
+├─ project.go
 ├─ game.go
 ├─ game_test.go
 ├─ resources/

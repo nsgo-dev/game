@@ -16,10 +16,6 @@ import (
 )
 
 const (
-	// VirtualWidth and VirtualHeight define Starburst's crisp 16:9 pixel-art canvas.
-	VirtualWidth  = 480
-	VirtualHeight = 270
-
 	// ArenaWidth and ArenaHeight define the playable world bounds that the camera pans over.
 	ArenaWidth  = 960
 	ArenaHeight = 540
@@ -64,14 +60,14 @@ const (
 	keyHoldDuration = 0.19
 )
 
-// Touch control regions in 480x270 virtual coordinates, bound into input.Actions.
+// Touch control regions in virtual coordinates, as game.yaml binds them into input.Actions.
 var (
-	touchMoveLeftRect  = core.Bounds{Origin: core.Point{X: 8, Y: 184}, Size: core.Size{Width: 44, Height: 42}}
-	touchMoveRightRect = core.Bounds{Origin: core.Point{X: 80, Y: 184}, Size: core.Size{Width: 44, Height: 42}}
-	touchMoveUpRect    = core.Bounds{Origin: core.Point{X: 44, Y: 148}, Size: core.Size{Width: 44, Height: 42}}
-	touchMoveDownRect  = core.Bounds{Origin: core.Point{X: 44, Y: 220}, Size: core.Size{Width: 44, Height: 42}}
-	touchFireRect      = core.Bounds{Origin: core.Point{X: 256, Y: 56}, Size: core.Size{Width: 216, Height: 146}}
-	touchNovaRect      = core.Bounds{Origin: core.Point{X: 392, Y: 204}, Size: core.Size{Width: 78, Height: 56}}
+	touchMoveLeftRect  = projectRegion("move_left")
+	touchMoveRightRect = projectRegion("move_right")
+	touchMoveUpRect    = projectRegion("move_up")
+	touchMoveDownRect  = projectRegion("move_down")
+	touchFireRect      = projectRegion("fire")
+	touchNovaRect      = projectRegion("nova")
 )
 
 // EnemyKind identifies the visual frame and behavior of a hostile unit.
@@ -255,14 +251,8 @@ type Arena struct {
 func NewArena(seed uint64) *Arena {
 	atlas := NewProceduralAtlas()
 	a := &Arena{
-		Atlas: atlas,
-		Viewport: screen.Viewport{
-			Width:     VirtualWidth,
-			Height:    VirtualHeight,
-			Mode:      screen.ModeFit,
-			PixelSnap: true,
-			BarColor:  core.RGB(0x04070E),
-		},
+		Atlas:    atlas,
+		Viewport: gameViewport,
 		worldBounds: core.Bounds{
 			Origin: core.Point{X: 0, Y: 0},
 			Size:   core.Size{Width: ArenaWidth, Height: ArenaHeight},

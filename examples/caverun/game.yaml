@@ -1,0 +1,57 @@
+version: 1
+name: Cave Run
+id: dev.nsgo.caverun
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+display:
+  width: 320
+  height: 180
+  mode: fit
+  integerScale: true
+  pixelSnap: true
+  barColor: '#0b0d17'
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: touchRegion
+          region: {"y": 116, width: 72, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {"y": 116, width: 72, height: 64}
+    - name: right
+      bindings:
+        - kind: touchRegion
+          region: {x: 72, "y": 116, width: 72, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {x: 72, "y": 116, width: 72, height: 64}
+    - name: jump
+      bindings:
+        - kind: touchRegion
+          region: {x: 224, "y": 116, width: 96, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {x: 224, "y": 116, width: 96, height: 64}
+  axes:
+    - name: move
+      negative: left
+      positive: right
+audio:
+  buses:
+    - name: music
+    - name: sfx
+autoload:
+  resources:
+    - name: level1
+      path: assets/level1.tmj
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+    - platform: android
+    - platform: web
