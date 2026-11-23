@@ -664,3 +664,51 @@ func TestSteadyStateUpdateZeroAllocs(t *testing.T) {
 func near(a, b float32) bool {
 	return math.Abs(float64(a-b)) < 1e-4
 }
+
+func TestColorCurveTintsParticleSprites(t *testing.T) {
+	e := &particles.Emitter{
+		Atlas:       sheet,
+		Frames:      []sprite.Frame{sheet.Frames["spark"]},
+		X:           40,
+		Y:           40,
+		LifetimeMin: time.Second,
+		LifetimeMax: time.Second,
+		ColorCurve: particles.ColorCurve{
+			{T: 0, Color: core.RGBA(0xff0000, 1)},
+			{T: 1, Color: core.RGBA(0x0000ff, 0)},
+		},
+	}
+	e.Burst(1)
+	e.Update(500 * time.Millisecond)
+
+	p := e.Particles()[0]
+	// Halfway: R and B are each 255/2 rounded, and the curve's alpha 0.5 goes to Alpha, not the tint.
+	if p.Color != core.Color(0x800080_80) || !near(p.Alpha, float32(0x80)/255) {
+		t.Fatalf("Color = %#08x, Alpha = %v, want 0x80008080, %v", uint32(p.Color), p.Alpha, float32(0x80)/255)
+	}
+
+	expected := sprite.NewSprite(sheet.Frames["spark"])
+	expected.X, expected.Y = p.X, p.Y
+	expected.OriginX, expected.OriginY = 4, 4
+	expected.Alpha = p.Alpha
+	expected.Tint = core.RGB(0x800080)
+	batch := &sprite.Batch{Atlas: sheet, Sprites: []*sprite.Sprite{&expected}}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "emitter", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) { e.Draw(d) }},
+			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) { batch.Draw(d) }},
+		}}
+	})
+	got, want := app.Find("emitter").Ops, app.Find("batch").Ops
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("emitter ops != batch ops:\ngot:  %+v\nwant: %+v", got, want)
+	}
+	var tinted bool
+	for _, op := range got {
+		tinted = tinted || op.Kind == core.DrawImage && op.Tinted && op.Color == core.RGB(0x800080)
+	}
+	if !tinted {
+		t.Fatalf("the particle drew untinted: %+v", got)
+	}
+}
