@@ -217,6 +217,9 @@ func TestTheReferenceReadsVectorUniformsAsTheGPUFillsLanes(t *testing.T) {
 		"float32":   []float32{0.2, 0.4, 0.6},
 		"constants": []core.AnimatedNode{core.Constant(0.2), core.Constant(0.4), core.Constant(0.6)},
 		"any":       []any{0.2, core.Constant(0.4), float32(0.6)},
+		"any color": []any{core.RGB(0x336699)},
+		"nested":    []any{0.2, []float64{0.4, 0.6}},
+		"any nodes": []any{[]core.AnimatedNode{core.Constant(0.2), core.Constant(0.4)}, 0.6},
 	} {
 		got, err := flash.Reference(sceneFrame(), 8, 4, []core.Uniforms{{"Amount": 1, "Color": c}})
 		if err != nil {
@@ -230,6 +233,29 @@ func TestTheReferenceReadsVectorUniformsAsTheGPUFillsLanes(t *testing.T) {
 	got, _ := flash.Reference(sceneFrame(), 1, 1, []core.Uniforms{{"Amount": 1, "Color": []int{1}}})
 	if c := got.RGBAAt(0, 0); c != (color.RGBA{255, 0, 0, 255}) {
 		t.Fatalf("a color of one lane drew %v, want red", c)
+	}
+	// A core.Color in a []any fills a vec3's three lanes, as on the GPU.
+	vignette := effects.MustCompile(effects.VignetteEffect())
+	full := core.Uniforms{"Strength": 1, "Radius": 0, "Softness": 1}
+	wantV, _ := vignette.Reference(sceneFrame(), 8, 4, []core.Uniforms{{"Strength": 1, "Radius": 0, "Softness": 1, "Color": []float64{1, 0, 0}}})
+	full["Color"] = []any{core.RGB(0xff0000)}
+	if gotV, _ := vignette.Reference(sceneFrame(), 8, 4, []core.Uniforms{full}); !slices.Equal(gotV.Pix, wantV.Pix) {
+		t.Fatal("a red core.Color in a []any did not draw red")
+	}
+	// More lanes than the vector has panic, as the GPU path refuses them.
+	for name, c := range map[string]any{
+		"four numbers":     []float64{0.1, 0.2, 0.3, 0.4},
+		"color and number": []any{core.RGB(0xff0000), 0.5},
+		"a string":         []any{"red"},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s did not panic", name)
+				}
+			}()
+			_, _ = flash.Reference(sceneFrame(), 1, 1, []core.Uniforms{{"Amount": 1, "Color": c}})
+		}()
 	}
 	// A node only the platform knows is refused.
 	if _, err := flash.Reference(sceneFrame(), 1, 1, []core.Uniforms{{"Color": []core.AnimatedNode{animatedNode{}}}}); err == nil || !strings.Contains(err.Error(), "uniform Color follows an animated node") {
@@ -317,6 +343,50 @@ func TestTheFlashAndShakeFadeOnTheFrameClock(t *testing.T) {
 	app.Press("id:stop")
 	if value(app, flash.Amount()) != 0 || value(app, shake.Amplitude()) != 0 || value(app, clock) != 0 {
 		t.Fatal("Stop left the flash or the shake running")
+	}
+}
+
+func TestATriggerRestartsAFadingFlashAndShake(t *testing.T) {
+	var flash *effects.Flash
+	var shake *effects.Shake
+	reduce := false
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		flash = effects.NewFlash(cx, effects.FlashConfig{ReduceMotion: func() bool { return reduce }})
+		shake = effects.NewShake(cx, effects.ShakeConfig{Seed: 3, ReduceMotion: func() bool { return reduce }})
+		button := func(id string, peak, amplitude float64) core.Node {
+			return core.View{TestID: id, Style: core.Style{Width: core.Pt(40), Height: core.Pt(40)}, OnPress: func(core.PressEvent) {
+				flash.Trigger(peak, 400*time.Millisecond)
+				shake.Trigger(amplitude, 500*time.Millisecond)
+			}}
+		}
+		return core.View{Children: []core.Node{button("hit", 0.6, 6), button("again", 5, 3), button("inf", math.Inf(1), 2)}}
+	}, nsgotest.ManualFrames())
+	clock := shake.Uniforms()["Time"].(core.AnimatedNode)
+	app.Press("id:hit")
+	app.Advance(100 * time.Millisecond)
+	if f, a := value(app, flash.Amount()), value(app, shake.Amplitude()); !(f > 0 && f < 0.6) || !(a > 0 && a < 6) {
+		t.Fatalf("after 100 ms the flash is %g and the shake %g", f, a)
+	}
+	// A peak above 1 is clamped to 1, and the shake starts over at its new amplitude and time 0.
+	app.Press("id:again")
+	if f, a, c := value(app, flash.Amount()), value(app, shake.Amplitude()), value(app, clock); f != 1 || a != 3 || c != 0 {
+		t.Fatalf("a second trigger left the flash at %g, the shake at %g and its time at %g, want 1, 3 and 0", f, a, c)
+	}
+	app.Advance(100 * time.Millisecond)
+	if c := value(app, clock); math.Abs(c-0.1) > 0.02 {
+		t.Fatalf("the restarted shake's time is %g after 100 ms", c)
+	}
+	app.Press("id:inf")
+	if f := value(app, flash.Amount()); f != 1 {
+		t.Fatalf("an infinite peak flashes %g, want 1", f)
+	}
+	// A trigger refused under reduced motion leaves the running flash and shake alone.
+	app.Advance(100 * time.Millisecond)
+	f, a, p := value(app, flash.Amount()), value(app, shake.Amplitude()), phases(app, shake)
+	reduce = true
+	app.Press("id:hit")
+	if value(app, flash.Amount()) != f || value(app, shake.Amplitude()) != a || phases(app, shake) != p {
+		t.Fatal("a trigger under reduced motion changed the running flash or shake")
 	}
 }
 

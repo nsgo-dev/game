@@ -105,7 +105,7 @@ The package ships three effects with their `Reference` functions, so a chain of 
 | --- | --- | --- |
 | `VignetteEffect()` | `Strength`, `Radius`, `Softness`, `Color` | Turns the edges toward `Color` (black when left out), keeping each pixel's alpha. The distance runs from 0 at the center to 1 at the corners, round in the frame's pixels; the edges start to turn at `Radius` and turn all the way, eased, over `Softness`, as far as `Strength` (0 to 1). |
 | `FlashEffect()` | `Amount`, `Color` | Turns the whole frame toward the opaque `Color` by `Amount`, 0 to 1. |
-| `ShakeEffect()` | `Amplitude`, `Time`, `Frequency`, `Phase` | Moves the frame by up to `Amplitude` pixels along each direction, swaying `Frequency` times a second on `Time` (seconds), started by the four `Phase` angles, and reads the frame's edge where it moves off it. `ShakeOffset` gives the same offset in Go, to move a HUD with it. |
+| `ShakeEffect()` | `Amplitude`, `Time`, `Frequency`, `Phase` | Moves the frame by up to `Amplitude` pixels along each direction, swaying `Frequency` times a second on `Time` (seconds), started by the four `Phase` angles, and reads the frame's edge where it moves off it. An offset that is not finite, or 1e30 pixels or more, leaves the frame in place. `ShakeOffset` gives the same offset in Go for uniforms set to plain numbers. |
 
 A uniform left out is 0, so each draws the frame as it is until it is set. Put the shake first, so the passes after it draw over the moved frame, and the flash last:
 
@@ -137,7 +137,7 @@ return effects.View{
 }
 ```
 
-Flashes and shakes follow reduced motion: `Trigger` does nothing and returns false while `ReduceMotion` reports true. Pass `a11y.Assist`'s `ReduceMotion`, which follows the player's choice and else the platform's; when `ReduceMotion` is nil, the platform's setting is asked. A peak, amplitude or duration of 0 or less does not start one either.
+Flashes and shakes follow reduced motion: `Trigger` does nothing and returns false while `ReduceMotion` reports true. Pass `a11y.Assist`'s `ReduceMotion`, which follows the player's choice and else the platform's; when `ReduceMotion` is nil, the platform's setting is asked. A peak, amplitude or duration of 0 or less does not start one either, and leaves a running one alone: `Stop` ends it, unlike `tilemap.Camera.Shake`, which a zero intensity cancels.
 
 ## Reference pictures
 
