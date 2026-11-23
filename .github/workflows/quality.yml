@@ -168,3 +168,6 @@ jobs:
       - name: Fuzz LoadSDFFont
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzLoadSDFFont$ -fuzztime=10s ./text
+      - name: Fuzz fog snapshots
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzUnmarshalJSON$ -fuzztime=10s ./fog
