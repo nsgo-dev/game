@@ -1,0 +1,223 @@
+package stats
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+
+	"go.yaml.in/yaml/v3"
+)
+
+// CurrentVersion is the version of the stats file schema this package reads and writes.
+const CurrentVersion = 1
+
+// Op is how a modifier changes a stat. Its YAML form is the constant's string.
+type Op string
+
+const (
+	// OpAdd adds the modifier's value to the stat's base, before any multiplication.
+	OpAdd Op = "add"
+	// OpMul multiplies the stat by the modifier's value after all additions; several multiply together.
+	OpMul Op = "mul"
+	// OpOverride replaces the computed value with the modifier's value, ignoring every add and mul; among several, the highest Priority wins and the latest added breaks ties.
+	OpOverride Op = "override"
+)
+
+// Valid reports whether o is OpAdd, OpMul or OpOverride.
+func (o Op) Valid() bool {
+	return o == OpAdd || o == OpMul || o == OpOverride
+}
+
+// Def defines one stat: its name, base value and optional bounds.
+type Def struct {
+	// Name identifies the stat within a sheet; it must be non-empty and unique.
+	Name string `yaml:"name"`
+	// Base is the stat's value before modifiers.
+	Base float64 `yaml:"base"`
+	// Min, when set, is the lowest value the stat takes after modifiers.
+	Min *float64 `yaml:"min,omitempty"`
+	// Max, when set, is the highest value the stat takes after modifiers; it must not be below Min.
+	Max *float64 `yaml:"max,omitempty"`
+}
+
+// Modifier changes one stat.
+type Modifier struct {
+	// Stat names the stat the modifier changes.
+	Stat string `yaml:"stat"`
+	// Op is how the modifier changes it.
+	Op Op `yaml:"op"`
+	// Value is the amount added, the factor multiplied by, or the value an override sets; it must be finite.
+	Value float64 `yaml:"value"`
+	// Priority orders override modifiers on the same stat: the highest wins. Add and mul modifiers ignore it.
+	Priority int `yaml:"priority,omitempty"`
+}
+
+// Effect is a named group of modifiers applied together from one source, such as an item's bonuses or a buff.
+type Effect struct {
+	// Name identifies the effect within a file; it must be non-empty and unique.
+	Name string `yaml:"name"`
+	// Steps is how many fixed steps the effect's modifiers last once applied; 0 keeps them until they are removed.
+	Steps int `yaml:"steps,omitempty"`
+	// Modifiers are the effect's modifiers, applied in order.
+	Modifiers []Modifier `yaml:"modifiers"`
+}
+
+// File is the root of a versioned YAML stats file: stat definitions and the effects that modify them.
+type File struct {
+	// Version is the schema version; it must equal CurrentVersion.
+	Version int `yaml:"version"`
+	// Stats are the stat definitions, in the order a sheet built from the file reports changes.
+	Stats []Def `yaml:"stats"`
+	// Effects are named groups of modifiers on those stats.
+	Effects []Effect `yaml:"effects,omitempty"`
+}
+
+// Effect returns the effect with the given name.
+func (f *File) Effect(name string) (Effect, bool) {
+	if f == nil {
+		return Effect{}, false
+	}
+	for _, e := range f.Effects {
+		if e.Name == name {
+			return e, true
+		}
+	}
+	return Effect{}, false
+}
+
+// NewSheet returns a sheet holding the file's stats at their base values, with no modifiers.
+func (f *File) NewSheet() (*Sheet, error) {
+	if f == nil {
+		return nil, errors.New("stats: nil file")
+	}
+	return NewSheet(f.Stats...)
+}
+
+// Parse decodes a YAML stats file and validates it. Unknown fields and trailing YAML documents are refused.
+func Parse(data []byte) (*File, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("stats: empty stats file")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var f File
+	if err := dec.Decode(&f); err != nil {
+		return nil, fmt.Errorf("stats: decode: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("stats: unexpected trailing YAML document")
+		}
+		return nil, fmt.Errorf("stats: decode: %w", err)
+	}
+	if err := Validate(&f); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// Encode validates f and writes it as deterministic YAML with 2-space indentation: fields in declaration order and lists in their given order, so Parse then Encode reproduces an encoded file byte for byte.
+func Encode(f *File) ([]byte, error) {
+	if err := Validate(f); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(f); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("stats: encode: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("stats: encode: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// Validate checks f against the version 1 schema: the version, unique non-empty names, finite numbers, Min not above Max, non-negative Steps, known ops, and modifiers that name defined stats.
+func Validate(f *File) error {
+	if f == nil {
+		return errors.New("stats: nil file")
+	}
+	if f.Version != CurrentVersion {
+		return fmt.Errorf("stats: unsupported version %d (want %d)", f.Version, CurrentVersion)
+	}
+	defined := make(map[string]bool, len(f.Stats))
+	for i, d := range f.Stats {
+		if err := validateDef(d); err != nil {
+			return fmt.Errorf("stats: stats[%d]: %w", i, err)
+		}
+		if defined[d.Name] {
+			return fmt.Errorf("stats: stats[%d]: duplicate stat %q", i, d.Name)
+		}
+		defined[d.Name] = true
+	}
+	effects := make(map[string]bool, len(f.Effects))
+	for i, e := range f.Effects {
+		where := fmt.Sprintf("stats: effects[%d]", i)
+		if e.Name == "" {
+			return fmt.Errorf("%s: empty name", where)
+		}
+		if effects[e.Name] {
+			return fmt.Errorf("%s: duplicate effect %q", where, e.Name)
+		}
+		effects[e.Name] = true
+		if e.Steps < 0 {
+			return fmt.Errorf("%s (%s): negative steps %d", where, e.Name, e.Steps)
+		}
+		if len(e.Modifiers) == 0 {
+			return fmt.Errorf("%s (%s): no modifiers", where, e.Name)
+		}
+		for j, m := range e.Modifiers {
+			if err := validateModifier(m); err != nil {
+				return fmt.Errorf("%s (%s): modifiers[%d]: %w", where, e.Name, j, err)
+			}
+			if !defined[m.Stat] {
+				return fmt.Errorf("%s (%s): modifiers[%d]: %w %q", where, e.Name, j, ErrUnknownStat, m.Stat)
+			}
+		}
+	}
+	return nil
+}
+
+func validateDef(d Def) error {
+	if d.Name == "" {
+		return errors.New("empty name")
+	}
+	if !finite(d.Base) {
+		return fmt.Errorf("stat %q: base is not finite", d.Name)
+	}
+	if d.Min != nil && !finite(*d.Min) {
+		return fmt.Errorf("stat %q: min is not finite", d.Name)
+	}
+	if d.Max != nil && !finite(*d.Max) {
+		return fmt.Errorf("stat %q: max is not finite", d.Name)
+	}
+	if d.Min != nil && d.Max != nil && *d.Min > *d.Max {
+		return fmt.Errorf("stat %q: min %v is above max %v", d.Name, *d.Min, *d.Max)
+	}
+	return nil
+}
+
+func validateModifier(m Modifier) error {
+	if m.Stat == "" {
+		return errors.New("empty stat")
+	}
+	if !m.Op.Valid() {
+		return fmt.Errorf("%w %q", ErrInvalidOp, m.Op)
+	}
+	if !finite(m.Value) {
+		return fmt.Errorf("%w: %v", ErrInvalidValue, m.Value)
+	}
+	return nil
+}
+
+func finite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+// Float returns a pointer to v, for Def's optional Min and Max.
+func Float(v float64) *float64 { return &v }
