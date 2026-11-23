@@ -108,6 +108,29 @@ func TestVolumesDefaultToFull(t *testing.T) {
 	}
 }
 
+func TestDefaultVolumesApplyUntilThePlayerSetsOne(t *testing.T) {
+	m := startMixed(t)
+	m.mixer.SetDefaultMaster(0.5)
+	m.mixer.SetDefaultVolume("effects", 0.4)
+	m.mixer.SetDefaultVolume("music", 2)
+	if !near(m.mixer.Master(), 0.5) || !near(m.mixer.Volume("effects"), 0.4) || m.mixer.Volume("music") != 1 || m.mixer.Volume("ui") != 1 {
+		t.Fatalf("master %v, effects %v, music %v, ui %v; want 0.5, 0.4, 1 and 1", m.mixer.Master(), m.mixer.Volume("effects"), m.mixer.Volume("music"), m.mixer.Volume("ui"))
+	}
+	m.click.Play(audio.Voice{})
+	if plays := m.plays(); len(plays) != 1 || !near(plays[0].Volume, 0.2) {
+		t.Fatalf("plays %+v, want one at 0.2", plays)
+	}
+
+	// A volume the player keeps wins over the default, and the default stays out of the storage.
+	m.mixer.SetVolume("effects", 1)
+	if m.mixer.Volume("effects") != 1 {
+		t.Fatalf("effects %v after SetVolume(1), want 1", m.mixer.Volume("effects"))
+	}
+	if _, ok := m.app.Storage().GetItem("sound.master"); ok {
+		t.Fatal("SetDefaultMaster kept the master volume in the storage")
+	}
+}
+
 func TestGroupAndMasterVolumesApplyToNewAndPlayingSounds(t *testing.T) {
 	m := startMixed(t)
 	m.music.Play(audio.Source{URI: trackA}, 0)

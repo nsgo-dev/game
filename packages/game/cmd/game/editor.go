@@ -4,34 +4,37 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// editorCommand opens the scene editor on a YAML scene file, or on a demo scene when none is named.
+// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named.
 var editorCommand = &command{
 	name:    "editor",
-	args:    "[scene.yaml]",
-	summary: "Open the scene editor on a YAML scene, or on a demo scene when none is named",
+	args:    "[project-dir | game.yaml | scene.yaml]",
+	summary: "Open the scene editor on a project or a YAML scene, or on a demo scene when none is named",
 	define:  defineEditor,
 }
 
 func defineEditor(a *app, fs *flag.FlagSet) func() error {
 	return func() error {
 		if fs.NArg() > 1 {
-			return usagef("expected at most one scene file, got %d", fs.NArg())
+			return usagef("expected at most one project or scene file, got %d", fs.NArg())
 		}
 		ed, err := newDemoEditor()
 		if err != nil {
 			return err
 		}
 		if fs.NArg() == 1 {
-			if err := ed.OpenFile(fs.Arg(0)); err != nil {
+			if err := open(ed, fs.Arg(0)); err != nil {
 				return fmt.Errorf("open %s: %w", fs.Arg(0), err)
 			}
 		}
@@ -46,6 +49,14 @@ func runEditor(ed *editor.Editor) {
 		cx.SetTitle("NSGo Scene Editor")
 		return editor.EditorView(cx, ed)
 	}, nsgo.WindowSize(1120, 680))
+}
+
+// open opens path in ed: a project, as a directory or its game.yaml, or else a scene file.
+func open(ed *editor.Editor, path string) error {
+	if info, err := os.Stat(path); err == nil && info.IsDir() || filepath.Base(path) == project.FileName {
+		return ed.OpenProject(path)
+	}
+	return ed.OpenFile(path)
 }
 
 // newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named.

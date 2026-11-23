@@ -1,0 +1,78 @@
+version: 1
+name: Cave Run
+id: dev.nsgo.caverun
+appVersion: 0.1.0
+window:
+  title: Cave Run
+  width: 960
+  height: 540
+  minWidth: 480
+  minHeight: 270
+  resizable: true
+  appearance: dark
+display:
+  width: 320
+  height: 180
+  mode: fit
+  integerScale: true
+  pixelSnap: true
+  barColor: '#0b0d17'
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: touchRegion
+          region: {"y": 116, width: 72, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {"y": 116, width: 72, height: 64}
+    - name: right
+      bindings:
+        - kind: touchRegion
+          region: {x: 72, "y": 116, width: 72, height: 64}
+    - name: fire
+      bindings:
+        - kind: mouseButton
+          button: right
+    - name: menu
+  axes:
+    - name: move
+      negative: left
+      positive: right
+  motionAxes:
+    - name: steer
+      axis: tiltX
+      deadZone: 0.1
+      sensitivity: 1.5
+      smoothing: 0.2
+      invert: true
+audio:
+  master: 0.9
+  buses:
+    - name: music
+      volume: 0.8
+      effects:
+        - lowPass: {cutoffHz: 1200, q: 0.7}
+        - reverb: {roomSize: 0.5, damping: 0.4, wet: 0.25}
+    - name: sfx
+      effects:
+        - highPass: {cutoffHz: 80}
+        - delay: {time: 250ms, feedback: 0.3, wet: 0.2}
+        - gain: {factor: 0.9}
+        - bitcrush: {bits: 8, downsample: 2}
+    - name: ui
+autoload:
+  mainScene: title
+  scenes:
+    - name: title
+      path: scenes/title.yaml
+  resources:
+    - name: enemies
+      path: data/enemies.csv
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+      targets: [windows_x64]
+    - platform: web

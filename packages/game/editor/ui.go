@@ -270,13 +270,19 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									ed.notify()
 									return
 								}
-								return
 							} else {
 								// Nothing was asked to persist the scene: say so
 								// instead of reporting a save that never happened.
 								ed.Status = "Save error: no save path; open or save the scene to a file first"
 								ed.notify()
 								return
+							}
+							// An edited project file is saved with the scene; an unedited one is left as written, comments included.
+							if ed.ProjectDirty() {
+								if err := ed.SaveProject(); err != nil {
+									ed.Status = "Save error: " + err.Error()
+									ed.notify()
+								}
 							}
 						},
 					},
