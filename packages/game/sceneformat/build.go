@@ -3,9 +3,11 @@ package sceneformat
 import (
 	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -49,7 +51,7 @@ type BuiltScene struct {
 	Camera *CameraDoc
 	// Layers are the scene's layers in draw order (lowest Order first, ties in document order).
 	Layers []*BuiltLayer
-	// Objects indexes every built object in the scene by its unique ID.
+	// Objects indexes every built object in the scene, children included, by its unique ID.
 	Objects map[string]*BuiltObject
 
 	// materialed are the sprite objects with a material, in build order, which SyncMaterials updates.
@@ -72,7 +74,7 @@ type BuiltLayer struct {
 	Tilemap *sprite.Batch
 	// Batches are the sprite batches for the layer's sprite objects, grouped in exact Z order.
 	Batches []*sprite.Batch
-	// Objects are all built objects in this layer, in document order.
+	// Objects are the layer's top-level built objects in document order; each one's descendants hang from BuiltObject.Children.
 	Objects []*BuiltObject
 }
 
@@ -86,10 +88,18 @@ type BuiltObject struct {
 	Layer string
 	// Atlas is the resolved atlas for Sprite, or nil when the object has no sprite.
 	Atlas *sprite.Atlas
-	// Sprite is the live sprite drawn by its layer's batch, or nil when the object has no sprite.
+	// Sprite is the live sprite drawn by its layer's batch, or nil when the object has no sprite. Its X, Y, Rotation, ScaleX, ScaleY and Alpha are the object's world values, composed through its ancestors.
 	Sprite *sprite.Sprite
 	// Material is the shared material resolved from Doc.Material, or nil when the object names none. It is the resolver's value, not a copy, so an edit reloaded into it reaches every scene that uses it.
 	Material *resource.Material
+	// Parent is the object this one is a child of, or nil for a top-level object.
+	Parent *BuiltObject
+	// Children are the object's built children in document order.
+	Children []*BuiltObject
+	// World is the object's transform composed with its ancestors', mapping its local space to its layer's space (World = Parent.World * local).
+	World math2d.Affine
+	// WorldAlpha is the object's alpha multiplied by every ancestor's.
+	WorldAlpha float32
 }
 
 // Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw.
@@ -193,50 +203,11 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 
 		var drawables []*BuiltObject
 		for j := range ld.Objects {
-			od := &ld.Objects[j]
-			bo := &BuiltObject{
-				Doc:   od,
-				ID:    od.ID,
-				Layer: ld.Name,
-			}
-			if od.Material != "" {
-				mat, err := getMaterial(od.Material)
-				if err != nil {
-					return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", ld.Name, od.ID, err)
-				}
-				bo.Material = mat
-			}
-			if od.Sprite != nil {
-				atlas, err := getAtlas(od.Sprite.Atlas)
-				if err != nil {
-					return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", ld.Name, od.ID, err)
-				}
-				frame, ok := atlas.Frames[od.Sprite.Frame]
-				if !ok {
-					return nil, fmt.Errorf("sceneformat: layer %q object %q: atlas %q has no frame %q", ld.Name, od.ID, od.Sprite.Atlas, od.Sprite.Frame)
-				}
-				sp := sprite.NewSprite(frame)
-				sp.X = od.X
-				sp.Y = od.Y
-				sp.OriginX = od.OriginX
-				sp.OriginY = od.OriginY
-				sp.Rotation = od.Rotation
-				sp.ScaleX = od.EffectiveScaleX()
-				sp.ScaleY = od.EffectiveScaleY()
-				sp.FlipX = od.FlipX
-				sp.FlipY = od.FlipY
-				sp.Alpha = od.EffectiveAlpha()
-				sp.Z = od.Z
-				bo.Atlas = atlas
-				bo.Sprite = &sp
-				if bo.Material != nil {
-					bo.syncMaterial()
-					built.materialed = append(built.materialed, bo)
-				}
-				drawables = append(drawables, bo)
+			bo, err := buildObject(built, bl, nil, &ld.Objects[j], getAtlas, getMaterial, &drawables)
+			if err != nil {
+				return nil, err
 			}
 			bl.Objects = append(bl.Objects, bo)
-			built.Objects[od.ID] = bo
 		}
 
 		bl.Batches = groupSpriteBatches(drawables)
@@ -244,6 +215,94 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	}
 
 	return built, nil
+}
+
+// buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite to drawables in depth-first order, each parent before its children.
+func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *ObjectDoc, getAtlas func(string) (*sprite.Atlas, error), getMaterial func(string) (*resource.Material, error), drawables *[]*BuiltObject) (*BuiltObject, error) {
+	bo := &BuiltObject{
+		Doc:        od,
+		ID:         od.ID,
+		Layer:      bl.Name,
+		Parent:     parent,
+		World:      od.LocalTransform(),
+		WorldAlpha: od.EffectiveAlpha(),
+	}
+	if parent != nil {
+		bo.World = parent.World.Mul(bo.World)
+		bo.WorldAlpha *= parent.WorldAlpha
+	}
+	if od.Material != "" {
+		mat, err := getMaterial(od.Material)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", bl.Name, od.ID, err)
+		}
+		bo.Material = mat
+	}
+	if od.Sprite != nil {
+		atlas, err := getAtlas(od.Sprite.Atlas)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", bl.Name, od.ID, err)
+		}
+		frame, ok := atlas.Frames[od.Sprite.Frame]
+		if !ok {
+			return nil, fmt.Errorf("sceneformat: layer %q object %q: atlas %q has no frame %q", bl.Name, od.ID, od.Sprite.Atlas, od.Sprite.Frame)
+		}
+		sp := sprite.NewSprite(frame)
+		if parent == nil {
+			// A top-level object draws with its own fields exactly, without a round trip through a matrix.
+			sp.X, sp.Y = od.X, od.Y
+			sp.Rotation = od.Rotation
+			sp.ScaleX, sp.ScaleY = od.EffectiveScaleX(), od.EffectiveScaleY()
+		} else {
+			x, y, rot, sx, sy, ok := decomposeTRS(bo.World)
+			if !ok {
+				return nil, fmt.Errorf("sceneformat: layer %q object %q: its world transform is sheared (a rotated object under a non-uniformly scaled parent), which a sprite cannot draw", bl.Name, od.ID)
+			}
+			sp.X, sp.Y, sp.Rotation, sp.ScaleX, sp.ScaleY = x, y, rot, sx, sy
+		}
+		sp.OriginX = od.OriginX
+		sp.OriginY = od.OriginY
+		sp.FlipX = od.FlipX
+		sp.FlipY = od.FlipY
+		sp.Alpha = bo.WorldAlpha
+		sp.Z = od.Z
+		bo.Atlas = atlas
+		bo.Sprite = &sp
+		if bo.Material != nil {
+			bo.syncMaterial()
+			built.materialed = append(built.materialed, bo)
+		}
+		*drawables = append(*drawables, bo)
+	}
+	built.Objects[od.ID] = bo
+	for i := range od.Children {
+		child, err := buildObject(built, bl, bo, &od.Children[i], getAtlas, getMaterial, drawables)
+		if err != nil {
+			return nil, err
+		}
+		bo.Children = append(bo.Children, child)
+	}
+	return bo, nil
+}
+
+// decomposeTRS splits m into a translation, a rotation and axis scales that sprite.Sprite can draw, so that TRS(x, y, rot, sx, sy) equals m. It reports false when m's columns are not orthogonal, a shear no such split can carry.
+func decomposeTRS(m math2d.Affine) (x, y, rot, sx, sy float32, ok bool) {
+	a, b, c, d := float64(m.A), float64(m.B), float64(m.C), float64(m.D)
+	scaleX := math.Hypot(a, b)
+	scaleY := math.Hypot(c, d)
+	if math.Abs(a*c+b*d) > 1e-4*scaleX*scaleY {
+		return 0, 0, 0, 0, 0, false
+	}
+	if a*d-b*c < 0 {
+		scaleY = -scaleY
+	}
+	switch {
+	case scaleX > 1e-12:
+		rot = float32(math.Atan2(b, a))
+	case scaleY != 0:
+		rot = float32(math.Atan2(-c/scaleY, d/scaleY))
+	}
+	return m.Tx, m.Ty, rot, float32(scaleX), float32(scaleY), true
 }
 
 func buildTilemapBatch(doc *SceneDoc, layerName string, tm *TilemapDoc, resolver AssetResolver, getAtlas func(string) (*sprite.Atlas, error)) (*sprite.Batch, error) {
@@ -316,12 +375,12 @@ func groupSpriteBatches(drawables []*BuiltObject) []*sprite.Batch {
 	return batches
 }
 
-// syncMaterial sets the object's sprite to draw with its material: the object's alpha times the material's opacity, and the material's blend mode.
+// syncMaterial sets the object's sprite to draw with its material: the object's world alpha (its alpha times every ancestor's) times the material's opacity, and the material's blend mode.
 func (bo *BuiltObject) syncMaterial() {
 	if bo.Sprite == nil || bo.Material == nil {
 		return
 	}
-	bo.Sprite.Alpha = bo.Doc.EffectiveAlpha() * bo.Material.EffectiveOpacity()
+	bo.Sprite.Alpha = bo.WorldAlpha * bo.Material.EffectiveOpacity()
 	bo.Sprite.Blend = bo.Material.BlendOp()
 }
 

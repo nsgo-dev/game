@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -139,17 +140,17 @@ type ObjectDoc struct {
 	Name string `yaml:"name,omitempty"`
 	// Prefab optionally names a prefab or archetype template.
 	Prefab string `yaml:"prefab,omitempty"`
-	// X and Y are where the object's origin sits in its layer's coordinate space.
+	// X and Y are where the object's origin sits in its parent's space, which for a top-level object is its layer's coordinate space.
 	X float32 `yaml:"x,omitempty"`
 	Y float32 `yaml:"y,omitempty"`
-	// PosZ is the optional 3D world Z coordinate (depth in 3D scenes), distinct from 2D draw order Z.
+	// PosZ is the optional 3D Z coordinate (depth in 3D scenes) in its parent's space, distinct from 2D draw order Z.
 	PosZ float32 `yaml:"posZ,omitempty"`
 	// OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.
 	OriginX float32 `yaml:"originX,omitempty"`
 	OriginY float32 `yaml:"originY,omitempty"`
 	// Rotation turns the object clockwise in radians about its origin in 2D space.
 	Rotation float32 `yaml:"rotation,omitempty"`
-	// RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.
+	// RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).
 	RotX float32 `yaml:"rotX,omitempty"`
 	RotY float32 `yaml:"rotY,omitempty"`
 	RotZ float32 `yaml:"rotZ,omitempty"`
@@ -166,7 +167,7 @@ type ObjectDoc struct {
 	FlipY bool `yaml:"flipY,omitempty"`
 	// Alpha is the object's opacity in [0, 1]; nil defaults to 1.
 	Alpha *float32 `yaml:"alpha,omitempty"`
-	// Z orders objects within the layer; lower Z draws first, ties keep slice order.
+	// Z orders objects within the layer, children included; lower Z draws first, and ties keep document order with each parent before its children.
 	Z int `yaml:"z,omitempty"`
 	// Sprite optionally binds the object to a frame in a sprite.Atlas.
 	Sprite *SpriteRef `yaml:"sprite,omitempty"`
@@ -176,6 +177,8 @@ type ObjectDoc struct {
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors.
 	Properties map[string]any `yaml:"properties,omitempty"`
+	// Children are objects attached to this one, in document order. A child's transform (X, Y, Rotation, ScaleX, ScaleY, and in 3D PosZ, RotX, RotY, RotZ, ScaleZ) is local to this object, and its alpha multiplies this object's. Children belong to their parent's layer; their IDs share the scene-wide namespace, and nesting is limited to MaxObjectDepth levels.
+	Children []ObjectDoc `yaml:"children,omitempty"`
 }
 
 // EffectiveScaleX returns ScaleX, defaulting to 1 when nil.
@@ -202,6 +205,14 @@ func (o *ObjectDoc) EffectiveScaleZ() float32 {
 	return *o.ScaleZ
 }
 
+// LocalTransform returns the object's 2D transform relative to its parent (or to its layer for a top-level object): translate by (X, Y), rotate by Rotation, then scale by (ScaleX, ScaleY). OriginX, OriginY and the flips place a sprite inside this space and are not part of it.
+func (o *ObjectDoc) LocalTransform() math2d.Affine {
+	if o == nil {
+		return math2d.Identity()
+	}
+	return math2d.TRS(math2d.Vec2{X: o.X, Y: o.Y}, o.Rotation, math2d.Vec2{X: o.EffectiveScaleX(), Y: o.EffectiveScaleY()})
+}
+
 // EffectiveAlpha returns Alpha, defaulting to 1 when nil.
 func (o *ObjectDoc) EffectiveAlpha() float32 {
 	if o == nil || o.Alpha == nil {
@@ -214,6 +225,27 @@ func (o *ObjectDoc) EffectiveAlpha() float32 {
 type SpriteRef struct {
 	Atlas string `yaml:"atlas"`
 	Frame string `yaml:"frame"`
+}
+
+// MaxObjectDepth is how many levels of objects a layer may nest: a top-level object is at depth 1, its children at depth 2, and so on. Validate refuses a deeper tree.
+const MaxObjectDepth = 64
+
+// WalkObjects calls fn for every object in objs and its descendants, depth first with each parent before its children and siblings in document order. parent is nil for an object in objs. The walk stops when fn returns false, and WalkObjects reports whether it visited every object.
+func WalkObjects(objs []ObjectDoc, fn func(o, parent *ObjectDoc) bool) bool {
+	return walkObjects(objs, nil, fn)
+}
+
+func walkObjects(objs []ObjectDoc, parent *ObjectDoc, fn func(o, parent *ObjectDoc) bool) bool {
+	for i := range objs {
+		o := &objs[i]
+		if !fn(o, parent) {
+			return false
+		}
+		if !walkObjects(o.Children, o, fn) {
+			return false
+		}
+	}
+	return true
 }
 
 // Bool returns a pointer to v for optional YAML boolean fields such as LayerDoc.Visible.
@@ -320,18 +352,35 @@ func Validate(doc *SceneDoc) error {
 				return err
 			}
 		}
-		for j := range l.Objects {
-			o := &l.Objects[j]
-			if o.ID == "" {
-				return fmt.Errorf("sceneformat: layer %q object %d has an empty id", l.Name, j)
+		if err := validateObjects(l.Name, "", l.Objects, 1, objectIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateObjects checks objs (the top-level objects of layer when parent is empty, or the children of the object parent) at nesting depth and their descendants, recording every ID in ids.
+func validateObjects(layer, parent string, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
+	if len(objs) > 0 && depth > MaxObjectDepth {
+		return fmt.Errorf("sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
+	}
+	for j := range objs {
+		o := &objs[j]
+		if o.ID == "" {
+			if parent == "" {
+				return fmt.Errorf("sceneformat: layer %q object %d has an empty id", layer, j)
 			}
-			if _, dup := objectIDs[o.ID]; dup {
-				return fmt.Errorf("sceneformat: duplicate object id %q", o.ID)
-			}
-			objectIDs[o.ID] = struct{}{}
-			if err := validateObject(l.Name, o); err != nil {
-				return err
-			}
+			return fmt.Errorf("sceneformat: layer %q object %q child %d has an empty id", layer, parent, j)
+		}
+		if _, dup := ids[o.ID]; dup {
+			return fmt.Errorf("sceneformat: duplicate object id %q", o.ID)
+		}
+		ids[o.ID] = struct{}{}
+		if err := validateObject(layer, o); err != nil {
+			return err
+		}
+		if err := validateObjects(layer, o.ID, o.Children, depth+1, ids); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -1,0 +1,51 @@
+version: 1
+name: Fleet
+layers:
+  - name: ships
+    objects:
+      - id: ship
+        x: 100
+        "y": 50
+        rotation: 1.5707964
+        rotZ: 1.5707964
+        scaleX: 2
+        scaleY: 2
+        scaleZ: 2
+        alpha: 0.5
+        sprite:
+          atlas: actors
+          frame: hero
+        children:
+          - id: turret
+            x: 10
+            posZ: 1
+            alpha: 0.5
+            z: 1
+            sprite:
+              atlas: actors
+              frame: torch
+            children:
+              - id: barrel
+                x: 5
+                scaleX: 0.5
+                scaleY: 0.5
+                sprite:
+                  atlas: actors
+                  frame: hero
+          - id: flag
+            "y": -8
+            properties:
+              team: blue
+      - id: escort
+        x: 20
+        "y": 20
+  - name: hud
+    visible: false
+    objects:
+      - id: panel
+        x: 4
+        "y": 4
+        children:
+          - id: label
+            x: 2
+            "y": 2

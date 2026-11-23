@@ -506,7 +506,7 @@ func (e *Editor) SelectedObject() (*sceneformat.ObjectDoc, string) {
 	return obj, e.Doc.Layers[li].Name
 }
 
-// FindObject locates an object by ID across all layers.
+// FindObject locates a top-level object by ID across all layers, returning it with its layer index and its index in that layer's Objects. A nested child is not found; it moves, duplicates and deletes with its top-level ancestor.
 func (e *Editor) FindObject(id string) (*sceneformat.ObjectDoc, int, int) {
 	if e.Doc == nil || id == "" {
 		return nil, -1, -1
@@ -520,6 +520,24 @@ func (e *Editor) FindObject(id string) (*sceneformat.ObjectDoc, int, int) {
 		}
 	}
 	return nil, -1, -1
+}
+
+// objectIDInUse reports whether any object in the scene, nested children included, has ID id. FindObject sees only top-level objects, so ID allocation and duplicate checks go through this instead.
+func (e *Editor) objectIDInUse(id string) bool {
+	if e.Doc == nil {
+		return false
+	}
+	for li := range e.Doc.Layers {
+		found := false
+		sceneformat.WalkObjects(e.Doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			found = o.ID == id
+			return !found
+		})
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Editor) layerIndex(name string) int {
@@ -558,7 +576,7 @@ func (e *Editor) generateObjectID(base string) string {
 	for {
 		e.nextID++
 		candidate := fmt.Sprintf("%s_%d", base, e.nextID)
-		if obj, _, _ := e.FindObject(candidate); obj == nil {
+		if !e.objectIDInUse(candidate) {
 			return candidate
 		}
 	}
@@ -591,12 +609,29 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 			base = placed.Sprite.Frame
 		}
 		placed.ID = e.generateObjectID(base)
-	} else if existing, _, _ := e.FindObject(placed.ID); existing != nil {
-		return "", fmt.Errorf("editor: duplicate object id %q", placed.ID)
+	}
+	var invalid error
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{placed}, func(o, _ *sceneformat.ObjectDoc) bool {
+		invalid = validateObjectForEditor(o)
+		return invalid == nil
+	})
+	if invalid != nil {
+		return "", invalid
 	}
 
-	if err := validateObjectForEditor(&placed); err != nil {
-		return "", err
+	// The placed object's children carry IDs too, and every ID in the tree must be new to the scene and unique within it.
+	placedIDs := make(map[string]struct{})
+	var dupID string
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{placed}, func(o, _ *sceneformat.ObjectDoc) bool {
+		if _, seen := placedIDs[o.ID]; seen || e.objectIDInUse(o.ID) {
+			dupID = o.ID
+			return false
+		}
+		placedIDs[o.ID] = struct{}{}
+		return true
+	})
+	if dupID != "" {
+		return "", fmt.Errorf("editor: duplicate object id %q", dupID)
 	}
 
 	cmd := &placeObjectCmd{
@@ -1392,6 +1427,12 @@ func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {
 	}
 	if o.Properties != nil {
 		out.Properties = cloneMap(o.Properties)
+	}
+	if o.Children != nil {
+		out.Children = make([]sceneformat.ObjectDoc, len(o.Children))
+		for i := range o.Children {
+			out.Children[i] = cloneObjectDoc(o.Children[i])
+		}
 	}
 	return out
 }
