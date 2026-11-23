@@ -55,6 +55,7 @@ From the repository root:
 bun install --frozen-lockfile
 bun run dev        # local dev server
 bun run typecheck  # TypeScript check
+bun run test       # the build plugins' tests
 bun run build      # Vite build, prerender, and tsc --noEmit
 ```
 

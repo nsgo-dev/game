@@ -65,6 +65,8 @@ jobs:
       # The playground runs each example's web build, which the site's build requires in CI (docs/en/playground.md).
       - name: Build the playground's examples
         run: bun run playground
+      - name: Test
+        run: bun run test
       # The site's base path and origin: "/" on its custom domain, "/game/" on nsgo-dev.github.io until one is set. A pull request, which deploys nothing, builds for "/" on the domain in public/CNAME.
       - name: Configure Pages
         id: pages

@@ -8,6 +8,7 @@
     "dev": "bun run --cwd apps/website dev",
     "build": "bun run --cwd apps/website build",
     "preview": "bun run --cwd apps/website preview",
+    "test": "bun run --cwd apps/website test",
     "typecheck": "bun run --cwd apps/website typecheck",
     "playground": "bun run --cwd apps/website playground",
     "verify-agent-note-tree": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts",

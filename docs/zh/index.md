@@ -108,3 +108,7 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 首先应面向的运行时是 OpenXR，因为同一套 API 覆盖 Windows、Linux 和 Android 上的头显，即 NSGo 的三个目标平台；visionOS、ARKit、ARCore 和 WebXR 可以随后跟进。会话、位姿和立体渲染排在最前，有了它们就足以支持 VR；AR 所需的各项排在其后。
 
 具备这些之后，本仓库会在 `scene3d` 中加入 XR 相机组件，在 `input` 中加入 XR 动作，并复用 `math3d` 的变换来表示位姿。在此之前，3D 游戏只在平面屏幕上运行。
+
+## 面向语言模型
+
+与 [nsgo.dev](https://nsgo.dev/llms.txt) 一样，本站为语言模型和编程智能体发布英文文档：[llms.txt](https://game.nsgo.dev/llms.txt) 列出每个页面并附一句简介，[llms-full.txt](https://game.nsgo.dev/llms-full.txt) 把每个页面的 Markdown 合在一个文件里。两者都随网站从 `docs/en` 构建，因此始终与这些页面一致。

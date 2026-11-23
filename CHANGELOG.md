@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Website and documentation in English and Simplified Chinese (`apps/website`, `docs/en`, `docs/zh`).
 - Documentation, README and website state that consoles (Nintendo Switch, PlayStation and Xbox) are out of scope (#496).
 - Website: a playground that runs the examples' web builds beside their source, with per-example and per-file links, built by `bun run playground` (#511).
+- Website: `llms.txt`, an index of every English docs page, and `llms-full.txt`, every page's Markdown in one file, built with the site and linked from its footer (#499).
 - `game/server`: headless fixed-step `Runner` for dedicated servers, with several matches at their own rates, overrun reports and bounded signal shutdown (#549).
 - `game/server`: a matchmaking queue with per-mode/region tickets, widening skill windows, whole parties and a pluggable rule (#552).
 - `game/server`: rooms with capacity, private codes, a waiting/running/ended match lifecycle and fresh epochs, per-room packet inboxes, late-join full snapshots and empty-room timeouts (#551).

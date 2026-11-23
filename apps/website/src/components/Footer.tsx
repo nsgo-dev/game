@@ -1,11 +1,15 @@
 import { Link } from '@tanstack/react-router'
 import { copies } from '../copy'
 import { type Lang, routes, useLang } from '../i18n'
-import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
+import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
 import { Logo, SpeedLines } from './Brand'
 import { Icon } from './Icon'
 
-type FooterLink = { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'playground' | 'showcase' | 'roadmap'] } | { label: string; href: string }
+// A link goes to one of the site's routes, to one of the build's files below the base path (opened in place), or to another site (opened in a new tab).
+type FooterLink =
+  | { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'playground' | 'showcase' | 'roadmap'] }
+  | { label: string; file: string }
+  | { label: string; href: string }
 
 function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
   const copy = copies[lang]
@@ -19,6 +23,8 @@ function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
         { label: copy.nav.playground, to: to.playground },
         { label: copy.nav.showcase, to: to.showcase },
         { label: copy.nav.roadmap, to: to.roadmap },
+        { label: copy.footer.llms, file: LLMS_INDEX },
+        { label: copy.footer.llmsFull, file: LLMS_FULL },
       ],
     },
     {
@@ -94,6 +100,8 @@ export function Footer() {
                   <li key={link.label}>
                     {'to' in link ? (
                       <Link to={link.to}>{link.label}</Link>
+                    ) : 'file' in link ? (
+                      <a href={`${import.meta.env.BASE_URL}${link.file}`}>{link.label}</a>
                     ) : (
                       <a href={link.href} target="_blank" rel="noopener noreferrer">
                         {link.label}
