@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -79,9 +80,12 @@ type ManagerOptions struct {
 	Limits *tsx.Limits
 	// MaxLogs caps the number of retained log entries per mod (256 when <= 0).
 	MaxLogs int
-	// WebUnisolated forwards tsx.Sandbox.WebUnisolated when running mods on web targets.
+	// WebUnisolated lets mods run on web targets, where the browser cannot isolate a mod from the page: a mod there can use the page's own APIs (XMLHttpRequest, WebSocket, localStorage) whatever its capabilities say. Without it, loading a mod on the web fails with ErrWebUnisolated. Other targets isolate mods and ignore it. It is forwarded as tsx.Sandbox.WebUnisolated.
 	WebUnisolated bool
 }
+
+// pageAuthorityTarget reports whether mods run with the page's authority, which is the case in the browser.
+var pageAuthorityTarget = runtime.GOOS == "js"
 
 type managedMod struct {
 	manifest ModManifest
@@ -362,6 +366,14 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 	mod.logs = nil
 	mod.err = nil
 
+	// On the web a mod's realm shares the page's authority (XMLHttpRequest, WebSocket, localStorage) past the game module's capability checks, so refuse unless the host opted in (#546).
+	if pageAuthorityTarget && !m.opts.WebUnisolated {
+		err := fmt.Errorf("modding: load mod %q: %w", mod.manifest.ID, ErrWebUnisolated)
+		mod.state = StateFailed
+		mod.err = err
+		return err
+	}
+
 	// Compile the mod bundle from its directory FS (handles TSX, TS, JSX, JS, and relative imports).
 	code, err := bundler.Compile(mod.fsys, path.Clean(mod.manifest.Entry))
 	if err != nil {
@@ -453,7 +465,9 @@ func (m *Manager) Unload(id string) error {
 	return nil
 }
 
-// Reload unloads mod id, re-reads its manifest if present, and loads it fresh from its FS. A mod whose mod.yaml has been replaced by a mod.json is refused with [ErrInvalidManifest], as [Manager.DiscoverFS] refuses it.
+// Reload re-reads mod id's manifest if present, validates it, then unloads the mod and loads it fresh from its FS.
+//
+// A manifest that cannot be read or fails validation (bad syntax, changed ID, incompatible game version or unresolvable dependencies) is reported without unloading, so the previously loaded version keeps running (#546). A mod whose mod.yaml has been replaced by a mod.json is refused the same way with [ErrInvalidManifest], as [Manager.DiscoverFS] refuses it.
 func (m *Manager) Reload(id string) error {
 	mod, ok := m.mods[id]
 	if !ok {
@@ -462,47 +476,37 @@ func (m *Manager) Reload(id string) error {
 	if !mod.enabled {
 		return fmt.Errorf("%w: %q", ErrModDisabled, id)
 	}
-	m.unloadMod(mod)
 	data, readErr := fs.ReadFile(mod.fsys, ManifestFile)
 	if errors.Is(readErr, fs.ErrNotExist) {
 		if _, legacyErr := fs.Stat(mod.fsys, legacyManifestFile); legacyErr == nil {
-			mod.state = StateFailed
-			mod.err = fmt.Errorf("%w: mod %q: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, id, ManifestFile)
-			return mod.err
+			return fmt.Errorf("%w: mod %q: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, id, ManifestFile)
 		}
 	}
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
-		mod.state = StateFailed
-		mod.err = fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)
-		return mod.err
+		return fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)
 	}
+	var (
+		newManifest ModManifest
+		ordered     []ModManifest
+	)
 	if readErr == nil {
 		manifest, err := ParseManifest(data)
 		if err != nil {
-			mod.state = StateFailed
-			mod.err = fmt.Errorf("modding: reload mod %q manifest: %w", id, err)
-			return mod.err
+			return fmt.Errorf("modding: reload mod %q manifest: %w", id, err)
 		}
 		if manifest.ID != id {
-			mod.state = StateFailed
-			mod.err = fmt.Errorf("%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID)
-			return mod.err
+			return fmt.Errorf("%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID)
 		}
-		mod.manifest = manifest
 		// Re-apply the checks DiscoverFS made, so a mod updated on disk cannot
 		// load against an incompatible game version or unsatisfiable dependencies.
 		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
 			ok, err := CheckConstraint(m.opts.GameVersion, manifest.GameVersion)
 			if err != nil {
-				mod.state = StateFailed
-				mod.err = fmt.Errorf("modding: reload mod %q gameVersion: %w", id, err)
-				return mod.err
+				return fmt.Errorf("modding: reload mod %q gameVersion: %w", id, err)
 			}
 			if !ok {
-				mod.state = StateFailed
-				mod.err = fmt.Errorf("%w: reloaded mod %q requires game version %s, host is %s",
+				return fmt.Errorf("%w: reloaded mod %q requires game version %s, host is %s",
 					ErrVersionMismatch, id, manifest.GameVersion, m.opts.GameVersion)
-				return mod.err
 			}
 		}
 		manifests := make([]ModManifest, 0, len(m.mods))
@@ -513,12 +517,16 @@ func (m *Manager) Reload(id string) error {
 			manifests = append(manifests, other.manifest)
 		}
 		manifests = append(manifests, manifest)
-		ordered, err := ResolveOrder(manifests)
+		resolved, err := ResolveOrder(manifests)
 		if err != nil {
-			mod.state = StateFailed
-			mod.err = err
-			return mod.err
+			return err
 		}
+		newManifest, ordered = manifest, resolved
+	}
+
+	m.unloadMod(mod)
+	if readErr == nil {
+		mod.manifest = newManifest
 		// A reload may change dependencies; adopt the resolved order so Step
 		// and Emit keep running in topological order.
 		m.order = m.order[:0]

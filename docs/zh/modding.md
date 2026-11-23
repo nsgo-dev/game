@@ -105,3 +105,7 @@ _ = hudPanels
 ```
 
 运行时可通过 `Enable`、`Disable`、`Load`、`Unload`、`Reload`、`SetGrant`、`Emit`、`Call`、`List`、`Info` 和 `Logs` 管理单个模组。异常抛错的模组会被标记为 `StateFailed`，不会影响宿主游戏或其他正常模组。
+
+`Reload` 会先校验更新后的 `mod.yaml`（语法、ID、游戏版本和依赖），再卸载任何内容，因此清单损坏时会返回错误，已加载的版本继续运行。
+
+浏览器无法把模组与页面隔离：在 Web 上运行的模组无论声明了哪些能力，都能使用页面自身的 API（`XMLHttpRequest`、`WebSocket`、`localStorage`）。因此在 Web 上加载模组会以 `ErrWebUnisolated` 失败，除非设置了 `ManagerOptions.WebUnisolated`；只有对像自己的代码一样可信的模组才应这样做。其他平台会隔离模组并忽略该选项。
