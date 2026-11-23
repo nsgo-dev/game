@@ -101,7 +101,7 @@ loop := &game.Loop{
 
 - **Tap latching**: a brief tap that both starts and ends between two fixed steps is latched so `Pressed` and `JustPressed` still register for one step, followed by `JustReleased` on the next step.
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
-- **`Reset()`**: clears active touches, held buttons, pending latches, relative mouse motion and the current snapshot, and releases a pointer lock from `LockPointer`, while keeping all bindings. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+- **`Reset()`**: clears active touches, held buttons, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
 
 ## Mouselook through pointer lock
 
@@ -116,9 +116,7 @@ actions.BindPointerAxis("pitch", input.PointerY, input.PointerAxisOptions{Sensit
 view := core.View{
 	Ref: &gameRef,
 	OnPress: func(core.PressEvent) {
-		if !actions.PointerLocked() {
-			actions.LockPointer(cx, &gameRef)
-		}
+		actions.LockPointer(cx, &gameRef)
 	},
 }
 actions.Attach(&view)
@@ -131,9 +129,9 @@ camera.Pitch += actions.Delta("pitch")
 - `PointerX` reads motion to the right and `PointerY` motion down, in the units the view's `OnPointerDelta` reports. `Sensitivity` scales them (1 when zero) and `Invert` negates them.
 - `Delta(name)` returns the scaled motion heard since the previous `Step`, without a clamp, so a fast flick turns the camera further than a slow one. `PointerDelta()` returns the raw `(dx, dy)` of the step. `Axis(name)` adds the scaled motion to any other axis bound to `name` and clamps the sum to `[-1, 1]`, which suits steering with a small `Sensitivity`.
 - The view hears motion only while it holds the lock: `Attach` forwards its `OnPointerDelta` to `actions.OnPointerDelta`.
-- `LockPointer(cx, &ref)` returns `false` and does nothing when `cx.Env().CanLockPointer()` is false or the view is not mounted. Call it from a press, since browsers grant the lock only during a user gesture. Linux on Wayland needs a compositor with pointer constraints and relative motion.
-- `UnlockPointer()` releases the lock, and the platform shows the pointer again where it was. `Reset()` releases it too. Motion heard before the release still reaches the next step.
-- Escape, the window losing focus and hiding or removing the view also release the lock, but NSGo does not report that to the app, so `PointerLocked()` reports the lock `actions` asked for until `UnlockPointer` or `Reset`. Call `Reset` on focus loss and lock again from the next press; locking while locked replaces the previous lock.
+- `LockPointer(cx, &ref)` returns `false` and does nothing when `cx.Env().CanLockPointer()` is false or the view has been removed. Call it from every press, since browsers grant the lock only during a user gesture; locking again replaces the previous lock. Linux on Wayland needs a compositor with pointer constraints and relative motion.
+- `UnlockPointer()` releases the lock, and the platform shows the pointer again where it was. Motion heard before the release still reaches the next step. `Reset()` keeps the lock.
+- Escape, the window losing focus and hiding or removing the view also release the lock, but NSGo does not report that to the app. `PointerLockRequested()` therefore reports only whether `actions` holds a request that `UnlockPointer` has not released, not whether the platform still holds the lock, so do not use it to decide whether to lock again or to show a resume prompt. The next press locks again.
 
 Pointer axes are saved and loaded with the other bindings.
 

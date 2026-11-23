@@ -687,6 +687,9 @@ func TestLoadInvalidStorageLeavesBindingsUntouched(t *testing.T) {
 		{"missing bounds", `{"version":1,"actions":{"jump":[{"kind":"touch_region"}]}}`},
 		{"unknown button", `{"version":1,"actions":{"jump":[{"kind":"mouse_button","button":"side9"}]}}`},
 		{"mouse region missing bounds", `{"version":1,"actions":{"jump":[{"kind":"mouse_region","button":"left"}]}}`},
+		{"unknown field", `{"version":1,"controls":{}}`},
+		{"misspelled pointer axis field", `{"version":1,"pointer_axes":{"yaw":{"axis":"pointer_x","sensitivty":0.002}}}`},
+		{"data after the bindings", `{"version":1} {}`},
 	}
 
 	defaultJump := input.TouchRegion(rect(10, 20, 30, 40))

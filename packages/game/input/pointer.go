@@ -83,8 +83,9 @@ func (b pointerAxisBinding) scale(dx, dy float64) float64 {
 	if b.opts.Invert {
 		v = -v
 	}
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
+	if math.IsInf(v, 0) {
+		// A huge flick times a large sensitivity saturates rather than reading as no motion.
+		return math.Copysign(math.MaxFloat64, v)
 	}
 	return v
 }
@@ -117,9 +118,9 @@ func (a *Actions) PointerAxisBinding(name string) (PointerAxis, PointerAxisOptio
 	return b.axis, b.opts, ok
 }
 
-// LockPointer asks the platform to hide the pointer and keep it in place while the view ref names hears relative motion, which Attach forwards to a's pointer axes. It reports whether the surface supports the lock, as cx.Env().CanLockPointer does, and the request went out; with a nil ref or a view that is not mounted it does nothing and reports false.
+// LockPointer asks the platform to hide the pointer and keep it in place while the view ref names hears relative motion, which Attach forwards to a's pointer axes. It reports whether it made the request: false with a nil scope or ref, a view that has been removed, or a surface without the lock, as cx.Env().CanLockPointer reports. NSGo may still decline a request for a view that is not placed in the tree, such as one inside a held subtree, without telling the app.
 //
-// Call it from a press on that view: browsers lock only during a user gesture. Locking again replaces the previous lock. Escape, the window losing focus and hiding or removing the view release the lock as the platform decides, and NSGo does not tell the app, so PointerLocked keeps reporting the request until UnlockPointer or Reset; lock again from the next press to resume.
+// Call it from every press on that view, whether or not a lock was requested before: browsers lock only during a user gesture, and locking again replaces the previous lock. Escape, the window losing focus and hiding or removing the view release the lock as the platform decides, and NSGo does not tell the app, so the next press is the way to resume.
 func (a *Actions) LockPointer(cx *core.Scope, ref *core.Ref) bool {
 	if cx == nil || ref == nil || !cx.Env().CanLockPointer() {
 		return false
@@ -132,7 +133,7 @@ func (a *Actions) LockPointer(cx *core.Scope, ref *core.Ref) bool {
 	return true
 }
 
-// UnlockPointer releases a lock LockPointer took, so the platform shows the pointer again where it was. Motion heard before the release still reaches the next Step. It does nothing when a holds no lock.
+// UnlockPointer releases a lock LockPointer requested, so the platform shows the pointer again where it was. Motion heard before the release still reaches the next Step. It does nothing when a holds no request, or when the platform has already released the lock.
 func (a *Actions) UnlockPointer() {
 	if unlock := a.unlockPointer; unlock != nil {
 		a.unlockPointer = nil
@@ -140,8 +141,10 @@ func (a *Actions) UnlockPointer() {
 	}
 }
 
-// PointerLocked reports whether a holds a lock from LockPointer that neither UnlockPointer nor Reset has released.
-func (a *Actions) PointerLocked() bool {
+// PointerLockRequested reports whether a holds a request from LockPointer that UnlockPointer has not released. It is not the platform's lock state: Escape, the window losing focus and hiding the view release the lock without NSGo telling the app, and the request stays. Do not use it to decide whether to call LockPointer again or whether the player is still looking around.
+//
+// NSGo reports the release to its core (driver.EventPointerUnlocked) but exposes no callback or query to apps, so this package cannot report the real state.
+func (a *Actions) PointerLockRequested() bool {
 	return a.unlockPointer != nil
 }
 
@@ -177,7 +180,6 @@ func (a *Actions) stepPointer() {
 }
 
 func (a *Actions) resetPointer() {
-	a.UnlockPointer()
 	a.pendingDX, a.pendingDY = 0, 0
 	a.stepDX, a.stepDY = 0, 0
 }
