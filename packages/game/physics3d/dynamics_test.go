@@ -245,6 +245,50 @@ func TestFastSphereDoesNotTunnelThroughTriMesh(t *testing.T) {
 	}
 }
 
+// slideOnFloor runs a frictionless body standing on a static floor at speed v along +X for one second and returns how far it travelled.
+func slideOnFloor(t *testing.T, shape physics3d.Shape, restY, v float32) float32 {
+	t.Helper()
+	w := physics3d.NewWorld()
+	floor := w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 100, Y: 0.5, Z: 5}}), physics3d.Vec3{X: 90, Y: -0.5}))
+	floor.Friction = 0
+	body := w.AddBody(physics3d.NewDynamicBody(shape, physics3d.Vec3{Y: restY}, 1))
+	body.Friction = 0
+	body.Vel = physics3d.Vec3{X: v}
+	for range 60 {
+		w.Step(step60)
+	}
+	return body.Pos.X
+}
+
+func TestFastBodySlidingOnFloorIsNotHeldBack(t *testing.T) {
+	sphere := physics3d.SphereShape(physics3d.Sphere{Radius: 0.5})
+	box := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}})
+	for _, v := range []float32{20, 40} {
+		if got := slideOnFloor(t, sphere, 0.5, v); got < 0.95*v {
+			t.Errorf("sphere sliding at %v m/s travelled %v m in 1 s, want about %v", v, got, v)
+		}
+		if got := slideOnFloor(t, box, 0.5, v); got < 0.95*v {
+			t.Errorf("box sliding at %v m/s travelled %v m in 1 s, want about %v", v, got, v)
+		}
+	}
+}
+
+func TestFastBodySlidingOnFloorStillStopsAtThinWall(t *testing.T) {
+	w := physics3d.NewWorld()
+	floor := w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 100, Y: 0.5, Z: 5}}), physics3d.Vec3{X: 90, Y: -0.5}))
+	floor.Friction = 0
+	w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.05, Y: 2, Z: 5}}), physics3d.Vec3{X: 10, Y: 2}))
+	ball := w.AddBody(physics3d.NewDynamicBody(physics3d.SphereShape(physics3d.Sphere{Radius: 0.25}), physics3d.Vec3{Y: 0.25}, 1))
+	ball.Friction = 0
+	ball.Vel = physics3d.Vec3{X: 60}
+	for range 60 {
+		w.Step(step60)
+	}
+	if ball.Pos.X > 10 {
+		t.Fatalf("sphere sliding at 60 m/s ended at x = %v, past the wall at x = 10", ball.Pos.X)
+	}
+}
+
 // boxCapsuleSeparates checks the contract of Contact: moving the box by Normal*Depth (plus a hair) leaves no overlap.
 func boxCapsuleSeparates(box physics3d.Box, c physics3d.Capsule) (physics3d.Contact, bool) {
 	ct := physics3d.TestBoxCapsule(box, c)
@@ -420,5 +464,30 @@ func TestCharacterPushesDynamicBody(t *testing.T) {
 	pushedCrate, pushedChar := run(400)
 	if pushedCrate < 2 || pushedChar < blockedChar+0.4 {
 		t.Fatalf("with PushForce the crate reached %v and the character %v (blocked: %v)", pushedCrate, pushedChar, blockedChar)
+	}
+}
+
+func TestCharacterSteppingOntoLowCrateDoesNotShoveIt(t *testing.T) {
+	w := physics3d.NewWorld()
+	w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 20, Y: 0.5, Z: 20}}), physics3d.Vec3{Y: -0.5}))
+	crate := w.AddBody(physics3d.NewDynamicBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 1, Y: 0.1, Z: 1}}), physics3d.Vec3{X: 1.6, Y: 0.1}, 5))
+	for range 30 {
+		w.Step(step60)
+	}
+	startX := crate.Pos.X
+	cc := physics3d.NewCharacterController(physics3d.Vec3{}, 0.3, 1.8)
+	cc.StepHeight = 0.3
+	cc.PushForce = 400
+	stepped := false
+	for range 40 {
+		res := cc.Move(w, physics3d.Vec3{X: 2}, step60)
+		stepped = stepped || res.SteppedUp
+		w.Step(step60)
+	}
+	if !stepped {
+		t.Fatalf("character never stepped onto the 0.2 m crate; it reached %v", cc.Pos)
+	}
+	if d := crate.Pos.X - startX; d > 0.05 {
+		t.Fatalf("stepping onto the crate shoved it %v m", d)
 	}
 }
