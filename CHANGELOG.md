@@ -21,11 +21,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/server`: per-peer packet/byte rate limits with throttle/drop/disconnect policies, message and pending-reliable caps, and an input validator with per-peer violation counts (#555).
 - `examples/caverun`: locks landscape on iPhones and Android phones with NSGo's `RequestOrientation`, and the screen and shipping guides explain how a game declares its orientation (#102).
 - `game/cutscene`: video cutscenes in NSGo's `core.Video` over the game's view, pausing the loop and the mixer while they play, skippable by a press, a key or back after an optional delay, with an end/skip callback, a scene for playing one between scenes and a versioned YAML file format (#494).
-- `game/sound`: `Mixer.Suspend` silences the mixer until resumed, as the background does, and `Mixer.Suspended` reports it (#494).
 - `game/net`: a TLS WebSocket listener with an Origin allow-list, plus `game/server` health, readiness and Prometheus metrics endpoints and a container/drain guide (#554).
 - `game/accounts`: a self-hostable player account service with guest accounts upgraded to email or a linked platform/OAuth identity, argon2id passwords, redacted secrets, SQLite and Postgres stores, an HTTP API and the `accountsd` server; `game/accounts/token` issues Ed25519 tokens that game servers verify offline against a versioned YAML key set (#556).
 - `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged (#29).
-- `game/sound`: 2D positional effects, with `Listener2D` panning an effect by where it sits across the camera's view and attenuating it with distance (linear or inverse rolloff), and `Effect.PlayAt` (#105).
+- `game/sound`: 2D positional effects, with `Listener2D` panning an effect by where it sits across the camera's view and attenuating it with distance (linear or inverse rolloff), and `Effect.PlayAt` and `Cue.PlayAt` (#105).
 
 ### Changed
 

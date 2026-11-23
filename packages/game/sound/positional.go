@@ -23,7 +23,7 @@ const (
 type Listener2D struct {
 	// Position is where the listener is in the world, usually the 2D camera's center, as tilemap.Camera's X and Y.
 	Position math2d.Vec2
-	// Rotation turns the listener clockwise in the world, in radians, as tilemap.Camera.Rotation turns the camera, so left and right are the view's.
+	// Rotation turns the listener clockwise in the world, in radians, as tilemap.Camera.Rotation turns the camera, so left and right are the view's; an infinite or NaN one counts as 0.
 	Rotation float32
 	// Near is the distance up to which an effect plays at full volume; a negative one or NaN counts as 0.
 	Near float32
@@ -53,14 +53,14 @@ func (l Listener2D) Pan(pos math2d.Vec2) float32 {
 	return float32(min(max(p, -1), 1))
 }
 
-// Gain returns the volume an effect at pos plays at, from 1 within Near to 0 at Far and beyond, falling by Rolloff between them. A pos with a NaN coordinate is silent, and one with an infinite coordinate too unless attenuation is off.
+// Gain returns the volume an effect at pos plays at, from 1 within Near to 0 at Far and beyond, falling by Rolloff between them. Rotation does not change it. A pos with a NaN coordinate is silent, and one with an infinite coordinate too unless attenuation is off.
 func (l Listener2D) Gain(pos math2d.Vec2) float32 {
 	near, far, ok := l.span()
 	if !ok {
 		return 1
 	}
-	x, y := l.toView(pos)
-	d := math.Hypot(x, y)
+	// Turning the view never changes the distance, so it is measured unturned, and a bad Rotation cannot silence an effect.
+	d := math.Hypot(float64(pos.X)-float64(l.Position.X), float64(pos.Y)-float64(l.Position.Y))
 	switch {
 	case math.IsNaN(d):
 		return 0
@@ -78,9 +78,12 @@ func (l Listener2D) Gain(pos math2d.Vec2) float32 {
 	return float32(min(max(g, 0), 1))
 }
 
-// Voice returns v with its volume scaled by Gain at pos and its pan set to Pan at pos, the voice an effect at pos plays with. Its volume is 0 where the effect is silent, which audio plays as full volume, so check Gain, or play through Effect.PlayAt, which plays nothing there.
+// Voice returns v with its volume scaled by Gain at pos and its pan set to Pan at pos, the voice an effect at pos plays with. Where the effect is silent, its volume is 0 and it is Muted, since audio plays a volume of 0 as full volume.
 func (l Listener2D) Voice(pos math2d.Vec2, v audio.Voice) audio.Voice {
 	v.Volume = voiceVolume(v.Volume) * l.Gain(pos)
+	if !(v.Volume > 0) {
+		v.Muted = true
+	}
 	v.Pan = l.Pan(pos)
 	return v
 }
@@ -98,11 +101,11 @@ func (l Listener2D) span() (near, far float64, ok bool) {
 	return near, far, true
 }
 
-// toView returns pos's offset from the listener across (x, positive to the right) and down (y) the view, turned by Rotation as tilemap.Camera.WorldToView turns it.
+// toView returns pos's offset from the listener across (x, positive to the right) and down (y) the view, turned by Rotation as tilemap.Camera.WorldToView turns it. An infinite or NaN Rotation counts as 0.
 func (l Listener2D) toView(pos math2d.Vec2) (x, y float64) {
 	dx := float64(pos.X) - float64(l.Position.X)
 	dy := float64(pos.Y) - float64(l.Position.Y)
-	if l.Rotation == 0 {
+	if l.Rotation == 0 || math.IsNaN(float64(l.Rotation)) || math.IsInf(float64(l.Rotation), 0) {
 		return dx, dy
 	}
 	sin, cos := math.Sincos(float64(l.Rotation))
@@ -116,4 +119,20 @@ func (s *Effect) PlayAt(l Listener2D, pos math2d.Vec2, v audio.Voice) bool {
 		return false
 	}
 	return s.Play(v)
+}
+
+// PlayAt picks the cue's next variant, as Play does, and plays it at pos in the world as l hears it, as Effect.PlayAt does: at the variant's volume times l.Gain, panned by l.Pan, at the variant's pitch. It reports the pick and whether it played; beyond l's Far it plays nothing, though the pick still counts towards the cue's repeat avoidance.
+func (c *Cue) PlayAt(l Listener2D, pos math2d.Vec2) (CuePick, bool) {
+	if c == nil {
+		return CuePick{Index: -1}, false
+	}
+	pick := c.Pick()
+	if !pick.Valid() || pick.Clip.Effect == nil {
+		return pick, false
+	}
+	vol := float32(pick.Volume)
+	if vol <= 0 {
+		return pick, false
+	}
+	return pick, pick.Clip.Effect.PlayAt(l, pos, audio.Voice{Volume: vol, Rate: float32(pick.Pitch)})
 }
