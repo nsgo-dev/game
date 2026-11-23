@@ -74,3 +74,88 @@ func ExampleChecksumBytes() {
 	// Output:
 	// true false
 }
+
+// A ServerWorld owns the authoritative entities and sends each client a full snapshot, then bitmask deltas once the client acknowledges; a ClientWorld applies them, calls OnSpawn and OnDespawn, and interpolates between snapshots for drawing.
+func ExampleServerWorld() {
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: 16 * time.Millisecond})
+	srv := gamenet.NewServerWorld(hub.AddPeer(1))
+	cli := gamenet.NewClientWorld(hub.AddPeer(2), 1)
+	cli.OnSpawn = func(e gamenet.EntityState) { fmt.Printf("spawn %d %q\n", e.ID, e.Props) }
+	cli.OnDespawn = func(id gamenet.EntityID) { fmt.Println("despawn", id) }
+
+	hero := srv.Spawn(gamenet.EntityState{ComponentState: gamenet.ComponentState{Kind: 1, Props: []byte("hero")}})
+	coin := srv.Spawn(gamenet.EntityState{ComponentState: gamenet.ComponentState{Kind: 2, X: 100}})
+	for tick := uint32(1); tick <= 3; tick++ {
+		srv.Update(hero, gamenet.EntityState{ComponentState: gamenet.ComponentState{Kind: 1, X: float32(tick * 10), Props: []byte("hero")}})
+		if tick == 3 {
+			srv.Despawn(coin)
+		}
+		_ = srv.Step(tick)
+		hub.Advance(16 * time.Millisecond)
+		cli.Poll()
+		hub.Advance(16 * time.Millisecond) // the acknowledgment reaches the server
+	}
+
+	e, _ := cli.Entity(hero)
+	latest, _ := cli.LatestTick()
+	fmt.Println("tick", latest, "hero x", e.X)
+	for _, s := range cli.Interpolate(2.5) {
+		fmt.Println("at tick 2.5:", s.ID, s.X)
+	}
+	stats := srv.Stats()
+	fmt.Println(stats.FullSnapshotsSent >= 1, stats.DeltaSnapshotsSent >= 1)
+	// Output:
+	// spawn 1 "hero"
+	// spawn 2 ""
+	// despawn 2
+	// tick 3 hero x 30
+	// at tick 2.5: 1 25
+	// true true
+}
+
+// ClientWorld.Predict moves the local player at once and keeps the input until the server's snapshot of that tick arrives, then replays the inputs the server has not seen yet on top of it.
+func ExampleClientWorld_Predict() {
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: 16 * time.Millisecond})
+	srv := gamenet.NewServerWorld(hub.AddPeer(1))
+	cli := gamenet.NewClientWorld(hub.AddPeer(2), 1)
+	player := srv.Spawn(gamenet.EntityState{})
+	_ = srv.Step(1)
+	hub.Advance(16 * time.Millisecond)
+	cli.Poll()
+
+	move := func(st *gamenet.EntityState, in any) { st.X += in.(float32) }
+	for range 3 {
+		cli.Predict(player, float32(5), move)
+	}
+	p, _ := cli.PredictedState(player)
+	fmt.Println("predicted x", p.X, "pending", cli.PendingPredictions(player))
+	// Output:
+	// predicted x 15 pending 3
+}
+
+// A RollbackSession steps at once with a prediction of each remote input (the peer's last one) and, when the real input arrives and differs, rolls back and re-simulates, so peers end in the same state without waiting on the network.
+func ExampleRollbackSession() {
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: 30 * time.Millisecond})
+	simA, simB := &tally{}, &tally{}
+	peers := []gamenet.PeerID{1, 2}
+	a := gamenet.NewRollbackSession(gamenet.RollbackConfig{Transport: hub.AddPeer(1), Sim: simA, Peers: peers, MaxRollback: 8})
+	b := gamenet.NewRollbackSession(gamenet.RollbackConfig{Transport: hub.AddPeer(2), Sim: simB, Peers: peers, MaxRollback: 8})
+
+	// Peer 2 presses 10 for two ticks, then changes to 20, which peer 1 has predicted wrongly by the time it arrives.
+	bBits := []uint64{10, 10, 20, 20, 20, 20}
+	for tick, bits := range bBits {
+		_ = a.Step(gamenet.InputFrame{Tick: uint32(tick), Peer: 1, Bits: 1})
+		_ = b.Step(gamenet.InputFrame{Tick: uint32(tick), Peer: 2, Bits: bits})
+		hub.Advance(16 * time.Millisecond)
+	}
+	hub.Advance(100 * time.Millisecond)
+	_ = a.Poll()
+	_ = b.Poll()
+
+	stats := a.Stats()
+	fmt.Println(a.Tick(), simA.total, simB.total)
+	fmt.Println(stats.Rollbacks > 0, stats.Mispredictions > 0, len(a.Desyncs()))
+	// Output:
+	// 6 106 106
+	// true true 0
+}

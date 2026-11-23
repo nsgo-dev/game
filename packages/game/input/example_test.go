@@ -2,6 +2,7 @@ package input_test
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/input"
@@ -97,4 +98,26 @@ func ExampleVirtualPad() {
 	fmt.Println(pad.Axis("move_x"), pad.Pressed("jump"))
 	// Output:
 	// 0.5 true
+}
+
+// A MotionInput turns device tilt and rotation into axes in [-1, 1], sampled once per game step. Calibrate takes the way the player holds the device as neutral. In a game, Start (or WatchMotion) feeds it the device's sensors; here OnMotion feeds it samples directly, as a test or a replay does.
+func ExampleMotionInput() {
+	const g = 9.80665 // m/s² in one g
+	m := input.NewMotionInput(input.MotionOptions{})
+	hold := core.SensorVector{X: 0, Y: 0.5 * g, Z: 0.85 * g}
+
+	// The first tilt sample after Calibrate becomes the neutral hold.
+	m.Calibrate()
+	m.OnMotion(core.MotionSample{Sensor: core.SensorDeviceMotion, Gravity: hold})
+	m.Step()
+	fmt.Printf("calibrated: %v tiltX %.2f\n", m.Calibrated(), m.Axis(input.TiltX))
+
+	// Tilting right by half a g and turning at a quarter turn per second.
+	hold.X = 0.5 * g
+	m.OnMotion(core.MotionSample{Sensor: core.SensorDeviceMotion, Gravity: hold, RotationRate: core.SensorVector{Z: math.Pi / 2}})
+	m.Step()
+	fmt.Printf("tiltX %.2f gyroZ %.2f\n", m.Axis(input.TiltX), m.Axis(input.GyroZ))
+	// Output:
+	// calibrated: true tiltX 0.00
+	// tiltX 0.50 gyroZ 0.50
 }
