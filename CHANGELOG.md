@@ -38,10 +38,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game`: `Loop` adds each frame's time from `RequestAnimationFrame` as it is, the display's own frame time where the platform stamps one, and no longer smooths it (#27).
 - `game/sound`: group, master and background volume changes now reach effects already playing through NSGo's `audio.Playback`, silencing them at 0 instead of stopping them; an `Effect` at its `Limit` stops its oldest playback to play a new one instead of refusing it; a voice with `Muted` set now plays nothing and `Play` returns false instead of playing muted and counting toward the limit; and a crossfade's new music track starts at once, muted, instead of waiting paused for the fade's first frame (#31).
 
-### Changed
-
-- `game/modding`: mod manifests are `mod.yaml` files with a `manifestVersion` field, read strictly (unknown fields, duplicate keys and unknown or repeated capabilities are refused) and written back in one canonical form by `EncodeManifest`; manifests built in Go may leave `ManifestVersion` at 0, so `Validate` and `ResolveOrder` callers are unaffected; `mod.json` is no longer read, and a mod that has only one is refused with a message asking for `mod.yaml` (#474).
-
 ### Fixed
 
 - `game/assets`: `asset:` URIs are confined to the `assets` directory (and `file://` is refused while a pack is mounted), downloaded packs are capped by entry count and unpacked size before mounting, mounting a pack into a reused group resets the group's previous specs, and `Group.Reset` cancels an in-flight load and forgets old specs.
