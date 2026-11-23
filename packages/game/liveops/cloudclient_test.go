@@ -21,8 +21,8 @@ type backend struct {
 	saves    *cloudsave.Service
 	handler  http.Handler
 	now      time.Time
-	// beforePut, when set, runs once before the next PUT reaches the cloud save service, so a test can land another device's upload in between.
-	beforePut func()
+	// beforePut and beforeDelete, when set, run once before the next PUT or DELETE reaches the cloud save service, so a test can land another device's upload in between.
+	beforePut, beforeDelete func()
 }
 
 func newBackend(t *testing.T, mutate func(*cloudsave.Config)) *backend {
@@ -57,6 +57,11 @@ func (b *backend) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method == http.MethodPut && b.beforePut != nil {
 		hook := b.beforePut
 		b.beforePut = nil
+		hook()
+	}
+	if r.Method == http.MethodDelete && b.beforeDelete != nil {
+		hook := b.beforeDelete
+		b.beforeDelete = nil
 		hook()
 	}
 	rec := httptest.NewRecorder()
@@ -190,6 +195,50 @@ func TestCloudClientConcurrentWritesConflict(t *testing.T) {
 			vs, err := b.client(t, androidCreds).Versions(context.Background(), "main")
 			if err != nil || int64(len(vs)) != want || vs[0].Number != want {
 				t.Fatalf("versions = %+v, %v", vs, err)
+			}
+		})
+	}
+}
+
+// TestCloudClientConcurrentDeleteConflict lands the browser's upload between the phone's re-read and its conditional DELETE, so the phone's deletion must fail rather than delete the browser's copy.
+func TestCloudClientConcurrentDeleteConflict(t *testing.T) {
+	for _, policy := range []liveops.ConflictPolicy{liveops.PolicyKeepBoth, liveops.PolicyNewest} {
+		t.Run(policy.String(), func(t *testing.T) {
+			b := newBackend(t, nil)
+			webCreds, androidCreds := signedInPair(t, b)
+			opts := func(o *liveops.CloudSyncOptions) { o.Policy = policy }
+			web := newDevice(t, "web", b.client(t, webCreds), opts)
+			android := newDevice(t, "android", b.client(t, androidCreds), opts)
+			web.save(t, "main", progress{Level: 1, Note: "start"}, 0)
+			web.sync(t)
+			android.sync(t)
+
+			if err := android.store.Delete("main"); err != nil {
+				t.Fatal(err)
+			}
+			b.beforeDelete = func() {
+				web.save(t, "main", progress{Level: 5, Note: "web"}, time.Hour)
+				if got := outcomeOf(t, web.sync(t), "main").Outcome; got != liveops.OutcomeUploaded {
+					t.Fatalf("web upload = %v", got)
+				}
+			}
+			if _, err := android.syncer.SyncSlot(context.Background(), "main"); !errors.Is(err, liveops.ErrCloudChanged) {
+				t.Fatalf("racing delete = %v, want ErrCloudChanged", err)
+			}
+			if v, err := b.saves.Load(context.Background(), webCreds.AccountID, "main"); err != nil || !strings.Contains(string(v.Data), `"device": "web"`) {
+				t.Fatalf("the losing delete removed the cloud copy: %s, %v", v.Data, err)
+			}
+
+			// The next sync sees a deletion against a change, and every policy keeps the changed copy.
+			r := outcomeOf(t, android.sync(t), "main")
+			if r.Conflict == nil || r.Outcome != liveops.OutcomeKeptCloud {
+				t.Fatalf("resolution = %+v", r)
+			}
+			if p := android.load(t, "main"); p.Level != 5 {
+				t.Fatalf("android main = %+v", p)
+			}
+			if got := outcomeOf(t, web.sync(t), "main").Outcome; got != liveops.OutcomeUpToDate {
+				t.Fatalf("web after resolution = %v", got)
 			}
 		})
 	}
@@ -398,6 +447,33 @@ func TestCloudClientErrors(t *testing.T) {
 	}
 	if _, err := liveops.NewCloudClient(liveops.CloudClientOptions{URL: "https://saves.example.com"}); err == nil {
 		t.Error("NewCloudClient without a token source succeeded")
+	}
+
+	// "." and ".." are not slots: as path segments they would address the listing.
+	for _, slot := range []string{".", ".."} {
+		if _, err := c.Load(ctx, slot); err == nil || errors.Is(err, liveops.ErrSlotNotFound) {
+			t.Errorf("Load(%q) = %v", slot, err)
+		}
+		if err := c.Save(ctx, slot, []byte("x")); err == nil {
+			t.Errorf("Save(%q) succeeded", slot)
+		}
+	}
+
+	// A redirect is reported, not followed.
+	requests := 0
+	redirecting, _ := liveops.NewCloudClient(liveops.CloudClientOptions{URL: "https://saves.example.com", Token: func(context.Context) (string, error) { return "t", nil },
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			requests++
+			rec := httptest.NewRecorder()
+			if r.URL.Path == "/v1/saves/one" {
+				http.Redirect(rec, r, "/v1/saves", http.StatusMovedPermanently)
+			} else {
+				_, _ = rec.WriteString(`{"slots":[]}`)
+			}
+			return rec.Result(), nil
+		})}})
+	if _, err := redirecting.Load(ctx, "one"); !errors.Is(err, liveops.ErrCloudUnavailable) || requests != 1 {
+		t.Fatalf("redirect = %v after %d requests", err, requests)
 	}
 }
 

@@ -31,9 +31,9 @@ const MaxSlotNameBytes = 200
 // MaxAccountBytes is the longest account ID, in bytes, the service files slots under.
 const MaxAccountBytes = 256
 
-// ValidateSlot checks that slot is a name the service stores: 1 to MaxSlotNameBytes bytes of UTF-8 with no control characters and no '/'. Every name save.ValidateSlot accepts passes.
+// ValidateSlot checks that slot is a name the service stores: 1 to MaxSlotNameBytes bytes of UTF-8 with no control characters and no '/', other than "." and "..", which are not path segments a URL can carry. Every name save.ValidateSlot accepts passes.
 func ValidateSlot(slot string) error {
-	if slot == "" || len(slot) > MaxSlotNameBytes || !utf8.ValidString(slot) {
+	if slot == "" || slot == "." || slot == ".." || len(slot) > MaxSlotNameBytes || !utf8.ValidString(slot) {
 		return fmt.Errorf("%w: %q", ErrInvalidSlot, slot)
 	}
 	for _, r := range slot {

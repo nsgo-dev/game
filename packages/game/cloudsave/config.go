@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -81,10 +83,19 @@ func (c Config) Validate() error {
 // validateOrigin checks that o is a web origin as a browser sends it: an http or https scheme and a host, with no path, query, fragment or user.
 func validateOrigin(o string) error {
 	u, err := url.Parse(o)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.String() != o {
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.String() != o || strings.Contains(u.Host, "*") || !validPort(u.Port()) {
 		return fmt.Errorf("cloudsave: allowedOrigins entry %q is not an origin such as https://play.example.com", o)
 	}
 	return nil
+}
+
+// validPort reports whether port, from url.URL.Port, is empty or a number from 1 to 65535.
+func validPort(port string) bool {
+	if port == "" {
+		return true
+	}
+	n, err := strconv.Atoi(port)
+	return err == nil && n >= 1 && n <= 65535 && strconv.Itoa(n) == port
 }
 
 // ParseConfig decodes and validates a YAML configuration. Unknown fields and trailing documents are refused.

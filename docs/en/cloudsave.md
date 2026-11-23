@@ -70,7 +70,7 @@ err = cloud.Purge(ctx, "main") // the slot and its history, for good
 
 - `maxSlotBytes` bounds a payload. A larger one is refused with `413 slot_too_large` and `{"limit": maxSlotBytes}` before the service reads past the limit, and the slot keeps its current copy. A `CloudSyncer` payload is the save inside a JSON envelope: about 250 bytes more, with the save's quotes and backslashes escaped, or base64, a third larger, for data that is not UTF-8.
 - `maxSlots` bounds an account's live slots; a write that would create one more is refused with `409 too_many_slots`. Fork slots made by `PolicyKeepBoth` count. A deleted slot does not count, but once an account has more than `maxSlots` deleted slots the oldest are purged with their history, so an account never holds more than twice `maxSlots` slots.
-- Slot names are 1 to 200 bytes of UTF-8 without control characters or `/` (`ValidateSlot`); every name `save.ValidateSlot` accepts passes. In URLs they are path segments, escaped as `url.PathEscape` does.
+- Slot names are 1 to 200 bytes of UTF-8 without control characters or `/`, other than `.` and `..` (`ValidateSlot`); every name `save.ValidateSlot` accepts passes. In URLs they are path segments, escaped as `url.PathEscape` does.
 
 ## Configuration
 
@@ -93,7 +93,7 @@ allowedOrigins:
 | `keepVersions` | Versions kept per slot, the current one included, from 1 to 100 |
 | `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin with a path, a wildcard or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
+`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin with a path, a wildcard, a port outside 1 to 65535 or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
 
 ## Storage
 

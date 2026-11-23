@@ -43,20 +43,24 @@ func TestConfigRoundTrip(t *testing.T) {
 
 func TestConfigRefusesInvalid(t *testing.T) {
 	cases := map[string]string{
-		"empty":           "",
-		"unknown field":   "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\ncolour: red\n",
-		"newer version":   "version: 2\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n",
-		"no size":         "version: 1\nmaxSlots: 1\nkeepVersions: 1\n",
-		"size too big":    "version: 1\nmaxSlotBytes: 67108865\nmaxSlots: 1\nkeepVersions: 1\n",
-		"no slots":        "version: 1\nmaxSlotBytes: 1\nmaxSlots: 0\nkeepVersions: 1\n",
-		"too many slots":  "version: 1\nmaxSlotBytes: 1\nmaxSlots: 10001\nkeepVersions: 1\n",
-		"keep none":       "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 0\n",
-		"keep too many":   "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 101\n",
-		"origin path":     "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example/]\n",
-		"origin scheme":   "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [ftp://a.example]\n",
-		"origin wildcard": "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['*']\n",
-		"origin twice":    "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example, https://a.example]\n",
-		"trailing doc":    "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n---\nversion: 1\n",
+		"empty":                     "",
+		"unknown field":             "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\ncolour: red\n",
+		"newer version":             "version: 2\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n",
+		"no size":                   "version: 1\nmaxSlots: 1\nkeepVersions: 1\n",
+		"size too big":              "version: 1\nmaxSlotBytes: 67108865\nmaxSlots: 1\nkeepVersions: 1\n",
+		"no slots":                  "version: 1\nmaxSlotBytes: 1\nmaxSlots: 0\nkeepVersions: 1\n",
+		"too many slots":            "version: 1\nmaxSlotBytes: 1\nmaxSlots: 10001\nkeepVersions: 1\n",
+		"keep none":                 "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 0\n",
+		"keep too many":             "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 101\n",
+		"origin path":               "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example/]\n",
+		"origin scheme":             "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [ftp://a.example]\n",
+		"origin wildcard":           "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['*']\n",
+		"origin host wildcard":      "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['https://*.example.com']\n",
+		"origin bare wildcard host": "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['https://*']\n",
+		"origin port out of range":  "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://a.example:99999']\n",
+		"origin port zero":          "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://a.example:0']\n",
+		"origin twice":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example, https://a.example]\n",
+		"trailing doc":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n---\nversion: 1\n",
 	}
 	for name, src := range cases {
 		if _, err := cloudsave.ParseConfig([]byte(src)); err == nil {
