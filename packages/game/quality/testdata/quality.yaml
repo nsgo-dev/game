@@ -1,0 +1,28 @@
+version: 1
+presets:
+  low:
+    resolution_scale: 0.5
+    particle_scale: 0.25
+    effects: false
+    shadows: false
+  medium:
+    resolution_scale: 0.75
+    particle_scale: 0.6
+    effects: true
+    shadows: false
+  high:
+    resolution_scale: 1
+    particle_scale: 1
+    effects: true
+    shadows: true
+devices:
+  - model: Google Pixel 8
+    os: android
+    level: high
+  - model: Samsung SM-A
+    os: android
+    level: low
+adapt:
+  target_fps: 30
+  window_frames: 120
+  upgrade_windows: 3

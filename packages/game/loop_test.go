@@ -667,3 +667,60 @@ func TestMarkDirtyFromDrawRequestsTheNextFrame(t *testing.T) {
 		t.Fatalf("%d draws, want 2", draws)
 	}
 }
+
+func TestFrameTimeReportsEachFramesLengthWithoutTheTimeAway(t *testing.T) {
+	var frames []time.Duration
+	c := count(game.Loop{})
+	c.FrameTime = func(dt time.Duration) { frames = append(frames, dt) }
+	app := start(t, &c.Loop)
+	app.Advance(time.Second)
+	if len(frames) != 60 {
+		t.Fatalf("%d frame times after 1 s, want 60", len(frames))
+	}
+	var total time.Duration
+	for i, dt := range frames {
+		// nsgotest runs a display frame every 16.667 ms.
+		if dt < 16*time.Millisecond || dt > 17*time.Millisecond {
+			t.Fatalf("frame %d: %v, want about 16.667 ms", i, dt)
+		}
+		total += dt
+	}
+	if total < 999*time.Millisecond || total > time.Second+time.Millisecond {
+		t.Fatalf("frame times add up to %v, want about 1 s", total)
+	}
+
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	app.Advance(5 * time.Second)
+	if len(frames) != 60 {
+		t.Fatalf("%d frame times in the background, want none past 60", len(frames))
+	}
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	app.Advance(time.Second)
+	for i, dt := range frames[60:] {
+		if dt > 17*time.Millisecond {
+			t.Fatalf("frame %d after the background: %v, want the time away left out", i, dt)
+		}
+	}
+	c.expect(t, 120, 120)
+}
+
+func TestStopFromFrameTimeEndsTheFrame(t *testing.T) {
+	var stop func()
+	c := count(game.Loop{})
+	frames := 0
+	c.FrameTime = func(time.Duration) {
+		frames++
+		if frames == 3 {
+			stop()
+		}
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		stop = c.Run(cx)
+		return core.View{}
+	})
+	app.Advance(time.Second)
+	if frames != 3 {
+		t.Fatalf("%d frame times, want 3", frames)
+	}
+	c.expect(t, 2, 2)
+}

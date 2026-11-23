@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/quality"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -83,6 +84,8 @@ type DisplaySettings struct {
 	VSync    bool `json:"vsync"`
 	// AutoDropLowPower lowers the frame cap while the system is in low-power mode or under serious thermal pressure, and restores it once the condition clears.
 	AutoDropLowPower bool `json:"auto_drop_low_power"`
+	// Quality is the player's quality setting as quality.NormalizeSetting writes it: "auto" (the default) lets quality.Selector choose from the device and its frame times, and "low", "medium" or "high" holds that preset.
+	Quality string `json:"quality,omitempty"`
 }
 
 // AccessibilitySettings holds player accessibility preferences.
@@ -130,6 +133,7 @@ func DefaultSettings() Settings {
 			FrameCap:         0,
 			VSync:            true,
 			AutoDropLowPower: true,
+			Quality:          quality.SettingAuto,
 		},
 		Locale: "",
 		Accessibility: AccessibilitySettings{
@@ -161,6 +165,11 @@ func (s *Settings) Validate() {
 	s.Display.ScaleMode = strings.TrimSpace(s.Display.ScaleMode)
 	if s.Display.ScaleMode == "" {
 		s.Display.ScaleMode = "fit"
+	}
+	if q, err := quality.NormalizeSetting(s.Display.Quality); err == nil {
+		s.Display.Quality = q
+	} else {
+		s.Display.Quality = quality.SettingAuto
 	}
 
 	s.Locale = strings.TrimSpace(s.Locale)

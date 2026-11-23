@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/quality"
 )
 
 // QualityLevel selects a built-in foliage density and draw-distance tier.
@@ -42,6 +43,18 @@ func DefaultQualityProfile(level QualityLevel) QualityProfile {
 		return QualityProfile{DensityScale: 0.75, MaxDistance: 120, FadeStartRatio: 0.75}
 	default:
 		return QualityProfile{DensityScale: 1.00, MaxDistance: 200, FadeStartRatio: 0.80}
+	}
+}
+
+// QualityLevelFor returns the foliage tier for a game-wide quality level: QualityLow for quality.Low, QualityMedium for quality.Medium and QualityHigh for quality.High. QualityUltra stays an explicit choice above every preset. An invalid level maps to QualityMedium, as quality.DefaultPreset does.
+func QualityLevelFor(l quality.Level) QualityLevel {
+	switch l {
+	case quality.Low:
+		return QualityLow
+	case quality.High:
+		return QualityHigh
+	default:
+		return QualityMedium
 	}
 }
 
