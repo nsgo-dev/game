@@ -65,7 +65,7 @@ quests:
 
 每个目标包含 `id`（在所属任务内唯一）、`kind`（`collect`、`reach`、`defeat` 或 `talk`）、`target`（事件必须指明的物品、地点、敌人或角色 ID），以及可选的 `count`（默认 1）、`optional` 和 `text`。奖励包含可选的 `kind`（如 `item`、`xp` 或 `gold`）、`id` 和 `amount`（默认 1）。本包只报告奖励，因此奖励可以指向游戏定义的任何东西，包括背包物品或属性。
 
-`quest.Parse` 与 `quest.LoadFS` 会拒绝未知字段、错误的版本号、重复或为空的 ID、未知的目标类型、负数计数、指向不存在任务的前置条件以及前置条件环；所有错误都包装 `quest.ErrInvalidBook`。`quest.Encode` 以 2 空格缩进、固定字段顺序、不含生成值的 YAML 写回任务书，因此加载后再保存不会改变任何内容。
+`quest.Parse` 与 `quest.LoadFS` 会拒绝未知字段、错误的版本号、重复或为空的 ID、未知的目标类型、负数计数、指向不存在任务的前置条件以及前置条件环；所有错误都包装 `quest.ErrInvalidBook`。`quest.Encode` 以规范形式写回任务书：2 空格缩进的 YAML，字段顺序固定，`requires` 用流式写法、其余用块式写法，省略空列表和默认值，不含生成值。像上面示例那样已是规范形式的任务书，加载后再保存不会改变任何内容，而且 `quest.Parse(quest.Encode(book))` 总是等于解析得到的任务书。其他形式的文件会被写成规范形式，YAML 注释不会保留，因此给设计者看的说明请写在 `description` 或 `text` 里。
 
 ## 运行任务
 
@@ -99,18 +99,19 @@ flow.Publish(&bus, quest.Reached{Place: "cellar"})
 
 `Collected`、`Reached`、`Defeated` 和 `Talked` 是 `quest.Event{Kind, Target, Amount}` 的简写；`Amount` 小于 1 时按 1 计。不使用总线时，直接调用 `log.Handle(event)`。
 
-任务有四种状态：
+任务有五种状态：
 
 | 状态 | 含义 |
 | --- | --- |
-| `Inactive` | 尚未开始，或已放弃 |
+| `Inactive` | 尚未开始 |
 | `Active` | 目标接收事件 |
 | `Completed` | 所有必需目标都已完成 |
 | `Failed` | 游戏调用了 `Fail`；可用 `Start` 重试 |
+| `Abandoned` | 玩家调用了 `Abandon`；可用 `Start` 重新接取 |
 
 - `Start(id)` 以零进度开始任务。前置任务未完成、任务正在进行，或任务已完成且不是 `repeatable` 时，返回 `ErrNotStartable`。
-- `StartReady()` 开始所有前置条件已满足的 `autoStart` 任务。每次任务完成后 Log 都会调用它，因此任务链会自动衔接。
-- `Fail(id)` 和 `Abandon(id)` 结束进行中的任务；放弃会清空进度。
+- `StartReady()` 开始所有从未开始过、且前置条件已满足的 `autoStart` 任务。每次任务完成后 Log 都会调用它，因此任务链会自动衔接。
+- `Fail(id)` 和 `Abandon(id)` 结束进行中的任务；放弃会清空进度。`StartReady` 不会重新开始这两种状态的任务，因此玩家放弃的 `autoStart` 任务会一直保持放弃状态（存档读档后也一样），直到游戏调用 `Start`。
 - `SetProgress(quest, objective, n)` 同步游戏已经在跟踪的数值，例如背包中某物品的数量。
 - `State`、`Quests(state)`、`Objectives(id)` 和 `Objective(quest, objective)` 供任务日志或 HUD 使用。目标处于 `ObjectiveLocked`、`ObjectiveActive` 或 `ObjectiveDone` 之一。
 
@@ -150,4 +151,6 @@ if err := log.Restore(s.Quests); err != nil {
 log.StartReady()
 ```
 
-`Restore` 在改动任何状态前先检查整个快照，并且不发送任何更新。它会拒绝（返回 `ErrInvalidSnapshot`）错误的版本号、任务书中已不存在的任务或目标、超出目标范围的进度，以及必需目标已全部完成却仍为 Active 的任务。内容更新删除或重命名了任务或目标、或调低了计数时，注册一个 `save.Migration` 改写旧快照。
+`Restore` 在改动任何状态前先检查整个快照，并且不发送任何更新。它会拒绝（返回 `ErrInvalidSnapshot`）错误的版本号、任务书中已不存在的任务或目标、超出目标范围的进度，以及 Log 不可能达到的进度：前置任务不在快照中（或前置任务不是 `repeatable` 却未完成）的任务、带有进度的已放弃任务、`ordered` 任务中越过未完成必需目标的进度，以及必需目标已全部完成却仍为 Active 的任务。内容更新删除或重命名了任务或目标、调低了计数或新增了前置条件时，注册一个 `save.Migration` 改写旧快照。
+
+在游戏开始记录任务之前写下的存档槽，缺失的字段会解码为零值 `quest.Snapshot`；`Restore` 把它当作没有任何进度，把所有任务重置为 `Inactive`。

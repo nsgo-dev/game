@@ -214,7 +214,7 @@ func TestFailAndAbandon(t *testing.T) {
 	if err := l.Abandon("herbs"); err != nil {
 		t.Fatal(err)
 	}
-	if l.State("herbs") != quest.Inactive {
+	if l.State("herbs") != quest.Abandoned {
 		t.Fatalf("abandoned herbs = %s", l.State("herbs"))
 	}
 	if st, _ := l.Objective("herbs", "moonleaf"); st.Progress != 0 {
@@ -227,6 +227,50 @@ func TestFailAndAbandon(t *testing.T) {
 	want := []string{"questFailed:herbs", "questStarted:herbs", "objectiveProgressed:herbs/moonleaf=1", "questAbandoned:herbs"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("updates = %v, want %v", got, want)
+	}
+}
+
+func TestAbandonedAutoStartQuestStaysAbandoned(t *testing.T) {
+	b := &quest.Book{Version: 1, Quests: []quest.Quest{
+		{ID: "intro", AutoStart: true, Objectives: []quest.Objective{{ID: "o", Kind: quest.KindTalk, Target: "guide"}}},
+		{ID: "side", Objectives: []quest.Objective{{ID: "o", Kind: quest.KindReach, Target: "well"}}},
+	}}
+	l, err := quest.NewLog(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.StartReady()
+	if err := l.Abandon("intro"); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Start("side"); err != nil {
+		t.Fatal(err)
+	}
+	// Completing another quest runs auto-start, which must skip the abandoned quest.
+	l.Handle(quest.Reached{Place: "well"}.Event())
+	if l.State("side") != quest.Completed {
+		t.Fatalf("side = %s", l.State("side"))
+	}
+	if n := l.StartReady(); n != 0 || l.State("intro") != quest.Abandoned {
+		t.Fatalf("StartReady = %d, intro %s; want 0 and abandoned", n, l.State("intro"))
+	}
+
+	// The abandoned state survives a save, so reloading does not restart the quest either.
+	reloaded, err := quest.NewLog(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.Restore(l.Snapshot()); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if n := reloaded.StartReady(); n != 0 || reloaded.State("intro") != quest.Abandoned {
+		t.Fatalf("after reload StartReady = %d, intro %s; want 0 and abandoned", n, reloaded.State("intro"))
+	}
+	if !reloaded.CanStart("intro") {
+		t.Fatal("an abandoned quest cannot be started again")
+	}
+	if err := reloaded.Start("intro"); err != nil || reloaded.State("intro") != quest.Active {
+		t.Fatalf("Start abandoned intro = %v, state %s", err, reloaded.State("intro"))
 	}
 }
 

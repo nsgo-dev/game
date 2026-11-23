@@ -23,7 +23,7 @@ var (
 type State uint8
 
 const (
-	// Inactive quests have not started, or were abandoned.
+	// Inactive quests have not started.
 	Inactive State = iota
 	// Active quests accept events for their objectives.
 	Active
@@ -31,9 +31,11 @@ const (
 	Completed
 	// Failed quests were failed by the game with Log.Fail; Start can retry them.
 	Failed
+	// Abandoned quests were dropped by the player with Log.Abandon. Auto-start never restarts them; Start can.
+	Abandoned
 )
 
-var stateNames = [...]string{Inactive: "inactive", Active: "active", Completed: "completed", Failed: "failed"}
+var stateNames = [...]string{Inactive: "inactive", Active: "active", Completed: "completed", Failed: "failed", Abandoned: "abandoned"}
 
 // String returns the state's lowercase name, such as "active".
 func (s State) String() string {
@@ -114,7 +116,7 @@ const (
 	QuestCompleted
 	// QuestFailed reports that a quest failed through Log.Fail.
 	QuestFailed
-	// QuestAbandoned reports that an active quest returned to Inactive through Log.Abandon.
+	// QuestAbandoned reports that an active quest became Abandoned through Log.Abandon.
 	QuestAbandoned
 )
 
@@ -260,7 +262,7 @@ func (l *Log) startable(i int) bool {
 	return true
 }
 
-// Start makes the quest active with no progress. It fails with ErrNotStartable while a prerequisite is incomplete, while the quest is active, or after it completed unless it is Repeatable; a failed quest can start again.
+// Start makes the quest active with no progress. It fails with ErrNotStartable while a prerequisite is incomplete, while the quest is active, or after it completed unless it is Repeatable; a failed or abandoned quest can start again.
 func (l *Log) Start(id string) error {
 	i, ok := l.index[id]
 	if !ok {
@@ -281,7 +283,7 @@ func (l *Log) start(i int) {
 	l.emit(Update{Kind: QuestStarted, Quest: l.book.Quests[i].ID})
 }
 
-// StartReady starts every AutoStart quest that is Inactive and whose prerequisites are complete, in book order, and returns how many started. A Log calls it after every quest completion; call it yourself once after NewLog or Restore so quests with no prerequisites begin.
+// StartReady starts every AutoStart quest that is Inactive (never started, so not Failed or Abandoned) and whose prerequisites are complete, in book order, and returns how many started. A Log calls it after every quest completion; call it yourself once after NewLog or Restore so quests with no prerequisites begin.
 func (l *Log) StartReady() int {
 	n := l.startReady()
 	l.flush()
@@ -311,14 +313,14 @@ func (l *Log) Fail(id string) error {
 	return nil
 }
 
-// Abandon returns an active quest to Inactive and drops its progress.
+// Abandon marks an active quest Abandoned and drops its progress. An abandoned quest stays abandoned, through StartReady and through a save, until Start begins it again.
 func (l *Log) Abandon(id string) error {
 	i, err := l.activeQuest(id)
 	if err != nil {
 		return err
 	}
 	p := &l.quests[i]
-	p.state = Inactive
+	p.state = Abandoned
 	clear(p.counts)
 	l.emit(Update{Kind: QuestAbandoned, Quest: id})
 	l.flush()
