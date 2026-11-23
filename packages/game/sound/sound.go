@@ -1,6 +1,7 @@
 package sound
 
 import (
+	"slices"
 	"strconv"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 // Mixer sets how loud a game's sounds and music play: a master volume and a volume for each group the app names, such as "effects", "music" and "ui", each from 0 to 1 and 1 until set. It keeps them in the app's storage (core.Storage), so they hold across launches, and plays nothing while the app is in the background.
 //
-// An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies to the effects played after it and to music as it plays. A short sound already playing keeps the volume it started with, as audio.Sound has no way to change it, except that a group or master volume of 0 stops it (nsgo-dev/nsgo#1088).
+// An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies at once to the effects playing, through their audio.Playback, and to music as it plays. An effect whose group or master volume reaches 0 plays on in silence and is heard again as the volume comes back.
 //
 // The mixer's methods, its effects' and its music's are called on the engine's goroutine, as audio's are.
 type Mixer struct {
@@ -30,7 +31,7 @@ type Mixer struct {
 
 // NewMixer returns a mixer that keeps its volumes in cx's storage under keys starting with key, such as "sound", and lives as long as cx.
 //
-// The mixer mutes everything while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone: it stops the sounds playing, pauses the music and plays the music on from there as the window shows again.
+// The mixer mutes everything while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone: it silences the effects playing, pauses the music and, as the window shows again, restores the effects still playing and plays the music on from there.
 func NewMixer(cx *core.Scope, key string) *Mixer {
 	m := &Mixer{cx: cx, store: cx.Storage(), key: key, sounds: map[*Effect]struct{}{}}
 	cx.Effect(func() {
@@ -103,14 +104,16 @@ func (m *Mixer) gain(group string) float32 {
 	return core.Untracked(m.cx, func() float32 { return m.Master() * m.Volume(group) })
 }
 
-// apply sets the music playing to the volumes and stops the sounds whose group cannot be heard.
+// apply sets the effects and the music playing to the volumes.
 func (m *Mixer) apply() {
-	now := m.cx.Now()
 	for s := range m.sounds {
-		if !s.playing(now) {
+		if s.prune() == 0 {
 			delete(m.sounds, s)
-		} else if m.gain(s.Group) <= 0 {
-			s.Stop()
+			continue
+		}
+		g := m.gain(s.Group)
+		for _, p := range s.live {
+			p.playback.SetVolume(p.volume * g)
 		}
 	}
 	for _, mu := range m.music {
@@ -126,8 +129,14 @@ type Effect struct {
 	Limit int
 	m     *Mixer
 	sound *audio.Sound
-	// ends are when the playbacks that may still play end, by the scope's clock.
-	ends []time.Time
+	// live are the playbacks that have not ended, oldest first.
+	live []playback
+}
+
+// playback is a playback of an effect and its voice's own volume, which the mixer's volumes scale.
+type playback struct {
+	playback *audio.Playback
+	volume   float32
 }
 
 // Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
@@ -135,43 +144,57 @@ func (m *Mixer) Effect(s *audio.Sound, group string, limit int) *Effect {
 	return &Effect{Group: group, Limit: limit, m: m, sound: s}
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, and reports whether it did. It plays nothing while that is 0, while the app is in the background, or while Limit playbacks still play, counting each as playing for the sound's duration at its rate; it does not stop one that plays to make room, as audio.Sound stops only all of them (nsgo-dev/nsgo#1088).
+// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays, and reports whether it started. It plays nothing while that is 0, as for a Muted voice, or while the app is in the background. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard. A backend that cannot address playbacks (audio.Playback) plays it as it started, outside the limit and the volume changes.
 func (s *Effect) Play(v audio.Voice) bool {
-	now := s.m.cx.Now()
-	n := 0
-	for _, end := range s.ends {
-		if end.After(now) {
-			s.ends[n] = end
-			n++
-		}
+	volume := voiceVolume(v.Volume)
+	if v.Muted {
+		volume = 0
 	}
-	s.ends = s.ends[:n]
-	g := s.m.gain(s.Group) * voiceVolume(v.Volume)
-	if g <= 0 || (s.Limit > 0 && len(s.ends) >= s.Limit) {
+	g := s.m.gain(s.Group) * volume
+	if g <= 0 {
 		return false
 	}
+	if n := s.prune(); s.Limit > 0 && n >= s.Limit {
+		oldest := n - s.Limit + 1
+		for _, p := range s.live[:oldest] {
+			p.playback.Stop()
+		}
+		s.live = slices.Delete(s.live, 0, oldest)
+	}
 	v.Volume = g
-	s.sound.Play(v)
-	s.ends = append(s.ends, now.Add(time.Duration(float64(s.sound.Duration())/float64(voiceRate(v.Rate)))))
-	s.m.sounds[s] = struct{}{}
+	p := s.sound.Play(v)
+	if !ended(s.m.cx, p) {
+		s.live = append(s.live, playback{playback: p, volume: volume})
+		s.m.sounds[s] = struct{}{}
+	}
 	return true
 }
 
 // Stop stops every playback of the sound, and of every other sound of the same source, as audio.Sound.Stop does.
 func (s *Effect) Stop() {
 	s.sound.Stop()
-	s.ends = nil
+	clear(s.live)
+	s.live = s.live[:0]
 	delete(s.m.sounds, s)
 }
 
-// playing says a playback of the sound may still play at now.
-func (s *Effect) playing(now time.Time) bool {
-	for _, end := range s.ends {
-		if end.After(now) {
-			return true
+// prune drops the playbacks that ended from live and returns how many still play.
+func (s *Effect) prune() int {
+	n := 0
+	for _, p := range s.live {
+		if !ended(s.m.cx, p.playback) {
+			s.live[n] = p
+			n++
 		}
 	}
-	return false
+	clear(s.live[n:])
+	s.live = s.live[:n]
+	return n
+}
+
+// ended reports whether p ended, without subscribing the running computation to it.
+func ended(cx *core.Scope, p *audio.Playback) bool {
+	return core.Untracked(cx, p.Ended)
 }
 
 // voiceVolume is a voice's volume as audio plays it: from 0 to 1, 1 for 0.
@@ -180,14 +203,6 @@ func voiceVolume(v float32) float32 {
 		return 1
 	}
 	return min(max(v, 0), 1)
-}
-
-// voiceRate is a voice's rate as audio plays it: from 0.5 to 2, 1 for 0.
-func voiceRate(r float32) float32 {
-	if r == 0 || r != r {
-		return 1
-	}
-	return min(max(r, 0.5), 2)
 }
 
 // Music plays long tracks through a mixer, one at a time, each through an audio.Player, crossfading from one to the next.
@@ -274,9 +289,11 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 		return
 	}
 	mu.m.cx.Run(func() { mu.stopFade = mu.m.cx.Animate(fade, core.Linear, step) })
+	// The new track starts now, muted, rather than on the fade's first frame.
+	mu.apply()
 }
 
-// apply sets each track's volume, pausing those that cannot be heard and playing the others.
+// apply sets each track's volume, pausing them all while the group cannot be heard and playing them otherwise.
 func (mu *Music) apply() {
 	g := mu.m.gain(mu.Group)
 	if mu.current != nil {
@@ -287,20 +304,23 @@ func (mu *Music) apply() {
 	}
 }
 
-// apply plays the track at gain times its level, or pauses it where that is 0, as an audio.Player takes a volume of 0 for 1 (nsgo-dev/nsgo#1088).
+// apply plays the track at gain times its level, muted at a level of 0, such as a track a crossfade starts, as an audio.Player takes a volume of 0 for 1; it pauses the track while gain is 0, so music in a group that cannot be heard waits for it to be.
 func (t *track) apply(gain float32) {
 	if t.done {
 		return
 	}
-	v := gain * t.level
-	if v <= 0 {
+	if gain <= 0 {
 		if t.playing {
 			t.p.Pause()
 			t.playing = false
 		}
 		return
 	}
-	t.p.SetVolume(v)
+	v := gain * t.level
+	t.p.SetMuted(v <= 0)
+	if v > 0 {
+		t.p.SetVolume(v)
+	}
 	if !t.playing {
 		t.p.Play(nil)
 		t.playing = true

@@ -2,6 +2,7 @@ package sound_test
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -72,6 +73,21 @@ func (m *mixed) player(t *testing.T, i int) *nsgotest.AudioPlayer {
 	return m.app.Players[i]
 }
 
+// playbacks are the click's playbacks so far, oldest first.
+func (m *mixed) playbacks() []*nsgotest.AudioPlayback {
+	m.app.Settle()
+	return m.app.Sounds[0].Playbacks
+}
+
+// expectPlayback fails unless p plays on at volume once the app settles.
+func (m *mixed) expectPlayback(t *testing.T, p *nsgotest.AudioPlayback, volume float32) {
+	t.Helper()
+	m.app.Settle()
+	if p.Ended || !near(p.Volume, volume) {
+		t.Fatalf("playback: ended %v, volume %v; want playing at %v", p.Ended, p.Volume, volume)
+	}
+}
+
 func near(a, b float32) bool { return math.Abs(float64(a-b)) < 1e-3 }
 
 func expectPlayer(t *testing.T, p *nsgotest.AudioPlayer, playing bool, volume float32) {
@@ -115,15 +131,42 @@ func TestGroupAndMasterVolumesApplyToNewAndPlayingSounds(t *testing.T) {
 	m.mixer.SetVolume("ui", 0.1)
 	expectPlayer(t, m.player(t, 0), true, 0.4)
 
-	// A group at 0 stops its sounds playing and plays no more of them.
+	// The click playing follows its group's volume and the master volume, as its own voice's volume times theirs.
+	click := m.playbacks()[0]
+	m.expectPlayback(t, click, 0.2)
+	m.mixer.SetVolume("effects", 1)
+	m.expectPlayback(t, m.playbacks()[0], 0.4)
+	m.mixer.SetMaster(0.4)
+	m.expectPlayback(t, click, 0.2)
+	m.mixer.SetVolume("ui", 0.1)
+	m.expectPlayback(t, click, 0.2)
+	m.mixer.SetMaster(0.8)
+	m.mixer.SetVolume("effects", 0.5)
+
+	// A group at 0 silences its sounds playing, without stopping them, and plays no more of them.
 	m.click.Play(audio.Voice{})
 	m.mixer.SetVolume("effects", 0)
-	m.app.Settle()
-	if stops := m.app.Sounds[0].Stops; stops != 1 {
-		t.Fatalf("%d stops, want 1", stops)
+	pbs := m.playbacks()
+	m.expectPlayback(t, pbs[0], 0)
+	m.expectPlayback(t, pbs[1], 0)
+	if stops := m.app.Sounds[0].Stops; stops != 0 {
+		t.Fatalf("%d stops, want 0", stops)
 	}
 	if m.click.Play(audio.Voice{}) || len(m.plays()) != 2 {
 		t.Fatalf("a click played at 0: %+v", m.plays())
+	}
+	// They are heard again as the group comes back.
+	m.mixer.SetVolume("effects", 0.5)
+	m.expectPlayback(t, pbs[0], 0.2)
+	m.expectPlayback(t, pbs[1], 0.4)
+	// A playback that ended is let go.
+	m.app.Advance(200 * time.Millisecond)
+	if !pbs[0].Ended || !pbs[1].Ended {
+		t.Fatal("the clicks did not end")
+	}
+	m.mixer.SetVolume("effects", 0.25)
+	if pbs[1].Volume != 0.4 {
+		t.Fatalf("an ended click changed to %v", pbs[1].Volume)
 	}
 
 	// A master volume of 0 pauses the music, and one above plays it on.
@@ -145,39 +188,49 @@ func TestVolumesClampToZeroToOne(t *testing.T) {
 	}
 }
 
-func TestASoundLimitedToFourPlaysAtMostFourAtOnce(t *testing.T) {
+func TestASoundLimitedToFourStopsItsOldestToPlayAFifth(t *testing.T) {
 	m := startMixed(t)
-	played := 0
-	for range 6 {
-		if m.click.Play(audio.Voice{}) {
-			played++
+	for i := range 6 {
+		if !m.click.Play(audio.Voice{Volume: float32(i+1) / 10}) {
+			t.Fatalf("click %d did not play", i)
 		}
 	}
-	if played != 4 || len(m.plays()) != 4 {
-		t.Fatalf("%d played and %d on the platform, want 4", played, len(m.plays()))
+	pbs := m.playbacks()
+	if len(pbs) != 6 || len(m.plays()) != 6 {
+		t.Fatalf("%d playbacks, want 6", len(pbs))
 	}
-	// Half the click's 100 ms in, all four still play.
-	m.app.Advance(50 * time.Millisecond)
-	if m.click.Play(audio.Voice{}) {
-		t.Fatal("a fifth played")
+	// The two oldest stopped to make room, and the newest four play.
+	for i, p := range pbs {
+		if p.Ended != (i < 2) {
+			t.Fatalf("playback %d: ended %v, want %v", i, p.Ended, i < 2)
+		}
 	}
-	// At twice the speed one lasts 50 ms, so it makes room sooner.
-	m.app.Advance(50 * time.Millisecond)
-	if !m.click.Play(audio.Voice{Rate: 2}) {
-		t.Fatal("no click played once the four ended")
+	if stops := m.app.Sounds[0].Stops; stops != 0 {
+		t.Fatalf("%d stops of every playback, want 0", stops)
 	}
-	for range 3 {
+
+	// Playbacks that end on their own make room without stopping another: at twice the speed one lasts 50 ms.
+	m.app.Advance(60 * time.Millisecond)
+	m.click.Play(audio.Voice{Rate: 2})
+	m.app.Advance(80 * time.Millisecond)
+	for i, p := range m.playbacks() {
+		if !p.Ended {
+			t.Fatalf("playback %d still plays", i)
+		}
+	}
+	for range 4 {
 		m.click.Play(audio.Voice{})
 	}
-	if m.click.Play(audio.Voice{}) {
-		t.Fatal("a fifth played")
+	for i, p := range m.playbacks()[7:] {
+		if p.Ended {
+			t.Fatalf("playback %d of four within the limit ended", 7+i)
+		}
 	}
-	m.app.Advance(50 * time.Millisecond)
-	if !m.click.Play(audio.Voice{}) {
-		t.Fatal("the fast click did not make room")
-	}
-	if n := len(m.plays()); n != 9 {
-		t.Fatalf("%d plays, want 9", n)
+
+	// The playbacks left after an eviction still follow the volumes.
+	m.mixer.SetVolume("effects", 0.5)
+	for _, p := range m.playbacks()[7:] {
+		m.expectPlayback(t, p, 0.5)
 	}
 
 	// A limit of 0 is the platform's alone.
@@ -186,6 +239,22 @@ func TestASoundLimitedToFourPlaysAtMostFourAtOnce(t *testing.T) {
 		if !m.click.Play(audio.Voice{}) {
 			t.Fatal("an unlimited click did not play")
 		}
+	}
+	live := 0
+	for _, p := range m.playbacks() {
+		if !p.Ended {
+			live++
+		}
+	}
+	if live != 14 {
+		t.Fatalf("%d playbacks play, want 14", live)
+	}
+}
+
+func TestAMutedVoicePlaysNothing(t *testing.T) {
+	m := startMixed(t)
+	if m.click.Play(audio.Voice{Muted: true}) || len(m.plays()) != 0 {
+		t.Fatalf("a muted click played: %+v", m.plays())
 	}
 }
 
@@ -222,14 +291,16 @@ func TestTheBackgroundMutesAndTheForegroundRestores(t *testing.T) {
 	m := startMixed(t)
 	m.mixer.SetVolume("music", 0.5)
 	m.music.Play(audio.Source{URI: trackA}, 0)
-	m.click.Play(audio.Voice{})
+	m.click.Play(audio.Voice{Volume: 0.5, Loop: true})
 	expectPlayer(t, m.player(t, 0), true, 0.5)
+	m.expectPlayback(t, m.playbacks()[0], 0.5)
 
 	m.app.SetEnvironment(background)
 	m.app.Settle()
-	if stops := m.app.Sounds[0].Stops; stops != 1 {
-		t.Fatalf("%d stops, want 1", stops)
+	if stops := m.app.Sounds[0].Stops; stops != 0 {
+		t.Fatalf("%d stops, want 0", stops)
 	}
+	m.expectPlayback(t, m.playbacks()[0], 0)
 	expectPlayer(t, m.player(t, 0), false, 0)
 	if m.click.Play(audio.Voice{}) {
 		t.Fatal("a click played in the background")
@@ -242,6 +313,7 @@ func TestTheBackgroundMutesAndTheForegroundRestores(t *testing.T) {
 
 	m.app.SetEnvironment(playsAudio)
 	expectPlayer(t, m.player(t, 0), true, 0.5)
+	m.expectPlayback(t, m.playbacks()[0], 0.5)
 	if !m.click.Play(audio.Voice{}) {
 		t.Fatal("no click played back in the foreground")
 	}
@@ -311,8 +383,14 @@ func TestACrossfadeEndsWithOnlyTheNewTrackAtFullGroupVolume(t *testing.T) {
 	}
 
 	m.music.Play(audio.Source{URI: trackB}, time.Second)
+	// The new track starts at once, at silence.
+	b := m.player(t, 1)
+	if !b.Playing || b.Volume != 0 || slices.Contains(b.Commands, "pause") {
+		t.Fatalf("the new track starts playing %v at %v, commands %v; want playing at 0", b.Playing, b.Volume, b.Commands)
+	}
+	expectPlayer(t, m.player(t, 0), true, 0.5)
 	m.app.Advance(500 * time.Millisecond)
-	a, b := m.player(t, 0), m.player(t, 1)
+	a := m.player(t, 0)
 	if !a.Playing || !b.Playing || math.Abs(float64(a.Volume+b.Volume-0.5)) > 0.02 || a.Volume < 0.2 || a.Volume > 0.3 {
 		t.Fatalf("halfway: a at %v playing %v, b at %v playing %v; want both near 0.25", a.Volume, a.Playing, b.Volume, b.Playing)
 	}
