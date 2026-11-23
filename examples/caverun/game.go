@@ -364,8 +364,11 @@ func (g *caveRun) handleMenuActions() {
 	a := g.actions
 	switch g.phase.Get() {
 	case phaseTitle:
-		if a.JustPressed(actionConfirm) || a.JustPressed(actionJump) {
+		switch {
+		case a.JustPressed(actionConfirm) || a.JustPressed(actionJump):
 			g.startGame()
+		case a.JustPressed(actionSwarm):
+			g.toggleSwarm()
 		}
 	case phasePlaying:
 		switch {
