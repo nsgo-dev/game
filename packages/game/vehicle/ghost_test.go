@@ -41,6 +41,42 @@ func TestGhostRecorderInterval(t *testing.T) {
 	}
 }
 
+func TestGhostRecorderFinishEndsOnTheLine(t *testing.T) {
+	frame := func(i int) physics3d.Vec3 { return physics3d.Vec3{X: float32(i)} }
+	// A 7-step lap sampled every 3 steps: frames at 0, 3 and 6 from Record, and the finish at 7 from Finish.
+	r := &vehicle.GhostRecorder{Interval: 3}
+	for i := range 7 {
+		r.Record(frame(i), physics3d.QuatIdentity())
+	}
+	r.Finish(frame(7), physics3d.QuatIdentity())
+	g := r.Ghost(60, 7)
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Frames) != 4 || g.Steps() != 7 || g.Frames[3].P[0] != 7 {
+		t.Fatalf("off-grid finish ghost = %+v", g)
+	}
+	if p, _ := g.Pose(6.5); !approx(p.X, 6.5, 1e-6) {
+		t.Fatalf("pose between the last sample and the finish = %+v", p)
+	}
+	if p, _ := g.Pose(4.5); !approx(p.X, 4.5, 1e-6) {
+		t.Fatalf("pose between samples = %+v", p)
+	}
+	if p, _ := g.Pose(7); p.X != 7 {
+		t.Fatalf("pose at the finish = %+v", p)
+	}
+
+	// A lap that is a multiple of Interval gets no extra frame.
+	r.Reset()
+	for i := range 6 {
+		r.Record(frame(i), physics3d.QuatIdentity())
+	}
+	r.Finish(frame(6), physics3d.QuatIdentity())
+	if g := r.Ghost(60, 6); len(g.Frames) != 3 || g.Steps() != 6 || g.Validate() != nil {
+		t.Fatalf("on-grid finish ghost = %+v", g)
+	}
+}
+
 func TestGhostPoseInterpolates(t *testing.T) {
 	quarter := physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, math.Pi/2)
 	g := &vehicle.Ghost{Version: 1, Rate: 60, Interval: 2, Frames: []vehicle.GhostFrame{
@@ -70,7 +106,7 @@ func TestGhostPoseInterpolates(t *testing.T) {
 }
 
 func TestGhostRoundTrip(t *testing.T) {
-	g := &vehicle.Ghost{Version: 1, Name: "best", Rate: 60, Interval: 2, LapSteps: 3, Frames: []vehicle.GhostFrame{
+	g := &vehicle.Ghost{Version: 1, Name: "best", Rate: 60, Interval: 2, LapSteps: 1, Frames: []vehicle.GhostFrame{
 		{P: [3]float32{0.1, 0.65, -1e-8}, R: [4]float32{0, 0.70710677, 0, 0.70710677}},
 		{P: [3]float32{1e7, -3.25, 2}, R: [4]float32{0, 0, 0, -1}},
 	}}
@@ -99,18 +135,22 @@ func TestGhostRoundTrip(t *testing.T) {
 
 func TestParseGhostRejects(t *testing.T) {
 	for name, doc := range map[string]string{
-		"empty":          "",
-		"version":        "version: 2\nrate: 60\ninterval: 1\nframes: []\n",
-		"rate":           "version: 1\nrate: 0\ninterval: 1\nframes: []\n",
-		"interval":       "version: 1\nrate: 60\ninterval: 0\nframes: []\n",
-		"lap steps":      "version: 1\nrate: 60\ninterval: 1\nlapSteps: -1\nframes: []\n",
-		"unknown field":  "version: 1\nrate: 60\ninterval: 1\nframes: []\nspeed: 3\n",
-		"unknown frame":  "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1], v: 1}\n",
-		"short position": "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0], r: [0, 0, 0, 1]}\n",
-		"nan position":   "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [.nan, 0, 0], r: [0, 0, 0, 1]}\n",
-		"inf rotation":   "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, .inf, 1]}\n",
-		"zero rotation":  "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 0]}\n",
-		"trailing doc":   "version: 1\nrate: 60\ninterval: 1\nframes: []\n---\n{}\n",
+		"empty":           "",
+		"version":         "version: 2\nrate: 60\ninterval: 1\nframes: []\n",
+		"rate":            "version: 1\nrate: 0\ninterval: 1\nframes: []\n",
+		"interval":        "version: 1\nrate: 60\ninterval: 0\nframes: []\n",
+		"lap steps":       "version: 1\nrate: 60\ninterval: 1\nlapSteps: -1\nframes: []\n",
+		"unknown field":   "version: 1\nrate: 60\ninterval: 1\nframes: []\nspeed: 3\n",
+		"unknown frame":   "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1], v: 1}\n",
+		"short position":  "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0], r: [0, 0, 0, 1]}\n",
+		"nan position":    "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [.nan, 0, 0], r: [0, 0, 0, 1]}\n",
+		"inf rotation":    "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, .inf, 1]}\n",
+		"zero rotation":   "version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 0]}\n",
+		"trailing doc":    "version: 1\nrate: 60\ninterval: 1\nframes: []\n---\n{}\n",
+		"huge interval":   "version: 1\nrate: 60\ninterval: 4611686018427387904\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n",
+		"lap past frames": "version: 1\nrate: 60\ninterval: 2\nlapSteps: 3\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n",
+		"lap before last": "version: 1\nrate: 60\ninterval: 2\nlapSteps: 2\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n",
+		"lap no frames":   "version: 1\nrate: 60\ninterval: 1\nlapSteps: 3\nframes: []\n",
 	} {
 		if _, err := vehicle.ParseGhost([]byte(doc)); err == nil {
 			t.Errorf("%s: ParseGhost accepted it", name)
@@ -124,7 +164,7 @@ func TestParseGhostRejects(t *testing.T) {
 
 func FuzzParseGhost(f *testing.F) {
 	f.Add([]byte("version: 1\nrate: 60\ninterval: 1\nframes:\n  - {p: [0, 0.65, 14], r: [0, 0, 0, 1]}\n"))
-	f.Add([]byte("version: 1\nrate: 30\ninterval: 4\nlapSteps: 9\nframes: []\n"))
+	f.Add([]byte("version: 1\nrate: 30\ninterval: 4\nlapSteps: 9\nframes:\n  - {p: [0, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [1, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [2, 0, 0], r: [0, 0, 0, 1]}\n  - {p: [3, 0, 0], r: [0, 0, 0, 1]}\n"))
 	f.Add([]byte("version: 1\nrate: 10\ninterval: 1\nframes:\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		g, err := vehicle.ParseGhost(data)
@@ -151,7 +191,7 @@ func BenchmarkGhostPose(b *testing.B) {
 	for i := range 1000 {
 		r.Record(physics3d.Vec3{X: float32(i)}, physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, float32(i)*0.01))
 	}
-	g := r.Ghost(60, 1000)
+	g := r.Ghost(60, 998)
 	b.ReportAllocs()
 	step := 0.0
 	for b.Loop() {

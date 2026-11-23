@@ -50,8 +50,9 @@ To read the car's state:
 - `Grounded()` counts the wheels touching the ground, and each `Wheels[i]` reports `Contact`, `ContactPoint`, `ContactNormal`, `Ground`, `SuspensionLength`, `SuspensionForce`, `SteerAngle`, `SpinSpeed`, `SpinAngle` and `Sliding`.
 - `WheelTransform(i)` returns wheel `i`'s world-space center and orientation, including steering and spin, for drawing its mesh, whose axle is its local X axis.
 - `Reset(pos, rot)` teleports the car, stops it and clears its wheels, such as to respawn at a checkpoint.
+- `Config()` returns a copy of the car's tuning. The tuning is fixed for the car's lifetime, and each `Wheels[i].Config` is a copy for reading; to drive with different tuning, create a new `Vehicle`.
 
-`RayMask` selects the layers wheel rays hit; trigger bodies and the chassis itself are always skipped, so checkpoints do not hold a car up. A settled car with no input sleeps like any other body and wakes when `SetInput` gives it throttle, brake, steering or handbrake.
+`RayMask` selects the layers wheel rays hit; trigger bodies and the chassis itself are always skipped, so checkpoints do not hold a car up. A settled car sleeps like any other body and wakes when `SetInput` gives it throttle, brake, steering or handbrake. A held throttle keeps it awake, such as while pushing against a wall, while a held brake or handbrake lets it sleep.
 
 ## Car files
 
@@ -130,7 +131,7 @@ car.Step(world, dt)
 world.Step(dt)
 ```
 
-Checkpoint 0 is the start/finish line. A racer's first lap starts on the step it is added; it must enter checkpoints 1, 2, ... in order and then checkpoint 0 to complete a lap, and entering any other checkpoint is ignored, so cutting the track does not count. Times are counted in fixed steps: call `Tick` once per step, before `World.Step`, and multiply by the step duration for wall time.
+Checkpoint 0 is the start/finish line, and each checkpoint must be a different trigger body: a track that passes the same place twice, such as a figure eight's crossing, needs a trigger for each pass. A racer's first lap starts on the step it is added; it must enter checkpoints 1, 2, ... in order and then checkpoint 0 to complete a lap, and entering any other checkpoint is ignored, so cutting the track does not count. Times are counted in fixed steps: call `Tick` once per step, before `World.Step`, and multiply by the step duration for wall time.
 
 Each `Racer` reports `Laps`, `Next`, `LastLap`, `BestLap`, `Finished` and `FinishStep`; `OnLap` receives a `LapEvent` for every completed lap, with whether it was the racer's best and final. `Standings()` orders racers: finished racers by finish step, then the rest by laps and checkpoints passed, ties in the order they were added. `Observe` ignores events that are not a checkpoint entry, so it can sit behind other trigger handlers.
 
@@ -140,8 +141,10 @@ A `Ghost` is a recorded lap: the chassis pose sampled every `Interval` steps, pl
 
 ```go
 rec := &vehicle.GhostRecorder{Interval: 2}
+// When the racer is added, the first lap's first frame:
+rec.Record(car.Body.Pos, car.Body.Rot)
 race.OnLap = func(ev vehicle.LapEvent) {
-	rec.Record(car.Body.Pos, car.Body.Rot)
+	rec.Finish(car.Body.Pos, car.Body.Rot) // the finish line, even between samples
 	if ev.Best {
 		best = rec.Ghost(60, ev.Steps)
 	}
@@ -154,9 +157,9 @@ rec.Record(car.Body.Pos, car.Body.Rot)
 pos, rot := best.Pose(float64(step) + alpha)
 ```
 
-`Pose` interpolates positions linearly and orientations spherically between frames, and clamps steps outside the recording to its first or last frame.
+Frame `i` is at step `i * Interval`, except that the last frame is at step `LapSteps` when it is set, so `Finish` ends a ghost exactly on the finish line even when the lap's step count is not a multiple of `Interval`. `Pose` interpolates positions linearly and orientations spherically between frames, and clamps steps outside the recording to its first or last frame.
 
-Ghosts are text, like every file in this repository: `EncodeGhost` writes versioned YAML with each frame's position and rotation on a flow-style line of its own, and `ParseGhost` reads it back unchanged, refusing unknown fields and more than an hour of frames at 60 Hz.
+Ghosts are text, like every file in this repository: `EncodeGhost` writes versioned YAML with each frame's position and rotation on a flow-style line of its own, and `ParseGhost` reads it back unchanged, refusing unknown fields, more than an hour of frames at 60 Hz, and a `lapSteps` that does not fall within the last `interval` before the last frame.
 
 ```yaml
 version: 1
@@ -168,6 +171,7 @@ frames:
     r: [0, 0, 0, 1]
   - p: [0, 0.62, 13.98]
     r: [0, 0, 0, 1]
+  # ... 405 more frames, the last at step 812
 ```
 
 To reproduce a drive exactly, such as for a bug report, record the car's input instead with `replay.NewRecorder(actions, seed, rate, controls.Actions(), controls.Axes())` and play it back through `replay.Player` into `Controls.Read`.

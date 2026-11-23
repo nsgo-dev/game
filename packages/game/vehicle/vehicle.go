@@ -38,7 +38,7 @@ func clampAxis(v, lo, hi float32) float32 {
 
 // Wheel is one wheel's configuration and the state Vehicle.Step left it in.
 type Wheel struct {
-	// Config is the wheel's configuration.
+	// Config is a copy of the wheel's configuration, for reading; Step uses the Vehicle's own copy, so changing it has no effect.
 	Config WheelConfig
 	// Contact reports whether the wheel's ray touched ground on the last step.
 	Contact bool
@@ -66,13 +66,12 @@ type Wheel struct {
 type Vehicle struct {
 	// Body is the chassis; its Pos is the center of mass.
 	Body *physics3d.Body
-	// Config is the car's tuning, as passed to New.
-	Config Config
 	// Wheels holds each wheel's state, in Config.Wheels order.
 	Wheels []Wheel
 	// RayMask selects the layers wheel rays hit (0 hits every layer). Trigger bodies and the chassis itself are always skipped.
 	RayMask physics3d.LayerMask
 
+	cfg    Config
 	input  Input
 	steer  float32
 	nDrive int
@@ -97,13 +96,13 @@ func New(world *physics3d.World, cfg Config, pos physics3d.Vec3, rot physics3d.Q
 		Center:      vec(cfg.ChassisOffset),
 		HalfExtents: vec(cfg.ChassisHalfExtents),
 	}), pos, cfg.Mass)
-	body.Rot = rot
+	body.Rot = rot.Norm()
 	body.LinearDamping = 0
 	body.AngularDamping = cfg.AngularDamping
 	body.Friction = 0.3
 	v := &Vehicle{
 		Body:   world.AddBody(body),
-		Config: cfg,
+		cfg:    cfg,
 		Wheels: make([]Wheel, len(cfg.Wheels)),
 		tires:  make([]tireImpulse, len(cfg.Wheels)),
 	}
@@ -121,6 +120,13 @@ func New(world *physics3d.World, cfg Config, pos physics3d.Vec3, rot physics3d.Q
 
 func vec(a [3]float32) physics3d.Vec3 {
 	return physics3d.Vec3{X: a[0], Y: a[1], Z: a[2]}
+}
+
+// Config returns a copy of the car's tuning, as passed to New. The tuning is fixed for the Vehicle's lifetime; to drive with different tuning, remove the chassis from the world and create a new Vehicle.
+func (v *Vehicle) Config() Config {
+	cfg := v.cfg
+	cfg.Wheels = append([]WheelConfig(nil), v.cfg.Wheels...)
+	return cfg
 }
 
 // SetInput sets the input the next Step applies, clamping each axis to its range and treating NaN as 0. Input stays in effect until it is set again.
@@ -172,15 +178,17 @@ func (v *Vehicle) Reset(pos physics3d.Vec3, rot physics3d.Quat) {
 	v.input = Input{}
 	for i := range v.Wheels {
 		w := &v.Wheels[i]
-		*w = Wheel{Config: w.Config, SuspensionLength: w.Config.RestLength}
+		wc := &v.cfg.Wheels[i]
+		*w = Wheel{Config: *wc, SuspensionLength: wc.RestLength}
 	}
 }
 
 // WheelTransform returns wheel i's world-space center and orientation, including steering and spin, for drawing its mesh. The mesh's axle is its local X axis.
 func (v *Vehicle) WheelTransform(i int) (physics3d.Vec3, physics3d.Quat) {
 	w := &v.Wheels[i]
+	wc := &v.cfg.Wheels[i]
 	rot := v.Body.Rot
-	anchor := v.Body.Pos.Add(rot.RotateVec(vec(w.Config.Anchor)))
+	anchor := v.Body.Pos.Add(rot.RotateVec(vec(wc.Anchor)))
 	center := anchor.Add(rot.RotateVec(physics3d.Vec3{Y: -w.SuspensionLength}))
 	steer := physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, w.SteerAngle)
 	// Rolling forward (toward -Z) turns the wheel's top toward -Z, a negative rotation about +X.
@@ -195,7 +203,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		return
 	}
 	b := v.Body
-	cfg := &v.Config
+	cfg := &v.cfg
 	in := v.input
 
 	// Steering eases toward the requested angle at SteerRate.
@@ -212,20 +220,21 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 	grounded := 0
 	for i := range v.Wheels {
 		w := &v.Wheels[i]
+		wc := &v.cfg.Wheels[i]
 		w.SteerAngle = 0
-		if w.Config.Steer {
+		if wc.Steer {
 			w.SteerAngle = v.steer
 		}
 		w.Sliding = false
-		anchor := b.Pos.Add(rot.RotateVec(vec(w.Config.Anchor)))
-		rayLen := w.Config.RestLength + w.Config.Radius
+		anchor := b.Pos.Add(rot.RotateVec(vec(wc.Anchor)))
+		rayLen := wc.RestLength + wc.Radius
 		hit, ok := v.castRay(world, anchor, anchor.Add(down.Scale(rayLen)))
 		if !ok {
 			w.Contact = false
 			w.Ground = nil
 			w.ContactPoint = physics3d.Vec3{}
 			w.ContactNormal = physics3d.Vec3{}
-			w.SuspensionLength = w.Config.RestLength
+			w.SuspensionLength = wc.RestLength
 			w.SuspensionForce = 0
 			continue
 		}
@@ -234,20 +243,24 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		w.Ground = hit.Body
 		w.ContactPoint = hit.Point
 		w.ContactNormal = hit.Normal
-		w.SuspensionLength = clampAxis(hit.Distance-w.Config.Radius, 0, w.Config.RestLength)
-		compression := w.Config.RestLength - w.SuspensionLength
+		w.SuspensionLength = clampAxis(hit.Distance-wc.Radius, 0, wc.RestLength)
+		compression := wc.RestLength - w.SuspensionLength
 		// Positive relative speed means the anchor is moving away from the ground (extending).
 		rel := pointVel(b, anchor).Sub(groundVel(w.Ground, hit.Point)).Dot(up)
-		force := w.Config.Stiffness*compression - w.Config.Damping*rel
+		force := wc.Stiffness*compression - wc.Damping*rel
 		if force < 0 {
 			force = 0
 		}
-		if w.Config.MaxForce > 0 && force > w.Config.MaxForce {
-			force = w.Config.MaxForce
+		if wc.MaxForce > 0 && force > wc.MaxForce {
+			force = wc.MaxForce
 		}
 		w.SuspensionForce = force
 	}
 
+	// Throttle is the only input that moves a resting car, so a throttle set once and held, such as against a wall, keeps the chassis awake; a held brake or handbrake lets it sleep.
+	if b.Sleeping && in.Throttle != 0 {
+		b.Wake()
+	}
 	if b.Sleeping {
 		// A settled car with no input stays asleep; its wheel contacts above remain current for drawing.
 		v.spinWheels(h)
@@ -256,10 +269,11 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 
 	for i := range v.Wheels {
 		w := &v.Wheels[i]
+		wc := &v.cfg.Wheels[i]
 		if !w.Contact || w.SuspensionForce == 0 {
 			continue
 		}
-		anchor := b.Pos.Add(rot.RotateVec(vec(w.Config.Anchor)))
+		anchor := b.Pos.Add(rot.RotateVec(vec(wc.Anchor)))
 		j := up.Scale(w.SuspensionForce * h)
 		applyAt(b, j, anchor.Sub(b.Pos))
 		pushGround(w.Ground, j.Neg(), w.ContactPoint)
@@ -282,6 +296,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 	for i := range v.Wheels {
 		v.tires[i] = tireImpulse{}
 		w := &v.Wheels[i]
+		wc := &v.cfg.Wheels[i]
 		if !w.Contact {
 			continue
 		}
@@ -299,23 +314,23 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		vel := pointVel(b, w.ContactPoint).Sub(groundVel(w.Ground, w.ContactPoint))
 		vf := vel.Dot(f)
 		vs := vel.Dot(side)
-		w.SpinSpeed = vf / w.Config.Radius
-		maxJ := w.Config.Friction * w.SuspensionForce * h
+		w.SpinSpeed = vf / wc.Radius
+		maxJ := wc.Friction * w.SuspensionForce * h
 
 		// Longitudinal: drive, brakes and rolling resistance. Braking can at most stop the wheel's share of the car.
 		stopJ := -vf * effMass(b, r, f) / float32(grounded)
 		var jf float32
-		if w.Config.Drive {
+		if wc.Drive {
 			jf += drive * h
 		}
-		locked := in.Handbrake && w.Config.Handbrake
+		locked := in.Handbrake && wc.Handbrake
 		switch {
 		case locked:
 			jf = stopJ
 			w.SpinSpeed = 0
 		default:
 			resist := cfg.RollingResistance * w.SuspensionForce * h
-			if w.Config.Brake {
+			if wc.Brake {
 				resist += brake * h
 			}
 			jf += towardZero(stopJ, resist)
@@ -374,10 +389,11 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 func (v *Vehicle) spinWheels(h float32) {
 	for i := range v.Wheels {
 		w := &v.Wheels[i]
+		wc := &v.cfg.Wheels[i]
 		if !w.Contact {
 			w.SpinSpeed *= 1 / (1 + h)
 		}
-		if v.input.Handbrake && w.Config.Handbrake {
+		if v.input.Handbrake && wc.Handbrake {
 			w.SpinSpeed = 0
 		}
 		w.SpinAngle = float32(math.Remainder(float64(w.SpinAngle+w.SpinSpeed*h), 2*math.Pi))

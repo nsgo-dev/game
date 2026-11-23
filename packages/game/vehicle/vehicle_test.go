@@ -53,8 +53,57 @@ func TestNewCopiesWheels(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Wheels[0].Radius = 99
-	if car.Config.Wheels[0].Radius == 99 {
+	if car.Config().Wheels[0].Radius == 99 {
 		t.Fatal("Vehicle.Config shares the caller's Wheels slice")
+	}
+}
+
+func TestConfigReturnsACopy(t *testing.T) {
+	_, car := flatWorld(t)
+	cfg := car.Config()
+	cfg.MaxSpeed = 0
+	cfg.Wheels[0].Radius = 99
+	if got := car.Config(); got.MaxSpeed == 0 || got.Wheels[0].Radius == 99 {
+		t.Fatal("changing the Config copy changed the car's tuning")
+	}
+}
+
+func TestNewNormalizesRotation(t *testing.T) {
+	q := physics3d.QuatIdentity()
+	q.W = 3
+	car, err := vehicle.New(physics3d.NewWorld(), vehicle.ReferenceConfig(), physics3d.Vec3{}, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := car.Body.Rot; r != physics3d.QuatIdentity() {
+		t.Fatalf("chassis rotation = %+v, want the identity", r)
+	}
+}
+
+func TestHeldThrottleWakesSleepingCar(t *testing.T) {
+	w, car := flatWorld(t)
+	drive(w, car, vehicle.Input{}, 4*rate)
+	if !car.Body.Sleeping {
+		t.Fatal("settled car is awake")
+	}
+
+	// A held handbrake does not move a resting car, so it may sleep.
+	car.SetInput(vehicle.Input{Handbrake: true})
+	car.Body.Sleeping = true
+	car.Step(w, dt)
+	if !car.Body.Sleeping {
+		t.Fatal("held handbrake woke the car")
+	}
+
+	// Throttle set once stays in effect after the physics puts the chassis to sleep, such as against a wall.
+	car.SetInput(vehicle.Input{Throttle: 1})
+	car.Body.Sleeping = true
+	for range rate {
+		car.Step(w, dt)
+		w.Step(dt)
+	}
+	if car.Body.Sleeping || car.Speed() <= 1 {
+		t.Fatalf("held throttle: sleeping %v, speed %v", car.Body.Sleeping, car.Speed())
 	}
 }
 
@@ -62,7 +111,7 @@ func TestSuspensionSettlesAtStaticLoadAndSleeps(t *testing.T) {
 	w, car := flatWorld(t)
 	drive(w, car, vehicle.Input{}, 4*rate)
 
-	cfg := car.Config
+	cfg := car.Config()
 	// Each of the four springs carries a quarter of the weight: compression = m g / (4 k).
 	wantComp := cfg.Mass * 9.81 / 4 / cfg.Wheels[0].Stiffness
 	for _, wh := range car.Wheels {
@@ -134,16 +183,16 @@ func TestAccelerateBrakeAndReverse(t *testing.T) {
 	}
 
 	drive(w, car, vehicle.Input{Throttle: -1}, 6*rate)
-	if s := car.Speed(); s >= 0 || s < -car.Config.MaxReverseSpeed-0.01 {
-		t.Fatalf("reverse speed = %v, want in [-%v, 0)", s, car.Config.MaxReverseSpeed)
+	if s := car.Speed(); s >= 0 || s < -car.Config().MaxReverseSpeed-0.01 {
+		t.Fatalf("reverse speed = %v, want in [-%v, 0)", s, car.Config().MaxReverseSpeed)
 	}
 }
 
 func TestTopSpeedIsCapped(t *testing.T) {
 	w, car := flatWorld(t)
 	drive(w, car, vehicle.Input{Throttle: 1}, 60*rate)
-	if s := car.Speed(); s <= 25 || s > car.Config.MaxSpeed {
-		t.Fatalf("speed after a minute = %v, want in (25, %v]", s, car.Config.MaxSpeed)
+	if s := car.Speed(); s <= 25 || s > car.Config().MaxSpeed {
+		t.Fatalf("speed after a minute = %v, want in (25, %v]", s, car.Config().MaxSpeed)
 	}
 }
 
@@ -172,7 +221,7 @@ func TestSteerRightTurnsRight(t *testing.T) {
 func TestSteeringEasesAtSteerRate(t *testing.T) {
 	w, car := flatWorld(t)
 	drive(w, car, vehicle.Input{Steer: -1}, 1)
-	want := float32(car.Config.SteerRate*math.Pi/180) / rate
+	want := float32(car.Config().SteerRate*math.Pi/180) / rate
 	if a := car.Wheels[0].SteerAngle; !approx(a, want, 1e-6) {
 		t.Fatalf("steer angle after one step = %v, want %v", a, want)
 	}
