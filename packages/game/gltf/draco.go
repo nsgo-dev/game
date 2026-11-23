@@ -3,6 +3,7 @@ package gltf
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -77,9 +78,17 @@ func (d *Document) decodeDracoPrimitive(mi, pi int, rp rawPrimitive, mode Primit
 	}
 	bv := d.BufferViews[*ext.BufferView]
 	data := d.Buffers[bv.Buffer].Data[bv.ByteOffset : bv.ByteOffset+bv.ByteLength]
-	mesh, err := draco.Decode(data, draco.Limits{MaxFaces: numIndices / 3, MaxPoints: numPoints})
+	// The decoder charges what scales with the attributes the stream declares against what is left of the per-load budget, then reports it to be charged here.
+	remaining := maxLoadDecodedBytes - *decodedBytes
+	if remaining == 0 {
+		return mode, errors.New("gltf: decoded geometry exceeds safety limit")
+	}
+	mesh, err := draco.Decode(data, draco.Limits{MaxFaces: numIndices / 3, MaxPoints: numPoints, MaxBytes: remaining})
 	if err != nil {
 		return mode, fmt.Errorf("gltf: mesh %d primitive %d %s: %w", mi, pi, extDraco, err)
+	}
+	if err := chargeDecodedBytes(decodedBytes, mesh.Bytes); err != nil {
+		return mode, err
 	}
 	if mesh.NumPoints != numPoints || len(mesh.Faces) != numIndices {
 		return mode, fmt.Errorf("gltf: mesh %d primitive %d %s decoded %d vertices and %d indices, accessors declare %d and %d", mi, pi, extDraco, mesh.NumPoints, len(mesh.Faces), numPoints, numIndices)
@@ -101,13 +110,16 @@ func (d *Document) decodeDracoPrimitive(mi, pi int, rp rawPrimitive, mode Primit
 	return ModeTriangles, nil
 }
 
-// fillDracoAccessor stores attr in the accessor's own component type, converting each value the way Draco's glTF decoders do (a plain numeric conversion) and rejecting values the type cannot hold.
+// fillDracoAccessor stores attr in the accessor's own component type, converting each value the way Draco's glTF decoders do (a plain numeric conversion) and rejecting values the type cannot hold. A floating-point attribute needs a FLOAT accessor: Draco dequantizes it to floats, and truncating those into an integer accessor, normalized or not, would silently lose them.
 func (d *Document) fillDracoAccessor(accIdx int, attr draco.Attribute, decodedBytes *uint64) error {
 	acc := &d.Accessors[accIdx]
 	nComp := acc.Type.Components()
 	compSize := acc.ComponentType.ByteSize()
 	if compSize == 0 || nComp == 0 || acc.Type == AccessorMat2 || acc.Type == AccessorMat3 {
 		return fmt.Errorf("accessor %d has an unsupported type %s/%d", accIdx, acc.Type, acc.ComponentType)
+	}
+	if attr.IsFloat() && acc.ComponentType != ComponentFloat {
+		return fmt.Errorf("decoded floating-point values, accessor %d has integer componentType %d", accIdx, acc.ComponentType)
 	}
 	if attr.NumComponents() != nComp {
 		return fmt.Errorf("decoded %d components per vertex, accessor %d is %s", attr.NumComponents(), accIdx, acc.Type)
@@ -156,7 +168,7 @@ func (d *Document) fillDracoIndices(accIdx int, faces []uint32, decodedBytes *ui
 	return nil
 }
 
-// putComponent writes v as one component of type ct. Integer types take v truncated toward zero, as a C++ static_cast does, and reject values outside their range.
+// putComponent writes v as one component of type ct. Integer types take v truncated toward zero, as a C++ static_cast does, and reject values outside their range; callers pass integer values to them.
 func putComponent(dst []byte, ct ComponentType, v float64) error {
 	if ct == ComponentFloat {
 		binary.LittleEndian.PutUint32(dst, math.Float32bits(float32(v)))

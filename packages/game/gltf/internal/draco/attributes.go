@@ -418,6 +418,14 @@ func (ad *attributesDecoder) decode(d *decoder) error {
 		return errAttribute
 	}
 	ad.pointIDs = ids
+	// Bound every per-value allocation before making any: the point mapping, and the portable values, entropy symbols and decoded values of each attribute. The rANS bit readers return zeros past the end of the stream, so the stream's size does not bound these.
+	var need uint64
+	for _, sd := range ad.decoders {
+		need += attrBytesPerPoint*uint64(d.numPoints) + attrBytesPerValue*uint64(len(ids))*uint64(sd.att.numComponents)
+	}
+	if err := d.charge(need); err != nil {
+		return err
+	}
 	for _, id := range ad.attIDs {
 		if err := ad.seq.updateMapping(d.attributes[id]); err != nil {
 			return err
@@ -440,6 +448,12 @@ func (ad *attributesDecoder) decode(d *decoder) error {
 	}
 	return nil
 }
+
+// attrBytesPerPoint covers an attribute's point-to-value mapping; attrBytesPerValue covers, per component of each value, the portable int32, the entropy symbol decoded into it, the float64 kept, and a byte of prediction state.
+const (
+	attrBytesPerPoint = 4
+	attrBytesPerValue = 4 + 4 + 8 + 1
+)
 
 // sequentialDecoder covers SequentialAttributeDecoder and its integer, quantization and normal subclasses.
 type sequentialDecoder struct {

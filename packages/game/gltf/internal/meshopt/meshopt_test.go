@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The streams and expected outputs below are meshoptimizer's own reference vectors (demo/tests.cpp, MIT), which its scalar and SIMD decoders must both reproduce.
+// The streams and expected outputs below are meshoptimizer's own reference vectors (demo/tests.cpp, Copyright (c) 2016-2025 Arseny Kapoulkine, MIT License; see LICENSE in this directory), which its scalar and SIMD decoders must both reproduce.
 
 var refVertices = []struct {
 	px, py, pz uint16

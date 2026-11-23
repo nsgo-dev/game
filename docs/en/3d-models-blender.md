@@ -216,7 +216,7 @@ Choosing between them:
 - **Draco** gives the smallest files for dense static meshes, but decoding is slower and it may change the order and number of vertices, so tools that compare against the uncompressed file must match by value, not by index. Quantization is lossy: Blender's default 14-bit positions are enough for props; check close-ups of large meshes.
 - **meshopt** decodes much faster, keeps vertex order, also compresses animation data, and suits skinned characters and scenes with many small meshes. Its filters (octahedral, quaternion, exponential, color) are lossy; plain attribute, triangle and index streams are lossless.
 
-Both decoders bound every allocation by the counts the document declares and charge them to the same per-load budget as uncompressed data, and malformed streams return an error instead of panicking. Other required extensions, such as `KHR_texture_basisu`, are still refused at load time.
+Both decoders charge their output and working memory to the same per-load budget as uncompressed data before allocating it, so a small stream that declares huge counts or many wide attributes fails fast, and malformed streams return an error instead of panicking. An `EXT_meshopt_compression` file may use only what that extension defines: version 0 of the attribute codec and no `COLOR` filter. Other required extensions, such as `KHR_texture_basisu`, are still refused at load time.
 
 ## Round-trip sample models
 

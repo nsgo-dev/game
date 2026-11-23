@@ -272,10 +272,62 @@ func TestMeshoptKhronosSampleMatchesFallback(t *testing.T) {
 		t.Fatal("loading the compressed views fetched the fallback buffer")
 	}
 
-	// Rows 2 to 4 of the model use only the version 0 codec and filters EXT_meshopt_compression defines; the COLOR filter in row 5 is KHR-only.
+	// The COLOR filter and version 1 of the attribute codec are KHR-only, so an EXT_meshopt_compression copy must refuse each of them.
 	extFS, _ := khronosFS(t, "MeshoptCubeTest/glTF-Meshopt", "MeshoptCubeTest.gltf", renameMeshopt)
 	if _, err := gltf.LoadFS(extFS, "MeshoptCubeTest.gltf"); err == nil || !strings.Contains(err.Error(), "COLOR") {
 		t.Fatalf("EXT_meshopt_compression with the COLOR filter: got %v, want an error naming COLOR", err)
+	}
+	extV1FS, _ := khronosFS(t, "MeshoptCubeTest/glTF", "MeshoptCubeTest.gltf", extMeshoptOnly(t, func(filter string, version byte) bool { return filter == "COLOR" }))
+	if _, err := gltf.LoadFS(extV1FS, "MeshoptCubeTest.gltf"); err == nil || !strings.Contains(err.Error(), "version 1") {
+		t.Fatalf("EXT_meshopt_compression with a version 1 attribute stream: got %v, want an error naming version 1", err)
+	}
+
+	// With the KHR-only views left uncompressed, the rest of the model, which is what gltfpack writes for EXT_meshopt_compression, must load as EXT and match.
+	extOKFS, _ := khronosFS(t, "MeshoptCubeTest/glTF", "MeshoptCubeTest.gltf", extMeshoptOnly(t, func(filter string, version byte) bool { return filter == "COLOR" || version != 0 }))
+	got, err := gltf.LoadFS(extOKFS, "MeshoptCubeTest.gltf")
+	if err != nil {
+		t.Fatalf("EXT_meshopt_compression: %v", err)
+	}
+	requireSameMeshopt(t, want, got)
+}
+
+// extMeshoptOnly returns an edit for the optional MeshoptCubeTest variant that drops the extension from the bufferViews uncompress reports true for, leaving them to read the uncompressed fallback bytes, clears the fallback flag so that buffer is fetched, and renames what is left to EXT_meshopt_compression. version is the attribute codec version of an ATTRIBUTES view's stream.
+func extMeshoptOnly(t testing.TB, uncompress func(filter string, version byte) bool) func(doc map[string]any) {
+	return func(doc map[string]any) {
+		buffers := doc["buffers"].([]any)
+		bins := make(map[int][]byte)
+		for _, v := range doc["bufferViews"].([]any) {
+			view := v.(map[string]any)
+			exts, ok := view["extensions"].(map[string]any)
+			if !ok {
+				continue
+			}
+			ext, ok := exts["KHR_meshopt_compression"].(map[string]any)
+			if !ok {
+				continue
+			}
+			buf := int(ext["buffer"].(float64))
+			if bins[buf] == nil {
+				data, err := os.ReadFile("testdata/khronos/MeshoptCubeTest/glTF/" + buffers[buf].(map[string]any)["uri"].(string))
+				if err != nil {
+					t.Fatal(err)
+				}
+				bins[buf] = data
+			}
+			var version byte
+			if ext["mode"] == "ATTRIBUTES" {
+				offset, _ := ext["byteOffset"].(float64)
+				version = bins[buf][int(offset)] & 0x0f
+			}
+			filter, _ := ext["filter"].(string)
+			if uncompress(filter, version) {
+				delete(view, "extensions")
+			}
+		}
+		for _, b := range buffers {
+			delete(b.(map[string]any), "extensions")
+		}
+		renameMeshopt(doc)
 	}
 }
 
@@ -382,7 +434,11 @@ func TestDracoRejectsInconsistentPrimitives(t *testing.T) {
 		{"point mode", func(doc map[string]any) { at(doc, "meshes", 0, "primitives", 0)["mode"] = 0.0 }, "needs mode TRIANGLES"},
 		{"bad bufferView", func(doc map[string]any) { dracoExt(doc)["bufferView"] = 7.0 }, "no valid bufferView"},
 		{"float indices", func(doc map[string]any) { at(doc, "accessors", 0)["componentType"] = 5126.0 }, "not an unsigned integer"},
-		{"negative normals in unsigned bytes", func(doc map[string]any) { at(doc, "accessors", 1)["componentType"] = 5121.0 }, "does not fit"},
+		{"float normals in unsigned bytes", func(doc map[string]any) { at(doc, "accessors", 1)["componentType"] = 5121.0 }, "integer componentType"},
+		{"float positions in normalized unsigned shorts", func(doc map[string]any) {
+			at(doc, "accessors", 2)["componentType"] = 5123.0
+			at(doc, "accessors", 2)["normalized"] = true
+		}, "integer componentType"},
 		{"corrupt stream", func(doc map[string]any) {
 			at(doc, "bufferViews", 0)["byteOffset"] = 1.0
 			at(doc, "bufferViews", 0)["byteLength"] = 117.0

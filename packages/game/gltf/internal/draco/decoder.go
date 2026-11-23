@@ -1,6 +1,6 @@
 // Package draco decodes Draco-compressed triangle meshes (bitstream version 2.2, the version KHR_draco_mesh_compression normatively references) in pure Go.
 //
-// It is a port of the decoding half of Google's Draco library (Apache-2.0): sequential and edgebreaker (standard and valence) connectivity, the generic, integer, quantization and normal attribute decoders, and the difference, parallelogram, multi-parallelogram, constrained multi-parallelogram, portable texture coordinate and geometric normal prediction schemes with their wrap and octahedron transforms. Every read is bounds checked so malformed input returns an error instead of panicking.
+// It is a port, modified for Go, of the decoding half of Google's Draco library 1.5.7 (https://github.com/google/draco, Copyright 2016 The Draco Authors, licensed under the Apache License, Version 2.0; see the NOTICE file in this directory): sequential and edgebreaker (standard and valence) connectivity, the generic, integer, quantization and normal attribute decoders, and the difference, parallelogram, multi-parallelogram, constrained multi-parallelogram, portable texture coordinate and geometric normal prediction schemes with their wrap and octahedron transforms. Every read is bounds checked so malformed input returns an error instead of panicking.
 package draco
 
 import (
@@ -15,10 +15,12 @@ type Limits struct {
 	MaxFaces int
 	// MaxPoints is the largest point (vertex) count accepted.
 	MaxPoints int
+	// MaxBytes caps the working memory, in bytes, that scales with the number of attributes and attribute connectivities a stream declares: per-attribute corner tables, point mappings, and decoded and portable values. A stream that would need more fails before allocating it. Mesh.Bytes reports what a successful decode charged.
+	MaxBytes uint64
 }
 
-// DefaultLimits are used when a Limits field is zero or negative.
-var DefaultLimits = Limits{MaxFaces: 1 << 22, MaxPoints: 1 << 22}
+// DefaultLimits are used when a Limits field is zero.
+var DefaultLimits = Limits{MaxFaces: 1 << 22, MaxPoints: 1 << 22, MaxBytes: 256 << 20}
 
 // Mesh is a decoded Draco triangle mesh. Faces index points; every attribute has one value per point.
 type Mesh struct {
@@ -26,6 +28,8 @@ type Mesh struct {
 	Faces []uint32
 	// NumPoints is the number of points the faces index.
 	NumPoints int
+	// Bytes is the working memory charged against Limits.MaxBytes while decoding.
+	Bytes uint64
 
 	attributes []*pointAttribute
 }
@@ -71,6 +75,16 @@ type decoder struct {
 	attributes   []*pointAttribute
 	attrDecoders []*attributesDecoder
 	eb           *edgebreaker
+	used         uint64
+}
+
+// charge accounts n bytes of working memory against limits.MaxBytes before they are allocated.
+func (d *decoder) charge(n uint64) error {
+	if n > d.limits.MaxBytes || d.used > d.limits.MaxBytes-n {
+		return fmt.Errorf("draco: attribute data needs more than the %d bytes allowed", d.limits.MaxBytes)
+	}
+	d.used += n
+	return nil
 }
 
 const (
@@ -95,6 +109,9 @@ func Decode(data []byte, limits Limits) (*Mesh, error) {
 	}
 	if limits.MaxPoints <= 0 {
 		limits.MaxPoints = DefaultLimits.MaxPoints
+	}
+	if limits.MaxBytes == 0 {
+		limits.MaxBytes = DefaultLimits.MaxBytes
 	}
 	b := newBuffer(data)
 	d := &decoder{buf: &b, limits: limits}
@@ -153,7 +170,7 @@ func Decode(data []byte, limits Limits) (*Mesh, error) {
 			return nil, errors.New("draco: face references a missing point")
 		}
 	}
-	return &Mesh{Faces: d.faces, NumPoints: d.numPoints, attributes: d.attributes}, nil
+	return &Mesh{Faces: d.faces, NumPoints: d.numPoints, Bytes: d.used, attributes: d.attributes}, nil
 }
 
 func skipGeometryMetadata(b *buffer) error {

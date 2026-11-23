@@ -189,6 +189,10 @@ func (v meshoptView) decode(dst []byte) error {
 	case "INDICES":
 		return meshopt.DecodeIndexSequence(dst, v.count, v.stride, v.source)
 	}
+	// EXT_meshopt_compression defines only version 0 of the attribute codec; version 1 came with KHR_meshopt_compression.
+	if v.ext == extMeshoptEXT && len(v.source) > 0 && v.source[0]&0x0f != 0 {
+		return fmt.Errorf("attribute codec version %d needs %s, not %s", v.source[0]&0x0f, extMeshoptKHR, extMeshoptEXT)
+	}
 	if err := meshopt.DecodeVertexBuffer(dst, v.count, v.stride, v.source); err != nil {
 		return err
 	}

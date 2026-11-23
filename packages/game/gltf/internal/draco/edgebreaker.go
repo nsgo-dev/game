@@ -279,6 +279,12 @@ func newEdgebreaker(d *decoder, traversalType uint8) (*edgebreaker, error) {
 
 var errConnectivity = errors.New("draco: invalid edgebreaker connectivity")
 
+// attrDataBytesPerCorner and attrDataBytesPerVertex bound the memory of one attribute connectivity: a seam flag (1), a corner-to-vertex entry (4), a seam corner (4, doubled for slice growth), a left-most corner (4) and two encoding entries (8) per corner, since an attribute connectivity has at most one vertex per corner; and a seam flag per mesh vertex.
+const (
+	attrDataBytesPerCorner = 1 + 4 + 8 + 4 + 8
+	attrDataBytesPerVertex = 1
+)
+
 func (eb *edgebreaker) decodeConnectivity() error {
 	b := eb.d.buf
 	numEncodedVertices, ok := b.varU32()
@@ -317,6 +323,10 @@ func (eb *edgebreaker) decodeConnectivity() error {
 	}
 	eb.numEncodedVer = int(numEncodedVertices)
 	maxVertices := int(numEncodedVertices) + int(numSplitSymbols)
+	// Each attribute connectivity holds its own seam flags, seam corners, corner-to-vertex map, left-most corners and encoding maps, every one sized by the corners or vertices of the mesh. Seam bits read past the end of the stream as zero, so nothing in the stream bounds their number; the byte budget does.
+	if err := eb.d.charge(uint64(numAttributeData) * (attrDataBytesPerCorner*3*uint64(numFaces) + attrDataBytesPerVertex*uint64(maxVertices))); err != nil {
+		return err
+	}
 	eb.ct = newCornerTable(int(numFaces), maxVertices)
 	eb.attrData = make([]attributeData, numAttributeData)
 	for i := range eb.attrData {

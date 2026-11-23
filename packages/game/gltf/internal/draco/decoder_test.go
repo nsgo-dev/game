@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path"
+	"strings"
 	"testing"
 )
 
@@ -134,6 +135,45 @@ func TestDecodeEnforcesLimits(t *testing.T) {
 	}
 	if _, err := Decode(s, Limits{MaxFaces: 12, MaxPoints: 24}); err != nil {
 		t.Fatalf("exact limits: %v", err)
+	}
+	// Every stream charges a deterministic amount of working memory, decodes with exactly that budget and fails with one byte less.
+	for i, s := range allKhronosStreams(t) {
+		mesh, err := Decode(s, Limits{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mesh.Bytes == 0 {
+			t.Fatalf("stream %d charged no working memory", i)
+		}
+		if _, err := Decode(s, Limits{MaxBytes: mesh.Bytes}); err != nil {
+			t.Fatalf("stream %d under its own budget of %d bytes: %v", i, mesh.Bytes, err)
+		}
+		if _, err := Decode(s, Limits{MaxBytes: mesh.Bytes - 1}); err == nil {
+			t.Fatalf("stream %d under %d bytes, one less than it charged: want an error", i, mesh.Bytes-1)
+		}
+	}
+}
+
+// TestDecodeBoundsWideAttributes declares, in a stream of a few hundred bytes, a million points and forty attributes of 255 components each. The values would come from zero bits read past the end of the stream, so only the byte budget stops the decoder from allocating hundreds of gigabytes.
+func TestDecodeBoundsWideAttributes(t *testing.T) {
+	const numPoints, numAttributes = 1 << 20, 40
+	s := []byte("DRACO")
+	s = append(s, supportedVersionMajor, supportedVersionMinor, encoderTriangularMesh, methodSequential, 0, 0)
+	s = append(s, 1, 0x80, 0x80, 0x40) // one face, 1<<20 points as varints
+	s = append(s, 1, 0, 1, 2)          // uncompressed indices, as varints since there are at least 1<<16 points
+	s = append(s, 1, numAttributes)    // one attributes decoder with forty attributes
+	for i := range numAttributes {
+		s = append(s, attributeTypePosition+1, dtInt32, 255, 0, byte(i))
+	}
+	for range numAttributes {
+		s = append(s, seqInteger)
+	}
+	for range numAttributes {
+		s = append(s, 0xfe, 0, 0) // no prediction, raw values of zero bytes each
+	}
+	_, err := Decode(s, Limits{MaxPoints: numPoints, MaxBytes: 64 << 20})
+	if err == nil || !strings.Contains(err.Error(), "bytes allowed") {
+		t.Fatalf("got %v, want the byte budget to refuse the attributes", err)
 	}
 }
 
