@@ -82,7 +82,7 @@ func Parse(data []byte) (*Doc, error) {
 	return &doc, nil
 }
 
-// Encode validates doc and writes it as deterministic 2-space YAML that Parse reads back unchanged.
+// Encode validates doc and writes it as deterministic 2-space YAML that Parse reads back to an equal Doc, and that encodes again to the same bytes. Comments, flow style and other formatting of a hand-written file are not preserved.
 func Encode(doc *Doc) ([]byte, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func Encode(doc *Doc) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks doc against the version 1 schema: a supported version, at least one room, unique non-empty IDs, finite coordinates, positive sizes, links to other existing rooms with no pair listed twice, no overlapping rooms within an area, and fixed markers inside existing rooms.
+// Validate checks doc against the version 1 schema: a supported version, at least one room, unique non-empty IDs, finite coordinates, positive sizes that survive float32 rounding at the room's position, areas whose combined bounds fit in float32, links to other existing rooms with no pair listed twice, no overlapping rooms within an area, and fixed markers inside existing rooms.
 func Validate(doc *Doc) error {
 	if doc == nil {
 		return errors.New("worldmap: nil map document")
@@ -127,9 +127,17 @@ func Validate(doc *Doc) error {
 		if r.Width <= 0 || r.Height <= 0 {
 			return fmt.Errorf("worldmap: room %q needs a positive width and height", r.ID)
 		}
-		if !finite(r.X+r.Width) || !finite(r.Y+r.Height) {
+		right, bottom := float32(r.X+r.Width), float32(r.Y+r.Height)
+		if !finite(right) || !finite(bottom) {
 			return fmt.Errorf("worldmap: room %q extends past the float32 range", r.ID)
 		}
+		// A size far below the position's float32 precision rounds away, leaving a room no point is inside.
+		if right <= r.X || bottom <= r.Y {
+			return fmt.Errorf("worldmap: room %q is too small for float32 precision at its position", r.ID)
+		}
+	}
+	if err := checkAreaSpans(doc.Rooms); err != nil {
+		return err
 	}
 	type pair struct{ a, b string }
 	links := make(map[pair]struct{})
@@ -171,6 +179,33 @@ func Validate(doc *Doc) error {
 			return err
 		}
 		ids[mk.ID] = struct{}{}
+	}
+	return nil
+}
+
+// checkAreaSpans refuses an area whose rooms together span more than float32 can hold, which would leave the area's bounds infinite and its world map undrawable.
+func checkAreaSpans(rooms []RoomDoc) error {
+	type span struct{ x0, y0, x1, y1 float32 }
+	spans := make(map[string]span)
+	for i := range rooms {
+		r := &rooms[i]
+		x1, y1 := float32(r.X+r.Width), float32(r.Y+r.Height)
+		if s, ok := spans[r.Area]; ok {
+			spans[r.Area] = span{min(s.x0, r.X), min(s.y0, r.Y), max(s.x1, x1), max(s.y1, y1)}
+		} else {
+			spans[r.Area] = span{r.X, r.Y, x1, y1}
+		}
+	}
+	for i := range rooms {
+		area := rooms[i].Area
+		s, ok := spans[area]
+		if !ok {
+			continue
+		}
+		delete(spans, area)
+		if !finite(float32(s.x1-s.x0)) || !finite(float32(s.y1-s.y0)) {
+			return fmt.Errorf("worldmap: area %q spans past the float32 range", area)
+		}
 	}
 	return nil
 }

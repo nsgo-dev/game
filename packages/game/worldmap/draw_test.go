@@ -2,6 +2,7 @@ package worldmap_test
 
 import (
 	"image/color"
+	"math"
 	"reflect"
 	"testing"
 
@@ -216,6 +217,57 @@ func TestMinimapCentersOnThePlayerAndClips(t *testing.T) {
 	m.DrawMinimap(&again, dst, player, 0.25, testStyle())
 	if !reflect.DeepEqual(d.Ops, again.Ops) {
 		t.Fatal("minimap ops differ between identical draws")
+	}
+
+	// A scale that is not positive and finite draws as scale 1.
+	var unit core.Drawing
+	m.DrawMinimap(&unit, dst, player, 1, testStyle())
+	for _, scale := range []float32{0, -2, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))} {
+		if p := worldmap.MinimapProjection(dst, player, scale); p.Scale != 1 {
+			t.Fatalf("MinimapProjection scale %v = %+v, want scale 1", scale, p)
+		}
+		var got core.Drawing
+		m.DrawMinimap(&got, dst, player, scale, testStyle())
+		if !reflect.DeepEqual(got.Ops, unit.Ops) {
+			t.Fatalf("minimap at scale %v differs from scale 1", scale)
+		}
+	}
+	// A position that is not finite, or that overflows at this scale, draws nothing.
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	for _, p := range []math2d.Vec2{{X: nan, Y: 90}, {X: 400, Y: nan}, {X: inf, Y: 90}, {X: 400, Y: -inf}, {X: 3e38, Y: 0}} {
+		var got core.Drawing
+		m.DrawMinimap(&got, dst, p, 10, testStyle())
+		if len(got.Ops) != 0 {
+			t.Fatalf("minimap at player %v drew %d ops, want none", p, len(got.Ops))
+		}
+	}
+}
+
+func TestWorldMapSkipsANonFinitePlayer(t *testing.T) {
+	m := loadCastle(t)
+	m.Visit(math2d.Vec2{X: 100, Y: 90})
+	dst := core.Bounds{Size: core.Size{Width: 400, Height: 180}}
+	var want core.Drawing
+	m.DrawWorldMap(&want, dst, "", nil, testStyle())
+	for _, p := range []math2d.Vec2{{X: float32(math.NaN()), Y: 90}, {X: 100, Y: float32(math.Inf(1))}} {
+		var got core.Drawing
+		m.DrawWorldMap(&got, dst, "", &p, testStyle())
+		if !reflect.DeepEqual(got.Ops, want.Ops) {
+			t.Fatalf("world map with player %v differs from one without a player", p)
+		}
+	}
+}
+
+func TestTransparentCurrentFillsWithVisited(t *testing.T) {
+	m := loadCastle(t)
+	m.Visit(math2d.Vec2{X: 10, Y: 10})
+	m.Visit(math2d.Vec2{X: 400, Y: 10})
+	st := testStyle()
+	st.Current = 0
+	var d core.Drawing
+	m.DrawWorldMap(&d, core.Bounds{Size: core.Size{Width: 800, Height: 360}}, "", nil, st)
+	if got := filledWith(d.Ops, st.Visited); len(got) != 2 {
+		t.Fatalf("visited fills with a transparent Current = %v, want the entrance and the hall", got)
 	}
 }
 

@@ -66,8 +66,18 @@ func TestParseRefusesInvalidDocuments(t *testing.T) {
 		"nan":             {"version: 1\nrooms:\n  - {id: a, x: .nan, y: 0, width: 1, height: 1}\n", "non-finite"},
 		"inf":             {"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: .inf, height: 1}\n", "non-finite"},
 		"overflow":        {"version: 1\nrooms:\n  - {id: a, x: 3e38, y: 0, width: 3e38, height: 1}\n", "float32 range"},
-		"self link":       {"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 1, height: 1, links: [a]}\n", "links to itself"},
-		"unknown link":    {"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 1, height: 1, links: [b]}\n", "unknown room \"b\""},
+		"rounded away":    {"version: 1\nrooms:\n  - {id: a, x: 1e10, y: 0, width: 1, height: 1}\n", "too small for float32"},
+		"rounded away y":  {"version: 1\nrooms:\n  - {id: a, x: 0, y: -1e10, width: 1, height: 1}\n", "too small for float32"},
+		"area span": {
+			"version: 1\nrooms:\n  - {id: a, x: -3e38, y: 0, width: 1e32, height: 1}\n  - {id: b, x: 3e38, y: 0, width: 1e32, height: 1}\n",
+			"area \"\" spans past the float32 range",
+		},
+		"area span y": {
+			"version: 1\nrooms:\n  - {id: a, area: z, x: 0, y: -3e38, width: 1, height: 1e32}\n  - {id: b, area: z, x: 0, y: 3e38, width: 1, height: 1e32}\n",
+			"area \"z\" spans past the float32 range",
+		},
+		"self link":    {"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 1, height: 1, links: [a]}\n", "links to itself"},
+		"unknown link": {"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 1, height: 1, links: [b]}\n", "unknown room \"b\""},
 		"twice link": {
 			"version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 1, height: 1, links: [b]}\n  - {id: b, x: 1, y: 0, width: 1, height: 1, links: [a]}\n",
 			"listed twice",
