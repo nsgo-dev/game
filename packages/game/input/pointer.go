@@ -143,7 +143,7 @@ func (a *Actions) UnlockPointer() {
 
 // PointerLockRequested reports whether a holds a request from LockPointer that UnlockPointer has not released. It is not the platform's lock state: Escape, the window losing focus and hiding the view release the lock without NSGo telling the app, and the request stays. Do not use it to decide whether to call LockPointer again or whether the player is still looking around.
 //
-// NSGo reports the release to its core (driver.EventPointerUnlocked) but exposes no callback or query to apps, so this package cannot report the real state.
+// NSGo reports the release to its core (driver.EventPointerUnlocked) but exposes no callback or query to apps, so this package cannot report the real state (nsgo-dev/nsgo#2249).
 func (a *Actions) PointerLockRequested() bool {
 	return a.unlockPointer != nil
 }

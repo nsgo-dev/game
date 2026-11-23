@@ -92,7 +92,7 @@ func (l *Loop) Run(cx *core.Scope) (stop func()) {
 	}
 }
 
-// setImmersive asks for the system bars hidden or shown. NSGo's nsgotest records the status bar without its Immersive field (nsgotest.StatusBarConfig), so the tests replace this to see what the loop asks for.
+// setImmersive asks for the system bars hidden or shown. NSGo's nsgotest records the status bar without its Immersive field (nsgotest.StatusBarConfig, nsgo-dev/nsgo#2255), so the tests replace this to see what the loop asks for.
 var setImmersive = mobile.Immersive
 
 // immersiveRuns counts, for each window's environment, the runs that want the system bars hidden. mobile.Immersive patches the one app-wide setting of the window, so a run that pauses or ends shows the bars again only when no other run in the window still wants them hidden.

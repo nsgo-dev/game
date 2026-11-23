@@ -138,7 +138,7 @@ func TestKeyCodeFollowsThePositionNotTheLayout(t *testing.T) {
 func TestKeysReleasedWhenWindowLosesFocus(t *testing.T) {
 	for _, path := range []string{"watched", "focused"} {
 		t.Run(path, func(t *testing.T) {
-			// The keys are held by name: nsgotest's BlurWindow (nsgotest/pointer.go in the pinned NSGo) sends the key-up of a key KeyCodeDown holds with its position as the key's name and no position, so neither core.KeyCodesDown nor OnKeyUp hears that key come up, and a KeyCode binding cannot be checked here until NSGo fixes it.
+			// The keys are held by name: nsgotest's BlurWindow (nsgotest/pointer.go in the pinned NSGo) sends the key-up of a key KeyCodeDown holds with its position as the key's name and no position, so neither core.KeyCodesDown nor OnKeyUp hears that key come up, and a KeyCode binding cannot be checked here until NSGo fixes it (nsgo-dev/nsgo#2248).
 			bind := func(a *input.Actions) {
 				a.Bind("left", input.Key("left"))
 				a.Bind("right", input.Key("right"))
