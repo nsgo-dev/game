@@ -74,6 +74,27 @@ tp.ObstructionCheck = scene3d.SceneObstructionCheck(sc, scene3d.LayerDefault, he
 tp.Update(cam, heroPos, heroForward, dt)
 ```
 
+### Projection, viewport and interpolation
+
+A camera's `Projection` is either perspective (`FOVY`, in radians) or orthographic (`OrthoHeight`, the visible height in world units), with `Aspect`, `Near` and `Far`; `ViewMatrix`, `ProjMatrix` and `ViewProj` give the matrices with [0, 1] clip depth, as WebGPU, Metal and Direct3D expect. Call `cam.SetViewport(width, height)` when the drawable resizes so `Aspect` follows it. `cam.Eye()` returns the homogeneous eye point: `(Pos, 1)` for a perspective camera and `(-Forward, 0)` for an orthographic one, whose eye lies at infinity, so a shader finds the direction toward the viewer as `normalize(eye.xyz - p * eye.w)` under both.
+
+Step the camera in `game.Loop.Update` and draw it interpolated in `Draw`: keep the camera from the previous update and draw `prev.Lerp(cam, alpha)`. `Lerp` blends `Pos` linearly, `Rot` by shortest-path slerp and the projection's fields linearly; projections of different kinds do not blend, so the first holds until `t` reaches 1.
+
+```go
+prev := *cam
+loop := &game.Loop{
+	Update: func(dt time.Duration) {
+		prev = *cam
+		orbit.Update(cam, dt)
+	},
+	Draw: func(alpha float64) {
+		drawn := prev.Lerp(cam, float32(alpha))
+		camBuf.WriteCamera(&drawn) // render3d.CameraBuffer
+		// record and submit draws
+	},
+}
+```
+
 ## 3D picking
 
 Attach a `Collider` (`*MeshCollider` or `*SphereCollider`) to pickable nodes (or fall back to `LocalBounds`) and pick directly from pointer coordinates:

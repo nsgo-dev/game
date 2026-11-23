@@ -36,6 +36,37 @@ In one allocation-free steady-state pass, `Queue.Build` performs:
 3. **Opaque sorting & instancing**: orders `BlendOpaque` and `BlendAlphaMask` items by `(PipelineID, MaterialID, MeshID, Blend, front-to-back distance)` to minimize state switches and early-Z overdraw, then groups adjacent matching items into `InstanceBatch`es (unless `DisableInstancing` is set).
 4. **Transparent sorting**: places `BlendAlphaBlend` draws into `plan.Transparent`, ordered strictly back-to-front.
 
+## Camera uniform on the GPU (`CameraBuffer`)
+
+`CameraBuffer` keeps one camera's uniform buffer on an NSGo `gpu.Device`, with the bind group layout and bind group that expose it to vertex and fragment shaders at `CameraGroup` (group 0). `CameraWGSL` declares the matching block, so a 3D shader prepends it and places vertices with `camera.view_proj`:
+
+```wgsl
+struct Camera {
+	view: mat4x4<f32>,
+	proj: mat4x4<f32>,
+	view_proj: mat4x4<f32>,
+	eye: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+```
+
+`CameraUniform` is the block's data (`NewCameraUniform(cam)` fills it from a `scene3d.Camera`) and `Encode` writes its `CameraUniformSize` (208) bytes without allocating. Create the buffer once the device is ready, upload the frame's camera before recording draws, and list `Layout()` at `CameraGroup` in every 3D pipeline's `Layouts`:
+
+```go
+camBuf, err := render3d.NewCameraBuffer(cx, dev)
+// ...
+layouts := []*gpu.BindGroupLayout{render3d.CameraGroup: camBuf.Layout()}
+pipe, err := dev.CreatePipeline(cx, gpu.PipelineDesc{Layouts: layouts /* shaders, vertex buffers, depth */})
+
+// Each frame, in game.Loop.Draw:
+camBuf.WriteCamera(&drawn)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+```
+
+The reference tests render the same scene headless through `gpu.NewSoftwareRenderer` with a perspective and an orthographic camera orbiting on `game.Loop`, and compare each frame with `render3d/testdata/golden/camera_perspective.png` and `camera_orthographic.png`; `UPDATE_GOLDEN=1` rewrites them.
+
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:
