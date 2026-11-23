@@ -148,6 +148,7 @@ func TestVerifyRefusesTamperedTokens(t *testing.T) {
 	forged := enc.EncodeToString([]byte(`{"iss":"https://accounts.example.com","sub":"acct-2","aud":"my-game","iat":1795435200,"exp":1795435260,"jti":"x"}`))
 	none := enc.EncodeToString([]byte(`{"alg":"none","kid":"` + s.KeyID() + `","typ":"JWT"}`))
 	extra := enc.EncodeToString([]byte(`{"alg":"EdDSA","kid":"` + s.KeyID() + `","typ":"JWT","jku":"https://evil"}`))
+	trailingBrace := enc.EncodeToString([]byte(`{"alg":"EdDSA","kid":"` + s.KeyID() + `","typ":"JWT"}}`))
 	sig, _ := enc.DecodeString(parts[2])
 	sig[0] ^= 1
 	cases := map[string]struct {
@@ -161,6 +162,7 @@ func TestVerifyRefusesTamperedTokens(t *testing.T) {
 		"two parts":         {parts[0] + "." + parts[1], token.ErrMalformed},
 		"four parts":        {tok + ".x", token.ErrMalformed},
 		"padded signature":  {parts[0] + "." + parts[1] + "." + parts[2] + "=", token.ErrMalformed},
+		"trailing brace":    {trailingBrace + "." + parts[1] + "." + parts[2], token.ErrMalformed},
 		"empty":             {"", token.ErrMalformed},
 		"too long":          {strings.Repeat("a", token.MaxLength+1), token.ErrMalformed},
 	}

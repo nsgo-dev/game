@@ -114,6 +114,7 @@ func TestHTTPErrors(t *testing.T) {
 		{"unknown field", "POST", "/v1/register", "", `{"email":"x@example.com","password":"correct horse battery","admin":true}`, 400, "bad_request"},
 		{"not json", "POST", "/v1/signin/email", "", `email=x`, 400, "bad_request"},
 		{"trailing data", "POST", "/v1/signin/email", "", `{"email":"x@example.com","password":"y"} {}`, 400, "bad_request"},
+		{"trailing brace", "POST", "/v1/signin/email", "", `{"email":"x@example.com","password":"y"}}`, 400, "bad_request"},
 		{"too large", "POST", "/v1/register", "", `{"email":"` + strings.Repeat("a", 40<<10) + `"}`, 413, "request_too_large"},
 		{"invalid email", "POST", "/v1/register", "", `{"email":"nope","password":"correct horse battery"}`, 400, "invalid_email"},
 		{"weak password", "POST", "/v1/register", "", `{"email":"x@example.com","password":"short"}`, 400, "weak_password"},

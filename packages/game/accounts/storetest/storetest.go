@@ -113,6 +113,7 @@ func testSetEmail(t *testing.T, s accounts.Store) {
 	wantErr(t, "SetEmail(again)", s.SetEmail(ctx, "guest", "ada2@example.com", "hash"), accounts.ErrAlreadyLinked)
 	wantErr(t, "SetEmail(taken)", s.SetEmail(ctx, "other", "ada@example.com", "hash"), accounts.ErrTaken)
 	wantErr(t, "SetEmail(missing)", s.SetEmail(ctx, "missing", "x@example.com", "hash"), accounts.ErrNotFound)
+	wantErr(t, "SetEmail(empty)", s.SetEmail(ctx, "other", "", "hash"), accounts.ErrInvalidEmail)
 	if a, _ := s.Account(ctx, "other"); a.Email != "" {
 		t.Fatalf("a refused SetEmail changed the account: %+v", a)
 	}

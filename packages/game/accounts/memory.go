@@ -95,6 +95,9 @@ func (m *MemoryStore) SetEmail(_ context.Context, id, email, passwordHash string
 	if !ok {
 		return ErrNotFound
 	}
+	if email == "" {
+		return ErrInvalidEmail
+	}
 	if rec.a.Email != "" {
 		return ErrAlreadyLinked
 	}
