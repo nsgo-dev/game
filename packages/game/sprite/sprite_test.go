@@ -353,7 +353,7 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 		}),
 		// Trimmed and mirrored.
 		place("coin", func(s *sprite.Sprite) { s.X, s.FlipX, s.Tint = 100, true, red }),
-		// Opaque white and the zero color leave the picture as it is.
+		// Opaque white and the zero color leave the picture as it is, so these sprites draw untinted, with the plain one beside them, in one DrawAtlas run.
 		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 120, core.RGB(0xffffff) }),
 		place("hero", func(s *sprite.Sprite) { s.X = 140 }),
 		// A tint with no alpha draws nothing.
@@ -381,9 +381,9 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 				d.DrawTintedImageFrom(img, red, 0, 0, 16, 16, 10, 10, 16, 16)
 				d.Save().SetComposite(core.CompositeLighter).SetAlpha(0.5).Transform(0, 1, -1, 0, 68, 52).DrawTintedImageFrom(img, core.RGBA(0x00ff80, 0.5), 0, 0, 16, 16, 0, 0, 16, 16).Restore()
 				d.Save().Transform(-1, 0, 0, 1, 116, 0).DrawTintedImageFrom(img, red, 16, 0, 8, 10, 4, 3, 8, 10).Restore()
-				d.DrawImageFrom(img, 0, 0, 16, 16, 120, 0, 16, 16)
-				d.DrawImageFrom(img, 0, 0, 16, 16, 140, 0, 16, 16)
-				d.DrawImageFrom(img, 0, 0, 16, 16, 180, 0, 16, 16)
+				// The untinted sprites, consecutive and only moved, draw as one atlas run.
+				hero := core.Bounds{Size: core.Size{Width: 16, Height: 16}}
+				d.DrawAtlas(img, []core.Bounds{hero, hero, hero}, []core.RSXform{{SCos: 1, TX: 120}, {SCos: 1, TX: 140}, {SCos: 1, TX: 180}}, nil)
 				d.Save().BeginPath().Rect(12, 62, 8, 8).Clip().BeginPath().DrawTintedImageFrom(img, red, 0, 0, 16, 16, 10, 60, 16, 16).Restore()
 				d.Save().BeginPath().Arc(150, 60, 10, 0, 2*math.Pi, false).Clip().BeginPath().DrawTintedImageFrom(img, red, 0, 0, 16, 16, 140, 50, 16, 16).Restore()
 			}},
