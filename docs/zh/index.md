@@ -2,7 +2,7 @@
 
 game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏绘制在一个 NSGo 视图中，可以是 `Canvas`、像素缓冲区或着色器，HUD 和菜单仍然是叠在上面的普通原生 NSGo 视图。它只使用 NSGo 的公开 API（`core`、`audio`，之后还有 `gamepad`），所以没有导入它的应用不会链接其中任何代码。
 
-> 项目还处在早期：下面的包已经可用并有测试，但 API 还会变化。从[快速开始](getting-started.md)入手创建并运行一个游戏。
+> 项目还处在早期：下面的包已经可用并有测试，但 API 还会变化。从[快速开始](getting-started.md)入手创建并运行一个游戏，再跟着[教程](tutorial.md)做出一款完整的游戏。
 
 ## 阶段
 

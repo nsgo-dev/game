@@ -106,6 +106,7 @@ const en = {
     pages: 'Pages',
     groups: {
       guides: 'Guides',
+      tutorial: 'Tutorial',
       core2d: '2D Core',
       extended2d: '2D Systems',
       multiplayerModding: 'Multiplayer & Modding',
@@ -329,6 +330,7 @@ const zh: Copy = {
     pages: '目录',
     groups: {
       guides: '指南',
+      tutorial: '教程',
       core2d: '2D 核心包',
       extended2d: '2D 扩展与系统',
       multiplayerModding: '多人与模组',

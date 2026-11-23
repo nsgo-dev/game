@@ -2,7 +2,7 @@
 
 game is a game layer for [NSGo](https://nsgo.dev) apps, written in Go. A game draws into one NSGo view, a `Canvas`, a pixel buffer or a shader, and its HUD and menus stay ordinary native NSGo views on top. It uses only NSGo's public API (`core`, `audio`, and later `gamepad`), so an app that does not import it links none of it.
 
-> The project is early: the packages below work and are tested, but their APIs will change. Start with [Getting Started](getting-started.md) to build and run a game.
+> The project is early: the packages below work and are tested, but their APIs will change. Start with [Getting Started](getting-started.md) to build and run a game, then follow the [tutorial](tutorial.md) to build a whole one.
 
 ## Stages
 

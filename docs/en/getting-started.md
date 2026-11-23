@@ -237,5 +237,6 @@ if jump != nil {
 
 ## Next steps
 
+- Follow the [tutorial](tutorial.md), which builds a whole game, Star Catcher, from an empty project to release builds in nine chapters.
 - Read the package guides for [Loop](loop.md), [sprite](sprite.md) and [sound](sound.md), or the combined [Packages](packages.md) reference.
 - When you are ready to verify all targets and produce release builds for macOS, Windows, Linux, the web, iOS and Android, read [Building and Shipping](shipping.md).
