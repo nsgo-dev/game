@@ -1,0 +1,39 @@
+version: 1
+patterns:
+  - name: bloom
+    kind: ring
+    frame: orb
+    count: 24
+    speed: 90
+    spin: 7.5
+    shots: 6
+    interval: 400ms
+    lifetime: 6s
+    radius: 4
+  - name: vortex
+    kind: spiral
+    frame: orb
+    count: 5
+    speed: 140
+    speedJitter: 8
+    angleJitter: 2.5
+    spin: 11
+    shots: 0
+    interval: 50ms
+    accel: -20
+    turn: 15
+    radius: 3
+    z: 1
+  - name: volley
+    kind: aimed
+    frame: dart
+    count: 7
+    speed: 220
+    spread: 45
+    shots: 3
+    delay: 1s
+    interval: 150ms
+    lifetime: 3s
+    radius: 2.5
+    faceHeading: true
+    z: 2

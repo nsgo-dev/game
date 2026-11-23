@@ -55,7 +55,7 @@ jobs:
         working-directory: packages/game
         run: |
           set -o pipefail
-          go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap | tee /tmp/game-bench.txt
+          go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap ./bullets | tee /tmp/game-bench.txt
           go run ./cmd/benchcheck -baseline ../../benchmarks/baseline.json -input /tmp/game-bench.txt
       - name: Check the self-hosted leaderboard's 50 ms query budget on a million entries
         working-directory: packages/game
@@ -174,3 +174,6 @@ jobs:
       - name: Fuzz framedata Parse
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./framedata
+      - name: Fuzz bullet pattern Parse
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./bullets

@@ -2,7 +2,7 @@
   "max_ns_regression_pct": 25,
   "max_bytes_regression_pct": 25,
   "max_allocs_regression_pct": 25,
-  "note": "Performance baselines for packages/game benchmarks. Update with: cd packages/game && go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap | go run ./cmd/benchcheck -baseline ../../benchmarks/baseline.json -update",
+  "note": "Performance baselines for packages/game benchmarks. Update with: cd packages/game && go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap ./bullets | go run ./cmd/benchcheck -baseline ../../benchmarks/baseline.json -update",
   "benchmarks": {
     "BenchmarkBatchDraw1000": {
       "ns_per_op": 3500000,
@@ -23,6 +23,11 @@
       "ns_per_op": 850000,
       "bytes_per_op": 20864,
       "allocs_per_op": 244
+    },
+    "BenchmarkFrame5000": {
+      "ns_per_op": 8000000,
+      "bytes_per_op": 420100,
+      "allocs_per_op": 5250
     },
     "BenchmarkRaycast": {
       "ns_per_op": 15000,
