@@ -151,9 +151,9 @@ func (p *Player) Pause() { p.tl.Pause() }
 // Restart writes the clip's start and plays from it.
 func (p *Player) Restart() { p.tl.Restart() }
 
-// Seek moves to at and writes every track's value there without calling OnEvent. A looping clip wraps at into [0, Length); one that does not loop clamps it to [0, Length].
+// Seek moves to at and writes every track's value there without calling OnEvent. A looping clip wraps a time before 0 or past Length into [0, Length), and poses its end at exactly Length, so a playhead dragged to the end shows the last keys; one that does not loop clamps at to [0, Length].
 func (p *Player) Seek(at time.Duration) {
-	if p.loop {
+	if p.loop && (at < 0 || at > p.length) {
 		at %= p.length
 		if at < 0 {
 			at += p.length

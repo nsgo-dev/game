@@ -58,7 +58,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		_, _, ok := ed.SelectedClipKey()
 		return ok
 	}
-	// structure changes only when tracks, keys or events are added or removed, so the lanes remount then and not on every value edit.
+	// structure changes when tracks or keys are added or removed, or events change, so the lanes remount then and not on every key value edit.
 	structure := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		if ed.clip == nil {
@@ -68,7 +68,10 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		for _, tr := range ed.clip.Tracks {
 			fmt.Fprintf(&b, "%s/%s:%d|", tr.Target, tr.Property, len(tr.Keys))
 		}
-		fmt.Fprintf(&b, "e%d", len(ed.clip.Events))
+		// The event markers' labels and tooltips are fixed when they mount, so each event's time and name are part of the key.
+		for _, ev := range ed.clip.Events {
+			fmt.Fprintf(&b, "e%v:%q|", ev.Time, ev.Name)
+		}
 		return b.String()
 	})
 	label := func(text string) core.Node {

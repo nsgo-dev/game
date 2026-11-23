@@ -43,7 +43,7 @@ player.Update(dt)
 `NewPlayer` turns the clip into a `tween.Timeline`, one tween per pair of neighboring keys eased by the first key's `interp` (`linear`, `smooth` or `step`), so playback runs on the same deterministic clock as every other [timeline](tween.md). A track holds its first key's value before it and its last key's value after it, as `Animation.Sample` does. The player writes nothing until the first `Seek` or `Update`.
 
 - `Play`, `Pause` and `Restart` start, stop and replay it; `Done` reports a clip that does not loop at its end.
-- `Seek(at)` writes every track's value at `at` without firing events. A looping clip wraps `at` into `[0, Length)`; one that does not loop clamps it.
+- `Seek(at)` writes every track's value at `at` without firing events. A looping clip wraps a time before `0` or past `Length` into `[0, Length)` and shows its end at exactly `Length`, so a playhead dragged to the end shows the last keys; one that does not loop clamps `at`.
 - `OnEvent` is called with the name of each clip event playback crosses, in time order.
 - `SetLoop` overrides the clip's `loop` for one player.
 - Key times and values are widened from the file's float32 by their shortest decimal (`KeyValue`, `Seconds`), so a key written `0.1` sits at exactly 100ms and plays the value 0.1.

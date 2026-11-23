@@ -970,6 +970,12 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 		}
 		for oi := range layer.Objects {
 			o := &layer.Objects[oi]
+			// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
+			if e.clipScene != nil {
+				if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
+					o = bo.Doc
+				}
+			}
 			rel := sub64([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}, eye)
 			depth := float32(dot64(rel, forward))
 			items = append(items, drawable3D{

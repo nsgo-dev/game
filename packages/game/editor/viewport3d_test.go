@@ -2,9 +2,11 @@ package editor_test
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -694,4 +696,43 @@ func TestEditor3DGizmoDragThroughMountedUI(t *testing.T) {
 	}
 	obj, _, _ = ed.FindObject("cube")
 	assertNear32(t, "cube X after undo", obj.X, 0, 0.5)
+}
+
+func TestEditor3DViewportShowsTheClipPose(t *testing.T) {
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "box_a", X: 0, Y: 8, PosZ: 0, Depth: 16})
+	if err := ed.NewClip("box_a", "Lift", time.Second); err != nil {
+		t.Fatalf("NewClip: %v", err)
+	}
+	if _, _, err := ed.KeyProperty("", "posZ", 0); err != nil {
+		t.Fatalf("KeyProperty posZ @0: %v", err)
+	}
+	tr, k, err := ed.KeyProperty("", "posZ", time.Second)
+	if err != nil {
+		t.Fatalf("KeyProperty posZ @1s: %v", err)
+	}
+	if err := ed.SetKeyValue(tr, k, 80); err != nil {
+		t.Fatalf("SetKeyValue: %v", err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1200, 720))
+	ops := func(at time.Duration) string {
+		t.Helper()
+		app.Post(func() { ed.SeekClip(at) })
+		app.Settle()
+		return fmt.Sprint(app.Find("id:editor-viewport").Ops)
+	}
+	start, end := ops(0), ops(time.Second)
+	if start == end {
+		t.Fatal("the 3D viewport draws the same at the clip's start and end, though posZ moves from 0 to 80")
+	}
+	if got := ed.ActiveScene().Object("box_a").Doc.PosZ; got != 80 {
+		t.Fatalf("posed posZ = %v, want 80", got)
+	}
+	if obj, _, _ := ed.FindObject("box_a"); obj.PosZ != 0 {
+		t.Fatalf("the edited scene took the animated posZ %v", obj.PosZ)
+	}
+	app.Post(func() { _ = ed.CloseClip() })
+	app.Settle()
+	if got := fmt.Sprint(app.Find("id:editor-viewport").Ops); got != start {
+		t.Fatal("after closing the clip the 3D viewport does not draw the scene as edited")
+	}
 }

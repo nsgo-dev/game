@@ -498,3 +498,117 @@ func TestAnimationPanelKeysAndEditsThroughTheUI(t *testing.T) {
 		t.Fatal("Close left the clip open")
 	}
 }
+
+func TestLoopingClipShowsItsEndAtTheEnd(t *testing.T) {
+	ed := animatedEditor(t)
+	if err := ed.SetClipLoop(true); err != nil {
+		t.Fatalf("SetClipLoop: %v", err)
+	}
+	ed.SeekClip(2 * time.Second)
+	if ed.ClipTime() != 2*time.Second {
+		t.Fatalf("SeekClip(2s) put the playhead at %v", ed.ClipTime())
+	}
+	if got := ed.ActiveScene().Object("hero").Sprite.X; got != 60 {
+		t.Fatalf("hero at the end of a loop = %v, want the end key 60, not the start's 40", got)
+	}
+
+	// Pressing the key at the clip's end in the panel shows that key, and an edit re-poses the preview there.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1280, 900))
+	app.Post(func() { ed.SeekClip(0) })
+	app.Settle()
+	if got := app.Find("id:anim-track-0-label").Text; got != "x" {
+		t.Fatalf("track 0 = %q, want x", got)
+	}
+	app.Press("id:anim-key-0-2")
+	if ed.ClipTime() != 2*time.Second || ed.ActiveScene().Object("hero").Sprite.X != 60 {
+		t.Fatalf("pressing the end key: playhead %v hero x %v, want 2s and 60", ed.ClipTime(), ed.ActiveScene().Object("hero").Sprite.X)
+	}
+	if err := ed.SetKeyValue(0, 2, 70); err != nil {
+		t.Fatalf("SetKeyValue: %v", err)
+	}
+	if got := ed.ActiveScene().Object("hero").Sprite.X; ed.ClipTime() != 2*time.Second || got != 70 {
+		t.Fatalf("after editing the end key: playhead %v hero x %v, want 2s and 70", ed.ClipTime(), got)
+	}
+}
+
+const heroNamedClip = `type: animation
+version: 1
+name: Named
+length: 1
+tracks:
+  - target: hero
+    property: x
+    keys:
+      - time: 0
+        value: 10
+`
+
+func TestClipTracksDriveEachFieldOnce(t *testing.T) {
+	ed := animatedEditor(t)
+	if err := ed.OpenClipYAML([]byte(heroNamedClip), "hero"); err != nil {
+		t.Fatalf("OpenClipYAML: %v", err)
+	}
+	// Keying x on the clip's own object adds a key to the track naming hero, not a second track for the same field.
+	for _, target := range []string{"", "hero"} {
+		tr, _, err := ed.KeyProperty(target, "x", time.Second)
+		if err != nil {
+			t.Fatalf("KeyProperty(%q, x): %v", target, err)
+		}
+		if tr != 0 || len(ed.Clip().Tracks) != 1 || ed.Clip().Tracks[0].Target != "hero" || len(ed.Clip().Tracks[0].Keys) != 2 {
+			t.Fatalf("KeyProperty(%q, x) keyed track %d of %+v", target, tr, ed.Clip().Tracks)
+		}
+	}
+
+	both := heroNamedClip + "  - property: x\n    keys:\n      - time: 0\n        value: 20\n"
+	before, _ := ed.SaveClipYAML()
+	if err := ed.OpenClipYAML([]byte(both), "hero"); err == nil || !strings.Contains(err.Error(), `both drive "x" of object "hero"`) {
+		t.Fatalf("OpenClipYAML with two tracks for hero.x on hero = %v", err)
+	}
+	if after, _ := ed.SaveClipYAML(); !bytes.Equal(before, after) {
+		t.Fatal("a refused open changed the open clip")
+	}
+	// The same file is fine on another object, where its tracks drive slime.x and hero.x, but retargeting it to hero is refused.
+	if err := ed.OpenClipYAML([]byte(both), "slime"); err != nil {
+		t.Fatalf("OpenClipYAML on slime: %v", err)
+	}
+	if err := ed.SetClipTarget("hero"); err == nil || !strings.Contains(err.Error(), "both drive") || ed.ClipTarget() != "slime" {
+		t.Fatalf("SetClipTarget(hero) = %v, target %q", err, ed.ClipTarget())
+	}
+	// And keying hero.x there keys the track naming hero.
+	if tr, _, err := ed.KeyProperty("hero", "x", time.Second); err != nil || tr != 0 || len(ed.Clip().Tracks) != 2 {
+		t.Fatalf("KeyProperty(hero, x) on slime's clip: track %d, %v, tracks %+v", tr, err, ed.Clip().Tracks)
+	}
+}
+
+func TestEventLaneFollowsAnOpenedClip(t *testing.T) {
+	ed := animatedEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1280, 900))
+	if !app.Exists("label:Event land") {
+		t.Fatal("no marker for the land event")
+	}
+	data, err := ed.SaveClipYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A clip with the same tracks, keys and number of events, but another event, replaces the markers.
+	other := bytes.Replace(data, []byte("name: land"), []byte("name: jump"), 1)
+	if bytes.Equal(other, data) {
+		t.Fatalf("no land event in:\n%s", data)
+	}
+	app.Post(func() {
+		if err := ed.OpenClipYAML(other, "hero"); err != nil {
+			ed.Status = err.Error()
+		}
+	})
+	app.Settle()
+	if ed.Clip().Events[0].Name != "jump" {
+		t.Fatalf("OpenClipYAML failed: %s", ed.Status)
+	}
+	if app.Exists("label:Event land") || !app.Exists("label:Event jump") {
+		t.Fatalf("event markers after opening the other clip: land %t jump %t", app.Exists("label:Event land"), app.Exists("label:Event jump"))
+	}
+	app.Press("id:toolbar-undo")
+	if !app.Exists("label:Event land") || app.Exists("label:Event jump") {
+		t.Fatal("undoing the open left the other clip's event marker")
+	}
+}

@@ -86,7 +86,7 @@ stops:
 
 ### animation
 
-由数值属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 是轨道驱动的对象或节点路径，相对于播放该片段的对象（为空时即该对象本身）；每个 target 与 property 的组合只有一条轨道。`events` 是按时间排列的具名提示点，每个位于 `0` 到 `length` 之间的 `time`，播放越过时由播放器报告。
+由数值属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 指定轨道驱动的对象，由 [animclip](animclip.md) 播放时即场景中对象的 ID（为空时即播放该片段的对象）；每个 target 与 property 的组合只有一条轨道。`events` 是按时间排列的具名提示点，每个位于 `0` 到 `length` 之间的 `time`，播放越过时由播放器报告。
 
 ```yaml
 type: animation

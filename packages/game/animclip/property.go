@@ -185,7 +185,7 @@ func (p Property) Convert(v float64) float64 {
 	return v
 }
 
-// CheckValue reports why v cannot be a key of the property: it is not finite, a bool key other than 0 or 1, a fractional int key, or outside the range.
+// CheckValue reports why v cannot be a key of the property: it is not finite, a bool key other than 0 or 1, a fractional int key or one a Go int cannot hold, or outside the range.
 func (p Property) CheckValue(v float64) error {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return fmt.Errorf("animclip: property %q key %v must be finite", p.Name, v)
@@ -198,6 +198,10 @@ func (p Property) CheckValue(v float64) error {
 	case KindInt:
 		if v != math.Trunc(v) {
 			return fmt.Errorf("animclip: property %q is an int and its keys must be whole numbers, got %v", p.Name, v)
+		}
+		// float64(math.MinInt) is exact, and -float64(math.MinInt) is the first whole number past math.MaxInt, so the key converts to a Go int the same way on every platform.
+		if v < float64(math.MinInt) || v >= -float64(math.MinInt) {
+			return fmt.Errorf("animclip: property %q is an int and its key %v is outside the range a Go int holds", p.Name, v)
 		}
 	}
 	if p.Min != nil && v < *p.Min {
