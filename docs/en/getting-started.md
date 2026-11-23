@@ -238,4 +238,5 @@ if jump != nil {
 ## Next steps
 
 - Read the package guides for [Loop](loop.md), [sprite](sprite.md) and [sound](sound.md), or the combined [Packages](packages.md) reference.
+- Play and read [Cave Run](https://github.com/nsgo-dev/game/tree/main/examples/caverun), the sample platformer: the loop, input actions on the keyboard, game controllers, touch and the mouse, a sprite batch, a Tiled map with a camera, scenes, sound groups and a native HUD and pause menu, with a 1000-sprite stress mode and headless tests that play its level to the end.
 - When you are ready to verify all targets and produce release builds for macOS, Windows, Linux, the web, iOS and Android, read [Building and Shipping](shipping.md).

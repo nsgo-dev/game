@@ -38,7 +38,7 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 - `game/tilemap`: tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)).
 - `game/scene`: drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)).
 
-`examples` will hold a playable sample game ([#8](https://github.com/nsgo-dev/game/issues/8)).
+`examples/caverun` is the playable sample game, [Cave Run](examples/caverun/README.md) ([#8](https://github.com/nsgo-dev/game/issues/8)).
 
 ## Docs
 
