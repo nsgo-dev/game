@@ -153,7 +153,7 @@ func specials(hits []hit) []hit {
 
 func TestGoldenRecordedSession(t *testing.T) {
 	set := loadSet(t)
-	rec, err := replay.LoadFile("testdata/session.replay.json")
+	rec, err := replay.LoadFile("testdata/session.replay.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +164,13 @@ func TestGoldenRecordedSession(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("hits = %v, want %v", got, want)
+	}
+	data, err := os.ReadFile("testdata/session.replay.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := rec.Encode(); err != nil || !bytes.Equal(out, data) {
+		t.Fatalf("recording is not in Encode's form (%v):\n%s", err, out)
 	}
 }
 

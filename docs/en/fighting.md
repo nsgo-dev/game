@@ -131,7 +131,7 @@ The history itself is a `Buffer`, a ring of `Frame`s (absolute and relative dire
 `Recognizer.Update` takes any `Source` (`Pressed` and `Axis`), which `*input.Actions`, `*replay.Recorder` and `*replay.Player` all satisfy, so recorded inputs from [replay](replay.md) drive it directly:
 
 ```go
-recording, _ := replay.LoadFile("testdata/session.replay.json")
+recording, _ := replay.LoadFile("testdata/session.replay.yaml")
 p := replay.NewPlayer(recording)
 for !p.Done() {
 	p.Step()

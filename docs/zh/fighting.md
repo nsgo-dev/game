@@ -131,7 +131,7 @@ loop := &game.Loop{
 `Recognizer.Update` 接受任何 `Source`（`Pressed` 与 `Axis`），`*input.Actions`、`*replay.Recorder` 与 `*replay.Player` 都满足它，所以 [replay](replay.md) 录制的输入可以直接驱动识别器：
 
 ```go
-recording, _ := replay.LoadFile("testdata/session.replay.json")
+recording, _ := replay.LoadFile("testdata/session.replay.yaml")
 p := replay.NewPlayer(recording)
 for !p.Done() {
 	p.Step()
