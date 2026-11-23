@@ -109,6 +109,7 @@ const en = {
     groups: {
       guides: 'Guides',
       tutorial: 'Tutorial',
+      comingFrom: 'Coming from Another Engine',
       core2d: '2D Core',
       extended2d: '2D Systems',
       multiplayerModding: 'Multiplayer & Modding',
@@ -336,6 +337,7 @@ const zh: Copy = {
     groups: {
       guides: '指南',
       tutorial: '教程',
+      comingFrom: '从其他引擎迁移',
       core2d: '2D 核心包',
       extended2d: '2D 扩展与系统',
       multiplayerModding: '多人与模组',
