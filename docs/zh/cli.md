@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理和打开场景编辑器。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器和构建发布包。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -22,11 +22,12 @@ go tool game help
 | `manifest` | 从资源目录生成带类型的 Go 资源清单，缺少资源时构建失败 |
 | `tex` | 把 PNG 或 JPEG 纹理编码为 BC1、BC3、ETC2 或 RGBA8 格式的 KTX2 容器，可选生成 mipmap |
 | `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开演示场景 |
+| `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -70,3 +71,33 @@ go tool game editor .
 ```
 
 在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。场景格式见[编辑器与场景格式](editor.md)。
+
+### release
+
+```sh
+go tool game release
+go tool game release -channel store -release-notes notes/0.2.0.md
+go tool game release -target macos_arm64,web -output build -dry-run
+```
+
+在指定目录（默认是当前目录，其中有游戏的 `nsgo.yaml`）里，通过一次 `nsgo build` 为所有平台构建游戏：未另行指定时，构建两种架构的 macOS、Windows 和 Linux，以及 Web、iOS 和 arm64 的 Android。每个目标的包写到 `<output>/<name>-<version>-<target>`，发布时上传的文件（磁盘映像、安装程序、Debian 和 Arch 包、AppImage、IPA、APK 和网站的 zip，各带一个 `.sha256`）写到 `<output>/releases`，目录结构与 `nsgo build` 相同。任一目标失败都会终止本次运行，退出码为 1。游戏的模块必须把 NSGo 作为工具（`go.mod` 里有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`，起始模板已带上），因为命令运行的是 `go -C <dir> tool nsgo build`，构建使用模块自己的 NSGo 版本；`-dry-run` 只打印这条命令而不运行。
+
+目标取自 `-target`；没有时取 `nsgo.yaml` 旁边 `game.yaml` 的 `export` 预设，按顺序，没有 `targets` 的预设构建其平台名；再没有时取上面的六个平台。输出目录取自 `-output`；没有时取 `game.yaml` 的 `export.output`；再没有时取 `nsgo.yaml` 的 `build.output`：
+
+```yaml
+version: 1
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+    - platform: web
+    - platform: ios
+    - platform: android
+```
+
+命令只读取 `game.yaml` 的 `version`（必须为 1）和 `export` 部分，拒绝未知字段、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
+
+一台机器能构建哪些目标，以 `nsgo doctor` 的显示为准：iOS 需要装有 Xcode 的 Mac，macOS 磁盘映像需要在已登录的会话里运行 `hdiutil`，所以为所有平台发布要在 Mac 上运行。

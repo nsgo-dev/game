@@ -43,7 +43,7 @@ func TestHelpListsEveryCommand(t *testing.T) {
 }
 
 func TestEveryFormerCommandIsASubcommand(t *testing.T) {
-	want := []string{"pack", "audio", "manifest", "tex", "editor"}
+	want := []string{"pack", "audio", "manifest", "tex", "editor", "release"}
 	if len(commands) != len(want) {
 		t.Fatalf("%d commands, want %d", len(commands), len(want))
 	}
