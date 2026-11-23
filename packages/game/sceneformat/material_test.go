@@ -103,3 +103,38 @@ func TestMaterialReferenceValidationAndResolution(t *testing.T) {
 		t.Fatalf("material reference did not round-trip: %v\n%s", err, again)
 	}
 }
+
+func TestMaterialOnNestedChildMultipliesItsWorldAlpha(t *testing.T) {
+	lib := resource.NewLibrary(fstest.MapFS{
+		"materials/stone.material.yaml": &fstest.MapFile{Data: []byte(stoneMaterialV1)},
+	})
+	resolver := materialResolver{AtlasMap: caveResolver, Library: lib}
+	doc := sceneUsingMaterial("Cave", "wall", 0.8)
+	wall := &doc.Layers[0].Objects[0]
+	wall.Children = []sceneformat.ObjectDoc{{
+		ID:       "moss",
+		Alpha:    sceneformat.Float32(0.5),
+		Sprite:   &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
+		Material: "materials/stone.material.yaml",
+	}}
+
+	built, err := sceneformat.Build(doc, resolver)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	moss := built.Object("moss")
+	if moss.Material == nil || moss.Material != built.Object("wall").Material {
+		t.Fatal("the nested child does not share its material with its parent")
+	}
+	// 0.8 (wall) * 0.5 (moss) * 0.5 (material opacity).
+	if !near(moss.Sprite.Alpha, 0.2) {
+		t.Fatalf("moss alpha = %v, want 0.2", moss.Sprite.Alpha)
+	}
+	if loaded, err := lib.Reload("materials/stone.material.yaml", []byte(stoneMaterialV2)); !loaded || err != nil {
+		t.Fatalf("Reload = %v, %v", loaded, err)
+	}
+	built.SyncMaterials()
+	if !near(moss.Sprite.Alpha, 0.1) || moss.Sprite.Blend != core.CompositeMultiply {
+		t.Fatalf("moss after the edit = alpha %v blend %v, want 0.1 multiply", moss.Sprite.Alpha, moss.Sprite.Blend)
+	}
+}
