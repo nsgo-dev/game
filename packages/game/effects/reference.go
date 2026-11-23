@@ -3,7 +3,11 @@ package effects
 import (
 	"fmt"
 	"image"
+	"maps"
 	"math"
+	"slices"
+
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // Input is what an effect's Reference reads: the pass before it, or the frame for the first, as Input and InputSize read them in its source.
@@ -18,13 +22,26 @@ func (in Input) At(x, y float64) [4]float64 { return in.at(x, y) }
 // Size returns the frame's size in pixels.
 func (in Input) Size() (w, h float64) { return in.w, in.h }
 
-// Reference draws frame through the chain on the CPU into a picture of width by height pixels, with each effect's Reference, as View draws it on the GPU into a box of that many pixels: each pixel's center is mapped onto the frame and drawn by the last effect. It is the picture a test compares a chain's output with, and a screenshot of it where no GPU draws. Colors are clamped to 0 to 1 and rounded to 8 bits.
+// Reference draws frame through the chain on the CPU into a picture of width by height pixels, with each effect's Reference, as View draws it on the GPU into a box of that many pixels with the same uniforms: each pixel's center is mapped onto the frame and drawn by the last effect. perEffect[i] is effect i's uniforms, as Chain.Uniforms and View.Uniforms take them. It is the picture a test compares a chain's output with, and a screenshot of it where no GPU draws. Colors are clamped to 0 to 1 and rounded to 8 bits.
 //
-// It returns an error when an effect has no Reference.
-func (c *Chain) Reference(frame *image.RGBA, width, height int) (*image.RGBA, error) {
+// It returns an error when an effect has no Reference, when perEffect names a uniform an effect does not declare or has more entries than the chain has effects, and for a uniform set to an AnimatedNode other than a core.Constant, whose value only the platform knows.
+func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core.Uniforms) (*image.RGBA, error) {
 	for i, e := range c.effects {
 		if e.Reference == nil {
 			return nil, fmt.Errorf("effects: %s has no Reference", e.label(i))
+		}
+	}
+	if len(perEffect) > len(c.effects) {
+		return nil, fmt.Errorf("effects: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects))
+	}
+	for i, u := range perEffect {
+		for _, name := range slices.Sorted(maps.Keys(u)) {
+			if !c.uniforms[i][name] {
+				return nil, fmt.Errorf("effects: %s has no uniform %s", c.effects[i].label(i), name)
+			}
+			if animated(u[name]) {
+				return nil, fmt.Errorf("effects: %s: uniform %s follows an animated node, whose value only the platform knows", c.effects[i].label(i), name)
+			}
 		}
 	}
 	out := image.NewRGBA(image.Rect(0, 0, max(width, 0), max(height, 0)))
@@ -36,9 +53,13 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int) (*image.RGBA, er
 		fw, fh = float64(frame.Rect.Dx()), float64(frame.Rect.Dy())
 	}
 	in := Input{at: framePixel(frame), w: fw, h: fh}
-	for _, e := range c.effects {
+	for i, e := range c.effects {
+		var u core.Uniforms
+		if i < len(perEffect) {
+			u = perEffect[i]
+		}
 		prev, ref := in, e.Reference
-		in = Input{at: func(x, y float64) [4]float64 { return ref(prev, x, y) }, w: fw, h: fh}
+		in = Input{at: func(x, y float64) [4]float64 { return ref(prev, u, x, y) }, w: fw, h: fh}
 	}
 	sx, sy := fw/float64(width), fh/float64(height)
 	for py := range height {
@@ -78,4 +99,48 @@ func to8(v float64) uint8 {
 		return 255
 	}
 	return uint8(math.Round(v * 255))
+}
+
+// animated reports whether a uniform's value holds an AnimatedNode other than a core.Constant.
+func animated(v any) bool {
+	switch x := v.(type) {
+	case core.Constant:
+		return false
+	case core.AnimatedNode:
+		return true
+	case []core.AnimatedNode:
+		return slices.ContainsFunc(x, func(n core.AnimatedNode) bool { return animated(n) })
+	case []any:
+		return slices.ContainsFunc(x, animated)
+	}
+	return false
+}
+
+// Float returns the number uniform u sets name to, for an effect's Reference: any of Go's integer or float kinds, a bool as 0 or 1, or a core.Constant. It is 0 when u leaves name out or sets it to anything else, such as a vector, which a Reference reads from u itself.
+func Float(u core.Uniforms, name string) float64 {
+	switch x := u[name].(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int32:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case uint:
+		return float64(x)
+	case uint32:
+		return float64(x)
+	case uint64:
+		return float64(x)
+	case bool:
+		if x {
+			return 1
+		}
+	case core.Constant:
+		return float64(x)
+	}
+	return 0
 }
