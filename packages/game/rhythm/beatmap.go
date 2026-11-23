@@ -18,6 +18,8 @@ const BeatMapVersion = 1
 
 // Limits a beat map is validated against.
 const (
+	// MinBPM is the slowest tempo a beat map may set, so every time a valid map gives, up to MaxBeat, fits a time.Duration many times over.
+	MinBPM = 1
 	// MaxBPM is the fastest tempo a beat map may set.
 	MaxBPM = 2000
 	// MaxBeat is the latest beat a tempo or meter change may start at.
@@ -62,7 +64,7 @@ type BeatMap struct {
 type Tempo struct {
 	// Beat is where the tempo starts, 0 or later and after the change before it.
 	Beat float64 `yaml:"beat"`
-	// BPM is the beats a minute, above 0 and at most MaxBPM.
+	// BPM is the beats a minute, from MinBPM to MaxBPM.
 	BPM float64 `yaml:"bpm"`
 }
 
@@ -74,7 +76,7 @@ type Meter struct {
 	BeatsPerBar int `yaml:"beatsPerBar"`
 }
 
-// ParseBeatMap decodes a YAML beat map and validates it. Unknown fields, a second YAML document and a fraction where a whole number belongs are refused.
+// ParseBeatMap decodes a YAML beat map and validates it. Unknown fields, a second YAML document, anchors and aliases, and a fraction where a whole number belongs are refused.
 func ParseBeatMap(data []byte) (*BeatMap, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("rhythm: empty beat map")
@@ -105,10 +107,16 @@ func ParseBeatMap(data []byte) (*BeatMap, error) {
 	return &m, nil
 }
 
-// requireIntegers reports the first value that decoded into an int field without being a YAML integer: keys of the top mapping in top, and keys of the mappings listed under a top key in nested. yaml.v3 truncates 1.5 into an int field, which would neither mean what the file says nor round-trip.
+// requireIntegers refuses an anchor or alias anywhere in data, which Encode never writes and which would carry a value past the checks below, and then reports the first value that decoded into an int field without being a YAML integer: keys of the top mapping in top, and keys of the mappings listed under a top key in nested. yaml.v3 truncates 1.5 into an int field, which would neither mean what the file says nor round-trip.
 func requireIntegers(data []byte, top []string, nested map[string][]string) error {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	if err := refuseAliases(&doc); err != nil {
+		return err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil
 	}
 	check := func(key string, n *yaml.Node) error {
@@ -140,6 +148,19 @@ func requireIntegers(data []byte, top []string, nested map[string][]string) erro
 					}
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// refuseAliases reports the first anchor or alias in n and below it.
+func refuseAliases(n *yaml.Node) error {
+	if n.Kind == yaml.AliasNode || n.Anchor != "" {
+		return fmt.Errorf("rhythm: line %d: anchors and aliases are not allowed", n.Line)
+	}
+	for _, c := range n.Content {
+		if err := refuseAliases(c); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -196,8 +217,8 @@ func (m *BeatMap) Validate() error {
 			return fmt.Errorf("rhythm: tempos[0] starts at beat %v, want 0", t.Beat)
 		case i > 0 && t.Beat <= m.Tempos[i-1].Beat:
 			return fmt.Errorf("rhythm: tempos[%d]: beat %v is not after beat %v", i, t.Beat, m.Tempos[i-1].Beat)
-		case !finite(t.BPM) || t.BPM <= 0 || t.BPM > MaxBPM:
-			return fmt.Errorf("rhythm: tempos[%d]: bpm %v is not above 0 and at most %d", i, t.BPM, MaxBPM)
+		case !finite(t.BPM) || t.BPM < MinBPM || t.BPM > MaxBPM:
+			return fmt.Errorf("rhythm: tempos[%d]: bpm %v is not within %d to %d", i, t.BPM, MinBPM, MaxBPM)
 		}
 	}
 	for i, me := range m.Meters {
@@ -307,7 +328,18 @@ func (t *Timing) tempoAt(beat float64) int {
 	return max(sort.Search(len(t.segs), func(i int) bool { return t.segs[i].beat > beat })-1, 0)
 }
 
-// secondsDuration rounds sec to the nanosecond.
-func secondsDuration(sec float64) time.Duration { return time.Duration(math.Round(sec * 1e9)) }
+// secondsDuration rounds sec to the nanosecond, saturating at the longest Duration either way, as a beat far past any valid map's can reach.
+func secondsDuration(sec float64) time.Duration {
+	ns := math.Round(sec * 1e9)
+	switch {
+	case ns >= math.MaxInt64:
+		return math.MaxInt64
+	case ns <= math.MinInt64:
+		return math.MinInt64
+	case math.IsNaN(ns):
+		return 0
+	}
+	return time.Duration(ns)
+}
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }

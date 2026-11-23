@@ -39,7 +39,7 @@ meters:
 | `tempos` | 按拍序排列的速度变化，第一个在第 0 拍；变化可以从两拍之间开始 |
 | `meters` | 按拍序排列的拍号变化，第一个在第 0 拍，每个都落在前一拍号的整小节上；省略时每小节 4 拍 |
 
-`ParseBeatMap` 拒绝未知字段、第二个 YAML 文档、应为整数处出现的小数，以及顺序错误或超出范围的变化（最多 2000 bpm、10,000 个变化、第 1,000,000 拍）。`EncodeBeatMap` 按上述固定顺序、2 空格缩进写出字段，因此节拍图读入后再保存不会改变。
+`ParseBeatMap` 拒绝未知字段、第二个 YAML 文档、YAML 锚点与别名、应为整数处出现的小数，以及顺序错误或超出范围的变化（1 到 2000 bpm、最多 10,000 个变化、第 1,000,000 拍）。这些范围保证有效节拍图给出的每个时间都是有限值，且远在 `time.Duration` 的范围之内；查询远超这些范围的拍子时，结果会停在最长的 `Duration` 上，而不会溢出回绕。`EncodeBeatMap` 按上述固定顺序、2 空格缩进写出字段，因此节拍图读入后再保存不会改变。
 
 `BeatMap.Timing` 把节拍图转换为 `Timing`，用于在曲目时间与节拍、小节之间换算：
 
@@ -83,7 +83,7 @@ player.Play(func(err error) {
 | --- | --- |
 | `Track(now)` | 输出正在播放的位置，未经校正 |
 | `Position(now)`、`Beat(now)` | 玩家听到的位置：输出位置减去音频偏移；用它判定输入 |
-| `Judge(at, beat)` | 在 `at` 时刻的输入相对 `beat` 提前（负数）或延后多少 |
+| `Judge(at, beat)` | 在 `at` 时刻按下的输入相对 `beat` 提前（负数）或延后多少 |
 | `DrawPosition(now)`、`DrawBeat(now)` | 此刻绘制的一帧应把判定线放在哪里：输出位置加上画面偏移再减去音频偏移 |
 | `BeatTime(beat)`、`TrackTime(pos)` | 输出播放某一拍的引擎时间，传给 `audio.Voice.StartAt` 用来播放击打音或节拍器；两者经过同一输出，因此不加偏移 |
 
@@ -107,13 +107,19 @@ cal := rhythm.NewCalibration(cx, rhythm.CalibrateAudio, click)
 screen := rhythm.NewCalibrationScreen(cal, store, device)
 screen.OnSave = func(o rhythm.Offsets) { clock.SetOffsets(o) }
 
-core.Canvas{
-	Draw:    func(d *core.Drawing, size core.Size) { screen.Draw(d, core.Bounds{Size: size}) },
-	OnPress: func(ev core.PressEvent) { screen.OnPress(ev) },
+core.View{
+	OnPressDown: func(ev core.PressEvent) { screen.OnPressDown(ev) },
+	OnPress:     func(ev core.PressEvent) { screen.OnPress(ev) },
+	OnKeyDown:   screen.OnKeyDown,
+	Children: []core.Node{core.Canvas{
+		Draw: func(d *core.Drawing, size core.Size) { screen.Draw(d, core.Bounds{Size: size}) },
+	}},
 }
 ```
 
-界面显示期间要像 `game.Loop` 那样每帧重绘画布。按在 Retry 或 Save 上会按下按钮，其他点击或按键都算作一次拍击。结果稳定后 Save 才可用。设置 `Text` 可以翻译界面文字。
+界面显示期间要像 `game.Loop` 那样每帧重绘画布。拍击在按下的那一刻计入：按钮以外的 `OnPressDown`，或按键按下。完整的按压（`OnPress`）要等手指抬起才触发，以它计时会把每次按住的时长也算进去，这段时长有几十毫秒，而且每次都不一样。游戏中的输入也要在同一时刻判定，即用 `OnPressDown` 或按键按下，否则校准测得的偏移与之对不上。
+
+按在 Retry 或 Save 上会按下按钮。Tab 和方向键在两个按钮之间移动焦点，Return 或 Space 按下获得焦点的按钮；校准完成后焦点会移到 Save，结果不稳定时移到 Retry，因此只用键盘或开关控制的玩家也能保存。结果稳定后 Save 才可用。界面在校准途中关闭时调用 `Stop`，停止已提前安排的咔嗒声；最后一次拍击计入时咔嗒声也会停止。设置 `Text` 可以翻译界面文字。
 
 ## 按设备保存偏移
 

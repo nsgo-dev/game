@@ -89,7 +89,7 @@ func (c *Clock) TrackTime(pos time.Duration) time.Time { return c.anchor.Add(pos
 // BeatTime returns TrackTime of beat.
 func (c *Clock) BeatTime(beat float64) time.Time { return c.TrackTime(c.timing.Time(beat)) }
 
-// Judge returns how early (negative) or late (positive) an input at engine time at is for beat, corrected by the device's audio offset.
+// Judge returns how early (negative) or late (positive) an input going down at engine time at is for beat, corrected by the device's audio offset. Take at from the edge calibration took taps on, a press going down (core.View.OnPressDown) or a key going down, never a completed press.
 func (c *Clock) Judge(at time.Time, beat float64) time.Duration {
 	return c.Position(at) - c.timing.Time(beat)
 }

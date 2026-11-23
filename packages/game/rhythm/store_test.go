@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/rhythm"
 	"github.com/nsgo-dev/nsgo/core"
@@ -56,6 +57,7 @@ func TestCalibrationsRefuseInvalidFiles(t *testing.T) {
 		"long key":        "version: 1\ndevices:\n  " + strings.Repeat("k", rhythm.MaxDeviceKey+1) + ":\n    audioMs: 1\n    videoMs: 2\n",
 		"far offset":      "version: 1\ndevices:\n  a:\n    audioMs: 10001\n    videoMs: 0\n",
 		"nan offset":      "version: 1\ndevices:\n  a:\n    audioMs: 0\n    videoMs: .nan\n",
+		"alias":           "version: 1\ndevices:\n  a: &o\n    audioMs: 1\n    videoMs: 2\n  b: *o\n",
 	}
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -66,6 +68,9 @@ func TestCalibrationsRefuseInvalidFiles(t *testing.T) {
 	}
 	if _, err := rhythm.EncodeCalibrations(nil); err == nil {
 		t.Fatal("encoded nil")
+	}
+	if _, err := rhythm.EncodeCalibrations(&rhythm.Calibrations{Version: 1, Devices: map[string]rhythm.DeviceOffsets{"ios/\xff": {}}}); err == nil {
+		t.Fatal("encoded a key that is not UTF-8")
 	}
 }
 
@@ -150,6 +155,26 @@ func TestDeviceKeyWithoutAModel(t *testing.T) {
 	}, nsgotest.Environment(core.Environment{OS: core.OSWeb}))
 	if key != "web/unknown" {
 		t.Fatalf("device key %q", key)
+	}
+}
+
+func TestDeviceKeyCutsALongModelAtACharacter(t *testing.T) {
+	var key string
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		key = rhythm.DeviceKey(cx)
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{OS: core.OSAndroid, DeviceModel: strings.Repeat("\u578b", 100)}))
+	// "android/" is 8 bytes and each character 3, so 256 bytes would end inside the 83rd.
+	if !utf8.ValidString(key) || len(key) != 8+3*82 {
+		t.Fatalf("device key of %d bytes, valid UTF-8 %v", len(key), utf8.ValidString(key))
+	}
+	c := &rhythm.Calibrations{Version: 1, Devices: map[string]rhythm.DeviceOffsets{key: {AudioMs: 1}}}
+	text, err := rhythm.EncodeCalibrations(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back, err := rhythm.ParseCalibrations(text); err != nil || back.Devices[key] != c.Devices[key] {
+		t.Fatalf("read back %+v, %v", back, err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package rhythm_test
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 	"math/rand/v2"
@@ -83,6 +84,11 @@ func TestBeatMapRefusesInvalidFiles(t *testing.T) {
 		"late first":       "version: 1\ntempos: [{beat: 1, bpm: 120}]\n",
 		"out of order":     "version: 1\ntempos: [{beat: 0, bpm: 120}, {beat: 8, bpm: 90}, {beat: 8, bpm: 100}]\n",
 		"zero bpm":         "version: 1\ntempos: [{beat: 0, bpm: 0}]\n",
+		"tiny bpm":         "version: 1\ntempos: [{beat: 0, bpm: 1e-320}, {beat: 1, bpm: 120}]\n",
+		"too slow":         "version: 1\ntempos: [{beat: 0, bpm: 0.999}]\n",
+		"alias":            "version: 1\ntempos: [{beat: 0, bpm: &x 4.5}]\nmeters: [{beat: 0, beatsPerBar: *x}]\n",
+		"merged alias":     "version: 1\ntempos: [&t {beat: 0, bpm: 120}]\nmeters: [{<<: *t, beatsPerBar: 4}]\n",
+		"anchor":           "version: 1\ntempos: &t [{beat: 0, bpm: 120}]\n",
 		"too fast":         "version: 1\ntempos: [{beat: 0, bpm: 2001}]\n",
 		"nan bpm":          "version: 1\ntempos: [{beat: 0, bpm: .nan}]\n",
 		"inf beat":         "version: 1\ntempos: [{beat: 0, bpm: 120}, {beat: .inf, bpm: 90}]\n",
@@ -108,6 +114,22 @@ func TestBeatMapRefusesInvalidFiles(t *testing.T) {
 	}
 	if _, err := rhythm.EncodeBeatMap(&rhythm.BeatMap{Version: 1}); err == nil {
 		t.Fatal("encoded a map without a tempo")
+	}
+}
+
+func TestTimingStaysWithinADuration(t *testing.T) {
+	// The slowest tempo up to the latest change keeps every time of a valid map finite and well inside a Duration.
+	slow := mustTiming(t, fmt.Sprintf("version: 1\noffsetMs: %d\ntempos: [{beat: 0, bpm: %d}, {beat: %d, bpm: %d}]\n", rhythm.MaxOffsetMs, rhythm.MinBPM, rhythm.MaxBeat, rhythm.MinBPM))
+	want := float64(rhythm.MaxOffsetMs)/1000 + float64(rhythm.MaxBeat)*60/rhythm.MinBPM
+	if got := slow.Seconds(rhythm.MaxBeat); got != want || slow.Time(rhythm.MaxBeat) != time.Duration(want)*time.Second {
+		t.Fatalf("beat %d at %v s, %v; want %v s", rhythm.MaxBeat, got, slow.Time(rhythm.MaxBeat), want)
+	}
+	// A beat far past any map saturates rather than wrapping.
+	if got := slow.Time(1e300); got != math.MaxInt64 {
+		t.Fatalf("a far beat at %v", got)
+	}
+	if got := slow.Time(-1e300); got != math.MinInt64 {
+		t.Fatalf("a far early beat at %v", got)
 	}
 }
 
@@ -277,7 +299,7 @@ func FuzzParseBeatMap(f *testing.F) {
 	f.Add([]byte(sampleMap))
 	f.Add([]byte("version: 1\ntempos: [{beat: 0, bpm: 120}]\n"))
 	f.Add([]byte("version: 1\ntempos: [{bpm: 1}]\nmeters: []"))
-	f.Add([]byte("version: 1\noffsetMs: -50.5\ntempos: [{beat: 0, bpm: 1e-3}, {beat: 0.1, bpm: 2000}]\nmeters: [{beat: 0, beatsPerBar: 1}, {beat: 3, beatsPerBar: 64}]\n"))
+	f.Add([]byte("version: 1\noffsetMs: -50.5\ntempos: [{beat: 0, bpm: 1}, {beat: 0.1, bpm: 2000}]\nmeters: [{beat: 0, beatsPerBar: 1}, {beat: 3, beatsPerBar: 64}]\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		m, err := rhythm.ParseBeatMap(data)
 		if err != nil {

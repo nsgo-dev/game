@@ -179,6 +179,20 @@ func TestAudioCalibrationSchedulesClicksAndSeedsWithTheOutputLatency(t *testing.
 	if len(plays) < 10 {
 		t.Fatalf("%d clicks for 10 taps", len(plays))
 	}
+	// The tap that finishes stops the clicks booked ahead, and no more are booked.
+	app.Settle()
+	for i, p := range app.Sounds[0].Playbacks {
+		if !p.Ended {
+			t.Fatalf("click %d still plays after the last tap", i)
+		}
+	}
+	booked := len(app.Sounds[0].Plays)
+	app.FastForward(3 * rhythm.DefaultInterval)
+	cal.Update()
+	app.Settle()
+	if len(app.Sounds[0].Plays) != booked {
+		t.Fatal("a done calibration booked another click")
+	}
 	// Starting over stops the clicks still waiting to play and schedules afresh.
 	before := len(app.Sounds[0].Playbacks)
 	cal.Start()
@@ -190,6 +204,41 @@ func TestAudioCalibrationSchedulesClicksAndSeedsWithTheOutputLatency(t *testing.
 	}
 	if cal.Count() != 0 || !app.Sounds[0].Plays[len(app.Sounds[0].Plays)-1].StartAt.Equal(cal.Cue(0)) {
 		t.Fatal("a retry did not start over")
+	}
+}
+
+func TestAudioCalibrationStopsWhenItsScreenGoes(t *testing.T) {
+	app, cal := startCalibration(t, rhythm.CalibrateAudio, core.Environment{Audio: true, AudioSchedule: true})
+	cal.Warmup = -1
+	cal.Start()
+	app.FastForward(cal.Cue(1).Sub(app.Clock.Now()))
+	cal.Update()
+	cal.Tap()
+	app.Settle()
+	plays := len(app.Sounds[0].Plays)
+	if plays < 2 || cal.Count() != 1 {
+		t.Fatalf("%d clicks, %d taps before stopping", plays, cal.Count())
+	}
+	cal.Stop()
+	app.Settle()
+	for i, p := range app.Sounds[0].Playbacks {
+		if !p.Ended {
+			t.Fatalf("click %d still plays after Stop", i)
+		}
+	}
+	app.FastForward(3 * rhythm.DefaultInterval)
+	cal.Update()
+	app.Settle()
+	if _, counted := cal.Tap(); counted || len(app.Sounds[0].Plays) != plays || cal.Started() {
+		t.Fatal("a stopped calibration clicked or took a tap")
+	}
+	if r, _ := cal.Result(); r.Taps != 1 {
+		t.Fatalf("stopping lost the taps: %+v", r)
+	}
+	cal.Start()
+	app.Settle()
+	if !cal.Started() || cal.Count() != 0 || len(app.Sounds[0].Plays) == plays {
+		t.Fatal("Start did not run it again")
 	}
 }
 
