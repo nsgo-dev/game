@@ -29,6 +29,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `resource` | `github.com/nsgo-dev/game/packages/game/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
 | `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont bitmap fonts, signed-distance-field fonts in 2D and 3D world space, and platform text via `DrawPlatform` |
 | `particles` | `github.com/nsgo-dev/game/packages/game/particles` | [particles](particles.md) | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and lifetime curves |
+| `bullets` | `github.com/nsgo-dev/game/packages/game/bullets` | [bullets](bullets.md) | Shooter bullet patterns (rings, spirals, aimed bursts) from YAML, pooled and drawn through a sprite batch |
 | `save` | `github.com/nsgo-dev/game/packages/game/save` | [save](save.md) | Versioned JSON save slots, schema migrations and atomic backup recovery |
 | `achievements` | `github.com/nsgo-dev/game/packages/game/achievements` | [achievements](achievements.md) | Achievements declared in versioned YAML, monotonic progress persisted in `core.Storage`, and reporting to Game Center and Play Games |
 | `datatable` | `github.com/nsgo-dev/game/packages/game/tooling/datatable` | [datatable](datatable.md) | Typed data tables in versioned YAML (and CSV/JSON) with cell-level errors, deterministic saves and hot reload |

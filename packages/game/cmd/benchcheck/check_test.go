@@ -127,6 +127,7 @@ func TestBaselineSaveAndLoadRoundTrip(t *testing.T) {
 		"BenchmarkTilemapDrawVisible1000x1000",
 		"BenchmarkLoadTiled",
 		"BenchmarkRaycast",
+		"BenchmarkFrame5000",
 	} {
 		if _, ok := loaded.Benchmarks[name]; !ok {
 			t.Errorf("repo baseline missing %s", name)
