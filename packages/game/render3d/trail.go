@@ -14,7 +14,7 @@ const (
 	defaultTrailWidth     = float32(0.25)
 )
 
-// TrailConfig configures a 3D ribbon [Trail] (#281). It mirrors [particles.TrailConfig] with world units and durations.
+// TrailConfig configures a 3D ribbon [Trail] (#281). It mirrors the MaxPoints, Lifetime, MinDistance, Width, WidthCurve, ColorGradient and Color options of [particles.TrailConfig] in world units and durations; it has no Texture, and [Trail] has no Attach, Detach or Follow, so feed it positions with [Trail.AddPoint].
 type TrailConfig struct {
 	// MaxPoints caps the number of recorded points; defaults to 64 when <= 0.
 	MaxPoints int
@@ -164,10 +164,13 @@ func (t *Trail) Update(dt time.Duration) {
 	life := t.cfg.lifetime()
 	expired := 0
 	for i := range t.points {
-		t.points[i].Age += dt
-		if t.points[i].Age >= life {
+		// Compare before adding so a huge dt saturates at life instead of wrapping the int64 age negative.
+		if dt >= life-t.points[i].Age {
+			t.points[i].Age = life
 			expired = i + 1
+			continue
 		}
+		t.points[i].Age += dt
 	}
 	if expired > 0 {
 		t.dropOldest(expired)
