@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -18,6 +19,10 @@ func newTestApp(t *testing.T) (*app, *bytes.Buffer, *bytes.Buffer) {
 		stderr: &stderr,
 		audio:  &audioconv.Encoder{},
 		launch: func(*editor.Editor) { t.Error("editor launched") },
+		nsgo: func(args []string, _, _ io.Writer) error {
+			t.Errorf("go tool nsgo %v ran", args)
+			return nil
+		},
 	}, &stdout, &stderr
 }
 
@@ -44,8 +49,8 @@ func TestHelpListsEveryCommand(t *testing.T) {
 
 func TestEveryFormerCommandIsASubcommand(t *testing.T) {
 	want := []string{"pack", "audio", "manifest", "tex", "editor", "release"}
-	if len(commands) != len(want) {
-		t.Fatalf("%d commands, want %d", len(commands), len(want))
+	if len(commands) < len(want) {
+		t.Fatalf("%d commands, want at least %d", len(commands), len(want))
 	}
 	for i, name := range want {
 		if commands[i].name != name {

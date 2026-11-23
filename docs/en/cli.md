@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor and build release packages. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless and check benchmarks against a stored baseline. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -23,11 +23,13 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `tex` | Encodes a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps |
 | `editor` | Opens the scene editor on a project or a YAML scene, or on a demo scene when none is named |
 | `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build` |
+| `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
+| `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags.
 
-A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest that is out of date, a build that fails) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
@@ -101,3 +103,37 @@ export:
 The command reads only `game.yaml`'s `version`, which must be the integer 1, and its `export` section. It refuses top-level fields outside the project file's (`version`, `name`, `id`, `appVersion`, `window`, `display`, `input`, `audio`, `autoload` and `export`), so a misspelt `export` is not skipped, and in `export` it refuses unknown fields, an empty `presets` list, unknown platforms and targets, a target of another platform, duplicates and an output outside the project; the rest of the file is the project file's. `-channel` is `nsgo build`'s: `store` builds the packages stores take (a Mac App Store package, universal when both macOS architectures are built, a Windows MSIX, a Flatpak bundle and an Android App Bundle) in place of the disk images, installers and APKs handed out directly, and `-release-notes` and `-jobs` pass through too. Signing, notarizing and store uploads follow `nsgo.yaml` and `nsgo publish`.
 
 Which targets a machine can build is what `nsgo doctor` shows: iOS needs a Mac with Xcode, and the macOS disk image needs `hdiutil` in a logged-in session, so a release of every platform runs on a Mac.
+
+### replay
+
+```sh
+go tool game replay ./...
+go tool game replay -run '^TestBossReplay$' ./levels
+```
+
+Plays a game's [input recordings](replay.md) headless, for CI. A recording needs the game's own simulation to play, so the command plays them through the game's tests: it first loads every `*.replay.yaml` file under each directory and fails, without running any test, when one cannot be played (an unknown key, a name missing from the header, a step out of order) or when a directory holds none, so a mistyped path cannot pass. It then runs the tests whose names match `-run`, by default every test with `Replay` in its name, headless with `go tool nsgo test`, and fails when one fails, which is what `replay.AssertEndState` does when a run ends in another state than the one the test expects. Name the tests that play recordings accordingly, such as `TestLevel1ClearReplay`.
+
+Each directory is a tree, as `nsgo test` reads it: with or without a trailing `/...`, its subdirectories are searched and tested too, skipping directories whose names start with `.` or `_` and nested modules but not `testdata`. The default is `./...`. The command runs `go tool nsgo`, so the module needs NSGo's command as a tool, as an NSGo app has.
+
+### bench
+
+```sh
+go tool game bench ./sprite ./tilemap
+go tool game bench -update ./sprite ./tilemap
+go tool game bench -in bench.txt
+```
+
+Runs the benchmarks under each directory headless with `go tool nsgo test -bench`, `-count` times (3 by default) for `-benchtime` each (200ms by default), takes each benchmark's median time, bytes and allocations per operation, and compares them with the baseline file named by `-baseline`, by default `benchmarks/baseline.yaml`. It prints a line per benchmark in the baseline and fails when one grew past its limit or was not measured, or when the baseline holds no benchmark; a measured benchmark the baseline lacks is listed as new and does not fail. `-bench` narrows the benchmarks run, as `go test -bench` does. `-in` reads the results from a file of `go test -bench -benchmem` output instead of running anything.
+
+`-update` writes the measured medians to the baseline instead, creating it when it does not exist, and keeps the benchmarks it did not measure. The baseline is a YAML text file to review and edit like any other: the format version, a note, the regression allowed for each metric in percent, and one line per benchmark in name order. Loading and saving it changes nothing, and unknown keys and missing metrics are refused.
+
+```yaml
+version: 1
+note: Update with go tool game bench -update ./sprite ./tilemap
+max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
+benchmarks:
+  BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}
+  BenchmarkRaycast: {ns_per_op: 15000, bytes_per_op: 0, allocs_per_op: 0}
+```
+
+Benchmarks are named without their `-GOMAXPROCS` suffix, so a baseline recorded on one machine is read on another, but time per operation depends on the machine: record the baseline on the kind of machine CI checks it on. The format is read and written by the `tooling/bench` package.
