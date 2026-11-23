@@ -87,6 +87,8 @@ func TestListenerPan(t *testing.T) {
 		{"no PanWidth nor Far", sound.Listener2D{}, math2d.V2(-30, 0), 0},
 		// Turned a quarter clockwise, the view's right is the world's down.
 		{"rotated", sound.Listener2D{Far: 100, Rotation: math.Pi / 2}, math2d.V2(0, -50), -0.5},
+		{"NaN Rotation", sound.Listener2D{Far: 100, Rotation: float32(math.NaN())}, math2d.V2(-50, 0), -0.5},
+		{"infinite Rotation", sound.Listener2D{Far: 100, Rotation: float32(math.Inf(1))}, math2d.V2(50, 0), 0.5},
 		{"NaN", camera, math2d.V2(float32(math.NaN()), 0), 0},
 		{"infinite", camera, math2d.V2(float32(math.Inf(1)), 0), 1},
 		{"infinite PanWidth", sound.Listener2D{PanWidth: float32(math.Inf(1))}, math2d.V2(float32(math.Inf(1)), 0), 0},
@@ -119,6 +121,8 @@ func TestListenerGain(t *testing.T) {
 		{"infinite Far", sound.Listener2D{Far: float32(math.Inf(1))}, math2d.V2(1e6, 0), 1},
 		{"negative Near", sound.Listener2D{Near: -10, Far: 100}, math2d.V2(50, 0), 0.5},
 		{"rotation keeps distance", sound.Listener2D{Far: 100, Rotation: 1}, math2d.V2(30, 40), 0.5},
+		{"NaN Rotation", sound.Listener2D{Far: 100, Rotation: float32(math.NaN())}, math2d.V2(30, 40), 0.5},
+		{"infinite Rotation", sound.Listener2D{Far: 100, Rotation: float32(math.Inf(-1))}, math2d.V2(30, 40), 0.5},
 		{"NaN", camera, math2d.V2(0, float32(math.NaN())), 0},
 		{"infinite", camera, math2d.V2(0, float32(math.Inf(-1))), 0},
 	} {
@@ -135,6 +139,45 @@ func TestListenerVoice(t *testing.T) {
 	}
 }
 
+func TestListenerVoiceIsMutedWhereSilent(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		pos  math2d.Vec2
+		v    audio.Voice
+	}{
+		{"beyond Far", math2d.V2(1000, 50), audio.Voice{}},
+		{"NaN", math2d.V2(float32(math.NaN()), 50), audio.Voice{}},
+		{"negative volume", math2d.V2(100, 50), audio.Voice{Volume: -1}},
+	} {
+		if v := camera.Voice(c.pos, c.v); v.Volume != 0 || !v.Muted {
+			t.Errorf("%s: Voice = %+v, want volume 0 and muted", c.name, v)
+		}
+	}
+	if v := camera.Voice(math2d.V2(100, 50), audio.Voice{}); v.Muted {
+		t.Errorf("Voice = %+v at the listener, want not muted", v)
+	}
+}
+
+func TestCuePlayAt(t *testing.T) {
+	m := startMixed(t)
+	cue := sound.NewCue(7, sound.CueOptions{Clips: []sound.Clip{sound.EffectClip(m.click)}, PitchMin: 1.5, PitchMax: 1.5, VolumeMin: 0.5, VolumeMax: 0.5})
+	if pick, ok := cue.PlayAt(camera, math2d.V2(40, 50)); !ok || pick.Index != 0 {
+		t.Fatalf("PlayAt = %+v, %v, want the click played", pick, ok)
+	}
+	if _, ok := cue.PlayAt(camera, math2d.V2(1000, 50)); ok {
+		t.Error("the cue beyond Far played")
+	}
+	plays := m.plays()
+	// 60 left: 0.5 from distance times the cue's 0.5, panned 0.6 left.
+	if len(plays) != 1 || !near(plays[0].Volume, 0.25) || !near(plays[0].Pan, -0.6) || plays[0].Rate != 1.5 {
+		t.Fatalf("plays %+v, want one at 0.25 panned -0.6 at 1.5 times", plays)
+	}
+	var none *sound.Cue
+	if pick, ok := none.PlayAt(camera, math2d.V2(100, 50)); ok || pick.Index != -1 {
+		t.Errorf("a nil cue's PlayAt = %+v, %v, want index -1 and not played", pick, ok)
+	}
+}
+
 func FuzzListener2D(f *testing.F) {
 	f.Add(float32(100), float32(50), float32(0), float32(10), float32(110), float32(0), uint8(0), float32(0), float32(0))
 	f.Add(float32(0), float32(0), float32(1), float32(0), float32(1), float32(-3), uint8(1), float32(-0.5), float32(1e30))
@@ -148,8 +191,8 @@ func FuzzListener2D(f *testing.F) {
 		if !(g >= 0 && g <= 1) {
 			t.Fatalf("%+v: Gain(%v) = %v, want within 0 and 1", l, pos, g)
 		}
-		if v := l.Voice(pos, audio.Voice{}); v.Volume != g {
-			t.Fatalf("%+v: Voice(%v) volume %v, want Gain %v", l, pos, v.Volume, g)
+		if v := l.Voice(pos, audio.Voice{}); v.Volume != g || v.Muted != (g == 0) {
+			t.Fatalf("%+v: Voice(%v) volume %v muted %v, want Gain %v and muted only when silent", l, pos, v.Volume, v.Muted, g)
 		}
 	})
 }
