@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/particles"
@@ -159,31 +158,6 @@ func TestConfigJSONRoundTrip(t *testing.T) {
 			t.Fatalf("shape round-trip = %+v, want %+v", back.Shape, sh)
 		}
 	}
-
-	// Test SaveConfigFile / LoadConfigFile and LoadConfigFS.
-	dir := t.TempDir()
-	p := filepath.Join(dir, "emitter.json")
-	if err := particles.SaveConfigFile(p, orig); err != nil {
-		t.Fatalf("SaveConfigFile: %v", err)
-	}
-	fromFile, err := particles.LoadConfigFile(p)
-	if err != nil {
-		t.Fatalf("LoadConfigFile: %v", err)
-	}
-	if !reflect.DeepEqual(orig, fromFile) {
-		t.Fatal("LoadConfigFile mismatch")
-	}
-
-	memFS := fstest.MapFS{
-		"fx/fire.json": &fstest.MapFile{Data: data},
-	}
-	fromFS, err := particles.LoadConfigFS(memFS, "fx/fire.json")
-	if err != nil {
-		t.Fatalf("LoadConfigFS: %v", err)
-	}
-	if !reflect.DeepEqual(orig, fromFS) {
-		t.Fatal("LoadConfigFS mismatch")
-	}
 }
 
 func TestConfigJSONValidationErrors(t *testing.T) {
@@ -239,7 +213,7 @@ func TestReloadConfigAndHotConfig(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "spark.json")
+	cfgPath := filepath.Join(dir, "spark.yaml")
 	if err := particles.SaveConfigFile(cfgPath, initCfg); err != nil {
 		t.Fatalf("SaveConfigFile: %v", err)
 	}
@@ -306,8 +280,8 @@ func TestReloadConfigAndHotConfig(t *testing.T) {
 		t.Fatalf("Frames after reload = %+v, want [ember]", e.Frames)
 	}
 
-	// Malformed JSON reload fails cleanly and leaves live config intact.
-	if err := hot.ReloadBytes([]byte(`{"version": 99}`)); err == nil {
+	// A bad definition fails to reload cleanly and leaves live config intact.
+	if err := hot.ReloadBytes([]byte("version: 99\n")); err == nil {
 		t.Fatal("expected error on bad reload")
 	}
 	if hot.Version() != 2 || !near(e.GravityY, 200) {
@@ -317,9 +291,9 @@ func TestReloadConfigAndHotConfig(t *testing.T) {
 	// StageBytes + Flush works for thread-safe deferred reload.
 	updated2 := updated
 	updated2.GravityY = 333
-	b2, err := particles.MarshalConfigJSON(updated2)
+	b2, err := particles.MarshalConfigYAML(updated2)
 	if err != nil {
-		t.Fatalf("MarshalConfigJSON: %v", err)
+		t.Fatalf("MarshalConfigYAML: %v", err)
 	}
 	if err := hot.StageBytes(b2); err != nil {
 		t.Fatalf("StageBytes: %v", err)

@@ -99,3 +99,83 @@ sparks.Burst(24) // 立即发射，最多到 MaxParticles 上限
 - `Particles()`：按生成顺序返回存活粒子 `[]Particle`（复用内部切片，需要保留快照请自行复制）。
 - `Clear()`：清除全部存活粒子并重置发射累加器，但保留当前 PRNG 状态。
 - `Reset()`：清除全部存活粒子并按 `Seed` 重新播种，以便完全复现后续发射。
+
+## 用 YAML 编写发射器定义
+
+发射器的配置可以放在 YAML 文件里，人和工具都能以文本形式编辑和审阅。键名是 `Config` 字段名的小驼峰形式，`version: 1` 写在最前面，取零值的字段省略不写，但 `space` 和 `shape` 总会写出：
+
+```yaml
+version: 1
+x: 160
+y: 120
+space: world
+shape:
+  kind: circle
+  radius: 6
+rate: 45
+maxParticles: 128
+lifetimeMin: 300ms
+lifetimeMax: 700ms
+gravityY: -30
+sizeCurve:
+  - t: 0
+    value: 0.6
+  - t: 1
+    value: 0
+colorCurve:
+  - t: 0
+    color: "#ffd166ff"
+  - t: 1
+    color: "#ef476f00"
+seed: 42
+frameNames:
+  - spark_0
+  - spark_1
+subEmitters:
+  - trigger: death
+    burstCount: 6
+    config:
+      space: world
+      shape:
+        kind: ring
+        radius: 8
+      lifetimeMin: 100ms
+      lifetimeMax: 200ms
+```
+
+```go
+cfg, err := particles.LoadConfigFS(assets, "fx/fire.yaml")
+if err != nil {
+	return err
+}
+fire := &particles.Emitter{Atlas: fxAtlas}
+fire.ReloadConfig(cfg) // frameNames 按 fire.Atlas 解析
+```
+
+- `LoadConfigFile`、`LoadConfigFS` 和 `UnmarshalConfigYAML` 读取定义；`SaveConfigFile` 和 `MarshalConfigYAML` 写出定义。
+- 保存是确定性的：键的顺序固定，缩进为两个空格；已经是这种形式的定义，读入后再保存会逐字节一致。
+- 读取时拒绝 `version` 不等于 `FormatVersion`、未知的键、重复的键、没有值的键，以及第二个 YAML 文档。
+- 时长写成 Go `time.Duration` 形式的字符串，例如 `500ms` 或 `1m30s`；不带单位的数字会被拒绝，因为单位有歧义。
+- 颜色写成带引号的 `"#rrggbb"`（不透明）或 `"#rrggbbaa"` 字符串。一定要加引号：不带引号的 `#` 会开始一段 YAML 注释，读取时会报告该键没有值。
+- `shape.kind` 取 `point`、`circle`、`ring` 或 `rect`；`space` 取 `world` 或 `local`；`collision.mode` 取 `none`、`stop`、`bounce` 或 `kill`；子发射器的 `trigger` 取 `birth`、`death` 或 `collision`。
+- 运行时的 `Collider` 不写入文件，拖尾纹理按 URI 保存（`trail.textureURI`）。
+- `MarshalConfigJSON` 和 `UnmarshalConfigJSON` 以 JSON 编码同一套结构，供以 JSON 交换定义的程序使用；人编写的文件用 YAML。
+
+### 热重载
+
+`HotConfig` 保存一份定义，并把变更推送给绑定的发射器，不会重置存活粒子、PRNG、附着关系或运行时碰撞体。`ReloadBytes` 接收 `tooling/hotreload` 这类监视器交付的字节，`ReloadHook` 适合传递路径的监视器；读取失败的定义会返回错误，并保留当前定义。
+
+```go
+hot, err := particles.LoadHotConfigFile("fx/fire.yaml")
+if err != nil {
+	return err
+}
+hot.Bind(fire)
+watcher.Watch("fx/fire.yaml", func(data []byte) {
+	if err := hot.ReloadBytes(data); err != nil {
+		log.Printf("fx/fire.yaml: %v", err)
+	}
+})
+```
+
+在后台 goroutine 中调用 `StageBytes`，再在游戏循环中用 `Flush` 应用暂存的定义。

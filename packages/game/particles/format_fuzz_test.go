@@ -1,6 +1,7 @@
 package particles_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -92,4 +93,66 @@ func clampFuzzConfig(cfg particles.Config, depth int) particles.Config {
 		cfg.SubEmitters = subs
 	}
 	return cfg
+}
+
+func FuzzUnmarshalConfigYAML(f *testing.F) {
+	fullBytes, err := particles.MarshalConfigYAML(fullTestConfig())
+	if err != nil {
+		f.Fatalf("MarshalConfigYAML seed: %v", err)
+	}
+	minimalBytes, err := particles.MarshalConfigYAML(particles.Config{})
+	if err != nil {
+		f.Fatalf("MarshalConfigYAML minimal seed: %v", err)
+	}
+
+	seeds := []string{
+		string(fullBytes),
+		string(minimalBytes),
+		fireYAML,
+		"",
+		"version: 1\n",
+		"version: 1\nspace: local\nshape: {kind: circle, radius: 10}\nrate: 25\nlifetimeMin: 500ms\nlifetimeMax: 1s\n",
+		"version: 1\ncolorCurve:\n  - {t: 0, color: \"#ff00aa\"}\n  - {t: 1, color: \"#ffffffff\"}\n",
+		"version: 2\n",
+		"version: 1\nshape:\n  kind: unknown\n",
+		"version: 1\ncollision: {enabled: true, mode: bounce, bounce: 0.8, friction: 0.2, radius: 2}\n",
+		"version: 1\ntrail: {maxPoints: 16, lifetime: 0.5, width: 4, color: \"#11223344\"}\n",
+		"version: 1\nsubEmitters:\n  - trigger: death\n    burstCount: 2\n    config: {rate: 10}\n",
+		"version: 1\nlifetimeMin: not-a-duration\n",
+		"version: 1\ncolorCurve:\n  - t: 0\n    color: #zzzzzz\n",
+		"version: 1\nframeNames: &names [a, b]\nsubEmitters:\n  - config: {frameNames: *names}\n",
+		"version: 1\n---\nversion: 1\n",
+		"[[[malformed",
+		"null",
+	}
+	for _, s := range seeds {
+		f.Add([]byte(s))
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		cfg, err := particles.UnmarshalConfigYAML(data)
+		if err != nil {
+			return
+		}
+		// Any accepted definition saves, loads back, and saves again to the same bytes.
+		out, err := particles.MarshalConfigYAML(cfg)
+		if err != nil {
+			t.Fatalf("MarshalConfigYAML failed on an accepted config: %v", err)
+		}
+		back, err := particles.UnmarshalConfigYAML(out)
+		if err != nil {
+			t.Fatalf("UnmarshalConfigYAML failed on its own output: %v\n%s", err, out)
+		}
+		again, err := particles.MarshalConfigYAML(back)
+		if err != nil {
+			t.Fatalf("second MarshalConfigYAML failed: %v", err)
+		}
+		if !bytes.Equal(out, again) {
+			t.Fatalf("save is not stable:\n%s\n---\n%s", out, again)
+		}
+
+		e := particles.NewEmitter(clampFuzzConfig(cfg, 0))
+		e.Burst(2)
+		e.Update(16 * time.Millisecond)
+	})
 }

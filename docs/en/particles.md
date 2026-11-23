@@ -99,3 +99,83 @@ Other methods on `*Emitter`:
 - `Particles()`: live `[]Particle` slice in spawn order (backed by internal storage; copy if retaining a snapshot).
 - `Clear()`: removes live particles and resets the fractional emission accumulator without resetting the PRNG.
 - `Reset()`: clears live particles and re-seeds the PRNG from `Seed` for exact replay.
+
+## Emitter definitions in YAML
+
+An emitter's configuration can live in a YAML file that people and tools edit and review as text. The keys are the `Config` field names in lower camel case, `version: 1` comes first, and fields left at their zero value are omitted, except `space` and `shape`, which are always written:
+
+```yaml
+version: 1
+x: 160
+y: 120
+space: world
+shape:
+  kind: circle
+  radius: 6
+rate: 45
+maxParticles: 128
+lifetimeMin: 300ms
+lifetimeMax: 700ms
+gravityY: -30
+sizeCurve:
+  - t: 0
+    value: 0.6
+  - t: 1
+    value: 0
+colorCurve:
+  - t: 0
+    color: "#ffd166ff"
+  - t: 1
+    color: "#ef476f00"
+seed: 42
+frameNames:
+  - spark_0
+  - spark_1
+subEmitters:
+  - trigger: death
+    burstCount: 6
+    config:
+      space: world
+      shape:
+        kind: ring
+        radius: 8
+      lifetimeMin: 100ms
+      lifetimeMax: 200ms
+```
+
+```go
+cfg, err := particles.LoadConfigFS(assets, "fx/fire.yaml")
+if err != nil {
+	return err
+}
+fire := &particles.Emitter{Atlas: fxAtlas}
+fire.ReloadConfig(cfg) // frameNames resolve against fire.Atlas
+```
+
+- `LoadConfigFile`, `LoadConfigFS` and `UnmarshalConfigYAML` read a definition; `SaveConfigFile` and `MarshalConfigYAML` write one.
+- Saving is deterministic: keys keep a fixed order, indentation is two spaces, and a definition loaded and saved again comes back byte for byte when it is already in that form.
+- Loading refuses a `version` other than `FormatVersion`, unknown keys, duplicate keys, a key with no value, and a second YAML document.
+- Durations are strings in Go's `time.Duration` form, such as `500ms` or `1m30s`; a bare number is refused because its unit would be ambiguous.
+- Colors are quoted `"#rrggbb"` (opaque) or `"#rrggbbaa"` strings. Quote them: an unquoted `#` starts a YAML comment, and loading reports the key as having no value.
+- `shape.kind` is `point`, `circle`, `ring` or `rect`; `space` is `world` or `local`; `collision.mode` is `none`, `stop`, `bounce` or `kill`; a sub-emitter's `trigger` is `birth`, `death` or `collision`.
+- A runtime `Collider` is not part of the file, and a trail texture is saved by its URI (`trail.textureURI`).
+- `MarshalConfigJSON` and `UnmarshalConfigJSON` encode the same schema as JSON for programs that exchange definitions as JSON; files people write are YAML.
+
+### Hot reload
+
+`HotConfig` keeps a definition and pushes changes to bound emitters without resetting live particles, the PRNG, attachments or runtime colliders. `ReloadBytes` takes the bytes a watcher such as `tooling/hotreload` delivers, and `ReloadHook` suits watchers that pass a path; a definition that fails to load returns an error and leaves the current one in place.
+
+```go
+hot, err := particles.LoadHotConfigFile("fx/fire.yaml")
+if err != nil {
+	return err
+}
+hot.Bind(fire)
+watcher.Watch("fx/fire.yaml", func(data []byte) {
+	if err := hot.ReloadBytes(data); err != nil {
+		log.Printf("fx/fire.yaml: %v", err)
+	}
+})
+```
+
+From a background goroutine, call `StageBytes` and apply the staged definition on the game loop with `Flush`.
