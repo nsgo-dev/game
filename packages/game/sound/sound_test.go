@@ -350,8 +350,8 @@ func TestSuspendSilencesUntilEveryHoldResumes(t *testing.T) {
 	if !m.mixer.Suspended() {
 		t.Fatal("the mixer is not suspended")
 	}
-	if stops := m.app.Sounds[0].Stops; stops != 1 {
-		t.Fatalf("%d stops, want 1", stops)
+	if stops := m.app.Sounds[0].Stops; stops != 0 {
+		t.Fatalf("%d stops, want 0", stops)
 	}
 	expectPlayer(t, m.player(t, 0), false, 0)
 	if m.click.Play(audio.Voice{}) {

@@ -78,7 +78,7 @@ func (m *Mixer) set(key string, v float32) error {
 	return err
 }
 
-// Suspend silences the mixer until resume is called, as the background does: it stops the sounds playing, plays no new ones and pauses the music, which plays on from where it paused once every Suspend has been resumed. A game suspends its sound while something else has the speakers, such as a cutscene (cutscene.Player does). Calling resume again does nothing.
+// Suspend silences the mixer until resume is called, as the background does: it silences the sounds playing, plays no new ones and pauses the music, which plays on from where it paused once every Suspend has been resumed. A game suspends its sound while something else has the speakers, such as a cutscene (cutscene.Player does). Calling resume again does nothing.
 func (m *Mixer) Suspend() (resume func()) {
 	m.suspends++
 	m.apply()
@@ -144,7 +144,7 @@ func (m *Mixer) Effect(s *audio.Sound, group string, limit int) *Effect {
 	return &Effect{Group: group, Limit: limit, m: m, sound: s}
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays, and reports whether it started. It plays nothing while that is 0, as for a Muted voice, or while the app is in the background. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard. A backend that cannot address playbacks (audio.Playback) plays it as it started, outside the limit and the volume changes.
+// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
 func (s *Effect) Play(v audio.Voice) bool {
 	volume := voiceVolume(v.Volume)
 	if v.Muted {
@@ -154,19 +154,23 @@ func (s *Effect) Play(v audio.Voice) bool {
 	if g <= 0 {
 		return false
 	}
-	if n := s.prune(); s.Limit > 0 && n >= s.Limit {
-		oldest := n - s.Limit + 1
-		for _, p := range s.live[:oldest] {
-			p.playback.Stop()
+	s.prune()
+	v.Volume = g
+	p := s.sound.Play(v)
+	if ended(s.m.cx, p) {
+		// The playback never started, so it takes no place and the ones already playing keep it.
+		return true
+	}
+	s.live = append(s.live, playback{playback: p, volume: volume})
+	// Only a playback that started makes room, so a backend that refuses one never costs an older sound.
+	if s.Limit > 0 && len(s.live) > s.Limit {
+		oldest := len(s.live) - s.Limit
+		for _, q := range s.live[:oldest] {
+			q.playback.Stop()
 		}
 		s.live = slices.Delete(s.live, 0, oldest)
 	}
-	v.Volume = g
-	p := s.sound.Play(v)
-	if !ended(s.m.cx, p) {
-		s.live = append(s.live, playback{playback: p, volume: volume})
-		s.m.sounds[s] = struct{}{}
-	}
+	s.m.sounds[s] = struct{}{}
 	return true
 }
 
