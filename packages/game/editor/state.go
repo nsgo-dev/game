@@ -584,7 +584,7 @@ func (e *Editor) generateObjectID(base string) string {
 
 // PlaceObject adds obj to layerName (or ActiveLayer when empty) as an undoable command,
 // merging defaults from e.Prefabs when obj.Prefab matches a registered prefab.
-// Returns the placed object's unique ID.
+// Returns the placed object's unique ID. It refuses a tree that nests deeper than sceneformat.MaxObjectDepth levels or holds a sheared sprite (see sceneformat.CheckObjectTree), or that reuses an ID.
 func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
@@ -617,6 +617,9 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	})
 	if invalid != nil {
 		return "", invalid
+	}
+	if err := sceneformat.CheckObjectTree(&placed); err != nil {
+		return "", err
 	}
 
 	// The placed object's children carry IDs too, and every ID in the tree must be new to the scene and unique within it.
@@ -733,7 +736,7 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 	return nil
 }
 
-// ScaleObject sets object id's scale to (sx, sy) as an undoable command.
+// ScaleObject sets object id's scale to (sx, sy) as an undoable command. It refuses a scale under which a descendant's sprite would be sheared (see sceneformat.CheckObjectTree).
 func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -747,6 +750,11 @@ func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	}
 	if obj.ScaleX != nil && *obj.ScaleX == sx && obj.ScaleY != nil && *obj.ScaleY == sy {
 		return nil
+	}
+	changed := *obj
+	changed.ScaleX, changed.ScaleY = &sx, &sy
+	if err := sceneformat.CheckObjectTree(&changed); err != nil {
+		return err
 	}
 	e.History.Execute(&scaleObjectCmd{
 		ed:        e,
@@ -935,7 +943,7 @@ func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
 	return nil
 }
 
-// ScaleObject3D sets object id's 3D scale (sx, sy, sz) as an undoable command.
+// ScaleObject3D sets object id's 3D scale (sx, sy, sz) as an undoable command. It refuses a scale under which a descendant's sprite would be sheared (see sceneformat.CheckObjectTree).
 func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -954,6 +962,11 @@ func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	after.ScaleZ = sceneformat.Float32(sz)
 	if equalTransform3D(before, after) {
 		return nil
+	}
+	changed := *obj
+	applyTransform3D(&changed, after)
+	if err := sceneformat.CheckObjectTree(&changed); err != nil {
+		return err
 	}
 	e.History.Execute(&transform3DCmd{
 		ed:     e,

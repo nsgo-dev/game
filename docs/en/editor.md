@@ -109,9 +109,9 @@ layers:
 
 The same tree loads three ways:
 
-- `Build` links each `BuiltObject` to its `Parent` and `Children`, sets `World` to the composed 2D affine transform and `WorldAlpha` to the composed alpha, and draws each child's sprite at its world position, rotation and scale. A sprite whose composed transform is sheared (a rotated child under a non-uniformly scaled parent) cannot be drawn as a sprite, so `Build` refuses it; objects without a sprite keep the exact matrix in `World`. `BuiltLayer.Objects` lists a layer's top-level objects, and `BuiltScene.Objects` indexes every object by ID.
+- `Build` links each `BuiltObject` to its `Parent` and `Children`, sets `World` to the composed 2D affine transform and `WorldAlpha` to the composed alpha, and draws each child's sprite at its world position, rotation and scale. A sprite whose composed transform is sheared (a rotated child under a non-uniformly scaled parent) cannot be drawn as a sprite, so `Validate` refuses it, and with it `Parse`, `Encode` and `Build`; `CheckObjectTree` makes the same check, and the nesting limit, for a single tree. A parent collapsed to zero size along one axis (such as `scaleX: 0`) is not a shear: its child sprites draw at zero scale. Objects without a sprite keep the exact matrix in `World`. `BuiltLayer.Objects` lists a layer's top-level objects, and `BuiltScene.Objects` indexes every object by ID.
 - `SpawnEntities(doc, world)` spawns one entity per object into an `entities.World`, parented in its `Hierarchy2D` as the objects nest, with the object's local `Transform2D` and an `ObjectRef` component naming the object and its layer. The top-level objects of a hidden layer spawn hidden, so their subtrees are not world-visible.
-- `BuildNodes3D(doc, scene.Root())` builds a `scene3d` node tree: one group node per layer (carrying the layer's visibility), and one node per object named by its ID, with `UserData` pointing at its `ObjectDoc`. `ObjectLocalTransform3D` gives each node's local transform; `rotX`, `rotY` and `rotZ` apply in that order about fixed axes, as the editor's 3D viewport draws them.
+- `BuildNodes3D(doc, scene.Root())` builds a `scene3d` node tree: one group node per layer (carrying the layer's visibility), and one node per object named by its ID, with `UserData` pointing at its `ObjectDoc`. `ObjectLocalTransform3D` gives each node's local transform; `rotX`, `rotY` and `rotZ` apply in that order about fixed axes, the same order the editor's 3D viewport uses for a top-level object.
 
 ```go
 spawned, err := sceneformat.SpawnEntities(doc, world)
@@ -128,7 +128,7 @@ if err != nil {
 pos := nodes.Objects["barrel"].WorldTransform().Pos
 ```
 
-Moving, deleting or undoing an object in the editor carries its children along, and the editor never hands out an ID that a nested child already uses; selecting and editing a nested child in the viewport is not supported yet.
+Moving, deleting or undoing an object in the editor carries its children along, and the editor never hands out an ID that a nested child already uses. It refuses to place a tree deeper than `MaxObjectDepth` or holding a sheared sprite, and refuses a scale that would shear a child's sprite. The 2D viewport draws nested children through `Build`; the 3D viewport draws and picks top-level objects only, and selecting or editing a nested child in either viewport is not supported yet.
 
 ### Example
 

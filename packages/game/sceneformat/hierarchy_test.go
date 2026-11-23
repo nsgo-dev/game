@@ -159,35 +159,143 @@ func TestBuildComposesNestedWorldTransforms(t *testing.T) {
 	}
 }
 
-func TestBuildRefusesShearedSprite(t *testing.T) {
-	doc := &sceneformat.SceneDoc{
+// nestedSpriteDoc is a one-layer scene holding parent with a single sprite child.
+func nestedSpriteDoc(parent, child sceneformat.ObjectDoc) *sceneformat.SceneDoc {
+	parent.ID = "parent"
+	child.ID = "child"
+	child.Sprite = &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}
+	parent.Children = []sceneformat.ObjectDoc{child}
+	return &sceneformat.SceneDoc{
 		Version: sceneformat.CurrentVersion,
-		Layers: []sceneformat.LayerDoc{{
-			Name: "a",
-			Objects: []sceneformat.ObjectDoc{{
-				ID:     "stretched",
-				ScaleX: sceneformat.Float32(3),
-				Children: []sceneformat.ObjectDoc{{
-					ID:       "tilted",
-					Rotation: 0.5,
-					Sprite:   &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
-				}},
-			}},
-		}},
+		Layers:  []sceneformat.LayerDoc{{Name: "a", Objects: []sceneformat.ObjectDoc{parent}}},
 	}
-	_, err := sceneformat.Build(doc, caveResolver)
-	if err == nil || !strings.Contains(err.Error(), "sheared") || !strings.Contains(err.Error(), "tilted") {
-		t.Fatalf("Build error = %v, want a shear error naming tilted", err)
+}
+
+func TestShearedSpriteIsRefusedByEveryEntryPoint(t *testing.T) {
+	doc := nestedSpriteDoc(
+		sceneformat.ObjectDoc{ScaleX: sceneformat.Float32(3)},
+		sceneformat.ObjectDoc{Rotation: 0.5},
+	)
+	wantShear := func(what string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), "sheared") || !strings.Contains(err.Error(), `"child"`) {
+			t.Fatalf("%s error = %v, want a shear error naming child", what, err)
+		}
 	}
+	// The shear depends only on the document, so the document checks refuse it before any asset is resolved.
+	wantShear("Validate", sceneformat.Validate(doc))
+	_, err := sceneformat.Encode(doc)
+	wantShear("Encode", err)
+	_, err = sceneformat.Build(doc, caveResolver)
+	wantShear("Build", err)
+	wantShear("CheckObjectTree", sceneformat.CheckObjectTree(&doc.Layers[0].Objects[0]))
+
 	// Without a sprite there is nothing to draw, so the same tree builds and keeps its exact matrix.
 	doc.Layers[0].Objects[0].Children[0].Sprite = nil
+	if err := sceneformat.CheckObjectTree(&doc.Layers[0].Objects[0]); err != nil {
+		t.Fatalf("CheckObjectTree without sprite: %v", err)
+	}
 	built, err := sceneformat.Build(doc, caveResolver)
 	if err != nil {
 		t.Fatalf("Build without sprite: %v", err)
 	}
 	want := math2d.Scale(3, 1).Mul(math2d.Rotate(0.5))
-	if got := built.Object("tilted").World; !got.ApproxEqual(want, treeEps) {
-		t.Fatalf("tilted world = %+v, want %+v", got, want)
+	if got := built.Object("child").World; !got.ApproxEqual(want, treeEps) {
+		t.Fatalf("child world = %+v, want %+v", got, want)
+	}
+}
+
+func TestCheckObjectTreeRefusesDeepTrees(t *testing.T) {
+	root := sceneformat.ObjectDoc{ID: "n0"}
+	leaf := &root
+	for i := 1; i < sceneformat.MaxObjectDepth; i++ {
+		leaf.Children = []sceneformat.ObjectDoc{{ID: "n" + strconv.Itoa(i)}}
+		leaf = &leaf.Children[0]
+	}
+	if err := sceneformat.CheckObjectTree(&root); err != nil {
+		t.Fatalf("CheckObjectTree at the depth limit: %v", err)
+	}
+	leaf.Children = []sceneformat.ObjectDoc{{ID: "too-deep"}}
+	if err := sceneformat.CheckObjectTree(&root); err == nil || !strings.Contains(err.Error(), "too-deep") {
+		t.Fatalf("CheckObjectTree past the depth limit: err = %v", err)
+	}
+}
+
+func TestBuildDrawsMirroredAndCollapsedChildSprites(t *testing.T) {
+	cases := []struct {
+		name          string
+		parent, child sceneformat.ObjectDoc
+		// collapsed marks a world transform with parallel columns, which covers no area and draws at zero scale.
+		collapsed bool
+	}{
+		{
+			name:   "mirrored parent",
+			parent: sceneformat.ObjectDoc{X: 10, Y: 20, ScaleX: sceneformat.Float32(-1)},
+			child:  sceneformat.ObjectDoc{X: 5, Rotation: 0.6},
+		},
+		{
+			name:   "mirrored child under a rotated parent",
+			parent: sceneformat.ObjectDoc{X: 10, Rotation: 0.7, ScaleX: sceneformat.Float32(2), ScaleY: sceneformat.Float32(2)},
+			child:  sceneformat.ObjectDoc{Y: 3, Rotation: 0.3, ScaleY: sceneformat.Float32(-1.5)},
+		},
+		{
+			name:   "both axes mirrored",
+			parent: sceneformat.ObjectDoc{Rotation: -1.2, ScaleX: sceneformat.Float32(-2), ScaleY: sceneformat.Float32(-2)},
+			child:  sceneformat.ObjectDoc{X: 4, Rotation: 0.25},
+		},
+		{
+			name:   "parent with zero scaleX keeps the child's turn",
+			parent: sceneformat.ObjectDoc{X: 7, Rotation: 0.4, ScaleX: sceneformat.Float32(0)},
+			child:  sceneformat.ObjectDoc{Y: 2},
+		},
+		{
+			name:      "uniformly collapsed parent",
+			parent:    sceneformat.ObjectDoc{X: 7, Y: 8, ScaleX: sceneformat.Float32(0), ScaleY: sceneformat.Float32(0)},
+			child:     sceneformat.ObjectDoc{X: 5, Rotation: 0.9},
+			collapsed: true,
+		},
+		{
+			name:      "parent collapsed along one axis with a rotated child",
+			parent:    sceneformat.ObjectDoc{X: 7, Y: 8, ScaleX: sceneformat.Float32(0)},
+			child:     sceneformat.ObjectDoc{X: 5, Y: 1, Rotation: 0.9},
+			collapsed: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := nestedSpriteDoc(tc.parent, tc.child)
+			doc.Layers[0].Objects[0].Children[0].OriginX = 3
+			doc.Layers[0].Objects[0].Children[0].OriginY = 2
+			encoded, err := sceneformat.Encode(doc)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+			if _, err := sceneformat.Parse(encoded); err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			built, err := sceneformat.Build(doc, caveResolver)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			bo := built.Object("child")
+			sp := bo.Sprite
+			if sp == nil {
+				t.Fatalf("child has no sprite")
+			}
+			if !near(sp.X, bo.World.Tx) || !near(sp.Y, bo.World.Ty) {
+				t.Fatalf("sprite at (%v, %v), want the world origin (%v, %v)", sp.X, sp.Y, bo.World.Tx, bo.World.Ty)
+			}
+			if tc.collapsed {
+				if sp.ScaleX != 0 || sp.ScaleY != 0 {
+					t.Fatalf("collapsed sprite scale = (%v, %v), want (0, 0)", sp.ScaleX, sp.ScaleY)
+				}
+				return
+			}
+			local := math2d.Affine{A: 1, D: 1, Tx: -sp.OriginX, Ty: -sp.OriginY}
+			if want := bo.World.Mul(local); !sp.Transform().ApproxEqual(want, treeEps) {
+				t.Fatalf("sprite transform %+v (rot %v, scale (%v, %v)), want %+v", sp.Transform(), sp.Rotation, sp.ScaleX, sp.ScaleY, want)
+			}
+		})
 	}
 }
 

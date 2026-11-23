@@ -30,7 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
-- `game/sceneformat`: objects hold `children` with local transforms, built into composed 2D world transforms by `Build`, into the entity hierarchy by `SpawnEntities` and into a 3D node tree by `BuildNodes3D` (#484).
+- `game/sceneformat`: objects hold `children` with local transforms, built into composed 2D world transforms by `Build`, into the entity hierarchy by `SpawnEntities` and into a 3D node tree by `BuildNodes3D`; `Validate` refuses a child sprite whose composed transform is sheared, and `CheckObjectTree` checks one tree's depth and shear (#484).
 
 ### Changed
 
