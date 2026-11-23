@@ -135,10 +135,11 @@ session := gamenet.NewRollbackSession(gamenet.RollbackConfig{Transport: peerTx, 
 - 中继运行在 `WebSocketServer` 或 `UDPServer` 之上，因此每个玩家都要先通过[连接握手](net.md#连接握手与重连)。`relay.Auth` 先运行基础 `Auth.Verify`（如果设置了），再运行 `Join`；会话名为空时以 `no session` 拒绝，会话已有 `MaxSessionPeers`（默认 8）名成员时以 `session full` 拒绝。
 - 帧只在同一会话的成员之间转发。发往其他会话成员、发往中继本身、发给发送者自己或格式错误的帧会被丢弃，并计入 `Stats().Dropped`；`RelayTransport.Send` 对会话外的 ID 返回 `ErrUnknownPeer`。
 - `Peers` 列出其他成员，包括处于宽限期内的成员，因此会话不会因为某个玩家正在重连而失去他。中继每秒重发一次成员列表，在 UDP 上丢失了更新的客户端也能跟上。
-- `ChannelReliableOrdered` 端到端可靠：每条消息按对端编号，接收方确认（并选择性确认其后 64 条），发送方在根据实测往返时间调整的超时之后重发缺失的消息。它在 UDP 上同样有效；玩家用内层传输的 `Reconnect` 重连期间中继没能送达的消息，会在玩家回来之后到达。每个对端最多有 1024 条消息等待确认，超过时 `Send` 返回 `ErrRelayBacklog`。`ChannelUnreliable` 的包只发送一次。
+- `ChannelReliableOrdered` 端到端可靠：每条消息按对端编号，接收方确认（并选择性确认其后 64 条），发送方在根据实测往返时间调整的超时之后重发缺失的消息。它在 UDP 上同样有效；玩家用内层传输的 `Reconnect` 重连期间中继没能送达的消息，会在玩家回来之后到达。每个对端最多有 1024 条消息等待确认，超过时 `Send` 返回 `ErrRelayBacklog`。对于在某条缺失消息之后先到的消息，接收方为每个对端最多保留 4 MB，其余的丢弃，等待发送方重发。`ChannelUnreliable` 的包只发送一次。
+- 当内层传输的 `Reconnect` 因宽限期已过或中继重启而把玩家作为新对端接纳、而不是恢复会话时，`RelayTransport` 会从头开始：即使中继再次分配了相同的 ID，它也会忘掉旧的成员和未确认的消息，并等待新会话的成员列表。
 - 确认与重发在 `Recv` 内进行，会话每个 tick 都会通过 `Poll` 调用它。
 - 中继从不读取负载。它为每个成员在独立的 goroutine 上写出，经由容量为 `QueueSize`（默认 256）帧的队列，因此慢速玩家只拖慢自己；超出队列的帧会被丢弃，其中的可靠消息由发送方重发。
-- 一个中继服务一个服务端，因此 WebSocket 玩家与 UDP 玩家不能同处一个会话；每种协议各运行一个中继。负载最多 `MaxRelayPayload` 字节。
+- 一个中继在其整个生命周期内只服务一个服务端，因此 WebSocket 玩家与 UDP 玩家不能同处一个会话；每种协议各运行一个中继。`Serve` 返回后可以在同一个服务端上再次调用，仍然连接着的玩家保留各自的会话。负载最多 `MaxRelayPayload` 字节。
 - 除非连接使用 `wss://`，中继能看到明文负载；[net 指南](net.md#连接握手与重连)中关于 UDP 握手的注意事项同样适用。
 
 ### 中继延迟

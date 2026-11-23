@@ -17,6 +17,8 @@ import (
 //
 //	members: version(1) 0(4) relayCtlMembers(1) epoch(4) count(2) peer(4)...
 //
+// The epoch counts the session's membership changes. The relay sends the membership again every second with the same epoch, and a client compares epochs as serial numbers, so the counter may wrap.
+//
 // A body between two peers is one of:
 //
 //	unreliable: relayBodyUnreliable(1) seq(4) payload
@@ -43,6 +45,9 @@ const (
 	relayInitialRTO = 200 * time.Millisecond
 	relayMinRTO     = 20 * time.Millisecond
 	relayMaxRTO     = 2 * time.Second
+
+	// relayMaxBuffered is how many payload bytes a receiver holds for one peer's reliable messages that arrived ahead of a missing one. A frame past it is dropped and the sender resends it after a timeout, so a peer that never sends the missing message cannot make the receiver hold relayWindow full payloads.
+	relayMaxBuffered = 4 << 20
 
 	// relayMaxRetransmits bounds the retransmissions one Recv call sends to one peer, so a long outage does not turn into a burst.
 	relayMaxRetransmits = 64
@@ -134,12 +139,13 @@ type RelayTransport struct {
 	inner Transport
 	now   func() time.Time
 
-	mu      sync.Mutex
-	localID PeerID
-	epoch   uint32
-	members []PeerID
-	peers   map[PeerID]*relayPeer
-	inbox   []Packet
+	mu         sync.Mutex
+	localID    PeerID
+	admissions uint64
+	epoch      uint32
+	members    []PeerID
+	peers      map[PeerID]*relayPeer
+	inbox      []Packet
 }
 
 // relayPeer is the end-to-end state for one remote peer.
@@ -157,6 +163,7 @@ type relayPeer struct {
 	// Receiving reliable messages.
 	recvNext uint32
 	ooo      map[uint32][]byte
+	oooBytes int
 	ackDue   bool
 }
 
@@ -175,7 +182,19 @@ func NewRelayTransport(inner Transport, cfg RelayTransportConfig) *RelayTranspor
 	if now == nil {
 		now = time.Now
 	}
-	return &RelayTransport{inner: inner, now: now, localID: inner.LocalID(), peers: make(map[PeerID]*relayPeer)}
+	return &RelayTransport{inner: inner, now: now, localID: inner.LocalID(), admissions: relayAdmissionsOf(inner), peers: make(map[PeerID]*relayPeer)}
+}
+
+// relayAdmitted is implemented by the client transports that count the handshakes admitting them as a new peer: WebSocketTransport and UDPClient.
+type relayAdmitted interface {
+	relayAdmissions() uint64
+}
+
+func relayAdmissionsOf(inner Transport) uint64 {
+	if a, ok := inner.(relayAdmitted); ok {
+		return a.relayAdmissions()
+	}
+	return 0
 }
 
 // LocalID returns the ID the relay assigned this client.
@@ -268,10 +287,12 @@ func (rt *RelayTransport) Close() error {
 	return rt.inner.Close()
 }
 
-// syncLocalLocked forgets the session when the inner transport came back with a new ID, after its grace period ran out.
+// syncLocalLocked forgets the session when the inner transport was admitted as a new peer instead of resuming: after its grace period ran out, which also changes its ID, or after the relay restarted, which may hand out the same ID again. The new relay session's epochs, members and message numbers have nothing to do with the old ones.
 func (rt *RelayTransport) syncLocalLocked() {
-	if id := rt.inner.LocalID(); id != rt.localID {
+	id, admissions := rt.inner.LocalID(), relayAdmissionsOf(rt.inner)
+	if id != rt.localID || admissions != rt.admissions {
 		rt.localID = id
+		rt.admissions = admissions
 		rt.epoch = 0
 		rt.members = nil
 		clear(rt.peers)
@@ -359,10 +380,10 @@ func (rt *RelayTransport) ingestLocked(frame []byte, now time.Time) {
 	}
 }
 
-// membersLocked applies a membership update newer than the last one, forgetting peers that left.
+// membersLocked applies a membership update newer than the last one, forgetting peers that left. Epochs compare as serial numbers, so an update after the relay's counter wraps still counts as newer.
 func (rt *RelayTransport) membersLocked(body []byte) {
 	epoch, members, ok := decodeRelayMembers(body)
-	if !ok || epoch <= rt.epoch || !slices.Contains(members, rt.localID) {
+	if !ok || (rt.members != nil && int32(epoch-rt.epoch) <= 0) || !slices.Contains(members, rt.localID) {
 		return
 	}
 	rt.epoch = epoch
@@ -381,8 +402,9 @@ func (rt *RelayTransport) reliableLocked(from PeerID, p *relayPeer, seq uint32, 
 	case seq < p.recvNext || seq-p.recvNext >= relayWindow:
 		return // a duplicate, or too far ahead; the ack tells the sender where we are
 	case seq > p.recvNext:
-		if _, dup := p.ooo[seq]; !dup {
+		if _, dup := p.ooo[seq]; !dup && p.oooBytes+len(payload) <= relayMaxBuffered {
 			p.ooo[seq] = slices.Clone(payload)
+			p.oooBytes += len(payload)
 		}
 		return
 	}
@@ -394,6 +416,7 @@ func (rt *RelayTransport) reliableLocked(from PeerID, p *relayPeer, seq uint32, 
 			return
 		}
 		delete(p.ooo, p.recvNext)
+		p.oooBytes -= len(next)
 		rt.inbox = append(rt.inbox, Packet{From: from, Channel: ChannelReliableOrdered, Payload: next, Seq: p.recvNext})
 		p.recvNext++
 	}
@@ -410,7 +433,7 @@ func (p *relayPeer) sackMask() uint64 {
 	return mask
 }
 
-// ack drops acknowledged segments, marks selectively acknowledged ones and updates the retransmission timeout from segments sent once (Karn's rule).
+// ack drops acknowledged segments, marks selectively acknowledged ones and updates the retransmission timeout from segments sent once (Karn's rule). A segment is timed when it is first acknowledged, cumulatively or selectively, so a segment held back behind a lost one does not count the wait for that one's retransmission.
 func (p *relayPeer) ack(next uint32, mask uint64, now time.Time) {
 	if next > p.sendSeq+1 {
 		return // acknowledges messages never sent
@@ -418,13 +441,16 @@ func (p *relayPeer) ack(next uint32, mask uint64, now time.Time) {
 	keep := p.unacked[:0]
 	for _, seg := range p.unacked {
 		if seg.seq < next {
-			if seg.retries == 0 {
+			if seg.retries == 0 && !seg.sacked {
 				p.sample(now.Sub(seg.sentAt))
 			}
 			continue
 		}
-		if d := seg.seq - next - 1; seg.seq > next && d < 64 && mask&(1<<d) != 0 {
+		if d := seg.seq - next - 1; !seg.sacked && seg.seq > next && d < 64 && mask&(1<<d) != 0 {
 			seg.sacked = true
+			if seg.retries == 0 {
+				p.sample(now.Sub(seg.sentAt))
+			}
 		}
 		keep = append(keep, seg)
 	}

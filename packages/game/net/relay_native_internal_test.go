@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"math"
+	stdnet "net"
 	"slices"
 	"strings"
 	"sync"
@@ -29,6 +31,59 @@ type relayClient struct {
 	changed <-chan struct{}
 }
 
+// listenRelay listens on addr ("127.0.0.1:0" for any port) for a relay over proto ("websocket" or "udp") and returns the server and the address clients dial.
+func listenRelay(t testing.TB, proto, addr string, auth Auth) (RelayServer, string) {
+	t.Helper()
+	switch proto {
+	case "websocket":
+		ws, err := ListenWebSocket(addr, 1, auth)
+		if err != nil {
+			t.Fatalf("ListenWebSocket: %v", err)
+		}
+		return ws, "ws://" + ws.Addr().String() + "/relay"
+	case "udp":
+		us, err := ListenUDPServer(addr, 1, auth)
+		if err != nil {
+			t.Fatalf("ListenUDPServer: %v", err)
+		}
+		return us, us.Addr().String()
+	}
+	t.Fatalf("unknown protocol %q", proto)
+	return nil, ""
+}
+
+// dialRelay connects a RelayTransport over proto to the relay at addr.
+func dialRelay(proto, addr, token string, now func() time.Time) (*relayClient, error) {
+	var inner Transport
+	var changed <-chan struct{}
+	switch proto {
+	case "websocket":
+		ws, err := DialWebSocket(addr, []byte(token))
+		if err != nil {
+			return nil, err
+		}
+		inner, changed = ws, ws.changed
+	default:
+		uc, err := DialUDP(addr, []byte(token))
+		if err != nil {
+			return nil, err
+		}
+		inner, changed = uc, uc.changed
+	}
+	return &relayClient{RelayTransport: NewRelayTransport(inner, RelayTransportConfig{Now: now}), inner: inner, changed: changed}, nil
+}
+
+// serveRelay runs relay.Serve on srv until the returned stop is called, which reports Serve's error.
+func serveRelay(relay *Relay, srv RelayServer) (stop func() error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- relay.Serve(ctx, srv) }()
+	return func() error {
+		cancel()
+		return <-done
+	}
+}
+
 // startRelay serves a relay over proto ("websocket" or "udp") and returns a function that connects clients to it. The relay stops and the server closes when the test ends.
 func startRelay(t testing.TB, proto string, cfg RelayConfig, base Auth) (*Relay, func(token string, now func() time.Time) (*relayClient, error)) {
 	t.Helper()
@@ -39,27 +94,8 @@ func startRelay(t testing.TB, proto string, cfg RelayConfig, base Auth) (*Relay,
 	if err != nil {
 		t.Fatalf("NewRelay: %v", err)
 	}
-	var srv RelayServer
-	var addr string
-	switch proto {
-	case "websocket":
-		ws, err := ListenWebSocket("127.0.0.1:0", 1, relay.Auth(base))
-		if err != nil {
-			t.Fatalf("ListenWebSocket: %v", err)
-		}
-		srv, addr = ws, "ws://"+ws.Addr().String()+"/relay"
-	case "udp":
-		us, err := ListenUDPServer("127.0.0.1:0", 1, relay.Auth(base))
-		if err != nil {
-			t.Fatalf("ListenUDPServer: %v", err)
-		}
-		srv, addr = us, us.Addr().String()
-	default:
-		t.Fatalf("unknown protocol %q", proto)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- relay.Serve(ctx, srv) }()
+	srv, addr := listenRelay(t, proto, "127.0.0.1:0", relay.Auth(base))
+	stop := serveRelay(relay, srv)
 
 	var mu sync.Mutex
 	var clients []Transport
@@ -69,34 +105,21 @@ func startRelay(t testing.TB, proto string, cfg RelayConfig, base Auth) (*Relay,
 			_ = c.Close()
 		}
 		mu.Unlock()
-		cancel()
-		if err := <-done; !errors.Is(err, context.Canceled) {
+		if err := stop(); !errors.Is(err, context.Canceled) {
 			t.Errorf("Serve returned %v, want context.Canceled", err)
 		}
 		_ = srv.Close()
 	})
 
 	dial := func(token string, now func() time.Time) (*relayClient, error) {
-		var inner Transport
-		var changed <-chan struct{}
-		switch proto {
-		case "websocket":
-			ws, err := DialWebSocket(addr, []byte(token))
-			if err != nil {
-				return nil, err
-			}
-			inner, changed = ws, ws.changed
-		default:
-			uc, err := DialUDP(addr, []byte(token))
-			if err != nil {
-				return nil, err
-			}
-			inner, changed = uc, uc.changed
+		c, err := dialRelay(proto, addr, token, now)
+		if err != nil {
+			return nil, err
 		}
 		mu.Lock()
-		clients = append(clients, inner)
+		clients = append(clients, c.inner)
 		mu.Unlock()
-		return &relayClient{RelayTransport: NewRelayTransport(inner, RelayTransportConfig{Now: now}), inner: inner, changed: changed}, nil
+		return c, nil
 	}
 	return relay, dial
 }
@@ -325,36 +348,213 @@ func TestRelayEnforcesTheHandshake(t *testing.T) {
 	}
 }
 
-// TestRelayResendsAcrossAReconnect drops a client's connection, sends it a reliable message while it is away, and checks the message arrives once the client resumes its session.
+// TestRelayResendsAcrossAReconnect drops a client's connection, sends it a reliable message while it is away, and checks the message arrives exactly once after the client resumes its session.
 func TestRelayResendsAcrossAReconnect(t *testing.T) {
-	clock := newFakeClock()
-	_, dial := startRelay(t, "websocket", RelayConfig{}, Auth{GracePeriod: time.Minute})
-	a, err := dial("room/a", clock.Now)
-	if err != nil {
-		t.Fatalf("dial a: %v", err)
+	for _, proto := range []string{"websocket", "udp"} {
+		t.Run(proto, func(t *testing.T) {
+			clock := newFakeClock()
+			_, dial := startRelay(t, proto, RelayConfig{}, Auth{GracePeriod: time.Minute})
+			a, err := dial("room/a", clock.Now)
+			if err != nil {
+				t.Fatalf("dial a: %v", err)
+			}
+			b := mustDialRelay(t, dial, "room/b")
+			awaitPeers(t, a, b.LocalID())
+			awaitPeers(t, b, a.LocalID())
+
+			id := b.LocalID()
+			var reconnect func() error
+			var resumed func() bool
+			switch inner := b.inner.(type) {
+			case *WebSocketTransport:
+				cutWS(inner)
+				awaitChangeTB(t, b.changed, "b to notice the drop", func() bool { return inner.State() == ConnDisconnected })
+				reconnect, resumed = inner.Reconnect, inner.Resumed
+			case *UDPClient:
+				cutUDP(inner)
+				reconnect, resumed = inner.Reconnect, inner.Resumed
+			}
+			if err := a.Send(id, ChannelReliableOrdered, []byte("while away")); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if err := reconnect(); err != nil || !resumed() || b.LocalID() != id {
+				t.Fatalf("reconnect = %v, resumed %v, id %d; want the session back as %d", err, resumed(), b.LocalID(), id)
+			}
+			clock.Advance(relayMaxRTO)
+			_, _ = a.Recv()
+			pkt := recvRelay(t, b)
+			if pkt.From != a.LocalID() || string(pkt.Payload) != "while away" || pkt.Seq != 1 {
+				t.Fatalf("b got %+v, want a's message resent", pkt)
+			}
+			// The next message is the next one b gets, so the resent one arrived once.
+			if err := a.Send(id, ChannelReliableOrdered, []byte("after")); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if pkt := recvRelay(t, b); string(pkt.Payload) != "after" || pkt.Seq != 2 {
+				t.Fatalf("b got %+v, want a's next message", pkt)
+			}
+			if got := a.Peers(); !slices.Equal(got, []PeerID{id}) {
+				t.Fatalf("a.Peers = %v, want b kept through its reconnect", got)
+			}
+		})
 	}
-	b := mustDialRelay(t, dial, "room/b")
+}
+
+// TestRelayRestartStartsANewSession restarts the relay on the same address. The clients reconnect as new peers and get their old IDs back, and must still take the new relay's membership and number their messages from 1.
+func TestRelayRestartStartsANewSession(t *testing.T) {
+	for _, proto := range []string{"websocket", "udp"} {
+		t.Run(proto, func(t *testing.T) {
+			auth := Auth{GracePeriod: time.Minute}
+			old, err := NewRelay(RelayConfig{Join: relayJoin})
+			if err != nil {
+				t.Fatalf("NewRelay: %v", err)
+			}
+			srv, addr := listenRelay(t, proto, "127.0.0.1:0", old.Auth(auth))
+			listenAddr := srv.(interface{ Addr() stdnet.Addr }).Addr().String()
+			stop := serveRelay(old, srv)
+			var clients []*relayClient
+			defer func() {
+				for _, c := range clients {
+					_ = c.Close()
+				}
+			}()
+			for _, token := range []string{"room/a", "room/b", "room/c"} {
+				c, err := dialRelay(proto, addr, token, nil)
+				if err != nil {
+					t.Fatalf("dial %q: %v", token, err)
+				}
+				clients = append(clients, c)
+			}
+			a, b, c := clients[0], clients[1], clients[2]
+			awaitPeers(t, a, b.LocalID(), c.LocalID())
+			awaitPeers(t, b, a.LocalID(), c.LocalID())
+			if err := a.Send(b.LocalID(), ChannelReliableOrdered, []byte("before")); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if pkt := recvRelay(t, b); string(pkt.Payload) != "before" {
+				t.Fatalf("b got %+v, want a's message", pkt)
+			}
+
+			if err := stop(); !errors.Is(err, context.Canceled) {
+				t.Fatalf("Serve returned %v", err)
+			}
+			_ = srv.Close()
+			relay, err := NewRelay(RelayConfig{Join: relayJoin})
+			if err != nil {
+				t.Fatalf("NewRelay: %v", err)
+			}
+			srv2, _ := listenRelay(t, proto, listenAddr, relay.Auth(auth))
+			stop2 := serveRelay(relay, srv2)
+			defer func() {
+				_ = stop2()
+				_ = srv2.Close()
+			}()
+
+			// a and b come back, c does not.
+			for _, rc := range []*relayClient{a, b} {
+				id := rc.LocalID()
+				inner := rc.inner.(interface {
+					Reconnect() error
+					Resumed() bool
+				})
+				if err := inner.Reconnect(); err != nil || inner.Resumed() || rc.LocalID() != id {
+					t.Fatalf("reconnect = %v, resumed %v, id %d; want a new session as %d", err, inner.Resumed(), rc.LocalID(), id)
+				}
+			}
+			awaitPeers(t, a, b.LocalID())
+			awaitPeers(t, b, a.LocalID())
+			if err := a.Send(b.LocalID(), ChannelReliableOrdered, []byte("after")); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if pkt := recvRelay(t, b); pkt.From != a.LocalID() || string(pkt.Payload) != "after" || pkt.Seq != 1 {
+				t.Fatalf("b got %+v, want the new session's first message", pkt)
+			}
+		})
+	}
+}
+
+// TestRelayServesAgainOnTheSameServer stops Serve and starts it again on the same server: the connected clients keep their session.
+func TestRelayServesAgainOnTheSameServer(t *testing.T) {
+	relay, err := NewRelay(RelayConfig{Join: relayJoin})
+	if err != nil {
+		t.Fatalf("NewRelay: %v", err)
+	}
+	srv, addr := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
+	defer func() { _ = srv.Close() }()
+	stop := serveRelay(relay, srv)
+	var clients []*relayClient
+	defer func() {
+		for _, c := range clients {
+			_ = c.Close()
+		}
+	}()
+	for _, token := range []string{"s/a", "s/b"} {
+		c, err := dialRelay("udp", addr, token, nil)
+		if err != nil {
+			t.Fatalf("dial %q: %v", token, err)
+		}
+		clients = append(clients, c)
+	}
+	a, b := clients[0], clients[1]
 	awaitPeers(t, a, b.LocalID())
 	awaitPeers(t, b, a.LocalID())
+	if err := stop(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve returned %v", err)
+	}
 
-	bws := b.inner.(*WebSocketTransport)
-	id := b.LocalID()
-	cutWS(bws)
-	awaitChangeTB(t, b.changed, "b to notice the drop", func() bool { return bws.State() == ConnDisconnected })
-	if err := a.Send(id, ChannelReliableOrdered, []byte("while away")); err != nil {
+	other, _ := listenRelay(t, "udp", "127.0.0.1:0", relay.Auth(Auth{}))
+	defer func() { _ = other.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := relay.Serve(ctx, other); err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve on another server = %v, want a refusal", err)
+	}
+
+	stop = serveRelay(relay, srv)
+	defer func() { _ = stop() }()
+	if err := a.Send(b.LocalID(), ChannelReliableOrdered, []byte("again")); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	if err := bws.Reconnect(); err != nil || !bws.Resumed() || b.LocalID() != id {
-		t.Fatalf("reconnect = %v, resumed %v, id %d; want the session back as %d", err, bws.Resumed(), b.LocalID(), id)
+	if pkt := recvRelay(t, b); pkt.From != a.LocalID() || string(pkt.Payload) != "again" {
+		t.Fatalf("b got %+v, want a's message through the second Serve", pkt)
 	}
-	clock.Advance(relayMaxRTO)
-	_, _ = a.Recv()
-	pkt := recvRelay(t, b)
-	if pkt.From != a.LocalID() || string(pkt.Payload) != "while away" || pkt.Seq != 1 {
-		t.Fatalf("b got %+v, want a's message resent", pkt)
+	if st := relay.Stats(); st.Sessions != 1 || st.Peers != 2 {
+		t.Fatalf("stats = %+v, want the session kept", st)
 	}
-	if got := a.Peers(); !slices.Equal(got, []PeerID{id}) {
-		t.Fatalf("a.Peers = %v, want b kept through its reconnect", got)
+}
+
+// TestRelayEpochCountsMembershipChanges checks that a session's epoch moves only when its members change, not on the periodic resend, and that clients follow it across the wrap.
+func TestRelayEpochCountsMembershipChanges(t *testing.T) {
+	relay, dial := startRelay(t, "udp", RelayConfig{}, Auth{})
+	relay.mu.Lock()
+	relay.sessions["e"] = &relaySession{epoch: math.MaxUint32 - 1}
+	relay.mu.Unlock()
+	epoch := func() uint32 {
+		relay.mu.Lock()
+		defer relay.mu.Unlock()
+		return relay.sessions["e"].epoch
+	}
+	a := mustDialRelay(t, dial, "e/a")
+	b := mustDialRelay(t, dial, "e/b") // the epoch wraps to 0
+	awaitPeers(t, a, b.LocalID())
+	awaitPeers(t, b, a.LocalID())
+	if got := epoch(); got != 0 {
+		t.Fatalf("epoch after two joins = %d, want 0", got)
+	}
+	for range 3 {
+		relay.markAllDirty()
+		relay.flushMembers()
+	}
+	if got := epoch(); got != 0 {
+		t.Fatalf("epoch after resending = %d, want still 0", got)
+	}
+	c := mustDialRelay(t, dial, "e/c")
+	awaitPeers(t, a, b.LocalID(), c.LocalID())
+	_ = c.Close()
+	awaitPeers(t, a, b.LocalID())
+	awaitPeers(t, b, a.LocalID())
+	if got := epoch(); got != 2 {
+		t.Fatalf("epoch after a join and a leave = %d, want 2", got)
 	}
 }
 

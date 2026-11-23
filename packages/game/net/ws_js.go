@@ -31,6 +31,9 @@ type WebSocketTransport struct {
 	inbox    []Packet
 	pending  [][]byte
 	funcs    []js.Func
+
+	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
+	admissions uint64
 }
 
 // DialWebSocket opens a browser WebSocket connection to rawURL (ws:// or wss://) that presents token in the connection handshake, and returns a Transport ready for non-blocking Send/Recv. The server assigns the client's ID, which LocalID reports once State is ConnOpen.
@@ -139,6 +142,9 @@ func (wt *WebSocketTransport) onMessage(ws js.Value, buf []byte) {
 		wt.localID, wt.serverID = w.peer, w.server
 		wt.resume = resumeState{peer: w.peer, secret: w.secret}
 		wt.resumed = w.resumed
+		if !w.resumed {
+			wt.admissions++
+		}
 		wt.state = ConnOpen
 		queued := wt.pending
 		wt.pending = nil
@@ -274,6 +280,13 @@ func (wt *WebSocketTransport) Resumed() bool {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
 	return wt.resumed
+}
+
+// relayAdmissions counts the handshakes that admitted the client as a new peer.
+func (wt *WebSocketTransport) relayAdmissions() uint64 {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.admissions
 }
 
 // Close closes the browser WebSocket and releases all JavaScript callback handles. The browser sends a close frame, so the server reports PeerLeft at once.

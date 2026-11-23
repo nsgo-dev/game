@@ -445,6 +445,9 @@ type UDPClient struct {
 	resumed  bool
 	inbox    []Packet
 	changed  chan struct{}
+
+	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
+	admissions uint64
 }
 
 // DialUDP connects to the UDPServer at addr, presents token in the connection handshake and returns once the server accepts it. The server assigns the client's ID, which LocalID reports. A refusal returns a *RejectError that matches ErrRejected.
@@ -522,6 +525,9 @@ func (c *UDPClient) connect() error {
 	c.lastSend, c.lastRecv = now, now
 	c.resume = resumeState{peer: w.peer, secret: w.secret}
 	c.resumed = w.resumed
+	if !w.resumed {
+		c.admissions++
+	}
 	c.state, c.err = ConnOpen, nil
 	c.mu.Unlock()
 	go c.readLoop(conn)
@@ -753,6 +759,13 @@ func (c *UDPClient) Resumed() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.resumed
+}
+
+// relayAdmissions counts the handshakes that admitted the client as a new peer.
+func (c *UDPClient) relayAdmissions() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.admissions
 }
 
 // Close sends the server a goodbye, so it reports PeerLeft at once rather than holding the session for a reconnect, and closes the socket.

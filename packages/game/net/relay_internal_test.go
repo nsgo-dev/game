@@ -2,6 +2,7 @@ package net
 
 import (
 	"encoding/binary"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -319,4 +320,154 @@ func FuzzRelayTransportIngest(f *testing.F) {
 			t.Fatal("Peers lists the local ID")
 		}
 	})
+}
+
+func TestRelayTransportMembershipEpochWraps(t *testing.T) {
+	r := newMemRelay(2, 3, 4)
+	r.epoch = math.MaxUint32 - 1
+	a := NewRelayTransport(r.clients[2], RelayTransportConfig{})
+	r.announce(2, 3)
+	if got := a.Peers(); !slices.Equal(got, []PeerID{3}) {
+		t.Fatalf("a.Peers at epoch %d = %v, want [3]", r.epoch, got)
+	}
+	r.announce(2, 3, 4) // the epoch wraps to 0
+	if got := a.Peers(); !slices.Equal(got, []PeerID{3, 4}) {
+		t.Fatalf("a.Peers after the epoch wrapped = %v, want [3 4]", got)
+	}
+	r.announce(2, 3)
+	if got := a.Peers(); !slices.Equal(got, []PeerID{3}) {
+		t.Fatalf("a.Peers at epoch %d = %v, want [3]", r.epoch, got)
+	}
+	// The update from before the wrap is older and changes nothing.
+	r.mu.Lock()
+	r.clients[2].inbox = append(r.clients[2].inbox, Packet{From: 1, Payload: encodeRelayMembers(math.MaxUint32, []PeerID{2, 3, 4})})
+	r.mu.Unlock()
+	if got := a.Peers(); !slices.Equal(got, []PeerID{3}) {
+		t.Fatalf("a.Peers after a stale update = %v, want [3]", got)
+	}
+}
+
+// TestRelayTransportTimesSegmentsWhenFirstAcknowledged loses one message, so the one after it is acknowledged selectively and cumulatively only after the lost one is resent; the round trip estimate must not count that wait.
+func TestRelayTransportTimesSegmentsWhenFirstAcknowledged(t *testing.T) {
+	clock := newFakeClock()
+	r := newMemRelay(2, 3)
+	a := NewRelayTransport(r.clients[2], RelayTransportConfig{Now: clock.Now})
+	b := NewRelayTransport(r.clients[3], RelayTransportConfig{Now: clock.Now})
+	r.announce(2, 3)
+	_, _ = a.Peers(), b.Peers()
+	lostOnce := false
+	r.drop = func(from, to PeerID, body []byte) bool {
+		if !lostOnce && body[0] == relayBodyReliable && binary.BigEndian.Uint32(body[1:5]) == 2 {
+			lostOnce = true
+			return true
+		}
+		return false
+	}
+	const rtt = 10 * time.Millisecond
+	for _, msg := range []string{"one", "two", "three"} {
+		if err := a.Send(3, ChannelReliableOrdered, []byte(msg)); err != nil {
+			t.Fatalf("send %q: %v", msg, err)
+		}
+	}
+	_ = drainRelay(b) // acks one and, selectively, three
+	clock.Advance(rtt)
+	_ = drainRelay(a)
+	clock.Advance(relayInitialRTO - rtt)
+	_ = drainRelay(a) // resends two
+	if got := payloads(drainRelay(b)); !slices.Equal(got, []string{"two", "three"}) {
+		t.Fatalf("b got %v after the resend, want [two three]", got)
+	}
+	clock.Advance(rtt)
+	_ = drainRelay(a) // the cumulative ack covers two (resent) and three (already selectively acknowledged)
+	p := a.peers[3]
+	if len(p.unacked) != 0 {
+		t.Fatalf("%d messages still unacknowledged", len(p.unacked))
+	}
+	if p.srtt != rtt || p.rto != rtt+4*(rtt*3/8) {
+		t.Fatalf("srtt %v, rto %v; want srtt %v from the two samples of %v, not the wait for the resend", p.srtt, p.rto, rtt, rtt)
+	}
+}
+
+// TestRelayTransportBoundsBufferedMessages has a peer send reliable messages ahead of one it never sends, and checks the receiver keeps only relayMaxBuffered bytes of them.
+func TestRelayTransportBoundsBufferedMessages(t *testing.T) {
+	r := newMemRelay(2, 3)
+	b := NewRelayTransport(r.clients[3], RelayTransportConfig{Now: newFakeClock().Now})
+	r.announce(2, 3)
+	_ = b.Peers()
+	payload := make([]byte, MaxRelayPayload)
+	inject := func(seq uint32) {
+		r.mu.Lock()
+		r.clients[3].inbox = append(r.clients[3].inbox, Packet{From: 1, Payload: encodeRelayFrame(2, encodeRelayData(relayBodyReliable, seq, payload))})
+		r.mu.Unlock()
+	}
+	kept := relayMaxBuffered / MaxRelayPayload
+	for seq := uint32(2); seq <= uint32(kept)+20; seq++ {
+		inject(seq)
+	}
+	if got := drainRelay(b); len(got) != 0 {
+		t.Fatalf("b delivered %d messages while message 1 is missing", len(got))
+	}
+	p := b.peers[2]
+	if len(p.ooo) != kept || p.oooBytes != kept*MaxRelayPayload {
+		t.Fatalf("b buffers %d messages, %d bytes; want %d messages within %d bytes", len(p.ooo), p.oooBytes, kept, relayMaxBuffered)
+	}
+	// Once the missing message arrives the buffered ones follow in order, and the buffer is free again.
+	inject(1)
+	got := drainRelay(b)
+	if len(got) != kept+1 || got[len(got)-1].Seq != uint32(kept+1) {
+		t.Fatalf("b delivered %d messages, want %d in order", len(got), kept+1)
+	}
+	if len(p.ooo) != 0 || p.oooBytes != 0 {
+		t.Fatalf("b still buffers %d messages, %d bytes", len(p.ooo), p.oooBytes)
+	}
+}
+
+// TestRelayTransportForgetsALostSession checks that a client admitted as a new peer, as after a relay restart, starts over even when it gets its old ID back.
+func TestRelayTransportForgetsALostSession(t *testing.T) {
+	clock := newFakeClock()
+	r := newMemRelay(2, 3, 4)
+	inner := &admittedClient{memClient: r.clients[2], admissions: 1}
+	a := NewRelayTransport(inner, RelayTransportConfig{Now: clock.Now})
+	r.announce(2, 3, 4)
+	r.announce(2, 3, 4)
+	_ = a.Peers()
+	r.drop = func(PeerID, PeerID, []byte) bool { return true }
+	if err := a.Send(3, ChannelReliableOrdered, []byte("old")); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	r.drop = nil
+
+	// The new relay starts its epochs again; 4 did not come back.
+	inner.mu.Lock()
+	inner.admissions++
+	inner.mu.Unlock()
+	r.epoch = 0
+	r.announce(2, 3)
+	if got := a.Peers(); !slices.Equal(got, []PeerID{3}) {
+		t.Fatalf("a.Peers after the new session = %v, want [3]", got)
+	}
+	if err := a.Send(3, ChannelReliableOrdered, []byte("new")); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	b := NewRelayTransport(r.clients[3], RelayTransportConfig{Now: clock.Now})
+	_ = b.Peers()
+	clock.Advance(relayMaxRTO)
+	_ = drainRelay(a)
+	got := drainRelay(b)
+	if len(got) != 1 || string(got[0].Payload) != "new" || got[0].Seq != 1 {
+		t.Fatalf("b got %+v, want only the new session's first message", got)
+	}
+}
+
+// admittedClient is a memClient that reports a count of admissions, as WebSocketTransport and UDPClient do.
+type admittedClient struct {
+	*memClient
+	mu         sync.Mutex
+	admissions uint64
+}
+
+func (c *admittedClient) relayAdmissions() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.admissions
 }
