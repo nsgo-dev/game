@@ -197,7 +197,7 @@ go tool nsgo build -target ios_simulator
 - **Store submission**:
   - Upload `<name>.ipa` to App Store Connect / TestFlight with Apple's Transporter app or Xcode.
   - Increment `build_number` (`CFBundleVersion`) for every upload.
-  - Configure iPad multitasking and screen orientations with `apple.requires_full_screen` and `apple.orientations` (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`), and add any required `Info.plist` entries under `apple.info`.
+  - Configure iPad multitasking and screen orientations with `apple.requires_full_screen` and `apple.orientations` (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`), and add any required `Info.plist` entries under `apple.info`. `apple.orientations` covers only the iPad; an iPhone takes the orientation the game requests at runtime with `cx.RequestOrientation` (see [Orientation on phones](screen.md#orientation-on-phones)).
 
 ### Android
 
@@ -217,3 +217,4 @@ To also build `android_x64` (for x86_64 emulators or Chromebooks), install an An
   ```
   Without a keystore, `nsgo build` signs APKs with the project's debug key (for sideloading only, rejected by Google Play).
 - **Google Play**: build with `-channel store` to produce a signed `.aab` (Android App Bundle) for Google Play Console. Increment `build_number` (`versionCode`) on every upload, set `android.target_sdk` to Google Play's current required API level (`minSdkVersion` is 28), and declare any extra permissions under `android.permissions`.
+- **Orientation**: the manifest does not fix an orientation; the game requests the one it plays in at runtime with `cx.RequestOrientation` (see [Orientation on phones](screen.md#orientation-on-phones)).
