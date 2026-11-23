@@ -76,9 +76,9 @@ tp.Update(cam, heroPos, heroForward, dt)
 
 ### Projection, viewport and interpolation
 
-A camera's `Projection` is either perspective (`FOVY`, in radians) or orthographic (`OrthoHeight`, the visible height in world units), with `Aspect`, `Near` and `Far`; `ViewMatrix`, `ProjMatrix` and `ViewProj` give the matrices with [0, 1] clip depth, as WebGPU, Metal and Direct3D expect. Call `cam.SetViewport(width, height)` when the drawable resizes so `Aspect` follows it. `cam.Eye()` returns the homogeneous eye point: `(Pos, 1)` for a perspective camera and `(-Forward, 0)` for an orthographic one, whose eye lies at infinity, so a shader finds the direction toward the viewer as `normalize(eye.xyz - p * eye.w)` under both.
+A camera's `Projection` is either perspective (`FOVY`, in radians) or orthographic (`OrthoHeight`, the visible height in world units), with `Aspect`, `Near` and `Far`; `ViewMatrix`, `ProjMatrix` and `ViewProj` give the matrices with [0, 1] clip depth, as WebGPU, Metal and Direct3D expect. Call `cam.SetViewport(width, height)` when the drawable resizes so `Aspect` follows it; sizes that are not positive and finite (zero, negative, NaN or infinite) leave the camera unchanged. `cam.Eye()` returns the homogeneous eye point: `(Pos, 1)` for a perspective camera and `(-Forward, 0)` for an orthographic one, whose eye lies at infinity, so a shader finds the direction toward the viewer as `normalize(eye.xyz - p * eye.w)` under both.
 
-Step the camera in `game.Loop.Update` and draw it interpolated in `Draw`: keep the camera from the previous update and draw `prev.Lerp(cam, alpha)`. `Lerp` blends `Pos` linearly, `Rot` by shortest-path slerp and the projection's fields linearly; projections of different kinds do not blend, so the first holds until `t` reaches 1.
+Step the camera in `game.Loop.Update` and draw it interpolated in `Draw`: keep the camera from the previous update and draw `prev.Lerp(cam, alpha)`. `Lerp` blends `Pos` linearly, `Rot` by shortest-path slerp and the projection's fields linearly between the values `Matrix` uses, so a field left at zero blends from its default rather than from zero; projections of different kinds do not blend, so the first holds until `t` reaches 1.
 
 ```go
 prev := *cam

@@ -418,6 +418,16 @@ func TestCameraUniformEncodeLayout(t *testing.T) {
 		t.Fatalf("Encode allocated %v times", allocs)
 	}
 
+	// A slice with room in its capacity but too short a length still panics: Encode never writes past len(dst).
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Encode(len 0, cap 208) did not panic")
+			}
+		}()
+		u.Encode(make([]byte, 0, render3d.CameraUniformSize))
+	}()
+
 	ortho := scene3d.NewOrthographicCamera(math3d.Vec3{Z: 5}, 4, 1, 0.1, 100)
 	if e := render3d.NewCameraUniform(ortho).Eye; !e.ApproxEqual(math3d.Vec4{Z: 1}, 1e-6) {
 		t.Fatalf("orthographic Eye = %v, want (0, 0, 1, 0)", e)

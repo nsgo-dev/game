@@ -50,8 +50,11 @@ func NewCameraUniform(cam *scene3d.Camera) CameraUniform {
 	}
 }
 
-// Encode writes u into dst as the little-endian float32 block [CameraWGSL] declares and returns dst[:CameraUniformSize]. It panics if dst is shorter than CameraUniformSize.
+// Encode writes u into dst as the little-endian float32 block [CameraWGSL] declares and returns dst[:CameraUniformSize]. It panics if len(dst) is less than CameraUniformSize, whatever dst's capacity.
 func (u *CameraUniform) Encode(dst []byte) []byte {
+	if len(dst) < CameraUniformSize {
+		panic("render3d: CameraUniform.Encode: dst shorter than CameraUniformSize")
+	}
 	dst = dst[:CameraUniformSize]
 	off := 0
 	put := func(f float32) {

@@ -76,9 +76,9 @@ tp.Update(cam, heroPos, heroForward, dt)
 
 ### 投影、视口与插值
 
-相机的 `Projection` 是透视投影（`FOVY`，弧度）或正交投影（`OrthoHeight`，以世界单位计的可见高度），另有 `Aspect`、`Near` 和 `Far`；`ViewMatrix`、`ProjMatrix` 与 `ViewProj` 给出裁剪深度为 [0, 1] 的矩阵，与 WebGPU、Metal 和 Direct3D 的约定一致。绘制目标尺寸变化时调用 `cam.SetViewport(width, height)`，让 `Aspect` 随之更新。`cam.Eye()` 返回齐次视点：透视相机为 `(Pos, 1)`，正交相机的视点在无穷远处，为 `(-Forward, 0)`，因此着色器在两种投影下都可以用 `normalize(eye.xyz - p * eye.w)` 求出指向观察者的方向。
+相机的 `Projection` 是透视投影（`FOVY`，弧度）或正交投影（`OrthoHeight`，以世界单位计的可见高度），另有 `Aspect`、`Near` 和 `Far`；`ViewMatrix`、`ProjMatrix` 与 `ViewProj` 给出裁剪深度为 [0, 1] 的矩阵，与 WebGPU、Metal 和 Direct3D 的约定一致。绘制目标尺寸变化时调用 `cam.SetViewport(width, height)`，让 `Aspect` 随之更新；尺寸不是有限正数（零、负数、NaN 或无穷大）时相机保持不变。`cam.Eye()` 返回齐次视点：透视相机为 `(Pos, 1)`，正交相机的视点在无穷远处，为 `(-Forward, 0)`，因此着色器在两种投影下都可以用 `normalize(eye.xyz - p * eye.w)` 求出指向观察者的方向。
 
-在 `game.Loop.Update` 中推进相机，在 `Draw` 中绘制插值后的相机：保留上一次更新时的相机，绘制 `prev.Lerp(cam, alpha)`。`Lerp` 对 `Pos` 线性插值，对 `Rot` 做最短路径球面插值，对投影的各字段线性插值；类型不同的投影不混合，`t` 到达 1 之前保持第一个。
+在 `game.Loop.Update` 中推进相机，在 `Draw` 中绘制插值后的相机：保留上一次更新时的相机，绘制 `prev.Lerp(cam, alpha)`。`Lerp` 对 `Pos` 线性插值，对 `Rot` 做最短路径球面插值，对投影的各字段在 `Matrix` 实际使用的值之间线性插值，因此留为零的字段从其默认值开始插值，而不是从零开始；类型不同的投影不混合，`t` 到达 1 之前保持第一个。
 
 ```go
 prev := *cam

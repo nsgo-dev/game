@@ -1,6 +1,7 @@
 package scene3d_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ func TestCameraSetViewport(t *testing.T) {
 	if !math3d.ApproxEqual(cam.Projection.Aspect, 16.0/9.0, eps) {
 		t.Fatalf("Aspect = %v, want 16/9", cam.Projection.Aspect)
 	}
-	for _, size := range [][2]float32{{0, 10}, {10, 0}, {-1, 5}} {
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for _, size := range [][2]float32{{0, 10}, {10, 0}, {-1, 5}, {nan, 10}, {10, nan}, {0, 0}, {inf, 10}, {10, inf}, {-inf, -1}} {
 		cam.SetViewport(size[0], size[1])
 		if !math3d.ApproxEqual(cam.Projection.Aspect, 16.0/9.0, eps) {
 			t.Fatalf("SetViewport(%v, %v) changed Aspect to %v", size[0], size[1], cam.Projection.Aspect)
@@ -73,6 +76,47 @@ func TestCameraLerp(t *testing.T) {
 	}
 	if got := a.Lerp(o, 1).Projection; got != o.Projection {
 		t.Fatalf("mixed-kind Lerp(1).Projection = %+v, want o's", got)
+	}
+}
+
+func TestCameraLerpOrthographic(t *testing.T) {
+	a := scene3d.NewOrthographicCamera(math3d.Vec3{Z: 5}, 4, 1, 0.1, 50)
+	b := scene3d.NewOrthographicCamera(math3d.Vec3{Z: 5}, 10, 1, 0.1, 50)
+	mid := a.Lerp(b, 0.5)
+	if mid.Projection.Kind != scene3d.ProjectionOrthographic || !math3d.ApproxEqual(mid.Projection.OrthoHeight, 7, eps) {
+		t.Fatalf("Lerp(0.5).Projection = %+v, want orthographic with OrthoHeight 7", mid.Projection)
+	}
+	if e := mid.Eye(); e.W != 0 {
+		t.Fatalf("Lerp(0.5).Eye().W = %v, want 0", e.W)
+	}
+}
+
+// TestProjectionLerpFromDefaults blends a projection that leaves fields at zero from the values Matrix uses for them, so the drawn view moves smoothly instead of jumping at t just above 0.
+func TestProjectionLerpFromDefaults(t *testing.T) {
+	zeroOrtho := scene3d.Projection{Kind: scene3d.ProjectionOrthographic}
+	full := scene3d.OrthographicProjection(10, 2, 0.1, 50)
+	if got := zeroOrtho.Lerp(full, 0); got.Matrix() != zeroOrtho.Matrix() {
+		t.Fatalf("Lerp(0).Matrix() = %v, want %v", got.Matrix(), zeroOrtho.Matrix())
+	}
+	got := zeroOrtho.Lerp(full, 0.1)
+	if want := math3d.Lerp(1000, 50, 0.1); !math3d.ApproxEqual(got.Far, want, 1e-3) {
+		t.Fatalf("ortho Lerp(0.1).Far = %v, want %v", got.Far, want)
+	}
+	if want := math3d.Lerp(2, 10, 0.1); !math3d.ApproxEqual(got.OrthoHeight, want, eps) {
+		t.Fatalf("ortho Lerp(0.1).OrthoHeight = %v, want %v", got.OrthoHeight, want)
+	}
+	if want := math3d.Lerp(1, 2, 0.1); !math3d.ApproxEqual(got.Aspect, want, eps) {
+		t.Fatalf("ortho Lerp(0.1).Aspect = %v, want %v", got.Aspect, want)
+	}
+
+	zeroPersp := scene3d.Projection{}
+	persp := scene3d.PerspectiveProjection(math3d.DegToRad(80), 1, 0.5, 200)
+	got = zeroPersp.Lerp(persp, 0.5)
+	if want := math3d.DegToRad(70); !math3d.ApproxEqual(got.FOVY, want, eps) {
+		t.Fatalf("perspective Lerp(0.5).FOVY = %v, want %v", got.FOVY, want)
+	}
+	if !math3d.ApproxEqual(got.Near, 0.3, eps) || !math3d.ApproxEqual(got.Far, math3d.Lerp(1000.1, 200, 0.5), 1e-2) {
+		t.Fatalf("perspective Lerp(0.5) near/far = %v/%v", got.Near, got.Far)
 	}
 }
 
