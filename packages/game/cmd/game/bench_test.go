@@ -77,6 +77,24 @@ func TestBenchPassesWithinTheBaseline(t *testing.T) {
 	}
 }
 
+func TestBenchReadsResultsFromBothStreams(t *testing.T) {
+	baseline := writeFile(t, filepath.Join(t.TempDir(), "baseline.yaml"), testBaseline)
+	a, stdout, stderr := newTestApp(t)
+	a.nsgo = func(_ []string, out, errOut io.Writer) error {
+		fmt.Fprintln(out, "BenchmarkDraw-8 1000 1000 ns/op 64 B/op 2 allocs/op")
+		fmt.Fprintln(errOut, "  ✓ BenchmarkLoad-8 1000 500 ns/op 0 B/op 0 allocs/op")
+		return nil
+	}
+	if code := run([]string{"bench", "-baseline", baseline, "-count", "1", "./sprite"}, a); code != 0 {
+		t.Fatalf("exit %d (stdout: %s, stderr: %s)", code, stdout, stderr)
+	}
+	for _, line := range []string{"[PASS] BenchmarkDraw", "[PASS] BenchmarkLoad"} {
+		if !strings.Contains(stdout.String(), line) {
+			t.Errorf("stdout does not contain %q:\n%s", line, stdout)
+		}
+	}
+}
+
 func TestBenchFailsOnARegression(t *testing.T) {
 	baseline := writeFile(t, filepath.Join(t.TempDir(), "baseline.yaml"), testBaseline)
 	a, stdout, stderr := newTestApp(t)

@@ -52,8 +52,17 @@ func defineReplay(a *app, fs *flag.FlagSet) func() error {
 		}
 		fmt.Fprintf(a.stdout, "game replay: %d recordings, playing them through the tests matching %q\n", total, *pattern)
 		for _, dir := range dirs {
-			if err := a.nsgo([]string{"test", "-run", *pattern, dir, "-count=1"}, a.stdout, a.stderr); err != nil {
+			var out nsgoOutput
+			if err := out.run(a, []string{"test", "-run", *pattern, dir, "-count=1"}); err != nil {
 				return fmt.Errorf("replay tests in %s failed: %w", dir, err)
+			}
+			// nsgo test, like go test, passes a run in which -run matched no test, so a run that passed no test is refused: otherwise a misnamed test or a mistyped -run would pass without playing a recording.
+			passed, ok := passedTests(out.bytes())
+			switch {
+			case !ok:
+				return fmt.Errorf("replay tests in %s printed no tally of passed tests", dir)
+			case passed == 0:
+				return fmt.Errorf("no test in %s matching -run %q passed, so no recording was played", dir, *pattern)
 			}
 		}
 		return nil

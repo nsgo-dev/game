@@ -408,7 +408,7 @@ func (r Report) Failed() int {
 	return n
 }
 
-// Evaluate compares measured with b's benchmarks: a benchmark fails when it was not measured or when a metric grew past b.Limits.
+// Evaluate compares measured with b's benchmarks: a benchmark fails when it was not measured, when a measured metric is NaN, infinite or negative, or when a metric grew past b.Limits.
 func Evaluate(b *Baseline, measured map[string]Metrics) Report {
 	rep := Report{Limits: b.Limits}
 	names := make([]string, 0, len(b.Benchmarks))
@@ -442,6 +442,11 @@ func Evaluate(b *Baseline, measured map[string]Metrics) Report {
 			{"B/op", res.Delta.BytesPerOp, b.Limits.BytesPerOp, got.BytesPerOp, base.BytesPerOp},
 			{"allocs/op", res.Delta.AllocsPerOp, b.Limits.AllocsPerOp, got.AllocsPerOp, base.AllocsPerOp},
 		} {
+			if math.IsNaN(c.got) || math.IsInf(c.got, 0) || c.got < 0 {
+				// ParseOutput never yields such a value, but a caller that builds measured itself may, and a NaN delta compares as no regression.
+				res.Regressions = append(res.Regressions, fmt.Sprintf("%s is not a finite, non-negative number (got %s)", c.unit, formatNum(c.got)))
+				continue
+			}
 			if c.delta > c.limit {
 				res.Regressions = append(res.Regressions, fmt.Sprintf("%s regressed by %s (got %s, baseline %s, limit +%s%%)",
 					c.unit, formatPct(c.delta), formatNum(c.got), formatNum(c.baselineVal), formatNum(c.limit)))

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/nsgo-dev/game/packages/game/tooling/bench"
@@ -54,18 +53,17 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 				dirs = []string{"./..."}
 			}
 			// nsgo test prints its results, a benchmark's included, on standard error, so both streams are read.
-			var buf bytes.Buffer
-			stdout, stderr := io.MultiWriter(a.stdout, &buf), io.MultiWriter(a.stderr, &buf)
+			var out nsgoOutput
 			for _, dir := range dirs {
 				// nsgo test v0.3.0 prints only the first result of a benchmark run with -count above 1, because go test -json attributes the later results to the package rather than the benchmark, so each run is a process of its own with -count=1.
 				for range *count {
 					args := []string{"test", "-bench", *pattern, dir, "-benchmem", "-benchtime=" + *benchtime, "-count=1"}
-					if err := a.nsgo(args, stdout, stderr); err != nil {
+					if err := out.run(a, args); err != nil {
 						return fmt.Errorf("benchmarks in %s failed: %w", dir, err)
 					}
 				}
 			}
-			results = buf.Bytes()
+			results = out.bytes()
 		}
 
 		measured, err := bench.ParseOutput(bytes.NewReader(results))
