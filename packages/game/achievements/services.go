@@ -26,7 +26,7 @@ func GameServices(cx *core.Scope) Reporter {
 	})
 }
 
-// SignIn signs the local player into the running platform's game service with gameservices.Authenticate and, once the player is signed in, connects t to that service through GameServices(cx), which reports all pending progress. Disposing cx disconnects t, unless t has been connected again since, and progress made after that is reported by the next SignIn. done, which may be nil, receives the player or the error on cx's engine goroutine: gameservices.ErrUnsupported where the platform has no game service, and gameservices.ErrUnauthenticated when the service answers without a signed-in player. On failure t keeps recording progress, and a later SignIn reports it.
+// SignIn signs the local player into the running platform's game service with gameservices.Authenticate and, once the player is signed in, connects t to that service through GameServices(cx), which reports all pending progress. Disposing cx, or letting its current owner run again as a view body does, disconnects t, unless t has been connected again since, so call SignIn from an event handler, an effect or a scope that lives as long as the game; progress made after that is reported by the next SignIn. done, which may be nil, receives the player or the error on cx's engine goroutine: gameservices.ErrUnsupported where the platform has no game service, and gameservices.ErrUnauthenticated when the service answers without a signed-in player. On failure t keeps recording progress, and a later SignIn reports it.
 func SignIn(cx *core.Scope, t *Tracker, done func(gameservices.Player, error)) {
 	reply := func(p gameservices.Player, err error) {
 		if done != nil {
@@ -45,7 +45,7 @@ func SignIn(cx *core.Scope, t *Tracker, done func(gameservices.Player, error)) {
 		if err == nil {
 			// connect only fails for an unknown service or a nil Reporter, neither of which can happen here.
 			conn, _ := t.connect(service, GameServices(cx))
-			// This callback runs with cx as the owner, so the cleanup belongs to cx: answers stop once it is disposed, and a report left unanswered would otherwise block its achievement until the next Connect.
+			// This callback runs with cx as the owner, so the cleanup belongs to cx: answers stop once it is disposed or runs again, and a report left unanswered would otherwise block its achievement until the next Connect.
 			cx.Cleanup(func() { t.disconnectIf(conn) })
 		}
 		reply(p, err)

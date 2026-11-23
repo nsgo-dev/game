@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/achievements"
 	"github.com/nsgo-dev/nsgo/gameservices"
@@ -357,6 +358,56 @@ func TestRestoreAndProgress(t *testing.T) {
 	mustOK(t, tr.Connect(achievements.GameCenter, q))
 	if got := q.ids(); !slices.Equal(got, []string{"gc.gems@100"}) {
 		t.Fatalf("reports after restore = %v", got)
+	}
+}
+
+// callbackStore signals once its SetItem is entered and waits for the test to let it finish, so the test can read the tracker from another goroutine while the save is in flight.
+type callbackStore struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *callbackStore) GetItem(string) (string, bool) { return "", false }
+
+func (c *callbackStore) SetItem(string, string) error {
+	c.once.Do(func() { close(c.entered) })
+	<-c.release
+	return nil
+}
+
+func TestAddSavesWithoutHoldingTheLock(t *testing.T) {
+	tr := newTracker(t)
+	store := &callbackStore{entered: make(chan struct{}), release: make(chan struct{})}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(store.release) }) }
+	defer release()
+	if err := tr.Persist(store, "ach"); err != nil {
+		t.Fatal(err)
+	}
+	added := make(chan error, 1)
+	go func() { added <- tr.Add("gem-collector", 1) }()
+	select {
+	case <-store.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the save never started")
+	}
+	// core.Storage's SetItem flushes the computations watching the key, and one of them may read the tracker; that must not wait for the save.
+	steps := make(chan int, 1)
+	go func() { steps <- tr.Steps("gem-collector") }()
+	select {
+	case got := <-steps:
+		if got != 1 {
+			t.Fatalf("Steps during the save = %d, want 1", got)
+		}
+	case <-time.After(5 * time.Second):
+		release()
+		<-added
+		t.Fatal("Steps blocked while the store was writing")
+	}
+	release()
+	if err := <-added; err != nil {
+		t.Fatal(err)
 	}
 }
 
