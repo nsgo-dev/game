@@ -10,6 +10,8 @@ import (
 	"math"
 	"net/url"
 	pathpkg "path"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
@@ -214,6 +216,9 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 	if err := validateVersion(raw.Asset.Version); err != nil {
 		return nil, err
 	}
+	if err := validateMinVersion(raw.Asset.MinVersion, raw.Asset.Version); err != nil {
+		return nil, err
+	}
 
 	doc := &Document{
 		Asset: Asset{
@@ -275,6 +280,9 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 	if err := doc.loadSkins(raw.Skins, &decodedBytes); err != nil {
 		return nil, err
 	}
+	if err := doc.validateSkinnedJoints(); err != nil {
+		return nil, err
+	}
 	if err := doc.loadAnimations(raw.Animations, &decodedBytes); err != nil {
 		return nil, err
 	}
@@ -332,6 +340,41 @@ func validateVersion(v string) error {
 		return fmt.Errorf("gltf: unsupported glTF version %q (expected 2.x)", v)
 	}
 	return nil
+}
+
+// supportedMinor is the newest glTF 2.x minor version this loader implements.
+const supportedMinor = 0
+
+// validateMinVersion refuses an asset whose asset.minVersion needs a newer glTF than this loader implements, or that exceeds its own asset.version, as the spec requires (#546).
+func validateMinVersion(minVersion, version string) error {
+	if minVersion == "" {
+		return nil
+	}
+	minMajor, minMinor, ok := parseGLTFVersion(minVersion)
+	if !ok {
+		return fmt.Errorf("gltf: invalid asset.minVersion %q (want major.minor)", minVersion)
+	}
+	if major, minor, ok := parseGLTFVersion(version); ok && (minMajor > major || (minMajor == major && minMinor > minor)) {
+		return fmt.Errorf("gltf: asset.minVersion %q is newer than asset.version %q", minVersion, version)
+	}
+	if minMajor != 2 || minMinor > supportedMinor {
+		return fmt.Errorf("gltf: asset requires glTF %s, this loader supports 2.%d", minVersion, supportedMinor)
+	}
+	return nil
+}
+
+// parseGLTFVersion parses "major.minor" with non-negative decimal parts.
+func parseGLTFVersion(v string) (major, minor int, ok bool) {
+	a, b, found := strings.Cut(v, ".")
+	if !found {
+		return 0, 0, false
+	}
+	ma, err1 := strconv.Atoi(a)
+	mi, err2 := strconv.Atoi(b)
+	if err1 != nil || err2 != nil || ma < 0 || mi < 0 {
+		return 0, 0, false
+	}
+	return ma, mi, true
 }
 
 func decodeDataURI(uri string) ([]byte, error) {
@@ -979,6 +1022,10 @@ func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) error {
 				}
 			}
 
+			if err := d.validatePrimitive(rp, &prim); err != nil {
+				return fmt.Errorf("gltf: mesh %d primitive %d: %w", mi, pi, err)
+			}
+
 			if extData, ok := rp.Extensions["KHR_materials_variants"]; ok {
 				var parsed rawPrimitiveVariantsExt
 				if err := json.Unmarshal(extData, &parsed); err != nil {
@@ -1001,7 +1048,130 @@ func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) error {
 
 			mesh.Primitives[pi] = prim
 		}
+		// Every primitive of a mesh carries the same morph targets, and mesh.weights (when present) has one weight per target.
+		for pi := 1; pi < len(mesh.Primitives); pi++ {
+			if len(mesh.Primitives[pi].Targets) != len(mesh.Primitives[0].Targets) {
+				return fmt.Errorf("gltf: mesh %d primitive %d has %d morph targets, primitive 0 has %d", mi, pi, len(mesh.Primitives[pi].Targets), len(mesh.Primitives[0].Targets))
+			}
+		}
+		if len(mesh.Weights) > 0 && len(mesh.Primitives) > 0 && len(mesh.Weights) != len(mesh.Primitives[0].Targets) {
+			return fmt.Errorf("gltf: mesh %d has %d weights for %d morph targets", mi, len(mesh.Weights), len(mesh.Primitives[0].Targets))
+		}
 		d.Meshes[mi] = mesh
+	}
+	return nil
+}
+
+// validatePrimitive checks what the spec requires of a primitive's data and what the decoders rely on: every attribute and morph-target accessor has the vertex count, indices stay below it, and decoded float data is finite so it cannot poison bounds or skinning (#546).
+func (d *Document) validatePrimitive(rp rawPrimitive, prim *Primitive) error {
+	vertexCount := -1
+	names := make([]string, 0, len(rp.Attributes))
+	for name := range rp.Attributes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	if _, ok := rp.Attributes["POSITION"]; ok {
+		vertexCount = d.Accessors[rp.Attributes["POSITION"]].Count
+	}
+	for _, name := range names {
+		c := d.Accessors[rp.Attributes[name]].Count
+		if vertexCount < 0 {
+			vertexCount = c
+		} else if c != vertexCount {
+			return fmt.Errorf("attribute %s has %d elements, want %d", name, c, vertexCount)
+		}
+	}
+	for ti, rt := range rp.Targets {
+		targetNames := make([]string, 0, len(rt))
+		for name := range rt {
+			targetNames = append(targetNames, name)
+		}
+		slices.Sort(targetNames)
+		for _, name := range targetNames {
+			accIdx := rt[name]
+			if accIdx < 0 || accIdx >= len(d.Accessors) {
+				return fmt.Errorf("target %d invalid %s accessor %d", ti, name, accIdx)
+			}
+			if vertexCount >= 0 && d.Accessors[accIdx].Count != vertexCount {
+				return fmt.Errorf("target %d %s has %d elements, want %d", ti, name, d.Accessors[accIdx].Count, vertexCount)
+			}
+		}
+	}
+	if vertexCount >= 0 {
+		for i, idx := range prim.Indices {
+			if uint64(idx) >= uint64(vertexCount) {
+				return fmt.Errorf("index %d at %d is past the %d vertices", idx, i, vertexCount)
+			}
+		}
+	}
+	finite3 := func(name string, vs []math3d.Vec3) error {
+		for i, v := range vs {
+			if !finite32(v.X) || !finite32(v.Y) || !finite32(v.Z) {
+				return fmt.Errorf("%s element %d is not finite", name, i)
+			}
+		}
+		return nil
+	}
+	finite4 := func(name string, vs []math3d.Vec4) error {
+		for i, v := range vs {
+			if !finite32(v.X) || !finite32(v.Y) || !finite32(v.Z) || !finite32(v.W) {
+				return fmt.Errorf("%s element %d is not finite", name, i)
+			}
+		}
+		return nil
+	}
+	if err := finite3("POSITION", prim.Positions); err != nil {
+		return err
+	}
+	if err := finite3("NORMAL", prim.Normals); err != nil {
+		return err
+	}
+	if err := finite4("TANGENT", prim.Tangents); err != nil {
+		return err
+	}
+	if err := finite4("WEIGHTS_0", prim.Weights0); err != nil {
+		return err
+	}
+	if err := finite4("COLOR_0", prim.Colors0); err != nil {
+		return err
+	}
+	for _, uv := range [][]math3d.Vec2{prim.TexCoords0, prim.TexCoords1} {
+		for i, v := range uv {
+			if !finite32(v.X) || !finite32(v.Y) {
+				return fmt.Errorf("TEXCOORD element %d is not finite", i)
+			}
+		}
+	}
+	for ti, t := range prim.Targets {
+		for _, part := range [][]math3d.Vec3{t.Positions, t.Normals, t.Tangents} {
+			if err := finite3(fmt.Sprintf("target %d", ti), part); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func finite32(f float32) bool {
+	return !math.IsNaN(float64(f)) && !math.IsInf(float64(f), 0)
+}
+
+// validateSkinnedJoints checks that every JOINTS_0 value of a mesh drawn with a skin indexes that skin's joint list, so skinning never reads past it (#546).
+func (d *Document) validateSkinnedJoints() error {
+	for ni, n := range d.Nodes {
+		if n.Mesh < 0 || n.Skin < 0 || n.Mesh >= len(d.Meshes) || n.Skin >= len(d.Skins) {
+			continue
+		}
+		joints := len(d.Skins[n.Skin].Joints)
+		for pi, prim := range d.Meshes[n.Mesh].Primitives {
+			for vi, j := range prim.Joints0 {
+				for _, idx := range j {
+					if int(idx) >= joints {
+						return fmt.Errorf("gltf: node %d mesh %d primitive %d vertex %d joint %d is past skin %d's %d joints", ni, n.Mesh, pi, vi, idx, n.Skin, joints)
+					}
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -1055,6 +1225,9 @@ func (d *Document) loadNodes(raws []rawNode) error {
 				node.Translation = pos
 				node.Rotation = rot
 				node.Scale = scale
+			} else {
+				node.Translation = math3d.Vec3{X: m[12], Y: m[13], Z: m[14]}
+				node.MatrixNotTRS = true
 			}
 		} else {
 			if len(rn.Translation) > 0 {
@@ -1440,6 +1613,7 @@ func (d *Document) applySparse(acc *Accessor, elemSize int, fn func(dstIdx int, 
 	}
 	valSlice := valBuf[valBV.ByteOffset+sp.Values.ByteOffset : valBV.ByteOffset+valBV.ByteLength]
 
+	var prevIdx uint32
 	for k := range sp.Count {
 		var idx uint32
 		off := k * idxCompSize
@@ -1456,6 +1630,11 @@ func (d *Document) applySparse(acc *Accessor, elemSize int, fn func(dstIdx int, 
 		if uint64(idx) >= uint64(acc.Count) {
 			return fmt.Errorf("gltf: sparse index %d out of range [0, %d)", idx, acc.Count)
 		}
+		// The spec requires strictly increasing sparse indices; duplicates or reordering would make the substituted values depend on application order (#546).
+		if k > 0 && idx <= prevIdx {
+			return fmt.Errorf("gltf: sparse indices must strictly increase (index %d after %d)", idx, prevIdx)
+		}
+		prevIdx = idx
 		elem := valSlice[k*elemSize : (k+1)*elemSize]
 		if err := fn(int(idx), elem); err != nil {
 			return err

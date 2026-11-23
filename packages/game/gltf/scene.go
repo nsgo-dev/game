@@ -29,13 +29,15 @@ type Node struct {
 	// LocalMatrix (authored via the glTF "matrix" property) rather than TRS.
 	// When false, ComputeWorldMatrices recomputes LocalMatrix from Translation,
 	// Rotation, and Scale.
-	HasMatrix  bool
-	Mesh       int
-	Skin       int
-	Camera     int
-	Weights    []float32
-	Extras     json.RawMessage
-	Extensions map[string]json.RawMessage
+	HasMatrix bool
+	// MatrixNotTRS reports that the authored matrix has shear or another part a translation, rotation and scale cannot express. Translation then holds the matrix's translation, Rotation and Scale stay identity, and LocalMatrix is the only exact transform (#546).
+	MatrixNotTRS bool
+	Mesh         int
+	Skin         int
+	Camera       int
+	Weights      []float32
+	Extras       json.RawMessage
+	Extensions   map[string]json.RawMessage
 }
 
 // Transform returns the node's local TRS transform.
@@ -54,6 +56,7 @@ func (n *Node) SetTransform(t math3d.Transform) {
 	n.Rotation = t.Rot
 	n.Scale = t.Scale
 	n.HasMatrix = false
+	n.MatrixNotTRS = false
 	n.LocalMatrix = t.ToMat4()
 }
 
