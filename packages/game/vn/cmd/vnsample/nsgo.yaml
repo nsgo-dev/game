@@ -1,0 +1,10 @@
+name: VN Sample
+id: dev.nsgo.game.vnsample
+version: 0.1.0
+
+dev:
+  target: native
+
+build:
+  output: dist
+  targets: [macos, windows, linux, android, web]
