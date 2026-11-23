@@ -197,7 +197,7 @@ go tool nsgo build -target ios_simulator
 - **商店提交注意事项**：
   - 使用 Apple 的 Transporter 应用或 Xcode 将 `<name>.ipa` 上传至 App Store Connect / TestFlight。
   - 每次上传都必须递增 `build_number`（`CFBundleVersion`）。
-  - 使用 `apple.requires_full_screen` 和 `apple.orientations`（`portrait`、`portrait_upside_down`、`landscape_left`、`landscape_right`）配置 iPad 分屏与屏幕方向，并在 `apple.info` 下添加所需的 `Info.plist` 字段。`apple.orientations` 只作用于 iPad；iPhone 采用游戏在运行时通过 `cx.RequestOrientation` 请求的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
+  - 使用 `apple.requires_full_screen` 和 `apple.orientations`（`portrait`、`portrait_upside_down`、`landscape_left`、`landscape_right`）配置 iPad 分屏与屏幕方向，并在 `apple.info` 下添加所需的 `Info.plist` 字段。`apple.orientations` 声明全屏 iPad 允许的方向，而游戏在运行时通过 `cx.RequestOrientation` 发出的请求在 iPhone 和 iPad 上都会生效（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。在 iPad 上，UIKit 只允许两者共有的方向，因此要列出游戏请求的每个方向，例如横屏游戏列出 `landscape_left` 和 `landscape_right`；请求与 `apple.orientations` 没有共同方向时，iPad 将没有可用的方向。
 
 ### Android
 

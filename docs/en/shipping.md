@@ -197,7 +197,7 @@ go tool nsgo build -target ios_simulator
 - **Store submission**:
   - Upload `<name>.ipa` to App Store Connect / TestFlight with Apple's Transporter app or Xcode.
   - Increment `build_number` (`CFBundleVersion`) for every upload.
-  - Configure iPad multitasking and screen orientations with `apple.requires_full_screen` and `apple.orientations` (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`), and add any required `Info.plist` entries under `apple.info`. `apple.orientations` covers only the iPad; an iPhone takes the orientation the game requests at runtime with `cx.RequestOrientation` (see [Orientation on phones](screen.md#orientation-on-phones)).
+  - Configure iPad multitasking and screen orientations with `apple.requires_full_screen` and `apple.orientations` (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`), and add any required `Info.plist` entries under `apple.info`. `apple.orientations` declares the orientations a full-screen iPad allows, while the runtime request from `cx.RequestOrientation` applies on both the iPhone and the iPad (see [Orientation on phones](screen.md#orientation-on-phones)). On an iPad, UIKit allows only the orientations both lists share, so list every orientation the game requests, such as `landscape_left` and `landscape_right` for a landscape game; a request with nothing in common with `apple.orientations` leaves the iPad no valid orientation.
 
 ### Android
 
