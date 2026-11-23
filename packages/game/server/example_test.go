@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	gamenet "github.com/nsgo-dev/game/packages/game/net"
@@ -45,7 +47,10 @@ func ExampleRooms() {
 	room.Start()
 	room.Advance()
 	j, err := rooms.Join(room.ID(), 3)
-	fmt.Println(err, room.Members(), room.State(), j.Epoch, j.Tick)
+	// Members does not keep admission order, so sort it before printing.
+	members := room.Members()
+	slices.Sort(members)
+	fmt.Println(err, members, room.State(), j.Epoch, j.Tick)
 	// Output:
 	// KX7Q waiting
 	// <nil> [1 2 3] running 1 1
@@ -70,4 +75,30 @@ func ExampleGuard() {
 	// allow <nil>
 	// throttle server: packet rate limited
 	// server: message too large
+}
+
+// A Runner steps each match at its own fixed rate until its context is canceled, then calls the match's OnStop. Here the match ends itself after three ticks by canceling the context.
+func ExampleRunner() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ticks := 0
+	r := &server.Runner{Matches: []*server.Match{{
+		Name: "arena-1",
+		Rate: 1000,
+		Update: func(dt time.Duration) {
+			ticks++
+			fmt.Println("tick", ticks, dt)
+			if ticks == 3 {
+				cancel()
+			}
+		},
+		OnStop: func() { fmt.Println("stopped after", ticks, "ticks") },
+	}}}
+	fmt.Println(r.Run(ctx))
+	// Output:
+	// tick 1 1ms
+	// tick 2 1ms
+	// tick 3 1ms
+	// stopped after 3 ticks
+	// <nil>
 }

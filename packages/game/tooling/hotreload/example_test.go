@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// A Watcher polls an asset directory during development and calls back on the engine goroutine when a watched file changes, so a running game picks up edited levels or sprites without a restart.
+// NewWatcher starts polling an asset directory during development; Watch and WatchPattern register callbacks that run on the engine goroutine when a watched file changes, so a running game picks up edited levels or sprites without a restart. The watcher polls on wall time in the background, so this example shows only the setup: nothing has been reloaded yet and Generation is 0.
 func ExampleNewWatcher() {
 	dir, err := os.MkdirTemp("", "assets")
 	if err != nil {

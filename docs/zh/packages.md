@@ -2,7 +2,7 @@
 
 每个包包含什么、各部分如何工作，内容来自包的文档注释。完整的 API 见各个包的 Go doc。
 
-每个库包还带有可运行的示例：`example_test.go` 中的 `Example` 函数，展示包中各类型的主要用法。它们随包的 Go doc 一起显示（例如在 pkg.go.dev 上），`go tool nsgo test` 会运行每个示例，并把它的输出与 `// Output:` 注释比对，所以与代码不再相符的示例会让测试失败。`cmd` 和 `internal` 下的包不带示例，因为它们的 Go doc 不会发布。
+每个库包还带有可运行的示例：`example_test.go` 中的 `Example` 函数，展示包中各类型的主要用法。它们随包的 Go doc 一起显示（例如在 pkg.go.dev 上），`go tool nsgo test` 会运行每个示例，并把它的输出与 `// Output:` 注释比对，所以与代码不再相符的示例会让测试失败。命令（`package main`，例如 `cmd/` 下的命令和 `server/cmd/dedicatedserver`）不带示例，因为它们没有可展示的导出 API；internal 包也不带，因为只有本模块自己导入它们。需要外部服务（例如 `accounts/pgstore` 的 Postgres 数据库）或正在运行的测试（例如 `accounts/storetest`）的示例不写 `// Output:` 注释，因此只编译、不运行。
 
 ## Loop
 

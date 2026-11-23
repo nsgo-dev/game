@@ -2,6 +2,7 @@ package physics_test
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/physics"
@@ -85,4 +86,40 @@ func ExampleLayerBit() {
 	fmt.Println(physics.CanCollide(hero, slime), physics.CanCollide(hero, ghost))
 	// Output:
 	// true false
+}
+
+// A CharacterBody moves a platformer character by its velocity, landing on tiles, slopes and moving platforms, and rides a MovingPlatform: each step the platform records its displacement with Move and carries the character with it.
+func ExampleCharacterBody() {
+	dt := time.Second / 60
+	lift := &physics.MovingPlatform{Body: physics.NewBoxBody(40, 100, 64, 12), OneWay: true}
+	hero := physics.NewCharacterBody(physics.NewBoxBody(60, 80, 12, 16))
+	platforms := []*physics.MovingPlatform{lift}
+
+	// Fall onto the lift under gravity.
+	for range 20 {
+		lift.DeltaX, lift.DeltaY = 0, 0
+		hero.Body.VY += 600 * float32(dt.Seconds())
+		hero.Move(nil, nil, platforms, dt)
+	}
+	fmt.Println(hero.Grounded, hero.Riding == lift, round(hero.Body.Shape.Box.Bottom()))
+
+	// The lift moves 2 px right each step for 30 steps, carrying the hero 60 px.
+	for range 30 {
+		lift.Move(2, 0)
+		hero.Body.VY += 600 * float32(dt.Seconds())
+		hero.Move(nil, nil, platforms, dt)
+	}
+	fmt.Println(hero.Grounded, round(hero.Body.Shape.Box.X))
+	// Output:
+	// true true 100
+	// true 120
+}
+
+// round rounds to two decimals, printing a rounded negative zero as 0.
+func round(v float32) float64 {
+	r := math.Round(float64(v)*100) / 100
+	if r == 0 {
+		return 0
+	}
+	return r
 }

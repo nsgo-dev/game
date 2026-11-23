@@ -3,8 +3,10 @@ package sound_test
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/sound"
+	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -90,4 +92,23 @@ func ExampleMixer() {
 	fmt.Println(again.Volume("music"), again.Master(), again.Volume("sfx"))
 	// Output:
 	// 0.3 0.8 1
+}
+
+// Music plays one long track at a time through the mixer's "music" group, crossfading into the next. PlayWithIntro plays a SectionedTrack's intro once and then loops its loop section. Playing needs the platform's audio, so this example is compiled but not run.
+func ExampleMusic() {
+	root := core.NewRoot(core.RootOptions{})
+	defer root.Dispose()
+	mixer := sound.NewMixer(root, "mixer")
+	music := mixer.Music("music")
+
+	// The title screen's theme loops; the first level's track crossfades in over two seconds.
+	music.Loop = true
+	music.Play(audio.Source{URI: "asset:music/title.m4a"}, 0)
+	music.PlayWithIntro(sound.SectionedTrack{
+		Intro: audio.Source{URI: "asset:music/level1-intro.m4a"},
+		Loop:  audio.Source{URI: "asset:music/level1-loop.m4a"},
+	}, 2*time.Second)
+
+	// Pausing the game fades the music out.
+	music.Stop(500 * time.Millisecond)
 }

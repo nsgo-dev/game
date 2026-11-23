@@ -83,3 +83,28 @@ func ExampleNewParallaxLayer() {
 	// Output:
 	// hills true 0.5 0
 }
+
+// A SplitScreen draws one scene in several viewports, each through its own camera sized to its viewport, and routes a point on the screen to the viewport under it and that viewport's camera.
+func ExampleSplitScreen() {
+	// A camera's X and Y are the world point at the centre of its view.
+	left := &tilemap.Camera{X: 160, Y: 90, Zoom: 1}
+	right := &tilemap.Camera{X: 352, Y: 132, Zoom: 1}
+	s := scene.NewScene(left)
+	world := s.AddLayer(scene.NewLayer("world", scene.SpaceWorld, 0))
+	chest := sprite.NewSprite(sprite.Frame{W: 16, H: 16, Width: 16, Height: 16})
+	chest.X, chest.Y = 200, 50
+	world.AddBatch(&sprite.Batch{Sprites: []*sprite.Sprite{&chest}})
+
+	split := scene.VerticalSplit(core.Size{Width: 640, Height: 180}, left, right)
+	// The chest's centre, (208, 58) in the world, is at (208, 58) in the left half and at (336, 16) in the right half.
+	for _, p := range []core.Point{{X: 208, Y: 58}, {X: 336, Y: 16}, {X: 336, Y: 100}} {
+		i, hit, ok := split.HitTest(s, p)
+		fmt.Println(i, ok, ok && hit.Sprite == &chest)
+	}
+	fmt.Println(split.ViewportAt(core.Point{X: 700, Y: 0}), s.Camera == left)
+	// Output:
+	// 0 true true
+	// 1 true true
+	// 1 false false
+	// -1 true
+}
