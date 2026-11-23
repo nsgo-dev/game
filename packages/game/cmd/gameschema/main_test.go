@@ -18,19 +18,32 @@ var (
 	published = filepath.Join("..", "..", "..", "..", "apps", "website", "public", "schemas")
 )
 
+// sceneSchema returns the generated version 1 scene schema.
 func sceneSchema(t testing.TB) *jsonschema.Schema {
+	t.Helper()
+	return schemaAt(t, sceneformat.SchemaURL)
+}
+
+// schemaAt returns the generated schema published at url.
+func schemaAt(t testing.TB, url string) *jsonschema.Schema {
 	t.Helper()
 	files, err := generate(root)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	for _, f := range files {
-		if f.schema.ID == sceneformat.SchemaURL {
+		if f.schema.ID == url {
 			return f.schema
 		}
 	}
-	t.Fatalf("no schema for %s", sceneformat.SchemaURL)
+	t.Fatalf("no schema for %s", url)
 	return nil
+}
+
+// sceneSchemas returns the generated scene schemas keyed by the version they describe.
+func sceneSchemas(t testing.TB) map[int]*jsonschema.Schema {
+	t.Helper()
+	return map[int]*jsonschema.Schema{1: schemaAt(t, sceneformat.SchemaURL), 2: schemaAt(t, sceneformat.SchemaURLV2)}
 }
 
 // TestPublishedSchemasMatchGoTypes fails when a format's Go types change without the committed schema being regenerated.
@@ -85,8 +98,19 @@ func TestSceneSchemaShape(t *testing.T) {
 		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
 	}
 	version := s.Property("version")
-	if version == nil || version.Const != int64(sceneformat.CurrentVersion) || !strings.Contains(version.Description, "CurrentVersion") {
+	if version == nil || version.Const != int64(1) || !strings.Contains(version.Description, "CurrentVersion") {
 		t.Fatalf("version property = %+v", version)
+	}
+	for _, key := range []string{"inherits", "overrides", "layerOverrides"} {
+		if s.Property(key) != nil {
+			t.Errorf("version 1 schema has the version 2 key %q", key)
+		}
+	}
+	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("scene") != nil || obj.Property("overrides") != nil {
+		t.Errorf("version 1 ObjectDoc = %+v, want one without scene and overrides", obj)
+	}
+	if _, ok := s.Definitions["ObjectOverride"]; ok {
+		t.Error("version 1 schema defines ObjectOverride")
 	}
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
 		t.Fatal("scene schema accepts unknown top-level keys")
@@ -107,26 +131,59 @@ func TestSceneSchemaShape(t *testing.T) {
 	}
 }
 
+func TestSceneSchemaV2Shape(t *testing.T) {
+	s := schemaAt(t, sceneformat.SchemaURLV2)
+	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	for _, key := range []string{"inherits", "overrides", "layerOverrides"} {
+		if p := s.Property(key); p == nil || p.Description == "" {
+			t.Errorf("version 2 schema property %q = %+v, want one with a description", key, p)
+		}
+	}
+	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("scene") == nil || obj.Property("overrides") == nil {
+		t.Errorf("version 2 ObjectDoc = %+v, want one with scene and overrides", obj)
+	}
+	for _, name := range []string{"ObjectOverride", "LayerOverride"} {
+		def := s.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", name, def)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", name, p.Name)
+			}
+		}
+	}
+}
+
+// TestSceneSchemaAcceptsTestdata checks every scene fixture, and its re-encoding, against the schema its version names.
 func TestSceneSchemaAcceptsTestdata(t *testing.T) {
-	s := sceneSchema(t)
-	paths, err := filepath.Glob(filepath.Join(root, "sceneformat", "testdata", "*.scene.yaml"))
-	if err != nil || len(paths) == 0 {
-		t.Fatalf("no testdata scenes (%v)", err)
+	schemas := sceneSchemas(t)
+	var paths []string
+	for _, pattern := range []string{"*.scene.yaml", "project/*.scene.yaml", "project/scenes/*.scene.yaml"} {
+		matches, err := filepath.Glob(filepath.Join(root, "sceneformat", "testdata", filepath.FromSlash(pattern)))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("no testdata scenes match %s (%v)", pattern, err)
+		}
+		paths = append(paths, matches...)
 	}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.HasPrefix(data, []byte(sceneformat.SchemaComment+"\n")) {
-			t.Errorf("%s does not start with %q", p, sceneformat.SchemaComment)
-		}
-		if err := s.ValidateYAML(data); err != nil {
-			t.Errorf("%s: %v", p, err)
-		}
 		doc, err := sceneformat.Parse(data)
 		if err != nil {
 			t.Fatalf("%s: %v", p, err)
+		}
+		comment := sceneformat.SchemaCommentFor(doc.Version)
+		if !bytes.HasPrefix(data, []byte(comment+"\n")) {
+			t.Errorf("%s does not start with %q", p, comment)
+		}
+		s := schemas[doc.Version]
+		if err := s.ValidateYAML(data); err != nil {
+			t.Errorf("%s: %v", p, err)
 		}
 		encoded, err := sceneformat.Encode(doc)
 		if err != nil {
@@ -148,7 +205,8 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"unknown top-level key": {"version: 1\nnmae: x\n", `/nmae: unknown key "nmae"`},
 		"unknown object key":    {"version: 1\nlayers: [{name: a, objects: [{id: o, colour: red}]}]\n", `/layers/0/objects/0/colour: unknown key`},
 		"missing version":       {"name: x\n", `/: missing required key "version"`},
-		"future version":        {"version: 2\n", "/version: 2 is not the allowed value 1"},
+		"future version":        {"version: 3\n", "/version: 3 is not the allowed value 1"},
+		"inherits in version 1": {"version: 1\ninherits: base.scene.yaml\n", `/inherits: unknown key "inherits"`},
 		"layer without name":    {"version: 1\nlayers: [{order: 1}]\n", `/layers/0: missing required key "name"`},
 		"bad space":             {"version: 1\nlayers: [{name: a, space: sky}]\n", `/layers/0/space: "sky" is not one of "world", "screen"`},
 		"object without id":     {"version: 1\nlayers: [{name: a, objects: [{x: 1}]}]\n", `/layers/0/objects/0: missing required key "id"`},
@@ -199,7 +257,8 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 	f.Add([]byte("version: 1\n"))
 	f.Add([]byte("version: 1\nlayers: [{name: a, space: screen, visible: false, objects: [{id: o, alpha: 0, scaleX: -1, components: {c: {k: [1]}}}]}]\n"))
 	f.Add([]byte("version: 1\ncamera: {zoom: 0.5, bounds: {width: 1, height: 2}}\ntilemaps: {g: {tileWidth: 1, tileHeight: 1, width: 1, height: 1, tileset: t, data: [0]}}\nlayers: [{name: a, tilemap: {ref: g}}, {name: b, tilemap: {source: m.tmj}}]\n"))
-	s := sceneSchema(f)
+	f.Add([]byte("version: 2\ninherits: base.scene.yaml\noverrides: {o: {x: 1, alpha: 0.5}}\nlayerOverrides: {a: {order: 2}}\nlayers: [{name: b, objects: [{id: e, scene: enemy.scene.yaml, overrides: {body: {z: 1}}}]}]\n"))
+	schemas := sceneSchemas(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doc, err := sceneformat.Parse(data)
 		if err != nil {
@@ -209,7 +268,7 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 		if err != nil {
 			t.Fatalf("Encode of a parsed scene: %v", err)
 		}
-		if err := s.ValidateYAML(encoded); err != nil {
+		if err := schemas[doc.Version].ValidateYAML(encoded); err != nil {
 			t.Fatalf("schema refuses an encoded scene: %v\n%s", err, encoded)
 		}
 	})

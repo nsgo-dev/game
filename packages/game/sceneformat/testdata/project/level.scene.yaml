@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Level
+layers:
+  - name: actors
+    objects:
+      - id: enemy_1
+        x: 32
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            alpha: 0.5
+      - id: enemy_2
+        x: 64
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            properties:
+              health: 1
+      - id: enemy_3
+        x: 96
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          torch:
+            x: -6
+      - id: enemy_4
+        x: 128
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            flipX: true
+      - id: enemy_5
+        x: 160
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            scaleX: 2
+      - id: enemy_6
+        x: 192
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          torch:
+            z: -1
+      - id: enemy_7
+        x: 224
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            name: Captain
+      - id: enemy_8
+        x: 256
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            sprite:
+              atlas: actors
+              frame: torch
+      - id: enemy_9
+        x: 288
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          torch:
+            alpha: 0
+      - id: enemy_10
+        x: 320
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            rotation: 0.5

@@ -11,11 +11,12 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 格式 | Schema | 文件 |
 | --- | --- | --- |
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、导入旁注文件（#487）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。
 
-Schema 的 URL 带有格式版本号。写着 `version: 1` 的文件，在 `scene.v1.json` 旁发布版本 2 之后仍按 `scene.v1.json` 校验。
+Schema 的 URL 带有格式版本号。`scene.v2.json` 已在 `scene.v1.json` 旁发布，写着 `version: 1` 的文件仍按 `scene.v1.json` 校验，它拒绝版本 2 新增的键；`Encode` 写入的是文档自身版本的 Schema。
 
 ## 让编辑器使用 Schema
 

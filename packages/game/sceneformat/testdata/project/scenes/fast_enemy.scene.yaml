@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+inherits: scenes/enemy.scene.yaml
+overrides:
+  body:
+    properties:
+      speed: 80

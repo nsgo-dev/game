@@ -36,15 +36,39 @@ type format struct {
 	typ reflect.Type
 	// pkg is the directory of typ's package relative to packages/game, whose doc comments describe the schema's fields.
 	pkg string
+	// version, when non-zero, is the only value the schema allows for the root's version property.
+	version int
+	// fieldName maps a struct field to its key, or skips it; nil uses jsonschema.YAMLField.
+	fieldName func(reflect.StructField) jsonschema.Field
+}
+
+// sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
+var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true}
+
+// sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 2 added.
+func sceneV1Field(f reflect.StructField) jsonschema.Field {
+	if sceneV2Fields[f.Name] {
+		return jsonschema.Field{Skip: true}
+	}
+	return jsonschema.YAMLField(f)
 }
 
 // formats lists every format gameschema writes a schema for. A format that gets a typed YAML loader adds its entry here, and a version 2 of a format adds a second entry beside version 1, since files that name the old schema keep naming it.
 var formats = []format{
 	{
-		url:   sceneformat.SchemaURL,
-		title: "NSGo game scene (version 1)",
-		typ:   reflect.TypeFor[sceneformat.SceneDoc](),
-		pkg:   "sceneformat",
+		url:       sceneformat.SchemaURL,
+		title:     "NSGo game scene (version 1)",
+		typ:       reflect.TypeFor[sceneformat.SceneDoc](),
+		pkg:       "sceneformat",
+		version:   1,
+		fieldName: sceneV1Field,
+	},
+	{
+		url:     sceneformat.SchemaURLV2,
+		title:   "NSGo game scene (version 2)",
+		typ:     reflect.TypeFor[sceneformat.SceneDoc](),
+		pkg:     "sceneformat",
+		version: 2,
 	},
 }
 
@@ -63,9 +87,18 @@ func generate(root string) ([]schemaFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs})
+		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs, FieldName: f.fieldName})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
+		}
+		if f.version != 0 {
+			v := s.Property("version")
+			if v == nil {
+				return nil, fmt.Errorf("%s: no version property", f.url)
+			}
+			// The one allowed value lies within the Go type's range, so the type's bounds would only repeat it, as Reflect leaves them out for a const tag.
+			v.Const = int64(f.version)
+			v.Minimum, v.Maximum = nil, nil
 		}
 		data, err := s.Marshal()
 		if err != nil {

@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Enemy
+layers:
+  - name: root
+    objects:
+      - id: body
+        originX: 8
+        originY: 8
+        sprite:
+          atlas: actors
+          frame: hero
+        properties:
+          health: 3
+          speed: 40
+        children:
+          - id: torch
+            x: 6
+            z: 1
+            sprite:
+              atlas: actors
+              frame: torch

@@ -389,7 +389,7 @@ func TestValidationErrors(t *testing.T) {
 		{name: "unknown_field", yaml: "version: 1\nbogusField: true\n", wantSub: "not found"},
 		{name: "trailing_doc", yaml: "version: 1\n---\nversion: 1\n", wantSub: "trailing"},
 		{name: "missing_version", yaml: "name: No Version\n", wantSub: "unsupported version"},
-		{name: "future_version", yaml: "version: 2\n", wantSub: "unsupported version"},
+		{name: "future_version", yaml: "version: 3\n", wantSub: "unsupported version"},
 		{name: "half_virtual_size", yaml: "version: 1\nvirtualWidth: 320\n", wantSub: "virtualWidth"},
 		{name: "negative_virtual_size", yaml: "version: 1\nvirtualWidth: -10\nvirtualHeight: 10\n", wantSub: "non-negative"},
 		{name: "bad_background_color", yaml: "version: 1\nbackgroundColor: not-a-color\n", wantSub: "backgroundColor"},

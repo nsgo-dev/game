@@ -11,11 +11,12 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Format | Schema | Files |
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
+| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, read by `sceneformat.Parse` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), import sidecars (#487), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
 
-A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json` after a version 2 is published beside it.
+A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json`, which refuses the keys version 2 added, now that `scene.v2.json` is published beside it; `Encode` names the schema of the document's own version.
 
 ## Pointing an editor at a schema
 
