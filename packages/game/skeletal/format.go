@@ -163,7 +163,7 @@ type AttachmentKeyframe struct {
 
 // Load parses and validates a version-1 skeletal rig from YAML (.skel.yaml).
 //
-// It rejects empty input, unknown fields, duplicate keys, trailing YAML documents, unknown schema versions, non-finite numbers, duplicate bone or slot names, missing parents, cycles in the bone hierarchy, slots or skins referencing missing bones or slots, and animations with unknown targets, unsorted or out-of-range keyframes, or invalid curves. JSON is YAML flow syntax, so a version-1 rig written as JSON loads too.
+// It rejects empty input, unknown fields, duplicate keys, trailing YAML documents, unknown schema versions, non-finite numbers, duplicate bone or slot names, missing parents, cycles in the bone hierarchy, slots or skins referencing missing bones or slots, and animations with unknown targets, unsorted or out-of-range keyframes, or invalid curves. A version-1 rig written as JSON loads too when the JSON is also valid YAML: keys spelled exactly as the schema spells them (matching is case-sensitive) and no `\/` escape, which YAML does not have.
 func Load(data []byte) (*SkeletonData, error) {
 	raw, err := decodeRaw(data)
 	if err != nil {
@@ -394,15 +394,15 @@ func decodeRaw(data []byte) (*rawSkeleton, error) {
 	return &raw, nil
 }
 
-// Raw wire structs for the YAML schema. Pointer fields distinguish omitted values from explicit 0. Field order is the order Encode writes keys in.
+// Raw wire structs for the YAML schema. Pointer fields distinguish omitted values from explicit 0. Field order is the order Encode writes keys in, and named maps are sortedMaps so Encode writes their keys in byte order.
 
 type rawSkeleton struct {
 	Version    int                             `yaml:"version"`
 	Name       string                          `yaml:"name,omitempty"`
 	Bones      []rawBone                       `yaml:"bones,omitempty"`
 	Slots      []rawSlot                       `yaml:"slots,omitempty"`
-	Skins      map[string]map[string]rawAttach `yaml:"skins,omitempty"`
-	Animations map[string]rawAnimation         `yaml:"animations,omitempty"`
+	Skins      sortedMap[sortedMap[rawAttach]] `yaml:"skins,omitempty"`
+	Animations sortedMap[rawAnimation]         `yaml:"animations,omitempty"`
 }
 
 type rawBone struct {
@@ -437,8 +437,8 @@ type rawAttach struct {
 type rawAnimation struct {
 	Duration *float64                   `yaml:"duration,omitempty"`
 	Loop     bool                       `yaml:"loop,omitempty"`
-	Bones    map[string]rawBoneTimeline `yaml:"bones,omitempty"`
-	Slots    map[string]rawSlotTimeline `yaml:"slots,omitempty"`
+	Bones    sortedMap[rawBoneTimeline] `yaml:"bones,omitempty"`
+	Slots    sortedMap[rawSlotTimeline] `yaml:"slots,omitempty"`
 }
 
 type rawBoneTimeline struct {
