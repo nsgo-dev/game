@@ -59,7 +59,7 @@ func TestEditorErrors(t *testing.T) {
 	}
 
 	a, _, _ = newTestApp(t)
-	if code := run([]string{"editor", "a.yaml", "b.yaml"}, a); code != 2 {
-		t.Fatalf("two scenes exit %d, want 2", code)
+	if code := run([]string{"editor", "a.yaml", "b.animation.yaml", "hero", "extra"}, a); code != 2 {
+		t.Fatalf("four arguments exit %d, want 2", code)
 	}
 }
