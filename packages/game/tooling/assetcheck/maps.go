@@ -87,7 +87,7 @@ func (c *checker) checkTiledLayers(p, dir string, layers []*jsonValue) {
 	}
 }
 
-// isJSONTileset reports whether a Tiled tileset source names a JSON tileset, which tilemap.LoadTiled reads, rather than a TSX one, which it does not.
+// isJSONTileset reports whether a Tiled tileset source names a JSON tileset (.tsj, or .json as older Tiled versions named them), which tilemap.LoadTiled reads, rather than a TSX one, which it does not.
 func isJSONTileset(src string) bool {
 	ext := strings.ToLower(path.Ext(src))
 	return ext == ".tsj" || ext == ".json"
@@ -109,7 +109,7 @@ func (c *checker) checkTiledTileset(p string) {
 	}
 }
 
-// checkLDtk checks the LDtk project at p: its tileset images, level backgrounds and external level files, and that tilemap.LoadLDtkAll loads it.
+// checkLDtk checks the LDtk project at p: its tileset images and level backgrounds, that no level is saved in a separate file, which tilemap.LoadLDtkAll does not read, and that tilemap.LoadLDtkAll loads it.
 func (c *checker) checkLDtk(p string) {
 	if c.checked[p] {
 		return
@@ -131,7 +131,8 @@ func (c *checker) checkLDtk(p string) {
 			c.imageRef(p, line, dir, rel, "level background")
 		}
 		if rel, line := lvl.str("externalRelPath"); rel != "" {
-			c.fileRef(p, line, dir, rel, "external level")
+			id, _ := lvl.str("identifier")
+			c.problem(p, line, "level %q is saved in a separate file (%q), which tilemap.LoadLDtkAll does not read, so it would load empty; turn off \"Save levels to separate files\" in LDtk", id, rel)
 		}
 	}
 	if c.broken[p] {
