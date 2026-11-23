@@ -96,7 +96,7 @@ func NormalizeSetting(s string) (string, error) {
 
 // Preset is what one quality level turns on and how far it scales the game's costs.
 type Preset struct {
-	// ResolutionScale scales the resolution of buffers the game renders or rasterizes itself, such as render3d.OcclusionBuffer and procedurally drawn images, in (0, 1]. Read it through Scale and ScaleSize. It does not lower the resolution of a core.Canvas itself: NSGo v0.2.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it.
+	// ResolutionScale scales the resolution of buffers the game renders or rasterizes itself, such as render3d.OcclusionBuffer and procedurally drawn images, in (0, 1]. Read it through Scale and ScaleSize. It does not lower the resolution of a core.Canvas itself: NSGo v0.2.0 draws a canvas at the display's full pixel density and has no setting to render it smaller and upscale it. Nothing in this module applies it for the game; the game sizes its own buffers with it.
 	ResolutionScale float32 `yaml:"resolution_scale"`
 	// ParticleScale scales particle budgets and burst counts, in (0, 1]. Read it through Particles.
 	ParticleScale float32 `yaml:"particle_scale"`

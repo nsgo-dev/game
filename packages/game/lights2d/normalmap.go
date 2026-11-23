@@ -36,8 +36,7 @@ func ShadeNormalMapWithOccluders(diffuse, normalMap *image.NRGBA, spriteX, sprit
 	return out
 }
 
-// ShadeNormalMap shades diffuse using normalMap with the scene's Ambient,
-// Lights, and Occluders, leaving the occluders out when DisableShadows is set.
+// ShadeNormalMap shades diffuse using normalMap with the scene's Ambient, Lights, and Occluders, leaving the occluders out when DisableShadows is set.
 func (s *Scene) ShadeNormalMap(diffuse, normalMap *image.NRGBA, spriteX, spriteY, lightZ float32) *image.NRGBA {
 	if s == nil {
 		return ShadeNormalMap(diffuse, normalMap, spriteX, spriteY, 0, nil, lightZ)
@@ -317,7 +316,7 @@ func (ns *NormalSprite) ImageSource(scene *Scene) core.ImageSource {
 		if scene != nil {
 			ambient = scene.Ambient
 			lights = scene.Lights
-			occluders = scene.Occluders
+			occluders = scene.shadowOccluders()
 		}
 		shadeNormalMapInto(ns.shaded, ns.Diffuse, ns.NormalMap, ns.X, ns.Y, ambient, lights, ns.LightZ, occluders)
 		nrgbaToPremultipliedRGBA(ns.pixels, ns.shaded)
@@ -393,7 +392,7 @@ func (ns *NormalSprite) cacheKey(scene *Scene) normalSpriteKey {
 	if scene != nil {
 		key.ambient = scene.Ambient
 		key.lightCount = len(scene.Lights)
-		key.occluderCount = len(scene.Occluders)
+		key.occluderCount = len(scene.shadowOccluders())
 		mix32(uint32(scene.Ambient))
 		for _, l := range scene.Lights {
 			if l == nil {
@@ -412,7 +411,7 @@ func (ns *NormalSprite) cacheKey(scene *Scene) normalSpriteKey {
 			mixBool(l.CastShadows)
 			mixBool(l.Enabled)
 		}
-		for _, occ := range scene.Occluders {
+		for _, occ := range scene.shadowOccluders() {
 			mix32(uint32(len(occ.Vertices)))
 			for _, pt := range occ.Vertices {
 				mixF32(float32(pt.X))

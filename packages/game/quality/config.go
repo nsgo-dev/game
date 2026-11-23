@@ -24,6 +24,9 @@ const (
 	DefaultUpgradeWindows = 4
 )
 
+// minTargetFPS is the lowest Adapt.TargetFPS Validate accepts: a slow frame at 3 fps (350 ms with the Selector's slack) is still shorter than hitchLimit, so the Selector can still step down.
+const minTargetFPS = 3
+
 // Config is a game's quality configuration: its presets, the device rules that place known models, and how measured frame times move the level. It is written in YAML (see ParseConfig) and validated by Validate.
 type Config struct {
 	// Version is the schema version; it must be FormatVersion.
@@ -83,7 +86,7 @@ func (r DeviceRule) Matches(d Device) bool {
 type Adapt struct {
 	// Off keeps the starting level for the whole run, ignoring frame times.
 	Off bool `yaml:"off,omitempty"`
-	// TargetFPS is the frame rate to hold, in [1, 240]; DefaultTargetFPS when 0. More than a quarter of a window's frames running slower steps the level down.
+	// TargetFPS is the frame rate to hold, in [3, 240]; below 3 fps a slow frame would be longer than the half second past which the Selector ignores frames, so it could never step down. DefaultTargetFPS when 0. More than a quarter of a window's frames running slower steps the level down.
 	TargetFPS int `yaml:"target_fps,omitempty"`
 	// WindowFrames is how many frames the Selector judges at a time, in [10, 3600]; DefaultWindowFrames when 0.
 	WindowFrames int `yaml:"window_frames,omitempty"`
@@ -147,6 +150,9 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(r.Model) == "" {
 			return fmt.Errorf("quality: devices[%d]: empty model", i)
 		}
+		if strings.TrimSpace(r.Model) != r.Model {
+			return fmt.Errorf("quality: devices[%d]: model %q has leading or trailing spaces, so it would never match a device", i, r.Model)
+		}
 		if r.OS != "" && !isKnownOS(r.OS) {
 			return fmt.Errorf("quality: devices[%d]: unknown os %q", i, r.OS)
 		}
@@ -160,8 +166,8 @@ func (c Config) Validate() error {
 		seen[key] = true
 	}
 	a := c.Adapt
-	if a.TargetFPS != 0 && (a.TargetFPS < 1 || a.TargetFPS > 240) {
-		return fmt.Errorf("quality: adapt.target_fps %d outside [1, 240]", a.TargetFPS)
+	if a.TargetFPS != 0 && (a.TargetFPS < minTargetFPS || a.TargetFPS > 240) {
+		return fmt.Errorf("quality: adapt.target_fps %d outside [%d, 240]", a.TargetFPS, minTargetFPS)
 	}
 	if a.WindowFrames != 0 && (a.WindowFrames < 10 || a.WindowFrames > 3600) {
 		return fmt.Errorf("quality: adapt.window_frames %d outside [10, 3600]", a.WindowFrames)

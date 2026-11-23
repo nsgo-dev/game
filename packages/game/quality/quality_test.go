@@ -170,6 +170,8 @@ func TestParseConfigRefusesBadDocuments(t *testing.T) {
 		"unknown os":      defaultYAML + "devices:\n  - model: X\n    os: amiga\n    level: low\n",
 		"duplicate model": defaultYAML + "devices:\n  - model: Pixel\n    level: low\n  - model: pixel\n    level: high\n",
 		"target fps":      defaultYAML + "adapt:\n  target_fps: 500\n",
+		"target fps low":  defaultYAML + "adapt:\n  target_fps: 2\n",
+		"padded model":    defaultYAML + "devices:\n  - model: \" Google Pixel 8\"\n    level: low\n",
 		"window":          defaultYAML + "adapt:\n  window_frames: 3\n",
 		"upgrades":        defaultYAML + "adapt:\n  upgrade_windows: -1\n",
 	}
@@ -433,6 +435,21 @@ func TestCustomAdaptTarget(t *testing.T) {
 	feed(s, 30+10, time.Second/40)
 	if s.Level() != quality.Medium {
 		t.Fatalf("level %v at 40 fps with a 60 fps target, want medium", s.Level())
+	}
+}
+
+func TestLowestAdaptTargetCanStepDown(t *testing.T) {
+	c := quality.DefaultConfig()
+	c.Adapt = quality.Adapt{TargetFPS: 3, WindowFrames: 10, UpgradeWindows: 1}
+	c.Devices = []quality.DeviceRule{{Model: "T", Level: quality.High}}
+	s, err := quality.NewSelector(c, quality.Device{Model: "T"})
+	if err != nil {
+		t.Fatalf("NewSelector refused the lowest target_fps: %v", err)
+	}
+	// 2.5 fps frames (400 ms) are slow for a 3 fps target and still shorter than the half-second hitch limit.
+	feed(s, 30+10, 400*time.Millisecond)
+	if s.Level() != quality.Medium {
+		t.Fatalf("level %v at 2.5 fps with a 3 fps target, want medium", s.Level())
 	}
 }
 

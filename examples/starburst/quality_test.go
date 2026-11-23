@@ -194,3 +194,50 @@ func qualityButton(t *testing.T, app *nsgotest.App) string {
 	}
 	return btn.Children[0].Text
 }
+
+func TestPausedFramesDoNotStepQualityUp(t *testing.T) {
+	app, gc := startStarburst(t, nsgotest.Environment(lowEndAndroid))
+	gc.Arena.SetPaused(true)
+	// Paused frames are cheap; counting them would climb a low-end phone to a level gameplay cannot hold.
+	app.Advance(20 * time.Second)
+	if gc.Quality.Level() != quality.Low {
+		t.Fatalf("20 s on the pause screen moved the level to %v", gc.Quality.Level())
+	}
+	gc.Arena.SetPaused(false)
+	app.Advance(8 * time.Second)
+	if gc.Quality.Level() != quality.Medium {
+		t.Fatalf("after 8 s of 60 fps play: level %v, want medium", gc.Quality.Level())
+	}
+}
+
+func TestCycleQualityKeepsSettingsANewerBuildWrote(t *testing.T) {
+	var gc *GameController
+	var newer *save.DefaultSettingsStore
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		newer = save.NewStorageSettingsStore(cx.Storage(), "starburst", save.WithSettingsVersion(2))
+		s := save.DefaultSettings()
+		s.Display.Quality = "high"
+		s.Locale = "fr"
+		if err := newer.Save(s); err != nil {
+			t.Fatal(err)
+		}
+		var node core.Node
+		gc, node = NewGameView(cx, 4242)
+		return node
+	}, nsgotest.Size(960, 540), nsgotest.Environment(lowEndAndroid))
+
+	if err := gc.CycleQuality(); err == nil {
+		t.Fatal("CycleQuality saved over settings it could not read")
+	}
+	if gc.Quality.Setting() != "low" {
+		t.Fatalf("the setting did not apply for this run: %q", gc.Quality.Setting())
+	}
+	app.Settle()
+	stored, err := newer.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Display.Quality != "high" || stored.Locale != "fr" {
+		t.Fatalf("newer settings were overwritten: quality %q, locale %q", stored.Display.Quality, stored.Locale)
+	}
+}

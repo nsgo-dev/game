@@ -651,3 +651,42 @@ func TestNormalSpriteCachingAndDraw(t *testing.T) {
 		t.Errorf("DrawImage placed at (%v, %v), want (20, 30)", ops[0].X, ops[0].Y)
 	}
 }
+
+func TestNormalSpriteHonorsDisableShadows(t *testing.T) {
+	diffuse, normalMap := makeHemisphereSprite(16)
+	ns := lights2d.NewNormalSprite(diffuse, normalMap)
+	light := lights2d.NewLight(-30, 8, 150, core.RGB(0xffffff))
+	light.CastShadows = true
+	wall := lights2d.RectOccluder(core.Bounds{
+		Origin: core.Point{X: -12, Y: -20},
+		Size:   core.Size{Width: 4, Height: 60},
+	})
+	scene := &lights2d.Scene{Ambient: core.RGB(0x202020), Lights: []*lights2d.Light{light}, Occluders: []lights2d.Occluder{wall}}
+
+	shadowed := ns.ImageSource(scene)
+	if got := shadowed.Pixels.RGBAAt(5, 8).R; got != 0x20 {
+		t.Fatalf("shadowed pixel R = 0x%02x, want pure ambient 0x20", got)
+	}
+	shadowedVersion := shadowed.Version
+
+	scene.DisableShadows = true
+	lit := ns.ImageSource(scene)
+	if lit.Version == shadowedVersion {
+		t.Fatalf("enabling DisableShadows kept Version %d; the cached shading is stale", lit.Version)
+	}
+	if got := lit.Pixels.RGBAAt(5, 8).R; got <= 0x20+20 {
+		t.Errorf("with DisableShadows, pixel R = 0x%02x, want much brighter than ambient 0x20", got)
+	}
+	if want := scene.ShadeNormalMap(diffuse, normalMap, 0, 0, ns.LightZ).NRGBAAt(5, 8).R; lit.Pixels.RGBAAt(5, 8).R != want { // (5, 8) is opaque, so premultiplying leaves it unchanged
+		t.Errorf("NormalSprite and Scene.ShadeNormalMap disagree with DisableShadows set")
+	}
+
+	scene.DisableShadows = false
+	again := ns.ImageSource(scene)
+	if again.Version == lit.Version {
+		t.Fatalf("clearing DisableShadows kept Version %d; the cached shading is stale", again.Version)
+	}
+	if got := again.Pixels.RGBAAt(5, 8).R; got != 0x20 {
+		t.Errorf("after clearing DisableShadows, pixel R = 0x%02x, want pure ambient 0x20", got)
+	}
+}
