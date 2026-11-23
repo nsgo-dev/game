@@ -2,6 +2,7 @@ package sprite
 
 import (
 	"cmp"
+	"math"
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -10,7 +11,7 @@ import (
 
 // Sprite is a frame of an atlas placed in a drawing: moved, turned, scaled, flipped, faded, tinted, blended and masked about its origin.
 //
-// Its zero value draws nothing, as its scale and alpha are 0: NewSprite returns one at full size and opacity.
+// Its zero value draws nothing, as its scale and alpha are 0: NewSprite returns one at full size and opacity. Nor does a sprite whose position, origin, rotation, scale or alpha is NaN or infinite.
 //
 // Tint recolors only the sprite's own pixels, leaving what is drawn under it unchanged; Blend sets how the sprite mixes with what is already drawn under it, as Drawing.SetComposite does.
 type Sprite struct {
@@ -80,7 +81,7 @@ func (s Sprite) Bounds() math2d.Rect {
 	return s.Transform().TransformRect(math2d.Rect{W: w, H: h})
 }
 
-// Batch draws sprites of one atlas into a drawing, in Z order.
+// Batch draws sprites of one atlas into a drawing, in Z order. A batch with no Atlas draws nothing.
 type Batch struct {
 	// Atlas is where the sprites' frames are.
 	Atlas *Atlas
@@ -102,6 +103,9 @@ type Batch struct {
 //
 // Consecutive sprites (in Z order) that are only moved, turned and scaled evenly, with the default blend, no tint and no mask of their own, draw with one Drawing.DrawAtlas. A run of sprites at full opacity keeps the drawing's alpha, as a lone such sprite does; a run of faded sprites draws between Save and Restore with the alpha set to 1, so that each sprite's Alpha replaces the drawing's, as Sprite.Alpha says. A sprite that is mirrored, scaled unevenly, tinted, blended or masked, and a run of one, draws with its own DrawImageFrom, or DrawTintedImageFrom when tinted, between Save and Restore when it turns, mirrors, fades, blends or clips.
 func (b *Batch) Draw(d *core.Drawing) {
+	if b.Atlas == nil {
+		return
+	}
 	draw := func(d *core.Drawing) {
 		b.order = append(b.order[:0], b.Sprites...)
 		slices.SortStableFunc(b.order, func(x, y *Sprite) int { return cmp.Compare(x.Z, y.Z) })
@@ -160,11 +164,15 @@ func (b *Batch) flush(d *core.Drawing, img core.ImageSource) {
 // tinted reports whether the sprite's Tint changes its picture: the zero color and opaque white leave it unchanged, so they draw untinted, and the zero color, though transparent black, is the one alpha-0 tint that still draws.
 func (s *Sprite) tinted() bool { return s.Tint != 0 && s.Tint != untinted }
 
-// hidden reports whether the sprite draws nothing: an empty frame, no opacity, a zero scale, a tint with no alpha, which multiplies every pixel's alpha to 0, or a mask with no area.
+// hidden reports whether the sprite draws nothing: an empty frame, no opacity, a zero scale, a tint with no alpha, which multiplies every pixel's alpha to 0, a mask with no area, or a NaN or infinite placement or alpha, which DrawAtlas would drop and DrawImageFrom would draw nowhere.
 func (s *Sprite) hidden() bool {
 	f := s.Frame
-	return f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 || s.tinted() && s.Tint&0xff == 0 || s.Mask != nil && s.Mask.state() == maskEmpty
+	return f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 || s.tinted() && s.Tint&0xff == 0 || s.Mask != nil && s.Mask.state() == maskEmpty ||
+		!finite(s.X) || !finite(s.Y) || !finite(s.OriginX) || !finite(s.OriginY) || !finite(s.Rotation) || !finite(s.ScaleX) || !finite(s.ScaleY) || !finite(s.Alpha)
 }
+
+// finite reports whether v is neither NaN nor infinite.
+func finite(v float32) bool { return !math.IsNaN(float64(v)) && !math.IsInf(float64(v), 0) }
 
 // atlasForm returns the transform that places the sprite's trimmed rectangle for Drawing.DrawAtlas, and false when the sprite cannot draw there: DrawAtlas only moves, turns and scales evenly, and has no tint, blend or clip of a tile's own.
 func (s *Sprite) atlasForm() (core.RSXform, bool) {

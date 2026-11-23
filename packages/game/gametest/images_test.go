@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/gametest"
@@ -74,5 +75,86 @@ func TestRenderOpsDrawsAnAtlasAsItsSeparateImages(t *testing.T) {
 	}
 	if got.RGBAAt(3, 3).A == 0 {
 		t.Fatal("DrawAtlas drew nothing at its first tile")
+	}
+}
+
+func TestImageDrawsSizesANaturalSizeImageAndReadsTintSamplingAndClip(t *testing.T) {
+	pixels := core.ImageSource{Pixels: image.NewRGBA(image.Rect(0, 0, 16, 8)), Version: 1}
+	sized := core.ImageSource{URI: "asset:icon.png", Size: core.Size{Width: 10, Height: 4}}
+	red := core.Color(0xff0000ff)
+
+	var d core.Drawing
+	d.DrawImage(pixels, 5, 6)
+	d.DrawImage(sized, 1, 2)
+	d.Save().BeginPath().Rect(0, 0, 10, 10).Clip().SetImageSmoothing(false).DrawTintedImage(sized, red, 0, 0).Restore()
+	d.DrawImageFrom(pixels, 0, 0, 4, 4, 0, 0, 4, 4)
+
+	got := gametest.ImageDraws(d.Ops)
+	if len(got) != 4 {
+		t.Fatalf("%d image draws, want 4: %+v", len(got), got)
+	}
+	if want := [4]core.Point{{X: 5, Y: 6}, {X: 21, Y: 6}, {X: 21, Y: 14}, {X: 5, Y: 14}}; got[0].Corners != want {
+		t.Fatalf("an image of pixels at its natural size lands at %v, want %v", got[0].Corners, want)
+	}
+	if want := [4]core.Point{{X: 1, Y: 2}, {X: 11, Y: 2}, {X: 11, Y: 6}, {X: 1, Y: 6}}; got[1].Corners != want {
+		t.Fatalf("an image with a Size at its natural size lands at %v, want %v", got[1].Corners, want)
+	}
+	tinted := got[2]
+	if !tinted.Tinted || tinted.Tint != red || tinted.Sampling == got[1].Sampling {
+		t.Fatalf("tinted, unsmoothed image is %+v, want tinted %v and a sampling other than %v", tinted, red, got[1].Sampling)
+	}
+	if len(tinted.Clip) != 2 || tinted.Clip[0].Op.Kind != core.DrawRect || tinted.Clip[1].Op.Kind != core.DrawClip {
+		t.Fatalf("clip is %+v, want the rectangle and the Clip", tinted.Clip)
+	}
+	if len(got[3].Clip) != 0 {
+		t.Fatalf("the image after Restore is still clipped: %+v", got[3].Clip)
+	}
+}
+
+// fatalRecorder is a testing.TB whose Fatalf notes the failure and stops the goroutine, as testing.T's does.
+type fatalRecorder struct {
+	testing.TB
+	failed bool
+}
+
+func (r *fatalRecorder) Helper() {}
+
+func (r *fatalRecorder) Fatalf(string, ...any) {
+	r.failed = true
+	runtime.Goexit()
+}
+
+// assertFails reports whether AssertSameImages fails got against want.
+func assertFails(got, want []core.DrawOp) bool {
+	r := &fatalRecorder{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		gametest.AssertSameImages(r, got, want)
+	}()
+	<-done
+	return r.failed
+}
+
+func TestAssertSameImagesTellsDrawsApart(t *testing.T) {
+	img := core.ImageSource{URI: "asset:icon.png", Size: core.Size{Width: 10, Height: 4}}
+	draw := func(f func(d *core.Drawing)) []core.DrawOp {
+		var d core.Drawing
+		f(&d)
+		return d.Ops
+	}
+	plain := draw(func(d *core.Drawing) { d.DrawImage(img, 1, 2) })
+	if assertFails(draw(func(d *core.Drawing) { d.DrawImageIn(img, 1, 2, 10, 4) }), plain) {
+		t.Fatal("a natural-size DrawImage differs from a DrawImageIn of the same size")
+	}
+	for name, ops := range map[string][]core.DrawOp{
+		"another size": draw(func(d *core.Drawing) { d.DrawImageIn(img, 1, 2, 20, 4) }),
+		"a tint":       draw(func(d *core.Drawing) { d.DrawTintedImage(img, core.Color(0xff0000ff), 1, 2) }),
+		"sampling":     draw(func(d *core.Drawing) { d.SetImageSmoothing(false).DrawImage(img, 1, 2) }),
+		"a clip":       draw(func(d *core.Drawing) { d.BeginPath().Rect(0, 0, 4, 4).Clip().DrawImage(img, 1, 2) }),
+	} {
+		if !assertFails(ops, plain) {
+			t.Errorf("AssertSameImages missed %s", name)
+		}
 	}
 }

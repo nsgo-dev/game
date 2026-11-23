@@ -171,12 +171,14 @@ batch.Draw(d)
 - **绘图状态**：`Draw` 会把 `d` 的变换矩阵、透明度、混合方式和裁剪区域原样恢复成绘制前的样子。
 - **绘制调用**：按 Z 顺序相邻、只做了平移、旋转和等比缩放（`ScaleX == ScaleY`，或同时设置两个翻转）、使用默认 `Blend` 且没有自己的 `Mask` 的精灵，合并为一次 NSGo `DrawAtlas`。镜像、非等比缩放、设置了混合方式或遮罩的精灵，以及只有一个精灵的连续段，各自调用一次 `DrawImageFrom`；旋转、镜像、半透明、混合或遮罩时包在 `Save`/`Restore` 中。
 - **连续段中的透明度**：完全不透明的连续段沿用当前绘图的透明度，与单个精灵相同。半透明的连续段在 `Save` 与 `Restore` 之间先把透明度设为 `1`，再使用每个精灵自己的 `Alpha`，因此 `Alpha` 仍然替换绘图的透明度。从不透明精灵切换到半透明精灵时开始新的连续段。
+- **按深度排序的场景层**：`game/scene` 中按 Y（`SortY`）或自定义键排序的层逐个绘制精灵，每个精灵都是只有一个精灵的连续段，仍然各自调用 `DrawImageFrom`。只有不按精灵排序的层和直接绘制的批次才使用 `DrawAtlas`。
+- **跳过的精灵**：位置、原点、旋转、缩放或透明度为 NaN 或无穷大的精灵不绘制任何内容，没有 `Atlas` 的批次同样不绘制。
 
 绘制结果与每个精灵一次 `DrawImageFrom` 相同：测试回放两种记录并逐一比较绘制出的每个矩形，模糊测试对随机批次做同样的比较，`gametest.RenderOps` 渲染两者得到完全相同的像素。
 
-### 使用 `DrawAtlas` 前后的开销
+### 使用 `DrawAtlas` 前后的记录开销
 
-`BenchmarkBatchRecord` 记录一帧 1,000 个和 5,000 个移动中的精灵（其中五分之一带旋转和缩放），分别用每个精灵一次 `DrawImageFrom`（`per-sprite`）和 `DrawAtlas`（`atlas`）。`sprites/60Hz` 表示仅记录这一步能在一帧 16.7 ms 内容纳多少个精灵：
+`BenchmarkBatchRecord` 记录一帧 1,000 个和 5,000 个移动中的精灵（其中五分之一带旋转和缩放），分别用每个精灵一次 `DrawImageFrom`（`per-sprite`）和 `DrawAtlas`（`atlas`）。它只计算 CPU 上的记录时间，不包括平台的绘制。`sprites/60Hz` 是 16.7 ms 除以每个精灵的记录时间，是任何一帧都达不到的上限，而不是实测的每秒 60 帧下的精灵数：
 
 ```sh
 cd packages/game
@@ -185,12 +187,14 @@ go tool nsgo test ./sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -ben
 
 2026-11-23 在一台共用的 24 核 x86-64 Linux 机器上的读数；耗时随机器负载变化，分配次数不变：
 
-| 精灵数 | 每帧耗时 | 每帧分配次数 | 每个 60 Hz 帧可容纳的精灵数 |
+| 精灵数 | 每帧记录耗时 | 每帧分配次数 | 16.7 ms 内可记录的精灵数 |
 | ---: | ---: | ---: | ---: |
 | 1,000 | 219 µs → 81 µs | 1,000 → 3 | 76,000 → 206,400 |
 | 5,000 | 926 µs → 586 µs | 5,000 → 3 | 90,000 → 142,300 |
 
-记录只是一帧中较小的部分，平台仍要逐个绘制精灵。NSGo 自己的[大量精灵对比](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/performance.md#canvas-atlas-batching)把 `DrawAtlas` 与每个精灵一次 `DrawImageFrom` 相比：5,000 个精灵在 Pixel 3 XL 上从每秒 29.3 帧升到 39.9 帧，在无头 Chromium 中从 55.5 帧升到 60.0 帧，在 macOS 上从 6.6 帧升到 7.8 帧；1,000 个精灵在 Android 和 Chromium 上本来就能达到每秒 60 帧。
+记录只是一帧中较小的部分，平台仍要逐个绘制精灵。本仓库的 `Batch` 在设备上保持每秒 60 帧时最多能画多少个精灵，改动前后都还没有测量（[#28](https://github.com/nsgo-dev/game/issues/28)）。
+
+NSGo 自己的[大量精灵对比](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/performance.md#canvas-atlas-batching)把 `DrawAtlas` 与每个精灵一次 `DrawImageFrom` 相比，用的是它自己的 32 × 32 裁剪图样例而不是这里的 `Batch`，测的是固定精灵数下的帧率：5,000 个精灵在 Pixel 3 XL 上从每秒 29.3 帧升到 39.9 帧，在无头 Chromium 中从 55.5 帧升到 60.0 帧，在 macOS 上从 6.6 帧升到 7.8 帧；1,000 个精灵在 Android 和 Chromium 上本来就能达到每秒 60 帧。Linux 上还没有可靠的读数：在共用的 Ubuntu 虚拟机中，5,000 个精灵单独回放 Cairo 从 20.86 ms 降到 15.81 ms，但端到端帧率随宿主机负载变化，第一次 atlas 运行反而更低（1,000 个精灵从 25.54 降到 10.83，5,000 个从 10.37 降到 1.98），NSGo 认为需要在专用机器上成对测量。
 
 ## 使用 nsgotest 测试
 
@@ -212,4 +216,4 @@ if len(ops) == 0 {
 }
 ```
 
-批次既会记录 `DrawImageFrom`，也会把精灵记录在 `DrawAtlas` 中，所以应当用 `gametest.ImageDraws(ops)` 检查绘制了什么，而不是统计 `DrawImage` 指令的数量。它返回每个绘制出的图片矩形，包括源矩形、在画布上的四个角、透明度和混合方式，与记录方式无关。`gametest.AssertSameImages(t, got, want)` 用同样的方式比较两份记录，例如把批次与手写的 `DrawImageFrom` 调用相比；`gametest.RenderOps` 也能渲染 `DrawAtlas`。
+批次既会记录 `DrawImageFrom`，也会把精灵记录在 `DrawAtlas` 中，所以应当用 `gametest.ImageDraws(ops)` 检查绘制了什么，而不是统计 `DrawImage` 指令的数量。它返回每个绘制出的图片矩形，包括源矩形、在画布上的四个角、透明度、混合方式、着色、采样方式和裁剪，与记录方式无关。`gametest.AssertSameImages(t, got, want)` 用同样的方式比较两份记录，只比较图片（填充、描边和文字需要另外检查），例如把批次与手写的 `DrawImageFrom` 调用相比；`gametest.RenderOps` 也能渲染 `DrawAtlas`。
