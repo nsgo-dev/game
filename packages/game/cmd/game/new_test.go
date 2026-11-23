@@ -86,7 +86,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod.tmpl")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("go.mod.tmpl was copied: %v", err)
 	}
-	want := strings.Join(listed, "\n") + "\n\ncd " + dir + " && go tool nsgo dev\n"
+	want := strings.Join(listed, "\n") + "\n\ncd " + shellQuote(dir, runtime.GOOS) + " && go tool nsgo dev\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
@@ -138,6 +138,8 @@ func TestNewNameAndModule(t *testing.T) {
 		{"my_game", "", "github.com/me/my_game.v2", "my_game", "dev.nsgo.mygame", "github.com/me/my_game.v2"},
 		// A name YAML would read as a boolean is quoted so that it stays a string.
 		{"yes", "True", "", "True", "dev.nsgo.true", "true"},
+		// A standard-library name needs a module path of its own.
+		{"time", "", "example.com/time", "time", "dev.nsgo.time", "example.com/time"},
 	}
 	for _, tc := range cases {
 		stubGo(t, nil)
@@ -240,12 +242,16 @@ func TestNewIntoEmptyDirectory(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "My Game"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	a, _, stderr := newTestApp(t)
+	a, stdout, stderr := newTestApp(t)
 	if code := run([]string{"new", filepath.Join(dir, "My Game")}, a); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	if cfg := readYAML(t, filepath.Join(dir, "My Game", "nsgo.yaml")); cfg["name"] != "My Game" {
 		t.Errorf("name = %v", cfg["name"])
+	}
+	// The closing hint quotes the directory, so it can be pasted into a shell.
+	if want := "\ncd " + shellQuote(filepath.Join(dir, "My Game"), runtime.GOOS) + " && go tool nsgo dev\n"; !strings.HasSuffix(stdout.String(), want) || !strings.ContainsAny(want, `'"`) {
+		t.Errorf("stdout = %q, want it to end with %q", stdout, want)
 	}
 }
 
@@ -256,12 +262,58 @@ func TestNewReportsGoFailure(t *testing.T) {
 	if code := run([]string{"new", dir}, a); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	if want := "game new: go get -tool " + gameTool + "@"; !strings.HasPrefix(stderr.String(), want) || !strings.Contains(stderr.String(), "in "+dir+": exit status 1") {
+	if want := "game new: go get -tool " + gameTool + "@"; !strings.HasPrefix(stderr.String(), want) || !strings.Contains(stderr.String(), "in "+dir+": exit status 1") || !strings.Contains(stderr.String(), " && go mod tidy there") {
 		t.Errorf("stderr = %q", stderr)
 	}
 	// The files stay, so the go command can be run there again.
 	if _, err := os.Stat(filepath.Join(dir, "nsgo.yaml")); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestNewReportsGoModTidyFailure(t *testing.T) {
+	var calls [][]string
+	saved := runGo
+	runGo = func(_ string, _, _ io.Writer, args ...string) error {
+		calls = append(calls, args)
+		if args[0] == "mod" {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	t.Cleanup(func() { runGo = saved })
+	dir := filepath.Join(t.TempDir(), "mygame")
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"new", "-version", "v1.2.3", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	// go get has succeeded, so only go mod tidy is left to run.
+	if want := "game new: go mod tidy in " + dir + ": exit status 1; the project's files are written, so run go mod tidy there once it can succeed\n"; stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+	if len(calls) != 2 {
+		t.Errorf("go calls = %q", calls)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	cases := []struct {
+		s, goos, want string
+	}{
+		{"mygame", "darwin", "mygame"},
+		{"/home/me/games/my-game_2.0", "linux", "/home/me/games/my-game_2.0"},
+		{"/Users/me/My Game", "darwin", "'/Users/me/My Game'"},
+		{"it's", "linux", `'it'\''s'`},
+		{"a$b", "linux", "'a$b'"},
+		{"", "linux", "''"},
+		{`C:\Users\me\mygame`, "windows", `C:\Users\me\mygame`},
+		{`C:\Users\me\My Game`, "windows", `"C:\Users\me\My Game"`},
+		{`C:\mygame`, "linux", `'C:\mygame'`},
+	}
+	for _, tc := range cases {
+		if got := shellQuote(tc.s, tc.goos); got != tc.want {
+			t.Errorf("shellQuote(%q, %q) = %s, want %s", tc.s, tc.goos, got, tc.want)
+		}
 	}
 }
 
@@ -284,6 +336,10 @@ func TestNewUsageErrors(t *testing.T) {
 		{[]string{"new", "-module", "example.com/.x", "a"}, "starts or ends with a dot"},
 		{[]string{"new", "-version", "v1 v2", "a"}, `game new: -version "v1 v2" is not a module version`},
 		{[]string{"new", "-version", "-u", "a"}, `game new: -version "-u" is not a module version`},
+		// A main module named after a standard-library package cannot build.
+		{[]string{"new", filepath.Join(dir, "time")}, `game new: module path "time" is a standard-library package, so the project could not build; give another with -module, such as example.com/time`},
+		{[]string{"new", "-name", "Image", "a"}, `game new: module path "image" is a standard-library package`},
+		{[]string{"new", "-module", "encoding/json", "a"}, `game new: module path "encoding/json" is a standard-library package`},
 	}
 	for _, tc := range cases {
 		calls := stubGo(t, nil)
