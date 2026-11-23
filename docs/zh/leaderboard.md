@@ -76,6 +76,8 @@ if err := boards.Show("high-score"); err != nil { ... }
 
 `Submit`、`Show` 和 `Scores` 在访问平台之前先检查前三项。
 
+需要一张跨平台共享的排行榜，或要在没有游戏服务的平台上提供排行榜的游戏，改用[可自行部署的排行榜服务](leaderboard-selfhost.md)。
+
 ## 测试
 
 nsgotest 为每个测试应用提供独立的模拟游戏服务：
