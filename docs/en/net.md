@@ -12,8 +12,11 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 
 | Transport | Constructor | Targets & use case |
 | --- | --- | --- |
-| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. |
-| `UDPTransport` | `ListenUDP` + `AddPeer` | Native targets (desktop/mobile) for low-latency datagrams. It has no retransmission or ordering, so it refuses `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport. |
+| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. Clients authenticate with a token and the server assigns their IDs (see below). |
+| `UDPServer` / `UDPClient` | `ListenUDPServer`, `DialUDP` | Native targets (desktop/mobile) for low-latency datagrams to a server, with the same handshake as WebSocket and every datagram bound to its session. |
+| `UDPTransport` | `ListenUDP` + `AddPeer` | Native peer-to-peer datagrams between endpoints that know each other's addresses: a datagram is accepted only from the address registered for the ID it claims. |
+
+UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport.
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
 ```go
@@ -30,6 +33,54 @@ hub.Advance(60 * time.Millisecond)
 pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
 ```
+
+## Connection handshake and reconnect
+
+`WebSocketServer` and `UDPServer` admit a client only after a handshake: the client presents an app-defined token, `Auth.Verify` checks it, and the server assigns the client's `PeerID` and sends it back, or refuses with a reason. A refused client never reaches `Recv` or `Peers`.
+
+```go
+auth := net.Auth{
+	// Check a signed token locally; the error text is sent to the client.
+	Verify: func(peer net.PeerID, token []byte) error {
+		if !validToken(token) {
+			return errors.New("invalid token")
+		}
+		return nil
+	},
+	GracePeriod: 15 * time.Second, // a dropped client keeps its ID this long
+}
+srv, _ := net.ListenWebSocket(":8080", 1, auth) // or net.ListenUDPServer(":7777", 1, auth)
+
+// Each server tick:
+for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
+	switch ev.Kind {
+	case net.PeerJoined: // new ID
+	case net.PeerDropped: // connection lost; ID and state kept for GracePeriod
+	case net.PeerResumed: // same ID back within GracePeriod
+	case net.PeerLeft: // closed, or GracePeriod ran out
+		rooms.Leave(roomOf(ev.Peer), ev.Peer)
+		guard.Reset(ev.Peer)
+	}
+}
+```
+
+```go
+cli, err := net.DialWebSocket("wss://play.example.com/game", token) // or net.DialUDP(addr, token)
+if errors.Is(err, net.ErrRejected) {
+	// err is a *net.RejectError carrying the server's reason
+}
+me := cli.LocalID() // assigned by the server
+
+// After a network drop (State() == net.ConnDisconnected):
+_ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
+```
+
+- `NextEvent` checks grace periods and idle timeouts when it is called, so a server polls it every tick alongside `Recv`. While a peer is inside its grace period, `Send` to it returns `ErrDisconnected` and `Peers` leaves it out.
+- `Close` on a client is a goodbye: the server reports `PeerLeft` at once instead of holding the session.
+- A resume proves itself with a secret from the previous welcome, which the server replaces on every handshake; an ID alone cannot take over a session. Past the grace period, `Reconnect` joins again as a new peer when the token is still valid.
+- In the browser, `DialWebSocket` returns at once: `State` is `ConnConnecting` and `LocalID` is 0 until the welcome arrives, and packets sent before then are queued. A refusal moves it to `ConnDisconnected` with the `*RejectError` in `Err`.
+- After the UDP handshake, each client is bound to the address it shook hands from and to a per-session key: every datagram carries a truncated HMAC-SHA256 tag and a sequence number checked against a replay window, so a spoofed or replayed datagram is dropped and cannot move the peer. Datagrams are authenticated, not encrypted. A `UDPClient` pings while idle; a client silent for `Auth.IdleTimeout` (10 seconds by default) counts as dropped. The server answers only hellos of at least 128 bytes and never replies with more than it received.
+- The token and resume secret travel in the handshake, so use `wss://` for WebSocket in production.
 
 ## Server-authoritative delta replication
 

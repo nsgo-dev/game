@@ -12,8 +12,11 @@ import "github.com/nsgo-dev/game/packages/game/net"
 
 | 传输实现 | 构造函数 | 适用平台与场景 |
 | --- | --- | --- |
-| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。 |
-| `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台（桌面/移动）低延迟数据报通信。UDP 没有重传与排序保证，因此会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输。 |
+| `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建与跨 NAT 联机。客户端用令牌认证，ID 由服务端分配（见下文）。 |
+| `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟数据报通信，握手与 WebSocket 相同，每个数据报都绑定到其会话。 |
+| `UDPTransport` | `ListenUDP` + `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：只接受来自其所声称 ID 已登记地址的数据报。 |
+
+UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输。
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
 ```go
@@ -30,6 +33,54 @@ hub.Advance(60 * time.Millisecond)
 pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
 ```
+
+## 连接握手与重连
+
+`WebSocketServer` 和 `UDPServer` 只在握手之后接纳客户端：客户端出示应用自定义的令牌，由 `Auth.Verify` 校验，服务端分配该客户端的 `PeerID` 并回传给它，或附带原因拒绝。被拒绝的客户端永远不会出现在 `Recv` 或 `Peers` 中。
+
+```go
+auth := net.Auth{
+	// Check a signed token locally; the error text is sent to the client.
+	Verify: func(peer net.PeerID, token []byte) error {
+		if !validToken(token) {
+			return errors.New("invalid token")
+		}
+		return nil
+	},
+	GracePeriod: 15 * time.Second, // a dropped client keeps its ID this long
+}
+srv, _ := net.ListenWebSocket(":8080", 1, auth) // or net.ListenUDPServer(":7777", 1, auth)
+
+// Each server tick:
+for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
+	switch ev.Kind {
+	case net.PeerJoined: // new ID
+	case net.PeerDropped: // connection lost; ID and state kept for GracePeriod
+	case net.PeerResumed: // same ID back within GracePeriod
+	case net.PeerLeft: // closed, or GracePeriod ran out
+		rooms.Leave(roomOf(ev.Peer), ev.Peer)
+		guard.Reset(ev.Peer)
+	}
+}
+```
+
+```go
+cli, err := net.DialWebSocket("wss://play.example.com/game", token) // or net.DialUDP(addr, token)
+if errors.Is(err, net.ErrRejected) {
+	// err is a *net.RejectError carrying the server's reason
+}
+me := cli.LocalID() // assigned by the server
+
+// After a network drop (State() == net.ConnDisconnected):
+_ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
+```
+
+- `NextEvent` 在被调用时检查宽限期与空闲超时，因此服务端应在每个 tick 与 `Recv` 一起轮询它。peer 处于宽限期内时，向它 `Send` 会返回 `ErrDisconnected`，`Peers` 也不会列出它。
+- 客户端调用 `Close` 即为主动告别：服务端立即报告 `PeerLeft`，不再为其保留会话。
+- 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
+- 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
+- UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时会发送心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
+- 令牌与恢复密钥都在握手中传输，生产环境的 WebSocket 请使用 `wss://`。
 
 ## 服务端权威增量复制
 

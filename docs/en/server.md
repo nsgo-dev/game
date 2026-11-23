@@ -110,10 +110,10 @@ The guard is transport-agnostic: call `Check` at the packet loop and act on the 
 
 ## TLS, origins, health and metrics
 
-A browser on an HTTPS page needs `wss://`. `net.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key:
+A browser on an HTTPS page needs `wss://`. `net.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key. Both take the same `Auth` as `ListenWebSocket` (see [the connection handshake](net.md#connection-handshake-and-reconnect)):
 
 ```go
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
+srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 

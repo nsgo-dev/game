@@ -15,7 +15,7 @@ func TestWebSocketCloseUnblocksSend(t *testing.T) {
 	// writeMu, so Close could not return either.
 	c1, c2 := stdnet.Pipe()
 	defer c2.Close()
-	wt := &WebSocketTransport{conn: c1, localID: 1, serverID: 2, br: bufio.NewReader(c1)}
+	wt := &WebSocketTransport{conn: c1, localID: 1, serverID: 2, br: bufio.NewReader(c1), state: ConnOpen}
 	sendErr := make(chan error, 1)
 	go func() { sendErr <- wt.Send(2, ChannelReliableOrdered, []byte("hello")) }()
 	time.Sleep(20 * time.Millisecond)

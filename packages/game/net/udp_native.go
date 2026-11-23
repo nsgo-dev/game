@@ -5,6 +5,7 @@ package net
 import (
 	"encoding/binary"
 	stdnet "net"
+	"net/netip"
 	"slices"
 	"sync"
 )
@@ -14,9 +15,11 @@ const (
 	maxUDPPayloadSize = 65000
 )
 
-// UDPTransport is an unreliable/sequenced native UDP Transport.
+// UDPTransport is an unreliable/sequenced native UDP Transport between peers that know each other's addresses in advance.
 // Each datagram carries a 9-byte header (from PeerID + channel + sequence number)
 // so peers can exchange packets directly without a TCP handshake.
+//
+// Both sides register each other with AddPeer, and a datagram is accepted only from the address registered for the PeerID it claims, so a spoofed From header can neither add a peer nor move one. A server whose clients are not known in advance uses ListenUDPServer and DialUDP, which authenticate each client and bind it to its address.
 type UDPTransport struct {
 	conn    stdnet.PacketConn
 	localID PeerID
@@ -49,7 +52,7 @@ func (u *UDPTransport) Addr() stdnet.Addr {
 	return u.conn.LocalAddr()
 }
 
-// AddPeer registers or updates a remote peer's UDP address.
+// AddPeer registers or updates a remote peer's UDP address. Datagrams claiming to be from id are accepted only from this address.
 func (u *UDPTransport) AddPeer(id PeerID, addr string) error {
 	resolved, err := stdnet.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -90,10 +93,9 @@ func (u *UDPTransport) readLoop() {
 		copy(cp, payload)
 
 		u.mu.Lock()
-		if !u.closed {
-			if from != 0 && from != u.localID {
-				u.peers[from] = remoteAddr
-			}
+		// Only a registered peer's own address may speak for it: the From
+		// header is chosen by the sender, so it never registers or moves a peer.
+		if addr, ok := u.peers[from]; ok && !u.closed && sameUDPAddr(addr, remoteAddr) {
 			u.inbox = append(u.inbox, Packet{
 				From:    from,
 				Channel: ch,
@@ -209,4 +211,15 @@ func (u *UDPTransport) Close() error {
 	u.closed = true
 	u.mu.Unlock()
 	return u.conn.Close()
+}
+
+// sameUDPAddr reports whether two UDP addresses name the same IP and port, treating an IPv4-mapped IPv6 address as its IPv4 form.
+func sameUDPAddr(a, b stdnet.Addr) bool {
+	ua, ok1 := a.(*stdnet.UDPAddr)
+	ub, ok2 := b.(*stdnet.UDPAddr)
+	if !ok1 || !ok2 {
+		return a.String() == b.String()
+	}
+	pa, pb := ua.AddrPort(), ub.AddrPort()
+	return netip.AddrPortFrom(pa.Addr().Unmap(), pa.Port()) == netip.AddrPortFrom(pb.Addr().Unmap(), pb.Port())
 }

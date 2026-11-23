@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
+- `game/net`: an authenticated connection handshake on WebSocket and the new `UDPServer`/`UDPClient`: `Auth.Verify` checks the client's token, the server assigns its ID and tells the client (the browser too), a dropped client resumes with the same ID within `Auth.GracePeriod`, `NextEvent` reports joins, drops, resumes and leaves, and UDP datagrams are bound to the session's address and key (#550).
 
 ### Changed
 
@@ -37,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/particles`: `Emitter.Draw` now tints each particle's sprite by its `ColorCurve` RGB, where it previously applied only the curve's alpha, so particle definitions with a non-white `colorCurve` draw in that color (#29).
 - `game`: `Loop` adds each frame's time from `RequestAnimationFrame` as it is, the display's own frame time where the platform stamps one, and no longer smooths it (#27).
 - `game/sound`: group, master and background volume changes now reach effects already playing through NSGo's `audio.Playback`, silencing them at 0 instead of stopping them; an `Effect` at its `Limit` stops its oldest playback to play a new one instead of refusing it; a voice with `Muted` set now plays nothing and `Play` returns false instead of playing muted and counting toward the limit; and a crossfade's new music track starts at once, muted, instead of waiting paused for the fade's first frame (#31).
+- `game/net`: `ListenWebSocket`, `ListenWebSocketTLS` and `ListenWebSocketTLSFiles` take an `Auth` after the server ID, and `DialWebSocket` takes a token instead of a chosen `PeerID`; the client's ID comes from the server's welcome, and the `X-NSGo-Peer-ID` header is gone. `UDPTransport` no longer learns peers from incoming datagrams: both sides register each other with `AddPeer`, and a datagram is accepted only from the address registered for the ID it claims (#550).
 
 ### Fixed
 
