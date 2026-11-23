@@ -11,7 +11,7 @@ import (
 //
 // A Fighter plays its Neutral move when it has no other, so it always has hurtboxes to be hit on. Start begins a move when the fighter can act or when a cancel window of its current move allows it; Force begins one regardless.
 type Fighter struct {
-	// Moves is the fighter's frame data.
+	// Moves is the fighter's frame data. It should have passed Validate, as Parse ensures: a hitbox whose Group is outside 0 to MaxGroup never hits.
 	Moves *Doc
 	// Neutral names the looping move the fighter returns to when a move that does not loop ends or when it is hit, such as "idle". Empty, or a name Moves does not have, leaves the fighter with no move and so no boxes.
 	Neutral string
@@ -24,14 +24,13 @@ type Fighter struct {
 	// Blocking turns hits on the fighter into blocks: blockstun instead of hitstun. The game sets it each step from input when the fighter may block.
 	Blocking bool
 
-	move     *Move
-	frame    int
-	fresh    bool
-	stun     int
-	stunStep uint64
-	hit      bool
-	blocked  bool
-	landed   []landing
+	move    *Move
+	frame   int
+	fresh   bool
+	stun    int
+	hit     bool
+	blocked bool
+	landed  []landing
 }
 
 // landing records the hit groups of the current move instance that have already struck one opponent.
@@ -221,7 +220,7 @@ type Hit struct {
 	Damage int
 	// Stun is the frames of stun the victim took: the hitbox's hitstun, or its blockstun when Blocked.
 	Stun int
-	// KnockbackX and KnockbackY are the hitbox's knockback with X pointing away from the attacker in world space.
+	// KnockbackX and KnockbackY are the hitbox's knockback in world space, with X pointing away from the attacker: toward the side of the attacker's origin the victim's origin is on, or the attacker's facing when both share an X.
 	KnockbackX, KnockbackY float32
 	// X and Y are the center of the overlap of the hitbox and the hurtbox it struck, where a game draws a hit spark.
 	X, Y float32
@@ -234,7 +233,6 @@ type World struct {
 	// Fighters are the fighters of the match. Their order is the order hits are found and reported in.
 	Fighters []*Fighter
 
-	step uint64
 	hits []Hit
 }
 
@@ -244,7 +242,6 @@ type World struct {
 //
 // The returned hits are ordered by attacker, then victim, in Fighters order, and stay valid until the next Step.
 func (w *World) Step() []Hit {
-	w.step++
 	w.hits = w.hits[:0]
 	for _, f := range w.Fighters {
 		if f != nil {
@@ -273,14 +270,14 @@ func (w *World) Step() []Hit {
 			h.Attacker.hit = true
 		}
 	}
+	// A hit replaces the stun its victim had left, and the longest of a step's hits on one victim wins.
+	for i := range w.hits {
+		w.hits[i].Victim.stun = 0
+	}
 	for i := range w.hits {
 		h := &w.hits[i]
 		v := h.Victim
-		if v.stunStep != w.step {
-			v.stunStep, v.stun = w.step, h.Stun
-		} else {
-			v.stun = max(v.stun, h.Stun)
-		}
+		v.stun = max(v.stun, h.Stun)
 		v.neutral(true)
 	}
 	return w.hits
@@ -291,7 +288,7 @@ func strike(a, v *Fighter) (Hit, bool) {
 	am, vm := a.move, v.move
 	for i := range am.Boxes {
 		hb := &am.Boxes[i]
-		if hb.Kind != KindHit || !hb.Active(a.frame) || a.landedOn(v, hb.Group) {
+		if hb.Kind != KindHit || hb.Group < 0 || hb.Group > MaxGroup || !hb.Active(a.frame) || a.landedOn(v, hb.Group) {
 			continue
 		}
 		hr := a.place(hb)
@@ -322,7 +319,7 @@ func strike(a, v *Fighter) (Hit, bool) {
 			if h.Blocked {
 				h.Stun = hb.Blockstun
 			}
-			if a.FacingLeft {
+			if v.X < a.X || (v.X == a.X && a.FacingLeft) {
 				h.KnockbackX = -h.KnockbackX
 			}
 			return h, true
