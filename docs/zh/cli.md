@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像，以及对照存储的基线检查基准测试。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试，以及创建项目。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -11,7 +11,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
 go tool game help
 ```
 
-`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。
+`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。用 [`game new`](#new) 创建的项目已经包含这一行。
 
 ## 命令
 
@@ -25,6 +25,7 @@ go tool game help
 | `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包 |
 | `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
+| `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
@@ -137,3 +138,16 @@ benchmarks:
 ```
 
 基准测试的名字不带 `-GOMAXPROCS` 后缀，因此在一台机器上记录的基线可以在另一台机器上读取，但每次操作的耗时取决于机器：请在 CI 检查基线所用的同类机器上记录它。这个格式由 `tooling/bench` 包读写。
+
+### new
+
+```sh
+go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
+go tool game new -name "Space Rocks" -module example.com/rocks rocks
+```
+
+把起手模板（即 `template/template` 中、`nsgo init -template github.com/nsgo-dev/game/template` 写出的那个项目）写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
+
+游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，目前只有 `starter`。
+
+只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，在该目录重新运行同一条 `go` 命令即可完成项目。

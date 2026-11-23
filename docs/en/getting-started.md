@@ -5,7 +5,7 @@ Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated s
 ## Requirements
 
 - **Go 1.27** or later.
-- **NSGo `v0.3.0`** or later to build the game. Scaffolding uses an NSGo command with [Go module template support](https://nsgo.dev/docs/getting-started/#templates-from-go-modules).
+- **NSGo `v0.3.0`** or later, which a new project requires and runs as the `nsgo` tool.
 - For iOS builds: macOS with Xcode.
 - For running on Android devices or emulators: `adb` (Android SDK Platform-Tools). Building an `android_arm64` APK needs only Go.
 
@@ -13,18 +13,19 @@ Run `go tool nsgo doctor` inside a project to check what toolchains this machine
 
 ## Create a project
 
-Install a version of the NSGo command that supports Go module templates, such as the NSGo release this repository builds against. Make sure Go's binary directory (`GOBIN`, or `GOPATH/bin` by default) is on your `PATH`.
+Create the project with the `game` command's `new` subcommand. It writes the starter into a new directory and has Go add the game layer and the `game` tool to its `go.mod`, beside the `nsgo` tool the starter already has:
 
 ```sh
-go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0
-nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
+go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
 cd mygame
 go tool nsgo dev
 ```
 
-The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md): edit the game's name and identifier there, then run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
+The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
 
-To start from a checkout of this repository, copy `template/template/` to a new directory. Rename `go.mod.tmpl` to `go.mod` and replace `{{.Module}}` on the first line with your module path. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
+NSGo's own command writes the same starter from the template module, without the `game` tool: `nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`, with an NSGo command that supports [Go module templates](https://nsgo.dev/docs/getting-started/#templates-from-go-modules), such as `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`. Its `game.yaml` and `nsgo.yaml` name the game `Starter Game` until you edit them.
+
+From a checkout of this repository, `go run ./packages/game/cmd/game new ../mygame` creates a project from the starter in `template/template/`; a command built from a checkout has no version of its own, so the project requires the latest published game layer unless `-version` names another. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
 
 Add `resources/` for files your game loads at runtime and `assets/` for files the tool uses to build the app, such as app icons:
 
