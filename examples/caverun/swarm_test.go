@@ -141,7 +141,7 @@ func TestSwarmAddsNoAllocations(t *testing.T) {
 		t.Fatalf("a fixed step allocated %v times with the swarm and %v without, want the same", stepWith, stepWithout)
 	}
 
-	// NSGo v0.3.0's Drawing copies the image source of every DrawImageFrom and DrawAtlas, and the sprite data of every DrawAtlas, onto the heap (internal/driver/canvas.go:995, internal/driver/atlas.go:34 and :52), so the tilemap's tiles allocate on every frame. The swarm adds only its own DrawAtlas's copies, however many fireflies it holds.
+	// NSGo v0.3.0's Drawing copies the image source of every DrawImageFrom and DrawAtlas, and the sprite data of every DrawAtlas, onto the heap (internal/driver/canvas.go:995, internal/driver/atlas.go:34 and :52), so the tilemap's tiles allocate on every frame. The swarm adds only its own DrawAtlas's copies, however many fireflies it holds (nsgo-dev/nsgo#2269).
 	draw := func() float64 {
 		for range 30 {
 			l.update(fixedStep, stepInput{})
