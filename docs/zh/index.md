@@ -43,6 +43,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `a11y` | `github.com/nsgo-dev/game/packages/game/a11y` | [a11y](a11y.md) | 实时字幕、色盲调色板与 CVD 模拟、持久化辅助选项及屏幕阅读器菜单 |
 | `l10n` | `github.com/nsgo-dev/game/packages/game/l10n` | [l10n](l10n.md) | 支持 CLDR 复数的 JSON 字符串表、脚本 `FontSet`、RTL 视觉排序与多语言资源目录 |
 | `perf` | `github.com/nsgo-dev/game/packages/game/perf` | [perf](perf.md) | 零分配 `Pool`/`Arena`/`SlicePool`、`SpatialHash`、`Quadtree` 与 `CullBatch` |
+| `idle` | `github.com/nsgo-dev/game/packages/game/idle` | [idle](idle.md) | 超出 float64 范围的 `Number`、带上限的离线收益，以及大数字的缩写、科学计数法与本地化格式 |
 | `net` | `github.com/nsgo-dev/game/packages/game/net` | [net](net.md) | 跨平台 WebSocket/UDP/回环传输、服务端权威增量复制与锁步/回滚同步 |
 | `server` | `github.com/nsgo-dev/game/packages/game/server` | [server](server.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
 | `accounts` | `github.com/nsgo-dev/game/packages/game/accounts` | [accounts](accounts.md) | 可自行部署的玩家账号：游客升级为邮箱或绑定平台/OAuth 身份、argon2id 密码、SQLite/Postgres 存储，以及游戏服务器离线校验的 Ed25519 令牌 |
