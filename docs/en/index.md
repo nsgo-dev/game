@@ -75,6 +75,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | GPU mesh buffers, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos, billboards, 3D ribbon trails and GPU budgets |
 | `tooling/jsonschema` | `github.com/nsgo-dev/game/packages/game/tooling/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
 | `framedata` | `github.com/nsgo-dev/game/packages/game/framedata` | [framedata](framedata.md) | Fighting game hitboxes, hurtboxes, hitstun and cancel windows per frame in YAML, resolved deterministically each step |
+| `vehicle` | `github.com/nsgo-dev/game/packages/game/vehicle` | [vehicle](vehicle.md) | Raycast cars on `physics3d`: wheel suspension, tire friction and a car controller, race checkpoints and laps, and YAML car files and lap ghosts |
 
 For a single-page summary of the core APIs, see [Packages](packages.md).
 
