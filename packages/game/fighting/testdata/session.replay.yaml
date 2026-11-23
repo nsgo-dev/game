@@ -1,0 +1,16 @@
+version: 2
+seed: 525
+rate: 60
+actions: [left, right, up, down, lp, hp, mk, lk]
+axes: [move_x, move_y]
+total_steps: 90
+steps:
+  - {step: 10, press: [down]}
+  - {step: 13, press: [right]}
+  - {step: 16, release: [down]}
+  - {step: 18, press: [lp]}
+  - {step: 20, release: [right, lp]}
+  - {step: 30, axes: {move_x: -1}}
+  - {step: 76, axes: {move_x: 1}}
+  - {step: 78, press: [lp]}
+  - {step: 80, release: [lp], axes: {move_x: 0}}
