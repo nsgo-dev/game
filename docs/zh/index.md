@@ -55,6 +55,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `effects` | `github.com/nsgo-dev/game/packages/game/effects` | [effects](effects.md) | 在一次绘制中串联作用于游戏画面的 Kage 着色器通道、随帧时钟变化的 uniform 及 CPU 参考图 |
 | `worldmap` | `github.com/nsgo-dev/game/packages/game/worldmap` | [worldmap](worldmap.md) | YAML 房间地图、随存档保存的房间发现与标记、当前区域小地图及世界地图 |
 | `fog` | `github.com/nsgo-dev/game/packages/game/fog` | [fog](fog.md) | 按队伍划分的战争迷雾：阴影投射视野源、已探索与可见格子、地图叠加层与 JSON 存档 |
+| `quality` | `github.com/nsgo-dev/game/packages/game/quality` | [quality](quality.md) | 按设备类型与实测帧时间选择低、中、高画质预设，可在设置中覆盖 |
 | `a11y` | `github.com/nsgo-dev/game/packages/game/a11y` | [a11y](a11y.md) | 实时字幕、色盲调色板与 CVD 模拟、持久化辅助选项及屏幕阅读器菜单 |
 | `l10n` | `github.com/nsgo-dev/game/packages/game/l10n` | [l10n](l10n.md) | 支持 CLDR 复数的 JSON 字符串表、脚本 `FontSet`、RTL 视觉排序与多语言资源目录 |
 | `perf` | `github.com/nsgo-dev/game/packages/game/perf` | [perf](perf.md) | 零分配 `Pool`/`Arena`/`SlicePool`、`SpatialHash`、`Quadtree` 与 `CullBatch` |
