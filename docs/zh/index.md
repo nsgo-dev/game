@@ -41,6 +41,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `cards` | `github.com/nsgo-dev/game/packages/game/cards` | [cards](cards.md) | 在牌桌槽位间拖放并吸附或弹回，扇形手牌、牌堆、叠放牌列与网格布局，以及 YAML 牌桌文件 |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为与行为树 |
 | `rts` | `github.com/nsgo-dev/game/packages/game/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
+| `procgen` | `github.com/nsgo-dev/game/packages/game/procgen` | [procgen](procgen.md) | 带种子的 BSP 房间、元胞自动机洞穴与基于 YAML 规则的波函数坍缩，附连通性检查与 tilemap 绘制 |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
 | `statedump` | `github.com/nsgo-dev/game/packages/game/statedump` | [statedump](statedump.md) | 无窗口运行并转储为确定性 YAML（实体、组件、场景栈、全局值），以及两次运行之间的行 `Diff` |
 | `cutscene` | `github.com/nsgo-dev/game/packages/game/cutscene` | [cutscene](cutscene.md) | 覆盖在游戏视图上、可跳过的视频过场动画，可放在场景中或场景之间，以 YAML 文件描述 |
