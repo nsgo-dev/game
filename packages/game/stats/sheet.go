@@ -3,6 +3,7 @@ package stats
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 )
 
@@ -180,20 +181,27 @@ func (s *Sheet) AddTimed(source string, m Modifier, steps int) (ID, error) {
 
 // Apply adds every modifier of e from source, lasting e.Steps, and returns their IDs in the effect's order. It adds none of them when any is invalid.
 //
-// Applying an effect again stacks a second copy; to refresh a buff instead, call RemoveSource first.
+// Applying an effect again stacks a second copy; to refresh a buff instead, use Refresh.
 func (s *Sheet) Apply(source string, e Effect) ([]ID, error) {
-	targets := make([]*stat, len(e.Modifiers))
-	for i, m := range e.Modifiers {
-		st, err := s.check(m, e.Steps)
-		if err != nil {
-			return nil, fmt.Errorf("stats: effect %q: modifiers[%d]: %w", e.Name, i, err)
-		}
-		targets[i] = st
+	targets, err := s.checkEffect(e)
+	if err != nil {
+		return nil, err
 	}
-	ids := make([]ID, len(e.Modifiers))
-	for i, m := range e.Modifiers {
-		ids[i] = s.add(targets[i], source, m, e.Steps)
+	ids := s.addEffect(targets, source, e)
+	s.flush()
+	return ids, nil
+}
+
+// Refresh removes every modifier added from source and applies e from source in their place, as one change: OnChange reports only each stat's value before the old modifiers left and after the new ones arrived, never the value in between. It returns the new modifiers' IDs in the effect's order. When any of e's modifiers is invalid it changes nothing.
+//
+// Refresh restarts a buff's duration without the listeners seeing the buff end and begin again.
+func (s *Sheet) Refresh(source string, e Effect) ([]ID, error) {
+	targets, err := s.checkEffect(e)
+	if err != nil {
+		return nil, err
 	}
+	s.detachWhere(func(o *entry) bool { return o.source == source })
+	ids := s.addEffect(targets, source, e)
 	s.flush()
 	return ids, nil
 }
@@ -273,6 +281,26 @@ func (s *Sheet) check(m Modifier, steps int) (*stat, error) {
 	return st, nil
 }
 
+func (s *Sheet) checkEffect(e Effect) ([]*stat, error) {
+	targets := make([]*stat, len(e.Modifiers))
+	for i, m := range e.Modifiers {
+		st, err := s.check(m, e.Steps)
+		if err != nil {
+			return nil, fmt.Errorf("stats: effect %q: modifiers[%d]: %w", e.Name, i, err)
+		}
+		targets[i] = st
+	}
+	return targets, nil
+}
+
+func (s *Sheet) addEffect(targets []*stat, source string, e Effect) []ID {
+	ids := make([]ID, len(e.Modifiers))
+	for i, m := range e.Modifiers {
+		ids[i] = s.add(targets[i], source, m, e.Steps)
+	}
+	return ids
+}
+
 func (s *Sheet) add(st *stat, source string, m Modifier, steps int) ID {
 	s.nextID++
 	e := &entry{id: s.nextID, source: source, mod: m, remaining: steps, stat: st}
@@ -283,6 +311,15 @@ func (s *Sheet) add(st *stat, source string, m Modifier, steps int) ID {
 }
 
 func (s *Sheet) removeWhere(match func(*entry) bool) int {
+	n := s.detachWhere(match)
+	if n > 0 {
+		s.flush()
+	}
+	return n
+}
+
+// detachWhere removes the matching modifiers and marks their stats dirty without recomputing them.
+func (s *Sheet) detachWhere(match func(*entry) bool) int {
 	n := 0
 	s.mods = slices.DeleteFunc(s.mods, func(e *entry) bool {
 		if !match(e) {
@@ -292,9 +329,6 @@ func (s *Sheet) removeWhere(match func(*entry) bool) int {
 		n++
 		return true
 	})
-	if n > 0 {
-		s.flush()
-	}
 	return n
 }
 
@@ -332,19 +366,19 @@ func (s *Sheet) flush() {
 	}
 }
 
-// compute applies the stacking rule: (base + adds) * muls, or the winning override, then the bounds.
+// compute applies the stacking rule: (base + adds) * muls, or the winning override, then the bounds. Every partial result saturates at ±math.MaxFloat64, so finite inputs never give an infinite or NaN value (an overflowed sum times 0 is 0, not NaN) and the bounds always apply.
 func (st *stat) compute() float64 {
 	v := st.def.Base
 	var override *entry
 	for _, e := range st.mods {
 		if e.mod.Op == OpAdd {
-			v += e.mod.Value
+			v = saturate(v + e.mod.Value)
 		}
 	}
 	for _, e := range st.mods {
 		switch e.mod.Op {
 		case OpMul:
-			v *= e.mod.Value
+			v = saturate(v * e.mod.Value)
 		case OpOverride:
 			if override == nil || e.mod.Priority >= override.mod.Priority {
 				override = e
@@ -359,6 +393,17 @@ func (st *stat) compute() float64 {
 	}
 	if st.def.Max != nil && v > *st.def.Max {
 		v = *st.def.Max
+	}
+	return v
+}
+
+// saturate maps an overflowed result to the largest finite value of its sign. Its inputs are finite, so v is never NaN.
+func saturate(v float64) float64 {
+	if math.IsInf(v, 1) {
+		return math.MaxFloat64
+	}
+	if math.IsInf(v, -1) {
+		return -math.MaxFloat64
 	}
 	return v
 }

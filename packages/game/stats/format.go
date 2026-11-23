@@ -151,7 +151,7 @@ func Validate(f *File) error {
 			return fmt.Errorf("stats: stats[%d]: %w", i, err)
 		}
 		if defined[d.Name] {
-			return fmt.Errorf("stats: stats[%d]: duplicate stat %q", i, d.Name)
+			return fmt.Errorf("stats: stats[%d]: %w %q", i, ErrDuplicateStat, d.Name)
 		}
 		defined[d.Name] = true
 	}
@@ -166,7 +166,7 @@ func Validate(f *File) error {
 		}
 		effects[e.Name] = true
 		if e.Steps < 0 {
-			return fmt.Errorf("%s (%s): negative steps %d", where, e.Name, e.Steps)
+			return fmt.Errorf("%s (%s): %w %d", where, e.Name, ErrInvalidSteps, e.Steps)
 		}
 		if len(e.Modifiers) == 0 {
 			return fmt.Errorf("%s (%s): no modifiers", where, e.Name)
@@ -188,13 +188,13 @@ func validateDef(d Def) error {
 		return errors.New("empty name")
 	}
 	if !finite(d.Base) {
-		return fmt.Errorf("stat %q: base is not finite", d.Name)
+		return fmt.Errorf("stat %q: base: %w: %v", d.Name, ErrInvalidValue, d.Base)
 	}
 	if d.Min != nil && !finite(*d.Min) {
-		return fmt.Errorf("stat %q: min is not finite", d.Name)
+		return fmt.Errorf("stat %q: min: %w: %v", d.Name, ErrInvalidValue, *d.Min)
 	}
 	if d.Max != nil && !finite(*d.Max) {
-		return fmt.Errorf("stat %q: max is not finite", d.Name)
+		return fmt.Errorf("stat %q: max: %w: %v", d.Name, ErrInvalidValue, *d.Max)
 	}
 	if d.Min != nil && d.Max != nil && *d.Min > *d.Max {
 		return fmt.Errorf("stat %q: min %v is above max %v", d.Name, *d.Min, *d.Max)

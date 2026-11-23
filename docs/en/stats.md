@@ -39,7 +39,7 @@ A stat's value is:
 clamp((base + sum of add values) × product of mul values)
 ```
 
-While any override is on the stat, the value is instead `clamp(override value)`, where the override with the highest `Priority` wins and, among equal priorities, the one added last. `clamp` applies the stat's `Min` and `Max` when they are set, to overrides too. The order modifiers are added in does not change the result except to break a tie between overrides.
+While any override is on the stat, the value is instead `clamp(override value)`, where the override with the highest `Priority` wins and, among equal priorities, the one added last. `clamp` applies the stat's `Min` and `Max` when they are set, to overrides too. Apart from breaking a tie between overrides, the order modifiers are added in matters only for floating-point rounding: adds and muls are applied in that order, so `0.1 + 0.2 + 0.3` and `0.3 + 0.1 + 0.2` can differ in the last digit. Compare values with a tolerance when that matters. A sum or product that overflows `float64` saturates at the largest finite value of its sign, so a value is always finite and within its bounds.
 
 | Base | Modifiers | Value |
 | --- | --- | --- |
@@ -88,7 +88,13 @@ berserk := stats.Effect{Name: "berserk", Steps: 300, Modifiers: []stats.Modifier
 ids, err := hero.Apply("buff:berserk", berserk)
 ```
 
-`Apply` adds all of the effect's modifiers or none of them. Applying an effect again stacks a second copy; to refresh a buff's duration instead, call `RemoveSource` with its source and apply it again.
+`Apply` adds all of the effect's modifiers or none of them. Applying an effect again stacks a second copy; to refresh a buff's duration instead, call `Refresh` with its source:
+
+```go
+hero.Refresh("buff:berserk", berserk) // a full 300 steps again
+```
+
+`Refresh` removes every modifier from the source and applies the effect in their place as one change, so `OnChange` sees only the net difference, never the buff ending and starting again. Calling `RemoveSource` and then `Apply` does the same in two changes, and listeners see the value drop back to the unbuffed one in between.
 
 ## Change notifications
 
