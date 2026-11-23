@@ -2,7 +2,10 @@ module github.com/nsgo-dev/game/packages/game
 
 go 1.27.3
 
-tool github.com/nsgo-dev/nsgo/cmd/nsgo
+tool (
+	github.com/nsgo-dev/game/packages/game/cmd/game
+	github.com/nsgo-dev/nsgo/cmd/nsgo
+)
 
 require (
 	github.com/jackc/pgx/v5 v5.13.0

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -29,7 +28,7 @@ func makeTestImage(w, h int) *image.NRGBA {
 	return img
 }
 
-func TestCLIEncodesPNGAndJPEG(t *testing.T) {
+func TestTexEncodesPNGAndJPEG(t *testing.T) {
 	dir := t.TempDir()
 	pngPath := filepath.Join(dir, "albedo.png")
 	jpgPath := filepath.Join(dir, "photo.jpg")
@@ -83,7 +82,7 @@ func TestCLIEncodesPNGAndJPEG(t *testing.T) {
 		},
 		{
 			name:     "rgba8 via -in flag",
-			args:     []string{"-format", "rgba8", "-in", pngPath, "-o", filepath.Join(dir, "out_rgba.ktx2")},
+			args:     []string{"-format", "rgba8", "-in", pngPath, "-out", filepath.Join(dir, "out_rgba.ktx2")},
 			outPath:  filepath.Join(dir, "out_rgba.ktx2"),
 			wantVk:   ktx2.VkFormatR8G8B8A8Unorm,
 			wantMips: 1,
@@ -92,9 +91,9 @@ func TestCLIEncodesPNGAndJPEG(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			if code := run(tc.args, &stdout, &stderr); code != 0 {
-				t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+			a, _, stderr := newTestApp(t)
+			if code := run(append([]string{"tex"}, tc.args...), a); code != 0 {
+				t.Fatalf("exit=%d stderr=%s", code, stderr)
 			}
 			raw, err := os.ReadFile(tc.outPath)
 			if err != nil {
@@ -120,20 +119,24 @@ func TestCLIEncodesPNGAndJPEG(t *testing.T) {
 	}
 }
 
-func TestCLIErrorCases(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{}, &stdout, &stderr); code != 2 {
+func TestTexErrorCases(t *testing.T) {
+	a, _, _ := newTestApp(t)
+	if code := run([]string{"tex"}, a); code != 2 {
 		t.Fatalf("missing input exit=%d, want 2", code)
 	}
-	stderr.Reset()
-	if code := run([]string{"-format", "astc", "a.png"}, &stdout, &stderr); code != 2 {
+	a, _, _ = newTestApp(t)
+	if code := run([]string{"tex", "-in", "a.png", "b.png"}, a); code != 2 {
+		t.Fatalf("-in and positional input exit=%d, want 2", code)
+	}
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"tex", "-format", "astc", "a.png"}, a); code != 2 {
 		t.Fatalf("unsupported format exit=%d, want 2", code)
 	}
 	if !strings.Contains(stderr.String(), "unsupported format") {
-		t.Fatalf("stderr = %q, want unsupported format error", stderr.String())
+		t.Fatalf("stderr = %q, want unsupported format error", stderr)
 	}
-	stderr.Reset()
-	if code := run([]string{"-format", "bc1", filepath.Join(t.TempDir(), "missing.png")}, &stdout, &stderr); code != 1 {
+	a, _, _ = newTestApp(t)
+	if code := run([]string{"tex", "-format", "bc1", filepath.Join(t.TempDir(), "missing.png")}, a); code != 1 {
 		t.Fatalf("missing file exit=%d, want 1", code)
 	}
 }

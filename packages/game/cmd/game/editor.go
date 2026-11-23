@@ -1,10 +1,9 @@
-// Command gameeditor launches the NSGo Scene Editor desktop/web app.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math"
-	"os"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -14,25 +13,42 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-func main() {
-	ed, err := newDemoEditor()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gameeditor: %v\n", err)
-		os.Exit(1)
-	}
-	if len(os.Args) > 1 {
-		if err := ed.OpenFile(os.Args[1]); err != nil {
-			fmt.Fprintf(os.Stderr, "gameeditor: open %s: %v\n", os.Args[1], err)
-			os.Exit(1)
-		}
-	}
+// editorCommand opens the scene editor on a YAML scene file, or on a demo scene when none is named.
+var editorCommand = &command{
+	name:    "editor",
+	args:    "[scene.yaml]",
+	summary: "Open the scene editor on a YAML scene, or on a demo scene when none is named",
+	define:  defineEditor,
+}
 
+func defineEditor(a *app, fs *flag.FlagSet) func() error {
+	return func() error {
+		if fs.NArg() > 1 {
+			return usagef("expected at most one scene file, got %d", fs.NArg())
+		}
+		ed, err := newDemoEditor()
+		if err != nil {
+			return err
+		}
+		if fs.NArg() == 1 {
+			if err := ed.OpenFile(fs.Arg(0)); err != nil {
+				return fmt.Errorf("open %s: %w", fs.Arg(0), err)
+			}
+		}
+		a.launch(ed)
+		return nil
+	}
+}
+
+// runEditor shows ed in the NSGo Scene Editor window and returns once it closes.
+func runEditor(ed *editor.Editor) {
 	nsgo.Run(func(cx *core.Scope) core.Node {
 		cx.SetTitle("NSGo Scene Editor")
 		return editor.EditorView(cx, ed)
 	}, nsgo.WindowSize(1120, 680))
 }
 
+// newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named.
 func newDemoEditor() (*editor.Editor, error) {
 	resolver := sceneformat.AtlasMap{
 		"tiles": {

@@ -178,13 +178,21 @@ func TestGeneratedManifestCompilesAndFailsWhenAssetRemoved(t *testing.T) {
 		t.Helper()
 		root := t.TempDir()
 		var lines []string
+		inToolBlock := false
 		for _, line := range strings.Split(string(goMod), "\n") {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "module ") {
-				lines = append(lines, "module example.com/manifestcheck")
+			// The tool directives, single lines or a block, can name packages of the module being renamed, so they are left out.
+			switch {
+			case inToolBlock:
+				inToolBlock = trimmed != ")"
 				continue
-			}
-			if strings.HasPrefix(trimmed, "tool ") {
+			case trimmed == "tool (":
+				inToolBlock = true
+				continue
+			case strings.HasPrefix(trimmed, "tool "):
+				continue
+			case strings.HasPrefix(trimmed, "module "):
+				lines = append(lines, "module example.com/manifestcheck")
 				continue
 			}
 			lines = append(lines, line)

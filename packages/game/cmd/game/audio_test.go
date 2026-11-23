@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"math"
@@ -49,23 +48,22 @@ func (s *stubRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	return nil, os.WriteFile(outPath, []byte("encoded"), 0o644)
 }
 
-func TestCLIConvertsWAVWithDSPFlags(t *testing.T) {
+func TestAudioConvertsWAVWithDSPFlags(t *testing.T) {
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "sfx.wav")
 	outPath := filepath.Join(dir, "sfx_out.wav")
 	writeTestWAV(t, inPath, 48000, 2, 0.2)
 
-	var stdout, stderr bytes.Buffer
-	code := run([]string{
+	code, stderr := runAudio(t, &audioconv.Encoder{}, []string{
 		"-in", inPath,
 		"-out", outPath,
 		"-format", "wav",
 		"-rate", "22050",
 		"-channels", "1",
 		"-peak-db", "-2.0",
-	}, &stdout, &stderr, &audioconv.Encoder{})
+	})
 	if code != 0 {
-		t.Fatalf("exit %d, stderr=%s", code, stderr.String())
+		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
 
 	got, err := audioconv.ReadWAVFile(outPath)
@@ -80,21 +78,20 @@ func TestCLIConvertsWAVWithDSPFlags(t *testing.T) {
 	}
 }
 
-func TestCLIRMSFlagAndExternalFormats(t *testing.T) {
+func TestAudioRMSFlagAndExternalFormats(t *testing.T) {
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "music.wav")
 	writeTestWAV(t, inPath, 44100, 1, 0.1)
 
 	t.Run("rms wav", func(t *testing.T) {
 		outPath := filepath.Join(dir, "music_rms.wav")
-		var stdout, stderr bytes.Buffer
-		code := run([]string{
+		code, stderr := runAudio(t, &audioconv.Encoder{}, []string{
 			"-in", inPath,
 			"-out", outPath,
 			"-rms-db", "-14",
-		}, &stdout, &stderr, &audioconv.Encoder{})
+		})
 		if code != 0 {
-			t.Fatalf("exit %d, stderr=%s", code, stderr.String())
+			t.Fatalf("exit %d, stderr=%s", code, stderr)
 		}
 		got, err := audioconv.ReadWAVFile(outPath)
 		if err != nil {
@@ -108,15 +105,14 @@ func TestCLIRMSFlagAndExternalFormats(t *testing.T) {
 	t.Run("aac via injected runner", func(t *testing.T) {
 		outPath := filepath.Join(dir, "music.m4a")
 		r := &stubRunner{bins: map[string]string{"ffmpeg": "/usr/bin/ffmpeg"}}
-		var stdout, stderr bytes.Buffer
-		code := run([]string{
+		code, stderr := runAudio(t, &audioconv.Encoder{Runner: r}, []string{
 			"-in", inPath,
 			"-out", outPath,
 			"-format", "aac",
 			"-bitrate", "192",
-		}, &stdout, &stderr, &audioconv.Encoder{Runner: r})
+		})
 		if code != 0 {
-			t.Fatalf("exit %d, stderr=%s", code, stderr.String())
+			t.Fatalf("exit %d, stderr=%s", code, stderr)
 		}
 		if r.lastBin != "/usr/bin/ffmpeg" {
 			t.Fatalf("runner bin = %q, want ffmpeg", r.lastBin)
@@ -126,35 +122,39 @@ func TestCLIRMSFlagAndExternalFormats(t *testing.T) {
 	t.Run("mp3 reports missing encoder cleanly", func(t *testing.T) {
 		outPath := filepath.Join(dir, "music.mp3")
 		r := &stubRunner{bins: map[string]string{}}
-		var stdout, stderr bytes.Buffer
-		code := run([]string{
+		code, stderr := runAudio(t, &audioconv.Encoder{Runner: r}, []string{
 			"-in", inPath,
 			"-out", outPath,
 			"-format", "mp3",
-		}, &stdout, &stderr, &audioconv.Encoder{Runner: r})
+		})
 		if code == 0 {
 			t.Fatal("expected non-zero exit when encoder is missing")
 		}
-		if !strings.Contains(stderr.String(), "not found") {
-			t.Fatalf("stderr = %q, want missing encoder error", stderr.String())
+		if !strings.Contains(stderr, "not found") {
+			t.Fatalf("stderr = %q, want missing encoder error", stderr)
 		}
 	})
 }
 
-func TestCLIValidationErrors(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{}, &stdout, &stderr, nil); code != 2 {
+func TestAudioValidationErrors(t *testing.T) {
+	if code, _ := runAudio(t, &audioconv.Encoder{}, nil); code != 2 {
 		t.Fatalf("missing flags exit %d, want 2", code)
 	}
-	stderr.Reset()
-	if code := run([]string{"-in", "a.wav", "-out", "b.ogg", "-format", "ogg"}, &stdout, &stderr, nil); code != 2 {
+	if code, _ := runAudio(t, &audioconv.Encoder{}, []string{"-in", "a.wav", "-out", "b.ogg", "-format", "ogg"}); code != 2 {
 		t.Fatalf("bad format exit %d, want 2", code)
 	}
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "a.wav")
 	writeTestWAV(t, inPath, 44100, 1, 0.2)
-	stderr.Reset()
-	if code := run([]string{"-in", inPath, "-out", filepath.Join(dir, "b.wav"), "-peak-db", "-1", "-rms-db", "-14"}, &stdout, &stderr, nil); code != 1 {
+	if code, _ := runAudio(t, &audioconv.Encoder{}, []string{"-in", inPath, "-out", filepath.Join(dir, "b.wav"), "-peak-db", "-1", "-rms-db", "-14"}); code != 1 {
 		t.Fatalf("conflicting peak/rms exit %d, want 1", code)
 	}
+}
+
+// runAudio runs game audio with args and enc, and returns its exit code and what it wrote to stderr.
+func runAudio(t *testing.T, enc *audioconv.Encoder, args []string) (int, string) {
+	t.Helper()
+	a, _, stderr := newTestApp(t)
+	a.audio = enc
+	return run(append([]string{"audio"}, args...), a), stderr.String()
 }
