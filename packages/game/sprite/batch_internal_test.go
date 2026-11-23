@@ -152,12 +152,13 @@ var testSheet = &Atlas{
 	},
 }
 
-// fuzzSprites builds a batch of testSheet from data, nine bytes a sprite, with every way a sprite can be placed, faded, blended and masked.
+// fuzzSprites builds a batch of testSheet from data, nine bytes a sprite, with every way a sprite can be placed, faded, blended and masked, NaN and infinite numbers among them.
 func fuzzSprites(data []byte) *Batch {
 	frames := []Frame{testSheet.Frames["hero"], testSheet.Frames["coin"], {}}
-	turns := []float32{0, math.Pi / 2, 0.3, math.Pi, -2.1}
-	scales := [][2]float32{{1, 1}, {2, 2}, {0.5, 0.5}, {1.5, 0.5}, {-1, -1}, {-1, 1}, {0, 1}}
-	alphas := []float32{1, 0.5, 0.25, 0, 1.5}
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	turns := []float32{0, math.Pi / 2, 0.3, math.Pi, -2.1, nan, inf}
+	scales := [][2]float32{{1, 1}, {2, 2}, {0.5, 0.5}, {1.5, 0.5}, {-1, -1}, {-1, 1}, {0, 1}, {nan, nan}, {inf, inf}}
+	alphas := []float32{1, 0.5, 0.25, 0, 1.5, nan, inf}
 	blends := []core.CompositeOp{core.CompositeSourceOver, core.CompositeLighter}
 	rect := RectMask(core.Bounds{Origin: core.Point{X: 2, Y: 3}, Size: core.Size{Width: 40, Height: 30}})
 	empty := CircleMask(1, 1, 0)
@@ -169,6 +170,16 @@ func fuzzSprites(data []byte) *Batch {
 		s := NewSprite(frames[int(p[0])%len(frames)])
 		s.X = float32(int8(p[1])) / 2
 		s.Y = float32(int8(p[2])) / 2
+		// The ends of a byte's range stand for numbers a game's arithmetic can reach by mistake.
+		switch p[1] {
+		case 0x7f:
+			s.X = inf
+		case 0x80:
+			s.X = nan
+		}
+		if p[2] == 0x80 {
+			s.Y = -inf
+		}
 		s.OriginX, s.OriginY = float32(p[3]%17), float32(p[3]/16)
 		s.Rotation = turns[int(p[4])%len(turns)]
 		sc := scales[int(p[5])%len(scales)]
@@ -220,7 +231,43 @@ func TestABatchDrawsTheSamePictureAsOneDrawPerSprite(t *testing.T) {
 	}
 }
 
+// nonFinite is a batch's bytes (as fuzzSprites reads them) for sprites with a NaN or infinite X, Y, rotation, scale or alpha between plain ones at 10 and 90.
+var nonFinite = []byte{
+	0, 0x80, 20, 0, 0, 0, 0, 0, 0,
+	1, 10, 20, 0, 0, 0, 0, 0, 0,
+	0, 20, 0x80, 0, 0, 0, 0, 0, 0,
+	1, 0x7f, 20, 0, 0, 0, 0, 0, 0,
+	0, 30, 20, 0, 5, 0, 0, 0, 0,
+	1, 40, 20, 0, 6, 0, 0, 0, 0,
+	0, 50, 20, 0, 0, 7, 0, 0, 0,
+	1, 60, 20, 0, 0, 8, 0, 0, 0,
+	0, 70, 20, 0, 0, 0, 20, 0, 0,
+	1, 80, 20, 0, 0, 0, 24, 0, 0,
+	0, 90, 20, 0, 0, 0, 0, 0, 0,
+}
+
+func TestASpriteWithANonFiniteNumberDrawsNothing(t *testing.T) {
+	b := fuzzSprites(nonFinite)
+	got := record(1, b.Draw)
+	samePicture(t, got, record(1, func(d *core.Drawing) { drawEach(b, d) }))
+	if n := len(gametest.ImageDraws(got)); n != 2 {
+		t.Fatalf("drew %d sprites, want only the 2 plain ones", n)
+	}
+}
+
+func TestABatchWithNoAtlasDrawsNothing(t *testing.T) {
+	s := NewSprite(testSheet.Frames["hero"])
+	for _, b := range []*Batch{{}, {Sprites: []*Sprite{&s}}} {
+		var d core.Drawing
+		b.Draw(&d)
+		if len(d.Ops) != 0 {
+			t.Fatalf("a batch with no atlas recorded %+v", d.Ops)
+		}
+	}
+}
+
 func FuzzBatchDrawsTheSamePictureAsOneDrawPerSprite(f *testing.F) {
+	f.Add(nonFinite)
 	f.Add([]byte{0, 10, 20, 0, 0, 0, 0, 0, 0, 1, 40, 20, 0, 0, 0, 0, 0, 0})
 	f.Add([]byte{0, 10, 20, 8, 2, 1, 4, 0, 1, 1, 40, 20, 8, 2, 2, 4, 0, 1, 0, 80, 20, 8, 3, 4, 0, 0, 0, 1})
 	f.Add([]byte{1, 200, 20, 3, 1, 5, 3, 2, 2, 0, 4, 5, 9, 4, 6, 1, 7, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1})
