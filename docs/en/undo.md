@@ -40,7 +40,7 @@ func (p *Push) Revert(b *Board) {
 Two helpers build moves without a type of their own:
 
 - `Func[S]{Do: ..., Undo: ...}` is a move made of two functions.
-- `Group[S]{a, b, c}` undoes and redoes several moves as one, such as a turn that moves a piece and captures another. It applies them in order and reverts them in reverse order.
+- `Group[S]{a, b, c}` undoes and redoes several moves as one, such as a turn that moves a piece and captures another. It applies them in order and reverts them in reverse order. A nil or empty group is a move that changes nothing; `Do` panics, before applying anything, on a group that holds a nil move.
 
 ## History
 
@@ -60,7 +60,7 @@ h.Seek(0)                // back to the starting state
 - `Undo` and `Redo` report whether there was a move to revert or apply, and `CanUndo` and `CanRedo` say so beforehand, for a game's buttons.
 - `Seek(n)` undoes or redoes moves until `n` are applied: `Seek(0)` restarts the level and `Seek(h.Len())` redoes every move.
 - `Len` is the number of moves recorded, `Applied` the number applied, and `Moves` a copy of them in order.
-- `Clear` forgets every move and keeps the state, which becomes the new starting state.
+- `Clear` forgets every move and keeps the state, which becomes the new starting state. A log saved after `Clear` holds only the later moves, so save the state at the `Clear` with it and restore onto that state.
 - `OnChange`, when set, is called after each call that applies, reverts or forgets moves.
 
 History is unlimited: every move is kept until `Clear`. Because each move reverts its own change, undoing every move returns the state to exactly the starting state, and redoing them returns it to exactly the latest one. The package's tests check this on random walks of hundreds of moves and fuzz arbitrary sequences of `Do`, `Undo`, `Redo`, `Seek` and `Clear` against a copy of the state after every move.
@@ -82,14 +82,14 @@ moves:
 
 - `version` is `LogVersion` (1); `applied` is how many of the `moves` are applied, and the rest are the moves `Redo` can bring back.
 - `h.Log()` returns the log and `EncodeLog` writes it in this field order with 2-space indentation, so the same history always writes the same text.
-- `DecodeLog[M](data)` reads it back, refusing unknown fields (in the log or in a move), another version, an `applied` outside the moves, a null move and trailing YAML documents.
-- `Restore(start, log)` returns a `History` over the level's starting state: it applies the first `applied` moves in order and keeps the rest for `Redo`.
+- `DecodeLog[M](data)` reads it back, refusing a missing `version`, `applied` or `moves` key, a null `moves`, unknown fields (in the log or in a move), another version, an `applied` outside the moves, a null move and trailing YAML documents.
+- `Restore(start, log)` returns a `History` over the starting state the log was recorded from, which is the state given to `New` or, after a `Clear`, the state at that `Clear`: it applies the first `applied` moves in order and keeps the rest for `Redo`.
 
 Keep what a move records during `Apply` in unexported fields or fields tagged `yaml:"-"`, so the log holds only what the player chose; `Restore` applies the moves again, which records it anew. Store the log with the game's save, for example in a [save](save.md) slot or a file of its own.
 
 ```go
 data, err := undo.EncodeLog(h.Log())
-// ...later, with the level's starting board:
+// ...later, with the board the history started from (the level's start, or the board saved at the last Clear):
 log, err := undo.DecodeLog[*Push](data)
 h, err = undo.Restore(level.Board(), log)
 ```

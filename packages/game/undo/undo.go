@@ -62,9 +62,9 @@ func New[S any, M Move[S]](state S) *History[S, M] {
 // State returns the state the history's moves change.
 func (h *History[S, M]) State() S { return h.state }
 
-// Do applies m to the state and records it as the latest move, discarding any moves that were undone and not redone. It panics if m is nil.
+// Do applies m to the state and records it as the latest move, discarding any moves that were undone and not redone. It panics, before applying anything, if m is nil or is a Group holding a nil move; a nil or empty Group is a valid move that changes nothing.
 func (h *History[S, M]) Do(m M) {
-	if isNil(m) {
+	if nilMove[S](m) {
 		panic("undo: Do with a nil move")
 	}
 	if h.applied < len(h.moves) {
@@ -135,7 +135,7 @@ func (h *History[S, M]) Moves() []M {
 	return append([]M(nil), h.moves...)
 }
 
-// Clear forgets every move and keeps the state as it is, which becomes the new starting state.
+// Clear forgets every move and keeps the state as it is, which becomes the new starting state. A Log taken after Clear holds only the later moves, so a game that saves it must also save the state at the Clear and pass that to Restore.
 func (h *History[S, M]) Clear() {
 	clear(h.moves)
 	h.moves = h.moves[:0]
@@ -149,13 +149,26 @@ func (h *History[S, M]) changed() {
 	}
 }
 
-// isNil reports whether m is a nil interface or a nil pointer, map, slice or func, which no move can be.
+// nilMove reports whether m, or a move inside m when m is a Group, is nil in the sense of isNil.
+func nilMove[S any](m Move[S]) bool {
+	if g, ok := m.(Group[S]); ok {
+		for _, e := range g {
+			if nilMove(e) {
+				return true
+			}
+		}
+		return false
+	}
+	return isNil(m)
+}
+
+// isNil reports whether m is a nil interface or a nil pointer, map, func or chan, whose methods cannot run. A nil slice is not nil here, since a slice move such as a nil Group ranges over nothing.
 func isNil(m any) bool {
 	if m == nil {
 		return true
 	}
 	switch v := reflect.ValueOf(m); v.Kind() {
-	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Func, reflect.Chan, reflect.Interface:
 		return v.IsNil()
 	}
 	return false

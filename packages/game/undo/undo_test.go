@@ -207,6 +207,50 @@ func TestGroupRevertsInReverseOrder(t *testing.T) {
 	}
 }
 
+func TestNilAndEmptyGroupsAreMoves(t *testing.T) {
+	x := 5
+	h := undo.New[*int, undo.Move[*int]](&x)
+	var none undo.Group[*int]
+	h.Do(none)
+	h.Do(undo.Group[*int]{})
+	if x != 5 || h.Len() != 2 {
+		t.Fatalf("nil and empty groups gave x=%d len=%d, want 5 2", x, h.Len())
+	}
+	h.Seek(0)
+	h.Seek(2)
+	if x != 5 {
+		t.Fatalf("undoing and redoing empty groups gave x=%d, want 5", x)
+	}
+	groups := undo.New[*int, undo.Group[*int]](&x)
+	groups.Do(nil)
+	if x != 5 || groups.Len() != 1 {
+		t.Fatalf("nil Group as M gave x=%d len=%d, want 5 1", x, groups.Len())
+	}
+}
+
+func TestGroupWithNilMovePanicsBeforeApplying(t *testing.T) {
+	x := 1
+	inc := undo.Func[*int]{Do: func(v *int) { *v++ }, Undo: func(v *int) { *v-- }}
+	h := undo.New[*int, undo.Move[*int]](&x)
+	for name, g := range map[string]undo.Group[*int]{
+		"nil element":         {inc, nil},
+		"nil in nested group": {inc, undo.Group[*int]{inc, nil}},
+		"typed nil pointer":   {inc, (*undo.Func[*int])(nil)},
+	} {
+		func() {
+			defer func() {
+				if s, _ := recover().(string); !strings.Contains(s, "nil move") {
+					t.Fatalf("%s: recovered %q, want a nil move panic", name, s)
+				}
+			}()
+			h.Do(g)
+		}()
+		if x != 1 || h.Len() != 0 {
+			t.Fatalf("%s: a refused group changed the state or history: x=%d len=%d", name, x, h.Len())
+		}
+	}
+}
+
 func TestOnChangeAndClear(t *testing.T) {
 	x := 0
 	inc := undo.Func[*int]{Do: func(v *int) { *v++ }, Undo: func(v *int) { *v-- }}

@@ -12,7 +12,7 @@ import (
 // LogVersion is the schema version of the Log YAML format this package reads and writes.
 const LogVersion = 1
 
-// Log is the saved form of a History: its moves in order and how many of them are applied. It is written as YAML with its fields in the order below:
+// Log is the saved form of a History: its moves in order and how many of them are applied. It does not hold the starting state, which is the state given to New or, after a Clear, the state at that Clear; a game saves that state with the log and passes it to Restore. It is written as YAML with its fields in the order below, all three required:
 //
 //	version: 1
 //	applied: 2
@@ -49,7 +49,7 @@ func (l Log[M]) Validate() error {
 	return nil
 }
 
-// Restore returns a History over state, the starting state the log was recorded from, with the log's moves: it applies the first log.Applied moves to state in order and keeps the rest for Redo. OnChange is not called.
+// Restore returns a History over state, the starting state the log was recorded from (the state given to New, or the state at the history's last Clear), with the log's moves: it applies the first log.Applied moves to state in order and keeps the rest for Redo. OnChange is not called.
 func Restore[S any, M Move[S]](state S, log Log[M]) (*History[S, M], error) {
 	if err := log.Validate(); err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func EncodeLog[M any](log Log[M]) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DecodeLog reads a YAML Log and validates it. Unknown fields, in the log or in its moves, and trailing YAML documents are refused.
+// DecodeLog reads a YAML Log and validates it. Missing version, applied or moves keys, a null moves list, unknown fields, in the log or in its moves, and trailing YAML documents are refused.
 func DecodeLog[M any](data []byte) (Log[M], error) {
 	var log Log[M]
 	if len(bytes.TrimSpace(data)) == 0 {
@@ -101,6 +101,9 @@ func DecodeLog[M any](data []byte) (Log[M], error) {
 		}
 		return Log[M]{}, fmt.Errorf("undo: decode log: %w", err)
 	}
+	if err := requireLogKeys(data); err != nil {
+		return Log[M]{}, err
+	}
 	if log.Moves == nil {
 		log.Moves = []M{}
 	}
@@ -108,4 +111,29 @@ func DecodeLog[M any](data []byte) (Log[M], error) {
 		return Log[M]{}, err
 	}
 	return log, nil
+}
+
+// requireLogKeys reports an error unless the first YAML document of data, already decoded as a Log, is a mapping with version, applied and a non-null moves, so a truncated or hand-edited save is not read as zero applied moves.
+func requireLogKeys(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("undo: decode log: %w", err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return errors.New("undo: log is not a YAML mapping")
+	}
+	root := doc.Content[0]
+	values := map[string]*yaml.Node{}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		values[root.Content[i].Value] = root.Content[i+1]
+	}
+	for _, key := range []string{"version", "applied", "moves"} {
+		if values[key] == nil {
+			return fmt.Errorf("undo: log has no %s", key)
+		}
+	}
+	if values["moves"].Kind != yaml.SequenceNode {
+		return errors.New("undo: log moves is not a list")
+	}
+	return nil
 }
