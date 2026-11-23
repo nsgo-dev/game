@@ -65,6 +65,8 @@ func (v *Video) Run(cx *core.Scope) (stop func()) {
 		stopEffect()
 		v.cx = nil
 		v.stop = nil
+		// The player may have changed the window with the system's controls while stopped, so the next Run compares its settings with the window afresh.
+		v.sent = false
 		v.constrained.Set(false)
 		v.updateCap()
 	}
@@ -151,8 +153,8 @@ func (v *Video) applyWindow() {
 		if full == v.lastFull && display == v.lastDisplay {
 			return
 		}
-	} else if !full && !windowFull {
-		v.lastFull, v.lastDisplay, v.sent = false, "", true
+	} else if full == windowFull && display == "" {
+		v.lastFull, v.lastDisplay, v.sent = full, "", true
 		return
 	}
 	setFullScreen(v.cx, full, display)
