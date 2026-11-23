@@ -1,7 +1,9 @@
 package gltf_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"io/fs"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
@@ -15,6 +17,10 @@ func FuzzLoad(f *testing.F) {
 	boxJSON, boxBin, _, _, _ := buildKhronosBox()
 	boxJSONBytes, _ := json.Marshal(boxJSON)
 	f.Add(buildGLB(boxJSONBytes, boxBin))
+
+	// Self-contained Draco and meshopt documents.
+	f.Add(inlineBuffers(f, "Box/glTF-Draco", "Box.gltf"))
+	f.Add(inlineBuffers(f, "MeshoptCubeTest/glTF-Meshopt", "MeshoptCubeTest.gltf"))
 
 	// Corrupt / truncated GLB & JSON seeds.
 	f.Add([]byte{})
@@ -54,4 +60,35 @@ func FuzzLoad(f *testing.F) {
 			_ = doc.Animations[i].Sample(doc.Animations[i].Duration * 0.5)
 		}
 	})
+}
+
+// inlineBuffers returns a Khronos fixture's glTF JSON with every external buffer embedded as a base64 data URI, so Load needs no resolver.
+func inlineBuffers(t testing.TB, dir, name string) []byte {
+	t.Helper()
+	fsys, _ := khronosFS(t, dir, name, nil)
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range doc["buffers"].([]any) {
+		buf := b.(map[string]any)
+		uri, ok := buf["uri"].(string)
+		if !ok {
+			continue
+		}
+		bin, err := fs.ReadFile(fsys, uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf["uri"] = "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString(bin)
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

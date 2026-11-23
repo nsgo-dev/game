@@ -63,7 +63,7 @@ Open `File → Export → glTF 2.0 (.glb/.gltf)` and verify these settings:
   - Check `Tangents` if the material uses a normal map (avoids tangent-space mismatches across renderers).
   - Uncheck `Vertex Colors` unless your shader reads them.
 - **Data → Material**: `Materials: Export`, images as `Automatic` (PNG/JPEG) or `WebP` where supported.
-- **Data → Compression**: leave **Draco mesh compression unchecked** by default so the `.glb` loads directly in pure-Go glTF readers without a C++/Wasm Draco decoder.
+- **Data → Compression**: leave **Draco mesh compression unchecked** while iterating, so the file stays easy to inspect; turn it on for shipped assets when download size matters. `game/gltf` decodes Draco in pure Go (see [Compressed geometry](#compressed-geometry)).
 
 ### Skinned meshes and animations
 
@@ -198,6 +198,25 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 - **Z-up OBJ files** (CAD tools, older 3ds Max exports): pass `up_axis="Z"` to `bpy.ops.wm.obj_import(...)` so Blender rotates the mesh upright before exporting with `export_yup=True`.
 - **Mixamo multi-clip FBX downloads**: download the character mesh once (`With Skin`), then download additional animations `Without Skin`, import their Armature actions into the same `.blend` file, push each Action to the NLA stack, and export a single `.glb` containing all clips.
 - **Standalone inspection & optimization**: after exporting, you can inspect node trees, accessor bounds, and texture sizes with `gltf-transform inspect model.glb` or validate strict spec compliance with the Khronos `gltf_validator`.
+
+## Compressed geometry
+
+`game/gltf` decodes both common glTF geometry compression extensions in pure Go, with no C++ or Wasm decoder, so compressed files load through the same `gltf.Load` and `gltf.LoadFS` calls as plain ones:
+
+| Extension | What it compresses | Typical producer |
+| --- | --- | --- |
+| `KHR_draco_mesh_compression` | Whole triangle primitives: connectivity plus quantized attributes | Blender's exporter (*Data → Compression*), `gltf-pipeline -d`, `gltf-transform draco` |
+| `EXT_meshopt_compression`, `KHR_meshopt_compression` | Individual buffer views: vertex attributes, triangle and index lists, animation keyframes | `gltfpack -c`, `gltf-transform meshopt` |
+| `KHR_mesh_quantization` | Integer positions, normals and texture coordinates, usually paired with meshopt | `gltfpack`, `gltf-transform quantize` |
+
+The decoded data is what the readers return: `Primitive.Positions`, `Indices` and the other attributes, `ReadVec3` and friends, animation channels and skins all see uncompressed values. A buffer tagged as a meshopt fallback is never fetched, so a `.glb` that ships its uncompressed fallback as a separate optional `.bin` loads without that file.
+
+Choosing between them:
+
+- **Draco** gives the smallest files for dense static meshes, but decoding is slower and it may change the order and number of vertices, so tools that compare against the uncompressed file must match by value, not by index. Quantization is lossy: Blender's default 14-bit positions are enough for props; check close-ups of large meshes.
+- **meshopt** decodes much faster, keeps vertex order, also compresses animation data, and suits skinned characters and scenes with many small meshes. Its filters (octahedral, quaternion, exponential, color) are lossy; plain attribute, triangle and index streams are lossless.
+
+Both decoders bound every allocation by the counts the document declares and charge them to the same per-load budget as uncompressed data, and malformed streams return an error instead of panicking. Other required extensions, such as `KHR_texture_basisu`, are still refused at load time.
 
 ## Round-trip sample models
 

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"ACCessors\":[{\"ComponentTYpe\":5120,\"tYpe\":\"VEC2\"}],\"Asset\":{\"version\":\"2\"},\"BufferViews\":[{}],\"Buffers\":[{\"uri\":\"data:,\"}],\"000000000\":[{}],\"meshes\":[{\"primitives\":[{\"AttriButes\":{\"NORMAL\":1},\"eXtensions\":{\"KHR_draco_mesh_compression\":{\"AttriButes\":{\"NORMAL\":0},\"BufferView\":0}},\"indiCes\":0}]}]}")
