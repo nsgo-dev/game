@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -69,6 +70,20 @@ var runGo = func(dir string, stdout, stderr io.Writer, args ...string) error {
 	cmd.Dir, cmd.Env = dir, append(os.Environ(), "GOWORK=off")
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
+}
+
+// isStdPackage reports whether path is a standard-library package of the go command that game new runs. A test can replace it.
+var isStdPackage = func(path string) (bool, error) {
+	cmd := exec.Command("go", "list", "-e", "-f", "{{.Standard}}", "--", path)
+	// Outside any module and workspace, so only the standard library can provide path.
+	cmd.Dir, cmd.Env = os.TempDir(), append(os.Environ(), "GOWORK=off", "GO111MODULE=on")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("go list %s: %w: %s", path, err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return strings.TrimSpace(string(out)) == "true", nil
 }
 
 // newData is what a template's rendered files can use, the same fields nsgo init -template offers.
@@ -134,14 +149,36 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 				fmt.Fprintln(a.stdout, filepath.Join(dir, f.name))
 			}
 		}
-		for _, args := range [][]string{{"get", "-tool", gameTool + "@" + v}, {"mod", "tidy"}} {
+		steps := [][]string{{"get", "-tool", gameTool + "@" + v}, {"mod", "tidy"}}
+		for i, args := range steps {
 			if err := runGo(dir, a.stdout, a.stderr, args...); err != nil {
-				return fmt.Errorf("go %s in %s: %w; the project's files are written, so run it there again once it can succeed", strings.Join(args, " "), dir, err)
+				rest := make([]string, len(steps)-i)
+				for j, r := range steps[i:] {
+					rest[j] = "go " + strings.Join(r, " ")
+				}
+				return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), dir, err, strings.Join(rest, " && "))
 			}
 		}
-		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", dir)
+		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", shellQuote(dir, runtime.GOOS))
 		return nil
 	}
+}
+
+// shellQuote returns s as one word for a shell on goos: as it is when it holds only characters a shell takes literally, and otherwise in single quotes for a POSIX shell or in double quotes on Windows, where cmd and PowerShell both take them and \ separates paths.
+func shellQuote(s, goos string) string {
+	literal := "-_./+,:=@%"
+	if goos == "windows" {
+		literal += `\`
+	}
+	if s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9' || strings.ContainsRune(literal, r))
+	}) {
+		return s
+	}
+	if goos == "windows" {
+		return `"` + s + `"`
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // projectData returns what a template renders for a project in dir, naming it after the directory and deriving its module from the name where name and module are empty.
@@ -164,6 +201,16 @@ func projectData(dir, name, module string) (newData, error) {
 		module = slug
 	} else if err := checkModulePath(module); err != nil {
 		return newData{}, usagef("-module %q: %v", module, err)
+	}
+	// A main module whose path is a standard-library package's, such as time, cannot build: go reports an ambiguous import of that package. Only a path whose first element has no dot can be one.
+	if first, _, _ := strings.Cut(module, "/"); !strings.Contains(first, ".") {
+		std, err := isStdPackage(module)
+		if err != nil {
+			return newData{}, err
+		}
+		if std {
+			return newData{}, usagef("module path %q is a standard-library package, so the project could not build; give another with -module, such as example.com/%s", module, module)
+		}
 	}
 	return newData{
 		Name:   name,
