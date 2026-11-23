@@ -183,6 +183,9 @@ func DrawShape(d *core.Drawing, viewProj Mat4, viewport core.Bounds, s Shape, st
 	switch s.Kind {
 	case ShapeBox:
 		edges := BoxEdges(s.Box)
+		if r, ok := s.orientedBox(); ok {
+			edges = OrientedBoxEdges(s.Box, r)
+		}
 		drawEdges(d, viewProj, viewport, edges[:], st.BoxColor, st.LineWidth)
 	case ShapeSphere:
 		drawEdges(d, viewProj, viewport, SphereEdges(s.Sphere, st.SphereSegments), st.SphereColor, st.LineWidth)

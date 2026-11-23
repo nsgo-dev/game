@@ -73,6 +73,10 @@ type Body struct {
 	IsTrigger bool
 
 	sleepTimer float32
+	// lastPos and lastRot are the pose at the end of the previous Step, so a kinematic body moved by setting Pos or Rot directly still wakes what it touches.
+	lastPos  Vec3
+	lastRot  Quat
+	havePose bool
 }
 
 // NewStaticBody returns a static Body placed at pos with default friction.
@@ -182,10 +186,12 @@ type cachedImpulse struct {
 }
 
 type solverContact struct {
-	a, b           *Body
-	normal         Vec3
-	depth          float32
-	point          Vec3
+	a, b   *Body
+	normal Vec3
+	depth  float32
+	point  Vec3
+	// rA and rB are the contact point relative to each body's center, so impulses also apply torque (#546).
+	rA, rB         Vec3
 	restitution    float32
 	friction       float32
 	bias           float32
@@ -250,8 +256,30 @@ func (w *World) AddBody(b Body) *Body {
 	}
 
 	b.Rot = normalizedQuat(b.Rot)
+	if !isFiniteQuat(b.Rot) {
+		b.Rot = QuatIdentity()
+	}
+	// Non-finite inputs would poison every body the solver touches, so they fall back to defaults (#546).
+	if !isFiniteVec(b.Vel) {
+		b.Vel = Vec3{}
+	}
+	if !isFiniteVec(b.AngVel) {
+		b.AngVel = Vec3{}
+	}
+	if !isFinite32(b.Mass) {
+		b.Mass = 0
+	}
+	if !isFinite32(b.InvMass) {
+		b.InvMass = 0
+	}
+	if !isFinite32(b.InvInertia) {
+		b.InvInertia = 0
+	}
 
-	if b.Static || (b.Mass <= 0 && b.InvMass <= 0) {
+	if b.Kinematic && !b.Static && b.Mass <= 0 && b.InvMass <= 0 {
+		// A kinematic body without mass stays kinematic (it used to become static and stop pushing things); it has infinite mass to the solver either way.
+		b.Mass, b.InvMass, b.InvInertia = 0, 0, 0
+	} else if b.Static || (b.Mass <= 0 && b.InvMass <= 0) {
 		b.Static = true
 		b.Mass = 0
 		b.InvMass = 0
@@ -319,6 +347,12 @@ func (w *World) RemoveBody(id int) bool {
 	}
 	w.bodies = append(w.bodies[:idx], w.bodies[idx+1:]...)
 	w.removeJointsForBody(id)
+	// Drop warm-start impulses involving id, or a later body that reuses the ID would start from this one's contacts (#546).
+	for k := range w.cache {
+		if k.a == id || k.b == id {
+			delete(w.cache, k)
+		}
+	}
 	if len(w.ignoredPairs) > 0 {
 		for k := range w.ignoredPairs {
 			if k.a == id || k.b == id {
@@ -380,6 +414,9 @@ func (w *World) Step(dt time.Duration) {
 		w.cache = make(map[pairKey]cachedImpulse)
 	}
 
+	// Wake sleeping bodies that a moving kinematic body touches or that are jointed to a moving body, before anything treats them as immovable.
+	w.wakeForMotion()
+
 	// Prepare joints first so active motors can wake sleeping bodies before integration.
 	for _, j := range w.joints {
 		j.Prepare(dtSec)
@@ -408,6 +445,16 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
+	jointIgnored := w.buildJointIgnoredPairs()
+
+	// 1b. Sweep fast bodies so they cannot tunnel through thin static geometry.
+	for i, b := range w.bodies {
+		if b.Static || b.Kinematic || b.Sleeping || b.IsTrigger {
+			continue
+		}
+		w.sweepFastBody(b, prevPos[i], jointIgnored)
+	}
+
 	// 2. Deterministic broadphase + narrowphase pair detection.
 	shapes := make([]Shape, n)
 	bounds := make([]Box, n)
@@ -416,11 +463,9 @@ func (w *World) Step(dt time.Duration) {
 		bounds[i] = shapes[i].Bounds()
 	}
 
-	jointIgnored := w.buildJointIgnoredPairs()
 	currentPairs := make(map[pairKey]activeContactRecord)
 
 	var contacts []solverContact
-	const wakeVelSq = wakeVelThreshold * wakeVelThreshold
 	for i := 0; i < n; i++ {
 		a := w.bodies[i]
 		for j := i + 1; j < n; j++ {
@@ -463,20 +508,21 @@ func (w *World) Step(dt time.Duration) {
 			if isTrig {
 				continue
 			}
+
+			// Wake a sleeping dynamic body struck by a moving dynamic or kinematic body. This runs before the inactive-pair skip, which would otherwise let a kinematic body pass through sleeping ones.
+			if a.Sleeping && isMoving(b) {
+				a.Wake()
+			}
+			if b.Sleeping && isMoving(a) {
+				b.Wake()
+			}
 			if (a.Static || a.Kinematic || a.Sleeping) && (b.Static || b.Kinematic || b.Sleeping) {
 				continue
 			}
 
-			// Wake a sleeping dynamic body if struck by a moving body.
-			if a.Sleeping && !b.Static && !b.Kinematic && b.Vel.LenSq() > wakeVelSq {
-				a.Wake()
-			}
-			if b.Sleeping && !a.Static && !a.Kinematic && a.Vel.LenSq() > wakeVelSq {
-				b.Wake()
-			}
-
-			// Compute restitution bias once from pre-solver closing velocity.
-			rv := a.Vel.Sub(b.Vel)
+			// Compute restitution bias once from the pre-solver closing velocity at the contact point.
+			rA, rB := c.Point.Sub(a.Pos), c.Point.Sub(b.Pos)
+			rv := pointVel(a, rA).Sub(pointVel(b, rB))
 			vn := rv.Dot(c.Normal)
 			restitution := max(a.Restitution, b.Restitution)
 			var bias float32
@@ -491,6 +537,8 @@ func (w *World) Step(dt time.Duration) {
 				normal:      c.Normal,
 				depth:       c.Depth,
 				point:       c.Point,
+				rA:          rA,
+				rB:          rB,
 				restitution: restitution,
 				friction:    friction,
 				bias:        bias,
@@ -528,7 +576,8 @@ func (w *World) Step(dt time.Duration) {
 					if !c.Hit {
 						return
 					}
-					vn := a.Vel.Dot(c.Normal)
+					rA := c.Point.Sub(a.Pos)
+					vn := pointVel(a, rA).Dot(c.Normal)
 					restitution := max(a.Restitution, tm.Restitution)
 					var bias float32
 					if vn < -restitutionVelThreshold {
@@ -539,6 +588,7 @@ func (w *World) Step(dt time.Duration) {
 						normal:      c.Normal,
 						depth:       c.Depth,
 						point:       c.Point,
+						rA:          rA,
 						restitution: restitution,
 						friction:    sqrt32(a.Friction * tm.Friction),
 						bias:        bias,
@@ -563,7 +613,8 @@ func (w *World) Step(dt time.Duration) {
 					if !c.Hit {
 						return
 					}
-					vn := a.Vel.Dot(c.Normal)
+					rA := c.Point.Sub(a.Pos)
+					vn := pointVel(a, rA).Dot(c.Normal)
 					restitution := max(a.Restitution, hf.Restitution)
 					var bias float32
 					if vn < -restitutionVelThreshold {
@@ -574,6 +625,7 @@ func (w *World) Step(dt time.Duration) {
 						normal:        c.Normal,
 						depth:         c.Depth,
 						point:         c.Point,
+						rA:            rA,
 						restitution:   restitution,
 						friction:      sqrt32(a.Friction * hf.Friction),
 						bias:          bias,
@@ -617,14 +669,8 @@ func (w *World) Step(dt time.Duration) {
 			continue
 		}
 		total := c.normal.Scale(c.normalImpulse).Add(c.tangentImpulse)
-		if invA := activeInvMass(c.a); invA > 0 {
-			c.a.Vel = c.a.Vel.Add(total.Scale(invA))
-		}
-		if c.b != nil {
-			if invB := activeInvMass(c.b); invB > 0 {
-				c.b.Vel = c.b.Vel.Sub(total.Scale(invB))
-			}
-		}
+		applyContactImpulse(c.a, c.rA, total)
+		applyContactImpulse(c.b, c.rB, total.Neg())
 	}
 
 	// Refresh joint states against post-integration poses.
@@ -636,22 +682,23 @@ func (w *World) Step(dt time.Duration) {
 	for iter := 0; iter < iters; iter++ {
 		for i := range contacts {
 			c := &contacts[i]
-			invA := activeInvMass(c.a)
-			invB := float32(0)
-			var velB Vec3
+			invA, invIA := activeInvMass(c.a), activeInvInertia(c.a)
+			var invB, invIB float32
 			if c.b != nil {
-				invB = activeInvMass(c.b)
-				velB = c.b.Vel
+				invB, invIB = activeInvMass(c.b), activeInvInertia(c.b)
 			}
-			invSum := invA + invB
-			if invSum == 0 {
+			if invA+invB+invIA+invIB == 0 {
 				continue
 			}
 
-			// Normal impulse with accumulated clamping >= 0.
-			rv := c.a.Vel.Sub(velB)
+			// Normal impulse with accumulated clamping >= 0, using the effective mass at the contact point.
+			kn := contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, c.normal)
+			if kn <= 0 {
+				continue
+			}
+			rv := pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
 			vn := rv.Dot(c.normal)
-			dj := -(vn - c.bias) / invSum
+			dj := -(vn - c.bias) / kn
 			newJ := c.normalImpulse + dj
 			if newJ < 0 {
 				newJ = 0
@@ -660,35 +707,29 @@ func (w *World) Step(dt time.Duration) {
 			c.normalImpulse = newJ
 
 			impN := c.normal.Scale(appliedJ)
-			if invA > 0 {
-				c.a.Vel = c.a.Vel.Add(impN.Scale(invA))
-			}
-			if invB > 0 {
-				c.b.Vel = c.b.Vel.Sub(impN.Scale(invB))
-			}
+			applyContactImpulse(c.a, c.rA, impN)
+			applyContactImpulse(c.b, c.rB, impN.Neg())
 
-			// Isotropic 3D Coulomb friction impulse clamped to friction * normalImpulse.
+			// Isotropic 3D Coulomb friction impulse clamped to friction * normalImpulse. Applied at the contact point, it makes spheres roll and boxes tip.
 			if c.friction > 0 && c.normalImpulse > 0 {
-				if c.b != nil {
-					velB = c.b.Vel
-				}
-				rv = c.a.Vel.Sub(velB)
+				rv = pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
 				vt := rv.Sub(c.normal.Scale(rv.Dot(c.normal)))
-				deltaT := vt.Scale(-1 / invSum)
-				newT := c.tangentImpulse.Add(deltaT)
-				newT = newT.Sub(c.normal.Scale(newT.Dot(c.normal)))
-				maxF := c.friction * c.normalImpulse
-				if tLen := newT.Len(); tLen > maxF && tLen > 0 {
-					newT = newT.Scale(maxF / tLen)
-				}
-				appliedT := newT.Sub(c.tangentImpulse)
-				c.tangentImpulse = newT
-
-				if invA > 0 {
-					c.a.Vel = c.a.Vel.Add(appliedT.Scale(invA))
-				}
-				if invB > 0 {
-					c.b.Vel = c.b.Vel.Sub(appliedT.Scale(invB))
+				vtLen := vt.Len()
+				if vtLen > 1e-9 {
+					tdir := vt.Scale(1 / vtLen)
+					kt := contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, tdir)
+					if kt > 0 {
+						newT := c.tangentImpulse.Add(tdir.Scale(-vtLen / kt))
+						newT = newT.Sub(c.normal.Scale(newT.Dot(c.normal)))
+						maxF := c.friction * c.normalImpulse
+						if tLen := newT.Len(); tLen > maxF && tLen > 0 {
+							newT = newT.Scale(maxF / tLen)
+						}
+						appliedT := newT.Sub(c.tangentImpulse)
+						c.tangentImpulse = newT
+						applyContactImpulse(c.a, c.rA, appliedT)
+						applyContactImpulse(c.b, c.rB, appliedT.Neg())
+					}
 				}
 			}
 		}
@@ -775,8 +816,60 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// 7. Reconcile active contacts and emit deterministic Enter/Stay/Exit events.
+	// 7. A sleeping body whose solid contact ended this step lost a support (or a neighbor moved away), so it wakes and falls instead of hanging in the air.
+	for k, rec := range w.activeContacts {
+		if _, still := currentPairs[k]; still || rec.isTrigger {
+			continue
+		}
+		if rec.a != nil && rec.a.Sleeping {
+			rec.a.Wake()
+		}
+		if rec.b != nil && rec.b.Sleeping {
+			rec.b.Wake()
+		}
+	}
+	for _, b := range w.bodies {
+		b.lastPos, b.lastRot, b.havePose = b.Pos, b.Rot, true
+	}
+
+	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit events.
 	w.reconcileContactEvents(currentPairs)
+}
+
+// isMoving reports whether b is moving fast enough to wake a sleeping body it touches: an awake dynamic body above the wake threshold, or a kinematic body with velocity or one moved directly since the last step.
+func isMoving(b *Body) bool {
+	const wakeVelSq = wakeVelThreshold * wakeVelThreshold
+	switch {
+	case b == nil || b.Static || b.Sleeping:
+		return false
+	case b.Vel.LenSq() > wakeVelSq || b.AngVel.LenSq() > wakeVelSq:
+		return true
+	case b.Kinematic:
+		return b.havePose && (b.Pos != b.lastPos || b.Rot != b.lastRot)
+	default:
+		return false
+	}
+}
+
+// wakeForMotion wakes sleeping bodies jointed to a moving body; contacts with moving bodies wake in the pair loop of Step.
+func (w *World) wakeForMotion() {
+	for _, j := range w.joints {
+		a, b := j.Bodies()
+		if a != nil && a.Sleeping && isMoving(b) {
+			a.Wake()
+		}
+		if b != nil && b.Sleeping && isMoving(a) {
+			b.Wake()
+		}
+	}
+}
+
+func isFiniteVec(v Vec3) bool {
+	return isFinite32(v.X) && isFinite32(v.Y) && isFinite32(v.Z)
+}
+
+func isFiniteQuat(q Quat) bool {
+	return isFinite32(q.X) && isFinite32(q.Y) && isFinite32(q.Z) && isFinite32(q.W)
 }
 
 func activeInvMass(b *Body) float32 {
@@ -791,4 +884,30 @@ func activeInvInertia(b *Body) float32 {
 		return 0
 	}
 	return b.InvInertia
+}
+
+// pointVel returns the velocity of the point at offset r from b's center, including rotation. A nil body (static geometry) does not move.
+func pointVel(b *Body, r Vec3) Vec3 {
+	if b == nil {
+		return Vec3{}
+	}
+	return b.Vel.Add(b.AngVel.Cross(r))
+}
+
+// applyContactImpulse applies impulse p at offset r from b's center to its linear and angular velocity.
+func applyContactImpulse(b *Body, r, p Vec3) {
+	if b == nil {
+		return
+	}
+	if invM := activeInvMass(b); invM > 0 {
+		b.Vel = b.Vel.Add(p.Scale(invM))
+	}
+	if invI := activeInvInertia(b); invI > 0 {
+		b.AngVel = b.AngVel.Add(r.Cross(p).Scale(invI))
+	}
+}
+
+// contactEffectiveMass returns the inverse effective mass of a contact along unit direction d.
+func contactEffectiveMass(invA, invIA float32, rA Vec3, invB, invIB float32, rB Vec3, d Vec3) float32 {
+	return invA + invB + invIA*rA.Cross(d).LenSq() + invIB*rB.Cross(d).LenSq()
 }

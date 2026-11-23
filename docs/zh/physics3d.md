@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 - **零 FFI 开销**：重叠查询、射线检测、刚体步进和角色移动直接在 Go 值上运行，没有 cgo 调用边界成本。
 - **按位一致的确定性**：配合 `game.Loop` 的固定步长推进 `World`，宽相、窄相、冲量求解和位置修正都按固定的刚体与接触顺序执行，不依赖 map 遍历顺序或墙钟时间，相同的初始状态在多次运行中产生完全一致的轨迹。
 
-包的能力范围保持克制和清晰：轴对齐包围盒（Box）、球体（Sphere）和胶囊体（Capsule）、精确的重叠与射线查询、平动刚体求解，以及胶囊角色控制器。静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）和高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）可以与物体和角色控制器碰撞；关节约束和旋转惯性张量不在初始包的范围内。
+包的能力范围保持克制和清晰：盒体（轴对齐或带朝向的 Box）、球体（Sphere）和胶囊体（Capsule），可以与物体和角色控制器碰撞的静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）与高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入），精确的重叠与射线查询，带线性与角动力学的刚体、关节、布娃娃，以及胶囊角色控制器。刚体使用标量（各向同性）惯量而非完整的惯性张量，每对刚体的接触只用一个代表点。
 
 ## 坐标系约定
 
@@ -26,13 +26,14 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 
 三种基本形状通过带标签的 `Shape` 封装（`BoxShape`、`SphereShape`、`CapsuleShape`）：
 
-- `Box`：由 `Center` 和 `HalfExtents` 定义的轴对齐包围盒（也可用 `BoxFromMinMax(min, max)` 构造）。
+- `Box`：由 `Center` 和 `HalfExtents` 定义的盒体（也可用 `BoxFromMinMax(min, max)` 构造）。默认轴对齐；外层 `Shape` 设置 `Rot` 后，盒体绕自身 `Center` 旋转。`Shape.Transformed(pos, rot)` 与 `Body.WorldShape()` 会保留旋转刚体的盒体朝向，重叠检测、射线检测和调试绘制都按真实的角点计算；`Shape.Bounds()` 返回用于宽相的外接轴对齐包围盒。
 - `Sphere`：由 `Center` 和 `Radius` 定义的球体。
 - `Capsule`：由线段 `A` 到 `B` 沿半径 `Radius` 扫略而成的胶囊体（也可用 `VerticalCapsule(center, radius, height)` 构造竖直胶囊）。
 
 重叠检测返回 `Contact`，其中单位法线 `Normal` 从 `B` 指向 `A`（将 `A` 沿 `Normal` 移动 `Depth` 即可分离两者）：
 
-- `TestBoxBox`、`TestSphereSphere`、`TestCapsuleCapsule`、`TestBoxSphere`、`TestBoxCapsule`、`TestSphereCapsule` 以及 `TestShapes(a, b)`。
+- `TestBoxBox`、`TestOrientedBoxBox`（在 15 条面轴与边轴上做分离轴测试）、`TestSphereSphere`、`TestCapsuleCapsule`、`TestBoxSphere`、`TestBoxCapsule`、`TestSphereCapsule`，以及能处理带朝向盒体的 `TestShapes(a, b)`。
+- 胶囊的线段穿过盒体时，`TestBoxCapsule` 在盒体各面轴与“边轴叉乘线段方向”中取穿透最浅的轴，因此把盒体沿 `Normal*Depth` 移动即可让整个胶囊分离。两个交叉的胶囊，以及球心落在胶囊轴线上的球，得到垂直于轴线的法线，而不是任意方向。
 - `world.QueryOverlap(shape)` 按确定的插入顺序返回所有重叠的刚体。
 
 射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。
@@ -60,6 +61,12 @@ loop := &game.Loop{
 	},
 }
 ```
+
+接触冲量作用在接触点上，因此摩擦会让滑动的球滚起来，立在棱上的盒子会倒向一个面。`LockRotation` 可禁止动态刚体旋转。`AddBody` 会把非有限的输入（如 NaN 速度或质量）回退为默认值，没有质量的运动学刚体仍保持运动学。
+
+静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；以及调用 `Wake`、`ApplyImpulse` 或移除刚体、网格、关节时。
+
+单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场做扫掠，在第一次重叠处停下，因此高速刚体不会穿过薄的几何体。高速动态刚体之间不做扫掠。
 
 ## 角色控制器
 

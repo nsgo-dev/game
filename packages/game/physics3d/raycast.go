@@ -33,6 +33,16 @@ type RaycastHit struct {
 func RaycastShape(ray Ray, s Shape) (RaycastHit, bool) {
 	switch s.Kind {
 	case ShapeBox:
+		if r, ok := s.orientedBox(); ok {
+			f := newBoxFrame(s.Box.Center, r)
+			local := Ray{Origin: f.toLocal(ray.Origin), Dir: f.inv.RotateVec(ray.Dir), MaxDist: ray.MaxDist}
+			hit, ok := RaycastBox(local, Box{HalfExtents: s.Box.HalfExtents})
+			if ok {
+				hit.Point = f.toWorld(hit.Point)
+				hit.Normal = f.dirToWorld(hit.Normal)
+			}
+			return hit, ok
+		}
 		return RaycastBox(ray, s.Box)
 	case ShapeSphere:
 		return RaycastSphere(ray, s.Sphere)
