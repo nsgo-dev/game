@@ -293,8 +293,37 @@ func Bool(v bool) *bool { return &v }
 // Float32 returns a pointer to v for optional YAML float fields such as ScaleX, ScaleY, Alpha and Zoom.
 func Float32(v float32) *float32 { return &v }
 
-// Parse decodes a YAML scene document and validates it. Unknown YAML fields and trailing YAML documents are rejected.
+// Parse decodes a YAML scene document and validates it. Unknown YAML fields and trailing YAML documents are rejected. Component payloads are not checked against any registry; use ParseWith to check them.
 func Parse(data []byte) (*SceneDoc, error) {
+	return ParseWith(data, ParseOptions{})
+}
+
+// ParseOptions configures ParseWith.
+type ParseOptions struct {
+	// File names the source in errors, such as "scenes/level1.scene.yaml". Empty leaves errors unprefixed.
+	File string
+	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column.
+	Components *ComponentRegistry
+}
+
+// ParseWith is Parse with a source name for errors and an optional component registry. Defaults of unset component fields are not written into the document, so saving it again changes nothing; read them with ComponentRegistry.Resolve.
+func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
+	doc, err := parse(data, opts.Components)
+	if err != nil {
+		var ce *ComponentError
+		if errors.As(err, &ce) {
+			ce.File = opts.File
+			return nil, ce
+		}
+		if opts.File != "" {
+			return nil, fmt.Errorf("%s: %w", opts.File, err)
+		}
+		return nil, err
+	}
+	return doc, nil
+}
+
+func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("sceneformat: empty scene document")
 	}
@@ -314,6 +343,20 @@ func Parse(data []byte) (*SceneDoc, error) {
 	}
 	if err := Validate(&doc); err != nil {
 		return nil, err
+	}
+	if reg != nil {
+		var root yaml.Node
+		if err := yaml.Unmarshal(data, &root); err != nil {
+			return nil, fmt.Errorf("sceneformat: decode: %w", err)
+		}
+		if err := checkComponentNodes(&root, &doc, reg); err != nil {
+			return nil, err
+		}
+		// The node walk above locates errors in plain mappings; this pass also
+		// covers values it could not see key by key, such as merge keys.
+		if err := ValidateComponents(&doc, reg); err != nil {
+			return nil, err
+		}
 	}
 	return &doc, nil
 }

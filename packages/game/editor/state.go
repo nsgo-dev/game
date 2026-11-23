@@ -181,6 +181,7 @@ type Editor struct {
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
 	projectSaved []byte
 
+	components   *sceneformat.ComponentRegistry
 	drag3D       drag3DState
 	scope        *core.Scope
 	revision     uint64
@@ -357,15 +358,34 @@ func (e *Editor) SetActiveTileID(id int) {
 	e.notify()
 }
 
+// SetComponentRegistry makes the editor check components against reg: the current document must already conform, later opens refuse files whose components do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off.
+func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error {
+	if err := sceneformat.ValidateComponents(e.Doc, reg); err != nil {
+		return err
+	}
+	e.components = reg
+	e.notify()
+	return nil
+}
+
+// ComponentRegistry returns the registry set by SetComponentRegistry, or nil.
+func (e *Editor) ComponentRegistry() *sceneformat.ComponentRegistry {
+	return e.components
+}
+
 // OpenYAML parses data as a sceneformat.SceneDoc, replaces the active document,
 // clears undo/redo history, and rebuilds the scene.
 func (e *Editor) OpenYAML(data []byte) error {
+	return e.openYAML(data, "")
+}
+
+func (e *Editor) openYAML(data []byte, file string) error {
 	if e.playing {
 		if err := e.Stop(); err != nil {
 			return err
 		}
 	}
-	doc, err := sceneformat.Parse(data)
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: e.components})
 	if err != nil {
 		return err
 	}
@@ -403,7 +423,7 @@ func (e *Editor) OpenFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := e.OpenYAML(data); err != nil {
+	if err := e.openYAML(data, path); err != nil {
 		return err
 	}
 	e.FilePath = path
@@ -628,6 +648,12 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	}
 	if err := sceneformat.CheckObjectTree(&placed); err != nil {
 		return "", err
+	}
+	if e.components != nil {
+		check := sceneformat.SceneDoc{Layers: []sceneformat.LayerDoc{{Objects: []sceneformat.ObjectDoc{placed}}}}
+		if err := sceneformat.ValidateComponents(&check, e.components); err != nil {
+			return "", err
+		}
 	}
 
 	// The placed object's children carry IDs too, and every ID in the tree must be new to the scene and unique within it.
