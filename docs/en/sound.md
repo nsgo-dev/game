@@ -59,7 +59,7 @@ audio.LoadSound(cx, audio.Source{URI: "asset:sounds/hit.wav"}, func(s *audio.Sou
 
 The third argument (`limit`) caps how many overlapping playbacks of that sound may run at once (`0` means no per-effect cap, still bounded by the platform's 32 concurrent sound voices). This prevents rapid bursts — such as coins or footsteps — from starving every other sound.
 
-- `Play(v audio.Voice) bool` starts a playback and reports whether it played. It returns `false` when effective gain is `0` (including a voice with `Muted` set) or the app is in the background. When `Limit` playbacks are still playing, it stops the oldest of them to make room, so the newest are heard; playbacks that end on their own free their place without stopping another. A backend that cannot address playbacks plays the voice as it started, outside the limit and later volume changes; every NSGo backend with audio can.
+- `Play(v audio.Voice) bool` starts a playback and reports whether it asked for one. It returns `false` when effective gain is `0` (including a voice with `Muted` set) or the app is in the background, and `true` otherwise, even where the playback ends at once because the backend could not start it. When `Limit` playbacks are still playing, it stops the oldest of them to make room, so the newest are heard; playbacks that end on their own free their place without stopping another, and one that never started leaves them playing. A backend that cannot address playbacks plays the voice as it started, outside the limit and later volume changes; every NSGo backend with audio can.
 - `Stop()` stops every playback of that sound (and any other `*audio.Sound` sharing the same source).
 - Close the underlying `*audio.Sound` when you no longer need it, or let `cx`'s scope disposal free it.
 
@@ -119,7 +119,7 @@ On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAl
 
 ## Suspending for a cutscene
 
-`mixer.Suspend()` silences the mixer the same way the background does, until the `resume` function it returns is called: effects playing stop, new `Effect.Play` calls play nothing, and music pauses and later plays on from where it stopped. Holds nest, so the mixer plays again only once every `Suspend` has been resumed; calling one `resume` twice does nothing. `mixer.Suspended()` reports whether a hold is left.
+`mixer.Suspend()` silences the mixer the same way the background does, until the `resume` function it returns is called: effects playing are silenced, new `Effect.Play` calls play nothing, and music pauses and later plays on from where it stopped. Holds nest, so the mixer plays again only once every `Suspend` has been resumed; calling one `resume` twice does nothing. `mixer.Suspended()` reports whether a hold is left.
 
 ```go
 resume := mixer.Suspend()
