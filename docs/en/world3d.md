@@ -77,6 +77,8 @@ quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
 
+`world3d.QualityLevelFor(level)` maps a game-wide [quality](quality.md) level to the foliage tier of the same name, so `DefaultQualityProfile(QualityLevelFor(sel.Level()))` follows the player's preset. `QualityUltra` stays an explicit choice above every preset.
+
 Each returned `FoliageInstance` provides its world `Transform` and a smooth distance `Fade` factor in `[0, 1]`. Set `FoliageLayer.BoundingRadius` to the radius of a sphere around the mesh pivot that encloses the mesh at scale 1: culling and the draw distance then use each instance's scaled sphere and measure from its nearest point, so large trees stay visible while any part of them is in range. Without it, culling assumes a unit-radius mesh and distances are measured from the pivot.
 
 `Heightmap.Raycast` walks only the cells under the ray and never scans the whole height grid.

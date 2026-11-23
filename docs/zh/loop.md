@@ -90,6 +90,16 @@ loop := &game.Loop{
 
 每帧累加的是它的时间戳与上一帧时间戳之差，原样采用 `RequestAnimationFrame` 给出的值。平台为显示帧打时间戳时，这就是显示器自己的帧时间，所以一帧的长度是显示器的帧长，而不取决于引擎何时处理到这一帧；其他平台上则是图时钟的时间。循环开始或恢复后的第一帧累加从那一刻到它时间戳的时间；显示器以帧将显示的时刻打时间戳时，这个时间戳可能领先一帧，因此循环的时间就是显示出来那一帧的时间。时间戳早于循环开始或恢复时刻的帧不累加任何时间，因此恢复运行永远不会让累加器倒退，下一帧则从那一刻起累加。
 
+设置 `FrameTime` 可以在循环平滑之前、本帧的更新之前读取每个显示帧的帧长，[quality](quality.md) 的 `Selector` 这类帧时间统计就读取它。从后台回来的第一帧从窗口重新显示时开始计时，不包含离开的时间；`FrameTime` 中也可以调用 `Run` 返回的 `stop`，这会在任何更新之前结束本帧。
+
+```go
+loop := &game.Loop{
+	FrameTime: func(dt time.Duration) { selector.Observe(dt) },
+	Update:    stepWorld,
+	Draw:      renderWorld,
+}
+```
+
 ## 后台暂停与停止
 
 `Loop.Run` 会监听 `cx.Env().Lifecycle()`：

@@ -77,6 +77,8 @@ quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
 
+`world3d.QualityLevelFor(level)` 把全局 [quality](quality.md) 档位映射到同名的植被档位，因此 `DefaultQualityProfile(QualityLevelFor(sel.Level()))` 会跟随玩家的画质预设。`QualityUltra` 仍需显式选择，高于所有预设。
+
 返回的每个 `FoliageInstance` 包含世界变换 `Transform` 以及 `[0, 1]` 范围的平滑远距淡出系数 `Fade`。将 `FoliageLayer.BoundingRadius` 设为缩放为 1 时、以网格轴心为球心并包住整个网格的球半径后，裁剪与可视距离都使用每个实例缩放后的包围球，并从球面最近点开始计算，因此大树只要有一部分在范围内就会保留。未设置时，裁剪假定网格半径为 1，距离从轴心开始计算。
 
 `Heightmap.Raycast` 只遍历射线经过的格子，不会扫描整个高度网格。
