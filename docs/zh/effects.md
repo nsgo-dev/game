@@ -97,6 +97,48 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 - 它近似的是模糊后的高亮通道：半径较大时光晕呈柔和的星形，而不是平滑的圆盘。`Radius` 保持在画面的几个像素以内，想要脉动效果就给 `Intensity` 做动画。
 - `Bloom` 自带 `Reference`，因此包含它的效果链可以在无头环境下绘制参考图。
 
+## 暗角、闪屏与震屏
+
+本包自带三个效果及其 `Reference` 函数，因此由它们组成的效果链可以绘制参考图。每个函数都返回一个新的 `Effect`，可直接放进效果链。
+
+| 效果 | Uniform | 绘制内容 |
+| --- | --- | --- |
+| `VignetteEffect()` | `Strength`、`Radius`、`Softness`、`Color` | 让画面边缘偏向 `Color`（未给出时为黑色），保留每个像素的 alpha。距离从中心的 0 到四角的 1，在画面像素中呈圆形；边缘从 `Radius` 处开始变色，在 `Softness` 的距离内平滑过渡到底，程度由 `Strength`（0 到 1）决定。 |
+| `FlashEffect()` | `Amount`、`Color` | 按 `Amount`（0 到 1）让整个画面偏向不透明的 `Color`。 |
+| `ShakeEffect()` | `Amplitude`、`Time`、`Frequency`、`Phase` | 让画面在每个方向上最多移动 `Amplitude` 像素，按 `Time`（秒）每秒摆动 `Frequency` 次，起点由四个 `Phase` 角度决定；移出画面的地方读取画面边缘。`ShakeOffset` 在 Go 中给出同样的偏移，可让 HUD 随之移动。 |
+
+未给出的 uniform 为 0，因此每个效果在设置前都按原样绘制画面。把震屏放在最前面，让后面的通道画在移动后的画面上，闪屏放在最后：
+
+```go
+post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+```
+
+`NewFlash` 和 `NewShake` 让闪屏和震屏的 uniform 随帧时钟变化，每帧无需提交。`Trigger` 启动一次效果，并替换仍在进行的那次；`Stop` 立即结束它：
+
+- `Flash.Trigger(peak, fade)` 把 `Amount` 设为 `peak`，并在 `fade` 时间内缓出淡到 0。
+- `Shake.Trigger(amplitude, d)` 设置 `Amplitude`，并在 `d` 时间内缓出衰减到 0，同时 `Time` 从 0 开始计时。每次触发从 `ShakeConfig.Seed` 取下一组四个相位，因此用同一个种子回放时震动完全相同。`ShakeConfig.Frequency` 为 0 时取 12。
+
+```go
+assist := a11y.NewAssist(cx, "")
+flash := effects.NewFlash(cx, effects.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
+shake := effects.NewShake(cx, effects.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
+vignette := core.Uniforms{"Strength": 0.8, "Radius": 0.4, "Softness": 0.6}
+
+onHit := func() {
+	flash.Trigger(0.7, 300*time.Millisecond)
+	shake.Trigger(6, 400*time.Millisecond)
+}
+
+return effects.View{
+	Chain:     post,
+	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
+	Uniforms:  []core.Uniforms{shake.Uniforms(), vignette, flash.Uniforms()},
+	Style:     core.Style{Width: core.Pt(640), Height: core.Pt(360)},
+}
+```
+
+闪屏和震屏遵循减弱动态效果设置：`ReduceMotion` 返回 true 时，`Trigger` 什么也不做并返回 false。可传入 `a11y.Assist` 的 `ReduceMotion`，它优先采用玩家的选择，否则跟随平台设置；`ReduceMotion` 为 nil 时读取平台设置。峰值、幅度或时长不大于 0 时同样不会启动。
+
 ## 参考图
 
 无头测试没有 GPU，因此 `Chain.Reference(frame, width, height, uniforms)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，使用 `View` 会设置的各效果 uniform，并像 GPU 一样把每个输出像素的中心映射到画面上。`Float` 读取数值 uniform，未给出的 uniform 为 0，与 GPU 一致。将结果与 `gametest` 的 golden PNG 比较：

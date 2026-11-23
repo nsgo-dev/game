@@ -97,6 +97,48 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 - It approximates a blurred bright pass: at a large radius the glow is a soft star rather than a smooth disc. Keep `Radius` to a few pixels of the frame, and animate `Intensity` for a pulse.
 - `Bloom` carries its own `Reference`, so a chain with it draws a reference picture headless.
 
+## Vignette, flash and shake
+
+The package ships three effects with their `Reference` functions, so a chain of them draws reference pictures. Each returns a fresh `Effect` to put in a chain.
+
+| Effect | Uniforms | What it draws |
+| --- | --- | --- |
+| `VignetteEffect()` | `Strength`, `Radius`, `Softness`, `Color` | Turns the edges toward `Color` (black when left out), keeping each pixel's alpha. The distance runs from 0 at the center to 1 at the corners, round in the frame's pixels; the edges start to turn at `Radius` and turn all the way, eased, over `Softness`, as far as `Strength` (0 to 1). |
+| `FlashEffect()` | `Amount`, `Color` | Turns the whole frame toward the opaque `Color` by `Amount`, 0 to 1. |
+| `ShakeEffect()` | `Amplitude`, `Time`, `Frequency`, `Phase` | Moves the frame by up to `Amplitude` pixels along each direction, swaying `Frequency` times a second on `Time` (seconds), started by the four `Phase` angles, and reads the frame's edge where it moves off it. `ShakeOffset` gives the same offset in Go, to move a HUD with it. |
+
+A uniform left out is 0, so each draws the frame as it is until it is set. Put the shake first, so the passes after it draw over the moved frame, and the flash last:
+
+```go
+post := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+```
+
+`NewFlash` and `NewShake` animate the flash's and the shake's uniforms on the frame clock, with no commit per frame. `Trigger` starts one, in place of one still running, and `Stop` ends it at once:
+
+- `Flash.Trigger(peak, fade)` sets `Amount` to `peak` and fades it to 0 over `fade`, easing out.
+- `Shake.Trigger(amplitude, d)` sets `Amplitude` and decays it to 0 over `d`, easing out, while `Time` runs from 0. Each trigger takes its next four phases from `ShakeConfig.Seed`, so a replay with the same seed shakes the same way. `ShakeConfig.Frequency` is 12 when left 0.
+
+```go
+assist := a11y.NewAssist(cx, "")
+flash := effects.NewFlash(cx, effects.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion})
+shake := effects.NewShake(cx, effects.ShakeConfig{Seed: 42, ReduceMotion: assist.ReduceMotion})
+vignette := core.Uniforms{"Strength": 0.8, "Radius": 0.4, "Softness": 0.6}
+
+onHit := func() {
+	flash.Trigger(0.7, 300*time.Millisecond)
+	shake.Trigger(6, 400*time.Millisecond)
+}
+
+return effects.View{
+	Chain:     post,
+	FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
+	Uniforms:  []core.Uniforms{shake.Uniforms(), vignette, flash.Uniforms()},
+	Style:     core.Style{Width: core.Pt(640), Height: core.Pt(360)},
+}
+```
+
+Flashes and shakes follow reduced motion: `Trigger` does nothing and returns false while `ReduceMotion` reports true. Pass `a11y.Assist`'s `ReduceMotion`, which follows the player's choice and else the platform's; when `ReduceMotion` is nil, the platform's setting is asked. A peak, amplitude or duration of 0 or less does not start one either.
+
 ## Reference pictures
 
 Headless tests have no GPU, so `Chain.Reference(frame, width, height, uniforms)` draws the chain on the CPU with each effect's `Reference` function, at the per-effect uniforms a `View` would set, mapping each output pixel's center onto the frame as the GPU does. `Float` reads a number uniform, and a uniform left out is 0, as on the GPU. Compare the result with a golden PNG from `gametest`:
