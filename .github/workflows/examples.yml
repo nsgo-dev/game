@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene.
+# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene; checks the scenes, maps and atlases of every sample game with game check.
 on:
   push:
     branches:
@@ -60,6 +60,9 @@ jobs:
           cache-dependency-path: |
             examples/caverun/go.sum
             packages/game/go.sum
+      - name: Check the examples' scenes, maps and atlases
+        working-directory: packages/game
+        run: go run ./cmd/game check ../../examples
       - name: Check Cave Run targets
         working-directory: examples/caverun
         run: go tool nsgo check -target macos,windows,linux,android,web
