@@ -2,11 +2,13 @@ package sceneformat_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -528,5 +530,56 @@ func sameOps(t *testing.T, got, want []core.DrawOp) {
 		if !reflect.DeepEqual(g, w) {
 			t.Fatalf("op %d is %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestValidateNamesTheField(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{"version", "version: 2\n", []string{"version"}},
+		{"virtual_size", "version: 1\nvirtualWidth: 320\n", []string{"virtualWidth"}},
+		{"background", "version: 1\nbackgroundColor: nope\n", []string{"backgroundColor"}},
+		{"zoom", "version: 1\ncamera:\n  zoom: -1\n", []string{"camera", "zoom"}},
+		{"tilemap_table_first_key", "version: 1\ntilemaps:\n  b:\n    ref: x\n  a:\n    source: a.tmj\n    tileset: t\n", []string{"tilemaps", "a"}},
+		{"layer_name", "version: 1\nlayers:\n  - name: a\n  - name: a\n", []string{"layers", "1", "name"}},
+		{"space", "version: 1\nlayers:\n  - name: a\n    space: sky\n", []string{"layers", "0", "space"}},
+		{"ref", "version: 1\nlayers:\n  - name: a\n    tilemap:\n      ref: missing\n", []string{"layers", "0", "tilemap", "ref"}},
+		{"tile_width", "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileHeight: 16\n      width: 1\n      height: 1\n      tileset: t\n      data: [1]\n", []string{"layers", "0", "tilemap", "tileWidth"}},
+		{"gid", "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: t\n      data: [1, -1]\n", []string{"layers", "0", "tilemap", "data", "1"}},
+		{"object_id", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n      - id: o\n", []string{"layers", "0", "objects", "1", "id"}},
+		{"alpha", "version: 1\nlayers:\n  - name: a\n  - name: b\n    objects:\n      - id: o\n        alpha: 2\n", []string{"layers", "1", "objects", "0", "alpha"}},
+		{"sprite", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", []string{"layers", "0", "objects", "0", "sprite"}},
+		{"material", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        material: ../stone.material.yaml\n", []string{"layers", "0", "objects", "0", "material"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sceneformat.Parse([]byte(tc.yaml))
+			fe, ok := errors.AsType[*sceneformat.FieldError](err)
+			if !ok {
+				t.Fatalf("Parse error = %v, want a *FieldError", err)
+			}
+			if !slices.Equal(fe.Path, tc.want) {
+				t.Fatalf("Path = %q, want %q (%v)", fe.Path, tc.want, err)
+			}
+			if fe.Error() != fe.Err.Error() || errors.Unwrap(fe) != fe.Err {
+				t.Fatalf("FieldError does not carry Err's message: %q vs %q", fe.Error(), fe.Err.Error())
+			}
+		})
+	}
+
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers:  []sceneformat.LayerDoc{{Name: "a", Objects: []sceneformat.ObjectDoc{{ID: "o", RotY: float32(math.Inf(1))}}}},
+	}
+	fe, ok := errors.AsType[*sceneformat.FieldError](sceneformat.Validate(doc))
+	if !ok || !slices.Equal(fe.Path, []string{"layers", "0", "objects", "0", "rotY"}) {
+		t.Fatalf("non-finite rotY: %#v", fe)
+	}
+	fe, ok = errors.AsType[*sceneformat.FieldError](sceneformat.Validate(nil))
+	if !ok || len(fe.Path) != 0 {
+		t.Fatalf("nil document: %#v", fe)
 	}
 }

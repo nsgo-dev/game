@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
+	"slices"
+	"strconv"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -389,23 +392,58 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks that doc conforms to version 1 schema rules.
+// FieldError is the error Validate returns: what is wrong with a scene document and which field it is about, so a tool such as `game check` can point at the line that holds it.
+type FieldError struct {
+	// Path leads from the document's root to the field, one mapping key or decimal sequence index per step, such as ["layers", "2", "objects", "0", "alpha"]. It is empty when the error is about the whole document. A step may name a field the document leaves out, such as a required tileWidth, in which case the nearest written field is the one to point at.
+	Path []string
+	// Err is the error itself; FieldError's message is Err's.
+	Err error
+}
+
+// Error returns Err's message.
+func (e *FieldError) Error() string { return e.Err.Error() }
+
+// Unwrap returns Err.
+func (e *FieldError) Unwrap() error { return e.Err }
+
+// fieldErr returns a FieldError at path with a formatted message.
+func fieldErr(path []string, format string, args ...any) error {
+	return &FieldError{Path: path, Err: fmt.Errorf(format, args...)}
+}
+
+// at returns base followed by steps, in a slice of its own so that paths built from one base never share storage.
+func at(base []string, steps ...string) []string {
+	p := make([]string, 0, len(base)+len(steps))
+	p = append(p, base...)
+	return append(p, steps...)
+}
+
+// Validate checks that doc conforms to version 1 schema rules. Every error it returns is a *FieldError naming the field at fault. When several fields are wrong it reports the first in document order, taking the entries of Tilemaps in key order.
 func Validate(doc *SceneDoc) error {
 	if doc == nil {
-		return errors.New("sceneformat: nil scene document")
+		return fieldErr(nil, "sceneformat: nil scene document")
 	}
 	if doc.Version != CurrentVersion {
-		return fmt.Errorf("sceneformat: unsupported version %d (want %d)", doc.Version, CurrentVersion)
+		return fieldErr([]string{"version"}, "sceneformat: unsupported version %d (want %d)", doc.Version, CurrentVersion)
 	}
 	if !isFinite(doc.VirtualWidth) || !isFinite(doc.VirtualHeight) || doc.VirtualWidth < 0 || doc.VirtualHeight < 0 {
-		return fmt.Errorf("sceneformat: virtual size (%v, %v) must be finite and non-negative", doc.VirtualWidth, doc.VirtualHeight)
+		field := "virtualHeight"
+		if !isFinite(doc.VirtualWidth) || doc.VirtualWidth < 0 {
+			field = "virtualWidth"
+		}
+		return fieldErr([]string{field}, "sceneformat: virtual size (%v, %v) must be finite and non-negative", doc.VirtualWidth, doc.VirtualHeight)
 	}
 	if (doc.VirtualWidth == 0) != (doc.VirtualHeight == 0) {
-		return fmt.Errorf("sceneformat: virtualWidth (%v) and virtualHeight (%v) must both be positive or both be 0", doc.VirtualWidth, doc.VirtualHeight)
+		// Point at the size that is written: the one left out has no line.
+		field := "virtualWidth"
+		if doc.VirtualWidth == 0 {
+			field = "virtualHeight"
+		}
+		return fieldErr([]string{field}, "sceneformat: virtualWidth (%v) and virtualHeight (%v) must both be positive or both be 0", doc.VirtualWidth, doc.VirtualHeight)
 	}
 	if doc.BackgroundColor != "" {
 		if _, err := core.ParseColor(doc.BackgroundColor); err != nil {
-			return fmt.Errorf("sceneformat: backgroundColor %q: %w", doc.BackgroundColor, err)
+			return fieldErr([]string{"backgroundColor"}, "sceneformat: backgroundColor %q: %w", doc.BackgroundColor, err)
 		}
 	}
 	if doc.Camera != nil {
@@ -413,11 +451,11 @@ func Validate(doc *SceneDoc) error {
 			return err
 		}
 	}
-	for name, tm := range doc.Tilemaps {
+	for _, name := range slices.Sorted(maps.Keys(doc.Tilemaps)) {
 		if name == "" {
-			return errors.New("sceneformat: tilemaps contains an empty key")
+			return fieldErr([]string{"tilemaps"}, "sceneformat: tilemaps contains an empty key")
 		}
-		if err := validateTilemap(fmt.Sprintf("tilemap %q", name), tm, false, nil); err != nil {
+		if err := validateTilemap([]string{"tilemaps", name}, fmt.Sprintf("tilemap %q", name), doc.Tilemaps[name], false, nil); err != nil {
 			return err
 		}
 	}
@@ -426,56 +464,58 @@ func Validate(doc *SceneDoc) error {
 	objectIDs := make(map[string]struct{})
 	for i := range doc.Layers {
 		l := &doc.Layers[i]
+		lp := []string{"layers", strconv.Itoa(i)}
 		if l.Name == "" {
-			return fmt.Errorf("sceneformat: layer %d has an empty name", i)
+			return fieldErr(at(lp, "name"), "sceneformat: layer %d has an empty name", i)
 		}
 		if _, dup := layerNames[l.Name]; dup {
-			return fmt.Errorf("sceneformat: duplicate layer name %q", l.Name)
+			return fieldErr(at(lp, "name"), "sceneformat: duplicate layer name %q", l.Name)
 		}
 		layerNames[l.Name] = struct{}{}
 
 		switch l.Space {
 		case "", SpaceWorld, SpaceScreen:
 		default:
-			return fmt.Errorf("sceneformat: layer %q has invalid space %q (want %q or %q)", l.Name, l.Space, SpaceWorld, SpaceScreen)
+			return fieldErr(at(lp, "space"), "sceneformat: layer %q has invalid space %q (want %q or %q)", l.Name, l.Space, SpaceWorld, SpaceScreen)
 		}
 		if l.Tilemap != nil {
-			if err := validateTilemap(fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps); err != nil {
+			if err := validateTilemap(at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps); err != nil {
 				return err
 			}
 		}
-		if err := validateObjects(l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
+		if err := validateObjects(at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateObjects checks objs (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld) at nesting depth and their descendants, recording every ID in ids.
-func validateObjects(layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
+// validateObjects checks objs, found at path in the document (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld), at nesting depth and their descendants, recording every ID in ids.
+func validateObjects(path []string, layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
 	if len(objs) > 0 && depth > MaxObjectDepth {
-		return fmt.Errorf("sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
+		return fieldErr(path, "sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
 	}
 	for j := range objs {
 		o := &objs[j]
+		op := at(path, strconv.Itoa(j))
 		if o.ID == "" {
 			if parent == "" {
-				return fmt.Errorf("sceneformat: layer %q object %d has an empty id", layer, j)
+				return fieldErr(at(op, "id"), "sceneformat: layer %q object %d has an empty id", layer, j)
 			}
-			return fmt.Errorf("sceneformat: layer %q object %q child %d has an empty id", layer, parent, j)
+			return fieldErr(at(op, "id"), "sceneformat: layer %q object %q child %d has an empty id", layer, parent, j)
 		}
 		if _, dup := ids[o.ID]; dup {
-			return fmt.Errorf("sceneformat: duplicate object id %q", o.ID)
+			return fieldErr(at(op, "id"), "sceneformat: duplicate object id %q", o.ID)
 		}
 		ids[o.ID] = struct{}{}
-		if err := validateObject(layer, o); err != nil {
+		if err := validateObject(op, layer, o); err != nil {
 			return err
 		}
 		world, ok := composeObjectWorld(parentWorld, o)
 		if !ok {
-			return fmt.Errorf("sceneformat: layer %q object %q: %w", layer, o.ID, errShearedSprite)
+			return fieldErr(op, "sceneformat: layer %q object %q: %w", layer, o.ID, errShearedSprite)
 		}
-		if err := validateObjects(layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
+		if err := validateObjects(at(op, "children"), layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
 			return err
 		}
 	}
@@ -483,29 +523,31 @@ func validateObjects(layer, parent string, parentWorld *math2d.Affine, objs []Ob
 }
 
 func validateCamera(c *CameraDoc) error {
+	cp := []string{"camera"}
 	if !isFinite(c.X) || !isFinite(c.Y) || !isFinite(c.Rotation) {
-		return errors.New("sceneformat: camera x, y and rotation must be finite")
+		return fieldErr(cp, "sceneformat: camera x, y and rotation must be finite")
 	}
 	if c.Zoom != nil {
 		if !isFinite(*c.Zoom) || *c.Zoom <= 0 {
-			return fmt.Errorf("sceneformat: camera zoom %v must be finite and positive", *c.Zoom)
+			return fieldErr(at(cp, "zoom"), "sceneformat: camera zoom %v must be finite and positive", *c.Zoom)
 		}
 	}
 	if c.Bounds != nil {
 		b := c.Bounds
 		if !isFinite(b.X) || !isFinite(b.Y) || !isFinite(b.Width) || !isFinite(b.Height) {
-			return errors.New("sceneformat: camera bounds must be finite")
+			return fieldErr(at(cp, "bounds"), "sceneformat: camera bounds must be finite")
 		}
 		if b.Width <= 0 || b.Height <= 0 {
-			return fmt.Errorf("sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
+			return fieldErr(at(cp, "bounds"), "sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
 		}
 	}
 	return nil
 }
 
-func validateTilemap(where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc) error {
+// validateTilemap checks tm, found at path in the document and described in messages as where.
+func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc) error {
 	if tm == nil {
-		return fmt.Errorf("sceneformat: %s is nil", where)
+		return fieldErr(path, "sceneformat: %s is nil", where)
 	}
 	isRef := tm.IsRef()
 	isExt := tm.IsExternal()
@@ -522,85 +564,100 @@ func validateTilemap(where string, tm *TilemapDoc, allowRef bool, table map[stri
 		modes++
 	}
 	if modes == 0 {
-		return fmt.Errorf("sceneformat: %s must specify ref, source or inline tile grid", where)
+		return fieldErr(path, "sceneformat: %s must specify ref, source or inline tile grid", where)
 	}
 	if modes > 1 {
-		return fmt.Errorf("sceneformat: %s cannot combine ref, source and inline tile grid", where)
+		return fieldErr(path, "sceneformat: %s cannot combine ref, source and inline tile grid", where)
 	}
 	if isRef {
 		if !allowRef {
-			return fmt.Errorf("sceneformat: %s cannot use ref in top-level tilemaps", where)
+			return fieldErr(at(path, "ref"), "sceneformat: %s cannot use ref in top-level tilemaps", where)
 		}
 		if _, ok := table[tm.Ref]; !ok {
-			return fmt.Errorf("sceneformat: %s references unknown tilemap %q", where, tm.Ref)
+			return fieldErr(at(path, "ref"), "sceneformat: %s references unknown tilemap %q", where, tm.Ref)
 		}
 		return nil
 	}
 	if isExt {
 		return nil
 	}
-	return validateInlineTilemap(where, tm)
+	return validateInlineTilemap(path, where, tm)
 }
 
-func validateInlineTilemap(where string, tm *TilemapDoc) error {
+// validateInlineTilemap checks the inline grid tm, found at path in the document (nil when it was loaded from a source file) and described in messages as where.
+func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 	if tm.TileWidth <= 0 || tm.TileHeight <= 0 {
-		return fmt.Errorf("sceneformat: %s tileWidth (%d) and tileHeight (%d) must be positive", where, tm.TileWidth, tm.TileHeight)
+		field := "tileHeight"
+		if tm.TileWidth <= 0 {
+			field = "tileWidth"
+		}
+		return fieldErr(at(path, field), "sceneformat: %s tileWidth (%d) and tileHeight (%d) must be positive", where, tm.TileWidth, tm.TileHeight)
 	}
 	if tm.Width <= 0 || tm.Height <= 0 {
-		return fmt.Errorf("sceneformat: %s width (%d) and height (%d) must be positive", where, tm.Width, tm.Height)
+		field := "height"
+		if tm.Width <= 0 {
+			field = "width"
+		}
+		return fieldErr(at(path, field), "sceneformat: %s width (%d) and height (%d) must be positive", where, tm.Width, tm.Height)
 	}
 	if tm.Tileset == "" {
-		return fmt.Errorf("sceneformat: %s requires a tileset name", where)
+		return fieldErr(at(path, "tileset"), "sceneformat: %s requires a tileset name", where)
 	}
-	// Multiply as int64 and cap the grid before comparing lengths: a crafted
-	// width and height could otherwise overflow to a small product, pass the
-	// length check and panic the runtime builder on its tile index.
+	// Multiply as int64 and cap the grid before comparing lengths: a crafted width and height could otherwise overflow to a small product, pass the length check and panic the runtime builder on its tile index.
 	const maxTilesPerTilemap = 1 << 24
 	if int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {
-		return fmt.Errorf("sceneformat: %s is %dx%d, more than %d tiles", where, tm.Width, tm.Height, maxTilesPerTilemap)
+		return fieldErr(at(path, "width"), "sceneformat: %s is %dx%d, more than %d tiles", where, tm.Width, tm.Height, maxTilesPerTilemap)
 	}
 	want := tm.Width * tm.Height
 	if len(tm.Data) != want {
-		return fmt.Errorf("sceneformat: %s has %d tile entries, want %d (%dx%d)", where, len(tm.Data), want, tm.Width, tm.Height)
+		return fieldErr(at(path, "data"), "sceneformat: %s has %d tile entries, want %d (%dx%d)", where, len(tm.Data), want, tm.Width, tm.Height)
 	}
 	for i, gid := range tm.Data {
 		if gid < 0 {
-			return fmt.Errorf("sceneformat: %s tile at index %d has negative id %d", where, i, gid)
+			return fieldErr(at(path, "data", strconv.Itoa(i)), "sceneformat: %s tile at index %d has negative id %d", where, i, gid)
 		}
 	}
 	return nil
 }
 
-func validateObject(layer string, o *ObjectDoc) error {
-	if !isFinite(o.X) || !isFinite(o.Y) || !isFinite(o.PosZ) ||
-		!isFinite(o.OriginX) || !isFinite(o.OriginY) ||
-		!isFinite(o.Rotation) || !isFinite(o.RotX) || !isFinite(o.RotY) || !isFinite(o.RotZ) {
-		return fmt.Errorf("sceneformat: layer %q object %q has non-finite transform", layer, o.ID)
+// validateObject checks o, found at path in the document on the layer named layer.
+func validateObject(path []string, layer string, o *ObjectDoc) error {
+	transform := []struct {
+		field string
+		v     float32
+	}{
+		{"x", o.X}, {"y", o.Y}, {"posZ", o.PosZ}, {"originX", o.OriginX}, {"originY", o.OriginY},
+		{"rotation", o.Rotation}, {"rotX", o.RotX}, {"rotY", o.RotY}, {"rotZ", o.RotZ},
+	}
+	for _, f := range transform {
+		if !isFinite(f.v) {
+			return fieldErr(at(path, f.field), "sceneformat: layer %q object %q has non-finite transform", layer, o.ID)
+		}
 	}
 	if !isFinite(o.Depth) || o.Depth < 0 {
-		return fmt.Errorf("sceneformat: layer %q object %q depth %v must be finite and non-negative", layer, o.ID, o.Depth)
+		return fieldErr(at(path, "depth"), "sceneformat: layer %q object %q depth %v must be finite and non-negative", layer, o.ID, o.Depth)
 	}
 	if o.ScaleX != nil && !isFinite(*o.ScaleX) {
-		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleX", layer, o.ID)
+		return fieldErr(at(path, "scaleX"), "sceneformat: layer %q object %q has non-finite scaleX", layer, o.ID)
 	}
 	if o.ScaleY != nil && !isFinite(*o.ScaleY) {
-		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleY", layer, o.ID)
+		return fieldErr(at(path, "scaleY"), "sceneformat: layer %q object %q has non-finite scaleY", layer, o.ID)
 	}
 	if o.ScaleZ != nil && !isFinite(*o.ScaleZ) {
-		return fmt.Errorf("sceneformat: layer %q object %q has non-finite scaleZ", layer, o.ID)
+		return fieldErr(at(path, "scaleZ"), "sceneformat: layer %q object %q has non-finite scaleZ", layer, o.ID)
 	}
 	if o.Alpha != nil {
 		if !isFinite(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1 {
-			return fmt.Errorf("sceneformat: layer %q object %q alpha %v must be in [0, 1]", layer, o.ID, *o.Alpha)
+			return fieldErr(at(path, "alpha"), "sceneformat: layer %q object %q alpha %v must be in [0, 1]", layer, o.ID, *o.Alpha)
 		}
 	}
 	if o.Sprite != nil {
 		if o.Sprite.Atlas == "" || o.Sprite.Frame == "" {
-			return fmt.Errorf("sceneformat: layer %q object %q sprite requires both atlas and frame", layer, o.ID)
+			return fieldErr(at(path, "sprite"), "sceneformat: layer %q object %q sprite requires both atlas and frame", layer, o.ID)
 		}
 	}
 	if o.Material != "" && (!fs.ValidPath(o.Material) || o.Material == ".") {
-		return fmt.Errorf("sceneformat: layer %q object %q material %q must be a slash-separated path relative to the project root", layer, o.ID, o.Material)
+		return fieldErr(at(path, "material"), "sceneformat: layer %q object %q material %q must be a slash-separated path relative to the project root", layer, o.ID, o.Material)
 	}
 	return nil
 }

@@ -325,8 +325,9 @@ func buildTilemapBatch(doc *SceneDoc, layerName string, tm *TilemapDoc, resolver
 		if loaded == nil {
 			return nil, fmt.Errorf("sceneformat: layer %q tilemap source %q returned nil", layerName, resolved.Source)
 		}
-		if err := validateInlineTilemap(fmt.Sprintf("layer %q tilemap %q", layerName, resolved.Source), loaded); err != nil {
-			return nil, err
+		if err := validateInlineTilemap(nil, fmt.Sprintf("layer %q tilemap %q", layerName, resolved.Source), loaded); err != nil {
+			// The loaded grid is not part of the document, so its error keeps no path into it.
+			return nil, err.(*FieldError).Err
 		}
 		resolved = loaded
 	}
