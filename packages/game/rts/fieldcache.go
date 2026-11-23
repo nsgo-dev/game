@@ -12,7 +12,7 @@ const DefaultFieldCacheSize = 16
 
 // FieldCache builds flow fields over one grid and keeps the most recently used ones, so units ordered to the same goals share a single field instead of each building their own.
 //
-// Fields are keyed by their goal set, compared as a sorted set of distinct cells, so the same goals given in another order or with repeats find the same field. When the cache is full the least recently used field is dropped; a unit still holding it keeps following it, and the cache builds a fresh one the next time those goals are asked for. A FieldCache is not safe for concurrent use.
+// Fields are keyed by their goal set, compared as a sorted set of distinct cells, so the same goals given in another order or with repeats find the same field. When the cache is full the least recently used field is dropped; a unit still holding it keeps following it, Crowd.Rebuild still rebuilds it after a grid change, and the cache builds a fresh one the next time those goals are asked for. A FieldCache is not safe for concurrent use.
 type FieldCache struct {
 	grid     ai.Grid
 	origin   math2d.Vec2
@@ -87,12 +87,17 @@ func (fc *FieldCache) Field(goals ...ai.Cell) (*FlowField, bool) {
 	return f, true
 }
 
-// Rebuild integrates every cached field again over the grid, in place, so units following them see a change to the grid (a wall built, a bridge destroyed) on their next step. Call it after changing the grid's walkable cells or costs.
+// Rebuild integrates every cached field again over the grid, in place, so units following them see a change to the grid (a wall built, a bridge destroyed) on their next step. A field none of whose goals is walkable any more is dropped from the cache, so the next Field call for those goals reports false. Call it after changing the grid's walkable cells or costs; a Crowd's own Rebuild calls it and also rebuilds the fields its units still follow after the cache dropped them.
 func (fc *FieldCache) Rebuild() {
+	kept := fc.entries[:0]
 	for _, e := range fc.entries {
 		fc.builds++
-		e.field.Build(fc.grid, e.key...)
+		if e.field.Build(fc.grid, e.key...) {
+			kept = append(kept, e)
+		}
 	}
+	clear(fc.entries[len(kept):])
+	fc.entries = kept
 }
 
 // Clear drops every cached field.
