@@ -95,7 +95,12 @@ Set `View: func(progress float64, err error) core.Node` on `LoadingScreen` (or `
 Run the game with [`go tool game dev`](cli.md#dev) and start a watcher on the asset directory it names, and every atlas, image and raw-bytes asset the manager has loaded changes in the running game within a second of its file being saved:
 
 ```go
-mgr := assets.NewManager(cx, assets.WithFS(os.DirFS("resources")))
+var opts []assets.Option
+if dir := hotreload.DevAssetsDir(); dir != "" {
+	// Under game dev, read "asset:" URIs from the directory the watcher watches.
+	opts = append(opts, assets.WithFS(os.DirFS(dir)))
+}
+mgr := assets.NewManager(cx, opts...)
 w := hotreload.NewDevWatcher(cx) // nil outside game dev and in release builds
 w.WatchAssets(mgr, func(path string, names []string, err error) {
 	if err != nil {
@@ -104,6 +109,6 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 })
 ```
 
-`WatchAssets` passes each changed file under the directory to `Manager.Reload` as `"asset:<path>"` on the engine goroutine. An atlas whose JSON changed is parsed again, and one whose image changed draws the file's new bytes with the same frames; the `*sprite.Atlas` the group holds is updated in place, so code that kept the pointer draws the edit. JSON that no longer parses keeps the previous frames and reports the error. Images show the new bytes and raw bytes are replaced; sounds and custom assets load again only when their group does. `Manager.Revision` counts the reloads that replaced something, so a `core.Canvas` that reads it in `Draw` draws again after each one; a game drawn every frame by `game.Loop` needs nothing more.
+The watcher and the manager must see the same files: a `Manager` without `WithFS` reads `"asset:"` URIs from `assets/` in the working directory, and `nsgo dev` starts the game in the directory `game dev` was run from, not the project's, so under `game dev` the manager reads from `hotreload.DevAssetsDir()`, the absolute path of the directory `game dev` passes, as above. `WatchAssets` passes each changed file under the directory to `Manager.Reload` as `"asset:<path>"` on the engine goroutine. An atlas whose JSON changed is parsed again, and one whose image changed draws the file's new bytes with the same frames; the `*sprite.Atlas` the group holds is updated in place, so code that kept the pointer draws the edit. JSON that no longer parses keeps the previous frames and reports the error. Images show the new bytes and raw bytes are replaced; sounds and custom assets load again only when their group does. An image that ships in several densities (`Scales`) reloads from the file the screen shows, such as `hero@2x.png` on a 2x screen; saving another density changes nothing until the screen shows it. A group mounted on a DLC pack with `SetFS` keeps the pack's copy of a file the pack has, so saving the base file does not change it. `Manager.Revision` counts the reloads that replaced something, so a `core.Canvas` that reads it in `Draw` draws again after each one; a game drawn every frame by `game.Loop` needs nothing more.
 
 For an atlas the game loads itself, such as one embedded with `go:embed`, `w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` delivers the atlas parsed from the saved files. `NewDevWatcher` returns nil when the game is not running under `game dev`, and a nil watcher's methods do nothing, so the calls can stay in the game; in release builds (`-tags release`) they compile to nothing.

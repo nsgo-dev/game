@@ -100,13 +100,16 @@ func TestDevNotesTargetsThatCannotReadTheAssets(t *testing.T) {
 	}{
 		{"from nsgo.yaml", "web", nil, "web"},
 		{"from -target", "native", []string{"-target", "ios_simulator"}, "ios_simulator"},
+		{"from -target after the directory", "native", []string{"DIR", "-target", "web"}, "web"},
+		{"from -target= after the directory", "native", []string{"DIR", "--target=android"}, "android"},
+		{"passed on over game dev's -target", "native", []string{"-target", "tui", "DIR", "-target", "web"}, "web"},
+		{"android without -android-host", "android", []string{"DIR", "-android-host=false"}, "android"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stubDev(t, nil)
 			dir := newProject(t, tc.yamlTarget, "resources")
 			a, _, stderr := newTestApp(t)
-			args := append(append([]string{"dev"}, tc.args...), dir)
-			if code := run(args, a); code != 0 {
+			if code := run(devArgs(tc.args, dir), a); code != 0 {
 				t.Fatalf("exit %d (stderr: %s)", code, stderr)
 			}
 			if !strings.Contains(stderr.String(), "assets reload on the native and tui targets, not "+tc.target) {
@@ -114,6 +117,49 @@ func TestDevNotesTargetsThatCannotReadTheAssets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDevReloadsOnTargetsRunningHere(t *testing.T) {
+	for _, tc := range []struct {
+		name, yamlTarget string
+		args             []string
+	}{
+		{"tui after the directory", "web", []string{"DIR", "-target", "tui"}},
+		{"android host", "native", []string{"DIR", "-target=android", "-android-host"}},
+		{"android host from nsgo.yaml", "android", []string{"DIR", "--android-host=true"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runs := stubDev(t, nil)
+			dir := newProject(t, tc.yamlTarget, "resources")
+			a, _, stderr := newTestApp(t)
+			args := devArgs(tc.args, dir)
+			if code := run(args, a); code != 0 {
+				t.Fatalf("exit %d (stderr: %s)", code, stderr)
+			}
+			if !strings.Contains(stderr.String(), "reloading assets from "+filepath.Join(dir, "resources")) {
+				t.Fatalf("stderr = %q", stderr)
+			}
+			if want := append([]string{"tool", "nsgo", "dev"}, append(slices.Clone(args[2:]), dir)...); !slices.Equal((*runs)[0].args, want) {
+				t.Fatalf("args = %q, want %q", (*runs)[0].args, want)
+			}
+		})
+	}
+}
+
+// devArgs returns game dev's command line with args, DIR among them replaced by dir, and dir appended when they have no DIR.
+func devArgs(args []string, dir string) []string {
+	out := []string{"dev"}
+	named := false
+	for _, arg := range args {
+		if arg == "DIR" {
+			arg, named = dir, true
+		}
+		out = append(out, arg)
+	}
+	if !named {
+		out = append(out, dir)
+	}
+	return out
 }
 
 func TestDevWithoutAnAssetDirectoryRunsWithoutReload(t *testing.T) {

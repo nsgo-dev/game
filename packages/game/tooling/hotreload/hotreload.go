@@ -43,8 +43,10 @@ type fileFingerprint struct {
 	modTime time.Time
 	size    int64
 	hash    [sha256.Size]byte
-	// hashedAt is when hash was computed from the file's contents.
+	// hashedAt is when hash was computed from the file's contents, or, for an unhashed fingerprint, when the file was stat'ed.
 	hashedAt time.Time
+	// unhashed marks a fingerprint taken from the file's modification time and size alone, with no hash: any later change to either is a change of contents.
+	unhashed bool
 }
 
 // racyWindow is how close to hashedAt a modification time may be for the fingerprint to vouch for the contents by modification time and size alone. File systems keep modification times at a granularity (a kernel tick on Linux, two seconds on FAT), so a write of the same length within that granularity after hashing leaves both unchanged; as git does for racily clean index entries, such a fingerprint compares contents again.
@@ -175,6 +177,7 @@ func (w *Watcher) WatchPattern(ext string, onChange func(relPath string, data []
 	}
 	normExt := normalizeExt(ext)
 	files := make(map[string]*fileEntry)
+	now := time.Now()
 	_ = filepath.WalkDir(w.dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -196,7 +199,7 @@ func (w *Watcher) WatchPattern(ext string, onChange func(relPath string, data []
 		files[slashRel] = &fileEntry{
 			fullPath:  path,
 			relPath:   slashRel,
-			delivered: snapshotFile(path),
+			delivered: snapshotStat(path, d, now),
 		}
 		return nil
 	})
@@ -346,7 +349,7 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 			hash:     sum,
 			hashedAt: now,
 		}
-		if entry.delivered.exists && sum == entry.delivered.hash {
+		if entry.delivered.exists && !entry.delivered.unhashed && sum == entry.delivered.hash {
 			entry.delivered = fp
 			return nil, false
 		}
@@ -374,7 +377,7 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 			hash:     sum,
 			hashedAt: now,
 		}
-		if entry.delivered.exists && sum == entry.delivered.hash {
+		if entry.delivered.exists && !entry.delivered.unhashed && sum == entry.delivered.hash {
 			entry.delivered = fp
 			entry.hasPending = false
 			return nil, false
@@ -439,6 +442,24 @@ func snapshotFile(path string) fileFingerprint {
 		size:     info.Size(),
 		hash:     sha256.Sum256(data),
 		hashedAt: time.Now(),
+	}
+}
+
+// snapshotStat fingerprints the file at path, which d lists, from its modification time and size alone when that time is far enough before now for a later write to move it (racyWindow), so registering a pattern over a large directory reads no file on the engine goroutine; a file modified more recently is hashed, as snapshotFile does.
+func snapshotStat(path string, d fs.DirEntry, now time.Time) fileFingerprint {
+	info, err := d.Info()
+	if err != nil {
+		return fileFingerprint{}
+	}
+	if now.Sub(info.ModTime()) < racyWindow {
+		return snapshotFile(path)
+	}
+	return fileFingerprint{
+		exists:   true,
+		modTime:  info.ModTime(),
+		size:     info.Size(),
+		hashedAt: now,
+		unhashed: true,
 	}
 }
 
