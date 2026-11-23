@@ -1,0 +1,71 @@
+# Command Line
+
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures and open the scene editor. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+
+## Install
+
+Add the command to your module as a tool, then run it with `go tool game`:
+
+```sh
+go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
+go tool game help
+```
+
+The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `pack` | Packs a folder of PNG images into sprite atlas pages and TexturePacker JSON-hash metadata for `sprite.LoadAtlas` |
+| `audio` | Normalizes, resamples and converts a WAV file to WAV, AAC or MP3 |
+| `manifest` | Generates a typed Go asset manifest from a directory of assets, so a missing asset fails the build |
+| `tex` | Encodes a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps |
+| `editor` | Opens the scene editor on a YAML scene, or on a demo scene when none is named |
+| `help` | Lists the commands, or shows one command's flags |
+
+`go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags.
+
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest that is out of date) and 2 when it is called wrongly (an unknown command or flag, a missing required flag, an argument it does not take), in which case it also prints its usage. Errors start with the command's name, such as `game pack: -in directory is required`.
+
+### pack
+
+```sh
+go tool game pack -in art/ui -out assets -name ui -padding 2
+```
+
+Writes `ui.png` and `ui.json` to `-out` (`ui-0.png`, `ui-0.json`, `ui-1.png` and so on when the frames need more than one page) and prints each path. `-padding` and `-extrude` set the transparent gap and the repeated edge pixels around each frame, `-max-width` and `-max-height` bound a page, `-scale` is written to `meta.scale`, and transparent borders are trimmed, each frame keeping its offset in its untrimmed size, unless `-trim=false`.
+
+### audio
+
+```sh
+go tool game audio -in sfx/jump.wav -out assets/jump.wav -rate 22050 -channels 1 -peak-db -1
+go tool game audio -in music/theme.wav -out assets/theme.m4a -format aac -rms-db -14 -bitrate 192
+```
+
+Reads a WAV file, resamples it to `-rate`, mixes it to `-channels`, and normalizes either its peak (`-peak-db`) or its loudness (`-rms-db`, with soft clipping), not both. WAV output is written in Go; AAC and MP3 need `ffmpeg` on `PATH` (AAC also uses `afconvert` on macOS) and fail with an error naming the missing encoder otherwise.
+
+### manifest
+
+```sh
+go tool game manifest -in assets -out assets/manifest_gen.go -pkg assets
+go tool game manifest -in assets -out assets/manifest_gen.go -pkg assets -check
+```
+
+Writes a Go file declaring a typed reference for every asset under `-in`, or prints it when `-out` is empty. `-embed` emits `//go:embed` directives instead of `asset:` URIs, with `-embed-dir` prefixed to their patterns. `-check` leaves `-out` alone and fails when it differs from what would be generated, for CI; a `go:generate` line running the first form keeps the file current.
+
+### tex
+
+```sh
+go tool game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.png
+```
+
+Encodes the image named by the argument (or `-in`) into a KTX2 file at `-out` (`-o` for short), by default the input's path with a `.ktx2` extension. `-format` is `bc1`, `bc3`, `etc2` or `rgba8`, `-mipmaps` writes the whole chain down to 1x1, and `-srgb` marks the texture sRGB and filters its mipmaps in linear light.
+
+### editor
+
+```sh
+go tool game editor scenes/level1.yaml
+```
+
+Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. The scene format is described in [Editor & Scene Format](editor.md).

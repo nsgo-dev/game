@@ -80,7 +80,7 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 
 游戏主机（Nintendo Switch、PlayStation 和 Xbox）不在支持范围内：它们的 SDK 受保密协议（NDA）约束，且需要 C 工具链，而 NSGo 和本仓库只用 Go，不包含手写的 C 代码。
 
-关于六个目标平台的图标、签名、公证、商店打包与 `nsgo check` 验证，见[构建与发布](shipping.md)。
+关于六个目标平台的图标、签名、公证、商店打包与 `nsgo check` 验证，见[构建与发布](shipping.md)；打包图集、转换音频、生成资源清单、编码纹理和打开场景编辑器的 `go tool game` 见[命令行](cli.md)。
 
 ### VR 与 AR
 

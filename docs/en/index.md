@@ -80,7 +80,7 @@ macOS, iOS, Windows, Linux, Android and the web. HarmonyOS, mini programs, watch
 
 Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and need C toolchains, and NSGo and this repository are Go only, with no hand-written C.
 
-See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six targets.
+See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six targets, and [Command Line](cli.md) for `go tool game`, which packs atlases, converts audio, generates asset manifests, encodes textures and opens the scene editor.
 
 ### VR and AR
 

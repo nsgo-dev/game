@@ -112,6 +112,7 @@ const DOC_ORDER = [
   'sound.md',
   '3d-models-blender.md',
   'shipping.md',
+  'cli.md',
 ] as const
 
 async function markdownFiles(dir: string): Promise<string[]> {
