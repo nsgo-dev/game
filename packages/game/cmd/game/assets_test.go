@@ -99,6 +99,24 @@ func TestAssetsCheckFailsWhenStale(t *testing.T) {
 	}
 }
 
+func TestAssetsCheckPassesWithoutCache(t *testing.T) {
+	project := newAssetsProject(t)
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"assets", "-in", project}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if err := os.RemoveAll(filepath.Join(filepath.Dir(project), ".game")); err != nil {
+		t.Fatal(err)
+	}
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"assets", "-in", project, "-check"}, a); code != 0 {
+		t.Fatalf("check without the cache exit %d (stderr: %s)", code, stderr)
+	}
+	if want := "2 up to date\n"; stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+}
+
 func TestAssetsDefaultsToGameYAMLHere(t *testing.T) {
 	project := newAssetsProject(t)
 	t.Chdir(filepath.Dir(project))

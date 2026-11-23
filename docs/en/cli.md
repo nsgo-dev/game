@@ -242,11 +242,11 @@ assets:
     embedDir: ""
 ```
 
-Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file, nor two atlases in one folder share a name.
+Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file: an atlas named `ui` writes `ui.png` and `ui.json`, or `ui-0.png`, `ui-1.png` and so on with their `.json` files when it needs several pages, so no other target in its folder may write those names, nor another atlas there be named `ui` or `ui-1`. An atlas may not write its pages into a folder an atlas reads images from, since it would then pack its own pages on the next run, and the cache may not be inside the manifest's folder, since the manifest would then list it; a folder whose name starts with a dot is skipped by both scans, so either may go there.
 
 What each target was built from is kept in a cache, `.game/assets-cache.yaml` unless `assets.cache` names another path. It is YAML: for each target, a SHA-256 key over its settings, the version of the game layer that built it, and the path and content of every input, and the path and SHA-256 of every file it wrote. A target is up to date when its key matches and its outputs are still on disk with that content, so editing or deleting an output also rebuilds it. When an atlas needs fewer pages than before, the pages it no longer writes are deleted. The manifest needs no cache entry: it is generated each run, which reads no file's content, and written only when it differs. A missing or damaged cache only costs a full rebuild. Add the `.game` folder to `.gitignore`.
 
-`-force` rebuilds every target. `-check` builds nothing and writes nothing: it lists the targets that are out of date and exits with 1 if there are any, for CI. When a target fails, the command keeps the cache of the targets it built before it, so the next run starts from there.
+`-force` rebuilds every target. `-check` writes nothing in the project: it lists the targets that are out of date and exits with 1 if there are any, for CI. A target the cache does not show as up to date, as in a fresh checkout without the `.game` folder, is built in a temporary folder and counts as up to date when the files in the project are exactly what it writes, so CI needs no cache when the outputs are committed; converting audio to AAC or MP3 then needs the external encoder there too. When a target fails, the command keeps the cache of the targets it built before it, so the next run starts from there.
 
 ### completion
 

@@ -358,6 +358,44 @@ func TestCheckWritesNothing(t *testing.T) {
 	}
 }
 
+func TestCheckWithoutCacheComparesOutputs(t *testing.T) {
+	root := newProject(t)
+	build(t, root, assetbuild.Builder{})
+	// A fresh checkout has the committed outputs but not the ignored cache.
+	if err := os.RemoveAll(filepath.Join(root, ".game")); err != nil {
+		t.Fatal(err)
+	}
+	before := stamp(t, root)
+	r := build(t, root, assetbuild.Builder{Check: true})
+	wantStatuses(t, r, all(assetbuild.UpToDate))
+	if got := r.Targets[0].Outputs; !slices.Equal(got, []string{"assets/atlases/ui.json", "assets/atlases/ui.png"}) {
+		t.Errorf("outputs = %v, want the files the atlas writes", got)
+	}
+	if got := touched(t, root, before); len(got) != 0 {
+		t.Fatalf("a check wrote %v", got)
+	}
+
+	writePNG(t, filepath.Join(root, "art/ui/button.png"), 12, 6, color.NRGBA{G: 1, A: 255})
+	writeFile(t, filepath.Join(root, "assets/jump.wav"), []byte("edited"))
+	before = stamp(t, root)
+	want := all(assetbuild.UpToDate)
+	want["atlas assets/atlases/ui"] = assetbuild.Stale
+	want["audio assets/jump.wav"] = assetbuild.Stale
+	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), want)
+	if got := touched(t, root, before); len(got) != 0 {
+		t.Fatalf("a check wrote %v", got)
+	}
+}
+
+func TestPagesInADotFolderOfTheirImages(t *testing.T) {
+	dir := t.TempDir()
+	writePNG(t, filepath.Join(dir, "art/ui/button.png"), 12, 6, color.NRGBA{R: 200, A: 255})
+	writeFile(t, filepath.Join(dir, "game.yaml"), []byte("version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui/.pages\n"))
+	build(t, dir, assetbuild.Builder{})
+	r := build(t, dir, assetbuild.Builder{})
+	wantStatuses(t, r, map[string]assetbuild.Status{"atlas art/ui/.pages/ui": assetbuild.UpToDate})
+}
+
 func TestForceAndCheckConflict(t *testing.T) {
 	root := newProject(t)
 	if _, err := tryBuild(root, assetbuild.Builder{Force: true, Check: true}); err == nil {

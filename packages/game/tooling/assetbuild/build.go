@@ -87,7 +87,7 @@ type Builder struct {
 	Version string
 	// Force rebuilds every target even when the cache says it is up to date.
 	Force bool
-	// Check reports which targets are out of date without writing anything: their status is Stale instead of Built.
+	// Check reports which targets are out of date without writing anything under Root: their status is Stale instead of Built. A target whose cache entry does not match is built in a temporary folder and counts as up to date when Root already holds exactly the files it writes, so a check passes on a fresh checkout whose committed outputs are current even without the cache.
 	Check bool
 }
 
@@ -110,18 +110,18 @@ func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
 	type step struct {
 		id   string
 		kind Kind
-		// prepare reads the target's inputs and returns its key and what builds it.
-		prepare func() (key string, build func() ([]string, error), err error)
+		// prepare reads the target's inputs and returns its key and what builds it under a root directory.
+		prepare func() (key string, build builder, err error)
 	}
 	var steps []step
 	for _, a := range p.Assets.Atlases {
-		steps = append(steps, step{"atlas " + path.Join(a.Out, a.Name), KindAtlas, func() (string, func() ([]string, error), error) { return b.atlas(a) }})
+		steps = append(steps, step{"atlas " + path.Join(a.Out, a.Name), KindAtlas, func() (string, builder, error) { return b.atlas(a) }})
 	}
 	for _, t := range p.Assets.Textures {
-		steps = append(steps, step{"texture " + t.Out, KindTexture, func() (string, func() ([]string, error), error) { return b.texture(t) }})
+		steps = append(steps, step{"texture " + t.Out, KindTexture, func() (string, builder, error) { return b.texture(t) }})
 	}
 	for _, au := range p.Assets.Audio {
-		steps = append(steps, step{"audio " + au.Out, KindAudio, func() (string, func() ([]string, error), error) { return b.audio(ctx, au) }})
+		steps = append(steps, step{"audio " + au.Out, KindAudio, func() (string, builder, error) { return b.audio(ctx, au) }})
 	}
 
 	var runErr error
@@ -144,17 +144,29 @@ func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
 			t.Outputs = old.paths()
 			next.Targets = append(next.Targets, *old)
 		} else if b.Check {
-			t.Status = Stale
-			if old != nil {
-				t.Outputs = old.paths()
-			}
-		} else {
-			outs, err := build()
+			// Without a matching cache entry, as in a fresh checkout that does not commit the cache, the target is built in a temporary folder and is up to date when the files on disk are what it writes.
+			current, outs, err := b.matchesDisk(build)
 			if err != nil {
 				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 				break
 			}
-			entry, err := b.record(s.id, key, outs)
+			switch {
+			case current:
+				t.Status = UpToDate
+				t.Outputs = outs
+			case old != nil:
+				t.Status = Stale
+				t.Outputs = old.paths()
+			default:
+				t.Status = Stale
+			}
+		} else {
+			outs, err := build(b.Root)
+			if err != nil {
+				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
+				break
+			}
+			entry, err := record(b.Root, s.id, key, outs)
 			if err != nil {
 				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 				break
@@ -216,16 +228,33 @@ func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
 
 // abs returns the filesystem path of rel, a slash-separated path relative to b.Root.
 func (b *Builder) abs(rel string) string {
-	return filepath.Join(b.Root, filepath.FromSlash(rel))
+	return under(b.Root, rel)
 }
 
-// rel returns the slash-separated path of name relative to b.Root.
-func (b *Builder) rel(name string) (string, error) {
-	r, err := filepath.Rel(b.Root, name)
+// builder writes a target's outputs under root, the directory its slash-separated output paths are relative to, and returns the files it wrote.
+type builder func(root string) ([]string, error)
+
+// under returns the filesystem path of rel, a slash-separated path relative to root.
+func under(root, rel string) string {
+	return filepath.Join(root, filepath.FromSlash(rel))
+}
+
+// matchesDisk builds a target in a new temporary folder and reports whether every file it writes is already in b.Root with the same content, with the slash-separated paths of those files. It writes nothing under b.Root.
+func (b *Builder) matchesDisk(build builder) (current bool, outputs []string, err error) {
+	tmp, err := os.MkdirTemp("", "game-assets-check-")
 	if err != nil {
-		return "", err
+		return false, nil, err
 	}
-	return filepath.ToSlash(r), nil
+	defer func() { _ = os.RemoveAll(tmp) }()
+	outs, err := build(tmp)
+	if err != nil {
+		return false, nil, err
+	}
+	e, err := record(tmp, "", "", outs)
+	if err != nil {
+		return false, nil, err
+	}
+	return b.outputsIntact(e), e.paths(), nil
 }
 
 // keyer accumulates what a target's key covers.
@@ -253,7 +282,7 @@ func sum(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (b *Builder) atlas(a Atlas) (string, func() ([]string, error), error) {
+func (b *Builder) atlas(a Atlas) (string, builder, error) {
 	opts := pack.DefaultOptions()
 	opts.Name = a.Name
 	if a.Padding != nil {
@@ -290,7 +319,7 @@ func (b *Builder) atlas(a Atlas) (string, func() ([]string, error), error) {
 		files[i] = data
 		k.input(name, data)
 	}
-	return k.key(), func() ([]string, error) {
+	return k.key(), func(root string) ([]string, error) {
 		inputs := make([]pack.Input, len(names))
 		for i, name := range names {
 			img, err := png.Decode(bytes.NewReader(files[i]))
@@ -303,11 +332,11 @@ func (b *Builder) atlas(a Atlas) (string, func() ([]string, error), error) {
 		if err != nil {
 			return nil, err
 		}
-		return res.Write(b.abs(a.Out))
+		return res.Write(under(root, a.Out))
 	}, nil
 }
 
-func (b *Builder) texture(t Texture) (string, func() ([]string, error), error) {
+func (b *Builder) texture(t Texture) (string, builder, error) {
 	format, err := ktx2.ParseFormat(t.Format)
 	if err != nil {
 		return "", nil, err
@@ -322,7 +351,7 @@ func (b *Builder) texture(t Texture) (string, func() ([]string, error), error) {
 		return "", nil, err
 	}
 	k.input(t.In, data)
-	return k.key(), func() ([]string, error) {
+	return k.key(), func(root string) ([]string, error) {
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", t.In, err)
@@ -331,7 +360,7 @@ func (b *Builder) texture(t Texture) (string, func() ([]string, error), error) {
 		if err != nil {
 			return nil, err
 		}
-		dest := b.abs(t.Out)
+		dest := under(root, t.Out)
 		if err := writeFile(dest, out); err != nil {
 			return nil, err
 		}
@@ -345,7 +374,7 @@ type audioSettings struct {
 	Options audioconv.Options
 }
 
-func (b *Builder) audio(ctx context.Context, au Audio) (string, func() ([]string, error), error) {
+func (b *Builder) audio(ctx context.Context, au Audio) (string, builder, error) {
 	format := audioconv.FormatWAV
 	if au.Format != "" {
 		f, err := audioconv.ParseFormat(au.Format)
@@ -367,7 +396,7 @@ func (b *Builder) audio(ctx context.Context, au Audio) (string, func() ([]string
 		return "", nil, err
 	}
 	k.input(au.In, data)
-	return k.key(), func() ([]string, error) {
+	return k.key(), func(root string) ([]string, error) {
 		buf, err := audioconv.DecodeWAV(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", au.In, err)
@@ -376,7 +405,7 @@ func (b *Builder) audio(ctx context.Context, au Audio) (string, func() ([]string
 		if enc == nil {
 			enc = &audioconv.Encoder{}
 		}
-		dest := b.abs(au.Out)
+		dest := under(root, au.Out)
 		if err := enc.ConvertBuffer(ctx, buf, dest, format, opts); err != nil {
 			return nil, err
 		}
@@ -419,18 +448,19 @@ func (b *Builder) manifest(m Manifest) (Target, error) {
 	return t, nil
 }
 
-// record hashes the files a target wrote into its cache entry.
-func (b *Builder) record(id, key string, outs []string) (*cacheEntry, error) {
+// record hashes the files a target wrote under root into its cache entry.
+func record(root, id, key string, outs []string) (*cacheEntry, error) {
 	e := &cacheEntry{Target: id, Key: key}
 	for _, o := range outs {
 		data, err := os.ReadFile(o)
 		if err != nil {
 			return nil, err
 		}
-		rel, err := b.rel(o)
+		rel, err := filepath.Rel(root, o)
 		if err != nil {
 			return nil, err
 		}
+		rel = filepath.ToSlash(rel)
 		e.Outputs = append(e.Outputs, cacheOutput{Path: rel, SHA256: sum(data)})
 	}
 	slices.SortFunc(e.Outputs, func(x, y cacheOutput) int { return strings.Compare(x.Path, y.Path) })

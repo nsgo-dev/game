@@ -128,12 +128,36 @@ func TestParseRefuses(t *testing.T) {
 		{"audio infinite level", "version: 1\nassets:\n  audio:\n    - in: a.wav\n      out: b.wav\n      peakDB: .inf\n", "finite"},
 		{"shared output", "version: 1\nassets:\n  textures:\n    - in: a.png\n      out: x\n  audio:\n    - in: a.wav\n      out: x\n", "also writes"},
 		{"cache output", "version: 1\nassets:\n  cache: x\n  textures:\n    - in: a.png\n      out: x\n", "also writes"},
+		{"atlas out is its in", "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui\n", "inside atlases[0]'s images"},
+		{"atlas out under its in", "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art\n      out: art/pages\n", "inside atlases[0]'s images"},
+		{"atlas in the project root", "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: .\n      out: pages\n", "inside atlases[0]'s images"},
+		{"atlas out under another's in", atlas + "    - name: hero\n      in: assets\n      out: hero\n", "atlases[0] writes its pages to assets, inside atlases[1]'s images"},
+		{"atlas page names clash", atlas + "    - name: ui-2\n      in: art/other\n      out: assets\n", "atlases[1] writes assets/ui-2.png, which atlases[0] also writes"},
+		{"texture over atlas page", atlas + "  textures:\n    - in: a.png\n      out: assets/ui.png\n", "textures[0] writes assets/ui.png, which atlases[0] also writes"},
+		{"audio over atlas page", atlas + "  audio:\n    - in: a.wav\n      out: assets/ui-1.json\n", "audio[0] writes assets/ui-1.json, which atlases[0] also writes"},
+		{"cache over atlas page", "version: 1\nassets:\n  cache: assets/ui.json\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n", "the cache writes assets/ui.json, which atlases[0] also writes"},
+		{"cache in manifest folder", "version: 1\nassets:\n  cache: assets/cache.yaml\n  manifest:\n    in: assets\n    out: gen/assets.go\n", "inside the manifest's folder"},
 		{"manifest not go", "version: 1\nassets:\n  manifest:\n    in: assets\n    out: assets/manifest.txt\n", ".go file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := assetbuild.Parse([]byte(tc.src))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Parse error = %v, want one containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseAccepts(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		{"atlas pages in a dot folder of its images", "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui/.pages\n"},
+		{"atlases sharing a folder", "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n    - name: ui-x\n      in: art/x\n      out: assets\n  textures:\n    - in: a.png\n      out: assets/ui.ktx2\n"},
+		{"cache in a dot folder of the manifest's", "version: 1\nassets:\n  cache: assets/.cache/assets.yaml\n  manifest:\n    in: assets\n    out: gen/assets.go\n"},
+		{"default cache with the manifest of the project", "version: 1\nassets:\n  manifest:\n    in: .\n    out: gen/assets.go\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := assetbuild.Parse([]byte(tc.src)); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
