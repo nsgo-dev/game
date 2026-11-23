@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -156,6 +157,10 @@ type Editor struct {
 	SelectedAsset *AssetEntry
 	Status        string
 	FilePath      string
+	// Project is the game's project file (game.yaml) OpenProject opened, nil without one; EditProject changes it undoably and SaveProject writes it.
+	Project *project.File
+	// ProjectPath is the game.yaml path OpenProject opened Project from.
+	ProjectPath string
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
@@ -172,6 +177,9 @@ type Editor struct {
 	playScene    *sceneformat.BuiltScene
 	playSteps    int
 	playFrames   int
+
+	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
+	projectSaved []byte
 
 	drag3D       drag3DState
 	scope        *core.Scope
