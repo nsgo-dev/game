@@ -56,7 +56,7 @@ type Unit struct {
 	Suffix string `yaml:"suffix"`
 }
 
-// Validate reports whether l is a well-formed version 1 locale: separators and suffixes that are non-empty where required, valid UTF-8 and free of ASCII digits and signs, a decimal separator that differs from the group separator, and unit exponents from 1 to 1000000 in strictly ascending order with distinct suffixes.
+// Validate reports whether l is a well-formed version 1 locale: separators and suffixes that are non-empty where required, valid UTF-8 and free of ASCII digits and signs, a decimal separator that differs from the group separator, an exponent marker that differs from both, unit suffixes that are neither separator and do not start with the exponent marker, and unit exponents from 1 to 1000000 in strictly ascending order with distinct suffixes.
 func (l *Locale) Validate() error {
 	if l == nil {
 		return errors.New("idle: nil locale")
@@ -85,6 +85,9 @@ func (l *Locale) Validate() error {
 	if l.Decimal == l.Group {
 		return fmt.Errorf("idle: locale %s: decimal and group separators are both %q", l.Name, l.Decimal)
 	}
+	if l.Exponent == l.Decimal || l.Exponent == l.Group {
+		return fmt.Errorf("idle: locale %s: exponent %q is also a separator", l.Name, l.Exponent)
+	}
 	seen := make(map[string]bool, len(l.Units))
 	for i, u := range l.Units {
 		if u.Exp < 1 || u.Exp > maxUnitExp {
@@ -95,6 +98,9 @@ func (l *Locale) Validate() error {
 		}
 		if err := checkMarker(u.Suffix, true); err != nil {
 			return fmt.Errorf("idle: locale %s: units[%d].suffix %w", l.Name, i, err)
+		}
+		if u.Suffix == l.Decimal || u.Suffix == l.Group || strings.HasPrefix(u.Suffix, l.Exponent) {
+			return fmt.Errorf("idle: locale %s: units[%d].suffix %q could be read as a separator or exponent", l.Name, i, u.Suffix)
 		}
 		if seen[u.Suffix] {
 			return fmt.Errorf("idle: locale %s: units[%d].suffix %q is repeated", l.Name, i, u.Suffix)

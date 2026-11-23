@@ -1,6 +1,7 @@
 package idle_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -104,7 +105,14 @@ func TestAwaySteps(t *testing.T) {
 }
 
 func TestOfflinePanicsOnBadConfig(t *testing.T) {
-	bad := []idle.Offline{{Cap: -1}, {Min: -time.Second}, {Efficiency: -0.5}}
+	bad := []idle.Offline{
+		{Cap: -1},
+		{Min: -time.Second},
+		{Efficiency: -0.5},
+		{Efficiency: math.NaN()},
+		{Efficiency: math.Inf(1)},
+		{Cap: time.Hour, Min: 2 * time.Hour},
+	}
 	for _, o := range bad {
 		func() {
 			defer func() {

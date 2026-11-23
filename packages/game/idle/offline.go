@@ -11,7 +11,7 @@ import (
 type Offline struct {
 	// Cap is the longest absence credited; 0 means no cap.
 	Cap time.Duration
-	// Min is the shortest absence credited; a shorter one credits nothing.
+	// Min is the shortest absence credited; a shorter one credits nothing. It must not exceed a non-zero Cap, since an absence between Cap and Min would then credit nothing while a longer one credits Cap.
 	Min time.Duration
 	// Efficiency is the fraction of the online rate earned while away, such as 0.5 for half; 0 means 1, the full rate.
 	Efficiency float64
@@ -31,7 +31,7 @@ type Away struct {
 	Seen time.Time
 }
 
-// Absence measures the time between last and now and applies Min and Cap. A zero last, as on a first launch, credits nothing. Monotonic clock readings are dropped so the difference is wall-clock time, which keeps running while the device sleeps and is what a saved timestamp holds. It panics if Cap or Min is negative or Efficiency is negative or not finite.
+// Absence measures the time between last and now and applies Min and Cap. A zero last, as on a first launch, credits nothing. Monotonic clock readings are dropped so the difference is wall-clock time, which keeps running while the device sleeps and is what a saved timestamp holds. It panics if Cap or Min is negative, Min is above a non-zero Cap, or Efficiency is negative or not finite.
 func (o Offline) Absence(last, now time.Time) Away {
 	o.check()
 	last, now = last.Round(0), now.Round(0)
@@ -53,7 +53,7 @@ func (o Offline) Absence(last, now time.Time) Away {
 	return a
 }
 
-// Earn returns what rate, an amount per second, yields over the absence between last and now: rate × the credited seconds × Efficiency. It panics if Cap or Min is negative or Efficiency is negative or not finite.
+// Earn returns what rate, an amount per second, yields over the absence between last and now: rate × the credited seconds × Efficiency. It panics if Cap or Min is negative, Min is above a non-zero Cap, or Efficiency is negative or not finite.
 func (o Offline) Earn(rate Number, last, now time.Time) (Number, Away) {
 	a := o.Absence(last, now)
 	if a.Credited == 0 {
@@ -72,6 +72,8 @@ func (o Offline) check() {
 		panic("idle: negative Offline.Cap")
 	case o.Min < 0:
 		panic("idle: negative Offline.Min")
+	case o.Cap > 0 && o.Min > o.Cap:
+		panic("idle: Offline.Min above Offline.Cap")
 	case o.Efficiency < 0 || math.IsNaN(o.Efficiency) || math.IsInf(o.Efficiency, 0):
 		panic("idle: Offline.Efficiency must be a finite value of at least 0")
 	}
