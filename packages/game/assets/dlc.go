@@ -567,8 +567,10 @@ type DLCOptions struct {
 	// PackSpec's MinBuild and MaxBuild range.
 	AppBuild int
 	// PublicKey is the Ed25519 public key used to verify pack signatures over
-	// each pack's 32-byte SHA-256 digest.
+	// each pack's 32-byte SHA-256 digest. Without it every pack is refused with ErrInvalidSignature unless AllowUnsigned is set.
 	PublicKey ed25519.PublicKey
+	// AllowUnsigned accepts packs without a signature when PublicKey is empty, checking only their size and SHA-256 from the PackSpec. Whoever supplies the PackSpec then chooses what is mounted, so set it only for development or when the specs ship inside the app (#546).
+	AllowUnsigned bool
 	// Cache stores completed packs and resumable .part downloads. When nil, a
 	// new MemoryPackCache is used.
 	Cache PackCache
@@ -613,12 +615,13 @@ func (l PackLimits) withDefaults() PackLimits {
 // DLCManager downloads, resumes, verifies, caches, and mounts DLC pack ZIP
 // archives as fs.FS instances and assets.Groups.
 type DLCManager struct {
-	appBuild   int
-	publicKey  ed25519.PublicKey
-	cache      PackCache
-	httpClient *http.Client
-	chunkSize  int
-	limits     PackLimits
+	appBuild      int
+	publicKey     ed25519.PublicKey
+	allowUnsigned bool
+	cache         PackCache
+	httpClient    *http.Client
+	chunkSize     int
+	limits        PackLimits
 
 	locksMu sync.Mutex
 	locks   map[string]*keyLock
@@ -648,13 +651,14 @@ func NewDLCManager(opts DLCOptions) *DLCManager {
 		pubKey = slices.Clone(opts.PublicKey)
 	}
 	return &DLCManager{
-		appBuild:   opts.AppBuild,
-		publicKey:  pubKey,
-		cache:      cache,
-		httpClient: client,
-		chunkSize:  chunkSize,
-		limits:     opts.Limits.withDefaults(),
-		locks:      map[string]*keyLock{},
+		appBuild:      opts.AppBuild,
+		publicKey:     pubKey,
+		allowUnsigned: opts.AllowUnsigned,
+		cache:         cache,
+		httpClient:    client,
+		chunkSize:     chunkSize,
+		limits:        opts.Limits.withDefaults(),
+		locks:         map[string]*keyLock{},
 	}
 }
 
@@ -1066,9 +1070,9 @@ func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (*zip.
 		return nil, fmt.Errorf("%w: got %x, want %x", ErrHashMismatch, actualHash, expectedHash)
 	}
 
-	if len(d.publicKey) > 0 || strings.TrimSpace(spec.Signature) != "" {
+	if len(d.publicKey) > 0 || strings.TrimSpace(spec.Signature) != "" || !d.allowUnsigned {
 		if len(d.publicKey) != ed25519.PublicKeySize {
-			return nil, fmt.Errorf("%w: public key missing or invalid length", ErrInvalidSignature)
+			return nil, fmt.Errorf("%w: public key missing or invalid length (set DLCOptions.AllowUnsigned to accept unsigned packs)", ErrInvalidSignature)
 		}
 		sigBytes, err := decodeSignature(spec.Signature)
 		if err != nil {

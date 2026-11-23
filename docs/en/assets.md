@@ -115,7 +115,7 @@ For an atlas the game loads itself, such as one embedded with `go:embed`, `w.Wat
 
 ## Downloadable packs (DLC)
 
-`assets.NewDLCManager(assets.DLCOptions{...})` downloads ZIP packs described by a `PackSpec` (usually parsed from a manifest with `ParsePackManifest`), resumes interrupted downloads with HTTP Range requests, verifies size, SHA-256 and (when a `PublicKey` is set) an Ed25519 signature, and caches them in a `PackCache`. `Fetch` returns the verified pack as an `fs.FS`; `FetchGroup` also mounts it into a `Group` and loads it.
+`assets.NewDLCManager(assets.DLCOptions{...})` downloads ZIP packs described by a `PackSpec` (usually parsed from a manifest with `ParsePackManifest`), resumes interrupted downloads with HTTP Range requests, verifies size, SHA-256 and an Ed25519 signature, and caches them in a `PackCache`. `Fetch` returns the verified pack as an `fs.FS`; `FetchGroup` also mounts it into a `Group` and loads it.
 
 ```go
 dlc := assets.NewDLCManager(assets.DLCOptions{
@@ -127,5 +127,6 @@ dlc := assets.NewDLCManager(assets.DLCOptions{
 group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 ```
 
+- Without a `PublicKey`, every pack is refused with `ErrInvalidSignature`, because whoever supplies the `PackSpec` (URL, size and hash) would otherwise choose what is mounted. Set `AllowUnsigned` to accept unsigned packs during development or when the specs ship inside the app.
 - A cached pack is verified again on the same reader that is mounted. `DirPackCache` reads a mounted pack through one open file, so replacing or deleting the cache file afterwards does not change what the mount serves (on Windows, deleting a mounted pack fails until it is released).
 - `Limits` caps the number of entries, the size of one file and the total unpacked size (zero fields use `DefaultPackLimits()`: 32768 entries, 256 MiB, 1 GiB). A pack over a limit is refused before mounting, and an entry cannot decompress past the size its header declares, so the caps bound what reading an asset allocates.

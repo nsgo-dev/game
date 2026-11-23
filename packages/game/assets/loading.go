@@ -65,6 +65,8 @@ func (s LoadingScreen) Render(cx *core.Scope) core.Node {
 // the named group on mount, displays reactive progress (0%..100% with a
 // progress bar, or props.Render when set), and invokes props.OnReady or
 // props.OnError once loading finishes while cx is still mounted.
+//
+// The once is per mount: a Render runs once under its scope, so OnReady fires again only when the view is mounted again, for example by a parent Dynamic that rebuilds it, and then immediately if the group is already loaded. Mounting the view for a group whose last load failed retries that load. Keep the view out of reactive branches that rebuild it, or make OnReady idempotent.
 func LoadingView(cx *core.Scope, props LoadingScreenProps) core.Node {
 	if props.Manager == nil {
 		return core.View{TestID: props.TestID, Style: props.Style}

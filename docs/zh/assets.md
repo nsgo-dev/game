@@ -115,7 +115,7 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 
 ## 可下载资源包（DLC）
 
-`assets.NewDLCManager(assets.DLCOptions{...})` 下载由 `PackSpec` 描述的 ZIP 资源包（通常用 `ParsePackManifest` 从清单解析），用 HTTP Range 请求续传中断的下载，校验大小、SHA-256 以及（设置了 `PublicKey` 时）Ed25519 签名，并缓存在 `PackCache` 中。`Fetch` 以 `fs.FS` 返回校验通过的资源包；`FetchGroup` 还会把它挂载到 `Group` 并完成加载。
+`assets.NewDLCManager(assets.DLCOptions{...})` 下载由 `PackSpec` 描述的 ZIP 资源包（通常用 `ParsePackManifest` 从清单解析），用 HTTP Range 请求续传中断的下载，校验大小、SHA-256 以及 Ed25519 签名，并缓存在 `PackCache` 中。`Fetch` 以 `fs.FS` 返回校验通过的资源包；`FetchGroup` 还会把它挂载到 `Group` 并完成加载。
 
 ```go
 dlc := assets.NewDLCManager(assets.DLCOptions{
@@ -127,5 +127,6 @@ dlc := assets.NewDLCManager(assets.DLCOptions{
 group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 ```
 
+- 未设置 `PublicKey` 时，所有资源包都会以 `ErrInvalidSignature` 被拒绝，否则提供 `PackSpec`（URL、大小和哈希）的一方就能决定挂载什么。开发期间，或 `PackSpec` 随应用一起发布时，可设置 `AllowUnsigned` 接受未签名的资源包。
 - 已缓存的资源包会在挂载所用的同一个读取器上再次校验。`DirPackCache` 通过一个保持打开的文件读取已挂载的资源包，因此之后替换或删除缓存文件不会改变挂载内容（在 Windows 上，资源包释放前删除会失败）。
 - `Limits` 限制条目数量、单个文件大小与解压后的总大小（零值字段使用 `DefaultPackLimits()`：32768 个条目、256 MiB、1 GiB）。超出限制的资源包在挂载前就会被拒绝，且条目解压不会超过其头部声明的大小，因此这些上限也约束了读取资源时的内存分配。
