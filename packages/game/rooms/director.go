@@ -1,6 +1,7 @@
 package rooms
 
 import (
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -28,6 +29,24 @@ type Director struct {
 	length       time.Duration
 	fromX, fromY float32
 	cutDone      bool
+
+	// cover is what is left of a fade's cover after a room change into a slide or cut interrupted it; it keeps clearing on its own.
+	cover fadingCover
+}
+
+// fadingCover is a fade's cover clearing along the second half of that fade: its opacity is curve.At(1 - elapsed/half).
+type fadingCover struct {
+	color   core.Color
+	curve   core.Curve
+	half    time.Duration
+	elapsed time.Duration
+}
+
+func (c *fadingCover) alpha() float32 {
+	if c.half <= 0 || c.elapsed >= c.half {
+		return 0
+	}
+	return float32(c.curve.At(1 - float64(c.elapsed)/float64(c.half)))
 }
 
 // NewDirector returns a Director that moves cam through m's rooms.
@@ -55,9 +74,9 @@ func (d *Director) Progress() float64 {
 	return min(1, float64(d.elapsed)/float64(d.length))
 }
 
-// Start puts the camera in the room holding target, clamped to it, with no transition, and reports whether a room holds target. Use it to spawn the player or after loading a save; when no room holds target the Director keeps its state.
+// Start puts the camera in the room holding target, clamped to it, with no transition, and reports whether a room holds target. Use it to spawn the player or after loading a save; when no room holds target, or target has a non-finite coordinate, the Director keeps its state.
 func (d *Director) Start(target core.Point) bool {
-	if d.Camera == nil {
+	if d.Camera == nil || !finitePoint(target) {
 		return false
 	}
 	r := d.Map.RoomAt(target)
@@ -68,6 +87,7 @@ func (d *Director) Start(target core.Point) bool {
 	d.tr = Transition{}
 	d.active, d.cutDone = false, false
 	d.elapsed, d.length = 0, 0
+	d.cover = fadingCover{}
 	d.setBounds(r)
 	d.snap(target)
 	return true
@@ -75,9 +95,9 @@ func (d *Director) Start(target core.Point) bool {
 
 // Update advances the Director by one fixed step of dt toward target, usually the player's position, and reports whether target entered a room on this step.
 //
-// While target stays in the current room it stays there, even where rooms overlap. When target leaves it for another room, Update clamps the camera to that room and starts its transition. When target is in no room, the camera keeps to the current one. Before the first room is found, Update behaves as Start.
+// While target stays in the current room it stays there, even where rooms overlap. When target leaves it for another room, Update clamps the camera to that room and starts its transition. When target is in no room, the camera keeps to the current one. A target with a non-finite coordinate is ignored: the camera and any transition hold for that step. Before the first room is found, Update behaves as Start.
 func (d *Director) Update(target core.Point, dt time.Duration) bool {
-	if d.Camera == nil {
+	if d.Camera == nil || !finitePoint(target) {
 		return false
 	}
 	if d.room == nil {
@@ -94,10 +114,10 @@ func (d *Director) Update(target core.Point, dt time.Duration) bool {
 	return entered
 }
 
-// FadeAlpha returns the opacity of the fade's cover, from 0 to 1, or 0 when no fade is playing.
+// FadeAlpha returns the opacity of the fade's cover, from 0 to 1, or 0 when no cover is showing. A fade interrupted by a room change keeps its cover's opacity: a new fade covers on from it, and a slide or cut lets it clear as the interrupted fade would have.
 func (d *Director) FadeAlpha() float32 {
 	if !d.active || d.tr.Kind != KindFade {
-		return 0
+		return d.cover.alpha()
 	}
 	p := d.Progress()
 	x := 2 * p
@@ -107,7 +127,7 @@ func (d *Director) FadeAlpha() float32 {
 	return float32(d.curve.At(min(1, max(0, x))))
 }
 
-// DrawFade covers the view with the fade's color at FadeAlpha, and draws nothing when no fade is playing. Call it in view space, after the world and outside Camera.Apply, so the cover fills the Camera.Width by Camera.Height view.
+// DrawFade covers the view with the fade's color at FadeAlpha, and draws nothing when no cover is showing. Call it in view space, after the world and outside Camera.Apply, so the cover fills the Camera.Width by Camera.Height view.
 func (d *Director) DrawFade(dr *core.Drawing) {
 	a := d.FadeAlpha()
 	if a <= 0 || dr == nil || d.Camera == nil || d.Camera.Width <= 0 || d.Camera.Height <= 0 {
@@ -115,9 +135,17 @@ func (d *Director) DrawFade(dr *core.Drawing) {
 	}
 	dr.Save()
 	dr.SetAlpha(a)
-	dr.SetFillColor(d.tr.FadeColor())
+	dr.SetFillColor(d.coverColor())
 	dr.FillRect(0, 0, d.Camera.Width, d.Camera.Height)
 	dr.Restore()
+}
+
+// coverColor returns the color of the cover FadeAlpha measures.
+func (d *Director) coverColor() core.Color {
+	if d.active && d.tr.Kind == KindFade {
+		return d.tr.FadeColor()
+	}
+	return d.cover.color
 }
 
 func (d *Director) setBounds(r *Room) {
@@ -147,14 +175,28 @@ func (d *Director) enter(r *Room, target core.Point) {
 	tr := d.Map.TransitionInto(r)
 	length := tr.Length()
 
-	// A fade interrupted by another room change keeps its cover where it is: in its first half the new fade continues from the same fraction, and in its second half it mirrors back to the same opacity.
+	// A cover showing when the room changes keeps its opacity. A new fade covers on from it: with the same easing, in its first half it continues from the same fraction and in its second half it mirrors back, and with another easing it starts where its own curve reaches that opacity. A slide or cut leaves the cover to clear as the interrupted fade would have.
+	alpha := d.FadeAlpha()
 	frac := 0.0
-	if d.active && d.tr.Kind == KindFade && tr.Kind == KindFade {
-		frac = d.Progress()
-		if d.cutDone {
-			frac = 1 - frac
+	var left fadingCover
+	switch {
+	case alpha <= 0:
+	case tr.Kind == KindFade && length > 0:
+		if d.active && d.tr.Kind == KindFade && d.tr.Easing == tr.Easing {
+			frac = d.Progress()
+			if d.cutDone {
+				frac = 1 - frac
+			}
+		} else {
+			frac = inverse(tr.Curve(), float64(alpha)) / 2
 		}
+	case d.active && d.tr.Kind == KindFade:
+		left = fadingCover{color: d.tr.FadeColor(), curve: d.curve, half: d.length / 2}
+		left.elapsed = time.Duration((1 - inverse(d.curve, float64(alpha))) * float64(left.half))
+	default:
+		left = d.cover
 	}
+	d.cover = left
 
 	d.prev, d.room = d.room, r
 	d.setBounds(r)
@@ -171,6 +213,12 @@ func (d *Director) enter(r *Room, target core.Point) {
 }
 
 func (d *Director) advance(target core.Point, dt time.Duration) {
+	if d.cover.half > 0 && dt > 0 {
+		d.cover.elapsed = min(d.cover.half, d.cover.elapsed+dt)
+		if d.cover.elapsed >= d.cover.half {
+			d.cover = fadingCover{}
+		}
+	}
 	if !d.active {
 		d.Camera.Follow(target, d.Smoothing, dt)
 		return
@@ -206,4 +254,29 @@ func (d *Director) advance(target core.Point, dt time.Duration) {
 
 func lerp(a, b float32, t float64) float32 {
 	return float32(float64(a) + (float64(b)-float64(a))*t)
+}
+
+// inverse returns the x in [0, 1] where the increasing curve c reaches y, found by bisection.
+func inverse(c core.Curve, y float64) float64 {
+	if y <= 0 {
+		return 0
+	}
+	if y >= 1 {
+		return 1
+	}
+	lo, hi := 0.0, 1.0
+	for range 52 {
+		mid := (lo + hi) / 2
+		if c.At(mid) < y {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return (lo + hi) / 2
+}
+
+func finitePoint(p core.Point) bool {
+	x, y := float64(p.X), float64(p.Y)
+	return !math.IsNaN(x) && !math.IsInf(x, 0) && !math.IsNaN(y) && !math.IsInf(y, 0)
 }

@@ -78,12 +78,17 @@ func FromLDtk(data []byte, world string) ([]Room, error) {
 	return out, nil
 }
 
-// FromTiledObjects returns one room per object of a Tiled object layer, in layer order, with the object's name as the room's ID and its rectangle as the room's.
+// FromTiledLayer returns one room per object of a Tiled object layer, in layer order, with the object's name as the room's ID and its rectangle, moved by the layer's offset (which includes the offsets of the groups holding it), as the room's.
 //
 // Every object must be an unrotated rectangle (not a tile, point, ellipse, polygon or polyline) with a name and a positive size, so a misdrawn room is reported instead of skipped. The rooms carry no transitions; put them in a Map, whose Transition applies to every room, and run Validate.
-func FromTiledObjects(objects []tilemap.Object) ([]Room, error) {
-	out := make([]Room, 0, len(objects))
-	for _, o := range objects {
+func FromTiledLayer(layer *tilemap.ObjectLayer) ([]Room, error) {
+	if layer == nil {
+		return nil, fmt.Errorf("rooms: nil Tiled object layer")
+	}
+	out := make([]Room, 0, len(layer.Objects))
+	for _, o := range layer.Objects {
+		o.X += layer.OffsetX
+		o.Y += layer.OffsetY
 		if o.Shape != tilemap.ObjectRect || o.GID != 0 {
 			return nil, fmt.Errorf("rooms: Tiled object %d (%q) is not a rectangle", o.ID, o.Name)
 		}

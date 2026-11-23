@@ -2,6 +2,7 @@ package rooms_test
 
 import (
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -126,6 +127,32 @@ func TestEncodeKeepsFractionalCoordinates(t *testing.T) {
 	}
 	if !reflect.DeepEqual(m, back) {
 		t.Fatalf("round trip changed the map:\n%s", out)
+	}
+}
+
+func TestEncodeWritesNegativeZeroAsZero(t *testing.T) {
+	m, err := rooms.Parse([]byte("version: 1\nrooms: [{id: a, x: -0.0, y: -0.0, width: 1, height: 1}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Signbit(float64(m.Rooms[0].X)) || math.Signbit(float64(m.Rooms[0].Y)) {
+		t.Fatalf("Parse kept a negative zero: %+v", m.Rooms[0])
+	}
+	negZero := float32(math.Copysign(0, -1))
+	out, err := rooms.Encode(&rooms.Map{Version: 1, Rooms: []rooms.Room{{ID: "a", X: negZero, Y: negZero, Width: 1, Height: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "-0") {
+		t.Fatalf("Encode wrote a negative zero:\n%s", out)
+	}
+	back, err := rooms.Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := rooms.Encode(back)
+	if err != nil || string(again) != string(out) {
+		t.Fatalf("Encode is not stable: %v\n%s\n%s", err, out, again)
 	}
 }
 

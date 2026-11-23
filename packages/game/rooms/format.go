@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -250,6 +251,9 @@ func Parse(data []byte) (*Map, error) {
 	if err := Validate(&m); err != nil {
 		return nil, err
 	}
+	for i := range m.Rooms {
+		positiveZero(&m.Rooms[i])
+	}
 	return &m, nil
 }
 
@@ -271,10 +275,16 @@ func Encode(m *Map) ([]byte, error) {
 	if err := Validate(m); err != nil {
 		return nil, err
 	}
+	// Negative zero would be written as -0, which YAML reads back as 0, so it is written as 0 for the output to stay the same across a load and save.
+	out := *m
+	out.Rooms = slices.Clone(m.Rooms)
+	for i := range out.Rooms {
+		positiveZero(&out.Rooms[i])
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(m); err != nil {
+	if err := enc.Encode(&out); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("rooms: encode: %w", err)
 	}
@@ -330,6 +340,15 @@ func validID(id string) error {
 		return fmt.Errorf("%q has leading or trailing space", id)
 	}
 	return nil
+}
+
+// positiveZero turns a negative zero in r's rectangle into zero.
+func positiveZero(r *Room) {
+	for _, v := range []*float32{&r.X, &r.Y, &r.Width, &r.Height} {
+		if *v == 0 {
+			*v = 0
+		}
+	}
 }
 
 func finite(v float32) bool {

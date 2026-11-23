@@ -66,12 +66,12 @@ func TestFromLDtkRefusesUnusableProjects(t *testing.T) {
 	}
 }
 
-func TestFromTiledObjects(t *testing.T) {
+func TestFromTiledLayer(t *testing.T) {
 	objs := []tilemap.Object{
 		{ID: 3, Name: "entrance", Shape: tilemap.ObjectRect, X: 0, Y: 0, Width: 320, Height: 180},
 		{ID: 7, Name: "hall", Shape: tilemap.ObjectRect, X: 320, Y: 0, Width: 640, Height: 180},
 	}
-	got, err := rooms.FromTiledObjects(objs)
+	got, err := rooms.FromTiledLayer(&tilemap.ObjectLayer{Objects: objs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,36 @@ func TestFromTiledObjects(t *testing.T) {
 		"polygon": {ID: 1, Name: "a", Shape: tilemap.ObjectPolygon, Points: []core.Point{{}, {X: 1}, {Y: 1}}},
 	}
 	for name, o := range bad {
-		if _, err := rooms.FromTiledObjects([]tilemap.Object{o}); err == nil {
-			t.Errorf("%s: FromTiledObjects succeeded", name)
+		if _, err := rooms.FromTiledLayer(&tilemap.ObjectLayer{Objects: []tilemap.Object{o}}); err == nil {
+			t.Errorf("%s: FromTiledLayer succeeded", name)
 		}
+	}
+	if _, err := rooms.FromTiledLayer(nil); err == nil {
+		t.Error("nil layer: FromTiledLayer succeeded")
+	}
+}
+
+func TestFromTiledLayerAddsTheLayerOffset(t *testing.T) {
+	src := `{"orientation":"orthogonal","width":4,"height":4,"tilewidth":16,"tileheight":16,"layers":[
+		{"type":"group","name":"world","offsetx":100,"offsety":40,"layers":[
+			{"type":"objectgroup","name":"rooms","offsetx":16,"offsety":-8,"objects":[
+				{"id":1,"name":"hall","x":0,"y":10,"width":320,"height":180}
+			]}
+		]}
+	]}`
+	tm, err := tilemap.LoadTiled([]byte(src), tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tm.Objects) != 1 {
+		t.Fatalf("object layers = %d", len(tm.Objects))
+	}
+	got, err := rooms.FromTiledLayer(&tm.Objects[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []rooms.Room{{ID: "hall", X: 116, Y: 42, Width: 320, Height: 180}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rooms = %+v, want %+v", got, want)
 	}
 }

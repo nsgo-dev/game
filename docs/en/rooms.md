@@ -52,13 +52,13 @@ rooms:
 | `transition.easing` | `linear`, `ease`, `easeIn`, `easeOut` or `easeInOut`; omitted means `easeInOut` for a slide and `linear` for a fade. A cut takes none |
 | `transition.color` | A fade's cover as a CSS color; omitted means black. Only a fade takes one |
 
-`rooms.Parse` and `rooms.LoadFS` refuse unknown fields, other versions, missing or duplicate IDs, empty or non-finite rectangles, bare numbers as durations, unknown kinds or easings and malformed colors, with errors wrapping `rooms.ErrInvalidMap`. `rooms.Encode` writes the same map back byte for byte: fields in a fixed order, 2-space indentation and nothing generated. It quotes the `y` key because YAML 1.1 reads a bare `y` as `true`; hand-written files may leave it bare.
+`rooms.Parse` and `rooms.LoadFS` refuse unknown fields, other versions, missing or duplicate IDs, empty or non-finite rectangles, bare numbers as durations, unknown kinds or easings and malformed colors, with errors wrapping `rooms.ErrInvalidMap`. `rooms.Encode` writes the same map back byte for byte: fields in a fixed order, 2-space indentation and nothing generated. It quotes the `y` key because YAML 1.1 reads a bare `y` as `true`; hand-written files may leave it bare. A negative zero is written as `0`, so saving a loaded map twice gives the same bytes.
 
 A point belongs to a room when it is inside its left and top edges and before its right and bottom ones, so rooms sharing an edge never both hold it. `Map.RoomAt` returns the first room in list order holding a point.
 
 ## Laying rooms out in LDtk or Tiled
 
-Rooms can come from the level editor instead of being typed by hand. `rooms.FromLDtk` makes one room per level of an LDtk project in a Free or GridVania layout, named after the level, and `rooms.FromTiledObjects` makes one room per rectangle in a Tiled object layer, named after the object. Both refuse what cannot be a room, such as a Linear layout, an ellipse or an unnamed object, instead of skipping it.
+Rooms can come from the level editor instead of being typed by hand. `rooms.FromLDtk` makes one room per level of an LDtk project in a Free or GridVania layout, named after the level, and `rooms.FromTiledLayer` makes one room per rectangle in a Tiled object layer, named after the object and moved by the layer's offset, including the offsets of the groups that hold it. Both refuse what cannot be a room, such as a Linear layout, an ellipse or an unnamed object, instead of skipping it.
 
 ```go
 data, _ := fs.ReadFile(assets, "world.ldtk")
@@ -108,4 +108,4 @@ Each step, `Update` keeps the current room while the player is still inside it, 
 - **slide**: the camera pans from where it was to the player's clamped position in the new room along the easing curve, following the player if they keep moving, and lands clamped exactly when the duration ends.
 - **fade**: the view is covered with the fade's color over the first half while the camera holds, the camera cuts to the new room at the midpoint, and the view is uncovered over the second half. `FadeAlpha` returns the cover's opacity and `DrawFade` paints it over the `Camera.Width` by `Camera.Height` view.
 
-When the player turns back during a fade, the new fade starts from the same cover opacity instead of jumping; a slide interrupted by another room change pans on from wherever the camera is. `Room`, `Previous`, `Transition` and `Progress` report where the camera is going, where it came from, what is playing and how far it has run. Everything advances by the fixed `dt` only, so a replay produces the same camera path bit for bit.
+When the player changes room again during a fade, the cover never jumps: a new fade covers on from the same opacity, even with a different easing, and a slide or cut leaves the cover to clear as the interrupted fade would have while the camera moves. A slide interrupted by another room change pans on from wherever the camera is. A target with a NaN or infinite coordinate is ignored for that step, so a bad position never reaches the camera. `Room`, `Previous`, `Transition` and `Progress` report where the camera is going, where it came from, what is playing and how far it has run. Everything advances by the fixed `dt` only, so a replay produces the same camera path bit for bit.

@@ -1,6 +1,7 @@
 package rooms_test
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -194,6 +195,142 @@ func TestInterruptedFadeKeepsItsCover(t *testing.T) {
 		t.Fatalf("re-entry fade took %d steps into %v with camera X %v", steps, d.Room(), cam.X)
 	}
 	requireInside(t, cam, d.Room())
+}
+
+// fadeThenOther returns rooms a and b as in twoRooms, where entering b plays fade and entering a plays back.
+func fadeThenOther(fade, back rooms.Transition) (*rooms.Director, *tilemap.Camera) {
+	d, cam := twoRooms(nil)
+	d.Map.Rooms[1].Transition = &fade
+	d.Map.Rooms[0].Transition = &back
+	if err := rooms.Validate(d.Map); err != nil {
+		panic(err)
+	}
+	return d, cam
+}
+
+func requireAlpha(t *testing.T, d *rooms.Director, want float64, what string) {
+	t.Helper()
+	if got := d.FadeAlpha(); math.Abs(float64(got)-want) > 1e-4 {
+		t.Fatalf("%s: alpha = %v, want %v", what, got, want)
+	}
+}
+
+func TestFadeInterruptedBySlideOrCutClearsItsCover(t *testing.T) {
+	fade := rooms.Transition{Kind: rooms.KindFade, Duration: rooms.Duration(100 * time.Millisecond), Color: "#102030"}
+	for _, back := range []rooms.Transition{
+		{Kind: rooms.KindSlide, Duration: rooms.Duration(100 * time.Millisecond)},
+		{Kind: rooms.KindCut},
+	} {
+		d, cam := fadeThenOther(fade, back)
+		d.Start(pt(150, 50))
+		for range 4 {
+			d.Update(pt(400, 50), step)
+		}
+		requireAlpha(t, d, 0.8, string(back.Kind)+" before turning back")
+		if !d.Update(pt(100, 50), 0) || d.Transition().Kind != back.Kind {
+			t.Fatalf("%s: going back did not enter room a", back.Kind)
+		}
+		requireAlpha(t, d, 0.8, string(back.Kind)+" on turning back")
+		// The cover clears as the fade's second half would have: 0.2 per 10ms step over its 50ms half.
+		for i, want := range []float64{0.6, 0.4, 0.2, 0, 0} {
+			d.Update(pt(100, 50), step)
+			requireAlpha(t, d, want, fmt.Sprintf("%s step %d", back.Kind, i))
+		}
+		for d.Transitioning() {
+			d.Update(pt(100, 50), step)
+		}
+		if d.Room().ID != "a" || cam.X != 100 {
+			t.Fatalf("%s: ended in %v with camera X %v", back.Kind, d.Room(), cam.X)
+		}
+		requireInside(t, cam, d.Room())
+	}
+}
+
+func TestFadeCoverKeepsItsColorWhileClearing(t *testing.T) {
+	d, _ := fadeThenOther(rooms.Transition{Kind: rooms.KindFade, Duration: rooms.Duration(100 * time.Millisecond), Color: "#102030"}, rooms.Transition{Kind: rooms.KindCut})
+	d.Start(pt(150, 50))
+	for range 4 {
+		d.Update(pt(400, 50), step)
+	}
+	d.Update(pt(100, 50), 0)
+	if d.Transitioning() {
+		t.Fatal("a cut is playing as a transition")
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{TestID: "cover", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Draw: func(dr *core.Drawing, _ core.Size) {
+				d.DrawFade(dr)
+			}},
+		}}
+	})
+	var alpha float32
+	var color core.Color
+	fills := 0
+	for _, op := range app.Find("cover").Ops {
+		switch op.Kind {
+		case core.DrawAlpha:
+			alpha = op.A
+		case core.DrawFillColor:
+			color = op.Color
+		case core.DrawFill:
+			fills++
+		}
+	}
+	if math.Abs(float64(alpha-0.8)) > 1e-4 || color != core.RGB(0x102030) || fills != 1 {
+		t.Fatalf("cover ops: alpha %v, color %v, fills %d", alpha, color, fills)
+	}
+}
+
+func TestFadeInterruptedByFadeWithOtherEasingKeepsOpacity(t *testing.T) {
+	d, _ := fadeThenOther(
+		rooms.Transition{Kind: rooms.KindFade, Duration: rooms.Duration(100 * time.Millisecond), Easing: rooms.EasingEaseIn},
+		rooms.Transition{Kind: rooms.KindFade, Duration: rooms.Duration(100 * time.Millisecond)},
+	)
+	d.Start(pt(150, 50))
+	for range 3 {
+		d.Update(pt(400, 50), step)
+	}
+	before := float64(d.FadeAlpha())
+	if before <= 0 || before >= 1 {
+		t.Fatalf("easeIn alpha = %v", before)
+	}
+	d.Update(pt(100, 50), 0)
+	requireAlpha(t, d, before, "after turning back")
+	last := before
+	for d.Transitioning() && d.Progress() < 0.5 {
+		d.Update(pt(100, 50), step)
+		if a := float64(d.FadeAlpha()); a < last {
+			t.Fatalf("cover fell from %v to %v while covering", last, a)
+		} else {
+			last = a
+		}
+	}
+}
+
+func TestNonFiniteTargetLeavesCameraAlone(t *testing.T) {
+	d, cam := twoRooms(nil)
+	d.Smoothing = 0.5
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	if d.Start(pt(nan, 50)) || d.Room() != nil {
+		t.Fatal("Start accepted a NaN target")
+	}
+	d.Start(pt(150, 50))
+	x, y := cam.X, cam.Y
+	for _, p := range []core.Point{pt(nan, 50), pt(150, nan), pt(inf, 50), pt(-inf, inf)} {
+		if d.Update(p, step) {
+			t.Fatalf("Update(%v) entered a room", p)
+		}
+		if cam.X != x || cam.Y != y || d.Room().ID != "a" {
+			t.Fatalf("Update(%v) moved the camera to (%v, %v) in %v", p, cam.X, cam.Y, d.Room())
+		}
+	}
+	for range 50 {
+		d.Update(pt(120, 50), step)
+	}
+	if math.IsNaN(float64(cam.X)) || math.IsNaN(float64(cam.Y)) {
+		t.Fatalf("camera = (%v, %v)", cam.X, cam.Y)
+	}
 }
 
 func TestCutSnapsAtOnce(t *testing.T) {
