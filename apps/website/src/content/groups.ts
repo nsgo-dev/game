@@ -1,6 +1,6 @@
 // The docs' sidebar groups, shared by the docs pages (components/DocView.tsx) and the build's llms.txt (plugins/llms.ts), so both list the pages the same way.
 
-export type GroupKey = 'guides' | 'tutorial' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
+export type GroupKey = 'guides' | 'tutorial' | 'comingFrom' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
 
 const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonly string[] }[] = [
   { key: 'guides', slugs: ['index', 'getting-started', 'project', 'playground', 'packages', 'stability', 'shipping', 'cli'] },
@@ -19,6 +19,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'tutorial-09-ship',
     ],
   },
+  { key: 'comingFrom', slugs: ['from-godot', 'from-ebitengine', 'from-unity'] },
   {
     key: 'core2d',
     slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'flow', 'tween', 'animclip', 'ai', 'replay', 'cutscene', 'undo'],

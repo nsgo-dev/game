@@ -68,6 +68,10 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 
 For a single-page summary of the core APIs, see [Packages](packages.md).
 
+## Coming from another engine
+
+Each guide maps that engine's scenes, nodes, resources, signals, input maps, physics and export to the packages above: [Godot](from-godot.md), [Ebitengine](from-ebitengine.md) and [Unity](from-unity.md).
+
 ## Install
 
 The module needs Go 1.27 and NSGo `v0.3.0` or later:

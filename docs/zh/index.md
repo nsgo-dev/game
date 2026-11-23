@@ -68,6 +68,10 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 
 核心包 API 的单页速查见[包](packages.md)。
 
+## 从其他引擎迁移
+
+每篇指南都把对应引擎的场景、节点、资源、信号、输入映射、物理和导出对应到上面的包：[Godot](from-godot.md)、[Ebitengine](from-ebitengine.md) 和 [Unity](from-unity.md)。
+
 ## 安装
 
 这个模块需要 Go 1.27 和 NSGo `v0.3.0` 或更高版本：
