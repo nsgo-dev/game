@@ -41,7 +41,13 @@
 //     memory totals; [CheckBudget] validates frames against [MobileBudget],
 //     [DesktopBudget], or custom [Budget] limits.
 //
+// # Mesh Buffers (#112)
+//
+// [Mesh] holds triangle geometry (positions, optional normals and UVs, optional indices) on the CPU. [UploadMesh] validates it and uploads it into the vertex and index buffers of NSGo's GPU view ([gpu.Device], nsgo-dev/nsgo#1059) as a [GPUMesh], whose buffers belong to a [core.Scope]. Every mesh shares one interleaved vertex layout, [MeshVertexLayout], so one pipeline draws any of them, and [GPUMesh.Draw] binds the buffers and issues the draw inside a [gpu.RenderPass]. The index width is chosen per mesh (uint16 below 0xFFFF vertices, otherwise uint32), which every GPU view backend accepts, WebGL 2 included.
+//
 // # GPU Submission Integration
 //
-// [CameraBuffer] (#115) is the first GPU-side type: it keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders. Mesh, material and draw submission build on it in later issues; the CPU culling, LOD, sorting, instancing, gizmo, debug, statistics and budget pipeline stays deterministic, pure Go and cross-platform across macOS, Windows, Linux, Android and Web.
+// [CameraBuffer] (#115) keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders.
+//
+// The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera and mesh buffers are the parts that talk to [gpu.Device].
 package render3d

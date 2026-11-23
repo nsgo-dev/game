@@ -52,7 +52,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `scene3d` | `github.com/nsgo-dev/game/packages/game/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
 | `anim3d` | `github.com/nsgo-dev/game/packages/game/anim3d` | [anim3d](anim3d.md) | 3D pose state machines, 1D/2D blend spaces, bone-masked/additive layers, clip events, IK and root motion |
 | `world3d` | `github.com/nsgo-dev/game/packages/game/world3d` | [world3d](world3d.md) | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, scattered foliage and floating-origin streaming |
-| `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos and GPU budgets |
+| `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | GPU mesh buffers, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos and GPU budgets |
 
 For a single-page summary of the core APIs, see [Packages](packages.md).
 
