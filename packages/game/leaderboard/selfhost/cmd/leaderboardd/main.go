@@ -105,7 +105,7 @@ func runGenkey(args []string, stdout, stderr io.Writer) error {
 }
 
 // service builds the service serve runs from its files.
-func service(ctx context.Context, configPath, keySetPath, dataDir string, log *slog.Logger) (*selfhost.Service, *selfhost.FileStore, error) {
+func service(ctx context.Context, configPath, keySetPath, dataDir string, syncWrites bool, log *slog.Logger) (*selfhost.Service, *selfhost.FileStore, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, nil, err
@@ -133,7 +133,7 @@ func service(ctx context.Context, configPath, keySetPath, dataDir string, log *s
 	if dataDir == "" {
 		return nil, nil, errors.New("-data is required: the directory scores are kept in")
 	}
-	store, err := selfhost.OpenFileStore(dataDir, selfhost.FileStoreOptions{})
+	store, err := selfhost.OpenFileStore(dataDir, selfhost.FileStoreOptions{Sync: syncWrites})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,11 +151,12 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	keySetPath := fl.String("keyset", "", "the account service's key set file, to verify player tokens with")
 	dataDir := fl.String("data", "", "directory to keep scores in")
 	addr := fl.String("addr", ":8081", "address to listen on")
+	syncWrites := fl.Bool("sync", false, "flush every score to the disk before acknowledging it, for a machine that may lose power")
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
-	svc, store, err := service(ctx, *configPath, *keySetPath, *dataDir, log)
+	svc, store, err := service(ctx, *configPath, *keySetPath, *dataDir, *syncWrites, log)
 	if err != nil {
 		return err
 	}

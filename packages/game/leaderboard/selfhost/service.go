@@ -42,7 +42,7 @@ var (
 	ErrProofRequired = errors.New("selfhost: the board needs a game server's proof")
 	// ErrInvalidProof means the proof is malformed, signed by a key the configuration does not list, issued in the future, or not for this board, account and score.
 	ErrInvalidProof = errors.New("selfhost: invalid score proof")
-	// ErrProofExpired means the proof is older than the configuration's proofTTL.
+	// ErrProofExpired means the proof is older than the configuration's proofTTL, or was issued before the current period of a daily or weekly board began.
 	ErrProofExpired = errors.New("selfhost: score proof expired")
 	// ErrInvalidQuery means a limit, offset or radius is out of range, or a Friends query names too many accounts.
 	ErrInvalidQuery = errors.New("selfhost: invalid query")
@@ -144,7 +144,7 @@ type BoardInfo struct {
 	Previous []Period
 }
 
-// New returns a service with the configuration and options. It loads the store's records, keeps those of each board's current period and the earlier periods the board keeps, and drops the rest from the store. Records of a board the configuration no longer declares are left in the store and not served.
+// New returns a service with the configuration and options. It loads the store's records, serves those of each board's current period and the earlier periods the board keeps, and drops from the store only the periods that align with the board's reset and weekStart and are older than the ones it keeps. Records it cannot place are left in the store, not served, and logged as a warning: those of a board the configuration no longer declares, and those of a period that does not align, such as one stored before the board's reset or weekStart changed. A period later than the current one, which a clock that is behind sees, is loaded but not served until the clock reaches it.
 func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -174,6 +174,8 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 		s.boards[def.Name] = &board{def: def, current: def.periodAt(now), periods: map[string]*index{}}
 	}
 	stale := map[[2]string]bool{}
+	misaligned := map[string]bool{}
+	ahead := map[string]bool{}
 	unknown := map[string]bool{}
 	err := s.store.Load(ctx, func(rec Record) error {
 		b := s.boards[rec.Board]
@@ -181,9 +183,17 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 			unknown[rec.Board] = true
 			return nil
 		}
-		if !b.def.kept(rec.Period, b.current) {
+		p, ok := b.def.aligned(rec.Period)
+		if !ok {
+			misaligned[rec.Board+"/"+rec.Period] = true
+			return nil
+		}
+		if b.def.expired(rec.Period, b.current) {
 			stale[[2]string{rec.Board, rec.Period}] = true
 			return nil
+		}
+		if p.Start.After(b.current.Start) {
+			ahead[rec.Board+"/"+rec.Period] = true
 		}
 		if !validAccount(rec.Account) || rec.Score < -MaxSafeScore || rec.Score > MaxSafeScore || !inNanoRange(rec.Achieved) {
 			return fmt.Errorf("selfhost: store holds an invalid record for board %q period %q", rec.Board, rec.Period)
@@ -201,6 +211,12 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	}
 	for _, name := range sortedKeys(unknown) {
 		s.log.Warn("selfhost: the store holds scores of a board the configuration does not declare; they are kept but not served", "board", name)
+	}
+	for _, k := range sortedKeys(misaligned) {
+		s.log.Warn("selfhost: the store holds a period that does not align with the board's reset and weekStart; it is kept but not served", "period", k)
+	}
+	for _, k := range sortedKeys(ahead) {
+		s.log.Warn("selfhost: the store holds a period later than the current one; the clock may be behind, and the period is served once the clock reaches it", "period", k)
 	}
 	drops := make([][2]string, 0, len(stale))
 	for k := range stale {
@@ -240,7 +256,7 @@ func (s *Service) board(ctx context.Context, name string) (*board, error) {
 	return b, nil
 }
 
-// rotate makes cur the board's current period when it is later than the one it has, and drops the periods the board no longer keeps. b.mu must be held for writing.
+// rotate makes cur the board's current period when it is later than the one it has, and drops the periods that have expired. b.mu must be held for writing.
 func (s *Service) rotate(ctx context.Context, b *board, cur Period) {
 	if !cur.Start.After(b.current.Start) {
 		return
@@ -248,7 +264,7 @@ func (s *Service) rotate(ctx context.Context, b *board, cur Period) {
 	s.log.Info("selfhost: board reset", "board", b.def.Name, "period", cur.ID, "previous", b.current.ID)
 	b.current = cur
 	for _, id := range sortedKeys(b.periods) {
-		if b.def.kept(id, cur) {
+		if !b.def.expired(id, cur) {
 			continue
 		}
 		delete(b.periods, id)
@@ -263,9 +279,9 @@ func (s *Service) rotate(ctx context.Context, b *board, cur Period) {
 
 // Submit records a score. The score counts in the board's current period and replaces the account's best there only when it is better; an equal or worse score leaves the entry as it was and reports Improved false.
 func (s *Service) Submit(ctx context.Context, sub Submission) (Result, error) {
-	b, err := s.board(ctx, sub.Board)
-	if err != nil {
-		return Result{}, err
+	b := s.boards[sub.Board]
+	if b == nil {
+		return Result{}, ErrUnknownBoard
 	}
 	if !validAccount(sub.Account) {
 		return Result{}, ErrInvalidAccount
@@ -273,12 +289,15 @@ func (s *Service) Submit(ctx context.Context, sub Submission) (Result, error) {
 	if lo, hi := b.def.bounds(); sub.Score < lo || sub.Score > hi {
 		return Result{}, ErrScoreOutOfRange
 	}
+	// One clock reading decides the period, the achievement time and the proof's age, so a submission at a reset cannot land in one period with the time of another.
 	now := s.now()
+	var issued time.Time
 	if b.def.Validation == SignedByServer {
 		if sub.Proof == "" {
 			return Result{}, ErrProofRequired
 		}
-		issued, err := verifyProof(s.keys, sub.Proof, sub.Board, sub.Account, sub.Score)
+		var err error
+		issued, err = verifyProof(s.keys, sub.Proof, sub.Board, sub.Account, sub.Score)
 		if err != nil {
 			return Result{}, err
 		}
@@ -298,7 +317,16 @@ func (s *Service) Submit(ctx context.Context, sub Submission) (Result, error) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	s.rotate(ctx, b, b.def.periodAt(now))
 	cur := b.current
+	if b.def.Validation == SignedByServer && b.def.Reset != AllTime && issued.Before(cur.Start) {
+		// A proof signed before the reset is for a score of the previous period, which is closed.
+		return Result{}, ErrProofExpired
+	}
+	if now.Before(cur.Start) {
+		// Another submission read the clock later and already moved the board on; this one arrived at the reset, so it counts at the reset's instant rather than before its own period.
+		now = cur.Start
+	}
 	idx := b.periods[cur.ID]
 	if idx == nil {
 		idx = newIndex(b.def.Order)
@@ -341,7 +369,10 @@ func (s *Service) Top(ctx context.Context, board, period string, offset, limit i
 		page = Page{Board: board, Period: p, Entries: []Entry{}}
 		if idx != nil {
 			page.Total = idx.n
-			page.Entries = idx.window(offset+1, limit)
+			// An offset at or past the end is an empty page; checking first also keeps offset+1 from overflowing.
+			if offset < idx.n {
+				page.Entries = idx.window(offset+1, limit)
+			}
 		}
 		return nil
 	})
