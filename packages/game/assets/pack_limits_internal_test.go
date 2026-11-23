@@ -40,7 +40,7 @@ func TestValidatePackZipRefusesBombSizedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("zip.NewReader: %v", err)
 	}
-	if err := validatePackZip(zr); err == nil {
+	if err := validatePackZip(zr, PackLimits{}); err == nil {
 		t.Fatal("validatePackZip accepted an entry claiming 1 TiB")
 	}
 }

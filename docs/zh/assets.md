@@ -112,3 +112,20 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 监视器和 Manager 必须看到同一批文件：没有 `WithFS` 的 `Manager` 从工作目录下的 `assets/` 读取 `"asset:"` URI，而 `nsgo dev` 在运行 `game dev` 的目录（而非项目目录）中启动游戏，所以在 `game dev` 下要像上面那样让 Manager 从 `hotreload.DevAssetsDir()` 读取，即 `game dev` 传入的目录的绝对路径。`WatchAssets` 把目录下每个改动的文件以 `"asset:<path>"` 的形式在引擎 goroutine 上交给 `Manager.Reload`。JSON 改动的图集会重新解析，图片改动的图集以相同的帧绘制文件的新字节；资源组持有的 `*sprite.Atlas` 会原地更新，因此保留了该指针的代码也会画出改动。无法解析的 JSON 会保留之前的帧并报告错误。图片显示新的字节，原始字节被替换；音效和自定义资源只在其资源组重新加载时才会重新加载。有多种像素密度（`Scales`）的图片从屏幕实际显示的那个文件重新加载，例如 2x 屏幕上的 `hero@2x.png`；保存其他密度的文件不会有变化，直到屏幕显示该密度。用 `SetFS` 挂载了 DLC 包的资源组会保留包里已有文件的副本，保存基础文件不会改动它。`Manager.Revision` 统计替换了资源的重新加载次数，在 `Draw` 中读取它的 `core.Canvas` 会在每次重新加载后重绘；由 `game.Loop` 每帧绘制的游戏无需额外处理。
 
 对于游戏自行加载的图集，例如用 `go:embed` 嵌入的图集，`w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` 会交付从保存后的文件解析出的图集。游戏不在 `game dev` 下运行时 `NewDevWatcher` 返回 nil，而 nil 监视器的方法什么也不做，因此这些调用可以一直留在游戏里；在发布构建（`-tags release`）中它们会被编译为空操作。
+
+## 可下载资源包（DLC）
+
+`assets.NewDLCManager(assets.DLCOptions{...})` 下载由 `PackSpec` 描述的 ZIP 资源包（通常用 `ParsePackManifest` 从清单解析），用 HTTP Range 请求续传中断的下载，校验大小、SHA-256 以及（设置了 `PublicKey` 时）Ed25519 签名，并缓存在 `PackCache` 中。`Fetch` 以 `fs.FS` 返回校验通过的资源包；`FetchGroup` 还会把它挂载到 `Group` 并完成加载。
+
+```go
+dlc := assets.NewDLCManager(assets.DLCOptions{
+	AppBuild:  42,
+	PublicKey: packPublicKey,
+	Cache:     assets.NewDirPackCache(cacheDir),
+	Limits:    assets.PackLimits{MaxTotalBytes: 256 << 20},
+})
+group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
+```
+
+- 已缓存的资源包会在挂载所用的同一个读取器上再次校验。`DirPackCache` 通过一个保持打开的文件读取已挂载的资源包，因此之后替换或删除缓存文件不会改变挂载内容（在 Windows 上，资源包释放前删除会失败）。
+- `Limits` 限制条目数量、单个文件大小与解压后的总大小（零值字段使用 `DefaultPackLimits()`：32768 个条目、256 MiB、1 GiB）。超出限制的资源包在挂载前就会被拒绝，且条目解压不会超过其头部声明的大小，因此这些上限也约束了读取资源时的内存分配。

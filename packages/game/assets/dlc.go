@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -218,7 +219,7 @@ func (c *DirPackCache) Open(key string) (io.ReaderAt, int64, error) {
 	if info.IsDir() {
 		return nil, 0, ErrCorruptPack
 	}
-	return pathReaderAt{path: packPath}, info.Size(), nil
+	return openFileReaderAt(packPath)
 }
 
 // PartSize implements PackCache.
@@ -280,7 +281,7 @@ func (c *DirPackCache) OpenPartReader(key string) (io.ReaderAt, int64, error) {
 	if info.IsDir() {
 		return nil, 0, ErrCorruptPack
 	}
-	return pathReaderAt{path: partPath}, info.Size(), nil
+	return openFileReaderAt(partPath)
 }
 
 // CommitPart implements PackCache via atomic os.Rename.
@@ -377,20 +378,37 @@ func safePackFilename(key string) string {
 	return b.String()
 }
 
-// pathReaderAt implements io.ReaderAt without holding an open file descriptor,
-// preventing descriptor leaks and Windows file-locking conflicts when zip.Reader
-// is returned as an fs.FS.
-type pathReaderAt struct {
-	path string
+// fileReaderAt reads a cache entry through one open file, so the bytes a pack was verified against are the bytes its mount serves even if the cache file is later replaced or removed (#546). The file is closed by Close, or when the reader (and the zip.Reader mounting it) becomes unreachable.
+type fileReaderAt struct {
+	f *os.File
 }
 
-func (p pathReaderAt) ReadAt(b []byte, off int64) (int, error) {
-	f, err := os.Open(p.path)
+func openFileReaderAt(path string) (io.ReaderAt, int64, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return 0, err
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, 0, fs.ErrNotExist
+		}
+		return nil, 0, err
 	}
-	defer f.Close()
-	return f.ReadAt(b, off)
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, 0, err
+	}
+	r := &fileReaderAt{f: f}
+	runtime.AddCleanup(r, func(f *os.File) { _ = f.Close() }, f)
+	return r, info.Size(), nil
+}
+
+// ReadAt implements io.ReaderAt; it is safe for concurrent use.
+func (r *fileReaderAt) ReadAt(b []byte, off int64) (int, error) {
+	return r.f.ReadAt(b, off)
+}
+
+// Close closes the underlying file.
+func (r *fileReaderAt) Close() error {
+	return r.f.Close()
 }
 
 type syncFileWriter struct {
@@ -559,6 +577,37 @@ type DLCOptions struct {
 	// ChunkSize sets the buffer size for streaming reads and progress updates.
 	// When <= 0, DefaultDLCChunkSize (32 KiB) is used.
 	ChunkSize int
+	// Limits caps what a pack may contain; zero fields use DefaultPackLimits. A pack over any limit is refused before it is mounted, and archive/zip refuses to decompress an entry past the size its header declares, so the caps also bound what reading an asset can allocate.
+	Limits PackLimits
+}
+
+// PackLimits bounds the structure of a DLC pack ZIP.
+type PackLimits struct {
+	// MaxEntries is the largest number of files a pack may hold.
+	MaxEntries int
+	// MaxFileBytes is the largest uncompressed size of one file.
+	MaxFileBytes uint64
+	// MaxTotalBytes is the largest uncompressed size of all files together.
+	MaxTotalBytes uint64
+}
+
+// DefaultPackLimits returns the limits a DLCManager uses for zero PackLimits fields: 32768 entries, 256 MiB per file and 1 GiB in total.
+func DefaultPackLimits() PackLimits {
+	return PackLimits{MaxEntries: maxPackEntries, MaxFileBytes: maxPackFileUnpacked, MaxTotalBytes: maxPackTotalUnpacked}
+}
+
+func (l PackLimits) withDefaults() PackLimits {
+	def := DefaultPackLimits()
+	if l.MaxEntries <= 0 {
+		l.MaxEntries = def.MaxEntries
+	}
+	if l.MaxFileBytes == 0 {
+		l.MaxFileBytes = def.MaxFileBytes
+	}
+	if l.MaxTotalBytes == 0 {
+		l.MaxTotalBytes = def.MaxTotalBytes
+	}
+	return l
 }
 
 // DLCManager downloads, resumes, verifies, caches, and mounts DLC pack ZIP
@@ -569,6 +618,7 @@ type DLCManager struct {
 	cache      PackCache
 	httpClient *http.Client
 	chunkSize  int
+	limits     PackLimits
 
 	locksMu sync.Mutex
 	locks   map[string]*keyLock
@@ -603,6 +653,7 @@ func NewDLCManager(opts DLCOptions) *DLCManager {
 		cache:      cache,
 		httpClient: client,
 		chunkSize:  chunkSize,
+		limits:     opts.Limits.withDefaults(),
 		locks:      map[string]*keyLock{},
 	}
 }
@@ -666,6 +717,7 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 			}
 			return zr, nil
 		}
+		closeReader(r)
 		_ = d.cache.Remove(key)
 		_ = d.cache.RemovePart(key)
 		return nil, verifyErr
@@ -684,7 +736,9 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 		offset = 0
 	} else if spec.Size > 0 && offset == spec.Size {
 		if r, size, openErr := d.cache.OpenPartReader(key); openErr == nil {
-			if _, verifyErr := d.verifyPack(r, size, spec); verifyErr == nil {
+			_, verifyErr := d.verifyPack(r, size, spec)
+			closeReader(r) // release the staging file before it is renamed
+			if verifyErr == nil {
 				if commitErr := d.cache.CommitPart(key); commitErr != nil {
 					return nil, fmt.Errorf("assets: dlc %q: commit pack: %w", spec.ID, commitErr)
 				}
@@ -714,7 +768,9 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 		_ = d.cache.Remove(key)
 		return nil, fmt.Errorf("assets: dlc %q: open partial pack: %w", spec.ID, err)
 	}
-	if _, err := d.verifyPack(r, size, spec); err != nil {
+	_, err = d.verifyPack(r, size, spec)
+	closeReader(r) // release the staging file before it is renamed
+	if err != nil {
 		_ = d.cache.RemovePart(key)
 		_ = d.cache.Remove(key)
 		return nil, err
@@ -728,17 +784,26 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	return d.openVerifiedCommitted(key, spec)
 }
 
+// openVerifiedCommitted opens the committed pack and verifies it again on the very reader it mounts, so bytes swapped in between the staging check and the mount are never served (#546).
 func (d *DLCManager) openVerifiedCommitted(key string, spec PackSpec) (fs.FS, error) {
 	r, size, err := d.cache.Open(key)
 	if err != nil {
 		return nil, fmt.Errorf("assets: dlc %q: open committed pack: %w", spec.ID, err)
 	}
-	zr, err := zip.NewReader(r, size)
+	zr, err := d.verifyPack(r, size, spec)
 	if err != nil {
+		closeReader(r)
 		_ = d.cache.Remove(key)
-		return nil, fmt.Errorf("%w: open committed zip: %v", ErrCorruptPack, err)
+		return nil, err
 	}
 	return zr, nil
+}
+
+// closeReader releases r early when it holds a resource, such as the open file of a DirPackCache entry; otherwise the resource is released when r is garbage collected.
+func closeReader(r io.ReaderAt) {
+	if c, ok := r.(io.Closer); ok {
+		_ = c.Close()
+	}
 }
 
 // FetchGroup fetches and verifies spec, mounts the resulting ZIP fs.FS onto
@@ -1018,7 +1083,7 @@ func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (*zip.
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid zip archive: %v", ErrCorruptPack, err)
 	}
-	if err := validatePackZip(zr); err != nil {
+	if err := validatePackZip(zr, d.limits); err != nil {
 		return nil, err
 	}
 	return zr, nil
@@ -1032,21 +1097,22 @@ const (
 
 // validatePackZip bounds what a downloaded pack can expand to, so a hostile or
 // corrupt archive cannot exhaust memory when an asset is read.
-func validatePackZip(zr *zip.Reader) error {
+func validatePackZip(zr *zip.Reader, limits PackLimits) error {
 	if zr == nil {
 		return fmt.Errorf("%w: nil zip archive", ErrCorruptPack)
 	}
-	if len(zr.File) > maxPackEntries {
-		return fmt.Errorf("%w: %d entries exceeds the %d limit", ErrCorruptPack, len(zr.File), maxPackEntries)
+	limits = limits.withDefaults()
+	if len(zr.File) > limits.MaxEntries {
+		return fmt.Errorf("%w: %d entries exceeds the %d limit", ErrCorruptPack, len(zr.File), limits.MaxEntries)
 	}
 	var total uint64
 	for _, f := range zr.File {
-		if f.UncompressedSize64 > maxPackFileUnpacked {
-			return fmt.Errorf("%w: entry %q unpacks to %d bytes, more than %d", ErrCorruptPack, f.Name, f.UncompressedSize64, maxPackFileUnpacked)
+		if f.UncompressedSize64 > limits.MaxFileBytes {
+			return fmt.Errorf("%w: entry %q unpacks to %d bytes, more than %d", ErrCorruptPack, f.Name, f.UncompressedSize64, limits.MaxFileBytes)
 		}
 		total += f.UncompressedSize64
-		if total > maxPackTotalUnpacked {
-			return fmt.Errorf("%w: pack unpacks to more than %d bytes", ErrCorruptPack, maxPackTotalUnpacked)
+		if total > limits.MaxTotalBytes {
+			return fmt.Errorf("%w: pack unpacks to more than %d bytes", ErrCorruptPack, limits.MaxTotalBytes)
 		}
 	}
 	return nil
