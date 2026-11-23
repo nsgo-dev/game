@@ -92,6 +92,18 @@ On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAl
 - When the app enters **`core.LifecycleBackground`** (minimized, hidden or covered on desktop; backgrounded on iOS or Android), the mixer stops playing effects, drops new `Effect.Play` calls, and pauses music.
 - When the window returns to **`core.LifecycleActive`** or **`core.LifecycleInactive`** (visible, even unfocused on desktop), music resumes from where it paused and effects can play again.
 
+## Suspending for a cutscene
+
+`mixer.Suspend()` silences the mixer the same way the background does, until the `resume` function it returns is called: effects playing stop, new `Effect.Play` calls play nothing, and music pauses and later plays on from where it stopped. Holds nest, so the mixer plays again only once every `Suspend` has been resumed; calling one `resume` twice does nothing. `mixer.Suspended()` reports whether a hold is left.
+
+```go
+resume := mixer.Suspend()
+// ... something else has the speakers ...
+resume()
+```
+
+[cutscene](cutscene.md)'s `Player` suspends the mixer while a video plays.
+
 ## Testing with nsgotest
 
 Enable virtual audio in `nsgotest` with `nsgotest.Environment(core.Environment{Audio: true})` and configure decoded durations on `app.AudioDurations` to test voice limits, crossfades, persistence and background muting deterministically:

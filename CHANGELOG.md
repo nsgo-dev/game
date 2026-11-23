@@ -17,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/server`: a matchmaking queue with per-mode/region tickets, widening skill windows, whole parties and a pluggable rule (#552).
 - `game/server`: rooms with capacity, private codes, a waiting/running/ended match lifecycle and fresh epochs, per-room packet inboxes, late-join full snapshots and empty-room timeouts (#551).
 - `game/server`: per-peer packet/byte rate limits with throttle/drop/disconnect policies, message and pending-reliable caps, and an input validator with per-peer violation counts (#555).
+- `game/cutscene`: video cutscenes in NSGo's `core.Video` over the game's view, pausing the loop and the mixer while they play, skippable by a press, a key or back after an optional delay, with an end/skip callback, a scene for playing one between scenes and a versioned YAML file format (#494).
+- `game/sound`: `Mixer.Suspend` silences the mixer until resumed, as the background does, and `Mixer.Suspended` reports it (#494).
 
 ### Fixed
 

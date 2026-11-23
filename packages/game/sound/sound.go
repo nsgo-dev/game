@@ -19,6 +19,8 @@ type Mixer struct {
 	key   string
 	// background says the app is in the background, where nothing plays.
 	background bool
+	// suspends counts the Suspend calls not resumed yet; nothing plays while it is above 0.
+	suspends int
 	// sounds are the effects whose playbacks may still play; music what Music made.
 	sounds map[*Effect]struct{}
 	music  []*Music
@@ -75,9 +77,27 @@ func (m *Mixer) set(key string, v float32) error {
 	return err
 }
 
-// gain is what group plays at: its volume times the master volume, 0 in the background.
+// Suspend silences the mixer until resume is called, as the background does: it stops the sounds playing, plays no new ones and pauses the music, which plays on from where it paused once every Suspend has been resumed. A game suspends its sound while something else has the speakers, such as a cutscene (cutscene.Player does). Calling resume again does nothing.
+func (m *Mixer) Suspend() (resume func()) {
+	m.suspends++
+	m.apply()
+	resumed := false
+	return func() {
+		if resumed {
+			return
+		}
+		resumed = true
+		m.suspends--
+		m.apply()
+	}
+}
+
+// Suspended reports whether a Suspend has not been resumed yet.
+func (m *Mixer) Suspended() bool { return m.suspends > 0 }
+
+// gain is what group plays at: its volume times the master volume, 0 in the background or while suspended.
 func (m *Mixer) gain(group string) float32 {
-	if m.background {
+	if m.background || m.suspends > 0 {
 		return 0
 	}
 	return core.Untracked(m.cx, func() float32 { return m.Master() * m.Volume(group) })

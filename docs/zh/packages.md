@@ -94,7 +94,7 @@ import "github.com/nsgo-dev/game/packages/game/sound"
 - `Master`、`SetMaster`、`Volume(group)` 和 `SetVolume(group, v)` 读取和设置音量。在计算中读取音量时，这个计算会订阅音量的变化；存储已满时，设置会以 `*core.StorageFullError` 失败。
 - 音效的播放音量是它自己这次播放的音量乘以所在分组的音量和主音量，音乐的播放音量是所在分组的音量乘以主音量。
 - 音量的变化作用于之后播放的音效，以及正在播放的音乐。已经在播放的短音效保持开始时的音量，但分组音量或主音量设为 0 会让它停止（[nsgo#1088](https://github.com/nsgo-dev/nsgo/issues/1088)）。
-- 窗口在后台时，混音器会停止正在播放的声音、暂停音乐，并在窗口再次显示时从暂停处继续播放音乐。
+- 窗口在后台时，混音器会停止正在播放的声音、暂停音乐，并在窗口再次显示时从暂停处继续播放音乐。`Suspend()` 也会这样做，直到调用它返回的 `resume` 为止，过场动画播放期间就是如此（[cutscene](cutscene.md)）。
 
 ### Effect
 
