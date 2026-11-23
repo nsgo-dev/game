@@ -53,6 +53,9 @@ export function Header() {
           <Link to={to.docs} activeProps={current} onClick={close}>
             {copy.docs}
           </Link>
+          <Link to={to.playground} activeProps={current} onClick={close}>
+            {copy.playground}
+          </Link>
           <Link to={to.showcase} activeProps={current} onClick={close}>
             {copy.showcase}
           </Link>

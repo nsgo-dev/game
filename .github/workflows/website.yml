@@ -1,6 +1,6 @@
 name: Website
 
-# Builds the site in apps/website, every page prerendered to static HTML, and deploys it to GitHub Pages. It builds again as this repository's issues change, so the roadmap follows them, and hourly for the NSGo issues under nsgo-dev/nsgo#1047, whose changes cannot trigger a workflow here.
+# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples, and deploys it to GitHub Pages. It builds again as this repository's issues change, so the roadmap follows them, and hourly for the NSGo issues under nsgo-dev/nsgo#1047, whose changes cannot trigger a workflow here.
 on:
   push:
     branches:
@@ -8,6 +8,9 @@ on:
     paths:
       - "apps/website/**"
       - "docs/**"
+      - "examples/**"
+      - "packages/game/**"
+      - "go.work"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/website.yml"
@@ -15,6 +18,9 @@ on:
     paths:
       - "apps/website/**"
       - "docs/**"
+      - "examples/**"
+      - "packages/game/**"
+      - "go.work"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/website.yml"
@@ -34,8 +40,8 @@ concurrency:
 jobs:
   build:
     name: Build
-    runs-on: depot-ubuntu-24.04
-    timeout-minutes: 15
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 25
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,6 +53,17 @@ jobs:
           bun-version: "1.4.4"
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: |
+            packages/game/go.sum
+            examples/*/go.sum
+      # The playground runs each example's web build, which the site's build requires in CI (docs/en/playground.md).
+      - name: Build the playground's examples
+        run: bun run playground
       # The site's base path and origin: "/" on its custom domain, "/game/" on nsgo-dev.github.io until one is set. A pull request, which deploys nothing, builds for "/" on the domain in public/CNAME.
       - name: Configure Pages
         id: pages

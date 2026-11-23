@@ -1,6 +1,6 @@
-// Build-time content: the docs from the repository's Markdown in each language, the home page's Go snippets, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read or fetched in the browser.
+// Build-time content: the docs from the repository's Markdown in each language, the home page's Go snippets, the playground's example sources, and the roadmap from GitHub's API. Each is a virtual module the routes import, so the pages carry the result and nothing is read from the repository or fetched from GitHub in the browser.
 
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import rehypeShiki from '@shikijs/rehype'
 import rehypeSlug from 'rehype-slug'
@@ -11,7 +11,8 @@ import remarkRehype from 'remark-rehype'
 import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
-import type { DocHeading, DocPage, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
+import type { DocHeading, DocPage, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
 import type { Lang } from '../src/i18n'
 
 const REPO = 'nsgo-dev/game'
@@ -25,7 +26,10 @@ const modules = {
   'virtual:docs': loadDocsModule,
   'virtual:snippets': loadSnippetsModule,
   'virtual:roadmap': loadRoadmapModule,
+  'virtual:playground': loadPlaygroundModule,
 } as const
+// Each playground example's sources are a module of their own, virtual:playground/<id>, so a page loads only its example's.
+const PLAYGROUND_SOURCE = 'virtual:playground/'
 type ModuleId = keyof typeof modules
 
 interface Context {
@@ -33,6 +37,8 @@ interface Context {
   base: string
   docsDir: string
   snippetsDir: string
+  examplesDir: string
+  publicDir: string
 }
 
 export function siteContent(): Plugin {
@@ -47,14 +53,23 @@ export function siteContent(): Plugin {
         base: config.base,
         docsDir: path.resolve(config.root, '../../docs'),
         snippetsDir: path.resolve(config.root, 'snippets'),
+        examplesDir: path.resolve(config.root, '../../examples'),
+        publicDir: config.publicDir,
       }
     },
     resolveId(id) {
+      if (id.startsWith(PLAYGROUND_SOURCE) && isPlaygroundId(id.slice(PLAYGROUND_SOURCE.length))) return `\0${id}`
       return id in modules ? `\0${id}` : undefined
     },
     async load(id) {
       if (!id.startsWith('\0')) return undefined
       const name = id.slice(1)
+      if (name.startsWith(PLAYGROUND_SOURCE) && ctx) {
+        const example = name.slice(PLAYGROUND_SOURCE.length) as PlaygroundId
+        const dir = path.join(ctx.examplesDir, example)
+        for (const file of await playgroundFiles(dir)) this.addWatchFile(path.join(dir, file))
+        return loadPlaygroundSource(ctx, example)
+      }
       if (!(name in modules) || !ctx) return undefined
       const moduleId = name as ModuleId
       if (moduleId === 'virtual:docs') {
@@ -82,6 +97,7 @@ export function siteContent(): Plugin {
 const DOC_ORDER = [
   'index.md',
   'getting-started.md',
+  'playground.md',
   'packages.md',
   'loop.md',
   'sprite.md',
@@ -219,6 +235,64 @@ async function loadSnippetsModule(ctx: Context): Promise<string> {
     snippets.push({ id, html: await codeToHtml(code.trimEnd(), { lang: 'go', themes: THEMES, defaultColor: false }) })
   }
   return `export const snippets = ${JSON.stringify(snippets)}`
+}
+
+// ---- Playground ----
+
+// playgroundFiles are the files an example's source tabs show: its main package's Go files, main.go first, without its tests, then its nsgo.yaml.
+async function playgroundFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true })
+  const names = entries.filter((e) => e.isFile()).map((e) => e.name)
+  const goFiles = names.filter((n) => n.endsWith('.go') && !n.endsWith('_test.go')).sort((a, b) => Number(b === 'main.go') - Number(a === 'main.go') || a.localeCompare(b))
+  if (goFiles.length === 0) throw new Error(`playground: ${dir} has no Go files`)
+  return names.includes('nsgo.yaml') ? [...goFiles, 'nsgo.yaml'] : goFiles
+}
+
+const lineCount = (code: string) => code.split('\n').length
+
+// loadPlaygroundModule lists each example's files and the size of the web build public/play/<id>/ holds. A deploy must not publish a playground that runs nothing, so in CI a missing build fails the site's build; a local build goes on and its page says how to make one.
+async function loadPlaygroundModule(ctx: Context): Promise<string> {
+  const examples: PlaygroundExample[] = []
+  const missing: string[] = []
+  for (const id of PLAYGROUND_IDS) {
+    const dir = path.join(ctx.examplesDir, id)
+    const files: PlaygroundFile[] = []
+    for (const name of await playgroundFiles(dir)) files.push({ name, lines: lineCount((await readFile(path.join(dir, name), 'utf8')).trimEnd()) })
+    const wasm = await playgroundWasmSize(path.join(ctx.publicDir, PLAYGROUND_BUILDS, id))
+    if (wasm === 0) missing.push(id)
+    examples.push({ id, files, built: wasm > 0, wasm })
+  }
+  if (missing.length) {
+    const reason = `no web build of ${missing.join(', ')} in public/${PLAYGROUND_BUILDS}/; run bun run playground`
+    if (process.env.CI) throw new Error(`playground: ${reason}`)
+    console.warn(`[playground] ${reason}`)
+  }
+  const loaders = PLAYGROUND_IDS.map((id) => `${JSON.stringify(id)}: () => import(${JSON.stringify(PLAYGROUND_SOURCE + id)})`).join(', ')
+  return `export const examples = ${JSON.stringify(examples)}\nexport const sources = { ${loaders} }`
+}
+
+// playgroundWasmSize is the size in bytes of the WebAssembly the web build in dir runs, as its nsgo.json names it, or 0 when dir holds no build.
+async function playgroundWasmSize(dir: string): Promise<number> {
+  let manifest: string
+  try {
+    manifest = await readFile(path.join(dir, 'nsgo.json'), 'utf8')
+  } catch {
+    return 0
+  }
+  const { wasm } = JSON.parse(manifest) as { wasm?: unknown }
+  if (typeof wasm !== 'string') throw new Error(`playground: ${dir}/nsgo.json names no wasm`)
+  return (await stat(path.join(dir, wasm))).size
+}
+
+async function loadPlaygroundSource(ctx: Context, id: PlaygroundId): Promise<string> {
+  const dir = path.join(ctx.examplesDir, id)
+  const source: PlaygroundSource = { files: [] }
+  for (const name of await playgroundFiles(dir)) {
+    const code = (await readFile(path.join(dir, name), 'utf8')).trimEnd()
+    const lang = name.endsWith('.go') ? 'go' : 'yaml'
+    source.files.push({ name, lines: lineCount(code), html: await codeToHtml(code, { lang, themes: THEMES, defaultColor: false }) })
+  }
+  return `export const files = ${JSON.stringify(source.files)}`
 }
 
 // ---- Roadmap ----

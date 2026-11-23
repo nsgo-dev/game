@@ -9,3 +9,5 @@ node_modules/
 /apps/website/.output/
 /apps/website/.tanstack/
 /apps/website/src/routeTree.gen.ts
+# The playground's web builds of the examples (bun run playground)
+/apps/website/public/play/

@@ -5,7 +5,7 @@ import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, NSGO_GITHUB_URL, nsgoUrl, PL
 import { Logo, SpeedLines } from './Brand'
 import { Icon } from './Icon'
 
-type FooterLink = { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'showcase' | 'roadmap'] } | { label: string; href: string }
+type FooterLink = { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'playground' | 'showcase' | 'roadmap'] } | { label: string; href: string }
 
 function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
   const copy = copies[lang]
@@ -16,6 +16,7 @@ function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
       links: [
         { label: copy.nav.home, to: to.home },
         { label: copy.nav.docs, to: to.docs },
+        { label: copy.nav.playground, to: to.playground },
         { label: copy.nav.showcase, to: to.showcase },
         { label: copy.nav.roadmap, to: to.roadmap },
       ],
