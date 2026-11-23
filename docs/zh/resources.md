@@ -86,7 +86,7 @@ stops:
 
 ### animation
 
-由数值属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 是轨道驱动的对象或节点路径，相对于播放该片段的对象（为空时即该对象本身）；每个 target 与 property 的组合只有一条轨道。
+由数值属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 是轨道驱动的对象或节点路径，相对于播放该片段的对象（为空时即该对象本身）；每个 target 与 property 的组合只有一条轨道。`events` 是按时间排列的具名提示点，每个位于 `0` 到 `length` 之间的 `time`，播放越过时由播放器报告。
 
 ```yaml
 type: animation
@@ -105,9 +105,12 @@ tracks:
         interp: smooth
       - time: 1.5
         value: 1
+events:
+  - time: 0.75
+    name: flare
 ```
 
-`Animation.Sample(t, set)` 先把 `t` 循环或钳制到片段范围内（`ClipTime`），再以每条轨道的 target、property 和值调用 `set`。
+`Animation.Sample(t, set)` 先把 `t` 循环或钳制到片段范围内（`ClipTime`），再以每条轨道的 target、property 和值调用 `set`。[animclip](animclip.md) 在场景对象上播放片段，并按已注册的组件类型检查其属性；[编辑器的动画面板](editor.md#动画编辑器)用于打关键帧和保存片段。
 
 ### theme
 

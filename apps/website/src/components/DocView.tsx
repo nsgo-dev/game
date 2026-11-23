@@ -33,7 +33,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
   },
   {
     key: 'core2d',
-    slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'flow', 'tween', 'ai', 'replay', 'cutscene', 'undo'],
+    slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'flow', 'tween', 'animclip', 'ai', 'replay', 'cutscene', 'undo'],
   },
   { key: 'extended2d', slugs: ['math2d', 'gameui', 'lights2d', 'effects', 'worldmap', 'a11y', 'l10n', 'perf'] },
   { key: 'multiplayerModding', slugs: ['net', 'modding'] },

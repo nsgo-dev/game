@@ -36,6 +36,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `flow` | `github.com/nsgo-dev/game/packages/game/flow` | [flow](flow.md) | 游戏时钟 `Timers`、`Machine[S]`、`Seq`/`Parallel`/`Race` 与类型化事件 `Bus` |
 | `stats` | `github.com/nsgo-dev/game/packages/game/stats` | [stats](stats.md) | 基础属性与来自各来源的 add/mul/override 修饰符，改动即重算，按固定步长计时的修饰符与 YAML 属性文件 |
 | `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | 固定步长 `Tween`、`Timeline` 与相机运镜补间 |
+| `animclip` | `github.com/nsgo-dev/game/packages/game/animclip` | [animclip](animclip.md) | 为任何已注册属性打关键帧的动画片段，通过 `tween.Timeline` 在场景对象上播放 |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为与行为树 |
 | `rts` | `github.com/nsgo-dev/game/packages/game/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
