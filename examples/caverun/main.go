@@ -23,6 +23,8 @@ func Root(cx *core.Scope) core.Node {
 }
 
 func rootWithHook(cx *core.Scope, onReady func(*caveRun)) core.Node {
+	// The 16:9 cave plays sideways: an iPhone or Android phone turns to landscape and stays there while the game runs.
+	cx.RequestOrientation(core.OrientationLandscape)
 	g, err := newCaveRun(cx)
 	if err != nil {
 		return core.View{

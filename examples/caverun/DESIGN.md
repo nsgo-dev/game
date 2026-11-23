@@ -13,6 +13,7 @@
 
 - **Virtual Canvas**: `320×180` logical pixels (16:9 aspect ratio, showing `20×11.25` tiles of `16×16` pixels at a time).
 - **Scaling**: Integer or crisp nearest-neighbor letterboxed fit inside the NSGo window via `screen`, preserving pixel-art edges across macOS, iOS, Windows, Linux, Android, and Web.
+- **Orientation**: the root scope requests landscape (`cx.RequestOrientation(core.OrientationLandscape)`), so an iPhone or Android phone turns sideways and stays there while the game runs.
 - **World & Camera**: `level1.tmj` is `40×14` tiles (`640×224` virtual pixels). The tilemap camera smoothly tracks the explorer with horizontal look-ahead and clamps cleanly to the world bounds.
 - **Fixed Timestep**: `game.Loop` runs physics, collision, enemy patrols, and `sprite.Animation` updates at `60 Hz`, interpolating render positions by `alpha`.
 

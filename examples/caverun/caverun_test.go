@@ -493,3 +493,15 @@ func TestHazardDamageAndGameOver(t *testing.T) {
 		}
 	})
 }
+
+func TestLocksLandscape(t *testing.T) {
+	app, g := startCaveRun(t)
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation on the title screen = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+	startPlaying(t, app, g)
+	app.Advance(10 * testFrame)
+	if app.Orientation != core.OrientationLandscape {
+		t.Fatalf("orientation while playing = %v, want landscape (%v)", app.Orientation, core.OrientationLandscape)
+	}
+}
