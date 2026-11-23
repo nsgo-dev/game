@@ -853,3 +853,20 @@ func TestHierarchyKeepWorldRefusesShear(t *testing.T) {
 		t.Fatalf("local transform changed to %+v", got)
 	}
 }
+
+func TestGenericSetOfTransform2DMarksSubtreeDirty(t *testing.T) {
+	w := entities.NewWorld()
+	h := w.Hierarchy2D()
+	parent, child := w.Spawn(), w.Spawn()
+	h.SetLocal(parent, entities.NewTransform2D(0, 0))
+	h.SetLocal(child, entities.NewTransform2D(1, 0))
+	if err := h.SetParent(child, parent, false); err != nil {
+		t.Fatal(err)
+	}
+	h.Sync()
+	entities.Set(w, parent, entities.NewTransform2D(10, 0))
+	wt, ok := h.WorldTransform(child)
+	if !ok || wt.X != 11 {
+		t.Fatalf("child world X after entities.Set on the parent = %v (ok %v), want 11", wt.X, ok)
+	}
+}

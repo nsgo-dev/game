@@ -46,7 +46,7 @@ world.Alive(hero) // false，即使槽位被复用后仍为 false
 每种组件类型 `T` 保存在独立的强类型稀疏集合 `*Store[T]` 中。顶层泛型函数直接操作 `*World`，也可以通过 `Component[T](w)` 获取 `*Store[T]` 在紧密循环中直接访问。
 
 - `Set[T](w, e, v)`、`Get[T](w, e)`、`Has[T](w, e)` 和 `Remove[T](w, e)` 以 O(1) 复杂度添加、读取、判断和移除组件。
-- `Each1[A]`、`Each2[A, B]` 和 `Each3[A, B, C]` 从最小的稀疏集合出发，在其余集合中做 O(1) 成员检查，按确定顺序访问精确匹配的实体，零反射且零堆分配。回调返回 `false` 即可提前结束遍历。
+- `Each1[A]`、`Each2[A, B]` 和 `Each3[A, B, C]` 从最小的稀疏集合出发，在其余集合中做 O(1) 成员检查，按确定顺序访问精确匹配的实体，零反射且零堆分配。回调返回 `false` 即可提前结束遍历。组件指针只在回调内有效，并且在回调为被遍历的组件类型新增组件后失效：新增可能让存储扩容并移动数据，因此请先收集实体，遍历结束后再添加组件。回调可以销毁传入的实体，但不能增删被遍历存储中的其他实体，需要时请先收集，遍历结束后再处理。
 
 ```go
 type Position struct{ X, Y float64 }
@@ -103,6 +103,28 @@ entities.WithFunc(goblin, func() Inventory {
 
 squad := goblin.SpawnN(world, 5)
 ```
+
+## 2D 变换层级
+
+`world.Hierarchy2D()`（或 `entities.NewHierarchy2D(world)`）为 World 挂载父子 2D 变换层级。局部变换保存在 `Transform2D` 组件中（`X`、`Y`、`Rotation`、`ScaleX`、`ScaleY`、`Hidden`；零值的缩放为 0，请用 `NewTransform2D` 或 `IdentityTransform2D` 构造），`Sync()` 把它们组合成缓存的 `WorldTransform2D` 组件，可直接用 `Each1`/`Each2`/`Each3` 遍历。
+
+```go
+h := world.Hierarchy2D()
+ship, turret := world.Spawn(), world.Spawn()
+h.SetLocal(ship, entities.NewTransform2D(100, 50))
+h.SetLocal(turret, entities.NewTransform2D(0, -12))
+_ = h.SetParent(turret, ship, false)
+h.SetRotation(ship, 0.5)
+h.Sync()
+wt, _ := h.WorldTransform(turret)
+_ = wt
+```
+
+- `SetLocal`、`SetPosition`、`SetRotation`、`SetScale`、`SetVisible` 以及用 `entities.Set` 写入 `Transform2D`，都会把该实体及其子树标记为脏。通过 `Get` 或存储拿到 `*Transform2D` 并直接修改后，需调用 `h.MarkDirty(e)`。
+- 可见性会继承：实体本身或任一祖先隐藏时，`WorldTransform2D.WorldVisible` 为 false。
+- `SetParent(child, parent, keepWorld)` 与 `Detach(child, keepWorld)` 默认保留子节点的局部变换；传入 `keepWorld` 时会重新计算局部变换，让子节点在屏幕上保持原位。若保持世界变换所需的相对变换含有切变（非均匀缩放父节点下的旋转子节点），会返回 `ErrNotDecomposable` 且不做任何修改；形成环时返回 `ErrCycle`，实体已销毁时返回 `ErrDeadEntity`。
+- 销毁父节点时按层级的 `RemovePolicy`（`SetRemovePolicy`）处理子节点：`RemoveDetach`（默认）分离子节点并保留其局部变换，`RemoveDetachKeepWorld` 分离子节点并保留其世界变换，`RemoveCascade` 销毁整棵子树。`DestroyWithPolicy(e, policy)` 可为单次调用指定策略。
+- 快照只包含已注册的组件：调用 `RegisterCodec[entities.Transform2D](w, "transform2d")` 才会保存局部变换。`WorldTransform2D` 是派生数据，无需编解码器，层级会根据恢复后的局部变换重新建立。
 
 ## 世界存档与加载
 
