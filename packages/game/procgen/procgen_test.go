@@ -250,6 +250,7 @@ func TestBSPInvalidConfig(t *testing.T) {
 		{Width: 40, Height: 40, MinRoom: 5, MaxRoom: 4},
 		{Width: 40, Height: 40, Padding: -1},
 		{Width: 40, Height: 40, Loops: -1},
+		{Width: procgen.MaxSide, Height: procgen.MaxSide},
 	} {
 		if _, err := procgen.BSP(random.New(1), cfg); !errors.Is(err, procgen.ErrInvalidConfig) {
 			t.Errorf("BSP(%+v) error = %v, want ErrInvalidConfig", cfg, err)
@@ -350,10 +351,53 @@ func TestCaveNoFloorAndInvalidConfig(t *testing.T) {
 		{Width: 10, Height: 10, WallAt: 9},
 		{Width: 10, Height: 10, WallAt: 3, FloorAt: 3},
 		{Width: 10, Height: 10, MinRegion: -1},
+		{Width: procgen.MaxSide, Height: procgen.MaxSide},
+		{Width: procgen.MaxCells/64 + 1, Height: 64},
 	} {
 		if _, err := procgen.Cave(random.New(1), cfg); !errors.Is(err, procgen.ErrInvalidConfig) {
 			t.Errorf("Cave(%+v) error = %v, want ErrInvalidConfig", cfg, err)
 		}
+	}
+}
+
+func TestCaveZeroThresholds(t *testing.T) {
+	// Once WallAt is set, FloorAt 0 is used as given instead of taking the default 3.
+	if _, err := procgen.Cave(random.New(1), procgen.CaveConfig{Width: 40, Height: 30, WallAt: 2, FloorAt: 0}); err != nil && !errors.Is(err, procgen.ErrNoFloor) {
+		t.Fatalf("WallAt 2, FloorAt 0: %v", err)
+	}
+	differ := false
+	for seed := range uint64(8) {
+		zero, err := procgen.Cave(random.New(seed), procgen.CaveConfig{Width: 48, Height: 32, WallAt: 5, FloorAt: 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		three, err := procgen.Cave(random.New(seed), procgen.CaveConfig{Width: 48, Height: 32, WallAt: 5, FloorAt: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defaults, err := procgen.Cave(random.New(seed), procgen.CaveConfig{Width: 48, Height: 32})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !three.Equal(defaults) {
+			t.Fatalf("seed %d: WallAt 0 and FloorAt 0 do not take the defaults 5 and 3", seed)
+		}
+		differ = differ || !zero.Equal(three)
+	}
+	if !differ {
+		t.Fatal("FloorAt 0 behaves like FloorAt 3")
+	}
+	// Steps 0 takes the default of 5 passes.
+	a, err := procgen.Cave(random.New(3), procgen.CaveConfig{Width: 48, Height: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := procgen.Cave(random.New(3), procgen.CaveConfig{Width: 48, Height: 32, Steps: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Equal(b) {
+		t.Fatal("Steps 0 does not take the default of 5")
 	}
 }
 
@@ -474,6 +518,9 @@ func TestWFCInvalidConfig(t *testing.T) {
 		{Width: 4, Height: 4},
 		{Width: 4, Height: 4, Rules: rules, Attempts: -1},
 		{Width: 4, Height: 4, Rules: &procgen.Rules{Version: 2}},
+		{Width: procgen.MaxSide, Height: procgen.MaxSide, Rules: rules},
+		{Width: 65, Height: 64, Rules: rules},
+		{Width: 4, Height: 4, Rules: &procgen.Rules{Version: 1, Tiles: []procgen.TileRule{{Name: "a", Weight: 1e308}, {Name: "b", Weight: 1e308}}}},
 	} {
 		if _, err := procgen.WFC(random.New(1), cfg); !errors.Is(err, procgen.ErrInvalidConfig) {
 			t.Errorf("WFC(%+v) error = %v, want ErrInvalidConfig", cfg, err)

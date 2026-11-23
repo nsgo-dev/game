@@ -11,9 +11,12 @@ import (
 // ErrNoSolution is returned when WFC exhausts its attempts without a level that satisfies the rules and, unless disabled, the connectivity constraint.
 var ErrNoSolution = errors.New("procgen: wave function collapse found no solution")
 
+// MaxWFCCells is the largest Width*Height WFC accepts, 64 by 64. Each collapse rescans the grid and, with the connectivity constraint, searches the walkable area again, so one attempt costs roughly the square of the cell count: a 32 by 24 level takes tens of milliseconds, 64 by 64 about a second, and 128 by 128 would take more than ten. Build a larger map from smaller WFC pieces, or use BSP or Cave for it.
+const MaxWFCCells = 1 << 12
+
 // WFCConfig configures WFC. Zero fields take the defaults given on each field.
 type WFCConfig struct {
-	// Width and Height are the level's size in cells, from 1 to MaxSide each.
+	// Width and Height are the level's size in cells, from 1 to MaxSide each, with Width*Height at most MaxWFCCells.
 	Width, Height int
 	// Rules is the tile set and its adjacency rules. It must be valid.
 	Rules *Rules
@@ -95,10 +98,40 @@ type wfcState struct {
 	weights []float64
 	cands   []int
 
+	// walk caches each cell's walkFlags for the connectivity constraint, and dirty records that some cell's flags changed since the constraint last ran.
+	walk  []uint8
+	dirty bool
+
 	// Depth-first search state of the connectivity constraint.
 	disc, low, parent, defs []int32
 	dfs                     []dfsFrame
 	cuts                    []cutCandidate
+}
+
+// Bits of wfcState.walk.
+const (
+	// mayWalkFlag marks a cell with at least one walkable tile left.
+	mayWalkFlag uint8 = 1 << iota
+	// mustWalkFlag marks a cell whose remaining tiles are all walkable.
+	mustWalkFlag
+)
+
+// walkFlags returns the mayWalkFlag and mustWalkFlag bits of a cell holding the tiles in cw.
+func (m *wfcModel) walkFlags(cw []uint64) uint8 {
+	var f uint8
+	must := true
+	for i, w := range cw {
+		if w&m.walk[i] != 0 {
+			f |= mayWalkFlag
+		}
+		if w&m.solid[i] != 0 {
+			must = false
+		}
+	}
+	if must {
+		f |= mustWalkFlag
+	}
+	return f
 }
 
 type dfsFrame struct {
@@ -123,6 +156,8 @@ func WFC(s *random.Stream, cfg WFCConfig) (*Grid, error) {
 	switch {
 	case cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxSide || cfg.Height > MaxSide:
 		return nil, fmt.Errorf("%w: WFC size %dx%d is outside [1, MaxSide]", ErrInvalidConfig, cfg.Width, cfg.Height)
+	case cfg.Width > MaxWFCCells/cfg.Height:
+		return nil, fmt.Errorf("%w: WFC size %dx%d exceeds MaxWFCCells", ErrInvalidConfig, cfg.Width, cfg.Height)
 	case cfg.Attempts < 0:
 		return nil, fmt.Errorf("%w: WFC Attempts %d is negative", ErrInvalidConfig, cfg.Attempts)
 	case cfg.Rules == nil:
@@ -151,6 +186,7 @@ func WFC(s *random.Stream, cfg WFCConfig) (*Grid, error) {
 		weights: make([]float64, m.tiles),
 	}
 	if connect {
+		st.walk = make([]uint8, cells)
 		st.disc = make([]int32, cells)
 		st.low = make([]int32, cells)
 		st.parent = make([]int32, cells)
@@ -176,6 +212,13 @@ func (st *wfcState) solve(s *random.Stream) *Grid {
 		copy(st.cell(c), m.full)
 		st.count[c] = m.tiles
 		st.queued[c] = true
+	}
+	if st.connect {
+		f := m.walkFlags(m.full)
+		for c := range st.walk {
+			st.walk[c] = f
+		}
+		st.dirty = true
 	}
 	// Seed propagation from every cell so tiles that cannot have a neighbour on some side are removed before the first choice.
 	st.stack = st.stack[:0]
@@ -213,6 +256,9 @@ func (st *wfcState) solve(s *random.Stream) *Grid {
 		clear(cw)
 		cw[t/64] = 1 << (t % 64)
 		st.count[c] = 1
+		if st.connect {
+			st.setWalk(c)
+		}
 		st.queued[c] = true
 		st.stack = append(st.stack[:0], c)
 		if !st.settle() {
@@ -244,9 +290,11 @@ func (st *wfcState) settle() bool {
 		if !st.propagate() {
 			return false
 		}
-		if !st.connect {
+		// The constraint depends only on which cells may and must be walkable, so it has nothing new to remove until one of those changes.
+		if !st.connect || !st.dirty {
 			return true
 		}
+		st.dirty = false
 		changed, ok := st.enforcePath()
 		if !ok {
 			return false
@@ -308,6 +356,9 @@ func (st *wfcState) restrict(c int, keep []uint64) (changed, ok bool) {
 		return true, false
 	}
 	st.count[c] = total
+	if st.connect {
+		st.setWalk(c)
+	}
 	if !st.queued[c] {
 		st.queued[c] = true
 		st.stack = append(st.stack, c)
@@ -315,24 +366,22 @@ func (st *wfcState) restrict(c int, keep []uint64) (changed, ok bool) {
 	return true, true
 }
 
+// setWalk recomputes the cached walk flags of cell c after its tiles changed, marking the constraint dirty when they differ.
+func (st *wfcState) setWalk(c int) {
+	if f := st.m.walkFlags(st.cell(c)); f != st.walk[c] {
+		st.walk[c] = f
+		st.dirty = true
+	}
+}
+
 // mayWalk reports whether cell c still has a walkable tile.
 func (st *wfcState) mayWalk(c int) bool {
-	for i, w := range st.cell(c) {
-		if w&st.m.walk[i] != 0 {
-			return true
-		}
-	}
-	return false
+	return st.walk[c]&mayWalkFlag != 0
 }
 
 // mustWalk reports whether every remaining tile of cell c is walkable.
 func (st *wfcState) mustWalk(c int) bool {
-	for i, w := range st.cell(c) {
-		if w&st.m.solid[i] != 0 {
-			return false
-		}
-	}
-	return true
+	return st.walk[c]&mustWalkFlag != 0
 }
 
 // enforcePath applies the connectivity constraint once. Cells that must be walkable all have to lie in one component of the graph of cells that may be walkable; cells outside that component lose their walkable tiles, and articulation points of the component that separate cells that must be walkable lose their non-walkable tiles. It reports whether any tile was removed, and false for ok on a contradiction.

@@ -2,7 +2,7 @@
 
 `github.com/nsgo-dev/game/packages/game/procgen` generates 2D levels on a tile grid with three generators: BSP rooms joined by corridors, cellular-automata caves, and wave function collapse over a YAML rule file.
 
-Every generator takes a [`random.Stream`](determinism.md) and draws all of its randomness from it, so the same seed and configuration give the same level, cell for cell, on every operating system and architecture. Every generator also guarantees that its walkable cells form one 4-connected region.
+Every generator takes a [`random.Stream`](determinism.md) and draws all of its randomness from it, so the same seed and configuration give the same level, cell for cell, on every operating system and architecture. BSP and Cave always leave their floor cells as one 4-connected region, and so does WFC unless `AllowDisconnected` is set or its rules have no walkable tile.
 
 ## Grid
 
@@ -73,7 +73,9 @@ if errors.Is(err, procgen.ErrNoFloor) {
 }
 ```
 
-Defaults are `WallChance` 0.45, `Steps` 5, `WallAt` 5 and `FloorAt` 3.
+Defaults are `WallChance` 0.45, `Steps` 5, `WallAt` 5 and `FloorAt` 3. `FloorAt` takes its default only when `WallAt` is unset too; once `WallAt` is set, `FloorAt` 0 means only cells with no wall neighbour become floor.
+
+Every generator refuses a level of more than `procgen.MaxCells` (2^24) cells or a side longer than `procgen.MaxSide` with an error wrapping `ErrInvalidConfig`.
 
 ## Wave function collapse
 
@@ -102,7 +104,7 @@ neighbors:
 ```
 
 - `version` must be 1, and unknown fields are refused.
-- Each tile has a unique `name` and a positive `weight`, its relative frequency; `walkable` marks the tiles the connectivity constraint joins up.
+- Each tile has a unique `name` and a positive `weight`, its relative frequency, and the weights must sum to a finite number; `walkable` marks the tiles the connectivity constraint joins up.
 - Each entry of `neighbors` allows one ordered pair, `left` next to `right` or `up` above `down`. A pair that is not listed is forbidden, so list both orders for a symmetric rule.
 
 ```go
@@ -112,6 +114,8 @@ g, err := procgen.WFC(random.New(seed), procgen.WFCConfig{Width: 32, Height: 24,
 ```
 
 While the wave collapses, a path constraint keeps the walkable tiles connected: cells that can no longer reach the walkable area lose their walkable tiles, and a cell whose loss would split the walkable area loses its other tiles. A level WFC returns therefore has at least one walkable cell and passes `Connected(rules.Walkable)`. Set `AllowDisconnected` to turn the constraint off.
+
+Each collapse rescans the grid and, with the constraint on, searches the walkable area again, so a solve costs roughly the square of the cell count: tens of milliseconds for 32 by 24, about a second for 64 by 64, and more than ten for 128 by 128. `WFC` therefore accepts at most `procgen.MaxWFCCells` (64 by 64) cells; build a larger map from smaller pieces or use BSP or Cave for it.
 
 `EncodeRules` writes a rule set back as YAML with a fixed field order and the tiles and neighbors in their given order, so parsing and encoding a file it wrote reproduces it byte for byte.
 

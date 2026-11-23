@@ -85,6 +85,7 @@ func TestParseRulesRejects(t *testing.T) {
 		"no weight":      "version: 1\ntiles:\n  - {name: a}\n",
 		"inf weight":     "version: 1\ntiles:\n  - {name: a, weight: .inf}\n",
 		"nan weight":     "version: 1\ntiles:\n  - {name: a, weight: .nan}\n",
+		"weight sum":     "version: 1\ntiles:\n  - {name: a, weight: 1e308}\n  - {name: b, weight: 1e308}\n",
 		"mixed pair":     tiles + "neighbors:\n  - {left: a, down: b}\n",
 		"half pair":      tiles + "neighbors:\n  - {left: a}\n",
 		"empty pair":     tiles + "neighbors:\n  - {}\n",
