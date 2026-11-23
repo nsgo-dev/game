@@ -82,7 +82,7 @@ go tool game release -target macos_arm64,web -output build -dry-run
 
 在指定目录（默认是当前目录，其中有游戏的 `nsgo.yaml`）里，通过一次 `nsgo build` 为所有平台构建游戏：未另行指定时，构建两种架构的 macOS、Windows 和 Linux，以及 Web、iOS 和 arm64 的 Android。每个目标的包写到 `<output>/<name>-<version>-<target>`，发布时上传的文件（磁盘映像、安装程序、Debian 和 Arch 包、AppImage、IPA、APK 和网站的 zip，各带一个 `.sha256`）写到 `<output>/releases`，目录结构与 `nsgo build` 相同。任一目标失败都会终止本次运行，退出码为 1。游戏的模块必须把 NSGo 作为工具（`go.mod` 里有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`，起始模板已带上），因为命令运行的是 `go -C <dir> tool nsgo build`，构建使用模块自己的 NSGo 版本；`-dry-run` 只打印这条命令而不运行。
 
-目标取自 `-target`；没有时取 `nsgo.yaml` 旁边 `game.yaml` 的 `export` 预设，按顺序，没有 `targets` 的预设构建其平台名；再没有时取上面的六个平台。输出目录取自 `-output`；没有时取 `game.yaml` 的 `export.output`；再没有时取 `nsgo.yaml` 的 `build.output`：
+目标取自 `-target`；没有时取 `nsgo.yaml` 旁边 `game.yaml` 的 `export` 预设，按顺序，没有 `targets` 的预设构建其平台名；再没有时取上面的六个平台，但渠道（`-channel`，没有时取 `nsgo.yaml` 的 `updates.channel`）为 `steam` 时只取 macOS、Windows 和 Linux，因为 `nsgo build` 只用桌面目标制作 Steam depot。命令不使用 `nsgo.yaml` 的 `build.targets`：它是日常直接运行 `nsgo build` 时的目标列表，起始模板里的这份包含模拟器构建、不含 Linux，所以发布用的目标列表应写在预设里。输出目录取自 `-output`；没有时取 `game.yaml` 的 `export.output`；再没有时取 `nsgo.yaml` 的 `build.output`：
 
 ```yaml
 version: 1
@@ -98,6 +98,6 @@ export:
     - platform: android
 ```
 
-命令只读取 `game.yaml` 的 `version`（必须为 1）和 `export` 部分，拒绝未知字段、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
+命令只读取 `game.yaml` 的 `version`（必须是整数 1）和 `export` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload` 和 `export`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
 
 一台机器能构建哪些目标，以 `nsgo doctor` 的显示为准：iOS 需要装有 Xcode 的 Mac，macOS 磁盘映像需要在已登录的会话里运行 `hdiutil`，所以为所有平台发布要在 Mac 上运行。
