@@ -1,6 +1,7 @@
 package input
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -90,7 +91,7 @@ func (a *Actions) BindGamepadAxis(name string, axis gamepad.Axis, opts GamepadAx
 	if a.gpAxes == nil {
 		a.gpAxes = make(map[string]gamepadAxisBinding)
 	}
-	a.gpAxes[name] = gamepadAxisBinding{axis: axis, opts: opts}
+	a.gpAxes[name] = gamepadAxisBinding{axis: axis, opts: finiteGamepadAxisOptions(opts)}
 	delete(a.gpSnap, name)
 }
 
@@ -106,13 +107,72 @@ func (a *Actions) GamepadAxisBinding(name string) (gamepad.Axis, GamepadAxisOpti
 	return b.axis, b.opts, ok
 }
 
+// finiteGamepadAxisOptions replaces non-finite options with the finite values gamepadAxisValue treats them as, so bindings in use can always be saved: a NaN dead zone is the default (0), +Inf reads 0 like any dead zone of 1 or more (1), -Inf is off (-1), and a non-finite sensitivity is 1 (0).
+func finiteGamepadAxisOptions(opts GamepadAxisOptions) GamepadAxisOptions {
+	switch {
+	case math.IsNaN(opts.DeadZone):
+		opts.DeadZone = 0
+	case math.IsInf(opts.DeadZone, 1):
+		opts.DeadZone = 1
+	case math.IsInf(opts.DeadZone, -1):
+		opts.DeadZone = -1
+	}
+	if math.IsNaN(opts.Sensitivity) || math.IsInf(opts.Sensitivity, 0) {
+		opts.Sensitivity = 0
+	}
+	return opts
+}
+
 func (a *Actions) setGamepads(pads []gamepad.Pad) {
 	if len(pads) == 0 {
 		a.gpPads = a.gpPads[:0]
-		return
+	} else {
+		a.gpPads = append(a.gpPads[:0], pads...)
+		slices.SortStableFunc(a.gpPads, func(x, y gamepad.Pad) int { return cmp.Compare(x.ID, y.ID) })
 	}
-	a.gpPads = append(a.gpPads[:0], pads...)
-	slices.SortStableFunc(a.gpPads, func(x, y gamepad.Pad) int { return x.ID - y.ID })
+	a.unmuteReleasedButtons()
+}
+
+// muteHeldButtons makes every button held on the controllers last read inactive until it is released, so a press held across Reset does not register as a new press, as a mouse button held across Reset does not.
+func (a *Actions) muteHeldButtons() {
+	for i := range a.gpPads {
+		p := &a.gpPads[i]
+		if m := pressedButtons(p); m != 0 {
+			if a.gpMuted == nil {
+				a.gpMuted = make(map[int]uint32)
+			}
+			a.gpMuted[p.ID] |= m
+		}
+	}
+}
+
+// unmuteReleasedButtons stops ignoring each muted button once it is released or its controller is disconnected.
+func (a *Actions) unmuteReleasedButtons() {
+	for id, m := range a.gpMuted {
+		var held uint32
+		for i := range a.gpPads {
+			if a.gpPads[i].ID == id {
+				held = pressedButtons(&a.gpPads[i])
+				break
+			}
+		}
+		if m &= held; m == 0 {
+			delete(a.gpMuted, id)
+		} else {
+			a.gpMuted[id] = m
+		}
+	}
+}
+
+// pressedButtons returns a bit mask of the buttons pressed on p, bit b for gamepad.Button b.
+func pressedButtons(p *gamepad.Pad) uint32 {
+	var m uint32
+	for b := range gamepad.Button(gamepad.ButtonCount) {
+		if p.Pressed(b) {
+			m |= 1 << b
+		}
+	}
+	return m
 }
 
 // pollGamepads reads the live controllers from the attached scope at the start of Step.
@@ -139,7 +199,7 @@ func (a *Actions) gamepadButtonDown(b gamepad.Button) bool {
 		if a.gpOne && p.ID != a.gpID {
 			continue
 		}
-		if p.Pressed(b) {
+		if p.Pressed(b) && a.gpMuted[p.ID]&(1<<b) == 0 {
 			return true
 		}
 	}

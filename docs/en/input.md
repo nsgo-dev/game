@@ -164,7 +164,7 @@ loop := &game.Loop{
 
 - **Tap latching**: a brief tap that both starts and ends between two fixed steps is latched so `Pressed` and `JustPressed` still register for one step, followed by `JustReleased` on the next step.
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
-- **`Reset()`**: clears active touches, held buttons, held keys, the last controller state read, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+- **`Reset()`**: clears active touches, held buttons, held keys, the last controller state read, pending latches, relative mouse motion and the current snapshot, while keeping all bindings and any pointer lock, so mouselook survives a scene change. A controller button held across `Reset` stays inactive until it is released, as a held mouse button does. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
 
 ## Mouselook through pointer lock
 
@@ -217,4 +217,4 @@ if err != nil {
 _ = found
 ```
 
-When `key` is absent, `Load` returns `(false, nil)` and leaves existing default bindings intact. If the stored JSON is invalid or uses an unknown format, `Load` leaves bindings untouched and returns `(false, err)`.
+When `key` is absent, `Load` returns `(false, nil)` and leaves existing default bindings intact. If the stored JSON is invalid, has a field `Load` does not know or uses an unknown format, `Load` leaves bindings untouched and returns `(false, err)`.

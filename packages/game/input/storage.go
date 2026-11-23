@@ -151,7 +151,7 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 		return false, fmt.Errorf("input: load %q: %w", key, err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return false, fmt.Errorf("input: load %q: data after the bindings", key)
+		return false, fmt.Errorf("input: load %q: trailing data after the bindings", key)
 	}
 	if doc.Version != storageVersion {
 		return false, fmt.Errorf("input: load %q: unsupported version %d", key, doc.Version)
