@@ -16,27 +16,25 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named.
+// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
 var editorCommand = &command{
 	name:    "editor",
-	args:    "[project-dir | game.yaml | scene.yaml]",
-	summary: "Open the scene editor on a project or a YAML scene, or on a demo scene when none is named",
+	args:    "[project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]",
+	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named",
 	define:  defineEditor,
 }
 
 func defineEditor(a *app, fs *flag.FlagSet) func() error {
 	return func() error {
-		if fs.NArg() > 1 {
-			return usagef("expected at most one project or scene file, got %d", fs.NArg())
+		if fs.NArg() > 3 {
+			return usagef("expected at most a project or scene file, a clip file and an object ID, got %d arguments", fs.NArg())
 		}
 		ed, err := newDemoEditor()
 		if err != nil {
 			return err
 		}
-		if fs.NArg() == 1 {
-			if err := open(ed, fs.Arg(0)); err != nil {
-				return fmt.Errorf("open %s: %w", fs.Arg(0), err)
-			}
+		if err := openArgs(ed, fs.Args()); err != nil {
+			return err
 		}
 		a.launch(ed)
 		return nil
@@ -57,6 +55,52 @@ func open(ed *editor.Editor, path string) error {
 		return ed.OpenProject(path)
 	}
 	return ed.OpenFile(path)
+}
+
+// openArgs opens what the command line names: the project or scene args[0], then the animation clip file args[1] on the object args[2], or on the scene's first object when args[2] is absent. That object is selected, so when the clip file does not exist yet the toolbar's Animate button starts a clip on it, and the panel's Save Clip button writes the clip to args[1].
+func openArgs(ed *editor.Editor, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if err := open(ed, args[0]); err != nil {
+		return fmt.Errorf("open %s: %w", args[0], err)
+	}
+	if len(args) < 2 {
+		return nil
+	}
+	clipPath := args[1]
+	target := firstObjectID(ed.Doc)
+	if len(args) > 2 {
+		target = args[2]
+	}
+	if target == "" {
+		return fmt.Errorf("open clip %s: %s has no object to play it on", clipPath, args[0])
+	}
+	if !ed.SelectObject(target) {
+		return fmt.Errorf("open clip %s: %s has no object %q", clipPath, args[0], target)
+	}
+	if _, err := os.Stat(clipPath); err == nil {
+		if err := ed.OpenClipFile(clipPath, target); err != nil {
+			return fmt.Errorf("open clip %s: %w", clipPath, err)
+		}
+	}
+	ed.OnSaveClip = func(data []byte) error { return os.WriteFile(clipPath, data, 0o644) }
+	return nil
+}
+
+// firstObjectID returns the ID of the first object in doc's layers, or "".
+func firstObjectID(doc *sceneformat.SceneDoc) string {
+	if doc == nil {
+		return ""
+	}
+	for _, layer := range doc.Layers {
+		for _, o := range layer.Objects {
+			if o.ID != "" {
+				return o.ID
+			}
+		}
+	}
+	return ""
 }
 
 // newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named.

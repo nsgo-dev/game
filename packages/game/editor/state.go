@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -168,8 +170,10 @@ type Editor struct {
 	OnPlayUpdate func(scene *sceneformat.BuiltScene, dt time.Duration)
 	// OnPlayDraw runs on every render frame while Play mode is active.
 	OnPlayDraw func(scene *sceneformat.BuiltScene, alpha float64)
-	// PlayRate is the fixed update rate in Hz during Play mode (defaults to 60 when <= 0).
+	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
+	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
+	OnSaveClip func(data []byte) error
 
 	playing      bool
 	playSnapshot []byte
@@ -180,6 +184,17 @@ type Editor struct {
 
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
 	projectSaved []byte
+
+	// The animation editor: the open clip, its file and target, the playhead, the selected key, and the preview scene posed by the clip.
+	clip        *resource.Animation
+	clipMeta    clipMeta
+	clipTime    time.Duration
+	clipPlaying bool
+	clipStop    func()
+	clipScene   *sceneformat.BuiltScene
+	clipPlayer  *animclip.Player
+	clipErr     error
+	selKey      clipKeyRef
 
 	components   *sceneformat.ComponentRegistry
 	drag3D       drag3DState
@@ -227,6 +242,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		Camera3D:     DefaultOrbitCamera3D(),
 		ActiveTileID: 1,
 		Status:       "Ready",
+		selKey:       clipKeyRef{-1, -1},
 		listeners:    make(map[uint64]func()),
 	}
 	if len(doc.Layers) > 0 {
@@ -285,6 +301,7 @@ func (e *Editor) afterMutate() {
 
 // Rebuild resolves e.Doc against e.Resolver into e.Built.
 func (e *Editor) Rebuild() {
+	defer e.refreshClipPreview()
 	if e.Doc == nil {
 		e.Built = nil
 		e.BuildErr = nil
@@ -299,10 +316,13 @@ func (e *Editor) Rebuild() {
 	e.BuildErr = nil
 }
 
-// ActiveScene returns the live play scene when playing, or the edit BuiltScene otherwise.
+// ActiveScene returns the live play scene when playing, the scene posed by the open animation clip at the playhead when one is open and previews, or the edit BuiltScene otherwise.
 func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 	if e.playing && e.playScene != nil {
 		return e.playScene
+	}
+	if e.clipScene != nil {
+		return e.clipScene
 	}
 	return e.Built
 }

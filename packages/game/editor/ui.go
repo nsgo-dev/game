@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -12,6 +13,7 @@ import (
 //   - Left Asset Browser panel
 //   - Center interactive Canvas viewport
 //   - Right Property Inspector panel
+//   - Animation panel below them while a clip is open (AnimationPanelView)
 //   - Bottom status bar
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	ed.AttachScope(cx)
@@ -21,6 +23,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	})
 	cx.Cleanup(func() {
 		unsub()
+		ed.stopClipLoop()
 		if ed.Playing() {
 			_ = ed.Stop()
 		}
@@ -41,9 +44,11 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		Children: []core.Node{
 			toolbarView(cx, ed, rev),
 			core.View{
+				// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
 				Style: core.Style{
 					Direction: core.Row,
 					FlexGrow:  1,
+					FlexBasis: core.Pt(0),
 					Overflow:  core.Hidden,
 				},
 				Children: []core.Node{
@@ -52,6 +57,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 					InspectorView(cx, ed, rev),
 				},
 			},
+			AnimationPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -215,6 +221,20 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						OnPress: func() {
 							ed.Redo()
+						},
+					},
+					ui.Button{
+						TestID:  "toolbar-animate",
+						Text:    "Animate",
+						Label:   "Animate the selected object in a new clip",
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Playing() || ed.SelectedID == "" || ed.clip != nil
+						},
+						OnPress: func() {
+							ed.report(ed.NewClip("", "New clip", time.Second))
 						},
 					},
 					core.Show{

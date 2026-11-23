@@ -75,6 +75,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 		return fmt.Errorf("editor: build play scene: %w", err)
 	}
 
+	e.stopClipLoop()
 	e.playSnapshot = snap
 	e.Doc = playDoc
 	e.Built = playBuilt
@@ -82,6 +83,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.playSteps = 0
 	e.playFrames = 0
 	e.playing = true
+	e.refreshClipPreview()
 	e.Status = "Playing"
 
 	loop := &game.Loop{
