@@ -117,7 +117,7 @@ srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 
-An `Origin` outside the allow-list is refused with `403` before the WebSocket handshake; an empty allow-list accepts any Origin and `"*"` accepts all, while an empty Origin (native game clients) is allowed.
+An `Origin` outside the allow-list is refused with `403` before the WebSocket handshake; an empty allow-list accepts any Origin and `"*"` accepts all, while an empty Origin (native game clients) is allowed. Each entry is a `scheme://host` Origin such as `https://game.example.com`; a trailing slash is ignored, and an entry that names a path or query makes the listener fail at start-up.
 
 `server.Health` serves deployment endpoints:
 

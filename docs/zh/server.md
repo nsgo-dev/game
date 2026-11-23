@@ -117,7 +117,7 @@ srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 
-不在允许列表的 `Origin` 会在 WebSocket 握手前被 `403` 拒绝；允许列表为空表示接受任意 Origin，`"*"` 也接受全部，而原生客户端不带 Origin 时同样允许。
+不在允许列表的 `Origin` 会在 WebSocket 握手前被 `403` 拒绝；允许列表为空表示接受任意 Origin，`"*"` 也接受全部，而原生客户端不带 Origin 时同样允许。每个条目是 `scheme://host` 形式的 Origin，例如 `https://game.example.com`；末尾的斜杠会被忽略，而带路径或查询参数的条目会让监听在启动时失败。
 
 `server.Health` 提供部署端点：
 
