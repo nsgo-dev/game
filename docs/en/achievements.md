@@ -108,7 +108,7 @@ achievements:
 - `gameservices.ErrUnsupported` where the platform has no game service (Windows, Linux, the web, watchOS) or `cx.Env().CanUseGameServices()` is false.
 - `gameservices.ErrUnauthenticated` when the service answers without a signed-in player, and `gameservices.ErrCancelled` when the player dismisses sign-in.
 
-On failure the Tracker keeps counting, and a later `SignIn` reports what was made in the meantime. Answers from the service arrive through `cx`, so disposing `cx` disconnects the Tracker; sign in with a scope that lives as long as the game, such as the root scope, or call `SignIn` again from the next screen. `gameservices.ShowAchievements(cx)` opens the platform's own achievements screen.
+On failure the Tracker keeps counting, and a later `SignIn` reports what was made in the meantime. Answers from the service arrive through `cx`, so disposing `cx` or letting its current owner run again, as a view body does on every render, disconnects the Tracker; sign in from an event handler or an effect, or with a scope that lives as long as the game, such as the root scope, or call `SignIn` again from the next screen. `gameservices.ShowAchievements(cx)` opens the platform's own achievements screen.
 
 ```go
 signedIn := core.NewSignal(cx, false)

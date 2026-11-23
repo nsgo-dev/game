@@ -108,7 +108,7 @@ achievements:
 - 平台没有游戏服务（Windows、Linux、Web、watchOS）或 `cx.Env().CanUseGameServices()` 为 false 时，返回 `gameservices.ErrUnsupported`。
 - 服务应答时没有已登录的玩家，返回 `gameservices.ErrUnauthenticated`；玩家关闭登录界面，返回 `gameservices.ErrCancelled`。
 
-登录失败时 `Tracker` 会继续计数，之后再次调用 `SignIn` 会上报期间产生的进度。服务的应答经由 `cx` 送达，因此释放 `cx` 会断开 `Tracker`；请用与游戏同寿命的作用域（例如根作用域）登录，或在下一个界面中再次调用 `SignIn`。`gameservices.ShowAchievements(cx)` 打开平台自带的成就界面。
+登录失败时 `Tracker` 会继续计数，之后再次调用 `SignIn` 会上报期间产生的进度。服务的应答经由 `cx` 送达，因此释放 `cx`，或让它的当前所有者重新运行（视图正文每次渲染都会如此），都会断开 `Tracker`；请在事件处理函数或 effect 中登录，或用与游戏同寿命的作用域（例如根作用域）登录，也可以在下一个界面中再次调用 `SignIn`。`gameservices.ShowAchievements(cx)` 打开平台自带的成就界面。
 
 ```go
 signedIn := core.NewSignal(cx, false)

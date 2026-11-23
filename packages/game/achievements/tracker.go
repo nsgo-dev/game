@@ -37,6 +37,8 @@ func (f ReporterFunc) ReportAchievement(id string, percent float64, done func(er
 // Tracker records a player's progress toward the achievements of a Set and reports it to a connected platform service. Its methods are safe for concurrent use; callbacks run without the Tracker's lock held, so they may call back into it.
 type Tracker struct {
 	mu sync.Mutex
+	// saveMu serializes saves with Persist and with each other: a save snapshots the progress under mu, releases it so the store may read back into the tracker, and writes, while the next save waits its turn so it cannot write an older snapshot after a newer one.
+	saveMu sync.Mutex
 	// set and index never change after NewTracker, so they are read without mu.
 	set     *Set
 	index   map[string]int
@@ -178,6 +180,7 @@ func (t *Tracker) advance(id string, next func(cur int) int) error {
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownAchievement, id)
 	}
+	t.saveMu.Lock()
 	t.mu.Lock()
 	d := t.set.Achievements[i]
 	total := d.TotalSteps()
@@ -185,14 +188,17 @@ func (t *Tracker) advance(id string, next func(cur int) int) error {
 	steps := min(next(e.steps), total)
 	if steps <= e.steps {
 		t.mu.Unlock()
+		t.saveMu.Unlock()
 		return nil
 	}
 	unlocked := e.steps < total && steps >= total
 	e.steps = steps
-	saveErr := t.saveLocked()
+	save := t.prepareSaveLocked()
 	onUnlock := t.onUnlock
 	r := t.prepareLocked(i)
 	t.mu.Unlock()
+	saveErr := save.write()
+	t.saveMu.Unlock()
 
 	if unlocked && onUnlock != nil {
 		onUnlock(d)
@@ -273,10 +279,13 @@ func (t *Tracker) Persist(store Store, key string) error {
 	if store == nil || key == "" {
 		return errors.New("achievements: Persist needs a store and a key")
 	}
+	// saveMu keeps a save in flight from writing pre-restore progress after this restore read the store, and the read from seeing a half-written document.
+	t.saveMu.Lock()
 	var p *Progress
 	if raw, ok := store.GetItem(key); ok {
 		var err error
 		if p, err = ParseProgress([]byte(raw)); err != nil {
+			t.saveMu.Unlock()
 			return fmt.Errorf("achievements: stored progress %q: %w", key, err)
 		}
 	}
@@ -287,22 +296,46 @@ func (t *Tracker) Persist(store Store, key string) error {
 	t.store, t.key = store, key
 	reports := t.prepareAllLocked()
 	t.mu.Unlock()
+	t.saveMu.Unlock()
 	for _, r := range reports {
 		r.send(t)
 	}
 	return nil
 }
 
-// saveLocked writes the progress to the Persist store, if any.
-func (t *Tracker) saveLocked() error {
+// progressSave is a progress write snapshotted under mu, for write after it is released: the store may read back into the tracker, as core.Storage does when it flushes the computations watching a key, and holding mu there would deadlock them.
+type progressSave struct {
+	store Store
+	key   string
+	text  string
+	// prepErr is EncodeProgress's error, reported by write.
+	prepErr error
+}
+
+// prepareSaveLocked returns the write of the current progress to the Persist store, if any; its caller holds saveMu, so its write cannot interleave with another save or with Persist.
+func (t *Tracker) prepareSaveLocked() progressSave {
 	if t.store == nil {
+		return progressSave{}
+	}
+	s := progressSave{store: t.store, key: t.key}
+	data, err := EncodeProgress(t.progressLocked())
+	if err != nil {
+		s.prepErr = err
+		return s
+	}
+	s.text = string(data)
+	return s
+}
+
+// write stores the snapshotted progress, wrapping any failure in ErrSave.
+func (s progressSave) write() error {
+	if s.store == nil {
 		return nil
 	}
-	data, err := EncodeProgress(t.progressLocked())
-	if err == nil {
-		err = t.store.SetItem(t.key, string(data))
+	if s.prepErr != nil {
+		return fmt.Errorf("%w: %w", ErrSave, s.prepErr)
 	}
-	if err != nil {
+	if err := s.store.SetItem(s.key, s.text); err != nil {
 		return fmt.Errorf("%w: %w", ErrSave, err)
 	}
 	return nil
@@ -449,6 +482,7 @@ func (t *Tracker) prepareAllLocked() []report {
 
 // answered records the service's answer to r and, after a success, reports progress made while r was in flight.
 func (t *Tracker) answered(r report, err error) {
+	t.saveMu.Lock()
 	t.mu.Lock()
 	d := t.set.Achievements[r.index]
 	e := &t.entries[r.index]
@@ -456,7 +490,7 @@ func (t *Tracker) answered(r report, err error) {
 	if current {
 		e.inflight = 0
 	}
-	var saveErr error
+	var save progressSave
 	var next report
 	switch {
 	case err == nil:
@@ -466,7 +500,7 @@ func (t *Tracker) answered(r report, err error) {
 				e.reported = map[Service]int{}
 			}
 			e.reported[r.service] = acked
-			saveErr = t.saveLocked()
+			save = t.prepareSaveLocked()
 		}
 		if current {
 			next = t.prepareLocked(r.index)
@@ -476,9 +510,12 @@ func (t *Tracker) answered(r report, err error) {
 	}
 	onError := t.onError
 	t.mu.Unlock()
+	saveErr := save.write()
+	t.saveMu.Unlock()
 
 	if onError != nil {
-		if err != nil {
+		// A failure of a report a newer connection replaced says nothing about the achievement, whose progress the newer connection has already reported again.
+		if err != nil && current {
 			onError(d, err)
 		}
 		if saveErr != nil {
