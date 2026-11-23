@@ -99,7 +99,7 @@ At most one ability casts or channels at a time. Its life is:
 3. When the cast completes, the costs and a charge are spent, the cooldown starts and `EventActivated` is sent; this is where the game applies the effect. A cost that is no longer affordable interrupts it with `ReasonCost` instead. An ability with no cast time does this on the step it is activated.
 4. A channel then runs for `channelTime`, sending `EventChannelTick` every `tickInterval` and `EventChannelEnded` at the end. Conditions, `Cancel` and releasing a `hold` action stop it early.
 
-`EventCooldownEnded` and `EventChargeRestored` report timers finishing. `OnEvent` may call `TryActivate` or `Cancel`, for example to chain a follow-up when an ability takes effect; the events that causes follow the current one.
+`EventCooldownEnded` and `EventChargeRestored` report timers finishing. `OnEvent` may call `TryActivate` or `Cancel`, for example to chain a follow-up when an ability takes effect; the events that causes follow the current one. Events that happened before a `Reset` or `Restore` called from `OnEvent` are still delivered, and when that call is made during `Update`, `Update` goes on to read input against the reset or restored state.
 
 `Status(id)` reports charges, remaining cooldown and recharge, and the cast or channel progress in steps, and `Duration(steps)` converts them to game time for a cooldown bar. `Active()` reports the ability casting or channeling now.
 

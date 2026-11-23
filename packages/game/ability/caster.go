@@ -2,6 +2,7 @@ package ability
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 	"time"
 )
@@ -176,7 +177,7 @@ type Caster struct {
 	Resources Resources
 	// Condition reports whether a named condition holds, such as "grounded" or "stunned". When nil, every condition is false, so an ability that needs one cannot be activated and an ability that needs "!name" can.
 	Condition func(name string) bool
-	// OnEvent, when set, receives every Event in the order it happened. It may call the Caster's methods, including TryActivate and Cancel; events those cause follow the current one.
+	// OnEvent, when set, receives every Event in the order it happened. It may call the Caster's methods, including TryActivate and Cancel; events those cause follow the current one. Events that happened before a Reset or Restore called from OnEvent are still delivered, and when that call is made during Update, Update goes on to read input against the reset or restored state.
 	OnEvent func(Event)
 
 	rate    int
@@ -271,9 +272,17 @@ func (c *Caster) Steps(d time.Duration) int {
 	return stepsFor(d, c.rate)
 }
 
-// Duration returns how much game time steps of the Caster's fixed step last, for showing a cooldown or cast bar.
+// Duration returns how much game time steps of the Caster's fixed step last, rounded down to a nanosecond, for showing a cooldown or cast bar. A negative step count gives 0, and a count longer than the largest time.Duration gives that largest Duration.
 func (c *Caster) Duration(steps int) time.Duration {
-	return time.Duration(int64(steps) * int64(time.Second) / int64(c.rate))
+	if steps <= 0 {
+		return 0
+	}
+	// Whole seconds and the remainder separately, so steps * time.Second never overflows: the remainder is below rate, which is at most MaxRate.
+	secs, rem := int64(steps)/int64(c.rate), int64(steps)%int64(c.rate)
+	if secs > math.MaxInt64/int64(time.Second)-1 {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(secs*int64(time.Second) + rem*int64(time.Second)/int64(c.rate))
 }
 
 // Update advances the Caster by one fixed step.
@@ -489,7 +498,7 @@ func (c *Caster) Status(id string) (st Status, ok bool) {
 	return st, true
 }
 
-// Reset returns every ability to idle, fully charged and off cooldown, without sending events. The step count is kept.
+// Reset returns every ability to idle, fully charged and off cooldown, without sending events. The step count is kept. Called from OnEvent, it still delivers the events that happened before it, after the current one.
 func (c *Caster) Reset() {
 	c.stop()
 	for i := range c.slots {
@@ -498,7 +507,6 @@ func (c *Caster) Reset() {
 		s.cooldown = 0
 		s.recharge = 0
 	}
-	c.queue = c.queue[:0]
 }
 
 func (c *Caster) conditionsHold(s *slot) bool {

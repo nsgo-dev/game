@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	mathrand "math/rand/v2"
 	"reflect"
 	"slices"
@@ -117,6 +118,17 @@ func TestStepsRoundUpAndMatchLoopRate(t *testing.T) {
 	}
 	if got := c.Duration(120); got != 2*time.Second {
 		t.Errorf("Duration(120) = %v, want 2s", got)
+	}
+	if got := c.Duration(-5); got != 0 {
+		t.Errorf("Duration(-5) = %v, want 0", got)
+	}
+	// The longest cooldown at the highest rate is 86.4e9 steps; steps * time.Second would overflow int64.
+	fast, _ := newCaster(t, "  - id: a\n", ability.MaxRate)
+	if got := fast.Duration(fast.Steps(ability.MaxDuration)); got != ability.MaxDuration {
+		t.Errorf("Duration(Steps(MaxDuration)) at MaxRate = %v, want %v", got, ability.MaxDuration)
+	}
+	if got := c.Duration(math.MaxInt); got != time.Duration(math.MaxInt64) {
+		t.Errorf("Duration(MaxInt) = %v, want the largest Duration", got)
 	}
 	if _, err := ability.NewCaster(&ability.Set{Version: 1}, ability.MaxRate+1); err == nil {
 		t.Error("NewCaster accepted a rate above MaxRate")
@@ -376,6 +388,45 @@ func TestOnEventMayChainAbilities(t *testing.T) {
 	c.TryActivate("a")
 	c.Update(nil)
 	expectEvents(t, "chain", rec.take(), "0 a started", "1 a activated", "1 b started", "1 b activated")
+}
+
+func TestResetAndRestoreFromOnEventKeepPendingEvents(t *testing.T) {
+	// a's cooldown ends on the same step b's cast completes and pays; resetting or restoring on the cooldown event must still deliver b's activation.
+	const doc = "  - id: a\n    cooldown: 40ms\n  - id: b\n    castTime: 40ms\n    costs:\n      - resource: m\n        amount: 1\n"
+	for _, name := range []string{"Reset", "Restore"} {
+		t.Run(name, func(t *testing.T) {
+			c, rec := newCaster(t, doc, 50)
+			pool := ability.Pool{"m": 5}
+			c.Resources = pool
+			fresh := c.Snapshot()
+			c.OnEvent = func(e ability.Event) {
+				rec.on(e)
+				if e.Kind != ability.EventCooldownEnded {
+					return
+				}
+				if name == "Reset" {
+					c.Reset()
+				} else if err := c.Restore(&fresh); err != nil {
+					t.Error(err)
+				}
+			}
+			if r := c.TryActivate("a"); r != ability.ReasonOK {
+				t.Fatalf("TryActivate(a) = %v", r)
+			}
+			if r := c.TryActivate("b"); r != ability.ReasonOK {
+				t.Fatalf("TryActivate(b) = %v", r)
+			}
+			c.Update(nil)
+			c.Update(nil)
+			expectEvents(t, name, rec.take(), "0 a started", "0 a activated", "0 b started", "2 a cooldown ended", "2 b activated")
+			if pool["m"] != 4 {
+				t.Errorf("pool = %v, want 4", pool["m"])
+			}
+			if _, _, _, ok := c.Active(); ok {
+				t.Error("an ability is still active after the reset")
+			}
+		})
+	}
 }
 
 func TestEventAndReasonNames(t *testing.T) {
