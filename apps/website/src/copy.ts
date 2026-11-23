@@ -121,6 +121,7 @@ const en = {
     edit: 'Edit this page',
     fallback: 'This page is not translated yet, so it shows the English one.',
     reference: 'Reference',
+    status: { label: 'API stability', stable: 'Stable', experimental: 'Experimental' },
   },
   api: {
     title: 'API reference',
@@ -347,6 +348,7 @@ const zh: Copy = {
     edit: '编辑此页',
     fallback: '这一页还没有中文版，下面显示的是英文原文。',
     reference: '参考',
+    status: { label: 'API 稳定性', stable: '稳定', experimental: '实验性' },
   },
   api: {
     title: 'API 参考',

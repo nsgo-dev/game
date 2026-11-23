@@ -1714,6 +1714,29 @@ html[data-theme='dark'] .shiki span {
   font-size: 14.5px;
 }
 
+/* The packages a page is the guide of, each with its stability status. */
+.docs__packages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.docs__packages a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.docs__packages a:hover code {
+  color: var(--blue-ink);
+}
+
 .docs__edit {
   display: inline-flex;
   align-items: center;

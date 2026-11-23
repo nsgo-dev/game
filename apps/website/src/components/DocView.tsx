@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { docs } from 'virtual:docs'
 import { groupDocs } from '../content/groups'
-import type { DocPage } from '../content/types'
+import type { DocPackage, DocPage } from '../content/types'
 import { copies } from '../copy'
 import { htmlLang, type Lang, pageHead, routes, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
@@ -97,6 +97,7 @@ export function DocView({ doc }: { doc: DocPage }) {
           </p>
         )}
         <h1 tabIndex={-1}>{doc.title}</h1>
+        {doc.packages.length > 0 && <PackageStatuses lang={lang} packages={doc.packages} />}
         <div className="prose" ref={prose} dangerouslySetInnerHTML={{ __html: doc.html }} />
 
         <a className="docs__edit" lang={htmlLang(lang)} href={`${GITHUB_URL}/edit/main/${doc.source}`} target="_blank" rel="noopener noreferrer">
@@ -137,6 +138,23 @@ export function DocView({ doc }: { doc: DocPage }) {
         </nav>
       )}
     </div>
+  )
+}
+
+// PackageStatuses shows the stability status of each package a page is the guide of, each linking to the policy that defines it.
+function PackageStatuses({ lang, packages }: { lang: Lang; packages: DocPackage[] }) {
+  const words = copies[lang].docs.status
+  return (
+    <ul className="docs__packages" aria-label={words.label}>
+      {packages.map((pkg) => (
+        <li key={pkg.path}>
+          <Link to={routes[lang].doc} params={{ slug: 'stability' }}>
+            <code>{pkg.path}</code>
+            <span className={pkg.status === 'stable' ? 'chip chip--cleared' : 'chip chip--accent'}>{words[pkg.status]}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   )
 }
 
