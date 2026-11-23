@@ -279,7 +279,7 @@ async function loadPlaygroundModule(ctx: Context): Promise<string> {
   return `export const examples = ${JSON.stringify(examples)}\nexport const sources = { ${loaders} }`
 }
 
-// playgroundWasmSize is the size in bytes of the WebAssembly the web build in dir runs, as its nsgo.json names it, or 0 when dir holds no build.
+// playgroundWasmSize is the size in bytes of the WebAssembly the web build in dir runs, as its nsgo.json names it, or 0 when dir holds no usable build.
 async function playgroundWasmSize(dir: string): Promise<number> {
   let manifest: string
   try {
@@ -287,9 +287,15 @@ async function playgroundWasmSize(dir: string): Promise<number> {
   } catch {
     return 0
   }
-  const { wasm } = JSON.parse(manifest) as { wasm?: unknown }
-  if (typeof wasm !== 'string') throw new Error(`playground: ${dir}/nsgo.json names no wasm`)
-  return (await stat(path.join(dir, wasm))).size
+  // A build that is present but broken counts as missing, so a local build warns and goes on instead of dying, and CI still fails it through the missing-build check in loadPlaygroundModule.
+  try {
+    const { wasm } = JSON.parse(manifest) as { wasm?: unknown }
+    if (typeof wasm !== 'string' || wasm === '') throw new Error('nsgo.json names no wasm')
+    return (await stat(path.join(dir, wasm))).size
+  } catch (err) {
+    console.warn(`[playground] ignoring the build in ${dir}: ${err instanceof Error ? err.message : String(err)}`)
+    return 0
+  }
 }
 
 async function loadPlaygroundSource(ctx: Context, id: PlaygroundId): Promise<string> {
