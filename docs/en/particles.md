@@ -102,7 +102,7 @@ Other methods on `*Emitter`:
 
 ## Emitter definitions in YAML
 
-An emitter's configuration can live in a YAML file that people and tools edit and review as text. The keys are the `Config` field names in lower camel case, `version: 1` comes first, and fields left at their zero value are omitted, except `space` and `shape`, which are always written:
+An emitter's configuration can live in a YAML file that people and tools edit and review as text. The keys are the `Config` field names in lower camel case, `version: 1` comes first, and fields left at their zero value are omitted. A few are always written even at their default: `space` and `shape`, a sub-emitter's `trigger` and `config` (whose `space` and `shape` are written too), and `collision.mode` when a `collision` block is present:
 
 ```yaml
 version: 1
@@ -154,7 +154,7 @@ fire.ReloadConfig(cfg) // frameNames resolve against fire.Atlas
 
 - `LoadConfigFile`, `LoadConfigFS` and `UnmarshalConfigYAML` read a definition; `SaveConfigFile` and `MarshalConfigYAML` write one.
 - Saving is deterministic: keys keep a fixed order, indentation is two spaces, and a definition loaded and saved again comes back byte for byte when it is already in that form.
-- Loading refuses a `version` other than `FormatVersion`, unknown keys, duplicate keys, a key with no value, and a second YAML document.
+- Loading refuses a `version` other than `FormatVersion` or one inside a sub-emitter's `config`, unknown keys, duplicate keys, a key with no value, a second YAML document, a fraction in an integer field such as `maxParticles: 12.7`, and a shape size that does not apply to its kind, such as `width` on a `circle`.
 - Durations are strings in Go's `time.Duration` form, such as `500ms` or `1m30s`; a bare number is refused because its unit would be ambiguous.
 - Colors are quoted `"#rrggbb"` (opaque) or `"#rrggbbaa"` strings. Quote them: an unquoted `#` starts a YAML comment, and loading reports the key as having no value.
 - `shape.kind` is `point`, `circle`, `ring` or `rect`; `space` is `world` or `local`; `collision.mode` is `none`, `stop`, `bounce` or `kill`; a sub-emitter's `trigger` is `birth`, `death` or `collision`.

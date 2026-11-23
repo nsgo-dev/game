@@ -236,6 +236,20 @@ func TestConfigYAMLValidationErrors(t *testing.T) {
 		{"nan", "version: 1\nrate: .nan\n", "NaN"},
 		{"overflow_float", "version: 1\nrate: 1e300\n", "NaN or Inf"},
 		{"wrong_type", "version: 1\nmaxParticles: lots\n", "decode"},
+		{"fractional_version", "version: 1.9\n", "whole number"},
+		{"fractional_max_particles", "version: 1\nmaxParticles: 12.7\n", "whole number"},
+		{"fractional_z", "version: 1\nz: 2.5\n", "whole number"},
+		{"fractional_seed", "version: 1\nseed: 3.5\n", "whole number"},
+		{"negative_seed", "version: 1\nseed: -1\n", "decode"},
+		{"fractional_burst_count", "version: 1\nsubEmitters:\n  - trigger: death\n    burstCount: 2.5\n", "whole number"},
+		{"fractional_max_points", "version: 1\ntrail:\n  maxPoints: 8.5\n", "whole number"},
+		{"aliased_fractional_int", "version: 1\nrate: &n 12.7\nmaxParticles: *n\n", "whole number"},
+		{"sub_emitter_version", "version: 1\nsubEmitters:\n  - trigger: death\n    config:\n      version: 7\n      rate: 3\n", "only allowed at the top level"},
+		{"circle_with_width", "version: 1\nshape:\n  kind: circle\n  width: 9\n", "takes radius"},
+		{"ring_with_height", "version: 1\nshape:\n  kind: ring\n  radius: 4\n  height: 2\n", "takes radius"},
+		{"rect_with_radius", "version: 1\nshape:\n  kind: rect\n  width: 4\n  height: 2\n  radius: 1\n", "takes width and height"},
+		{"point_with_radius", "version: 1\nshape:\n  kind: point\n  radius: 3\n", "point shape"},
+		{"kindless_shape_with_width", "version: 1\nshape:\n  width: 3\n", "point shape"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -23,6 +23,38 @@ const FormatVersion = 1
 
 const maxConfigSubDepth = 8
 
+// docInt is an integer field. The YAML decoder on its own truncates a float such as 1.9 to 1 when it fills an int, so docInt checks the value as written.
+type docInt int
+
+// UnmarshalYAML accepts only an integer such as 12; a value with a fraction or of another type is refused instead of being truncated.
+func (n *docInt) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" {
+		return fmt.Errorf("line %d: %q must be a whole number", value.Line, value.Value)
+	}
+	var v int
+	if err := value.Decode(&v); err != nil {
+		return fmt.Errorf("line %d: %w", value.Line, err)
+	}
+	*n = docInt(v)
+	return nil
+}
+
+// docUint64 is an unsigned 64-bit integer field, checked as written for the same reason as docInt.
+type docUint64 uint64
+
+// UnmarshalYAML accepts only a non-negative integer; a value with a fraction or of another type is refused instead of being truncated.
+func (n *docUint64) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" {
+		return fmt.Errorf("line %d: %q must be a whole number", value.Line, value.Value)
+	}
+	var v uint64
+	if err := value.Decode(&v); err != nil {
+		return fmt.Errorf("line %d: %w", value.Line, err)
+	}
+	*n = docUint64(v)
+	return nil
+}
+
 type docDuration time.Duration
 
 // MarshalYAML writes the duration in time.Duration.String form, such as "1.25s".
@@ -194,7 +226,7 @@ type collisionDoc struct {
 }
 
 type trailDoc struct {
-	MaxPoints     int            `json:"maxPoints,omitempty" yaml:"maxPoints,omitempty"`
+	MaxPoints     docInt         `json:"maxPoints,omitempty" yaml:"maxPoints,omitempty"`
 	Lifetime      float32        `json:"lifetime,omitempty" yaml:"lifetime,omitempty"`
 	MinDistance   float32        `json:"minDistance,omitempty" yaml:"minDistance,omitempty"`
 	Width         float32        `json:"width,omitempty" yaml:"width,omitempty"`
@@ -206,20 +238,20 @@ type trailDoc struct {
 
 type subEmitterDoc struct {
 	Trigger         string     `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	BurstCount      int        `json:"burstCount,omitempty" yaml:"burstCount,omitempty"`
+	BurstCount      docInt     `json:"burstCount,omitempty" yaml:"burstCount,omitempty"`
 	InheritVelocity float32    `json:"inheritVelocity,omitempty" yaml:"inheritVelocity,omitempty"`
 	Config          *configDoc `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
 type configDoc struct {
-	Version            int             `json:"version,omitempty" yaml:"version,omitempty"`
+	Version            docInt          `json:"version,omitempty" yaml:"version,omitempty"`
 	X                  float32         `json:"x,omitempty" yaml:"x,omitempty"`
 	Y                  float32         `json:"y,omitempty" yaml:"y,omitempty"`
 	Rotation           float32         `json:"rotation,omitempty" yaml:"rotation,omitempty"`
 	Space              string          `json:"space,omitempty" yaml:"space,omitempty"`
 	Shape              *shapeDoc       `json:"shape,omitempty" yaml:"shape,omitempty"`
 	Rate               float32         `json:"rate,omitempty" yaml:"rate,omitempty"`
-	MaxParticles       int             `json:"maxParticles,omitempty" yaml:"maxParticles,omitempty"`
+	MaxParticles       docInt          `json:"maxParticles,omitempty" yaml:"maxParticles,omitempty"`
 	LifetimeMin        docDuration     `json:"lifetimeMin,omitempty" yaml:"lifetimeMin,omitempty"`
 	LifetimeMax        docDuration     `json:"lifetimeMax,omitempty" yaml:"lifetimeMax,omitempty"`
 	SpeedMin           float32         `json:"speedMin,omitempty" yaml:"speedMin,omitempty"`
@@ -236,8 +268,8 @@ type configDoc struct {
 	AlphaCurve         []floatStopDoc  `json:"alphaCurve,omitempty" yaml:"alphaCurve,omitempty"`
 	RotationCurve      []floatStopDoc  `json:"rotationCurve,omitempty" yaml:"rotationCurve,omitempty"`
 	ColorCurve         []colorStopDoc  `json:"colorCurve,omitempty" yaml:"colorCurve,omitempty"`
-	Seed               uint64          `json:"seed,omitempty" yaml:"seed,omitempty"`
-	Z                  int             `json:"z,omitempty" yaml:"z,omitempty"`
+	Seed               docUint64       `json:"seed,omitempty" yaml:"seed,omitempty"`
+	Z                  docInt          `json:"z,omitempty" yaml:"z,omitempty"`
 	FrameNames         []string        `json:"frameNames,omitempty" yaml:"frameNames,omitempty"`
 	Collision          *collisionDoc   `json:"collision,omitempty" yaml:"collision,omitempty"`
 	Trail              *trailDoc       `json:"trail,omitempty" yaml:"trail,omitempty"`
@@ -268,7 +300,7 @@ func MarshalConfigYAML(cfg Config) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// UnmarshalConfigYAML decodes a versioned YAML emitter definition into a Config. It refuses unknown fields, a key with no value, a second YAML document, a version other than FormatVersion, durations that are not strings such as "500ms", and colors that are not quoted "#rrggbb" or "#rrggbbaa" strings.
+// UnmarshalConfigYAML decodes a versioned YAML emitter definition into a Config. It refuses unknown fields, a key with no value, a second YAML document, a version other than FormatVersion or one inside a sub-emitter, an integer field written with a fraction, a shape size that does not apply to its kind, durations that are not strings such as "500ms", and colors that are not quoted "#rrggbb" or "#rrggbbaa" strings.
 func UnmarshalConfigYAML(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return Config{}, errors.New("particles: empty config YAML")
@@ -414,7 +446,7 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 		Space:              cfg.Space.String(),
 		Shape:              shapeToDoc(cfg.Shape),
 		Rate:               cfg.Rate,
-		MaxParticles:       cfg.MaxParticles,
+		MaxParticles:       docInt(cfg.MaxParticles),
 		LifetimeMin:        docDuration(cfg.LifetimeMin),
 		LifetimeMax:        docDuration(cfg.LifetimeMax),
 		SpeedMin:           cfg.SpeedMin,
@@ -431,8 +463,8 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 		AlphaCurve:         floatCurveToDoc(cfg.AlphaCurve),
 		RotationCurve:      floatCurveToDoc(cfg.RotationCurve),
 		ColorCurve:         colorCurveToDoc(cfg.ColorCurve),
-		Seed:               cfg.Seed,
-		Z:                  cfg.Z,
+		Seed:               docUint64(cfg.Seed),
+		Z:                  docInt(cfg.Z),
 		FrameNames:         append([]string(nil), cfg.FrameNames...),
 	}
 	if includeVersion {
@@ -452,7 +484,7 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 
 	if cfg.Trail != nil {
 		jt := &trailDoc{
-			MaxPoints:     cfg.Trail.MaxPoints,
+			MaxPoints:     docInt(cfg.Trail.MaxPoints),
 			Lifetime:      cfg.Trail.Lifetime,
 			MinDistance:   cfg.Trail.MinDistance,
 			Width:         cfg.Trail.Width,
@@ -476,7 +508,7 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 			}
 			doc.SubEmitters[i] = subEmitterDoc{
 				Trigger:         rule.Trigger.String(),
-				BurstCount:      rule.BurstCount,
+				BurstCount:      docInt(rule.BurstCount),
 				InheritVelocity: rule.InheritVelocity,
 				Config:          subDoc,
 			}
@@ -491,6 +523,9 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 	}
 	if depth > maxConfigSubDepth {
 		return Config{}, fmt.Errorf("particles: sub-emitter nesting exceeds max depth %d", maxConfigSubDepth)
+	}
+	if depth > 0 && doc.Version != 0 {
+		return Config{}, errors.New("particles: version is only allowed at the top level, not in a sub-emitter's config")
 	}
 	space, err := parseSimulationSpace(doc.Space)
 	if err != nil {
@@ -507,7 +542,7 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 		Space:              space,
 		Shape:              shape,
 		Rate:               doc.Rate,
-		MaxParticles:       doc.MaxParticles,
+		MaxParticles:       int(doc.MaxParticles),
 		LifetimeMin:        time.Duration(doc.LifetimeMin),
 		LifetimeMax:        time.Duration(doc.LifetimeMax),
 		SpeedMin:           doc.SpeedMin,
@@ -524,8 +559,8 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 		AlphaCurve:         floatCurveFromDoc(doc.AlphaCurve),
 		RotationCurve:      floatCurveFromDoc(doc.RotationCurve),
 		ColorCurve:         colorCurveFromDoc(doc.ColorCurve),
-		Seed:               doc.Seed,
-		Z:                  doc.Z,
+		Seed:               uint64(doc.Seed),
+		Z:                  int(doc.Z),
 		FrameNames:         append([]string(nil), doc.FrameNames...),
 	}
 
@@ -545,7 +580,7 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 
 	if doc.Trail != nil {
 		tc := TrailConfig{
-			MaxPoints:     doc.Trail.MaxPoints,
+			MaxPoints:     int(doc.Trail.MaxPoints),
 			Lifetime:      doc.Trail.Lifetime,
 			MinDistance:   doc.Trail.MinDistance,
 			Width:         doc.Trail.Width,
@@ -578,7 +613,7 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 			cfg.SubEmitters[i] = SubEmitterRule{
 				Trigger:         trig,
 				Config:          subCfg,
-				BurstCount:      sub.BurstCount,
+				BurstCount:      int(sub.BurstCount),
 				InheritVelocity: sub.InheritVelocity,
 			}
 		}
@@ -656,15 +691,28 @@ func shapeToDoc(s Shape) *shapeDoc {
 }
 
 func shapeFromDoc(js *shapeDoc) (Shape, error) {
-	if js == nil || js.Kind == "" || js.Kind == "point" {
+	if js == nil {
 		return Point(), nil
 	}
+	// A size that does not apply to the kind would be dropped on the next save, so it is refused instead.
 	switch js.Kind {
-	case "circle":
-		return Circle(js.Radius), nil
-	case "ring":
+	case "", "point":
+		if js.Radius != 0 || js.Width != 0 || js.Height != 0 {
+			return Shape{}, errors.New("particles: a point shape takes no radius, width or height")
+		}
+		return Point(), nil
+	case "circle", "ring":
+		if js.Width != 0 || js.Height != 0 {
+			return Shape{}, fmt.Errorf("particles: a %s shape takes radius, not width or height", js.Kind)
+		}
+		if js.Kind == "circle" {
+			return Circle(js.Radius), nil
+		}
 		return Ring(js.Radius), nil
 	case "rect":
+		if js.Radius != 0 {
+			return Shape{}, errors.New("particles: a rect shape takes width and height, not radius")
+		}
 		return Rect(js.Width, js.Height), nil
 	default:
 		return Shape{}, fmt.Errorf("particles: unknown shape kind %q", js.Kind)
@@ -932,8 +980,7 @@ func (h *HotConfig) Apply(cfg Config) {
 	}
 }
 
-// ReloadBytes decodes a versioned YAML emitter definition and, if valid, applies the new Config to all bound Emitters.
-// An invalid definition returns an error and leaves the current Config and Emitters unchanged.
+// ReloadBytes decodes a versioned YAML emitter definition and, if valid, applies the new Config to all bound Emitters. An invalid definition returns an error and leaves the current Config and Emitters unchanged.
 func (h *HotConfig) ReloadBytes(data []byte) error {
 	cfg, err := UnmarshalConfigYAML(data)
 	if err != nil {
@@ -969,8 +1016,7 @@ func (h *HotConfig) ReloadHook() func(path string) error {
 	}
 }
 
-// StageBytes decodes a versioned YAML emitter definition from a background watcher thread without touching Emitters yet.
-// Call Flush from the game loop thread to apply the staged config safely.
+// StageBytes decodes a versioned YAML emitter definition from a background watcher thread without touching Emitters yet. Call Flush from the game loop thread to apply the staged config safely.
 func (h *HotConfig) StageBytes(data []byte) error {
 	cfg, err := UnmarshalConfigYAML(data)
 	if err != nil {
