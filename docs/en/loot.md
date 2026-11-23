@@ -39,7 +39,7 @@ tables:
 - An entry drops an `item`, rolls another `table`, or drops `nothing`; a `nothing` entry's weight sets the chance of a miss. Weights are relative and positive; the chance of an entry is its weight over the table's total.
 - `count` is an item's quantity, or how many times a table entry rolls its table. `rolls` and `count` take an integer or a `{min, max}` range drawn uniformly.
 
-`loot.Parse` refuses unknown fields, any version but 1, duplicate names, unknown or cyclic table references, and tables whose worst-case roll would exceed `loot.MaxRollSteps` (65536 picks, sub-table rolls and drops). `loot.Encode` writes a document back as deterministic YAML: the fields in a fixed order, a range written as an integer when its ends are equal, and text that parses back to an equal document.
+`loot.Parse` refuses unknown fields, any version but 1, duplicate names, unknown or cyclic table references, and tables whose worst-case roll would exceed `loot.MaxRollSteps` (65536 steps, where a weighted pick costs one step per entry and pity rule of its table, and every sub-table roll and drop costs one more). `loot.Encode` writes a document back as deterministic YAML: the fields in a fixed order, a range written as an integer when its ends are equal, and text that parses back to an equal document.
 
 ## Rolling
 

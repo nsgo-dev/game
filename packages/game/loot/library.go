@@ -259,7 +259,7 @@ func (l *Library) compileEntries(where string, entries []Entry, guaranteed bool)
 	return out, nil
 }
 
-// computeSteps refuses reference cycles and computes each table's worst-case work, refusing tables above MaxRollSteps.
+// computeSteps refuses reference cycles and computes each table's worst-case work, refusing tables above MaxRollSteps. Each weighted pick counts as the table's number of entries plus its number of pity rules, so wide tables are bounded as well as deep or repeated ones.
 func (l *Library) computeSteps() error {
 	const (
 		unvisited = iota
@@ -306,7 +306,9 @@ func (l *Library) computeSteps() error {
 			}
 			worst = max(worst, s)
 		}
-		steps = satAdd(steps, satMul(t.rollsMax, satAdd(1, worst)))
+		// A weighted pick scans every entry (WeightedIndex and the soft pity ramp) and every pity rule, so it costs len(entries)+len(pity) steps on top of the work of the entry it picks.
+		pickCost := len(t.entries) + len(t.pity)
+		steps = satAdd(steps, satMul(t.rollsMax, satAdd(pickCost, worst)))
 		if steps > MaxRollSteps {
 			return fmt.Errorf("loot: table %q: a roll can take more than %d steps; lower its rolls or counts", t.name, MaxRollSteps)
 		}
