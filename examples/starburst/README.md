@@ -18,7 +18,7 @@ It demonstrates high-throughput 2D rendering (**1,000+ active moving sprites, bu
 
 ## Leaderboard
 
-`leaderboards.yaml` declares a `high-score` board for the [`leaderboard`](../../docs/en/leaderboard.md) package. The game signs the player in at launch, submits the score when a run ends (stress mode excluded), and shows a **LEADERBOARD** button on the game-over screen that opens Game Center's board. To ship it, register `dev.nsgo.game.starburst.high_score` in App Store Connect; for Android, create the board in the Play Console and add its generated ID as `playGames`. Platforms without a game service show no leaderboard UI.
+`leaderboards.yaml` declares a `high-score` board for the [`leaderboard`](../../docs/en/leaderboard.md) package. The game signs the player in at launch, submits the score when a run ends (stress mode excluded), and shows a **LEADERBOARD** button on the game-over screen that opens Game Center's board. A player who skipped the launch sign-in gets a **SIGN IN** button there instead, which signs in and submits that run. To ship it, register `dev.nsgo.game.starburst.high_score` in App Store Connect; for Android, create the board in the Play Console and add its generated ID as `playGames`. Platforms without a game service show no leaderboard UI.
 
 ## Run, Test, and Benchmark
 

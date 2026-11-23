@@ -22,7 +22,7 @@ type GameController struct {
 	frameSig    *core.Signal[uint64]
 	hudSig      *core.Signal[HUDState]
 	boardStatus *core.Signal[string]
-	// runID counts restarts so a submission answered after a restart does not label the new run.
+	// runID counts runs left after a game over, so a submission or sign-in answered after the next run started does not label that run.
 	runID uint64
 
 	viewSize     core.Size
@@ -155,6 +155,11 @@ func (gc *GameController) syncUI() {
 		if next.GameOver && !gc.lastHUDState.GameOver && !next.StressMode {
 			gc.submitScore(next.Score)
 		}
+		if gc.lastHUDState.GameOver && !next.GameOver {
+			// A new run starts however the game-over screen is left (PLAY AGAIN, RESTART or the stress toggle), so the previous run's leaderboard result must not carry over.
+			gc.runID++
+			gc.boardStatus.Set("")
+		}
 		gc.lastHUDState = next
 		gc.hudSig.Set(next)
 	}
@@ -176,8 +181,6 @@ func (gc *GameController) TogglePause() {
 func (gc *GameController) Restart() {
 	gc.Arena.Restart()
 	gc.Actions.Reset()
-	gc.runID++
-	gc.boardStatus.Set("")
 	gc.syncUI()
 }
 
@@ -509,6 +512,14 @@ func (gc *GameController) hudOverlay(cx *core.Scope, full core.Style) core.Node 
 										},
 										Then: func(*core.Scope) core.Node {
 											return hudBtn("btn-leaderboard", func() string { return "LEADERBOARD" }, nil, gc.ShowLeaderboard)
+										},
+									},
+									core.Show{
+										When: func() bool {
+											return gc.hudSig.Get().GameOver && !gc.Boards.SignedIn() && gc.Boards.Supports(highScoreBoard)
+										},
+										Then: func(*core.Scope) core.Node {
+											return hudBtn("btn-sign-in", func() string { return "SIGN IN" }, nil, gc.SignInAndSubmit)
 										},
 									},
 								},

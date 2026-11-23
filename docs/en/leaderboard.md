@@ -96,4 +96,4 @@ Set `OS` to `core.OSAndroid` to test the `playGames` IDs, and use `SeedLeaderboa
 
 ## Example
 
-[Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) declares a `high-score` board in `leaderboards.yaml`, submits the score when a run ends, and shows a LEADERBOARD button on the game-over screen once the player is signed in.
+[Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) declares a `high-score` board in `leaderboards.yaml`, submits the score when a run ends, and shows a LEADERBOARD button on the game-over screen once the player is signed in, or a SIGN IN button that signs the player in and submits the run while signed out.

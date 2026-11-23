@@ -2,6 +2,7 @@ package leaderboard_test
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -163,10 +164,34 @@ func TestScoresUsesPlatformIDAndQuery(t *testing.T) {
 		t.Fatalf("global top 2 = %+v", rows)
 	}
 
+	// nsgotest's fake game service ignores the time scope, so this checks only that a Week query reaches the platform and answers.
 	svc.Scores("high-score", leaderboard.Query{Players: leaderboard.Friends, Time: leaderboard.Week}, func(e []leaderboard.Entry, e2 error) { rows, err = e, e2 })
 	app.Settle()
 	if err != nil || len(rows) != 2 || rows[0].PlayerID != "p2" || rows[1].PlayerID != "p1" {
 		t.Fatalf("friends = %+v, %v", rows, err)
+	}
+}
+
+func TestScoresClampsLimit(t *testing.T) {
+	app, svc := start(t, androidEnv)
+	app.SetGameServicesPlayer(leaderboard.Player{ID: "p1", Authenticated: true})
+	seed := make([]core.GameScoreEntry, 150)
+	for i := range seed {
+		seed[i] = core.GameScoreEntry{PlayerID: fmt.Sprintf("p%03d", i), Score: int64(1000 + i)}
+	}
+	app.SeedLeaderboardScores(highScorePG, seed...)
+
+	for _, tc := range []struct{ limit, want int }{{500, 100}, {0, 25}, {-3, 25}, {40, 40}} {
+		var rows []leaderboard.Entry
+		var err error
+		svc.Scores("high-score", leaderboard.Query{Limit: tc.limit}, func(e []leaderboard.Entry, e2 error) { rows, err = e, e2 })
+		app.Settle()
+		if err != nil || len(rows) != tc.want {
+			t.Fatalf("Limit %d: %d rows, %v; want %d", tc.limit, len(rows), err, tc.want)
+		}
+		if rows[0].Score != 1149 || rows[0].Rank != 1 {
+			t.Fatalf("Limit %d: first row %+v", tc.limit, rows[0])
+		}
 	}
 }
 
