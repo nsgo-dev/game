@@ -145,12 +145,31 @@ func (p *Presenter) Draw(d *core.Drawing, size core.Size, st Style) {
 		return
 	}
 	p.drawPortraits(d, size, st)
-	line, ok := p.Line()
-	if !ok {
-		return
-	}
 	choices := p.Choices()
 	l := st.Layout(size, len(choices))
+	// A node can open with options, so the choice buttons are drawn with or without a line shown.
+	if line, ok := p.Line(); ok {
+		p.drawLine(d, st, l, line)
+	}
+	for i, c := range choices {
+		b := l.Choices[i]
+		d.Save()
+		if !c.Available {
+			d.SetAlpha(0.45)
+		}
+		d.SetFillColor(orColor(st.ChoiceColor, st.boxColor())).BeginPath().
+			RoundRect(float32(b.Origin.X), float32(b.Origin.Y), float32(b.Size.Width), float32(b.Size.Height), 10).Fill()
+		d.Restore()
+		cs := text.PlatformStyle{Font: st.textFont(), Color: orColor(st.TextColor, core.RGB(0xffffff)), Align: text.AlignCenter, Baseline: core.BaselineMiddle, MaxWidth: float32(b.Size.Width)}
+		if !c.Available {
+			cs.Alpha = 0.45
+		}
+		text.DrawPlatform(d, text.ParseRich(c.Text).PlainText(), float32(b.Origin.X), float32(b.Origin.Y)+float32(b.Size.Height)/2, cs)
+	}
+}
+
+// drawLine draws the text box with line's name plate and the text the typewriter has revealed.
+func (p *Presenter) drawLine(d *core.Drawing, st Style, l Layout, line Line) {
 	box := l.Box
 	if st.Box != nil {
 		st.Box.Draw(d, float32(box.Origin.X), float32(box.Origin.Y), float32(box.Size.Width), float32(box.Size.Height))
@@ -190,22 +209,6 @@ func (p *Presenter) Draw(d *core.Drawing, size core.Size, st Style) {
 			tw.DrawPlatform(d, pos, text.PlatformStyle{Font: st.textFont(), Color: color, MaxWidth: float32(l.Text.Size.Width)}, opts)
 		}
 	}
-
-	for i, c := range choices {
-		b := l.Choices[i]
-		d.Save()
-		if !c.Available {
-			d.SetAlpha(0.45)
-		}
-		d.SetFillColor(orColor(st.ChoiceColor, st.boxColor())).BeginPath().
-			RoundRect(float32(b.Origin.X), float32(b.Origin.Y), float32(b.Size.Width), float32(b.Size.Height), 10).Fill()
-		d.Restore()
-		cs := text.PlatformStyle{Font: st.textFont(), Color: orColor(st.TextColor, core.RGB(0xffffff)), Align: text.AlignCenter, Baseline: core.BaselineMiddle, MaxWidth: float32(b.Size.Width)}
-		if !c.Available {
-			cs.Alpha = 0.45
-		}
-		text.DrawPlatform(d, text.ParseRich(c.Text).PlainText(), float32(b.Origin.X), float32(b.Origin.Y)+float32(b.Size.Height)/2, cs)
-	}
 }
 
 func (p *Presenter) drawPortraits(d *core.Drawing, size core.Size, st Style) {
@@ -237,7 +240,7 @@ func (p *Presenter) drawPortraits(d *core.Drawing, size core.Size, st Style) {
 	}
 }
 
-// DrawBacklog draws the backlog over a stage of size: each entry's name in its plate color above its text, the newest at the bottom, skipping the newest scroll entries so a game can scroll back through it. It returns how many entries it drew.
+// DrawBacklog draws the backlog over a stage of size: each entry's name in its plate color above its text, the newest at the bottom, skipping the newest scroll entries so a game can scroll back through it. An entry taller than the stage is drawn alone from the top, cut off at the bottom, so every entry can be read. It returns how many entries it drew.
 func (p *Presenter) DrawBacklog(d *core.Drawing, size core.Size, st Style, scroll int) int {
 	if d == nil {
 		return 0
@@ -265,7 +268,10 @@ func (p *Presenter) DrawBacklog(d *core.Drawing, size core.Size, st Style, scrol
 		}
 		top := y - entryH
 		if top < m {
-			break
+			if drawn > 0 {
+				break
+			}
+			top = m
 		}
 		x := m + pad
 		ty := top

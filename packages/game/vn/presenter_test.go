@@ -467,6 +467,85 @@ func TestStartKeepsBacklogAndReadLines(t *testing.T) {
 	}
 }
 
+func TestStartUnknownNodeKeepsState(t *testing.T) {
+	p := newPresenter(t, sceneYarn, vn.Options{CharsPerSecond: -1})
+	before := stageOf(p)
+	if err := p.Start("Typo"); !errors.Is(err, flow.ErrUnknownNode) {
+		t.Fatalf("Start(Typo) = %v, want ErrUnknownNode", err)
+	}
+	if got := lineText(t, p); got != "Welcome to the observatory." {
+		t.Fatalf("line = %q, want the first line still shown", got)
+	}
+	if !sameStage(stageOf(p), before) {
+		t.Fatalf("stage = %v, want %v", stageOf(p), before)
+	}
+	if err := p.Advance(); err != nil {
+		t.Fatal(err)
+	}
+	if got := lineText(t, p); got != "It is smaller than I pictured." {
+		t.Fatalf("line = %q, want the second line", got)
+	}
+}
+
+func TestEffectsKeepAnimatingAfterReveal(t *testing.T) {
+	src := "title: Start\n---\nAiko: [wave]Hi[/wave] #line:a\n-> Go #line:c\n    Ren: Ok. #line:b\n===\n"
+	p := newPresenter(t, src, vn.Options{CharsPerSecond: -1})
+	tw := p.Typewriter()
+	if !tw.Done() {
+		t.Fatal("a negative rate should show the line at once")
+	}
+	e0 := tw.Elapsed()
+	if err := p.Update(step); err != nil {
+		t.Fatal(err)
+	}
+	if tw.Elapsed() <= e0 {
+		t.Fatal("the typewriter's clock stopped once the line had appeared")
+	}
+	if err := p.Advance(); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Choices()) != 1 {
+		t.Fatalf("choices = %v", p.Choices())
+	}
+	e1 := tw.Elapsed()
+	if err := p.Update(step); err != nil {
+		t.Fatal(err)
+	}
+	if tw.Elapsed() <= e1 {
+		t.Fatal("the typewriter's clock stopped while choices wait")
+	}
+}
+
+func TestChooseStopsVoice(t *testing.T) {
+	src := "title: Start\n---\nAiko: Pick one. #line:q #voice:vq\n-> A #line:ca\n    Ren: Fine. #line:a\n-> B #line:cb\n    Ren: Also fine. #line:b\n===\n"
+	voices := &fakeVoices{lengths: map[string]time.Duration{"vq": time.Second}}
+	p := newPresenter(t, src, vn.Options{Voices: voices, CharsPerSecond: -1, AutoDelay: -1})
+	if err := p.Advance(); err != nil {
+		t.Fatal(err)
+	}
+	// The player replays the question's voice from the backlog while the choices wait.
+	if !p.ReplayVoice(0) {
+		t.Fatal("ReplayVoice(0) did not play")
+	}
+	stops := voices.stops
+	if err := p.Choose(0); err != nil {
+		t.Fatal(err)
+	}
+	if voices.stops == stops {
+		t.Fatal("choosing did not stop the voice playing")
+	}
+	if got := lineText(t, p); got != "Fine." {
+		t.Fatalf("line = %q", got)
+	}
+	p.SetAuto(true)
+	if err := p.Update(step); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Ended() {
+		t.Fatal("auto mode waited on a voice from before the choice")
+	}
+}
+
 func BenchmarkPresenterUpdate(b *testing.B) {
 	script, err := flow.ParseYarn(sceneYarn)
 	if err != nil {
