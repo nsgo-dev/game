@@ -11,3 +11,6 @@ node_modules/
 /apps/website/src/routeTree.gen.ts
 # The playground's web builds of the examples (bun run playground)
 /apps/website/public/play/
+# The agent notes board (bun run init-board, bun run bundle-board)
+/board.html
+/demo.html
