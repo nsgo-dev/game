@@ -134,31 +134,27 @@ func (s *Store) DB() *sql.DB { return s.db }
 // Close closes the store's database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// Head implements cloudsave.Store.
+// Head implements cloudsave.Store. It reads the slot's head and its data in one statement, so an Append that commits in between and prunes that version cannot make a live slot look missing.
 func (s *Store) Head(ctx context.Context, account, slot string) (cloudsave.Version, error) {
-	v, ok, err := s.head(ctx, s.db, account, slot)
-	if err != nil {
-		return cloudsave.Version{}, s.wrap("head", err)
-	}
-	if !ok {
-		return cloudsave.Version{}, cloudsave.ErrNotFound
-	}
-	if v.Deleted {
-		return v, nil
-	}
-	return s.Version(ctx, account, slot, v.Number)
+	row := s.db.QueryRowContext(ctx, s.q(`SELECT v.version, v.deleted, v.hash, v.size, v.created_at, v.data FROM cloudsave_slots s JOIN cloudsave_versions v ON v.account_id = s.account_id AND v.slot = s.slot AND v.version = s.version WHERE s.account_id = ? AND s.slot = ?`), account, slot)
+	return s.scanVersion(row, slot, "head")
 }
 
 // Version implements cloudsave.Store.
 func (s *Store) Version(ctx context.Context, account, slot string, number int64) (cloudsave.Version, error) {
 	row := s.db.QueryRowContext(ctx, s.q(`SELECT version, deleted, hash, size, created_at, data FROM cloudsave_versions WHERE account_id = ? AND slot = ? AND version = ?`), account, slot, number)
+	return s.scanVersion(row, slot, "version")
+}
+
+// scanVersion scans one version row with its data, returning ErrNotFound when there is none.
+func (s *Store) scanVersion(row *sql.Row, slot, op string) (cloudsave.Version, error) {
 	v := cloudsave.Version{Slot: slot}
 	var deleted, created int64
 	if err := row.Scan(&v.Number, &deleted, &v.Hash, &v.Size, &created, &v.Data); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return cloudsave.Version{}, cloudsave.ErrNotFound
 		}
-		return cloudsave.Version{}, s.wrap("version", err)
+		return cloudsave.Version{}, s.wrap(op, err)
 	}
 	v.Deleted, v.Created = deleted != 0, time.UnixMilli(created).UTC()
 	if v.Deleted {

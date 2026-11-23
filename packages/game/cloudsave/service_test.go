@@ -334,12 +334,12 @@ func TestNewRefusesIncompleteOptions(t *testing.T) {
 }
 
 func TestValidateSlot(t *testing.T) {
-	for _, ok := range []string{"main", "slot 1", "セーブ", "a.conflict-phone-2", strings.Repeat("x", 200)} {
+	for _, ok := range []string{"main", "slot 1", "セーブ", "a.conflict-phone-2", "...", strings.Repeat("x", 200)} {
 		if err := cloudsave.ValidateSlot(ok); err != nil {
 			t.Errorf("ValidateSlot(%q) = %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "a/b", "a\nb", "a\x7fb", "a\u0085b", strings.Repeat("x", 201), string([]byte{0xff})} {
+	for _, bad := range []string{"", ".", "..", "a/b", "a\nb", "a\x7fb", "a\u0085b", strings.Repeat("x", 201), string([]byte{0xff})} {
 		if err := cloudsave.ValidateSlot(bad); !errors.Is(err, cloudsave.ErrInvalidSlot) {
 			t.Errorf("ValidateSlot(%q) = %v", bad, err)
 		}

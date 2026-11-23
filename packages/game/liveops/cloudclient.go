@@ -27,7 +27,7 @@ type CloudClientOptions struct {
 	URL string
 	// Token returns a current bearer token from the account service for the signed-in player, getting a new one when the last has expired. Every device signed in to the same account reads and writes the same slots. Required.
 	Token func(ctx context.Context) (string, error)
-	// HTTPClient sends the requests; http.DefaultClient when nil. On the web its requests go through the browser's fetch, so the page's origin must be in the service's allowedOrigins.
+	// HTTPClient sends the requests; http.DefaultClient when nil. The client uses a copy that does not follow redirects. On the web its requests go through the browser's fetch, so the page's origin must be in the service's allowedOrigins.
 	HTTPClient *http.Client
 	// Now stamps payloads Restore re-writes; time.Now when nil.
 	Now func() time.Time
@@ -73,10 +73,14 @@ func NewCloudClient(opts CloudClientOptions) (*CloudClient, error) {
 	}
 	// Request paths, already escaped, are appended to the base's text.
 	u.Path, u.RawPath = strings.TrimSuffix(u.Path, "/"), strings.TrimSuffix(u.RawPath, "/")
-	c := &CloudClient{base: u, token: opts.Token, http: opts.HTTPClient, now: opts.Now}
-	if c.http == nil {
-		c.http = http.DefaultClient
+	hc := http.DefaultClient
+	if opts.HTTPClient != nil {
+		hc = opts.HTTPClient
 	}
+	// The service never redirects. Following one would send the token elsewhere and could turn another resource's 2xx into a slot's payload, so a redirect is returned as it is and reported as an error.
+	noRedirect := *hc
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	c := &CloudClient{base: u, token: opts.Token, http: &noRedirect, now: opts.Now}
 	if c.now == nil {
 		c.now = time.Now
 	}
@@ -286,6 +290,9 @@ func (c *CloudClient) do(ctx context.Context, op, slot, method, path string, bod
 	}
 	if slot == "" && path != "/v1/saves" {
 		return cloudResponse{}, fmt.Errorf("liveops: %s: empty slot name", what)
+	}
+	if slot == "." || slot == ".." {
+		return cloudResponse{}, fmt.Errorf("liveops: %s: the cloud save service cannot store a slot named %q", what, slot)
 	}
 	if err := ctx.Err(); err != nil {
 		return cloudResponse{}, err

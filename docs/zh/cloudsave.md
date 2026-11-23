@@ -70,7 +70,7 @@ err = cloud.Purge(ctx, "main") // 永久删除槽位及其历史
 
 - `maxSlotBytes` 限制负载大小。更大的负载会在服务读过上限之前以 `413 slot_too_large` 和 `{"limit": maxSlotBytes}` 被拒绝，槽位保留当前副本。`CloudSyncer` 的负载是包在 JSON 信封里的存档：多出约 250 字节，存档中的引号和反斜杠会被转义；非 UTF-8 数据改用 base64，体积大三分之一。
 - `maxSlots` 限制一个账号的有效槽位数；会再创建一个槽位的写入以 `409 too_many_slots` 被拒绝。`PolicyKeepBoth` 创建的分叉槽位也计入。已删除的槽位不计入，但一个账号的已删除槽位超过 `maxSlots` 个后，最早删除的会连同历史一起被清除，因此一个账号保存的槽位永远不超过 `maxSlots` 的两倍。
-- 槽位名是 1 到 200 字节、不含控制字符和 `/` 的 UTF-8（`ValidateSlot`）；`save.ValidateSlot` 接受的名称都能通过。在 URL 中它们是路径段，按 `url.PathEscape` 的方式转义。
+- 槽位名是 1 到 200 字节、不含控制字符和 `/` 的 UTF-8，`.` 和 `..` 除外（`ValidateSlot`）；`save.ValidateSlot` 接受的名称都能通过。在 URL 中它们是路径段，按 `url.PathEscape` 的方式转义。
 
 ## 配置
 
@@ -93,7 +93,7 @@ allowedOrigins:
 | `keepVersions` | 每个槽位保留的版本数（含当前版本），1 到 100 |
 | `allowedOrigins` | 允许其页面调用服务的网页 origin；为空时省略 |
 
-`ParseConfig` 拒绝未知字段、尾随文档、超出范围的值，以及带路径、通配符或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：字段按上表顺序，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `cloudsaved init` 写出的）读回后再写出，内容不变。`DefaultConfig` 返回上面所示的设置，不含 origin。
+`ParseConfig` 拒绝未知字段、尾随文档、超出范围的值，以及带路径、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：字段按上表顺序，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `cloudsaved init` 写出的）读回后再写出，内容不变。`DefaultConfig` 返回上面所示的设置，不含 origin。
 
 ## 存储
 

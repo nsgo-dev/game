@@ -30,6 +30,7 @@ func Run(t *testing.T, open func(t *testing.T) cloudsave.Store) {
 		{"AccountsAreSeparate", testAccountsAreSeparate},
 		{"Purge", testPurge},
 		{"ConcurrentWritesOneWins", testConcurrentWritesOneWins},
+		{"HeadDuringAppends", testHeadDuringAppends},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) { tc.f(t, open(t)) })
@@ -294,5 +295,47 @@ func testConcurrentWritesOneWins(t *testing.T, s cloudsave.Store) {
 	head, err := s.Head(ctx, "a", "main")
 	if err != nil || head.Number != 2 || string(head.Data) != fmt.Sprint("device-", won) {
 		t.Fatalf("Head = %+v, %v", head, err)
+	}
+}
+
+// testHeadDuringAppends reads a live slot while another device keeps writing it with Keep 1, so every write prunes the version a reader may have just seen. Head must always return a live version with its data, never ErrNotFound.
+func testHeadDuringAppends(t *testing.T, s cloudsave.Store) {
+	ctx := context.Background()
+	w := write("v0", cloudsave.MatchAny, 0)
+	w.Keep = 1
+	mustAppend(t, s, "a", "main", w)
+	const writes = 200
+	done := make(chan error, 1)
+	go func() {
+		for i := range writes {
+			w := write(fmt.Sprint("v", i+1), cloudsave.MatchAny, time.Duration(i+1)*time.Millisecond)
+			w.Keep = 1
+			if _, err := s.Append(ctx, "a", "main", w); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Append: %v", err)
+			}
+			head, err := s.Head(ctx, "a", "main")
+			if err != nil || head.Number != writes+1 || string(head.Data) != fmt.Sprint("v", writes) {
+				t.Fatalf("final Head = %+v, %v", head, err)
+			}
+			return
+		default:
+		}
+		head, err := s.Head(ctx, "a", "main")
+		if err != nil {
+			t.Fatalf("Head while appending: %v", err)
+		}
+		if head.Deleted || string(head.Data) != fmt.Sprint("v", head.Number-1) || head.Hash != cloudsave.Hash(head.Data) {
+			t.Fatalf("Head while appending = %+v", head)
+		}
 	}
 }
