@@ -1,4 +1,4 @@
-// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex) and open the scene editor (editor); `game help` lists them and `game help <command>` shows one command's flags.
+// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor) and build release packages for every platform (release); `game help` lists them and `game help <command>` shows one command's flags.
 package main
 
 import (
@@ -35,7 +35,7 @@ type command struct {
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
-var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand}
+var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, releaseCommand}
 
 // helpSummary is the help subcommand's line in the listing.
 const helpSummary = "Show the commands, or one command's flags"
