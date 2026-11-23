@@ -119,6 +119,7 @@ type BacklogEntry struct {
 // It reads no clock: Update moves it on by the fixed step a game.Loop passes, so a scene plays alike every time and under nsgotest. Its methods are called on one goroutine.
 type Presenter struct {
 	cast   *Cast
+	script *flow.DialogueScript
 	runner *flow.DialogueRunner
 	opts   Options
 
@@ -141,7 +142,7 @@ type Presenter struct {
 
 // New returns a presenter that plays script with cast. Call Start to begin a node.
 func New(script *flow.DialogueScript, cast *Cast, opts Options) *Presenter {
-	p := &Presenter{cast: cast, opts: opts, read: map[string]bool{}}
+	p := &Presenter{cast: cast, script: script, opts: opts, read: map[string]bool{}}
 	dopts := opts.Dialogue
 	user := dopts.OnCommand
 	dopts.OnCommand = func(ev flow.DialogueEvent) {
@@ -166,8 +167,13 @@ func (p *Presenter) Runner() *flow.DialogueRunner { return p.runner }
 // Cast returns the presenter's cast.
 func (p *Presenter) Cast() *Cast { return p.cast }
 
-// Start clears the stage and the line shown and begins the script at node. The backlog and the lines read stay.
+// Start clears the stage and the line shown and begins the script at node. The backlog and the lines read stay. A node the script lacks fails with flow.ErrUnknownNode and leaves the presenter as it was.
 func (p *Presenter) Start(node string) error {
+	if !p.script.HasNode(node) {
+		// Check before clearing: the runner refuses an unknown node without resetting, so clearing first would show an empty stage over the old node's script.
+		_, err := p.runner.Start(node)
+		return err
+	}
 	p.stopVoice()
 	p.portraits = nil
 	p.hasLine = false
@@ -180,10 +186,15 @@ func (p *Presenter) Start(node string) error {
 	return p.apply(step, err)
 }
 
-// Update moves the presenter on by dt: it reveals the line's text, counts down its voice, and in auto mode goes on once the line has stayed its delay, or in skip mode goes on to the next line. An error is the script's or a stage command's.
+// Update moves the presenter on by dt: it reveals the line's text and keeps its rich text effects animating, counts down its voice, and in auto mode goes on once the line has stayed its delay, or in skip mode goes on to the next line. An error is the script's or a stage command's.
 func (p *Presenter) Update(dt time.Duration) error {
 	if dt <= 0 {
 		return nil
+	}
+	// The typewriter's clock runs on after the line has appeared, and while its choices wait, so effects such as [wave] keep moving.
+	revealed := p.tw != nil && p.tw.Done()
+	if p.tw != nil {
+		p.tw.Update(float32(dt.Seconds()))
 	}
 	// after is the part of dt after the voice line ended, which counts toward auto mode's delay.
 	after := dt
@@ -194,11 +205,8 @@ func (p *Presenter) Update(dt time.Duration) error {
 	if p.skip {
 		return p.skipStep(dt)
 	}
-	if p.kind != flow.StepLine || p.tw == nil {
-		return nil
-	}
-	if !p.tw.Done() {
-		p.tw.Update(float32(dt.Seconds()))
+	// A line that finished appearing during this dt starts its auto delay on the next Update, as before.
+	if p.kind != flow.StepLine || !revealed {
 		return nil
 	}
 	if !p.auto || p.voiceLeft > 0 {
@@ -247,6 +255,7 @@ func (p *Presenter) Choose(index int) error {
 	if err != nil {
 		return err
 	}
+	p.stopVoice()
 	p.addBacklog(entry)
 	return p.apply(step, nil)
 }
@@ -308,7 +317,7 @@ func (p *Presenter) ReplayVoice(i int) bool {
 	return ok
 }
 
-// ReadKeys returns the keys of the lines the player has read, sorted, for a save to keep and MarkRead to restore. A line's key is its #line: id, or for an untagged line its node, speaker and text.
+// ReadKeys returns the keys of the lines the player has read, sorted, for a save to keep and MarkRead to restore. A line's key is its #line: id, or for an untagged line its node, speaker and text as shown, after string table lookup and {$var} interpolation; give lines #line: ids so that skip mode knows them across languages and changing variables.
 func (p *Presenter) ReadKeys() []string {
 	keys := make([]string, 0, len(p.read))
 	for k := range p.read {

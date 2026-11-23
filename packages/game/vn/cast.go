@@ -191,7 +191,7 @@ func EncodeCast(c *Cast) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks c against the version 1 schema: unique, non-empty slot names with X from 0 to 1; unique character IDs without whitespace; parseable colors; slots and default expressions that exist; and at least one expression per character, each with a unique name and a frame.
+// Validate checks c against the version 1 schema: unique, non-empty slot names with X from 0 to 1; unique character IDs without whitespace; parseable colors; slots and default expressions that exist; and at least one expression per character, each with a frame and a unique name that no slot has, so that <<show>> reads its arguments one way.
 func (c *Cast) Validate() error {
 	if c == nil {
 		return errors.New("vn: nil cast")
@@ -247,6 +247,9 @@ func (c *Cast) Validate() error {
 				return fmt.Errorf("vn: character %q: duplicate expression %q", ch.ID, e.Name)
 			}
 			exprs[e.Name] = true
+			if _, ok := c.Slot(e.Name); ok {
+				return fmt.Errorf("vn: character %q: expression %q has the name of a slot", ch.ID, e.Name)
+			}
 			if strings.TrimSpace(e.Frame) == "" {
 				return fmt.Errorf("vn: character %q: expression %q has no frame", ch.ID, e.Name)
 			}

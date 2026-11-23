@@ -33,7 +33,7 @@ characters:
 - A slot's `x` is the portrait's center as a fraction of the stage's width. Without `slots`, the cast uses left (0.2), center (0.5) and right (0.8).
 - A character's `id` is what commands name; a line's speaker matches the `id` first, then `name`. `name` is the name plate's text (the `id` when empty) and `color` the plate's color as a CSS color.
 - `slot` is where the portrait enters (the middle slot when empty) and `defaultExpression` the expression it enters with (the first when empty).
-- Each expression's `frame` names a frame in the portrait atlas; `Cast.CheckFrames(atlas)` reports a missing one as the game loads.
+- Each expression's `frame` names a frame in the portrait atlas; `Cast.CheckFrames(atlas)` reports a missing one as the game loads. An expression may not share a slot's name, so `<<show>>` reads its arguments one way.
 
 `ParseCast` reads and validates a file and `EncodeCast` writes one with fields in schema order and lists in their order, so a load and a save change nothing.
 
@@ -97,6 +97,7 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 - `Line` is the line shown with its name plate's `Name` and `Color`, its `Voice`, and `Read`, whether the player had read it before.
 - `Portraits` lists the portraits on the stage in the order to draw them, each with its slot, expression, frame and whether its character speaks.
 - `Runner` gives the `flow.DialogueRunner` for variables and its save state.
+- `Start` on a node the script lacks returns `flow.ErrUnknownNode` and leaves the stage and the line as they were.
 
 `Options.CharsPerSecond` sets the typewriter's speed (40 when 0; negative shows a line at once).
 
@@ -106,7 +107,7 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 
 `SetSkip(true)` shows a line every `SkipInterval` (each `Update` when 0) at once and without its voice. It stops at choices, at the end, on `Advance` and on a line the player had not read before, which shows as usual; `SkipUnread` lets it run through those too.
 
-A line counts as read once it has been shown. Its key is its `#line:` id, or the node, speaker and text of an untagged line. `ReadKeys` returns the keys for a save to keep and `MarkRead` restores them, so skip knows read lines across sessions.
+A line counts as read once it has been shown. Its key is its `#line:` id, or the node, speaker and text of an untagged line, taken after string table lookup and `{$var}` interpolation, so an untagged line counts as unread again after a language switch or with a changed variable; give lines `#line:` ids to keep skip working across both. `ReadKeys` returns the keys for a save to keep and `MarkRead` restores them, so skip knows read lines across sessions.
 
 ## Backlog
 
@@ -141,7 +142,7 @@ core.Canvas{Draw: func(d *core.Drawing, size core.Size) {
 }}
 ```
 
-`Draw` draws the portraits standing on the stage's bottom edge, the text box with the name plate and the revealed text, and the choice buttons. A zero `Style` field uses a default; `Box` takes a `sprite.NineSlice` for the text box and `Font` a bitmap font for the text, which is platform text otherwise. `DrawBacklog` draws the backlog newest at the bottom, skipping the newest `scroll` entries.
+`Draw` draws the portraits standing on the stage's bottom edge, the text box with the name plate and the revealed text, and the choice buttons. A zero `Style` field uses a default; `Box` takes a `sprite.NineSlice` for the text box and `Font` a bitmap font for the text, which is platform text otherwise. `DrawBacklog` draws the backlog newest at the bottom, skipping the newest `scroll` entries; an entry taller than the stage is drawn alone from the top and cut off at the bottom. The choice buttons are drawn whenever choices wait, also in a node that opens with them before any line.
 
 `Style.Layout(size, n)` returns the text box's and the choice buttons' bounds, and `ChoiceAt(size, style, point)` the choice under a tap:
 

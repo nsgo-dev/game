@@ -33,7 +33,7 @@ characters:
 - 槽位的 `x` 是立绘中心在舞台宽度上的比例。没有 `slots` 时使用 left（0.2）、center（0.5）、right（0.8）。
 - 角色的 `id` 供命令引用；台词的说话人先匹配 `id`，再匹配 `name`。`name` 是名牌文字（为空时用 `id`），`color` 是名牌颜色，写 CSS 颜色。
 - `slot` 是立绘登场的槽位（为空时用中间的槽位），`defaultExpression` 是登场时的表情（为空时用第一个）。
-- 每个表情的 `frame` 是立绘图集中的帧名；`Cast.CheckFrames(atlas)` 在游戏加载时就报告缺失的帧。
+- 每个表情的 `frame` 是立绘图集中的帧名；`Cast.CheckFrames(atlas)` 在游戏加载时就报告缺失的帧。表情不能与槽位同名，这样 `<<show>>` 的参数只有一种解读。
 
 `ParseCast` 读取并校验文件，`EncodeCast` 按 schema 的字段顺序、列表原有顺序写出，所以读入再保存不改变任何内容。
 
@@ -97,6 +97,7 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 - `Line` 是当前显示的台词，含名牌的 `Name` 与 `Color`、语音 `Voice`，以及 `Read`：玩家此前是否读过。
 - `Portraits` 按绘制顺序列出台上的立绘，每个都有槽位、表情、帧，以及其角色是否正在说话。
 - `Runner` 返回 `flow.DialogueRunner`，用于变量与存档状态。
+- 对脚本中不存在的节点调用 `Start` 会返回 `flow.ErrUnknownNode`，舞台与当前台词保持原样。
 
 `Options.CharsPerSecond` 设置打字机速度（为 0 时 40；为负时一次显示整句）。
 
@@ -106,7 +107,7 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 
 `SetSkip(true)` 每隔 `SkipInterval`（为 0 时每次 `Update`）立即显示一句台词，不播放语音。它在选项处、结尾、`Advance` 时以及玩家此前没读过的台词上停止，那句台词照常显示；`SkipUnread` 让它连这些台词也快进过去。
 
-台词显示过一次就算已读。它的键是 `#line:` id，没有标签的台词则用节点、说话人与文字。`ReadKeys` 返回这些键供存档保存，`MarkRead` 恢复它们，让快进在多次游戏之间都知道哪些台词已读。
+台词显示过一次就算已读。它的键是 `#line:` id，没有标签的台词则用节点、说话人与文字，文字取字符串表查找与 `{$var}` 插值之后的结果，因此切换语言或变量改变后，没有标签的台词会重新算作未读；给台词加上 `#line:` id，快进在这两种情况下都能照常工作。`ReadKeys` 返回这些键供存档保存，`MarkRead` 恢复它们，让快进在多次游戏之间都知道哪些台词已读。
 
 ## 回看记录
 
@@ -141,7 +142,7 @@ core.Canvas{Draw: func(d *core.Drawing, size core.Size) {
 }}
 ```
 
-`Draw` 绘制站在舞台底边的立绘、带名牌与已显示文字的文本框，以及选项按钮。`Style` 中为零的字段使用默认值；`Box` 可用 `sprite.NineSlice` 绘制文本框，`Font` 可用位图字体绘制文字，否则使用平台文字。`DrawBacklog` 绘制回看记录，最新的在底部，并跳过最新的 `scroll` 条。
+`Draw` 绘制站在舞台底边的立绘、带名牌与已显示文字的文本框，以及选项按钮。`Style` 中为零的字段使用默认值；`Box` 可用 `sprite.NineSlice` 绘制文本框，`Font` 可用位图字体绘制文字，否则使用平台文字。`DrawBacklog` 绘制回看记录，最新的在底部，并跳过最新的 `scroll` 条；比舞台还高的条目会单独从顶部绘制，超出底部的部分被裁掉。只要有选项等待，就会绘制选项按钮，节点一开头就是选项、还没有台词时也一样。
 
 `Style.Layout(size, n)` 返回文本框与选项按钮的范围，`ChoiceAt(size, style, point)` 返回点击处的选项：
 

@@ -46,6 +46,51 @@ func TestLayoutAndChoiceAt(t *testing.T) {
 	}
 }
 
+func TestDrawShowsChoicesOfANodeOpeningWithThem(t *testing.T) {
+	p := newPresenter(t, "title: Start\n---\n-> Stay #line:c1\n    Aiko: Good. #line:a\n-> Leave #line:c2\n    Ren: Bye. #line:b\n===\n", vn.Options{})
+	if _, ok := p.Line(); ok || len(p.Choices()) != 2 {
+		t.Fatalf("want two choices and no line, got %v", p.Choices())
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.Canvas{
+			TestID: "stage",
+			Style:  core.Style{Width: core.Pt(400), Height: core.Pt(300)},
+			Draw:   func(d *core.Drawing, size core.Size) { p.Draw(d, size, vn.Style{}) },
+		}
+	})
+	texts := map[string]bool{}
+	for _, op := range app.Find("stage").Ops {
+		if op.Kind == core.DrawFillText {
+			texts[op.Text] = true
+		}
+	}
+	if !texts["Stay"] || !texts["Leave"] {
+		t.Fatalf("choice buttons not drawn; texts = %v", texts)
+	}
+}
+
+func TestDrawBacklogShowsAnEntryTallerThanTheStage(t *testing.T) {
+	p := newPresenter(t, "title: Start\n---\nAiko: A long line that cannot fit on a short stage at all, however it wraps. #line:a\n===\n", vn.Options{})
+	drawn := -1
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.Canvas{
+			TestID: "log",
+			Style:  core.Style{Width: core.Pt(120), Height: core.Pt(40)},
+			Draw:   func(d *core.Drawing, size core.Size) { drawn = p.DrawBacklog(d, size, vn.Style{}, 0) },
+		}
+	})
+	if drawn != 1 {
+		t.Fatalf("DrawBacklog drew %d entries, want the one", drawn)
+	}
+	named := false
+	for _, op := range app.Find("log").Ops {
+		named = named || (op.Kind == core.DrawFillText && op.Text == "Aiko")
+	}
+	if !named {
+		t.Fatal("the entry's name was not drawn")
+	}
+}
+
 func TestDrawRecordsStage(t *testing.T) {
 	cast := mustCast(t)
 	p := newPresenter(t, sceneYarn, vn.Options{CharsPerSecond: -1})
