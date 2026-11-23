@@ -81,7 +81,7 @@ export:
 | `name`、`id`、`appVersion` | 游戏的显示名称、反向域名形式的应用标识和发布版本。 |
 | `window` | 主窗口内容区的初始尺寸（`width`、`height`，单位为点，必填），可调整的尺寸范围（`minWidth`、`minHeight`、`maxWidth`、`maxHeight`，0 表示不限制），`resizable`（省略时为 true），可选的 `title`，以及 `appearance`（`light` 或 `dark`，省略时跟随系统）。 |
 | `display` | `screen.Viewport` 映射到窗口上的虚拟分辨率：`width`、`height`、`mode`（省略时为 `fit`，也可为 `fill`、`stretch` 或 `expand`）、`integerScale`、`pixelSnap`，以及黑边的 CSS 颜色 `barColor`。省略时游戏按窗口尺寸绘制。 |
-| `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要 `button`）或 `mouseRegion`（两者都要）；`button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
+| `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要 `button`）或 `mouseRegion`（两者都要）；`button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同；运动轴可以与某个轴同名，`Actions.Axis` 会把两者相加。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
 | `audio` | 默认的 `master` 音量与各条 `buses`。每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`）。 |
 | `autoload` | 启动时加载的 `scenes`（场景格式的 YAML 文件）和其他 `resources`，每项都有唯一的 `name` 和项目内以斜杠分隔的 `path`；`mainScene` 指定游戏启动时进入的场景。 |
 | `export` | 构建输出目录 `output`，以及每个平台一个预设（`macos`、`windows`、`linux`、`ios`、`tvos`、`watchos`、`android`、`harmonyos`、`web`、`miniprogram`），每个预设列出该平台要构建的 NSGo `targets`；不列目标的预设直接构建平台名，由 NSGo 展开为它的默认目标。 |
@@ -105,13 +105,20 @@ func main() {
 		nsgo.Appearance(gameProject.Appearance()),
 	)
 }
+
+func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
+	// ...
+}
 ```
+
+`nsgo.Run` 没有设置标题的选项，因此由根组件用 `desktop.SetTitle` 设置标题：`Title()` 是 `window.title`，没有时为 `name`。
 
 文件的其余部分应用到游戏自己的对象上：
 
 - `Viewport()` 返回 `display` 对应的 `screen.Viewport`，没有 `display` 时返回 false。
 - `BindInput(actions)` 把输入映射绑定到 `input.Actions`，替换同名动作的绑定，保留其他绑定，例如随代码计算出的布局而定的绑定。`Region(action)` 返回绑定到某个动作的第一个区域，游戏在那里绘制屏幕上的控件。
-- `ConfigureMixer(mixer)` 为 `sound.Mixer` 设置默认主音量、各总线的默认音量（`SetDefaultMaster`、`SetDefaultVolume`）和 DSP 链。玩家设置过并由混音器保存在存储中的音量优先于默认值。
+- `ConfigureMixer(mixer)` 为 `sound.Mixer` 设置默认主音量、各总线的默认音量（`SetDefaultMaster`、`SetDefaultVolume`）和 DSP 链。玩家设置过并由混音器保存在存储中的音量优先于默认值。没有效果的总线保留游戏在代码中设置的效果链，就像没有绑定的动作保留其绑定一样。
 - `LoadAutoloads(fsys)` 从以项目根目录为根的 `fs.FS`（例如 `embed.FS`）读取每个自动加载的场景和资源，场景会按场景文档解析并校验；遇到第一个缺失或无效的文件即返回错误。`Loaded.Main()` 是主场景。
 
 ## game.yaml 与 nsgo.yaml
@@ -124,7 +131,7 @@ NSGo 自己的 `nsgo.yaml` 与 `game.yaml` 放在同一目录，其中部分设�
 | `appearance` | `window.appearance` |
 | `build.output`、`build.targets` | `export.output`、按顺序排列的各预设目标 |
 
-`SyncNSGo` 把这些字段写入 `nsgo.yaml`，保留它的其他字段（`dev`、`icon` 等）和注释；`CheckNSGo` 报告每个不一致的字段。`nsgo.yaml` 的其余内容仍由 NSGo 负责。
+`SyncNSGo` 把这些字段写入 `nsgo.yaml`，保留它的其他字段（`dev`、`icon` 等）和注释；`CheckNSGo` 报告每个不一致的字段。两者都与 NSGo 一样，把空的 `build:` 字段视为没有构建设置。`nsgo.yaml` 的其余内容仍由 NSGo 负责。
 
 ## gameproject 命令
 
@@ -144,7 +151,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 在编辑器中
 
-`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会连同场景一起保存项目；未编辑的 `game.yaml` 保持原样，注释也会保留。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。
+`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。
 
 ## 起手模板与示例
 

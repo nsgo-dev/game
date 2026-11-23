@@ -18,6 +18,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/tween"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/gameservices"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -132,6 +133,7 @@ type slideGemGame struct {
 
 // Root constructs the SlideGem game root node with the default deterministic seed.
 func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
 	_, node := newSlideGem(cx, defaultSeed)
 	return node
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/leaderboard"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
 // GameController connects the deterministic Arena simulation to NSGo's reactive view tree,
@@ -33,6 +34,7 @@ type GameController struct {
 
 // Root is Starburst's NSGo root view.
 func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
 	_, node := NewGameView(cx, DefaultSeed)
 	return node
 }

@@ -173,7 +173,7 @@ func motionAxis(s string) input.MotionAxis {
 	}
 }
 
-// ConfigureMixer gives m the default master volume and each bus's default volume and DSP chain. Volumes the player kept in storage win over the defaults.
+// ConfigureMixer gives m the default master volume and each bus's default volume and DSP chain. Volumes the player kept in storage win over the defaults. A bus without effects leaves the chain the game set in code, as BindInput leaves the bindings of an action without any.
 func (f *File) ConfigureMixer(m *sound.Mixer) {
 	if f.Audio == nil {
 		return
@@ -185,7 +185,9 @@ func (f *File) ConfigureMixer(m *sound.Mixer) {
 		if b.Volume != nil {
 			m.SetDefaultVolume(b.Name, *b.Volume)
 		}
-		m.SetGroupEffects(b.Name, b.Chain()...)
+		if len(b.Effects) > 0 {
+			m.SetGroupEffects(b.Name, b.Chain()...)
+		}
 	}
 }
 

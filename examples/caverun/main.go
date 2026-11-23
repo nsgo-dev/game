@@ -11,6 +11,7 @@ import (
 
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
 func main() {
@@ -23,6 +24,7 @@ func main() {
 
 // Root builds the Cave Run application root view.
 func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
 	return rootWithHook(cx, nil)
 }
 

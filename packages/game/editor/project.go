@@ -14,7 +14,7 @@ import (
 // ErrNoProject is returned by EditProject and SaveProject before OpenProject has opened a game.yaml.
 var ErrNoProject = errors.New("editor: no project open")
 
-// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does. On an error it leaves the editor as it was.
+// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does. It empties the undo history either way, so no step can bring back a project opened before. On an error it leaves the editor as it was.
 func (e *Editor) OpenProject(path string) error {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, project.FileName)
@@ -43,6 +43,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
+	e.History.Clear()
 	e.Status = "Opened project " + path
 	e.notify()
 	return nil

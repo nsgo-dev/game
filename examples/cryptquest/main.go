@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -27,6 +28,7 @@ func main() {
 
 // Root builds the CryptQuest application backed by the app's persistent core.Storage.
 func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, gameProject.Title())
 	store := save.NewStorageStore(cx.Storage(), "cryptquest", save.WithVersion(SaveSchemaVersion))
 	g := NewGame(store)
 	return RenderGame(cx, g)
