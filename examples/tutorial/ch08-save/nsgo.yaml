@@ -1,0 +1,6 @@
+name: Star Catcher 8
+id: dev.nsgo.starcatcher.ch08
+version: 0.1.0
+
+dev:
+  target: native
