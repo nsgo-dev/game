@@ -9,27 +9,37 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// ProjectSegment projects the 3D world-space line segment (a, b) through
-// viewProj into 2D screen coordinates within viewport, clipping against the
-// near plane (clip z >= 0, w >= eps) so segments crossing behind the camera
-// never invert across the screen.
+// ProjectSegment projects the 3D world-space line segment (a, b) through viewProj into 2D screen coordinates within viewport, clipping against the near plane so segments crossing behind the camera never invert across the screen.
+//
+// The near plane is clip z >= 0, which is right for the [0, 1] depth projections this package uses by default, [math3d.Perspective] and [math3d.Ortho]. Use [ProjectSegmentNO] for an OpenGL-style [-1, 1] projection such as [math3d.PerspectiveNO] or [math3d.OrthoNO]; this one would hide the near half of its depth range.
 func ProjectSegment(a, b math3d.Vec3, viewProj math3d.Mat4, viewport core.Bounds) (ax, ay, bx, by float32, visible bool) {
+	return projectSegment(a, b, viewProj, viewport, false)
+}
+
+// ProjectSegmentNO is [ProjectSegment] for an OpenGL-style [-1, 1] depth projection such as [math3d.PerspectiveNO] or [math3d.OrthoNO]: it clips at clip z >= -w. Used with a [0, 1] orthographic projection it would keep geometry behind the camera, because w is 1 there everywhere (#546).
+func ProjectSegmentNO(a, b math3d.Vec3, viewProj math3d.Mat4, viewport core.Bounds) (ax, ay, bx, by float32, visible bool) {
+	return projectSegment(a, b, viewProj, viewport, true)
+}
+
+func projectSegment(a, b math3d.Vec3, viewProj math3d.Mat4, viewport core.Bounds, depthNO bool) (ax, ay, bx, by float32, visible bool) {
 	if viewport.Size.Width <= 0 || viewport.Size.Height <= 0 {
 		return 0, 0, 0, 0, false
 	}
 	ca := viewProj.MulVec4(a.Vec4(1))
 	cb := viewProj.MulVec4(b.Vec4(1))
 
-	// Clip against near plane (clip.Z >= 0 for [0, 1] depth projections).
-	if ca.Z < 0 && cb.Z < 0 {
+	// Clip against the near plane: z >= 0 for [0, 1] depth, z + w >= 0 for [-1, 1] depth.
+	da, db := ca.Z, cb.Z
+	if depthNO {
+		da, db = ca.Z+ca.W, cb.Z+cb.W
+	}
+	if da < 0 && db < 0 {
 		return 0, 0, 0, 0, false
 	}
-	if ca.Z < 0 {
-		t := -ca.Z / (cb.Z - ca.Z)
-		ca = ca.Lerp(cb, t)
-	} else if cb.Z < 0 {
-		t := -ca.Z / (cb.Z - ca.Z)
-		cb = ca.Lerp(cb, t)
+	if da < 0 {
+		ca = ca.Lerp(cb, -da/(db-da))
+	} else if db < 0 {
+		cb = ca.Lerp(cb, -da/(db-da))
 	}
 
 	// Guard against non-positive homogeneous W.
@@ -74,6 +84,8 @@ type DebugDraw struct {
 	// DefaultWidth is the stroke width in points used when a line has Width <= 0
 	// (defaults to 1.5 when zero).
 	DefaultWidth float32
+	// DepthNO clips at the near plane of an OpenGL-style [-1, 1] depth projection, as [ProjectSegmentNO] does. By default lines clip for [0, 1] depth, matching [math3d.Perspective] and [math3d.Ortho].
+	DepthNO bool
 
 	lines []DebugLine
 }
@@ -254,7 +266,7 @@ func (dd *DebugDraw) Flush(d *core.Drawing, viewProj math3d.Mat4, viewport core.
 		}
 	}
 	for _, ln := range dd.lines {
-		ax, ay, bx, by, ok := ProjectSegment(ln.A, ln.B, viewProj, viewport)
+		ax, ay, bx, by, ok := projectSegment(ln.A, ln.B, viewProj, viewport, dd.DepthNO)
 		if !ok {
 			continue
 		}

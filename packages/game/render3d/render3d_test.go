@@ -699,8 +699,9 @@ func TestDrawGizmoAndDebugDrawEmitCanvasOps(t *testing.T) {
 			lastStrokeWidth = op.W
 		}
 	}
-	if lineTos != 21 {
-		t.Fatalf("gizmo DrawLineTo count = %d, want 21", lineTos)
+	// 3 shafts x 5 (shaft + 4 head lines) + 3 planar squares x 4 edges.
+	if lineTos != 27 {
+		t.Fatalf("gizmo DrawLineTo count = %d, want 27", lineTos)
 	}
 	if strokes == 0 {
 		t.Fatal("gizmo emitted no DrawStroke ops")
