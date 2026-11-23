@@ -209,7 +209,7 @@ type assets struct {
 built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: os.DirFS("project")}})
 ```
 
-In the editor, `PlaceScene(layer, path, x, y)` places an instance of a scene file as an undoable command, with an ID named after the file. The editor's `Resolver` must implement `SceneResolver`; the file is resolved before it is placed, and placing an instance raises a version 1 scene to version 2 (which Undo restores). The viewports select and move an instance by its root object.
+In the editor, `PlaceScene(layer, path, x, y)` places an instance of a scene file as an undoable command, with an ID named after the file. The editor's `Resolver` must implement `SceneResolver`; `PlaceScene`, and `PlaceObject` for any object tree that names a `scene`, resolve the scene as it would be with the instance placed and refuse it when that fails: a missing or invalid file, an override that names no object or holds a bad value, or IDs that collide once instances are expanded. Set the editor's `ScenePath` to the open scene's path from the project root (`OpenYAML` clears it) so that an instance leading back to the open scene, directly or through other files, is refused as a scene cycle before the saved file instances itself. Placing an instance raises a version 1 scene to version 2 (which Undo restores). New IDs are checked against the IDs the scene gets from its base and its instances as well as its own. The viewports select and move an instance by its root object, and Play runs a resolved copy of the scene, so changes made through `BuiltObject.Doc` show in the editor's document until Stop restores it.
 
 ### Example
 

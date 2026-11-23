@@ -166,6 +166,8 @@ type Editor struct {
 	Project *project.File
 	// ProjectPath is the game.yaml path OpenProject opened Project from.
 	ProjectPath string
+	// ScenePath is the open scene's slash-separated path from the project root, as Resolver names scene files (for example "scenes/level.scene.yaml"), or empty when the scene has no such path. PlaceObject and PlaceScene resolve the edited scene under this path, so they refuse an instance that would lead back to the open scene and make the saved file instance itself. OpenYAML clears it, since the loaded scene may come from another file; set it again after OpenFile.
+	ScenePath string
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
@@ -421,6 +423,7 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	// The loaded scene did not come from the current path, so a later Save must
 	// not overwrite the previously opened file with unrelated content.
 	e.FilePath = ""
+	e.ScenePath = ""
 	if len(doc.Layers) > 0 {
 		e.ActiveLayer = doc.Layers[0].Name
 	} else {
@@ -577,14 +580,22 @@ func (e *Editor) FindObject(id string) (*sceneformat.ObjectDoc, int, int) {
 	return nil, -1, -1
 }
 
-// objectIDInUse reports whether any object in the scene, nested children included, has ID id. FindObject sees only top-level objects, so ID allocation and duplicate checks go through this instead.
+// objectIDInUse reports whether any object in the scene, nested children included, has ID id. FindObject sees only top-level objects, so ID allocation and duplicate checks go through this instead. A scene that instances or inherits other scene files also holds the IDs they add, which only its resolved copy in e.Built shows, so that copy is searched too.
 func (e *Editor) objectIDInUse(id string) bool {
 	if e.Doc == nil {
 		return false
 	}
-	for li := range e.Doc.Layers {
+	if docHoldsID(e.Doc, id) {
+		return true
+	}
+	return e.Built != nil && e.Built.Doc != nil && e.Built.Doc != e.Doc && docHoldsID(e.Built.Doc, id)
+}
+
+// docHoldsID reports whether any object of doc, nested children included, has ID id.
+func docHoldsID(doc *sceneformat.SceneDoc, id string) bool {
+	for li := range doc.Layers {
 		found := false
-		sceneformat.WalkObjects(e.Doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
 			found = o.ID == id
 			return !found
 		})
@@ -639,7 +650,7 @@ func (e *Editor) generateObjectID(base string) string {
 
 // PlaceObject adds obj to layerName (or ActiveLayer when empty) as an undoable command,
 // merging defaults from e.Prefabs when obj.Prefab matches a registered prefab.
-// Returns the placed object's unique ID. It refuses a tree that nests deeper than sceneformat.MaxObjectDepth levels or holds a sheared sprite (see sceneformat.CheckObjectTree), or that reuses an ID.
+// Returns the placed object's unique ID. It refuses a tree that nests deeper than sceneformat.MaxObjectDepth levels or holds a sheared sprite (see sceneformat.CheckObjectTree), or that reuses an ID, including one the scene gets from a scene it inherits or instances. A tree that instances a scene file (sceneformat.ObjectDoc.Scene) needs a Resolver that implements sceneformat.SceneResolver, and is refused unless the scene still resolves with it placed: see checkPlacedInstances.
 func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
@@ -697,6 +708,11 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	if dupID != "" {
 		return "", fmt.Errorf("editor: duplicate object id %q", dupID)
 	}
+	if instancesScene(&placed) {
+		if err := e.checkPlacedInstances(li, placed); err != nil {
+			return "", err
+		}
+	}
 
 	cmd := &placeObjectCmd{
 		ed:           e,
@@ -709,14 +725,13 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	return placed.ID, nil
 }
 
-// PlaceScene places an instance of the scene file at scenePath, a slash-separated path from the project root such as "scenes/enemy.scene.yaml", at (x, y) on layerName (or ActiveLayer when empty) as an undoable command, and returns the new object's ID, derived from the file's name. The saved scene keeps the reference (sceneformat.ObjectDoc.Scene), not a copy of the instanced objects, and the viewport draws them through sceneformat.Build. The editor's Resolver must implement sceneformat.SceneResolver; PlaceScene loads the file through it first and refuses one that fails to resolve. Placing an instance in a version 1 scene raises it to sceneformat.CurrentVersion, which Undo restores.
+// PlaceScene places an instance of the scene file at scenePath, a slash-separated path from the project root such as "scenes/enemy.scene.yaml", at (x, y) on layerName (or ActiveLayer when empty) as an undoable command, and returns the new object's ID, derived from the file's name. The saved scene keeps the reference (sceneformat.ObjectDoc.Scene), not a copy of the instanced objects, and the viewport draws them through sceneformat.Build. The editor's Resolver must implement sceneformat.SceneResolver; PlaceScene, through PlaceObject, refuses a file that fails to load or resolve, and one that leads back to the open scene (ScenePath). Placing an instance in a version 1 scene raises it to sceneformat.CurrentVersion, which Undo restores.
 func (e *Editor) PlaceScene(layerName, scenePath string, x, y float32) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
-	scenes, ok := e.Resolver.(sceneformat.SceneResolver)
-	if !ok {
-		return "", errors.New("editor: the resolver cannot load scene files (it does not implement sceneformat.SceneResolver)")
+	if _, ok := e.Resolver.(sceneformat.SceneResolver); !ok {
+		return "", errNoSceneResolver
 	}
 	if !validScenePath(scenePath) {
 		return "", fmt.Errorf("editor: scene %q must be a slash-separated path relative to the project root", scenePath)
@@ -725,14 +740,45 @@ func (e *Editor) PlaceScene(layerName, scenePath string, x, y float32) (string, 
 	if i := strings.IndexByte(base, '.'); i > 0 {
 		base = base[:i]
 	}
-	probe := &sceneformat.SceneDoc{
-		Version: sceneformat.CurrentVersion,
-		Layers:  []sceneformat.LayerDoc{{Name: "probe", Objects: []sceneformat.ObjectDoc{{ID: base, Scene: scenePath}}}},
-	}
-	if _, err := sceneformat.Resolve(probe, scenes); err != nil {
-		return "", err
-	}
 	return e.PlaceObject(layerName, sceneformat.ObjectDoc{ID: e.generateObjectID(base), Scene: scenePath, X: x, Y: y})
+}
+
+var errNoSceneResolver = errors.New("editor: the resolver cannot load scene files (it does not implement sceneformat.SceneResolver)")
+
+// checkPlacedInstances resolves the scene as it would be with placed added to layer li and returns why it would not resolve: a scene file that fails to load or validate, a cycle, an override that names no object or holds a bad value, or IDs that collide once the instances are expanded. When ScenePath names the open scene, the edited scene is resolved under that path and served for it to every scene file that refers to it, so an instance that leads back to the open scene, directly or through other files, is refused as a cycle before the file on disk instances itself.
+func (e *Editor) checkPlacedInstances(li int, placed sceneformat.ObjectDoc) error {
+	scenes, ok := e.Resolver.(sceneformat.SceneResolver)
+	if !ok {
+		return errNoSceneResolver
+	}
+	candidate := e.Doc.Clone()
+	if candidate.Version < sceneformat.CurrentVersion {
+		candidate.Version = sceneformat.CurrentVersion
+	}
+	candidate.Layers[li].Objects = append(candidate.Layers[li].Objects, placed)
+	if e.ScenePath == "" {
+		_, err := sceneformat.Resolve(candidate, scenes)
+		return err
+	}
+	// The probe inherits ScenePath rather than instancing it, which puts that path on Resolve's chain of files without refusing an open scene that holds a tilemap.
+	probe := &sceneformat.SceneDoc{Version: sceneformat.CurrentVersion, Inherits: e.ScenePath}
+	_, err := sceneformat.Resolve(probe, editedScene{SceneResolver: scenes, path: e.ScenePath, doc: candidate})
+	return err
+}
+
+// editedScene serves doc, the open scene as it is being edited, for path, and loads every other scene file through SceneResolver.
+type editedScene struct {
+	sceneformat.SceneResolver
+	path string
+	doc  *sceneformat.SceneDoc
+}
+
+// Scene returns s.doc for s.path and asks the wrapped resolver for any other path.
+func (s editedScene) Scene(p string) (*sceneformat.SceneDoc, error) {
+	if p == s.path {
+		return s.doc, nil
+	}
+	return s.SceneResolver.Scene(p)
 }
 
 // validScenePath reports whether p has the form sceneformat accepts for a scene reference.
