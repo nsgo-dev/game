@@ -52,8 +52,10 @@ type Field struct {
 	Kind FieldKind
 	// Default is the value an unset field takes. Nil means the kind's zero value (false, 0, 0.0 or ""). Register normalizes it to bool, int, float64 or string and refuses a default of the wrong kind or outside the range.
 	Default any
-	// Min and Max are the optional inclusive bounds of a FieldInt or FieldFloat value; nil leaves that side open. They are refused on other kinds.
+	// Min and Max are the optional inclusive bounds of a FieldInt or FieldFloat value; nil leaves that side open. They are refused on other kinds, and on a FieldInt they must be whole numbers.
 	Min, Max *float64
+	// Step is the increment tools such as the editor's inspector use for a FieldInt or FieldFloat value, and the precision a typed value is rounded to from Min; 0 means 1 for a FieldInt and 0.1 for a FieldFloat. It is refused when negative or not finite, on other kinds, and on a FieldInt when it is not a whole number.
+	Step float64
 	// Doc is a one-line description shown by tools such as the editor's inspector.
 	Doc string
 }
@@ -106,7 +108,7 @@ func NewComponentRegistry() *ComponentRegistry {
 // Float64 returns a pointer to v for a Field's optional Min and Max.
 func Float64(v float64) *float64 { return &v }
 
-// Register adds t to the registry. It refuses an empty or duplicate type name, an empty or duplicate field name, an unknown kind, a range on a non-numeric field, a range whose Min is above its Max, and a default of the wrong kind or outside the range. The registry keeps its own copy of t.
+// Register adds t to the registry. It refuses an empty or duplicate type name, an empty or duplicate field name, an unknown kind, a range or step on a non-numeric field, a range whose Min is above its Max, a fractional range or step on an int field, a negative or non-finite step, and a default of the wrong kind or outside the range. The registry keeps its own copy of t.
 func (r *ComponentRegistry) Register(t ComponentType) error {
 	if r == nil {
 		return errors.New("sceneformat: register on nil component registry")
@@ -139,6 +141,20 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 			}
 			if f.Min != nil && f.Max != nil && *f.Min > *f.Max {
 				return fmt.Errorf("sceneformat: component type %q field %q has min %v above max %v", t.Name, f.Name, *f.Min, *f.Max)
+			}
+			if f.Kind == FieldInt && ((f.Min != nil && *f.Min != math.Trunc(*f.Min)) || (f.Max != nil && *f.Max != math.Trunc(*f.Max))) {
+				return fmt.Errorf("sceneformat: component type %q field %q is int and its range must be whole numbers", t.Name, f.Name)
+			}
+		}
+		if f.Step != 0 {
+			if !f.Kind.IsNumeric() {
+				return fmt.Errorf("sceneformat: component type %q field %q is %v and cannot have a step", t.Name, f.Name, f.Kind)
+			}
+			if !isFinite64(f.Step) || f.Step < 0 {
+				return fmt.Errorf("sceneformat: component type %q field %q step must be positive and finite", t.Name, f.Name)
+			}
+			if f.Kind == FieldInt && f.Step != math.Trunc(f.Step) {
+				return fmt.Errorf("sceneformat: component type %q field %q is int and its step must be a whole number", t.Name, f.Name)
 			}
 		}
 		nf := f

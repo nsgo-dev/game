@@ -358,13 +358,17 @@ func (e *Editor) SetActiveTileID(id int) {
 	e.notify()
 }
 
-// SetComponentRegistry makes the editor check components against reg: the current document must already conform, later opens refuse files whose components do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off.
+// SetComponentRegistry makes the editor check components against reg: the current document must already conform, later opens refuse files whose components do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off. Changing the registry clears undo/redo history, since commands recorded under the old registry could bring back components the new one refuses.
 func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error {
 	if err := sceneformat.ValidateComponents(e.Doc, reg); err != nil {
 		return err
 	}
+	if reg == e.components {
+		return nil
+	}
 	e.components = reg
-	e.notify()
+	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
+	e.History.Clear()
 	return nil
 }
 

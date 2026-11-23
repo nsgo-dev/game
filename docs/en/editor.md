@@ -217,7 +217,7 @@ built.Draw(d)
 
 ### Component types
 
-A `ComponentRegistry` declares, in Go and without reflection, the component types scene files may use: each type's name and documentation, and each field's name, kind (`FieldBool`, `FieldInt`, `FieldFloat` or `FieldString`), default, optional inclusive range and documentation. `Register` refuses empty or duplicate names, ranges on non-numeric fields, a minimum above the maximum, and a default of the wrong kind or out of range.
+A `ComponentRegistry` declares, in Go and without reflection, the component types scene files may use: each type's name and documentation, and each field's name, kind (`FieldBool`, `FieldInt`, `FieldFloat` or `FieldString`), default, optional inclusive range, optional `Step` for the inspector and documentation. `Register` refuses empty or duplicate names, ranges or steps on non-numeric fields, a minimum above the maximum, a fractional range or step on a `FieldInt`, a negative step, and a default of the wrong kind or out of range.
 
 ```go
 reg := sceneformat.NewComponentRegistry()
@@ -242,7 +242,7 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 
 Defaults are not written into the document, so loading and saving a scene changes nothing; `reg.Resolve("body", fields)` returns every field with its default filled in. `ValidateComponents` checks a document built in Go (without positions), and `CheckField` checks one value and normalizes it to `bool`, `int`, `float64` or `string`. `Parse` without a registry keeps `components` free-form.
 
-In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene, then makes `OpenFile` report component errors with the file and line, and makes `SetComponentField` and `PlaceObject` refuse fields the registry does not allow. The inspector lists every registered field of a component in declaration order, including fields the scene leaves unset, which show their default; the label's tooltip gives the field's documentation, kind, range and default, and numeric inputs are bounded by the range. Components without a registered type, or every component when no registry is set, are shown from the values in the file as before.
+In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene, then makes `OpenFile` report component errors with the file and line, and makes `SetComponentField` and `PlaceObject` refuse fields the registry does not allow. Changing the registry clears undo/redo history, so an undone edit the new registry refuses cannot be redone. The inspector lists every registered field of a component in declaration order, including fields the scene leaves unset, which show their default; the label's tooltip gives the field's documentation, kind, range and default, and numeric inputs are bounded by the range and step by the field's `Step` (1 for an int, 0.1 for a float when unset). Floats are shown at full precision, and an edit the registry refuses is reported in the status bar. Components without a registered type, or every component when no registry is set, are shown from the values in the file as before.
 
 ### Projects
 
