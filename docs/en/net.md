@@ -15,9 +15,10 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`, `DialWebSocket` | Native + browser (`js/wasm`); works across NATs and web builds. Clients authenticate with a token and the server assigns their IDs (see below). |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`, `DialUDP` | Native targets (desktop/mobile) for low-latency datagrams to a server, with the same handshake as WebSocket and every datagram bound to its session. |
 | `UDPTransport` | `ListenUDP` + `AddPeer` | Native peer-to-peer datagrams between endpoints that know each other's addresses: a datagram is accepted only from the address registered for the ID it claims. |
+| `Relay` / `RelayTransport` | `NewRelay`, `NewRelayTransport` | Peer-to-peer sessions between players who cannot reach each other: each connects to a relay over WebSocket or UDP, and the relay forwards between members of the same session (see [the server guide](server.md#peer-to-peer-relay)). |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | In-memory deterministic tests with configurable `Latency`, `Jitter`, `LossRate`, and `Seed`. |
 
-UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport.
+UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport, or a `RelayTransport`, which retransmits end to end and so runs them over UDP too.
 
 ```go
 hub := net.NewLoopbackHub(net.LoopbackConfig{

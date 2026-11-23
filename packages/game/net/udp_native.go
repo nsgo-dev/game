@@ -106,12 +106,9 @@ func (u *UDPTransport) readLoop() {
 	}
 }
 
-// Send transmits payload in a single UDP datagram to the target peer
-// (or all registered peers when to == PeerBroadcast).
+// Send transmits payload in a single UDP datagram to the target peer (or all registered peers when to == PeerBroadcast).
 //
-// UDP has no acknowledgement or retransmission, so ChannelReliableOrdered is
-// refused with ErrUnsupportedChannel instead of quietly losing packets. Use a
-// WebSocket or loopback transport for lockstep and rollback sessions.
+// UDP has no acknowledgement or retransmission, so ChannelReliableOrdered is refused with ErrUnsupportedChannel instead of quietly losing packets. Use a WebSocket or loopback transport, or a RelayTransport, for lockstep and rollback sessions.
 func (u *UDPTransport) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch == ChannelReliableOrdered {
 		return ErrUnsupportedChannel

@@ -779,3 +779,8 @@ func (c *UDPClient) Close() error {
 	}
 	return conn.Close()
 }
+
+// relayWake lets a Relay serving this server wait for packets and events instead of polling.
+func (s *UDPServer) relayWake() <-chan struct{} {
+	return s.changed
+}
