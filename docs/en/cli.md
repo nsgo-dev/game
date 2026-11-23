@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -28,12 +28,13 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
 | `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
+| `assets` | Packs atlases, encodes textures, converts audio and generates the manifest from `game.yaml`, rebuilding only what changed |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
-A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
@@ -193,6 +194,59 @@ A path a map, tileset or atlas writes is relative to that file, as Tiled, LDtk a
 Directories whose names start with `.` or `_`, and those named `testdata`, are skipped, as the go command skips them. Other JSON and YAML files are not read. A problem the loader of a map or atlas reports names no line, so it is printed as `file: message`; the check runs that loader only once the file's references resolve, so one fault is not reported twice.
 
 The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `go tool game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values.
+
+### assets
+
+```sh
+go tool game assets
+go tool game assets -check
+```
+
+Builds every asset target that `game.yaml` (or the file `-in` names) declares, in one run: it packs the atlases, encodes the textures and converts the audio as `pack`, `tex` and `audio` do, then regenerates the manifest as `manifest` does. Each target is rebuilt only when it changed: a second run with nothing changed writes no file, and changing one image repacks only the atlas it belongs to. It prints a line for each target it built and then the counts, such as `1 built, 4 up to date`.
+
+`game.yaml` is versioned YAML, and the command refuses a field it does not know. Its paths are slash-separated, relative to the file's directory, and may not leave it:
+
+```yaml
+version: 1
+assets:
+  atlases:
+    - name: ui            # pages ui.png and ui.json
+      in: art/ui          # PNG images, searched recursively
+      out: assets/atlases
+      padding: 2          # 1 when omitted
+      extrude: 1
+      maxWidth: 2048
+      maxHeight: 2048
+      scale: 1
+      trim: true          # true when omitted
+  textures:
+    - in: art/albedo.png
+      out: assets/albedo.ktx2
+      format: bc1         # rgba8, bc1, bc3 or etc2; rgba8 when omitted
+      mipmaps: true
+      srgb: true
+  audio:
+    - in: sfx/jump.wav
+      out: assets/jump.wav
+      format: wav         # wav, aac or mp3; wav when omitted
+      rate: 22050
+      channels: 1
+      peakDB: -1          # or rmsDB, not both
+      bitrate: 128        # for aac and mp3
+  manifest:
+    in: assets
+    out: assets/manifest_gen.go
+    package: assets
+    prefix: "asset:"
+    embed: false
+    embedDir: ""
+```
+
+Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file, nor two atlases in one folder share a name.
+
+What each target was built from is kept in a cache, `.game/assets-cache.yaml` unless `assets.cache` names another path. It is YAML: for each target, a SHA-256 key over its settings, the version of the game layer that built it, and the path and content of every input, and the path and SHA-256 of every file it wrote. A target is up to date when its key matches and its outputs are still on disk with that content, so editing or deleting an output also rebuilds it. When an atlas needs fewer pages than before, the pages it no longer writes are deleted. The manifest needs no cache entry: it is generated each run, which reads no file's content, and written only when it differs. A missing or damaged cache only costs a full rebuild. Add the `.game` folder to `.gitignore`.
+
+`-force` rebuilds every target. `-check` builds nothing and writes nothing: it lists the targets that are out of date and exits with 1 if there are any, for CI. When a target fails, the command keeps the cache of the targets it built before it, so the next run starts from there.
 
 ### completion
 

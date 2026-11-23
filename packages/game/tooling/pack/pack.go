@@ -123,6 +123,24 @@ func (r *Result) Write(dir string) ([]string, error) {
 
 // PackDir walks dir for PNG images in deterministic slash-separated relative path order and packs them with opts.
 func PackDir(dir string, opts Options) (*Result, error) {
+	relPaths, err := ScanDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	inputs := make([]Input, 0, len(relPaths))
+	for _, rel := range relPaths {
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		img, err := readPNG(full)
+		if err != nil {
+			return nil, fmt.Errorf("pack: decode %q: %w", rel, err)
+		}
+		inputs = append(inputs, Input{Name: rel, Image: img})
+	}
+	return PackImages(inputs, opts)
+}
+
+// ScanDir returns the PNG images PackDir packs from dir: the slash-separated paths relative to dir of every file with a .png extension in any letter case, sorted, skipping files and directories whose names start with a dot. It fails when dir is not a directory or holds no PNG image.
+func ScanDir(dir string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, fmt.Errorf("pack: %w", err)
@@ -162,17 +180,7 @@ func PackDir(dir string, opts Options) (*Result, error) {
 	if len(relPaths) == 0 {
 		return nil, fmt.Errorf("pack: no PNG files found in %q", dir)
 	}
-
-	inputs := make([]Input, 0, len(relPaths))
-	for _, rel := range relPaths {
-		full := filepath.Join(dir, filepath.FromSlash(rel))
-		img, err := readPNG(full)
-		if err != nil {
-			return nil, fmt.Errorf("pack: decode %q: %w", rel, err)
-		}
-		inputs = append(inputs, Input{Name: rel, Image: img})
-	}
-	return PackImages(inputs, opts)
+	return relPaths, nil
 }
 
 // PackImages trims and packs inputs into one or more atlas pages with opts.

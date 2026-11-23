@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -28,12 +28,13 @@ go tool game help
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
+| `assets` | 从 `game.yaml` 打包图集、编码纹理、转换音频并生成资源清单，只重建有改动的部分 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。[命令参考](cli-reference.md)在一页中列出每个命令的参数及其默认值，由命令定义生成。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -193,6 +194,59 @@ game check: 1 problem
 名字以 `.` 或 `_` 开头的目录以及名为 `testdata` 的目录会被跳过，与 go 命令的做法一致。其他 JSON 和 YAML 文件不会被读取。地图或图集的加载器报告的问题不带行号，因此打印为 `file: message`；只有当文件的引用都能解析时，检查才会运行这个加载器，同一个错误不会被报告两次。
 
 Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题。
+
+### assets
+
+```sh
+go tool game assets
+go tool game assets -check
+```
+
+一次构建 `game.yaml`（或 `-in` 指定的文件）声明的全部资源目标：像 `pack`、`tex` 和 `audio` 那样打包图集、编码纹理、转换音频，最后像 `manifest` 那样重新生成资源清单。每个目标只在有改动时重建：没有任何改动时再运行一次不会写任何文件，改动一张图片只会重新打包它所属的图集。命令为每个构建了的目标打印一行，最后打印计数，例如 `1 built, 4 up to date`。
+
+`game.yaml` 是带版本号的 YAML，命令会拒绝不认识的字段。其中的路径用斜杠分隔，相对于文件所在目录，且不能跳出该目录：
+
+```yaml
+version: 1
+assets:
+  atlases:
+    - name: ui            # 页面为 ui.png 和 ui.json
+      in: art/ui          # PNG 图片，递归查找
+      out: assets/atlases
+      padding: 2          # 省略时为 1
+      extrude: 1
+      maxWidth: 2048
+      maxHeight: 2048
+      scale: 1
+      trim: true          # 省略时为 true
+  textures:
+    - in: art/albedo.png
+      out: assets/albedo.ktx2
+      format: bc1         # rgba8、bc1、bc3 或 etc2；省略时为 rgba8
+      mipmaps: true
+      srgb: true
+  audio:
+    - in: sfx/jump.wav
+      out: assets/jump.wav
+      format: wav         # wav、aac 或 mp3；省略时为 wav
+      rate: 22050
+      channels: 1
+      peakDB: -1          # 或 rmsDB，二者只能取一
+      bitrate: 128        # 用于 aac 和 mp3
+  manifest:
+    in: assets
+    out: assets/manifest_gen.go
+    package: assets
+    prefix: "asset:"
+    embed: false
+    embedDir: ""
+```
+
+每个列表和清单都可省略，每项设置的含义与单个命令中同名参数相同。两个目标不能写同一个文件，同一文件夹里的两个图集也不能同名。
+
+每个目标由什么构建而来记录在缓存里，默认是 `.game/assets-cache.yaml`，`assets.cache` 可指定其他路径。缓存是 YAML：为每个目标记录一个 SHA-256 键，覆盖它的设置、构建它的游戏层版本以及每个输入的路径和内容，并记录它写出的每个文件的路径和 SHA-256。键相同且输出仍以同样内容留在磁盘上时目标才算最新，因此修改或删除某个输出也会让它重建。图集需要的页面比上次少时，不再写出的页面会被删除。资源清单不需要缓存条目：它每次都会生成，生成时不读取任何文件内容，只有与现有文件不同时才写入。缓存缺失或损坏只会导致一次完整重建。请把 `.game` 文件夹加入 `.gitignore`。
+
+`-force` 重建所有目标。`-check` 不构建、不写任何文件：它列出过期的目标，有过期目标时以 1 退出，供 CI 使用。某个目标失败时，命令会保留它之前已构建目标的缓存，下次运行从那里继续。
 
 ### completion
 
