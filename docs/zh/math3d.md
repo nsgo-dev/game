@@ -89,7 +89,7 @@ mvp := proj.Mul(view).Mul(model)
 
 - **双覆盖等价**：`q` 与 `-q` 表示同一个 3D 旋转。`Slerp` 与 `Nlerp` 会在 `q.Dot(b) < 0` 时自动取反目标四元数，确保始终沿**最短弧**插值。
 - **乘法组合**：`q1.Mul(q2)` 先应用 `q2` 再应用 `q1`，与 `q1.ToMat4().Mul(q2.ToMat4())` 完全一致。
-- **欧拉角**：`QuatFromEuler(pitch, yaw, roll)` 与 `ToEuler()` 采用相机与角色常用的内旋 **YXZ** 顺序（`Ry(yaw) * Rx(pitch) * Rz(roll)`）；需要内旋 **XYZ** 顺序（`Rx(x) * Ry(y) * Rz(z)`）时可使用 `QuatFromEulerXYZ` 与 `ToEulerXYZ`。
+- **欧拉角**：`QuatFromEuler(pitch, yaw, roll)` 与 `ToEuler()` 采用相机与角色常用的内旋 **YXZ** 顺序（`Ry(yaw) * Rx(pitch) * Rz(roll)`）；需要内旋 **XYZ** 顺序（`Rx(x) * Ry(y) * Rz(z)`）时可使用 `QuatFromEulerXYZ` 与 `ToEulerXYZ`。两者都以 float64 提取，偏航与横滚在接近 ±90° 万向节极点时仍能分开，只有恰好锁死时才把横滚并入偏航。
 - **朝向与视图矩阵**：`LookRotation(forward, up)` 构造一个世界朝向四元数，使物体局部 `-Z` 对齐 `forward`、局部 `+Y` 尽量朝向 `up`。对于位于 `eye`、看向 `target` 的相机，`Transform{Pos: eye, Rot: LookRotation(target.Sub(eye), up), Scale: Vec3One()}.ToMat4()` 恰好是 `LookAt(eye, target, up)` 的逆矩阵。
 
 `Transform` 组合了 `Pos`、`Rot` 与 `Scale`，用于场景层级与插值（`Lerp` 对位置和缩放线性插值，对旋转使用 `Slerp`）。`parent.Mul(child)` 直接组合父子 TRS；若父节点含非均匀缩放且子节点带旋转（会产生切变），请转为 `Mat4` 相乘。
@@ -99,7 +99,7 @@ mvp := proj.Mul(view).Mul(model)
 - **`AABB`**：轴对齐包围盒 `{Min, Max}`。通过 `AABBEmpty()` 创建空包围盒并用 `ExpandPoint` / `Union` 扩展，`Transform(m)` 可计算变换后的紧凑包围盒。
 - **`Sphere`**：包围球 `{Center, Radius}`，支持 `Contains`、`IntersectsSphere` 与 `IntersectsAABB`。
 - **`Plane`**：平面 `{Normal, D}`，满足 `Normal · p + D = 0`。经 `Normalized()` 归一化后，`SignedDist(p)` 返回有符号欧氏距离（法线指向的一侧为正）。
-- **`Ray`**：射线 `P(t) = Origin + t * Dir`（`t >= 0`），提供 `IntersectAABB`（slab 算法）、`IntersectSphere`、`IntersectPlane` 与 `IntersectTriangle`（双面 Möller–Trumbore 算法，返回 `(t, u, v, hit)`）。
+- **`Ray`**：射线 `P(t) = Origin + t * Dir`（`t >= 0`），提供 `IntersectAABB`（slab 算法）、`IntersectSphere`、`IntersectPlane` 与 `IntersectTriangle`（双面 Möller–Trumbore 算法，返回 `(t, u, v, hit)`）。平行判定按向量长度取相对阈值，很小的三角形和很短的射线方向也能命中。
 - **`Frustum`**：由 6 个指向内部、已归一化的平面（`FrustumLeft` 至 `FrustumFar`）组成的视锥体，使用 Gribb–Hartmann 算法从任意透视或正交视图投影矩阵提取（`[0, 1]` 用 `FrustumFromMat4`，`[-1, 1]` 用 `FrustumFromMat4NO`），支持 `ContainsPoint`、`IntersectsSphere` 与 `IntersectsAABB`。
 
 ```go
