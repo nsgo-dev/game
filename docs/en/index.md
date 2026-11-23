@@ -27,7 +27,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `project` | `github.com/nsgo-dev/game/packages/game/project` | [Project File](project.md) | `game.yaml`, the one project file: window, virtual resolution, input map, audio buses, autoloads and export presets, kept in step with `nsgo.yaml` |
 | `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/packages/game/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
-| `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont bitmap fonts and platform text via `DrawPlatform` |
+| `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont bitmap fonts, signed-distance-field fonts in 2D and 3D world space, and platform text via `DrawPlatform` |
 | `particles` | `github.com/nsgo-dev/game/packages/game/particles` | [particles](particles.md) | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and lifetime curves |
 | `save` | `github.com/nsgo-dev/game/packages/game/save` | [save](save.md) | Versioned JSON save slots, schema migrations and atomic backup recovery |
 | `achievements` | `github.com/nsgo-dev/game/packages/game/achievements` | [achievements](achievements.md) | Achievements declared in versioned YAML, monotonic progress persisted in `core.Storage`, and reporting to Game Center and Play Games |
