@@ -21,7 +21,7 @@ export default defineConfig({
         crawlLinks: true,
         failOnError: true,
         // The same page under another #fragment is one file, and the playground's builds are the examples' own pages, which a page of the site must not replace.
-        filter: (page) => !page.path.includes('#') && !page.path.startsWith(`/${PLAYGROUND_BUILDS}/`),
+        filter: (page) => !page.path.includes('#') && !isPlaygroundBuild(page.path),
       },
       // GitHub Pages serves 404.html for any address the site has no page for. It is the SPA shell, which renders whatever route the address matches (the not-found page) in the browser, so it hydrates at every address.
       spa: { enabled: true, maskPath: '/404', prerender: { outputPath: '/404' } },
@@ -30,6 +30,11 @@ export default defineConfig({
     viteReact(),
   ],
 })
+
+// isPlaygroundBuild reports whether a crawled path is under the builds' directory. The crawler follows links as written, with the base in front (/game/play/<id>/ when the base is /game/), while the site's own routes come without it, so both forms are checked.
+function isPlaygroundBuild(pagePath: string): boolean {
+  return pagePath.startsWith(`/${PLAYGROUND_BUILDS}/`) || pagePath.startsWith(`${base}${PLAYGROUND_BUILDS}/`)
+}
 
 function normalizeBase(value: string | undefined): string {
   const trimmed = (value ?? '').trim().replace(/^\/+|\/+$/g, '')

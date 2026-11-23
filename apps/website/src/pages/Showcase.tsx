@@ -1,8 +1,10 @@
+import { Link } from '@tanstack/react-router'
 import { Eyebrow, SpeedLines } from '../components/Brand'
 import { Icon } from '../components/Icon'
+import { isPlaygroundId } from '../content/playground'
 import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import { type Copy, copies } from '../copy'
-import { type Lang, pageHead, useLang } from '../i18n'
+import { type Lang, pageHead, routes, useLang } from '../i18n'
 import { CONTRIBUTING_URL, SHOWCASE_SUBMIT_URL } from '../links'
 
 export const showcaseHead = (lang: Lang) => pageHead(lang, 'showcase/', copies[lang].showcase.title, copies[lang].showcase.description)
@@ -47,6 +49,8 @@ export function Showcase() {
 
 function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; index: number; lang: Lang; copy: Copy['showcase'] }) {
   const chipClass = entry.kind === 'example' ? 'chip chip--cleared' : 'chip chip--accent'
+  // An example the playground runs is played on its page there, in the reader's language.
+  const playground = isPlaygroundId(entry.id) ? entry.id : undefined
   return (
     <li className="showcase-card hud">
       <div className="showcase-card__top">
@@ -54,9 +58,15 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
         <span className={chipClass}>{copy.kinds[entry.kind]}</span>
       </div>
       <h2>
-        <a href={entry.playUrl ?? entry.sourceUrl} target="_blank" rel="noopener noreferrer">
-          {entry.title[lang]}
-        </a>
+        {playground ? (
+          <Link to={routes[lang].playgroundExample} params={{ example: playground }}>
+            {entry.title[lang]}
+          </Link>
+        ) : (
+          <a href={entry.playUrl ?? entry.sourceUrl} target="_blank" rel="noopener noreferrer">
+            {entry.title[lang]}
+          </a>
+        )}
       </h2>
       <p className="showcase-card__desc">{entry.description[lang]}</p>
       <ul className="showcase-card__tags" aria-label={copy.tagsLabel}>
@@ -74,7 +84,13 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
           {copy.by} {entry.author} · {entry.license}
         </span>
         <div className="showcase-card__links">
-          {entry.playUrl && (
+          {playground && (
+            <Link to={routes[lang].playgroundExample} params={{ example: playground }}>
+              {copy.play}
+              <Icon name="arrow" size={12} />
+            </Link>
+          )}
+          {!playground && entry.playUrl && (
             <a href={entry.playUrl} target="_blank" rel="noopener noreferrer">
               {copy.play}
               <Icon name="external" size={12} />
