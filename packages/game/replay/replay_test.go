@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -479,20 +481,16 @@ func TestRecorderDeltaEncodingAndCompactSize(t *testing.T) {
 		t.Fatalf("events = %d, want %d for %d total steps", len(got.Events), changes, totalSteps)
 	}
 
-	jsonBytes, err := got.Encode()
+	text, err := got.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	if len(jsonBytes) > 1024 {
-		t.Fatalf("10-minute recording JSON is %d bytes, expected < 1024 bytes", len(jsonBytes))
+	if len(text) > 1024 {
+		t.Fatalf("10-minute recording is %d bytes, expected < 1024 bytes", len(text))
 	}
-
-	gzBytes, err := got.EncodeGzip()
-	if err != nil {
-		t.Fatalf("EncodeGzip: %v", err)
-	}
-	if len(gzBytes) >= len(jsonBytes) {
-		t.Fatalf("gzip size %d >= json size %d", len(gzBytes), len(jsonBytes))
+	// Seven header lines, then exactly one line per changed step.
+	if lines := strings.Count(string(text), "\n"); lines != 7+changes {
+		t.Fatalf("recording has %d lines, want %d:\n%s", lines, 7+changes, text)
 	}
 }
 
@@ -639,78 +637,93 @@ func TestEncodeDecodeRoundTripAndErrors(t *testing.T) {
 		t.Fatalf("re-Encode: %v", err)
 	}
 	if string(decRaw) != string(raw) {
-		t.Fatalf("JSON round-trip mismatch:\n got: %s\nwant: %s", decRaw, raw)
+		t.Fatalf("text round trip mismatch:\n got: %s\nwant: %s", decRaw, raw)
+	}
+	if !reflect.DeepEqual(dec, orig) {
+		t.Fatalf("Decode(Encode(r)) = %+v, want %+v", dec, orig)
 	}
 
-	gz, err := orig.EncodeGzip()
-	if err != nil {
-		t.Fatalf("EncodeGzip: %v", err)
-	}
-	decGz, err := replay.DecodeGzip(gz)
-	if err != nil {
-		t.Fatalf("DecodeGzip: %v", err)
-	}
-	decGzRaw, err := decGz.Encode()
-	if err != nil {
-		t.Fatalf("re-Encode gzip: %v", err)
-	}
-	if string(decGzRaw) != string(raw) {
-		t.Fatalf("gzip round-trip mismatch:\n got: %s\nwant: %s", decGzRaw, raw)
-	}
-
-	// File save & load round-trip for both plain JSON and gzip.
-	dir := t.TempDir()
-	for _, name := range []string{"run.replay.json", "run.replay.json.gz"} {
-		path := filepath.Join(dir, name)
-		if err := replay.SaveFile(path, orig); err != nil {
-			t.Fatalf("SaveFile(%s): %v", name, err)
-		}
-		loaded, err := replay.LoadFile(path)
-		if err != nil {
-			t.Fatalf("LoadFile(%s): %v", name, err)
-		}
-		loadedRaw, err := loaded.Encode()
-		if err != nil {
-			t.Fatalf("Encode(%s): %v", name, err)
-		}
-		if string(loadedRaw) != string(raw) {
-			t.Fatalf("file round-trip %s mismatch", name)
-		}
+	want := `version: 2
+seed: 424242
+rate: 120
+actions: [left, right, jump]
+axes: [move_x]
+total_steps: 20
+steps:
+  - {step: 0, press: [right], axes: {move_x: 0.75}}
+  - {step: 5, press: [jump], release: [right], axes: {move_x: -0.25}}
+  - {step: 19, release: [jump], axes: {move_x: 0}}
+`
+	if string(raw) != want {
+		t.Fatalf("Encode text mismatch:\n got:\n%s\nwant:\n%s", raw, want)
 	}
 
-	// Reject corrupt, malformed and unsupported-version inputs.
-	badJSON := []struct {
+	// File save and load round trip.
+	path := filepath.Join(t.TempDir(), "run.replay.yaml")
+	if err := replay.SaveFile(path, orig); err != nil {
+		t.Fatalf("SaveFile: %v", err)
+	}
+	loaded, err := replay.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	loadedRaw, err := loaded.Encode()
+	if err != nil {
+		t.Fatalf("Encode loaded: %v", err)
+	}
+	if string(loadedRaw) != string(raw) {
+		t.Fatalf("file round trip mismatch:\n got: %s\nwant: %s", loadedRaw, raw)
+	}
+	if _, err := replay.LoadFile(filepath.Join(t.TempDir(), "missing.replay.yaml")); err == nil {
+		t.Fatal("LoadFile accepted a missing file")
+	}
+
+	// Reject malformed, unknown and unsupported-version inputs.
+	const head = "version: 2\nseed: 1\nrate: 60\nactions: [a]\naxes: [x]\ntotal_steps: 5\n"
+	bad := []struct {
 		name string
 		data string
 	}{
-		{"corrupt_json", `{not json`},
-		{"version_zero", `{"version":0,"seed":1,"rate":60,"total_steps":1}`},
-		{"future_version", `{"version":99,"seed":1,"rate":60,"total_steps":1}`},
-		{"zero_rate", `{"version":1,"seed":1,"rate":0,"total_steps":1}`},
-		{"negative_rate", `{"version":1,"seed":1,"rate":-60,"total_steps":1}`},
-		{"negative_steps", `{"version":1,"seed":1,"rate":60,"total_steps":-1}`},
-		{"empty_action_name", `{"version":1,"seed":1,"rate":60,"actions":[""],"total_steps":1}`},
-		{"dup_action_name", `{"version":1,"seed":1,"rate":60,"actions":["a","a"],"total_steps":1}`},
-		{"dup_axis_name", `{"version":1,"seed":1,"rate":60,"axes":["x","x"],"total_steps":1}`},
-		{"step_out_of_range", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":5,"p":[0]}]}`},
-		{"step_negative", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":-1,"p":[0]}]}`},
-		{"non_increasing_step", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":2,"p":[0]},{"s":2,"r":[0]}]}`},
-		{"press_index_oob", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":0,"p":[1]}]}`},
-		{"release_index_oob", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":0,"r":[1]}]}`},
-		{"press_and_release_same", `{"version":1,"seed":1,"rate":60,"actions":["a"],"total_steps":5,"events":[{"s":0,"p":[0],"r":[0]}]}`},
-		{"axis_index_oob", `{"version":1,"seed":1,"rate":60,"axes":["x"],"total_steps":5,"events":[{"s":0,"a":[{"i":1,"v":1}]}]}`},
-		{"dup_axis_index", `{"version":1,"seed":1,"rate":60,"axes":["x"],"total_steps":5,"events":[{"s":0,"a":[{"i":0,"v":1},{"i":0,"v":0}]}]}`},
+		{"empty", "  \n"},
+		{"corrupt_yaml", "version: [2\n"},
+		{"gzip", "\x1f\x8b\x08\x00rest"},
+		{"version_missing", "seed: 1\nrate: 60\ntotal_steps: 1\n"},
+		{"version_one_json", `{"version":1,"seed":1,"rate":60,"total_steps":2,"events":[{"s":0,"p":[0]}]}`},
+		{"future_version", "version: 99\nseed: 1\nrate: 60\ntotal_steps: 1\n"},
+		{"zero_rate", "version: 2\nseed: 1\nrate: 0\ntotal_steps: 1\n"},
+		{"negative_rate", "version: 2\nseed: 1\nrate: -60\ntotal_steps: 1\n"},
+		{"negative_steps", "version: 2\nseed: 1\nrate: 60\ntotal_steps: -1\n"},
+		{"negative_seed", "version: 2\nseed: -1\nrate: 60\ntotal_steps: 1\n"},
+		{"unknown_header_key", head + "speed: 2\n"},
+		{"unknown_step_key", head + "steps:\n  - {step: 0, hold: [a]}\n"},
+		{"trailing_document", head + "---\nversion: 2\n"},
+		{"empty_action_name", "version: 2\nseed: 1\nrate: 60\nactions: [\"\"]\ntotal_steps: 1\n"},
+		{"dup_action_name", "version: 2\nseed: 1\nrate: 60\nactions: [a, a]\ntotal_steps: 1\n"},
+		{"dup_axis_name", "version: 2\nseed: 1\nrate: 60\naxes: [x, x]\ntotal_steps: 1\n"},
+		{"step_missing", head + "steps:\n  - {press: [a]}\n"},
+		{"step_out_of_range", head + "steps:\n  - {step: 5, press: [a]}\n"},
+		{"step_negative", head + "steps:\n  - {step: -1, press: [a]}\n"},
+		{"step_not_a_number", head + "steps:\n  - {step: two, press: [a]}\n"},
+		{"non_increasing_step", head + "steps:\n  - {step: 2, press: [a]}\n  - {step: 2, release: [a]}\n"},
+		{"decreasing_step", head + "steps:\n  - {step: 3, press: [a]}\n  - {step: 1, release: [a]}\n"},
+		{"unknown_press", head + "steps:\n  - {step: 0, press: [b]}\n"},
+		{"unknown_release", head + "steps:\n  - {step: 0, release: [b]}\n"},
+		{"press_and_release_same", head + "steps:\n  - {step: 0, press: [a], release: [a]}\n"},
+		{"press_twice", head + "steps:\n  - {step: 0, press: [a, a]}\n"},
+		{"unknown_axis", head + "steps:\n  - {step: 0, axes: {y: 1}}\n"},
+		{"dup_axis", head + "steps:\n  - {step: 0, axes: {x: 1, x: 0}}\n"},
+		{"axis_not_a_number", head + "steps:\n  - {step: 0, axes: {x: left}}\n"},
+		{"axis_nan", head + "steps:\n  - {step: 0, axes: {x: .nan}}\n"},
+		{"axis_inf", head + "steps:\n  - {step: 0, axes: {x: .inf}}\n"},
+		{"axes_not_a_mapping", head + "steps:\n  - {step: 0, axes: [x]}\n"},
+		{"steps_not_a_list", head + "steps: {step: 0}\n"},
 	}
-	for _, tc := range badJSON {
+	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := replay.Decode([]byte(tc.data)); err == nil {
-				t.Fatalf("Decode(%s) succeeded, want error", tc.name)
+				t.Fatalf("Decode(%q) succeeded, want error", tc.data)
 			}
 		})
-	}
-
-	if _, err := replay.DecodeGzip([]byte("not gzip data")); err == nil {
-		t.Fatal("DecodeGzip accepted non-gzip bytes")
 	}
 }
 
@@ -759,7 +772,7 @@ func TestLiveMiniLevelMatchesPlaybackBitForBit(t *testing.T) {
 		t.Fatalf("recording not compact: %d events for %d steps", len(recorded.Events), recorded.TotalSteps)
 	}
 
-	// Round-trip through JSON and gzip before playback.
+	// Round-trip through text in memory and through a file before playback.
 	encoded, err := recorded.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -768,13 +781,13 @@ func TestLiveMiniLevelMatchesPlaybackBitForBit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	gz, err := recorded.EncodeGzip()
-	if err != nil {
-		t.Fatalf("EncodeGzip: %v", err)
+	path := filepath.Join(t.TempDir(), "live.replay.yaml")
+	if err := replay.SaveFile(path, recorded); err != nil {
+		t.Fatalf("SaveFile: %v", err)
 	}
-	decodedGz, err := replay.DecodeGzip(gz)
+	decodedFile, err := replay.LoadFile(path)
 	if err != nil {
-		t.Fatalf("DecodeGzip: %v", err)
+		t.Fatalf("LoadFile: %v", err)
 	}
 
 	// 1. Direct step-by-step playback: assert EVERY intermediate step AND final state match live run bit-for-bit.
@@ -793,17 +806,17 @@ func TestLiveMiniLevelMatchesPlaybackBitForBit(t *testing.T) {
 	}
 
 	// 2. Playback inside a fresh game.Loop under nsgotest matches bit-for-bit.
-	loopPlayer := replay.NewPlayer(decodedGz)
+	loopPlayer := replay.NewPlayer(decodedFile)
 	loopSim := newMiniLevel(loopPlayer.Seed(), loopPlayer)
 	var stop func()
 	loopSteps := 0
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		loop := &game.Loop{
-			Rate: decodedGz.Rate,
+			Rate: decodedFile.Rate,
 			Update: func(dt time.Duration) {
 				loopSim.Update(dt)
 				loopSteps++
-				if loopSteps >= decodedGz.TotalSteps {
+				if loopSteps >= decodedFile.TotalSteps {
 					stop()
 				}
 			},
@@ -811,7 +824,7 @@ func TestLiveMiniLevelMatchesPlaybackBitForBit(t *testing.T) {
 		stop = loop.Run(cx)
 		return core.View{}
 	})
-	for loopSteps < decodedGz.TotalSteps {
+	for loopSteps < decodedFile.TotalSteps {
 		app.Advance(frameStep)
 	}
 	if got := loopSim.State(); got != liveEnd {
@@ -886,9 +899,22 @@ func approxLevelStateEqual(a, b levelState) bool {
 }
 
 func TestGoldenLevelClearRecording(t *testing.T) {
-	rec, err := replay.LoadFile(filepath.Join("testdata", "level_clear.replay.json"))
+	path := filepath.Join("testdata", "level_clear.replay.yaml")
+	rec, err := replay.LoadFile(path)
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
+	}
+	// Loading and saving the committed text must not change a byte.
+	file, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := rec.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if string(again) != string(file) {
+		t.Fatalf("golden round trip changed the file:\n got:\n%s\nwant:\n%s", again, file)
 	}
 	if rec.Version != replay.FormatVersion {
 		t.Fatalf("golden version = %d, want %d", rec.Version, replay.FormatVersion)

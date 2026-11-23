@@ -1,6 +1,6 @@
 # replay
 
-`game/replay` records fixed-step game inputs into compact delta-encoded files and replays them deterministically for bug reproduction, ghost runs, and automated regression tests.
+`game/replay` records fixed-step game inputs into delta-encoded YAML text files and replays them deterministically for bug reproduction, ghost runs, and automated regression tests.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/replay"
@@ -43,20 +43,42 @@ loop := &game.Loop{
 	},
 }
 
-// Snapshot and save (".gz" writes gzip-compressed JSON automatically)
-if err := replay.SaveFile("runs/boss-bug.json.gz", rec.Recording()); err != nil {
+// Snapshot and save as YAML text
+if err := replay.SaveFile("runs/boss-bug.replay.yaml", rec.Recording()); err != nil {
 	return err
 }
 ```
 
-`Recording` is delta-encoded: only steps where a watched action's pressed state or a watched axis's value changed from the previous step are written to `Events`, keeping long sessions small. Serialize in memory with `rec.Encode()` / `rec.EncodeGzip()`, decode with `replay.Decode` / `replay.DecodeGzip`, and read plain or gzipped files with `replay.LoadFile(path)`.
+`Recording` is delta-encoded: only steps where a watched action's pressed state or a watched axis's value changed from the previous step are written to `Events`, keeping long sessions small. Serialize in memory with `rec.Encode()` and `replay.Decode`, and on disk with `replay.SaveFile` and `replay.LoadFile`.
+
+## The recording file
+
+A recording is a YAML text file you can read, diff in review and edit by hand. The header holds the format version, the seed, the step rate, the watched action and axis names and the total step count; after it comes one line per step on which input changed, naming the actions pressed and released and the new axis values:
+
+```yaml
+version: 2
+seed: 99537266
+rate: 60
+actions: [left, right, jump, dash]
+axes: [move_x]
+total_steps: 254
+steps:
+  - {step: 6, press: [right], axes: {move_x: 1}}
+  - {step: 39, press: [left], release: [right], axes: {move_x: -1}}
+  - {step: 85, press: [jump, dash]}
+  - {step: 95, release: [jump, dash]}
+```
+
+Steps count from 0 and must be listed in increasing order below `total_steps`. An action stays pressed from the step that presses it until a step releases it, and an axis keeps its value until a later step sets another. An edited file replays as edited: move a press to another step, change an axis value or add a line, and `LoadFile` and `Player` follow it.
+
+`Decode` refuses unknown keys, a line without `step`, names missing from the header and trailing YAML documents, and names the step or line at fault. `Encode` always writes the same bytes for the same recording, so loading a file it wrote and saving it again changes nothing. Comments and block-style entries you add are read, but a program that saves the recording again writes the canonical one-line form without them. The conventional extension is `.replay.yaml`. Version 1, the earlier compact JSON form, is no longer read.
 
 ## Playing back a Recording
 
 Load a recording and feed `NewPlayer(recording)` into the same simulation:
 
 ```go
-recording, err := replay.LoadFile("runs/boss-bug.json.gz")
+recording, err := replay.LoadFile("runs/boss-bug.replay.yaml")
 if err != nil {
 	return err
 }
@@ -77,7 +99,7 @@ Commit recorded runs (e.g. under `testdata/`) and verify deterministic behavior 
 
 ```go
 func TestLevel1ClearReplay(t *testing.T) {
-	rec, err := replay.LoadFile("testdata/level1-clear.json.gz")
+	rec, err := replay.LoadFile("testdata/level1-clear.replay.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

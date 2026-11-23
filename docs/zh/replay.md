@@ -1,6 +1,6 @@
 # replay
 
-`game/replay` 将固定步长下的游戏输入以紧凑的增量格式记录到版本化文件中，并支持确定性回放，用于问题复现、幽灵竞速（ghost）和自动化回归测试。
+`game/replay` 将固定步长下的游戏输入以增量格式记录到 YAML 文本文件中，并支持确定性回放，用于问题复现、幽灵竞速（ghost）和自动化回归测试。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/replay"
@@ -43,20 +43,42 @@ loop := &game.Loop{
 	},
 }
 
-// 导出快照并保存（以 ".gz" 结尾时自动进行 gzip 压缩）
-if err := replay.SaveFile("runs/boss-bug.json.gz", rec.Recording()); err != nil {
+// 导出快照并保存为 YAML 文本
+if err := replay.SaveFile("runs/boss-bug.replay.yaml", rec.Recording()); err != nil {
 	return err
 }
 ```
 
-`Recording` 采用增量编码：只有当监听的动作按下状态或轴数值相比上一步发生变化时，才会向 `Events` 追加记录，长时间对局也能保持很小体积。内存编解码可使用 `rec.Encode()` / `rec.EncodeGzip()` 与 `replay.Decode` / `replay.DecodeGzip`，读写文件使用 `replay.SaveFile` / `replay.LoadFile`（自动识别普通 JSON 与 gzip）。
+`Recording` 采用增量编码：只有当监听的动作按下状态或轴数值相比上一步发生变化时，才会向 `Events` 追加记录，长时间对局也能保持很小体积。内存编解码使用 `rec.Encode()` 与 `replay.Decode`，读写文件使用 `replay.SaveFile` 与 `replay.LoadFile`。
+
+## 录像文件
+
+录像是 YAML 文本文件，可以直接阅读、在评审中查看 diff，也可以手工编辑。文件头包含格式版本、随机种子、步频、监听的动作与轴名称以及总步数；其后每个输入发生变化的步占一行，写明按下和松开的动作以及轴的新值：
+
+```yaml
+version: 2
+seed: 99537266
+rate: 60
+actions: [left, right, jump, dash]
+axes: [move_x]
+total_steps: 254
+steps:
+  - {step: 6, press: [right], axes: {move_x: 1}}
+  - {step: 39, press: [left], release: [right], axes: {move_x: -1}}
+  - {step: 85, press: [jump, dash]}
+  - {step: 95, release: [jump, dash]}
+```
+
+步序号从 0 开始，必须按递增顺序排列且小于 `total_steps`。动作从按下它的那一步起保持按下，直到某一步将其松开；轴的值保持不变，直到后面的某一步设置新值。编辑后的文件会按编辑后的内容回放：把一次按下移到另一步、修改轴的值或新增一行，`LoadFile` 和 `Player` 都会照此执行。
+
+`Decode` 会拒绝未知字段、缺少 `step` 的行、文件头中不存在的名称以及多余的 YAML 文档，并在错误中指出出错的步或行。`Encode` 对同一份录像总是写出相同的字节，因此加载它写出的文件再保存不会产生任何变化。手工加入的注释和块风格条目可以正常读取，但程序再次保存时会写成标准的单行形式，不保留这些内容。约定的扩展名是 `.replay.yaml`。早期紧凑 JSON 形式的版本 1 已不再读取。
 
 ## 回放 Recording
 
 加载录像并用 `NewPlayer(recording)` 驱动同一套游戏模拟：
 
 ```go
-recording, err := replay.LoadFile("runs/boss-bug.json.gz")
+recording, err := replay.LoadFile("runs/boss-bug.replay.yaml")
 if err != nil {
 	return err
 }
@@ -77,7 +99,7 @@ for !player.Done() {
 
 ```go
 func TestLevel1ClearReplay(t *testing.T) {
-	rec, err := replay.LoadFile("testdata/level1-clear.json.gz")
+	rec, err := replay.LoadFile("testdata/level1-clear.replay.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
