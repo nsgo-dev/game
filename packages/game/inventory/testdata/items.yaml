@@ -1,0 +1,30 @@
+version: 1
+items:
+  - id: potion
+    name: items.potion.name
+    description: items.potion.description
+    icon: asset:icons/potion.png
+    maxStack: 20
+    tags: [consumable, healing]
+    stats:
+      heal: 25
+      price: 12.5
+  - id: arrow
+    name: items.arrow.name
+    maxStack: 99
+    tags: [ammo]
+  - id: iron-helm
+    name: items.iron-helm.name
+    equip: head
+    stats:
+      armor: 3
+      weight: 2.25
+  - id: gold-ring
+    name: items.gold-ring.name
+    equip: ring
+  - id: silver-ring
+    name: items.silver-ring.name
+    equip: ring
+  - id: old-key
+    name: items.old-key.name
+    tags: [quest]
