@@ -121,8 +121,11 @@ func (e *Equipment) Equip(slot string, src *Container, from int) error {
 		src.slots[from] = Stack{Item: old, Count: 1}
 		return nil
 	}
-	_, err := src.Add(old, 1)
-	return err
+	// The Room check above guarantees old fits; anything else would lose the unequipped item, so treat it as a broken invariant.
+	if rem, err := src.Add(old, 1); err != nil || rem != 0 {
+		panic(fmt.Sprintf("inventory: Equip lost unequipped %q (remaining %d, err %v)", old, rem, err))
+	}
+	return nil
 }
 
 // Unequip moves the item in slot into dst the way dst.AddAll does. It returns ErrEmptySlot when slot holds nothing and ErrFull, leaving the item equipped, when dst has no room.

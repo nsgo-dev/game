@@ -128,6 +128,7 @@ func TestParseRejectsInvalidCatalogs(t *testing.T) {
 		"space in id":     "version: 1\nitems:\n  - id: \"a b\"\n",
 		"duplicate id":    "version: 1\nitems:\n  - id: a\n  - id: a\n",
 		"negative stack":  "version: 1\nitems:\n  - id: a\n    maxStack: -1\n",
+		"zero stack":      "version: 1\nitems:\n  - id: a\n    maxStack: 0\n",
 		"huge stack":      "version: 1\nitems:\n  - id: a\n    maxStack: 2000000000\n",
 		"bad equip":       "version: 1\nitems:\n  - id: a\n    equip: \"left hand\"\n",
 		"empty tag":       "version: 1\nitems:\n  - id: a\n    tags: [\"\"]\n",
