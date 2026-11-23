@@ -79,7 +79,7 @@ Each object has:
 - Transform: `x`, `y`, `originX`, `originY`, `rotation` (radians, clockwise), `scaleX` (default `1`), `scaleY` (default `1`), `flipX`, `flipY`, `alpha` (`[0, 1]`, default `1`), `z` (layer-local draw order, lowest first)
 - `sprite`: optional `{atlas, frame}` referencing a `sprite.Atlas` and frame name
 - `material`: optional slash-separated path from the project root to a shared material file, such as `materials/stone.material.yaml`, resolved at build time through `MaterialResolver` (see [resource](resources.md))
-- `components`: optional `map[string]any` for structured component payloads
+- `components`: optional mapping from a component type name to its fields; free-form unless a component registry is given (see [Component types](#component-types))
 - `properties`: optional `map[string]any` for custom metadata
 - `children`: optional list of objects attached to this one (see Node tree below)
 
@@ -214,6 +214,35 @@ built.Draw(d)
 ```
 
 `Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
+
+### Component types
+
+A `ComponentRegistry` declares, in Go and without reflection, the component types scene files may use: each type's name and documentation, and each field's name, kind (`FieldBool`, `FieldInt`, `FieldFloat` or `FieldString`), default, optional inclusive range and documentation. `Register` refuses empty or duplicate names, ranges on non-numeric fields, a minimum above the maximum, and a default of the wrong kind or out of range.
+
+```go
+reg := sceneformat.NewComponentRegistry()
+reg.MustRegister(sceneformat.ComponentType{
+	Name: "body",
+	Doc:  "A moving body that collides with the level.",
+	Fields: []sceneformat.Field{
+		{Name: "solid", Kind: sceneformat.FieldBool, Default: true, Doc: "Blocks other solid bodies."},
+		{Name: "speed", Kind: sceneformat.FieldFloat, Default: 32.0, Min: sceneformat.Float64(0), Max: sceneformat.Float64(500), Doc: "Top speed in points per second."},
+		{Name: "layer", Kind: sceneformat.FieldInt, Default: 1, Min: sceneformat.Float64(0), Max: sceneformat.Float64(31), Doc: "Collision layer."},
+	},
+})
+
+doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "scenes/room.scene.yaml", Components: reg})
+```
+
+With a registry, `ParseWith` checks the components of every object, nested children included, and refuses an unregistered component type, a misspelled or unknown field, a value of the wrong kind (a `FieldInt` refuses `3.0`; a `FieldFloat` accepts an integer), a non-finite number and a value out of range. The error is a `*ComponentError` carrying the file, line and column of the offending key or value, the object ID, component and field, and lists the registered names:
+
+```text
+scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field "sped": unknown field (registered: solid, speed, layer)
+```
+
+Defaults are not written into the document, so loading and saving a scene changes nothing; `reg.Resolve("body", fields)` returns every field with its default filled in. `ValidateComponents` checks a document built in Go (without positions), and `CheckField` checks one value and normalizes it to `bool`, `int`, `float64` or `string`. `Parse` without a registry keeps `components` free-form.
+
+In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene, then makes `OpenFile` report component errors with the file and line, and makes `SetComponentField` and `PlaceObject` refuse fields the registry does not allow. The inspector lists every registered field of a component in declaration order, including fields the scene leaves unset, which show their default; the label's tooltip gives the field's documentation, kind, range and default, and numeric inputs are bounded by the range. Components without a registered type, or every component when no registry is set, are shown from the values in the file as before.
 
 ### Projects
 
