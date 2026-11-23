@@ -2,7 +2,7 @@
 
 A map from Unity's scenes, GameObjects and components, assets, events, Input System, physics and builds to this layer, with the page that covers each one.
 
-A game here is Go code inside an NSGo component rather than C# scripts attached in an editor. Scenes, prefabs and settings are YAML text with a version field and no generated IDs, so a change to a scene reads as a small diff, unlike a `.unity` file's `fileID` references. HUD and menus are native NSGo views over the game's canvas, where Unity would use uGUI or UI Toolkit.
+A game here is Go code inside an NSGo component rather than C# scripts attached in an editor. Scenes, prefabs and settings are YAML text with a version field and readable object IDs such as `crate_3` that stay the same from save to save, where a `.unity` file refers to objects by opaque `fileID` numbers, so a change to a scene reads as a small diff. HUD and menus are native NSGo views over the game's canvas, where Unity would use uGUI or UI Toolkit.
 
 ## At a glance
 
@@ -15,7 +15,7 @@ A game here is Go code inside an NSGo component rather than C# scripts attached 
 | GameObject with components, `MonoBehaviour` | `entities.World` entities, components and systems | [Entities](entities.md) |
 | `Transform` hierarchy | `scene3d.Node` tree | [scene3d](scene3d.md) |
 | Prefab, `Instantiate`, `Destroy` | `entities.Prefab`, `World.Spawn`, `World.Destroy` | [Entities](entities.md) |
-| `Resources.Load`, Addressables | `"asset:"` URIs and `assets.Manager` groups | [assets](assets.md) |
+| `Resources.Load`, Addressables | `"asset:"` URIs for images and sounds, `assets.Manager` groups over an embedded file system | [assets](assets.md) |
 | C# events, `UnityEvent` | `flow.Bus`; `core.Signal` for UI state | [flow](flow.md) |
 | Coroutines, `Invoke`, `InvokeRepeating` | `flow.Seq`, `flow.Timers.After` and `Every` | [flow](flow.md) |
 | Input System action maps | `input.Actions` | [input](input.md) |
@@ -45,7 +45,7 @@ Coordinates differ from Unity's. 2D drawing and 2D physics use screen space: X r
 
 ## Assets
 
-Files loaded at runtime live in `resources/` and open by `"asset:<path>"` on every target, as `Resources.Load` paths do. `assets.Manager` groups them per scene, loads a group off the engine goroutine with progress you can bind to a loading screen, and releases it when the scene ends, the part of Addressables most games use. See [assets](assets.md).
+Images and sounds loaded at runtime live in `resources/` and open by `"asset:<path>"`, such as `core.Src("asset:hero.png")`, on every target, as `Resources.Load` paths do. Data that `assets.Manager` reads itself, such as atlas JSON, raw bytes and your own parsed files, comes from the file system you give it: embed it with `//go:embed` and pass `assets.NewManager(cx, assets.WithFS(fsys))`, or pass `WithReadAsset` for custom storage. `assets.Manager` groups assets per scene, loads a group off the engine goroutine with progress you can bind to a loading screen, and releases it when the scene ends, the part of Addressables most games use. See [assets](assets.md).
 
 There is no asset database or `.meta` file. Files are read as their tools write them: TexturePacker and Aseprite atlases ([sprite](sprite.md)), Tiled maps ([tilemap](tilemap.md)) and glTF models ([3D Models from Blender](3d-models-blender.md)). A `ScriptableObject` becomes a YAML file decoded into a Go struct. `PlayerPrefs` becomes `core.Storage`, and saved games are versioned JSON slots with migrations and a backup in [save](save.md).
 
@@ -87,7 +87,7 @@ Everything steps on the loop's fixed `dt`, in a fixed order, so the same inputs 
 | `Rigidbody` with box, sphere or capsule colliders | `physics3d.World` with `Body` values |
 | `CharacterController.Move` | `physics3d.CharacterController.Move`, with slope limits and steps |
 
-See [physics](physics.md), [2D Rigid Bodies](physics2d-rigid.md) and [physics3d](physics3d.md). Colliders are boxes, circles, spheres and capsules; mesh colliders are out of scope.
+See [physics](physics.md), [2D Rigid Bodies](physics2d-rigid.md) and [physics3d](physics3d.md). Moving colliders are boxes, circles, spheres and capsules. For static 3D level geometry, `MeshCollider` maps to `physics3d.TriMeshCollider` added with `World.AddTriMesh`, and `TerrainCollider` to `physics3d.HeightfieldCollider` added with `World.AddHeightfield`.
 
 ## Builds
 

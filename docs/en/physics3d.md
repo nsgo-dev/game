@@ -16,7 +16,7 @@ Why pure Go instead of wrapping a C/C++ physics engine (such as Jolt, Bullet, or
 - **No FFI overhead**: Queries, raycasts, rigid-body steps, and character moves operate directly on Go values with zero cgo boundary crossings.
 - **Bit-for-bit determinism**: Stepping a `World` with fixed durations from `game.Loop` runs broadphase, narrowphase, impulse solving, and positional correction in a fixed body and contact order with no map-order iteration or wall-clock input.
 
-The scope is intentionally focused: axis-aligned boxes, spheres, and capsules, exact overlap and raycast queries, translational rigid bodies, and a capsule character controller. Full triangle-mesh collision, articulated joints, and rotational inertia tensors are outside this initial package.
+The scope is intentionally focused: axis-aligned boxes, spheres, and capsules, exact overlap and raycast queries, translational rigid bodies, and a capsule character controller. Static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`) and heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`) collide with bodies and the character controller; articulated joints and rotational inertia tensors are outside this initial package.
 
 ## Coordinate Convention
 

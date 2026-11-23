@@ -2,7 +2,7 @@
 
 把 Unity 的场景、GameObject 与组件、资源、事件、Input System、物理和构建对应到这个游戏层，并给出讲解每一项的页面。
 
-这里的游戏是 NSGo 组件里的 Go 代码，而不是在编辑器里挂上的 C# 脚本。场景、预制体和设置都是带版本字段、不含生成 ID 的 YAML 文本，所以对场景的修改呈现为一处小小的差异，而不像 `.unity` 文件那样充满 `fileID` 引用。HUD 和菜单是叠在游戏画布上的原生 NSGo 视图，对应 Unity 中的 uGUI 或 UI Toolkit。
+这里的游戏是 NSGo 组件里的 Go 代码，而不是在编辑器里挂上的 C# 脚本。场景、预制体和设置都是带版本字段的 YAML 文本，对象 ID 是 `crate_3` 这样可读、每次保存都不变的名字，而 `.unity` 文件用不透明的 `fileID` 数字引用对象，所以对场景的修改呈现为一处小小的差异。HUD 和菜单是叠在游戏画布上的原生 NSGo 视图，对应 Unity 中的 uGUI 或 UI Toolkit。
 
 ## 速览
 
@@ -15,7 +15,7 @@
 | 带组件的 GameObject、`MonoBehaviour` | `entities.World` 的实体、组件与系统 | [实体](entities.md) |
 | `Transform` 层级 | `scene3d.Node` 树 | [scene3d](scene3d.md) |
 | 预制体、`Instantiate`、`Destroy` | `entities.Prefab`、`World.Spawn`、`World.Destroy` | [实体](entities.md) |
-| `Resources.Load`、Addressables | `"asset:"` URI 与 `assets.Manager` 资源组 | [assets](assets.md) |
+| `Resources.Load`、Addressables | 图像和声音用 `"asset:"` URI，基于嵌入文件系统的 `assets.Manager` 资源组 | [assets](assets.md) |
 | C# 事件、`UnityEvent` | `flow.Bus`；界面状态用 `core.Signal` | [flow](flow.md) |
 | 协程、`Invoke`、`InvokeRepeating` | `flow.Seq`、`flow.Timers.After` 与 `Every` | [flow](flow.md) |
 | Input System 动作映射 | `input.Actions` | [input](input.md) |
@@ -45,7 +45,7 @@ Unity 把行为挂在对象上；这里数据和行为是分开的，与 Unity �
 
 ## 资源
 
-运行时加载的文件放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` 打开，就像 `Resources.Load` 的路径。`assets.Manager` 按场景把它们分组，在引擎 goroutine 之外加载资源组，提供可以绑定到加载界面的进度，并在场景结束时释放，这正是大多数游戏用到的那部分 Addressables 功能。见 [assets](assets.md)。
+运行时加载的图像和声音放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` 打开，例如 `core.Src("asset:hero.png")`，就像 `Resources.Load` 的路径。`assets.Manager` 自己读取的数据，例如图集 JSON、原始字节和你自己解析的文件，来自你交给它的文件系统：用 `//go:embed` 嵌入后传入 `assets.NewManager(cx, assets.WithFS(fsys))`，或者用 `WithReadAsset` 接入自定义存储。`assets.Manager` 按场景把资源分组，在引擎 goroutine 之外加载资源组，提供可以绑定到加载界面的进度，并在场景结束时释放，这正是大多数游戏用到的那部分 Addressables 功能。见 [assets](assets.md)。
 
 这里没有资源数据库，也没有 `.meta` 文件。文件按其工具写出的格式读取：TexturePacker 和 Aseprite 图集（[sprite](sprite.md)）、Tiled 地图（[tilemap](tilemap.md)）以及 glTF 模型（[从 Blender 导入 3D 模型](3d-models-blender.md)）。`ScriptableObject` 变成一个解码到 Go 结构体的 YAML 文件。`PlayerPrefs` 变成 `core.Storage`，存档则是 [save](save.md) 中带版本、迁移和备份的 JSON 存档槽。
 
@@ -87,7 +87,7 @@ Unity 把行为挂在对象上；这里数据和行为是分开的，与 Unity �
 | 带盒体、球体或胶囊体碰撞体的 `Rigidbody` | `physics3d.World` 中的 `Body` |
 | `CharacterController.Move` | `physics3d.CharacterController.Move`，带坡度限制和台阶 |
 
-见 [physics](physics.md)、[2D 刚体](physics2d-rigid.md)和 [physics3d](physics3d.md)。碰撞体有盒形、圆形、球体和胶囊体；网格碰撞体不在范围内。
+见 [physics](physics.md)、[2D 刚体](physics2d-rigid.md)和 [physics3d](physics3d.md)。运动的碰撞体有盒形、圆形、球体和胶囊体。对于静态的 3D 关卡几何，`MeshCollider` 对应用 `World.AddTriMesh` 加入的 `physics3d.TriMeshCollider`，`TerrainCollider` 对应用 `World.AddHeightfield` 加入的 `physics3d.HeightfieldCollider`。
 
 ## 构建
 
