@@ -29,8 +29,8 @@ type Effect struct {
 	Name string
 	// Source is the effect's Kage program, as the package documentation describes it.
 	Source string
-	// Reference draws the effect on the CPU for Chain.Reference: the premultiplied color, red, green, blue and alpha from 0 to 1, of the frame's point (x, y) given the pass before it. It is nil for an effect that has none, which a chain draws on the GPU only.
-	Reference func(in Input, x, y float64) [4]float64
+	// Reference draws the effect on the CPU for Chain.Reference: the premultiplied color, red, green, blue and alpha from 0 to 1, of the frame's point (x, y) given the pass before it and the effect's uniforms, by the names its source declares, as Chain.Reference is given them (Float reads a number). A uniform left out is 0, as on the GPU. It is nil for an effect that has none, which a chain draws on the GPU only.
+	Reference func(in Input, u core.Uniforms, x, y float64) [4]float64
 }
 
 // Chain is effects compiled into one program, which View draws a frame through.
@@ -54,6 +54,9 @@ var reservedName = regexp.MustCompile(`^[pP][0-9]+_`)
 
 // imageName matches the program's image functions, which only the chain reads.
 var imageName = regexp.MustCompile(`^image[0-9]+(At|Size)$`)
+
+// viewNames are the built-ins that describe the view, in points, rather than the frame: an effect works in the frame's pixels, which its Reference can draw.
+var viewNames = map[string]bool{"rectSize": true, "pixelScale": true}
 
 // Compile compiles effects into a chain that draws them in order, the first over the frame and each next over the one before it. No effects make a chain that draws the frame as it is.
 //
@@ -206,6 +209,10 @@ func parseEffect(src string) (*ast.File, error) {
 			bad = fmt.Errorf("%s: %s: names starting with p or P, digits and _ are the chain's", fset.Position(id.Pos()), id.Name)
 		case id.Obj == nil && imageName.MatchString(id.Name):
 			bad = fmt.Errorf("%s: an effect reads the frame with %s and %s, not %s", fset.Position(id.Pos()), inputName, inputSizeName, id.Name)
+		case id.Obj == nil && viewNames[id.Name]:
+			bad = fmt.Errorf("%s: an effect works in the frame's pixels, which %s measures, not the view's %s", fset.Position(id.Pos()), inputSizeName, id.Name)
+		case strings.HasPrefix(id.Name, "__"):
+			bad = fmt.Errorf("%s: %s: names starting with __ are the shader compiler's", fset.Position(id.Pos()), id.Name)
 		}
 		return bad == nil
 	})

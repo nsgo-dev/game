@@ -55,27 +55,27 @@ func Effect(pos vec2) vec4 {
 }
 `
 
-func invert(amount float64) effects.Effect {
-	return effects.Effect{Name: "invert", Source: invertSource, Reference: func(in effects.Input, x, y float64) [4]float64 {
-		c := in.At(x, y)
-		t := [4]float64{c[3] - c[0], c[3] - c[1], c[3] - c[2], c[3]}
-		for k := range c {
-			c[k] += (t[k] - c[k]) * amount
-		}
-		return c
-	}}
-}
+var invert = effects.Effect{Name: "invert", Source: invertSource, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+	amount := effects.Float(u, "Amount")
+	c := in.At(x, y)
+	t := [4]float64{c[3] - c[0], c[3] - c[1], c[3] - c[2], c[3]}
+	for k := range c {
+		c[k] += (t[k] - c[k]) * amount
+	}
+	return c
+}}
 
-func blur(offset float64) effects.Effect {
-	return effects.Effect{Name: "blur", Source: blurSource, Reference: func(in effects.Input, x, y float64) [4]float64 {
-		w, _ := in.Size()
-		a, b := in.At(x, y), in.At(math.Min(x+offset, w-0.5), y)
-		for k := range a {
-			a[k] = (a[k] + b[k]) * 0.5
-		}
-		return a
-	}}
-}
+var blur = effects.Effect{Name: "blur", Source: blurSource, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+	w, _ := in.Size()
+	a, b := in.At(x, y), in.At(math.Min(x+effects.Float(u, "Offset"), w-0.5), y)
+	for k := range a {
+		a[k] = (a[k] + b[k]) * 0.5
+	}
+	return a
+}}
+
+// full sets the invert all the way and the blur's second tap one pixel to the right.
+var full = []core.Uniforms{{"Amount": 1}, {"Offset": 1}}
 
 // testFrame is an 8 by 6 frame of opaque bands and a translucent column, premultiplied.
 func testFrame() *image.RGBA {
@@ -93,11 +93,11 @@ func testFrame() *image.RGBA {
 }
 
 func TestTwoEffectsChainAndDrawTheirReferencePicture(t *testing.T) {
-	chain := effects.MustCompile(invert(1), blur(1))
+	chain := effects.MustCompile(invert, blur)
 	if chain.Len() != 2 {
 		t.Fatalf("Len %d, want 2", chain.Len())
 	}
-	got, err := chain.Reference(testFrame(), 16, 12)
+	got, err := chain.Reference(testFrame(), 16, 12, full)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func Effect(pos vec2) vec4 {
 	c := Input(pos)
 	return c * c
 }
-`, Reference: func(in effects.Input, x, y float64) [4]float64 {
+`, Reference: func(in effects.Input, _ core.Uniforms, x, y float64) [4]float64 {
 	c := in.At(x, y)
 	for k := range c {
 		c[k] *= c[k]
@@ -135,22 +135,22 @@ func Effect(pos vec2) vec4 {
 }}
 
 func TestTheChainsOrderIsTheDrawingOrder(t *testing.T) {
-	ab := effects.MustCompile(square, blur(1))
-	ba := effects.MustCompile(blur(1), square)
+	ab := effects.MustCompile(square, blur)
+	ba := effects.MustCompile(blur, square)
 	if ab.Source() == ba.Source() {
 		t.Fatal("chains in two orders compiled into the same source")
 	}
 	// The blur averages squares in one order, and the square squares averages in the other.
-	x, _ := ab.Reference(testFrame(), 8, 6)
-	y, _ := ba.Reference(testFrame(), 8, 6)
+	x, _ := ab.Reference(testFrame(), 8, 6, []core.Uniforms{nil, {"Offset": 1}})
+	y, _ := ba.Reference(testFrame(), 8, 6, []core.Uniforms{{"Offset": 1}})
 	if slices.Equal(x.Pix, y.Pix) {
 		t.Fatal("chains in two orders drew the same picture")
 	}
 }
 
 func TestTheFusedSourceIsDeterministicAndRenamesEachEffect(t *testing.T) {
-	a := effects.MustCompile(invert(1), blur(1)).Source()
-	b := effects.MustCompile(invert(1), blur(1)).Source()
+	a := effects.MustCompile(invert, blur).Source()
+	b := effects.MustCompile(invert, blur).Source()
 	if a != b {
 		t.Fatal("the same effects compiled into two sources")
 	}
@@ -177,7 +177,7 @@ func TestTheFusedSourceIsDeterministicAndRenamesEachEffect(t *testing.T) {
 func TestNoEffectsDrawTheFrameAsItIs(t *testing.T) {
 	chain := effects.MustCompile()
 	frame := testFrame()
-	got, err := chain.Reference(frame, 16, 12)
+	got, err := chain.Reference(frame, 16, 12, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestReferenceReadsAFrameOffItsOrigin(t *testing.T) {
 	frame := big.SubImage(image.Rect(1, 4, 3, 6)).(*image.RGBA)
 	frame.SetRGBA(1, 4, color.RGBA{10, 20, 30, 255})
 	frame.SetRGBA(2, 5, color.RGBA{40, 50, 60, 255})
-	got, err := effects.MustCompile().Reference(frame, 2, 2)
+	got, err := effects.MustCompile().Reference(frame, 2, 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,18 +207,68 @@ func TestReferenceReadsAFrameOffItsOrigin(t *testing.T) {
 	}
 }
 
+func TestReferenceDrawsAtTheUniformsItIsGiven(t *testing.T) {
+	chain := effects.MustCompile(invert, blur)
+	at := func(u []core.Uniforms) *image.RGBA {
+		t.Helper()
+		got, err := chain.Reference(testFrame(), 8, 6, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	// Left out, the uniforms are 0, as on the GPU: no invert, and the blur's two taps read the same pixel, which draws the frame as it is.
+	if got, frame := at(nil), testFrame(); !slices.Equal(got.Pix, frame.Pix) {
+		t.Fatalf("no uniforms drew %v, want the frame %v", got.Pix[:8], frame.Pix[:8])
+	}
+	// Half an invert of an opaque pixel is mid gray, whatever its color.
+	half := at([]core.Uniforms{{"Amount": core.Constant(0.5)}, {"Offset": float32(0)}})
+	if px := half.RGBAAt(0, 0); px != (color.RGBA{128, 128, 128, 255}) {
+		t.Fatalf("half an invert drew %v, want mid gray", px)
+	}
+	if slices.Equal(half.Pix, at(full).Pix) {
+		t.Fatal("two amounts drew the same picture")
+	}
+	for name, tc := range map[string]struct {
+		u    []core.Uniforms
+		want string
+	}{
+		"unknown":  {[]core.Uniforms{{"Offset": 1}}, "effect 0 (invert) has no uniform Offset"},
+		"extra":    {[]core.Uniforms{nil, nil, {"Amount": 1}}, "uniforms for 3 effects, but the chain has 2"},
+		"animated": {[]core.Uniforms{{"Amount": []any{animatedNode{}}}}, "effect 0 (invert): uniform Amount follows an animated node"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := chain.Reference(testFrame(), 4, 4, tc.u); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// animatedNode is a node whose value only the platform knows, as a core.AnimatedValue's.
+type animatedNode struct{ core.AnimatedNode }
+
+func TestFloatReadsANumberUniform(t *testing.T) {
+	u := core.Uniforms{"f": float32(1.5), "i": 2, "u": uint64(3), "b": true, "c": core.Constant(4), "v": []float64{1, 2}}
+	for name, want := range map[string]float64{"f": 1.5, "i": 2, "u": 3, "b": 1, "c": 4, "v": 0, "missing": 0} {
+		if got := effects.Float(u, name); got != want {
+			t.Errorf("Float(%s) = %g, want %g", name, got, want)
+		}
+	}
+}
+
 func TestReferenceNeedsEveryEffectsReference(t *testing.T) {
-	gpuOnly := invert(1)
+	gpuOnly := invert
 	gpuOnly.Reference = nil
-	_, err := effects.MustCompile(blur(1), gpuOnly).Reference(testFrame(), 4, 4)
+	_, err := effects.MustCompile(blur, gpuOnly).Reference(testFrame(), 4, 4, nil)
 	if err == nil || !strings.Contains(err.Error(), "effect 1 (invert) has no Reference") {
 		t.Fatalf("err = %v", err)
 	}
-	empty, err := effects.MustCompile(invert(1)).Reference(nil, 0, 3)
+	empty, err := effects.MustCompile(invert).Reference(nil, 0, 3, full[:1])
 	if err != nil || empty.Rect.Dx() != 0 {
 		t.Fatalf("an empty picture: %v, %v", empty.Rect, err)
 	}
-	blank, err := effects.MustCompile(invert(1)).Reference(nil, 2, 2)
+	blank, err := effects.MustCompile(invert).Reference(nil, 2, 2, full[:1])
 	if err != nil || slices.ContainsFunc(blank.Pix, func(b uint8) bool { return b != 0 }) {
 		t.Fatalf("no frame drew %v, %v", blank.Pix, err)
 	}
@@ -234,11 +284,14 @@ func TestCompileRefusesWhatTheChainCannotFuse(t *testing.T) {
 		{"imports", "package main\n\nimport \"math\"\n\nfunc Effect(pos vec2) vec4 {\n\treturn vec4(0)\n}\n", "3:8: an effect imports nothing"},
 		{"reserved name", "package main\n\nfunc Effect(pos vec2) vec4 {\n\tp1_x := Input(pos)\n\treturn p1_x\n}\n", "4:2: p1_x: names starting with p or P"},
 		{"reads an image", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn image1At(pos)\n}\n", "4:9: an effect reads the frame with Input and InputSize, not image1At"},
+		{"reads the view", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos * rectSize() / rectSize())\n}\n", "4:21: an effect works in the frame's pixels, which InputSize measures, not the view's rectSize"},
+		{"reads the scale", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos) * pixelScale()\n}\n", "not the view's pixelScale"},
+		{"compiler's name", "package main\n\nfunc Effect(pos vec2) vec4 {\n\tx := __imageSizes[0]\n\treturn Input(pos + x)\n}\n", "4:7: __imageSizes: names starting with __ are the shader compiler's"},
 		{"syntax", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn (\n}\n", "5:1: expected operand"},
 		{"type", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos).xy\n}\n", "4:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := effects.Compile(invert(0), effects.Effect{Name: "bad", Source: tc.src})
+			_, err := effects.Compile(invert, effects.Effect{Name: "bad", Source: tc.src})
 			if err == nil {
 				t.Fatal("it compiled")
 			}
@@ -259,7 +312,7 @@ func TestCompileRefusesWhatTheChainCannotFuse(t *testing.T) {
 }
 
 func TestUniformsTakeEachEffectsNames(t *testing.T) {
-	chain := effects.MustCompile(invert(1), blur(1))
+	chain := effects.MustCompile(invert, blur)
 	if !chain.HasUniform(0, "Amount") || !chain.HasUniform(1, "Offset") || chain.HasUniform(0, "Offset") || chain.HasUniform(2, "Amount") || chain.HasUniform(-1, "Amount") {
 		t.Fatal("HasUniform names the wrong effects' uniforms")
 	}
@@ -291,7 +344,7 @@ func TestUniformsTakeEachEffectsNames(t *testing.T) {
 }
 
 func TestTheViewDrawsTheFrameThroughTheChainWithUniformsOnTheFrameClock(t *testing.T) {
-	chain := effects.MustCompile(invert(1), blur(1))
+	chain := effects.MustCompile(invert, blur)
 	frame := testFrame()
 	var clock *core.AnimatedValue
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -325,7 +378,7 @@ func TestTheViewDrawsTheFrameThroughTheChainWithUniformsOnTheFrameClock(t *testi
 }
 
 func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
-	chain := effects.MustCompile(invert(1))
+	chain := effects.MustCompile(invert)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		amount := core.NewSignal(cx, 0.25)
 		version := core.NewSignal(cx, uint64(1))
@@ -359,18 +412,45 @@ func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
 	}
 }
 
+// nsgotest's mounted shader does not list the images it reads (nsgotest.Shader has no Images), so the view's own shader shows that the frame is its image0.
+func TestTheViewsFrameIsItsShadersImage(t *testing.T) {
+	chain := effects.MustCompile(invert)
+	frame := testFrame()
+	sh, ok := effects.View{Chain: chain, Frame: core.ImageSource{Pixels: frame, Version: 1}}.Render(nil).(core.Shader)
+	if !ok {
+		t.Fatal("the view is not a core.Shader")
+	}
+	if sh.Program != chain.Program() || sh.ImagesFunc != nil || len(sh.Images) != 1 || sh.Images[0].Pixels != frame || sh.Images[0].Version != 1 {
+		t.Fatalf("images %v, func %v: want the frame at version 1 as image0 of the chain's program", sh.Images, sh.ImagesFunc != nil)
+	}
+	version := uint64(1)
+	sh = effects.View{Chain: chain, FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version} }}.Render(nil).(core.Shader)
+	if sh.Images != nil || sh.ImagesFunc == nil {
+		t.Fatalf("a FrameFunc gave images %v and no ImagesFunc", sh.Images)
+	}
+	for want := range uint64(3) {
+		version = want
+		if got := sh.ImagesFunc(); len(got) != 1 || got[0].Pixels != frame || got[0].Version != want {
+			t.Fatalf("ImagesFunc() = %v, want the frame at version %d", got, want)
+		}
+	}
+	if plain := (effects.View{Frame: core.ImageSource{Pixels: frame}}).Render(nil).(core.Shader); plain.Program == nil || len(plain.Images) != 1 || plain.Images[0].Pixels != frame {
+		t.Fatalf("a nil chain gave program %v and images %v", plain.Program, plain.Images)
+	}
+}
+
 func BenchmarkCompile(b *testing.B) {
 	for b.Loop() {
-		effects.MustCompile(invert(1), blur(1))
+		effects.MustCompile(invert, blur)
 	}
 }
 
 func BenchmarkReference(b *testing.B) {
-	chain := effects.MustCompile(invert(1), blur(1))
+	chain := effects.MustCompile(invert, blur)
 	frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := chain.Reference(frame, 320, 180); err != nil {
+		if _, err := chain.Reference(frame, 320, 180, full); err != nil {
 			b.Fatal(err)
 		}
 	}

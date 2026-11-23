@@ -35,7 +35,7 @@ func Effect(pos vec2) vec4 {
 `
 ```
 
-An effect does not declare `Input`, `InputSize` or `Fragment`, imports nothing, reads the frame only through `Input` (not `image0At`), and uses no name that starts with `p` or `P`, digits and `_`, which the chain gives its declarations.
+An effect does not declare `Input`, `InputSize` or `Fragment`, imports nothing, reads the frame only through `Input` (not `image0At`), works in the frame's pixels (not the view's `rectSize` or `pixelScale`), and uses no name that starts with `__`, which the shader compiler keeps, or with `p` or `P`, digits and `_`, which the chain gives its declarations.
 
 ## Chain effects
 
@@ -84,16 +84,18 @@ Any other node works too, such as a `core.Timing` a game starts when the player 
 
 ## Reference pictures
 
-Headless tests have no GPU, so `Chain.Reference(frame, width, height)` draws the chain on the CPU with each effect's `Reference` function, mapping each output pixel's center onto the frame as the GPU does. Compare the result with a golden PNG from `gametest`:
+Headless tests have no GPU, so `Chain.Reference(frame, width, height, uniforms)` draws the chain on the CPU with each effect's `Reference` function, at the per-effect uniforms a `View` would set, mapping each output pixel's center onto the frame as the GPU does. `Float` reads a number uniform, and a uniform left out is 0, as on the GPU. Compare the result with a golden PNG from `gametest`:
 
 ```go
-// The invert at Amount 1.
-invertRef := func(in effects.Input, x, y float64) [4]float64 {
-	c := in.At(x, y)
-	return [4]float64{c[3] - c[0], c[3] - c[1], c[3] - c[2], c[3]}
+invertRef := func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, amount := in.At(x, y), effects.Float(u, "Amount")
+	for k := range 3 {
+		c[k] += (c[3] - 2*c[k]) * amount
+	}
+	return c
 }
 chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef}, ...)
-got, err := chain.Reference(frame, 640, 360)
+got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 
-`Reference` returns an error when an effect has no `Reference`. A PNG stores straight colors, so convert the premultiplied picture to `*image.NRGBA` before `gametest.AssertGolden` when it has translucent pixels.
+`Reference` returns an error when an effect has no `Reference`, for a uniform an effect does not declare, and for one set to an animated node such as `Clock`'s, whose value only the platform knows: pass the number to draw it at instead. A PNG stores straight colors, so convert the premultiplied picture to `*image.NRGBA` before `gametest.AssertGolden` when it has translucent pixels.

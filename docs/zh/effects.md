@@ -35,7 +35,7 @@ func Effect(pos vec2) vec4 {
 `
 ```
 
-效果不能声明 `Input`、`InputSize` 或 `Fragment`，不能 import，只能通过 `Input` 读取画面（不能用 `image0At`），也不能使用以 `p` 或 `P` 加数字和 `_` 开头的名字，这些名字留给效果链重命名各效果的声明。
+效果不能声明 `Input`、`InputSize` 或 `Fragment`，不能 import，只能通过 `Input` 读取画面（不能用 `image0At`），以画面的像素为单位（不能用视图的 `rectSize` 或 `pixelScale`），也不能使用以 `__` 开头的名字（留给着色器编译器）或以 `p` 或 `P` 加数字和 `_` 开头的名字，后者留给效果链重命名各效果的声明。
 
 ## 串联效果
 
@@ -84,16 +84,18 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Amount": pulse
 
 ## 参考图
 
-无头测试没有 GPU，因此 `Chain.Reference(frame, width, height)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，像 GPU 一样把每个输出像素的中心映射到画面上。将结果与 `gametest` 的 golden PNG 比较：
+无头测试没有 GPU，因此 `Chain.Reference(frame, width, height, uniforms)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，使用 `View` 会设置的各效果 uniform，并像 GPU 一样把每个输出像素的中心映射到画面上。`Float` 读取数值 uniform，未给出的 uniform 为 0，与 GPU 一致。将结果与 `gametest` 的 golden PNG 比较：
 
 ```go
-// Amount 为 1 时的反色。
-invertRef := func(in effects.Input, x, y float64) [4]float64 {
-	c := in.At(x, y)
-	return [4]float64{c[3] - c[0], c[3] - c[1], c[3] - c[2], c[3]}
+invertRef := func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, amount := in.At(x, y), effects.Float(u, "Amount")
+	for k := range 3 {
+		c[k] += (c[3] - 2*c[k]) * amount
+	}
+	return c
 }
 chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef}, ...)
-got, err := chain.Reference(frame, 640, 360)
+got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 
-有效果缺少 `Reference` 时，`Reference` 返回错误。PNG 存储的是非预乘颜色，因此图中有半透明像素时，先把预乘的图转换为 `*image.NRGBA` 再交给 `gametest.AssertGolden`。
+有效果缺少 `Reference`、uniform 不是该效果声明的、或 uniform 设为动画节点（例如 `Clock` 的返回值，其值只有平台知道）时，`Reference` 返回错误；这时请传入要绘制的具体数值。PNG 存储的是非预乘颜色，因此图中有半透明像素时，先把预乘的图转换为 `*image.NRGBA` 再交给 `gametest.AssertGolden`。
