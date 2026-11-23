@@ -48,7 +48,7 @@ const (
 	GrabNone
 )
 
-// String returns the rule's name as BoardDoc writes it: "any", "top" or "none".
+// String returns the rule's name: "any", "top" or "none". BoardDoc writes "top" and "none" and leaves GrabAny out.
 func (g GrabRule) String() string {
 	switch g {
 	case GrabAny:
@@ -286,6 +286,7 @@ func (b *Board) Add(c *Card, s *Slot, index int) error {
 	c.board = b
 	s.insert(c, index)
 	b.relayout(s, 0, 0)
+	b.compactLift()
 	return nil
 }
 
@@ -307,6 +308,8 @@ func (b *Board) Move(c *Card, to *Slot, index int) error {
 		b.relayout(from, d, d)
 	}
 	b.relayout(to, d, d)
+	// A negative SnapDuration lands the cards at once, so they return to their slots' draw order now rather than on the next Update.
+	b.compactLift()
 	return nil
 }
 
@@ -321,6 +324,7 @@ func (b *Board) Remove(c *Card) error {
 	s.remove(c)
 	c.board, c.slot, c.move, c.tilt = nil, nil, nil, nil
 	b.relayout(s, b.snapDuration(), b.snapDuration())
+	b.compactLift()
 	return nil
 }
 
@@ -328,6 +332,7 @@ func (b *Board) Remove(c *Card) error {
 func (b *Board) Relayout(s *Slot) {
 	if s != nil && s.board == b {
 		b.relayout(s, b.snapDuration(), b.snapDuration())
+		b.compactLift()
 	}
 }
 
@@ -479,9 +484,12 @@ func (b *Board) PointerMove(id int, p math2d.Vec2) {
 		if c.pose.Rot != 0 {
 			c.tilt = tween.New(c.pose.Rot, 0, b.snapDuration(), b.Curve, lerpFloat32, func(r float32) { c.pose.Rot = r })
 		}
+		// Place the card before OnPickUp runs: the callback may Move or Remove it, which shifts b.drags under d.
+		c.pose.Pos = p.Add(d.grab)
 		if b.OnPickUp != nil {
 			b.OnPickUp(c)
 		}
+		return
 	}
 	c.pose.Pos = p.Add(d.grab)
 }

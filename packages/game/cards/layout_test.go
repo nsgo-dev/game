@@ -134,6 +134,44 @@ func TestGridRowsColumnsAndInsertIndex(t *testing.T) {
 	}
 }
 
+func TestGridInsertIndexIgnoresNonFinitePoints(t *testing.T) {
+	area := math2d.Rect{X: 0, Y: 0, W: 200, H: 200}
+	g := cards.Grid{Gap: math2d.Vec2{X: 10, Y: 5}}
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	cases := []struct {
+		p    math2d.Vec2
+		want int
+	}{
+		{math2d.Vec2{X: nan, Y: nan}, 0},
+		{math2d.Vec2{X: inf, Y: 0}, 2},
+		{math2d.Vec2{X: -inf, Y: 0}, 0},
+		{math2d.Vec2{X: 0, Y: inf}, 4},
+		{math2d.Vec2{X: 1e30, Y: 1e30}, 4},
+		{math2d.Vec2{X: -1e30, Y: -1e30}, 0},
+	}
+	for _, c := range cases {
+		if got := g.InsertIndex(area, cardSize, 4, c.p); got != c.want {
+			t.Errorf("InsertIndex at %v = %d, want %d", c.p, got, c.want)
+		}
+	}
+	// A huge or infinite slot width caps the column count instead of overflowing it.
+	for _, w := range []float32{inf, 1e30} {
+		wide := math2d.Rect{W: w, H: 200}
+		poses := g.Arrange(wide, cardSize, 3, nil)
+		if poses[2].Pos.Y != poses[0].Pos.Y {
+			t.Errorf("width %g wrapped a row: %v", w, poses)
+		}
+		if got := g.InsertIndex(wide, cardSize, 3, math2d.Vec2{X: 0, Y: 1e30}); got != 3 {
+			t.Errorf("width %g: insert below = %d, want 3", w, got)
+		}
+	}
+	// A huge explicit column count keeps every card on the first row.
+	if got := (cards.Grid{Columns: math.MaxInt}).InsertIndex(area, cardSize, 4, math2d.Vec2{X: 0, Y: 150}); got != 4 {
+		t.Errorf("huge column count: insert on the second row = %d, want 4", got)
+	}
+}
+
 func TestPoseLerp(t *testing.T) {
 	a := cards.Pose{Pos: math2d.Vec2{X: 0, Y: 10}, Rot: -1}
 	b := cards.Pose{Pos: math2d.Vec2{X: 10, Y: 30}, Rot: 1}

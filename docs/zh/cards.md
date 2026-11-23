@@ -89,11 +89,11 @@ for _, c := range order {
 }
 ```
 
-牌桌内部切片扩容完成后，`DrawOrder`、`Update` 和指针调用都不再分配内存。
+牌桌内部切片扩容完成后，`DrawOrder`、`Update` 以及拖动过程中的 `PointerMove` 不再分配内存。拿起一张旋转的牌、放下一张牌或把牌送回原处时，每张开始移动的牌都会分配一个补间。
 
 ## 牌桌文件
 
-牌桌的卡牌尺寸和槽位可以写成 YAML，用 `ParseBoardDoc` 和 `LoadBoard` 加载。未知字段会被拒绝，版本必须为 `1`，`EncodeBoardDoc` 按固定顺序写出字段，所以文件读入再写出后不会改变。`board.Doc()` 把代码中构建的牌桌转回 `BoardDoc`；槽位的 `Accept` 函数以及牌桌的回调和时长留在代码中。
+牌桌的卡牌尺寸和槽位可以写成 YAML，用 `ParseBoardDoc` 和 `LoadBoard` 加载。未知字段会被拒绝，版本必须为 `1`，`EncodeBoardDoc` 按固定顺序、以块样式写出字段（如下例），所以这种形式的文件读入再写出后不会改变；手写的流样式文件（`rect: {x: 40, ...}`）第一次保存时会变成块样式。`board.Doc()` 把代码中构建的牌桌转回 `BoardDoc`；槽位的 `Accept` 函数以及牌桌的回调和时长留在代码中。
 
 ```yaml
 version: 1
@@ -102,18 +102,31 @@ card_size:
   h: 88
 slots:
   - id: hand
-    rect: {x: 40, "y": 400, w: 560, h: 120}
+    rect:
+      x: 40
+      "y": 400
+      w: 560
+      h: 120
     layout:
-      fan: {arc: 24, sag: 14}
+      fan:
+        arc: 24
+        sag: 14
   - id: deck
-    rect: {x: 620, "y": 400, w: 63, h: 88}
+    rect:
+      x: 620
+      "y": 400
+      w: 63
+      h: 88
     layout:
       stack:
-        offset: {x: 0, "y": -0.5}
+        offset:
+          x: 0
+          "y": -0.5
         depth: 8
-    accepts: [spell]
+    accepts:
+      - spell
     capacity: 40
     grab: top
 ```
 
-每个槽位只能指定 `fan`、`stack`、`grid` 中的一个；`grab` 为 `any`（默认）、`top` 或 `none`。编码器会给 `y` 键加引号，因为 YAML 1.1 会把它读作布尔值，这样其他工具读到的内容一致。
+每个槽位只能指定 `fan`、`stack`、`grid` 中的一个；`grab` 为 `top` 或 `none`，默认的任意牌可拿则省略该键；`grab: any` 会被拒绝，使默认值只有一种写法。编码器会给 `y` 键加引号，因为 YAML 1.1 会把它读作布尔值，这样其他工具读到的内容一致。

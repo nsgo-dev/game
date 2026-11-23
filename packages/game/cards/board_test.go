@@ -471,6 +471,59 @@ func TestMoveRemoveAndErrors(t *testing.T) {
 	}
 }
 
+func TestInstantMoveAndAddLandInDrawOrder(t *testing.T) {
+	tb := newTable(t)
+	b := tb.b
+	b.SnapDuration = -1
+	if err := b.Move(tb.bc, tb.deck, -1); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Move(tb.a, tb.deck, 0); err != nil {
+		t.Fatal(err)
+	}
+	z := &cards.Card{ID: "z"}
+	if err := b.Add(z, tb.deck, -1); err != nil {
+		t.Fatal(err)
+	}
+	// No Update has run: the instant moves must already be back in slot order.
+	if got, want := ids(b.DrawOrder(nil)), []string{"c", "a", "b", "z"}; !slices.Equal(got, want) {
+		t.Fatalf("draw order %v, want %v", got, want)
+	}
+	if tb.a.Moving() || tb.bc.Moving() {
+		t.Fatal("an instant move is still tweening")
+	}
+	if got := b.CardAt(z.Pose().Pos); got != z {
+		t.Fatalf("card under the deck's top = %v, want z", got)
+	}
+	if !b.PointerDown(1, z.Pose().Pos) {
+		t.Fatal("the deck's top card could not be grabbed")
+	}
+}
+
+func TestPickUpCallbackMayMoveTheCard(t *testing.T) {
+	tb := newTable(t)
+	b := tb.b
+	var moved cards.Pose
+	b.OnPickUp = func(c *cards.Card) {
+		if err := b.Move(c, tb.deck, -1); err != nil {
+			t.Fatal(err)
+		}
+		moved = c.Pose()
+	}
+	b.PointerDown(1, tb.a.Pose().Pos)
+	b.PointerMove(1, v(200, 110))
+	if got := tb.a.Pose(); got != moved {
+		t.Fatalf("pose after OnPickUp moved the card = %+v, want %+v where Move left it", got, moved)
+	}
+	if tb.a.Slot() != tb.deck || tb.a.Held() || !tb.a.Moving() {
+		t.Fatalf("card in %s held %v moving %v", tb.a.Slot().ID, tb.a.Held(), tb.a.Moving())
+	}
+	b.Update(100 * ms)
+	if !nearVec(tb.a.Pose().Pos, v(350, 90)) {
+		t.Fatalf("card landed at %v, want the deck", tb.a.Pose().Pos)
+	}
+}
+
 func TestRelayoutAndZeroValueDefaults(t *testing.T) {
 	var b cards.Board
 	if b.Size() != cards.DefaultCardSize {

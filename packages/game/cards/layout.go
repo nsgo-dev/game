@@ -124,7 +124,7 @@ func (g Grid) columns(area math2d.Rect, card math2d.Vec2) int {
 	if cell <= 0 {
 		return 1
 	}
-	return max(int(math.Floor(float64((area.W+g.Gap.X)/cell))), 1)
+	return max(floorClamp((area.W+g.Gap.X)/cell, math.MaxInt32), 1)
 }
 
 // Arrange implements Layout.
@@ -148,10 +148,13 @@ func (g Grid) InsertIndex(area math2d.Rect, card math2d.Vec2, n int, p math2d.Ve
 	cols := g.columns(area, card)
 	col, row := 0, 0
 	if w := card.X + g.Gap.X; w > 0 {
-		col = min(max(int(math.Floor(float64((p.X-area.X)/w))), 0), cols-1)
+		col = min(floorClamp((p.X-area.X)/w, cols-1), cols-1)
 	}
 	if h := card.Y + g.Gap.Y; h > 0 {
-		row = max(int(math.Floor(float64((p.Y-area.Y)/h))), 0)
+		row = floorClamp((p.Y-area.Y)/h, n)
+	}
+	if row > 0 && cols > n {
+		return n
 	}
 	return clampIndex(row*cols+col, n)
 }
@@ -166,6 +169,18 @@ func roundHalfUp(v float32) int {
 	}
 	if f < math.MinInt32 {
 		return math.MinInt32
+	}
+	return int(f)
+}
+
+// floorClamp returns v rounded down and kept within [0, hi], NaN giving 0. Converting a NaN, infinite or out-of-range float to int is implementation-defined in Go, so the clamp happens before the conversion.
+func floorClamp(v float32, hi int) int {
+	f := math.Floor(float64(v))
+	switch {
+	case f != f || f <= 0:
+		return 0
+	case f >= float64(hi):
+		return hi
 	}
 	return int(f)
 }
