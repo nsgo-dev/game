@@ -543,7 +543,7 @@ func encodeAtlasJSON(imageName string, size image.Point, scale int, frames []Fra
 	doc := jsonAtlas{
 		Frames: make(map[string]jsonFrame, len(frames)),
 		Meta: jsonMeta{
-			App:     "gamepack",
+			App:     "game pack",
 			Version: "1",
 			Image:   imageName,
 			Format:  "RGBA8888",

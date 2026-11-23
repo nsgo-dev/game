@@ -53,6 +53,9 @@ func defineAudio(a *app, fs *flag.FlagSet) func() error {
 				opts.RMSDBFS = &v
 			}
 		})
+		if opts.PeakDBFS != nil && opts.RMSDBFS != nil {
+			return usagef("-peak-db and -rms-db are mutually exclusive")
+		}
 
 		if err := a.audio.ConvertFile(context.Background(), *inPath, *outPath, format, opts); err != nil {
 			return err

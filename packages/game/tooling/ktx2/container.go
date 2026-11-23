@@ -324,7 +324,7 @@ func buildDFD(format Format, srgb bool) []byte {
 func buildKVD(extra map[string]string) []byte {
 	kv := make(map[string]string, len(extra)+2)
 	kv["KTXorientation"] = "rd"
-	kv["KTXwriter"] = "nsgo-gametex"
+	kv["KTXwriter"] = "nsgo game tex"
 	for k, v := range extra {
 		if k != "" {
 			kv[k] = v
