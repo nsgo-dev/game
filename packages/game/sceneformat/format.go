@@ -248,6 +248,45 @@ func walkObjects(objs []ObjectDoc, parent *ObjectDoc, fn func(o, parent *ObjectD
 	return true
 }
 
+// errShearedSprite explains why a sprite whose composed world transform is sheared is refused.
+var errShearedSprite = errors.New("its world transform is sheared (a rotated object under a non-uniformly scaled parent), which a sprite cannot draw")
+
+// CheckObjectTree checks the shape of the tree rooted at o, taking o as a top-level object: nesting no deeper than MaxObjectDepth levels, and no sprite whose composed world transform is sheared. Validate makes the same checks for every layer of a scene; CheckObjectTree lets a caller such as an editor refuse a tree or a transform change before it reaches a document. It does not check IDs or field values.
+func CheckObjectTree(o *ObjectDoc) error {
+	return checkObjectTree(o, nil, 1)
+}
+
+func checkObjectTree(o *ObjectDoc, parentWorld *math2d.Affine, depth int) error {
+	if depth > MaxObjectDepth {
+		return fmt.Errorf("sceneformat: object %q nests deeper than %d levels", o.ID, MaxObjectDepth)
+	}
+	world, ok := composeObjectWorld(parentWorld, o)
+	if !ok {
+		return fmt.Errorf("sceneformat: object %q: %w", o.ID, errShearedSprite)
+	}
+	for i := range o.Children {
+		if err := checkObjectTree(&o.Children[i], &world, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// composeObjectWorld returns o's world transform under a parent whose world transform is parentWorld (nil for a top-level object), composed the way Build composes BuiltObject.World. It reports false when o has a sprite that this world transform shears, which only a child can be.
+func composeObjectWorld(parentWorld *math2d.Affine, o *ObjectDoc) (math2d.Affine, bool) {
+	world := o.LocalTransform()
+	if parentWorld == nil {
+		return world, true
+	}
+	world = parentWorld.Mul(world)
+	if o.Sprite != nil {
+		if _, _, _, _, _, ok := decomposeTRS(world); !ok {
+			return world, false
+		}
+	}
+	return world, true
+}
+
 // Bool returns a pointer to v for optional YAML boolean fields such as LayerDoc.Visible.
 func Bool(v bool) *bool { return &v }
 
@@ -352,15 +391,15 @@ func Validate(doc *SceneDoc) error {
 				return err
 			}
 		}
-		if err := validateObjects(l.Name, "", l.Objects, 1, objectIDs); err != nil {
+		if err := validateObjects(l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// validateObjects checks objs (the top-level objects of layer when parent is empty, or the children of the object parent) at nesting depth and their descendants, recording every ID in ids.
-func validateObjects(layer, parent string, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
+// validateObjects checks objs (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld) at nesting depth and their descendants, recording every ID in ids.
+func validateObjects(layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
 	if len(objs) > 0 && depth > MaxObjectDepth {
 		return fmt.Errorf("sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
 	}
@@ -379,7 +418,11 @@ func validateObjects(layer, parent string, objs []ObjectDoc, depth int, ids map[
 		if err := validateObject(layer, o); err != nil {
 			return err
 		}
-		if err := validateObjects(layer, o.ID, o.Children, depth+1, ids); err != nil {
+		world, ok := composeObjectWorld(parentWorld, o)
+		if !ok {
+			return fmt.Errorf("sceneformat: layer %q object %q: %w", layer, o.ID, errShearedSprite)
+		}
+		if err := validateObjects(layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
 			return err
 		}
 	}

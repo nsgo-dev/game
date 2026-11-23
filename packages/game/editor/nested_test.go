@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,5 +94,62 @@ func TestNestedObjectsKeepUniqueIDsAndSurviveUndo(t *testing.T) {
 	}
 	if _, err := ed.SaveYAML(); err != nil {
 		t.Fatalf("SaveYAML after generated ID: %v", err)
+	}
+}
+
+func TestNestedTreeShapeIsCheckedBeforeItReachesHistory(t *testing.T) {
+	ed := newTestEditor(t)
+
+	// A tree deeper than MaxObjectDepth would leave a scene that neither builds nor saves, so it never reaches the undo history.
+	deep := sceneformat.ObjectDoc{ID: "n0"}
+	leaf := &deep
+	for i := 1; i <= sceneformat.MaxObjectDepth; i++ {
+		leaf.Children = []sceneformat.ObjectDoc{{ID: "n" + strconv.Itoa(i)}}
+		leaf = &leaf.Children[0]
+	}
+	if _, err := ed.PlaceObject("actors", deep); err == nil || !strings.Contains(err.Error(), "deeper than") {
+		t.Fatalf("placing a tree past MaxObjectDepth: err = %v", err)
+	}
+	if ed.History.CanUndo() {
+		t.Fatal("a refused tree was pushed onto the undo history")
+	}
+
+	// A sheared sprite cannot be drawn, whether placed that way or made so by a later rotate or scale of its parent.
+	if _, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{
+		ID:       "stretched",
+		ScaleX:   sceneformat.Float32(2),
+		Children: []sceneformat.ObjectDoc{{ID: "tilted", Rotation: 0.5, Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}}},
+	}); err == nil || !strings.Contains(err.Error(), "sheared") {
+		t.Fatalf("placing a sheared sprite: err = %v", err)
+	}
+	if _, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{
+		ID:       "parent",
+		Children: []sceneformat.ObjectDoc{{ID: "turned", Rotation: 0.5, Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}}},
+	}); err != nil {
+		t.Fatalf("PlaceObject: %v", err)
+	}
+	saved, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatalf("SaveYAML: %v", err)
+	}
+	if err := ed.ScaleObject("parent", 2, 1); err == nil || !strings.Contains(err.Error(), "sheared") {
+		t.Fatalf("ScaleObject shearing a child sprite: err = %v", err)
+	}
+	if err := ed.ScaleObject3D("parent", 1, 3, 1); err == nil || !strings.Contains(err.Error(), "sheared") {
+		t.Fatalf("ScaleObject3D shearing a child sprite: err = %v", err)
+	}
+	if after, _ := ed.SaveYAML(); !bytes.Equal(after, saved) || ed.BuildErr != nil {
+		t.Fatalf("a refused scale changed the scene (build error %v)", ed.BuildErr)
+	}
+
+	// Uniform scales, and a scale that collapses an axis to zero, keep every sprite drawable.
+	if err := ed.ScaleObject("parent", 2, 2); err != nil {
+		t.Fatalf("ScaleObject uniform: %v", err)
+	}
+	if err := ed.ScaleObject("parent", 0, 1); err != nil {
+		t.Fatalf("ScaleObject collapsing x: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("Rebuild after an allowed scale: %v", ed.BuildErr)
 	}
 }

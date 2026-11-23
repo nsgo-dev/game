@@ -207,7 +207,7 @@ type Object3DRef struct {
 	Doc         *sceneformat.ObjectDoc
 }
 
-// Objects3D returns all scene objects across layers in document order with sequential flat indices.
+// Objects3D returns the top-level objects of every layer in document order with sequential flat indices. Nested children are not listed: the 3D viewport neither draws nor picks them, though they move, delete and undo with their top-level object.
 func (e *Editor) Objects3D() []Object3DRef {
 	if e == nil || e.Doc == nil {
 		return nil
@@ -702,7 +702,7 @@ func (e *Editor) computeRotationAngle(st *drag3DState, startPos, axisDir, rayOri
 }
 
 // EndGizmoDrag3D finishes an active 3D gizmo drag and commits a single undoable command to History.
-// Returns true if a transform change was committed.
+// Returns true if a transform change was committed. A drag that would shear a descendant's sprite is dropped, restoring the pre-drag transform.
 func (e *Editor) EndGizmoDrag3D() bool {
 	if e == nil || e.drag3D.kind != drag3DGizmo {
 		return false
@@ -722,6 +722,14 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	}
 	// Restore pre-drag state before executing through History so Undo/Redo snapshots are exact.
 	applyTransform3D(obj, st.startTransform)
+	// A scale that would shear a descendant's sprite leaves a scene that cannot build, so the drag is dropped instead of committed.
+	changed := *obj
+	applyTransform3D(&changed, after)
+	if sceneformat.CheckObjectTree(&changed) != nil {
+		e.Rebuild()
+		e.notify()
+		return false
+	}
 	e.History.Execute(&transform3DCmd{
 		ed:     e,
 		id:     st.objectID,

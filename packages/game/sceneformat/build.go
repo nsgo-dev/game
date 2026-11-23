@@ -256,7 +256,7 @@ func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *Obj
 		} else {
 			x, y, rot, sx, sy, ok := decomposeTRS(bo.World)
 			if !ok {
-				return nil, fmt.Errorf("sceneformat: layer %q object %q: its world transform is sheared (a rotated object under a non-uniformly scaled parent), which a sprite cannot draw", bl.Name, od.ID)
+				return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", bl.Name, od.ID, errShearedSprite)
 			}
 			sp.X, sp.Y, sp.Rotation, sp.ScaleX, sp.ScaleY = x, y, rot, sx, sy
 		}
@@ -285,13 +285,16 @@ func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *Obj
 	return bo, nil
 }
 
-// decomposeTRS splits m into a translation, a rotation and axis scales that sprite.Sprite can draw, so that TRS(x, y, rot, sx, sy) equals m. It reports false when m's columns are not orthogonal, a shear no such split can carry.
+// decomposeTRS splits m into a translation, a rotation and axis scales that sprite.Sprite can draw, so that TRS(x, y, rot, sx, sy) equals m. When m's columns are not orthogonal but are parallel, m is rank-deficient (a sprite under a parent collapsed to zero size along one axis, such as scaleX: 0) and covers no area, so it comes back with zero scales and draws nothing. decomposeTRS reports false when m's columns are neither orthogonal nor parallel, a shear no such split can carry.
 func decomposeTRS(m math2d.Affine) (x, y, rot, sx, sy float32, ok bool) {
 	a, b, c, d := float64(m.A), float64(m.B), float64(m.C), float64(m.D)
 	scaleX := math.Hypot(a, b)
 	scaleY := math.Hypot(c, d)
 	if math.Abs(a*c+b*d) > 1e-4*scaleX*scaleY {
-		return 0, 0, 0, 0, 0, false
+		if math.Abs(a*d-b*c) > 1e-4*scaleX*scaleY {
+			return 0, 0, 0, 0, 0, false
+		}
+		return m.Tx, m.Ty, 0, 0, 0, true
 	}
 	if a*d-b*c < 0 {
 		scaleY = -scaleY
