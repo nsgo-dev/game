@@ -3,7 +3,21 @@
 import assert from 'node:assert/strict'
 import { readdir } from 'node:fs/promises'
 import { describe, test } from 'node:test'
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
 import { buildLlms, llmsPage, loadPages } from './llms.ts'
+
+// relativeUrls returns every link's and definition's URL in markdown that has no scheme, the ones a reader outside the site cannot follow.
+function relativeUrls(markdown: string): string[] {
+  const found: string[] = []
+  const visit = (node: { type: string; url?: string; children?: unknown[] }) => {
+    if ((node.type === 'link' || node.type === 'definition') && node.url && !/^[a-z][a-z0-9+.-]*:/i.test(node.url)) found.push(node.url)
+    for (const child of node.children ?? []) visit(child as typeof node)
+  }
+  visit(unified().use(remarkParse).use(remarkGfm).parse(markdown))
+  return found
+}
 
 const SITE = 'https://game.example/game/'
 const DOCS_EN = new URL('../../../docs/en/', import.meta.url).pathname
@@ -26,6 +40,13 @@ describe('llmsPage', () => {
     assert.match(page.markdown, /\[ref\]: https:\/\/game\.example\/game\/docs\/save\//)
     assert.match(page.markdown, /\/\/ \[not a link\]\(scene\.md\)/)
     assert.ok(page.markdown.startsWith('# The loop\n'))
+  })
+
+  test('rewrites the destination, not a title that repeats it', () => {
+    const page = llmsPage('loop', '# Loop\n\nSee [sprite.md](sprite.md "see sprite.md") and [save][ref].\n\n[ref]: save.md "save.md"\n', SITE)
+    assert.ok(page.markdown.includes(`[sprite.md](${SITE}docs/sprite/ "see sprite.md")`), page.markdown)
+    assert.ok(page.markdown.includes(`[ref]: ${SITE}docs/save/ "save.md"`), page.markdown)
+    assert.deepEqual(relativeUrls(page.markdown), [])
   })
 
   test('falls back to the slug without a heading', () => {
@@ -67,7 +88,7 @@ describe('buildLlms', () => {
       assert.ok(index.includes(`- [${page.title}](${page.url})`), `llms.txt lists ${page.slug}`)
       assert.ok(full.includes(`\nSource: ${page.url}\n\n${page.markdown}`), `llms-full.txt holds ${page.slug}`)
     }
-    // Links between pages are absolute in both files, never the Markdown's relative ones.
-    assert.doesNotMatch(full, /\]\([a-z0-9-]+\.md(#[^)]*)?\)/)
+    // Every link and definition in llms-full.txt is absolute, never the Markdown's relative ones, whatever form it takes.
+    assert.deepEqual(relativeUrls(full), [])
   })
 })
