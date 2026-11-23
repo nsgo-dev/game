@@ -69,6 +69,18 @@ You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`,
 - `OnContextMenu` records a right click as a single-step pulse of `core.MouseButtonRight` at `ev.Position`.
 - `OnMouseLeave` releases held mouse buttons when the pointer exits the view.
 
+### Mapping view coordinates to a virtual canvas
+
+When your game renders through a letterboxed [`screen.Viewport`](screen.md), set `MapPoint` so `TouchRegion` and `MouseRegion` bounds are evaluated in virtual game coordinates:
+
+```go
+actions.MapPoint = func(p core.Point) (core.Point, bool) {
+	return viewport.ViewToGame(windowSize, p)
+}
+```
+
+Returning `false` from `MapPoint` (for example, a tap on a letterbox bar) ignores that point for region tests.
+
 ## Hearing keys
 
 A view hears keys only while it has the keyboard focus, and a click presses a view without focusing it, so a game usually hears them on the whole window instead. Call `WatchKeys` once, from the scope that runs the loop:
@@ -87,18 +99,11 @@ Either way:
 - A held key keeps its action `Pressed` on every step until it comes up, and a key that goes down and up between two steps is latched for one step, as a tap is.
 - Two actions bound to opposite keys drive an axis with `BindAxis`: `Axis` is `-1` with the negative key held, `+1` with the positive one, and `0` with both or neither.
 - Every held key comes up as the window loses the keyboard focus, firing `JustReleased` on the next step, so no action stays held while the player is in another window.
+- `Reset` releases every held key, and a key still held then stays released until it comes up and goes down again.
 
-### Mapping view coordinates to a virtual canvas
+A key held as the attached view leaves the tree stays held, because NSGo no longer sends that view its key-up: call `Reset` when you replace the game view, or use `WatchKeys`, which does not depend on a view.
 
-When your game renders through a letterboxed [`screen.Viewport`](screen.md), set `MapPoint` so `TouchRegion` and `MouseRegion` bounds are evaluated in virtual game coordinates:
-
-```go
-actions.MapPoint = func(p core.Point) (core.Point, bool) {
-	return viewport.ViewToGame(windowSize, p)
-}
-```
-
-Returning `false` from `MapPoint` (for example, a tap on a letterbox bar) ignores that point for region tests.
+`Key` takes the names `core.KeyEvent.Key` reports, matched without regard to case. The aliases `core.KeyHeld` also accepts, such as `"mod"`, `"cmd"` or `"option"`, are never held; bind `"meta"` where `Env.AppleKeys` reports Command as the platform modifier and `"ctrl"` elsewhere.
 
 ## Sampling once per fixed step
 
