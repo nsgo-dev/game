@@ -1,0 +1,6 @@
+type: physicsMaterial
+version: 1
+name: Ice
+friction: 0.02
+restitution: 0.1
+linearDamping: 0.05

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -18,6 +19,11 @@ type AssetResolver interface {
 // TilemapResolver may optionally be implemented by an AssetResolver to load external tilemap sources (such as Tiled .tmj files) into an inline TilemapDoc.
 type TilemapResolver interface {
 	Tilemap(source string) (*TilemapDoc, error)
+}
+
+// MaterialResolver may optionally be implemented by an AssetResolver to load the shared material files objects name in ObjectDoc.Material. A resolver that returns the same pointer for the same path, as resource.Library does, lets every scene using one file see its edits.
+type MaterialResolver interface {
+	Material(path string) (*resource.Material, error)
 }
 
 // AtlasMap is an AssetResolver backed by a map of atlas names to atlases.
@@ -45,6 +51,9 @@ type BuiltScene struct {
 	Layers []*BuiltLayer
 	// Objects indexes every built object in the scene by its unique ID.
 	Objects map[string]*BuiltObject
+
+	// materialed are the sprite objects with a material, in build order, which SyncMaterials updates.
+	materialed []*BuiltObject
 }
 
 // BuiltLayer is one resolved layer of a BuiltScene.
@@ -79,6 +88,8 @@ type BuiltObject struct {
 	Atlas *sprite.Atlas
 	// Sprite is the live sprite drawn by its layer's batch, or nil when the object has no sprite.
 	Sprite *sprite.Sprite
+	// Material is the shared material resolved from Doc.Material, or nil when the object names none. It is the resolver's value, not a copy, so an edit reloaded into it reaches every scene that uses it.
+	Material *resource.Material
 }
 
 // Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw.
@@ -131,6 +142,26 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		return a, nil
 	}
 
+	materials := make(map[string]*resource.Material)
+	getMaterial := func(path string) (*resource.Material, error) {
+		if m, ok := materials[path]; ok {
+			return m, nil
+		}
+		mr, ok := resolver.(MaterialResolver)
+		if !ok {
+			return nil, fmt.Errorf("sceneformat: material %q requires a MaterialResolver", path)
+		}
+		m, err := mr.Material(path)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: resolve material %q: %w", path, err)
+		}
+		if m == nil {
+			return nil, fmt.Errorf("sceneformat: resolver returned nil material for %q", path)
+		}
+		materials[path] = m
+		return m, nil
+	}
+
 	// Sort layer indices stably by Order so doc.Layers is never mutated.
 	order := make([]int, len(doc.Layers))
 	for i := range order {
@@ -168,6 +199,13 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 				ID:    od.ID,
 				Layer: ld.Name,
 			}
+			if od.Material != "" {
+				mat, err := getMaterial(od.Material)
+				if err != nil {
+					return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", ld.Name, od.ID, err)
+				}
+				bo.Material = mat
+			}
 			if od.Sprite != nil {
 				atlas, err := getAtlas(od.Sprite.Atlas)
 				if err != nil {
@@ -191,6 +229,10 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 				sp.Z = od.Z
 				bo.Atlas = atlas
 				bo.Sprite = &sp
+				if bo.Material != nil {
+					bo.syncMaterial()
+					built.materialed = append(built.materialed, bo)
+				}
 				drawables = append(drawables, bo)
 			}
 			bl.Objects = append(bl.Objects, bo)
@@ -274,6 +316,25 @@ func groupSpriteBatches(drawables []*BuiltObject) []*sprite.Batch {
 	return batches
 }
 
+// syncMaterial sets the object's sprite to draw with its material: the object's alpha times the material's opacity, and the material's blend mode.
+func (bo *BuiltObject) syncMaterial() {
+	if bo.Sprite == nil || bo.Material == nil {
+		return
+	}
+	bo.Sprite.Alpha = bo.Doc.EffectiveAlpha() * bo.Material.EffectiveOpacity()
+	bo.Sprite.Blend = bo.Material.BlendOp()
+}
+
+// SyncMaterials copies the current state of every object's material onto its sprite, so a material reloaded in place (resource.Library.Reload) shows on the next draw. Draw calls it first; call it directly to read the sprites without drawing.
+func (s *BuiltScene) SyncMaterials() {
+	if s == nil {
+		return
+	}
+	for _, bo := range s.materialed {
+		bo.syncMaterial()
+	}
+}
+
 // Layer returns the built layer named name, or nil if none exists.
 func (s *BuiltScene) Layer(name string) *BuiltLayer {
 	if s == nil {
@@ -295,11 +356,12 @@ func (s *BuiltScene) Object(id string) *BuiltObject {
 	return s.Objects[id]
 }
 
-// Draw draws the scene into d: first the background fill over the virtual viewport (when configured), then each visible layer in order. World-space layers draw under the camera transform; screen-space layers draw in canvas coordinates. Draw leaves d's transform and paint state as it found it.
+// Draw draws the scene into d: it syncs materials (SyncMaterials), then draws the background fill over the virtual viewport (when configured), then each visible layer in order. World-space layers draw under the camera transform; screen-space layers draw in canvas coordinates. Draw leaves d's transform and paint state as it found it.
 func (s *BuiltScene) Draw(d *core.Drawing) {
 	if s == nil || d == nil {
 		return
 	}
+	s.SyncMaterials()
 	var vw, vh float32
 	if s.Doc != nil {
 		vw, vh = s.Doc.VirtualWidth, s.Doc.VirtualHeight

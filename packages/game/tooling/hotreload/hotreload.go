@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -150,6 +151,21 @@ func (w *Watcher) WatchAtlas(jsonPath string, img core.ImageSource, onReload fun
 		atlas, err := sprite.LoadAtlas(img, data)
 		onReload(atlas, err)
 	})
+}
+
+// WatchResources reloads lib's resources when their files change: it watches every .yaml and .yml file under the watcher's directory and passes a changed file that lib has loaded to resource.Library.Reload on the engine goroutine, so everything holding the resource sees the edit. The watcher's directory must be lib's root, so the paths match. onReload, if not nil, is then called with the file's slash-separated path and Reload's error, nil on success; files lib has not loaded are skipped.
+func (w *Watcher) WatchResources(lib *resource.Library, onReload func(path string, err error)) {
+	if w == nil || lib == nil || w.stopped.Load() {
+		return
+	}
+	reload := func(relPath string, data []byte) {
+		loaded, err := lib.Reload(relPath, data)
+		if loaded && onReload != nil {
+			onReload(relPath, err)
+		}
+	}
+	w.WatchPattern(".yaml", reload)
+	w.WatchPattern(".yml", reload)
 }
 
 // WatchPattern watches every file under the watcher's directory whose extension matches ext (for example ".json" or "json", or "" / "*" for all files) and calls onChange on the engine goroutine with the slash-separated relative path and file bytes when a matching file is created or modified.

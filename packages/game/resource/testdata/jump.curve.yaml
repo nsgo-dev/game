@@ -1,0 +1,12 @@
+type: curve
+version: 1
+name: Jump height
+keys:
+  - time: 0
+    value: 0
+    interp: smooth
+  - time: 0.5
+    value: 1
+  - time: 1
+    value: 0
+    interp: step

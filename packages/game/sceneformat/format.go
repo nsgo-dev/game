@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -169,6 +170,8 @@ type ObjectDoc struct {
 	Z int `yaml:"z,omitempty"`
 	// Sprite optionally binds the object to a frame in a sprite.Atlas.
 	Sprite *SpriteRef `yaml:"sprite,omitempty"`
+	// Material optionally names a shared material resource file by its slash-separated path from the project root, such as "materials/stone.material.yaml". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.
+	Material string `yaml:"material,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors.
@@ -450,6 +453,9 @@ func validateObject(layer string, o *ObjectDoc) error {
 		if o.Sprite.Atlas == "" || o.Sprite.Frame == "" {
 			return fmt.Errorf("sceneformat: layer %q object %q sprite requires both atlas and frame", layer, o.ID)
 		}
+	}
+	if o.Material != "" && (!fs.ValidPath(o.Material) || o.Material == ".") {
+		return fmt.Errorf("sceneformat: layer %q object %q material %q must be a slash-separated path relative to the project root", layer, o.ID, o.Material)
 	}
 	return nil
 }

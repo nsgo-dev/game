@@ -78,6 +78,7 @@ Each object has:
 - `name`, `prefab` (optional)
 - Transform: `x`, `y`, `originX`, `originY`, `rotation` (radians, clockwise), `scaleX` (default `1`), `scaleY` (default `1`), `flipX`, `flipY`, `alpha` (`[0, 1]`, default `1`), `z` (layer-local draw order, lowest first)
 - `sprite`: optional `{atlas, frame}` referencing a `sprite.Atlas` and frame name
+- `material`: optional slash-separated path from the project root to a shared material file, such as `materials/stone.material.yaml`, resolved at build time through `MaterialResolver` (see [resource](resources.md))
 - `components`: optional `map[string]any` for structured component payloads
 - `properties`: optional `map[string]any` for custom metadata
 

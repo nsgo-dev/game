@@ -1,0 +1,14 @@
+type: theme
+version: 1
+name: Menu
+colors:
+  panelBackground: '#10141c'
+  text: '#fafafa'
+  accent: '#f97316'
+padding: 10
+cornerRadius: 4
+font:
+  family: Inter
+  size: 18
+  weight: semibold
+  italic: false

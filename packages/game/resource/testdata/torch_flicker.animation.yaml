@@ -1,0 +1,20 @@
+type: animation
+version: 1
+name: Torch flicker
+length: 1.5
+loop: true
+tracks:
+  - target: flame
+    property: alpha
+    keys:
+      - time: 0
+        value: 1
+      - time: 0.75
+        value: 0.6
+        interp: smooth
+      - time: 1.5
+        value: 1
+  - property: rotation
+    keys:
+      - time: 0
+        value: 0

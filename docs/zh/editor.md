@@ -78,6 +78,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 - `name`、`prefab`（可选）
 - 变换：`x`、`y`、`originX`、`originY`、`rotation`（弧度，顺时针）、`scaleX`（默认 `1`）、`scaleY`（默认 `1`）、`flipX`、`flipY`、`alpha`（范围 `[0, 1]`，默认 `1`）、`z`（图层内绘制顺序，越小越先绘制）
 - `sprite`：可选的 `{atlas, frame}`，引用 `sprite.Atlas` 及其中的帧名
+- `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
 - `components`：可选的 `map[string]any`，存放结构化组件数据
 - `properties`：可选的 `map[string]any`，存放自定义元数据
 
