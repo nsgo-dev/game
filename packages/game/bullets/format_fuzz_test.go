@@ -15,7 +15,7 @@ func FuzzParse(f *testing.F) {
 		"version: 1\npatterns: []\n",
 		"version: 2\npatterns: []\n",
 		"version: 1\npatterns:\n  - name: a\n    kind: ring\n    count: 3\n    speed: 5\n    shots: 1\n",
-		"version: 1\npatterns:\n  - name: a\n    kind: aimed\n    count: 3\n    speed: 5\n    spread: 360\n    shots: 0\n    interval: 1ns\n",
+		"version: 1\npatterns:\n  - name: a\n    kind: aimed\n    count: 3\n    speed: 5\n    spread: 360\n    shots: 0\n    interval: 1ms\n",
 		"version: 1\npatterns:\n  - name: a\n    kind: spiral\n    count: 1\n    speed: -0\n    spin: 1e-45\n    shots: 2\n    interval: 1h\n",
 		"version: 1\npatterns:\n  - {name: a, kind: ring, count: 1, speed: .nan, shots: 1}\n",
 		"[[[",
