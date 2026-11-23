@@ -36,7 +36,8 @@ func (f ReporterFunc) ReportAchievement(id string, percent float64, done func(er
 
 // Tracker records a player's progress toward the achievements of a Set and reports it to a connected platform service. Its methods are safe for concurrent use; callbacks run without the Tracker's lock held, so they may call back into it.
 type Tracker struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// set and index never change after NewTracker, so they are read without mu.
 	set     *Set
 	index   map[string]int
 	entries []entry
@@ -49,8 +50,10 @@ type Tracker struct {
 
 	service  Service
 	reporter Reporter
-	// gen changes on every Connect and Disconnect, so a report answered after the connection changed does not touch the new connection's state.
+	// gen changes on every Connect, Disconnect, Restore and Persist that loads progress, so a report answered after the connection or the progress changed does not touch the new state's in-flight bookkeeping.
 	gen uint64
+	// conn changes on every Connect and Disconnect only, so SignIn can tell whether the connection it made is still the current one.
+	conn uint64
 }
 
 type entry struct {
@@ -241,6 +244,8 @@ func (t *Tracker) Restore(p *Progress) error {
 }
 
 func (t *Tracker) restoreLocked(p *Progress) {
+	// Answers to reports sent before the restore must not clear the in-flight marks of reports sent after it.
+	t.gen++
 	for i := range t.entries {
 		t.entries[i] = entry{}
 	}
@@ -305,14 +310,22 @@ func (t *Tracker) saveLocked() error {
 
 // Connect makes r the Reporter for service and reports every achievement whose progress service has not acknowledged. It replaces any earlier connection.
 func (t *Tracker) Connect(service Service, r Reporter) error {
+	_, err := t.connect(service, r)
+	return err
+}
+
+// connect is Connect returning the new connection's number for disconnectIf.
+func (t *Tracker) connect(service Service, r Reporter) (uint64, error) {
 	if !service.Valid() {
-		return fmt.Errorf("achievements: unknown service %q", service)
+		return 0, fmt.Errorf("achievements: unknown service %q", service)
 	}
 	if r == nil {
-		return errors.New("achievements: Connect needs a Reporter")
+		return 0, errors.New("achievements: Connect needs a Reporter")
 	}
 	t.mu.Lock()
 	t.gen++
+	t.conn++
+	conn := t.conn
 	t.service, t.reporter = service, r
 	for i := range t.entries {
 		t.entries[i].inflight = 0
@@ -322,7 +335,7 @@ func (t *Tracker) Connect(service Service, r Reporter) error {
 	for _, rep := range reports {
 		rep.send(t)
 	}
-	return nil
+	return conn, nil
 }
 
 // Disconnect detaches the connected service. Progress keeps being recorded, and saved when Persist set a Store, and is reported on the next Connect.
@@ -332,8 +345,18 @@ func (t *Tracker) Disconnect() {
 	t.mu.Unlock()
 }
 
+// disconnectIf disconnects the service only while conn, from connect, is still the current connection.
+func (t *Tracker) disconnectIf(conn uint64) {
+	t.mu.Lock()
+	if t.conn == conn {
+		t.disconnectLocked()
+	}
+	t.mu.Unlock()
+}
+
 func (t *Tracker) disconnectLocked() {
 	t.gen++
+	t.conn++
 	t.service, t.reporter = "", nil
 	for i := range t.entries {
 		t.entries[i].inflight = 0
@@ -437,11 +460,12 @@ func (t *Tracker) answered(r report, err error) {
 	var next report
 	switch {
 	case err == nil:
-		if r.steps > e.reported[r.service] {
+		// A Restore since r was sent may have lowered the steps, and an acknowledgement never counts for more than the steps made.
+		if acked := min(r.steps, e.steps); acked > e.reported[r.service] {
 			if e.reported == nil {
 				e.reported = map[Service]int{}
 			}
-			e.reported[r.service] = r.steps
+			e.reported[r.service] = acked
 			saveErr = t.saveLocked()
 		}
 		if current {
