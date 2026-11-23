@@ -1,6 +1,6 @@
 # input
 
-`game/input` turns touch regions and mouse buttons into named actions and axes, sampled once per `game.Loop` step and persisted across launches in `core.Storage`.
+`game/input` turns touch regions, mouse buttons and relative mouse motion under a pointer lock into named actions and axes, sampled once per `game.Loop` step and persisted across launches in `core.Storage`.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/input"
@@ -56,7 +56,7 @@ view := core.View{
 actions.Attach(&view)
 ```
 
-You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`, `OnPressUp`, `OnMouseMove`, `OnMouseLeave`, and `OnContextMenu`.
+You can also forward individual callbacks manually via `OnTouch`, `OnPressDown`, `OnPressUp`, `OnMouseMove`, `OnMouseLeave`, `OnContextMenu`, and `OnPointerDelta`.
 
 - `OnPressDown` ignores keyboard presses and synthetic presses fired while a touch finger is active so touches only trigger `TouchRegion` bindings.
 - `OnContextMenu` records a right click as a single-step pulse of `core.MouseButtonRight` at `ev.Position`.
@@ -101,7 +101,41 @@ loop := &game.Loop{
 
 - **Tap latching**: a brief tap that both starts and ends between two fixed steps is latched so `Pressed` and `JustPressed` still register for one step, followed by `JustReleased` on the next step.
 - **`Axis(name)`**: returns `-1` when only the negative action is pressed, `+1` when only the positive action is pressed, and `0` when neither or both are pressed. For an unbound axis name, it falls back to `1` if an action of that name is pressed, else `0`.
-- **`Reset()`**: clears active touches, held buttons, pending latches and the current snapshot while keeping all bindings. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+- **`Reset()`**: clears active touches, held buttons, pending latches, relative mouse motion and the current snapshot, and releases a pointer lock from `LockPointer`, while keeping all bindings. Call it on focus loss, backgrounding, or scene changes so inputs never stick.
+
+## Mouselook through pointer lock
+
+For a first-person camera, bind pointer axes to relative mouse motion, lock the pointer from a press on the game view, and read each step's motion with `Delta`:
+
+```go
+var gameRef core.Ref
+
+actions.BindPointerAxis("yaw", input.PointerX, input.PointerAxisOptions{Sensitivity: 0.003})
+actions.BindPointerAxis("pitch", input.PointerY, input.PointerAxisOptions{Sensitivity: 0.003, Invert: true})
+
+view := core.View{
+	Ref: &gameRef,
+	OnPress: func(core.PressEvent) {
+		if !actions.PointerLocked() {
+			actions.LockPointer(cx, &gameRef)
+		}
+	},
+}
+actions.Attach(&view)
+
+// In Loop.Update, after actions.Step():
+camera.Yaw += actions.Delta("yaw")
+camera.Pitch += actions.Delta("pitch")
+```
+
+- `PointerX` reads motion to the right and `PointerY` motion down, in the units the view's `OnPointerDelta` reports. `Sensitivity` scales them (1 when zero) and `Invert` negates them.
+- `Delta(name)` returns the scaled motion heard since the previous `Step`, without a clamp, so a fast flick turns the camera further than a slow one. `PointerDelta()` returns the raw `(dx, dy)` of the step. `Axis(name)` adds the scaled motion to any other axis bound to `name` and clamps the sum to `[-1, 1]`, which suits steering with a small `Sensitivity`.
+- The view hears motion only while it holds the lock: `Attach` forwards its `OnPointerDelta` to `actions.OnPointerDelta`.
+- `LockPointer(cx, &ref)` returns `false` and does nothing when `cx.Env().CanLockPointer()` is false or the view is not mounted. Call it from a press, since browsers grant the lock only during a user gesture. Linux on Wayland needs a compositor with pointer constraints and relative motion.
+- `UnlockPointer()` releases the lock, and the platform shows the pointer again where it was. `Reset()` releases it too. Motion heard before the release still reaches the next step.
+- Escape, the window losing focus and hiding or removing the view also release the lock, but NSGo does not report that to the app, so `PointerLocked()` reports the lock `actions` asked for until `UnlockPointer` or `Reset`. Call `Reset` on focus loss and lock again from the next press; locking while locked replaces the previous lock.
+
+Pointer axes are saved and loaded with the other bindings.
 
 ## Saving and loading bindings
 

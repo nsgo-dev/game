@@ -25,6 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/accounts`: a self-hostable player account service with guest accounts upgraded to email or a linked platform/OAuth identity, argon2id passwords, redacted secrets, SQLite and Postgres stores, an HTTP API and the `accountsd` server; `game/accounts/token` issues Ed25519 tokens that game servers verify offline against a versioned YAML key set (#556).
 - `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged (#29).
 - `game/sound`: 2D positional effects, with `Listener2D` panning an effect by where it sits across the camera's view and attenuating it with distance (linear or inverse rolloff), and `Effect.PlayAt` and `Cue.PlayAt` (#105).
+- `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `Reset` releasing the lock, and pointer axes saved with the other bindings (#26).
 
 ### Changed
 

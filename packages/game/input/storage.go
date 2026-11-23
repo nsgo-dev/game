@@ -10,10 +10,17 @@ import (
 const storageVersion = 1
 
 type savedBindings struct {
-	Version    int                        `json:"version"`
-	Actions    map[string][]savedInput    `json:"actions,omitempty"`
-	Axes       map[string]savedAxis       `json:"axes,omitempty"`
-	MotionAxes map[string]savedMotionAxis `json:"motion_axes,omitempty"`
+	Version     int                         `json:"version"`
+	Actions     map[string][]savedInput     `json:"actions,omitempty"`
+	Axes        map[string]savedAxis        `json:"axes,omitempty"`
+	MotionAxes  map[string]savedMotionAxis  `json:"motion_axes,omitempty"`
+	PointerAxes map[string]savedPointerAxis `json:"pointer_axes,omitempty"`
+}
+
+type savedPointerAxis struct {
+	Axis        string  `json:"axis"`
+	Sensitivity float64 `json:"sensitivity,omitempty"`
+	Invert      bool    `json:"invert,omitempty"`
 }
 
 type savedMotionAxis struct {
@@ -43,7 +50,7 @@ type savedAxis struct {
 	Positive string `json:"positive,omitempty"`
 }
 
-// Save writes all of a's action and axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
+// Save writes all of a's action, axis, motion axis and pointer axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
 func (a *Actions) Save(store core.Storage, key string) error {
 	doc := savedBindings{Version: storageVersion}
 	if len(a.bindings) > 0 {
@@ -81,6 +88,16 @@ func (a *Actions) Save(store core.Storage, key string) error {
 				Smoothing:   mb.opts.Smoothing,
 				Invert:      mb.opts.Invert,
 			}
+		}
+	}
+	if len(a.pointerAxes) > 0 {
+		doc.PointerAxes = make(map[string]savedPointerAxis, len(a.pointerAxes))
+		for name, pb := range a.pointerAxes {
+			axName, err := encodePointerAxis(pb.axis)
+			if err != nil {
+				return fmt.Errorf("input: save %q: pointer axis %q: %w", key, name, err)
+			}
+			doc.PointerAxes[name] = savedPointerAxis{Axis: axName, Sensitivity: pb.opts.Sensitivity, Invert: pb.opts.Invert}
 		}
 	}
 	data, err := json.Marshal(doc)
@@ -158,9 +175,25 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 		}
 	}
 
+	var pointerAxes map[string]pointerAxisBinding
+	if len(doc.PointerAxes) > 0 {
+		pointerAxes = make(map[string]pointerAxisBinding, len(doc.PointerAxes))
+		for name, pa := range doc.PointerAxes {
+			ax, err := decodePointerAxis(pa.Axis)
+			if err != nil {
+				return false, fmt.Errorf("input: load %q: pointer axis %q: %w", key, name, err)
+			}
+			if ax == PointerAxisNone {
+				continue
+			}
+			pointerAxes[name] = pointerAxisBinding{axis: ax, opts: PointerAxisOptions{Sensitivity: pa.Sensitivity, Invert: pa.Invert}}
+		}
+	}
+
 	a.bindings = bindings
 	a.axes = axes
 	a.motionAxes = motionAxes
+	a.pointerAxes = pointerAxes
 	clear(a.motionSnap)
 	clear(a.motionInit)
 	clear(a.latched)
