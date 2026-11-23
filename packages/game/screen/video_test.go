@@ -90,6 +90,46 @@ func TestVideoLeavesAFullScreenWindowOnFirstApply(t *testing.T) {
 	}
 }
 
+func TestVideoKeepsAFullScreenWindowOnFirstApply(t *testing.T) {
+	got := recordFullScreen(t)
+	v := &screen.Video{}
+	app := startVideo(t, v, nil)
+	env := twoDisplays
+	env.FullScreen = true
+	app.SetEnvironment(env)
+	s := save.DefaultSettings().Display
+	s.Fullscreen, s.DisplayIndex = true, 5 // no display to move to
+	apply(app, v, s)
+	if len(*got) != 0 {
+		t.Fatalf("full-screen settings on a full-screen window sent %v, want nothing", *got)
+	}
+}
+
+func TestVideoReappliesTheWindowWhenRunAfterStop(t *testing.T) {
+	got := recordFullScreen(t)
+	v := &screen.Video{}
+	var root *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		root = cx
+		v.Run(cx)
+		return core.View{}
+	}, nsgotest.Environment(twoDisplays))
+	app.Settle()
+	s := save.DefaultSettings().Display
+	s.Fullscreen = true
+	apply(app, v, s)
+	if want := []fullScreenRequest{{true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests %v, want %v", *got, want)
+	}
+	// The player leaves full screen with the system's own controls while the video is stopped, so the next Run restores the settings.
+	app.SetEnvironment(twoDisplays)
+	app.Post(func() { v.Run(root) })
+	app.Settle()
+	if want := []fullScreenRequest{{true, "main"}, {true, "main"}}; !slices.Equal(*got, want) {
+		t.Fatalf("requests after Run again %v, want %v", *got, want)
+	}
+}
+
 func TestVideoSettingsAreRestoredOnTheNextLaunch(t *testing.T) {
 	dir := t.TempDir()
 	settings := save.DefaultSettings()
