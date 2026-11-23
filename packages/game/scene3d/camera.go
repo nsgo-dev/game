@@ -49,45 +49,49 @@ func OrthographicProjection(orthoHeight, aspect, near, far float32) Projection {
 	}
 }
 
-// Matrix builds the column-major projection matrix for p using [0, 1] NDC depth.
-func (p Projection) Matrix() math3d.Mat4 {
-	aspect := p.Aspect
-	if aspect <= 0 {
-		aspect = 1
+// effective returns p with the defaults Matrix applies filled in: Aspect 1 when not positive; for a perspective projection FOVY 60 degrees when not positive and Near 0.1 when not positive; for an orthographic one OrthoHeight 2 when not positive and Near, Far 0.1, 1000 when both are zero; and under either kind Far Near+1000 when it is not beyond Near.
+func (p Projection) effective() Projection {
+	if p.Aspect <= 0 {
+		p.Aspect = 1
 	}
 	switch p.Kind {
 	case ProjectionOrthographic:
-		h := p.OrthoHeight
-		if h <= 0 {
-			h = 2
+		if p.OrthoHeight <= 0 {
+			p.OrthoHeight = 2
 		}
-		near, far := p.Near, p.Far
-		if near == 0 && far == 0 {
-			near, far = 0.1, 1000
-		} else if far <= near {
-			far = near + 1000
+		if p.Near == 0 && p.Far == 0 {
+			p.Near, p.Far = 0.1, 1000
+		} else if p.Far <= p.Near {
+			p.Far = p.Near + 1000
 		}
-		halfH := h * 0.5
-		halfW := halfH * aspect
-		return math3d.Ortho(-halfW, halfW, -halfH, halfH, near, far)
 	default:
-		fovY := p.FOVY
-		if fovY <= 0 {
-			fovY = math3d.DegToRad(60)
+		if p.FOVY <= 0 {
+			p.FOVY = math3d.DegToRad(60)
 		}
-		near := p.Near
-		if near <= 0 {
-			near = 0.1
+		if p.Near <= 0 {
+			p.Near = 0.1
 		}
-		far := p.Far
-		if far <= near {
-			far = near + 1000
+		if p.Far <= p.Near {
+			p.Far = p.Near + 1000
 		}
-		return math3d.Perspective(fovY, aspect, near, far)
+	}
+	return p
+}
+
+// Matrix builds the column-major projection matrix for p using [0, 1] NDC depth. Fields left at zero or otherwise out of range take defaults: Aspect 1; FOVY 60 degrees and Near 0.1 for a perspective projection; OrthoHeight 2, and Near, Far 0.1, 1000 when both are zero, for an orthographic one; and Far Near+1000 when it is not beyond Near.
+func (p Projection) Matrix() math3d.Mat4 {
+	e := p.effective()
+	switch e.Kind {
+	case ProjectionOrthographic:
+		halfH := e.OrthoHeight * 0.5
+		halfW := halfH * e.Aspect
+		return math3d.Ortho(-halfW, halfW, -halfH, halfH, e.Near, e.Far)
+	default:
+		return math3d.Perspective(e.FOVY, e.Aspect, e.Near, e.Far)
 	}
 }
 
-// Lerp interpolates from p (t=0) to b (t=1). FOVY, OrthoHeight, Aspect, Near and Far blend linearly when both projections share a Kind; when the Kinds differ there is nothing between them to blend, so Lerp returns p for t < 1 and b from t = 1 on.
+// Lerp interpolates from p (t=0) to b (t=1). When both projections share a Kind, FOVY, OrthoHeight, Aspect, Near and Far blend linearly between the values Matrix uses, so a field left at zero blends from its default rather than from zero; when the Kinds differ there is nothing between them to blend, so Lerp returns p for t < 1 and b from t = 1 on.
 func (p Projection) Lerp(b Projection, t float32) Projection {
 	if p.Kind != b.Kind {
 		if t < 1 {
@@ -95,6 +99,7 @@ func (p Projection) Lerp(b Projection, t float32) Projection {
 		}
 		return b
 	}
+	p, b = p.effective(), b.effective()
 	return Projection{
 		Kind:        p.Kind,
 		FOVY:        math3d.Lerp(p.FOVY, b.FOVY, t),
@@ -188,12 +193,16 @@ func (c *Camera) Eye() math3d.Vec4 {
 	return c.Pos.Vec4(1)
 }
 
-// SetViewport sets Projection.Aspect to width / height, so the projection follows the drawable it renders into (call it from a GPU view's resize callback). It leaves the camera unchanged when either size is not positive.
+// SetViewport sets Projection.Aspect to width / height, so the projection follows the drawable it renders into (call it from a GPU view's resize callback). It leaves the camera unchanged unless both sizes are positive and finite, so a NaN or infinite size never reaches the projection.
 func (c *Camera) SetViewport(width, height float32) {
-	if width <= 0 || height <= 0 {
+	if !validViewportSize(width) || !validViewportSize(height) {
 		return
 	}
 	c.Projection.Aspect = width / height
+}
+
+func validViewportSize(v float32) bool {
+	return v > 0 && !math.IsInf(float64(v), 1)
 }
 
 // Lerp returns the camera between c (t=0) and b (t=1): Pos blends linearly, Rot by shortest-path spherical interpolation, and the projection by [Projection.Lerp].
