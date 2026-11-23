@@ -31,11 +31,15 @@ func writeFile(t *testing.T, path, text string) string {
 	return path
 }
 
-// recordNSGo replaces a's nsgo with one that records each call's arguments and returns err.
-func recordNSGo(a *app, err error) *[][]string {
+// passingTally is the tally nsgo test prints on standard error after a run in which two tests passed.
+const passingTally = "  2 passed, 0 failed, 0 skipped\n"
+
+// recordNSGo replaces a's nsgo with one that records each call's arguments, prints tally on standard error as nsgo test does, and returns err.
+func recordNSGo(a *app, tally string, err error) *[][]string {
 	var calls [][]string
-	a.nsgo = func(args []string, stdout, _ io.Writer) error {
+	a.nsgo = func(args []string, _, stderr io.Writer) error {
 		calls = append(calls, args)
+		io.WriteString(stderr, tally)
 		return err
 	}
 	return &calls
@@ -47,7 +51,7 @@ func TestReplayChecksRecordingsThenRunsTheirTests(t *testing.T) {
 	writeRecording(t, dir, "boss.replay.yaml")
 
 	a, stdout, stderr := newTestApp(t)
-	calls := recordNSGo(a, nil)
+	calls := recordNSGo(a, passingTally, nil)
 	if code := run([]string{"replay", dir}, a); code != 0 {
 		t.Fatalf("exit %d (stderr: %s)", code, stderr)
 	}
@@ -60,7 +64,7 @@ func TestReplayChecksRecordingsThenRunsTheirTests(t *testing.T) {
 	}
 
 	a, _, stderr = newTestApp(t)
-	calls = recordNSGo(a, nil)
+	calls = recordNSGo(a, passingTally, nil)
 	other := t.TempDir()
 	writeRecording(t, other, "a.replay.yaml")
 	if code := run([]string{"replay", "-run", "^TestLevel$", dir + "/...", other}, a); code != 0 {
@@ -76,7 +80,7 @@ func TestReplayFailsOnAFailedTest(t *testing.T) {
 	dir := t.TempDir()
 	writeRecording(t, dir, "run.replay.yaml")
 	a, _, stderr := newTestApp(t)
-	recordNSGo(a, errors.New("exit status 1"))
+	recordNSGo(a, "  1 passed, 1 failed, 0 skipped\n", errors.New("exit status 1"))
 	if code := run([]string{"replay", dir}, a); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
@@ -85,12 +89,52 @@ func TestReplayFailsOnAFailedTest(t *testing.T) {
 	}
 }
 
+func TestReplayFailsWhenNoTestPlaysTheRecordings(t *testing.T) {
+	dir := t.TempDir()
+	writeRecording(t, dir, "run.replay.yaml")
+	for _, tc := range []struct {
+		tally, want string
+	}{
+		// nsgo test exits 0 when -run matches no test, as go test does.
+		{"  0 passed, 0 failed, 0 skipped\n", `no test in ` + dir + ` matching -run "NoSuchTest" passed, so no recording was played`},
+		{"  0 passed, 0 failed, 2 skipped\n", `no test in ` + dir + ` matching -run "NoSuchTest" passed`},
+		{"", "replay tests in " + dir + " printed no tally of passed tests"},
+	} {
+		a, _, stderr := newTestApp(t)
+		recordNSGo(a, tc.tally, nil)
+		if code := run([]string{"replay", "-run", "NoSuchTest", dir}, a); code != 1 {
+			t.Errorf("tally %q: exit %d, want 1", tc.tally, code)
+		}
+		if !strings.Contains(stderr.String(), tc.want) {
+			t.Errorf("tally %q: stderr = %q, want %q", tc.tally, stderr, tc.want)
+		}
+	}
+}
+
+func TestPassedTestsReadsTheLastTally(t *testing.T) {
+	for _, tc := range []struct {
+		out    string
+		passed int
+		ok     bool
+	}{
+		{"  ✓ TestA (0s)\n  3 passed, 0 failed, 1 skipped\n", 3, true},
+		{"  1 passed, 0 failed, 0 skipped\n  ✓ TestB (0s)\n  0 passed, 0 failed, 0 skipped\n", 0, true},
+		{"ok  \tpkg\t0.1s\n", 0, false},
+		{"the log said 5 passed, 0 failed, 0 skipped earlier\n", 0, false},
+	} {
+		passed, ok := passedTests([]byte(tc.out))
+		if passed != tc.passed || ok != tc.ok {
+			t.Errorf("passedTests(%q) = %d, %t, want %d, %t", tc.out, passed, ok, tc.passed, tc.ok)
+		}
+	}
+}
+
 func TestReplayRefusesInvalidRecordingsBeforeRunningTests(t *testing.T) {
 	dir := t.TempDir()
 	writeRecording(t, dir, "good.replay.yaml")
 	bad := writeFile(t, filepath.Join(dir, "bad.replay.yaml"), "version: 2\nseed: 1\nrate: 60\ntotal_steps: 3\nsteps:\n  - {step: 1, press: [jump]}\n")
 	a, _, stderr := newTestApp(t)
-	calls := recordNSGo(a, nil)
+	calls := recordNSGo(a, passingTally, nil)
 	if code := run([]string{"replay", dir}, a); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}

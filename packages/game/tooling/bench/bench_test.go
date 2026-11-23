@@ -226,6 +226,24 @@ func TestEvaluateFailsOnMissingBenchmarkAndEmptyBaseline(t *testing.T) {
 	}
 }
 
+func TestEvaluateFailsOnMetricsThatAreNotFiniteNumbers(t *testing.T) {
+	b := bench.NewBaseline()
+	b.Update(map[string]bench.Metrics{"BenchmarkDraw": {NsPerOp: 1000, BytesPerOp: 64, AllocsPerOp: 2}})
+	for _, tc := range []struct {
+		got  bench.Metrics
+		want string
+	}{
+		{bench.Metrics{NsPerOp: math.NaN(), BytesPerOp: 64, AllocsPerOp: 2}, "ns/op is not a finite, non-negative number (got NaN)"},
+		{bench.Metrics{NsPerOp: 1000, BytesPerOp: math.Inf(1), AllocsPerOp: 2}, "B/op is not a finite, non-negative number (got +Inf)"},
+		{bench.Metrics{NsPerOp: 1000, BytesPerOp: 64, AllocsPerOp: -1}, "allocs/op is not a finite, non-negative number (got -1)"},
+	} {
+		rep := bench.Evaluate(b, map[string]bench.Metrics{"BenchmarkDraw": tc.got})
+		if rep.Passed() || len(rep.Results[0].Regressions) != 1 || rep.Results[0].Regressions[0] != tc.want {
+			t.Errorf("%+v: regressions %q, want [%q]", tc.got, rep.Results[0].Regressions, tc.want)
+		}
+	}
+}
+
 func TestUpdateKeepsUnmeasuredBenchmarks(t *testing.T) {
 	b := bench.NewBaseline()
 	b.Update(map[string]bench.Metrics{"BenchmarkA": {NsPerOp: 1}, "BenchmarkB": {NsPerOp: 2}})
