@@ -1,0 +1,311 @@
+package rts_test
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/rts"
+)
+
+const step = time.Second / 60
+
+// frameBudget is one frame at 60 fps.
+const frameBudget = time.Second / 60
+
+// blocked reports whether a body of radius r at p overlaps a blocked cell or leaves the grid, allowing eps of penetration.
+func blocked(g ai.Grid, p math2d.Vec2, r, eps float32) bool {
+	cols, rows := g.GridSize()
+	if p.X < r-eps || p.Y < r-eps || p.X > float32(cols)-r+eps || p.Y > float32(rows)-r+eps {
+		return true
+	}
+	for row := int(p.Y - r - 1); row <= int(p.Y+r+1); row++ {
+		for col := int(p.X - r - 1); col <= int(p.X+r+1); col++ {
+			if col < 0 || row < 0 || col >= cols || row >= rows || g.Walkable(col, row) {
+				continue
+			}
+			box := math2d.Rect{X: float32(col), Y: float32(row), W: 1, H: 1}
+			if box.ClampPoint(p).Dist(p) < r-eps {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// spawnBlock adds n units in a block of rows of width units, 1 unit apart, starting at origin.
+func spawnBlock(c *rts.Crowd, n, width int, origin math2d.Vec2) []rts.UnitID {
+	ids := make([]rts.UnitID, 0, n)
+	for i := range n {
+		p := origin.Add(math2d.Vec2{X: float32(i%width) * 1.0, Y: float32(i/width) * 1.0})
+		ids = append(ids, c.Add(rts.UnitSpec{Pos: p, Radius: 0.35, MaxSpeed: 6, Kind: i % 3}))
+	}
+	return ids
+}
+
+func TestCrowdThousandUnitsReachTargetWithinFrameBudget(t *testing.T) {
+	// Each target puts the formation across one of the maze's walls, so some units must find their own way around it to their slots.
+	for _, target := range []math2d.Vec2{{X: 140, Y: 64}, {X: 100, Y: 20}, {X: 60, Y: 100}} {
+		t.Run(fmt.Sprintf("%v,%v", target.X, target.Y), func(t *testing.T) {
+			moveThousand(t, target)
+		})
+	}
+}
+
+func moveThousand(t *testing.T, target math2d.Vec2) {
+	g := mazeGrid(160, 128)
+	c := rts.NewCrowd(g, rts.CrowdOptions{Gap: 0.05})
+	ids := spawnBlock(c, 1000, 40, math2d.Vec2{X: 2.5, Y: 40.5})
+
+	start := time.Now()
+	n := c.Move(ids, rts.MoveOrder{Target: target, Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 0.9}})
+	if n != 1000 {
+		t.Fatalf("Move ordered %d units, want 1000", n)
+	}
+	steps := 0
+	const maxSteps = 60 * 90
+	for ; steps < maxSteps; steps++ {
+		c.Step(step)
+		done := true
+		for _, u := range c.Units() {
+			if u.State != rts.Arrived {
+				done = false
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+	elapsed := time.Since(start)
+	if steps == maxSteps {
+		moving := 0
+		for _, u := range c.Units() {
+			if u.State != rts.Arrived {
+				moving++
+			}
+		}
+		t.Fatalf("%d of 1000 units still moving after %d steps", moving, steps)
+	}
+	perFrame := elapsed / time.Duration(steps+1)
+	t.Logf("1000 units arrived in %d steps (%.1f s of game time), %v per step", steps, float64(steps)/60, perFrame)
+	if perFrame > frameBudget {
+		t.Fatalf("%v per step exceeds the 60 fps frame budget of %v", perFrame, frameBudget)
+	}
+	if b := c.Fields().Builds(); b > 2 {
+		t.Fatalf("the group built %d flow fields, want them shared", b)
+	}
+	for _, u := range c.Units() {
+		if blocked(g, u.Pos, u.Radius, 0.02) {
+			t.Fatalf("unit %d ended inside a wall at %v", u.ID, u.Pos)
+		}
+		// Arrived units hold their slots, though neighbors settling in may nudge them a little.
+		if u.Pos.Dist(u.Target) > 2*u.Radius {
+			t.Fatalf("unit %d arrived %v from its slot", u.ID, u.Pos.Dist(u.Target))
+		}
+	}
+}
+
+func TestCrowdIsDeterministic(t *testing.T) {
+	run := func() []rts.Unit {
+		g := mazeGrid(64, 64)
+		c := rts.NewCrowd(g, rts.CrowdOptions{})
+		ids := spawnBlock(c, 120, 12, math2d.Vec2{X: 2.5, Y: 20.5})
+		c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 56, Y: 30}, Formation: rts.Formation{Shape: rts.ShapeWedge, Spacing: 1}, KeepPace: true})
+		for range 300 {
+			c.Step(step)
+		}
+		return append([]rts.Unit(nil), c.Units()...)
+	}
+	a, b := run(), run()
+	for i := range a {
+		if a[i].Pos != b[i].Pos || a[i].Vel != b[i].Vel || a[i].State != b[i].State {
+			t.Fatalf("unit %d differs between runs: %+v vs %+v", i, a[i].Pos, b[i].Pos)
+		}
+	}
+}
+
+func TestCrowdSeparatesStackedUnits(t *testing.T) {
+	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{})
+	var ids []rts.UnitID
+	for range 10 {
+		ids = append(ids, c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 10, Y: 10}, Radius: 0.4}))
+	}
+	for range 240 {
+		c.Step(step)
+	}
+	us := c.Units()
+	for i := range us {
+		if us[i].State != rts.Idle {
+			t.Fatalf("idle unit changed state to %v", us[i].State)
+		}
+		for j := i + 1; j < len(us); j++ {
+			if d := us[i].Pos.Dist(us[j].Pos); d < 0.6 {
+				t.Fatalf("units %d and %d still %v apart", i, j, d)
+			}
+		}
+	}
+	_ = ids
+}
+
+func TestCrowdSlidesAlongWalls(t *testing.T) {
+	g := ai.NewBoolGrid(10, 10)
+	for r := range 10 {
+		g.SetWalkable(5, r, false)
+	}
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	id := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 2, Y: 5}, Radius: 0.4})
+	// The far side is unreachable, so the order goes to the nearest place on the near side.
+	if n := c.Move([]rts.UnitID{id}, rts.MoveOrder{Target: math2d.Vec2{X: 8, Y: 5}}); n != 1 {
+		t.Fatalf("Move = %d", n)
+	}
+	for range 600 {
+		c.Step(step)
+		u, _ := c.Unit(id)
+		if blocked(g, u.Pos, u.Radius, 0.02) {
+			t.Fatalf("unit entered the wall at %v", u.Pos)
+		}
+	}
+	u, _ := c.Unit(id)
+	if u.State != rts.Arrived || u.Pos.X > 5 {
+		t.Fatalf("unit %v at %v, want arrived on the near side", u.State, u.Pos)
+	}
+}
+
+func TestMoveMovesSlotsOffWalls(t *testing.T) {
+	g := ai.NewBoolGrid(30, 30)
+	for c := 10; c < 20; c++ {
+		for r := 10; r < 20; r++ {
+			g.SetWalkable(c, r, false)
+		}
+	}
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	ids := spawnBlock(c, 25, 5, math2d.Vec2{X: 2.5, Y: 2.5})
+	if n := c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 15, Y: 15}}); n != 25 {
+		t.Fatalf("Move into a solid block ordered %d units", n)
+	}
+	cells := map[ai.Cell]int{}
+	for _, u := range c.Units() {
+		cell := ai.Cell{Col: int(u.Target.X), Row: int(u.Target.Y)}
+		if !g.Walkable(cell.Col, cell.Row) || blocked(g, u.Target, u.Radius, 1e-3) {
+			t.Fatalf("slot %v is in a wall", u.Target)
+		}
+		cells[cell]++
+	}
+	for cell, k := range cells {
+		if k > 1 {
+			t.Fatalf("%d slots share cell %v", k, cell)
+		}
+	}
+	if n := c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: -3, Y: 5}}); n != 0 {
+		t.Fatalf("Move outside the grid ordered %d units", n)
+	}
+	if n := c.Move([]rts.UnitID{999}, rts.MoveOrder{Target: math2d.Vec2{X: 5, Y: 5}}); n != 0 {
+		t.Fatalf("Move of unknown units ordered %d", n)
+	}
+}
+
+func TestMoveFollowsOwnFieldAcrossSplitFormation(t *testing.T) {
+	// A wall splits the formation's area; units whose slots lie beyond it must go around rather than stop at the nearest slot cell.
+	g := ai.NewBoolGrid(40, 30)
+	for r := range 25 {
+		g.SetWalkable(20, r, false)
+	}
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	ids := spawnBlock(c, 12, 4, math2d.Vec2{X: 3.5, Y: 3.5})
+	c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 20.5, Y: 6}, Formation: rts.Formation{Shape: rts.ShapeLine, Spacing: 1.5}, Facing: math2d.Vec2{Y: -1}})
+	for range 60 * 60 {
+		c.Step(step)
+	}
+	for _, u := range c.Units() {
+		if u.State != rts.Arrived {
+			t.Fatalf("unit %d %v at %v, target %v", u.ID, u.State, u.Pos, u.Target)
+		}
+	}
+}
+
+func TestCrowdAddRemoveStopAndQueries(t *testing.T) {
+	c := rts.NewCrowd(ai.NewBoolGrid(20, 20), rts.CrowdOptions{CellSize: 2})
+	a := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 5, Y: 5}, Kind: 1})
+	b := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 9, Y: 5}, Kind: 2})
+	d := c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 30, Y: 30}, Kind: 1})
+	if u, _ := c.Unit(a); u.Radius != 0.5 || u.MaxSpeed != 8 || u.MaxAccel != 32 {
+		t.Fatalf("defaults = %+v", u)
+	}
+	if got := c.UnitsIn(math2d.Rect{X: 10, Y: 0, W: -7, H: 10}, nil); len(got) != 2 || got[0] != a || got[1] != b {
+		t.Fatalf("UnitsIn = %v", got)
+	}
+	if id, ok := c.UnitAt(math2d.Vec2{X: 8.6, Y: 5}, 0); !ok || id != b {
+		t.Fatalf("UnitAt = %v, %v", id, ok)
+	}
+	if _, ok := c.UnitAt(math2d.Vec2{X: 7, Y: 5}, 0.5); ok {
+		t.Fatal("UnitAt picked a unit out of reach")
+	}
+	if k, ok := c.KindOf(d); !ok || k != 1 {
+		t.Fatalf("KindOf = %v, %v", k, ok)
+	}
+	if p, ok := c.Centroid([]rts.UnitID{a, b, 77}); !ok || p != (math2d.Vec2{X: 7, Y: 5}) {
+		t.Fatalf("Centroid = %v, %v", p, ok)
+	}
+	c.Move([]rts.UnitID{a, b}, rts.MoveOrder{Target: math2d.Vec2{X: 20, Y: 20}})
+	c.Step(step)
+	c.Stop(a)
+	if u, _ := c.Unit(a); u.State != rts.Idle || u.Target != u.Pos {
+		t.Fatalf("stopped unit = %+v", u)
+	}
+	if !c.Remove(a) || c.Remove(a) || c.Len() != 2 {
+		t.Fatal("Remove misreported")
+	}
+	if u, ok := c.Unit(d); !ok || u.ID != d {
+		t.Fatal("removing a unit lost another")
+	}
+	if c.Units()[0].ID != d {
+		t.Fatal("the last unit did not take the removed unit's place")
+	}
+	steps := c.Steps()
+	c.Step(0)
+	if c.Steps() != steps {
+		t.Fatal("Step(0) advanced the crowd")
+	}
+}
+
+func TestCrowdStepDoesNotAllocate(t *testing.T) {
+	g := mazeGrid(64, 64)
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	ids := spawnBlock(c, 200, 20, math2d.Vec2{X: 2.5, Y: 20.5})
+	c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 56, Y: 30}})
+	c.Step(step)
+	if allocs := testing.AllocsPerRun(20, func() { c.Step(step) }); allocs != 0 {
+		t.Fatalf("Step allocated %v times", allocs)
+	}
+}
+
+func BenchmarkCrowdStep1000(b *testing.B) {
+	g := mazeGrid(160, 128)
+	c := rts.NewCrowd(g, rts.CrowdOptions{Gap: 0.05})
+	ids := spawnBlock(c, 1000, 40, math2d.Vec2{X: 2.5, Y: 40.5})
+	c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 140, Y: 64}, Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 0.9}})
+	// Start mid-journey, where units crowd through the gaps.
+	for range 300 {
+		c.Step(step)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		c.Step(step)
+	}
+}
+
+func BenchmarkMove1000(b *testing.B) {
+	g := mazeGrid(160, 128)
+	c := rts.NewCrowd(g, rts.CrowdOptions{})
+	ids := spawnBlock(c, 1000, 40, math2d.Vec2{X: 2.5, Y: 40.5})
+	targets := []math2d.Vec2{{X: 140, Y: 64}, {X: 120, Y: 20}}
+	i := 0
+	for b.Loop() {
+		c.Fields().Clear()
+		c.Move(ids, rts.MoveOrder{Target: targets[i%2]})
+		i++
+	}
+}
