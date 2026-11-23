@@ -156,7 +156,8 @@ const DOC_ORDER = [
   'cli.md',
 ] as const
 
-async function markdownFiles(dir: string): Promise<string[]> {
+// markdownFiles lists dir's Markdown files, those in DOC_ORDER first and the rest alphabetically.
+export async function markdownFiles(dir: string): Promise<string[]> {
   const files = (await readdir(dir)).filter((f) => f.endsWith('.md'))
   const rankOf = (file: string) => {
     const idx = DOC_ORDER.indexOf(file as (typeof DOC_ORDER)[number])
@@ -248,18 +249,18 @@ function docTransform(meta: { title: string; description: string }, lang: Lang, 
     const paragraph = children.find((n) => n.type === 'paragraph')
     if (paragraph) meta.description = textOf(paragraph)
     walk(tree, (node) => {
-      if ((node.type === 'link' || node.type === 'definition') && node.url) node.url = rewriteLink(node.url, lang, from, ctx)
+      if ((node.type === 'link' || node.type === 'definition') && node.url) node.url = rewriteLink(node.url, lang, from, ctx.base)
     })
   }
 }
 
-// A link to another page stays in lang, so a Chinese page, or the English one shown in its place, links to Chinese pages.
-function rewriteLink(url: string, lang: Lang, from: Lang, ctx: Context): string {
+// rewriteLink points a link of a page written in from at the site's docs route in lang, below base (a path such as "/game/", or an origin and path for an absolute address), or at the file on GitHub. A link to another page stays in lang, so a Chinese page, or the English one shown in its place, links to Chinese pages.
+export function rewriteLink(url: string, lang: Lang, from: Lang, base: string): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('#') || url.startsWith('//')) return url
   const [target = '', hash = ''] = url.split(/(?=#)/)
   if (target.endsWith('.md') && !target.includes('/')) {
     const slug = target.slice(0, -'.md'.length)
-    return `${ctx.base}${lang === 'en' ? '' : `${lang}/`}docs/${slug === 'index' ? '' : `${slug}/`}${hash}`
+    return `${base}${lang === 'en' ? '' : `${lang}/`}docs/${slug === 'index' ? '' : `${slug}/`}${hash}`
   }
   // Anything else is a file or directory of the repository, relative to the Markdown's directory, docs/<from>/.
   const repoPath = path.posix.normalize(path.posix.join('docs', from, target))

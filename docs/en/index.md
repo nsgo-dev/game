@@ -108,3 +108,7 @@ XR work here can start once NSGo provides, on at least one runtime (OpenXR on de
 OpenXR is the runtime to target first, since one API covers headsets on Windows, Linux and Android, three of NSGo's targets; visionOS, ARKit, ARCore and WebXR can follow. The session, poses and stereo rendering come first and are enough for VR; the AR items come after them.
 
 With those, this repository would add an XR camera rig to `scene3d` and XR actions to `input`, reusing `math3d`'s transforms for poses. Until then a 3D game runs on a flat screen.
+
+## For language models
+
+The site publishes the English docs for language models and coding agents, as [nsgo.dev](https://nsgo.dev/llms.txt) does: [llms.txt](https://game.nsgo.dev/llms.txt) lists every page with a line about it, and [llms-full.txt](https://game.nsgo.dev/llms-full.txt) holds every page's Markdown in one file. Both are built from `docs/en` with the site, so they always match these pages.
