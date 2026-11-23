@@ -1,6 +1,6 @@
 # screen
 
-`game/screen` maps a fixed virtual canvas onto any window size and aspect ratio, converts pointer input between view and virtual coordinates, snaps pixel-art coordinates, and computes safe-area rectangles for HUD layers.
+`game/screen` maps a fixed virtual canvas onto any window size and aspect ratio, converts pointer input between view and virtual coordinates, snaps pixel-art coordinates, computes safe-area rectangles for HUD layers, and applies the player's video settings.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/screen"
@@ -101,3 +101,27 @@ func Root(cx *core.Scope) core.Node {
 On an iPhone or an Android phone the interface turns to one of the requested orientations and stays there while that scope lives; when the scope ends, the app returns to the system's usual policy. The newest live request wins, so a portrait menu or a landscape mini-game can request its own orientation in its scope. Use `core.OrientationLandscapeLeft` or `core.OrientationLandscapeRight` alone to pin one direction, and `core.OrientationPortrait` (optionally with `core.OrientationPortraitUpsideDown`) for a portrait game.
 
 The request does nothing on desktops. Android may disregard it in multi-window or large-screen modes, and a browser locks orientation only in full screen, which a press must enter (`desktop.ToggleFullScreen(cx)`); a refusal goes to the browser console. In `nsgotest`, `App.Orientation` holds the current request. The [Cave Run example](https://github.com/nsgo-dev/game/tree/main/examples/caverun) locks landscape this way. NSGo documents the API under [Interface orientation](https://github.com/nsgo-dev/nsgo/blob/main/docs/public/en/services.md#interface-orientation).
+
+## Video settings
+
+`Video` applies the display part of the player's settings (`save.DisplaySettings`) to the window and a `game.Loop`: windowed or borderless full screen on a chosen display, a cap on how many frames the loop draws a second, and, with `AutoDropLowPower`, a lower cap while the system is in low-power mode or under serious or critical thermal pressure. It ships no UI: a settings screen edits `save.Settings`, saves it and applies it again, and the game applies the saved settings at start:
+
+```go
+loop := &game.Loop{Update: update, Draw: draw}
+video := &screen.Video{Loop: loop}
+store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+
+loop.Run(cx)
+video.Run(cx)
+settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.Apply})
+```
+
+| Field | Effect |
+| --- | --- |
+| `Fullscreen` | Full screen on the chosen display, or windowed. |
+| `DisplayID` | The display, by its ID in `cx.Env().Displays()`; stays the same across launches and display changes, so a UI that offers displays sets it. |
+| `DisplayIndex` | The display by position in `Displays()` when `DisplayID` is empty or not connected; out of range keeps the window's current display. |
+| `FrameCap` | Most frames drawn a second (the loop's `DrawRate`), uncapped when 0. Updates keep to `Loop.Rate`. |
+| `AutoDropLowPower` | Lowers the cap to `Video.LowPowerCap` (30 when 0) while `cx.Env().LowPowerMode()` is on or `ThermalState()` is serious or critical, keeping a lower `FrameCap`, and restores it once the condition clears. |
+
+`Video` asks the window to change full screen or display only when the settings change them, or on the first `Apply` when they differ from the window, so applying other settings does not undo a player leaving full screen with the system's own controls. Settings applied before `Run` take effect when it starts. `Video.FrameCap()` returns the cap in effect and `Video.Dropped()` whether it is lowered; `screen.DisplayID` and `screen.Constrained` expose the display choice and the power rule for a settings screen. Full screen applies on macOS, Windows and Linux; platforms without desktop windows ignore it, and the frame cap applies everywhere.

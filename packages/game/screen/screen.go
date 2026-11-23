@@ -1,4 +1,4 @@
-// Package screen maps a game's virtual canvas onto any window size, converts pointer input between view and virtual coordinates, and keeps HUD layers inside the platform's safe area.
+// Package screen maps a game's virtual canvas onto any window size, converts pointer input between view and virtual coordinates, keeps HUD layers inside the platform's safe area, and applies a player's video settings (full screen, display and frame cap) with Video.
 package screen
 
 import (

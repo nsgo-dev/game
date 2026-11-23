@@ -1,6 +1,6 @@
 # screen
 
-`game/screen` 将固定虚拟画布映射到任意窗口尺寸与宽高比，在视图坐标与虚拟坐标间转换指针输入，支持像素风整数缩放与像素对齐，并为 HUD 图层计算安全区矩形。
+`game/screen` 将固定虚拟画布映射到任意窗口尺寸与宽高比，在视图坐标与虚拟坐标间转换指针输入，支持像素风整数缩放与像素对齐，为 HUD 图层计算安全区矩形，并应用玩家的视频设置。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/screen"
@@ -101,3 +101,27 @@ func Root(cx *core.Scope) core.Node {
 在 iPhone 或 Android 手机上，界面会转到所请求的方向之一，并在该作用域存续期间保持不变；作用域结束后，应用恢复系统的默认方向策略。最新的有效请求优先，因此竖屏菜单或横屏小游戏可以在各自的作用域中请求自己的方向。只用 `core.OrientationLandscapeLeft` 或 `core.OrientationLandscapeRight` 可固定为单一方向；竖屏游戏使用 `core.OrientationPortrait`（可加上 `core.OrientationPortraitUpsideDown`）。
 
 该请求在桌面端不起作用。Android 在多窗口或大屏模式下可能忽略它；浏览器只在全屏时锁定方向，而全屏必须由一次按下进入（`desktop.ToggleFullScreen(cx)`），被拒绝时会输出到浏览器控制台。在 `nsgotest` 中，`App.Orientation` 记录当前的请求。[Cave Run 示例](https://github.com/nsgo-dev/game/tree/main/examples/caverun)就是这样锁定横屏的。NSGo 在 [界面方向](https://github.com/nsgo-dev/nsgo/blob/main/docs/public/zh/services.md#界面方向) 中说明了这一 API。
+
+## 视频设置
+
+`Video` 把玩家设置中的显示部分（`save.DisplaySettings`）应用到窗口和 `game.Loop`：窗口模式或在所选显示器上无边框全屏，限制循环每秒绘制的帧数，并在开启 `AutoDropLowPower` 时，于系统处于低电量模式或严重、危急热压力期间改用更低的上限。它不附带 UI：设置界面编辑 `save.Settings`、保存并再次应用，游戏在启动时应用已保存的设置：
+
+```go
+loop := &game.Loop{Update: update, Draw: draw}
+video := &screen.Video{Loop: loop}
+store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+
+loop.Run(cx)
+video.Run(cx)
+settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.Apply})
+```
+
+| 字段 | 作用 |
+| --- | --- |
+| `Fullscreen` | 在所选显示器上全屏，或使用窗口模式。 |
+| `DisplayID` | 显示器在 `cx.Env().Displays()` 中的 ID；跨启动和显示器变化保持不变，因此提供显示器选项的 UI 应设置它。 |
+| `DisplayIndex` | 当 `DisplayID` 为空或该显示器未连接时，按 `Displays()` 中的位置选择显示器；超出范围则保留窗口当前所在的显示器。 |
+| `FrameCap` | 每秒最多绘制的帧数（即循环的 `DrawRate`），为 0 时不限制。更新仍按 `Loop.Rate` 进行。 |
+| `AutoDropLowPower` | 在 `cx.Env().LowPowerMode()` 开启或 `ThermalState()` 为严重、危急期间，把上限降到 `Video.LowPowerCap`（为 0 时取 30），更低的 `FrameCap` 保持不变；条件解除后恢复原上限。 |
+
+只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；`screen.DisplayID` 与 `screen.Constrained` 向设置界面提供显示器选择与功耗判定规则。全屏在 macOS、Windows 和 Linux 上生效，没有桌面窗口的平台会忽略它；帧率上限在所有平台生效。
