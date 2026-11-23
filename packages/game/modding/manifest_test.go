@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/modding"
@@ -120,9 +121,9 @@ func TestEncodeManifestOmitsEmptyOptionalFields(t *testing.T) {
 
 func TestEncodeManifestRefusesInvalidManifest(t *testing.T) {
 	cases := map[string]modding.ModManifest{
-		"missing manifestVersion": {ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
-		"bad id":                  {ManifestVersion: 1, ID: "../a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
-		"undefined capability":    {ManifestVersion: 1, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js", Capabilities: 1 << 30},
+		"future manifestVersion": {ManifestVersion: 2, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
+		"bad id":                 {ManifestVersion: 1, ID: "../a", Name: "A", Version: "1.0.0", Entry: "mod.js"},
+		"undefined capability":   {ManifestVersion: 1, ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js", Capabilities: 1 << 30},
 	}
 	for name, m := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -130,6 +131,43 @@ func TestEncodeManifestRefusesInvalidManifest(t *testing.T) {
 				t.Fatalf("EncodeManifest error = %v, want ErrInvalidManifest", err)
 			}
 		})
+	}
+}
+
+func TestManifestBuiltInCodeOmitsManifestVersion(t *testing.T) {
+	m := modding.ModManifest{ID: "a", Name: "A", Version: "1.0.0", Entry: "mod.js"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	order, err := modding.ResolveOrder([]modding.ModManifest{m})
+	if err != nil || len(order) != 1 || order[0].ID != "a" {
+		t.Fatalf("ResolveOrder = %v, %v; want [a]", order, err)
+	}
+	out, err := modding.EncodeManifest(m)
+	if err != nil {
+		t.Fatalf("EncodeManifest: %v", err)
+	}
+	want := "manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\n"
+	if string(out) != want {
+		t.Fatalf("EncodeManifest =\n%s\nwant:\n%s", out, want)
+	}
+}
+
+func TestEncodeManifestSortsDependenciesInByteOrder(t *testing.T) {
+	m := modding.ModManifest{
+		ID:           "a",
+		Name:         "A",
+		Version:      "1.0.0",
+		Entry:        "mod.js",
+		Dependencies: map[string]string{"mod.v9": "*", "mod.v10": "*", "Mod.z": "*"},
+	}
+	out, err := modding.EncodeManifest(m)
+	if err != nil {
+		t.Fatalf("EncodeManifest: %v", err)
+	}
+	want := "manifestVersion: 1\nid: a\nname: A\nversion: 1.0.0\nentry: mod.js\ndependencies:\n  Mod.z: '*'\n  mod.v10: '*'\n  mod.v9: '*'\n"
+	if string(out) != want {
+		t.Fatalf("EncodeManifest =\n%s\nwant:\n%s", out, want)
 	}
 }
 
@@ -144,6 +182,8 @@ func TestParseManifestRefusesInvalidDocuments(t *testing.T) {
 		"misspelled field":        {strings.Replace(base, "entry:", "entrypoint:", 1), "entrypoint"},
 		"missing manifestVersion": {strings.Replace(base, "manifestVersion: 1\n", "", 1), "unsupported manifestVersion 0"},
 		"future manifestVersion":  {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 2", 1), "unsupported manifestVersion 2"},
+		"float manifestVersion":   {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 1.0", 1), "manifestVersion must be the integer 1"},
+		"hex manifestVersion":     {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 0x1", 1), "manifestVersion must be the integer 1"},
 		"duplicate key":           {base + "name: B\n", "already defined"},
 		"trailing document":       {base + "---\nid: b\n", "trailing YAML document"},
 		"json manifest":           {`{"id":"a","name":"A","version":"1.0.0","entry":"mod.js"}`, "unsupported manifestVersion 0"},
@@ -193,6 +233,32 @@ func TestDiscoverFSRefusesLegacyJSONManifest(t *testing.T) {
 		}
 		return core.View{}
 	})
+}
+
+func TestReloadRefusesManifestReplacedByLegacyJSON(t *testing.T) {
+	fsys := modFS(map[string]string{
+		"swap/mod.yaml": "manifestVersion: 1\nid: swap\nname: Swap\nversion: 1.0.0\nentry: mod.js\n",
+		"swap/mod.js":   `export {};`,
+	})
+	var mgr *modding.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = modding.NewManager(cx, modding.ManagerOptions{})
+		if _, err := mgr.DiscoverFS(fsys); err != nil {
+			t.Fatalf("DiscoverFS: %v", err)
+		}
+		if err := mgr.LoadAll(); err != nil {
+			t.Fatalf("LoadAll: %v", err)
+		}
+		return core.View{}
+	})
+	delete(fsys, "swap/mod.yaml")
+	fsys["swap/mod.json"] = &fstest.MapFile{Data: []byte(`{"id":"swap","name":"Swap","version":"2.0.0","entry":"mod.js"}`)}
+	var err error
+	app.Post(func() { err = mgr.Reload("swap") })
+	app.Settle()
+	if !errors.Is(err, modding.ErrInvalidManifest) || !strings.Contains(err.Error(), "mod.yaml") {
+		t.Fatalf("Reload error = %v, want ErrInvalidManifest naming mod.yaml", err)
+	}
 }
 
 func TestSampleModLoads(t *testing.T) {
