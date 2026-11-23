@@ -68,7 +68,7 @@ func (l *Loop) MarkDirty() {
 //
 // The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground it keeps the display awake (core.Scope.KeepAwake), releasing the hold when paused, stopped or disposed.
 //
-// A frame's time is the engine's clock as it runs the frame, not the display's (nsgo-dev/nsgo#1048), so it varies with when the engine gets to the frame, and the loop smooths it: a frame counts as the average frame length while the time it owes the clock stays within half a frame, and pays all it owes when a frame is unlike those before, so the updates keep to the clock while the loop runs.
+// A frame adds the time between its display time and the last frame's, as core.Scope.RequestAnimationFrame gives it: the display's own frame time where the platform stamps one, so the frame length is the display's rather than when the engine got to the frame, and the graph clock's otherwise. The first frame after the loop starts or resumes adds the time from then to its display time, which may lie a frame ahead where the display stamps a frame with when it will show, so the loop's time is the shown frame's. A frame stamped before the time the loop started or resumed adds nothing, and the next frame adds the time from then.
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
 	r := &loopRun{loop: l, cx: cx}
 	stopEffect := cx.Effect(func() {
@@ -94,8 +94,6 @@ type loopRun struct {
 	releaseAwake func()
 	// last is the time of the last frame, or of the start or resumption.
 	last time.Time
-	// period is the average frame length, 0 before the first frame; owed is the frame time not yet added to acc, below 0 when a frame was taken to last longer than it did.
-	period, owed time.Duration
 	// acc is the time added but not yet run as updates.
 	acc time.Duration
 	// drawAcc is the frame time since the last capped Draw; drawn says Draw has run since the run started, resumed or went idle.
@@ -109,7 +107,6 @@ func (r *loopRun) resume() {
 		return
 	}
 	r.last = r.cx.Now()
-	r.owed = 0
 	// cx owns the frame and keep-awake hold rather than the effect that resumes, so what Update and Draw make lives as long as cx, as it would in a frame cx asked for itself.
 	r.cx.Run(func() {
 		r.releaseAwake = r.cx.KeepAwake("game loop", core.KeepAwakeOptions{Display: true})
@@ -131,16 +128,15 @@ func (r *loopRun) pause() {
 
 func (r *loopRun) frame(at time.Time) {
 	r.cancel = r.cx.RequestAnimationFrame(r.frame)
-	// A display's frame time (nsgo-dev/nsgo#1048) may fall before the time the run resumed at, read from cx's clock, so a frame never counts as going back in time: that would take time off acc and skip the frames' updates until it was paid back.
-	rawDt := max(0, at.Sub(r.last))
-	r.last = at
+	// A display's frame time may fall before the time the run resumed at, read from cx's clock. Such a frame adds nothing and leaves last at the resumption: going back in time would take time off acc and skip the frames' updates until it was paid back, and measuring the next frame from the earlier stamp would count time from before the resumption.
+	var dt time.Duration
+	if at.After(r.last) {
+		dt = at.Sub(r.last)
+		r.last = at
+	}
 	step := r.loop.step()
 	steps := 0
-	var drawDt time.Duration
 	if r.loop.Paused {
-		r.period = 0
-		r.owed = 0
-		drawDt = rawDt
 		if n := r.loop.pendingSteps; n > 0 {
 			r.loop.pendingSteps = 0
 			r.acc = 0
@@ -159,8 +155,6 @@ func (r *loopRun) frame(at time.Time) {
 		}
 	} else {
 		r.loop.pendingSteps = 0
-		dt := r.smooth(rawDt)
-		drawDt = dt
 		add := scaleDuration(dt, r.loop.timeScale())
 		if add > math.MaxInt64-r.acc {
 			r.acc = math.MaxInt64
@@ -183,8 +177,6 @@ func (r *loopRun) frame(at time.Time) {
 			}
 			if r.loop.Paused {
 				r.acc = 0
-				r.period = 0
-				r.owed = 0
 				break
 			}
 		}
@@ -193,7 +185,7 @@ func (r *loopRun) frame(at time.Time) {
 		r.loop.dirty = true
 	}
 	shouldDraw := !r.loop.OnDemand || r.loop.dirty
-	if !r.canDraw(drawDt, shouldDraw) {
+	if !r.canDraw(dt, shouldDraw) {
 		return
 	}
 	r.loop.dirty = false
@@ -233,20 +225,6 @@ func (r *loopRun) canDraw(dt time.Duration, shouldDraw bool) bool {
 	}
 	r.drawAcc %= drawStep
 	return true
-}
-
-// smooth adds the frame length dt to owed and returns the time the frame adds, taking it off owed: the average frame length while owed stays within half of it, else everything owed, starting the average over from dt.
-func (r *loopRun) smooth(dt time.Duration) time.Duration {
-	r.owed += dt
-	if r.period <= 0 || (r.owed-r.period).Abs() > r.period/2 {
-		add := r.owed
-		r.period = dt
-		r.owed = 0
-		return add
-	}
-	r.period += (dt - r.period) / 8
-	r.owed -= r.period
-	return r.period
 }
 
 // step is the time one update covers.

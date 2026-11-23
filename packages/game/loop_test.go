@@ -99,6 +99,78 @@ func TestDrawGetsHowFarTheFrameFallsIntoTheNextStep(t *testing.T) {
 	}
 }
 
+func TestAFrameAddsTheTimeSinceTheLastFrameUnsmoothed(t *testing.T) {
+	var updates int
+	var alphas []float64
+	l := &game.Loop{
+		Rate:   100,
+		Update: func(time.Duration) { updates++ },
+		Draw:   func(alpha float64) { alphas = append(alphas, alpha) },
+	}
+	app := start(t, l)
+	// Uneven frames, as a display whose rate changes delivers them: each adds exactly its own length to the 10 ms steps.
+	for _, frame := range []struct {
+		length  time.Duration
+		updates int
+		alpha   float64
+	}{
+		{10 * time.Millisecond, 1, 0},
+		{4 * time.Millisecond, 1, 0.4},
+		{13 * time.Millisecond, 2, 0.7},
+		{16 * time.Millisecond, 4, 0.3},
+		{7 * time.Millisecond, 5, 0},
+	} {
+		app.Advance(frame.length)
+		got := alphas[len(alphas)-1]
+		if updates != frame.updates || math.Abs(got-frame.alpha) > 1e-9 {
+			t.Fatalf("after a %v frame: %d updates and alpha %v, want %d and %v", frame.length, updates, got, frame.updates, frame.alpha)
+		}
+	}
+}
+
+func TestAFrameAddsTheGapBetweenTheDisplaysStamps(t *testing.T) {
+	var updates int
+	var alphas []float64
+	l := &game.Loop{
+		Rate:   100,
+		Update: func(time.Duration) { updates++ },
+		Draw:   func(alpha float64) { alphas = append(alphas, alpha) },
+	}
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(s *core.Scope) core.Node {
+		cx = s
+		l.Run(s)
+		return core.View{}
+	})
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	app.Advance(time.Second)
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	resumed := cx.Now()
+	// Frames stamped by the display rather than by the graph clock, which stays at the resumption throughout.
+	for _, frame := range []struct {
+		name    string
+		at      time.Duration
+		updates int
+		alpha   float64
+	}{
+		{"stamped before the resumption", -5 * time.Millisecond, 0, 0},
+		{"stamped a frame ahead of now", 25 * time.Millisecond, 2, 0.5},
+		{"7 ms of display time later", 32 * time.Millisecond, 3, 0.2},
+		{"13 ms of display time later", 45 * time.Millisecond, 4, 0.5},
+	} {
+		at := resumed.Add(frame.at)
+		app.Post(func() { cx.RunFrameAt(at) })
+		app.Settle()
+		if !cx.Now().Equal(resumed) {
+			t.Fatalf("the graph clock moved to %v", cx.Now().Sub(resumed))
+		}
+		got := alphas[len(alphas)-1]
+		if updates != frame.updates || math.Abs(got-frame.alpha) > 1e-9 {
+			t.Fatalf("frame %s: %d updates and alpha %v, want %d and %v", frame.name, updates, got, frame.updates, frame.alpha)
+		}
+	}
+}
+
 func TestALongFrameRunsAtMostMaxStepsAndDropsTheRest(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
