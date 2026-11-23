@@ -38,6 +38,8 @@ type savedInput struct {
 	Kind   string       `json:"kind"`
 	Bounds *savedBounds `json:"bounds,omitempty"`
 	Button string       `json:"button,omitempty"`
+	Key    string       `json:"key,omitempty"`
+	Code   string       `json:"code,omitempty"`
 }
 
 type savedBounds struct {
@@ -234,6 +236,16 @@ func encodeInput(in Input) (savedInput, error) {
 			return savedInput{}, err
 		}
 		return savedInput{Kind: "mouse_region", Bounds: encodeBounds(in.Bounds), Button: btn}, nil
+	case InputKey:
+		if in.Key == "" {
+			return savedInput{}, fmt.Errorf("key input has no key")
+		}
+		return savedInput{Kind: "key", Key: in.Key}, nil
+	case InputKeyCode:
+		if in.Code == "" {
+			return savedInput{}, fmt.Errorf("key_code input has no code")
+		}
+		return savedInput{Kind: "key_code", Code: in.Code}, nil
 	default:
 		return savedInput{}, fmt.Errorf("unknown input kind %d", in.Kind)
 	}
@@ -263,6 +275,16 @@ func decodeInput(in savedInput) (Input, error) {
 			return Input{}, err
 		}
 		return MouseRegion(decodeBounds(*in.Bounds), btn), nil
+	case "key":
+		if in.Key == "" {
+			return Input{}, fmt.Errorf("key is missing its key")
+		}
+		return Key(in.Key), nil
+	case "key_code":
+		if in.Code == "" {
+			return Input{}, fmt.Errorf("key_code is missing its code")
+		}
+		return KeyCode(in.Code), nil
 	default:
 		return Input{}, fmt.Errorf("unknown input kind %q", in.Kind)
 	}

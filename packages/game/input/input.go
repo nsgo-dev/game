@@ -1,4 +1,5 @@
-// Package input turns touch regions, mouse buttons, relative mouse motion under a pointer lock, and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
+// Package input turns touch regions, mouse buttons, relative mouse motion under a pointer lock, keyboard keys and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
+// Package input turns touch regions, mouse buttons, keyboard keys and device motion sensors into named actions and axes sampled once per game.Loop step, saves bindings in core.Storage across launches, and plays haptic and rumble feedback.
 package input
 
 import (
@@ -19,15 +20,23 @@ const (
 	InputMouseButton
 	// InputMouseRegion is active while a mouse button is held down inside a rectangle.
 	InputMouseRegion
+	// InputKey is active while a keyboard key, named as core.KeyEvent.Key names it, is held.
+	InputKey
+	// InputKeyCode is active while a keyboard key at a physical position, named as core.KeyEvent.Code names it, is held.
+	InputKeyCode
 )
 
-// Input is one physical trigger bound to an action: a touch region, a mouse button or a mouse button in a region.
+// Input is one physical trigger bound to an action: a touch region, a mouse button, a mouse button in a region, a key or a key's physical position.
 //
-// Make one with TouchRegion, MouseButton or MouseRegion. Its zero value is never active.
+// Make one with TouchRegion, MouseButton, MouseRegion, Key or KeyCode. Its zero value is never active.
 type Input struct {
 	Kind   InputKind
 	Bounds core.Bounds
 	Button core.MouseButton
+	// Key is the key name of an InputKey, such as "a", "left", "space" or "shift".
+	Key string
+	// Code is the physical position of an InputKeyCode, such as "KeyW" or "ArrowLeft".
+	Code string
 }
 
 // TouchRegion returns an input that is active while any touch finger lies inside rect: from its origin, included, to its far edges, excluded, as core.Bounds.Contains tests.
@@ -50,9 +59,9 @@ type axisBinding struct {
 	positive string
 }
 
-// Actions maps touch regions and mouse buttons to named actions and axes, sampled once per fixed game.Loop step.
+// Actions maps touch regions, mouse buttons, relative mouse motion under a pointer lock and keyboard keys to named actions and axes, sampled once per fixed game.Loop step.
 //
-// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave, OnContextMenu and OnPointerDelta) and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
+// Call Attach on the game's view (or forward events to OnTouch, OnPressDown, OnPressUp, OnMouseMove, OnMouseLeave, OnContextMenu, OnPointerDelta, OnKeyDown and OnKeyUp), call WatchKeys to hear the keys held anywhere on the window, and call Step at the start of each Loop.Update. Between steps, Pressed, JustPressed, JustReleased and Axis report that step's snapshot. A quick tap that starts and ends between two steps is latched so it still registers for one step.
 //
 // The zero value is ready to use. Actions' methods are called on the engine's goroutine, as core.View's callbacks and Loop.Update are.
 type Actions struct {
@@ -83,6 +92,10 @@ type Actions struct {
 	pressDown   bool
 	moveButton  core.MouseButton
 	rightPulse  bool
+	// keysDown holds the keys a focused view heard go down (OnKeyDown) and not yet come up, by physical position or, without one, by name; watchedKeys and watchedCodes are the keys held on the window as WatchKeys last read them.
+	keysDown     map[string]heldKey
+	watchedKeys  []string
+	watchedCodes []string
 
 	// Per-action rising-edge latches and step snapshots.
 	rawActive map[string]bool
@@ -251,7 +264,8 @@ func (a *Actions) recordPadAxis(name string, v float64) {
 	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
-// Reset clears active touches, held mouse buttons, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, held keys, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, held keys, pending latches, motion readings and the current step snapshot, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}
@@ -259,6 +273,9 @@ func (a *Actions) Reset() {
 	a.pressDown = false
 	a.moveButton = core.MouseButtonNone
 	a.rightPulse = false
+	clear(a.keysDown)
+	a.watchedKeys = a.watchedKeys[:0]
+	a.watchedCodes = a.watchedCodes[:0]
 	clear(a.rawActive)
 	clear(a.latched)
 	clear(a.curr)
@@ -423,7 +440,7 @@ func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
 	a.syncRaw()
 }
 
-// Attach wires a's touch, press, mouse, context-menu and pointer-lock motion handlers onto v, chaining any callbacks already set on v.
+// Attach wires a's touch, press, mouse, context-menu, pointer-lock motion and key handlers onto v, chaining any callbacks already set on v. v hears keys only while it has the keyboard focus; WatchKeys hears them anywhere on the window.
 func (a *Actions) Attach(v *core.View) {
 	if v == nil {
 		return
@@ -462,6 +479,16 @@ func (a *Actions) Attach(v *core.View) {
 		v.OnPointerDelta = func(dx, dy float64) { a.OnPointerDelta(dx, dy); prev(dx, dy) }
 	} else {
 		v.OnPointerDelta = a.OnPointerDelta
+	}
+	if prev := v.OnKeyDown; prev != nil {
+		v.OnKeyDown = func(ev core.KeyEvent) bool { consumed := a.OnKeyDown(ev); return prev(ev) || consumed }
+	} else {
+		v.OnKeyDown = a.OnKeyDown
+	}
+	if prev := v.OnKeyUp; prev != nil {
+		v.OnKeyUp = func(ev core.KeyEvent) { a.OnKeyUp(ev); prev(ev) }
+	} else {
+		v.OnKeyUp = a.OnKeyUp
 	}
 }
 
@@ -548,6 +575,10 @@ func (a *Actions) inputActive(in Input) bool {
 		if p, ok := a.mapPoint(a.mousePos); ok && in.Bounds.Contains(p) {
 			return true
 		}
+	case InputKey:
+		return a.keyHeld(in.Key)
+	case InputKeyCode:
+		return a.keyCodeHeld(in.Code)
 	}
 	return false
 }
