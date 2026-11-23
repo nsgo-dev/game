@@ -81,6 +81,54 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
 - `components`：可选的 `map[string]any`，存放结构化组件数据
 - `properties`：可选的 `map[string]any`，存放自定义元数据
+- `children`：可选的子对象列表，挂在本对象之下（见下文“节点树”）
+
+### 节点树（#484）
+
+对象可以在 `children` 下包含子对象，最多嵌套 `MaxObjectDepth`（64）层。子对象的变换相对于父对象：`x`、`y`、`rotation`、`scaleX`、`scaleY`（3D 中还有 `posZ`、`rotX`、`rotY`、`rotZ`、`scaleZ`）会与所有祖先的变换复合，`alpha` 会与祖先的相乘。`originX`、`originY`、`flipX`、`flipY` 只属于对象自身；`z` 在整个图层内排序（包括子对象），相同时父对象先于其子对象绘制。子对象属于父对象所在的图层，其 ID 与整个场景共用同一命名空间，因此树中任意位置用过的 ID 在其他任何位置都会被拒绝。
+
+```yaml
+layers:
+  - name: ships
+    objects:
+      - id: ship
+        x: 100
+        y: 50
+        rotation: 1.5707964
+        scaleX: 2
+        scaleY: 2
+        sprite: { atlas: actors, frame: hull }
+        children:
+          - id: turret
+            x: 10        # 落在 (100, 70)：随 ship 旋转四分之一圈并放大两倍
+            sprite: { atlas: actors, frame: turret }
+            children:
+              - id: barrel
+                x: 5     # 落在 (100, 80)
+```
+
+同一棵树可以用三种方式加载：
+
+- `Build` 把每个 `BuiltObject` 与其 `Parent`、`Children` 关联起来，把 `World` 设为复合后的 2D 仿射变换、`WorldAlpha` 设为复合后的透明度，并按世界位置、旋转和缩放绘制每个子对象的精灵。复合变换带有切变（非等比缩放的父对象下有旋转的子对象）的精灵无法作为精灵绘制，`Build` 会拒绝它；没有精灵的对象则在 `World` 中保留精确矩阵。`BuiltLayer.Objects` 列出图层的顶层对象，`BuiltScene.Objects` 按 ID 索引所有对象。
+- `SpawnEntities(doc, world)` 为每个对象在 `entities.World` 中生成一个实体，按对象的嵌套关系在其 `Hierarchy2D` 中设置父子关系，并写入对象的局部 `Transform2D` 和一个记录对象 ID 及所在图层的 `ObjectRef` 组件。隐藏图层的顶层对象生成时即为隐藏，因此其整棵子树在世界中不可见。
+- `BuildNodes3D(doc, scene.Root())` 构建 `scene3d` 节点树：每个图层一个分组节点（带有图层的可见性），每个对象一个以其 ID 命名的节点，`UserData` 指向对应的 `ObjectDoc`。`ObjectLocalTransform3D` 给出每个节点的局部变换；`rotX`、`rotY`、`rotZ` 按此顺序绕固定轴旋转，与编辑器 3D 视口的绘制方式一致。
+
+```go
+spawned, err := sceneformat.SpawnEntities(doc, world)
+if err != nil {
+	return err
+}
+world.Hierarchy2D().Sync()
+wt, _ := world.Hierarchy2D().WorldTransform(spawned["barrel"]) // wt.X == 100, wt.Y == 80
+
+nodes, err := sceneformat.BuildNodes3D(doc, scene.Root())
+if err != nil {
+	return err
+}
+pos := nodes.Objects["barrel"].WorldTransform().Pos
+```
+
+编辑器在移动、删除和撤销对象时会连同其子对象一起处理，并且不会分配已被嵌套子对象占用的 ID；目前还不支持在视口中选择和编辑嵌套的子对象。
 
 ### 示例
 
@@ -165,4 +213,4 @@ if err != nil {
 built.Draw(d)
 ```
 
-`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、重复的图层名或对象 ID、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
+`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。

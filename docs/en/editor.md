@@ -81,6 +81,54 @@ Each object has:
 - `material`: optional slash-separated path from the project root to a shared material file, such as `materials/stone.material.yaml`, resolved at build time through `MaterialResolver` (see [resource](resources.md))
 - `components`: optional `map[string]any` for structured component payloads
 - `properties`: optional `map[string]any` for custom metadata
+- `children`: optional list of objects attached to this one (see Node tree below)
+
+### Node tree (#484)
+
+An object can hold child objects under `children`, nested up to `MaxObjectDepth` (64) levels. A child's transform is local to its parent: `x`, `y`, `rotation`, `scaleX` and `scaleY` (and in 3D `posZ`, `rotX`, `rotY`, `rotZ` and `scaleZ`) compose with every ancestor's, and its `alpha` multiplies theirs. `originX`, `originY`, `flipX` and `flipY` stay the object's own, and `z` orders the whole layer, children included, with ties drawing each parent before its children. Children belong to their parent's layer, and their IDs share the scene-wide namespace, so an ID used anywhere in the tree is refused anywhere else.
+
+```yaml
+layers:
+  - name: ships
+    objects:
+      - id: ship
+        x: 100
+        y: 50
+        rotation: 1.5707964
+        scaleX: 2
+        scaleY: 2
+        sprite: { atlas: actors, frame: hull }
+        children:
+          - id: turret
+            x: 10        # lands at (100, 70): a quarter turn and twice the size of ship
+            sprite: { atlas: actors, frame: turret }
+            children:
+              - id: barrel
+                x: 5     # lands at (100, 80)
+```
+
+The same tree loads three ways:
+
+- `Build` links each `BuiltObject` to its `Parent` and `Children`, sets `World` to the composed 2D affine transform and `WorldAlpha` to the composed alpha, and draws each child's sprite at its world position, rotation and scale. A sprite whose composed transform is sheared (a rotated child under a non-uniformly scaled parent) cannot be drawn as a sprite, so `Build` refuses it; objects without a sprite keep the exact matrix in `World`. `BuiltLayer.Objects` lists a layer's top-level objects, and `BuiltScene.Objects` indexes every object by ID.
+- `SpawnEntities(doc, world)` spawns one entity per object into an `entities.World`, parented in its `Hierarchy2D` as the objects nest, with the object's local `Transform2D` and an `ObjectRef` component naming the object and its layer. The top-level objects of a hidden layer spawn hidden, so their subtrees are not world-visible.
+- `BuildNodes3D(doc, scene.Root())` builds a `scene3d` node tree: one group node per layer (carrying the layer's visibility), and one node per object named by its ID, with `UserData` pointing at its `ObjectDoc`. `ObjectLocalTransform3D` gives each node's local transform; `rotX`, `rotY` and `rotZ` apply in that order about fixed axes, as the editor's 3D viewport draws them.
+
+```go
+spawned, err := sceneformat.SpawnEntities(doc, world)
+if err != nil {
+	return err
+}
+world.Hierarchy2D().Sync()
+wt, _ := world.Hierarchy2D().WorldTransform(spawned["barrel"]) // wt.X == 100, wt.Y == 80
+
+nodes, err := sceneformat.BuildNodes3D(doc, scene.Root())
+if err != nil {
+	return err
+}
+pos := nodes.Objects["barrel"].WorldTransform().Pos
+```
+
+Moving, deleting or undoing an object in the editor carries its children along, and the editor never hands out an ID that a nested child already uses; selecting and editing a nested child in the viewport is not supported yet.
 
 ### Example
 
@@ -165,4 +213,4 @@ if err != nil {
 built.Draw(d)
 ```
 
-`Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
+`Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
