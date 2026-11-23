@@ -99,7 +99,8 @@ func (l *level) Step(dt time.Duration) {
 		}
 	}
 	p, _ := entities.Get[pos](l.w, l.player)
-	p.X += l.src.Axis("move_x") * 120 * sec
+	// The conversion rounds the product before the add, so arm64 does not fuse them into one FMA and the golden matches on every architecture.
+	p.X += float64(l.src.Axis("move_x") * 120 * sec)
 	if l.src.JustPressed("jump") {
 		p.Y -= 8
 	}
@@ -307,12 +308,17 @@ func TestRunErrors(t *testing.T) {
 	}); err == nil {
 		t.Fatal("Run accepted a sim without Step")
 	}
-	if _, err := statedump.Run(recording(), func(uint64, replay.ActionSource) (statedump.Sim, error) {
-		return statedump.Sim{Step: func(time.Duration) {}, Source: statedump.Source{Values: func() map[string]any {
+	if _, err := statedump.Run(recording(), func(_ uint64, src replay.ActionSource) (statedump.Sim, error) {
+		return statedump.Sim{Step: func(time.Duration) { src.Step() }, Source: statedump.Source{Values: func() map[string]any {
 			return map[string]any{"bad": func() {}}
 		}}}, nil
-	}); err == nil {
-		t.Fatal("Run accepted a value encoding/json cannot encode")
+	}); err == nil || !strings.Contains(err.Error(), "bad") {
+		t.Fatalf("Run error = %v, want one about the value encoding/json cannot encode", err)
+	}
+	if _, err := statedump.Run(recording(), func(uint64, replay.ActionSource) (statedump.Sim, error) {
+		return statedump.Sim{Step: func(time.Duration) {}}, nil
+	}); err == nil || !strings.Contains(err.Error(), "stepped the ActionSource 0 times, want 90") {
+		t.Fatalf("Run error = %v, want one about a sim that ignores the recording", err)
 	}
 	d, err := statedump.Run(&replay.Recording{Version: replay.FormatVersion, Seed: 9, Rate: 30, TotalSteps: 4}, ok)
 	if err != nil {
@@ -374,9 +380,10 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 		Entities: []entities.EntitySnapshot{
 			{Index: 0, Generation: 1, Components: []entities.ComponentSnapshot{
 				{Type: "a", Data: json.RawMessage(`{"z":1,"a":[true,false,null],"m":{},"s":[],"n":-0,"f":1.5e+300,"g":1E-7,"big":123456789012345678901234567890}`)},
-				{Type: "b", Data: json.RawMessage(`["true","1","1.5","null","~","yes","2001-12-14","","  lead","trail ","a: b","- x","#c","multi\nline\n","tab\there","é中","\u003c\u0026\u003e","0x10","1e3",".inf"]`)},
+				{Type: "b", Data: json.RawMessage(`["true","1","1.5","null","~","yes","2001-12-14","","  lead","trail ","a: b","- x","#c","multi\nline\n","tab\there","é中","\u003c\u0026\u003e","0x10","1e3",".inf","1:20","-1:30.5","190:20:30","12:60"]`)},
 				{Type: "c", Data: json.RawMessage(`"plain"`)},
-				{Type: "d", Data: json.RawMessage(`{"1":1,"true":2,"null":3,"":4,"key with: colon":5}`)},
+				{Type: "d", Data: json.RawMessage(`{"1":1,"true":2,"null":3,"":4,"key with: colon":5,"1:20":6}`)},
+				{Type: "e", Data: json.RawMessage(`null`)},
 			}},
 			{Index: 4, Parent: &parent, Generation: 7},
 		},
@@ -385,6 +392,9 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := d.SetValue("long", strings.Repeat("word ", 40)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetValue("none", nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := statedump.Encode(d)
@@ -409,7 +419,103 @@ func TestEncodeParseRoundTrip(t *testing.T) {
 			}
 		}
 	}
+	if g := string(got.Values["none"]); g != "null" {
+		t.Errorf("value none = %q, want null", g)
+	}
 	checkGolden(t, "roundtrip.yaml", data)
+}
+
+// TestNilComponentRoundTrip captures a registered component whose value is a nil slice, which encoding/json writes as null, and reads it back from the file.
+func TestNilComponentRoundTrip(t *testing.T) {
+	type inv []string
+	w := entities.NewWorld()
+	if err := entities.RegisterCodec[inv](w, "inv"); err != nil {
+		t.Fatal(err)
+	}
+	entities.Set(w, w.Spawn(), inv(nil))
+	d, err := statedump.Capture(statedump.Source{World: w})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := statedump.Encode(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "data: null\n") {
+		t.Fatalf("nil component not written as null:\n%s", data)
+	}
+	got, err := statedump.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse refused a null component: %v\n%s", err, data)
+	}
+	if c := got.Entities[0].Components[0]; string(c.Data) != "null" {
+		t.Fatalf("component data = %q, want null", c.Data)
+	}
+	again, err := statedump.Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := statedump.Diff(data, again); diff != "" {
+		t.Fatalf("round trip changed the file:\n%s", diff)
+	}
+}
+
+func TestValuesInByteOrder(t *testing.T) {
+	d := &statedump.Dump{Version: statedump.FormatVersion}
+	for _, name := range []string{"a", "a9", "a10", "1", "2", "10", "B"} {
+		if err := d.SetValue(name, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := statedump.Encode(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "version: 1\nseed: 0\nsteps: 0\nvalues:\n  \"1\": 0\n  \"10\": 0\n  \"2\": 0\n  B: 0\n  a: 0\n  a10: 0\n  a9: 0\nentities: []\n"
+	if string(data) != want {
+		t.Fatalf("Encode =\n%s\nwant\n%s", data, want)
+	}
+	got, err := statedump.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := statedump.Encode(got); err != nil || string(again) != want {
+		t.Fatalf("re-encode = %q, %v", again, err)
+	}
+}
+
+// TestCaptureDuringOvershootingTransition captures a Switch whose ease-out-back curve takes the progress past 1 halfway through.
+func TestCaptureDuringOvershootingTransition(t *testing.T) {
+	var mgr *scene.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = scene.NewManager(cx)
+		return core.Canvas{Style: core.Style{Width: core.Pt(10), Height: core.Pt(10)}}
+	})
+	from, to := &scene.Controller{}, &scene.Controller{}
+	app.Post(func() { mgr.Switch(from, nil) })
+	app.Settle()
+	app.Post(func() {
+		mgr.Switch(to, &scene.Transition{Duration: time.Second, Curve: core.Curve{X1: 0.34, Y1: 1.56, X2: 0.64, Y2: 1}})
+	})
+	app.Settle()
+	app.Advance(600 * time.Millisecond)
+	if !mgr.Transitioning() || mgr.TransitionProgress() <= 1 {
+		t.Fatalf("transitioning=%v progress=%v, want an overshoot past 1", mgr.Transitioning(), mgr.TransitionProgress())
+	}
+	d, err := statedump.Capture(statedump.Source{Scenes: mgr})
+	if err != nil {
+		t.Fatalf("Capture during an overshooting transition: %v", err)
+	}
+	if d.Scene.Progress != mgr.TransitionProgress() {
+		t.Fatalf("progress = %v, want %v", d.Scene.Progress, mgr.TransitionProgress())
+	}
+	data, err := statedump.Encode(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := statedump.Parse(data); err != nil {
+		t.Fatalf("Parse refused an overshooting progress: %v\n%s", err, data)
+	}
 }
 
 func TestParseRefuses(t *testing.T) {
@@ -440,7 +546,11 @@ func TestParseRefuses(t *testing.T) {
 		"empty value name":  "version: 1\nseed: 0\nsteps: 0\nvalues:\n  \"\": 1\nentities: []\n",
 		"negative steps":    "version: 1\nseed: 0\nsteps: -1\nentities: []\n",
 		"negative rate":     "version: 1\nseed: 0\nrate: -1\nsteps: 0\nentities: []\n",
-		"progress range":    "version: 1\nseed: 0\nsteps: 0\nscene:\n  depth: 1\n  transitioning: true\n  progress: 2\nentities: []\n",
+		"infinite progress": "version: 1\nseed: 0\nsteps: 0\nscene:\n  depth: 1\n  transitioning: true\n  progress: .inf\nentities: []\n",
+		"nan progress":      "version: 1\nseed: 0\nsteps: 0\nscene:\n  depth: 1\n  transitioning: true\n  progress: .nan\nentities: []\n",
+		"values sequence":   "version: 1\nseed: 0\nsteps: 0\nvalues: [1]\nentities: []\n",
+		"int value name":    "version: 1\nseed: 0\nsteps: 0\nvalues:\n  1: x\nentities: []\n",
+		"duplicate value":   "version: 1\nseed: 0\nsteps: 0\nvalues:\n  a: 1\n  a: 2\nentities: []\n",
 		"idle progress":     "version: 1\nseed: 0\nsteps: 0\nscene:\n  depth: 1\n  progress: 0.5\nentities: []\n",
 		"negative depth":    "version: 1\nseed: 0\nsteps: 0\nscene:\n  depth: -1\nentities: []\n",
 	}

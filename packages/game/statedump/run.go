@@ -25,7 +25,7 @@ type Source struct {
 // Sim is a headless simulation that Run steps: Step advances it by one fixed step and Source says what to dump afterwards.
 type Sim struct {
 	Source
-	// Step advances the simulation by dt; like a game.Loop's Update, it is expected to call the ActionSource's Step once.
+	// Step advances the simulation by dt; like a game.Loop's Update, it must call the ActionSource's Step once, or Run returns an error.
 	Step func(dt time.Duration)
 }
 
@@ -67,7 +67,7 @@ func Capture(src Source) (*Dump, error) {
 	return d, nil
 }
 
-// Run plays rec headless against the simulation makeSim builds and returns the state after rec.TotalSteps steps.
+// Run plays rec headless against the simulation makeSim builds and returns the state after rec.TotalSteps steps. It returns an error when the steps did not advance the ActionSource once each, because a sim that never reads the recording would otherwise dump the same state for any input.
 //
 // makeSim receives rec.Seed and a *replay.Player as its ActionSource, as with replay.Run, but Run needs no testing.TB, so a command or an agent's tool can call it. Each step passes rec.StepDuration(), the fixed dt of a game.Loop at rec.Rate.
 func Run(rec *replay.Recording, makeSim func(seed uint64, src replay.ActionSource) (Sim, error)) (*Dump, error) {
@@ -77,7 +77,8 @@ func Run(rec *replay.Recording, makeSim func(seed uint64, src replay.ActionSourc
 	if makeSim == nil {
 		return nil, errors.New("statedump: nil makeSim")
 	}
-	sim, err := makeSim(rec.Seed, replay.NewPlayer(rec))
+	player := replay.NewPlayer(rec)
+	sim, err := makeSim(rec.Seed, player)
 	if err != nil {
 		return nil, fmt.Errorf("statedump: make sim: %w", err)
 	}
@@ -87,6 +88,10 @@ func Run(rec *replay.Recording, makeSim func(seed uint64, src replay.ActionSourc
 	dt := rec.StepDuration()
 	for range rec.TotalSteps {
 		sim.Step(dt)
+	}
+	// A sim that skips src.Step ignores every recorded input, and its dump would pass for a faithful replay.
+	if got := player.StepIndex(); got != rec.TotalSteps {
+		return nil, fmt.Errorf("statedump: sim stepped the ActionSource %d times, want %d", got, rec.TotalSteps)
 	}
 	d, err := Capture(sim.Source)
 	if err != nil {

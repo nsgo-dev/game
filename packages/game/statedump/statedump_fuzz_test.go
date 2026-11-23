@@ -22,6 +22,7 @@ func FuzzParse(f *testing.F) {
 	}
 	f.Add([]byte("version: 1\nseed: 0\nsteps: 0\nvalues:\n  a: {f: 1., h: 0x10, b: True, d: 2001-12-14, n: ~}\nentities: []\n"))
 	f.Add([]byte("version: 1\nseed: 0\nsteps: 0\nvalues:\n  a: &x [1]\n  b: *x\nentities: []\n"))
+	f.Add([]byte("version: 1\nseed: 0\nsteps: 0\nvalues:\n  best: null\nentities:\n  - index: 0\n    generation: 1\n    components:\n      - type: inv\n        data: null\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		d, err := statedump.Parse(data)
 		if err != nil {

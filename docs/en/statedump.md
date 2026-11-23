@@ -2,16 +2,18 @@
 
 `game/statedump` runs a game headless for a fixed number of steps and writes its entities, components and scene state as deterministic YAML. Two runs with the same seed and inputs write identical files, so an agent or a test checks its work by diffing one run against another, and a change shows as a few changed lines.
 
+The files match byte for byte on the same CPU architecture. A game's own float math can differ between arm64 and amd64, because the Go compiler may fuse a multiply and an add into one FMA instruction on arm64; a golden dump shared across machines needs an explicit conversion on such products, as in `x += float64(v * speed * dt)`, which rounds the product and stops the fusion.
+
 ```go
 import "github.com/nsgo-dev/game/packages/game/statedump"
 ```
 
 ## Running headless
 
-`Run` plays a [`replay.Recording`](replay.md) against a simulation and captures its state after `rec.TotalSteps` steps. Like `replay.Run`, `makeSim` receives the recording's seed and a `*replay.Player` as its `ActionSource`; unlike it, `Run` needs no `testing.TB`, so a command or an agent's tool can call it too.
+`Run` plays a [`replay.Recording`](replay.md) against a simulation and captures its state after `rec.TotalSteps` steps. Like `replay.Run`, `makeSim` receives the recording's seed and a `*replay.Player` as its `ActionSource`; unlike it, `Run` needs no `testing.TB`, so a command or an agent's tool can call it too. `Run` returns an error when `Step` did not call `src.Step()` once per step, since a sim that never reads the recording would dump the same state for any input.
 
 ```go
-rec, err := replay.LoadFile("runs/boss-bug.json.gz")
+rec, err := replay.LoadFile("runs/boss-bug.replay.yaml")
 if err != nil {
 	return err
 }
@@ -42,8 +44,8 @@ To run N steps with no input, pass a recording without events: `&replay.Recordin
 ## What a dump holds
 
 - `version`, `seed`, `rate` and `steps`: the schema version (1) and how the run was made.
-- `scene`: the `scene.Manager` stack's `depth`, the `current` scene's name when `SceneName` is set, and `transitioning` with its `progress` while a `Switch` transition runs. It is left out without a manager.
-- `values`: game-wide state outside the entity world, such as score, level or an RNG position, each encoded with `encoding/json` and keyed by name.
+- `scene`: the `scene.Manager` stack's `depth`, the `current` scene's name when `SceneName` is set, and `transitioning` with its eased `progress` while a `Switch` transition runs; a curve that overshoots, such as an ease-out-back, takes `progress` past 1 for part of the transition. It is left out without a manager.
+- `values`: game-wide state outside the entity world, such as score, level or an RNG position, each encoded with `encoding/json` and keyed by name, in ascending byte order of the names.
 - `entities`: every live entity in ascending slot index, with its `generation`, its hierarchy `parent` and its components in ascending codec name. Only components registered with [`entities.RegisterCodec`](entities.md) appear, as in a world snapshot.
 
 ```yaml
@@ -75,7 +77,7 @@ entities:
         data: sword
 ```
 
-Component and value data become YAML mappings and sequences rather than embedded JSON strings, so one changed field is one changed line. They keep the JSON field order of the Go struct and the exact text `encoding/json` writes for each number. Strings that would read as another type (`"1"`, `"true"`, `"yes"`, `"2001-12-14"`) are quoted.
+Component and value data become YAML mappings and sequences rather than embedded JSON strings, so one changed field is one changed line. They keep the JSON field order of the Go struct and the exact text `encoding/json` writes for each number. Strings that YAML 1.2 or a YAML 1.1 reader would read as another type (`"1"`, `"true"`, `"yes"`, `"2001-12-14"`, `"1:20"`) are quoted, and a JSON `null` stays `null`.
 
 ## Reading and diffing
 
