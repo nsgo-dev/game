@@ -1,5 +1,6 @@
-// Package datatable loads typed game data tables (enemies, items, levels, quests)
-// from CSV, JSON, and YAML with rich per-cell error reporting and live hot reload.
+// Package datatable loads typed game data tables (enemies, items, levels, quests) from CSV, JSON, and YAML with rich per-cell error reporting and live hot reload.
+//
+// YAML is the table format this repository defines: a mapping with a version field (FormatVersion) and a rows list, in which every key of a row names a field of the row type. Unknown fields, duplicate fields, missing or unsupported versions are refused. MarshalYAML and SaveYAML write the same format deterministically (fields in struct order, two-space indentation), so a table loaded and saved again is unchanged. CSV and JSON tables are read as their tools export them.
 package datatable
 
 import (
@@ -46,15 +47,29 @@ func (e *CellError) Error() string {
 
 func (e *CellError) Unwrap() error { return e.Err }
 
+// FormatVersion is the schema version of a YAML data table: LoadYAML accepts only this version and MarshalYAML writes it.
+const FormatVersion = 1
+
+// ErrUnknownField is the error a CellError wraps when a YAML row has a key that names no field of the row type.
+var ErrUnknownField = errors.New("unknown field")
+
+// ErrDuplicateField is the error a CellError wraps when a YAML row sets the same field twice, for example as "hp" and "HP".
+var ErrDuplicateField = errors.New("duplicate field")
+
 type fieldBinding struct {
 	index []int
 	name  string
 	typ   reflect.Type
+	// pos identifies the struct field, so two keys that resolve to the same field can be detected.
+	pos int
 }
 
 type structPlan struct {
 	exact map[string]fieldBinding
 	lower map[string]fieldBinding
+	// fields lists each column once, in struct declaration order, under the name MarshalYAML writes.
+	fields []fieldBinding
+	n      int
 }
 
 func buildStructPlan(t reflect.Type) (*structPlan, error) {
@@ -88,16 +103,18 @@ func collectFields(t reflect.Type, prefix []int, plan *structPlan) {
 			index: idx,
 			name:  colName,
 			typ:   f.Type,
+			pos:   plan.n,
 		}
+		plan.n++
 		if _, exists := plan.exact[colName]; !exists {
 			plan.exact[colName] = fb
+			plan.fields = append(plan.fields, fb)
 		}
 		low := strings.ToLower(colName)
 		if _, exists := plan.lower[low]; !exists {
 			plan.lower[low] = fb
 		}
-		// Also register the Go field name case-insensitively as a fallback when a tag is present
-		// only if no other field already claimed it.
+		// Also register the Go field name case-insensitively as a fallback when no tag is present, only if no other field already claimed it.
 		fieldLow := strings.ToLower(f.Name)
 		if _, exists := plan.lower[fieldLow]; !exists && f.Tag.Get("table") == "" && f.Tag.Get("json") == "" {
 			plan.lower[fieldLow] = fb
@@ -301,82 +318,6 @@ func LoadJSON[T any](filename string, data []byte) ([]T, error) {
 					Row:   rowNum,
 					Field: k,
 					Value: formatAny(val),
-					Err:   err,
-				}
-			}
-		}
-		rows = append(rows, elem)
-	}
-	return rows, nil
-}
-
-// LoadYAML parses a YAML sequence of mappings into []T.
-func LoadYAML[T any](filename string, data []byte) ([]T, error) {
-	var zero T
-	plan, err := buildStructPlan(reflect.TypeOf(zero))
-	if err != nil {
-		return nil, err
-	}
-
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, nil
-	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
-	}
-	if doc.Kind == 0 || len(doc.Content) == 0 {
-		return nil, nil
-	}
-
-	root := resolveYAMLAlias(doc.Content[0], 0)
-	if root == nil || root.Tag == "!!null" {
-		return nil, nil
-	}
-	if root.Kind != yaml.SequenceNode {
-		return nil, fmt.Errorf("%s: expected top-level YAML sequence, got node kind %d", displayFile(filename), root.Kind)
-	}
-
-	rows := make([]T, 0, len(root.Content))
-	for i, item := range root.Content {
-		rowNum := i + 1
-		node := resolveYAMLAlias(item, 0)
-		if node == nil || node.Kind != yaml.MappingNode {
-			val := ""
-			if node != nil {
-				val = node.Value
-			}
-			return nil, &CellError{
-				File:  filename,
-				Row:   rowNum,
-				Field: "<row>",
-				Value: val,
-				Err:   errors.New("row must be a YAML mapping"),
-			}
-		}
-
-		var elem T
-		rv := reflect.ValueOf(&elem).Elem()
-		for j := 0; j+1 < len(node.Content); j += 2 {
-			kNode := resolveYAMLAlias(node.Content[j], 0)
-			vNode := resolveYAMLAlias(node.Content[j+1], 0)
-			if kNode == nil || kNode.Kind != yaml.ScalarNode {
-				continue
-			}
-			fieldName := kNode.Value
-			fb, ok := plan.lookup(fieldName)
-			if !ok {
-				continue
-			}
-			fv := rv.FieldByIndex(fb.index)
-			if err := assignFromYAMLNode(fv, vNode, 0); err != nil {
-				return nil, &CellError{
-					File:  filename,
-					Row:   rowNum,
-					Field: fieldName,
-					Value: formatYAMLNode(vNode),
 					Err:   err,
 				}
 			}

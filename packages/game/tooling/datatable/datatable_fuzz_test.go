@@ -1,6 +1,7 @@
 package datatable_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
@@ -34,14 +35,39 @@ func FuzzLoadJSON(f *testing.F) {
 	})
 }
 
+// FuzzLoadYAML checks that LoadYAML never panics and that every table it accepts saves to a canonical form: MarshalYAML succeeds, its output loads back, and saving that again gives the same bytes.
 func FuzzLoadYAML(f *testing.F) {
-	f.Add([]byte("- enemy_id: goblin\n  hp: 45\n  tags: [a, b]\n"))
+	f.Add([]byte("version: 1\nrows:\n  - enemy_id: goblin\n    hp: 45\n    tags: [a, b]\n"))
 	f.Add([]byte(""))
 	f.Add([]byte("null"))
-	f.Add([]byte("a: &a [*a]"))
-	f.Add([]byte("- 123\n- [1, 2]\n- {hp: true, armor: -5}\n"))
+	f.Add([]byte("version: 1\n"))
+	f.Add([]byte("version: 2\nrows: []\n"))
+	f.Add([]byte("- enemy_id: goblin\n"))
+	f.Add([]byte("version: 1\nrows: &a [*a]"))
+	f.Add([]byte("version: 1\nrows:\n- 123\n- [1, 2]\n- {hp: true, armor: -5}\n"))
+	f.Add([]byte("version: 1\nrows:\n- {display_name: \"true\", tags: [\"a, b\", \"\", \"multi\\nline\"], cooldown: -1.5s}\n"))
+	f.Add([]byte("version: 1\nrows:\n- {hp: 1, HP: 2}\n"))
+	f.Add([]byte("version: 1\nextra: x\nrows: []\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = datatable.LoadYAML[Enemy]("fuzz.yaml", data)
+		rows, err := datatable.LoadYAML[Enemy]("fuzz.yaml", data)
+		if err != nil {
+			return
+		}
+		first, err := datatable.MarshalYAML(rows)
+		if err != nil {
+			t.Fatalf("MarshalYAML of loaded rows failed: %v", err)
+		}
+		again, err := datatable.LoadYAML[Enemy]("fuzz.yaml", first)
+		if err != nil {
+			t.Fatalf("LoadYAML of saved table failed: %v\n%s", err, first)
+		}
+		second, err := datatable.MarshalYAML(again)
+		if err != nil {
+			t.Fatalf("MarshalYAML of reloaded rows failed: %v", err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Fatalf("save is not canonical:\nfirst:\n%s\nsecond:\n%s", first, second)
+		}
 	})
 }
