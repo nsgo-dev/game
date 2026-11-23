@@ -36,7 +36,7 @@ Overlap tests return a `Contact` whose unit `Normal` points from `B` toward `A` 
 - When a capsule's segment passes through a box, `TestBoxCapsule` takes the axis of least penetration over the box faces and the edges crossed with the segment, so moving the box by `Normal*Depth` clears the whole capsule. Crossing capsules, and a sphere centered on a capsule's axis, get a normal perpendicular to the axes rather than an arbitrary one.
 - `world.QueryOverlap(shape)` returns all overlapping bodies in deterministic insertion order.
 
-Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`.
+Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`. A ray that starts inside a box, sphere or capsule hits it at `T` 0 with `Point` at the origin and `Normal` facing back along the ray (`-Dir`).
 
 ## Rigid Bodies
 
@@ -68,6 +68,8 @@ Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kine
 
 A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first overlap, so fast bodies do not tunnel through thin geometry. Fast dynamic bodies are not swept against each other.
 
+`HingeJoint.Angle` is tracked across steps, so a hinge that keeps turning reports angles past ±π and `MinAngle`/`MaxAngle` can span more than one turn. A `DistanceJoint` is slack while its distance is inside `[MinDistance, MaxDistance]`; `Stiffness` and `Damping` soften the limits, so for a spring with rest length `L` set both limits to `L`.
+
 ## Character Controller
 
 `CharacterController` moves a kinematic capsule (`Pos` at the feet, `Radius`, `Height`) through a `World` via `Move(world, wishMove, dt)`:
@@ -76,6 +78,7 @@ A dynamic body that moves more than half its smallest dimension in one step is s
 - Prevents climbing slopes steeper than `MaxSlopeAngle` and slides down them under gravity.
 - Automatically steps up stairs up to `StepHeight` after verifying headroom clearance, forward progress, and a walkable landing tread.
 - Stops cleanly and slides tangentially along vertical walls without penetration.
+- Pushes dynamic bodies it walks into with `PushForce` newtons; with the default 0 they block it like walls.
 
 ```go
 cc := physics3d.NewCharacterController(physics3d.Vec3{Y: 0}, 0.3, 1.8)
@@ -86,3 +89,5 @@ loop := &game.Loop{
 	},
 }
 ```
+
+The controller is not a body in the `World`, so dynamic bodies do not collide with it on their own. To let them, add a kinematic body that follows `Pos` and set `IgnoreBodyID` to its ID.
