@@ -119,6 +119,28 @@ loop := &game.Loop{
 stop = loop.Run(cx)
 ```
 
+## Immersive mode on phones
+
+Set `Immersive` to hide a phone's system bars while the game plays and bring them back in menus. The loop calls NSGo's `mobile.Immersive`: Android hides its status and navigation bars and shows them briefly on an edge swipe, iOS hides the status bar and lets the home indicator fade, and HarmonyOS hides its status bar, navigation bar and navigation indicator. Desktop and web targets ignore it.
+
+```go
+loop := &game.Loop{
+	Immersive: true,
+	Update:    stepWorld,
+	Draw:      renderWorld,
+}
+loop.Run(cx)
+
+// Opening the pause menu shows the bars on the next frame; closing it hides them again.
+openMenu := func() { loop.SetPaused(true) }
+closeMenu := func() { loop.SetPaused(false) }
+```
+
+- The bars hide while the loop runs and is not `Paused`, and come back while it is `Paused`, when `stop` is called and when `cx` is disposed, so a menu screen that replaces the game's view brings them back too.
+- The loop hides them as it starts or returns from the background, applies a change to `Immersive` or `Paused` on its next frame (in the same frame when `Update` pauses), and asks the platform only when the state changes. It leaves the bars as they are while the app is in the background.
+- Hiding and showing the bars can change the safe-area insets the platform reports (HarmonyOS, for one, keeps only the display cutout while they are hidden), so lay HUDs out with [`screen.SafeGameRectForEnv`](screen.md#safe-area-for-mobile-huds), which follows the insets as they change.
+- Let one loop own the bars: each run that hid them shows them again when it pauses or ends. A menu shown as an NSGo page or dialog can also set `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`, which overrides the window's setting while it is shown.
+
 ## Testing with nsgotest
 
 `nsgotest` runs display frames deterministically on a virtual clock (one frame every 16.667 ms, 60 frames a second), so you can test gameplay loops, `MaxSteps` hitches and background pauses without sleeping.

@@ -119,6 +119,28 @@ loop := &game.Loop{
 stop = loop.Run(cx)
 ```
 
+## 手机上的沉浸模式
+
+设置 `Immersive` 后，游戏进行时会隐藏手机的系统栏，进入菜单时再恢复。循环调用 NSGo 的 `mobile.Immersive`：Android 隐藏状态栏和导航栏，从屏幕边缘滑动时会短暂显示；iOS 隐藏状态栏并让主屏幕指示条自动淡出；HarmonyOS 隐藏状态栏、导航栏和导航条。桌面端和 Web 目标会忽略此设置。
+
+```go
+loop := &game.Loop{
+	Immersive: true,
+	Update:    stepWorld,
+	Draw:      renderWorld,
+}
+loop.Run(cx)
+
+// 打开暂停菜单后，下一帧显示系统栏；关闭菜单后再次隐藏。
+openMenu := func() { loop.SetPaused(true) }
+closeMenu := func() { loop.SetPaused(false) }
+```
+
+- 循环运行且未处于 `Paused` 时隐藏系统栏；处于 `Paused`、调用 `stop` 或 `cx` 被销毁时恢复系统栏，因此替换掉游戏视图的菜单页面同样会让系统栏回来。
+- 循环在启动或从后台返回时隐藏系统栏，`Immersive` 或 `Paused` 的变化在下一帧生效（若由 `Update` 暂停，则在同一帧生效），且只在状态改变时才向平台发出请求。应用处于后台时，系统栏保持原样。
+- 隐藏和显示系统栏可能改变平台报告的安全区边距（例如 HarmonyOS 在系统栏隐藏期间只保留屏幕挖孔区域），因此请用 [`screen.SafeGameRectForEnv`](screen.md#移动端-hud-安全区) 布局 HUD，它会随边距变化而更新。
+- 让一个循环负责系统栏：每个隐藏过系统栏的运行在暂停或结束时都会把它们恢复。以 NSGo 页面或对话框显示的菜单也可以设置 `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`，在显示期间覆盖窗口的设置。
+
 ## 使用 nsgotest 测试
 
 `nsgotest` 在虚拟时钟上以确定性的方式运行显示帧（每 16.667 ms 一帧，即每秒 60 帧），因此无需 `time.Sleep` 就能测试游戏循环、`MaxSteps` 卡顿和后台暂停行为。
