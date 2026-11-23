@@ -8,7 +8,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// LedgerLimit is how many transaction IDs each list of a Ledger keeps; the oldest are dropped past it. A store hands a game only its unfinished transactions again, and a finished transaction is never far back in the list, so the limit only bounds the save's size.
+// LedgerLimit is how many transaction IDs each list of a Ledger keeps; the oldest are dropped past it to bound the save's size. A store hands a game only its unfinished transactions again, and a finished transaction is never far back in the list, so no credit repeats. A refund, though, can come weeks after its purchase: one whose ID has been dropped, after LedgerLimit newer consumables were credited, is finished without running Revoke.
 const LedgerLimit = 1024
 
 // ErrNoLedger is what Buy and every delivery answer when PurchasesOptions has no Ledger to record credits in.
@@ -91,19 +91,32 @@ type Purchases struct {
 	owned map[string]core.Transaction
 	// pending are the products whose purchase waits for approval.
 	pending map[string]bool
-	// inflight are the transactions being verified, saved and finished, with what waits for them.
-	inflight map[string][]func(error)
+	// inflight are the transactions being verified, saved and finished, by ID, with what waits for them.
+	inflight map[string][]waiter
+	// gen counts the unlocks delivered, and delivered holds the count at each product's latest, so a Refresh whose answer was asked for before it keeps it.
+	gen       int
+	delivered map[string]int
+	// revoked are the IDs of unlocks and subscriptions refunded or revoked this run, which an entitlements answer asked for before the refund may still hold.
+	revoked map[string]bool
+}
+
+// waiter is a delivery of tr waiting for the same transaction's delivery in flight.
+type waiter struct {
+	tr   core.Transaction
+	done func(error)
 }
 
 // NewPurchases starts selling with opts under cx: it registers for the store's transaction updates, which hand over unfinished transactions as the app starts, and reads the user's current entitlements. Call it as the app starts, before the first frame, so no update waits.
 func NewPurchases(cx *core.Scope, opts PurchasesOptions) *Purchases {
 	p := &Purchases{
-		cx:       cx,
-		opts:     opts,
-		rev:      core.NewSignal(cx, 0),
-		owned:    map[string]core.Transaction{},
-		pending:  map[string]bool{},
-		inflight: map[string][]func(error){},
+		cx:        cx,
+		opts:      opts,
+		rev:       core.NewSignal(cx, 0),
+		owned:     map[string]core.Transaction{},
+		pending:   map[string]bool{},
+		inflight:  map[string][]waiter{},
+		delivered: map[string]int{},
+		revoked:   map[string]bool{},
 	}
 	cx.OnPurchaseUpdate(func(tr core.Transaction) {
 		p.handle(tr, func(err error) {
@@ -138,7 +151,7 @@ func (p *Purchases) Entitlement(product string) (core.Transaction, bool) {
 	return tr, ok
 }
 
-// Pending reports whether a purchase of product waits for approval. Read in a reactive computation, it follows the approval.
+// Pending reports whether a purchase of product waits for approval. Read in a reactive computation, it follows the approval. A request the approver declines produces no transaction, so Pending stays true until a transaction for product arrives, from a later Buy too, or the app restarts.
 func (p *Purchases) Pending(product string) bool {
 	p.rev.Get()
 	return p.pending[product]
@@ -177,14 +190,27 @@ func (p *Purchases) Buy(product string, quantity int, done func(BuyResult, error
 	})
 }
 
-// Refresh reads the user's current entitlements from the store and makes them what Owned reports, then answers done, which may be nil. NewPurchases calls it; call it again as the app returns to the foreground. An error goes to done, or to OnError when done is nil.
+// Refresh reads the user's current entitlements from the store and makes them what Owned reports, then answers done, which may be nil. An unlock delivered while the answer was on its way stays, unless the answer holds a later transaction for it, and one refunded meanwhile stays gone. NewPurchases calls it; call it again as the app returns to the foreground, which is also when Owned next notices a subscription that expired. An error goes to done, or to OnError when done is nil.
 func (p *Purchases) Refresh(done func(error)) {
+	asked := p.gen
 	p.cx.CurrentEntitlements(func(txs []core.Transaction, err error) {
 		if err == nil {
 			owned := make(map[string]core.Transaction, len(txs))
 			for _, tr := range txs {
-				if tr.ProductType != core.ProductConsumable && tr.RevocationDate.IsZero() {
+				if tr.ProductType == core.ProductConsumable || !tr.RevocationDate.IsZero() || p.revoked[tr.ID] {
+					continue
+				}
+				if o, ok := owned[tr.ProductID]; !ok || supersedes(tr, o) {
 					owned[tr.ProductID] = tr
+				}
+			}
+			for product, g := range p.delivered {
+				o, ok := p.owned[product]
+				if g <= asked || !ok {
+					continue
+				}
+				if s, ok := owned[product]; !ok || supersedes(o, s) {
+					owned[product] = o
 				}
 			}
 			p.owned = owned
@@ -215,13 +241,13 @@ func (p *Purchases) Restore(done func(error)) {
 	})
 }
 
-// handle verifies, delivers and finishes tr, then calls done with why it was not delivered, or nil. A transaction already in flight waits for that run instead of starting another.
+// handle verifies, delivers and finishes tr, then calls done with why it was not delivered, or nil. A transaction already in flight waits for that run: the same copy of it takes its answer, and a changed one, such as its refund arriving while the purchase is verified, is handled after it.
 func (p *Purchases) handle(tr core.Transaction, done func(error)) {
 	if waiting, ok := p.inflight[tr.ID]; ok {
-		p.inflight[tr.ID] = append(waiting, done)
+		p.inflight[tr.ID] = append(waiting, waiter{tr, done})
 		return
 	}
-	p.inflight[tr.ID] = []func(error){done}
+	p.inflight[tr.ID] = []waiter{{tr, done}}
 	p.verify(tr, func(err error) {
 		if err == nil {
 			err = p.deliver(tr)
@@ -238,9 +264,30 @@ func (p *Purchases) handle(tr core.Transaction, done func(error)) {
 		delete(p.inflight, tr.ID)
 		p.changed()
 		for _, w := range waiting {
-			w(err)
+			if sameCopy(w.tr, tr) {
+				w.done(err)
+			} else {
+				p.handle(w.tr, w.done)
+			}
 		}
 	})
+}
+
+// sameCopy reports whether a and b, which share an ID, say the same about it: neither a refund nor a renewal date tells them apart.
+func sameCopy(a, b core.Transaction) bool {
+	return a.RevocationDate.Equal(b.RevocationDate) && a.ExpirationDate.Equal(b.ExpirationDate)
+}
+
+// supersedes reports whether tr is the store's later word on its product than o: a newer copy of the same transaction, the one whose subscription period ends later, or else the later purchase or renewal.
+func supersedes(tr, o core.Transaction) bool {
+	switch {
+	case tr.ID == o.ID:
+		return true
+	case !tr.ExpirationDate.IsZero() && !o.ExpirationDate.IsZero():
+		return !tr.ExpirationDate.Before(o.ExpirationDate)
+	default:
+		return !tr.PurchaseDate.Before(o.PurchaseDate)
+	}
 }
 
 // verify runs Verify on tr and calls next once on the scope's goroutine, however Verify answers.
@@ -271,9 +318,17 @@ func (p *Purchases) deliver(tr core.Transaction) error {
 	delete(p.pending, tr.ProductID)
 	if tr.ProductType != core.ProductConsumable {
 		if tr.RevocationDate.IsZero() {
-			p.owned[tr.ProductID] = tr
-		} else if o, ok := p.owned[tr.ProductID]; ok && (o.ID == tr.ID || o.OriginalID == tr.OriginalID) {
-			delete(p.owned, tr.ProductID)
+			// An older transaction, such as an expired renewal the store hands back unfinished at launch, leaves the later one owned.
+			if o, ok := p.owned[tr.ProductID]; !ok || supersedes(tr, o) {
+				p.owned[tr.ProductID] = tr
+				p.gen++
+				p.delivered[tr.ProductID] = p.gen
+			}
+		} else {
+			p.revoked[tr.ID] = true
+			if o, ok := p.owned[tr.ProductID]; ok && (o.ID == tr.ID || o.OriginalID == tr.OriginalID) {
+				delete(p.owned, tr.ProductID)
+			}
 		}
 		return nil
 	}

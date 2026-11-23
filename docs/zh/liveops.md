@@ -135,10 +135,10 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 `Purchases` 基于 NSGo 的购买服务（`cx.Purchase`、`cx.OnPurchaseUpdate`、`cx.CurrentEntitlements`、`cx.SyncPurchases`）出售游戏的商品。它只在 `cx.Env().CanPurchase()` 为 true 时可用，在 NSGo v0.2.0 中即 macOS、iOS 和 tvOS 上 `nsgo.yaml` 设置了 `apple.purchases: true` 的构建所连接的 App Store；其他平台上 `Buy` 以 `core.PurchasesUnavailable` 失败，`Available` 返回 false。
 
 - 消耗型商品只入账一次。把 `Ledger` 放进存档，与 `Credit` 修改的状态放在一起：`Purchases` 先调用 `Credit`，把交易 ID 记入账本，再调用 `Save`，之后才完成（finish）交易。在保存前被杀掉，入账和记录一起丢失，商店会在下次启动时再次交付该交易；在保存后被杀掉，下次启动会在账本中找到该 ID，只完成交易而不重复入账。`Save` 失败时交易保持未完成。
-- 非消耗型商品和订阅是“拥有”而非“入账”：`Owned(product)` 读取商店的权益（`NewPurchases` 启动时加载，`Refresh` 重新加载），并跟随购买、退款和过期变化。在响应式计算中读取 `Owned` 和 `Pending` 会自动更新视图。
+- 非消耗型商品和订阅是“拥有”而非“入账”：`Owned(product)` 读取商店的权益（`NewPurchases` 启动时加载，`Refresh` 重新加载），并用 `cx.WallTime()` 判断订阅是否过期。在响应式计算中读取 `Owned` 和 `Pending`，购买、退款和恢复购买会自动更新视图；应用运行期间到期的订阅要到下次读取或 `Refresh` 时才会反映出来，因此请在应用回到前台时调用 `Refresh`。同一商品较旧的交易（例如启动时作为未完成交易再次交付的已过期续订）不会取代较新的交易。
 - `Restore` 执行商店同步（只能由玩家按下“恢复购买”按钮时调用，因为它可能要求登录），然后重新加载权益，使重装后存档已被清空的解锁项恢复。
-- `Buy` 的结果为 `Bought`、`BuyPending`（“询问后购买”等待审批；`Pending(product)` 会一直为 true，直到批准后的交易通过商店更新到达，并像 `Buy` 一样被交付）、`BuyCancelled`，或带错误的 `BuyFailed`。
-- 退款或撤销会移除解锁项；对已入账的消耗型商品，若游戏设置了 `Revoke`，会调用它一次。
+- `Buy` 的结果为 `Bought`、`BuyPending`（“询问后购买”等待审批；`Pending(product)` 会一直为 true，直到批准后的交易通过商店更新到达，并像 `Buy` 一样被交付；请求被拒绝时不会产生交易，`Pending` 会保持为 true，直到该商品之后的购买到达或应用重启）、`BuyCancelled`，或带错误的 `BuyFailed`。
+- 退款或撤销会移除解锁项；对已入账的消耗型商品，若游戏设置了 `Revoke`，会调用它一次。账本只保留最新的 `LedgerLimit`（1024）个 ID，因此在其后又有这么多笔消耗型商品入账后，再到达的旧交易退款只会被完成，不会调用 `Revoke`。
 - `Verify` 在交付前把每笔交易（其 `Signed` 为商店的 JWS）交给游戏服务器校验，可以在任意 goroutine 中回答；被拒绝的交易既不交付也不完成。未设置 `Verify` 时，只交付设备已校验的交易。
 - `OnError` 接收没有 `Buy` 或 `Restore` 回调可报告的失败，例如启动时某笔未完成交易的保存失败。
 

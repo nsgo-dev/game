@@ -226,6 +226,26 @@ func TestAskToBuyWaitsThenDeliversTheApprovedPurchase(t *testing.T) {
 	}
 }
 
+// The approver declines: the store sends no transaction, so the purchase stays pending until a later one of the product arrives.
+func TestADeclinedAskToBuyStaysPendingUntilALaterPurchase(t *testing.T) {
+	s := open(t)
+	s.app.PurchaseAnswer = func(core.PurchaseRequest) (core.Transaction, error) { return core.Transaction{}, core.PurchasePending }
+	if res, err := s.buy("unlock.noads", 1); res != liveops.BuyPending || err != nil {
+		t.Fatalf("buy: %v, %v", res, err)
+	}
+	s.app.Settle()
+	if !s.purchases.Pending("unlock.noads") || s.purchases.Owned("unlock.noads") {
+		t.Fatalf("declined: pending %v, owned %v", s.purchases.Pending("unlock.noads"), s.purchases.Owned("unlock.noads"))
+	}
+	s.app.PurchaseAnswer = nil
+	if res, err := s.buy("unlock.noads", 1); res != liveops.Bought || err != nil {
+		t.Fatalf("buy again: %v, %v", res, err)
+	}
+	if s.purchases.Pending("unlock.noads") || !s.purchases.Owned("unlock.noads") {
+		t.Fatalf("bought: pending %v, owned %v", s.purchases.Pending("unlock.noads"), s.purchases.Owned("unlock.noads"))
+	}
+}
+
 func TestCancelAndFailureAnswerApart(t *testing.T) {
 	s := open(t)
 	s.app.PurchaseAnswer = func(core.PurchaseRequest) (core.Transaction, error) {
@@ -341,6 +361,87 @@ func TestASubscriptionIsOwnedUntilItExpires(t *testing.T) {
 	}
 }
 
+// At launch the store hands back an unfinished renewal whose period has ended after the entitlements loaded the current one: the current one stays owned.
+func TestAnOlderTransactionLeavesTheLaterOneOwned(t *testing.T) {
+	s := open(t)
+	if res, err := s.buy("pass.monthly", 1); res != liveops.Bought || err != nil {
+		t.Fatalf("buy: %v, %v", res, err)
+	}
+	current, _ := s.purchases.Entitlement("pass.monthly")
+	var err error = errors.New("unanswered")
+	s.purchases.Refresh(func(e error) { err = e })
+	s.app.Settle()
+	if err != nil || !s.purchases.Owned("pass.monthly") {
+		t.Fatalf("refresh: %v, owned %v", err, s.purchases.Owned("pass.monthly"))
+	}
+	expired := core.Transaction{
+		ID: "1999999999", OriginalID: current.OriginalID, ProductID: "pass.monthly", ProductType: core.ProductAutoRenewable, Quantity: 1,
+		PurchaseDate: current.PurchaseDate.AddDate(0, -1, 0), ExpirationDate: current.PurchaseDate.Add(-time.Hour), Signed: "jws", Verified: true,
+	}
+	s.app.UpdatePurchase(expired)
+	if got, _ := s.purchases.Entitlement("pass.monthly"); got.ID != current.ID || !s.purchases.Owned("pass.monthly") {
+		t.Fatalf("entitlement %s, owned %v, want %s owned", got.ID, s.purchases.Owned("pass.monthly"), current.ID)
+	}
+	if slices.ContainsFunc(s.app.Unfinished, func(tr core.Transaction) bool { return tr.ID == expired.ID }) || len(s.errs) != 0 {
+		t.Fatalf("unfinished %v, errors %v", s.app.Unfinished, s.errs)
+	}
+}
+
+// An unlock delivered while a Refresh waits for the store stays owned when the store's answer predates it.
+func TestARefreshAnsweredLateKeepsAnUnlockDeliveredMeanwhile(t *testing.T) {
+	s := open(t)
+	var answer func(error)
+	s.verify = func(_ core.Transaction, done func(error)) { answer = done }
+	var res liveops.BuyResult = -1
+	s.purchases.Buy("unlock.noads", 1, func(r liveops.BuyResult, _ error) { res = r })
+	s.app.Settle()
+	// The store's snapshot is taken before it holds the purchase.
+	s.app.Entitlements = nil
+	refreshed := false
+	s.purchases.Refresh(func(error) { refreshed = true })
+	answer(nil)
+	s.app.Settle()
+	if res != liveops.Bought || !refreshed || !s.purchases.Owned("unlock.noads") {
+		t.Fatalf("result %v, refreshed %v, owned %v", res, refreshed, s.purchases.Owned("unlock.noads"))
+	}
+	// A later Refresh asked for after the delivery takes the store's word.
+	s.purchases.Refresh(nil)
+	s.app.Settle()
+	if s.purchases.Owned("unlock.noads") {
+		t.Fatal("owned after the store's later answer left it out")
+	}
+}
+
+// The store refunds a purchase while the game's server still verifies it: the refund is applied after the credit, not taken for another copy of it.
+func TestARefundArrivingWhileThePurchaseIsVerifiedIsApplied(t *testing.T) {
+	s := open(t)
+	var asked []core.Transaction
+	var answer func(error)
+	s.verify = func(tr core.Transaction, done func(error)) {
+		asked = append(asked, tr)
+		answer = done
+	}
+	var res liveops.BuyResult = -1
+	s.purchases.Buy("coins.100", 1, func(r liveops.BuyResult, _ error) { res = r })
+	s.app.Settle()
+	refund := asked[0]
+	refund.RevocationDate = s.cx.WallTime()
+	s.app.UpdatePurchase(refund)
+	if len(asked) != 1 {
+		t.Fatalf("asked %d times while the purchase was verified", len(asked))
+	}
+	answer(nil)
+	s.app.Settle()
+	if res != liveops.Bought || s.state.Coins != 100 || len(asked) != 2 || asked[1].RevocationDate.IsZero() {
+		t.Fatalf("result %v, coins %d, asked %v", res, s.state.Coins, asked)
+	}
+	answer(nil)
+	s.app.Settle()
+	if got := s.saved(t); s.state.Coins != 0 || got.Coins != 0 || !got.Purchases.HasRevoked(refund.ID) || len(s.app.Unfinished) != 0 {
+		t.Fatalf("coins %d, saved %+v, unfinished %v", s.state.Coins, got, s.app.Unfinished)
+	}
+}
+
 func TestTheServerVerifiesBeforeDelivery(t *testing.T) {
 	s := open(t)
 	var asked []core.Transaction
@@ -445,15 +546,25 @@ func TestLedgerRoundTripsAndStaysBounded(t *testing.T) {
 	for i := range txs {
 		txs[i] = core.Transaction{ID: fmt.Sprint(3000000000 + i), ProductID: "coins.100", ProductType: core.ProductConsumable, Quantity: 1, Verified: true}
 	}
-	nsgotest.StartApp(t, func(cx *core.Scope) {
+	var revoked []string
+	app := nsgotest.StartApp(t, func(cx *core.Scope) {
 		liveops.NewPurchases(cx, liveops.PurchasesOptions{
 			Ledger: &state.Purchases,
 			Credit: func(core.Transaction) { state.Coins++ },
+			Revoke: func(tr core.Transaction) { revoked = append(revoked, tr.ID) },
 			Save:   func() error { return nil },
 		})
 	}, storeKit, nsgotest.UnfinishedTransactions(txs...))
 	if state.Coins != n || len(state.Purchases.Credited) != liveops.LedgerLimit || state.Purchases.Credited[0] != txs[5].ID || !state.Purchases.HasCredited(txs[n-1].ID) {
 		t.Fatalf("coins %d, ledger of %d from %s", state.Coins, len(state.Purchases.Credited), state.Purchases.Credited[0])
+	}
+	// A refund of a credit the ledger dropped is finished without Revoke; one the ledger keeps is revoked.
+	for _, tr := range []core.Transaction{txs[4], txs[5]} {
+		tr.RevocationDate = app.Clock.WallTime()
+		app.UpdatePurchase(tr)
+	}
+	if !slices.Equal(revoked, []string{txs[5].ID}) || len(app.Unfinished) != 0 {
+		t.Fatalf("revoked %v, unfinished %v", revoked, app.Unfinished)
 	}
 }
 
