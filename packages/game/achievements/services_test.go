@@ -188,6 +188,45 @@ func TestServiceOutageIsRetriedOnFlush(t *testing.T) {
 	}
 }
 
+func TestDisposingTheSignInScopeDisconnects(t *testing.T) {
+	app, cx := startScope(t, gameServicesOn(core.OSMacOS))
+	app.SetGameServicesPlayer(gameservices.Player{ID: "p1", Authenticated: true})
+	tr := newTracker(t)
+	var screen *core.Scope
+	app.Post(func() { screen = cx.Child() })
+	app.Settle()
+	if res := signIn(app, screen, tr); res.err != nil {
+		t.Fatal(res.err)
+	}
+
+	// The answer to this report is posted to screen, which is disposed before it can run.
+	app.Post(func() {
+		errorAsync(t, tr.Add("gem-collector", 1))
+		screen.Dispose()
+	})
+	app.Settle()
+	if tr.Service() != "" {
+		t.Fatalf("service = %q after its scope was disposed", tr.Service())
+	}
+	if got := tr.Pending(achievements.GameCenter); !slices.Equal(got, []string{"gem-collector"}) {
+		t.Fatalf("pending = %v", got)
+	}
+
+	// A later SignIn on a living scope reports what the disposed one never confirmed, and later progress keeps flowing.
+	if res := signIn(app, cx, tr); res.err != nil {
+		t.Fatal(res.err)
+	}
+	mustOK(t, tr.Add("gem-collector", 1))
+	app.Settle()
+	if got := tr.Pending(achievements.GameCenter); len(got) != 0 {
+		t.Fatalf("pending = %v", got)
+	}
+	want := []gameservices.Achievement{{ID: "gc.gems", PercentComplete: 50}}
+	if got := app.GameServicesAchievements(); !slices.Equal(got, want) {
+		t.Fatalf("service achievements = %+v", got)
+	}
+}
+
 func TestPersistInCoreStorage(t *testing.T) {
 	app, cx := startScope(t)
 	tr := newTracker(t)

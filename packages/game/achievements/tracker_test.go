@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/achievements"
@@ -435,6 +437,137 @@ func TestSaveFailuresAreReported(t *testing.T) {
 	mustOK(t, tr.Add("gem-collector", 1))
 	if _, ok := store.items["ach"]; !ok {
 		t.Fatal("the next successful write did not save")
+	}
+}
+
+func TestRestoreWhileAReportIsInFlight(t *testing.T) {
+	store := &mapStore{}
+	tr := newTracker(t)
+	var errs []error
+	tr.OnError(func(_ achievements.Definition, err error) { errs = append(errs, err) })
+	mustOK(t, tr.Persist(store, "ach"))
+	q := &queueReporter{}
+	mustOK(t, tr.Connect(achievements.GameCenter, q))
+	mustOK(t, tr.SetSteps("gem-collector", 4))
+
+	// Restoring lower progress while gc.gems@100 awaits its answer reports the restored progress afresh.
+	mustOK(t, tr.Restore(&achievements.Progress{Version: 1, Achievements: []achievements.Record{{ID: "gem-collector", Steps: 1}}}))
+	if got := q.ids(); !slices.Equal(got, []string{"gc.gems@100", "gc.gems@25"}) {
+		t.Fatalf("reports = %v", got)
+	}
+	// The answer to the report sent before the restore counts for no more than the restored steps.
+	q.answer(t, nil)
+	q.answer(t, nil)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %v", errs)
+	}
+	want := &achievements.Progress{Version: 1, Achievements: []achievements.Record{
+		{ID: "gem-collector", Steps: 1, Reported: map[achievements.Service]int{achievements.GameCenter: 1}},
+	}}
+	if got := tr.Progress(); !equalProgress(got, want) {
+		t.Fatalf("Progress = %+v, want %+v", got, want)
+	}
+	if _, err := achievements.EncodeProgress(tr.Progress()); err != nil {
+		t.Fatal(err)
+	}
+	mustOK(t, tr.Add("gem-collector", 1))
+	if got := q.ids(); !slices.Equal(got, []string{"gc.gems@50"}) {
+		t.Fatalf("reports after restore = %v", got)
+	}
+	if want := "version: 1\nachievements:\n  - id: gem-collector\n    steps: 2\n    reported:\n      gameCenter: 1\n"; store.items["ach"] != want {
+		t.Fatalf("stored:\n%s\nwant:\n%s", store.items["ach"], want)
+	}
+}
+
+func TestPersistWhileAReportIsInFlight(t *testing.T) {
+	store := &mapStore{items: map[string]string{"ach": "version: 1\n"}}
+	tr := newTracker(t)
+	q := &queueReporter{}
+	mustOK(t, tr.Connect(achievements.GameCenter, q))
+	mustOK(t, tr.Unlock("first-match"))
+	// Loading the stored progress drops first-match, and the old answer must not leave it acknowledged beyond its steps.
+	mustOK(t, tr.Persist(store, "ach"))
+	q.answer(t, nil)
+	if got := tr.Progress(); len(got.Achievements) != 0 {
+		t.Fatalf("Progress = %+v", got)
+	}
+	if _, err := achievements.EncodeProgress(tr.Progress()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// asyncReporter answers every report from a goroutine of its own, as a platform service may.
+type asyncReporter struct {
+	wg  *sync.WaitGroup
+	err error
+}
+
+func (a asyncReporter) ReportAchievement(_ string, _ float64, done func(error)) {
+	a.wg.Go(func() { done(a.err) })
+}
+
+func TestConcurrentUse(t *testing.T) {
+	store := &mapStore{}
+	tr := newTracker(t)
+	var unlocks atomic.Int32
+	tr.OnUnlock(func(achievements.Definition) { unlocks.Add(1) })
+	tr.OnError(func(achievements.Definition, error) {})
+	mustOK(t, tr.Persist(store, "ach"))
+
+	services := []achievements.Service{achievements.GameCenter, achievements.PlayGames}
+	var answers, workers sync.WaitGroup
+	for g := range 8 {
+		workers.Go(func() {
+			r := asyncReporter{wg: &answers}
+			if g%4 == 0 {
+				r.err = errors.New("offline")
+			}
+			for i := range 20 {
+				switch i % 5 {
+				case 0:
+					errorAsync(t, tr.Connect(services[g%2], r))
+				case 1:
+					errorAsync(t, tr.Add("gem-collector", 1))
+				case 2:
+					errorAsync(t, tr.SetSteps("gem-collector", i/5))
+					tr.Flush()
+				case 3:
+					errorAsync(t, tr.Unlock("first-match"))
+					_ = tr.Pending(achievements.GameCenter)
+					_ = tr.Progress()
+				case 4:
+					if g%3 == 0 {
+						tr.Disconnect()
+					}
+					errorAsync(t, tr.Add("apple-only", 0))
+				}
+			}
+		})
+	}
+	workers.Wait()
+	answers.Wait()
+
+	if !tr.Unlocked("first-match") || !tr.Unlocked("gem-collector") || tr.Unlocked("apple-only") {
+		t.Fatalf("progress = %+v", tr.Progress())
+	}
+	if n := unlocks.Load(); n != 2 {
+		t.Fatalf("OnUnlock calls = %d, want 2", n)
+	}
+	if _, err := achievements.EncodeProgress(tr.Progress()); err != nil {
+		t.Fatal(err)
+	}
+	// Once the answers are in, a reliable connection acknowledges everything.
+	mustOK(t, tr.Connect(achievements.GameCenter, asyncReporter{wg: &answers}))
+	answers.Wait()
+	if got := tr.Pending(achievements.GameCenter); len(got) != 0 {
+		t.Fatalf("pending = %v", got)
+	}
+}
+
+// errorAsync reports err from a goroutine other than the test's, where t.Fatal must not be called.
+func errorAsync(t *testing.T, err error) {
+	if err != nil {
+		t.Error(err)
 	}
 }
 

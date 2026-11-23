@@ -108,7 +108,7 @@ achievements:
 - 平台没有游戏服务（Windows、Linux、Web、watchOS）或 `cx.Env().CanUseGameServices()` 为 false 时，返回 `gameservices.ErrUnsupported`。
 - 服务应答时没有已登录的玩家，返回 `gameservices.ErrUnauthenticated`；玩家关闭登录界面，返回 `gameservices.ErrCancelled`。
 
-登录失败时 `Tracker` 会继续计数，之后再次调用 `SignIn` 会上报期间产生的进度。`gameservices.ShowAchievements(cx)` 打开平台自带的成就界面。
+登录失败时 `Tracker` 会继续计数，之后再次调用 `SignIn` 会上报期间产生的进度。服务的应答经由 `cx` 送达，因此释放 `cx` 会断开 `Tracker`；请用与游戏同寿命的作用域（例如根作用域）登录，或在下一个界面中再次调用 `SignIn`。`gameservices.ShowAchievements(cx)` 打开平台自带的成就界面。
 
 ```go
 signedIn := core.NewSignal(cx, false)
@@ -128,7 +128,7 @@ core.Show{
 
 进度以百分比上报：300 步的成就完成 42 步时上报 14%。由于 `gameservices` 上报的是百分比，在 Play 管理中心中应把它配置为标准成就，而不是递增式成就。
 
-不通过 `SignIn` 登录的游戏可以用 `Connect(service, reporter)` 和 `Disconnect` 直接连接和断开服务；`GameServices(cx)` 是基于 `gameservices.ReportAchievement` 的 `Reporter`，任何带 `ReportAchievement(id, percent, done)` 方法的类型都是 `Reporter`。
+不通过 `SignIn` 登录的游戏可以用 `Connect(service, reporter)` 和 `Disconnect` 直接连接和断开服务；`GameServices(cx)` 是基于 `gameservices.ReportAchievement` 的 `Reporter`，任何带 `ReportAchievement(id, percent, done)` 方法的类型都是 `Reporter`。`Reporter` 必须对每次上报恰好应答一次；`cx` 被释放后 `GameServices(cx)` 不再应答，此时应调用 `Disconnect`。
 
 ## 平台配置
 
