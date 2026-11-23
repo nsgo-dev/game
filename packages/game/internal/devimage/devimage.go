@@ -21,7 +21,7 @@ func WithData(src core.ImageSource, data []byte) core.ImageSource {
 
 // Shown returns the URI of the file the core loads for src on a screen of ratio pixels per point, as it picks among src's Scales: src's URI for a single file or the 1x pick, the variant Variants names for the scale picked, else the "asset:" file named with that scale's suffix (asset:a.png at 2 is asset:a@2x.png).
 func Shown(src core.ImageSource, ratio float32) string {
-	// This mirrors the core's unexported Tree.pickScale (core/image.go in NSGo v0.3.0), which a game cannot call.
+	// This mirrors the core's unexported Tree.pickScale (core/image.go in NSGo v0.3.0), which a game cannot call (nsgo-dev/nsgo#2272).
 	if src.Scales == 0 || src.Variants == nil && (!strings.HasPrefix(src.URI, "asset:") || strings.ContainsAny(src.URI, "?#")) {
 		return src.URI
 	}
