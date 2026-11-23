@@ -1,4 +1,4 @@
-// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay), check benchmarks against a stored baseline (bench), create a game project from a template (new), run the game with asset hot reload (dev) and check scenes, maps and atlases and the references between them (check); `game help` lists them and `game help <command>` shows one command's flags.
+// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay), check benchmarks against a stored baseline (bench), create a game project from a template (new), run the game with asset hot reload (dev), check scenes, maps and atlases and the references between them (check) and write shell completion scripts (completion); `game help` lists them and `game help <command>` shows one command's flags.
 package main
 
 import (
@@ -34,6 +34,8 @@ type command struct {
 	summary string
 	// define adds the command's flags to fs and returns what runs once they are parsed, which reads the arguments left from fs.Args.
 	define func(a *app, fs *flag.FlagSet) func() error
+	// complete is what shell completion offers for a flag's value, keyed by the flag's name, and for the arguments after the flags, keyed by "". The shared -in and -out flags complete file paths without an entry; any other flag, or the arguments, with no entry complete nothing.
+	complete map[string]completion
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
@@ -150,11 +152,7 @@ func newFlagSet(c *command, w io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet("game "+c.name, flag.ContinueOnError)
 	fs.SetOutput(w)
 	fs.Usage = func() {
-		line := "usage: game " + c.name + " [flags]"
-		if c.args != "" {
-			line += " " + c.args
-		}
-		fmt.Fprintf(w, "%s\n\n%s.\n", line, c.summary)
+		fmt.Fprintf(w, "usage: %s\n\n%s.\n", c.usage(), c.summary)
 		hasFlags := false
 		fs.VisitAll(func(*flag.Flag) { hasFlags = true })
 		if hasFlags {
@@ -163,6 +161,15 @@ func newFlagSet(c *command, w io.Writer) *flag.FlagSet {
 		}
 	}
 	return fs
+}
+
+// usage returns how c is called, its usage line without the "usage: " in front.
+func (c *command) usage() string {
+	line := "game " + c.name + " [flags]"
+	if c.args != "" {
+		line += " " + c.args
+	}
+	return line
 }
 
 // inFlag adds the -in flag the commands share for what they read.

@@ -28,6 +28,9 @@ var newCommand = &command{
 	args:    "<dir>",
 	summary: "Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools",
 	define:  defineNew,
+	complete: map[string]completion{
+		"": filePaths,
+	},
 }
 
 const (

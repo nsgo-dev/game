@@ -16,6 +16,10 @@ var benchCommand = &command{
 	args:    "[directory ...]",
 	summary: "Run the benchmarks headless and fail when one regresses past its stored baseline, or update the baseline",
 	define:  defineBench,
+	complete: map[string]completion{
+		"baseline": filePaths,
+		"":         filePaths,
+	},
 }
 
 func defineBench(a *app, fs *flag.FlagSet) func() error {

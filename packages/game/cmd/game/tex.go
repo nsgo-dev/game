@@ -15,6 +15,11 @@ var texCommand = &command{
 	args:    "[input.png|input.jpg]",
 	summary: "Encode a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps",
 	define:  defineTex,
+	complete: map[string]completion{
+		"format": oneOf(string(ktx2.FormatBC1), string(ktx2.FormatBC3), string(ktx2.FormatETC2), string(ktx2.FormatRGBA8)),
+		"o":      filePaths,
+		"":       filePaths,
+	},
 }
 
 func defineTex(a *app, fs *flag.FlagSet) func() error {

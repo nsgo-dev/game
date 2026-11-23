@@ -13,6 +13,9 @@ var audioCommand = &command{
 	name:    "audio",
 	summary: "Normalize, resample and convert a WAV file to WAV, AAC or MP3",
 	define:  defineAudio,
+	complete: map[string]completion{
+		"format": oneOf(string(audioconv.FormatWAV), string(audioconv.FormatAAC), string(audioconv.FormatMP3)),
+	},
 }
 
 func defineAudio(a *app, fs *flag.FlagSet) func() error {

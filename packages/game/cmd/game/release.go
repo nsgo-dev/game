@@ -23,6 +23,12 @@ var releaseCommand = &command{
 	args:    "[dir]",
 	summary: "Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build",
 	define:  defineRelease,
+	complete: map[string]completion{
+		"output":        filePaths,
+		"release-notes": filePaths,
+		"channel":       oneOf("direct", "store", "steam", "none"),
+		"":              filePaths,
+	},
 }
 
 // releasePlatforms are what game release builds when neither -target nor game.yaml's export presets say otherwise, as nsgo build -target names them: macos, windows, linux and android expand to their architectures, and ios and web are one target each.
