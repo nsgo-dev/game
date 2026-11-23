@@ -89,7 +89,12 @@ type playback struct {
 	// loopPaused is the loop's Paused before the cutscene paused it; resumeSound resumes the mixer, nil without one.
 	loopPaused  bool
 	resumeSound func()
+	// owner is the scene controller (Player.Scene) that played it, nil for Player.Play.
+	owner *scene.Controller
 }
+
+// ErrReplaced is what Player.Play returns, playing nothing, when the done callback of the cutscene it stops plays another cutscene: that one plays instead.
+var ErrReplaced = errors.New("cutscene: the stopped cutscene's done callback played another")
 
 // NewPlayer returns a player that lives as long as cx. Disposing cx while a cutscene plays stops it without calling its done callback, and sets the loop and the mixer back as they were.
 func NewPlayer(cx *core.Scope, opts Options) *Player {
@@ -107,16 +112,26 @@ func NewPlayer(cx *core.Scope, opts Options) *Player {
 
 // Play plays c over the game, pausing the loop and the mixer until it ends, and then calls done, which may be nil, with how it ended; the loop and the mixer are back as they were by then, so done may play another cutscene or switch scenes. A cutscene playing already stops first, its done callback told Stopped.
 //
-// It returns an error, and plays nothing, for a cutscene with no source, an unknown Fit or a negative SkipAfter.
+// It returns an error, and plays nothing, for a cutscene with no source, an unknown Fit or a negative SkipAfter, and ErrReplaced when the stopped cutscene's done callback plays another cutscene, which then plays in its place.
 func (p *Player) Play(c Cutscene, done func(Result)) error {
+	_, err := p.play(c, done, nil)
+	return err
+}
+
+// play is Play for a cutscene owner played, nil for Play itself, returning its playback.
+func (p *Player) play(c Cutscene, done func(Result), owner *scene.Controller) (*playback, error) {
 	if err := check(c); err != nil {
-		return err
+		return nil, err
 	}
 	if p.cx.Disposed() {
-		return errors.New("cutscene: the player's scope is disposed")
+		return nil, errors.New("cutscene: the player's scope is disposed")
 	}
 	p.end(Stopped, nil, true)
-	pb := &playback{c: c, done: done}
+	// The stopped cutscene's done callback may have played another; it has paused the loop and the mixer already, so taking them here again would leave them paused for good.
+	if p.cur.GetUntracked() != nil {
+		return nil, ErrReplaced
+	}
+	pb := &playback{c: c, done: done, owner: owner}
 	p.cx.Run(func() {
 		pb.skippable = core.NewSignal(p.cx, c.Skippable && c.SkipAfter <= 0)
 		pb.held = core.NewSignal(p.cx, false)
@@ -129,7 +144,7 @@ func (p *Player) Play(c Cutscene, done func(Result)) error {
 		pb.resumeSound = m.Suspend()
 	}
 	p.cur.Set(pb)
-	return nil
+	return pb, nil
 }
 
 // Scene returns a scene that plays c as it enters and calls done as it ends, for a cutscene between two scenes: switch to it, and switch on from done.
@@ -139,25 +154,27 @@ func (p *Player) Play(c Cutscene, done func(Result)) error {
 //		scenes.Switch(intro, nil)
 //	}
 //
-// Leaving the scene before the cutscene ends stops it without calling done. It returns an error for a cutscene Play would refuse.
+// Leaving the scene before the cutscene ends stops it without calling done, also when the scene switched to is another cutscene scene of the same player entered with a transition, which enters before the scene it replaces exits. It returns an error for a cutscene Play would refuse.
 func (p *Player) Scene(c Cutscene, done func(Result)) (*scene.Controller, error) {
 	if err := check(c); err != nil {
 		return nil, err
 	}
 	var pb *playback
-	return &scene.Controller{
-		Enter: func(*core.Scope) {
-			if p.Play(c, done) == nil {
-				pb = p.cur.GetUntracked()
-			}
-		},
-		Exit: func() {
-			if pb != nil && p.cur.GetUntracked() == pb {
-				p.end(Stopped, nil, false)
-			}
-			pb = nil
-		},
-	}, nil
+	ctrl := &scene.Controller{}
+	ctrl.Enter = func(*core.Scope) {
+		// A cutscene another cutscene scene played belongs to a scene being left, whose Exit comes only after a transition, so it stops quietly here as that Exit would stop it.
+		if cur := p.cur.GetUntracked(); cur != nil && cur.owner != nil {
+			p.end(Stopped, nil, false)
+		}
+		pb, _ = p.play(c, done, ctrl)
+	}
+	ctrl.Exit = func() {
+		if pb != nil && p.cur.GetUntracked() == pb {
+			p.end(Stopped, nil, false)
+		}
+		pb = nil
+	}
+	return ctrl, nil
 }
 
 // Playing reports whether a cutscene plays. Read in a computation, it subscribes it to changes, as a core.Signal does.
@@ -249,11 +266,14 @@ func (p *Player) video(cx *core.Scope, pb *playback) core.Node {
 		p.input(pb)
 		return true
 	})
-	// A video the platform paused for an interruption as the app went to the background plays on as it returns.
+	// A video the platform paused for an interruption as the app went to the background plays on as it returns from the background, and only then: a window losing focus (LifecycleInactive) leaves a video paused for headphones unplugged paused.
+	wasBackground := false
 	cx.Effect(func() {
-		if cx.Env().Lifecycle() != core.LifecycleBackground {
+		background := cx.Env().Lifecycle() == core.LifecycleBackground
+		if wasBackground && !background {
 			pb.held.Set(false)
 		}
+		wasBackground = background
 	})
 	cx.KeepAwake("cutscene", core.KeepAwakeOptions{Display: true})
 

@@ -81,6 +81,8 @@ func TestParseRefusesBadFiles(t *testing.T) {
 		"unknown key":    "version: 1\nsource: asset:a.mp4\nloop: true\n",
 		"no version":     "source: asset:a.mp4\n",
 		"future version": "version: 2\nsource: asset:a.mp4\n",
+		"float version":  "version: 1.5\nsource: asset:a.mp4\n",
+		"text version":   "version: '1'\nsource: asset:a.mp4\n",
 		"no source":      "version: 1\n",
 		"blank source":   "version: 1\nsource: '  '\n",
 		"unknown fit":    "version: 1\nsource: asset:a.mp4\nfit: zoom\n",

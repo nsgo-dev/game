@@ -63,7 +63,7 @@ if bossDoorOpened {
 - `Options.Mixer` 被挂起（`Mixer.Suspend`，见 [sound](sound.md)）：音效停止，音乐暂停，之后从暂停处继续。
 - 屏幕保持常亮；应用进入后台时视频暂停，回到前台后继续播放。
 
-`done` 收到一个 `Result`：结束原因 `Reason`（`Finished`、`Skipped`、`Stopped` 或 `Failed`），平台最后一次报告的播放位置 `Position`，以及 `Failed` 时放在 `Err` 中的平台 `*core.MediaError`。`done` 运行时循环和混音器都已恢复，因此可以在其中切换场景或播放下一段过场动画。对于缺少 source、fit 未知或 `skipAfter` 为负的过场动画，`Play` 返回错误且不播放任何东西；在一段过场动画播放时再播放另一段，会先停止前一段，并以 `Stopped` 通知它的 `done`。`Stop` 结束正在播放的那段，无论能否跳过。销毁 player 所在的作用域会停止过场动画但不调用 `done`，循环和混音器依然会恢复。
+`done` 收到一个 `Result`：结束原因 `Reason`（`Finished`、`Skipped`、`Stopped` 或 `Failed`），平台最后一次报告的播放位置 `Position`，以及 `Failed` 时放在 `Err` 中的平台 `*core.MediaError`。`done` 运行时循环和混音器都已恢复，因此可以在其中切换场景或播放下一段过场动画。对于缺少 source、fit 未知或 `skipAfter` 为负的过场动画，`Play` 返回错误且不播放任何东西；在一段过场动画播放时再播放另一段，会先停止前一段，并以 `Stopped` 通知它的 `done`。如果那个 `done` 自己又播放了一段过场动画，就改为播放那一段，`Play` 返回 `cutscene.ErrReplaced`，不播放任何东西，也不会调用传给它的 `done`。`Stop` 结束正在播放的那段，无论能否跳过。销毁 player 所在的作用域会停止过场动画但不调用 `done`，循环和混音器依然会恢复。
 
 ## 场景之间
 
@@ -79,7 +79,7 @@ if err != nil {
 scenes.Switch(intro, nil)
 ```
 
-如果过场动画结束前通过其他方式离开了这个场景，过场动画会停止，但不调用 `done`。
+如果过场动画结束前通过其他方式离开了这个场景，过场动画会停止，但不调用 `done`。带过渡效果从一个过场动画场景切换到同一 player 的另一个过场动画场景时也是如此，尽管新场景会在旧场景退出之前进入。
 
 ## 跳过
 
@@ -98,7 +98,7 @@ core.Show{When: player.CanSkip, Then: func(*core.Scope) core.Node {
 }}
 ```
 
-当平台自行暂停视频时（例如来电或拔出耳机），点按或跳过键会让视频继续播放，而不是跳过它。
+当平台自行暂停视频时（例如来电或拔出耳机），点按或跳过键会让视频继续播放，而不是跳过它。在此之前视频保持暂停，窗口失去或重新获得焦点时也一样；只有从后台返回时才会自动继续播放。
 
 ## 音频路由
 

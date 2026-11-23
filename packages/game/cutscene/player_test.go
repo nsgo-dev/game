@@ -367,6 +367,56 @@ func TestDoneMayChainCutscenes(t *testing.T) {
 	r.expectRunning(t, true)
 }
 
+func TestDoneMayChainFromAStoppedCutscene(t *testing.T) {
+	r := start(t, cutscene.Options{})
+	second, third := "asset:cutscenes/second.mp4", "asset:cutscenes/third.mp4"
+	if err := r.player.Play(cutscene.Cutscene{Source: introURI}, func(res cutscene.Result) {
+		r.done(res)
+		if err := r.player.Play(cutscene.Cutscene{Source: second}, r.done); err != nil {
+			t.Error(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.app.Settle()
+	// Playing over the first stops it, and its done plays the second in place of the third.
+	if err := r.player.Play(cutscene.Cutscene{Source: third}, r.done); !errors.Is(err, cutscene.ErrReplaced) {
+		t.Fatalf("Play over a chaining cutscene returned %v, want ErrReplaced", err)
+	}
+	r.app.Settle()
+	r.expectResults(t, cutscene.Result{Reason: cutscene.Stopped})
+	if src := r.app.Find(video).Video.Source; src != second {
+		t.Fatalf("video %s, want %s", src, second)
+	}
+	r.expectRunning(t, false)
+	r.app.Progress(video, time.Second, time.Second)
+	r.expectResults(t, cutscene.Result{Reason: cutscene.Stopped}, cutscene.Result{Reason: cutscene.Finished, Position: time.Second})
+	r.expectRunning(t, true)
+}
+
+func TestLosingFocusKeepsAVideoThePlatformPausedPaused(t *testing.T) {
+	r := start(t, cutscene.Options{})
+	r.play(t, cutscene.Cutscene{Source: introURI, Skippable: true})
+	r.app.PauseVideo(video, core.VideoPauseRouteLost)
+	r.app.Settle()
+	r.app.SetEnvironment(core.Environment{Audio: true, Lifecycle: core.LifecycleInactive})
+	r.app.Settle()
+	if !r.app.Find(video).Video.Paused {
+		t.Fatal("the video played on as the window lost focus, after the platform paused it")
+	}
+	r.app.SetEnvironment(foreground)
+	r.app.Settle()
+	if !r.app.Find(video).Video.Paused {
+		t.Fatal("the video played on as the window got focus back, after the platform paused it")
+	}
+	r.app.Press(video)
+	r.app.Settle()
+	if r.app.Find(video).Video.Paused {
+		t.Fatal("a press did not play the paused video on")
+	}
+	r.expectResults(t)
+}
+
 func TestPlayRefusesABadCutscene(t *testing.T) {
 	r := start(t, cutscene.Options{})
 	for _, c := range []cutscene.Cutscene{{}, {Source: introURI, Fit: "zoom"}, {Source: introURI, SkipAfter: -1}} {
@@ -413,6 +463,42 @@ func TestLeavingACutsceneSceneStopsItQuietly(t *testing.T) {
 	r.expectRunning(t, false)
 	r.scenes.Switch(&scene.Controller{}, nil)
 	r.expectResults(t)
+	r.expectRunning(t, true)
+}
+
+func TestCrossfadingBetweenCutsceneScenesStopsTheFirstQuietly(t *testing.T) {
+	r := start(t, cutscene.Options{})
+	var first, second []cutscene.Result
+	a, err := r.player.Scene(cutscene.Cutscene{Source: introURI}, func(res cutscene.Result) { first = append(first, res) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "asset:cutscenes/second.mp4"
+	b, err := r.player.Scene(cutscene.Cutscene{Source: other}, func(res cutscene.Result) { second = append(second, res) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenes.Switch(a, nil)
+	r.app.Settle()
+	r.scenes.Switch(b, scene.Crossfade(500*time.Millisecond))
+	r.app.Settle()
+	r.app.Advance(time.Second)
+	r.app.Settle()
+	if r.scenes.Transitioning() {
+		t.Fatal("the crossfade did not finish")
+	}
+	if len(first) != 0 {
+		t.Fatalf("the first scene's done got %+v, want nothing as its scene was left", first)
+	}
+	if src := r.app.Find(video).Video.Source; src != other {
+		t.Fatalf("video %s, want %s", src, other)
+	}
+	r.expectRunning(t, false)
+	r.app.Progress(video, time.Second, time.Second)
+	r.app.Settle()
+	if len(second) != 1 || second[0].Reason != cutscene.Finished {
+		t.Fatalf("the second scene's done got %+v, want it finished", second)
+	}
 	r.expectRunning(t, true)
 }
 

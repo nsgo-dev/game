@@ -96,6 +96,9 @@ func Parse(data []byte) (Cutscene, error) {
 	if err := dec.Decode(&c); err != nil {
 		return Cutscene{}, fmt.Errorf("cutscene: decode: %w", err)
 	}
+	if err := checkVersionTag(data); err != nil {
+		return Cutscene{}, err
+	}
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
@@ -107,6 +110,24 @@ func Parse(data []byte) (Cutscene, error) {
 		return Cutscene{}, err
 	}
 	return c, nil
+}
+
+// checkVersionTag refuses a version that is not written as an integer, which the decoder would otherwise truncate into one, reading "1.5" as 1. data has decoded into a Cutscene already, so it is one mapping document.
+func checkVersionTag(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("cutscene: decode: %w", err)
+	}
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	m := doc.Content[0]
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if k, v := m.Content[i], m.Content[i+1]; k.Value == "version" && (v.Kind != yaml.ScalarNode || v.ShortTag() != "!!int") {
+			return fmt.Errorf("cutscene: line %d: version is an integer, not %q", v.Line, v.Value)
+		}
+	}
+	return nil
 }
 
 // Encode checks c as Validate does and writes it as a cutscene file, with 2-space indents and its keys in a fixed order.
