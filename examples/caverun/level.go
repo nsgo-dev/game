@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/particles"
@@ -154,6 +155,9 @@ type levelState struct {
 	dustEmitter  particles.Emitter
 	sparkEmitter particles.Emitter
 	popups       []floatingPopup
+
+	// swarm is the 1000-firefly stress swarm, nil while it is off.
+	swarm *fireflySwarm
 
 	// Run metrics.
 	hearts        int
@@ -372,6 +376,7 @@ func (l *levelState) updateDemo(dt time.Duration) {
 	l.dustEmitter.Update(dt)
 	l.sparkEmitter.Update(dt)
 	l.updatePopups(dt)
+	l.updateSwarm(dt)
 
 	wb := l.tm.WorldBounds()
 	minCX := l.cam.Width / 2
@@ -392,6 +397,7 @@ func (l *levelState) updateEffects(dt time.Duration) {
 	l.dustEmitter.Update(dt)
 	l.sparkEmitter.Update(dt)
 	l.updatePopups(dt)
+	l.updateSwarm(dt)
 }
 
 // update advances one fixed 60 Hz gameplay step.
@@ -579,6 +585,7 @@ func (l *levelState) update(dt time.Duration, in stepInput) {
 	l.dustEmitter.Update(dt)
 	l.sparkEmitter.Update(dt)
 	l.updatePopups(dt)
+	l.updateSwarm(dt)
 
 	// Smooth camera follow with slight horizontal look-ahead, clamped to world bounds.
 	lookAhead := float32(18)
@@ -840,6 +847,11 @@ func (l *levelState) syncSprites(alpha float64, vp screen.Viewport) {
 		l.batch.Sprites = append(l.batch.Sprites, &s.spr)
 	}
 
+	// Stress swarm, laid over the camera's view.
+	if l.swarm != nil {
+		l.batch.Sprites = l.swarm.sync(l.batch.Sprites, t, l.cam.X-l.cam.Width/2, l.cam.Y-l.cam.Height/2, vp)
+	}
+
 	// Explorer hero.
 	pb := l.playerBody.Bounds()
 	px := l.prevPlayerX + (pb.X-l.prevPlayerX)*t
@@ -860,6 +872,38 @@ func (l *levelState) syncSprites(alpha float64, vp screen.Viewport) {
 		l.heroSpr.Alpha = 1
 	}
 	l.batch.Sprites = append(l.batch.Sprites, &l.heroSpr)
+}
+
+// setSwarm turns the 1000-firefly stress swarm on or off. A swarm turned on again starts afresh from the same seed.
+func (l *levelState) setSwarm(on bool) {
+	switch {
+	case on && l.swarm == nil:
+		l.swarm = newFireflySwarm(l.assets.atlas, l.cam.Width, l.cam.Height)
+		// Grow the batch once, so syncSprites appends the swarm without reallocating.
+		l.batch.Sprites = slices.Grow(l.batch.Sprites[:0], l.spriteCount())
+	case !on:
+		l.swarm = nil
+	}
+}
+
+func (l *levelState) updateSwarm(dt time.Duration) {
+	if l.swarm != nil {
+		l.swarm.update(dt)
+	}
+}
+
+// spriteCount returns how many sprites the level's batch draws this frame: the portal, the gems not yet collected, the slimes, the swarm and the explorer.
+func (l *levelState) spriteCount() int {
+	n := 2 + len(l.slimes)
+	for i := range l.gems {
+		if !l.gems[i].collected {
+			n++
+		}
+	}
+	if l.swarm != nil {
+		n += len(l.swarm.flies)
+	}
+	return n
 }
 
 func (l *levelState) draw(d *core.Drawing, alpha float64, vp screen.Viewport) {

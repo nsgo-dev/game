@@ -11,6 +11,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/text"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 )
 
 type gamePhase uint8
@@ -26,10 +27,23 @@ const (
 	soundGroupSFX   = "sfx"
 	soundGroupMusic = "music"
 
-	keyMoveHoldDuration = 180 * time.Millisecond
-	keyJumpHoldDuration = 260 * time.Millisecond
-	sceneFadeDuration   = 200 * time.Millisecond
+	sceneFadeDuration = 200 * time.Millisecond
 )
+
+// Action names bound by bindControls. left, right and jump drive the explorer; the rest drive the menus.
+const (
+	actionLeft    = "left"
+	actionRight   = "right"
+	actionJump    = "jump"
+	actionMove    = "move"
+	actionConfirm = "confirm"
+	actionPause   = "pause"
+	actionRestart = "restart"
+	actionSwarm   = "swarm"
+)
+
+// stickDeadZone is the left stick deflection below which the explorer stands still.
+const stickDeadZone = 0.3
 
 // Virtual-space input regions (in 320x180 virtual canvas coordinates).
 var (
@@ -60,15 +74,11 @@ type caveRun struct {
 	fxWin       *sound.Effect
 	savedMaster float32
 
-	// Native touch-button & keyboard input state merged with input.Actions each fixed step.
+	// Native HUD touch-button state merged with input.Actions each fixed step; the HUD buttons are native views, not Actions inputs.
 	padLeft          bool
 	padRight         bool
 	padJump          bool
 	padJumpLatched   bool
-	keyLeftTimer     time.Duration
-	keyRightTimer    time.Duration
-	keyJumpTimer     time.Duration
-	keyJumpLatched   bool
 	prevCombinedJump bool
 
 	// Interpolation alpha for the current draw frame.
@@ -82,6 +92,9 @@ type caveRun struct {
 	totalGems *core.Signal[int]
 	score     *core.Signal[int]
 	frameTick *core.Signal[int]
+	// swarm is whether the 1000-firefly stress swarm is on; it stays on across restarts. sprites is how many sprites the level draws.
+	swarm   *core.Signal[bool]
+	sprites *core.Signal[int]
 }
 
 func newCaveRun(cx *core.Scope) (*caveRun, error) {
@@ -113,6 +126,8 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 		totalGems:   core.NewSignal(cx, 0),
 		score:       core.NewSignal(cx, 0),
 		frameTick:   core.NewSignal(cx, 0),
+		swarm:       core.NewSignal(cx, false),
+		sprites:     core.NewSignal(cx, 0),
 	}
 
 	g.music = g.mixer.Music(soundGroupMusic)
@@ -123,42 +138,16 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 	g.actions.MapPoint = func(p core.Point) (core.Point, bool) {
 		return g.viewport.ViewToGame(g.currentViewSize(), p)
 	}
-	g.actions.Bind("left",
-		input.TouchRegion(touchRegionLeft),
-		input.MouseRegion(touchRegionLeft, core.MouseButtonLeft),
-	)
-	g.actions.Bind("right",
-		input.TouchRegion(touchRegionRight),
-		input.MouseRegion(touchRegionRight, core.MouseButtonLeft),
-	)
-	g.actions.Bind("jump",
-		input.TouchRegion(touchRegionJump),
-		input.MouseRegion(touchRegionJump, core.MouseButtonLeft),
-	)
-	g.actions.BindAxis("move", "left", "right")
+	bindControls(g.actions)
+	// Keys count wherever the keyboard focus is, such as on a HUD button, and every connected controller drives the explorer.
+	g.actions.WatchKeys(cx)
+	g.actions.WatchGamepads(cx)
 
 	// Build initial level for title backdrop.
 	if err := g.resetLevel(); err != nil {
 		return nil, err
 	}
 	g.scenes.Switch(g.titleController(), nil)
-
-	// Global keyboard shortcuts so Escape/P/R work even when focus is on a HUD button.
-	cx.OnKey("escape", func() {
-		if g.phase.Get() == phasePlaying {
-			g.togglePause()
-		}
-	})
-	cx.OnKey("p", func() {
-		if g.phase.Get() == phasePlaying {
-			g.togglePause()
-		}
-	})
-	cx.OnKey("r", func() {
-		if g.phase.Get() != phaseTitle {
-			g.restartGame()
-		}
-	})
 
 	// Fixed-step 60 Hz game loop driving updates and triggering Canvas redraws.
 	g.loop = game.Loop{
@@ -236,6 +225,7 @@ func (g *caveRun) resetLevel() error {
 	if err != nil {
 		return err
 	}
+	lvl.setSwarm(g.swarm.GetUntracked())
 	g.level = lvl
 	g.syncHUD()
 	return nil
@@ -249,6 +239,17 @@ func (g *caveRun) syncHUD() {
 	g.gems.Set(g.level.gemsCollected)
 	g.totalGems.Set(len(g.level.gems))
 	g.score.Set(g.level.score)
+	g.sprites.Set(g.level.spriteCount())
+}
+
+// toggleSwarm turns the 1000-firefly stress swarm on or off.
+func (g *caveRun) toggleSwarm() {
+	on := !g.swarm.GetUntracked()
+	g.swarm.Set(on)
+	if g.level != nil {
+		g.level.setSwarm(on)
+	}
+	g.syncHUD()
 }
 
 func (g *caveRun) clearHeldInputs() {
@@ -257,10 +258,6 @@ func (g *caveRun) clearHeldInputs() {
 	g.padRight = false
 	g.padJump = false
 	g.padJumpLatched = false
-	g.keyLeftTimer = 0
-	g.keyRightTimer = 0
-	g.keyJumpTimer = 0
-	g.keyJumpLatched = false
 	g.prevCombinedJump = false
 }
 
@@ -333,100 +330,75 @@ func (g *caveRun) toggleMute() {
 	}
 }
 
-func (g *caveRun) handleKeyDown(ev core.KeyEvent) bool {
-	switch ev.Key {
-	case "escape", "p":
-		if g.phase.Get() == phasePlaying {
-			g.togglePause()
-			return true
-		}
-	case "r":
-		if g.phase.Get() != phaseTitle {
-			g.restartGame()
-			return true
-		}
-	case "enter":
-		switch g.phase.Get() {
-		case phaseTitle:
-			g.startGame()
-			return true
-		case phaseVictory, phaseGameOver:
-			g.restartGame()
-			return true
-		}
-	case "left", "a":
-		if g.phase.Get() == phasePlaying && !g.paused.Get() {
-			g.keyLeftTimer = keyMoveHoldDuration
-			g.keyRightTimer = 0
-			return true
-		}
-	case "right", "d":
-		if g.phase.Get() == phasePlaying && !g.paused.Get() {
-			g.keyRightTimer = keyMoveHoldDuration
-			g.keyLeftTimer = 0
-			return true
-		}
-	case "space", "up", "w", "z":
-		switch g.phase.Get() {
-		case phaseTitle:
-			g.startGame()
-			return true
-		case phasePlaying:
-			if !g.paused.Get() {
-				g.keyJumpTimer = keyJumpHoldDuration
-				if !ev.Repeat {
-					g.keyJumpLatched = true
-				}
-				return true
-			}
-		}
-	}
-	return false
+// bindControls binds Cave Run's actions to the keyboard, game controllers, touch and the mouse. Touch and mouse regions are in the 320x180 virtual canvas, which Actions.MapPoint maps view points into.
+func bindControls(a *input.Actions) {
+	a.Bind(actionLeft,
+		input.Key("a"), input.Key("left"),
+		input.GamepadButton(gamepad.ButtonDPadLeft),
+		input.TouchRegion(touchRegionLeft),
+		input.MouseRegion(touchRegionLeft, core.MouseButtonLeft),
+	)
+	a.Bind(actionRight,
+		input.Key("d"), input.Key("right"),
+		input.GamepadButton(gamepad.ButtonDPadRight),
+		input.TouchRegion(touchRegionRight),
+		input.MouseRegion(touchRegionRight, core.MouseButtonLeft),
+	)
+	a.Bind(actionJump,
+		input.Key("space"), input.Key("w"), input.Key("up"), input.Key("z"),
+		input.GamepadButton(gamepad.ButtonSouth),
+		input.TouchRegion(touchRegionJump),
+		input.MouseRegion(touchRegionJump, core.MouseButtonLeft),
+	)
+	a.BindAxis(actionMove, actionLeft, actionRight)
+	a.BindGamepadAxis(actionMove, gamepad.AxisLeftX, input.GamepadAxisOptions{DeadZone: stickDeadZone, Axial: true})
+
+	a.Bind(actionConfirm, input.Key("enter"), input.GamepadButton(gamepad.ButtonStart))
+	a.Bind(actionPause, input.Key("escape"), input.Key("p"), input.GamepadButton(gamepad.ButtonStart))
+	a.Bind(actionRestart, input.Key("r"), input.GamepadButton(gamepad.ButtonBack))
+	a.Bind(actionSwarm, input.Key("f"), input.GamepadButton(gamepad.ButtonNorth))
 }
 
-func (g *caveRun) sampleInput(dt time.Duration) stepInput {
-	g.actions.Step()
+// handleMenuActions acts on the step's menu actions: start from the title, pause, restart, toggle the firefly swarm, and play again from an end screen.
+func (g *caveRun) handleMenuActions() {
+	a := g.actions
+	switch g.phase.Get() {
+	case phaseTitle:
+		if a.JustPressed(actionConfirm) || a.JustPressed(actionJump) {
+			g.startGame()
+		}
+	case phasePlaying:
+		switch {
+		case a.JustPressed(actionRestart):
+			g.restartGame()
+		case a.JustPressed(actionPause):
+			g.togglePause()
+		case a.JustPressed(actionSwarm):
+			g.toggleSwarm()
+		}
+	case phaseVictory, phaseGameOver:
+		if a.JustPressed(actionConfirm) || a.JustPressed(actionRestart) {
+			g.restartGame()
+		}
+	}
+}
 
-	// Decay keyboard hold timers.
-	if g.keyLeftTimer > 0 {
-		g.keyLeftTimer -= dt
-		if g.keyLeftTimer < 0 {
-			g.keyLeftTimer = 0
-		}
-	}
-	if g.keyRightTimer > 0 {
-		g.keyRightTimer -= dt
-		if g.keyRightTimer < 0 {
-			g.keyRightTimer = 0
-		}
-	}
-	if g.keyJumpTimer > 0 {
-		g.keyJumpTimer -= dt
-		if g.keyJumpTimer < 0 {
-			g.keyJumpTimer = 0
-		}
-	}
-
-	// Merge touch/mouse Actions, HUD virtual pad, and keyboard holds.
-	var move float32
-	axis := float32(g.actions.Axis("move"))
-	if axis != 0 {
-		move = axis
-	}
-	leftHeld := g.padLeft || g.keyLeftTimer > 0
-	rightHeld := g.padRight || g.keyRightTimer > 0
-	if leftHeld && !rightHeld {
+// sampleInput merges the step's actions with the native HUD touch buttons into the explorer's input.
+func (g *caveRun) sampleInput() stepInput {
+	a := g.actions
+	move := float32(a.Axis(actionMove))
+	// A HUD button held alone overrides the analog axis, as a held key does.
+	if g.padLeft && !g.padRight {
 		move = -1
-	} else if rightHeld && !leftHeld {
+	} else if g.padRight && !g.padLeft {
 		move = 1
 	}
 
-	jumpHeld := g.actions.Pressed("jump") || g.padJump || g.keyJumpTimer > 0
-	jumpPressed := g.actions.JustPressed("jump") || g.padJumpLatched || g.keyJumpLatched || (jumpHeld && !g.prevCombinedJump)
-	jumpReleased := (!jumpHeld && g.prevCombinedJump) || g.actions.JustReleased("jump")
+	jumpHeld := a.Pressed(actionJump) || g.padJump
+	jumpPressed := a.JustPressed(actionJump) || g.padJumpLatched || (jumpHeld && !g.prevCombinedJump)
+	jumpReleased := !jumpHeld && g.prevCombinedJump
 
 	g.padJumpLatched = false
-	g.keyJumpLatched = false
 	g.prevCombinedJump = jumpHeld
 
 	return stepInput{
@@ -437,7 +409,10 @@ func (g *caveRun) sampleInput(dt time.Duration) stepInput {
 	}
 }
 
+// update runs one fixed step: it samples input once, acts on the menu actions, and advances the current scene.
 func (g *caveRun) update(dt time.Duration) {
+	g.actions.Step()
+	g.handleMenuActions()
 	g.scenes.Update(dt)
 }
 
@@ -484,8 +459,7 @@ func (g *caveRun) playingController() *scene.Controller {
 			if g.paused.Get() || g.level == nil {
 				return
 			}
-			in := g.sampleInput(dt)
-			g.level.update(dt, in)
+			g.level.update(dt, g.sampleInput())
 		},
 		Draw: func(d *core.Drawing, alpha float64) {
 			if g.level != nil {

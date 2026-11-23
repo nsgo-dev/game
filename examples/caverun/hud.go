@@ -19,7 +19,6 @@ func (g *caveRun) render(cx *core.Scope) core.Node {
 			Background: core.RGB(0x0b0d17),
 		},
 		Focusable: func() bool { return true },
-		OnKeyDown: g.handleKeyDown,
 		OnLayout: func(b core.Bounds) {
 			g.viewSize = b.Size
 		},
@@ -164,7 +163,7 @@ func (g *caveRun) renderTopBar(cx *core.Scope) core.Node {
 					},
 				},
 			},
-			// Center score pill.
+			// Center score pill, with the sprite count while the stress swarm is on.
 			core.View{
 				Style: pillStyle,
 				Children: []core.Node{
@@ -174,6 +173,18 @@ func (g *caveRun) renderTopBar(cx *core.Scope) core.Node {
 							return fmt.Sprintf("SCORE %d", g.score.Get())
 						},
 						Style: hudText.Merge(core.Style{Color: core.RGB(0xfde047)}),
+					},
+					core.Show{
+						When: g.swarm.Get,
+						Then: func(cx *core.Scope) core.Node {
+							return core.Text{
+								TestID: "hud-sprites",
+								ContentFunc: func() string {
+									return fmt.Sprintf("SPRITES %d", g.sprites.Get())
+								},
+								Style: hudText.Merge(core.Style{Color: core.RGB(0xa5f3fc)}),
+							}
+						},
 					},
 				},
 			},
@@ -330,7 +341,7 @@ func (g *caveRun) renderTitleOverlay(cx *core.Scope) core.Node {
 								OnPress:   g.startGame,
 							},
 							core.Text{
-								Content: "Keys: A/D or Arrows to move • Space/W to jump • Esc/P to pause",
+								Content: "A/D or ←/→ move • Space jump • Esc pause • F fireflies\nGamepad: stick or D-pad • A jump • Start pause",
 								Style: core.Style{
 									Color:     core.RGB(0x94a3b8),
 									FontSize:  11,
@@ -404,6 +415,18 @@ func (g *caveRun) renderPauseOverlay(cx *core.Scope) core.Node {
 								TestID:  "restart-btn",
 								Style:   core.Style{Width: core.Pct(100)},
 								OnPress: g.restartGame,
+							},
+							ui.Button{
+								TextFunc: func() string {
+									if g.swarm.Get() {
+										return "Fireflies: 1000"
+									}
+									return "Fireflies: Off"
+								},
+								Variant: ui.ButtonOutline,
+								TestID:  "swarm-btn",
+								Style:   core.Style{Width: core.Pct(100)},
+								OnPress: g.toggleSwarm,
 							},
 							core.Show{
 								When: g.isMuted,
