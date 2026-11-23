@@ -35,6 +35,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | 固定步长 `Tween`、`Timeline` 与相机运镜补间 |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为与行为树 |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
+| `statedump` | `github.com/nsgo-dev/game/packages/game/statedump` | [statedump](statedump.md) | 无窗口运行并转储为确定性 YAML（实体、组件、场景栈、全局值），以及两次运行之间的行 `Diff` |
 | `cutscene` | `github.com/nsgo-dev/game/packages/game/cutscene` | [cutscene](cutscene.md) | 覆盖在游戏视图上、可跳过的视频过场动画，可放在场景中或场景之间，以 YAML 文件描述 |
 | `rhythm` | `github.com/nsgo-dev/game/packages/game/rhythm` | [rhythm](rhythm.md) | 支持速度与拍号变化的 YAML 节拍图、基于音频时钟的音乐时钟，以及按设备的音频/画面延迟校准 |
 | `math2d` | `github.com/nsgo-dev/game/packages/game/math2d` | [math2d](math2d.md) | 共享 2D `Vec2`、`Rect`、`Circle` 与 `Affine` 值类型及无损 `core` 互转 |

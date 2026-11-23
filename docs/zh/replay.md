@@ -117,3 +117,5 @@ func TestLevel1ClearReplay(t *testing.T) {
 ```
 
 `Run` 会以 `rec.StepDuration()` 精确执行 `rec.TotalSteps` 次步进并返回最终状态；`AssertEndState` 用自定义的 `equal`（为 `nil` 时使用 `reflect.DeepEqual`）比对 `want`，不一致时输出清晰诊断信息并令测试失败。
+
+若要检查完整状态而不是手选的结构体，可用 [`statedump.Run`](statedump.md) 把状态转储为文本，再与黄金文件比较。

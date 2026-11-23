@@ -35,6 +35,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `tween` | `github.com/nsgo-dev/game/packages/game/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors and behavior trees |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |
+| `statedump` | `github.com/nsgo-dev/game/packages/game/statedump` | [statedump](statedump.md) | Headless runs dumped as deterministic YAML (entities, components, scene stack, values) and a line `Diff` between runs |
 | `cutscene` | `github.com/nsgo-dev/game/packages/game/cutscene` | [cutscene](cutscene.md) | Skippable video cutscenes over the game's view, in a scene or between scenes, from YAML files |
 | `rhythm` | `github.com/nsgo-dev/game/packages/game/rhythm` | [rhythm](rhythm.md) | YAML beat maps with tempo and meter changes, a music clock on the audio clock, and per-device audio/video latency calibration |
 | `math2d` | `github.com/nsgo-dev/game/packages/game/math2d` | [math2d](math2d.md) | Shared 2D `Vec2`, `Rect`, `Circle` and `Affine` types with lossless `core` conversions |
