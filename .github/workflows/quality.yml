@@ -177,3 +177,6 @@ jobs:
       - name: Fuzz bullet pattern Parse
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./bullets
+      - name: Fuzz ParseBoardDoc
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzParseBoardDoc$ -fuzztime=10s ./cards

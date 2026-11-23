@@ -1,0 +1,6 @@
+// Package cards drags cards between the slots of a board in the game view and lays them out as fanned hands, decks, piles and grids, animating every move with game/tween on game.Loop's fixed steps.
+//
+// A Board holds Slots in the order they were added; each Slot owns an ordered list of Cards and arranges them with its Layout (Fan, Stack or Grid, or your own). Pointers drive drags: a card picked up under a mouse button or a finger follows it past a small slop, and on release it snaps into the slot under it when that slot accepts it (its tags, capacity, Accept predicates and the board's Accept), or tweens back to where it came from when it does not. NSGo reports the primary mouse button as finger 0 of core.TouchEvent on the desktops and every pointer as a finger on the web, so Board.OnTouch (or Board.Attach on the view holding the game's Canvas) handles mouse and touch alike, and several fingers drag several cards at once.
+//
+// Boards can be written as versioned YAML (BoardDoc) with ParseBoardDoc and EncodeBoardDoc and built with LoadBoard. Nothing in the package reads the wall clock, starts goroutines or keeps package-level state: animations advance only in Board.Update, so a board replays identically under nsgotest.
+package cards
