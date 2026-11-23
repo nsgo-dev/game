@@ -1,6 +1,6 @@
 name: Changelog
 
-# Ensures pull requests that touch user-visible paths add an entry under "## Unreleased" in CHANGELOG.md, unless labeled skip-changelog.
+# Ensures pull requests that touch user-visible paths add a fragment under changelog.d (changelog.d/README.md), unless labeled skip-changelog, that no pull request but a release adds lines to CHANGELOG.md's Unreleased section, and that every fragment is valid.
 on:
   pull_request:
     types:
@@ -19,24 +19,26 @@ permissions:
 
 jobs:
   changelog:
-    name: Check CHANGELOG.md
+    name: Check changelog fragments
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Skip when labeled skip-changelog
-        if: contains(github.event.pull_request.labels.*.name, 'skip-changelog')
-        run: |
-          echo "Skipping changelog check: pull request carries the skip-changelog label."
       - name: Check out
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify changelog entry
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: tools/changelog/go.mod
+          cache: false
+      - name: Validate fragments
+        run: go run ./tools/changelog check
+      - name: Require a fragment
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
         run: |
           set -euo pipefail
 
@@ -46,6 +48,35 @@ jobs:
             base=$(git rev-parse HEAD^1)
           else
             base="$BASE_SHA"
+          fi
+
+          # A release folds the fragments into CHANGELOG.md and deletes them, so only a pull request that deletes fragments may add lines to Unreleased.
+          deleted=$(git diff --name-only --diff-filter=D "$base" HEAD -- 'changelog.d/*.md' ':!changelog.d/README.md')
+          if [ -z "$deleted" ] && git diff -U999999 "$base" HEAD -- CHANGELOG.md | awk '
+            /^@@ / { in_hunk = 1; next }
+            !in_hunk { next }
+            /^[ +]## / {
+              heading = substr($0, 5)
+              sub(/^[[:space:]]+/, "", heading)
+              sub(/[[:space:]]+$/, "", heading)
+              in_unreleased = (heading == "Unreleased")
+              next
+            }
+            in_unreleased && /^\+/ {
+              line = substr($0, 2)
+              if (line ~ /^[[:space:]]*$/) next
+              if (line ~ /^#{1,6}[[:space:]]/) next
+              found = 1
+            }
+            END { exit (found ? 0 : 1) }
+          '; then
+            echo "Error: this pull request adds lines under '## Unreleased' in CHANGELOG.md. Put them in a fragment under changelog.d/ instead (changelog.d/README.md)." >&2
+            exit 1
+          fi
+
+          if [ "$SKIP" = "true" ]; then
+            echo "Skipping the fragment requirement: pull request carries the skip-changelog label."
+            exit 0
           fi
 
           user_visible=()
@@ -58,41 +89,20 @@ jobs:
           done < <(git diff --name-only "$base" HEAD)
 
           if [ "${#user_visible[@]}" -eq 0 ]; then
-            echo "No user-visible paths changed (packages/, examples/, template/); changelog entry not required."
+            echo "No user-visible paths changed (packages/, examples/, template/); a fragment is not required."
             exit 0
           fi
 
-          if [ ! -f CHANGELOG.md ]; then
-            echo "Error: CHANGELOG.md is missing." >&2
-            exit 1
-          fi
-
-          if git diff -U999999 "$base" HEAD -- CHANGELOG.md | awk '
-            /^@@ / { in_hunk = 1; next }
-            !in_hunk { next }
-            /^[ +]## / {
-              heading = substr($0, 5)
-              sub(/^[[:space:]]+/, "", heading)
-              sub(/[[:space:]]+$/, "", heading)
-              in_unreleased = (heading == "Unreleased" || heading == "[Unreleased]")
-              next
-            }
-            in_unreleased && /^\+/ {
-              line = substr($0, 2)
-              if (line ~ /^[[:space:]]*$/) next
-              if (line ~ /^#{1,6}[[:space:]]/) next
-              found = 1
-            }
-            END { exit (found ? 0 : 1) }
-          '; then
-            echo "Found changelog entry under ## Unreleased."
+          fragments=$(git diff --name-only --diff-filter=AM "$base" HEAD -- 'changelog.d/*.md' ':!changelog.d/README.md')
+          if [ -n "$fragments" ]; then
+            printf 'Found changelog fragments:\n%s\n' "$fragments"
             exit 0
           fi
 
-          echo "Error: this pull request modifies user-visible paths without adding an entry under '## Unreleased' in CHANGELOG.md." >&2
+          echo "Error: this pull request modifies user-visible paths without adding a fragment under changelog.d/." >&2
           echo "" >&2
           echo "Changed user-visible files:" >&2
           printf '  - %s\n' "${user_visible[@]}" >&2
           echo "" >&2
-          echo "Add a short bullet under '## Unreleased' in CHANGELOG.md, or apply the 'skip-changelog' label if this change is internal." >&2
+          echo "Add a fragment as changelog.d/README.md describes, or apply the 'skip-changelog' label if this change is internal." >&2
           exit 1
