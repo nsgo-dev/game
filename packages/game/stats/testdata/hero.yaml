@@ -1,0 +1,33 @@
+version: 1
+stats:
+  - name: health
+    base: 100
+    min: 0
+  - name: attack
+    base: 12
+  - name: speed
+    base: 5
+    min: 0
+    max: 20
+effects:
+  - name: iron-sword
+    modifiers:
+      - stat: attack
+        op: add
+        value: 8
+  - name: berserk
+    steps: 300
+    modifiers:
+      - stat: attack
+        op: mul
+        value: 1.5
+      - stat: speed
+        op: add
+        value: 2
+  - name: frozen
+    steps: 90
+    modifiers:
+      - stat: speed
+        op: override
+        value: 0
+        priority: 10
