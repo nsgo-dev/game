@@ -2372,3 +2372,223 @@ html[data-theme='dark'] .shiki span {
     grid-template-columns: 1fr;
   }
 }
+
+/* Playground: the examples to choose from, then a game's stage beside its source, and how to run it locally. */
+
+.playground {
+  padding-bottom: 72px;
+}
+
+.playground-grid {
+  margin-bottom: 8px;
+}
+
+.playground__examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 28px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.playground__examples a {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.playground__examples a:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.playground__examples a[aria-current='page'] {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+.playground__examples .playground__home {
+  border-color: transparent;
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+.playground__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.playground__stage {
+  display: flex;
+  flex-direction: column;
+}
+
+/* At least 16:10, and as tall as the source beside it. */
+.playground__screen {
+  position: relative;
+  flex: 1 0 auto;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #000;
+}
+
+.playground__frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.playground__poster {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--soft);
+  color: var(--muted);
+  font-size: 14.5px;
+  text-align: center;
+}
+
+.playground__size {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.playground__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 12px 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.playground__hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.playground__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.playground__source {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The code fills the pane, as tall as the stage beside it, and scrolls inside it, so a long file never stretches the page. */
+.playground__code {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+}
+
+.playground__code > div {
+  position: absolute;
+  inset: 0;
+}
+
+.playground__code pre {
+  height: 100%;
+}
+
+.playground__loading {
+  padding: 18px 22px;
+  color: var(--editor-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.playground__file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--editor-border);
+  background: var(--editor-bar);
+  color: var(--editor-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.playground__file a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+.playground__file a:hover {
+  text-decoration: underline;
+}
+
+.playground__local {
+  margin-top: 40px;
+}
+
+.playground__local h2 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.playground__local p {
+  max-width: 720px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.playground__commands {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1080px) {
+  .playground__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .playground__bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .playground__actions {
+    justify-content: flex-start;
+  }
+}

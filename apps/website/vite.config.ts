@@ -3,6 +3,7 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { siteContent } from './plugins/content.ts'
+import { PLAYGROUND_BUILDS } from './src/content/playground.ts'
 
 // BASE_PATH is where the site is served from: "/" on its own domain, "/game/" on nsgo-dev.github.io. The router, the assets and the Markdown's links all follow it.
 const base = normalizeBase(process.env.BASE_PATH)
@@ -19,8 +20,8 @@ export default defineConfig({
         enabled: true,
         crawlLinks: true,
         failOnError: true,
-        // The same page under another #fragment is one file.
-        filter: (page) => !page.path.includes('#'),
+        // The same page under another #fragment is one file, and the playground's builds are the examples' own pages, which a page of the site must not replace.
+        filter: (page) => !page.path.includes('#') && !page.path.startsWith(`/${PLAYGROUND_BUILDS}/`),
       },
       // GitHub Pages serves 404.html for any address the site has no page for. It is the SPA shell, which renders whatever route the address matches (the not-found page) in the browser, so it hydrates at every address.
       spa: { enabled: true, maskPath: '/404', prerender: { outputPath: '/404' } },

@@ -69,3 +69,24 @@ export interface RoadmapStage {
 export type Roadmap =
   | { status: 'ok'; fetchedAt: string; stages: RoadmapStage[]; unplanned: RoadmapIssue[] }
   | { status: 'unavailable'; reason: string }
+
+// A file of a playground example, as its source tab lists it.
+export interface PlaygroundFile {
+  // name is the file's path in the example's directory, such as game.go.
+  name: string
+  lines: number
+}
+
+// A playground example's files, highlighted for both themes; each example's is a module of its own, loaded by its page alone.
+export interface PlaygroundSource {
+  files: (PlaygroundFile & { html: string })[]
+}
+
+// What every playground page knows of an example without loading its sources: its files, and whether this build of the site holds its web build.
+export interface PlaygroundExample {
+  id: import('./playground').PlaygroundId
+  files: PlaygroundFile[]
+  built: boolean
+  // wasm is the size in bytes of the build's WebAssembly, 0 without a build.
+  wasm: number
+}
