@@ -104,7 +104,7 @@ func Root(cx *core.Scope) core.Node {
 
 ## 视频设置
 
-`Video` 把玩家设置中的显示部分（`save.DisplaySettings`）应用到窗口和 `game.Loop`：窗口模式或在所选显示器上无边框全屏，限制循环每秒绘制的帧数，并在开启 `AutoDropLowPower` 时，于系统处于低电量模式或严重、危急热压力期间改用更低的上限。它不附带 UI：设置界面编辑 `save.Settings`、保存并再次应用，游戏在启动时应用已保存的设置：
+`Video` 把玩家设置中的显示部分（`save.DisplaySettings`）应用到窗口和 `game.Loop`：窗口模式或在所选显示器上全屏，限制循环每秒绘制的帧数，并在开启 `AutoDropLowPower` 时，于系统处于低电量模式或严重、危急热压力期间改用更低的上限。它不附带 UI：设置界面编辑 `save.Settings`、保存并再次应用，游戏在启动时应用已保存的设置：
 
 ```go
 loop := &game.Loop{Update: update, Draw: draw}
@@ -124,4 +124,4 @@ settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.App
 | `FrameCap` | 每秒最多绘制的帧数（即循环的 `DrawRate`），为 0 时不限制。更新仍按 `Loop.Rate` 进行。 |
 | `AutoDropLowPower` | 在 `cx.Env().LowPowerMode()` 开启或 `ThermalState()` 为严重、危急期间，把上限降到 `Video.LowPowerCap`（为 0 时取 30），更低的 `FrameCap` 保持不变；条件解除后恢复原上限。 |
 
-只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；`screen.DisplayID` 与 `screen.Constrained` 向设置界面提供显示器选择与功耗判定规则。全屏在 macOS、Windows 和 Linux 上生效，没有桌面窗口的平台会忽略它；帧率上限在所有平台生效。
+只有设置改变了全屏或显示器，或者首次 `Apply` 时设置与窗口当前状态不同，`Video` 才会请求窗口切换，因此应用其他设置不会撤销玩家通过系统自带控件退出全屏的操作。在 `Run` 之前应用的设置会在 `Run` 启动时生效；释放调用 `Run` 的所有者与调用它返回的 `stop` 效果相同，都会恢复帧率上限并停止发送窗口请求。`Video.FrameCap()` 返回当前生效的上限，`Video.Dropped()` 报告上限是否已被降低；在 `Run` 生效期间于组件或副作用中读取时，二者会随功耗状态变化而更新，设置的变化则通过设置界面自己调用的 `Apply` 传入；`screen.DisplayID` 与 `screen.Constrained` 向设置界面提供显示器选择与功耗判定规则。全屏在 macOS（以独立空间的原生全屏）、Windows 和 Linux 上生效。在 Web 上它会请求浏览器全屏，而浏览器只在用户手势（例如更改该设置的那次点击）期间允许全屏，因此启动时应用的已保存全屏设置在 Web 上仍保持窗口模式。Android 和 iOS 会忽略它。帧率上限在所有平台生效。

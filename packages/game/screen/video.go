@@ -9,7 +9,7 @@ import (
 // DefaultLowPowerCap is the frame cap Video drops to while the system is constrained, when Video.LowPowerCap is 0.
 const DefaultLowPowerCap = 30
 
-// setFullScreen sends the window's full-screen request; tests replace it because nsgotest records neither the request's action nor its display ID.
+// setFullScreen sends the window's full-screen request. Tests replace it because nsgotest's window request log has no entry for driver.WindowSetFullScreen and keeps no display ID, so the real request cannot be observed there; remove this seam once nsgotest records both.
 var setFullScreen = func(cx *core.Scope, on bool, displayID string) {
 	if displayID == "" {
 		cx.SetFullScreen(on)
@@ -18,7 +18,7 @@ var setFullScreen = func(cx *core.Scope, on bool, displayID string) {
 	cx.SetFullScreen(on, displayID)
 }
 
-// Video applies a player's video settings (save.DisplaySettings) to a scope's window and a Loop: windowed or borderless full screen on the chosen display, a cap on how many frames Loop draws a second, and, with AutoDropLowPower, a lower cap while the system is in low-power mode or under serious thermal pressure. It ships no UI: a settings screen edits save.Settings, saves it, and applies it, and the game applies the saved settings at start with save.DefaultSettingsStore.LoadAndApply and Video.Apply as save.SettingsTargets.ApplyDisplay.
+// Video applies a player's video settings (save.DisplaySettings) to a scope's window and a Loop: windowed or full screen on the chosen display, a cap on how many frames Loop draws a second, and, with AutoDropLowPower, a lower cap while the system is in low-power mode or under serious thermal pressure. It ships no UI: a settings screen edits save.Settings, saves it, and applies it, and the game applies the saved settings at start with save.DefaultSettingsStore.LoadAndApply and Video.Apply as save.SettingsTargets.ApplyDisplay.
 //
 // Video asks the window to change full screen or display only when the settings change them, or on the first Apply when they differ from the window, so applying other settings does not undo a player leaving full screen with the system's own controls.
 type Video struct {
@@ -34,31 +34,42 @@ type Video struct {
 	set, sent   bool
 	lastFull    bool
 	lastDisplay string
-	constrained bool
+	// constrained holds whether the system is constrained while Run is active; a signal so that Dropped and FrameCap subscribe the computations reading them. Nil before the first Run.
+	constrained *core.Signal[bool]
 }
 
-// Run starts applying v's settings on cx's window and watching the system's power state, until cx is disposed or stop is called. Settings applied before Run take effect when it starts.
+// Run starts applying v's settings on cx's window and watching the system's power state, until the current owner is disposed or stop is called; either one releases the lowered cap and stops sending window requests. Settings applied before Run take effect when it starts. Calling Run again stops the earlier run first.
 func (v *Video) Run(cx *core.Scope) (stop func()) {
 	if v.stop != nil {
 		v.stop()
 	}
 	v.cx = cx
+	if v.constrained == nil {
+		v.constrained = core.NewSignal(cx, false)
+	}
 	if v.set {
 		v.applyWindow()
 	}
 	v.updateCap()
 	stopEffect := cx.Effect(func() {
 		env := cx.Env()
-		v.constrained = Constrained(env.LowPowerMode(), env.ThermalState())
+		v.constrained.Set(Constrained(env.LowPowerMode(), env.ThermalState()))
 		v.updateCap()
 	})
+	stopped := false
 	v.stop = func() {
+		if stopped {
+			return
+		}
+		stopped = true
 		stopEffect()
 		v.cx = nil
-		v.constrained = false
 		v.stop = nil
+		v.constrained.Set(false)
 		v.updateCap()
 	}
+	// Disposal of the owner releases the run the same way stop does.
+	cx.Cleanup(v.stop)
 	return v.stop
 }
 
@@ -78,13 +89,19 @@ func (v *Video) Apply(s save.DisplaySettings) error {
 // Settings returns the settings last applied.
 func (v *Video) Settings() save.DisplaySettings { return v.settings }
 
-// Dropped reports whether the frame cap is lowered because the system is constrained and AutoDropLowPower is on.
-func (v *Video) Dropped() bool { return v.constrained && v.settings.AutoDropLowPower }
+// Dropped reports whether the frame cap is lowered because the system is constrained and AutoDropLowPower is on. Read inside a computation while Run is active, it subscribes to the system's power state; settings changes arrive through Apply, which the caller makes itself.
+func (v *Video) Dropped() bool {
+	// Read the signal first, so a computation subscribes even while AutoDropLowPower is off.
+	constrained := v.constrained != nil && v.constrained.Get()
+	return constrained && v.settings.AutoDropLowPower
+}
 
-// FrameCap returns the frame cap in effect, 0 for uncapped: the settings' FrameCap, lowered to LowPowerCap while Dropped.
-func (v *Video) FrameCap() int {
+// FrameCap returns the frame cap in effect, 0 for uncapped: the settings' FrameCap, lowered to LowPowerCap while Dropped. It subscribes as Dropped does.
+func (v *Video) FrameCap() int { return v.frameCap(v.Dropped()) }
+
+func (v *Video) frameCap(dropped bool) int {
 	limit := v.settings.FrameCap
-	if v.Dropped() {
+	if dropped {
 		drop := v.LowPowerCap
 		if drop <= 0 {
 			drop = DefaultLowPowerCap
@@ -142,8 +159,11 @@ func (v *Video) applyWindow() {
 	v.lastFull, v.lastDisplay, v.sent = full, display, true
 }
 
+// updateCap sets Loop's DrawRate without subscribing the running computation, which may be Run's own effect writing the signal it would read.
 func (v *Video) updateCap() {
-	if v.Loop != nil {
-		v.Loop.DrawRate = v.FrameCap()
+	if v.Loop == nil {
+		return
 	}
+	dropped := v.settings.AutoDropLowPower && v.constrained != nil && v.constrained.GetUntracked()
+	v.Loop.DrawRate = v.frameCap(dropped)
 }

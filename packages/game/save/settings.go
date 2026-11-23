@@ -70,7 +70,7 @@ func (a *AudioSettings) UnmarshalJSON(data []byte) error {
 
 // DisplaySettings holds player display and presentation preferences.
 type DisplaySettings struct {
-	// Fullscreen puts the window in borderless full screen on the chosen display; false keeps it windowed.
+	// Fullscreen puts the window in full screen on the chosen display, as the platform provides it (on macOS, native full screen in its own Space; on the web, the browser's full screen, granted only during a user gesture); false keeps it windowed.
 	Fullscreen bool `json:"fullscreen"`
 	// DisplayID is the ID, from core.Env.Displays, of the display full screen uses. It names a display the same way across launches and display changes, so a UI that offers displays sets it; when it is empty or the display is not connected, DisplayIndex chooses instead.
 	DisplayID string `json:"display_id,omitempty"`
