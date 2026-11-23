@@ -208,7 +208,7 @@ func cubicFromQuadBezier(p0, p1, p2 Vec3) cubicPoly3D {
 // curveSample stores a precomputed arc-length and Rotation-Minimizing Frame sample.
 type curveSample struct {
 	t   float32
-	s   float32
+	s   float64 // cumulative arc length, float64 so long curves with many samples keep sub-sample precision (#546)
 	pos Vec3
 	tan Vec3
 	up  Vec3
@@ -273,7 +273,7 @@ func (c *splineCore) buildTable() {
 			}
 			table[idx] = curveSample{
 				t:   t,
-				s:   float32(cumLen),
+				s:   cumLen,
 				pos: seg.point(float32(u1)),
 				tan: c.tangentNorm(t),
 			}
@@ -465,15 +465,15 @@ func (c *splineCore) distanceToT(dist float32) float32 {
 	lo, hi := 0, len(c.table)-1
 	for lo+1 < hi {
 		mid := int(uint(lo+hi) >> 1)
-		if c.table[mid].s <= dist {
+		if c.table[mid].s <= float64(dist) {
 			lo = mid
 		} else {
 			hi = mid
 		}
 	}
 
-	s0 := float64(c.table[lo].s)
-	s1 := float64(c.table[lo+1].s)
+	s0 := c.table[lo].s
+	s1 := c.table[lo+1].s
 	ds := s1 - s0
 
 	segIdx := lo / c.samplesPerSeg
@@ -491,9 +491,10 @@ func (c *splineCore) distanceToT(dist float32) float32 {
 	uLo, uHi := u0, u1
 	seg := c.segments[segIdx]
 
-	tol := 1e-6 * float64(c.length)
-	if tol < 1e-9 {
-		tol = 1e-9
+	// The tolerance is relative to this table interval, not the whole curve: a curve-relative tolerance grows past the interval itself once the table has enough samples, and Newton would stop on its first guess (#546).
+	tol := 1e-6 * ds
+	if tol < 1e-12 {
+		tol = 1e-12
 	}
 
 	// Safeguarded Newton-Raphson refinement using 5-point Gauss-Legendre integration.

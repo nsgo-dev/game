@@ -300,7 +300,8 @@ func (r Ray) IntersectSphere(s Sphere) (t float32, hit bool) {
 // intersection point, or false if the ray is parallel to or points away from p.
 func (r Ray) IntersectPlane(p Plane) (t float32, hit bool) {
 	denom := p.Normal.Dot(r.Dir)
-	if absf(denom) < 1e-7 {
+	// Parallel when the angle is negligible, measured relative to the vector lengths, so a short ray direction or a tiny normal still hits (#546).
+	if absf(denom) <= 1e-7*p.Normal.Len()*r.Dir.Len() || denom == 0 {
 		return 0, false
 	}
 	t = -(p.Normal.Dot(r.Origin) + p.D) / denom
@@ -315,12 +316,12 @@ func (r Ray) IntersectPlane(p Plane) (t float32, hit bool) {
 // On a hit, t >= 0 is the ray parameter and (u, v) are barycentric coordinates
 // such that r.At(t) == v0*(1-u-v) + v1*u + v2*v.
 func (r Ray) IntersectTriangle(v0, v1, v2 Vec3) (t, u, v float32, hit bool) {
-	const eps = 1e-7
 	e1 := v1.Sub(v0)
 	e2 := v2.Sub(v0)
 	h := r.Dir.Cross(e2)
 	det := e1.Dot(h)
-	if absf(det) < eps {
+	// The parallel test is relative to |e1| |e2| |dir|: an absolute cutoff missed small triangles and rays with short directions (#546).
+	if absf(det) <= 1e-7*e1.Len()*e2.Len()*r.Dir.Len() || det == 0 {
 		return 0, 0, 0, false
 	}
 	invDet := 1 / det

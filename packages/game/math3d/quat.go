@@ -61,35 +61,55 @@ func QuatFromEulerXYZ(x, y, z float32) Quat {
 
 // ToEuler extracts intrinsic YXZ Euler angles (pitch, yaw, roll) in radians
 // such that QuatFromEuler(pitch, yaw, roll) reproduces q (up to sign ±q).
+// Near ±90° pitch it still separates yaw and roll; only an exact gimbal lock folds roll into yaw.
 func (q Quat) ToEuler() (pitch, yaw, roll float32) {
-	m := q.ToMat3()
+	m := q.mat3f64()
 	// M[row, col] = m[col*3 + row]
 	// M12 = -sin(pitch)
-	sinPitch := Clamp(-m[7], -1, 1)
-	pitch = float32(math.Asin(float64(sinPitch)))
-	if absf(sinPitch) < 1-1e-6 {
-		yaw = float32(math.Atan2(float64(m[6]), float64(m[8])))
-		roll = float32(math.Atan2(float64(m[1]), float64(m[4])))
+	sinPitch := math.Max(-1, math.Min(1, -m[7]))
+	pitch = float32(math.Asin(sinPitch))
+	// The matrix is built in float64 from q, so atan2 stays accurate down to a far narrower gimbal band than the old float32 1e-6 cutoff, which zeroed roll within about 1.4e-3 rad of the pole (#546).
+	if math.Hypot(m[6], m[8]) > 1e-12 {
+		yaw = float32(math.Atan2(m[6], m[8]))
+		roll = float32(math.Atan2(m[1], m[4]))
 	} else {
 		roll = 0
-		yaw = float32(math.Atan2(float64(-m[2]), float64(m[0])))
+		yaw = float32(math.Atan2(-m[2], m[0]))
 	}
 	return pitch, yaw, roll
+}
+
+// mat3f64 returns q's rotation matrix in float64, laid out like ToMat3.
+func (q Quat) mat3f64() [9]float64 {
+	x, y, z, w := float64(q.X), float64(q.Y), float64(q.Z), float64(q.W)
+	n := math.Sqrt(x*x + y*y + z*z + w*w)
+	if n == 0 {
+		return [9]float64{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	}
+	x, y, z, w = x/n, y/n, z/n, w/n
+	xx, yy, zz := x*x, y*y, z*z
+	xy, xz, yz := x*y, x*z, y*z
+	wx, wy, wz := w*x, w*y, w*z
+	return [9]float64{
+		1 - 2*(yy+zz), 2 * (xy + wz), 2 * (xz - wy),
+		2 * (xy - wz), 1 - 2*(xx+zz), 2 * (yz + wx),
+		2 * (xz + wy), 2 * (yz - wx), 1 - 2*(xx+yy),
+	}
 }
 
 // ToEulerXYZ extracts intrinsic XYZ Euler angles (x, y, z) in radians
 // such that QuatFromEulerXYZ(x, y, z) reproduces q (up to sign ±q).
 func (q Quat) ToEulerXYZ() (x, y, z float32) {
-	m := q.ToMat3()
+	m := q.mat3f64()
 	// M02 = sin(y)
-	sinY := Clamp(m[6], -1, 1)
-	y = float32(math.Asin(float64(sinY)))
-	if absf(sinY) < 1-1e-6 {
-		x = float32(math.Atan2(float64(-m[7]), float64(m[8])))
-		z = float32(math.Atan2(float64(-m[3]), float64(m[0])))
+	sinY := math.Max(-1, math.Min(1, m[6]))
+	y = float32(math.Asin(sinY))
+	if math.Hypot(m[7], m[8]) > 1e-12 {
+		x = float32(math.Atan2(-m[7], m[8]))
+		z = float32(math.Atan2(-m[3], m[0]))
 	} else {
 		z = 0
-		x = float32(math.Atan2(float64(m[5]), float64(m[4])))
+		x = float32(math.Atan2(m[5], m[4]))
 	}
 	return x, y, z
 }

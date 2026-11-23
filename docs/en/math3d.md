@@ -89,7 +89,7 @@ Both depth conventions are provided explicitly so code targeting OpenGL or WebGL
 
 - **Equivalence**: `q` and `-q` represent the same 3D rotation. `Slerp` and `Nlerp` automatically negate the target when `q.Dot(b) < 0` so interpolation always follows the **shortest arc**.
 - **Composition**: `q1.Mul(q2)` applies `q2` first and then `q1`, matching `q1.ToMat4().Mul(q2.ToMat4())`.
-- **Euler angles**: `QuatFromEuler(pitch, yaw, roll)` and `ToEuler()` use intrinsic **YXZ** (`Ry(yaw) * Rx(pitch) * Rz(roll)`), standard for cameras and characters. Intrinsic **XYZ** (`Rx(x) * Ry(y) * Rz(z)`) is available via `QuatFromEulerXYZ` and `ToEulerXYZ`.
+- **Euler angles**: `QuatFromEuler(pitch, yaw, roll)` and `ToEuler()` use intrinsic **YXZ** (`Ry(yaw) * Rx(pitch) * Rz(roll)`), standard for cameras and characters. Intrinsic **XYZ** (`Rx(x) * Ry(y) * Rz(z)`) is available via `QuatFromEulerXYZ` and `ToEulerXYZ`. Both extract in float64, so yaw and roll stay separate right up to the ±90° gimbal pole; only an exact lock folds roll into yaw.
 - **Orientation vs. View**: `LookRotation(forward, up)` builds a world orientation quaternion whose local `-Z` points along `forward` and local `+Y` points toward `up`. For a camera at `eye` looking at `target`, `Transform{Pos: eye, Rot: LookRotation(target.Sub(eye), up), Scale: Vec3One()}.ToMat4()` is the exact inverse of `LookAt(eye, target, up)`.
 
 `Transform` pairs `Pos`, `Rot`, and `Scale` for scene hierarchies and interpolation (`Lerp` linearly interpolates position and scale and uses `Slerp` for rotation). `parent.Mul(child)` composes TRS directly; for hierarchies that combine non-uniform parent scale with rotated children (which introduces shear), compose as `Mat4`.
@@ -99,7 +99,7 @@ Both depth conventions are provided explicitly so code targeting OpenGL or WebGL
 - **`AABB`**: Axis-aligned bounding box `{Min, Max}`. Start incremental bounds with `AABBEmpty()`, grow with `ExpandPoint` / `Union`, and transform tightly into world space with `Transform(m)`.
 - **`Sphere`**: `{Center, Radius}` with `Contains`, `IntersectsSphere`, and `IntersectsAABB`.
 - **`Plane`**: `{Normal, D}` representing `Normal · p + D = 0`. Call `Normalized()` so `SignedDist(p)` returns Euclidean signed distance (positive on the side `Normal` points toward).
-- **`Ray`**: Half-line `P(t) = Origin + t * Dir` (`t >= 0`) with `IntersectAABB` (slab test), `IntersectSphere`, `IntersectPlane`, and `IntersectTriangle` (double-sided Möller–Trumbore returning `(t, u, v, hit)`).
+- **`Ray`**: Half-line `P(t) = Origin + t * Dir` (`t >= 0`) with `IntersectAABB` (slab test), `IntersectSphere`, `IntersectPlane`, and `IntersectTriangle` (double-sided Möller–Trumbore returning `(t, u, v, hit)`). Their parallel tests are relative to the vector lengths, so tiny triangles and short ray directions still hit.
 - **`Frustum`**: Six inward-pointing normalized planes (`FrustumLeft` through `FrustumFar`) extracted from any perspective or orthographic view-projection matrix via Gribb–Hartmann (`FrustumFromMat4` for `[0, 1]`, `FrustumFromMat4NO` for `[-1, 1]`), supporting `ContainsPoint`, `IntersectsSphere`, and `IntersectsAABB`.
 
 ```go
