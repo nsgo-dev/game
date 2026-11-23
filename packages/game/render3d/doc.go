@@ -43,9 +43,5 @@
 //
 // # GPU Submission Integration
 //
-// Actual GPU command buffer encoding and submission plugs into
-// nsgo-dev/nsgo#1059 once the native GPU view lands. This package intentionally
-// keeps the entire CPU culling, LOD, sorting, instancing, gizmo, debug,
-// statistics, and budget pipeline deterministic, pure Go, and cross-platform
-// across macOS, Windows, Linux, Android, and Web.
+// [CameraBuffer] (#115) is the first GPU-side type: it keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders. Mesh, material and draw submission build on it in later issues; the CPU culling, LOD, sorting, instancing, gizmo, debug, statistics and budget pipeline stays deterministic, pure Go and cross-platform across macOS, Windows, Linux, Android and Web.
 package render3d

@@ -87,6 +87,24 @@ func (p Projection) Matrix() math3d.Mat4 {
 	}
 }
 
+// Lerp interpolates from p (t=0) to b (t=1). FOVY, OrthoHeight, Aspect, Near and Far blend linearly when both projections share a Kind; when the Kinds differ there is nothing between them to blend, so Lerp returns p for t < 1 and b from t = 1 on.
+func (p Projection) Lerp(b Projection, t float32) Projection {
+	if p.Kind != b.Kind {
+		if t < 1 {
+			return p
+		}
+		return b
+	}
+	return Projection{
+		Kind:        p.Kind,
+		FOVY:        math3d.Lerp(p.FOVY, b.FOVY, t),
+		OrthoHeight: math3d.Lerp(p.OrthoHeight, b.OrthoHeight, t),
+		Aspect:      math3d.Lerp(p.Aspect, b.Aspect, t),
+		Near:        math3d.Lerp(p.Near, b.Near, t),
+		Far:         math3d.Lerp(p.Far, b.Far, t),
+	}
+}
+
 // Camera defines a 3D viewpoint and projection.
 //
 // In right-handed Y-up space, an identity Rot looks down -Z with +X right and
@@ -157,6 +175,35 @@ func (c *Camera) ViewMatrix() math3d.Mat4 {
 		r.Y, u.Y, b.Y, 0,
 		r.Z, u.Z, b.Z, 0,
 		-r.Dot(c.Pos), -u.Dot(c.Pos), -b.Dot(c.Pos), 1,
+	}
+}
+
+// Eye returns the camera's eye point in homogeneous world coordinates: (Pos, 1) for a perspective camera, and the direction toward the viewer (-Forward, 0) for an orthographic one, whose eye lies at infinity.
+//
+// A shader finds the unit vector from a world point p toward the viewer as normalize(eye.xyz - p*eye.w) under either projection.
+func (c *Camera) Eye() math3d.Vec4 {
+	if c.Projection.Kind == ProjectionOrthographic {
+		return c.Forward().Neg().Vec4(0)
+	}
+	return c.Pos.Vec4(1)
+}
+
+// SetViewport sets Projection.Aspect to width / height, so the projection follows the drawable it renders into (call it from a GPU view's resize callback). It leaves the camera unchanged when either size is not positive.
+func (c *Camera) SetViewport(width, height float32) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	c.Projection.Aspect = width / height
+}
+
+// Lerp returns the camera between c (t=0) and b (t=1): Pos blends linearly, Rot by shortest-path spherical interpolation, and the projection by [Projection.Lerp].
+//
+// A game driven by game.Loop keeps the camera from the previous update and draws prev.Lerp(cam, alpha) in Draw, so the view moves smoothly between fixed steps at any display rate.
+func (c *Camera) Lerp(b *Camera, t float32) Camera {
+	return Camera{
+		Pos:        c.Pos.Lerp(b.Pos, t),
+		Rot:        c.Rot.Slerp(b.Rot, t),
+		Projection: c.Projection.Lerp(b.Projection, t),
 	}
 }
 

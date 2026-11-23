@@ -36,6 +36,37 @@ for _, draw := range plan.Transparent {
 3. **不透明排序与实例化**：将 `BlendOpaque` 与 `BlendAlphaMask` 按 `(PipelineID, MaterialID, MeshID, Blend, 由近及远距离)` 排序以减少状态切换与早期深度过绘，并将相邻同材质同网格项合并为 `InstanceBatch`（除非设置 `DisableInstancing`）。
 4. **半透明排序**：将 `BlendAlphaBlend` 项放入 `plan.Transparent`，严格按由远及近排序。
 
+## GPU 上的相机 uniform（`CameraBuffer`）
+
+`CameraBuffer` 在 NSGo 的 `gpu.Device` 上保存一个相机的 uniform 缓冲区，并提供绑定组布局和绑定组，在 `CameraGroup`（第 0 组）上供顶点和片元着色器读取。`CameraWGSL` 声明与之匹配的数据块，3D 着色器把它放在开头，用 `camera.view_proj` 变换顶点：
+
+```wgsl
+struct Camera {
+	view: mat4x4<f32>,
+	proj: mat4x4<f32>,
+	view_proj: mat4x4<f32>,
+	eye: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+```
+
+`CameraUniform` 是这个数据块的内容（`NewCameraUniform(cam)` 从 `scene3d.Camera` 填充），`Encode` 不分配内存地写出 `CameraUniformSize`（208）字节。设备就绪后创建一次缓冲区，每帧录制绘制命令前上传相机，并在每条 3D 管线的 `Layouts` 中把 `Layout()` 放在 `CameraGroup` 位置：
+
+```go
+camBuf, err := render3d.NewCameraBuffer(cx, dev)
+// ...
+layouts := []*gpu.BindGroupLayout{render3d.CameraGroup: camBuf.Layout()}
+pipe, err := dev.CreatePipeline(cx, gpu.PipelineDesc{Layouts: layouts /* 着色器、顶点缓冲区、深度 */})
+
+// 每帧，在 game.Loop.Draw 中：
+camBuf.WriteCamera(&drawn)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+```
+
+参考测试通过 `gpu.NewSoftwareRenderer` 无头渲染同一个场景，分别使用在 `game.Loop` 上环绕的透视相机和正交相机，并把每一帧与 `render3d/testdata/golden/camera_perspective.png` 和 `camera_orthographic.png` 比较；设置 `UPDATE_GOLDEN=1` 会重写这两张图。
+
 ## 3D 调试线框与变换手柄（Gizmo）
 
 `DebugDraw` 将 3D 线框经近裁剪面裁剪后直接投影绘制到 NSGo 的 `*core.Drawing` 叠加层：
