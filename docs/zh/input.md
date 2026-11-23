@@ -1,6 +1,6 @@
 # input
 
-`game/input` 将触摸区域、鼠标按键、指针锁定下的鼠标相对移动与键盘按键映射为命名动作（action）和轴（axis），在每个 `game.Loop` 固定步长采样一次，并支持通过 `core.Storage` 跨启动持久化。
+`game/input` 将触摸区域、鼠标按键、指针锁定下的鼠标相对移动、键盘按键与游戏手柄映射为命名动作（action）和轴（axis），在每个 `game.Loop` 固定步长采样一次，并支持通过 `core.Storage` 跨启动持久化。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/input"
@@ -48,6 +48,7 @@ actions.BindAxis("move_x", "left", "right")
 | `MouseRegion(rect, btn)` | 鼠标按键 `btn` 按下且指针位于 `rect` 内。 |
 | `Key(name)` | 名为 `name` 的按键处于按住状态，名称与 `core.KeyEvent.Key` 一致（`"a"`、`"space"`、`"left"`、`"shift"`），匹配时不区分大小写。字母随键盘布局而定。 |
 | `KeyCode(code)` | 物理位置 `code` 上的按键处于按住状态，名称与 `core.KeyEvent.Code` 一致（`"KeyW"`、`"ArrowLeft"`），在任何布局下都是同一个键。 |
+| `GamepadButton(btn)` | `btn` 在 `Actions` 读取的手柄上按下（见下文“游戏手柄”）。 |
 
 调用 `Bind(name, ...)` 会替换 `name` 原有的绑定；不传任何输入或调用 `Unbind(name)` 可解绑。可通过 `Bindings(name)` 与 `AxisBinding(name)` 查询当前绑定，通过 `UnbindAxis(name)` 解绑轴。
 
@@ -105,6 +106,37 @@ loop.Run(cx)
 
 `Key` 接受 `core.KeyEvent.Key` 报告的名称，不区分大小写。`core.KeyHeld` 额外接受的别名，例如 `"mod"`、`"cmd"` 或 `"option"`，永远不算按住；在 `Env.AppleKeys` 表明 Command 是平台修饰键的平台上绑定 `"meta"`，其他平台绑定 `"ctrl"`。
 
+## 游戏手柄
+
+用 `GamepadButton` 像其他 `Input` 一样绑定手柄按键，用 `BindGamepadAxis` 绑定摇杆轴，再调用一次 `WatchGamepads`，此后每次 `Step` 都会通过 NSGo 的 [`gamepad`](https://github.com/nsgo-dev/nsgo/tree/main/gamepad) 包读取连接到应用的手柄，支持所有具备手柄的目标平台（macOS、iOS、Windows、Linux、Android 和 Web）：
+
+```go
+actions.Bind("jump", input.GamepadButton(gamepad.ButtonSouth), input.TouchRegion(jumpRect))
+actions.Bind("left", input.GamepadButton(gamepad.ButtonDPadLeft))
+actions.Bind("right", input.GamepadButton(gamepad.ButtonDPadRight))
+actions.BindAxis("move_x", "left", "right")
+
+// 左摇杆与十字键驱动同一个轴，使用默认的径向死区
+actions.BindGamepadAxis("move_x", gamepad.AxisLeftX, input.GamepadAxisOptions{})
+// 右摇杆向上推时读数为正
+actions.BindGamepadAxis("look_y", gamepad.AxisRightY, input.GamepadAxisOptions{DeadZone: 0.2, Invert: true})
+
+actions.WatchGamepads(cx)
+```
+
+按键采用 W3C 标准手柄布局；按键值达到 0.5 即视为按下，因此模拟扳机 `ButtonLT` 与 `ButtonRT` 按到一半时触发。`Axis` 会把摇杆轴与同名的其他绑定（`BindAxis`、`BindMotionAxis`、`VirtualPad` 摇杆）相加，并将结果限制在 `[-1, 1]`。
+
+| `GamepadAxisOptions` 字段 | 作用 |
+| --- | --- |
+| `DeadZone` | 偏移量低于该值时轴读数为 0，超出部分重新缩放，使读数从 0 平滑升到 1。`0` 使用 `DefaultGamepadDeadZone`（0.15），负值关闭死区。 |
+| `Axial` | 仅对该轴单独应用死区。默认对整根摇杆应用径向死区，斜推时方向保持不变。 |
+| `Sensitivity` | 在限制范围之前乘以经过死区处理的值（`<= 0` 时为 1）。 |
+| `Invert` | 取反。 |
+
+默认情况下一个 `Actions` 读取所有已连接的手柄：任一手柄按下某键即视为按下，摇杆轴取离中心最远的读数。本地多人游戏可为每位玩家创建一个 `Actions`，并以 `gamepad.Pads` 中的 ID 调用 `SelectGamepad(id)`；`SelectAnyGamepad` 恢复读取所有手柄。手柄断开时会释放它按住的输入，传给 `WatchGamepads` 的作用域销毁后停止读取。
+
+手柄每个步长轮询一次，因此在两个步长之间完成的按下和松开不会被察觉。测试和回放可以不读取实际手柄，改用 `OnGamepads` 传入 `[]gamepad.Pad` 快照，它会像触摸一样锁存步长之间的按下；`Gamepads()` 返回最近一次读取的状态。
+
 ## 在固定步长中采样
 
 在每次 `game.Loop.Update` 开头调用一次 `actions.Step()`，随后使用 `Pressed`、`JustPressed`、`JustReleased` 和 `Axis` 读取当前步长的输入快照：
@@ -132,7 +164,7 @@ loop := &game.Loop{
 
 - **轻点锁存（Tap latching）**：在两个固定步长之间完成按下并抬起的快速点击会被锁存，确保在下一个步长仍能触发一次 `Pressed` / `JustPressed`，并在再下一步触发 `JustReleased`。
 - **`Axis(name)`**：仅负向动作按下时返回 `-1`，仅正向动作按下时返回 `+1`，两者都不按或同时按下时返回 `0`。若 `name` 未绑定为轴，则回退为同名动作按下时返回 `1`、否则返回 `0`。
-- **`Reset()`**：清空活动触摸、按住的鼠标键与按键、待处理的锁存、鼠标相对移动与当前步长快照，同时保留所有绑定和指针锁定，因此切换场景后鼠标视角仍然有效。请在失焦、切后台或切换场景时调用，防止按键卡死。
+- **`Reset()`**：清空活动触摸、按住的鼠标键与按键、最近一次手柄状态、待处理的锁存、鼠标相对移动与当前步长快照，同时保留所有绑定和指针锁定，因此切换场景后鼠标视角仍然有效。请在失焦、切后台或切换场景时调用，防止按键卡死。
 
 ## 通过指针锁定实现鼠标视角
 
@@ -168,7 +200,7 @@ camera.Pitch += actions.Delta("pitch")
 
 ## 保存与加载绑定
 
-使用 `Save` 和 `Load` 将自定义按键绑定以 JSON 形式持久化到 `core.Storage`：
+使用 `Save` 和 `Load` 将自定义按键绑定（包括手柄按键与摇杆轴）以 JSON 形式持久化到 `core.Storage`：
 
 ```go
 // 保存当前所有动作和轴绑定

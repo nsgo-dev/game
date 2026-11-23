@@ -17,10 +17,19 @@ type savedBindings struct {
 	Axes        map[string]savedAxis        `json:"axes,omitempty"`
 	MotionAxes  map[string]savedMotionAxis  `json:"motion_axes,omitempty"`
 	PointerAxes map[string]savedPointerAxis `json:"pointer_axes,omitempty"`
+	GamepadAxes map[string]savedGamepadAxis `json:"gamepad_axes,omitempty"`
 }
 
 type savedPointerAxis struct {
 	Axis        string  `json:"axis"`
+	Sensitivity float64 `json:"sensitivity,omitempty"`
+	Invert      bool    `json:"invert,omitempty"`
+}
+
+type savedGamepadAxis struct {
+	Axis        string  `json:"axis"`
+	DeadZone    float64 `json:"dead_zone,omitempty"`
+	Axial       bool    `json:"axial,omitempty"`
 	Sensitivity float64 `json:"sensitivity,omitempty"`
 	Invert      bool    `json:"invert,omitempty"`
 }
@@ -54,7 +63,7 @@ type savedAxis struct {
 	Positive string `json:"positive,omitempty"`
 }
 
-// Save writes all of a's action, axis, motion axis and pointer axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
+// Save writes all of a's action, axis, motion axis, pointer axis and game controller stick axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
 func (a *Actions) Save(store core.Storage, key string) error {
 	doc := savedBindings{Version: storageVersion}
 	if len(a.bindings) > 0 {
@@ -102,6 +111,22 @@ func (a *Actions) Save(store core.Storage, key string) error {
 				return fmt.Errorf("input: save %q: pointer axis %q: %w", key, name, err)
 			}
 			doc.PointerAxes[name] = savedPointerAxis{Axis: axName, Sensitivity: pb.opts.Sensitivity, Invert: pb.opts.Invert}
+		}
+	}
+	if len(a.gpAxes) > 0 {
+		doc.GamepadAxes = make(map[string]savedGamepadAxis, len(a.gpAxes))
+		for name, gb := range a.gpAxes {
+			axName, err := encodeGamepadAxis(gb.axis)
+			if err != nil {
+				return fmt.Errorf("input: save %q: gamepad axis %q: %w", key, name, err)
+			}
+			doc.GamepadAxes[name] = savedGamepadAxis{
+				Axis:        axName,
+				DeadZone:    gb.opts.DeadZone,
+				Axial:       gb.opts.Axial,
+				Sensitivity: gb.opts.Sensitivity,
+				Invert:      gb.opts.Invert,
+			}
 		}
 	}
 	data, err := json.Marshal(doc)
@@ -199,10 +224,32 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 		}
 	}
 
+	var gamepadAxes map[string]gamepadAxisBinding
+	if len(doc.GamepadAxes) > 0 {
+		gamepadAxes = make(map[string]gamepadAxisBinding, len(doc.GamepadAxes))
+		for name, ga := range doc.GamepadAxes {
+			ax, err := decodeGamepadAxis(ga.Axis)
+			if err != nil {
+				return false, fmt.Errorf("input: load %q: gamepad axis %q: %w", key, name, err)
+			}
+			gamepadAxes[name] = gamepadAxisBinding{
+				axis: ax,
+				opts: GamepadAxisOptions{
+					DeadZone:    ga.DeadZone,
+					Axial:       ga.Axial,
+					Sensitivity: ga.Sensitivity,
+					Invert:      ga.Invert,
+				},
+			}
+		}
+	}
+
 	a.bindings = bindings
 	a.axes = axes
 	a.motionAxes = motionAxes
 	a.pointerAxes = pointerAxes
+	a.gpAxes = gamepadAxes
+	clear(a.gpSnap)
 	clear(a.motionSnap)
 	clear(a.motionInit)
 	clear(a.latched)
@@ -246,6 +293,12 @@ func encodeInput(in Input) (savedInput, error) {
 			return savedInput{}, fmt.Errorf("key_code input has no code")
 		}
 		return savedInput{Kind: "key_code", Code: in.Code}, nil
+	case InputGamepadButton:
+		btn, err := encodeGamepadButton(in.PadButton)
+		if err != nil {
+			return savedInput{}, err
+		}
+		return savedInput{Kind: "gamepad_button", Button: btn}, nil
 	default:
 		return savedInput{}, fmt.Errorf("unknown input kind %d", in.Kind)
 	}
@@ -285,6 +338,12 @@ func decodeInput(in savedInput) (Input, error) {
 			return Input{}, fmt.Errorf("key_code is missing its code")
 		}
 		return KeyCode(in.Code), nil
+	case "gamepad_button":
+		btn, err := decodeGamepadButton(in.Button)
+		if err != nil {
+			return Input{}, err
+		}
+		return GamepadButton(btn), nil
 	default:
 		return Input{}, fmt.Errorf("unknown input kind %q", in.Kind)
 	}
