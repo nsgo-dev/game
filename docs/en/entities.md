@@ -46,7 +46,7 @@ world.Alive(hero) // false, even after the slot is recycled
 Each component type `T` is stored in a typed sparse set (`*Store[T]`). Top-level generic functions operate directly on a `*World`, and `Component[T](w)` returns the underlying `*Store[T]` for direct inner-loop access.
 
 - `Set[T](w, e, v)`, `Get[T](w, e)`, `Has[T](w, e)` and `Remove[T](w, e)` attach, read, check and detach components in O(1) time.
-- `Each1[A]`, `Each2[A, B]` and `Each3[A, B, C]` iterate over the smallest sparse set and check O(1) membership in the others, visiting exact matches in deterministic order with zero reflection and zero heap allocations. Returning `false` stops iteration early.
+- `Each1[A]`, `Each2[A, B]` and `Each3[A, B, C]` iterate over the smallest sparse set and check O(1) membership in the others, visiting exact matches in deterministic order with zero reflection and zero heap allocations. Returning `false` stops iteration early. The component pointers are valid only inside the callback and only until it adds a component of an iterated type: adding can grow the store and move its values, so collect entities and add components after the loop. A callback may destroy the entity it was handed, but not add or remove other entities of the iterated stores; collect those and act after the loop.
 
 ```go
 type Position struct{ X, Y float64 }
@@ -103,6 +103,28 @@ entities.WithFunc(goblin, func() Inventory {
 
 squad := goblin.SpawnN(world, 5)
 ```
+
+## 2D transform hierarchy
+
+`world.Hierarchy2D()` (or `entities.NewHierarchy2D(world)`) attaches a parent-child 2D transform hierarchy to a World. Local transforms live in the `Transform2D` component (`X`, `Y`, `Rotation`, `ScaleX`, `ScaleY`, `Hidden`; build one with `NewTransform2D` or `IdentityTransform2D`, since the zero value has zero scale), and `Sync()` composes them into cached `WorldTransform2D` components that `Each1`/`Each2`/`Each3` can iterate directly.
+
+```go
+h := world.Hierarchy2D()
+ship, turret := world.Spawn(), world.Spawn()
+h.SetLocal(ship, entities.NewTransform2D(100, 50))
+h.SetLocal(turret, entities.NewTransform2D(0, -12))
+_ = h.SetParent(turret, ship, false)
+h.SetRotation(ship, 0.5)
+h.Sync()
+wt, _ := h.WorldTransform(turret)
+_ = wt
+```
+
+- `SetLocal`, `SetPosition`, `SetRotation`, `SetScale`, `SetVisible` and `entities.Set` with a `Transform2D` mark the entity and its subtree dirty. After writing through a `*Transform2D` from `Get` or a store, call `h.MarkDirty(e)`.
+- Visibility is inherited: `WorldTransform2D.WorldVisible` is false when the entity or any ancestor is hidden.
+- `SetParent(child, parent, keepWorld)` and `Detach(child, keepWorld)` keep the child's local transform, or with `keepWorld` recompute it so the child stays where it is on screen. A keep-world reparent whose exact relative transform needs shear (a rotated child under a non-uniformly scaled parent) returns `ErrNotDecomposable` and changes nothing; cycles return `ErrCycle` and dead entities `ErrDeadEntity`.
+- Destroying a parent applies the hierarchy's `RemovePolicy` (`SetRemovePolicy`): `RemoveDetach` (default) detaches the children keeping their local transforms, `RemoveDetachKeepWorld` detaches them keeping their world transforms, and `RemoveCascade` destroys the whole subtree. `DestroyWithPolicy(e, policy)` overrides it for one call.
+- Snapshots only include registered components: call `RegisterCodec[entities.Transform2D](w, "transform2d")` to save local transforms. `WorldTransform2D` is derived, so it does not need a codec; the hierarchy reseeds from the restored local transforms.
 
 ## Saving and loading a world
 

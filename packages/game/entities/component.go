@@ -138,8 +138,7 @@ func (s *Store[T]) Remove(e Entity) {
 //
 // A callback may destroy the entity it was handed, but not add or remove other
 // entities/components of this store: a removal elsewhere swaps the last entry
-// into the removed slot, which can skip or revisit an entity. Use EachSafe when
-// the callback needs to touch other entities of the same store.
+// into the removed slot, which can skip or revisit an entity. When the callback needs to touch other entities of the same store, collect them during Each and act after it returns. The *T is valid only until the callback adds a component to this store, which can grow it and move its values (#546).
 func (s *Store[T]) Each(fn func(Entity, *T) bool) {
 	for i := 0; i < len(s.dense); {
 		e := s.dense[i]
@@ -211,8 +210,13 @@ func (s *Store[T]) reset() {
 }
 
 // Set attaches or replaces component v on entity e in w. It is a no-op if e is not alive in w.
+// Setting a Transform2D while the World has a Hierarchy2D marks e and its descendants dirty, exactly like Hierarchy2D.SetLocal, so WorldTransform2D never goes stale (#546). Writing through a pointer from Get or a Store still needs Hierarchy2D.MarkDirty.
 func Set[T any](w *World, e Entity, v T) {
 	if w == nil || !w.Alive(e) {
+		return
+	}
+	if t, ok := any(v).(Transform2D); ok && w.hierarchy != nil {
+		w.hierarchy.SetLocal(e, t)
 		return
 	}
 	ensureStore[T](w).Set(e, v)

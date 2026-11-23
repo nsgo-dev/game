@@ -2,6 +2,8 @@ package entities
 
 // Each1 visits every live entity in w carrying component A in deterministic dense order until fn returns false.
 // It performs no reflection and zero heap allocations.
+//
+// The component pointers are valid only during the callback and only until the callback adds a component of a type it is iterating (to any entity): that can grow the store and move its values, so a write through an older pointer would be lost. Read or write through the pointers first, or collect entities and add components after Each returns.
 func Each1[A any](w *World, fn func(Entity, *A) bool) {
 	sa := existingStore[A](w)
 	if sa == nil || len(sa.dense) == 0 {
@@ -14,6 +16,8 @@ func Each1[A any](w *World, fn func(Entity, *A) bool) {
 // It drives iteration from the smaller sparse set and checks membership in the other in O(1) time, with deterministic order, no reflection and zero heap allocations.
 //
 // A callback may destroy the entity it was handed, but must not add or remove other entities/components of the queried stores.
+//
+// The component pointers are valid only during the callback and only until the callback adds a component of a type it is iterating (to any entity): that can grow the store and move its values, so a write through an older pointer would be lost. Read or write through the pointers first, or collect entities and add components after Each returns.
 func Each2[A, B any](w *World, fn func(Entity, *A, *B) bool) {
 	sa := existingStore[A](w)
 	if sa == nil || len(sa.dense) == 0 {
@@ -52,6 +56,8 @@ func Each2[A, B any](w *World, fn func(Entity, *A, *B) bool) {
 
 // Each3 visits every live entity in w carrying A, B and C until fn returns false.
 // It drives iteration from the smallest of the three sparse sets and checks membership in the other two in O(1) time, with deterministic order, no reflection and zero heap allocations.
+//
+// The component pointers are valid only during the callback and only until the callback adds a component of a type it is iterating (to any entity): that can grow the store and move its values, so a write through an older pointer would be lost. Read or write through the pointers first, or collect entities and add components after Each returns.
 func Each3[A, B, C any](w *World, fn func(Entity, *A, *B, *C) bool) {
 	sa := existingStore[A](w)
 	if sa == nil || len(sa.dense) == 0 {
