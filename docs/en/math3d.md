@@ -100,7 +100,7 @@ Both depth conventions are provided explicitly so code targeting OpenGL or WebGL
 - **`Sphere`**: `{Center, Radius}` with `Contains`, `IntersectsSphere`, and `IntersectsAABB`.
 - **`Plane`**: `{Normal, D}` representing `Normal · p + D = 0`. Call `Normalized()` so `SignedDist(p)` returns Euclidean signed distance (positive on the side `Normal` points toward).
 - **`Ray`**: Half-line `P(t) = Origin + t * Dir` (`t >= 0`) with `IntersectAABB` (slab test), `IntersectSphere`, `IntersectPlane`, and `IntersectTriangle` (double-sided Möller–Trumbore returning `(t, u, v, hit)`). Their parallel tests are relative to the vector lengths, so tiny triangles and short ray directions still hit.
-- **`Frustum`**: Six inward-pointing normalized planes (`FrustumLeft` through `FrustumFar`) extracted from any perspective or orthographic view-projection matrix via Gribb–Hartmann (`FrustumFromMat4` for `[0, 1]`, `FrustumFromMat4NO` for `[-1, 1]`), supporting `ContainsPoint`, `IntersectsSphere`, and `IntersectsAABB`.
+- **`Frustum`**: Six inward-pointing normalized planes (`FrustumLeft` through `FrustumFar`) extracted from any perspective or orthographic view-projection matrix via Gribb–Hartmann (`FrustumFromMat4` for `[0, 1]`, `FrustumFromMat4NO` for `[-1, 1]`), supporting `ContainsPoint`, `IntersectsSphere`, and `IntersectsAABB`. A point on a plane counts as inside, with a small slack relative to the plane's distance from the origin so float rounding does not cull geometry on a distant far plane.
 
 ```go
 view := math3d.LookAt(math3d.Vec3{X: 0, Y: 3, Z: 8}, math3d.Vec3Zero(), math3d.Vec3Up())
@@ -111,3 +111,10 @@ if frustum.IntersectsAABB(worldBounds) {
 	// Object is visible.
 }
 ```
+
+## Curves
+
+`QuadraticBezier3D`, `CubicBezier3D`, `CubicHermite3D`, `HermiteSpline3D` and `CatmullRom3D` share the `Curve3D` interface: `Point`, `Tangent`, `Length`, arc-length lookups (`DistanceToT`, `PointAtDistance`) and rotation-minimizing frames (`FrameAt`, `FrameAtDistance`) for cameras and objects that follow a path.
+
+- `NewHermiteSpline3D` uses the uniform Catmull-Rom tangent `(next - previous) / 2` for points without an entry in `tangents`; pass a zero tangent explicitly where the curve should stop.
+- `NewCatmullRom3DAlpha` with `alpha` 0 is the uniform spline, whose knots are evenly spaced even when neighboring points coincide; the default `NewCatmullRom3D` is centripetal (`alpha` 0.5).

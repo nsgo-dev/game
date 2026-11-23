@@ -413,11 +413,16 @@ func planeFromVec4(v Vec4) Plane {
 // ContainsPoint reports whether p lies inside or on the boundary of f.
 func (f Frustum) ContainsPoint(p Vec3) bool {
 	for _, plane := range f.Planes {
-		if plane.SignedDist(p) < 0 {
+		if plane.SignedDist(p) < -plane.tolerance() {
 			return false
 		}
 	}
 	return true
+}
+
+// tolerance is the rounding slack allowed outside plane, relative to its distance from the origin, so a point exactly on a far plane 1000 units away is not culled by float32 error in the extracted plane (#546).
+func (p Plane) tolerance() float32 {
+	return 1e-5 * (1 + float32(math.Abs(float64(p.D))))
 }
 
 // IntersectsSphere reports whether sphere s lies inside or intersects f.
@@ -426,7 +431,7 @@ func (f Frustum) IntersectsSphere(s Sphere) bool {
 		return false
 	}
 	for _, plane := range f.Planes {
-		if plane.SignedDist(s.Center) < -s.Radius {
+		if plane.SignedDist(s.Center) < -s.Radius-plane.tolerance() {
 			return false
 		}
 	}
@@ -452,7 +457,7 @@ func (f Frustum) IntersectsAABB(b AABB) bool {
 		if plane.Normal.Z >= 0 {
 			pz = b.Max.Z
 		}
-		if plane.SignedDist(Vec3{px, py, pz}) < 0 {
+		if plane.SignedDist(Vec3{px, py, pz}) < -plane.tolerance() {
 			return false
 		}
 	}

@@ -946,7 +946,7 @@ type HermiteSpline3D struct {
 //
 // When closed is false, len(points)-1 segments connect points[0] through points[n-1].
 // When closed is true, len(points) segments form a closed loop back to points[0].
-// Missing tangent entries (if len(tangents) < len(points)) default to Vec3Zero.
+// Missing tangent entries (if len(tangents) < len(points)) default to the uniform Catmull-Rom tangent (points[i+1] - points[i-1]) / 2, one-sided at the ends of an open spline, so the curve keeps moving through those points instead of stopping and flipping its frame there (#546). Pass Vec3Zero explicitly for a point where the curve should stop.
 // If len(points) < 2, an empty zero-length spline is returned.
 func NewHermiteSpline3D(points, tangents []Vec3, closed bool) *HermiteSpline3D {
 	n := len(points)
@@ -961,7 +961,16 @@ func NewHermiteSpline3D(points, tangents []Vec3, closed bool) *HermiteSpline3D {
 		if i < len(tangents) {
 			return tangents[i]
 		}
-		return Vec3Zero()
+		switch {
+		case closed:
+			return points[(i+1)%n].Sub(points[(i-1+n)%n]).Scale(0.5)
+		case i == 0:
+			return points[1].Sub(points[0])
+		case i == n-1:
+			return points[n-1].Sub(points[n-2])
+		default:
+			return points[i+1].Sub(points[i-1]).Scale(0.5)
+		}
 	}
 
 	nSeg := n - 1
@@ -1175,11 +1184,12 @@ func cubicFromCatmullRom(p0, p1, p2, p3 Vec3, alpha float64) cubicPoly3D {
 }
 
 func knotInterval(dist, alpha float64) float64 {
-	if dist < 1e-6 {
-		return 0
-	}
+	// Uniform knots are 1 apart whatever the distance, so a coincident neighbor still gets the standard (p2 - p0) / 2 tangent instead of a doubled one (#546).
 	if alpha == 0 {
 		return 1
+	}
+	if dist < 1e-6 {
+		return 0
 	}
 	if alpha == 0.5 {
 		return math.Sqrt(dist)

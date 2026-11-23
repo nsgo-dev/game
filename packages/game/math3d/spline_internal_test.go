@@ -55,3 +55,50 @@ func TestRayHitsTinyTrianglesAndShortDirections(t *testing.T) {
 		t.Fatal("ray with a 1e-4 direction missed the plane")
 	}
 }
+
+func TestUniformCatmullRomCoincidentNeighborTangent(t *testing.T) {
+	p0 := Vec3{}
+	p2 := Vec3{X: 2}
+	p3 := Vec3{X: 4}
+	// A coincident neighbor (p0 == p1) under uniform knots gives the standard tangent (p2 - p0) / 2.
+	seg := cubicFromCatmullRom(p0, p0, p2, p3, 0)
+	if got, want := seg.deriv(0), (Vec3{X: 1}); !got.ApproxEqual(want, 1e-5) {
+		t.Fatalf("uniform tangent at a coincident neighbor = %v, want %v", got, want)
+	}
+}
+
+func TestFrustumKeepsPointsOnFarPlane(t *testing.T) {
+	view := LookAt(Vec3{X: 3, Y: 2, Z: 7}, Vec3{X: 3, Y: 2, Z: 6}, Vec3Up())
+	// Far/near ratios up to 1e4; beyond that a float32 matrix cannot place its far plane this precisely.
+	for _, far := range []float32{100, 1000} {
+		vp := Perspective(1.0, 16.0/9, 0.1, far).Mul(view)
+		for _, f := range []Frustum{FrustumFromMat4(vp), FrustumFromMat4NO(vp)} {
+			for i := range 50 {
+				x := float32(i-25) / 100 * far
+				p := Vec3{X: 3 + x*0.5, Y: 2, Z: 7 - far}
+				if !f.ContainsPoint(p) {
+					t.Fatalf("far %v: point %v on the far plane was culled", far, p)
+				}
+				if !f.IntersectsAABB(AABB{Min: p, Max: p}) {
+					t.Fatalf("far %v: degenerate box %v on the far plane was culled", far, p)
+				}
+			}
+		}
+	}
+}
+
+func TestHermiteMissingTangentsKeepMoving(t *testing.T) {
+	points := []Vec3{{}, {X: 1, Y: 1}, {X: 2}, {X: 3, Y: 1}}
+	c := NewHermiteSpline3D(points, nil, false)
+	for i := range points {
+		tt := float32(i) / float32(len(points)-1)
+		if d := c.Derivative(tt); d.LenSq() < 1e-6 {
+			t.Fatalf("missing tangent at point %d stopped the curve (derivative %v)", i, d)
+		}
+	}
+	// The tangent at points[1] is the central difference (points[2] - points[0]) / 2 in segment parameter u.
+	got := c.core.segments[1].deriv(0)
+	if want := (Vec3{X: 1}); !got.ApproxEqual(want, 1e-5) {
+		t.Fatalf("interior tangent = %v, want %v", got, want)
+	}
+}
