@@ -17,6 +17,9 @@ const FormatVersion = 1
 // MaxCount is the most bullets one shot of a pattern may fire.
 const MaxCount = 4096
 
+// MinInterval is the shortest Interval a pattern may have, other than 0: shorter intervals would fire thousands of shots a frame.
+const MinInterval = time.Millisecond
+
 // Kind is how a pattern places the bullets of a shot.
 type Kind string
 
@@ -63,7 +66,7 @@ type Pattern struct {
 	Shots int `yaml:"shots"`
 	// Delay is the time before the first shot.
 	Delay time.Duration `yaml:"delay,omitempty"`
-	// Interval is the time between shots; it must be above 0 unless Shots is 1.
+	// Interval is the time between shots; it must be at least MinInterval, or 0 when Shots is 1.
 	Interval time.Duration `yaml:"interval,omitempty"`
 	// Lifetime is how long each bullet lives; 0 keeps it until it leaves the field's bounds or is removed.
 	Lifetime time.Duration `yaml:"lifetime,omitempty"`
@@ -153,7 +156,7 @@ func (f *File) Pattern(name string) (*Pattern, bool) {
 	return nil, false
 }
 
-// Validate checks that p names itself, has a known kind, fires 1 to MaxCount bullets a shot, has finite numbers in range, and times its shots so that they end or repeat after a positive interval.
+// Validate checks that p names itself, has a known kind, fires 1 to MaxCount bullets a shot, has finite numbers in range, and times its shots so that they end or repeat after an interval of at least MinInterval.
 func (p *Pattern) Validate() error {
 	if p.Name == "" {
 		return errors.New("pattern has no name")
@@ -208,6 +211,9 @@ func (p *Pattern) Validate() error {
 	}
 	if p.Shots != 1 && p.Interval == 0 {
 		return fmt.Errorf("pattern %q: %s shots need an interval above 0", p.Name, shotsName(p.Shots))
+	}
+	if p.Interval != 0 && p.Interval < MinInterval {
+		return fmt.Errorf("pattern %q: interval %v is below the minimum of %v", p.Name, p.Interval, MinInterval)
 	}
 	return nil
 }

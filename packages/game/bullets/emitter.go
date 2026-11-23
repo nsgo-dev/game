@@ -19,7 +19,7 @@ type Emitter struct {
 	X, Y float32
 	// TargetX and TargetY are what an Aimed pattern aims at, such as the player.
 	TargetX, TargetY float32
-	// Stopped, when true, holds the emitter's shots: Update fires none but keeps its clock, and Done reports true.
+	// Stopped, when true, pauses the emitter: Update neither fires nor runs its clock, and Done reports true. Once Stopped is false again, the emitter picks up its pattern where it paused, owing no shots for the time it was stopped.
 	Stopped bool
 
 	field   *Field
@@ -78,7 +78,7 @@ func (e *Emitter) Seed() uint64 { return e.rng.Seed() }
 // Shots returns how many shots the emitter has fired since it was made or reset.
 func (e *Emitter) Shots() int { return e.shot }
 
-// Elapsed returns how long the emitter has run since it was made or reset.
+// Elapsed returns how long the emitter has run since it was made or reset, not counting the time it was stopped.
 func (e *Emitter) Elapsed() time.Duration { return e.elapsed }
 
 // Done reports whether the emitter fires no more shots: it is stopped, or has fired all of a pattern's Shots.
@@ -97,22 +97,40 @@ func (e *Emitter) Reset() {
 // Update runs the emitter's clock on by dt and fires each shot due in that time into its field, returning the number of bullets it spawned. A shot due partway through dt spawns its bullets where they are at its end, so update the field before its emitters.
 //
 // A shot past the field's Limit spawns only as many bullets as fit; it still counts as fired and draws the same random numbers, so the bullets that do spawn are the same as with no limit.
+//
+// One call fires at most MaxCount bullets' worth of shots, and at least one shot. When more shots are due, as after a long dt from a hitch, it fires the latest of them and skips the earlier ones: they count as fired but spawn nothing and draw no random numbers. This bounds the work of a step whatever the pattern's Interval and dt.
 func (e *Emitter) Update(dt time.Duration) int {
-	if dt <= 0 {
+	if dt <= 0 || e.Stopped {
 		return 0
 	}
 	end := e.elapsed + dt
+	due := e.due(end)
+	if budget := max(1, MaxCount/e.pattern.Count); due-e.shot > budget {
+		e.shot = due - budget
+	}
 	spawned := 0
-	for !e.Done() {
+	for ; e.shot < due; e.shot++ {
 		at := e.pattern.Delay + time.Duration(e.shot)*e.pattern.Interval
-		if at >= end {
-			break
-		}
 		spawned += e.fire(end - at)
-		e.shot++
 	}
 	e.elapsed = end
 	return spawned
+}
+
+// due returns how many of the pattern's shots are due before end: those whose time, Delay plus Interval for each shot before them, is earlier than end, up to the pattern's Shots.
+func (e *Emitter) due(end time.Duration) int {
+	p := &e.pattern
+	if end <= p.Delay {
+		return 0
+	}
+	n := 1
+	if p.Interval > 0 {
+		n = int((end-p.Delay-1)/p.Interval) + 1
+	}
+	if p.Shots > 0 {
+		n = min(n, p.Shots)
+	}
+	return n
 }
 
 // fire spawns the current shot's bullets, each moved on by late, the time since the shot was due.
@@ -129,7 +147,7 @@ func (e *Emitter) fire(late time.Duration) int {
 			if p.Spread < 360 {
 				step = float64(p.Spread) / float64(p.Count-1)
 			}
-			base -= float64(p.Spread) / 2
+			base -= step * float64(p.Count-1) / 2
 		}
 	}
 	spawned := 0

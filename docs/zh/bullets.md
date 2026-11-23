@@ -64,7 +64,7 @@ patterns:
 | `angle`、`angleJitter` | 一次射击第一颗子弹的方向（`aimed` 中为相对目标方向的偏转），每颗子弹随机偏转 `[-angleJitter, angleJitter)` |
 | `spread` | `aimed` 连发从第一颗到最后一颗覆盖的弧度；仅用于 `aimed`，`count` 大于 1 时必须大于 0 |
 | `spin` | 每次射击比上一次多转的度数；`spiral` 必须不为 0 |
-| `shots`、`delay`、`interval` | 射击次数（0 表示一直射击直到停止）、首次射击前的时间、两次射击的间隔（除非 `shots` 为 1，否则必须大于 0） |
+| `shots`、`delay`、`interval` | 射击次数（0 表示一直射击直到停止）、首次射击前的时间、两次射击的间隔（至少 `1ms`，`shots` 为 1 时可为 0） |
 | `lifetime` | 每颗子弹的存活时间；0 表示存活到离开场地边界为止 |
 | `accel`、`turn` | 每秒的速度变化（点每秒，减速到 0 的子弹停住），以及每秒的路径弯曲度数 |
 | `radius` | 命中半径，也用来判断子弹是否已离开边界 |
@@ -73,13 +73,13 @@ patterns:
 
 - `ring` 将 `count` 颗子弹均匀分布在一整圈上，第一颗朝向 `angle`，每次射击多转 `spin`。
 - `spiral` 是带 `spin` 的环形：`interval` 较短时，`count` 颗子弹各自画出一条旋臂。
-- `aimed` 将 `count` 颗子弹均匀分布在 `spread` 内，以发射器指向目标的方向为中心，并按 `angle` 和 `spin` 偏转。只有一颗子弹时直接射向目标。
+- `aimed` 将 `count` 颗子弹均匀分布在 `spread` 内，以发射器指向目标的方向为中心，并按 `angle` 和 `spin` 偏转。`count` 为奇数且没有 `angle` 和 `spin` 时，中间那颗子弹直接射向目标；只有一颗子弹时，它射向按 `angle` 偏转后的目标方向。
 
 ## Field 与 Emitter
 
 `Field` 持有存活的子弹。`NewField(atlas, capacity)` 在池中预留 `capacity` 颗子弹，因此生成不超过这个数量的子弹时不会分配内存。设置 `Bounds` 可移除命中圆已完全离开场地的子弹，设置 `Limit` 可限制场地持有的子弹数量。
 
-`NewEmitter(field, pattern, seed)` 把弹幕的副本发射到场地中，并检查场地的图集中有弹幕的帧。用 `X`、`Y` 移动它，用 `TargetX`、`TargetY` 瞄准，用 `Stopped` 暂停，用 `Reset` 从头开始。
+`NewEmitter(field, pattern, seed)` 把弹幕的副本发射到场地中，并检查场地的图集中有弹幕的帧。用 `X`、`Y` 移动它，用 `TargetX`、`TargetY` 瞄准，用 `Stopped` 暂停，用 `Reset` 从头开始。停止的发射器的时钟也会停下，因此恢复后它从暂停处继续弹幕，而不会补发错过的射击。
 
 ```go
 file, err := bullets.Parse(data)
@@ -104,6 +104,7 @@ field.Draw(d)
 ```
 
 - 每一步先更新场地，再更新其发射器。在一步中途到期的射击，会把子弹放在它们在这一步结束时所处的位置，因此间隔不是整数步时子弹也不会挤在一起。
+- 一次 `Update` 最多发出 4096 颗子弹的射击（至少一次射击）。到期的射击更多时（例如卡顿后的一个长步），它发出最晚的那些并跳过较早的，跳过的射击计为已发射，但不生成子弹，也不抽取随机数。
 - `Field.Bullets()` 按从旧到新列出存活的子弹，每颗带有位置、`Speed`、`Heading`（弧度）、`Radius`、`Age`、`Lifetime`、`Pattern` 名称、`Shot` 序号和 `Sprite`。子弹归场地所有：不要在下一次 `Update`、`RemoveFunc` 或 `Clear` 之后继续持有指针，因为场地会复用它。
 - `Field.Update` 保持留下的子弹的顺序，`Field.Draw` 按 `Z` 从低到高绘制，`Z` 相同时先画较旧的。
 - 超过场地 `Limit` 的射击只生成放得下的子弹，但仍会抽取相同的随机数。
@@ -114,7 +115,9 @@ field.Draw(d)
 
 ## 性能
 
-`BenchmarkFrame5000` 运行一个稳定 5000 颗子弹场景中的一帧（60 fps）：十个带随机偏差和弯曲路径的螺旋发射器，其中一半的精灵会旋转，子弹在这一帧中移动、过期、生成并绘制到 `core.Drawing`。在桌面 Ryzen 9 3900X 上约需 1.1 ms，而一帧有 16.7 ms；单独移动 5000 颗子弹（`BenchmarkUpdate5000`）约需 0.16 ms。CI 的性能基线（`benchmarks/baseline.json`）会让在 CI 运行器上一帧超过 10 ms 的改动失败。
+`BenchmarkFrame5000` 运行一个稳定 5000 颗子弹场景中的一帧（60 fps）：十个带随机偏差和弯曲路径的螺旋发射器，其中一半的精灵会旋转，子弹在这一帧中移动、过期、生成并绘制到 `core.Drawing`。在桌面 Ryzen 9 3900X 上约需 0.63 ms，而一帧有 16.7 ms；单独移动 5000 颗子弹（`BenchmarkUpdate5000`）约需 0.14 ms。CI 的性能基线（`benchmarks/baseline.json`）会让在 CI 运行器上一帧超过 6.25 ms 的改动失败。
+
+这测量的是一帧的 CPU 工作：模拟子弹并记录它们的绘制操作。它不测量平台渲染器把这些操作画到屏幕上所需的时间，那部分属于 NSGo，并取决于 GPU。
 
 - 池预热后，移动和发射不分配内存。
-- 绘制时每个精灵分配一个小值，发生在 NSGo v0.2.0 的 `Drawing.DrawImageFrom` 内部，`sprite.Batch` 对每个精灵调用一次。用 NSGo 的批量 `DrawAtlas` 绘制批次是 [#28](https://github.com/nsgo-dev/game/issues/28)。
+- `sprite.Batch` 通过 NSGo 的 `Drawing.DrawAtlas` 按段绘制子弹，它会复制每一段，并且每段分配三个值，与段中子弹数量无关。

@@ -133,10 +133,66 @@ func TestAimedBurst(t *testing.T) {
 	full.X, full.Y, full.TargetX, full.TargetY = 0, 0, 1, 0
 	f.Clear()
 	full.Update(step)
-	for i, want := range []float32{180, -90, 0, 90} {
-		if h := degrees(f.Bullets()[i].Heading); !near(h, want) && !near(h, want-360) {
-			t.Errorf("full-circle aimed bullet %d heading %v°, want %v°", i, h, want)
+	for i, want := range []float32{-135, -45, 45, 135} {
+		if h := degrees(f.Bullets()[i].Heading); !near(h, want) {
+			t.Errorf("full-circle aimed bullet %d of 4 heading %v°, want %v°", i, h, want)
 		}
+	}
+
+	odd := mustEmitter(t, f, bullets.Pattern{Name: "odd", Kind: bullets.Aimed, Count: 3, Speed: 1, Spread: 360, Shots: 1}, 1)
+	odd.X, odd.Y, odd.TargetX, odd.TargetY = 0, 0, 1, 0
+	f.Clear()
+	odd.Update(step)
+	for i, want := range []float32{-120, 0, 120} {
+		if h := degrees(f.Bullets()[i].Heading); !near(h, want) {
+			t.Errorf("full-circle aimed bullet %d of 3 heading %v°, want %v°", i, h, want)
+		}
+	}
+}
+
+func TestStoppedPausesTheClock(t *testing.T) {
+	f := bullets.NewField(nil, 0)
+	e := mustEmitter(t, f, bullets.Pattern{Name: "r", Kind: bullets.Ring, Count: 1, Shots: 0, Interval: 50 * time.Millisecond}, 1)
+	if n := e.Update(step); n != 1 {
+		t.Fatalf("first step spawned %d, want 1", n)
+	}
+	e.Stopped = true
+	for range 600 {
+		if n := e.Update(step); n != 0 {
+			t.Fatalf("a stopped emitter spawned %d", n)
+		}
+	}
+	if e.Elapsed() != step {
+		t.Fatalf("elapsed %v after stopping, want %v", e.Elapsed(), step)
+	}
+	e.Stopped = false
+	// The second shot is due at 50ms, three steps of 16.67ms after the first step's end.
+	spawned := 0
+	for range 3 {
+		spawned += e.Update(step)
+	}
+	if spawned != 1 || e.Shots() != 2 {
+		t.Fatalf("after resuming spawned %d with %d shots, want 1 and 2", spawned, e.Shots())
+	}
+}
+
+func TestUpdateBoundsCatchUp(t *testing.T) {
+	f := bullets.NewField(nil, 0)
+	e := mustEmitter(t, f, bullets.Pattern{Name: "r", Kind: bullets.Ring, Count: 1000, Shots: 0, Interval: bullets.MinInterval}, 1)
+	if n := e.Update(time.Hour); n != 4000 {
+		t.Fatalf("an hour-long step spawned %d, want the last 4 shots' 4000", n)
+	}
+	if want := int(time.Hour / bullets.MinInterval); e.Shots() != want {
+		t.Fatalf("shots %d, want %d counted as fired", e.Shots(), want)
+	}
+	if b := f.Bullets()[0]; b.Shot != e.Shots()-4 {
+		t.Fatalf("first spawned shot %d, want %d", b.Shot, e.Shots()-4)
+	}
+
+	big := mustEmitter(t, f, bullets.Pattern{Name: "big", Kind: bullets.Ring, Count: bullets.MaxCount, Shots: 3, Interval: bullets.MinInterval}, 1)
+	f.Clear()
+	if n := big.Update(time.Second); n != bullets.MaxCount || big.Shots() != 3 {
+		t.Fatalf("spawned %d with %d shots, want one shot of %d and 3 shots", n, big.Shots(), bullets.MaxCount)
 	}
 }
 
@@ -349,8 +405,8 @@ func TestDraw(t *testing.T) {
 	f.Draw(&d)
 
 	var want core.Drawing
-	want.DrawImageFrom(atlas.Image, 0, 0, 8, 8, 36, 46, 8, 8)
-	want.DrawImageFrom(atlas.Image, 0, 0, 8, 8, 16, 26, 8, 8)
+	rect := core.Bounds{Size: core.Size{Width: 8, Height: 8}}
+	want.DrawAtlas(atlas.Image, []core.Bounds{rect, rect}, []core.RSXform{{SCos: 1, TX: 36, TY: 46}, {SCos: 1, TX: 16, TY: 26}}, nil)
 	if !reflect.DeepEqual(d.Ops, want.Ops) {
 		t.Fatalf("ops = %#v\nwant %#v", d.Ops, want.Ops)
 	}
@@ -375,12 +431,12 @@ func TestSteadyStateDoesNotAllocate(t *testing.T) {
 	if simulate != 0 {
 		t.Fatalf("moving and firing %d bullets allocated %v times a step", f.Len(), simulate)
 	}
-	// NSGo v0.2.0's Drawing.DrawImageFrom stores a pointer to its ImageSource argument in the op, which moves each copy to the heap: one allocation per sprite drawn, outside this package. Drawing must add none of its own.
+	// NSGo v0.3.0's Drawing.DrawAtlas copies a run's sprites into a new slice and stores pointers to it and to its ImageSource argument in the op: three allocations per op, outside this package, however many sprites the run holds. Drawing must add none of its own.
 	draw := testing.AllocsPerRun(20, func() {
 		d.Ops = d.Ops[:0]
 		f.Draw(d)
 	})
-	if draw > float64(len(d.Ops)) {
+	if draw > 3*float64(len(d.Ops)) {
 		t.Fatalf("drawing %d bullets allocated %v times for %d ops", f.Len(), draw, len(d.Ops))
 	}
 }

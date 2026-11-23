@@ -64,7 +64,7 @@ Angles are in degrees clockwise from +X on the screen, speeds in points a second
 | `angle`, `angleJitter` | Direction of a shot's first bullet (for `aimed`, the turn from the target's direction), varied per bullet by `[-angleJitter, angleJitter)` |
 | `spread` | Arc an `aimed` burst covers from its first bullet to its last; `aimed` only, above 0 when `count` is above 1 |
 | `spin` | Degrees each shot turns more than the one before; a `spiral` needs one other than 0 |
-| `shots`, `delay`, `interval` | Number of shots (0 fires until stopped), time before the first, time between shots (above 0 unless `shots` is 1) |
+| `shots`, `delay`, `interval` | Number of shots (0 fires until stopped), time before the first, time between shots (at least `1ms`, or 0 when `shots` is 1) |
 | `lifetime` | How long each bullet lives; 0 keeps it until it leaves the field's bounds |
 | `accel`, `turn` | Speed change in points a second each second (a bullet slowed to 0 stops), and path curve in degrees a second |
 | `radius` | Hit radius, also used to tell when a bullet has left the bounds |
@@ -73,13 +73,13 @@ Angles are in degrees clockwise from +X on the screen, speeds in points a second
 
 - `ring` spaces `count` bullets evenly around a full turn, the first at `angle`, turned by `spin` more each shot.
 - `spiral` is a ring with a `spin`: with a short `interval`, each of its `count` bullets traces an arm.
-- `aimed` spreads `count` bullets evenly across `spread`, centered on the direction from the emitter to its target and turned by `angle` and `spin`. One bullet flies straight at the target.
+- `aimed` spreads `count` bullets evenly across `spread`, centered on the direction from the emitter to its target and turned by `angle` and `spin`. With an odd `count` and no `angle` or `spin`, the middle bullet flies straight at the target; a single bullet flies at the target turned by `angle`.
 
 ## Field and Emitter
 
 A `Field` owns the live bullets. `NewField(atlas, capacity)` keeps `capacity` bullets ready in a pool, so spawning up to that many allocates nothing. Set `Bounds` to remove bullets whose hit circle has wholly left the playfield, and `Limit` to cap how many the field holds.
 
-`NewEmitter(field, pattern, seed)` fires a copy of the pattern into the field, and checks that the field's atlas has the pattern's frame. Move it with `X`, `Y`, aim it with `TargetX`, `TargetY`, hold it with `Stopped`, and start it over with `Reset`.
+`NewEmitter(field, pattern, seed)` fires a copy of the pattern into the field, and checks that the field's atlas has the pattern's frame. Move it with `X`, `Y`, aim it with `TargetX`, `TargetY`, pause it with `Stopped`, and start it over with `Reset`. A stopped emitter's clock stops too, so when it resumes it picks up its pattern where it paused instead of firing the shots it missed.
 
 ```go
 file, err := bullets.Parse(data)
@@ -104,6 +104,7 @@ field.Draw(d)
 ```
 
 - Update the field before its emitters each step. A shot due partway through a step spawns its bullets where they are at the step's end, so bullets do not bunch up when the interval is not a whole number of steps.
+- One `Update` fires at most 4096 bullets' worth of shots (at least one shot). When more are due, as after a long step from a hitch, it fires the latest and skips the earlier ones, which count as fired but spawn nothing and draw no random numbers.
 - `Field.Bullets()` lists the live bullets oldest first, each with its position, `Speed`, `Heading` (radians), `Radius`, `Age`, `Lifetime`, `Pattern` name, `Shot` index and `Sprite`. The bullets are the field's: do not keep a pointer past the next `Update`, `RemoveFunc` or `Clear`, as the field reuses it.
 - `Field.Update` keeps the order of the bullets it keeps, and `Field.Draw` draws them lowest `Z` first and oldest first for the same `Z`.
 - A shot past the field's `Limit` spawns only the bullets that fit, and still draws the same random numbers.
@@ -114,7 +115,9 @@ An emitter draws its jitter from its own `random.Stream`. Two emitters with the 
 
 ## Performance
 
-`BenchmarkFrame5000` runs one 60 fps frame of a steady 5000-bullet scene: ten spiral emitters with jitter and curving paths, half of them with turned sprites, moving, expiring, spawning and drawing into a `core.Drawing`. On a desktop Ryzen 9 3900X it takes about 1.1 ms of the 16.7 ms a frame has; moving 5000 bullets alone (`BenchmarkUpdate5000`) takes about 0.16 ms. The performance baselines in CI (`benchmarks/baseline.json`) fail a change that makes a frame take more than 10 ms on the CI runner.
+`BenchmarkFrame5000` runs one 60 fps frame of a steady 5000-bullet scene: ten spiral emitters with jitter and curving paths, half of them with turned sprites, moving, expiring, spawning and drawing into a `core.Drawing`. On a desktop Ryzen 9 3900X it takes about 0.63 ms of the 16.7 ms a frame has; moving 5000 bullets alone (`BenchmarkUpdate5000`) takes about 0.14 ms. The performance baselines in CI (`benchmarks/baseline.json`) fail a change that makes a frame take more than 6.25 ms on the CI runner.
+
+This measures the CPU work of a frame: simulating the bullets and recording their draw ops. It does not measure how long the platform's renderer takes to put those ops on screen, which is NSGo's and depends on the GPU.
 
 - Moving and firing allocate nothing once the pool is warm.
-- Drawing allocates one small value per sprite, inside NSGo v0.2.0's `Drawing.DrawImageFrom`, which `sprite.Batch` calls once per sprite. Drawing a batch with NSGo's batched `DrawAtlas` is [#28](https://github.com/nsgo-dev/game/issues/28).
+- `sprite.Batch` draws the bullets as runs through NSGo's `Drawing.DrawAtlas`, which copies each run and allocates three values per run, however many bullets it holds.

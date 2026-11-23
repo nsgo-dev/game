@@ -25,9 +25,9 @@
       "allocs_per_op": 244
     },
     "BenchmarkFrame5000": {
-      "ns_per_op": 8000000,
-      "bytes_per_op": 420100,
-      "allocs_per_op": 5250
+      "ns_per_op": 5000000,
+      "bytes_per_op": 200000,
+      "allocs_per_op": 3
     },
     "BenchmarkRaycast": {
       "ns_per_op": 15000,

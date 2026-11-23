@@ -94,6 +94,7 @@ func TestParseRejects(t *testing.T) {
 		"shots negative":   strings.Replace(ring, "shots: 1", "shots: -1", 1),
 		"no interval":      strings.Replace(ring, "shots: 1", "shots: 3", 1),
 		"endless":          strings.Replace(ring, "shots: 1", "shots: 0", 1),
+		"tiny interval":    strings.Replace(ring, "shots: 1", "shots: 0", 1) + "    interval: 999us\n",
 		"negative delay":   ring + "    delay: -1s\n",
 		"bad duration":     ring + "    lifetime: soon\n",
 		"not a mapping":    "[1, 2]",
