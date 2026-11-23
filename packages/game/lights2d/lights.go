@@ -111,6 +111,16 @@ type Scene struct {
 	// Zero defaults to core.CompositeLighter (additive). Set to
 	// core.CompositeScreen for softer screen-blended lights.
 	LightComposite core.CompositeOp
+	// DisableShadows skips occlusion for every light, as though none had CastShadows, without changing the lights; a low quality preset sets it (quality.Preset.Shadows false).
+	DisableShadows bool
+}
+
+// shadowOccluders returns the occluders shadow-casting lights test against: none when DisableShadows is set.
+func (s *Scene) shadowOccluders() []Occluder {
+	if s.DisableShadows {
+		return nil
+	}
+	return s.Occluders
 }
 
 // Draw renders the ambient darkness overlay followed by all active light glows
@@ -164,7 +174,7 @@ func (s *Scene) Draw(d *core.Drawing, bounds core.Bounds) {
 
 		d.Save()
 		d.SetComposite(comp)
-		if l.CastShadows && len(s.Occluders) > 0 {
+		if l.CastShadows && len(s.shadowOccluders()) > 0 {
 			origin := core.Point{X: core.Points(l.X), Y: core.Points(l.Y)}
 			poly := VisibilityPolygon(origin, l.Radius, s.Occluders)
 			if len(poly) < 3 {
@@ -221,7 +231,7 @@ func (s *Scene) EvaluateAt(x, y float32) (r, g, b float32) {
 		if atten <= 0 {
 			continue
 		}
-		if l.CastShadows && len(s.Occluders) > 0 {
+		if l.CastShadows && len(s.shadowOccluders()) > 0 {
 			if !occReady {
 				occSegs = appendOccluderSegments(nil, s.Occluders)
 				occReady = true

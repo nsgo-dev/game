@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/leaderboard"
+	"github.com/nsgo-dev/game/packages/game/quality"
+	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )
@@ -19,9 +22,13 @@ type GameController struct {
 	Loop    *game.Loop
 	// Boards submits each finished run's score and opens the platform's leaderboard.
 	Boards *leaderboard.Service
+	// Quality picks the arena's preset from the device and the loop's frame times, or holds the player's choice.
+	Quality *quality.Selector
 
+	settings    *save.DefaultSettingsStore
 	frameSig    *core.Signal[uint64]
 	hudSig      *core.Signal[HUDState]
+	qualitySig  *core.Signal[string]
 	boardStatus *core.Signal[string]
 	// runID counts runs left after a game over, so a submission or sign-in answered after the next run started does not label that run.
 	runID uint64
@@ -48,16 +55,35 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 	// Hardware gamepad bindings await nsgo#1049 and plug into Arena.Control alongside these.
 	gameProject.BindInput(actions)
 
+	// The device places the starting preset: a low-end Android phone starts on low. A stored player setting other than auto holds its level instead.
+	sel, err := quality.NewSelector(quality.DefaultConfig(), quality.DeviceFromEnv(cx.Env()))
+	if err != nil {
+		panic(err) // DefaultConfig always validates.
+	}
+	settings := save.NewStorageSettingsStore(cx.Storage(), "starburst")
+	if stored, err := settings.Load(); err == nil {
+		// Load validates the setting, so SetSetting accepts it.
+		_ = sel.SetSetting(stored.Display.Quality)
+	}
+	arena.ApplyQuality(sel.Preset())
+
 	initialHUD := arena.HUD()
 	gc := &GameController{
 		Arena:        arena,
 		Actions:      actions,
+		Quality:      sel,
+		settings:     settings,
 		frameSig:     core.NewSignal(cx, uint64(0)),
 		hudSig:       core.NewSignal(cx, initialHUD),
 		boardStatus:  core.NewSignal(cx, ""),
 		Boards:       newLeaderboards(cx),
+		qualitySig:   core.NewSignal(cx, qualityLabel(sel)),
 		viewSize:     core.Size{Width: core.Points(VirtualWidth), Height: core.Points(VirtualHeight)},
 		lastHUDState: initialHUD,
+	}
+	sel.OnChange = func(_ quality.Level, p quality.Preset) {
+		gc.Arena.ApplyQuality(p)
+		gc.qualitySig.Set(qualityLabel(gc.Quality))
 	}
 
 	actions.MapPoint = func(pt core.Point) (core.Point, bool) {
@@ -75,6 +101,9 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 
 	gc.Loop = &game.Loop{
 		Rate: StepRate,
+		FrameTime: func(dt time.Duration) {
+			gc.Quality.Observe(dt)
+		},
 		Update: func(dt time.Duration) {
 			gc.stepInput(cx)
 			gc.Arena.Step(dt)
@@ -164,6 +193,40 @@ func (gc *GameController) syncUI() {
 func (gc *GameController) ToggleStress() {
 	gc.Arena.ToggleStressMode()
 	gc.syncUI()
+}
+
+// qualitySettings is the order the HUD's quality button steps through.
+var qualitySettings = []string{quality.SettingAuto, "low", "medium", "high"}
+
+// CycleQuality steps the quality setting from auto through low, medium and high and back to auto, applies it, and stores it in the player's settings. The setting applies for this run even when storing it fails, and the error is returned.
+func (gc *GameController) CycleQuality() error {
+	current := gc.Quality.Setting()
+	next := qualitySettings[0]
+	for i, s := range qualitySettings {
+		if s == current {
+			next = qualitySettings[(i+1)%len(qualitySettings)]
+			break
+		}
+	}
+	if err := gc.Quality.SetSetting(next); err != nil {
+		return err
+	}
+	gc.qualitySig.Set(qualityLabel(gc.Quality))
+	stored, err := gc.settings.Load()
+	if err != nil {
+		stored = save.DefaultSettings()
+	}
+	stored.Display.Quality = gc.Quality.Setting()
+	return gc.settings.Save(stored)
+}
+
+// qualityLabel is the HUD's quality button text, such as "AUTO: LOW" or "HIGH".
+func qualityLabel(s *quality.Selector) string {
+	level := strings.ToUpper(s.Level().String())
+	if s.Auto() {
+		return "AUTO: " + level
+	}
+	return level
 }
 
 // TogglePause toggles pause and refreshes the HUD.
@@ -397,6 +460,15 @@ func (gc *GameController) hudOverlay(cx *core.Scope, full core.Style) core.Node 
 								},
 								func() bool { return gc.hudSig.Get().StressMode },
 								gc.ToggleStress,
+							),
+							hudBtn(
+								"btn-quality",
+								func() string { return gc.qualitySig.Get() },
+								nil,
+								func() {
+									// The new setting applies even when storing it fails; the next run starts from the last setting stored.
+									_ = gc.CycleQuality()
+								},
 							),
 							hudBtn(
 								"btn-pause",

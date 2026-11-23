@@ -8,6 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/physics"
+	"github.com/nsgo-dev/game/packages/game/quality"
 	"github.com/nsgo-dev/game/packages/game/random"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/game/packages/game/sprite"
@@ -190,6 +191,9 @@ type Arena struct {
 	cellHead  [gridCells]int
 	enemyNext [maxEnemies]int
 
+	// Quality is the preset the arena draws with: it scales particle budgets and bursts, and Effects draws the parallax starfield, the floor grid and screen flashes.
+	Quality quality.Preset
+
 	// Three deterministic particle emitters whose live particles draw through the single batch.
 	explosions particles.Emitter
 	sparks     particles.Emitter
@@ -252,6 +256,7 @@ func NewArena(seed uint64) *Arena {
 	atlas := NewProceduralAtlas()
 	a := &Arena{
 		Atlas:    atlas,
+		Quality:  quality.DefaultPreset(quality.High),
 		Viewport: gameViewport,
 		worldBounds: core.Bounds{
 			Origin: core.Point{X: 0, Y: 0},
@@ -367,7 +372,7 @@ func (a *Arena) SetStressMode(on bool) {
 	a.ensureStressPopulation()
 	a.explosions.X = a.Player.X
 	a.explosions.Y = a.Player.Y
-	a.explosions.Burst(48)
+	a.explosions.Burst(a.Quality.Particles(48))
 	a.Camera.Shake(5.0, 220*time.Millisecond)
 	a.triggerFlash(core.RGB(0x38BDF8), 0.22)
 	a.rebuildBatch()
@@ -482,13 +487,28 @@ func (a *Arena) initStarfield() {
 	}
 }
 
+// Particle budgets at full quality; a preset's ParticleScale scales them down.
+const (
+	explosionsMaxParticles = 512
+	sparksMaxParticles     = 256
+	thrusterMaxParticles   = 160
+)
+
+// ApplyQuality switches the arena to preset p: emitters take its particle budgets at once, with live particles past a smaller budget dying off as they expire, and the next frame draws with its effects.
+func (a *Arena) ApplyQuality(p quality.Preset) {
+	a.Quality = p
+	a.explosions.MaxParticles = p.Particles(explosionsMaxParticles)
+	a.sparks.MaxParticles = p.Particles(sparksMaxParticles)
+	a.thruster.MaxParticles = p.Particles(thrusterMaxParticles)
+}
+
 func (a *Arena) initEmitters() {
 	a.explosions = particles.Emitter{
 		Atlas:            a.Atlas,
 		Frames:           []sprite.Frame{a.frameSpark, a.frameRing},
 		Shape:            particles.Circle(6),
 		Rate:             0,
-		MaxParticles:     512,
+		MaxParticles:     a.Quality.Particles(explosionsMaxParticles),
 		LifetimeMin:      220 * time.Millisecond,
 		LifetimeMax:      540 * time.Millisecond,
 		SpeedMin:         38,
@@ -516,7 +536,7 @@ func (a *Arena) initEmitters() {
 		Frames:       []sprite.Frame{a.frameSpark},
 		Shape:        particles.Point(),
 		Rate:         0,
-		MaxParticles: 256,
+		MaxParticles: a.Quality.Particles(sparksMaxParticles),
 		LifetimeMin:  120 * time.Millisecond,
 		LifetimeMax:  280 * time.Millisecond,
 		SpeedMin:     60,
@@ -540,7 +560,7 @@ func (a *Arena) initEmitters() {
 		Frames:       []sprite.Frame{a.frameSpark},
 		Shape:        particles.Circle(2.2),
 		Rate:         0,
-		MaxParticles: 160,
+		MaxParticles: a.Quality.Particles(thrusterMaxParticles),
 		LifetimeMin:  140 * time.Millisecond,
 		LifetimeMax:  300 * time.Millisecond,
 		SpeedMin:     26,
@@ -762,7 +782,7 @@ func (a *Arena) stepPlayer(dtSec float32) {
 		a.thruster.Y = p.Y + float32(sin)*7
 		a.thruster.AngleMin = backAngle - 0.35
 		a.thruster.AngleMax = backAngle + 0.35
-		a.thruster.Burst(count)
+		a.thruster.Burst(a.Quality.Particles(count))
 	}
 
 	// Fire plasma bolts automatically when enemies are present or while fire button is held.
@@ -842,7 +862,7 @@ func (a *Arena) executeNova() {
 
 	a.explosions.X = p.X
 	a.explosions.Y = p.Y
-	a.explosions.Burst(36)
+	a.explosions.Burst(a.Quality.Particles(36))
 	a.Camera.Shake(7.0, 280*time.Millisecond)
 	a.triggerFlash(core.RGB(0x38BDF8), 0.28)
 }
@@ -882,7 +902,7 @@ func (a *Arena) stepSpawning(dtSec float32) {
 		a.Score += a.Wave * 100
 		a.explosions.X = a.Player.X
 		a.explosions.Y = a.Player.Y
-		a.explosions.Burst(24)
+		a.explosions.Burst(a.Quality.Particles(24))
 		a.Camera.Shake(4.2, 200*time.Millisecond)
 		a.triggerFlash(core.RGB(0x34D399), 0.18)
 		a.beginWave(a.Wave + 1)
@@ -1144,9 +1164,9 @@ func (a *Arena) stepBullets(dtSec float32) {
 						a.sparks.X = contact.PointX
 						a.sparks.Y = contact.PointY
 						if a.StressMode {
-							a.sparks.Burst(2)
+							a.sparks.Burst(a.Quality.Particles(2))
 						} else {
-							a.sparks.Burst(6)
+							a.sparks.Burst(a.Quality.Particles(6))
 						}
 						if e.HP <= 0 {
 							a.onEnemyDestroyed(*e)
@@ -1188,15 +1208,15 @@ func (a *Arena) onEnemyDestroyed(e Enemy) {
 	a.explosions.X = e.X
 	a.explosions.Y = e.Y
 	if a.StressMode {
-		a.explosions.Burst(4)
+		a.explosions.Burst(a.Quality.Particles(4))
 	} else if e.Kind == EnemyDrone {
-		a.explosions.Burst(18)
+		a.explosions.Burst(a.Quality.Particles(18))
 		a.Camera.Shake(5.0, 210*time.Millisecond)
 		a.triggerFlash(core.RGB(0xF59E0B), 0.10)
 		a.spawnOrb(e.X-4, e.Y, 20)
 		a.spawnOrb(e.X+4, e.Y, 20)
 	} else {
-		a.explosions.Burst(10)
+		a.explosions.Burst(a.Quality.Particles(10))
 		a.Camera.Shake(2.8, 120*time.Millisecond)
 		a.spawnOrb(e.X, e.Y, 10)
 	}
@@ -1223,7 +1243,7 @@ func (a *Arena) stepPlayerEnemyCollisions() {
 
 			a.explosions.X = hit.PointX
 			a.explosions.Y = hit.PointY
-			a.explosions.Burst(22)
+			a.explosions.Burst(a.Quality.Particles(22))
 			a.Camera.Shake(8.0, 300*time.Millisecond)
 			a.triggerFlash(core.RGB(0xEF4444), 0.34)
 
@@ -1232,7 +1252,7 @@ func (a *Arena) stepPlayerEnemyCollisions() {
 				a.GameOver = true
 				a.explosions.X = a.Player.X
 				a.explosions.Y = a.Player.Y
-				a.explosions.Burst(42)
+				a.explosions.Burst(a.Quality.Particles(42))
 			}
 			return
 		}
@@ -1277,7 +1297,7 @@ func (a *Arena) stepOrbs(dtSec float32) {
 			a.Score += o.Value * a.Combo
 			a.sparks.X = o.X
 			a.sparks.Y = o.Y
-			a.sparks.Burst(3)
+			a.sparks.Burst(a.Quality.Particles(3))
 			continue
 		}
 
@@ -1444,14 +1464,16 @@ func (a *Arena) DrawWorld(d *core.Drawing) {
 	// Deep space backdrop.
 	d.SetFillColor(core.RGB(0x070B16)).FillRect(0, 0, VirtualWidth, VirtualHeight)
 
-	// Subtle parallax starfield.
-	camX := a.Camera.X
-	camY := a.Camera.Y
-	for i := range a.stars {
-		st := &a.stars[i]
-		sx := wrapf(st.x-camX*st.parallax, VirtualWidth)
-		sy := wrapf(st.y-camY*st.parallax, VirtualHeight)
-		d.SetFillColor(st.color).FillRect(sx, sy, st.size, st.size)
+	// Subtle parallax starfield, an effect a low preset leaves out.
+	if a.Quality.Effects {
+		camX := a.Camera.X
+		camY := a.Camera.Y
+		for i := range a.stars {
+			st := &a.stars[i]
+			sx := wrapf(st.x-camX*st.parallax, VirtualWidth)
+			sy := wrapf(st.y-camY*st.parallax, VirtualHeight)
+			d.SetFillColor(st.color).FillRect(sx, sy, st.size, st.size)
+		}
 	}
 
 	// World-space layer transformed by tilemap.Camera (including explosion/damage screen shake).
@@ -1483,8 +1505,8 @@ func (a *Arena) DrawWorld(d *core.Drawing) {
 		a.drawTouchHints(d)
 	}
 
-	// Screen flash overlay (explosion / nova / damage feedback).
-	if a.flashAlpha > 0.005 {
+	// Screen flash overlay (explosion / nova / damage feedback), an effect a low preset leaves out.
+	if a.Quality.Effects && a.flashAlpha > 0.005 {
 		d.Save()
 		d.SetAlpha(a.flashAlpha)
 		d.SetFillColor(a.flashColor)
@@ -1494,7 +1516,17 @@ func (a *Arena) DrawWorld(d *core.Drawing) {
 }
 
 func (a *Arena) drawArenaFloor(d *core.Drawing) {
-	// Subtle tactical grid inside the visible camera bounds.
+	if a.Quality.Effects {
+		a.drawFloorGrid(d)
+	}
+
+	// Glowing neon arena perimeter.
+	d.SetStrokeColor(core.RGBA(0x38BDF8, 0.65)).SetLineWidth(2.0).
+		StrokeRect(2, 2, ArenaWidth-4, ArenaHeight-4)
+}
+
+// drawFloorGrid strokes the subtle tactical grid inside the visible camera bounds.
+func (a *Arena) drawFloorGrid(d *core.Drawing) {
 	vis := a.Camera.VisibleBounds()
 	const step = 48
 	startX := max(0, int(vis.Origin.X)/step*step)
@@ -1510,10 +1542,6 @@ func (a *Arena) drawArenaFloor(d *core.Drawing) {
 		d.MoveTo(float32(startX), float32(y)).LineTo(float32(endX), float32(y))
 	}
 	d.Stroke()
-
-	// Glowing neon arena perimeter.
-	d.SetStrokeColor(core.RGBA(0x38BDF8, 0.65)).SetLineWidth(2.0).
-		StrokeRect(2, 2, ArenaWidth-4, ArenaHeight-4)
 }
 
 func (a *Arena) drawTouchHints(d *core.Drawing) {

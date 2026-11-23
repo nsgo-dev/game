@@ -33,6 +33,8 @@ type Loop struct {
 	Update func(dt time.Duration)
 	// Draw draws the frame; alpha, from 0 up to but not including 1, is how far the frame falls between the last update and the next.
 	Draw func(alpha float64)
+	// FrameTime, when set, receives each display frame's length before the loop smooths it, the time since the last frame or since the run started or resumed, ahead of the frame's updates. It is what frame-time statistics such as quality.Selector's read; a frame that ends a pause in the background measures from the time the window showed again, not the time away.
+	FrameTime func(dt time.Duration)
 
 	pendingSteps int
 	dirty        bool
@@ -186,6 +188,13 @@ func (r *loopRun) frame(at time.Time) {
 	if at.After(r.last) {
 		dt = at.Sub(r.last)
 		r.last = at
+	}
+	if r.loop.FrameTime != nil {
+		r.loop.FrameTime(dt)
+		// FrameTime may have stopped the loop.
+		if r.cancel == nil {
+			return
+		}
 	}
 	step := r.loop.step()
 	steps := 0

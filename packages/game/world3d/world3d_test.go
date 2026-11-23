@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/quality"
 	"github.com/nsgo-dev/game/packages/game/world3d"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -432,5 +433,19 @@ func TestNavMeshSlopedRampAndMultiLevelBridge(t *testing.T) {
 	// 4. Disconnected island is unreachable.
 	if _, ok := nm.FindPath(math3d.Vec3{X: 6, Y: 0, Z: 0}, math3d.Vec3{X: 22, Y: 3, Z: 0}); ok {
 		t.Fatalf("expected path to disconnected floating island to return false")
+	}
+}
+
+func TestQualityLevelForFollowsTheGamePreset(t *testing.T) {
+	cases := map[quality.Level]world3d.QualityLevel{
+		quality.Low:       world3d.QualityLow,
+		quality.Medium:    world3d.QualityMedium,
+		quality.High:      world3d.QualityHigh,
+		quality.Level(42): world3d.QualityMedium,
+	}
+	for in, want := range cases {
+		if got := world3d.QualityLevelFor(in); got != want {
+			t.Errorf("QualityLevelFor(%v) = %v, want %v", in, got, want)
+		}
 	}
 }

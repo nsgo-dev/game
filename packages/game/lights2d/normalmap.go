@@ -37,12 +37,12 @@ func ShadeNormalMapWithOccluders(diffuse, normalMap *image.NRGBA, spriteX, sprit
 }
 
 // ShadeNormalMap shades diffuse using normalMap with the scene's Ambient,
-// Lights, and Occluders.
+// Lights, and Occluders, leaving the occluders out when DisableShadows is set.
 func (s *Scene) ShadeNormalMap(diffuse, normalMap *image.NRGBA, spriteX, spriteY, lightZ float32) *image.NRGBA {
 	if s == nil {
 		return ShadeNormalMap(diffuse, normalMap, spriteX, spriteY, 0, nil, lightZ)
 	}
-	return ShadeNormalMapWithOccluders(diffuse, normalMap, spriteX, spriteY, s.Ambient, s.Lights, lightZ, s.Occluders)
+	return ShadeNormalMapWithOccluders(diffuse, normalMap, spriteX, spriteY, s.Ambient, s.Lights, lightZ, s.shadowOccluders())
 }
 
 type activeNormalLight struct {

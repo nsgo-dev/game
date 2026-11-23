@@ -30,7 +30,7 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 			t.Fatalf("default audio group %q = %v, want 1.0", g, d.Audio.Groups[g])
 		}
 	}
-	if !d.Display.VSync || !d.Display.AutoDropLowPower || d.Display.ScaleMode != "fit" || d.Display.FrameCap != 0 {
+	if !d.Display.VSync || !d.Display.AutoDropLowPower || d.Display.ScaleMode != "fit" || d.Display.FrameCap != 0 || d.Display.Quality != "auto" {
 		t.Fatalf("default display = %+v", d.Display)
 	}
 	if d.Accessibility.CaptionScale != 1.0 || d.Accessibility.ScreenShake != 1.0 || d.Accessibility.GameSpeed != 1.0 || d.Accessibility.ColorBlindMode != "none" {
@@ -52,6 +52,7 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 			DisplayIndex: -3,
 			FrameCap:     -120,
 			ScaleMode:    "   ",
+			Quality:      " Ultra ",
 		},
 		Locale: "  zh-Hans  ",
 		Accessibility: save.AccessibilitySettings{
@@ -69,8 +70,13 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 	if s.Audio.Groups["music"] != 0.0 || s.Audio.Groups["sfx"] != 1.0 || s.Audio.Groups["ui"] != 1.0 || s.Audio.Groups["voice"] != 0.0 {
 		t.Fatalf("Groups = %+v", s.Audio.Groups)
 	}
-	if s.Display.DisplayIndex != 0 || s.Display.FrameCap != 0 || s.Display.ScaleMode != "fit" {
+	if s.Display.DisplayIndex != 0 || s.Display.FrameCap != 0 || s.Display.ScaleMode != "fit" || s.Display.Quality != "auto" {
 		t.Fatalf("Display = %+v", s.Display)
+	}
+	s.Display.Quality = " HIGH "
+	s.Validate()
+	if s.Display.Quality != "high" {
+		t.Fatalf("Quality = %q, want high", s.Display.Quality)
 	}
 	if s.Locale != "zh-Hans" {
 		t.Fatalf("Locale = %q, want zh-Hans", s.Locale)
@@ -170,6 +176,7 @@ func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 			FrameCap:         120,
 			VSync:            false,
 			AutoDropLowPower: false,
+			Quality:          "low",
 		}
 		want.Locale = "ja"
 		want.Accessibility = save.AccessibilitySettings{

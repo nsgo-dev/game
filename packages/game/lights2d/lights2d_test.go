@@ -327,6 +327,19 @@ func TestVisibilityPolygonBoxOccluderAndShadows(t *testing.T) {
 		}
 	}
 
+	// DisableShadows lets the light through the occluder without touching the light.
+	scene.DisableShadows = true
+	if r, _, _ := scene.EvaluateAt(160, 100); r <= 0 {
+		t.Errorf("with DisableShadows, EvaluateAt(160,100) = %v, want > 0", r)
+	}
+	if !light.CastShadows {
+		t.Error("DisableShadows changed the light's CastShadows")
+	}
+	scene.DisableShadows = false
+	if r, _, _ := scene.EvaluateAt(160, 100); r != 0 {
+		t.Errorf("with shadows back on, EvaluateAt(160,100) = %v, want 0", r)
+	}
+
 	// Disabling CastShadows allows the light to pass through the occluder.
 	light.CastShadows = false
 	r, _, _ := scene.EvaluateAt(160, 100)
