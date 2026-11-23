@@ -107,3 +107,47 @@ action, err := g.Check(peer, packet)
 - `Stats(peer)` reports packets, bytes, dropped, violations and pending reliable bytes per peer; `Reset` forgets a reconnecting peer. Per-peer state and O(1) checks leave other peers' ticks unaffected.
 
 The guard is transport-agnostic: call `Check` at the packet loop and act on the returned `GuardAction`.
+
+## TLS, origins, health and metrics
+
+A browser on an HTTPS page needs `wss://`. `net.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key:
+
+```go
+srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
+	[]string{"https://game.example.com"})
+```
+
+An `Origin` outside the allow-list is refused with `403` before the WebSocket handshake; an empty allow-list accepts any Origin and `"*"` accepts all, while an empty Origin (native game clients) is allowed.
+
+`server.Health` serves deployment endpoints:
+
+```go
+health := server.NewHealth(func() bool { return worldReady() }, func() server.Metrics {
+	return server.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
+})
+http.ListenAndServe(":8080", health)
+```
+
+- `GET /healthz` — process liveness;
+- `GET /readyz` — 200 while `Ready` returns true, else 503;
+- `GET /metrics` — Prometheus gauges/counters for peers, rooms, last tick duration and bytes.
+
+Observe each server tick with `health.ObserveTick(time.Since(start))`.
+
+### Container and draining
+
+Build the example as a static, cgo-free binary and run it as a small container:
+
+```dockerfile
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/server ./packages/game/server/cmd/dedicatedserver
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/server /server
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+```
+
+Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick.

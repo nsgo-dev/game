@@ -107,3 +107,47 @@ action, err := g.Check(peer, packet)
 - `Stats(peer)` 返回该 peer 的包数、字节数、丢弃数、违规数与待处理可靠字节；`Reset` 用于重连 peer。状态按 peer 隔离、检查 O(1)，不影响其他 peer 的 tick。
 
 `Guard` 与传输无关：在收包循环调用 `Check`，按返回的 `GuardAction` 处理即可。
+
+## TLS、Origin、健康检查与指标
+
+HTTPS 页面里的浏览器需要 `wss://`。`net.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥：
+
+```go
+srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
+	[]string{"https://game.example.com"})
+```
+
+不在允许列表的 `Origin` 会在 WebSocket 握手前被 `403` 拒绝；允许列表为空表示接受任意 Origin，`"*"` 也接受全部，而原生客户端不带 Origin 时同样允许。
+
+`server.Health` 提供部署端点：
+
+```go
+health := server.NewHealth(func() bool { return worldReady() }, func() server.Metrics {
+	return server.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
+})
+http.ListenAndServe(":8080", health)
+```
+
+- `GET /healthz`：进程存活；
+- `GET /readyz`：`Ready` 为 true 时 200，否则 503；
+- `GET /metrics`：Prometheus 的 peers、rooms、上一 tick 耗时与字节计数。
+
+每次服务器 tick 用 `health.ObserveTick(time.Since(start))` 记录耗时。
+
+### 容器与优雅退出
+
+把示例构建成静态、无 cgo 的二进制并以小容器运行：
+
+```dockerfile
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/server ./packages/game/server/cmd/dedicatedserver
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/server /server
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+```
+
+使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。
