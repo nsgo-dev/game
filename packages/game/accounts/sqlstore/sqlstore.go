@@ -213,7 +213,7 @@ func (s *Store) AccountByEmail(ctx context.Context, email string) (accounts.Acco
 // SetEmail implements accounts.Store.
 func (s *Store) SetEmail(ctx context.Context, id, email, passwordHash string) error {
 	if email == "" {
-		return errors.New("sqlstore: empty email")
+		return accounts.ErrInvalidEmail
 	}
 	res, err := s.db.ExecContext(ctx, s.q(`UPDATE accounts SET email = ?, password_hash = ? WHERE id = ? AND email IS NULL`), email, passwordHash, id)
 	if err != nil {

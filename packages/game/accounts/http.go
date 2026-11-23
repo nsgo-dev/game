@@ -184,7 +184,13 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil || dec.More() {
+	if err := dec.Decode(v); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{"bad_request"})
+		return false
+	}
+	// A second value, or a stray closing brace or bracket, is trailing data; More alone misses the stray one.
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
 		writeJSON(w, http.StatusBadRequest, errorResponse{"bad_request"})
 		return false
 	}

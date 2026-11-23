@@ -63,7 +63,7 @@ type Store interface {
 	Account(ctx context.Context, id string) (Account, error)
 	// AccountByEmail returns the account with the normalized email address and its password hash, or ErrNotFound.
 	AccountByEmail(ctx context.Context, email string) (Account, string, error)
-	// SetEmail gives an account without an email address one and its password hash. It returns ErrNotFound for no such account, ErrAlreadyLinked when the account has an email address, and ErrTaken when another account has this one.
+	// SetEmail gives an account without an email address one and its password hash. It returns ErrNotFound for no such account, ErrAlreadyLinked when the account has an email address, ErrInvalidEmail for an empty address, and ErrTaken when another account has this one.
 	SetEmail(ctx context.Context, id, email, passwordHash string) error
 	// SetPasswordHash replaces the password hash of an account with an email address, or returns ErrNotFound.
 	SetPasswordHash(ctx context.Context, id, passwordHash string) error

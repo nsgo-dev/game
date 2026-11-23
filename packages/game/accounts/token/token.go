@@ -266,7 +266,9 @@ func decodePart(part string, v any) error {
 	if err := dec.Decode(v); err != nil {
 		return err
 	}
-	if dec.More() {
+	// A second value, or a stray closing brace or bracket, is trailing data; More alone misses the stray one.
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
 		return errors.New("trailing data")
 	}
 	return nil
