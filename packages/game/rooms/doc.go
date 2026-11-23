@@ -2,7 +2,7 @@
 //
 // # Room Maps
 //
-// A Map is a versioned YAML file listing rectangular rooms in world points and the transition each one plays when the player enters it. Parse decodes and validates a map, refusing unknown fields, unsupported versions, duplicate IDs, empty or non-finite rectangles, unknown transition kinds or curves and malformed colors. Encode writes deterministic 2-space YAML that Parse reads back to the same Map. FromLDtk and FromTiledObjects build rooms from an LDtk project's levels or a Tiled object layer's rectangles, so a map can be laid out in either editor.
+// A Map is a versioned YAML file listing rectangular rooms in world points and the transition each one plays when the player enters it. Parse decodes and validates a map, refusing unknown fields, unsupported versions, duplicate IDs, empty or non-finite rectangles, unknown transition kinds or curves and malformed colors. Encode writes deterministic 2-space YAML that Parse reads back to the same Map. FromLDtk and FromTiledLayer build rooms from an LDtk project's levels or a Tiled object layer's rectangles, so a map can be laid out in either editor.
 //
 // # Director
 //

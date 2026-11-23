@@ -14,6 +14,7 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("version: 1\nrooms:\n  - {id: a, x: 0, y: 0, width: 10, height: 10}\n"))
 	f.Add([]byte("version: 1\ntransition: {kind: fade, color: red}\nrooms:\n  - {id: a, x: -5.5, y: 1e3, width: 1, height: 1}\n"))
 	f.Add([]byte("version: 1\nrooms: [{id: a, x: .nan, y: 0, width: 1, height: 1}]\n"))
+	f.Add([]byte("version: 1\nrooms: [{id: a, x: -0.0, y: -0, width: 1, height: 1}]\n"))
 	f.Add([]byte("{}"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		m, err := rooms.Parse(data)
