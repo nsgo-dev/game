@@ -139,9 +139,19 @@ hero.X, hero.Y = 120, 200
 | `ScaleX`、`ScaleY` | 绕原点的缩放比例；负值表示绕原点镜像；`0` 不绘制。 |
 | `FlipX`、`FlipY` | 在摆放前将画面在未裁剪画框内左右/上下翻转，原点位置保持不变。 |
 | `Alpha` | 不透明度，范围 `[0, 1]`；`<= 0` 不绘制。绘制该精灵时会替换当前绘图的透明度。 |
+| `Tint` | 一个 `core.Color`，在合成前与帧的红、绿、蓝和透明度通道相乘；零值和不透明白色按原样绘制，透明度为 `0` 的着色不绘制任何内容。 |
 | `Z` | 批次中的前后顺序；`Z` 越大越靠前绘制。 |
 
-精灵暂时还不支持着色（[#29](https://github.com/nsgo-dev/game/issues/29)）。
+着色只改变精灵自身的像素：它通过 NSGo 的 `DrawTintedImageFrom` 绘制，先把图像各通道与着色相乘，再以默认的 source-over 模式合成，因此透明像素不会改变精灵下方已有的内容，在所有平台上都是如此。`Tint` 可以与 `Alpha`、`Blend` 和 `Mask` 在同一次绘制中组合使用：
+
+```go
+hit := sprite.NewSprite(atlas.Frames["slime.png"])
+hit.Tint = core.RGB(0xff6060) // 受伤时闪红
+ghost := hit
+ghost.Tint = core.RGBA(0x80c0ff, 0.5) // 淡蓝色，不透明度减半
+```
+
+在 Web 上，跨域的图集图片必须允许匿名 CORS 请求，NSGo 才能为它的像素着色。
 
 ## Batch 与 Z 排序
 

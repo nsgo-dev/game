@@ -80,8 +80,7 @@ type Emitter struct {
 	AlphaCurve FloatCurve
 	// RotationCurve adds rotation in radians over a particle's normalized life in [0, 1]; empty adds 0.
 	RotationCurve FloatCurve
-	// ColorCurve evaluates a color over each particle's normalized life in [0, 1] and stores it on Particle.Color.
-	// Sprite tinting waits for nsgo-dev/game#29, so Draw applies only ColorCurve's alpha channel (multiplied with AlphaCurve) today.
+	// ColorCurve evaluates a color over each particle's normalized life in [0, 1] and stores it on Particle.Color. Draw tints each particle's sprite by the color's RGB, and its alpha channel multiplies AlphaCurve into Particle.Alpha.
 	ColorCurve ColorCurve
 	// Seed seeds the emitter's PCG PRNG for deterministic emission and motion.
 	Seed uint64
@@ -428,7 +427,9 @@ func (e *Emitter) Draw(d *core.Drawing) {
 				ScaleX:   p.Size,
 				ScaleY:   p.Size,
 				Alpha:    p.Alpha,
-				Z:        e.Z,
+				// The color's alpha is already in p.Alpha, so the tint takes only its RGB.
+				Tint: p.Color | 0xff,
+				Z:    e.Z,
 			}
 			e.batch.Sprites[i] = &e.sprites[i]
 		}

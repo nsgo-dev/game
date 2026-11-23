@@ -75,7 +75,7 @@ fire.Draw(d)
 - **`SizeCurve`（`FloatCurve`）**：生命周期内的等比缩放（空曲线恒为 `1`）。
 - **`AlphaCurve`（`FloatCurve`）**：生命周期内的不透明度（空曲线恒为 `1`）。
 - **`RotationCurve`（`FloatCurve`）**：生命周期内叠加的旋转弧度（空曲线恒为 `0`）。
-- **`ColorCurve`（`ColorCurve`）**：线性 RGBA 颜色插值并写入 `Particle.Color`（空曲线恒为不透明白色）。说明：精灵着色依赖 [nsgo-dev/game#29](https://github.com/nsgo-dev/game/issues/29)，目前 `Draw` 会将 `ColorCurve` 的 alpha 通道与 `AlphaCurve` 相乘。
+- **`ColorCurve`（`ColorCurve`）**：线性 RGBA 颜色插值并写入 `Particle.Color`（空曲线恒为不透明白色）。`Draw` 用颜色的 RGB 为每个粒子的精灵着色，并将其 alpha 通道与 `AlphaCurve` 相乘。
 
 ```go
 glow := particles.ColorCurve{

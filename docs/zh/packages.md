@@ -57,11 +57,11 @@ import "github.com/nsgo-dev/game/packages/game/sprite"
 
 ### Sprite 与 Batch
 
-`Sprite` 是放在绘图中的一帧：可以移动（`X`、`Y`）、旋转（`Rotation`，单位为弧度，顺时针）、缩放（`ScaleX`、`ScaleY`；负值表示镜像）、在未裁剪的帧内翻转（`FlipX`、`FlipY`），以及淡化（`Alpha`），这些都以它的原点（`OriginX`、`OriginY`）为中心。`Z` 决定批次中精灵的先后顺序。
+`Sprite` 是放在绘图中的一帧：可以移动（`X`、`Y`）、旋转（`Rotation`，单位为弧度，顺时针）、缩放（`ScaleX`、`ScaleY`；负值表示镜像）、在未裁剪的帧内翻转（`FlipX`、`FlipY`），淡化（`Alpha`）以及着色（`Tint`），这些都以它的原点（`OriginX`、`OriginY`）为中心。`Z` 决定批次中精灵的先后顺序。
 
-它的零值不绘制任何内容；`NewSprite(f)` 返回一个原始尺寸、完全不透明的精灵。精灵暂时还不支持着色（[#29](https://github.com/nsgo-dev/game/issues/29)）。
+它的零值不绘制任何内容；`NewSprite(f)` 返回一个原始尺寸、完全不透明的精灵。着色只与精灵自身的像素相乘，不会改变它下方已绘制的内容。
 
-`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序，每个精灵调用一次 `DrawImageFrom`。它会把绘图的状态恢复成绘制前的样子。用 NSGo 的批量 `DrawAtlas` 绘制批次见 [#28](https://github.com/nsgo-dev/game/issues/28)。
+`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序，每个精灵调用一次 `DrawImageFrom`，着色的精灵则调用 `DrawTintedImageFrom`。它会把绘图的状态恢复成绘制前的样子。用 NSGo 的批量 `DrawAtlas` 绘制批次见 [#28](https://github.com/nsgo-dev/game/issues/28)。
 
 ```go
 walk := atlas.Animations["walk"]
