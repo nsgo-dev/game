@@ -68,3 +68,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/editor`: saves write through a temporary file and rename, a save with no target reports that instead of claiming success, opening YAML clears the stale save path, 3D views and picking skip screen-space layers, and a zero scale can be dragged away from zero.
 - `game/skeletal`: `SkeletonData.Compile` is exported and `NewSkeleton` reports an invalid rig instead of rendering every bone at the origin.
 - `examples/caverun`: the title backdrop snapshots slime positions so interpolation does not drift back toward spawn points.
+- `game/anim3d`: a root-motion step that crosses a loop boundary composes its rotations in playback order, so pitch-and-yaw clips no longer turn the wrong way at the wrap (#546).

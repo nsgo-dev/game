@@ -85,3 +85,5 @@ rm := anim3d.ExtractRootMotion(attackClip, prevTime, currTime, opts)
 pose = anim3d.StripRootMotion(pose, opts)
 characterTransform = anim3d.ApplyRootMotion(characterTransform, rm)
 ```
+
+A step that crosses the end of a looping clip, whether passed as wrapped times (`currTime < prevTime`) or monotonic ones, is split at each loop boundary and its rotations compose in playback order, so one long step turns the character exactly as the shorter steps on either side of the boundary would, including clips that pitch and yaw at once. `DeltaPos` is measured in the clip's root parent space and the pieces add.

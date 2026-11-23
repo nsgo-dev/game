@@ -33,81 +33,61 @@ type RootMotionOptions struct {
 // ExtractRootMotion extracts the root joint's translation delta (DeltaPos) and
 // rotation delta (DeltaRot) across the interval [prevTime, currTime].
 //
-// For looping clips, loop wrap-around is handled cleanly without backward jumps
-// whether the caller passes already-wrapped playback times (currTime < prevTime)
-// or monotonic unwrapped times (currTime >= clip.Duration).
+// For looping clips, loop wrap-around is handled cleanly without backward jumps whether the caller passes already-wrapped playback times (currTime < prevTime) or monotonic unwrapped times (currTime >= clip.Duration). A step that crosses one or more loop boundaries is split at each boundary and the pieces are composed in playback order, so its DeltaRot equals the rotation of applying the pieces one after another with ApplyRootMotion, also for clips that pitch and yaw at once.
 func ExtractRootMotion(clip *Clip, prevTime, currTime time.Duration, opts RootMotionOptions) RootMotion {
 	if clip == nil || clip.Duration <= 0 {
 		return RootMotion{DeltaRot: math3d.QuatIdentity()}
 	}
 
 	root := opts.RootJoint
-	var deltaPos math3d.Vec3
-	var deltaRot math3d.Quat
+	// segment returns the motion between two in-range clip times. Yaw-only extraction runs per segment so that a step crossing a loop boundary composes exactly like the two steps a caller would take on either side of it.
+	segment := func(from, to time.Duration) RootMotion {
+		a := clip.sampleJointClamped(root, from)
+		b := clip.sampleJointClamped(root, to)
+		rot := b.Rot.Mul(a.Rot.Inverse()).Norm()
+		if opts.ExtractYawOnly {
+			rot = extractYawQuat(rot)
+		}
+		return RootMotion{DeltaPos: b.Pos.Sub(a.Pos), DeltaRot: rot}
+	}
 
 	if !clip.Loop {
-		p0 := clip.NormalizeTime(prevTime)
-		p1 := clip.NormalizeTime(currTime)
-		prevT := clip.sampleJointClamped(root, p0)
-		currT := clip.sampleJointClamped(root, p1)
-		deltaPos = currT.Pos.Sub(prevT.Pos)
-		deltaRot = currT.Rot.Mul(prevT.Rot.Inverse()).Norm()
-	} else if currTime < prevTime {
+		return segment(clip.NormalizeTime(prevTime), clip.NormalizeTime(currTime))
+	}
+	if currTime < prevTime {
 		// Caller passed wrapped playback timestamps across a single loop boundary.
 		p0 := prevTime
 		if p0 != clip.Duration {
 			p0 = modDuration(p0, clip.Duration)
 		}
 		p1 := modDuration(currTime, clip.Duration)
-
-		prevT := clip.sampleJointClamped(root, p0)
-		endT := clip.sampleJointClamped(root, clip.Duration)
-		startT := clip.sampleJointClamped(root, 0)
-		currT := clip.sampleJointClamped(root, p1)
-
-		deltaPos = endT.Pos.Sub(prevT.Pos).Add(currT.Pos.Sub(startT.Pos))
-		rotToEnd := endT.Rot.Mul(prevT.Rot.Inverse()).Norm()
-		rotFromStart := currT.Rot.Mul(startT.Rot.Inverse()).Norm()
-		deltaRot = rotFromStart.Mul(rotToEnd).Norm()
-	} else {
-		span := currTime - prevTime
-		if span == 0 {
-			return RootMotion{DeltaRot: math3d.QuatIdentity()}
-		}
-		p0 := modDuration(prevTime, clip.Duration)
-		p1 := modDuration(currTime, clip.Duration)
-		loops := int((p0 + span) / clip.Duration)
-
-		prevT := clip.sampleJointClamped(root, p0)
-		currT := clip.sampleJointClamped(root, p1)
-		if loops == 0 {
-			deltaPos = currT.Pos.Sub(prevT.Pos)
-			deltaRot = currT.Rot.Mul(prevT.Rot.Inverse()).Norm()
-		} else {
-			startT := clip.sampleJointClamped(root, 0)
-			endT := clip.sampleJointClamped(root, clip.Duration)
-			loopPos := endT.Pos.Sub(startT.Pos)
-			loopRot := endT.Rot.Mul(startT.Rot.Inverse()).Norm()
-
-			deltaPos = endT.Pos.Sub(prevT.Pos).
-				Add(loopPos.Scale(float32(loops - 1))).
-				Add(currT.Pos.Sub(startT.Pos))
-
-			rot := endT.Rot.Mul(prevT.Rot.Inverse()).Norm()
-			for range loops - 1 {
-				rot = loopRot.Mul(rot).Norm()
-			}
-			deltaRot = currT.Rot.Mul(startT.Rot.Inverse()).Mul(rot).Norm()
+		return composeRootMotion(segment(p0, clip.Duration), segment(0, p1))
+	}
+	span := currTime - prevTime
+	if span == 0 {
+		return RootMotion{DeltaRot: math3d.QuatIdentity()}
+	}
+	p0 := modDuration(prevTime, clip.Duration)
+	p1 := modDuration(currTime, clip.Duration)
+	loops := int((p0 + span) / clip.Duration)
+	if loops == 0 {
+		return segment(p0, p1)
+	}
+	rm := segment(p0, clip.Duration)
+	if loops > 1 {
+		whole := segment(0, clip.Duration)
+		for range loops - 1 {
+			rm = composeRootMotion(rm, whole)
 		}
 	}
+	return composeRootMotion(rm, segment(0, p1))
+}
 
-	if opts.ExtractYawOnly {
-		deltaRot = extractYawQuat(deltaRot)
-	}
-
+// composeRootMotion joins two consecutive segments, a first. Rotations compose in the order ApplyRootMotion applies successive steps (world.Rot * a * b), so a step across a loop boundary turns the character exactly as the two steps on either side of it would; positions add because DeltaPos is measured in the clip's root parent space.
+func composeRootMotion(a, b RootMotion) RootMotion {
 	return RootMotion{
-		DeltaPos: deltaPos,
-		DeltaRot: deltaRot,
+		DeltaPos: a.DeltaPos.Add(b.DeltaPos),
+		DeltaRot: a.DeltaRot.Mul(b.DeltaRot).Norm(),
 	}
 }
 
