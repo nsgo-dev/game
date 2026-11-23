@@ -1,0 +1,301 @@
+# Path labels for pull requests, applied by pr-triage.yml. Each package under packages/game gets a pkg/<name> label, the root package and the module files get pkg/game, and the rest of the repository is labelled by area. A new package needs its own entry here.
+
+pkg/game:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/*
+
+pkg/a11y:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/a11y/**
+
+pkg/accounts:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/accounts/**
+
+pkg/achievements:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/achievements/**
+
+pkg/ai:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/ai/**
+
+pkg/anim3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/anim3d/**
+
+pkg/assets:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/assets/**
+
+pkg/cmd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/cmd/**
+
+pkg/cutscene:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/cutscene/**
+
+pkg/debug:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/debug/**
+
+pkg/editor:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/editor/**
+
+pkg/effects:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/effects/**
+
+pkg/entities:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/entities/**
+
+pkg/flow:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/flow/**
+
+pkg/gametest:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/gametest/**
+
+pkg/gameui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/gameui/**
+
+pkg/gltf:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/gltf/**
+
+pkg/input:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/input/**
+
+pkg/internal:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/internal/**
+
+pkg/l10n:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/l10n/**
+
+pkg/leaderboard:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/leaderboard/**
+
+pkg/lights2d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/lights2d/**
+
+pkg/liveops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/liveops/**
+
+pkg/math2d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/math2d/**
+
+pkg/math3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/math3d/**
+
+pkg/modding:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/modding/**
+
+pkg/net:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/net/**
+
+pkg/particles:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/particles/**
+
+pkg/perf:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/perf/**
+
+pkg/physics:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/physics/**
+
+pkg/physics3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/physics3d/**
+
+pkg/random:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/random/**
+
+pkg/render3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/render3d/**
+
+pkg/replay:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/replay/**
+
+pkg/resource:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/resource/**
+
+pkg/rhythm:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/rhythm/**
+
+pkg/save:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/save/**
+
+pkg/scene:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/scene/**
+
+pkg/scene3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/scene3d/**
+
+pkg/sceneformat:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/sceneformat/**
+
+pkg/screen:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/screen/**
+
+pkg/server:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/server/**
+
+pkg/skeletal:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/skeletal/**
+
+pkg/sound:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/sound/**
+
+pkg/sprite:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/sprite/**
+
+pkg/text:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/text/**
+
+pkg/tilemap:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/tilemap/**
+
+pkg/tooling:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/tooling/**
+
+pkg/tween:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/tween/**
+
+pkg/world3d:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/world3d/**
+
+area/examples:
+  - changed-files:
+      - any-glob-to-any-file:
+          - examples/**
+
+area/template:
+  - changed-files:
+      - any-glob-to-any-file:
+          - template/**
+
+area/website:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/website/**
+
+area/tools:
+  - changed-files:
+      - any-glob-to-any-file:
+          - tools/**
+          - benchmarks/**
+
+area/agents:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .agents/**
+          - .claude/**
+          - AGENTS.md
+          - CLAUDE.md
+
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - '**/*.md'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/go.mod'
+          - '**/go.sum'
+          - go.work
+          - go.work.sum
+          - '**/package.json'
+          - bun.lock
