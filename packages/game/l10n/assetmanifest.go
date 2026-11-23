@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -49,6 +50,10 @@ func ParseAssetManifest(data []byte) (*AssetManifest, error) {
 
 	var m AssetManifest
 	if err := dec.Decode(&m); err != nil {
+		if errors.Is(err, io.EOF) {
+			// A document of only comments decodes to nothing.
+			return nil, errors.New("l10n: empty asset manifest")
+		}
 		return nil, fmt.Errorf("l10n: decode asset manifest: %w", err)
 	}
 	var extra any
@@ -61,7 +66,57 @@ func ParseAssetManifest(data []byte) (*AssetManifest, error) {
 	if err := ValidateAssetManifest(&m); err != nil {
 		return nil, err
 	}
+	// The struct decode above cannot see how values were spelled, so check the node tree for forms that a save would silently rewrite into different text.
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("l10n: decode asset manifest: %w", err)
+	}
+	if err := checkPlainAssetManifestNode(&root, m.Version); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+// checkPlainAssetManifestNode refuses anchors, aliases and merge keys, which a save would expand, and a version not written as a plain decimal integer.
+func checkPlainAssetManifestNode(n *yaml.Node, version int) error {
+	if err := checkNoYAMLReferences(n); err != nil {
+		return err
+	}
+	doc := n
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		if doc.Content[i].Value != "version" {
+			continue
+		}
+		v := doc.Content[i+1]
+		if want := strconv.Itoa(version); v.Value != want {
+			return fmt.Errorf("l10n: asset manifest version %q must be written as %s", v.Value, want)
+		}
+	}
+	return nil
+}
+
+func checkNoYAMLReferences(n *yaml.Node) error {
+	if n.Kind == yaml.AliasNode {
+		return fmt.Errorf("l10n: asset manifest line %d: YAML aliases are not allowed", n.Line)
+	}
+	if n.Anchor != "" {
+		return fmt.Errorf("l10n: asset manifest line %d: YAML anchors are not allowed", n.Line)
+	}
+	for i, c := range n.Content {
+		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Tag == "!!merge" {
+			return fmt.Errorf("l10n: asset manifest line %d: YAML merge keys are not allowed", c.Line)
+		}
+		if err := checkNoYAMLReferences(c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // EncodeAssetManifest validates m and writes it as deterministic 2-space YAML: fields in schema order, map keys sorted, and group members sorted.
@@ -221,7 +276,26 @@ func checkCanonicalLocale(loc string) error {
 	if norm != loc {
 		return fmt.Errorf("locale %q must be written as %q", loc, norm)
 	}
+	if !isLocaleTagSyntax(loc) {
+		return fmt.Errorf("locale %q is not a BCP-47 tag", loc)
+	}
 	return nil
+}
+
+// isLocaleTagSyntax reports whether norm, a NormalizeLocale result, has BCP-47 syntax: "-"-separated subtags of 1 to 8 ASCII letters or digits.
+func isLocaleTagSyntax(norm string) bool {
+	for sub := range strings.SplitSeq(norm, "-") {
+		if len(sub) == 0 || len(sub) > 8 {
+			return false
+		}
+		for i := 0; i < len(sub); i++ {
+			c := sub[i]
+			if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func checkCanonicalAssetName(name string) error {

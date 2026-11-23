@@ -188,12 +188,84 @@ groups:
 	}
 }
 
+func TestAssetCatalogSaveSurvivesLooseRegistrations(t *testing.T) {
+	cat := l10n.NewAssetCatalog("en")
+	cat.Register("a /", "en", "a.wav")
+	cat.RegisterGroup("g", "b /")
+	cat.Register("c.wav", "../x", "c.wav")
+	cat.RegisterMap("d.wav", map[string]string{"e n": "d.wav", "ja": "d.ja.wav"})
+	saved, err := cat.MarshalAssetManifestYAML()
+	if err != nil {
+		t.Fatalf("MarshalAssetManifestYAML: %v", err)
+	}
+	want := `version: 1
+base_locale: en
+assets:
+  a:
+    en: a.wav
+  d.wav:
+    ja: d.ja.wav
+groups:
+  g:
+    - b
+`
+	if string(saved) != want {
+		t.Errorf("MarshalAssetManifestYAML =\n%s\nwant\n%s", saved, want)
+	}
+	reloaded := l10n.NewAssetCatalog("")
+	if err := reloaded.LoadAssetManifestYAML(saved); err != nil {
+		t.Fatalf("LoadAssetManifestYAML(saved): %v", err)
+	}
+	again, err := reloaded.MarshalAssetManifestYAML()
+	if err != nil || !bytes.Equal(again, saved) {
+		t.Errorf("save, load, save is not stable: %v\n%s", err, again)
+	}
+}
+
+func TestAssetManifestCanonicalizesHandWrittenStyle(t *testing.T) {
+	// Comments, flow style, quoting and member order are not kept: the first save writes the canonical form, and later saves keep it.
+	doc := `# voice lines
+version: 1
+groups: {voice: ["voice/b.wav", voice/a.wav]}
+assets:
+  "voice/a.wav": {en: a.wav}
+`
+	m, err := l10n.ParseAssetManifest([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseAssetManifest: %v", err)
+	}
+	first, err := l10n.EncodeAssetManifest(m)
+	if err != nil {
+		t.Fatalf("EncodeAssetManifest: %v", err)
+	}
+	want := `version: 1
+assets:
+  voice/a.wav:
+    en: a.wav
+groups:
+  voice:
+    - voice/a.wav
+    - voice/b.wav
+`
+	if string(first) != want {
+		t.Errorf("EncodeAssetManifest =\n%s\nwant\n%s", first, want)
+	}
+}
+
 func TestAssetManifestRefusesInvalidDocuments(t *testing.T) {
 	cases := map[string]struct {
 		doc  string
 		want string
 	}{
 		"empty":             {"", "empty asset manifest"},
+		"comment only":      {"# todo\n", "empty asset manifest"},
+		"float version":     {"version: 1.0\n", `must be written as 1`},
+		"hex version":       {"version: 0x1\n", `must be written as 1`},
+		"anchor and alias":  {"version: 1\nassets:\n  a.wav: &v\n    en: a.wav\n  b.wav: *v\n", "anchors are not allowed"},
+		"merge key":         {"version: 1\nassets:\n  a.wav:\n    <<: {en: a.wav}\n", "merge keys are not allowed"},
+		"path locale":       {"version: 1\nassets:\n  a.wav:\n    ../x: a.wav\n", "not a BCP-47 tag"},
+		"spaced locale":     {"version: 1\nassets:\n  a.wav:\n    e n: a.wav\n", "not a BCP-47 tag"},
+		"long subtag":       {"version: 1\nbase_locale: en-abcdefghi\n", "not a BCP-47 tag"},
 		"not a mapping":     {"- a\n", "decode asset manifest"},
 		"missing version":   {"assets:\n  a.wav:\n    en: a.wav\n", "missing version"},
 		"future version":    {"version: 2\n", "unsupported asset manifest version 2"},
