@@ -85,3 +85,5 @@ rm := anim3d.ExtractRootMotion(attackClip, prevTime, currTime, opts)
 pose = anim3d.StripRootMotion(pose, opts)
 characterTransform = anim3d.ApplyRootMotion(characterTransform, rm)
 ```
+
+跨过循环片段末尾的一步，无论以回绕后的时间（`currTime < prevTime`）还是单调递增的时间传入，都会在每个循环边界处切开，各段旋转按播放顺序组合，因此一大步让角色转过的角度与边界两侧的几个小步依次应用完全一致，同时俯仰和偏航的片段也是如此。`DeltaPos` 以片段根骨骼的父空间度量，各段直接相加。
