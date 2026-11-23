@@ -86,3 +86,18 @@ scoreY := safe.Y + 8
 ```
 
 Called inside a reactive computation or `core.Canvas.Draw`, `SafeGameRectForEnv` and `SafeRectForEnv` subscribe automatically to window resize and safe-area inset changes. For native NSGo overlay views in view coordinates, use `screen.SafeRect(window, insets)` or `screen.SafeRectForEnv(cx.Env())`.
+
+## Orientation on phones
+
+A game declares the orientation it plays in by calling NSGo's `cx.RequestOrientation` in the scope that shows it, usually the app's root. A wide virtual canvas asks for landscape, a tall one for portrait:
+
+```go
+func Root(cx *core.Scope) core.Node {
+	cx.RequestOrientation(core.OrientationLandscape) // either landscape direction
+	// ...
+}
+```
+
+On an iPhone or an Android phone the interface turns to one of the requested orientations and stays there while that scope lives; when the scope ends, the app returns to the system's usual policy. The newest live request wins, so a portrait menu or a landscape mini-game can request its own orientation in its scope. Use `core.OrientationLandscapeLeft` or `core.OrientationLandscapeRight` alone to pin one direction, and `core.OrientationPortrait` (optionally with `core.OrientationPortraitUpsideDown`) for a portrait game.
+
+The request does nothing on desktops. Android may disregard it in multi-window or large-screen modes, and a browser locks orientation only in full screen, which a press must enter (`desktop.ToggleFullScreen(cx)`); a refusal goes to the browser console. In `nsgotest`, `App.Orientation` holds the current request. The [Cave Run example](https://github.com/nsgo-dev/game/tree/main/examples/caverun) locks landscape this way. NSGo documents the API under [Interface orientation](https://github.com/nsgo-dev/nsgo/blob/main/docs/public/en/services.md#interface-orientation).

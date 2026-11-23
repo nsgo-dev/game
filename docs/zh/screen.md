@@ -86,3 +86,18 @@ scoreY := safe.Y + 8
 ```
 
 在响应式计算或 `core.Canvas.Draw` 中调用 `SafeGameRectForEnv` / `SafeRectForEnv` 会自动订阅窗口尺寸与安全区边距的变化。若是在原生 NSGo 视图坐标中布局，请使用 `screen.SafeRect(window, insets)` 或 `screen.SafeRectForEnv(cx.Env())`。
+
+## 手机上的屏幕方向
+
+游戏在显示它的作用域（通常是应用的根）中调用 NSGo 的 `cx.RequestOrientation` 来声明游玩时的屏幕方向。宽的虚拟画布请求横屏，高的请求竖屏：
+
+```go
+func Root(cx *core.Scope) core.Node {
+	cx.RequestOrientation(core.OrientationLandscape) // 任一横屏方向
+	// ...
+}
+```
+
+在 iPhone 或 Android 手机上，界面会转到所请求的方向之一，并在该作用域存续期间保持不变；作用域结束后，应用恢复系统的默认方向策略。最新的有效请求优先，因此竖屏菜单或横屏小游戏可以在各自的作用域中请求自己的方向。只用 `core.OrientationLandscapeLeft` 或 `core.OrientationLandscapeRight` 可固定为单一方向；竖屏游戏使用 `core.OrientationPortrait`（可加上 `core.OrientationPortraitUpsideDown`）。
+
+该请求在桌面端不起作用。Android 在多窗口或大屏模式下可能忽略它；浏览器只在全屏时锁定方向，而全屏必须由一次按下进入（`desktop.ToggleFullScreen(cx)`），被拒绝时会输出到浏览器控制台。在 `nsgotest` 中，`App.Orientation` 记录当前的请求。[Cave Run 示例](https://github.com/nsgo-dev/game/tree/main/examples/caverun)就是这样锁定横屏的。NSGo 在 [界面方向](https://github.com/nsgo-dev/nsgo/blob/main/docs/public/zh/services.md#界面方向) 中说明了这一 API。

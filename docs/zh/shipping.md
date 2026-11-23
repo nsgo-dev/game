@@ -197,7 +197,7 @@ go tool nsgo build -target ios_simulator
 - **商店提交注意事项**：
   - 使用 Apple 的 Transporter 应用或 Xcode 将 `<name>.ipa` 上传至 App Store Connect / TestFlight。
   - 每次上传都必须递增 `build_number`（`CFBundleVersion`）。
-  - 使用 `apple.requires_full_screen` 和 `apple.orientations`（`portrait`、`portrait_upside_down`、`landscape_left`、`landscape_right`）配置 iPad 分屏与屏幕方向，并在 `apple.info` 下添加所需的 `Info.plist` 字段。
+  - 使用 `apple.requires_full_screen` 和 `apple.orientations`（`portrait`、`portrait_upside_down`、`landscape_left`、`landscape_right`）配置 iPad 分屏与屏幕方向，并在 `apple.info` 下添加所需的 `Info.plist` 字段。`apple.orientations` 只作用于 iPad；iPhone 采用游戏在运行时通过 `cx.RequestOrientation` 请求的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
 
 ### Android
 
@@ -217,3 +217,4 @@ go tool nsgo build -target android_arm64
   ```
   未配置密钥库时，`nsgo build` 会使用项目自带的调试密钥签名 APK（仅限侧载测试，无法上传 Google Play）。
 - **Google Play**：使用 `-channel store` 生成已签名的 `.aab`（Android App Bundle）上传至 Google Play Console。每次上传需递增 `build_number`（`versionCode`），按 Google Play 当前要求设置 `android.target_sdk`（`minSdkVersion` 为 28），并在 `android.permissions` 下声明额外权限。
+- **屏幕方向**：清单不固定屏幕方向；游戏在运行时通过 `cx.RequestOrientation` 请求游玩时的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
