@@ -101,6 +101,7 @@ export function Home() {
                 ))}
               </ul>
             </div>
+            <p className="hero__consoles">{copy.consoles}</p>
           </div>
         </div>
       </section>

@@ -108,6 +108,8 @@ go tool nsgo build -channel store -target macos,windows,linux,ios,android
 | iOS | `ios`、`ios_simulator` | `.ipa` | `.ipa` | macOS + Xcode |
 | Android | `android_arm64`（`android`）、`android_x64` | `.apk` | `.aab` | 任意平台（`android_x64` 需 NDK） |
 
+游戏主机（Nintendo Switch、PlayStation 和 Xbox）不是目标平台：它们的 SDK 受保密协议（NDA）约束，且需要 C 工具链，而 NSGo 只用 Go。
+
 ### macOS
 
 构建 Apple Silicon、Intel 或同时构建两者：

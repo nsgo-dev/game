@@ -1069,6 +1069,14 @@ html[data-theme-preference='system'] .theme-menu__icon--system {
   margin-top: 0;
 }
 
+.hero__consoles {
+  margin: 12px auto 0;
+  max-width: 52ch;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* Stages: a panel each, its number and progress on top, its name linking to the stage on the roadmap over the whole panel; a row of five on wide screens, a list on narrow ones. */
 
 .stages {
