@@ -75,6 +75,7 @@ interface MdNode {
   url?: string
   depth?: number
   value?: string
+  label?: string
   position?: { start: { offset?: number }; end: { offset?: number } }
 }
 
@@ -90,9 +91,10 @@ export function llmsPage(slug: string, source: string, site: string): LlmsPage {
     const end = node.position?.end.offset
     if ((node.type === 'link' || node.type === 'definition') && node.url && start !== undefined && end !== undefined) {
       const url = rewriteLink(node.url, 'en', 'en', site)
-      // The destination is the last occurrence of the URL in the node's source: the link's text comes before it.
-      const at = source.slice(start, end).lastIndexOf(node.url)
-      if (url !== node.url && at >= 0) edits.push({ start: start + at, end: start + at + node.url.length, text: url })
+      // The destination is the URL's first occurrence after the link's text or the definition's label, so neither that text nor a title after the destination is taken for it.
+      const after = destinationSearchStart(node, start)
+      const at = source.indexOf(node.url, after)
+      if (url !== node.url && at >= 0 && at + node.url.length <= end) edits.push({ start: at, end: at + node.url.length, text: url })
     }
     for (const child of node.children ?? []) visit(child)
   }
@@ -141,6 +143,13 @@ export function buildLlms(pages: readonly LlmsPage[], site: string): { index: st
     if (!full.includes(`\nSource: ${page.url}\n`)) throw new Error(`${LLMS_FULL} leaves out docs/en/${page.slug}.md`)
   }
   return { index, full }
+}
+
+// destinationSearchStart is the offset in the source after which a link's or definition's destination begins: past a link's last child, or past a definition's `[label]`.
+function destinationSearchStart(node: MdNode, start: number): number {
+  if (node.type === 'definition') return start + 1 + (node.label ?? '').length
+  const last = node.children?.at(-1)?.position?.end.offset
+  return last ?? start
 }
 
 function textOf(node: MdNode): string {
