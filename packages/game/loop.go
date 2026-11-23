@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/mobile"
 )
 
 // Loop runs a game's updates at a fixed rate on a scope's display frames, and draws once a frame in between.
@@ -25,6 +26,8 @@ type Loop struct {
 	DrawRate int
 	// OnDemand skips Draw on frames where no Update ran, unless MarkDirty has been called since the last Draw.
 	OnDemand bool
+	// Immersive hides a phone's system bars (mobile.Immersive) while the game plays, that is while the loop runs and is not Paused, and brings them back while it is Paused, as under a pause menu, and once it stops or its scope is disposed. The loop hides them as it starts or resumes in the foreground and applies a change to Immersive or Paused on its next frame, and leaves the bars as they are while the app is in the background. Desktop and web targets ignore it.
+	Immersive bool
 	// Update moves the game on by dt, which is always 1/Rate seconds.
 	Update func(dt time.Duration)
 	// Draw draws the frame; alpha, from 0 up to but not including 1, is how far the frame falls between the last update and the next.
@@ -69,6 +72,8 @@ func (l *Loop) MarkDirty() {
 // The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground it keeps the display awake (core.Scope.KeepAwake), releasing the hold when paused, stopped or disposed.
 //
 // A frame adds the time between its display time and the last frame's, as core.Scope.RequestAnimationFrame gives it: the display's own frame time where the platform stamps one, so the frame length is the display's rather than when the engine got to the frame, and the graph clock's otherwise. The first frame after the loop starts or resumes adds the time from then to its display time, which may lie a frame ahead where the display stamps a frame with when it will show, so the loop's time is the shown frame's. A frame stamped before the time the loop started or resumed adds nothing, and the next frame adds the time from then.
+//
+// With Immersive set, the run hides the system bars while the game plays and shows them again when it is paused, stopped or disposed. One loop at a time should own the bars, as each run that showed them asks for them back when it ends.
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
 	r := &loopRun{loop: l, cx: cx}
 	stopEffect := cx.Effect(func() {
@@ -78,11 +83,16 @@ func (l *Loop) Run(cx *core.Scope) (stop func()) {
 			r.resume()
 		}
 	})
+	cx.Cleanup(r.end)
 	return func() {
 		r.pause()
+		r.end()
 		stopEffect()
 	}
 }
+
+// setImmersive asks for the system bars hidden or shown. NSGo's nsgotest records the status bar without its Immersive field (nsgotest.StatusBarConfig), so the tests replace this to see what the loop asks for.
+var setImmersive = mobile.Immersive
 
 // loopRun is one Run of a Loop.
 type loopRun struct {
@@ -99,6 +109,24 @@ type loopRun struct {
 	// drawAcc is the frame time since the last capped Draw; drawn says Draw has run since the run started, resumed or went idle.
 	drawAcc time.Duration
 	drawn   bool
+	// immersive says the run has hidden the system bars and not yet shown them again; ended says stop ran or cx was disposed.
+	immersive, ended bool
+}
+
+// syncImmersive hides the system bars while the game plays with Immersive set, and shows them again otherwise, asking only when that changes.
+func (r *loopRun) syncImmersive() {
+	want := r.loop.Immersive && !r.loop.Paused && !r.ended
+	if want == r.immersive {
+		return
+	}
+	r.immersive = want
+	setImmersive(r.cx, want)
+}
+
+// end ends the run for good, showing the system bars it hid. Stopping pauses the run first, while disposing cx cancels the frame and keep-awake hold that cx owns.
+func (r *loopRun) end() {
+	r.ended = true
+	r.syncImmersive()
 }
 
 // resume starts the run's frames from now, unless they run.
@@ -107,6 +135,7 @@ func (r *loopRun) resume() {
 		return
 	}
 	r.last = r.cx.Now()
+	r.syncImmersive()
 	// cx owns the frame and keep-awake hold rather than the effect that resumes, so what Update and Draw make lives as long as cx, as it would in a frame cx asked for itself.
 	r.cx.Run(func() {
 		r.releaseAwake = r.cx.KeepAwake("game loop", core.KeepAwakeOptions{Display: true})
@@ -181,6 +210,7 @@ func (r *loopRun) frame(at time.Time) {
 			}
 		}
 	}
+	r.syncImmersive()
 	if steps > 0 {
 		r.loop.dirty = true
 	}
