@@ -25,6 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/net`: a TLS WebSocket listener with an Origin allow-list, plus `game/server` health, readiness and Prometheus metrics endpoints and a container/drain guide (#554).
 - `game/accounts`: a self-hostable player account service with guest accounts upgraded to email or a linked platform/OAuth identity, argon2id passwords, redacted secrets, SQLite and Postgres stores, an HTTP API and the `accountsd` server; `game/accounts/token` issues Ed25519 tokens that game servers verify offline against a versioned YAML key set (#556).
 - `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged (#29).
+- `game/sound`: 2D positional effects, with `Listener2D` panning an effect by where it sits across the camera's view and attenuating it with distance (linear or inverse rolloff), and `Effect.PlayAt` (#105).
 
 ### Changed
 

@@ -69,6 +69,29 @@ if hit != nil {
 }
 ```
 
+## Positional effects in 2D
+
+A `Listener2D` hears effects placed in the world from where the 2D camera looks: an effect to the left of the camera plays panned left, one to the right panned right, and both play quieter the further they are.
+
+```go
+listener := sound.Listener2D{
+	Position: math2d.V2(cam.X, cam.Y),
+	Rotation: cam.Rotation,
+	Near:     64,  // full volume up to 64 world units away
+	Far:      640, // silent from 640 away
+	Rolloff:  sound.RolloffInverse,
+}
+hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
+```
+
+- `Position` and `Rotation` follow the camera, such as `tilemap.Camera`'s `X`, `Y` and `Rotation`, so left and right are the view's even when the camera turns. Distances are in world units; the camera's zoom does not change them.
+- `Gain(pos)` is `1` within `Near`, `0` at `Far` and beyond, and falls between them by `Rolloff`: `RolloffLinear` (the default) in a straight line, `RolloffInverse` as `Near / distance` rescaled to reach `0` at `Far`. A `Far` that is not greater than `Near`, infinite or `NaN` turns attenuation off.
+- `Pan(pos)` is the effect's offset across the view divided by `PanWidth`, clamped to `[-1, 1]`; a `PanWidth` of `0` takes `Far`. An effect straight above or below the camera plays centered.
+- `PlayAt(l, pos, v)` plays with `v.Volume * l.Gain(pos)`, then the group and master volumes as `Play` does, and `v.Pan` replaced by `l.Pan(pos)`. It returns `false` and plays nothing beyond `Far`, so silent effects never take a voice or count against `Limit`.
+- `Voice(pos, v)` returns the voice `PlayAt` would play with, for playing an `audio.Sound` directly; check `Gain` first, since `audio` plays a volume of `0` at full volume.
+
+The pan and volume are fixed when the playback starts, because NSGo's `audio.Playback` cannot change its pan once playing. Suit it to short effects; a long sound that follows a moving source would need to be replayed.
+
 ## Music and crossfades
 
 `mixer.Music(group)` plays streaming tracks through `audio.Player`, one active track at a time, with smooth crossfades:
