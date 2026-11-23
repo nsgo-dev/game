@@ -1,11 +1,13 @@
 package editor
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -795,7 +797,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						return field.Default
 					}
 					ctrl := registeredFieldControl("inspector-comp-"+cn+"-"+field.Name, cn+"."+field.Name, field, disabled, get, func(val any) {
-						_ = ed.SetComponentField(objID, cn, field.Name, val)
+						if err := ed.SetComponentField(objID, cn, field.Name, val); err != nil {
+							ed.Status = err.Error()
+							ed.notify()
+						}
 					})
 					nodes = append(nodes, describedRow(field.Name, "inspector-comp-"+cn+"-"+field.Name+"-label", fieldTooltip(field), ctrl))
 				}
@@ -1007,7 +1012,7 @@ func registeredFieldControl(
 			Label:    label,
 			Min:      lo,
 			Max:      hi,
-			Step:     1,
+			Step:     cmp.Or(f.Step, 1),
 			Disabled: disabled,
 			Value:    number,
 			OnChange: func(v float64) { set(int(math.Round(clamp(v)))) },
@@ -1018,7 +1023,8 @@ func registeredFieldControl(
 			Label:    label,
 			Min:      lo,
 			Max:      hi,
-			Step:     0.1,
+			Step:     cmp.Or(f.Step, 0.1),
+			Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
 			Disabled: disabled,
 			Value:    number,
 			OnChange: func(v float64) { set(clamp(v)) },

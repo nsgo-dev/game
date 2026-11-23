@@ -128,6 +128,56 @@ func TestSetComponentFieldChecksTheRegistry(t *testing.T) {
 	}
 }
 
+func TestSetComponentRegistryClearsHistory(t *testing.T) {
+	ed := newTestEditor(t)
+	// Without a registry the misspelled field is accepted; undo removes it so the scene conforms again.
+	if err := ed.SetComponentField("hero", "physics", "gravty", 1.0); err != nil {
+		t.Fatalf("SetComponentField without a registry: %v", err)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo failed")
+	}
+	if err := ed.SetComponentRegistry(physicsComponents(t)); err != nil {
+		t.Fatalf("SetComponentRegistry: %v", err)
+	}
+	if ed.History.CanUndo() || ed.History.CanRedo() {
+		t.Fatal("SetComponentRegistry kept the undo/redo history")
+	}
+	if ed.Redo() {
+		t.Fatal("Redo brought back a field the registry refuses")
+	}
+	if err := sceneformat.ValidateComponents(ed.Doc, ed.ComponentRegistry()); err != nil {
+		t.Fatalf("scene no longer conforms: %v", err)
+	}
+
+	// Setting the same registry again leaves history alone.
+	if err := ed.SetComponentField("hero", "physics", "gravity", 2.0); err != nil {
+		t.Fatalf("SetComponentField gravity: %v", err)
+	}
+	if err := ed.SetComponentRegistry(ed.ComponentRegistry()); err != nil || !ed.History.CanUndo() {
+		t.Fatalf("re-setting the same registry: err = %v, CanUndo = %v", err, ed.History.CanUndo())
+	}
+}
+
+func TestInspectorShowsRegisteredFloatsAtFullPrecision(t *testing.T) {
+	ed := newTestEditor(t)
+	if err := ed.SetComponentRegistry(physicsComponents(t)); err != nil {
+		t.Fatalf("SetComponentRegistry: %v", err)
+	}
+	if err := ed.SetComponentField("hero", "physics", "gravity", 9.81); err != nil {
+		t.Fatalf("SetComponentField gravity: %v", err)
+	}
+	ed.SelectObject("hero")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 1400))
+
+	if got := fieldText(app.Find("id:inspector-comp-physics-gravity")); got != "9.81" {
+		t.Fatalf("gravity shows %q, want 9.81", got)
+	}
+}
+
 func TestOpenFileReportsMisspelledComponentFieldWithFileAndLine(t *testing.T) {
 	ed := newTestEditor(t)
 	reg := physicsComponents(t)

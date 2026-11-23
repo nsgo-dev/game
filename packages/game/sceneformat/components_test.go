@@ -228,6 +228,10 @@ func TestRegisterRefusesBadTypes(t *testing.T) {
 		{"min above max", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldInt, Min: sceneformat.Float64(2), Max: sceneformat.Float64(1)}}}, "above max"},
 		{"default kind", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldInt, Default: "1"}}}, "want int"},
 		{"zero default out of range", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldFloat, Min: sceneformat.Float64(1)}}}, "below the minimum 1"},
+		{"fractional int range", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldInt, Min: sceneformat.Float64(0.5), Max: sceneformat.Float64(31.5), Default: 1}}}, "range must be whole numbers"},
+		{"step on bool", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldBool, Step: 1}}}, "cannot have a step"},
+		{"negative step", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldFloat, Step: -0.1}}}, "step must be positive and finite"},
+		{"fractional int step", sceneformat.ComponentType{Name: "x", Fields: []sceneformat.Field{{Name: "a", Kind: sceneformat.FieldInt, Step: 0.5}}}, "step must be a whole number"},
 	}
 	reg := testComponents(t)
 	for _, tc := range cases {

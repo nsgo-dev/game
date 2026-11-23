@@ -352,8 +352,7 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 		if err := checkComponentNodes(&root, &doc, reg); err != nil {
 			return nil, err
 		}
-		// The node walk above locates errors in plain mappings; this pass also
-		// covers values it could not see key by key, such as merge keys.
+		// The node walk above locates errors in plain mappings; this pass also covers values it could not see key by key, such as merge keys.
 		if err := ValidateComponents(&doc, reg); err != nil {
 			return nil, err
 		}
