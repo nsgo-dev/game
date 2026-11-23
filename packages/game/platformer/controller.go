@@ -59,39 +59,46 @@ type StepResult struct {
 
 // window tracks the time since an event and whether it is still within a duration.
 type window struct {
-	age time.Duration
-	on  bool
+	age   time.Duration
+	steps time.Duration // steps advanced since the event, counted as a Duration so it adds to age
+	on    bool
 }
 
 // start opens the window at the current step.
-func (w *window) start() { w.on, w.age = true, 0 }
+func (w *window) start() { *w = window{on: true} }
 
 // advance moves the window on by one step of dt and closes it once d has passed. A window opened on a step is always open on that step, so a zero duration lasts exactly that step.
+//
+// game.Loop's dt is time.Second/Rate truncated to whole nanoseconds, so each step can be up to 1ns shorter than its nominal length (16666666ns at 60 Hz). The window allows 1ns per step for that, so 100ms at 60 Hz lasts 6 steps, as it would with exact steps, rather than 7.
 func (w *window) advance(dt, d time.Duration) {
 	if !w.on {
 		return
 	}
 	w.age += dt
-	if w.age >= d {
+	w.steps++
+	if w.age+w.steps >= d {
 		w.on = false
 	}
 }
 
 // Controller drives a physics.CharacterBody as a platformer character with coyote time, jump buffering, variable jump height, wall slides and wall jumps. Call Step once per fixed game.Loop step; it reads the contacts the body's previous Move left on its Body, sets the velocity from the input and the Config, and then moves the body.
 //
-// Every timing is measured in step time: an event on a step opens a window that stays open on later steps while less than its duration has passed since that step, so at a fixed dt a duration D covers ceil(D/dt) steps counting the event's own step, and a zero duration covers only that step.
+// Every timing is measured in step time: an event on a step opens a window that stays open on later steps while less than its duration has passed since that step, so at a fixed dt a duration D covers ceil(D/dt) steps counting the event's own step, and a zero duration covers only that step. Each step is allowed 1ns of slack for game.Loop's dt being truncated to whole nanoseconds, so at 60 Hz a 100ms window covers 6 steps.
+//
+// A rising controller jump is cut only while the body's VY is the one the previous Step left; a VY the game sets in between, such as a spring, ends the jump and is never cut. A body that is rising in the air cannot use coyote time either, so a jump press does not replace such a launch with a ground jump.
 type Controller struct {
 	// Body is the character the controller moves.
 	Body *physics.CharacterBody
 
 	cfg Config
 
-	coyote   window // since the body was last on the ground
-	buffer   window // since the jump button was last pressed
-	wall     window // since the body last touched a wall in the air
-	lock     window // since the last wall jump
-	wallSide int    // the wall the wall window refers to
-	jumping  bool   // rising from a controller jump that may still be cut
+	coyote   window  // since the body was last on the ground
+	buffer   window  // since the jump button was last pressed
+	wall     window  // since the body last touched a wall in the air
+	lock     window  // since the last wall jump
+	wallSide int     // the wall the wall window refers to
+	jumping  bool    // rising from a controller jump that may still be cut
+	leftVY   float32 // the body's VY at the end of the previous Step, to tell when the game changed it
 }
 
 // NewController returns a Controller moving body with cfg, or an error from cfg.Validate.
@@ -119,6 +126,7 @@ func (c *Controller) Reset() {
 	c.coyote, c.buffer, c.wall, c.lock = window{}, window{}, window{}, window{}
 	c.wallSide = 0
 	c.jumping = false
+	c.leftVY = 0
 }
 
 // Step runs one fixed step of dt: it advances the timers, applies horizontal input, starts a buffered ground or wall jump when one is allowed, cuts a rising jump whose button is up, applies gravity with the wall-slide and fall caps, and moves the body against grid, slopes and platforms with CharacterBody.Move. A nil controller or body, or dt <= 0, does nothing.
@@ -136,6 +144,11 @@ func (c *Controller) Step(in Input, grid physics.TileGrid, slopes []physics.Slop
 	c.lock.advance(dt, cfg.WallJumpLock)
 	if !c.wall.on {
 		c.wallSide = 0
+	}
+
+	// A VY the game set since the previous Step, such as a spring, ends the controller jump: that launch is never cut.
+	if c.jumping && b.VY != c.leftVY {
+		c.jumping = false
 	}
 
 	// Contacts from the previous Move.
@@ -156,6 +169,10 @@ func (c *Controller) Step(in Input, grid physics.TileGrid, slopes []physics.Slop
 		if touching != 0 {
 			c.wall.start()
 			c.wallSide = touching
+		}
+		// Coyote time is for running off a ledge: a body already rising in the air, such as from a spring the game set, cannot ground jump and replace that launch.
+		if b.VY < 0 {
+			c.coyote = window{}
 		}
 	}
 	if in.JumpPressed {
@@ -230,6 +247,7 @@ func (c *Controller) Step(in Input, grid physics.TileGrid, slopes []physics.Slop
 	}
 
 	res.Move = c.Body.Move(grid, slopes, platforms, dt)
+	c.leftVY = b.VY
 	return res
 }
 
