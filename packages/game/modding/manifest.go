@@ -198,7 +198,7 @@ const ManifestVersion = 1
 
 // ModManifest describes a mod. Mod authors write it as YAML in a [ManifestFile] (mod.yaml) in the mod's directory; [ParseManifest] reads it and [EncodeManifest] writes it.
 type ModManifest struct {
-	// ManifestVersion is the schema version of the manifest file; it must equal [ManifestVersion].
+	// ManifestVersion is the schema version of the manifest file. A mod.yaml must state [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].
 	ManifestVersion int `yaml:"manifestVersion" json:"manifestVersion"`
 	// ID uniquely identifies the mod, such as com.example.boss-rush.
 	ID string `yaml:"id" json:"id"`
@@ -241,21 +241,57 @@ func ParseManifest(data []byte) (ModManifest, error) {
 		}
 		return ModManifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
 	}
+	if m.ManifestVersion != ManifestVersion {
+		return ModManifest{}, fmt.Errorf("%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
+	}
+	if err := checkManifestVersionLiteral(data); err != nil {
+		return ModManifest{}, err
+	}
 	if err := m.Validate(); err != nil {
 		return ModManifest{}, err
 	}
 	return m, nil
 }
 
-// EncodeManifest validates m and writes it as deterministic 2-space YAML: fields in a fixed order, capabilities in canonical order and dependencies sorted by ID, so [ParseManifest] reads back an equal manifest and encoding that again gives the same bytes.
+// checkManifestVersionLiteral refuses a manifestVersion that decodes to the supported number but is not written as that plain integer, such as 1.0 or 0x1, so a strict file cannot carry a value that EncodeManifest would silently rewrite.
+func checkManifestVersionLiteral(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("%w: manifest must be a mapping", ErrInvalidManifest)
+	}
+	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "manifestVersion" {
+			continue
+		}
+		value := root.Content[i+1]
+		if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" || value.Value != strconv.Itoa(ManifestVersion) {
+			return fmt.Errorf("%w: line %d: manifestVersion must be the integer %d, not %q", ErrInvalidManifest, value.Line, ManifestVersion, value.Value)
+		}
+	}
+	return nil
+}
+
+// EncodeManifest validates m and writes it as deterministic 2-space YAML: fields in a fixed order, capabilities in canonical order and dependencies sorted by ID in byte order. A ManifestVersion of 0 (a manifest built in code) is written as [ManifestVersion]. [ParseManifest] reads the output back as an equal manifest, and encoding that again gives the same bytes.
 func EncodeManifest(m ModManifest) ([]byte, error) {
+	if m.ManifestVersion == 0 {
+		m.ManifestVersion = ManifestVersion
+	}
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
+	var node yaml.Node
+	if err := node.Encode(m); err != nil {
+		return nil, fmt.Errorf("modding: encode manifest: %w", err)
+	}
+	sortDependencyKeys(&node)
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(m); err != nil {
+	if err := enc.Encode(&node); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("modding: encode manifest: %w", err)
 	}
@@ -268,9 +304,32 @@ func EncodeManifest(m ModManifest) ([]byte, error) {
 // validEntryExtensions are the script extensions supported for a mod's entry file.
 var validEntryExtensions = []string{".tsx", ".ts", ".jsx", ".js", ".mjs"}
 
-// Validate checks that m has the supported manifest version, a valid ID, name, version, entry path, capabilities, and version constraints.
+// sortDependencyKeys orders the dependencies mapping of an encoded manifest by ID in byte order, the same order [ResolveOrder] uses; yaml.v3 itself sorts map keys with digit runs compared as numbers.
+func sortDependencyKeys(doc *yaml.Node) {
+	root := doc
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = root.Content[0]
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "dependencies" || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		deps := root.Content[i+1]
+		pairs := make([][2]*yaml.Node, 0, len(deps.Content)/2)
+		for j := 0; j+1 < len(deps.Content); j += 2 {
+			pairs = append(pairs, [2]*yaml.Node{deps.Content[j], deps.Content[j+1]})
+		}
+		slices.SortFunc(pairs, func(a, b [2]*yaml.Node) int { return strings.Compare(a[0].Value, b[0].Value) })
+		deps.Content = deps.Content[:0]
+		for _, p := range pairs {
+			deps.Content = append(deps.Content, p[0], p[1])
+		}
+	}
+}
+
+// Validate checks that m has a valid ID, name, version, entry path, capabilities, and version constraints. ManifestVersion may be 0 for a manifest built in code, or [ManifestVersion]; [ParseManifest] additionally requires a file to state [ManifestVersion].
 func (m ModManifest) Validate() error {
-	if m.ManifestVersion != ManifestVersion {
+	if m.ManifestVersion != 0 && m.ManifestVersion != ManifestVersion {
 		return fmt.Errorf("%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
 	}
 	if !validModID(m.ID) {

@@ -453,7 +453,7 @@ func (m *Manager) Unload(id string) error {
 	return nil
 }
 
-// Reload unloads mod id, re-reads its manifest if present, and loads it fresh from its FS.
+// Reload unloads mod id, re-reads its manifest if present, and loads it fresh from its FS. A mod whose mod.yaml has been replaced by a mod.json is refused with [ErrInvalidManifest], as [Manager.DiscoverFS] refuses it.
 func (m *Manager) Reload(id string) error {
 	mod, ok := m.mods[id]
 	if !ok {
@@ -464,6 +464,13 @@ func (m *Manager) Reload(id string) error {
 	}
 	m.unloadMod(mod)
 	data, readErr := fs.ReadFile(mod.fsys, ManifestFile)
+	if errors.Is(readErr, fs.ErrNotExist) {
+		if _, legacyErr := fs.Stat(mod.fsys, legacyManifestFile); legacyErr == nil {
+			mod.state = StateFailed
+			mod.err = fmt.Errorf("%w: mod %q: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, id, ManifestFile)
+			return mod.err
+		}
+	}
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
 		mod.state = StateFailed
 		mod.err = fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)

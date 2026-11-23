@@ -34,9 +34,9 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 | `capabilities` | 否 | 模组申请的权限能力名称 |
 | `dependencies` | 否 | 模组 ID 到版本约束的映射，例如 `com.example.core-lib: ^1.0.0` |
 
-版本约束支持 `*`、`=`、`>=`、`>`、`<=`、`<`、`^` 和 `~`，多个条件用空格或逗号连接。以 `>`、`<`、`*` 或 `=` 开头的值要加引号（`'>=0.2.0'`），因为这些字符在 YAML 中有特殊含义。
+版本约束支持 `*`、`=`、`>=`、`>`、`<=`、`<`、`^` 和 `~`，多个条件用空格或逗号连接。以 `>` 或 `*` 开头的值要加引号（`'>=0.2.0'`、`'*'`），因为 YAML 会把值开头的这两个字符分别当作折叠块和别名。
 
-格式是严格的：`ParseManifest` 会拒绝未知或拼错的字段、重复的键、第二个 YAML 文档、未知或重复的权限能力名称，以及缺失或不受支持的 `manifestVersion`，统一返回 `ErrInvalidManifest`。`EncodeManifest` 以唯一的规范形式写回清单（字段按上表顺序，权限能力按下文顺序，依赖按 ID 排序），因此读入再写出的文件不会变化。`Manager` 只读取 `mod.yaml`；仍然只有旧版 `mod.json` 的模组目录会被拒绝，并提示改用 `mod.yaml`。
+格式是严格的：`ParseManifest` 会拒绝未知或拼错的字段、重复的键、第二个 YAML 文档、未知或重复的权限能力名称，以及缺失、不受支持或没有写成普通整数 `1` 的 `manifestVersion`，统一返回 `ErrInvalidManifest`。`EncodeManifest` 以唯一的规范形式写出清单（字段按上表顺序，权限能力按下文顺序，依赖按 ID 的字节序排序），因此已经是这种形式的文件读入再写出不会变化。在 Go 代码中构造的 `ModManifest` 可以让 `ManifestVersion` 保持为 0：`Validate` 和 `ResolveOrder` 接受它，`EncodeManifest` 会写出 `manifestVersion: 1`。`Manager` 只读取 `mod.yaml`；仍然只有旧版 `mod.json` 的模组目录会被拒绝，并提示改用 `mod.yaml`。
 
 权限由 `Capability` 位标志控制：`CapReadState`（`readState`）、`CapWriteState`（`writeState`）、`CapSpawnEntity`（`spawnEntity`）、`CapEmitEvent`（`emitEvent`）、`CapUI`（`ui`）、`CapAudio`（`audio`）和 `CapStorage`（`storage`）。超出授权范围的调用会返回 `*PermissionError`，不会导致宿主游戏崩溃。
 
