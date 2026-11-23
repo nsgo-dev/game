@@ -97,6 +97,62 @@ func TestWebSocketOriginAllowsAnyAndMissing(t *testing.T) {
 	if status := upgradeStatus(t, srv.Addr().String(), "https://any.example", selfSignedTLS(t)); status != http.StatusSwitchingProtocols {
 		t.Fatalf("no-allowlist upgrade = %d, want 101", status)
 	}
+
+	restricted, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{"https://allowed.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restricted.Close()
+	// A native client sends no Origin, and a trailing slash on the entry is not part of the Origin.
+	if status := upgradeStatus(t, restricted.Addr().String(), "", selfSignedTLS(t)); status != http.StatusSwitchingProtocols {
+		t.Fatalf("native client upgrade = %d, want 101", status)
+	}
+	if status := upgradeStatus(t, restricted.Addr().String(), "https://allowed.example", selfSignedTLS(t)); status != http.StatusSwitchingProtocols {
+		t.Fatalf("trailing-slash entry upgrade = %d, want 101", status)
+	}
+
+	wildcard, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{"*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wildcard.Close()
+	if status := upgradeStatus(t, wildcard.Addr().String(), "https://any.example", selfSignedTLS(t)); status != http.StatusSwitchingProtocols {
+		t.Fatalf("wildcard upgrade = %d, want 101", status)
+	}
+}
+
+func TestWebSocketOriginRefusesEntriesThatAreNotOrigins(t *testing.T) {
+	for _, origin := range []string{"https://allowed.example/play", "allowed.example", ""} {
+		if _, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{origin}); err == nil {
+			t.Fatalf("allow-list entry %q accepted, want an error", origin)
+		}
+	}
+}
+
+func TestWebSocketHandshakeRejectsOversizedHeaders(t *testing.T) {
+	srv, err := gamenet.ListenWebSocket("127.0.0.1:0", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	var req strings.Builder
+	req.WriteString("GET /ws HTTP/1.1\r\nHost: test\r\nX-Big: ")
+	for range 2 << 20 {
+		req.WriteByte('a')
+	}
+	req.WriteString("\r\n\r\n")
+	// The server closes once the cap is reached, which may reset the write; either way no 101 comes back.
+	_, _ = conn.Write([]byte(req.String()))
+	line, _ := bufio.NewReader(conn).ReadString('\n')
+	if strings.Contains(line, "101") {
+		t.Fatalf("oversized headers upgraded: %q", line)
+	}
 }
 
 func TestWebSocketTLSFilesRejectsMissingKey(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 const (
 	wsMagicGUID        = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 	maxWSMessageSize   = 4 << 20 // 4 MiB safety cap
+	maxWSHandshakeSize = 1 << 20 // 1 MiB cap on the HTTP upgrade request's headers
 	wsWriteTimeout     = 10 * time.Second
 	wsDialTimeout      = 10 * time.Second
 	wsHandshakeTimeout = 10 * time.Second
@@ -489,6 +490,10 @@ func listenWebSocket(addr string, serverID PeerID, config *tls.Config, allowedOr
 	if serverID == 0 {
 		serverID = 1
 	}
+	origins, err := normalizeOrigins(allowedOrigins)
+	if err != nil {
+		return nil, err
+	}
 	ln, err := stdnet.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -499,12 +504,33 @@ func listenWebSocket(addr string, serverID PeerID, config *tls.Config, allowedOr
 	s := &WebSocketServer{
 		ln:         ln,
 		serverID:   serverID,
-		origins:    allowedOrigins,
+		origins:    origins,
 		nextPeerID: serverID + 1,
 		clients:    make(map[PeerID]*wsClientConn),
 	}
 	go s.acceptLoop()
 	return s, nil
+}
+
+// normalizeOrigins checks every allowed Origin and stores it as scheme://host, so an entry that names more than an Origin is refused at start-up instead of silently denying every upgrade.
+func normalizeOrigins(origins []string) ([]string, error) {
+	out := make([]string, 0, len(origins))
+	for _, raw := range origins {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "*" {
+			out = append(out, "*")
+			continue
+		}
+		u, err := url.Parse(trimmed)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return nil, fmt.Errorf("net: websocket origin %q is not a scheme://host Origin", raw)
+		}
+		if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			return nil, fmt.Errorf("net: websocket origin %q names more than a scheme://host Origin", raw)
+		}
+		out = append(out, strings.ToLower(u.Scheme+"://"+u.Host))
+	}
+	return out, nil
 }
 
 // originAllowed reports whether a browser Origin may upgrade.
@@ -518,8 +544,7 @@ func (s *WebSocketServer) originAllowed(origin string) bool {
 	}
 	normalized := strings.ToLower(u.Scheme + "://" + u.Host)
 	for _, allowed := range s.origins {
-		a := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(allowed), "/"))
-		if a == "*" || a == normalized {
+		if allowed == "*" || allowed == normalized {
 			return true
 		}
 	}
@@ -541,16 +566,45 @@ func (s *WebSocketServer) acceptLoop() {
 	}
 }
 
+// handshakeReader caps the bytes read from a connection until the HTTP upgrade request is parsed; a negative n means unlimited, as it is once the handshake is done.
+type handshakeReader struct {
+	r io.Reader
+	n int64
+}
+
+var errHandshakeTooLarge = errors.New("net: websocket handshake request too large")
+
+func (h *handshakeReader) Read(p []byte) (int, error) {
+	if h.n < 0 {
+		return h.r.Read(p)
+	}
+	if h.n == 0 {
+		return 0, errHandshakeTooLarge
+	}
+	if int64(len(p)) > h.n {
+		p = p[:h.n]
+	}
+	n, err := h.r.Read(p)
+	h.n -= int64(n)
+	return n, err
+}
+
+func (h *handshakeReader) unlimited() { h.n = -1 }
+
 func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 	// Bound the handshake so a client that connects and sends nothing cannot
-	// occupy a goroutine and socket forever.
+	// occupy a goroutine and socket forever, and cap its headers so it cannot
+	// stream an unbounded request into http.ReadRequest, which enforces no
+	// limit of its own.
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	br := bufio.NewReader(conn)
+	hr := &handshakeReader{r: conn, n: maxWSHandshakeSize}
+	br := bufio.NewReader(hr)
 	req, err := http.ReadRequest(br)
 	if err != nil {
 		_ = conn.Close()
 		return
 	}
+	hr.unlimited()
 	_ = conn.SetReadDeadline(time.Time{})
 	if !s.originAllowed(req.Header.Get("Origin")) {
 		_, _ = io.WriteString(conn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
