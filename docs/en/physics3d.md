@@ -16,7 +16,7 @@ Why pure Go instead of wrapping a C/C++ physics engine (such as Jolt, Bullet, or
 - **No FFI overhead**: Queries, raycasts, rigid-body steps, and character moves operate directly on Go values with zero cgo boundary crossings.
 - **Bit-for-bit determinism**: Stepping a `World` with fixed durations from `game.Loop` runs broadphase, narrowphase, impulse solving, and positional correction in a fixed body and contact order with no map-order iteration or wall-clock input.
 
-The scope is intentionally focused: axis-aligned boxes, spheres, and capsules, exact overlap and raycast queries, translational rigid bodies, and a capsule character controller. Static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`) and heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`) collide with bodies and the character controller; articulated joints and rotational inertia tensors are outside this initial package.
+The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, and capsules, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`) and heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`) that collide with bodies and the character controller, exact overlap and raycast queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor, and contacts use one representative point per body pair.
 
 ## Coordinate Convention
 
@@ -26,13 +26,14 @@ The scope is intentionally focused: axis-aligned boxes, spheres, and capsules, e
 
 Three primitives are wrapped by the tagged `Shape` value (`BoxShape`, `SphereShape`, `CapsuleShape`):
 
-- `Box` — axis-aligned box defined by `Center` and `HalfExtents` (or constructed via `BoxFromMinMax(min, max)`).
+- `Box` — box defined by `Center` and `HalfExtents` (or constructed via `BoxFromMinMax(min, max)`). It is axis-aligned unless the wrapping `Shape` sets `Rot`, which orients it about its `Center`. `Shape.Transformed(pos, rot)` and `Body.WorldShape()` keep a rotated body's box oriented, so overlap tests, raycasts and debug drawing see its real corners; `Shape.Bounds()` returns the enclosing AABB for broad-phase use.
 - `Sphere` — `Center` and `Radius`.
 - `Capsule` — line segment from `A` to `B` swept by `Radius` (or `VerticalCapsule(center, radius, height)`).
 
 Overlap tests return a `Contact` whose unit `Normal` points from `B` toward `A` (the direction to translate `A` by `Depth` to separate the shapes):
 
-- `TestBoxBox`, `TestSphereSphere`, `TestCapsuleCapsule`, `TestBoxSphere`, `TestBoxCapsule`, `TestSphereCapsule`, and `TestShapes(a, b)`.
+- `TestBoxBox`, `TestOrientedBoxBox` (separating axis theorem over the 15 face and edge axes), `TestSphereSphere`, `TestCapsuleCapsule`, `TestBoxSphere`, `TestBoxCapsule`, `TestSphereCapsule`, and `TestShapes(a, b)`, which handles oriented boxes.
+- When a capsule's segment passes through a box, `TestBoxCapsule` takes the axis of least penetration over the box faces and the edges crossed with the segment, so moving the box by `Normal*Depth` clears the whole capsule. Crossing capsules, and a sphere centered on a capsule's axis, get a normal perpendicular to the axes rather than an arbitrary one.
 - `world.QueryOverlap(shape)` returns all overlapping bodies in deterministic insertion order.
 
 Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`.
@@ -60,6 +61,12 @@ loop := &game.Loop{
 	},
 }
 ```
+
+Contact impulses act at the contact point, so friction makes a sliding sphere roll and a box standing on an edge tips over onto a face. `LockRotation` keeps a dynamic body from rotating. Inputs that are not finite (a NaN velocity or mass) fall back to defaults in `AddBody`, and a kinematic body without mass stays kinematic.
+
+Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), and on `Wake`, `ApplyImpulse` and the removal of bodies, meshes or joints.
+
+A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first overlap, so fast bodies do not tunnel through thin geometry. Fast dynamic bodies are not swept against each other.
 
 ## Character Controller
 

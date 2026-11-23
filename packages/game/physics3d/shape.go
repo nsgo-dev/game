@@ -84,6 +84,8 @@ type Shape struct {
 	Box     Box
 	Sphere  Sphere
 	Capsule Capsule
+	// Rot orients a Box about its Center, making it an oriented box. The zero value and identity leave the box axis-aligned; spheres and capsules ignore it.
+	Rot Quat
 }
 
 // BoxShape wraps b in a Shape.
@@ -105,7 +107,7 @@ func CapsuleShape(c Capsule) Shape {
 func (s Shape) Translated(offset Vec3) Shape {
 	switch s.Kind {
 	case ShapeBox:
-		return BoxShape(s.Box.Translated(offset))
+		return Shape{Kind: ShapeBox, Box: s.Box.Translated(offset), Rot: s.Rot}
 	case ShapeSphere:
 		return SphereShape(s.Sphere.Translated(offset))
 	case ShapeCapsule:
@@ -117,26 +119,23 @@ func (s Shape) Translated(offset Vec3) Shape {
 
 // Transformed returns a copy of s rotated by rot around the local origin and
 // translated by pos. For identity rotations, it is identical to Translated(pos).
-// For axis-aligned Box shapes, a non-identity rotation computes the tight
-// world-space AABB enclosing the rotated box.
+// A Box keeps its half-extents and gains the rotation in Shape.Rot, so the result is an exact oriented box rather than the AABB enclosing it; Bounds returns that AABB.
 func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
 	if rot.IsIdentity() {
 		return s.Translated(pos)
 	}
+	rot = rot.Norm()
 	switch s.Kind {
 	case ShapeBox:
-		ex := rot.RotateVec(Vec3{X: s.Box.HalfExtents.X})
-		ey := rot.RotateVec(Vec3{Y: s.Box.HalfExtents.Y})
-		ez := rot.RotateVec(Vec3{Z: s.Box.HalfExtents.Z})
-		he := Vec3{
-			X: abs32(ex.X) + abs32(ey.X) + abs32(ez.X),
-			Y: abs32(ex.Y) + abs32(ey.Y) + abs32(ez.Y),
-			Z: abs32(ex.Z) + abs32(ey.Z) + abs32(ez.Z),
+		own, _ := s.orientedBox()
+		combined := rot.Mul(own).Norm()
+		if combined.IsIdentity() {
+			combined = Quat{}
 		}
-		return BoxShape(Box{
+		return Shape{Kind: ShapeBox, Box: Box{
 			Center:      rot.RotateVec(s.Box.Center).Add(pos),
-			HalfExtents: he,
-		})
+			HalfExtents: s.Box.HalfExtents,
+		}, Rot: combined}
 	case ShapeSphere:
 		return SphereShape(Sphere{
 			Center: rot.RotateVec(s.Sphere.Center).Add(pos),
@@ -157,6 +156,9 @@ func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
 func (s Shape) Bounds() Box {
 	switch s.Kind {
 	case ShapeBox:
+		if r, ok := s.orientedBox(); ok {
+			return orientedBoxBounds(s.Box, r)
+		}
 		return s.Box
 	case ShapeSphere:
 		r := s.Sphere.Radius
@@ -200,8 +202,20 @@ func (c Contact) flipped() Contact {
 }
 
 // TestShapes tests two shapes for overlap. The returned Contact normal points
-// from b toward a.
+// from b toward a. Boxes oriented by Shape.Rot are tested exactly: two boxes with the separating axis theorem, and a box against a sphere or capsule in the box's own frame.
 func TestShapes(a, b Shape) Contact {
+	rotA, orientedA := a.orientedBox()
+	rotB, orientedB := b.orientedBox()
+	if a.Kind == ShapeBox && b.Kind == ShapeBox && (orientedA || orientedB) {
+		return TestOrientedBoxBox(a.Box, rotA, b.Box, rotB)
+	}
+	if orientedA {
+		f := newBoxFrame(a.Box.Center, rotA)
+		return f.contactToWorld(TestShapes(BoxShape(Box{HalfExtents: a.Box.HalfExtents}), f.localShape(b)))
+	}
+	if orientedB {
+		return TestShapes(b, a).flipped()
+	}
 	switch a.Kind {
 	case ShapeBox:
 		switch b.Kind {
@@ -322,13 +336,48 @@ func TestSphereSphere(a, b Sphere) Contact {
 	}
 }
 
-// TestCapsuleCapsule tests two capsules for overlap.
+// TestCapsuleCapsule tests two capsules for overlap. When the two segments cross, the normal is perpendicular to both of them rather than an arbitrary axis.
 func TestCapsuleCapsule(a, b Capsule) Contact {
 	pA, pB := closestPointsSegments(a.A, a.B, b.A, b.B)
-	return TestSphereSphere(
+	c := TestSphereSphere(
 		Sphere{Center: pA, Radius: a.Radius},
 		Sphere{Center: pB, Radius: b.Radius},
 	)
+	if c.Hit && pA.Sub(pB).LenSq() <= 1e-12 {
+		if n, ok := coincidentNormal(a.B.Sub(a.A), b.B.Sub(b.A), a.A.Add(a.B).Sub(b.A.Add(b.B))); ok {
+			c.Normal = n
+		}
+	}
+	return c
+}
+
+// coincidentNormal picks a contact normal for two segments (or a point and a segment) whose closest points coincide: perpendicular to both directions, falling back to perpendicular to the one non-degenerate direction. It is signed toward hint (from b toward a); with no usable hint it points to the upper half-space.
+func coincidentNormal(dirA, dirB, hint Vec3) (Vec3, bool) {
+	n := dirA.Cross(dirB)
+	if n.LenSq() <= 1e-12 {
+		d := dirA
+		if d.LenSq() <= 1e-12 {
+			d = dirB
+		}
+		if d.LenSq() <= 1e-12 {
+			return Vec3{}, false
+		}
+		d = d.Norm()
+		// Remove the axis component from the hint, or from +Y (then +X) when the hint runs along the axis.
+		for _, cand := range [3]Vec3{hint, {Y: 1}, {X: 1}} {
+			p := cand.Sub(d.Scale(cand.Dot(d)))
+			if p.LenSq() > 1e-10 {
+				return p.Norm(), true
+			}
+		}
+		return Vec3{}, false
+	}
+	n = n.Norm()
+	s := n.Dot(hint)
+	if s < 0 || (s == 0 && (n.Y < 0 || (n.Y == 0 && (n.X < 0 || (n.X == 0 && n.Z < 0))))) {
+		n = n.Neg()
+	}
+	return n, true
 }
 
 // TestBoxSphere tests an axis-aligned box a against a sphere b.
@@ -434,20 +483,70 @@ func TestBoxSphere(a Box, b Sphere) Contact {
 }
 
 // TestSphereCapsule tests a sphere a against a capsule b.
-// The returned Contact normal points from b toward a.
+// The returned Contact normal points from b toward a. A sphere centered on the capsule's segment is pushed out perpendicular to the segment.
 func TestSphereCapsule(a Sphere, b Capsule) Contact {
 	pB := closestPointOnSegment(b.A, b.B, a.Center)
-	return TestSphereSphere(a, Sphere{Center: pB, Radius: b.Radius})
+	c := TestSphereSphere(a, Sphere{Center: pB, Radius: b.Radius})
+	if c.Hit && a.Center.Sub(pB).LenSq() <= 1e-12 {
+		if n, ok := coincidentNormal(b.B.Sub(b.A), Vec3{}, Vec3{}); ok {
+			c.Normal = n
+		}
+	}
+	return c
 }
 
 // TestBoxCapsule tests an axis-aligned box a against a capsule b.
-// The returned Contact normal points from b toward a.
+// The returned Contact normal points from b toward a. When the capsule's segment passes through the box, the normal and depth come from the separating axis theorem over the box faces and the edges crossed with the segment, so moving a by Normal*Depth separates the whole capsule rather than one sphere on it.
 func TestBoxCapsule(a Box, b Capsule) Contact {
 	if b.Radius <= 0 {
 		return Contact{}
 	}
 	pB := closestOrDeepestPointSegmentBox(b.A, b.B, a)
-	return TestBoxSphere(a, Sphere{Center: pB, Radius: b.Radius})
+	c := TestBoxSphere(a, Sphere{Center: pB, Radius: b.Radius})
+	if !c.Hit || pointBoxDistSq(pB, a.Min(), a.Max()) > 0 {
+		return c
+	}
+	// The segment enters the box: one sphere at its deepest point understates how far the rest of the capsule reaches.
+	seg := b.B.Sub(b.A)
+	axes := [3]Vec3{{X: 1}, {Y: 1}, {Z: 1}}
+	bestDepth := float32(-1)
+	var bestN Vec3
+	try := func(l Vec3, face bool) {
+		ls := l.LenSq()
+		if ls < 1e-10 {
+			return
+		}
+		l = l.Scale(1 / sqrt32(ls))
+		bc := a.Center.Dot(l)
+		br := a.HalfExtents.X*abs32(l.X) + a.HalfExtents.Y*abs32(l.Y) + a.HalfExtents.Z*abs32(l.Z)
+		pa, pb := b.A.Dot(l), b.B.Dot(l)
+		cMin, cMax := min(pa, pb)-b.Radius, max(pa, pb)+b.Radius
+		// Box moving along +l must clear the capsule's top; along -l its bottom.
+		up := cMax - (bc - br)
+		down := (bc + br) - cMin
+		depth, n := up, l
+		if down < up {
+			depth, n = down, l.Neg()
+		}
+		if !face {
+			depth = depth*1.05 + 1e-5 // prefer face axes on near ties, as the box-box test does
+		}
+		if bestDepth < 0 || depth < bestDepth {
+			bestDepth, bestN = depth, n
+		}
+	}
+	for _, ax := range axes {
+		try(ax, true)
+	}
+	for _, ax := range axes {
+		try(seg.Cross(ax), false)
+	}
+	if bestDepth <= 0 {
+		return c
+	}
+	c.Normal = bestN
+	c.Depth = bestDepth
+	return c
 }
 
 func aabbOverlap(a, b Box) bool {

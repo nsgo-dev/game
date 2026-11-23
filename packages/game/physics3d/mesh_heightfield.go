@@ -1,6 +1,10 @@
 package physics3d
 
-import "math"
+import (
+	"cmp"
+	"math"
+	"slices"
+)
 
 // Triangle is a 3D triangle defined by vertices A, B, C (counter-clockwise
 // winding defines the outward Normal).
@@ -362,6 +366,11 @@ func TestShapeTriangle(s Shape, tri Triangle) Contact {
 	case ShapeCapsule:
 		return TestCapsuleTriangle(s.Capsule, tri)
 	case ShapeBox:
+		if r, ok := s.orientedBox(); ok {
+			f := newBoxFrame(s.Box.Center, r)
+			local := Triangle{A: f.toLocal(tri.A), B: f.toLocal(tri.B), C: f.toLocal(tri.C)}
+			return f.contactToWorld(TestBoxTriangle(Box{HalfExtents: s.Box.HalfExtents}, local))
+		}
 		return TestBoxTriangle(s.Box, tri)
 	default:
 		return Contact{}
@@ -533,8 +542,14 @@ func (tm *TriMeshCollider) buildBVH(start, count int, triBounds []Box, triCentro
 		}
 	}
 	leftCount := i - start
-	if leftCount == 0 || leftCount == count {
-		// Degenerate split: fall back to balanced median split.
+	if leftCount < count/8 || leftCount > count-count/8 {
+		// A lopsided midpoint split (clustered or exponentially spaced triangles) would make the tree as deep as the mesh is long, so split at the centroid median instead, which bounds the depth by log2 of the triangle count (#546).
+		slices.SortStableFunc(tm.triOrder[start:start+count], func(x, y int) int {
+			if c := cmp.Compare(coord(triCentroids[x]), coord(triCentroids[y])); c != 0 {
+				return c
+			}
+			return cmp.Compare(x, y)
+		})
 		leftCount = count / 2
 	}
 
@@ -558,17 +573,17 @@ func (tm *TriMeshCollider) Raycast(ray Ray) (RaycastHit, bool) {
 		return RaycastHit{}, false
 	}
 
-	var stack [64]int
-	sp := 1
-	stack[0] = 0
+	// The stack grows past its inline capacity instead of dropping subtrees, so a deep tree never loses triangles (#546).
+	var buf [64]int
+	stack := append(buf[:0], 0)
 
 	var best RaycastHit
 	bestDist := ray.MaxDist
 	found := false
 
-	for sp > 0 {
-		sp--
-		node := &tm.nodes[stack[sp]]
+	for len(stack) > 0 {
+		node := &tm.nodes[stack[len(stack)-1]]
+		stack = stack[:len(stack)-1]
 		if node.triCount > 0 {
 			for i := 0; i < node.triCount; i++ {
 				tri := tm.Triangles[tm.triOrder[node.firstTri+i]]
@@ -590,24 +605,14 @@ func (tm *TriMeshCollider) Raycast(ray Ray) (RaycastHit, bool) {
 		if hitL && hitR {
 			// Push farther child first so nearer child is popped first.
 			if tL <= tR {
-				if sp+2 <= len(stack) {
-					stack[sp] = node.right
-					stack[sp+1] = node.left
-					sp += 2
-				}
+				stack = append(stack, node.right, node.left)
 			} else {
-				if sp+2 <= len(stack) {
-					stack[sp] = node.left
-					stack[sp+1] = node.right
-					sp += 2
-				}
+				stack = append(stack, node.left, node.right)
 			}
-		} else if hitL && sp < len(stack) {
-			stack[sp] = node.left
-			sp++
-		} else if hitR && sp < len(stack) {
-			stack[sp] = node.right
-			sp++
+		} else if hitL {
+			stack = append(stack, node.left)
+		} else if hitR {
+			stack = append(stack, node.right)
 		}
 	}
 
@@ -619,25 +624,22 @@ func (tm *TriMeshCollider) QueryTriangles(bounds Box, visit func(tri Triangle)) 
 	if len(tm.nodes) == 0 || !aabbOverlap(bounds, tm.nodes[0].bounds) {
 		return
 	}
-	var stack [64]int
-	sp := 1
-	stack[0] = 0
-	for sp > 0 {
-		sp--
-		node := &tm.nodes[stack[sp]]
+	var buf [64]int
+	stack := append(buf[:0], 0)
+	for len(stack) > 0 {
+		node := &tm.nodes[stack[len(stack)-1]]
+		stack = stack[:len(stack)-1]
 		if node.triCount > 0 {
 			for i := 0; i < node.triCount; i++ {
 				visit(tm.Triangles[tm.triOrder[node.firstTri+i]])
 			}
 			continue
 		}
-		if aabbOverlap(bounds, tm.nodes[node.right].bounds) && sp < len(stack) {
-			stack[sp] = node.right
-			sp++
+		if aabbOverlap(bounds, tm.nodes[node.right].bounds) {
+			stack = append(stack, node.right)
 		}
-		if aabbOverlap(bounds, tm.nodes[node.left].bounds) && sp < len(stack) {
-			stack[sp] = node.left
-			sp++
+		if aabbOverlap(bounds, tm.nodes[node.left].bounds) {
+			stack = append(stack, node.left)
 		}
 	}
 }
@@ -1026,7 +1028,8 @@ func (w *World) AddTriMesh(tm *TriMeshCollider) *TriMeshCollider {
 	if tm == nil {
 		return nil
 	}
-	if tm.ID == 0 {
+	// An explicit ID already used by another mesh or heightfield is reassigned, as AddBody does for bodies, so contact ordering and removal by ID stay unambiguous (#546).
+	if tm.ID <= 0 || w.colliderIDTaken(tm.ID) {
 		w.nextColliderID++
 		tm.ID = w.nextColliderID
 	} else if tm.ID >= w.nextColliderID {
@@ -1067,7 +1070,8 @@ func (w *World) AddHeightfield(hf *HeightfieldCollider) *HeightfieldCollider {
 	if hf == nil {
 		return nil
 	}
-	if hf.ID == 0 {
+	// An explicit ID already used by another mesh or heightfield is reassigned, as AddBody does for bodies, so contact ordering and removal by ID stay unambiguous (#546).
+	if hf.ID <= 0 || w.colliderIDTaken(hf.ID) {
 		w.nextColliderID++
 		hf.ID = w.nextColliderID
 	} else if hf.ID >= w.nextColliderID {
@@ -1101,6 +1105,21 @@ func (w *World) RemoveHeightfield(id int) bool {
 // Heightfields returns all static HeightfieldColliders registered in w.
 func (w *World) Heightfields() []*HeightfieldCollider {
 	return w.heightfields
+}
+
+// colliderIDTaken reports whether a registered mesh or heightfield already uses id.
+func (w *World) colliderIDTaken(id int) bool {
+	for _, tm := range w.triMeshes {
+		if tm.ID == id {
+			return true
+		}
+	}
+	for _, hf := range w.heightfields {
+		if hf.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *World) wakeAllDynamic() {
