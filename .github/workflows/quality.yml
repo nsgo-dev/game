@@ -180,3 +180,6 @@ jobs:
       - name: Fuzz ParseBoardDoc
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzParseBoardDoc$ -fuzztime=10s ./cards
+      - name: Fuzz ParseRules
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzParseRules$ -fuzztime=10s ./procgen

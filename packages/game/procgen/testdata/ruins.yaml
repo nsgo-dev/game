@@ -1,0 +1,23 @@
+# Ruins: open floor with lone pillars and pools of water.
+version: 1
+tiles:
+  - name: floor
+    weight: 6
+    walkable: true
+  - name: pillar
+    weight: 1
+  - name: water
+    weight: 2
+neighbors:
+  - {left: floor, right: floor}
+  - {left: floor, right: pillar}
+  - {left: pillar, right: floor}
+  - {left: floor, right: water}
+  - {left: water, right: floor}
+  - {left: water, right: water}
+  - {up: floor, down: floor}
+  - {up: floor, down: pillar}
+  - {up: pillar, down: floor}
+  - {up: floor, down: water}
+  - {up: water, down: floor}
+  - {up: water, down: water}
