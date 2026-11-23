@@ -41,7 +41,7 @@ jobs:
         working-directory: packages/game
         run: go tool nsgo test ./...
 
-  # The Postgres store's tests skip without a database, so this job gives them one.
+  # The Postgres stores' tests skip without a database, so this job gives them one.
   postgres:
     name: Test (Postgres store)
     runs-on: depot-ubuntu-24.04
@@ -74,6 +74,11 @@ jobs:
         env:
           ACCOUNTS_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
         run: go tool nsgo test ./accounts/pgstore/...
+      - name: Test the cloud save Postgres store
+        working-directory: packages/game
+        env:
+          CLOUDSAVE_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
+        run: go tool nsgo test ./cloudsave/sqlstore/...
 
   starter:
     name: Test the starter against its pinned modules

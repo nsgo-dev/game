@@ -238,7 +238,7 @@ type CloudSyncOptions struct {
 //
 // Write saves through Backend so that each local write is stamped with its time for PolicyNewest and conflict summaries. A CloudSyncer is not safe for concurrent use; call it where the app's code runs, as core.Storage requires.
 //
-// Before every cloud write it reads the cloud copy again and refuses to write when it changed (ErrCloudChanged). CloudSync has no conditional write, so an upload by another device that lands between that read and the write can still be overwritten; the window is a single Load and Save apart.
+// Before every cloud write it reads the cloud copy again and refuses to write when it changed (ErrCloudChanged). When Cloud implements ConditionalCloudSync, as CloudClient does, the write itself is conditional on that copy, so an upload by another device can never be overwritten: the losing write fails with ErrCloudChanged and the next sync sees both copies as a conflict for the policy to resolve. A plain CloudSync has no conditional write, so an upload by another device that lands between the re-read and the write can still be overwritten; the window is a single Load and Save apart.
 type CloudSyncer struct {
 	local     save.Backend
 	cloud     CloudSync
@@ -573,18 +573,24 @@ func (s *CloudSyncer) readLocal(slot string) (SaveVersion, error) {
 }
 
 func (s *CloudSyncer) readCloud(ctx context.Context, slot string) (SaveVersion, error) {
+	v, _, err := s.readCloudTagged(ctx, slot)
+	return v, err
+}
+
+// readCloudTagged reads the cloud copy of slot and the PayloadHash of its raw payload, "" when the slot does not exist.
+func (s *CloudSyncer) readCloudTagged(ctx context.Context, slot string) (SaveVersion, string, error) {
 	raw, err := s.cloud.Load(ctx, slot)
 	if errors.Is(err, ErrSlotNotFound) {
-		return SaveVersion{}, nil
+		return SaveVersion{}, "", nil
 	}
 	if err != nil {
-		return SaveVersion{}, fmt.Errorf("liveops: load cloud save %q: %w", slot, err)
+		return SaveVersion{}, "", fmt.Errorf("liveops: load cloud save %q: %w", slot, err)
 	}
 	v, err := DecodeCloudSave(raw)
 	if err != nil {
-		return SaveVersion{}, fmt.Errorf("liveops: load cloud save %q: %w", slot, err)
+		return SaveVersion{}, "", fmt.Errorf("liveops: load cloud save %q: %w", slot, err)
 	}
-	return v, nil
+	return v, PayloadHash(raw), nil
 }
 
 // applyCloud makes the local copy match cloud and records cloud as the new base.
@@ -608,7 +614,7 @@ func (s *CloudSyncer) applyCloud(slot string, cloud SaveVersion) (SyncOutcome, e
 
 // pushLocal makes the cloud copy match local, after checking that the cloud still holds prev, and records local as the new base.
 func (s *CloudSyncer) pushLocal(ctx context.Context, slot string, local, prev SaveVersion) (SyncOutcome, error) {
-	cur, err := s.readCloud(ctx, slot)
+	cur, tag, err := s.readCloudTagged(ctx, slot)
 	if err != nil {
 		return 0, err
 	}
@@ -616,7 +622,7 @@ func (s *CloudSyncer) pushLocal(ctx context.Context, slot string, local, prev Sa
 		return 0, fmt.Errorf("liveops: upload %q: %w", slot, ErrCloudChanged)
 	}
 	if !local.Exists {
-		if err := s.cloud.Delete(ctx, slot); err != nil {
+		if err := s.deleteCloud(ctx, slot, tag); err != nil {
 			return 0, fmt.Errorf("liveops: delete cloud save %q: %w", slot, err)
 		}
 		s.removeState(slot)
@@ -632,21 +638,35 @@ func (s *CloudSyncer) pushLocal(ctx context.Context, slot string, local, prev Sa
 		modified = s.now()
 	}
 	next := SaveVersion{Exists: true, Revision: prev.Revision + 1, Hash: local.Hash, Modified: modified, Device: s.device, Data: local.Data}
-	if err := s.upload(ctx, slot, next); err != nil {
+	if err := s.upload(ctx, slot, next, tag); err != nil {
 		return 0, err
 	}
 	return OutcomeUploaded, s.storeState(slot, syncState{Revision: next.Revision, Hash: next.Hash, LocalModified: formatTime(modified), LocalHash: next.Hash})
 }
 
-func (s *CloudSyncer) upload(ctx context.Context, slot string, v SaveVersion) error {
+// upload writes v to slot, conditional on the slot still holding the payload with PayloadHash match ("" for none) when the cloud supports it.
+func (s *CloudSyncer) upload(ctx context.Context, slot string, v SaveVersion, match string) error {
 	payload, err := EncodeCloudSave(v)
 	if err != nil {
 		return fmt.Errorf("liveops: encode cloud save %q: %w", slot, err)
 	}
-	if err := s.cloud.Save(ctx, slot, payload); err != nil {
+	if cs, ok := s.cloud.(ConditionalCloudSync); ok {
+		err = cs.SaveIf(ctx, slot, payload, match)
+	} else {
+		err = s.cloud.Save(ctx, slot, payload)
+	}
+	if err != nil {
 		return fmt.Errorf("liveops: save cloud save %q: %w", slot, err)
 	}
 	return nil
+}
+
+// deleteCloud removes slot, conditional on it still holding the payload with PayloadHash match when the cloud supports it.
+func (s *CloudSyncer) deleteCloud(ctx context.Context, slot, match string) error {
+	if cs, ok := s.cloud.(ConditionalCloudSync); ok {
+		return cs.DeleteIf(ctx, slot, match)
+	}
+	return s.cloud.Delete(ctx, slot)
 }
 
 // fork moves the local copy into a fork slot on both sides, then replaces the local slot with the cloud copy. The local fork and its sync state are written first, so the local copy is never only in memory and a failed upload is retried by the next sync, which also finds and reuses this fork instead of creating another.
