@@ -9,31 +9,41 @@ import (
 // bloomSource is Bloom's Kage program. Its taps, weights and luminance are bloomReference's, which draws it on the CPU.
 const bloomSource = `package main
 
-// Threshold is the luminance, from 0 to 1, above which a pixel glows: how far its luminance rises from Threshold toward 1 is how much of its color spreads.
+// Threshold is the luminance, from 0 to 1, of a premultiplied color above which a pixel glows: how far its luminance rises from Threshold toward 1 is how much of its color spreads. It is clamped to 0 to 1, and NaN acts as 0.
 var Threshold float
 
-// Intensity scales the glow added over the frame: 0 or less draws the frame as it is.
+// Intensity scales the glow added over the frame: 0 or less, or NaN, draws the frame as it is, and above 1000 it acts as 1000.
 var Intensity float
 
 // Radius is how far, in the frame's pixels, the glow reaches from a highlight.
 var Radius float
 
-// bright returns the part of c that glows.
-func bright(c vec4) vec4 {
+// bright returns the part of c that glows above the threshold t.
+func bright(c vec4, t float) vec4 {
 	l := dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))
-	return c * clamp((l-Threshold)/max(1-Threshold, 0.0001), 0, 1)
+	return c * clamp((l-t)/max(1-t, 0.0001), 0, 1)
 }
 
 func Effect(pos vec2) vec4 {
 	c := Input(pos)
-	glow := bright(c) * 4
+	if !(Intensity > 0) {
+		return c
+	}
+	t := Threshold
+	if !(t > 0) {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	glow := bright(c, t) * 4
 	for i := 0; i < 8; i++ {
 		a := float(i) * 0.7853981633974483
-		glow += bright(Input(pos+vec2(cos(a), sin(a))*(Radius*0.5))) * 2
+		glow += bright(Input(pos+vec2(cos(a), sin(a))*(Radius*0.5)), t) * 2
 		b := a + 0.39269908169872414
-		glow += bright(Input(pos + vec2(cos(b), sin(b))*Radius))
+		glow += bright(Input(pos+vec2(cos(b), sin(b))*Radius), t)
 	}
-	glow *= max(Intensity, 0) / 28
+	glow *= min(Intensity, 1000) / 28
 	alpha := clamp(c.a+glow.a, 0, 1)
 	return vec4(min(c.rgb+glow.rgb, vec3(alpha)), alpha)
 }
@@ -43,8 +53,8 @@ func Effect(pos vec2) vec4 {
 //
 // Its uniforms, by name:
 //
-//   - Threshold, from 0 to 1: the luminance (Rec. 709) above which a pixel glows, as much as its luminance rises from Threshold toward 1.
-//   - Intensity: how much of the glow is added; 0 or less, the default being 0, draws the frame as it is, and 1 to 2 is a strong bloom.
+//   - Threshold, from 0 to 1: the luminance (Rec. 709) above which a pixel glows, as much as its luminance rises from Threshold toward 1. It is the luminance of the premultiplied color, so a translucent pixel glows in proportion to its alpha: white at half alpha has a luminance of 0.5. Values outside 0 to 1 are clamped, and NaN acts as 0.
+//   - Intensity: how much of the glow is added; 0 or less, the default being 0, or NaN returns the input unchanged, 1 to 2 is a strong bloom, and above 1000 it acts as 1000.
 //   - Radius: how far, in the frame's pixels, the glow reaches.
 //
 // The glow adds light: a translucent pixel near a highlight becomes more opaque, and colors stay premultiplied. Each output point reads its input 17 times, and a chain runs the effects before it at each of those points, so put Bloom first in a chain or after effects that read their input once.
@@ -74,9 +84,17 @@ const (
 	bloomWeights      = bloomCenterWeight + 8*2 + 8*1
 )
 
-// bloomReference draws Bloom on the CPU, as its source draws it on the GPU.
+// bloomReference draws Bloom on the CPU, as its source draws it on the GPU, with the same explicit handling of NaN and infinite uniforms.
 func bloomReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
 	threshold, intensity, radius := Float(u, "Threshold"), Float(u, "Intensity"), Float(u, "Radius")
+	c := in.At(x, y)
+	if !(intensity > 0) {
+		return c
+	}
+	if !(threshold > 0) {
+		threshold = 0
+	}
+	threshold = math.Min(threshold, 1)
 	bright := func(c [4]float64) [4]float64 {
 		l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
 		k := clamp01((l - threshold) / math.Max(1-threshold, 0.0001))
@@ -85,7 +103,6 @@ func bloomReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
 		}
 		return c
 	}
-	c := in.At(x, y)
 	var glow [4]float64
 	add := func(g [4]float64, w float64) {
 		for i := range glow {
@@ -96,7 +113,7 @@ func bloomReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
 	for _, t := range bloomTaps {
 		add(bright(in.At(x+t.dx*radius, y+t.dy*radius)), t.weight)
 	}
-	scale := math.Max(intensity, 0) / bloomWeights
+	scale := math.Min(intensity, 1000) / bloomWeights
 	alpha := clamp01(c[3] + glow[3]*scale)
 	out := [4]float64{3: alpha}
 	for i := range 3 {

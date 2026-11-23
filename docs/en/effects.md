@@ -84,7 +84,7 @@ Any other node works too, such as a `core.Timing` a game starts when the player 
 
 ## Bloom
 
-`Bloom()` returns a ready effect that makes the frame's highlights glow in one pass, with no texture between passes: over each point it adds the bright part of its input at the point and at 16 points around it, on an inner ring at half the radius and an outer ring at the radius. Its uniforms are `Threshold`, the luminance from 0 to 1 above which a pixel glows; `Intensity`, how much glow is added, where 0 or less, the default, draws the frame as it is and 1 to 2 is a strong bloom; and `Radius`, how far in the frame's pixels the glow reaches.
+`Bloom()` returns a ready effect that makes the frame's highlights glow in one pass, with no texture between passes: over each point it adds the bright part of its input at the point and at 16 points around it, on an inner ring at half the radius and an outer ring at the radius. Its uniforms are `Threshold`, the luminance from 0 to 1 above which a pixel glows, clamped to that range; `Intensity`, how much glow is added, where 0 or less, the default, passes its input through unchanged, 1 to 2 is a strong bloom and values above 1000 act as 1000; and `Radius`, how far in the frame's pixels the glow reaches.
 
 ```go
 post := effects.MustCompile(effects.Bloom(), effects.Effect{Name: "invert", Source: invert})
@@ -92,6 +92,7 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 ```
 
 - The glow adds light: colors stay premultiplied, and a translucent pixel near a highlight becomes more opaque.
+- `Threshold` is compared with the luminance of the premultiplied color, so a translucent pixel glows in proportion to its alpha: white at half alpha has a luminance of 0.5 and stays below a threshold of 0.6.
 - Each point reads its input 17 times, and a chain runs the effects before it at each of them, so put `Bloom` first or after effects that read their input once.
 - It approximates a blurred bright pass: at a large radius the glow is a soft star rather than a smooth disc. Keep `Radius` to a few pixels of the frame, and animate `Intensity` for a pulse.
 - `Bloom` carries its own `Reference`, so a chain with it draws a reference picture headless.
