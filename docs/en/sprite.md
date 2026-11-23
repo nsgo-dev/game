@@ -139,10 +139,10 @@ Fields on `Sprite`:
 | `ScaleX`, `ScaleY` | Scale about the origin; a negative value mirrors about the origin; `0` draws nothing. |
 | `FlipX`, `FlipY` | Mirrors the frame inside its untrimmed box before placement, keeping the origin in place. |
 | `Alpha` | Opacity in `[0, 1]`; `<= 0` draws nothing. Replaces the drawing's alpha for this sprite. |
-| `Tint` | A `core.Color` that multiplies the frame's red, green, blue and alpha before the sprite is composited; the zero value and opaque white draw the frame unchanged, and a tint with alpha `0` draws nothing. |
+| `Tint` | A `core.Color` that multiplies the frame's red, green, blue and alpha before the sprite is composited; the zero value and opaque white draw the frame unchanged, and any other tint with alpha `0` draws nothing. To fade a sprite out, lower `Alpha`: a tint that reaches transparent black is the zero value and draws the frame unchanged. |
 | `Z` | Draw order inside a `Batch`; higher `Z` draws on top of lower `Z`. |
 
-A tinted sprite recolors only its own pixels: it draws with NSGo's `DrawTintedImageFrom`, which multiplies the image's channels by the tint before compositing with the default source-over mode, so transparent pixels leave what is under the sprite unchanged on every target. `Tint` combines with `Alpha`, `Blend` and `Mask` in the same draw:
+A tinted sprite recolors only its own pixels: it draws with NSGo's `DrawTintedImageFrom`, which multiplies the image's channels by the tint before compositing with the default source-over mode, so transparent pixels leave what is under the sprite unchanged. `Tint` combines with `Alpha`, `Blend` and `Mask` in the same draw:
 
 ```go
 hit := sprite.NewSprite(atlas.Frames["slime.png"])
@@ -151,7 +151,7 @@ ghost := hit
 ghost.Tint = core.RGBA(0x80c0ff, 0.5) // a pale blue at half the sprite's opacity
 ```
 
-On the web, a cross-origin atlas image must allow anonymous CORS requests for NSGo to tint its pixels.
+On the web, a cross-origin atlas image must allow anonymous CORS requests for NSGo to tint its pixels. On HarmonyOS, NSGo tints atlases loaded from bytes or the app's resources, but tinting is not yet checked on a device there, and an atlas built from a pixel buffer or an offscreen image draws nothing there yet.
 
 ## Batch and Z ordering
 
