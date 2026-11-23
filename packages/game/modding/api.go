@@ -37,6 +37,8 @@ var (
 	ErrModDisabled = errors.New("modding: mod is disabled")
 	// ErrModFailed is returned when interacting with a mod in StateFailed.
 	ErrModFailed = errors.New("modding: mod failed")
+	// ErrWebUnisolated is returned when a mod would load on the web, where its capabilities cannot be enforced, without ManagerOptions.WebUnisolated.
+	ErrWebUnisolated = errors.New("modding: the web cannot isolate mods from the page; set ManagerOptions.WebUnisolated to run them with the page's authority")
 )
 
 // PermissionError reports a blocked capability check. It unwraps to both [ErrPermission]

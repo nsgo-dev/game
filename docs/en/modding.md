@@ -105,3 +105,7 @@ _ = hudPanels
 ```
 
 Control individual mods at runtime with `Enable`, `Disable`, `Load`, `Unload`, `Reload`, `SetGrant`, `Emit`, `Call`, `List`, `Info`, and `Logs`. A panicking or throwing mod transitions to `StateFailed` while the host game and sibling mods keep running.
+
+`Reload` validates the updated `mod.yaml` (syntax, ID, game version and dependencies) before it unloads anything, so a broken manifest returns an error and the version already loaded keeps running.
+
+Browsers cannot isolate a mod from the page: a mod running on the web can use the page's own APIs (`XMLHttpRequest`, `WebSocket`, `localStorage`) whatever its capabilities say. Loading a mod on the web therefore fails with `ErrWebUnisolated` unless you set `ManagerOptions.WebUnisolated`, which you should only do for mods you trust as much as your own code. Other targets isolate mods and ignore the option.
