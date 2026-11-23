@@ -37,7 +37,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/particles`: `Emitter.Draw` now tints each particle's sprite by its `ColorCurve` RGB, where it previously applied only the curve's alpha, so particle definitions with a non-white `colorCurve` draw in that color (#29).
 - `game`: `Loop` adds each frame's time from `RequestAnimationFrame` as it is, the display's own frame time where the platform stamps one, and no longer smooths it (#27).
 - `game/sound`: group, master and background volume changes now reach effects already playing through NSGo's `audio.Playback`, silencing them at 0 instead of stopping them; an `Effect` at its `Limit` stops its oldest playback to play a new one instead of refusing it; a voice with `Muted` set now plays nothing and `Play` returns false instead of playing muted and counting toward the limit; and a crossfade's new music track starts at once, muted, instead of waiting paused for the fade's first frame (#31).
-- `game/skeletal`: rigs are YAML (`.skel.yaml`, same version-1 schema, JSON that is also valid YAML still loads); `Load` refuses unknown fields, duplicate keys, trailing documents, non-finite numbers, times beyond `MaxSeconds` and Bezier points on other curves, and the new `Encode` writes a deterministic canonical form (names in byte order, numbers without exponents) that round-trips losslessly (#475).
 
 ### Fixed
 
