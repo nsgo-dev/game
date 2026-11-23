@@ -112,3 +112,20 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 The watcher and the manager must see the same files: a `Manager` without `WithFS` reads `"asset:"` URIs from `assets/` in the working directory, and `nsgo dev` starts the game in the directory `game dev` was run from, not the project's, so under `game dev` the manager reads from `hotreload.DevAssetsDir()`, the absolute path of the directory `game dev` passes, as above. `WatchAssets` passes each changed file under the directory to `Manager.Reload` as `"asset:<path>"` on the engine goroutine. An atlas whose JSON changed is parsed again, and one whose image changed draws the file's new bytes with the same frames; the `*sprite.Atlas` the group holds is updated in place, so code that kept the pointer draws the edit. JSON that no longer parses keeps the previous frames and reports the error. Images show the new bytes and raw bytes are replaced; sounds and custom assets load again only when their group does. An image that ships in several densities (`Scales`) reloads from the file the screen shows, such as `hero@2x.png` on a 2x screen; saving another density changes nothing until the screen shows it. A group mounted on a DLC pack with `SetFS` keeps the pack's copy of a file the pack has, so saving the base file does not change it. `Manager.Revision` counts the reloads that replaced something, so a `core.Canvas` that reads it in `Draw` draws again after each one; a game drawn every frame by `game.Loop` needs nothing more.
 
 For an atlas the game loads itself, such as one embedded with `go:embed`, `w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` delivers the atlas parsed from the saved files. `NewDevWatcher` returns nil when the game is not running under `game dev`, and a nil watcher's methods do nothing, so the calls can stay in the game; in release builds (`-tags release`) they compile to nothing.
+
+## Downloadable packs (DLC)
+
+`assets.NewDLCManager(assets.DLCOptions{...})` downloads ZIP packs described by a `PackSpec` (usually parsed from a manifest with `ParsePackManifest`), resumes interrupted downloads with HTTP Range requests, verifies size, SHA-256 and (when a `PublicKey` is set) an Ed25519 signature, and caches them in a `PackCache`. `Fetch` returns the verified pack as an `fs.FS`; `FetchGroup` also mounts it into a `Group` and loads it.
+
+```go
+dlc := assets.NewDLCManager(assets.DLCOptions{
+	AppBuild:  42,
+	PublicKey: packPublicKey,
+	Cache:     assets.NewDirPackCache(cacheDir),
+	Limits:    assets.PackLimits{MaxTotalBytes: 256 << 20},
+})
+group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
+```
+
+- A cached pack is verified again on the same reader that is mounted. `DirPackCache` reads a mounted pack through one open file, so replacing or deleting the cache file afterwards does not change what the mount serves (on Windows, deleting a mounted pack fails until it is released).
+- `Limits` caps the number of entries, the size of one file and the total unpacked size (zero fields use `DefaultPackLimits()`: 32768 entries, 256 MiB, 1 GiB). A pack over a limit is refused before mounting, and an entry cannot decompress past the size its header declares, so the caps bound what reading an asset allocates.
