@@ -1,0 +1,28 @@
+version: 1
+achievements:
+  - id: first-match
+    title: First Match
+    description: Clear your first line of gems.
+    platforms:
+      gameCenter: dev.nsgo.examples.slidegem.first_match
+      playGames: CgkI8Nq1mKcBEAIQAQ
+  - id: chain-reaction
+    title: Chain Reaction
+    description: Set off a cascade of three clears from one swap.
+    platforms:
+      gameCenter: dev.nsgo.examples.slidegem.chain_reaction
+      playGames: CgkI8Nq1mKcBEAIQAg
+  - id: gem-collector
+    title: Gem Collector
+    description: Clear 300 gems.
+    steps: 300
+    platforms:
+      gameCenter: dev.nsgo.examples.slidegem.gem_collector
+      playGames: CgkI8Nq1mKcBEAIQAw
+  - id: high-roller
+    title: High Roller
+    description: Score 5000 points in one game.
+    hidden: true
+    platforms:
+      gameCenter: dev.nsgo.examples.slidegem.high_roller
+      playGames: CgkI8Nq1mKcBEAIQBA
