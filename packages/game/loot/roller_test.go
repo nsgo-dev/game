@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/loot"
@@ -497,6 +498,59 @@ func TestNewRollerPanicsOnNil(t *testing.T) {
 		}
 	}()
 	loot.NewRoller(nil, nil)
+}
+
+// TestLibrarySharedByConcurrentRollers rolls one Library from several goroutines, each with its own Roller and stream, while others read it, and checks every goroutine gets the drops a lone Roller on the same seed gets. Run under -race it also catches any mutation of the shared Library.
+func TestLibrarySharedByConcurrentRollers(t *testing.T) {
+	lib := mustLibrary(t, hardPityDoc+`
+  - name: ten-pull
+    entries:
+      - table: banner
+        weight: 1
+        count: 10
+`)
+	const workers, rolls = 8, 200
+	want := make([][]loot.Drop, workers)
+	for w := range workers {
+		r := loot.NewRoller(lib, random.New(uint64(w)+1))
+		for range rolls {
+			want[w] = append(want[w], mustRoll(t, r, "ten-pull")...)
+		}
+	}
+	got := make([][]loot.Drop, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			r := loot.NewRoller(lib, random.New(uint64(w)+1))
+			for range rolls {
+				var err error
+				if got[w], err = r.AppendRoll(got[w], "ten-pull"); err != nil {
+					errs[w] = err
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for range rolls {
+				_ = lib.Chances("banner")
+				_ = lib.Tables()
+				_ = lib.Has("ten-pull")
+			}
+		}()
+	}
+	wg.Wait()
+	for w := range workers {
+		if errs[w] != nil {
+			t.Fatalf("worker %d: %v", w, errs[w])
+		}
+		if !reflect.DeepEqual(got[w], want[w]) {
+			t.Fatalf("worker %d rolled different drops than a lone Roller on the same seed", w)
+		}
+	}
 }
 
 func TestAppendRollDoesNotAllocate(t *testing.T) {

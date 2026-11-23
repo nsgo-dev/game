@@ -10,7 +10,7 @@ import (
 )
 
 func FuzzParse(f *testing.F) {
-	for _, seed := range []string{canonicalDoc, weightedDoc, nestedDoc, hardPityDoc, "version: 1\ntables: []\n", "version: 1\n"} {
+	for _, seed := range []string{canonicalDoc, weightedDoc, nestedDoc, hardPityDoc, "version: 1\ntables: []\n", "version: 1\n", "version: 1\ntables:\n  - name: t\n    guaranteed: []\n    entries:\n      - item: a\n        weight: 1\n    pity: []\n"} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -25,6 +25,9 @@ func FuzzParse(f *testing.F) {
 		doc2, err := loot.Parse(out)
 		if err != nil {
 			t.Fatalf("Parse of encoded text failed: %v\n%s", err, out)
+		}
+		if !reflect.DeepEqual(doc, doc2) {
+			t.Fatalf("Parse(Encode(doc)) differs from doc:\n%#v\n---\n%#v", doc, doc2)
 		}
 		out2, err := loot.Encode(doc2)
 		if err != nil {

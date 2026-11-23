@@ -1,6 +1,7 @@
 package loot_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -108,6 +109,22 @@ tables:
 	}
 }
 
+// wideTable returns a document with one table that makes 1024 picks among n item entries and has the given number of hard pity rules.
+func wideTable(n, pity int) string {
+	var b strings.Builder
+	b.WriteString("version: 1\ntables:\n  - name: t\n    rolls: 1024\n    entries:\n")
+	for i := range n {
+		fmt.Fprintf(&b, "      - item: i%d\n        weight: 1\n", i)
+	}
+	if pity > 0 {
+		b.WriteString("    pity:\n")
+		for i := range pity {
+			fmt.Fprintf(&b, "      - name: p%d\n        item: i%d\n        guaranteeAt: 10\n", i, i)
+		}
+	}
+	return b.String()
+}
+
 func TestParseRejects(t *testing.T) {
 	const head = "version: 1\ntables:\n"
 	cases := []struct {
@@ -153,6 +170,8 @@ func TestParseRejects(t *testing.T) {
 		{"pity soft without step", head + "  - name: t\n    entries:\n      - item: a\n        weight: 1\n    pity:\n      - name: p\n        item: a\n        softFrom: 3\n", "softStep 0"},
 		{"pity step without soft", head + "  - name: t\n    entries:\n      - item: a\n        weight: 1\n    pity:\n      - name: p\n        item: a\n        guaranteeAt: 3\n        softStep: 1\n", "softStep needs softFrom"},
 		{"pity soft after hard", head + "  - name: t\n    entries:\n      - item: a\n        weight: 1\n    pity:\n      - name: p\n        item: a\n        guaranteeAt: 3\n        softFrom: 3\n        softStep: 1\n", "below guaranteeAt"},
+		{"wide table", wideTable(64, 0), "more than 65536 steps"},
+		{"wide table with pity", wideTable(62, 2), "more than 65536 steps"},
 		{"pity negative", head + "  - name: t\n    entries:\n      - item: a\n        weight: 1\n    pity:\n      - name: p\n        item: a\n        guaranteeAt: -3\n", "guaranteeAt -3"},
 	}
 	for _, tc := range cases {
@@ -165,6 +184,34 @@ func TestParseRejects(t *testing.T) {
 				t.Fatalf("error %q does not mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestStepsCountEveryEntryOfAPick checks the bound just below the wide tables TestParseRejects refuses: 1024 picks over 63 entries and pity rules plus the picked item is 65536 steps.
+func TestStepsCountEveryEntryOfAPick(t *testing.T) {
+	for _, src := range []string{wideTable(63, 0), wideTable(61, 2)} {
+		if _, err := loot.Parse([]byte(src)); err != nil {
+			t.Fatalf("Parse refused a table at the bound: %v", err)
+		}
+	}
+}
+
+func TestEmptyListsRoundTrip(t *testing.T) {
+	const src = "version: 1\ntables:\n  - name: t\n    guaranteed: []\n    entries:\n      - item: a\n        weight: 1\n    pity: []\n  - name: g\n    guaranteed:\n      - item: b\n    entries: []\n"
+	doc, err := loot.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := loot.Encode(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := loot.Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(doc, again) {
+		t.Fatalf("Parse(Encode(doc)) = %#v\nwant %#v", again, doc)
 	}
 }
 

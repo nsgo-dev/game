@@ -24,7 +24,7 @@ const (
 	MaxWeight = 1e15
 	// MaxGuaranteeAt is the largest GuaranteeAt and SoftFrom of a pity rule.
 	MaxGuaranteeAt = 1 << 20
-	// MaxRollSteps bounds the work of one Roller.Roll: the worst case of picks, sub-table rolls and drops a table can produce, which Validate computes from Rolls and Count maxima, must not exceed it.
+	// MaxRollSteps bounds the work of one Roller.Roll: the worst case of picks, sub-table rolls and drops a table can produce, which Validate computes from Rolls and Count maxima, must not exceed it. A weighted pick counts as many steps as its table has entries and pity rules, because it scans all of them.
 	MaxRollSteps = 1 << 16
 )
 
@@ -147,7 +147,7 @@ func (r *Range) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
-// Parse decodes a YAML loot document and validates it. Unknown fields, duplicate keys and trailing YAML documents are rejected.
+// Parse decodes a YAML loot document and validates it. Unknown fields, duplicate keys and trailing YAML documents are rejected. Empty lists decode as nil, so the result equals the Document that its Encode text parses to.
 func Parse(data []byte) (*Document, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("loot: empty document")
@@ -168,7 +168,24 @@ func Parse(data []byte) (*Document, error) {
 	if err := Validate(&doc); err != nil {
 		return nil, err
 	}
+	normalize(&doc)
 	return &doc, nil
+}
+
+// normalize turns empty lists such as `pity: []` into nil, which is how Encode omits them, so Parse(Encode(doc)) equals doc.
+func normalize(doc *Document) {
+	for i := range doc.Tables {
+		t := &doc.Tables[i]
+		if len(t.Guaranteed) == 0 {
+			t.Guaranteed = nil
+		}
+		if len(t.Entries) == 0 {
+			t.Entries = nil
+		}
+		if len(t.Pity) == 0 {
+			t.Pity = nil
+		}
+	}
 }
 
 // Encode validates doc and writes it as deterministic 2-space YAML that Parse decodes to an equal Document.
