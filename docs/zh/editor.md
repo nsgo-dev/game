@@ -133,6 +133,7 @@ pos := nodes.Objects["barrel"].WorldTransform().Pos
 ### 示例
 
 ```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
 name: Cave Room
 virtualWidth: 320
@@ -214,6 +215,10 @@ built.Draw(d)
 ```
 
 `Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
+
+### Schema
+
+场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`）。`Encode` 在每个文件开头写入 `sceneformat.SchemaComment`，即 `# yaml-language-server: $schema=…` 这一行，VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
 
 ### 组件类型
 

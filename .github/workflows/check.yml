@@ -47,6 +47,9 @@ jobs:
             printf '%s\n' "$bad"
             exit 1
           fi
+      - name: Check the published JSON Schemas match the Go types
+        working-directory: packages/game
+        run: go run ./cmd/gameschema -check
       - name: Build and vet every target but iOS
         working-directory: packages/game
         run: go tool nsgo check -target macos,windows,linux,android,web

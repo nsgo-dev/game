@@ -69,6 +69,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `anim3d` | `github.com/nsgo-dev/game/packages/game/anim3d` | [anim3d](anim3d.md) | 3D pose state machines, 1D/2D blend spaces, bone-masked/additive layers, clip events, IK and root motion |
 | `world3d` | `github.com/nsgo-dev/game/packages/game/world3d` | [world3d](world3d.md) | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, scattered foliage and floating-origin streaming |
 | `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | GPU mesh buffers, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos, billboards, 3D ribbon trails and GPU budgets |
+| `tooling/jsonschema` | `github.com/nsgo-dev/game/packages/game/tooling/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
 
 For a single-page summary of the core APIs, see [Packages](packages.md).
 

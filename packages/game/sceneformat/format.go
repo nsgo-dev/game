@@ -16,6 +16,12 @@ import (
 // CurrentVersion is the scene format schema version supported by this package.
 const CurrentVersion = 1
 
+// SchemaURL is where the JSON Schema of version 1 scene documents is published. Encode names it in a yaml-language-server comment on the first line, so editors that run the YAML language server (such as VS Code's YAML extension) and AI tools validate and complete a scene file as it is written.
+const SchemaURL = "https://game.nsgo.dev/schemas/scene.v1.json"
+
+// SchemaComment is the first line Encode writes: a YAML comment that points a YAML language server at SchemaURL. Parse ignores it like any other comment.
+const SchemaComment = "# yaml-language-server: $schema=" + SchemaURL
+
 // Space is the coordinate space a layer draws in.
 type Space string
 
@@ -29,12 +35,12 @@ const (
 // SceneDoc is the root of a versioned YAML scene document.
 type SceneDoc struct {
 	// Version is the schema version; it must equal CurrentVersion (1).
-	Version int `yaml:"version"`
+	Version int `yaml:"version" schema:"required,const=1"`
 	// Name is the scene's human-readable name.
 	Name string `yaml:"name,omitempty"`
 	// VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.
-	VirtualWidth  float32 `yaml:"virtualWidth,omitempty"`
-	VirtualHeight float32 `yaml:"virtualHeight,omitempty"`
+	VirtualWidth  float32 `yaml:"virtualWidth,omitempty" schema:"minimum=0"`
+	VirtualHeight float32 `yaml:"virtualHeight,omitempty" schema:"minimum=0"`
 	// BackgroundColor is an optional CSS color string parsed with core.ParseColor.
 	BackgroundColor string `yaml:"backgroundColor,omitempty"`
 	// Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.
@@ -51,7 +57,7 @@ type CameraDoc struct {
 	X float32 `yaml:"x,omitempty"`
 	Y float32 `yaml:"y,omitempty"`
 	// Zoom is the camera zoom factor; nil defaults to 1. Must be positive when set.
-	Zoom *float32 `yaml:"zoom,omitempty"`
+	Zoom *float32 `yaml:"zoom,omitempty" schema:"exclusiveMinimum=0"`
 	// Rotation turns the camera clockwise in radians; world geometry rotates by -Rotation around (X, Y).
 	Rotation float32 `yaml:"rotation,omitempty"`
 	// Bounds optionally clamps the camera view inside a world rectangle.
@@ -68,18 +74,20 @@ func (c *CameraDoc) EffectiveZoom() float32 {
 
 // BoundsDoc is an axis-aligned rectangle in world coordinates.
 type BoundsDoc struct {
-	X      float32 `yaml:"x,omitempty"`
-	Y      float32 `yaml:"y,omitempty"`
-	Width  float32 `yaml:"width"`
-	Height float32 `yaml:"height"`
+	// X and Y are the rectangle's top-left corner.
+	X float32 `yaml:"x,omitempty"`
+	Y float32 `yaml:"y,omitempty"`
+	// Width and Height are the rectangle's size; both must be positive.
+	Width  float32 `yaml:"width" schema:"required,exclusiveMinimum=0"`
+	Height float32 `yaml:"height" schema:"required,exclusiveMinimum=0"`
 }
 
 // LayerDoc is one ordered layer in a scene.
 type LayerDoc struct {
 	// Name uniquely identifies the layer within the scene.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required,minLength=1"`
 	// Space is SpaceWorld or SpaceScreen; empty defaults to SpaceWorld.
-	Space Space `yaml:"space,omitempty"`
+	Space Space `yaml:"space,omitempty" schema:"enum=world|screen"`
 	// Order sets draw order across layers: lower values draw first, ties keep document order.
 	Order int `yaml:"order,omitempty"`
 	// Visible controls whether the layer draws; nil defaults to true.
@@ -110,11 +118,11 @@ type TilemapDoc struct {
 	// Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.
 	Source string `yaml:"source,omitempty"`
 	// TileWidth and TileHeight are each tile's size in points for an inline grid.
-	TileWidth  int `yaml:"tileWidth,omitempty"`
-	TileHeight int `yaml:"tileHeight,omitempty"`
+	TileWidth  int `yaml:"tileWidth,omitempty" schema:"minimum=0"`
+	TileHeight int `yaml:"tileHeight,omitempty" schema:"minimum=0"`
 	// Width and Height are the inline grid dimensions in tiles.
-	Width  int `yaml:"width,omitempty"`
-	Height int `yaml:"height,omitempty"`
+	Width  int `yaml:"width,omitempty" schema:"minimum=0"`
+	Height int `yaml:"height,omitempty" schema:"minimum=0"`
 	// Tileset is the atlas name providing frames keyed by 1-based tile ID ("1", "2", ...).
 	Tileset string `yaml:"tileset,omitempty"`
 	// Data holds Width*Height row-major tile IDs; 0 is an empty cell.
@@ -135,7 +143,7 @@ func (t *TilemapDoc) IsInline() bool {
 // ObjectDoc is one entity or visual object placed on a layer.
 type ObjectDoc struct {
 	// ID uniquely identifies the object across the entire scene.
-	ID string `yaml:"id"`
+	ID string `yaml:"id" schema:"required,minLength=1"`
 	// Name is an optional human-readable display name.
 	Name string `yaml:"name,omitempty"`
 	// Prefab optionally names a prefab or archetype template.
@@ -159,14 +167,14 @@ type ObjectDoc struct {
 	ScaleY *float32 `yaml:"scaleY,omitempty"`
 	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
 	// Depth is the optional 3D extent along the Z axis in world units; 0 uses a default extent.
-	Depth float32 `yaml:"depth,omitempty"`
+	Depth float32 `yaml:"depth,omitempty" schema:"minimum=0"`
 	// Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.
 	Mesh string `yaml:"mesh,omitempty"`
 	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
 	FlipX bool `yaml:"flipX,omitempty"`
 	FlipY bool `yaml:"flipY,omitempty"`
 	// Alpha is the object's opacity in [0, 1]; nil defaults to 1.
-	Alpha *float32 `yaml:"alpha,omitempty"`
+	Alpha *float32 `yaml:"alpha,omitempty" schema:"minimum=0,maximum=1"`
 	// Z orders objects within the layer, children included; lower Z draws first, and ties keep document order with each parent before its children.
 	Z int `yaml:"z,omitempty"`
 	// Sprite optionally binds the object to a frame in a sprite.Atlas.
@@ -223,8 +231,10 @@ func (o *ObjectDoc) EffectiveAlpha() float32 {
 
 // SpriteRef identifies one frame inside a named sprite.Atlas.
 type SpriteRef struct {
-	Atlas string `yaml:"atlas"`
-	Frame string `yaml:"frame"`
+	// Atlas names the sprite.Atlas an AssetResolver looks up.
+	Atlas string `yaml:"atlas" schema:"required,minLength=1"`
+	// Frame names the frame inside the atlas.
+	Frame string `yaml:"frame" schema:"required,minLength=1"`
 }
 
 // MaxObjectDepth is how many levels of objects a layer may nest: a top-level object is at depth 1, its children at depth 2, and so on. Validate refuses a deeper tree.
@@ -360,12 +370,13 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 	return &doc, nil
 }
 
-// Encode validates doc and serializes it as deterministic 2-space YAML.
+// Encode validates doc and serializes it as deterministic 2-space YAML, starting with the SchemaComment line.
 func Encode(doc *SceneDoc) ([]byte, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
+	buf.WriteString(SchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(doc); err != nil {
