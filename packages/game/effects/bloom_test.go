@@ -83,9 +83,11 @@ func TestBloomWithNoIntensityDrawsTheFrameAsItIs(t *testing.T) {
 	chain := effects.MustCompile(effects.Bloom())
 	frame := bloomFrame()
 	for name, u := range map[string][]core.Uniforms{
-		"no uniforms":  nil,
-		"no intensity": {{"Threshold": 0, "Intensity": 0, "Radius": 6}},
-		"no threshold": {{"Threshold": 1, "Intensity": 2, "Radius": 6}},
+		"no uniforms":                 nil,
+		"no intensity":                {{"Threshold": 0, "Intensity": 0, "Radius": 6}},
+		"no threshold":                {{"Threshold": 1, "Intensity": 2, "Radius": 6}},
+		"NaN intensity":               {{"Threshold": 0, "Intensity": math.NaN(), "Radius": 6}},
+		"NaN threshold, no intensity": {{"Threshold": math.NaN(), "Intensity": 0, "Radius": 6}},
 	} {
 		got, err := chain.Reference(frame, 32, 20, u)
 		if err != nil {
@@ -94,6 +96,45 @@ func TestBloomWithNoIntensityDrawsTheFrameAsItIs(t *testing.T) {
 		if !slices.Equal(got.Pix, frame.Pix) {
 			t.Errorf("%s changed the frame", name)
 		}
+	}
+}
+
+// scale multiplies every channel by Gain, which can push a color above 1 or above its alpha between effects.
+var scale = effects.Effect{Name: "scale", Source: `package main
+
+// Gain multiplies every channel.
+var Gain float
+
+func Effect(pos vec2) vec4 {
+	return Input(pos) * Gain
+}
+`, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, gain := in.At(x, y), effects.Float(u, "Gain")
+	for k := range c {
+		c[k] *= gain
+	}
+	return c
+}}
+
+func TestBloomWithNoIntensityPassesItsInputThroughInAChain(t *testing.T) {
+	// Between a gain of 3 and one of 1/3, out-of-range values must reach the second scale untouched, so the frame comes back as it was.
+	frame := bloomFrame()
+	draw.Draw(frame, image.Rect(0, 0, 4, 4), image.NewUniform(color.RGBA{60, 30, 10, 128}), image.Point{}, draw.Src)
+	without, err := effects.MustCompile(scale, scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, intensity := range []float64{0, -1, math.NaN()} {
+		got, err := effects.MustCompile(scale, effects.Bloom(), scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Threshold": 0.2, "Intensity": intensity, "Radius": 4}, {"Gain": 1.0 / 3}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got.Pix, without.Pix) {
+			t.Errorf("Bloom at intensity %v changed the chain's picture", intensity)
+		}
+	}
+	if !slices.Equal(without.Pix, frame.Pix) {
+		t.Error("scaling by 3 and by 1/3 changed the frame")
 	}
 }
 
@@ -167,21 +208,24 @@ func TestBloomChainsAfterAnotherEffect(t *testing.T) {
 	}
 }
 
-// FuzzBloomReference checks that any finite uniforms draw an opaque frame opaque: the glow only adds light, and no NaN reaches a pixel's alpha.
+// FuzzBloomReference checks that any uniforms, NaN and infinities included, draw an opaque frame opaque: the glow only adds light, and no NaN reaches a pixel's alpha.
 func FuzzBloomReference(f *testing.F) {
 	f.Add(0.6, 1.5, 4.0)
 	f.Add(0.0, 0.0, 0.0)
 	f.Add(1.0, 2.0, 100.0)
 	f.Add(-1.0, -3.0, -4.0)
 	f.Add(0.99999, 1e9, 1e-9)
+	f.Add(math.NaN(), 1.5, 4.0)
+	f.Add(math.Inf(-1), 1.5, 4.0)
+	f.Add(math.Inf(1), 1.5, 4.0)
+	f.Add(0.6, math.NaN(), 4.0)
+	f.Add(0.6, math.Inf(1), 4.0)
+	f.Add(0.0, math.Inf(1), 4.0)
+	f.Add(0.6, 1.5, math.NaN())
+	f.Add(0.6, 1.5, math.Inf(1))
 	chain := effects.MustCompile(effects.Bloom())
 	frame := bloomFrame()
 	f.Fuzz(func(t *testing.T, threshold, intensity, radius float64) {
-		for _, v := range []float64{threshold, intensity, radius} {
-			if math.IsNaN(v) || math.IsInf(v, 0) {
-				t.Skip()
-			}
-		}
 		got, err := chain.Reference(frame, 16, 10, []core.Uniforms{{"Threshold": threshold, "Intensity": intensity, "Radius": radius}})
 		if err != nil {
 			t.Fatal(err)
