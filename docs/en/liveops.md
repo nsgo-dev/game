@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/packages/game/liveops"
 ```
 
-`liveops` holds provider-agnostic live operations primitives for NSGo games. It uses only Go's standard library, `packages/game` and NSGo's public `core` API, and links no third-party crash, analytics or ad SDKs.
+`liveops` holds provider-agnostic live operations primitives for NSGo games. It uses only Go's standard library, `packages/game` and NSGo's public `core` API, and links no third-party crash, analytics, ad or payment SDKs.
 
 ## Scope decision ([#194](https://github.com/nsgo-dev/game/issues/194))
 
@@ -13,6 +13,7 @@ import "github.com/nsgo-dev/game/packages/game/liveops"
 | **Crash reports** ([#195](https://github.com/nsgo-dev/game/issues/195)) | In scope | Provider-agnostic panic capture with a fixed-size step ring buffer, stack trace, metadata and optional state snapshot. |
 | **Analytics** ([#198](https://github.com/nsgo-dev/game/issues/198)) | In scope | Provider-agnostic, strictly consent-gated event API backed by `core.Storage`. Zero events are sent or buffered before explicit opt-in consent. |
 | **Cloud saves** ([#196](https://github.com/nsgo-dev/game/issues/196)) | In scope (interface) | Provider-agnostic `CloudSync` interface and `CloudSyncer` conflict resolution ([#539](https://github.com/nsgo-dev/game/issues/539)) today; built-in platform adapters (iCloud, Play Games, Steam Cloud) wait on platform cloud-save bindings. |
+| **In-app purchases** ([#369](https://github.com/nsgo-dev/game/issues/369)) | In scope | `Purchases` over NSGo's purchase services: consumables credited into the save exactly once, unlocks and subscriptions from the store's entitlements, restore, Ask to Buy and an optional server check. |
 | **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
 
 ## Crash reports
@@ -128,3 +129,41 @@ Cloud payloads are JSON text with a fixed key order: `format` (`CloudSaveFormat`
 `Backend()` exposes the local backend through `Unwrap`, so a settings store built on it (`save.NewDefaultSettingsStore(syncer.Backend())`) keeps settings under the local backend's own settings key, and settings are never synced as a slot.
 
 A `CloudSyncer` is not safe for concurrent use; call it where the app's code runs, as `core.Storage` requires. `CloudSync` has no conditional write, so an upload by another device that lands between the syncer's re-read and its own write can still be overwritten; the window is a single `Load` and `Save` apart.
+
+## In-app purchases
+
+`Purchases` sells a game's products over NSGo's purchase services (`cx.Purchase`, `cx.OnPurchaseUpdate`, `cx.CurrentEntitlements`, `cx.SyncPurchases`). It sells where `cx.Env().CanPurchase()` is true, which in NSGo v0.2.0 is the App Store on macOS, iOS and tvOS in a build whose `nsgo.yaml` sets `apple.purchases: true`; elsewhere `Buy` fails with `core.PurchasesUnavailable` and `Available` reports false.
+
+- A consumable is credited exactly once. Keep a `Ledger` inside the save, beside the state `Credit` changes: `Purchases` calls `Credit`, records the transaction ID in the ledger, calls `Save` and only then finishes the transaction. A kill before the save loses both the credit and its record, and the store hands the transaction to the app again at the next launch; a kill after the save finds the ID in the ledger and only finishes it. A failed `Save` leaves the transaction unfinished.
+- Non-consumables and subscriptions are owned, not credited: `Owned(product)` reads the store's entitlements, which `NewPurchases` loads at start and `Refresh` reloads, and follows purchases, refunds and expiry. Read in a reactive computation, `Owned` and `Pending` update the view.
+- `Restore` runs the store's sync (call it only from a Restore Purchases button, as it may ask the user to sign in) and reloads the entitlements, which brings unlocks back after a reinstall that wiped the save.
+- `Buy` answers `Bought`, `BuyPending` (Ask to Buy and other approvals; `Pending(product)` stays true until the approved transaction arrives through the store's updates, which deliver it as `Buy` would have), `BuyCancelled`, or `BuyFailed` with the error.
+- A refund or revocation removes an unlock, and runs `Revoke` once for a credited consumable when the game sets it.
+- `Verify` hands each transaction, whose `Signed` is the store's JWS, to the game's server before delivery and may answer from any goroutine; a refused transaction is neither delivered nor finished. Without `Verify`, only transactions the device verified are delivered.
+- `OnError` hears failures no `Buy` or `Restore` answers, such as an unfinished transaction at launch whose save failed.
+
+```go
+type Progress struct {
+	Coins     int            `json:"coins"`
+	Purchases liveops.Ledger `json:"purchases"`
+}
+
+saves := save.NewStorageStore(cx.Storage(), "game")
+var p Progress
+_ = saves.Load("main", &p)
+
+shop := liveops.NewPurchases(cx, liveops.PurchasesOptions{
+	Ledger: &p.Purchases,
+	Credit: func(t core.Transaction) { p.Coins += 100 * t.Quantity },
+	Revoke: func(t core.Transaction) { p.Coins -= 100 * t.Quantity },
+	Save:   func() error { return saves.Save("main", &p) },
+	Verify: func(t core.Transaction, done func(error)) { go done(server.Verify(t.Signed)) },
+})
+
+shop.Buy("com.example.coins.100", 1, func(r liveops.BuyResult, err error) { /* bought, pending, cancelled or failed */ })
+showNoAds := !shop.Owned("com.example.noads")
+```
+
+Tests drive purchases through `nsgotest`: start the app with `nsgotest.Environment(core.Environment{Purchases: true})`, set `app.Products`, and use `app.PurchaseAnswer` for a cancel or Ask to Buy, `app.UpdatePurchase` for an approval or a refund, `nsgotest.UnfinishedTransactions` together with `nsgotest.Storage` for a run killed before it finished a transaction, and `app.Entitlements` with `Restore` for a reinstall. `liveops/purchases_test.go` covers each.
+
+To check a restore by hand under StoreKit Testing, add a StoreKit configuration file with a non-consumable to the iOS app's Xcode scheme, build with `apple.purchases: true`, buy the product in the simulator, delete and reinstall the app, then press the game's Restore Purchases button: `Owned` reports the product again. Android has no store in NSGo v0.2.0 (Google Play Billing waits on [nsgo#353](https://github.com/nsgo-dev/nsgo/issues/353)).

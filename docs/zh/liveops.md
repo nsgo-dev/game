@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/packages/game/liveops"
 ```
 
-`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`packages/game` 和 NSGo 的公开 `core` API，不内置任何第三方崩溃上报、埋点分析或广告 SDK。
+`liveops` 为 NSGo 游戏提供与具体服务商无关的线上运营基础能力。它只依赖 Go 标准库、`packages/game` 和 NSGo 的公开 `core` API，不内置任何第三方崩溃上报、埋点分析、广告或支付 SDK。
 
 ## 范围决策（[#194](https://github.com/nsgo-dev/game/issues/194)）
 
@@ -13,6 +13,7 @@ import "github.com/nsgo-dev/game/packages/game/liveops"
 | **崩溃报告**（[#195](https://github.com/nsgo-dev/game/issues/195)） | 纳入范围 | 与服务商无关的 panic 捕获，附带固定大小步长环形缓冲区、堆栈、元数据和可选状态快照。 |
 | **统计分析**（[#198](https://github.com/nsgo-dev/game/issues/198)） | 纳入范围 | 与服务商无关、严格以显式同意为前提的事件 API，同意状态保存在 `core.Storage`。未显式同意前不会发送也不会缓存任何事件。 |
 | **云存档**（[#196](https://github.com/nsgo-dev/game/issues/196)） | 纳入范围（接口） | 当前提供与平台无关的 `CloudSync` 接口和 `CloudSyncer` 冲突解决（[#539](https://github.com/nsgo-dev/game/issues/539)）；iCloud、Play Games、Steam Cloud 等内置适配器等待平台云存档绑定就绪。 |
+| **应用内购买**（[#369](https://github.com/nsgo-dev/game/issues/369)） | 纳入范围 | 基于 NSGo 购买服务的 `Purchases`：消耗型商品恰好一次入账到存档，解锁项与订阅来自商店权益，支持恢复购买、“询问后购买”和可选的服务器校验。 |
 | **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
 ## 崩溃报告
@@ -128,3 +129,41 @@ if errors.Is(err, liveops.ErrConflictChanged) {
 `Backend()` 通过 `Unwrap` 暴露本地后端，因此基于它创建的设置存储（`save.NewDefaultSettingsStore(syncer.Backend())`）会把设置保存在本地后端自己的设置键下，设置永远不会作为槽位同步。
 
 `CloudSyncer` 不支持并发使用；请在应用代码运行的地方调用它，这是 `core.Storage` 的要求。`CloudSync` 没有条件写入，因此另一台设备的上传若恰好落在同步器重新读取与自身写入之间，仍可能被覆盖；这个窗口只隔一次 `Load` 和一次 `Save`。
+
+## 应用内购买
+
+`Purchases` 基于 NSGo 的购买服务（`cx.Purchase`、`cx.OnPurchaseUpdate`、`cx.CurrentEntitlements`、`cx.SyncPurchases`）出售游戏的商品。它只在 `cx.Env().CanPurchase()` 为 true 时可用，在 NSGo v0.2.0 中即 macOS、iOS 和 tvOS 上 `nsgo.yaml` 设置了 `apple.purchases: true` 的构建所连接的 App Store；其他平台上 `Buy` 以 `core.PurchasesUnavailable` 失败，`Available` 返回 false。
+
+- 消耗型商品只入账一次。把 `Ledger` 放进存档，与 `Credit` 修改的状态放在一起：`Purchases` 先调用 `Credit`，把交易 ID 记入账本，再调用 `Save`，之后才完成（finish）交易。在保存前被杀掉，入账和记录一起丢失，商店会在下次启动时再次交付该交易；在保存后被杀掉，下次启动会在账本中找到该 ID，只完成交易而不重复入账。`Save` 失败时交易保持未完成。
+- 非消耗型商品和订阅是“拥有”而非“入账”：`Owned(product)` 读取商店的权益（`NewPurchases` 启动时加载，`Refresh` 重新加载），并跟随购买、退款和过期变化。在响应式计算中读取 `Owned` 和 `Pending` 会自动更新视图。
+- `Restore` 执行商店同步（只能由玩家按下“恢复购买”按钮时调用，因为它可能要求登录），然后重新加载权益，使重装后存档已被清空的解锁项恢复。
+- `Buy` 的结果为 `Bought`、`BuyPending`（“询问后购买”等待审批；`Pending(product)` 会一直为 true，直到批准后的交易通过商店更新到达，并像 `Buy` 一样被交付）、`BuyCancelled`，或带错误的 `BuyFailed`。
+- 退款或撤销会移除解锁项；对已入账的消耗型商品，若游戏设置了 `Revoke`，会调用它一次。
+- `Verify` 在交付前把每笔交易（其 `Signed` 为商店的 JWS）交给游戏服务器校验，可以在任意 goroutine 中回答；被拒绝的交易既不交付也不完成。未设置 `Verify` 时，只交付设备已校验的交易。
+- `OnError` 接收没有 `Buy` 或 `Restore` 回调可报告的失败，例如启动时某笔未完成交易的保存失败。
+
+```go
+type Progress struct {
+	Coins     int            `json:"coins"`
+	Purchases liveops.Ledger `json:"purchases"`
+}
+
+saves := save.NewStorageStore(cx.Storage(), "game")
+var p Progress
+_ = saves.Load("main", &p)
+
+shop := liveops.NewPurchases(cx, liveops.PurchasesOptions{
+	Ledger: &p.Purchases,
+	Credit: func(t core.Transaction) { p.Coins += 100 * t.Quantity },
+	Revoke: func(t core.Transaction) { p.Coins -= 100 * t.Quantity },
+	Save:   func() error { return saves.Save("main", &p) },
+	Verify: func(t core.Transaction, done func(error)) { go done(server.Verify(t.Signed)) },
+})
+
+shop.Buy("com.example.coins.100", 1, func(r liveops.BuyResult, err error) { /* 已购买、等待审批、已取消或失败 */ })
+showNoAds := !shop.Owned("com.example.noads")
+```
+
+测试通过 `nsgotest` 驱动购买：用 `nsgotest.Environment(core.Environment{Purchases: true})` 启动应用并设置 `app.Products`；用 `app.PurchaseAnswer` 模拟取消或“询问后购买”，用 `app.UpdatePurchase` 模拟批准或退款，用 `nsgotest.UnfinishedTransactions` 加 `nsgotest.Storage` 模拟完成交易前被杀掉的一次运行，用 `app.Entitlements` 加 `Restore` 模拟重装。`liveops/purchases_test.go` 覆盖了以上每种情况。
+
+要在 StoreKit Testing 下手动验证恢复购买：在 iOS 应用的 Xcode scheme 中加入包含一个非消耗型商品的 StoreKit 配置文件，以 `apple.purchases: true` 构建，在模拟器中购买该商品，删除并重新安装应用，然后按下游戏的“恢复购买”按钮，`Owned` 会再次报告拥有该商品。NSGo v0.2.0 在 Android 上没有商店（Google Play Billing 等待 [nsgo#353](https://github.com/nsgo-dev/nsgo/issues/353)）。
