@@ -1,0 +1,74 @@
+version: 1
+input:
+  up: up
+  down: down
+  left: left
+  right: right
+  axisX: move_x
+  axisY: move_y
+moves:
+  - name: lp
+    press:
+      - lp
+  - name: hp
+    press:
+      - hp
+  - name: cr_mk
+    motion:
+      - "123"
+    press:
+      - mk
+    priority: 5
+  - name: hadoken
+    motion:
+      - "2"
+      - "3"
+      - "6"
+    window: 12
+    press:
+      - lp
+      - hp
+    buffer: 8
+    priority: 20
+  - name: shoryuken
+    motion:
+      - "6"
+      - "2"
+      - "3"
+    window: 14
+    press:
+      - lp
+      - hp
+    buffer: 8
+    priority: 30
+  - name: sonic_boom
+    motion:
+      - "6"
+    charge:
+      dirs: "147"
+      steps: 40
+      grace: 6
+    press:
+      - lp
+    buffer: 6
+    priority: 25
+  - name: forward_dash
+    motion:
+      - "6"
+      - "5"
+      - "6"
+    window: 12
+    priority: 10
+  - name: throw
+    press:
+      - lp
+      - lk
+    pressAll: true
+    pressWindow: 2
+    priority: 40
+combos:
+  - name: low_fireball
+    sequence:
+      - cr_mk
+      - hadoken
+    gap: 20

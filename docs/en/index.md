@@ -47,6 +47,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `cutscene` | `github.com/nsgo-dev/game/packages/game/cutscene` | [cutscene](cutscene.md) | Skippable video cutscenes over the game's view, in a scene or between scenes, from YAML files |
 | `rhythm` | `github.com/nsgo-dev/game/packages/game/rhythm` | [rhythm](rhythm.md) | YAML beat maps with tempo and meter changes, a music clock on the audio clock, and per-device audio/video latency calibration |
 | `undo` | `github.com/nsgo-dev/game/packages/game/undo` | [undo](undo.md) | Reversible moves with unlimited undo, redo and `Seek`, saved as a YAML `Log` |
+| `fighting` | `github.com/nsgo-dev/game/packages/game/fighting` | [fighting](fighting.md) | Per-step input buffer, numpad motion inputs, charges, double taps, chords and combos from YAML move sets |
 | `math2d` | `github.com/nsgo-dev/game/packages/game/math2d` | [math2d](math2d.md) | Shared 2D `Vec2`, `Rect`, `Circle` and `Affine` types with lossless `core` conversions |
 | `gameui` | `github.com/nsgo-dev/game/packages/game/gameui` | [gameui](gameui.md) | In-canvas box-layout menus, virtual-resolution scaling, spatial focus nav and world-anchored views |
 | `lights2d` | `github.com/nsgo-dev/game/packages/game/lights2d` | [lights2d](lights2d.md) | 2D ambient darkness, point/cone lights, visibility-polygon shadows and normal-mapped sprites |
