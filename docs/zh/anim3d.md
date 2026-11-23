@@ -38,6 +38,10 @@ _ = pose
 
 `BlendSpace1D` 与 `BlendSpace2D` 会按加权周期速度推进共享归一化相位（`[0, 1)`），并结合每个样本的 `FootPhaseOffset` 对齐步态，在混合不同长度的动画片段时消除滑步。
 
+片段 `Loop: true` 的样本随共享相位循环；`Loop: false` 的片段自混合空间上次 `Reset` 起只播放一遍，随后停在最后一帧，其事件也只触发一次。参数相同（或二维坐标相同）的多个样本平分该位置的权重，不会有样本被遮蔽。
+
+`StateMachine.Update(0)` 视为暂停：返回当前姿态，既不推进时间也不触发条件过渡。`Speed` 为负的状态倒放，并按倒放顺序触发经过的事件。交叉淡化的两个状态共用同一个混合空间或采样器时，每步只推进一次。
+
 ## 骨骼遮罩层与叠加片段
 
 使用 `LayerStack` 和 `BoneMask` 将基础移动动画与上半身瞄准或叠加后坐力/呼吸动画合成：
@@ -55,6 +59,8 @@ finalPose := stack.Update(dt)
 _ = finalPose
 ```
 
+层播放 `Clip` 时，只有片段有轨道的关节参与混合：覆盖层不改动其余关节，保持下层的姿态；叠加层对其余关节不叠加任何增量。同样，`BlendPosesMasked` 会保留覆盖姿态中缺少的基础关节，`MakeAdditivePose` 对这些关节给出单位增量。
+
 需要手动混合姿态时，可直接调用 `BlendPoses`、`BlendPosesWeighted`、`BlendPosesMasked`、`MakeAdditivePose` 与 `ApplyAdditivePose`。
 
 ## 动画帧事件
@@ -71,11 +77,13 @@ sm.OnEvent(func(ev anim3d.FiredEvent) {
 })
 ```
 
+交叉淡化期间，每个状态以本步落在淡化区间内那一段中点处的淡化权重触发事件，因此完成淡化的那一步仍会触发淡出状态的事件。
+
 也可每帧调用 `sm.DrainEvents()` 拉取事件，或用 `EventDispatcher` 驱动独立片段。
 
 ## 反向动力学（IK）与根骨骼运动
 
-- **双骨骼 IK**（手臂/腿部）：`newMid, newEnd, rootRot, midRot := anim3d.SolveTwoBoneIK(hip, knee, ankle, footTarget, kneePole)` 精确解析铰链弯曲并朝向极向量 `pole`。
+- **双骨骼 IK**（手臂/腿部）：`newMid, newEnd, rootRot, midRot := anim3d.SolveTwoBoneIK(hip, knee, ankle, footTarget, kneePole)` 精确解析铰链弯曲并朝向极向量 `pole`。若其中一根骨骼长度为零，则仅用另一根骨骼对准目标。
 - **FABRIK**（脊柱、尾巴、触手等任意关节链）：`solved := anim3d.SolveFABRIK(jointPositions, target, 10, 0.001)`。
 - **根骨骼运动（Root Motion）**：从动画片段提取每帧位移与偏航旋转增量，从采样姿态中剥离根位移以避免双重移动，再应用到角色世界变换：
 

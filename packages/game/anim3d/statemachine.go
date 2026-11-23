@@ -1,6 +1,7 @@
 package anim3d
 
 import (
+	"reflect"
 	"sort"
 	"time"
 
@@ -448,9 +449,14 @@ func (sm *StateMachine) BlendProgress() float32 {
 // Update evaluates conditional transitions, advances clip and blend-space playback
 // and any active crossfade by dt, dispatches triggered animation events, and
 // returns the resulting Pose.
+//
+// Update(0) is a paused step: it re-evaluates the pose but neither advances time nor starts conditional transitions, so a paused character does not change state. During a crossfade both states fire events at their crossfade weights at the midpoint of the part of the step that lies inside the crossfade, so the step that completes a crossfade still fires the outgoing state's events. When both states of a crossfade are driven by the same blend space or sampler, it is advanced once per step, not twice.
 func (sm *StateMachine) Update(dt time.Duration) Pose {
 	if dt < 0 {
 		dt = 0
+	}
+	if dt == 0 {
+		return sm.Pose()
 	}
 
 	// Evaluate conditional transitions before advancing dt so a transition with
@@ -475,22 +481,30 @@ func (sm *StateMachine) Update(dt time.Duration) Pose {
 	}
 
 	// Compute active weights for event threshold filtering across this step.
+	// Event weights are the crossfade weights at the midpoint of the part of this step that lies inside the crossfade. Using the weight at the end of the step gave the outgoing state 0 on the step that completes the crossfade, which dropped that step's events (#546).
 	currWeight := float32(1)
 	prevWeight := float32(0)
 	if sm.blending && sm.blendDuration > 0 {
-		progress := math3d.Clamp(float32(sm.blendElapsed+dt)/float32(sm.blendDuration), 0, 1)
-		currWeight = progress
-		prevWeight = 1 - progress
+		end := min(sm.blendElapsed+dt, sm.blendDuration)
+		mid := (float64(sm.blendElapsed) + float64(end)) / 2
+		currWeight = math3d.Clamp(float32(mid/float64(sm.blendDuration)), 0, 1)
+		prevWeight = 1 - currWeight
 	}
 
-	if st, ok := sm.states[sm.current]; ok {
+	st, hasCurr := sm.states[sm.current]
+	if hasCurr {
 		sm.currentTime = sm.advanceState(st, sm.currentTime, dt, currWeight)
 	}
 
 	if sm.blending {
 		if !sm.hasSnapshot {
 			if prev, ok := sm.states[sm.prevState]; ok {
-				sm.prevTime = sm.advanceState(prev, sm.prevTime, dt, prevWeight)
+				if hasCurr && sharesSource(prev, st) {
+					// One blend space or sampler drives both states; advancing it again would play it at double speed (#546).
+					sm.prevTime += scaleDuration(dt, prev.Speed)
+				} else {
+					sm.prevTime = sm.advanceState(prev, sm.prevTime, dt, prevWeight)
+				}
 			}
 		}
 		sm.blendElapsed += dt
@@ -645,8 +659,11 @@ func (sm *StateMachine) advanceState(st State, curr time.Duration, dt time.Durat
 		return curr + scaled
 	case st.Clip != nil:
 		next := advanceClipTime(st.Clip, curr, scaled)
-		if scaled > 0 && st.Clip.Duration > 0 && len(st.Clip.Events) > 0 && weightPassesThreshold(weight, sm.eventMinWeight) {
-			sm.dispatcher.DispatchClip(st.Clip, st.Name, float32(curr.Seconds()), float32((curr + scaled).Seconds()), weight)
+		if scaled != 0 && st.Clip.Duration > 0 && len(st.Clip.Events) > 0 && weightPassesThreshold(weight, sm.eventMinWeight) {
+			// Negative speeds play backward and fire the events they cross in reverse order, like forward playback does (#546).
+			for _, ev := range collectDirected(st.Clip.Events, curr.Seconds(), (curr + scaled).Seconds(), st.Clip.Duration.Seconds(), st.Clip.Loop) {
+				sm.dispatcher.Emit(FiredEvent{Event: ev, State: st.Name, Clip: st.Clip.Name, Weight: weight})
+			}
 		}
 		return next
 	default:
@@ -672,6 +689,27 @@ func (sm *StateMachine) sampleState(name string, t time.Duration) Pose {
 	default:
 		return Pose{}
 	}
+}
+
+// sharesSource reports whether two states are driven by the same blend space or pointer sampler, which must advance once per step.
+func sharesSource(a, b State) bool {
+	sa, sb := stateSource(a), stateSource(b)
+	return sa != nil && sa == sb
+}
+
+// stateSource returns the stateful pose source that resolves for st (Blend1D > Blend2D > Sampler), or nil when it has none or its sampler is not a pointer and so cannot be shared.
+func stateSource(st State) any {
+	switch {
+	case st.Blend1D != nil:
+		return st.Blend1D
+	case st.Blend2D != nil:
+		return st.Blend2D
+	case st.Sampler != nil:
+		if reflect.ValueOf(st.Sampler).Kind() == reflect.Pointer {
+			return st.Sampler
+		}
+	}
+	return nil
 }
 
 func advanceClipTime(c *Clip, curr, delta time.Duration) time.Duration {

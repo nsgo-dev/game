@@ -38,6 +38,10 @@ _ = pose
 
 `BlendSpace1D` and `BlendSpace2D` advance a shared normalized phase (`[0, 1)`) using weighted cycle speeds and per-sample `FootPhaseOffset` so blending between clips of different lengths avoids foot skating.
 
+A sample whose clip has `Loop: true` wraps with the shared phase; a clip with `Loop: false` plays once from the blend space's last `Reset` and holds its final frame, and fires each of its events once. Samples placed at the same parameter (or the same 2D point) split that position's weight equally, so none of them is shadowed.
+
+`StateMachine.Update(0)` is a paused step: it returns the current pose without advancing time or starting conditional transitions. A state with a negative `Speed` plays backward and fires the events it crosses in reverse order. When the two states of a crossfade share one blend space or sampler, it advances once per step.
+
 ## Bone-masked layers and additive clips
 
 Combine a base locomotion sampler with upper-body actions or additive recoil/breathing using `LayerStack` and `BoneMask`:
@@ -55,6 +59,8 @@ finalPose := stack.Update(dt)
 _ = finalPose
 ```
 
+When a layer plays a `Clip`, only the joints the clip has a track for take part: an override layer leaves the other joints at the pose below it and an additive layer adds nothing to them. `BlendPosesMasked` likewise keeps base joints the overlay pose does not have, and `MakeAdditivePose` gives them the identity delta.
+
 For manual composition, use `BlendPoses`, `BlendPosesWeighted`, `BlendPosesMasked`, `MakeAdditivePose`, and `ApplyAdditivePose`.
 
 ## Clip events
@@ -71,11 +77,13 @@ sm.OnEvent(func(ev anim3d.FiredEvent) {
 })
 ```
 
+During a crossfade each state fires its events at its crossfade weight at the midpoint of the part of the step inside the crossfade, so the step that completes the crossfade still fires the outgoing state's events.
+
 You can also pull fired events once per step with `sm.DrainEvents()` or drive standalone clips through `EventDispatcher`.
 
 ## Inverse kinematics and root motion
 
-- **Two-bone IK** (legs/arms): `newMid, newEnd, rootRot, midRot := anim3d.SolveTwoBoneIK(hip, knee, ankle, footTarget, kneePole)` solves an exact analytic hinge bend oriented toward `pole`.
+- **Two-bone IK** (legs/arms): `newMid, newEnd, rootRot, midRot := anim3d.SolveTwoBoneIK(hip, knee, ankle, footTarget, kneePole)` solves an exact analytic hinge bend oriented toward `pole`. If one bone has zero length, the other bone alone is aimed at the target.
 - **FABRIK** (arbitrary chains such as spines, tails, or tentacles): `solved := anim3d.SolveFABRIK(jointPositions, target, 10, 0.001)`.
 - **Root motion**: extract per-step translation and yaw/rotation deltas from an authored clip, strip root movement from the sampled pose so the mesh does not double-move, and apply it to the character's world transform:
 

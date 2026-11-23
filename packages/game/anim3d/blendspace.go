@@ -117,6 +117,7 @@ type BlendSpace1D struct {
 	samples []BlendSample1D
 	param   float32
 	phase   float32
+	played  float64
 }
 
 // NewBlendSpace1D creates a 1D blend space with samples sorted by ascending Param.
@@ -174,6 +175,7 @@ func (bs *BlendSpace1D) SetPhase(phase float32) {
 		return
 	}
 	bs.phase = wrapPhase(phase)
+	bs.played = float64(bs.phase)
 }
 
 // Reset resets the normalized cycle phase back to 0.
@@ -182,23 +184,39 @@ func (bs *BlendSpace1D) Reset() {
 		return
 	}
 	bs.phase = 0
+	bs.played = 0
 }
 
-// Weights computes the normalized blend weights for param (clamped at endpoints).
+// Weights computes the normalized blend weights for param (clamped at endpoints). Samples that share the same Param split that position's weight equally.
 func (bs *BlendSpace1D) Weights(param float32) []float32 {
 	if bs == nil || len(bs.samples) == 0 {
 		return nil
 	}
-	n := len(bs.samples)
-	weights := make([]float32, n)
+	weights := make([]float32, len(bs.samples))
 	i0, i1, alpha := bs.bracket(param)
 	if i0 == i1 {
-		weights[i0] = 1
+		bs.spread(weights, i0, 1)
 	} else {
-		weights[i0] = 1 - alpha
-		weights[i1] = alpha
+		bs.spread(weights, i0, 1-alpha)
+		bs.spread(weights, i1, alpha)
 	}
 	return weights
+}
+
+// spread shares weight w equally among the samples whose Param equals sample i's, so samples placed at the same parameter are all reachable instead of the later ones being shadowed (#546).
+func (bs *BlendSpace1D) spread(weights []float32, i int, w float32) {
+	p := bs.samples[i].Param
+	lo, hi := i, i+1
+	for lo > 0 && bs.samples[lo-1].Param == p {
+		lo--
+	}
+	for hi < len(bs.samples) && bs.samples[hi].Param == p {
+		hi++
+	}
+	share := w / float32(hi-lo)
+	for k := lo; k < hi; k++ {
+		weights[k] += share
+	}
 }
 
 // CycleSpeed returns the weighted normalized cycle speed sum(w_i / dur_i) in
@@ -207,11 +225,13 @@ func (bs *BlendSpace1D) CycleSpeed(param float32) float32 {
 	if bs == nil || len(bs.samples) == 0 {
 		return 0
 	}
-	i0, i1, alpha := bs.bracket(param)
-	if i0 == i1 {
-		return clipCycleRate(bs.samples[i0].Clip)
+	var speed float32
+	for i, w := range bs.Weights(param) {
+		if w > 0 {
+			speed += w * clipCycleRate(bs.samples[i].Clip)
+		}
 	}
-	return (1-alpha)*clipCycleRate(bs.samples[i0].Clip) + alpha*clipCycleRate(bs.samples[i1].Clip)
+	return speed
 }
 
 // Evaluate samples the blend space at param and normalized phase without
@@ -221,13 +241,40 @@ func (bs *BlendSpace1D) Evaluate(param float32, phase float32) Pose {
 		return Pose{}
 	}
 	p := wrapPhase(phase)
+	return bs.evaluate(param, p, float64(p))
+}
+
+// evaluate samples at wrapped phase p; played is the phase advanced since Reset, which non-looping clips clamp against.
+func (bs *BlendSpace1D) evaluate(param, p float32, played float64) Pose {
 	i0, i1, alpha := bs.bracket(param)
-	if i0 == i1 {
-		return sampleClipAtPhase(bs.samples[i0].Clip, p, bs.samples[i0].FootPhaseOffset)
+	if i0 == i1 && !bs.duplicated(i0) {
+		s := bs.samples[i0]
+		return sampleClipAtPhase(s.Clip, p, played, s.FootPhaseOffset)
 	}
-	p0 := sampleClipAtPhase(bs.samples[i0].Clip, p, bs.samples[i0].FootPhaseOffset)
-	p1 := sampleClipAtPhase(bs.samples[i1].Clip, p, bs.samples[i1].FootPhaseOffset)
-	return BlendPoses(p0, p1, alpha)
+	if !bs.duplicated(i0) && !bs.duplicated(i1) {
+		s0, s1 := bs.samples[i0], bs.samples[i1]
+		p0 := sampleClipAtPhase(s0.Clip, p, played, s0.FootPhaseOffset)
+		p1 := sampleClipAtPhase(s1.Clip, p, played, s1.FootPhaseOffset)
+		return BlendPoses(p0, p1, alpha)
+	}
+	weights := bs.Weights(param)
+	poses := make([]Pose, 0, len(weights))
+	active := make([]float32, 0, len(weights))
+	for i, w := range weights {
+		if w <= 0 {
+			continue
+		}
+		s := bs.samples[i]
+		poses = append(poses, sampleClipAtPhase(s.Clip, p, played, s.FootPhaseOffset))
+		active = append(active, w)
+	}
+	return BlendPosesWeighted(poses, active)
+}
+
+// duplicated reports whether another sample shares sample i's Param.
+func (bs *BlendSpace1D) duplicated(i int) bool {
+	p := bs.samples[i].Param
+	return (i > 0 && bs.samples[i-1].Param == p) || (i+1 < len(bs.samples) && bs.samples[i+1].Param == p)
 }
 
 // Update advances the synchronized foot phase by dt using the weighted cycle
@@ -238,10 +285,14 @@ func (bs *BlendSpace1D) Update(dt time.Duration) Pose {
 	}
 	if dt > 0 {
 		scaled := scaleDuration(dt, bs.Speed)
-		deltaPhase := float64(bs.CycleSpeed(bs.param)) * scaled.Seconds()
-		bs.phase = wrapPhase64(float64(bs.phase) + deltaPhase)
+		bs.advance(float64(bs.CycleSpeed(bs.param)) * scaled.Seconds())
 	}
-	return bs.Evaluate(bs.param, bs.phase)
+	return bs.evaluate(bs.param, bs.phase, bs.played)
+}
+
+func (bs *BlendSpace1D) advance(deltaPhase float64) {
+	bs.phase = wrapPhase64(float64(bs.phase) + deltaPhase)
+	bs.played = advancePlayed(bs.played, deltaPhase)
 }
 
 // Pose evaluates the blend space at its current Param and Phase without advancing time.
@@ -249,7 +300,7 @@ func (bs *BlendSpace1D) Pose() Pose {
 	if bs == nil {
 		return Pose{}
 	}
-	return bs.Evaluate(bs.param, bs.phase)
+	return bs.evaluate(bs.param, bs.phase, bs.played)
 }
 
 func (bs *BlendSpace1D) bracket(param float32) (int, int, float32) {
@@ -287,12 +338,12 @@ func (bs *BlendSpace1D) updateWithEvents(dt time.Duration, stateName string, sta
 	if bs == nil || len(bs.samples) == 0 || dt <= 0 {
 		return
 	}
-	prevPhase := float64(bs.phase)
+	prevPhase, prevPlayed := float64(bs.phase), bs.played
 	scaled := scaleDuration(dt, bs.Speed)
 	deltaPhase := float64(bs.CycleSpeed(bs.param)) * scaled.Seconds()
-	bs.phase = wrapPhase64(prevPhase + deltaPhase)
+	bs.advance(deltaPhase)
 
-	if emit == nil || deltaPhase <= 0 {
+	if emit == nil || deltaPhase == 0 {
 		return
 	}
 	weights := bs.Weights(bs.param)
@@ -301,7 +352,7 @@ func (bs *BlendSpace1D) updateWithEvents(dt time.Duration, stateName string, sta
 		if s.Clip == nil || s.Clip.Duration <= 0 || len(s.Clip.Events) == 0 || !weightPassesThreshold(w, minWeight) {
 			continue
 		}
-		collectPhaseEvents(s.Clip, s.FootPhaseOffset, prevPhase, deltaPhase, stateName, w, emit)
+		collectPhaseEvents(s.Clip, s.FootPhaseOffset, prevPhase, prevPlayed, bs.played, deltaPhase, stateName, w, emit)
 	}
 }
 
@@ -326,6 +377,7 @@ type BlendSpace2D struct {
 	samples []BlendSample2D
 	x, y    float32
 	phase   float32
+	played  float64
 }
 
 // NewBlendSpace2D creates a 2D blend space from the given samples.
@@ -381,6 +433,7 @@ func (bs *BlendSpace2D) SetPhase(phase float32) {
 		return
 	}
 	bs.phase = wrapPhase(phase)
+	bs.played = float64(bs.phase)
 }
 
 // Reset resets the normalized cycle phase back to 0.
@@ -389,6 +442,7 @@ func (bs *BlendSpace2D) Reset() {
 		return
 	}
 	bs.phase = 0
+	bs.played = 0
 }
 
 // Weights computes smooth normalized Cartesian gradient-band weights summing to 1
@@ -502,6 +556,11 @@ func (bs *BlendSpace2D) Evaluate(x, y, phase float32) Pose {
 		return Pose{}
 	}
 	p := wrapPhase(phase)
+	return bs.evaluate(x, y, p, float64(p))
+}
+
+// evaluate samples at wrapped phase p; played is the phase advanced since Reset, which non-looping clips clamp against.
+func (bs *BlendSpace2D) evaluate(x, y, p float32, played float64) Pose {
 	weights := bs.Weights(x, y)
 	poses := make([]Pose, 0, len(bs.samples))
 	activeWeights := make([]float32, 0, len(bs.samples))
@@ -509,7 +568,7 @@ func (bs *BlendSpace2D) Evaluate(x, y, phase float32) Pose {
 		if weights[i] <= 0 {
 			continue
 		}
-		poses = append(poses, sampleClipAtPhase(s.Clip, p, s.FootPhaseOffset))
+		poses = append(poses, sampleClipAtPhase(s.Clip, p, played, s.FootPhaseOffset))
 		activeWeights = append(activeWeights, weights[i])
 	}
 	return BlendPosesWeighted(poses, activeWeights)
@@ -523,10 +582,14 @@ func (bs *BlendSpace2D) Update(dt time.Duration) Pose {
 	}
 	if dt > 0 {
 		scaled := scaleDuration(dt, bs.Speed)
-		deltaPhase := float64(bs.CycleSpeed(bs.x, bs.y)) * scaled.Seconds()
-		bs.phase = wrapPhase64(float64(bs.phase) + deltaPhase)
+		bs.advance(float64(bs.CycleSpeed(bs.x, bs.y)) * scaled.Seconds())
 	}
-	return bs.Evaluate(bs.x, bs.y, bs.phase)
+	return bs.evaluate(bs.x, bs.y, bs.phase, bs.played)
+}
+
+func (bs *BlendSpace2D) advance(deltaPhase float64) {
+	bs.phase = wrapPhase64(float64(bs.phase) + deltaPhase)
+	bs.played = advancePlayed(bs.played, deltaPhase)
 }
 
 // Pose evaluates the 2D blend space at its current (X, Y) and Phase without advancing time.
@@ -534,7 +597,7 @@ func (bs *BlendSpace2D) Pose() Pose {
 	if bs == nil {
 		return Pose{}
 	}
-	return bs.Evaluate(bs.x, bs.y, bs.phase)
+	return bs.evaluate(bs.x, bs.y, bs.phase, bs.played)
 }
 
 // updateWithEvents advances phase and collects clip events from active weighted clips.
@@ -542,12 +605,12 @@ func (bs *BlendSpace2D) updateWithEvents(dt time.Duration, stateName string, sta
 	if bs == nil || len(bs.samples) == 0 || dt <= 0 {
 		return
 	}
-	prevPhase := float64(bs.phase)
+	prevPhase, prevPlayed := float64(bs.phase), bs.played
 	scaled := scaleDuration(dt, bs.Speed)
 	deltaPhase := float64(bs.CycleSpeed(bs.x, bs.y)) * scaled.Seconds()
-	bs.phase = wrapPhase64(prevPhase + deltaPhase)
+	bs.advance(deltaPhase)
 
-	if emit == nil || deltaPhase <= 0 {
+	if emit == nil || deltaPhase == 0 {
 		return
 	}
 	weights := bs.Weights(bs.x, bs.y)
@@ -556,7 +619,7 @@ func (bs *BlendSpace2D) updateWithEvents(dt time.Duration, stateName string, sta
 		if s.Clip == nil || s.Clip.Duration <= 0 || len(s.Clip.Events) == 0 || !weightPassesThreshold(w, minWeight) {
 			continue
 		}
-		collectPhaseEvents(s.Clip, s.FootPhaseOffset, prevPhase, deltaPhase, stateName, w, emit)
+		collectPhaseEvents(s.Clip, s.FootPhaseOffset, prevPhase, prevPlayed, bs.played, deltaPhase, stateName, w, emit)
 	}
 }
 
@@ -567,15 +630,29 @@ func clipCycleRate(c *Clip) float32 {
 	return float32(1.0 / c.Duration.Seconds())
 }
 
-func sampleClipAtPhase(c *Clip, phase, footPhaseOffset float32) Pose {
+// maxPlayed caps the unwrapped phase a blend space tracks for non-looping clips: past 1 plus the largest foot-phase offset every such clip is already held on its last frame.
+const maxPlayed = 2
+
+// advancePlayed moves the unwrapped phase, kept in [0, maxPlayed].
+func advancePlayed(played, deltaPhase float64) float64 {
+	return math.Min(math.Max(played+deltaPhase, 0), maxPlayed)
+}
+
+// sampleClipAtPhase samples c at the shared phase. A looping clip wraps phase+offset into one cycle; a clip with Loop false plays once over the phase advanced since the blend space's Reset (played) and then holds its last frame (#546).
+func sampleClipAtPhase(c *Clip, phase float32, played float64, footPhaseOffset float32) Pose {
 	if c == nil {
 		return Pose{}
 	}
 	if c.Duration <= 0 {
 		return c.sampleClamped(0)
 	}
-	cp := wrapPhase(phase + footPhaseOffset)
-	t := time.Duration(float64(cp) * float64(c.Duration))
+	var cp float64
+	if c.Loop {
+		cp = float64(wrapPhase(phase + footPhaseOffset))
+	} else {
+		cp = math.Min(math.Max(played+float64(footPhaseOffset), 0), 1)
+	}
+	t := time.Duration(cp * float64(c.Duration))
 	return c.sampleClamped(t)
 }
 
@@ -594,12 +671,18 @@ func wrapPhase64(p float64) float32 {
 	return float32(r)
 }
 
-func collectPhaseEvents(clip *Clip, footPhaseOffset float32, prevPhase, deltaPhase float64, stateName string, weight float32, emit func(FiredEvent)) {
+func collectPhaseEvents(clip *Clip, footPhaseOffset float32, prevPhase, prevPlayed, nextPlayed, deltaPhase float64, stateName string, weight float32, emit func(FiredEvent)) {
 	durSec := clip.Duration.Seconds()
-	startPhase := float64(wrapPhase64(prevPhase + float64(footPhaseOffset)))
-	prevSec := float32(startPhase * durSec)
-	nextSec := float32((startPhase + deltaPhase) * durSec)
-	fired := CollectClipEvents(clip.Events, prevSec, nextSec, float32(durSec), true)
+	var prevSec, nextSec float64
+	if clip.Loop {
+		startPhase := float64(wrapPhase64(prevPhase + float64(footPhaseOffset)))
+		prevSec = startPhase * durSec
+		nextSec = (startPhase + deltaPhase) * durSec
+	} else {
+		prevSec = (prevPlayed + float64(footPhaseOffset)) * durSec
+		nextSec = (nextPlayed + float64(footPhaseOffset)) * durSec
+	}
+	fired := collectDirected(clip.Events, prevSec, nextSec, durSec, clip.Loop)
 	for _, ev := range fired {
 		emit(FiredEvent{
 			Event:  ev,
