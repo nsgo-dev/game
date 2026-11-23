@@ -1,6 +1,6 @@
 # input
 
-`game/input` 将触摸区域与鼠标按键映射为命名动作（action）和轴（axis），在每个 `game.Loop` 固定步长采样一次，并支持通过 `core.Storage` 跨启动持久化。
+`game/input` 将触摸区域、鼠标按键以及指针锁定下的鼠标相对移动映射为命名动作（action）和轴（axis），在每个 `game.Loop` 固定步长采样一次，并支持通过 `core.Storage` 跨启动持久化。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/input"
@@ -56,7 +56,7 @@ view := core.View{
 actions.Attach(&view)
 ```
 
-也可以手动转发单个事件回调：`OnTouch`、`OnPressDown`、`OnPressUp`、`OnMouseMove`、`OnMouseLeave` 和 `OnContextMenu`。
+也可以手动转发单个事件回调：`OnTouch`、`OnPressDown`、`OnPressUp`、`OnMouseMove`、`OnMouseLeave`、`OnContextMenu` 和 `OnPointerDelta`。
 
 - `OnPressDown` 会忽略键盘按压以及有触摸手指处于活动状态时系统合成的指针按压，确保触摸只触发 `TouchRegion`。
 - `OnContextMenu` 将右键点击记录为 `ev.Position` 处持续一个步长的 `core.MouseButtonRight` 脉冲。
@@ -101,7 +101,41 @@ loop := &game.Loop{
 
 - **轻点锁存（Tap latching）**：在两个固定步长之间完成按下并抬起的快速点击会被锁存，确保在下一个步长仍能触发一次 `Pressed` / `JustPressed`，并在再下一步触发 `JustReleased`。
 - **`Axis(name)`**：仅负向动作按下时返回 `-1`，仅正向动作按下时返回 `+1`，两者都不按或同时按下时返回 `0`。若 `name` 未绑定为轴，则回退为同名动作按下时返回 `1`、否则返回 `0`。
-- **`Reset()`**：清空活动触摸、按住的鼠标键、待处理的锁存与当前步长快照，同时保留所有绑定。请在失焦、切后台或切换场景时调用，防止按键卡死。
+- **`Reset()`**：清空活动触摸、按住的鼠标键、待处理的锁存、鼠标相对移动与当前步长快照，并释放 `LockPointer` 取得的指针锁定，同时保留所有绑定。请在失焦、切后台或切换场景时调用，防止按键卡死。
+
+## 通过指针锁定实现鼠标视角
+
+第一人称相机可以把指针轴绑定到鼠标的相对移动，在游戏视图被按下时锁定指针，并用 `Delta` 读取每一步的移动量：
+
+```go
+var gameRef core.Ref
+
+actions.BindPointerAxis("yaw", input.PointerX, input.PointerAxisOptions{Sensitivity: 0.003})
+actions.BindPointerAxis("pitch", input.PointerY, input.PointerAxisOptions{Sensitivity: 0.003, Invert: true})
+
+view := core.View{
+	Ref: &gameRef,
+	OnPress: func(core.PressEvent) {
+		if !actions.PointerLocked() {
+			actions.LockPointer(cx, &gameRef)
+		}
+	},
+}
+actions.Attach(&view)
+
+// 在 Loop.Update 中，actions.Step() 之后：
+camera.Yaw += actions.Delta("yaw")
+camera.Pitch += actions.Delta("pitch")
+```
+
+- `PointerX` 读取向右的移动，`PointerY` 读取向下的移动，单位与视图的 `OnPointerDelta` 报告的一致。`Sensitivity` 对其缩放（为零时取 1），`Invert` 取反。
+- `Delta(name)` 返回自上一次 `Step` 以来经缩放的移动量，不做截断，因此快速甩动比缓慢移动让相机转得更多。`PointerDelta()` 返回这一步未经缩放的 `(dx, dy)`。`Axis(name)` 把经缩放的移动量与绑定到同名 `name` 的其他轴相加，并把总和截断到 `[-1, 1]`，适合配合较小的 `Sensitivity` 做转向。
+- 视图只在持有锁定时才收到移动：`Attach` 会把它的 `OnPointerDelta` 转发给 `actions.OnPointerDelta`。
+- 当 `cx.Env().CanLockPointer()` 为 false 或视图未挂载时，`LockPointer(cx, &ref)` 返回 `false` 且不做任何事。请在按下事件中调用它，因为浏览器只在用户手势期间授予锁定。Wayland 下的 Linux 需要支持指针约束与相对移动的合成器。
+- `UnlockPointer()` 释放锁定，平台会在原来的位置重新显示指针。`Reset()` 也会释放锁定。释放前收到的移动仍会计入下一步。
+- 按下 Escape、窗口失去焦点、隐藏或移除视图同样会释放锁定，但 NSGo 不会通知应用，因此在 `UnlockPointer` 或 `Reset` 之前，`PointerLocked()` 报告的是 `actions` 请求过的锁定。请在失焦时调用 `Reset`，并在下一次按下时重新锁定；已锁定时再次锁定会替换之前的锁定。
+
+指针轴会与其他绑定一起保存和加载。
 
 ## 保存与加载绑定
 
