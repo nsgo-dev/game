@@ -2,16 +2,18 @@
 
 `game/statedump` 以无窗口方式让游戏运行固定步数，并把实体、组件和场景状态写成确定性的 YAML。种子和输入相同的两次运行写出完全相同的文件，所以智能体或测试可以把一次运行与另一次运行做 diff 来检查自己的结果，而一处改动只显示为几行变化。
 
+在同一种 CPU 架构上，文件逐字节相同。游戏自身的浮点运算在 arm64 和 amd64 上可能不同，因为 Go 编译器在 arm64 上可能把一次乘法和一次加法合并成一条 FMA 指令；要在多台机器间共用的基准转储，需要对这类乘积做显式转换，例如 `x += float64(v * speed * dt)`，转换会先把乘积舍入，从而阻止合并。
+
 ```go
 import "github.com/nsgo-dev/game/packages/game/statedump"
 ```
 
 ## 无窗口运行
 
-`Run` 用一个 [`replay.Recording`](replay.md) 驱动模拟，并在 `rec.TotalSteps` 步之后捕获其状态。与 `replay.Run` 一样，`makeSim` 收到录像的种子和一个作为 `ActionSource` 的 `*replay.Player`；不同的是 `Run` 不需要 `testing.TB`，所以命令行程序或智能体的工具也能调用它。
+`Run` 用一个 [`replay.Recording`](replay.md) 驱动模拟，并在 `rec.TotalSteps` 步之后捕获其状态。与 `replay.Run` 一样，`makeSim` 收到录像的种子和一个作为 `ActionSource` 的 `*replay.Player`；不同的是 `Run` 不需要 `testing.TB`，所以命令行程序或智能体的工具也能调用它。如果 `Step` 没有在每一步调用一次 `src.Step()`，`Run` 返回错误，因为从不读取录像的模拟对任何输入都会转储出同样的状态。
 
 ```go
-rec, err := replay.LoadFile("runs/boss-bug.json.gz")
+rec, err := replay.LoadFile("runs/boss-bug.replay.yaml")
 if err != nil {
 	return err
 }
@@ -42,8 +44,8 @@ return statedump.WriteFile("runs/boss-bug.state.yaml", dump)
 ## 转储包含的内容
 
 - `version`、`seed`、`rate` 和 `steps`：结构版本（1）以及这次运行的参数。
-- `scene`：`scene.Manager` 场景栈的 `depth`、设置了 `SceneName` 时当前场景的名字 `current`，以及 `Switch` 过渡进行中时的 `transitioning` 和 `progress`。没有场景管理器时省略。
-- `values`：实体世界之外的全局状态，例如分数、关卡或随机数状态，每个值用 `encoding/json` 编码并按名字存放。
+- `scene`：`scene.Manager` 场景栈的 `depth`、设置了 `SceneName` 时当前场景的名字 `current`，以及 `Switch` 过渡进行中时的 `transitioning` 和经过缓动的 `progress`；会越界的曲线（例如 ease-out-back）在过渡的一段时间里会让 `progress` 超过 1。没有场景管理器时省略。
+- `values`：实体世界之外的全局状态，例如分数、关卡或随机数状态，每个值用 `encoding/json` 编码并按名字存放，名字按字节序升序排列。
 - `entities`：所有存活实体，按槽位索引升序排列，带有 `generation`、层级父节点 `parent`，以及按编解码器名字升序排列的组件。与世界快照一样，只包含用 [`entities.RegisterCodec`](entities.md) 注册过的组件。
 
 ```yaml
@@ -75,7 +77,7 @@ entities:
         data: sword
 ```
 
-组件和值的数据写成 YAML 映射和序列，而不是内嵌的 JSON 字符串，所以改动一个字段就只改动一行。它们保留 Go 结构体的 JSON 字段顺序，以及 `encoding/json` 为每个数字写出的原样文本。会被读成其他类型的字符串（`"1"`、`"true"`、`"yes"`、`"2001-12-14"`）会加上引号。
+组件和值的数据写成 YAML 映射和序列，而不是内嵌的 JSON 字符串，所以改动一个字段就只改动一行。它们保留 Go 结构体的 JSON 字段顺序，以及 `encoding/json` 为每个数字写出的原样文本。会被 YAML 1.2 或 YAML 1.1 读取器读成其他类型的字符串（`"1"`、`"true"`、`"yes"`、`"2001-12-14"`、`"1:20"`）会加上引号，JSON 的 `null` 仍写作 `null`。
 
 ## 读取与比较
 

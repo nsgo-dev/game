@@ -9,6 +9,7 @@ scene:
   progress: 0.25
 values:
   long: 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word '
+  none: null
   rng:
     state: 9223372036854775813
 entities:
@@ -52,6 +53,10 @@ entities:
           - "0x10"
           - "1e3"
           - ".inf"
+          - "1:20"
+          - "-1:30.5"
+          - "190:20:30"
+          - 12:60
       - type: c
         data: plain
       - type: d
@@ -61,6 +66,9 @@ entities:
           "null": 3
           "": 4
           'key with: colon': 5
+          "1:20": 6
+      - type: e
+        data: null
   - index: 4
     generation: 7
     parent: 0

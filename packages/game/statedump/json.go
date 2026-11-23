@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -31,10 +32,10 @@ func jsonToNode(data []byte) (*yaml.Node, error) {
 	dec.UseNumber()
 	n, err := jsonValue(dec, 0)
 	if err != nil {
-		return nil, fmt.Errorf("statedump: data: %w", err)
+		return nil, err
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return nil, errors.New("statedump: data: trailing JSON after value")
+		return nil, errors.New("trailing JSON after value")
 	}
 	return n, nil
 }
@@ -103,10 +104,10 @@ func jsonValue(dec *json.Decoder, depth int) (*yaml.Node, error) {
 	return nil, fmt.Errorf("unexpected JSON token %v", tok)
 }
 
-// strNode returns a string scalar, quoted when a YAML 1.1 reader would take it for a boolean; YAML 1.2 reads such words as strings, but agents and tools often parse with YAML 1.1 libraries.
+// strNode returns a string scalar, quoted when a YAML 1.1 reader would take it for a boolean or a base-60 number; YAML 1.2 reads such text as strings, but agents and tools often parse with YAML 1.1 libraries. Strings YAML 1.2 itself reads as another type are quoted by the encoder.
 func strNode(s string) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: s}
-	if yaml11Bool[strings.ToLower(s)] {
+	if yaml11Bool[strings.ToLower(s)] || yaml11Base60.MatchString(s) {
 		n.Style = yaml.DoubleQuotedStyle
 	}
 	return n
@@ -114,6 +115,9 @@ func strNode(s string) *yaml.Node {
 
 // yaml11Bool holds the plain words common YAML 1.1 libraries (PyYAML, js-yaml's 1.1 schema) resolve to booleans and YAML 1.2 does not. The single letters y and n, which the 1.1 spec also lists but those libraries do not, stay plain so coordinates read as x and y.
 var yaml11Bool = map[string]bool{"yes": true, "no": true, "on": true, "off": true}
+
+// yaml11Base60 matches YAML 1.1's sexagesimal ints and floats, such as 1:20 (80) or 1:30.5, the same pattern yaml.v3 quotes for its own strings; it covers the int form because its fraction is optional.
+var yaml11Base60 = regexp.MustCompile(`^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?$`)
 
 // numberTag returns the tag YAML resolves a JSON number's plain text to, so the encoder writes it without an explicit tag.
 func numberTag(s string) string {

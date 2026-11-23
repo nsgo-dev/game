@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"go.yaml.in/yaml/v3"
@@ -42,7 +43,7 @@ type SceneState struct {
 	Current string `yaml:"current,omitempty"`
 	// Transitioning reports whether a Switch transition is running.
 	Transitioning bool `yaml:"transitioning,omitempty"`
-	// Progress is the running transition's eased progress in [0, 1]; it is 0 when no transition runs.
+	// Progress is the running transition's eased progress, as scene.Manager.TransitionProgress reports it; it is 0 when no transition runs. It usually lies in [0, 1], but a curve that overshoots, such as an ease-out-back, takes it past either end for part of the transition.
 	Progress float64 `yaml:"progress,omitempty"`
 }
 
@@ -73,7 +74,7 @@ func (d *Dump) Snapshot() entities.WorldSnapshot {
 	return entities.WorldSnapshot{Entities: d.Entities}
 }
 
-// Validate checks that d uses FormatVersion, has non-negative counts, a scene progress in [0, 1] that is 0 unless a transition runs, non-empty value names with valid JSON, and entities in strictly ascending slot order with non-zero generations, parents present in the dump, and components with non-empty names in strictly ascending order holding valid JSON.
+// Validate checks that d uses FormatVersion, has non-negative counts, a finite scene progress that is 0 unless a transition runs, non-empty value names with valid JSON, and entities in strictly ascending slot order with non-zero generations, parents present in the dump, and components with non-empty names in strictly ascending order holding valid JSON.
 func Validate(d *Dump) error {
 	if d == nil {
 		return errors.New("statedump: nil dump")
@@ -91,8 +92,8 @@ func Validate(d *Dump) error {
 		if s.Depth < 0 {
 			return fmt.Errorf("statedump: invalid scene depth %d", s.Depth)
 		}
-		if math.IsNaN(s.Progress) || s.Progress < 0 || s.Progress > 1 {
-			return fmt.Errorf("statedump: scene progress %v is outside [0, 1]", s.Progress)
+		if math.IsNaN(s.Progress) || math.IsInf(s.Progress, 0) {
+			return fmt.Errorf("statedump: scene progress %v is not finite", s.Progress)
 		}
 		if !s.Transitioning && s.Progress != 0 {
 			return fmt.Errorf("statedump: scene progress %v without a transition (want 0)", s.Progress)
@@ -145,14 +146,16 @@ func Validate(d *Dump) error {
 }
 
 // fileDoc is the YAML layout of a Dump; its field order is the key order Encode writes.
+//
+// Values and component data are yaml.Node rather than a type with UnmarshalYAML: yaml.v3 never calls an Unmarshaler for a null node and leaves the field at its zero value, which would lose a JSON null. A Node of Kind 0 is a missing key; an explicit null is a scalar with the !!null tag. Values is a mapping Encode builds in byte order of the names, because yaml.v3's own map order compares runs of digits as numbers.
 type fileDoc struct {
-	Version  int                `yaml:"version"`
-	Seed     uint64             `yaml:"seed"`
-	Rate     int                `yaml:"rate,omitempty"`
-	Steps    int                `yaml:"steps"`
-	Scene    *SceneState        `yaml:"scene,omitempty"`
-	Values   map[string]rawJSON `yaml:"values,omitempty"`
-	Entities []fileEntity       `yaml:"entities"`
+	Version  int          `yaml:"version"`
+	Seed     uint64       `yaml:"seed"`
+	Rate     int          `yaml:"rate,omitempty"`
+	Steps    int          `yaml:"steps"`
+	Scene    *SceneState  `yaml:"scene,omitempty"`
+	Values   yaml.Node    `yaml:"values,omitempty"`
+	Entities []fileEntity `yaml:"entities"`
 }
 
 type fileEntity struct {
@@ -163,26 +166,52 @@ type fileEntity struct {
 }
 
 type fileComponent struct {
-	Type string  `yaml:"type"`
-	Data rawJSON `yaml:"data"`
+	Type string    `yaml:"type"`
+	Data yaml.Node `yaml:"data"`
 }
 
-// rawJSON is JSON data written to YAML as the mapping, sequence or scalar it encodes.
-type rawJSON json.RawMessage
-
-// MarshalYAML implements yaml.Marshaler.
-func (r rawJSON) MarshalYAML() (any, error) {
-	return jsonToNode(r)
-}
-
-// UnmarshalYAML implements yaml.Unmarshaler.
-func (r *rawJSON) UnmarshalYAML(n *yaml.Node) error {
-	data, err := nodeToJSON(n)
-	if err != nil {
-		return err
+// valuesNode returns values as a YAML mapping in ascending byte order of the names.
+func valuesNode(values map[string]json.RawMessage) (yaml.Node, error) {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
 	}
-	*r = data
-	return nil
+	slices.Sort(names)
+	m := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, name := range names {
+		v, err := jsonToNode(values[name])
+		if err != nil {
+			return yaml.Node{}, fmt.Errorf("statedump: value %q: %w", name, err)
+		}
+		m.Content = append(m.Content, strNode(name), v)
+	}
+	return m, nil
+}
+
+// parseValues turns the values mapping back into JSON by name, refusing keys that are not plain strings and duplicate names.
+func parseValues(n *yaml.Node) (map[string]json.RawMessage, error) {
+	switch {
+	case n.Kind == 0, n.Kind == yaml.ScalarNode && n.Tag == tagNull:
+		return nil, nil
+	case n.Kind != yaml.MappingNode || n.Anchor != "":
+		return nil, fmt.Errorf("statedump: line %d: values must be a mapping", n.Line)
+	}
+	values := make(map[string]json.RawMessage, len(n.Content)/2)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := n.Content[i]
+		if k.Kind != yaml.ScalarNode || k.Tag != tagStr || k.Anchor != "" {
+			return nil, fmt.Errorf("statedump: line %d: value name must be a string (quote it)", k.Line)
+		}
+		if _, dup := values[k.Value]; dup {
+			return nil, fmt.Errorf("statedump: line %d: duplicate value %q", k.Line, k.Value)
+		}
+		data, err := nodeToJSON(n.Content[i+1])
+		if err != nil {
+			return nil, err
+		}
+		values[k.Value] = data
+	}
+	return values, nil
 }
 
 // Encode validates d and writes it as deterministic 2-space YAML.
@@ -202,17 +231,22 @@ func Encode(d *Dump) ([]byte, error) {
 		doc.Scene = &s
 	}
 	if len(d.Values) > 0 {
-		doc.Values = make(map[string]rawJSON, len(d.Values))
-		for name, data := range d.Values {
-			doc.Values[name] = rawJSON(data)
+		values, err := valuesNode(d.Values)
+		if err != nil {
+			return nil, err
 		}
+		doc.Values = values
 	}
 	for i, e := range d.Entities {
 		fe := fileEntity{Index: e.Index, Generation: e.Generation, Parent: e.Parent}
 		if len(e.Components) > 0 {
 			fe.Components = make([]fileComponent, len(e.Components))
 			for j, c := range e.Components {
-				fe.Components[j] = fileComponent{Type: c.Type, Data: rawJSON(c.Data)}
+				data, err := jsonToNode(c.Data)
+				if err != nil {
+					return nil, fmt.Errorf("statedump: entity %d component %q: %w", e.Index, c.Type, err)
+				}
+				fe.Components[j] = fileComponent{Type: c.Type, Data: *data}
 			}
 		}
 		doc.Entities[i] = fe
@@ -255,11 +289,12 @@ func Parse(data []byte) (*Dump, error) {
 		Steps:   doc.Steps,
 		Scene:   doc.Scene,
 	}
-	if len(doc.Values) > 0 {
-		d.Values = make(map[string]json.RawMessage, len(doc.Values))
-		for name, data := range doc.Values {
-			d.Values[name] = json.RawMessage(data)
-		}
+	values, err := parseValues(&doc.Values)
+	if err != nil {
+		return nil, err
+	}
+	if len(values) > 0 {
+		d.Values = values
 	}
 	if len(doc.Entities) > 0 {
 		d.Entities = make([]entities.EntitySnapshot, len(doc.Entities))
@@ -268,7 +303,13 @@ func Parse(data []byte) (*Dump, error) {
 			if len(fe.Components) > 0 {
 				e.Components = make([]entities.ComponentSnapshot, len(fe.Components))
 				for j, c := range fe.Components {
-					e.Components[j] = entities.ComponentSnapshot{Type: c.Type, Data: json.RawMessage(c.Data)}
+					var data json.RawMessage
+					if c.Data.Kind != 0 {
+						if data, err = nodeToJSON(&c.Data); err != nil {
+							return nil, err
+						}
+					}
+					e.Components[j] = entities.ComponentSnapshot{Type: c.Type, Data: data}
 				}
 			}
 			d.Entities[i] = e
