@@ -13,7 +13,7 @@ import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
 import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
-import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPage, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPackage, DocPage, PackageStatus, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
 import type { Lang } from '../src/i18n'
 
 const REPO = 'nsgo-dev/game'
@@ -148,6 +148,7 @@ const DOC_ORDER = [
   'getting-started.md',
   'playground.md',
   'packages.md',
+  'stability.md',
   'loop.md',
   'sprite.md',
   'sound.md',
@@ -169,6 +170,7 @@ export async function markdownFiles(dir: string): Promise<string[]> {
 // Each language lists English's pages in English's order, its own translation where it has one.
 async function loadDocsModule(ctx: Context): Promise<string> {
   const english = await markdownFiles(path.join(ctx.docsDir, 'en'))
+  const packages = await readStability(ctx)
   const docs = {} as Record<Lang, DocPage[]>
   for (const lang of LANGS) {
     const own = new Set(await markdownFiles(path.join(ctx.docsDir, lang)))
@@ -176,10 +178,33 @@ async function loadDocsModule(ctx: Context): Promise<string> {
     for (const file of english) {
       const from: Lang = own.has(file) ? lang : 'en'
       const source = await readFile(path.join(ctx.docsDir, from, file), 'utf8')
-      docs[lang].push(await renderDoc(file.slice(0, -'.md'.length), source, { lang, from }, ctx))
+      const slug = file.slice(0, -'.md'.length)
+      docs[lang].push({ ...(await renderDoc(slug, source, { lang, from }, ctx)), packages: packages.get(slug) ?? [] })
     }
   }
   return `export const docs = ${JSON.stringify(docs)}`
+}
+
+// A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test in packages/game keeps the table complete and the Chinese one equal to it.
+const STABILITY_ROW = /^\| `([^`]+)` \| (Stable|Experimental) \| (?:\[[^\]]+\]\(([a-z0-9-]+)\.md\))? ?\|$/
+
+// readStability reads each package's status from docs/en/stability.md, by the slug of its guide.
+async function readStability(ctx: Context): Promise<Map<string, DocPackage[]>> {
+  const source = await readFile(path.join(ctx.docsDir, 'en', 'stability.md'), 'utf8')
+  const bySlug = new Map<string, DocPackage[]>()
+  let rows = 0
+  for (const line of source.split('\n')) {
+    const m = STABILITY_ROW.exec(line)
+    if (!m) continue
+    rows++
+    const [, pkg = '', status = '', slug] = m
+    if (!slug) continue
+    const list = bySlug.get(slug) ?? []
+    list.push({ path: pkg, status: status.toLowerCase() as PackageStatus })
+    bySlug.set(slug, list)
+  }
+  if (rows === 0) throw new Error('docs/en/stability.md has no package rows')
+  return bySlug
 }
 
 // MdNode is the part of an mdast node this file reads and writes.
@@ -192,7 +217,7 @@ interface MdNode {
 }
 
 // lang is the language the page is shown in, from the one its Markdown is written in: the two differ when lang has no translation of it.
-async function renderDoc(slug: string, source: string, { lang, from }: { lang: Lang; from: Lang }, ctx: Context): Promise<DocPage> {
+async function renderDoc(slug: string, source: string, { lang, from }: { lang: Lang; from: Lang }, ctx: Context): Promise<Omit<DocPage, 'packages'>> {
   const meta = { title: slug, description: '' }
   const headings: DocHeading[] = []
   const file = await unified()

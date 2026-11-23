@@ -9,7 +9,9 @@ The loop, input actions, sound and scene switching are shared by both stages. It
 
 ## Status
 
-Not started. The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047), and its tasks are this repository's issues. The engine-side primitives it needs (key-up and held keys, display frame times, gamepads, audio everywhere, a batched `DrawAtlas`, the GPU view) are tracked in NSGo.
+Early and unreleased. Every package is either stable or experimental: stable packages break their API only in a minor release and only after a deprecation period, experimental ones may change in any minor release. The [API stability policy](docs/en/stability.md) ([中文](docs/zh/stability.md)) defines both, describes how deprecations work across releases, and lists each package's status.
+
+The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047), and its tasks are this repository's issues. The engine-side primitives it needs (key-up and held keys, display frame times, gamepads, audio everywhere, a batched `DrawAtlas`, the GPU view) are tracked in NSGo.
 
 ## Layout
 
@@ -46,6 +48,7 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 - [Getting Started](docs/en/getting-started.md) ([中文](docs/zh/getting-started.md))
 - [Tutorial: Star Catcher](docs/en/tutorial.md) ([中文](docs/zh/tutorial.md)), nine chapters from an empty project to a shipped game, with each chapter's code in [`examples/tutorial`](examples/tutorial/)
 - [Packages](docs/en/packages.md) ([中文](docs/zh/packages.md)): [Loop](docs/en/loop.md), [sprite](docs/en/sprite.md), [sound](docs/en/sound.md)
+- [API Stability](docs/en/stability.md) ([中文](docs/zh/stability.md))
 - [3D Models from Blender](docs/en/3d-models-blender.md) ([中文](docs/zh/3d-models-blender.md))
 - [Building and Shipping](docs/en/shipping.md) ([中文](docs/zh/shipping.md))
 

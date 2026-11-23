@@ -13,6 +13,17 @@ export interface DocPage {
   fallback: boolean
   // source is the Markdown's path in the repository, such as docs/zh/index.md, for the page's edit link.
   source: string
+  // packages are the packages whose guide the page is, with their status, from the table in docs/en/stability.md.
+  packages: DocPackage[]
+}
+
+export type PackageStatus = 'stable' | 'experimental'
+
+// A package and its stability status, such as game/sprite, stable.
+export interface DocPackage {
+  // path is relative to github.com/nsgo-dev/game/packages, such as game/sprite.
+  path: string
+  status: PackageStatus
 }
 
 export interface DocHeading {
