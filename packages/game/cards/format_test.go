@@ -143,6 +143,33 @@ func (spiral) Arrange(_ math2d.Rect, _ math2d.Vec2, n int, dst []cards.Pose) []c
 
 func (spiral) InsertIndex(_ math2d.Rect, _ math2d.Vec2, n int, _ math2d.Vec2) int { return n }
 
+func TestBoardPathSavesAsTheDocPathDoes(t *testing.T) {
+	doc, err := cards.ParseBoardDoc([]byte(solitaireYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := cards.LoadBoard(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := b.Doc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cards.EncodeBoardDoc(back)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != solitaireYAML {
+		t.Fatalf("Parse, LoadBoard, Doc and Encode changed the document:\n%s", out)
+	}
+	// The default grab rule has one form: omitted. EncodeBoardDoc refuses the spelled-out one, as ParseBoardDoc does.
+	back.Slots[0].Grab = "any"
+	if _, err := cards.EncodeBoardDoc(back); err == nil {
+		t.Fatal(`EncodeBoardDoc wrote grab "any"`)
+	}
+}
+
 func TestParseBoardDocRefusesBadDocuments(t *testing.T) {
 	base := "version: 1\ncard_size: {w: 63, h: 88}\n"
 	slot := func(body string) string {
@@ -174,6 +201,7 @@ func TestParseBoardDocRefusesBadDocuments(t *testing.T) {
 		"repeated tag":     slot("    layout: {fan: {}}\n    accepts: [red, red]\n"),
 		"negative cap":     slot("    layout: {fan: {}}\n    capacity: -1\n"),
 		"grab":             slot("    layout: {fan: {}}\n    grab: bottom\n"),
+		"grab any":         slot("    layout: {fan: {}}\n    grab: any\n"),
 		"not yaml":         "version: [1\n",
 	}
 	for name, src := range cases {
@@ -182,7 +210,7 @@ func TestParseBoardDocRefusesBadDocuments(t *testing.T) {
 		}
 	}
 	// The smallest valid documents parse.
-	for _, src := range []string{base, slot("    layout: {stack: {}}\n    grab: any\n")} {
+	for _, src := range []string{base, slot("    layout: {stack: {}}\n")} {
 		if _, err := cards.ParseBoardDoc([]byte(src)); err != nil {
 			t.Errorf("valid document refused: %v\n%s", err, src)
 		}

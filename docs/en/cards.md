@@ -89,11 +89,11 @@ for _, c := range order {
 }
 ```
 
-`DrawOrder`, `Update` and the pointer calls allocate nothing once the board's slices have grown.
+Once the board's slices have grown, `DrawOrder`, `Update` and `PointerMove` during a drag allocate nothing. Picking up a rotated card, dropping one and sending one back each allocate a tween for every card that starts to move.
 
 ## Board files
 
-A board's card size and slots can be written as YAML and loaded with `ParseBoardDoc` and `LoadBoard`. Unknown fields are refused, the version must be `1`, and `EncodeBoardDoc` writes the fields in a fixed order, so a file read and written again is unchanged. `board.Doc()` turns a board built in code back into a `BoardDoc`; a slot's `Accept` function and the board's callbacks and timings stay in code.
+A board's card size and slots can be written as YAML and loaded with `ParseBoardDoc` and `LoadBoard`. Unknown fields are refused, the version must be `1`, and `EncodeBoardDoc` writes the fields in a fixed order and in block style, as below, so a file in that form is unchanged when read and written again; a hand-written file in flow style (`rect: {x: 40, ...}`) comes back in block style the first time it is saved. `board.Doc()` turns a board built in code back into a `BoardDoc`; a slot's `Accept` function and the board's callbacks and timings stay in code.
 
 ```yaml
 version: 1
@@ -102,18 +102,31 @@ card_size:
   h: 88
 slots:
   - id: hand
-    rect: {x: 40, "y": 400, w: 560, h: 120}
+    rect:
+      x: 40
+      "y": 400
+      w: 560
+      h: 120
     layout:
-      fan: {arc: 24, sag: 14}
+      fan:
+        arc: 24
+        sag: 14
   - id: deck
-    rect: {x: 620, "y": 400, w: 63, h: 88}
+    rect:
+      x: 620
+      "y": 400
+      w: 63
+      h: 88
     layout:
       stack:
-        offset: {x: 0, "y": -0.5}
+        offset:
+          x: 0
+          "y": -0.5
         depth: 8
-    accepts: [spell]
+    accepts:
+      - spell
     capacity: 40
     grab: top
 ```
 
-Each slot names exactly one of `fan`, `stack` or `grid`; `grab` is `any` (the default), `top` or `none`. The encoder quotes the `y` key, which YAML 1.1 reads as a boolean, so other tools read the file the same way.
+Each slot names exactly one of `fan`, `stack` or `grid`; `grab` is `top` or `none`, and is left out for the default, any card; `grab: any` is refused so the default has one form. The encoder quotes the `y` key, which YAML 1.1 reads as a boolean, so other tools read the file the same way.

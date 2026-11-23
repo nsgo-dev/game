@@ -17,20 +17,38 @@ const FormatVersion = 1
 // BoardDoc is a board's slots written as YAML: a schema version, the card size and each slot's area, layout and rules.
 //
 //	version: 1
-//	card_size: {w: 63, h: 88}
+//	card_size:
+//	  w: 63
+//	  h: 88
 //	slots:
 //	  - id: hand
-//	    rect: {x: 40, y: 400, w: 560, h: 120}
+//	    rect:
+//	      x: 40
+//	      "y": 400
+//	      w: 560
+//	      h: 120
 //	    layout:
-//	      fan: {arc: 24, sag: 14}
+//	      fan:
+//	        arc: 24
+//	        sag: 14
 //	  - id: discard
-//	    rect: {x: 360, y: 200, w: 63, h: 88}
+//	    rect:
+//	      x: 360
+//	      "y": 200
+//	      w: 63
+//	      h: 88
 //	    layout:
-//	      stack: {offset: {x: 0, y: -0.5}, depth: 6}
-//	    accepts: [red, black]
+//	      stack:
+//	        offset:
+//	          x: 0
+//	          "y": -0.5
+//	        depth: 6
+//	    accepts:
+//	      - red
+//	      - black
 //	    grab: top
 //
-// ParseBoardDoc refuses unknown fields, and EncodeBoardDoc writes the fields in a fixed order, so a document read and written again is unchanged.
+// ParseBoardDoc refuses unknown fields, and EncodeBoardDoc writes the fields in a fixed order and in block style, as above. A file in that form, as EncodeBoardDoc writes it, is unchanged when read and written again; a hand-written file in flow style comes back in block style the first time.
 type BoardDoc struct {
 	// Version must equal FormatVersion.
 	Version int `yaml:"version"`
@@ -60,7 +78,7 @@ type RectDoc struct {
 	H float32 `yaml:"h"`
 }
 
-// SlotDoc is one Slot: Grab is "any" (or omitted), "top" or "none".
+// SlotDoc is one Slot: Grab is "top" or "none", or omitted for GrabAny; "any" itself is refused so the default has a single form.
 type SlotDoc struct {
 	ID       string    `yaml:"id"`
 	Rect     RectDoc   `yaml:"rect"`
@@ -227,14 +245,17 @@ func (l LayoutDoc) layout() (Layout, error) {
 
 func parseGrab(s string) (GrabRule, error) {
 	switch s {
-	case "", "any":
+	case "":
 		return GrabAny, nil
 	case "top":
 		return GrabTop, nil
 	case "none":
 		return GrabNone, nil
+	case "any":
+		// One encoding per value keeps saves deterministic: the default is written by leaving grab out.
+		return 0, errors.New(`grab "any" is the default; leave grab out instead`)
 	}
-	return 0, fmt.Errorf("unknown grab rule %q (want any, top or none)", s)
+	return 0, fmt.Errorf("unknown grab rule %q (want top or none, or leave grab out for any)", s)
 }
 
 // LoadBoard validates doc and returns a Board with its card size and its slots, empty and in order. The board's other fields are left for the game to set.
