@@ -5,6 +5,7 @@
 //     snapshot interpolation, and client-side prediction/reconciliation.
 //   - Deterministic lockstep and GGPO-style rollback netcode with periodic
 //     checksum verification and desync detection.
+//   - A Relay that forwards peer-to-peer sessions between RelayTransports over WebSocket or UDP for players who cannot reach each other directly.
 package net
 
 import (
@@ -16,10 +17,7 @@ import (
 type Channel uint8
 
 const (
-	// ChannelReliableOrdered guarantees delivery in send order. A transport
-	// that cannot provide that guarantee refuses it with ErrUnsupportedChannel
-	// rather than silently dropping packets; UDP has no retransmission, so
-	// lockstep and rollback need WebSocket or loopback instead.
+	// ChannelReliableOrdered guarantees delivery in send order. A transport that cannot provide that guarantee refuses it with ErrUnsupportedChannel rather than silently dropping packets; UDP has no retransmission, so lockstep and rollback need WebSocket, loopback or a RelayTransport, which retransmits end to end over either protocol.
 	ChannelReliableOrdered Channel = 0
 	// ChannelUnreliable delivers best-effort packets that may be dropped or reordered.
 	ChannelUnreliable Channel = 1

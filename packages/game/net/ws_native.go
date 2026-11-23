@@ -1036,3 +1036,8 @@ func (s *WebSocketServer) Close() error {
 	}
 	return s.ln.Close()
 }
+
+// relayWake lets a Relay serving this server wait for packets and events instead of polling.
+func (s *WebSocketServer) relayWake() <-chan struct{} {
+	return s.changed
+}
