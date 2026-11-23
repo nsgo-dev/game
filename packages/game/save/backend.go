@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/text/unicode/norm"
@@ -373,7 +374,7 @@ func sweepStaleTemps(dir string) {
 	}
 }
 
-// syncDir flushes directory metadata after a rename or removal so the change survives a crash. Windows cannot sync a directory handle and needs no separate sync for renames, so it is skipped there; anywhere else a failure is returned instead of silently losing durability (#546).
+// syncDir flushes directory metadata after a rename or removal so the change survives a crash. Windows cannot sync a directory handle and needs no separate sync for renames, so it is skipped there; anywhere else a failure is returned instead of silently losing durability (#546), except that a file system that cannot sync a directory at all (EINVAL or ENOTSUP, as on some network and FUSE mounts) is treated as having nothing to sync, so every save there does not fail after it was written.
 func syncDir(dir string) error {
 	if runtime.GOOS == "windows" {
 		return nil
@@ -386,8 +387,13 @@ func syncDir(dir string) error {
 	if cerr := d.Close(); err == nil {
 		err = cerr
 	}
-	if err != nil {
+	if err != nil && !dirSyncUnsupported(err) {
 		return fmt.Errorf("sync directory: %w", err)
 	}
 	return nil
+}
+
+// dirSyncUnsupported reports whether err from syncing a directory means the file system does not support it rather than that it failed.
+func dirSyncUnsupported(err error) bool {
+	return errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) || errors.Is(err, errors.ErrUnsupported)
 }

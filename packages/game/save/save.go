@@ -128,7 +128,7 @@ func (s *Store) Save(slot string, value any) error {
 
 // Load reads slot, migrates older save versions up to s.Version one step at a time, and unmarshals the data into dst.
 //
-// If the primary copy is missing, unreadable or corrupted, Load automatically recovers from the slot's backup copy, and rewrites a missing or structurally corrupt primary from it. A save whose version exceeds s.Version returns an error wrapping ErrFutureVersion without falling back to an older backup.
+// If the primary copy is missing, unreadable or corrupted, Load automatically recovers from the slot's backup copy. It rewrites the primary from that backup only when the primary is missing or is not a JSON object at all (empty, truncated or garbage); a primary that failed to read for another reason, or that is a JSON object Load cannot use, is left as it is, because it may be newer than the backup. A save whose version exceeds s.Version returns an error wrapping ErrFutureVersion without falling back to an older backup, even when its envelope has fields this build does not know.
 //
 // Load never writes a migrated save back: migrations run in memory on every Load until the slot is saved again, so each Migration must be a pure function of its input that gives the same result every time it runs.
 func (s *Store) Load(slot string, dst any) error {
@@ -150,7 +150,7 @@ func (s *Store) Load(slot string, dst any) error {
 		if backup, bakErr := s.backend.ReadBackup(slot); bakErr == nil {
 			recErr := s.decode(slot, backup, dst)
 			if recErr == nil {
-				if !isValidEnvelope(primary) {
+				if isDamagedPayload(primary) {
 					s.repair(slot, backup)
 				}
 				return nil
@@ -171,11 +171,14 @@ func (s *Store) Load(slot string, dst any) error {
 	if err := s.decode(slot, backup, dst); err != nil {
 		return err
 	}
-	s.repair(slot, backup)
+	// Only a primary that is really gone is rewritten: a read that failed for another reason (permissions, I/O, too many open files) may be hiding a valid primary newer than this backup (#546).
+	if errors.Is(primaryErr, ErrNotFound) {
+		s.repair(slot, backup)
+	}
 	return nil
 }
 
-// repair rewrites a missing or structurally corrupt primary copy from the backup Load just recovered, so the slot is whole again instead of depending on the backup until the next Save (#546). The backend keeps the backup, because Write preserves only a valid primary; a primary that is a valid envelope whose data did not decode is left alone so it never displaces the good backup. Repair is best effort: Load has already succeeded, and a failed rewrite leaves the slot exactly as it was.
+// repair rewrites a missing or damaged primary copy from the backup Load just recovered, so the slot is whole again instead of depending on the backup until the next Save (#546). The backend keeps the backup, because Write preserves only a valid primary. Repair is best effort: Load has already succeeded, and a failed rewrite leaves the slot exactly as it was.
 func (s *Store) repair(slot string, backup []byte) {
 	_ = s.backend.Write(slot, backup)
 }
@@ -255,6 +258,13 @@ func (s *Store) decode(slot string, payload []byte, dst any) error {
 func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any) error {
 	env, err := parseEnvelope(payload)
 	if err != nil {
+		// An envelope a newer build wrote may carry fields this one does not know; report it as a future version rather than as corrupt, so Load does not fall back to an older backup.
+		var lenient struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(payload, &lenient) == nil && lenient.Version > target {
+			return fmt.Errorf("save: load %q: save version %d exceeds current version %d: %w", name, lenient.Version, target, ErrFutureVersion)
+		}
 		return fmt.Errorf("save: load %q: %w", name, err)
 	}
 	if env.Version > target {
@@ -344,9 +354,16 @@ func checkEnvelopeKeys(payload []byte) error {
 	return nil
 }
 
+// isValidEnvelope reports whether payload is an envelope this build can parse; backends keep only such a primary as the backup when a new save replaces it.
 func isValidEnvelope(payload []byte) bool {
 	_, err := parseEnvelope(payload)
 	return err == nil
+}
+
+// isDamagedPayload reports whether payload is not a JSON object at all: empty, truncated or garbage. Only such a primary is rewritten from the backup; a JSON object Load cannot use may come from a newer build and is left alone.
+func isDamagedPayload(payload []byte) bool {
+	p := bytes.TrimSpace(payload)
+	return len(p) == 0 || p[0] != '{' || !json.Valid(p)
 }
 
 // unmarshalClean decodes data into a copy of *dst first so a failed unmarshal never leaves dst half-written before backup recovery runs.
