@@ -330,6 +330,7 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 		edit(&s)
 		return &s
 	}
+	spriteMask := sprite.RectMask(core.Bounds{Origin: core.Point{X: 12, Y: 62}, Size: core.Size{Width: 8, Height: 8}})
 	batch := &sprite.Batch{Atlas: sheet, Sprites: []*sprite.Sprite{
 		// Tinted alone: one tinted draw, no state to save.
 		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.Tint = 10, 10, red }),
@@ -344,6 +345,15 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 		place("hero", func(s *sprite.Sprite) { s.X = 140 }),
 		// A tint with no alpha draws nothing.
 		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 160, core.RGBA(0xff0000, 0) }),
+		// A tint lerped toward transparent black draws nothing until it reaches it, where it is the zero value and draws untinted.
+		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 160, core.RGBA(0x000001, 0) }),
+		place("hero", func(s *sprite.Sprite) { s.X, s.Tint = 180, core.RGBA(0x000000, 0) }),
+		// Masked: the tinted draw sits inside the mask's Save, clip and Restore.
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.Tint, s.Mask = 10, 60, red, &spriteMask }),
+	}}
+	batchMask := sprite.CircleMask(150, 60, 10)
+	maskedBatch := &sprite.Batch{Atlas: sheet, Mask: &batchMask, Sprites: []*sprite.Sprite{
+		place("hero", func(s *sprite.Sprite) { s.X, s.Y, s.Tint = 140, 50, red }),
 	}}
 	backdrop := func(d *core.Drawing) { d.SetFillColor(core.RGB(0x204060)).FillRect(0, 0, 200, 100) }
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -351,6 +361,7 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 			core.Canvas{TestID: "batch", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
 				backdrop(d)
 				batch.Draw(d)
+				maskedBatch.Draw(d)
 			}},
 			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(200), Height: core.Pt(100)}, Draw: func(d *core.Drawing, _ core.Size) {
 				backdrop(d)
@@ -359,6 +370,9 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 				d.Save().Transform(-1, 0, 0, 1, 116, 0).DrawTintedImageFrom(img, red, 16, 0, 8, 10, 4, 3, 8, 10).Restore()
 				d.DrawImageFrom(img, 0, 0, 16, 16, 120, 0, 16, 16)
 				d.DrawImageFrom(img, 0, 0, 16, 16, 140, 0, 16, 16)
+				d.DrawImageFrom(img, 0, 0, 16, 16, 180, 0, 16, 16)
+				d.Save().BeginPath().Rect(12, 62, 8, 8).Clip().BeginPath().DrawTintedImageFrom(img, red, 0, 0, 16, 16, 10, 60, 16, 16).Restore()
+				d.Save().BeginPath().Arc(150, 60, 10, 0, 2*math.Pi, false).Clip().BeginPath().DrawTintedImageFrom(img, red, 0, 0, 16, 16, 140, 50, 16, 16).Restore()
 			}},
 		}}
 	})
@@ -375,7 +389,7 @@ func TestTintedSpritesTintOnlyTheirOwnPixels(t *testing.T) {
 			tinted++
 		}
 	}
-	if tinted != 3 {
-		t.Fatalf("%d tinted image draws, want 3", tinted)
+	if tinted != 5 {
+		t.Fatalf("%d tinted image draws, want 5", tinted)
 	}
 }
