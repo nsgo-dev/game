@@ -132,8 +132,8 @@ version: 1
 note: Update with go tool game bench -update ./sprite ./tilemap
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
 benchmarks:
-  BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}
-  BenchmarkRaycast: {ns_per_op: 15000, bytes_per_op: 0, allocs_per_op: 0}
+  BenchmarkBatchDraw1000: {ns_per_op: 155412, bytes_per_op: 72232, allocs_per_op: 754}
+  BenchmarkRaycast: {ns_per_op: 827.3, bytes_per_op: 0, allocs_per_op: 0}
 ```
 
 基准测试的名字不带 `-GOMAXPROCS` 后缀，因此在一台机器上记录的基线可以在另一台机器上读取，但每次操作的耗时取决于机器：请在 CI 检查基线所用的同类机器上记录它。这个格式由 `tooling/bench` 包读写。
