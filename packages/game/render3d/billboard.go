@@ -52,7 +52,10 @@ func NewCameraBasis(view, proj math3d.Mat4) (CameraBasis, bool) {
 
 // ToCamera returns the unit direction from p toward the viewer: -Forward for an orthographic basis, or when p coincides with Pos, and the normalized line from p to Pos otherwise.
 func (c CameraBasis) ToCamera(p math3d.Vec3) math3d.Vec3 {
-	back := c.Forward.Neg()
+	back, ok := unitVec(c.Forward.Neg())
+	if !ok {
+		back = math3d.Vec3UnitZ() // same fallback as cameraAxes
+	}
 	if c.Orthographic {
 		return back
 	}
@@ -122,7 +125,7 @@ type BillboardQuad struct {
 	Width, Height float32
 }
 
-// Quad builds the billboard's geometry facing cam. It reports false when the billboard's size or center is non-finite, or its size is not positive.
+// Quad builds the billboard's geometry facing cam. It reports false when the billboard's size or center is non-finite, its size is not positive, or a corner overflows to a non-finite position.
 func (b Billboard) Quad(cam CameraBasis) (BillboardQuad, bool) {
 	if !(b.Width > 0) || !(b.Height > 0) || isInf32(b.Width) || isInf32(b.Height) || !b.Center.IsFinite() {
 		return BillboardQuad{}, false
@@ -142,6 +145,12 @@ func (b Billboard) Quad(cam CameraBasis) (BillboardQuad, bool) {
 	}
 	if !q.Center.IsFinite() {
 		return BillboardQuad{}, false
+	}
+	// A finite center with a huge size can still overflow at the corners.
+	for _, c := range q.Corners {
+		if !c.IsFinite() {
+			return BillboardQuad{}, false
+		}
 	}
 	return q, true
 }
@@ -281,7 +290,7 @@ func (r *BillboardRenderer) drawQuad(d *core.Drawing, b *Billboard, q *Billboard
 		return false
 	}
 	textured := !b.Texture.Empty()
-	if textured && clipped {
+	if textured && (clipped || len(pts) != 4) {
 		return false
 	}
 	d.BeginPath()
@@ -316,20 +325,25 @@ type screenPoint struct{ x, y float32 }
 // projectPolygon clips the convex world-space polygon poly (at most 4 vertices) against the near plane (clip z >= 0) and the positive-w plane, then maps it into viewport. It appends to out and reports whether any vertex was clipped away.
 func projectPolygon(poly []math3d.Vec3, viewProj math3d.Mat4, viewport core.Bounds, out []screenPoint) ([]screenPoint, bool) {
 	var a, b [maxClipVerts]math3d.Vec4
+	const minW = 1e-5
 	n := 0
+	// Decide from the input vertices, not the output count: cutting two corners off a quad adds two intersections and leaves four vertices.
+	clipped := false
 	for _, p := range poly {
-		a[n] = viewProj.MulVec4(p.Vec4(1))
+		c := viewProj.MulVec4(p.Vec4(1))
+		if !(c.Z >= 0) || !(c.W >= minW) {
+			clipped = true
+		}
+		a[n] = c
 		n++
 	}
-	const minW = 1e-5
-	n0 := n
 	n = clipPlane(a[:n], b[:0], func(v math3d.Vec4) float32 { return v.Z })
 	n = clipPlane(b[:n], a[:0], func(v math3d.Vec4) float32 { return v.W - minW })
-	clipped := n != n0
 	vx, vy := float32(viewport.Origin.X), float32(viewport.Origin.Y)
 	vw, vh := float32(viewport.Size.Width), float32(viewport.Size.Height)
 	for _, c := range a[:n] {
 		if c.W < minW {
+			clipped = true
 			continue
 		}
 		x := vx + (c.X/c.W*0.5+0.5)*vw

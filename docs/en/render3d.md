@@ -150,7 +150,7 @@ A `Billboard` is a quad that turns toward the camera, and a `Trail` is a ribbon 
 
 ```go
 basis, _ := render3d.NewCameraBasis(cam.ViewMatrix(), cam.ProjMatrix())
-// or: render3d.CameraBasis{Pos: cam.Pos, Right: cam.Right(), Up: cam.Up(), Forward: cam.Forward()}
+// or: render3d.CameraBasis{Pos: cam.Pos, Right: cam.Right(), Up: cam.Up(), Forward: cam.Forward(), Orthographic: cam.Projection.Kind == scene3d.ProjectionOrthographic}
 ```
 
 `Billboard.Mode` picks how the quad turns:
@@ -178,7 +178,7 @@ var billboards render3d.BillboardRenderer // reuse across frames
 billboards.Draw(d, []render3d.Billboard{smoke, tree}, basis, cam.ViewProj(), viewportBounds)
 ```
 
-`Trail` mirrors `particles.Trail` in world units and reuses its `particles.Curve` and `particles.ColorCurve` for width and color from head (`u = 0`) to tail (`u = 1`). Each point's edge runs along `tangent × toCamera`, and a trail heading straight at the camera keeps its previous edge direction instead of collapsing:
+`Trail` mirrors the point-recording, lifetime, width and color options of `particles.Trail` in world units and reuses its `particles.Curve` and `particles.ColorCurve` for width and color from head (`u = 0`) to tail (`u = 1`). It has no `Texture` and no `Attach`, `Detach` or `Follow`: call `AddPoint` with the object's position each frame. Each point's edge runs along `tangent × toCamera`, and a trail heading straight at the camera keeps its previous edge direction instead of collapsing:
 
 ```go
 sword := render3d.NewTrail(render3d.TrailConfig{

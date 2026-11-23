@@ -179,6 +179,7 @@ func TestBillboardRejectsInvalidInput(t *testing.T) {
 		{Width: inf, Height: 1},
 		{Width: nan, Height: 1},
 		{Width: 1, Height: 1, Center: math3d.Vec3{X: nan}},
+		{Width: 3e38, Height: 1, Center: math3d.Vec3{X: 2e38}}, // finite center and size, but the corners overflow
 	} {
 		if _, ok := b.Quad(cam); ok {
 			t.Fatalf("Quad accepted %+v", b)
@@ -195,6 +196,20 @@ func TestBillboardRejectsInvalidInput(t *testing.T) {
 		t.Fatal("Quad failed with a zero camera basis")
 	}
 	checkFrame(t, "zero basis", q, 1, 1)
+	// A hand-filled orthographic basis whose Forward is not unit length, or is zero, still yields unit axes in every mode.
+	for _, fwd := range []math3d.Vec3{{Z: -2}, {}} {
+		cam := render3d.CameraBasis{Pos: math3d.Vec3{Z: 10}, Right: math3d.Vec3UnitX(), Up: math3d.Vec3Up(), Forward: fwd, Orthographic: true}
+		if got := cam.ToCamera(math3d.Vec3Zero()); !approxVec(got, math3d.Vec3UnitZ(), 1e-6) {
+			t.Fatalf("ToCamera with Forward %+v = %+v, want +Z", fwd, got)
+		}
+		for _, mode := range []render3d.BillboardMode{render3d.BillboardViewPlane, render3d.BillboardViewPoint, render3d.BillboardAxial} {
+			q, ok := render3d.Billboard{Width: 1, Height: 1, Mode: mode}.Quad(cam)
+			if !ok {
+				t.Fatalf("Quad failed with Forward %+v in %v mode", fwd, mode)
+			}
+			checkFrame(t, mode.String(), q, 1, 1)
+		}
+	}
 }
 
 func TestNewCameraBasis(t *testing.T) {
@@ -265,9 +280,12 @@ func TestBillboardRendererDraw(t *testing.T) {
 	// A quad lying along the view axis that straddles the near plane gets clipped instead of wrapping around the screen.
 	straddle := []render3d.Billboard{{Center: math3d.Vec3{Y: -1, Z: 10}, Width: 1, Height: 4, Mode: render3d.BillboardAxial, Axis: math3d.Vec3UnitZ(), Color: mid}}
 	textured := []render3d.Billboard{{Center: math3d.Vec3{}, Width: 2, Height: 2, Texture: core.ImageSource{URI: "asset:spark.png"}, Color: core.Color(0xffffff80)}}
+	// The same straddling quad with a texture: two corners are cut off, which still leaves four vertices, and it must be skipped rather than mapped onto the wrong points.
+	texStraddle := []render3d.Billboard{straddle[0]}
+	texStraddle[0].Texture = textured[0].Texture
 
 	var r render3d.BillboardRenderer
-	var drawn, drawnStraddle, drawnTex int
+	var drawn, drawnStraddle, drawnTex, drawnTexStraddle int
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return core.View{Children: []core.Node{
 			core.Canvas{TestID: "sorted", Style: core.Style{Width: core.Pt(320), Height: core.Pt(180)}, Draw: func(d *core.Drawing, _ core.Size) {
@@ -278,6 +296,9 @@ func TestBillboardRendererDraw(t *testing.T) {
 			}},
 			core.Canvas{TestID: "textured", Style: core.Style{Width: core.Pt(320), Height: core.Pt(180)}, Draw: func(d *core.Drawing, _ core.Size) {
 				drawnTex = r.Draw(d, textured, cam, vp, viewport)
+			}},
+			core.Canvas{TestID: "textured-straddle", Style: core.Style{Width: core.Pt(320), Height: core.Pt(180)}, Draw: func(d *core.Drawing, _ core.Size) {
+				drawnTexStraddle = r.Draw(d, texStraddle, cam, vp, viewport)
 			}},
 		}}
 	})
@@ -345,6 +366,15 @@ func TestBillboardRendererDraw(t *testing.T) {
 	}
 	if images != 1 || clips != 1 || transforms != 1 || !math3d.ApproxEqual(alpha, 128.0/255, 1e-3) {
 		t.Fatalf("textured ops: images %d clips %d transforms %d alpha %v", images, clips, transforms, alpha)
+	}
+
+	if drawnTexStraddle != 0 {
+		t.Fatalf("textured straddling quad drawn = %d, want 0", drawnTexStraddle)
+	}
+	for _, op := range app.Find("textured-straddle").Ops {
+		if op.Kind == core.DrawImage {
+			t.Fatalf("textured straddling quad drew its image: %+v", op)
+		}
 	}
 }
 

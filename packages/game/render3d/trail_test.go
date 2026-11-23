@@ -113,6 +113,17 @@ func TestTrailRecordingAndExpiry(t *testing.T) {
 		t.Fatal("Clear kept points")
 	}
 
+	// A huge dt expires everything instead of wrapping ages negative.
+	tr = render3d.NewTrail(render3d.TrailConfig{})
+	tr.AddPoint(math3d.Vec3{})
+	tr.AddPoint(math3d.Vec3{X: 1})
+	tr.Update(time.Millisecond)
+	tr.AddPoint(math3d.Vec3{X: 2})
+	tr.Update(math.MaxInt64)
+	if tr.PointCount() != 0 {
+		t.Fatalf("Update(MaxInt64) kept points %+v", tr.Points())
+	}
+
 	tr = helixTrail(render3d.TrailConfig{})
 	tr.SetConfig(render3d.TrailConfig{MaxPoints: 5})
 	if tr.PointCount() != 5 || tr.Points()[0].Length != 0 || tr.Config().MaxPoints != 5 {
