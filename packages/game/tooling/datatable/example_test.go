@@ -15,17 +15,18 @@ type weapon struct {
 	Tags     []string      `table:"tags"`
 }
 
-// LoadYAML reads a data table, a list of rows with one field per column, into a slice of structs.
+// LoadYAML reads a data table, a mapping with version: 1 and a list of rows with one field per column, into a slice of structs.
 func ExampleLoadYAML() {
-	rows, err := datatable.LoadYAML[weapon]("weapons.yaml", []byte(`
-- id: sword
-  damage: 12
-  cooldown: 400ms
-  tags: [melee]
-- id: bow
-  damage: 8
-  cooldown: 1s
-  tags: [ranged, two-handed]
+	rows, err := datatable.LoadYAML[weapon]("weapons.yaml", []byte(`version: 1
+rows:
+  - id: sword
+    damage: 12
+    cooldown: 400ms
+    tags: [melee]
+  - id: bow
+    damage: 8
+    cooldown: 1s
+    tags: [ranged, two-handed]
 `))
 	if err != nil {
 		fmt.Println(err)

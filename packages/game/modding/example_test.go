@@ -10,14 +10,14 @@ import (
 
 // ParseManifest reads and validates a mod's manifest, including the capabilities the mod asks for.
 func ExampleParseManifest() {
-	m, err := modding.ParseManifest([]byte(`{
-		"id": "more-slimes",
-		"name": "More Slimes",
-		"version": "1.2.0",
-		"entry": "mod.ts",
-		"capabilities": ["spawnEntity", "readState"],
-		"gameVersion": "^1.0.0"
-	}`))
+	m, err := modding.ParseManifest([]byte(`manifestVersion: 1
+id: more-slimes
+name: More Slimes
+version: 1.2.0
+entry: mod.ts
+capabilities: [spawnEntity, readState]
+gameVersion: ^1.0.0
+`))
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -64,14 +64,14 @@ func ExampleCheckConstraint() {
 	// 2.0.0-beta.1 -1
 }
 
-// A Manager discovers mods in a directory, one per subdirectory with a mod.json, checks their manifests, entries and dependencies, and keeps them in load order; Disable keeps a mod from loading and, with a StorageKey, remembers that in the app's storage. Load then runs an enabled mod's entry in its TSX sandbox.
+// A Manager discovers mods in a directory, one per subdirectory with a mod.yaml, checks their manifests, entries and dependencies, and keeps them in load order; Disable keeps a mod from loading and, with a StorageKey, remembers that in the app's storage. Load then runs an enabled mod's entry in its TSX sandbox.
 func ExampleManager() {
 	root := core.NewRoot(core.RootOptions{})
 	defer root.Dispose()
 	mods := fstest.MapFS{
-		"hats/mod.json":   {Data: []byte(`{"id": "slime-hats", "name": "Slime Hats", "version": "1.0.0", "entry": "mod.ts", "dependencies": {"more-slimes": ">=1.1.0"}}`)},
+		"hats/mod.yaml":   {Data: []byte("manifestVersion: 1\nid: slime-hats\nname: Slime Hats\nversion: 1.0.0\nentry: mod.ts\ndependencies:\n  more-slimes: '>=1.1.0'\n")},
 		"hats/mod.ts":     {Data: []byte("export function init() {}\n")},
-		"slimes/mod.json": {Data: []byte(`{"id": "more-slimes", "name": "More Slimes", "version": "1.2.0", "entry": "mod.ts", "gameVersion": "^1.0.0"}`)},
+		"slimes/mod.yaml": {Data: []byte("manifestVersion: 1\nid: more-slimes\nname: More Slimes\nversion: 1.2.0\nentry: mod.ts\ngameVersion: ^1.0.0\n")},
 		"slimes/mod.ts":   {Data: []byte("export function init() {}\n")},
 	}
 	opts := modding.ManagerOptions{StorageKey: "mods", GameVersion: "1.4.0"}
