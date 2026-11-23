@@ -22,7 +22,7 @@ scout := f.AddSource(fog.Source{Team: player, Col: 4, Row: 6, Radius: 7})
 f.Update()
 ```
 
-- `NewFromTilemap(m, mask)` takes the map's size and tile size, and makes every cell whose tilemap flags include a bit of `mask` opaque. `New(width, height, tileWidth, tileHeight)` starts from an empty grid, and `SetOpaque` changes one cell later, such as when a door opens.
+- `NewFromTilemap(m, mask)` takes the map's size and tile size, and makes every cell whose tilemap flags include a bit of `mask` opaque. `New(width, height, tileWidth, tileHeight)` starts from an empty grid (it panics on a negative size, a grid with exactly one zero size, or more than `MaxCells` cells), and `SetOpaque` changes one cell later, such as when a door opens.
 - A cell `dx` columns and `dy` rows from a source is in range when `dx*dx+dy*dy <= Radius*Radius+Radius`, which rounds the disc. Radius 0 sees only the source's own cell, and a source outside the grid sees nothing.
 - Opaque cells block sight by symmetric shadowcasting with exact integer slopes: a floor cell A sees a floor cell B exactly when B sees A, and the result never depends on floating-point rounding, so every client in a lockstep match computes the same fog. An opaque cell is itself seen when sight reaches it, so walls show at the edge of vision.
 - Sources of the same team share vision; other teams' sources reveal nothing to it.
@@ -45,7 +45,7 @@ loop.Update = func(dt time.Duration) {
 - `SetSource` changes a source's team, cell or radius at once; `RemoveSource` drops it when a unit dies, and the team keeps what it explored.
 - `State`, `Visible` and `Explored` answer for a cell, and `VisibleAt(team, p)` for a world point, such as to hide enemy units in the fog. `CellAt(p)` turns a world point into a cell using `TileWidth` and `TileHeight`.
 - `Explore`, `ExploreRect` and `ExploreAll` mark cells explored without making them visible (a scouting report or a revealed landmark), `Forget` clears everything a team explored except what it sees now, and `ExploredCount` counts its explored cells.
-- `Revision(team)` grows whenever a team's visible or explored cells change, so a minimap or a cached fog image redraws only when it differs.
+- `Revision(team)` grows whenever a team's visible or explored cells change, and every team gets a fresh one when the fog is loaded, so a minimap or a cached fog image redraws only when it differs. Revisions come from one counter shared by every fog in the program, so a fog loaded in place of another, even through `save.Store.Load`, never repeats a revision a cache has already seen.
 
 ## Drawing over the map
 
@@ -82,7 +82,7 @@ store.Load("slot1", &s) // s.Fog sees and has explored exactly what f did
 {"version":1,"width":3,"height":2,"tileWidth":8,"tileHeight":8,"opaque":[".#.","..."],"nextSource":2,"sources":[{"id":1,"team":2,"col":2,"row":1,"radius":1},{"id":2,"team":1,"col":0,"row":0,"radius":0}],"teams":[{"team":1,"explored":["#..","..."]},{"team":2,"explored":[".##",".##"]}]}
 ```
 
-- The snapshot holds the grid and tile size, the opaque cells, the sources with their IDs, and each team's explored cells as rows of `.` and `#`, so a diff of two saves shows where a team explored. Visible cells are not stored: loading recomputes them from the sources and opaque cells.
+- The snapshot holds the grid and tile size, the opaque cells, the sources with their IDs, and each team's explored cells as rows of `.` and `#`, one string per grid row, so a person reading the save sees each team's explored map. Visible cells are not stored: loading recomputes them from the sources and opaque cells.
 - The same fog always writes the same bytes: fields in a fixed order, sources by ID, teams in increasing order, and no timestamps. Loading and saving again changes nothing.
 - Loading keeps source IDs and the next ID to hand out, so a unit's saved `fog.SourceID` still moves its source.
-- Loading refuses unknown fields, a missing version, a newer version (`ErrFutureVersion`), rows that disagree with the grid size, sources or teams out of order or repeated, and grids larger than `MaxCells`; every other error wraps `ErrInvalidSnapshot`, and a refused snapshot leaves the fog unchanged.
+- Loading refuses unknown fields, a missing version, a newer version (`ErrFutureVersion`), rows that disagree with the grid size, sources or teams out of order or repeated, a source ID of 0 or above `nextSource`, a source whose team has no explored grid, grids larger than `MaxCells`, and grids with exactly one zero size; every other error wraps `ErrInvalidSnapshot`, and a refused snapshot leaves the fog unchanged.
