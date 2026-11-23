@@ -8,22 +8,24 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 
 ## 格式选型
 
-`skeletal` 采用开放、带版本号的 JSON 格式（`.skel.json`，版本 `1`），仅使用 Go 标准库 `encoding/json` 解析：
+`skeletal` 采用开放、带版本号的 YAML 格式（`.skel.yaml`，版本 `1`），由 `Load` 读取、`Encode` 写出，使用 `go.yaml.in/yaml/v3`：
 
-- **无专有运行时许可限制**：Spine 官方运行时及导出格式受 Spine Runtimes License 约束，要求使用该运行时的各方持有付费 Spine 许可。开放的 JSON 规范让 NSGo 游戏保持 MIT 许可的完全自由。
-- **零额外依赖**：完全依赖 Go 标准库解析，不需要第三方解析库、二进制解码器或代码生成。
+- **无专有运行时许可限制**：Spine 官方运行时及导出格式受 Spine Runtimes License 约束，要求使用该运行时的各方持有付费 Spine 许可。开放的格式规范让 NSGo 游戏保持 MIT 许可的完全自由。
+- **便于评审的文本**：与本仓库中游戏作者编辑的其他文件一样，骨骼文件是纯 YAML，每根骨骼、每个插槽、附件和关键帧各占一行，人和 AI 都能直接手改，diff 能准确显示改动了什么。
+- **无额外依赖**：所用 YAML 库与 `sceneformat` 和数据表相同，不需要二进制解码器或代码生成。
 - **原生屏幕坐标系**：与 `sprite` 和 `core.Drawing` 使用相同的坐标系（`+X` 向右、`+Y` 向下，旋转为屏幕顺时针弧度），无需坐标翻转或单位换算。
-- **易于导出与手写**：扁平的 JSON 结构（骨骼、插槽、皮肤、动画）便于从 DragonBones、Blender 或自定义脚本编写简短导出器，也可以直接手写和调试。
-- **带版本号**：每个文件均包含 `"version": 1`，`Load` 会明确拒绝缺失或不支持的版本。
+- **易于导出与手写**：扁平的结构（骨骼、插槽、皮肤、动画）便于从 DragonBones、Blender 或自定义脚本编写简短导出器，也可以直接手写和调试。
+- **严格且带版本号**：每个文件均包含 `version: 1`；`Load` 会拒绝缺失或不支持的版本、未知字段、重复键、多余的 YAML 文档以及非有限数（`.nan`、`.inf`）。
+- **JSON 仍可加载**：JSON 是 YAML 的流式写法，因此以前版本读取的 JSON 格式版本 1 骨骼文件可原样加载，`Encode` 会将其写回为 YAML。
 
 ## 坐标与单位
 
 - **位置（`x`、`y`、`originX`、`originY`）**：NSGo 2D 绘图空间中的点数（`+X` 向右，`+Y` 向下）。
 - **旋转（`rotation`、`angle`）**：弧度，在屏幕上按顺时针方向为正。
 - **缩放（`scaleX`、`scaleY`）**：围绕骨骼或附件原点的倍率，省略时默认为 `1`。
-- **时间（`duration`、`time`）**：JSON 中以秒为单位的浮点数，加载时转换为 `time.Duration`。
+- **时间（`duration`、`time`）**：YAML 中以秒为单位的数值，范围为 `[0, MaxSeconds]`（一百万秒），加载时转换为最接近的纳秒级 `time.Duration`。
 
-## JSON 结构（版本 1）
+## YAML 结构（版本 1）
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -64,7 +66,7 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 | `scaleX`、`scaleY` | `float32` | `1` | 局部缩放。 |
 | `originX`、`originY` | `float32` | `0` | 未裁剪图集帧中的枢轴点（与 `sprite.Sprite` 一致）。 |
 
-当前皮肤中未定义的插槽会自动回退到 `"default"` 皮肤。若要在皮肤中隐藏某个插槽，显式设置 `"frame": ""` 即可。
+当前皮肤中未定义的插槽会自动回退到 `"default"` 皮肤。若要在皮肤中隐藏某个插槽，显式设置 `frame: ""` 即可。
 
 ### Animation（动画）
 
@@ -83,58 +85,59 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 
 - `"linear"`（默认）：线性匀速插值。
 - `"stepped"`：保持当前关键帧值，直到下一关键帧时间点跳变。
-- `"bezier"`：三次贝塞尔曲线，配合 `"bezier": [cx1, cy1, cx2, cy2]`，其中 `cx1`、`cx2` 必须在 `[0, 1]` 内（`cy1`、`cy2` 允许超调）。
+- `"bezier"`：三次贝塞尔曲线，配合 `bezier: [cx1, cy1, cx2, cy2]`，其中 `cx1`、`cx2` 必须在 `[0, 1]` 内（`cy1`、`cy2` 允许超调）。其他曲线上给出控制点会被拒绝。
 
 ### 示例角色
 
-包含 7 根骨骼、2 套皮肤（`"default"` 与 `"armored"`）及 3 段动画（`"walk"`、`"run"`、`"jump"`）的完整示例见 [runner.skel.json](../../packages/game/skeletal/testdata/runner.skel.json)。精简片段如下：
+包含 7 根骨骼、2 套皮肤（`"default"` 与 `"armored"`）及 3 段动画（`"walk"`、`"run"`、`"jump"`）的完整示例见 [runner.skel.yaml](../../packages/game/skeletal/testdata/runner.skel.yaml)。精简片段如下：
 
-```json
-{
-  "version": 1,
-  "name": "runner",
-  "bones": [
-    { "name": "root" },
-    { "name": "torso", "parent": "root", "x": 0, "y": -18, "length": 16 },
-    { "name": "head", "parent": "torso", "x": 0, "y": -16, "length": 12 }
-  ],
-  "slots": [
-    { "name": "torso", "bone": "torso" },
-    { "name": "head", "bone": "head" }
-  ],
-  "skins": {
-    "default": {
-      "torso": { "frame": "torso", "originX": 6, "originY": 16 },
-      "head": { "frame": "head", "originX": 6, "originY": 12 }
-    },
-    "armored": {
-      "torso": { "frame": "torso_armor", "originX": 6, "originY": 16 },
-      "head": { "frame": "helmet", "originX": 6, "originY": 12 }
-    }
-  },
-  "animations": {
-    "walk": {
-      "duration": 0.8,
-      "loop": true,
-      "bones": {
-        "torso": {
-          "translate": [
-            { "time": 0.0, "y": 0, "curve": "bezier", "bezier": [0.25, 0.1, 0.25, 1.0] },
-            { "time": 0.2, "y": -2 },
-            { "time": 0.4, "y": 0 }
-          ]
-        }
-      }
-    }
-  }
-}
+```yaml
+version: 1
+name: runner
+bones:
+  - {name: root}
+  - {name: torso, parent: root, y: -18, length: 16}
+  - {name: head, parent: torso, y: -16, length: 12}
+slots:
+  - {name: torso, bone: torso}
+  - {name: head, bone: head}
+skins:
+  armored:
+    head: {frame: helmet, originX: 6, originY: 12}
+    torso: {frame: torso_armor, originX: 6, originY: 16}
+  default:
+    head: {frame: head, originX: 6, originY: 12}
+    torso: {frame: torso, originX: 6, originY: 16}
+animations:
+  walk:
+    duration: 0.8
+    loop: true
+    bones:
+      torso:
+        translate:
+          - {time: 0, x: 0, y: 0, curve: bezier, bezier: [0.25, 0.1, 0.25, 1]}
+          - {time: 0.2, x: 0, y: -2}
+          - {time: 0.4, x: 0, y: 0}
 ```
+
+### 规范形式
+
+`Encode` 只写出一种规范形式，因此保存骨骼文件本身不会产生 diff：
+
+- 键按上文的结构顺序排列；皮肤、附件、动画和时间轴按名称排序；骨骼和插槽保持原有顺序。
+- 每根骨骼、每个插槽、附件和关键帧都是独占一行的流式映射。
+- 等于默认值的字段会被省略，但关键帧总是写出 `time` 和取值，动画总是写出 `duration`。
+- 数值使用能读回同一值的最短文本，时间能读回到同一纳秒。
+- 注释、锚点等格式信息不会保留。
+
+加载已是该形式的文件再编码，得到完全相同的字节；加载 `Encode` 写出的内容，得到相同的骨骼数据。凡是 `Load` 会拒绝的骨骼数据，`Encode` 也会以相同的错误拒绝。
 
 ## 运行时 API
 
 ### 加载与创建
 
 - `Load(data []byte) (*SkeletonData, error)` 解析并校验骨骼文件，拒绝骨骼环、缺失父骨骼、重名骨骼/插槽、无效引用与非法曲线。同一份 `*SkeletonData` 可被任意多个 `Skeleton` 实例共享。
+- `Encode(sd *SkeletonData) ([]byte, error)` 将骨骼数据写成规范形式的 `.skel.yaml` 文档，供保存骨骼文件的编辑器和导出器使用。
 - `NewSkeleton(data *SkeletonData, atlas *sprite.Atlas) *Skeleton` 创建一个原始缩放、完全不透明、处于绑定姿势的骨骼实例；若数据定义了 `"default"` 皮肤，会自动激活它。
 
 ### 根变换、皮肤与附件
@@ -153,7 +156,7 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 - `Animation() string`、`Done() bool` 和 `Blending() bool` 用于查询当前播放状态。
 
 ```go
-data, err := skeletal.Load(runnerJSON)
+data, err := skeletal.Load(runnerYAML) // runner.skel.yaml 的字节
 if err != nil {
 	return err
 }

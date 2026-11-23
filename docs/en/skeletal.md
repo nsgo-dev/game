@@ -8,22 +8,24 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 
 ## Format decision
 
-`skeletal` defines an open, versioned JSON format (`.skel.json`, version `1`) parsed with Go's `encoding/json` alone:
+`skeletal` defines an open, versioned YAML format (`.skel.yaml`, version `1`), read by `Load` and written by `Encode` with `go.yaml.in/yaml/v3`:
 
-- **No proprietary runtime license**: Spine's official runtimes and export format are governed by the Spine Runtimes License, which requires every user of the runtime to hold a paid Spine license. An open JSON schema keeps NSGo games unencumbered under MIT.
-- **Zero extra dependencies**: Parsed strictly with the Go standard library — no third-party parser, binary decoder or code generation.
+- **No proprietary runtime license**: Spine's official runtimes and export format are governed by the Spine Runtimes License, which requires every user of the runtime to hold a paid Spine license. An open schema keeps NSGo games unencumbered under MIT.
+- **Text for review**: Like every file a game's author edits in this repository, a rig is plain YAML with one bone, slot, attachment or keyframe per line, so a person or an AI can edit it by hand and a diff shows exactly what moved.
+- **No extra dependencies**: The YAML library is the one `sceneformat` and the data tables already use; there is no binary decoder or code generation.
 - **Native screen coordinates**: Uses the same coordinate system as `sprite` and `core.Drawing` (`+X` right, `+Y` down, rotations in radians clockwise on the screen), so rig data and runtime transforms match without axis flips or unit conversion.
-- **Simple to export**: The flat JSON layout (bones, slots, skins, animations) makes writing a short exporter from DragonBones, Blender or custom tools — or authoring rigs by hand — straightforward.
-- **Versioned**: Every file carries `"version": 1`; `Load` rejects missing or unsupported versions cleanly.
+- **Simple to export**: The flat layout (bones, slots, skins, animations) makes writing a short exporter from DragonBones, Blender or custom tools — or authoring rigs by hand — straightforward.
+- **Strict and versioned**: Every file carries `version: 1`; `Load` rejects missing or unsupported versions, unknown fields, duplicate keys, trailing documents and non-finite numbers (`.nan`, `.inf`).
+- **JSON still loads**: JSON is YAML flow syntax, so a version-1 rig written as JSON, as earlier releases read it, loads unchanged; `Encode` writes it back as YAML.
 
 ## Coordinates and units
 
 - **Position (`x`, `y`, `originX`, `originY`)**: points in NSGo's 2D drawing space (`+X` right, `+Y` down).
 - **Rotation (`rotation`, `angle`)**: radians, clockwise on the screen.
 - **Scale (`scaleX`, `scaleY`)**: multipliers about the bone or attachment origin, defaulting to `1` when omitted.
-- **Time (`duration`, `time`)**: seconds as JSON numbers, converted to `time.Duration` on load.
+- **Time (`duration`, `time`)**: seconds as YAML numbers in `[0, MaxSeconds]` (one million seconds), converted to `time.Duration` to the nearest nanosecond on load.
 
-## JSON schema (version 1)
+## YAML schema (version 1)
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -64,7 +66,7 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 | `scaleX`, `scaleY` | `float32` | `1` | Local scale. |
 | `originX`, `originY` | `float32` | `0` | Pivot point in the untrimmed atlas frame (matches `sprite.Sprite`). |
 
-When the active skin does not define an entry for a slot, the skeleton falls back to the `"default"` skin. Setting `"frame": ""` explicitly hides the slot in that skin.
+When the active skin does not define an entry for a slot, the skeleton falls back to the `"default"` skin. Setting `frame: ""` explicitly hides the slot in that skin.
 
 ### Animation
 
@@ -83,58 +85,59 @@ Every continuous keyframe accepts an optional easing curve applied to the segmen
 
 - `"linear"` (default): constant speed to the next keyframe.
 - `"stepped"`: holds the keyframe's value until the next keyframe's time.
-- `"bezier"`: cubic Bezier easing with `"bezier": [cx1, cy1, cx2, cy2]`, where `cx1` and `cx2` lie in `[0, 1]` (`cy1` and `cy2` may overshoot).
+- `"bezier"`: cubic Bezier easing with `bezier: [cx1, cy1, cx2, cy2]`, where `cx1` and `cx2` lie in `[0, 1]` (`cy1` and `cy2` may overshoot). Control points on any other curve are rejected.
 
 ### Sample rig
 
-A complete 7-bone character with two skins (`"default"` and `"armored"`) and three animations (`"walk"`, `"run"`, `"jump"`) lives in [runner.skel.json](../../packages/game/skeletal/testdata/runner.skel.json). A minimal excerpt:
+A complete 7-bone character with two skins (`"default"` and `"armored"`) and three animations (`"walk"`, `"run"`, `"jump"`) lives in [runner.skel.yaml](../../packages/game/skeletal/testdata/runner.skel.yaml). A minimal excerpt:
 
-```json
-{
-  "version": 1,
-  "name": "runner",
-  "bones": [
-    { "name": "root" },
-    { "name": "torso", "parent": "root", "x": 0, "y": -18, "length": 16 },
-    { "name": "head", "parent": "torso", "x": 0, "y": -16, "length": 12 }
-  ],
-  "slots": [
-    { "name": "torso", "bone": "torso" },
-    { "name": "head", "bone": "head" }
-  ],
-  "skins": {
-    "default": {
-      "torso": { "frame": "torso", "originX": 6, "originY": 16 },
-      "head": { "frame": "head", "originX": 6, "originY": 12 }
-    },
-    "armored": {
-      "torso": { "frame": "torso_armor", "originX": 6, "originY": 16 },
-      "head": { "frame": "helmet", "originX": 6, "originY": 12 }
-    }
-  },
-  "animations": {
-    "walk": {
-      "duration": 0.8,
-      "loop": true,
-      "bones": {
-        "torso": {
-          "translate": [
-            { "time": 0.0, "y": 0, "curve": "bezier", "bezier": [0.25, 0.1, 0.25, 1.0] },
-            { "time": 0.2, "y": -2 },
-            { "time": 0.4, "y": 0 }
-          ]
-        }
-      }
-    }
-  }
-}
+```yaml
+version: 1
+name: runner
+bones:
+  - {name: root}
+  - {name: torso, parent: root, y: -18, length: 16}
+  - {name: head, parent: torso, y: -16, length: 12}
+slots:
+  - {name: torso, bone: torso}
+  - {name: head, bone: head}
+skins:
+  armored:
+    head: {frame: helmet, originX: 6, originY: 12}
+    torso: {frame: torso_armor, originX: 6, originY: 16}
+  default:
+    head: {frame: head, originX: 6, originY: 12}
+    torso: {frame: torso, originX: 6, originY: 16}
+animations:
+  walk:
+    duration: 0.8
+    loop: true
+    bones:
+      torso:
+        translate:
+          - {time: 0, x: 0, y: 0, curve: bezier, bezier: [0.25, 0.1, 0.25, 1]}
+          - {time: 0.2, x: 0, y: -2}
+          - {time: 0.4, x: 0, y: 0}
 ```
+
+### Canonical form
+
+`Encode` writes one canonical form, so saving a rig never produces a diff by itself:
+
+- Keys follow the schema order above; skins, attachments, animations and timelines are sorted by name; bones and slots keep their order.
+- Every bone, slot, attachment and keyframe is one flow mapping on its own line.
+- Fields equal to their defaults are left out, except that a keyframe always writes its `time` and values and an animation always writes its `duration`.
+- Numbers use the shortest text that reads back to the same value, and times read back to the same nanosecond.
+- Comments, anchors and other formatting are not kept.
+
+Loading a file already in this form and encoding it gives the same bytes back, and loading what `Encode` wrote gives the same rig. `Encode` refuses, with the same errors as `Load`, any rig `Load` would refuse.
 
 ## Runtime API
 
 ### Loading and setup
 
 - `Load(data []byte) (*SkeletonData, error)` parses and validates the rig, rejecting cycles, missing parents, duplicate names, unknown targets and invalid curves. One `*SkeletonData` can be shared across any number of live skeletons.
+- `Encode(sd *SkeletonData) ([]byte, error)` writes the rig as a canonical `.skel.yaml` document, for editors and exporters that save rigs.
 - `NewSkeleton(data *SkeletonData, atlas *sprite.Atlas) *Skeleton` creates a live skeleton at scale `(1, 1)` and alpha `1` in its bind pose, activating `"default"` if defined.
 
 ### Root transform, skins and attachments
@@ -153,7 +156,7 @@ A complete 7-bone character with two skins (`"default"` and `"armored"`) and thr
 - `Animation() string`, `Done() bool` and `Blending() bool` report playback state.
 
 ```go
-data, err := skeletal.Load(runnerJSON)
+data, err := skeletal.Load(runnerYAML) // the bytes of runner.skel.yaml
 if err != nil {
 	return err
 }

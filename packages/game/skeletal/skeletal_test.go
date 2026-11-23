@@ -18,8 +18,8 @@ import (
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
-//go:embed testdata/runner.skel.json
-var runnerJSON []byte
+//go:embed testdata/runner.skel.yaml
+var runnerYAML []byte
 
 const ms = time.Millisecond
 
@@ -41,9 +41,9 @@ var runnerAtlas = &sprite.Atlas{
 
 func loadRunner(t *testing.T) *skeletal.SkeletonData {
 	t.Helper()
-	data, err := skeletal.Load(runnerJSON)
+	data, err := skeletal.Load(runnerYAML)
 	if err != nil {
-		t.Fatalf("Load(runner.skel.json): %v", err)
+		t.Fatalf("Load(runner.skel.yaml): %v", err)
 	}
 	return data
 }
@@ -125,104 +125,174 @@ func TestLoadRunnerAndDefaults(t *testing.T) {
 func TestLoadValidationErrors(t *testing.T) {
 	cases := []struct {
 		name string
-		json string
+		doc  string
 		want string
 	}{
 		{
-			name: "invalid JSON",
-			json: `{`,
+			name: "invalid YAML",
+			doc:  `{`,
 			want: "skeletal:",
 		},
 		{
 			name: "missing version",
-			json: `{"bones":[{"name":"root"}]}`,
+			doc:  `{"bones":[{"name":"root"}]}`,
 			want: "unsupported version 0",
 		},
 		{
 			name: "unsupported version",
-			json: `{"version":99,"bones":[{"name":"root"}]}`,
+			doc:  `{"version":99,"bones":[{"name":"root"}]}`,
 			want: "unsupported version 99",
 		},
 		{
 			name: "duplicate bone",
-			json: `{"version":1,"bones":[{"name":"root"},{"name":"root"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"root"},{"name":"root"}]}`,
 			want: `duplicate bone "root"`,
 		},
 		{
 			name: "unknown parent",
-			json: `{"version":1,"bones":[{"name":"torso","parent":"missing"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"torso","parent":"missing"}]}`,
 			want: `unknown parent "missing"`,
 		},
 		{
 			name: "self cycle",
-			json: `{"version":1,"bones":[{"name":"a","parent":"a"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"a","parent":"a"}]}`,
 			want: `bone cycle`,
 		},
 		{
 			name: "multi-bone cycle",
-			json: `{"version":1,"bones":[{"name":"a","parent":"c"},{"name":"b","parent":"a"},{"name":"c","parent":"b"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"a","parent":"c"},{"name":"b","parent":"a"},{"name":"c","parent":"b"}]}`,
 			want: `bone cycle`,
 		},
 		{
 			name: "duplicate slot",
-			json: `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"},{"name":"s","bone":"root"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"},{"name":"s","bone":"root"}]}`,
 			want: `duplicate slot "s"`,
 		},
 		{
 			name: "slot unknown bone",
-			json: `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"nope"}]}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"nope"}]}`,
 			want: `unknown bone "nope"`,
 		},
 		{
 			name: "slot alpha out of range",
-			json: `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","alpha":1.5}]}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","alpha":1.5}]}`,
 			want: `alpha`,
 		},
 		{
 			name: "skin unknown slot",
-			json: `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"skins":{"default":{"ghost":{"frame":"x"}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"skins":{"default":{"ghost":{"frame":"x"}}}}`,
 			want: `unknown slot "ghost"`,
 		},
 		{
 			name: "animation unknown bone",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"nope":{"rotate":[{"time":0,"angle":1}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"nope":{"rotate":[{"time":0,"angle":1}]}}}}}`,
 			want: `unknown bone "nope"`,
 		},
 		{
 			name: "animation unknown slot",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"slots":{"nope":{"alpha":[{"time":0,"value":1}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"slots":{"nope":{"alpha":[{"time":0,"value":1}]}}}}}`,
 			want: `unknown slot "nope"`,
 		},
 		{
 			name: "negative duration",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"duration":-1}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"duration":-1}}}`,
 			want: `negative duration`,
 		},
 		{
 			name: "unsorted keyframes",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0.5,"angle":0},{"time":0.2,"angle":1}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0.5,"angle":0},{"time":0.2,"angle":1}]}}}}}`,
 			want: `precedes previous`,
 		},
 		{
 			name: "invalid curve",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"elastic"}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"elastic"}]}}}}}`,
 			want: `unknown curve`,
 		},
 		{
 			name: "invalid bezier x",
-			json: `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"bezier","bezier":[-0.1,0,0.5,1]}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"bezier","bezier":[-0.1,0,0.5,1]}]}}}}}`,
 			want: `control points`,
 		},
 		{
 			name: "slot alpha keyframe out of range",
-			json: `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"animations":{"a":{"slots":{"s":{"alpha":[{"time":0,"value":-0.2}]}}}}}`,
+			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"animations":{"a":{"slots":{"s":{"alpha":[{"time":0,"value":-0.2}]}}}}}`,
 			want: `out of range`,
+		},
+		{
+			name: "empty document",
+			doc:  "  \n",
+			want: "empty rig document",
+		},
+		{
+			name: "unknown top-level field",
+			doc:  "version: 1\nbones: [{name: root}]\nrig: x\n",
+			want: "field rig not found",
+		},
+		{
+			name: "unknown keyframe field",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations:\n  a:\n    bones:\n      root:\n        rotate: [{time: 0, angle: 0, ease: in}]\n",
+			want: "field ease not found",
+		},
+		{
+			name: "duplicate key",
+			doc:  "version: 1\nversion: 1\n",
+			want: "already defined",
+		},
+		{
+			name: "trailing document",
+			doc:  "version: 1\nbones: [{name: root}]\n---\nversion: 1\n",
+			want: "trailing YAML document",
+		},
+		{
+			name: "NaN bone offset",
+			doc:  "version: 1\nbones: [{name: root, x: .nan}]\n",
+			want: "not finite",
+		},
+		{
+			name: "infinite attachment scale",
+			doc:  "version: 1\nbones: [{name: root}]\nslots: [{name: s, bone: root}]\nskins: {default: {s: {frame: f, scaleX: .inf}}}\n",
+			want: "not finite",
+		},
+		{
+			name: "NaN slot alpha",
+			doc:  "version: 1\nbones: [{name: root}]\nslots: [{name: s, bone: root, alpha: .nan}]\n",
+			want: "out of range",
+		},
+		{
+			name: "NaN rotate angle",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {bones: {root: {rotate: [{time: 0, angle: .nan}]}}}}\n",
+			want: "not finite",
+		},
+		{
+			name: "NaN duration",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {duration: .nan}}\n",
+			want: "not a number of seconds",
+		},
+		{
+			name: "duration beyond MaxSeconds",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {duration: 1e7}}\n",
+			want: "not a number of seconds",
+		},
+		{
+			name: "keyframe time beyond MaxSeconds",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {bones: {root: {rotate: [{time: 1e300, angle: 0}]}}}}\n",
+			want: "invalid time",
+		},
+		{
+			name: "bezier points on a linear curve",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {bones: {root: {rotate: [{time: 0, angle: 0, bezier: [0, 0, 1, 1]}]}}}}\n",
+			want: "bezier control points given",
+		},
+		{
+			name: "NaN bezier point",
+			doc:  "version: 1\nbones: [{name: root}]\nanimations: {a: {bones: {root: {rotate: [{time: 0, angle: 0, curve: bezier, bezier: [0, .nan, 1, 1]}]}}}}\n",
+			want: "not finite",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := skeletal.Load([]byte(tc.json))
+			_, err := skeletal.Load([]byte(tc.doc))
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.want)
 			}
@@ -234,25 +304,18 @@ func TestLoadValidationErrors(t *testing.T) {
 }
 
 func TestChildBeforeParentAndDerivedDuration(t *testing.T) {
-	raw := []byte(`{
-		"version": 1,
-		"bones": [
-			{"name": "child", "parent": "parent", "x": 10, "y": 0},
-			{"name": "parent", "x": 0, "y": -5, "rotation": 1.5707963}
-		],
-		"animations": {
-			"ping": {
-				"bones": {
-					"child": {
-						"translate": [
-							{"time": 0, "x": 0, "y": 0},
-							{"time": 0.35, "x": 5, "y": 0}
-						]
-					}
-				}
-			}
-		}
-	}`)
+	raw := []byte(`version: 1
+bones:
+  - {name: child, parent: parent, x: 10}
+  - {name: parent, y: -5, rotation: 1.5707963}
+animations:
+  ping:
+    bones:
+      child:
+        translate:
+          - {time: 0, x: 0, y: 0}
+          - {time: 0.35, x: 5, y: 0}
+`)
 	data, err := skeletal.Load(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -541,32 +604,30 @@ func TestAnimationPlaybackOnGameLoop(t *testing.T) {
 }
 
 func TestShortestAngleWrapAcrossPi(t *testing.T) {
-	raw := []byte(`{
-		"version": 1,
-		"bones": [{"name": "arm"}],
-		"animations": {
-			"wrap": {
-				"duration": 0.4,
-				"loop": false,
-				"bones": {
-					"arm": {
-						"rotate": [
-							{"time": 0.0, "angle": 3.0},
-							{"time": 0.4, "angle": -3.0}
-						]
-					}
-				}
-			},
-			"pos": {
-				"duration": 1.0,
-				"bones": {"arm": {"rotate": [{"time": 0, "angle": 3.0}]}}
-			},
-			"neg": {
-				"duration": 1.0,
-				"bones": {"arm": {"rotate": [{"time": 0, "angle": -3.0}]}}
-			}
-		}
-	}`)
+	raw := []byte(`version: 1
+bones:
+  - {name: arm}
+animations:
+  neg:
+    duration: 1
+    bones:
+      arm:
+        rotate:
+          - {time: 0, angle: -3}
+  pos:
+    duration: 1
+    bones:
+      arm:
+        rotate:
+          - {time: 0, angle: 3}
+  wrap:
+    duration: 0.4
+    bones:
+      arm:
+        rotate:
+          - {time: 0, angle: 3}
+          - {time: 0.4, angle: -3}
+`)
 	data, err := skeletal.Load(raw)
 	if err != nil {
 		t.Fatal(err)

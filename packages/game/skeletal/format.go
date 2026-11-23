@@ -1,14 +1,21 @@
 package skeletal
 
 import (
-	"encoding/json"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
-// FormatVersion is the schema version that Load reads.
+// FormatVersion is the schema version that Load reads and Encode writes.
 const FormatVersion = 1
+
+// MaxSeconds is the longest keyframe time or animation duration, in seconds, that a rig may hold. Within it, a time written in seconds by Encode loads back to the same nanosecond.
+const MaxSeconds = 1_000_000
 
 // SkeletonData is the immutable description of a 2D skeletal rig: its bones,
 // draw-ordered slots, skins and animations. Share one SkeletonData across as
@@ -44,7 +51,7 @@ type BoneData struct {
 	X, Y float32
 	// Rotation is the bone's bind-pose rotation in radians, clockwise on the screen.
 	Rotation float32
-	// ScaleX and ScaleY are the bone's bind-pose scales, 1 when omitted in JSON.
+	// ScaleX and ScaleY are the bone's bind-pose scales, 1 when omitted in the file.
 	ScaleX, ScaleY float32
 	// Length is an optional bone length for editors and debug overlays.
 	Length float32
@@ -58,7 +65,7 @@ type SlotData struct {
 	Bone string
 	// Attachment is an optional default atlas frame name when no skin supplies one.
 	Attachment string
-	// Alpha is the slot's bind-pose opacity in [0, 1], 1 when omitted in JSON.
+	// Alpha is the slot's bind-pose opacity in [0, 1], 1 when omitted in the file.
 	Alpha float32
 }
 
@@ -73,7 +80,7 @@ type Attachment struct {
 	X, Y float32
 	// Rotation is the attachment's local rotation in radians, clockwise on the screen.
 	Rotation float32
-	// ScaleX and ScaleY are the attachment's local scales, 1 when omitted in JSON.
+	// ScaleX and ScaleY are the attachment's local scales, 1 when omitted in the file.
 	ScaleX, ScaleY float32
 	// OriginX and OriginY are the pivot point of the untrimmed atlas frame, matching sprite.Sprite.
 	OriginX, OriginY float32
@@ -154,16 +161,13 @@ type AttachmentKeyframe struct {
 	Frame string
 }
 
-// Load parses and validates a version-1 skeletal rig from JSON.
+// Load parses and validates a version-1 skeletal rig from YAML (.skel.yaml).
 //
-// It rejects unknown schema versions, duplicate bone or slot names, missing
-// parents, cycles in the bone hierarchy, slots or skins referencing missing
-// bones or slots, and animations with unknown targets, unsorted keyframes or
-// invalid curves.
+// It rejects empty input, unknown fields, duplicate keys, trailing YAML documents, unknown schema versions, non-finite numbers, duplicate bone or slot names, missing parents, cycles in the bone hierarchy, slots or skins referencing missing bones or slots, and animations with unknown targets, unsorted or out-of-range keyframes, or invalid curves. JSON is YAML flow syntax, so a version-1 rig written as JSON loads too.
 func Load(data []byte) (*SkeletonData, error) {
-	var raw rawSkeleton
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("skeletal: %w", err)
+	raw, err := decodeRaw(data)
+	if err != nil {
+		return nil, err
 	}
 	if raw.Version != FormatVersion {
 		return nil, fmt.Errorf("skeletal: unsupported version %d (want %d)", raw.Version, FormatVersion)
@@ -179,6 +183,9 @@ func Load(data []byte) (*SkeletonData, error) {
 	for i, rb := range raw.Bones {
 		if rb.Name == "" {
 			return nil, fmt.Errorf("skeletal: bone %d has no name", i)
+		}
+		if err := checkFinite(rb.X, rb.Y, rb.Rotation, defaultFloat32(rb.ScaleX, 1), defaultFloat32(rb.ScaleY, 1), rb.Length); err != nil {
+			return nil, fmt.Errorf("skeletal: bone %q: %w", rb.Name, err)
 		}
 		sd.Bones[i] = BoneData{
 			Name:     rb.Name,
@@ -197,7 +204,7 @@ func Load(data []byte) (*SkeletonData, error) {
 			return nil, fmt.Errorf("skeletal: slot %d has no name", i)
 		}
 		alpha := defaultFloat32(rs.Alpha, 1)
-		if alpha < 0 || alpha > 1 {
+		if !(alpha >= 0 && alpha <= 1) {
 			return nil, fmt.Errorf("skeletal: slot %q alpha %v out of range [0, 1]", rs.Name, alpha)
 		}
 		sd.Slots[i] = SlotData{
@@ -213,6 +220,9 @@ func Load(data []byte) (*SkeletonData, error) {
 		for skinName, rawSlots := range raw.Skins {
 			skin := make(Skin, len(rawSlots))
 			for slotName, ra := range rawSlots {
+				if err := checkFinite(ra.X, ra.Y, ra.Rotation, defaultFloat32(ra.ScaleX, 1), defaultFloat32(ra.ScaleY, 1), ra.OriginX, ra.OriginY); err != nil {
+					return nil, fmt.Errorf("skeletal: skin %q slot %q: %w", skinName, slotName, err)
+				}
 				skin[slotName] = Attachment{
 					Frame:    ra.Frame,
 					X:        ra.X,
@@ -363,97 +373,118 @@ func (sd *SkeletonData) compile() error {
 	return nil
 }
 
-// Raw JSON wire structs. Pointer fields distinguish omitted values from explicit 0.
+// decodeRaw strictly decodes one YAML document into the raw schema.
+func decodeRaw(data []byte) (*rawSkeleton, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("skeletal: empty rig document")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var raw rawSkeleton
+	if err := dec.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("skeletal: decode: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("skeletal: unexpected trailing YAML document")
+		}
+		return nil, fmt.Errorf("skeletal: decode: %w", err)
+	}
+	return &raw, nil
+}
+
+// Raw wire structs for the YAML schema. Pointer fields distinguish omitted values from explicit 0. Field order is the order Encode writes keys in.
 
 type rawSkeleton struct {
-	Version    int                             `json:"version"`
-	Name       string                          `json:"name"`
-	Bones      []rawBone                       `json:"bones"`
-	Slots      []rawSlot                       `json:"slots"`
-	Skins      map[string]map[string]rawAttach `json:"skins"`
-	Animations map[string]rawAnimation         `json:"animations"`
+	Version    int                             `yaml:"version"`
+	Name       string                          `yaml:"name,omitempty"`
+	Bones      []rawBone                       `yaml:"bones,omitempty"`
+	Slots      []rawSlot                       `yaml:"slots,omitempty"`
+	Skins      map[string]map[string]rawAttach `yaml:"skins,omitempty"`
+	Animations map[string]rawAnimation         `yaml:"animations,omitempty"`
 }
 
 type rawBone struct {
-	Name     string   `json:"name"`
-	Parent   string   `json:"parent"`
-	X        float32  `json:"x"`
-	Y        float32  `json:"y"`
-	Rotation float32  `json:"rotation"`
-	ScaleX   *float32 `json:"scaleX"`
-	ScaleY   *float32 `json:"scaleY"`
-	Length   float32  `json:"length"`
+	Name     string   `yaml:"name"`
+	Parent   string   `yaml:"parent,omitempty"`
+	X        float32  `yaml:"x,omitempty"`
+	Y        float32  `yaml:"y,omitempty"`
+	Rotation float32  `yaml:"rotation,omitempty"`
+	ScaleX   *float32 `yaml:"scaleX,omitempty"`
+	ScaleY   *float32 `yaml:"scaleY,omitempty"`
+	Length   float32  `yaml:"length,omitempty"`
 }
 
 type rawSlot struct {
-	Name       string   `json:"name"`
-	Bone       string   `json:"bone"`
-	Attachment string   `json:"attachment"`
-	Alpha      *float32 `json:"alpha"`
+	Name       string   `yaml:"name"`
+	Bone       string   `yaml:"bone"`
+	Attachment string   `yaml:"attachment,omitempty"`
+	Alpha      *float32 `yaml:"alpha,omitempty"`
 }
 
 type rawAttach struct {
-	Frame    string   `json:"frame"`
-	X        float32  `json:"x"`
-	Y        float32  `json:"y"`
-	Rotation float32  `json:"rotation"`
-	ScaleX   *float32 `json:"scaleX"`
-	ScaleY   *float32 `json:"scaleY"`
-	OriginX  float32  `json:"originX"`
-	OriginY  float32  `json:"originY"`
+	Frame    string   `yaml:"frame"`
+	X        float32  `yaml:"x,omitempty"`
+	Y        float32  `yaml:"y,omitempty"`
+	Rotation float32  `yaml:"rotation,omitempty"`
+	ScaleX   *float32 `yaml:"scaleX,omitempty"`
+	ScaleY   *float32 `yaml:"scaleY,omitempty"`
+	OriginX  float32  `yaml:"originX,omitempty"`
+	OriginY  float32  `yaml:"originY,omitempty"`
 }
 
 type rawAnimation struct {
-	Duration *float64                   `json:"duration"`
-	Loop     bool                       `json:"loop"`
-	Bones    map[string]rawBoneTimeline `json:"bones"`
-	Slots    map[string]rawSlotTimeline `json:"slots"`
+	Duration *float64                   `yaml:"duration,omitempty"`
+	Loop     bool                       `yaml:"loop,omitempty"`
+	Bones    map[string]rawBoneTimeline `yaml:"bones,omitempty"`
+	Slots    map[string]rawSlotTimeline `yaml:"slots,omitempty"`
 }
 
 type rawBoneTimeline struct {
-	Translate []rawVec2Keyframe   `json:"translate"`
-	Rotate    []rawRotateKeyframe `json:"rotate"`
-	Scale     []rawScaleKeyframe  `json:"scale"`
+	Translate []rawVec2Keyframe   `yaml:"translate,omitempty"`
+	Rotate    []rawRotateKeyframe `yaml:"rotate,omitempty"`
+	Scale     []rawScaleKeyframe  `yaml:"scale,omitempty"`
 }
 
 type rawSlotTimeline struct {
-	Attachment []rawAttachKeyframe `json:"attachment"`
-	Alpha      []rawAlphaKeyframe  `json:"alpha"`
+	Attachment []rawAttachKeyframe `yaml:"attachment,omitempty"`
+	Alpha      []rawAlphaKeyframe  `yaml:"alpha,omitempty"`
 }
 
 type rawVec2Keyframe struct {
-	Time   float64   `json:"time"`
-	X      float32   `json:"x"`
-	Y      float32   `json:"y"`
-	Curve  string    `json:"curve"`
-	Bezier []float32 `json:"bezier"`
+	Time   float64   `yaml:"time"`
+	X      float32   `yaml:"x"`
+	Y      float32   `yaml:"y"`
+	Curve  string    `yaml:"curve,omitempty"`
+	Bezier []float32 `yaml:"bezier,flow,omitempty"`
 }
 
 type rawScaleKeyframe struct {
-	Time   float64   `json:"time"`
-	X      *float32  `json:"x"`
-	Y      *float32  `json:"y"`
-	Curve  string    `json:"curve"`
-	Bezier []float32 `json:"bezier"`
+	Time   float64   `yaml:"time"`
+	X      *float32  `yaml:"x,omitempty"`
+	Y      *float32  `yaml:"y,omitempty"`
+	Curve  string    `yaml:"curve,omitempty"`
+	Bezier []float32 `yaml:"bezier,flow,omitempty"`
 }
 
 type rawRotateKeyframe struct {
-	Time   float64   `json:"time"`
-	Angle  float32   `json:"angle"`
-	Curve  string    `json:"curve"`
-	Bezier []float32 `json:"bezier"`
+	Time   float64   `yaml:"time"`
+	Angle  float32   `yaml:"angle"`
+	Curve  string    `yaml:"curve,omitempty"`
+	Bezier []float32 `yaml:"bezier,flow,omitempty"`
 }
 
 type rawAttachKeyframe struct {
-	Time  float64 `json:"time"`
-	Frame string  `json:"frame"`
+	Time  float64 `yaml:"time"`
+	Frame string  `yaml:"frame"`
 }
 
 type rawAlphaKeyframe struct {
-	Time   float64   `json:"time"`
-	Value  float32   `json:"value"`
-	Curve  string    `json:"curve"`
-	Bezier []float32 `json:"bezier"`
+	Time   float64   `yaml:"time"`
+	Value  float32   `yaml:"value"`
+	Curve  string    `yaml:"curve,omitempty"`
+	Bezier []float32 `yaml:"bezier,flow,omitempty"`
 }
 
 func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
@@ -483,6 +514,9 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 					if err != nil {
 						return nil, fmt.Errorf("skeletal: animation %q bone %q translate[%d]: %w", name, boneName, i, err)
 					}
+					if err := checkFinite(rk.X, rk.Y); err != nil {
+						return nil, fmt.Errorf("skeletal: animation %q bone %q translate[%d]: %w", name, boneName, i, err)
+					}
 					bt.Translate[i] = Vec2Keyframe{Time: t, X: rk.X, Y: rk.Y, Curve: c, Bezier: bz}
 					trackMax(t)
 				}
@@ -498,6 +532,9 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 					if err != nil {
 						return nil, fmt.Errorf("skeletal: animation %q bone %q rotate[%d]: %w", name, boneName, i, err)
 					}
+					if err := checkFinite(rk.Angle); err != nil {
+						return nil, fmt.Errorf("skeletal: animation %q bone %q rotate[%d]: %w", name, boneName, i, err)
+					}
 					bt.Rotate[i] = FloatKeyframe{Time: t, Value: rk.Angle, Curve: c, Bezier: bz}
 					trackMax(t)
 				}
@@ -511,6 +548,9 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
 					if err != nil {
+						return nil, fmt.Errorf("skeletal: animation %q bone %q scale[%d]: %w", name, boneName, i, err)
+					}
+					if err := checkFinite(defaultFloat32(rk.X, 1), defaultFloat32(rk.Y, 1)); err != nil {
 						return nil, fmt.Errorf("skeletal: animation %q bone %q scale[%d]: %w", name, boneName, i, err)
 					}
 					bt.Scale[i] = Vec2Keyframe{
@@ -549,7 +589,7 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 					if err != nil {
 						return nil, fmt.Errorf("skeletal: animation %q slot %q alpha: %w", name, slotName, err)
 					}
-					if rk.Value < 0 || rk.Value > 1 {
+					if !(rk.Value >= 0 && rk.Value <= 1) {
 						return nil, fmt.Errorf("skeletal: animation %q slot %q alpha[%d]: value %v out of range [0, 1]", name, slotName, i, rk.Value)
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
@@ -568,6 +608,9 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 		if *ra.Duration < 0 {
 			return nil, fmt.Errorf("skeletal: animation %q has negative duration %v", name, *ra.Duration)
 		}
+		if !(*ra.Duration <= MaxSeconds) {
+			return nil, fmt.Errorf("skeletal: animation %q duration %v is not a number of seconds in [0, %d]", name, *ra.Duration, MaxSeconds)
+		}
 		anim.Duration = secondsToDuration(*ra.Duration)
 	} else {
 		anim.Duration = maxTime
@@ -576,7 +619,7 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 }
 
 func decodeTime[T any](sec float64, idx int, prev []T, getTime func(T) time.Duration) (time.Duration, error) {
-	if sec < 0 || math.IsNaN(sec) || math.IsInf(sec, 0) {
+	if !(sec >= 0 && sec <= MaxSeconds) {
 		return 0, fmt.Errorf("keyframe %d has invalid time %v", idx, sec)
 	}
 	t := secondsToDuration(sec)
@@ -587,6 +630,9 @@ func decodeTime[T any](sec float64, idx int, prev []T, getTime func(T) time.Dura
 }
 
 func decodeCurve(name string, bezier []float32) (CurveType, [4]float32, error) {
+	if name != "bezier" && len(bezier) > 0 {
+		return 0, [4]float32{}, fmt.Errorf("bezier control points given for a %q curve", name)
+	}
 	switch name {
 	case "", "linear":
 		return CurveLinear, [4]float32{}, nil
@@ -595,6 +641,9 @@ func decodeCurve(name string, bezier []float32) (CurveType, [4]float32, error) {
 	case "bezier":
 		if len(bezier) != 4 {
 			return 0, [4]float32{}, fmt.Errorf("bezier curve needs 4 numbers, got %d", len(bezier))
+		}
+		if err := checkFinite(bezier...); err != nil {
+			return 0, [4]float32{}, fmt.Errorf("bezier: %w", err)
 		}
 		if bezier[0] < 0 || bezier[0] > 1 || bezier[2] < 0 || bezier[2] > 1 {
 			return 0, [4]float32{}, fmt.Errorf("bezier x control points (%v, %v) must lie in [0, 1]", bezier[0], bezier[2])
@@ -607,6 +656,16 @@ func decodeCurve(name string, bezier []float32) (CurveType, [4]float32, error) {
 
 func secondsToDuration(sec float64) time.Duration {
 	return time.Duration(math.Round(sec * float64(time.Second)))
+}
+
+// checkFinite reports the first NaN or infinite value, which YAML can spell as .nan and .inf.
+func checkFinite(vs ...float32) error {
+	for _, v := range vs {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return fmt.Errorf("number %v is not finite", v)
+		}
+	}
+	return nil
 }
 
 func defaultFloat32(p *float32, fallback float32) float32 {
