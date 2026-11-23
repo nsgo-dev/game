@@ -27,7 +27,7 @@ const ConfigVersion = 1
 //	    memoryKiB: 19456
 //	    threads: 1
 //
-// Unknown fields are refused; Marshal writes the fields in this order, so a file read and written again is unchanged.
+// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, durations in their shortest text and disableGuests only when true. A file in that form, such as one Marshal wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized.
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`

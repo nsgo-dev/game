@@ -43,13 +43,15 @@ type Options struct {
 	Store Store
 	// Key signs tokens; required. Keep it in a PEM file read with token.ParsePrivateKey.
 	Key ed25519.PrivateKey
+	// KeySet holds public keys the service still accepts besides Key's, such as the key it signed with before a rotation; nil accepts only Key's. Its issuer and audience must match the configuration. The service verifies bearer tokens with Key's public key and these, and serves them all at GET /v1/keys, so tokens signed with an old key keep working until the key is removed from the set.
+	KeySet *token.KeySet
 	// Identities are the identity providers by name, such as "gamecenter" or "steam". A name is 1 to 32 characters of a-z, 0-9, '.', '_' and '-', starting with a letter or digit.
 	Identities map[string]IdentityVerifier
 	// Logger receives account events and store errors, never secrets; nil discards them.
 	Logger *slog.Logger
 	// Now is the service's clock; nil uses time.Now.
 	Now func() time.Time
-	// Rand fills IDs, secrets and salts; nil uses crypto/rand.
+	// Rand fills IDs, secrets and salts; nil uses crypto/rand. The service serializes its reads, so a reader that is not safe for concurrent use, such as a deterministic one in a test, may be given.
 	Rand io.Reader
 	// MaxConcurrentHashes bounds how many password hashes run at once, each using the configured argon2id memory; 0 uses GOMAXPROCS.
 	MaxConcurrentHashes int
@@ -60,6 +62,7 @@ type Service struct {
 	cfg       Config
 	store     Store
 	signer    *token.Signer
+	keySet    *token.KeySet
 	verifier  *token.Verifier
 	providers map[string]IdentityVerifier
 	log       *slog.Logger
@@ -125,6 +128,8 @@ func New(cfg Config, opts Options) (*Service, error) {
 	}
 	if s.rand == nil {
 		s.rand = rand.Reader
+	} else {
+		s.rand = &lockedReader{r: s.rand}
 	}
 	n := opts.MaxConcurrentHashes
 	if n <= 0 {
@@ -133,7 +138,13 @@ func New(cfg Config, opts Options) (*Service, error) {
 	s.hashes = make(chan struct{}, n)
 	signer.Now = s.now
 	signer.Rand = s.rand
-	s.verifier, err = token.NewVerifier(signer.KeySet())
+	s.keySet = signer.KeySet()
+	if opts.KeySet != nil {
+		if s.keySet, err = s.keySet.Merge(opts.KeySet); err != nil {
+			return nil, fmt.Errorf("accounts: key set: %w", err)
+		}
+	}
+	s.verifier, err = token.NewVerifier(s.keySet)
 	if err != nil {
 		return nil, err
 	}
@@ -144,8 +155,12 @@ func New(cfg Config, opts Options) (*Service, error) {
 // Config returns the service's configuration.
 func (s *Service) Config() Config { return s.cfg }
 
-// KeySet returns the public key set a game server verifies the service's tokens with.
-func (s *Service) KeySet() *token.KeySet { return s.signer.KeySet() }
+// KeySet returns the public key set a game server verifies the service's tokens with: the signing key's public half first, then the keys of Options.KeySet.
+func (s *Service) KeySet() *token.KeySet {
+	ks := *s.keySet
+	ks.Keys = append([]token.PublicKey(nil), s.keySet.Keys...)
+	return &ks
+}
 
 // Authenticate verifies a token the service issued and returns its claims.
 func (s *Service) Authenticate(tok string) (token.Claims, error) { return s.verifier.Verify(tok) }
@@ -498,6 +513,18 @@ func (s *Service) randomHex(n int) (string, error) {
 		return "", fmt.Errorf("accounts: random: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// lockedReader serializes reads from a reader that may not be safe for concurrent use.
+type lockedReader struct {
+	mu sync.Mutex
+	r  io.Reader
+}
+
+func (l *lockedReader) Read(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.r.Read(p)
 }
 
 // timestamp is now in UTC to the millisecond, the precision stores keep.

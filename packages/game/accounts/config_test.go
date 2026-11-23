@@ -53,6 +53,37 @@ password:
 	}
 }
 
+func TestConfigMarshalNormalizesHandWrittenFiles(t *testing.T) {
+	// A hand-written file may order its fields differently, spell durations longhand and write defaults; Marshal writes the canonical form, which then reads back and writes again unchanged.
+	hand := `audience: my-game
+issuer: https://accounts.example.com
+version: 1
+disableGuests: false
+password:
+  argon2id:
+    threads: 1
+    memoryKiB: 64
+    time: 1
+  minLength: 10
+tokenTTL: 15m0s
+`
+	cfg, err := accounts.ParseConfig([]byte(hand))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != testConfig {
+		t.Fatalf("Marshal =\n%s\nwant\n%s", out, testConfig)
+	}
+	back, err := accounts.ParseConfig(out)
+	if err != nil || back != cfg {
+		t.Fatalf("ParseConfig(Marshal) = %+v, %v; want %+v", back, err, cfg)
+	}
+}
+
 func TestDurationText(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		time.Second:                     "1s",

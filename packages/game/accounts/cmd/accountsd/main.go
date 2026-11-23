@@ -4,10 +4,10 @@
 //
 //	accountsd init   -config accounts.yaml -issuer https://accounts.example.com -audience my-game
 //	accountsd genkey -config accounts.yaml -key key.pem -keyset keys.yaml
-//	accountsd serve  -config accounts.yaml -key key.pem -sqlite accounts.db -addr :8080
-//	ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -postgres
+//	accountsd serve  -config accounts.yaml -key key.pem -keyset keys.yaml -sqlite accounts.db -addr :8080
+//	ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -keyset keys.yaml -postgres
 //
-// init writes a configuration with the default settings. genkey writes a new signing key and adds its public half to the key set file a game server verifies tokens with, keeping the keys already there, so rotating a key is genkey with a new -key file, a restart on it once game servers have the new key set, and removing the old key from the key set once its tokens have expired. serve runs the service until SIGINT or SIGTERM.
+// init writes a configuration with the default settings. genkey writes a new signing key and adds its public half to the key set file a game server verifies tokens with, keeping the keys already there; it replaces the key set file atomically, so a reader never sees half of it. Rotating a key is genkey with a new -key file, a restart on it once game servers have the new key set, and removing the old key from the key set once its tokens have expired. serve runs the service until SIGINT or SIGTERM; with -keyset it also accepts the tokens of every key in the key set and serves them at GET /v1/keys, so tokens signed before a rotation keep working on the service too.
 //
 // Identity providers (Game Center, Play Games, Steam, OAuth) need their verifiers and platform credentials, so a game that links identities builds its own command around accounts.New with Options.Identities; this one serves guests and email accounts.
 package main
@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -123,13 +124,19 @@ func runGenkey(args []string, stderr io.Writer) error {
 	if err := writeNew(*keyPath, pemData, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(*keySetPath, ksData, 0o644)
+	if err := writeAtomic(*keySetPath, ksData, 0o644); err != nil {
+		// Without its public half published the key is useless; remove it so genkey can run again with the same -key.
+		_ = os.Remove(*keyPath)
+		return err
+	}
+	return nil
 }
 
 func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	fl := newFlags("serve", stderr)
 	configPath := fl.String("config", "accounts.yaml", "configuration file")
 	keyPath := fl.String("key", "key.pem", "private signing key file")
+	keySetPath := fl.String("keyset", "", "key set file whose keys the service also accepts and serves, such as the one genkey keeps")
 	sqlitePath := fl.String("sqlite", "", "SQLite database file")
 	usePostgres := fl.Bool("postgres", false, "use the Postgres database in $"+dsnEnv)
 	addr := fl.String("addr", ":8080", "address to listen on")
@@ -147,6 +154,16 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	key, err := token.ParsePrivateKey(pemData)
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keyPath, err)
+	}
+	var keySet *token.KeySet
+	if *keySetPath != "" {
+		data, err := os.ReadFile(*keySetPath)
+		if err != nil {
+			return err
+		}
+		if keySet, err = token.ParseKeySet(data); err != nil {
+			return fmt.Errorf("%s: %w", *keySetPath, err)
+		}
 	}
 	var store interface {
 		accounts.Store
@@ -172,7 +189,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	defer func() { _ = store.Close() }()
 
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
-	svc, err := accounts.New(cfg, accounts.Options{Store: store, Key: key, Logger: log})
+	svc, err := accounts.New(cfg, accounts.Options{Store: store, Key: key, KeySet: keySet, Logger: log})
 	if err != nil {
 		return err
 	}
@@ -209,6 +226,34 @@ func readConfig(path string) (accounts.Config, error) {
 		return accounts.Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// writeAtomic replaces path with data through a temporary file in the same directory and a rename, so a reader sees the old file or the new one, never a partial one.
+func writeAtomic(path string, data []byte, perm fs.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // writeNew writes a file that must not exist yet, so a key or configuration is never overwritten.

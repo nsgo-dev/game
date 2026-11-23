@@ -94,7 +94,7 @@ type Signer struct {
 	ttl      time.Duration
 	// Now is the clock tokens are issued by; nil uses time.Now.
 	Now func() time.Time
-	// Rand fills token IDs; nil uses crypto/rand.
+	// Rand fills token IDs; nil uses crypto/rand. Issue reads it without a lock, so a signer used from several goroutines needs a reader that is safe for concurrent use.
 	Rand io.Reader
 }
 

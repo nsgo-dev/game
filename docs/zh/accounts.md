@@ -95,7 +95,7 @@ keys:
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
 ```
 
-每个 `id` 是公钥 SHA-256 前 8 字节的十六进制，必须与公钥一致。轮换签名密钥时，先把新公钥加在旧公钥旁边，把新文件发给游戏服务器，再让服务切换到新密钥，等旧密钥签发的最后一批令牌过期后删掉旧公钥。`GET /v1/keys` 返回的密钥集只含服务当前签名用的公钥，所以轮换期间要把 `accountsd genkey` 维护的文件发给游戏服务器。
+每个 `id` 是公钥 SHA-256 前 8 字节的十六进制，必须与公钥一致。轮换签名密钥时，先把新公钥加在旧公钥旁边，把新文件发给游戏服务器，再让服务切换到新密钥，等旧密钥签发的最后一批令牌过期后删掉旧公钥。把旧公钥也交给服务，即 `Options.KeySet`（或 `accountsd serve -keyset keys.yaml`）：服务会接受用密钥集中任一密钥签名的 bearer 令牌，`GET /v1/keys` 也会先返回签名密钥、再返回这些公钥，所以重启前签发的令牌在服务和游戏服务器上都继续有效，直到旧公钥从文件中删掉。
 
 ## 配置
 
@@ -123,12 +123,12 @@ password:
 | `password.minLength` | 密码最少字符数，至少 8；密码最长 1024 字节 |
 | `password.argon2id` | argon2id 成本：迭代次数、以 KiB 计的内存和并行度 |
 
-`ParseConfig` 拒绝未知字段、多余的文档和越界的值；`Config.Marshal` 按上表顺序写出字段，所以读入再写出的文件不会变化。`DefaultConfig` 返回上面展示的设置。
+`ParseConfig` 拒绝未知字段、多余的文档和越界的值。`Config.Marshal` 写出规范形式：按上表顺序写出字段，时长用最短写法（`15m` 而不是 `15m0s`），`disableGuests` 只在为 true 时写出。规范形式的文件（例如 `Marshal` 或 `accountsd init` 写出的文件）读入再写出不会变化；手写的文件若顺序或写法不同，会被规范化。`DefaultConfig` 返回上面展示的设置。
 
 ## 密码与密钥
 
 - 密码只以 PHC 格式的 argon2id 哈希保存（`$argon2id$v=19$m=19456,t=2,p=1$salt$hash`），默认使用 OWASP 推荐的成本。用旧成本哈希的密码在登录时会按当前配置重新哈希。`Options.MaxConcurrentHashes` 限制同时运行的哈希数量，避免一波登录耗尽服务器内存。
-- 拒绝一个不存在的邮箱所花的时间与拒绝错误密码相同。
+- 拒绝一个不存在的邮箱所花的时间与拒绝错误密码相同，所以登录不会暴露某个邮箱是否有账号。`Register` 和 `LinkEmail` 则会暴露：邮箱已属于某个账号时它们返回 `ErrTaken`（`409 taken`），任何人不需要密码就能在这里试探一个邮箱。请按客户端对这些请求限流。
 - 会话密钥是 256 位随机数，存储里只保存其 SHA-256。
 - `Credentials.Session` 与 `Credentials.Token` 是 `Secret` 值，打印、写日志和序列化时都显示为 `[redacted]`；只有真正要发送它的地方才调用 `Reveal` 取值。服务只记录账号事件（创建、登录、绑定）及账号 ID 和提供方名称，从不记录密码、会话密钥、令牌或身份凭据。
 - 签名密钥是以 `0600` 权限写入的 PKCS #8 PEM 文件；Postgres DSN 从环境变量读取，不放在命令行上。
@@ -169,7 +169,7 @@ func TestContract(t *testing.T) {
 | `GET /v1/me` | bearer 令牌 | 账号资料 |
 | `GET /v1/keys` | | YAML 格式的密钥集 |
 
-凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password` 和 `unknown_provider` 为 400，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
+凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password` 和 `unknown_provider` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
 
 ## accountsd
 
@@ -178,8 +178,8 @@ func TestContract(t *testing.T) {
 ```sh
 accountsd init   -config accounts.yaml -issuer https://accounts.example.com -audience my-game
 accountsd genkey -config accounts.yaml -key key.pem -keyset keys.yaml
-accountsd serve  -config accounts.yaml -key key.pem -sqlite accounts.db -addr :8080
-ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -postgres
+accountsd serve  -config accounts.yaml -key key.pem -keyset keys.yaml -sqlite accounts.db -addr :8080
+ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -keyset keys.yaml -postgres
 ```
 
-`init` 和 `genkey` 从不覆盖已有文件。`genkey` 会把新公钥加进已有的密钥集，这是轮换的第一步。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+`init` 从不覆盖已有配置，`genkey` 从不覆盖已有密钥。`genkey` 把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。

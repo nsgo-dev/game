@@ -95,7 +95,7 @@ keys:
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
 ```
 
-Each `id` is the first 8 bytes of the key's SHA-256 in hex and must match its key. To rotate the signing key, add the new key beside the old one, give game servers the new file, switch the service to the new key, and drop the old key once its last tokens have expired. `GET /v1/keys` serves a key set holding only the key the service signs with now, so during a rotation give game servers the file `accountsd genkey` keeps.
+Each `id` is the first 8 bytes of the key's SHA-256 in hex and must match its key. To rotate the signing key, add the new key beside the old one, give game servers the new file, switch the service to the new key, and drop the old key once its last tokens have expired. Give the service the old keys too, as `Options.KeySet` (or `accountsd serve -keyset keys.yaml`): it then accepts bearer tokens signed with any key in the set, and `GET /v1/keys` serves the signing key followed by those keys, so tokens issued before the restart keep working on the service and on game servers until the old key is removed from the file.
 
 ## Configuration
 
@@ -123,12 +123,12 @@ password:
 | `password.minLength` | Fewest characters in a password, at least 8; passwords are at most 1024 bytes |
 | `password.argon2id` | The argon2id cost: passes, memory in KiB and lanes |
 
-`ParseConfig` refuses unknown fields, trailing documents and out-of-range values, and `Config.Marshal` writes the fields in the order above, so a file read and written again is unchanged. `DefaultConfig` returns the settings shown.
+`ParseConfig` refuses unknown fields, trailing documents and out-of-range values. `Config.Marshal` writes the canonical form: the fields in the order above, durations in their shortest text (`15m`, not `15m0s`) and `disableGuests` only when it is true. A file in that form, such as one `Marshal` or `accountsd init` wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized. `DefaultConfig` returns the settings shown.
 
 ## Passwords and secrets
 
 - Passwords are stored only as argon2id hashes in the PHC format (`$argon2id$v=19$m=19456,t=2,p=1$salt$hash`), OWASP's recommended cost by default. A sign-in with a password hashed at an older cost rehashes it at the configured one. `Options.MaxConcurrentHashes` bounds how many hashes run at once, so a burst of sign-ins cannot take all the server's memory.
-- An unknown email address takes as long to refuse as a wrong password.
+- An unknown email address takes as long to refuse as a wrong password, so sign-in does not reveal whether an address has an account. `Register` and `LinkEmail` do: they answer `ErrTaken` (`409 taken`) for an address that belongs to an account, so anyone can test an address there without its password. Rate-limit those requests per client.
 - Session secrets are 256 random bits; the store keeps only their SHA-256.
 - `Credentials.Session` and `Credentials.Token` are `Secret` values, which print, log and marshal as `[redacted]`; `Reveal` returns the value for the one place that sends it. The service logs account events (created, signed in, linked) with account IDs and provider names, never a password, session secret, token or identity credential.
 - Signing keys are PKCS #8 PEM files written with mode `0600`; a Postgres DSN is read from the environment, not the command line.
@@ -169,7 +169,7 @@ func TestContract(t *testing.T) {
 | `GET /v1/me` | bearer token | profile |
 | `GET /v1/keys` | | the key set as YAML |
 
-Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password` and `unknown_provider` 400, and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. The handler does not limit request rates: run it behind TLS and a rate limiter.
+Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password` and `unknown_provider` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. The handler does not limit request rates: run it behind TLS and a rate limiter.
 
 ## accountsd
 
@@ -178,8 +178,8 @@ Credentials are `{"account", "session", "token", "expires", "created"}`, with st
 ```sh
 accountsd init   -config accounts.yaml -issuer https://accounts.example.com -audience my-game
 accountsd genkey -config accounts.yaml -key key.pem -keyset keys.yaml
-accountsd serve  -config accounts.yaml -key key.pem -sqlite accounts.db -addr :8080
-ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -postgres
+accountsd serve  -config accounts.yaml -key key.pem -keyset keys.yaml -sqlite accounts.db -addr :8080
+ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key key.pem -keyset keys.yaml -postgres
 ```
 
-`init` and `genkey` never overwrite a file. `genkey` adds the new public key to an existing key set, which is the first step of a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
+`init` never overwrites a configuration and `genkey` never overwrites a key. `genkey` adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
