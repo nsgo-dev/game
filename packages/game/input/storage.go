@@ -3,6 +3,8 @@ package input
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -109,15 +111,20 @@ func (a *Actions) Save(store core.Storage, key string) error {
 
 // Load replaces a's action and axis bindings with those saved in store under key, and reports whether key was present.
 //
-// When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON or uses an unknown format, Load leaves a's bindings untouched and returns false and an error.
+// When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON, has a field Load does not know or uses an unknown format, Load leaves a's bindings untouched and returns false and an error.
 func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 	raw, ok := store.GetItem(key)
 	if !ok {
 		return false, nil
 	}
 	var doc savedBindings
-	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&doc); err != nil {
 		return false, fmt.Errorf("input: load %q: %w", key, err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return false, fmt.Errorf("input: load %q: data after the bindings", key)
 	}
 	if doc.Version != storageVersion {
 		return false, fmt.Errorf("input: load %q: unsupported version %d", key, doc.Version)
