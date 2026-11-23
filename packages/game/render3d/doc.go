@@ -45,6 +45,11 @@
 //
 // [Mesh] holds triangle geometry (positions, optional normals and UVs, optional indices) on the CPU. [UploadMesh] validates it and uploads it into the vertex and index buffers of NSGo's GPU view ([gpu.Device], nsgo-dev/nsgo#1059) as a [GPUMesh], whose buffers belong to a [core.Scope]. Every mesh shares one interleaved vertex layout, [MeshVertexLayout], so one pipeline draws any of them, and [GPUMesh.Draw] binds the buffers and issues the draw inside a [gpu.RenderPass]. The index width is chosen per mesh (uint16 below 0xFFFF vertices, otherwise uint32), which every GPU view backend accepts, WebGL 2 included.
 //
+// # Effects (#281)
+//
+//   - Billboards: [Billboard] builds a quad facing a [CameraBasis] in view-plane, view-point or axis-locked mode, [BillboardQuad.DrawItem] feeds it to transparent sorting, and [BillboardRenderer] fills billboards back to front into [*core.Drawing] with near-plane clipping.
+//   - Ribbon trails: [Trail] records world positions and builds a triangle strip whose edges run along tangent × toCamera, so the ribbon faces the viewer at every angle, with width and color from the particles package's curves.
+//
 // # GPU Submission Integration
 //
 // [CameraBuffer] (#115) keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders.

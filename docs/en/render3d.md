@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers for the NSGo GPU view and the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers for the NSGo GPU view and the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -143,6 +143,61 @@ if axis != render3d.AxisNone {
 }
 gizmo.DrawGizmo(d, cam.ViewProj(), viewportBounds, objPos, gizmoScale, render3d.GizmoTranslate, axis)
 ```
+
+## Billboards and ribbon trails
+
+A `Billboard` is a quad that turns toward the camera, and a `Trail` is a ribbon through a moving object's recent positions that twists about its centerline to face the viewer. Both take a `CameraBasis`, the camera's position and unit axes, built from matrices or filled from a `scene3d.Camera`:
+
+```go
+basis, _ := render3d.NewCameraBasis(cam.ViewMatrix(), cam.ProjMatrix())
+// or: render3d.CameraBasis{Pos: cam.Pos, Right: cam.Right(), Up: cam.Up(), Forward: cam.Forward()}
+```
+
+`Billboard.Mode` picks how the quad turns:
+
+| Mode | Faces | Use for |
+| --- | --- | --- |
+| `BillboardViewPlane` (default) | the view plane, along the camera's right and up | particles, sprites, impostors |
+| `BillboardViewPoint` | the camera's position, rolled by the camera's up | large quads near the screen edge |
+| `BillboardAxial` | the camera, rotating only about `Axis` (+Y when zero) | trees, grass, flames, beams |
+
+The view-plane and view-point modes face the camera at every angle, including looking straight up and down; an axial quad faces it as far as its axis allows and turns edge-on when the camera looks along the axis. `Pivot` places the quad relative to `Center` (`{Y: -0.5}` stands it on its bottom edge) and `Rotation` rolls it counter-clockwise on screen.
+
+```go
+smoke := render3d.Billboard{Center: pos, Width: 1, Height: 1, Rotation: spin, Color: core.RGBA(200, 200, 200, 0.6)}
+tree := render3d.Billboard{Center: base, Width: 2, Height: 4, Pivot: math3d.Vec2{Y: -0.5}, Mode: render3d.BillboardAxial, Texture: treeImage}
+
+quad, ok := smoke.Quad(basis)                                   // corners BL, BR, TR, TL, counter-clockwise toward the camera
+item := quad.DrawItem(render3d.DrawItem{ID: 7, MeshID: unitQuad}) // Transform maps the unit quad; Blend defaults to BlendAlphaBlend
+```
+
+Until GPU submission lands, `BillboardRenderer` fills billboards into a `*core.Drawing` back to front, clipping them against the near plane. Textured quads are mapped with an affine transform, which is exact under an orthographic camera and close for quads that are small on screen; a textured quad that crosses the near plane is skipped.
+
+```go
+var billboards render3d.BillboardRenderer // reuse across frames
+billboards.Draw(d, []render3d.Billboard{smoke, tree}, basis, cam.ViewProj(), viewportBounds)
+```
+
+`Trail` mirrors `particles.Trail` in world units and reuses its `particles.Curve` and `particles.ColorCurve` for width and color from head (`u = 0`) to tail (`u = 1`). Each point's edge runs along `tangent × toCamera`, and a trail heading straight at the camera keeps its previous edge direction instead of collapsing:
+
+```go
+sword := render3d.NewTrail(render3d.TrailConfig{
+	Width:         0.3,
+	Lifetime:      250 * time.Millisecond,
+	WidthCurve:    particles.Curve{{T: 0, Value: 1}, {T: 1, Value: 0}},
+	ColorGradient: particles.ColorCurve{{T: 0, Color: core.RGB(0xffe080)}, {T: 1, Color: core.RGBA(255, 80, 0, 0)}},
+})
+
+// In Update:
+sword.AddPoint(bladeTip)
+sword.Update(dt)
+
+// In Draw, or hand Build's triangle strip (two vertices per point, tail to head) to a GPU:
+verts := sword.Build(basis)
+sword.Draw(d, basis, cam.ViewProj(), viewportBounds)
+```
+
+`Build` reuses its storage and does not allocate; `Bounds` and `DrawItem` give the transparent queue a camera-independent box for sorting.
 
 ## Render stats, profiler, and GPU budgets
 
