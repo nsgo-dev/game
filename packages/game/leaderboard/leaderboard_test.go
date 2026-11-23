@@ -164,7 +164,7 @@ func TestScoresUsesPlatformIDAndQuery(t *testing.T) {
 		t.Fatalf("global top 2 = %+v", rows)
 	}
 
-	// nsgotest's fake game service ignores the time scope, so this checks only that a Week query reaches the platform and answers.
+	// nsgotest's fake game service ignores the time scope (nsgo-dev/nsgo#2250), so this checks only that a Week query reaches the platform and answers.
 	svc.Scores("high-score", leaderboard.Query{Players: leaderboard.Friends, Time: leaderboard.Week}, func(e []leaderboard.Entry, e2 error) { rows, err = e, e2 })
 	app.Settle()
 	if err != nil || len(rows) != 2 || rows[0].PlayerID != "p2" || rows[1].PlayerID != "p1" {

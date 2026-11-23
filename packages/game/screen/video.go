@@ -9,7 +9,7 @@ import (
 // DefaultLowPowerCap is the frame cap Video drops to while the system is constrained, when Video.LowPowerCap is 0.
 const DefaultLowPowerCap = 30
 
-// setFullScreen sends the window's full-screen request. Tests replace it because nsgotest's window request log has no entry for driver.WindowSetFullScreen and keeps no display ID, so the real request cannot be observed there; remove this seam once nsgotest records both.
+// setFullScreen sends the window's full-screen request. Tests replace it because nsgotest's window request log has no entry for driver.WindowSetFullScreen and keeps no display ID, so the real request cannot be observed there; remove this seam once nsgotest records both (nsgo-dev/nsgo#2258).
 var setFullScreen = func(cx *core.Scope, on bool, displayID string) {
 	if displayID == "" {
 		cx.SetFullScreen(on)

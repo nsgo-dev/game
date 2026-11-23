@@ -312,7 +312,7 @@ func (g *GPUMesh) Bind(pass *gpu.RenderPass) {
 	}
 }
 
-// Draw binds the mesh to pass and draws all of its triangles once. The pass must already have a pipeline whose vertex buffer 0 is [MeshVertexLayout] and whose bind groups are set. When the mesh is not [GPUMesh.Valid] it records nothing, so it never draws with buffers an earlier mesh left bound.
+// Draw binds the mesh to pass and draws all of its triangles once. The pass must already have a pipeline whose vertex buffer 0 is [MeshVertexLayout] and whose bind groups are set. When the mesh is not [GPUMesh.Valid] it records nothing, so it never draws with buffers an earlier mesh left bound: NSGo skips binding an invalid buffer but still records the draw (nsgo-dev/nsgo#2253).
 func (g *GPUMesh) Draw(pass *gpu.RenderPass) {
 	if !g.Valid() {
 		return

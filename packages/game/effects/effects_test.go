@@ -412,7 +412,7 @@ func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
 	}
 }
 
-// nsgotest's mounted shader does not list the images it reads (nsgotest.Shader has no Images), so the view's own shader shows that the frame is its image0.
+// nsgotest's mounted shader does not list the images it reads (nsgotest.Shader has no Images, nsgo-dev/nsgo#2251), so the view's own shader shows that the frame is its image0.
 func TestTheViewsFrameIsItsShadersImage(t *testing.T) {
 	chain := effects.MustCompile(invert)
 	frame := testFrame()

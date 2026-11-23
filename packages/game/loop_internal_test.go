@@ -28,7 +28,7 @@ func TestAFrameBeforeTheResumptionTakesNoTimeOff(t *testing.T) {
 	}
 }
 
-// recordImmersive replaces setImmersive for the test with one that records each request, which NSGo's nsgotest does not (nsgotest.StatusBarConfig has no Immersive field).
+// recordImmersive replaces setImmersive for the test with one that records each request, which NSGo's nsgotest does not (nsgotest.StatusBarConfig has no Immersive field, nsgo-dev/nsgo#2255).
 func recordImmersive(t *testing.T) *[]bool {
 	t.Helper()
 	var asked []bool
