@@ -459,8 +459,9 @@ func recvBase(x ast.Expr) string {
 	}
 }
 
-// dropDeclared removes from f the declarations of keys an earlier target's file already declared, so each identifier is documented once.
+// dropDeclared removes from f the declarations of keys an earlier target's file already declared, so each identifier is documented once. A type spec is dropped on its own. A const or var declaration is dropped only when every name it declares was already declared; otherwise all of its specs stay, so a const group keeps its iota and the implicit repetition of a type and value, and each name already declared is renamed to the blank identifier, which go/doc then leaves out like an unexported name.
 func dropDeclared(f *ast.File, seen map[string]bool) {
+	isSeen := func(k string) bool { return seen[k] }
 	decls := f.Decls[:0]
 	for _, d := range f.Decls {
 		switch d := d.(type) {
@@ -469,16 +470,32 @@ func dropDeclared(f *ast.File, seen map[string]bool) {
 				continue
 			}
 		case *ast.GenDecl:
-			if d.Tok != token.IMPORT {
+			switch d.Tok {
+			case token.TYPE:
 				specs := d.Specs[:0]
 				for _, s := range d.Specs {
-					if !slices.ContainsFunc(specKeys(s), func(k string) bool { return seen[k] }) {
+					if !slices.ContainsFunc(specKeys(s), isSeen) {
 						specs = append(specs, s)
 					}
 				}
 				d.Specs = specs
 				if len(specs) == 0 {
 					continue
+				}
+			case token.CONST, token.VAR:
+				var keys []string
+				for _, s := range d.Specs {
+					keys = append(keys, specKeys(s)...)
+				}
+				if len(keys) > 0 && !slices.ContainsFunc(keys, func(k string) bool { return !seen[k] }) {
+					continue
+				}
+				for _, s := range d.Specs {
+					for _, n := range s.(*ast.ValueSpec).Names {
+						if seen[n.Name] {
+							n.Name = "_"
+						}
+					}
 				}
 			}
 		}
