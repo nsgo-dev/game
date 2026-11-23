@@ -3,6 +3,7 @@ package vehicle
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/physics3d"
@@ -69,7 +70,7 @@ type Race struct {
 	step   int
 }
 
-// NewRace returns a Race over checkpoints for laps laps. It needs at least two checkpoints, each a trigger body, and at least one lap.
+// NewRace returns a Race over checkpoints for laps laps. It needs at least two checkpoints, each a distinct trigger body, and at least one lap; a track that passes the same place twice, such as a figure eight's crossing, needs a trigger body for each pass.
 func NewRace(laps int, checkpoints ...*physics3d.Body) (*Race, error) {
 	if laps < 1 {
 		return nil, errors.New("vehicle: race needs at least one lap")
@@ -77,9 +78,13 @@ func NewRace(laps int, checkpoints ...*physics3d.Body) (*Race, error) {
 	if len(checkpoints) < 2 {
 		return nil, errors.New("vehicle: race needs at least two checkpoints")
 	}
-	for _, cp := range checkpoints {
+	for i, cp := range checkpoints {
 		if cp == nil || !cp.IsTrigger {
 			return nil, errors.New("vehicle: every checkpoint must be a trigger body")
+		}
+		// A body listed twice could only ever match its first index, leaving racers stuck before the second.
+		if slices.Contains(checkpoints[:i], cp) {
+			return nil, fmt.Errorf("vehicle: checkpoint %d repeats an earlier checkpoint; use a separate trigger body for each pass", i)
 		}
 	}
 	return &Race{Checkpoints: slices.Clone(checkpoints), Laps: laps}, nil

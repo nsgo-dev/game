@@ -50,8 +50,9 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 - `Grounded()` 统计着地的车轮数，每个 `Wheels[i]` 报告 `Contact`、`ContactPoint`、`ContactNormal`、`Ground`、`SuspensionLength`、`SuspensionForce`、`SteerAngle`、`SpinSpeed`、`SpinAngle` 和 `Sliding`。
 - `WheelTransform(i)` 返回第 `i` 个车轮在世界空间中的中心和朝向（含转向与滚动），用于绘制车轮网格，网格的轮轴是其局部 X 轴。
 - `Reset(pos, rot)` 把车瞬移到新位置、停下并清空车轮状态，例如在检查点重生。
+- `Config()` 返回车辆调校的副本。调校在车辆的整个生命周期内固定不变，每个 `Wheels[i].Config` 也只是供读取的副本；要换一套调校驾驶，请新建一个 `Vehicle`。
 
-`RayMask` 选择车轮射线检测的层；触发器刚体和车身自身总会被跳过，所以检查点不会把车托起来。静止且没有输入的车会像其他刚体一样休眠，`SetInput` 给出油门、刹车、转向或手刹时再唤醒。
+`RayMask` 选择车轮射线检测的层；触发器刚体和车身自身总会被跳过，所以检查点不会把车托起来。静止的车会像其他刚体一样休眠，`SetInput` 给出油门、刹车、转向或手刹时再唤醒。持续踩住油门会让车保持唤醒，例如顶着墙时；持续踩刹车或拉手刹则允许它休眠。
 
 ## 车辆文件
 
@@ -130,7 +131,7 @@ car.Step(world, dt)
 world.Step(dt)
 ```
 
-检查点 0 是起点/终点线。车手的第一圈从加入时的那一步开始；必须依次进入检查点 1、2……再进入检查点 0 才算完成一圈，进入其他检查点会被忽略，所以抄近路不算数。时间以固定步数计：每步在 `World.Step` 之前调用一次 `Tick`，乘以步长即得实际时间。
+检查点 0 是起点/终点线，并且每个检查点都必须是不同的触发器刚体：赛道若两次经过同一位置（例如 8 字形赛道的交叉点），每次经过都需要一个触发器。车手的第一圈从加入时的那一步开始；必须依次进入检查点 1、2……再进入检查点 0 才算完成一圈，进入其他检查点会被忽略，所以抄近路不算数。时间以固定步数计：每步在 `World.Step` 之前调用一次 `Tick`，乘以步长即得实际时间。
 
 每个 `Racer` 报告 `Laps`、`Next`、`LastLap`、`BestLap`、`Finished` 和 `FinishStep`；每完成一圈，`OnLap` 都会收到一个 `LapEvent`，其中注明这圈是否为该车手的最快圈、是否为最后一圈。`Standings()` 给出名次：已完赛的按完赛步数排，其余按完成圈数和通过的检查点数排，并列时按加入顺序。`Observe` 会忽略不是进入检查点的事件，所以可以接在其他触发器处理函数之后。
 
@@ -140,8 +141,10 @@ world.Step(dt)
 
 ```go
 rec := &vehicle.GhostRecorder{Interval: 2}
+// 加入车手时，记录第一圈的第一帧：
+rec.Record(car.Body.Pos, car.Body.Rot)
 race.OnLap = func(ev vehicle.LapEvent) {
-	rec.Record(car.Body.Pos, car.Body.Rot)
+	rec.Finish(car.Body.Pos, car.Body.Rot) // 终点线，即使落在两次采样之间
 	if ev.Best {
 		best = rec.Ghost(60, ev.Steps)
 	}
@@ -154,9 +157,9 @@ rec.Record(car.Body.Pos, car.Body.Rot)
 pos, rot := best.Pose(float64(step) + alpha)
 ```
 
-`Pose` 在帧之间对位置做线性插值、对朝向做球面插值，超出录像范围的步数会钳制到第一帧或最后一帧。
+第 `i` 帧位于第 `i * Interval` 步，但设置了 `LapSteps` 时最后一帧位于第 `LapSteps` 步，所以即使一圈的步数不是 `Interval` 的倍数，`Finish` 也能让幽灵恰好结束在终点线上。`Pose` 在帧之间对位置做线性插值、对朝向做球面插值，超出录像范围的步数会钳制到第一帧或最后一帧。
 
-和本仓库的其他文件一样，幽灵是文本：`EncodeGhost` 写出带版本号的 YAML，每帧的位置和旋转各占一行流式写法，`ParseGhost` 读回后不变，并拒绝未知字段和超过 60 Hz 下一小时的帧数。
+和本仓库的其他文件一样，幽灵是文本：`EncodeGhost` 写出带版本号的 YAML，每帧的位置和旋转各占一行流式写法，`ParseGhost` 读回后不变，并拒绝未知字段、超过 60 Hz 下一小时的帧数，以及不落在最后一帧之前最后一个 `interval` 内的 `lapSteps`。
 
 ```yaml
 version: 1
@@ -168,6 +171,7 @@ frames:
     r: [0, 0, 0, 1]
   - p: [0, 0.62, 13.98]
     r: [0, 0, 0, 1]
+  # ……还有 405 帧，最后一帧位于第 812 步
 ```
 
 若要精确重现一次驾驶（例如用于缺陷报告），应改为录制车辆的输入：`replay.NewRecorder(actions, seed, rate, controls.Actions(), controls.Axes())`，再通过 `replay.Player` 回放到 `Controls.Read`。

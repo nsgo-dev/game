@@ -80,13 +80,14 @@ func TestRecordedDriveReplays(t *testing.T) {
 func TestBestLapGhost(t *testing.T) {
 	tt := newTestTrack(2)
 	d := newDriver(tt.car, tt.waypoints)
-	gr := &vehicle.GhostRecorder{Interval: 1}
+	// An interval that does not divide the lap exercises Finish's off-grid last frame.
+	gr := &vehicle.GhostRecorder{Interval: 7}
 	var best *vehicle.Ghost
 	bestLap := 0
 	var lapStarts []physics3d.Vec3
 	record := func() { gr.Record(tt.car.Body.Pos, tt.car.Body.Rot) }
 	tt.race.OnLap = func(ev vehicle.LapEvent) {
-		record()
+		gr.Finish(tt.car.Body.Pos, tt.car.Body.Rot)
 		if ev.Best {
 			best = gr.Ghost(rate, ev.Steps)
 			bestLap = ev.Lap

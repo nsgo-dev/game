@@ -32,15 +32,17 @@ func enter(r *vehicle.Race, body, cp *physics3d.Body) {
 func TestNewRaceValidates(t *testing.T) {
 	w := physics3d.NewWorld()
 	trig := vehicle.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{})
+	other := vehicle.AddCheckpoint(w, box(1, 1, 1), physics3d.Vec3{X: 5})
 	solid := w.AddBody(physics3d.NewStaticBody(box(1, 1, 1), physics3d.Vec3{}))
 	if !trig.IsTrigger || !trig.Static {
 		t.Fatalf("AddCheckpoint made %+v", trig)
 	}
 	for name, f := range map[string]func() error{
-		"zero laps":   func() error { _, err := vehicle.NewRace(0, trig, trig); return err },
+		"zero laps":   func() error { _, err := vehicle.NewRace(0, trig, other); return err },
 		"one cp":      func() error { _, err := vehicle.NewRace(1, trig); return err },
 		"nil cp":      func() error { _, err := vehicle.NewRace(1, trig, nil); return err },
 		"non-trigger": func() error { _, err := vehicle.NewRace(1, trig, solid); return err },
+		"duplicate":   func() error { _, err := vehicle.NewRace(1, trig, other, trig); return err },
 	} {
 		if f() == nil {
 			t.Errorf("%s: NewRace accepted it", name)
