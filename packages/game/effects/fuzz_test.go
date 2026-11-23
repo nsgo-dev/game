@@ -2,6 +2,7 @@ package effects_test
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,6 +49,7 @@ func FuzzScreenEffects(f *testing.F) {
 	f.Add(-1.0, 2.0, -3.0, -0.5, 1e9, 1e6, -5.0, 100.0)
 	f.Add(math.NaN(), math.Inf(1), math.Inf(-1), math.NaN(), math.Inf(1), math.NaN(), 1.0, math.NaN())
 	chain := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
+	shake := effects.MustCompile(effects.ShakeEffect())
 	f.Fuzz(func(t *testing.T, strength, radius, softness, amount, amplitude, seconds, frequency, phase float64) {
 		u := []core.Uniforms{
 			{"Amplitude": amplitude, "Time": seconds, "Frequency": frequency, "Phase": []float64{phase, -phase, 2 * phase, 0}},
@@ -67,6 +69,21 @@ func FuzzScreenEffects(f *testing.F) {
 		x, y := effects.ShakeOffset(amplitude, seconds, frequency, [4]float64{phase, -phase, 2 * phase, 0})
 		if limit := math.Abs(amplitude) * (1 + 1e-9); math.Abs(x) > limit || math.Abs(y) > limit {
 			t.Fatalf("offset (%g, %g) past amplitude %g", x, y, amplitude)
+		}
+		// A uniform that is not finite leaves the frame where it is.
+		finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+		if !finite(amplitude) || !finite(seconds) || !finite(frequency) || !finite(phase) {
+			if x != 0 || y != 0 {
+				t.Fatalf("a uniform that is not finite moved the frame by (%g, %g)", x, y)
+			}
+			got, err := shake.Reference(sceneFrame(), 16, 9, u[:1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			still, _ := shake.Reference(sceneFrame(), 16, 9, nil)
+			if !slices.Equal(got.Pix, still.Pix) {
+				t.Fatal("a uniform that is not finite drew the frame moved")
+			}
 		}
 	})
 }

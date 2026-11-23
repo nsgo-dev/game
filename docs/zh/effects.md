@@ -105,7 +105,7 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 | --- | --- | --- |
 | `VignetteEffect()` | `Strength`、`Radius`、`Softness`、`Color` | 让画面边缘偏向 `Color`（未给出时为黑色），保留每个像素的 alpha。距离从中心的 0 到四角的 1，在画面像素中呈圆形；边缘从 `Radius` 处开始变色，在 `Softness` 的距离内平滑过渡到底，程度由 `Strength`（0 到 1）决定。 |
 | `FlashEffect()` | `Amount`、`Color` | 按 `Amount`（0 到 1）让整个画面偏向不透明的 `Color`。 |
-| `ShakeEffect()` | `Amplitude`、`Time`、`Frequency`、`Phase` | 让画面在每个方向上最多移动 `Amplitude` 像素，按 `Time`（秒）每秒摆动 `Frequency` 次，起点由四个 `Phase` 角度决定；移出画面的地方读取画面边缘。`ShakeOffset` 在 Go 中给出同样的偏移，可让 HUD 随之移动。 |
+| `ShakeEffect()` | `Amplitude`、`Time`、`Frequency`、`Phase` | 让画面在每个方向上最多移动 `Amplitude` 像素，按 `Time`（秒）每秒摆动 `Frequency` 次，起点由四个 `Phase` 角度决定；移出画面的地方读取画面边缘。偏移不是有限值或达到 1e30 像素时，画面保持不动。uniform 为普通数值时，`ShakeOffset` 在 Go 中给出同样的偏移。 |
 
 未给出的 uniform 为 0，因此每个效果在设置前都按原样绘制画面。把震屏放在最前面，让后面的通道画在移动后的画面上，闪屏放在最后：
 
@@ -137,7 +137,7 @@ return effects.View{
 }
 ```
 
-闪屏和震屏遵循减弱动态效果设置：`ReduceMotion` 返回 true 时，`Trigger` 什么也不做并返回 false。可传入 `a11y.Assist` 的 `ReduceMotion`，它优先采用玩家的选择，否则跟随平台设置；`ReduceMotion` 为 nil 时读取平台设置。峰值、幅度或时长不大于 0 时同样不会启动。
+闪屏和震屏遵循减弱动态效果设置：`ReduceMotion` 返回 true 时，`Trigger` 什么也不做并返回 false。可传入 `a11y.Assist` 的 `ReduceMotion`，它优先采用玩家的选择，否则跟随平台设置；`ReduceMotion` 为 nil 时读取平台设置。峰值、幅度或时长不大于 0 时同样不会启动，也不影响正在进行的那次：要结束它请用 `Stop`，这与 `tilemap.Camera.Shake` 不同，后者的强度为 0 时会取消震动。
 
 ## 参考图
 

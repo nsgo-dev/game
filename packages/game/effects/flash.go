@@ -70,7 +70,7 @@ func (f *Flash) Uniforms() core.Uniforms {
 // Amount returns the node FlashEffect's Amount follows, from 0 at rest up to a Trigger's peak.
 func (f *Flash) Amount() core.AnimatedNode { return f.amount }
 
-// Trigger sets Amount to peak, clamped to 0 to 1, and fades it to 0 over fade, easing out, in place of a flash still fading. It reports whether the flash runs: it does not under reduced motion, nor for a peak of 0 or less or a fade of 0 or less, which leave a running flash alone.
+// Trigger sets Amount to peak, clamped to 0 to 1, and fades it to 0 over fade, easing out, in place of a flash still fading. It reports whether the flash runs: it does not under reduced motion, nor for a peak of 0 or less or a fade of 0 or less, which leave a running flash alone: Stop, not Trigger(0, fade), ends a running flash.
 func (f *Flash) Trigger(peak float64, fade time.Duration) bool {
 	if !(peak > 0) || fade <= 0 || reduced(f.cx, f.cfg.ReduceMotion) {
 		return false

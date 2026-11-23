@@ -26,8 +26,12 @@ var Phase vec4
 func Effect(pos vec2) vec4 {
 	w := 6.2831853 * Frequency * Time
 	o := vec2(0.6*sin(w+Phase.x)+0.4*sin(2.17*w+Phase.y), 0.6*sin(1.13*w+Phase.z)+0.4*sin(2.71*w+Phase.w))
+	d := o * Amplitude
+	if !(abs(d.x) < 1e30 && abs(d.y) < 1e30) {
+		d = vec2(0)
+	}
 	size := InputSize()
-	p := pos - o*Amplitude
+	p := pos - d
 	return Input(max(min(p, size-0.5), vec2(0.5)))
 }
 `
@@ -39,7 +43,7 @@ func Effect(pos vec2) vec4 {
 //   - Frequency, how many times a second the frame sways;
 //   - Phase, four numbers or nodes in radians that start the sway's sines, which tell one shake from another.
 //
-// The frame moves by Amplitude times 0.6·sin(w+Phase[0]) + 0.4·sin(2.17w+Phase[1]) across and 0.6·sin(1.13w+Phase[2]) + 0.4·sin(2.71w+Phase[3]) down, with w = 2π·Frequency·Time. A Shake animates them on the frame clock. The effect has a Reference, so a chain of it draws a reference picture.
+// The frame moves by Amplitude times 0.6·sin(w+Phase[0]) + 0.4·sin(2.17w+Phase[1]) across and 0.6·sin(1.13w+Phase[2]) + 0.4·sin(2.71w+Phase[3]) down, with w = 2π·Frequency·Time. An offset that is not finite, or 1e30 pixels or more along either direction, as a NaN or infinite uniform gives, leaves the frame where it is. A Shake animates them on the frame clock. The effect has a Reference, so a chain of it draws a reference picture.
 func ShakeEffect() Effect {
 	return Effect{Name: "shake", Source: shakeSource, Reference: shakeReference}
 }
@@ -51,12 +55,15 @@ func shakeReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
 	return in.At(math.Max(math.Min(x-ox, w-0.5), 0.5), math.Max(math.Min(y-oy, h-0.5), 0.5))
 }
 
-// ShakeOffset returns how far ShakeEffect moves the frame, in its pixels, at its uniforms: a game can move what it draws over the view, such as a HUD, along with it.
+// ShakeOffset returns how far ShakeEffect moves the frame, in its pixels, at the uniforms given: (0, 0) when the offset is not finite or is 1e30 pixels or more along either direction, as on the GPU. It reads plain numbers, so it serves a ShakeEffect a game drives by hand; a Shake's uniforms follow animated nodes whose values only the platform knows.
 func ShakeOffset(amplitude, seconds, frequency float64, phase [4]float64) (x, y float64) {
 	w := 2 * math.Pi * frequency * seconds
-	x = 0.6*math.Sin(w+phase[0]) + 0.4*math.Sin(2.17*w+phase[1])
-	y = 0.6*math.Sin(1.13*w+phase[2]) + 0.4*math.Sin(2.71*w+phase[3])
-	return x * amplitude, y * amplitude
+	x = (0.6*math.Sin(w+phase[0]) + 0.4*math.Sin(2.17*w+phase[1])) * amplitude
+	y = (0.6*math.Sin(1.13*w+phase[2]) + 0.4*math.Sin(2.71*w+phase[3])) * amplitude
+	if !(math.Abs(x) < 1e30 && math.Abs(y) < 1e30) {
+		return 0, 0
+	}
+	return x, y
 }
 
 // DefaultShakeFrequency is a Shake's Frequency when its config leaves it 0.
@@ -64,7 +71,7 @@ const DefaultShakeFrequency = 12
 
 // ShakeConfig configures a Shake.
 type ShakeConfig struct {
-	// Seed picks each trigger's phases in turn, so the same seed shakes the same way in a replay; 0 is a seed of its own like any other.
+	// Seed picks each trigger's phases in turn, so the same seed shakes the same way in a replay; 0 is a seed of its own like any other, where tilemap.Camera's ShakeSeed takes 0 as 1.
 	Seed uint64
 	// Frequency is how many times a second the frame sways, DefaultShakeFrequency when 0 or less.
 	Frequency float64
@@ -114,7 +121,7 @@ func (s *Shake) Uniforms() core.Uniforms {
 // Amplitude returns the node ShakeEffect's Amplitude follows, 0 at rest.
 func (s *Shake) Amplitude() core.AnimatedNode { return s.amplitude }
 
-// Trigger shakes the frame by amplitude pixels at first, decaying to 0 over d, easing out, in place of a shake still running, with the next phases the seed gives. It reports whether the shake runs: it does not under reduced motion, nor for an amplitude or a duration of 0 or less, which leave a running shake alone and draw no phases.
+// Trigger shakes the frame by amplitude pixels at first, decaying to 0 over d, easing out, in place of a shake still running, with the next phases the seed gives. It reports whether the shake runs: it does not under reduced motion, nor for an amplitude or a duration of 0 or less, which leave a running shake alone and draw no phases. Stop, not Trigger(0, d), ends a running shake: unlike tilemap.Camera.Shake, where an intensity or a duration of 0 or less cancels.
 func (s *Shake) Trigger(amplitude float64, d time.Duration) bool {
 	if !(amplitude > 0) || math.IsInf(amplitude, 1) || d <= 0 || reduced(s.cx, s.cfg.ReduceMotion) {
 		return false
