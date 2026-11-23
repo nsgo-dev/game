@@ -102,7 +102,7 @@ sparks.Burst(24) // 立即发射，最多到 MaxParticles 上限
 
 ## 用 YAML 编写发射器定义
 
-发射器的配置可以放在 YAML 文件里，人和工具都能以文本形式编辑和审阅。键名是 `Config` 字段名的小驼峰形式，`version: 1` 写在最前面，取零值的字段省略不写，但 `space` 和 `shape` 总会写出：
+发射器的配置可以放在 YAML 文件里，人和工具都能以文本形式编辑和审阅。键名是 `Config` 字段名的小驼峰形式，`version: 1` 写在最前面，取零值的字段省略不写。少数字段即使是默认值也总会写出：`space` 和 `shape`，子发射器的 `trigger` 和 `config`（其中的 `space` 和 `shape` 也会写出），以及存在 `collision` 块时的 `collision.mode`：
 
 ```yaml
 version: 1
@@ -154,7 +154,7 @@ fire.ReloadConfig(cfg) // frameNames 按 fire.Atlas 解析
 
 - `LoadConfigFile`、`LoadConfigFS` 和 `UnmarshalConfigYAML` 读取定义；`SaveConfigFile` 和 `MarshalConfigYAML` 写出定义。
 - 保存是确定性的：键的顺序固定，缩进为两个空格；已经是这种形式的定义，读入后再保存会逐字节一致。
-- 读取时拒绝 `version` 不等于 `FormatVersion`、未知的键、重复的键、没有值的键，以及第二个 YAML 文档。
+- 读取时拒绝 `version` 不等于 `FormatVersion` 或出现在子发射器的 `config` 中、未知的键、重复的键、没有值的键、第二个 YAML 文档、整数字段带小数（例如 `maxParticles: 12.7`），以及不适用于该形状类型的尺寸（例如 `circle` 上的 `width`）。
 - 时长写成 Go `time.Duration` 形式的字符串，例如 `500ms` 或 `1m30s`；不带单位的数字会被拒绝，因为单位有歧义。
 - 颜色写成带引号的 `"#rrggbb"`（不透明）或 `"#rrggbbaa"` 字符串。一定要加引号：不带引号的 `#` 会开始一段 YAML 注释，读取时会报告该键没有值。
 - `shape.kind` 取 `point`、`circle`、`ring` 或 `rect`；`space` 取 `world` 或 `local`；`collision.mode` 取 `none`、`stop`、`bounce` 或 `kill`；子发射器的 `trigger` 取 `birth`、`death` 或 `collision`。
