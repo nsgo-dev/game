@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目，以及运行游戏并热重载资源。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源，以及检查游戏的场景、地图和图集。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -27,11 +27,12 @@ go tool game help
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
+| `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败、回放的结束状态不一致、基准测试退化）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -164,3 +165,30 @@ go tool game dev ./mygame -lang fr
 运行 `go tool nsgo dev`：它构建游戏、启动游戏，并在 Go 代码改动时重新构建；同时把资源所在位置告诉运行中的游戏，即 `-assets` 的绝对路径（默认是项目目录下的 `resources`），放在环境变量 `NSGO_GAME_ASSETS` 里，`hotreload.DevAssetsDir` 返回的就是它。它必须是游戏的 `assets.Manager` 读取 `"asset:"` URI 的目录：用 `assets.WithFS(os.DirFS(hotreload.DevAssetsDir()))` 创建的 Manager，因为没有 `WithFS` 的 `Manager` 读取的是运行 `game dev` 的目录下的 `assets/`。游戏用 `hotreload.NewDevWatcher` 在这个目录上启动监视器后，它已加载的图集、图片或数据文件在保存后一秒内就会在游戏里更新，无需重启；见[保存时重新加载](assets.md#保存时重新加载)。第一个不是参数标志的位置参数是项目目录，省略时为 `.`，其后的参数原样传给 `nsgo dev`；`-target` 和 `-fps` 也会传过去；目录之后的参数里如果有 `-target`，就以它为准，与 `nsgo dev` 的处理一致。`nsgo dev` 的输出就是 game dev 的输出，Control+C 会同时停止两者。`nsgo dev` 失败时 `go tool game dev` 以 1 退出。
 
 资源在 `native` 和 `tui` 目标上重新加载，带 `-android-host` 的 `android` 目标也可以，这些目标的应用的 Go 代码运行在本机并读取这些文件。在网页和手机上，应用访问不到资源目录，game dev 会提示这一点，游戏要等 `nsgo dev` 重新构建后才拿到资源改动。没有资源目录时，game dev 照常运行 `nsgo dev`，并提示资源不会重新加载。游戏用 `go:embed` 嵌入的资源属于二进制的一部分：这类文件改动时 `nsgo dev` 会重新构建并重启游戏，而监视器的重新加载会在那之前先显示改动。
+
+### check
+
+```sh
+go tool game check
+go tool game check examples/caverun
+```
+
+检查所指目录（或 `-in`；两者都没给时为工作目录）下的每个场景、地图、图块集和图集，以及它们之间的引用，让失效的引用在玩家碰到之前就报错。每个问题以 `file:line: message` 的形式打印到标准错误，文件名从工作目录算起，编辑器可以直接打开，最后打印问题数，命令以 1 退出；没有问题时打印每类文件各检查了多少个，以 0 退出：
+
+```text
+examples/caverun/assets/level1.tmj:1397: tileset image "tileset.png": not found
+game check: 1 problem
+```
+
+| 文件 | 检查内容 |
+| --- | --- |
+| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在且检查通过的 Tiled `.tmj` 地图；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在 |
+| Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
+| LDtk 项目（`.ldtk`） | 图块集图片、关卡背景和外部关卡文件存在；项目能用 `tilemap.LoadLDtkAll` 加载 |
+| 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
+
+地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个；两个同样近时报告为有歧义，直到场景用路径指明其中一个。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
+
+名字以 `.` 或 `_` 开头的目录以及名为 `testdata` 的目录会被跳过，与 go 命令的做法一致。其他 JSON 和 YAML 文件不会被读取。地图或图集的加载器报告的问题不带行号，因此打印为 `file: message`；只有当文件的引用都能解析时，检查才会运行这个加载器，同一个错误不会被报告两次。
+
+Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题。
