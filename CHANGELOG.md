@@ -30,7 +30,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
-- `game/l10n`: per-language asset maps are versioned YAML (`version: 1`) loaded strictly with `LoadAssetManifestYAML` and saved deterministically with `MarshalAssetManifestYAML` (#473).
 
 ### Changed
 
@@ -38,10 +37,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/particles`: `Emitter.Draw` now tints each particle's sprite by its `ColorCurve` RGB, where it previously applied only the curve's alpha, so particle definitions with a non-white `colorCurve` draw in that color (#29).
 - `game`: `Loop` adds each frame's time from `RequestAnimationFrame` as it is, the display's own frame time where the platform stamps one, and no longer smooths it (#27).
 - `game/sound`: group, master and background volume changes now reach effects already playing through NSGo's `audio.Playback`, silencing them at 0 instead of stopping them; an `Effect` at its `Limit` stops its oldest playback to play a new one instead of refusing it; a voice with `Muted` set now plays nothing and `Play` returns false instead of playing muted and counting toward the limit; and a crossfade's new music track starts at once, muted, instead of waiting paused for the fade's first frame (#31).
-
-### Removed
-
-- `game/l10n`: `AssetCatalog.LoadAssetManifestJSON`, with its direct-map shape and `baseLocale` alias. To migrate, write the manifest as YAML with `version: 1`, put the entries under `assets:` and rename `baseLocale` to `base_locale` (#473).
 
 ### Fixed
 
