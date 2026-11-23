@@ -322,6 +322,9 @@ func unmarshalClean(data []byte, dst any) error {
 	return nil
 }
 
+// ValidateSlot reports whether slot is a name a Store accepts, returning an error wrapping ErrInvalidSlot when it is not. Code that takes slot names from outside the game, such as a cloud listing, checks them with it before handing them to a Backend.
+func ValidateSlot(slot string) error { return validateSlot(slot) }
+
 // validateSlot rejects empty names, path separators, traversal sequences, control characters and Windows-reserved filenames.
 func validateSlot(slot string) error {
 	if slot == "" || len(slot) > 200 {
