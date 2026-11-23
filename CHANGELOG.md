@@ -19,6 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/server`: a matchmaking queue with per-mode/region tickets, widening skill windows, whole parties and a pluggable rule (#552).
 - `game/server`: rooms with capacity, private codes, a waiting/running/ended match lifecycle and fresh epochs, per-room packet inboxes, late-join full snapshots and empty-room timeouts (#551).
 - `game/server`: per-peer packet/byte rate limits with throttle/drop/disconnect policies, message and pending-reliable caps, and an input validator with per-peer violation counts (#555).
+
+### Changed
+
+- `game`, `template` and the examples build against NSGo `v0.3.0` instead of v0.2.0, so the key-up, gamepad, frame-time, `DrawAtlas`, GPU view and other engine APIs released since v0.2.0 are available; NSGo's changes since v0.2.0 needed no source change in this repository, and NSGo now brings its goja fork `github.com/nsgo-dev/goja` in place of `github.com/dop251/goja` (#567).
 - `game/cutscene`: video cutscenes in NSGo's `core.Video` over the game's view, pausing the loop and the mixer while they play, skippable by a press, a key or back after an optional delay, with an end/skip callback, a scene for playing one between scenes and a versioned YAML file format (#494).
 - `game/sound`: `Mixer.Suspend` silences the mixer until resumed, as the background does, and `Mixer.Suspended` reports it (#494).
 - `game/net`: a TLS WebSocket listener with an Origin allow-list, plus `game/server` health, readiness and Prometheus metrics endpoints and a container/drain guide (#554).
