@@ -95,6 +95,43 @@ func TestLogRoundTripRandom(t *testing.T) {
 	}
 }
 
+func TestLogAfterClearRestoresOntoClearedState(t *testing.T) {
+	r := rand.New(rand.NewPCG(9, 520))
+	b := newBoard()
+	h := undo.New[*board, *push](b)
+	for _, p := range randomPushes(r, 40) {
+		h.Do(p)
+	}
+	h.Clear()
+	checkpoint := b.clone()
+	for _, p := range randomPushes(r, 60) {
+		h.Do(p)
+	}
+	h.Seek(45)
+	want := b.clone()
+
+	data, err := undo.EncodeLog(h.Log())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := undo.DecodeLog[*push](data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := checkpoint.clone()
+	rh, err := undo.Restore(got, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) || rh.Applied() != 45 || rh.Len() != 60 {
+		t.Fatalf("restored onto the cleared state: applied=%d len=%d, board equal=%v", rh.Applied(), rh.Len(), reflect.DeepEqual(got, want))
+	}
+	rh.Seek(0)
+	if !reflect.DeepEqual(got, checkpoint) {
+		t.Fatal("undoing every restored move did not return to the state at Clear")
+	}
+}
+
 func TestEmptyLog(t *testing.T) {
 	h := undo.New[*board, *push](newBoard())
 	data, err := undo.EncodeLog(h.Log())
@@ -117,7 +154,12 @@ func TestDecodeLogRefuses(t *testing.T) {
 		"unknown field":   {"version: 1\napplied: 0\nmoves: []\nseed: 4\n", "seed"},
 		"unknown in move": {"version: 1\napplied: 1\nmoves:\n  - dir: up\n    box: true\n", "box"},
 		"version":         {"version: 2\napplied: 0\nmoves: []\n", "unsupported log version 2"},
-		"missing version": {"applied: 0\nmoves: []\n", "unsupported log version 0"},
+		"missing version": {"applied: 0\nmoves: []\n", "no version"},
+		"zero version":    {"version: 0\napplied: 0\nmoves: []\n", "unsupported log version 0"},
+		"missing applied": {"version: 1\nmoves:\n  - dir: up\n", "no applied"},
+		"missing moves":   {"version: 1\napplied: 0\n", "no moves"},
+		"null moves":      {"version: 1\napplied: 0\nmoves: null\n", "moves is not a list"},
+		"not a mapping":   {"- 1\n", "decode log"},
 		"applied past":    {"version: 1\napplied: 2\nmoves:\n  - dir: up\n", "applies 2 of 1"},
 		"applied below":   {"version: 1\napplied: -1\nmoves: []\n", "applies -1 of 0"},
 		"null move":       {"version: 1\napplied: 0\nmoves:\n  - null\n", "move 0 is nil"},
