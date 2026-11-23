@@ -5,7 +5,7 @@
 // In scope for the core game module:
 //   - Crash reports (#195): panic recovery around game.Loop and arbitrary callbacks, with a fixed-size step ring buffer, stack trace, metadata and an optional state snapshot handed to the app's reporter.
 //   - Analytics (#198): a provider-agnostic, strictly opt-in event API whose consent state persists in core.Storage. Zero events are sent or buffered before explicit ConsentGranted.
-//   - Cloud saves (#196): the provider-agnostic CloudSync interface, and CloudSyncer (#539), which detects slots changed on two devices and resolves them by policy without silently losing either copy; built-in platform adapters (iCloud, Play Games, Steam Cloud) wait on platform cloud-save bindings.
+//   - Cloud saves (#196): the provider-agnostic CloudSync interface, and CloudSyncer (#539), which detects slots changed on two devices and resolves them by policy without silently losing either copy, and CloudClient (#557), the CloudSync of the self-hosted cloudsave service, whose conditional writes keep concurrent uploads from overwriting each other; built-in platform adapters (iCloud, Play Games, Steam Cloud) wait on platform cloud-save bindings.
 //   - In-app purchases (#369): Purchases over NSGo's purchase services, which credits consumables into the save exactly once through a Ledger saved with them, keeps unlocks and subscriptions from the store's entitlements, restores them, follows purchases waiting for approval and hands transactions to an optional server before delivering them.
 //
 // Out of scope for the core game module:
