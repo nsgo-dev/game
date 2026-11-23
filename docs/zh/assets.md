@@ -89,3 +89,21 @@ return assets.LoadingScreen{
 ```
 
 设置 `LoadingScreen.View`（或 `LoadingScreenProps.Render`）为 `func(progress float64, err error) core.Node` 可完全替换默认进度条界面。
+
+## 保存时重新加载
+
+用 [`go tool game dev`](cli.md#dev) 运行游戏，并在它指定的资源目录上启动监视器，Manager 已加载的每个图集、图片和原始字节资源在文件保存后一秒内就会在运行中的游戏里更新：
+
+```go
+mgr := assets.NewManager(cx, assets.WithFS(os.DirFS("resources")))
+w := hotreload.NewDevWatcher(cx) // 不在 game dev 下运行或在发布构建中时为 nil
+w.WatchAssets(mgr, func(path string, names []string, err error) {
+	if err != nil {
+		log.Printf("reload %s: %v", path, err)
+	}
+})
+```
+
+`WatchAssets` 把目录下每个改动的文件以 `"asset:<path>"` 的形式在引擎 goroutine 上交给 `Manager.Reload`。JSON 改动的图集会重新解析，图片改动的图集以相同的帧绘制文件的新字节；资源组持有的 `*sprite.Atlas` 会原地更新，因此保留了该指针的代码也会画出改动。无法解析的 JSON 会保留之前的帧并报告错误。图片显示新的字节，原始字节被替换；音效和自定义资源只在其资源组重新加载时才会重新加载。`Manager.Revision` 统计替换了资源的重新加载次数，在 `Draw` 中读取它的 `core.Canvas` 会在每次重新加载后重绘；由 `game.Loop` 每帧绘制的游戏无需额外处理。
+
+对于游戏自行加载的图集，例如用 `go:embed` 嵌入的图集，`w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` 会交付从保存后的文件解析出的图集。游戏不在 `game dev` 下运行时 `NewDevWatcher` 返回 nil，而 nil 监视器的方法什么也不做，因此这些调用可以一直留在游戏里；在发布构建（`-tags release`）中它们会被编译为空操作。

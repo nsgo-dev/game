@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline and create projects. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects and run the game with asset hot reload. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -26,6 +26,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
 | `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
+| `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags.
@@ -151,3 +152,15 @@ Writes the starter project, the one `template/template` holds and `nsgo init -te
 The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new` creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, and `starter` is the only one so far.
 
 `new` writes nothing when any file it would write already exists in the directory, and fails with 1. When `go get` or `go mod tidy` fails, such as without a network, the files stay where they are written, and the error names the commands left to run in the directory to finish the project: both `go get -tool …` and `go mod tidy` when `go get` failed, and `go mod tidy` alone when it failed.
+
+### dev
+
+```sh
+go tool game dev
+go tool game dev -target native -fps
+go tool game dev ./mygame -lang fr
+```
+
+Runs `go tool nsgo dev`, which builds the game, starts it and rebuilds it when its Go code changes, and tells the running game where its assets are: the absolute path of `-assets` (`resources` in the project directory by default, the directory `"asset:"` URIs name) in the `NSGO_GAME_ASSETS` environment variable. A game that starts a watcher on it with `hotreload.NewDevWatcher` sees an atlas, image or data file it has loaded change within a second of the file being saved, without restarting; see [Reloading on save](assets.md#reloading-on-save). The first argument that is not a flag is the project directory, `.` when there is none, and the arguments after it go to `nsgo dev` unchanged; `-target` and `-fps` are passed on too. `nsgo dev`'s output is game dev's, and Control+C stops both. `go tool game dev` exits with 1 when `nsgo dev` fails.
+
+Assets reload on the `native` and `tui` targets, whose app runs on this machine and reads the files. On the web and on phones the app cannot reach the asset directory, so game dev says so and the game picks up asset changes when `nsgo dev` rebuilds it. Without an asset directory game dev runs `nsgo dev` as it is and says that assets will not reload. An asset the game embeds with `go:embed` is part of its binary: `nsgo dev` rebuilds and restarts the game when such a file changes, and the watcher's reload shows the change before that.

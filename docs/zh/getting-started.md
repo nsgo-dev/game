@@ -80,6 +80,8 @@ go tool nsgo dev -target android
 
 给任意 `nsgo dev` 命令加上 `-fps`，可以在运行中的游戏画面上叠加 NSGo 的性能监视器。
 
+如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `go tool game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
+
 ## 用 Loop 和 sprite.Batch 绘制精灵
 
 游戏就是一个 NSGo 组件。它在自己的作用域上启动 `game.Loop`，在 `Update` 中以固定频率（默认每秒 60 次）推进状态，在 `Draw` 中更新 `core.Signal`，让 `core.Canvas` 重绘而不必重新提交整个视图树。

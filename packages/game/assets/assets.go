@@ -65,6 +65,9 @@ type Manager struct {
 	groups     map[string]*Group
 	groupOrder []string
 
+	// revision counts the Reload calls that replaced an asset; Revision reads it.
+	revision *core.Signal[int]
+
 	// mu protects disposed and pending across worker goroutines and the engine
 	// goroutine so late completions never leak resources if cx is disposed
 	// between a worker finishing and core.Scope.Post running.
@@ -95,6 +98,7 @@ func NewManager(cx *core.Scope, opts ...Option) *Manager {
 		}
 	}
 	cx.Run(func() {
+		m.revision = core.NewSignal(cx, 0)
 		cx.Cleanup(m.dispose)
 	})
 	return m
