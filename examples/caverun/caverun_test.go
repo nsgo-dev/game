@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -49,101 +51,183 @@ func startPlaying(t *testing.T, app *nsgotest.App, g *caveRun) {
 	}
 }
 
+// controls is one way a player drives the explorer: move holds a direction (-1, 0 or 1) and jump holds or releases the jump input.
+type controls interface {
+	move(dir int)
+	jump(held bool)
+}
+
+// hudControls presses the native HUD's touch buttons.
+type hudControls struct {
+	app                  *nsgotest.App
+	left, right, jumping bool
+}
+
+func (c *hudControls) hold(id string, held *bool, want bool) {
+	if *held == want {
+		return
+	}
+	if !c.app.Exists(id) {
+		*held = false
+		return
+	}
+	if want {
+		c.app.PressDown(id)
+	} else {
+		c.app.PressUp(id)
+	}
+	*held = want
+}
+
+func (c *hudControls) move(dir int) {
+	c.hold("id:ctrl-left", &c.left, dir < 0)
+	c.hold("id:ctrl-right", &c.right, dir > 0)
+}
+
+func (c *hudControls) jump(held bool) { c.hold("id:ctrl-jump", &c.jumping, held) }
+
+// keyControls holds keys on the keyboard, which input.Actions hears through WatchKeys.
+type keyControls struct {
+	app                  *nsgotest.App
+	left, right, jumping bool
+}
+
+func (c *keyControls) hold(key string, held *bool, want bool) {
+	if *held == want {
+		return
+	}
+	if want {
+		c.app.KeyDown(key)
+	} else {
+		c.app.KeyUp(key)
+	}
+	*held = want
+}
+
+func (c *keyControls) move(dir int) {
+	c.hold("left", &c.left, dir < 0)
+	c.hold("d", &c.right, dir > 0)
+}
+
+func (c *keyControls) jump(held bool) { c.hold("space", &c.jumping, held) }
+
+// padControls pushes the left stick and presses South on game controller 1.
+type padControls struct {
+	app *nsgotest.App
+}
+
+func (c *padControls) move(dir int) {
+	c.app.SetGamepadAxis(1, gamepad.AxisLeftX, float32(dir))
+}
+
+func (c *padControls) jump(held bool) {
+	var v float32
+	if held {
+		v = 1
+	}
+	c.app.SetGamepadButton(1, gamepad.ButtonSouth, v)
+}
+
 func TestPlayLevelStartToEnd(t *testing.T) {
-	app, g := startCaveRun(t)
+	for _, tc := range []struct {
+		name  string
+		swarm bool
+		start func(*testing.T, *nsgotest.App, *caveRun)
+		ctl   func(*nsgotest.App) controls
+	}{
+		{name: "hud_buttons", start: startPlaying, ctl: func(app *nsgotest.App) controls { return &hudControls{app: app} }},
+		{name: "keyboard", start: startWithEnter, ctl: func(app *nsgotest.App) controls { return &keyControls{app: app} }},
+		{name: "gamepad", start: startWithGamepad, ctl: func(app *nsgotest.App) controls { return &padControls{app: app} }},
+		{name: "keyboard_1000_fireflies", swarm: true, start: startWithEnter, ctl: func(app *nsgotest.App) controls { return &keyControls{app: app} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startCaveRun(t)
 
-	// Title screen renders the cave backdrop into the Canvas.
-	canvas := app.Find("id:game-canvas")
-	if len(canvas.Ops) == 0 {
-		t.Fatal("expected title screen canvas to record drawing operations")
-	}
+			// Title screen renders the cave backdrop into the Canvas.
+			if len(app.Find("id:game-canvas").Ops) == 0 {
+				t.Fatal("expected title screen canvas to record drawing operations")
+			}
+			if tc.swarm {
+				app.Post(g.toggleSwarm)
+				app.Settle()
+			}
+			tc.start(t, app, g)
 
-	startPlaying(t, app, g)
+			// Verify initial HUD readouts and level entity counts.
+			if got := len(g.level.gems); got != 8 {
+				t.Fatalf("level gems = %d, want 8", got)
+			}
+			if got := len(g.level.slimes); got != 2 {
+				t.Fatalf("level slimes = %d, want 2", got)
+			}
+			if got := app.Find("id:hud-hearts").Text; got != "♥♥♥" {
+				t.Fatalf("initial hud-hearts = %q, want %q", got, "♥♥♥")
+			}
+			if tc.swarm && g.level.swarm == nil {
+				t.Fatal("the firefly swarm did not carry over from the title screen into the level")
+			}
 
-	// Verify initial HUD readouts and level entity counts.
-	if got := len(g.level.gems); got != 8 {
-		t.Fatalf("level gems = %d, want 8", got)
+			driveLevel(t, app, g, tc.ctl(app))
+			checkVictoryAndReplay(t, app, g, tc.swarm)
+		})
 	}
-	if got := len(g.level.slimes); got != 2 {
-		t.Fatalf("level slimes = %d, want 2", got)
-	}
-	if got := app.Find("id:hud-hearts").Text; got != "♥♥♥" {
-		t.Fatalf("initial hud-hearts = %q, want %q", got, "♥♥♥")
-	}
+}
 
-	// Drive the explorer across all three chambers of level1.tmj using real HUD button inputs:
-	//   Chamber 1: spawn (x=32) -> bridge (gem 1) -> step ledge (x=160)
-	//   Chamber 2: Lava Pit 1 bridge (gem 2) -> central island (over slime_1) -> Lava Pit 2 bridge (gem 5)
-	//   Chamber 3: slime_2 floor (gem 6) -> row 9 ascending bridge (gem 8) -> row 7 exit portal (x=592, y=96)
+// startWithEnter starts the game from the title screen with the Enter key.
+func startWithEnter(t *testing.T, app *nsgotest.App, g *caveRun) {
+	t.Helper()
+	app.Key("enter")
+	app.Advance(250 * time.Millisecond)
+	if g.phase.Get() != phasePlaying {
+		t.Fatalf("phase after Enter = %v, want phasePlaying", g.phase.Get())
+	}
+}
+
+// startWithGamepad connects controller 1 and starts the game from the title screen with its Start button.
+func startWithGamepad(t *testing.T, app *nsgotest.App, g *caveRun) {
+	t.Helper()
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.Advance(testFrame)
+	app.SetGamepadButton(1, gamepad.ButtonStart, 1)
+	app.Advance(2 * testFrame)
+	app.SetGamepadButton(1, gamepad.ButtonStart, 0)
+	app.Advance(250 * time.Millisecond)
+	if g.phase.Get() != phasePlaying {
+		t.Fatalf("phase after Start = %v, want phasePlaying", g.phase.Get())
+	}
+	if g.paused.Get() {
+		t.Fatal("the Start press that began the game also paused it")
+	}
+}
+
+// driveLevel plays level1.tmj from spawn to the exit portal with c, one fixed step at a time:
+//
+//	Chamber 1: spawn (x=32) -> bridge (gem 1) -> step ledge (x=160)
+//	Chamber 2: Lava Pit 1 bridge (gem 2) -> central island (over slime_1) -> Lava Pit 2 bridge (gem 5)
+//	Chamber 3: slime_2 floor (gem 6) -> row 9 ascending bridge (gem 8) -> row 7 exit portal (x=592, y=96)
+func driveLevel(t *testing.T, app *nsgotest.App, g *caveRun, c controls) {
+	t.Helper()
 	const (
 		stateMoveRight = iota
 		stateClimbToPortal
 	)
 	mode := stateMoveRight
-	rightHeld := false
-	leftHeld := false
 	jumpHeld := false
 	jumpCooldown := 0
 
-	setMove := func(dir int) {
-		if dir > 0 {
-			if leftHeld {
-				if app.Exists("id:ctrl-left") {
-					app.PressUp("id:ctrl-left")
-				}
-				leftHeld = false
-			}
-			if !rightHeld && app.Exists("id:ctrl-right") {
-				app.PressDown("id:ctrl-right")
-				rightHeld = true
-			}
-		} else if dir < 0 {
-			if rightHeld {
-				if app.Exists("id:ctrl-right") {
-					app.PressUp("id:ctrl-right")
-				}
-				rightHeld = false
-			}
-			if !leftHeld && app.Exists("id:ctrl-left") {
-				app.PressDown("id:ctrl-left")
-				leftHeld = true
-			}
-		} else {
-			if rightHeld {
-				if app.Exists("id:ctrl-right") {
-					app.PressUp("id:ctrl-right")
-				}
-				rightHeld = false
-			}
-			if leftHeld {
-				if app.Exists("id:ctrl-left") {
-					app.PressUp("id:ctrl-left")
-				}
-				leftHeld = false
-			}
-		}
-	}
-
 	releaseJump := func() {
 		if jumpHeld {
-			if app.Exists("id:ctrl-jump") {
-				app.PressUp("id:ctrl-jump")
-			}
+			c.jump(false)
 			jumpHeld = false
 		}
 	}
 	pressJump := func() {
-		if !jumpHeld && app.Exists("id:ctrl-jump") {
-			app.PressDown("id:ctrl-jump")
+		if !jumpHeld {
+			c.jump(true)
 			jumpHeld = true
 			jumpCooldown = 14
 		}
 	}
-
-	defer func() {
-		setMove(0)
-		releaseJump()
-	}()
 
 	const maxFrames = 900 // 15 seconds of simulated 60 Hz gameplay
 	for frame := 0; frame < maxFrames && g.phase.Get() == phasePlaying; frame++ {
@@ -172,7 +256,7 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 
 		switch mode {
 		case stateMoveRight:
-			setMove(1)
+			c.move(1)
 			wantJump := false
 
 			// 1. Jump onto Chamber 1 bridge (cols 5..8, x=80..144, y=160) to collect gem 1.
@@ -216,32 +300,30 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 			// Ascend from Chamber 3 floor (y=176) -> row 9 bridge (cols 32..34, x=512..560, y=144) -> row 7 portal ledge (cols 35..38, x=560..624, y=112).
 			if py > 152 {
 				// Position near x=505..520 and jump onto the row 9 bridge.
-				if px < 508 {
-					setMove(1)
-				} else if px > 544 {
-					setMove(-1)
+				if px > 544 {
+					c.move(-1)
 				} else {
-					setMove(1)
+					c.move(1)
 				}
 				if grounded && px >= 494 && px <= 548 {
 					pressJump()
 				}
 			} else if py > 120 {
 				// On row 9 bridge (y=144): move right and jump onto row 7 portal ledge (y=112).
-				setMove(1)
+				c.move(1)
 				if grounded && px >= 530 && px <= 562 {
 					pressJump()
 				}
 			} else {
 				// On row 7 portal ledge (y=112): run straight into exit portal at x=592!
-				setMove(1)
+				c.move(1)
 			}
 		}
 
 		app.Advance(testFrame)
 	}
 
-	setMove(0)
+	c.move(0)
 	releaseJump()
 
 	// Allow victory fade transition to settle.
@@ -252,7 +334,11 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 		t.Fatalf("did not reach victory within %d frames: phase=%v pos=(%.1f, %.1f) hearts=%d gems=%d score=%d",
 			maxFrames, g.phase.Get(), pb.X, pb.Y, g.level.hearts, g.level.gemsCollected, g.level.score)
 	}
+}
 
+// checkVictoryAndReplay checks the victory screen after driveLevel, then plays again from it.
+func checkVictoryAndReplay(t *testing.T, app *nsgotest.App, g *caveRun, swarm bool) {
+	t.Helper()
 	if g.level.gemsCollected < 2 {
 		t.Fatalf("gemsCollected = %d, want at least 2 collected along the route", g.level.gemsCollected)
 	}
@@ -270,9 +356,12 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 	}
 
 	// Verify canvas recorded tilemap/sprite draw ops throughout gameplay.
-	canvas = app.Find("id:game-canvas")
+	canvas := app.Find("id:game-canvas")
 	if len(canvas.Ops) < 10 {
 		t.Fatalf("expected rich canvas drawing ops, got %d", len(canvas.Ops))
+	}
+	if drawn := len(gametest.ImageDraws(canvas.Ops)); swarm && drawn < swarmSize {
+		t.Fatalf("victory frame drew %d images, want at least the %d fireflies", drawn, swarmSize)
 	}
 
 	// Pressing Play Again resets cleanly back into active gameplay.
@@ -284,6 +373,9 @@ func TestPlayLevelStartToEnd(t *testing.T) {
 	if g.level.score != 0 || g.level.gemsCollected != 0 || g.level.hearts != maxHearts {
 		t.Fatalf("after replay: score=%d gems=%d hearts=%d, want 0, 0, %d",
 			g.level.score, g.level.gemsCollected, g.level.hearts, maxHearts)
+	}
+	if swarm != (g.level.swarm != nil) {
+		t.Fatalf("after replay swarm on = %v, want %v", g.level.swarm != nil, swarm)
 	}
 }
 
@@ -361,14 +453,14 @@ func TestHUDAndPauseMenu(t *testing.T) {
 		t.Fatalf("expected simulation steps to resume after unpause: %d <= %d", g.level.steps, pausedSteps)
 	}
 
-	// Keyboard pause & resume via Escape and P.
+	// Keyboard pause & resume via Escape and P, which the next fixed step reads.
 	app.Key("escape")
-	app.Settle()
+	app.Advance(2 * testFrame)
 	if !app.Exists("id:pause-menu") {
 		t.Fatal("expected Escape key to open pause-menu")
 	}
 	app.Key("p")
-	app.Settle()
+	app.Advance(2 * testFrame)
 	if app.Exists("id:pause-menu") {
 		t.Fatal("expected P key to resume from pause-menu")
 	}
