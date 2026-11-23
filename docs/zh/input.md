@@ -69,6 +69,18 @@ actions.Attach(&view)
 - `OnContextMenu` 将右键点击记录为 `ev.Position` 处持续一个步长的 `core.MouseButtonRight` 脉冲。
 - `OnMouseLeave` 在指针离开视图时清空按住的鼠标按键。
 
+### 将视图坐标映射到虚拟画布
+
+当游戏通过带黑边的 [`screen.Viewport`](screen.md) 绘制时，设置 `MapPoint` 即可让 `TouchRegion` 和 `MouseRegion` 在虚拟游戏坐标下判定：
+
+```go
+actions.MapPoint = func(p core.Point) (core.Point, bool) {
+	return viewport.ViewToGame(windowSize, p)
+}
+```
+
+当 `MapPoint` 返回 `false`（例如点在黑边区域）时，该点会被区域判定忽略。
+
 ## 接收按键
 
 视图只有在自身拥有键盘焦点时才能收到按键，而点击只会按下视图、不会让它获得焦点，因此游戏通常在整个窗口上接收按键。在运行循环的 scope 中调用一次 `WatchKeys`：
@@ -87,18 +99,11 @@ loop.Run(cx)
 - 按住的按键在每个步长都保持其动作的 `Pressed`，直到按键抬起；在两个步长之间按下并抬起的按键与轻点一样被锁存一个步长。
 - 用 `BindAxis` 把绑定到一对反向按键的两个动作组合为轴：按住负向键时 `Axis` 为 `-1`，按住正向键时为 `+1`，两者都按或都不按时为 `0`。
 - 窗口失去键盘焦点时，所有按住的按键都会抬起，并在下一个步长触发 `JustReleased`，玩家切到其他窗口时不会有动作卡住。
+- `Reset` 会释放所有按住的按键；此时仍按着的按键会保持释放状态，直到它抬起后再次按下。
 
-### 将视图坐标映射到虚拟画布
+挂载的视图在按键按住期间离开视图树时，该按键会一直保持按住，因为 NSGo 不再把它的抬起事件发给这个视图：替换游戏视图时请调用 `Reset`，或改用不依赖视图的 `WatchKeys`。
 
-当游戏通过带黑边的 [`screen.Viewport`](screen.md) 绘制时，设置 `MapPoint` 即可让 `TouchRegion` 和 `MouseRegion` 在虚拟游戏坐标下判定：
-
-```go
-actions.MapPoint = func(p core.Point) (core.Point, bool) {
-	return viewport.ViewToGame(windowSize, p)
-}
-```
-
-当 `MapPoint` 返回 `false`（例如点在黑边区域）时，该点会被区域判定忽略。
+`Key` 接受 `core.KeyEvent.Key` 报告的名称，不区分大小写。`core.KeyHeld` 额外接受的别名，例如 `"mod"`、`"cmd"` 或 `"option"`，永远不算按住；在 `Env.AppleKeys` 表明 Command 是平台修饰键的平台上绑定 `"meta"`，其他平台绑定 `"ctrl"`。
 
 ## 在固定步长中采样
 

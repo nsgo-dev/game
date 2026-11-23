@@ -96,6 +96,9 @@ type Actions struct {
 	keysDown     map[string]heldKey
 	watchedKeys  []string
 	watchedCodes []string
+	// ignoredKeys and ignoredCodes are the keys held on the window as Reset was called, which WatchKeys ignores until they come up.
+	ignoredKeys  []string
+	ignoredCodes []string
 
 	// Per-action rising-edge latches and step snapshots.
 	rawActive map[string]bool
@@ -110,7 +113,7 @@ func NewActions() *Actions {
 	return &Actions{}
 }
 
-// Bind binds name to inputs, replacing any previous inputs for name. Calling Bind with no inputs unbinds name.
+// Bind binds name to inputs, replacing any previous inputs for name. Calling Bind with no inputs unbinds name. A key name is lowercased, as Key does, so Bindings returns it lowercased.
 func (a *Actions) Bind(name string, inputs ...Input) {
 	if len(inputs) == 0 {
 		a.Unbind(name)
@@ -119,7 +122,11 @@ func (a *Actions) Bind(name string, inputs ...Input) {
 	if a.bindings == nil {
 		a.bindings = make(map[string][]Input)
 	}
-	a.bindings[name] = slices.Clone(inputs)
+	list := make([]Input, len(inputs))
+	for i, in := range inputs {
+		list[i] = normalizeInput(in)
+	}
+	a.bindings[name] = list
 	if a.rawActive == nil {
 		a.rawActive = make(map[string]bool)
 	}
@@ -274,8 +281,7 @@ func (a *Actions) Reset() {
 	a.moveButton = core.MouseButtonNone
 	a.rightPulse = false
 	clear(a.keysDown)
-	a.watchedKeys = a.watchedKeys[:0]
-	a.watchedCodes = a.watchedCodes[:0]
+	a.ignoreWatchedKeys()
 	clear(a.rawActive)
 	clear(a.latched)
 	clear(a.curr)
@@ -440,7 +446,7 @@ func (a *Actions) OnContextMenu(ev core.ContextMenuEvent) {
 	a.syncRaw()
 }
 
-// Attach wires a's touch, press, mouse, context-menu, pointer-lock motion and key handlers onto v, chaining any callbacks already set on v. v hears keys only while it has the keyboard focus; WatchKeys hears them anywhere on the window.
+// Attach wires a's touch, press, mouse, context-menu, pointer-lock motion and key handlers onto v, chaining any callbacks already set on v. v hears keys only while it has the keyboard focus; WatchKeys hears them anywhere on the window. A key held as v leaves the tree stays held until Reset, as OnKeyUp says.
 func (a *Actions) Attach(v *core.View) {
 	if v == nil {
 		return

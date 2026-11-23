@@ -138,7 +138,7 @@ func TestKeyCodeFollowsThePositionNotTheLayout(t *testing.T) {
 func TestKeysReleasedWhenWindowLosesFocus(t *testing.T) {
 	for _, path := range []string{"watched", "focused"} {
 		t.Run(path, func(t *testing.T) {
-			// The keys are held by name: nsgotest's BlurWindow releases a key KeyCodeDown holds under its position as its name and without its position, so neither core.KeyCodesDown nor OnKeyUp hears it come up (reported as an NSGo issue).
+			// The keys are held by name: nsgotest's BlurWindow (nsgotest/pointer.go in the pinned NSGo) sends the key-up of a key KeyCodeDown holds with its position as the key's name and no position, so neither core.KeyCodesDown nor OnKeyUp hears that key come up, and a KeyCode binding cannot be checked here until NSGo fixes it.
 			bind := func(a *input.Actions) {
 				a.Bind("left", input.Key("left"))
 				a.Bind("right", input.Key("right"))
@@ -182,18 +182,71 @@ func TestUnboundKeyIsNotConsumed(t *testing.T) {
 }
 
 func TestResetReleasesHeldKeys(t *testing.T) {
-	var presses int
-	h := focusedKeys(t, []string{"jump"}, &presses, func(a *input.Actions) { a.Bind("jump", input.Key("space")) })
-	h.app.KeyDown("space")
-	h.step()
-	expectState(t, "held", h.last("jump"), stepState{pressed: true, justPressed: true})
-	h.app.Post(h.actions.Reset)
-	h.app.Settle()
-	h.step()
-	expectState(t, "after Reset", h.last("jump"), stepState{})
-	h.app.KeyUp("space")
-	h.step()
-	expectState(t, "after the key comes up", h.last("jump"), stepState{})
+	for _, path := range []string{"watched", "focused"} {
+		t.Run(path, func(t *testing.T) {
+			bind := func(a *input.Actions) {
+				a.Bind("jump", input.Key("space"))
+				a.Bind("fire", input.Key("x"))
+			}
+			var h *harness
+			var presses int
+			if path == "watched" {
+				h = watchKeys(t, []string{"jump", "fire"}, bind)
+			} else {
+				h = focusedKeys(t, []string{"jump", "fire"}, &presses, bind)
+			}
+			h.app.KeyDown("space")
+			h.step()
+			expectState(t, "held", h.last("jump"), stepState{pressed: true, justPressed: true})
+			h.app.Post(h.actions.Reset)
+			h.app.Settle()
+			h.step()
+			expectState(t, "after Reset", h.last("jump"), stepState{})
+
+			// Another key going down does not bring back the key held through Reset.
+			h.app.KeyDown("x")
+			h.step()
+			expectState(t, "fire after Reset", h.last("fire"), stepState{pressed: true, justPressed: true})
+			expectState(t, "jump while another key goes down", h.last("jump"), stepState{})
+			h.app.KeyUp("x")
+
+			h.app.KeyUp("space")
+			h.step()
+			expectState(t, "after the key comes up", h.last("jump"), stepState{})
+			h.app.KeyDown("space")
+			h.step()
+			expectState(t, "pressed again", h.last("jump"), stepState{pressed: true, justPressed: true})
+			h.app.KeyUp("space")
+		})
+	}
+}
+
+func TestResetReleasesAKeyHeldAsTheViewIsRemoved(t *testing.T) {
+	a := input.NewActions()
+	a.Bind("jump", input.Key("space"))
+	var shown *core.Signal[bool]
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		shown = core.NewSignal(cx, true)
+		return core.View{Children: []core.Node{core.Show{When: shown.Get, Then: func(*core.Scope) core.Node {
+			v := core.View{TestID: "game", Style: core.Style{Width: core.Pt(100), Height: core.Pt(100)}, Focusable: func() bool { return true }}
+			a.Attach(&v)
+			return v
+		}}}}
+	}, desktop)
+	app.Focus("id:game")
+	app.KeyDown("space")
+	app.Post(func() { shown.Set(false) })
+	app.Settle()
+	app.KeyUp("space")
+	a.Step()
+	if !a.Pressed("jump") {
+		t.Fatal("the key-up of a removed view reached it")
+	}
+	a.Reset()
+	a.Step()
+	if a.Pressed("jump") {
+		t.Fatal("Reset left a key of a removed view held")
+	}
 }
 
 func TestOnKeyEventsWithoutAView(t *testing.T) {
@@ -252,6 +305,17 @@ func TestKeyBindingsSaveAndLoad(t *testing.T) {
 	a := input.NewActions()
 	want := []input.Input{input.Key("Space"), input.KeyCode("KeyW"), input.MouseButton(core.MouseButtonLeft)}
 	a.Bind("jump", want...)
+	// A key given as a struct literal is lowercased as Key lowercases it, so it matches and round-trips.
+	a.Bind("enter", input.Input{Kind: input.InputKey, Key: "Enter"})
+	if got := a.Bindings("enter"); !slices.Equal(got, []input.Input{input.Key("enter")}) {
+		t.Fatalf("Bindings(enter) = %+v, want the lowercased key", got)
+	}
+	a.OnKeyDown(core.KeyEvent{Key: "enter", Code: "Enter"})
+	a.Step()
+	if !a.Pressed("enter") {
+		t.Fatal("a struct-literal key with capitals was not held")
+	}
+	a.Reset()
 	if err := a.Save(app.Storage(), "controls"); err != nil {
 		t.Fatal(err)
 	}
@@ -261,6 +325,9 @@ func TestKeyBindingsSaveAndLoad(t *testing.T) {
 	}
 	if got := b.Bindings("jump"); !slices.Equal(got, want) {
 		t.Fatalf("loaded %+v, want %+v", got, want)
+	}
+	if got := b.Bindings("enter"); !slices.Equal(got, a.Bindings("enter")) {
+		t.Fatalf("loaded enter %+v, want %+v", got, a.Bindings("enter"))
 	}
 
 	a.Bind("broken", input.Input{Kind: input.InputKeyCode})
