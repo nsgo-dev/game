@@ -1,6 +1,18 @@
 # 包
 
-每个包包含什么、各部分如何工作，内容来自包的文档注释。完整的 API 见各个包的 Go doc。
+每个包包含什么、各部分如何工作，内容来自包的文档注释。每个包的完整 API 见 [API 参考](https://game.nsgo.dev/zh/docs/api/)。
+
+## API 参考
+
+[API 参考](https://game.nsgo.dev/zh/docs/api/)为 `packages/game` 的每个包提供一页，每次构建网站时从源码中的文档注释生成，内容与 `go doc` 一致：先是包的文档和索引，再是常量、变量、函数和类型，每个类型下列出它的值、构造函数和方法。每个导出标识符都有锚点，命名方式与 pkg.go.dev 相同：常量、变量、函数和类型用 `Name`，方法、结构体字段和接口方法用 `Type.Name`，因此 `https://game.nsgo.dev/zh/docs/api/game/#Loop.Update` 指向 `Loop.Update`。只有部分目标构建的声明会列出这些目标。
+
+智能体可以在 [`/api.json`](https://game.nsgo.dev/api.json) 读取同样内容的 JSON：每个包的概要和文档，以及每个声明的锚点、经 gofmt 格式化的源码、文档注释、在 `packages/game` 下的文件和行号，并在不是所有目标都构建它时列出构建它的目标。其中 `version` 字段为 1，删除字段或改变字段含义时才会变化。要在本地检出中生成它，在 `packages/game` 下运行：
+
+```sh
+go run ./cmd/gameapi -out api.json
+```
+
+加上 `-html` 会附带渲染成 HTML 的文档注释，即网站页面显示的内容。参考内容取自 linux、macos、windows、android、ios 和 web 目标在开发构建中编译的文件；main 包、`internal` 目录和 `testdata` 不包括在内。
 
 ## Loop
 

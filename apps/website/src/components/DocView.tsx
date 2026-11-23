@@ -111,6 +111,14 @@ export function DocView({ doc }: { doc: DocPage }) {
                 </ul>
               </div>
             ))}
+            <div className="docs__group">
+              <p className="docs__group-title">{copy.docs.reference}</p>
+              <ul>
+                <li>
+                  <Link to={routes[lang].api}>{copy.api.nav}</Link>
+                </li>
+              </ul>
+            </div>
           </nav>
         </details>
         <script dangerouslySetInnerHTML={{ __html: FOLD_SCRIPT }} />

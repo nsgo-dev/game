@@ -20,8 +20,8 @@ export default defineConfig({
         enabled: true,
         crawlLinks: true,
         failOnError: true,
-        // The same page under another #fragment is one file, and the playground's builds are the examples' own pages, which a page of the site must not replace.
-        filter: (page) => !page.path.includes('#') && !isPlaygroundBuild(page.path),
+        // The same page under another #fragment is one file, the playground's builds are the examples' own pages, which a page of the site must not replace, and api.json, the API reference for agents, is a file of the build rather than a page.
+        filter: (page) => !page.path.includes('#') && !isPlaygroundBuild(page.path) && !page.path.endsWith('.json'),
       },
       // GitHub Pages serves 404.html for any address the site has no page for. It is the SPA shell, which renders whatever route the address matches (the not-found page) in the browser, so it hydrates at every address.
       spa: { enabled: true, maskPath: '/404', prerender: { outputPath: '/404' } },
