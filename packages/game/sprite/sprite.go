@@ -90,16 +90,48 @@ type Batch struct {
 	Mask *Mask
 
 	order []*Sprite
+	// rects, xforms and alphas are the arguments of the DrawAtlas that Draw is collecting, lone is its first sprite and faded whether its sprites have an Alpha below 1.
+	rects  []core.Bounds
+	xforms []core.RSXform
+	alphas []float32
+	lone   *Sprite
+	faded  bool
 }
 
-// Draw draws the batch's sprites into d with one DrawImageFrom each, or one DrawTintedImageFrom for a tinted sprite, lowest Z first. It leaves d's state as it found it: a sprite that turns, mirrors, fades, blends or clips draws between Save and Restore.
+// Draw draws the batch's sprites into d, lowest Z first, and leaves d's state as it found it.
+//
+// Consecutive sprites (in Z order) that are only moved, turned and scaled evenly, with the default blend, no tint and no mask of their own, draw with one Drawing.DrawAtlas. A run of sprites at full opacity keeps the drawing's alpha, as a lone such sprite does; a run of faded sprites draws between Save and Restore with the alpha set to 1, so that each sprite's Alpha replaces the drawing's, as Sprite.Alpha says. A sprite that is mirrored, scaled unevenly, tinted, blended or masked, and a run of one, draws with its own DrawImageFrom, or DrawTintedImageFrom when tinted, between Save and Restore when it turns, mirrors, fades, blends or clips.
 func (b *Batch) Draw(d *core.Drawing) {
 	draw := func(d *core.Drawing) {
 		b.order = append(b.order[:0], b.Sprites...)
 		slices.SortStableFunc(b.order, func(x, y *Sprite) int { return cmp.Compare(x.Z, y.Z) })
+		img := b.Atlas.Image
 		for _, s := range b.order {
-			s.draw(d, b.Atlas.Image)
+			if s.hidden() {
+				continue
+			}
+			t, ok := s.atlasForm()
+			if !ok {
+				b.flush(d, img)
+				s.draw(d, img)
+				continue
+			}
+			faded := s.Alpha < 1
+			if len(b.rects) > 0 && faded != b.faded {
+				b.flush(d, img)
+			}
+			if len(b.rects) == 0 {
+				b.lone, b.faded = s, faded
+			}
+			f := s.Frame
+			b.rects = append(b.rects, core.Bounds{
+				Origin: core.Point{X: core.Points(f.X), Y: core.Points(f.Y)},
+				Size:   core.Size{Width: core.Points(f.W), Height: core.Points(f.H)},
+			})
+			b.xforms = append(b.xforms, t)
+			b.alphas = append(b.alphas, s.Alpha)
 		}
+		b.flush(d, img)
 		clear(b.order)
 	}
 	if b.Mask != nil {
@@ -112,27 +144,49 @@ func (b *Batch) Draw(d *core.Drawing) {
 // untinted is opaque white, the tint that leaves a picture as it is.
 var untinted = core.RGB(0xffffff)
 
-func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
-	f := s.Frame
-	if f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
-		return
+// flush draws the run Draw has collected and empties it.
+func (b *Batch) flush(d *core.Drawing, img core.ImageSource) {
+	switch {
+	case len(b.rects) == 1:
+		b.lone.draw(d, img)
+	case len(b.rects) > 1 && b.faded:
+		d.Save().SetAlpha(1).DrawAtlas(img, b.rects, b.xforms, b.alphas).Restore()
+	case len(b.rects) > 1:
+		d.DrawAtlas(img, b.rects, b.xforms, nil)
 	}
-	// The zero color and opaque white leave the picture unchanged, so they draw untinted. The zero color is also transparent black, so it is the one alpha-0 tint that still draws.
-	tinted := s.Tint != 0 && s.Tint != untinted
-	if tinted && s.Tint&0xff == 0 {
-		// A tint with no alpha multiplies every pixel's alpha to 0.
-		return
-	}
+	b.rects, b.xforms, b.alphas, b.lone = b.rects[:0], b.xforms[:0], b.alphas[:0], nil
+}
 
-	var masked bool
-	if s.Mask != nil {
-		switch s.Mask.state() {
-		case maskEmpty:
-			return
-		case maskActive:
-			masked = true
-		}
+// tinted reports whether the sprite's Tint changes its picture: the zero color and opaque white leave it unchanged, so they draw untinted, and the zero color, though transparent black, is the one alpha-0 tint that still draws.
+func (s *Sprite) tinted() bool { return s.Tint != 0 && s.Tint != untinted }
+
+// hidden reports whether the sprite draws nothing: an empty frame, no opacity, a zero scale, a tint with no alpha, which multiplies every pixel's alpha to 0, or a mask with no area.
+func (s *Sprite) hidden() bool {
+	f := s.Frame
+	return f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 || s.tinted() && s.Tint&0xff == 0 || s.Mask != nil && s.Mask.state() == maskEmpty
+}
+
+// atlasForm returns the transform that places the sprite's trimmed rectangle for Drawing.DrawAtlas, and false when the sprite cannot draw there: DrawAtlas only moves, turns and scales evenly, and has no tint, blend or clip of a tile's own.
+func (s *Sprite) atlasForm() (core.RSXform, bool) {
+	if s.tinted() || s.Blend != core.CompositeSourceOver || s.Mask != nil && s.Mask.state() == maskActive {
+		return core.RSXform{}, false
 	}
+	m := s.Transform()
+	// An even scale and a turn, unmirrored, is the matrix [c -s; s c].
+	if m.A != m.D || m.B != -m.C {
+		return core.RSXform{}, false
+	}
+	f := s.Frame
+	return core.RSXform{SCos: m.A, SSin: m.B, TX: m.Tx + m.A*f.OffsetX + m.C*f.OffsetY, TY: m.Ty + m.B*f.OffsetX + m.D*f.OffsetY}, true
+}
+
+func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
+	if s.hidden() {
+		return
+	}
+	f := s.Frame
+	tinted := s.tinted()
+	masked := s.Mask != nil && s.Mask.state() == maskActive
 	m := s.Transform()
 
 	// Unturned and unmirrored, the frame's rectangle is only moved and scaled, and draws with no transform.

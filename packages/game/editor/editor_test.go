@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -242,35 +243,35 @@ func TestTilePaintEraseFloodFillAndDrawOps(t *testing.T) {
 	})
 
 	ops := app.Find("tile-scene").Ops
-	// Count tile DrawImage ops from tiles.png (15 non-zero tiles: 10 of tile 1, 4 of tile 2, 1 of tile 3).
-	var tileOps []core.DrawOp
-	for _, op := range ops {
-		if op.Kind == core.DrawImage && op.Image.URI == "asset:tiles.png" {
-			tileOps = append(tileOps, op)
+	// Count tiles drawn from tiles.png (15 non-zero tiles: 10 of tile 1, 4 of tile 2, 1 of tile 3).
+	var tiles []gametest.ImageDraw
+	for _, im := range gametest.ImageDraws(ops) {
+		if im.Image.URI == "asset:tiles.png" {
+			tiles = append(tiles, im)
 		}
 	}
-	if len(tileOps) != 15 {
-		t.Fatalf("recorded tile DrawImage ops = %d, want 15", len(tileOps))
+	if len(tiles) != 15 {
+		t.Fatalf("recorded tile image draws = %d, want 15", len(tiles))
 	}
 	// First tile (0,0) should be tile 3 (source X=32, dest X=0, Y=0).
-	if tileOps[0].X1 != 32 || tileOps[0].Y1 != 0 || tileOps[0].X != 0 || tileOps[0].Y != 0 {
-		t.Fatalf("tile (0,0) op = %+v, want src X1=32 at (0,0)", tileOps[0])
+	if tiles[0].SX != 32 || tiles[0].SY != 0 || tiles[0].Corners[0] != (core.Point{}) {
+		t.Fatalf("tile (0,0) = %+v, want src X=32 at (0,0)", tiles[0])
 	}
 	// Tile (1,1) should be tile 2 (source X=16, dest X=16, Y=16).
 	foundFillTile := false
-	for _, op := range tileOps {
-		if op.X == 16 && op.Y == 16 && op.X1 == 16 && op.Y1 == 0 {
+	for _, im := range tiles {
+		if im.Corners[0] == (core.Point{X: 16, Y: 16}) && im.SX == 16 && im.SY == 0 {
 			foundFillTile = true
 			break
 		}
 	}
 	if !foundFillTile {
-		t.Fatalf("expected flood-filled tile 2 at (16,16) in DrawOps: %+v", tileOps)
+		t.Fatalf("expected flood-filled tile 2 at (16,16) in the drawn images: %+v", tiles)
 	}
 	// Tile (3,3) was erased and must not be drawn.
-	for _, op := range tileOps {
-		if op.X == 48 && op.Y == 48 {
-			t.Fatalf("erased tile (3,3) should not be drawn: %+v", op)
+	for _, im := range tiles {
+		if im.Corners[0] == (core.Point{X: 48, Y: 48}) {
+			t.Fatalf("erased tile (3,3) should not be drawn: %+v", im)
 		}
 	}
 }
@@ -595,18 +596,17 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 	// Verify the dropped slime sprite actually draws in the viewport's recorded DrawOps!
 	ops := app.Find("id:editor-viewport").Ops
 	foundSlimeDraw := false
-	for _, op := range ops {
-		if op.Kind == core.DrawImage &&
-			op.Image.URI == "asset:actors.png" &&
-			op.X1 == 16 && op.Y1 == 0 &&
-			math.Abs(float64(op.X-104)) < 1e-3 &&
-			math.Abs(float64(op.Y-68)) < 1e-3 {
+	for _, im := range gametest.ImageDraws(ops) {
+		if im.Image.URI == "asset:actors.png" &&
+			im.SX == 16 && im.SY == 0 &&
+			math.Abs(float64(im.Corners[0].X-104)) < 1e-3 &&
+			math.Abs(float64(im.Corners[0].Y-68)) < 1e-3 {
 			foundSlimeDraw = true
 			break
 		}
 	}
 	if !foundSlimeDraw {
-		t.Fatalf("expected dropped slime DrawImage at (104,68) in viewport ops: %+v", ops)
+		t.Fatalf("expected dropped slime drawn at (104,68) in viewport ops: %+v", ops)
 	}
 
 	// Also verify direct DropAtlasFrame + Undo via toolbar Undo button.

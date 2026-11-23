@@ -34,13 +34,9 @@ type RenderOptions struct {
 	Images map[string]image.Image
 }
 
-// RenderOps deterministically rasterizes recorded core.DrawOp operations into
-// an RGBA image of size width by height pixels.
+// RenderOps deterministically rasterizes recorded core.DrawOp operations into an RGBA image of size width by height pixels.
 //
-// Supported operations include Save, Restore, Translate, Scale, Rotate,
-// Transform, SetTransform, SetAlpha, SetFillColor, SetStrokeColor,
-// SetLineWidth, Clear, Rect + Fill/Stroke (including FillRect and StrokeRect),
-// and DrawImage / DrawImageIn / DrawImageFrom.
+// Supported operations include Save, Restore, Translate, Scale, Rotate, Transform, SetTransform, SetAlpha, SetFillColor, SetStrokeColor, SetLineWidth, Clear, Rect + Fill/Stroke (including FillRect and StrokeRect), DrawImage / DrawImageIn / DrawImageFrom and DrawAtlas.
 func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *image.RGBA {
 	if width <= 0 || height <= 0 {
 		return image.NewRGBA(image.Rectangle{})
@@ -197,6 +193,28 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 				dw, dh = sw, sh
 			}
 			drawTransformedImage(dst, cur.m, img, sx, sy, sw, sh, dx, dy, dw, dh, cur.alpha)
+		case core.DrawAtlas:
+			if cur.alpha <= 0 || op.Atlas == nil {
+				continue
+			}
+			img := resolveImage(op.Image)
+			if img == nil || img.Bounds().Empty() {
+				continue
+			}
+			for _, s := range *op.Atlas {
+				alpha := cur.alpha * float64(s.Alpha)
+				if alpha <= 0 {
+					continue
+				}
+				t := s.Transform
+				m := cur.m.mul(affine{
+					a: float64(t.SCos), b: float64(t.SSin),
+					c: -float64(t.SSin), d: float64(t.SCos),
+					e: float64(t.TX), f: float64(t.TY),
+				})
+				sw, sh := float64(s.Rect.Size.Width), float64(s.Rect.Size.Height)
+				drawTransformedImage(dst, m, img, float64(s.Rect.Origin.X), float64(s.Rect.Origin.Y), sw, sh, 0, 0, sw, sh, alpha)
+			}
 		}
 	}
 

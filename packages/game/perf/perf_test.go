@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/perf"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -918,15 +919,9 @@ func TestCullBatchDrawsOnlyVisible20Of1000(t *testing.T) {
 	gotCuller := app.Find("culler").Ops
 	wantOps := app.Find("ref").Ops
 
-	// Count DrawImage ops — must be exactly 20!
-	drawImages := 0
-	for _, op := range gotCulled {
-		if op.Kind == core.DrawImage {
-			drawImages++
-		}
-	}
-	if drawImages != 20 {
-		t.Fatalf("CullBatch emitted %d DrawImage ops, want 20", drawImages)
+	// Count drawn sprites — must be exactly 20!
+	if n := len(gametest.ImageDraws(gotCulled)); n != 20 {
+		t.Fatalf("CullBatch drew %d sprites, want 20", n)
 	}
 	if !reflect.DeepEqual(gotCulled, wantOps) {
 		t.Fatalf("CullBatch ops (%d) did not match 20-sprite reference batch ops (%d)", len(gotCulled), len(wantOps))

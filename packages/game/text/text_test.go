@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/text"
 	"github.com/nsgo-dev/nsgo/core"
@@ -220,7 +221,8 @@ func TestDrawWithKerningMatchesHandPlacedOps(t *testing.T) {
 	if len(got) == 0 {
 		t.Fatal("bmfont drew nothing")
 	}
-	sameOps(t, got, want)
+	// A string's glyphs draw in one DrawAtlas: the same images in the same places as one DrawImageFrom each.
+	gametest.AssertSameImages(t, got, want)
 }
 
 func TestWrappingAlignmentLayoutAndMeasure(t *testing.T) {
@@ -377,7 +379,7 @@ func TestMultiPageBMFontDraw(t *testing.T) {
 			}},
 		}}
 	})
-	sameOps(t, app.Find("multi").Ops, app.Find("hand").Ops)
+	gametest.AssertSameImages(t, app.Find("multi").Ops, app.Find("hand").Ops)
 }
 
 func TestDrawPlatformAndVirtualResolutionTransform(t *testing.T) {

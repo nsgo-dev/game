@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/text"
 	"github.com/nsgo-dev/nsgo/core"
@@ -384,12 +385,9 @@ func TestDrawRichColoredSpansIconsBatchAndStyles(t *testing.T) {
 
 	// Faux-bold (2 draws for A) + Faux-italic (Save + Transform + Draw + Restore for B):
 	styleOps := app.Find("styles").Ops
-	drawCount := 0
+	drawCount := len(gametest.ImageDraws(styleOps))
 	hasTransform := false
 	for _, op := range styleOps {
-		if op.Image != nil {
-			drawCount++
-		}
 		if op.Kind == core.DrawTransform {
 			hasTransform = true
 		}
@@ -767,10 +765,13 @@ func TestTypewriterDrawPartialRevealAndPerGlyphEffects(t *testing.T) {
 	partialOps := app.Find("partial").Ops
 	fullOps := app.Find("full").Ops
 	// Full "AB Hi" draws 4 visible glyphs (A, B, H, i); partial draws strictly 3 (A, B, H) at exact same positions!
-	if len(partialOps) != 3 || len(fullOps) != 4 {
-		t.Fatalf("ops counts partial=%d full=%d, want 3 and 4", len(partialOps), len(fullOps))
+	partialIms, fullIms := gametest.ImageDraws(partialOps), gametest.ImageDraws(fullOps)
+	if len(partialIms) != 3 || len(fullIms) != 4 {
+		t.Fatalf("image draws partial=%d full=%d, want 3 and 4", len(partialIms), len(fullIms))
 	}
-	sameOps(t, partialOps, fullOps[:3])
+	if !reflect.DeepEqual(partialIms, fullIms[:3]) {
+		t.Fatalf("partial glyphs %+v, want the full text's first three %+v", partialIms, fullIms[:3])
+	}
 
 	// Custom effect shifts 'A' (normally at 10+1=11, 20+2=22) by (+5, -3) -> (16, 19) and tints it gold!
 	effOps := app.Find("effect").Ops

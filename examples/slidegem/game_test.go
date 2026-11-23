@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -376,18 +377,15 @@ func TestHintNewGameButtonsAndCanvasDrawOps(t *testing.T) {
 	if len(canvas.Ops) == 0 {
 		t.Fatal("expected recorded core.DrawOps on game-canvas")
 	}
-	drawImageOps := 0
+	drawImageOps := len(gametest.ImageDraws(canvas.Ops))
 	roundRectOps := 0
 	for _, op := range canvas.Ops {
-		switch op.Kind {
-		case core.DrawImage:
-			drawImageOps++
-		case core.DrawRoundRect:
+		if op.Kind == core.DrawRoundRect {
 			roundRectOps++
 		}
 	}
 	if drawImageOps < BoardSize*BoardSize {
-		t.Fatalf("recorded %d DrawImage ops, want at least %d (one per gem)", drawImageOps, BoardSize*BoardSize)
+		t.Fatalf("drew %d images, want at least %d (one per gem)", drawImageOps, BoardSize*BoardSize)
 	}
 	if roundRectOps < BoardSize*BoardSize {
 		t.Fatalf("recorded %d DrawRoundRect ops, want at least %d (board tiles + highlights)", roundRectOps, BoardSize*BoardSize)

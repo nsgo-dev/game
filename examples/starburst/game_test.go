@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -171,17 +172,14 @@ func TestStressMode1000SpritesUnderLoop(t *testing.T) {
 
 	// Verify the recorded Canvas ops actually drew >= 1000 sprites from our procedural atlas.
 	ops := app.Find("arena-canvas").Ops
-	imageOps := 0
-	for _, op := range ops {
-		if op.Kind == core.DrawImage {
-			if op.Image == nil || op.Image.Pixels == nil {
-				t.Fatalf("DrawImage op missing procedural atlas Pixels: %+v", op)
-			}
-			imageOps++
+	ims := gametest.ImageDraws(ops)
+	for _, im := range ims {
+		if im.Image.Pixels == nil {
+			t.Fatalf("image draw missing procedural atlas Pixels: %+v", im)
 		}
 	}
-	if imageOps < 1000 {
-		t.Fatalf("recorded DrawImage ops = %d, want >= 1000", imageOps)
+	if len(ims) < 1000 {
+		t.Fatalf("drew %d sprites, want >= 1000", len(ims))
 	}
 
 	// Verify HUD reflects the active sprite count and Stress mode status.

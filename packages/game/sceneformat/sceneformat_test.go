@@ -103,13 +103,13 @@ func TestCaveRoomDrawsExpectedOps(t *testing.T) {
 				d.Save().SetFillColor(bgColor).FillRect(0, 0, 320, 180).Restore()
 				// Layer "floor" (order 0, world; camera is identity at center 160,90 zoom 1):
 				// data: [1, 2, 2, 1,  1, 0, 0, 1]
+				// The six tiles draw in one DrawAtlas.
 				tilesImg := caveTilesAtlas.Image
-				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 0, 0, 16, 16)
-				d.DrawImageFrom(tilesImg, 16, 0, 16, 16, 16, 0, 16, 16)
-				d.DrawImageFrom(tilesImg, 16, 0, 16, 16, 32, 0, 16, 16)
-				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 48, 0, 16, 16)
-				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 0, 16, 16, 16)
-				d.DrawImageFrom(tilesImg, 0, 0, 16, 16, 48, 16, 16, 16)
+				t1 := core.Bounds{Size: core.Size{Width: 16, Height: 16}}
+				t2 := core.Bounds{Origin: core.Point{X: 16}, Size: core.Size{Width: 16, Height: 16}}
+				d.DrawAtlas(tilesImg, []core.Bounds{t1, t2, t2, t1, t1, t1}, []core.RSXform{
+					{SCos: 1}, {SCos: 1, TX: 16}, {SCos: 1, TX: 32}, {SCos: 1, TX: 48}, {SCos: 1, TY: 16}, {SCos: 1, TX: 48, TY: 16},
+				}, nil)
 				// Layer "actors" (order 10, world):
 				// torch (z: 1, flipX: true, alpha: 0.75, trimmed 8x12 at offset 4,2 in 16x16 box, x: 96, y: 32)
 				// draws before hero (z: 5, x: 48, y: 40, origin 8,8 -> top-left at 40, 32).
@@ -363,8 +363,10 @@ layers:
 				built.Draw(d)
 			}},
 			core.Canvas{TestID: "hand", Style: core.Style{Width: core.Pt(64), Height: core.Pt(32)}, Draw: func(d *core.Drawing, _ core.Size) {
-				d.DrawImageFrom(caveTilesAtlas.Image, 16, 0, 16, 16, 0, 0, 16, 16)
-				d.DrawImageFrom(caveTilesAtlas.Image, 0, 0, 16, 16, 16, 0, 16, 16)
+				// Both tiles draw in one DrawAtlas.
+				d.DrawAtlas(caveTilesAtlas.Image,
+					[]core.Bounds{{Origin: core.Point{X: 16}, Size: core.Size{Width: 16, Height: 16}}, {Size: core.Size{Width: 16, Height: 16}}},
+					[]core.RSXform{{SCos: 1}, {SCos: 1, TX: 16}}, nil)
 			}},
 		}}
 	})
