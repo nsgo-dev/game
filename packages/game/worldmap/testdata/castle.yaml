@@ -1,0 +1,40 @@
+version: 1
+rooms:
+  - id: entrance
+    name: Castle Gate
+    x: 0
+    "y": 0
+    width: 320
+    height: 180
+    links: [hall, cellar]
+  - id: hall
+    name: Great Hall
+    x: 320
+    "y": 0
+    width: 320
+    height: 180
+    links: [tower]
+  - id: tower
+    x: 640
+    "y": -180
+    width: 160
+    height: 360
+  - id: cellar
+    name: Wine Cellar
+    area: crypt
+    x: 0
+    "y": 0
+    width: 320
+    height: 180
+markers:
+  - id: boss
+    kind: boss
+    room: tower
+    x: 720
+    "y": 0
+  - id: save-gate
+    kind: save
+    room: entrance
+    x: 40
+    "y": 90
+    label: Gate shrine
