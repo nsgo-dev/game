@@ -54,13 +54,13 @@ type Input struct {
 
 // Move is one recognizable input: a motion, a button press, or a motion finished by a button press.
 //
-// Motion steps are matched on distinct, increasing steps of the facing-relative direction history, so ["6", "5", "6"] is a forward double tap and ["2", "3", "6"] a quarter circle forward. All step counts are inclusive.
+// Motion steps are matched on distinct, increasing steps of the facing-relative direction history, so ["6", "5", "6"] is a forward double tap and ["2", "3", "6"] a quarter circle forward. All step counts are inclusive. Inputs that completed a move cannot complete it again: its next completion needs a motion that starts after that step.
 type Move struct {
 	// Name identifies the move in results and combos; it must be unique across moves and combos.
 	Name string `yaml:"name"`
 	// Motion is the ordered direction sequence. Each entry is a string of one or more distinct numpad digits, any of which satisfies that step, so "23" accepts down or down-forward.
 	Motion []string `yaml:"motion,omitempty"`
-	// Window is the most steps allowed from the first to the last motion entry. It must be at least len(Motion)-1.
+	// Window is the most steps allowed from the first to the last motion entry. It must be at least len(Motion)-1, and is refused on a move with fewer than 2 motion entries.
 	Window int `yaml:"window,omitempty"`
 	// Charge requires a direction to be held before the motion starts.
 	Charge *Charge `yaml:"charge,omitempty"`
@@ -70,7 +70,7 @@ type Move struct {
 	PressAll bool `yaml:"pressAll,omitempty"`
 	// PressWindow is the most steps between the first and last button of a PressAll chord.
 	PressWindow int `yaml:"pressWindow,omitempty"`
-	// Buffer is the most steps the finishing press may come after the last motion entry. Moves without Press finish on the step the last motion entry is entered and ignore Buffer.
+	// Buffer is the most steps the finishing press may come after the last motion entry. It needs both Motion and Press; a move without Press finishes on the first step its motion fits.
 	Buffer int `yaml:"buffer,omitempty"`
 	// Priority orders moves finished on the same step, highest first; ties keep definition order.
 	Priority int `yaml:"priority,omitempty"`
@@ -218,6 +218,9 @@ func validateMove(m *Move) error {
 	if err := checkSteps(m.Name, "window", m.Window); err != nil {
 		return err
 	}
+	if len(m.Motion) < 2 && m.Window > 0 {
+		return fmt.Errorf("fighting: move %q window needs at least 2 motion entries", m.Name)
+	}
 	if len(m.Motion) > 0 && m.Window < len(m.Motion)-1 {
 		return fmt.Errorf("fighting: move %q window %d is shorter than its %d motion entries need", m.Name, m.Window, len(m.Motion))
 	}
@@ -249,6 +252,9 @@ func validateMove(m *Move) error {
 	}
 	if m.Buffer > 0 && len(m.Press) == 0 {
 		return fmt.Errorf("fighting: move %q buffer needs press buttons", m.Name)
+	}
+	if m.Buffer > 0 && len(m.Motion) == 0 {
+		return fmt.Errorf("fighting: move %q buffer needs a motion", m.Name)
 	}
 	seen := make(map[string]bool, len(m.Press))
 	for _, b := range m.Press {

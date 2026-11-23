@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -247,6 +248,12 @@ func TestMotionWindows(t *testing.T) {
 			want: []hit{{6, "forward_dash"}},
 		},
 		{
+			// The second 6 comes exactly the dash's 12-step window after the first.
+			name: "double tap at window edge",
+			segs: []seg{hold(1, d6), hold(11, d5), hold(1, d6)},
+			want: []hit{{12, "forward_dash"}},
+		},
+		{
 			name: "double tap too slow",
 			segs: []seg{hold(1, d6), hold(12, d5), hold(1, d6)},
 			want: nil,
@@ -303,6 +310,12 @@ func TestCombos(t *testing.T) {
 			want: []hit{{0, "cr_mk"}, {12, "hadoken,hp,+low_fireball"}},
 		},
 		{
+			// The hadoken finishes exactly the combo's 20-step gap after cr_mk.
+			name: "linked at gap edge",
+			segs: []seg{hold(1, d2, "mk"), hold(17, d2), hold(2, d3), hold(1, d6, "hp")},
+			want: []hit{{0, "cr_mk"}, {20, "hadoken,hp,+low_fireball"}},
+		},
+		{
 			name: "gap exceeded",
 			segs: []seg{hold(1, d2, "mk"), hold(18, d2), hold(2, d3), hold(1, d6, "hp")},
 			want: []hit{{0, "cr_mk"}, {21, "hadoken,hp"}},
@@ -317,6 +330,155 @@ func TestCombos(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := play(t, set, record(t, tt.segs...), nil); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("hits = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMotionCompletesOnce(t *testing.T) {
+	set := &fighting.MoveSet{
+		Version: 1,
+		Input:   fighting.Input{Left: "left", Right: "right", Up: "up", Down: "down"},
+		Moves: []fighting.Move{
+			{Name: "lenient", Motion: []string{"2", "23", "36"}, Window: 10},
+			{Name: "tap", Motion: []string{"4"}},
+		},
+	}
+	r, err := fighting.NewRecognizer(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The lenient entries overlap, so the step before the final 6 already satisfies the last entry; the move still completes once, and holding 6 or 4 does not repeat either move.
+	dirs := []fighting.Direction{d5, d2, d3, d6, d6, d6, d5, d4, d4, d4, d5, d4}
+	var got []hit
+	for _, d := range dirs {
+		res := r.Feed(d, 0, fighting.FaceRight)
+		for _, m := range res.Moves {
+			got = append(got, hit{res.Step, m.Name})
+		}
+	}
+	want := []hit{{3, "lenient"}, {7, "tap"}, {11, "tap"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("hits = %v, want %v", got, want)
+	}
+}
+
+func TestMotionIsConsumed(t *testing.T) {
+	set := loadSet(t)
+	set.Combos = append(set.Combos, fighting.Combo{Name: "double", Sequence: []string{"hadoken", "hadoken"}, Gap: 30})
+	// A button pressed within the buffer after a finished quarter circle is a plain normal, not a second hadoken; a fresh quarter circle is.
+	rec := record(t, hold(1, d2), hold(1, d3), hold(1, d6, "lp"), hold(1, d5), hold(1, d5, "hp"))
+	want := []hit{{2, "hadoken,lp"}, {4, "hp"}}
+	if got := play(t, set, rec, nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("button after a finished motion: hits = %v, want %v", got, want)
+	}
+	rec = record(t, hold(1, d2), hold(1, d3), hold(1, d6, "lp"), hold(15, d5), hold(1, d2), hold(1, d3), hold(1, d6, "hp"))
+	want = []hit{{2, "hadoken,lp"}, {20, "hadoken,hp,+double"}}
+	if got := play(t, set, rec, nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("two motions: hits = %v, want %v", got, want)
+	}
+}
+
+// rollbackInputs performs cr_mk into a hadoken (the low_fireball combo), a forward dash and a dragon punch.
+var rollbackInputs = []struct {
+	dir  fighting.Direction
+	held uint32
+}{
+	{d5, 0}, {d5, 0}, {d2, 4}, {d2, 0}, {d2, 0}, {d3, 0}, {d3, 0}, {d6, 2}, {d5, 0}, {d5, 0},
+	{d6, 0}, {d5, 0}, {d6, 0}, {d5, 0}, {d2, 0}, {d3, 2}, {d5, 0}, {d5, 0}, {d1, 0}, {d4, 1},
+}
+
+func describe(res fighting.Result) string {
+	return fmt.Sprintf("%d %v %v", res.Step, res.Moves, res.Combos)
+}
+
+func TestRecognizerStateRollback(t *testing.T) {
+	set := loadSet(t)
+	ref, err := fighting.NewRecognizer(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	sawCombo := false
+	for _, in := range rollbackInputs {
+		res := ref.Feed(in.dir, in.held, fighting.FaceRight)
+		sawCombo = sawCombo || len(res.Combos) > 0
+		want = append(want, describe(res))
+	}
+	if !sawCombo {
+		t.Fatal("inputs complete no combo")
+	}
+	for k := range len(rollbackInputs) + 1 {
+		r, err := fighting.NewRecognizer(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, in := range rollbackInputs[:k] {
+			r.Feed(in.dir, in.held, fighting.FaceRight)
+		}
+		state := r.AppendState(nil)
+		// Mispredicted steps: the remote side was assumed to mash a different direction and button.
+		for i := range 5 {
+			r.Feed(fighting.Direction(1+i%9), uint32(i%4), fighting.FaceLeft)
+		}
+		if err := r.LoadState(state); err != nil {
+			t.Fatalf("rollback to step %d: %v", k, err)
+		}
+		fresh, err := fighting.NewRecognizer(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fresh.LoadState(state); err != nil {
+			t.Fatalf("load into fresh recognizer at step %d: %v", k, err)
+		}
+		for i, in := range rollbackInputs[k:] {
+			for _, rr := range []*fighting.Recognizer{r, fresh} {
+				if got := describe(rr.Feed(in.dir, in.held, fighting.FaceRight)); got != want[k+i] {
+					t.Fatalf("rolled back to step %d: step %d gave %s, want %s", k, k+i, got, want[k+i])
+				}
+			}
+		}
+		if !bytes.Equal(r.AppendState(nil), ref.AppendState(nil)) || !bytes.Equal(fresh.AppendState(nil), ref.AppendState(nil)) {
+			t.Fatalf("rolled back to step %d: final state differs", k)
+		}
+	}
+}
+
+func TestRecognizerStateErrors(t *testing.T) {
+	set := loadSet(t)
+	r, err := fighting.NewRecognizer(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range rollbackInputs[:6] {
+		r.Feed(in.dir, in.held, fighting.FaceRight)
+	}
+	state := r.AppendState(nil)
+	other, err := fighting.NewRecognizer(&fighting.MoveSet{Version: 1, Input: fighting.Input{Left: "left"}, Moves: []fighting.Move{{Name: "a", Press: []string{"a"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name  string
+		state []byte
+		want  string
+	}{
+		{"empty", nil, "version 0"},
+		{"version", append([]byte{9}, state[1:]...), "version 9"},
+		{"truncated", state[:len(state)-1], "truncated"},
+		{"trailing", append(slices.Clone(state), 0), "trailing"},
+		{"other move set", other.AppendState(nil), "moves"},
+		{"bad direction", append([]byte{1, 1, 0, 0, 0, 0}, state[6:]...), "bad frame"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := r.AppendState(nil)
+			err := r.LoadState(tt.state)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("LoadState error = %v, want it to contain %q", err, tt.want)
+			}
+			if !bytes.Equal(r.AppendState(nil), before) {
+				t.Fatal("a refused state changed the recognizer")
 			}
 		})
 	}
@@ -527,6 +689,9 @@ func TestParseErrors(t *testing.T) {
 		{"duplicate name", strings.Replace(base, "name: hp", "name: lp", 1), "duplicate name \"lp\""},
 		{"charge steps", strings.Replace(base, "steps: 40", "steps: 0", 1), "charge steps 0"},
 		{"chord needs two", strings.Replace(base, "      - lp\n      - lk\n    pressAll", "      - lp\n    pressAll", 1), "at least 2 press"},
+		{"window on one entry", strings.Replace(base, "    charge:", "    window: 3\n    charge:", 1), "window needs at least 2 motion entries"},
+		{"window without motion", strings.Replace(base, "  - name: lp\n    press:", "  - name: lp\n    window: 600\n    press:", 1), "window needs at least 2 motion entries"},
+		{"buffer without motion", strings.Replace(base, "  - name: lp\n    press:\n      - lp\n", "  - name: lp\n    press:\n      - lp\n    buffer: 4\n", 1), "buffer needs a motion"},
 		{"buffer without press", strings.Replace(base, "    window: 12\n    priority: 10", "    window: 12\n    buffer: 3\n    priority: 10", 1), "buffer needs press"},
 		{"combo unknown move", strings.Replace(base, "      - cr_mk\n", "      - cr_hk\n", 1), "unknown move \"cr_hk\""},
 		{"combo gap", strings.Replace(base, "gap: 20", "gap: 0", 1), "gap 0"},
@@ -640,6 +805,14 @@ func FuzzFeed(f *testing.F) {
 					t.Fatalf("bad match %+v at step %d", m, res.Step)
 				}
 			}
+		}
+		state := r.AppendState(nil)
+		r2, err := fighting.NewRecognizer(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r2.LoadState(state); err != nil || !bytes.Equal(r2.AppendState(nil), state) {
+			t.Fatalf("state round trip: %v", err)
 		}
 	})
 }
