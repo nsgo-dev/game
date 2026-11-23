@@ -151,3 +151,13 @@ ENTRYPOINT ["/server"]
 ```
 
 Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick.
+
+## Player tokens
+
+A dedicated server learns who a player is from a token the player's device got from the [account service](accounts.md). It loads the service's key set file once and verifies each token offline with `accounts/token`, which links none of the account service's password hashing or database drivers:
+
+```go
+ks, err := token.ParseKeySet(keysYAML)
+v, err := token.NewVerifier(ks)
+claims, err := v.Verify(tok) // claims.Subject is the account ID
+```

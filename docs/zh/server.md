@@ -151,3 +151,13 @@ ENTRYPOINT ["/server"]
 ```
 
 使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。
+
+## 玩家令牌
+
+专用服务器通过玩家设备从[账号服务](accounts.md)拿到的令牌识别玩家。它只需加载一次服务的密钥集文件，再用 `accounts/token` 离线校验每个令牌；该包不会链接账号服务的密码哈希或数据库驱动：
+
+```go
+ks, err := token.ParseKeySet(keysYAML)
+v, err := token.NewVerifier(ks)
+claims, err := v.Verify(tok) // claims.Subject 是账号 ID
+```

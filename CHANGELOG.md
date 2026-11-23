@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/cutscene`: video cutscenes in NSGo's `core.Video` over the game's view, pausing the loop and the mixer while they play, skippable by a press, a key or back after an optional delay, with an end/skip callback, a scene for playing one between scenes and a versioned YAML file format (#494).
 - `game/sound`: `Mixer.Suspend` silences the mixer until resumed, as the background does, and `Mixer.Suspended` reports it (#494).
 - `game/net`: a TLS WebSocket listener with an Origin allow-list, plus `game/server` health, readiness and Prometheus metrics endpoints and a container/drain guide (#554).
+- `game/accounts`: a self-hostable player account service with guest accounts upgraded to email or a linked platform/OAuth identity, argon2id passwords, redacted secrets, SQLite and Postgres stores, an HTTP API and the `accountsd` server; `game/accounts/token` issues Ed25519 tokens that game servers verify offline against a versioned YAML key set (#556).
 
 ### Fixed
 
