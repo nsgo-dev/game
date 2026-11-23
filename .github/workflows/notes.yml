@@ -1,0 +1,40 @@
+name: Notes
+
+# Checks the agent notes under .agents/notes (.agents/skills/write-notes-like-deepseek): the lifecycle and class tree and the relative links between notes, each note's head block and required sections, and that archived notes keep their seals.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: notes-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify agent notes
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The append-only seal check reads the manifest at the baseline ref, which a shallow checkout does not have.
+          fetch-depth: 0
+      # The scripts are TypeScript using only Node's built-in modules, so Bun runs them without installing the website's dependencies.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+      - name: Verify note tree, format, and archive seals
+        env:
+          # Append-only compares the seals against the manifest before the change: the base for a pull request, the previous tip for a push. A push that creates a branch sends an all-zero before, which git cannot resolve, so the script falls back to checking the seals against disk only.
+          AGENT_NOTE_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          AGENT_NOTE_ROOT: ${{ github.workspace }}/.agents/notes
+        run: bun run verify-notes

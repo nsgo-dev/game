@@ -1,0 +1,59 @@
+name: Welcome
+
+# Greets a person's first issue and first pull request in this repository with the pointers the templates cannot give on their own. Uses pull_request_target so fork pull requests can be commented on; nothing is checked out.
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  greet:
+    name: First interaction
+    # The greeting is written for a person, but Dependabot's first bump in this repository would qualify as a first pull request. Skip anything ending in [bot].
+    #
+    # The repository's owner, members and collaborators cannot be newcomers, so they are skipped too. Deciding "first" means paging through every issue and pull request the author has opened here, which for a maintainer runs to many pages, and one 5xx on a late page would fail the job and leave a red check on the pull request for nothing. author_association comes with the event, so no API call is needed for it.
+    if: >-
+      ${{ !endsWith(github.actor, '[bot]')
+      && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association || github.event.pull_request.author_association) }}
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Not actions/first-interaction: v3.1.0 greets when either "the author has opened no issue" or "the repository has no earlier pull request" holds, without telling issues from pull requests and without filtering the pull requests by author, so a contributor who only ever opens pull requests is thanked for a "first pull request" every time. Instead, list the author's issues and pull requests here and count only those of the same kind as this event with a lower number.
+      - name: Greet a first issue or pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.issue.user.login || github.event.pull_request.user.login }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          IS_PR: ${{ github.event_name == 'pull_request_target' }}
+          ISSUE_MESSAGE: |
+            Thanks for the report! This is your first issue in this repository.
+
+            - For a bug, please give the platform, the NSGo and game versions, and the smallest steps or code that reproduce it.
+            - Bugs or missing primitives in NSGo itself (display frame times, input, audio backends, the GPU view) belong in [nsgo-dev/nsgo](https://github.com/nsgo-dev/nsgo/issues).
+            - Please make sure the issue holds no credentials, personal data or private paths; if it does, edit them out. Report security problems privately to the maintainers rather than in a public issue.
+          PR_MESSAGE: |
+            Thanks for your first pull request! Before it can merge:
+
+            - Write the title as a Conventional Commit (such as `fix(input): ...`); a squash merge uses it as the commit message.
+            - Run `gofmt -l`, `go tool nsgo test ./...` and `go tool nsgo check` from `packages/game`, and say in the description what you ran and which platforms you could not cover.
+            - A change to `packages/`, `examples/` or `template/` adds a fragment under `changelog.d/` ([changelog.d/README.md](https://github.com/nsgo-dev/game/blob/main/changelog.d/README.md)), and a documentation change updates both `docs/en` and `docs/zh`.
+            - The layout and conventions are in [CONTRIBUTING.md](https://github.com/nsgo-dev/game/blob/main/CONTRIBUTING.md).
+        run: |
+          set -euo pipefail
+          # The issues endpoint returns both issues and pull requests; pull requests carry a pull_request key.
+          earlier=$(gh api --paginate "repos/$REPO/issues?creator=$AUTHOR&state=all&per_page=100" \
+            --jq ".[] | select(.number < $NUMBER and ((.pull_request != null) == $IS_PR)) | .number" | wc -l)
+          if [ "$earlier" -gt 0 ]; then
+            echo "$AUTHOR has $earlier earlier $([ "$IS_PR" = true ] && echo 'pull requests' || echo issues); not greeting."
+            exit 0
+          fi
+          if [ "$IS_PR" = true ]; then body=$PR_MESSAGE; else body=$ISSUE_MESSAGE; fi
+          gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$body" >/dev/null
+          echo "Greeted #$NUMBER."

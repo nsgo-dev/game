@@ -1,0 +1,66 @@
+name: Conflict label
+
+# Labels pull requests that conflict with their target branch "conflict", and removes the label once the conflict is resolved. Every push to main can make an open pull request conflict, so a push to main checks every open pull request; a pull request's own new commits check it again, so the label comes off promptly.
+#
+# Whether a pull request conflicts comes straight from the mergeable field GitHub computes. Right after a push it may still be null (GitHub recomputes it in the background); the job then waits and reads again, and a pull request still unknown after a few tries is left for the next run.
+#
+# pull_request_target is used so that the label can be written on pull requests from forks too; the job never checks out or runs the pull request's code, it only calls the GitHub API.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  # Every run checks all open pull requests, so only the latest run from one source matters: pushes group by branch, pull requests by number. One shared group for every trigger would let two pull requests pushed at the same time cancel each other, leaving a cancelled run on one of them as a failure. With separate groups the only runs cancelled are those for commits that are no longer any pull request's head. Two groups occasionally sweep in parallel; both read the current labels before adding or removing one, so running twice is harmless.
+  group: conflict-label-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label conflicting pull requests
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: conflict
+    steps:
+      - name: Ensure the label exists
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --color B60205 --description "Conflicts with the target branch; resolve before merging" --force
+
+      - name: Label pull requests by their mergeable state
+        run: |
+          set -euo pipefail
+          # Bulk listings (the GraphQL pullRequests connection included) never make GitHub compute mergeable, so it stays UNKNOWN there; only GET /pulls/{number} does. So list the numbers first, then read each one; null means GitHub is still computing it, so read again every 10 seconds, at most 4 times.
+          # The GitHub API now and then answers with an error page that is not JSON (`invalid character 'S' looking for beginning of value`); under set -e a single blip would fail the whole job and leave a red check on whichever pull request triggered it. The listing is retried a few times; a failed read of one pull request counts as "not computed yet" and is left for the next run without stopping the others.
+          for attempt in 1 2 3 4; do
+            gh pr list --state open --limit 500 --json number,labels \
+              --jq '.[] | "\(.number) \(any(.labels[]; .name == env.LABEL))"' > prs.txt && break
+            [ "$attempt" = 4 ] && exit 1
+            sleep 10
+          done
+          while read -r number labelled; do
+            mergeable=null
+            for attempt in 1 2 3 4; do
+              mergeable=$(gh api "repos/$GH_REPO/pulls/$number" --jq '.mergeable') || mergeable=null
+              [ "$mergeable" != null ] && break
+              [ "$attempt" = 4 ] || sleep 10
+            done
+            if [ "$mergeable" = false ] && [ "$labelled" = false ]; then
+              gh pr edit "$number" --add-label "$LABEL" >/dev/null && echo "#$number conflicts; added $LABEL"
+            elif [ "$mergeable" = true ] && [ "$labelled" = true ]; then
+              gh pr edit "$number" --remove-label "$LABEL" >/dev/null && echo "#$number no longer conflicts; removed $LABEL"
+            elif [ "$mergeable" = null ]; then
+              echo "#$number has no mergeable state yet; left for the next run"
+            fi
+          done < prs.txt

@@ -1,0 +1,77 @@
+name: CodeQL
+
+# Runs CodeQL over the Go modules in go.work and over the workflows themselves (the actions language), on pull requests to main, pushes to main, a daily schedule and by hand.
+#
+# This workflow only produces analysis results; whether they gate merging is up to the repository's rulesets, configured separately. The workflow is the signal and repository policy decides whether it is a gate; keep the two apart.
+on:
+  push:
+    branches:
+      - main
+    # Documentation-only changes are not scanned: CodeQL finds nothing in Markdown. CodeQL is not a required check, so skipping by path never leaves a pull request waiting for a report that never comes.
+    paths-ignore:
+      - '**/*.md'
+      - docs/**
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - docs/**
+  schedule:
+    # Every day at 00:00 Asia/Tokyo (UTC+09:00).
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  # Only pull requests cancel the previous run: a new commit makes the old scan pointless. A push to main is the branch's security record, so a newer commit must not take over an older commit's scan.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: CodeQL / ${{ matrix.language }}
+    # Go is compiled for extraction, so it gets the larger machine; the actions language only reads the workflow files.
+    runs-on: ${{ matrix.language == 'go' && 'depot-ubuntu-24.04-4' || 'depot-ubuntu-24.04' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, go]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: ${{ matrix.language }}
+          # Go is extracted while it compiles, and the build below covers every module in go.work, which autobuild would not reliably find from a root without a go.mod. The actions language needs no build.
+          build-mode: ${{ matrix.language == 'go' && 'manual' || 'none' }}
+      - name: Build every Go module
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          # The binaries go to a scratch directory: template/ builds a command named template, which collides with its own template/ directory when written beside it.
+          out=$(mktemp -d)
+          trap 'rm -rf "$out"' EXIT
+          for dir in $(go list -m -f '{{.Dir}}'); do
+            (cd "$dir" && go build -o "$out/" ./...)
+          done
+      - name: Analyze
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: '/language:${{ matrix.language }}'
