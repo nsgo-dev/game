@@ -450,6 +450,7 @@ type wsClientConn struct {
 type WebSocketServer struct {
 	ln       stdnet.Listener
 	serverID PeerID
+	origins  []string
 
 	mu         sync.Mutex
 	nextPeerID PeerID
@@ -460,6 +461,31 @@ type WebSocketServer struct {
 
 // ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr.
 func ListenWebSocket(addr string, serverID PeerID) (*WebSocketServer, error) {
+	return listenWebSocket(addr, serverID, nil, nil)
+}
+
+// ListenWebSocketTLS starts the server with TLS, so a browser on an HTTPS page
+// can connect with wss:// without a reverse proxy. allowedOrigins lists the
+// browser Origins allowed to upgrade; empty allows any, "*" allows all, and
+// an Origin outside the list is refused before the handshake.
+func ListenWebSocketTLS(addr string, serverID PeerID, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
+	if config == nil {
+		return nil, errors.New("net: websocket TLS needs a tls.Config")
+	}
+	return listenWebSocket(addr, serverID, config, allowedOrigins)
+}
+
+// ListenWebSocketTLSFiles is ListenWebSocketTLS with a certificate and key
+// loaded from PEM files.
+func ListenWebSocketTLSFiles(addr string, serverID PeerID, certFile, keyFile string, allowedOrigins []string) (*WebSocketServer, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	return ListenWebSocketTLS(addr, serverID, &tls.Config{Certificates: []tls.Certificate{cert}}, allowedOrigins)
+}
+
+func listenWebSocket(addr string, serverID PeerID, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
 	if serverID == 0 {
 		serverID = 1
 	}
@@ -467,14 +493,37 @@ func ListenWebSocket(addr string, serverID PeerID) (*WebSocketServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config != nil {
+		ln = tls.NewListener(ln, config)
+	}
 	s := &WebSocketServer{
 		ln:         ln,
 		serverID:   serverID,
+		origins:    allowedOrigins,
 		nextPeerID: serverID + 1,
 		clients:    make(map[PeerID]*wsClientConn),
 	}
 	go s.acceptLoop()
 	return s, nil
+}
+
+// originAllowed reports whether a browser Origin may upgrade.
+func (s *WebSocketServer) originAllowed(origin string) bool {
+	if len(s.origins) == 0 || strings.TrimSpace(origin) == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	normalized := strings.ToLower(u.Scheme + "://" + u.Host)
+	for _, allowed := range s.origins {
+		a := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(allowed), "/"))
+		if a == "*" || a == normalized {
+			return true
+		}
+	}
+	return false
 }
 
 // Addr returns the listener's network address.
@@ -503,6 +552,11 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+	if !s.originAllowed(req.Header.Get("Origin")) {
+		_, _ = io.WriteString(conn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+		_ = conn.Close()
+		return
+	}
 	secKey := strings.TrimSpace(req.Header.Get("Sec-WebSocket-Key"))
 	if secKey == "" || !strings.EqualFold(strings.TrimSpace(req.Header.Get("Upgrade")), "websocket") {
 		_, _ = io.WriteString(conn, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
