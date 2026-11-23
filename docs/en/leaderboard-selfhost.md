@@ -85,7 +85,7 @@ pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // these
 
 Errors are `ErrUnknownBoard`, `ErrUnknownPeriod` (no such period, or no longer kept), `ErrNotRanked`, `ErrInvalidAccount`, `ErrScoreOutOfRange`, `ErrProofRequired`, `ErrInvalidProof`, `ErrProofExpired` and `ErrInvalidQuery`.
 
-Each period is an order-statistic skip list in memory, so every query costs O(log n) plus the entries it returns. On a board of a million accounts the benchmarks take about 7 µs for the top 100, 60 µs for 100 entries deep in the board, 40 µs around an account and 10 µs to submit (`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`); a benchmark fails when a query takes more than 50 ms.
+Each period is an order-statistic skip list in memory, so every query costs O(log n) plus the entries it returns. On a board of a million accounts the benchmarks take about 7 µs for the top 100, 60 µs for 100 entries deep in the board, 40 µs around an account and 10 µs to submit (`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`); a benchmark fails when a query takes more than 50 ms, and CI runs the query benchmarks on every pull request.
 
 ## Server-validated scores
 
@@ -98,7 +98,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 // send proof to the player with the match result
 ```
 
-A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over the board, account, score and time. The service refuses a missing proof (`ErrProofRequired`), one signed by a key not in `serverKeys`, for another board, account or score, or issued in the future (`ErrInvalidProof`), and one older than `proofTTL` (`ErrProofExpired`). `Options.Leeway` allows for clock skew between the machines. Because a proof names the account, a player cannot submit someone else's.
+A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over the board, account, score and time. The service refuses a missing proof (`ErrProofRequired`), one signed by a key not in `serverKeys`, for another board, account or score, or issued in the future (`ErrInvalidProof`), and one older than `proofTTL` or, on a daily or weekly board, issued before the current period began (`ErrProofExpired`), so a score signed before a reset does not count after it. `Options.Leeway` allows for clock skew between the machines. Because a proof names the account, a player cannot submit someone else's.
 
 ## HTTP
 
@@ -124,7 +124,7 @@ The service keeps its records in a `Store`. `NewMemoryStore` is for tests. `Open
 {"account":"3f9a...","score":4200,"achieved":"2026-11-24T09:15:02.5Z"}
 ```
 
-`New` loads the files. It cuts off a last line a crash left half written, rewrites a file whose lines are mostly superseded scores with one line per account, and deletes the periods boards no longer keep; a reset deletes them as it happens. Scores of a board removed from the configuration stay on disk and are not served. `FileStoreOptions.Sync` flushes every write to the disk, for a machine that may lose power. A `Store` of your own implements `Load`, `Save` and `Drop`.
+`New` loads the files. It cuts off a last line a crash left half written, rewrites a file whose lines are mostly superseded scores with one line per account, and deletes the periods that are older than the ones a board keeps; a reset deletes them as it happens. A failed write is taken back, so the file never holds a score the client was told was lost. `New` deletes only what it can place: scores of a board removed from the configuration, and of periods stored under a board's earlier `reset` or `weekStart`, stay on disk, are not served, and are logged as a warning. A period later than the current one, as a machine whose clock is behind at boot sees it, is kept and served once the clock reaches it. `FileStoreOptions.Sync` flushes every write to the disk, for a machine that may lose power. A `Store` of your own implements `Load`, `Save` and `Drop`.
 
 ## leaderboardd
 
@@ -134,4 +134,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` writes a configuration with one all-time `high-score` board to edit. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM.
+`init` writes a configuration with one all-time `high-score` board to edit. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.

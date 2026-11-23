@@ -85,7 +85,7 @@ pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // 这�
 
 错误有 `ErrUnknownBoard`、`ErrUnknownPeriod`（没有这个周期，或已不再保留）、`ErrNotRanked`、`ErrInvalidAccount`、`ErrScoreOutOfRange`、`ErrProofRequired`、`ErrInvalidProof`、`ErrProofExpired` 和 `ErrInvalidQuery`。
 
-每个周期在内存里是一个顺序统计跳表，所以每次查询的开销是 O(log n) 加上返回的条目数。在一百万个账号的排行榜上，基准测试取前 100 名约 7 µs，取榜单深处的 100 个条目约 60 µs，取账号附近的条目约 40 µs，提交约 10 µs（`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`）；任何查询超过 50 ms 时基准测试失败。
+每个周期在内存里是一个顺序统计跳表，所以每次查询的开销是 O(log n) 加上返回的条目数。在一百万个账号的排行榜上，基准测试取前 100 名约 7 µs，取榜单深处的 100 个条目约 60 µs，取账号附近的条目约 40 µs，提交约 10 µs（`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`）；任何查询超过 50 ms 时基准测试失败，CI 在每个拉取请求上运行这些查询基准测试。
 
 ## 服务器校验的成绩
 
@@ -98,7 +98,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 // 把 proof 随比赛结果发给玩家
 ```
 
-证明的形式是 `v1.<密钥 id>.<unix 秒>.<签名>`，即对排行榜、账号、分数和时间的 Ed25519 签名。服务拒绝缺少证明的成绩（`ErrProofRequired`），拒绝由不在 `serverKeys` 里的密钥签发、针对其他排行榜、账号或分数、或签发时间在未来的证明（`ErrInvalidProof`），也拒绝超过 `proofTTL` 的证明（`ErrProofExpired`）。`Options.Leeway` 容许机器之间的时钟偏差。证明里写明了账号，所以玩家无法提交别人的证明。
+证明的形式是 `v1.<密钥 id>.<unix 秒>.<签名>`，即对排行榜、账号、分数和时间的 Ed25519 签名。服务拒绝缺少证明的成绩（`ErrProofRequired`），拒绝由不在 `serverKeys` 里的密钥签发、针对其他排行榜、账号或分数、或签发时间在未来的证明（`ErrInvalidProof`），也拒绝超过 `proofTTL` 的证明，以及在每日或每周排行榜上于当前周期开始之前签发的证明（`ErrProofExpired`），所以重置之前签发的成绩不会计入重置之后的周期。`Options.Leeway` 容许机器之间的时钟偏差。证明里写明了账号，所以玩家无法提交别人的证明。
 
 ## HTTP
 
@@ -124,7 +124,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 {"account":"3f9a...","score":4200,"achieved":"2026-11-24T09:15:02.5Z"}
 ```
 
-`New` 读取这些文件。它截掉崩溃时写了一半的最后一行，把大多是已被超越的成绩的文件改写为每个账号一行，并删除排行榜不再保留的周期；重置发生时也会随即删除。从配置里移除的排行榜，其成绩留在磁盘上但不再提供。`FileStoreOptions.Sync` 让每次写入都刷到磁盘，适用于可能断电的机器。自己实现的 `Store` 需要提供 `Load`、`Save` 和 `Drop`。
+`New` 读取这些文件。它截掉崩溃时写了一半的最后一行，把大多是已被超越的成绩的文件改写为每个账号一行，并删除比排行榜保留的周期更早的周期；重置发生时也会随即删除。写入失败时会撤回已写的部分，所以文件里不会留下已告知客户端丢失的成绩。`New` 只删除它能归位的周期：从配置里移除的排行榜的成绩，以及在排行榜修改 `reset` 或 `weekStart` 之前保存的周期，都留在磁盘上，不再提供，并记录一条警告。比当前周期更晚的周期（开机时时钟落后的机器会看到这种情况）会保留下来，等时钟走到它时再提供。`FileStoreOptions.Sync` 让每次写入都刷到磁盘，适用于可能断电的机器。自己实现的 `Store` 需要提供 `Load`、`Save` 和 `Drop`。
 
 ## leaderboardd
 
@@ -134,4 +134,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` 写出一份只有一个总榜 `high-score` 的配置供修改。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。
+`init` 写出一份只有一个总榜 `high-score` 的配置供修改。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。

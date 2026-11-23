@@ -34,6 +34,12 @@ type FileStore struct {
 
 	mu    sync.Mutex
 	files map[string]*os.File
+	// torn holds the paths whose last Save failed and could not be taken back, so the file may end in part of a line; the next Save cuts it off before appending.
+	torn map[string]bool
+
+	// writeLine and syncFile write and flush a period file; tests replace them to make a Save fail part way.
+	writeLine func(*os.File, []byte) (int, error)
+	syncFile  func(*os.File) error
 }
 
 // FileStoreOptions are a FileStore's settings.
@@ -47,7 +53,7 @@ func OpenFileStore(dir string, opts FileStoreOptions) (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("selfhost: %w", err)
 	}
-	return &FileStore{dir: dir, sync: opts.Sync, files: map[string]*os.File{}}, nil
+	return &FileStore{dir: dir, sync: opts.Sync, files: map[string]*os.File{}, torn: map[string]bool{}, writeLine: (*os.File).Write, syncFile: (*os.File).Sync}, nil
 }
 
 // fileRecord is one line of a period file.
@@ -99,13 +105,10 @@ func (f *FileStore) loadFile(board, period string, fn func(Record) error) error 
 	if err != nil {
 		return fmt.Errorf("selfhost: %w", err)
 	}
-	if end := bytes.LastIndexByte(data, '\n') + 1; end != len(data) {
-		// The process stopped in the middle of a line; that score was never acknowledged, so drop it and keep appending after the last whole line.
-		if err := os.Truncate(path, int64(end)); err != nil {
-			return fmt.Errorf("selfhost: %w", err)
-		}
-		data = data[:end]
+	if data, err = cutPartialLine(path, data); err != nil {
+		return err
 	}
+	delete(f.torn, path)
 	latest := map[string]int{}
 	var records []Record
 	sc := bufio.NewScanner(bytes.NewReader(data))
@@ -170,6 +173,18 @@ func (f *FileStore) rewrite(path string, records []Record) error {
 	return nil
 }
 
+// cutPartialLine truncates the file at path, whose contents are data, after its last whole line, and returns the whole lines. A partial line is a score that was never acknowledged: the process stopped, or a Save failed, in the middle of writing it.
+func cutPartialLine(path string, data []byte) ([]byte, error) {
+	end := bytes.LastIndexByte(data, '\n') + 1
+	if end == len(data) {
+		return data, nil
+	}
+	if err := os.Truncate(path, int64(end)); err != nil {
+		return nil, fmt.Errorf("selfhost: %w", err)
+	}
+	return data[:end], nil
+}
+
 func encodeRecord(r Record) []byte {
 	line, _ := json.Marshal(fileRecord{Account: r.Account, Score: r.Score, Achieved: r.Achieved.UTC()})
 	return append(line, '\n')
@@ -191,19 +206,41 @@ func (f *FileStore) Save(ctx context.Context, rec Record) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return fmt.Errorf("selfhost: %w", err)
 		}
+		if f.torn[path] {
+			data, err := os.ReadFile(path)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("selfhost: %w", err)
+			}
+			if err == nil {
+				if _, err := cutPartialLine(path, data); err != nil {
+					return err
+				}
+			}
+			delete(f.torn, path)
+		}
 		var err error
 		if file, err = os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644); err != nil {
 			return fmt.Errorf("selfhost: %w", err)
 		}
 		f.files[path] = file
 	}
-	if _, err := file.Write(encodeRecord(rec)); err != nil {
+	info, err := file.Stat()
+	if err != nil {
 		return fmt.Errorf("selfhost: %w", err)
 	}
-	if f.sync {
-		if err := file.Sync(); err != nil {
-			return fmt.Errorf("selfhost: %w", err)
+	_, err = f.writeLine(file, encodeRecord(rec))
+	if err == nil && f.sync {
+		err = f.syncFile(file)
+	}
+	if err != nil {
+		// Take back whatever of the line reached the file, so a failed Save neither leaves a score the caller was told is lost nor a broken line the next Save would append after.
+		if terr := file.Truncate(info.Size()); terr != nil {
+			_ = file.Close()
+			delete(f.files, path)
+			f.torn[path] = true
+			return fmt.Errorf("selfhost: %w", errors.Join(err, terr))
 		}
+		return fmt.Errorf("selfhost: %w", err)
 	}
 	return nil
 }
@@ -223,6 +260,7 @@ func (f *FileStore) Drop(ctx context.Context, board, period string) error {
 		_ = file.Close()
 		delete(f.files, path)
 	}
+	delete(f.torn, path)
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("selfhost: %w", err)
 	}

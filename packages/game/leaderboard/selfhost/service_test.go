@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -465,6 +466,143 @@ func TestConcurrentSubmitsAndQueries(t *testing.T) {
 	for _, e := range p.Entries {
 		if e.Score < 150 {
 			t.Fatalf("%s kept %d, not its best", e.Account, e.Score)
+		}
+	}
+}
+
+func TestNewLeavesPeriodsItCannotPlaceInTheStore(t *testing.T) {
+	ctx := context.Background()
+	store := selfhost.NewMemoryStore()
+	c := &clock{t0}
+	svc := newService(t, store, c)
+	submit(t, svc, "weekly", "ada", 300)
+	submit(t, svc, "high-score", "bob", 50)
+	all := []string{"high-score/all", "weekly/2026-11-23"}
+
+	// A clock two weeks behind sees the week as the future: it is kept and not served until the clock reaches it.
+	c.t = t0.Add(-14 * 24 * time.Hour)
+	behind := newService(t, store, c)
+	if got := store.Periods(); !slices.Equal(got, all) {
+		t.Fatalf("a clock behind dropped periods: %v", got)
+	}
+	if got := top(t, behind, "weekly", ""); len(got) != 0 {
+		t.Fatalf("current week behind the clock = %v", got)
+	}
+	if _, err := behind.Top(ctx, "weekly", "2026-11-23", 0, 10); !errors.Is(err, selfhost.ErrUnknownPeriod) {
+		t.Fatalf("a future period served: %v", err)
+	}
+	c.t = t0
+	if got := top(t, behind, "weekly", ""); !slices.Equal(got, []string{"ada:300"}) {
+		t.Fatalf("once the clock caught up = %v", got)
+	}
+	if got := store.Periods(); !slices.Equal(got, all) {
+		t.Fatalf("catching up dropped periods: %v", got)
+	}
+
+	// Changing a board's reset or weekStart leaves the periods stored under the old one, even long after they would have expired.
+	for name, boards := range map[string]string{
+		"weekStart":         "  - name: high-score\n    order: descending\n    reset: allTime\n  - name: weekly\n    order: descending\n    reset: weekly\n    weekStart: sunday\n    keep: 1\n",
+		"allTime to weekly": "  - name: high-score\n    order: descending\n    reset: weekly\n    keep: 1\n  - name: weekly\n    order: descending\n    reset: weekly\n    weekStart: sunday\n    keep: 1\n",
+		"weekly to allTime": "  - name: high-score\n    order: descending\n    reset: allTime\n  - name: weekly\n    order: descending\n    reset: allTime\n",
+	} {
+		cfg, err := selfhost.ParseConfig([]byte("version: 1\nboards:\n" + boards))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		store := selfhost.NewMemoryStore()
+		_ = store.Save(ctx, selfhost.Record{Board: "high-score", Period: selfhost.AllTimePeriod, Account: "bob", Score: 50, Achieved: t0})
+		_ = store.Save(ctx, selfhost.Record{Board: "weekly", Period: "2026-11-23", Account: "ada", Score: 300, Achieved: t0})
+		late := &clock{t0.Add(10 * 7 * 24 * time.Hour)}
+		changed, err := selfhost.New(ctx, cfg, selfhost.Options{Store: store, Now: late.Now})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := store.Periods(); !slices.Equal(got, all) {
+			t.Fatalf("%s dropped periods: %v", name, got)
+		}
+		if got := top(t, changed, "weekly", ""); len(got) != 0 {
+			t.Fatalf("%s served a period it cannot place: %v", name, got)
+		}
+	}
+}
+
+func TestASubmissionAtAResetCountsInThePeriodOfItsTime(t *testing.T) {
+	ctx := context.Background()
+	sunday := time.Date(2026, 11, 29, 23, 59, 59, 999_999_000, time.UTC)
+	monday := time.Date(2026, 11, 30, 0, 0, 0, 500, time.UTC)
+	// New reads the clock once; the clock then moves past the reset between any two readings.
+	readings := []time.Time{t0, sunday, monday}
+	now := func() time.Time {
+		r := readings[0]
+		if len(readings) > 1 {
+			readings = readings[1:]
+		}
+		return r
+	}
+	cfg, _ := selfhost.ParseConfig([]byte(testConfig))
+	svc, err := selfhost.New(ctx, cfg, selfhost.Options{Store: selfhost.NewMemoryStore(), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Submit(ctx, selfhost.Submission{Board: "weekly", Account: "ada", Score: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := res.Entry.Achieved; res.Period.ID != "2026-11-23" || !a.Equal(sunday) {
+		t.Fatalf("filed in %s at %v, want 2026-11-23 at %v", res.Period.ID, a, sunday)
+	}
+
+	// A clock reading from before a reset the board already made counts at the reset's instant.
+	c := &clock{time.Date(2026, 11, 30, 0, 0, 1, 0, time.UTC)}
+	svc3, err := selfhost.New(ctx, cfg, selfhost.Options{Store: selfhost.NewMemoryStore(), Now: c.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.t = sunday
+	res, err = svc3.Submit(ctx, selfhost.Submission{Board: "weekly", Account: "bob", Score: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC); res.Period.ID != "2026-11-30" || !res.Entry.Achieved.Equal(start) {
+		t.Fatalf("a reading behind the board filed in %s at %v", res.Period.ID, res.Entry.Achieved)
+	}
+}
+
+func TestAProofSignedBeforeAResetDoesNotCountAfterIt(t *testing.T) {
+	ctx := context.Background()
+	c := &clock{time.Date(2026, 11, 25, 23, 59, 59, 0, time.UTC)}
+	svc := newService(t, selfhost.NewMemoryStore(), c)
+	server := mustSigner(9)
+	server.Now = c.Now
+	proof, err := server.Sign("ranked", "ada", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two seconds later the daily board has reset, well inside proofTTL.
+	c.advance(2 * time.Second)
+	if _, err := svc.Submit(ctx, selfhost.Submission{Board: "ranked", Account: "ada", Score: 100, Proof: proof}); !errors.Is(err, selfhost.ErrProofExpired) {
+		t.Fatalf("a proof from the previous day: %v", err)
+	}
+	if got := top(t, svc, "ranked", "previous"); len(got) != 0 {
+		t.Fatalf("previous day changed: %v", got)
+	}
+	fresh, err := server.Sign("ranked", "ada", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := svc.Submit(ctx, selfhost.Submission{Board: "ranked", Account: "ada", Score: 100, Proof: fresh}); err != nil || res.Period.ID != "2026-11-26" {
+		t.Fatalf("a proof from the new day = %+v, %v", res, err)
+	}
+}
+
+func TestTopPastTheEndIsEmpty(t *testing.T) {
+	svc := newService(t, selfhost.NewMemoryStore(), &clock{t0})
+	submit(t, svc, "high-score", "ada", 1)
+	submit(t, svc, "high-score", "bob", 2)
+	for _, offset := range []int{2, 3, math.MaxInt} {
+		p, err := svc.Top(context.Background(), "high-score", "", offset, 10)
+		if err != nil || p.Total != 2 || len(p.Entries) != 0 {
+			t.Fatalf("offset %d = %+v, %v", offset, p, err)
 		}
 	}
 }

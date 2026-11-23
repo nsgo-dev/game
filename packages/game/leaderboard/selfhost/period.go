@@ -70,22 +70,31 @@ func (b Board) readable(query string, cur Period) (Period, bool) {
 	if b.Reset == AllTime {
 		return Period{}, false
 	}
-	start, err := time.Parse(periodLayout, query)
-	if err != nil {
-		return Period{}, false
-	}
-	p := b.periodAt(start)
-	if p.ID != query || !p.Start.Before(cur.Start) || p.Start.Before(b.previous(cur, b.keep()).Start) {
+	p, ok := b.aligned(query)
+	if !ok || !p.Start.Before(cur.Start) || p.Start.Before(b.previous(cur, b.keep()).Start) {
 		return Period{}, false
 	}
 	return p, true
 }
 
-// kept reports whether the period with ID id is the current period cur or one of the earlier periods the board keeps.
-func (b Board) kept(id string, cur Period) bool {
+// aligned returns the board's period with ID id, and reports whether id names one: AllTimePeriod on an all-time board, otherwise a date a period starts on under the board's reset and weekStart. A period stored under another reset or weekStart does not align.
+func (b Board) aligned(id string) (Period, bool) {
 	if b.Reset == AllTime {
-		return id == AllTimePeriod
+		return Period{ID: AllTimePeriod}, id == AllTimePeriod
 	}
-	_, ok := b.readable(id, cur)
-	return ok
+	start, err := time.Parse(periodLayout, id)
+	if err != nil {
+		return Period{}, false
+	}
+	p := b.periodAt(start)
+	return p, p.ID == id
+}
+
+// expired reports whether id names a period of the board, aligned to its reset and weekStart, that starts before the earliest period the board keeps given the current period cur. Only such a period may be dropped from the store: one that does not align, or one later than cur because the clock was behind, is left alone.
+func (b Board) expired(id string, cur Period) bool {
+	if b.Reset == AllTime {
+		return false
+	}
+	p, ok := b.aligned(id)
+	return ok && p.Start.Before(b.previous(cur, b.keep()).Start)
 }

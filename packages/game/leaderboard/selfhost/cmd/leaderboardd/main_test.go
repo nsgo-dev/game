@@ -70,11 +70,11 @@ func TestInitGenkeyAndServe(t *testing.T) {
 	}
 
 	for _, bad := range [][3]string{{cfgPath, "", "data"}, {cfgPath, ksPath, ""}, {filepath.Join(dir, "missing.yaml"), ksPath, "data"}} {
-		if _, _, err := service(ctx, bad[0], bad[1], bad[2], nil); err == nil {
+		if _, _, err := service(ctx, bad[0], bad[1], bad[2], false, nil); err == nil {
 			t.Fatalf("service(%q) succeeded", bad)
 		}
 	}
-	svc, store, err := service(ctx, cfgPath, ksPath, filepath.Join(dir, "scores"), nil)
+	svc, store, err := service(ctx, cfgPath, ksPath, filepath.Join(dir, "scores"), true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
