@@ -39,7 +39,7 @@ meters:
 | `tempos` | Tempo changes in beat order, the first at beat 0; a change may start between beats |
 | `meters` | Meter changes in beat order, the first at beat 0, each on a whole bar of the meter before it; none means 4 beats to a bar |
 
-`ParseBeatMap` refuses unknown fields, a second YAML document, a fraction where a whole number belongs, and changes out of order or out of range (at most 2000 bpm, 10,000 changes and beat 1,000,000). `EncodeBeatMap` writes the fields in that fixed order with 2-space indentation, so a map loaded and saved again is unchanged.
+`ParseBeatMap` refuses unknown fields, a second YAML document, YAML anchors and aliases, a fraction where a whole number belongs, and changes out of order or out of range (1 to 2000 bpm, at most 10,000 changes and beat 1,000,000). Those bounds keep every time a valid map gives finite and well inside a `time.Duration`; a beat asked for far past them saturates at the longest `Duration` rather than wrapping. `EncodeBeatMap` writes the fields in that fixed order with 2-space indentation, so a map loaded and saved again is unchanged.
 
 `BeatMap.Timing` turns a map into a `Timing`, which converts between track time and beats and bars:
 
@@ -83,7 +83,7 @@ For a track loaded as an `audio.Sound`, start it with `audio.Voice{StartAt: at}`
 | --- | --- |
 | `Track(now)` | The position the output plays, uncorrected |
 | `Position(now)`, `Beat(now)` | What the player hears: the position less the audio offset; judge input by it |
-| `Judge(at, beat)` | How early (negative) or late an input at `at` is for `beat` |
+| `Judge(at, beat)` | How early (negative) or late an input going down at `at` is for `beat` |
 | `DrawPosition(now)`, `DrawBeat(now)` | Where a frame drawn now puts the hit line: the position plus the video offset less the audio offset |
 | `BeatTime(beat)`, `TrackTime(pos)` | The engine time the output plays a beat, to pass to `audio.Voice.StartAt` for a hit sound or a metronome click; no offset applies, since both go through the same output |
 
@@ -107,13 +107,19 @@ cal := rhythm.NewCalibration(cx, rhythm.CalibrateAudio, click)
 screen := rhythm.NewCalibrationScreen(cal, store, device)
 screen.OnSave = func(o rhythm.Offsets) { clock.SetOffsets(o) }
 
-core.Canvas{
-	Draw:    func(d *core.Drawing, size core.Size) { screen.Draw(d, core.Bounds{Size: size}) },
-	OnPress: func(ev core.PressEvent) { screen.OnPress(ev) },
+core.View{
+	OnPressDown: func(ev core.PressEvent) { screen.OnPressDown(ev) },
+	OnPress:     func(ev core.PressEvent) { screen.OnPress(ev) },
+	OnKeyDown:   screen.OnKeyDown,
+	Children: []core.Node{core.Canvas{
+		Draw: func(d *core.Drawing, size core.Size) { screen.Draw(d, core.Bounds{Size: size}) },
+	}},
 }
 ```
 
-Redraw the canvas every frame while the screen shows, as a `game.Loop` does. A press on Retry or Save presses the button, and any other press or key is a tap. Save is enabled once the result is steady. Set `Text` to translate the words.
+Redraw the canvas every frame while the screen shows, as a `game.Loop` does. A tap is taken on the edge it goes down: `OnPressDown` off the buttons, or a key going down. A completed press (`OnPress`) only comes as the finger lifts, so measuring from it would add how long each tap is held, tens of milliseconds that vary from tap to tap. Judge gameplay input on the same edge, from `OnPressDown` or a key going down, or the offset calibration measured will not match it.
+
+A press on Retry or Save presses the button. Tab and the arrow keys move the focus between them and Return or Space presses the focused one; once the calibration is done the focus moves to Save, or to Retry for an unsteady result, so a player on a keyboard or a switch can save. Save is enabled once the result is steady. Call `Stop` when the screen goes away mid-run, which stops the clicks booked ahead; the clicks also stop as the last tap counts. Set `Text` to translate the words.
 
 ## Per-device offsets
 

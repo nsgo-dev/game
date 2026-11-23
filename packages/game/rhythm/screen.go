@@ -38,7 +38,7 @@ func DefaultCalibrationText() CalibrationText {
 
 // CalibrationScreen is the screen a player calibrates a device on, drawn into a core.Canvas with gameui: a prompt, the taps counted, the result, a Retry button and a Save button that keeps the result in an OffsetStore for the device. A video calibration flashes a disc at each cue; an audio one shows nothing that moves, so the player taps to what they hear.
 //
-// Draw it every frame from the canvas, which also drives its Calibration, and pass the canvas's presses to OnPress: a press on a button presses it, and any other press, or a key, is a tap.
+// Draw it every frame from the canvas, which also drives its Calibration. A tap is taken on the edge it goes down, as gameplay judges a hit, never on a completed press, which comes only as the finger lifts: wrap the canvas in a core.View and pass its OnPressDown, OnPress and OnKeyDown here. A press going down off the buttons is a tap and a press on a button presses it; a key going down is a tap unless it moves the focus or presses a focused button, and once the calibration is done the focus moves to Save, or to Retry for an unsteady result, so a player on a keyboard or a switch reaches them.
 type CalibrationScreen struct {
 	// Text is the words shown; DefaultCalibrationText until set.
 	Text CalibrationText
@@ -60,6 +60,8 @@ type CalibrationScreen struct {
 	saveErr error
 	// level is how bright the flash is this frame.
 	level float64
+	// done is whether the calibration was done at the last sync, so the focus moves to a button once as it finishes.
+	done bool
 }
 
 // NewCalibrationScreen returns a screen running cal and keeping its result for device in store. It starts cal.
@@ -92,9 +94,13 @@ func (s *CalibrationScreen) Calibration() *Calibration { return s.cal }
 // Err returns why the last Save failed, nil after one that kept the offsets.
 func (s *CalibrationScreen) Err() error { return s.saveErr }
 
+// Stop stops the calibration's clicks and taps, for when the screen goes away mid-run; Retry starts it again.
+func (s *CalibrationScreen) Stop() { s.cal.Stop() }
+
 // Retry starts the calibration over.
 func (s *CalibrationScreen) Retry() {
 	s.saveErr = nil
+	s.root.ClearFocus()
 	s.cal.Start()
 }
 
@@ -114,10 +120,27 @@ func (s *CalibrationScreen) Save() error {
 	return nil
 }
 
-// OnPress handles a press on the canvas: a button it lands on, or otherwise a tap. It reports whether it used the press.
+// OnPressDown handles a press going down on the canvas: a tap, unless it lands on a button, which OnPress then presses. It reports whether the tap counted.
+func (s *CalibrationScreen) OnPressDown(ev core.PressEvent) bool {
+	if ev.Keyboard || s.root.HitTest(ev.Position) != nil {
+		return false
+	}
+	_, counted := s.cal.Tap()
+	return counted
+}
+
+// OnPress handles a completed press on the canvas: one on a button presses it, and Return or Space presses the focused button. Taps are taken by OnPressDown and OnKeyDown, not here. It reports whether it used the press.
 func (s *CalibrationScreen) OnPress(ev core.PressEvent) bool {
-	if !ev.Keyboard && s.root.OnPress(ev) {
+	return s.root.OnPress(ev)
+}
+
+// OnKeyDown handles a key going down: Tab and the arrows move the focus among the buttons and Return or Space presses the focused one, as gameui.Root does; any other key going down, not a held key's repeat, is a tap. It reports whether it used the key.
+func (s *CalibrationScreen) OnKeyDown(ev core.KeyEvent) bool {
+	if s.root.OnKeyDown(ev) {
 		return true
+	}
+	if ev.Repeat || s.cal.Done() {
+		return false
 	}
 	_, counted := s.cal.Tap()
 	return counted
@@ -178,4 +201,12 @@ func (s *CalibrationScreen) sync() {
 		s.result.Text = fmt.Sprintf(t.Unsteady, int64(r.Spread.Round(time.Millisecond)/time.Millisecond))
 	}
 	s.save.Disabled = !done || !r.Steady()
+	if done && !s.done {
+		if r.Steady() {
+			s.root.SetFocus(s.save)
+		} else {
+			s.root.SetFocus(s.retry)
+		}
+	}
+	s.done = done
 }

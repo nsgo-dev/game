@@ -67,7 +67,12 @@ func TestCalibrationScreenMeasuresAndSavesTheVideoOffset(t *testing.T) {
 		}
 		app.FastForward(40 * time.Millisecond)
 		frame()
-		screen.OnPress(core.PressEvent{Keyboard: true})
+		// The tap is taken as the finger goes down; its completed press, a hold later, is not a second tap.
+		screen.OnPressDown(core.PressEvent{Position: core.Point{X: 200, Y: 200}})
+		app.FastForward(90 * time.Millisecond)
+		if screen.OnPress(core.PressEvent{Position: core.Point{X: 200, Y: 200}}) {
+			t.Fatal("a completed press off the buttons was used")
+		}
 	}
 	frame()
 	if r, done := cal.Result(); !done || r.Offset != 40*time.Millisecond {
@@ -75,6 +80,9 @@ func TestCalibrationScreenMeasuresAndSavesTheVideoOffset(t *testing.T) {
 	}
 	if save.Disabled {
 		t.Fatal("save is disabled with a steady result")
+	}
+	if screen.OnPressDown(core.PressEvent{Position: center(save.Bounds())}) || cal.Count() != 4 {
+		t.Fatal("a press going down on the save button tapped")
 	}
 	if !screen.OnPress(core.PressEvent{Position: center(save.Bounds())}) {
 		t.Fatal("the save button did not take the press")
@@ -106,7 +114,7 @@ func TestCalibrationScreenShowsAnUnsteadyResult(t *testing.T) {
 	for k, off := range []time.Duration{0, 200, -100} {
 		app.FastForward(cal.Cue(k).Add(25*time.Millisecond + off*time.Millisecond).Sub(app.Clock.Now()))
 		screen.Draw(&core.Drawing{}, screenBounds)
-		screen.OnPress(core.PressEvent{Position: core.Point{X: 200, Y: 200}})
+		screen.OnPressDown(core.PressEvent{Position: core.Point{X: 200, Y: 200}})
 	}
 	d := &core.Drawing{}
 	screen.Draw(d, screenBounds)
@@ -119,14 +127,66 @@ func TestCalibrationScreenShowsAnUnsteadyResult(t *testing.T) {
 	if !found {
 		t.Fatal("the unsteady result is not shown")
 	}
-	_, save := buttons(t, screen)
+	retry, save := buttons(t, screen)
 	if !save.Disabled {
 		t.Fatal("save is enabled with an unsteady result")
+	}
+	if screen.Root().Focused() != retry {
+		t.Fatal("an unsteady result did not focus Retry")
 	}
 	if err := screen.Save(); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := store.Get("dev"); ok {
 		t.Fatal("an unsteady result was kept")
+	}
+}
+
+func TestCalibrationScreenRunsFromTheKeyboard(t *testing.T) {
+	app, cal, cx := startCalibrationIn(t, rhythm.CalibrateAudio, core.Environment{Audio: true, AudioSchedule: true})
+	cal.Taps, cal.Warmup = 3, -1
+	store := rhythm.NewOffsetStore(cx, "cal")
+	screen := rhythm.NewCalibrationScreen(cal, store, "dev")
+	retry, save := buttons(t, screen)
+	screen.Draw(&core.Drawing{}, screenBounds)
+	for k := range 3 {
+		app.FastForward(cal.Cue(k).Add(60 * time.Millisecond).Sub(app.Clock.Now()))
+		screen.Draw(&core.Drawing{}, screenBounds)
+		if !screen.OnKeyDown(core.KeyEvent{Key: "space"}) {
+			t.Fatalf("key %d did not tap", k)
+		}
+		// A held key's repeat is no tap.
+		app.FastForward(30 * time.Millisecond)
+		if screen.OnKeyDown(core.KeyEvent{Key: "space", Repeat: true}) || cal.Count() != k+1 {
+			t.Fatalf("a repeat tapped: %d taps", cal.Count())
+		}
+	}
+	screen.Draw(&core.Drawing{}, screenBounds)
+	if r, done := cal.Result(); !done || r.Offset != 60*time.Millisecond {
+		t.Fatalf("result %+v %v", r, done)
+	}
+	if screen.Root().Focused() != save {
+		t.Fatal("a steady result did not focus Save")
+	}
+	if !screen.OnKeyDown(core.KeyEvent{Key: "enter"}) {
+		t.Fatal("enter did not press Save")
+	}
+	if o, ok := store.Get("dev"); !ok || o.Audio != 60*time.Millisecond {
+		t.Fatalf("kept %+v %v", o, ok)
+	}
+	// Shift-Tab reaches Retry, which starts over and gives the keys back to tapping.
+	if !screen.OnKeyDown(core.KeyEvent{Key: "tab", Modifiers: core.Modifiers{Shift: true}}) || screen.Root().Focused() != retry {
+		t.Fatal("shift-tab did not reach Retry")
+	}
+	if !screen.OnPress(core.PressEvent{Keyboard: true}) || cal.Count() != 0 || screen.Root().Focused() != nil {
+		t.Fatal("pressing the focused Retry did not start over")
+	}
+	app.FastForward(cal.Cue(0).Add(60 * time.Millisecond).Sub(app.Clock.Now()))
+	if !screen.OnKeyDown(core.KeyEvent{Key: "space"}) || cal.Count() != 1 {
+		t.Fatal("a key after Retry did not tap")
+	}
+	screen.Stop()
+	if screen.OnKeyDown(core.KeyEvent{Key: "k"}) || cal.Started() {
+		t.Fatal("a stopped screen took a tap")
 	}
 }

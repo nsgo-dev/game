@@ -226,10 +226,7 @@ func NewCalibration(cx *core.Scope, kind CalibrationKind, click *audio.Sound) *C
 func (c *Calibration) Start() {
 	c.run++
 	run := c.run
-	for _, p := range c.pending {
-		p.Stop()
-	}
-	c.pending = c.pending[:0]
+	c.stopClicks()
 	if c.Kind == CalibrateAudio {
 		audio.OutputLatency(c.cx, func(latency time.Duration, known bool) {
 			if run != c.run || !known {
@@ -253,9 +250,27 @@ func (c *Calibration) Start() {
 // OutputLatency returns the output latency the platform reported at Start, and whether it reported one.
 func (c *Calibration) OutputLatency() (time.Duration, bool) { return c.latency, c.latencyKnown }
 
-// Update plays the clicks of an audio calibration that are due: those within two intervals ahead, scheduled at their cue, where the platform schedules sounds, and otherwise the latest cue that has come, at once, recording when it played.
+// Stop ends the run: it stops the clicks scheduled ahead and takes no more taps until Start, keeping the result so far. Call it when the calibration's screen goes away mid-run.
+func (c *Calibration) Stop() {
+	c.stopClicks()
+	c.started = false
+}
+
+// stopClicks stops the clicks scheduled and not yet ended.
+func (c *Calibration) stopClicks() {
+	for _, p := range c.pending {
+		p.Stop()
+	}
+	c.pending = c.pending[:0]
+}
+
+// Update plays the clicks of an audio calibration that are due: those within two intervals ahead, scheduled at their cue, where the platform schedules sounds, and otherwise the latest cue that has come, at once, recording when it played. Once the calibration is done it stops the clicks still scheduled.
 func (c *Calibration) Update() {
-	if c.Kind != CalibrateAudio || c.click == nil || !c.Started() || c.Done() {
+	if c.Done() {
+		c.stopClicks()
+		return
+	}
+	if c.Kind != CalibrateAudio || c.click == nil || !c.Started() {
 		return
 	}
 	now := audio.Now(c.cx)
@@ -276,9 +291,13 @@ func (c *Calibration) Update() {
 	c.next = k + 1
 }
 
-// Tap records a tap now, by the engine's clock, as Calibrator.Tap does.
+// Tap records a tap now, by the engine's clock, as Calibrator.Tap does. The tap that finishes the calibration stops the clicks still scheduled.
 func (c *Calibration) Tap() (offset time.Duration, counted bool) {
-	return c.Calibrator.Tap(audio.Now(c.cx))
+	offset, counted = c.Calibrator.Tap(audio.Now(c.cx))
+	if counted && c.Done() {
+		c.stopClicks()
+	}
+	return offset, counted
 }
 
 // Apply returns o with the offset this calibration measures set to its result, and whether it had a steady result to set.
