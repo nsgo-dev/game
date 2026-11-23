@@ -38,7 +38,7 @@ Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically withi
 
 ## Modular 3D `GridMap`
 
-Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`), fast collision box extraction, DDA raycasting, and frustum-culled instanced batches:
+Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`), fast collision box extraction, chunk-culled raycasting (chunks are sorted along the ray and the occupied cells of each are tested), and frustum-culled instanced batches:
 
 ```go
 lib, err := world3d.LoadMeshLibraryFromGLTF(gltfBytes) // or world3d.NewMeshLibrary()
@@ -77,7 +77,9 @@ quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
 
-Each returned `FoliageInstance` provides its world `Transform` and a smooth distance `Fade` factor in `[0, 1]`.
+Each returned `FoliageInstance` provides its world `Transform` and a smooth distance `Fade` factor in `[0, 1]`. Set `FoliageLayer.BoundingRadius` to the radius of a sphere around the mesh pivot that encloses the mesh at scale 1: culling and the draw distance then use each instance's scaled sphere and measure from its nearest point, so large trees stay visible while any part of them is in range. Without it, culling assumes a unit-radius mesh and distances are measured from the pivot.
+
+`Heightmap.Raycast` walks only the cells under the ray and never scans the whole height grid.
 
 ## Floating-origin chunk streaming
 
@@ -100,6 +102,7 @@ defer streamer.Close()
 // Each frame:
 if rebased, shift := origin.Update(playerLocalPos); rebased {
 	rebaseSceneObjects(shift) // shift Mat4 transforms with world3d.RebaseMat4(m, shift)
+	playerLocalPos = playerLocalPos.Add(shift) // the player moves with everything else
 }
 streamer.Update(origin.LocalToWorld(playerLocalPos))
 ```

@@ -142,7 +142,7 @@ func NewMeshLibrary() *MeshLibrary {
 
 // Add registers def in the library and returns its assigned non-zero tile ID.
 // If def.ID is 0, the next available ID starting from 1 is assigned. If def.ID
-// already exists in the library, its definition is replaced.
+// already exists in the library, its definition is replaced. When all 65535 IDs are taken, Add registers nothing and returns 0 (#546).
 func (l *MeshLibrary) Add(def MeshTileDef) uint16 {
 	if l.byID == nil {
 		l.byID = make(map[uint16]MeshTileDef)
@@ -150,6 +150,9 @@ func (l *MeshLibrary) Add(def MeshTileDef) uint16 {
 		l.nextID = 1
 	}
 	if def.ID == 0 {
+		if len(l.byID) >= math.MaxUint16 {
+			return 0
+		}
 		for l.nextID == 0 || l.hasID(l.nextID) {
 			l.nextID++
 		}

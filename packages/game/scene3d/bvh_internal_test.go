@@ -207,3 +207,20 @@ func TestBVHTreeInvariantsDynamicAndRebuild(t *testing.T) {
 	bvh.Rebuild()
 	validateBVH(t, bvh)
 }
+
+func TestBVHRetiresLeafSlotWhenGenerationsRunOut(t *testing.T) {
+	b := NewBVH()
+	box := math3d.AABB{Max: math3d.Vec3{X: 1, Y: 1, Z: 1}}
+	h := b.Insert(1, box, nil)
+	b.leaves[h.index-1].gen = ^uint32(0) // the slot has been reused 2^32-1 times
+	stale := BVHHandle{index: h.index, gen: ^uint32(0)}
+	b.Remove(stale)
+	fresh := b.Insert(2, box, nil)
+	if fresh.index == h.index {
+		t.Fatalf("exhausted slot %d was reused; a handle from 2^32 frees ago could alias it", h.index)
+	}
+	if b.Contains(stale) {
+		t.Fatal("stale handle still resolves")
+	}
+	validateBVH(t, b)
+}

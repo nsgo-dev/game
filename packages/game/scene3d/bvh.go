@@ -218,7 +218,9 @@ func (b *BVH) freeLeafIdx(idx int32) {
 	leaf.userData = nil // release reference for GC
 	leaf.gen++
 	if leaf.gen == 0 {
-		leaf.gen = 1
+		// The slot's generations are exhausted: wrapping back to 1 would let a handle from 2^32 frees ago alias a new entry, so the slot is retired instead of reused (#546).
+		leaf.nodeIdx = bvhNull
+		return
 	}
 	leaf.nodeIdx = b.freeLeaf
 	b.freeLeaf = idx
