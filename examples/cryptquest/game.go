@@ -40,14 +40,14 @@ const (
 	typewriterCharsPerSec = 48.0
 )
 
-// Virtual-space control pad rectangles matching input.Actions bindings.
+// Virtual-space control pad rectangles, as game.yaml binds them to input.Actions.
 var (
-	dpadUpRect      = core.Bounds{Origin: core.Point{X: 28, Y: 142}, Size: core.Size{Width: 18, Height: 18}}
-	dpadDownRect    = core.Bounds{Origin: core.Point{X: 28, Y: 176}, Size: core.Size{Width: 18, Height: 18}}
-	dpadLeftRect    = core.Bounds{Origin: core.Point{X: 10, Y: 159}, Size: core.Size{Width: 18, Height: 18}}
-	dpadRightRect   = core.Bounds{Origin: core.Point{X: 46, Y: 159}, Size: core.Size{Width: 18, Height: 18}}
-	padInteractRect = core.Bounds{Origin: core.Point{X: 262, Y: 162}, Size: core.Size{Width: 22, Height: 22}}
-	padAttackRect   = core.Bounds{Origin: core.Point{X: 288, Y: 162}, Size: core.Size{Width: 22, Height: 22}}
+	dpadUpRect      = projectRegion("up")
+	dpadDownRect    = projectRegion("down")
+	dpadLeftRect    = projectRegion("left")
+	dpadRightRect   = projectRegion("right")
+	padInteractRect = projectRegion("interact")
+	padAttackRect   = projectRegion("attack")
 )
 
 // EnemyState identifies an enemy's current flow.Machine state.
@@ -218,14 +218,8 @@ func NewGame(store *save.Store) *Game {
 	w := NewWorld()
 	worldBounds := w.Map.WorldBounds()
 	g := &Game{
-		World: w,
-		Viewport: screen.Viewport{
-			Width:     VirtualWidth,
-			Height:    VirtualHeight,
-			Mode:      screen.ModeFit,
-			PixelSnap: true,
-			BarColor:  core.RGB(0x0b0c12),
-		},
+		World:    w,
+		Viewport: gameViewport,
 		Camera: tilemap.Camera{
 			Width:     VirtualWidth,
 			Height:    VirtualHeight,
@@ -245,14 +239,7 @@ func NewGame(store *save.Store) *Game {
 		}
 		return g.Viewport.ViewToGame(g.ViewSize, pt)
 	}
-	g.Actions.Bind("up", input.TouchRegion(dpadUpRect), input.MouseRegion(dpadUpRect, core.MouseButtonLeft))
-	g.Actions.Bind("down", input.TouchRegion(dpadDownRect), input.MouseRegion(dpadDownRect, core.MouseButtonLeft))
-	g.Actions.Bind("left", input.TouchRegion(dpadLeftRect), input.MouseRegion(dpadLeftRect, core.MouseButtonLeft))
-	g.Actions.Bind("right", input.TouchRegion(dpadRightRect), input.MouseRegion(dpadRightRect, core.MouseButtonLeft))
-	g.Actions.Bind("interact", input.TouchRegion(padInteractRect), input.MouseRegion(padInteractRect, core.MouseButtonLeft))
-	g.Actions.Bind("attack", input.TouchRegion(padAttackRect), input.MouseRegion(padAttackRect, core.MouseButtonLeft))
-	g.Actions.BindAxis("move_x", "left", "right")
-	g.Actions.BindAxis("move_y", "up", "down")
+	gameProject.BindInput(g.Actions)
 
 	g.Reset()
 	return g
@@ -994,7 +981,7 @@ func (g *Game) SnapshotHUD() HUDState {
 // dialogue text into d inside the virtual viewport.
 func (g *Game) Draw(d *core.Drawing, window core.Size) {
 	if window.Width <= 0 || window.Height <= 0 {
-		window = core.Size{Width: VirtualWidth * 2, Height: VirtualHeight * 2}
+		window = core.Size{Width: core.Points(VirtualWidth * 2), Height: core.Points(VirtualHeight * 2)}
 	}
 	g.ViewSize = window
 

@@ -15,7 +15,7 @@ const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector
 type GroupKey = 'guides' | 'tutorial' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
 
 const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonly string[] }[] = [
-  { key: 'guides', slugs: ['index', 'getting-started', 'playground', 'packages', 'shipping', 'cli'] },
+  { key: 'guides', slugs: ['index', 'getting-started', 'project', 'playground', 'packages', 'shipping', 'cli'] },
   {
     key: 'tutorial',
     slugs: [

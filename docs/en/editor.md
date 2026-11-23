@@ -214,3 +214,7 @@ built.Draw(d)
 ```
 
 `Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
+
+### Projects
+
+The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory.

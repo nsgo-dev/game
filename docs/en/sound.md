@@ -26,6 +26,8 @@ mixer := sound.NewMixer(cx, "sound")
 
 Volumes persist automatically across app launches. Passing values outside `[0, 1]` clamps them (and `NaN` resets to `1`). If storage is full, `SetMaster` and `SetVolume` return `*core.StorageFullError` and keep the previous volume.
 
+`SetDefaultMaster` and `SetDefaultVolume(group, v)` set the volume a mixer has until the player sets one, such as a bus volume from the [project file](project.md). They keep nothing in storage, so a volume the player set wins; set them before the game reads volumes.
+
 ### Reactive settings UI
 
 `Master()` and `Volume(group)` read from `core.Storage`, so calling them inside a reactive view function subscribes that view to volume changes automatically:

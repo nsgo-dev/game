@@ -19,9 +19,9 @@ import (
 func main() {
 	nsgo.Run(
 		Root,
-		nsgo.WindowSize(960, 660),
-		nsgo.Appearance(core.AppearanceDark),
-		nsgo.WindowConstraints(core.WindowConstraints{MinWidth: 640, MinHeight: 460}),
+		nsgo.WindowSize(gameProject.WindowSize()),
+		nsgo.WindowConstraints(gameProject.WindowConstraints()),
+		nsgo.Appearance(gameProject.Appearance()),
 	)
 }
 

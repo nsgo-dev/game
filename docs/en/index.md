@@ -24,6 +24,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `physics` | `github.com/nsgo-dev/game/packages/game/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
 | `platformer` | `github.com/nsgo-dev/game/packages/game/platformer` | [platformer](platformer.md) | Platformer `Controller` on `CharacterBody`: coyote time, jump buffer, variable jump height, wall slide and wall jump from a YAML config |
 | `screen` | `github.com/nsgo-dev/game/packages/game/screen` | [screen](screen.md) | Virtual resolution `Viewport` scaling, pixel snapping, safe-area rectangles and video settings |
+| `project` | `github.com/nsgo-dev/game/packages/game/project` | [Project File](project.md) | `game.yaml`, the one project file: window, virtual resolution, input map, audio buses, autoloads and export presets, kept in step with `nsgo.yaml` |
 | `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/packages/game/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
 | `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont bitmap fonts and platform text via `DrawPlatform` |

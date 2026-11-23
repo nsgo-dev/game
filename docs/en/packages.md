@@ -106,6 +106,7 @@ A `Mixer` sets how loud a game's sounds and music play: a master volume and a vo
 
 - `NewMixer(cx, key)` keeps the volumes in the app's storage (`core.Storage`) under keys starting with `key`, so they hold across launches.
 - `Master`, `SetMaster`, `Volume(group)` and `SetVolume(group, v)` read and set them. Read in a computation, a volume subscribes it to changes; a set fails with a `*core.StorageFullError` when the storage is full.
+- `SetDefaultMaster` and `SetDefaultVolume(group, v)` set the volumes a mixer has until the player sets one, such as a project file's, without keeping them in storage.
 - An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume.
 - A volume change applies at once to the effects playing and to music as it plays. An effect whose group or master volume reaches 0 plays on in silence and is heard again as the volume comes back.
 - While the window is in the background, the mixer silences the effects playing and pauses the music; when the window shows again, it restores the effects still playing and plays the music on from there. `Suspend()` does the same until the `resume` it returns is called, as a cutscene does while it plays ([cutscene](cutscene.md)).

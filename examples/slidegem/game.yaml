@@ -1,0 +1,23 @@
+version: 1
+name: SlideGem
+id: dev.nsgo.examples.slidegem
+appVersion: 0.1.0
+window:
+  width: 440
+  height: 660
+display:
+  width: 420
+  height: 620
+  mode: fit
+  barColor: '#0b1020'
+audio:
+  buses:
+    - name: sfx
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+    - platform: android
+    - platform: web

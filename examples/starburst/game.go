@@ -42,16 +42,9 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 	arena := NewArena(seed)
 	actions := input.NewActions()
 
-	// Bind touch virtual pad regions and mouse buttons into input.Actions.
+	// Bind game.yaml's touch virtual pad regions and mouse buttons into input.Actions.
 	// Hardware gamepad bindings await nsgo#1049 and plug into Arena.Control alongside these.
-	actions.Bind("move_left", input.TouchRegion(touchMoveLeftRect))
-	actions.Bind("move_right", input.TouchRegion(touchMoveRightRect))
-	actions.Bind("move_up", input.TouchRegion(touchMoveUpRect))
-	actions.Bind("move_down", input.TouchRegion(touchMoveDownRect))
-	actions.BindAxis("move_x", "move_left", "move_right")
-	actions.BindAxis("move_y", "move_up", "move_down")
-	actions.Bind("fire", input.MouseButton(core.MouseButtonLeft), input.TouchRegion(touchFireRect))
-	actions.Bind("nova", input.MouseButton(core.MouseButtonRight), input.TouchRegion(touchNovaRect))
+	gameProject.BindInput(actions)
 
 	initialHUD := arena.HUD()
 	gc := &GameController{
@@ -61,7 +54,7 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 		hudSig:       core.NewSignal(cx, initialHUD),
 		boardStatus:  core.NewSignal(cx, ""),
 		Boards:       newLeaderboards(cx),
-		viewSize:     core.Size{Width: VirtualWidth, Height: VirtualHeight},
+		viewSize:     core.Size{Width: core.Points(VirtualWidth), Height: core.Points(VirtualHeight)},
 		lastHUDState: initialHUD,
 	}
 
@@ -100,7 +93,7 @@ func (gc *GameController) currentViewSize(cx *core.Scope) core.Size {
 	if w := cx.Env().Window(); w.Width > 0 && w.Height > 0 {
 		return w
 	}
-	return core.Size{Width: VirtualWidth, Height: VirtualHeight}
+	return core.Size{Width: core.Points(VirtualWidth), Height: core.Points(VirtualHeight)}
 }
 
 func (gc *GameController) bindKeys(cx *core.Scope) {

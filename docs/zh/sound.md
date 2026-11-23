@@ -26,6 +26,8 @@ mixer := sound.NewMixer(cx, "sound")
 
 音量会在多次启动之间自动保留。超出 `[0, 1]` 的值会被截断到范围内（`NaN` 会恢复为 `1`）。当存储已满时，`SetMaster` 和 `SetVolume` 会返回 `*core.StorageFullError` 并保持原有音量不变。
 
+`SetDefaultMaster` 和 `SetDefaultVolume(group, v)` 设置玩家调整音量之前混音器使用的默认音量，例如[项目文件](project.md)中的总线音量。它们不会写入存储，因此玩家设置的音量优先；请在游戏读取音量之前调用。
+
 ### 响应式的设置界面
 
 `Master()` 和 `Volume(group)` 直接读取 `core.Storage`，因此在响应式视图函数中读取它们会自动订阅音量变化：

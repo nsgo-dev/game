@@ -14,7 +14,11 @@ import (
 )
 
 func main() {
-	nsgo.Run(Root, nsgo.WindowSize(960, 540))
+	nsgo.Run(Root,
+		nsgo.WindowSize(gameProject.WindowSize()),
+		nsgo.WindowConstraints(gameProject.WindowConstraints()),
+		nsgo.Appearance(gameProject.Appearance()),
+	)
 }
 
 // Root builds the Cave Run application root view.

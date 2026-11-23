@@ -1,0 +1,29 @@
+package main
+
+import (
+	"bytes"
+	_ "embed"
+	"testing"
+	"testing/fstest"
+
+	"github.com/nsgo-dev/game/packages/game/project"
+)
+
+//go:embed nsgo.yaml
+var nsgoYAML []byte
+
+// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form gameproject fmt writes, that nsgo.yaml agrees with it and that its autoloads load, as gameproject check and sync -check do.
+func TestProjectFileIsValidAndCanonical(t *testing.T) {
+	fsys := fstest.MapFS{project.FileName: {Data: gameYAML}, project.NSGoFileName: {Data: nsgoYAML}}
+	level, err := embeddedAssets.ReadFile("assets/level1.tmj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys["assets/level1.tmj"] = &fstest.MapFile{Data: level}
+	if _, err := project.Check(fsys); err != nil {
+		t.Fatal(err)
+	}
+	if canonical, err := project.Encode(gameProject); err != nil || !bytes.Equal(canonical, gameYAML) {
+		t.Fatalf("game.yaml is not canonical (%v); run gameproject fmt:\n%s", err, canonical)
+	}
+}

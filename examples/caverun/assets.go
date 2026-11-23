@@ -42,10 +42,11 @@ func loadGameAssets() (*gameAssets, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read tileset.png: %w", err)
 	}
-	levelJSON, err := embeddedAssets.ReadFile("assets/level1.tmj")
+	autoloaded, err := gameProject.LoadAutoloads(embeddedAssets)
 	if err != nil {
-		return nil, fmt.Errorf("read level1.tmj: %w", err)
+		return nil, err
 	}
+	levelJSON := autoloaded.Resources["level1"]
 	fontPNG, err := embeddedAssets.ReadFile("assets/font.png")
 	if err != nil {
 		return nil, fmt.Errorf("read font.png: %w", err)

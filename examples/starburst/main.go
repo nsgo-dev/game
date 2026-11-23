@@ -3,16 +3,13 @@
 // particles.Emitter bursts, camera shake, circle collisions, and native NSGo HUD controls.
 package main
 
-import (
-	"github.com/nsgo-dev/nsgo"
-	"github.com/nsgo-dev/nsgo/core"
-)
+import "github.com/nsgo-dev/nsgo"
 
 func main() {
 	nsgo.Run(
 		Root,
-		nsgo.WindowSize(960, 540),
-		nsgo.Appearance(core.AppearanceDark),
-		nsgo.WindowConstraints(core.WindowConstraints{MinWidth: 480, MinHeight: 270}),
+		nsgo.WindowSize(gameProject.WindowSize()),
+		nsgo.WindowConstraints(gameProject.WindowConstraints()),
+		nsgo.Appearance(gameProject.Appearance()),
 	)
 }

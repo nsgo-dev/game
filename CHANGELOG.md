@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/input`: mouselook through NSGo's pointer lock: `LockPointer`/`UnlockPointer` on the game view, pointer axes (`BindPointerAxis` with `PointerX`/`PointerY`, sensitivity and invert) read per step with `Delta`, `PointerDelta` or `Axis`, `Attach` forwarding `OnPointerDelta`, `PointerLockRequested`, and pointer axes saved with the other bindings; `Load` now refuses unknown fields and trailing data (#26).
 - `game`: `Loop.Immersive` hides a phone's system bars through NSGo's `mobile.Immersive` while the game plays and brings them back while it is paused, as under a menu, and when it stops or its scope is disposed (#103).
 - `game/input`: game controllers drive actions and axes on every target with gamepads: `GamepadButton` inputs, `BindGamepadAxis` stick axes with a radial or axial dead zone, sensitivity and inversion, `WatchGamepads` reading NSGo's `gamepad` package each step, per-player `SelectGamepad`, `OnGamepads` for tests and replays, and controller bindings in `Save`/`Load` (#25).
+- `game/project`: `game.yaml`, the one project file holding a game's name, window and virtual resolution, input map, audio buses, autoloaded scenes and resources and per-platform export presets, kept in step with `nsgo.yaml`; the `gameproject` command (check, fmt, sync, targets), `editor.Editor.OpenProject`/`EditProject`/`SaveProject`, `sound.Mixer` default volumes, and the starter template and example games reading their settings from it (#488).
 
 ### Changed
 

@@ -6,5 +6,9 @@ package main
 import "github.com/nsgo-dev/nsgo"
 
 func main() {
-	nsgo.Run(Root, nsgo.WindowSize(440, 660))
+	nsgo.Run(Root,
+		nsgo.WindowSize(gameProject.WindowSize()),
+		nsgo.WindowConstraints(gameProject.WindowConstraints()),
+		nsgo.Appearance(gameProject.Appearance()),
+	)
 }

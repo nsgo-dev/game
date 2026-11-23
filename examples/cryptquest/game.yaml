@@ -1,0 +1,67 @@
+version: 1
+name: CryptQuest
+id: dev.nsgo.game.cryptquest
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 660
+  minWidth: 640
+  minHeight: 460
+  appearance: dark
+display:
+  width: 320
+  height: 200
+  mode: fit
+  pixelSnap: true
+  barColor: '#0b0c12'
+input:
+  actions:
+    - name: up
+      bindings:
+        - kind: touchRegion
+          region: {x: 28, "y": 142, width: 18, height: 18}
+        - kind: mouseRegion
+          button: left
+          region: {x: 28, "y": 142, width: 18, height: 18}
+    - name: down
+      bindings:
+        - kind: touchRegion
+          region: {x: 28, "y": 176, width: 18, height: 18}
+        - kind: mouseRegion
+          button: left
+          region: {x: 28, "y": 176, width: 18, height: 18}
+    - name: left
+      bindings:
+        - kind: touchRegion
+          region: {x: 10, "y": 159, width: 18, height: 18}
+        - kind: mouseRegion
+          button: left
+          region: {x: 10, "y": 159, width: 18, height: 18}
+    - name: right
+      bindings:
+        - kind: touchRegion
+          region: {x: 46, "y": 159, width: 18, height: 18}
+        - kind: mouseRegion
+          button: left
+          region: {x: 46, "y": 159, width: 18, height: 18}
+    - name: interact
+      bindings:
+        - kind: touchRegion
+          region: {x: 262, "y": 162, width: 22, height: 22}
+        - kind: mouseRegion
+          button: left
+          region: {x: 262, "y": 162, width: 22, height: 22}
+    - name: attack
+      bindings:
+        - kind: touchRegion
+          region: {x: 288, "y": 162, width: 22, height: 22}
+        - kind: mouseRegion
+          button: left
+          region: {x: 288, "y": 162, width: 22, height: 22}
+  axes:
+    - name: move_x
+      negative: left
+      positive: right
+    - name: move_y
+      negative: up
+      positive: down
