@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -157,18 +156,27 @@ func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked
 
 // WebSocketTransport is a client-side RFC 6455 WebSocket Transport.
 // Binary WebSocket frames carry the 5-byte channel+seq wire header.
+//
+// The first message each way is the connection handshake: the client presents its token and the server answers with the ID it assigned, or a reason for refusing. A dropped client keeps its session on the server for Auth.GracePeriod, and Reconnect resumes it with the same ID.
 type WebSocketTransport struct {
+	rawURL string
+	token  []byte
+
+	dialMu  sync.Mutex // serializes Reconnect
+	writeMu sync.Mutex
+	seq     [2]uint32
+
+	mu       sync.Mutex
 	conn     stdnet.Conn
 	br       *bufio.Reader
 	localID  PeerID
 	serverID PeerID
-
-	writeMu sync.Mutex
-	seq     [2]uint32
-
-	mu     sync.Mutex
-	inbox  []Packet
-	closed bool
+	state    ConnState
+	err      error
+	resume   resumeState
+	resumed  bool
+	inbox    []Packet
+	changed  chan struct{}
 }
 
 // webSocketHostPort joins the URL's host and port, defaulting by scheme and
@@ -193,16 +201,122 @@ func webSocketHostPort(u *url.URL) (string, error) {
 	return stdnet.JoinHostPort(host, port), nil
 }
 
-// DialWebSocket opens an RFC 6455 WebSocket connection to rawURL (ws:// or wss://)
-// and returns a Transport ready for non-blocking Send/Recv.
-func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
+// DialWebSocket opens an RFC 6455 WebSocket connection to rawURL (ws:// or wss://), presents token in the connection handshake and returns a Transport ready for non-blocking Send/Recv once the server accepts it. The server assigns the client's ID, which LocalID reports. A refusal returns a *RejectError that matches ErrRejected.
+func DialWebSocket(rawURL string, token []byte) (*WebSocketTransport, error) {
+	if len(token) > MaxTokenSize {
+		return nil, ErrTokenTooLarge
+	}
+	wt := &WebSocketTransport{
+		rawURL:  rawURL,
+		token:   slices.Clone(token),
+		changed: make(chan struct{}, 1),
+	}
+	if err := wt.connect(); err != nil {
+		return nil, err
+	}
+	return wt, nil
+}
+
+// Reconnect drops the current connection, if any, without a goodbye, dials the server again and resumes the session: within the server's grace period the client keeps its ID, and Resumed reports true. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes.
+func (wt *WebSocketTransport) Reconnect() error {
+	wt.dialMu.Lock()
+	defer wt.dialMu.Unlock()
+	wt.mu.Lock()
+	if wt.state == ConnClosed {
+		wt.mu.Unlock()
+		return ErrClosed
+	}
+	old := wt.conn
+	wt.conn, wt.br = nil, nil
+	wt.state = ConnConnecting
+	wt.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+	return wt.connect()
+}
+
+// connect dials, upgrades and runs the handshake, then starts the read loop.
+func (wt *WebSocketTransport) connect() error {
+	wt.mu.Lock()
+	if wt.state == ConnClosed {
+		wt.mu.Unlock()
+		return ErrClosed
+	}
+	res := wt.resume
+	wt.mu.Unlock()
+
+	conn, br, err := dialWebSocketConn(wt.rawURL)
+	if err != nil {
+		return wt.fail(err)
+	}
+	w, err := clientHandshake(conn, br, wt.token, res)
+	if err != nil {
+		_ = conn.Close()
+		return wt.fail(err)
+	}
+	_ = conn.SetDeadline(time.Time{})
+
+	wt.mu.Lock()
+	if wt.state == ConnClosed {
+		wt.mu.Unlock()
+		_ = conn.Close()
+		return ErrClosed
+	}
+	wt.conn, wt.br = conn, br
+	wt.localID, wt.serverID = w.peer, w.server
+	wt.resume = resumeState{peer: w.peer, secret: w.secret}
+	wt.resumed = w.resumed
+	wt.state = ConnOpen
+	wt.err = nil
+	wt.mu.Unlock()
+	go wt.readLoop(conn, br)
+	return nil
+}
+
+// fail records a failed connect.
+func (wt *WebSocketTransport) fail(err error) error {
+	wt.mu.Lock()
+	if wt.state != ConnClosed {
+		wt.state = ConnDisconnected
+		wt.err = err
+	}
+	wt.mu.Unlock()
+	return err
+}
+
+// clientHandshake sends the hello and reads the server's answer within the dial's deadline.
+func clientHandshake(conn stdnet.Conn, br *bufio.Reader, token []byte, res resumeState) (welcome, error) {
+	h, err := newHello(token, res)
+	if err != nil {
+		return welcome{}, err
+	}
+	if err := writeWSFrame(conn, wsOpBinary, true, encodeHello(h, 0)); err != nil {
+		return welcome{}, err
+	}
+	fin, op, payload, _, err := readWSFrame(br)
+	if err != nil {
+		return welcome{}, fmt.Errorf("net: websocket handshake read: %w", err)
+	}
+	if !fin || op != wsOpBinary {
+		return welcome{}, ErrInvalidPacket
+	}
+	w, err := decodeServerHandshake(payload)
+	if err == nil && w.nonce != h.nonce {
+		err = ErrInvalidPacket
+	}
+	return w, err
+}
+
+// dialWebSocketConn opens the TCP (or TLS) connection and performs the HTTP upgrade. The returned connection still has the handshake deadline set.
+func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("net: parse websocket url: %w", err)
+		return nil, nil, fmt.Errorf("net: parse websocket url: %w", err)
 	}
 	host, err := webSocketHostPort(u)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	dialer := &stdnet.Dialer{Timeout: wsDialTimeout}
@@ -213,15 +327,12 @@ func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
 		conn, err = dialer.Dial("tcp", host)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 
 	var keyBytes [16]byte
-	if _, err := rand.Read(keyBytes[:]); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
+	_, _ = rand.Read(keyBytes[:]) // crypto/rand.Read never fails since Go 1.24
 	secKey := base64.StdEncoding.EncodeToString(keyBytes[:])
 
 	path := u.RequestURI()
@@ -236,64 +347,45 @@ func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
 	reqBuf.WriteString("Connection: Upgrade\r\n")
 	fmt.Fprintf(&reqBuf, "Sec-WebSocket-Key: %s\r\n", secKey)
 	reqBuf.WriteString("Sec-WebSocket-Version: 13\r\n")
-	if localID != 0 {
-		fmt.Fprintf(&reqBuf, "X-NSGo-Peer-ID: %d\r\n", localID)
-	}
 	reqBuf.WriteString("\r\n")
 
 	if _, err := io.WriteString(conn, reqBuf.String()); err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, nil, err
 	}
 
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodGet})
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("net: websocket handshake read: %w", err)
+		return nil, nil, fmt.Errorf("net: websocket handshake read: %w", err)
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		_ = conn.Close()
-		return nil, fmt.Errorf("net: websocket upgrade rejected with status %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("net: websocket upgrade rejected with status %d", resp.StatusCode)
 	}
-	expectedAccept := wsAcceptKey(secKey)
-	if strings.TrimSpace(resp.Header.Get("Sec-WebSocket-Accept")) != expectedAccept {
+	if strings.TrimSpace(resp.Header.Get("Sec-WebSocket-Accept")) != wsAcceptKey(secKey) {
 		_ = conn.Close()
-		return nil, errors.New("net: websocket invalid Sec-WebSocket-Accept")
+		return nil, nil, errors.New("net: websocket invalid Sec-WebSocket-Accept")
 	}
-
-	serverID := PeerID(1)
-	if v := strings.TrimSpace(resp.Header.Get("X-NSGo-Server-ID")); v != "" {
-		if parsed, parseErr := strconv.ParseUint(v, 10, 32); parseErr == nil && parsed != 0 {
-			serverID = PeerID(parsed)
-		}
-	}
-	if localID == 0 {
-		if v := strings.TrimSpace(resp.Header.Get("X-NSGo-Peer-ID")); v != "" {
-			if parsed, parseErr := strconv.ParseUint(v, 10, 32); parseErr == nil {
-				localID = PeerID(parsed)
-			}
-		}
-	}
-
-	_ = conn.SetDeadline(time.Time{})
-	wt := &WebSocketTransport{
-		conn:     conn,
-		br:       br,
-		localID:  localID,
-		serverID: serverID,
-	}
-	go wt.readLoop()
-	return wt, nil
+	return conn, br, nil
 }
 
-func (wt *WebSocketTransport) readLoop() {
+func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader) {
+	cause := ErrDisconnected
 	defer func() {
 		wt.mu.Lock()
-		wt.closed = true
+		if wt.conn == conn {
+			wt.conn, wt.br = nil, nil
+			if wt.state == ConnOpen {
+				wt.state = ConnDisconnected
+				wt.err = cause
+			}
+		}
 		wt.mu.Unlock()
-		_ = wt.conn.Close()
+		_ = conn.Close()
+		wt.notify()
 	}()
 
 	var fragBuf []byte
@@ -301,20 +393,21 @@ func (wt *WebSocketTransport) readLoop() {
 	inFrag := false
 
 	for {
-		fin, op, payload, _, err := readWSFrame(wt.br)
+		fin, op, payload, _, err := readWSFrame(br)
 		if err != nil {
+			cause = fmt.Errorf("%w: %w", ErrDisconnected, err)
 			return
 		}
 		switch op {
 		case wsOpPing:
 			wt.writeMu.Lock()
-			_ = writeWSFrameDeadline(wt.conn, wsOpPong, true, payload)
+			_ = writeWSFrameDeadline(conn, wsOpPong, true, payload)
 			wt.writeMu.Unlock()
 		case wsOpPong:
 			continue
 		case wsOpClose:
 			wt.writeMu.Lock()
-			_ = writeWSFrameDeadline(wt.conn, wsOpClose, true, nil)
+			_ = writeWSFrameDeadline(conn, wsOpClose, true, nil)
 			wt.writeMu.Unlock()
 			return
 		case wsOpBinary, wsOpText:
@@ -325,7 +418,7 @@ func (wt *WebSocketTransport) readLoop() {
 				continue
 			}
 			if op == wsOpBinary {
-				wt.deliverBinary(payload)
+				wt.deliverBinary(conn, payload)
 			}
 		case wsOpContinuation:
 			if !inFrag {
@@ -339,7 +432,7 @@ func (wt *WebSocketTransport) readLoop() {
 				if fragOp == wsOpBinary {
 					cp := make([]byte, len(fragBuf))
 					copy(cp, fragBuf)
-					wt.deliverBinary(cp)
+					wt.deliverBinary(conn, cp)
 				}
 				fragBuf = fragBuf[:0]
 				inFrag = false
@@ -348,7 +441,7 @@ func (wt *WebSocketTransport) readLoop() {
 	}
 }
 
-func (wt *WebSocketTransport) deliverBinary(frame []byte) {
+func (wt *WebSocketTransport) deliverBinary(conn stdnet.Conn, frame []byte) {
 	ch, seq, payload, err := decodeWireFrame(frame)
 	if err != nil {
 		return
@@ -356,7 +449,7 @@ func (wt *WebSocketTransport) deliverBinary(frame []byte) {
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 	wt.mu.Lock()
-	if !wt.closed {
+	if wt.conn == conn && wt.state == ConnOpen {
 		wt.inbox = append(wt.inbox, Packet{
 			From:    wt.serverID,
 			Channel: ch,
@@ -365,18 +458,30 @@ func (wt *WebSocketTransport) deliverBinary(frame []byte) {
 		})
 	}
 	wt.mu.Unlock()
+	wt.notify()
+}
+
+// notify wakes a waiter on changed without blocking.
+func (wt *WebSocketTransport) notify() {
+	select {
+	case wt.changed <- struct{}{}:
+	default:
+	}
 }
 
 // Send frames payload with the 5-byte channel+seq header and sends it as a masked
-// RFC 6455 binary WebSocket frame to the server.
+// RFC 6455 binary WebSocket frame to the server. It returns ErrDisconnected while the connection is down.
 func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error {
 	wt.mu.Lock()
-	closed := wt.closed
+	state, conn, serverID := wt.state, wt.conn, wt.serverID
 	wt.mu.Unlock()
-	if closed {
+	switch {
+	case state == ConnClosed:
 		return ErrClosed
+	case state != ConnOpen || conn == nil:
+		return ErrDisconnected
 	}
-	if to != PeerBroadcast && to != wt.serverID {
+	if to != PeerBroadcast && to != serverID {
 		return ErrUnknownPeer
 	}
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
@@ -387,7 +492,7 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 	defer wt.writeMu.Unlock()
 	wt.seq[ch]++
 	frame := encodeWireFrame(ch, wt.seq[ch], payload)
-	return writeWSFrameDeadline(wt.conn, wsOpBinary, true, frame)
+	return writeWSFrameDeadline(conn, wsOpBinary, true, frame)
 }
 
 // Recv pops the next received packet without blocking.
@@ -403,39 +508,67 @@ func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	return pkt, true
 }
 
-// LocalID returns this client's PeerID.
+// LocalID returns the PeerID the server assigned this client.
 func (wt *WebSocketTransport) LocalID() PeerID {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
 	return wt.localID
 }
 
-// Peers returns the connected server's PeerID, or nil once closed.
+// Peers returns the connected server's PeerID, or nil while disconnected or closed.
 func (wt *WebSocketTransport) Peers() []PeerID {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
-	if wt.closed {
+	if wt.state != ConnOpen {
 		return nil
 	}
 	return []PeerID{wt.serverID}
 }
 
-// Close sends a WebSocket close frame and closes the underlying connection.
+// State returns the connection state.
+func (wt *WebSocketTransport) State() ConnState {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.state
+}
+
+// Err returns why the client is disconnected: a *RejectError, or ErrDisconnected wrapping the I/O error. It is nil while the connection is open.
+func (wt *WebSocketTransport) Err() error {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.err
+}
+
+// Resumed reports whether the last handshake resumed an existing session, keeping the client's ID.
+func (wt *WebSocketTransport) Resumed() bool {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.resumed
+}
+
+// Close sends a WebSocket close frame and closes the underlying connection. The server reports PeerLeft at once rather than holding the session for a reconnect.
 func (wt *WebSocketTransport) Close() error {
 	wt.mu.Lock()
-	if wt.closed {
+	if wt.state == ConnClosed {
 		wt.mu.Unlock()
 		return nil
 	}
-	wt.closed = true
+	wt.state = ConnClosed
+	conn := wt.conn
+	wt.conn, wt.br = nil, nil
 	wt.mu.Unlock()
+	if conn == nil {
+		return nil
+	}
 
 	// Break a Send already blocked on a client that does not read, then send
 	// the close frame with its own short deadline.
-	_ = wt.conn.SetWriteDeadline(time.Now())
+	_ = conn.SetWriteDeadline(time.Now())
 	wt.writeMu.Lock()
-	_ = wt.conn.SetWriteDeadline(time.Now().Add(time.Second))
-	_ = writeWSFrame(wt.conn, wsOpClose, true, nil)
+	_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = writeWSFrame(conn, wsOpClose, true, nil)
 	wt.writeMu.Unlock()
-	return wt.conn.Close()
+	return conn.Close()
 }
 
 type wsClientConn struct {
@@ -446,47 +579,44 @@ type wsClientConn struct {
 	seq     [2]uint32
 }
 
-// WebSocketServer accepts RFC 6455 WebSocket clients and exposes them through
-// the standard Transport interface.
+// WebSocketServer accepts RFC 6455 WebSocket clients and exposes them through the standard Transport interface.
+//
+// Every client runs the connection handshake before its packets reach Recv: Auth.Verify checks its token, the server assigns its ID and tells the client, and NextEvent reports joins, drops, resumes and leaves.
 type WebSocketServer struct {
 	ln       stdnet.Listener
 	serverID PeerID
 	origins  []string
 
-	mu         sync.Mutex
-	nextPeerID PeerID
-	clients    map[PeerID]*wsClientConn
-	inbox      []Packet
-	closed     bool
+	mu      sync.Mutex
+	table   *sessionTable
+	inbox   []Packet
+	closed  bool
+	changed chan struct{}
 }
 
-// ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr.
-func ListenWebSocket(addr string, serverID PeerID) (*WebSocketServer, error) {
-	return listenWebSocket(addr, serverID, nil, nil)
+// ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr. serverID is the server's own PeerID (1 when zero); clients get the IDs after it. auth decides who may connect and how long a dropped client keeps its ID.
+func ListenWebSocket(addr string, serverID PeerID, auth Auth) (*WebSocketServer, error) {
+	return listenWebSocket(addr, serverID, auth, nil, nil)
 }
 
-// ListenWebSocketTLS starts the server with TLS, so a browser on an HTTPS page
-// can connect with wss:// without a reverse proxy. allowedOrigins lists the
-// browser Origins allowed to upgrade; empty allows any, "*" allows all, and
-// an Origin outside the list is refused before the handshake.
-func ListenWebSocketTLS(addr string, serverID PeerID, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
+// ListenWebSocketTLS starts the server with TLS, so a browser on an HTTPS page can connect with wss:// without a reverse proxy. auth is as for ListenWebSocket. allowedOrigins lists the browser Origins allowed to upgrade; empty allows any, "*" allows all, and an Origin outside the list is refused before the handshake.
+func ListenWebSocketTLS(addr string, serverID PeerID, auth Auth, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
 	if config == nil {
 		return nil, errors.New("net: websocket TLS needs a tls.Config")
 	}
-	return listenWebSocket(addr, serverID, config, allowedOrigins)
+	return listenWebSocket(addr, serverID, auth, config, allowedOrigins)
 }
 
-// ListenWebSocketTLSFiles is ListenWebSocketTLS with a certificate and key
-// loaded from PEM files.
-func ListenWebSocketTLSFiles(addr string, serverID PeerID, certFile, keyFile string, allowedOrigins []string) (*WebSocketServer, error) {
+// ListenWebSocketTLSFiles is ListenWebSocketTLS with a certificate and key loaded from PEM files.
+func ListenWebSocketTLSFiles(addr string, serverID PeerID, auth Auth, certFile, keyFile string, allowedOrigins []string) (*WebSocketServer, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
-	return ListenWebSocketTLS(addr, serverID, &tls.Config{Certificates: []tls.Certificate{cert}}, allowedOrigins)
+	return ListenWebSocketTLS(addr, serverID, auth, &tls.Config{Certificates: []tls.Certificate{cert}}, allowedOrigins)
 }
 
-func listenWebSocket(addr string, serverID PeerID, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
+func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
 	if serverID == 0 {
 		serverID = 1
 	}
@@ -502,11 +632,11 @@ func listenWebSocket(addr string, serverID PeerID, config *tls.Config, allowedOr
 		ln = tls.NewListener(ln, config)
 	}
 	s := &WebSocketServer{
-		ln:         ln,
-		serverID:   serverID,
-		origins:    origins,
-		nextPeerID: serverID + 1,
-		clients:    make(map[PeerID]*wsClientConn),
+		ln:       ln,
+		serverID: serverID,
+		origins:  origins,
+		table:    newSessionTable(auth, serverID, false),
+		changed:  make(chan struct{}, 1),
 	}
 	go s.acceptLoop()
 	return s, nil
@@ -592,11 +722,8 @@ func (h *handshakeReader) Read(p []byte) (int, error) {
 func (h *handshakeReader) unlimited() { h.n = -1 }
 
 func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
-	// Bound the handshake so a client that connects and sends nothing cannot
-	// occupy a goroutine and socket forever, and cap its headers so it cannot
-	// stream an unbounded request into http.ReadRequest, which enforces no
-	// limit of its own.
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	// Bound the upgrade and the connection handshake so a client that connects and sends nothing cannot occupy a goroutine and socket forever, and cap the upgrade request's headers so it cannot stream an unbounded request into http.ReadRequest, which enforces no limit of its own.
+	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 	hr := &handshakeReader{r: conn, n: maxWSHandshakeSize}
 	br := bufio.NewReader(hr)
 	req, err := http.ReadRequest(br)
@@ -605,7 +732,6 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 	hr.unlimited()
-	_ = conn.SetReadDeadline(time.Time{})
 	if !s.originAllowed(req.Header.Get("Origin")) {
 		_, _ = io.WriteString(conn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
 		_ = conn.Close()
@@ -617,69 +743,117 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		_ = conn.Close()
 		return
 	}
-
-	var requestedID PeerID
-	if v := strings.TrimSpace(req.Header.Get("X-NSGo-Peer-ID")); v != "" {
-		if parsed, parseErr := strconv.ParseUint(v, 10, 32); parseErr == nil && parsed != 0 {
-			requestedID = PeerID(parsed)
-		}
-	}
-
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
+	resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: " + wsAcceptKey(secKey) + "\r\n\r\n"
+	if _, err := io.WriteString(conn, resp); err != nil {
 		_ = conn.Close()
 		return
 	}
-	peerID := requestedID
-	if peerID == 0 || peerID == s.serverID || s.clients[peerID] != nil {
-		for s.nextPeerID == 0 || s.nextPeerID == s.serverID || s.clients[s.nextPeerID] != nil {
-			s.nextPeerID++
-		}
-		peerID = s.nextPeerID
-		s.nextPeerID++
-	}
-	client := &wsClientConn{
-		id:   peerID,
-		conn: conn,
-		br:   br,
-	}
-	s.clients[peerID] = client
-	s.mu.Unlock()
 
-	accept := wsAcceptKey(secKey)
-	resp := fmt.Sprintf(
-		"HTTP/1.1 101 Switching Protocols\r\n"+
-			"Upgrade: websocket\r\n"+
-			"Connection: Upgrade\r\n"+
-			"Sec-WebSocket-Accept: %s\r\n"+
-			"X-NSGo-Server-ID: %d\r\n"+
-			"X-NSGo-Peer-ID: %d\r\n\r\n",
-		accept, s.serverID, peerID,
-	)
+	fin, op, payload, _, err := readWSFrame(br)
+	if err != nil || !fin || op != wsOpBinary {
+		_ = conn.Close()
+		return
+	}
+	h, err := decodeHello(payload)
+	if err != nil {
+		if errors.Is(err, errHandshakeVersion) {
+			_ = writeWSFrame(conn, wsOpBinary, false, encodeReject(h.nonce, hsReasonVersion, 0))
+		}
+		_ = writeWSFrame(conn, wsOpClose, false, nil)
+		_ = conn.Close()
+		return
+	}
+
+	client := &wsClientConn{conn: conn, br: br}
+	// Hold the client's write lock until the welcome is out, so no game packet
+	// overtakes it once the session is visible to Send.
 	client.writeMu.Lock()
-	_, err = io.WriteString(conn, resp)
+	reply, ok := s.admit(h, client)
+	if reply != nil {
+		err = writeWSFrame(conn, wsOpBinary, false, reply)
+	}
+	if !ok {
+		_ = writeWSFrame(conn, wsOpClose, false, nil)
+		client.writeMu.Unlock()
+		_ = conn.Close()
+		return
+	}
 	client.writeMu.Unlock()
 	if err != nil {
-		s.removeClient(peerID)
-		_ = conn.Close()
+		s.clientGone(client, false)
 		return
 	}
-
+	_ = conn.SetDeadline(time.Time{})
 	s.readClientLoop(client)
 }
 
-func (s *WebSocketServer) removeClient(id PeerID) {
+// admit runs the session side of the handshake and returns the reply for the client, and whether the client is now connected.
+func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 	s.mu.Lock()
-	delete(s.clients, id)
+	if s.closed {
+		s.mu.Unlock()
+		return nil, false
+	}
+	now := s.table.now()
+	s.table.expire(now)
+	if sess := s.table.resume(h, now); sess != nil {
+		old, _ := sess.link.(*wsClientConn)
+		sess.link = c
+		c.id = sess.id
+		reply := encodeWelcome(s.table.welcomeFor(sess, h.nonce, true))
+		s.mu.Unlock()
+		if old != nil {
+			// A half-open connection the server had not noticed yet; its read
+			// loop sees it is no longer the session's link and reports nothing.
+			_ = old.conn.Close()
+		}
+		s.notify()
+		return reply, true
+	}
+	id := s.table.reserve()
 	s.mu.Unlock()
+
+	reason, ok := s.table.verify(id, h.token)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !ok || s.closed {
+		s.table.release(id)
+		if ok {
+			reason = "server closed"
+		}
+		return encodeReject(h.nonce, reason, 0), false
+	}
+	sess := s.table.commit(id, s.table.now())
+	sess.link = c
+	c.id = id
+	s.notify()
+	return encodeWelcome(s.table.welcomeFor(sess, h.nonce, false)), true
+}
+
+// clientGone ends a client's connection: a close frame is a leave, anything else a drop that keeps the session for the grace period. A connection that a resume already replaced reports nothing.
+func (s *WebSocketServer) clientGone(c *wsClientConn, goodbye bool) {
+	s.mu.Lock()
+	if !s.closed {
+		if sess := s.table.sessions[c.id]; sess != nil && sess.link == c {
+			if goodbye {
+				s.table.leave(sess)
+			} else {
+				s.table.drop(sess, s.table.now())
+			}
+		}
+	}
+	s.mu.Unlock()
+	_ = c.conn.Close()
+	s.notify()
 }
 
 func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
-	defer func() {
-		s.removeClient(c.id)
-		_ = c.conn.Close()
-	}()
+	goodbye := false
+	defer func() { s.clientGone(c, goodbye) }()
 
 	var fragBuf []byte
 	var fragOp byte
@@ -701,6 +875,7 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 			c.writeMu.Lock()
 			_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
 			c.writeMu.Unlock()
+			goodbye = true
 			return
 		case wsOpBinary, wsOpText:
 			if !fin {
@@ -710,7 +885,7 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 				continue
 			}
 			if op == wsOpBinary {
-				s.deliverFromClient(c.id, payload)
+				s.deliverFromClient(c, payload)
 			}
 		case wsOpContinuation:
 			if !inFrag {
@@ -724,7 +899,7 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 				if fragOp == wsOpBinary {
 					cp := make([]byte, len(fragBuf))
 					copy(cp, fragBuf)
-					s.deliverFromClient(c.id, cp)
+					s.deliverFromClient(c, cp)
 				}
 				fragBuf = fragBuf[:0]
 				inFrag = false
@@ -733,7 +908,7 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 	}
 }
 
-func (s *WebSocketServer) deliverFromClient(from PeerID, frame []byte) {
+func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
 	ch, seq, payload, err := decodeWireFrame(frame)
 	if err != nil {
 		return
@@ -741,18 +916,27 @@ func (s *WebSocketServer) deliverFromClient(from PeerID, frame []byte) {
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 	s.mu.Lock()
-	if !s.closed {
+	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
 		s.inbox = append(s.inbox, Packet{
-			From:    from,
+			From:    c.id,
 			Channel: ch,
 			Payload: cp,
 			Seq:     seq,
 		})
 	}
 	s.mu.Unlock()
+	s.notify()
 }
 
-// Send transmits payload to a connected client (or all clients when to == PeerBroadcast).
+// notify wakes a waiter on changed without blocking.
+func (s *WebSocketServer) notify() {
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
+}
+
+// Send transmits payload to a connected client (or all clients when to == PeerBroadcast). It returns ErrDisconnected for a client inside its grace period and ErrUnknownPeer for an ID with no session.
 func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
@@ -764,17 +948,15 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 	}
 	var targets []*wsClientConn
 	if to == PeerBroadcast {
-		targets = make([]*wsClientConn, 0, len(s.clients))
-		for _, c := range s.clients {
-			targets = append(targets, c)
+		for _, id := range s.table.connectedIDs() {
+			targets = append(targets, s.table.sessions[id].link.(*wsClientConn))
 		}
 	} else {
-		c, ok := s.clients[to]
-		if !ok {
+		if err := s.table.sendable(to); err != nil {
 			s.mu.Unlock()
-			return ErrUnknownPeer
+			return err
 		}
-		targets = []*wsClientConn{c}
+		targets = []*wsClientConn{s.table.sessions[to].link.(*wsClientConn)}
 	}
 	s.mu.Unlock()
 
@@ -805,21 +987,25 @@ func (s *WebSocketServer) Recv() (Packet, bool) {
 	return pkt, true
 }
 
+// NextEvent pops the next join, drop, resume or leave without blocking, after ending the sessions whose grace period has passed.
+func (s *WebSocketServer) NextEvent() (PeerEvent, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.table.expire(s.table.now())
+	return s.table.popEvent()
+}
+
 // LocalID returns the server's PeerID.
 func (s *WebSocketServer) LocalID() PeerID {
 	return s.serverID
 }
 
-// Peers returns the sorted list of currently connected client PeerIDs.
+// Peers returns the sorted list of currently connected client PeerIDs. Clients inside their grace period are left out.
 func (s *WebSocketServer) Peers() []PeerID {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]PeerID, 0, len(s.clients))
-	for id := range s.clients {
-		out = append(out, id)
-	}
-	slices.Sort(out)
-	return out
+	s.table.expire(s.table.now())
+	return s.table.connectedIDs()
 }
 
 // Close stops accepting new clients and closes all active client connections.
@@ -830,11 +1016,12 @@ func (s *WebSocketServer) Close() error {
 		return nil
 	}
 	s.closed = true
-	clients := make([]*wsClientConn, 0, len(s.clients))
-	for _, c := range s.clients {
-		clients = append(clients, c)
+	var clients []*wsClientConn
+	for _, sess := range s.table.sessions {
+		if c, ok := sess.link.(*wsClientConn); ok {
+			clients = append(clients, c)
+		}
 	}
-	s.clients = make(map[PeerID]*wsClientConn)
 	s.mu.Unlock()
 
 	for _, c := range clients {

@@ -4,70 +4,89 @@ package net
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"syscall/js"
 )
 
-const (
-	jsWSConnecting = 0
-	jsWSOpen       = 1
-)
+const jsWSOpen = 1
 
-// WebSocketTransport wraps the browser WebSocket API under WebAssembly,
+// WebSocketTransport wraps the browser WebAssembly WebSocket API,
 // multiplexing the same 5-byte channel+seq wire header as native builds.
+//
+// The browser connects asynchronously: DialWebSocket returns at once, sends the connection handshake when the socket opens, and the transport becomes ConnOpen when the server's welcome arrives. Until then LocalID is 0, and Send queues packets to flush after the welcome. A refusal moves it to ConnDisconnected with a *RejectError in Err.
 type WebSocketTransport struct {
+	rawURL string
+	token  []byte
+
+	mu       sync.Mutex
 	ws       js.Value
 	localID  PeerID
 	serverID PeerID
-
-	mu       sync.Mutex
+	state    ConnState
+	err      error
+	resume   resumeState
+	resumed  bool
+	nonce    [hsNonceSize]byte
 	seq      [2]uint32
 	inbox    []Packet
 	pending  [][]byte
-	opened   bool
-	closed   bool
-	released bool
-
-	onOpen    js.Func
-	onMessage js.Func
-	onClose   js.Func
-	onError   js.Func
+	funcs    []js.Func
 }
 
-// DialWebSocket opens a browser WebSocket connection to rawURL (ws:// or wss://)
-// and returns a Transport ready for non-blocking Send/Recv.
-func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
-	ctor := js.Global().Get("WebSocket")
-	if !ctor.Truthy() {
+// DialWebSocket opens a browser WebSocket connection to rawURL (ws:// or wss://) that presents token in the connection handshake, and returns a Transport ready for non-blocking Send/Recv. The server assigns the client's ID, which LocalID reports once State is ConnOpen.
+func DialWebSocket(rawURL string, token []byte) (*WebSocketTransport, error) {
+	if len(token) > MaxTokenSize {
+		return nil, ErrTokenTooLarge
+	}
+	if !js.Global().Get("WebSocket").Truthy() {
 		return nil, errors.New("net: browser WebSocket API unavailable")
 	}
-
-	ws := ctor.New(rawURL)
-	ws.Set("binaryType", "arraybuffer")
-
-	wt := &WebSocketTransport{
-		ws:       ws,
-		localID:  localID,
-		serverID: 1,
+	wt := &WebSocketTransport{rawURL: rawURL, token: slices.Clone(token), ws: js.Null()}
+	wt.mu.Lock()
+	err := wt.openLocked()
+	wt.mu.Unlock()
+	if err != nil {
+		return nil, err
 	}
+	return wt, nil
+}
 
-	wt.onOpen = js.FuncOf(func(this js.Value, args []js.Value) any {
+// Reconnect closes the current browser socket, if any, and opens a new one that resumes the session: within the server's grace period the client keeps its ID, and Resumed reports true once State is ConnOpen again. Past it, the server admits the client as a new peer when its token is still valid, and LocalID changes.
+func (wt *WebSocketTransport) Reconnect() error {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	if wt.state == ConnClosed {
+		return ErrClosed
+	}
+	wt.releaseLocked()
+	return wt.openLocked()
+}
+
+// openLocked creates a browser socket and wires its callbacks to this attempt only.
+func (wt *WebSocketTransport) openLocked() error {
+	h, err := newHello(wt.token, wt.resume)
+	if err != nil {
+		return err
+	}
+	ws := js.Global().Get("WebSocket").New(wt.rawURL)
+	ws.Set("binaryType", "arraybuffer")
+	wt.ws = ws
+	wt.nonce = h.nonce
+	wt.state = ConnConnecting
+	wt.err = nil
+	hello := encodeHello(h, 0)
+
+	onOpen := js.FuncOf(func(this js.Value, args []js.Value) any {
 		wt.mu.Lock()
-		wt.opened = true
-		queued := wt.pending
-		wt.pending = nil
-		closed := wt.closed
+		current := wt.ws.Equal(ws)
 		wt.mu.Unlock()
-		if closed {
-			return nil
-		}
-		for _, frame := range queued {
-			wt.sendRaw(frame)
+		if current {
+			sendJS(ws, hello)
 		}
 		return nil
 	})
-
-	wt.onMessage = js.FuncOf(func(this js.Value, args []js.Value) any {
+	onMessage := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) == 0 {
 			return nil
 		}
@@ -76,87 +95,133 @@ func DialWebSocket(rawURL string, localID PeerID) (*WebSocketTransport, error) {
 			return nil
 		}
 		u8 := js.Global().Get("Uint8Array").New(data)
-		n := u8.Get("byteLength").Int()
-		if n < wireHeaderSize {
-			return nil
-		}
-		buf := make([]byte, n)
+		buf := make([]byte, u8.Get("byteLength").Int())
 		js.CopyBytesToGo(buf, u8)
-		ch, seq, payload, err := decodeWireFrame(buf)
-		if err != nil {
-			return nil
-		}
-		cp := make([]byte, len(payload))
-		copy(cp, payload)
+		wt.onMessage(ws, buf)
+		return nil
+	})
+	onClose := js.FuncOf(func(this js.Value, args []js.Value) any {
 		wt.mu.Lock()
-		if !wt.closed {
+		if wt.ws.Equal(ws) && wt.state != ConnClosed {
+			if wt.state == ConnOpen || wt.err == nil {
+				wt.err = ErrDisconnected
+			}
+			wt.state = ConnDisconnected
+		}
+		wt.mu.Unlock()
+		return nil
+	})
+	onError := js.FuncOf(func(this js.Value, args []js.Value) any { return nil })
+	ws.Set("onopen", onOpen)
+	ws.Set("onmessage", onMessage)
+	ws.Set("onclose", onClose)
+	ws.Set("onerror", onError)
+	wt.funcs = []js.Func{onOpen, onMessage, onClose, onError}
+	return nil
+}
+
+// onMessage handles the handshake reply first and game frames after it.
+func (wt *WebSocketTransport) onMessage(ws js.Value, buf []byte) {
+	wt.mu.Lock()
+	if !wt.ws.Equal(ws) {
+		wt.mu.Unlock()
+		return
+	}
+	switch wt.state {
+	case ConnConnecting:
+		w, err := decodeServerHandshake(buf)
+		if err == nil && w.nonce != wt.nonce {
+			err = ErrInvalidPacket
+		}
+		if err != nil {
+			wt.state, wt.err = ConnDisconnected, err
+			wt.mu.Unlock()
+			ws.Call("close")
+			return
+		}
+		wt.localID, wt.serverID = w.peer, w.server
+		wt.resume = resumeState{peer: w.peer, secret: w.secret}
+		wt.resumed = w.resumed
+		wt.state = ConnOpen
+		queued := wt.pending
+		wt.pending = nil
+		wt.mu.Unlock()
+		for _, frame := range queued {
+			sendJS(ws, frame)
+		}
+	case ConnOpen:
+		ch, seq, payload, err := decodeWireFrame(buf)
+		if err == nil {
 			wt.inbox = append(wt.inbox, Packet{
 				From:    wt.serverID,
 				Channel: ch,
-				Payload: cp,
+				Payload: slices.Clone(payload),
 				Seq:     seq,
 			})
 		}
 		wt.mu.Unlock()
-		return nil
-	})
-
-	wt.onClose = js.FuncOf(func(this js.Value, args []js.Value) any {
-		wt.mu.Lock()
-		wt.closed = true
-		wt.pending = nil
+	default:
 		wt.mu.Unlock()
-		return nil
-	})
-
-	wt.onError = js.FuncOf(func(this js.Value, args []js.Value) any {
-		return nil
-	})
-
-	ws.Set("onopen", wt.onOpen)
-	ws.Set("onmessage", wt.onMessage)
-	ws.Set("onclose", wt.onClose)
-	ws.Set("onerror", wt.onError)
-
-	return wt, nil
+	}
 }
 
-func (wt *WebSocketTransport) sendRaw(frame []byte) {
+func sendJS(ws js.Value, frame []byte) {
 	u8 := js.Global().Get("Uint8Array").New(len(frame))
 	js.CopyBytesToJS(u8, frame)
-	wt.ws.Call("send", u8)
+	ws.Call("send", u8)
+}
+
+// releaseLocked detaches and closes the current browser socket and releases its callbacks.
+func (wt *WebSocketTransport) releaseLocked() {
+	if wt.ws.IsNull() || wt.ws.IsUndefined() {
+		return
+	}
+	ws := wt.ws
+	ws.Set("onopen", js.Null())
+	ws.Set("onmessage", js.Null())
+	ws.Set("onclose", js.Null())
+	ws.Set("onerror", js.Null())
+	ws.Call("close")
+	for _, f := range wt.funcs {
+		f.Release()
+	}
+	wt.funcs = nil
+	wt.ws = js.Null()
 }
 
 // Send transmits payload framed with the 5-byte channel+seq header over the browser WebSocket.
-// Frames sent while the socket is still connecting are queued and flushed on open.
+// Frames sent before the server's welcome are queued and flushed when it arrives; Send returns ErrDisconnected while the connection is down.
 func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error {
-	if to != PeerBroadcast && to != wt.serverID {
-		return ErrUnknownPeer
-	}
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
 	}
 
 	wt.mu.Lock()
-	if wt.closed {
+	switch wt.state {
+	case ConnClosed:
 		wt.mu.Unlock()
 		return ErrClosed
+	case ConnDisconnected:
+		wt.mu.Unlock()
+		return ErrDisconnected
+	}
+	if wt.state == ConnOpen && to != PeerBroadcast && to != wt.serverID {
+		wt.mu.Unlock()
+		return ErrUnknownPeer
 	}
 	wt.seq[ch]++
 	frame := encodeWireFrame(ch, wt.seq[ch], payload)
-	state := wt.ws.Get("readyState").Int()
-	if state == jsWSConnecting && !wt.opened {
+	if wt.state == ConnConnecting {
 		wt.pending = append(wt.pending, frame)
 		wt.mu.Unlock()
 		return nil
 	}
-	if state != jsWSOpen {
-		wt.mu.Unlock()
-		return ErrClosed
-	}
+	ws := wt.ws
 	wt.mu.Unlock()
-
-	wt.sendRaw(frame)
+	if ws.Get("readyState").Int() != jsWSOpen {
+		return ErrDisconnected
+	}
+	sendJS(ws, frame)
 	return nil
 }
 
@@ -173,40 +238,53 @@ func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	return pkt, true
 }
 
-// LocalID returns this client's PeerID.
+// LocalID returns the PeerID the server assigned this client, or 0 before its first welcome.
 func (wt *WebSocketTransport) LocalID() PeerID {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
 	return wt.localID
 }
 
-// Peers returns the connected server's PeerID, or nil once closed.
+// Peers returns the connected server's PeerID, or nil unless the connection is open.
 func (wt *WebSocketTransport) Peers() []PeerID {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
-	if wt.closed {
+	if wt.state != ConnOpen {
 		return nil
 	}
 	return []PeerID{wt.serverID}
 }
 
-// Close closes the browser WebSocket and releases all JavaScript callback handles.
+// State returns the connection state.
+func (wt *WebSocketTransport) State() ConnState {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.state
+}
+
+// Err returns why the client is disconnected: a *RejectError, or ErrDisconnected. It is nil while connecting or open.
+func (wt *WebSocketTransport) Err() error {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.err
+}
+
+// Resumed reports whether the last handshake resumed an existing session, keeping the client's ID.
+func (wt *WebSocketTransport) Resumed() bool {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.resumed
+}
+
+// Close closes the browser WebSocket and releases all JavaScript callback handles. The browser sends a close frame, so the server reports PeerLeft at once.
 func (wt *WebSocketTransport) Close() error {
 	wt.mu.Lock()
-	alreadyReleased := wt.released
-	wt.closed = true
-	wt.pending = nil
-	wt.released = true
-	wt.mu.Unlock()
-
-	if !alreadyReleased {
-		wt.ws.Set("onopen", js.Null())
-		wt.ws.Set("onmessage", js.Null())
-		wt.ws.Set("onclose", js.Null())
-		wt.ws.Set("onerror", js.Null())
-		wt.ws.Call("close")
-		wt.onOpen.Release()
-		wt.onMessage.Release()
-		wt.onClose.Release()
-		wt.onError.Release()
+	defer wt.mu.Unlock()
+	if wt.state == ConnClosed {
+		return nil
 	}
+	wt.state = ConnClosed
+	wt.pending = nil
+	wt.releaseLocked()
 	return nil
 }

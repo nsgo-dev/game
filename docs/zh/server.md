@@ -110,10 +110,10 @@ action, err := g.Check(peer, packet)
 
 ## TLS、Origin、健康检查与指标
 
-HTTPS 页面里的浏览器需要 `wss://`。`net.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥：
+HTTPS 页面里的浏览器需要 `wss://`。`net.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥。两者都接受与 `ListenWebSocket` 相同的 `Auth`（见[连接握手与重连](net.md#连接握手与重连)）：
 
 ```go
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, "cert.pem", "key.pem",
+srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 

@@ -1,0 +1,231 @@
+package net
+
+import (
+	"bytes"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func TestHandshakeMessagesRoundTrip(t *testing.T) {
+	h := hello{resumePeer: 7, token: []byte("token-abc")}
+	h.nonce[0], h.resumeSecret[15] = 1, 2
+	b := encodeHello(h, udpMinHello)
+	if len(b) != udpMinHello {
+		t.Fatalf("padded hello = %d bytes, want %d", len(b), udpMinHello)
+	}
+	got, err := decodeHello(b)
+	if err != nil || got.nonce != h.nonce || got.resumePeer != 7 || got.resumeSecret != h.resumeSecret || !bytes.Equal(got.token, h.token) {
+		t.Fatalf("hello round trip = %+v, %v", got, err)
+	}
+
+	w := welcome{nonce: h.nonce, peer: 3, server: 1, resumed: true}
+	w.secret[0], w.key[31] = 9, 8
+	gw, err := decodeServerHandshake(encodeWelcome(w))
+	if err != nil || gw != w {
+		t.Fatalf("welcome round trip = %+v, %v", gw, err)
+	}
+
+	_, err = decodeServerHandshake(encodeReject(h.nonce, "bad token", 0))
+	var rej *RejectError
+	if !errors.As(err, &rej) || rej.Reason != "bad token" || !errors.Is(err, ErrRejected) {
+		t.Fatalf("reject = %v", err)
+	}
+}
+
+func TestHandshakeRejectsMalformedMessages(t *testing.T) {
+	good := encodeHello(hello{token: []byte("t")}, 0)
+	for name, b := range map[string][]byte{
+		"empty":       nil,
+		"wrong type":  append([]byte{hsWelcome}, good[1:]...),
+		"truncated":   good[:hsHelloHeader-1],
+		"token past":  good[:len(good)-1],
+		"token large": func() []byte { b := encodeHello(hello{}, 0); b[38], b[39] = 0x10, 0x01; return b }(),
+	} {
+		if _, err := decodeHello(b); err == nil {
+			t.Errorf("%s: decodeHello accepted %x", name, b)
+		}
+	}
+	old := bytes.Clone(good)
+	old[1] = hsVersion + 1
+	if _, err := decodeHello(old); !errors.Is(err, errHandshakeVersion) {
+		t.Fatalf("other version = %v, want errHandshakeVersion", err)
+	}
+
+	w := encodeWelcome(welcome{peer: 2, server: 1})
+	for name, b := range map[string][]byte{
+		"short":       w[:len(w)-1],
+		"peer zero":   encodeWelcome(welcome{peer: 0, server: 1}),
+		"same as srv": encodeWelcome(welcome{peer: 1, server: 1}),
+		"bad flag":    func() []byte { b := bytes.Clone(w); b[26] = 2; return b }(),
+		"reject len":  func() []byte { b := encodeReject([16]byte{}, "x", 0); b[19] = 5; return b }(),
+	} {
+		if _, err := decodeServerHandshake(b); !errors.Is(err, ErrInvalidPacket) {
+			t.Errorf("%s: decodeServerHandshake = %v, want ErrInvalidPacket", name, err)
+		}
+	}
+}
+
+func TestRejectNeverOutgrowsTheHello(t *testing.T) {
+	long := strings.Repeat("r", 1000)
+	if b := encodeReject([16]byte{}, long, udpMinHello); len(b) != udpMinHello {
+		t.Fatalf("limited reject = %d bytes, want %d", len(b), udpMinHello)
+	}
+	if b := encodeReject([16]byte{}, long, 0); len(b) != hsRejectHeader+hsMaxReason {
+		t.Fatalf("unlimited reject = %d bytes, want reason capped at %d", len(b), hsMaxReason)
+	}
+	if hsWelcomeSize > udpMinHello {
+		t.Fatalf("welcome (%d bytes) is larger than the smallest answered hello (%d)", hsWelcomeSize, udpMinHello)
+	}
+}
+
+func TestSessionTableGraceAndResume(t *testing.T) {
+	clock := newFakeClock()
+	tab := newSessionTable(Auth{GracePeriod: 5 * time.Second, Now: clock.Now}, 1, false)
+	id := tab.reserve()
+	if id != 2 {
+		t.Fatalf("first ID = %d, want 2", id)
+	}
+	if got := tab.connectedIDs(); len(got) != 0 {
+		t.Fatalf("a reserved ID is listed as connected: %v", got)
+	}
+	s := tab.commit(id, clock.Now())
+	secret := s.secret
+
+	tab.drop(s, clock.Now())
+	if err := tab.sendable(id); !errors.Is(err, ErrDisconnected) {
+		t.Fatalf("sendable in grace = %v", err)
+	}
+	clock.Advance(4 * time.Second)
+	tab.expire(clock.Now())
+
+	// A wrong secret does not resume, the right one does and rotates it.
+	if tab.resume(hello{resumePeer: id}, clock.Now()) != nil {
+		t.Fatal("resumed with a zero secret")
+	}
+	r := tab.resume(hello{resumePeer: id, resumeSecret: secret}, clock.Now())
+	if r != s || !r.connected || r.secret == secret {
+		t.Fatalf("resume = %+v", r)
+	}
+	if tab.resume(hello{resumePeer: id, resumeSecret: secret}, clock.Now()) != nil {
+		t.Fatal("an old resume secret was accepted twice")
+	}
+
+	tab.drop(s, clock.Now())
+	clock.Advance(5 * time.Second)
+	tab.expire(clock.Now())
+	if tab.sessions[id] != nil {
+		t.Fatal("session outlived its grace period")
+	}
+	var kinds []PeerEventKind
+	for ev, ok := tab.popEvent(); ok; ev, ok = tab.popEvent() {
+		if ev.Peer != id {
+			t.Fatalf("event for peer %d", ev.Peer)
+		}
+		kinds = append(kinds, ev.Kind)
+	}
+	want := []PeerEventKind{PeerJoined, PeerDropped, PeerResumed, PeerDropped, PeerLeft}
+	if !slicesEqual(kinds, want) {
+		t.Fatalf("events = %v, want %v", kinds, want)
+	}
+}
+
+func TestSessionTableWithoutGraceLeavesAtOnce(t *testing.T) {
+	tab := newSessionTable(Auth{}, 1, false)
+	s := tab.commit(tab.reserve(), time.Now())
+	tab.drop(s, time.Now())
+	if tab.sessions[s.id] != nil {
+		t.Fatal("dropped session kept without a grace period")
+	}
+	if ev, _ := tab.popEvent(); ev.Kind != PeerJoined {
+		t.Fatalf("first event = %v", ev)
+	}
+	if ev, _ := tab.popEvent(); ev.Kind != PeerLeft {
+		t.Fatalf("second event = %v, want left", ev)
+	}
+}
+
+func TestSessionTableSkipsServerAndLiveIDs(t *testing.T) {
+	tab := newSessionTable(Auth{}, 3, false)
+	tab.next = 0
+	var got []PeerID
+	for range 4 {
+		got = append(got, tab.reserve())
+	}
+	if want := []PeerID{1, 2, 4, 5}; !slicesEqual(got, want) {
+		t.Fatalf("IDs = %v, want %v", got, want)
+	}
+	tab.release(2)
+	tab.next = 1
+	if id := tab.reserve(); id != 2 {
+		t.Fatalf("after release reserve = %d, want the freed 2", id)
+	}
+}
+
+func slicesEqual[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func FuzzDecodeHello(f *testing.F) {
+	f.Add(encodeHello(hello{token: []byte("token")}, 0))
+	f.Add(encodeHello(hello{resumePeer: 9}, udpMinHello))
+	f.Add([]byte{hsHello, hsVersion})
+	f.Fuzz(func(t *testing.T, b []byte) {
+		h, err := decodeHello(b)
+		if err != nil {
+			return
+		}
+		if len(h.token) > MaxTokenSize {
+			t.Fatalf("token of %d bytes accepted", len(h.token))
+		}
+		again, err := decodeHello(encodeHello(h, 0))
+		if err != nil || again.nonce != h.nonce || again.resumePeer != h.resumePeer || again.resumeSecret != h.resumeSecret || !bytes.Equal(again.token, h.token) {
+			t.Fatalf("re-encoded hello differs: %+v vs %+v (%v)", again, h, err)
+		}
+	})
+}
+
+func FuzzDecodeServerHandshake(f *testing.F) {
+	f.Add(encodeWelcome(welcome{peer: 2, server: 1}))
+	f.Add(encodeReject([16]byte{1}, "no", 0))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		w, err := decodeServerHandshake(b)
+		if err != nil {
+			return
+		}
+		if again, err := decodeServerHandshake(encodeWelcome(w)); err != nil || again != w {
+			t.Fatalf("re-encoded welcome differs: %+v vs %+v (%v)", again, w, err)
+		}
+	})
+}

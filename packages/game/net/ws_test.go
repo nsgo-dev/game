@@ -37,26 +37,29 @@ func waitPeers(t *testing.T, tr gamenet.Transport, want int, timeout time.Durati
 }
 
 func TestWebSocketHandshakeAndBinaryRoundTrip(t *testing.T) {
-	srv, err := gamenet.ListenWebSocket("127.0.0.1:0", 1)
+	srv, err := gamenet.ListenWebSocket("127.0.0.1:0", 1, gamenet.Auth{})
 	if err != nil {
 		t.Fatalf("ListenWebSocket: %v", err)
 	}
 	defer func() { _ = srv.Close() }()
 
 	url := "ws://" + srv.Addr().String() + "/game"
-	cliA, err := gamenet.DialWebSocket(url, 2)
+	cliA, err := gamenet.DialWebSocket(url, nil)
 	if err != nil {
 		t.Fatalf("DialWebSocket A: %v", err)
 	}
 	defer func() { _ = cliA.Close() }()
 
-	cliB, err := gamenet.DialWebSocket(url, 3)
+	cliB, err := gamenet.DialWebSocket(url, nil)
 	if err != nil {
 		t.Fatalf("DialWebSocket B: %v", err)
 	}
 	defer func() { _ = cliB.Close() }()
 
 	waitPeers(t, srv, 2, 2*time.Second)
+	if cliA.LocalID() != 2 || cliB.LocalID() != 3 {
+		t.Fatalf("assigned IDs = %d, %d; want 2, 3", cliA.LocalID(), cliB.LocalID())
+	}
 
 	// Exercise all three RFC 6455 payload length encodings: 7-bit, 16-bit, and 64-bit.
 	payloads := [][]byte{
@@ -74,13 +77,13 @@ func TestWebSocketHandshakeAndBinaryRoundTrip(t *testing.T) {
 			t.Fatalf("cliA.Send(%d): %v", i, err)
 		}
 		pkt := waitPacket(t, srv, 2*time.Second)
-		if pkt.From != 2 || pkt.Channel != ch || !bytes.Equal(pkt.Payload, want) {
+		if pkt.From != cliA.LocalID() || pkt.Channel != ch || !bytes.Equal(pkt.Payload, want) {
 			t.Fatalf("client->server frame %d mismatch: from=%d ch=%v len=%d (want len=%d)",
 				i, pkt.From, pkt.Channel, len(pkt.Payload), len(want))
 		}
 
 		// Server echoes back to client A.
-		if err := srv.Send(2, ch, want); err != nil {
+		if err := srv.Send(cliA.LocalID(), ch, want); err != nil {
 			t.Fatalf("srv.Send(%d): %v", i, err)
 		}
 		reply := waitPacket(t, cliA, 2*time.Second)
@@ -103,13 +106,13 @@ func TestWebSocketHandshakeAndBinaryRoundTrip(t *testing.T) {
 }
 
 func TestWebSocketServerReplicationRoundTrip(t *testing.T) {
-	srvT, err := gamenet.ListenWebSocket("127.0.0.1:0", 1)
+	srvT, err := gamenet.ListenWebSocket("127.0.0.1:0", 1, gamenet.Auth{})
 	if err != nil {
 		t.Fatalf("ListenWebSocket: %v", err)
 	}
 	defer func() { _ = srvT.Close() }()
 
-	cliT, err := gamenet.DialWebSocket("ws://"+srvT.Addr().String(), 2)
+	cliT, err := gamenet.DialWebSocket("ws://"+srvT.Addr().String(), nil)
 	if err != nil {
 		t.Fatalf("DialWebSocket: %v", err)
 	}
@@ -156,6 +159,9 @@ func TestUDPTransportRoundTrip(t *testing.T) {
 	if err := u1.AddPeer(2, u2.Addr().String()); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
+	if err := u2.AddPeer(1, u1.Addr().String()); err != nil {
+		t.Fatalf("AddPeer: %v", err)
+	}
 
 	msg := []byte("udp-ping")
 	if err := u1.Send(2, gamenet.ChannelUnreliable, msg); err != nil {
@@ -166,7 +172,7 @@ func TestUDPTransportRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected UDP packet: %+v", pkt)
 	}
 
-	// u2 auto-learned u1's address from the incoming datagram and can reply directly.
+	// u2 replies to the address it registered for u1.
 	reply := []byte("udp-pong")
 	if err := u2.Send(1, gamenet.ChannelUnreliable, reply); err != nil {
 		t.Fatalf("u2.Send reply: %v", err)

@@ -74,7 +74,7 @@ func upgradeStatus(t *testing.T, addr, origin string, cfg *tls.Config) int {
 }
 
 func TestWebSocketTLSUpgradesAndChecksOrigin(t *testing.T) {
-	srv, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{"https://allowed.example"})
+	srv, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, gamenet.Auth{}, selfSignedTLS(t), []string{"https://allowed.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestWebSocketTLSUpgradesAndChecksOrigin(t *testing.T) {
 }
 
 func TestWebSocketOriginAllowsAnyAndMissing(t *testing.T) {
-	srv, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), nil)
+	srv, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, gamenet.Auth{}, selfSignedTLS(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestWebSocketOriginAllowsAnyAndMissing(t *testing.T) {
 		t.Fatalf("no-allowlist upgrade = %d, want 101", status)
 	}
 
-	restricted, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{"https://allowed.example/"})
+	restricted, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, gamenet.Auth{}, selfSignedTLS(t), []string{"https://allowed.example/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestWebSocketOriginAllowsAnyAndMissing(t *testing.T) {
 		t.Fatalf("trailing-slash entry upgrade = %d, want 101", status)
 	}
 
-	wildcard, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{"*"})
+	wildcard, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, gamenet.Auth{}, selfSignedTLS(t), []string{"*"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,14 +123,14 @@ func TestWebSocketOriginAllowsAnyAndMissing(t *testing.T) {
 
 func TestWebSocketOriginRefusesEntriesThatAreNotOrigins(t *testing.T) {
 	for _, origin := range []string{"https://allowed.example/play", "allowed.example", ""} {
-		if _, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, selfSignedTLS(t), []string{origin}); err == nil {
+		if _, err := gamenet.ListenWebSocketTLS("127.0.0.1:0", 1, gamenet.Auth{}, selfSignedTLS(t), []string{origin}); err == nil {
 			t.Fatalf("allow-list entry %q accepted, want an error", origin)
 		}
 	}
 }
 
 func TestWebSocketHandshakeRejectsOversizedHeaders(t *testing.T) {
-	srv, err := gamenet.ListenWebSocket("127.0.0.1:0", 1)
+	srv, err := gamenet.ListenWebSocket("127.0.0.1:0", 1, gamenet.Auth{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestWebSocketHandshakeRejectsOversizedHeaders(t *testing.T) {
 }
 
 func TestWebSocketTLSFilesRejectsMissingKey(t *testing.T) {
-	if _, err := gamenet.ListenWebSocketTLSFiles("127.0.0.1:0", 1, "missing-cert.pem", "missing-key.pem", nil); err == nil || !strings.Contains(err.Error(), "no such file") {
+	if _, err := gamenet.ListenWebSocketTLSFiles("127.0.0.1:0", 1, gamenet.Auth{}, "missing-cert.pem", "missing-key.pem", nil); err == nil || !strings.Contains(err.Error(), "no such file") {
 		t.Fatalf("missing certificate error = %v", err)
 	}
 }
