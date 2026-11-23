@@ -3,6 +3,7 @@
 package hotreload
 
 import (
+	"github.com/nsgo-dev/game/packages/game/assets"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -50,3 +51,15 @@ func (w *Watcher) WatchPattern(string, func(string, []byte)) {}
 
 // WatchResources is a no-op in release builds.
 func (w *Watcher) WatchResources(*resource.Library, func(string, error)) {}
+
+// DevAssetsDir returns "" in release builds, which never run under `game dev`.
+func DevAssetsDir() string { return "" }
+
+// NewDevWatcher returns nil in release builds; Watcher's methods do nothing on nil.
+func NewDevWatcher(*core.Scope, ...Option) *Watcher { return nil }
+
+// WatchAssets is a no-op in release builds.
+func (w *Watcher) WatchAssets(*assets.Manager, func(string, []string, error)) {}
+
+// WatchAtlasFiles is a no-op in release builds.
+func (w *Watcher) WatchAtlasFiles(string, string, core.ImageSource, func(*sprite.Atlas, error)) {}

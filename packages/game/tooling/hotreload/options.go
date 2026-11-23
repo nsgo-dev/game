@@ -43,3 +43,6 @@ func WithDebounce(d time.Duration) Option {
 		}
 	}
 }
+
+// AssetsDirEnv is the environment variable `game dev` sets to the absolute path of the directory a game's "asset:" URIs name, its resources directory by default, for NewDevWatcher to watch.
+const AssetsDirEnv = "NSGO_GAME_ASSETS"

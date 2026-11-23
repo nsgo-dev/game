@@ -58,3 +58,20 @@ func TestReleaseWatcherIsANoOp(t *testing.T) {
 	}
 	watcher.Stop()
 }
+
+func TestReleaseIgnoresGameDev(t *testing.T) {
+	t.Setenv(hotreload.AssetsDirEnv, t.TempDir())
+	if dir := hotreload.DevAssetsDir(); dir != "" {
+		t.Fatalf("DevAssetsDir = %q in a release build, want empty", dir)
+	}
+	var w *hotreload.Watcher
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		w = hotreload.NewDevWatcher(cx)
+		w.WatchAssets(nil, func(string, []string, error) { t.Error("release watcher reloaded") })
+		w.WatchAtlasFiles("a.json", "a.png", core.ImageSource{}, func(*sprite.Atlas, error) { t.Error("release watcher reloaded") })
+		return core.View{}
+	})
+	if w != nil {
+		t.Fatalf("NewDevWatcher = %v in a release build, want nil", w)
+	}
+}

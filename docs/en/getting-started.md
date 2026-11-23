@@ -80,6 +80,8 @@ go tool nsgo dev -target android
 
 Add `-fps` to any `nsgo dev` command to show NSGo's performance monitor over the running game.
 
+To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `go tool game dev` (after `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
+
 ## Draw a sprite on a fixed-step loop
 
 A game is an NSGo component. It starts a `game.Loop` on its scope, updates state in `Update` at a fixed rate (60 updates a second by default), and triggers a `core.Canvas` redraw from `Draw` through a `core.Signal` without re-committing the view tree.
