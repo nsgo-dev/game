@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -240,7 +241,7 @@ func TestBrokenReferencesNameFileAndLine(t *testing.T) {
 		{"map syntax", "maps/level.tmj", `"height": 1,`, `"height": 1,,`, "maps/level.tmj", `"height": 1,,`, "invalid JSON"},
 		{"map does not load", "maps/level.tmj", `"orientation": "orthogonal"`, `"orientation": "round"`, "maps/level.tmj", "", "orientation"},
 		{"ldtk tileset image", "world.ldtk", `"relPath": "atlases/tiles.png"`, `"relPath": "atlases/tile.png"`, "world.ldtk", `"relPath"`, `tileset image "atlases/tile.png": not found`},
-		{"ldtk external level", "world.ldtk", `"identifier": "Level_0",`, `"identifier": "Level_0",` + "\n" + `"externalRelPath": "world/Level_0.ldtkl",`, "world.ldtk", `"externalRelPath"`, `external level "world/Level_0.ldtkl": not found`},
+		{"ldtk external level", "world.ldtk", `"identifier": "Level_0",`, `"identifier": "Level_0",` + "\n" + `"externalRelPath": "world/Level_0.ldtkl",`, "world.ldtk", `"externalRelPath"`, `level "Level_0" is saved in a separate file ("world/Level_0.ldtkl"), which tilemap.LoadLDtkAll does not read`},
 		{"ldtk background", "world.ldtk", `"identifier": "Level_0",`, `"identifier": "Level_0",` + "\n" + `"bgRelPath": "C:/art/bg.png",`, "world.ldtk", `"bgRelPath"`, "is an absolute path"},
 		{"atlas image", "atlases/actors.png", "", "-", "atlases/actors.json", `"image": "actors.png"`, `meta.image "actors.png": not found`},
 		{"atlas image URI", "atlases/actors.json", `"image": "actors.png"`, `"image": "asset:actors.png"`, "atlases/actors.json", `"image": "asset:actors.png"`, "is a URI"},
@@ -362,6 +363,85 @@ func TestNearestAtlasWins(t *testing.T) {
 	r = mustCheck(t, fsys)
 	if len(r.Problems) != 1 || !strings.Contains(r.Problems[0].Message, `(scenes/actors.json)`) {
 		t.Fatalf("want the scene's sibling atlas to be used:\n%s", problems(r))
+	}
+}
+
+func TestNearestAtlasCountsDirectories(t *testing.T) {
+	villain := strings.Replace(actorsAtlas, `"hero"`, `"villain"`, 1)
+	scene := "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: v\n        sprite:\n          atlas: actors\n          frame: villain\n"
+	cases := []struct {
+		name string
+		// scene is where the scene is; near holds the atlas it must find, which has the villain frame, and far one at a greater distance, which does not.
+		scene, near, far string
+	}{
+		{"sibling beats subdirectory", "lv/lv.scene.yaml", "lv/actors.json", "lv/sub/actors.json"},
+		{"root sibling beats subdirectory", "root.scene.yaml", "actors.json", "lv/actors.json"},
+		{"parent beats cousin", "lv/a/a.scene.yaml", "lv/actors.json", "other/b/actors.json"},
+		{"subdirectory beats cousin", "lv/lv.scene.yaml", "lv/sub/actors.json", "other/actors.json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := fstest.MapFS{
+				"nsgo.yaml": {Data: []byte("name: Test\n")},
+				tc.scene:    {Data: []byte(scene)},
+				tc.near:     {Data: []byte(villain)},
+				tc.far:      {Data: []byte(actorsAtlas)},
+				path.Join(path.Dir(tc.near), "actors.png"): {Data: pngBytes(t, 32, 16)},
+				path.Join(path.Dir(tc.far), "actors.png"):  {Data: pngBytes(t, 32, 16)},
+			}
+			if r := mustCheck(t, fsys); !r.OK() || r.Atlases != 2 {
+				t.Fatalf("want %s used for %s (%d atlases):\n%s", tc.near, tc.scene, r.Atlases, problems(r))
+			}
+		})
+	}
+}
+
+func TestUnusableAtlasIsReported(t *testing.T) {
+	sceneLine := lineOf(t, roomScene, "atlas: actors")
+	cases := []struct {
+		name, old, new string
+		// line and msg are the problem expected in atlases/actors.json besides the scene's.
+		line int
+		msg  string
+	}{
+		{"syntax error", `"frames": {`, `"frames": {,`, 2, "invalid JSON"},
+		{"not an atlas", `"meta": {`, `"info": {`, 0, "not an atlas: want top-level frames and meta objects"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := project(t)
+			fsys["atlases/actors.json"].Data = []byte(strings.Replace(actorsAtlas, tc.old, tc.new, 1))
+			r := mustCheck(t, fsys)
+			if len(r.Problems) != 2 {
+				t.Fatalf("%d problems, want 2:\n%s", len(r.Problems), problems(r))
+			}
+			a, s := r.Problems[0], r.Problems[1]
+			if a.File != "atlases/actors.json" || a.Line != tc.line || !strings.Contains(a.Message, tc.msg) {
+				t.Fatalf("atlas problem %q, want atlases/actors.json:%d with %q", a, tc.line, tc.msg)
+			}
+			if s.File != "scenes/room.scene.yaml" || s.Line != sceneLine || s.Message != `atlas "actors": atlases/actors.json is not a usable atlas` {
+				t.Fatalf("scene problem %q", s)
+			}
+		})
+	}
+
+	// A JSON file no scene names as an atlas is none of the check's business.
+	fsys := project(t)
+	fsys["data/broken.json"] = &fstest.MapFile{Data: []byte("{,")}
+	fsys["data/config.json"] = &fstest.MapFile{Data: []byte(`{"debug": true}`)}
+	if r := mustCheck(t, fsys); !r.OK() {
+		t.Fatalf("reported JSON files no scene uses:\n%s", problems(r))
+	}
+}
+
+func TestLDtkExternalLevelIsReported(t *testing.T) {
+	fsys := project(t)
+	fsys["world.ldtk"].Data = []byte(strings.Replace(worldLDtk, `"identifier": "Level_0",`, `"identifier": "Level_0",`+"\n"+`"externalRelPath": "world/Level_0.ldtkl",`, 1))
+	fsys["world/Level_0.ldtkl"] = &fstest.MapFile{Data: []byte(`{"identifier": "Level_0", "layerInstances": []}`)}
+	r := mustCheck(t, fsys)
+	want := lineOf(t, string(fsys["world.ldtk"].Data), "externalRelPath")
+	if len(r.Problems) != 1 || r.Problems[0].File != "world.ldtk" || r.Problems[0].Line != want || !strings.Contains(r.Problems[0].Message, "does not read") {
+		t.Fatalf("want an external level reported at world.ldtk:%d:\n%s", want, problems(r))
 	}
 }
 

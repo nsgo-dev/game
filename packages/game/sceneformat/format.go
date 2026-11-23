@@ -524,8 +524,13 @@ func validateObjects(path []string, layer, parent string, parentWorld *math2d.Af
 
 func validateCamera(c *CameraDoc) error {
 	cp := []string{"camera"}
-	if !isFinite(c.X) || !isFinite(c.Y) || !isFinite(c.Rotation) {
-		return fieldErr(cp, "sceneformat: camera x, y and rotation must be finite")
+	for _, f := range []struct {
+		field string
+		v     float32
+	}{{"x", c.X}, {"y", c.Y}, {"rotation", c.Rotation}} {
+		if !isFinite(f.v) {
+			return fieldErr(at(cp, f.field), "sceneformat: camera x, y and rotation must be finite")
+		}
 	}
 	if c.Zoom != nil {
 		if !isFinite(*c.Zoom) || *c.Zoom <= 0 {
@@ -534,11 +539,19 @@ func validateCamera(c *CameraDoc) error {
 	}
 	if c.Bounds != nil {
 		b := c.Bounds
-		if !isFinite(b.X) || !isFinite(b.Y) || !isFinite(b.Width) || !isFinite(b.Height) {
-			return fieldErr(at(cp, "bounds"), "sceneformat: camera bounds must be finite")
+		for _, f := range []struct {
+			field string
+			v     float32
+		}{{"x", b.X}, {"y", b.Y}, {"width", b.Width}, {"height", b.Height}} {
+			if !isFinite(f.v) {
+				return fieldErr(at(cp, "bounds", f.field), "sceneformat: camera bounds must be finite")
+			}
 		}
-		if b.Width <= 0 || b.Height <= 0 {
-			return fieldErr(at(cp, "bounds"), "sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
+		if b.Width <= 0 {
+			return fieldErr(at(cp, "bounds", "width"), "sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
+		}
+		if b.Height <= 0 {
+			return fieldErr(at(cp, "bounds", "height"), "sceneformat: camera bounds size (%v, %v) must be positive", b.Width, b.Height)
 		}
 	}
 	return nil

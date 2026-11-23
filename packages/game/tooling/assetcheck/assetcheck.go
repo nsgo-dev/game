@@ -3,11 +3,11 @@
 // Check walks a directory and reads:
 //
 //   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, and whose sprite frames and tile IDs must be in their atlases;
-//   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets and tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
-//   - LDtk projects (.ldtk), whose tileset images, level backgrounds and external level files must exist, and which must load with tilemap.LoadLDtkAll;
+//   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
+//   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas.
 //
-// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source and material paths are resolved from its project root, the nearest directory above the scene that holds nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene wins. PNG, JPEG and GIF images must also decode; other images only have to exist.
+// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source and material paths are resolved from its project root, the nearest directory above the scene that holds nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene, counting the directories up from the scene and down to the atlas, wins. A JSON file of that name that does not parse, or is not an atlas, is reported when a scene names it. PNG, JPEG and GIF images must also decode; other images only have to exist.
 //
 // Directories whose names start with "." or "_", and those named testdata, are skipped, as the go command skips them.
 package assetcheck
@@ -135,6 +135,8 @@ type checker struct {
 	// atlasPaths are the atlas files found, in walk order, and atlases describes each.
 	atlasPaths []string
 	atlases    map[string]*atlasInfo
+	// nonAtlases are the other JSON files found, in walk order, which matter only when a scene names one as an atlas.
+	nonAtlases []nonAtlas
 	// checked marks the map and tileset files already checked, which a reference to them does not check again.
 	checked map[string]bool
 	// broken marks the files with a problem, whose loaders are not run again to report the same fault in other words.

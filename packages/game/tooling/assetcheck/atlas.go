@@ -18,22 +18,32 @@ type atlasInfo struct {
 	frames map[string]bool
 }
 
-// sniffAtlas reads the JSON file at p and records it as an atlas when it has top-level frames and meta objects, as TexturePacker and Aseprite exports do. Any other JSON file, valid or not, is none of the check's business.
+// sniffAtlas reads the JSON file at p and records it as an atlas when it has top-level frames and meta objects, as TexturePacker and Aseprite exports do. Any other JSON file, valid or not, is kept aside as a non-atlas, which is reported only when a scene names it as an atlas, since a project holds JSON files of other kinds that are none of the check's business.
 func (c *checker) sniffAtlas(p string) {
 	data, err := fs.ReadFile(c.fsys, p)
 	if err != nil {
+		c.nonAtlases = append(c.nonAtlases, nonAtlas{path: p, err: &jsonError{msg: unwrapPathError(err).Error()}})
 		return
 	}
 	tree, err := parseJSON(data)
 	if err != nil {
+		c.nonAtlases = append(c.nonAtlases, nonAtlas{path: p, err: err.(*jsonError)})
 		return
 	}
 	frames, meta := tree.field("frames"), tree.field("meta")
 	if frames == nil || (frames.kind != jsonObject && frames.kind != jsonArray) || meta == nil || meta.kind != jsonObject {
+		c.nonAtlases = append(c.nonAtlases, nonAtlas{path: p})
 		return
 	}
 	c.atlasPaths = append(c.atlasPaths, p)
 	c.atlases[p] = &atlasInfo{path: p, data: data, tree: tree}
+}
+
+// nonAtlas is a JSON file found in the walk that is not an atlas.
+type nonAtlas struct {
+	path string
+	// err is why the file does not read or parse, or nil when it parsed but lacks an atlas's top-level frames and meta objects.
+	err *jsonError
 }
 
 // checkAtlas checks an atlas's image reference, that its frames lie inside the image, and that it loads.
@@ -92,33 +102,25 @@ func atlasFrames(tree *jsonValue) []namedFrame {
 	return out
 }
 
-// findAtlas returns the atlas a scene at scene, in project root, names name, or records a problem at line and returns nil. The name is the path without .json of an atlas file in the same project, from the project root or as its base name; among several matches the one sharing the longest directory with the scene wins.
+// findAtlas returns the atlas a scene at scene, in project root, names name, or records a problem at line and returns nil. The name is the path without .json of an atlas file in the same project, from the project root or as its base name; among several matches the one nearest the scene, by the directories walked up from the scene and down to the atlas, wins.
 func (c *checker) findAtlas(scene string, line int, root, name, what string) *atlasInfo {
 	var best []*atlasInfo
-	bestShared := -1
+	bestDist := -1
 	for _, p := range c.atlasPaths {
-		if c.projectRoot(path.Dir(p)) != root {
-			continue // another project's atlas
-		}
-		stem := strings.TrimSuffix(p, path.Ext(p))
-		if stem != path.Join(root, name) && path.Base(stem) != name {
+		if !c.atlasNamed(p, root, name) {
 			continue
 		}
-		shared := sharedDirs(path.Dir(scene), path.Dir(p))
+		d := dirDistance(path.Dir(scene), path.Dir(p))
 		switch {
-		case shared > bestShared:
-			best, bestShared = []*atlasInfo{c.atlases[p]}, shared
-		case shared == bestShared:
+		case bestDist < 0 || d < bestDist:
+			best, bestDist = []*atlasInfo{c.atlases[p]}, d
+		case d == bestDist:
 			best = append(best, c.atlases[p])
 		}
 	}
 	switch len(best) {
 	case 0:
-		where := "the checked directory"
-		if root != "." {
-			where = root
-		}
-		c.problem(scene, line, "%s %q not found: no atlas JSON named %s.json in %s", what, name, path.Base(name), where)
+		c.atlasNotFound(scene, line, root, name, what)
 		return nil
 	case 1:
 		return best[0]
@@ -132,15 +134,54 @@ func (c *checker) findAtlas(scene string, line int, root, name, what string) *at
 	}
 }
 
-// sharedDirs returns how many leading directories a and b have in common.
-func sharedDirs(a, b string) int {
-	if a == "." || b == "." {
-		return 0
+// atlasNamed reports whether the JSON file at p is in project root and is named name there, from the root or by its base name.
+func (c *checker) atlasNamed(p, root, name string) bool {
+	if c.projectRoot(path.Dir(p)) != root {
+		return false // another project's file
 	}
-	as, bs := strings.Split(a, "/"), strings.Split(b, "/")
+	stem := strings.TrimSuffix(p, path.Ext(p))
+	return stem == path.Join(root, name) || path.Base(stem) == name
+}
+
+// atlasNotFound records that no atlas in project root is named name. When JSON files of that name exist but are not atlases, it says so and reports a file that does not parse against the file itself, so that a corrupt export is not mistaken for a missing one.
+func (c *checker) atlasNotFound(scene string, line int, root, name, what string) {
+	var named []string
+	for _, f := range c.nonAtlases {
+		if !c.atlasNamed(f.path, root, name) {
+			continue
+		}
+		named = append(named, f.path)
+		if f.err != nil {
+			c.problem(f.path, f.err.line, "%s", f.err.msg)
+		} else {
+			c.problem(f.path, 0, "not an atlas: want top-level frames and meta objects, as TexturePacker and Aseprite write them")
+		}
+	}
+	if len(named) > 0 {
+		c.problem(scene, line, "%s %q: %s is not a usable atlas", what, name, strings.Join(named, ", "))
+		return
+	}
+	where := "the checked directory"
+	if root != "." {
+		where = root
+	}
+	c.problem(scene, line, "%s %q not found: no atlas JSON named %s.json in %s", what, name, path.Base(name), where)
+}
+
+// dirDistance returns how many directories lie between a and b: the steps up from a to the directory they share, plus the steps down from it to b. "." is the root, with no components.
+func dirDistance(a, b string) int {
+	as, bs := dirParts(a), dirParts(b)
 	n := 0
 	for n < len(as) && n < len(bs) && as[n] == bs[n] {
 		n++
 	}
-	return n
+	return len(as) - n + len(bs) - n
+}
+
+// dirParts splits a slash-separated directory into its components, with none for ".".
+func dirParts(dir string) []string {
+	if dir == "." {
+		return nil
+	}
+	return strings.Split(dir, "/")
 }
