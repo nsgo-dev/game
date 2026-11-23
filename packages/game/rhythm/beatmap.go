@@ -1,0 +1,313 @@
+package rhythm
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"slices"
+	"sort"
+	"time"
+
+	"go.yaml.in/yaml/v3"
+)
+
+// BeatMapVersion is the beat map schema version this package reads and writes.
+const BeatMapVersion = 1
+
+// Limits a beat map is validated against.
+const (
+	// MaxBPM is the fastest tempo a beat map may set.
+	MaxBPM = 2000
+	// MaxBeat is the latest beat a tempo or meter change may start at.
+	MaxBeat = 1_000_000
+	// MaxOffsetMs is the largest offset, either way, of beat 0 from the start of the track: one hour.
+	MaxOffsetMs = 3_600_000
+	// MaxChanges is the most tempo changes, and separately meter changes, a beat map may hold.
+	MaxChanges = 10_000
+	// MaxBeatsPerBar is the longest bar a meter may set.
+	MaxBeatsPerBar = 64
+)
+
+// BeatMap is a track's tempo map, as written in a versioned YAML file next to the track: where beat 0 falls in the audio, the tempo from each beat on, and optionally the meter from each bar on.
+//
+//	version: 1
+//	title: Opening
+//	offsetMs: 120
+//	tempos:
+//	  - beat: 0
+//	    bpm: 120
+//	  - beat: 64
+//	    bpm: 140
+//	meters:
+//	  - beat: 0
+//	    beatsPerBar: 4
+//
+// A beat is the unit the tempo counts, so a tempo change can start between beats (beat: 62.5) while a meter change starts on a whole bar of the meter before it. Parse and Encode keep the fields in this order and round-trip a valid map unchanged; Timing turns it into times.
+type BeatMap struct {
+	// Version is the schema version; it must be BeatMapVersion.
+	Version int `yaml:"version"`
+	// Title names the track for people reading the file; nothing uses it.
+	Title string `yaml:"title,omitempty"`
+	// OffsetMs is where beat 0 plays in the track, in milliseconds from its start; negative when the track starts after beat 0.
+	OffsetMs float64 `yaml:"offsetMs,omitempty"`
+	// Tempos are the tempo changes in beat order, the first at beat 0.
+	Tempos []Tempo `yaml:"tempos"`
+	// Meters are the meter changes in beat order, the first at beat 0; none means 4 beats to a bar.
+	Meters []Meter `yaml:"meters,omitempty"`
+}
+
+// Tempo is a tempo change: from Beat on, BPM beats a minute.
+type Tempo struct {
+	// Beat is where the tempo starts, 0 or later and after the change before it.
+	Beat float64 `yaml:"beat"`
+	// BPM is the beats a minute, above 0 and at most MaxBPM.
+	BPM float64 `yaml:"bpm"`
+}
+
+// Meter is a meter change: from Beat on, bars of BeatsPerBar beats.
+type Meter struct {
+	// Beat is where the first bar of the meter starts: a whole number of the previous meter's bars after the previous change.
+	Beat int `yaml:"beat"`
+	// BeatsPerBar is the beats in each bar, 1 to MaxBeatsPerBar.
+	BeatsPerBar int `yaml:"beatsPerBar"`
+}
+
+// ParseBeatMap decodes a YAML beat map and validates it. Unknown fields, a second YAML document and a fraction where a whole number belongs are refused.
+func ParseBeatMap(data []byte) (*BeatMap, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, errors.New("rhythm: empty beat map")
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var m BeatMap
+	if err := dec.Decode(&m); err != nil {
+		return nil, fmt.Errorf("rhythm: decode beat map: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("rhythm: beat map has a second YAML document")
+		}
+		return nil, fmt.Errorf("rhythm: decode beat map: %w", err)
+	}
+	if err := requireIntegers(data, []string{"version"}, map[string][]string{"meters": {"beat", "beatsPerBar"}}); err != nil {
+		return nil, err
+	}
+	// An empty list is written as none, so it reads back as none.
+	if len(m.Meters) == 0 {
+		m.Meters = nil
+	}
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// requireIntegers reports the first value that decoded into an int field without being a YAML integer: keys of the top mapping in top, and keys of the mappings listed under a top key in nested. yaml.v3 truncates 1.5 into an int field, which would neither mean what the file says nor round-trip.
+func requireIntegers(data []byte, top []string, nested map[string][]string) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	check := func(key string, n *yaml.Node) error {
+		if n.Kind == yaml.ScalarNode && n.Tag != "!!int" {
+			return fmt.Errorf("rhythm: line %d: %s %q is not a whole number", n.Line, key, n.Value)
+		}
+		return nil
+	}
+	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key, val := root.Content[i].Value, root.Content[i+1]
+		if slices.Contains(top, key) {
+			if err := check(key, val); err != nil {
+				return err
+			}
+		}
+		fields, ok := nested[key]
+		if !ok || val.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, item := range val.Content {
+			if item.Kind != yaml.MappingNode {
+				continue
+			}
+			for j := 0; j+1 < len(item.Content); j += 2 {
+				if slices.Contains(fields, item.Content[j].Value) {
+					if err := check(item.Content[j].Value, item.Content[j+1]); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// EncodeBeatMap validates m and writes it as deterministic 2-space YAML that ParseBeatMap reads back to an equal map.
+func EncodeBeatMap(m *BeatMap) ([]byte, error) {
+	if m == nil {
+		return nil, errors.New("rhythm: nil beat map")
+	}
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return encodeYAML(m)
+}
+
+// encodeYAML writes v as 2-space YAML.
+func encodeYAML(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(v); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("rhythm: encode: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("rhythm: encode: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// Validate reports the first way m breaks the version 1 schema: a wrong version, no tempo, a change out of order or range, or a meter change off its bar line.
+func (m *BeatMap) Validate() error {
+	if m == nil {
+		return errors.New("rhythm: nil beat map")
+	}
+	if m.Version != BeatMapVersion {
+		return fmt.Errorf("rhythm: beat map version %d, want %d", m.Version, BeatMapVersion)
+	}
+	if !finite(m.OffsetMs) || math.Abs(m.OffsetMs) > MaxOffsetMs {
+		return fmt.Errorf("rhythm: offsetMs %v is not within ±%d", m.OffsetMs, MaxOffsetMs)
+	}
+	if len(m.Tempos) == 0 {
+		return errors.New("rhythm: a beat map needs a tempo at beat 0")
+	}
+	if len(m.Tempos) > MaxChanges || len(m.Meters) > MaxChanges {
+		return fmt.Errorf("rhythm: more than %d tempo or meter changes", MaxChanges)
+	}
+	for i, t := range m.Tempos {
+		switch {
+		case !finite(t.Beat) || t.Beat < 0 || t.Beat > MaxBeat:
+			return fmt.Errorf("rhythm: tempos[%d]: beat %v is not within 0 to %d", i, t.Beat, MaxBeat)
+		case i == 0 && t.Beat != 0:
+			return fmt.Errorf("rhythm: tempos[0] starts at beat %v, want 0", t.Beat)
+		case i > 0 && t.Beat <= m.Tempos[i-1].Beat:
+			return fmt.Errorf("rhythm: tempos[%d]: beat %v is not after beat %v", i, t.Beat, m.Tempos[i-1].Beat)
+		case !finite(t.BPM) || t.BPM <= 0 || t.BPM > MaxBPM:
+			return fmt.Errorf("rhythm: tempos[%d]: bpm %v is not above 0 and at most %d", i, t.BPM, MaxBPM)
+		}
+	}
+	for i, me := range m.Meters {
+		switch {
+		case me.Beat < 0 || me.Beat > MaxBeat:
+			return fmt.Errorf("rhythm: meters[%d]: beat %d is not within 0 to %d", i, me.Beat, MaxBeat)
+		case i == 0 && me.Beat != 0:
+			return fmt.Errorf("rhythm: meters[0] starts at beat %d, want 0", me.Beat)
+		case me.BeatsPerBar < 1 || me.BeatsPerBar > MaxBeatsPerBar:
+			return fmt.Errorf("rhythm: meters[%d]: beatsPerBar %d is not within 1 to %d", i, me.BeatsPerBar, MaxBeatsPerBar)
+		case i > 0 && me.Beat <= m.Meters[i-1].Beat:
+			return fmt.Errorf("rhythm: meters[%d]: beat %d is not after beat %d", i, me.Beat, m.Meters[i-1].Beat)
+		case i > 0 && (me.Beat-m.Meters[i-1].Beat)%m.Meters[i-1].BeatsPerBar != 0:
+			return fmt.Errorf("rhythm: meters[%d]: beat %d does not start a bar of %d beats from beat %d", i, me.Beat, m.Meters[i-1].BeatsPerBar, m.Meters[i-1].Beat)
+		}
+	}
+	return nil
+}
+
+// Timing validates m and returns its times, which later changes to m do not affect.
+func (m *BeatMap) Timing() (*Timing, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	t := &Timing{segs: make([]tempoSeg, len(m.Tempos))}
+	sec := m.OffsetMs / 1000
+	for i, tp := range m.Tempos {
+		if i > 0 {
+			prev := t.segs[i-1]
+			sec = prev.sec + (tp.Beat-prev.beat)*prev.spb
+		}
+		t.segs[i] = tempoSeg{beat: tp.Beat, sec: sec, spb: 60 / tp.BPM, bpm: tp.BPM}
+	}
+	meters := m.Meters
+	if len(meters) == 0 {
+		meters = []Meter{{Beat: 0, BeatsPerBar: 4}}
+	}
+	t.bars = make([]meterSeg, len(meters))
+	bar := 0
+	for i, me := range meters {
+		if i > 0 {
+			prev := meters[i-1]
+			bar += (me.Beat - prev.Beat) / prev.BeatsPerBar
+		}
+		t.bars[i] = meterSeg{beat: me.Beat, bar: bar, per: me.BeatsPerBar}
+	}
+	return t, nil
+}
+
+// Timing converts between a track's time and its beats and bars, by a BeatMap. Times are from the start of the audio, the position a player reports; a beat before 0 or after the last change keeps the tempo nearest it. A Timing never changes, so goroutines may share one.
+type Timing struct {
+	segs []tempoSeg
+	bars []meterSeg
+}
+
+// tempoSeg is a tempo change with the track time, in seconds, its beat plays at, and its seconds a beat.
+type tempoSeg struct {
+	beat, sec, spb, bpm float64
+}
+
+// meterSeg is a meter change with the bar number its beat starts.
+type meterSeg struct {
+	beat, bar, per int
+}
+
+// Seconds returns the track time beat plays at, in seconds, at full float64 precision.
+func (t *Timing) Seconds(beat float64) float64 {
+	s := t.segs[t.tempoAt(beat)]
+	return s.sec + (beat-s.beat)*s.spb
+}
+
+// Time returns the track time beat plays at, rounded to the nanosecond.
+func (t *Timing) Time(beat float64) time.Duration {
+	return secondsDuration(t.Seconds(beat))
+}
+
+// BeatAtSeconds returns the beat that plays sec seconds into the track.
+func (t *Timing) BeatAtSeconds(sec float64) float64 {
+	i := sort.Search(len(t.segs), func(i int) bool { return t.segs[i].sec > sec }) - 1
+	s := t.segs[max(i, 0)]
+	return s.beat + (sec-s.sec)/s.spb
+}
+
+// Beat returns the beat that plays at track time d.
+func (t *Timing) Beat(d time.Duration) float64 { return t.BeatAtSeconds(d.Seconds()) }
+
+// BPM returns the tempo at beat.
+func (t *Timing) BPM(beat float64) float64 { return t.segs[t.tempoAt(beat)].bpm }
+
+// Bar returns the bar beat falls in, counted from 0 at beat 0 and negative before it, and how many beats into that bar it is.
+func (t *Timing) Bar(beat float64) (bar int, inBar float64) {
+	i := sort.Search(len(t.bars), func(i int) bool { return float64(t.bars[i].beat) > beat }) - 1
+	m := t.bars[max(i, 0)]
+	rel := beat - float64(m.beat)
+	n := math.Floor(rel / float64(m.per))
+	return m.bar + int(n), rel - n*float64(m.per)
+}
+
+// BeatsPerBar returns the meter at beat.
+func (t *Timing) BeatsPerBar(beat float64) int {
+	i := sort.Search(len(t.bars), func(i int) bool { return float64(t.bars[i].beat) > beat }) - 1
+	return t.bars[max(i, 0)].per
+}
+
+// tempoAt is the index of the tempo change that holds at beat.
+func (t *Timing) tempoAt(beat float64) int {
+	return max(sort.Search(len(t.segs), func(i int) bool { return t.segs[i].beat > beat })-1, 0)
+}
+
+// secondsDuration rounds sec to the nanosecond.
+func secondsDuration(sec float64) time.Duration { return time.Duration(math.Round(sec * 1e9)) }
+
+func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
