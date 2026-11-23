@@ -1,0 +1,196 @@
+<!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->
+
+# 命令参考
+
+`go tool game` 的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何安装命令、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。
+
+## game pack
+
+Pack a folder of PNG images into sprite atlas pages and TexturePacker JSON for sprite.LoadAtlas.
+
+```sh
+game pack [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-extrude int` |  | edge pixels extruded around each frame |
+| `-in string` |  | input directory of PNG images (required) |
+| `-max-height int` | `2048` | maximum atlas page height in pixels |
+| `-max-width int` | `2048` | maximum atlas page width in pixels |
+| `-name string` | `atlas` | base file name for atlas pages |
+| `-out string` | `.` | output directory for packed atlas PNG and JSON files |
+| `-padding int` | `1` | transparent pixels between adjacent frames |
+| `-scale int` | `1` | atlas scale written to meta.scale |
+| `-trim` | `true` | trim transparent borders around input images |
+
+## game audio
+
+Normalize, resample and convert a WAV file to WAV, AAC or MP3.
+
+```sh
+game audio [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-bitrate int` | `128` | target bitrate in kbps for aac and mp3 output |
+| `-channels int` |  | target channel count: 1 (mono), 2 (stereo), or 0 (keep input) |
+| `-format string` | `wav` | output format: wav, aac, or mp3 |
+| `-in string` |  | input WAV file path (required) |
+| `-out string` |  | output audio file path (required) |
+| `-peak-db float` |  | normalize peak amplitude to this level in dBFS (e.g. -1) |
+| `-rate int` |  | target sample rate in Hz (0 keeps input rate) |
+| `-rms-db float` |  | normalize RMS loudness to this level in dBFS with soft-clip protection (e.g. -14) |
+
+## game manifest
+
+Generate a typed Go asset manifest from a directory of assets, so a missing asset fails the build.
+
+```sh
+game manifest [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-check` |  | verify that -out is up to date without modifying it |
+| `-embed` |  | emit //go:embed directives instead of URI references |
+| `-embed-dir string` |  | optional directory prefix prepended to //go:embed patterns |
+| `-in string` | `assets` | input assets directory |
+| `-out string` |  | output Go file path (writes to stdout when empty) |
+| `-pkg string` | `assets` | Go package name for the generated file |
+| `-prefix string` | `asset:` | URI prefix prepended to each asset path |
+
+## game tex
+
+Encode a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps.
+
+```sh
+game tex [flags] [input.png|input.jpg]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-format string` | `rgba8` | output format: bc1, bc3, etc2, or rgba8 |
+| `-in string` |  | input PNG/JPEG file path (alternative to the positional argument) |
+| `-mipmaps` |  | generate full mipmap chain down to 1x1 |
+| `-o string` |  | shorthand for -out |
+| `-out string` |  | output .ktx2 path (defaults to the input path with a .ktx2 extension) |
+| `-srgb` |  | encode as sRGB with linear-light mipmap filtering |
+
+## game editor
+
+Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named.
+
+```sh
+game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
+```
+
+没有参数。
+
+## game release
+
+Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build.
+
+```sh
+game release [flags] [dir]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-channel channel` |  | the channel the packages are handed out through: direct, store, steam or none (default: nsgo.yaml's updates.channel) |
+| `-dry-run` |  | print the nsgo build command instead of running it |
+| `-jobs int` |  | how many targets build at once (default: nsgo's) |
+| `-output directory` |  | the output directory (default: game.yaml's export.output, else nsgo.yaml's build.output) |
+| `-release-notes file` |  | a Markdown file of the release's notes for the update prompts |
+| `-target targets` |  | comma-separated nsgo build targets (default: game.yaml's export presets, else macos,windows,linux,web,ios,android, or macos,windows,linux for the steam channel) |
+
+## game replay
+
+Check the input recordings under the directories and play them headless through their replay tests, failing on a mismatch.
+
+```sh
+game replay [flags] [directory ...]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-run regexp` | `Replay` | run the tests matching this regexp, as go test's -run: the tests that play the recordings |
+
+## game bench
+
+Run the benchmarks headless and fail when one regresses past its stored baseline, or update the baseline.
+
+```sh
+game bench [flags] [directory ...]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-baseline file` | `benchmarks/baseline.yaml` | the baseline file to check against, or to write with -update |
+| `-bench regexp` | `.` | run the benchmarks matching this regexp, as go test's -bench |
+| `-benchtime duration` | `200ms` | run each benchmark for this duration, or Nx times, as go test's -benchtime |
+| `-count times` | `3` | run the benchmarks this many times and compare each one's median |
+| `-in file` |  | read benchmark results from this file of go test -bench output instead of running the benchmarks |
+| `-update` |  | write the measured medians to the baseline instead of checking them |
+
+## game new
+
+Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools.
+
+```sh
+game new [flags] <dir>
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-module string` |  | the module path in go.mod (default: the name in lower case with its words joined by -) |
+| `-name string` |  | the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and \_ (default: the directory's name) |
+| `-template string` | `starter` | the template to start from: starter |
+| `-version string` |  | the version of github.com/nsgo-dev/game/packages/game to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build) |
+
+## game dev
+
+Run the game with nsgo dev, reloading its assets in the running game when they are saved.
+
+```sh
+game dev [flags] [dir] [nsgo dev flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-assets string` | `resources` | the directory, relative to the project directory, that the running game watches and its assets.Manager reads "asset:" URIs from, given to the game as hotreload.DevAssetsDir |
+| `-fps` |  | show NSGo's performance monitor in the running game |
+| `-target string` |  | the nsgo dev target, nsgo.yaml's dev.target when empty; assets reload on native and tui |
+
+## game check
+
+Check the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to.
+
+```sh
+game check [flags] [dir]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-in string` |  | directory to check (alternative to the positional argument; defaults to the current directory) |
+
+## game completion
+
+Write a shell completion script for zsh, bash or fish.
+
+```sh
+game completion [flags] zsh|bash|fish
+```
+
+没有参数。
+
+## game help
+
+Show the commands, or one command's flags.
+
+```sh
+game help [command]
+```
+
+没有参数。

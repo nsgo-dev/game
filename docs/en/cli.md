@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload and check a game's scenes, maps and atlases. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -28,9 +28,10 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
 | `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
+| `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
-`go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags.
+`go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
 A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
@@ -192,3 +193,45 @@ A path a map, tileset or atlas writes is relative to that file, as Tiled, LDtk a
 Directories whose names start with `.` or `_`, and those named `testdata`, are skipped, as the go command skips them. Other JSON and YAML files are not read. A problem the loader of a map or atlas reports names no line, so it is printed as `file: message`; the check runs that loader only once the file's references resolve, so one fault is not reported twice.
 
 The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `go tool game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values.
+
+### completion
+
+```sh
+mkdir -p ~/.zfunc
+go tool game completion zsh > ~/.zfunc/_game
+```
+
+Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
+
+The script completes a command named `game`. Typed as `go tool game`, the shell completes `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which works inside the game's module and keeps the version its `go.mod` pins. Save the script to a file once rather than generating it each time a shell starts, since `go tool game` only runs inside the module.
+
+zsh, with the script saved as `_game` in a directory on `$fpath`, in `~/.zshrc`:
+
+```zsh
+fpath=(~/.zfunc $fpath)
+autoload -Uz compinit && compinit
+game() { go tool game "$@"; }
+```
+
+bash, in bash-completion's directory, which loads it the first time `game` is completed, or sourced from `~/.bashrc` without bash-completion:
+
+```sh
+mkdir -p ~/.local/share/bash-completion/completions
+go tool game completion bash > ~/.local/share/bash-completion/completions/game
+```
+
+```bash
+game() { go tool game "$@"; }
+```
+
+fish, in its completions directory:
+
+```sh
+go tool game completion fish > ~/.config/fish/completions/game.fish
+```
+
+```fish
+function game
+    go tool game $argv
+end
+```

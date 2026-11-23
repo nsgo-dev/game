@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源，以及检查游戏的场景、地图和图集。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -28,9 +28,10 @@ go tool game help
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
+| `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
-`go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
+`go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。[命令参考](cli-reference.md)在一页中列出每个命令的参数及其默认值，由命令定义生成。
 
 命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
@@ -192,3 +193,45 @@ game check: 1 problem
 名字以 `.` 或 `_` 开头的目录以及名为 `testdata` 的目录会被跳过，与 go 命令的做法一致。其他 JSON 和 YAML 文件不会被读取。地图或图集的加载器报告的问题不带行号，因此打印为 `file: message`；只有当文件的引用都能解析时，检查才会运行这个加载器，同一个错误不会被报告两次。
 
 Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题。
+
+### completion
+
+```sh
+mkdir -p ~/.zfunc
+go tool game completion zsh > ~/.zfunc/_game
+```
+
+把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
+
+脚本补全的是名为 `game` 的命令。输入 `go tool game` 时，shell 补全的是 `go`，所以要么用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，要么把 `game` 定义为运行 `go tool game` 的 shell 函数：它在游戏的模块内可用，并沿用 `go.mod` 固定的版本。`go tool game` 只能在模块内运行，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
+
+zsh：把脚本保存为 `$fpath` 中某个目录下的 `_game`，并在 `~/.zshrc` 中写：
+
+```zsh
+fpath=(~/.zfunc $fpath)
+autoload -Uz compinit && compinit
+game() { go tool game "$@"; }
+```
+
+bash：保存到 bash-completion 的目录，它会在第一次补全 `game` 时加载；没有安装 bash-completion 时，在 `~/.bashrc` 中 source 这个文件：
+
+```sh
+mkdir -p ~/.local/share/bash-completion/completions
+go tool game completion bash > ~/.local/share/bash-completion/completions/game
+```
+
+```bash
+game() { go tool game "$@"; }
+```
+
+fish：保存到它的补全目录：
+
+```sh
+go tool game completion fish > ~/.config/fish/completions/game.fish
+```
+
+```fish
+function game
+    go tool game $argv
+end
+```

@@ -155,6 +155,7 @@ const DOC_ORDER = [
   '3d-models-blender.md',
   'shipping.md',
   'cli.md',
+  'cli-reference.md',
 ] as const
 
 // markdownFiles lists dir's Markdown files, those in DOC_ORDER first and the rest alphabetically.
