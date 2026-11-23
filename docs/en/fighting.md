@@ -16,7 +16,7 @@ Directions use numpad notation, relative to a character facing right:
 
 ## Move sets
 
-A move set is a versioned YAML file. Unknown fields are refused, `Encode` writes fields in schema order, and loading then saving a file reproduces it byte for byte.
+A move set is a versioned YAML file. Unknown fields are refused, and `Encode` writes a canonical form (block style, fields in schema order, motion entries as quoted strings), so parsing `Encode`'s output and encoding it again reproduces it byte for byte.
 
 ```yaml
 version: 1
@@ -82,14 +82,14 @@ Each move has a `name` and a `motion`, a `press`, or both:
 | Field | Meaning |
 | --- | --- |
 | `motion` | Direction entries matched on distinct, increasing steps. An entry is a string of one or more digits, any of which satisfies it, so `"23"` accepts down or down-forward. |
-| `window` | Most steps from the first to the last motion entry. |
+| `window` | Most steps from the first to the last motion entry; only for motions of 2 or more entries. |
 | `charge` | `dirs` held for at least `steps` consecutive steps, ending no more than `grace` steps before the step that precedes the first motion entry. |
 | `press` | Button actions that finish the move; any one of them, pressed on the current step. |
 | `pressAll`, `pressWindow` | Require every `press` button within `pressWindow` steps (a chord). |
-| `buffer` | Most steps the finishing press may come after the last motion entry. |
+| `buffer` | Most steps the finishing press may come after the last motion entry; needs both `motion` and `press`. |
 | `priority` | Orders moves finished on the same step, highest first. |
 
-All step counts are inclusive and at most `MaxSteps` (600). A motion without `press` finishes on the step its last entry is entered, so holding the direction does not repeat it. A move set may name up to 32 buttons.
+All step counts are inclusive and at most `MaxSteps` (600). A motion without `press` finishes on the first step it fits, so holding the last direction does not repeat it. Inputs that finished a move cannot finish it again: a button pressed within `buffer` after a finished quarter circle is not a second fireball, and the next one needs a fresh motion. A move set may name up to 32 buttons.
 
 A combo lists at least two moves; each must follow the previous one within `gap` steps, and any other move in between breaks it.
 
@@ -122,7 +122,7 @@ loop := &game.Loop{
 
 Call `Update` once per fixed step, after the source has stepped. `Result.Moves` holds every move finished on that step, highest priority first, so `Moves[0]` is the one to perform; only that move advances combos. Each `Match` carries the step its inputs started on and the step it finished. The slices are reused by the next call and allocate nothing.
 
-`Feed(raw, held, facing)` records a step from an already decoded direction and button mask (bit `i` for `Buttons()[i]`), which suits rollback netcode. Recognition depends only on the frames fed, so a re-simulation from the same inputs gives the same results.
+`Feed(raw, held, facing)` records a step from an already decoded direction and button mask (bit `i` for `Buttons()[i]`), such as inputs from netcode. Recognition depends only on the frames fed, so a re-simulation from the same inputs gives the same results. For rollback, `AppendState(dst)` appends the recognizer's complete state (buffered frames and the progress of every move and combo) to a snapshot, and `LoadState` restores it on a recognizer built from the same move set before re-simulating; it refuses state from a different move set and leaves the recognizer unchanged.
 
 The history itself is a `Buffer`, a ring of `Frame`s (absolute and relative direction, facing, held and newly pressed buttons) sized by `MoveSet.Lookback`, reachable through `Recognizer.Buffer` for input displays and training modes.
 

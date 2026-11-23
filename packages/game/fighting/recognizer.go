@@ -2,6 +2,9 @@ package fighting
 
 import (
 	"cmp"
+	"encoding/binary"
+	"errors"
+	"fmt"
 	"math"
 	"slices"
 )
@@ -38,7 +41,7 @@ type Result struct {
 
 // Recognizer buffers per-step input and recognizes the moves and combos of a MoveSet.
 //
-// Call Update (or Feed) exactly once per fixed step, after the Source has stepped. Recognition is deterministic: the same frames always give the same Results, so it holds under replay and rollback re-simulation. Update allocates nothing after construction. A Recognizer is not safe for concurrent use.
+// Call Update (or Feed) exactly once per fixed step, after the Source has stepped. Recognition is deterministic: the same frames always give the same Results. For rollback, save the recognizer's state with AppendState alongside the rest of the simulation and restore it with LoadState before re-simulating. Update allocates nothing after construction. A Recognizer is not safe for concurrent use.
 type Recognizer struct {
 	input    Input
 	deadzone float64
@@ -46,8 +49,10 @@ type Recognizer struct {
 	moves    []compiledMove
 	order    []int
 	combos   []compiledCombo
-	buf      *Buffer
-	res      Result
+	// done holds, per move, the step it last completed on, or -1. A motion that completed a move cannot complete it again: the next completion needs motion entries after that step.
+	done []int
+	buf  *Buffer
+	res  Result
 }
 
 type compiledMove struct {
@@ -88,7 +93,11 @@ func NewRecognizer(set *MoveSet) (*Recognizer, error) {
 		moves:    make([]compiledMove, len(set.Moves)),
 		order:    make([]int, len(set.Moves)),
 		combos:   make([]compiledCombo, len(set.Combos)),
+		done:     make([]int, len(set.Moves)),
 		buf:      NewBuffer(set.Lookback()),
+	}
+	for i := range r.done {
+		r.done[i] = -1
 	}
 	if r.deadzone == 0 {
 		r.deadzone = DefaultDeadzone
@@ -214,8 +223,9 @@ func (r *Recognizer) Feed(raw Direction, held uint32, facing Facing) Result {
 	r.res.Moves = r.res.Moves[:0]
 	r.res.Combos = r.res.Combos[:0]
 	for _, i := range r.order {
-		if start, ok := r.match(&r.moves[i], now); ok {
+		if start, ok := r.match(i, now); ok {
 			r.res.Moves = append(r.res.Moves, Match{Name: r.moves[i].name, Index: i, Start: start, Step: now})
+			r.done[i] = now
 		}
 	}
 	if len(r.res.Moves) > 0 {
@@ -227,6 +237,9 @@ func (r *Recognizer) Feed(raw Direction, held uint32, facing Facing) Result {
 // Reset clears the input history and combo progress and restarts step numbering at zero.
 func (r *Recognizer) Reset() {
 	r.buf.Reset()
+	for i := range r.done {
+		r.done[i] = -1
+	}
 	for i := range r.combos {
 		r.combos[i].partial = r.combos[i].partial[:0]
 	}
@@ -235,8 +248,163 @@ func (r *Recognizer) Reset() {
 	r.res.Combos = r.res.Combos[:0]
 }
 
-// match reports whether m completes on step now and the step its inputs started.
-func (r *Recognizer) match(m *compiledMove, now int) (int, bool) {
+// stateVersion is the first byte of AppendState's output.
+const stateVersion = 1
+
+// AppendState appends the recognizer's complete state (the buffered frames, step count and the progress of every move and combo) to dst and returns the extended slice. The bytes are an in-memory snapshot for rollback, meant for LoadState on a Recognizer built from the same move set; they are not a file format.
+func (r *Recognizer) AppendState(dst []byte) []byte {
+	b := r.buf
+	dst = append(dst, stateVersion)
+	dst = binary.AppendUvarint(dst, uint64(b.count))
+	for s := b.Oldest(); s < b.count; s++ {
+		f := b.frames[s%len(b.frames)]
+		dst = append(dst, byte(f.Raw), byte(f.Facing))
+		dst = binary.AppendUvarint(dst, uint64(f.Held))
+		dst = binary.AppendUvarint(dst, uint64(f.Pressed))
+	}
+	dst = binary.AppendUvarint(dst, uint64(len(r.done)))
+	for _, d := range r.done {
+		dst = binary.AppendVarint(dst, int64(d))
+	}
+	dst = binary.AppendUvarint(dst, uint64(len(r.combos)))
+	for i := range r.combos {
+		c := &r.combos[i]
+		dst = binary.AppendUvarint(dst, uint64(len(c.partial)))
+		for _, p := range c.partial {
+			dst = binary.AppendUvarint(dst, uint64(p.next))
+			dst = binary.AppendVarint(dst, int64(p.start))
+			dst = binary.AppendVarint(dst, int64(p.last))
+		}
+	}
+	return dst
+}
+
+// LoadState restores state written by AppendState, so the recognizer continues exactly as the one that wrote it would. It refuses state written for a different move set, or malformed state, and then leaves the recognizer unchanged.
+func (r *Recognizer) LoadState(state []byte) error {
+	if err := r.decodeState(state, false); err != nil {
+		return err
+	}
+	_ = r.decodeState(state, true)
+	return nil
+}
+
+// decodeState parses state, and when apply is set also writes it into r. LoadState runs it once to check and once to apply, so a bad snapshot changes nothing and a good one allocates nothing.
+func (r *Recognizer) decodeState(state []byte, apply bool) error {
+	d := stateDecoder{buf: state}
+	if v := d.u8(); v != stateVersion {
+		return fmt.Errorf("fighting: recognizer state version %d (want %d)", v, stateVersion)
+	}
+	b := r.buf
+	count := d.uvarint(math.MaxInt32)
+	held := min(count, len(b.frames))
+	if apply {
+		clear(b.frames)
+		b.count = count
+	}
+	for s := count - held; s < count; s++ {
+		raw, facing := Direction(d.u8()), Facing(d.u8())
+		heldMask := uint32(d.uvarint(math.MaxUint32))
+		pressed := uint32(d.uvarint(math.MaxUint32))
+		if d.err == nil && (!raw.Valid() || facing > FaceLeft) {
+			d.err = errors.New("bad frame")
+		}
+		if apply {
+			b.frames[s%len(b.frames)] = Frame{Step: s, Raw: raw, Dir: facing.Relative(raw), Facing: facing, Held: heldMask, Pressed: pressed}
+		}
+	}
+	if n := d.uvarint(math.MaxInt32); d.err == nil && n != len(r.done) {
+		return fmt.Errorf("fighting: recognizer state has %d moves (want %d)", n, len(r.done))
+	}
+	for i := range r.done {
+		v := d.varint(-1, count-1)
+		if apply {
+			r.done[i] = v
+		}
+	}
+	if n := d.uvarint(math.MaxInt32); d.err == nil && n != len(r.combos) {
+		return fmt.Errorf("fighting: recognizer state has %d combos (want %d)", n, len(r.combos))
+	}
+	for i := range r.combos {
+		c := &r.combos[i]
+		n := d.uvarint(cap(c.partial))
+		if apply {
+			c.partial = c.partial[:n]
+		}
+		for j := range n {
+			p := comboProgress{next: d.uvarint(len(c.seq) - 1), start: d.varint(0, count-1), last: d.varint(0, count-1)}
+			if d.err == nil && (p.next < 1 || p.start > p.last) {
+				d.err = errors.New("bad combo progress")
+			}
+			if apply {
+				c.partial[j] = p
+			}
+		}
+	}
+	if d.err == nil && len(d.buf) > 0 {
+		d.err = errors.New("trailing bytes")
+	}
+	if d.err != nil {
+		return fmt.Errorf("fighting: recognizer state: %w", d.err)
+	}
+	return nil
+}
+
+// stateDecoder reads AppendState's encoding, remembering the first error so callers check once.
+type stateDecoder struct {
+	buf []byte
+	err error
+}
+
+func (d *stateDecoder) u8() byte {
+	if d.err != nil {
+		return 0
+	}
+	if len(d.buf) == 0 {
+		d.err = errors.New("truncated")
+		return 0
+	}
+	v := d.buf[0]
+	d.buf = d.buf[1:]
+	return v
+}
+
+func (d *stateDecoder) uvarint(hi int) int {
+	if d.err != nil {
+		return 0
+	}
+	v, n := binary.Uvarint(d.buf)
+	if n <= 0 {
+		d.err = errors.New("truncated")
+		return 0
+	}
+	d.buf = d.buf[n:]
+	if v > uint64(hi) {
+		d.err = fmt.Errorf("value %d above %d", v, hi)
+		return 0
+	}
+	return int(v)
+}
+
+func (d *stateDecoder) varint(lo, hi int) int {
+	if d.err != nil {
+		return 0
+	}
+	v, n := binary.Varint(d.buf)
+	if n <= 0 {
+		d.err = errors.New("truncated")
+		return 0
+	}
+	d.buf = d.buf[n:]
+	if v < int64(lo) || v > int64(hi) {
+		d.err = fmt.Errorf("value %d outside [%d, %d]", v, lo, hi)
+		return 0
+	}
+	return int(v)
+}
+
+// match reports whether move i completes on step now and the step its inputs started.
+func (r *Recognizer) match(i, now int) (int, bool) {
+	m := &r.moves[i]
 	b := r.buf
 	oldest := b.Oldest()
 	start := now
@@ -260,10 +428,9 @@ func (r *Recognizer) match(m *compiledMove, now int) (int, bool) {
 		if n == 0 {
 			return start, true
 		}
-	} else {
-		// A motion without a button completes only on the step its last entry is entered, so holding the direction does not repeat it.
-		last := m.sets[n-1]
-		if !last.has(b.dir(now)) || (now > oldest && last.has(b.dir(now-1))) {
+	} else if now > oldest {
+		// A motion without a button completes only on the first step it fits, so holding its last direction does not repeat it.
+		if _, ok := r.fit(m, now-1, -1); ok {
 			return 0, false
 		}
 	}
@@ -272,18 +439,27 @@ func (r *Recognizer) match(m *compiledMove, now int) (int, bool) {
 		loLast = max(now-m.buffer, oldest)
 	}
 	for tl := now; tl >= loLast; tl-- {
-		if !m.sets[n-1].has(b.dir(tl)) {
-			continue
-		}
-		lo0 := max(tl-m.window, oldest)
-		if n == 1 {
-			lo0 = tl
-		}
-		for t0 := tl - (n - 1); t0 >= lo0; t0-- {
-			if !m.sets[0].has(b.dir(t0)) || !r.middleFits(m, t0, tl) || !r.chargeHeld(m, t0) {
-				continue
-			}
+		if t0, ok := r.fit(m, tl, r.done[i]); ok {
 			return min(start, t0), true
+		}
+	}
+	return 0, false
+}
+
+// fit returns the latest step t0 > after on which m's motion can start with its last entry on tl, within the window and after the charge.
+func (r *Recognizer) fit(m *compiledMove, tl, after int) (int, bool) {
+	b := r.buf
+	n := len(m.sets)
+	if !m.sets[n-1].has(b.dir(tl)) {
+		return 0, false
+	}
+	lo0 := max(tl-m.window, b.Oldest(), after+1)
+	if n == 1 {
+		lo0 = max(tl, after+1)
+	}
+	for t0 := tl - (n - 1); t0 >= lo0; t0-- {
+		if m.sets[0].has(b.dir(t0)) && r.middleFits(m, t0, tl) && r.chargeHeld(m, t0) {
+			return t0, true
 		}
 	}
 	return 0, false
