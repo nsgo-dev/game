@@ -1,0 +1,6 @@
+name: Star Catcher 5
+id: dev.nsgo.starcatcher.ch05
+version: 0.1.0
+
+dev:
+  target: native
