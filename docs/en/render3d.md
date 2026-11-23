@@ -31,10 +31,32 @@ for _, draw := range plan.Transparent {
 
 In one allocation-free steady-state pass, `Queue.Build` performs:
 
-1. **Frustum culling**: extracts six planes via `math3d.FrustumFromMat4` (or `FrustumFromMat4NO` when `Queue.FrustumNO` is `true`) and skips off-screen `WorldBounds`.
-2. **LOD selection with hysteresis**: evaluates each item's `LODs` (`[]LODLevel`, finest to coarsest) using distance and `ProjectScreenRatio`, remembering the prior LOD per `DrawItem.ID` (`SelectLOD`). Call `queue.ResetLODHistory()` on camera cuts.
-3. **Opaque sorting & instancing**: orders `BlendOpaque` and `BlendAlphaMask` items by `(PipelineID, MaterialID, MeshID, Blend, front-to-back distance)` to minimize state switches and early-Z overdraw, then groups adjacent matching items into `InstanceBatch`es (unless `DisableInstancing` is set).
-4. **Transparent sorting**: places `BlendAlphaBlend` draws into `plan.Transparent`, ordered strictly back-to-front.
+1. **Frustum culling**: extracts six planes via `math3d.FrustumFromMat4NO` and skips off-screen `WorldBounds`. The `[-1, 1]` form is exact for OpenGL-style projections (`math3d.PerspectiveNO`, `math3d.OrthoNO`) and conservative for `[0, 1]` ones, so one queue serves both; `Queue.FrustumNO` is kept for source compatibility and ignored.
+2. **Occlusion culling** (optional): when `Queue.Occluder` is set, frustum-visible items whose `WorldBounds` fail `OcclusionBuffer.TestAABB` are skipped and counted in `RenderStats.Occluded`. See [Occlusion culling](#occlusion-culling-occlusionbuffer).
+3. **LOD selection with hysteresis**: evaluates each item's `LODs` (`[]LODLevel`, finest to coarsest) using distance and `ProjectScreenRatio`, remembering the prior LOD per `DrawItem.ID` (`SelectLOD`). Call `queue.ResetLODHistory()` on camera cuts.
+4. **Opaque sorting & instancing**: orders `BlendOpaque` and `BlendAlphaMask` items by `(PipelineID, MaterialID, MeshID, Blend, front-to-back view depth)` to minimize state switches and early-Z overdraw, then groups adjacent matching items into `InstanceBatch`es (unless `DisableInstancing` is set).
+5. **Transparent sorting**: places `BlendAlphaBlend` draws into `plan.Transparent`, ordered strictly back-to-front by view depth. Both sorts are stable, so draws whose keys tie keep their submission order from frame to frame.
+
+## Occlusion culling (`OcclusionBuffer`)
+
+`OcclusionBuffer` is a small CPU depth buffer with a max-Z pyramid. Rasterize large static occluders (walls, floors, buildings) into it once per view, then let the queue skip items hidden behind them. It never culls a visible item: a box that crosses the near plane, or one tested against a view other than the one rasterized, is always reported visible.
+
+```go
+occ := render3d.NewOcclusionBuffer(0, 0) // 128x72 by default
+walls := []render3d.Occluder{
+	render3d.NewBoxOccluder(wallBounds, wallTransform),
+	render3d.NewQuadOccluder(a, b, c, d, true),
+	render3d.OccluderFromMesh(vertices, indices, transform),
+}
+
+// Every frame, with the same viewProj the queue uses:
+occ.Clear()
+occ.Rasterize(viewProj, walls...)
+occ.BuildPyramid()
+plan := queue.BuildWithOcclusion(viewProj, camPos, drawItems, occ)
+```
+
+Set `OcclusionBuffer.DepthNO` for an OpenGL-style `[-1, 1]` projection so the near plane matches. Occluders must be opaque and closed or double-sided; only meshes that fully hide what is behind them belong here.
 
 ## Camera uniform on the GPU (`CameraBuffer`)
 
@@ -143,6 +165,8 @@ if axis != render3d.AxisNone {
 }
 gizmo.DrawGizmo(d, cam.ViewProj(), viewportBounds, objPos, gizmoScale, render3d.GizmoTranslate, axis)
 ```
+
+Debug lines and gizmos clip at the near plane of a `[0, 1]` depth projection, which `math3d.Perspective` and `math3d.Ortho` produce. For an OpenGL-style `[-1, 1]` projection set `DebugDraw.DepthNO` and `Gizmo.DepthNO`, or call `ProjectSegmentNO`, so the near half of its depth range is not hidden. Each planar translate handle is drawn as the square that `PickAxis` tests. `DrawGizmo` allocates nothing; to read the segments yourself without allocating, reuse a slice with `gizmo.AppendSegments(buf[:0], objPos, gizmoScale, mode)`.
 
 ## Billboards and ribbon trails
 

@@ -251,10 +251,11 @@ func (q *Queue) BuildWithOcclusion(viewProj math3d.Mat4, camPos math3d.Vec3, ite
 
 	// Sort opaque draws to minimize pipeline/material/mesh state changes and
 	// draw front-to-back within each state group (#245).
-	slices.SortFunc(q.opaque, cmpOpaque)
+	// Stable sorts keep submission order between draws whose keys tie (such as several ID 0 items at one depth), so their order cannot flip between frames (#546).
+	slices.SortStableFunc(q.opaque, cmpOpaque)
 
 	// Sort transparent draws strictly back-to-front by distance from camPos (#248).
-	slices.SortFunc(q.transparent, cmpTransparent)
+	slices.SortStableFunc(q.transparent, cmpTransparent)
 
 	// Populate contiguous transform buffer first so batch subslices never alias
 	// a reallocated backing array.

@@ -63,6 +63,8 @@ type Gizmo struct {
 	LineWidth float32
 	// ActiveLineWidth is the stroke width in points for the active axis (default 3.5).
 	ActiveLineWidth float32
+	// DepthNO clips at the near plane of an OpenGL-style [-1, 1] depth projection, as [ProjectSegmentNO] does. By default handles clip for [0, 1] depth, matching [math3d.Perspective] and [math3d.Ortho].
+	DepthNO bool
 }
 
 func (g Gizmo) ringSegments() int {
@@ -94,23 +96,36 @@ func (g Gizmo) activeLineWidth() float32 {
 }
 
 // Segments generates the 3D wireframe line segments for a gizmo at origin
-// scaled by scale in mode.
+// scaled by scale in mode. It allocates a new slice; use [Gizmo.AppendSegments] to reuse one.
 func (g Gizmo) Segments(origin math3d.Vec3, scale float32, mode GizmoMode) []GizmoSegment {
+	return g.AppendSegments(nil, origin, scale, mode)
+}
+
+// AppendSegments appends the segments [Gizmo.Segments] would return to dst and returns the extended slice, allocating nothing when dst has room.
+func (g Gizmo) AppendSegments(dst []GizmoSegment, origin math3d.Vec3, scale float32, mode GizmoMode) []GizmoSegment {
 	if scale <= 0 {
 		scale = 1
 	}
 	switch mode {
 	case GizmoRotate:
-		return g.rotateSegments(origin, scale)
+		return g.rotateSegments(dst, origin, scale)
 	case GizmoScale:
-		return g.scaleSegments(origin, scale)
+		return g.scaleSegments(dst, origin, scale)
 	default:
-		return g.translateSegments(origin, scale)
+		return g.translateSegments(dst, origin, scale)
 	}
 }
 
-func (g Gizmo) translateSegments(origin math3d.Vec3, scale float32) []GizmoSegment {
-	segs := make([]GizmoSegment, 0, 21)
+// Planar translate handles are the squares [planarMin, planarMax]^2 * scale in each axis plane; drawing and picking share these bounds so a click lands where the handle is drawn (#546).
+const (
+	planarMin = 0.05
+	planarMax = 0.32
+)
+
+// gizmoSegmentBuf is enough stack room for the default gizmo in every mode, so drawing and picking it allocate nothing.
+const gizmoSegmentBuf = 3 * 32
+
+func (g Gizmo) translateSegments(segs []GizmoSegment, origin math3d.Vec3, scale float32) []GizmoSegment {
 	axes := [3]struct {
 		axis  GizmoAxis
 		dir   math3d.Vec3
@@ -137,28 +152,32 @@ func (g Gizmo) translateSegments(origin math3d.Vec3, scale float32) []GizmoSegme
 		)
 	}
 
-	// Planar translate brackets at 0.28 * scale.
-	p := 0.28 * scale
-	px := origin.Add(math3d.Vec3{X: p})
-	py := origin.Add(math3d.Vec3{Y: p})
-	pz := origin.Add(math3d.Vec3{Z: p})
-	pxy := origin.Add(math3d.Vec3{X: p, Y: p})
-	pxz := origin.Add(math3d.Vec3{X: p, Z: p})
-	pyz := origin.Add(math3d.Vec3{Y: p, Z: p})
-	segs = append(segs,
-		GizmoSegment{A: px, B: pxy, Axis: AxisXY, Color: gizmoColorXY},
-		GizmoSegment{A: py, B: pxy, Axis: AxisXY, Color: gizmoColorXY},
-		GizmoSegment{A: px, B: pxz, Axis: AxisXZ, Color: gizmoColorXZ},
-		GizmoSegment{A: pz, B: pxz, Axis: AxisXZ, Color: gizmoColorXZ},
-		GizmoSegment{A: py, B: pyz, Axis: AxisYZ, Color: gizmoColorYZ},
-		GizmoSegment{A: pz, B: pyz, Axis: AxisYZ, Color: gizmoColorYZ},
-	)
+	// Planar translate handles: the outline of the square that pickTranslate tests.
+	lo, hi := planarMin*scale, planarMax*scale
+	planes := [3]struct {
+		axis  GizmoAxis
+		u, v  math3d.Vec3
+		color core.Color
+	}{
+		{AxisXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), gizmoColorXY},
+		{AxisXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), gizmoColorXZ},
+		{AxisYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), gizmoColorYZ},
+	}
+	for _, pl := range planes {
+		corner := func(a, b float32) math3d.Vec3 { return origin.Add(pl.u.Scale(a)).Add(pl.v.Scale(b)) }
+		c0, c1, c2, c3 := corner(lo, lo), corner(hi, lo), corner(hi, hi), corner(lo, hi)
+		segs = append(segs,
+			GizmoSegment{A: c0, B: c1, Axis: pl.axis, Color: pl.color},
+			GizmoSegment{A: c1, B: c2, Axis: pl.axis, Color: pl.color},
+			GizmoSegment{A: c2, B: c3, Axis: pl.axis, Color: pl.color},
+			GizmoSegment{A: c3, B: c0, Axis: pl.axis, Color: pl.color},
+		)
+	}
 	return segs
 }
 
-func (g Gizmo) rotateSegments(origin math3d.Vec3, scale float32) []GizmoSegment {
+func (g Gizmo) rotateSegments(segs []GizmoSegment, origin math3d.Vec3, scale float32) []GizmoSegment {
 	n := g.ringSegments()
-	segs := make([]GizmoSegment, 0, n*3)
 	step := (2 * math.Pi) / float64(n)
 	for i := range n {
 		a0 := float64(i) * step
@@ -191,8 +210,7 @@ func (g Gizmo) rotateSegments(origin math3d.Vec3, scale float32) []GizmoSegment 
 	return segs
 }
 
-func (g Gizmo) scaleSegments(origin math3d.Vec3, scale float32) []GizmoSegment {
-	segs := make([]GizmoSegment, 0, 51)
+func (g Gizmo) scaleSegments(segs []GizmoSegment, origin math3d.Vec3, scale float32) []GizmoSegment {
 	axes := [3]struct {
 		axis  GizmoAxis
 		dir   math3d.Vec3
@@ -285,9 +303,9 @@ func (g Gizmo) pickTranslate(ray math3d.Ray, origin math3d.Vec3, scale, tol floa
 		return bestAxis, bestT
 	}
 
-	// Test planar translate handles [0.05*scale, 0.32*scale]^2.
-	minP := 0.05 * scale
-	maxP := 0.32 * scale
+	// Test the planar translate handles, the squares translateSegments draws.
+	minP := planarMin * scale
+	maxP := planarMax * scale
 	planes := [3]struct {
 		axis   GizmoAxis
 		normal math3d.Vec3
@@ -381,7 +399,8 @@ func (g Gizmo) pickRotate(ray math3d.Ray, origin math3d.Vec3, scale, tol float32
 
 	// Fallback for rays nearly parallel (edge-on) to a ring plane: test against
 	// the tessellated ring segments directly.
-	for _, seg := range g.rotateSegments(origin, scale) {
+	var buf [gizmoSegmentBuf]GizmoSegment
+	for _, seg := range g.rotateSegments(buf[:0], origin, scale) {
 		d, t := raySegmentDistance(ray, seg.A, seg.B)
 		if d <= tol && (d < bestDist-1e-5 || (math3d.ApproxEqual(d, bestDist, 1e-5) && t < bestT)) {
 			bestAxis = seg.Axis
@@ -549,7 +568,8 @@ func (g Gizmo) DrawGizmo(d *core.Drawing, viewProj math3d.Mat4, viewport core.Bo
 	if d == nil || viewport.Size.Width <= 0 || viewport.Size.Height <= 0 {
 		return
 	}
-	segs := g.Segments(origin, scale, mode)
+	var buf [gizmoSegmentBuf]GizmoSegment
+	segs := g.AppendSegments(buf[:0], origin, scale, mode)
 	if len(segs) == 0 {
 		return
 	}
@@ -574,7 +594,7 @@ func (g Gizmo) DrawGizmo(d *core.Drawing, viewProj math3d.Mat4, viewport core.Bo
 			if isActive != wantActive {
 				continue
 			}
-			ax, ay, bx, by, ok := ProjectSegment(seg.A, seg.B, viewProj, viewport)
+			ax, ay, bx, by, ok := projectSegment(seg.A, seg.B, viewProj, viewport, g.DepthNO)
 			if !ok {
 				continue
 			}
