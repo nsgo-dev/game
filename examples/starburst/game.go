@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/leaderboard"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -15,9 +16,14 @@ type GameController struct {
 	Arena   *Arena
 	Actions *input.Actions
 	Loop    *game.Loop
+	// Boards submits each finished run's score and opens the platform's leaderboard.
+	Boards *leaderboard.Service
 
-	frameSig *core.Signal[uint64]
-	hudSig   *core.Signal[HUDState]
+	frameSig    *core.Signal[uint64]
+	hudSig      *core.Signal[HUDState]
+	boardStatus *core.Signal[string]
+	// runID counts restarts so a submission answered after a restart does not label the new run.
+	runID uint64
 
 	viewSize     core.Size
 	hasPointer   bool
@@ -53,6 +59,8 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 		Actions:      actions,
 		frameSig:     core.NewSignal(cx, uint64(0)),
 		hudSig:       core.NewSignal(cx, initialHUD),
+		boardStatus:  core.NewSignal(cx, ""),
+		Boards:       newLeaderboards(cx),
 		viewSize:     core.Size{Width: VirtualWidth, Height: VirtualHeight},
 		lastHUDState: initialHUD,
 	}
@@ -144,6 +152,9 @@ func (gc *GameController) syncUI() {
 	gc.frameSig.Set(gc.frameSig.GetUntracked() + 1)
 	next := gc.Arena.HUD()
 	if next != gc.lastHUDState {
+		if next.GameOver && !gc.lastHUDState.GameOver && !next.StressMode {
+			gc.submitScore(next.Score)
+		}
 		gc.lastHUDState = next
 		gc.hudSig.Set(next)
 	}
@@ -165,6 +176,8 @@ func (gc *GameController) TogglePause() {
 func (gc *GameController) Restart() {
 	gc.Arena.Restart()
 	gc.Actions.Reset()
+	gc.runID++
+	gc.boardStatus.Set("")
 	gc.syncUI()
 }
 
@@ -456,23 +469,50 @@ func (gc *GameController) hudOverlay(cx *core.Scope, full core.Style) core.Node 
 									Color:      core.RGB(0x94A3B8),
 								},
 							},
-							hudBtn(
-								"btn-overlay-action",
-								func() string {
-									if gc.hudSig.Get().GameOver {
-										return "PLAY AGAIN"
-									}
-									return "RESUME"
-								},
-								func() bool { return true },
-								func() {
-									if gc.Arena.GameOver {
-										gc.Restart()
-									} else {
-										gc.TogglePause()
+							core.Show{
+								When: func() bool { return gc.hudSig.Get().GameOver && gc.boardStatus.Get() != "" },
+								Then: func(*core.Scope) core.Node {
+									return core.Text{
+										TestID:      "overlay-board-status",
+										ContentFunc: gc.boardStatus.Get,
+										Style: core.Style{
+											FontFamily: core.FontMonospace,
+											FontSize:   11,
+											Color:      core.RGB(0x7DD3FC),
+										},
 									}
 								},
-							),
+							},
+							core.View{
+								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+								Children: []core.Node{
+									hudBtn(
+										"btn-overlay-action",
+										func() string {
+											if gc.hudSig.Get().GameOver {
+												return "PLAY AGAIN"
+											}
+											return "RESUME"
+										},
+										func() bool { return true },
+										func() {
+											if gc.Arena.GameOver {
+												gc.Restart()
+											} else {
+												gc.TogglePause()
+											}
+										},
+									),
+									core.Show{
+										When: func() bool {
+											return gc.hudSig.Get().GameOver && gc.Boards.SignedIn() && gc.Boards.Supports(highScoreBoard)
+										},
+										Then: func(*core.Scope) core.Node {
+											return hudBtn("btn-leaderboard", func() string { return "LEADERBOARD" }, nil, gc.ShowLeaderboard)
+										},
+									},
+								},
+							},
 						},
 					}
 				},

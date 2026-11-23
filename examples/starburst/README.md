@@ -16,6 +16,10 @@ It demonstrates high-throughput 2D rendering (**1,000+ active moving sprites, bu
   - **Touch (`input.Actions`)**: Bottom-left virtual D-pad regions (`move_x` / `move_y` axes), right-half fire zone, and bottom-right Nova zone mapped through `screen.Viewport.ViewToGame`.
   - **Gamepad readiness**: Hardware gamepad bindings await [`nsgo#1049`](https://github.com/nsgo-dev/nsgo/issues/1049). `Arena.Control` (`ControlInput`) already accepts normalized `MoveX`/`MoveY`, `AimStickX`/`AimStickY`, `Fire`, and `Nova` per fixed step so gamepad sticks and triggers drop straight in with zero simulation changes.
 
+## Leaderboard
+
+`leaderboards.yaml` declares a `high-score` board for the [`leaderboard`](../../docs/en/leaderboard.md) package. The game signs the player in at launch, submits the score when a run ends (stress mode excluded), and shows a **LEADERBOARD** button on the game-over screen that opens Game Center's board. To ship it, register `dev.nsgo.game.starburst.high_score` in App Store Connect; for Android, create the board in the Play Console and add its generated ID as `playGames`. Platforms without a game service show no leaderboard UI.
+
 ## Run, Test, and Benchmark
 
 From `examples/starburst/`:
