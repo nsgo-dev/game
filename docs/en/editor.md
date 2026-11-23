@@ -218,7 +218,7 @@ built.Draw(d)
 
 ### Schema
 
-The scene format's JSON Schema is published at `https://game.nsgo.dev/schemas/scene.v1.json` (`sceneformat.SchemaURL`). `Encode` starts every file with `sceneformat.SchemaComment`, the `# yaml-language-server: $schema=…` line, so VS Code's YAML extension and other editors with a YAML language server validate and complete a scene as it is written. See [Schemas for YAML files](schemas.md).
+The scene format's JSON Schemas are published at `https://game.nsgo.dev/schemas/scene.v1.json` (`sceneformat.SchemaURL`) and, for version 2 scenes that instance or inherit other scene files, `https://game.nsgo.dev/schemas/scene.v2.json` (`sceneformat.SchemaURLV2`). `Encode` starts every file with the `# yaml-language-server: $schema=…` line for its version (`sceneformat.SchemaCommentFor`), so VS Code's YAML extension and other editors with a YAML language server validate and complete a scene as it is written. See [Schemas for YAML files](schemas.md).
 
 ### Component types
 

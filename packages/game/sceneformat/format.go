@@ -16,14 +16,31 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the scene format schema version supported by this package.
-const CurrentVersion = 1
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides) and inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides).
+const CurrentVersion = 2
 
-// SchemaURL is where the JSON Schema of version 1 scene documents is published. Encode names it in a yaml-language-server comment on the first line, so editors that run the YAML language server (such as VS Code's YAML extension) and AI tools validate and complete a scene file as it is written.
+// MinVersion is the oldest scene format schema version this package still reads. A version 1 document is read and written unchanged, and may not use any field version 2 added.
+const MinVersion = 1
+
+// SchemaURL is where the JSON Schema of version 1 scene documents is published. Encode names it in a yaml-language-server comment on the first line of a version 1 document, so editors that run the YAML language server (such as VS Code's YAML extension) and AI tools validate and complete a scene file as it is written.
 const SchemaURL = "https://game.nsgo.dev/schemas/scene.v1.json"
 
-// SchemaComment is the first line Encode writes: a YAML comment that points a YAML language server at SchemaURL. Parse ignores it like any other comment.
+// SchemaComment is the first line Encode writes for a version 1 document: a YAML comment that points a YAML language server at SchemaURL. Parse ignores it like any other comment.
 const SchemaComment = "# yaml-language-server: $schema=" + SchemaURL
+
+// SchemaURLV2 is where the JSON Schema of version 2 scene documents is published, named by SchemaCommentV2 as SchemaURL is by SchemaComment.
+const SchemaURLV2 = "https://game.nsgo.dev/schemas/scene.v2.json"
+
+// SchemaCommentV2 is the first line Encode writes for a version 2 document, pointing a YAML language server at SchemaURLV2.
+const SchemaCommentV2 = "# yaml-language-server: $schema=" + SchemaURLV2
+
+// SchemaCommentFor returns the first line Encode writes for a document of the given version: SchemaComment for version 1 and SchemaCommentV2 for version 2.
+func SchemaCommentFor(version int) string {
+	if version >= 2 {
+		return SchemaCommentV2
+	}
+	return SchemaComment
+}
 
 // Space is the coordinate space a layer draws in.
 type Space string
@@ -37,8 +54,10 @@ const (
 
 // SceneDoc is the root of a versioned YAML scene document.
 type SceneDoc struct {
-	// Version is the schema version; it must equal CurrentVersion (1).
-	Version int `yaml:"version" schema:"required,const=1"`
+	// Version is the schema version, from MinVersion to CurrentVersion. Encode writes it back as it is.
+	Version int `yaml:"version" schema:"required"`
+	// Inherits optionally names a base scene file by its slash-separated path from the project root, such as "scenes/enemy.scene.yaml". The scene then starts as a copy of its base and changes only what it declares: its own scalar fields, camera and tilemaps replace the base's when set, its Overrides and LayerOverrides change inherited objects and layers, and its Layers add objects to the base's layers of the same name or add new layers after them. Resolve applies it. Version 2.
+	Inherits string `yaml:"inherits,omitempty"`
 	// Name is the scene's human-readable name.
 	Name string `yaml:"name,omitempty"`
 	// VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.
@@ -50,8 +69,24 @@ type SceneDoc struct {
 	Camera *CameraDoc `yaml:"camera,omitempty"`
 	// Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.
 	Tilemaps map[string]*TilemapDoc `yaml:"tilemaps,omitempty"`
-	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order.
+	// LayerOverrides changes the inherited layers named by its keys; it requires Inherits. Version 2.
+	LayerOverrides map[string]LayerOverride `yaml:"layerOverrides,omitempty"`
+	// Overrides changes the inherited objects whose IDs are its keys, nested children and the objects of instanced scenes (such as "enemy_1/body") included; it requires Inherits. Version 2.
+	Overrides map[string]ObjectOverride `yaml:"overrides,omitempty"`
+	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.
 	Layers []LayerDoc `yaml:"layers,omitempty"`
+}
+
+// LayerOverride changes an inherited layer in a scene that inherits another (SceneDoc.LayerOverrides). A field left unset keeps the base layer's value.
+type LayerOverride struct {
+	// Space replaces the layer's space when set.
+	Space Space `yaml:"space,omitempty" schema:"enum=world|screen"`
+	// Order replaces the layer's draw order when set.
+	Order *int `yaml:"order,omitempty"`
+	// Visible replaces the layer's visibility when set.
+	Visible *bool `yaml:"visible,omitempty"`
+	// Tilemap replaces the layer's tilemap when set.
+	Tilemap *TilemapDoc `yaml:"tilemap,omitempty"`
 }
 
 // CameraDoc describes a 2D camera transform for world-space layers.
@@ -188,8 +223,64 @@ type ObjectDoc struct {
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors.
 	Properties map[string]any `yaml:"properties,omitempty"`
+	// Scene optionally instances another scene file, named by its slash-separated path from the project root such as "scenes/enemy.scene.yaml". Resolve makes the top-level objects of every layer of that scene, in document order, this object's first children, ahead of the ones in Children, with each instanced object's ID prefixed by this object's ID and a slash ("enemy_1/body"). The instanced scene's layer settings, camera, background and virtual size do not carry over, and a scene whose layers hold a tilemap cannot be instanced. Version 2.
+	Scene string `yaml:"scene,omitempty"`
+	// Overrides changes objects of the instanced Scene, keyed by their IDs inside that scene ("body", or "gun/barrel" for an object of a scene it instances in turn); it requires Scene. Version 2.
+	Overrides map[string]ObjectOverride `yaml:"overrides,omitempty"`
 	// Children are objects attached to this one, in document order. A child's transform (X, Y, Rotation, ScaleX, ScaleY, and in 3D PosZ, RotX, RotY, RotZ, ScaleZ) is local to this object, and its alpha multiplies this object's. Children belong to their parent's layer; their IDs share the scene-wide namespace, and nesting is limited to MaxObjectDepth levels.
 	Children []ObjectDoc `yaml:"children,omitempty"`
+}
+
+// ObjectOverride changes one object of an instanced or inherited scene (ObjectDoc.Overrides, SceneDoc.Overrides). Each field set replaces the ObjectDoc field of the same name; a field left unset keeps it. Components and Properties replace the object's entries key by key and keep its other keys. An override cannot change an object's ID or children, or what it instances.
+type ObjectOverride struct {
+	// Name replaces the object's name.
+	Name *string `yaml:"name,omitempty"`
+	// Prefab replaces the prefab the object names.
+	Prefab *string `yaml:"prefab,omitempty"`
+	// X replaces where the object's origin sits along x in its parent's space.
+	X *float32 `yaml:"x,omitempty"`
+	// Y replaces where the object's origin sits along y in its parent's space.
+	Y *float32 `yaml:"y,omitempty"`
+	// PosZ replaces the object's 3D Z coordinate in its parent's space.
+	PosZ *float32 `yaml:"posZ,omitempty"`
+	// OriginX replaces the x of the object's pivot point.
+	OriginX *float32 `yaml:"originX,omitempty"`
+	// OriginY replaces the y of the object's pivot point.
+	OriginY *float32 `yaml:"originY,omitempty"`
+	// Rotation replaces the object's clockwise 2D rotation in radians.
+	Rotation *float32 `yaml:"rotation,omitempty"`
+	// RotX replaces the object's rotation about the x axis in 3D.
+	RotX *float32 `yaml:"rotX,omitempty"`
+	// RotY replaces the object's rotation about the y axis in 3D.
+	RotY *float32 `yaml:"rotY,omitempty"`
+	// RotZ replaces the object's rotation about the z axis in 3D.
+	RotZ *float32 `yaml:"rotZ,omitempty"`
+	// ScaleX replaces the object's x scale.
+	ScaleX *float32 `yaml:"scaleX,omitempty"`
+	// ScaleY replaces the object's y scale.
+	ScaleY *float32 `yaml:"scaleY,omitempty"`
+	// ScaleZ replaces the object's z scale in 3D.
+	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
+	// Depth replaces the object's 3D extent along the Z axis.
+	Depth *float32 `yaml:"depth,omitempty" schema:"minimum=0"`
+	// Mesh replaces the 3D mesh primitive or asset path the object names.
+	Mesh *string `yaml:"mesh,omitempty"`
+	// FlipX replaces whether the sprite is mirrored horizontally.
+	FlipX *bool `yaml:"flipX,omitempty"`
+	// FlipY replaces whether the sprite is mirrored vertically.
+	FlipY *bool `yaml:"flipY,omitempty"`
+	// Alpha replaces the object's opacity, in [0, 1].
+	Alpha *float32 `yaml:"alpha,omitempty" schema:"minimum=0,maximum=1"`
+	// Z replaces the object's draw order within its layer.
+	Z *int `yaml:"z,omitempty"`
+	// Sprite replaces the atlas frame the object draws.
+	Sprite *SpriteRef `yaml:"sprite,omitempty"`
+	// Material replaces the material resource file the object names, a slash-separated path from the project root.
+	Material *string `yaml:"material,omitempty"`
+	// Components replaces the object's components key by key, keeping the others.
+	Components map[string]any `yaml:"components,omitempty"`
+	// Properties replaces the object's custom properties key by key, keeping the others.
+	Properties map[string]any `yaml:"properties,omitempty"`
 }
 
 // EffectiveScaleX returns ScaleX, defaulting to 1 when nil.
@@ -303,6 +394,12 @@ func composeObjectWorld(parentWorld *math2d.Affine, o *ObjectDoc) (math2d.Affine
 // Bool returns a pointer to v for optional YAML boolean fields such as LayerDoc.Visible.
 func Bool(v bool) *bool { return &v }
 
+// Int returns a pointer to v for optional YAML integer fields such as ObjectOverride.Z and LayerOverride.Order.
+func Int(v int) *int { return &v }
+
+// String returns a pointer to v for optional YAML string fields such as ObjectOverride.Name.
+func String(v string) *string { return &v }
+
 // Float32 returns a pointer to v for optional YAML float fields such as ScaleX, ScaleY, Alpha and Zoom.
 func Float32(v float32) *float32 { return &v }
 
@@ -373,13 +470,13 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 	return &doc, nil
 }
 
-// Encode validates doc and serializes it as deterministic 2-space YAML, starting with the SchemaComment line.
+// Encode validates doc and serializes it as deterministic 2-space YAML, starting with the line SchemaCommentFor returns for its version.
 func Encode(doc *SceneDoc) ([]byte, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	buf.WriteString(SchemaComment + "\n")
+	buf.WriteString(SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(doc); err != nil {
@@ -418,13 +515,16 @@ func at(base []string, steps ...string) []string {
 	return append(p, steps...)
 }
 
-// Validate checks that doc conforms to version 1 schema rules. Every error it returns is a *FieldError naming the field at fault. When several fields are wrong it reports the first in document order, taking the entries of Tilemaps in key order.
+// Validate checks that doc conforms to the schema rules of its version. It checks a scene's references to other scene files only for their form; Resolve loads them and validates the result. Every error it returns is a *FieldError naming the field at fault. When several fields are wrong it reports the first in document order, taking the entries of Tilemaps in key order.
 func Validate(doc *SceneDoc) error {
 	if doc == nil {
 		return fieldErr(nil, "sceneformat: nil scene document")
 	}
-	if doc.Version != CurrentVersion {
-		return fieldErr([]string{"version"}, "sceneformat: unsupported version %d (want %d)", doc.Version, CurrentVersion)
+	if doc.Version < MinVersion || doc.Version > CurrentVersion {
+		return fieldErr([]string{"version"}, "sceneformat: unsupported version %d (want %d to %d)", doc.Version, MinVersion, CurrentVersion)
+	}
+	if err := validateSceneRefs(doc); err != nil {
+		return err
 	}
 	if !isFinite(doc.VirtualWidth) || !isFinite(doc.VirtualHeight) || doc.VirtualWidth < 0 || doc.VirtualHeight < 0 {
 		field := "virtualHeight"
@@ -455,7 +555,7 @@ func Validate(doc *SceneDoc) error {
 		if name == "" {
 			return fieldErr([]string{"tilemaps"}, "sceneformat: tilemaps contains an empty key")
 		}
-		if err := validateTilemap([]string{"tilemaps", name}, fmt.Sprintf("tilemap %q", name), doc.Tilemaps[name], false, nil); err != nil {
+		if err := validateTilemap([]string{"tilemaps", name}, fmt.Sprintf("tilemap %q", name), doc.Tilemaps[name], false, nil, false); err != nil {
 			return err
 		}
 	}
@@ -479,11 +579,12 @@ func Validate(doc *SceneDoc) error {
 			return fieldErr(at(lp, "space"), "sceneformat: layer %q has invalid space %q (want %q or %q)", l.Name, l.Space, SpaceWorld, SpaceScreen)
 		}
 		if l.Tilemap != nil {
-			if err := validateTilemap(at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps); err != nil {
+			// A scene that inherits another may name the base's tilemaps, which Resolve checks once they are merged.
+			if err := validateTilemap(at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps, doc.Inherits == ""); err != nil {
 				return err
 			}
 		}
-		if err := validateObjects(at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
+		if err := validateObjects(doc.Version, at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
 			return err
 		}
 	}
@@ -491,7 +592,7 @@ func Validate(doc *SceneDoc) error {
 }
 
 // validateObjects checks objs, found at path in the document (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld), at nesting depth and their descendants, recording every ID in ids.
-func validateObjects(path []string, layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
+func validateObjects(version int, path []string, layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
 	if len(objs) > 0 && depth > MaxObjectDepth {
 		return fieldErr(path, "sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
 	}
@@ -508,14 +609,17 @@ func validateObjects(path []string, layer, parent string, parentWorld *math2d.Af
 			return fieldErr(at(op, "id"), "sceneformat: duplicate object id %q", o.ID)
 		}
 		ids[o.ID] = struct{}{}
-		if err := validateObject(op, layer, o); err != nil {
+		if err := validateObject(op, fmt.Sprintf("layer %q object %q", layer, o.ID), o); err != nil {
+			return err
+		}
+		if err := validateInstance(version, op, layer, o); err != nil {
 			return err
 		}
 		world, ok := composeObjectWorld(parentWorld, o)
 		if !ok {
 			return fieldErr(op, "sceneformat: layer %q object %q: %w", layer, o.ID, errShearedSprite)
 		}
-		if err := validateObjects(at(op, "children"), layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
+		if err := validateObjects(version, at(op, "children"), layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
 			return err
 		}
 	}
@@ -557,8 +661,8 @@ func validateCamera(c *CameraDoc) error {
 	return nil
 }
 
-// validateTilemap checks tm, found at path in the document and described in messages as where.
-func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc) error {
+// validateTilemap checks tm, found at path in the document and described in messages as where; checkRef reports whether a ref must name an entry of table.
+func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc, checkRef bool) error {
 	if tm == nil {
 		return fieldErr(path, "sceneformat: %s is nil", where)
 	}
@@ -586,7 +690,7 @@ func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool,
 		if !allowRef {
 			return fieldErr(at(path, "ref"), "sceneformat: %s cannot use ref in top-level tilemaps", where)
 		}
-		if _, ok := table[tm.Ref]; !ok {
+		if _, ok := table[tm.Ref]; checkRef && !ok {
 			return fieldErr(at(path, "ref"), "sceneformat: %s references unknown tilemap %q", where, tm.Ref)
 		}
 		return nil
@@ -633,8 +737,8 @@ func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 	return nil
 }
 
-// validateObject checks o, found at path in the document on the layer named layer.
-func validateObject(path []string, layer string, o *ObjectDoc) error {
+// validateObject checks o's own field values, found at path in the document; where names it in errors, such as `layer "a" object "b"`.
+func validateObject(path []string, where string, o *ObjectDoc) error {
 	transform := []struct {
 		field string
 		v     float32
@@ -644,33 +748,33 @@ func validateObject(path []string, layer string, o *ObjectDoc) error {
 	}
 	for _, f := range transform {
 		if !isFinite(f.v) {
-			return fieldErr(at(path, f.field), "sceneformat: layer %q object %q has non-finite transform", layer, o.ID)
+			return fieldErr(at(path, f.field), "sceneformat: %s has non-finite transform", where)
 		}
 	}
 	if !isFinite(o.Depth) || o.Depth < 0 {
-		return fieldErr(at(path, "depth"), "sceneformat: layer %q object %q depth %v must be finite and non-negative", layer, o.ID, o.Depth)
+		return fieldErr(at(path, "depth"), "sceneformat: %s depth %v must be finite and non-negative", where, o.Depth)
 	}
 	if o.ScaleX != nil && !isFinite(*o.ScaleX) {
-		return fieldErr(at(path, "scaleX"), "sceneformat: layer %q object %q has non-finite scaleX", layer, o.ID)
+		return fieldErr(at(path, "scaleX"), "sceneformat: %s has non-finite scaleX", where)
 	}
 	if o.ScaleY != nil && !isFinite(*o.ScaleY) {
-		return fieldErr(at(path, "scaleY"), "sceneformat: layer %q object %q has non-finite scaleY", layer, o.ID)
+		return fieldErr(at(path, "scaleY"), "sceneformat: %s has non-finite scaleY", where)
 	}
 	if o.ScaleZ != nil && !isFinite(*o.ScaleZ) {
-		return fieldErr(at(path, "scaleZ"), "sceneformat: layer %q object %q has non-finite scaleZ", layer, o.ID)
+		return fieldErr(at(path, "scaleZ"), "sceneformat: %s has non-finite scaleZ", where)
 	}
 	if o.Alpha != nil {
 		if !isFinite(*o.Alpha) || *o.Alpha < 0 || *o.Alpha > 1 {
-			return fieldErr(at(path, "alpha"), "sceneformat: layer %q object %q alpha %v must be in [0, 1]", layer, o.ID, *o.Alpha)
+			return fieldErr(at(path, "alpha"), "sceneformat: %s alpha %v must be in [0, 1]", where, *o.Alpha)
 		}
 	}
 	if o.Sprite != nil {
 		if o.Sprite.Atlas == "" || o.Sprite.Frame == "" {
-			return fieldErr(at(path, "sprite"), "sceneformat: layer %q object %q sprite requires both atlas and frame", layer, o.ID)
+			return fieldErr(at(path, "sprite"), "sceneformat: %s sprite requires both atlas and frame", where)
 		}
 	}
-	if o.Material != "" && (!fs.ValidPath(o.Material) || o.Material == ".") {
-		return fieldErr(at(path, "material"), "sceneformat: layer %q object %q material %q must be a slash-separated path relative to the project root", layer, o.ID, o.Material)
+	if o.Material != "" && !validFilePath(o.Material) {
+		return fieldErr(at(path, "material"), "sceneformat: %s material %q must be a slash-separated path relative to the project root", where, o.Material)
 	}
 	return nil
 }
@@ -678,4 +782,9 @@ func validateObject(path []string, layer string, o *ObjectDoc) error {
 func isFinite(v float32) bool {
 	f := float64(v)
 	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
+
+// validFilePath reports whether p is a slash-separated file path relative to the project root, the form material and scene references take.
+func validFilePath(p string) bool {
+	return fs.ValidPath(p) && p != "."
 }

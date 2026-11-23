@@ -42,7 +42,7 @@ func (m AtlasMap) Atlas(name string) (*sprite.Atlas, error) {
 
 // BuiltScene is a SceneDoc resolved against atlases and ready to draw into a core.Drawing.
 type BuiltScene struct {
-	// Doc is the validated SceneDoc this scene was built from.
+	// Doc is the validated SceneDoc this scene was built from: the one passed to Build, or for a scene that instances or inherits other scene files, the self-contained copy Resolve made of it, whose objects the BuiltObjects point into.
 	Doc *SceneDoc
 	// BackgroundColor is the parsed background color; HasBackground reports whether Draw paints it.
 	BackgroundColor core.Color
@@ -102,10 +102,18 @@ type BuiltObject struct {
 	WorldAlpha float32
 }
 
-// Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw.
+// Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
 func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
+	}
+	if doc.RefersToScenes() {
+		scenes, _ := resolver.(SceneResolver)
+		resolved, err := Resolve(doc, scenes)
+		if err != nil {
+			return nil, err
+		}
+		doc = resolved
 	}
 
 	built := &BuiltScene{

@@ -9,6 +9,9 @@ import (
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 )
 
+// errUnresolved refuses a scene that still refers to other scene files where only a self-contained one can be used.
+var errUnresolved = errors.New("sceneformat: the scene instances or inherits other scene files; Resolve it first")
+
 // ObjectRef is the component SpawnEntities attaches to every entity it spawns, naming the scene object the entity came from.
 type ObjectRef struct {
 	// ID is the object's unique scene ID.
@@ -19,10 +22,13 @@ type ObjectRef struct {
 
 // SpawnEntities validates doc and spawns one entity per object into w, children included, linked into w's 2D transform hierarchy (entities.Hierarchy2D) the way the objects nest in the document. Each entity's local entities.Transform2D holds the object's X, Y, Rotation, ScaleX and ScaleY, and each carries an ObjectRef component. The top-level objects of a hidden layer are spawned hidden, so their subtrees are not world-visible. Entities are spawned in depth-first document order, each parent before its children, and the result maps every object ID to its entity.
 //
-// SpawnEntities returns an error and spawns nothing when doc is invalid or w is nil or disposed.
+// SpawnEntities returns an error and spawns nothing when doc is invalid, still instances or inherits other scene files (pass it through Resolve first), or w is nil or disposed.
 func SpawnEntities(doc *SceneDoc, w *entities.World) (map[string]entities.Entity, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
+	}
+	if doc.RefersToScenes() {
+		return nil, errUnresolved
 	}
 	if w == nil {
 		return nil, errors.New("sceneformat: nil entity world")
@@ -75,10 +81,13 @@ type Nodes3D struct {
 
 // BuildNodes3D validates doc and builds its layers and objects into a 3D node tree under parent, such as a scene3d.Scene's Root. Each layer becomes a group node named after the layer, in document order, and each object a node named by its ID under its layer's node or its parent object's node, children in document order. An object's local transform is its ObjectLocalTransform3D, and its node's UserData is the *ObjectDoc it came from (a pointer into doc).
 //
-// BuildNodes3D returns an error and leaves parent unchanged when doc is invalid or parent is nil.
+// BuildNodes3D returns an error and leaves parent unchanged when doc is invalid, still instances or inherits other scene files (pass it through Resolve first), or parent is nil.
 func BuildNodes3D(doc *SceneDoc, parent *scene3d.Node) (*Nodes3D, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
+	}
+	if doc.RefersToScenes() {
+		return nil, errUnresolved
 	}
 	if parent == nil {
 		return nil, scene3d.ErrNilNode

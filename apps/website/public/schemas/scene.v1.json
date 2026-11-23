@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "version": {
-      "description": "Version is the schema version; it must equal CurrentVersion (1).",
+      "description": "Version is the schema version, from MinVersion to CurrentVersion. Encode writes it back as it is.",
       "type": "integer",
       "const": 1
     },
@@ -46,7 +46,7 @@
       }
     },
     "layers": {
-      "description": "Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order.",
+      "description": "Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/LayerDoc"

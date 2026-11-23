@@ -1,0 +1,615 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/scene.v2.json",
+  "title": "NSGo game scene (version 2)",
+  "description": "SceneDoc is the root of a versioned YAML scene document.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version, from MinVersion to CurrentVersion. Encode writes it back as it is.",
+      "type": "integer",
+      "const": 2
+    },
+    "inherits": {
+      "description": "Inherits optionally names a base scene file by its slash-separated path from the project root, such as \"scenes/enemy.scene.yaml\". The scene then starts as a copy of its base and changes only what it declares: its own scalar fields, camera and tilemaps replace the base's when set, its Overrides and LayerOverrides change inherited objects and layers, and its Layers add objects to the base's layers of the same name or add new layers after them. Resolve applies it. Version 2.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Name is the scene's human-readable name.",
+      "type": "string"
+    },
+    "virtualWidth": {
+      "description": "VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "virtualHeight": {
+      "description": "VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "backgroundColor": {
+      "description": "BackgroundColor is an optional CSS color string parsed with core.ParseColor.",
+      "type": "string"
+    },
+    "camera": {
+      "description": "Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/CameraDoc"
+        }
+      ]
+    },
+    "tilemaps": {
+      "description": "Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/TilemapDoc"
+      }
+    },
+    "layerOverrides": {
+      "description": "LayerOverrides changes the inherited layers named by its keys; it requires Inherits. Version 2.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/LayerOverride"
+      }
+    },
+    "overrides": {
+      "description": "Overrides changes the inherited objects whose IDs are its keys, nested children and the objects of instanced scenes (such as \"enemy_1/body\") included; it requires Inherits. Version 2.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ObjectOverride"
+      }
+    },
+    "layers": {
+      "description": "Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/LayerDoc"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BoundsDoc": {
+      "description": "BoundsDoc is an axis-aligned rectangle in world coordinates.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X and Y are the rectangle's top-left corner.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "X and Y are the rectangle's top-left corner.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "width": {
+          "description": "Width and Height are the rectangle's size; both must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Width and Height are the rectangle's size; both must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "CameraDoc": {
+      "description": "CameraDoc describes a 2D camera transform for world-space layers.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X and Y are the world coordinates centered in the virtual viewport (or mapped to the origin when virtual dimensions are 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "X and Y are the world coordinates centered in the virtual viewport (or mapped to the origin when virtual dimensions are 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "zoom": {
+          "description": "Zoom is the camera zoom factor; nil defaults to 1. Must be positive when set.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotation": {
+          "description": "Rotation turns the camera clockwise in radians; world geometry rotates by -Rotation around (X, Y).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "bounds": {
+          "description": "Bounds optionally clamps the camera view inside a world rectangle.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BoundsDoc"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "LayerDoc": {
+      "description": "LayerDoc is one ordered layer in a scene.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the layer within the scene.",
+          "type": "string",
+          "minLength": 1
+        },
+        "space": {
+          "description": "Space is SpaceWorld or SpaceScreen; empty defaults to SpaceWorld.",
+          "type": "string",
+          "enum": [
+            "world",
+            "screen"
+          ]
+        },
+        "order": {
+          "description": "Order sets draw order across layers: lower values draw first, ties keep document order.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "visible": {
+          "description": "Visible controls whether the layer draws; nil defaults to true.",
+          "type": "boolean"
+        },
+        "tilemap": {
+          "description": "Tilemap optionally attaches a tilemap (by Ref, external Source, or inline grid) drawn beneath Objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TilemapDoc"
+            }
+          ]
+        },
+        "objects": {
+          "description": "Objects are the placed objects in this layer.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObjectDoc"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "LayerOverride": {
+      "description": "LayerOverride changes an inherited layer in a scene that inherits another (SceneDoc.LayerOverrides). A field left unset keeps the base layer's value.",
+      "type": "object",
+      "properties": {
+        "space": {
+          "description": "Space replaces the layer's space when set.",
+          "type": "string",
+          "enum": [
+            "world",
+            "screen"
+          ]
+        },
+        "order": {
+          "description": "Order replaces the layer's draw order when set.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "visible": {
+          "description": "Visible replaces the layer's visibility when set.",
+          "type": "boolean"
+        },
+        "tilemap": {
+          "description": "Tilemap replaces the layer's tilemap when set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TilemapDoc"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ObjectDoc": {
+      "description": "ObjectDoc is one entity or visual object placed on a layer.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies the object across the entire scene.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Name is an optional human-readable display name.",
+          "type": "string"
+        },
+        "prefab": {
+          "description": "Prefab optionally names a prefab or archetype template.",
+          "type": "string"
+        },
+        "x": {
+          "description": "X and Y are where the object's origin sits in its parent's space, which for a top-level object is its layer's coordinate space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "X and Y are where the object's origin sits in its parent's space, which for a top-level object is its layer's coordinate space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "posZ": {
+          "description": "PosZ is the optional 3D Z coordinate (depth in 3D scenes) in its parent's space, distinct from 2D draw order Z.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "originX": {
+          "description": "OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "originY": {
+          "description": "OriginX and OriginY are the pivot point inside the sprite's untrimmed frame.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotation": {
+          "description": "Rotation turns the object clockwise in radians about its origin in 2D space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotX": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotY": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotZ": {
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleX": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleY": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleZ": {
+          "description": "ScaleX, ScaleY, and ScaleZ scale the object about its origin; nil defaults to 1. Negative mirrors.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "depth": {
+          "description": "Depth is the optional 3D extent along the Z axis in world units; 0 uses a default extent.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "mesh": {
+          "description": "Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.",
+          "type": "string"
+        },
+        "flipX": {
+          "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
+          "type": "boolean"
+        },
+        "flipY": {
+          "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
+          "type": "boolean"
+        },
+        "alpha": {
+          "description": "Alpha is the object's opacity in [0, 1]; nil defaults to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "z": {
+          "description": "Z orders objects within the layer, children included; lower Z draws first, and ties keep document order with each parent before its children.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "sprite": {
+          "description": "Sprite optionally binds the object to a frame in a sprite.Atlas.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SpriteRef"
+            }
+          ]
+        },
+        "material": {
+          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.",
+          "type": "string"
+        },
+        "components": {
+          "description": "Components holds structured component data keyed by component type name.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "properties": {
+          "description": "Properties holds arbitrary custom metadata for gameplay scripts or editors.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "scene": {
+          "description": "Scene optionally instances another scene file, named by its slash-separated path from the project root such as \"scenes/enemy.scene.yaml\". Resolve makes the top-level objects of every layer of that scene, in document order, this object's first children, ahead of the ones in Children, with each instanced object's ID prefixed by this object's ID and a slash (\"enemy_1/body\"). The instanced scene's layer settings, camera, background and virtual size do not carry over, and a scene whose layers hold a tilemap cannot be instanced. Version 2.",
+          "type": "string"
+        },
+        "overrides": {
+          "description": "Overrides changes objects of the instanced Scene, keyed by their IDs inside that scene (\"body\", or \"gun/barrel\" for an object of a scene it instances in turn); it requires Scene. Version 2.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ObjectOverride"
+          }
+        },
+        "children": {
+          "description": "Children are objects attached to this one, in document order. A child's transform (X, Y, Rotation, ScaleX, ScaleY, and in 3D PosZ, RotX, RotY, RotZ, ScaleZ) is local to this object, and its alpha multiplies this object's. Children belong to their parent's layer; their IDs share the scene-wide namespace, and nesting is limited to MaxObjectDepth levels.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObjectDoc"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "ObjectOverride": {
+      "description": "ObjectOverride changes one object of an instanced or inherited scene (ObjectDoc.Overrides, SceneDoc.Overrides). Each field set replaces the ObjectDoc field of the same name; a field left unset keeps it. Components and Properties replace the object's entries key by key and keep its other keys. An override cannot change an object's ID or children, or what it instances.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name replaces the object's name.",
+          "type": "string"
+        },
+        "prefab": {
+          "description": "Prefab replaces the prefab the object names.",
+          "type": "string"
+        },
+        "x": {
+          "description": "X replaces where the object's origin sits along x in its parent's space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y replaces where the object's origin sits along y in its parent's space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "posZ": {
+          "description": "PosZ replaces the object's 3D Z coordinate in its parent's space.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "originX": {
+          "description": "OriginX replaces the x of the object's pivot point.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "originY": {
+          "description": "OriginY replaces the y of the object's pivot point.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotation": {
+          "description": "Rotation replaces the object's clockwise 2D rotation in radians.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotX": {
+          "description": "RotX replaces the object's rotation about the x axis in 3D.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotY": {
+          "description": "RotY replaces the object's rotation about the y axis in 3D.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotZ": {
+          "description": "RotZ replaces the object's rotation about the z axis in 3D.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleX": {
+          "description": "ScaleX replaces the object's x scale.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleY": {
+          "description": "ScaleY replaces the object's y scale.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scaleZ": {
+          "description": "ScaleZ replaces the object's z scale in 3D.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "depth": {
+          "description": "Depth replaces the object's 3D extent along the Z axis.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "mesh": {
+          "description": "Mesh replaces the 3D mesh primitive or asset path the object names.",
+          "type": "string"
+        },
+        "flipX": {
+          "description": "FlipX replaces whether the sprite is mirrored horizontally.",
+          "type": "boolean"
+        },
+        "flipY": {
+          "description": "FlipY replaces whether the sprite is mirrored vertically.",
+          "type": "boolean"
+        },
+        "alpha": {
+          "description": "Alpha replaces the object's opacity, in [0, 1].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "z": {
+          "description": "Z replaces the object's draw order within its layer.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "sprite": {
+          "description": "Sprite replaces the atlas frame the object draws.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SpriteRef"
+            }
+          ]
+        },
+        "material": {
+          "description": "Material replaces the material resource file the object names, a slash-separated path from the project root.",
+          "type": "string"
+        },
+        "components": {
+          "description": "Components replaces the object's components key by key, keeping the others.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "properties": {
+          "description": "Properties replaces the object's custom properties key by key, keeping the others.",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "SpriteRef": {
+      "description": "SpriteRef identifies one frame inside a named sprite.Atlas.",
+      "type": "object",
+      "properties": {
+        "atlas": {
+          "description": "Atlas names the sprite.Atlas an AssetResolver looks up.",
+          "type": "string",
+          "minLength": 1
+        },
+        "frame": {
+          "description": "Frame names the frame inside the atlas.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "atlas",
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "TilemapDoc": {
+      "description": "TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Ref names an entry in SceneDoc.Tilemaps. Only valid on a layer's Tilemap.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.",
+          "type": "string"
+        },
+        "tileWidth": {
+          "description": "TileWidth and TileHeight are each tile's size in points for an inline grid.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "tileHeight": {
+          "description": "TileWidth and TileHeight are each tile's size in points for an inline grid.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "width": {
+          "description": "Width and Height are the inline grid dimensions in tiles.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "height": {
+          "description": "Width and Height are the inline grid dimensions in tiles.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "tileset": {
+          "description": "Tileset is the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
+          "type": "string"
+        },
+        "data": {
+          "description": "Data holds Width*Height row-major tile IDs; 0 is an empty cell.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
