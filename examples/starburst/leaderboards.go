@@ -58,6 +58,18 @@ func (gc *GameController) submitScore(score int) {
 	})
 }
 
+// SignInAndSubmit signs the player in from the game-over screen and, once signed in, submits the run that just ended. A sign-in answered after the next run started submits nothing.
+func (gc *GameController) SignInAndSubmit() {
+	run := gc.runID
+	score := gc.lastHUDState.Score
+	gc.Boards.SignIn(func(_ leaderboard.Player, err error) {
+		if err != nil || run != gc.runID {
+			return
+		}
+		gc.submitScore(score)
+	})
+}
+
 // ShowLeaderboard opens the platform's high-score board.
 func (gc *GameController) ShowLeaderboard() {
 	_ = gc.Boards.Show(highScoreBoard)

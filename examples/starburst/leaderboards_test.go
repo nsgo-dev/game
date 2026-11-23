@@ -103,6 +103,52 @@ func TestGameOverWhileSignedOutAsksToSignIn(t *testing.T) {
 	if n := len(app.GameServicesSubmittedScores()); n != 0 {
 		t.Fatalf("submitted %d scores while signed out", n)
 	}
+
+	// SIGN IN signs the player in and submits the run that just ended.
+	app.SetGameServicesPlayer(leaderboard.Player{ID: "p-ada", DisplayName: "Ada"})
+	app.Press("btn-sign-in")
+	app.Settle()
+	want := []core.GameScoreEntry{{LeaderboardID: highScoreGameCenterID, PlayerID: "p-ada", DisplayName: "Ada", Score: 500}}
+	if got := app.GameServicesSubmittedScores(); !slices.Equal(got, want) {
+		t.Fatalf("submitted = %+v, want %+v", got, want)
+	}
+	if got := app.Find("overlay-board-status").Text; got != boardStatusSubmitted {
+		t.Fatalf("overlay-board-status after sign-in = %q", got)
+	}
+	if app.Exists("btn-sign-in") || !app.Exists("btn-leaderboard") {
+		t.Fatal("expected LEADERBOARD in place of SIGN IN once signed in")
+	}
+}
+
+func TestNewRunIgnoresPreviousRunsReply(t *testing.T) {
+	app, gc := startWithEnv(t, core.Environment{CanUseGameServices: true, OS: core.OSIOS})
+
+	// End a run while signed out and leave the game-over screen through the stress toggle before the platform's reply is delivered.
+	gc.Arena.Score = 500
+	gc.Arena.Player.HP = 0
+	gc.Arena.GameOver = true
+	gc.syncUI()
+	gc.ToggleStress()
+	gc.ToggleStress()
+	app.Settle()
+	if gc.Arena.GameOver {
+		t.Fatal("stress toggle did not start a new run")
+	}
+	if got := gc.boardStatus.GetUntracked(); got != "" {
+		t.Fatalf("previous run's reply labelled the new run: %q", got)
+	}
+
+	app.SetGameServicesPlayer(leaderboard.Player{ID: "p-ada", DisplayName: "Ada"})
+	gc.Boards.SignIn(nil)
+	app.Settle()
+	endRun(app, gc, 700)
+	if got := app.Find("overlay-board-status").Text; got != boardStatusSubmitted {
+		t.Fatalf("overlay-board-status = %q", got)
+	}
+	want := []core.GameScoreEntry{{LeaderboardID: highScoreGameCenterID, PlayerID: "p-ada", DisplayName: "Ada", Score: 700}}
+	if got := app.GameServicesSubmittedScores(); !slices.Equal(got, want) {
+		t.Fatalf("submitted = %+v, want %+v", got, want)
+	}
 }
 
 func TestNoLeaderboardWithoutGameService(t *testing.T) {
@@ -119,7 +165,7 @@ func TestNoLeaderboardWithoutGameService(t *testing.T) {
 			if !app.Exists("overlay-status") {
 				t.Fatal("game-over overlay missing")
 			}
-			if app.Exists("overlay-board-status") || app.Exists("btn-leaderboard") {
+			if app.Exists("overlay-board-status") || app.Exists("btn-leaderboard") || app.Exists("btn-sign-in") {
 				t.Fatal("leaderboard UI shown without a game service ID")
 			}
 			if n := len(app.GameServicesSubmittedScores()); n != 0 {
