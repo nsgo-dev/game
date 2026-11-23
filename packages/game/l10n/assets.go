@@ -173,12 +173,12 @@ func (c *AssetCatalog) GroupAssets(group string) []string {
 	return out
 }
 
-// Register registers a localized variant path for logical asset name and locale.
+// Register registers a localized variant path for logical asset name and locale. It ignores an empty or invalid name, a locale that is empty or not BCP-47 syntax, and an empty path.
 func (c *AssetCatalog) Register(name, locale, assetPath string) {
 	cleanName := cleanAssetName(name)
 	loc := NormalizeLocale(locale)
 	p := strings.TrimSpace(assetPath)
-	if cleanName == "" || loc == "" || p == "" {
+	if cleanName == "" || loc == "" || !isLocaleTagSyntax(loc) || p == "" {
 		return
 	}
 	c.mu.Lock()
@@ -207,7 +207,7 @@ func (c *AssetCatalog) RegisterMap(name string, variants map[string]string) {
 	for loc, assetPath := range variants {
 		normLoc := NormalizeLocale(loc)
 		p := strings.TrimSpace(assetPath)
-		if normLoc == "" || p == "" {
+		if normLoc == "" || !isLocaleTagSyntax(normLoc) || p == "" {
 			continue
 		}
 		c.registerLocked(cleanName, normLoc, p)
@@ -619,6 +619,10 @@ func cleanAssetName(name string) string {
 	s = strings.TrimPrefix(s, "./")
 	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, "../") {
 		return ""
+	}
+	// Cleaning can expose new surrounding spaces ("a /" becomes "a "), so clean again until the name is a fixed point; each pass is strictly shorter.
+	if t := strings.TrimSpace(s); t != s {
+		return cleanAssetName(t)
 	}
 	return s
 }
