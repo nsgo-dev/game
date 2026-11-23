@@ -29,7 +29,7 @@ const maxRequestBytes = 32 << 10
 //	GET  /v1/me                                            -> profile, with a bearer token
 //	GET  /v1/keys                                          -> the key set as YAML
 //
-// Credentials are {"account", "session", "token", "expires", "created"}, expires in RFC 3339. A bearer token goes in "Authorization: Bearer <token>". Errors are {"error": code} with the status the code implies: invalid_credentials and invalid_token 401, guests_disabled 403, not_found 404, taken and already_linked 409, request_too_large 413, bad_request, invalid_email, weak_password and unknown_provider 400, and internal 500.
+// Credentials are {"account", "session", "token", "expires", "created"}, expires in RFC 3339. A bearer token goes in "Authorization: Bearer <token>". Errors are {"error": code} with the status the code implies: invalid_credentials and invalid_token 401, guests_disabled 403, not_found 404, taken and already_linked 409, request_too_large 413, bad_request, invalid_email, weak_password and unknown_provider 400, unavailable 503 when the request was cancelled or timed out (for example waiting for a password hash slot under load), and internal 500.
 //
 // The handler does not limit request rates; put it behind a rate limiter, and behind TLS.
 func (s *Service) Handler() http.Handler {
@@ -233,7 +233,7 @@ func writeDone(w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeError writes the response for err. Errors outside the service's contract become a bare 500; the service has logged them.
+// writeError writes the response for err. A cancelled or timed-out request becomes 503 unavailable, which the service does not log; any other error outside the service's contract becomes a bare 500, and the service has logged it.
 func writeError(w http.ResponseWriter, err error) {
 	codes := []struct {
 		err    error
@@ -248,6 +248,8 @@ func writeError(w http.ResponseWriter, err error) {
 		{ErrInvalidEmail, http.StatusBadRequest, "invalid_email"},
 		{ErrWeakPassword, http.StatusBadRequest, "weak_password"},
 		{ErrUnknownProvider, http.StatusBadRequest, "unknown_provider"},
+		{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
+		{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
 	}
 	for _, c := range codes {
 		if errors.Is(err, c.err) {

@@ -1,6 +1,6 @@
 name: Test
 
-# Tests every package headless with the nsgo tool on Linux and macOS.
+# Tests every package headless with the nsgo tool on Linux and macOS, and the Postgres account store against a Postgres service.
 on:
   push:
     branches:
@@ -40,3 +40,37 @@ jobs:
       - name: Test
         working-directory: packages/game
         run: go tool nsgo test ./...
+
+  # The Postgres store's tests skip without a database, so this job gives them one.
+  postgres:
+    name: Test (Postgres store)
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:a77aa70e641402a21411b92b721c58d10f23b50ae5fdd2333efd22d166e1e5f7
+        env:
+          POSTGRES_PASSWORD: accounts-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Test the Postgres store
+        working-directory: packages/game
+        env:
+          ACCOUNTS_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
+        run: go tool nsgo test ./accounts/pgstore/...
