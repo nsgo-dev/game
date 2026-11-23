@@ -18,3 +18,6 @@ tracks:
     keys:
       - time: 0
         value: 0
+events:
+  - time: 0.75
+    name: flare
