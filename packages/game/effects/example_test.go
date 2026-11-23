@@ -41,3 +41,10 @@ func ExampleCompile() {
 	fmt.Println(post.Len(), len(u))
 	// Output: 2 2
 }
+
+func ExampleBloom() {
+	post := effects.MustCompile(effects.Bloom())
+	u := post.Uniforms([]core.Uniforms{{"Threshold": 0.6, "Intensity": 1.5, "Radius": 4}})
+	fmt.Println(len(u), post.HasUniform(0, "Radius"))
+	// Output: 3 true
+}
