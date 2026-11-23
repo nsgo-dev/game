@@ -101,7 +101,7 @@ loop := &game.Loop{
 
 - **轻点锁存（Tap latching）**：在两个固定步长之间完成按下并抬起的快速点击会被锁存，确保在下一个步长仍能触发一次 `Pressed` / `JustPressed`，并在再下一步触发 `JustReleased`。
 - **`Axis(name)`**：仅负向动作按下时返回 `-1`，仅正向动作按下时返回 `+1`，两者都不按或同时按下时返回 `0`。若 `name` 未绑定为轴，则回退为同名动作按下时返回 `1`、否则返回 `0`。
-- **`Reset()`**：清空活动触摸、按住的鼠标键、待处理的锁存、鼠标相对移动与当前步长快照，并释放 `LockPointer` 取得的指针锁定，同时保留所有绑定。请在失焦、切后台或切换场景时调用，防止按键卡死。
+- **`Reset()`**：清空活动触摸、按住的鼠标键、待处理的锁存、鼠标相对移动与当前步长快照，同时保留所有绑定和指针锁定，因此切换场景后鼠标视角仍然有效。请在失焦、切后台或切换场景时调用，防止按键卡死。
 
 ## 通过指针锁定实现鼠标视角
 
@@ -116,9 +116,7 @@ actions.BindPointerAxis("pitch", input.PointerY, input.PointerAxisOptions{Sensit
 view := core.View{
 	Ref: &gameRef,
 	OnPress: func(core.PressEvent) {
-		if !actions.PointerLocked() {
-			actions.LockPointer(cx, &gameRef)
-		}
+		actions.LockPointer(cx, &gameRef)
 	},
 }
 actions.Attach(&view)
@@ -131,9 +129,9 @@ camera.Pitch += actions.Delta("pitch")
 - `PointerX` 读取向右的移动，`PointerY` 读取向下的移动，单位与视图的 `OnPointerDelta` 报告的一致。`Sensitivity` 对其缩放（为零时取 1），`Invert` 取反。
 - `Delta(name)` 返回自上一次 `Step` 以来经缩放的移动量，不做截断，因此快速甩动比缓慢移动让相机转得更多。`PointerDelta()` 返回这一步未经缩放的 `(dx, dy)`。`Axis(name)` 把经缩放的移动量与绑定到同名 `name` 的其他轴相加，并把总和截断到 `[-1, 1]`，适合配合较小的 `Sensitivity` 做转向。
 - 视图只在持有锁定时才收到移动：`Attach` 会把它的 `OnPointerDelta` 转发给 `actions.OnPointerDelta`。
-- 当 `cx.Env().CanLockPointer()` 为 false 或视图未挂载时，`LockPointer(cx, &ref)` 返回 `false` 且不做任何事。请在按下事件中调用它，因为浏览器只在用户手势期间授予锁定。Wayland 下的 Linux 需要支持指针约束与相对移动的合成器。
-- `UnlockPointer()` 释放锁定，平台会在原来的位置重新显示指针。`Reset()` 也会释放锁定。释放前收到的移动仍会计入下一步。
-- 按下 Escape、窗口失去焦点、隐藏或移除视图同样会释放锁定，但 NSGo 不会通知应用，因此在 `UnlockPointer` 或 `Reset` 之前，`PointerLocked()` 报告的是 `actions` 请求过的锁定。请在失焦时调用 `Reset`，并在下一次按下时重新锁定；已锁定时再次锁定会替换之前的锁定。
+- 当 `cx.Env().CanLockPointer()` 为 false 或视图已被移除时，`LockPointer(cx, &ref)` 返回 `false` 且不做任何事。请在每次按下时调用它，因为浏览器只在用户手势期间授予锁定；再次锁定会替换之前的锁定。Wayland 下的 Linux 需要支持指针约束与相对移动的合成器。
+- `UnlockPointer()` 释放锁定，平台会在原来的位置重新显示指针。释放前收到的移动仍会计入下一步。`Reset()` 不会释放锁定。
+- 按下 Escape、窗口失去焦点、隐藏或移除视图同样会释放锁定，但 NSGo 不会通知应用。因此 `PointerLockRequested()` 只报告 `actions` 是否持有一个尚未被 `UnlockPointer` 释放的请求，而不是平台是否仍持有锁定，请不要用它来决定是否重新锁定或显示恢复提示。下一次按下会重新锁定。
 
 指针轴会与其他绑定一起保存和加载。
 

@@ -251,7 +251,7 @@ func (a *Actions) recordPadAxis(name string, v float64) {
 	a.padAxes[name] = clampAxis(a.padAxes[name] + v)
 }
 
-// Reset clears active touches, held mouse buttons, pending latches, motion readings, relative mouse motion and the current step snapshot, and releases a pointer lock from LockPointer, keeping all action, axis and calibration settings. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
+// Reset clears active touches, held mouse buttons, pending latches, motion readings, relative mouse motion and the current step snapshot, keeping all action, axis and calibration settings and any pointer lock, so mouselook survives a scene change; UnlockPointer releases the lock. Call it on focus loss, backgrounding or a scene change so no action stays stuck.
 func (a *Actions) Reset() {
 	clear(a.touches)
 	a.mousePos = core.Point{}

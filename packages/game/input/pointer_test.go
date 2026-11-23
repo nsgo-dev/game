@@ -15,7 +15,7 @@ type lookStep struct {
 	dx, dy     float64
 	yaw, pitch float64
 	axis       float64
-	locked     bool
+	requested  bool
 }
 
 type lookHarness struct {
@@ -55,10 +55,10 @@ func startLook(t *testing.T, env core.Environment) *lookHarness {
 				dx, dy := h.actions.PointerDelta()
 				h.steps = append(h.steps, lookStep{
 					dx: dx, dy: dy,
-					yaw:    h.actions.Delta("yaw"),
-					pitch:  h.actions.Delta("pitch"),
-					axis:   h.actions.Axis("steer"),
-					locked: h.actions.PointerLocked(),
+					yaw:       h.actions.Delta("yaw"),
+					pitch:     h.actions.Delta("pitch"),
+					axis:      h.actions.Axis("steer"),
+					requested: h.actions.PointerLockRequested(),
 				})
 			},
 		}
@@ -97,13 +97,13 @@ func TestPointerLockFeedsLookAxesOncePerStep(t *testing.T) {
 	h.app.PointerDelta(4, -2)
 	h.app.PointerDelta(6, 10)
 	got := h.step()
-	want := lookStep{dx: 10, dy: 8, yaw: 5, pitch: -2, axis: 1, locked: true}
+	want := lookStep{dx: 10, dy: 8, yaw: 5, pitch: -2, axis: 1, requested: true}
 	if got != want {
 		t.Fatalf("locked step: got %+v, want %+v", got, want)
 	}
 
 	// The next step without motion reads nothing, and a small motion stays inside the clamp.
-	if got := h.step(); got != (lookStep{locked: true}) {
+	if got := h.step(); got != (lookStep{requested: true}) {
 		t.Fatalf("still step: got %+v", got)
 	}
 	h.app.PointerDelta(-3, 0)
@@ -120,8 +120,8 @@ func TestUnlockPointerRestoresThePointer(t *testing.T) {
 	h.app.Post(h.actions.UnlockPointer)
 	h.app.Settle()
 	got := h.step()
-	if got.dx != 2 || got.locked {
-		t.Fatalf("motion before the release: got %+v, want dx 2 and unlocked", got)
+	if got.dx != 2 || got.requested {
+		t.Fatalf("motion before the release: got %+v, want dx 2 and no request", got)
 	}
 
 	// The platform no longer holds a lock: motion does not arrive and Escape reaches the focused view.
@@ -138,7 +138,7 @@ func TestUnlockPointerRestoresThePointer(t *testing.T) {
 	// Locking again resumes the look, and while the game holds the lock the platform takes Escape to release it, so the view never hears the key.
 	h.app.Press("id:game")
 	h.app.PointerDelta(1, 0)
-	if got := h.step(); got.dx != 1 || !got.locked {
+	if got := h.step(); got.dx != 1 || !got.requested {
 		t.Fatalf("relocked: got %+v", got)
 	}
 	h.app.Focus("id:game")
@@ -146,24 +146,34 @@ func TestUnlockPointerRestoresThePointer(t *testing.T) {
 	if len(h.keys) != 1 {
 		t.Fatalf("a held lock let Escape through: %q", h.keys)
 	}
+	// NSGo does not tell the app that Escape released the lock, so the request stays while no motion arrives.
 	h.app.PointerDelta(5, 5)
-	if got := h.step(); got.dx != 0 {
-		t.Fatalf("motion after Escape: got %+v", got)
+	if got := h.step(); got != (lookStep{requested: true}) {
+		t.Fatalf("motion after Escape: got %+v, want no motion and the stale request", got)
+	}
+
+	// The next press locks again without UnlockPointer first.
+	h.app.Press("id:game")
+	h.app.PointerDelta(2, 0)
+	if got := h.step(); got.dx != 2 || !got.requested {
+		t.Fatalf("relocked after Escape: got %+v", got)
 	}
 }
 
-func TestResetReleasesThePointerLock(t *testing.T) {
+func TestResetKeepsThePointerLock(t *testing.T) {
 	h := startLook(t, desktopEnv(true))
 	h.app.Press("id:game")
 	h.app.PointerDelta(7, 7)
 	h.app.Post(h.actions.Reset)
 	h.app.Settle()
-	if got := h.step(); got != (lookStep{}) {
-		t.Fatalf("after Reset: got %+v, want nothing", got)
+	if got := h.step(); got != (lookStep{requested: true}) {
+		t.Fatalf("after Reset: got %+v, want no motion and the lock kept", got)
 	}
+
+	// Play goes on after Reset, as across a scene change, without another press.
 	h.app.PointerDelta(3, 3)
-	if got := h.step(); got != (lookStep{}) {
-		t.Fatalf("Reset left the pointer locked: %+v", got)
+	if got := h.step(); got.dx != 3 || got.dy != 3 || !got.requested {
+		t.Fatalf("motion after Reset: got %+v", got)
 	}
 }
 
@@ -179,7 +189,7 @@ func TestLockPointerReportsAnUnsupportedSurface(t *testing.T) {
 	}
 
 	a := input.NewActions()
-	if a.LockPointer(nil, nil) || a.PointerLocked() {
+	if a.LockPointer(nil, nil) || a.PointerLockRequested() {
 		t.Fatal("LockPointer without a scope or ref locked")
 	}
 	a.UnlockPointer()
@@ -211,6 +221,23 @@ func TestPointerAxisBindingsAndNonFiniteMotion(t *testing.T) {
 	if got := a.Axis("look_x"); got != -1 {
 		t.Fatalf("Axis = %v, want -1", got)
 	}
+	// Scaled motion that overflows saturates instead of reading as no motion.
+	a.BindPointerAxis("fast", input.PointerX, input.PointerAxisOptions{Sensitivity: 2})
+	a.BindPointerAxis("fast_inv", input.PointerX, input.PointerAxisOptions{Sensitivity: 2, Invert: true})
+	a.OnPointerDelta(math.MaxFloat64, 0)
+	a.Step()
+	if got := a.Delta("fast"); got != math.MaxFloat64 {
+		t.Fatalf("overflowing Delta = %v, want MaxFloat64", got)
+	}
+	if got := a.Delta("fast_inv"); got != -math.MaxFloat64 {
+		t.Fatalf("overflowing inverted Delta = %v, want -MaxFloat64", got)
+	}
+	if got := a.Axis("fast"); got != 1 {
+		t.Fatalf("overflowing Axis = %v, want 1", got)
+	}
+	a.OnPointerDelta(3, 1)
+	a.Step()
+
 	if got := a.Delta("missing"); got != 0 {
 		t.Fatalf("unbound Delta = %v", got)
 	}
