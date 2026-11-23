@@ -35,7 +35,7 @@ if err := store.Load("slot1", &p); errors.Is(err, save.ErrNotFound) {
 }
 ```
 
-使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（同时删除主存档与备份，删除不存在的槽位返回 `nil`）管理存档槽。
+使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（同时删除主存档与备份，删除不存在的槽位返回 `nil`）管理存档槽。来自游戏外部的槽位名（例如云端列表）可用 `save.ValidateSlot(name)` 按同样的规则检查后再交给 `Backend`。
 
 ## 版本信封与数据迁移
 
