@@ -119,3 +119,7 @@ func TestLevel1ClearReplay(t *testing.T) {
 `Run` drives `step` exactly `rec.TotalSteps` times at `rec.StepDuration()` and returns the final state; `AssertEndState` compares it against `want` using your `equal` function (or `reflect.DeepEqual` when `nil`) and fails the test with a clear diagnostic on mismatch.
 
 To check the whole state rather than a hand-picked struct, dump it as text with [`statedump.Run`](statedump.md) and compare it against a golden file.
+
+## Playing recordings in CI
+
+`go tool game replay` plays a project's recordings headless: it checks that every `*.replay.yaml` file under the directories it is given can be played, then runs the tests with `Replay` in their names, such as `TestLevel1ClearReplay` above, and fails when a recording is broken or a run ends in another state than the test expects. See [Command Line](cli.md#replay).

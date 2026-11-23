@@ -1,4 +1,4 @@
-// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor) and build release packages for every platform (release); `game help` lists them and `game help <command>` shows one command's flags.
+// Command game is the game layer's command-line tool, run as `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay) and check benchmarks against a stored baseline (bench); `game help` lists them and `game help <command>` shows one command's flags.
 package main
 
 import (
@@ -20,6 +20,8 @@ type app struct {
 	audio *audioconv.Encoder
 	// launch shows the editor and returns once it closes.
 	launch func(ed *editor.Editor)
+	// nsgo runs `go tool nsgo` with args, for the replay and bench subcommands.
+	nsgo func(args []string, stdout, stderr io.Writer) error
 }
 
 // command is one subcommand of game.
@@ -35,7 +37,7 @@ type command struct {
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
-var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, releaseCommand}
+var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, releaseCommand, replayCommand, benchCommand}
 
 // helpSummary is the help subcommand's line in the listing.
 const helpSummary = "Show the commands, or one command's flags"
@@ -56,6 +58,7 @@ func main() {
 		stderr: os.Stderr,
 		audio:  &audioconv.Encoder{},
 		launch: runEditor,
+		nsgo:   runGoToolNSGo,
 	}))
 }
 

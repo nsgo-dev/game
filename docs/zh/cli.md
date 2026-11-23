@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器和构建发布包。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像，以及对照存储的基线检查基准测试。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -23,11 +23,13 @@ go tool game help
 | `tex` | 把 PNG 或 JPEG 纹理编码为 BC1、BC3、ETC2 或 RGBA8 格式的 KTX2 容器，可选生成 mipmap |
 | `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开演示场景 |
 | `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包 |
+| `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
+| `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单已过期、构建失败、回放的结束状态不一致、基准测试退化）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -101,3 +103,37 @@ export:
 命令只读取 `game.yaml` 的 `version`（必须是整数 1）和 `export` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload` 和 `export`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
 
 一台机器能构建哪些目标，以 `nsgo doctor` 的显示为准：iOS 需要装有 Xcode 的 Mac，macOS 磁盘映像需要在已登录的会话里运行 `hdiutil`，所以为所有平台发布要在 Mac 上运行。
+
+### replay
+
+```sh
+go tool game replay ./...
+go tool game replay -run '^TestBossReplay$' ./levels
+```
+
+无界面回放游戏的[输入录像](replay.md)，供 CI 使用。录像要靠游戏自己的模拟才能回放，所以命令通过游戏的测试来回放：它先加载各目录下的每个 `*.replay.yaml` 文件，只要有一个无法回放（未知的键、表头中没有的名字、乱序的步），或者某个目录里一个录像也没有，就直接失败而不运行任何测试，这样写错的路径不会蒙混通过。随后用 `go tool nsgo test` 无界面运行名字匹配 `-run` 的测试，默认是名字中含 `Replay` 的所有测试，有一个失败命令就失败；一次回放的结束状态与测试期望的不同时，`replay.AssertEndState` 正是让测试失败。请据此给回放录像的测试命名，例如 `TestLevel1ClearReplay`。
+
+每个目录都按 `nsgo test` 的方式当作一棵树：无论末尾有没有 `/...`，其子目录都会被搜索和测试，跳过名字以 `.` 或 `_` 开头的目录和嵌套模块，但不跳过 `testdata`。默认是 `./...`。命令会运行 `go tool nsgo`，因此模块需要像 NSGo 应用那样把 NSGo 的命令加为工具。
+
+### bench
+
+```sh
+go tool game bench ./sprite ./tilemap
+go tool game bench -update ./sprite ./tilemap
+go tool game bench -in bench.txt
+```
+
+用 `go tool nsgo test -bench` 无界面运行各目录下的基准测试，共运行 `-count` 次（默认 3 次），每次运行 `-benchtime`（默认 200ms），取每个基准测试每次操作的耗时、字节数和分配次数的中位数，与 `-baseline` 指定的基线文件比较，默认是 `benchmarks/baseline.yaml`。它为基线中的每个基准测试打印一行，有一项超过限度或者没有测到，或者基线中没有任何基准测试时失败；测到了但基线中没有的基准测试列为新增，不算失败。`-bench` 像 `go test -bench` 那样缩小运行的范围。`-in` 从一个 `go test -bench -benchmem` 输出文件读取结果，不运行任何东西。
+
+`-update` 改为把测得的中位数写入基线，基线不存在时创建它，并保留这次没有测到的基准测试。基线是 YAML 文本文件，可以像其他文件一样审阅和编辑：格式版本、一段备注、各项指标允许退化的百分比，以及按名字排序、每个基准测试一行。加载后再保存不会改变它，未知的键和缺少的指标会被拒绝。
+
+```yaml
+version: 1
+note: Update with go tool game bench -update ./sprite ./tilemap
+max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
+benchmarks:
+  BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}
+  BenchmarkRaycast: {ns_per_op: 15000, bytes_per_op: 0, allocs_per_op: 0}
+```
+
+基准测试的名字不带 `-GOMAXPROCS` 后缀，因此在一台机器上记录的基线可以在另一台机器上读取，但每次操作的耗时取决于机器：请在 CI 检查基线所用的同类机器上记录它。这个格式由 `tooling/bench` 包读写。

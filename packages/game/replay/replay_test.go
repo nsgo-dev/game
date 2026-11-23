@@ -901,7 +901,7 @@ func approxLevelStateEqual(a, b levelState) bool {
 		a.Won == b.Won
 }
 
-func TestGoldenLevelClearRecording(t *testing.T) {
+func TestGoldenLevelClearReplay(t *testing.T) {
 	path := filepath.Join("testdata", "level_clear.replay.yaml")
 	rec, err := replay.LoadFile(path)
 	if err != nil {

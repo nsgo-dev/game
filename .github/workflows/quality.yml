@@ -1,7 +1,6 @@
 name: Quality
 
-# Runs rendering golden tests, performance baseline checks, WebAssembly and
-# mobile (Android AAB / iOS IPA) size budget enforcement, and fuzz smoke tests.
+# Runs rendering golden tests, performance baseline checks, input recordings, WebAssembly and mobile (Android AAB / iOS IPA) size budget enforcement, and fuzz smoke tests.
 on:
   push:
     branches:
@@ -53,13 +52,29 @@ jobs:
           cache-dependency-path: packages/game/go.sum
       - name: Run benchmarks and check baselines
         working-directory: packages/game
-        run: |
-          set -o pipefail
-          go test -run=^$ -bench=. -benchmem -benchtime=200ms -count=3 ./sprite ./tilemap ./bullets | tee /tmp/game-bench.txt
-          go run ./cmd/benchcheck -baseline ../../benchmarks/baseline.json -input /tmp/game-bench.txt
+        run: go tool game bench -baseline ../../benchmarks/baseline.yaml ./sprite ./tilemap ./bullets
       - name: Check the self-hosted leaderboard's 50 ms query budget on a million entries
         working-directory: packages/game
         run: go test -run='^$' -bench='Top|Around|Friends' -benchtime=50x ./leaderboard/selfhost
+
+  replays:
+    name: Input recordings
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: packages/game/go.mod
+          cache: true
+          cache-dependency-path: packages/game/go.sum
+      - name: Play the recordings headless
+        working-directory: packages/game
+        run: go tool game replay ./replay
 
   web-size-budget:
     name: WebAssembly size budget
@@ -183,3 +198,6 @@ jobs:
       - name: Fuzz ParseRules
         working-directory: packages/game
         run: go test -run=^$ -fuzz=^FuzzParseRules$ -fuzztime=10s ./procgen
+      - name: Fuzz bench baseline Decode
+        working-directory: packages/game
+        run: go test -run=^$ -fuzz=^FuzzDecode$ -fuzztime=10s ./tooling/bench
