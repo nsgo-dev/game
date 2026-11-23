@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/debug"
+	"github.com/nsgo-dev/game/packages/game/framedata"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -54,6 +55,11 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	batch := &sprite.Batch{Sprites: []*sprite.Sprite{&sp}}
 	shapes := debug.ShapeOverlay{LineWidth: 2}
 	box := core.Bounds{Origin: core.Point{X: 1, Y: 2}, Size: core.Size{Width: 10, Height: 12}}
+	fighter := &framedata.Fighter{Moves: &framedata.Doc{Version: 1, Moves: []framedata.Move{{
+		Name: "idle", Length: 1, Loop: true,
+		Boxes: []framedata.Box{{Kind: framedata.KindHurt, Start: 1, End: 1, Width: 10, Height: 10}},
+	}}}, Neutral: "idle"}
+	(&framedata.World{Fighters: []*framedata.Fighter{fighter}}).Step()
 
 	var viewNode core.Node
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -80,6 +86,8 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 						shapes.DrawCircle(d, 10, 10, 5, core.RGB(0x38BDF8))
 						shapes.DrawSpriteBounds(d, &sp, core.RGB(0xF59E0B))
 						shapes.DrawBatchBounds(d, batch, core.RGB(0xF59E0B))
+						dbg.DrawFighterBoxes(d, fighter, core.RGB(0x38BDF8), core.RGB(0xEF4444))
+						shapes.DrawFighterBoxes(d, fighter, core.RGB(0x38BDF8), core.RGB(0xEF4444))
 					},
 				},
 				viewNode,
