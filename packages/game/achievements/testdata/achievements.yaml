@@ -1,0 +1,21 @@
+version: 1
+achievements:
+  - id: first-match
+    title: First Match
+    description: Clear your first line of gems.
+    platforms:
+      gameCenter: dev.nsgo.test.first_match
+      playGames: CgkIabc123EAIQAQ
+  - id: gem-collector
+    title: Gem Collector
+    description: Clear 500 gems.
+    steps: 500
+    platforms:
+      gameCenter: dev.nsgo.test.gem_collector
+      playGames: CgkIabc123EAIQAg
+  - id: secret
+    title: 'Secret: the vault'
+    hidden: true
+    platforms:
+      gameCenter: dev.nsgo.test.secret
+  - id: local-only
