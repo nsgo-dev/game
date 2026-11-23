@@ -716,7 +716,7 @@ func TestColorCurveTintsParticleSprites(t *testing.T) {
 // BenchmarkEmitter5000UpdateDraw measures one fixed step and one frame's draw of 5000 live rotating, fading particles through the emitter's sprite.Batch.
 func BenchmarkEmitter5000UpdateDraw(b *testing.B) {
 	const count = 5000
-	e := newConfiguredEmitter(5000)
+	e := newConfiguredEmitter(7)
 	e.Rate = 0
 	e.MaxParticles = count
 	e.LifetimeMin, e.LifetimeMax = time.Hour, time.Hour
@@ -730,6 +730,10 @@ func BenchmarkEmitter5000UpdateDraw(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		e.Update(step)
+		// Particles live an hour of simulated time, so a long -benchtime would otherwise see all 5000 expire on the same step.
+		if n := e.Count(); n < count {
+			e.Burst(count - n)
+		}
 		d.Ops = d.Ops[:0]
 		e.Draw(&d)
 	}

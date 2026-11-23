@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles.
+# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene.
 on:
   push:
     branches:
@@ -174,3 +174,27 @@ jobs:
       - name: Check every chapter's iOS targets
         working-directory: examples/tutorial
         run: go tool nsgo check -target ios,ios_simulator
+
+  fountain:
+    name: Test and check Fountain
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/fountain/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/fountain/go.sum
+            packages/game/go.sum
+      - name: Test Fountain
+        working-directory: examples/fountain
+        run: go tool nsgo test ./...
+      - name: Check Fountain targets
+        working-directory: examples/fountain
+        run: go tool nsgo check -target macos,windows,linux,android,web

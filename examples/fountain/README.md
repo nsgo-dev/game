@@ -4,6 +4,8 @@
 
 It exists to measure how many particles a device draws at its display rate with NSGo's performance monitor.
 
+It is a measurement scene rather than a game, so it is not listed on the website's showcase.
+
 ## Controls
 
 - `Up` / `Down`: raise or lower the particle count by 1000, between 1000 and 20000.

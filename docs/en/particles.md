@@ -202,4 +202,4 @@ cd packages/game && go tool nsgo test -run '^$' -bench Emitter5000UpdateDraw ./p
 cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
-On an AMD Ryzen 9 3900X they take about 1.3 ms and 2.0 ms, well inside the 16.7 ms of a 60 fps frame.
+On an AMD Ryzen 9 3900X (Linux) they take about 1.3 ms and 2.0 ms. That is only the CPU cost of stepping the particles and recording their draw operations: it leaves out the platform replaying about 5000 image draws per frame and the garbage collector reclaiming the allocation each draw makes, so it is not evidence that a device holds 60 fps. A 60 fps reading on macOS with `--nsgo-fps` has not been recorded yet ([nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)).
