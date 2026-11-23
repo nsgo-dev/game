@@ -1,0 +1,31 @@
+version: 1
+abilities:
+  - id: fireball
+    name: ability.fireball
+    action: cast
+    costs:
+      - resource: mana
+        amount: 20
+    cooldown: 2s
+    castTime: 500ms
+    conditions: [grounded, '!silenced']
+  - id: dash
+    action: dash
+    cooldown: 250ms
+    charges: 3
+    recharge: 4s
+  - id: drain
+    action: drain
+    trigger: hold
+    costs:
+      - resource: mana
+        amount: 5
+      - resource: stamina
+        amount: 2.5
+    cooldown: 6s
+    channelTime: 3s
+    tickInterval: 500ms
+    conditions: ['!silenced']
+  - id: potion
+    name: Healing potion
+    cooldown: 1m0s
