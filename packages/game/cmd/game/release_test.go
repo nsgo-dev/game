@@ -102,6 +102,53 @@ func TestReleaseFlagsOverrideGameYAML(t *testing.T) {
 	}
 }
 
+func TestReleaseIgnoresNSGoBuildTargets(t *testing.T) {
+	dir := newGameDir(t, "")
+	if err := os.WriteFile(filepath.Join(dir, "nsgo.yaml"), []byte("name: Test Game\nbuild:\n  output: dist\n  targets: [macos_arm64, ios_simulator, web]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := recordNSGo(t, nil)
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"release", dir}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	want := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "macos,windows,linux,web,ios,android"}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Fatalf("ran %q, want %q", *calls, want)
+	}
+}
+
+func TestReleaseBuildsDesktopForSteam(t *testing.T) {
+	cases := []struct {
+		name, nsgoYAML, gameYAML string
+		args                     []string
+		want                     []string
+	}{
+		{name: "nsgo.yaml channel", nsgoYAML: "updates:\n  channel: steam\n", want: []string{"-target", "macos,windows,linux"}},
+		{name: "-channel flag", args: []string{"-channel", "steam"}, want: []string{"-target", "macos,windows,linux", "-channel", "steam"}},
+		{name: "-channel overrides nsgo.yaml", nsgoYAML: "updates:\n  channel: steam\n", args: []string{"-channel", "direct"}, want: []string{"-target", "macos,windows,linux,web,ios,android", "-channel", "direct"}},
+		{name: "presets win", nsgoYAML: "updates:\n  channel: steam\n", gameYAML: "version: 1\nexport:\n  presets:\n    - platform: windows\n", want: []string{"-target", "windows"}},
+		{name: "-target wins", args: []string{"-channel", "steam", "-target", "linux_x64"}, want: []string{"-target", "linux_x64", "-channel", "steam"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := newGameDir(t, tc.gameYAML)
+			if err := os.WriteFile(filepath.Join(dir, "nsgo.yaml"), []byte("name: Test Game\n"+tc.nsgoYAML), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			calls := recordNSGo(t, nil)
+			a, _, stderr := newTestApp(t)
+			if code := run(append(append([]string{"release"}, tc.args...), dir), a); code != 0 {
+				t.Fatalf("exit %d (stderr: %s)", code, stderr)
+			}
+			want := [][]string{append([]string{"-C", dir, "tool", "nsgo", "build"}, tc.want...)}
+			if !reflect.DeepEqual(*calls, want) {
+				t.Fatalf("ran %q, want %q", *calls, want)
+			}
+		})
+	}
+}
+
 func TestReleaseWithoutPresetsKeepsTheDefaultPlatforms(t *testing.T) {
 	for _, gameYAML := range []string{
 		"version: 1\nname: x\n",
@@ -115,7 +162,7 @@ func TestReleaseWithoutPresetsKeepsTheDefaultPlatforms(t *testing.T) {
 		if settings.Targets != nil {
 			t.Errorf("%q: targets %q, want none", gameYAML, settings.Targets)
 		}
-		args, err := releaseArgs("/game", releaseOptions{}, settings)
+		args, err := releaseArgs("/game", releaseOptions{}, settings, nsgoSettings{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,6 +219,7 @@ func TestReleaseErrors(t *testing.T) {
 		{name: "empty target", args: []string{"-target", "web,"}, code: 2, want: "names an empty target"},
 		{name: "no nsgo.yaml", noNSGo: true, code: 1, want: "has no nsgo.yaml"},
 		{name: "bad game.yaml", gameYAML: "version: 2\n", code: 1, want: "unsupported version 2"},
+		{name: "misspelt export", gameYAML: "version: 1\nexprot:\n  presets: [{platform: web}]\n", code: 1, want: `line 2: unknown field "exprot" in game.yaml`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,6 +268,16 @@ func TestParseReleaseSettingsRefusesBadExports(t *testing.T) {
 		{"", "empty file"},
 		{"name: x\n", "version is required"},
 		{"version: 3\n", "unsupported version 3"},
+		{"version: 1.5\n", `version "1.5" must be the integer 1`},
+		{"version: 1.0\n", `version "1.0" must be the integer 1`},
+		{"version: '1'\n", `version "1" must be the integer 1`},
+		{"version:\n", "must be the integer 1"},
+		{"version: [1]\n", "must be the integer 1"},
+		{"- version: 1\n", "line 1: the file must be a mapping of fields"},
+		{"version: 1\nexprot:\n  presets: [{platform: web}]\n", `line 2: unknown field "exprot" in game.yaml`},
+		{"version: 1\nexports: {}\n", `line 2: unknown field "exports" in game.yaml`},
+		{"version: 1\nversion: 1\n", "already"},
+		{"version: 1\nexport:\n  presets: []\n", "line 3: export presets must name at least one platform"},
 		{"version: 1\n---\nversion: 1\n", "trailing YAML document"},
 		{"version: [\n", "yaml"},
 		{"version: 1\nexport:\n  out: dist\n", `line 3: unknown field "out" in export`},
@@ -229,6 +287,8 @@ func TestParseReleaseSettingsRefusesBadExports(t *testing.T) {
 		{"version: 1\nexport:\n  output: /dist\n", "inside the project"},
 		{"version: 1\nexport:\n  output: .\n", "inside the project"},
 		{"version: 1\nexport:\n  output: 'a\\b'\n", "inside the project"},
+		{"version: 1\nexport:\n  output: C:/builds\n", "inside the project"},
+		{"version: 1\nexport:\n  output: 'C:builds'\n", "inside the project"},
 		{"version: 1\nexport:\n  presets:\n    - platform: dos\n", `export platform "dos" must be one of`},
 		{"version: 1\nexport:\n  presets:\n    - platform: web\n    - platform: web\n", `duplicate export preset for platform "web"`},
 		{"version: 1\nexport:\n  presets:\n    - platform: macos\n      targets: [windows_x64]\n", `target "windows_x64" must be one of macos_arm64, macos_x64, macos_universal`},
@@ -244,14 +304,14 @@ func TestParseReleaseSettingsRefusesBadExports(t *testing.T) {
 }
 
 func TestParseReleaseSettingsFollowsAliases(t *testing.T) {
-	settings, err := parseReleaseSettings([]byte("version: 1\nweb: &web {platform: web}\nexport:\n  presets: [*web, {platform: ios, targets: [ios_simulator]}]\n"))
+	settings, err := parseReleaseSettings([]byte("version: 1\ndisplay: &web {platform: web}\nexport:\n  presets: [*web, {platform: ios, targets: [ios_simulator]}]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"web", "ios_simulator"}; !reflect.DeepEqual(settings.Targets, want) {
 		t.Fatalf("targets %q, want %q", settings.Targets, want)
 	}
-	if _, err := parseReleaseSettings([]byte("version: 1\nbad: &bad {platform: web, nope: 1}\nexport:\n  presets: [*bad]\n")); err == nil || !strings.Contains(err.Error(), `unknown field "nope"`) {
+	if _, err := parseReleaseSettings([]byte("version: 1\ndisplay: &bad {platform: web, nope: 1}\nexport:\n  presets: [*bad]\n")); err == nil || !strings.Contains(err.Error(), `unknown field "nope"`) {
 		t.Fatalf("aliased unknown field: %v", err)
 	}
 }
@@ -282,7 +342,7 @@ func FuzzParseReleaseSettings(f *testing.F) {
 				t.Fatalf("target %q is neither a platform nor a target", target)
 			}
 		}
-		if _, err := releaseArgs("/game", releaseOptions{}, settings); err != nil {
+		if _, err := releaseArgs("/game", releaseOptions{}, settings, nsgoSettings{}); err != nil {
 			t.Fatal(err)
 		}
 	})

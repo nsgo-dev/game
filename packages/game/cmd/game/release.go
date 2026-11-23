@@ -28,6 +28,9 @@ var releaseCommand = &command{
 // releasePlatforms are what game release builds when neither -target nor game.yaml's export presets say otherwise, as nsgo build -target names them: macos, windows, linux and android expand to their architectures, and ios and web are one target each.
 var releasePlatforms = []string{"macos", "windows", "linux", "web", "ios", "android"}
 
+// steamPlatforms are what game release builds by default for the steam channel, whose depots nsgo build makes only of desktop targets.
+var steamPlatforms = []string{"macos", "windows", "linux"}
+
 // gameFileName is the project file at a game's root whose export section game release reads.
 const gameFileName = "game.yaml"
 
@@ -66,9 +69,12 @@ type releaseSettings struct {
 	Targets []string
 }
 
+// gameFileKeys are game.yaml's top-level fields, those of the project file's schema (#488), so that a misspelt section such as exprot is refused rather than ignored.
+var gameFileKeys = []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export"}
+
 // gameFileHead is game.yaml's version and export section, decoded on their own so the rest of the file, whose schema is package project's (#488), is left to it.
 type gameFileHead struct {
-	Version *int      `yaml:"version"`
+	Version yaml.Node `yaml:"version"`
 	Export  yaml.Node `yaml:"export"`
 }
 
@@ -84,11 +90,11 @@ type exportPreset struct {
 	Targets  []string `yaml:"targets"`
 }
 
-// parseReleaseSettings reads the version and export section of a game.yaml, refusing another version, unknown fields in export, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project.
+// parseReleaseSettings reads the version and export section of a game.yaml, refusing unknown top-level fields, a version other than the integer 1, unknown fields in export, an empty preset list, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project.
 func parseReleaseSettings(data []byte) (releaseSettings, error) {
-	var head gameFileHead
+	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&head); err != nil {
+	if err := dec.Decode(&doc); err != nil {
 		if errors.Is(err, io.EOF) {
 			return releaseSettings{}, errors.New("empty file")
 		}
@@ -101,11 +107,28 @@ func parseReleaseSettings(data []byte) (releaseSettings, error) {
 		}
 		return releaseSettings{}, err
 	}
-	if head.Version == nil {
+	root := resolveAlias(doc.Content[0])
+	if root.Kind != yaml.MappingNode {
+		return releaseSettings{}, fmt.Errorf("line %d: the file must be a mapping of fields", root.Line)
+	}
+	if err := knownFields(root, "game.yaml", gameFileKeys...); err != nil {
+		return releaseSettings{}, err
+	}
+	var head gameFileHead
+	if err := root.Decode(&head); err != nil {
+		return releaseSettings{}, err
+	}
+	version := resolveAlias(&head.Version)
+	if version.Kind == 0 {
 		return releaseSettings{}, errors.New("version is required")
 	}
-	if *head.Version != gameFileVersion {
-		return releaseSettings{}, fmt.Errorf("unsupported version %d (want %d)", *head.Version, gameFileVersion)
+	// The tag is checked before decoding, since yaml.v3 would truncate a float such as 1.9 to the int 1.
+	var v int
+	if version.Kind != yaml.ScalarNode || version.Tag != "!!int" || version.Decode(&v) != nil {
+		return releaseSettings{}, fmt.Errorf("line %d: version %q must be the integer %d", version.Line, version.Value, gameFileVersion)
+	}
+	if v != gameFileVersion {
+		return releaseSettings{}, fmt.Errorf("unsupported version %d (want %d)", v, gameFileVersion)
 	}
 	if head.Export.Kind == 0 || head.Export.Tag == "!!null" {
 		return releaseSettings{}, nil
@@ -115,6 +138,9 @@ func parseReleaseSettings(data []byte) (releaseSettings, error) {
 		return releaseSettings{}, err
 	}
 	if presets := field(&head.Export, "presets"); presets != nil && presets.Kind == yaml.SequenceNode {
+		if len(presets.Content) == 0 {
+			return releaseSettings{}, fmt.Errorf("line %d: export presets must name at least one platform; leave presets out to build the default platforms", presets.Line)
+		}
 		for _, p := range presets.Content {
 			if err := knownFields(p, "export preset", "platform", "targets"); err != nil {
 				return releaseSettings{}, err
@@ -125,7 +151,8 @@ func parseReleaseSettings(data []byte) (releaseSettings, error) {
 	if err := head.Export.Decode(&export); err != nil {
 		return releaseSettings{}, fmt.Errorf("export: %w", err)
 	}
-	if o := export.Output; o != "" && (o == "." || !fs.ValidPath(o) || strings.Contains(o, `\`)) {
+	// A colon is refused as well as fs.ValidPath's rejects, since C:/builds is a valid slash path that Windows reads as a drive outside the project.
+	if o := export.Output; o != "" && (o == "." || !fs.ValidPath(o) || strings.ContainsAny(o, `\:`)) {
 		return releaseSettings{}, fmt.Errorf("export output %q must be a slash-separated directory inside the project", o)
 	}
 	settings := releaseSettings{Output: export.Output}
@@ -227,9 +254,36 @@ func readReleaseSettings(dir string) (releaseSettings, error) {
 	return settings, nil
 }
 
+// nsgoSettings are the parts of nsgo.yaml that game release reads.
+type nsgoSettings struct {
+	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
+	Channel string
+}
+
+// readNSGoSettings reads dir's nsgo.yaml. The file is nsgo's, which validates it when it builds, so fields game release does not read are left alone rather than refused.
+func readNSGoSettings(dir string) (nsgoSettings, error) {
+	path := filepath.Join(dir, "nsgo.yaml")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nsgoSettings{}, fmt.Errorf("%s has no nsgo.yaml; run game release in the game's root or name it", dir)
+	}
+	if err != nil {
+		return nsgoSettings{}, err
+	}
+	var file struct {
+		Updates struct {
+			Channel string `yaml:"channel"`
+		} `yaml:"updates"`
+	}
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return nsgoSettings{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return nsgoSettings{Channel: file.Updates.Channel}, nil
+}
+
 // releaseOptions are game release's flags.
 type releaseOptions struct {
-	// targets is -target, comma-separated; empty takes game.yaml's presets, else releasePlatforms.
+	// targets is -target, comma-separated; empty takes game.yaml's presets, else steamPlatforms for the steam channel, else releasePlatforms.
 	targets string
 	// output is -output; empty takes game.yaml's export.output, else nsgo.yaml's build.output.
 	output string
@@ -241,9 +295,16 @@ type releaseOptions struct {
 	jobs int
 }
 
-// releaseArgs returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then settings, then the defaults. Paths in opts are relative to the working directory, and game.yaml's output to dir.
-func releaseArgs(dir string, opts releaseOptions, settings releaseSettings) ([]string, error) {
+// releaseArgs returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then game.yaml's settings, then the defaults, the channel coming from opts, then nsgo.yaml. nsgo.yaml's build.targets is not a default: it is plain nsgo build's everyday list, which in the starter holds a simulator build and leaves out Linux. Paths in opts are relative to the working directory, and game.yaml's output to dir.
+func releaseArgs(dir string, opts releaseOptions, settings releaseSettings, nsgo nsgoSettings) ([]string, error) {
 	targets := releasePlatforms
+	channel := opts.channel
+	if channel == "" {
+		channel = nsgo.Channel
+	}
+	if channel == "steam" {
+		targets = steamPlatforms
+	}
 	if settings.Targets != nil {
 		targets = settings.Targets
 	}
@@ -299,7 +360,7 @@ func shellQuote(args []string) string {
 
 func defineRelease(a *app, fs *flag.FlagSet) func() error {
 	var opts releaseOptions
-	fs.StringVar(&opts.targets, "target", "", "comma-separated nsgo build `targets` (default: game.yaml's export presets, else "+strings.Join(releasePlatforms, ",")+")")
+	fs.StringVar(&opts.targets, "target", "", "comma-separated nsgo build `targets` (default: game.yaml's export presets, else "+strings.Join(releasePlatforms, ",")+", or "+strings.Join(steamPlatforms, ",")+" for the steam channel)")
 	fs.StringVar(&opts.output, "output", "", "the output `directory` (default: game.yaml's export.output, else nsgo.yaml's build.output)")
 	fs.StringVar(&opts.channel, "channel", "", "the `channel` the packages are handed out through: direct, store, steam or none (default: nsgo.yaml's updates.channel)")
 	fs.StringVar(&opts.notes, "release-notes", "", "a Markdown `file` of the release's notes for the update prompts")
@@ -321,17 +382,15 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		if err != nil {
 			return err
 		}
-		if _, err := os.Stat(filepath.Join(dir, "nsgo.yaml")); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("%s has no nsgo.yaml; run game release in the game's root or name it", dir)
-			}
+		nsgo, err := readNSGoSettings(dir)
+		if err != nil {
 			return err
 		}
 		settings, err := readReleaseSettings(dir)
 		if err != nil {
 			return err
 		}
-		args, err := releaseArgs(dir, opts, settings)
+		args, err := releaseArgs(dir, opts, settings, nsgo)
 		if err != nil {
 			return err
 		}
