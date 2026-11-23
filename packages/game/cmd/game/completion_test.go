@@ -272,10 +272,21 @@ func TestZshCompletion(t *testing.T) {
 	}
 }
 
-// bashCapture sources the script and, for each line, sets COMP_WORDS and COMP_CWORD as bash does when Tab is pressed, splitting = into a word of its own, calls _game and prints COMPREPLY under a "## line" header.
+// bashCapture sources the script and, for each line, sets COMP_WORDS and COMP_CWORD as bash does when Tab is pressed, splitting = into a word of its own, calls _game and prints COMPREPLY under a "## line" header. A directory gets the / that bash adds only when the script marked the results as file names, either with compopt -o filenames (which works only inside real completion, so a function stands in for it and records the call) or, in bash 3.2 where there is no compopt, by registering _game with -o filenames.
 const bashCapture = `
 source "$1" || exit 3
 shift
+case $(complete -p game) in
+*'-o filenames'*) registered=1 ;;
+*) registered= ;;
+esac
+if type compopt >/dev/null 2>&1; then
+	compopt() {
+		case " $* " in
+		*' -o filenames '*) marked=1 ;;
+		esac
+	}
+fi
 for line in "$@"; do
 	split=${line//=/ = }
 	read -r -a COMP_WORDS <<<"$split"
@@ -284,10 +295,11 @@ for line in "$@"; do
 	esac
 	COMP_CWORD=$((${#COMP_WORDS[@]} - 1))
 	COMPREPLY=()
+	marked=$registered
 	_game
 	echo "## $line"
 	for w in "${COMPREPLY[@]}"; do
-		if [ -d "$w" ]; then w="$w/"; fi
+		if [ -n "$marked" ] && [ -d "$w" ]; then w="$w/"; fi
 		case ${COMP_WORDS[COMP_CWORD-1]} in
 		=) w="${COMP_WORDS[COMP_CWORD-2]}=$w" ;;
 		esac
@@ -309,7 +321,18 @@ func TestBashCompletion(t *testing.T) {
 	for _, tc := range completionCases {
 		args = append(args, tc.line)
 	}
-	checkCompletions(t, "bash", runShell(t, dir, "bash", args...))
+	// macOS ships bash 3.2 as /bin/bash, which has no compopt, while bash on $PATH may be a newer one, so both run where they differ.
+	shells := []string{"bash"}
+	if path, err := exec.LookPath("bash"); err == nil {
+		onPath, err1 := filepath.EvalSymlinks(path)
+		system, err2 := filepath.EvalSymlinks("/bin/bash")
+		if err1 == nil && err2 == nil && onPath != system {
+			shells = append(shells, "/bin/bash")
+		}
+	}
+	for _, shell := range shells {
+		checkCompletions(t, shell, runShell(t, dir, shell, args...))
+	}
 }
 
 func TestFishCompletion(t *testing.T) {

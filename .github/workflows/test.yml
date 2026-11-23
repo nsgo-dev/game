@@ -37,6 +37,10 @@ jobs:
           go-version-file: packages/game/go.mod
           cache: true
           cache-dependency-path: packages/game/go.sum
+      # The game command's completion tests drive each shell it writes a script for, and fish is the one the runners lack.
+      - name: Install fish
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fish
       - name: Test
         working-directory: packages/game
         run: go tool nsgo test ./...

@@ -356,7 +356,7 @@ func zshCompletes(c completion) string {
 	return "compadd -- " + quoteAll(c.words, shQuote, " ")
 }
 
-// writeBash writes the bash completion script for specs, which works in bash 3.2 as macOS ships it.
+// writeBash writes the bash completion script for specs, which works in bash 3.2 as macOS ships it, where there is no compopt and the function is registered with -o filenames instead.
 func writeBash(w io.Writer, specs []commandSpec) {
 	var b strings.Builder
 	b.WriteString("# bash completion for game, written by `game completion bash`. Save it as game in bash-completion's completions directory, or save it anywhere and source that file from ~/.bashrc.\n\n")
@@ -368,9 +368,12 @@ __game_reply() {
 	done < <(compgen "$@")
 }
 
+# __game_files completes $1 as a path. Where compopt exists (bash 4 and later) it marks just these results as file names, so bash quotes them and adds / to a directory; bash 3.2 has no compopt, so there the whole function is registered with -o filenames instead.
 __game_files() {
 	__game_reply -f -- "$1"
-	compopt -o filenames 2>/dev/null
+	if type compopt >/dev/null 2>&1; then
+		compopt -o filenames
+	fi
 }
 
 `)
@@ -463,7 +466,11 @@ __game_files() {
 	esac
 }
 
-complete -F _game game
+if type compopt >/dev/null 2>&1; then
+	complete -F _game game
+else
+	complete -o filenames -F _game game
+fi
 `)
 	_, _ = io.WriteString(w, b.String())
 }
@@ -489,6 +496,38 @@ function __game_using
     test (count $tokens) -ge 2; and test "$tokens[2]" = $argv[1]
 end
 
+`)
+	b.WriteString("function __game_takes_value\n    switch \"$argv[1]:$argv[2]\"\n")
+	var valueFlags []string
+	for _, s := range specs {
+		for _, f := range s.flags {
+			if f.takesValue {
+				valueFlags = append(valueFlags, fishQuote(s.name+":"+f.name))
+			}
+		}
+	}
+	if len(valueFlags) > 0 {
+		fmt.Fprintf(&b, "        case %s\n            return 0\n", strings.Join(valueFlags, " "))
+	}
+	b.WriteString("    end\n    return 1\nend\n\n")
+	b.WriteString(`# __game_in_flags succeeds when the command is $argv[1] and the word being completed may still be one of its flags: Go's flag package reads flags up to the first argument that is not one, or --, so it walks the words after the command, skipping a flag's value.
+function __game_in_flags
+    set -l tokens (commandline -opc)
+    test (count $tokens) -ge 2; and test "$tokens[2]" = $argv[1]; or return 1
+    set -l i 3
+    while test $i -le (count $tokens)
+        set -l word $tokens[$i]
+        if contains -- $word - --; or not string match -q -- '-*' $word
+            return 1
+        end
+        if not string match -q -- '*=*' $word; and __game_takes_value $argv[1] (string replace -r -- '^--?' '' $word)
+            set i (math $i + 1)
+        end
+        set i (math $i + 1)
+    end
+    return 0
+end
+
 complete -c game -f
 `)
 	for _, s := range specs {
@@ -496,8 +535,9 @@ complete -c game -f
 	}
 	for _, s := range specs {
 		cond := fishQuote("__game_using " + s.name)
+		flagCond := fishQuote("__game_in_flags " + s.name)
 		for _, f := range s.flags {
-			fmt.Fprintf(&b, "complete -c game -n %s -o %s", cond, fishQuote(f.name))
+			fmt.Fprintf(&b, "complete -c game -n %s -o %s", flagCond, fishQuote(f.name))
 			switch {
 			case !f.takesValue:
 			case f.value.files:
