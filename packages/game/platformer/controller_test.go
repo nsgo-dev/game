@@ -463,3 +463,164 @@ func BenchmarkControllerStep(b *testing.B) {
 		c.Step(in, grid, nil, nil, dt)
 	}
 }
+
+func TestCoyoteDoesNotReplaceGameLaunch(t *testing.T) {
+	cfg := bare()
+	cfg.CoyoteTime = 100 * time.Millisecond
+	c := newController(t, cfg, 0, 0)
+	c.Body.Grounded = true
+	stepFree(c, platformer.Input{}) // last grounded step
+	c.Body.Body.VY = -600           // a spring the game set
+	r := stepFree(c, platformer.Input{JumpPressed: true, JumpHeld: true})
+	if r.Jump != platformer.JumpNone || c.Body.Body.VY != -600 {
+		t.Fatalf("press inside coyote_time while launched: jump %v VY=%v, want none and -600", r.Jump, c.Body.Body.VY)
+	}
+}
+
+func TestGameLaunchDuringJumpIsNotCut(t *testing.T) {
+	cfg := bare()
+	cfg.JumpCut = 0.5
+	c := newController(t, cfg, 0, 0)
+	c.Body.Grounded = true
+	if r := stepFree(c, platformer.Input{JumpPressed: true, JumpHeld: true}); r.Jump != platformer.JumpGround {
+		t.Fatalf("jump: %v", r.Jump)
+	}
+	c.Body.Body.VY = -600 // a spring hit while still rising with the button held
+	if r := stepFree(c, platformer.Input{}); r.JumpCut || c.Body.Body.VY != -600 {
+		t.Fatalf("release after a spring: cut=%v VY=%v, want no cut and -600", r.JumpCut, c.Body.Body.VY)
+	}
+}
+
+func TestJumpCutZeroStopsTheRise(t *testing.T) {
+	cfg := bare()
+	cfg.JumpCut = 0
+	c := newController(t, cfg, 0, 0)
+	c.Body.Grounded = true
+	stepFree(c, platformer.Input{JumpPressed: true, JumpHeld: true})
+	if r := stepFree(c, platformer.Input{}); !r.JumpCut || c.Body.Body.VY != 0 {
+		t.Fatalf("jump_cut 0 release: cut=%v VY=%v, want cut and 0", r.JumpCut, c.Body.Body.VY)
+	}
+}
+
+// TestWindowsAtSixtyHertz steps at game.Loop's default dt, time.Second/60 truncated to 16666666ns, where a whole number of nominal steps must not gain a step.
+func TestWindowsAtSixtyHertz(t *testing.T) {
+	dt := time.Second / 60
+	free := func(c *platformer.Controller, in platformer.Input) platformer.StepResult {
+		return c.Step(in, nil, nil, nil, dt)
+	}
+
+	t.Run("coyote 100ms covers 6 steps", func(t *testing.T) {
+		for after, want := range map[int]platformer.JumpKind{5: platformer.JumpGround, 6: platformer.JumpNone} {
+			cfg := bare()
+			cfg.CoyoteTime = 100 * time.Millisecond
+			c := newController(t, cfg, 0, 0)
+			c.Body.Grounded = true
+			free(c, platformer.Input{})
+			for i := 1; i < after; i++ {
+				free(c, platformer.Input{})
+			}
+			if got := free(c, platformer.Input{JumpPressed: true}).Jump; got != want {
+				t.Fatalf("press %d steps after leaving the ground: %v, want %v", after, got, want)
+			}
+		}
+	})
+
+	t.Run("jump buffer 100ms covers 6 steps", func(t *testing.T) {
+		for land, want := range map[int]platformer.JumpKind{5: platformer.JumpGround, 6: platformer.JumpNone} {
+			cfg := bare()
+			cfg.JumpBuffer = 100 * time.Millisecond
+			c := newController(t, cfg, 0, 0)
+			free(c, platformer.Input{JumpPressed: true, JumpHeld: true})
+			for i := 1; i < land; i++ {
+				free(c, platformer.Input{JumpHeld: true})
+			}
+			c.Body.Grounded = true
+			if got := free(c, platformer.Input{JumpHeld: true}).Jump; got != want {
+				t.Fatalf("landing %d steps after the press: %v, want %v", land, got, want)
+			}
+		}
+	})
+
+	t.Run("wall jump lock 150ms covers 9 steps", func(t *testing.T) {
+		cfg := bare()
+		cfg.RunSpeed = 100
+		cfg.WallJumpSpeedX = 150
+		cfg.WallJumpSpeedY = 250
+		cfg.WallJumpLock = 150 * time.Millisecond
+		c := newController(t, cfg, 0, 0)
+		c.Body.Body.OnLeftWall = true
+		if r := free(c, platformer.Input{JumpPressed: true, JumpHeld: true}); r.Jump != platformer.JumpWall {
+			t.Fatalf("wall jump: %v", r.Jump)
+		}
+		for i := 1; i <= 8; i++ {
+			if r := free(c, platformer.Input{Move: -1}); !r.InputLocked {
+				t.Fatalf("step %d after the wall jump was not locked", i)
+			}
+		}
+		if r := free(c, platformer.Input{Move: -1}); r.InputLocked {
+			t.Fatal("step 9 after the wall jump was still locked")
+		}
+	})
+}
+
+func TestNonFiniteMove(t *testing.T) {
+	cfg := bare()
+	cfg.RunSpeed = 100
+	for _, tc := range []struct {
+		move float32
+		want float32
+	}{
+		{float32(math.NaN()), 0},
+		{float32(math.Inf(1)), 100},
+		{float32(math.Inf(-1)), -100},
+	} {
+		c := newController(t, cfg, 0, 0)
+		c.Body.Body.VX = 50
+		c.Body.Grounded = true
+		stepFree(c, platformer.Input{Move: tc.move})
+		if c.Body.Body.VX != tc.want {
+			t.Fatalf("move %v: VX=%v, want %v", tc.move, c.Body.Body.VX, tc.want)
+		}
+	}
+}
+
+func TestBufferedPressBecomesWallJump(t *testing.T) {
+	cfg := bare()
+	cfg.JumpBuffer = 50 * time.Millisecond
+	cfg.WallJumpSpeedX = 100
+	cfg.WallJumpSpeedY = 200
+	c := newController(t, cfg, 0, 0)
+	if r := stepFree(c, platformer.Input{JumpPressed: true, JumpHeld: true}); r.Jump != platformer.JumpNone {
+		t.Fatalf("press in open air: %v", r.Jump)
+	}
+	stepFree(c, platformer.Input{JumpHeld: true})
+	c.Body.Body.OnLeftWall = true // the previous step reached the wall
+	if r := stepFree(c, platformer.Input{JumpHeld: true}); r.Jump != platformer.JumpWall || c.Body.Body.VX != 100 {
+		t.Fatalf("buffered press on reaching the wall: %v VX=%v, want wall jump and 100", r.Jump, c.Body.Body.VX)
+	}
+}
+
+func TestSetConfigKeepsElapsedTime(t *testing.T) {
+	for _, tc := range []struct {
+		coyote time.Duration
+		want   platformer.JumpKind
+	}{
+		{20 * time.Millisecond, platformer.JumpNone},   // 30ms have passed by the press
+		{50 * time.Millisecond, platformer.JumpGround}, // still open
+	} {
+		cfg := bare()
+		cfg.CoyoteTime = 100 * time.Millisecond
+		c := newController(t, cfg, 0, 0)
+		c.Body.Grounded = true
+		stepFree(c, platformer.Input{})
+		stepFree(c, platformer.Input{})
+		stepFree(c, platformer.Input{})
+		cfg.CoyoteTime = tc.coyote
+		if err := c.SetConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if got := stepFree(c, platformer.Input{JumpPressed: true}).Jump; got != tc.want {
+			t.Fatalf("coyote shortened to %v: %v, want %v", tc.coyote, got, tc.want)
+		}
+	}
+}

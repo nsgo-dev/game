@@ -36,7 +36,7 @@ loop := &game.Loop{
 
 ## Timing
 
-Every timing is measured in step time. An event opens a window on the step it happens, and the window stays open on later steps while less than its duration has passed since that step. At a fixed `dt`, a duration `D` covers `ceil(D/dt)` steps counting the event's own step, and a zero duration covers only that step. With `coyote_time: 50ms` at 100 Hz, a jump pressed 1 to 4 steps after the last grounded step still leaves from the ground, and one pressed 5 steps after does not.
+Every timing is measured in step time. An event opens a window on the step it happens, and the window stays open on later steps while less than its duration has passed since that step. At a fixed `dt`, a duration `D` covers `ceil(D/dt)` steps counting the event's own step, and a zero duration covers only that step. With `coyote_time: 50ms` at 100 Hz, a jump pressed 1 to 4 steps after the last grounded step still leaves from the ground, and one pressed 5 steps after does not. `game.Loop` passes `dt` as `time.Second/Rate` truncated to whole nanoseconds, so each step is allowed 1ns of slack: at the default 60 Hz, `coyote_time: 100ms` covers 6 steps, not 7.
 
 | Helper | Window starts when | Config |
 | --- | --- | --- |
@@ -45,8 +45,8 @@ Every timing is measured in step time. An event opens a window on the step it ha
 | Wall coyote time | the body touches a wall in the air | `wall_coyote_time` |
 | Wall-jump lock | a wall jump starts | `wall_jump_lock` |
 
-- **Coyote time and jump buffer**: a step jumps when a press is still buffered and the body is on the ground or still within coyote time, so a press shortly before landing jumps on landing and a press shortly after running off a ledge still jumps. A jump closes both windows, so one press jumps once.
-- **Variable jump height**: when the jump button is up during a step of a rising controller jump, the upward speed is multiplied by `jump_cut` once, if it is above `jump_cut_min_speed`. A tap that presses and lets go within one step gets the shortest jump. A launch the game sets itself, such as a spring, is never cut.
+- **Coyote time and jump buffer**: a step jumps when a press is still buffered and the body is on the ground or still within coyote time, so a press shortly before landing jumps on landing and a press shortly after running off a ledge still jumps. A jump closes both windows, so one press jumps once. A body that is already rising in the air, such as from a spring, cannot use coyote time, so pressing jump does not replace that launch with a weaker ground jump.
+- **Variable jump height**: when the jump button is up during a step of a rising controller jump, the upward speed is multiplied by `jump_cut` once, if it is above `jump_cut_min_speed`. A tap that presses and lets go within one step gets the shortest jump. A launch the game sets itself, such as a spring, is never cut: when the body's `VY` differs from the one the previous `Step` left, the controller jump is over.
 - **Wall slide**: while falling against a wall and pushing into it, the fall speed is capped at `wall_slide_speed`. The contact comes from the previous step's `Move`, which reports a wall only when the body moved into it.
 - **Wall jump**: a buffered press in the air while touching a wall, or within `wall_coyote_time` of leaving it, starts `wall_jump_speed_x` away from the wall and `wall_jump_speed_y` up. A ground jump wins when both are possible. Horizontal input is then ignored for `wall_jump_lock`, so holding toward the wall does not cancel the push.
 
@@ -54,7 +54,7 @@ Setting `wall_slide_speed` or `wall_jump_speed_y` to 0 turns that helper off, `j
 
 ## Config file
 
-A `Config` is a versioned YAML document. `ParseConfig` refuses unknown fields, a missing or unsupported `version`, negative or non-finite values, `jump_cut` above 1 and trailing documents; durations are Go duration strings. `EncodeConfig` writes every field in a fixed order, so a config read and written again is byte-for-byte the same. `DefaultConfig()` is:
+A `Config` is a versioned YAML document. `ParseConfig` refuses unknown fields, a missing or unsupported `version`, negative or non-finite values, `jump_cut` above 1 and trailing documents; durations are Go duration strings. `EncodeConfig` writes a canonical form: every field in a fixed order, durations as Go duration strings and numbers in their shortest form. Encoding a parsed config gives that form, and parsing and encoding the canonical form again gives the same bytes, so a hand-written file with comments, another key order or omitted fields is rewritten in canonical form. `DefaultConfig()` is:
 
 ```yaml
 version: 1
