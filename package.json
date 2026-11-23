@@ -9,6 +9,14 @@
     "build": "bun run --cwd apps/website build",
     "preview": "bun run --cwd apps/website preview",
     "typecheck": "bun run --cwd apps/website typecheck",
-    "playground": "bun run --cwd apps/website playground"
+    "playground": "bun run --cwd apps/website playground",
+    "verify-agent-note-tree": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts",
+    "verify-agent-note-format": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts",
+    "verify-archived": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts",
+    "verify-notes": "bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts && bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts && bun .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts",
+    "archive-agent-note": "bun .agents/skills/write-notes-like-deepseek/scripts/archive-agent-note.ts",
+    "check-anchors": "bun .agents/skills/write-notes-like-deepseek/scripts/check-note-anchors.ts",
+    "init-board": "bun .agents/skills/write-notes-like-deepseek/scripts/build-board.ts --init board.html \"Engineering Decisions\"",
+    "bundle-board": "bun .agents/skills/write-notes-like-deepseek/scripts/build-board.ts --bundle .agents/notes demo.html \"Engineering Decisions\""
   }
 }

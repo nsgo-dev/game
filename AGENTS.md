@@ -18,4 +18,5 @@ As in Godot, whose scenes and resources are text files, and unlike engines that 
 - Vet and test from `packages/game` with `go tool nsgo check` and `go tool nsgo test`, never `go vet` or `go test` directly.
 - Keep `docs/en` and `docs/zh` equivalent, and update them with the code.
 - Record a user-visible change in a fragment under `changelog.d/`, never in `CHANGELOG.md` directly (`changelog.d/README.md`).
+- Give a non-trivial change (behavior, architecture, a cross-file contract, process and tooling, testing strategy, or an on-disk, wire or configuration format) a note under `.agents/notes`, as the write-notes-like-deepseek skill (`.agents/skills/write-notes-like-deepseek/SKILL.md`) describes, and check it with `bun run verify-notes`.
 - Run every CI job on Depot's runners (`depot-ubuntu-24.04`, `depot-ubuntu-24.04-4`, `depot-macos-15`), declared in `.github/actionlint.yaml`; `check.yml` fails a workflow that uses a GitHub-hosted label.

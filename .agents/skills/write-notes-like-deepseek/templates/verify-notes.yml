@@ -1,0 +1,36 @@
+# Copy to the host repository's .github/workflows/verify-notes.yml to enable it.
+# The commands assume a project-level install; change them if the skill lives elsewhere. Swap the runner label for the host's own runners, and keep actions pinned to full commit SHAs.
+name: Verify Agent Notes
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The append-only seal check reads the manifest at the baseline ref, which a shallow checkout does not have.
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Verify note tree, format, and archive seals
+        env:
+          # HEAD checks nothing on a clean checkout. Compare against the commit before the change: the pull request's base, or the previous tip of the pushed branch. A push that creates a branch sends before=0000…; git show fails and the script skips the append-only check (the seal-vs-disk check still runs).
+          AGENT_NOTE_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts
+          bun .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts
+          bun .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts
