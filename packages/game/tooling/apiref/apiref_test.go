@@ -290,6 +290,72 @@ func TestLoadDeclarations(t *testing.T) {
 	}
 }
 
+// TestLoadValuesAcrossTargets loads a package whose native and web files both declare a const group and a var with some names in common: each exported name keeps exactly one anchor, and a group from the later target keeps its iota and type.
+func TestLoadValuesAcrossTargets(t *testing.T) {
+	root := t.TempDir()
+	for name, src := range map[string]string{
+		"go.mod":    "module example.com/v\n\ngo 1.27\n",
+		"kind.go":   "// Package v is a fixture.\npackage v\n\n// Kind is a kind.\ntype Kind int\n",
+		"native.go": "//go:build !js\n\npackage v\n\n// Native kinds.\nconst (\n\tA Kind = iota\n\tB\n)\n\n// Native values.\nvar X, Y int\n\n// Both is on every target.\nconst Both = 1\n",
+		"web.go":    "//go:build js\n\npackage v\n\n// Web kinds.\nconst (\n\tA Kind = iota\n\tB\n\tC\n)\n\n// Web values.\nvar X, Z int\n\n// Both is on every target.\nconst Both = 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref, err := apiref.Load(root, apiref.Options{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p := findPackage(t, ref, "example.com/v")
+
+	anchors := map[string]int{}
+	addValues := func(vs []apiref.Value) {
+		for _, v := range vs {
+			for _, id := range v.Idents {
+				anchors[id.Anchor]++
+			}
+		}
+	}
+	addValues(p.Consts)
+	addValues(p.Vars)
+	for _, ty := range p.Types {
+		anchors[ty.Anchor]++
+		addValues(ty.Consts)
+		addValues(ty.Vars)
+	}
+	for _, name := range []string{"Kind", "A", "B", "C", "X", "Y", "Z", "Both"} {
+		if anchors[name] != 1 {
+			t.Errorf("%s has %d anchors, want 1 (all: %v)", name, anchors[name], anchors)
+		}
+	}
+	if len(anchors) != 8 {
+		t.Errorf("anchors = %v, want the 8 exported names", anchors)
+	}
+
+	kind := findType(t, p, "Kind")
+	if len(kind.Consts) != 2 {
+		t.Fatalf("Kind consts = %+v, want the native and the web group", kind.Consts)
+	}
+	web := kind.Consts[1]
+	if !slices.Equal(web.Idents, []apiref.Ident{{Name: "C", Anchor: "C"}}) || !slices.Equal(web.Platforms, []string{"web"}) || web.Doc != "Web kinds.\n" {
+		t.Fatalf("web kinds = %+v, want C on the web", web)
+	}
+	if !strings.Contains(web.Decl, "C Kind") || strings.Contains(web.Decl, "_") {
+		t.Fatalf("web kinds decl = %q, want C typed Kind without blank names", web.Decl)
+	}
+
+	var z apiref.Value
+	for _, v := range p.Vars {
+		if v.Idents[0].Name == "Z" {
+			z = v
+		}
+	}
+	if len(z.Idents) != 1 || z.Decl != "var Z int" || !slices.Equal(z.Platforms, []string{"web"}) {
+		t.Fatalf("Z = %+v, want var Z int on the web", z)
+	}
+}
+
 func TestDocHTML(t *testing.T) {
 	if p := findPackage(t, loadFixture(t, apiref.Options{}), "example.com/m"); p.DocHTML != "" {
 		t.Fatalf("DocHTML = %q without Options.HTML", p.DocHTML)
