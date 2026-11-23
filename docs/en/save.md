@@ -35,7 +35,7 @@ if err := store.Load("slot1", &p); errors.Is(err, save.ErrNotFound) {
 }
 ```
 
-Inspect and manage slots with `store.Exists(slot)`, `store.Slots()` (sorted slice of slot names), and `store.Delete(slot)` (removes both primary and backup; deleting an absent slot returns `nil`). `save.ValidateSlot(name)` checks a slot name from outside the game, such as a cloud listing, against the same rules before it reaches a `Backend`.
+Inspect and manage slots with `store.Exists(slot)`, `store.Slots()` (sorted slice of slot names), and `store.Delete(slot)` (removes both primary and backup; deleting an absent slot returns `nil`). `save.ValidateSlot(name)` checks a slot name from outside the game, such as a cloud listing, against the same rules before it reaches a `Backend`. A `Backend` that wraps another, such as `liveops.CloudSyncer.Backend()`, can expose it with an `Unwrap() Backend` method; a settings store built on the wrapper then keeps settings exactly where it would on the wrapped backend.
 
 ## Versioned envelopes and migrations
 

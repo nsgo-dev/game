@@ -82,7 +82,8 @@ syncer, err := liveops.NewCloudSyncer(liveops.CloudSyncOptions{
 	Device: deviceID, // 1-64 ASCII letters, digits, '-' or '_'
 	Policy: liveops.PolicyAsk,
 	Ask: func(ctx context.Context, c liveops.Conflict) (liveops.Choice, error) {
-		return showConflictDialog(c.Local, c.Cloud) // ChoiceLocal, ChoiceCloud, ChoiceBoth or ChoiceDefer
+		pending = append(pending, c) // shown by the game's conflict dialog
+		return liveops.ChoiceDefer, nil
 	},
 	Summarize: func(slot string, data []byte) string { return describeSave(data) }, // "Level 12, 3h 40m"
 })
@@ -94,6 +95,12 @@ store := save.NewStore(syncer.Backend()) // stamps each local write with its tim
 res, err := syncer.Sync(ctx)
 for _, r := range res.Conflicts() {
 	log.Printf("%s: %s", r.Slot, r.Outcome)
+}
+
+// Later, when the player picks a copy in the dialog:
+r, err := syncer.Resolve(ctx, c, liveops.ChoiceLocal) // or ChoiceCloud, ChoiceBoth
+if errors.Is(err, liveops.ErrConflictChanged) {
+	// A save or sync changed the slot while the dialog was open: sync again and ask about the new conflict.
 }
 ```
 
@@ -108,12 +115,16 @@ Each `Conflict` carries a `SaveVersion` for both sides: whether it exists (a sid
 
 | Policy | Behaviour |
 | --- | --- |
-| `PolicyNewest` (default) | Keeps the copy with the later modified time and overwrites the other (`OutcomeKeptLocal` or `OutcomeKeptCloud`). When either time is unknown, such as a write that bypassed `Backend()`, or both are equal, it keeps both. When one side deleted the slot and the other changed it, it keeps the changed copy. |
-| `PolicyKeepBoth` | Keeps the cloud copy in the slot and moves the local copy to `<slot>.conflict-<device>` (then `-2`, `-3`…) on both sides (`OutcomeKeptBoth`, `SlotResult.Fork`). The fork is written locally before anything is overwritten. A deletion against a change keeps the change. |
+| `PolicyNewest` (default) | Keeps the copy with the later modified time and overwrites the other (`OutcomeKeptLocal` or `OutcomeKeptCloud`). When either time is unknown, such as a local copy written without `Backend()` (a recorded time counts only for the exact copy it was recorded with), or both are equal, it keeps both. When one side deleted the slot and the other changed it, it keeps the changed copy. |
+| `PolicyKeepBoth` | Keeps the cloud copy in the slot and moves the local copy to `<slot>.conflict-<device>` (then `-2`, `-3`…) on both sides (`OutcomeKeptBoth`, `SlotResult.Fork`). When that name would exceed the 200-byte slot limit, the slot part is shortened and followed by `~` and 8 hex digits of its SHA-256. The fork and its sync state are written locally before anything is overwritten, so if the upload fails the next sync uploads the same fork rather than creating another. A deletion against a change keeps the change. |
 | `PolicyAsk` | Calls `Ask` with the conflict and applies its `Choice`: `ChoiceLocal`, `ChoiceCloud`, `ChoiceBoth` (as `PolicyKeepBoth`) or `ChoiceDefer`, which writes nothing and asks again on the next sync. An error from `Ask` leaves both copies untouched. |
 
-Whenever a resolution replaces a copy, `SlotResult.Discarded` returns it so the game can show or archive it, and the local backend keeps the replaced local copy as its backup (`ReadBackup`).
+`Ask` runs inside the sync, on the app's thread, so it must not wait for the player. To ask through a dialog, keep the `Conflict`, return `ChoiceDefer`, show both summaries, and apply the answer with `Resolve(ctx, conflict, choice)`, as in the example above. `Resolve` reads both sides again and applies the choice only while they still hold the copies the player saw (the same existence, hash and cloud revision); otherwise it writes nothing and returns `ErrConflictChanged`. It works under every policy.
+
+Whenever a resolution replaces a copy, `SlotResult.Discarded` returns it so the game can show or archive it. When the replaced local copy is a valid save envelope and the cloud copy exists, the local backend also keeps it as its backup (`ReadBackup`); when the cloud copy is a deletion, or the local copy is not a save envelope, `Discarded` is the only copy left.
 
 Cloud payloads are JSON text with a fixed key order: `format` (`CloudSaveFormat`), `version` (`CloudSaveVersion`), `revision`, `hash`, `modified` (RFC 3339, UTC), `device` and `data`, a string holding the save as written (or `data_base64` for data that is not UTF-8). `DecodeCloudSave` refuses unknown fields, newer versions, trailing data and a hash that does not match the data with `ErrCorruptCloudSave`; decoding a payload `EncodeCloudSave` wrote and encoding it again gives back the same bytes. A cloud payload without the format marker, written by a game that used `CloudSync` directly, is read as revision 0 and upgraded on the next upload. Cloud slot names are checked with `save.ValidateSlot` before they reach the local backend.
 
-A `CloudSyncer` is not safe for concurrent use; call it where the app's code runs, as `core.Storage` requires.
+`Backend()` exposes the local backend through `Unwrap`, so a settings store built on it (`save.NewDefaultSettingsStore(syncer.Backend())`) keeps settings under the local backend's own settings key, and settings are never synced as a slot.
+
+A `CloudSyncer` is not safe for concurrent use; call it where the app's code runs, as `core.Storage` requires. `CloudSync` has no conditional write, so an upload by another device that lands between the syncer's re-read and its own write can still be overwritten; the window is a single `Load` and `Save` apart.

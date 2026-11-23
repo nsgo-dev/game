@@ -298,6 +298,18 @@ func adaptSettingsBackend(b Backend) settingsBackend {
 	if b == nil {
 		return nil
 	}
+	// Settings are not save slots: see through wrappers so they stay under the wrapped backend's own settings key.
+	for {
+		w, ok := b.(interface{ Unwrap() Backend })
+		if !ok {
+			break
+		}
+		inner := w.Unwrap()
+		if inner == nil {
+			break
+		}
+		b = inner
+	}
 	if sb, ok := b.(*storageBackend); ok {
 		return &storageSettingsBackend{store: sb.store, prefix: sb.prefix}
 	}

@@ -1055,3 +1055,47 @@ func TestSettingsValidateTrimsDisplayID(t *testing.T) {
 		t.Fatalf("DisplayID = %q, want %q", s.Display.DisplayID, "display-2")
 	}
 }
+
+// recordingBackend wraps a Backend, records the names written through it and exposes the wrapped backend with Unwrap.
+type recordingBackend struct {
+	save.Backend
+	written []string
+}
+
+func (b *recordingBackend) Write(slot string, data []byte) error {
+	b.written = append(b.written, slot)
+	return b.Backend.Write(slot, data)
+}
+
+func (b *recordingBackend) Unwrap() save.Backend { return b.Backend }
+
+func TestSettingsStoreSeesThroughUnwrap(t *testing.T) {
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return core.View{} })
+	plain := save.NewStorageSettingsStore(app.Storage(), "game")
+	before := save.DefaultSettings()
+	before.Locale = "ja"
+	if err := plain.Save(before); err != nil {
+		t.Fatal(err)
+	}
+
+	// Settings saved before a wrapper was adopted are still found through it, under the same key.
+	wrapped := &recordingBackend{Backend: save.StorageBackend(app.Storage(), "game")}
+	settings := save.NewDefaultSettingsStore(wrapped)
+	got, err := settings.Load()
+	if err != nil || got.Locale != "ja" {
+		t.Fatalf("Load through wrapper = %+v, %v", got, err)
+	}
+	got.Locale = "fr"
+	if err := settings.Save(got); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := plain.Load(); err != nil || again.Locale != "fr" {
+		t.Fatalf("Load without wrapper = %+v, %v", again, err)
+	}
+	if len(wrapped.written) != 0 {
+		t.Fatalf("settings went through the wrapper: %q", wrapped.written)
+	}
+	if _, ok := app.Storage().GetItem("game.slot.settings"); ok {
+		t.Fatal("settings stored as a save slot")
+	}
+}
