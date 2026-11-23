@@ -99,7 +99,7 @@ loop := &game.Loop{Rate: 60, Update: func(dt time.Duration) {
 3. 施法完成时扣除消耗和一次充能，开始冷却，并发送 `EventActivated`；游戏在这里应用技能效果。若此时消耗已不够，则改为以 `ReasonCost` 打断。没有施法时间的技能在触发的那一步完成这一切。
 4. 随后引导持续 `channelTime`，每隔 `tickInterval` 发送 `EventChannelTick`，结束时发送 `EventChannelEnded`。条件不成立、`Cancel` 以及松开 `hold` 动作会提前停止它。
 
-`EventCooldownEnded` 和 `EventChargeRestored` 报告计时结束。`OnEvent` 中可以调用 `TryActivate` 或 `Cancel`，例如在技能生效时衔接后续技能；由此产生的事件排在当前事件之后。
+`EventCooldownEnded` 和 `EventChargeRestored` 报告计时结束。`OnEvent` 中可以调用 `TryActivate` 或 `Cancel`，例如在技能生效时衔接后续技能；由此产生的事件排在当前事件之后。在 `OnEvent` 中调用 `Reset` 或 `Restore` 时，调用之前已经发生的事件仍会送达；若该调用发生在 `Update` 期间，`Update` 随后会按重置或恢复后的状态读取输入。
 
 `Status(id)` 以步数报告充能、剩余冷却与恢复时间以及施法或引导进度，`Duration(steps)` 把步数换算成游戏时间，用于冷却条。`Active()` 报告当前正在施法或引导的技能。
 

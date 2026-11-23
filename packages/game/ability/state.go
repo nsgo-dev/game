@@ -58,7 +58,7 @@ func (c *Caster) Snapshot() State {
 	return st
 }
 
-// Restore replaces the Caster's state with st, without sending events. It refuses, and changes nothing, when st's rate or abilities differ from the Caster's or a value is out of the range a Caster could reach.
+// Restore replaces the Caster's state with st, without sending events. It refuses, and changes nothing, when st's rate or abilities differ from the Caster's or a value is out of the range a Caster could reach. Called from OnEvent, it still delivers the events that happened before it, after the current one.
 func (c *Caster) Restore(st *State) error {
 	if st == nil {
 		return errNilState
@@ -114,7 +114,6 @@ func (c *Caster) Restore(st *State) error {
 		s.charges, s.cooldown, s.recharge = a.Charges, a.Cooldown, a.Recharge
 	}
 	c.active, c.phase, c.elapsed = active, phase, elapsed
-	c.queue = c.queue[:0]
 	return nil
 }
 
