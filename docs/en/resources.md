@@ -86,7 +86,7 @@ stops:
 
 ### animation
 
-A clip of numeric property tracks keyed from `0` to `length` seconds. `target` is the path of the object or node a track drives, relative to the one the clip plays on (empty is that one), and each target and property pair has one track. `events` are named cues in time order, each at a `time` from `0` to `length`, which a player reports as playback crosses them.
+A clip of numeric property tracks keyed from `0` to `length` seconds. `target` names the object a track drives, the ID of an object in the scene when [animclip](animclip.md) plays it (empty is the object the clip plays on), and each target and property pair has one track. `events` are named cues in time order, each at a `time` from `0` to `length`, which a player reports as playback crosses them.
 
 ```yaml
 type: animation

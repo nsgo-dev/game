@@ -54,7 +54,7 @@ func (e *Editor) NewClip(target, name string, length time.Duration) error {
 		return fmt.Errorf("editor: clip length %v must be positive", length)
 	}
 	clip := &resource.Animation{Header: resource.NewHeader(resource.KindAnimation), Name: name, Length: float32(length.Seconds())}
-	if err := animclip.Check(clip, e.components); err != nil {
+	if err := e.checkClip(clip, target); err != nil {
 		return err
 	}
 	e.swapClip("New clip", clip, clipMeta{target: target})
@@ -66,7 +66,7 @@ func (e *Editor) OpenClipYAML(data []byte, target string) error {
 	return e.openClip(data, "", target)
 }
 
-// OpenClipFile reads the animation resource file at path and opens it as OpenClipYAML does; SaveClip then writes back to path.
+// OpenClipFile reads the animation resource file at path and opens it as OpenClipYAML does; the panel's Save Clip button, or SaveClipFile(ClipPath()), then writes back to path.
 func (e *Editor) OpenClipFile(path, target string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -90,7 +90,7 @@ func (e *Editor) openClip(data []byte, path, target string) error {
 		}
 		return err
 	}
-	if err := animclip.Check(clip, e.components); err != nil {
+	if err := e.checkClip(clip, target); err != nil {
 		if path != "" {
 			return fmt.Errorf("%s: %w", path, err)
 		}
@@ -153,6 +153,9 @@ func (e *Editor) SetClipTarget(id string) error {
 	if id == e.clipMeta.target {
 		return nil
 	}
+	if err := e.checkClip(e.clip, id); err != nil {
+		return err
+	}
 	before := e.clipMeta
 	e.History.Execute(&clipCmd{ed: e, label: "Animate " + id, before: cloneClip(e.clip), after: cloneClip(e.clip), beforeMeta: &before, afterMeta: &clipMeta{path: before.path, target: id}, retarget: true})
 	return nil
@@ -202,7 +205,27 @@ func findTrack(c *resource.Animation, target, property string) int {
 	return -1
 }
 
-// KeyProperty keys property at time at with the value it has in the scene, as an undoable command: the object's own field, or a component field's value with its registered default when unset. Target is an object ID, or empty for the clip's target. A track is added for a property the clip does not key yet, and a key already at that time takes the new value. A bool property's new key holds its value until the next key (resource.InterpStep). It returns the track and key indexes.
+// checkClip checks c against the component registry (animclip.Check) and refuses two tracks that drive the same property of the same object when the clip plays on self, such as one with an empty target and one naming self, since the later would silently win in playback.
+func (e *Editor) checkClip(c *resource.Animation, self string) error {
+	if err := animclip.Check(c, e.components); err != nil {
+		return err
+	}
+	type driven struct{ id, property string }
+	seen := make(map[driven]int, len(c.Tracks))
+	for i, tr := range c.Tracks {
+		d := driven{tr.Target, tr.Property}
+		if d.id == "" {
+			d.id = self
+		}
+		if j, dup := seen[d]; dup {
+			return fmt.Errorf("editor: tracks %d and %d both drive %q of object %q", j, i, d.property, d.id)
+		}
+		seen[d] = i
+	}
+	return nil
+}
+
+// KeyProperty keys property at time at with the value it has in the scene, as an undoable command: the object's own field, or a component field's value with its registered default when unset. Target is an object ID, or empty for the clip's target; a track that names the clip's target explicitly is the same track as one left empty. A track is added for a property the clip does not key yet, and a key already at that time takes the new value. A bool property's new key holds its value until the next key (resource.InterpStep). It returns the track and key indexes.
 func (e *Editor) KeyProperty(target, property string, at time.Duration) (track, key int, err error) {
 	if e.clip == nil {
 		return -1, -1, ErrNoClip
@@ -233,6 +256,10 @@ func (e *Editor) KeyProperty(target, property string, at time.Duration) (track, 
 	value := keyNumber(p, v)
 	err = e.editClip("Key "+property, func(c *resource.Animation) error {
 		track = findTrack(c, target, property)
+		if track < 0 && target == "" {
+			// A track naming the clip's own object explicitly drives the same field as one with an empty target.
+			track = findTrack(c, e.clipMeta.target, property)
+		}
 		if track < 0 {
 			c.Tracks = append(c.Tracks, resource.Track{Target: target, Property: property})
 			track = len(c.Tracks) - 1
@@ -611,7 +638,7 @@ func (e *Editor) editClip(label string, fn func(c *resource.Animation) error) er
 	if err := fn(next); err != nil {
 		return err
 	}
-	if err := animclip.Check(next, e.components); err != nil {
+	if err := e.checkClip(next, e.clipMeta.target); err != nil {
 		return err
 	}
 	if reflect.DeepEqual(next, e.clip) {

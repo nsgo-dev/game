@@ -114,6 +114,25 @@ func TestConvertAndCheckValue(t *testing.T) {
 			t.Fatalf("%s.CheckValue(%v) = %v, want %q", bad.p.Name, bad.v, err, bad.want)
 		}
 	}
+
+	// An int field without a range still refuses a key a Go int cannot hold, which would convert differently on each platform.
+	unbounded := sceneformat.NewComponentRegistry()
+	unbounded.MustRegister(sceneformat.ComponentType{Name: "score", Fields: []sceneformat.Field{{Name: "points", Kind: sceneformat.FieldInt}}})
+	points, err := animclip.Lookup(unbounded, "score.points")
+	if err != nil {
+		t.Fatalf("Lookup score.points: %v", err)
+	}
+	for _, v := range []float64{1e20, -1e20, -float64(math.MinInt)} {
+		if err := points.CheckValue(v); err == nil || !strings.Contains(err.Error(), "Go int") {
+			t.Fatalf("points.CheckValue(%v) = %v, want a Go int range error", v, err)
+		}
+	}
+	if err := points.CheckValue(float64(math.MinInt)); err != nil {
+		t.Fatalf("points.CheckValue(MinInt) = %v", err)
+	}
+	if err := animclip.Check(&resource.Animation{Header: resource.NewHeader(resource.KindAnimation), Length: 1, Tracks: []resource.Track{{Property: "score.points", Keys: []resource.Key{{Time: 0, Value: 1e20}}}}}, unbounded); err == nil || !strings.Contains(err.Error(), "Go int") {
+		t.Fatalf("Check of a 1e20 int key = %v", err)
+	}
 }
 
 func TestGetAndSetEveryProperty(t *testing.T) {
@@ -344,6 +363,20 @@ func TestPlayerLoops(t *testing.T) {
 	p.Seek(-500 * time.Millisecond)
 	if p.Time() != 1500*time.Millisecond {
 		t.Fatalf("Seek(-0.5s) on a loop: at %v, want 1.5s", p.Time())
+	}
+	p.Seek(p.Length())
+	if p.Time() != p.Length() {
+		t.Fatalf("Seek(Length) on a loop: at %v, want the end %v", p.Time(), p.Length())
+	}
+	end := map[string]float64{}
+	ref, err := animclip.NewPlayer(clip, bodyRegistry(t), recorder(end))
+	if err != nil {
+		t.Fatalf("NewPlayer: %v", err)
+	}
+	ref.SetLoop(false)
+	ref.Seek(ref.Length())
+	if got["/x"] != end["/x"] {
+		t.Fatalf("Seek(Length) on a loop posed x %v, want the end pose %v", got["/x"], end["/x"])
 	}
 	p.SetLoop(false)
 	p.Seek(5 * time.Second)

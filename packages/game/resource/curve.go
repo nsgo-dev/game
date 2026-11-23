@@ -132,7 +132,7 @@ type Event struct {
 
 // Track keys one numeric property of one target over an Animation's length.
 type Track struct {
-	// Target is the path of the object or node the track drives, relative to the one the clip plays on; empty is that one itself.
+	// Target names the object the track drives, such as the ID of an object in a scene (animclip binds it that way); empty is the object the clip plays on.
 	Target string `yaml:"target,omitempty"`
 	// Property names the property, such as "x", "rotation" or "alpha".
 	Property string `yaml:"property"`
