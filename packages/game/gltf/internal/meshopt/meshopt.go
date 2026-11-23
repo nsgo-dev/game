@@ -1,6 +1,6 @@
 // Package meshopt decodes the meshoptimizer bitstreams used by the EXT_meshopt_compression and KHR_meshopt_compression glTF extensions in pure Go: the attribute codec (versions 0 and 1), the triangle and index sequence codecs, and the octahedral, quaternion, exponential and color filters.
 //
-// It follows the scalar reference decoder in meshoptimizer (MIT) and rejects truncated or malformed streams with an error instead of reading out of bounds.
+// It is a port, modified for Go, of the scalar reference decoder in meshoptimizer 0.25 (https://github.com/zeux/meshoptimizer, Copyright (c) 2016-2025 Arseny Kapoulkine, MIT License; see the LICENSE file in this directory), and rejects truncated or malformed streams with an error instead of reading out of bounds.
 package meshopt
 
 import (
