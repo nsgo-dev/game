@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks the Cave Run sample game, and builds its web bundle.
+# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles.
 on:
   push:
     branches:
@@ -92,4 +92,85 @@ jobs:
             packages/game/go.sum
       - name: Check Cave Run iOS targets
         working-directory: examples/caverun
+        run: go tool nsgo check -target ios,ios_simulator
+
+  tutorial-test:
+    name: Test the tutorial (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - depot-ubuntu-24.04-4
+          - depot-macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/tutorial/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/tutorial/go.sum
+            packages/game/go.sum
+      - name: Test every chapter
+        working-directory: examples/tutorial
+        run: go tool nsgo test ./...
+
+  tutorial-check:
+    name: Check and build web (tutorial)
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/tutorial/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/tutorial/go.sum
+            packages/game/go.sum
+      - name: Check every chapter's targets
+        working-directory: examples/tutorial
+        run: go tool nsgo check -target macos,windows,linux,android,web
+      - name: Build every chapter for the web
+        working-directory: examples/tutorial
+        run: |
+          for chapter in ch*/; do
+            go tool nsgo build -target web -output "$GITHUB_WORKSPACE/dist/tutorial/${chapter%/}" "./${chapter%/}"
+          done
+      - name: Upload the finished game's web artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: starcatcher-web
+          path: dist/tutorial/ch09-ship
+          if-no-files-found: error
+
+  tutorial-apple:
+    name: Check the tutorial (iOS)
+    runs-on: depot-macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/tutorial/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/tutorial/go.sum
+            packages/game/go.sum
+      - name: Check every chapter's iOS targets
+        working-directory: examples/tutorial
         run: go tool nsgo check -target ios,ios_simulator
