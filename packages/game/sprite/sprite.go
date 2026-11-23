@@ -28,7 +28,7 @@ type Sprite struct {
 	FlipX, FlipY bool
 	// Alpha is its opacity, from 0, which draws nothing, to 1. It replaces the drawing's alpha for the sprite, as Drawing.SetAlpha does.
 	Alpha float32
-	// Tint multiplies each of the picture's sRGB and alpha channels by the matching channel of a color before the sprite is composited, as Drawing.DrawTintedImageFrom does: core.RGB(0xff0000) keeps only its red, and a tint's alpha fades it on top of Alpha. Transparent pixels stay transparent, so the tint never reaches what is drawn under the sprite. The zero value, like opaque white, leaves the picture as it is.
+	// Tint multiplies each of the picture's sRGB and alpha channels by the matching channel of a color before the sprite is composited, as Drawing.DrawTintedImageFrom does: core.RGB(0xff0000) keeps only its red, and a tint's alpha fades it on top of Alpha. Transparent pixels stay transparent, so the tint never reaches what is drawn under the sprite. The zero value, like opaque white, leaves the picture as it is, and any other tint with alpha 0 draws nothing. To fade a sprite out, lower Alpha rather than the tint's alpha: a tint that reaches transparent black is the zero value and draws the picture unchanged.
 	Tint core.Color
 	// Blend is how the sprite mixes with what is already in the drawing, as Drawing.SetComposite does; the zero value is CompositeSourceOver.
 	Blend core.CompositeOp
@@ -117,7 +117,7 @@ func (s *Sprite) draw(d *core.Drawing, img core.ImageSource) {
 	if f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 {
 		return
 	}
-	// The zero color and opaque white leave the picture unchanged, so they draw untinted.
+	// The zero color and opaque white leave the picture unchanged, so they draw untinted. The zero color is also transparent black, so it is the one alpha-0 tint that still draws.
 	tinted := s.Tint != 0 && s.Tint != untinted
 	if tinted && s.Tint&0xff == 0 {
 		// A tint with no alpha multiplies every pixel's alpha to 0.

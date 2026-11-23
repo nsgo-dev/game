@@ -25,10 +25,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `game/net`: a TLS WebSocket listener with an Origin allow-list, plus `game/server` health, readiness and Prometheus metrics endpoints and a container/drain guide (#554).
 - `game/accounts`: a self-hostable player account service with guest accounts upgraded to email or a linked platform/OAuth identity, argon2id passwords, redacted secrets, SQLite and Postgres stores, an HTTP API and the `accountsd` server; `game/accounts/token` issues Ed25519 tokens that game servers verify offline against a versioned YAML key set (#556).
 - `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged; `game/particles` now tints each particle by its `ColorCurve` RGB (#29).
+- `game/sprite`: `Sprite.Tint` multiplies a sprite's own pixels by a color through NSGo's `DrawTintedImageFrom`, leaving what is drawn under it unchanged (#29).
 
 ### Changed
 
 - `game`, `template` and the examples build against NSGo `v0.3.0` instead of v0.2.0, so the key-up, gamepad, frame-time, `DrawAtlas`, GPU view and other engine APIs released since v0.2.0 are available; NSGo's changes since v0.2.0 needed no source change in this repository, and NSGo now brings its goja fork `github.com/nsgo-dev/goja` in place of `github.com/dop251/goja` (#567).
+- `game/particles`: `Emitter.Draw` now tints each particle's sprite by its `ColorCurve` RGB, where it previously applied only the curve's alpha, so particle definitions with a non-white `colorCurve` draw in that color (#29).
 
 ### Fixed
 
