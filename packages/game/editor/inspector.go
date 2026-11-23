@@ -1,12 +1,14 @@
 package editor
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -64,13 +66,24 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	return nil
 }
 
-// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History.
+// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History. With a component registry set, the field must be registered and value of its kind and within its range; it is stored normalized to bool, int, float64 or string.
 func (e *Editor) SetComponentField(objectID, componentName, field string, value any) error {
 	if e.playing {
 		return ErrPlaying
 	}
 	if componentName == "" || field == "" {
 		return fmt.Errorf("editor: component name and field must not be empty")
+	}
+	if e.components != nil {
+		norm, err := e.components.CheckField(componentName, field, value)
+		if err != nil {
+			var ce *sceneformat.ComponentError
+			if errors.As(err, &ce) {
+				ce.Object = objectID
+			}
+			return err
+		}
+		value = norm
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
@@ -273,7 +286,11 @@ func inspectorSchemaKey(ed *Editor) string {
 		for _, cn := range compNames {
 			b.WriteString(cn)
 			b.WriteByte('{')
-			if m, ok := obj.Components[cn].(map[string]any); ok {
+			if t, ok := ed.components.Lookup(cn); ok {
+				// A registered component always shows every field, so setting an unset one must not remount its controls.
+				b.WriteString("registered:")
+				b.WriteString(strings.Join(t.FieldNames(), ","))
+			} else if m, ok := obj.Components[cn].(map[string]any); ok {
 				for _, fk := range sortedMapKeys(m) {
 					b.WriteString(fk)
 					b.WriteByte('=')
@@ -385,7 +402,8 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 	}
 
-	fieldRow := func(label string, control core.Node) core.Node {
+	// describedRow lays out a label, with tip as its tooltip when non-empty, beside its control.
+	describedRow := func(label, labelID, tip string, control core.Node) core.Node {
 		return core.View{
 			Style: core.Style{
 				Direction:  core.Row,
@@ -393,20 +411,24 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				Gap:        8,
 			},
 			Children: []core.Node{
-				core.Text{
+				withTooltip(core.Text{
+					TestID:  labelID,
 					Content: label,
 					Style: core.Style{
 						Width:    core.Pt(76),
 						FontSize: 12,
 						Color:    colors.Text(),
 					},
-				},
+				}, tip),
 				core.View{
 					Style:    core.Style{FlexGrow: 1},
 					Children: []core.Node{control},
 				},
 			},
 		}
+	}
+	fieldRow := func(label string, control core.Node) core.Node {
+		return describedRow(label, "", "", control)
 	}
 
 	nodes := []core.Node{
@@ -748,18 +770,42 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		nodes = append(nodes, sectionHeader("COMPONENTS"))
 		for _, compName := range sortedMapKeys(obj.Components) {
 			cn := compName
-			m, ok := obj.Components[cn].(map[string]any)
-			if !ok {
-				continue
-			}
-			nodes = append(nodes, core.Text{
+			compTitle := core.Text{
+				TestID:  "inspector-comp-" + cn,
 				Content: cn,
 				Style: core.Style{
 					FontSize:   12,
 					FontWeight: 600,
 					Color:      colors.Text(),
 				},
-			})
+			}
+			if t, ok := ed.components.Lookup(cn); ok {
+				nodes = append(nodes, withTooltip(compTitle, t.Doc))
+				for _, f := range t.Fields {
+					field := f
+					get := func() any {
+						_ = rev.Get()
+						if o, _, _ := ed.FindObject(objID); o != nil {
+							if cm, ok := o.Components[cn].(map[string]any); ok {
+								if v, ok := cm[field.Name]; ok {
+									return v
+								}
+							}
+						}
+						return field.Default
+					}
+					ctrl := registeredFieldControl("inspector-comp-"+cn+"-"+field.Name, cn+"."+field.Name, field, disabled, get, func(val any) {
+						_ = ed.SetComponentField(objID, cn, field.Name, val)
+					})
+					nodes = append(nodes, describedRow(field.Name, "inspector-comp-"+cn+"-"+field.Name+"-label", fieldTooltip(field), ctrl))
+				}
+				continue
+			}
+			m, ok := obj.Components[cn].(map[string]any)
+			if !ok {
+				continue
+			}
+			nodes = append(nodes, compTitle)
 			for _, fieldKey := range sortedMapKeys(m) {
 				fk := fieldKey
 				sample := m[fk]
@@ -873,6 +919,120 @@ func typedFieldControl(
 			OnChange: func(text string) {
 				set(text)
 			},
+		}
+	}
+}
+
+// withTooltip wraps trigger in a ui.Tooltip showing tip, or returns trigger unchanged when tip is empty.
+func withTooltip(trigger core.Node, tip string) core.Node {
+	if tip == "" {
+		return trigger
+	}
+	return ui.Tooltip{Text: tip, Trigger: trigger}
+}
+
+// fieldTooltip describes a registered field for its inspector label: its documentation, kind, range and default.
+func fieldTooltip(f sceneformat.Field) string {
+	var b strings.Builder
+	if f.Doc != "" {
+		b.WriteString(f.Doc)
+		b.WriteString("\n")
+	}
+	b.WriteString(f.Kind.String())
+	switch {
+	case f.Min != nil && f.Max != nil:
+		fmt.Fprintf(&b, " in [%v, %v]", *f.Min, *f.Max)
+	case f.Min != nil:
+		fmt.Fprintf(&b, " >= %v", *f.Min)
+	case f.Max != nil:
+		fmt.Fprintf(&b, " <= %v", *f.Max)
+	}
+	fmt.Fprintf(&b, ", default %v", formatFieldValue(f.Default))
+	return b.String()
+}
+
+func formatFieldValue(v any) string {
+	if s, ok := v.(string); ok {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprint(v)
+}
+
+// registeredFieldControl builds the inspector control for a registered component field from its kind, bounding numeric inputs by its range.
+func registeredFieldControl(
+	testID, label string,
+	f sceneformat.Field,
+	disabled func() bool,
+	get func() any,
+	set func(any),
+) core.Node {
+	var lo, hi float64
+	if f.Min != nil && f.Max != nil && *f.Max > *f.Min {
+		lo, hi = *f.Min, *f.Max
+	}
+	clamp := func(v float64) float64 {
+		if f.Min != nil && v < *f.Min {
+			v = *f.Min
+		}
+		if f.Max != nil && v > *f.Max {
+			v = *f.Max
+		}
+		return v
+	}
+	number := func() float64 {
+		switch n := get().(type) {
+		case int:
+			return float64(n)
+		case float64:
+			return n
+		default:
+			return 0
+		}
+	}
+	switch f.Kind {
+	case sceneformat.FieldBool:
+		return ui.Checkbox{
+			TestID:   testID,
+			Label:    label,
+			Disabled: disabled,
+			Checked: func() bool {
+				b, _ := get().(bool)
+				return b
+			},
+			OnChange: func(checked bool) { set(checked) },
+		}
+	case sceneformat.FieldInt:
+		return ui.NumberInput{
+			TestID:   testID,
+			Label:    label,
+			Min:      lo,
+			Max:      hi,
+			Step:     1,
+			Disabled: disabled,
+			Value:    number,
+			OnChange: func(v float64) { set(int(math.Round(clamp(v)))) },
+		}
+	case sceneformat.FieldFloat:
+		return ui.NumberInput{
+			TestID:   testID,
+			Label:    label,
+			Min:      lo,
+			Max:      hi,
+			Step:     0.1,
+			Disabled: disabled,
+			Value:    number,
+			OnChange: func(v float64) { set(clamp(v)) },
+		}
+	default:
+		return ui.Input{
+			TestID:   testID,
+			Label:    label,
+			Disabled: disabled,
+			Value: func() string {
+				s, _ := get().(string)
+				return s
+			},
+			OnChange: func(text string) { set(text) },
 		}
 	}
 }
