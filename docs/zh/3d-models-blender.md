@@ -282,3 +282,5 @@ go test ./internal/samplegltf -update
 | 材质发黑、纯白或丢失贴图 | 使用了 Blender 专属程序化节点，或贴图未打包 | 将程序化材质烘焙为 PBR 贴图接入 `Principled BSDF`，并导出为 `.glb` |
 | 走路循环播完后角色瞬移回原点 | 原地循环动画里残留了根运动位移 | 原地循环清零 `Root`/`Hips` 水平位移；若使用根运动则在游戏逻辑中消费根骨骼增量 |
 | 导出的 glTF 中没有 `extras.events` | 导出时未勾选自定义属性，或属性挂在了 Object 而非 Action 上 | 将事件写入每个 Action 的 `action["events"]`，并在导出时勾选 `Include → Custom Properties` |
+| `gltf.Load` 拒绝加载文件 | 导出器写出了规范禁止的数据：索引超出顶点数、属性或变形目标的元素数不一致、顶点数据含 NaN/Inf、`JOINTS_0` 超出蒙皮关节列表、稀疏索引未递增、GLB 含第二个 JSON 块，或 `asset.minVersion` 高于 2.0 | 修正源网格（或重新导出），并用 Khronos `gltf_validator` 检查；错误信息会指出网格、图元和元素 |
+| 节点的 `Translation`/`Rotation`/`Scale` 与 `LocalMatrix` 不一致 | 节点的 `matrix` 带有切变，TRS 无法表达，此时 `Node.MatrixNotTRS` 为 true | 使用 `LocalMatrix`，或在 Blender 中应用变换，让节点以普通 TRS 导出 |

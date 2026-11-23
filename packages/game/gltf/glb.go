@@ -67,7 +67,13 @@ func parseGLB(data []byte) (jsonChunk []byte, binChunk []byte, err error) {
 				return nil, nil, fmt.Errorf("gltf: first GLB chunk must be JSON (0x%08x), got 0x%08x", glbChunkJSON, chunkType)
 			}
 			jsonChunk = payload
-		} else if chunkIndex == 1 && chunkType == glbChunkBIN {
+		} else if chunkType == glbChunkJSON {
+			// The spec allows exactly one JSON chunk; a second one would be silently ignored (#546).
+			return nil, nil, fmt.Errorf("gltf: GLB chunk %d is a second JSON chunk", chunkIndex)
+		} else if chunkType == glbChunkBIN {
+			if chunkIndex != 1 {
+				return nil, nil, fmt.Errorf("gltf: GLB BIN chunk must be the second chunk, found at %d", chunkIndex)
+			}
 			binChunk = payload
 		}
 		// Unknown chunk types (and any extra chunks) are ignored per glTF 2.0 spec.
