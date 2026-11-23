@@ -75,7 +75,7 @@ See [Building and Shipping](shipping.md) for icons, signing, notarization, store
 
 ### VR and AR
 
-The game layer does not support VR or AR for now ([#495](https://github.com/nsgo-dev/game/issues/495)). Every package draws into one flat NSGo view, a `Canvas` or the GPU view of [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059), and reads touch, mouse, keyboard and gamepads. NSGo v0.2 has no XR runtime on any of its targets, and this repository uses only NSGo's public API and holds no platform code, so it cannot add one itself.
+The game layer does not support VR or AR for now ([#495](https://github.com/nsgo-dev/game/issues/495)). Every package draws into one flat NSGo view, a `Canvas` or the GPU view of [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059), and reads touch, mouse, keyboard, gamepads and device motion. NSGo v0.2 has no XR runtime on any of its targets, and this repository uses only NSGo's public API and holds no platform code, so it cannot add one itself.
 
 XR work here can start once NSGo provides, on at least one runtime (OpenXR on desktop and Android headsets, visionOS, ARKit, ARCore or WebXR):
 
@@ -83,5 +83,7 @@ XR work here can start once NSGo provides, on at least one runtime (OpenXR on de
 - **Poses**: the head's and each controller's pose every frame, predicted for when the frame is shown, and the runtime's controller and hand input.
 - **Stereo rendering**: a render target per eye with its own view and projection, drawn by the GPU view at the headset's rate and handed to the runtime's compositor.
 - **For AR**: the camera's passthrough behind the drawing, detected planes, hit tests against the real world and anchors that stay in place.
+
+OpenXR is the runtime to target first, since one API covers headsets on Windows, Linux and Android, three of NSGo's targets; visionOS, ARKit, ARCore and WebXR can follow. The session, poses and stereo rendering come first and are enough for VR; the AR items come after them.
 
 With those, this repository would add an XR camera rig to `scene3d` and XR actions to `input`, reusing `math3d`'s transforms for poses. Until then a 3D game runs on a flat screen.

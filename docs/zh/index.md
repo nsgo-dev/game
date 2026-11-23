@@ -75,7 +75,7 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 
 ### VR 与 AR
 
-游戏层目前不支持 VR 和 AR（[#495](https://github.com/nsgo-dev/game/issues/495)）。所有包都绘制到一个平面的 NSGo 视图中，即 `Canvas` 或 [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059) 的 GPU 视图，并读取触摸、鼠标、键盘和手柄的输入。NSGo v0.2 在任何目标平台上都没有 XR 运行时，而本仓库只使用 NSGo 的公开 API、不包含平台代码，因此无法自行添加。
+游戏层目前不支持 VR 和 AR（[#495](https://github.com/nsgo-dev/game/issues/495)）。所有包都绘制到一个平面的 NSGo 视图中，即 `Canvas` 或 [nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059) 的 GPU 视图，并读取触摸、鼠标、键盘、手柄和设备运动传感器的输入。NSGo v0.2 在任何目标平台上都没有 XR 运行时，而本仓库只使用 NSGo 的公开 API、不包含平台代码，因此无法自行添加。
 
 等 NSGo 在至少一个运行时（桌面与 Android 头显上的 OpenXR、visionOS、ARKit、ARCore 或 WebXR）上提供以下能力后，这里才能开始 XR 的工作：
 
@@ -83,5 +83,7 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 - **位姿**：每帧给出头部和每个控制器的位姿，并按该帧显示的时刻做预测，同时提供运行时的控制器与手部输入。
 - **立体渲染**：每只眼睛一个渲染目标，各有自己的视图与投影矩阵，由 GPU 视图以头显的刷新率绘制并提交给运行时的合成器。
 - **AR 所需**：绘制内容背后的相机透视画面、检测到的平面、对真实世界的命中测试，以及保持在原位的锚点。
+
+首先应面向的运行时是 OpenXR，因为同一套 API 覆盖 Windows、Linux 和 Android 上的头显，即 NSGo 的三个目标平台；visionOS、ARKit、ARCore 和 WebXR 可以随后跟进。会话、位姿和立体渲染排在最前，有了它们就足以支持 VR；AR 所需的各项排在其后。
 
 具备这些之后，本仓库会在 `scene3d` 中加入 XR 相机组件，在 `input` 中加入 XR 动作，并复用 `math3d` 的变换来表示位姿。在此之前，3D 游戏只在平面屏幕上运行。
