@@ -70,6 +70,13 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	if err != nil {
 		return fmt.Errorf("editor: clone play scene: %w", err)
 	}
+	// A scene that instances or inherits other files is resolved first, so that the play document and the built scene share the same objects and runtime changes made through BuiltObject.Doc show in e.Doc; Stop restores the snapshot, which keeps the references.
+	if playDoc.RefersToScenes() {
+		scenes, _ := e.Resolver.(sceneformat.SceneResolver)
+		if playDoc, err = sceneformat.Resolve(playDoc, scenes); err != nil {
+			return fmt.Errorf("editor: resolve play scene: %w", err)
+		}
+	}
 	playBuilt, err := sceneformat.Build(playDoc, e.Resolver)
 	if err != nil {
 		return fmt.Errorf("editor: build play scene: %w", err)
