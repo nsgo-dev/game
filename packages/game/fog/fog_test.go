@@ -213,6 +213,23 @@ v...
 	}
 }
 
+func TestExploreRectClipsANegativeOrigin(t *testing.T) {
+	f := fog.New(10, 3, 1, 1)
+	f.ExploreRect(blue, -5, 0, 1000, 1)
+	f.ExploreRect(red, -5, -2, 6, 4)
+	f.ExploreRect(red, -5, 2, 5, 1)
+	wantPicture(t, f, blue, `
+eeeeeeeeee
+..........
+..........
+`)
+	wantPicture(t, f, red, `
+e.........
+e.........
+..........
+`)
+}
+
 func TestSourceOutsideTheGridSeesNothing(t *testing.T) {
 	f := fog.New(3, 3, 1, 1)
 	id := f.AddSource(fog.Source{Team: blue, Col: -1, Row: 1, Radius: 5})
@@ -248,7 +265,7 @@ func TestNewFromTilemap(t *testing.T) {
 }
 
 func TestNewRefusesBadSizes(t *testing.T) {
-	for _, size := range [][2]int{{-1, 1}, {1, -1}, {fog.MaxCells, 2}} {
+	for _, size := range [][2]int{{-1, 1}, {1, -1}, {fog.MaxCells, 2}, {0, 100_000_000_000}, {100_000_000_000, 0}, {0, 1}} {
 		func() {
 			defer func() {
 				if recover() == nil {
@@ -369,6 +386,72 @@ func TestFogPersistsThroughASave(t *testing.T) {
 	}
 }
 
+func TestRevisionChangesAcrossALoad(t *testing.T) {
+	f := fog.New(4, 1, 1, 1)
+	f.AddSource(fog.Source{Team: blue, Col: 0, Row: 0, Radius: 0})
+	f.Update()
+
+	// A snapshot with the same blue layer as f, and a red team that has explored cells but no sources.
+	src := fog.New(4, 1, 1, 1)
+	src.AddSource(fog.Source{Team: blue, Col: 0, Row: 0, Radius: 0})
+	src.Update()
+	src.ExploreAll(red)
+	store := save.NewFileStore(t.TempDir())
+	if err := store.Save("slot1", savedGame{Fog: src}); err != nil {
+		t.Fatal(err)
+	}
+
+	game := savedGame{Fog: f}
+	blueBefore, redBefore := f.Revision(blue), f.Revision(red)
+	if err := store.Load("slot1", &game); err != nil {
+		t.Fatal(err)
+	}
+	g := game.Fog
+	if g.ExploredCount(red) != 4 {
+		t.Fatalf("red explored %d cells after load, want 4", g.ExploredCount(red))
+	}
+	if g.Revision(blue) == blueBefore || g.Revision(red) == redBefore {
+		t.Fatalf("revisions after store.Load: blue %d (was %d), red %d (was %d)", g.Revision(blue), blueBefore, g.Revision(red), redBefore)
+	}
+
+	// Loading directly into the same Fog changes them again.
+	data, err := json.Marshal(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blueBefore, redBefore = g.Revision(blue), g.Revision(red)
+	if err := g.UnmarshalJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	if g.Revision(blue) <= blueBefore || g.Revision(red) <= redBefore {
+		t.Fatalf("revisions after UnmarshalJSON: blue %d (was %d), red %d (was %d)", g.Revision(blue), blueBefore, g.Revision(red), redBefore)
+	}
+}
+
+// savedByValue holds the fog by value, as a game struct might.
+type savedByValue struct {
+	Turn int     `json:"turn"`
+	Fog  fog.Fog `json:"fog"`
+}
+
+func TestFogSavedByValue(t *testing.T) {
+	f := fog.New(3, 1, 16, 16)
+	f.AddSource(fog.Source{Team: blue, Col: 1, Row: 0, Radius: 1})
+	f.Update()
+	store := save.NewFileStore(t.TempDir())
+	// Passed by value, the struct and its Fog are not addressable, so only a value-receiver MarshalJSON writes the snapshot.
+	if err := store.Save("slot1", savedByValue{Turn: 3, Fog: *f}); err != nil {
+		t.Fatal(err)
+	}
+	var loaded savedByValue
+	if err := store.Load("slot1", &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := picture(&loaded.Fog, blue), picture(f, blue); got != want {
+		t.Fatalf("after load:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestSnapshotText(t *testing.T) {
 	f := fog.New(3, 2, 8, 8)
 	f.SetOpaque(1, 0, true)
@@ -408,6 +491,8 @@ func TestUnmarshalRefusesBadSnapshots(t *testing.T) {
 		"future version":     {strings.Replace(good, `"version":1`, `"version":2`, 1), fog.ErrFutureVersion},
 		"negative width":     {strings.Replace(good, `"width":2`, `"width":-2`, 1), fog.ErrInvalidSnapshot},
 		"huge grid":          {strings.Replace(good, `"height":1`, `"height":99999999`, 1), fog.ErrInvalidSnapshot},
+		"tall empty grid":    {`{"version":1,"width":0,"height":100000000000,"tileWidth":1,"tileHeight":1,"nextSource":0}`, fog.ErrInvalidSnapshot},
+		"wide empty grid":    {`{"version":1,"width":5,"height":0,"tileWidth":1,"tileHeight":1,"nextSource":0}`, fog.ErrInvalidSnapshot},
 		"short row":          {strings.Replace(good, `"#."`, `"#"`, 1), fog.ErrInvalidSnapshot},
 		"bad cell":           {strings.Replace(good, `"#."`, `"#x"`, 1), fog.ErrInvalidSnapshot},
 		"missing rows":       {strings.Replace(good, `"explored":["#."]`, `"explored":[]`, 1), fog.ErrInvalidSnapshot},

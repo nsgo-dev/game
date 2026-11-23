@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/bits"
 	"slices"
+	"sync/atomic"
 
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -87,9 +88,9 @@ type layer struct {
 
 // New returns a Fog over a grid of width by height cells, each tileWidth by tileHeight world points, with no opaque cells, sources or teams.
 //
-// New panics if width or height is negative or the grid has more than MaxCells cells.
+// New panics if width or height is negative, exactly one of them is zero, or the grid has more than MaxCells cells.
 func New(width, height int, tileWidth, tileHeight float32) *Fog {
-	if width < 0 || height < 0 || (width > 0 && height > MaxCells/width) {
+	if !validSize(width, height) {
 		panic(fmt.Sprintf("fog: invalid grid size %dx%d", width, height))
 	}
 	words := wordsFor(width * height)
@@ -121,6 +122,19 @@ func NewFromTilemap(m *tilemap.Tilemap, mask tilemap.TileFlags) *Fog {
 }
 
 func wordsFor(cells int) int { return (cells + 63) / 64 }
+
+// validSize reports whether New accepts a grid of width by height cells. Each size is bounded on its own, not only their product, so a grid such as 0 by 10^11 cannot drive a row loop or a slice of rows that long.
+func validSize(width, height int) bool {
+	if width == 0 || height == 0 {
+		return width == 0 && height == 0
+	}
+	return width > 0 && height > 0 && height <= MaxCells/width
+}
+
+// revisions hands out every layer revision, so no Fog in the program repeats a revision value, including a Fog loaded in place of another.
+var revisions atomic.Uint64
+
+func nextRevision() uint64 { return revisions.Add(1) }
 
 // Width returns the grid's width in cells.
 func (f *Fog) Width() int { return f.width }
@@ -266,7 +280,7 @@ func (f *Fog) Update() bool {
 		}
 		l.dirty = false
 		if f.recompute(team, l) {
-			l.revision++
+			l.revision = nextRevision()
 			changed = true
 		}
 	}
@@ -392,15 +406,19 @@ func (f *Fog) Explore(team Team, col, row int) {
 
 // ExploreRect marks the cells from (col, row) spanning w columns and h rows explored for team, clipped to the grid.
 func (f *Fog) ExploreRect(team Team, col, row, w, h int) {
+	// Clip the origin first and shrink the span with it; w > 0 and col < 0 cannot overflow w+col.
+	if col < 0 {
+		w, col = w+col, 0
+	}
+	if row < 0 {
+		h, row = h+row, 0
+	}
 	if w <= 0 || h <= 0 || col >= f.width || row >= f.height {
 		return
 	}
-	// col and row are below the grid's size here, so adding at most that size cannot overflow.
-	c0, r0 := max(col, 0), max(row, 0)
-	c1, r1 := min(col+min(w, f.width), f.width), min(row+min(h, f.height), f.height)
-	if c0 >= c1 || r0 >= r1 {
-		return
-	}
+	// 0 <= col < width here, so col plus at most width-col cannot overflow.
+	c0, r0 := col, row
+	c1, r1 := col+min(w, f.width-col), row+min(h, f.height-row)
 	l := f.layer(team)
 	changed := false
 	for r := r0; r < r1; r++ {
@@ -413,7 +431,7 @@ func (f *Fog) ExploreRect(team Team, col, row, w, h int) {
 		}
 	}
 	if changed {
-		l.revision++
+		l.revision = nextRevision()
 	}
 }
 
@@ -428,7 +446,7 @@ func (f *Fog) Forget(team Team) {
 	}
 	if !slices.Equal(l.explored, l.visible) {
 		copy(l.explored, l.visible)
-		l.revision++
+		l.revision = nextRevision()
 	}
 }
 
@@ -445,7 +463,7 @@ func (f *Fog) ExploredCount(team Team) int {
 	return n
 }
 
-// Revision returns a counter that grows whenever team's visible or explored cells change, so a minimap or cached fog texture can redraw only when it differs.
+// Revision returns a number that grows whenever team's visible or explored cells change, and that every team gets afresh when the fog is loaded, so a minimap or cached fog texture can redraw only when it differs. Revisions come from one counter shared by every Fog in the program, so a Fog loaded in place of another, even through save.Store.Load, never repeats a revision a cache has already seen. A team with nothing reports 0.
 func (f *Fog) Revision(team Team) uint64 {
 	if l := f.teams[team]; l != nil {
 		return l.revision

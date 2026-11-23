@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Version is the snapshot schema version MarshalJSON writes and the newest UnmarshalJSON reads.
-const Version = 1
+// FormatVersion is the snapshot schema version MarshalJSON writes and the newest UnmarshalJSON reads.
+const FormatVersion = 1
 
 var (
 	// ErrInvalidSnapshot reports a fog snapshot that is malformed, has unknown fields, or disagrees with its own grid size.
@@ -24,7 +24,7 @@ const (
 	cellOn  = '#'
 )
 
-// snapshot is the JSON text form of a Fog. Grids are rows of '.' and '#' so a diff of two saves shows where a team explored.
+// snapshot is the JSON text form of a Fog. Grids are rows of '.' and '#', one string per grid row, so a person reading a save sees each team's explored map.
 type snapshot struct {
 	Version    int          `json:"version"`
 	Width      int          `json:"width"`
@@ -53,9 +53,11 @@ type teamJSON struct {
 // MarshalJSON writes the fog as versioned JSON text: the grid size, tile size, opaque cells, sources and each team's explored cells, in a fixed order with sources by ID and teams in increasing order, so the same fog always writes the same bytes.
 //
 // Visible cells are not written; UnmarshalJSON recomputes them from the sources and opaque cells, so a Fog passed to save.Store.Save and back through save.Store.Load sees and has explored exactly what it did.
-func (f *Fog) MarshalJSON() ([]byte, error) {
+//
+// MarshalJSON has a value receiver so a Fog held by value in a struct that is saved by value still writes its snapshot rather than its exported fields alone.
+func (f Fog) MarshalJSON() ([]byte, error) {
 	s := snapshot{
-		Version:    Version,
+		Version:    FormatVersion,
 		Width:      f.width,
 		Height:     f.height,
 		TileWidth:  f.TileWidth,
@@ -120,7 +122,7 @@ func (f *Fog) parseRows(rows []string, set []uint64, what string) (int, error) {
 
 // UnmarshalJSON replaces the fog with one read from JSON text written by MarshalJSON, and recomputes every team's visible cells from the sources.
 //
-// It refuses unknown fields, a missing or newer version (ErrFutureVersion), a grid larger than MaxCells, rows that disagree with the grid size, sources or teams out of order or repeated, a source ID above nextSource, and a source whose team has no explored grid. On error the fog is unchanged.
+// It refuses unknown fields, a missing or newer version (ErrFutureVersion), a grid larger than MaxCells or with exactly one zero size, rows that disagree with the grid size, sources or teams out of order or repeated, a source ID above nextSource, and a source whose team has no explored grid. On error the fog is unchanged.
 func (f *Fog) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -134,10 +136,10 @@ func (f *Fog) UnmarshalJSON(data []byte) error {
 	switch {
 	case s.Version < 1:
 		return fmt.Errorf("%w: missing version", ErrInvalidSnapshot)
-	case s.Version > Version:
-		return fmt.Errorf("%w: version %d, newest is %d", ErrFutureVersion, s.Version, Version)
+	case s.Version > FormatVersion:
+		return fmt.Errorf("%w: version %d, newest is %d", ErrFutureVersion, s.Version, FormatVersion)
 	}
-	if s.Width < 0 || s.Height < 0 || (s.Width > 0 && s.Height > MaxCells/s.Width) {
+	if !validSize(s.Width, s.Height) {
 		return fmt.Errorf("%w: grid size %dx%d", ErrInvalidSnapshot, s.Width, s.Height)
 	}
 	n := New(s.Width, s.Height, s.TileWidth, s.TileHeight)
@@ -171,11 +173,9 @@ func (f *Fog) UnmarshalJSON(data []byte) error {
 		n.teams[src.Team].dirty = true
 	}
 	n.Update()
-	// Revisions keep growing across a load, so a cache keyed on one never mistakes the loaded fog for the one it replaced.
-	for team, l := range n.teams {
-		if old := f.teams[team]; old != nil {
-			l.revision += old.revision + 1
-		}
+	// Every loaded team gets a fresh revision, including teams with no sources that Update skips, and without reading the receiver's old state: save.Store.Load decodes into a zero Fog and copies it over the caller's.
+	for _, l := range n.teams {
+		l.revision = nextRevision()
 	}
 	*f = *n
 	return nil
