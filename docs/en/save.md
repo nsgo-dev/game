@@ -35,7 +35,7 @@ if err := store.Load("slot1", &p); errors.Is(err, save.ErrNotFound) {
 }
 ```
 
-Inspect and manage slots with `store.Exists(slot)`, `store.Slots()` (sorted slice of slot names), and `store.Delete(slot)` (removes both primary and backup; deleting an absent slot returns `nil`). `save.ValidateSlot(name)` checks a slot name from outside the game, such as a cloud listing, against the same rules before it reaches a `Backend`. A `Backend` that wraps another, such as `liveops.CloudSyncer.Backend()`, can expose it with an `Unwrap() Backend` method; a settings store built on the wrapper then keeps settings exactly where it would on the wrapped backend.
+Inspect and manage slots with `store.Exists(slot)`, `store.Slots()` (sorted slice of slot names), and `store.Delete(slot)` (removes the backup and then the primary, so an interrupted delete never leaves a backup that `Load` would resurrect; deleting an absent slot returns `nil`). `save.ValidateSlot(name)` checks a slot name from outside the game, such as a cloud listing, against the same rules before it reaches a `Backend`. A `Backend` that wraps another, such as `liveops.CloudSyncer.Backend()`, can expose it with an `Unwrap() Backend` method; a settings store built on the wrapper then keeps settings exactly where it would on the wrapped backend.
 
 ## Versioned envelopes and migrations
 
@@ -61,7 +61,9 @@ store := save.NewFileStore(cx.DataDir(),
 )
 ```
 
-When `Load` reads an older version, it upgrades the JSON one version at a time (`1 -> 2 -> 3 ...`) before unmarshaling into `dst`.
+When `Load` reads an older version, it upgrades the JSON one version at a time (`1 -> 2 -> 3 ...`) before unmarshaling into `dst`. `Load` does not write the migrated save back, so migrations run again on every `Load` until the slot is saved: each one must be a pure function of its input that gives the same result every time.
+
+An envelope with any field besides `version` and `data`, or with either field given twice, is `ErrCorrupt`.
 
 Sentinel errors to check with `errors.Is`:
 
@@ -77,7 +79,7 @@ Sentinel errors to check with `errors.Is`:
 
 `Save` marshals the payload completely before touching the backend, so marshaling errors leave existing saves untouched. Before replacing a slot's primary copy, both built-in backends preserve the previous valid primary as a backup:
 
-- **`FileBackend`**: writes to a temporary file in the same directory, syncs it to disk, backs up the existing `<slot>.json` to `<slot>.json.bak`, and atomically renames the temp file into place.
+- **`FileBackend`**: writes to a temporary file in the same directory, syncs it to disk, backs up the existing `<slot>.json` to `<slot>.json.bak`, atomically renames the temp file into place, and syncs the directory; a failed directory sync is returned as a write error. The first write through a backend removes `.save-*.tmp` files an interrupted write left more than an hour ago.
 - **`StorageBackend`**: writes the backup key before updating the primary key, so a `*core.StorageFullError` leaves the last good save intact.
 
-On `Load`, if the primary copy is missing, unreadable, or corrupt, `Store` automatically falls back to the backup copy. If the primary is a valid envelope with a version newer than `Store.Version`, `Load` returns `ErrFutureVersion` without silently downgrading to an older backup.
+On `Load`, if the primary copy is missing, unreadable, or corrupt, `Store` automatically falls back to the backup copy and rewrites a missing or structurally corrupt primary from it. If the primary is a valid envelope with a version newer than `Store.Version`, `Load` returns `ErrFutureVersion` without silently downgrading to an older backup.

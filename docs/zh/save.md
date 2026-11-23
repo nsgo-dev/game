@@ -35,7 +35,7 @@ if err := store.Load("slot1", &p); errors.Is(err, save.ErrNotFound) {
 }
 ```
 
-使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（同时删除主存档与备份，删除不存在的槽位返回 `nil`）管理存档槽。来自游戏外部的槽位名（例如云端列表）可用 `save.ValidateSlot(name)` 按同样的规则检查后再交给 `Backend`。包装另一个后端的 `Backend`（例如 `liveops.CloudSyncer.Backend()`）可以通过 `Unwrap() Backend` 方法暴露被包装的后端；基于包装器创建的设置存储会把设置保存在与被包装后端完全相同的位置。
+使用 `store.Exists(slot)`、`store.Slots()`（返回有序槽位名列表）和 `store.Delete(slot)`（先删除备份再删除主存档，中途中断也不会留下让 `Load` 复活该槽位的备份；删除不存在的槽位返回 `nil`）管理存档槽。来自游戏外部的槽位名（例如云端列表）可用 `save.ValidateSlot(name)` 按同样的规则检查后再交给 `Backend`。包装另一个后端的 `Backend`（例如 `liveops.CloudSyncer.Backend()`）可以通过 `Unwrap() Backend` 方法暴露被包装的后端；基于包装器创建的设置存储会把设置保存在与被包装后端完全相同的位置。
 
 ## 版本信封与数据迁移
 
@@ -61,7 +61,9 @@ store := save.NewFileStore(cx.DataDir(),
 )
 ```
 
-`Load` 读取到旧版本存档时，会按 `1 -> 2 -> 3 ...` 逐步迁移 JSON，再反序列化到 `dst`。
+`Load` 读取到旧版本存档时，会按 `1 -> 2 -> 3 ...` 逐步迁移 JSON，再反序列化到 `dst`。`Load` 不会把迁移结果写回，因此在该槽位再次保存之前，每次 `Load` 都会重新运行迁移：每个迁移函数都必须是只依赖输入的纯函数，每次运行结果相同。
+
+信封中出现 `version` 与 `data` 以外的字段，或任一字段重复出现，均视为 `ErrCorrupt`。
 
 可用 `errors.Is` 判断的哨兵错误：
 
@@ -77,7 +79,7 @@ store := save.NewFileStore(cx.DataDir(),
 
 `Save` 会先完成 JSON 编码再接触底层存储，因此序列化失败不会破坏原有存档。在替换主存档之前，两种内置后端都会先保留上一次有效存档作为备份：
 
-- **`FileBackend`**：写入同目录临时文件并同步落盘，将原有 `<slot>.json` 保存到 `<slot>.json.bak`，再原子重命名临时文件。
+- **`FileBackend`**：写入同目录临时文件并同步落盘，将原有 `<slot>.json` 保存到 `<slot>.json.bak`，原子重命名临时文件，最后同步目录；目录同步失败会作为写入错误返回。每个后端的首次写入会清理被中断的写入在一小时前留下的 `.save-*.tmp` 文件。
 - **`StorageBackend`**：先写入备份键再更新主键，即便遇到 `*core.StorageFullError` 也能保住上一次完好存档。
 
-调用 `Load` 时，若主存档缺失、不可读或损坏，会自动回退到备份恢复。但若主存档本身是合法信封且版本号高于 `Store.Version`，则会直接返回 `ErrFutureVersion`，不会静默回退到旧版本备份。
+调用 `Load` 时，若主存档缺失、不可读或损坏，会自动回退到备份恢复，并用备份重写缺失或结构损坏的主存档。但若主存档本身是合法信封且版本号高于 `Store.Version`，则会直接返回 `ErrFutureVersion`，不会静默回退到旧版本备份。

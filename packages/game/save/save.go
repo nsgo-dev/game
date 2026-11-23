@@ -1,6 +1,6 @@
 // Package save stores a game's save slots as versioned JSON in either the app's key-value storage (core.Storage) or files in a directory such as cx.DataDir.
 //
-// Each slot holds a {"version": N, "data": ...} envelope. When a Store loads a save written by an older version, it runs its registered migrations one version at a time (v to v+1) before unmarshaling into the caller's value; a save from a newer version is refused with ErrFutureVersion rather than read into an older shape.
+// Each slot holds a {"version": N, "data": ...} envelope; an envelope with any other field, or with a field given twice, is corrupt. When a Store loads a save written by an older version, it runs its registered migrations one version at a time (v to v+1) before unmarshaling into the caller's value; a save from a newer version is refused with ErrFutureVersion rather than read into an older shape.
 //
 // Writes keep the previous valid save as a backup before replacing the primary copy (with a write, sync and rename on disk, or a backup key in core.Storage), so a failed write leaves the last good save intact and a corrupted primary falls back to the backup on Load.
 //
@@ -128,7 +128,9 @@ func (s *Store) Save(slot string, value any) error {
 
 // Load reads slot, migrates older save versions up to s.Version one step at a time, and unmarshals the data into dst.
 //
-// If the primary copy is missing, unreadable or corrupted, Load automatically recovers from the slot's backup copy. A save whose version exceeds s.Version returns an error wrapping ErrFutureVersion without falling back to an older backup.
+// If the primary copy is missing, unreadable or corrupted, Load automatically recovers from the slot's backup copy, and rewrites a missing or structurally corrupt primary from it. A save whose version exceeds s.Version returns an error wrapping ErrFutureVersion without falling back to an older backup.
+//
+// Load never writes a migrated save back: migrations run in memory on every Load until the slot is saved again, so each Migration must be a pure function of its input that gives the same result every time it runs.
 func (s *Store) Load(slot string, dst any) error {
 	if err := validateSlot(slot); err != nil {
 		return err
@@ -148,6 +150,9 @@ func (s *Store) Load(slot string, dst any) error {
 		if backup, bakErr := s.backend.ReadBackup(slot); bakErr == nil {
 			recErr := s.decode(slot, backup, dst)
 			if recErr == nil {
+				if !isValidEnvelope(primary) {
+					s.repair(slot, backup)
+				}
 				return nil
 			}
 			if errors.Is(recErr, ErrFutureVersion) || errors.Is(recErr, ErrMissingMigration) {
@@ -163,10 +168,19 @@ func (s *Store) Load(slot string, dst any) error {
 		}
 		return fmt.Errorf("save: load %q: %w", slot, primaryErr)
 	}
-	return s.decode(slot, backup, dst)
+	if err := s.decode(slot, backup, dst); err != nil {
+		return err
+	}
+	s.repair(slot, backup)
+	return nil
 }
 
-// Delete removes slot and its backup copy. Deleting a slot that does not exist returns nil.
+// repair rewrites a missing or structurally corrupt primary copy from the backup Load just recovered, so the slot is whole again instead of depending on the backup until the next Save (#546). The backend keeps the backup, because Write preserves only a valid primary; a primary that is a valid envelope whose data did not decode is left alone so it never displaces the good backup. Repair is best effort: Load has already succeeded, and a failed rewrite leaves the slot exactly as it was.
+func (s *Store) repair(slot string, backup []byte) {
+	_ = s.backend.Write(slot, backup)
+}
+
+// Delete removes slot and its backup copy. Deleting a slot that does not exist returns nil. The backup goes first, so an interrupted Delete leaves either the whole slot or nothing that Load could resurrect.
 func (s *Store) Delete(slot string) error {
 	if err := validateSlot(slot); err != nil {
 		return err
@@ -280,6 +294,9 @@ func parseEnvelope(payload []byte) (envelope, error) {
 	if len(payload) == 0 || !json.Valid(payload) {
 		return envelope{}, ErrCorrupt
 	}
+	if err := checkEnvelopeKeys(payload); err != nil {
+		return envelope{}, err
+	}
 	var env envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return envelope{}, fmt.Errorf("%w: %v", ErrCorrupt, err)
@@ -294,6 +311,37 @@ func parseEnvelope(payload []byte) (envelope, error) {
 		return envelope{}, ErrCorrupt
 	}
 	return env, nil
+}
+
+// checkEnvelopeKeys refuses an envelope with a key other than "version" and "data" or with a key given twice, which encoding/json would silently ignore or resolve to the last value (#546).
+func checkEnvelopeKeys(payload []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return ErrCorrupt
+	}
+	var seenVersion, seenData bool
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrCorrupt, err)
+		}
+		key, _ := tok.(string)
+		switch {
+		case key == "version" && !seenVersion:
+			seenVersion = true
+		case key == "data" && !seenData:
+			seenData = true
+		case key == "version" || key == "data":
+			return fmt.Errorf("%w: duplicate envelope field %q", ErrCorrupt, key)
+		default:
+			return fmt.Errorf("%w: unknown envelope field %q", ErrCorrupt, key)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return fmt.Errorf("%w: %v", ErrCorrupt, err)
+		}
+	}
+	return nil
 }
 
 func isValidEnvelope(payload []byte) bool {
