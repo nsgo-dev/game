@@ -712,3 +712,28 @@ func TestColorCurveTintsParticleSprites(t *testing.T) {
 		t.Fatalf("the particle drew untinted: %+v", got)
 	}
 }
+
+// BenchmarkEmitter5000UpdateDraw measures one fixed step and one frame's draw of 5000 live rotating, fading particles through the emitter's sprite.Batch.
+func BenchmarkEmitter5000UpdateDraw(b *testing.B) {
+	const count = 5000
+	e := newConfiguredEmitter(5000)
+	e.Rate = 0
+	e.MaxParticles = count
+	e.LifetimeMin, e.LifetimeMax = time.Hour, time.Hour
+	e.Burst(count)
+	step := time.Second / 60
+	d := core.Drawing{Ops: make([]core.DrawOp, 0, 8*count)}
+	e.Update(step)
+	e.Draw(&d)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		e.Update(step)
+		d.Ops = d.Ops[:0]
+		e.Draw(&d)
+	}
+	if e.Count() != count {
+		b.Fatalf("Count() = %d, want %d", e.Count(), count)
+	}
+}
