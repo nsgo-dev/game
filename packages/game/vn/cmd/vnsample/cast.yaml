@@ -1,0 +1,31 @@
+version: 1
+slots:
+  - name: left
+    x: 0.25
+  - name: center
+    x: 0.5
+  - name: right
+    x: 0.75
+characters:
+  - id: aiko
+    name: Aiko
+    color: '#e07a5f'
+    slot: left
+    expressions:
+      - name: neutral
+        frame: aiko_neutral
+      - name: smile
+        frame: aiko_smile
+      - name: worry
+        frame: aiko_worry
+  - id: ren
+    name: Ren
+    color: '#3d8f7a'
+    slot: right
+    expressions:
+      - name: neutral
+        frame: ren_neutral
+      - name: doubt
+        frame: ren_doubt
+      - name: smile
+        frame: ren_smile

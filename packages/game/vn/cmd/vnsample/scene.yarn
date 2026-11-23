@@ -1,0 +1,30 @@
+title: Start
+---
+<<hide>>
+<<show aiko left neutral>>
+<<show ren right doubt>>
+Aiko: Welcome to the old observatory. #line:obs_01 #voice:aiko_01
+Ren: It is smaller than I pictured. #line:obs_02 #voice:ren_01
+Aiko: Small, but the sky is the same size. #expr:smile #line:obs_03 #voice:aiko_02
+The dome creaks open above them. #line:obs_04
+-> Look through the telescope #line:obs_c1
+    Aiko: Careful, the lens is older than both of us. #expr:worry #line:obs_05 #voice:aiko_03
+    Ren: There, the ring around the moon. #expr:smile #line:obs_06 #voice:ren_02
+-> Ask about the logbook #line:obs_c2
+    Ren: Who kept this logbook? #at:center #line:obs_07 #voice:ren_03
+    Aiko: My grandmother, every clear night for forty years. #expr:smile #line:obs_08 #voice:aiko_04
+<<jump Tea>>
+===
+title: Tea
+---
+<<hide aiko>>
+Aiko: Stay there, I will make some tea. #offstage #line:obs_09 #voice:aiko_05
+Ren: I can see why she came back every night. #expr:smile #at:center #line:obs_10 #voice:ren_04
+<<show aiko left smile>>
+Aiko: Then come back tomorrow. #line:obs_11 #voice:aiko_06
+-> Watch the scene again #line:obs_c3
+    <<jump Start>>
+-> Leave #line:obs_c4
+    <<hide>>
+    The observatory falls quiet. #line:obs_12
+===
