@@ -138,8 +138,8 @@ closeMenu := func() { loop.SetPaused(false) }
 
 - The bars hide while the loop runs and is not `Paused`, and come back while it is `Paused`, when `stop` is called and when `cx` is disposed, so a menu screen that replaces the game's view brings them back too.
 - The loop hides them as it starts or returns from the background, applies a change to `Immersive` or `Paused` on its next frame (in the same frame when `Update` pauses), and asks the platform only when the state changes. It leaves the bars as they are while the app is in the background.
-- Hiding and showing the bars can change the safe-area insets the platform reports (HarmonyOS, for one, keeps only the display cutout while they are hidden), so lay HUDs out with [`screen.SafeGameRectForEnv`](screen.md#safe-area-for-mobile-huds), which follows the insets as they change.
-- Let one loop own the bars: each run that hid them shows them again when it pauses or ends. A menu shown as an NSGo page or dialog can also set `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`, which overrides the window's setting while it is shown.
+- Hiding and showing the bars can change the safe-area insets the platform reports (HarmonyOS, for one, keeps only the display cutout while they are hidden), so lay HUDs out with [`screen.Viewport.SafeGameRectForEnv`](screen.md#safe-area-for-mobile-huds), which follows the insets as they change.
+- Loops in the same window share the bars: they stay hidden while any loop with `Immersive` set plays, and come back once the last of them pauses or ends. A scene that starts its own loop while the previous scene's loop is still alive, as under a scene transition, keeps the bars hidden when the old loop is disposed, and a pushed scene's loop keeps them hidden when the scene below pauses its own. A menu shown as an NSGo page or dialog can also set `StatusBar: core.StatusBarSetting{Immersive: core.ToggleOff}`, which overrides the window's setting while it is shown.
 
 ## Testing with nsgotest
 
