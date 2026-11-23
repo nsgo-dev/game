@@ -7,9 +7,17 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Key returns an input that is active while the key named name is held, named as core.KeyEvent.Key names it: "a", "1", "space", "enter", "left", "f5", or a modifier alone, "shift", "ctrl", "alt" or "meta". A letter or a digit is the one the keyboard layout types unshifted, so Key follows the layout; KeyCode follows the physical position instead. The name is matched without regard to case, and an empty name is never active.
+// Key returns an input that is active while the key named name is held, named as core.KeyEvent.Key names it: "a", "1", "space", "enter", "left", "f5", or a modifier alone, "shift", "ctrl", "alt" or "meta". Only those names are held: the aliases core.KeyHeld also accepts, such as "mod", "cmd" or "option", never are, so bind "meta" where Env.AppleKeys reports Command as the platform modifier and "ctrl" elsewhere. A letter or a digit is the one the keyboard layout types unshifted, so Key follows the layout; KeyCode follows the physical position instead. The name is matched without regard to case, and an empty name is never active.
 func Key(name string) Input {
 	return Input{Kind: InputKey, Key: strings.ToLower(name)}
+}
+
+// normalizeInput lowercases an InputKey's name, as Key does, so an Input built as a struct literal matches and saves the same way.
+func normalizeInput(in Input) Input {
+	if in.Kind == InputKey {
+		in.Key = strings.ToLower(in.Key)
+	}
+	return in
 }
 
 // KeyCode returns an input that is active while the key at physical position code is held, named as core.KeyEvent.Code names it, after the web's KeyboardEvent.code: "KeyW", "ArrowLeft", "Space", "ShiftLeft". A position stays where it is on every layout, so KeyCode("KeyW") is the key above S on QWERTY and AZERTY alike. An empty code is never active.
@@ -37,7 +45,7 @@ func (a *Actions) OnKeyDown(ev core.KeyEvent) bool {
 	return bound
 }
 
-// OnKeyUp records a key coming up from a view's OnKeyUp callback. NSGo sends it for a key that went down while the view had the keyboard focus, wherever the focus has gone since, and for every key still held as the window loses the keyboard focus, so no key stays held.
+// OnKeyUp records a key coming up from a view's OnKeyUp callback. NSGo sends it for a key that went down while the view had the keyboard focus, wherever the focus has gone since, and for every key still held as the window loses the keyboard focus, so no key stays held. It does not send it once the view has left the tree, so a key held as the attached view is removed stays held until Reset; call Reset when the game view is replaced, or use WatchKeys, which has no such view.
 func (a *Actions) OnKeyUp(ev core.KeyEvent) {
 	id := keyIdentity(ev)
 	if _, ok := a.keysDown[id]; ok {
@@ -54,7 +62,7 @@ func (a *Actions) OnKeyUp(ev core.KeyEvent) {
 	a.syncRaw()
 }
 
-// WatchKeys has a hear the keys held anywhere on cx's window, whichever view has the keyboard focus, until cx is disposed or stop is called, which releases the keys it heard. It follows core.KeysDown and core.KeyCodesDown, so keys typed into a text input or composed by an input method are never held, and every held key comes up as the window loses the keyboard focus. Call it once, from the scope that runs the game.Loop.
+// WatchKeys has a hear the keys held anywhere on cx's window, whichever view has the keyboard focus, until cx is disposed or stop is called, which releases the keys it heard. A key held as Reset is called counts as released until it comes up and goes down again, as it does for a focused view. It follows core.KeysDown and core.KeyCodesDown, so keys typed into a text input or composed by an input method are never held, and every held key comes up as the window loses the keyboard focus. Call it once, from the scope that runs the game.Loop.
 func (a *Actions) WatchKeys(cx *core.Scope) (stop func()) {
 	if cx == nil {
 		return func() {}
@@ -69,11 +77,31 @@ func (a *Actions) WatchKeys(cx *core.Scope) (stop func()) {
 	}
 }
 
-// setWatchedKeys replaces the keys held on the window with keys and codes and latches any action they press.
+// setWatchedKeys replaces the keys held on the window with keys and codes, less those held since Reset, and latches any action they press.
 func (a *Actions) setWatchedKeys(keys, codes []string) {
-	a.watchedKeys = append(a.watchedKeys[:0], keys...)
-	a.watchedCodes = append(a.watchedCodes[:0], codes...)
+	a.ignoredKeys, a.watchedKeys = splitHeld(keys, a.ignoredKeys, a.watchedKeys)
+	a.ignoredCodes, a.watchedCodes = splitHeld(codes, a.ignoredCodes, a.watchedCodes)
 	a.syncRaw()
+}
+
+// ignoreWatchedKeys has the keys WatchKeys last read count as released until they come up, for Reset.
+func (a *Actions) ignoreWatchedKeys() {
+	a.ignoredKeys = append(a.ignoredKeys, a.watchedKeys...)
+	a.ignoredCodes = append(a.ignoredCodes, a.watchedCodes...)
+	a.watchedKeys = a.watchedKeys[:0]
+	a.watchedCodes = a.watchedCodes[:0]
+}
+
+// splitHeld splits the held keys into those still ignored, kept from ignored, and the rest, reusing the two slices' storage.
+func splitHeld(held, ignored, watched []string) (stillIgnored, rest []string) {
+	stillIgnored = slices.DeleteFunc(ignored, func(k string) bool { return !slices.Contains(held, k) })
+	rest = watched[:0]
+	for _, k := range held {
+		if !slices.Contains(stillIgnored, k) {
+			rest = append(rest, k)
+		}
+	}
+	return stillIgnored, rest
 }
 
 // keyHeld reports whether the key named name is held, as a focused view heard it or WatchKeys reads it.
