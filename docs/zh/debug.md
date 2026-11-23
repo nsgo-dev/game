@@ -65,6 +65,12 @@ d.Restore()
 
 也可以直接调用 `*Overlay` 上的快捷方法：`DrawBox`、`DrawCircle`、`DrawSpriteBounds` 与 `DrawBatchBounds`。
 
+`DrawFighterBoxes(d, fighter, hurt, hit)` 描画 [framedata](framedata.md) `Fighter` 在当前帧生效的受击框和攻击框，攻击框在上，并按角色朝向镜像：
+
+```go
+overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))
+```
+
 ## 场景检查器
 
 提供实时场景结构有两种方式：

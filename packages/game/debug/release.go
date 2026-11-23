@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/framedata"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -78,6 +79,9 @@ func (*Overlay) DrawSpriteBounds(*core.Drawing, *sprite.Sprite, core.Color) {}
 // DrawBatchBounds is a no-op in release builds.
 func (*Overlay) DrawBatchBounds(*core.Drawing, *sprite.Batch, core.Color) {}
 
+// DrawFighterBoxes is a no-op in release builds.
+func (*Overlay) DrawFighterBoxes(*core.Drawing, *framedata.Fighter, core.Color, core.Color) {}
+
 // View returns nil in release builds so no overlay views are built or linked.
 func (*Overlay) View(*core.Scope) core.Node { return nil }
 
@@ -131,3 +135,6 @@ func (*ShapeOverlay) DrawSpriteBounds(*core.Drawing, *sprite.Sprite, core.Color)
 
 // DrawBatchBounds is a no-op in release builds.
 func (*ShapeOverlay) DrawBatchBounds(*core.Drawing, *sprite.Batch, core.Color) {}
+
+// DrawFighterBoxes is a no-op in release builds.
+func (*ShapeOverlay) DrawFighterBoxes(*core.Drawing, *framedata.Fighter, core.Color, core.Color) {}

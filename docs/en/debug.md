@@ -65,6 +65,12 @@ d.Restore()
 
 Convenience shortcuts `overlay.DrawBox`, `overlay.DrawCircle`, `overlay.DrawSpriteBounds`, and `overlay.DrawBatchBounds` are also available directly on `*Overlay`.
 
+`DrawFighterBoxes(d, fighter, hurt, hit)` strokes the hurtboxes and hitboxes a [framedata](framedata.md) `Fighter` has active on its current frame, hitboxes on top, mirrored as the fighter faces:
+
+```go
+overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))
+```
+
 ## Scene inspector
 
 Supply live scene structure in either of two ways:
