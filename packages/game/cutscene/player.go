@@ -96,6 +96,9 @@ type playback struct {
 // ErrReplaced is what Player.Play returns, playing nothing, when the done callback of the cutscene it stops plays another cutscene: that one plays instead.
 var ErrReplaced = errors.New("cutscene: the stopped cutscene's done callback played another")
 
+// errDisposed is what Play and Scene return once the player's scope is gone.
+var errDisposed = errors.New("cutscene: the player's scope is disposed")
+
 // NewPlayer returns a player that lives as long as cx. Disposing cx while a cutscene plays stops it without calling its done callback, and sets the loop and the mixer back as they were.
 func NewPlayer(cx *core.Scope, opts Options) *Player {
 	p := &Player{cx: cx, opts: opts}
@@ -103,6 +106,8 @@ func NewPlayer(cx *core.Scope, opts Options) *Player {
 		p.cur = core.NewSignal[*playback](cx, nil)
 		cx.Cleanup(func() {
 			if pb := p.cur.GetUntracked(); pb != nil {
+				// Clear the signal as well as restoring the loop and the mixer: the cutscene's view may be mounted in a scope that outlives this player, and clearing it is what unmounts the video.
+				p.cur.Set(nil)
 				p.restore(pb)
 			}
 		})
@@ -124,7 +129,7 @@ func (p *Player) play(c Cutscene, done func(Result), owner *scene.Controller) (*
 		return nil, err
 	}
 	if p.cx.Disposed() {
-		return nil, errors.New("cutscene: the player's scope is disposed")
+		return nil, errDisposed
 	}
 	p.end(Stopped, nil, true)
 	// The stopped cutscene's done callback may have played another; it has paused the loop and the mixer already, so taking them here again would leave them paused for good.
@@ -158,6 +163,9 @@ func (p *Player) play(c Cutscene, done func(Result), owner *scene.Controller) (*
 func (p *Player) Scene(c Cutscene, done func(Result)) (*scene.Controller, error) {
 	if err := check(c); err != nil {
 		return nil, err
+	}
+	if p.cx.Disposed() {
+		return nil, errDisposed
 	}
 	var pb *playback
 	ctrl := &scene.Controller{}

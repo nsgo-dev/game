@@ -502,6 +502,56 @@ func TestCrossfadingBetweenCutsceneScenesStopsTheFirstQuietly(t *testing.T) {
 	r.expectRunning(t, true)
 }
 
+func TestDisposingThePlayerStopsItsCutsceneQuietly(t *testing.T) {
+	var results []cutscene.Result
+	var player *cutscene.Player
+	var loop *game.Loop
+	var show *core.Signal[bool]
+	built := false
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		loop = &game.Loop{}
+		loop.Run(cx)
+		show = core.NewSignal(cx, true)
+		return core.View{Children: []core.Node{
+			core.Show{When: show.Get, Then: func(sub *core.Scope) core.Node {
+				built = true
+				player = cutscene.NewPlayer(sub, cutscene.Options{Loop: loop})
+				return core.View{}
+			}},
+		}}
+	}, nsgotest.Environment(foreground))
+	app.Settle()
+	if !built {
+		t.Fatal("the player's scope was not built")
+	}
+	if err := player.Play(cutscene.Cutscene{Source: introURI}, func(res cutscene.Result) { results = append(results, res) }); err != nil {
+		t.Fatal(err)
+	}
+	app.Settle()
+	if !player.Playing() || !loop.Paused {
+		t.Fatalf("playing %v, loop paused %v; want both true", player.Playing(), loop.Paused)
+	}
+
+	// The cutscene's view may hang under a scope that outlives the player, so the player's disposal has to end the cutscene itself.
+	app.Post(func() { show.Set(false) })
+	app.Settle()
+	if player.Playing() {
+		t.Fatal("the cutscene still plays after its player's scope was disposed")
+	}
+	if loop.Paused {
+		t.Fatal("the loop stayed paused after the player's scope was disposed")
+	}
+	if len(results) != 0 {
+		t.Fatalf("done got %+v after disposal, want nothing", results)
+	}
+	if err := player.Play(cutscene.Cutscene{Source: introURI}, nil); err == nil {
+		t.Fatal("Play succeeded after the player's scope was disposed")
+	}
+	if _, err := player.Scene(cutscene.Cutscene{Source: introURI}, nil); err == nil {
+		t.Fatal("Scene succeeded after the player's scope was disposed")
+	}
+}
+
 func TestReasonsHaveNames(t *testing.T) {
 	for r, want := range map[cutscene.Reason]string{cutscene.Finished: "finished", cutscene.Skipped: "skipped", cutscene.Stopped: "stopped", cutscene.Failed: "failed", 9: "unknown"} {
 		if r.String() != want {
