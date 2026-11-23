@@ -201,19 +201,19 @@
           "type": "string"
         },
         "x": {
-          "description": "X and Y are where the object's origin sits in its layer's coordinate space.",
+          "description": "X and Y are where the object's origin sits in its parent's space, which for a top-level object is its layer's coordinate space.",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
         },
         "y": {
-          "description": "X and Y are where the object's origin sits in its layer's coordinate space.",
+          "description": "X and Y are where the object's origin sits in its parent's space, which for a top-level object is its layer's coordinate space.",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
         },
         "posZ": {
-          "description": "PosZ is the optional 3D world Z coordinate (depth in 3D scenes), distinct from 2D draw order Z.",
+          "description": "PosZ is the optional 3D Z coordinate (depth in 3D scenes) in its parent's space, distinct from 2D draw order Z.",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
@@ -237,19 +237,19 @@
           "maximum": 3.4028234663852886e+38
         },
         "rotX": {
-          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
         },
         "rotY": {
-          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
         },
         "rotZ": {
-          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes.",
+          "description": "RotX, RotY, and RotZ are optional 3D Euler rotations in radians about the X, Y, and Z axes, applied in that order about fixed axes (the rotation Rz * Ry * Rx).",
           "type": "number",
           "minimum": -3.4028234663852886e+38,
           "maximum": 3.4028234663852886e+38
@@ -297,7 +297,7 @@
           "maximum": 1
         },
         "z": {
-          "description": "Z orders objects within the layer; lower Z draws first, ties keep slice order.",
+          "description": "Z orders objects within the layer, children included; lower Z draws first, and ties keep document order with each parent before its children.",
           "type": "integer",
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
@@ -310,6 +310,10 @@
             }
           ]
         },
+        "material": {
+          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.",
+          "type": "string"
+        },
         "components": {
           "description": "Components holds structured component data keyed by component type name.",
           "type": "object",
@@ -319,6 +323,13 @@
           "description": "Properties holds arbitrary custom metadata for gameplay scripts or editors.",
           "type": "object",
           "additionalProperties": {}
+        },
+        "children": {
+          "description": "Children are objects attached to this one, in document order. A child's transform (X, Y, Rotation, ScaleX, ScaleY, and in 3D PosZ, RotX, RotY, RotZ, ScaleZ) is local to this object, and its alpha multiplies this object's. Children belong to their parent's layer; their IDs share the scene-wide namespace, and nesting is limited to MaxObjectDepth levels.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ObjectDoc"
+          }
         }
       },
       "required": [
