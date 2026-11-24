@@ -245,4 +245,5 @@ if jump != nil {
 - 跟着[教程](tutorial.md)分九章从空项目做出一款完整的游戏 Star Catcher，直到构建发布包。
 - 阅读各个包的详细指南：[Loop](loop.md)、[sprite](sprite.md) 和 [sound](sound.md)，或查阅汇总的[包](packages.md)参考。
 - 试玩并阅读示例平台跳跃游戏 [Cave Run](https://github.com/nsgo-dev/game/tree/main/examples/caverun)：它用到了 Loop、键盘、游戏手柄、触控和鼠标上的输入动作、精灵批次、带镜头的 Tiled 地图、场景、声音分组以及原生 HUD 和暂停菜单，带有 1000 个精灵的压力模式，以及在无界面环境中把关卡一直玩到终点的测试。
+- 探索 3D glTF 场景示例 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)：在 NSGo 的 `gpu.View` 上通过 `game/gltf` 加载内嵌的二进制 glTF 2.0 庭院场景，使用 `render3d.UploadMesh` 与 `render3d.UploadTexture` 上传网格与纹理，结合定向主光、环绕暖色点光源与半球环境光，并配有 `scene3d.OrbitController` 轨道相机与原生 `scene.HUD3D` 界面叠层。
 - 准备好检查所有目标平台并构建 macOS、Windows、Linux、Web、iOS 和 Android 发布包时，阅读[构建与发布](shipping.md)。
