@@ -13,13 +13,22 @@ layers:
         prefab: button
         x: 180
         y: 110
+        properties:
+          height: 36
+          width: 120
       - id: settings_button
         name: Settings
         prefab: button
         x: 180
         y: 156
+        properties:
+          height: 36
+          width: 120
       - id: quit_button
         name: Quit
         prefab: button
         x: 180
         y: 202
+        properties:
+          height: 36
+          width: 120

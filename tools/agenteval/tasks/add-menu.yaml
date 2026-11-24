@@ -1,18 +1,17 @@
 version: 1
 id: add-menu
 title: Add a menu
-description: Add a screen-space menu scene with interactive items and scene manager transitions alongside gameplay, discoverable through MCP scene and layer inspection.
+description: Add a screen-space menu scene whose buttons come from YAML, with a Play button that switches to gameplay through scene.Manager, verified by clicking it over MCP.
 prompt: |
   Add a title and pause menu to this NSGo game project.
 
   Requirements:
-  1. Add `scenes/menu.scene.yaml` with a visible screen-space layer (`space: screen`) containing at least 2 menu items, keeping `game.yaml` and `scenes/gameplay.scene.yaml` valid under `assetcheck.Check`.
-  2. Wire `scene.Manager` with named `"menu"`, `"gameplay"`, and `"pause"` controllers using `gameui.Root` for the menu layout.
+  1. Add `scenes/menu.scene.yaml` with a visible screen-space layer (`space: screen`) containing at least 2 button objects (`prefab: button`, with `width` and `height` properties), one of them `play_button` at x 180, y 110, 120 by 36 points, keeping `game.yaml` and `scenes/gameplay.scene.yaml` valid under `assetcheck.Check`.
+  2. Wire `scene.Manager` with named `"menu"`, `"gameplay"`, and `"pause"` controllers, building the menu's buttons from the objects in `scenes/menu.scene.yaml` as hit-testable scene drawables, so that pressing `play_button` switches to `"gameplay"`.
   3. Attach `mcp.Bridge` with `Scenes`, `SceneName`, `NamedScenes`, `World`, and `Loop` so `game_scenes_list` reports both `"menu"` and `"gameplay"` and `game_layers_list` shows the screen-space menu layer.
 min_score: 100
 context_docs:
   - docs/en/scene.md
-  - docs/en/gameui.md
   - docs/en/mcp.md
   - docs/en/project.md
   - docs/en/flow.md
@@ -35,10 +34,13 @@ checks:
     inspect_layer_scene: menu
     require_layer_space: screen
     step_count: 15
+    click:
+      x: 240
+      y: 128
+      expect_scene: gameplay
   weights:
-    docs_context: 10
     yaml_valid: 15
     project_check: 15
-    domain_check: 20
+    domain_check: 25
     build_check: 15
-    mcp_verify: 25
+    mcp_verify: 30

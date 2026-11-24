@@ -28,6 +28,8 @@ type TaskReport struct {
 	DurationMS  int64             `json:"duration_ms"`
 	Criteria    []CriterionResult `json:"criteria"`
 	AgentOutput string            `json:"agent_output,omitempty"`
+	// AgentTimedOut reports that the agent command hit its own timeout; grading still ran on what it left.
+	AgentTimedOut bool `json:"agent_timed_out,omitempty"`
 }
 
 // SuiteReport aggregates scores across every evaluated task.
@@ -85,6 +87,9 @@ func (r SuiteReport) RenderMarkdown() string {
 		status := "PASS"
 		if !t.Passed {
 			status = "FAIL"
+		}
+		if t.AgentTimedOut {
+			status += " (agent timed out)"
 		}
 		fmt.Fprintf(&b, "| `%s` (%s) | %d/%d | %d | %d/%d | %s | %dms |\n",
 			t.ID, mdCell(t.Title), t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), status, t.DurationMS)

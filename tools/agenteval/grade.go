@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"text/template"
@@ -23,50 +24,50 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// GradeWorkspace evaluates workspaceDir against every rubric criterion defined in task.
+// GradeWorkspace evaluates workspaceDir against every rubric criterion defined in task, building it against this checkout's packages/game through a temporary go.work.
 func GradeWorkspace(ctx context.Context, repoRoot, workspaceDir string, task *Task, minScore int) TaskReport {
-	criteria := make([]CriterionResult, 0, 6)
-
-	// 1. Required docs / skill / MCP context files exist in repository.
-	criteria = append(criteria, gradeDocsContext(repoRoot, task))
-
-	// 2. Versioned YAML project & scene files parse and round-trip deterministically.
-	criteria = append(criteria, gradeYAMLFiles(workspaceDir, task))
-
-	// 3. assetcheck.Check reports zero problems on the workspace.
-	criteria = append(criteria, gradeProjectCheck(workspaceDir, task))
-
-	// 4. Task-specific domain validation (platformer geometry, enemy definition, or menu scene).
-	criteria = append(criteria, gradeDomain(workspaceDir, task))
-
-	// Prepare temporary go.work pointing at this checkout's packages/game + workspaceDir.
 	if resolved, err := filepath.EvalSymlinks(workspaceDir); err == nil {
 		workspaceDir = resolved
 	}
-	workFile, cleanupWork, workErr := writeTempGoWork(repoRoot, workspaceDir)
-	if cleanupWork != nil {
-		defer cleanupWork()
-	}
-
-	// 5. Build and vet cleanly with go tool nsgo check.
-	if workErr != nil {
-		criteria = append(criteria, CriterionResult{
-			Name:   "builds_cleanly",
-			Weight: task.Checks.Weights.BuildCheck,
-			Detail: fmt.Sprintf("setup temporary go.work: %v", workErr),
-		})
+	workFile, cleanup, err := prepareGoWorkspace(ctx, repoRoot, workspaceDir)
+	if err != nil {
+		workFile = ""
 	} else {
+		defer cleanup()
+	}
+	rep := gradeWorkspace(ctx, workspaceDir, workFile, task, minScore)
+	if err != nil {
+		for i := range rep.Criteria {
+			if rep.Criteria[i].Name == "builds_cleanly" || rep.Criteria[i].Name == "mcp_verify_passes" {
+				rep.Criteria[i].Detail = fmt.Sprintf("set up temporary go.work: %v", err)
+			}
+		}
+	}
+	return rep
+}
+
+// gradeWorkspace scores workspaceDir with workFile as its GOWORK; an empty workFile fails the build and MCP criteria.
+func gradeWorkspace(ctx context.Context, workspaceDir, workFile string, task *Task, minScore int) TaskReport {
+	criteria := make([]CriterionResult, 0, 5)
+
+	// 1. Versioned YAML project & scene files parse and round-trip deterministically.
+	criteria = append(criteria, gradeYAMLFiles(workspaceDir, task))
+
+	// 2. assetcheck.Check reports zero problems on the workspace.
+	criteria = append(criteria, gradeProjectCheck(workspaceDir, task))
+
+	// 3. Task-specific domain validation (platformer geometry, enemy definition, or menu scene).
+	criteria = append(criteria, gradeDomain(workspaceDir, task))
+
+	if workFile == "" {
+		criteria = append(criteria,
+			CriterionResult{Name: "builds_cleanly", Weight: task.Checks.Weights.BuildCheck, Detail: "no go.work"},
+			CriterionResult{Name: "mcp_verify_passes", Weight: task.Checks.Weights.MCPVerify, Detail: "no go.work"},
+		)
+	} else {
+		// 4. Build and vet cleanly with go tool nsgo check.
 		criteria = append(criteria, gradeBuildCheck(ctx, workspaceDir, workFile, task))
-	}
-
-	// 6. Live headless MCP verification through nsgo test + automation.Call.
-	if workErr != nil {
-		criteria = append(criteria, CriterionResult{
-			Name:   "mcp_verify_passes",
-			Weight: task.Checks.Weights.MCPVerify,
-			Detail: fmt.Sprintf("setup temporary go.work: %v", workErr),
-		})
-	} else {
+		// 5. Live headless MCP verification through nsgo test + automation.Call.
 		criteria = append(criteria, gradeMCPVerify(ctx, workspaceDir, workFile, task))
 	}
 
@@ -85,36 +86,6 @@ func GradeWorkspace(ctx context.Context, repoRoot, workspaceDir string, task *Ta
 		MinScore: minScore,
 		Passed:   score >= minScore,
 		Criteria: criteria,
-	}
-}
-
-func gradeDocsContext(repoRoot string, task *Task) CriterionResult {
-	w := task.Checks.Weights.DocsContext
-	var missing []string
-	for _, rel := range task.ContextDocs {
-		p, err := safeJoin(repoRoot, rel)
-		if err != nil {
-			missing = append(missing, rel)
-			continue
-		}
-		info, err := os.Stat(p)
-		if err != nil || info.IsDir() || info.Size() == 0 {
-			missing = append(missing, rel)
-		}
-	}
-	if len(missing) > 0 {
-		return CriterionResult{
-			Name:   "docs_context_present",
-			Weight: w,
-			Detail: fmt.Sprintf("missing or empty context docs: %s", strings.Join(missing, ", ")),
-		}
-	}
-	return CriterionResult{
-		Name:   "docs_context_present",
-		Weight: w,
-		Earned: w,
-		Passed: true,
-		Detail: fmt.Sprintf("all %d context docs present", len(task.ContextDocs)),
 	}
 }
 
@@ -266,6 +237,7 @@ func gradeDomain(workspaceDir string, task *Task) CriterionResult {
 type xInterval struct {
 	start float64
 	end   float64
+	y     float64
 }
 
 func gradePlatformerLevel(workspaceDir string, spec *PlatformerSpec, weight int) CriterionResult {
@@ -295,7 +267,7 @@ func gradePlatformerLevel(workspaceDir string, spec *PlatformerSpec, weight int)
 			}
 			if isPlatformObject(o) {
 				w := objectWidth(o, 64)
-				platforms = append(platforms, xInterval{start: float64(o.X), end: float64(o.X) + w})
+				platforms = append(platforms, xInterval{start: float64(o.X), end: float64(o.X) + w, y: float64(o.Y)})
 			}
 		})
 	}
@@ -320,37 +292,37 @@ func gradePlatformerLevel(workspaceDir string, spec *PlatformerSpec, weight int)
 		}
 		return cmp.Compare(a.end, b.end)
 	})
+	// Walk from the leftmost of spawn and goal to the rightmost, ignoring platforms that end before it. The first platform must start within max_gap of it, each next one must start within max_gap of the reach so far, and each platform that extends the reach must sit within max_rise vertically of the previous one; a platform that is too high or too low is skipped as unusable.
 	minX := min(float64(playerObj.X), float64(goalObj.X))
 	maxX := max(float64(playerObj.X), float64(goalObj.X))
 	reach := minX
+	var lastY float64
 	bridged := false
+	skipped := 0
 	for _, iv := range platforms {
-		if iv.end < minX {
+		if iv.end < minX || (bridged && iv.end <= reach) {
 			continue
 		}
 		if iv.start > reach+spec.MaxGap {
-			if bridged && reach >= maxX {
-				break
-			}
-			if !bridged {
-				return CriterionResult{Name: name, Weight: weight, Detail: fmt.Sprintf("first reachable platform starts at %.1f, unreachable from x=%.1f", iv.start, minX)}
-			}
-			return CriterionResult{
-				Name:   name,
-				Weight: weight,
-				Detail: fmt.Sprintf("unjumpable gap of %.1f between %.1f and %.1f (max %.1f)", iv.start-reach, reach, iv.start, spec.MaxGap),
-			}
+			break
+		}
+		if bridged && math.Abs(iv.y-lastY) > spec.MaxRise {
+			skipped++
+			continue
 		}
 		bridged = true
-		if iv.end > reach {
-			reach = iv.end
-		}
+		reach = max(reach, iv.end)
+		lastY = iv.y
 		if reach >= maxX {
 			break
 		}
 	}
 	if !bridged || reach < maxX {
-		return CriterionResult{Name: name, Weight: weight, Detail: fmt.Sprintf("platforms reach %.1f, goal at %.1f is unreachable", reach, maxX)}
+		detail := fmt.Sprintf("platforms reach x=%.1f from x=%.1f, goal side at x=%.1f is unreachable (max gap %.0f, max rise %.0f)", reach, minX, maxX, spec.MaxGap, spec.MaxRise)
+		if skipped > 0 {
+			detail += fmt.Sprintf("; %d platforms skipped for a vertical step above max rise", skipped)
+		}
+		return CriterionResult{Name: name, Weight: weight, Detail: detail}
 	}
 
 	return CriterionResult{
@@ -358,7 +330,7 @@ func gradePlatformerLevel(workspaceDir string, spec *PlatformerSpec, weight int)
 		Weight: weight,
 		Earned: weight,
 		Passed: true,
-		Detail: fmt.Sprintf("player %q -> goal %q bridged by %d platforms (max gap <= %.0f)", playerObj.ID, goalObj.ID, len(platforms), spec.MaxGap),
+		Detail: fmt.Sprintf("player %q -> goal %q bridged by %d platforms (max gap <= %.0f, max rise <= %.0f)", playerObj.ID, goalObj.ID, len(platforms), spec.MaxGap, spec.MaxRise),
 	}
 }
 
@@ -432,7 +404,9 @@ func gradeMenuSpec(workspaceDir string, spec *MenuSpec, weight int) CriterionRes
 		}
 		if !spec.RequireScreenLayer || isScreen {
 			walkLayerObjects(layer.Objects, func(o *sceneformat.ObjectDoc) {
-				menuItems++
+				if isButtonObject(o) {
+					menuItems++
+				}
 			})
 		}
 	}
@@ -447,7 +421,7 @@ func gradeMenuSpec(workspaceDir string, spec *MenuSpec, weight int) CriterionRes
 		return CriterionResult{
 			Name:   name,
 			Weight: weight,
-			Detail: fmt.Sprintf("%s has %d menu items, want at least %d", spec.SceneFile, menuItems, spec.MinMenuItems),
+			Detail: fmt.Sprintf("%s has %d buttons, want at least %d", spec.SceneFile, menuItems, spec.MinMenuItems),
 		}
 	}
 	return CriterionResult{
@@ -455,7 +429,7 @@ func gradeMenuSpec(workspaceDir string, spec *MenuSpec, weight int) CriterionRes
 		Weight: weight,
 		Earned: weight,
 		Passed: true,
-		Detail: fmt.Sprintf("%d screen layers and %d menu items in %s", screenLayers, menuItems, spec.SceneFile),
+		Detail: fmt.Sprintf("%d screen layers and %d buttons in %s", screenLayers, menuItems, spec.SceneFile),
 	}
 }
 
@@ -513,6 +487,14 @@ func gradeMCPVerify(ctx context.Context, workspaceDir, workFile string, task *Ta
 			Detail: fmt.Sprintf("MCP verification failed: %v (%s)", err, compactOutput(out, 300)),
 		}
 	}
+	// A clean exit is not enough: a workspace TestMain that exits without calling m.Run would skip the verification test.
+	if !mcpVerifyPassLine.Match(out) {
+		return CriterionResult{
+			Name:   name,
+			Weight: w,
+			Detail: fmt.Sprintf("TestAgentEvalMCPVerify did not report PASS (%s)", compactOutput(out, 300)),
+		}
+	}
 	return CriterionResult{
 		Name:   name,
 		Weight: w,
@@ -521,6 +503,9 @@ func gradeMCPVerify(ctx context.Context, workspaceDir, workFile string, task *Ta
 		Detail: "headless MCP verification passed",
 	}
 }
+
+// mcpVerifyPassLine matches the pass line of the verification test in go test -v output or in nsgo test's summary.
+var mcpVerifyPassLine = regexp.MustCompile(`(?m)^\s*(--- PASS: |✓ )TestAgentEvalMCPVerify \(`)
 
 func loadSceneFile(workspaceDir, rel string) (*sceneformat.SceneDoc, error) {
 	p, err := safeJoin(workspaceDir, rel)
@@ -565,17 +550,22 @@ func isPlatformObject(o *sceneformat.ObjectDoc) bool {
 	return false
 }
 
+// isButtonObject reports whether o is a menu button: prefab `button` or a `button` component.
+func isButtonObject(o *sceneformat.ObjectDoc) bool {
+	if strings.EqualFold(o.Prefab, "button") {
+		return true
+	}
+	_, ok := o.Components["button"]
+	return ok
+}
+
+// isEnemyObject reports whether o is an enemy: prefab `enemy`, an `enemy` component, or a `tag: enemy` property.
 func isEnemyObject(o *sceneformat.ObjectDoc) bool {
 	if o == nil {
 		return false
 	}
-	id := strings.ToLower(o.ID)
-	prefab := strings.ToLower(o.Prefab)
-	name := strings.ToLower(o.Name)
-	for _, s := range []string{id, prefab, name} {
-		if strings.Contains(s, "enemy") || strings.Contains(s, "slime") || strings.Contains(s, "sentinel") || strings.Contains(s, "patrol") {
-			return true
-		}
+	if strings.EqualFold(o.Prefab, "enemy") {
+		return true
 	}
 	if _, ok := o.Components["enemy"]; ok {
 		return true
@@ -623,15 +613,10 @@ func numericValue(v any) (float64, bool) {
 	}
 }
 
-func writeTempGoWork(repoRoot, workspaceDir string) (string, func(), error) {
-	tmpDir, err := os.MkdirTemp("", "agenteval-gowork-*")
+// prepareGoWorkspace writes a temporary go.work that uses this checkout's packages/game and workspaceDir, and points the workspace's packages/game requirement at the checkout with `go mod edit -replace`, which also rewrites a replace the workspace already has. The cleanup restores go.mod and removes the go.work.
+func prepareGoWorkspace(ctx context.Context, repoRoot, workspaceDir string) (string, func(), error) {
+	absGame, err := filepath.Abs(filepath.Join(repoRoot, "packages", "game"))
 	if err != nil {
-		return "", nil, err
-	}
-	pkgGame := filepath.Join(repoRoot, "packages", "game")
-	absGame, err := filepath.Abs(pkgGame)
-	if err != nil {
-		os.RemoveAll(tmpDir)
 		return "", nil, err
 	}
 	if resolved, err := filepath.EvalSymlinks(absGame); err == nil {
@@ -639,44 +624,63 @@ func writeTempGoWork(repoRoot, workspaceDir string) (string, func(), error) {
 	}
 	absWS, err := filepath.Abs(workspaceDir)
 	if err != nil {
-		os.RemoveAll(tmpDir)
 		return "", nil, err
 	}
 	if resolved, err := filepath.EvalSymlinks(absWS); err == nil {
 		absWS = resolved
 	}
-	workFile := filepath.Join(tmpDir, "go.work")
-	goVer := readGoVersion(filepath.Join(absGame, "go.mod"))
-	content := fmt.Sprintf("go %s\n\nuse (\n\t%q\n\t%q\n)\n", goVer, absGame, absWS)
-	if err := os.WriteFile(workFile, []byte(content), 0o644); err != nil {
-		os.RemoveAll(tmpDir)
+	goVer, err := readGoVersion(filepath.Join(absGame, "go.mod"))
+	if err != nil {
 		return "", nil, err
 	}
 
-	// Ensure workspace go.mod resolves packages/game locally when `go tool nsgo` resolves its tool module graph.
 	goModPath := filepath.Join(absWS, "go.mod")
-	var origGoMod []byte
-	var patchedGoMod bool
-	if data, err := os.ReadFile(goModPath); err == nil {
-		if !bytes.Contains(data, []byte("replace github.com/nsgo-dev/game/packages/game")) {
-			origGoMod = data
-			patched := append(bytes.Clone(data), fmt.Sprintf("\nreplace github.com/nsgo-dev/game/packages/game => %q\n", absGame)...)
-			if err := os.WriteFile(goModPath, patched, 0o644); err != nil {
-				os.RemoveAll(tmpDir)
-				return "", nil, err
-			}
-			patchedGoMod = true
-		}
+	origGoMod, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "", nil, err
 	}
+	if err := pinGamePackage(ctx, repoRoot, absWS); err != nil {
+		return "", nil, err
+	}
+	restore := func() { _ = os.WriteFile(goModPath, origGoMod, 0o644) }
 
+	tmpDir, err := os.MkdirTemp("", "agenteval-gowork-*")
+	if err != nil {
+		restore()
+		return "", nil, err
+	}
+	workFile := filepath.Join(tmpDir, "go.work")
+	content := fmt.Sprintf("go %s\n\nuse (\n\t%q\n\t%q\n)\n", goVer, absGame, absWS)
+	if err := os.WriteFile(workFile, []byte(content), 0o644); err != nil {
+		restore()
+		os.RemoveAll(tmpDir)
+		return "", nil, err
+	}
 	return workFile, func() {
-		if patchedGoMod {
-			_ = os.WriteFile(goModPath, origGoMod, 0o644)
-		}
+		restore()
 		_ = os.RemoveAll(tmpDir)
 	}, nil
 }
 
+// pinGamePackage points the packages/game requirement in workspaceDir's go.mod at this checkout with `go mod edit -replace`, which also rewrites a replace already there, in a parenthesized block or not.
+func pinGamePackage(ctx context.Context, repoRoot, workspaceDir string) error {
+	absGame, err := filepath.Abs(filepath.Join(repoRoot, "packages", "game"))
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(absGame); err == nil {
+		absGame = resolved
+	}
+	edit := exec.CommandContext(ctx, "go", "mod", "edit", "-replace=github.com/nsgo-dev/game/packages/game="+absGame)
+	edit.Dir = workspaceDir
+	edit.Env = append(cleanGoEnv(""), "GOWORK=off")
+	if out, err := edit.CombinedOutput(); err != nil {
+		return fmt.Errorf("go mod edit -replace: %v (%s)", err, compactOutput(out, 240))
+	}
+	return nil
+}
+
+// cleanGoEnv returns the process environment without GOROOT and GOWORK, adding GOWORK=workFile when workFile is set.
 func cleanGoEnv(workFile string) []string {
 	src := os.Environ()
 	out := make([]string, 0, len(src)+1)
@@ -686,7 +690,9 @@ func cleanGoEnv(workFile string) []string {
 		}
 		out = append(out, kv)
 	}
-	out = append(out, "GOWORK="+workFile)
+	if workFile != "" {
+		out = append(out, "GOWORK="+workFile)
+	}
 	return out
 }
 
@@ -766,6 +772,13 @@ type evalMCPSpec struct {
 	StepCount          int      ` + "`json:\"StepCount\"`" + `
 	ExpectMovedEntity  string   ` + "`json:\"ExpectMovedEntity\"`" + `
 	ExpectComponent    string   ` + "`json:\"ExpectComponent\"`" + `
+	PressActions       []string ` + "`json:\"PressActions\"`" + `
+	ApproachEntity     string   ` + "`json:\"ApproachEntity\"`" + `
+	Click              *struct {
+		X           float64 ` + "`json:\"X\"`" + `
+		Y           float64 ` + "`json:\"Y\"`" + `
+		ExpectScene string  ` + "`json:\"ExpectScene\"`" + `
+	} ` + "`json:\"Click\"`" + `
 }
 
 func evalCallMCP[T any](t *testing.T, app *nsgotest.App, cx *core.Scope, name string, args any) T {
@@ -939,6 +952,25 @@ func TestAgentEvalMCPVerify(t *testing.T) {
 		before := evalCallMCP[mcp.EntityInspectResult](t, app, rootScope, mcp.ToolEntityInspect, map[string]any{"ref": targetRef})
 		x0, y0 = evalExtractPos(t, before.Components)
 	}
+	var approachRef string
+	var approachX float64
+	if spec.ApproachEntity != "" {
+		e, ok := byName[spec.ApproachEntity]
+		if !ok {
+			t.Fatalf("game_entities_list missing approach entity %q", spec.ApproachEntity)
+		}
+		approachRef = e.Ref
+		target := evalCallMCP[mcp.EntityInspectResult](t, app, rootScope, mcp.ToolEntityInspect, map[string]any{"ref": approachRef})
+		approachX, _ = evalExtractPos(t, target.Components)
+	}
+
+	// Movement must come from input: hold each action through game_input_action before stepping.
+	for _, name := range spec.PressActions {
+		res := evalCallMCP[mcp.InputActionResult](t, app, rootScope, mcp.ToolInputAction, map[string]any{"name": name, "mode": "press"})
+		if res.Mode != "press" {
+			t.Fatalf("game_input_action(%q, press) ran mode %q", name, res.Mode)
+		}
+	}
 
 	if spec.StepCount > 0 {
 		stepped := evalCallMCP[mcp.LoopStepResult](t, app, rootScope, mcp.ToolLoopStep, map[string]any{"count": spec.StepCount})
@@ -963,6 +995,9 @@ func TestAgentEvalMCPVerify(t *testing.T) {
 		if math.Hypot(x1-x0, y1-y0) <= 0.01 {
 			t.Fatalf("entity %s did not move after %d steps: before=(%v,%v) after=(%v,%v)", targetRef, spec.StepCount, x0, y0, x1, y1)
 		}
+		if approachRef != "" && math.Abs(approachX-x1) >= math.Abs(approachX-x0)-1 {
+			t.Fatalf("entity %s did not move toward %q (x=%v) after %d steps: x before=%v after=%v", targetRef, spec.ApproachEntity, approachX, spec.StepCount, x0, x1)
+		}
 		if spec.ExpectComponent != "" {
 			comp := evalCallMCP[mcp.ComponentGetResult](t, app, rootScope, mcp.ToolComponentGet, map[string]any{
 				"ref":       targetRef,
@@ -973,21 +1008,37 @@ func TestAgentEvalMCPVerify(t *testing.T) {
 			}
 		}
 	}
+
+	// 6. Click through game_input_pointer and check that the press switched scenes.
+	if c := spec.Click; c != nil {
+		res := evalCallMCP[mcp.InputPointerResult](t, app, rootScope, mcp.ToolInputPointer, map[string]any{"action": "click", "x": c.X, "y": c.Y})
+		if !res.Dispatched {
+			t.Fatalf("game_input_pointer click at (%v, %v) reached no OnPress handler (hit=%v layer=%q)", c.X, c.Y, res.Hit, res.HitLayer)
+		}
+		if spec.StepCount > 0 {
+			evalCallMCP[mcp.LoopStepResult](t, app, rootScope, mcp.ToolLoopStep, map[string]any{"count": 1})
+		}
+		after := evalCallMCP[mcp.ScenesListResult](t, app, rootScope, mcp.ToolScenesList, nil)
+		if after.Current != c.ExpectScene {
+			t.Fatalf("after clicking (%v, %v) the current scene is %q, want %q", c.X, c.Y, after.Current, c.ExpectScene)
+		}
+	}
 }
 `))
 
-func readGoVersion(goModPath string) string {
+// readGoVersion returns the go directive of the go.mod at goModPath, so the temporary go.work follows the repository's Go version.
+func readGoVersion(goModPath string) (string, error) {
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
-		return "1.27.3"
+		return "", err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && fields[0] == "go" {
-			return fields[1]
+			return fields[1], nil
 		}
 	}
-	return "1.27.3"
+	return "", fmt.Errorf("%s has no go directive", goModPath)
 }
 
 // copyDir recursively copies src into dst, refusing symlinks so staged fixtures cannot escape src.

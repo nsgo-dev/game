@@ -73,12 +73,11 @@ checks:
   mcp_verify:
     min_scenes: 1
   weights:
-    docs_context: 10
     yaml_valid: 15
     project_check: 15
-    domain_check: 20
+    domain_check: 25
     build_check: 15
-    mcp_verify: 25
+    mcp_verify: 30
 `)
 	if _, err := ParseTask(badUnknown); err == nil {
 		t.Fatal("ParseTask accepted unknown field, want error")
@@ -93,20 +92,27 @@ checks:
 
 	// Weights not summing to 100 must be refused.
 	badWeights := bytes.Replace(badUnknown, []byte("extra_unknown_field: true\n"), nil, 1)
-	badWeights = bytes.Replace(badWeights, []byte("mcp_verify: 25"), []byte("mcp_verify: 10"), 1)
+	badWeights = bytes.Replace(badWeights, []byte("mcp_verify: 30"), []byte("mcp_verify: 15"), 1)
 	if _, err := ParseTask(badWeights); err == nil {
 		t.Fatal("ParseTask accepted weights summing to 85, want error")
 	}
 
 	// Path traversal, absolute paths, and unsafe task IDs must be refused.
 	validBase := bytes.Replace(badUnknown, []byte("extra_unknown_field: true\n"), nil, 1)
+	if _, err := ParseTask(validBase); err != nil {
+		t.Fatalf("ParseTask(valid base): %v", err)
+	}
 	for name, mutated := range map[string][]byte{
-		"traversal_starter":  bytes.Replace(validBase, []byte("starter_dir: a"), []byte("starter_dir: ../outside"), 1),
-		"abs_context_doc":    bytes.Replace(validBase, []byte("docs/en/mcp.md"), []byte("/etc/passwd"), 1),
-		"traversal_scene":    bytes.Replace(validBase, []byte("scenes/menu.scene.yaml"), []byte("../../escape.scene.yaml"), 1),
-		"unsafe_task_id":     bytes.Replace(validBase, []byte("id: bad"), []byte("id: ../bad"), 1),
-		"moved_without_step": bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_moved_entity: player"), 1),
-		"comp_without_moved": bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_component: enemy"), 1),
+		"traversal_starter":   bytes.Replace(validBase, []byte("starter_dir: a"), []byte("starter_dir: ../outside"), 1),
+		"abs_context_doc":     bytes.Replace(validBase, []byte("docs/en/mcp.md"), []byte("/etc/passwd"), 1),
+		"traversal_scene":     bytes.Replace(validBase, []byte("scenes/menu.scene.yaml"), []byte("../../escape.scene.yaml"), 1),
+		"unsafe_task_id":      bytes.Replace(validBase, []byte("id: bad"), []byte("id: ../bad"), 1),
+		"moved_without_step":  bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_moved_entity: player"), 1),
+		"comp_without_moved":  bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_component: enemy"), 1),
+		"min_score_negative":  bytes.Replace(validBase, []byte("prompt: Bad"), []byte("prompt: Bad\nmin_score: -1"), 1),
+		"press_without_step":  bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    press_actions: [right]"), 1),
+		"click_without_scene": bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    click: {x: 1, y: 2}"), 1),
+		"click_nan":           bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    click: {x: .nan, y: 2, expect_scene: a}"), 1),
 	} {
 		if _, err := ParseTask(mutated); err == nil {
 			t.Errorf("ParseTask(%s) accepted invalid spec, want error", name)
@@ -238,8 +244,8 @@ func TestBrokenLevelGeometryAndUnknownYAMLFieldDropScore(t *testing.T) {
 	if rep.Passed {
 		t.Fatalf("broken platform gap unexpectedly passed: %+v", rep)
 	}
-	if rep.Score != 80 {
-		t.Fatalf("broken platform gap score = %d, want 80 (lost 20-point domain_check); criteria=%+v", rep.Score, rep.Criteria)
+	if rep.Score != 75 {
+		t.Fatalf("broken platform gap score = %d, want 75 (lost 25-point domain_check); criteria=%+v", rep.Score, rep.Criteria)
 	}
 
 	// Also break game.yaml with an unknown field -> yaml_valid & project_check_passes must fail.
@@ -260,8 +266,9 @@ func TestCommandModeWithMockAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// Mock external agent command checks env vars & prompt file, then copies the reference solution into $AGENTEVAL_WORKSPACE.
-	mockCmd := `test -s "$AGENTEVAL_PROMPT_FILE" && test -n "$AGENTEVAL_DOCS" && cp -R "$AGENTEVAL_REPO_ROOT/tools/agenteval/testdata/fixtures/add-menu/reference/." "$AGENTEVAL_WORKSPACE/"`
+	// The mock agent gets no path into the repository: it checks the prompt and the staged docs, copies in the reference solution (whose path only the test knows), and builds it itself, which needs the go.work the runner sets up before the agent runs.
+	ref := filepath.Join(root, "tools", "agenteval", "testdata", "fixtures", "add-menu", "reference")
+	mockCmd := `test -z "$AGENTEVAL_REPO_ROOT" && test -s "$AGENTEVAL_PROMPT_FILE" && test -s "$AGENTEVAL_CONTEXT_DIR/docs/en/mcp.md" && test -n "$GOWORK" && cp -R '` + ref + `/.' . && go tool nsgo check`
 	report, err := RunSuite(ctx, RunOptions{
 		RepoRoot:         root,
 		TasksDir:         tasksDir,
@@ -323,7 +330,7 @@ func TestPlatformerReachabilityEdgeCases(t *testing.T) {
 	if err := os.WriteFile(scenePath, []byte(extraPlatforms), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := gradePlatformerLevel(wsExtra, plat.Checks.PlatformerLevel, 20)
+	res := gradePlatformerLevel(wsExtra, plat.Checks.PlatformerLevel, 25)
 	if !res.Passed {
 		t.Fatalf("decorative platforms outside [player, goal] falsely failed reachability: %+v", res)
 	}
@@ -337,8 +344,154 @@ func TestPlatformerReachabilityEdgeCases(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wsUnsupported, "scenes", "level1.scene.yaml"), []byte(unsupported), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res2 := gradePlatformerLevel(wsUnsupported, plat.Checks.PlatformerLevel, 20)
+	res2 := gradePlatformerLevel(wsUnsupported, plat.Checks.PlatformerLevel, 25)
 	if res2.Passed {
 		t.Fatalf("unsupported goal unexpectedly passed reachability: %+v", res2)
 	}
+}
+
+func TestTaskMinScoreZeroIsKept(t *testing.T) {
+	root := testRepoRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "tools", "agenteval", "tasks", "add-menu.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := bytes.Replace(data, []byte("min_score: 100"), []byte("min_score: 0"), 1)
+	task, err := ParseTask(zero)
+	if err != nil {
+		t.Fatalf("ParseTask(min_score: 0): %v", err)
+	}
+	if got := task.EffectiveMinScore(100); got != 0 {
+		t.Fatalf("EffectiveMinScore with min_score: 0 = %d, want 0", got)
+	}
+	enc, err := EncodeTask(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(enc, []byte("min_score: 0")) {
+		t.Fatalf("EncodeTask dropped min_score: 0:\n%s", enc)
+	}
+	unset := bytes.Replace(data, []byte("min_score: 100\n"), nil, 1)
+	task, err = ParseTask(unset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := task.EffectiveMinScore(100); got != 100 {
+		t.Fatalf("EffectiveMinScore with no min_score = %d, want the fallback 100", got)
+	}
+}
+
+func TestPlatformerSpecRefusesNonFiniteBounds(t *testing.T) {
+	root := testRepoRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, "tools", "agenteval", "tasks", "platformer-level.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"max_gap: .nan", "max_gap: .inf", "max_gap: 0", "max_rise: .nan", "max_rise: -.inf", "max_rise: 0"} {
+		key := strings.SplitN(bad, ":", 2)[0]
+		mutated := regexpReplaceLine(data, key, bad)
+		if _, err := ParseTask(mutated); err == nil {
+			t.Errorf("ParseTask accepted %q, want error", bad)
+		}
+	}
+}
+
+func regexpReplaceLine(data []byte, key, line string) []byte {
+	var out []string
+	for l := range strings.SplitSeq(string(data), "\n") {
+		if strings.TrimSpace(l) != "" && strings.HasPrefix(strings.TrimSpace(l), key+":") {
+			indent := l[:len(l)-len(strings.TrimLeft(l, " "))]
+			l = indent + line
+		}
+		out = append(out, l)
+	}
+	return []byte(strings.Join(out, "\n"))
+}
+
+func TestPlatformerReachabilityBoundsVerticalSteps(t *testing.T) {
+	root := testRepoRoot(t)
+	plat := loadTask(t, root, "platformer-level")
+	ws := filepath.Join(t.TempDir(), "tall-step")
+	if err := copyDir(filepath.Join(root, filepath.FromSlash(plat.ReferenceDir)), ws); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(ws, "scenes", "level1.scene.yaml")
+	data, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// platform_mid2 at y 112 lifted to y -88 is a 216-point climb from platform_mid1.
+	tall := strings.Replace(string(data), "y: 112", "y: -88", 1)
+	if err := os.WriteFile(scenePath, []byte(tall), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := gradePlatformerLevel(ws, plat.Checks.PlatformerLevel, 25); res.Passed {
+		t.Fatalf("a 216-point vertical step passed reachability: %+v", res)
+	}
+}
+
+func TestMCPVerifyRequiresTheTestToPass(t *testing.T) {
+	root := testRepoRoot(t)
+	task := loadTask(t, root, "add-menu")
+	ws := filepath.Join(t.TempDir(), "bypass")
+	if err := copyDir(filepath.Join(root, filepath.FromSlash(task.ReferenceDir)), ws); err != nil {
+		t.Fatal(err)
+	}
+	// A TestMain that exits 0 without m.Run must not earn the MCP points.
+	bypass := "package main\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestMain(m *testing.M) { os.Exit(0) }\n"
+	if err := os.WriteFile(filepath.Join(ws, "bypass_test.go"), []byte(bypass), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	rep := GradeWorkspace(ctx, root, ws, task, 100)
+	for _, c := range rep.Criteria {
+		if c.Name == "mcp_verify_passes" && c.Passed {
+			t.Fatalf("mcp_verify_passes passed with a TestMain that skips the tests: %+v", c)
+		}
+	}
+}
+
+func TestCommandModeAgentTimeoutIsReported(t *testing.T) {
+	root := testRepoRoot(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	report, err := RunSuite(ctx, RunOptions{
+		RepoRoot:         root,
+		TasksDir:         filepath.Join(root, "tools", "agenteval", "tasks"),
+		Mode:             ModeCommand,
+		AgentCmd:         "sleep 30",
+		TaskFilter:       []string{"add-menu"},
+		MinScoreOverride: -1,
+		Timeout:          2 * time.Minute,
+		AgentTimeout:     time.Second,
+	})
+	if err != nil {
+		t.Fatalf("RunSuite: %v", err)
+	}
+	tr := report.Tasks[0]
+	if !tr.AgentTimedOut || !strings.Contains(tr.AgentOutput, "timed out") {
+		t.Fatalf("agent timeout not recorded: timed_out=%v output=%q", tr.AgentTimedOut, tr.AgentOutput)
+	}
+	// The starter still builds under the grader's own budget, so the timeout does not turn into a build failure.
+	for _, c := range tr.Criteria {
+		if c.Name == "builds_cleanly" && !c.Passed {
+			t.Fatalf("builds_cleanly failed after an agent timeout: %+v", c)
+		}
+	}
+}
+
+func loadTask(t *testing.T, root, id string) *Task {
+	t.Helper()
+	tasks, err := LoadTasksDir(filepath.Join(root, "tools", "agenteval", "tasks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		if task.ID == id {
+			return task
+		}
+	}
+	t.Fatalf("task %s not found", id)
+	return nil
 }
