@@ -175,7 +175,10 @@ fn shade_pbr_shadowed(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f3
 	}
 	return lo;
 }
+` + linearToSRGBWGSL
 
+// linearToSRGBWGSL declares linear_to_srgb_channel and linear_to_srgb, the output encode that [LightWGSL] and [LightmapWGSL] share so lit and lightmapped draws in one pass match [LinearToSRGB].
+const linearToSRGBWGSL = `
 fn linear_to_srgb_channel(c: f32) -> f32 {
 	let x = clamp(c, 0.0, 1.0);
 	if (x <= 0.0031308) {

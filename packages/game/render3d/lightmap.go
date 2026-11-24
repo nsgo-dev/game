@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -43,8 +44,8 @@ const (
 	// LightmapTextureGroup is the bind group slot carrying the base color and lightmap textures and samplers.
 	LightmapTextureGroup = 2
 
-	// LightmapDrawUniformSize is the byte size of the WGSL LightmapDraw uniform struct (160 bytes).
-	LightmapDrawUniformSize = 64 + 6*16
+	// LightmapDrawUniformSize is the byte size of the WGSL LightmapDraw uniform struct (224 bytes): model and normal matrices followed by six vec4 parameters.
+	LightmapDrawUniformSize = 2*64 + 6*16
 	// LightmapDrawUniformStride is the byte stride between per-draw uniform slots (256 bytes, matching WebGPU's minimum dynamic uniform buffer offset alignment).
 	LightmapDrawUniformStride = 256
 
@@ -90,16 +91,16 @@ func (e LightmapEncoding) Valid() bool {
 	return e <= LightmapRGBD
 }
 
-// ParseLightmapEncoding converts a case-insensitive encoding string ("", "linear", "srgb", "rgbm", "rgbd") into a [LightmapEncoding]. An empty string resolves to [LightmapLinear].
+// ParseLightmapEncoding converts an encoding string ("", "linear", "srgb", "rgbm", "rgbd"), ignoring case and surrounding white space, into a [LightmapEncoding]. An empty string resolves to [LightmapLinear], so the Encoding of a [gltf.LightmapRef] can be passed straight through.
 func ParseLightmapEncoding(s string) (LightmapEncoding, error) {
-	switch s {
-	case "", "linear", "LINEAR":
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "linear":
 		return LightmapLinear, nil
-	case "srgb", "SRGB", "sRGB":
+	case "srgb":
 		return LightmapSRGB, nil
-	case "rgbm", "RGBM":
+	case "rgbm":
 		return LightmapRGBM, nil
-	case "rgbd", "RGBD":
+	case "rgbd":
 		return LightmapRGBD, nil
 	default:
 		return LightmapLinear, fmt.Errorf("%w: unknown encoding %q", ErrInvalidLightmap, s)
@@ -576,6 +577,9 @@ func EncodeRGBMImage(hdr []math3d.Vec3, width, height int, maxRange float32) (*i
 	if maxRange < 0 || !finite(maxRange) {
 		return nil, fmt.Errorf("%w: invalid RGBM maxRange %v", ErrInvalidLightmap, maxRange)
 	}
+	if err := checkLightmapPixels("RGBM", hdr[:width*height]); err != nil {
+		return nil, err
+	}
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	for y := range height {
 		for x := range width {
@@ -642,6 +646,9 @@ func EncodeRGBDImage(hdr []math3d.Vec3, width, height int) (*image.NRGBA, error)
 	if len(hdr) < width*height {
 		return nil, fmt.Errorf("%w: RGBD pixel slice has %d entries, need %d", ErrInvalidLightmap, len(hdr), width*height)
 	}
+	if err := checkLightmapPixels("RGBD", hdr[:width*height]); err != nil {
+		return nil, err
+	}
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	for y := range height {
 		for x := range width {
@@ -656,6 +663,16 @@ func EncodeRGBDImage(hdr []math3d.Vec3, width, height int) (*image.NRGBA, error)
 	return img, nil
 }
 
+// checkLightmapPixels rejects a NaN or infinite HDR pixel so [EncodeRGBMImage], [EncodeRGBDImage] and [UploadLightmapRGBA16F] treat bad bake output the same way instead of silently writing black.
+func checkLightmapPixels(kind string, hdr []math3d.Vec3) error {
+	for i, c := range hdr {
+		if !finite3(c) {
+			return fmt.Errorf("%w: %s lightmap pixel %d is not finite", ErrInvalidLightmap, kind, i)
+		}
+	}
+	return nil
+}
+
 // UploadLightmapRGBA16F packs linear HDR RGB irradiance pixels into an IEEE-754 float16 RGBA16F texture ([gpu.FormatRGBA16Float]) and uploads it to dev, scoped to cx, for use with [LightmapLinear].
 func UploadLightmapRGBA16F(cx *core.Scope, dev *gpu.Device, hdr []math3d.Vec3, width, height int, opts TextureUpload) (*GPUTexture, error) {
 	if width <= 0 || height <= 0 {
@@ -667,10 +684,8 @@ func UploadLightmapRGBA16F(cx *core.Scope, dev *gpu.Device, hdr []math3d.Vec3, w
 	if len(hdr) < width*height {
 		return nil, fmt.Errorf("%w: RGBA16F lightmap has %d pixels, need %d", ErrInvalidLightmap, len(hdr), width*height)
 	}
-	for i := range width * height {
-		if !finite3(hdr[i]) {
-			return nil, fmt.Errorf("%w: RGBA16F lightmap pixel %d is not finite", ErrInvalidLightmap, i)
-		}
+	if err := checkLightmapPixels("RGBA16F", hdr[:width*height]); err != nil {
+		return nil, err
 	}
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -713,16 +728,6 @@ func UploadLightmapRGBA16F(cx *core.Scope, dev *gpu.Device, hdr []math3d.Vec3, w
 	}, nil
 }
 
-// LightmapDirectLight describes an optional dynamic directional light summed additively with baked lightmap irradiance (Lambertian N·L diffuse). Setting Intensity to 0 disables direct lighting.
-type LightmapDirectLight struct {
-	// Direction points from the shaded surface toward the light source.
-	Direction math3d.Vec3
-	// Color is the linear RGB light color.
-	Color math3d.Vec3
-	// Intensity scales Color; 0 disables direct lighting.
-	Intensity float32
-}
-
 // LightmapMaterial configures albedo, baked lightmap sampling, encoding, atlas UV sub-rectangle transform, fallback ambient irradiance, and optional additive direct light for [LightmapRenderer.Draw].
 type LightmapMaterial struct {
 	// BaseColor is a linear RGBA multiplier on BaseColorTexture. An all-zero value defaults to opaque white {1, 1, 1, 1}.
@@ -737,7 +742,7 @@ type LightmapMaterial struct {
 	LightmapSampler *GPUSampler
 	// Encoding specifies how Lightmap texels are decoded to linear irradiance.
 	Encoding LightmapEncoding
-	// Intensity scales decoded lightmap irradiance. Zero defaults to 1.0.
+	// Intensity scales decoded lightmap irradiance. Zero means zero (no baked light); [DefaultLightmapMaterial] sets 1. It does not scale AmbientFallback.
 	Intensity float32
 	// RGBMMaxRange sets the HDR peak scale for [LightmapRGBM]. Zero defaults to [DefaultRGBMMaxRange] (8.0).
 	RGBMMaxRange float32
@@ -747,8 +752,8 @@ type LightmapMaterial struct {
 	UVOffset [2]float32
 	// AmbientFallback is linear RGB irradiance used when Lightmap is nil.
 	AmbientFallback [3]float32
-	// DirectLight is an optional dynamic directional light added to the baked irradiance so baked indirect lighting combines cleanly with dynamic sun or key lights.
-	DirectLight LightmapDirectLight
+	// DirectLight is an optional dynamic directional light whose Lambertian N·L diffuse term is added to the baked irradiance, so baked indirect lighting combines with a dynamic sun or key light. It uses the same [DirectionalLight] as a [LightRig]: Direction is the direction the light travels, so a light from a scene's rig can be passed as is. Nil disables direct lighting.
+	DirectLight *DirectionalLight
 }
 
 // DefaultLightmapMaterial returns a [LightmapMaterial] with opaque white base color, [LightmapLinear] encoding, unit intensity, default RGBM range, and identity atlas UV scale/offset.
@@ -798,14 +803,10 @@ func (m LightmapMaterial) Validate() error {
 			return fmt.Errorf("%w: AmbientFallback[%d] = %v must be finite and non-negative", ErrInvalidLightmap, i, c)
 		}
 	}
-	if !finite3(m.DirectLight.Direction) {
-		return fmt.Errorf("%w: DirectLight.Direction is not finite", ErrInvalidLightmap)
-	}
-	if !finite3(m.DirectLight.Color) || m.DirectLight.Color.X < 0 || m.DirectLight.Color.Y < 0 || m.DirectLight.Color.Z < 0 {
-		return fmt.Errorf("%w: DirectLight.Color must be finite and non-negative", ErrInvalidLightmap)
-	}
-	if !finite(m.DirectLight.Intensity) || m.DirectLight.Intensity < 0 {
-		return fmt.Errorf("%w: DirectLight.Intensity %v must be finite and non-negative", ErrInvalidLightmap, m.DirectLight.Intensity)
+	if m.DirectLight != nil {
+		if err := m.DirectLight.Validate(); err != nil {
+			return fmt.Errorf("%w: DirectLight: %w", ErrInvalidLightmap, err)
+		}
 	}
 	if m.BaseColorTexture != nil && !m.BaseColorTexture.Valid() {
 		return fmt.Errorf("%w: BaseColorTexture is not valid", ErrInvalidLightmap)
@@ -827,10 +828,23 @@ func (m LightmapMaterial) Validate() error {
 	return nil
 }
 
-// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer]. It uses only pow and algebraic math (no exp/exp2/log2) so it executes identically across hardware GPU backends and NSGo's software GPU VM.
-const LightmapWGSL = CameraWGSL + `
+// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer] for a non-sRGB color target. It encodes the linear result with linear_to_srgb before writing, as [LitPBRWGSL] does, so lightmapped and PBR-lit draws in one pass match; for an sRGB target the renderer compiles a variant that leaves the encode to the hardware. It uses only pow and algebraic math (no exp/exp2/log2) so it executes identically across hardware GPU backends and NSGo's software GPU VM.
+const LightmapWGSL = lightmapBodyWGSL + `
+	return vec4<f32>(linear_to_srgb(lit), albedo.a);
+}
+`
+
+// lightmapSRGBTargetWGSL is [LightmapWGSL] for an sRGB color target, whose hardware encodes the linear output on store; encoding in the shader too would brighten the image twice.
+const lightmapSRGBTargetWGSL = lightmapBodyWGSL + `
+	return vec4<f32>(lit, albedo.a);
+}
+`
+
+// lightmapBodyWGSL holds everything in the lightmap shader up to the computed linear color lit; [LightmapWGSL] and [lightmapSRGBTargetWGSL] each close fs_main with their own return.
+const lightmapBodyWGSL = CameraWGSL + linearToSRGBWGSL + `
 struct LightmapDraw {
 	model: mat4x4<f32>,
+	normal_matrix: mat4x4<f32>,
 	base_color: vec4<f32>,
 	uv_transform: vec4<f32>,
 	lm_params: vec4<f32>,
@@ -895,7 +909,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
 	var out: VertexOut;
 	let world_pos = lm_draw.model * vec4<f32>(in.pos, 1.0);
 	out.clip = camera.view_proj * world_pos;
-	out.normal = (lm_draw.model * vec4<f32>(in.normal, 0.0)).xyz;
+	out.normal = (lm_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;
 	out.uv0 = in.uv0;
 	out.uv1 = in.uv1;
 	return out;
@@ -926,8 +940,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 	}
 
 	let lit = albedo.rgb * (baked + direct);
-	return vec4<f32>(lit, albedo.a);
-}
 `
 
 // LightmapRendererOptions configures [NewLightmapRenderer]. The zero value enables depth testing ([gpu.FormatDepth24Plus]), back-face culling ([gpu.CullBack] with [gpu.FrontCCW]), and targets the device surface format.
@@ -956,6 +968,8 @@ type lightmapTexKey struct {
 }
 
 // LightmapRenderer draws [GPULightmapMesh] geometry shaded with baked lightmaps (sampling albedo at UV0 and baked irradiance at UV1 * UVScale + UVOffset), supporting linear/HDR RGBA16F, sRGB LDR, RGBM, and RGBD lightmaps as well as optional additive dynamic directional lighting.
+//
+// It is a standalone path: the shading is albedo times (baked irradiance plus one Lambertian [DirectionalLight]), with no metallic-roughness, normal, occlusion or emissive maps and no [LightRig]. Feeding lightmaps into the PBR material path as its indirect term is tracked in https://github.com/nsgo-dev/game/issues/752.
 //
 // Call [LightmapRenderer.BeginFrame] at the start of each frame to reuse the dynamic uniform buffer without steady-state allocations.
 type LightmapRenderer struct {
@@ -1003,7 +1017,18 @@ func NewLightmapRenderer(cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGro
 		label = "render3d.lightmap"
 	}
 
-	mod, err := gpu.CompileWGSL(LightmapWGSL)
+	colorFmt := opts.ColorFormat
+	if colorFmt == gpu.FormatUndefined {
+		colorFmt = dev.SurfaceFormat()
+		if colorFmt == gpu.FormatUndefined {
+			colorFmt = gpu.FormatRGBA8Unorm
+		}
+	}
+	src := LightmapWGSL
+	if colorFmt.IsSRGB() {
+		src = lightmapSRGBTargetWGSL
+	}
+	mod, err := gpu.CompileWGSL(src)
 	if err != nil {
 		return nil, fmt.Errorf("render3d: compile lightmap shader: %w", err)
 	}
@@ -1035,13 +1060,6 @@ func NewLightmapRenderer(cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGro
 		return nil, err
 	}
 
-	colorFmt := opts.ColorFormat
-	if colorFmt == gpu.FormatUndefined {
-		colorFmt = dev.SurfaceFormat()
-		if colorFmt == gpu.FormatUndefined {
-			colorFmt = gpu.FormatRGBA8Unorm
-		}
-	}
 	cull := gpu.CullBack
 	if opts.DoubleSided {
 		cull = gpu.CullNone
@@ -1177,7 +1195,7 @@ func (r *LightmapRenderer) allocateDrawRing(capacity int) error {
 	return nil
 }
 
-// BeginFrame resets the per-frame dynamic uniform ring offset and releases any older uniform buffers retired when the ring grew in a previous frame.
+// BeginFrame resets the per-frame dynamic uniform ring offset, releases any older uniform buffers retired when the ring grew in a previous frame, and drops cached texture bind groups whose textures or samplers have since been closed, so streaming or hot-reloading lightmaps does not grow the cache.
 func (r *LightmapRenderer) BeginFrame() {
 	if r == nil || r.closed {
 		return
@@ -1191,6 +1209,12 @@ func (r *LightmapRenderer) BeginFrame() {
 		_ = b.Close()
 	}
 	r.retiredBufs = r.retiredBufs[:0]
+	for k, g := range r.texGroups {
+		if !g.Valid() || !k.baseTex.Valid() || !k.baseSmp.Valid() || !k.lmTex.Valid() || !k.lmSmp.Valid() {
+			_ = g.Close()
+			delete(r.texGroups, k)
+		}
+	}
 }
 
 // Pipeline returns the compiled lightmap [gpu.Pipeline].
@@ -1219,6 +1243,11 @@ func (r *LightmapRenderer) Draw(pass *gpu.RenderPass, cam *CameraBuffer, mesh *G
 	}
 	if !mesh.Valid() {
 		return fmt.Errorf("%w: mesh is not valid", ErrInvalidMesh)
+	}
+	for i, f := range model {
+		if !finite(f) {
+			return fmt.Errorf("%w: model matrix element %d is not finite", ErrInvalidLightmap, i)
+		}
 	}
 	if err := mat.Validate(); err != nil {
 		return err
@@ -1352,6 +1381,18 @@ func encodeLightmapDrawUniform(dst []byte, model math3d.Mat4, mat LightmapMateri
 	for _, f := range model {
 		put(f)
 	}
+	nm4 := math3d.Mat4Identity()
+	if nm, ok := math3d.NormalMatrix(model); ok {
+		nm4 = math3d.Mat4{
+			nm[0], nm[1], nm[2], 0,
+			nm[3], nm[4], nm[5], 0,
+			nm[6], nm[7], nm[8], 0,
+			0, 0, 0, 1,
+		}
+	}
+	for _, f := range nm4 {
+		put(f)
+	}
 
 	bc := mat.BaseColor
 	if bc == [4]float32{0, 0, 0, 0} {
@@ -1374,9 +1415,6 @@ func encodeLightmapDrawUniform(dst []byte, model math3d.Mat4, mat LightmapMateri
 		encMode = float32(LightmapLinear)
 	}
 	intensity := mat.Intensity
-	if intensity == 0 {
-		intensity = 1.0
-	}
 	rgbmRange := mat.RGBMMaxRange
 	if rgbmRange == 0 {
 		rgbmRange = DefaultRGBMMaxRange
@@ -1395,14 +1433,22 @@ func encodeLightmapDrawUniform(dst []byte, model math3d.Mat4, mat LightmapMateri
 	put(mat.AmbientFallback[2])
 	put(0)
 
-	put(mat.DirectLight.Direction.X)
-	put(mat.DirectLight.Direction.Y)
-	put(mat.DirectLight.Direction.Z)
-	put(mat.DirectLight.Intensity)
+	// The shader wants the direction toward the light, the opposite of DirectionalLight.Direction, as packLightUniforms does for the lit PBR pipeline.
+	var toLight, lightColor math3d.Vec3
+	var lightIntensity float32
+	if l := mat.DirectLight; l != nil {
+		toLight = l.Direction.Norm().Neg()
+		lightColor = l.Color
+		lightIntensity = l.Intensity
+	}
+	put(toLight.X)
+	put(toLight.Y)
+	put(toLight.Z)
+	put(lightIntensity)
 
-	put(mat.DirectLight.Color.X)
-	put(mat.DirectLight.Color.Y)
-	put(mat.DirectLight.Color.Z)
+	put(lightColor.X)
+	put(lightColor.Y)
+	put(lightColor.Z)
 	put(0)
 }
 
