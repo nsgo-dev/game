@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -41,6 +42,11 @@ const (
 	minPointLightDistSq    = 1e-4
 	minLightDirLenSq       = 1e-12
 )
+
+// LightWGSLForGroup returns [LightWGSL] with the lights binding placed at @group(group) instead of [LightGroup], for custom shaders whose group 1 already holds something else, such as a [CustomMaterial] with its ExtraLayout at group 3.
+func LightWGSLForGroup(group uint32) string {
+	return strings.Replace(LightWGSL, "@group(1) @binding(0)", fmt.Sprintf("@group(%d) @binding(0)", group), 1)
+}
 
 // ErrInvalidLight is wrapped by every error light validation or upload returns for malformed light definitions.
 var ErrInvalidLight = errors.New("render3d: invalid light")

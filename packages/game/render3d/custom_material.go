@@ -338,6 +338,12 @@ type CustomShaderDesc struct {
 	// CameraLayout optionally supplies the @group(0) bind group layout (such as CameraBuffer.Layout()). When it is set and Source declares nothing in @group(0), [CameraWGSL] is prepended, with or without ManualBindings. When it is nil, a source that declares @group(0) gets a layout with one uniform buffer at binding 0, the layout [CameraBuffer] uses; any other group 0 binding is refused.
 	CameraLayout *gpu.BindGroupLayout
 
+	// DrawLayout, when set, is placed at [PBRDrawGroup] (group 2) so the shader can read a per-draw transform: pass [PBRDrawBuffer.Layout], and bind [PBRDrawBuffer.BindGroup] at [PBRDrawGroup] before each draw. A ShaderKage shader then declares the [PBRDrawUniform] block as pbr_draw and transforms positions by its model matrix and normals by its normal matrix, so Surface's normal and worldPos are in world space. A ShaderWGSL source declares the block itself, as [LitPBRWGSL] does. Without DrawLayout, the Kage vertex stage passes positions and normals through unchanged, so worldPos and normal are in object space and the mesh draws where its vertices are.
+	DrawLayout *gpu.BindGroupLayout
+
+	// ExtraLayout, when set, is placed at group 3 for bindings the shader declares itself and the caller binds before drawing, such as a [GPULightBuffer] declared with [LightWGSLForGroup](3) (group 1, where [LightWGSL] puts lights, holds the material) or a [DirectionalShadowMap] declared with [ShadowWGSL]. It requires DrawLayout, since group 2 then needs a layout too.
+	ExtraLayout *gpu.BindGroupLayout
+
 	// ManualBindings disables automatic generation of the @group(1) MaterialParams uniform struct and texture/sampler declarations for ShaderWGSL when the shader source declares them explicitly. It does not affect the [CameraWGSL] preamble.
 	ManualBindings bool
 
@@ -377,8 +383,7 @@ func CompileCheck(source string, lang ShaderLanguage, params []ShaderParamDesc) 
 	})
 }
 
-// CompileCheckDesc validates desc and verifies full shader and cross-backend
-// pipeline compilation without requiring an active [gpu.View].
+// CompileCheckDesc validates desc and verifies full shader and cross-backend pipeline compilation without requiring an active [gpu.View]. It checks DrawLayout as [PBRDrawBuffer]'s layout (one uniform buffer at binding 0); with ExtraLayout set it compiles the shader but skips the pipeline check, because that layout's bindings belong to the caller's device.
 func CompileCheckDesc(desc CustomShaderDesc) error {
 	prep, err := prepareCustomShader(desc)
 	if err != nil {
@@ -414,8 +419,11 @@ func CompileCheckDesc(desc CustomShaderDesc) error {
 		return &CustomMaterialError{Material: desc.Label, Message: "create group 0 layout failed", Err: err}
 	}
 
+	if desc.ExtraLayout != nil {
+		return nil
+	}
 	layouts := []*gpu.BindGroupLayout{g0}
-	if matEntries := materialLayoutEntries(prep.layout); len(matEntries) > 0 {
+	if matEntries := materialLayoutEntries(prep.layout); len(matEntries) > 0 || desc.DrawLayout != nil {
 		g1, err := dev.CreateBindGroupLayoutDesc(nil, gpu.BindGroupLayoutDesc{
 			Label:   "render3d.custom.params",
 			Entries: matEntries,
@@ -424,6 +432,20 @@ func CompileCheckDesc(desc CustomShaderDesc) error {
 			return &CustomMaterialError{Material: desc.Label, Message: "create material layout failed", Err: err}
 		}
 		layouts = append(layouts, g1)
+	}
+	if desc.DrawLayout != nil {
+		g2, err := dev.CreateBindGroupLayoutDesc(nil, gpu.BindGroupLayoutDesc{
+			Label: "render3d.custom.draw",
+			Entries: []gpu.BindGroupLayoutEntry{{
+				Binding:    0,
+				Visibility: gpu.StageVertex | gpu.StageFragment,
+				Type:       gpu.BindingUniform,
+			}},
+		})
+		if err != nil {
+			return &CustomMaterialError{Material: desc.Label, Message: "create draw layout failed", Err: err}
+		}
+		layouts = append(layouts, g2)
 	}
 
 	pdesc := buildCustomPipelineDesc(dev, desc, prep, mod, layouts)
@@ -608,9 +630,17 @@ func NewCustomMaterial(cx *core.Scope, dev *gpu.Device, desc CustomShaderDesc) (
 		group0Layout = m.ownGroup0Layout
 	}
 
+	for _, l := range []*gpu.BindGroupLayout{desc.DrawLayout, desc.ExtraLayout} {
+		if l != nil && !l.Valid() {
+			cleanupOnErr()
+			return nil, &CustomMaterialError{Material: desc.Label, Message: "DrawLayout or ExtraLayout is not valid"}
+		}
+	}
+
 	matEntries := materialLayoutEntries(m.layout)
 	var layouts []*gpu.BindGroupLayout
-	if len(matEntries) > 0 {
+	// Group 1 needs a layout (empty when the material declares no parameters) whenever a later group is used.
+	if len(matEntries) > 0 || desc.DrawLayout != nil {
 		if group0Layout == nil {
 			m.ownGroup0Layout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
 				Label: customMatLabel(desc.Label, "empty-group0"),
@@ -634,6 +664,12 @@ func NewCustomMaterial(cx *core.Scope, dev *gpu.Device, desc CustomShaderDesc) (
 			return nil, err
 		}
 		layouts = []*gpu.BindGroupLayout{group0Layout, m.matLayout}
+		if desc.DrawLayout != nil {
+			layouts = append(layouts, desc.DrawLayout)
+		}
+		if desc.ExtraLayout != nil {
+			layouts = append(layouts, desc.ExtraLayout)
+		}
 	} else if group0Layout != nil {
 		layouts = []*gpu.BindGroupLayout{group0Layout}
 	}
@@ -1060,8 +1096,7 @@ func (m *CustomMaterial) Update(dev *gpu.Device) error {
 	return m.Sync(dev)
 }
 
-// Bind sets the material's pipeline and, when it declares parameters, binds its
-// @group(1) bind group on pass. It records nothing when the material is invalid.
+// Bind sets the material's pipeline and, when it has one, binds its @group(1) bind group on pass. The caller binds group 0 (the camera) and, when the material was created with DrawLayout or ExtraLayout, groups 2 and 3. It records nothing when the material is invalid.
 func (m *CustomMaterial) Bind(pass *gpu.RenderPass) {
 	if pass == nil || !m.Valid() {
 		return
@@ -1409,6 +1444,13 @@ func prepareCustomShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 		}
 	}
 
+	if desc.ExtraLayout != nil && desc.DrawLayout == nil {
+		return preparedCustomShader{}, &CustomMaterialError{
+			Material: desc.Label,
+			Message:  "ExtraLayout (group 3) requires DrawLayout (group 2)",
+		}
+	}
+
 	switch desc.Language {
 	case ShaderWGSL:
 		return prepareWGSLShader(desc)
@@ -1690,6 +1732,18 @@ func buildCustomPipelineDesc(dev *gpu.Device, desc CustomShaderDesc, prep prepar
 
 // --- Kage surface shader translator (Go AST -> portable WGSL) ---
 
+// customPBRDrawWGSL declares the per-draw block a [PBRDrawBuffer] binds at [PBRDrawGroup], exactly as [LitPBRWGSL] declares it, for Kage shaders with a DrawLayout.
+const customPBRDrawWGSL = `struct PBRDrawUniform {
+	model: mat4x4<f32>,
+	normal_matrix: mat4x4<f32>,
+	base_color: vec4<f32>,
+	pbr_params: vec4<f32>,
+	emissive: vec4<f32>,
+}
+
+@group(2) @binding(0) var<uniform> pbr_draw: PBRDrawUniform;
+`
+
 func prepareKageShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 	src := desc.Source
 	lineOffset := 0
@@ -1899,6 +1953,11 @@ func prepareKageShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 		out.WriteByte('\n')
 	}
 	writeMaterialWGSLBindings(&out, layout)
+	hasDraw := desc.DrawLayout != nil
+	if hasDraw {
+		out.WriteString(customPBRDrawWGSL)
+		out.WriteByte('\n')
+	}
 
 	// Emit package-level consts.
 	for _, cs := range kageConsts {
@@ -1936,13 +1995,20 @@ func prepareKageShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 
 	out.WriteString("@vertex\nfn vs_main(in: _R3DVertexIn) -> _R3DVertexOut {\n")
 	out.WriteString("\tvar out: _R3DVertexOut;\n")
-	if usesCamera {
-		out.WriteString("\tout.clip = camera.view_proj * vec4<f32>(in.pos, 1.0);\n")
+	if hasDraw {
+		out.WriteString("\tlet world = pbr_draw.model * vec4<f32>(in.pos, 1.0);\n")
+		out.WriteString("\tout.world_pos = world.xyz;\n")
+		out.WriteString("\tout.normal = (pbr_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;\n")
 	} else {
-		out.WriteString("\tout.clip = vec4<f32>(in.pos, 1.0);\n")
+		out.WriteString("\tlet world = vec4<f32>(in.pos, 1.0);\n")
+		out.WriteString("\tout.world_pos = in.pos;\n")
+		out.WriteString("\tout.normal = in.normal;\n")
 	}
-	out.WriteString("\tout.world_pos = in.pos;\n")
-	out.WriteString("\tout.normal = in.normal;\n")
+	if usesCamera {
+		out.WriteString("\tout.clip = camera.view_proj * world;\n")
+	} else {
+		out.WriteString("\tout.clip = world;\n")
+	}
 	out.WriteString("\tout.uv = in.uv;\n")
 	out.WriteString("\treturn out;\n")
 	out.WriteString("}\n\n")
