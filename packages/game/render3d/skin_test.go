@@ -640,6 +640,27 @@ func TestSkinVertexMultiInfluenceAndNormalization(t *testing.T) {
 func TestSkinnedMeshValidateAndErrors(t *testing.T) {
 	valid := skinnedQuadMesh()
 	nan := float32(math.NaN())
+	// Large finite weights whose float32 sum overflows still normalize instead of falling back to joint 0.
+	for _, w := range []math3d.Vec4{
+		{X: 3e38, Y: 3e38, Z: 3e38, W: 3e38},
+		{X: math.MaxFloat32, Y: math.MaxFloat32, Z: 0, W: 0},
+	} {
+		got := render3d.NormalizeSkinWeights(w)
+		sum := got.X + got.Y + got.Z + got.W
+		if math.Abs(float64(sum)-1) > 1e-6 {
+			t.Errorf("NormalizeSkinWeights(%v) = %v, sum %v, want 1", w, got, sum)
+		}
+		if got.Y == 0 {
+			t.Errorf("NormalizeSkinWeights(%v) = %v dropped joint 1", w, got)
+		}
+	}
+	if got, want := render3d.NormalizeSkinWeights(math3d.Vec4{X: 3e38, Y: 3e38, Z: 3e38, W: 3e38}), (math3d.Vec4{X: 0.25, Y: 0.25, Z: 0.25, W: 0.25}); got != want {
+		t.Errorf("NormalizeSkinWeights(4 x 3e38) = %v, want %v", got, want)
+	}
+	if got := render3d.NormalizeSkinWeights(math3d.Vec4{X: float32(math.Inf(1))}); got != (math3d.Vec4{X: 1}) {
+		t.Errorf("NormalizeSkinWeights(+Inf) = %v, want the (1, 0, 0, 0) fallback", got)
+	}
+
 	inf := float32(math.Inf(1))
 
 	tests := []struct {
