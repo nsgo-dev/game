@@ -2,7 +2,7 @@
 
 Every file a game made with these packages reads or writes, with the names its files go by, the version it declares, the Go functions that read and write it, the guide that describes its fields and an example, so a person or an AI can edit one without reading the code.
 
-The files a game's author writes are YAML. The examples below are in each format's canonical form, the bytes its encoder writes, and each one is loaded and saved by the format's tests, so none shows a key the format refuses or a layout it would rewrite.
+The files a game's author writes are YAML, apart from those under JSON files and Other tools' formats below. The tests check every example on this page: a YAML example is in its format's canonical form, the bytes its encoder writes, and loads and saves back unchanged, so none shows a key the format refuses or a layout it would rewrite; a JSON or Yarn example loads with the format's reader.
 
 ## What every YAML format does
 
@@ -1126,12 +1126,33 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | --- | --- | --- | --- |
 | The `settings` slot of a save backend, such as `settings.json`, or a key in `core.Storage`, apart from the save slots | the envelope's `version`, upgraded by the settings store's migrations | `save.SettingsStore` | `save.Settings`: `audio`, `bindings`, `display`, `locale`, `accessibility` and `custom`, or the game's own type |
 
+```json
+{"version":1,"data":{"audio":{"master":1,"groups":{"music":1,"sfx":1,"ui":1},"muted":false},"bindings":{"jump":["Space"]},"display":{"fullscreen":false,"display_index":0,"scale_mode":"fit","integer_scale":false,"frame_cap":0,"vsync":true,"auto_drop_low_power":true,"quality":"auto"},"locale":"en","accessibility":{"captions":false,"caption_scale":1,"color_blind_mode":"none","reduce_motion":false,"high_contrast":false,"screen_shake":1,"game_speed":1}}}
+```
+
 <!-- format: worldmap#state -->
 ### World map discovery
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
 | Inside a save slot | `version: 1` | `worldmap.State` as JSON | [worldmap](worldmap.md) |
+
+```json
+{"version":1,"current":"hall","visited":["cave","hall"],"revealed":["crypt"],"markers":[{"id":"m1","kind":"pin","room":"hall","x":12,"y":4,"label":"Key"}]}
+```
+
+<!-- format: quest#snapshot -->
+### Quest progress
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Inside a save slot, as JSON or YAML | `version: 1` | `quest.Log.Snapshot`, `quest.Log.Restore` | [quest](quest.md) |
+
+```json
+{"version":1,"quests":[{"id":"find-key","state":"active","progress":{"rats":3}},{"id":"intro","state":"completed"}]}
+```
+
+`state` is `active`, `completed`, `failed` or `abandoned`; a quest that has not started is left out, as is an objective with no progress.
 
 <!-- format: fog -->
 ### Fog of war
@@ -1151,12 +1172,22 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | --- | --- | --- | --- |
 | Inside a save slot; only components registered with `RegisterCodec` | none | `entities.World.Snapshot`, `entities.World.Restore` | [entities](entities.md) |
 
+```json
+{"entities":[{"index":0,"generation":1,"components":[{"type":"health","data":{"hp":10}},{"type":"position","data":{"x":3,"y":4}}]},{"index":1,"generation":1,"components":[{"type":"position","data":{"x":-1,"y":0.5}}]}]}
+```
+
+`type` is the name a component's codec was registered under with `RegisterCodec`, and `data` is the component as `encoding/json` writes it.
+
 <!-- format: input -->
 ### Input bindings
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
 | A key in `core.Storage` | `version: 1` | `input.Actions.Save`, `input.Actions.Load` | [input](input.md) |
+
+```json
+{"version":1,"actions":{"fire":[{"kind":"mouse_button","button":"left"}],"jump":[{"kind":"key","key":"space"},{"kind":"gamepad_button","button":"south"}]},"axes":{"move_x":{"negative":"left","positive":"right"}}}
+```
 
 <!-- format: debug -->
 ### Console tunables
@@ -1165,6 +1196,12 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | --- | --- | --- | --- |
 | A key in `core.Storage`, `debug.console.tunables` by default | none | `debug.Console.SaveTunables`, `debug.Console.LoadTunables` | An object of each tunable's name and value |
 
+```json
+{"cheat.god":false,"player.lives":3,"player.speed":1.5}
+```
+
+The names are those the game registered with `RegisterFloat`, `RegisterInt` and `RegisterBool`; `LoadTunables` skips a name nothing registered and refuses a value outside its range.
+
 <!-- format: tooling/devstate -->
 ### Dev session snapshot
 
@@ -1172,12 +1209,45 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | --- | --- | --- | --- |
 | A file or a key in `core.Storage` that a game restores its state from after a rebuild | a hash of the state's Go type, which skips the restore when it changed | `devstate.Store.Save`, `devstate.Store.LoadSnapshot` | `devstate.SessionSnapshot` |
 
+```json
+{"scene_id":"level-1","schema_hash":"90b889efbda2b1fbe5fd7122b8919ac57b14cef258a4a60664a39e4ee3caee5b","loop_tick":1200,"loop_elapsed":20000000000,"payload":"eyJsZXZlbCI6Mn0=","saved_at":"2026-11-24T09:15:02Z"}
+```
+
+`payload` is the game's state as `encoding/json` writes it, in base64, and `loop_elapsed` is in nanoseconds.
+
 <!-- format: liveops -->
 ### Cloud save payload
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
 | `<prefix><slot>.json` in a platform's cloud storage, such as `save.main.json` | `version: 1` | `liveops.EncodeCloudSave`, `liveops.DecodeCloudSave` | [liveops](liveops.md) |
+
+```json
+{
+  "format": "nsgo-cloud-save",
+  "version": 1,
+  "revision": 3,
+  "hash": "sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01",
+  "modified": "2026-11-24T09:15:02Z",
+  "device": "phone-1",
+  "data": "{\"version\":2,\"data\":{\"level\":4}}"
+}
+```
+
+`hash` is the SHA-256 of the save's bytes, which `data` holds as text, or `data_base64` in base64 when they are not UTF-8.
+
+<!-- format: liveops#sync -->
+### Cloud sync state
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| A key per slot in `core.Storage`, `<StateKey>.<slot>`, such as `liveops.cloudsync.main` | `version: 1` | `liveops.CloudSyncer`, which keeps it for itself | [liveops](liveops.md) |
+
+```json
+{"version":1,"revision":3,"hash":"sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01","local_modified":"2026-11-24T09:15:02Z","local_hash":"sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01"}
+```
+
+It records the cloud revision and content hash both sides held after the last sync, and when this device last wrote the local copy.
 
 <!-- format: leaderboard/selfhost#records -->
 ### Leaderboard records
@@ -1212,6 +1282,35 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | --- | --- | --- | --- |
 | A JSON sidecar beside a model, or the `extras` of a glTF animation | `version: 1` in a sidecar | `anim3d.LoadEventsSidecar`, `anim3d.MarshalEventsSidecar`, `anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md), [3D Models from Blender](3d-models-blender.md) |
 
+```json
+{
+  "version": 1,
+  "clips": {
+    "attack": [
+      {
+        "time": 0.4,
+        "name": "hit",
+        "data": {
+          "damage": 12
+        }
+      }
+    ],
+    "run": [
+      {
+        "time": 0.25,
+        "name": "footstep",
+        "payload": "left"
+      },
+      {
+        "time": 0.75,
+        "name": "footstep",
+        "payload": "right"
+      }
+    ]
+  }
+}
+```
+
 <!-- format: assets -->
 ### DLC pack manifest
 
@@ -1224,16 +1323,37 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 ```
 
 <!-- format: cmd/sizecheck -->
-### Package size budget
+### WebAssembly size budget
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| A `.json` file passed to `sizecheck -budget` | none | the `sizecheck` command (`cmd/sizecheck`) | [Package Size Budgets](package-size-budgets.md) |
+| A `.json` file passed to `sizecheck -budget` when it checks a `.wasm`, such as `benchmarks/web-budget.json` | none | the `sizecheck` command (`cmd/sizecheck`) | [Package Size Budgets](package-size-budgets.md) |
+
+```json
+{
+  "target": "./cmd/wasmprobe",
+  "ldflags": "-s -w",
+  "max_raw_bytes": 8388608,
+  "max_gzip_bytes": 2359296,
+  "note": "WebAssembly size budget for ./cmd/wasmprobe"
+}
+```
+
+<!-- format: cmd/sizecheck#mobile -->
+### Mobile package size budget
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| A `.json` file passed to `sizecheck -budget` when it checks an `.aab`, `.apk` or `.ipa`, such as `benchmarks/android-aab-budget.json` | none | the `sizecheck` command (`cmd/sizecheck`) | [Package Size Budgets](package-size-budgets.md) |
 
 ```json
 {
   "max_total_bytes": 52428800,
   "max_per_abi_bytes": 20971520,
+  "max_category_bytes": {
+    "native_libs": 36700160,
+    "dex": 5242880
+  },
   "note": "Release budget for MyGame Android AAB"
 }
 ```
@@ -1244,6 +1364,36 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
 | `api.json`, published at `https://game.nsgo.dev/api.json` | `version: 1` | `apiref.Marshal`, `apiref.Unmarshal` | [Packages](packages.md) |
+
+```json
+{
+  "version": 1,
+  "module": "example.com/mygame",
+  "packages": [
+    {
+      "importPath": "example.com/mygame/score",
+      "name": "score",
+      "dir": "score",
+      "page": "score",
+      "synopsis": "Package score keeps a player's score.",
+      "doc": "Package score keeps a player's score.\n",
+      "consts": [],
+      "vars": [],
+      "funcs": [
+        {
+          "name": "Add",
+          "anchor": "Add",
+          "decl": "func Add(a, b int) int",
+          "doc": "Add returns a plus b.\n",
+          "file": "score/score.go",
+          "line": 4
+        }
+      ],
+      "types": []
+    }
+  ]
+}
+```
 
 ## Other tools' formats
 
@@ -1298,10 +1448,33 @@ These are read as the tools that make them write them, never converted into a fo
 | --- | --- | --- |
 | Chrome's trace event JSON, opened in Perfetto or `chrome://tracing` | `debug.Profiler.WriteChromeTrace` | `debug.Profiler` |
 
+<!-- format: flow -->
+### Yarn dialogue script
+
+| Files | Read by | Guide |
+| --- | --- | --- |
+| Yarn Spinner scripts (`.yarn`), written by hand: nodes of lines, `->` choices and `<<commands>>`, each under a `title:` header between `---` and `===` | `flow.ParseYarn`; `vn.Presenter` plays one | [vn](vn.md) |
+
+```yarn
+title: Start
+---
+Aiko: Welcome to the old observatory. #line:obs_01
+-> Look through the telescope #line:obs_c1
+    Aiko: Careful, the lens is old. #line:obs_05
+    <<jump Telescope>>
+-> Leave #line:obs_c2
+===
+title: Telescope
+---
+<<set $looked = true>>
+Ren: The sky is the same size. #line:obs_06
+===
+```
+
 ## Binary files
 
 Media that is binary by nature stays binary: images (PNG), sound (WAV, AAC, MP3), font pages, glTF buffers and `.glb` files, and KTX2 textures that `game assets` encodes. So do the packets of `net`, which are data on the wire, and a fighting recognizer's rollback state, which lives in memory. Every one of them is described by a text file above where it needs settings: an import settings sidecar, `game.yaml` or a glTF document.
 
 ## Keeping this page current
 
-Each YAML format's conformance test (`internal/formattest`) names the format's entry here by its line `<!-- format: <package>[#<name>] -->` and checks that every YAML example in the entry, on this page and its translation, loads and saves to the same bytes. `TestFormatsPage` in `packages/game` fails when a package defines a format this page does not list, when a package that decodes JSON has no entry here, or when the two languages list different entries. A new format adds its entry here in the same change.
+Each entry starts with a line `<!-- format: <package>[#<name>] -->`. Each YAML format's conformance test (`internal/formattest`) names its entry so and checks that every YAML example in it, on this page and its translation, loads and saves to the same bytes. `TestFormatsPage` in `packages/game` checks the rest: that the two languages list the same entries in the same order; that every other entry is listed in the test with the declaration that reads its format, which the package must still have, and that its JSON and Yarn examples load with the format's reader; that every package that decodes JSON has an entry unless the test says why it needs none; and that every exported integer constant whose name ends in `Version` is the version of a format listed here. A format none of these finds, such as an unversioned text format in a package that already has an entry, can still be missed, so a new format adds its entry here in the same change.
