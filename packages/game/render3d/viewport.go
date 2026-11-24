@@ -12,43 +12,30 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// ErrInvalidRenderTexture is wrapped by errors returned by [RenderTextureDesc.Validate],
-// [NewRenderTexture], [RenderTexture.Resize], and [ViewportRenderer] when an offscreen
-// render texture descriptor or handle is invalid.
+// ErrInvalidRenderTexture is wrapped by errors returned by [RenderTextureDesc.Validate], [NewRenderTexture], [RenderTexture.Resize], and [ViewportRenderer] when an offscreen render texture descriptor or handle is invalid.
 var ErrInvalidRenderTexture = errors.New("render3d: invalid render texture")
 
-// ErrInvalidViewport is wrapped by errors returned by [ViewportRect.Validate] and
-// [ViewportRenderer] when a viewport rectangle, surface size, or camera view is invalid.
+// ErrInvalidViewport is wrapped by errors returned by [ViewportRect.Validate] and [ViewportRenderer] when a viewport rectangle, surface size, or camera view is invalid.
 var ErrInvalidViewport = errors.New("render3d: invalid viewport")
 
-// RenderTextureDesc configures an offscreen render-to-texture target created by
-// [NewRenderTexture] (for mirrors, minimaps, portals, security cameras, or post-processing).
+// RenderTextureDesc configures an offscreen render-to-texture target created by [NewRenderTexture] (for mirrors, minimaps, portals, security cameras, or post-processing).
 type RenderTextureDesc struct {
 	// Label names the offscreen target's GPU attachments in capture tools.
 	Label string
 	// Width and Height are the texture dimensions in pixels; both must be positive.
 	Width  uint32
 	Height uint32
-	// ColorFormat selects the color attachment format. Zero ([gpu.FormatUndefined])
-	// defaults to [gpu.FormatRGBA8Unorm]. Depth/stencil formats are rejected.
+	// ColorFormat selects the color attachment format. Zero ([gpu.FormatUndefined]) defaults to [gpu.FormatRGBA8Unorm]. Depth/stencil formats are rejected.
 	ColorFormat gpu.TextureFormat
-	// DepthFormat optionally allocates a matching depth (or depth/stencil)
-	// attachment for 3D depth testing, such as [gpu.FormatDepth24Plus]. Leave
-	// zero ([gpu.FormatUndefined]) for a color-only render texture.
+	// DepthFormat optionally allocates a matching depth (or depth/stencil) attachment for 3D depth testing, such as [gpu.FormatDepth24Plus]. Leave zero ([gpu.FormatUndefined]) for a color-only render texture.
 	DepthFormat gpu.TextureFormat
-	// SampleCount sets MSAA sample count: 0 or 1 for single-sampled, or 4 for
-	// 4x MSAA with an automatic single-sampled resolve texture exposed via
-	// [RenderTexture.Texture] and [RenderTexture.GPUTexture].
+	// SampleCount sets MSAA sample count: 0 or 1 for single-sampled, or 4 for 4x MSAA with an automatic single-sampled resolve texture exposed via [RenderTexture.Texture] and [RenderTexture.GPUTexture].
 	SampleCount int
-	// Retained opts into automatic attachment recreation by NSGo after a GPU
-	// device loss so the RenderTexture and any [BindTexture] bind group built
-	// from [RenderTexture.GPUTexture] (with a retained sampler) stay valid.
+	// Retained opts into automatic attachment recreation by NSGo after a GPU device loss so the RenderTexture and any [BindTexture] bind group built from [RenderTexture.GPUTexture] (with a retained sampler) stay valid.
 	Retained bool
 }
 
-// Validate checks that d specifies positive dimensions, a valid color format,
-// an optional depth/stencil format, and a supported MSAA sample count (0, 1, or 4).
-// Every error wraps [ErrInvalidRenderTexture].
+// Validate checks that d specifies positive dimensions, a valid color format, an optional depth/stencil format, and a supported MSAA sample count (0, 1, or 4). Every error wraps [ErrInvalidRenderTexture].
 func (d RenderTextureDesc) Validate() error {
 	if d.Width == 0 || d.Height == 0 {
 		return fmt.Errorf("%w: dimensions %dx%d must be positive", ErrInvalidRenderTexture, d.Width, d.Height)
@@ -79,14 +66,9 @@ func (d RenderTextureDesc) effectiveSampleCount() int {
 	return d.SampleCount
 }
 
-// RenderTexture is a scope-owned offscreen GPU render target whose color output
-// is directly sampleable as a material texture via [RenderTexture.GPUTexture]
-// and [BindTexture].
+// RenderTexture is a scope-owned offscreen GPU render target whose color output is directly sampleable as a material texture via [RenderTexture.GPUTexture] and [BindTexture].
 //
-// Its underlying [*gpu.RenderTarget] belongs to the [*core.Scope] passed to
-// [NewRenderTexture] and is released when that scope is disposed or earlier via
-// [RenderTexture.Close]. Use it from the engine goroutine, like the [gpu.Device]
-// it came from.
+// Its underlying [*gpu.RenderTarget] belongs to the [*core.Scope] passed to [NewRenderTexture] and is released when that scope is disposed or earlier via [RenderTexture.Close]. Use it from the engine goroutine, like the [gpu.Device] it came from.
 type RenderTexture struct {
 	cx *core.Scope
 	// owner is a child of cx that holds only the current target's cleanups. gpu registers a cleanup on the scope for every texture it creates and closing the texture early does not remove it, so Resize disposes the old target's child scope instead of letting cx collect one set of cleanups per resize. It is nil when cx is nil.
@@ -103,10 +85,7 @@ type RenderTexture struct {
 	generation  uint64
 }
 
-// NewRenderTexture validates desc and allocates an offscreen [RenderTexture] on
-// dev, scoped to cx (nil for headless tests closed explicitly). Invalid
-// descriptors return an error wrapping [ErrInvalidRenderTexture] before creating
-// any GPU resource; a nil or lost device returns [gpu.ErrDeviceLost].
+// NewRenderTexture validates desc and allocates an offscreen [RenderTexture] on dev, scoped to cx (nil for headless tests closed explicitly). Invalid descriptors return an error wrapping [ErrInvalidRenderTexture] before creating any GPU resource; a nil or lost device returns [gpu.ErrDeviceLost].
 func NewRenderTexture(cx *core.Scope, dev *gpu.Device, desc RenderTextureDesc) (*RenderTexture, error) {
 	if err := desc.Validate(); err != nil {
 		return nil, err
@@ -191,9 +170,7 @@ func (rt *RenderTexture) Target() *gpu.RenderTarget {
 	return rt.target
 }
 
-// Texture returns the single-sampled [*gpu.Texture] suitable for shader sampling
-// (the MSAA resolve texture when SampleCount > 1, otherwise the color texture),
-// or nil for a nil receiver.
+// Texture returns the single-sampled [*gpu.Texture] suitable for shader sampling (the MSAA resolve texture when SampleCount > 1, otherwise the color texture), or nil for a nil receiver.
 func (rt *RenderTexture) Texture() *gpu.Texture {
 	if rt == nil || rt.gpuTex == nil {
 		return nil
@@ -201,8 +178,7 @@ func (rt *RenderTexture) Texture() *gpu.Texture {
 	return rt.gpuTex.tex
 }
 
-// ColorTexture returns the renderable color attachment [*gpu.Texture], or nil
-// for a nil receiver.
+// ColorTexture returns the renderable color attachment [*gpu.Texture], or nil for a nil receiver.
 func (rt *RenderTexture) ColorTexture() *gpu.Texture {
 	if rt == nil || rt.target == nil {
 		return nil
@@ -210,8 +186,7 @@ func (rt *RenderTexture) ColorTexture() *gpu.Texture {
 	return rt.target.Color
 }
 
-// DepthTexture returns the optional depth/stencil attachment [*gpu.Texture], or
-// nil when created without a depth format or for a nil receiver.
+// DepthTexture returns the optional depth/stencil attachment [*gpu.Texture], or nil when created without a depth format or for a nil receiver.
 func (rt *RenderTexture) DepthTexture() *gpu.Texture {
 	if rt == nil || rt.target == nil {
 		return nil
@@ -219,12 +194,9 @@ func (rt *RenderTexture) DepthTexture() *gpu.Texture {
 	return rt.target.Depth
 }
 
-// GPUTexture returns a [*GPUTexture] view of rt's sampleable color output so it
-// can be passed directly to [BindTexture] or any material texture slot.
+// GPUTexture returns a [*GPUTexture] view of rt's sampleable color output so it can be passed directly to [BindTexture] or any material texture slot.
 //
-// The returned handle is owned by rt; do not close it independently. After a
-// [RenderTexture.Resize] that returns resized == true, re-fetch GPUTexture and
-// recreate any bind groups built from the previous handle.
+// The returned handle is owned by rt; do not close it independently. After a [RenderTexture.Resize] that returns resized == true, re-fetch GPUTexture and recreate any bind groups built from the previous handle.
 func (rt *RenderTexture) GPUTexture() *GPUTexture {
 	if rt == nil {
 		return nil
@@ -256,8 +228,7 @@ func (rt *RenderTexture) Aspect() float32 {
 	return float32(rt.width) / float32(rt.height)
 }
 
-// ColorFormat returns the resolved color attachment format, or [gpu.FormatUndefined]
-// for a nil receiver.
+// ColorFormat returns the resolved color attachment format, or [gpu.FormatUndefined] for a nil receiver.
 func (rt *RenderTexture) ColorFormat() gpu.TextureFormat {
 	if rt == nil {
 		return gpu.FormatUndefined
@@ -265,8 +236,7 @@ func (rt *RenderTexture) ColorFormat() gpu.TextureFormat {
 	return rt.colorFormat
 }
 
-// DepthFormat returns the depth/stencil attachment format, or [gpu.FormatUndefined]
-// if created without a depth attachment or for a nil receiver.
+// DepthFormat returns the depth/stencil attachment format, or [gpu.FormatUndefined] if created without a depth attachment or for a nil receiver.
 func (rt *RenderTexture) DepthFormat() gpu.TextureFormat {
 	if rt == nil {
 		return gpu.FormatUndefined
@@ -282,9 +252,7 @@ func (rt *RenderTexture) SampleCount() int {
 	return rt.sampleCount
 }
 
-// Generation returns a monotonic counter starting at 1 that increments whenever
-// [RenderTexture.Resize] replaces the underlying GPU textures, letting callers
-// detect when cached [BindTexture] bind groups must be rebuilt.
+// Generation returns a monotonic counter starting at 1 that increments whenever [RenderTexture.Resize] replaces the underlying GPU textures, letting callers detect when cached [BindTexture] bind groups must be rebuilt.
 func (rt *RenderTexture) Generation() uint64 {
 	if rt == nil {
 		return 0
@@ -292,9 +260,7 @@ func (rt *RenderTexture) Generation() uint64 {
 	return rt.generation
 }
 
-// ByteSize returns the approximate GPU memory occupied by rt's attachments
-// (color, MSAA resolve when present, and optional depth), for [RenderStats] and
-// [Budget] accounting. It is zero for a nil receiver.
+// ByteSize returns the approximate GPU memory occupied by rt's attachments (color, MSAA resolve when present, and optional depth), for [RenderStats] and [Budget] accounting. It is zero for a nil receiver.
 func (rt *RenderTexture) ByteSize() uint64 {
 	if rt == nil || rt.width == 0 || rt.height == 0 {
 		return 0
@@ -314,20 +280,14 @@ func (rt *RenderTexture) ByteSize() uint64 {
 	return total
 }
 
-// Valid reports whether rt is open and its underlying GPU attachments belong to
-// a live device.
+// Valid reports whether rt is open and its underlying GPU attachments belong to a live device.
 func (rt *RenderTexture) Valid() bool {
 	return rt != nil && rt.target.Valid()
 }
 
-// Resize reallocates rt's offscreen attachments to width x height on dev,
-// preserving format, sample count, label, retained flag, and owning scope.
+// Resize reallocates rt's offscreen attachments to width x height on dev, preserving format, sample count, label, retained flag, and owning scope.
 //
-// When rt is already valid at width x height, Resize is a no-op and returns
-// (false, nil). If allocation of the replacement target fails, the previous
-// target remains intact. On success, the previous target is closed, Generation
-// increments, and (true, nil) is returned so callers know to rebind any
-// [BindTexture] bind groups referencing the prior texture.
+// When rt is already valid at width x height, Resize is a no-op and returns (false, nil). If allocation of the replacement target fails, the previous target remains intact. On success, the previous target is closed, Generation increments, and (true, nil) is returned so callers know to rebind any [BindTexture] bind groups referencing the prior texture.
 func (rt *RenderTexture) Resize(dev *gpu.Device, width, height uint32) (bool, error) {
 	if rt == nil {
 		return false, fmt.Errorf("%w: nil render texture", ErrInvalidRenderTexture)
@@ -371,9 +331,7 @@ func (rt *RenderTexture) Resize(dev *gpu.Device, width, height uint32) (bool, er
 	return true, nil
 }
 
-// PassDesc builds a [gpu.RenderPassDesc] targeting rt's color (and optional
-// resolve and depth/stencil) attachments, clearing color to clearColor and
-// depth to clearDepth.
+// PassDesc builds a [gpu.RenderPassDesc] targeting rt's color (and optional resolve and depth/stencil) attachments, clearing color to clearColor and depth to clearDepth.
 func (rt *RenderTexture) PassDesc(label string, clearColor core.Color, clearDepth float32) gpu.RenderPassDesc {
 	if rt == nil || rt.target == nil {
 		return gpu.RenderPassDesc{Label: label}
@@ -407,9 +365,7 @@ func (rt *RenderTexture) PassDesc(label string, clearColor core.Color, clearDept
 	return desc
 }
 
-// BeginPass begins a [gpu.RenderPass] on enc targeting rt, clearing color to
-// clearColor and depth (when present) to 1. It returns nil if enc is nil or rt
-// is not valid.
+// BeginPass begins a [gpu.RenderPass] on enc targeting rt, clearing color to clearColor and depth (when present) to 1. It returns nil if enc is nil or rt is not valid.
 func (rt *RenderTexture) BeginPass(enc *gpu.Encoder, clearColor core.Color) *gpu.RenderPass {
 	if enc == nil || !rt.Valid() {
 		return nil
@@ -417,9 +373,7 @@ func (rt *RenderTexture) BeginPass(enc *gpu.Encoder, clearColor core.Color) *gpu
 	return enc.BeginRenderPass(rt.PassDesc(rt.label, clearColor, 1))
 }
 
-// BeginFramePass begins a [gpu.RenderPass] on frame targeting rt, clearing color
-// to clearColor and depth (when present) to 1. It returns nil if frame is nil or
-// rt is not valid.
+// BeginFramePass begins a [gpu.RenderPass] on frame targeting rt, clearing color to clearColor and depth (when present) to 1. It returns nil if frame is nil or rt is not valid.
 func (rt *RenderTexture) BeginFramePass(frame *gpu.Frame, clearColor core.Color) *gpu.RenderPass {
 	if frame == nil || !rt.Valid() {
 		return nil
@@ -427,9 +381,7 @@ func (rt *RenderTexture) BeginFramePass(frame *gpu.Frame, clearColor core.Color)
 	return frame.BeginRenderPass(rt.PassDesc(rt.label, clearColor, 1))
 }
 
-// Close releases rt's underlying GPU attachments immediately rather than waiting
-// for its owning scope to dispose. It is safe to call on a nil receiver or more
-// than once.
+// Close releases rt's underlying GPU attachments immediately rather than waiting for its owning scope to dispose. It is safe to call on a nil receiver or more than once.
 func (rt *RenderTexture) Close() error {
 	if rt == nil || rt.target == nil {
 		return nil
@@ -440,9 +392,7 @@ func (rt *RenderTexture) Close() error {
 	return err
 }
 
-// ViewportRect describes a normalized sub-rectangle of a render target in [0, 1]
-// top-left coordinates (matching NSGo's GPU viewport and scissor convention),
-// together with its clip-depth range [MinDepth, MaxDepth].
+// ViewportRect describes a normalized sub-rectangle of a render target in [0, 1] top-left coordinates (matching NSGo's GPU viewport and scissor convention), together with its clip-depth range [MinDepth, MaxDepth].
 //
 // The zero value (Width == 0 && Height == 0) represents the full target [0, 0, 1, 1] with depth range [0, 1]. A depth range of [0, 0] also means [0, 1], so a viewport cannot pin depth to exactly 0.
 type ViewportRect struct {
@@ -454,15 +404,12 @@ type ViewportRect struct {
 	MaxDepth float32
 }
 
-// FullViewport returns a [ViewportRect] covering the entire render target with
-// depth range [0, 1].
+// FullViewport returns a [ViewportRect] covering the entire render target with depth range [0, 1].
 func FullViewport() ViewportRect {
 	return ViewportRect{X: 0, Y: 0, Width: 1, Height: 1, MinDepth: 0, MaxDepth: 1}
 }
 
-// ViewportFromPixels converts a pixel-space top-left rectangle into a normalized
-// [ViewportRect] relative to a target of size targetWidth x targetHeight.
-// Returns the zero ViewportRect if targetWidth or targetHeight is non-positive.
+// ViewportFromPixels converts a pixel-space top-left rectangle into a normalized [ViewportRect] relative to a target of size targetWidth x targetHeight. Returns the zero ViewportRect if targetWidth or targetHeight is non-positive.
 func ViewportFromPixels(x, y, width, height float32, targetWidth, targetHeight int) ViewportRect {
 	if targetWidth <= 0 || targetHeight <= 0 {
 		return ViewportRect{}
@@ -479,9 +426,7 @@ func ViewportFromPixels(x, y, width, height float32, targetWidth, targetHeight i
 	}
 }
 
-// SplitScreenSideBySide returns count equal-width full-height [ViewportRect]
-// columns arranged left to right across the target (for example, 2-player
-// side-by-side split screen). Returns nil if count <= 0.
+// SplitScreenSideBySide returns count equal-width full-height [ViewportRect] columns arranged left to right across the target (for example, 2-player side-by-side split screen). Returns nil if count <= 0.
 func SplitScreenSideBySide(count int) []ViewportRect {
 	if count <= 0 {
 		return nil
@@ -499,8 +444,7 @@ func SplitScreenSideBySide(count int) []ViewportRect {
 	return out
 }
 
-// SplitScreenStacked returns count equal-height full-width [ViewportRect] rows
-// arranged top to bottom down the target. Returns nil if count <= 0.
+// SplitScreenStacked returns count equal-height full-width [ViewportRect] rows arranged top to bottom down the target. Returns nil if count <= 0.
 func SplitScreenStacked(count int) []ViewportRect {
 	if count <= 0 {
 		return nil
@@ -518,20 +462,17 @@ func SplitScreenStacked(count int) []ViewportRect {
 	return out
 }
 
-// SplitScreenHorizontal arranges count viewports horizontally side by side
-// across the X axis (alias of [SplitScreenSideBySide]).
+// SplitScreenHorizontal arranges count viewports horizontally side by side across the X axis (alias of [SplitScreenSideBySide]).
 func SplitScreenHorizontal(count int) []ViewportRect {
 	return SplitScreenSideBySide(count)
 }
 
-// SplitScreenVertical arranges count viewports vertically stacked down the Y
-// axis (alias of [SplitScreenStacked]).
+// SplitScreenVertical arranges count viewports vertically stacked down the Y axis (alias of [SplitScreenStacked]).
 func SplitScreenVertical(count int) []ViewportRect {
 	return SplitScreenStacked(count)
 }
 
-// SplitScreenQuad returns four quadrant [ViewportRect] tiles ordered top-left,
-// top-right, bottom-left, bottom-right for 4-player split screen.
+// SplitScreenQuad returns four quadrant [ViewportRect] tiles ordered top-left, top-right, bottom-left, bottom-right for 4-player split screen.
 func SplitScreenQuad() [4]ViewportRect {
 	return [4]ViewportRect{
 		{X: 0, Y: 0, Width: 0.5, Height: 0.5, MinDepth: 0, MaxDepth: 1},
@@ -541,9 +482,7 @@ func SplitScreenQuad() [4]ViewportRect {
 	}
 }
 
-// Validate checks that r has finite coordinates within [0, 1], valid non-zero
-// dimensions (or an all-zero full-target default), and a valid depth range
-// 0 <= MinDepth <= MaxDepth <= 1. Every error wraps [ErrInvalidViewport].
+// Validate checks that r has finite coordinates within [0, 1], valid non-zero dimensions (or an all-zero full-target default), and a valid depth range 0 <= MinDepth <= MaxDepth <= 1. Every error wraps [ErrInvalidViewport].
 func (r ViewportRect) Validate() error {
 	if !finite(r.X) || !finite(r.Y) || !finite(r.Width) || !finite(r.Height) || !finite(r.MinDepth) || !finite(r.MaxDepth) {
 		return fmt.Errorf("%w: viewport contains non-finite values", ErrInvalidViewport)
@@ -571,8 +510,7 @@ func (r ViewportRect) Validate() error {
 	return nil
 }
 
-// Normalized returns r with zero defaults filled in: an all-zero spatial rect
-// becomes [0, 0, 1, 1] and a zero depth range becomes [0, 1].
+// Normalized returns r with zero defaults filled in: an all-zero spatial rect becomes [0, 0, 1, 1] and a zero depth range becomes [0, 1].
 func (r ViewportRect) Normalized() ViewportRect {
 	if r.X == 0 && r.Y == 0 && r.Width == 0 && r.Height == 0 {
 		r.Width = 1
@@ -584,8 +522,7 @@ func (r ViewportRect) Normalized() ViewportRect {
 	return r
 }
 
-// PixelViewport is a resolved, target-clamped pixel rectangle ready to apply to
-// a [gpu.RenderPass] with [PixelViewport.Apply].
+// PixelViewport is a resolved, target-clamped pixel rectangle ready to apply to a [gpu.RenderPass] with [PixelViewport.Apply].
 type PixelViewport struct {
 	X        int32
 	Y        int32
@@ -595,11 +532,7 @@ type PixelViewport struct {
 	MaxDepth float32
 }
 
-// Resolve converts r into clamped pixel coordinates for a render target of size
-// targetWidth x targetHeight. Both left/right and top/bottom edges are rounded
-// independently so adjacent split-screen rects tile seamlessly with zero gaps
-// and zero pixel overlap across seams. Returns (zero, false) if r is invalid,
-// target dimensions are non-positive, or the resolved pixel area is empty.
+// Resolve converts r into clamped pixel coordinates for a render target of size targetWidth x targetHeight. Both left/right and top/bottom edges are rounded independently so adjacent split-screen rects tile seamlessly with zero gaps and zero pixel overlap across seams. Returns (zero, false) if r is invalid, target dimensions are non-positive, or the resolved pixel area is empty.
 func (r ViewportRect) Resolve(targetWidth, targetHeight int) (PixelViewport, bool) {
 	if targetWidth <= 0 || targetHeight <= 0 || r.Validate() != nil {
 		return PixelViewport{}, false
@@ -627,8 +560,7 @@ func (r ViewportRect) Resolve(targetWidth, targetHeight int) (PixelViewport, boo
 	}, true
 }
 
-// Aspect returns the resolved pixel aspect ratio (width / height) of r inside a
-// target of size targetWidth x targetHeight, or zero if resolution fails.
+// Aspect returns the resolved pixel aspect ratio (width / height) of r inside a target of size targetWidth x targetHeight, or zero if resolution fails.
 func (r ViewportRect) Aspect(targetWidth, targetHeight int) float32 {
 	pv, ok := r.Resolve(targetWidth, targetHeight)
 	if !ok {
@@ -645,8 +577,7 @@ func (p PixelViewport) Aspect() float32 {
 	return float32(p.Width) / float32(p.Height)
 }
 
-// Apply sets both the rasterizer viewport and the matching pixel scissor rect
-// on pass so draws stay strictly inside p with zero bleed across split seams.
+// Apply sets both the rasterizer viewport and the matching pixel scissor rect on pass so draws stay strictly inside p with zero bleed across split seams.
 func (p PixelViewport) Apply(pass *gpu.RenderPass) {
 	if pass == nil || p.Width <= 0 || p.Height <= 0 {
 		return
@@ -677,14 +608,12 @@ func clampInt32(v, lo, hi int) int32 {
 	return int32(v)
 }
 
-// LayerMatches reports whether an object's layer bitmask intersects a camera's
-// layer mask, using the same bitmask convention as [scene3d.Node.Layer].
+// LayerMatches reports whether an object's layer bitmask intersects a camera's layer mask, using the same bitmask convention as [scene3d.Node.Layer].
 func LayerMatches(objectLayer, cameraMask uint32) bool {
 	return objectLayer&cameraMask != 0
 }
 
-// LayeredDrawItem pairs a [DrawItem] with a 32-bit layer bitmask matching
-// [scene3d.Node.Layer] for per-camera layer filtering before [Queue.Build].
+// LayeredDrawItem pairs a [DrawItem] with a 32-bit layer bitmask matching [scene3d.Node.Layer] for per-camera layer filtering before [Queue.Build].
 type LayeredDrawItem struct {
 	Item  DrawItem
 	Layer uint32
@@ -716,25 +645,19 @@ func FilterNodesByLayer(src []*scene3d.Node, mask uint32, dst []*scene3d.Node) [
 	return dst
 }
 
-// CameraView describes one camera pass rendered by [ViewportRenderer]: either
-// an offscreen render-to-texture pass (Target != nil) or a viewport on the main
-// surface (Target == nil).
+// CameraView describes one camera pass rendered by [ViewportRenderer]: either an offscreen render-to-texture pass (Target != nil) or a viewport on the main surface (Target == nil).
 type CameraView struct {
 	// Name is an optional label used in GPU pass labels and diagnostics.
 	Name string
 	// Camera supplies the viewpoint and projection. Required for active views.
 	Camera *scene3d.Camera
-	// Target directs this camera into an offscreen [RenderTexture]. Offscreen
-	// views always execute before main-surface views (Target == nil) so their
-	// textures are ready to sample as material textures in the same frame.
+	// Target directs this camera into an offscreen [RenderTexture]. Offscreen views always execute before main-surface views (Target == nil) so their textures are ready to sample as material textures in the same frame.
 	Target *RenderTexture
-	// Viewport selects the normalized sub-rectangle of Target (or the main
-	// surface) to render into. The zero value covers the entire target.
+	// Viewport selects the normalized sub-rectangle of Target (or the main surface) to render into. The zero value covers the entire target.
 	Viewport ViewportRect
 	// LayerMask selects which [scene3d.Node.Layer] bits this camera sees. Zero defaults to [scene3d.LayerAll] via [CameraView.EffectiveLayerMask] so struct literals render all layers unless restricted; to render nothing, set Disabled. This differs from [FilterLayeredItems], [FilterNodesByLayer] and [scene3d.Decal.LayerMask], where a zero mask matches nothing, so filter with [ViewportContext.LayerMask], which is already the effective mask.
 	LayerMask uint32
-	// Priority orders views ascending within the offscreen phase and within the
-	// main-surface phase; ties preserve input slice order.
+	// Priority orders views ascending within the offscreen phase and within the main-surface phase; ties preserve input slice order.
 	Priority int
 	// ClearColor sets the clear color when this view opens a clearing pass. Only the view that opens a pass clears: a view that shares the pass of the view before it (consecutive viewports on one target, such as split-screen players) or continues it with ResetDepth keeps the color already there, so give such views distinct backgrounds by drawing a full-viewport quad first. On the main surface, zero falls back to [SurfaceDesc.ClearColor], so an explicit transparent black clear is not expressible there while SurfaceDesc.ClearColor is set.
 	ClearColor core.Color
@@ -742,22 +665,15 @@ type CameraView struct {
 	ClearDepth float32
 	// LoadColor controls whether the first pass targeting this view's target in a frame clears color ([gpu.LoadClear], the zero default) or preserves existing contents ([gpu.LoadLoad]). A later view that returns to an offscreen target after views on another target always loads color and depth, so what the earlier views drew is kept; set ResetDepth on it to clear depth instead.
 	LoadColor gpu.LoadOp
-	// ResetDepth forces a continuation pass with preserved color ([gpu.LoadLoad])
-	// and a fresh depth clear ([gpu.LoadClear]) when this view shares a target
-	// with a preceding view (for example, an overlapping picture-in-picture
-	// 3D minimap drawn over a full-screen 3D view). Leave false for non-overlapping
-	// split-screen viewports so they share a single GPU render pass.
+	// ResetDepth forces a continuation pass with preserved color ([gpu.LoadLoad]) and a fresh depth clear ([gpu.LoadClear]) when this view shares a target with a preceding view (for example, an overlapping picture-in-picture 3D minimap drawn over a full-screen 3D view). Leave false for non-overlapping split-screen viewports so they share a single GPU render pass.
 	ResetDepth bool
-	// PreserveAspect keeps Camera.Projection.Aspect unchanged instead of
-	// adjusting a per-view copy of the camera to match the resolved viewport's
-	// pixel aspect ratio.
+	// PreserveAspect keeps Camera.Projection.Aspect unchanged instead of adjusting a per-view copy of the camera to match the resolved viewport's pixel aspect ratio.
 	PreserveAspect bool
 	// Disabled skips this view when true.
 	Disabled bool
 }
 
-// NewCameraView returns a [CameraView] targeting the full main surface with
-// [scene3d.LayerAll] and ClearDepth 1.
+// NewCameraView returns a [CameraView] targeting the full main surface with [scene3d.LayerAll] and ClearDepth 1.
 func NewCameraView(cam *scene3d.Camera) CameraView {
 	return CameraView{
 		Camera:     cam,
@@ -782,10 +698,7 @@ func effectiveClearDepth(d float32) float32 {
 	return d
 }
 
-// OrderCameraViews appends the indices of active (non-disabled) views from views
-// to dst in deterministic execution order: offscreen views (Target != nil) first,
-// then main-surface views (Target == nil), each ordered stably by ascending
-// Priority. Passing dst[:0] with capacity len(views) allocates nothing.
+// OrderCameraViews appends the indices of active (non-disabled) views from views to dst in deterministic execution order: offscreen views (Target != nil) first, then main-surface views (Target == nil), each ordered stably by ascending Priority. Passing dst[:0] with capacity len(views) allocates nothing.
 func OrderCameraViews(views []CameraView, dst []int) []int {
 	start := len(dst)
 	for i := range views {
@@ -808,46 +721,36 @@ func OrderCameraViews(views []CameraView, dst []int) []int {
 	return dst
 }
 
-// SurfaceDesc describes the main on-screen render surface passed to
-// [ViewportRenderer.RenderEncoder] or [ViewportRenderer.RenderFrame].
+// SurfaceDesc describes the main on-screen render surface passed to [ViewportRenderer.RenderEncoder] or [ViewportRenderer.RenderFrame].
 type SurfaceDesc struct {
-	// Width and Height in pixels. In [ViewportRenderer.RenderFrame], leaving
-	// either non-positive fills both from frame.Size().
+	// Width and Height in pixels. In [ViewportRenderer.RenderFrame], leaving either non-positive fills both from frame.Size().
 	Width  int
 	Height int
-	// HasDepth attaches the surface's depth buffer when true (set true when
-	// gpu.ViewProps.DepthFormat or gpu.NewSoftwareRenderer's depth format is set).
+	// HasDepth attaches the surface's depth buffer when true (set true when gpu.ViewProps.DepthFormat or gpu.NewSoftwareRenderer's depth format is set).
 	HasDepth bool
-	// ClearColor is the fallback clear color for the main surface when the first
-	// main-surface view has a zero ClearColor.
+	// ClearColor is the fallback clear color for the main surface when the first main-surface view has a zero ClearColor.
 	ClearColor core.Color
 	// ClearDepth is the fallback depth clear value for the main surface (0 defaults to 1).
 	ClearDepth float32
 }
 
-// ViewportContext carries the resolved camera, layer mask, pixel viewport,
-// per-view camera bind group, and active [gpu.RenderPass] for one view rendered
-// by [ViewportRenderer].
+// ViewportContext carries the resolved camera, layer mask, pixel viewport, per-view camera bind group, and active [gpu.RenderPass] for one view rendered by [ViewportRenderer].
 type ViewportContext struct {
 	// ViewIndex is the index of this view in the caller's original views slice.
 	ViewIndex int
 	// View is the CameraView being rendered.
 	View CameraView
-	// Camera is a per-view copy of View.Camera with Projection.Aspect matched to
-	// Viewport (unless View.PreserveAspect is true). View.Camera is never mutated.
+	// Camera is a per-view copy of View.Camera with Projection.Aspect matched to Viewport (unless View.PreserveAspect is true). View.Camera is never mutated.
 	Camera scene3d.Camera
 	// Uniform is the [CameraUniform] uploaded into CameraBindGroup for this view.
 	Uniform CameraUniform
 	// LayerMask is View.EffectiveLayerMask().
 	LayerMask uint32
-	// Viewport is the resolved, clamped pixel rectangle already applied to Pass
-	// via SetViewport and SetScissor.
+	// Viewport is the resolved, clamped pixel rectangle already applied to Pass via SetViewport and SetScissor.
 	Viewport PixelViewport
-	// CameraBindGroup is the per-view uniform bind group already bound at
-	// [CameraGroup] on Pass.
+	// CameraBindGroup is the per-view uniform bind group already bound at [CameraGroup] on Pass.
 	CameraBindGroup *gpu.BindGroup
-	// Pass is the active [gpu.RenderPass]. Do not call Pass.End(); the renderer
-	// ends passes automatically when switching targets or finishing the frame.
+	// Pass is the active [gpu.RenderPass]. Do not call Pass.End(); the renderer ends passes automatically when switching targets or finishing the frame.
 	Pass *gpu.RenderPass
 }
 
@@ -865,15 +768,9 @@ type resolvedCameraView struct {
 	layerMask uint32
 }
 
-// ViewportRenderer orchestrates multi-camera frames combining offscreen
-// render-to-texture passes ([RenderTexture]) and multiple viewports on the same
-// target (such as side-by-side split screen or picture-in-picture overlays).
+// ViewportRenderer orchestrates multi-camera frames combining offscreen render-to-texture passes ([RenderTexture]) and multiple viewports on the same target (such as side-by-side split screen or picture-in-picture overlays).
 //
-// Each active view receives its own retained camera uniform buffer bound at
-// [CameraGroup] so multiple cameras rendered within one [gpu.Encoder] or
-// [gpu.Frame] never overwrite each other's uniform data before GPU execution.
-// Adjacent views targeting the same surface share a single [gpu.RenderPass]
-// unless a view requests [CameraView.ResetDepth].
+// Each active view receives its own retained camera uniform buffer bound at [CameraGroup] so multiple cameras rendered within one [gpu.Encoder] or [gpu.Frame] never overwrite each other's uniform data before GPU execution. Adjacent views targeting the same surface share a single [gpu.RenderPass] unless a view requests [CameraView.ResetDepth].
 //
 // The uniform slots are reused by every call, so call [ViewportRenderer.RenderFrame] or [ViewportRenderer.RenderEncoder] at most once per submitted frame or command buffer: a second call on the same renderer before submission overwrites the first call's camera uniforms before the GPU runs its passes. Use a separate ViewportRenderer for each call that shares one submission.
 type ViewportRenderer struct {
@@ -889,10 +786,7 @@ type ViewportRenderer struct {
 	closed     bool
 }
 
-// NewViewportRenderer creates a [ViewportRenderer] on dev scoped to cx, with a
-// shared camera bind group layout matching [CameraGroup] and [CameraWGSL].
-// Pipelines rendering through the renderer list [ViewportRenderer.CameraLayout]
-// at [CameraGroup].
+// NewViewportRenderer creates a [ViewportRenderer] on dev scoped to cx, with a shared camera bind group layout matching [CameraGroup] and [CameraWGSL]. Pipelines rendering through the renderer list [ViewportRenderer.CameraLayout] at [CameraGroup].
 func NewViewportRenderer(cx *core.Scope, dev *gpu.Device) (*ViewportRenderer, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -916,10 +810,7 @@ func NewViewportRenderer(cx *core.Scope, dev *gpu.Device) (*ViewportRenderer, er
 	}, nil
 }
 
-// NewViewportRendererWithLayout creates a [ViewportRenderer] that binds its
-// per-view camera uniform buffers against an existing camera bind group layout
-// (for example, [CameraBuffer.Layout]). Closing the renderer does not close
-// camLayout.
+// NewViewportRendererWithLayout creates a [ViewportRenderer] that binds its per-view camera uniform buffers against an existing camera bind group layout (for example, [CameraBuffer.Layout]). Closing the renderer does not close camLayout.
 func NewViewportRendererWithLayout(cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGroupLayout) (*ViewportRenderer, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -935,8 +826,7 @@ func NewViewportRendererWithLayout(cx *core.Scope, dev *gpu.Device, camLayout *g
 	}, nil
 }
 
-// CameraLayout returns the bind group layout pipelines list at [CameraGroup]
-// when drawing through r, or nil for a nil receiver.
+// CameraLayout returns the bind group layout pipelines list at [CameraGroup] when drawing through r, or nil for a nil receiver.
 func (r *ViewportRenderer) CameraLayout() *gpu.BindGroupLayout {
 	if r == nil {
 		return nil
@@ -944,15 +834,12 @@ func (r *ViewportRenderer) CameraLayout() *gpu.BindGroupLayout {
 	return r.camLayout
 }
 
-// Valid reports whether r is open and its camera bind group layout belongs to a
-// live device.
+// Valid reports whether r is open and its camera bind group layout belongs to a live device.
 func (r *ViewportRenderer) Valid() bool {
 	return r != nil && !r.closed && r.camLayout.Valid()
 }
 
-// Close releases all GPU resources owned by r (its per-view uniform buffers,
-// bind groups, and camera layout when created by [NewViewportRenderer]). Safe
-// to call on a nil receiver or more than once.
+// Close releases all GPU resources owned by r (its per-view uniform buffers, bind groups, and camera layout when created by [NewViewportRenderer]). Safe to call on a nil receiver or more than once.
 func (r *ViewportRenderer) Close() error {
 	if r == nil || r.closed {
 		return nil
@@ -979,10 +866,7 @@ func (r *ViewportRenderer) Close() error {
 	return first
 }
 
-// RenderFrame renders all active views in execution order (offscreen
-// [RenderTexture] views first, then main-surface viewports) into frame. When
-// surface.Width or surface.Height is non-positive, both default to frame.Size().
-// It does not call frame.Submit(); the caller submits once all work is recorded.
+// RenderFrame renders all active views in execution order (offscreen [RenderTexture] views first, then main-surface viewports) into frame. When surface.Width or surface.Height is non-positive, both default to frame.Size(). It does not call frame.Submit(); the caller submits once all work is recorded.
 func (r *ViewportRenderer) RenderFrame(frame *gpu.Frame, surface SurfaceDesc, views []CameraView, draw func(ViewportContext)) error {
 	if frame == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil frame"}
@@ -1065,8 +949,7 @@ func (r *ViewportRenderer) renderWith(
 		return nil
 	}
 
-	// Phase 1: Validate every active view and resolve pixel viewports & uniforms
-	// before recording any GPU commands so errors leave the encoder untouched.
+	// Phase 1: Validate every active view and resolve pixel viewports & uniforms before recording any GPU commands so errors leave the encoder untouched.
 	r.resolved = r.resolved[:0]
 	for _, idx := range r.order {
 		v := views[idx]
@@ -1108,9 +991,7 @@ func (r *ViewportRenderer) renderWith(
 		})
 	}
 
-	// Phase 2: Ensure one uniform buffer slot per active view and upload every
-	// camera uniform up front so passes submitted in one command buffer never
-	// clobber each other's camera data.
+	// Phase 2: Ensure one uniform buffer slot per active view and upload every camera uniform up front so passes submitted in one command buffer never clobber each other's camera data.
 	for i := range r.resolved {
 		slot, err := r.ensureSlot(dev, i)
 		if err != nil {
@@ -1119,8 +1000,7 @@ func (r *ViewportRenderer) renderWith(
 		dev.WriteBuffer(slot.buf, 0, r.resolved[i].uniform.Encode(r.scratch[:]))
 	}
 
-	// Phase 3: Record render passes, sharing a pass across consecutive views on
-	// the same target unless ResetDepth is set.
+	// Phase 3: Record render passes, sharing a pass across consecutive views on the same target unless ResetDepth is set.
 	var (
 		activePass   *gpu.RenderPass
 		hasTarget    bool
