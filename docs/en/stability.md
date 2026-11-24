@@ -76,9 +76,16 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/animclip` | Experimental | [animclip](animclip.md) |
 | `game/assets` | Experimental | [assets](assets.md) |
+| `game/bullets` | Experimental | [bullets](bullets.md) |
+| `game/cards` | Experimental | [cards](cards.md) |
+| `game/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
+| `game/cloudsave/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
+| `game/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
+| `game/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
+| `game/cmd/gameschema` | Experimental | [Schemas for YAML files](schemas.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cutscene` | Experimental | [cutscene](cutscene.md) |
@@ -86,8 +93,10 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/editor` | Experimental | [editor](editor.md) |
 | `game/effects` | Experimental | [effects](effects.md) |
 | `game/entities` | Experimental | [entities](entities.md) |
+| `game/fighting` | Experimental | [fighting](fighting.md) |
 | `game/flow` | Stable | [flow](flow.md) |
 | `game/fog` | Experimental | [fog](fog.md) |
+| `game/framedata` | Experimental | [framedata](framedata.md) |
 | `game/gametest` | Experimental | |
 | `game/gameui` | Experimental | [gameui](gameui.md) |
 | `game/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
@@ -100,6 +109,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | Experimental | [lights2d](lights2d.md) |
 | `game/liveops` | Experimental | [liveops](liveops.md) |
+| `game/loaderr` | Stable | [Errors](errors.md) |
 | `game/loot` | Experimental | [loot](loot.md) |
 | `game/math2d` | Stable | [math2d](math2d.md) |
 | `game/math3d` | Experimental | [math3d](math3d.md) |
@@ -110,6 +120,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/physics` | Stable | [physics](physics.md) |
 | `game/physics3d` | Experimental | [physics3d](physics3d.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
+| `game/procgen` | Experimental | [procgen](procgen.md) |
 | `game/project` | Experimental | [Project File](project.md) |
 | `game/quest` | Experimental | [quest](quest.md) |
 | `game/random` | Stable | [Determinism](determinism.md) |
@@ -117,6 +128,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/replay` | Experimental | [replay](replay.md) |
 | `game/resource` | Experimental | [resources](resources.md) |
 | `game/rhythm` | Experimental | [rhythm](rhythm.md) |
+| `game/rooms` | Experimental | [rooms](rooms.md) |
 | `game/rts` | Experimental | [rts](rts.md) |
 | `game/save` | Stable | [save](save.md) |
 | `game/scene` | Stable | [scene](scene.md) |
@@ -133,16 +145,19 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/text` | Experimental | [text](text.md) |
 | `game/tilemap` | Stable | [tilemap](tilemap.md) |
 | `game/tooling/apiref` | Experimental | |
+| `game/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
 | `game/tooling/audioconv` | Experimental | |
 | `game/tooling/bench` | Experimental | [Command Line](cli.md) |
 | `game/tooling/datatable` | Experimental | |
 | `game/tooling/devstate` | Experimental | |
 | `game/tooling/hotreload` | Experimental | |
+| `game/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
 | `game/tooling/ktx2` | Experimental | |
 | `game/tooling/manifest` | Experimental | |
 | `game/tooling/pack` | Experimental | |
 | `game/tween` | Stable | [tween](tween.md) |
 | `game/undo` | Experimental | [undo](undo.md) |
+| `game/vehicle` | Experimental | [vehicle](vehicle.md) |
 | `game/vn` | Experimental | [vn](vn.md) |
 | `game/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
 | `game/world3d` | Experimental | [world3d](world3d.md) |
