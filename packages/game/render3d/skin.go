@@ -164,21 +164,22 @@ type SkinnedMesh struct {
 	JointCount int
 }
 
-// NormalizeSkinWeights normalizes non-negative joint weights so their sum equals 1.
-// If the sum is zero or non-positive, it falls back to (1, 0, 0, 0) so vertices stay
-// rigidly attached to their first joint instead of collapsing to the origin.
+// NormalizeSkinWeights normalizes non-negative joint weights so their sum equals 1. The weights are divided by their largest component before summing, so large finite weights such as 4 x 3e38 normalize to (0.25, 0.25, 0.25, 0.25) instead of overflowing. If a weight is not finite or the sum is zero or negative, it falls back to (1, 0, 0, 0) so vertices stay rigidly attached to their first joint instead of collapsing to the origin.
 func NormalizeSkinWeights(w math3d.Vec4) math3d.Vec4 {
-	sum := w.X + w.Y + w.Z + w.W
-	if sum <= 0 || !finite(sum) {
+	if !finite(w.X) || !finite(w.Y) || !finite(w.Z) || !finite(w.W) {
+		return math3d.Vec4{X: 1}
+	}
+	largest := max(w.X, w.Y, w.Z, w.W)
+	if largest <= 0 {
+		return math3d.Vec4{X: 1}
+	}
+	x, y, z, ww := w.X/largest, w.Y/largest, w.Z/largest, w.W/largest
+	sum := x + y + z + ww
+	if sum <= 0 {
 		return math3d.Vec4{X: 1}
 	}
 	inv := 1 / sum
-	return math3d.Vec4{
-		X: w.X * inv,
-		Y: w.Y * inv,
-		Z: w.Z * inv,
-		W: w.W * inv,
-	}
+	return math3d.Vec4{X: x * inv, Y: y * inv, Z: z * inv, W: ww * inv}
 }
 
 // SkinnedMeshFromGLTF extracts and validates a [SkinnedMesh] from a glTF 2.0
