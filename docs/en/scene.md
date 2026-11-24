@@ -178,14 +178,17 @@ return hud.View(cx, gpu.ViewProps{
 
 ## Switching between 2D and 3D scenes
 
-`Manager.View(cx, opts)` mounts a reactive view host that switches seamlessly between 2D canvas scenes (`Controller.Scene` / `Controller.Draw`) and 3D or native view scenes (`Controller.View`, such as `gpu.View` or `Overlay3D.View`) while sharing the same `*input.Actions` and `*sound.Mixer`:
+`Manager.View(opts)` mounts a reactive view host that switches seamlessly between 2D canvas scenes (`Controller.Scene` / `Controller.Draw`) and 3D or native view scenes (`Controller.View`, such as `gpu.View` or `Overlay3D.View`) while every scene shares the same `*input.Actions` and the same `*sound.Mixer`:
 
 ```go
 mgr := scene.NewManager(cx)
-mgr.Actions = actions // attached to the persistent stage view; survives 2D <-> 3D switches
-mgr.Mixer = mixer     // keeps music playing uninterrupted across 2D <-> 3D switches
+actions.WatchKeys(cx) // keys reach Actions whether or not the stage holds focus
+mgr.Actions = actions // set before mgr.View: attached to the persistent stage view, survives 2D <-> 3D switches
+mixer := sound.NewMixer(cx, "game.sound") // on the Manager's scope, not a scene's, so music plays on across switches
+mixer.Music("music").Play(theme, 0) // started once here, so no scene owns it
 
-overworld2D := &scene.Controller{
+var overworld2D, dungeon3D *scene.Controller
+overworld2D = &scene.Controller{
 	Scene: mapScene,
 	Update: func(dt time.Duration) {
 		if mgr.Actions.JustPressed("enter_3d") {
@@ -193,8 +196,7 @@ overworld2D := &scene.Controller{
 		}
 	},
 }
-
-dungeon3D := &scene.Controller{
+dungeon3D = &scene.Controller{
 	View: func(scx *core.Scope) core.Node {
 		return ov.View(scx, gpu.ViewProps{
 			Style:       core.Style{Width: core.Pct(100), Height: core.Pct(100)},
@@ -211,14 +213,16 @@ dungeon3D := &scene.Controller{
 }
 
 mgr.Switch(overworld2D, nil)
-return mgr.View(cx, scene.HostOptions{
+return mgr.View(scene.HostOptions{
 	Alpha:    func() float64 { _ = frameTick.Get(); return alpha },
 	Viewport: &viewport,
 	Children: persistentHUD,
 })
 ```
 
-- **Stable GPU view mounting**: each entered scene receives a unique instance ID rendered via `core.Each`. Mounted 3D `gpu.View` surfaces and GPU pipelines stay alive across transition frames and across `Push`/`Pop` of 2D overlays (transparent or opaque), and unmount cleanly with scope disposal when the scene exits.
-- **Transitions across 2D ↔ 3D**: `Fade(d, color)` fades the outgoing 2D or 3D scene to `color` on a top overlay canvas over the first half, reveals the incoming scene at the midpoint (`0.5`), and fades out over the second half; `Crossfade(d)` animates outgoing/incoming wrapper `Opacity`; `Wipe(d, dir)` uses exact path clipping between 2D scenes and smooth crossfade opacity when a `Controller.View` scene is involved; `CustomTransition` draws custom overlay effects above the active view.
-- **Shared input & sound**: `Manager.View` attaches `Manager.Actions` to its persistent stage view (with optional `HostOptions.Ref` for focus and pointer lock), and `Switch`, `Push`, and `Pop` call `Actions.Reset()` by default so transient press edges and held keys do not leak into the next scene while all bindings, axes, and pointer lock stay intact (set `Manager.KeepInputOnSwitch = true` to preserve held inputs across transitions). Keeping `Manager.Mixer` on the parent scope lets background music play uninterrupted and SFX groups remain live across every 2D ↔ 3D switch.
+- **Stable GPU view mounting**: each entered scene receives a unique instance ID rendered via `core.Each`. Mounted 3D `gpu.View` surfaces and GPU pipelines stay alive across transition frames and across `Push`/`Pop` of 2D overlays (transparent or opaque), and unmount cleanly when the scene exits.
+- **View scope**: the `cx` passed to `Controller.View` is the mounted row's scope, not the scope `Enter` receives. When a scene leaves, `Exit` runs and `Enter`'s scope is disposed first, then the row and everything created under `View`'s `cx` are unmounted in the same `Switch`, `Pop`, or transition step, so no frame or `OnFrame` callback runs in between. Create the state a 3D view reads every frame in `View` or on the Manager's scope.
+- **Transitions across 2D ↔ 3D**: `Fade(d, color)` fades the outgoing 2D or 3D scene to `color` on a top overlay canvas over the first half, reveals the incoming scene at the midpoint (`0.5`), and fades out over the second half; `Crossfade(d)` animates outgoing/incoming wrapper `Opacity`; `Wipe(d, dir)` uses exact path clipping between 2D scenes and smooth crossfade opacity when a `Controller.View` scene is involved; `CustomTransition`, or a built-in transition whose `Draw` you replaced, draws its own frames between 2D scenes and custom overlay effects above the active view otherwise. A `Transition` with a nil `Draw` shows the incoming scene for its whole `Duration`, as `Manager.Draw` does.
+- **Shared input**: `Manager.View` attaches `Manager.Actions` to its persistent stage view when `View` is called, so set `Actions` first. Key events reach the stage only while it holds focus: pass `HostOptions.Ref` and call its `Focus()` once mounted (focus and pointer lock then survive every switch), or call `Actions.WatchKeys` as above. `Switch`, `Push`, and `Pop` call `Actions.Reset()` by default so transient press edges and held keys do not leak into the next scene while all bindings, axes, and pointer lock stay intact (set `Manager.KeepInputOnSwitch = true` to preserve held inputs across transitions).
+- **Shared sound**: the Manager needs no mixer of its own. A `sound.Mixer` created on the Manager's scope (or an ancestor of it) is not disposed when scenes exit, so background music plays on and SFX groups stay live across every 2D ↔ 3D switch while each scene reaches the mixer through its own closures. A mixer created under a scene's `Enter` scope stops with that scene.
 - **2D overlays & invalidation**: pushing a `Transparent: true` 2D controller over a 3D scene keeps the 3D view visible underneath while pausing its `Update` and setting `PointerEventsNone` on the paused layer. When `HostOptions.Viewport` is set, transparent pushed 2D overlays treat a zero `BarColor` as `core.Transparent` so margins do not obscure the 3D scene. Call `mgr.Invalidate()` to redraw mounted 2D canvases on demand without remounting 3D views.
