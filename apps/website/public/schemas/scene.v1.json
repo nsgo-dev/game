@@ -173,7 +173,13 @@
         "args": {
           "description": "Args are values for the handler's params by name; a param left out takes its default. Each is a bool, a number or a string.",
           "type": "object",
-          "additionalProperties": {}
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "number",
+              "string"
+            ]
+          }
         },
         "once": {
           "description": "Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.",

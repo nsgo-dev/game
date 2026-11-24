@@ -162,7 +162,7 @@ type binding struct {
 	once, done     bool
 }
 
-// Connect checks doc's components and connections against reg and returns the Signals that run them; ctx is passed to every handler as Call.Context. doc must be valid, must not instance or inherit other scene files (pass it through Resolve first, or use BuiltScene.Doc), and every connected handler must have a Func. Calls point into doc, so handlers see and may change its objects.
+// Connect checks doc's components and connections against reg and returns the Signals that run them; ctx is passed to every handler as Call.Context. doc must be valid, must not instance or inherit other scene files (pass it through Resolve first, or use BuiltScene.Doc), and every connected handler must have a Func. Calls point into doc, so handlers see and may change its objects. The Signals is a snapshot of doc's objects as Connect finds them: after adding or removing objects in doc, which may also move the others in memory, call Connect again, since the old Signals would hand handlers stale objects and refuse events of the new ones.
 func Connect(doc *SceneDoc, reg *ComponentRegistry, ctx any) (*Signals, error) {
 	if reg == nil {
 		return nil, errors.New("sceneformat: connect with nil component registry")

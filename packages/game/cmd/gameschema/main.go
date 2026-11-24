@@ -108,6 +108,14 @@ func generate(root string) ([]schemaFile, error) {
 			v.Const = int64(f.version)
 			v.Minimum, v.Maximum = nil, nil
 		}
+		if conn := s.Definitions["ConnectionDoc"]; conn != nil {
+			args := conn.Property("args")
+			if args == nil {
+				return nil, fmt.Errorf("%s: ConnectionDoc has no args property", f.url)
+			}
+			// Args is a map[string]any, which Reflect allows any value in, but sceneformat.Validate takes only scalars, so an editor flags the rest as the loader does.
+			args.AdditionalProperties = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
+		}
 		data, err := s.Marshal()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
