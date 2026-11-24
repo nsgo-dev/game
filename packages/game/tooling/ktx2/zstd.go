@@ -10,8 +10,7 @@ import (
 	"math/bits"
 )
 
-// Pure-Go RFC 8878 Zstandard frame decoder and ZLIB supercompression helper
-// for KTX2 level payloads (SupercompressionZstandard = 2, SupercompressionZLIB = 3).
+// Pure-Go RFC 8878 Zstandard frame decoder and ZLIB supercompression helper for KTX2 level payloads (SupercompressionZstandard = 2, SupercompressionZLIB = 3).
 
 const (
 	zstdMagic            uint32 = 0xFD2FB528
@@ -892,8 +891,7 @@ func (st *zstdFrameState) decodeBlock(block []byte, out []byte, maxOut uint64) (
 	return out, nil
 }
 
-// decompressZstd decodes one or more concatenated RFC 8878 Zstandard frames
-// (skipping skippable frames) while enforcing a strict maximum output size.
+// decompressZstd decodes one or more concatenated RFC 8878 Zstandard frames (skipping skippable frames) while enforcing a strict maximum output size.
 func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 	if len(src) < 4 {
 		return nil, errors.New("ktx2/zstd: truncated frame")
@@ -1013,14 +1011,15 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 			pos += 8
 			hasFCS = true
 		}
-		if hasFCS && uint64(len(out))+fcs > maxOut {
+		// Each frame decodes into its own buffer, so a match offset cannot reach back into an earlier frame, and its budget is what the earlier frames left.
+		budget := maxOut - uint64(len(out))
+		if hasFCS && fcs > budget {
 			return nil, fmt.Errorf("ktx2/zstd: declared content size %d exceeds limit %d", fcs, maxOut)
 		}
-		if hasFCS && len(out) == 0 && fcs <= maxOut {
-			out = make([]byte, 0, fcs)
+		var frame []byte
+		if hasFCS {
+			frame = make([]byte, 0, fcs)
 		}
-
-		frameStart := len(out)
 		st := zstdFrameState{rep: [3]uint32{1, 4, 8}}
 		for {
 			if pos+3 > len(src) {
@@ -1040,10 +1039,10 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 				if pos+blockSize > len(src) {
 					return nil, errors.New("ktx2/zstd: truncated raw block")
 				}
-				if uint64(len(out))+uint64(blockSize) > maxOut {
+				if uint64(len(frame))+uint64(blockSize) > budget {
 					return nil, errors.New("ktx2/zstd: decompressed output exceeds limit")
 				}
-				out = append(out, src[pos:pos+blockSize]...)
+				frame = append(frame, src[pos:pos+blockSize]...)
 				pos += blockSize
 			case 1: // RLE block
 				if pos+1 > len(src) {
@@ -1051,18 +1050,18 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 				}
 				val := src[pos]
 				pos++
-				if uint64(len(out))+uint64(blockSize) > maxOut {
+				if uint64(len(frame))+uint64(blockSize) > budget {
 					return nil, errors.New("ktx2/zstd: decompressed output exceeds limit")
 				}
 				for range blockSize {
-					out = append(out, val)
+					frame = append(frame, val)
 				}
 			case 2: // Compressed block
 				if pos+blockSize > len(src) {
 					return nil, errors.New("ktx2/zstd: truncated compressed block")
 				}
 				var err error
-				out, err = st.decodeBlock(src[pos:pos+blockSize], out, maxOut)
+				frame, err = st.decodeBlock(src[pos:pos+blockSize], frame, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -1080,11 +1079,16 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 			if pos+4 > len(src) {
 				return nil, errors.New("ktx2/zstd: truncated content checksum")
 			}
+			want := binary.LittleEndian.Uint32(src[pos : pos+4])
+			if got := uint32(xxhash64(frame)); got != want {
+				return nil, fmt.Errorf("ktx2/zstd: content checksum %#08x, frame declared %#08x", got, want)
+			}
 			pos += 4
 		}
-		if hasFCS && uint64(len(out)-frameStart) != fcs {
-			return nil, fmt.Errorf("ktx2/zstd: decoded %d bytes, frame header declared %d", len(out)-frameStart, fcs)
+		if hasFCS && uint64(len(frame)) != fcs {
+			return nil, fmt.Errorf("ktx2/zstd: decoded %d bytes, frame header declared %d", len(frame), fcs)
 		}
+		out = append(out, frame...)
 	}
 	return out, nil
 }
@@ -1104,4 +1108,71 @@ func decompressZLIB(src []byte, maxOut uint64) ([]byte, error) {
 		return nil, fmt.Errorf("ktx2/zlib: decompressed output exceeds limit %d", maxOut)
 	}
 	return out, nil
+}
+
+const (
+	xxhPrime1 uint64 = 11400714785074694791
+	xxhPrime2 uint64 = 14029467366897019727
+	xxhPrime3 uint64 = 1609587929392839161
+	xxhPrime4 uint64 = 9650029242287828579
+	xxhPrime5 uint64 = 2870177450012600261
+)
+
+func xxhRound(acc, input uint64) uint64 {
+	acc += input * xxhPrime2
+	acc = bits.RotateLeft64(acc, 31)
+	return acc * xxhPrime1
+}
+
+func xxhMerge(acc, val uint64) uint64 {
+	acc ^= xxhRound(0, val)
+	return acc*xxhPrime1 + xxhPrime4
+}
+
+// xxhash64 returns the XXH64 hash of b with seed 0, whose low 32 bits are a Zstandard frame's content checksum (RFC 8878, section 3.1.1).
+func xxhash64(b []byte) uint64 {
+	n := len(b)
+	var h uint64
+	if n >= 32 {
+		p1, p2 := xxhPrime1, xxhPrime2
+		v1 := p1 + p2
+		v2 := p2
+		v3 := uint64(0)
+		v4 := -p1
+		for len(b) >= 32 {
+			v1 = xxhRound(v1, binary.LittleEndian.Uint64(b[0:8]))
+			v2 = xxhRound(v2, binary.LittleEndian.Uint64(b[8:16]))
+			v3 = xxhRound(v3, binary.LittleEndian.Uint64(b[16:24]))
+			v4 = xxhRound(v4, binary.LittleEndian.Uint64(b[24:32]))
+			b = b[32:]
+		}
+		h = bits.RotateLeft64(v1, 1) + bits.RotateLeft64(v2, 7) + bits.RotateLeft64(v3, 12) + bits.RotateLeft64(v4, 18)
+		h = xxhMerge(h, v1)
+		h = xxhMerge(h, v2)
+		h = xxhMerge(h, v3)
+		h = xxhMerge(h, v4)
+	} else {
+		h = xxhPrime5
+	}
+	h += uint64(n)
+	for len(b) >= 8 {
+		h ^= xxhRound(0, binary.LittleEndian.Uint64(b[:8]))
+		h = bits.RotateLeft64(h, 27)*xxhPrime1 + xxhPrime4
+		b = b[8:]
+	}
+	if len(b) >= 4 {
+		h ^= uint64(binary.LittleEndian.Uint32(b[:4])) * xxhPrime1
+		h = bits.RotateLeft64(h, 23)*xxhPrime2 + xxhPrime3
+		b = b[4:]
+	}
+	for _, c := range b {
+		h ^= uint64(c) * xxhPrime5
+		h = bits.RotateLeft64(h, 11) * xxhPrime1
+	}
+	h ^= h >> 33
+	h *= xxhPrime2
+	h ^= h >> 29
+	h *= xxhPrime3
+	h ^= h >> 32
+	return h
 }
