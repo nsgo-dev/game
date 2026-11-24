@@ -1232,8 +1232,20 @@ func TestViewportRectSplitHelpersAndSeamTiling(t *testing.T) {
 		if !ok || [4]int32{pv.X, pv.Y, pv.Width, pv.Height} != wantQuad[i] {
 			t.Fatalf("quad[%d] = %+v ok=%v, want %v", i, pv, ok, wantQuad[i])
 		}
-		if pv.Bounds() != (core.Bounds{Origin: core.Point{X: core.Points(pv.X), Y: core.Points(pv.Y)}, Size: core.Size{Width: core.Points(pv.Width), Height: core.Points(pv.Height)}}) {
-			t.Fatalf("quad[%d] Bounds mismatch", i)
+		if pv.Bounds(1) != (core.Bounds{Origin: core.Point{X: core.Points(pv.X), Y: core.Points(pv.Y)}, Size: core.Size{Width: core.Points(pv.Width), Height: core.Points(pv.Height)}}) {
+			t.Fatalf("quad[%d] Bounds(1) mismatch", i)
+		}
+	}
+
+	// Bounds divides physical pixels by the content scale to get logical points.
+	retina := render3d.PixelViewport{X: 100, Y: 40, Width: 200, Height: 120}
+	wantPts := core.Bounds{Origin: core.Point{X: 50, Y: 20}, Size: core.Size{Width: 100, Height: 60}}
+	if got := retina.Bounds(2); got != wantPts {
+		t.Fatalf("Bounds(2) = %+v, want %+v", got, wantPts)
+	}
+	for _, bad := range []float32{0, -1, float32(math.NaN()), float32(math.Inf(1))} {
+		if got := retina.Bounds(bad); got != (core.Bounds{Origin: core.Point{X: 100, Y: 40}, Size: core.Size{Width: 200, Height: 120}}) {
+			t.Fatalf("Bounds(%g) = %+v, want the pixel rect unchanged", bad, got)
 		}
 	}
 
