@@ -140,8 +140,6 @@ return ov.View(cx, gpu.ViewProps{
 - **透明叠层与虚拟视口**：叠加画布默认无背景填充，透明区域会完整透出下方的 3D 画面，半透明精灵则直接与 3D 画面进行 Alpha 混合。配置 `Viewport` 且 `BarColor` 为零值时，上下/左右黑边区域保持透明而不遮挡 3D 视图；如需绘制不透明黑边，请显式设置 `BarColor`（例如 `core.RGB(0x000000)`）。
 - **指针穿透与命中测试**：叠加画布默认设置 `core.PointerEventsNone`，点击和触摸会无阻挡地穿透到下方的 3D `gpu.View`。需要画布直接接收指针事件时可设置 `Interactive: true`（或提供 `OnPress`），也可结合视图尺寸手动调用 `ov.HitTest`、`ov.HitTestAll`、`ov.DispatchPress` 和 `ov.DispatchTouch`。
 - **3D 到 2D 投影**：使用 `scene.ProjectToOverlay(cam.ViewProj(), p.X, p.Y, p.Z, viewW, viewH)`（或使用 `ov.Project(cam.ViewProj(), p.X, p.Y, p.Z, windowSize)` 自动转换到 `ov.Viewport` 虚拟坐标）通过列主序视图投影矩阵（例如 `game/scene3d` 的 `cam.ViewProj()`）将 3D 世界坐标投影到 2D 叠加层，便于让血条、准星和标记精准跟随 3D 物体。动态 2D 叠加内容更新后调用 `ov.Invalidate()`（或 `ov.SetHidden(bool)`）即可触发重绘。
-
-
 ## 3D 视图上的原生 HUD（`HUD3D`）
 
 `HUD3D` 将原生 NSGo 视图（`ui.Button`、`ui.Card`、`ui.Badge`、`ui.Progress`、`ui.Switch`、`core.Text` 及自定义 `core.View` 子树）叠放在 3D `gpu.View` 之上，自带安全区缩进、响应式显隐切换与鼠标/触摸穿透：
@@ -177,3 +175,50 @@ return hud.View(cx, gpu.ViewProps{
 - **安全区缩进**：默认自动启用 `core.EnvSafeArea` 内边距（并与 `HUD3D.Padding` 叠加），让 HUD 避开刘海、状态栏与底部指示条，并在屏幕旋转时响应式更新；需要关闭时可设置 `IgnoreSafeArea: true` 或调用 `hud.SetSafeArea(false)`。
 - **显隐切换**：调用 `hud.SetHidden(true)`、`hud.SetVisible(false)` 或 `hud.Toggle()` 即可隐藏 HUD（应用 `core.DisplayNone` 与 `core.PointerEventsNone`）而无需重新挂载子树；隐藏期间所有点击和触摸都会直接传递给 3D 视图。
 - **与 3D 输入容器或 2D 叠层组合**：使用 `hud.Wrap(cx, view3D)` 可将 HUD 作为同级节点 Z 轴叠放在任意已构建的 3D 视图之上（例如外层 `core.View` 监听 `OnMouseDown`、`OnMouseMove` 和 `OnTouch` 实现 3D 镜头旋转的场景），也可以直接将 `hud.Layer(cx)` 放入 `gpu.ViewProps.Children` 并置于 2D 叠加画布之上。
+
+## 在 2D 与 3D 场景之间切换
+
+`Manager.View(cx, opts)` 挂载响应式视图宿主，可在 2D 画布场景（`Controller.Scene` / `Controller.Draw`）与 3D 或原生视图场景（`Controller.View`，例如 `gpu.View` 或 `Overlay3D.View`）之间无缝切换，同时共享同一个 `*input.Actions` 与 `*sound.Mixer`：
+
+```go
+mgr := scene.NewManager(cx)
+mgr.Actions = actions // 绑定在持久舞台视图上，跨 2D <-> 3D 切换保持生效
+mgr.Mixer = mixer     // 跨 2D <-> 3D 切换时背景音乐不中断
+
+overworld2D := &scene.Controller{
+	Scene: mapScene,
+	Update: func(dt time.Duration) {
+		if mgr.Actions.JustPressed("enter_3d") {
+			mgr.Switch(dungeon3D, scene.Fade(400*time.Millisecond, core.RGB(0x000000)))
+		}
+	},
+}
+
+dungeon3D := &scene.Controller{
+	View: func(scx *core.Scope) core.Node {
+		return ov.View(scx, gpu.ViewProps{
+			Style:       core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+			DepthFormat: gpu.FormatDepth24Plus,
+			OnReady:     onReady,
+			OnFrame:     onFrame,
+		})
+	},
+	Update: func(dt time.Duration) {
+		if mgr.Actions.JustPressed("exit_3d") {
+			mgr.Switch(overworld2D, scene.Fade(400*time.Millisecond, core.RGB(0x000000)))
+		}
+	},
+}
+
+mgr.Switch(overworld2D, nil)
+return mgr.View(cx, scene.HostOptions{
+	Alpha:    func() float64 { _ = frameTick.Get(); return alpha },
+	Viewport: &viewport,
+	Children: persistentHUD,
+})
+```
+
+- **稳定的 GPU 视图挂载**：每个进入的场景都会获得唯一实例 ID 并通过 `core.Each` 渲染。已挂载的 3D `gpu.View` 表面与 GPU 管线在过渡动画帧之间以及压入/弹出 2D 叠加场景（透明或不透明）期间均保持存活不重建，并在场景退出时随作用域销毁而干净卸载。
+- **跨 2D ↔ 3D 的过渡动画**：`Fade(d, color)` 在前半段通过顶层画布将旧场景淡出到 `color`，在中点（`0.5`）切换显示新场景并在后半段淡入；`Crossfade(d)` 直接动画化旧/新场景包装层的 `Opacity`；`Wipe(d, dir)` 在纯 2D 之间使用精确路径裁剪，涉及 `Controller.View` 场景时回退为平滑交叉淡化；`CustomTransition` 在涉及 `Controller.View` 场景时于中点切换并在顶层绘制自定义过渡特效。
+- **共享输入与音频**：`Manager.View` 将 `Manager.Actions` 附加到持久舞台视图（可通过 `HostOptions.Ref` 跨场景保持键盘焦点与指针锁定），`Switch`、`Push`、`Pop` 默认调用 `Actions.Reset()` 清理瞬态边沿与按住状态而不丢失绑定、轴和指针锁定（设置 `Manager.KeepInputOnSwitch = true` 可在切换时保留按住状态）。在父作用域持有 `Manager.Mixer` 可让背景音乐与音效组在 2D ↔ 3D 切换期间持续无缝播放。
+- **2D 叠加层与按需重绘**：在 3D 场景上 `Push` 一个 `Transparent: true` 的 2D 控制器会保持下方 3D 画面可见，同时暂停其 `Update` 并将被暂停层的指针事件设为 `PointerEventsNone`。配置 `HostOptions.Viewport` 时，透明压入的 2D 叠加层会将零值 `BarColor` 视为 `core.Transparent` 以免黑边遮挡 3D 视图。调用 `mgr.Invalidate()` 可按需重绘已挂载的 2D 画布，而不会重建 3D 视图。

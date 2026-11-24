@@ -140,8 +140,6 @@ return ov.View(cx, gpu.ViewProps{
 - **Transparency & virtual viewports**: the overlay canvas has no background fill so transparent regions reveal the 3D scene underneath and semi-transparent sprites alpha-blend over it. When `Viewport` is set with a zero `BarColor`, letterbox and pillarbox margins stay transparent instead of painting opaque black bars over the 3D view; set `BarColor` explicitly (such as `core.RGB(0x000000)`) to draw bars.
 - **Pointer pass-through & hit testing**: by default the overlay canvas sets `core.PointerEventsNone` so clicks and touches pass straight through to the 3D `gpu.View`. Set `Interactive: true` (or `OnPress`) to handle pointer events directly on the overlay canvas, or call `ov.HitTest`, `ov.HitTestAll`, `ov.DispatchPress`, and `ov.DispatchTouch` manually with the view size.
 - **3D-to-2D projection**: map a 3D world position through a column-major view-projection matrix (such as `cam.ViewProj()` from `game/scene3d`) into 2D overlay coordinates with `scene.ProjectToOverlay(cam.ViewProj(), p.X, p.Y, p.Z, viewW, viewH)` (or `ov.Project(cam.ViewProj(), p.X, p.Y, p.Z, windowSize)` to convert into `ov.Viewport`'s virtual coordinates) so 2D health bars, reticles, and markers track 3D objects accurately. Call `ov.Invalidate()` (or `ov.SetHidden(bool)`) whenever dynamic 2D overlay state changes.
-
-
 ## Native HUD over a 3D view (`HUD3D`)
 
 `HUD3D` composes native NSGo views (`ui.Button`, `ui.Card`, `ui.Badge`, `ui.Progress`, `ui.Switch`, `core.Text`, and custom `core.View` trees) over a 3D `gpu.View` with automatic safe-area insets, reactive visibility toggling, and mouse/touch pass-through:
@@ -177,3 +175,50 @@ return hud.View(cx, gpu.ViewProps{
 - **Safe-area insets**: `core.EnvSafeArea` padding is applied automatically (combined with `HUD3D.Padding`) so HUD controls stay clear of notches, status bars, and home indicators and adapt reactively on rotation. Set `IgnoreSafeArea: true` or call `hud.SetSafeArea(false)` to disable it.
 - **Visibility toggle**: call `hud.SetHidden(true)`, `hud.SetVisible(false)`, or `hud.Toggle()` to hide the HUD (`core.DisplayNone` + `core.PointerEventsNone`) without remounting HUD state; while hidden, all clicks and touches reach the 3D view.
 - **Composing with 3D input wrappers or 2D overlays**: use `hud.Wrap(cx, view3D)` to Z-stack the HUD as a sibling over any already-built 3D view (for example a `gpu.View` wrapped in a `core.View` handling `OnMouseDown`, `OnMouseMove`, and `OnTouch` for 3D camera orbit), or mount `hud.Layer(cx)` directly inside `gpu.ViewProps.Children` above a 2D overlay canvas.
+
+## Switching between 2D and 3D scenes
+
+`Manager.View(cx, opts)` mounts a reactive view host that switches seamlessly between 2D canvas scenes (`Controller.Scene` / `Controller.Draw`) and 3D or native view scenes (`Controller.View`, such as `gpu.View` or `Overlay3D.View`) while sharing the same `*input.Actions` and `*sound.Mixer`:
+
+```go
+mgr := scene.NewManager(cx)
+mgr.Actions = actions // attached to the persistent stage view; survives 2D <-> 3D switches
+mgr.Mixer = mixer     // keeps music playing uninterrupted across 2D <-> 3D switches
+
+overworld2D := &scene.Controller{
+	Scene: mapScene,
+	Update: func(dt time.Duration) {
+		if mgr.Actions.JustPressed("enter_3d") {
+			mgr.Switch(dungeon3D, scene.Fade(400*time.Millisecond, core.RGB(0x000000)))
+		}
+	},
+}
+
+dungeon3D := &scene.Controller{
+	View: func(scx *core.Scope) core.Node {
+		return ov.View(scx, gpu.ViewProps{
+			Style:       core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+			DepthFormat: gpu.FormatDepth24Plus,
+			OnReady:     onReady,
+			OnFrame:     onFrame,
+		})
+	},
+	Update: func(dt time.Duration) {
+		if mgr.Actions.JustPressed("exit_3d") {
+			mgr.Switch(overworld2D, scene.Fade(400*time.Millisecond, core.RGB(0x000000)))
+		}
+	},
+}
+
+mgr.Switch(overworld2D, nil)
+return mgr.View(cx, scene.HostOptions{
+	Alpha:    func() float64 { _ = frameTick.Get(); return alpha },
+	Viewport: &viewport,
+	Children: persistentHUD,
+})
+```
+
+- **Stable GPU view mounting**: each entered scene receives a unique instance ID rendered via `core.Each`. Mounted 3D `gpu.View` surfaces and GPU pipelines stay alive across transition frames and across `Push`/`Pop` of 2D overlays (transparent or opaque), and unmount cleanly with scope disposal when the scene exits.
+- **Transitions across 2D ↔ 3D**: `Fade(d, color)` fades the outgoing 2D or 3D scene to `color` on a top overlay canvas over the first half, reveals the incoming scene at the midpoint (`0.5`), and fades out over the second half; `Crossfade(d)` animates outgoing/incoming wrapper `Opacity`; `Wipe(d, dir)` uses exact path clipping between 2D scenes and smooth crossfade opacity when a `Controller.View` scene is involved; `CustomTransition` draws custom overlay effects above the active view.
+- **Shared input & sound**: `Manager.View` attaches `Manager.Actions` to its persistent stage view (with optional `HostOptions.Ref` for focus and pointer lock), and `Switch`, `Push`, and `Pop` call `Actions.Reset()` by default so transient press edges and held keys do not leak into the next scene while all bindings, axes, and pointer lock stay intact (set `Manager.KeepInputOnSwitch = true` to preserve held inputs across transitions). Keeping `Manager.Mixer` on the parent scope lets background music play uninterrupted and SFX groups remain live across every 2D ↔ 3D switch.
+- **2D overlays & invalidation**: pushing a `Transparent: true` 2D controller over a 3D scene keeps the 3D view visible underneath while pausing its `Update` and setting `PointerEventsNone` on the paused layer. When `HostOptions.Viewport` is set, transparent pushed 2D overlays treat a zero `BarColor` as `core.Transparent` so margins do not obscure the 3D scene. Call `mgr.Invalidate()` to redraw mounted 2D canvases on demand without remounting 3D views.
