@@ -20,8 +20,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// texturedMeshWGSL samples a 2D texture at @group(0) @binding(0)/(1) using
-// vertex UVs so rendered output verifies both vertex/index buffers and texture pixels.
+// texturedMeshWGSL samples a 2D texture at @group(0) @binding(0)/(1) using vertex UVs so rendered output verifies both vertex/index buffers and texture pixels.
 const texturedMeshWGSL = `
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
@@ -201,6 +200,18 @@ func stepUntilDone(t *testing.T, u *render3d.Uploader, maxFrames int, check func
 	return maxFrames
 }
 
+// waitFor polls cond until it holds, failing the test after a few seconds.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not reached")
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+}
+
 func readBufferSync(t *testing.T, dev *gpu.Device, sr *gpu.SoftwareRenderer, buf *gpu.Buffer) []byte {
 	t.Helper()
 	var got []byte
@@ -238,9 +249,7 @@ func readTextureSync(t *testing.T, dev *gpu.Device, sr *gpu.SoftwareRenderer, te
 }
 
 func TestUploaderBudgetedMeshAndTexturePixelIdentical(t *testing.T) {
-	// Build a multi-megabyte mesh (256x256 grid = 66,049 vertices > 2.1 MiB vertex buffer
-	// + 393,216 uint32 indices = 1.57 MiB index buffer -> ~3.69 MiB total) and a 512x512
-	// RGBA8 texture (1 MiB) -> ~4.69 MiB total.
+	// Build a multi-megabyte mesh (256x256 grid = 66,049 vertices > 2.1 MiB vertex buffer + 393,216 uint32 indices = 1.57 MiB index buffer -> ~3.69 MiB total) and a 512x512 RGBA8 texture (1 MiB) -> ~4.69 MiB total.
 	mesh := makeGridMesh(256, 256)
 	texImg := makePatternRGBA(512, 512)
 
@@ -259,24 +268,24 @@ func TestUploaderBudgetedMeshAndTexturePixelIdentical(t *testing.T) {
 
 	var (
 		streamMesh *render3d.GPUMesh
-		streamTex  *gpu.Texture
+		streamTex  *render3d.GPUTexture
 		meshErr    error
 		texErr     error
 	)
 
-	hMesh := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hMesh := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return mesh, nil
 	}, func(g *render3d.GPUMesh, err error) {
 		streamMesh = g
 		meshErr = err
-	}, render3d.MeshUploadOptions{Label: "grid"})
+	}, render3d.MeshUpload{Label: "grid"})
 
-	hTex := u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return texImg, gpu.FormatRGBA8Unorm, nil
-	}, func(tex *gpu.Texture, err error) {
+	hTex := u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+		return texImg, nil
+	}, func(tex *render3d.GPUTexture, err error) {
 		streamTex = tex
 		texErr = err
-	}, render3d.TextureUploadOptions{Label: "pattern"})
+	}, render3d.TextureUpload{Label: "pattern"})
 
 	uploadFrames := 0
 	totalUploaded := 0
@@ -315,7 +324,7 @@ func TestUploaderBudgetedMeshAndTexturePixelIdentical(t *testing.T) {
 	}
 
 	// Render streamed assets and compare pixel-for-pixel with synchronous upload.
-	streamRender := renderTexturedMesh(t, devStream, srStream, streamMesh, streamTex)
+	streamRender := renderTexturedMesh(t, devStream, srStream, streamMesh, streamTex.Texture())
 
 	srRef := gpu.NewSoftwareRenderer(64, 64, gpu.FormatUndefined)
 	t.Cleanup(srRef.Close)
@@ -324,20 +333,11 @@ func TestUploaderBudgetedMeshAndTexturePixelIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadMesh ref: %v", err)
 	}
-	refTex, err := devRef.CreateTexture(nil, gpu.TextureDesc{
-		Label:     "ref",
-		Dimension: gpu.Dim2D,
-		Width:     512,
-		Height:    512,
-		MipLevels: 1,
-		Format:    gpu.FormatRGBA8Unorm,
-		Usage:     gpu.TextureSampled | gpu.TextureCopyDst,
-	})
+	refTex, err := render3d.UploadTexture(nil, devRef, texImg, render3d.TextureUpload{Label: "pattern"})
 	if err != nil {
-		t.Fatalf("CreateTexture ref: %v", err)
+		t.Fatalf("UploadTexture ref: %v", err)
 	}
-	devRef.WriteTextureRGBA(refTex, 0, 0, texImg)
-	refRender := renderTexturedMesh(t, devRef, srRef, refMesh, refTex)
+	refRender := renderTexturedMesh(t, devRef, srRef, refMesh, refTex.Texture())
 
 	if !bytes.Equal(streamRender.Pix, refRender.Pix) {
 		t.Fatalf("streamed render differs from synchronous reference render")
@@ -368,7 +368,7 @@ func TestUploaderStreamsInGPUView(t *testing.T) {
 			var (
 				uploader  *render3d.Uploader
 				mesh      *render3d.GPUMesh
-				tex       *gpu.Texture
+				tex       *render3d.GPUTexture
 				pipe      *gpu.Pipeline
 				bgl       *gpu.BindGroupLayout
 				samp      *gpu.Sampler
@@ -421,7 +421,7 @@ func TestUploaderStreamsInGPUView(t *testing.T) {
 							ChunkBytes:    512,
 							Workers:       2,
 						})
-						uploader.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+						uploader.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 							return quadMesh(), nil
 						}, func(g *render3d.GPUMesh, err error) {
 							if err != nil {
@@ -429,11 +429,11 @@ func TestUploaderStreamsInGPUView(t *testing.T) {
 								return
 							}
 							mesh = g
-						}, render3d.MeshUploadOptions{Label: "quad", Retained: true})
+						}, render3d.MeshUpload{Label: "quad", Retained: true})
 
-						uploader.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-							return texImg, gpu.FormatRGBA8Unorm, nil
-						}, func(tx *gpu.Texture, err error) {
+						uploader.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+							return texImg, nil
+						}, func(tx *render3d.GPUTexture, err error) {
 							if err != nil {
 								t.Errorf("QueueTexture: %v", err)
 								return
@@ -442,14 +442,14 @@ func TestUploaderStreamsInGPUView(t *testing.T) {
 							bg, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
 								Layout: bgl,
 								Entries: []gpu.BindGroupEntry{
-									{Binding: 0, Texture: tex},
+									{Binding: 0, Texture: tex.Texture()},
 									{Binding: 1, Sampler: samp},
 								},
 							})
 							if err != nil {
 								t.Errorf("CreateBindGroupDesc: %v", err)
 							}
-						}, render3d.TextureUploadOptions{Label: "green", Retained: true})
+						}, render3d.TextureUpload{Label: "green", Retained: true})
 					},
 					OnFrame: func(frame *gpu.Frame) {
 						stats := uploader.Step()
@@ -496,12 +496,8 @@ func TestUploaderStreamsInGPUView(t *testing.T) {
 	}
 }
 
-func TestUploaderLargeModelFrameTimePacing(t *testing.T) {
-	// 100,489 vertices (316x316 grid):
-	// Vertex buffer: 100,489 * 32 = 3,215,648 bytes (~3.07 MiB)
-	// Index buffer (uint32): 316*316*6*4 = 2,396,544 bytes (~2.29 MiB)
-	// Texture (512x512 + full mip chain): ~1.33 MiB
-	// Total: ~6.69 MiB streamed at 128 KiB/frame (~54 frames).
+func TestUploaderLargeModelBytePacing(t *testing.T) {
+	// A 316x316 grid has 100,489 vertices: a 3.07 MiB vertex buffer and a 2.29 MiB uint32 index buffer, plus 1.33 MiB for a 512x512 texture with its mip chain, about 6.7 MiB streamed at 128 KiB per frame.
 	mesh := makeGridMesh(316, 316)
 	texImg := makePatternRGBA(512, 512)
 	const budget = 128 * 1024
@@ -519,45 +515,37 @@ func TestUploaderLargeModelFrameTimePacing(t *testing.T) {
 
 	var (
 		gotMesh *render3d.GPUMesh
-		gotTex  *gpu.Texture
+		gotTex  *render3d.GPUTexture
 	)
-	u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return mesh, nil
 	}, func(g *render3d.GPUMesh, err error) {
 		if err != nil {
 			t.Errorf("mesh error: %v", err)
 		}
 		gotMesh = g
-	}, render3d.MeshUploadOptions{Label: "large-model"})
+	}, render3d.MeshUpload{Label: "large-model"})
 
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return texImg, gpu.FormatRGBA8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
+	u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+		return texImg, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		if err != nil {
 			t.Errorf("tex error: %v", err)
 		}
 		gotTex = tx
-	}, render3d.TextureUploadOptions{Label: "large-tex", GenerateMipmaps: true})
+	}, render3d.TextureUpload{Label: "large-tex", Mipmaps: true})
 
 	var (
 		activeFrames int
-		maxBytes     int
 		totalBytes   int
-		maxDuration  time.Duration
 	)
 	stepUntilDone(t, u, 500, func(frame int, stats render3d.UploadFrameStats) {
 		if stats.BytesUploaded > budget {
 			t.Fatalf("frame %d uploaded %d bytes > budget %d", frame, stats.BytesUploaded, budget)
 		}
-		if stats.BytesUploaded > maxBytes {
-			maxBytes = stats.BytesUploaded
-		}
 		if stats.BytesUploaded > 0 {
 			activeFrames++
 			totalBytes += stats.BytesUploaded
-		}
-		if stats.FrameDuration > maxDuration {
-			maxDuration = stats.FrameDuration
 		}
 	})
 
@@ -567,12 +555,13 @@ func TestUploaderLargeModelFrameTimePacing(t *testing.T) {
 	if gotTex == nil || !gotTex.Valid() {
 		t.Fatalf("gotTex invalid: %v", gotTex)
 	}
-	if activeFrames < 40 {
-		t.Fatalf("expected >= 40 paced frames for ~6.7 MiB at 128 KiB/frame, got %d", activeFrames)
+	// The per-frame byte cap checked above is what bounds each frame's upload work; wall-clock time is not asserted, as it depends on the machine.
+	wantTotal := mesh.VertexDataSize() + mesh.IndexDataSize() + int(gotTex.ByteSize())
+	if totalBytes != wantTotal {
+		t.Fatalf("uploaded %d bytes, want %d", totalBytes, wantTotal)
 	}
-	// Each 128 KiB chunked Step must never stall for a full frame spike (generous CI ceiling: 200ms).
-	if maxDuration > 200*time.Millisecond {
-		t.Fatalf("max Step duration %v indicates a frame-time spike", maxDuration)
+	if minFrames := (wantTotal + budget - 1) / budget; activeFrames < minFrames {
+		t.Fatalf("uploaded in %d frames, want at least %d for %d bytes at %d bytes/frame", activeFrames, minFrames, wantTotal, budget)
 	}
 
 	// Verify mesh metadata, uint32 index selection (>65,535 vertices), and GPU rendering.
@@ -592,26 +581,95 @@ func TestUploaderLargeModelFrameTimePacing(t *testing.T) {
 	if gotMesh.Bounds() != mesh.Bounds() {
 		t.Fatalf("Bounds = %+v, want %+v", gotMesh.Bounds(), mesh.Bounds())
 	}
-	rendered := renderTexturedMesh(t, dev, sr, gotMesh, gotTex)
+	rendered := renderTexturedMesh(t, dev, sr, gotMesh, gotTex.Texture())
 	center := rendered.RGBAAt(16, 16)
 	if center == meshClear || center.A != 255 {
 		t.Fatalf("expected large streamed mesh to draw at center, got %+v", center)
 	}
-	// Verify mip 0 and mip 1 texture pixels.
-	gotMip0 := readTextureSync(t, dev, sr, gotTex, 0)
-	if !bytes.Equal(gotMip0, texImg.Pix) {
-		t.Fatalf("mip 0 pixel mismatch")
+	// Every mip level matches a synchronous upload of the same image.
+	want, err := render3d.UploadTexture(nil, dev, texImg, render3d.TextureUpload{Mipmaps: true})
+	if err != nil {
+		t.Fatalf("UploadTexture: %v", err)
 	}
-	wantMip1 := gpu.DownsampleRGBA2x(texImg)
-	gotMip1 := readTextureSync(t, dev, sr, gotTex, 1)
-	if !bytes.Equal(gotMip1, wantMip1.Pix) {
-		t.Fatalf("mip 1 pixel mismatch")
+	assertSameTexture(t, dev, sr, gotTex, want)
+}
+
+// assertSameTexture checks that got has the format, size and mip count of want and the same texels in every mip level.
+func assertSameTexture(t *testing.T, dev *gpu.Device, sr *gpu.SoftwareRenderer, got, want *render3d.GPUTexture) {
+	t.Helper()
+	if got.Format() != want.Format() || got.Width() != want.Width() || got.Height() != want.Height() || got.MipLevels() != want.MipLevels() || got.ByteSize() != want.ByteSize() {
+		t.Fatalf("texture = %s %dx%d with %d levels (%d bytes), want %s %dx%d with %d levels (%d bytes)", got.Format(), got.Width(), got.Height(), got.MipLevels(), got.ByteSize(), want.Format(), want.Width(), want.Height(), want.MipLevels(), want.ByteSize())
+	}
+	if got.Texture().Desc().Label != want.Texture().Desc().Label {
+		t.Fatalf("label = %q, want %q", got.Texture().Desc().Label, want.Texture().Desc().Label)
+	}
+	for mip := range want.MipLevels() {
+		if g, w := readTextureSync(t, dev, sr, got.Texture(), mip), readTextureSync(t, dev, sr, want.Texture(), mip); !bytes.Equal(g, w) {
+			t.Fatalf("mip %d differs from the synchronous upload", mip)
+		}
+	}
+}
+
+// TestUploaderTextureMatchesUploadTexture streams the images whose conversion used to differ from UploadTexture (a translucent *image.RGBA, a 16-bit image, a paletted image with transparency, an sRGB mip chain) and compares every mip level with UploadTexture's byte for byte.
+func TestUploaderTextureMatchesUploadTexture(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	u := render3d.NewUploader(nil, dev, render3d.UploaderOptions{BytesPerFrame: 1024, ChunkBytes: 512, Workers: 2})
+	t.Cleanup(func() { _ = u.Close() })
+
+	translucent := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	wide := image.NewRGBA64(image.Rect(0, 0, 16, 16))
+	pal := image.NewPaletted(image.Rect(0, 0, 16, 16), color.Palette{color.RGBA{}, color.RGBA{R: 60, G: 30, B: 10, A: 128}, color.RGBA{R: 200, G: 100, B: 50, A: 255}})
+	for y := range 16 {
+		for x := range 16 {
+			a := uint8(x * 16)
+			// Premultiplied: each color channel is at most alpha.
+			translucent.SetRGBA(x, y, color.RGBA{R: a / 2, G: a / 3, B: uint8(int(a) * y / 16), A: a})
+			wide.SetRGBA64(x, y, color.RGBA64{R: uint16(a) << 7, G: uint16(y) << 10, B: 0x1234, A: uint16(a)<<8 | 0xff})
+			pal.SetColorIndex(x, y, uint8((x+y)%3))
+		}
+	}
+	srgbPattern := makePatternRGBA(64, 32)
+	cases := []struct {
+		name string
+		img  image.Image
+		opts render3d.TextureUpload
+	}{
+		{"translucent rgba", translucent, render3d.TextureUpload{}},
+		{"rgba64", wide, render3d.TextureUpload{Label: "wide"}},
+		{"paletted", pal, render3d.TextureUpload{Mipmaps: true}},
+		{"srgb mipmapped", srgbPattern, render3d.TextureUpload{Label: "albedo", SRGB: true, Mipmaps: true}},
+		{"srgb capped mips", translucent, render3d.TextureUpload{SRGB: true, Mipmaps: true, MaxMipLevels: 2}},
+	}
+	got := make([]*render3d.GPUTexture, len(cases))
+	for i, tc := range cases {
+		u.QueueTexture(context.Background(), render3d.PriorityNormal, func(context.Context) (image.Image, error) {
+			return tc.img, nil
+		}, func(tex *render3d.GPUTexture, err error) {
+			if err != nil {
+				t.Errorf("%s: %v", tc.name, err)
+			}
+			got[i] = tex
+		}, tc.opts)
+	}
+	stepUntilDone(t, u, 500, nil)
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := render3d.UploadTexture(nil, dev, tc.img, tc.opts)
+			if err != nil {
+				t.Fatalf("UploadTexture: %v", err)
+			}
+			if got[i] == nil {
+				t.Fatal("no streamed texture")
+			}
+			assertSameTexture(t, dev, sr, got[i], want)
+		})
 	}
 }
 
 func TestUploaderSubRowTextureBudget(t *testing.T) {
-	// 256x4 RGBA8 = 1024 bytes per row, 4096 bytes total.
-	// Budget is 256 bytes/frame (a quarter of ONE row!), exercising horizontal sub-row splitting.
+	// 256x4 RGBA8 = 1024 bytes per row, 4096 bytes total. Budget is 256 bytes/frame (a quarter of ONE row!), exercising horizontal sub-row splitting.
 	const budget = 256
 	img := makePatternRGBA(256, 4)
 
@@ -626,15 +684,15 @@ func TestUploaderSubRowTextureBudget(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = u.Close() })
 
-	var gotTex *gpu.Texture
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return img, gpu.FormatRGBA8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
+	var gotTex *render3d.GPUTexture
+	u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+		return img, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		if err != nil {
 			t.Errorf("QueueTexture: %v", err)
 		}
 		gotTex = tx
-	})
+	}, render3d.TextureUpload{})
 
 	uploadFrames := 0
 	stepUntilDone(t, u, 100, func(frame int, stats render3d.UploadFrameStats) {
@@ -649,7 +707,7 @@ func TestUploaderSubRowTextureBudget(t *testing.T) {
 	if uploadFrames != 16 {
 		t.Fatalf("uploadFrames = %d, want 16 (4096 / 256)", uploadFrames)
 	}
-	gotPixels := readTextureSync(t, dev, sr, gotTex, 0)
+	gotPixels := readTextureSync(t, dev, sr, gotTex.Texture(), 0)
 	if !bytes.Equal(gotPixels, img.Pix) {
 		t.Fatalf("sub-row streamed texture pixels do not match source")
 	}
@@ -667,54 +725,49 @@ func TestUploaderTextureFormatsAndRawUploads(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = u.Close() })
 
-	// 1. NRGBA with non-zero origin and FormatUndefined (defaults to RGBA8Unorm).
+	// 1. NRGBA with a non-zero origin uploads as linear RGBA8.
 	nrgba := image.NewNRGBA(image.Rect(10, 20, 26, 36))
 	for y := 20; y < 36; y++ {
 		for x := 10; x < 26; x++ {
 			nrgba.SetNRGBA(x, y, color.NRGBA{R: 120, G: 60, B: 200, A: 180})
 		}
 	}
-	var gotDefault *gpu.Texture
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return nrgba, gpu.FormatUndefined, nil
-	}, func(tx *gpu.Texture, err error) {
+	var gotDefault *render3d.GPUTexture
+	u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+		return nrgba, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		if err != nil {
 			t.Errorf("NRGBA default format: %v", err)
 		}
 		gotDefault = tx
-	})
+	}, render3d.TextureUpload{})
 
-	// 2. BGRA8, RG8, R8 formats + generic image.Image (image.Gray).
-	gray := image.NewGray(image.Rect(0, 0, 8, 8))
-	for i := range gray.Pix {
-		gray.Pix[i] = 173
+	// 2. R8 and padded RG8 pixel buffers keep their formats.
+	r8 := render3d.PixelBuffer{Width: 8, Height: 8, Format: gpu.FormatR8Unorm, Pixels: bytes.Repeat([]byte{173}, 64)}
+	rg8 := render3d.PixelBuffer{Width: 4, Height: 4, Stride: 12, Format: gpu.FormatRG8Unorm, Pixels: make([]byte, 12*4)}
+	for y := range 4 {
+		for x := range 4 {
+			rg8.Pixels[y*12+x*2] = byte(10 + x)
+			rg8.Pixels[y*12+x*2+1] = byte(20 + y)
+		}
 	}
-	var gotR8, gotBGRA, gotRG8 *gpu.Texture
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return gray, gpu.FormatR8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
+	var gotR8, gotRG8 *render3d.GPUTexture
+	u.QueueTexturePixels(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.PixelBuffer, error) {
+		return r8, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		if err != nil {
 			t.Errorf("R8: %v", err)
 		}
 		gotR8 = tx
-	})
-	rgbaSmall := makePatternRGBA(8, 8)
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return rgbaSmall, gpu.FormatBGRA8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
-		if err != nil {
-			t.Errorf("BGRA8: %v", err)
-		}
-		gotBGRA = tx
-	})
-	u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return rgbaSmall, gpu.FormatRG8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
+	}, render3d.TextureUpload{})
+	u.QueueTexturePixels(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.PixelBuffer, error) {
+		return rg8, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		if err != nil {
 			t.Errorf("RG8: %v", err)
 		}
 		gotRG8 = tx
-	})
+	}, render3d.TextureUpload{Mipmaps: true})
 
 	// 3. QueueRawBuffer.
 	rawPayload := make([]byte, 1500)
@@ -722,7 +775,7 @@ func TestUploaderTextureFormatsAndRawUploads(t *testing.T) {
 		rawPayload[i] = byte((i * 31) & 0xff)
 	}
 	var gotBuf *gpu.Buffer
-	u.QueueRawBuffer(context.Background(), func(ctx context.Context) (render3d.RawBufferUpload, error) {
+	u.QueueRawBuffer(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.RawBufferUpload, error) {
 		return render3d.RawBufferUpload{
 			Label: "raw-storage",
 			Usage: gpu.UsageVertex | gpu.UsageCopySrc,
@@ -748,7 +801,7 @@ func TestUploaderTextureFormatsAndRawUploads(t *testing.T) {
 		}
 	}
 	var gotRawTex *gpu.Texture
-	u.QueueRawTexture(context.Background(), func(ctx context.Context) (render3d.RawTextureUpload, error) {
+	u.QueueRawTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.RawTextureUpload, error) {
 		return render3d.RawTextureUpload{
 			Desc: gpu.TextureDesc{
 				Label:     "raw-tex",
@@ -777,27 +830,28 @@ func TestUploaderTextureFormatsAndRawUploads(t *testing.T) {
 		}
 	})
 
-	if gotDefault == nil || gotDefault.Desc().Format != gpu.FormatRGBA8Unorm {
+	if gotDefault == nil || gotDefault.Format() != gpu.FormatRGBA8Unorm {
 		t.Fatalf("default texture format = %v, want RGBA8Unorm", gotDefault)
 	}
-	pixDefault := readTextureSync(t, dev, sr, gotDefault, 0)
+	pixDefault := readTextureSync(t, dev, sr, gotDefault.Texture(), 0)
 	if pixDefault[0] != 120 || pixDefault[1] != 60 || pixDefault[2] != 200 || pixDefault[3] != 180 {
 		t.Fatalf("NRGBA pixel[0] = %v, want [120 60 200 180]", pixDefault[:4])
 	}
-	if gotR8 == nil || gotR8.Desc().Format != gpu.FormatR8Unorm {
+	if gotR8 == nil || gotR8.Format() != gpu.FormatR8Unorm {
 		t.Fatalf("R8 texture invalid")
 	}
-	pixR8 := readTextureSync(t, dev, sr, gotR8, 0)
+	pixR8 := readTextureSync(t, dev, sr, gotR8.Texture(), 0)
 	if pixR8[0] != 173 {
 		t.Fatalf("R8 pixel[0].R = %d, want 173", pixR8[0])
 	}
-	if gotBGRA == nil || gotRG8 == nil {
-		t.Fatalf("BGRA8 or RG8 texture nil")
+	if gotRG8 == nil || gotRG8.Format() != gpu.FormatRG8Unorm {
+		t.Fatalf("RG8 texture invalid")
 	}
-	pixBGRA := readTextureSync(t, dev, sr, gotBGRA, 0)
-	if !bytes.Equal(pixBGRA, rgbaSmall.Pix) {
-		t.Fatalf("BGRA8 readback mismatch")
+	wantRG8, err := render3d.UploadTexturePixels(nil, dev, rg8, render3d.TextureUpload{Mipmaps: true})
+	if err != nil {
+		t.Fatalf("UploadTexturePixels: %v", err)
 	}
+	assertSameTexture(t, dev, sr, gotRG8, wantRG8)
 	gotBufData := readBufferSync(t, dev, sr, gotBuf)
 	if !bytes.Equal(gotBufData, rawPayload) {
 		t.Fatalf("raw buffer bytes mismatch")
@@ -805,6 +859,112 @@ func TestUploaderTextureFormatsAndRawUploads(t *testing.T) {
 	gotRawPix := readTextureSync(t, dev, sr, gotRawTex, 0)
 	if !bytes.Equal(gotRawPix, wantRawTex) {
 		t.Fatalf("raw padded texture readback mismatch")
+	}
+}
+
+// readTextureLayerSync reads one mip level of one array layer or cube face of tex.
+func readTextureLayerSync(t *testing.T, dev *gpu.Device, sr *gpu.SoftwareRenderer, tex *gpu.Texture, mip, layer uint32) []byte {
+	t.Helper()
+	d := tex.Desc()
+	mw, mh := gpu.MipSize(d.Width, d.Height, mip)
+	var got []byte
+	var readErr error
+	dev.ReadTexture(tex, gpu.TextureRegion{MipLevel: mip, ArrayLayer: layer, Width: mw, Height: mh}, func(rgba []byte, err error) {
+		readErr = err
+		got = append([]byte(nil), rgba...)
+	})
+	sr.WaitIdle()
+	if readErr != nil {
+		t.Fatalf("ReadTexture mip %d layer %d: %v", mip, layer, readErr)
+	}
+	return got
+}
+
+// TestUploaderRawCompressedAndCubeTextures streams a BC1 mip chain under a budget smaller than one mip level, so it is written in block-row bands, and a six-face cube map, and reads both back against textures written in one go.
+func TestUploaderRawCompressedAndCubeTextures(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	if !dev.SupportsCompressedFormat(gpu.FormatBC1RGBAUnorm) {
+		t.Fatal("software renderer should support BC1")
+	}
+	const budget = 48 // one 32-byte block row of the 16x16 base level per frame
+	u := render3d.NewUploader(nil, dev, render3d.UploaderOptions{BytesPerFrame: budget, ChunkBytes: budget, Workers: 1})
+	t.Cleanup(func() { _ = u.Close() })
+
+	// BC1: 8 bytes per 4x4 block; any bytes are a valid block. Levels 16x16, 8x8, 4x4, 2x2 and 1x1.
+	bcDesc := gpu.TextureDesc{Label: "bc1", Dimension: gpu.Dim2D, Width: 16, Height: 16, MipLevels: 5, Format: gpu.FormatBC1RGBAUnorm}
+	var bcMips []render3d.TextureMipData
+	seed := uint32(7)
+	for lvl := range uint32(5) {
+		mw, mh := gpu.MipSize(16, 16, lvl)
+		blocks := int((mw+3)/4) * int((mh+3)/4)
+		data := make([]byte, blocks*8)
+		for i := range data {
+			seed = seed*1664525 + 1013904223
+			data[i] = byte(seed >> 24)
+		}
+		bcMips = append(bcMips, render3d.TextureMipData{MipLevel: lvl, Data: data})
+	}
+
+	// Cube: six 8x8 RGBA8 faces, each a different color; Layers 0 defaults to 6 for DimCube.
+	cubeDesc := gpu.TextureDesc{Label: "cube", Dimension: gpu.DimCube, Width: 8, Height: 8, Format: gpu.FormatRGBA8Unorm}
+	var cubeFaces []render3d.TextureMipData
+	for face := range uint32(6) {
+		data := make([]byte, 8*8*4)
+		for i := 0; i < len(data); i += 4 {
+			copy(data[i:], []byte{byte(40 * face), byte(255 - 40*face), byte(i / 4), 255})
+		}
+		cubeFaces = append(cubeFaces, render3d.TextureMipData{ArrayLayer: face, Data: data})
+	}
+
+	var gotBC, gotCube *gpu.Texture
+	u.QueueRawTexture(context.Background(), render3d.PriorityNormal, func(context.Context) (render3d.RawTextureUpload, error) {
+		return render3d.RawTextureUpload{Desc: bcDesc, Mips: bcMips}, nil
+	}, func(tex *gpu.Texture, err error) {
+		if err != nil {
+			t.Errorf("BC1: %v", err)
+		}
+		gotBC = tex
+	})
+	u.QueueRawTexture(context.Background(), render3d.PriorityNormal, func(context.Context) (render3d.RawTextureUpload, error) {
+		return render3d.RawTextureUpload{Desc: cubeDesc, Mips: cubeFaces}, nil
+	}, func(tex *gpu.Texture, err error) {
+		if err != nil {
+			t.Errorf("cube: %v", err)
+		}
+		gotCube = tex
+	})
+	stepUntilDone(t, u, 500, func(frame int, stats render3d.UploadFrameStats) {
+		if stats.BytesUploaded > budget {
+			t.Fatalf("frame %d uploaded %d bytes, budget %d", frame, stats.BytesUploaded, budget)
+		}
+	})
+	if gotBC == nil || gotCube == nil {
+		t.Fatalf("textures not delivered: bc1=%v cube=%v", gotBC, gotCube)
+	}
+	if d := gotCube.Desc(); d.Layers != 6 {
+		t.Fatalf("cube layers = %d, want 6", d.Layers)
+	}
+
+	bcDesc.Usage = gpu.TextureSampled | gpu.TextureCopyDst
+	wantBC, err := dev.CreateTexture(nil, bcDesc)
+	if err != nil {
+		t.Fatalf("CreateTexture: %v", err)
+	}
+	for _, m := range bcMips {
+		mw, _ := gpu.MipSize(16, 16, m.MipLevel)
+		dev.WriteTextureMip(wantBC, m.MipLevel, 0, m.Data, (mw+3)/4*8)
+	}
+	for lvl := range uint32(5) {
+		if g, w := readTextureLayerSync(t, dev, sr, gotBC, lvl, 0), readTextureLayerSync(t, dev, sr, wantBC, lvl, 0); !bytes.Equal(g, w) {
+			t.Fatalf("BC1 mip %d differs from a single write", lvl)
+		}
+	}
+	for face, m := range cubeFaces {
+		if got := readTextureLayerSync(t, dev, sr, gotCube, 0, uint32(face)); !bytes.Equal(got, m.Data) {
+			t.Fatalf("cube face %d differs from its source", face)
+		}
 	}
 }
 
@@ -824,11 +984,11 @@ func TestUploaderPriorityOrderingAndPreemption(t *testing.T) {
 	// Occupy the single worker with a blocker job while we enqueue Low, Normal, High.
 	blockerStarted := make(chan struct{})
 	releaseBlocker := make(chan struct{})
-	u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		close(blockerStarted)
 		<-releaseBlocker
 		return quadMesh(), nil
-	}, nil)
+	}, nil, render3d.MeshUpload{})
 	<-blockerStarted
 
 	var (
@@ -855,10 +1015,10 @@ func TestUploaderPriorityOrderingAndPreemption(t *testing.T) {
 		}
 	}
 
-	u.QueueMesh(context.Background(), recordDecode("low"), recordReady("low"), render3d.MeshUploadOptions{Priority: render3d.PriorityLow})
-	u.QueueMesh(context.Background(), recordDecode("normal-1"), recordReady("normal-1"), render3d.MeshUploadOptions{Priority: render3d.PriorityNormal})
-	u.QueueMesh(context.Background(), recordDecode("high"), recordReady("high"), render3d.MeshUploadOptions{Priority: render3d.PriorityHigh})
-	u.QueueMesh(context.Background(), recordDecode("normal-2"), recordReady("normal-2"), render3d.MeshUploadOptions{Priority: render3d.PriorityNormal})
+	u.QueueMesh(context.Background(), render3d.PriorityLow, recordDecode("low"), recordReady("low"), render3d.MeshUpload{})
+	u.QueueMesh(context.Background(), render3d.PriorityNormal, recordDecode("normal-1"), recordReady("normal-1"), render3d.MeshUpload{})
+	u.QueueMesh(context.Background(), render3d.PriorityHigh, recordDecode("high"), recordReady("high"), render3d.MeshUpload{})
+	u.QueueMesh(context.Background(), render3d.PriorityNormal, recordDecode("normal-2"), recordReady("normal-2"), render3d.MeshUpload{})
 
 	close(releaseBlocker)
 	stepUntilDone(t, u, 200, nil)
@@ -894,14 +1054,14 @@ func TestUploaderUploadPhasePreemption(t *testing.T) {
 	// Queue a large PriorityLow mesh (~30 KiB) and upload 1 chunk so it's mid-upload.
 	largeLow := makeGridMesh(30, 30)
 	var readyOrder []string
-	hLow := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hLow := u.QueueMesh(context.Background(), render3d.PriorityLow, func(ctx context.Context) (render3d.Mesh, error) {
 		return largeLow, nil
 	}, func(g *render3d.GPUMesh, err error) {
 		if err != nil {
 			t.Errorf("low failed: %v", err)
 		}
 		readyOrder = append(readyOrder, "low")
-	}, render3d.MeshUploadOptions{Priority: render3d.PriorityLow})
+	}, render3d.MeshUpload{})
 
 	// Step until low has started uploading (1 frame of bytes written) but not finished.
 	for i := 0; i < 100; i++ {
@@ -917,7 +1077,7 @@ func TestUploaderUploadPhasePreemption(t *testing.T) {
 
 	// Now queue a small PriorityHigh mesh; wait briefly for its decode to finish, then Step.
 	highDecoded := make(chan struct{})
-	u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	u.QueueMesh(context.Background(), render3d.PriorityHigh, func(ctx context.Context) (render3d.Mesh, error) {
 		defer close(highDecoded)
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
@@ -925,10 +1085,10 @@ func TestUploaderUploadPhasePreemption(t *testing.T) {
 			t.Errorf("high failed: %v", err)
 		}
 		readyOrder = append(readyOrder, "high")
-	}, render3d.MeshUploadOptions{Priority: render3d.PriorityHigh})
+	}, render3d.MeshUpload{})
 	<-highDecoded
-	// Let worker push high into uploadHeap before stepping.
-	time.Sleep(2 * time.Millisecond)
+	// The worker pushes high onto the upload queue under the same lock that drops InFlightDecodes back to zero, so once it is zero high is ready to preempt low.
+	waitFor(t, func() bool { return u.InFlightDecodes() == 0 })
 
 	stepUntilDone(t, u, 200, nil)
 	if len(readyOrder) != 2 || readyOrder[0] != "high" || readyOrder[1] != "low" {
@@ -953,7 +1113,7 @@ func TestUploaderCancellation(t *testing.T) {
 	var queuedRan atomic.Bool
 	var decodingErr, queuedErr error
 
-	hDecoding := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hDecoding := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		close(decodeStarted)
 		<-ctx.Done()
 		return render3d.Mesh{}, ctx.Err()
@@ -962,10 +1122,10 @@ func TestUploaderCancellation(t *testing.T) {
 			t.Errorf("canceled decoding mesh should be nil")
 		}
 		decodingErr = err
-	})
+	}, render3d.MeshUpload{})
 	<-decodeStarted
 
-	hQueued := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hQueued := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		queuedRan.Store(true)
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
@@ -973,7 +1133,7 @@ func TestUploaderCancellation(t *testing.T) {
 			t.Errorf("canceled queued mesh should be nil")
 		}
 		queuedErr = err
-	})
+	}, render3d.MeshUpload{})
 
 	hQueued.Cancel()
 	hDecoding.Cancel()
@@ -993,14 +1153,14 @@ func TestUploaderCancellation(t *testing.T) {
 
 	// 2. Cancel mid-upload (after at least 1 chunk uploaded to GPU).
 	var midErr error
-	hMid := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hMid := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return makeGridMesh(20, 20), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		if g != nil {
 			t.Errorf("mid-upload canceled mesh should be nil")
 		}
 		midErr = err
-	})
+	}, render3d.MeshUpload{})
 	for i := 0; i < 100; i++ {
 		st := u.Step()
 		if st.BytesUploaded > 0 {
@@ -1024,12 +1184,12 @@ func TestUploaderCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var ctxErr error
-	hCtx := u.QueueMesh(ctx, func(ctx context.Context) (render3d.Mesh, error) {
+	hCtx := u.QueueMesh(ctx, render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		t.Errorf("pre-canceled context decode should not run")
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		ctxErr = err
-	})
+	}, render3d.MeshUpload{})
 	stepUntilDone(t, u, 20, nil)
 	if !errors.Is(ctxErr, render3d.ErrUploadCanceled) || !errors.Is(ctxErr, context.Canceled) {
 		t.Fatalf("pre-canceled ctx err = %v, want ErrUploadCanceled + context.Canceled", ctxErr)
@@ -1054,20 +1214,19 @@ func TestUploaderDecodeErrorsValidationAndMaxPending(t *testing.T) {
 	sentinel := errors.New("disk read failed")
 	var gotSentinel, gotInvalidMesh, gotInvalidTex, gotNilDecode error
 
-	h1 := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	h1 := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return render3d.Mesh{}, sentinel
 	}, func(g *render3d.GPUMesh, err error) {
 		gotSentinel = err
-	})
+	}, render3d.MeshUpload{})
 
-	h2 := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	h2 := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return render3d.Mesh{Positions: []math3d.Vec3{{X: float32(math.NaN())}}}, nil
 	}, func(g *render3d.GPUMesh, err error) {
 		gotInvalidMesh = err
-	})
+	}, render3d.MeshUpload{})
 
-	// MaxPending is 2: a third simultaneous upload may fail immediately if neither finished yet.
-	// Use a dedicated blocked uploader to test MaxPending deterministically.
+	// MaxPending is 2: a third simultaneous upload may fail immediately if neither finished yet. Use a dedicated blocked uploader to test MaxPending deterministically.
 	stepUntilDone(t, u, 100, nil)
 	if !errors.Is(gotSentinel, sentinel) || !errors.Is(h1.Err(), sentinel) || h1.State() != render3d.UploadFailed {
 		t.Fatalf("sentinel error: callback=%v handle=%v state=%v", gotSentinel, h1.Err(), h1.State())
@@ -1076,18 +1235,18 @@ func TestUploaderDecodeErrorsValidationAndMaxPending(t *testing.T) {
 		t.Fatalf("invalid mesh: err=%v state=%v", gotInvalidMesh, h2.State())
 	}
 
-	h3 := u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-		return nil, gpu.FormatRGBA8Unorm, nil
-	}, func(tx *gpu.Texture, err error) {
+	h3 := u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+		return nil, nil
+	}, func(tx *render3d.GPUTexture, err error) {
 		gotInvalidTex = err
-	})
+	}, render3d.TextureUpload{})
 	stepUntilDone(t, u, 100, nil)
 	if !errors.Is(gotInvalidTex, render3d.ErrInvalidTexture) || h3.State() != render3d.UploadFailed {
 		t.Fatalf("invalid tex: err=%v state=%v", gotInvalidTex, h3.State())
 	}
 
 	var gotEmptyMips error
-	hEmptyMips := u.QueueRawTexture(context.Background(), func(ctx context.Context) (render3d.RawTextureUpload, error) {
+	hEmptyMips := u.QueueRawTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.RawTextureUpload, error) {
 		return render3d.RawTextureUpload{
 			Desc: gpu.TextureDesc{
 				Dimension: gpu.Dim2D,
@@ -1104,9 +1263,9 @@ func TestUploaderDecodeErrorsValidationAndMaxPending(t *testing.T) {
 		t.Fatalf("empty raw texture mips: err=%v state=%v", gotEmptyMips, hEmptyMips.State())
 	}
 
-	hNil := u.QueueMesh(context.Background(), nil, func(g *render3d.GPUMesh, err error) {
+	hNil := u.QueueMesh(context.Background(), render3d.PriorityNormal, nil, func(g *render3d.GPUMesh, err error) {
 		gotNilDecode = err
-	})
+	}, render3d.MeshUpload{})
 	if !errors.Is(gotNilDecode, render3d.ErrInvalidMesh) || hNil.State() != render3d.UploadFailed {
 		t.Fatalf("nil decode: err=%v state=%v", gotNilDecode, hNil.State())
 	}
@@ -1119,19 +1278,19 @@ func TestUploaderDecodeErrorsValidationAndMaxPending(t *testing.T) {
 	t.Cleanup(func() { _ = uCap.Close() })
 	release := make(chan struct{})
 	started := make(chan struct{})
-	uCap.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	uCap.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		close(started)
 		<-release
 		return quadMesh(), nil
-	}, nil)
+	}, nil, render3d.MeshUpload{})
 	<-started
 
 	var fullErr error
-	hFull := uCap.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hFull := uCap.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		fullErr = err
-	})
+	}, render3d.MeshUpload{})
 	if !errors.Is(fullErr, render3d.ErrUploadQueueFull) || !errors.Is(hFull.Err(), render3d.ErrUploadQueueFull) {
 		t.Fatalf("MaxPending err: callback=%v handle=%v, want ErrUploadQueueFull", fullErr, hFull.Err())
 	}
@@ -1157,10 +1316,10 @@ func TestUploaderRuntimeBudgetAdjustment(t *testing.T) {
 
 	mesh := makeGridMesh(64, 64) // > 130 KiB vertices + indices
 	decoded := make(chan struct{})
-	u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		defer close(decoded)
 		return mesh, nil
-	}, nil)
+	}, nil, render3d.MeshUpload{})
 	<-decoded
 
 	// First 3 active frames at 8 KiB/frame.
@@ -1213,19 +1372,18 @@ func TestUploaderNilDeviceAndDeviceLoss(t *testing.T) {
 	uNil := render3d.NewUploader(nil, nil, render3d.UploaderOptions{Workers: 1})
 	t.Cleanup(func() { _ = uNil.Close() })
 	var nilDevErr error
-	uNil.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	uNil.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		nilDevErr = err
-	})
+	}, render3d.MeshUpload{})
 	stepUntilDone(t, uNil, 100, nil)
 	var gpuErr gpu.Error
 	if !errors.As(nilDevErr, &gpuErr) || gpuErr.Code != gpu.ErrDeviceLost {
 		t.Fatalf("nil device err = %v, want gpu.ErrDeviceLost", nilDevErr)
 	}
 
-	// 2. Device loss mid-upload fails the in-progress upload cleanly while
-	// already-completed retained meshes survive restore.
+	// 2. Device loss mid-upload fails the in-progress upload cleanly while already-completed retained meshes survive restore.
 	var (
 		uploader     *render3d.Uploader
 		retainedMesh *render3d.GPUMesh
@@ -1243,14 +1401,14 @@ func TestUploaderNilDeviceAndDeviceLoss(t *testing.T) {
 						ChunkBytes:    2048,
 						Workers:       1,
 					})
-					uploader.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+					uploader.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 						return quadMesh(), nil
 					}, func(g *render3d.GPUMesh, err error) {
 						if err != nil {
 							t.Errorf("retained mesh: %v", err)
 						}
 						retainedMesh = g
-					}, render3d.MeshUploadOptions{Label: "retained", Retained: true})
+					}, render3d.MeshUpload{Label: "retained", Retained: true})
 				}
 			},
 			OnFrame: func(frame *gpu.Frame) {
@@ -1277,14 +1435,14 @@ func TestUploaderNilDeviceAndDeviceLoss(t *testing.T) {
 	}
 
 	// Queue a large mesh and let it start uploading (only 1 frame), then lose the device.
-	hBig := uploader.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hBig := uploader.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return makeGridMesh(30, 30), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		if g != nil {
 			t.Errorf("expected nil mesh after device loss")
 		}
 		lostMeshErr = err
-	})
+	}, render3d.MeshUpload{})
 	for i := 0; i < 40 && hBig.State() != render3d.UploadUploading; i++ {
 		app.Advance(16 * time.Millisecond)
 		if hBig.State() != render3d.UploadUploading {
@@ -1330,15 +1488,21 @@ func TestUploaderScopeDisposalAndZeroGoroutineLeaks(t *testing.T) {
 	// Queue blocked decodes to prove scope disposal cancels them and joins all workers.
 	started := make(chan struct{}, 4)
 	handles := make([]*render3d.UploadHandle, 6)
+	var closedCalls atomic.Int32
 	for i := range handles {
-		handles[i] = u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+		handles[i] = u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 			select {
 			case started <- struct{}{}:
 			default:
 			}
 			<-ctx.Done()
 			return render3d.Mesh{}, ctx.Err()
-		}, nil)
+		}, func(g *render3d.GPUMesh, err error) {
+			if g != nil || !errors.Is(err, render3d.ErrUploaderClosed) {
+				t.Errorf("onReady after close = (%v, %v), want (nil, ErrUploaderClosed)", g, err)
+			}
+			closedCalls.Add(1)
+		}, render3d.MeshUpload{})
 	}
 	// Wait for at least one worker to enter decode.
 	<-started
@@ -1346,7 +1510,10 @@ func TestUploaderScopeDisposalAndZeroGoroutineLeaks(t *testing.T) {
 	// Disposing the scope must invoke u.Close(), cancel all decodes, and join all 4 workers.
 	root.Dispose()
 
-	// Every handle must be finalized and closed.
+	// Every handle must be finalized and closed, and every onReady called once Dispose returns.
+	if n := closedCalls.Load(); n != int32(len(handles)) {
+		t.Fatalf("onReady called %d times after scope disposal, want %d", n, len(handles))
+	}
 	for i, h := range handles {
 		select {
 		case <-h.Done():
@@ -1360,11 +1527,11 @@ func TestUploaderScopeDisposalAndZeroGoroutineLeaks(t *testing.T) {
 
 	// Queueing after close fails immediately with ErrUploaderClosed.
 	var afterErr error
-	hAfter := u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	hAfter := u.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return quadMesh(), nil
 	}, func(g *render3d.GPUMesh, err error) {
 		afterErr = err
-	})
+	}, render3d.MeshUpload{})
 	if !errors.Is(afterErr, render3d.ErrUploaderClosed) || !errors.Is(hAfter.Err(), render3d.ErrUploaderClosed) {
 		t.Fatalf("after-close err = (%v, %v), want ErrUploaderClosed", afterErr, hAfter.Err())
 	}
@@ -1376,9 +1543,9 @@ func TestUploaderScopeDisposalAndZeroGoroutineLeaks(t *testing.T) {
 
 	// Creating an uploader on an already-disposed scope spawns zero workers.
 	uDisposed := render3d.NewUploader(root, dev, render3d.UploaderOptions{Workers: 4})
-	if h := uDisposed.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+	if h := uDisposed.QueueMesh(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.Mesh, error) {
 		return quadMesh(), nil
-	}, nil); !errors.Is(h.Err(), render3d.ErrUploaderClosed) {
+	}, nil, render3d.MeshUpload{}); !errors.Is(h.Err(), render3d.ErrUploaderClosed) {
 		t.Fatalf("disposed-scope uploader err = %v, want ErrUploaderClosed", h.Err())
 	}
 
@@ -1427,7 +1594,7 @@ func TestUploaderConcurrentRace(t *testing.T) {
 				var h *render3d.UploadHandle
 				switch i % 3 {
 				case 0:
-					h = u.QueueMesh(context.Background(), func(ctx context.Context) (render3d.Mesh, error) {
+					h = u.QueueMesh(context.Background(), render3d.UploadPriority((i%3)-1), func(ctx context.Context) (render3d.Mesh, error) {
 						return smallMesh, nil
 					}, func(g *render3d.GPUMesh, err error) {
 						if err == nil {
@@ -1436,20 +1603,20 @@ func TestUploaderConcurrentRace(t *testing.T) {
 						} else if errors.Is(err, render3d.ErrUploadCanceled) {
 							canceled.Add(1)
 						}
-					}, render3d.MeshUploadOptions{Priority: render3d.UploadPriority((i % 3) - 1)})
+					}, render3d.MeshUpload{})
 				case 1:
-					h = u.QueueTexture(context.Background(), func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-						return smallImage, gpu.FormatRGBA8Unorm, nil
-					}, func(tx *gpu.Texture, err error) {
+					h = u.QueueTexture(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+						return smallImage, nil
+					}, func(tx *render3d.GPUTexture, err error) {
 						if err == nil {
 							completed.Add(1)
 							_ = tx.Close()
 						} else if errors.Is(err, render3d.ErrUploadCanceled) {
 							canceled.Add(1)
 						}
-					})
+					}, render3d.TextureUpload{})
 				case 2:
-					h = u.QueueRawBuffer(context.Background(), func(ctx context.Context) (render3d.RawBufferUpload, error) {
+					h = u.QueueRawBuffer(context.Background(), render3d.PriorityNormal, func(ctx context.Context) (render3d.RawBufferUpload, error) {
 						return render3d.RawBufferUpload{
 							Usage: gpu.UsageVertex,
 							Data:  make([]byte, 512),

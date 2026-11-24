@@ -364,56 +364,48 @@ gpuMesh.Draw(pass)
 
 ## 按预算跨帧异步 GPU 上传（`Uploader`）
 
-`Uploader` 在后台工作协程上解码网格、纹理和原始 GPU 数据，并在每帧调用 `Uploader.Step` 时按可配置的每帧字节预算分块写入 `gpu.Device`，避免加载大型 3D 模型时出现帧耗时尖峰与卡顿：
+`Uploader` 在后台工作协程上完成网格、纹理和原始 GPU 数据的解码与 CPU 打包；每帧调用一次的 `Uploader.Step` 再按每帧字节预算把结果分块写入 `gpu.Device`，加载大型 3D 模型时不会卡住某一帧：
 
 ```go
 gpu.View(cx, gpu.ViewProps{
 	DepthFormat: gpu.FormatDepth24Plus,
 	OnReady: func(dev *gpu.Device) {
 		uploader = render3d.NewUploader(cx, dev, render3d.UploaderOptions{
-			BytesPerFrame: 2 * 1024 * 1024, // 每帧 2 MiB 上限（默认 4 MiB）
-			ChunkBytes:    256 * 1024,      // 单次写入分块 256 KiB
+			BytesPerFrame: 2 * 1024 * 1024, // 每帧 2 MiB（默认 4 MiB）
+			ChunkBytes:    256 * 1024,      // 单次写入 256 KiB
 			Workers:       2,               // 后台解码协程数
 		})
 
-		meshHandle = uploader.QueueMesh(ctx, func(ctx context.Context) (render3d.Mesh, error) {
+		meshHandle = uploader.QueueMesh(ctx, render3d.PriorityHigh, func(ctx context.Context) (render3d.Mesh, error) {
 			return loadAndDecodeMesh(ctx, "hero.glb")
 		}, func(g *render3d.GPUMesh, err error) {
 			if err == nil {
 				heroMesh = g
 			}
-		}, render3d.MeshUploadOptions{
-			Label:    "hero",
-			Retained: true,
-			Priority: render3d.PriorityHigh,
-		})
+		}, render3d.MeshUpload{Label: "hero", Retained: true})
 
-		texHandle = uploader.QueueTexture(ctx, func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-			img, err := decodeTexturePNG(ctx, "hero_albedo.png")
-			return img, gpu.FormatRGBA8UnormSRGB, err
-		}, func(tex *gpu.Texture, err error) {
+		texHandle = uploader.QueueTexture(ctx, render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+			return decodeTexturePNG(ctx, "hero_albedo.png")
+		}, func(tex *render3d.GPUTexture, err error) {
 			if err == nil {
-				heroAlbedo = tex
+				heroAlbedo, _ = render3d.BindTexture(cx, dev, texLayout, tex, sampler)
 			}
-		}, render3d.TextureUploadOptions{
-			Label:           "hero_albedo",
-			GenerateMipmaps: true,
-			Retained:        true,
-		})
+		}, render3d.TextureUpload{Label: "hero_albedo", SRGB: true, Mipmaps: true, Retained: true})
 	},
 	OnFrame: func(frame *gpu.Frame) {
-		stats := uploader.Step() // 在引擎协程上按 BytesPerFrame 预算推进 GPU 上传
+		stats := uploader.Step() // 在引擎协程上最多写入 BytesPerFrame 字节
 		_ = stats
-		// 使用已就绪的网格与纹理渲染本帧……
+		// 用已经就绪的网格与纹理绘制本帧……
 	},
 })
 ```
 
-- **后台解码、主线程上传**：解码回调、网格校验与打包、像素格式转换以及可选的 CPU mipmap 生成（`TextureUploadOptions.GenerateMipmaps`）全部在后台工作协程执行；所有 GPU 资源创建、分块写入（`WriteBuffer`、`WriteTextureRegion`、`WriteTexture`）与异步完成回调仅在调用 `Step()` 的协程上运行。
-- **每帧字节预算**：`UploaderOptions.BytesPerFrame`（默认 `DefaultUploadBytesPerFrame`，4 MiB）与 `ChunkBytes`（默认 `DefaultUploadChunkBytes`，256 KiB）限制单次 `Step()` 的 GPU 传输量，并可通过 `SetBytesPerFrame`、`SetChunkBytes` 在运行时动态调整（例如在加载画面调高预算、在游玩过程中调低预算）。缓冲写入按 4 字节对齐分块；未压缩纹理按 mip 级别、行带拆分，单行超出剩余预算时还会按水平子行拆分。
-- **原始缓冲与压缩纹理**：通过 `QueueRawBuffer` 流式上传自定义顶点/存储/uniform 缓冲（`RawBufferUpload`），通过 `QueueRawTexture` 流式上传预编码或块压缩纹理 mip 链（`RawTextureUpload`、`TextureMipData`）。
-- **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时控制解码队列与上传队列的调度顺序（同优先级先进先出），高优先级资产可在下一分块抢占正在上传的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，支持并发安全地查询 `State()`、`Progress()`、`Err()`、`Done()` 与调用 `Cancel()`。
-- **作用域生命周期**：向 `NewUploader` 传入非 nil `*core.Scope` 会自动注册清理钩子，作用域销毁时调用 `Close()`，取消未完成的解码、回收全部工作协程（零协程泄漏）并释放未完成的 GPU 资源。无界面测试可传入 `nil` 并显式调用 `Close()`。`UploaderOptions.MaxPending` 可选限制挂起任务上限，超出时立即返回 `ErrUploadQueueFull`。
+- **可直接替换同步上传**：`QueueMesh` 接受与 `UploadMesh` 相同的 `MeshUpload` 选项，交付 `GPUMesh`；`QueueTexture` 与 `QueueTexturePixels` 接受与 `UploadTexture`、`UploadTexturePixels` 相同的 `TextureUpload` 选项，交付的 `GPUTexture` 纹素相同：同样的直通 alpha 转换（`PixelBufferFromImage`）、同样的 mip 链（sRGB 纹理在线性光下做盒式滤波），因此可以直接用于 `BindTexture`，也计入 `GPUTexture.ByteSize`。每个 `Queue*` 调用另带一个 `UploadPriority`。
+- **后台解码，引擎协程上传**：解码回调、网格校验与打包、图像转换和 mip 生成在工作协程上执行；GPU 资源创建、分块写入（`WriteBuffer`、`WriteTextureRegion`、`WriteTexture`）和 `onReady` 回调在调用 `Step` 的协程上执行。`Queue*` 调用能当场报告的错误（解码函数为 nil、上传器已关闭、队列已满）会在调用返回前、在调用方协程上调用 `onReady`。
+- **每帧字节预算**：`UploaderOptions.BytesPerFrame`（默认 `DefaultUploadBytesPerFrame`，4 MiB）与 `ChunkBytes`（默认 `DefaultUploadChunkBytes`，256 KiB）限制每次 `Step` 写入的字节数，可用 `SetBytesPerFrame`、`SetChunkBytes` 在运行时调整，例如在加载画面调高预算、在游玩时调低。预算限制的是每帧的上传量，不是时间上限。缓冲按 4 字节对齐的偏移拆分；未压缩纹理按 mip 级别、行带拆分，一行超出剩余预算时再拆成行的一部分；块压缩纹理按块行拆分。
+- **原始缓冲与纹理**：`QueueRawBuffer` 流式上传自定义顶点、存储或 uniform 缓冲（`RawBufferUpload`）；`QueueRawTexture` 流式上传预编码或块压缩的 mip 链、数组层和立方体贴图面（`RawTextureUpload`、`TextureMipData`），交付 `gpu.Texture`。
+- **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时决定解码队列和上传队列的顺序（同一优先级先进先出），高优先级资产会在下一个分块抢占上传到一半的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，其 `State()`、`Progress()`、`Err()`、`Done()` 与 `Cancel()` 可在任意协程调用。
+- **生命周期**：向 `NewUploader` 传入 `*core.Scope` 后，作用域销毁时会关闭上传器。`Close` 取消未完成的解码、等待全部工作协程退出、释放上传到一半的 GPU 资源，并以 `ErrUploaderClosed` 调用每个未完成上传的 `onReady`；它须在调用 `Step` 的协程上执行，作用域销毁正是如此。无界面测试可传入 `nil` 并自行调用 `Close`。`UploaderOptions.MaxPending` 限制未完成上传的数量，超出时以 `ErrUploadQueueFull` 失败。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 

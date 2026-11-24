@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/draw"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -18,31 +17,25 @@ import (
 )
 
 const (
-	// DefaultUploadBytesPerFrame is the default per-frame GPU upload budget (4 MiB)
-	// used by [NewUploader] when [UploaderOptions.BytesPerFrame] is <= 0.
+	// DefaultUploadBytesPerFrame is the default per-frame GPU upload budget (4 MiB) used by [NewUploader] when [UploaderOptions.BytesPerFrame] is <= 0.
 	DefaultUploadBytesPerFrame = 4 * mib
 
-	// DefaultUploadChunkBytes is the default per-write chunk size (256 KiB) used
-	// to split large buffers and textures smoothly across frames.
+	// DefaultUploadChunkBytes is the default per-write chunk size (256 KiB) used to split large buffers and textures smoothly across frames.
 	DefaultUploadChunkBytes = 256 * 1024
 )
 
 var (
-	// ErrUploaderClosed is returned when queueing on a closed [Uploader] or when
-	// an unfinished upload is aborted because the uploader or its scope closed.
+	// ErrUploaderClosed is returned when queueing on a closed [Uploader] or when an unfinished upload is aborted because the uploader or its scope closed.
 	ErrUploaderClosed = errors.New("render3d: uploader closed")
 
-	// ErrUploadCanceled is wrapped by errors returned when an upload is canceled
-	// via [UploadHandle.Cancel] or its caller context.
+	// ErrUploadCanceled is wrapped by errors returned when an upload is canceled via [UploadHandle.Cancel] or its caller context.
 	ErrUploadCanceled = errors.New("render3d: upload canceled")
 
-	// ErrUploadQueueFull is returned when queueing an upload would exceed
-	// [UploaderOptions.MaxPending].
+	// ErrUploadQueueFull is returned when queueing an upload would exceed [UploaderOptions.MaxPending].
 	ErrUploadQueueFull = errors.New("render3d: upload queue full")
 )
 
-// UploadPriority orders queued decodes and GPU uploads inside an [Uploader].
-// Higher priorities preempt lower ones; equal priorities preserve FIFO order.
+// UploadPriority orders queued decodes and GPU uploads inside an [Uploader]. Higher priorities preempt lower ones; equal priorities preserve FIFO order.
 type UploadPriority int
 
 const (
@@ -60,13 +53,11 @@ type UploadState uint8
 const (
 	// UploadQueued means the upload is waiting for a decode worker goroutine.
 	UploadQueued UploadState = iota
-	// UploadDecoding means a background worker is running the decode callback
-	// and preparing packed CPU staging bytes.
+	// UploadDecoding means a background worker is running the decode callback and preparing packed CPU staging bytes, or the decoded asset is waiting for the [Uploader.Step] that starts its upload.
 	UploadDecoding
-	// UploadUploading means the GPU resource is allocated and being streamed
-	// across frames by [Uploader.Step].
+	// UploadUploading means the GPU resource is allocated and being streamed across frames by [Uploader.Step].
 	UploadUploading
-	// UploadReady means all bytes have been uploaded and onReady has been invoked.
+	// UploadReady means all bytes have been uploaded; onReady is called right after the state changes.
 	UploadReady
 	// UploadFailed means decoding, validation, or GPU upload failed.
 	UploadFailed
@@ -96,64 +87,20 @@ func (s UploadState) String() string {
 
 // UploaderOptions configures [NewUploader]. Zero values receive sensible defaults.
 type UploaderOptions struct {
-	// BytesPerFrame caps how many bytes [Uploader.Step] writes to the GPU per
-	// call. Defaults to [DefaultUploadBytesPerFrame] (4 MiB) when <= 0.
-	// Adjustable at runtime via [Uploader.SetBytesPerFrame].
+	// BytesPerFrame caps how many bytes [Uploader.Step] writes to the GPU per call. Defaults to [DefaultUploadBytesPerFrame] (4 MiB) when <= 0. Adjustable at runtime via [Uploader.SetBytesPerFrame].
 	BytesPerFrame int
 
-	// ChunkBytes caps each individual buffer or texture write chunk so large
-	// assets split cleanly across frames. Defaults to [DefaultUploadChunkBytes]
-	// (256 KiB) when <= 0, and is clamped to BytesPerFrame during [Uploader.Step].
+	// ChunkBytes caps each individual buffer or texture write chunk so large assets split cleanly across frames. Defaults to [DefaultUploadChunkBytes] (256 KiB) when <= 0, and is clamped to BytesPerFrame during [Uploader.Step].
 	ChunkBytes int
 
-	// Workers is the number of background goroutines executing decode callbacks
-	// and CPU data packing. Defaults to min(runtime.GOMAXPROCS(0), 4) (at least 1)
-	// when <= 0.
+	// Workers is the number of background goroutines executing decode callbacks and CPU data packing. Defaults to min(runtime.GOMAXPROCS(0), 4) (at least 1) when <= 0.
 	Workers int
 
-	// MaxPending optionally limits the number of unfinished uploads (queued,
-	// decoding, and uploading). When > 0 and reached, Queue* fails immediately
-	// with [ErrUploadQueueFull].
+	// MaxPending optionally limits the number of unfinished uploads (queued, decoding, and uploading). When > 0 and reached, Queue* fails immediately with [ErrUploadQueueFull].
 	MaxPending int
 }
 
-// MeshUploadOptions configures a single mesh upload queued via [Uploader.QueueMesh].
-type MeshUploadOptions struct {
-	// Label names the GPU buffers in capture tools (" vertices" / " indices" suffixes).
-	Label string
-	// Retained keeps CPU shadow copies in NSGo so the mesh survives device loss.
-	Retained bool
-	// Priority controls decode and upload scheduling order.
-	Priority UploadPriority
-}
-
-// TextureUploadOptions configures a single texture upload queued via [Uploader.QueueTexture].
-type TextureUploadOptions struct {
-	// Label names the GPU texture in capture tools.
-	Label string
-	// Usage sets the texture usage flags. Defaults to TextureSampled | TextureCopyDst;
-	// TextureCopyDst is always added so chunked writes succeed.
-	Usage gpu.TextureUsage
-	// MipLevels sets the target mipmap count (clamped to gpu.MaxMipLevels).
-	// Values > 1 generate mipmaps on the decode goroutine.
-	MipLevels uint32
-	// GenerateMipmaps generates a full CPU mipmap chain down to 1x1 on the
-	// decode goroutine (or up to MipLevels when MipLevels > 0).
-	GenerateMipmaps bool
-	// Retained keeps shadow writes in NSGo so the texture survives device loss.
-	Retained bool
-	// Priority controls decode and upload scheduling order.
-	Priority UploadPriority
-}
-
-// RawUploadOptions configures priority for [Uploader.QueueRawBuffer] and
-// [Uploader.QueueRawTexture].
-type RawUploadOptions struct {
-	Priority UploadPriority
-}
-
-// RawBufferUpload describes a raw GPU buffer payload returned by the decode
-// callback of [Uploader.QueueRawBuffer].
+// RawBufferUpload describes a raw GPU buffer payload returned by the decode callback of [Uploader.QueueRawBuffer].
 type RawBufferUpload struct {
 	Label    string
 	Usage    gpu.BufferUsage // gpu.UsageCopyDst is always added
@@ -161,8 +108,7 @@ type RawBufferUpload struct {
 	Retained bool
 }
 
-// TextureMipData is one mip level (and optional array layer / cubemap face)
-// of texel or compressed block bytes for [RawTextureUpload].
+// TextureMipData is one mip level (and optional array layer / cubemap face) of texel or compressed block bytes for [RawTextureUpload].
 type TextureMipData struct {
 	MipLevel    uint32
 	ArrayLayer  uint32
@@ -170,8 +116,7 @@ type TextureMipData struct {
 	BytesPerRow uint32 // 0 means tightly packed for the mip width and format
 }
 
-// RawTextureUpload describes a GPU texture and pre-encoded mip payloads
-// returned by the decode callback of [Uploader.QueueRawTexture].
+// RawTextureUpload describes a GPU texture and pre-encoded mip payloads returned by the decode callback of [Uploader.QueueRawTexture].
 type RawTextureUpload struct {
 	Desc gpu.TextureDesc // Usage defaults to TextureSampled | TextureCopyDst; TextureCopyDst is always added
 	Mips []TextureMipData
@@ -195,8 +140,7 @@ type UploadFrameStats struct {
 	FrameDuration time.Duration
 }
 
-// UploadHandle tracks one queued upload and allows inspecting its progress or
-// canceling it from any goroutine.
+// UploadHandle tracks one queued upload and allows inspecting its progress or canceling it from any goroutine.
 type UploadHandle struct {
 	uploader *Uploader
 	job      *uploadJob
@@ -246,8 +190,7 @@ func (h *UploadHandle) State() UploadState {
 	return UploadState(h.state.Load())
 }
 
-// Progress returns (uploaded, total) bytes for the GPU transfer stage.
-// Both values are 0 while the asset is still queued or decoding.
+// Progress returns (uploaded, total) bytes for the GPU transfer stage. Both values are 0 while the asset is still queued or decoding.
 func (h *UploadHandle) Progress() (uploaded, total int64) {
 	if h == nil {
 		return 0, 0
@@ -255,8 +198,7 @@ func (h *UploadHandle) Progress() (uploaded, total int64) {
 	return h.uploaded.Load(), h.total.Load()
 }
 
-// Err returns the terminal error once the upload has failed or been canceled,
-// or nil while in progress or after reaching [UploadReady].
+// Err returns the terminal error once the upload has failed or been canceled, or nil while in progress or after reaching [UploadReady].
 func (h *UploadHandle) Err() error {
 	if h == nil {
 		return ErrUploaderClosed
@@ -267,8 +209,7 @@ func (h *UploadHandle) Err() error {
 	return nil
 }
 
-// Done returns a channel that is closed when the upload reaches a terminal
-// state ([UploadReady], [UploadFailed], or [UploadCanceled]).
+// Done returns a channel that is closed when the upload reaches a terminal state ([UploadReady], [UploadFailed], or [UploadCanceled]).
 func (h *UploadHandle) Done() <-chan struct{} {
 	if h == nil {
 		ch := make(chan struct{})
@@ -278,9 +219,7 @@ func (h *UploadHandle) Done() <-chan struct{} {
 	return h.done
 }
 
-// Cancel requests cancellation of the upload. It is safe to call from any
-// goroutine and safe to call more than once. Any partially created GPU
-// resources are released on the next [Uploader.Step] (or [Uploader.Close]).
+// Cancel requests cancellation of the upload. It is safe to call from any goroutine and safe to call more than once. Any partially created GPU resources are released on the next [Uploader.Step] (or [Uploader.Close]).
 func (h *UploadHandle) Cancel() {
 	if h == nil || h.uploader == nil || h.job == nil {
 		return
@@ -333,24 +272,24 @@ type uploadJob struct {
 
 	// Decode callbacks (exactly one populated by kind).
 	decodeMesh    func(context.Context) (Mesh, error)
-	decodeTexture func(context.Context) (image.Image, gpu.TextureFormat, error)
+	decodeTexture func(context.Context) (PixelBuffer, error)
 	decodeRawBuf  func(context.Context) (RawBufferUpload, error)
 	decodeRawTex  func(context.Context) (RawTextureUpload, error)
 
 	// Per-item options.
-	meshOpts MeshUploadOptions
-	texOpts  TextureUploadOptions
+	meshOpts MeshUpload
+	texOpts  TextureUpload
 
 	// Completion callbacks (exactly one populated by kind).
 	onMeshReady   func(*GPUMesh, error)
-	onTexReady    func(*gpu.Texture, error)
+	onTexReady    func(*GPUTexture, error)
+	onRawTexReady func(*gpu.Texture, error)
 	onRawBufReady func(*gpu.Buffer, error)
 
 	// Decode error (if decode/validation failed).
 	decodeErr error
 
-	// Staging data produced on the worker goroutine, consumed on engine goroutine.
-	// Mesh / raw buffer staging:
+	// Staging data produced on the worker goroutine, consumed on engine goroutine. Mesh / raw buffer staging:
 	vertexBytes []byte
 	indexBytes  []byte
 	vertexCount uint32
@@ -423,9 +362,13 @@ func (j *uploadJob) invokeError(err error) {
 		if j.onMeshReady != nil {
 			j.onMeshReady(nil, err)
 		}
-	case kindTexture, kindRawTexture:
+	case kindTexture:
 		if j.onTexReady != nil {
 			j.onTexReady(nil, err)
+		}
+	case kindRawTexture:
+		if j.onRawTexReady != nil {
+			j.onRawTexReady(nil, err)
 		}
 	case kindRawBuffer:
 		if j.onRawBufReady != nil {
@@ -442,11 +385,17 @@ func (j *uploadJob) invokeReady() {
 		if j.onMeshReady != nil {
 			j.onMeshReady(res, nil)
 		}
-	case kindTexture, kindRawTexture:
-		res := j.gpuTex
+	case kindTexture:
+		res := &GPUTexture{tex: j.gpuTex, width: j.texDesc.Width, height: j.texDesc.Height, mipLevels: j.texDesc.MipLevels, format: j.texDesc.Format}
 		j.gpuTex = nil
 		if j.onTexReady != nil {
 			j.onTexReady(res, nil)
+		}
+	case kindRawTexture:
+		res := j.gpuTex
+		j.gpuTex = nil
+		if j.onRawTexReady != nil {
+			j.onRawTexReady(res, nil)
 		}
 	case kindRawBuffer:
 		res := j.gpuBuf
@@ -523,15 +472,9 @@ func (h *uploadJobHeap) Pop() any {
 	return job
 }
 
-// Uploader decodes meshes, textures, and raw buffers on background goroutines
-// and streams them onto a [gpu.Device] during [Uploader.Step] without exceeding
-// a configurable per-frame byte budget.
+// Uploader decodes meshes, textures, and raw buffers on background goroutines and streams them onto a [gpu.Device] during [Uploader.Step] without exceeding a configurable per-frame byte budget.
 //
-// Call [Uploader.Step] once per frame from the engine goroutine (for example,
-// inside [gpu.ViewProps.OnFrame]). All GPU resource creation, chunked writes,
-// and onReady callbacks execute exclusively on the goroutine calling Step.
-// Queue*, [UploadHandle.Cancel], [Uploader.SetBytesPerFrame], and
-// [Uploader.Close] are safe to call concurrently.
+// Call [Uploader.Step] once per frame from the engine goroutine (for example, inside [gpu.ViewProps.OnFrame]). All GPU resource creation, chunked writes, and onReady callbacks run on the goroutine calling Step, or on the one calling [Uploader.Close], which must be the same. The Queue methods, [UploadHandle] methods, [Uploader.SetBytesPerFrame], [Uploader.SetChunkBytes], [Uploader.Pending] and [Uploader.InFlightDecodes] are safe to call from any goroutine.
 type Uploader struct {
 	scope      *core.Scope
 	dev        *gpu.Device
@@ -557,10 +500,7 @@ type Uploader struct {
 	wg sync.WaitGroup
 }
 
-// NewUploader creates a budgeted asynchronous GPU uploader bound to dev and
-// scoped to cx. When cx is non-nil, disposing cx automatically closes the
-// uploader and joins its worker goroutines. Pass cx == nil in headless tests
-// and call [Uploader.Close] explicitly.
+// NewUploader creates a budgeted asynchronous GPU uploader bound to dev and scoped to cx. When cx is non-nil, disposing cx automatically closes the uploader and joins its worker goroutines. Pass cx == nil in headless tests and call [Uploader.Close] explicitly.
 func NewUploader(cx *core.Scope, dev *gpu.Device, opts UploaderOptions) *Uploader {
 	budget := opts.BytesPerFrame
 	if budget <= 0 {
@@ -615,8 +555,7 @@ func (u *Uploader) BytesPerFrame() int {
 	return int(u.bytesPerFrame.Load())
 }
 
-// SetBytesPerFrame adjusts the per-frame GPU upload byte budget at runtime.
-// Values <= 0 restore [DefaultUploadBytesPerFrame].
+// SetBytesPerFrame adjusts the per-frame GPU upload byte budget at runtime. Values <= 0 restore [DefaultUploadBytesPerFrame].
 func (u *Uploader) SetBytesPerFrame(n int) {
 	if n <= 0 {
 		n = DefaultUploadBytesPerFrame
@@ -629,8 +568,7 @@ func (u *Uploader) ChunkBytes() int {
 	return int(u.chunkBytes.Load())
 }
 
-// SetChunkBytes adjusts the per-write chunk granularity at runtime.
-// Values <= 0 restore [DefaultUploadChunkBytes].
+// SetChunkBytes adjusts the per-write chunk granularity at runtime. Values <= 0 restore [DefaultUploadChunkBytes].
 func (u *Uploader) SetChunkBytes(n int) {
 	if n <= 0 {
 		n = DefaultUploadChunkBytes
@@ -638,157 +576,115 @@ func (u *Uploader) SetChunkBytes(n int) {
 	u.chunkBytes.Store(int64(n))
 }
 
-// Pending returns the number of unfinished uploads (queued, decoding, or
-// actively streaming).
+// Pending returns the number of unfinished uploads (queued, decoding, or actively streaming).
 func (u *Uploader) Pending() int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.pending
 }
 
-// InFlightDecodes returns the number of decode callbacks currently executing
-// on background worker goroutines.
+// InFlightDecodes returns the number of decode callbacks currently executing on background worker goroutines.
 func (u *Uploader) InFlightDecodes() int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.inFlightDecodes
 }
 
-// QueueMesh schedules decode on a background worker goroutine, validates and
-// packs vertex and index buffers off the main thread, and uploads them to the
-// GPU across [Uploader.Step] calls within the per-frame byte budget.
+// QueueMesh runs decode on a background worker, validates and packs the mesh there, and uploads its vertex and index buffers across [Uploader.Step] calls within the per-frame byte budget. opts are the same [MeshUpload] options [UploadMesh] takes, so a streamed mesh is the same [GPUMesh] a synchronous upload returns, and priority orders it against the other queued uploads.
 //
-// onReady is called on the goroutine executing [Uploader.Step] only after all
-// vertex and index bytes have been uploaded (or on error/cancellation).
-func (u *Uploader) QueueMesh(
-	ctx context.Context,
-	decode func(context.Context) (Mesh, error),
-	onReady func(*GPUMesh, error),
-	opts ...MeshUploadOptions,
-) *UploadHandle {
-	if decode == nil {
-		err := fmt.Errorf("%w: nil decode function", ErrInvalidMesh)
-		if onReady != nil {
-			onReady(nil, err)
-		}
-		return newImmediateErrorHandle(err)
-	}
-	var opt MeshUploadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+// onReady runs on the goroutine that calls [Uploader.Step] once every byte is uploaded, or with an error when decoding, validation or the upload fails or is canceled, or when [Uploader.Close] aborts it. Errors the call can report at once (a nil decode, a closed uploader, or a full queue under [UploaderOptions.MaxPending]) call onReady on the caller's goroutine before QueueMesh returns. onReady may be nil.
+func (u *Uploader) QueueMesh(ctx context.Context, priority UploadPriority, decode func(context.Context) (Mesh, error), onReady func(*GPUMesh, error), opts MeshUpload) *UploadHandle {
 	job := &uploadJob{
 		kind:        kindMesh,
-		priority:    opt.Priority,
+		priority:    priority,
 		decodeMesh:  decode,
-		meshOpts:    opt,
+		meshOpts:    opts,
 		onMeshReady: onReady,
 		heapIdx:     -1,
 	}
+	if decode == nil {
+		return u.reject(job, fmt.Errorf("%w: nil decode function", ErrInvalidMesh))
+	}
 	return u.enqueue(ctx, job)
 }
 
-// QueueTexture schedules decode on a background worker goroutine, converts the
-// image to packed texel bytes (and optional CPU mipmap chain) off the main
-// thread, and streams mip levels and row bands to the GPU across [Uploader.Step]
-// calls within the per-frame byte budget.
+// QueueTexture runs decode on a background worker, converts the image there exactly as [UploadTexture] does ([PixelBufferFromImage], so translucent images upload with straight alpha), builds the mip chain there when opts.Mipmaps is set (box-filtered in linear light for sRGB textures, as [UploadTexturePixels] does), and streams mip levels and row bands to the GPU across [Uploader.Step] calls within the per-frame byte budget. The [GPUTexture] it delivers holds the same texels a synchronous [UploadTexture] with the same opts would, so it works with [BindTexture] and [GPUTexture.ByteSize].
 //
-// Supported formats are FormatRGBA8Unorm, FormatRGBA8UnormSRGB, FormatBGRA8Unorm,
-// FormatBGRA8UnormSRGB, FormatRG8Unorm, and FormatR8Unorm. FormatUndefined
-// defaults to FormatRGBA8Unorm. For pre-encoded or block-compressed textures,
-// use [Uploader.QueueRawTexture].
-func (u *Uploader) QueueTexture(
-	ctx context.Context,
-	decode func(context.Context) (image.Image, gpu.TextureFormat, error),
-	onReady func(*gpu.Texture, error),
-	opts ...TextureUploadOptions,
-) *UploadHandle {
+// onReady is called as [Uploader.QueueMesh] describes.
+func (u *Uploader) QueueTexture(ctx context.Context, priority UploadPriority, decode func(context.Context) (image.Image, error), onReady func(*GPUTexture, error), opts TextureUpload) *UploadHandle {
 	if decode == nil {
-		err := fmt.Errorf("%w: nil decode function", ErrInvalidTexture)
-		if onReady != nil {
-			onReady(nil, err)
+		return u.QueueTexturePixels(ctx, priority, nil, onReady, opts)
+	}
+	return u.QueueTexturePixels(ctx, priority, func(ctx context.Context) (PixelBuffer, error) {
+		img, err := decode(ctx)
+		if err != nil {
+			return PixelBuffer{}, err
 		}
-		return newImmediateErrorHandle(err)
-	}
-	var opt TextureUploadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+		return PixelBufferFromImage(img)
+	}, onReady, opts)
+}
+
+// QueueTexturePixels is [Uploader.QueueTexture] for raw [PixelBuffer] data, matching [UploadTexturePixels]: the buffer is validated, and RG8 or R8 data keeps its format. The decoded buffer's Pixels must not change until the handle is done.
+//
+// onReady is called as [Uploader.QueueMesh] describes.
+func (u *Uploader) QueueTexturePixels(ctx context.Context, priority UploadPriority, decode func(context.Context) (PixelBuffer, error), onReady func(*GPUTexture, error), opts TextureUpload) *UploadHandle {
 	job := &uploadJob{
 		kind:          kindTexture,
-		priority:      opt.Priority,
+		priority:      priority,
 		decodeTexture: decode,
-		texOpts:       opt,
+		texOpts:       opts,
 		onTexReady:    onReady,
 		heapIdx:       -1,
 	}
+	if decode == nil {
+		return u.reject(job, fmt.Errorf("%w: nil decode function", ErrInvalidTexture))
+	}
 	return u.enqueue(ctx, job)
 }
 
-// QueueRawBuffer schedules decode on a background worker goroutine and streams
-// the resulting raw GPU buffer bytes across [Uploader.Step] calls within the
-// per-frame byte budget.
-func (u *Uploader) QueueRawBuffer(
-	ctx context.Context,
-	decode func(context.Context) (RawBufferUpload, error),
-	onReady func(*gpu.Buffer, error),
-	opts ...RawUploadOptions,
-) *UploadHandle {
-	if decode == nil {
-		err := gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil decode function"}
-		if onReady != nil {
-			onReady(nil, err)
-		}
-		return newImmediateErrorHandle(err)
-	}
-	var opt RawUploadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+// QueueRawBuffer runs decode on a background worker and streams the raw GPU buffer bytes it returns across [Uploader.Step] calls within the per-frame byte budget.
+//
+// onReady is called as [Uploader.QueueMesh] describes.
+func (u *Uploader) QueueRawBuffer(ctx context.Context, priority UploadPriority, decode func(context.Context) (RawBufferUpload, error), onReady func(*gpu.Buffer, error)) *UploadHandle {
 	job := &uploadJob{
 		kind:          kindRawBuffer,
-		priority:      opt.Priority,
+		priority:      priority,
 		decodeRawBuf:  decode,
 		onRawBufReady: onReady,
 		heapIdx:       -1,
 	}
+	if decode == nil {
+		return u.reject(job, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil decode function"})
+	}
 	return u.enqueue(ctx, job)
 }
 
-// QueueRawTexture schedules decode on a background worker goroutine and streams
-// pre-encoded uncompressed or block-compressed texture mip levels across
-// [Uploader.Step] calls within the per-frame byte budget.
-func (u *Uploader) QueueRawTexture(
-	ctx context.Context,
-	decode func(context.Context) (RawTextureUpload, error),
-	onReady func(*gpu.Texture, error),
-	opts ...RawUploadOptions,
-) *UploadHandle {
-	if decode == nil {
-		err := fmt.Errorf("%w: nil decode function", ErrInvalidTexture)
-		if onReady != nil {
-			onReady(nil, err)
-		}
-		return newImmediateErrorHandle(err)
-	}
-	var opt RawUploadOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+// QueueRawTexture runs decode on a background worker and streams the pre-encoded uncompressed or block-compressed mip levels, array layers or cube faces it returns across [Uploader.Step] calls within the per-frame byte budget.
+//
+// onReady is called as [Uploader.QueueMesh] describes.
+func (u *Uploader) QueueRawTexture(ctx context.Context, priority UploadPriority, decode func(context.Context) (RawTextureUpload, error), onReady func(*gpu.Texture, error)) *UploadHandle {
 	job := &uploadJob{
-		kind:         kindRawTexture,
-		priority:     opt.Priority,
-		decodeRawTex: decode,
-		onTexReady:   onReady,
-		heapIdx:      -1,
+		kind:          kindRawTexture,
+		priority:      priority,
+		decodeRawTex:  decode,
+		onRawTexReady: onReady,
+		heapIdx:       -1,
+	}
+	if decode == nil {
+		return u.reject(job, fmt.Errorf("%w: nil decode function", ErrInvalidTexture))
 	}
 	return u.enqueue(ctx, job)
+}
+
+// reject fails job at once on the caller's goroutine.
+func (u *Uploader) reject(job *uploadJob, err error) *UploadHandle {
+	job.invokeError(err)
+	return newImmediateErrorHandle(err)
 }
 
 func (u *Uploader) enqueue(ctx context.Context, job *uploadJob) *UploadHandle {
 	if u == nil {
-		job.invokeError(ErrUploaderClosed)
-		return newImmediateErrorHandle(ErrUploaderClosed)
+		return u.reject(job, ErrUploaderClosed)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -797,13 +693,11 @@ func (u *Uploader) enqueue(ctx context.Context, job *uploadJob) *UploadHandle {
 	u.mu.Lock()
 	if u.closed {
 		u.mu.Unlock()
-		job.invokeError(ErrUploaderClosed)
-		return newImmediateErrorHandle(ErrUploaderClosed)
+		return u.reject(job, ErrUploaderClosed)
 	}
 	if u.maxPending > 0 && u.pending >= u.maxPending {
 		u.mu.Unlock()
-		job.invokeError(ErrUploadQueueFull)
-		return newImmediateErrorHandle(ErrUploadQueueFull)
+		return u.reject(job, ErrUploadQueueFull)
 	}
 
 	job.seq = u.nextSeq
@@ -817,8 +711,7 @@ func (u *Uploader) enqueue(ctx context.Context, job *uploadJob) *UploadHandle {
 
 	u.pending++
 	if err := ctx.Err(); err != nil {
-		// Caller context is already canceled/expired; skip worker scheduling
-		// and deliver cleanly on the next Step.
+		// Caller context is already canceled/expired; skip worker scheduling and deliver cleanly on the next Step.
 		job.decodeErr = contextUploadError(err, false)
 		job.loc = locFinishQueue
 		u.finishQueue = append(u.finishQueue, job)
@@ -879,11 +772,11 @@ func (u *Uploader) workerLoop() {
 		u.mu.Lock()
 		u.inFlightDecodes--
 		if u.closed {
-			job.cleanupContext()
+			// Close joins the workers before it drains finishQueue, so it reports this job and calls its onReady.
 			job.releaseStaging()
-			job.loc = locDone
-			u.pending--
-			job.handle.finish(UploadFailed, ErrUploaderClosed)
+			job.decodeErr = ErrUploaderClosed
+			job.loc = locFinishQueue
+			u.finishQueue = append(u.finishQueue, job)
 			u.mu.Unlock()
 			return
 		}
@@ -945,14 +838,14 @@ func (u *Uploader) runDecode(job *uploadJob) error {
 		return nil
 
 	case kindTexture:
-		img, format, err := job.decodeTexture(job.ctx)
+		buf, err := job.decodeTexture(job.ctx)
 		if err != nil {
 			return err
 		}
 		if err := job.ctx.Err(); err != nil {
 			return contextUploadError(err, job.handle.canceled.Load())
 		}
-		desc, mips, err := packImageTexture(job.ctx, img, format, job.texOpts)
+		desc, mips, err := packPixelTexture(job.ctx, buf, job.texOpts)
 		if err != nil {
 			return err
 		}
@@ -1006,9 +899,7 @@ func (u *Uploader) runDecode(job *uploadJob) error {
 	}
 }
 
-// Step advances GPU uploads on the engine goroutine without exceeding the
-// configured per-frame byte budget. Call once per frame (for example inside
-// [gpu.ViewProps.OnFrame]).
+// Step advances GPU uploads on the engine goroutine without exceeding the configured per-frame byte budget. Call once per frame (for example inside [gpu.ViewProps.OnFrame]).
 func (u *Uploader) Step() UploadFrameStats {
 	start := time.Now()
 	var stats UploadFrameStats
@@ -1043,27 +934,7 @@ func (u *Uploader) Step() UploadFrameStats {
 		job.loc = locDone
 		u.pending--
 		u.mu.Unlock()
-
-		job.closePartialGPU()
-		job.releaseStaging()
-		job.cleanupContext()
-
-		err := job.decodeErr
-		st := UploadFailed
-		if job.handle.canceled.Load() || errors.Is(err, ErrUploadCanceled) {
-			st = UploadCanceled
-			if err == nil {
-				err = ErrUploadCanceled
-			}
-			stats.Canceled++
-		} else {
-			if err == nil {
-				err = errors.New("render3d: upload failed")
-			}
-			stats.Failed++
-		}
-		job.handle.finish(st, err)
-		job.invokeError(err)
+		finishQueuedJob(job, &stats)
 	}
 
 	// 2. Stream ready payloads in priority order within remaining byte budget.
@@ -1170,6 +1041,7 @@ func (u *Uploader) Step() UploadFrameStats {
 			job.releaseStaging()
 			job.cleanupContext()
 			job.handle.finish(UploadFailed, ErrUploaderClosed)
+			job.invokeError(ErrUploaderClosed)
 			break
 		}
 		if job.handle.canceled.Load() {
@@ -1204,6 +1076,30 @@ func (u *Uploader) Step() UploadFrameStats {
 	return stats
 }
 
+// finishQueuedJob reports a job taken off finishQueue as failed or canceled with the error it carries and calls its onReady.
+func finishQueuedJob(job *uploadJob, stats *UploadFrameStats) {
+	job.closePartialGPU()
+	job.releaseStaging()
+	job.cleanupContext()
+
+	err := job.decodeErr
+	st := UploadFailed
+	if job.handle.canceled.Load() || errors.Is(err, ErrUploadCanceled) {
+		st = UploadCanceled
+		if err == nil {
+			err = ErrUploadCanceled
+		}
+		stats.Canceled++
+	} else {
+		if err == nil {
+			err = errors.New("render3d: upload failed")
+		}
+		stats.Failed++
+	}
+	job.handle.finish(st, err)
+	job.invokeError(err)
+}
+
 func (u *Uploader) abortClosedSteppedJob(job *uploadJob) {
 	u.mu.Lock()
 	job.loc = locDone
@@ -1214,6 +1110,7 @@ func (u *Uploader) abortClosedSteppedJob(job *uploadJob) {
 	job.releaseStaging()
 	job.cleanupContext()
 	job.handle.finish(UploadFailed, ErrUploaderClosed)
+	job.invokeError(ErrUploaderClosed)
 }
 
 func (u *Uploader) finishSteppedJob(job *uploadJob, st UploadState, err error, stats *UploadFrameStats) {
@@ -1349,10 +1246,7 @@ func (u *Uploader) jobGPUValid(job *uploadJob) bool {
 	}
 }
 
-// uploadOneChunk writes at most min(remaining, chunkMax) bytes for job.
-// If the remaining budget cannot fit the minimum alignment unit and work has
-// already been uploaded in this frame (allowForce == false), it returns (0, true)
-// so Step stops without exceeding BytesPerFrame.
+// uploadOneChunk writes at most min(remaining, chunkMax) bytes for job. If the remaining budget cannot fit the minimum alignment unit and work has already been uploaded in this frame (allowForce == false), it returns (0, true) so Step stops without exceeding BytesPerFrame.
 func (u *Uploader) uploadOneChunk(job *uploadJob, remaining, chunkMax int, allowForce bool) (written int, stalled bool) {
 	maxWrite := min(remaining, chunkMax)
 
@@ -1453,8 +1347,7 @@ func writeTextureChunk(
 		return n, false
 	}
 
-	// Uncompressed texture: prefer full row bands; split a single row horizontally
-	// when a full row does not fit in maxWrite so even tiny budgets are respected.
+	// Uncompressed texture: prefer full row bands; split a single row horizontally when a full row does not fit in maxWrite so even tiny budgets are respected.
 	if *curRow >= m.height {
 		*mipIdx++
 		*curRow = 0
@@ -1522,10 +1415,7 @@ func writeTextureChunk(
 	return n, false
 }
 
-// Close cancels all unfinished uploads, waits for all background decode
-// goroutines to exit, and releases any partially uploaded GPU resources.
-// Already-delivered resources remain owned by their scope / caller.
-// Close is safe to call multiple times.
+// Close cancels every unfinished upload, waits for the decode workers to exit, releases partially uploaded GPU resources, and calls the onReady of each unfinished upload with [ErrUploaderClosed] (or with the error it had already failed with). Resources already delivered stay owned by their scope or caller. Call Close on the goroutine that calls [Uploader.Step], as it releases GPU resources and runs onReady callbacks; disposing the scope passed to [NewUploader] does. Close may be called more than once, and from an onReady callback.
 func (u *Uploader) Close() error {
 	if u == nil {
 		return nil
@@ -1551,178 +1441,90 @@ func (u *Uploader) Close() error {
 	var drained []*uploadJob
 	for len(u.decodeHeap) > 0 {
 		j := heap.Pop(&u.decodeHeap).(*uploadJob)
-		j.loc = locDone
-		u.pending--
+		j.decodeErr = ErrUploaderClosed
 		drained = append(drained, j)
 	}
 	for len(u.uploadHeap) > 0 {
 		j := heap.Pop(&u.uploadHeap).(*uploadJob)
-		j.loc = locDone
-		u.pending--
+		j.decodeErr = ErrUploaderClosed
 		drained = append(drained, j)
 	}
-	for _, j := range u.finishQueue {
-		j.loc = locDone
-		u.pending--
-		drained = append(drained, j)
-	}
+	drained = append(drained, u.finishQueue...)
 	u.finishQueue = nil
+	for _, j := range drained {
+		j.loc = locDone
+		u.pending--
+	}
 	u.mu.Unlock()
 
+	var stats UploadFrameStats
 	for _, j := range drained {
-		j.closePartialGPU()
-		j.releaseStaging()
-		j.cleanupContext()
-		j.handle.finish(UploadFailed, ErrUploaderClosed)
+		finishQueuedJob(j, &stats)
 	}
 	return nil
 }
 
-func packImageTexture(
-	ctx context.Context,
-	img image.Image,
-	format gpu.TextureFormat,
-	opts TextureUploadOptions,
-) (gpu.TextureDesc, []packedMip, error) {
-	if img == nil {
-		return gpu.TextureDesc{}, nil, fmt.Errorf("%w: nil image", ErrInvalidTexture)
+// packPixelTexture validates buf and builds the texture description and mip levels [UploadTexturePixels] would upload for it: the same format, label, mip count and CPU mip chain.
+func packPixelTexture(ctx context.Context, buf PixelBuffer, opts TextureUpload) (gpu.TextureDesc, []packedMip, error) {
+	if err := buf.Validate(); err != nil {
+		return gpu.TextureDesc{}, nil, err
 	}
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	if w <= 0 || h <= 0 {
-		return gpu.TextureDesc{}, nil, fmt.Errorf("%w: non-positive dimensions %dx%d", ErrInvalidTexture, w, h)
-	}
-	if format == gpu.FormatUndefined {
-		format = gpu.FormatRGBA8Unorm
-	}
-	bpp, err := imageFormatBPP(format)
+	format, err := resolveTextureFormat(buf.Format, opts.SRGB)
 	if err != nil {
 		return gpu.TextureDesc{}, nil, err
 	}
-
-	baseRGBA := imageToTightRGBA(img)
-	maxMips := gpu.MaxMipLevels(uint32(w), uint32(h))
-	mipCount := uint32(1)
-	if opts.GenerateMipmaps {
-		mipCount = maxMips
-		if opts.MipLevels > 0 && opts.MipLevels < mipCount {
-			mipCount = opts.MipLevels
+	w, h := buf.Width, buf.Height
+	mipLevels := uint32(1)
+	if opts.Mipmaps {
+		mipLevels = gpu.MaxMipLevels(uint32(w), uint32(h))
+		if opts.MaxMipLevels > 0 && opts.MaxMipLevels < mipLevels {
+			mipLevels = opts.MaxMipLevels
 		}
-	} else if opts.MipLevels > 1 {
-		mipCount = min(opts.MipLevels, maxMips)
 	}
-
-	usage := opts.Usage
-	if usage == 0 {
-		usage = gpu.TextureSampled | gpu.TextureCopyDst
-	} else {
-		usage |= gpu.TextureCopyDst
+	label := opts.Label
+	if label == "" {
+		label = "render3d.texture"
 	}
 	desc := gpu.TextureDesc{
-		Label:     opts.Label,
+		Label:     label,
 		Dimension: gpu.Dim2D,
 		Width:     uint32(w),
 		Height:    uint32(h),
 		Layers:    1,
-		MipLevels: mipCount,
+		MipLevels: mipLevels,
 		Format:    format,
-		Usage:     usage,
+		Usage:     gpu.TextureSampled | gpu.TextureCopyDst,
 		Retained:  opts.Retained,
 	}
-
-	mips := make([]packedMip, 0, mipCount)
-	cur := baseRGBA
-	for lvl := uint32(0); lvl < mipCount; lvl++ {
+	bpp := pixelBytesPerPixel(format)
+	stride := buf.Stride
+	if stride == 0 {
+		stride = w * bpp
+	}
+	srgb := format.IsSRGB()
+	mips := make([]packedMip, 0, mipLevels)
+	cur := packPixelRows(buf.Pixels, w, h, bpp, stride)
+	curW, curH := w, h
+	for lvl := range mipLevels {
 		if err := ctx.Err(); err != nil {
 			return gpu.TextureDesc{}, nil, err
 		}
 		if lvl > 0 {
-			cur = gpu.DownsampleRGBA2x(cur)
+			nextW, nextH := max(1, curW>>1), max(1, curH>>1)
+			cur = downsamplePixelsBox(cur, curW, curH, nextW, nextH, bpp, srgb)
+			curW, curH = nextW, nextH
 		}
-		mw := uint32(cur.Bounds().Dx())
-		mh := uint32(cur.Bounds().Dy())
-		data := convertRGBA8ToFormat(cur.Pix, format)
 		mips = append(mips, packedMip{
 			mipLevel:     lvl,
-			arrayLayer:   0,
-			width:        mw,
-			height:       mh,
-			bytesPerRow:  mw * bpp,
+			width:        uint32(curW),
+			height:       uint32(curH),
+			bytesPerRow:  uint32(curW * bpp),
 			blockHeight:  1,
-			bytesPerUnit: bpp,
-			compressed:   false,
-			data:         data,
+			bytesPerUnit: uint32(bpp),
+			data:         cur,
 		})
 	}
 	return desc, mips, nil
-}
-
-func imageFormatBPP(format gpu.TextureFormat) (uint32, error) {
-	switch format {
-	case gpu.FormatRGBA8Unorm, gpu.FormatRGBA8UnormSRGB, gpu.FormatBGRA8Unorm, gpu.FormatBGRA8UnormSRGB:
-		return 4, nil
-	case gpu.FormatRG8Unorm:
-		return 2, nil
-	case gpu.FormatR8Unorm:
-		return 1, nil
-	default:
-		return 0, fmt.Errorf("%w: unsupported image texture format %s", ErrInvalidTexture, format)
-	}
-}
-
-func imageToTightRGBA(img image.Image) *image.RGBA {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	rowBytes := w * 4
-	switch src := img.(type) {
-	case *image.RGBA:
-		for y := 0; y < h; y++ {
-			si := src.PixOffset(b.Min.X, b.Min.Y+y)
-			di := y * rowBytes
-			copy(dst.Pix[di:di+rowBytes], src.Pix[si:si+rowBytes])
-		}
-	case *image.NRGBA:
-		for y := 0; y < h; y++ {
-			si := src.PixOffset(b.Min.X, b.Min.Y+y)
-			di := y * rowBytes
-			copy(dst.Pix[di:di+rowBytes], src.Pix[si:si+rowBytes])
-		}
-	default:
-		draw.Draw(dst, dst.Bounds(), img, b.Min, draw.Src)
-	}
-	return dst
-}
-
-func convertRGBA8ToFormat(rgba []byte, format gpu.TextureFormat) []byte {
-	switch format {
-	case gpu.FormatRGBA8Unorm, gpu.FormatRGBA8UnormSRGB:
-		return rgba
-	case gpu.FormatBGRA8Unorm, gpu.FormatBGRA8UnormSRGB:
-		out := make([]byte, len(rgba))
-		for i := 0; i < len(rgba); i += 4 {
-			out[i+0] = rgba[i+2]
-			out[i+1] = rgba[i+1]
-			out[i+2] = rgba[i+0]
-			out[i+3] = rgba[i+3]
-		}
-		return out
-	case gpu.FormatRG8Unorm:
-		out := make([]byte, len(rgba)/2)
-		for si, di := 0, 0; si < len(rgba); si, di = si+4, di+2 {
-			out[di+0] = rgba[si+0]
-			out[di+1] = rgba[si+1]
-		}
-		return out
-	case gpu.FormatR8Unorm:
-		out := make([]byte, len(rgba)/4)
-		for si, di := 0, 0; si < len(rgba); si, di = si+4, di+1 {
-			out[di] = rgba[si]
-		}
-		return out
-	default:
-		return rgba
-	}
 }
 
 func packRawTexture(ctx context.Context, raw RawTextureUpload) (gpu.TextureDesc, []packedMip, error) {
