@@ -39,6 +39,7 @@
 //   - game_assets_list: list loaded asset groups, asset keys/types, load states, and estimated memory usage in bytes.
 //   - game_asset_reload: reload a named asset, URI, or path (or all loaded assets) in place and report structured reload diagnostics.
 //   - game_assets_reload_group: reload every loaded asset in a named asset group in place.
+//   - game_screenshot: capture the game view as PNG, optionally with aligned sprite bounds, physics collision shapes, reference grid, camera frame and labels drawn on top.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable and editable automatically. Transient or non-saved components can also be exposed with [RegisterComponent], [RegisterComponentFunc], [RegisterMutableComponent] or [RegisterComponentEditor], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name. Prefabs can be registered via [Config.Prefabs], [Bridge.RegisterPrefab], [Bridge.RegisterEntityPrefab] or [Bridge.RegisterScenePrefab].
 //

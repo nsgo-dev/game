@@ -35,16 +35,19 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	Shaders:         g.shaderReloader,
 	Materials:       g.materialReloader,
 	ReloadAsset:     g.reloadCustomAsset,
+	PhysicsFunc:     func() *physics.World { return g.physics },
+	ScreenshotDir:   g.screenshotDir,
 })
 if err != nil {
 	return err
 }
 ```
 
-- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop` 或 `*debug.Console`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole`）。
+- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop`、`*debug.Console` 或 `*physics.World`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`）。
 - 若要启用 `game_loop_seed`，可配置 `Random`（`*random.Stream`）、`RandomStreams`（`*random.Streams`）和/或自定义 `SetSeed` 回调；若都未配置，调用 `game_loop_seed` 会返回明确的可操作错误。
 - 如果 `scene.Manager` 的控制器通过自定义 `Controller.Draw` 绘制而没有设置 `Controller.Scene`，`SceneFunc` / `Scene` 会自动作为当前场景的图层来源。
 - 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
+- 对于 `game_screenshot`，可以提供 `CaptureFrame`（将诊断叠加层合成到已渲染的 `*image.RGBA` 上）、`DrawFrame`（录制自定义的 `core.Drawing` 绘制指令），或直接由 `game/mcp` 在 `Viewport`（及可选的 `ScreenshotBackground`）下渲染当前活跃的 `Scenes`/`Scene`。设置 `ScreenshotDir` 后可通过 `path` 参数将 PNG 写入受限的相对路径；否则响应会直接内联返回 `png_base64`。
 
 ## 检查与编辑组件
 
@@ -130,6 +133,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_assets_list` | `group`（可选）、`state`（`loaded`/`loading`/`unloaded`/`failed`）、`kind`（可选） | 按确定顺序排列的资源组列表（涵盖 `assets.Manager`、`resource.Library`、`hotreload.ShaderReloader`、`hotreload.MaterialReloader` 与自定义注册资源），包含加载状态、资源键/类型/URI、图集帧数、各组估算内存字节数及 `total_bytes`。 |
 | `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`；未报错但保持不变的条目会带有 `skipped`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。`all: true` 需要配置资源管理器、重载器或已注册资源；`Config.ReloadAsset` 只用于重载单个 key。 |
 | `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、重载数 `count`、失败数 `failed`、跳过数 `skipped`、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
+| `game_screenshot` | `scene`、`width`、`height`、`format`（`"png"`）、`path`、`bounds`、`collision_shapes`、`physics`、`grid`、`camera`、`labels`、`overlays`（`{bounds, collision_shapes, physics, grid, grid_step, camera, labels}`） | 将游戏画面截取为 PNG（返回 `width`、`height`、`format`、`bytes`、`png_base64` 或相对路径 `path`，以及 `overlays_drawn` 汇总），可选在同一相机与视口变换下叠加像素级对齐的精灵包围盒、2D 物理碰撞形状、参考网格、相机边框和标签。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -217,6 +221,17 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - **安全的错误处理**：遇到语法、Schema 或着色器编译错误时，原有可用的图集、着色器、材质或资源会保持激活状态，工具返回 `reloaded: false` 并在 `error` 字段中附带详细诊断信息。
 - **跳过的资源**：音效不会就地替换；没有对应文件的图片（如程序生成的纹理）无从重载；屏幕不显示的密度对应的文件（如 2x 屏幕上的 1x 文件）即使替换也不会改变画面。这些条目会在 `skipped` 中给出原因（`assets.SkippedSound`、`assets.SkippedNoFile`、`assets.SkippedDensity`），既不计入重载成功，也不计入失败。按组重载时，组的读取器找不到文件的图片同样会被跳过；按 key 单独重载该图片则会返回读取错误。
 - **不在引擎 goroutine 上读取**：`Manager.ReloadAsset` 与 `Manager.ReloadGroup` 与 `Group.Load` 一样，在其他 goroutine 上读取文件、解析图集并运行自定义加载器，完成后再在引擎 goroutine 上应用结果。工具调用会等待这些工作完成，因此自定义读取器或加载器不能等待引擎 goroutine；若调用的 context 先结束，则不会替换任何资源，工具返回该 context 的错误。
+
+## 截图与诊断叠加层
+
+`game_screenshot` 会渲染或捕获当前游戏画面，并在与游戏完全一致的 `screen.Viewport` 裁剪/缩放/黑边以及 `tilemap.Camera`（含视差图层与 `SpaceScreen` HUD 图层）变换下合成所请求的叠加层：
+
+- **`bounds`**：为渲染场景中每个可见精灵绘制 1 像素青色（`#00e5ff`）包围盒边框。
+- **`collision_shapes` / `physics`**：绘制来自 `Config.Physics` 的 2D 碰撞形状（矩形刚体绿色 `#22c55e`、带 `+X` 朝向刻度的圆形天蓝色 `#38bdf8`、触发器粉色 `#f472b6`、实心瓦片琥珀色 `#f59e0b`、单向平台瓦片紫色 `#c084fc`）以及 `Config.RigidPhysics` 中的旋转刚体。配色与 `physics.DefaultDebugStyle()` 及 `mcp.DefaultOverlayStyle()` 一致。
+- **`grid`**：按 `overlays.grid_step`（默认 `32` 点）绘制世界空间参考网格。
+- **`camera`**：绘制当前活跃相机的可见范围边框与中心十字线（`#facc15`）。
+- **`labels`**：为精灵帧名和带标签的物理体绘制紧凑点阵文字标签。
+- **`path`**：指定后将 PNG 写入限制在 `Config.ScreenshotDir` 目录内的相对路径（拒绝绝对路径与 `..` 目录穿越），并在响应中省略 `png_base64`；未指定时直接在 JSON 中返回 `png_base64`。
 
 ## 稳定的实体引用
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"math"
 	"reflect"
@@ -19,6 +20,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/debug"
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/random"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/scene"
@@ -106,7 +108,7 @@ type Config struct {
 	// ActionsFunc dynamically resolves the active input.Actions on each tool call. When non-nil and returning a non-nil *input.Actions, it overrides Actions.
 	ActionsFunc func() *input.Actions
 
-	// Viewport maps virtual game coordinates to view coordinates for game_input_pointer.
+	// Viewport maps virtual game coordinates to view coordinates for game_input_pointer, and maps the game's virtual canvas onto the image when game_screenshot renders the game view and aligns overlays.
 	Viewport *screen.Viewport
 
 	// ViewportFunc dynamically resolves the active screen.Viewport on each tool call. When non-nil and returning a viewport with positive dimensions, it overrides Viewport.
@@ -166,6 +168,30 @@ type Config struct {
 
 	// ReloadAsset is an optional custom reload callback invoked by game_asset_reload when no configured asset manager, reloader or custom asset owns key.
 	ReloadAsset func(ctx context.Context, key string) error
+
+	// Physics is the game's 2D physics world used to draw collision shape overlays in game_screenshot.
+	Physics *physics.World
+
+	// PhysicsFunc dynamically resolves the active 2D physics world on each screenshot call. When non-nil and returning a non-nil world, it overrides Physics.
+	PhysicsFunc func() *physics.World
+
+	// RigidPhysics is an optional 2D rigid-body physics world whose bodies are drawn alongside Physics when collision shape overlays are enabled.
+	RigidPhysics *physics.RigidWorld
+
+	// RigidPhysicsFunc dynamically resolves the active 2D rigid-body physics world on each screenshot call. When non-nil and returning a non-nil world, it overrides RigidPhysics.
+	RigidPhysicsFunc func() *physics.RigidWorld
+
+	// DrawFrame optionally records the game's current frame into d for a target of width by height pixels. When nil, game_screenshot renders the active scene (from Scenes or Scene/SceneFunc) under Viewport if configured.
+	DrawFrame func(d *core.Drawing, width, height int)
+
+	// CaptureFrame optionally returns an already-rendered game frame (for example from a GPU readback or offscreen canvas). Requested overlays are composited on top in the same camera and viewport coordinates.
+	CaptureFrame func(ctx context.Context) (*image.RGBA, error)
+
+	// ScreenshotDir confines relative output paths written when game_screenshot is called with a path argument. When empty, writing to disk via path is refused.
+	ScreenshotDir string
+
+	// ScreenshotBackground optionally fills the screenshot canvas before drawing the game frame when CaptureFrame is nil. Zero leaves the background transparent.
+	ScreenshotBackground core.Color
 }
 
 type compTypeKey any
@@ -343,6 +369,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.replayTools()...)
 	out = append(out, b.perfTools()...)
 	out = append(out, b.assetTools()...)
+	out = append(out, b.screenshotTools()...)
 	return out
 }
 

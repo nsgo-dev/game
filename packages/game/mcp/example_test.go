@@ -72,4 +72,5 @@ func ExampleNew() {
 	// game_assets_list
 	// game_asset_reload
 	// game_assets_reload_group
+	// game_screenshot
 }
