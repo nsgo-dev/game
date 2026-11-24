@@ -49,6 +49,11 @@ describe('llmsPage', () => {
     assert.deepEqual(relativeUrls(page.markdown), [])
   })
 
+  test('points a link to a heading of the same page at the page', () => {
+    const page = llmsPage('editor', '# Editor\n\nSee [Component types](#component-types).\n\n## Component types\n', SITE)
+    assert.match(page.markdown, /\[Component types\]\(https:\/\/game\.example\/game\/docs\/editor\/#component-types\)/)
+  })
+
   test('falls back to the slug without a heading', () => {
     const page = llmsPage('extra', 'Only a paragraph.\n', SITE)
     assert.equal(page.title, 'extra')

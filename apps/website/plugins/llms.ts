@@ -90,7 +90,8 @@ export function llmsPage(slug: string, source: string, site: string): LlmsPage {
     const start = node.position?.start.offset
     const end = node.position?.end.offset
     if ((node.type === 'link' || node.type === 'definition') && node.url && start !== undefined && end !== undefined) {
-      const url = rewriteLink(node.url, 'en', 'en', site)
+      // A link to a heading of the same page has no page to rewrite, so it points at the page's own address.
+      const url = node.url.startsWith('#') ? `${pageUrl(slug, site)}${node.url}` : rewriteLink(node.url, 'en', 'en', site)
       // The destination is the URL's first occurrence after the link's text or the definition's label, so neither that text nor a title after the destination is taken for it.
       const after = destinationSearchStart(node, start)
       const at = source.indexOf(node.url, after)
