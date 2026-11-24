@@ -122,6 +122,7 @@
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
 | `game/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/project` | 实验性 | [项目文件](project.md) |
+| `game/quality` | 实验性 | [quality](quality.md) |
 | `game/quest` | 实验性 | [quest](quest.md) |
 | `game/random` | 稳定 | [确定性指南](determinism.md) |
 | `game/render3d` | 实验性 | [render3d](render3d.md) |
