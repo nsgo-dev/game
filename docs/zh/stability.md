@@ -88,6 +88,7 @@
 | `game/effects` | 实验性 | [effects](effects.md) |
 | `game/entities` | 实验性 | [entities](entities.md) |
 | `game/flow` | 稳定 | [flow](flow.md) |
+| `game/fog` | 实验性 | [fog](fog.md) |
 | `game/gametest` | 实验性 | |
 | `game/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |

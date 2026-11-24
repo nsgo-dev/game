@@ -88,6 +88,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/effects` | Experimental | [effects](effects.md) |
 | `game/entities` | Experimental | [entities](entities.md) |
 | `game/flow` | Stable | [flow](flow.md) |
+| `game/fog` | Experimental | [fog](fog.md) |
 | `game/gametest` | Experimental | |
 | `game/gameui` | Experimental | [gameui](gameui.md) |
 | `game/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
