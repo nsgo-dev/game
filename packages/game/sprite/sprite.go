@@ -35,6 +35,8 @@ type Sprite struct {
 	Blend core.CompositeOp
 	// Mask, if set, clips the sprite to a shape in the drawing's coordinates before drawing it.
 	Mask *Mask
+	// Effect, if set, applies per-sprite visual effects (solid-color flash or silhouette, alpha outline, dissolve, palette swap, or a custom pixel hook) to this sprite's pixels alone, leaving neighboring sprites and anything drawn under the sprite unchanged. A nil or inactive Effect keeps the sprite on Batch's DrawAtlas fast path.
+	Effect *Effect
 	// Z orders the sprites of a batch: a higher Z draws over a lower one, and sprites with the same Z draw in the batch's order.
 	Z int
 }
@@ -97,11 +99,13 @@ type Batch struct {
 	alphas []float32
 	lone   *Sprite
 	faded  bool
+	// fxPool holds reusable per-slot pixel buffers for sprites drawn with an active Effect.
+	fxPool []effectSlot
 }
 
 // Draw draws the batch's sprites into d, lowest Z first, and leaves d's state as it found it.
 //
-// Consecutive sprites (in Z order) that are only moved, turned and scaled evenly, with the default blend, no tint and no mask of their own, draw with one Drawing.DrawAtlas. A run of sprites at full opacity keeps the drawing's alpha, as a lone such sprite does; a run of faded sprites draws between Save and Restore with the alpha set to 1, so that each sprite's Alpha replaces the drawing's, as Sprite.Alpha says. A sprite that is mirrored, scaled unevenly, tinted, blended or masked, and a run of one, draws with its own DrawImageFrom, or DrawTintedImageFrom when tinted, between Save and Restore when it turns, mirrors, fades, blends or clips.
+// Consecutive sprites (in Z order) that are only moved, turned and scaled evenly, with the default blend, no tint, no mask and no active effect of their own, draw with one Drawing.DrawAtlas. A run of sprites at full opacity keeps the drawing's alpha, as a lone such sprite does; a run of faded sprites draws between Save and Restore with the alpha set to 1, so that each sprite's Alpha replaces the drawing's, as Sprite.Alpha says. A sprite that is mirrored, scaled unevenly, tinted, blended, masked or has an active effect, and a run of one, draws on its own, between Save and Restore when it turns, mirrors, fades, blends or clips.
 func (b *Batch) Draw(d *core.Drawing) {
 	if b.Atlas == nil {
 		return
@@ -110,6 +114,7 @@ func (b *Batch) Draw(d *core.Drawing) {
 		b.order = append(b.order[:0], b.Sprites...)
 		slices.SortStableFunc(b.order, func(x, y *Sprite) int { return cmp.Compare(x.Z, y.Z) })
 		img := b.Atlas.Image
+		fxIdx := 0
 		for _, s := range b.order {
 			if s.hidden() {
 				continue
@@ -117,7 +122,11 @@ func (b *Batch) Draw(d *core.Drawing) {
 			t, ok := s.atlasForm()
 			if !ok {
 				b.flush(d, img)
-				s.draw(d, img)
+				if s.effectActive() {
+					s.drawEffect(d, b.Atlas, b.nextEffectSlot(&fxIdx))
+				} else {
+					s.draw(d, img)
+				}
 				continue
 			}
 			faded := s.Alpha < 1
@@ -136,6 +145,7 @@ func (b *Batch) Draw(d *core.Drawing) {
 			b.alphas = append(b.alphas, s.Alpha)
 		}
 		b.flush(d, img)
+		b.trimEffectPool(fxIdx)
 		clear(b.order)
 	}
 	if b.Mask != nil {
@@ -164,19 +174,23 @@ func (b *Batch) flush(d *core.Drawing, img core.ImageSource) {
 // tinted reports whether the sprite's Tint changes its picture: the zero color and opaque white leave it unchanged, so they draw untinted, and the zero color, though transparent black, is the one alpha-0 tint that still draws.
 func (s *Sprite) tinted() bool { return s.Tint != 0 && s.Tint != untinted }
 
-// hidden reports whether the sprite draws nothing: an empty frame, no opacity, a zero scale, a tint with no alpha, which multiplies every pixel's alpha to 0, a mask with no area, or a NaN or infinite placement or alpha, which DrawAtlas would drop and DrawImageFrom would draw nowhere.
+// effectActive reports whether the sprite has an active per-sprite Effect.
+func (s *Sprite) effectActive() bool { return s.Effect != nil && s.Effect.Active() }
+
+// hidden reports whether the sprite draws nothing: an empty frame, no opacity, a zero scale, a tint with no alpha, which multiplies every pixel's alpha to 0, a mask with no area, a fully dissolved effect with no custom hook, or a NaN or infinite placement or alpha, which DrawAtlas would drop and DrawImageFrom would draw nowhere.
 func (s *Sprite) hidden() bool {
 	f := s.Frame
-	return f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 || s.tinted() && s.Tint&0xff == 0 || s.Mask != nil && s.Mask.state() == maskEmpty ||
+	dissolved := s.Effect != nil && s.Effect.Dissolve.fullyDissolved() && s.Effect.Custom == nil
+	return f.W <= 0 || f.H <= 0 || s.Alpha <= 0 || s.ScaleX == 0 || s.ScaleY == 0 || s.tinted() && s.Tint&0xff == 0 || s.Mask != nil && s.Mask.state() == maskEmpty || dissolved ||
 		!finite(s.X) || !finite(s.Y) || !finite(s.OriginX) || !finite(s.OriginY) || !finite(s.Rotation) || !finite(s.ScaleX) || !finite(s.ScaleY) || !finite(s.Alpha)
 }
 
 // finite reports whether v is neither NaN nor infinite.
 func finite(v float32) bool { return !math.IsNaN(float64(v)) && !math.IsInf(float64(v), 0) }
 
-// atlasForm returns the transform that places the sprite's trimmed rectangle for Drawing.DrawAtlas, and false when the sprite cannot draw there: DrawAtlas only moves, turns and scales evenly, and has no tint, blend or clip of a tile's own.
+// atlasForm returns the transform that places the sprite's trimmed rectangle for Drawing.DrawAtlas, and false when the sprite cannot draw there: DrawAtlas only moves, turns and scales evenly, and has no tint, blend, clip or effect of a tile's own.
 func (s *Sprite) atlasForm() (core.RSXform, bool) {
-	if s.tinted() || s.Blend != core.CompositeSourceOver || s.Mask != nil && s.Mask.state() == maskActive {
+	if s.tinted() || s.Blend != core.CompositeSourceOver || s.Mask != nil && s.Mask.state() == maskActive || s.effectActive() {
 		return core.RSXform{}, false
 	}
 	m := s.Transform()

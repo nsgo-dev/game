@@ -140,6 +140,7 @@ Fields on `Sprite`:
 | `FlipX`, `FlipY` | Mirrors the frame inside its untrimmed box before placement, keeping the origin in place. |
 | `Alpha` | Opacity in `[0, 1]`; `<= 0` draws nothing. Replaces the drawing's alpha for this sprite. |
 | `Tint` | A `core.Color` that multiplies the frame's red, green, blue and alpha before the sprite is composited; the zero value and opaque white draw the frame unchanged, and any other tint with alpha `0` draws nothing. To fade a sprite out, lower `Alpha`: a tint that reaches transparent black is the zero value and draws the frame unchanged. |
+| `Effect` | Optional `*Effect` applying per-sprite solid-color flash or silhouette, alpha outline, dissolve, palette swap, or a custom pixel hook to this sprite's pixels alone. A `nil` or inactive `Effect` keeps the sprite on `DrawAtlas`. |
 | `Z` | Draw order inside a `Batch`; higher `Z` draws on top of lower `Z`. |
 
 A tinted sprite recolors only its own pixels: it draws with NSGo's `DrawTintedImageFrom`, which multiplies the image's channels by the tint before compositing with the default source-over mode, so transparent pixels leave what is under the sprite unchanged. `Tint` combines with `Alpha`, `Blend` and `Mask` in the same draw:
@@ -152,6 +153,76 @@ ghost.Tint = core.RGBA(0x80c0ff, 0.5) // a pale blue at half the sprite's opacit
 ```
 
 On the web, a cross-origin atlas image must allow anonymous CORS requests for NSGo to tint its pixels. On HarmonyOS, NSGo tints atlases loaded from bytes or the app's resources, but tinting is not yet checked on a device there, and an atlas built from a pixel buffer or an offscreen image draws nothing there yet.
+
+## Per-sprite effects
+
+`Sprite.Tint` multiplies existing channels (so dark pixels stay dark under a white tint) and `game/effects` runs fragment passes over the whole game view. For per-sprite hit flashes, silhouettes, outlines, dissolves and palette swaps that never touch neighboring sprites or the backdrop drawn beneath the sprite, set `Sprite.Effect`:
+
+```go
+fx := &sprite.Effect{
+	Flash: sprite.Flash{Color: core.RGB(0xffffff), Strength: 0.8}, // or sprite.Silhouette(core.RGB(0xffffff))
+	Outline: sprite.Outline{Color: core.RGB(0xffdd00), Thickness: 1},
+}
+hero.Effect = fx
+
+// Parameters can change every frame; clearing them returns the sprite to DrawAtlas.
+fx.Flash.Strength = 0
+```
+
+Stages on `Effect` compose in a fixed order:
+
+1. **`PaletteSwap`**: remaps straight 8-bit sRGB colors matching `Entries` (within `Tolerance`, first match wins) while scaling pixel alpha by `To`'s alpha.
+2. **`Sprite.Tint`**: multiplies base sprite color when `Tint` is also set (so hit flashes and outlines are not darkened by the sprite's base tint).
+3. **`Dissolve`**: discards pixels whose noise value is below `Threshold` (`[0, 1]`), optionally coloring surviving pixels in `[Threshold, Threshold+EdgeWidth)` with `EdgeColor`. Uses deterministic hash/value noise seeded by `Seed` and cell size `Scale`, or samples a custom grayscale `Noise` image.
+4. **`Flash`**: lerps non-transparent RGB toward `Flash.Color` by `Strength` (`[0, 1]`) while preserving each pixel's alpha. `Silhouette(color)` is shorthand for `Strength: 1`.
+5. **`Outline`**: draws a rounded solid-color border of `Thickness` source pixels around pixels whose alpha is at least `AlphaThreshold` (default: any non-zero alpha). The sprite buffer expands by `ceil(Thickness)` transparent pixels on every side so tightly cropped frames are never clipped and adjacent frames in the atlas never bleed into the border.
+6. **`Custom`**: optional per-pixel hook `func(x, y, w, h int, r, g, b, a float32) (nr, ng, nb, na float32)` over premultiplied RGBA after the built-in stages.
+
+### GPU shader view (`EffectShader`)
+
+When a sprite is rendered as its own GPU shader node (for example a boss or portrait animated on the platform's frame clock with `core.AnimatedNode` uniforms, or an `asset:` URI atlas on a GPU-backed target), `EffectProgram`, `Effect.Uniforms` and `EffectShader` run the same built-in stages (palette swap up to `MaxShaderPaletteEntries` = 8 entries, tint, dissolve, flash/silhouette and outline) in a Kage fragment shader (`core.Shader`):
+
+```go
+sh, err := sprite.EffectShader(atlas, hero)
+if err != nil {
+	return err
+}
+sh.Uniforms["FlashStrength"] = flashNode // animates on the frame clock with no commit per frame
+```
+
+`EffectProgram` compiles lazily on first call, so games that only use `Batch.Draw` do not link NSGo's shader compiler.
+
+### Cost per sprite
+
+- **Inactive `Effect`**: a `nil` or zero/inactive `*Effect` adds one nil/boolean check and stays on `Batch`'s `DrawAtlas` fast path with zero extra draw calls or pixel work.
+- **Static active `Effect` in `Batch.Draw`**: each effected sprite occupies one reused scratch slot in `Batch`. When the atlas version, frame, tint and effect parameters are unchanged from the previous frame, `Batch.Draw` skips pixel recomputation and reuses the same `ImageSource.Version`, so NSGo skips copying and uploading the buffer (`~0.21 µs` per 32×32 sprite).
+- **Changing parameters every frame in `Batch.Draw`**: `Batch` reuses each slot's `*image.RGBA` and alpha scratch slice in place (growing capacity only when dimensions increase and trimming idle tail slots back down), so mutating `Flash.Strength`, `Outline.Thickness`, `Dissolve.Threshold` or `PaletteSwap.Entries` every frame performs zero pixel-buffer allocations and bumps `ImageSource.Version` monotonically. Cost scales linearly with the frame's pixel area (`W × H`, plus `(W+2p) × (H+2p) × πr²` for `Outline` on non-opaque edge pixels). Reference `BenchmarkSpriteEffects` readings on Apple Silicon (`-cpu 1`):
+
+| Effect (32×32 sprite, updated every frame) | CPU time / sprite | Heap allocs / frame |
+| --- | ---: | ---: |
+| `Flash` (16×16) | 0.84 µs | 1 (`96 B`, `DrawOp` image copy) |
+| `Flash` (32×32) | 3.3 µs | 1 (`96 B`) |
+| `Outline` (1 px, 32×32) | 6.2 µs | 1 (`96 B`) |
+| `Outline` (2 px, 32×32) | 13.1 µs | 1 (`96 B`) |
+| `Dissolve` + edge glow (32×32) | 7.1 µs | 1 (`96 B`) |
+| Static `PaletteSwap` (32×32, cached hit) | 0.21 µs | 1 (`96 B`) |
+
+- **GPU `EffectShader`**: one `core.Shader` surface per sprite view (no per-frame CPU pixel writes or uploads once the atlas texture is on the GPU; best suited to a small number of hero/boss/UI sprites rather than hundreds of batched entities).
+
+### Per-target behavior and fallbacks
+
+`Batch.Draw` applies exact CPU pixel effects whenever the atlas exposes pixels (`Atlas.Image.Pixels != nil`, or `Atlas.Image.Data` decoded lazily via `image.Decode` using any decoder the app imports such as `_ "image/png"`). If an atlas is URI-only (`core.Src("asset:...")` with neither `Pixels` nor `Data`), `Batch.Draw` falls back without touching neighbors or canvas composite state: full dissolve (`Threshold >= 1`) skips drawing, `Flash` falls back to NSGo's per-draw multiply tint (`DrawTintedImageFrom`, exact for darkening flashes and black silhouettes, unable to brighten dark texels toward white), and `Outline`, partial `Dissolve`, `PaletteSwap` and `Custom` draw the sprite unmodified.
+
+| Target | `Batch.Draw` (`Pixels` or `Data` atlas) | `Batch.Draw` (URI-only atlas) | `EffectShader` (`core.Shader` GPU) |
+| --- | --- | --- | --- |
+| macOS, iOS | Full exact effects via `CGImage` pixel buffer | `DrawTintedImageFrom` flash fallback; full dissolve skipped | Full GPU shader (Metal) |
+| Windows | Full exact effects via Direct2D premultiplied BGRA bitmap | `DrawTintedImageFrom` flash fallback; full dissolve skipped | Full GPU shader (Direct3D 11) |
+| Linux | Full exact effects via Cairo ARGB32 surface | `DrawTintedImageFrom` flash fallback; full dissolve skipped | Full GPU shader (OpenGL 3.3 / ES 3.0) |
+| Android | Full exact effects via `Bitmap` pipe transfer | `DrawTintedImageFrom` flash fallback; full dissolve skipped | Full GPU shader (GLES 3.0) |
+| Web (Wasm) | Full exact effects via cached offscreen `<canvas>` | `DrawTintedImageFrom` flash fallback (CORS required cross-origin); full dissolve skipped | Full GPU shader (WebGL 2) |
+| HarmonyOS | Full exact effects via `PixelMap` pixel buffer (`Tint` folded into pixels) | `DrawTintedImageFrom` flash fallback (not yet device-verified); full dissolve skipped | Unavailable (shader view draws empty; use `Batch.Draw`) |
+| Mini programs | Full exact effects via offscreen 2D canvas `putImageData` | `DrawTintedImageFrom` flash fallback; full dissolve skipped | Unavailable (`nsgo_noshader`; use `Batch.Draw`) |
+| Headless (`gametest.RenderOps`) | Full exact pixel output for pixel-comparison tests | Records `DrawTintedImageFrom` / `DrawImageFrom` ops | Models lanes and uniforms in `nsgotest` |
 
 ## Batch and Z ordering
 
