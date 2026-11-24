@@ -549,6 +549,43 @@ err = renderer.Draw(dev, pass, camBuf.BindGroup(), light,
 - **Drawing**: `ToonRenderer.Draw` draws the outlines first and the cel-shaded surfaces second, opaque and with depth writes. It can run any number of times before a submission, into one pass or several: each call writes its per-draw uniforms after the slots earlier calls of the frame used. Inside a `gpu.Frame` the slots rewind on their own when `dev.FrameIndex()` advances; code that submits with `dev.Submit` directly calls `ToonRenderer.Begin` once per frame (at most `MaxToonDrawsPerFrame` draws between two calls). `Draw` returns a `gpu.Error` for a nil or closed renderer, device, pass, or camera bind group. For blended toon surfaces, build pipelines with `NewToonPipeline` and `NewToonOutlinePipeline` and a `ToonPipelineOptions.Blend`.
 - **CPU reference and tests**: `EvaluateToon` and `ToonQuantizeBand` evaluate `ToonWGSL` in Go. `render3d`'s tests compare a multi-object scene with `render3d/testdata/golden/toon_scene.png` (`UPDATE_GOLDEN=1` rewrites it), draw in a headless `gpu.View` on both the full and `nsgotest.NoGPUCompute` profiles, restore a `Retained` renderer after a device loss, draw twice before one submission, and measure the clip-space outline on a wide viewport.
 
+## Custom shader materials (`CustomMaterial`)
+
+`NewCustomMaterial` compiles a custom 3D material written in **WGSL** (`ShaderWGSL`) or **Kage** (`ShaderKage`) with declared, strongly-typed parameters (`ShaderParamDesc`) onto an NSGo `gpu.Device`, managing its std140 uniform buffer, `@group(1)` bind group (`CustomMaterialGroup`), 1×1 fallback textures, and render pipeline inside the owning `core.Scope`:
+
+```go
+mat, err := render3d.NewCustomMaterial(cx, dev, render3d.CustomShaderDesc{
+	Label:        "hologram",
+	Language:     render3d.ShaderWGSL, // or render3d.ShaderKage
+	CameraLayout: camBuf.Layout(),     // binds CameraWGSL at @group(0); omit for clip-space shaders
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Cull:         gpu.CullBack,
+	Retained:     true,                // survives GPU device loss and restore
+	Params: []render3d.ShaderParamDesc{
+		{Name: "intensity", Kind: render3d.ParamFloat, Default: float32(1.0)},
+		{Name: "light_dir", Kind: render3d.ParamVec3, Default: math3d.Vec3{X: 0.4, Y: 0.85, Z: 0.35}},
+		{Name: "tint", Kind: render3d.ParamColor, Default: core.RGB(0xf0c878)},
+		{Name: "albedo", Kind: render3d.ParamTexture},
+	},
+	Source: myWGSLSource,
+})
+
+// Update parameters at runtime and flush dirty bytes before drawing:
+_ = mat.SetFloat("intensity", 1.5)
+_ = mat.SetColor("tint", core.RGB(0x55d0ff))
+_ = mat.SetTexture("albedo", tex, samp) // nil tex restores 1x1 fallback; nil samp uses default linear-repeat
+_ = mat.Sync(dev)                       // 0 allocations when unchanged
+
+// In OnFrame:
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mat.Draw(pass, mesh) // sets pipeline, binds @group(1), and draws mesh
+```
+
+- **Declared parameter types and std140 layout**: `ParamFloat` (`f32`), `ParamVec2` (`vec2<f32>`), `ParamVec3` (`vec3<f32>`), `ParamVec4` / `ParamColor` (`vec4<f32>`), `ParamInt` (`i32`), `ParamBool` (`u32`, `0`/`1` for portable uniform structs), and `ParamTexture` (`texture_2d<f32>` + `<name>_sampler`). Non-texture parameters are packed automatically in declared order with WGSL/std140 alignment (`ComputeUniformLayout`, `ParamOffset`, `UniformSize`) at `@group(1) @binding(0)` (`material`), followed by each texture/sampler pair (`ParamBinding`). Unset texture slots receive an automatic 1×1 fallback texture (opaque white by default, customizable via `ShaderParamDesc.Default`).
+- **WGSL and Kage shaders**: `ShaderWGSL` prepends `CameraWGSL` (when `CameraLayout` is set) and the generated `MaterialParams` / texture bindings automatically (set `ManualBindings: true` to declare `@group(1)` yourself). `ShaderKage` parses Kage `var <Name> float|vec2|vec3|vec4|int|bool` declarations, helper functions, and `func Surface(uv vec2, normal vec3, worldPos vec3) vec4` (or classic `func Fragment(dst vec4, pos vec2) vec4`) and translates them into portable WGSL supporting `sample(<tex>, uv)` and `image0At(uv)`.
+- **Strict validation and cross-backend checks**: Typed setters (`SetFloat`, `SetVec2`, `SetVec3`, `SetVec4`, `SetColor`, `SetInt`, `SetBool`, `SetTexture`) and atomic `ApplyMap` reject unknown parameter names, type mismatches, non-finite values (`NaN`/`Inf`), and out-of-range values against optional `Min`/`Max` bounds with `*CustomMaterialError` (wrapping `ErrInvalidCustomMaterial`). `CompileCheck` / `CompileCheckDesc` verifies shader lowering and cross-backend pipeline compilation across MSL, HLSL, GLSL 3.30, GLSL ES 3.00 (WebGL 2 / Android), and WGSL without an active `gpu.View`.
+- **Reference renders**: `render3d`'s tests verify both WGSL and Kage custom materials against golden reference PNGs (`render3d/testdata/golden/custom_material_wgsl.png` and `custom_material_kage.png`), cross-backend `PipelineCache` artifacts for all five targets, headless `gpu.View` rendering on both `full` and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles, `Retained` device-loss restoration, and zero-allocation steady-state updates; `UPDATE_GOLDEN=1` rewrites the reference images.
+
 ## Budgeted async GPU uploads (`Uploader`)
 
 `Uploader` runs the decoding and CPU packing of meshes, textures and raw GPU payloads on background worker goroutines, and `Uploader.Step`, called once per frame, writes the results to the `gpu.Device` in chunks within a per-frame byte budget, so loading a large 3D model does not stall a frame:
