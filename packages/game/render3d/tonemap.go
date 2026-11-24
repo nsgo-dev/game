@@ -18,10 +18,8 @@ const (
 	// sampler, and uniform parameters at.
 	ToneMapGroup = 0
 
-	// ToneMapUniformSize is the byte size of the uniform block written by
-	// [AppendToneMapUniforms] and declared by [ToneMapWGSL]: four little-endian
-	// float32 values (exposure, inv_gamma, operator_id, padding).
-	ToneMapUniformSize = 16
+	// ToneMapUniformSize is the byte size of the uniform block written by [AppendToneMapUniforms] and declared by [ToneMapWGSL]: twelve little-endian float32 values (exposure, inv_gamma, operator_id, padding, then the source region's uv_scale, uv_min and uv_max as vec2 pairs, and two padding floats).
+	ToneMapUniformSize = 48
 )
 
 // ErrInvalidHDRTarget is wrapped by errors returned when an [HDRTargetDesc] has
@@ -338,10 +336,20 @@ func toneMapAgXCPU(c math3d.Vec3) math3d.Vec3 {
 	}
 }
 
-// AppendToneMapUniforms appends the [ToneMapUniformSize] (16) little-endian
-// bytes matching [ToneMapWGSL]'s uniform struct to dst and returns the extended
-// slice. It allocates nothing when cap(dst)-len(dst) >= [ToneMapUniformSize].
+// toneMapRegion is the part of the source texture [ToneMapPass] stretches over its target: the fullscreen triangle's uv in [0, 1] is multiplied by scale and clamped to [min, max], as the dynamic resolution upscaler samples its active sub-viewport.
+type toneMapRegion struct {
+	scaleX, scaleY, minX, minY, maxX, maxY float32
+}
+
+// fullToneMapRegion samples the whole source texture.
+var fullToneMapRegion = toneMapRegion{scaleX: 1, scaleY: 1, maxX: 1, maxY: 1}
+
+// AppendToneMapUniforms appends the [ToneMapUniformSize] little-endian bytes matching [ToneMapWGSL]'s uniform struct, sampling the whole source texture, to dst and returns the extended slice. It allocates nothing when cap(dst)-len(dst) >= [ToneMapUniformSize].
 func AppendToneMapUniforms(dst []byte, opts ToneMapOptions) []byte {
+	return appendToneMapUniforms(dst, opts, fullToneMapRegion)
+}
+
+func appendToneMapUniforms(dst []byte, opts ToneMapOptions, region toneMapRegion) []byte {
 	n := opts.Normalized()
 	start := len(dst)
 	if cap(dst)-start < ToneMapUniformSize {
@@ -366,6 +374,9 @@ func AppendToneMapUniforms(dst []byte, opts ToneMapOptions) []byte {
 	binary.LittleEndian.PutUint32(out[4:], math.Float32bits(invGamma))
 	binary.LittleEndian.PutUint32(out[8:], math.Float32bits(float32(n.Operator)))
 	binary.LittleEndian.PutUint32(out[12:], 0)
+	for i, v := range [...]float32{region.scaleX, region.scaleY, region.minX, region.minY, region.maxX, region.maxY, 0, 0} {
+		binary.LittleEndian.PutUint32(out[16+4*i:], math.Float32bits(v))
+	}
 	return dst
 }
 
@@ -387,6 +398,10 @@ const ToneMapWGSL = `struct ToneMapParams {
 	inv_gamma: f32,
 	operator_id: f32,
 	_pad: f32,
+	uv_scale: vec2<f32>,
+	uv_min: vec2<f32>,
+	uv_max: vec2<f32>,
+	_pad2: vec2<f32>,
 }
 
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
@@ -550,7 +565,7 @@ fn sanitize_hdr(x: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-	let src = textureSample(hdr_tex, hdr_samp, in.uv);
+	let src = textureSample(hdr_tex, hdr_samp, clamp(in.uv * params.uv_scale, params.uv_min, params.uv_max));
 	let raw = src.xyz * params.exposure;
 	let exposed = vec3<f32>(sanitize_hdr(raw.x), sanitize_hdr(raw.y), sanitize_hdr(raw.z));
 	var mapped: vec3<f32>;
@@ -1133,7 +1148,11 @@ func (p *ToneMapPass) Write(dev *gpu.Device, opts ToneMapOptions) {
 	if p.dev == nil {
 		return
 	}
-	data := AppendToneMapUniforms(p.scratch[:0], p.effectiveOptions(opts))
+	p.write(opts, fullToneMapRegion)
+}
+
+func (p *ToneMapPass) write(opts ToneMapOptions, region toneMapRegion) {
+	data := appendToneMapUniforms(p.scratch[:0], p.effectiveOptions(opts), region)
 	p.dev.WriteBuffer(p.uniformBuf, 0, data)
 }
 
@@ -1178,6 +1197,10 @@ func (p *ToneMapPass) BindGroupFor(dev *gpu.Device, src *gpu.Texture) (*gpu.Bind
 // Draw uploads opts, binds src (reusing the cached bind group in steady state),
 // and records the full-screen tone-mapping triangle into pass.
 func (p *ToneMapPass) Draw(pass *gpu.RenderPass, dev *gpu.Device, src *gpu.Texture, opts ToneMapOptions) error {
+	return p.drawRegion(pass, dev, src, opts, fullToneMapRegion)
+}
+
+func (p *ToneMapPass) drawRegion(pass *gpu.RenderPass, dev *gpu.Device, src *gpu.Texture, opts ToneMapOptions, region toneMapRegion) error {
 	if pass == nil {
 		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil render pass"}
 	}
@@ -1185,7 +1208,7 @@ func (p *ToneMapPass) Draw(pass *gpu.RenderPass, dev *gpu.Device, src *gpu.Textu
 	if err != nil {
 		return err
 	}
-	p.Write(dev, opts)
+	p.write(opts, region)
 	pass.SetPipeline(p.pipeline)
 	pass.SetBindGroup(ToneMapGroup, bg)
 	pass.Draw(3, 0)
@@ -1199,6 +1222,29 @@ func (p *ToneMapPass) DrawTarget(pass *gpu.RenderPass, dev *gpu.Device, src *HDR
 		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil HDR target"}
 	}
 	return p.Draw(pass, dev, src.ColorTexture(), opts)
+}
+
+// DrawDynamicResolution tone-maps the active scaled sub-viewport of a [DynamicResolutionTarget] (created with an HDR ColorFormat such as [PreferredHDRFormat]) over the whole of pass, upscaling it with the pass's sampler in the same draw. Call it after [DynamicResolutionTarget.Begin3D]'s pass ends, in place of [DynamicResolutionTarget.Upscale]; the upscaler's sharpen filter is not applied. Like the upscaler, it clamps the sampled coordinates half a texel inside the scaled region so the target's unused texels never bleed in.
+func (p *ToneMapPass) DrawDynamicResolution(pass *gpu.RenderPass, dev *gpu.Device, src *DynamicResolutionTarget, opts ToneMapOptions) error {
+	if src == nil {
+		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil dynamic resolution target"}
+	}
+	allocW, allocH := src.AllocatedSize()
+	scaledW, scaledH := src.ScaledSize()
+	if allocW <= 0 || allocH <= 0 || scaledW <= 0 || scaledH <= 0 {
+		return fmt.Errorf("%w: Begin3D must be called before DrawDynamicResolution", ErrInvalidDynamicResolution)
+	}
+	scaledW, scaledH = min(scaledW, allocW), min(scaledH, allocH)
+	invW, invH := 1/float32(allocW), 1/float32(allocH)
+	region := toneMapRegion{
+		scaleX: float32(scaledW) * invW,
+		scaleY: float32(scaledH) * invH,
+		minX:   0.5 * invW,
+		minY:   0.5 * invH,
+		maxX:   (float32(scaledW) - 0.5) * invW,
+		maxY:   (float32(scaledH) - 0.5) * invH,
+	}
+	return p.drawRegion(pass, dev, src.ColorTexture(), opts, region)
 }
 
 // Close releases the pass's GPU resources. It is safe to call on nil or more

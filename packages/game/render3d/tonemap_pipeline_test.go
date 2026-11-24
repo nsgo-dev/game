@@ -315,3 +315,105 @@ func TestLinearOutputPipelineVariantsCompile(t *testing.T) {
 	}
 	_ = pipe.Close()
 }
+
+// TestToneMapDrawDynamicResolution renders a half-resolution HDR scene into a DynamicResolutionTarget's scaled sub-viewport and checks that DrawDynamicResolution tone-maps and upscales only that region over the whole native output.
+func TestToneMapDrawDynamicResolution(t *testing.T) {
+	const nativeW, nativeH = 32, 16
+	sr := gpu.NewSoftwareRenderer(nativeW, nativeH, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	dr, err := render3d.NewDynamicResolutionTarget(nil, dev, render3d.DynamicResolutionTargetOptions{
+		ColorFormat:  render3d.PreferredHDRFormat(dev),
+		DisableDepth: true,
+	})
+	if err != nil {
+		t.Fatalf("NewDynamicResolutionTarget: %v", err)
+	}
+	t.Cleanup(func() { _ = dr.Close() })
+	dr.Scaler().SetFixedScale(0.5)
+
+	tonePass, err := render3d.NewToneMapPass(nil, dev, render3d.ToneMapPassDesc{TargetFormat: dev.SurfaceFormat()})
+	if err != nil {
+		t.Fatalf("NewToneMapPass: %v", err)
+	}
+	t.Cleanup(func() { _ = tonePass.Close() })
+	opts := render3d.ToneMapOptions{Operator: render3d.ToneMapACES, Exposure: 1}
+
+	enc := dev.BeginEncoder()
+	resolve := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	if err := tonePass.DrawDynamicResolution(resolve, dev, dr, opts); !errors.Is(err, render3d.ErrInvalidDynamicResolution) {
+		t.Errorf("DrawDynamicResolution before Begin3D: err = %v, want ErrInvalidDynamicResolution", err)
+	}
+	if err := tonePass.DrawDynamicResolution(resolve, dev, nil, opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("DrawDynamicResolution(nil): err = %v, want ErrInvalidDescriptor", err)
+	}
+	resolve.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+
+	// The scene fills the scaled viewport with one HDR color; the unused texels keep the clear color, which must not reach the output.
+	sceneColor := math3d.Vec3{X: 4, Y: 1, Z: 0.25}
+	mod, err := gpu.CompileWGSL(hdrPatchWGSL)
+	if err != nil {
+		t.Fatalf("CompileWGSL: %v", err)
+	}
+	bgl, err := dev.CreateBindGroupLayout(nil, []gpu.BindGroupLayoutEntry{{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform}})
+	if err != nil {
+		t.Fatalf("CreateBindGroupLayout: %v", err)
+	}
+	pipe, err := dev.CreatePipeline(nil, gpu.PipelineDesc{
+		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
+		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
+		Layouts:       []*gpu.BindGroupLayout{bgl},
+		VertexBuffers: []gpu.VertexBufferLayout{{Stride: 3 * 4, Attributes: []gpu.VertexAttribute{{Location: 0, Format: gpu.VertexFloat32x3}}}},
+		Targets:       []gpu.ColorTargetState{{Format: dr.ColorFormat()}},
+	})
+	if err != nil {
+		t.Fatalf("CreatePipeline: %v", err)
+	}
+	vb, err := dev.CreateBuffer(nil, gpu.BufferDesc{Usage: gpu.UsageVertex, Data: packFloat32s([]float32{-1, -1, 0.5, 3, -1, 0.5, -1, 3, 0.5})})
+	if err != nil {
+		t.Fatalf("CreateBuffer vb: %v", err)
+	}
+	ub, err := dev.CreateBuffer(nil, gpu.BufferDesc{Usage: gpu.UsageUniform, Data: packFloat32s([]float32{sceneColor.X, sceneColor.Y, sceneColor.Z, 1})})
+	if err != nil {
+		t.Fatalf("CreateBuffer ub: %v", err)
+	}
+	bg, err := dev.CreateBindGroup(nil, bgl, []gpu.BindGroupEntry{{Binding: 0, Buffer: ub}})
+	if err != nil {
+		t.Fatalf("CreateBindGroup: %v", err)
+	}
+
+	enc = dev.BeginEncoder()
+	scenePass, err := dr.Begin3D(enc, nativeW, nativeH, core.RGB(0x000000))
+	if err != nil {
+		t.Fatalf("Begin3D: %v", err)
+	}
+	scenePass.SetPipeline(pipe)
+	scenePass.SetBindGroup(0, bg)
+	scenePass.SetVertexBuffer(0, vb, 0)
+	scenePass.Draw(3, 0)
+	scenePass.End()
+	if w, h := dr.ScaledSize(); w != nativeW/2 || h != nativeH/2 {
+		t.Fatalf("ScaledSize = %dx%d, want %dx%d", w, h, nativeW/2, nativeH/2)
+	}
+	resolve = enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	if err := tonePass.DrawDynamicResolution(resolve, dev, dr, opts); err != nil {
+		t.Fatalf("DrawDynamicResolution: %v", err)
+	}
+	resolve.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+
+	want := vec3ToRGBA(render3d.ApplyToneMap(sceneColor, opts))
+	img := sr.Image()
+	for _, p := range [][2]int{{0, 0}, {nativeW - 1, 0}, {0, nativeH - 1}, {nativeW - 1, nativeH - 1}, {nativeW / 2, nativeH / 2}} {
+		if got := img.RGBAAt(p[0], p[1]); !nearRGB(got, want, 3) {
+			t.Errorf("pixel %v = %v, want the tone-mapped scene color %v everywhere", p, got, want)
+		}
+	}
+}
