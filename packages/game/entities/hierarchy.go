@@ -171,6 +171,22 @@ func (w *World) Hierarchy2D() *Hierarchy2D {
 	return NewHierarchy2D(w)
 }
 
+// ParentOf returns e's parent entity in w's Hierarchy2D without creating a hierarchy when none is attached.
+func (w *World) ParentOf(e Entity) (Entity, bool) {
+	if w == nil || w.hierarchy == nil {
+		return Zero, false
+	}
+	return w.hierarchy.Parent(e)
+}
+
+// ChildrenOf returns e's direct children in w's Hierarchy2D without creating a hierarchy when none is attached.
+func (w *World) ChildrenOf(e Entity) []Entity {
+	if w == nil || w.hierarchy == nil {
+		return nil
+	}
+	return w.hierarchy.Children(e)
+}
+
 // SetRemovePolicy sets the default RemovePolicy used when World.Destroy is called directly on a parent entity.
 func (h *Hierarchy2D) SetRemovePolicy(policy RemovePolicy) {
 	if h == nil {

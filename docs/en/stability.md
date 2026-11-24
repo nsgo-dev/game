@@ -113,6 +113,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/loot` | Experimental | [loot](loot.md) |
 | `game/math2d` | Stable | [math2d](math2d.md) |
 | `game/math3d` | Experimental | [math3d](math3d.md) |
+| `game/mcp` | Experimental | [mcp](mcp.md) |
 | `game/modding` | Experimental | [modding](modding.md) |
 | `game/net` | Experimental | [net](net.md) |
 | `game/particles` | Experimental | [particles](particles.md) |

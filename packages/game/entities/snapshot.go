@@ -27,6 +27,7 @@ const maxSnapshotIndex = 1 << 20
 type componentCodec struct {
 	name   string
 	key    typeKey
+	has    func(w *World, e Entity) bool
 	encode func(w *World, e Entity) (json.RawMessage, bool, error)
 	decode func(w *World, e Entity, raw json.RawMessage) error
 }
@@ -76,6 +77,9 @@ func RegisterCodec[T any](w *World, typeName string) error {
 	w.codecs[typeName] = componentCodec{
 		name: typeName,
 		key:  k,
+		has: func(w *World, e Entity) bool {
+			return Has[T](w, e)
+		},
 		encode: func(w *World, e Entity) (json.RawMessage, bool, error) {
 			v, ok := Get[T](w, e)
 			if !ok {
@@ -100,6 +104,86 @@ func RegisterCodec[T any](w *World, typeName string) error {
 	w.codecOrder = append(w.codecOrder, typeName)
 	slices.Sort(w.codecOrder)
 	return nil
+}
+
+// CodecNames returns the component codec names registered on w in ascending order.
+func (w *World) CodecNames() []string {
+	if w == nil || len(w.codecOrder) == 0 {
+		return nil
+	}
+	return slices.Clone(w.codecOrder)
+}
+
+// CodecName returns the codec name registered for component type T on w and whether one is registered.
+func CodecName[T any](w *World) (string, bool) {
+	if w == nil || w.codecByKey == nil {
+		return "", false
+	}
+	name, ok := w.codecByKey[typeKeyOf[T]()]
+	return name, ok
+}
+
+// HasCodec reports whether live entity e currently carries the codec-registered component named typeName.
+func (w *World) HasCodec(e Entity, typeName string) bool {
+	if w == nil || w.disposed || !w.Alive(e) {
+		return false
+	}
+	codec, ok := w.codecs[typeName]
+	if !ok {
+		return false
+	}
+	return codec.has(w, e)
+}
+
+// EncodeComponent encodes the codec-registered component named typeName on live entity e as JSON.
+// It returns (nil, false, nil) when e is not alive, typeName is not registered, or e does not carry the component.
+func (w *World) EncodeComponent(e Entity, typeName string) (json.RawMessage, bool, error) {
+	if w == nil {
+		return nil, false, errors.New("entities: nil world")
+	}
+	if w.disposed {
+		return nil, false, ErrWorldDisposed
+	}
+	if !w.Alive(e) {
+		return nil, false, nil
+	}
+	codec, ok := w.codecs[typeName]
+	if !ok {
+		return nil, false, nil
+	}
+	raw, present, err := codec.encode(w, e)
+	if err != nil {
+		return nil, false, fmt.Errorf("entities: encode %s on %s: %w", typeName, e, err)
+	}
+	return raw, present, nil
+}
+
+// EntityComponents encodes all codec-registered components carried by live entity e in ascending codec-name order.
+func (w *World) EntityComponents(e Entity) ([]ComponentSnapshot, error) {
+	if w == nil {
+		return nil, errors.New("entities: nil world")
+	}
+	if w.disposed {
+		return nil, ErrWorldDisposed
+	}
+	if !w.Alive(e) {
+		return nil, nil
+	}
+	var out []ComponentSnapshot
+	for _, name := range w.codecOrder {
+		codec := w.codecs[name]
+		raw, ok, err := codec.encode(w, e)
+		if err != nil {
+			return nil, fmt.Errorf("entities: encode %s on %s: %w", name, e, err)
+		}
+		if ok {
+			out = append(out, ComponentSnapshot{
+				Type: name,
+				Data: raw,
+			})
+		}
+	}
+	return out, nil
 }
 
 // Snapshot encodes all live entities and their codec-registered components into a deterministic WorldSnapshot.

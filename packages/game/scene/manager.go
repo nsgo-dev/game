@@ -250,6 +250,18 @@ func (m *Manager) Depth() int {
 	return len(m.stack)
 }
 
+// Stack returns the active scene controllers from bottom to top of the stack, or nil when the stack is empty.
+func (m *Manager) Stack() []*Controller {
+	if m == nil || len(m.stack) == 0 {
+		return nil
+	}
+	out := make([]*Controller, len(m.stack))
+	for i, ms := range m.stack {
+		out[i] = ms.ctrl
+	}
+	return out
+}
+
 // Transitioning reports whether a Switch transition is currently running.
 func (m *Manager) Transitioning() bool {
 	return m != nil && m.trans != nil

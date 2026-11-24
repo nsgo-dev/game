@@ -35,6 +35,15 @@ func (l *Layer) SetParallax(x, y float32) *Layer {
 	return l
 }
 
+// Parallax returns the layer's effective horizontal and vertical parallax scroll factors.
+// Unset zero factors on a struct literal report 1, while factors set with NewLayer, NewParallaxLayer or SetParallax are returned verbatim.
+func (l *Layer) Parallax() (x, y float32) {
+	if l == nil {
+		return 1, 1
+	}
+	return l.parallaxFactors()
+}
+
 func (l *Layer) parallaxFactors() (float32, float32) {
 	if l.parallaxSet {
 		return l.ParallaxX, l.ParallaxY
