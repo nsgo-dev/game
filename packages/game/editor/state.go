@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -820,7 +821,7 @@ func (e *Editor) PlacePrefab(layerName, prefabName string, x, y float32) (string
 	})
 }
 
-// DeleteObject removes the object with ID id from the scene as an undoable command.
+// DeleteObject removes the object with ID id from the scene as an undoable command, together with the scene's connections from or to it, its descendants or the objects of scenes they instance; undoing it puts them back where they were.
 func (e *Editor) DeleteObject(id string) error {
 	if e.playing {
 		return ErrPlaying
@@ -1243,6 +1244,28 @@ type deleteObjectCmd struct {
 	obj          sceneformat.ObjectDoc
 	wasNilSlice  bool
 	prevSelected string
+	// conns are the connections Do removed with the object, each with its index in the scene's connections before the removal, in ascending index order.
+	conns []removedConnection
+}
+
+// removedConnection is a connection a delete removed and the index it had.
+type removedConnection struct {
+	index int
+	conn  sceneformat.ConnectionDoc
+}
+
+// namesSubtree reports whether id is the ID of an object in ids, or of an object a scene instanced by one of them adds ("enemy_1/body").
+func namesSubtree(id string, ids map[string]struct{}) bool {
+	for {
+		if _, ok := ids[id]; ok {
+			return true
+		}
+		i := strings.LastIndexByte(id, '/')
+		if i < 0 {
+			return false
+		}
+		id = id[:i]
+	}
 }
 
 func (c *deleteObjectCmd) Label() string { return "Delete object " + c.obj.ID }
@@ -1264,6 +1287,21 @@ func (c *deleteObjectCmd) Do() {
 		}
 	}
 	c.ed.Doc.Layers[li].Objects = objs
+	ids := make(map[string]struct{})
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{c.obj}, func(o, _ *sceneformat.ObjectDoc) bool {
+		ids[o.ID] = struct{}{}
+		return true
+	})
+	c.conns = nil
+	var kept []sceneformat.ConnectionDoc
+	for i, conn := range c.ed.Doc.Connections {
+		if namesSubtree(conn.From, ids) || namesSubtree(conn.To, ids) {
+			c.conns = append(c.conns, removedConnection{index: i, conn: conn})
+			continue
+		}
+		kept = append(kept, conn)
+	}
+	c.ed.Doc.Connections = kept
 	if c.ed.SelectedID == c.obj.ID {
 		c.ed.SelectedID = ""
 	}
@@ -1287,6 +1325,10 @@ func (c *deleteObjectCmd) Undo() {
 	copy(objs[idx+1:], objs[idx:])
 	objs[idx] = cloneObjectDoc(c.obj)
 	c.ed.Doc.Layers[li].Objects = objs
+	for _, rc := range c.conns {
+		at := min(rc.index, len(c.ed.Doc.Connections))
+		c.ed.Doc.Connections = slices.Insert(c.ed.Doc.Connections, at, rc.conn)
+	}
 	c.ed.SelectedID = c.prevSelected
 }
 
