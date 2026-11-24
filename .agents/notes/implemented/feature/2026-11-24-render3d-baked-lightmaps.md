@@ -18,7 +18,7 @@ Baked lightmap support is split cleanly across `packages/game/gltf/lightmap.go` 
   - `LightmapMeshFromAttributes` mirrors `gltf.Primitive` slice types directly so glTF primitives upload in one call without `render3d` importing `game/gltf`.
 - **Encodings and shared-atlas GPU renderer (`packages/game/render3d/lightmap.go`)**:
   - `LightmapEncoding` supports `LightmapLinear` (8-bit linear or float16 HDR via `UploadLightmapRGBA16F`), `LightmapSRGB` (automatically switching to hardware linear pass-through when `Lightmap.SRGB()` is true to prevent double-decoding), `LightmapRGBM` (`EncodeRGBM` / `DecodeRGBM` / `EncodeRGBMImage`), and `LightmapRGBD` (`EncodeRGBD` / `DecodeRGBD` / `EncodeRGBDImage`) so HDR baked lightmaps work in standard 8-bit PNGs on WebGL 2 and mobile.
-  - `LightmapRenderer` uses three bind groups: `CameraGroup` (group 0, reusing `CameraWGSL`), `LightmapDrawGroup` (group 1, a 256-byte-aligned dynamic uniform ring buffer carrying `model`, `base_color`, `uv_transform`, encoding/intensity parameters, `ambient`, and optional additive `DirectLight`), and `LightmapTextureGroup` (group 2, cached by `(baseTex, baseSamp, lmTex, lmSamp)`). Multiple meshes sharing one lightmap atlas with distinct `UVTransform` sub-rectangles draw in a single render pass without clobbering uniforms or allocating bind groups per frame.
+  - `LightmapRenderer` uses three bind groups: `CameraGroup` (group 0, reusing `CameraWGSL`), `LightmapDrawGroup` (group 1, a 256-byte-aligned dynamic uniform ring buffer carrying `model`, `normal_matrix` (from `math3d.NormalMatrix`), `base_color`, `uv_transform`, encoding/intensity parameters, `ambient`, and an optional additive `DirectLight` that reuses `DirectionalLight` and its travel-direction convention), and `LightmapTextureGroup` (group 2, cached by `(baseTex, baseSamp, lmTex, lmSamp)`). Multiple meshes sharing one lightmap atlas with distinct `UVTransform` sub-rectangles draw in a single render pass without clobbering uniforms or allocating bind groups per frame.
   - `LightmapWGSL` avoids `exp`, `exp2`, and `log2` (which NSGo v0.3.0's software GPU VM omits) and uses `pow` and algebraic math so hardware backends and headless software GPU tests match accurately.
 
 ## Alternatives considered
@@ -43,7 +43,7 @@ Allocating a separate `gpu.Buffer` and `gpu.BindGroup` per draw call would simpl
   - Zero edits to existing `gltf` or `render3d` Go files keep the implementation isolated and low-conflict.
 - **Costs and limitations**:
   - Callers drawing lightmapped meshes across frames should call `LightmapRenderer.BeginFrame()` once per frame; omitting it causes the dynamic ring buffer to grow until `Close()` is called.
-  - `LightmapRenderer` implements Lambertian baked indirect + optional single directional light; full metallic-roughness PBR + multi-light shading pipelines can reuse `LightmapVertexLayout`, `GPULightmapMesh`, `LightmapEncoding`, and the RGBM/RGBD/RGBA16F helpers directly.
+  - `LightmapRenderer` implements Lambertian baked indirect + optional single directional light; its output is encoded with the same `linear_to_srgb` as `LitPBRWGSL` so both match in one pass. Feeding lightmaps into the PBR material path as the indirect term (reusing `LightmapVertexLayout`, `GPULightmapMesh`, `LightmapEncoding`, and the RGBM/RGBD/RGBA16F helpers) is follow-up #752.
   - `UploadLightmapRGBA16F` uploads mip level 0 only (no CPU float16 mip chain generation yet).
 
 ## Verification

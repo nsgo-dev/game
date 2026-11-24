@@ -1068,13 +1068,19 @@ renderer.BeginFrame()
 camBuf.WriteCamera(cam)
 mat := render3d.DefaultLightmapMaterial()
 mat.BaseColorTexture = albedoTex
-mat.Lightmap = lightmapTex
-mat.Encoding = render3d.LightmapRGBM // LightmapLinear、LightmapSRGB、LightmapRGBM 或 LightmapRGBD
-mat.RGBMMaxRange = render3d.DefaultRGBMMaxRange
+mat.Lightmap = lightmapTex // RGBM / RGBD：用 TextureUpload{SRGB: false} 上传
+mat.Encoding, err = render3d.ParseLightmapEncoding(lmRef.Encoding) // "" 即 LightmapLinear
+mat.Intensity = lmRef.Intensity
+mat.RGBMMaxRange = lmRef.RGBMMaxRange // 0 表示使用 DefaultRGBMMaxRange
 mat.SetUVTransform(render3d.UVTransform{Scale: lmRef.UVScale, Offset: lmRef.UVOffset})
+mat.DirectLight = &rig.Directional[0] // 可选：LightRig 中的光源，Direction 为光线传播方向
 _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 ```
 
 - **HDR 与 LDR 编码**：支持线性 8 位或 float16 HDR 纹理（`LightmapLinear`，配合 `UploadLightmapRGBA16F` 上传 float16）、sRGB LDR 纹理（`LightmapSRGB`，以 `TextureUpload{SRGB: true}` 上传时自动避免重复解码），以及面向 WebGL 2 与移动端的 8 位打包 HDR 格式（通过 `EncodeRGBM` / `EncodeRGBMImage` 使用 `LightmapRGBM`，以及通过 `EncodeRGBD` / `EncodeRGBDImage` 使用 `LightmapRGBD`）。
 - **共享光照图集**：通过 `LightmapMaterial.UVScale` 与 `UVOffset`（或 `SetUVTransform`）指定子矩形变换，借助动态 uniform 偏移在同一渲染通道中让多个网格共享同一张烘焙光照图集。
-- **环境回退与动态光叠加**：`LightmapMaterial.Lightmap` 为 nil 时使用 `AmbientFallback` 作为环境光；可选配置 `LightmapMaterial.DirectLight` 将动态方向光以相加方式与烘焙间接光融合。
+- **环境回退与动态光叠加**：`LightmapMaterial.Lightmap` 为 nil 时使用 `AmbientFallback` 作为环境光；可将 `LightmapMaterial.DirectLight` 设为 `*DirectionalLight`（与 `LightRig` 中的类型相同，`Direction` 为光线传播方向），把它的 Lambert N·L 项叠加到烘焙光照上。法线经法线矩阵变换，因此非均匀缩放的关卡几何也能得到正确光照。`Intensity` 为 0 表示没有烘焙光；`DefaultLightmapMaterial` 将其设为 1。
+- **输出编码**：着色器会把线性结果编码为 sRGB，与 `LitPBRWGSL` 和材质管线一致，因此同一通道中绘制的光照贴图几何与 PBR 光照物体颜色一致。颜色格式（`LightmapRendererOptions.ColorFormat` 或表面格式）为 sRGB 时，编码交给硬件完成。
+- **图集变换**：`LightmapRef.UVScale` / `UVOffset` 是唯一生效的图集变换；`LightmapRef.Texture` 不携带 scale 与 offset，因此不要再用 `TransformTexCoords` 对它应用一次。数值来源见[烘焙光照贴图](3d-models-blender.md#烘焙光照贴图)。
+- **纹理流式加载**：`BeginFrame` 会丢弃已关闭的光照贴图与反照率纹理对应的缓存绑定组，因此流式加载关卡或热重载光照贴图不会让缓存无限增长。
+- **适用范围**：`LightmapRenderer` 是独立的渲染路径，结果为反照率乘以（烘焙光照加一盏 Lambert 光源）。它不支持金属度-粗糙度、法线、遮蔽或自发光贴图，也不读取 `LightRig`。把光照贴图作为间接光项接入 PBR 材质路径的工作见 [#752](https://github.com/nsgo-dev/game/issues/752)。

@@ -238,6 +238,16 @@ Both decoders charge their output and working memory to the same per-load budget
 - **`KHR_materials_unlit`**: sets `Material.Unlit`.
 - **`KHR_materials_emissive_strength`**: `Material.EmissiveStrength()` returns the multiplier for `EmissiveFactor`, 1 when the extension or its `emissiveStrength` is omitted, and an error when the payload is not an object or the value is not a finite number >= 0.
 
+## Baked lightmaps
+
+Bake lighting in Blender (or another baker) into a second UV map, export it as `TEXCOORD_1`, and point the material at the baked texture with `MOZ_lightmap` (what the Hubs Blender add-on writes), `EXT_lightmap`, or an `extras.lightmap` object. Both extensions are accepted in `extensionsUsed` and `extensionsRequired`.
+
+- `Document.MaterialLightmap(materialIndex)` returns a `*LightmapRef` (nil when the material has no lightmap) with the texture, `Intensity`, the `Encoding` hint (`linear`, `srgb`, `rgbm`, `rgbd`), `RGBMMaxRange`, and the atlas `UVScale` / `UVOffset`.
+- `UVScale` / `UVOffset` are the authoritative atlas transform. They come from, in increasing precedence, the lightmap's `KHR_texture_transform` scale and offset, a `scaleOffset` `[sx, sy, ox, oy]` field, and separate `uvScale` / `uvOffset` fields. A rotated lightmap transform is refused. The transform is not left in `LightmapRef.Texture.Transform` (which keeps only a `texCoord` override), so `TransformTexCoords` on it never applies the atlas transform twice.
+- `Document.LightmapTexCoords(prim, ref)` returns the lightmap UV set, falling back to `TEXCOORD_0` when `TEXCOORD_1` is missing, and fails when the primitive has neither.
+
+[render3d](render3d.md#baked-lightmaps-lightmapmesh-lightmaprenderer) shows how to draw the result.
+
 ## Morph targets
 
 `game/gltf` decodes glTF 2.0 morph targets (`POSITION`, `NORMAL`, and `TANGENT` displacement deltas, including sparse accessors), default `mesh.weights` and `node.weights`, and animated `weights` channels (`STEP`, `LINEAR`, and `CUBICSPLINE`). In Blender, author morph targets as **Shape Keys** on the mesh, keyframe their *Value* sliders in an Action, and enable *Data → Shape Keys* (plus *Shape Key Normals* and *Shape Key Tangents* when needed) in the glTF 2.0 exporter.

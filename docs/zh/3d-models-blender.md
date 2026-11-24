@@ -238,6 +238,16 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 - **`KHR_materials_unlit`**：设置 `Material.Unlit`。
 - **`KHR_materials_emissive_strength`**：`Material.EmissiveStrength()` 返回 `EmissiveFactor` 的倍率；扩展或其 `emissiveStrength` 省略时为 1，载荷不是对象或数值不是 >= 0 的有限数时返回错误。
 
+## 烘焙光照贴图
+
+在 Blender（或其他烘焙工具）中把光照烘焙到第二套 UV，导出为 `TEXCOORD_1`，并在材质上用 `MOZ_lightmap`（Hubs Blender 插件写出的格式）、`EXT_lightmap` 或 `extras.lightmap` 对象指向烘焙贴图。两个扩展出现在 `extensionsUsed` 和 `extensionsRequired` 中都会被接受。
+
+- `Document.MaterialLightmap(materialIndex)` 返回 `*LightmapRef`（材质没有光照贴图时为 nil），包含贴图、`Intensity`、`Encoding` 提示（`linear`、`srgb`、`rgbm`、`rgbd`）、`RGBMMaxRange` 以及图集的 `UVScale` / `UVOffset`。
+- `UVScale` / `UVOffset` 是唯一生效的图集变换，来源按优先级从低到高依次为：光照贴图 `KHR_texture_transform` 的 scale 与 offset、`scaleOffset` 字段 `[sx, sy, ox, oy]`、单独的 `uvScale` / `uvOffset` 字段。带旋转的光照贴图变换会被拒绝。该变换不会留在 `LightmapRef.Texture.Transform` 中（那里只保留 `texCoord` 覆盖），因此对它调用 `TransformTexCoords` 不会把图集变换应用两次。
+- `Document.LightmapTexCoords(prim, ref)` 返回光照贴图所用的 UV，缺少 `TEXCOORD_1` 时回退到 `TEXCOORD_0`，两者都没有时返回错误。
+
+绘制方式见 [render3d](render3d.md#烘焙光照贴图lightmapmeshlightmaprenderer)。
+
 ## 变形目标
 
 `game/gltf` 解码 glTF 2.0 变形目标（`POSITION`、`NORMAL`、`TANGENT` 位移增量，支持稀疏访问器）、默认 `mesh.weights` 与 `node.weights`，以及 `weights` 权重动画通道（`STEP`、`LINEAR`、`CUBICSPLINE`）。在 Blender 中通过网格的 **Shape Keys**（形态键）制作变形目标，在 Action 中为其 *Value* 滑块打关键帧，并在 glTF 2.0 导出器中启用 *Data → Shape Keys*（按需勾选 *Shape Key Normals* 和 *Shape Key Tangents*）。
