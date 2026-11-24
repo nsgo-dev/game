@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/nsgo/audio"
 )
 
-// Rolloff is how an effect's volume falls from Near to Far in a Listener2D.
+// Rolloff is how an effect's volume falls from Near to Far in a Listener2D or Listener3D.
 type Rolloff uint8
 
 const (
@@ -15,6 +15,8 @@ const (
 	RolloffLinear Rolloff = iota
 	// RolloffInverse falls as Near divided by the distance, as sound does in the open, rescaled to reach silence at Far: steep close to Near and gentle towards Far. With a Near of 0 it falls as RolloffLinear.
 	RolloffInverse
+	// RolloffExponential falls as (Near / distance)^factor (inverse-square by default when factor is 2), rescaled to reach silence at Far: steeper than RolloffInverse close to Near. With a Near of 0 it falls as ((Far - distance) / Far)^factor.
+	RolloffExponential
 )
 
 // Listener2D hears effects placed in a 2D world from where the camera looks, so an effect to the left of the camera plays panned left and an effect further away plays quieter. Its zero value hears every effect at full volume and centered.
@@ -69,13 +71,52 @@ func (l Listener2D) Gain(pos math2d.Vec2) float32 {
 	case d >= far:
 		return 0
 	}
+	return float32(rolloffGain(d, near, far, l.Rolloff, 0))
+}
+
+// rolloffGain returns the distance attenuation in [0, 1] for d strictly between near and far
+// (near >= 0, far > near, far finite). factor shapes RolloffInverse (default 1 when <= 0 or non-finite)
+// and RolloffExponential (default 2 when <= 0 or non-finite).
+func rolloffGain(d, near, far float64, rolloff Rolloff, factor float64) float64 {
 	var g float64
-	if l.Rolloff == RolloffInverse && near > 0 {
-		g = (near/d - near/far) / (1 - near/far)
-	} else {
+	switch rolloff {
+	case RolloffInverse:
+		if near > 0 {
+			if !(factor > 0) || math.IsNaN(factor) || math.IsInf(factor, 0) {
+				factor = 1
+			}
+			rawD := near / (near + factor*(d-near))
+			rawFar := near / (near + factor*(far-near))
+			if denom := 1 - rawFar; denom > 0 {
+				g = (rawD - rawFar) / denom
+			} else {
+				g = (far - d) / (far - near)
+			}
+		} else {
+			g = (far - d) / (far - near)
+		}
+	case RolloffExponential:
+		if !(factor > 0) || math.IsNaN(factor) || math.IsInf(factor, 0) {
+			factor = 2
+		}
+		if near > 0 {
+			rawD := math.Pow(near/d, factor)
+			rawFar := math.Pow(near/far, factor)
+			if denom := 1 - rawFar; denom > 0 {
+				g = (rawD - rawFar) / denom
+			} else {
+				g = (far - d) / (far - near)
+			}
+		} else {
+			g = math.Pow((far-d)/far, factor)
+		}
+	default:
 		g = (far - d) / (far - near)
 	}
-	return float32(min(max(g, 0), 1))
+	if math.IsNaN(g) {
+		return 0
+	}
+	return min(max(g, 0), 1)
 }
 
 // Voice returns v with its volume scaled by Gain at pos and its pan set to Pan at pos, the voice an effect at pos plays with. Where the effect is silent, its volume is 0 and it is Muted, since audio plays a volume of 0 as full volume.
