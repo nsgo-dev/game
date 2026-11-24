@@ -1,70 +1,77 @@
 # Agent Evaluation Suite
 
-The agent evaluation suite under `tools/agenteval/` runs a fixed set of game-development tasks against NSGo's documentation, YAML schemas, `game check` (`assetcheck`), `nsgo check`, and live headless MCP tools (`game/mcp`) to catch regressions in docs and APIs on a schedule and report a 0–100 score per task.
+The agent evaluation suite under `tools/agenteval/` is contributor tooling with fixed game-development tasks. Each task has a starter workspace, a hand-written reference solution and a rubric that scores a workspace from 0 to 100 with YAML checks, `assetcheck`, `nsgo check` and live headless `game/mcp` tools. The scheduled CI job grades the reference solutions, which makes it a regression suite for the game APIs, YAML formats and MCP tools they use. Running a coding agent on the starter workspaces is a separate, opt-in mode, and CI does not run an agent.
 
 ## Tasks
 
-Each task lives as a plain-text versioned YAML document (`version: 1`) under `tools/agenteval/tasks/` with unknown fields refused and deterministic round-trip encoding:
+Each task is a plain-text versioned YAML document (`version: 1`) under `tools/agenteval/tasks/`, with unknown fields refused and deterministic round-trip encoding:
 
 | Task ID | Goal | What the rubric grades |
 | --- | --- | --- |
-| `platformer-level` | Build a platformer level | Context docs, valid `game.yaml` and `scenes/level1.scene.yaml`, `assetcheck.Check`, reachable platform geometry from `player_spawn` to `goal`, `nsgo check`, and live MCP stepping (`game_scenes_list`, `game_layers_list`, `game_entities_list`, `game_loop_pause`, `game_loop_step`, `game_entity_inspect`, `game_component_get`) |
-| `add-enemy-type` | Add an enemy type | Context docs, valid `game.yaml` and `scenes/arena.scene.yaml`, `assetcheck.Check`, enemy object carrying an `enemy` component, `nsgo check`, and live MCP verification that the `"enemy"`-tagged entity moves deterministically across 60 fixed updates |
-| `add-menu` | Add a menu | Context docs, valid `game.yaml`, `scenes/menu.scene.yaml` and `scenes/gameplay.scene.yaml`, `assetcheck.Check`, visible screen-space menu layer with interactive items, `nsgo check`, and live MCP verification of `game_scenes_list` (`menu`, `gameplay`) and `game_layers_list` (`space: screen`) |
+| `platformer-level` | Build a platformer level | Valid `game.yaml` and `scenes/level1.scene.yaml`, `assetcheck.Check`, platforms from `player_spawn` to `goal` with no horizontal gap above `max_gap` and no vertical step above `max_rise`, `nsgo check`, and live MCP checks that holding the `right` action through `game_input_action` moves the player toward the goal over 60 fixed steps |
+| `add-enemy-type` | Add an enemy type | Valid `game.yaml` and `scenes/arena.scene.yaml`, `assetcheck.Check`, an enemy object (`prefab: enemy`, an `enemy` component or `tag: enemy`) carrying an `enemy` component, `nsgo check`, and live MCP checks that the `"enemy"`-tagged entity moves across 60 fixed steps |
+| `add-menu` | Add a menu | Valid `game.yaml`, `scenes/menu.scene.yaml` and `scenes/gameplay.scene.yaml`, `assetcheck.Check`, a visible screen-space layer with at least two buttons (`prefab: button` or a `button` component), `nsgo check`, and live MCP checks of `game_scenes_list` and `game_layers_list`, then a click on Play through `game_input_pointer` that must switch to `gameplay` |
 
 ## Scoring rubric
 
-Every task defines 100 points across six criteria in `checks.weights`:
+Every task spreads 100 points across five criteria in `checks.weights`:
 
-1. **`docs_context_present`** (10 pts): every documentation file listed in `context_docs` exists and is non-empty.
-2. **`yaml_valid`** (15 pts): every listed `game.yaml` and `*.scene.yaml` parses cleanly and round-trips deterministically through `project.Encode` or `sceneformat.Encode`.
-3. **`project_check_passes`** (15 pts): `assetcheck.Check` reports zero problems across scenes, maps, and references.
-4. **Domain check** (`level_geometry_valid` / `enemy_definition_present` / `menu_scene_valid`, 20 pts): verifies task-specific scene geometry, reachability, enemy definitions, or screen-space menu items.
-5. **`builds_cleanly`** (15 pts): `go tool nsgo check` succeeds on the workspace against the current checkout's `packages/game`.
-6. **`mcp_verify_passes`** (25 pts): boots the game headless under `nsgotest.Start` and invokes live `game/mcp` tools through `nsgo/automation.Call`.
+1. **`yaml_valid`** (15 pts): every listed `game.yaml` and `*.scene.yaml` parses and round-trips deterministically through `project.Encode` or `sceneformat.Encode`.
+2. **`project_check_passes`** (15 pts): `assetcheck.Check` reports zero problems across scenes, maps and references.
+3. **Domain check** (`level_geometry_valid`, `enemy_definition_present` or `menu_scene_valid`, 25 pts): the task's scene geometry, enemy definition or menu buttons.
+4. **`builds_cleanly`** (15 pts): `go tool nsgo check` succeeds on the workspace against the checkout's `packages/game`.
+5. **`mcp_verify_passes`** (30 pts): a generated test boots the game headless under `nsgotest.Start`, calls live `game/mcp` tools through `nsgo/automation.Call`, and must report a pass; a clean exit without it scores nothing.
+
+The documents a task lists in `context_docs` are not scored. They are copied next to the workspace for the agent, and a missing or empty one fails the run.
+
+`min_score` sets a task's passing score; when it is absent the threshold is 100, and an explicit `0` is kept.
 
 ## Running locally
 
-### Reference mode (default, deterministic, no LLM API key)
+### Reference mode (default)
 
-Grades each task's reference workspace against the current repository checkout:
+Grades each task's reference solution against the checkout, with no model or API key:
 
 ```sh
 go run ./tools/agenteval
 ```
 
-Write a machine-readable JSON report and a Markdown summary:
+Write a JSON report and a Markdown summary:
 
 ```sh
 go run ./tools/agenteval -out agent-eval-report.json -summary summary.md
 ```
 
-Run a subset of tasks or adjust the passing threshold:
+Run some tasks or change the passing score:
 
 ```sh
 go run ./tools/agenteval -task platformer-level,add-menu -min-score 80
 ```
 
-### Command mode (evaluating an external coding agent)
+### Command mode (running a coding agent)
 
-Stages each task's starter fixture into an isolated temporary workspace, writes the task prompt and required docs list to `$AGENTEVAL_PROMPT_FILE`, invokes `-agent-cmd` inside `$AGENTEVAL_WORKSPACE`, and grades the result with the same rubric:
+Copies each task's starter workspace and context docs into a temporary directory, writes the prompt to `$AGENTEVAL_PROMPT_FILE`, runs `-agent-cmd` in the workspace, and grades what the agent leaves with the same rubric:
 
 ```sh
 go run ./tools/agenteval \
   -mode=command \
   -min-score=80 \
+  -agent-timeout=20m \
   -agent-cmd='my-agent --prompt "$AGENTEVAL_PROMPT_FILE"'
 ```
 
+The agent gets a temporary `go.work` (in `GOWORK`) that resolves `packages/game` to the checkout, so it can run `go tool nsgo check` and `go tool nsgo test .` while it works. It gets no path into the repository, whose fixtures hold the reference solutions. `-agent-timeout` (default 15 minutes) bounds the agent and `-timeout` (default 5 minutes) bounds grading, so a slow agent shows up as `agent_timed_out` in the report rather than as build failures.
+
 Environment variables passed to `-agent-cmd`:
 
-- `AGENTEVAL_TASK_ID`: task identifier (for example `platformer-level`).
-- `AGENTEVAL_TASK_TITLE`: human-readable task title.
-- `AGENTEVAL_PROMPT_FILE`: path to the generated Markdown prompt file.
-- `AGENTEVAL_WORKSPACE`: path to the staged starter workspace directory.
-- `AGENTEVAL_REPO_ROOT`: path to the repository root.
-- `AGENTEVAL_DOCS`: comma-separated list of context doc paths.
+- `AGENTEVAL_TASK_ID`: the task identifier, such as `platformer-level`.
+- `AGENTEVAL_TASK_TITLE`: the task title.
+- `AGENTEVAL_PROMPT_FILE`: the Markdown prompt.
+- `AGENTEVAL_WORKSPACE`: the staged starter workspace.
+- `AGENTEVAL_CONTEXT_DIR`: the directory holding the copied context docs at their repository paths, such as `docs/en/mcp.md`.
+- `AGENTEVAL_DOCS`: the context doc paths, comma-separated.
+- `GOWORK`: the temporary `go.work`.
 
 ## Scheduled CI
 
-`.github/workflows/agent-eval.yml` runs daily on Depot (`depot-ubuntu-24.04-4`) and on demand via `workflow_dispatch`. It runs `tools/agenteval`'s own test suite, executes `go run ./tools/agenteval -mode=reference -out agent-eval-report.json`, appends the per-task score table to `$GITHUB_STEP_SUMMARY`, and uploads `agent-eval-report.json` as a workflow artifact.
+`.github/workflows/agent-eval.yml` runs daily on Depot (`depot-ubuntu-24.04-4`), on demand through `workflow_dispatch`, and when the suite changes. It runs the suite's own tests, then `go run ./tools/agenteval -mode=reference -out agent-eval-report.json`, appends the score table to `$GITHUB_STEP_SUMMARY`, and uploads `agent-eval-report.json`. It does not run an agent.
