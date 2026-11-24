@@ -280,6 +280,30 @@ mesh.Draw(pass)
 - **零分配 uniform 编码与动态更新**：`MaterialUniforms.AppendUniformData` 与 `Encode` 按 16 字节对齐写出 64 字节 uniform 块（`MaterialUniformSize`），容量足够时零分配。`GPUMaterial.Update(dev, m)` 原地更新标量因子与标志位而不重建绑定组；显式传入 `dev` 使开启 `Retained` 的材质在设备丢失并恢复后仍可持续更新。
 - **跨平台法线贴图与 Cook-Torrance GGX 着色**：`MaterialWGSL`（由 `CameraWGSL` 与 `MaterialBindingsWGSL` 组成）利用屏幕空间偏导数 `dpdx`/`dpdy` 按克莱姆法则构建与图形 API 无关的切线空间标架（统一适配 Metal、D3D11、OpenGL、WebGPU、WebGL 2 与 GLES 3.0），并在偏导数或 UV 退化时回退到确定性正交基，使标准 32 字节 `MeshVertexLayout` 网格无需额外顶点属性即可获得准确的法线贴图效果。
 - **CPU 参考求值与黄金图验证**：`EvaluateMaterial` 以纯 Go 实现与着色器一致的 Cook-Torrance GGX BRDF、半球环境光、法线扰动、alpha 裁切与 Reinhard + sRGB 色调映射。`render3d` 的测试将 GPU 像素回读与 `EvaluateMaterial` 逐像素校验，比对黄金参考图（`pbr_metallic_roughness_ramp.png` 与 `pbr_textured_normal_maps.png`），并在 `gpu.View` 上同时验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置；设置 `UPDATE_GOLDEN=1` 可重写参考图。
+
+### glTF 2.0 材质与纹理（`UploadGLTFMaterials`、`GLTFMaterialSet`）
+
+`UploadGLTFMaterials` 将已加载的 `*gltf.Document` 中的全部材质、纹理、图像与采样器映射到 `render3d` 的 `Material`、`GPUMaterial`、`GPUTexture` 与 `GPUSampler`：
+
+```go
+doc, err := gltf.LoadFS(assetsFS, "DamagedHelmet.gltf")
+matSet, err := render3d.UploadGLTFMaterials(cx, dev, defaults, doc, render3d.GLTFMaterialUpload{
+	Label:    "DamagedHelmet",
+	Retained: true, // 设备丢失后自动恢复上传的纹理、采样器与材质
+})
+defer matSet.Close()
+
+// 按图元解析材质（支持 KHR_materials_variants 变体切换以及 Material == -1 默认材质回退）：
+gpuMat := matSet.MaterialForVariant(prim, "NightOps") // 或 matSet.MaterialForPrimitive(prim, -1)
+gpuMat.Bind(pass)
+gpuMesh.Draw(pass)
+```
+
+- **自动色彩空间分离与去重**：`baseColorTexture` 与 `emissiveTexture` 自动以 `SRGB: true`（`FormatRGBA8UnormSRGB`）上传，而 `metallicRoughnessTexture`、`normalTexture` 与 `occlusionTexture` 以线性格式（`FormatRGBA8Unorm`）上传。被引用的 glTF 图像按图像索引仅解码一次，并在 GPU 上按 `(imageIndex, sRGB)` 去重：同时用于 `occlusionTexture` 与 `metallicRoughnessTexture`（或跨多个材质复用）的打包 ORM 贴图仅上传一次；若同一张图既用于颜色槽又用于数据槽，则会分别为两种色彩空间各上传一份纹理。
+- **glTF 2.0 采样器与 Mipmap**：`SamplerOptionsFromGLTF` 完整映射全部六种 glTF 滤波模式与三种环绕模式（`Repeat`、`ClampToEdge`、`MirroredRepeat`），省略环绕模式时按规范默认为 `AddressRepeat`（确保 UV 超出 `[0, 1]` 的资产，如 `DamagedHelmet` 的 `V ∈ [1, 2]` 正常环绕），省略滤波模式时默认使用三线性滤波并生成 CPU mipmap 链。`GLTFMaterialUpload.MaxAnisotropy` 仅对全线性采样器启用各向异性过滤以满足 WebGPU 校验规则；也可通过 `DisableMipmaps` 关闭 mip 链生成。
+- **扩展、元数据与默认材质**：`GLTFMaterialSet` 始终创建一份 glTF 2.0 默认材质，通过 `DefaultMaterial()` 或 `Material(-1)` 供未指定材质的图元使用。`Info(i)` / `InfoForVariant(prim, name)` 返回包含 `KHR_materials_unlit`（`Unlit`）、`KHR_materials_emissive_strength`（已折算进 `EmissiveFactor`）以及各槽位 `GLTFTextureSlot` UV 元数据（`EffectiveTexCoord` 与 `KHR_texture_transform` 的 `Transform`）的 `GLTFMaterialInfo`。
+- **Khronos 参考验证**：`render3d` 的测试将 Khronos `DamagedHelmet` 样本渲染并与黄金参考图（`render3d/testdata/golden/damaged_helmet_reference.png`）比对，同时在 `gpu.View` 上验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置的像素一致性，以及 `Retained` 设备丢失恢复。
+
 ## 3D 调试线框与变换手柄（Gizmo）
 
 `DebugDraw` 将 3D 线框经近裁剪面裁剪后直接投影绘制到 NSGo 的 `*core.Drawing` 叠加层：

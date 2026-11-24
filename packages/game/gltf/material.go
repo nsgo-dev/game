@@ -182,6 +182,29 @@ type Material struct {
 	Extensions map[string]json.RawMessage
 }
 
+// EmissiveStrength returns the KHR_materials_emissive_strength multiplier for m,
+// defaulting to 1.0 when the extension or its emissiveStrength property is omitted.
+func (m Material) EmissiveStrength() (float32, error) {
+	raw, ok := m.Extensions["KHR_materials_emissive_strength"]
+	if !ok || len(raw) == 0 {
+		return 1, nil
+	}
+	var ext struct {
+		EmissiveStrength *float32 `json:"emissiveStrength"`
+	}
+	if err := json.Unmarshal(raw, &ext); err != nil {
+		return 0, fmt.Errorf("gltf: KHR_materials_emissive_strength: %w", err)
+	}
+	if ext.EmissiveStrength == nil {
+		return 1, nil
+	}
+	s := *ext.EmissiveStrength
+	if !finite32(s) || s < 0 {
+		return 0, fmt.Errorf("gltf: KHR_materials_emissive_strength emissiveStrength %v must be finite and >= 0", s)
+	}
+	return s, nil
+}
+
 // MaterialVariant represents an entry in KHR_materials_variants.
 type MaterialVariant struct {
 	Name   string
