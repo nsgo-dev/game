@@ -36,6 +36,8 @@ _, _ = hp, ok
 
 Use `Reparent` / `ReparentKeepWorld`, `Detach`, `FindByName`, `FindByTag`, `Walk`, `WorldTransform()`, `WorldMatrix()`, `WorldBounds()`, and `HierarchyBounds()`. Calling `sc.UpdateTransforms()` propagates only dirty subtrees and queues the changed nodes for the scene's internal BVH; every query applies the queue first, and `sc.SyncBVH()` applies it on demand.
 
+`ReparentKeepWorld` (and `SetParent(parent, true)`) solves the new local transform from the world matrices, so the node stays exactly where it is drawn. When that local transform would need shear, as for an unrotated child under a rotated, non-uniformly scaled parent, or the new parent's scale has a zero component, it returns `ErrNotDecomposable` and leaves the node where it was in the hierarchy.
+
 ## Dynamic fat-AABB / SAH `BVH` and spatial queries
 
 `Scene` maintains a dynamic fat-AABB Bounding Volume Hierarchy (`BVH`) for fast culling and spatial queries across large scenes (10k–50k+ nodes):

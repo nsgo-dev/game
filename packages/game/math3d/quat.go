@@ -368,10 +368,9 @@ func (t Transform) Mul(child Transform) Transform {
 	}
 }
 
-// Inverse returns the inverse of t. It is exact for rigid and uniform-scale
-// transforms (and always satisfies t.Mul(t.Inverse()) == TransformIdentity when
-// scale components are non-zero). For inverting non-uniform scale combined with
-// rotation in matrix form, use t.ToMat4().Inverse().
+// Inverse returns the Transform that undoes t under [Transform.Mul]: t.Mul(t.Inverse()) is the identity whenever every scale component is non-zero.
+//
+// It is the geometric inverse (t.Inverse().TransformPoint(t.TransformPoint(p)) == p) only when t is rigid, its scale is uniform, or it has no rotation. The inverse of a non-uniform scale combined with a rotation is S⁻¹·R⁻¹, which shears and so is not a TRS that a Transform can hold; use [Transform.InverseMat4] for it.
 func (t Transform) Inverse() Transform {
 	invRot := t.Rot.Inverse()
 	invScale := Vec3{
@@ -385,6 +384,34 @@ func (t Transform) Inverse() Transform {
 		Rot:   invRot,
 		Scale: invScale,
 	}
+}
+
+// InverseMat4 returns the exact inverse of t.ToMat4(), S⁻¹·R⁻¹·T⁻¹, built in closed form rather than by general 4x4 inversion, and true. It is right for every transform, including the non-uniform scale with rotation that [Transform.Inverse] cannot represent. It returns the zero matrix and false when a scale component is zero, a component of t is not finite, or the inverse overflows float32 (a subnormal scale).
+func (t Transform) InverseMat4() (Mat4, bool) {
+	s, q := t.Scale, t.Rot
+	rotFinite := (Vec3{q.X, q.Y, q.Z}).IsFinite() && !math.IsNaN(float64(q.W)) && !math.IsInf(float64(q.W), 0)
+	if s.X == 0 || s.Y == 0 || s.Z == 0 || !s.IsFinite() || !t.Pos.IsFinite() || !rotFinite {
+		return Mat4{}, false
+	}
+	r := q.ToMat3()
+	invScale := [3]float32{1 / s.X, 1 / s.Y, 1 / s.Z}
+	var m Mat4
+	for i := range 3 {
+		// Row i of S⁻¹·Rᵀ is column i of R divided by scale i.
+		row := r.Col(i).Scale(invScale[i])
+		m[i] = row.X
+		m[4+i] = row.Y
+		m[8+i] = row.Z
+		m[12+i] = -row.Dot(t.Pos)
+	}
+	m[15] = 1
+	// A subnormal scale component overflows 1/s to Inf, and a huge position times a large 1/s can too; the contract is the zero matrix and false, never Inf entries.
+	for _, v := range m {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return Mat4{}, false
+		}
+	}
+	return m, true
 }
 
 func safeInv(x float32) float32 {

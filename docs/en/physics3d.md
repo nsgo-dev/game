@@ -66,6 +66,10 @@ Contact impulses act at the contact point, so friction makes a sliding sphere ro
 
 Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), and on `Wake`, `ApplyImpulse` and the removal of bodies, meshes or joints.
 
+Stacks rest without sinking into each other. After the iterative solver, each step makes one bottom-up pass over the contacts within about 45° of vertical (relative to `-Gravity`) that stops each upper body against the one below and pushes it out until about 1 mm of overlap is left, treating the lower body as immovable (shock propagation). A heavy body on a light one, or a tall stack, settles at that depth instead of the several centimeters iterative solving alone leaves under large mass ratios. A body still sunk more than 5 mm into a neighbor does not fall asleep, and a sleeping body pushed deeper than 1 cm wakes, so sleeping never freezes an overlap in place. With zero gravity there is no "up" and the pass is skipped.
+
+A shape that ends up below a heightfield's surface is pushed out upward, by the depth measured along the upward triangle normal, so it clears the surface in one correction rather than by the shallower distance to the nearest point underneath. A shape beside a cell, such as one at the foot of a step touching the plateau's edge, keeps the depth of its own contact, so it is not lifted onto the plateau.
+
 A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
 
 `HingeJoint.Angle` is tracked across steps, so a hinge that keeps turning reports angles past ±π and `MinAngle`/`MaxAngle` can span more than one turn. A `DistanceJoint` is slack while its distance is inside `[MinDistance, MaxDistance]`; `Stiffness` and `Damping` soften the limits, so for a spring with rest length `L` set both limits to `L`.
@@ -91,3 +95,15 @@ loop := &game.Loop{
 ```
 
 The controller is not a body in the `World`, so dynamic bodies do not collide with it on their own. To let them, add a kinematic body that follows `Pos` and set `IgnoreBodyID` to its ID.
+
+## Debug Drawing
+
+`DrawWorld`, `DrawBody`, `DrawShape`, `DrawCharacter`, `DrawContact` and `DrawRaycast` draw collider wireframes, contacts and rays onto a `core.Drawing` through a view-projection matrix, styled by `DebugStyle`; `DrawLine3D` draws one segment. Release builds compile them to no-ops.
+
+Segments are clipped to the camera frustum before projection. By default the near plane is clip `z >= -w`, which matches this package's `Mat4Perspective` and `Mat4Ortho` (`[-1, 1]` depth). For a `[0, 1]` depth projection, such as `math3d.Perspective`, `math3d.Ortho` or a `render3d` camera, set `DebugStyle.DepthZO` (and use `DrawLine3DZO` for single segments): it clips at `z >= 0`, as `render3d.ProjectSegment` does. Without it an orthographic `[0, 1]` camera, whose `w` is 1 everywhere, draws colliders behind the camera.
+
+```go
+style := physics3d.DefaultDebugStyle()
+style.DepthZO = true // viewProj comes from math3d.Perspective or math3d.Ortho
+physics3d.DrawWorld(d, physics3d.Mat4(viewProj), viewport, world, style)
+```

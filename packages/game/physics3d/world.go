@@ -15,6 +15,13 @@ const (
 	sleepAngVelThreshold    = 0.05
 	sleepTimeThreshold      = 0.4
 	wakeVelThreshold        = 0.2
+	// sleepMaxDepth is the deepest residual contact a body may keep and still fall asleep; a sleeping body left deeper than sleepWakeDepth by a neighbor wakes so the solver can push it out (#546).
+	sleepMaxDepth  = 0.005
+	sleepWakeDepth = 2 * sleepMaxDepth
+	// shockMinCos is the smallest cosine between a contact normal and the up direction (-Gravity) for which the shock-propagation passes treat the lower body as immovable, about 45 degrees.
+	shockMinCos = 0.7
+	// shockKeepDepth is the overlap the shock pass leaves in a vertical contact. Resolving it fully would let the next step's integration separate a resting pair by a hair, dropping the contact and its warm-start impulse and making the stack bob; 1 mm keeps the contact alive across steps.
+	shockKeepDepth = 0.001
 )
 
 // Body is a rigid body, kinematic body, static collider, or trigger volume in a World.
@@ -73,6 +80,8 @@ type Body struct {
 	IsTrigger bool
 
 	sleepTimer float32
+	// residualDepth is the deepest contact b was left in by the last Step's final position pass.
+	residualDepth float32
 	// lastPos and lastRot are the pose at the end of the previous Step, so a kinematic body moved by setting Pos or Rot directly still wakes what it touches.
 	lastPos  Vec3
 	lastRot  Quat
@@ -743,6 +752,14 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
+	// 4b. Shock propagation, velocity half: sequential impulses converge slowly when a heavy body rests on a light one, and the leftover approach velocity makes stacks bob instead of settling. One bottom-up pass stops each upper body against the one below it, already final (#546).
+	up, haveUp := gravityUp(w.Gravity)
+	var shock []int
+	if haveUp {
+		shock = shockOrder(contacts, up)
+		propagateShockVelocity(contacts, shock, up)
+	}
+
 	// Refresh warm-start cache with active body-body contacts only.
 	clear(w.cache)
 	for i := range contacts {
@@ -770,16 +787,7 @@ func (w *World) Step(dt time.Duration) {
 			if invSum == 0 {
 				continue
 			}
-			var cur Contact
-			if c.isStaticTri {
-				if c.isHeightfield {
-					cur = testShapeHeightfieldTriangle(c.a.WorldShape(), c.tri)
-				} else {
-					cur = TestShapeTriangle(c.a.WorldShape(), c.tri)
-				}
-			} else {
-				cur = TestShapes(c.a.WorldShape(), c.b.WorldShape())
-			}
+			cur := c.current()
 			if !cur.Hit || cur.Depth <= positionSlop {
 				continue
 			}
@@ -797,6 +805,9 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
+	// 5b. Shock propagation, position half: one bottom-up pass that resolves each vertical contact by moving only its upper body, so a tall stack or a heavy body on a light one does not keep the penetration that Gauss-Seidel leaves under large mass ratios (#546).
+	w.resolveResidualPenetration(contacts, shock, up)
+
 	// 6. Put settled bodies to sleep so resting stacks have zero drift.
 	const (
 		sleepVelSq    = sleepVelThreshold * sleepVelThreshold
@@ -808,7 +819,8 @@ func (w *World) Step(dt time.Duration) {
 			continue
 		}
 		dispSq := b.Pos.Sub(prevPos[i]).LenSq() * invDtSq
-		if b.Vel.LenSq() < sleepVelSq && dispSq < sleepVelSq && b.AngVel.LenSq() < sleepAngVelSq {
+		// A body still sunk into a neighbor stays awake: asleep, the solver would skip the pair and freeze that penetration in place.
+		if b.Vel.LenSq() < sleepVelSq && dispSq < sleepVelSq && b.AngVel.LenSq() < sleepAngVelSq && b.residualDepth <= sleepMaxDepth {
 			b.sleepTimer += dtSec
 			if b.sleepTimer >= sleepTimeThreshold {
 				b.Sleeping = true
@@ -838,6 +850,123 @@ func (w *World) Step(dt time.Duration) {
 
 	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit events.
 	w.reconcileContactEvents(currentPairs)
+}
+
+// gravityUp returns the unit direction opposite gravity, and false when gravity is zero or not finite, which leaves "up" undefined and turns shock propagation off.
+func gravityUp(g Vec3) (Vec3, bool) {
+	if !isFiniteVec(g) || g.LenSq() <= 1e-12 {
+		return Vec3{}, false
+	}
+	return g.Neg().Norm(), true
+}
+
+// shockOrder returns the indices of contacts sorted from the lowest contact point along up to the highest. contacts is already in a deterministic order, so the stable sort keeps ties deterministic.
+func shockOrder(contacts []solverContact, up Vec3) []int {
+	order := make([]int, len(contacts))
+	heights := make([]float32, len(contacts))
+	for i := range contacts {
+		order[i] = i
+		heights[i] = contacts[i].point.Dot(up)
+	}
+	slices.SortStableFunc(order, func(x, y int) int { return cmp.Compare(heights[x], heights[y]) })
+	return order
+}
+
+// shockUpper reports which side of a contact with normal n (pointing from b toward a) is on top: +1 for a, -1 for b, 0 for a contact more than acos(shockMinCos) away from vertical or one without a body on top.
+func shockUpper(c *solverContact, n, up Vec3) int {
+	switch nu := n.Dot(up); {
+	case nu >= shockMinCos:
+		return 1
+	case nu <= -shockMinCos && c.b != nil:
+		return -1
+	default:
+		return 0
+	}
+}
+
+// propagateShockVelocity visits contacts in order (bottom up) and, for each vertical one whose bodies still approach, applies an impulse to the upper body alone that stops the approach, treating the lower body as immovable. Contacts that already separate, as after a bounce, are left alone.
+func propagateShockVelocity(contacts []solverContact, order []int, up Vec3) {
+	for _, i := range order {
+		c := &contacts[i]
+		upper, lower, rU, rL, n := c.a, c.b, c.rA, c.rB, c.normal
+		switch shockUpper(c, c.normal, up) {
+		case 1:
+		case -1:
+			upper, lower, rU, rL, n = c.b, c.a, c.rB, c.rA, c.normal.Neg()
+		default:
+			continue
+		}
+		invM, invI := activeInvMass(upper), activeInvInertia(upper)
+		if invM+invI == 0 {
+			continue
+		}
+		vn := pointVel(upper, rU).Sub(pointVel(lower, rL)).Dot(n)
+		if vn >= 0 {
+			continue
+		}
+		if k := contactEffectiveMass(invM, invI, rU, 0, 0, Vec3{}, n); k > 0 {
+			applyContactImpulse(upper, rU, n.Scale(-vn/k))
+		}
+	}
+}
+
+// resolveResidualPenetration runs after the Gauss-Seidel position iterations. It visits contacts in order (bottom up along up) and moves only the upper body of each vertical contact deeper than shockKeepDepth back to that depth, so the correction below is final by the time the body above is placed. Side contacts, contacts whose upper body cannot move, and every contact when order is nil (no gravity) keep the Gauss-Seidel result. It records on each body the deepest contact left afterwards, which gates sleeping, and wakes a sleeping body left deeper than sleepWakeDepth.
+func (w *World) resolveResidualPenetration(contacts []solverContact, order []int, up Vec3) {
+	for _, b := range w.bodies {
+		b.residualDepth = 0
+	}
+	visit := func(c *solverContact) {
+		cur := c.current()
+		if !cur.Hit || cur.Depth <= positionSlop {
+			return
+		}
+		depth := cur.Depth
+		if order != nil && cur.Depth > shockKeepDepth {
+			corr := cur.Depth - shockKeepDepth
+			switch shockUpper(c, cur.Normal, up) {
+			case 1:
+				if activeInvMass(c.a) > 0 {
+					c.a.Pos = c.a.Pos.Add(cur.Normal.Scale(corr))
+					depth = shockKeepDepth
+				}
+			case -1:
+				if activeInvMass(c.b) > 0 {
+					c.b.Pos = c.b.Pos.Sub(cur.Normal.Scale(corr))
+					depth = shockKeepDepth
+				}
+			}
+		}
+		c.a.residualDepth = max(c.a.residualDepth, depth)
+		if c.b != nil {
+			c.b.residualDepth = max(c.b.residualDepth, depth)
+		}
+	}
+	if order != nil {
+		for _, i := range order {
+			visit(&contacts[i])
+		}
+	} else {
+		for i := range contacts {
+			visit(&contacts[i])
+		}
+	}
+	for _, b := range w.bodies {
+		if b.Sleeping && b.residualDepth > sleepWakeDepth {
+			b.Wake()
+		}
+	}
+}
+
+// current re-tests c's pair at the bodies' present poses.
+func (c *solverContact) current() Contact {
+	switch {
+	case c.isHeightfield:
+		return testShapeHeightfieldTriangle(c.a.WorldShape(), c.tri)
+	case c.isStaticTri:
+		return TestShapeTriangle(c.a.WorldShape(), c.tri)
+	default:
+		return TestShapes(c.a.WorldShape(), c.b.WorldShape())
+	}
 }
 
 // isMoving reports whether b is moving fast enough to wake a sleeping body it touches: an awake dynamic body above the wake threshold, or a kinematic body with velocity or one moved directly since the last step.

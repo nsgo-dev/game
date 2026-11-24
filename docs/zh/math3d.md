@@ -92,7 +92,7 @@ mvp := proj.Mul(view).Mul(model)
 - **欧拉角**：`QuatFromEuler(pitch, yaw, roll)` 与 `ToEuler()` 采用相机与角色常用的内旋 **YXZ** 顺序（`Ry(yaw) * Rx(pitch) * Rz(roll)`）；需要内旋 **XYZ** 顺序（`Rx(x) * Ry(y) * Rz(z)`）时可使用 `QuatFromEulerXYZ` 与 `ToEulerXYZ`。两者都以 float64 提取，偏航与横滚在接近 ±90° 万向节极点时仍能分开，只有恰好锁死时才把横滚并入偏航。
 - **朝向与视图矩阵**：`LookRotation(forward, up)` 构造一个世界朝向四元数，使物体局部 `-Z` 对齐 `forward`、局部 `+Y` 尽量朝向 `up`。对于位于 `eye`、看向 `target` 的相机，`Transform{Pos: eye, Rot: LookRotation(target.Sub(eye), up), Scale: Vec3One()}.ToMat4()` 恰好是 `LookAt(eye, target, up)` 的逆矩阵。
 
-`Transform` 组合了 `Pos`、`Rot` 与 `Scale`，用于场景层级与插值（`Lerp` 对位置和缩放线性插值，对旋转使用 `Slerp`）。`parent.Mul(child)` 直接组合父子 TRS；若父节点含非均匀缩放且子节点带旋转（会产生切变），请转为 `Mat4` 相乘。
+`Transform` 组合了 `Pos`、`Rot` 与 `Scale`，用于场景层级与插值（`Lerp` 对位置和缩放线性插值，对旋转使用 `Slerp`）。`parent.Mul(child)` 直接组合父子 TRS；若父节点含非均匀缩放且子节点带旋转（会产生切变），请转为 `Mat4` 相乘。同样，`t.Inverse()` 在 `Mul` 意义下抵消 `t`，但只有刚体变换、均匀缩放或不带旋转的变换才是几何意义上的逆：旋转下的非均匀缩放，其逆会产生切变，不是 TRS。`t.InverseMat4()` 对任何变换都返回精确的逆矩阵（缩放分量为零或逆矩阵会超出 `float32` 范围时返回 `false`），需要把世界坐标点变回非均匀缩放的局部空间时请使用它。
 
 ## 包围体、射线、平面与视锥体
 

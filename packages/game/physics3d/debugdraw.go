@@ -40,11 +40,8 @@ func resolveDebugStyle(s DebugStyle) DebugStyle {
 	return s
 }
 
-// clipSegment4D clips the 3D segment [a, b] in homogeneous clip space against
-// all six frustum planes (near, far, left, right, bottom, top) so segments
-// crossing behind the camera clip cleanly to the near plane without inverting
-// or producing NaN/Inf coordinates.
-func clipSegment4D(viewProj Mat4, viewport core.Bounds, a, b Vec3) (core.Point, core.Point, bool) {
+// clipSegment4D clips the 3D segment [a, b] in homogeneous clip space against all six frustum planes (near, far, left, right, bottom, top) so segments crossing behind the camera clip cleanly to the near plane without inverting or producing NaN/Inf coordinates. The near plane is clip z >= 0 when depthZO is set ([0, 1] depth) and z >= -w otherwise ([-1, 1] depth).
+func clipSegment4D(viewProj Mat4, viewport core.Bounds, a, b Vec3, depthZO bool) (core.Point, core.Point, bool) {
 	if viewport.Size.Width <= 0 || viewport.Size.Height <= 0 {
 		return core.Point{}, core.Point{}, false
 	}
@@ -85,9 +82,12 @@ func clipSegment4D(viewProj Mat4, viewport core.Bounds, a, b Vec3) (core.Point, 
 		return t0 <= t1
 	}
 
-	// Clip against near (z >= -w), far (z <= w), left (x >= -w), right (x <= w),
-	// bottom (y >= -w), and top (y <= w).
-	if !clipPlane(ca.z+ca.w, cb.z+cb.w) ||
+	// Clip against near (z >= -w, or z >= 0 for [0, 1] depth), far (z <= w), left (x >= -w), right (x <= w), bottom (y >= -w), and top (y <= w).
+	nearA, nearB := ca.z+ca.w, cb.z+cb.w
+	if depthZO {
+		nearA, nearB = ca.z, cb.z
+	}
+	if !clipPlane(nearA, nearB) ||
 		!clipPlane(ca.w-ca.z, cb.w-cb.z) ||
 		!clipPlane(ca.x+ca.w, cb.x+cb.w) ||
 		!clipPlane(ca.w-ca.x, cb.w-cb.x) ||
@@ -121,14 +121,23 @@ func clipSegment4D(viewProj Mat4, viewport core.Bounds, a, b Vec3) (core.Point, 
 	return s0, s1, true
 }
 
-// DrawLine3D projects and strokes a 3D line segment [a, b] onto d using
-// viewProj and viewport, clipping cleanly against the camera frustum and near
-// plane. It leaves d's graphics state unchanged.
+// DrawLine3D projects and strokes a 3D line segment [a, b] onto d using viewProj and viewport, clipping cleanly against the camera frustum and near plane. It leaves d's graphics state unchanged.
+//
+// The near plane is clip z >= -w, right for a [-1, 1] depth projection such as [Mat4Perspective] or [Mat4Ortho]. Use [DrawLine3DZO] for a [0, 1] projection such as math3d.Perspective or math3d.Ortho.
 func DrawLine3D(d *core.Drawing, viewProj Mat4, viewport core.Bounds, a, b Vec3, col core.Color, lineWidth float32) {
+	drawLine3D(d, viewProj, viewport, a, b, col, lineWidth, false)
+}
+
+// DrawLine3DZO is [DrawLine3D] for a [0, 1] depth projection such as math3d.Perspective, math3d.Ortho or a render3d camera: it clips at clip z >= 0, as render3d.ProjectSegment does. DrawLine3D used with a [0, 1] orthographic projection would draw segments behind the camera, because w is 1 there everywhere (#546).
+func DrawLine3DZO(d *core.Drawing, viewProj Mat4, viewport core.Bounds, a, b Vec3, col core.Color, lineWidth float32) {
+	drawLine3D(d, viewProj, viewport, a, b, col, lineWidth, true)
+}
+
+func drawLine3D(d *core.Drawing, viewProj Mat4, viewport core.Bounds, a, b Vec3, col core.Color, lineWidth float32, depthZO bool) {
 	if d == nil {
 		return
 	}
-	p0, p1, ok := clipSegment4D(viewProj, viewport, a, b)
+	p0, p1, ok := clipSegment4D(viewProj, viewport, a, b, depthZO)
 	if !ok {
 		return
 	}
@@ -145,7 +154,7 @@ func DrawLine3D(d *core.Drawing, viewProj Mat4, viewport core.Bounds, a, b Vec3,
 	d.Restore()
 }
 
-func drawEdges(d *core.Drawing, viewProj Mat4, viewport core.Bounds, edges [][2]Vec3, col core.Color, lineWidth float32) {
+func drawEdges(d *core.Drawing, viewProj Mat4, viewport core.Bounds, edges [][2]Vec3, col core.Color, lineWidth float32, depthZO bool) {
 	if d == nil || len(edges) == 0 {
 		return
 	}
@@ -154,7 +163,7 @@ func drawEdges(d *core.Drawing, viewProj Mat4, viewport core.Bounds, edges [][2]
 	}
 	started := false
 	for _, e := range edges {
-		p0, p1, ok := clipSegment4D(viewProj, viewport, e[0], e[1])
+		p0, p1, ok := clipSegment4D(viewProj, viewport, e[0], e[1], depthZO)
 		if !ok {
 			continue
 		}
@@ -186,11 +195,11 @@ func DrawShape(d *core.Drawing, viewProj Mat4, viewport core.Bounds, s Shape, st
 		if r, ok := s.orientedBox(); ok {
 			edges = OrientedBoxEdges(s.Box, r)
 		}
-		drawEdges(d, viewProj, viewport, edges[:], st.BoxColor, st.LineWidth)
+		drawEdges(d, viewProj, viewport, edges[:], st.BoxColor, st.LineWidth, st.DepthZO)
 	case ShapeSphere:
-		drawEdges(d, viewProj, viewport, SphereEdges(s.Sphere, st.SphereSegments), st.SphereColor, st.LineWidth)
+		drawEdges(d, viewProj, viewport, SphereEdges(s.Sphere, st.SphereSegments), st.SphereColor, st.LineWidth, st.DepthZO)
 	case ShapeCapsule:
-		drawEdges(d, viewProj, viewport, CapsuleEdges(s.Capsule, st.SphereSegments), st.CapsuleColor, st.LineWidth)
+		drawEdges(d, viewProj, viewport, CapsuleEdges(s.Capsule, st.SphereSegments), st.CapsuleColor, st.LineWidth, st.DepthZO)
 	}
 }
 
@@ -212,7 +221,7 @@ func DrawCharacter(d *core.Drawing, viewProj Mat4, viewport core.Bounds, c *Char
 	DrawShape(d, viewProj, viewport, c.Shape(), st)
 	if c.Grounded && c.GroundNormal.LenSq() > 0 {
 		tip := c.Pos.Add(c.GroundNormal.Scale(st.NormalLength))
-		DrawLine3D(d, viewProj, viewport, c.Pos, tip, st.NormalColor, st.LineWidth)
+		drawLine3D(d, viewProj, viewport, c.Pos, tip, st.NormalColor, st.LineWidth, st.DepthZO)
 	}
 }
 
@@ -223,7 +232,7 @@ func DrawContact(d *core.Drawing, viewProj Mat4, viewport core.Bounds, c Contact
 		return
 	}
 	st := resolveDebugStyle(style)
-	if pt, _, ok := Project(viewProj, viewport, c.Point); ok && pointInBounds(viewport, pt) {
+	if pt, ndcZ, ok := Project(viewProj, viewport, c.Point); ok && (!st.DepthZO || ndcZ >= 0) && pointInBounds(viewport, pt) {
 		r := st.LineWidth * 2
 		if r < 3 {
 			r = 3
@@ -237,7 +246,7 @@ func DrawContact(d *core.Drawing, viewProj Mat4, viewport core.Bounds, c Contact
 	}
 	if c.Normal.LenSq() > 0 {
 		tip := c.Point.Add(c.Normal.Scale(st.NormalLength))
-		DrawLine3D(d, viewProj, viewport, c.Point, tip, st.NormalColor, st.LineWidth)
+		drawLine3D(d, viewProj, viewport, c.Point, tip, st.NormalColor, st.LineWidth, st.DepthZO)
 	}
 }
 
@@ -298,7 +307,7 @@ func DrawRaycast(d *core.Drawing, viewProj Mat4, viewport core.Bounds, ray Ray, 
 	if hitOK {
 		end = hit.Point
 	}
-	DrawLine3D(d, viewProj, viewport, ray.Origin, end, st.RayColor, st.LineWidth)
+	drawLine3D(d, viewProj, viewport, ray.Origin, end, st.RayColor, st.LineWidth, st.DepthZO)
 	if hitOK {
 		DrawContact(d, viewProj, viewport, Contact{
 			Hit:    true,

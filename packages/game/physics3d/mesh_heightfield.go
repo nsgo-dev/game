@@ -978,17 +978,78 @@ func testShapeHeightfieldTriangle(s Shape, tri Triangle) Contact {
 	if !c.Hit {
 		return c
 	}
-	// Heightfields are solid underneath; ensure separation normal always points
-	// upward (+Y) rather than pushing a penetrating shape down into terrain.
+	// Heightfields are solid underneath; ensure separation normal always points upward (+Y) rather than pushing a penetrating shape down into terrain.
 	if c.Normal.Y < 0 {
 		n := tri.Normal()
-		if n.Y > 0 {
-			c.Normal = n
-		} else {
-			c.Normal = c.Normal.Neg()
+		if n.Y <= 0 {
+			n = c.Normal.Neg()
+		}
+		c.Normal = n
+		// Depth belongs to the normal it was measured along. When the shape lies under this triangle, the new normal must lift it clear of the triangle's highest point: a sphere whose center is 0.3 below a flat cell needs radius+0.3 to get out upward, not the radius-0.3 that pushed it down (#546). A shape beside the triangle, such as one touching a plateau's edge from the foot of a cliff, keeps its measured depth: re-measuring there reported the whole step height and lifted it onto the plateau.
+		if shapeUnderTriangle(s, tri, n) {
+			depth := triangleMaxAlong(tri, n) - shapeMinAlong(s, n)
+			if !(depth > 0) {
+				return Contact{}
+			}
+			c.Depth = depth
 		}
 	}
 	return c
+}
+
+// shapeUnderTriangle reports whether a reference point of s (a sphere's or box's center, or a point of a capsule's segment) lies inside tri's XZ footprint and below its plane, whose upward unit normal is n.
+func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
+	under := func(p Vec3) bool {
+		return p.Sub(tri.A).Dot(n) < 0 && pointInTriangleXZ(p, tri)
+	}
+	switch s.Kind {
+	case ShapeSphere:
+		return under(s.Sphere.Center)
+	case ShapeCapsule:
+		a, b := s.Capsule.A, s.Capsule.B
+		return under(a) || under(b) || under(a.Add(b).Scale(0.5))
+	case ShapeBox:
+		return under(s.Box.Center)
+	default:
+		return false
+	}
+}
+
+// pointInTriangleXZ reports whether p's XZ projection lies inside or on the edge of tri's XZ projection.
+func pointInTriangleXZ(p Vec3, tri Triangle) bool {
+	edge := func(a, b Vec3) float32 {
+		return (b.X-a.X)*(p.Z-a.Z) - (b.Z-a.Z)*(p.X-a.X)
+	}
+	d0, d1, d2 := edge(tri.A, tri.B), edge(tri.B, tri.C), edge(tri.C, tri.A)
+	const eps = 1e-6
+	hasNeg := d0 < -eps || d1 < -eps || d2 < -eps
+	hasPos := d0 > eps || d1 > eps || d2 > eps
+	return !(hasNeg && hasPos)
+}
+
+// triangleMaxAlong returns the largest projection of tri's vertices onto n.
+func triangleMaxAlong(tri Triangle, n Vec3) float32 {
+	return max(tri.A.Dot(n), tri.B.Dot(n), tri.C.Dot(n))
+}
+
+// shapeMinAlong returns the smallest projection of s onto the unit direction n.
+func shapeMinAlong(s Shape, n Vec3) float32 {
+	switch s.Kind {
+	case ShapeSphere:
+		return s.Sphere.Center.Dot(n) - s.Sphere.Radius
+	case ShapeCapsule:
+		return min(s.Capsule.A.Dot(n), s.Capsule.B.Dot(n)) - s.Capsule.Radius
+	case ShapeBox:
+		e := s.Box.HalfExtents
+		r := e.X*abs32(n.X) + e.Y*abs32(n.Y) + e.Z*abs32(n.Z)
+		if rot, ok := s.orientedBox(); ok {
+			ax := boxAxes(rot)
+			r = e.X*abs32(ax[0].Dot(n)) + e.Y*abs32(ax[1].Dot(n)) + e.Z*abs32(ax[2].Dot(n))
+		}
+		return s.Box.Center.Dot(n) - r
+	default:
+		return 0
+	}
 }
 
 // TestShape returns the deepest Contact between s and hf (normal pointing from
