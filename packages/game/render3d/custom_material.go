@@ -467,10 +467,21 @@ type CustomMaterial struct {
 	texSlots       map[string]int // texture param name -> slot index
 	boundTex       []*GPUTexture
 	boundSamp      []*GPUSampler
+	bindGroups     []customBindGroup // recently used texture/sampler combinations, most recent last; holds bindGroup
 	uniformDirty   bool
 	bindGroupDirty bool
 	retained       bool
 	closed         bool
+}
+
+// customBindGroupCacheSize is how many texture/sampler combinations a [CustomMaterial] keeps a bind group for, so alternating between a few textures reuses bind groups instead of creating one per change.
+const customBindGroupCacheSize = 8
+
+// customBindGroup is the bind group a [CustomMaterial] built for one combination of bound textures and samplers.
+type customBindGroup struct {
+	tex  []*GPUTexture
+	samp []*GPUSampler
+	bg   *gpu.BindGroup
 }
 
 // NewCustomMaterial validates desc, compiles the WGSL or Kage shader, computes
@@ -622,8 +633,7 @@ func NewCustomMaterial(cx *core.Scope, dev *gpu.Device, desc CustomShaderDesc) (
 			cleanupOnErr()
 			return nil, err
 		}
-		m.bindGroup, err = m.createBindGroup(dev)
-		if err != nil {
+		if err = m.selectBindGroup(dev); err != nil {
 			cleanupOnErr()
 			return nil, err
 		}
@@ -969,9 +979,7 @@ func (m *CustomMaterial) ApplyMap(values map[string]any) error {
 	return nil
 }
 
-// Sync uploads dirty uniform bytes to the GPU uniform buffer and rebuilds the
-// @group(1) bind group if texture bindings changed. When nothing is dirty it
-// returns nil with zero allocations.
+// Sync uploads dirty uniform bytes to the GPU uniform buffer and, when texture bindings changed, switches to the @group(1) bind group for the new textures and samplers. The material keeps bind groups for its 8 most recently bound combinations, so alternating between a few textures (a flipbook, a ping-pong render target) creates no new GPU objects once each combination has been bound. When nothing is dirty it returns nil with zero allocations.
 func (m *CustomMaterial) Sync(dev *gpu.Device) error {
 	if m == nil || m.closed {
 		return &CustomMaterialError{Message: "material is nil or closed"}
@@ -990,18 +998,65 @@ func (m *CustomMaterial) Sync(dev *gpu.Device) error {
 		m.uniformDirty = false
 	}
 	if m.bindGroupDirty && m.matLayout != nil {
-		nextBG, err := m.createBindGroup(dev)
-		if err != nil {
+		if err := m.selectBindGroup(dev); err != nil {
 			return err
 		}
-		old := m.bindGroup
-		m.bindGroup = nextBG
 		m.bindGroupDirty = false
-		if old != nil {
-			_ = old.Close()
-		}
 	}
 	return nil
+}
+
+// selectBindGroup makes m.bindGroup the bind group for the currently bound textures and samplers, reusing a cached one when that combination was bound recently and creating it otherwise. Cached bind groups whose textures or samplers were closed are dropped, and the least recently used one is closed when the cache is full.
+func (m *CustomMaterial) selectBindGroup(dev *gpu.Device) error {
+	found := -1
+	for i := 0; i < len(m.bindGroups); i++ {
+		e := m.bindGroups[i]
+		if !e.live() {
+			_ = e.bg.Close()
+			m.bindGroups = slices.Delete(m.bindGroups, i, i+1)
+			i--
+			continue
+		}
+		if slices.Equal(e.tex, m.boundTex) && slices.Equal(e.samp, m.boundSamp) {
+			found = i
+		}
+	}
+	if found >= 0 {
+		e := m.bindGroups[found]
+		copy(m.bindGroups[found:], m.bindGroups[found+1:])
+		m.bindGroups[len(m.bindGroups)-1] = e
+		m.bindGroup = e.bg
+		return nil
+	}
+	bg, err := m.createBindGroup(dev)
+	if err != nil {
+		return err
+	}
+	if len(m.bindGroups) >= customBindGroupCacheSize {
+		_ = m.bindGroups[0].bg.Close()
+		m.bindGroups = slices.Delete(m.bindGroups, 0, 1)
+	}
+	m.bindGroups = append(m.bindGroups, customBindGroup{tex: slices.Clone(m.boundTex), samp: slices.Clone(m.boundSamp), bg: bg})
+	m.bindGroup = bg
+	return nil
+}
+
+// live reports whether e's bind group and every texture and sampler it references are still open.
+func (e customBindGroup) live() bool {
+	if !e.bg.Valid() {
+		return false
+	}
+	for _, t := range e.tex {
+		if !t.Valid() {
+			return false
+		}
+	}
+	for _, s := range e.samp {
+		if !s.Valid() {
+			return false
+		}
+	}
+	return true
 }
 
 // Update is an alias for [CustomMaterial.Sync].
@@ -1161,9 +1216,10 @@ func (m *CustomMaterial) Close() error {
 	if m.pipeline != nil {
 		err = errors.Join(err, m.pipeline.Close())
 	}
-	if m.bindGroup != nil {
-		err = errors.Join(err, m.bindGroup.Close())
+	for _, e := range m.bindGroups {
+		err = errors.Join(err, e.bg.Close())
 	}
+	m.bindGroups = nil
 	if m.matLayout != nil {
 		err = errors.Join(err, m.matLayout.Close())
 	}
