@@ -20,6 +20,15 @@ const (
 	DirectionDown
 )
 
+type transitionKind uint8
+
+const (
+	transitionCustom transitionKind = iota
+	transitionCrossfade
+	transitionFadeColor
+	transitionWipe
+)
+
 // Transition animates the visual handoff between an outgoing scene and an incoming scene over Duration.
 type Transition struct {
 	// Duration is how long the transition runs; a non-positive Duration switches immediately.
@@ -29,6 +38,10 @@ type Transition struct {
 	// Draw draws one transition frame at eased progress in [0, 1] into d for a canvas of size,
 	// calling drawOld and drawNew as needed to render the outgoing and incoming scenes.
 	Draw func(d *core.Drawing, size core.Size, progress float64, drawOld, drawNew func(*core.Drawing))
+
+	kind      transitionKind
+	fadeColor core.Color
+	wipeDir   Direction
 }
 
 // Fade returns a Transition lasting duration.
@@ -39,6 +52,7 @@ func Fade(duration time.Duration, color core.Color) *Transition {
 	if color == 0 || color == core.Transparent {
 		return &Transition{
 			Duration: duration,
+			kind:     transitionCrossfade,
 			Draw: func(d *core.Drawing, _ core.Size, progress float64, drawOld, drawNew func(*core.Drawing)) {
 				p := clamp01(progress)
 				if oldAlpha := float32(1 - p); oldAlpha > 0 && drawOld != nil {
@@ -57,7 +71,9 @@ func Fade(duration time.Duration, color core.Color) *Transition {
 		}
 	}
 	return &Transition{
-		Duration: duration,
+		Duration:  duration,
+		kind:      transitionFadeColor,
+		fadeColor: color,
 		Draw: func(d *core.Drawing, size core.Size, progress float64, drawOld, drawNew func(*core.Drawing)) {
 			p := clamp01(progress)
 			var overlayAlpha float32
@@ -96,6 +112,8 @@ func Crossfade(duration time.Duration) *Transition {
 func Wipe(duration time.Duration, dir Direction) *Transition {
 	return &Transition{
 		Duration: duration,
+		kind:     transitionWipe,
+		wipeDir:  dir,
 		Draw: func(d *core.Drawing, size core.Size, progress float64, drawOld, drawNew func(*core.Drawing)) {
 			p := clamp01(progress)
 			if p <= 0 {

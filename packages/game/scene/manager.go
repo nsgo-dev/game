@@ -3,17 +3,22 @@ package scene
 import (
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Controller defines a managed scene's lifecycle, update, and draw hooks.
+// Controller defines a managed scene's lifecycle, update, view, and draw hooks.
 //
-// All fields are optional. When Draw is nil and Scene is non-nil, Manager draws Scene automatically; when Update is nil and Scene is non-nil, Manager updates Scene automatically.
+// All fields are optional. When View is set, Manager.View mounts the returned node (such as a 3D gpu.View, an Overlay3D.View, or a native UI tree) in the scene's view scope and unmounts it when the scene exits. When View is nil, Manager.View renders the scene through a 2D core.Canvas using Draw or Scene. When Draw is nil and Scene is non-nil, Manager draws Scene automatically; when Update is nil and Scene is non-nil, Manager updates Scene automatically.
 type Controller struct {
 	// Scene is an optional Scene drawn and updated when Draw or Update is nil, and targeted by Manager.DispatchPress and Manager.DispatchTouch.
 	Scene *Scene
-	// Transparent, when true on a pushed overlay scene, lets Manager.Draw also draw the underlying scene(s) first.
+	// Transparent, when true on a pushed overlay scene, lets Manager.Draw and Manager.View also show the underlying scene(s) first.
 	Transparent bool
+	// View optionally builds a native NSGo view tree for this scene, such as a 3D gpu.View or Overlay3D.View.
+	// Resources created under cx are automatically released when the scene leaves the Manager.
+	View func(cx *core.Scope) core.Node
 	// Enter runs once when the scene becomes active, with a child Scope owned by the Manager.
 	// Loops, signals, effects, timers, and cleanups created under cx are automatically disposed when the scene exits.
 	Enter func(cx *core.Scope)
@@ -30,6 +35,7 @@ type Controller struct {
 }
 
 type managedScene struct {
+	id     uint64
 	ctrl   *Controller
 	scope  *core.Scope
 	exited bool
@@ -42,12 +48,23 @@ type activeTransition struct {
 	stop     func()
 }
 
-// Manager owns a stack of scenes under a core.Scope, driving their lifecycle hooks, child-scope disposal, and animated transitions.
+// Manager owns a stack of scenes under a core.Scope, driving their lifecycle hooks, child-scope disposal, view mounting for 2D and 3D scenes, shared input and audio, and animated transitions.
 type Manager struct {
-	cx    *core.Scope
-	rev   *core.Signal[uint64]
-	stack []*managedScene
-	trans *activeTransition
+	// Actions is an optional input action map shared across all 2D and 3D scenes managed by this Manager.
+	//
+	// When non-nil, Manager.View attaches Actions to its persistent stage view so touch, mouse, pointer-lock, and focused key input survive scene switches without re-binding. Switch, Push, and Pop call Actions.Reset() by default (unless KeepInputOnSwitch is true) so transient press edges and held keys do not leak into the newly active scene while bindings, axes, and pointer lock remain intact.
+	Actions *input.Actions
+	// KeepInputOnSwitch, when true, skips calling Actions.Reset() on Switch, Push, and Pop so held keys and buttons stay continuously active across scene changes.
+	KeepInputOnSwitch bool
+	// Mixer is an optional sound mixer shared across all 2D and 3D scenes managed by this Manager, keeping music playing uninterrupted and SFX groups live across scene switches.
+	Mixer *sound.Mixer
+
+	cx         *core.Scope
+	rev        *core.Signal[uint64]
+	entriesRev *core.Signal[uint64]
+	nextID     uint64
+	stack      []*managedScene
+	trans      *activeTransition
 }
 
 // NewManager returns a Manager whose scenes run inside child scopes of cx.
@@ -57,6 +74,7 @@ func NewManager(cx *core.Scope) *Manager {
 	if cx != nil {
 		cx.Run(func() {
 			m.rev = core.NewSignal[uint64](cx, 0)
+			m.entriesRev = core.NewSignal[uint64](cx, 0)
 			cx.Cleanup(func() {
 				m.disposeAll()
 			})
@@ -87,7 +105,8 @@ func (m *Manager) enterScene(ctrl *Controller) *managedScene {
 	m.cx.Run(func() {
 		child = m.cx.Child()
 	})
-	ms := &managedScene{ctrl: ctrl, scope: child}
+	m.nextID++
+	ms := &managedScene{id: m.nextID, ctrl: ctrl, scope: child}
 	if ctrl.Enter != nil {
 		child.Run(func() {
 			ctrl.Enter(child)
@@ -127,6 +146,7 @@ func (m *Manager) finishTransition() {
 	for i := len(t.old) - 1; i >= 0; i-- {
 		m.exitScene(t.old[i])
 	}
+	m.bumpEntries()
 }
 
 func (m *Manager) bump() {
@@ -134,6 +154,27 @@ func (m *Manager) bump() {
 		return
 	}
 	m.rev.Set(m.rev.GetUntracked() + 1)
+}
+
+func (m *Manager) bumpEntries() {
+	if m.entriesRev == nil || m.cx == nil || m.cx.Disposed() {
+		return
+	}
+	m.entriesRev.Set(m.entriesRev.GetUntracked() + 1)
+}
+
+func (m *Manager) resetInput() {
+	if m.Actions != nil && !m.KeepInputOnSwitch {
+		m.Actions.Reset()
+	}
+}
+
+// Invalidate marks the manager's 2D canvases dirty so they redraw on the next frame without rebuilding or unmounting mounted 3D views.
+func (m *Manager) Invalidate() {
+	if m == nil {
+		return
+	}
+	m.bump()
 }
 
 // Switch replaces the current scene stack with next.
@@ -147,11 +188,13 @@ func (m *Manager) Switch(next *Controller, transition *Transition) {
 	m.finishTransition()
 	old := m.stack
 	m.stack = nil
+	m.resetInput()
 
 	if next == nil {
 		for i := len(old) - 1; i >= 0; i-- {
 			m.exitScene(old[i])
 		}
+		m.bumpEntries()
 		m.bump()
 		return
 	}
@@ -161,6 +204,7 @@ func (m *Manager) Switch(next *Controller, transition *Transition) {
 			m.exitScene(old[i])
 		}
 		m.stack = []*managedScene{m.enterScene(next)}
+		m.bumpEntries()
 		m.bump()
 		return
 	}
@@ -186,6 +230,7 @@ func (m *Manager) Switch(next *Controller, transition *Transition) {
 			m.bump()
 		})
 	})
+	m.bumpEntries()
 	m.bump()
 }
 
@@ -195,6 +240,7 @@ func (m *Manager) Push(next *Controller) {
 		return
 	}
 	m.finishTransition()
+	m.resetInput()
 	if len(m.stack) > 0 {
 		prev := m.stack[len(m.stack)-1]
 		if prev.ctrl != nil && prev.ctrl.Pause != nil && !prev.scope.Disposed() {
@@ -205,6 +251,7 @@ func (m *Manager) Push(next *Controller) {
 	}
 	ms := m.enterScene(next)
 	m.stack = append(m.stack, ms)
+	m.bumpEntries()
 	m.bump()
 }
 
@@ -217,6 +264,7 @@ func (m *Manager) Pop() *Controller {
 	if len(m.stack) == 0 {
 		return nil
 	}
+	m.resetInput()
 	top := m.stack[len(m.stack)-1]
 	m.stack[len(m.stack)-1] = nil
 	m.stack = m.stack[:len(m.stack)-1]
@@ -230,6 +278,7 @@ func (m *Manager) Pop() *Controller {
 			})
 		}
 	}
+	m.bumpEntries()
 	m.bump()
 	return top.ctrl
 }
