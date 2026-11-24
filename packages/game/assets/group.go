@@ -64,11 +64,12 @@ type Group struct {
 	loadCancel context.CancelFunc
 	waiters    []func(error)
 
-	atlases map[string]*sprite.Atlas
-	sounds  map[string]*audio.Sound
-	images  map[string]core.ImageSource
-	bytes   map[string][]byte
-	custom  map[string]customEntry
+	atlases  map[string]*sprite.Atlas
+	sounds   map[string]*audio.Sound
+	images   map[string]core.ImageSource
+	bytes    map[string][]byte
+	custom   map[string]customEntry
+	rawBytes map[string]int64
 
 	progressSig *core.Signal[float64]
 	loadedSig   *core.Signal[int]
@@ -334,6 +335,7 @@ func (g *Group) Load(onDone func(error)) {
 	g.images = map[string]core.ImageSource{}
 	g.bytes = map[string][]byte{}
 	g.custom = map[string]customEntry{}
+	g.rawBytes = map[string]int64{}
 
 	g.m.cx.Batch(func() {
 		g.loadedSig.Set(0)
@@ -391,10 +393,11 @@ func (g *Group) startSpec(gen uint64, loadCtx context.Context, readFn func(conte
 func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(context.Context, string) ([]byte, error), spec assetSpec) {
 	prefetch := needsPrefetch(spec.img)
 	var (
-		parsed   *sprite.Atlas
-		parsedOK bool
-		imgOK    = !prefetch
-		failed   bool
+		parsed    *sprite.Atlas
+		parsedLen int64
+		parsedOK  bool
+		imgOK     = !prefetch
+		failed    bool
 	)
 	finish := func(err error) {
 		if failed || !g.isActive(gen) {
@@ -407,6 +410,7 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 		}
 		if parsedOK && imgOK {
 			g.atlases[spec.name] = parsed
+			g.rawBytes[spec.name] = parsedLen
 			g.completeItem(gen)
 		}
 	}
@@ -439,8 +443,10 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 			})
 			return
 		}
+		dataLen := int64(len(data))
 		g.m.postWithCleanup(nil, func() {
 			parsed = atlas
+			parsedLen = dataLen
 			parsedOK = true
 			finish(nil)
 		})
@@ -547,6 +553,7 @@ func (g *Group) startCustom(gen uint64, loadCtx context.Context, readFn func(con
 			v := val
 			release = func() { spec.release(v) }
 		}
+		dataLen := int64(len(data))
 		g.m.postWithCleanup(release, func() {
 			if !g.isActive(gen) {
 				if release != nil {
@@ -555,6 +562,7 @@ func (g *Group) startCustom(gen uint64, loadCtx context.Context, readFn func(con
 				return
 			}
 			g.custom[spec.name] = customEntry{value: val, release: spec.release}
+			g.rawBytes[spec.name] = dataLen
 			g.completeItem(gen)
 		})
 	}()
@@ -689,4 +697,5 @@ func (g *Group) releaseLoadedValues() {
 	g.images = nil
 	g.bytes = nil
 	g.custom = nil
+	g.rawBytes = nil
 }
