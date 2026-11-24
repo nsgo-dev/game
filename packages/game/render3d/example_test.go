@@ -93,3 +93,21 @@ func ExampleUploader() {
 	// ready: 4 vertices, 6 indices, error: <nil>
 	// frame: 12 bytes
 }
+
+// ExampleApplyToneMap compresses linear HDR radiance with the ACES curve and encodes it to sRGB, as ToneMapPass does on the GPU; exposure 0 fades to black.
+func ExampleApplyToneMap() {
+	hot := math3d.Vec3{X: 4, Y: 1, Z: 0.18}
+	opts := render3d.DefaultToneMapOptions()
+	c := render3d.ApplyToneMap(hot, opts)
+	fmt.Printf("ACES: %.3f %.3f %.3f\n", c.X, c.Y, c.Z)
+	opts.Exposure = render3d.ExposureFromEV(-1)
+	c = render3d.ApplyToneMap(hot, opts)
+	fmt.Printf("-1 EV: %.3f %.3f %.3f\n", c.X, c.Y, c.Z)
+	opts.Exposure = 0
+	c = render3d.ApplyToneMap(hot, opts)
+	fmt.Printf("black: %.3f %.3f %.3f\n", c.X, c.Y, c.Z)
+	// Output:
+	// ACES: 0.988 0.908 0.553
+	// -1 EV: 0.962 0.807 0.363
+	// black: 0.000 0.000 0.000
+}

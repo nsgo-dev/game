@@ -473,6 +473,7 @@ fn tonemap_neutral(color: vec3<f32>) -> vec3<f32> {
 	return clamp(mix(c, vec3<f32>(new_peak, new_peak, new_peak), vec3<f32>(g, g, g)), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
 }
 
+// fast_log2_agx computes log2 over AgX's input range with power-of-two range reduction and an atanh series, because NSGo v0.3.0's software GPU has no case for the log2, exp2, log and exp builtins and silently returns 0 for them.
 fn fast_log2_agx(v: f32) -> f32 {
 	var m = clamp(v, 0.0001757761, 16.291573);
 	var e: f32 = 0.0;
@@ -946,20 +947,15 @@ type ToneMapPassDesc struct {
 	// NearestFilter selects [gpu.FilterNearest] instead of [gpu.FilterLinear]
 	// when sampling the HDR source texture.
 	NearestFilter bool
-	// Retained opts into automatic recreation of the uniform buffer, sampler,
-	// bind group layout, cached bind group, and pipeline across a GPU device
-	// loss.
+	// Retained opts the uniform buffer, sampler, bind group layout and pipeline into automatic recreation after a GPU device loss. Bind groups have no retained form; the pass rebuilds its cached one on the next draw once the old one is no longer valid.
 	Retained bool
 }
 
-// ToneMapPass draws a full-screen triangle that samples a linear HDR texture,
-// applies exposure and a configurable [ToneMapOperator], and encodes to sRGB or
-// power-law gamma for display (#250).
+// ToneMapPass draws a full-screen triangle that samples a linear HDR texture, applies exposure and a configurable [ToneMapOperator], and encodes to sRGB or power-law gamma for display (#250).
 //
-// Steady-state frames incur zero heap allocations and reuse the cached bind
-// group for the active source texture. When created with Retained: true (along
-// with a retained [HDRTarget]), NSGo automatically recreates all GPU resources
-// after a device loss.
+// A pass holds one uniform block, and NSGo applies [gpu.Device.WriteBuffer] ahead of the commands of the submission it belongs to, so every draw one ToneMapPass records into a submission uses the options of its last [ToneMapPass.Draw]. To tone-map several views with different options in one frame (split screen, a picture-in-picture camera, a photo-mode preview), create one ToneMapPass per view.
+//
+// [AppendToneMapUniforms] encodes the options without allocating, and the pass reuses its bind group while the source texture stays the same; each draw still uploads the [ToneMapUniformSize]-byte block with WriteBuffer, which copies it. When created with Retained: true (along with a retained [HDRTarget]), the pass's GPU resources survive a device loss as [ToneMapPassDesc].Retained describes.
 type ToneMapPass struct {
 	cx           *core.Scope
 	dev          *gpu.Device
@@ -1208,8 +1204,7 @@ func (p *ToneMapPass) BindGroupFor(dev *gpu.Device, src *gpu.Texture) (*gpu.Bind
 	return bg, nil
 }
 
-// Draw uploads opts, binds src (reusing the cached bind group in steady state),
-// and records the full-screen tone-mapping triangle into pass.
+// Draw uploads opts, binds src (reusing the cached bind group in steady state), and records the full-screen tone-mapping triangle into pass. The options apply to every draw of this pass in the same submission (see [ToneMapPass]).
 func (p *ToneMapPass) Draw(pass *gpu.RenderPass, dev *gpu.Device, src *gpu.Texture, opts ToneMapOptions) error {
 	return p.drawRegion(pass, dev, src, opts, fullToneMapRegion)
 }
