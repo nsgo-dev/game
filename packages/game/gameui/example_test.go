@@ -5,6 +5,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 )
 
 // A Root lays out a widget tree, moves focus between the focusable widgets and activates the focused one, as a pause menu driven by a gamepad does.
@@ -96,4 +97,17 @@ func ExampleProgressBar() {
 	fmt.Println(bar.Fraction())
 	// Output:
 	// 0.25
+}
+
+// A SettingsMenu provides ready-to-use Audio, Video, Controls, Language, and Accessibility tabs driven by mouse, touch, keyboard, or gamepad alone.
+func ExampleSettingsMenu() {
+	menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{})
+	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+
+	// Switch to Video tab with RB and toggle Fullscreen with D-pad Right.
+	menu.OnGamepadButton(gamepad.ButtonRB)
+	menu.OnGamepadButton(gamepad.ButtonDPadRight)
+	fmt.Println(menu.Tab(), menu.Settings().Display.Fullscreen)
+	// Output:
+	// video true
 }

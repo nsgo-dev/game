@@ -118,13 +118,14 @@ type floatingPopup struct {
 }
 
 type levelState struct {
-	assets  *gameAssets
-	tm      *tilemap.Tilemap
-	grid    tileGridAdapter
-	terrain *tilemap.TileLayer
-	cam     tilemap.Camera
-	sc      *scene.Scene
-	batch   sprite.Batch
+	assets     *gameAssets
+	tm         *tilemap.Tilemap
+	grid       tileGridAdapter
+	terrain    *tilemap.TileLayer
+	cam        tilemap.Camera
+	shakeScale float32
+	sc         *scene.Scene
+	batch      sprite.Batch
 
 	// Player state.
 	playerBody      *physics.Body
@@ -175,12 +176,13 @@ func newLevelState(assets *gameAssets, cb levelCallbacks) (*levelState, error) {
 
 	wb := tm.WorldBounds()
 	l := &levelState{
-		assets:    assets,
-		tm:        tm,
-		grid:      tileGridAdapter{tm: tm},
-		terrain:   tm.Layer("terrain"),
-		hearts:    maxHearts,
-		callbacks: cb,
+		assets:     assets,
+		tm:         tm,
+		grid:       tileGridAdapter{tm: tm},
+		terrain:    tm.Layer("terrain"),
+		shakeScale: 1,
+		hearts:     maxHearts,
+		callbacks:  cb,
 		cam: tilemap.Camera{
 			Width:     virtualWidth,
 			Height:    virtualHeight,
@@ -693,7 +695,9 @@ func (l *levelState) hurtPlayer(sourceX float32, fromLava bool) {
 		l.hearts = 0
 	}
 	l.invulnTimer = invulnDuration
-	l.cam.Shake(4.5, 240*time.Millisecond)
+	if l.shakeScale > 0 {
+		l.cam.Shake(4.5*l.shakeScale, 240*time.Millisecond)
+	}
 
 	pb := l.playerBody.Bounds()
 	l.emitSpark(pb.X+pb.W/2, pb.Y+pb.H/2, 8)

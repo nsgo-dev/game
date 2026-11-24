@@ -89,6 +89,41 @@ nav.StepActions(func(a gameui.NavAction) bool {
 
 通过 `Root.FocusRing`、`Theme.FocusRing` 或 `SpatialNavigator.FocusRing` 上的 `FocusRingStyle` 可自定义焦点框（包括虚线样式或自定义 `Draw` 回调）。
 
+## 开箱即用的设置菜单（`SettingsMenu`）
+
+`SettingsMenu` 提供一套可直接接入的五标签设置界面，覆盖 **音频**（静音、主音量与可配置音频总线音量）、**视频**（窗口/全屏模式、分辨率、缩放模式、整数缩放、画质预设、垂直同步与帧率上限）、**控制**（支持按键与手柄按键捕获和重置的动作改键）、**语言**（地区/语言选择）以及 **无障碍**（字幕、文本缩放、高对比度、减少动态效果、屏幕震动、减弱闪烁、色盲模式与游戏速度）。
+
+菜单通过 `save.DefaultSettingsStore` 持久化玩家设置，并通过 `save.SettingsTargets`（`save.Apply`）将校验后的设置派发到各子系统：
+
+```go
+store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+	Store: store,
+	Targets: save.SettingsTargets{
+		Sound:              mixer,
+		ApplyDisplay:       video.Apply,
+		ApplyBindings:      func(b map[string][]string) error { gameui.ApplyBindingsToActions(actions, b, true); return nil },
+		ApplyLocale:        setLocale,
+		ApplyAccessibility: setAccessibility,
+	},
+	OnBack: closeSettings,
+})
+
+// 在 Canvas.Draw 中绘制：
+menu.Draw(d, bounds)
+
+// 转发鼠标、触摸、键盘与手柄输入：
+// - 指针：menu.OnPointerMove / OnPointerDown / OnPointerUp / OnPress
+// - 触摸：menu.OnTouch(ev)
+// - 键盘：menu.OnKeyDown(ev)
+// - 手柄：menu.StepGamepad(gamepad.Pads(cx))（十字键/左摇杆导航，A 确认，B 返回，LB/RB 切换标签页，并支持按键改键捕获）
+```
+
+- 使用 `SettingsResolutionFrom` / `SetSettingsResolution` 和 `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` 读写保存在 `save.Settings.Custom` 中的分辨率与减弱闪烁选项。
+- 使用 `FormatBindingToken`、`ParseBindingToken`、`FormatBindingLabel`、`GamepadButtonToken` 与 `ApplyBindingsToActions` 在 `save.Settings.Bindings` 和 `input.Actions` 之间双向转换。
+- 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），开启 `Accessibility.HighContrast` 会自动切换到高对比度配色。
+- 打开菜单时调用 `SyncGamepad`，避免用于打开设置界面的按键按住状态在菜单内立即触发。
+
 ## 世界坐标锚定原生视图（`AnchorOverlay`）
 
 使用 `AnchorOverlay` 将普通原生 NSGo 视图（头顶名牌、对话气泡、聊天输入框）钉在游戏画布上的 2D 世界位置：
