@@ -240,8 +240,18 @@ fn linear_to_srgb(rgb: vec3<f32>) -> vec3<f32> {
 // LitPBRWGSL is a complete, portable metallic-roughness PBR WGSL module built on [CameraWGSL],
 // [LightWGSL], [MeshVertexLayout], and a per-draw [PBRDrawUniform] at [PBRDrawGroup]. Entry points
 // are vs_main and fs_main; use [NewLitPBRPipeline] to create a pipeline from it. [LitPBRFogWGSL] is
-// the same module with fog.
+// the same module with fog, and [LitPBRColoredWGSL] is the [ColoredVertexLayout] variant with glTF
+// COLOR_0 vertex colors.
 const LitPBRWGSL = litPBRPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
+}
+`
+
+// LitPBRColoredWGSL is [LitPBRWGSL] taking [ColoredVertexLayout] vertices (@location(3) linear RGBA
+// vertex color for glTF COLOR_0) and multiplying pbr_draw.base_color (both RGB and alpha) by
+// in.color in linear space before PBR shading. [NewLitPBRPipelineWithOptions] compiles it (or the
+// corresponding fog, IBL, shadow, spot-shadow, point-shadow, CSM, or linear-output variant) when
+// [LitPBRPipelineOptions].VertexColors is set.
+const LitPBRColoredWGSL = litPBRColoredPreludeWGSL + litPBRColoredFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), (pbr_draw.base_color.a * in.color.a));
 }
 `
 
@@ -260,6 +270,44 @@ fn vs_main(in: PBRVertexIn) -> PBRVertexOut {
 	out.clip = camera.view_proj * world;
 	out.world_pos = world.xyz;
 	out.world_normal = (pbr_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;
+	return out;
+}
+`
+
+// litPBRColoredPreludeWGSL is [litPBRPreludeWGSL] extended with [ColoredVertexLayout]'s @location(3) linear RGBA color.
+const litPBRColoredPreludeWGSL = CameraWGSL + LightWGSL + `
+struct PBRDrawUniform {
+	model: mat4x4<f32>,
+	normal_matrix: mat4x4<f32>,
+	base_color: vec4<f32>,
+	pbr_params: vec4<f32>,
+	emissive: vec4<f32>,
+}
+
+@group(2) @binding(0) var<uniform> pbr_draw: PBRDrawUniform;
+
+struct PBRVertexOut {
+	@builtin(position) clip: vec4<f32>,
+	@location(0) world_pos: vec3<f32>,
+	@location(1) world_normal: vec3<f32>,
+	@location(2) color: vec4<f32>,
+}
+
+struct PBRVertexIn {
+	@location(0) pos: vec3<f32>,
+	@location(1) normal: vec3<f32>,
+	@location(2) uv: vec2<f32>,
+	@location(3) color: vec4<f32>,
+}
+
+@vertex
+fn vs_main(in: PBRVertexIn) -> PBRVertexOut {
+	var out: PBRVertexOut;
+	let world = pbr_draw.model * vec4<f32>(in.pos, 1.0);
+	out.clip = camera.view_proj * world;
+	out.world_pos = world.xyz;
+	out.world_normal = (pbr_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;
+	out.color = in.color;
 	return out;
 }
 `
@@ -297,6 +345,31 @@ fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
 		pbr_draw.pbr_params.y,
 	) + pbr_draw.emissive.rgb;
 `
+
+// litPBRColoredFragmentHeadWGSL is [litPBRFragmentHeadWGSL] multiplying pbr_draw.base_color.rgb by in.color.rgb.
+const litPBRColoredFragmentHeadWGSL = `
+@fragment
+fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let lit = shade_pbr(
+		in.world_pos,
+		in.world_normal,
+		view_dir,
+		(pbr_draw.base_color.rgb * in.color.rgb),
+		pbr_draw.pbr_params.x,
+		pbr_draw.pbr_params.y,
+	) + pbr_draw.emissive.rgb;
+`
+
+// litPBRWithVertexColors rewrites any [litPBRPreludeWGSL]-based lit PBR shader (plain, fog, IBL,
+// directional/spot/point shadow, CSM, and their linear-output forms) to take [ColoredVertexLayout]
+// and multiply pbr_draw.base_color by in.color in linear space.
+func litPBRWithVertexColors(src string) string {
+	out := strings.Replace(src, litPBRPreludeWGSL, litPBRColoredPreludeWGSL, 1)
+	out = strings.ReplaceAll(out, "pbr_draw.base_color.rgb", "(pbr_draw.base_color.rgb * in.color.rgb)")
+	out = strings.ReplaceAll(out, "pbr_draw.base_color.a", "(pbr_draw.base_color.a * in.color.a)")
+	return out
+}
 
 // DirectionalLight is an infinitely distant light source whose parallel rays travel along Direction.
 //
@@ -753,6 +826,24 @@ type PBRMaterial struct {
 	Emissive math3d.Vec3
 }
 
+// WithVertexColor returns a copy of m with BaseColor multiplied by c.XYZ and Alpha multiplied by
+// c.W (treating a zero Alpha on m as 1, matching [NewPBRDrawUniform]), so passing the result to
+// [EvaluatePBR], [ShadePoint], [ShadePointShadowed], [ShadePointVisibility], or [EvaluateIBL]
+// reproduces a [LitPBRPipelineOptions].VertexColors fragment on the CPU.
+func (m PBRMaterial) WithVertexColor(c math3d.Vec4) PBRMaterial {
+	alpha := m.Alpha
+	if alpha == 0 {
+		alpha = 1
+	}
+	m.BaseColor = math3d.Vec3{
+		X: m.BaseColor.X * c.X,
+		Y: m.BaseColor.Y * c.Y,
+		Z: m.BaseColor.Z * c.Z,
+	}
+	m.Alpha = clamp01(alpha) * c.W
+	return m
+}
+
 // PBRDrawUniform holds the per-draw world transform, normal matrix, and [PBRMaterial] matching [LitPBRWGSL].
 type PBRDrawUniform struct {
 	Model        math3d.Mat4
@@ -959,14 +1050,19 @@ type LitPBRPipelineOptions struct {
 	PointShadowLayout *gpu.BindGroupLayout
 	// CSMLayout, when set, compiles [LitPBRCSMWGSL] with this layout ([CascadedShadowMap.Layout]) at [CSMGroup], as [NewLitPBRCSMPipeline] does, so the first directional light of the [LightRig] is attenuated by the cascaded shadow map. It uses bind group 3 like the single directional shadow, spot and point shadows, fog, IBL and skinning, so it cannot be combined with any of them.
 	CSMLayout *gpu.BindGroupLayout
+	// VertexColors selects [ColoredVertexLayout] (stride 48 bytes, @location(3) linear RGBA color for glTF COLOR_0) and multiplies pbr_draw.base_color (both RGB and alpha) by the linear vertex color before shading (and before IBL evaluation when IBLLayout is set), so a [GPUColoredMesh] can be drawn with scene lights. Cannot be combined with SkinLayout because [SkinnedVertexLayout] has no vertex color attribute.
+	VertexColors bool
 	// LinearOutput skips the final linear-to-sRGB encoding and its clamp to [0, 1] and writes the lit linear radiance ([ShadePoint], plus [EvaluateIBL] or [Fog.Apply] when enabled), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display.
 	LinearOutput bool
 }
 
-// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline], [NewLitPBRIBLPipeline], [NewLitPBRShadowPipeline], [NewLitPBRSpotShadowPipeline], [NewLitPBRPointShadowPipeline] or [NewLitPBRCSMPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
+// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline], [NewLitPBRIBLPipeline], [NewLitPBRShadowPipeline], [NewLitPBRSpotShadowPipeline], [NewLitPBRPointShadowPipeline] or [NewLitPBRCSMPipeline], with a configurable color format, with [LitPBRPipelineOptions].VertexColors linear vertex colors, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
 func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout *gpu.BindGroupLayout, opts LitPBRPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	if opts.VertexColors && opts.SkinLayout != nil {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: VertexColors uses ColoredVertexLayout and cannot be combined with SkinLayout"}
 	}
 	if opts.FogLayout != nil && opts.IBLLayout != nil {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: fog and IBL both use bind group 3; set FogLayout or IBLLayout, not both"}
@@ -1028,6 +1124,12 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
+	if opts.VertexColors {
+		src = litPBRWithVertexColors(src)
+		linearSrc = litPBRWithVertexColors(linearSrc)
+		vertexLayout = ColoredVertexLayout()
+		label += ".colored"
+	}
 	if opts.LinearOutput {
 		src = linearSrc
 		label += ".linear"
