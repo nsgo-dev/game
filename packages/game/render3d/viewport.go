@@ -718,9 +718,7 @@ type CameraView struct {
 	ClearColor core.Color
 	// ClearDepth sets the depth clear value (0 defaults to 1.0).
 	ClearDepth float32
-	// LoadColor controls whether the first pass targeting this view's target
-	// clears color ([gpu.LoadClear], the zero default) or preserves existing
-	// contents ([gpu.LoadLoad]).
+	// LoadColor controls whether the first pass targeting this view's target in a frame clears color ([gpu.LoadClear], the zero default) or preserves existing contents ([gpu.LoadLoad]). A later view that returns to an offscreen target after views on another target always loads color and depth, so what the earlier views drew is kept; set ResetDepth on it to clear depth instead.
 	LoadColor gpu.LoadOp
 	// ResetDepth forces a continuation pass with preserved color ([gpu.LoadLoad])
 	// and a fresh depth clear ([gpu.LoadClear]) when this view shares a target
@@ -862,6 +860,7 @@ type ViewportRenderer struct {
 	slots      []viewportCameraSlot
 	order      []int
 	resolved   []resolvedCameraView
+	started    []*RenderTexture
 	scratch    [CameraUniformSize]byte
 	closed     bool
 }
@@ -1106,6 +1105,9 @@ func (r *ViewportRenderer) renderWith(
 		hasTarget    bool
 		activeTarget *RenderTexture
 	)
+	// started records the offscreen targets this call has already rendered into, so a view that returns to one after another target keeps what the earlier views drew instead of clearing it again.
+	r.started = r.started[:0]
+	defer func() { clear(r.started); r.started = r.started[:0] }()
 	closePass := func() {
 		if activePass != nil {
 			activePass.End()
@@ -1121,7 +1123,15 @@ func (r *ViewportRenderer) renderWith(
 
 		if !sameTarget {
 			closePass()
-			desc := buildInitialPassDesc(v, surface)
+			var desc gpu.RenderPassDesc
+			if v.Target != nil && slices.Contains(r.started, v.Target) {
+				desc = buildReopenPassDesc(v)
+			} else {
+				desc = buildInitialPassDesc(v, surface)
+				if v.Target != nil {
+					r.started = append(r.started, v.Target)
+				}
+			}
 			activePass = beginPass(desc)
 			activeTarget = v.Target
 			hasTarget = true
@@ -1190,6 +1200,22 @@ func buildInitialPassDesc(v CameraView, surface SurfaceDesc) gpu.RenderPassDesc 
 			DepthStoreOp: gpu.StoreStore,
 			ClearDepth:   clearDepth,
 		}
+	}
+	return desc
+}
+
+// buildReopenPassDesc continues an offscreen target that an earlier, non-adjacent view already rendered into this frame: color and depth are loaded, and depth is cleared only when the view sets ResetDepth.
+func buildReopenPassDesc(v CameraView) gpu.RenderPassDesc {
+	label := v.Name
+	if label == "" {
+		label = v.Target.label
+	}
+	desc := v.Target.PassDesc(label, 0, effectiveClearDepth(v.ClearDepth))
+	if len(desc.ColorAttachments) > 0 {
+		desc.ColorAttachments[0].LoadOp = gpu.LoadLoad
+	}
+	if desc.DepthStencil != nil && !v.ResetDepth {
+		desc.DepthStencil.DepthLoadOp = gpu.LoadLoad
 	}
 	return desc
 }
