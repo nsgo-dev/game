@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 )
 
@@ -69,6 +70,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[sceneformat.SceneDoc](),
 		pkg:     "sceneformat",
 		version: 2,
+	},
+	{
+		url:     importsettings.SchemaURL,
+		title:   "NSGo game import settings (version 1)",
+		typ:     reflect.TypeFor[importsettings.File](),
+		pkg:     "tooling/importsettings",
+		version: importsettings.CurrentVersion,
 	},
 }
 
