@@ -87,7 +87,7 @@ func validAlphaMode(m AlphaMode) bool {
 // Texture channel conventions match glTF 2.0:
 //   - BaseColorTexture: sRGB RGBA8 color + linear alpha, multiplied by BaseColorFactor (linear RGBA).
 //   - MetallicRoughnessTexture: linear RGBA8 where G = roughness and B = metallic, multiplied by RoughnessFactor and MetallicFactor.
-//   - NormalTexture: linear RGBA8 tangent-space normal map (+X right/+U, +Y up/-V, +Z outward), with XY scaled by NormalScale.
+//   - NormalTexture: linear RGBA8 tangent-space normal map (+X right/+U, +Y up/-V, +Z outward), with XY scaled by NormalScale (a negative scale flips both, as glTF 2.0 allows).
 //   - OcclusionTexture: linear R (or RGBA8) ambient occlusion factor blended by OcclusionStrength.
 //   - EmissiveTexture: sRGB RGBA8 self-emission multiplied by EmissiveFactor (linear RGB).
 type Material struct {
@@ -146,8 +146,8 @@ func (m Material) Validate() error {
 	if !finite(m.RoughnessFactor) || m.RoughnessFactor < 0 || m.RoughnessFactor > 1 {
 		return fmt.Errorf("%w: RoughnessFactor = %v must be finite in [0, 1]", ErrInvalidMaterial, m.RoughnessFactor)
 	}
-	if !finite(m.NormalScale) || m.NormalScale < 0 {
-		return fmt.Errorf("%w: NormalScale = %v must be finite and >= 0", ErrInvalidMaterial, m.NormalScale)
+	if !finite(m.NormalScale) {
+		return fmt.Errorf("%w: NormalScale = %v must be finite", ErrInvalidMaterial, m.NormalScale)
 	}
 	if !finite(m.OcclusionStrength) || m.OcclusionStrength < 0 || m.OcclusionStrength > 1 {
 		return fmt.Errorf("%w: OcclusionStrength = %v must be finite in [0, 1]", ErrInvalidMaterial, m.OcclusionStrength)
