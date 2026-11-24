@@ -992,3 +992,65 @@ func TestDecomposeRefusesShearAndAcceptsTinyScale(t *testing.T) {
 		t.Fatalf("inverse product = %+v, want identity", inv.Mul(tiny))
 	}
 }
+
+func TestTransformInverseMat4NonUniformScaleWithRotation(t *testing.T) {
+	tr := math3d.Transform{
+		Pos:   math3d.Vec3{X: 3, Y: -2, Z: 5},
+		Rot:   math3d.QuatFromAxisAngle(math3d.Vec3{X: 1, Y: 2, Z: 3}.Norm(), 0.9),
+		Scale: math3d.Vec3{X: 1, Y: 2, Z: 4},
+	}
+	m := tr.ToMat4()
+	inv, ok := tr.InverseMat4()
+	if !ok {
+		t.Fatal("InverseMat4 reported a singular transform")
+	}
+	if !inv.Mul(m).ApproxEqual(math3d.Mat4Identity(), 1e-5) || !m.Mul(inv).ApproxEqual(math3d.Mat4Identity(), 1e-5) {
+		t.Fatalf("InverseMat4 * ToMat4 is not the identity: %v", inv.Mul(m))
+	}
+	general, _ := m.Inverse()
+	if !inv.ApproxEqual(general, 1e-5) {
+		t.Fatalf("InverseMat4 = %v, general inverse = %v", inv, general)
+	}
+	p := math3d.Vec3{X: 0.5, Y: -1.5, Z: 2}
+	if got := inv.TransformPoint(tr.TransformPoint(p)); !got.ApproxEqual(p, 1e-5) {
+		t.Fatalf("round trip through InverseMat4 = %v, want %v", got, p)
+	}
+	// The TRS Inverse cannot represent this inverse (it shears), which its doc comment says; it still undoes t under Mul.
+	if got := tr.Inverse().TransformPoint(tr.TransformPoint(p)); got.ApproxEqual(p, 1e-3) {
+		t.Fatalf("Transform.Inverse round-tripped %v exactly; the non-uniform case should need InverseMat4", p)
+	}
+	if !tr.Mul(tr.Inverse()).ApproxEqual(math3d.TransformIdentity(), 1e-5) {
+		t.Fatal("t.Mul(t.Inverse()) is not the identity")
+	}
+}
+
+func TestTransformInverseMat4RejectsSingularAndNonFinite(t *testing.T) {
+	nan := float32(math.NaN())
+	for _, tr := range []math3d.Transform{
+		{Rot: math3d.QuatIdentity(), Scale: math3d.Vec3{X: 1, Y: 0, Z: 1}},
+		{Rot: math3d.QuatIdentity(), Scale: math3d.Vec3{X: 1, Y: 1, Z: nan}},
+		{Pos: math3d.Vec3{X: nan}, Rot: math3d.QuatIdentity(), Scale: math3d.Vec3One()},
+		{Rot: math3d.Quat{W: float32(math.Inf(1))}, Scale: math3d.Vec3One()},
+		// 1e-40 is subnormal in float32, so 1/s overflows to +Inf.
+		{Rot: math3d.QuatIdentity(), Scale: math3d.Vec3{X: 1e-40, Y: 1, Z: 1}},
+	} {
+		if m, ok := tr.InverseMat4(); ok || m != (math3d.Mat4{}) {
+			t.Fatalf("InverseMat4(%+v) = %v, %v; want the zero matrix and false", tr, m, ok)
+		}
+	}
+	// A tiny but non-zero scale is still invertible.
+	tiny := math3d.Transform{Rot: math3d.QuatIdentity(), Scale: math3d.Vec3{X: 1e-8, Y: 1, Z: 1}}
+	inv, ok := tiny.InverseMat4()
+	if !ok || !inv.Mul(tiny.ToMat4()).ApproxEqual(math3d.Mat4Identity(), 1e-5) {
+		t.Fatalf("InverseMat4 of scale 1e-8 = %v, %v", inv, ok)
+	}
+}
+
+func BenchmarkTransformInverseMat4(b *testing.B) {
+	tr := math3d.Transform{Pos: math3d.Vec3{X: 1, Y: 2, Z: 3}, Rot: math3d.QuatFromAxisAngle(math3d.Vec3Up(), 0.5), Scale: math3d.Vec3{X: 1, Y: 2, Z: 3}}
+	var sink math3d.Mat4
+	for b.Loop() {
+		sink, _ = tr.InverseMat4()
+	}
+	_ = sink
+}

@@ -111,3 +111,17 @@ func ExampleCatmullRom3D() {
 	// length 20.4
 	// (0.00, 0.00, 0.00)
 }
+
+// InverseMat4 inverts any Transform exactly, including a non-uniform scale under a rotation, whose inverse shears and so is not a Transform.
+func ExampleTransform_InverseMat4() {
+	t := math3d.Transform{
+		Pos:   math3d.Vec3{X: 1},
+		Rot:   math3d.QuatFromAxisAngle(math3d.Vec3Up(), math3d.DegToRad(90)),
+		Scale: math3d.Vec3{X: 2, Y: 1, Z: 1},
+	}
+	world := t.TransformPoint(math3d.Vec3{X: 1, Y: 1})
+	inv, _ := t.InverseMat4()
+	fmt.Println(v(world), v(inv.TransformPoint(world)))
+	// Output:
+	// (1.00, 1.00, -2.00) (1.00, 1.00, 0.00)
+}

@@ -36,6 +36,8 @@ _, _ = hp, ok
 
 支持 `Reparent` / `ReparentKeepWorld`、`Detach`、`FindByName`、`FindByTag`、`Walk`、`WorldTransform()`、`WorldMatrix()`、`WorldBounds()` 与 `HierarchyBounds()`。调用 `sc.UpdateTransforms()` 仅更新脏子树，并把变化的节点加入内部 BVH 的待同步队列；每次查询都会先应用该队列，也可以调用 `sc.SyncBVH()` 立即应用。
 
+`ReparentKeepWorld`（以及 `SetParent(parent, true)`）根据世界矩阵求出新的局部变换，节点的绘制位置完全不变。若该局部变换需要切变（例如父节点带旋转且非均匀缩放、子节点不带旋转），或新父节点的缩放有零分量，则返回 `ErrNotDecomposable`，节点在层级中保持原样。
+
 ## 动态胖 AABB / SAH `BVH` 与空间查询
 
 `Scene` 内置动态胖 AABB 包围体层次树（`BVH`），可在万级乃至五万级节点场景中高效执行裁剪与查询：

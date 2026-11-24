@@ -123,14 +123,9 @@ func isFinite32(v float32) bool {
 	return !math.IsNaN(f) && !math.IsInf(f, 0)
 }
 
-// Project transforms world-space point p by viewProj and maps normalized device
-// coordinates to viewport screen coordinates (X left-to-right in
-// [viewport.Origin.X, viewport.Origin.X+viewport.Size.Width], Y top-down in
-// [viewport.Origin.Y, viewport.Origin.Y+viewport.Size.Height]).
+// Project transforms world-space point p by viewProj and maps normalized device coordinates to viewport screen coordinates (X left-to-right in [viewport.Origin.X, viewport.Origin.X+viewport.Size.Width], Y top-down in [viewport.Origin.Y, viewport.Origin.Y+viewport.Size.Height]).
 //
-// It returns the screen point, the normalized depth ndcZ, and ok == true when p
-// is in front of the camera (clip w > 0) and within the depth clip range
-// [-1, 1] (compatible with both OpenGL [-1, 1] and WebGPU [0, 1] projections).
+// It returns the screen point, the normalized depth ndcZ, and ok == true when clip w > 0 and ndcZ is within [-1, 1], the depth range of this package's Mat4Perspective and Mat4Ortho. For a [0, 1] depth projection (math3d.Perspective, math3d.Ortho, a render3d camera) the caller must also require ndcZ >= 0: an orthographic [0, 1] camera has w = 1 everywhere, so a point behind it gets ndcZ in [-1, 0) and is still reported ok, as [DebugStyle.DepthZO] does for DrawContact.
 func Project(viewProj Mat4, viewport core.Bounds, p Vec3) (core.Point, float32, bool) {
 	if viewport.Size.Width <= 0 || viewport.Size.Height <= 0 {
 		return core.Point{}, 0, false

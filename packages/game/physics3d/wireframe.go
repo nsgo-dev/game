@@ -21,6 +21,8 @@ type DebugStyle struct {
 	LineWidth      float32
 	SphereSegments int
 	NormalLength   float32
+	// DepthZO clips at the near plane of a [0, 1] depth projection (clip z >= 0), such as math3d.Perspective, math3d.Ortho and the render3d cameras, as render3d.ProjectSegment does. By default lines clip at clip z >= -w, the near plane of this package's [-1, 1] Mat4Perspective and Mat4Ortho; with a [0, 1] orthographic projection, where w is 1 everywhere, that keeps geometry behind the camera (#546).
+	DepthZO bool
 }
 
 // DefaultDebugStyle returns a high-contrast DebugStyle suitable for overlaying

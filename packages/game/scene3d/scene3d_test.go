@@ -816,3 +816,43 @@ func TestWorldBoundsUnionsMeshAndCollider(t *testing.T) {
 		t.Fatalf("WorldBounds = [%v, %v], want the collider's ±3", wb.Min, wb.Max)
 	}
 }
+
+func TestReparentKeepWorldNonUniformRotatedParent(t *testing.T) {
+	const eps = 1e-4
+	parent := scene3d.NewNode("parent")
+	parent.SetPosition(math3d.Vec3{X: 3, Y: 1, Z: -2})
+	parent.SetRotation(math3d.QuatFromAxisAngle(math3d.Vec3Up(), math3d.DegToRad(45)))
+	parent.SetScale(math3d.Vec3{X: 2, Y: 1, Z: 1})
+
+	// A child with the parent's rotation needs no shear: its local transform is a TRS, and the world matrix must not move. Transform.Inverse().Mul put it at the wrong position (#546).
+	aligned := scene3d.NewNode("aligned")
+	aligned.SetLocal(math3d.Transform{Pos: math3d.Vec3{X: 1}, Rot: parent.Local.Rot, Scale: math3d.Vec3{X: 2, Y: 1, Z: 1}})
+	before := aligned.WorldMatrix()
+	if err := aligned.ReparentKeepWorld(parent); err != nil {
+		t.Fatalf("ReparentKeepWorld(aligned): %v", err)
+	}
+	if aligned.Parent() != parent {
+		t.Fatal("aligned child was not reparented")
+	}
+	if got := aligned.WorldMatrix(); !got.ApproxEqual(before, eps) {
+		t.Fatalf("world matrix moved: got %v, want %v", got, before)
+	}
+
+	// An unrotated child needs S⁻¹·R⁻¹, which shears, so the reparent is refused and the hierarchy is untouched.
+	plain := scene3d.NewNode("plain")
+	plain.SetPosition(math3d.Vec3{X: 1})
+	local := plain.Local
+	if err := plain.ReparentKeepWorld(parent); !errors.Is(err, scene3d.ErrNotDecomposable) {
+		t.Fatalf("ReparentKeepWorld(sheared) = %v, want ErrNotDecomposable", err)
+	}
+	if plain.Parent() != nil || plain.Local != local {
+		t.Fatalf("refused reparent changed the node: parent %v, local %+v", plain.Parent(), plain.Local)
+	}
+
+	// A singular parent cannot be inverted.
+	flat := scene3d.NewNode("flat")
+	flat.SetScale(math3d.Vec3{X: 1, Y: 0, Z: 1})
+	if err := plain.ReparentKeepWorld(flat); !errors.Is(err, scene3d.ErrNotDecomposable) {
+		t.Fatalf("ReparentKeepWorld(singular) = %v, want ErrNotDecomposable", err)
+	}
+}

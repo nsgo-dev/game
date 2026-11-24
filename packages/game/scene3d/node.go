@@ -21,6 +21,8 @@ var (
 	ErrNilNode = errors.New("scene3d: nil node")
 	// ErrCycle is returned when parenting a node would introduce a cycle.
 	ErrCycle = errors.New("scene3d: hierarchy cycle detected")
+	// ErrNotDecomposable is returned by a keep-world reparent whose new parent is singular or whose exact local transform needs shear, which a Transform cannot hold.
+	ErrNotDecomposable = errors.New("scene3d: local transform is not decomposable to TRS")
 )
 
 // Node is a transformable element in a 3D scene hierarchy.
@@ -214,8 +216,9 @@ func (n *Node) Reparent(newParent *Node) error {
 	return newParent.AddChild(n)
 }
 
-// ReparentKeepWorld moves n under newParent while adjusting n.Local so n
-// remains at its current world transform. Passing nil detaches n to root.
+// ReparentKeepWorld moves n under newParent while adjusting n.Local so n remains at its current world matrix. Passing nil detaches n to root.
+//
+// It returns ErrNotDecomposable and changes nothing when newParent's world matrix is singular or the exact local transform needs shear, which a Transform cannot hold (a rotated child under a non-uniformly scaled parent).
 func (n *Node) ReparentKeepWorld(newParent *Node) error {
 	if n == nil {
 		return ErrNilNode
@@ -223,15 +226,27 @@ func (n *Node) ReparentKeepWorld(newParent *Node) error {
 	if newParent == n || (newParent != nil && newParent.IsDescendantOf(n)) {
 		return ErrCycle
 	}
-	world := n.WorldTransform()
-	if err := n.Reparent(newParent); err != nil {
-		return err
-	}
 	if newParent == nil {
+		world := n.WorldTransform()
+		if err := n.Reparent(nil); err != nil {
+			return err
+		}
 		n.SetLocal(world)
 		return nil
 	}
-	n.SetLocal(newParent.WorldTransform().Inverse().Mul(world))
+	// Rendering uses the composed matrix, so solve local = parent⁻¹ · world on matrices. Transform.Inverse().Mul is not exact for a non-uniformly scaled, rotated parent and moved the child (#546).
+	parentInv, ok := newParent.WorldMatrix().Inverse()
+	if !ok {
+		return ErrNotDecomposable
+	}
+	pos, rot, scale, ok := parentInv.Mul(n.WorldMatrix()).Decompose()
+	if !ok {
+		return ErrNotDecomposable
+	}
+	if err := n.Reparent(newParent); err != nil {
+		return err
+	}
+	n.SetLocal(math3d.Transform{Pos: pos, Rot: rot, Scale: scale})
 	return nil
 }
 

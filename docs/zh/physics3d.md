@@ -66,6 +66,10 @@ loop := &game.Loop{
 
 静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；以及调用 `Wake`、`ApplyImpulse` 或移除刚体、网格、关节时。
 
+堆叠的刚体静止时不会互相陷入。迭代求解之后，每一步会自下而上对与竖直方向（以 `-Gravity` 为上）夹角约 45° 以内的接触再做一遍：把下方刚体当作不可移动，让上方刚体停止向下靠近，并把它推出到只剩约 1 mm 的重叠（冲击传播，shock propagation）。重物压在轻物上，或很高的一叠刚体，都会停在这个深度，而不是像只做迭代求解那样在大质量比下残留几厘米的穿透。仍陷入相邻刚体超过 5 mm 的刚体不会进入休眠，被压得深于 1 cm 的休眠刚体会被唤醒，因此休眠不会把穿透冻结下来。重力为零时没有"上"方向，这一遍会跳过。
+
+落到高度场表面以下的形状会被向上推出，推出深度沿朝上的三角形法线测量，因此一次修正就能离开表面，而不是只推出到下方最近点的较浅距离。位于格子旁边的形状（例如站在台阶下、碰到台面边缘的形状）保留自身接触的深度，不会被抬到台面上。
+
 单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场做扫掠，在第一次出现新的重叠处停下，因此高速刚体不会穿过薄的几何体。本步开始时已经存在的接触（例如高速滑行或滚动的刚体身下的地面）不会让它停下，除非刚体陷入其中明显更深。高速动态刚体之间不做扫掠。
 
 `HingeJoint.Angle` 会跨步累计，持续转动的铰链会报告超过 ±π 的角度，`MinAngle`/`MaxAngle` 也可以跨越一圈以上。`DistanceJoint` 在距离位于 `[MinDistance, MaxDistance]` 之内时是松弛的；`Stiffness` 和 `Damping` 只让上下限变软，若要静止长度为 `L` 的弹簧，把两个上下限都设为 `L`。
@@ -91,3 +95,15 @@ loop := &game.Loop{
 ```
 
 角色控制器不是 `World` 中的刚体，因此动态刚体自身不会与它碰撞。需要碰撞时，添加一个跟随 `Pos` 的运动学刚体，并把 `IgnoreBodyID` 设为它的 ID。
+
+## 调试绘制
+
+`DrawWorld`、`DrawBody`、`DrawShape`、`DrawCharacter`、`DrawContact` 和 `DrawRaycast` 通过视图投影矩阵把碰撞体线框、接触和射线画到 `core.Drawing` 上，样式由 `DebugStyle` 决定；`DrawLine3D` 绘制单条线段。release 构建中它们编译为空操作。
+
+线段在投影前先按相机视锥裁剪。默认的近平面是裁剪空间 `z >= -w`，与本包的 `Mat4Perspective` 和 `Mat4Ortho`（`[-1, 1]` 深度）一致。对于 `[0, 1]` 深度的投影，例如 `math3d.Perspective`、`math3d.Ortho` 或 `render3d` 的相机，请设置 `DebugStyle.DepthZO`（单条线段用 `DrawLine3DZO`）：它在 `z >= 0` 处裁剪，与 `render3d.ProjectSegment` 相同。不设置时，`w` 处处为 1 的 `[0, 1]` 正交相机会画出相机背后的碰撞体。
+
+```go
+style := physics3d.DefaultDebugStyle()
+style.DepthZO = true // viewProj 来自 math3d.Perspective 或 math3d.Ortho
+physics3d.DrawWorld(d, physics3d.Mat4(viewProj), viewport, world, style)
+```
