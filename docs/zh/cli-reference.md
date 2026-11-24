@@ -1,6 +1,6 @@
-<!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->
-
 # 命令参考
+
+<!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->
 
 `go tool game` 的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何安装命令、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。
 

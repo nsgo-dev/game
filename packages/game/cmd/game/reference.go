@@ -42,14 +42,13 @@ var referenceTexts = []referenceText{
 	},
 }
 
-// referenceHeader opens every generated reference page, telling a reader of the Markdown not to edit it by hand.
+// referenceHeader follows the title of every generated reference page, telling a reader of the Markdown not to edit it by hand. It comes after the title because the website reads a page's first line as its title.
 const referenceHeader = "<!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->\n"
 
 // writeReference writes the Markdown command reference for specs in the wording of t.
 func writeReference(w io.Writer, t referenceText, specs []commandSpec) {
 	var b strings.Builder
-	b.WriteString(referenceHeader)
-	fmt.Fprintf(&b, "\n# %s\n\n%s\n", t.title, t.intro)
+	fmt.Fprintf(&b, "# %s\n\n%s\n%s\n", t.title, referenceHeader, t.intro)
 	for _, s := range specs {
 		fmt.Fprintf(&b, "\n## game %s\n\n%s.\n\n```sh\n%s\n```\n\n", s.name, mdEscape(s.summary), s.usage)
 		if len(s.flags) == 0 {
