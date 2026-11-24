@@ -1263,10 +1263,10 @@ entities:
 | `core.Storage` 中的一个键，默认为 `debug.console.tunables` | 无 | `debug.Console.SaveTunables`、`debug.Console.LoadTunables` | 以各参数名为键、参数值为值的对象 |
 
 ```json
-{"cheat.god":false,"player.lives":3,"player.speed":1.5}
+{"cheat.god":false,"level.name":"cave_1","player.lives":3,"player.speed":1.5}
 ```
 
-参数名是游戏用 `RegisterFloat`、`RegisterInt` 和 `RegisterBool` 注册的名称；`LoadTunables` 跳过没有注册的名称，并拒绝超出范围的值。
+参数名是游戏用 `RegisterFloat`、`RegisterInt`、`RegisterBool` 和 `RegisterString` 注册的名称；`LoadTunables` 跳过没有注册的名称，拒绝超出范围或 JSON 类型不符的值，且只要拒绝其中一个值，就一个值也不应用。
 
 <!-- format: tooling/devstate -->
 ### 开发会话快照
