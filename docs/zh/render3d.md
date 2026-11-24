@@ -1138,3 +1138,35 @@ for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
 - **滤波与偏移**：`LocalShadowFilterHard`（一次最近邻比较采样）或 `LocalShadowFilterPCF3x3`（九次线性采样），配合常量 `DepthBias` 与世界空间 `NormalBias`。
 - **第 3 绑定组**：`LocalShadowGroup` 即 `ShadowGroup`（3），方向光阴影、雾、IBL 与蒙皮也使用该组，因此一条带光照的 PBR 管线只能选用其中之一（`LitPBRPipelineOptions.SpotShadowLayout` 或 `PointShadowLayout`）。需要同时使用两种阴影、或第 3 组另有用途的自定义着色器，可用 `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` 放置绑定，并用 `LightWGSL` 中的 `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` 缩放各光源。
 - **设备丢失与 CPU 参考实现**：设置 `Retained: true` 后，深度目标、采样器、缓冲、绑定组与深度管线会在设备丢失后恢复。`EvaluateSpotShadow`、`EvaluatePointShadow` 与 `PointShadowSelectFace` 与 WGSL 一一对应，`ShadePointVisibility` 配合 `LightVisibility` 可复现带光照的像素；测试将它们与 GPU 结果以及参考渲染图 `render3d/testdata/golden/local_shadow_spot.png` 和 `local_shadow_point.png`（`UPDATE_GOLDEN=1` 可重写）进行比较。
+
+## 3D 后处理（`PostStack3D`、`BloomPass`、`SSAOPass`、`DepthOfFieldPass`）
+
+`PostStack3D` 通过离屏 3D 颜色+深度 `gpu.RenderTarget`（默认为 `FormatRGBA16Float` + `FormatDepth32Float`）组合屏幕空间环境光遮蔽（`SSAOPass`）、深度感知圆盘散景景深（`DepthOfFieldPass`）和 HDR 泛光（`BloomPass`），并将最终结果写入交换链或指定的目标纹理：
+
+```go
+stack, err := render3d.NewPostStack3D(cx, dev, render3d.PostStack3DOptions{
+	Width:        uint32(w),
+	Height:       uint32(h),
+	OutputFormat: dev.SurfaceFormat(),
+	Retained:     true,
+	EnableSSAO:   true,
+	SSAO:         render3d.SSAOConfigFromCamera(cam),
+	EnableDoF:    true,
+	DoF:          render3d.DepthOfFieldConfigFromCamera(cam, 5.0, 2.0, 5.0),
+	EnableBloom:  true,
+	Bloom:        render3d.DefaultBloomConfig(),
+})
+
+// 在 OnFrame 中：
+pass := stack.BeginScenePass(frame, core.RGB(0x0c1018))
+// ... 将 3D 网格绘制到 stack.SceneTarget() ...
+pass.End()
+_ = stack.ApplyScene(frame.Device(), frame, nil) // SSAO -> 景深 -> Bloom -> 交换链
+frame.Submit()
+```
+
+- **可组合管线与独立通道**：`PostStack3D` 按固定顺序执行已启用的阶段——**SSAO → 景深 → Bloom**——中间结果在乒乓离屏渲染目标之间流转，最后一个阶段直接以 `OutputFormat` 输出（全部关闭时执行干净直通复制）。每个通道（`SSAOPass`、`DepthOfFieldPass`、`BloomPass`）也可独立创建，并通过 `PostPassRecorder`（`*gpu.Frame` 与 `*gpu.Encoder` 均已实现）作用于调用方自建的 `gpu.Texture` 颜色与深度附件。
+- **SSAO（`SSAOConfig`、`SSAOPass`）**：从 3D 深度缓冲重建视空间位置与保边法线，使用带 4×4 分层切线旋转的确定性 4–16 采样半球核计算遮蔽，支持可选的深度感知双边模糊（`BlurRadius`、`DepthThreshold`），并将环境光遮蔽乘入场景颜色（可通过 `AOTexture` 获取 AO 纹理）。
+- **景深（`DepthOfFieldConfig`、`DepthOfFieldPass`）**：支持透视与正交 `[0, 1]` 深度线性化，围绕 `FocusDistance` ± `FocusRange` 计算带符号弥散圆（CoC），并通过 18 采样双环圆盘散景模糊平滑虚化近景与远景，同时阻止背景模糊色溢入清晰的焦内轮廓。
+- **泛光（`BloomConfig`、`BloomPass`）**：用二次软拐点阈值曲线（`Threshold`、`SoftKnee`）提取 LDR 或 HDR（`> 1.0`）高亮像素，执行 `BlurPasses` 轮可分离 9 采样高斯横纵模糊（可通过 `HalfRes` 启用半分辨率以获得更宽柔和光晕），再以 `Intensity` 加法混合回场景。
+- **跨后端兼容性、生命周期与参考渲染**：所有通道均使用纯片元可移植 WGSL、显式 `textureSampleLevel` 以及代数/预计算权重（不依赖计算着色器，也不使用 `exp`/`log2` 指令），同时兼容完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）配置，并支持 `Resize(dev, w, h)` 与 `Retained` 设备丢失恢复。黄金参考图（`render3d/testdata/golden/post3d_bloom.png`、`post3d_ssao.png`、`post3d_dof.png` 与 `post3d_combined.png`）用于验证各个独立通道与组合栈；设置 `UPDATE_GOLDEN=1` 可重写参考图。
