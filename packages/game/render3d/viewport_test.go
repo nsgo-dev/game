@@ -820,6 +820,94 @@ func TestPictureInPictureResetDepth(t *testing.T) {
 	viewportAssertPixel(t, img, 48, 48, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 }
 
+// TestInterleavedOffscreenTargetsKeepEarlierViews renders the left half of an atlas, then another render texture, then the right half of the atlas (ordered by Priority), and checks that the atlas keeps the left half drawn before the other target.
+func TestInterleavedOffscreenTargetsKeepEarlierViews(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(64, 64, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	renderer, err := render3d.NewViewportRenderer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewViewportRenderer: %v", err)
+	}
+	t.Cleanup(func() { _ = renderer.Close() })
+	newRT := func(label string) *render3d.RenderTexture {
+		rt, err := render3d.NewRenderTexture(nil, dev, render3d.RenderTextureDesc{Label: label, Width: 32, Height: 32, DepthFormat: gpu.FormatDepth24Plus})
+		if err != nil {
+			t.Fatalf("NewRenderTexture %s: %v", label, err)
+		}
+		t.Cleanup(func() { _ = rt.Close() })
+		return rt
+	}
+	atlas, other := newRT("atlas"), newRT("other")
+
+	colorLayout := viewportColorLayout(t, nil, dev)
+	solidPipe := viewportSolidPipeline(t, nil, dev, renderer.CameraLayout(), colorLayout, atlas.ColorFormat(), atlas.DepthFormat(), 1)
+	texLayout, err := render3d.TextureBindingLayout(nil, dev)
+	if err != nil {
+		t.Fatalf("TextureBindingLayout: %v", err)
+	}
+	texPipe := viewportTexturedPipeline(t, nil, dev, renderer.CameraLayout(), texLayout, gpu.FormatRGBA8Unorm, gpu.FormatDepth24Plus)
+	samp, err := render3d.NewGPUSampler(nil, dev, render3d.SamplerNearestClamp())
+	if err != nil {
+		t.Fatalf("NewGPUSampler: %v", err)
+	}
+	atlasBG, err := render3d.BindTexture(nil, dev, texLayout, atlas.GPUTexture(), samp)
+	if err != nil {
+		t.Fatalf("BindTexture: %v", err)
+	}
+	bigQuad, err := render3d.UploadMesh(nil, dev, viewportFacingQuadMesh(math3d.Vec3{}, 8, 8), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadMesh bigQuad: %v", err)
+	}
+	screenQuad, err := render3d.UploadMesh(nil, dev, viewportFacingQuadMesh(math3d.Vec3{}, 2, 2), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadMesh screenQuad: %v", err)
+	}
+	redBG := viewportColorBindGroup(t, nil, dev, colorLayout, 1, 0, 0, 1, false)
+	greenBG := viewportColorBindGroup(t, nil, dev, colorLayout, 0, 1, 0, 1, false)
+	blueBG := viewportColorBindGroup(t, nil, dev, colorLayout, 0, 0, 1, 1, false)
+
+	cam := scene3d.NewOrthographicCamera(math3d.Vec3{Z: 5}, 4, 1, 0.1, 20)
+	halves := render3d.SplitScreenHorizontal(2)
+	views := []render3d.CameraView{
+		{Name: "atlas-left", Camera: cam, Target: atlas, Viewport: halves[0], Priority: 0},
+		{Name: "other", Camera: cam, Target: other, Priority: 1},
+		{Name: "atlas-right", Camera: cam, Target: atlas, Viewport: halves[1], Priority: 2},
+		{Name: "main", Camera: cam, PreserveAspect: true},
+	}
+	colors := []*gpu.BindGroup{redBG, greenBG, blueBG}
+
+	enc := dev.BeginEncoder()
+	err = renderer.RenderEncoder(enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+		if ctx.View.Target == nil {
+			ctx.Pass.SetPipeline(texPipe)
+			ctx.Pass.SetBindGroup(1, atlasBG)
+			screenQuad.Draw(ctx.Pass)
+			return
+		}
+		ctx.Pass.SetPipeline(solidPipe)
+		ctx.Pass.SetBindGroup(1, colors[ctx.ViewIndex])
+		bigQuad.Draw(ctx.Pass)
+	})
+	if err != nil {
+		t.Fatalf("RenderEncoder: %v", err)
+	}
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+
+	img := sr.Image()
+	for _, y := range []int{8, 32, 56} {
+		viewportAssertPixel(t, img, 8, y, color.RGBA{R: 255, A: 255})
+		viewportAssertPixel(t, img, 28, y, color.RGBA{R: 255, A: 255})
+		viewportAssertPixel(t, img, 36, y, color.RGBA{B: 255, A: 255})
+		viewportAssertPixel(t, img, 56, y, color.RGBA{B: 255, A: 255})
+	}
+}
+
 // TestRenderTextureResizeAndRebind verifies Resize no-op, reallocation,
 // generation increment, old GPUTexture invalidation, failed-resize preservation,
 // and sampling the resized render texture.
