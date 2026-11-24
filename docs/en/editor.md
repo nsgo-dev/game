@@ -48,6 +48,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `layerOverrides` | map | Changes to inherited layers by name: `space`, `order`, `visible`, `tilemap` (version 2, requires `inherits`). |
 | `overrides` | map | Changes to inherited objects by ID (version 2, requires `inherits`). |
 | `layers` | list | Ordered list of layers drawn lowest `order` first, preserving document order on ties. |
+| `connections` | list | Optional connections from one object's events to another object's handlers, written after the layers (both versions, see [Connections](#connections-490)). |
 
 ### Camera
 
@@ -330,6 +331,75 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 Defaults are not written into the document, so loading and saving a scene changes nothing; `reg.Resolve("body", fields)` returns every field with its default filled in. `ValidateComponents` checks a document built in Go (without positions), and `CheckField` checks one value and normalizes it to `bool`, `int`, `float64` or `string`. `Parse` without a registry keeps `components` free-form.
 
 In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene, then makes `OpenFile` report component errors with the file and line, and makes `SetComponentField` and `PlaceObject` refuse fields the registry does not allow. Changing the registry clears undo/redo history, so an undone edit the new registry refuses cannot be redone. The inspector lists every registered field of a component in declaration order, including fields the scene leaves unset, which show their default; the label's tooltip gives the field's documentation, kind, range and default, and numeric inputs are bounded by the range and step by the field's `Step` (1 for an int, 0.1 for a float when unset). Floats are shown at full precision, and an edit the registry refuses is reported in the status bar. Components without a registered type, or every component when no registry is set, are shown from the values in the file as before.
+
+### Connections (#490)
+
+A scene file connects an event one object emits to a handler of another object, as Godot's `[connection]` entries in a `.tscn` file do, so a button opens a door with no Go code that names either of them:
+
+```yaml
+layers:
+  - name: props
+    objects:
+      - id: button
+        components:
+          button: {}
+      - id: door
+        components:
+          door: {}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+    args:
+      speed: 2.5
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `from` | `string` | Required ID of the object that emits the event. |
+| `event` | `string` | Required event name, such as `pressed`, or `button.pressed` to say which component when several components of the object declare it. |
+| `to` | `string` | Required ID of the object whose handler runs; it may be `from` itself. |
+| `handler` | `string` | Required handler name, such as `open`, or `door.open`. |
+| `args` | map | Optional values for the handler's params by name, each a bool, a number or a string; a param left out takes its default. |
+| `once` | `bool` | Disconnects after the first time the event fires, as Godot's one-shot connections do. |
+
+The events and handlers come from the component registry: a `ComponentType` lists the `Events` an object with that component emits and the `Handlers` it can run, each handler with typed `Params` (declared and checked like fields) and the `Func` that runs it. The game registers what each kind of component does once; the scene files decide which objects are wired together.
+
+```go
+reg.MustRegister(sceneformat.ComponentType{
+	Name:   "button",
+	Events: []sceneformat.Event{{Name: "pressed", Doc: "The player pressed the button."}},
+})
+reg.MustRegister(sceneformat.ComponentType{
+	Name:   "door",
+	Fields: []sceneformat.Field{{Name: "open", Kind: sceneformat.FieldBool}},
+	Handlers: []sceneformat.Handler{{
+		Name:   "open",
+		Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}},
+		Func: func(c sceneformat.Call) {
+			c.Target.Components["door"].(map[string]any)["open"] = true
+		},
+	}},
+})
+
+doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "scenes/hall.scene.yaml", Components: reg})
+signals, err := sceneformat.Connect(doc, reg, game)
+// Where the game handles a press on an object with a button component:
+err = signals.Emit(objectID, "pressed", nil)
+```
+
+`Connect(doc, reg, ctx)` checks the scene's components and connections and returns a `*Signals`. `Signals.Emit(from, event, payload)` calls the handler of every connection from that event in the order the file lists them, skipping a `once` connection that has run. Each handler gets a `Call`: the `Signals` (so it can emit further events, nested at most `MaxEmitDepth` levels), the `ctx` given to `Connect` (such as the game's state or a `*BuiltScene`), the source and target `*ObjectDoc` in the scene, the components and names of the event and handler, `Args` holding every param (the connection's value or the default) and the `payload`. `Emit` refuses an object the scene does not hold and an event none of its registered components declares. A scene that instances or inherits other scene files is connected after `Resolve` (or through `BuiltScene.Doc`), and `Signals` is not safe for concurrent use.
+
+`Parse` checks a connection's form: all four names set, `event` and `handler` written as a name or `component.name`, arguments that are bools, finite numbers or strings, no connection repeated, and, in a scene that refers to no other scene file, `from` and `to` naming its objects. With a registry, `ParseWith` also checks the names against it and reports a `*ConnectionError` with the file, line and column: an event or handler no registered component of the object declares, a bare name two of its components declare, an argument the handler has no param for, and an argument of the wrong kind or out of range. The error lists what the object does declare:
+
+```text
+scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "door" opne): no registered component of object "door" declares handler "opne" (it has: door.open)
+```
+
+`ValidateConnections` makes the same checks on a resolved document without positions. `Register` refuses an event or handler with an empty name, a dot in its name or a name its type already uses, and handler params on the same terms as fields; a registry used only to check files, such as an editor's, may leave `Func` unset, which `Connect` refuses.
+
+`Resolve` carries connections along: an instanced scene's connections come with the instance, the objects they name prefixed like its objects' IDs (`door_1/button`), so every copy of a prefab keeps its own wiring; an inheriting scene keeps its base's connections and adds its own after them. A scene may connect objects of the scenes it instances or inherits, and those names are checked once it is resolved. In the editor, `DeleteObject` also removes the connections from or to the deleted object and its descendants, and undoing the delete puts them back.
 
 ### Projects
 
