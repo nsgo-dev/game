@@ -18,7 +18,7 @@ func TestApplyFullRejectsOversizedEntityCount(t *testing.T) {
 
 // FuzzApplyFullPart feeds arbitrary snapshot parts to a client: none may panic, and an assembly never holds more than MaxEntitiesPerSnapshot entities or maxSnapshotParts parts.
 func FuzzApplyFullPart(f *testing.F) {
-	parts, err := encodeFullSnapshotParts(7, map[EntityID]EntityState{
+	parts, err := encodeFullSnapshotParts(1, 7, map[EntityID]EntityState{
 		1: {ID: 1, ComponentState: ComponentState{X: 1, Props: []byte("a")}},
 		2: {ID: 2, ComponentState: ComponentState{Y: 2, Props: make([]byte, 200)}},
 		3: {ID: 3, ComponentState: ComponentState{Y: 3, Props: make([]byte, 200)}},
@@ -27,7 +27,7 @@ func FuzzApplyFullPart(f *testing.F) {
 		f.Fatal(err)
 	}
 	for _, p := range parts {
-		f.Add(p[1:])
+		f.Add(p[replHeaderSize:])
 	}
 	f.Add([]byte{7, 0, 1, 0})
 	f.Fuzz(func(t *testing.T, src []byte) {
@@ -45,7 +45,7 @@ func TestSplitFullSnapshotPartsReassemble(t *testing.T) {
 	for i := range EntityID(40) {
 		entities[i+1] = EntityState{ID: i + 1, ComponentState: ComponentState{X: float32(i), Props: make([]byte, 50)}}
 	}
-	parts, err := encodeFullSnapshotParts(9, entities, minSnapshotSize)
+	parts, err := encodeFullSnapshotParts(1, 9, entities, minSnapshotSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +58,10 @@ func TestSplitFullSnapshotPartsReassemble(t *testing.T) {
 		if len(parts[i]) > minSnapshotSize {
 			t.Fatalf("part %d is %d bytes, above %d", i, len(parts[i]), minSnapshotSize)
 		}
-		if i == len(parts)-1 && c.applyFullPart(parts[i][1:]) {
+		if i == len(parts)-1 && c.applyFullPart(parts[i][replHeaderSize:]) {
 			t.Fatal("a duplicate first part completed the snapshot")
 		}
-		done := c.applyFullPart(parts[i][1:])
+		done := c.applyFullPart(parts[i][replHeaderSize:])
 		if done != (i == 0) {
 			t.Fatalf("part %d completed = %v", i, done)
 		}

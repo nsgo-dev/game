@@ -3,8 +3,10 @@ package net
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"slices"
 )
 
@@ -48,6 +50,17 @@ func (e EntityState) Clone() EntityState {
 	return e
 }
 
+// Replication wire format, version 2. Every message starts with one byte that holds the protocol version in its high four bits and the message type in its low four, followed by the server's replication epoch as 4 little-endian bytes. uv is an unsigned varint (encoding/binary):
+//
+//	header:  versionType(1) epoch(4)
+//	full:    header tick(uv) count(uv) entity...
+//	delta:   header tick(uv) baselineTick(uv) despawnCount(uv) id(uv)... updateCount(uv) entity...
+//	ack:     header tick(uv)
+//	resync:  header
+//	part:    header tick(uv) index(uv) total(uv) count(uv) entity...
+//	entity:  id(uv) mask(1) kind(uv) x(4) y(4) vx(4) vy(4) rotation(4) flags(uv) propsLen(uv) props, each field present only when its mask bit is set
+//
+// Version 1 had no epoch and no version bits: its messages start with the bare type 1 to 5, so a zero high nibble reads as version 1. A peer of another version is refused, never misparsed (ErrReplicationVersion).
 const (
 	replMsgSnapshotFull  byte = 1
 	replMsgSnapshotDelta byte = 2
@@ -57,15 +70,68 @@ const (
 	replMsgResync byte = 4
 	// replMsgSnapshotFullPart carries one part of a full snapshot too large for one packet: tick, part index, part count, then the entity count and entities of a full snapshot.
 	replMsgSnapshotFullPart byte = 5
+
+	// replHeaderSize is the version and type byte plus the 4-byte epoch.
+	replHeaderSize = 1 + 4
 )
+
+// ReplicationVersion is the version of the replication wire protocol that ServerWorld and ClientWorld speak. Version 2 added the replication epoch; peers of other versions cannot exchange snapshots and are refused with ErrReplicationVersion.
+const ReplicationVersion = 2
+
+// ErrReplicationVersion reports a replication message from a peer that speaks another version of the replication wire protocol than ReplicationVersion, such as a client or server built with an older release of this package. ClientWorld.Err and ServerWorld.PeerErr return it wrapped, with both versions.
+var ErrReplicationVersion = errors.New("net: unsupported replication protocol version")
+
+// appendReplHeader appends the header every replication message starts with.
+func appendReplHeader(dst []byte, typ byte, epoch uint32) []byte {
+	dst = append(dst, ReplicationVersion<<4|typ)
+	return binary.LittleEndian.AppendUint32(dst, epoch)
+}
+
+// replHeaderStatus says what readReplHeader made of a packet.
+type replHeaderStatus uint8
+
+const (
+	// replNotReplication is a packet whose type is not a replication message, or one too short for a header.
+	replNotReplication replHeaderStatus = iota
+	// replOtherVersion is a replication message of another protocol version.
+	replOtherVersion
+	// replCurrent is a replication message of ReplicationVersion.
+	replCurrent
+)
+
+// readReplHeader splits a packet into its message type, protocol version, epoch and body. Only the low nibbles 1 to 5 are replication messages; anything else is left alone, so a peer of another version is reported only for packets that are replication messages in its own version.
+func readReplHeader(b []byte) (typ byte, version int, epoch uint32, body []byte, status replHeaderStatus) {
+	if len(b) == 0 {
+		return 0, 0, 0, nil, replNotReplication
+	}
+	typ, version = b[0]&0x0f, int(b[0]>>4)
+	if typ < replMsgSnapshotFull || typ > replMsgSnapshotFullPart {
+		return 0, 0, 0, nil, replNotReplication
+	}
+	if version == 0 {
+		version = 1
+	}
+	if version != ReplicationVersion {
+		return typ, version, 0, nil, replOtherVersion
+	}
+	if len(b) < replHeaderSize {
+		return 0, 0, 0, nil, replNotReplication
+	}
+	return typ, version, binary.LittleEndian.Uint32(b[1:replHeaderSize]), b[replHeaderSize:], replCurrent
+}
+
+// replVersionError describes a message from peer in protocol version got.
+func replVersionError(peer PeerID, got int) error {
+	return fmt.Errorf("%w: peer %d speaks replication protocol version %d, this build speaks version %d", ErrReplicationVersion, peer, got, ReplicationVersion)
+}
 
 const (
 	// DefaultMaxSnapshotSize is the largest snapshot payload a ServerWorld passes to Transport.Send unless SetMaxSnapshotSize changes it. It fits every transport in this package: UDP datagrams (65000 bytes), relay messages (MaxRelayPayload) and WebSocket frames.
 	DefaultMaxSnapshotSize = 60000
 	// minSnapshotSize is the smallest size SetMaxSnapshotSize accepts.
 	minSnapshotSize = 256
-	// snapshotPartHeader is the most bytes a part's header takes: the message type and four uvarints of at most 5 bytes each.
-	snapshotPartHeader = 1 + 4*binary.MaxVarintLen32
+	// snapshotPartHeader is the most bytes a part's header takes: the message header and four uvarints of at most 5 bytes each.
+	snapshotPartHeader = replHeaderSize + 4*binary.MaxVarintLen32
 	// maxSnapshotParts bounds how many parts one full snapshot may be split into, on both ends.
 	maxSnapshotParts = 4096
 )
@@ -108,12 +174,17 @@ type worldSnapshot struct {
 type peerReplState struct {
 	ackedTick uint32
 	hasAck    bool
+	// err is the version mismatch of the peer's last replication message, nil once it sends one of ReplicationVersion.
+	err error
 }
 
 // ServerWorld owns authoritative entity state and replicates compact full and
 // bitmask-delta snapshots to connected peers over a Transport.
+//
+// Every snapshot carries the server's replication epoch, a number NewServerWorld picks at random, so a ClientWorld notices that a restarted server's snapshots come from a new run and starts over on its own.
 type ServerWorld struct {
 	transport Transport
+	epoch     uint32
 	nextID    EntityID
 	entities  map[EntityID]EntityState
 
@@ -127,10 +198,11 @@ type ServerWorld struct {
 	maxSize   int
 }
 
-// NewServerWorld creates a new authoritative replication world backed by transport.
+// NewServerWorld creates a new authoritative replication world backed by transport, with a random replication epoch. Two runs pick the same epoch with a chance of one in 2^32; SetEpoch takes a number the game chooses instead.
 func NewServerWorld(transport Transport) *ServerWorld {
 	return &ServerWorld{
 		transport:  transport,
+		epoch:      rand.Uint32(),
 		nextID:     1,
 		entities:   make(map[EntityID]EntityState),
 		historyCap: defaultSnapshotHistory,
@@ -146,6 +218,32 @@ func (w *ServerWorld) SetMaxSnapshotSize(n int) {
 		n = DefaultMaxSnapshotSize
 	}
 	w.maxSize = max(n, minSnapshotSize)
+}
+
+// Epoch returns the replication epoch every snapshot of this world carries.
+func (w *ServerWorld) Epoch() uint32 {
+	return w.epoch
+}
+
+// SetEpoch replaces the replication epoch, for a server that keeps its own run counter or starts a new match with its tick count back at zero. Clients drop every snapshot and prediction of the old epoch and resync from a full snapshot of the new one, which SetEpoch makes the next Step send to every peer by forgetting the snapshot history and acknowledgments. A client ignores late snapshots of the epochs it has left, so an epoch must not repeat: setting one a client has already left makes that client ignore the server. Setting the current epoch does nothing.
+func (w *ServerWorld) SetEpoch(epoch uint32) {
+	if epoch == w.epoch {
+		return
+	}
+	w.epoch = epoch
+	w.historyOrder = nil
+	w.history = make(map[uint32]map[EntityID]EntityState)
+	for _, ps := range w.peers {
+		ps.ackedTick, ps.hasAck = 0, false
+	}
+}
+
+// PeerErr returns why the last replication message from peer could not be used, an error wrapping ErrReplicationVersion when the peer speaks another version of the replication protocol, or nil. A server can drop such a peer with a message to update the game. It clears when the peer sends a message of ReplicationVersion, and is forgotten when the peer disconnects.
+func (w *ServerWorld) PeerErr(peer PeerID) error {
+	if ps := w.peers[peer]; ps != nil {
+		return ps.err
+	}
+	return nil
 }
 
 // Spawn creates a new entity with the given initial state and returns its assigned EntityID.
@@ -250,7 +348,7 @@ func (w *ServerWorld) Step(tick uint32) error {
 		if ps.hasAck && tickAfter(tick, ps.ackedTick) {
 			if base, ok := w.history[ps.ackedTick]; ok {
 				// A delta that outgrew the packet limit falls back to a split full snapshot.
-				if delta := encodeDeltaSnapshot(tick, ps.ackedTick, base, w.entities); len(delta) <= w.maxSize {
+				if delta := encodeDeltaSnapshot(w.epoch, tick, ps.ackedTick, base, w.entities); len(delta) <= w.maxSize {
 					parts = [][]byte{delta}
 					isDelta = true
 				}
@@ -300,10 +398,10 @@ func (w *ServerWorld) encodeFull(tick uint32) ([][]byte, error) {
 	if maxSize == 0 {
 		maxSize = DefaultMaxSnapshotSize
 	}
-	if full := encodeFullSnapshot(tick, w.entities); len(full) <= maxSize {
+	if full := encodeFullSnapshot(w.epoch, tick, w.entities); len(full) <= maxSize {
 		return [][]byte{full}, nil
 	}
-	return encodeFullSnapshotParts(tick, w.entities, maxSize)
+	return encodeFullSnapshotParts(w.epoch, tick, w.entities, maxSize)
 }
 
 func (w *ServerWorld) drainAcks() {
@@ -312,42 +410,53 @@ func (w *ServerWorld) drainAcks() {
 		if !ok {
 			return
 		}
-		if len(pkt.Payload) < 1 {
+		typ, version, epoch, body, status := readReplHeader(pkt.Payload)
+		switch status {
+		case replNotReplication:
+			continue
+		case replOtherVersion:
+			if typ == replMsgSnapshotAck || typ == replMsgResync {
+				w.peerState(pkt.From).err = replVersionError(pkt.From, version)
+			}
 			continue
 		}
-		switch pkt.Payload[0] {
+		switch typ {
 		case replMsgSnapshotAck:
-			if len(pkt.Payload) < 2 {
+			// An ack of another epoch names a tick of an earlier run, which may exist in this run's history with other contents.
+			if epoch != w.epoch {
 				continue
 			}
-			ackTick, n := binary.Uvarint(pkt.Payload[1:])
-			if n <= 0 {
+			ackTick, n := binary.Uvarint(body)
+			if n <= 0 || ackTick > math.MaxUint32 {
 				continue
 			}
 			t := uint32(ackTick)
 			if _, exists := w.history[t]; !exists {
 				continue
 			}
-			ps := w.peers[pkt.From]
-			if ps == nil {
-				ps = &peerReplState{}
-				w.peers[pkt.From] = ps
-			}
+			ps := w.peerState(pkt.From)
+			ps.err = nil
 			if !ps.hasAck || tickAfter(t, ps.ackedTick) {
 				ps.ackedTick = t
 				ps.hasAck = true
 			}
 		case replMsgResync:
-			// The peer cannot apply deltas from its last ack any more (its
-			// baseline was pruned or a snapshot was lost): send it a full one.
-			ps := w.peers[pkt.From]
-			if ps == nil {
-				ps = &peerReplState{}
-				w.peers[pkt.From] = ps
-			}
+			// The peer cannot apply deltas from its last ack any more (its baseline was pruned, a snapshot was lost, or it has just followed this server into a new epoch): send it a full one, whatever epoch it names.
+			ps := w.peerState(pkt.From)
+			ps.err = nil
 			ps.hasAck = false
 		}
 	}
+}
+
+// peerState returns the replication state of peer, creating it on first use.
+func (w *ServerWorld) peerState(peer PeerID) *peerReplState {
+	ps := w.peers[peer]
+	if ps == nil {
+		ps = &peerReplState{}
+		w.peers[peer] = ps
+	}
+	return ps
 }
 
 func (w *ServerWorld) recordSnapshot(tick uint32) {
@@ -506,15 +615,15 @@ func readEntityFields(src []byte, base ComponentState) (EntityID, ComponentState
 	return EntityID(idVal), cur, src, true
 }
 
-func encodeFullSnapshot(tick uint32, entities map[EntityID]EntityState) []byte {
+func encodeFullSnapshot(epoch, tick uint32, entities map[EntityID]EntityState) []byte {
 	ids := make([]EntityID, 0, len(entities))
 	for id := range entities {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
 
-	buf := make([]byte, 0, 16+len(ids)*24)
-	buf = append(buf, replMsgSnapshotFull)
+	buf := make([]byte, 0, replHeaderSize+16+len(ids)*24)
+	buf = appendReplHeader(buf, replMsgSnapshotFull, epoch)
 	buf = binary.AppendUvarint(buf, uint64(tick))
 	buf = binary.AppendUvarint(buf, uint64(len(ids)))
 	var zero ComponentState
@@ -527,7 +636,7 @@ func encodeFullSnapshot(tick uint32, entities map[EntityID]EntityState) []byte {
 }
 
 // encodeFullSnapshotParts splits a full snapshot into parts of at most maxSize bytes, each holding whole entities in ascending ID order. An entity that does not fit in a part on its own, or a snapshot that needs more than maxSnapshotParts parts, returns ErrPayloadTooLarge.
-func encodeFullSnapshotParts(tick uint32, entities map[EntityID]EntityState, maxSize int) ([][]byte, error) {
+func encodeFullSnapshotParts(epoch, tick uint32, entities map[EntityID]EntityState, maxSize int) ([][]byte, error) {
 	ids := make([]EntityID, 0, len(entities))
 	for id := range entities {
 		ids = append(ids, id)
@@ -566,7 +675,7 @@ func encodeFullSnapshotParts(tick uint32, entities map[EntityID]EntityState, max
 	parts := make([][]byte, len(groups))
 	for i, g := range groups {
 		buf := make([]byte, 0, snapshotPartHeader+len(g.body))
-		buf = append(buf, replMsgSnapshotFullPart)
+		buf = appendReplHeader(buf, replMsgSnapshotFullPart, epoch)
 		buf = binary.AppendUvarint(buf, uint64(tick))
 		buf = binary.AppendUvarint(buf, uint64(i))
 		buf = binary.AppendUvarint(buf, uint64(len(groups)))
@@ -576,7 +685,7 @@ func encodeFullSnapshotParts(tick uint32, entities map[EntityID]EntityState, max
 	return parts, nil
 }
 
-func encodeDeltaSnapshot(tick, baselineTick uint32, baseline, current map[EntityID]EntityState) []byte {
+func encodeDeltaSnapshot(epoch, tick, baselineTick uint32, baseline, current map[EntityID]EntityState) []byte {
 	var despawns []EntityID
 	for id := range baseline {
 		if _, ok := current[id]; !ok {
@@ -614,8 +723,8 @@ func encodeDeltaSnapshot(tick, baselineTick uint32, baseline, current map[Entity
 		return 0
 	})
 
-	buf := make([]byte, 0, 16+len(despawns)*2+len(updates)*16)
-	buf = append(buf, replMsgSnapshotDelta)
+	buf := make([]byte, 0, replHeaderSize+16+len(despawns)*2+len(updates)*16)
+	buf = appendReplHeader(buf, replMsgSnapshotDelta, epoch)
 	buf = binary.AppendUvarint(buf, uint64(tick))
 	buf = binary.AppendUvarint(buf, uint64(baselineTick))
 	buf = binary.AppendUvarint(buf, uint64(len(despawns)))
@@ -629,9 +738,9 @@ func encodeDeltaSnapshot(tick, baselineTick uint32, baseline, current map[Entity
 	return buf
 }
 
-func encodeSnapshotAck(tick uint32) []byte {
-	buf := make([]byte, 0, 8)
-	buf = append(buf, replMsgSnapshotAck)
+func encodeSnapshotAck(epoch, tick uint32) []byte {
+	buf := make([]byte, 0, replHeaderSize+binary.MaxVarintLen32)
+	buf = appendReplHeader(buf, replMsgSnapshotAck, epoch)
 	buf = binary.AppendUvarint(buf, uint64(tick))
 	return buf
 }
@@ -651,6 +760,8 @@ type predictedTracker struct {
 // ClientWorld receives authoritative snapshots from a ServerWorld, maintains a
 // timed snapshot ring buffer for smooth interpolation, fires spawn/despawn hooks,
 // and supports client-side prediction with automatic server reconciliation.
+//
+// A ClientWorld follows the server's replication epoch. A snapshot of a new epoch means the server restarted: the client forgets every snapshot and prediction of the old epoch as Reset does, reporting each entity it knew through OnDespawn, and resyncs from the new one without the game calling Reset. Late snapshots of an epoch the client has left are ignored.
 type ClientWorld struct {
 	transport Transport
 	serverID  PeerID
@@ -674,7 +785,18 @@ type ClientWorld struct {
 	hasResync      bool
 	// assembly collects the parts of a split full snapshot.
 	assembly *snapshotAssembly
+
+	// epoch is the server's replication epoch the snapshots belong to, once hasEpoch.
+	epoch    uint32
+	hasEpoch bool
+	// retired holds the epochs the client has left, oldest first, at most maxRetiredEpochs, so their late snapshots are ignored.
+	retired []uint32
+	// err is why the server's last replication message could not be used.
+	err error
 }
+
+// maxRetiredEpochs bounds how many left epochs a ClientWorld remembers. A late snapshot travels for at most a few seconds, far less than 16 server restarts take.
+const maxRetiredEpochs = 16
 
 // snapshotAssembly is a full snapshot whose parts are still arriving.
 type snapshotAssembly struct {
@@ -700,8 +822,44 @@ func (c *ClientWorld) LatestTick() (uint32, bool) {
 	return c.latestTick, c.hasLatest
 }
 
-// Reset forgets every snapshot, partial snapshot and prediction, as when the client joins a new match or the server restarts its tick count, and reports every entity the client knew through OnDespawn, in EntityID order. Snapshot ticks are compared in serial-number order, so without a Reset a client whose server went back to tick 0 drops every snapshot as stale until the new ticks pass the old ones. Reconciliations and LastReconcileError keep counting.
+// Epoch returns the server's replication epoch the client's snapshots belong to, and false before the first snapshot and after Reset.
+func (c *ClientWorld) Epoch() (uint32, bool) {
+	return c.epoch, c.hasEpoch
+}
+
+// Err returns why the server's last replication message could not be used, an error wrapping ErrReplicationVersion when the server speaks another version of the replication protocol, or nil. A game can show it and stop waiting for a world that will never arrive. It clears when a snapshot applies and on Reset.
+func (c *ClientWorld) Err() error {
+	return c.err
+}
+
+// Reset forgets every snapshot, partial snapshot and prediction and the server's epoch, as when the client joins a new match, and reports every entity the client knew through OnDespawn, in EntityID order. A restarted ServerWorld sends a new epoch, which the client follows without a Reset; a server that starts its tick count over in the same epoch, without SetEpoch, needs one, because snapshot ticks are compared in serial-number order and the client would drop every new snapshot as stale until the new ticks pass the old ones. The epochs the client has left stay ignored. Reconciliations and LastReconcileError keep counting.
 func (c *ClientWorld) Reset() {
+	c.forget()
+	c.epoch, c.hasEpoch = 0, false
+	c.err = nil
+}
+
+// adoptEpoch reports whether a snapshot of epoch may be applied. The first epoch is adopted; a new one retires the current epoch and forgets its state, so the client resyncs; a retired one is refused.
+func (c *ClientWorld) adoptEpoch(epoch uint32) bool {
+	if c.hasEpoch && epoch == c.epoch {
+		return true
+	}
+	if slices.Contains(c.retired, epoch) {
+		return false
+	}
+	if c.hasEpoch {
+		if len(c.retired) == maxRetiredEpochs {
+			c.retired = slices.Delete(c.retired, 0, 1)
+		}
+		c.retired = append(c.retired, c.epoch)
+		c.forget()
+	}
+	c.epoch, c.hasEpoch = epoch, true
+	return true
+}
+
+// forget drops every snapshot, partial snapshot and prediction and reports every known entity through OnDespawn, in EntityID order.
+func (c *ClientWorld) forget() {
 	var known []EntityID
 	if c.hasLatest {
 		for id := range c.byTick[c.latestTick] {
@@ -745,27 +903,32 @@ func (c *ClientWorld) Poll() int {
 		if !ok {
 			break
 		}
-		if len(pkt.Payload) == 0 {
-			continue
-		}
 		// Only the configured server is authoritative; anyone else cannot
 		// inject snapshots.
 		if pkt.From != c.serverID {
 			continue
 		}
-		switch pkt.Payload[0] {
+		typ, version, epoch, body, status := readReplHeader(pkt.Payload)
+		switch status {
+		case replNotReplication:
+			continue
+		case replOtherVersion:
+			if typ != replMsgSnapshotAck && typ != replMsgResync {
+				c.err = replVersionError(pkt.From, version)
+			}
+			continue
+		}
+		var done bool
+		switch typ {
 		case replMsgSnapshotFull:
-			if c.applyFull(pkt.Payload[1:]) {
-				applied++
-			}
+			done = c.adoptEpoch(epoch) && c.applyFull(body)
 		case replMsgSnapshotDelta:
-			if c.applyDelta(pkt.Payload[1:]) {
-				applied++
-			}
+			done = c.adoptEpoch(epoch) && c.applyDelta(body)
 		case replMsgSnapshotFullPart:
-			if c.applyFullPart(pkt.Payload[1:]) {
-				applied++
-			}
+			done = c.adoptEpoch(epoch) && c.applyFullPart(body)
+		}
+		if done {
+			applied++
 		}
 	}
 	return applied
@@ -782,7 +945,7 @@ func (c *ClientWorld) requestResync(tick uint32) {
 		return
 	}
 	c.lastResyncTick, c.hasResync = tick, true
-	_ = c.transport.Send(c.serverID, ChannelUnreliable, []byte{replMsgResync})
+	_ = c.transport.Send(c.serverID, ChannelUnreliable, appendReplHeader(make([]byte, 0, replHeaderSize), replMsgResync, c.epoch))
 }
 
 // MaxEntitiesPerSnapshot bounds a full snapshot's entity count. The map is
@@ -987,6 +1150,7 @@ func (c *ClientWorld) commitSnapshot(tick uint32, entities map[EntityID]EntitySt
 	}
 	c.latestTick = tick
 	c.hasLatest = true
+	c.err = nil
 
 	for len(c.snapshots) > c.historyCap {
 		oldest := c.snapshots[0]
@@ -1024,7 +1188,7 @@ func (c *ClientWorld) commitSnapshot(tick uint32, entities map[EntityID]EntitySt
 	c.reconcile(tick, entities)
 
 	// Acknowledge receipt to the server so subsequent snapshots use delta compression.
-	_ = c.transport.Send(c.serverID, ChannelUnreliable, encodeSnapshotAck(tick))
+	_ = c.transport.Send(c.serverID, ChannelUnreliable, encodeSnapshotAck(c.epoch, tick))
 }
 
 // Predict applies a local input immediately to localEntity and buffers it for

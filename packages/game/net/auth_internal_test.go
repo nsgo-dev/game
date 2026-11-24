@@ -13,7 +13,7 @@ func TestClientIgnoresSnapshotsFromOtherPeers(t *testing.T) {
 	c := NewClientWorld(client, 1)
 	_ = server
 
-	full := encodeFullSnapshot(50, map[EntityID]EntityState{1: {ID: 1, ComponentState: ComponentState{X: 999}}})
+	full := encodeFullSnapshot(1, 50, map[EntityID]EntityState{1: {ID: 1, ComponentState: ComponentState{X: 999}}})
 	if err := attacker.Send(2, ChannelUnreliable, full); err != nil {
 		t.Fatalf("attacker send: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestClientIgnoresSnapshotsFromOtherPeers(t *testing.T) {
 	}
 
 	// The real server still updates the client.
-	if err := server.Send(2, ChannelUnreliable, encodeFullSnapshot(1, map[EntityID]EntityState{1: {ID: 1, ComponentState: ComponentState{X: 42}}})); err != nil {
+	if err := server.Send(2, ChannelUnreliable, encodeFullSnapshot(1, 1, map[EntityID]EntityState{1: {ID: 1, ComponentState: ComponentState{X: 42}}})); err != nil {
 		t.Fatalf("server send: %v", err)
 	}
 	hub.Advance(0)

@@ -141,7 +141,31 @@ _ = renderEntities
 可通过 `server.Stats()`、`client.PredictedState(id)`、`client.Reconciliations()` 与 `client.LastReconcileError()` 监控带宽与纠偏误差。
 
 - `Step` 交给 `Transport.Send` 的负载永远不超过 `DefaultMaxSnapshotSize`（60000 字节，UDP、中继和 WebSocket 都能容纳），或通过 `server.SetMaxSnapshotSize(n)` 设置的大小。更大的完整快照会被拆成若干分片，`ClientWorld` 在全部到齐后重新组装再应用；超出上限的增量快照会改为发送拆分后的完整快照。丢失一个分片只损失这一份快照：客户端不会确认它，下一次 `Step` 会重新发送一份完整快照。`Stats().PacketsSent` 按分片计数，`SnapshotsSent` 按整份快照计数。单个实体自身就放不进一个分片时，`Step` 返回指明该实体的 `ErrPayloadTooLarge`。
-- tick 为 `uint32`，按序列号算术（serial number arithmetic）比较先后，因此计数器在 2^32 个 tick 后回绕（60 Hz 下约 2.27 年）时复制仍能继续工作。`Interpolate` 以最新快照的 tick 为基准、按模 2^32 解读 `renderTick`，所以 `float64(latest) - delay` 在回绕前后都能正常工作。服务端为新一局或重启后从头计数 tick 时，客户端会把这些 tick 当作过期快照：请在新一局的第一份快照之前调用 `client.Reset()`，它会丢弃所有快照与预测，并通过 `OnDespawn` 报告每个已知实体。
+- tick 为 `uint32`，按序列号算术（serial number arithmetic）比较先后，因此计数器在 2^32 个 tick 后回绕（60 Hz 下约 2.27 年）时复制仍能继续工作。`Interpolate` 以最新快照的 tick 为基准、按模 2^32 解读 `renderTick`，所以 `float64(latest) - delay` 在回绕前后都能正常工作。服务端在同一 epoch 内从头计数 tick 时，客户端会把这些 tick 当作过期快照：请在新一局的第一份快照之前调用 `client.Reset()`，它会丢弃所有快照、预测与 epoch，并通过 `OnDespawn` 报告每个已知实体；也可以用 `server.SetEpoch` 开始新一局，让客户端自行跟上。
+
+### 复制 epoch
+
+每份快照都携带服务端的复制 epoch，这是 `NewServerWorld` 随机选取的一个数，因此即使 tick 有重叠，重启后服务端的快照也能与上一次运行区分开。`ClientWorld` 看到新的 epoch 时，会丢弃旧 epoch 的所有快照、未拼完的分片与预测，通过 `OnDespawn` 报告每个已知实体，并从新 epoch 的完整快照重新同步，游戏无需调用 `Reset`。客户端会记住最近离开的 16 个 epoch 并忽略它们的快照，因此迟到的旧运行快照无法把客户端拉回去。`client.Epoch()` 返回客户端当前跟随的 epoch。
+
+- 服务端不重启、但以从零开始的 tick 开始新一局时，调用 `server.SetEpoch(server.Epoch() + 1)`：下一次 `Step` 会向每个对端发送完整快照，客户端像遇到重启一样丢弃上一局。自行为运行编号的服务端，或需要固定 epoch 的测试，也用同样的方式设置。epoch 不可重复，因为客户端会忽略已离开的 epoch。
+- 两次运行随机选到同一 epoch 的概率为 2^32 分之一；这种重启看起来就像 tick 回退的服务端，用 `Reset` 或 `SetEpoch` 处理。
+- 确认消息同样携带 epoch，服务端会忽略其他 epoch 的确认，因此客户端对旧运行的确认永远不会成为新运行中的增量基线。
+
+### 线路格式
+
+复制使用其线路协议的第 2 版（`ReplicationVersion`）；第 2 版加入了 epoch。每条消息以一个字节开头，高 4 位是协议版本，低 4 位是消息类型，随后是 4 字节小端序的 epoch。`uv` 指 `encoding/binary` 写出的无符号 varint。
+
+| 消息 | 类型 | 方向 | 5 字节头之后的布局 |
+| --- | --- | --- | --- |
+| 完整快照 | 1 | 服务端到客户端 | `tick(uv) count(uv) entity...` |
+| 增量快照 | 2 | 服务端到客户端 | `tick(uv) baselineTick(uv) despawnCount(uv) id(uv)... updateCount(uv) entity...` |
+| 确认 | 3 | 客户端到服务端 | `tick(uv)` |
+| 重新同步请求 | 4 | 客户端到服务端 | 无 |
+| 完整快照分片 | 5 | 服务端到客户端 | `tick(uv) index(uv) total(uv) count(uv) entity...` |
+
+实体为 `id(uv) mask(1)`，后面按位序跟随掩码中置位的字段：kind（uv），x、y、vx、vy 与 rotation（4 字节小端序浮点数），flags（uv），以及 props（uv 长度加字节）。完整快照为每个非零字段置位；增量快照为相对基线发生变化的字段置位，对基线中没有的实体则为其每个非零字段置位。
+
+第 1 版来自加入 epoch 之前的版本，没有消息头：其消息直接以类型 1 到 5 开头，按第 1 版解读。不同版本的对端之间无法复制，且双方都不会误读对方的消息。客户端拒绝其他版本的快照并通过 `client.Err()` 报告，服务端拒绝其他版本的确认与重新同步请求并通过 `server.PeerErr(peer)` 报告；两种错误都包装了 `ErrReplicationVersion` 并写明双方版本，游戏可以据此提示玩家更新，而不是一直等待永远不会到来的世界。
 
 ## 确定性锁步与回滚同步
 
