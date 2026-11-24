@@ -407,14 +407,14 @@ scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "do
 
 ```go
 loop.Update = func(dt time.Duration) {
-	world.Update(dt) // input and systems call signals.Enqueue
+	updateSystems(dt) // the game's own input and systems, which call signals.Enqueue
 	if err := signals.Flush(); err != nil {
 		log.Print(err)
 	}
 }
 ```
 
-`Enqueue` 在排入任何东西之前就拒绝 `Emit` 会拒绝的情况，所以拼错的事件在发出的地方就会失败。`Flush` 按入队顺序运行它开始之前入队的事件，每个都像 `Emit` 那样运行；处理函数入队的事件（包括它自己的事件）要等到下一次 `Flush`，所以一次 `Flush` 总会结束，处理函数也不会重入自身。在处理函数中调用 `Flush` 会被拒绝，`Pending` 返回等待中的事件数。队列增长到一步的事件量之后，每一步的分配不会多于直接发出这些事件。
+`Enqueue` 在排入任何东西之前就拒绝 `Emit` 会拒绝的情况，所以拼错的事件在发出的地方就会失败。`Flush` 按入队顺序运行它开始之前入队的事件，每个都像 `Emit` 那样运行；处理函数入队的事件（包括它自己的事件）要等到下一次 `Flush`，所以一次 `Flush` 总会结束，处理函数也不会重入自身。在处理函数中调用 `Flush` 会被拒绝，`Pending` 返回等待中的事件数。处理函数的 panic 会穿过 `Flush` 传出，发生 panic 的事件之后的事件仍留在队列中，等待下一次 `Flush`。队列增长到一步的事件量之后，每一步的分配不会多于直接发出这些事件。
 
 #### 生成连接好的实体
 
@@ -422,7 +422,7 @@ loop.Update = func(dt time.Duration) {
 
 #### 检查连接
 
-`go tool game check` 会解析每个实例化或继承其他场景、且自己带有连接的场景，连接的 `from` 或 `to` 指向解析后场景中不存在的对象时失败，并报告写有该名称的行。事件和处理函数在 Go 中声明，命令行无法加载它们，所以游戏在自己的测试中用 `assetcheck.CheckWith` 和自己的注册表检查它们；它会在文件和行上报告指向对象未声明的事件、处理函数或参数的连接，以及不符合类型的组件，实例化或继承其他场景的场景也一样：
+`go tool game check` 会解析每个实例化或继承其他场景的场景。场景无法解析时（例如循环引用，或覆盖项指向不存在的对象）它会失败，并报告实例所在行或 `inherits` 行；连接的 `from` 或 `to` 指向解析后场景中不存在的对象时也会失败，并报告写有该名称的行。事件和处理函数在 Go 中声明，命令行无法加载它们，所以游戏在自己的测试中用 `assetcheck.CheckWith` 和自己的注册表检查它们。它会在文件和行上报告指向对象未声明的事件、处理函数或参数的连接，以及不符合类型的组件；对实例化或继承其他场景的场景，它还会检查覆盖项写入的组件和解析后场景的每个连接，所以覆盖项破坏了被实例化或被继承的场景带来的连接时（例如再加一个声明同名事件的组件），会在该覆盖项处失败：
 
 ```go
 func TestScenesCheck(t *testing.T) {
@@ -440,7 +440,7 @@ func TestScenesCheck(t *testing.T) {
 scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/door" open): no registered component of object "lever" declares event "held" (it has: button.pressed)
 ```
 
-场景所实例化或继承的场景，其连接在那些文件中检查，所以每个问题只报告一次。
+场景从所实例化或继承的场景原样带来的问题在那个文件上报告，它的覆盖项造成的问题在覆盖项上报告，所以每个问题只报告一次。问题只给出行号，不给出列号。
 
 ### 项目
 

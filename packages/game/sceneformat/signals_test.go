@@ -255,19 +255,23 @@ func TestSpawnedSceneDispatchesBetweenEntities(t *testing.T) {
 func TestSpawnConnectedValidatesBeforeSpawning(t *testing.T) {
 	var calls []sceneformat.Call
 	reg := doorRegistry(t, &calls)
-	for _, tc := range []struct{ name, src, want string }{
-		{"missing handler", strings.Replace(doorScene, "handler: open", "handler: slam", 1), `declares handler "slam"`},
-		{"missing event", strings.Replace(doorScene, "event: pressed", "event: held", 1), `declares event "held"`},
-		{"missing object", strings.Replace(doorScene, "to: door", "to: gate", 1), `"gate"`},
-		{"bad component", strings.Replace(doorScene, "door: {}", "door: {open: 3}", 1), `"open"`},
+	for _, tc := range []struct {
+		name, src, want string
+		// edit, when set, breaks the parsed scene, for a fault Parse itself refuses.
+		edit func(*sceneformat.SceneDoc)
+	}{
+		{"missing handler", strings.Replace(doorScene, "handler: open", "handler: slam", 1), `declares handler "slam"`, nil},
+		{"missing event", strings.Replace(doorScene, "event: pressed", "event: held", 1), `declares event "held"`, nil},
+		{"missing object", doorScene, `"gate"`, func(d *sceneformat.SceneDoc) { d.Connections[0].To = "gate" }},
+		{"bad component", strings.Replace(doorScene, "door: {}", "door: {open: 3}", 1), `"open"`, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc, err := sceneformat.Parse([]byte(tc.src))
 			if err != nil {
-				if !strings.Contains(err.Error(), tc.want) {
-					t.Fatalf("Parse: %v", err)
-				}
-				return
+				t.Fatalf("Parse: %v", err)
+			}
+			if tc.edit != nil {
+				tc.edit(doc)
 			}
 			w := entities.NewWorld()
 			spawned, sig, err := sceneformat.SpawnConnected(doc, w, reg, nil)
@@ -373,5 +377,64 @@ func BenchmarkEnqueueFlush(b *testing.B) {
 		if err := sig.Flush(); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// The map SpawnConnected returns is the caller's: changing it does not change what the Signals dispatches.
+func TestSpawnConnectedKeepsItsOwnEntities(t *testing.T) {
+	var calls []sceneformat.Call
+	reg := doorRegistry(t, &calls)
+	doc, err := sceneformat.Parse([]byte(doorScene))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawned, sig, err := sceneformat.SpawnConnected(doc, entities.NewWorld(), reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	button, door := spawned["button"], spawned["door"]
+	clear(spawned)
+	if err := sig.Emit("button", "pressed", nil); err != nil {
+		t.Fatalf("Emit after the caller cleared its map: %v", err)
+	}
+	if len(calls) != 1 || calls[0].SourceEntity != button || calls[0].TargetEntity != door {
+		t.Fatalf("calls %+v", calls)
+	}
+}
+
+// A handler's panic passes through Flush, and the events after the one that panicked stay queued for the next Flush.
+func TestFlushKeepsTheEventsAfterAPanic(t *testing.T) {
+	var ran []any
+	reg := relayRegistry(t, func(c sceneformat.Call) {
+		if c.Payload == 2 {
+			panic("handler failed")
+		}
+		ran = append(ran, c.Payload)
+	})
+	_, sig := connectScene(t, relayScene, reg)
+	for _, p := range []any{1, 2, 3, 4} {
+		if err := sig.Enqueue("r", "ping", p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the handler's panic did not pass through Flush")
+			}
+		}()
+		_ = sig.Flush()
+	}()
+	if len(ran) != 1 || ran[0] != 1 || sig.Pending() != 2 {
+		t.Fatalf("after the panic: ran %v, %d pending; want [1] with 2 pending", ran, sig.Pending())
+	}
+	if err := sig.Enqueue("r", "ping", 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.Flush(); err != nil {
+		t.Fatalf("Flush after a panic: %v", err)
+	}
+	if len(ran) != 4 || ran[1] != 3 || ran[2] != 4 || ran[3] != 5 {
+		t.Fatalf("ran %v, want [1 3 4 5]", ran)
 	}
 }

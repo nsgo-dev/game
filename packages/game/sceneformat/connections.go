@@ -234,7 +234,7 @@ func SpawnConnected(doc *SceneDoc, w *entities.World, reg *ComponentRegistry, ct
 		return nil, nil, err
 	}
 	s.world = w
-	s.entityOf = spawned
+	s.entityOf = maps.Clone(spawned) // the caller owns spawned and may change it
 	s.objectOf = make(map[entities.Entity]string, len(spawned))
 	for id, e := range spawned {
 		s.objectOf[e] = id
@@ -309,7 +309,7 @@ func (s *Signals) Pending() int {
 
 // Flush runs the events enqueued before it began, in enqueue order, each as Emit would run it. Events their handlers enqueue are held for the next Flush, so one Flush always ends, even when handlers keep enqueueing each other. An event whose object's entity was destroyed after it was enqueued is dropped (SpawnConnected). Call it once per update step, such as at the end of game.Loop's Update, to run what the step raised after it.
 //
-// Flush returns an error, and runs nothing, when a handler calls it: events then run only from the update, never inside another event's handlers.
+// Flush returns an error, and runs nothing, when a handler calls it: events then run only from the update, never inside another event's handlers. A handler's panic passes through Flush; the events after the one whose handler panicked stay queued, ahead of those enqueued since, for the next Flush.
 func (s *Signals) Flush() error {
 	if s == nil {
 		return errors.New("sceneformat: flush on nil Signals")
@@ -324,12 +324,18 @@ func (s *Signals) Flush() error {
 	s.queue = s.spare[:0]
 	s.spare = nil
 	s.flushing = true
+	next := 0
 	defer func() {
+		if next < len(batch) {
+			// A handler panicked: the events after its own stay queued, ahead of those enqueued since.
+			s.queue = append(slices.Clone(batch[next:]), s.queue...)
+		}
 		clear(batch) // drop the payloads, so the reused array keeps nothing alive
 		s.spare = batch[:0]
 		s.flushing = false
 	}()
-	for _, q := range batch {
+	for i, q := range batch {
+		next = i + 1
 		if s.world != nil && !s.world.Alive(s.entityOf[q.key.from]) {
 			continue
 		}
