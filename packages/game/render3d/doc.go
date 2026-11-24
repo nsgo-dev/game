@@ -66,5 +66,7 @@
 //
 // [GPUFogBuffer] (#254) keeps a [Fog] (linear, exponential or exponential-squared distance fog, analytical exponential height fog, or both) in a uniform buffer. [NewLitPBRFogPipeline] draws [LitPBRWGSL]'s lighting with fog with the buffer at [FogGroup], and [NewMaterialPipeline] does the same for materials when [MaterialPipelineOptions].FogLayout is set, with the buffer at [MaterialFogGroup]. [FogWGSL] holds the shader functions for custom shaders, and [Fog.Apply] with [FogCameraPos] is the matching CPU reference.
 //
+// [SkyboxPipeline] (#253) draws a [GPUCubemap] as a background behind opaque geometry, and [GPUIBLBuffer] holds an environment's [IrradianceSH] diffuse irradiance and [PrefilterEnvironment] specular cubemap for image-based lighting. [NewLitPBRIBLPipeline] adds that lighting to [LitPBRWGSL]'s with the buffer at [IBLGroup], [IBLWGSL] holds the shader functions for custom shaders, and [EvaluateIBL] is the matching CPU reference.
+//
 // The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera, light, mesh, texture, and sampler helpers are the parts that talk to [gpu.Device].
 package render3d

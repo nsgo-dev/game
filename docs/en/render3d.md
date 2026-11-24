@@ -186,6 +186,53 @@ The view ray starts at the eye for a perspective camera. For an orthographic cam
 
 Reference tests check rendered pixels against `ShadePoint` and `EvaluateMaterial` blended by `Fog.Apply` on the software GPU and in `nsgotest` (`full` and `nsgotest.NoGPUCompute` profiles), cover orthographic cameras, `Update`, `Retained` device loss and scope disposal, and compare against `render3d/testdata/golden/fog_linear_distances.png` and `fog_height.png`.
 
+## Skybox and image-based lighting (`Cubemap`, `SkyboxPipeline`, `GPUIBLBuffer`)
+
+`render3d` provides 6-face cubemaps (`Cubemap`, `GPUCubemap`), a fullscreen-triangle background skybox (`SkyboxPipeline`), and split-sum image-based lighting (`IrradianceSH`, `PrefilterEnvironment`, `GenerateBRDFLUT`, `EnvBRDFApprox`, `GPUIBLBuffer`, `IBLWGSL`, `LitPBRIBLWGSL`) that run on every NSGo GPU backend, including WebGL 2 and OpenGL ES 3.0 (`NoGPUCompute`).
+
+Build a `Cubemap` from six faces (`CubemapFromImages`), an equirectangular panorama (`CubemapFromEquirectangular`; pass `srgb = true` for a typical PNG or JPEG), or a procedural three-band sky (`GradientSkyCubemap`), then bake diffuse L2 spherical harmonic irradiance and a GGX-prefiltered specular mip chain on the CPU before uploading:
+
+```go
+env, err := render3d.GradientSkyCubemap(zenith, horizon, ground, 64)
+sh, err := render3d.ComputeIrradianceSH(env)
+prefilter, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{
+	BaseSize:    64,
+	MipLevels:   5,
+	SampleCount: 64,
+})
+
+skyCube, err := render3d.UploadCubemap(cx, dev, env, render3d.CubemapUpload{Label: "sky", Retained: true})
+prefCube, err := render3d.UploadCubemap(cx, dev, prefilter, render3d.CubemapUpload{Label: "ibl", Retained: true})
+
+skyPipe, err := render3d.NewSkyboxPipeline(cx, dev, render3d.SkyboxPipelineDesc{
+	ColorFormat: dev.SurfaceFormat(),
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
+})
+skyGroup, err := skyPipe.BindCubemap(cx, skyCube)
+
+iblBuf, err := render3d.NewGPUIBLBuffer(cx, dev, prefCube, render3d.NewIBLUniform(sh, prefCube, 1.0), render3d.IBLBufferOptions{Label: "ibl", Retained: true})
+pipe, err := render3d.NewLitPBRIBLPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), iblBuf.Layout(), gpu.FormatDepth24Plus)
+
+// Each frame: draw opaque lit meshes with the IBL buffer at IBLGroup (group 3), then the skybox, which skips the pixels they cover:
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+iblBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+mesh.Draw(pass)
+skyPipe.WriteCamera(cam)
+skyPipe.Draw(pass, skyGroup)
+```
+
+- **Depth and translation**: `NewSkyboxUniform` strips camera translation so the sky stays infinitely distant as the viewer moves. `SkyboxWGSL` draws one fullscreen triangle from `@builtin(vertex_index)` with no vertex buffer, at depth `1 - 2^-24` (the largest float32 below 1) with `CompareLessEqual` and `DepthWrite: false`, so drawn after opaque geometry it shades only uncovered pixels and paints over nothing nearer than the far plane's last 24-bit depth step. It does not emit exactly `1.0` because NSGo's software rasterizer drops fragments whose interpolated depth rounds above 1.
+- **Lit PBR with environment lighting**: `LitPBRIBLWGSL` is `LitPBRWGSL` plus `evaluate_ibl`: it adds diffuse spherical harmonic irradiance and prefiltered specular to the direct lighting before encoding to sRGB. Set the `LightRig`'s ambient light to zero when the environment supplies the ambient term. IBL and fog both use bind group 3 (`IBLGroup` and `FogGroup`), the last of the four groups every backend guarantees, so a lit pipeline has one or the other.
+- **Custom shaders**: prepend `IBLWGSL` (group 3) or `IBLWGSLForGroup(group)` and call `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`. Diffuse lighting evaluates the 9 pre-convolved L2 coefficients (`evaluate_irradiance_sh`), and specular lighting samples the prefiltered cubemap at `roughness * ibl.max_lod` scaled by Karis's analytical `env_brdf_approx` (`EnvBRDFApprox`). Shaders that prefer a 2D lookup texture can bake the split-sum GGX table with `GenerateBRDFLUT` or `GenerateBRDFLUTWithSamples`.
+- **Buffer, validation and memory**: `GPUIBLBuffer` follows `GPULightBuffer` and `GPUFogBuffer`: `Update(dev, u)` writes new parameters, `Bind` sets it at `IBLGroup`, and `ByteSize` reports its uniform buffer for `RenderStats`, while `GPUCubemap.ByteSize` reports each cubemap. `IBLUniform.Validate` refuses non-finite spherical harmonic coefficients and non-finite or negative intensity or max LOD with `ErrInvalidIBL`.
+- **Low dynamic range only**: cubemaps are 8 bits per channel (`RGBA8Unorm` or `RGBA8UnormSRGB`), so radiance above 1 is clamped in the source, prefiltered and irradiance faces. Bright sun or sky highlights flatten; high dynamic range environments are not supported yet.
+- **CPU reference and device loss**: `EvaluateIBL` matches `evaluate_ibl` on the CPU, and `ShadePoint` plus `EvaluateIBL` matches `LitPBRIBLWGSL`. With `Retained: true` on `CubemapUpload`, `SkyboxPipelineDesc` and `IBLBufferOptions`, NSGo restores textures, samplers, pipelines and uniform buffers after a device loss; call `SkyboxPipeline.SetDevice(dev)` in `OnReady` and pass the new device to `GPUIBLBuffer.Update`.
+- **Reference renders**: headless software-GPU tests compare a skybox behind a mesh and 2x2 metallic/roughness spheres with `render3d/testdata/golden/skybox_scene.png` and `ibl_spheres.png` (`UPDATE_GOLDEN=1` rewrites them), check `LitPBRIBLWGSL` against the CPU reference, check that geometry just inside the far plane stays visible, and run on both the full and `nsgotest.NoGPUCompute` profiles.
+
 ## Mesh buffers (`Mesh`, `GPUMesh`)
 
 A `Mesh` is triangle-list geometry on the CPU: `Positions` (required), `Normals` and `UVs` (each empty or one per position) and `Indices` (empty for a non-indexed mesh). The fields have the same types as a glTF primitive's `Positions`, `Normals`, `TexCoords0` and `Indices`, and front faces wind counter-clockwise as in glTF and [math3d](math3d.md). `UploadMesh` validates the mesh and creates its vertex buffer and, when indexed, its index buffer on the [NSGo GPU view](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md)'s `gpu.Device`. The buffers belong to the scope you pass and are released when it is disposed or when you call `GPUMesh.Close`:
@@ -406,48 +453,6 @@ gpu.View(cx, gpu.ViewProps{
 - **Raw buffers and textures**: `QueueRawBuffer` streams custom vertex, storage or uniform buffers (`RawBufferUpload`), and `QueueRawTexture` streams pre-encoded or block-compressed mip chains, array layers and cube faces (`RawTextureUpload`, `TextureMipData`) and delivers the `gpu.Texture`.
 - **Priority and cancellation**: `PriorityHigh`, `PriorityNormal` and `PriorityLow` order both the decode and the upload queue (FIFO within a priority), so a high-priority asset preempts a low-priority one that is partway through its upload at the next chunk. Each `Queue*` call returns an `*UploadHandle` whose `State()`, `Progress()`, `Err()`, `Done()` and `Cancel()` are safe from any goroutine.
 - **Lifecycle**: passing a `*core.Scope` to `NewUploader` closes the uploader when the scope is disposed. `Close` cancels pending decodes, joins every worker goroutine, releases partially uploaded GPU resources and calls the `onReady` of each unfinished upload with `ErrUploaderClosed`; call it on the goroutine that calls `Step`, as scope disposal does. Pass `nil` in headless tests and call `Close` yourself. `UploaderOptions.MaxPending` bounds the unfinished uploads, failing further ones with `ErrUploadQueueFull`.
-
-## Skybox and image-based lighting (`Cubemap`, `SkyboxPipeline`, `IBLBuffer`)
-
-`render3d` provides 6-face cubemaps (`Cubemap`, `GPUCubemap`), a fullscreen-triangle background skybox (`SkyboxPipeline`), and split-sum image-based lighting (`IrradianceSH`, `PrefilterEnvironment`, `GenerateBRDFLUT`, `EnvBRDFApprox`, `IBLBuffer`, `IBLWGSL`) that run across every NSGo GPU backend including WebGL 2 and OpenGL ES 3.0 (`NoGPUCompute`).
-
-Build a `Cubemap` from six faces (`CubemapFromImages`), an equirectangular panorama (`CubemapFromEquirectangular`), or a procedural three-band sky (`GradientSkyCubemap`), then bake diffuse L2 spherical harmonic irradiance and a GGX-prefiltered specular mip chain on the CPU before uploading:
-
-```go
-env, err := render3d.GradientSkyCubemap(zenith, horizon, ground, 64)
-sh, err := render3d.ComputeIrradianceSH(env)
-prefilter, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{
-	BaseSize:    64,
-	MipLevels:   5,
-	SampleCount: 64,
-})
-
-skyCube, err := render3d.UploadCubemap(cx, dev, env, render3d.CubemapUpload{Label: "sky", Retained: true})
-prefCube, err := render3d.UploadCubemap(cx, dev, prefilter, render3d.CubemapUpload{Label: "ibl", Retained: true})
-
-skyPipe, err := render3d.NewSkyboxPipeline(cx, dev, render3d.SkyboxPipelineDesc{
-	ColorFormat: dev.SurfaceFormat(),
-	DepthFormat: gpu.FormatDepth24Plus,
-	Retained:    true,
-})
-skyGroup, err := skyPipe.BindCubemap(cx, skyCube)
-
-iblBuf, err := render3d.NewIBLBuffer(cx, dev, render3d.IBLBufferDesc{
-	Prefilter: prefCube,
-	Uniform:   render3d.NewIBLUniform(sh, prefCube, 1.0),
-	Retained:  true,
-})
-
-// Each frame: draw opaque PBR meshes with IBLBuffer bound at IBLGroup (group 2),
-// then draw the skybox behind them without shading occluded foreground pixels:
-skyPipe.WriteCamera(&cam)
-skyPipe.Draw(pass, skyGroup)
-```
-
-- **Depth and translation**: `NewSkyboxUniform` strips camera translation so the sky stays infinitely distant as the viewer moves. `SkyboxWGSL` emits a single fullscreen triangle (`@builtin(vertex_index)`, zero vertex buffers) at `z = 0.999999` with `CompareLessEqual` and `DepthWrite: false`, so drawing the skybox after opaque geometry skips occluded foreground pixels without float32 depth-rounding dropouts against `ClearDepth = 1.0`.
-- **Diffuse + specular IBL**: Prepend `IBLWGSL` (or `IBLWGSLForGroup(group)`) to a PBR fragment shader and call `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`. Diffuse lighting evaluates the 9 pre-convolved L2 spherical harmonic coefficients (`evaluate_irradiance_sh`), and specular lighting samples the GGX prefiltered cubemap at `roughness * ibl.max_lod` modulated by the Karis analytical `env_brdf_approx` (`EnvBRDFApprox`). For shaders that prefer a 2D BRDF integration lookup texture, `GenerateBRDFLUT` and `GenerateBRDFLUTWithSamples` bake the split-sum GGX LUT on the CPU.
-- **CPU reference & device loss**: `EvaluateIBL` matches `IBLWGSL`'s `evaluate_ibl` on the CPU for headless verification and tooling. Setting `Retained: true` on `CubemapUpload`, `SkyboxPipelineDesc`, and `IBLBufferDesc` restores textures, samplers, pipelines, and uniform buffers automatically after a GPU device loss (call `SetDevice(dev)` in `OnReady` before subsequent `Write` calls).
-- **Reference renders**: Headless software-GPU tests compare skybox-behind-scene and 2x2 metallic/roughness reflective sphere renders against `render3d/testdata/golden/skybox_scene.png` and `ibl_spheres.png` (`UPDATE_GOLDEN=1` rewrites them) and verify both full and `nsgotest.NoGPUCompute` profiles.
 
 ## 3D debug draw and transform gizmos
 

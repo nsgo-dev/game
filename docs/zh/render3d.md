@@ -186,6 +186,53 @@ gltfMesh.Draw(pass)
 
 参考测试在软件 GPU 与 `nsgotest`（`full` 与 `nsgotest.NoGPUCompute` 配置）上，将渲染像素与经 `Fog.Apply` 混合后的 `ShadePoint` 和 `EvaluateMaterial` 结果对比，覆盖正交相机、`Update`、`Retained` 设备丢失与作用域释放，并与 `render3d/testdata/golden/fog_linear_distances.png` 和 `fog_height.png` 对比。
 
+## 天空盒与基于图像的照明（`Cubemap`、`SkyboxPipeline`、`GPUIBLBuffer`）
+
+`render3d` 提供六面立方体贴图（`Cubemap`、`GPUCubemap`）、全屏三角形背景天空盒（`SkyboxPipeline`）以及分离求和的基于图像的照明（`IrradianceSH`、`PrefilterEnvironment`、`GenerateBRDFLUT`、`EnvBRDFApprox`、`GPUIBLBuffer`、`IBLWGSL`、`LitPBRIBLWGSL`），可在所有 NSGo GPU 后端上运行，包括 WebGL 2 与 OpenGL ES 3.0（`NoGPUCompute`）。
+
+可从六张贴图（`CubemapFromImages`）、等距柱状全景图（`CubemapFromEquirectangular`；常见的 PNG 或 JPEG 全景图传 `srgb = true`）或程序化三段天空（`GradientSkyCubemap`）构建 `Cubemap`，在 CPU 上烘焙 L2 球谐漫反射辐照度与 GGX 预过滤镜面 mip 链后再上传到 GPU：
+
+```go
+env, err := render3d.GradientSkyCubemap(zenith, horizon, ground, 64)
+sh, err := render3d.ComputeIrradianceSH(env)
+prefilter, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{
+	BaseSize:    64,
+	MipLevels:   5,
+	SampleCount: 64,
+})
+
+skyCube, err := render3d.UploadCubemap(cx, dev, env, render3d.CubemapUpload{Label: "sky", Retained: true})
+prefCube, err := render3d.UploadCubemap(cx, dev, prefilter, render3d.CubemapUpload{Label: "ibl", Retained: true})
+
+skyPipe, err := render3d.NewSkyboxPipeline(cx, dev, render3d.SkyboxPipelineDesc{
+	ColorFormat: dev.SurfaceFormat(),
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
+})
+skyGroup, err := skyPipe.BindCubemap(cx, skyCube)
+
+iblBuf, err := render3d.NewGPUIBLBuffer(cx, dev, prefCube, render3d.NewIBLUniform(sh, prefCube, 1.0), render3d.IBLBufferOptions{Label: "ibl", Retained: true})
+pipe, err := render3d.NewLitPBRIBLPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), iblBuf.Layout(), gpu.FormatDepth24Plus)
+
+// 每帧：先在 IBLGroup（第 3 组）绑定 IBL 缓冲绘制不透明受光网格，再绘制天空盒，跳过它们覆盖的像素：
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+iblBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+mesh.Draw(pass)
+skyPipe.WriteCamera(cam)
+skyPipe.Draw(pass, skyGroup)
+```
+
+- **深度与平移无关**：`NewSkyboxUniform` 去除相机平移分量，使天空盒随观察者移动始终处于无限远。`SkyboxWGSL` 使用 `@builtin(vertex_index)` 绘制单个全屏三角形（不需要顶点缓冲），深度为 `1 - 2^-24`（小于 1 的最大 float32），配合 `CompareLessEqual` 与 `DepthWrite: false`：在不透明几何之后绘制时只着色未被覆盖的像素，且只会覆盖位于远平面最后一个 24 位深度级内的几何。之所以不输出恰好 `1.0`，是因为 NSGo 的软件光栅器会丢弃插值深度舍入后大于 1 的片元。
+- **带环境光照的受光 PBR**：`LitPBRIBLWGSL` 是在 `LitPBRWGSL` 基础上加入 `evaluate_ibl`：在编码为 sRGB 之前，把球谐漫反射辐照度与预过滤镜面反射加到直接光照上。环境提供环境光项时，请把 `LightRig` 的环境光设为零。IBL 与雾都使用第 3 组（`IBLGroup` 与 `FogGroup`），这是所有后端都保证的四个绑定组中的最后一个，因此一条受光管线只能二选一。
+- **自定义着色器**：在着色器前拼接 `IBLWGSL`（第 3 组）或 `IBLWGSLForGroup(group)`，并调用 `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`。漫反射项计算 9 个预卷积 L2 球谐系数（`evaluate_irradiance_sh`），镜面项按 `roughness * ibl.max_lod` 采样预过滤立方体贴图并乘以 Karis 解析拟合 `env_brdf_approx`（`EnvBRDFApprox`）。需要 2D 查找表的着色器可以用 `GenerateBRDFLUT` 或 `GenerateBRDFLUTWithSamples` 烘焙分离求和 GGX 表。
+- **缓冲、校验与内存**：`GPUIBLBuffer` 与 `GPULightBuffer`、`GPUFogBuffer` 一致：`Update(dev, u)` 写入新参数，`Bind` 绑定到 `IBLGroup`，`ByteSize` 报告其 uniform 缓冲供 `RenderStats` 统计，各立方体贴图则由 `GPUCubemap.ByteSize` 报告。`IBLUniform.Validate` 拒绝非有限的球谐系数，以及非有限或为负的强度与最大 LOD，返回 `ErrInvalidIBL`。
+- **仅支持低动态范围**：立方体贴图每通道 8 位（`RGBA8Unorm` 或 `RGBA8UnormSRGB`），源贴图、预过滤贴图与辐照度贴图中大于 1 的辐射度都会被截断，明亮的太阳或天空高光会被压平；暂不支持高动态范围环境。
+- **CPU 参考实现与设备丢失恢复**：`EvaluateIBL` 在 CPU 上匹配 `evaluate_ibl`，`ShadePoint` 加 `EvaluateIBL` 匹配 `LitPBRIBLWGSL`。在 `CubemapUpload`、`SkyboxPipelineDesc` 与 `IBLBufferOptions` 上设置 `Retained: true` 后，设备丢失时 NSGo 会恢复纹理、采样器、管线与 uniform 缓冲；请在 `OnReady` 中调用 `SkyboxPipeline.SetDevice(dev)`，并把新设备传给 `GPUIBLBuffer.Update`。
+- **参考渲染测试**：无头软件 GPU 测试将网格后方的天空盒以及 2×2 金属度/粗糙度球体与 `render3d/testdata/golden/skybox_scene.png` 和 `ibl_spheres.png` 对比（设置 `UPDATE_GOLDEN=1` 可重写），对照 CPU 参考实现检查 `LitPBRIBLWGSL`，检查紧靠远平面内侧的几何不被覆盖，并在完整能力与 `nsgotest.NoGPUCompute` 两种配置下运行。
+
 ## 网格缓冲（`Mesh`、`GPUMesh`）
 
 `Mesh` 是 CPU 上的三角形列表几何体：`Positions`（必填）、`Normals` 与 `UVs`（各自为空或与顶点一一对应）以及 `Indices`（非索引网格留空）。这些字段与 glTF 图元的 `Positions`、`Normals`、`TexCoords0`、`Indices` 类型相同，正面按逆时针环绕，与 glTF 和 [math3d](math3d.md) 一致。`UploadMesh` 校验网格后，在 [NSGo GPU 视图](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md) 的 `gpu.Device` 上创建顶点缓冲，带索引时再创建索引缓冲。缓冲归属于传入的作用域，作用域销毁或调用 `GPUMesh.Close` 时释放：
@@ -406,48 +453,6 @@ gpu.View(cx, gpu.ViewProps{
 - **原始缓冲与纹理**：`QueueRawBuffer` 流式上传自定义顶点、存储或 uniform 缓冲（`RawBufferUpload`）；`QueueRawTexture` 流式上传预编码或块压缩的 mip 链、数组层和立方体贴图面（`RawTextureUpload`、`TextureMipData`），交付 `gpu.Texture`。
 - **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时决定解码队列和上传队列的顺序（同一优先级先进先出），高优先级资产会在下一个分块抢占上传到一半的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，其 `State()`、`Progress()`、`Err()`、`Done()` 与 `Cancel()` 可在任意协程调用。
 - **生命周期**：向 `NewUploader` 传入 `*core.Scope` 后，作用域销毁时会关闭上传器。`Close` 取消未完成的解码、等待全部工作协程退出、释放上传到一半的 GPU 资源，并以 `ErrUploaderClosed` 调用每个未完成上传的 `onReady`；它须在调用 `Step` 的协程上执行，作用域销毁正是如此。无界面测试可传入 `nil` 并自行调用 `Close`。`UploaderOptions.MaxPending` 限制未完成上传的数量，超出时以 `ErrUploadQueueFull` 失败。
-
-## 天空盒与基于图像的照明（`Cubemap`、`SkyboxPipeline`、`IBLBuffer`）
-
-`render3d` 提供六面立方体贴图（`Cubemap`、`GPUCubemap`）、全屏三角形背景天空盒（`SkyboxPipeline`）以及分离求和的基于图像的照明（`IrradianceSH`、`PrefilterEnvironment`、`GenerateBRDFLUT`、`EnvBRDFApprox`、`IBLBuffer`、`IBLWGSL`），可在所有 NSGo GPU 后端上运行，包括 WebGL 2 与 OpenGL ES 3.0（`NoGPUCompute`）。
-
-可从六张贴图（`CubemapFromImages`）、等距柱状全景图（`CubemapFromEquirectangular`）或程序化三段天空（`GradientSkyCubemap`）构建 `Cubemap`，在 CPU 上烘焙 L2 球谐漫反射辐照度与 GGX 预过滤镜面 mip 链后再上传到 GPU：
-
-```go
-env, err := render3d.GradientSkyCubemap(zenith, horizon, ground, 64)
-sh, err := render3d.ComputeIrradianceSH(env)
-prefilter, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{
-	BaseSize:    64,
-	MipLevels:   5,
-	SampleCount: 64,
-})
-
-skyCube, err := render3d.UploadCubemap(cx, dev, env, render3d.CubemapUpload{Label: "sky", Retained: true})
-prefCube, err := render3d.UploadCubemap(cx, dev, prefilter, render3d.CubemapUpload{Label: "ibl", Retained: true})
-
-skyPipe, err := render3d.NewSkyboxPipeline(cx, dev, render3d.SkyboxPipelineDesc{
-	ColorFormat: dev.SurfaceFormat(),
-	DepthFormat: gpu.FormatDepth24Plus,
-	Retained:    true,
-})
-skyGroup, err := skyPipe.BindCubemap(cx, skyCube)
-
-iblBuf, err := render3d.NewIBLBuffer(cx, dev, render3d.IBLBufferDesc{
-	Prefilter: prefCube,
-	Uniform:   render3d.NewIBLUniform(sh, prefCube, 1.0),
-	Retained:  true,
-})
-
-// 每帧：先在 IBLGroup（第 2 组）绑定 IBLBuffer 绘制不透明 PBR 网格，
-// 再在后方绘制天空盒，跳过被前景遮挡的片元：
-skyPipe.WriteCamera(&cam)
-skyPipe.Draw(pass, skyGroup)
-```
-
-- **深度与平移无关**：`NewSkyboxUniform` 去除相机平移分量，使天空盒始终处于无限远。`SkyboxWGSL` 使用 `@builtin(vertex_index)` 绘制单个全屏三角形（零顶点缓冲），输出 `z = 0.999999`，配合 `CompareLessEqual` 与 `DepthWrite: false`，在不透明几何之后绘制即可跳过被前景遮挡的像素，同时避免 float32 重心插值超出 `ClearDepth = 1.0` 导致的黑点。
-- **漫反射与镜面 IBL**：在 PBR 片元着色器前拼接 `IBLWGSL`（或 `IBLWGSLForGroup(group)`）并调用 `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`。漫反射项计算 9 个预卷积 L2 球谐系数（`evaluate_irradiance_sh`），镜面项按 `roughness * ibl.max_lod` 采样 GGX 预过滤立方体贴图并乘以 Karis 解析拟合 `env_brdf_approx`（`EnvBRDFApprox`）。若着色器需要使用 2D BRDF 查找表，可调用 `GenerateBRDFLUT` 或 `GenerateBRDFLUTWithSamples` 在 CPU 上烘焙分离求和 GGX LUT。
-- **CPU 参考实现与设备丢失恢复**：`EvaluateIBL` 在 CPU 上精确匹配 `IBLWGSL` 的 `evaluate_ibl`，便于无头验证与工具链使用。在 `CubemapUpload`、`SkyboxPipelineDesc` 与 `IBLBufferDesc` 上启用 `Retained: true` 后，GPU 设备丢失恢复时 NSGo 会自动重建纹理、采样器、管线与 uniform 缓冲（在 `OnReady` 中先调用 `SetDevice(dev)` 再执行后续 `Write`）。
-- **参考渲染测试**：无头软件 GPU 测试将前景网格后的天空盒以及 2×2 金属度/粗糙度反射球体与 `render3d/testdata/golden/skybox_scene.png` 和 `ibl_spheres.png` 对比（设置 `UPDATE_GOLDEN=1` 可重写），并在完整能力与 `nsgotest.NoGPUCompute` 两种配置下验证。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
