@@ -52,6 +52,24 @@ const (
 	wsOpPong         = 0xA
 )
 
+// wsMaxInboxPackets caps unread packets buffered on native WebSocket transports
+// before read loops pause and let TCP flow control apply backpressure (#546).
+// Kept as a package variable so internal tests can override it.
+var (
+	wsInboxLimitMu    sync.RWMutex
+	wsMaxInboxPackets = defaultMaxInboxPackets
+)
+
+func wsInboxLimit() int {
+	wsInboxLimitMu.RLock()
+	limit := wsMaxInboxPackets
+	wsInboxLimitMu.RUnlock()
+	if limit <= 0 {
+		return defaultMaxInboxPackets
+	}
+	return limit
+}
+
 // readWSPayload reads exactly n payload bytes. Up to wsEagerAlloc it allocates them at once; past that the buffer grows as bytes arrive instead of trusting the length the peer announced.
 func readWSPayload(r io.Reader, n uint64) ([]byte, error) {
 	if n <= wsEagerAlloc {
@@ -228,6 +246,9 @@ func readWSFrameLimit(r *bufio.Reader, limit uint64) (fin bool, opcode byte, pay
 		plen = binary.BigEndian.Uint64(ext[:])
 	}
 
+	if opcode >= 0x8 && (!fin || plen > 125) {
+		return false, 0, nil, false, ErrInvalidPacket
+	}
 	if plen > limit {
 		return false, 0, nil, false, ErrPayloadTooLarge
 	}
@@ -263,17 +284,18 @@ type WebSocketTransport struct {
 	closing atomic.Bool // set by Close, see writeWSFrameDeadline
 	seq     [2]uint32
 
-	mu       sync.Mutex
-	conn     stdnet.Conn
-	br       *bufio.Reader
-	localID  PeerID
-	serverID PeerID
-	state    ConnState
-	err      error
-	resume   resumeState
-	resumed  bool
-	inbox    packetQueue
-	changed  chan struct{}
+	mu        sync.Mutex
+	conn      stdnet.Conn
+	br        *bufio.Reader
+	localID   PeerID
+	serverID  PeerID
+	state     ConnState
+	err       error
+	resume    resumeState
+	resumed   bool
+	inbox     packetQueue
+	inboxCond *sync.Cond
+	changed   chan struct{}
 
 	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
 	admissions uint64
@@ -336,6 +358,9 @@ func (wt *WebSocketTransport) Reconnect() error {
 	old := wt.conn
 	wt.conn, wt.br = nil, nil
 	wt.state = ConnConnecting
+	if wt.inboxCond != nil {
+		wt.inboxCond.Broadcast()
+	}
 	wt.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
@@ -495,6 +520,9 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop 
 				wt.err = cause
 			}
 		}
+		if wt.inboxCond != nil {
+			wt.inboxCond.Broadcast()
+		}
 		wt.mu.Unlock()
 		_ = conn.Close()
 		wt.notify()
@@ -553,6 +581,13 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop 
 	}
 }
 
+func (wt *WebSocketTransport) ensureInboxCondLocked() *sync.Cond {
+	if wt.inboxCond == nil {
+		wt.inboxCond = sync.NewCond(&wt.mu)
+	}
+	return wt.inboxCond
+}
+
 func (wt *WebSocketTransport) deliverBinary(conn stdnet.Conn, frame []byte) {
 	ch, seq, payload, err := decodeWireFrame(frame)
 	if err != nil {
@@ -560,7 +595,11 @@ func (wt *WebSocketTransport) deliverBinary(conn stdnet.Conn, frame []byte) {
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
+	limit := wsInboxLimit()
 	wt.mu.Lock()
+	for wt.conn == conn && wt.state == ConnOpen && wt.inbox.len() >= limit {
+		wt.ensureInboxCondLocked().Wait()
+	}
 	if wt.conn == conn && wt.state == ConnOpen {
 		wt.inbox.push(Packet{
 			From:    wt.serverID,
@@ -568,9 +607,11 @@ func (wt *WebSocketTransport) deliverBinary(conn stdnet.Conn, frame []byte) {
 			Payload: cp,
 			Seq:     seq,
 		})
+		wt.mu.Unlock()
+		wt.notify()
+		return
 	}
 	wt.mu.Unlock()
-	wt.notify()
 }
 
 // notify wakes a waiter on changed without blocking.
@@ -610,7 +651,11 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
-	return wt.inbox.pop()
+	pkt, ok := wt.inbox.pop()
+	if ok && wt.inboxCond != nil {
+		wt.inboxCond.Signal()
+	}
+	return pkt, ok
 }
 
 // LocalID returns the PeerID the server assigned this client.
@@ -668,6 +713,9 @@ func (wt *WebSocketTransport) Close() error {
 	wt.state = ConnClosed
 	conn := wt.conn
 	wt.conn, wt.br = nil, nil
+	if wt.inboxCond != nil {
+		wt.inboxCond.Broadcast()
+	}
 	wt.mu.Unlock()
 	if conn == nil {
 		return nil
@@ -703,11 +751,12 @@ type WebSocketServer struct {
 	origins  []string
 	ka       wsKeepAlive
 
-	mu      sync.Mutex
-	table   *sessionTable
-	inbox   packetQueue
-	closed  bool
-	changed chan struct{}
+	mu        sync.Mutex
+	table     *sessionTable
+	inbox     packetQueue
+	inboxCond *sync.Cond
+	closed    bool
+	changed   chan struct{}
 }
 
 // ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr. serverID is the server's own PeerID (1 when zero); clients get the IDs after it. auth decides who may connect and how long a dropped client keeps its ID.
@@ -926,6 +975,9 @@ func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 		sess.link = c
 		c.id = sess.id
 		reply := encodeWelcome(s.table.welcomeFor(sess, h.nonce, true))
+		if s.inboxCond != nil {
+			s.inboxCond.Broadcast()
+		}
 		s.mu.Unlock()
 		if old != nil {
 			// A half-open connection the server had not noticed yet; its read loop sees it is no longer the session's link and reports nothing.
@@ -969,6 +1021,9 @@ func (s *WebSocketServer) clientGone(c *wsClientConn, goodbye bool) {
 				s.table.drop(sess, s.table.now())
 			}
 		}
+	}
+	if s.inboxCond != nil {
+		s.inboxCond.Broadcast()
 	}
 	s.mu.Unlock()
 	_ = c.conn.Close()
@@ -1041,6 +1096,13 @@ func wsCloseCode(payload []byte) uint16 {
 	return binary.BigEndian.Uint16(payload)
 }
 
+func (s *WebSocketServer) ensureInboxCondLocked() *sync.Cond {
+	if s.inboxCond == nil {
+		s.inboxCond = sync.NewCond(&s.mu)
+	}
+	return s.inboxCond
+}
+
 func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
 	ch, seq, payload, err := decodeWireFrame(frame)
 	if err != nil {
@@ -1048,17 +1110,28 @@ func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
+	limit := wsInboxLimit()
 	s.mu.Lock()
-	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
-		s.inbox.push(Packet{
-			From:    c.id,
-			Channel: ch,
-			Payload: cp,
-			Seq:     seq,
-		})
+	for !s.closed {
+		sess := s.table.sessions[c.id]
+		if sess == nil || sess.link != c {
+			s.mu.Unlock()
+			return
+		}
+		if s.inbox.len() < limit {
+			s.inbox.push(Packet{
+				From:    c.id,
+				Channel: ch,
+				Payload: cp,
+				Seq:     seq,
+			})
+			s.mu.Unlock()
+			s.notify()
+			return
+		}
+		s.ensureInboxCondLocked().Wait()
 	}
 	s.mu.Unlock()
-	s.notify()
 }
 
 // notify wakes a waiter on changed without blocking.
@@ -1111,7 +1184,11 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 func (s *WebSocketServer) Recv() (Packet, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inbox.pop()
+	pkt, ok := s.inbox.pop()
+	if ok && s.inboxCond != nil {
+		s.inboxCond.Signal()
+	}
+	return pkt, ok
 }
 
 // NextEvent pops the next join, drop, resume or leave without blocking, after ending the sessions whose grace period has passed.
@@ -1143,6 +1220,9 @@ func (s *WebSocketServer) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.inboxCond != nil {
+		s.inboxCond.Broadcast()
+	}
 	var clients []*wsClientConn
 	for _, sess := range s.table.sessions {
 		if c, ok := sess.link.(*wsClientConn); ok {

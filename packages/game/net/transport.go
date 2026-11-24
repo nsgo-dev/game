@@ -107,6 +107,11 @@ func decodeWireFrame(frame []byte) (ch Channel, seq uint32, payload []byte, err 
 // packetQueueKeep is the largest buffer, in packets, a packetQueue keeps once it is empty.
 const packetQueueKeep = 256
 
+// defaultMaxInboxPackets caps unread packets buffered in a transport inbox or
+// server peer-event queue so an unpolled consumer or flooding peer cannot grow
+// memory without bound (#546).
+const defaultMaxInboxPackets = 4096
+
 // packetQueue is a FIFO of received packets. Pop advances a head index instead of shifting the slice, and the queue compacts only once the consumed prefix is at least as long as what remains, so draining n packets moves at most n packets in total rather than n²/2 (#546).
 type packetQueue struct {
 	buf  []Packet
@@ -118,6 +123,19 @@ type packetQueue struct {
 // push appends p to the back of the queue.
 func (q *packetQueue) push(p Packet) {
 	q.buf = append(q.buf, p)
+}
+
+// pushBounded appends p while keeping the queue length <= maxLen, evicting the
+// oldest packet when full so unreliable transports prefer fresh state without
+// unbounded memory growth. Reports whether an older packet was evicted.
+func (q *packetQueue) pushBounded(p Packet, maxLen int) bool {
+	dropped := false
+	if maxLen > 0 && q.len() >= maxLen {
+		_, _ = q.pop()
+		dropped = true
+	}
+	q.push(p)
+	return dropped
 }
 
 // pop removes and returns the packet at the front of the queue.
@@ -144,5 +162,47 @@ func (q *packetQueue) pop() (Packet, bool) {
 
 // len returns the number of queued packets.
 func (q *packetQueue) len() int {
+	return len(q.buf) - q.head
+}
+
+// eventQueue is a bounded amortized-O(1) FIFO of PeerEvents, matching packetQueue's
+// compaction and shrink-after-burst behavior so sessionTable.events neither shifts
+// O(n²) nor grows without bound (#546).
+type eventQueue struct {
+	buf  []PeerEvent
+	head int
+}
+
+func (q *eventQueue) pushBounded(ev PeerEvent, maxLen int) bool {
+	dropped := false
+	if maxLen > 0 && q.len() >= maxLen {
+		_, _ = q.pop()
+		dropped = true
+	}
+	q.buf = append(q.buf, ev)
+	return dropped
+}
+
+func (q *eventQueue) pop() (PeerEvent, bool) {
+	if q.head >= len(q.buf) {
+		return PeerEvent{}, false
+	}
+	ev := q.buf[q.head]
+	q.buf[q.head] = PeerEvent{}
+	q.head++
+	switch rest := len(q.buf) - q.head; {
+	case rest == 0 && cap(q.buf) > packetQueueKeep:
+		q.buf, q.head = nil, 0
+	case rest == 0:
+		q.buf, q.head = q.buf[:0], 0
+	case q.head >= 64 && q.head >= rest:
+		n := copy(q.buf, q.buf[q.head:])
+		clear(q.buf[n:])
+		q.buf, q.head = q.buf[:n], 0
+	}
+	return ev, true
+}
+
+func (q *eventQueue) len() int {
 	return len(q.buf) - q.head
 }

@@ -155,7 +155,11 @@ func (h *LoopbackHub) flushLocked() {
 	})
 	for _, item := range ready {
 		if dst, ok := h.peers[item.to]; ok && !dst.closed {
-			dst.inbox.push(item.pkt)
+			if item.pkt.Channel == ChannelUnreliable {
+				dst.inbox.pushBounded(item.pkt, defaultMaxInboxPackets)
+			} else {
+				dst.inbox.push(item.pkt)
+			}
 		}
 	}
 }
@@ -225,7 +229,11 @@ func (h *LoopbackHub) sendLocked(from *LoopbackTransport, to PeerID, ch Channel,
 		h.nextOrder++
 		if deliverAt <= h.now {
 			if dst, ok := h.peers[dstID]; ok && !dst.closed {
-				dst.inbox.push(pkt)
+				if pkt.Channel == ChannelUnreliable {
+					dst.inbox.pushBounded(pkt, defaultMaxInboxPackets)
+				} else {
+					dst.inbox.push(pkt)
+				}
 			}
 			continue
 		}

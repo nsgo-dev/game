@@ -361,7 +361,7 @@ func (rt *RelayTransport) ingestLocked(frame []byte, now time.Time) {
 		if len(body) < relayDataHeader {
 			return
 		}
-		rt.inbox.push(Packet{From: from, Channel: ChannelUnreliable, Payload: slices.Clone(body[relayDataHeader:]), Seq: binary.BigEndian.Uint32(body[1:5])})
+		rt.inbox.pushBounded(Packet{From: from, Channel: ChannelUnreliable, Payload: slices.Clone(body[relayDataHeader:]), Seq: binary.BigEndian.Uint32(body[1:5])}, defaultMaxInboxPackets)
 	case relayBodyReliable:
 		if len(body) < relayDataHeader {
 			return

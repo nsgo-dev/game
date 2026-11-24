@@ -155,12 +155,17 @@ func (wt *WebSocketTransport) onMessage(ws js.Value, buf []byte) {
 	case ConnOpen:
 		ch, seq, payload, err := decodeWireFrame(buf)
 		if err == nil {
-			wt.inbox.push(Packet{
+			pkt := Packet{
 				From:    wt.serverID,
 				Channel: ch,
 				Payload: slices.Clone(payload),
 				Seq:     seq,
-			})
+			}
+			if ch == ChannelUnreliable {
+				wt.inbox.pushBounded(pkt, defaultMaxInboxPackets)
+			} else {
+				wt.inbox.push(pkt)
+			}
 		}
 		wt.mu.Unlock()
 	default:

@@ -125,12 +125,12 @@ func (u *UDPTransport) readLoop() {
 		u.mu.Lock()
 		// Only a registered peer's own address may speak for it: the From header is chosen by the sender, so it never registers or moves a peer.
 		if addr, ok := u.peers[from]; ok && !u.closed && sameUDPAddr(addr, remoteAddr) {
-			u.inbox.push(Packet{
+			u.inbox.pushBounded(Packet{
 				From:    from,
 				Channel: ch,
 				Payload: cp,
 				Seq:     seq,
-			})
+			}, defaultMaxInboxPackets)
 		}
 		u.mu.Unlock()
 	}

@@ -20,7 +20,7 @@ import "github.com/nsgo-dev/game/packages/game/net"
 
 UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。
 
-一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。收件队列没有上限：传输会保留每一个到达的包，直到 `Recv` 取走它，因此每一帧都要取空每个传输。
+一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。不可靠通道的收件队列（`UDPTransport`、`UDPServer`、`UDPClient` 以及回环、中继和浏览器 WebSocket 上的 `ChannelUnreliable`）与服务端 peer 事件队列均以 4096 条未读项为上限（满时淘汰最旧条目），防止未轮询的消费者或洪泛对端无限增长内存；原生 `WebSocketTransport` 与 `WebSocketServer` 在缓冲满 4096 个未读包后暂停读取，借助 TCP 流控施加背压而不丢弃可靠帧。仍应在每一帧取空每个传输。
 
 `UDPTransport` 或 `UDPServer` 底层的套接字出错时，`Err` 返回包装了套接字错误的 `ErrReceiveFailed`，`Send` 也返回该错误；此时应关闭传输并重新监听；`Close` 之后 `Err` 返回 nil。只涉及单个数据报的错误（例如之前某次发送引起的 ICMP 端口不可达）不会使其停止。`UDPClient` 同样会在 ICMP 错误之后继续读取（例如服务端正在重启时），由空闲超时来判断服务端是否已经消失。
 
@@ -147,4 +147,4 @@ if err := session.Step(net.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID
 
 - `RollbackSession` 会预测尚未到达的远端输入、按帧保存快照，并在延迟到达的远端输入与预测不一致时自动回滚重算（若延迟超出 `MaxRollback` 则返回 `ErrRollbackWindowExceeded`）。
 - `LockstepSession`（`SubmitInput`、`Poll`、`Step`）仅在所有对等端当前帧输入齐全时推进模拟，适合 RTS 或严格同步玩法。
-- 两种会话均支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。
+- 两种会话均支持通过 `Peers`、`AddPeer` 与 `RemovePeer` 动态调整成员（中途加入者在通过 `Save`/`Load` 同步 `SimState` 快照后加入，掉线玩家移除后不再阻塞会话），以序列号算术跨 `uint32` 回绕比较 tick，并支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。

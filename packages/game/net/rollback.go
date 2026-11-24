@@ -219,6 +219,31 @@ func (s *LockstepSession) Tick() uint32 {
 	return s.tick
 }
 
+// Peers returns a sorted copy of the participating peer IDs.
+func (s *LockstepSession) Peers() []PeerID {
+	return slices.Clone(s.peers)
+}
+
+// AddPeer adds a late-joining peer to the lockstep peer set in deterministic
+// sorted order (#546). Callers synchronizing a late joiner should first transfer
+// the SimState snapshot at the current tick via Save/Load.
+func (s *LockstepSession) AddPeer(id PeerID) {
+	if id == 0 || s.hasPeer(id) {
+		return
+	}
+	s.peers = append(s.peers, id)
+	slices.Sort(s.peers)
+}
+
+// RemovePeer removes a remote peer from the lockstep peer set so a disconnected
+// player does not stall the session forever. Removing the local peer is a no-op.
+func (s *LockstepSession) RemovePeer(id PeerID) {
+	if id == 0 || id == s.localID {
+		return
+	}
+	s.peers = slices.DeleteFunc(s.peers, func(p PeerID) bool { return p == id })
+}
+
 // Desyncs returns a copy of all DesyncEvents observed so far.
 func (s *LockstepSession) Desyncs() []DesyncEvent {
 	out := make([]DesyncEvent, len(s.desyncs))
@@ -329,7 +354,8 @@ const maxLockstepLeadTicks = 256
 const lockstepChecksumHistory = 256
 
 func (s *LockstepSession) recordInput(in InputFrame) {
-	if in.Tick < s.tick || in.Tick > s.tick+maxLockstepLeadTicks {
+	d := tickDelta(in.Tick, s.tick)
+	if d < 0 || d > maxLockstepLeadTicks {
 		return
 	}
 	m := s.inputs[in.Tick]
@@ -343,22 +369,18 @@ func (s *LockstepSession) recordInput(in InputFrame) {
 // pruneChecksums drops checksum and desync history older than the retention
 // window so a long session does not accumulate it forever.
 func (s *LockstepSession) pruneChecksums(executedTick uint32) {
-	if executedTick < lockstepChecksumHistory {
-		return
-	}
-	floor := executedTick - lockstepChecksumHistory
 	for t := range s.localChecksums {
-		if t < floor {
+		if tickDelta(executedTick, t) > lockstepChecksumHistory {
 			delete(s.localChecksums, t)
 		}
 	}
 	for t := range s.remoteChecksums {
-		if t < floor {
+		if tickDelta(executedTick, t) > lockstepChecksumHistory {
 			delete(s.remoteChecksums, t)
 		}
 	}
 	for k := range s.reportedDesync {
-		if k.tick < floor {
+		if tickDelta(executedTick, k.tick) > lockstepChecksumHistory {
 			delete(s.reportedDesync, k)
 		}
 	}
@@ -443,6 +465,7 @@ type RollbackSession struct {
 	onDesync         func(DesyncEvent)
 
 	currentTick   uint32
+	stepsExecuted uint64
 	confirmedTick int64 // highest tick with all peers' confirmed inputs and already simulated (-1 = none)
 
 	confirmedInputs map[uint32]map[PeerID]InputFrame
@@ -514,6 +537,45 @@ func (s *RollbackSession) Tick() uint32 {
 	return s.currentTick
 }
 
+// Peers returns a sorted copy of the participating peer IDs.
+func (s *RollbackSession) Peers() []PeerID {
+	return slices.Clone(s.peers)
+}
+
+// AddPeer adds a late-joining peer to the rollback peer set in deterministic
+// sorted order (#546). If the session has not yet advanced past its initial
+// InputDelay frames, zero inputs are pre-confirmed for the new peer as well.
+// Callers synchronizing a mid-match joiner should transfer the SimState
+// snapshot at the current tick via Save/Load.
+func (s *RollbackSession) AddPeer(id PeerID) {
+	if id == 0 || s.isPeer(id) {
+		return
+	}
+	s.peers = append(s.peers, id)
+	slices.Sort(s.peers)
+	if s.stepsExecuted == 0 {
+		for t := uint32(0); t < uint32(s.inputDelay); t++ {
+			m := s.confirmedInputs[t]
+			if m == nil {
+				m = make(map[PeerID]InputFrame, len(s.peers))
+				s.confirmedInputs[t] = m
+			}
+			m[id] = InputFrame{Tick: t, Peer: id}
+		}
+	}
+}
+
+// RemovePeer removes a remote peer from the rollback peer set and advances
+// confirmation past any ticks that were only waiting on the departed peer.
+// Removing the local peer is a no-op.
+func (s *RollbackSession) RemovePeer(id PeerID) {
+	if id == 0 || id == s.localID || !s.isPeer(id) {
+		return
+	}
+	s.peers = slices.DeleteFunc(s.peers, func(p PeerID) bool { return p == id })
+	s.advanceConfirmedAndChecksums()
+}
+
 // ConfirmedTick returns the highest tick for which all peers' inputs are confirmed,
 // or -1 if no tick is fully confirmed yet.
 func (s *RollbackSession) ConfirmedTick() int64 {
@@ -560,6 +622,7 @@ func (s *RollbackSession) Step(localInput InputFrame) error {
 	s.sim.Step(inputs)
 	s.computedChecksums[s.currentTick] = s.sim.Checksum()
 	s.currentTick++
+	s.stepsExecuted++
 
 	s.advanceConfirmedAndChecksums()
 	s.pruneHistory()
@@ -585,7 +648,7 @@ func (s *RollbackSession) Poll() error {
 		case syncMsgInputSingle:
 			if in, valid := decodeInputFrame(pkt.Payload[1:]); valid && pkt.From == in.Peer && s.isPeer(in.Peer) {
 				if mis, tick := s.ingestRemoteInput(in); mis {
-					if !hasMispredict || tick < earliestMispredict {
+					if !hasMispredict || tickBefore(tick, earliestMispredict) {
 						earliestMispredict = tick
 						hasMispredict = true
 					}
@@ -607,7 +670,7 @@ func (s *RollbackSession) Poll() error {
 					continue
 				}
 				if mis, tick := s.ingestRemoteInput(in); mis {
-					if !hasMispredict || tick < earliestMispredict {
+					if !hasMispredict || tickBefore(tick, earliestMispredict) {
 						earliestMispredict = tick
 						hasMispredict = true
 					}
@@ -673,7 +736,8 @@ func (s *RollbackSession) ingestRemoteInput(in InputFrame) (mispredicted bool, t
 	if in.Peer == s.localID || !s.isPeer(in.Peer) {
 		return false, 0
 	}
-	if in.Tick > s.currentTick+maxRollbackLeadTicks {
+	d := tickDelta(in.Tick, s.currentTick)
+	if d > maxRollbackLeadTicks {
 		return false, 0
 	}
 	// Ignore duplicate already-confirmed inputs.
@@ -682,7 +746,7 @@ func (s *RollbackSession) ingestRemoteInput(in InputFrame) (mispredicted bool, t
 	}
 	s.storeConfirmed(in)
 
-	if in.Tick >= s.currentTick {
+	if d >= 0 {
 		return false, 0
 	}
 	used, ok := s.usedInputs[in.Tick][in.Peer]
@@ -695,18 +759,20 @@ func (s *RollbackSession) ingestRemoteInput(in InputFrame) (mispredicted bool, t
 
 func (s *RollbackSession) predictInput(peer PeerID, tick uint32) InputFrame {
 	// Repeat the most recent confirmed input for peer strictly before tick.
-	bestTick := int64(-1)
+	hasBest := false
+	var bestTick uint32
 	var best InputFrame
 	for t, m := range s.confirmedInputs {
-		if t >= tick {
+		if !tickBefore(t, tick) {
 			continue
 		}
-		if in, ok := m[peer]; ok && int64(t) > bestTick {
-			bestTick = int64(t)
+		if in, ok := m[peer]; ok && (!hasBest || tickAfter(t, bestTick)) {
+			hasBest = true
+			bestTick = t
 			best = in
 		}
 	}
-	if bestTick >= 0 {
+	if hasBest {
 		best.Tick = tick
 		best.Peer = peer
 		return best
@@ -733,7 +799,10 @@ func (s *RollbackSession) buildTickInputs(tick uint32, countPredictions bool) ([
 }
 
 func (s *RollbackSession) rollbackTo(targetTick uint32) error {
-	depth := int(s.currentTick - targetTick)
+	depth := int(tickDelta(s.currentTick, targetTick))
+	if depth <= 0 {
+		return nil
+	}
 	if depth > s.maxRollback {
 		return ErrRollbackWindowExceeded
 	}
@@ -750,8 +819,9 @@ func (s *RollbackSession) rollbackTo(targetTick uint32) error {
 		s.stats.MaxRollbackDepth = depth
 	}
 
-	for t := targetTick; t < s.currentTick; t++ {
-		if t > targetTick {
+	for i := range depth {
+		t := targetTick + uint32(i)
+		if i > 0 {
 			saved := s.sim.Save()
 			cp := make([]byte, len(saved))
 			copy(cp, saved)
@@ -768,11 +838,18 @@ func (s *RollbackSession) rollbackTo(targetTick uint32) error {
 
 func (s *RollbackSession) advanceConfirmedAndChecksums() {
 	for {
-		next := s.confirmedTick + 1
-		if next >= int64(s.currentTick) {
+		var t uint32
+		if s.confirmedTick < 0 {
+			if s.stepsExecuted == 0 {
+				break
+			}
+			t = s.currentTick - uint32(s.stepsExecuted)
+		} else {
+			t = uint32(s.confirmedTick) + 1
+		}
+		if !tickBefore(t, s.currentTick) {
 			break
 		}
-		t := uint32(next)
 		m := s.confirmedInputs[t]
 		if len(m) < len(s.peers) {
 			break
@@ -787,7 +864,7 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 		if !allPresent {
 			break
 		}
-		s.confirmedTick = next
+		s.confirmedTick = int64(t)
 
 		if s.checksumInterval > 0 && (t+1)%s.checksumInterval == 0 {
 			if !s.sentChecksum[t] {
@@ -807,10 +884,7 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 }
 
 func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
-	if !s.isPeer(peer) || peer == s.localID || tick > s.currentTick+maxRollbackLeadTicks {
-		return
-	}
-	if peer == s.localID {
+	if !s.isPeer(peer) || peer == s.localID || tickDelta(tick, s.currentTick) > maxRollbackLeadTicks {
 		return
 	}
 	m := s.remoteChecksums[tick]
@@ -819,13 +893,13 @@ func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uin
 		s.remoteChecksums[tick] = m
 	}
 	m[peer] = sum
-	if int64(tick) <= s.confirmedTick {
+	if s.confirmedTick >= 0 && !tickAfter(tick, uint32(s.confirmedTick)) {
 		s.checkDesyncAt(tick)
 	}
 }
 
 func (s *RollbackSession) checkDesyncAt(tick uint32) {
-	if int64(tick) > s.confirmedTick {
+	if s.confirmedTick < 0 || tickAfter(tick, uint32(s.confirmedTick)) {
 		return
 	}
 	localSum, ok := s.computedChecksums[tick]
@@ -859,41 +933,46 @@ func (s *RollbackSession) checkDesyncAt(tick uint32) {
 func (s *RollbackSession) pruneHistory() {
 	// Retain snapshots and inputs needed for up to maxRollback ticks and
 	// at least one confirmed tick behind confirmedTick for prediction lookup.
-	keepFrom := int64(s.currentTick) - int64(s.maxRollback) - 2
-	if s.confirmedTick-1 < keepFrom {
-		keepFrom = s.confirmedTick - 1
-	}
-	if keepFrom <= 0 {
+	if s.stepsExecuted <= uint64(s.maxRollback)+2 {
 		return
 	}
-	floor := uint32(keepFrom)
+	floor := s.currentTick - uint32(s.maxRollback) - 2
+	if s.confirmedTick >= 0 {
+		confFloor := uint32(s.confirmedTick) - 1
+		if tickBefore(confFloor, floor) {
+			floor = confFloor
+		}
+	}
 	for t := range s.snapshots {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.snapshots, t)
 		}
 	}
 	for t := range s.usedInputs {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.usedInputs, t)
 		}
 	}
-	// Keep one extra tick of confirmedInputs so predictInput always has a prior sample.
-	if floor > 2 {
-		inputFloor := floor - 2
-		for t := range s.confirmedInputs {
-			if t < inputFloor {
-				delete(s.confirmedInputs, t)
-			}
+	// Keep two extra ticks of confirmedInputs so predictInput always has a prior sample.
+	inputFloor := floor - 2
+	for t := range s.confirmedInputs {
+		if tickBefore(t, inputFloor) {
+			delete(s.confirmedInputs, t)
 		}
 	}
 	// Keep checksums for a wider window (256 ticks) for delayed verification.
-	if s.currentTick > 256 {
+	if s.stepsExecuted > 256 {
 		sumFloor := s.currentTick - 256
 		for t := range s.computedChecksums {
-			if t < sumFloor {
+			if tickBefore(t, sumFloor) {
 				delete(s.computedChecksums, t)
 				delete(s.remoteChecksums, t)
 				delete(s.sentChecksum, t)
+			}
+		}
+		for k := range s.reportedDesync {
+			if tickBefore(k.tick, sumFloor) {
+				delete(s.reportedDesync, k)
 			}
 		}
 	}

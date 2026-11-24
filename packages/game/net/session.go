@@ -328,7 +328,7 @@ type sessionTable struct {
 	idle     time.Duration // UDP only; zero disables idle drops
 	maxPeers int
 	sessions map[PeerID]*session
-	events   []PeerEvent
+	events   eventQueue
 }
 
 func newSessionTable(auth Auth, serverID PeerID, udp bool) *sessionTable {
@@ -369,7 +369,7 @@ func (t *sessionTable) resume(h hello, now time.Time) *session {
 		return nil
 	}
 	if !s.connected {
-		t.events = append(t.events, PeerEvent{Kind: PeerResumed, Peer: s.id})
+		t.events.pushBounded(PeerEvent{Kind: PeerResumed, Peer: s.id}, defaultMaxInboxPackets)
 	}
 	s.connected = true
 	s.droppedAt = time.Time{}
@@ -399,7 +399,7 @@ func (t *sessionTable) commit(id PeerID, now time.Time) *session {
 	s.connected = true
 	s.lastSeen = now
 	s.rotate()
-	t.events = append(t.events, PeerEvent{Kind: PeerJoined, Peer: id})
+	t.events.pushBounded(PeerEvent{Kind: PeerJoined, Peer: id}, defaultMaxInboxPackets)
 	return s
 }
 
@@ -422,7 +422,7 @@ func (t *sessionTable) drop(s *session, at time.Time) {
 		return
 	}
 	s.droppedAt = at
-	t.events = append(t.events, PeerEvent{Kind: PeerDropped, Peer: s.id})
+	t.events.pushBounded(PeerEvent{Kind: PeerDropped, Peer: s.id}, defaultMaxInboxPackets)
 }
 
 // leave removes a session for good.
@@ -433,7 +433,7 @@ func (t *sessionTable) leave(s *session) {
 	delete(t.sessions, s.id)
 	s.connected = false
 	s.link = nil
-	t.events = append(t.events, PeerEvent{Kind: PeerLeft, Peer: s.id})
+	t.events.pushBounded(PeerEvent{Kind: PeerLeft, Peer: s.id}, defaultMaxInboxPackets)
 }
 
 // expire drops UDP sessions that went silent and removes dropped sessions whose grace period has passed, in ID order so events are deterministic.
@@ -483,12 +483,7 @@ func (t *sessionTable) sendable(peer PeerID) error {
 }
 
 func (t *sessionTable) popEvent() (PeerEvent, bool) {
-	if len(t.events) == 0 {
-		return PeerEvent{}, false
-	}
-	ev := t.events[0]
-	t.events = slices.Delete(t.events, 0, 1)
-	return ev, true
+	return t.events.pop()
 }
 
 // welcomeFor builds the welcome that tells the client its session.

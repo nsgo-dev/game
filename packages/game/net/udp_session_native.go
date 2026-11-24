@@ -313,12 +313,12 @@ func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr) {
 	switch hdr.typ {
 	case udpData:
 		if hdr.ch == ChannelUnreliable {
-			s.inbox.push(Packet{
+			s.inbox.pushBounded(Packet{
 				From:    hdr.peer,
 				Channel: hdr.ch,
 				Payload: slices.Clone(b[udpSealedHeader:]),
 				Seq:     hdr.seq,
-			})
+			}, defaultMaxInboxPackets)
 		}
 	case udpPing:
 		link.sendSeq++
@@ -633,12 +633,12 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 		}
 		c.lastRecv = time.Now()
 		if hdr.typ == udpServerData && hdr.ch == ChannelUnreliable {
-			c.inbox.push(Packet{
+			c.inbox.pushBounded(Packet{
 				From:    c.serverID,
 				Channel: hdr.ch,
 				Payload: slices.Clone(b[udpSealedHeader:]),
 				Seq:     hdr.seq,
-			})
+			}, defaultMaxInboxPackets)
 		}
 		c.mu.Unlock()
 		c.notify()
