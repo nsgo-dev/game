@@ -45,8 +45,8 @@ func TestReferenceCoversEveryCommandAndFlag(t *testing.T) {
 		var b strings.Builder
 		writeReference(&b, text, specs)
 		page := b.String()
-		if !strings.HasPrefix(page, referenceHeader+"\n# "+text.title+"\n") {
-			t.Errorf("%s page does not start with the header and title:\n%s", text.lang, page)
+		if !strings.HasPrefix(page, "# "+text.title+"\n\n"+referenceHeader+"\n") {
+			t.Errorf("%s page does not start with the title and header:\n%s", text.lang, page)
 		}
 		for _, s := range specs {
 			start := strings.Index(page, "\n## game "+s.name+"\n")
