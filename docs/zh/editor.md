@@ -430,15 +430,18 @@ editor:
 已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`go tool game editor` 不注册任何插件，因此有自己插件的游戏要构建自己的编辑器命令：
 
 ```go
+// cmd/editor/main.go：游戏自己的编辑器命令。
+package main
+
 func main() {
-	ed, err := editor.New(nil, atlases)
+	ed, err := editor.New(nil, atlases) // 游戏的精灵图集，作为 sceneformat.AssetResolver
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := ed.SetComponentRegistry(components); err != nil {
+	if err := ed.SetComponentRegistry(health.Components()); err != nil {
 		log.Fatal(err)
 	}
-	if err := ed.RegisterPlugin(health.Plugin()); err != nil {
+	if err := ed.RegisterPlugin(healthplugin.Plugin()); err != nil {
 		log.Fatal(err)
 	}
 	if err := ed.OpenProject("."); err != nil {
@@ -460,7 +463,20 @@ func main() {
 
 `SetPluginEnabled(name, on)` 把已注册的插件加入 `editor.plugins` 或从中移除，作为项目的一次可撤销编辑，由工具栏的“Save”按钮写入；移除最后一个插件时，如果 `editor` 小节中已没有其他内容，就会一并移除该小节（包括作者自己写的 `editor: {}`），撤销会将其恢复。`RegisteredPlugins`、`ActivePlugins` 和 `PluginEnabled` 报告程序包含哪些插件、哪些已启用。
 
-编辑器的测试中有一个示例插件 `health`：它添加一个列出每个对象生命值的面板（带有一键回满全部对象的按钮）、一个带生命值输入框的 `health` 组件检查器，以及一个在视口按下处放置受伤对象的工具（`packages/game/editor/plugin_test.go`）。
+### 随游戏发布带插件的编辑器
+
+游戏把编辑器作为自己模块中、与游戏并列的又一个命令来发布，在项目目录中用 `go run ./cmd/editor` 运行。把插件放在只有编辑器命令导入的独立包中，这样发布的游戏不会链接编辑器；把组件类型放在游戏和编辑器都导入的包中，这样两者用同一组字段检查场景：
+
+| 包 | 导入 | 内容 |
+| --- | --- | --- |
+| 组件包 | `sceneformat` | 组件类型（`ComponentType`）、供 `ParseWith` 和 `SetComponentRegistry` 使用的注册表，以及按默认值读取组件的辅助函数（`ComponentRegistry.Resolve`） |
+| 插件包 | `editor` 和组件包 | 返回 `editor.Plugin` 的 `Plugin()` |
+| 游戏（`main`） | 组件包 | 用 `sceneformat.ParseWith` 和注册表加载场景 |
+| `cmd/editor` | `editor`、组件包和插件包 | 注册组件类型和插件，然后打开项目 |
+
+`game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出；而用 `go tool game editor` 打开同一个项目仍然可以打开，它会在状态栏中列出缺少的插件，并显示通用字段。
+
+[Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic)（`examples/fieldmedic`）就是按这种方式组织的可运行游戏。它的病人带有 `health` 组件（`health` 包），它的 `cmd/editor` 注册了 `health` 插件（`healthplugin` 包）：一个停靠在检查器右侧的 Ward 面板，列出每个病人的生命值，其中的 Heal All 按钮在 `Editor.History` 上执行一个可撤销步骤，一次治好所有病人；一个 `health` 组件的检查器，带生命值和上限两个字段以及剩余生命值的条形图；以及一个 Admit 工具，在视口按下处放置一个病人，并在工具启用时为每个病人画出轮廓。它的测试在编辑器中打开游戏自己的项目，操作面板、检查器和工具。编辑器自身的测试中也有一个更小的 `health` 插件（`packages/game/editor/plugin_test.go`）。
 
 ## 库面板（#493）
 

@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: Ward
+virtualWidth: 320
+virtualHeight: 180
+backgroundColor: '#10141f'
+layers:
+  - name: patients
+    space: world
+    objects:
+      - id: ada
+        name: Ada
+        x: 64
+        "y": 70
+        components:
+          health:
+            hp: 8
+      - id: bram
+        name: Bram
+        x: 128
+        "y": 110
+        components:
+          health:
+            hp: 5
+            max: 12
+      - id: cleo
+        name: Cleo
+        x: 192
+        "y": 70
+        components:
+          health:
+            hp: 9
+      - id: dov
+        name: Dov
+        x: 256
+        "y": 110
+        components:
+          health:
+            hp: 4
+            max: 8

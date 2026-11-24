@@ -9,6 +9,7 @@ use (
 	./examples/caverun
 	./examples/tutorial
 	./examples/fountain
+	./examples/fieldmedic
 	./tools/changelog
 )
 

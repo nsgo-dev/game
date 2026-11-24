@@ -1,0 +1,22 @@
+version: 1
+name: Field Medic
+id: dev.nsgo.fieldmedic
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+autoload:
+  mainScene: ward
+  scenes:
+    - name: ward
+      path: scenes/ward.scene.yaml
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+    - platform: android
+    - platform: web
+editor:
+  plugins: [health]

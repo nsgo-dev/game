@@ -82,7 +82,7 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. `-library` adds a panel that installs packs from that [library](library.md) into the open project. The scene format is described in [Editor & Scene Format](editor.md).
+Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. `-library` adds a panel that installs packs from that [library](library.md) into the open project. It has no [editor plugins](editor.md) built in: a game with its own builds its own editor command, as [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) does. The scene format is described in [Editor & Scene Format](editor.md).
 
 ### release
 
