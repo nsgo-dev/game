@@ -12,13 +12,19 @@ import (
 //
 // A nil *Player reports zero/false for all queries and -1 for Index.
 type Player struct {
-	players      *Players
-	index        int
-	actions      *Actions
-	hasGamepad   bool
-	gamepadID    int
-	usesKeyboard bool
-	usesPointer  bool
+	players             *Players
+	index               int
+	actions             *Actions
+	hasGamepad          bool
+	gamepadID           int
+	gpWasConnected      bool
+	gpDisconnected      bool
+	disconnectedPadID   int
+	fallbackActive      bool
+	preFallbackKeyboard bool
+	preFallbackPointer  bool
+	usesKeyboard        bool
+	usesPointer         bool
 }
 
 // Index returns p's 0-based slot index in its Players group, or -1 if p is nil.
@@ -137,8 +143,15 @@ func (p *Player) HasDevice() bool {
 type Players struct {
 	players []*Player
 
-	gpScope *core.Scope
-	gpPads  []gamepad.Pad
+	gpScope            *core.Scope
+	gpWatchGen         uint64
+	gpPads             []gamepad.Pad
+	prevPadButtons     []padButtonState
+	cancelWaitRAF      func()
+	policy             DisconnectPolicy
+	pausedByDisconnect bool
+	pendingDisconnects []DisconnectEvent
+	pendingReconnects  []ReconnectEvent
 
 	keyWatchGen  uint64
 	stopKeys     func()
@@ -216,7 +229,7 @@ func (m *Players) PlayerByGamepad(padID int) *Player {
 
 // AssignGamepad assigns controller padID exclusively to player index, returning false if index is out of range.
 //
-// If another player already owns padID, that player is unassigned from padID first and its held controller inputs are released. If padID is not yet connected, the assignment is remembered and takes effect once padID appears in Step or OnGamepads.
+// If another player already owns padID, that player is unassigned from padID first and its held controller inputs are released. If padID is not yet connected, the assignment is remembered and takes effect once padID appears in Step or OnGamepads. If player index was awaiting reconnect and padID is currently connected, AssignGamepad completes recovery, ends any active fallback, and emits OnReconnect.
 func (m *Players) AssignGamepad(index, padID int) bool {
 	p := m.Player(index)
 	if p == nil {
@@ -228,10 +241,32 @@ func (m *Players) AssignGamepad(index, padID int) bool {
 	if prev := m.PlayerByGamepad(padID); prev != nil && prev != p {
 		m.clearPlayerGamepad(prev)
 	}
+	wasDisconnected := p.gpDisconnected
+	prevID := p.disconnectedPadID
+	pads := m.padsForID(padID)
+	connected := len(pads) > 0
+
 	p.hasGamepad = true
 	p.gamepadID = padID
+	p.gpWasConnected = connected
+	p.gpDisconnected = false
+	p.disconnectedPadID = 0
+	if p.fallbackActive {
+		m.deactivateFallback(p)
+	}
 	p.actions.SelectGamepad(padID)
-	p.actions.OnGamepads(m.padsForID(padID))
+	p.actions.OnGamepads(pads)
+
+	if wasDisconnected && connected {
+		m.pendingReconnects = append(m.pendingReconnects, ReconnectEvent{
+			PlayerIndex:       p.index,
+			Player:            p,
+			PreviousGamepadID: prevID,
+			NewGamepadID:      padID,
+			Reassigned:        padID != prevID,
+		})
+	}
+	m.flushDisconnectEvents()
 	return true
 }
 
@@ -242,12 +277,20 @@ func (m *Players) UnassignGamepad(index int) bool {
 		return false
 	}
 	m.clearPlayerGamepad(p)
+	m.syncDisconnectPause()
+	m.syncWaitRAF()
 	return true
 }
 
 func (m *Players) clearPlayerGamepad(p *Player) {
 	p.hasGamepad = false
 	p.gamepadID = 0
+	p.gpWasConnected = false
+	p.gpDisconnected = false
+	p.disconnectedPadID = 0
+	if p.fallbackActive {
+		m.deactivateFallback(p)
+	}
 	p.actions.SelectAnyGamepad()
 	p.actions.OnGamepads(nil)
 }
@@ -259,6 +302,9 @@ func (m *Players) AssignKeyboard(index int) bool {
 	p := m.Player(index)
 	if p == nil {
 		return false
+	}
+	if p.fallbackActive {
+		p.preFallbackKeyboard = true
 	}
 	if p.usesKeyboard {
 		return true
@@ -276,6 +322,9 @@ func (m *Players) UnassignKeyboard(index int) bool {
 	if p == nil || !p.usesKeyboard {
 		return false
 	}
+	if p.fallbackActive {
+		p.preFallbackKeyboard = false
+	}
 	p.usesKeyboard = false
 	p.actions.clearKeyboardInput()
 	return true
@@ -289,6 +338,9 @@ func (m *Players) AssignPointer(index int) bool {
 	if p == nil {
 		return false
 	}
+	if p.fallbackActive {
+		p.preFallbackPointer = true
+	}
 	p.usesPointer = true
 	return true
 }
@@ -298,6 +350,9 @@ func (m *Players) UnassignPointer(index int) bool {
 	p := m.Player(index)
 	if p == nil || !p.usesPointer {
 		return false
+	}
+	if p.fallbackActive {
+		p.preFallbackPointer = false
 	}
 	p.usesPointer = false
 	p.actions.clearPointerInput()
@@ -310,6 +365,9 @@ func (m *Players) Unassign(index int) bool {
 	if p == nil {
 		return false
 	}
+	p.fallbackActive = false
+	p.preFallbackKeyboard = false
+	p.preFallbackPointer = false
 	if p.hasGamepad {
 		m.clearPlayerGamepad(p)
 	}
@@ -321,6 +379,8 @@ func (m *Players) Unassign(index int) bool {
 		p.usesPointer = false
 		p.actions.clearPointerInput()
 	}
+	m.syncDisconnectPause()
+	m.syncWaitRAF()
 	return true
 }
 
@@ -346,19 +406,40 @@ func (m *Players) AssignUnassignedGamepads() int {
 //
 // Polling stops once cx is disposed, and while cx's core.Access refuses core.AccessGamepad no controller is read. Passing nil stops watching and releases every controller input across all players.
 func (m *Players) WatchGamepads(cx *core.Scope) {
-	m.gpScope = cx
 	if cx == nil {
+		m.gpWatchGen++
+		m.stopWaitRAF()
+		m.gpScope = nil
 		m.gpPads = m.gpPads[:0]
+		m.prevPadButtons = m.prevPadButtons[:0]
 		m.dispatchGamepads(true)
+		return
 	}
+	if m.gpScope == cx {
+		m.syncWaitRAF()
+		return
+	}
+	m.gpWatchGen++
+	gen := m.gpWatchGen
+	m.stopWaitRAF()
+	m.gpScope = cx
+	cx.Cleanup(func() {
+		if m.gpWatchGen != gen {
+			return
+		}
+		m.gpWatchGen++
+		m.stopWaitRAF()
+	})
+	m.syncWaitRAF()
 }
 
-// OnGamepads replaces the controller state m reads with pads, such as synthetic or recorded controllers in a unit test or replay, routes each controller to its assigned player, and latches any rising edges so a quick press between steps registers on the next Step.
+// OnGamepads replaces the controller state m reads with pads, such as synthetic or recorded controllers in a unit test or replay, routes each controller to its assigned player, processes any disconnect, reconnect, or press-to-reassign policy transitions, and latches any rising edges so a quick press between steps registers on the next Step.
 //
 // While WatchGamepads has a live scope attached, the next Step replaces pads with the live controllers.
 func (m *Players) OnGamepads(pads []gamepad.Pad) {
 	m.setGamepads(pads)
-	m.dispatchGamepads(true)
+	m.reconcileGamepads(true)
+	m.flushDisconnectEvents()
 }
 
 // Gamepads returns a copy of the controller state m last read, sorted by controller ID.
@@ -405,12 +486,15 @@ func (m *Players) WatchKeys(cx *core.Scope) (stop func()) {
 	return cleanup
 }
 
-// Step polls live controllers once (when WatchGamepads is attached), routes them to their assigned players, and steps every player's Actions. Call it once at the start of each game.Loop.Update step.
+// Step polls live controllers once (when WatchGamepads is attached), reconciles any mid-game controller disconnects, reconnects, or press-to-reassign transitions, routes controllers to their assigned players, steps every player's Actions, and delivers any DisconnectPolicy callbacks. Call it once at the start of each game.Loop.Update step.
 func (m *Players) Step() {
-	m.pollGamepads()
+	if m.readLiveGamepads() {
+		m.reconcileGamepads(false)
+	}
 	for _, p := range m.players {
 		p.actions.Step()
 	}
+	m.flushDisconnectEvents()
 }
 
 // Reset calls Reset on every player's Actions and clears m's last controller snapshot, keeping all player slots, bindings, and device assignments. Held keys and controller buttons stay inactive until released, matching Actions.Reset.
@@ -563,21 +647,6 @@ func (m *Players) setGamepads(pads []gamepad.Pad) {
 	}
 	m.gpPads = append(m.gpPads[:0], pads...)
 	slices.SortStableFunc(m.gpPads, func(x, y gamepad.Pad) int { return cmp.Compare(x.ID, y.ID) })
-}
-
-func (m *Players) pollGamepads() {
-	cx := m.gpScope
-	if cx == nil {
-		return
-	}
-	if cx.Disposed() {
-		m.gpScope = nil
-		m.gpPads = m.gpPads[:0]
-		m.dispatchGamepads(false)
-		return
-	}
-	m.setGamepads(core.Untracked(cx, func() []gamepad.Pad { return gamepad.Pads(cx) }))
-	m.dispatchGamepads(false)
 }
 
 func (m *Players) dispatchGamepads(sync bool) {

@@ -167,6 +167,31 @@ p1Jump := players.Player(1).JustPressed("jump")
 - **Auto-assignment and drop-in lobbies**: Call `AssignUnassignedGamepads()` to assign unassigned connected controllers (in ascending ID order) to open slots with no device (`!p.HasDevice()`), or inspect `UnassignedGamepads()` and `NextUnassigned()` to implement press-to-join lobbies. Add slots dynamically with `Add()`, and clear assignments with `UnassignGamepad`, `UnassignKeyboard`, `UnassignPointer`, or `Unassign`.
 - **Single-step polling, reset, and persistence**: `players.Step()` polls `gamepad.Pads` once and steps every player's `Actions`; `players.Reset()` resets every player while preserving slots, bindings, and device assignments; tests and replays can feed snapshots with `players.OnGamepads(pads)`. Save and load each player's bindings independently through `p.Actions().Save` and `p.Actions().Load`.
 
+### Controller disconnect, reconnect, and fallback
+
+Configure `Players.SetDisconnectPolicy` to handle controllers that disconnect mid-game cleanly for both single-player (`NewPlayers(1)`) and local multiplayer games:
+
+```go
+players.SetDisconnectPolicy(input.DisconnectPolicy{
+	PauseOnDisconnect:    true,
+	AllowReassignOnPress: true,
+	OnPause:              loop.SetPaused,
+	OnDisconnect: func(ev input.DisconnectEvent) {
+		showReconnectPrompt(ev.PlayerIndex)
+	},
+	OnReconnect: func(ev input.ReconnectEvent) {
+		if !ev.ShouldPause {
+			hideReconnectPrompt()
+		}
+	},
+})
+```
+
+- **Clean release and pause**: When a player's previously connected controller disappears from the snapshot, `Players` releases that player's held buttons and stick axes immediately on the step, remembers the lost controller ID, emits `OnDisconnect` (`DisconnectEvent`), and calls `OnPause(true)` when `PauseOnDisconnect` is set (and fallback is not active). While `WatchGamepads` has a live scope and any player is awaiting reconnect, `Players` polls controllers on display frames even while `game.Loop` is paused, so reconnecting or pressing a button on another pad resumes the loop automatically. Call `PollGamepads()` directly if you drive polling outside `game.Loop`.
+- **Reconnect and press-to-reassign**: Reconnecting the same controller automatically reclaims the player's slot and emits `OnReconnect` (`Reassigned: false`). When `AllowReassignOnPress` is enabled, newly pressing any button on an unassigned connected controller assigns it to the lowest-index disconnected player slot and emits `OnReconnect` (`Reassigned: true`). Once every disconnected required player has recovered (or been manually reassigned/unassigned), `Players` calls `OnPause(false)`.
+- **Single-player keyboard/touch fallback**: Set `FallbackToKeyboardTouch: true` so a controller disconnect continues without pausing (`DisconnectEvent.FallbackActive == true`, `ShouldPause == false`). `Players` temporarily enables keyboard and pointer/touch routing on that player (preserving any pre-existing keyboard or pointer assignments) and switches back cleanly when the original controller reconnects or another controller claims the slot.
+- **State queries**: Inspect `p.GamepadDisconnected()`, `p.FallbackActive()`, `players.DisconnectedPlayers()`, and `players.PausedByDisconnect()` to drive HUD prompts or pause overlays.
+
 ## Sampling once per fixed step
 
 Call `actions.Step()` once at the start of `game.Loop.Update`, then query `Pressed`, `JustPressed`, `JustReleased`, and `Axis` for that step's snapshot:
