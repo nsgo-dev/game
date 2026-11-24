@@ -294,6 +294,22 @@ func TestCesiumManBindPoseAndPosedGPUParity(t *testing.T) {
 		t.Fatalf("SkinJointMatrices(bind): %v", err)
 	}
 	cpuBindMesh, bindBounds := cpuSkinMesh(sm, bindJoints)
+	// In the bind pose every skinned vertex must land where the unskinned mesh would under its own node's world matrix, an identity that does not depend on how SkinJointMatrices composes joints.
+	meshWorld := math3d.Mat4Identity()
+	for _, n := range doc.Nodes {
+		if n.Skin == skinIdx && n.Mesh >= 0 {
+			meshWorld = n.WorldMatrix
+			break
+		}
+	}
+	if meshWorld == math3d.Mat4Identity() {
+		t.Fatal("CesiumMan mesh node has an identity world matrix; the bind-pose check would not exercise its Z_UP rotation")
+	}
+	for i, p := range sm.Positions {
+		if want := meshWorld.TransformPoint(p); !cpuBindMesh.Positions[i].ApproxEqual(want, 1e-3) {
+			t.Fatalf("bind-pose vertex %d = %v, want meshNode.WorldMatrix * position = %v", i, cpuBindMesh.Positions[i], want)
+		}
+	}
 	size := bindBounds.Size()
 	// CesiumMan stands upright in Y-up glTF world space (~1.6m tall, taller in Y than X or Z).
 	if size.Y < 1.2 || size.Y <= size.X || size.Y <= size.Z {
@@ -624,22 +640,6 @@ func TestSkinVertexMultiInfluenceAndNormalization(t *testing.T) {
 		t.Errorf("zero-weight fallback pos = %v, want %v", spZero, want)
 	}
 
-	// Out-of-palette joint index falls back to identity matrix.
-	spPad, _ := render3d.SkinVertex(pos, nrm, [4]uint16{99, 0, 0, 0}, math3d.Vec4{X: 1}, mats)
-	if !spPad.ApproxEqual(pos, 1e-6) {
-		t.Errorf("padded joint index pos = %v, want %v", spPad, pos)
-	}
-
-	// Zero normal stays zero (no NaN).
-	_, snZero := render3d.SkinVertex(pos, math3d.Vec3Zero(), joints, math3d.Vec4{X: 1}, mats)
-	if snZero != math3d.Vec3Zero() {
-		t.Errorf("zero normal became %v, want zero", snZero)
-	}
-}
-
-func TestSkinnedMeshValidateAndErrors(t *testing.T) {
-	valid := skinnedQuadMesh()
-	nan := float32(math.NaN())
 	// Large finite weights whose float32 sum overflows still normalize instead of falling back to joint 0.
 	for _, w := range []math3d.Vec4{
 		{X: 3e38, Y: 3e38, Z: 3e38, W: 3e38},
@@ -661,6 +661,22 @@ func TestSkinnedMeshValidateAndErrors(t *testing.T) {
 		t.Errorf("NormalizeSkinWeights(+Inf) = %v, want the (1, 0, 0, 0) fallback", got)
 	}
 
+	// Out-of-palette joint index falls back to identity matrix.
+	spPad, _ := render3d.SkinVertex(pos, nrm, [4]uint16{99, 0, 0, 0}, math3d.Vec4{X: 1}, mats)
+	if !spPad.ApproxEqual(pos, 1e-6) {
+		t.Errorf("padded joint index pos = %v, want %v", spPad, pos)
+	}
+
+	// Zero normal stays zero (no NaN).
+	_, snZero := render3d.SkinVertex(pos, math3d.Vec3Zero(), joints, math3d.Vec4{X: 1}, mats)
+	if snZero != math3d.Vec3Zero() {
+		t.Errorf("zero normal became %v, want zero", snZero)
+	}
+}
+
+func TestSkinnedMeshValidateAndErrors(t *testing.T) {
+	valid := skinnedQuadMesh()
+	nan := float32(math.NaN())
 	inf := float32(math.Inf(1))
 
 	tests := []struct {
