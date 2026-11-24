@@ -123,6 +123,7 @@ var formatVersions = map[string]string{
 	"loot.CurrentVersion":                   "loot",
 	"modding.ManifestVersion":               "modding",
 	"modding.WorkshopMetadataVersion":       "modding#workshop",
+	"net.ReplicationVersion":                "",
 	"particles.FormatVersion":               "particles",
 	"platformer.CurrentVersion":             "platformer",
 	"procgen.RulesVersion":                  "procgen",
@@ -163,6 +164,7 @@ var notFormatVersions = map[string]string{
 	"accounts/sqlstore.SchemaVersion":  "the version of a PostgreSQL schema, which lives in the database",
 	"cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
 	"internal/samplegltf.GLBVersion":   "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
+	"net.ReplicationVersion":           "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/net.md documents it",
 }
 
 // readStrict loads data as a T, refusing unknown fields and trailing data, for a type whose own UnmarshalJSON is the format's reader or that a save slot holds as it is.

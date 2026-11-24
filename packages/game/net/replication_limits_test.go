@@ -219,28 +219,29 @@ func TestClientWorldRejectsOlderTicksAcrossTheWrap(t *testing.T) {
 	}
 }
 
-// #546: a server that restarts its tick count, for a new match or a hot restart, sends ticks the client takes as stale. Reset lets the client start over.
+// #546: a server that starts its tick count over in the same epoch, for a new match without SetEpoch, sends ticks the client takes as stale. Reset lets the client start over. (A restarted ServerWorld picks a new epoch, which the client follows on its own: see replication_epoch_test.go.)
 func TestClientWorldResetAcceptsATickCountThatStartsOver(t *testing.T) {
 	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{})
-	server := hub.AddPeer(1)
 	cli := gamenet.NewClientWorld(hub.AddPeer(2), 1)
 	var spawned, despawned []gamenet.EntityID
 	cli.OnSpawn = func(e gamenet.EntityState) { spawned = append(spawned, e.ID) }
 	cli.OnDespawn = func(id gamenet.EntityID) { despawned = append(despawned, id) }
 
-	old := gamenet.NewServerWorld(server)
-	a := old.Spawn(gamenet.EntityState{})
-	b := old.Spawn(gamenet.EntityState{})
-	if err := old.Step(100000); err != nil {
+	srv := gamenet.NewServerWorld(hub.AddPeer(1))
+	a := srv.Spawn(gamenet.EntityState{})
+	b := srv.Spawn(gamenet.EntityState{})
+	if err := srv.Step(100000); err != nil {
 		t.Fatal(err)
 	}
 	if got := cli.Poll(); got != 1 {
 		t.Fatalf("Poll applied %d snapshots of the first match, want 1", got)
 	}
 
-	next := gamenet.NewServerWorld(server)
-	c := next.Spawn(gamenet.EntityState{ComponentState: gamenet.ComponentState{X: 7}})
-	if err := next.Step(0); err != nil {
+	// The next match starts on the same world, at tick 0, in the same epoch.
+	srv.Despawn(a)
+	srv.Despawn(b)
+	c := srv.Spawn(gamenet.EntityState{ComponentState: gamenet.ComponentState{X: 7}})
+	if err := srv.Step(0); err != nil {
 		t.Fatal(err)
 	}
 	if got := cli.Poll(); got != 0 {
@@ -255,7 +256,10 @@ func TestClientWorldResetAcceptsATickCountThatStartsOver(t *testing.T) {
 	if len(despawned) != 2 || despawned[0] != min(a, b) || despawned[1] != max(a, b) {
 		t.Fatalf("Reset despawned %v, want %d and %d in order", despawned, a, b)
 	}
-	if err := next.Step(1); err != nil {
+	if _, ok := cli.Epoch(); ok {
+		t.Fatal("Epoch reports an epoch after Reset")
+	}
+	if err := srv.Step(1); err != nil {
 		t.Fatal(err)
 	}
 	if got := cli.Poll(); got != 1 {

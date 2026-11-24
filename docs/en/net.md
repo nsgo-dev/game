@@ -141,7 +141,31 @@ _ = renderEntities
 Inspect bandwidth and reconciliation behavior with `server.Stats()`, `client.PredictedState(id)`, `client.Reconciliations()`, and `client.LastReconcileError()`.
 
 - `Step` never passes `Transport.Send` a payload larger than `DefaultMaxSnapshotSize` (60000 bytes, which fits UDP, relay and WebSocket packets), or the size set with `server.SetMaxSnapshotSize(n)`. A larger full snapshot is split into parts that `ClientWorld` reassembles before applying, and a delta larger than the limit is replaced by a split full snapshot. A lost part costs that snapshot only: the client does not acknowledge it, so the next `Step` sends a whole one again. `Stats().PacketsSent` counts parts, `SnapshotsSent` whole snapshots. An entity that does not fit in a part on its own makes `Step` return `ErrPayloadTooLarge` naming it.
-- Ticks are `uint32` and compared in serial-number order, so replication keeps working when the counter wraps after 2^32 ticks (about 2.27 years at 60 Hz). `Interpolate` reads `renderTick` relative to the latest snapshot's tick, modulo 2^32, so `float64(latest) - delay` works on either side of the wrap. A server that starts its ticks over, for a new match or after a restart, sends ticks the client takes as stale: call `client.Reset()`, which forgets every snapshot and prediction and reports each known entity through `OnDespawn`, before the new match's first snapshot.
+- Ticks are `uint32` and compared in serial-number order, so replication keeps working when the counter wraps after 2^32 ticks (about 2.27 years at 60 Hz). `Interpolate` reads `renderTick` relative to the latest snapshot's tick, modulo 2^32, so `float64(latest) - delay` works on either side of the wrap. A server that starts its ticks over in the same epoch sends ticks the client takes as stale: call `client.Reset()`, which forgets every snapshot, prediction and the epoch and reports each known entity through `OnDespawn`, before the new match's first snapshot, or start the match with `server.SetEpoch` so clients follow on their own.
+
+### Replication epoch
+
+Every snapshot carries the server's replication epoch, a number `NewServerWorld` picks at random, so a restarted server's snapshots are told apart from the previous run's even when their ticks overlap. A `ClientWorld` that sees a new epoch forgets every snapshot, partial snapshot and prediction of the old one, reports each entity it knew through `OnDespawn`, and resyncs from the new epoch's full snapshot, without the game calling `Reset`. It remembers the last 16 epochs it left and ignores their snapshots, so a snapshot of the old run that arrives late cannot pull the client back. `client.Epoch()` returns the epoch the client follows.
+
+- A server that keeps running but starts a new match with its ticks back at zero calls `server.SetEpoch(server.Epoch() + 1)`: the next `Step` sends every peer a full snapshot, and clients drop the old match as they would after a restart. A server that numbers its runs itself, or a test that needs fixed epochs, sets one the same way. An epoch must not repeat, because clients ignore the epochs they have left.
+- Two runs pick the same random epoch with a chance of one in 2^32; such a restart looks like a server that went back in ticks, which `Reset` or `SetEpoch` handles.
+- Acknowledgments carry the epoch too, and the server ignores those of another epoch, so a client's ack of the old run never becomes a delta baseline in the new one.
+
+### Wire format
+
+Replication speaks version 2 of its wire protocol (`ReplicationVersion`); version 2 added the epoch. Every message starts with one byte holding the protocol version in its high four bits and the message type in its low four, then the epoch as 4 little-endian bytes. `uv` is an unsigned varint as `encoding/binary` writes it.
+
+| Message | Type | Direction | Layout after the 5-byte header |
+| --- | --- | --- | --- |
+| Full snapshot | 1 | server to client | `tick(uv) count(uv) entity...` |
+| Delta snapshot | 2 | server to client | `tick(uv) baselineTick(uv) despawnCount(uv) id(uv)... updateCount(uv) entity...` |
+| Acknowledgment | 3 | client to server | `tick(uv)` |
+| Resync request | 4 | client to server | nothing |
+| Full snapshot part | 5 | server to client | `tick(uv) index(uv) total(uv) count(uv) entity...` |
+
+An entity is `id(uv) mask(1)` followed by the fields whose mask bit is set, in bit order: kind (uv), x, y, vx, vy and rotation (4-byte little-endian floats), flags (uv), and props (a uv length, then the bytes). A full snapshot sets the bit of every field that is not zero; a delta sets the bits of the fields that changed since the baseline, and of every non-zero field of an entity the baseline did not have.
+
+Version 1, from releases before the epoch, had no header: its messages start with the bare type 1 to 5, which reads as version 1. Peers of different versions cannot replicate to each other, and neither misreads the other's messages. A client refuses snapshots of another version and reports it through `client.Err()`, a server refuses acknowledgments and resync requests of another version and reports it through `server.PeerErr(peer)`; both errors wrap `ErrReplicationVersion` and name the two versions, so a game can tell the player to update instead of waiting for a world that never arrives.
 
 ## Deterministic lockstep and rollback netcode
 
