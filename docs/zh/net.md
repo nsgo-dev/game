@@ -20,7 +20,7 @@ import "github.com/nsgo-dev/game/packages/game/net"
 
 UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。
 
-一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。收件队列没有上限：传输会保留每一个到达的包，直到 `Recv` 取走它，因此每一帧都要取空每个传输。
+一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。
 
 `UDPTransport` 或 `UDPServer` 底层的套接字出错时，`Err` 返回包装了套接字错误的 `ErrReceiveFailed`，`Send` 也返回该错误；此时应关闭传输并重新监听；`Close` 之后 `Err` 返回 nil。只涉及单个数据报的错误（例如之前某次发送引起的 ICMP 端口不可达）不会使其停止。`UDPClient` 同样会在 ICMP 错误之后继续读取（例如服务端正在重启时），由空闲超时来判断服务端是否已经消失。
 
@@ -37,6 +37,30 @@ _ = serverTx.Send(2, net.ChannelReliableOrdered, []byte("hello"))
 hub.Advance(60 * time.Millisecond)
 pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
+```
+
+### 收件队列上限
+
+传输会保留每一个到达的包，直到 `Recv` 取走它，并按通道和对端限制保留的数量。每个对端的 `ChannelUnreliable` 包最多保留 `DefaultUnreliableInbox`（4096）个：某个对端已排队这么多不可靠包时再到达一个，就丢弃该对端最旧的不可靠包，因此落后的游戏保留的是最新的状态，向服务端狂发包的对端只会挤掉自己的包，`InboxStats().UnreliableDropped` 记录丢弃的数量。
+
+`ChannelReliableOrdered` 的包从不丢弃，否则会破坏这个通道的保证。对端不可信任的传输改为把每个对端的可靠包限制在 `DefaultReliableInbox`（16384）个，并拒收超出的那个包，记入 `InboxStats().ReliableRefused`：`WebSocketServer` 会结束该客户端的会话，如同它主动离开，因此它已送达的包仍保持顺序；`RelayTransport` 则不再确认该对端的消息，对端会在 `Recv` 腾出空间后重发。其他传输只从自己的服务端或同一进程接收可靠包，会全部保留。每个传输在全部可靠包的积压每次超过 `DefaultReliableInboxWarning`（4096）时，`InboxStats().ReliableWarnings` 记一次，`ReliableBacklog` 一直为 true，直到积压降到阈值的一半，所以在阈值附近徘徊的队列不会每个包都告警一次。`Recv` 仍按所有通道和对端合起来的到达顺序返回包。`UDPTransport` 从不发送可靠包，因此会丢弃自称可靠的数据报。
+
+每个传输都实现 `InboxReporter`：`SetInboxLimits` 随时修改上限（调低不可靠包上限会立即丢弃每个对端最旧的不可靠包），`InboxStats` 读取计数器。计数器只增不减，游戏或调试叠加层把它们与上一帧的值比较即可。`LoopbackConfig.Inbox` 设置集线器之后添加的对端的上限，`RelayTransportConfig.Inbox` 设置 `RelayTransport` 的上限。`InboxLimits` 中零表示使用默认值，负值表示取消上限或关闭告警。`RelayTransport` 的内层传输有自己的上限，所有经中继转发的对端都从中继到达内层传输，因此共用它的单个对端上限；在那里被丢弃的可靠消息会被重发。
+
+```go
+tx.SetInboxLimits(net.InboxLimits{Unreliable: 512, ReliableWarning: 1024})
+
+var lastWarnings, lastDropped uint64
+
+// Each frame, after draining Recv:
+st := tx.InboxStats()
+if st.ReliableWarnings != lastWarnings {
+	log.Printf("reliable backlog of %d packets", st.Reliable)
+}
+if st.UnreliableDropped != lastDropped {
+	log.Printf("dropped %d stale unreliable packets", st.UnreliableDropped-lastDropped)
+}
+lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 ```
 
 ## 连接握手与重连

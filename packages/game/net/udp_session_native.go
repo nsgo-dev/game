@@ -395,6 +395,20 @@ func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 	return firstErr
 }
 
+// SetInboxLimits bounds the packets the server keeps until Recv takes them (see InboxLimits).
+func (s *UDPServer) SetInboxLimits(l InboxLimits) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inbox.setLimits(l)
+}
+
+// InboxStats reports what the server's inbox holds and what its limits dropped or warned about.
+func (s *UDPServer) InboxStats() InboxStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inbox.stats()
+}
+
 // Recv pops the next authenticated packet without blocking.
 func (s *UDPServer) Recv() (Packet, bool) {
 	s.mu.Lock()
@@ -733,6 +747,20 @@ func (c *UDPClient) Send(to PeerID, ch Channel, payload []byte) error {
 	c.mu.Unlock()
 	_, err := conn.Write(dgram)
 	return err
+}
+
+// SetInboxLimits bounds the packets the client keeps until Recv takes them (see InboxLimits).
+func (c *UDPClient) SetInboxLimits(l InboxLimits) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.inbox.setLimits(l)
+}
+
+// InboxStats reports what the client's inbox holds and what its limits dropped or warned about.
+func (c *UDPClient) InboxStats() InboxStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inbox.stats()
 }
 
 // Recv pops the next authenticated packet from the server without blocking.

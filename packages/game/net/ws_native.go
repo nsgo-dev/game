@@ -606,6 +606,20 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 	return writeWSFrameDeadline(conn, &wt.closing, wsOpBinary, true, frame)
 }
 
+// SetInboxLimits bounds the packets the transport keeps until Recv takes them (see InboxLimits).
+func (wt *WebSocketTransport) SetInboxLimits(l InboxLimits) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	wt.inbox.setLimits(l)
+}
+
+// InboxStats reports what the transport's inbox holds and what its limits dropped or warned about.
+func (wt *WebSocketTransport) InboxStats() InboxStats {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.inbox.stats()
+}
+
 // Recv pops the next received packet without blocking.
 func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	wt.mu.Lock()
@@ -1009,8 +1023,9 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 				inFrag = true
 				continue
 			}
-			if op == wsOpBinary {
-				s.deliverFromClient(c, payload)
+			if op == wsOpBinary && !s.deliverFromClient(c, payload) {
+				goodbye = true // past its reliable inbox cap: end the session so its reliable stream never resumes with a gap
+				return
 			}
 		case wsOpContinuation:
 			if !inFrag {
@@ -1024,7 +1039,10 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 				if fragOp == wsOpBinary {
 					cp := make([]byte, len(fragBuf))
 					copy(cp, fragBuf)
-					s.deliverFromClient(c, cp)
+					if !s.deliverFromClient(c, cp) {
+						goodbye = true
+						return
+					}
 				}
 				fragBuf = fragBuf[:0]
 				inFrag = false
@@ -1041,16 +1059,18 @@ func wsCloseCode(payload []byte) uint16 {
 	return binary.BigEndian.Uint16(payload)
 }
 
-func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
+// deliverFromClient queues one of a client's frames. It returns false when the client is past its reliable inbox cap (InboxLimits.Reliable), and the caller then ends the client's session.
+func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) bool {
 	ch, seq, payload, err := decodeWireFrame(frame)
 	if err != nil {
-		return
+		return true
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
+	ok := true
 	s.mu.Lock()
 	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
-		s.inbox.push(Packet{
+		ok = s.inbox.admit(Packet{
 			From:    c.id,
 			Channel: ch,
 			Payload: cp,
@@ -1059,6 +1079,7 @@ func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
 	}
 	s.mu.Unlock()
 	s.notify()
+	return ok
 }
 
 // notify wakes a waiter on changed without blocking.
@@ -1105,6 +1126,20 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 	}
 	return firstErr
+}
+
+// SetInboxLimits bounds the packets the server keeps until Recv takes them (see InboxLimits). A client whose queued reliable packets would pass InboxLimits.Reliable has its session ended, as if it had left.
+func (s *WebSocketServer) SetInboxLimits(l InboxLimits) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inbox.setLimits(l)
+}
+
+// InboxStats reports what the server's inbox holds and what its limits dropped or warned about.
+func (s *WebSocketServer) InboxStats() InboxStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inbox.stats()
 }
 
 // Recv pops the next received packet from any connected client without blocking.

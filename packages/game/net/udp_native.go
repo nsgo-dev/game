@@ -116,8 +116,8 @@ func (u *UDPTransport) readLoop() {
 		}
 		from := PeerID(binary.BigEndian.Uint32(buf[0:4]))
 		ch, seq, payload, decErr := decodeWireFrame(buf[4:n])
-		if decErr != nil {
-			continue
+		if decErr != nil || ch != ChannelUnreliable {
+			continue // UDPTransport never sends ChannelReliableOrdered, so a datagram claiming it is forged and would otherwise sit in the inbox's uncapped reliable FIFO (#546)
 		}
 		cp := make([]byte, len(payload))
 		copy(cp, payload)
@@ -197,6 +197,20 @@ func (u *UDPTransport) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 	}
 	return firstErr
+}
+
+// SetInboxLimits bounds the packets the transport keeps until Recv takes them (see InboxLimits).
+func (u *UDPTransport) SetInboxLimits(l InboxLimits) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.inbox.setLimits(l)
+}
+
+// InboxStats reports what the transport's inbox holds and what its limits dropped or warned about.
+func (u *UDPTransport) InboxStats() InboxStats {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.inbox.stats()
 }
 
 // Recv pops the next received UDP packet without blocking.

@@ -128,6 +128,8 @@ func encodeRelayAck(next uint32, mask uint64) []byte {
 type RelayTransportConfig struct {
 	// Now is the clock for retransmission timers; nil uses time.Now.
 	Now func() time.Time
+	// Inbox bounds the packets the RelayTransport keeps until Recv takes them (see InboxLimits); the zero value uses the defaults. The inner transport's inbox has its own limits, set on it directly; the relay carries reliable messages as unreliable frames, so a frame the inner inbox drops is sent again.
+	Inbox InboxLimits
 }
 
 // RelayTransport is a peer-to-peer Transport whose packets travel through a Relay, so peers that cannot reach each other, behind NAT or in a browser, still exchange packets. It wraps a client transport connected to the relay: a WebSocketTransport (native or browser) or a UDPClient.
@@ -182,7 +184,9 @@ func NewRelayTransport(inner Transport, cfg RelayTransportConfig) *RelayTranspor
 	if now == nil {
 		now = time.Now
 	}
-	return &RelayTransport{inner: inner, now: now, localID: inner.LocalID(), admissions: relayAdmissionsOf(inner), peers: make(map[PeerID]*relayPeer)}
+	rt := &RelayTransport{inner: inner, now: now, localID: inner.LocalID(), admissions: relayAdmissionsOf(inner), peers: make(map[PeerID]*relayPeer)}
+	rt.inbox.setLimits(cfg.Inbox)
+	return rt
 }
 
 // relayAdmitted is implemented by the client transports that count the handshakes admitting them as a new peer: WebSocketTransport and UDPClient.
@@ -277,6 +281,20 @@ func (rt *RelayTransport) Recv() (Packet, bool) {
 	return rt.inbox.pop()
 }
 
+// SetInboxLimits bounds the packets the transport keeps until Recv takes them (see InboxLimits). A peer whose queued reliable messages reach InboxLimits.Reliable is not acknowledged further, so it resends them once Recv has made room.
+func (rt *RelayTransport) SetInboxLimits(l InboxLimits) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.inbox.setLimits(l)
+}
+
+// InboxStats reports what the transport's inbox holds and what its limits dropped or warned about.
+func (rt *RelayTransport) InboxStats() InboxStats {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.inbox.stats()
+}
+
 // Close closes the inner transport.
 func (rt *RelayTransport) Close() error {
 	return rt.inner.Close()
@@ -321,6 +339,7 @@ func (rt *RelayTransport) pumpLocked() {
 	slices.Sort(ids)
 	for _, id := range ids {
 		p := rt.peers[id]
+		rt.deliverBufferedLocked(id, p)
 		if p.ackDue {
 			p.ackDue = false
 			_ = rt.inner.Send(PeerBroadcast, ChannelUnreliable, encodeRelayFrame(id, encodeRelayAck(p.recvNext, p.sackMask())))
@@ -403,17 +422,26 @@ func (rt *RelayTransport) reliableLocked(from PeerID, p *relayPeer, seq uint32, 
 		}
 		return
 	}
-	rt.inbox.push(Packet{From: from, Channel: ChannelReliableOrdered, Payload: slices.Clone(payload), Seq: seq})
+	// A peer past its reliable inbox cap is not acknowledged further, so it resends once Recv has made room instead of growing the inbox without bound (#546).
+	if !rt.inbox.admit(Packet{From: from, Channel: ChannelReliableOrdered, Payload: slices.Clone(payload), Seq: seq}) {
+		return
+	}
 	p.recvNext++
+	rt.deliverBufferedLocked(from, p)
+}
+
+// deliverBufferedLocked delivers a peer's buffered messages that follow the last one delivered, while its reliable inbox has room. A sender never resends a message the receiver reported as buffered, so pumpLocked calls it again after Recv has made room, and a message held back by the cap is still delivered.
+func (rt *RelayTransport) deliverBufferedLocked(from PeerID, p *relayPeer) {
 	for {
 		next, ok := p.ooo[p.recvNext]
-		if !ok {
+		if !ok || !rt.inbox.hasReliableRoom(from) {
 			return
 		}
+		rt.inbox.push(Packet{From: from, Channel: ChannelReliableOrdered, Payload: next, Seq: p.recvNext})
 		delete(p.ooo, p.recvNext)
 		p.oooBytes -= len(next)
-		rt.inbox.push(Packet{From: from, Channel: ChannelReliableOrdered, Payload: next, Seq: p.recvNext})
 		p.recvNext++
+		p.ackDue = true
 	}
 }
 

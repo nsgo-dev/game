@@ -25,6 +25,27 @@ func ExampleLoopbackHub() {
 	// at 50ms: true 2 hello
 }
 
+// An inbox caps each peer's unreliable packets and keeps the newest when a game falls behind; reliable packets are never dropped, and a backlog past the warning threshold is counted once.
+func ExampleInboxStats() {
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Inbox: gamenet.InboxLimits{Unreliable: 2, ReliableWarning: 3}})
+	server := hub.AddPeer(1)
+	client := hub.AddPeer(2)
+
+	for _, pos := range []string{"x=1", "x=2", "x=3"} {
+		server.Send(2, gamenet.ChannelUnreliable, []byte(pos))
+	}
+	for range 5 {
+		server.Send(2, gamenet.ChannelReliableOrdered, []byte("event"))
+	}
+	st := client.InboxStats()
+	fmt.Println("queued:", st.Unreliable, st.Reliable, "dropped:", st.UnreliableDropped, "warnings:", st.ReliableWarnings)
+	p, _ := client.Recv()
+	fmt.Println("oldest kept:", string(p.Payload))
+	// Output:
+	// queued: 2 5 dropped: 1 warnings: 1
+	// oldest kept: x=2
+}
+
 // tally is a tiny deterministic simulation: each tick adds every player's input bits to a running total.
 type tally struct{ total uint64 }
 

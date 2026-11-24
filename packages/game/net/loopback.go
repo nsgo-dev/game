@@ -18,6 +18,8 @@ type LoopbackConfig struct {
 	LossRate float64
 	// Seed initializes the deterministic PRNG used for jitter and packet loss.
 	Seed int64
+	// Inbox bounds the inbox of each peer AddPeer adds from then on (see InboxLimits); the zero value uses the defaults. SetConfig leaves it unchanged; LoopbackTransport.SetInboxLimits changes one peer's.
+	Inbox InboxLimits
 }
 
 type linkKey struct {
@@ -96,6 +98,7 @@ func (h *LoopbackHub) AddPeer(id PeerID) *LoopbackTransport {
 		localID: id,
 		seq:     make(map[seqKey]uint32),
 	}
+	t.inbox.setLimits(h.cfg.Inbox)
 	h.peers[id] = t
 	return t
 }
@@ -265,6 +268,20 @@ func (t *LoopbackTransport) Recv() (Packet, bool) {
 	t.hub.mu.Lock()
 	defer t.hub.mu.Unlock()
 	return t.inbox.pop()
+}
+
+// SetInboxLimits bounds the packets the transport keeps until Recv takes them (see InboxLimits).
+func (t *LoopbackTransport) SetInboxLimits(l InboxLimits) {
+	t.hub.mu.Lock()
+	defer t.hub.mu.Unlock()
+	t.inbox.setLimits(l)
+}
+
+// InboxStats reports what the transport's inbox holds and what its limits dropped or warned about.
+func (t *LoopbackTransport) InboxStats() InboxStats {
+	t.hub.mu.Lock()
+	defer t.hub.mu.Unlock()
+	return t.inbox.stats()
 }
 
 // LocalID returns this endpoint's PeerID.

@@ -20,7 +20,7 @@ Every transport implements the same non-blocking `Transport` interface (`Send`, 
 
 UDP has no retransmission or ordering, so both UDP transports refuse `ChannelReliableOrdered` with `ErrUnsupportedChannel`; lockstep and rollback need a WebSocket or loopback transport, or a `RelayTransport`, which retransmits end to end and so runs them over UDP too.
 
-A transport has a single consumer. `Recv` hands each packet to one caller, and `ServerWorld`, `ClientWorld`, the lockstep and rollback sessions, `Relay` and `RelayTransport` all drain every waiting packet and discard the ones that are not theirs, so two of them on one transport steal each other's packets. Give each consumer its own transport, or put a demultiplexer in front of them that implements `Transport` for each. `Recv` costs the same however many packets are queued, so draining a burst stays linear. Inboxes are not bounded: a transport keeps every packet that arrives until `Recv` takes it, so drain each transport every frame.
+A transport has a single consumer. `Recv` hands each packet to one caller, and `ServerWorld`, `ClientWorld`, the lockstep and rollback sessions, `Relay` and `RelayTransport` all drain every waiting packet and discard the ones that are not theirs, so two of them on one transport steal each other's packets. Give each consumer its own transport, or put a demultiplexer in front of them that implements `Transport` for each. `Recv` costs the same however many packets are queued, so draining a burst stays linear.
 
 If the socket under a `UDPTransport` or `UDPServer` fails, `Err` returns `ErrReceiveFailed` wrapping the socket's error and `Send` returns it too; close the transport and listen again; after `Close`, `Err` returns nil. Errors about a single datagram, such as an ICMP port unreachable for an earlier send, do not stop it. A `UDPClient` likewise keeps reading after an ICMP error, for example while its server restarts, and leaves it to its idle timeout to decide whether the server is gone.
 
@@ -37,6 +37,30 @@ _ = serverTx.Send(2, net.ChannelReliableOrdered, []byte("hello"))
 hub.Advance(60 * time.Millisecond)
 pkt, ok := clientTx.Recv()
 _, _ = pkt, ok
+```
+
+### Inbox limits
+
+A transport keeps each packet that arrives until `Recv` takes it, and bounds what it keeps by channel and by peer. Each peer's `ChannelUnreliable` packets are capped at `DefaultUnreliableInbox` (4096): when one arrives from a peer that already has that many queued, that peer's oldest queued unreliable packet is dropped, so a game that falls behind keeps the newest state, a peer that floods a server evicts only its own packets, and `InboxStats().UnreliableDropped` counts the loss.
+
+`ChannelReliableOrdered` packets are never dropped, since that would break the channel's guarantee. A transport whose peers cannot be trusted caps each peer's reliable packets at `DefaultReliableInbox` (16384) instead and refuses the one that goes past it, counting it in `InboxStats().ReliableRefused`: a `WebSocketServer` ends that client's session, as if it had left, so the packets it did deliver stay in order, and a `RelayTransport` stops acknowledging that peer, which resends its messages once `Recv` has made room. The other transports receive reliable packets only from their server or from the same process and keep them all. Every transport also counts `InboxStats().ReliableWarnings` once each time its whole reliable backlog passes `DefaultReliableInboxWarning` (4096), and `ReliableBacklog` stays true until the backlog falls to half of it, so a queue hovering at the threshold does not warn on every packet. `Recv` still returns packets in arrival order across both channels and every peer. `UDPTransport` never sends reliable packets, so it drops a datagram that claims to be one.
+
+Every transport implements `InboxReporter`: `SetInboxLimits` changes the limits at any time (lowering the unreliable cap drops each peer's oldest unreliable packets at once), and `InboxStats` reads the counters, which only grow, so a game or a debug overlay compares them with the previous frame's. `LoopbackConfig.Inbox` sets the limits of the peers a hub adds, and `RelayTransportConfig.Inbox` those of a `RelayTransport`. In `InboxLimits`, zero uses the default and a negative value removes the cap or turns the warning off. A `RelayTransport`'s inner transport has its own limits, and every relayed peer arrives on it from the relay, so they share its per-peer cap; a reliable message it drops there is sent again.
+
+```go
+tx.SetInboxLimits(net.InboxLimits{Unreliable: 512, ReliableWarning: 1024})
+
+var lastWarnings, lastDropped uint64
+
+// Each frame, after draining Recv:
+st := tx.InboxStats()
+if st.ReliableWarnings != lastWarnings {
+	log.Printf("reliable backlog of %d packets", st.Reliable)
+}
+if st.UnreliableDropped != lastDropped {
+	log.Printf("dropped %d stale unreliable packets", st.UnreliableDropped-lastDropped)
+}
+lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 ```
 
 ## Connection handshake and reconnect
