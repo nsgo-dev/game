@@ -89,6 +89,48 @@ pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 
 参考测试通过 `gpu.NewSoftwareRenderer` 无头渲染同一个场景，分别使用在 `game.Loop` 上环绕的透视相机和正交相机，并把每一帧与 `render3d/testdata/golden/camera_perspective.png` 和 `camera_orthographic.png` 比较；设置 `UPDATE_GOLDEN=1` 会重写这两张图。
 
+## PBR 着色中的方向光与点光源（`LightRig`、`GPULightBuffer`）
+
+`LightRig` 保存场景的线性 RGB 光照配置：一个 `AmbientLight`、最多 `MaxDirectionalLights`（4）个 `DirectionalLight`，以及最多 `MaxPointLights`（16）个 `PointLight`。
+
+- **`DirectionalLight`**：沿 `Direction` 传播的平行光（例如 `{Y: -1}` 表示竖直向下照向 `+Y` 表面；着色或打包时会自动归一化），包含线性 `Color` 与 `Intensity`。
+- **`PointLight`**：位于 `Position` 的全向点光源，包含线性 `Color`、`Intensity` 和可选截止距离 `Range`。当 `Range > 0` 时，距离衰减采用 glTF `KHR_lights_punctual` 平滑窗函数 `max(min(1 - (d/Range)^4, 1), 0)^2 / max(d^2, 1e-4)`，在 `Range` 处平滑归零；`Range == 0` 时采用带下界保护的纯平方反比衰减 `1 / max(d^2, 1e-4)`（`PointLightAttenuation`）。
+- **`AmbientLight`**：各向同性的均匀线性环境填充光，按 `Ambient.Color * Ambient.Intensity * BaseColor` 叠加。
+
+`GPULightBuffer` 将校验后的 `LightRig` 上传到 672 字节（`LightUniformSize`）、16 字节对齐的 std140/WGSL uniform 缓冲区，并绑定到 `LightGroup`（第 1 组），归属于传入的 `*core.Scope`，支持通过 `LightBufferOptions.Retained` 在 GPU 设备丢失后自动恢复：
+
+```go
+rig := render3d.LightRig{
+	Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.16, Y: 0.22, Z: 0.32}, Intensity: 0.22},
+	Directional: []render3d.DirectionalLight{
+		{Direction: math3d.Vec3{X: 0.55, Y: -0.8, Z: -0.45}, Color: math3d.Vec3{X: 1, Y: 0.96, Z: 0.9}, Intensity: 2.6},
+	},
+	Point: []render3d.PointLight{
+		{Position: math3d.Vec3{X: 1.6, Y: 1.15, Z: 1.5}, Color: math3d.Vec3{X: 0.25, Y: 0.72, Z: 1}, Intensity: 9, Range: 6.5},
+	},
+}
+
+lightBuf, err := render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{Label: "scene", Retained: true})
+drawBuf, err := render3d.NewPBRDrawBuffer(cx, dev, nil, render3d.NewPBRDrawUniform(model, render3d.PBRMaterial{
+	BaseColor: math3d.Vec3{X: 0.82, Y: 0.14, Z: 0.12},
+	Metallic:  0.0,
+	Roughness: 0.22,
+}), true)
+pipe, err := render3d.NewLitPBRPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), gpu.FormatDepth24Plus)
+
+// 每帧：
+_ = lightBuf.Update(frame.Device(), rig)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+mesh.Draw(pass)
+```
+
+自定义 3D 着色器只需在开头拼接 `CameraWGSL + LightWGSL`，即可访问 `@group(1) @binding(0) var<uniform> lights: LightRigUniform` 并调用可移植 WGSL 函数 `point_light_attenuation`、`pbr_brdf`、`shade_pbr` 与 `linear_to_srgb`。`LitPBRWGSL` 将它们与 `MeshVertexLayout` 及位于 `PBRDrawGroup`（第 2 组）的逐绘制 `PBRDrawUniform` 组合为完整管线。
+
+着色模型遵循 glTF 2.0 金属度-粗糙度 PBR（电介质 `F0 = 0.04`、Schlick 菲涅尔、Trowbridge-Reitz GGX 法线分布、高度相关 Smith-GGX 可见度项、能量守恒 Lambert 漫反射、感知粗糙度下限 `0.045`，以及 IEC 61966-2-1 线性到 sRGB 输出）。`EvaluatePBR`、`ShadePoint`、`PointLightAttenuation` 与 `LinearToSRGB` 在 CPU 上实现完全一致的公式；`LightRig.AppendUniformData` 与 `LightUniforms.Encode` 零分配打包 uniform 块。测试逐像素比对 GPU 渲染结果与 CPU `ShadePoint`，覆盖完整能力与 WebGL 2 / GLES 3.0（`nsgotest.NoGPUCompute`）配置及 `Retained` 设备丢失恢复，并将光照场景与 `render3d/testdata/golden/lights_pbr_scene.png` 和 `lights_point_falloff.png` 参考图比对。
+
 ## 网格缓冲（`Mesh`、`GPUMesh`）
 
 `Mesh` 是 CPU 上的三角形列表几何体：`Positions`（必填）、`Normals` 与 `UVs`（各自为空或与顶点一一对应）以及 `Indices`（非索引网格留空）。这些字段与 glTF 图元的 `Positions`、`Normals`、`TexCoords0`、`Indices` 类型相同，正面按逆时针环绕，与 glTF 和 [math3d](math3d.md) 一致。`UploadMesh` 校验网格后，在 [NSGo GPU 视图](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md) 的 `gpu.Device` 上创建顶点缓冲，带索引时再创建索引缓冲。缓冲归属于传入的作用域，作用域销毁或调用 `GPUMesh.Close` 时释放：

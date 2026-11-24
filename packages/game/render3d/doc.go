@@ -58,5 +58,7 @@
 //
 // [CameraBuffer] (#115) keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders.
 //
-// The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera, mesh, texture, and sampler helpers are the parts that talk to [gpu.Device].
+// [GPULightBuffer] (#116) keeps a scene's [LightRig] (ambient fill, up to [MaxDirectionalLights] directional lights, and up to [MaxPointLights] point lights with glTF KHR_lights_punctual smooth range windowing) in a uniform buffer bound at [LightGroup], with [LightWGSL] providing the matching block and glTF 2.0 metallic-roughness Cook-Torrance GGX PBR shading functions, [LitPBRWGSL] and [NewLitPBRPipeline] offering a complete lit PBR shader pipeline, and [EvaluatePBR] / [ShadePoint] providing the matching CPU reference evaluator.
+//
+// The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera, light, mesh, texture, and sampler helpers are the parts that talk to [gpu.Device].
 package render3d

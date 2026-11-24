@@ -89,6 +89,48 @@ pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 
 The reference tests render the same scene headless through `gpu.NewSoftwareRenderer` with a perspective and an orthographic camera orbiting on `game.Loop`, and compare each frame with `render3d/testdata/golden/camera_perspective.png` and `camera_orthographic.png`; `UPDATE_GOLDEN=1` rewrites them.
 
+## Directional and point lights in PBR shading (`LightRig`, `GPULightBuffer`)
+
+`LightRig` holds a scene's linear-RGB lighting: an `AmbientLight`, up to `MaxDirectionalLights` (4) `DirectionalLight`s, and up to `MaxPointLights` (16) `PointLight`s.
+
+- **`DirectionalLight`**: parallel rays travelling along `Direction` (for example `{Y: -1}` shines straight down onto a `+Y` surface; normalized when shaded or packed), with linear `Color` and `Intensity`.
+- **`PointLight`**: omnidirectional emitter at `Position` with linear `Color`, `Intensity`, and optional cutoff `Range`. When `Range > 0`, distance falloff uses the glTF `KHR_lights_punctual` smooth windowing curve `max(min(1 - (d/Range)^4, 1), 0)^2 / max(d^2, 1e-4)` so contribution reaches zero smoothly at `Range`; `Range == 0` uses pure clamped inverse-square `1 / max(d^2, 1e-4)` (`PointLightAttenuation`).
+- **`AmbientLight`**: uniform isotropic linear fill applied as `Ambient.Color * Ambient.Intensity * BaseColor`.
+
+`GPULightBuffer` uploads a validated `LightRig` into a 672-byte (`LightUniformSize`), 16-byte-aligned std140/WGSL uniform buffer bound at `LightGroup` (group 1), scoped to `*core.Scope` with optional `LightBufferOptions.Retained` survival across GPU device loss:
+
+```go
+rig := render3d.LightRig{
+	Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.16, Y: 0.22, Z: 0.32}, Intensity: 0.22},
+	Directional: []render3d.DirectionalLight{
+		{Direction: math3d.Vec3{X: 0.55, Y: -0.8, Z: -0.45}, Color: math3d.Vec3{X: 1, Y: 0.96, Z: 0.9}, Intensity: 2.6},
+	},
+	Point: []render3d.PointLight{
+		{Position: math3d.Vec3{X: 1.6, Y: 1.15, Z: 1.5}, Color: math3d.Vec3{X: 0.25, Y: 0.72, Z: 1}, Intensity: 9, Range: 6.5},
+	},
+}
+
+lightBuf, err := render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{Label: "scene", Retained: true})
+drawBuf, err := render3d.NewPBRDrawBuffer(cx, dev, nil, render3d.NewPBRDrawUniform(model, render3d.PBRMaterial{
+	BaseColor: math3d.Vec3{X: 0.82, Y: 0.14, Z: 0.12},
+	Metallic:  0.0,
+	Roughness: 0.22,
+}), true)
+pipe, err := render3d.NewLitPBRPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), gpu.FormatDepth24Plus)
+
+// Each frame:
+_ = lightBuf.Update(frame.Device(), rig)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+mesh.Draw(pass)
+```
+
+Custom 3D shaders can prepend `CameraWGSL + LightWGSL` to read `@group(1) @binding(0) var<uniform> lights: LightRigUniform` and call the portable WGSL helpers `point_light_attenuation`, `pbr_brdf`, `shade_pbr`, and `linear_to_srgb`. `LitPBRWGSL` combines them with `MeshVertexLayout` and a per-draw `PBRDrawUniform` at `PBRDrawGroup` (group 2).
+
+The shading model follows glTF 2.0 metallic-roughness PBR (dielectric `F0 = 0.04`, Schlick Fresnel, Trowbridge-Reitz GGX normal distribution, height-correlated Smith-GGX visibility, energy-conserving Lambertian diffuse, perceptual roughness floored at `0.045`, and IEC 61966-2-1 linear-to-sRGB output). `EvaluatePBR`, `ShadePoint`, `PointLightAttenuation`, and `LinearToSRGB` implement the exact same equations on the CPU; `LightRig.AppendUniformData` and `LightUniforms.Encode` pack the uniform block without allocating. Reference tests verify GPU output pixel-for-pixel against CPU `ShadePoint`, exercise both full and WebGL 2 / GLES 3.0 (`nsgotest.NoGPUCompute`) profiles plus `Retained` device loss, and compare lit scenes against `render3d/testdata/golden/lights_pbr_scene.png` and `lights_point_falloff.png`.
+
 ## Mesh buffers (`Mesh`, `GPUMesh`)
 
 A `Mesh` is triangle-list geometry on the CPU: `Positions` (required), `Normals` and `UVs` (each empty or one per position) and `Indices` (empty for a non-indexed mesh). The fields have the same types as a glTF primitive's `Positions`, `Normals`, `TexCoords0` and `Indices`, and front faces wind counter-clockwise as in glTF and [math3d](math3d.md). `UploadMesh` validates the mesh and creates its vertex buffer and, when indexed, its index buffer on the [NSGo GPU view](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md)'s `gpu.Device`. The buffers belong to the scope you pass and are released when it is disposed or when you call `GPUMesh.Close`:
