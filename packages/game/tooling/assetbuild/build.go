@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
 	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
 	"github.com/nsgo-dev/game/packages/game/tooling/manifest"
@@ -94,15 +95,18 @@ type Builder struct {
 // cacheFormat is mixed into every target's key, so a change to what a key covers rebuilds every target.
 const cacheFormat = "assetbuild/1"
 
-// Build builds p's targets in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, and Version) and outputs match the cache, then saves the cache when it changed. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
-func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
-	if err := Validate(p); err != nil {
-		return nil, err
-	}
+// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
+func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error) {
 	if b.Force && b.Check {
 		return nil, errors.New("assetbuild: Force and Check cannot both be set")
 	}
-	cachePath := b.abs(p.Assets.CachePath())
+	if a == nil {
+		return &Report{}, nil
+	}
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
+	cachePath := b.abs(a.CachePath())
 	prev := loadCache(cachePath)
 	next := &cache{Version: cacheVersion}
 	r := &Report{}
@@ -114,13 +118,13 @@ func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
 		prepare func() (key string, build builder, err error)
 	}
 	var steps []step
-	for _, a := range p.Assets.Atlases {
-		steps = append(steps, step{"atlas " + path.Join(a.Out, a.Name), KindAtlas, func() (string, builder, error) { return b.atlas(a) }})
+	for _, at := range a.Atlases {
+		steps = append(steps, step{"atlas " + path.Join(at.Out, at.Name), KindAtlas, func() (string, builder, error) { return b.atlas(at) }})
 	}
-	for _, t := range p.Assets.Textures {
+	for _, t := range a.Textures {
 		steps = append(steps, step{"texture " + t.Out, KindTexture, func() (string, builder, error) { return b.texture(t) }})
 	}
-	for _, au := range p.Assets.Audio {
+	for _, au := range a.Audio {
 		steps = append(steps, step{"audio " + au.Out, KindAudio, func() (string, builder, error) { return b.audio(ctx, au) }})
 	}
 
@@ -194,8 +198,8 @@ func (b *Builder) Build(ctx context.Context, p *Project) (*Report, error) {
 		}
 	}
 
-	if runErr == nil && p.Assets.Manifest != nil {
-		t, err := b.manifest(*p.Assets.Manifest)
+	if runErr == nil && a.Manifest != nil {
+		t, err := b.manifest(*a.Manifest)
 		if err != nil && b.Check && r.Count(Stale) > 0 {
 			// The manifest's folder may not exist until the stale targets are built, so it is stale with them.
 			t.Status, err = Stale, nil
@@ -282,7 +286,7 @@ func sum(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (b *Builder) atlas(a Atlas) (string, builder, error) {
+func (b *Builder) atlas(a project.AtlasTarget) (string, builder, error) {
 	opts := pack.DefaultOptions()
 	opts.Name = a.Name
 	if a.Padding != nil {
@@ -336,7 +340,7 @@ func (b *Builder) atlas(a Atlas) (string, builder, error) {
 	}, nil
 }
 
-func (b *Builder) texture(t Texture) (string, builder, error) {
+func (b *Builder) texture(t project.TextureTarget) (string, builder, error) {
 	format, err := ktx2.ParseFormat(t.Format)
 	if err != nil {
 		return "", nil, err
@@ -374,7 +378,7 @@ type audioSettings struct {
 	Options audioconv.Options
 }
 
-func (b *Builder) audio(ctx context.Context, au Audio) (string, builder, error) {
+func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, builder, error) {
 	format := audioconv.FormatWAV
 	if au.Format != "" {
 		f, err := audioconv.ParseFormat(au.Format)
@@ -414,7 +418,7 @@ func (b *Builder) audio(ctx context.Context, au Audio) (string, builder, error) 
 }
 
 // manifest generates the manifest and writes it only when it differs from the file there; it has no cache entry, because generating it reads no file's content and costs less than hashing.
-func (b *Builder) manifest(m Manifest) (Target, error) {
+func (b *Builder) manifest(m project.ManifestTarget) (Target, error) {
 	t := Target{ID: "manifest " + m.Out, Kind: KindManifest, Outputs: []string{m.Out}}
 	opts := manifest.DefaultOptions()
 	if m.Package != "" {

@@ -2,7 +2,7 @@
 //
 // # The Project File
 //
-// A game.yaml names the game (name, id, appVersion) and holds its window and virtual resolution (window, display), its input map (input), its audio buses (audio), the scenes and resources it loads at startup (autoload), its export presets per platform (export) and the editor plugins the scene editor turns on for it (editor). Parse decodes a version 1 file into a File and runs Validate, refusing unknown fields, unsupported versions, duplicate names and out-of-range values. Encode validates a File and writes deterministic 2-space YAML in a fixed key order that Parse reads back unchanged, so a load and save never alters a file Encode wrote.
+// A game.yaml names the game (name, id, appVersion) and holds its window and virtual resolution (window, display), its input map (input), its audio buses (audio), the scenes and resources it loads at startup (autoload), its export presets per platform (export), the editor plugins the scene editor turns on for it (editor) and the asset pipeline targets game assets builds (assets). Parse decodes a version 1 file into a File and runs Validate, refusing unknown fields, unsupported versions, duplicate names and out-of-range values. Encode validates a File and writes deterministic 2-space YAML in a fixed key order that Parse reads back unchanged, so a load and save never alters a file Encode wrote.
 //
 // # The Runtime
 //

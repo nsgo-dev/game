@@ -78,3 +78,43 @@ export:
     - platform: web
 editor:
   plugins: [health, waypoints]
+assets:
+  cache: build/assets-cache.yaml
+  atlases:
+    - name: ui
+      in: art/ui
+      out: assets/atlases
+      padding: 0
+      extrude: 1
+      maxWidth: 1024
+      maxHeight: 512
+      scale: 2
+      trim: false
+    - name: hero
+      in: art/hero
+      out: assets/atlases
+  textures:
+    - in: art/albedo.png
+      out: assets/albedo.ktx2
+      format: bc1
+      mipmaps: true
+      srgb: true
+  audio:
+    - in: sfx/jump.wav
+      out: assets/jump.wav
+      format: wav
+      rate: 22050
+      channels: 1
+      peakDB: -1
+    - in: music/theme.wav
+      out: assets/theme.m4a
+      format: aac
+      rmsDB: -14.5
+      bitrate: 192
+  manifest:
+    in: assets
+    out: assets/manifest_gen.go
+    package: gameassets
+    prefix: 'res:'
+    embed: true
+    embedDir: assets

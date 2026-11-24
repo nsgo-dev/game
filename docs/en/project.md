@@ -1,6 +1,6 @@
 # Project File
 
-`github.com/nsgo-dev/game/packages/game/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, and the editor plugins it turns on. The game reads it at startup, the `gameproject` command checks and applies it, and the editor opens, edits and saves it.
+`github.com/nsgo-dev/game/packages/game/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, the editor plugins it turns on and its asset pipeline. The game reads it at startup, the `gameproject` command checks and applies it, `game release` reads its export presets, `game assets` builds its asset targets, and the editor opens, edits and saves it.
 
 ## The file
 
@@ -75,6 +75,24 @@ export:
     - platform: web
 editor:
   plugins: [health]
+assets:
+  atlases:
+    - name: ui
+      in: art/ui
+      out: assets/atlases
+  textures:
+    - in: art/albedo.png
+      out: assets/albedo.ktx2
+      format: bc1
+      mipmaps: true
+  audio:
+    - in: sfx/jump.wav
+      out: assets/jump.wav
+      rate: 22050
+      peakDB: -1
+  manifest:
+    in: assets
+    out: assets/manifest_gen.go
 ```
 
 | Field | What it holds |
@@ -88,8 +106,9 @@ editor:
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. |
 | `editor` | The scene editor's settings: `plugins`, the [editor plugins](editor.md#editor-plugins-492) it turns on for this project, in the order their panels and tools appear. A plugin is Go code built into the editor binary; this list only turns it on. |
+| `assets` | The targets `game assets` builds, each list optional: `atlases` packed from a folder of PNG images (`name`, `in`, `out` and `padding`, `extrude`, `maxWidth`, `maxHeight`, `scale`, `trim`), `textures` encoded into KTX2 (`in`, `out`, `format` `rgba8`, `bc1`, `bc3` or `etc2`, `mipmaps`, `srgb`), `audio` converted from WAV (`in`, `out`, `format` `wav`, `aac` or `mp3`, `rate`, `channels`, `peakDB` or `rmsDB`, `bitrate`), the `manifest` generated last (`in`, `out`, `package`, `prefix`, `embed`, `embedDir`), and the build `cache` path, `.game/assets-cache.yaml` when left out. Paths are slash-separated and inside the project. [Command Line](cli.md#assets) says what each setting does. |
 
-`Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform and values out of range, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `gameproject fmt` rewrites it in the canonical form, which keeps no comments.
+`Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform, values out of range, and asset targets that write the same file or write where another target's scan reads, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `gameproject fmt` rewrites it in the canonical form, which keeps no comments.
 
 ## Reading it in a game
 

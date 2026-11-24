@@ -15,12 +15,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetbuild"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
+	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
 )
 
 // sampleProject declares two atlases, a texture, an audio file and the manifest of the folder they are written to.
 const sampleProject = `version: 1
+name: Sample
+id: dev.example.sample
+appVersion: '1'
+window: {width: 320, height: 240}
 assets:
   atlases:
     - name: ui
@@ -110,12 +116,25 @@ func build(t testing.TB, root string, b assetbuild.Builder) *assetbuild.Report {
 }
 
 func tryBuild(root string, b assetbuild.Builder) (*assetbuild.Report, error) {
-	p, err := assetbuild.Load(filepath.Join(root, "game.yaml"))
+	a, err := loadAssets(root)
 	if err != nil {
 		return nil, err
 	}
 	b.Root = root
-	return b.Build(context.Background(), p)
+	return b.Build(context.Background(), a)
+}
+
+// loadAssets reads the assets section of root's game.yaml through package project, as game assets does.
+func loadAssets(root string) (*project.Assets, error) {
+	data, err := os.ReadFile(filepath.Join(root, project.FileName))
+	if err != nil {
+		return nil, err
+	}
+	f, err := project.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	return f.Assets, nil
 }
 
 // statuses maps each target's ID to its status.
@@ -198,7 +217,7 @@ func TestFirstRunBuildsEverything(t *testing.T) {
 	}
 	for _, name := range []string{
 		"assets/atlases/ui.png", "assets/atlases/ui.json", "assets/atlases/hero.png", "assets/atlases/hero.json",
-		"assets/albedo.ktx2", "assets/jump.wav", "gen/assets_gen.go", assetbuild.DefaultCachePath,
+		"assets/albedo.ktx2", "assets/jump.wav", "gen/assets_gen.go", project.DefaultAssetsCache,
 	} {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
@@ -240,7 +259,7 @@ func TestChangingOneImageRepacksOnlyItsAtlas(t *testing.T) {
 	wantStatuses(t, r, want)
 	got := touched(t, root, before)
 	slices.Sort(got)
-	if wantFiles := []string{assetbuild.DefaultCachePath, "assets/atlases/hero.json", "assets/atlases/hero.png"}; !slices.Equal(got, wantFiles) {
+	if wantFiles := []string{project.DefaultAssetsCache, "assets/atlases/hero.json", "assets/atlases/hero.png"}; !slices.Equal(got, wantFiles) {
 		t.Fatalf("wrote %v, want %v", got, wantFiles)
 	}
 }
@@ -285,7 +304,7 @@ func TestRebuildsWhat(t *testing.T) {
 			writeFile(t, filepath.Join(root, "assets/readme.txt"), []byte("hi"))
 		}, []string{"manifest gen/assets_gen.go"}},
 		{"a corrupt cache", func(t *testing.T, root string) {
-			writeFile(t, filepath.Join(root, assetbuild.DefaultCachePath), []byte("version: 1\nbogus: true\n"))
+			writeFile(t, filepath.Join(root, project.DefaultAssetsCache), []byte("version: 1\nbogus: true\n"))
 		}, []string{"atlas assets/atlases/ui", "atlas assets/atlases/hero", "texture assets/albedo.ktx2", "audio assets/jump.wav"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -390,7 +409,7 @@ func TestCheckWithoutCacheComparesOutputs(t *testing.T) {
 func TestPagesInADotFolderOfTheirImages(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "art/ui/button.png"), 12, 6, color.NRGBA{R: 200, A: 255})
-	writeFile(t, filepath.Join(dir, "game.yaml"), []byte("version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui/.pages\n"))
+	writeFile(t, filepath.Join(dir, "game.yaml"), []byte(sampleProject[:strings.Index(sampleProject, "assets:")]+"assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui/.pages\n"))
 	build(t, dir, assetbuild.Builder{})
 	r := build(t, dir, assetbuild.Builder{})
 	wantStatuses(t, r, map[string]assetbuild.Status{"atlas art/ui/.pages/ui": assetbuild.UpToDate})
@@ -461,11 +480,11 @@ func TestCacheIsDeterministicText(t *testing.T) {
 	a, b := newProject(t), newProject(t)
 	build(t, a, assetbuild.Builder{})
 	build(t, b, assetbuild.Builder{})
-	ca, err := os.ReadFile(filepath.Join(a, assetbuild.DefaultCachePath))
+	ca, err := os.ReadFile(filepath.Join(a, project.DefaultAssetsCache))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cb, err := os.ReadFile(filepath.Join(b, assetbuild.DefaultCachePath))
+	cb, err := os.ReadFile(filepath.Join(b, project.DefaultAssetsCache))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +504,7 @@ func TestDroppedTargetLeavesTheCache(t *testing.T) {
 	build(t, dir, assetbuild.Builder{})
 	editProject(t, dir, "    - name: hero\n      in: art/hero\n      out: assets/atlases\n", "")
 	build(t, dir, assetbuild.Builder{})
-	c, err := os.ReadFile(filepath.Join(dir, assetbuild.DefaultCachePath))
+	c, err := os.ReadFile(filepath.Join(dir, project.DefaultAssetsCache))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,12 +515,12 @@ func TestDroppedTargetLeavesTheCache(t *testing.T) {
 
 func TestCustomCachePath(t *testing.T) {
 	dir := newProject(t)
-	editProject(t, dir, "version: 1\nassets:\n", "version: 1\nassets:\n  cache: build/cache.yaml\n")
+	editProject(t, dir, "\nassets:\n", "\nassets:\n  cache: build/cache.yaml\n")
 	build(t, dir, assetbuild.Builder{})
 	if _, err := os.Stat(filepath.Join(dir, "build/cache.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, assetbuild.DefaultCachePath)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, project.DefaultAssetsCache)); !os.IsNotExist(err) {
 		t.Fatalf("default cache written too (%v)", err)
 	}
 	wantStatuses(t, build(t, dir, assetbuild.Builder{}), all(assetbuild.UpToDate))
@@ -509,7 +528,7 @@ func TestCustomCachePath(t *testing.T) {
 
 func TestCanceledContext(t *testing.T) {
 	dir := newProject(t)
-	p, err := assetbuild.Load(filepath.Join(dir, "game.yaml"))
+	p, err := loadAssets(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +543,7 @@ func TestCanceledContext(t *testing.T) {
 func BenchmarkUpToDate(b *testing.B) {
 	dir := newProject(b)
 	build(b, dir, assetbuild.Builder{})
-	p, err := assetbuild.Load(filepath.Join(dir, "game.yaml"))
+	p, err := loadAssets(dir)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -532,6 +551,40 @@ func BenchmarkUpToDate(b *testing.B) {
 	for b.Loop() {
 		if _, err := bl.Build(context.Background(), p); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func TestNoAssetsSectionBuildsNothing(t *testing.T) {
+	dir := t.TempDir()
+	b := &assetbuild.Builder{Root: dir}
+	r, err := b.Build(context.Background(), nil)
+	if err != nil || len(r.Targets) != 0 {
+		t.Fatalf("Build(nil) = %+v, %v", r, err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("Build(nil) wrote %v (%v)", entries, err)
+	}
+}
+
+func TestBuildRefusesInvalidAssets(t *testing.T) {
+	b := &assetbuild.Builder{Root: t.TempDir()}
+	a := &project.Assets{Textures: []project.TextureTarget{{In: "../a.png", Out: "a.ktx2"}}}
+	if _, err := b.Build(context.Background(), a); err == nil || !strings.Contains(err.Error(), "inside the project") {
+		t.Fatalf("Build error = %v, want the path refused", err)
+	}
+}
+
+// TestFormatsMatchTheEncoders checks that every format game.yaml may name is one the encoders accept, under the same name.
+func TestFormatsMatchTheEncoders(t *testing.T) {
+	for _, f := range project.TextureFormats {
+		if got, err := ktx2.ParseFormat(f); err != nil || string(got) != f {
+			t.Errorf("ktx2.ParseFormat(%q) = %q, %v", f, got, err)
+		}
+	}
+	for _, f := range project.AudioFormats {
+		if _, err := audioconv.ParseFormat(f); err != nil {
+			t.Errorf("audioconv.ParseFormat(%q): %v", f, err)
 		}
 	}
 }

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // cacheVersion is the schema version of the cache file.
@@ -105,4 +108,36 @@ func saveCache(name string, c *cache) error {
 		return fmt.Errorf("assetbuild: save cache: %w", err)
 	}
 	return nil
+}
+
+// decodeStrict decodes the single YAML document in data into out, refusing unknown fields and trailing documents.
+func decodeStrict(data []byte, out any) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("unexpected trailing YAML document")
+		}
+		return err
+	}
+	return nil
+}
+
+// encode writes v as 2-space YAML.
+func encode(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(v); err != nil {
+		_ = enc.Close()
+		return nil, fmt.Errorf("assetbuild: encode: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("assetbuild: encode: %w", err)
+	}
+	return buf.Bytes(), nil
 }

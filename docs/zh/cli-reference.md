@@ -175,6 +175,20 @@ game check [flags] [dir]
 | --- | --- | --- |
 | `-in string` |  | directory to check (alternative to the positional argument; defaults to the current directory) |
 
+## game assets
+
+Pack atlases, encode textures, convert audio and generate the manifest from game.yaml, rebuilding only what changed.
+
+```sh
+game assets [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-check` |  | list the targets that are out of date without building them, and fail if there are any |
+| `-force` |  | rebuild every target, even those the cache says are up to date |
+| `-in string` | `game.yaml` | project file whose assets section declares the targets |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

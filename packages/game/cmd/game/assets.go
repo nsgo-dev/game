@@ -4,13 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetbuild"
 )
 
-// assetsCommand builds every asset target game.yaml declares, rebuilding only those whose inputs or settings changed.
+// assetsCommand builds every asset target game.yaml's assets section declares, reading game.yaml through package project, rebuilding only those whose inputs or settings changed.
 var assetsCommand = &command{
 	name:    "assets",
 	summary: "Pack atlases, encode textures, convert audio and generate the manifest from game.yaml, rebuilding only what changed",
@@ -18,7 +20,7 @@ var assetsCommand = &command{
 }
 
 func defineAssets(a *app, fs *flag.FlagSet) func() error {
-	inPath := inFlag(fs, assetbuild.FileName, "project file declaring the asset targets")
+	inPath := inFlag(fs, project.FileName, "project file whose assets section declares the targets")
 	force := fs.Bool("force", false, "rebuild every target, even those the cache says are up to date")
 	check := fs.Bool("check", false, "list the targets that are out of date without building them, and fail if there are any")
 
@@ -32,18 +34,25 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 		if *force && *check {
 			return usagef("-force and -check are mutually exclusive")
 		}
-		p, err := assetbuild.Load(*inPath)
+		data, err := os.ReadFile(*inPath)
 		if err != nil {
 			return err
+		}
+		f, err := project.Parse(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", *inPath, err)
+		}
+		if f.Assets == nil {
+			return fmt.Errorf("%s has no assets section", *inPath)
 		}
 		b := &assetbuild.Builder{
 			Root:    filepath.Dir(*inPath),
 			Audio:   a.audio,
-			Version: toolVersion(),
+			Version: assetsToolVersion(),
 			Force:   *force,
 			Check:   *check,
 		}
-		r, err := b.Build(context.Background(), p)
+		r, err := b.Build(context.Background(), f.Assets)
 		if r != nil {
 			for _, t := range r.Targets {
 				if t.Status != assetbuild.UpToDate {
@@ -66,11 +75,8 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 	}
 }
 
-// gameModule is the module whose version names the tools that build assets.
-const gameModule = "github.com/nsgo-dev/game/packages/game"
-
-// toolVersion returns the version of the game layer this command was built from, so upgrading it rebuilds every asset target; it is "(devel)" in a build of the module itself.
-func toolVersion() string {
+// assetsToolVersion returns the version of the game layer this command was built from, so upgrading it rebuilds every asset target; it is "(devel)" in a build of the module itself and names the replacement when the module is replaced, unlike toolVersion, which gives the version a new project can require.
+func assetsToolVersion() string {
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return ""

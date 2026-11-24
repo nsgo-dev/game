@@ -204,10 +204,14 @@ go tool game assets -check
 
 一次构建 `game.yaml`（或 `-in` 指定的文件）声明的全部资源目标：像 `pack`、`tex` 和 `audio` 那样打包图集、编码纹理、转换音频，最后像 `manifest` 那样重新生成资源清单。每个目标只在有改动时重建：没有任何改动时再运行一次不会写任何文件，改动一张图片只会重新打包它所属的图集。命令为每个构建了的目标打印一行，最后打印计数，例如 `1 built, 4 up to date`。
 
-`game.yaml` 是带版本号的 YAML，命令会拒绝不认识的字段。其中的路径用斜杠分隔，相对于文件所在目录，且不能跳出该目录：
+这些目标是项目文件 `game.yaml` 的 `assets` 部分。命令像游戏和编辑器一样经由 `project` 包读取它，`release` 也接受它，所以同一个 `game.yaml` 里既有这些目标，也有窗口、输入、自动加载和导出设置（见[项目文件](project.md)）。文件是带版本号的 YAML，命令会拒绝不认识的字段、没有 `assets` 部分的文件，以及项目模式拒绝的文件。这一部分的路径用斜杠分隔，相对于文件所在目录，且不能跳出该目录：
 
 ```yaml
 version: 1
+name: Cave Run
+id: dev.nsgo.caverun
+appVersion: 0.1.0
+window: {width: 480, height: 640}
 assets:
   atlases:
     - name: ui            # 页面为 ui.png 和 ui.json
