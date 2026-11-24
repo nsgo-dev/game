@@ -1,0 +1,13 @@
+version: 1
+name: Crate
+shader: shaders/lit.wgsl
+blend: opaque
+cull: back
+frontFace: ccw
+depthCompare: less
+scalars:
+  roughness: 0.4
+colors:
+  tint: '#d9c6a5'
+textures:
+  albedo: textures/crate.png

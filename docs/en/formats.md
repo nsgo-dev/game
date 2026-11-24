@@ -162,6 +162,47 @@ gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
 ```
 
+<!-- format: modding#workshop -->
+### Steam Workshop metadata
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `workshop.yaml` beside `mod.yaml` in a mod published to Steam Workshop | `version: 1` | `modding.ParseWorkshopMetadata`, `modding.EncodeWorkshopMetadata` | [modding](modding.md) |
+
+```yaml
+version: 1
+appId: 480
+publishedFileId: 1001
+title: Boss Rush
+description: Spawns a slime every five seconds.
+tags: [gameplay, survival]
+visibility: public
+preview: preview.png
+```
+
+<!-- format: tooling/hotreload -->
+### 3D shader material
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.material.yaml`, hot-reloaded in `game dev` | `version: 1` | `hotreload.ParseMaterial`, `hotreload.EncodeMaterial` | [render3d](render3d.md) |
+
+```yaml
+version: 1
+name: Crate
+shader: shaders/lit.wgsl
+blend: opaque
+cull: back
+frontFace: ccw
+depthCompare: less
+scalars:
+  roughness: 0.4
+colors:
+  tint: '#d9c6a5'
+textures:
+  albedo: textures/crate.png
+```
+
 ## Scenes, resources and animation
 
 <!-- format: sceneformat -->
