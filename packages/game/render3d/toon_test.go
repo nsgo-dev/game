@@ -430,7 +430,10 @@ func TestToonLightMatchesLightRigConventions(t *testing.T) {
 
 func TestToonSmoothOutlineNormals(t *testing.T) {
 	box := toonBoxMesh(math3d.Vec3{X: 1, Y: 1, Z: 1})
-	smoothed := render3d.SmoothOutlineNormals(box)
+	smoothed, err := render3d.SmoothOutlineNormals(box)
+	if err != nil {
+		t.Fatalf("SmoothOutlineNormals: %v", err)
+	}
 
 	// Source normals must stay axis-aligned (unmutated).
 	for i, n := range box.Normals {
@@ -456,13 +459,48 @@ func TestToonSmoothOutlineNormals(t *testing.T) {
 	// Also works when source mesh has no normals (derives from face winding).
 	boxNoNormals := box
 	boxNoNormals.Normals = nil
-	derived := render3d.SmoothOutlineNormals(boxNoNormals)
+	derived, err := render3d.SmoothOutlineNormals(boxNoNormals)
+	if err != nil {
+		t.Fatalf("SmoothOutlineNormals without normals: %v", err)
+	}
 	if len(derived.Normals) != len(box.Positions) {
 		t.Fatalf("derived normal count = %d, want %d", len(derived.Normals), len(box.Positions))
 	}
 	for i, n := range derived.Normals {
 		if !n.ApproxEqual(smoothed.Normals[i], 1e-4) {
 			t.Fatalf("derived normal %d = %v, want %v", i, n, smoothed.Normals[i])
+		}
+	}
+
+	// Without indices, a quad's corner is repeated once per triangle that touches it: two copies at the diagonal's ends, one at the others. Weighting each copy by its corner angle keeps every face's share at 90 degrees, so the corners still point along the cube's diagonals.
+	var flat render3d.Mesh
+	for _, i := range box.Indices {
+		flat.Positions = append(flat.Positions, box.Positions[i])
+		flat.Normals = append(flat.Normals, box.Normals[i])
+	}
+	flatSmoothed, err := render3d.SmoothOutlineNormals(flat)
+	if err != nil {
+		t.Fatalf("SmoothOutlineNormals non-indexed: %v", err)
+	}
+	for i, p := range flatSmoothed.Positions {
+		want := math3d.Vec3{
+			X: float32(math.Copysign(float64(invSqrt3), float64(p.X))),
+			Y: float32(math.Copysign(float64(invSqrt3), float64(p.Y))),
+			Z: float32(math.Copysign(float64(invSqrt3), float64(p.Z))),
+		}
+		if !flatSmoothed.Normals[i].ApproxEqual(want, 1e-4) {
+			t.Fatalf("non-indexed vertex %d pos=%v: smoothed normal = %v, want %v", i, p, flatSmoothed.Normals[i], want)
+		}
+	}
+
+	for name, bad := range map[string]render3d.Mesh{
+		"empty":         {},
+		"nan position":  {Positions: []math3d.Vec3{{X: float32(math.NaN())}, {X: 1}, {Y: 1}}},
+		"huge position": {Positions: []math3d.Vec3{{X: 1e13}, {X: 1}, {Y: 1}}},
+		"bad index":     {Positions: []math3d.Vec3{{}, {X: 1}, {Y: 1}}, Indices: []uint32{0, 1, 3}},
+	} {
+		if _, err := render3d.SmoothOutlineNormals(bad); !errors.Is(err, render3d.ErrInvalidMesh) {
+			t.Errorf("%s: SmoothOutlineNormals = %v, want ErrInvalidMesh", name, err)
 		}
 	}
 }
@@ -1004,7 +1042,11 @@ func TestToonSceneMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadMesh box: %v", err)
 	}
-	boxOutlineMesh, err := render3d.UploadMesh(nil, dev, render3d.SmoothOutlineNormals(boxCPU), render3d.MeshUpload{Label: "box-outline"})
+	boxOutlineCPU, err := render3d.SmoothOutlineNormals(boxCPU)
+	if err != nil {
+		t.Fatalf("SmoothOutlineNormals: %v", err)
+	}
+	boxOutlineMesh, err := render3d.UploadMesh(nil, dev, boxOutlineCPU, render3d.MeshUpload{Label: "box-outline"})
 	if err != nil {
 		t.Fatalf("UploadMesh box-outline: %v", err)
 	}

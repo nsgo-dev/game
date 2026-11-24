@@ -686,17 +686,25 @@ func EvaluateToon(mat ToonMaterial, in ToonEvalInput) [4]float32 {
 	return out
 }
 
-// SmoothOutlineNormals returns a copy of m whose normals are averaged across vertices sharing the same position (within 1e-5), producing watertight inverted-hull outlines for hard-edged meshes such as boxes and low-poly props without splitting corners apart. Positions, UVs, and Indices are copied without mutating m.
-func SmoothOutlineNormals(m Mesh) Mesh {
+// maxOutlineCoord bounds the position coordinates [SmoothOutlineNormals] accepts, so that a coordinate times 1e5 stays well inside the int64 range of its position keys.
+const maxOutlineCoord = 1e12
+
+// SmoothOutlineNormals returns a copy of m whose normals are averaged across vertices at the same position, so that the inverted-hull outline of a hard-edged mesh such as a box or a low-poly prop stays closed at its corners instead of splitting apart. Two vertices share a position when every coordinate rounds to the same multiple of 1e-5; positions that differ by less than that but round apart are kept separate, so split vertices should carry identical positions, as exporters write them. Each triangle adds the normal of each of its corners weighted by the corner's angle: the vertex normal when m has normals, the face normal otherwise. Triangulation therefore does not change the result, and every face meeting at a position counts by the angle it spans there. Positions, UVs, and Indices are copied without mutating m. It returns an error wrapping [ErrInvalidMesh] when m fails [Mesh.Validate] or a coordinate's magnitude exceeds 1e12.
+func SmoothOutlineNormals(m Mesh) (Mesh, error) {
+	if err := m.Validate(); err != nil {
+		return Mesh{}, err
+	}
+	for i, p := range m.Positions {
+		if toonAbs(p.X) > maxOutlineCoord || toonAbs(p.Y) > maxOutlineCoord || toonAbs(p.Z) > maxOutlineCoord {
+			return Mesh{}, fmt.Errorf("%w: position %d = %v exceeds the outline smoothing range of ±%g", ErrInvalidMesh, i, p, float64(maxOutlineCoord))
+		}
+	}
 	out := Mesh{
 		Positions: append([]math3d.Vec3(nil), m.Positions...),
 		UVs:       append([]math3d.Vec2(nil), m.UVs...),
 		Indices:   append([]uint32(nil), m.Indices...),
 	}
 	n := len(m.Positions)
-	if n == 0 {
-		return out
-	}
 
 	type posKey struct{ x, y, z int64 }
 	quantize := func(p math3d.Vec3) posKey {
@@ -707,60 +715,59 @@ func SmoothOutlineNormals(m Mesh) Mesh {
 			z: int64(math.Round(float64(p.Z) * scale)),
 		}
 	}
+	angleAt := func(e1, e2 math3d.Vec3) float32 {
+		u1, ok1 := toonNormalizeVec3(e1)
+		u2, ok2 := toonNormalizeVec3(e2)
+		if !ok1 || !ok2 {
+			return 0
+		}
+		d := float64(u1.Dot(u2))
+		if d < -1 {
+			d = -1
+		} else if d > 1 {
+			d = 1
+		}
+		return float32(math.Acos(d))
+	}
 
-	sums := make(map[posKey]math3d.Vec3, n)
 	hasNormals := len(m.Normals) == n
-	if hasNormals {
-		for i, p := range m.Positions {
-			k := quantize(p)
-			sums[k] = sums[k].Add(m.Normals[i])
-		}
-	} else {
-		// Derive angle-weighted face normals from triangle winding when the source mesh lacks vertex normals.
-		angleAt := func(e1, e2 math3d.Vec3) float32 {
-			u1, ok1 := toonNormalizeVec3(e1)
-			u2, ok2 := toonNormalizeVec3(e2)
-			if !ok1 || !ok2 {
-				return 0
-			}
-			d := float64(u1.Dot(u2))
-			if d < -1 {
-				d = -1
-			} else if d > 1 {
-				d = 1
-			}
-			return float32(math.Acos(d))
-		}
-		addTri := func(i0, i1, i2 int) {
-			if i0 >= n || i1 >= n || i2 >= n {
-				return
-			}
-			a, b, c := m.Positions[i0], m.Positions[i1], m.Positions[i2]
-			ab, ac := b.Sub(a), c.Sub(a)
-			fnUnit, ok := toonNormalizeVec3(ab.Cross(ac))
+	sums := make(map[posKey]math3d.Vec3, n)
+	addCorner := func(i int, faceNormal math3d.Vec3, angle float32) {
+		nrm := faceNormal
+		if hasNormals {
+			v, ok := toonNormalizeVec3(m.Normals[i])
 			if !ok {
 				return
 			}
-			ka, kb, kc := quantize(a), quantize(b), quantize(c)
-			sums[ka] = sums[ka].Add(fnUnit.Scale(angleAt(ab, ac)))
-			sums[kb] = sums[kb].Add(fnUnit.Scale(angleAt(c.Sub(b), a.Sub(b))))
-			sums[kc] = sums[kc].Add(fnUnit.Scale(angleAt(a.Sub(c), b.Sub(c))))
+			nrm = v
 		}
-		if len(m.Indices) >= 3 {
-			for i := 0; i+2 < len(m.Indices); i += 3 {
-				addTri(int(m.Indices[i]), int(m.Indices[i+1]), int(m.Indices[i+2]))
-			}
-		} else {
-			for i := 0; i+2 < n; i += 3 {
-				addTri(i, i+1, i+2)
-			}
+		k := quantize(m.Positions[i])
+		sums[k] = sums[k].Add(nrm.Scale(angle))
+	}
+	addTri := func(i0, i1, i2 int) {
+		a, b, c := m.Positions[i0], m.Positions[i1], m.Positions[i2]
+		ab, ac := b.Sub(a), c.Sub(a)
+		fn, ok := toonNormalizeVec3(ab.Cross(ac))
+		if !ok {
+			return
+		}
+		addCorner(i0, fn, angleAt(ab, ac))
+		addCorner(i1, fn, angleAt(c.Sub(b), a.Sub(b)))
+		addCorner(i2, fn, angleAt(a.Sub(c), b.Sub(c)))
+	}
+	if len(m.Indices) > 0 {
+		for i := 0; i+2 < len(m.Indices); i += 3 {
+			addTri(int(m.Indices[i]), int(m.Indices[i+1]), int(m.Indices[i+2]))
+		}
+	} else {
+		for i := 0; i+2 < n; i += 3 {
+			addTri(i, i+1, i+2)
 		}
 	}
 
 	out.Normals = make([]math3d.Vec3, n)
 	for i, p := range m.Positions {
-		k := quantize(p)
-		if avg, ok := toonNormalizeVec3(sums[k]); ok {
+		if avg, ok := toonNormalizeVec3(sums[quantize(p)]); ok {
 			out.Normals[i] = avg
 		} else if hasNormals {
 			out.Normals[i] = m.Normals[i]
@@ -768,12 +775,10 @@ func SmoothOutlineNormals(m Mesh) Mesh {
 			out.Normals[i] = math3d.Vec3{Y: 1}
 		}
 	}
-	return out
+	return out, nil
 }
 
-// ToonMaterialBindingLayout creates the @group(1) bind group layout for [GPUToonMaterial]:
-// binding 0 uniform buffer (vertex + fragment), binding 1 base color texture, binding 2 base sampler,
-// binding 3 cel ramp texture, binding 4 ramp sampler (bindings 1..4 fragment-visible).
+// ToonMaterialBindingLayout creates the @group(1) bind group layout for [GPUToonMaterial]: binding 0 uniform buffer (vertex + fragment), binding 1 base color texture, binding 2 base sampler, binding 3 cel ramp texture, binding 4 ramp sampler (bindings 1..4 fragment-visible).
 func ToonMaterialBindingLayout(cx *core.Scope, dev *gpu.Device) (*gpu.BindGroupLayout, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -1571,3 +1576,5 @@ func toonNormalMatrix(model math3d.Mat4) math3d.Mat4 {
 		math3d.Vec4{X: 0, Y: 0, Z: 0, W: 1},
 	)
 }
+
+func toonAbs(v float32) float32 { return float32(math.Abs(float64(v))) }
