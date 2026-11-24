@@ -68,6 +68,10 @@ type ComponentType struct {
 	Doc string
 	// Fields are the component's fields in the order tools list them.
 	Fields []Field
+	// Events are the events an object with this component emits, such as a button's "pressed", in the order tools list them. A scene's connections (SceneDoc.Connections) name them, and Signals.Emit fires them.
+	Events []Event
+	// Handlers are what an object with this component can do when an event connected to it fires, such as a door's "open", in the order tools list them.
+	Handlers []Handler
 }
 
 // Field returns the field named name and whether the type has it.
@@ -81,6 +85,32 @@ func (t *ComponentType) Field(name string) (Field, bool) {
 		}
 	}
 	return Field{}, false
+}
+
+// Event returns the event named name and whether the type declares it.
+func (t *ComponentType) Event(name string) (Event, bool) {
+	if t == nil {
+		return Event{}, false
+	}
+	for _, e := range t.Events {
+		if e.Name == name {
+			return e, true
+		}
+	}
+	return Event{}, false
+}
+
+// Handler returns the handler named name and whether the type declares it.
+func (t *ComponentType) Handler(name string) (Handler, bool) {
+	if t == nil {
+		return Handler{}, false
+	}
+	for _, h := range t.Handlers {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return Handler{}, false
 }
 
 // FieldNames returns the type's field names in declaration order.
@@ -108,7 +138,7 @@ func NewComponentRegistry() *ComponentRegistry {
 // Float64 returns a pointer to v for a Field's optional Min and Max.
 func Float64(v float64) *float64 { return &v }
 
-// Register adds t to the registry. It refuses an empty or duplicate type name, an empty or duplicate field name, an unknown kind, a range or step on a non-numeric field, a range whose Min is above its Max, a fractional range or step on an int field, a negative or non-finite step, and a default of the wrong kind or outside the range. The registry keeps its own copy of t.
+// Register adds t to the registry. It refuses an empty or duplicate type name, an empty or duplicate field name, an unknown kind, a range or step on a non-numeric field, a range whose Min is above its Max, a fractional range or step on an int field, a negative or non-finite step, and a default of the wrong kind or outside the range. It refuses an event or handler whose name is empty, holds a dot or repeats another event's or handler's of the type, and a handler's params on the same terms as fields; an event and a handler may share a name. The registry keeps its own copy of t.
 func (r *ComponentRegistry) Register(t ComponentType) error {
 	if r == nil {
 		return errors.New("sceneformat: register on nil component registry")
@@ -119,42 +149,64 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 	if _, dup := r.types[t.Name]; dup {
 		return fmt.Errorf("sceneformat: component type %q is already registered", t.Name)
 	}
-	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: make([]Field, len(t.Fields))}
-	seen := make(map[string]struct{}, len(t.Fields))
-	for i, f := range t.Fields {
+	owner := fmt.Sprintf("component type %q", t.Name)
+	fields, err := normalizeFields(owner, "field", t.Fields)
+	if err != nil {
+		return err
+	}
+	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: fields}
+	if ct.Events, err = normalizeEvents(owner, t.Events); err != nil {
+		return err
+	}
+	if ct.Handlers, err = normalizeHandlers(owner, t.Handlers); err != nil {
+		return err
+	}
+	if r.types == nil {
+		r.types = make(map[string]*ComponentType)
+	}
+	r.types[t.Name] = ct
+	return nil
+}
+
+// normalizeFields checks fields, which belong to owner (such as `component type "body"`) and are called noun in errors ("field" or "param"), and returns copies with their defaults normalized and their ranges copied.
+func normalizeFields(owner, noun string, fields []Field) ([]Field, error) {
+	out := make([]Field, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for i, f := range fields {
 		if f.Name == "" {
-			return fmt.Errorf("sceneformat: component type %q field %d has an empty name", t.Name, i)
+			return nil, fmt.Errorf("sceneformat: %s %s %d has an empty name", owner, noun, i)
 		}
 		if _, dup := seen[f.Name]; dup {
-			return fmt.Errorf("sceneformat: component type %q has duplicate field %q", t.Name, f.Name)
+			return nil, fmt.Errorf("sceneformat: %s has duplicate %s %q", owner, noun, f.Name)
 		}
 		seen[f.Name] = struct{}{}
+		where := fmt.Sprintf("%s %s %q", owner, noun, f.Name)
 		if f.Kind < FieldBool || f.Kind > FieldString {
-			return fmt.Errorf("sceneformat: component type %q field %q has unknown kind %v", t.Name, f.Name, f.Kind)
+			return nil, fmt.Errorf("sceneformat: %s has unknown kind %v", where, f.Kind)
 		}
 		if f.Min != nil || f.Max != nil {
 			if !f.Kind.IsNumeric() {
-				return fmt.Errorf("sceneformat: component type %q field %q is %v and cannot have a range", t.Name, f.Name, f.Kind)
+				return nil, fmt.Errorf("sceneformat: %s is %v and cannot have a range", where, f.Kind)
 			}
 			if (f.Min != nil && !isFinite64(*f.Min)) || (f.Max != nil && !isFinite64(*f.Max)) {
-				return fmt.Errorf("sceneformat: component type %q field %q range must be finite", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s range must be finite", where)
 			}
 			if f.Min != nil && f.Max != nil && *f.Min > *f.Max {
-				return fmt.Errorf("sceneformat: component type %q field %q has min %v above max %v", t.Name, f.Name, *f.Min, *f.Max)
+				return nil, fmt.Errorf("sceneformat: %s has min %v above max %v", where, *f.Min, *f.Max)
 			}
 			if f.Kind == FieldInt && ((f.Min != nil && *f.Min != math.Trunc(*f.Min)) || (f.Max != nil && *f.Max != math.Trunc(*f.Max))) {
-				return fmt.Errorf("sceneformat: component type %q field %q is int and its range must be whole numbers", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s is int and its range must be whole numbers", where)
 			}
 		}
 		if f.Step != 0 {
 			if !f.Kind.IsNumeric() {
-				return fmt.Errorf("sceneformat: component type %q field %q is %v and cannot have a step", t.Name, f.Name, f.Kind)
+				return nil, fmt.Errorf("sceneformat: %s is %v and cannot have a step", where, f.Kind)
 			}
 			if !isFinite64(f.Step) || f.Step < 0 {
-				return fmt.Errorf("sceneformat: component type %q field %q step must be positive and finite", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s step must be positive and finite", where)
 			}
 			if f.Kind == FieldInt && f.Step != math.Trunc(f.Step) {
-				return fmt.Errorf("sceneformat: component type %q field %q is int and its step must be a whole number", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s is int and its step must be a whole number", where)
 			}
 		}
 		nf := f
@@ -170,16 +222,12 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 		}
 		norm, msg := nf.check(def)
 		if msg != "" {
-			return fmt.Errorf("sceneformat: component type %q field %q default: %s", t.Name, f.Name, msg)
+			return nil, fmt.Errorf("sceneformat: %s default: %s", where, msg)
 		}
 		nf.Default = norm
-		ct.Fields[i] = nf
+		out[i] = nf
 	}
-	if r.types == nil {
-		r.types = make(map[string]*ComponentType)
-	}
-	r.types[t.Name] = ct
-	return nil
+	return out, nil
 }
 
 // MustRegister is Register for package-level setup; it panics when Register returns an error.
@@ -388,14 +436,30 @@ func unknownFieldMsg(t *ComponentType, field string) string {
 }
 
 func cloneComponentType(t *ComponentType) ComponentType {
-	out := ComponentType{Name: t.Name, Doc: t.Doc, Fields: make([]Field, len(t.Fields))}
-	for i, f := range t.Fields {
-		out.Fields[i] = f
+	out := ComponentType{Name: t.Name, Doc: t.Doc, Fields: cloneFields(t.Fields), Events: slices.Clone(t.Events)}
+	if t.Handlers != nil {
+		out.Handlers = make([]Handler, len(t.Handlers))
+		for i, h := range t.Handlers {
+			out.Handlers[i] = h
+			out.Handlers[i].Params = cloneFields(h.Params)
+		}
+	}
+	return out
+}
+
+// cloneFields copies fields and their ranges.
+func cloneFields(fields []Field) []Field {
+	if fields == nil {
+		return nil
+	}
+	out := make([]Field, len(fields))
+	for i, f := range fields {
+		out[i] = f
 		if f.Min != nil {
-			out.Fields[i].Min = Float64(*f.Min)
+			out[i].Min = Float64(*f.Min)
 		}
 		if f.Max != nil {
-			out.Fields[i].Max = Float64(*f.Max)
+			out[i].Max = Float64(*f.Max)
 		}
 	}
 	return out

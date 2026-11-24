@@ -60,7 +60,7 @@ func (doc *SceneDoc) RefersToScenes() bool {
 	return false
 }
 
-// Resolve validates doc and returns a copy of it with every scene it instances or inherits loaded through scenes and merged in, so that the copy refers to no other scene file. An instance object gets the instanced scene's objects, with its overrides applied, as its first children, their IDs prefixed by its own ID and a slash ("enemy_1/body"). A scene that inherits another becomes a copy of its base with its own fields, overrides, layer overrides and layers applied, as SceneDoc.Inherits describes. Scenes referred to in turn are resolved the same way, each file loaded once per call.
+// Resolve validates doc and returns a copy of it with every scene it instances or inherits loaded through scenes and merged in, so that the copy refers to no other scene file. An instance object gets the instanced scene's objects, with its overrides applied, as its first children, their IDs prefixed by its own ID and a slash ("enemy_1/body"). A scene that inherits another becomes a copy of its base with its own fields, overrides, layer overrides and layers applied, as SceneDoc.Inherits describes. Connections come along: an instanced scene's connections, with the objects they name prefixed like its objects' IDs, in the order the instances appear, then the scene's own; an inheriting scene keeps its base's connections and adds its own after them. Scenes referred to in turn are resolved the same way, each file loaded once per call.
 //
 // Resolve refuses a cycle of scenes that instance or inherit each other, a chain deeper than MaxSceneNesting files, a result of more than MaxResolvedObjects objects, a scene file that fails to load or validate, an instanced scene with a tilemap, an override that names no object or layer of the scene it changes, a layer that extends a base layer and sets more than its objects, and a result that does not validate, such as one whose instanced IDs collide with others. It never modifies doc or the documents scenes returns, and scenes may be nil when doc refers to no other scene. The result has doc's version.
 func Resolve(doc *SceneDoc, scenes SceneResolver) (*SceneDoc, error) {
@@ -128,15 +128,17 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 	if doc.Layers != nil {
 		own.Layers = make([]LayerDoc, len(doc.Layers))
 	}
+	var conns []ConnectionDoc
 	for i := range doc.Layers {
 		l := &doc.Layers[i]
 		own.Layers[i] = cloneLayerFields(l)
-		objs, err := r.expandObjects(l.Objects)
+		objs, err := r.expandObjects(l.Objects, &conns)
 		if err != nil {
 			return nil, err
 		}
 		own.Layers[i].Objects = objs
 	}
+	own.Connections = append(conns, cloneConnections(doc.Connections)...)
 
 	out := own
 	if doc.Inherits != "" {
@@ -225,17 +227,18 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 		}
 		out.Layers[li].Objects = append(out.Layers[li].Objects, l.Objects...)
 	}
+	out.Connections = append(out.Connections, own.Connections...)
 	return out, nil
 }
 
-// expandObjects returns copies of objs with every instance expanded, or nil for no objects.
-func (r *sceneResolver) expandObjects(objs []ObjectDoc) ([]ObjectDoc, error) {
+// expandObjects returns copies of objs with every instance expanded, or nil for no objects, and appends the connections of the scenes they instance to conns.
+func (r *sceneResolver) expandObjects(objs []ObjectDoc, conns *[]ConnectionDoc) ([]ObjectDoc, error) {
 	if objs == nil {
 		return nil, nil
 	}
 	out := make([]ObjectDoc, len(objs))
 	for i := range objs {
-		o, err := r.expandObject(&objs[i])
+		o, err := r.expandObject(&objs[i], conns)
 		if err != nil {
 			return nil, err
 		}
@@ -244,8 +247,8 @@ func (r *sceneResolver) expandObjects(objs []ObjectDoc) ([]ObjectDoc, error) {
 	return out, nil
 }
 
-// expandObject returns a copy of o that instances nothing: the objects of o's instanced scene, overridden and with prefixed IDs, followed by o's own children expanded in turn.
-func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, error) {
+// expandObject returns a copy of o that instances nothing: the objects of o's instanced scene, overridden and with prefixed IDs, followed by o's own children expanded in turn. It appends the instanced scene's connections, with the same prefix on the objects they name, to conns, followed by those of scenes o's children instance.
+func (r *sceneResolver) expandObject(o *ObjectDoc, conns *[]ConnectionDoc) (ObjectDoc, error) {
 	if err := r.spend(1); err != nil {
 		return ObjectDoc{}, err
 	}
@@ -291,9 +294,14 @@ func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, error) {
 			c.ID = o.ID + "/" + c.ID
 			return true
 		})
+		for _, c := range cloneConnections(inst.Connections) {
+			c.From = o.ID + "/" + c.From
+			c.To = o.ID + "/" + c.To
+			*conns = append(*conns, c)
+		}
 	}
 	for i := range o.Children {
-		c, err := r.expandObject(&o.Children[i])
+		c, err := r.expandObject(&o.Children[i], conns)
 		if err != nil {
 			return ObjectDoc{}, err
 		}
@@ -493,7 +501,7 @@ func quoteAll(ss []string) []string {
 	return out
 }
 
-// Clone returns a deep copy of doc: its camera, tilemaps, layers, objects, overrides and maps are all new, so changing the copy never changes doc.
+// Clone returns a deep copy of doc: its camera, tilemaps, layers, objects, overrides, connections and maps are all new, so changing the copy never changes doc.
 func (doc *SceneDoc) Clone() *SceneDoc {
 	if doc == nil {
 		return nil
@@ -512,6 +520,7 @@ func (doc *SceneDoc) Clone() *SceneDoc {
 		}
 	}
 	out.Overrides = cloneOverrides(doc.Overrides)
+	out.Connections = cloneConnections(doc.Connections)
 	if doc.Layers != nil {
 		out.Layers = make([]LayerDoc, len(doc.Layers))
 		for i := range doc.Layers {

@@ -73,6 +73,13 @@
       "items": {
         "$ref": "#/definitions/LayerDoc"
       }
+    },
+    "connections": {
+      "description": "Connections connect events of the scene's objects to handlers of its objects, as Godot's connections in a .tscn file do, so a button can open a door with no Go code that wires the two. Connect binds them to the handlers a ComponentRegistry declares, and Resolve carries the connections of instanced and inherited scenes into the scene that uses them.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ConnectionDoc"
+      }
     }
   },
   "required": [
@@ -155,6 +162,48 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "ConnectionDoc": {
+      "description": "ConnectionDoc connects an event that one object emits to a handler of another object, or of the same one (SceneDoc.Connections). Signals.Emit calls the handler each time the object emits the event.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "From is the ID of the object that emits the event. In a scene that instances or inherits other scene files it may name their objects, such as \"door_1/button\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "event": {
+          "description": "Event names an event a registered component type of From's object declares (ComponentType.Events), such as \"pressed\", or \"button.pressed\" to say which component when several of the object's components declare it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "description": "To is the ID of the object whose handler runs.",
+          "type": "string",
+          "minLength": 1
+        },
+        "handler": {
+          "description": "Handler names a handler a registered component type of To's object declares (ComponentType.Handlers), such as \"open\", or \"door.open\" to say which component.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Args are values for the handler's params by name; a param left out takes its default. Each is a bool, a number or a string.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "once": {
+          "description": "Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "event",
+        "to",
+        "handler"
+      ],
       "additionalProperties": false
     },
     "LayerDoc": {
