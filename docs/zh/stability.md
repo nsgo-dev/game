@@ -101,6 +101,7 @@
 | `game/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | 实验性 | [lights2d](lights2d.md) |
 | `game/liveops` | 实验性 | [liveops](liveops.md) |
+| `game/loot` | 实验性 | [loot](loot.md) |
 | `game/math2d` | 稳定 | [math2d](math2d.md) |
 | `game/math3d` | 实验性 | [math3d](math3d.md) |
 | `game/modding` | 实验性 | [modding](modding.md) |
