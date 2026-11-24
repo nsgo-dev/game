@@ -26,8 +26,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// ToolScreenshot captures the game view as a PNG image, optionally with aligned sprite bounds,
-// physics collision shapes, reference grid, camera frame and label overlays drawn on top.
+// ToolScreenshot captures the game view as a PNG image, optionally with aligned sprite bounds, physics collision shapes, reference grid, camera frame and label overlays drawn on top.
 const ToolScreenshot = "game_screenshot"
 
 const (
@@ -50,8 +49,7 @@ type OverlayStyle struct {
 	LabelBgColor    core.Color
 }
 
-// DefaultOverlayStyle returns the default high-contrast colors for game_screenshot overlays.
-// Collision shape colors match physics.DefaultDebugStyle.
+// DefaultOverlayStyle returns the default high-contrast colors for game_screenshot overlays. Collision shape colors match physics.DefaultDebugStyle.
 func DefaultOverlayStyle() OverlayStyle {
 	pdef := physics.DefaultDebugStyle()
 	boxColor := pdef.BoxColor
@@ -104,16 +102,17 @@ type ScreenshotOverlays struct {
 
 // OverlaysDrawn summarizes which overlays were rendered on a screenshot and how many primitives each drew.
 type OverlaysDrawn struct {
-	Bounds          bool `json:"bounds"`
-	CollisionShapes bool `json:"collision_shapes"`
+	Bounds          bool `json:"bounds,omitempty"`
+	CollisionShapes bool `json:"collision_shapes,omitempty"`
 	Grid            bool `json:"grid,omitempty"`
 	Camera          bool `json:"camera,omitempty"`
 	Labels          bool `json:"labels,omitempty"`
-	SpriteBounds    int  `json:"sprite_bounds,omitempty"`
-	PhysicsBoxes    int  `json:"physics_boxes,omitempty"`
-	PhysicsCircles  int  `json:"physics_circles,omitempty"`
-	PhysicsTriggers int  `json:"physics_triggers,omitempty"`
-	PhysicsTiles    int  `json:"physics_tiles,omitempty"`
+	// SpriteBounds counts the sprites outlined: those in scene layers' Item.Batch. Sprites a Drawable item or a tilemap draws get no outline.
+	SpriteBounds    int `json:"sprite_bounds,omitempty"`
+	PhysicsBoxes    int `json:"physics_boxes,omitempty"`
+	PhysicsCircles  int `json:"physics_circles,omitempty"`
+	PhysicsTriggers int `json:"physics_triggers,omitempty"`
+	PhysicsTiles    int `json:"physics_tiles,omitempty"`
 }
 
 // ScreenshotResult is the JSON result of game_screenshot.
@@ -126,10 +125,13 @@ type ScreenshotResult struct {
 	Bytes         int           `json:"bytes"`
 	PNGBase64     string        `json:"png_base64,omitempty"`
 	OverlaysDrawn OverlaysDrawn `json:"overlays_drawn"`
+	// SkippedOps counts, by draw operation kind (such as "DrawFillText" or "DrawEllipse"), what the software rasterizer did not draw when the frame was rendered rather than captured. A non-empty map means the image is partial.
+	SkippedOps map[string]int `json:"skipped_ops,omitempty"`
+	// SkippedImages counts image and atlas draws the software rasterizer left out because their source is not in memory (a URI, an "asset:" file or an Offscreen canvas) or could not be decoded. Use CaptureFrame to see them.
+	SkippedImages int `json:"skipped_images,omitempty"`
 }
 
-// SetPhysics replaces the static 2D physics world configured on b.
-// If Config.PhysicsFunc is set and returns a non-nil world, PhysicsFunc continues to take precedence.
+// SetPhysics replaces the static 2D physics world configured on b. If Config.PhysicsFunc is set and returns a non-nil world, PhysicsFunc continues to take precedence.
 func (b *Bridge) SetPhysics(w *physics.World) {
 	if b == nil {
 		return
@@ -137,8 +139,7 @@ func (b *Bridge) SetPhysics(w *physics.World) {
 	b.cfg.Physics = w
 }
 
-// SetRigidPhysics replaces the static 2D rigid-body physics world configured on b.
-// If Config.RigidPhysicsFunc is set and returns a non-nil world, RigidPhysicsFunc continues to take precedence.
+// SetRigidPhysics replaces the static 2D rigid-body physics world configured on b. If Config.RigidPhysicsFunc is set and returns a non-nil world, RigidPhysicsFunc continues to take precedence.
 func (b *Bridge) SetRigidPhysics(w *physics.RigidWorld) {
 	if b == nil {
 		return
@@ -176,7 +177,7 @@ var schemaScreenshot = json.RawMessage(`{
 	"properties": {
 		"scene": {
 			"type": "string",
-			"description": "Optional scene name from game_scenes_list to capture; omit to capture the current active game view."
+			"description": "Optional scene name from game_scenes_list to render on its own with the software rasterizer (CaptureFrame and DrawFrame are not used); omit to capture the current game view."
 		},
 		"width": {
 			"type": "integer",
@@ -197,7 +198,7 @@ var schemaScreenshot = json.RawMessage(`{
 		},
 		"path": {
 			"type": "string",
-			"description": "Optional relative file path inside Config.ScreenshotDir to write the PNG instead of returning png_base64."
+			"description": "Relative .png file path inside Config.ScreenshotDir to write the PNG to instead of returning png_base64. Prefer it: png_base64 reaches an agent as text, not as an image."
 		},
 		"bounds": {
 			"type": "boolean",
@@ -214,6 +215,11 @@ var schemaScreenshot = json.RawMessage(`{
 		"grid": {
 			"type": "boolean",
 			"description": "Draw a world-space reference grid."
+		},
+		"grid_step": {
+			"type": "number",
+			"exclusiveMinimum": 0,
+			"description": "Spacing of the reference grid in world points (default 32)."
 		},
 		"camera": {
 			"type": "boolean",
@@ -283,6 +289,7 @@ type screenshotArgs struct {
 	CollisionShapes bool                `json:"collision_shapes"`
 	Physics         bool                `json:"physics"`
 	Grid            bool                `json:"grid"`
+	GridStep        float32             `json:"grid_step"`
 	Camera          bool                `json:"camera"`
 	Labels          bool                `json:"labels"`
 	Overlays        *ScreenshotOverlays `json:"overlays"`
@@ -308,17 +315,27 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 	if (args.Width == 0) != (args.Height == 0) {
 		return nil, fmt.Errorf("mcp: width and height must both be provided when overriding dimensions (got %dx%d)", args.Width, args.Height)
 	}
-	if args.Width > maxScreenshotDim || args.Height > maxScreenshotDim || int64(args.Width)*int64(args.Height) > maxScreenshotPixels {
-		return nil, fmt.Errorf("mcp: screenshot dimensions %dx%d exceed maximum (%dx%d, %d pixels)", args.Width, args.Height, maxScreenshotDim, maxScreenshotDim, maxScreenshotPixels)
+	if err := checkScreenshotDims(args.Width, args.Height); err != nil {
+		return nil, err
 	}
 
 	gridStep := float32(defaultGridStep)
-	if args.Overlays != nil && args.Overlays.GridStep != 0 {
-		gs := float64(args.Overlays.GridStep)
-		if math.IsNaN(gs) || math.IsInf(gs, 0) || gs <= 0 {
-			return nil, fmt.Errorf("mcp: overlays.grid_step must be a positive finite number (got %v)", args.Overlays.GridStep)
+	gridStepSet := false
+	for _, gs := range []struct {
+		name string
+		v    float32
+	}{{"grid_step", args.GridStep}, {"overlays.grid_step", overlayGridStep(args.Overlays)}} {
+		if gs.v == 0 {
+			continue
 		}
-		gridStep = args.Overlays.GridStep
+		f := float64(gs.v)
+		if math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 {
+			return nil, fmt.Errorf("mcp: %s must be a positive finite number (got %v)", gs.name, gs.v)
+		}
+		if gridStepSet && gridStep != gs.v {
+			return nil, fmt.Errorf("mcp: grid_step %v and overlays.grid_step %v disagree", gridStep, gs.v)
+		}
+		gridStep, gridStepSet = gs.v, true
 	}
 
 	var cleanRelPath string
@@ -344,10 +361,15 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 	}
 	activeCam := screenshotCamera(drawnScenes)
 
+	vp, hasVP := b.activeViewport()
 	var (
 		img    *image.RGBA
 		width  = args.Width
 		height = args.Height
+		frame  screenshotFrame
+
+		skippedOps    map[string]int
+		skippedImages int
 	)
 
 	if b.cfg.CaptureFrame != nil && args.Scene == "" {
@@ -362,36 +384,52 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 		if width > 0 && (width != imgW || height != imgH) {
 			return nil, fmt.Errorf("mcp: CaptureFrame returned %dx%d image, does not match requested %dx%d", imgW, imgH, width, height)
 		}
-		if imgW > maxScreenshotDim || imgH > maxScreenshotDim || int64(imgW)*int64(imgH) > maxScreenshotPixels {
-			return nil, fmt.Errorf("mcp: captured image dimensions %dx%d exceed maximum", imgW, imgH)
+		if err := checkScreenshotDims(imgW, imgH); err != nil {
+			return nil, fmt.Errorf("mcp: captured image: %w", err)
 		}
 		width, height = imgW, imgH
 		img = cloneRGBA(captured)
-	} else {
-		if width == 0 && height == 0 {
-			width, height, err = b.inferScreenshotSize(activeCam)
-			if err != nil {
-				return nil, err
-			}
+		// The captured frame covers the view at the display's pixel ratio, so it may be in device pixels: lay the viewport out in the view's points, as the game does, and scale that layout to the image. A frame whose aspect ratio is not the view's is not of that view, and its pixels are taken as points.
+		view := b.activeViewSize(vp, hasVP)
+		if view.Width <= 0 || view.Height <= 0 || !sameAspect(view, imgW, imgH) {
+			view = core.Size{Width: core.Points(imgW), Height: core.Points(imgH)}
 		}
+		frame = newScreenshotFrame(view, width, height, vp, hasVP)
+	} else {
 		hasScene := len(drawnScenes) > 0 || (b.cfg.Scenes != nil && b.cfg.Scenes.Depth() > 0 && args.Scene == "")
 		hasPhysics := b.activePhysics() != nil || b.activeRigidPhysics() != nil
 		if b.cfg.DrawFrame == nil && !hasScene && !hasPhysics {
 			return nil, errors.New("mcp: no screenshot source configured (set CaptureFrame, DrawFrame, Scene/Scenes, or Physics)")
 		}
 
+		var view core.Size
+		if width == 0 && height == 0 {
+			view, err = b.inferScreenshotView(vp, hasVP, activeCam)
+			if err != nil {
+				return nil, err
+			}
+			width, height = int(math.Round(float64(view.Width))), int(math.Round(float64(view.Height)))
+			if err := checkScreenshotDims(width, height); err != nil {
+				return nil, err
+			}
+		}
+		view = core.Size{Width: core.Points(width), Height: core.Points(height)}
+		frame = newScreenshotFrame(view, width, height, vp, hasVP)
+
 		var d core.Drawing
 		switch {
 		case args.Scene != "":
-			b.drawScenesInto(&d, width, height, drawnScenes)
+			drawScenesInto(&d, frame, drawnScenes)
 		case b.cfg.DrawFrame != nil:
 			b.cfg.DrawFrame(&d, width, height)
 		case b.cfg.Scenes != nil && b.cfg.Scenes.Depth() > 0:
-			b.drawManagerInto(&d, width, height)
+			b.drawManagerInto(&d, frame)
 		default:
-			b.drawScenesInto(&d, width, height, drawnScenes)
+			drawScenesInto(&d, frame, drawnScenes)
 		}
-		img = rasterizeOps(width, height, d.Ops, b.cfg.ScreenshotBackground)
+		var skipped rasterSkipped
+		img, skipped = rasterizeOps(width, height, d.Ops, b.cfg.ScreenshotBackground)
+		skippedOps, skippedImages = skipped.ops, skipped.images
 	}
 
 	drawn := OverlaysDrawn{
@@ -403,7 +441,7 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 	}
 
 	if wantBounds || wantCollision || wantGrid || wantCamera || wantLabels {
-		b.compositeOverlays(img, drawnScenes, activeCam, overlayRequest{
+		b.compositeOverlays(img, frame, drawnScenes, activeCam, overlayRequest{
 			bounds:          wantBounds,
 			collisionShapes: wantCollision,
 			grid:            wantGrid,
@@ -426,6 +464,8 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 		Scene:         sceneName,
 		Bytes:         len(pngBytes),
 		OverlaysDrawn: drawn,
+		SkippedOps:    skippedOps,
+		SkippedImages: skippedImages,
 	}
 
 	if cleanRelPath != "" {
@@ -437,6 +477,13 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 		res.PNGBase64 = base64.StdEncoding.EncodeToString(pngBytes)
 	}
 	return res, nil
+}
+
+func overlayGridStep(o *ScreenshotOverlays) float32 {
+	if o == nil {
+		return 0
+	}
+	return o.GridStep
 }
 
 func (b *Bridge) resolveScreenshotScenes(requested string) (string, []*scene.Scene, error) {
@@ -468,7 +515,7 @@ func (b *Bridge) resolveScreenshotScenes(requested string) (string, []*scene.Sce
 			return "", nil, fmt.Errorf("mcp: scene %q not found (available: %s)", requested, strings.Join(avail, ", "))
 		}
 		if target.scene == nil {
-			return target.info.Name, nil, nil
+			return "", nil, fmt.Errorf("mcp: scene %q has no scene.Scene to render (its controller draws through a custom Controller.Draw); omit scene to capture the current view", target.info.Name)
 		}
 		return target.info.Name, []*scene.Scene{target.scene}, nil
 	}
@@ -511,25 +558,60 @@ func screenshotCamera(scenes []*scene.Scene) *tilemap.Camera {
 	return nil
 }
 
-func (b *Bridge) inferScreenshotSize(cam *tilemap.Camera) (int, int, error) {
-	if b.cfg.Viewport != nil && b.cfg.Viewport.Width > 0 && b.cfg.Viewport.Height > 0 {
-		w := int(math.Round(float64(b.cfg.Viewport.Width)))
-		h := int(math.Round(float64(b.cfg.Viewport.Height)))
-		if w > 0 && h > 0 {
-			return w, h, nil
-		}
+func checkScreenshotDims(w, h int) error {
+	if w > maxScreenshotDim || h > maxScreenshotDim || int64(w)*int64(h) > maxScreenshotPixels {
+		return fmt.Errorf("mcp: screenshot dimensions %dx%d exceed maximum (%dx%d, %d pixels)", w, h, maxScreenshotDim, maxScreenshotDim, maxScreenshotPixels)
 	}
-	if cam != nil && cam.Width > 0 && cam.Height > 0 {
-		w := int(math.Round(float64(cam.Width)))
-		h := int(math.Round(float64(cam.Height)))
-		if w > 0 && h > 0 {
-			return w, h, nil
-		}
-	}
-	return 0, 0, errors.New("mcp: cannot determine screenshot dimensions (pass width and height, or configure Viewport, a scene Camera with Width/Height, or CaptureFrame)")
+	return nil
 }
 
-func (b *Bridge) drawManagerInto(d *core.Drawing, width, height int) {
+// sameAspect reports whether an image of w by h pixels has view's aspect ratio, to within the one pixel rounding a device pixel ratio can introduce.
+func sameAspect(view core.Size, w, h int) bool {
+	sx := float64(w) / float64(view.Width)
+	sy := float64(h) / float64(view.Height)
+	return math.Abs(sx-sy)*float64(view.Width) <= 1 && math.Abs(sx-sy)*float64(view.Height) <= 1
+}
+
+// screenshotFrame relates a screenshot's pixels to the game's view: view is the window size in points the game lays its viewport out in, and sx, sy are the image's pixels per view point.
+type screenshotFrame struct {
+	view   core.Size
+	sx, sy float64
+	vp     screen.Viewport
+	hasVP  bool
+}
+
+func newScreenshotFrame(view core.Size, width, height int, vp screen.Viewport, hasVP bool) screenshotFrame {
+	return screenshotFrame{
+		view:  view,
+		sx:    float64(width) / float64(view.Width),
+		sy:    float64(height) / float64(view.Height),
+		vp:    vp,
+		hasVP: hasVP,
+	}
+}
+
+// inferScreenshotView returns the view size in points a screenshot covers when the caller gives no width and height: the size game_input_pointer maps through (ViewSizeFunc, the attached window, then the viewport's virtual size), else the scene camera's size.
+func (b *Bridge) inferScreenshotView(vp screen.Viewport, hasVP bool, cam *tilemap.Camera) (core.Size, error) {
+	view := b.activeViewSize(vp, hasVP)
+	if view.Width <= 0 || view.Height <= 0 {
+		if cam != nil {
+			view = core.Size{Width: core.Points(cam.Width), Height: core.Points(cam.Height)}
+		}
+	}
+	w, h := float64(view.Width), float64(view.Height)
+	if math.IsNaN(w) || math.IsNaN(h) || math.IsInf(w, 0) || math.IsInf(h, 0) {
+		return core.Size{}, fmt.Errorf("mcp: cannot determine screenshot dimensions: view size %vx%v is not finite", w, h)
+	}
+	if math.Round(w) < 1 || math.Round(h) < 1 {
+		return core.Size{}, errors.New("mcp: cannot determine screenshot dimensions (pass width and height, or configure Viewport/ViewportFunc, ViewSizeFunc, a scene Camera with Width/Height, or CaptureFrame)")
+	}
+	if w > maxScreenshotDim || h > maxScreenshotDim || w*h > maxScreenshotPixels {
+		return core.Size{}, fmt.Errorf("mcp: inferred screenshot dimensions %vx%v exceed maximum (%dx%d, %d pixels); pass width and height", w, h, maxScreenshotDim, maxScreenshotDim, maxScreenshotPixels)
+	}
+	return view, nil
+}
+
+func (b *Bridge) drawManagerInto(d *core.Drawing, frame screenshotFrame) {
 	draw := func(dst *core.Drawing, size core.Size) {
 		cur := b.cfg.Scenes.Current()
 		if cur != nil && cur.Draw == nil && cur.Scene == nil {
@@ -540,15 +622,14 @@ func (b *Bridge) drawManagerInto(d *core.Drawing, width, height int) {
 		}
 		b.cfg.Scenes.Draw(dst, size, 0)
 	}
-	win := core.Size{Width: core.Points(width), Height: core.Points(height)}
-	if b.cfg.Viewport != nil {
-		b.cfg.Viewport.Draw(d, win, draw)
+	if frame.hasVP {
+		frame.vp.Draw(d, frame.view, draw)
 		return
 	}
-	draw(d, win)
+	draw(d, frame.view)
 }
 
-func (b *Bridge) drawScenesInto(d *core.Drawing, width, height int, scenes []*scene.Scene) {
+func drawScenesInto(d *core.Drawing, frame screenshotFrame, scenes []*scene.Scene) {
 	if len(scenes) == 0 {
 		return
 	}
@@ -559,12 +640,11 @@ func (b *Bridge) drawScenesInto(d *core.Drawing, width, height int, scenes []*sc
 			}
 		}
 	}
-	win := core.Size{Width: core.Points(width), Height: core.Points(height)}
-	if b.cfg.Viewport != nil {
-		b.cfg.Viewport.Draw(d, win, draw)
+	if frame.hasVP {
+		frame.vp.Draw(d, frame.view, draw)
 		return
 	}
-	draw(d, win)
+	draw(d, frame.view)
 }
 
 func sanitizeScreenshotPath(p string) (string, error) {
@@ -576,6 +656,9 @@ func sanitizeScreenshotPath(p string) (string, error) {
 	}
 	if strings.ContainsAny(p, "\\:") {
 		return "", fmt.Errorf("mcp: invalid screenshot path %q: must be a relative slash-separated path", p)
+	}
+	if !strings.EqualFold(path.Ext(p), ".png") {
+		return "", fmt.Errorf("mcp: invalid screenshot path %q: must end in .png", p)
 	}
 	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) {
 		return "", fmt.Errorf("mcp: invalid screenshot path %q: absolute paths are not allowed", p)
@@ -658,29 +741,30 @@ type overlayLabel struct {
 	text string
 }
 
-func (b *Bridge) viewportTransform(width, height int) (affine2D, image.Rectangle) {
+// viewportTransform maps the game's virtual canvas points to the screenshot's pixels and returns the pixel rectangle the canvas covers.
+func viewportTransform(frame screenshotFrame, width, height int) (affine2D, image.Rectangle) {
 	full := image.Rect(0, 0, width, height)
-	if b.cfg.Viewport == nil {
-		return identityAffine2D(), full
+	pixels := affine2D{a: frame.sx, d: frame.sy}
+	if !frame.hasVP {
+		return pixels, full
 	}
-	win := core.Size{Width: core.Points(width), Height: core.Points(height)}
-	pl := b.cfg.Viewport.Layout(win)
+	pl := frame.vp.Layout(frame.view)
 	if pl.ScaleX <= 0 || pl.ScaleY <= 0 {
 		return identityAffine2D(), image.Rectangle{}
 	}
-	m := affine2D{
+	m := pixels.mul(affine2D{
 		a: float64(pl.ScaleX),
 		d: float64(pl.ScaleY),
 		e: float64(pl.Rect.Origin.X),
 		f: float64(pl.Rect.Origin.Y),
-	}
+	})
 	clip := full
 	if len(pl.Bars) > 0 {
 		r := image.Rect(
-			int(math.Ceil(float64(pl.Rect.Origin.X)-0.5)),
-			int(math.Ceil(float64(pl.Rect.Origin.Y)-0.5)),
-			int(math.Ceil(float64(pl.Rect.Origin.X+pl.Rect.Size.Width)-0.5)),
-			int(math.Ceil(float64(pl.Rect.Origin.Y+pl.Rect.Size.Height)-0.5)),
+			int(math.Ceil(float64(pl.Rect.Origin.X)*frame.sx-0.5)),
+			int(math.Ceil(float64(pl.Rect.Origin.Y)*frame.sy-0.5)),
+			int(math.Ceil(float64(pl.Rect.Origin.X+pl.Rect.Size.Width)*frame.sx-0.5)),
+			int(math.Ceil(float64(pl.Rect.Origin.Y+pl.Rect.Size.Height)*frame.sy-0.5)),
 		)
 		clip = full.Intersect(r)
 	}
@@ -700,9 +784,9 @@ func cameraAffine2D(cam *tilemap.Camera) affine2D {
 	return m
 }
 
-func (b *Bridge) compositeOverlays(img *image.RGBA, scenes []*scene.Scene, activeCam *tilemap.Camera, req overlayRequest, drawn *OverlaysDrawn) {
+func (b *Bridge) compositeOverlays(img *image.RGBA, frame screenshotFrame, scenes []*scene.Scene, activeCam *tilemap.Camera, req overlayRequest, drawn *OverlaysDrawn) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
-	vpM, vpClip := b.viewportTransform(w, h)
+	vpM, vpClip := viewportTransform(frame, w, h)
 	if vpClip.Empty() {
 		return
 	}
@@ -1084,9 +1168,7 @@ func drawWorldSegment(dst *image.RGBA, clip image.Rectangle, m affine2D, x0, y0,
 	drawLineBresenham(dst, clip, int(math.Floor(sx0)), int(math.Floor(sy0)), int(math.Floor(sx1)), int(math.Floor(sy1)), sr, sg, sb, sa)
 }
 
-// drawCrispRectOutline draws a pixel-aligned 1-pixel border matching the exact pixel coverage of
-// a filled rectangle [x, x+w) x [y, y+h) transformed by m, clipped to clip.
-// It returns the top-left screen pixel coordinate and whether any part of the rectangle lies within clip.
+// drawCrispRectOutline draws a pixel-aligned 1-pixel border matching the exact pixel coverage of a filled rectangle [x, x+w) x [y, y+h) transformed by m, clipped to clip. It returns the top-left screen pixel coordinate and whether any part of the rectangle lies within clip.
 func drawCrispRectOutline(dst *image.RGBA, clip image.Rectangle, m affine2D, x, y, w, h float64, col core.Color) (int, int, bool) {
 	x, y, w, h = normalizeRect2D(x, y, w, h)
 	if w <= 0 || h <= 0 {
@@ -1172,8 +1254,7 @@ func drawCrispRectOutline(dst *image.RGBA, clip image.Rectangle, m affine2D, x, 
 	return minPX, minPY, true
 }
 
-// drawCrispCircleOutline draws a closed 1-pixel circle/ellipse outline aligned to [cx-r, cx+r) x [cy-r, cy+r)
-// under transform m, plus the +X orientation radius tick matching physics.DrawShape.
+// drawCrispCircleOutline draws a closed 1-pixel circle/ellipse outline aligned to [cx-r, cx+r) x [cy-r, cy+r) under transform m, plus the +X orientation radius tick matching physics.DrawShape.
 func drawCrispCircleOutline(dst *image.RGBA, clip image.Rectangle, m affine2D, cx, cy, r float64, col core.Color) (int, int, bool) {
 	if r <= 0 {
 		return 0, 0, false
@@ -1471,9 +1552,29 @@ type rasterState struct {
 	clip        image.Rectangle
 }
 
-func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) *image.RGBA {
+// rasterSkipped counts what rasterizeOps could not draw, so a result can say the image is partial.
+type rasterSkipped struct {
+	ops    map[string]int
+	images int
+}
+
+func (r *rasterSkipped) op(k core.DrawKind) {
+	if r.ops == nil {
+		r.ops = make(map[string]int)
+	}
+	r.ops[k.String()]++
+}
+
+// rasterImage is an image source decoded for drawing, with its pixels per point on each axis.
+type rasterImage struct {
+	img      image.Image
+	ppx, ppy float64
+}
+
+func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) (*image.RGBA, rasterSkipped) {
+	var skipped rasterSkipped
 	if width <= 0 || height <= 0 {
-		return image.NewRGBA(image.Rectangle{})
+		return image.NewRGBA(image.Rectangle{}), skipped
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	if bg != 0 && bg != core.Transparent {
@@ -1509,26 +1610,41 @@ func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) *image.RG
 	var penX, penY, subX, subY float64
 	decoded := make(map[string]image.Image)
 
-	resolveImage := func(src *core.ImageSource) image.Image {
+	// resolveImage returns the pixels of an in-memory source (Pixels or Data). URI, asset: and Offscreen sources are not loaded here; they are counted in skipped.images.
+	resolveImage := func(src *core.ImageSource) (rasterImage, bool) {
 		if src == nil {
-			return nil
+			return rasterImage{}, false
 		}
-		if src.Pixels != nil {
-			return src.Pixels
-		}
-		if len(src.Data) > 0 {
-			key := string(src.Data)
-			if img, ok := decoded[key]; ok {
-				return img
+		var img image.Image
+		switch {
+		case src.Pixels != nil:
+			img = src.Pixels
+		case len(src.Data) > 0:
+			// Looking up with string(src.Data) in the index expression does not copy the bytes.
+			if cached, ok := decoded[string(src.Data)]; ok {
+				img = cached
+			} else {
+				dec, _, err := image.Decode(bytes.NewReader(src.Data))
+				if err != nil {
+					return rasterImage{}, false
+				}
+				decoded[string(src.Data)] = dec
+				img = dec
 			}
-			img, _, err := image.Decode(bytes.NewReader(src.Data))
-			if err != nil {
-				return nil
-			}
-			decoded[key] = img
-			return img
+		default:
+			return rasterImage{}, false
 		}
-		return nil
+		b := img.Bounds()
+		if b.Empty() {
+			return rasterImage{}, false
+		}
+		ri := rasterImage{img: img, ppx: 1, ppy: 1}
+		// Without Size an in-memory image measures its pixels in points; with Size, source rectangles are in the image's points.
+		if src.Size.Width > 0 && src.Size.Height > 0 {
+			ri.ppx = float64(b.Dx()) / float64(src.Size.Width)
+			ri.ppy = float64(b.Dy()) / float64(src.Size.Height)
+		}
+		return ri, true
 	}
 
 	for _, op := range ops {
@@ -1575,6 +1691,50 @@ func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) *image.RG
 				hasPen = true
 			}
 			penX, penY = nx, ny
+		case core.DrawQuadTo, core.DrawCubicTo:
+			// An affine transform maps a Bezier curve to the Bezier curve of the mapped control points, so flatten in pixels.
+			c1x, c1y := cur.m.apply(float64(op.X1), float64(op.Y1))
+			c2x, c2y := c1x, c1y
+			if op.Kind == core.DrawCubicTo {
+				c2x, c2y = cur.m.apply(float64(op.X2), float64(op.Y2))
+			}
+			ex, ey := cur.m.apply(float64(op.X), float64(op.Y))
+			if !hasPen {
+				penX, penY = c1x, c1y
+				subX, subY = c1x, c1y
+				hasPen = true
+			}
+			x0, y0 := penX, penY
+			length := math.Hypot(c1x-x0, c1y-y0) + math.Hypot(c2x-c1x, c2y-c1y) + math.Hypot(ex-c2x, ey-c2y)
+			steps := min(256, max(8, int(math.Ceil(length/2))))
+			for i := 1; i <= steps; i++ {
+				t := float64(i) / float64(steps)
+				u := 1 - t
+				var px, py float64
+				if op.Kind == core.DrawQuadTo {
+					px = u*u*x0 + 2*u*t*c1x + t*t*ex
+					py = u*u*y0 + 2*u*t*c1y + t*t*ey
+				} else {
+					px = u*u*u*x0 + 3*u*u*t*c1x + 3*u*t*t*c2x + t*t*t*ex
+					py = u*u*u*y0 + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*ey
+				}
+				segs = append(segs, pathSeg2D{x0: penX, y0: penY, x1: px, y1: py})
+				penX, penY = px, py
+			}
+		case core.DrawRoundRect, core.DrawEllipse, core.DrawFillText, core.DrawStrokeText, core.DrawFillGradient, core.DrawStrokeGradient, core.DrawVertices:
+			skipped.op(op.Kind)
+		case core.DrawComposite:
+			if op.Composite != core.CompositeSourceOver {
+				skipped.op(op.Kind)
+			}
+		case core.DrawLineDash:
+			if op.Dash != nil && len(*op.Dash) > 0 {
+				skipped.op(op.Kind)
+			}
+		case core.DrawShadow:
+			if op.Color != core.Transparent && op.Color&0xff != 0 {
+				skipped.op(op.Kind)
+			}
 		case core.DrawClosePath:
 			if hasPen && (penX != subX || penY != subY) {
 				segs = append(segs, pathSeg2D{x0: penX, y0: penY, x1: subX, y1: subY})
@@ -1661,26 +1821,30 @@ func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) *image.RG
 			if cur.alpha <= 0 || cur.clip.Empty() {
 				continue
 			}
-			img := resolveImage(op.Image)
-			if img == nil || img.Bounds().Empty() {
+			ri, ok := resolveImage(op.Image)
+			if !ok {
+				skipped.images++
 				continue
 			}
-			b := img.Bounds()
+			b := ri.img.Bounds()
+			// The source rectangle is in the image's points; the destination defaults to the source's size in points.
 			sx, sy, sw, sh := float64(op.X1), float64(op.Y1), float64(op.X2), float64(op.Y2)
 			if sw == 0 && sh == 0 {
-				sw, sh = float64(b.Dx()), float64(b.Dy())
+				sx, sy = 0, 0
+				sw, sh = float64(b.Dx())/ri.ppx, float64(b.Dy())/ri.ppy
 			}
 			dx, dy, dw, dh := float64(op.X), float64(op.Y), float64(op.W), float64(op.H)
 			if dw == 0 && dh == 0 {
 				dw, dh = sw, sh
 			}
-			drawTransformedImage2D(dst, cur.clip, cur.m, img, sx, sy, sw, sh, dx, dy, dw, dh, cur.alpha, op.Tinted, op.Color)
+			drawTransformedImage2D(dst, cur.clip, cur.m, ri.img, sx*ri.ppx, sy*ri.ppy, sw*ri.ppx, sh*ri.ppy, dx, dy, dw, dh, cur.alpha, op.Tinted, op.Color)
 		case core.DrawAtlas:
 			if cur.alpha <= 0 || op.Atlas == nil || cur.clip.Empty() {
 				continue
 			}
-			img := resolveImage(op.Image)
-			if img == nil || img.Bounds().Empty() {
+			ri, ok := resolveImage(op.Image)
+			if !ok {
+				skipped.images++
 				continue
 			}
 			for _, s := range *op.Atlas {
@@ -1695,12 +1859,12 @@ func rasterizeOps(width, height int, ops []core.DrawOp, bg core.Color) *image.RG
 					e: float64(t.TX), f: float64(t.TY),
 				})
 				sw, sh := float64(s.Rect.Size.Width), float64(s.Rect.Size.Height)
-				drawTransformedImage2D(dst, cur.clip, m, img, float64(s.Rect.Origin.X), float64(s.Rect.Origin.Y), sw, sh, 0, 0, sw, sh, alpha, false, 0)
+				drawTransformedImage2D(dst, cur.clip, m, ri.img, float64(s.Rect.Origin.X)*ri.ppx, float64(s.Rect.Origin.Y)*ri.ppy, sw*ri.ppx, sh*ri.ppy, 0, 0, sw, sh, alpha, false, 0)
 			}
 		}
 	}
 
-	return dst
+	return dst, skipped
 }
 
 func pathBoundsRect(rects []pathRect2D, segs []pathSeg2D, full image.Rectangle) (image.Rectangle, bool) {
