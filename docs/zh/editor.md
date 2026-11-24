@@ -27,7 +27,7 @@ NSGo 原生编辑器直接读写 `sceneformat.SceneDoc` 文件，聚焦于可视
 
 ---
 
-## 场景格式（`version: 1`）（#160）
+## 场景格式（`version: 2`）（#160）
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -37,12 +37,15 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `version` | `int` | 必填的格式版本号，必须为 `1`。 |
+| `version` | `int` | 必填的格式版本号：`2`（`CurrentVersion`），或者对未使用任何版本 2 新增字段的场景为 `1`。`Encode` 原样写回。 |
+| `inherits` | `string` | 可选，从项目根目录起、以斜杠分隔的基础场景路径，本场景继承该场景（版本 2，见下文“实例化与继承”）。 |
 | `name` | `string` | 可选的场景可读名称。 |
 | `virtualWidth`、`virtualHeight` | `float32` | 虚拟视口尺寸（单位为点）。两者必须同时为 `0` 或同时为正数。 |
 | `backgroundColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"#141824"`）。在绘制各图层前填充 `(0, 0, virtualWidth, virtualHeight)`。 |
 | `camera` | 对象 | 可选的默认 2D 相机配置，作用于世界空间图层（`x`、`y`、`zoom`、`rotation`，以及可选的 `bounds`）。 |
 | `tilemaps` | 映射 | 可选的命名瓦片地图定义，供图层通过 `tilemap.ref` 引用。 |
+| `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2，需要 `inherits`）。 |
+| `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2，需要 `inherits`）。 |
 | `layers` | 列表 | 有序图层列表，按 `order` 从小到大绘制，`order` 相同时保持文档顺序。 |
 
 ### 相机（Camera）
@@ -81,6 +84,8 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
 - `components`：可选的映射，键是组件类型名，值是它的字段；未提供组件注册表时内容不受约束（见[组件类型](#组件类型)）
 - `properties`：可选的 `map[string]any`，存放自定义元数据
+- `scene`：可选，从项目根目录起、以斜杠分隔的场景文件路径，本对象实例化该场景（版本 2，见下文“实例化与继承”）
+- `overrides`：可选，按 ID 修改被实例化场景中的对象（版本 2，需要 `scene`）
 - `children`：可选的子对象列表，挂在本对象之下（见下文“节点树”）
 
 ### 节点树（#484）
@@ -130,11 +135,87 @@ pos := nodes.Objects["barrel"].WorldTransform().Pos
 
 编辑器在移动、删除和撤销对象时会连同其子对象一起处理，并且不会分配已被嵌套子对象占用的 ID。它会拒绝放置嵌套超过 `MaxObjectDepth` 层或含有切变精灵的树，也会拒绝会让子对象精灵产生切变的缩放。2D 视口通过 `Build` 绘制嵌套的子对象；3D 视口只绘制和拾取顶层对象，目前在两个视口中都还不支持选择和编辑嵌套的子对象。
 
+### 实例化与继承（#483）
+
+版本 2 的场景可以像 Godot 的场景那样复用其他场景文件。每个引用都和材质引用一样，是从项目根目录起、以斜杠分隔的路径；`Parse` 与 `Encode` 会原样保留引用和覆盖：由实例组成的关卡保存后仍是同样的实例，而不是这些实例中对象的副本。
+
+带有 `scene` 的对象会实例化该文件。被实例化场景中每个图层的顶层对象按文档顺序成为该对象最前面的子对象，排在它自己的 `children` 之前，因此该对象的变换决定整个实例的位置。这些对象的 ID 会加上该对象的 ID 和一个斜杠作为前缀，因此同一个敌人的十个实例分别持有 `enemy_1/body` 到 `enemy_10/body`。`overrides` 以被实例化场景内部的 ID 为键修改其中的对象；该场景内部再实例化的场景通过带前缀的 ID 访问，例如 `gun/barrel`。被实例化场景的图层设置、相机、背景色和虚拟尺寸不会带入，图层中含有瓦片地图的场景不能被实例化。
+
+```yaml
+# scenes/enemy.scene.yaml
+version: 2
+name: Enemy
+layers:
+  - name: root
+    objects:
+      - id: body
+        sprite: { atlas: actors, frame: hero }
+        properties: { health: 3, speed: 40 }
+        children:
+          - id: torch
+            x: 6
+            sprite: { atlas: actors, frame: torch }
+
+# level.scene.yaml
+version: 2
+layers:
+  - name: actors
+    objects:
+      - id: enemy_1
+        x: 32
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            alpha: 0.5
+      - id: enemy_2
+        x: 64
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          torch:
+            x: -6
+```
+
+带有 `inherits` 的场景以其基础场景的副本为起点，只修改自己声明的内容：
+
+- `name`、`backgroundColor`、虚拟尺寸和 `camera` 设置后替换基础场景的值，`tilemaps` 按名称添加或替换条目。
+- `overrides` 按 ID 修改继承来的对象，包括嵌套的子对象和实例化得到的对象（`enemy_1/body`）。
+- `layerOverrides` 按名称修改继承来的图层。
+- 与基础场景某个图层同名的图层会把自己的对象添加到该图层，且不能设置其他任何字段；其他图层添加在基础场景的图层之后。
+
+继承来的对象或图层不能删除，其 ID 也不能修改。
+
+```yaml
+# scenes/fast_enemy.scene.yaml：上面的敌人，速度加倍
+version: 2
+inherits: scenes/enemy.scene.yaml
+overrides:
+  body:
+    properties:
+      speed: 80
+```
+
+覆盖可以设置对象除 `id`、`children`、`scene` 和 `overrides` 以外的任何字段；未写出的字段保留基础场景的值，`0` 或 `false` 同样算作修改。`components` 和 `properties` 按键逐个替换，对象的其他键保持不变。
+
+`Resolve(doc, scenes)` 通过 `SceneResolver`（例如 `FSScenes{FS: os.DirFS(root)}`）加载被引用的文件，返回一份自包含的副本，其中没有任何对象再实例化其他场景，也没有继承。每次调用中每个文件只加载一次，并且不会修改 `doc` 或解析器返回的文档。它会拒绝互相实例化或继承而形成的循环、深度超过 `MaxSceneNesting` 个文件的引用链、超过 `MaxResolvedObjects` 个对象的结果、指向所修改场景中不存在的对象或图层的覆盖，以及无法通过校验的结果，例如带前缀的 ID 与其他 ID 冲突。当 `AssetResolver` 同时实现了 `SceneResolver` 时，`Build` 会自行解析场景，此时 `BuiltScene.Doc` 是解析后的副本；`SpawnEntities` 和 `BuildNodes3D` 会拒绝仍引用其他场景的场景，需要先解析。
+
+```go
+type assets struct {
+	sceneformat.AtlasMap
+	sceneformat.FSScenes
+}
+
+built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: os.DirFS("project")}})
+```
+
+在编辑器中，`PlaceScene(layer, path, x, y)` 以可撤销命令放置一个场景文件的实例，其 ID 以文件名命名。编辑器的 `Resolver` 必须实现 `SceneResolver`；放置前会先解析该文件，在版本 1 的场景中放置实例会把场景升级到版本 2（撤销时恢复）。视口通过实例的根对象选择和移动整个实例。
+
 ### 示例
 
 ```yaml
-# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
-version: 1
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
 name: Cave Room
 virtualWidth: 320
 virtualHeight: 180
@@ -214,7 +295,7 @@ if err != nil {
 built.Draw(d)
 ```
 
-`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
+`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、版本 1 场景中的版本 2 字段、不是从项目根目录起以斜杠分隔的场景引用路径、缺少所修改的 `scene` 或 `inherits` 的覆盖、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
 
 ### Schema
 
