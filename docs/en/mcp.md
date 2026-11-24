@@ -1,6 +1,6 @@
 # mcp
 
-`game/mcp` exposes a running game's scenes, layers, entities, components, fixed-step loop controls, game-coordinate input injection, tunables and debug console to coding agents over MCP through NSGo's `github.com/nsgo-dev/nsgo/automation` package.
+`game/mcp` exposes a running game's scenes, layers, entities, components, fixed-step loop controls, game-coordinate input injection, tunables, debug console, loaded asset groups and hot reload controls to coding agents over MCP through NSGo's `github.com/nsgo-dev/nsgo/automation` package.
 
 NSGo's built-in `nsgo mcp` server sees native views only; a game draws into one `Canvas` or GPU view. Attaching an `mcp.Bridge` to a `core.Scope` registers game-specific tools on the engine's reactive graph so `nsgo mcp` serves them alongside the built-in tools whenever the app runs under `go tool nsgo dev -automation` or `go tool nsgo test`. In ordinary and release builds, `automation.Register` is a no-op and adds no runtime protocol.
 
@@ -30,6 +30,11 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	Console:         g.console,
 	Overlay:         g.debugOverlay,
 	RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(g.lastRenderStats) },
+	Assets:          g.assets,
+	Resources:       g.resources,
+	Shaders:         g.shaderReloader,
+	Materials:       g.materialReloader,
+	ReloadAsset:     g.reloadCustomAsset,
 })
 if err != nil {
 	return err
@@ -122,6 +127,9 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_perf_readout` | `include_history` (optional, default `false`), `history_limit` (optional), `include_zones` (optional, default `false`), `zones_limit` (optional) | Live performance readout matching the debug overlay: `fps`, rolling average and latest `frame_ms`/`update_ms`/`draw_ms`, min/max/p50/p95/p99 frame times, draw stats (`draw_calls`, `sprites`, `batches`, `triangles`, `vertices`), per-frame heap allocations (`allocs_per_frame`, `alloc_bytes_per_frame`, `last_frame_allocs`, `last_frame_alloc_bytes`), `heap_bytes`, `gc_count`, GC pause/hitch metrics, optional `render3d` and `asset_memory` breakdowns, and optional chronological `history` and profiler `zones`. |
 | `game_perf_zones` | `limit` (optional) | Named timing zones from `debug.Profiler` sorted by recent frame cost (`name`, `last_ms`, `avg_ms`, `max_ms`, `calls`), plus `recording`, `recorded_frames` and `total`. |
 | `game_perf_reset` | `{}` | Resets accumulated `debug.Overlay` frame timings and pushed draw stats, `debug.Profiler` zone timings, and `debug.GCMonitor` history. A profiler trace recording started with `StartRecording` keeps running and keeps its events. |
+| `game_assets_list` | `group` (optional), `state` (`loaded`/`loading`/`unloaded`/`failed`), `kind` (optional) | Deterministically sorted asset groups (`assets.Manager` groups, `resource.Library`, `hotreload.ShaderReloader`, `hotreload.MaterialReloader`, and custom registered assets) with load states, asset keys/kinds/URIs, frame counts, per-group estimated bytes, and `total_bytes`. |
+| `game_asset_reload` | `key` (name, URI or relative path), `group` (optional), `all` (boolean, optional) | Reloads a matching asset in place (or all loaded assets when `all: true`), returning `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`. Parse and compile errors are returned in the structured result while keeping the previously loaded working asset intact. |
+| `game_assets_reload_group` | `group` (required) | Reloads every loaded asset in the named group in place, reporting per-item results, memory bytes, duration, and any item errors without crashing the running game. |
 
 All tools reject unknown argument fields.
 
@@ -199,6 +207,14 @@ Pass your [`debug.Overlay`](debug.md) via `Config.Overlay` to expose the exact s
 - `Config.Profiler`, `Config.GC`, `Config.Memory` and `Config.DrawStatsFunc` override (or work standalone without) `Config.Overlay`.
 - `Config.RenderStatsFunc` attaches detailed 3D culling, batching, state-switch and GPU memory metrics from [`render3d.RenderStats`](render3d.md) under `render3d`, and populates top-level `draw_calls`, `batches`, `triangles` and `vertices` automatically when no 2D draw-stats provider is set. `mcp.PerfRender3DStats` has the same fields as `render3d.RenderStats`, so `mcp.PerfRender3DStats(stats)` converts one; `game/mcp` does not import `game/render3d`, so a 2D game that attaches the bridge does not link the 3D renderer.
 - `game_perf_readout` always includes a `sources` object indicating which telemetry providers are active (`overlay`, `profiler`, `gc`, `memory`, `draw_stats`, `render3d`).
+
+## Assets and hot reload
+
+Wire `Config.Assets` (or `Config.AssetsFunc` / `bridge.SetAssets`), `Config.Resources`, `Config.Shaders`, `Config.Materials`, and/or `Config.ReloadAsset` to let agents inspect memory usage and trigger live reloads without restarting the game:
+
+- **In-place atlas updates**: Reloading an atlas in `assets.Manager` (by asset name such as `"hero"`, full URI `"asset:sprites/hero.json"`, relative path `"sprites/hero.json"`, or image path `"sprites/hero.png"`) updates the existing `*sprite.Atlas` pointer in place and increments `assets.Manager.Revision()`, so sprites holding the atlas pointer and canvases reading `Revision()` update immediately.
+- **Standalone assets and atlases**: Games that hold a `*sprite.Atlas` or custom resource outside `assets.Manager` can register it with `bridge.RegisterAtlas(...)` or `bridge.RegisterAsset(mcp.CustomAsset{...})`.
+- **Safe failure handling**: Syntax, schema, or shader compilation errors leave the previous working atlas, shader, material, or resource active and return `reloaded: false` with the diagnostic message in `error`.
 
 ## Stable entity references
 

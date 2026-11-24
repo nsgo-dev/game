@@ -136,6 +136,31 @@ func (l *Library) Paths() []string {
 	return out
 }
 
+// ReloadFile re-reads path from the library's file system and reloads it in place via Reload.
+// It reports the file's byte size, whether path was loaded in the library, and any read or parse error.
+// An unloaded path returns (0, false, nil). On error, the previously loaded resource stays unchanged.
+func (l *Library) ReloadFile(path string) (int64, bool, error) {
+	if l == nil {
+		return 0, false, nil
+	}
+	l.mu.Lock()
+	_, ok := l.items[path]
+	fsys := l.fsys
+	l.mu.Unlock()
+	if !ok {
+		return 0, false, nil
+	}
+	if fsys == nil {
+		return 0, true, fmt.Errorf("resource: library has no file system to reload %q from", path)
+	}
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return 0, true, fmt.Errorf("resource: reload %s: %w", path, err)
+	}
+	loaded, err := l.Reload(path, data)
+	return int64(len(data)), loaded, err
+}
+
 // Revision counts the successful reloads, so code that derives values from resources, such as a gameui.Theme built with Theme.Apply, can tell when to derive them again.
 func (l *Library) Revision() uint64 {
 	if l == nil {

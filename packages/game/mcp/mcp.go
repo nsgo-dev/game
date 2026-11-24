@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding"
 	"encoding/json"
 	"errors"
@@ -14,12 +15,15 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/assets"
 	"github.com/nsgo-dev/game/packages/game/debug"
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/screen"
+	"github.com/nsgo-dev/game/packages/game/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -144,6 +148,24 @@ type Config struct {
 
 	// RenderStatsFunc supplies 3D per-frame render statistics (culling, batching, state switches, geometry and GPU memory). A game using game/render3d returns mcp.PerfRender3DStats(stats) for its latest render3d.RenderStats.
 	RenderStatsFunc func() PerfRender3DStats
+
+	// Assets is the game's asset manager for listing loaded asset groups/memory and reloading assets or groups.
+	Assets *assets.Manager
+
+	// AssetsFunc dynamically resolves the active asset manager on each tool call. When non-nil and returning a non-nil manager, it overrides Assets.
+	AssetsFunc func() *assets.Manager
+
+	// Resources is an optional resource.Library whose loaded YAML resources are listed and can be reloaded by path.
+	Resources *resource.Library
+
+	// Shaders is an optional hotreload.ShaderReloader whose tracked shaders are listed and can be reloaded by name or path.
+	Shaders *hotreload.ShaderReloader
+
+	// Materials is an optional hotreload.MaterialReloader whose tracked materials are listed and can be reloaded by name or path.
+	Materials *hotreload.MaterialReloader
+
+	// ReloadAsset is an optional custom reload callback invoked by game_asset_reload when no configured asset manager, reloader or custom asset owns key.
+	ReloadAsset func(ctx context.Context, key string) error
 }
 
 type compTypeKey any
@@ -177,6 +199,8 @@ type Bridge struct {
 
 	prefabs     map[string]prefabEntry
 	prefabOrder []string
+
+	customAssets *assetRegistry
 }
 
 // New constructs a Bridge for cfg without registering its tools yet.
@@ -318,6 +342,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.editTools()...)
 	out = append(out, b.replayTools()...)
 	out = append(out, b.perfTools()...)
+	out = append(out, b.assetTools()...)
 	return out
 }
 

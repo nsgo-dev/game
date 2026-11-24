@@ -620,6 +620,48 @@ func (r *ShaderReloader) ShaderNames() []string {
 	return names
 }
 
+// ShaderPath returns the slash-separated relative file path registered for shader name.
+func (r *ShaderReloader) ShaderPath(name string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p, ok := r.namedShader[name]
+	return p, ok
+}
+
+// ReloadShaderFile resolves nameOrPath (a registered shader name or relative path),
+// reads fresh source bytes from the reloader's configured file system, and calls ReloadShader.
+// It reports the resolved path, source byte length, whether the shader is tracked, and any error.
+func (r *ShaderReloader) ReloadShaderFile(nameOrPath string) (string, int64, bool, error) {
+	if r == nil || nameOrPath == "" {
+		return "", 0, false, nil
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return "", 0, false, nil
+	}
+	clean := ""
+	if p, ok := r.namedShader[nameOrPath]; ok {
+		clean = p
+	} else {
+		clean = normalizeRelPath(nameOrPath)
+	}
+	tracked, _, _, _ := r.snapshotDependentsLocked(clean)
+	r.mu.Unlock()
+	if !tracked {
+		return "", 0, false, nil
+	}
+	data, err := r.readFile(clean)
+	if err != nil {
+		return clean, 0, true, err
+	}
+	reloaded, err := r.ReloadShader(clean, data)
+	return clean, int64(len(data)), reloaded, err
+}
+
 // PipelineNames returns the sorted list of registered pipeline names.
 func (r *ShaderReloader) PipelineNames() []string {
 	if r == nil {

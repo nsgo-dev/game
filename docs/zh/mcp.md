@@ -1,6 +1,6 @@
 # mcp
 
-`game/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件、固定步长主循环控制、游戏坐标输入注入、可调参数与调试控制台暴露给 MCP 智能体。
+`game/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件、固定步长主循环控制、游戏坐标输入注入、可调参数、调试控制台、已加载资源组以及热重载能力暴露给 MCP 智能体。
 
 NSGo 内置的 `nsgo mcp` 服务器只能看到原生视图，而游戏通常绘制在单个 `Canvas` 或 GPU 视图中。把 `mcp.Bridge` 挂载到 `core.Scope` 上后，它会通过 `automation.Register` 在引擎响应式图上注册游戏专用工具；当应用在 `go tool nsgo dev -automation` 或 `go tool nsgo test` 下运行时，`nsgo mcp` 会自动将这些工具与内置工具一并提供。在普通构建与发布构建中，`automation.Register` 为空操作，不会引入运行时协议开销。
 
@@ -30,6 +30,11 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	Console:         g.console,
 	Overlay:         g.debugOverlay,
 	RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(g.lastRenderStats) },
+	Assets:          g.assets,
+	Resources:       g.resources,
+	Shaders:         g.shaderReloader,
+	Materials:       g.materialReloader,
+	ReloadAsset:     g.reloadCustomAsset,
 })
 if err != nil {
 	return err
@@ -122,6 +127,9 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_perf_readout` | `include_history`（可选，默认 `false`）、`history_limit`（可选）、`include_zones`（可选，默认 `false`）、`zones_limit`（可选） | 与调试浮层数值一致的实时性能读数：`fps`、滑动平均与最近一帧的 `frame_ms`/`update_ms`/`draw_ms`、最小/最大及 p50/p95/p99 帧时间、绘制统计（`draw_calls`、`sprites`、`batches`、`triangles`、`vertices`）、每帧堆分配（`allocs_per_frame`、`alloc_bytes_per_frame`、`last_frame_allocs`、`last_frame_alloc_bytes`）、`heap_bytes`、`gc_count`、GC 停顿与卡顿统计、可选的 `render3d` 与 `asset_memory` 明细，以及可选的时间序 `history` 与分析器 `zones`。 |
 | `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `debug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
 | `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间耗时以及 `debug.GCMonitor` 历史记录。通过 `StartRecording` 开始的分析器追踪录制会继续进行，已录制的事件也会保留。 |
+| `game_assets_list` | `group`（可选）、`state`（`loaded`/`loading`/`unloaded`/`failed`）、`kind`（可选） | 按确定顺序排列的资源组列表（涵盖 `assets.Manager`、`resource.Library`、`hotreload.ShaderReloader`、`hotreload.MaterialReloader` 与自定义注册资源），包含加载状态、资源键/类型/URI、图集帧数、各组估算内存字节数及 `total_bytes`。 |
+| `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。 |
+| `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -199,6 +207,14 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - `Config.Profiler`、`Config.GC`、`Config.Memory` 与 `Config.DrawStatsFunc` 既可覆盖 `Config.Overlay` 上的对应组件，也可在不启用浮层时单独使用。
 - `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。`mcp.PerfRender3DStats` 与 `render3d.RenderStats` 字段相同，可直接用 `mcp.PerfRender3DStats(stats)` 转换；`game/mcp` 不导入 `game/render3d`，因此挂接桥接器的 2D 游戏不会链接 3D 渲染器。
 - `game_perf_readout` 始终返回 `sources` 对象，标明哪些遥测来源已启用（`overlay`、`profiler`、`gc`、`memory`、`draw_stats`、`render3d`）。
+
+## 资源检查与热重载
+
+配置 `Config.Assets`（或 `Config.AssetsFunc` / `bridge.SetAssets`）、`Config.Resources`、`Config.Shaders`、`Config.Materials` 和/或 `Config.ReloadAsset`，即可让智能体检查资源内存占用并在不重启游戏的情况下触发热重载：
+
+- **图集就地更新**：在 `assets.Manager` 中按资源名（如 `"hero"`）、完整 URI（`"asset:sprites/hero.json"`）、相对路径（`"sprites/hero.json"`）或图片路径（`"sprites/hero.png"`）重载图集时，会直接就地更新原有的 `*sprite.Atlas` 指针并递增 `assets.Manager.Revision()`，使持有该指针的精灵与读取 `Revision()` 的画布立即刷新。
+- **独立资源与图集**：若游戏在 `assets.Manager` 之外维护了独立的 `*sprite.Atlas` 或自定义资源，可通过 `bridge.RegisterAtlas(...)` 或 `bridge.RegisterAsset(mcp.CustomAsset{...})` 注册。
+- **安全的错误处理**：遇到语法、Schema 或着色器编译错误时，原有可用的图集、着色器、材质或资源会保持激活状态，工具返回 `reloaded: false` 并在 `error` 字段中附带详细诊断信息。
 
 ## 稳定的实体引用
 

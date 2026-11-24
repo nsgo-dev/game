@@ -801,6 +801,56 @@ func (r *MaterialReloader) MaterialNames() []string {
 	return names
 }
 
+// MaterialPath returns the slash-separated relative file path registered for material name.
+func (r *MaterialReloader) MaterialPath(name string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.materials[name]
+	if !ok {
+		return "", false
+	}
+	return e.path, true
+}
+
+// ReloadMaterialFile resolves nameOrPath (a registered material name or relative path),
+// reads fresh YAML bytes from the reloader's configured file system, and calls ReloadMaterial.
+// It reports the resolved path, file byte length, whether the material is tracked, and any error.
+func (r *MaterialReloader) ReloadMaterialFile(nameOrPath string) (string, int64, bool, error) {
+	if r == nil || nameOrPath == "" {
+		return "", 0, false, nil
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return "", 0, false, nil
+	}
+	clean := ""
+	tracked := false
+	if e, ok := r.materials[nameOrPath]; ok {
+		clean = e.path
+		tracked = true
+	} else {
+		cand := normalizeRelPath(nameOrPath)
+		if len(r.byPath[cand]) > 0 {
+			clean = cand
+			tracked = true
+		}
+	}
+	r.mu.Unlock()
+	if !tracked {
+		return "", 0, false, nil
+	}
+	data, err := r.readFile(clean)
+	if err != nil {
+		return clean, 0, true, err
+	}
+	reloaded, err := r.ReloadMaterial(clean, data)
+	return clean, int64(len(data)), reloaded, err
+}
+
 // LastError returns the most recent unresolved ReloadError for name and whether one is active.
 func (r *MaterialReloader) LastError(name string) (ReloadError, bool) {
 	if r == nil {
