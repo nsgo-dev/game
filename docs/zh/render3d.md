@@ -551,13 +551,14 @@ err = renderer.Draw(dev, pass, camBuf.BindGroup(), light,
 
 ## 自定义着色器材质（`CustomMaterial`）
 
-`NewCustomMaterial` 将使用 **WGSL**（`ShaderWGSL`）或 **Kage**（`ShaderKage`）编写并声明强类型参数（`ShaderParamDesc`）的自定义 3D 材质编译到 NSGo `gpu.Device` 上，并在所属 `core.Scope` 内统一管理 std140 uniform 缓冲、`@group(1)` 绑定组（`CustomMaterialGroup`）、1×1 占位纹理与渲染管线：
+`NewCustomMaterial` 将使用 **WGSL**（`ShaderWGSL`）或 **Kage**（`ShaderKage`）编写并声明强类型参数（`ShaderParamDesc`）的自定义 3D 材质编译到 NSGo `gpu.Device` 上，并在所属 `core.Scope` 内统一管理 std140 uniform 缓冲、`@group(1)` 绑定组（`CustomMaterialGroup`，与 `MaterialGroup` 是同一个槽位）、1×1 占位纹理与渲染管线。`GPUMaterial` 与 `MaterialBindingsWGSL` 为自定义着色器提供固定的 glTF 金属度-粗糙度绑定，`CustomMaterial` 则让着色器声明自己的参数与纹理：
 
 ```go
 mat, err := render3d.NewCustomMaterial(cx, dev, render3d.CustomShaderDesc{
 	Label:        "hologram",
 	Language:     render3d.ShaderWGSL, // 或 render3d.ShaderKage
 	CameraLayout: camBuf.Layout(),     // 将 CameraWGSL 绑定在 @group(0)；裁剪空间着色器可省略
+	DrawLayout:   draw.Layout(),       // 可选：@group(2) 上的 PBRDrawBuffer，提供逐次绘制的模型矩阵
 	DepthFormat:  gpu.FormatDepth24Plus,
 	Cull:         gpu.CullBack,
 	Retained:     true,                // 支持 GPU 设备丢失后自动恢复
@@ -578,12 +579,15 @@ _ = mat.Sync(dev)                       // 参数未变化时零分配
 
 // 在 OnFrame 中：
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.PBRDrawGroup, draw.BindGroup())
 mat.Draw(pass, mesh) // 设置管线、绑定 @group(1) 并绘制网格
 ```
 
-- **声明式参数类型与 std140 布局**：支持 `ParamFloat`（`f32`）、`ParamVec2`（`vec2<f32>`）、`ParamVec3`（`vec3<f32>`）、`ParamVec4` / `ParamColor`（`vec4<f32>`）、`ParamInt`（`i32`）、`ParamBool`（`u32`，`0`/`1`，满足可移植 uniform 结构体约束）和 `ParamTexture`（`texture_2d<f32>` 与 `<name>_sampler`）。所有非纹理参数按声明顺序以 WGSL/std140 对齐规则打包至 `@group(1) @binding(0)`（`material`，可通过 `ComputeUniformLayout`、`ParamOffset`、`UniformSize` 查询），纹理与采样器紧随其后（`ParamBinding`）。未绑定的纹理槽位自动使用 1×1 占位纹理（默认不透明白色，可通过 `ShaderParamDesc.Default` 自定义）。
-- **WGSL 与 Kage 着色器**：`ShaderWGSL` 默认自动前置 `CameraWGSL`（设置 `CameraLayout` 时）以及生成的 `MaterialParams` 与纹理绑定声明（需要手动声明 `@group(1)` 时可设置 `ManualBindings: true`）。`ShaderKage` 解析 Kage 的 `var <Name> float|vec2|vec3|vec4|int|bool` 声明、辅助函数以及 `func Surface(uv vec2, normal vec3, worldPos vec3) vec4`（或经典 `func Fragment(dst vec4, pos vec2) vec4`），翻译为可移植 WGSL，支持 `sample(<tex>, uv)` 与 `image0At(uv)` 采样。
-- **严格校验与全后端编译检查**：强类型设置方法（`SetFloat`、`SetVec2`、`SetVec3`、`SetVec4`、`SetColor`、`SetInt`、`SetBool`、`SetTexture`）及原子批量更新 `ApplyMap` 会拒绝未知参数名、类型不匹配、非有限数值（`NaN`/`Inf`）以及超出 `Min`/`Max` 范围的值，返回包装 `ErrInvalidCustomMaterial` 的 `*CustomMaterialError`。`CompileCheck` / `CompileCheckDesc` 无需打开 `gpu.View` 即可验证着色器在 MSL、HLSL、GLSL 3.30、GLSL ES 3.00（WebGL 2 / Android）与 WGSL 全部后端上的管线编译。
+- **声明式参数类型与 std140 布局**：支持 `ParamFloat`（`f32`）、`ParamVec2`（`vec2<f32>`）、`ParamVec3`（`vec3<f32>`）、`ParamVec4` / `ParamColor`（`vec4<f32>`）、`ParamInt`（`i32`）、`ParamBool`（`u32`，`0`/`1`，满足可移植 uniform 结构体约束）和 `ParamTexture`（`texture_2d<f32>` 与 `<name>_sampler`）。所有非纹理参数按声明顺序以 WGSL/std140 对齐规则打包至 `@group(1) @binding(0)`（`material`，可通过 `ComputeUniformLayout`、`ParamOffset`、`UniformSize` 查询），纹理与采样器紧随其后（`ParamBinding`）。float、int 或 bool 参数不能紧跟在 `ParamVec3` 之后：WGSL 会把下一个标量放进 vec3 的最后 4 字节，而 NSGo 的 Metal 后端把 `vec3` 结构体成员补齐到 16 字节；请把它声明在 vec3 之前或 vec2/vec4 之后，或改用 `ParamVec4`。未绑定的纹理槽位自动使用 1×1 占位纹理（默认不透明白色，可通过 `ShaderParamDesc.Default` 自定义）。
+- **WGSL 与 Kage 着色器**：`ShaderWGSL` 在设置了 `CameraLayout` 且源码未在 `@group(0)` 中声明任何绑定时前置 `CameraWGSL`，并前置生成的 `MaterialParams` 与纹理绑定声明，除非设置 `ManualBindings: true`（此时由源码自行声明 `@group(1)`）。`ShaderKage` 解析 Kage 的 `var <Name> float|vec2|vec3|vec4|int|bool` 声明、辅助函数以及 `func Surface(uv vec2, normal vec3, worldPos vec3) vec4`（或 `func Fragment(dst vec4, pos vec2) vec4`），翻译为可移植 WGSL，支持 `sample(<tex>, uv)` 与 `image0At(uv)` 采样。与 Ebitengine 的 2D Kage 不同，`Fragment` 的 `pos` 是网格的归一化 UV 而不是纹素坐标，`dst` 是片元的帧缓冲位置，`imageNAt` 使用纹理的采样器（默认线性重复）采样，因此超出图像范围时会环绕，而不是返回透明。
+- **位置与光照**：未设置 `DrawLayout` 时，Kage 顶点阶段原样传递位置与法线，`worldPos` 与 `normal` 处于物体空间，网格绘制在其顶点所在的位置。将 `DrawLayout` 设为 `PBRDrawBuffer` 的布局并在 `PBRDrawGroup`（group 2）绑定其绑定组后，Kage 着色器会用 `PBRDrawUniform` 的模型矩阵变换位置、用其法线矩阵变换法线，`worldPos` 与 `normal` 即处于世界空间；WGSL 着色器则像 `LitPBRWGSL` 一样自行声明该块。`ExtraLayout` 为着色器自行声明的绑定增加 group 3，例如用 `LightWGSLForGroup(3)` 声明的 `GPULightBuffer`（`LightWGSL` 使用的 group 1 已被材质占用），或用 `ShadowWGSL` 声明的 `DirectionalShadowMap`；它要求同时设置 `DrawLayout`。`Bind` 与 `Draw` 只绑定 group 1，group 0、2、3 由调用方绑定。
+- **纹理切换**：`Sync` 会保留最近绑定的 8 种纹理/采样器组合的绑定组，因此在少量纹理之间交替（序列帧动画、乒乓渲染目标）时会复用它们而不产生分配；循环使用的不同纹理多于这个数量时，每次切换都会创建一个绑定组。
+- **严格校验与全后端编译检查**：强类型设置方法（`SetFloat`、`SetVec2`、`SetVec3`、`SetVec4`、`SetColor`、`SetInt`、`SetBool`、`SetTexture`）及原子批量更新 `ApplyMap` 会拒绝未知参数名、类型不匹配、非有限数值（`NaN`/`Inf`）以及超出 `Min`/`Max` 范围的值，返回 `*CustomMaterialError`，它同时匹配 `ErrInvalidCustomMaterial` 与 `ErrInvalidMaterial`。其 `Line` 是源码行号，由 Kage 翻译出的代码中的 WGSL 错误也同样如此。`ApplyMap` 与采样器为 nil 的 `SetTexture` 一样，使用默认采样器绑定纹理。`CompileCheck` / `CompileCheckDesc` 无需打开 `gpu.View` 即可验证着色器在 MSL、HLSL、GLSL 3.30、GLSL ES 3.00（WebGL 2 / Android）与 WGSL 全部后端上的管线编译。`ByteSize` 为 `RenderStats` 与 `Budget` 报告 uniform 缓冲与占位纹理的大小。
 - **参考渲染验证**：`render3d` 的测试将 WGSL 与 Kage 自定义材质的渲染结果与参考图（`render3d/testdata/golden/custom_material_wgsl.png` 和 `custom_material_kage.png`）比对，检查五个后端的 `PipelineCache` 编译产物，并在无界面 `gpu.View` 上同时覆盖 `full` 与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置、`Retained` 设备丢失恢复及稳态零分配更新；设置 `UPDATE_GOLDEN=1` 可重写参考图。
 
 ## 按预算跨帧异步 GPU 上传（`Uploader`）
