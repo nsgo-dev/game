@@ -2808,37 +2808,43 @@ func (s *PostStack3D) Bloom() *BloomPass {
 	return s.bloom
 }
 
-// SetSSAO enables or disables SSAO and updates its configuration.
+// SetSSAO enables or disables SSAO and updates its configuration. A zero cfg keeps the current configuration, so SetSSAO(false, SSAOConfig{}) only turns the stage off.
 func (s *PostStack3D) SetSSAO(enabled bool, cfg SSAOConfig) error {
 	if s == nil || s.closed {
 		return fmt.Errorf("%w: post stack is not valid", ErrInvalidPostProcess)
 	}
-	if err := s.ssao.SetConfig(cfg); err != nil {
-		return err
+	if cfg != (SSAOConfig{}) {
+		if err := s.ssao.SetConfig(cfg); err != nil {
+			return err
+		}
 	}
 	s.enableSSAO = enabled
 	return nil
 }
 
-// SetDepthOfField enables or disables Depth of Field and updates its configuration.
+// SetDepthOfField enables or disables Depth of Field and updates its configuration. A zero cfg keeps the current configuration, so SetDepthOfField(false, DepthOfFieldConfig{}) only turns the stage off.
 func (s *PostStack3D) SetDepthOfField(enabled bool, cfg DepthOfFieldConfig) error {
 	if s == nil || s.closed {
 		return fmt.Errorf("%w: post stack is not valid", ErrInvalidPostProcess)
 	}
-	if err := s.dof.SetConfig(cfg); err != nil {
-		return err
+	if cfg != (DepthOfFieldConfig{}) {
+		if err := s.dof.SetConfig(cfg); err != nil {
+			return err
+		}
 	}
 	s.enableDoF = enabled
 	return nil
 }
 
-// SetBloom enables or disables Bloom and updates its configuration.
+// SetBloom enables or disables Bloom and updates its configuration. A zero cfg keeps the current configuration, so SetBloom(false, BloomConfig{}) only turns the stage off.
 func (s *PostStack3D) SetBloom(enabled bool, cfg BloomConfig) error {
 	if s == nil || s.closed {
 		return fmt.Errorf("%w: post stack is not valid", ErrInvalidPostProcess)
 	}
-	if err := s.bloom.SetConfig(cfg); err != nil {
-		return err
+	if cfg != (BloomConfig{}) {
+		if err := s.bloom.SetConfig(cfg); err != nil {
+			return err
+		}
 	}
 	s.enableBloom = enabled
 	return nil
