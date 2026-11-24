@@ -21,7 +21,7 @@ NSGo adopts the standard glTF 2.0 coordinate system and physical units across ev
 
 ### Project layout for 3D assets
 
-Keep runtime `.glb` files inside `resources/` so `nsgo build` bundles them on all six targets and your game loads them via `"asset:..."`. Keep heavy authoring files (`.blend`, `.fbx`, `.obj`, `.psd`) outside `resources/` (for example in `art/`) so they never inflate release packages:
+Keep runtime `.glb` files inside `resources/` so `nsgo build` bundles them on all six targets and your game loads them via `"asset:..."`. Keep heavy authoring files (`.blend`, `.fbx`, `.obj`, `.psd`) outside `resources/` (for example in `art/`) so they never inflate release packages. A `.gltf` export with its `.bin` buffer and texture files can stay in `art/` too: a model target of [`game assets`](cli.md#assets) packs it into one `.glb` under `resources/`, scaled and with or without its animations as the model's import settings sidecar says:
 
 ```text
 mygame/

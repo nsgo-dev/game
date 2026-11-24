@@ -35,6 +35,10 @@ const (
 	KindTexture Kind = "texture"
 	// KindAudio converts a WAV file.
 	KindAudio Kind = "audio"
+	// KindFont bakes a TrueType or OpenType font into a bitmap font.
+	KindFont Kind = "font"
+	// KindModel packs a glTF model into one GLB file.
+	KindModel Kind = "model"
 	// KindManifest generates the Go asset manifest.
 	KindManifest Kind = "manifest"
 )
@@ -63,7 +67,7 @@ type Target struct {
 	Outputs []string
 }
 
-// Report lists every target of a build in the order it ran: atlases, textures and audio in their game.yaml order, the manifest last.
+// Report lists every target of a build in the order it ran: atlases, textures, audio, fonts and models in their game.yaml order, the manifest last.
 type Report struct {
 	Targets []Target
 }
@@ -105,12 +109,14 @@ const (
 	readByAtlas reader = 1 << iota
 	readByTexture
 	readByAudio
+	readByFont
+	readByModel
 )
 
 // cacheFormat is mixed into every target's key, so a change to what a key covers rebuilds every target.
 const cacheFormat = "assetbuild/1"
 
-// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, those of the import settings sidecars beside them, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A setting in a sidecar overrides the target's: a texture target takes an image sidecar's filter, format, mipmaps and sRGB, an atlas cuts each image whose sidecar has a slice into frames, and an audio target takes every setting of a sound's sidecar, loop points included. An image that both an atlas and a texture target read may hold both kinds of settings in its sidecar, each target taking its own; otherwise a setting no target of the image reads is refused. Before building, Build refuses a sidecar in a folder a target reads from whose asset no target reads, such as one with a mistyped name, and one whose name differs from its asset's in case, unless it holds only a credit section and its asset is there. A sidecar's credit section changes no output and is left out of the key of the targets that read its asset, so editing a credit rebuilds nothing; the key takes the rest of the sidecar's settings, not its bytes, so a comment or layout change rebuilds nothing either. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
+// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, those of the import settings sidecars beside them, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A setting in a sidecar overrides the target's: a texture target takes an image sidecar's filter, format, mipmaps and sRGB, an atlas cuts each image whose sidecar has a slice into frames, an audio target takes every setting of a sound's sidecar, loop points included, a font target a font sidecar's size, characters and padding, and a model target a model sidecar's scale and whether to keep animations. A model's key also covers the buffers and images it names by relative path. An image that both an atlas and a texture target read may hold both kinds of settings in its sidecar, each target taking its own; otherwise a setting no target of the image reads is refused. Before building, Build refuses a sidecar in a folder a target reads from whose asset no target reads, such as one with a mistyped name, and one whose name differs from its asset's in case, unless it holds only a credit section and its asset is there. A sidecar's credit section changes no output and is left out of the key of the targets that read its asset, so editing a credit rebuilds nothing; the key takes the rest of the sidecar's settings, not its bytes, so a comment or layout change rebuilds nothing either. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
 func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error) {
 	if b.Force && b.Check {
 		return nil, errors.New("assetbuild: Force and Check cannot both be set")
@@ -148,6 +154,12 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 	}
 	for _, au := range a.Audio {
 		steps = append(steps, step{id: "audio " + au.Out, kind: KindAudio, prepare: func() (prepared, error) { return b.audio(ctx, au) }})
+	}
+	for _, f := range a.Fonts {
+		steps = append(steps, step{id: "font " + f.Out, kind: KindFont, prepare: func() (prepared, error) { return b.font(f) }})
+	}
+	for _, m := range a.Models {
+		steps = append(steps, step{id: "model " + m.Out, kind: KindModel, prepare: func() (prepared, error) { return b.model(m) }})
 	}
 
 	var runErr error
@@ -539,8 +551,8 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (prepared, 
 		return prepared{}, err
 	}
 	var loop *importsettings.Loop
-	if settings != nil && settings.Image != nil {
-		return prepared{}, fmt.Errorf("%s holds image settings, but an audio target converts %s as a sound", importsettings.Path(au.In), au.In)
+	if err := onlySection(settings, "audio", au.In, "an audio target converts it as a sound"); err != nil {
+		return prepared{}, err
 	}
 	if settings != nil && settings.Audio != nil {
 		s := settings.Audio
@@ -623,7 +635,7 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (prepared, 
 	return p, nil
 }
 
-// sidecar reads the import settings beside the asset at rel, slash-separated and relative to b.Root: the parsed file and the bytes its targets' keys take, or nil and nil when the asset has none. The key bytes are the file re-encoded without its credit section, which changes no output, so editing a credit, a comment or the layout rebuilds nothing; they are nil when the sidecar holds only a credit, which then builds as no sidecar does.
+// sidecar reads the import settings beside the asset at rel, slash-separated and relative to b.Root: the parsed file and the bytes its targets' keys take, or nil and nil when the asset has none. The key bytes are the file re-encoded without its credit section, which changes no output, with a font's characters sorted and once each, so editing a credit, a comment or the layout, or reordering a font's characters, rebuilds nothing; they are nil when the sidecar holds only a credit, which then builds as no sidecar does.
 func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
 	name := importsettings.Path(rel)
 	data, err := os.ReadFile(b.abs(name))
@@ -637,11 +649,17 @@ func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
-	if f.Image == nil && f.Audio == nil {
+	if len(f.Sections()) == 0 {
 		return f, nil, nil
 	}
 	settings := *f
 	settings.Credit = nil
+	if f.Font != nil {
+		// A font bakes its characters sorted and once each, so listing them in another order changes no output.
+		fo := *f.Font
+		fo.Chars = sortedChars(fo.Chars)
+		settings.Font = &fo
+	}
 	key, err := importsettings.Encode(&settings)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)
@@ -667,10 +685,16 @@ func (b *Builder) inputs(a *project.Assets) map[string]reader {
 	for _, au := range a.Audio {
 		m[path.Clean(au.In)] |= readByAudio
 	}
+	for _, f := range a.Fonts {
+		m[path.Clean(f.In)] |= readByFont
+	}
+	for _, mo := range a.Models {
+		m[path.Clean(mo.In)] |= readByModel
+	}
 	return m
 }
 
-// checkSidecars refuses each sidecar in a folder a's targets read from (an atlas's folder and the folders below it, and the folder of each texture and audio input) whose asset no target reads, since its settings would apply to nothing; a sidecar holding only a credit section is allowed beside any file there of exactly its asset's name. On a case-insensitive file system a sidecar named Hero.PNG.import.yaml is read for hero.png, but not on a case-sensitive one, so it is refused everywhere. Hidden files and folders are skipped, as an atlas skips them.
+// checkSidecars refuses each sidecar in a folder a's targets read from (an atlas's folder and the folders below it, and the folder of each texture, audio, font and model input) whose asset no target reads, since its settings would apply to nothing; a sidecar holding only a credit section is allowed beside any file there of exactly its asset's name. On a case-insensitive file system a sidecar named Hero.PNG.import.yaml is read for hero.png, but not on a case-sensitive one, so it is refused everywhere. Hidden files and folders are skipped, as an atlas skips them.
 func (b *Builder) checkSidecars(a *project.Assets) error {
 	type folder struct {
 		dir     string
@@ -685,6 +709,12 @@ func (b *Builder) checkSidecars(a *project.Assets) error {
 	}
 	for _, au := range a.Audio {
 		folders = append(folders, folder{path.Dir(path.Clean(au.In)), false})
+	}
+	for _, f := range a.Fonts {
+		folders = append(folders, folder{path.Dir(path.Clean(f.In)), false})
+	}
+	for _, m := range a.Models {
+		folders = append(folders, folder{path.Dir(path.Clean(m.In)), false})
 	}
 	seen := map[string]bool{}
 	for _, f := range folders {
@@ -719,7 +749,7 @@ func (b *Builder) checkSidecars(a *project.Assets) error {
 			seen[rel] = true
 			asset := strings.TrimSuffix(rel, importsettings.Suffix)
 			if b.readers[asset] == 0 {
-				// A sidecar holding only a credit says nothing about how the asset is built, so it may sit beside any file, such as a font in a texture's folder, as long as that file is there under exactly its name.
+				// A sidecar holding only a credit says nothing about how the asset is built, so it may sit beside any file, such as an image a model embeds, as long as that file is there under exactly its name.
 				creditOnly, err := b.creditOnly(rel)
 				if err != nil {
 					return err
@@ -748,7 +778,7 @@ func (b *Builder) creditOnly(rel string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("assetbuild: %s: %w", rel, err)
 	}
-	if f.Image != nil || f.Audio != nil {
+	if len(f.Sections()) > 0 {
 		return false, nil
 	}
 	entries, err := os.ReadDir(filepath.Dir(b.abs(rel)))
@@ -770,8 +800,8 @@ func (b *Builder) imageSettings(rel string) (*importsettings.Image, []byte, erro
 	if err != nil || f == nil {
 		return nil, nil, err
 	}
-	if f.Audio != nil {
-		return nil, nil, fmt.Errorf("%s holds audio settings, but %s is read as an image", importsettings.Path(rel), rel)
+	if err := onlySection(f, "image", rel, rel+" is read as an image"); err != nil {
+		return nil, nil, err
 	}
 	return f.Image, data, nil
 }

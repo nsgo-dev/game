@@ -45,7 +45,7 @@ autoload:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `<asset>.import.yaml` beside an image or sound, such as `hero.png.import.yaml` | `version: 1` | `importsettings.Parse`, `importsettings.Encode` | [Command Line](cli.md#assets); schema `https://game.nsgo.dev/schemas/import.v1.json` |
+| `<asset>.import.yaml` beside an image, sound, font or model, such as `hero.png.import.yaml` | `version: 1` | `importsettings.Parse`, `importsettings.Encode` | [Command Line](cli.md#assets); schema `https://game.nsgo.dev/schemas/import.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/import.v1.json

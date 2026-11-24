@@ -306,6 +306,8 @@ func TestCloneIsDeep(t *testing.T) {
 	c.Assets.Textures[0].Format = "etc2"
 	*c.Assets.Audio[0].PeakDB = -3
 	*c.Assets.Audio[1].RMSDB = -20
+	*c.Assets.Fonts[0].Padding = 4
+	*c.Assets.Models[0].Animations = true
 	c.Assets.Manifest.Package = "other"
 	c.Packs[0].Files[0] = "other"
 	c.Packs[0].Resources[0] = "other"

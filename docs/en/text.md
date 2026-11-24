@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/packages/game/text"
 
 ## Bitmap fonts (AngelCode BMFont)
 
-`LoadBMFont` and `LoadBMFontImage` parse AngelCode BMFont `.fnt` files in both **plain-text** and **XML** formats, building one `*sprite.Atlas` per texture page and indexing glyph metrics and kerning pairs:
+`LoadBMFont` and `LoadBMFontImage` parse AngelCode BMFont `.fnt` files in both **plain-text** and **XML** formats, building one `*sprite.Atlas` per texture page and indexing glyph metrics and kerning pairs. `game assets` bakes such a font from a TrueType or OpenType file with a font target, at the size and with the characters its `game.yaml` entry or its font's import settings sidecar names ([Command Line](cli.md#assets)):
 
 ```go
 //go:embed resources/pixel.fnt

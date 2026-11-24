@@ -13,12 +13,14 @@ import (
 func TestImportSchemaAcceptsWhatEncodeWrites(t *testing.T) {
 	s := schemaAt(t, importsettings.SchemaURL)
 	no, yes := false, true
-	peak := -1.0
+	peak, zero := -1.0, 0
 	for _, f := range []*importsettings.File{
 		{Version: 1, Image: &importsettings.Image{}},
 		{Version: 1, Image: &importsettings.Image{Filter: "nearest", Format: "etc2", Mipmaps: &yes, SRGB: &no, Slice: &importsettings.Slice{Width: 16, Height: 16, Margin: 1, Spacing: 2, Count: 3}}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 2, PeakDB: &peak, Bitrate: 128, Loop: &importsettings.Loop{Start: 10, End: 20}}},
 		{Version: 1, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
+		{Version: 1, Font: &importsettings.Font{Size: 24, Chars: " 0123456789", Padding: &zero}},
+		{Version: 1, Model: &importsettings.Model{Scale: 0.01, Animations: &no}},
 		{Version: 1, Image: &importsettings.Image{Filter: "nearest"}, Credit: &importsettings.Credit{Author: "Ana", License: "CC-BY-4.0", Source: "https://example.com", Notice: "Hero by Ana\nCC BY 4.0"}},
 	} {
 		data, err := importsettings.Encode(f)
@@ -37,7 +39,11 @@ func TestImportSchemaRefusesWhatParseRefuses(t *testing.T) {
 	for name, tc := range map[string]struct{ yaml, issue string }{
 		"missing version":        {"image: {}\n", `/: missing required key "version"`},
 		"future version":         {"version: 2\nimage: {}\n", "/version: 2 is not the allowed value 1"},
-		"unknown section":        {"version: 1\nfont: {}\n", `/font: unknown key "font"`},
+		"unknown section":        {"version: 1\nshader: {}\n", `/shader: unknown key "shader"`},
+		"negative font size":     {"version: 1\nfont: {size: -1}\n", "/font/size: -1 is less than the minimum 0"},
+		"unknown font key":       {"version: 1\nfont: {sizes: 3}\n", `/font/sizes: unknown key "sizes"`},
+		"negative model scale":   {"version: 1\nmodel: {scale: -2}\n", "/model/scale: -2 is less than the minimum 0"},
+		"unknown model key":      {"version: 1\nmodel: {animation: false}\n", `/model/animation: unknown key "animation"`},
 		"unknown image key":      {"version: 1\nimage: {filtre: nearest}\n", `/image/filtre: unknown key "filtre"`},
 		"bad filter":             {"version: 1\nimage: {filter: cubic}\n", `/image/filter: "cubic" is not one of "linear", "nearest"`},
 		"bad format":             {"version: 1\nimage: {format: astc}\n", `/image/format: "astc" is not one of`},

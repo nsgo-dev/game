@@ -97,7 +97,7 @@ assets:
 - 每张精灵表的旁车文件把它切成 16×16 的帧，图集将其命名为 `<精灵表>_<i>.png`。图集只包含帧；精灵表的动画仍保存在各自的 JSON 文件中。
 - 图块集和字体页的旁车文件设置 `nearest` 过滤，让像素画缩放时保持清晰。
 - 每个音效的旁车文件把峰值归一化到 -3 dBFS；音乐的旁车文件把它归一化到 -6 dBFS，保持 WAV 格式并循环整段，game assets 会把循环写进输出文件的 `smpl` 块。
-- `game assets` 只构建图片、图集和声音，所以字体的 `pixel.fnt`、Tiled 的 `tileset.tsj` 和 `level.tmj`，以及精灵表的 JSON 文件都不是构建目标。需要自己把它们复制到游戏打包的素材中，放在它们所引用的 PNG 页面（`pixel.png`、`tileset.png`）旁边，并像 `Font` 和 `Level` 那样用 `text.LoadBMFontImage` 和 `tilemap.LoadTiled` 加载，后者的 `TilesetLoader.LoadImage` 把图块集的图片路径映射为图片源。KTX2 纹理为读取 KTX2 的渲染器带上了 `nearest` 过滤，但游戏层目前还不加载 KTX2（[命令行](cli.md#assets)），所以在此之前游戏从 PNG 页面绘制字体和关卡。
+- `game assets` 从 TrueType 和 OpenType 文件烘焙字体，而素材包里的字体已经是位图字体，所以字体的 `pixel.fnt` 与 Tiled 的 `tileset.tsj` 和 `level.tmj`、精灵表的 JSON 文件一样，都不是构建目标。需要自己把它们复制到游戏打包的素材中，放在它们所引用的 PNG 页面（`pixel.png`、`tileset.png`）旁边，并像 `Font` 和 `Level` 那样用 `text.LoadBMFontImage` 和 `tilemap.LoadTiled` 加载，后者的 `TilesetLoader.LoadImage` 把图块集的图片路径映射为图片源。KTX2 纹理带有 `nearest` 过滤，[`render3d.LoadKTX2`](render3d.md) 为 3D 加载纹理时会应用它；`text` 和 `tilemap` 从 PNG 页面绘制，所以 2D 游戏从这些页面绘制字体和关卡。
 - 没有任何目标读取其素材的旁车文件会被拒绝，所以只用到部分素材的项目只需复制那些文件及其旁车文件。
 
 ## 重新生成

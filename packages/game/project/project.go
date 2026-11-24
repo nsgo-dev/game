@@ -48,7 +48,7 @@ type File struct {
 	Export *Export `yaml:"export,omitempty"`
 	// Editor holds the scene editor's settings for this project; nil uses its defaults.
 	Editor *Editor `yaml:"editor,omitempty"`
-	// Assets declares the atlases, textures, audio and asset manifest game assets builds; nil declares none.
+	// Assets declares the atlases, textures, audio, fonts, models and asset manifest game assets builds; nil declares none.
 	Assets *Assets `yaml:"assets,omitempty"`
 	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
 	Packs []Pack `yaml:"packs,omitempty"`

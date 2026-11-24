@@ -54,7 +54,7 @@ YAML 语言服务器（`yaml-language-server`）会读取这条注释，VS Code 
 
 Schema 一次只看一个文件，因此跨越整个文档的规则仍由 `Parse` 检查：图层名和对象 ID 唯一、瓦片地图的 `ref` 指向 `tilemaps` 中的条目、瓦片地图只用一种模式、内联网格的尺寸，以及 `core.ParseColor` 能解析的颜色。个别地方 Schema 比 `Parse` 更严格，例如 `Parse` 会把 `null` 读作字段的零值，而 Schema 会拒绝它；`Encode` 写出的每个场景都能通过 Schema 校验，由模糊测试保证。
 
-导入设置的 Schema 同样只逐个检查字段：已知的键、允许的 `filter`、`format` 和音频 `format` 取值，不为负的尺寸和采样率，以及署名必填的 `author` 和 `license`。它不描述字段之间的组合规则，因为 Schema 生成器不输出 `oneOf`、`not` 或依赖关键字，而循环的终点与起点的大小关系也无法用 JSON Schema 表达；因此没有任何部分或同时含有 `image` 和 `audio` 的附属文件、同时设置 `peakDB` 和 `rmsDB`、循环终点不在起点之后、输出为 `aac` 或 `mp3` 却带循环、以及 `license` 不是 SPDX 许可证表达式的附属文件，仍由 `importsettings.Parse` 和 `game assets` 拒绝，而编辑器会把这样的文件显示为有效。
+导入设置的 Schema 同样只逐个检查字段：已知的键、允许的 `filter`、`format` 和音频 `format` 取值，不为负的尺寸、采样率、间距和模型缩放，以及署名必填的 `author` 和 `license`。它不描述字段之间的组合规则，因为 Schema 生成器不输出 `oneOf`、`not` 或依赖关键字，而循环的终点与起点的大小关系也无法用 JSON Schema 表达；因此没有任何部分或含有 `image`、`audio`、`font` 和 `model` 中多于一个部分的附属文件、同时设置 `peakDB` 和 `rmsDB`、字体的 `chars` 含有控制字符、循环终点不在起点之后、输出为 `aac` 或 `mp3` 却带循环、以及 `license` 不是 SPDX 许可证表达式的附属文件，仍由 `importsettings.Parse` 和 `game assets` 拒绝，而编辑器会把这样的文件显示为有效。
 
 ## 在 CI 中检查 Schema
 

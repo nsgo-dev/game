@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://game.nsgo.dev/schemas/import.v1.json",
   "title": "NSGo game import settings (version 1)",
-  "description": "File is one asset's import settings and credit. It holds at least one section: Image or Audio, never both, for how game assets imports the asset, and Credit for who made it and under what license.",
+  "description": "File is one asset's import settings and credit. It holds at least one section: at most one of Image, Audio, Font and Model, for how game assets imports the asset, and Credit for who made it and under what license.",
   "type": "object",
   "properties": {
     "version": {
@@ -23,6 +23,22 @@
       "allOf": [
         {
           "$ref": "#/definitions/Audio"
+        }
+      ]
+    },
+    "font": {
+      "description": "Font holds the settings of a font (TrueType or OpenType) that a font target bakes into a bitmap font.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Font"
+        }
+      ]
+    },
+    "model": {
+      "description": "Model holds the settings of a model (glTF or GLB) that a model target packs into one GLB file.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Model"
         }
       ]
     },
@@ -119,12 +135,35 @@
       ],
       "additionalProperties": false
     },
+    "Font": {
+      "description": "Font holds how a font target bakes a TrueType or OpenType font into an AngelCode BMFont. Each field left out keeps the target's setting in game.yaml.",
+      "type": "object",
+      "properties": {
+        "size": {
+          "description": "Size is the font size in pixels the glyphs are drawn at; 0 keeps the target's.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "chars": {
+          "description": "Chars are the characters baked into the font, each once, in any order, such as \" 0123456789\"; empty keeps the target's.",
+          "type": "string"
+        },
+        "padding": {
+          "description": "Padding is the transparent gap around each glyph on the font's pages, in pixels.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
     "Image": {
       "description": "Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.",
       "type": "object",
       "properties": {
         "filter": {
-          "description": "Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey: \"linear\" or \"nearest\".",
+          "description": "Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey, which render3d.LoadKTX2 sets the sampler's filters from: \"linear\" or \"nearest\".",
           "type": "string",
           "enum": [
             "linear",
@@ -175,6 +214,22 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "Model": {
+      "description": "Model holds how a model target packs a glTF model into one GLB file. Each field left out keeps the target's setting in game.yaml.",
+      "type": "object",
+      "properties": {
+        "scale": {
+          "description": "Scale multiplies the size of every scene of the model, such as 0.01 for a model exported in centimeters; 0 keeps the target's.",
+          "type": "number",
+          "minimum": 0
+        },
+        "animations": {
+          "description": "Animations keeps the model's animations when true and leaves them out of the GLB when false.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false

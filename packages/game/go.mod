@@ -13,6 +13,7 @@ require (
 	github.com/nsgo-dev/nsgo v0.3.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
+	golang.org/x/image v0.48.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.63.0
 )
@@ -47,7 +48,6 @@ require (
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/goldmark v1.8.7 // indirect
-	golang.org/x/image v0.48.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect

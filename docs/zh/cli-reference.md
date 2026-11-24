@@ -179,7 +179,7 @@ game check [flags] [dir]
 
 ## game assets
 
-Pack atlases, encode textures, convert audio and generate the manifest from game.yaml, rebuilding only what changed.
+Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed.
 
 ```sh
 game assets [flags]

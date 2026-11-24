@@ -21,7 +21,7 @@ NSGo 在所有 3D 模块中统一采用标准 glTF 2.0 坐标系与物理单位�
 
 ### 3D 资产的目录组织
 
-将运行时加载的 `.glb` 文件放入 `resources/`，这样 `nsgo build` 会自动把它们打包到六个目标平台，并在代码中通过 `"asset:..."` 读取。体积较大的制作源文件（`.blend`、`.fbx`、`.obj`、`.psd`）请放在 `resources/` 之外（例如 `art/`），避免被打包进发布产物：
+将运行时加载的 `.glb` 文件放入 `resources/`，这样 `nsgo build` 会自动把它们打包到六个目标平台，并在代码中通过 `"asset:..."` 读取。体积较大的制作源文件（`.blend`、`.fbx`、`.obj`、`.psd`）请放在 `resources/` 之外（例如 `art/`），避免被打包进发布产物。带 `.bin` 缓冲区和纹理文件的 `.gltf` 导出结果也可以留在 `art/`：[`game assets`](cli.md#assets) 的模型目标会把它打包成 `resources/` 下的单个 `.glb`，并按模型导入设置附属文件的要求缩放、保留或去掉动画：
 
 ```text
 mygame/
