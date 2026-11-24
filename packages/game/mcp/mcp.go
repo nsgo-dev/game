@@ -265,14 +265,14 @@ func (b *Bridge) SetViewport(vp *screen.Viewport) {
 	b.cfg.Viewport = vp
 }
 
-// SetConsole replaces the static debug Console configured on b.
-// If Config.ConsoleFunc is set and returns a non-nil console, ConsoleFunc continues to take precedence.
+// SetConsole replaces the static debug Console configured on b. If Config.ConsoleFunc is set and returns a non-nil console, ConsoleFunc continues to take precedence.
 func (b *Bridge) SetConsole(c *debug.Console) {
 	if b == nil {
 		return
 	}
 	b.cfg.Console = c
 }
+
 // Tools returns the full set of automation.Tool definitions owned by b, assembled from each tool group.
 func (b *Bridge) Tools() []automation.Tool {
 	if b == nil {
