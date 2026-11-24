@@ -29,14 +29,11 @@ type Options struct {
 	Format Format
 	// Mipmaps generates a complete mipmap chain down to 1x1 when true.
 	Mipmaps bool
-	// SRGB encodes using the corresponding Vulkan sRGB format, sRGB DFD transfer
-	// function, and sRGB-aware linear-light mipmap filtering.
+	// SRGB encodes using the corresponding Vulkan sRGB format, sRGB DFD transfer function, and sRGB-aware linear-light mipmap filtering.
 	SRGB bool
-	// Supercompression selects an optional KTX2 supercompression scheme
-	// (SupercompressionNone default, or SupercompressionZLIB).
+	// Supercompression selects an optional KTX2 supercompression scheme (SupercompressionNone default, or SupercompressionZLIB).
 	Supercompression uint32
-	// KVD adds optional key/value metadata pairs to the KTX2 Key/Value Data section.
-	// Standard keys KTXorientation and KTXwriter are populated automatically if absent.
+	// KVD adds optional key/value metadata pairs to the KTX2 Key/Value Data section. Standard keys KTXorientation and KTXwriter are populated automatically if absent.
 	KVD map[string]string
 }
 
@@ -606,8 +603,7 @@ func DecodeKVD(kvdBytes []byte) (map[string][]byte, error) {
 		prevKey = key
 		val := make([]byte, len(entry)-(nul+1))
 		copy(val, entry[nul+1:])
-		// buildKVD writes a NUL terminator after each value, and the reader must
-		// drop it or every value read back carries a trailing zero byte.
+		// buildKVD writes a NUL terminator after each value, and the reader must drop it or every value read back carries a trailing zero byte.
 		val = bytes.TrimRight(val, "\x00")
 		out[key] = val
 
@@ -623,8 +619,7 @@ func DecodeKVD(kvdBytes []byte) (map[string][]byte, error) {
 	return out, nil
 }
 
-// Validate checks a KTX2 buffer for structural compliance (magic, header, DFD, KVD,
-// SGD bounds, level index bounds, and mip level byte sizes).
+// Validate checks a KTX2 buffer for structural compliance (magic, header, DFD, KVD, SGD bounds, level index bounds, and mip level byte sizes).
 func Validate(data []byte) error {
 	h, levels, err := DecodeHeader(data)
 	if err != nil {
@@ -706,10 +701,7 @@ func Validate(data []byte) error {
 	return nil
 }
 
-// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container.
-// Supports SupercompressionNone (0), SupercompressionZstandard (2), and
-// SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4,
-// and Basis Universal UASTC 4x4, as well as container inspection of BasisLZ/ETC1S.
+// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container. Supports SupercompressionNone (0), SupercompressionZstandard (2), and SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, and Basis Universal UASTC 4x4, as well as container inspection of BasisLZ/ETC1S.
 func Decode(data []byte) (*Texture, error) {
 	if err := Validate(data); err != nil {
 		return nil, err
@@ -848,9 +840,7 @@ func (t *Texture) DecodeLevelRGBA(level int) (*image.NRGBA, error) {
 	return decodeLevelToRGBA(t.Format, lvl.Data, lvl.Width, lvl.Height, t.SRGB)
 }
 
-// Transcode converts every mip level of t to target format. When t.Format already
-// equals target (and target is a concrete GPU/pixel format), level payloads are
-// cloned directly without pixel decoding or re-encoding.
+// Transcode converts every mip level of t to target format. When t.Format already equals target (and target is a concrete GPU/pixel format), level payloads are cloned directly without pixel decoding or re-encoding.
 func (t *Texture) Transcode(target Format) ([]Level, error) {
 	if t == nil {
 		return nil, errors.New("ktx2: nil texture")
@@ -915,7 +905,7 @@ func decodeLevelToRGBA(format Format, raw []byte, w, ht int, srgb bool) (*image.
 	case FormatETC2RGBA:
 		return decodeETC2RGBA8(raw, w, ht), nil
 	case FormatASTC4x4:
-		return decodeASTC4x4(raw, w, ht, srgb), nil
+		return decodeASTC4x4(raw, w, ht, srgb)
 	case FormatUASTC:
 		return decodeUASTC(raw, w, ht, srgb), nil
 	default:
@@ -923,9 +913,7 @@ func decodeLevelToRGBA(format Format, raw []byte, w, ht int, srgb bool) (*image.
 	}
 }
 
-// DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA.
-// Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, and Basis Universal UASTC 4x4
-// with uncompressed, Zstandard, or ZLIB supercompression.
+// DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA. Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, and Basis Universal UASTC 4x4 with uncompressed, Zstandard, or ZLIB supercompression.
 func DecodeRGBA(data []byte, level int) (*image.NRGBA, error) {
 	tex, err := Decode(data)
 	if err != nil {

@@ -2,6 +2,7 @@ package ktx2
 
 import (
 	"encoding/binary"
+	"fmt"
 	"image"
 	"math"
 )
@@ -29,7 +30,7 @@ var eacModifierTable = [16][8]int{
 	{-3, -5, -7, -9, 2, 4, 6, 8},
 }
 
-// --- BC7 (Mode 6) ---
+// --- BC7 (Mode 6 encoder, all-mode decoder) ---
 
 func encodeBC7(img *image.NRGBA) []byte {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
@@ -197,6 +198,46 @@ func decodeBC7(raw []byte, width, height int) *image.NRGBA {
 	return dst
 }
 
+// bc7ModeInfo describes the fields of one BC7 block mode (BC7 format specification, Mode Information): its subsets, partition, rotation and index-selection bits, color and alpha endpoint bits, per-endpoint or per-subset P-bits, and primary and secondary index bits.
+type bc7ModeInfo struct {
+	subsets, partitionBits, rotationBits, indexSelBits int
+	colorBits, alphaBits                               int
+	endpointPBits, sharedPBits                         bool
+	indexBits, index2Bits                              int
+}
+
+var bc7Modes = [8]bc7ModeInfo{
+	{subsets: 3, partitionBits: 4, colorBits: 4, endpointPBits: true, indexBits: 3},
+	{subsets: 2, partitionBits: 6, colorBits: 6, sharedPBits: true, indexBits: 3},
+	{subsets: 3, partitionBits: 6, colorBits: 5, indexBits: 2},
+	{subsets: 2, partitionBits: 6, colorBits: 7, endpointPBits: true, indexBits: 2},
+	{subsets: 1, rotationBits: 2, indexSelBits: 1, colorBits: 5, alphaBits: 6, indexBits: 2, index2Bits: 3},
+	{subsets: 1, rotationBits: 2, colorBits: 7, alphaBits: 8, indexBits: 2, index2Bits: 2},
+	{subsets: 1, colorBits: 7, alphaBits: 7, endpointPBits: true, indexBits: 4},
+	{subsets: 2, partitionBits: 6, colorBits: 5, alphaBits: 5, endpointPBits: true, indexBits: 2},
+}
+
+var bc7Weights2 = [4]int{0, 21, 43, 64}
+var bc7Weights3 = [8]int{0, 9, 18, 27, 37, 46, 55, 64}
+
+func bc7Weight(bits int, idx uint32) int {
+	switch bits {
+	case 2:
+		return bc7Weights2[idx]
+	case 3:
+		return bc7Weights3[idx]
+	default:
+		return bc7Weights4[idx]
+	}
+}
+
+// bc7Dequant expands a bits-wide endpoint component to 8 bits by replicating its high bits.
+func bc7Dequant(v uint32, bits int) uint8 {
+	v <<= 8 - bits
+	return uint8(v | v>>bits)
+}
+
+// decodeBC7Block decodes one 16-byte BC7 block in any of its eight modes into 16 RGBA texels in raster order. A block with no mode bit set is reserved and decodes to transparent black, as the specification requires.
 func decodeBC7Block(block []byte, out *[16][4]uint8) {
 	mode := -1
 	for i := range 8 {
@@ -205,50 +246,119 @@ func decodeBC7Block(block []byte, out *[16][4]uint8) {
 			break
 		}
 	}
-	if mode == 6 {
-		pos := 7
-		var e0, e1 [4]uint32
-		for ch := range 4 {
-			e0[ch] = readBitsLE128(block, pos, 7)
-			pos += 7
-			e1[ch] = readBitsLE128(block, pos, 7)
-			pos += 7
-		}
-		p0 := readBitsLE128(block, pos, 1)
-		pos++
-		p1 := readBitsLE128(block, pos, 1)
-		pos++
-		var c0, c1 [4]int
-		for ch := range 4 {
-			c0[ch] = int((e0[ch] << 1) | p0)
-			c1[ch] = int((e1[ch] << 1) | p1)
-		}
-		for i := range 16 {
-			bits := 4
-			if i == 0 {
-				bits = 3
-			}
-			idx := readBitsLE128(block, pos, bits)
-			pos += bits
-			w := bc7Weights4[idx]
-			for ch := range 4 {
-				out[i][ch] = uint8(((64-w)*c0[ch] + w*c1[ch] + 32) >> 6)
-			}
-		}
-		return
-	}
 	if mode < 0 {
-		for i := range 16 {
-			out[i] = [4]uint8{0, 0, 0, 255}
-		}
+		*out = [16][4]uint8{}
 		return
 	}
-	r, g, b, a := block[1], block[2], block[3], uint8(255)
-	if mode >= 4 {
-		a = block[4]
+	m := bc7Modes[mode]
+	pos := mode + 1
+	read := func(n int) uint32 {
+		v := readBitsLE128(block, pos, n)
+		pos += n
+		return v
 	}
+	partition := int(read(m.partitionBits))
+	rotation := read(m.rotationBits)
+	indexSel := read(m.indexSelBits)
+
+	nEnd := m.subsets * 2
+	var ep [6][4]uint32
+	for ch := range 3 {
+		for e := range nEnd {
+			ep[e][ch] = read(m.colorBits)
+		}
+	}
+	if m.alphaBits > 0 {
+		for e := range nEnd {
+			ep[e][3] = read(m.alphaBits)
+		}
+	}
+	colorBits, alphaBits := m.colorBits, m.alphaBits
+	switch {
+	case m.endpointPBits:
+		for e := range nEnd {
+			p := read(1)
+			for ch := range 4 {
+				ep[e][ch] = ep[e][ch]<<1 | p
+			}
+		}
+		colorBits++
+		if alphaBits > 0 {
+			alphaBits++
+		}
+	case m.sharedPBits:
+		for s := range m.subsets {
+			p := read(1)
+			for e := s * 2; e < s*2+2; e++ {
+				for ch := range 4 {
+					ep[e][ch] = ep[e][ch]<<1 | p
+				}
+			}
+		}
+		colorBits++
+	}
+	var end [6][4]uint8
+	for e := range nEnd {
+		for ch := range 3 {
+			end[e][ch] = bc7Dequant(ep[e][ch], colorBits)
+		}
+		end[e][3] = 255
+		if alphaBits > 0 {
+			end[e][3] = bc7Dequant(ep[e][3], alphaBits)
+		}
+	}
+
+	var subsetOf [16]uint8
+	anchors := [3]int{0, -1, -1}
+	switch m.subsets {
+	case 2:
+		subsetOf = bc7Partition2[partition]
+		anchors[1] = int(bc7Anchor2Second[partition])
+	case 3:
+		subsetOf = bc7Partition3[partition]
+		anchors[1] = int(bc7Anchor3Second[partition])
+		anchors[2] = int(bc7Anchor3Third[partition])
+	}
+	isAnchor := func(i int) bool { return i == anchors[0] || i == anchors[1] || i == anchors[2] }
+
+	var idx1, idx2 [16]uint32
 	for i := range 16 {
-		out[i] = [4]uint8{r, g, b, a}
+		n := m.indexBits
+		if isAnchor(i) {
+			n--
+		}
+		idx1[i] = read(n)
+	}
+	if m.index2Bits > 0 {
+		for i := range 16 {
+			n := m.index2Bits
+			if i == 0 {
+				n--
+			}
+			idx2[i] = read(n)
+		}
+	}
+
+	for i := range 16 {
+		s := int(subsetOf[i])
+		e0, e1 := end[s*2], end[s*2+1]
+		cIdx, cBits, aIdx, aBits := idx1[i], m.indexBits, idx1[i], m.indexBits
+		if m.index2Bits > 0 {
+			aIdx, aBits = idx2[i], m.index2Bits
+			if indexSel == 1 {
+				cIdx, cBits, aIdx, aBits = aIdx, aBits, cIdx, cBits
+			}
+		}
+		cw, aw := bc7Weight(cBits, cIdx), bc7Weight(aBits, aIdx)
+		var px [4]uint8
+		for ch := range 3 {
+			px[ch] = uint8(((64-cw)*int(e0[ch]) + cw*int(e1[ch]) + 32) >> 6)
+		}
+		px[3] = uint8(((64-aw)*int(e0[3]) + aw*int(e1[3]) + 32) >> 6)
+		if rotation > 0 {
+			px[3], px[rotation-1] = px[rotation-1], px[3]
+		}
+		out[i] = px
 	}
 }
 
@@ -544,7 +654,8 @@ func encodeASTC4x4Block(dst []byte, pix *[16][4]uint8) {
 	}
 }
 
-func decodeASTC4x4(raw []byte, width, height int, srgb bool) *image.NRGBA {
+// decodeASTC4x4 decodes ASTC 4x4 LDR blocks of the kinds encodeASTC4x4 writes: void-extent blocks and single-partition, single-plane blocks with a 4x4 grid of 2- or 3-bit weights and directly stored 8-bit CEM 8 or CEM 12 endpoints. Any other block, such as the partitioned, dual-plane or BISE-coded blocks astcenc writes, returns an error rather than a guessed color.
+func decodeASTC4x4(raw []byte, width, height int, srgb bool) (*image.NRGBA, error) {
 	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
 	bw := (width + 3) / 4
 	bh := (height + 3) / 4
@@ -555,7 +666,9 @@ func decodeASTC4x4(raw []byte, width, height int, srgb bool) *image.NRGBA {
 			if off+16 > len(raw) {
 				break
 			}
-			decodeASTC4x4Block(raw[off:off+16], srgb, &blockPix)
+			if err := decodeASTC4x4Block(raw[off:off+16], srgb, &blockPix); err != nil {
+				return nil, fmt.Errorf("ktx2: ASTC block (%d, %d): %w", bx, by, err)
+			}
 			for dy := range 4 {
 				py := by*4 + dy
 				if py >= height {
@@ -577,7 +690,7 @@ func decodeASTC4x4(raw []byte, width, height int, srgb bool) *image.NRGBA {
 			}
 		}
 	}
-	return dst
+	return dst, nil
 }
 
 func astcBlueContract(r, g, b, a uint8) [4]uint8 {
@@ -589,7 +702,7 @@ func astcBlueContract(r, g, b, a uint8) [4]uint8 {
 	}
 }
 
-func decodeASTC4x4Block(block []byte, srgb bool, out *[16][4]uint8) {
+func decodeASTC4x4Block(block []byte, srgb bool, out *[16][4]uint8) error {
 	// 2D LDR Void-Extent block.
 	if block[0] == 0xFC && (block[1]&0x0F) == 0x0D {
 		r := uint8(binary.LittleEndian.Uint16(block[8:10]) >> 8)
@@ -599,14 +712,15 @@ func decodeASTC4x4Block(block []byte, srgb bool, out *[16][4]uint8) {
 		for i := range 16 {
 			out[i] = [4]uint8{r, g, b, a}
 		}
-		return
+		return nil
 	}
 
 	bm := readBitsLE128(block, 0, 11)
 	part := readBitsLE128(block, 11, 2)
 	cem := readBitsLE128(block, 13, 4)
 
-	if part == 0 && (bm == 0x053 || bm == 0x042) && (cem == 8 || cem == 12) {
+	// Block mode 0x053 is a 4x4 grid of 3-bit weights and 0x042 of 2-bit weights, both single plane. With one partition the endpoints left room for are stored as plain 8-bit values, except CEM 12 under 3-bit weights, whose eight values do not fit in 8 bits each.
+	if part == 0 && ((bm == 0x053 && cem == 8) || (bm == 0x042 && (cem == 8 || cem == 12))) {
 		wbits := uint8(2)
 		if bm == 0x053 {
 			wbits = 3
@@ -638,15 +752,8 @@ func decodeASTC4x4Block(block []byte, srgb bool, out *[16][4]uint8) {
 				out[i][ch] = uastcInterpolate(e0[ch], e1[ch], w, srgb)
 			}
 		}
-		return
+		return nil
 	}
 
-	// Deterministic fallback for other ASTC block modes.
-	r, g, b, a := block[4], block[5], block[6], uint8(255)
-	if block[7] != 0 {
-		a = block[7]
-	}
-	for i := range 16 {
-		out[i] = [4]uint8{r, g, b, a}
-	}
+	return fmt.Errorf("unsupported block mode %#x with %d partitions and color endpoint mode %d", bm, part+1, cem)
 }
