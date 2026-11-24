@@ -526,14 +526,15 @@ func postPutMat4(dst []byte, off int, m math3d.Mat4) {
 	}
 }
 
+// postResolveColorFormat accepts only the intermediate formats every pass can render to and filter-sample on every backend: four filterable channels, because Depth of Field stores its Circle of Confusion in alpha. Integer formats do not match texture_2d<f32>, RGBA32Float is not filterable on WebGL 2, GLES 3.0 or baseline WebGPU, and R8/RG8/RG11B10 have no alpha.
 func postResolveColorFormat(f gpu.TextureFormat) (gpu.TextureFormat, error) {
-	if f == gpu.FormatUndefined {
+	switch f {
+	case gpu.FormatUndefined:
 		return gpu.FormatRGBA16Float, nil
+	case gpu.FormatRGBA16Float, gpu.FormatRGBA8Unorm, gpu.FormatRGBA8UnormSRGB, gpu.FormatBGRA8Unorm, gpu.FormatBGRA8UnormSRGB:
+		return f, nil
 	}
-	if f.IsDepthStencil() || f.IsCompressed() {
-		return gpu.FormatUndefined, fmt.Errorf("%w: unsupported color target format %s", ErrInvalidPostProcess, f)
-	}
-	return f, nil
+	return gpu.FormatUndefined, fmt.Errorf("%w: unsupported color format %s (want RGBA16Float, RGBA8Unorm, RGBA8UnormSRGB, BGRA8Unorm or BGRA8UnormSRGB)", ErrInvalidPostProcess, f)
 }
 
 func postResolveOutputFormat(dev *gpu.Device, f gpu.TextureFormat) (gpu.TextureFormat, error) {
@@ -727,7 +728,7 @@ type BloomPassOptions struct {
 	Label        string
 	Width        uint32
 	Height       uint32
-	ColorFormat  gpu.TextureFormat // internal blur target format; defaults to FormatRGBA16Float
+	ColorFormat  gpu.TextureFormat // internal blur target format: RGBA16Float (the default), RGBA8Unorm, RGBA8UnormSRGB, BGRA8Unorm or BGRA8UnormSRGB
 	OutputFormat gpu.TextureFormat // destination format; defaults to dev.SurfaceFormat() or FormatRGBA8Unorm
 	Retained     bool
 	Config       BloomConfig
@@ -1409,7 +1410,7 @@ type SSAOPassOptions struct {
 	Label        string
 	Width        uint32
 	Height       uint32
-	ColorFormat  gpu.TextureFormat // intermediate color format; defaults to FormatRGBA16Float
+	ColorFormat  gpu.TextureFormat // intermediate color format: RGBA16Float (the default), RGBA8Unorm, RGBA8UnormSRGB, BGRA8Unorm or BGRA8UnormSRGB
 	OutputFormat gpu.TextureFormat // destination format; defaults to dev.SurfaceFormat() or FormatRGBA8Unorm
 	Retained     bool
 	Config       SSAOConfig
@@ -2035,7 +2036,7 @@ type DepthOfFieldPassOptions struct {
 	Label        string
 	Width        uint32
 	Height       uint32
-	ColorFormat  gpu.TextureFormat // intermediate color/CoC format; defaults to FormatRGBA16Float
+	ColorFormat  gpu.TextureFormat // intermediate color/CoC format: RGBA16Float (the default), RGBA8Unorm, RGBA8UnormSRGB, BGRA8Unorm or BGRA8UnormSRGB
 	OutputFormat gpu.TextureFormat // destination format; defaults to dev.SurfaceFormat() or FormatRGBA8Unorm
 	Retained     bool
 	Config       DepthOfFieldConfig
@@ -2472,8 +2473,7 @@ type PostStack3DOptions struct {
 	// Width and Height of the offscreen 3D scene and post-processing targets (must be > 0).
 	Width  uint32
 	Height uint32
-	// ColorFormat is the scene and intermediate ping-pong color format.
-	// Defaults to [gpu.FormatRGBA16Float] when zero, preserving HDR highlights for Bloom.
+	// ColorFormat is the scene and intermediate ping-pong color format: [gpu.FormatRGBA16Float] (the default, preserving HDR highlights for Bloom), [gpu.FormatRGBA8Unorm], [gpu.FormatRGBA8UnormSRGB], [gpu.FormatBGRA8Unorm] or [gpu.FormatBGRA8UnormSRGB]. Any other format returns an error wrapping [ErrInvalidPostProcess].
 	ColorFormat gpu.TextureFormat
 	// DepthFormat is the scene render target's depth format. Defaults to [gpu.FormatDepth32Float] when zero.
 	DepthFormat gpu.TextureFormat
