@@ -2,5 +2,7 @@
 //
 // A mod lives in a directory containing a mod.yaml manifest ([ModManifest], read by [ParseManifest] and written by [EncodeManifest]) and an entry script (such as mod.tsx or mod.js). Mods import the capability-gated "game" module to subscribe to simulation steps and events, emit events, spawn entities, read and write scoped game state, play audio, persist per-mod storage, write logs, and optionally mount TSX UI panels or HUD widgets.
 //
-// [Manager] discovers mods from the filesystem or any [io/fs.FS], validates manifests, resolves dependencies in deterministic topological order, isolates faults so a broken mod never crashes the host game or sibling mods, persists enabled/disabled state via [core.Storage], and drives step hooks from [game.Loop].
+// [Manager] discovers mods from the filesystem or any [io/fs.FS], installs or removes individual mods dynamically ([Manager.Install], [Manager.Uninstall]), validates manifests, resolves dependencies in deterministic topological order, isolates faults so a broken mod never crashes the host game or sibling mods, persists enabled/disabled state via [core.Storage], and drives step hooks from [game.Loop].
+//
+// [Workshop] integrates Steam Workshop (Steamworks ISteamUGC) with [Manager] through a [WorkshopBackend]: [NewSteamWorkshop] binds the Steamworks flat C API via purego on macOS, Linux and Windows (returning [ErrWorkshopUnavailable] when Steam is absent or on web/mobile), while [NewMemoryWorkshop] simulates multi-user publishing, subscriptions and updates on disk for tests and offline workflows. Published mods store deterministic Workshop metadata in workshop.yaml ([WorkshopMetadata]).
 package modding
