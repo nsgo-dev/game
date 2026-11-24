@@ -19,45 +19,36 @@ type KTX2Upload struct {
 	Retained bool
 	// Sampler is the sampler the texture is drawn with before the file's filter is applied: its wrapping, LOD bounds and label are kept, and its filters are kept when the file names none.
 	Sampler SamplerOptions
+	// ForceRGBA8 uploads every level decoded to RGBA8 even when dev supports the file's block format or one a UASTC file could be transcoded to.
+	ForceRGBA8 bool
 }
 
-// LoadKTX2 uploads the 2D texture in data, a KTX2 file such as game assets and game tex write, to dev, scoped to cx, and returns it with the sampler to draw it with: opts.Sampler with its filters set from the file's [KTX2FilterKey], as [KTX2Sampler] sets them, so an image's import settings decide whether it is drawn sharp or smooth. Every mip level the file holds is uploaded as it is, in its sRGB or linear format. A block-compressed level (BC1, BC3 or ETC2) is uploaded compressed when dev supports its format ([gpu.Device.SupportsCompressedFormat]) and otherwise decoded to RGBA8 on the CPU, so the texture loads on every backend. A file that is not a valid uncompressed-container 2D KTX2 texture in RGBA8, BC1, BC3 or ETC2, or whose filter is unknown, returns an error wrapping [ErrInvalidTexture] before anything is created; a device error is returned as the [gpu.Error] NSGo reports.
+// LoadKTX2 uploads the 2D texture in data, a KTX2 file such as game assets and game tex write or a Basis Universal UASTC file, to dev, scoped to cx, and returns it with the sampler to draw it with: opts.Sampler with its filters set from the file's [KTX2FilterKey], as [KTX2Sampler] sets them, so an image's import settings decide whether it is drawn sharp or smooth.
+//
+// Every mip level the file holds is uploaded, in its sRGB or linear format, after undoing the file's Zstandard or ZLIB supercompression. A block-compressed level (BC1, BC3, BC7, ETC2 RGB8 or RGBA8, or ASTC 4x4) is uploaded compressed when dev supports its format ([gpu.Device.SupportsCompressedFormat]) and otherwise decoded to RGBA8 on the CPU, so the texture loads on every backend. A UASTC level is transcoded to the best block format dev supports, in the order BC7, BC1 for an opaque texture, BC3, ETC2 (linear only) and ASTC 4x4, and decoded to RGBA8 when dev supports none of them or the base level's width or height is not a multiple of 4. Transcoding decodes each level and encodes it again on the calling goroutine, which costs time at load for a large texture.
+//
+// A file that is not a valid 2D KTX2 texture in one of those formats, such as a BasisLZ/ETC1S file or an ASTC file whose blocks the CPU decoder does not handle on a device without ASTC, or whose filter is unknown, returns an error wrapping [ErrInvalidTexture] before anything is created; a device error is returned as the [gpu.Error] NSGo reports.
 func LoadKTX2(cx *core.Scope, dev *gpu.Device, data []byte, opts KTX2Upload) (*GPUTexture, SamplerOptions, error) {
 	sampler, err := KTX2Sampler(data, opts.Sampler)
 	if err != nil {
 		return nil, SamplerOptions{}, err
 	}
-	if err := ktx2.Validate(data); err != nil {
-		return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
-	}
-	h, levels, err := ktx2.DecodeHeader(data)
+	t, err := ktx2.Decode(data)
 	if err != nil {
 		return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
 	}
-	if h.PixelDepth > 1 || h.LayerCount > 1 || h.FaceCount != 1 {
-		return nil, SamplerOptions{}, fmt.Errorf("%w: KTX2 texture is not 2D (depth %d, layers %d, faces %d)", ErrInvalidTexture, h.PixelDepth, h.LayerCount, h.FaceCount)
-	}
-	if h.SupercompressionScheme != ktx2.SupercompressionNone {
-		return nil, SamplerOptions{}, fmt.Errorf("%w: KTX2 supercompression scheme %d is not supported", ErrInvalidTexture, h.SupercompressionScheme)
-	}
-	kf, srgb, ok := ktx2.FormatFromVk(h.VkFormat)
-	if !ok {
-		return nil, SamplerOptions{}, fmt.Errorf("%w: KTX2 vkFormat %d is not RGBA8, BC1, BC3 or ETC2", ErrInvalidTexture, h.VkFormat)
+	if t.Format == ktx2.FormatETC1S {
+		return nil, SamplerOptions{}, fmt.Errorf("%w: KTX2 BasisLZ/ETC1S textures are not supported (encode as UASTC)", ErrInvalidTexture)
 	}
 	if dev == nil {
 		return nil, SamplerOptions{}, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	format, native := ktx2GPUFormat(kf, srgb)
-	if native && format.IsCompressed() && !dev.SupportsCompressedFormat(format) {
-		native = false
+	target, format := ktx2Target(dev, t, opts.ForceRGBA8)
+	levels, err := t.Transcode(target)
+	if err != nil {
+		return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
 	}
-	if !native {
-		format = gpu.FormatRGBA8Unorm
-		if srgb {
-			format = gpu.FormatRGBA8UnormSRGB
-		}
-	}
-	w, ht := h.PixelWidth, h.PixelHeight
+	w, ht := uint32(t.Width), uint32(t.Height)
 	label := opts.Label
 	if label == "" {
 		label = "render3d.ktx2"
@@ -75,24 +66,13 @@ func LoadKTX2(cx *core.Scope, dev *gpu.Device, data []byte, opts KTX2Upload) (*G
 	if err != nil {
 		return nil, SamplerOptions{}, err
 	}
-	for lvl := range levels {
-		if native {
-			raw, lw, _, err := ktx2.ReadLevel(data, lvl)
-			if err != nil {
-				_ = tex.Close()
-				return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
-			}
+	for lvl, l := range levels {
+		bytesPerRow := uint32(l.Width) * 4
+		if format.IsCompressed() {
 			bw, _ := format.BlockSize()
-			blocks := (uint32(lw) + bw - 1) / bw
-			dev.WriteTextureMip(tex, uint32(lvl), 0, raw, blocks*format.BytesPerBlock())
-			continue
+			bytesPerRow = (uint32(l.Width) + bw - 1) / bw * format.BytesPerBlock()
 		}
-		img, err := ktx2.DecodeRGBA(data, lvl)
-		if err != nil {
-			_ = tex.Close()
-			return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
-		}
-		dev.WriteTextureMip(tex, uint32(lvl), 0, img.Pix, uint32(img.Stride))
+		dev.WriteTextureMip(tex, uint32(lvl), 0, l.Data, bytesPerRow)
 	}
 	return &GPUTexture{tex: tex, width: w, height: ht, mipLevels: uint32(len(levels)), format: format}, sampler, nil
 }
@@ -130,7 +110,48 @@ func KTX2Sampler(data []byte, base SamplerOptions) (SamplerOptions, error) {
 	return base, nil
 }
 
-// ktx2GPUFormat returns the GPU format a KTX2 format uploads as without decoding, and false when NSGo has none, as for sRGB ETC2.
+// ktx2Target returns the format t's levels are transcoded to and the GPU format they upload as on dev. A block format dev supports uploads as it is, any other block format decodes to RGBA8, and UASTC transcodes to the first of ktx2UASTCTargets dev supports.
+func ktx2Target(dev *gpu.Device, t *ktx2.Texture, forceRGBA8 bool) (ktx2.Format, gpu.TextureFormat) {
+	rgba := gpu.FormatRGBA8Unorm
+	if t.SRGB {
+		rgba = gpu.FormatRGBA8UnormSRGB
+	}
+	if forceRGBA8 {
+		return ktx2.FormatRGBA8, rgba
+	}
+	if f, ok := ktx2GPUFormat(t.Format, t.SRGB); ok && (!f.IsCompressed() || dev.SupportsCompressedFormat(f)) {
+		return t.Format, f
+	}
+	if t.Format == ktx2.FormatUASTC && t.Width%4 == 0 && t.Height%4 == 0 {
+		for _, c := range ktx2UASTCTargets {
+			if c.srgb == t.SRGB && (c.alpha || !t.HasAlpha) && dev.SupportsCompressedFormat(c.gpu) {
+				return c.format, c.gpu
+			}
+		}
+	}
+	return ktx2.FormatRGBA8, rgba
+}
+
+// ktx2UASTCTargets are the block formats a UASTC texture transcodes to, best first; a format without alpha is skipped for a texture with alpha.
+var ktx2UASTCTargets = []struct {
+	format ktx2.Format
+	gpu    gpu.TextureFormat
+	srgb   bool
+	alpha  bool
+}{
+	{ktx2.FormatBC7, gpu.FormatBC7RGBAUnormSRGB, true, true},
+	{ktx2.FormatBC1, gpu.FormatBC1RGBAUnormSRGB, true, false},
+	{ktx2.FormatBC3, gpu.FormatBC3RGBAUnormSRGB, true, true},
+	{ktx2.FormatASTC4x4, gpu.FormatASTC4x4UnormSRGB, true, true},
+	{ktx2.FormatBC7, gpu.FormatBC7RGBAUnorm, false, true},
+	{ktx2.FormatBC1, gpu.FormatBC1RGBAUnorm, false, false},
+	{ktx2.FormatBC3, gpu.FormatBC3RGBAUnorm, false, true},
+	{ktx2.FormatETC2, gpu.FormatETC2RGB8Unorm, false, false},
+	{ktx2.FormatETC2RGBA, gpu.FormatETC2RGBA8Unorm, false, true},
+	{ktx2.FormatASTC4x4, gpu.FormatASTC4x4Unorm, false, true},
+}
+
+// ktx2GPUFormat returns the GPU format a KTX2 format uploads as without decoding, and false when NSGo has none, as for sRGB ETC2 and for UASTC.
 func ktx2GPUFormat(f ktx2.Format, srgb bool) (gpu.TextureFormat, bool) {
 	switch {
 	case f == ktx2.FormatRGBA8 && srgb:
@@ -145,8 +166,18 @@ func ktx2GPUFormat(f ktx2.Format, srgb bool) (gpu.TextureFormat, bool) {
 		return gpu.FormatBC3RGBAUnormSRGB, true
 	case f == ktx2.FormatBC3:
 		return gpu.FormatBC3RGBAUnorm, true
+	case f == ktx2.FormatBC7 && srgb:
+		return gpu.FormatBC7RGBAUnormSRGB, true
+	case f == ktx2.FormatBC7:
+		return gpu.FormatBC7RGBAUnorm, true
 	case f == ktx2.FormatETC2 && !srgb:
 		return gpu.FormatETC2RGB8Unorm, true
+	case f == ktx2.FormatETC2RGBA && !srgb:
+		return gpu.FormatETC2RGBA8Unorm, true
+	case f == ktx2.FormatASTC4x4 && srgb:
+		return gpu.FormatASTC4x4UnormSRGB, true
+	case f == ktx2.FormatASTC4x4:
+		return gpu.FormatASTC4x4Unorm, true
 	}
 	return gpu.FormatUndefined, false
 }

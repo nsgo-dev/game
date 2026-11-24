@@ -1,6 +1,7 @@
 package render3d_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -188,7 +189,11 @@ func TestLoadKTX2Refuses(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
 	t.Cleanup(sr.Close)
 	good := encodeKTX2(t, fourColorImage(), ktx2.FormatRGBA8, false, false, "")
+	// BC1 without alpha samples its punch-through texels as opaque black, which an RGBA BC1 upload would draw transparent, so it is refused.
+	bc1RGB := encodeKTX2(t, fourColorImage(), ktx2.FormatBC1, false, false, "")
+	binary.LittleEndian.PutUint32(bc1RGB[12:16], 131)
 	for name, data := range map[string][]byte{
+		"bc1 rgb":   bc1RGB,
 		"empty":     nil,
 		"truncated": good[:len(good)-2],
 		"filter":    encodeKTX2(t, fourColorImage(), ktx2.FormatRGBA8, false, false, "smooth"),
@@ -200,4 +205,163 @@ func TestLoadKTX2Refuses(t *testing.T) {
 	if _, _, err := render3d.LoadKTX2(nil, nil, good, render3d.KTX2Upload{}); !errors.As(err, new(gpu.Error)) {
 		t.Errorf("nil device: error %v, want a gpu.Error", err)
 	}
+}
+
+// quadrantImage is a size x size image with a different solid color in each quadrant, so every 4x4 block of it is one color and every block codec keeps the colors within a step or two.
+func quadrantImage(size int, alpha uint8) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	colors := [4]color.NRGBA{{R: 230, G: 30, B: 30, A: alpha}, {R: 30, G: 200, B: 40, A: alpha}, {R: 40, G: 60, B: 220, A: alpha}, {R: 240, G: 220, B: 30, A: alpha}}
+	for y := range size {
+		for x := range size {
+			img.SetNRGBA(x, y, colors[(y/(size/2))*2+x/(size/2)])
+		}
+	}
+	return img
+}
+
+// features returns the software renderer's default features with only the named block compression families on.
+func features(bc, etc2, astc bool) gpu.Features {
+	sr := gpu.NewSoftwareRenderer(1, 1, gpu.FormatUndefined)
+	f := sr.Device().Features()
+	sr.Close()
+	f.TextureCompressionBC, f.TextureCompressionETC2, f.TextureCompressionASTC = bc, etc2, astc
+	return f
+}
+
+// assertSameQuadrants checks that got shows the four quadrant colors of want, within tol per channel, at each quadrant's center.
+func assertSameQuadrants(t *testing.T, got, want *image.RGBA, tol uint8) {
+	t.Helper()
+	b := want.Bounds()
+	for _, p := range []image.Point{{b.Dx() / 4, b.Dy() / 4}, {3 * b.Dx() / 4, b.Dy() / 4}, {b.Dx() / 4, 3 * b.Dy() / 4}, {3 * b.Dx() / 4, 3 * b.Dy() / 4}} {
+		g, w := got.RGBAAt(p.X, p.Y), want.RGBAAt(p.X, p.Y)
+		near := func(a, b uint8) bool { return max(a, b)-min(a, b) <= tol }
+		if !near(g.R, w.R) || !near(g.G, w.G) || !near(g.B, w.B) || !near(g.A, w.A) {
+			t.Errorf("pixel %v = %v, want about %v", p, g, w)
+		}
+	}
+}
+
+// TestLoadKTX2TranscodesUASTC holds what UASTC is for: one file draws on a BC, an ETC2, an ASTC and an uncompressed device, transcoded to the best block format each supports.
+func TestLoadKTX2TranscodesUASTC(t *testing.T) {
+	const size = 32
+	ref := func(srgb bool) *image.RGBA {
+		sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatUndefined)
+		t.Cleanup(sr.Close)
+		_, img := drawKTX2(t, sr, encodeKTX2(t, quadrantImage(16, 255), ktx2.FormatRGBA8, false, srgb, "nearest"))
+		return img
+	}
+	linear, srgb := ref(false), ref(true)
+	for _, tc := range []struct {
+		name     string
+		features gpu.Features
+		srgb     bool
+		alpha    uint8
+		want     gpu.TextureFormat
+	}{
+		{"bc opaque", features(true, false, false), false, 255, gpu.FormatBC7RGBAUnorm},
+		{"bc srgb", features(true, false, false), true, 255, gpu.FormatBC7RGBAUnormSRGB},
+		{"etc2 opaque", features(false, true, false), false, 255, gpu.FormatETC2RGB8Unorm},
+		{"etc2 alpha", features(false, true, false), false, 200, gpu.FormatETC2RGBA8Unorm},
+		{"etc2 srgb decoded", features(false, true, false), true, 255, gpu.FormatRGBA8UnormSRGB},
+		{"astc opaque", features(false, false, true), false, 255, gpu.FormatASTC4x4Unorm},
+		{"astc srgb", features(false, false, true), true, 255, gpu.FormatASTC4x4UnormSRGB},
+		{"none decoded", features(false, false, false), false, 255, gpu.FormatRGBA8Unorm},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, tc.features)
+			t.Cleanup(sr.Close)
+			tex, img := drawKTX2(t, sr, encodeKTX2(t, quadrantImage(16, tc.alpha), ktx2.FormatUASTC, true, tc.srgb, "nearest"))
+			if tex.Format() != tc.want || tex.MipLevels() != 5 {
+				t.Fatalf("texture = %s with %d levels, want %s with 5", tex.Format(), tex.MipLevels(), tc.want)
+			}
+			if tc.alpha == 255 {
+				want := linear
+				if tc.srgb {
+					want = srgb
+				}
+				assertSameQuadrants(t, img, want, 4)
+			}
+		})
+	}
+}
+
+func TestLoadKTX2BlockFormatsNativeOrDecoded(t *testing.T) {
+	const size = 32
+	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	_, want := drawKTX2(t, sr, encodeKTX2(t, quadrantImage(16, 255), ktx2.FormatRGBA8, false, false, "nearest"))
+	for _, tc := range []struct {
+		format ktx2.Format
+		native gpu.TextureFormat
+		f      gpu.Features
+	}{
+		{ktx2.FormatBC7, gpu.FormatBC7RGBAUnorm, features(true, false, false)},
+		{ktx2.FormatETC2RGBA, gpu.FormatETC2RGBA8Unorm, features(false, true, false)},
+		{ktx2.FormatASTC4x4, gpu.FormatASTC4x4Unorm, features(false, false, true)},
+	} {
+		data := encodeKTX2(t, quadrantImage(16, 255), tc.format, true, false, "nearest")
+		t.Run(string(tc.format)+" native", func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, tc.f)
+			t.Cleanup(sr.Close)
+			tex, img := drawKTX2(t, sr, data)
+			if tex.Format() != tc.native {
+				t.Fatalf("texture = %s, want %s", tex.Format(), tc.native)
+			}
+			assertSameQuadrants(t, img, want, 4)
+		})
+		t.Run(string(tc.format)+" decoded", func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, features(false, false, false))
+			t.Cleanup(sr.Close)
+			tex, img := drawKTX2(t, sr, data)
+			if tex.Format() != gpu.FormatRGBA8Unorm {
+				t.Fatalf("texture = %s, want RGBA8", tex.Format())
+			}
+			assertSameQuadrants(t, img, want, 4)
+		})
+	}
+}
+
+func TestLoadKTX2ForceRGBA8OddSizeAndZLIB(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	uastc := encodeKTX2(t, quadrantImage(16, 255), ktx2.FormatUASTC, true, false, "")
+	if tex, _, err := render3d.LoadKTX2(nil, dev, uastc, render3d.KTX2Upload{ForceRGBA8: true}); err != nil || tex.Format() != gpu.FormatRGBA8Unorm {
+		t.Fatalf("ForceRGBA8: texture %v, error %v; want RGBA8", tex.Format(), err)
+	}
+	odd := encodeKTX2(t, image.NewNRGBA(image.Rect(0, 0, 13, 7)), ktx2.FormatUASTC, true, false, "")
+	if tex, _, err := render3d.LoadKTX2(nil, dev, odd, render3d.KTX2Upload{}); err != nil || tex.Format() != gpu.FormatRGBA8Unorm || tex.MipLevels() != 4 {
+		t.Fatalf("13x7 UASTC: texture %v, error %v; want RGBA8 with 4 levels", tex, err)
+	}
+	zlib, err := ktx2.Encode(quadrantImage(16, 255), ktx2.Options{Format: ktx2.FormatUASTC, Mipmaps: true, Supercompression: ktx2.SupercompressionZLIB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tex, _, err := render3d.LoadKTX2(nil, dev, zlib, render3d.KTX2Upload{}); err != nil || tex.Format() != gpu.FormatBC7RGBAUnorm || tex.MipLevels() != 5 {
+		t.Fatalf("ZLIB UASTC: texture %v, error %v; want BC7 with 5 levels", tex, err)
+	}
+}
+
+func FuzzLoadKTX2(f *testing.F) {
+	for _, format := range []ktx2.Format{ktx2.FormatUASTC, ktx2.FormatBC7, ktx2.FormatASTC4x4} {
+		data, err := ktx2.Encode(quadrantImage(8, 255), ktx2.Options{Format: format, Mipmaps: true})
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+	}
+	f.Add([]byte{})
+	f.Add(ktx2.Identifier[:])
+	sr := gpu.NewSoftwareRendererWithFeatures(4, 4, gpu.FormatUndefined, features(false, false, false))
+	f.Cleanup(sr.Close)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		tex, _, err := render3d.LoadKTX2(nil, sr.Device(), data, render3d.KTX2Upload{})
+		if err != nil {
+			if !errors.Is(err, render3d.ErrInvalidTexture) && !errors.As(err, new(gpu.Error)) {
+				t.Fatalf("error %v wraps neither ErrInvalidTexture nor a gpu.Error", err)
+			}
+			return
+		}
+		_ = tex.Close()
+	})
 }
