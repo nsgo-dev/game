@@ -69,3 +69,58 @@ func ExampleBuild() {
 	// Output:
 	// props 200 64 32
 }
+
+// A scene file connects a button's pressed event to a door's open handler; the game registers what the components do once, and Connect wires every connection the file declares.
+func ExampleConnect() {
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "pressed", Doc: "The player pressed the button."}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "door",
+		Handlers: []sceneformat.Handler{{
+			Name:   "open",
+			Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0}},
+			Func: func(c sceneformat.Call) {
+				fmt.Printf("%s opens %s at speed %v\n", c.Source.ID, c.Target.ID, c.Args["speed"])
+			},
+		}},
+	})
+
+	doc, err := sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: props
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: open, args: {speed: 2}}
+`), sceneformat.ParseOptions{File: "hall.scene.yaml", Components: reg})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	signals, err := sceneformat.Connect(doc, reg, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	// The game's input code emits the event when the player presses the button.
+	fmt.Println(signals.Emit("button", "pressed", nil))
+
+	_, err = sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: props
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: opne}
+`), sceneformat.ParseOptions{File: "hall.scene.yaml", Components: reg})
+	fmt.Println(err)
+	// Output:
+	// button opens door at speed 2
+	// <nil>
+	// hall.scene.yaml:8:55: sceneformat: connection 0 ("button" pressed -> "door" opne): no registered component of object "door" declares handler "opne" (it has: door.open)
+}

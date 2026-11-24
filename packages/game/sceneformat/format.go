@@ -79,6 +79,24 @@ type SceneDoc struct {
 	Overrides map[string]ObjectOverride `yaml:"overrides,omitempty"`
 	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.
 	Layers []LayerDoc `yaml:"layers,omitempty"`
+	// Connections connect events of the scene's objects to handlers of its objects, as Godot's connections in a .tscn file do, so a button can open a door with no Go code that wires the two. Connect binds them to the handlers a ComponentRegistry declares, and Resolve carries the connections of instanced and inherited scenes into the scene that uses them.
+	Connections []ConnectionDoc `yaml:"connections,omitempty"`
+}
+
+// ConnectionDoc connects an event that one object emits to a handler of another object, or of the same one (SceneDoc.Connections). Signals.Emit calls the handler each time the object emits the event.
+type ConnectionDoc struct {
+	// From is the ID of the object that emits the event. In a scene that instances or inherits other scene files it may name their objects, such as "door_1/button".
+	From string `yaml:"from" schema:"required,minLength=1"`
+	// Event names an event a registered component type of From's object declares (ComponentType.Events), such as "pressed", or "button.pressed" to say which component when several of the object's components declare it.
+	Event string `yaml:"event" schema:"required,minLength=1"`
+	// To is the ID of the object whose handler runs.
+	To string `yaml:"to" schema:"required,minLength=1"`
+	// Handler names a handler a registered component type of To's object declares (ComponentType.Handlers), such as "open", or "door.open" to say which component.
+	Handler string `yaml:"handler" schema:"required,minLength=1"`
+	// Args are values for the handler's params by name; a param left out takes its default. Each is a bool, a number or a string.
+	Args map[string]any `yaml:"args,omitempty"`
+	// Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.
+	Once bool `yaml:"once,omitempty"`
 }
 
 // LayerOverride changes an inherited layer in a scene that inherits another (SceneDoc.LayerOverrides). A field left unset keeps the base layer's value.
@@ -418,7 +436,7 @@ func Parse(data []byte) (*SceneDoc, error) {
 type ParseOptions struct {
 	// File names the source in errors, such as "scenes/level1.scene.yaml": the File of a *ComponentError or of a *loaderr.Error. Empty leaves it unnamed.
 	File string
-	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column.
+	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column. It also checks the scene's connections, unless the scene instances or inherits other scene files whose objects they may name: an event or handler no component of its object declares, and an argument the handler has no param for or of the wrong kind or out of range, fail the load with a *ConnectionError carrying File, Line and Column.
 	Components *ComponentRegistry
 }
 
@@ -430,6 +448,11 @@ func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
 		if errors.As(err, &ce) {
 			ce.File = opts.File
 			return nil, ce
+		}
+		var cne *ConnectionError
+		if errors.As(err, &cne) {
+			cne.File = opts.File
+			return nil, cne
 		}
 		return nil, loaderr.Locate(fieldError(err, data), opts.File, data, fixScene)
 	}
@@ -520,6 +543,13 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 		// The node walk above locates errors in plain mappings; this pass also covers values it could not see key by key, such as merge keys.
 		if err := ValidateComponents(&doc, reg); err != nil {
 			return nil, err
+		}
+		// The objects of instanced and inherited scenes are not in this file, so their connections are checked once Resolve has merged them (Connect, ValidateConnections).
+		if !doc.RefersToScenes() {
+			if _, err := bindConnections(&doc, reg); err != nil {
+				locateConnectionError(&root, err)
+				return nil, err
+			}
 		}
 	}
 	return &doc, nil
@@ -663,7 +693,7 @@ func Validate(doc *SceneDoc) error {
 			return err
 		}
 	}
-	return nil
+	return validateConnections(doc, objectIDs)
 }
 
 // validateObjects checks objs, found at path in the document (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld), at nesting depth and their descendants, recording every ID in ids.
