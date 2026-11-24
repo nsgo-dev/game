@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/anim3d"
+	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
@@ -205,4 +206,39 @@ func ExampleMarshalEventsSidecar() {
 	// Output:
 	// {"version":1,"clips":{"walk":[{"time":0,"name":"start"},{"time":0.5,"name":"footstep"}]}}
 	// 2 <nil>
+}
+
+// A Player advances a glTF document's translation, rotation, and scale channels on fixed steps without mutating the document.
+func ExamplePlayer() {
+	doc := &gltf.Document{
+		Nodes: []gltf.Node{{
+			Name:        "hips",
+			Parent:      -1,
+			Translation: math3d.Vec3Zero(),
+			Rotation:    math3d.QuatIdentity(),
+			Scale:       math3d.Vec3One(),
+		}},
+		Animations: []gltf.Animation{{
+			Name:     "Walk",
+			Duration: 1.0,
+			Channels: []gltf.AnimationChannel{{
+				TargetNode:    0,
+				Path:          gltf.PathTranslation,
+				Interpolation: gltf.InterpolationLinear,
+				Times:         []float32{0, 1},
+				Values:        []float32{0, 0, 0, 0, 2, 0},
+				Stride:        3,
+			}},
+		}},
+	}
+	player, err := anim3d.NewPlayer(doc)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	_ = player.PlayByName("Walk")
+	player.Step(250 * time.Millisecond)
+	fmt.Printf("t=%v y=%.2f\n", player.Time(), player.LocalTransform(0).Pos.Y)
+	// Output:
+	// t=250ms y=0.50
 }

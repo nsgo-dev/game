@@ -1,12 +1,38 @@
 # anim3d
 
-`game/anim3d` 提供运行在 `game.Loop` 固定步长上的 3D 骨骼动画系统：带平滑交叉淡化的姿态状态机、支持脚步相位同步的 1D/2D 混合空间、骨骼遮罩分层与叠加片段、动画帧事件、双骨骼/FABRIK 反向动力学（IK），以及根骨骼运动（root motion）提取。
+`game/anim3d` 提供运行在 `game.Loop` 固定步长上的 3D 骨骼动画系统：glTF 2.0 节点与蒙皮动画播放（`Player`、`ClipFromGLTF`）、带平滑交叉淡化的姿态状态机、支持脚步相位同步的 1D/2D 混合空间、骨骼遮罩分层与叠加片段、动画帧事件、双骨骼/FABRIK 反向动力学（IK），以及根骨骼运动（root motion）提取。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/anim3d"
 ```
 
 所有骨骼变换均遵循 [math3d](math3d.md) 的右手 Y 轴向上约定。
+
+## 播放 glTF 动画
+
+从已加载的 `*gltf.Document` 创建 `Player`，在 `game.Loop.Update` 固定步长中推进平移、旋转、缩放与变形目标（morph target）权重轨道，且不会修改共享的文档对象；多个 `Player` 实例可各自以不同片段或时间独立播放同一份 `*gltf.Document`：
+
+```go
+player, err := anim3d.NewPlayer(doc)
+if err != nil {
+	return err
+}
+if err := player.PlayByName("Walk"); err != nil {
+	return err
+}
+
+// 在 game.Loop.Update 中：
+player.Step(dt)
+player.ApplyToScene(scene)            // 可选：按名称同步到 scene3d.Scene 节点
+joints, err := player.SkinMatrices(0) // 计算蒙皮渲染用的关节矩阵
+_ = joints
+```
+
+`Player` 直接按 glTF 轨道求值 `STEP`、`LINEAR`（四元数最短路径球面线性插值）与 `CUBICSPLINE`（带归一化旋转的 Hermite 样条）三种插值模式，并保留未被动画驱动的矩阵节点（例如 COLLADA 导出的 `Z_UP` 根节点）。支持 `Play`、`PlayByName`、`Crossfade`、`CrossfadeByName`、`Pause`、`Stop`、`Seek`、`SetLoop`、`SetSpeed`（支持负值倒放）、`Time`、`Duration`、`Playing`、`LocalTransforms`、`WorldTransforms`、`MorphWeights`、`SkinMatrices`、`SkinMatricesForNode`、`ApplyToScene` 与 `ApplyToNodes`，并通过 `Update` 和 `Pose` 实现 `PoseSampler`。
+
+`SkinMatrices(skinIndex)` 按 glTF 2.0 规范以蒙皮网格节点的世界变换逆矩阵归一化关节矩阵（`inverse(worldMatrix[meshNode]) * worldMatrix[joint] * inverseBindMatrix[i]`），因此即使骨架位于带旋转的根节点之下，绑定姿态下的关节矩阵也严格为单位矩阵。
+
+如需将 glTF 动画接入 `StateMachine`、`BlendSpace1D`、`BlendSpace2D`、`LayerStack` 或根骨骼运动提取，可使用 `ClipFromGLTF` 或 `ClipsFromGLTF` 转换为 `*Clip`。被动画驱动的节点上未设轨道的 TRS 分量会保留其绑定姿态值以维持骨骼偏移，未被驱动的节点不加入 `Tracks` 以配合骨骼遮罩分层，glTF `extras` 中的定时事件也会自动挂载。
 
 ## 片段、状态机与混合空间
 

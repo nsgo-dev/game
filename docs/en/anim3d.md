@@ -1,12 +1,38 @@
 # anim3d
 
-`game/anim3d` provides 3D skeletal animation driven on `game.Loop`'s fixed steps: pose state machines with cross-fade transitions, 1D/2D blend spaces with foot-phase synchronization, bone-masked override and additive layers, timed clip events, two-bone and FABRIK inverse kinematics, and root motion extraction.
+`game/anim3d` provides 3D skeletal animation driven on `game.Loop`'s fixed steps: glTF 2.0 node and skin playback (`Player`, `ClipFromGLTF`), pose state machines with cross-fade transitions, 1D/2D blend spaces with foot-phase synchronization, bone-masked override and additive layers, timed clip events, two-bone and FABRIK inverse kinematics, and root motion extraction.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/anim3d"
 ```
 
 All joint transforms follow [math3d](math3d.md) conventions (right-handed Y-up).
+
+## Playing glTF animations
+
+Create a `Player` from any loaded `*gltf.Document` to advance translation, rotation, scale, and morph-target weight channels on `game.Loop.Update` fixed steps without mutating the shared document. Multiple players can animate the same `*gltf.Document` independently at different clips or timestamps:
+
+```go
+player, err := anim3d.NewPlayer(doc)
+if err != nil {
+	return err
+}
+if err := player.PlayByName("Walk"); err != nil {
+	return err
+}
+
+// In game.Loop.Update:
+player.Step(dt)
+player.ApplyToScene(scene)            // optional: sync named nodes in scene3d.Scene
+joints, err := player.SkinMatrices(0) // joint matrices for skinned rendering
+_ = joints
+```
+
+`Player` evaluates `STEP`, `LINEAR` (with shortest-path quaternion Slerp), and `CUBICSPLINE` (Hermite spline with normalized rotations) interpolation modes directly from the glTF channels, preserving matrix-authored non-animated nodes (such as COLLADA `Z_UP` roots). It provides `Play`, `PlayByName`, `Crossfade`, `CrossfadeByName`, `Pause`, `Stop`, `Seek`, `SetLoop`, `SetSpeed` (including negative values for reverse playback), `Time`, `Duration`, `Playing`, `LocalTransforms`, `WorldTransforms`, `MorphWeights`, `SkinMatrices`, `SkinMatricesForNode`, `ApplyToScene`, and `ApplyToNodes`. `Player` also implements `PoseSampler` via `Update` and `Pose`.
+
+`SkinMatrices(skinIndex)` computes glTF 2.0 joint matrices normalized by the skinned mesh node's inverse world transform (`inverse(worldMatrix[meshNode]) * worldMatrix[joint] * inverseBindMatrix[i]`), so bind-pose joints evaluate to identity matrices even under rotated root nodes.
+
+To feed glTF clips into `StateMachine`, `BlendSpace1D`, `BlendSpace2D`, `LayerStack`, or root motion extraction, convert them with `ClipFromGLTF` or `ClipsFromGLTF`. Unanimated TRS components on targeted nodes are seeded from each node's rest transform so bone offsets stay intact, untargeted nodes are omitted from `Tracks` so bone-masked layers leave them untouched, and any timed events in glTF `extras` are attached automatically.
 
 ## Clips, state machines, and blend spaces
 
