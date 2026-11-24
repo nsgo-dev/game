@@ -76,3 +76,5 @@ export:
     - platform: windows
       targets: [windows_x64]
     - platform: web
+editor:
+  plugins: [health, waypoints]

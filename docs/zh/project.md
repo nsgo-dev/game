@@ -1,6 +1,6 @@
 # 项目文件
 
-`github.com/nsgo-dev/game/packages/game/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，以及各平台的导出预设。游戏在启动时读取它，`gameproject` 命令检查并应用它，编辑器打开、编辑并保存它。
+`github.com/nsgo-dev/game/packages/game/project` 负责读取、检查、写入并应用 `game.yaml`。它是游戏根目录下唯一保存项目设置的文件：游戏名称、标识与版本，窗口与虚拟分辨率，输入映射，音频总线，启动时加载的场景与资源，各平台的导出预设，以及它启用的编辑器插件。游戏在启动时读取它，`gameproject` 命令检查并应用它，编辑器打开、编辑并保存它。
 
 ## 文件内容
 
@@ -73,6 +73,8 @@ export:
     - platform: windows
       targets: [windows_x64]
     - platform: web
+editor:
+  plugins: [health]
 ```
 
 | 字段 | 内容 |
@@ -85,6 +87,7 @@ export:
 | `audio` | 默认的 `master` 音量与各条 `buses`。每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`）。 |
 | `autoload` | 启动时加载的 `scenes`（场景格式的 YAML 文件）和其他 `resources`，每项都有唯一的 `name` 和项目内以斜杠分隔的 `path`；`mainScene` 指定游戏启动时进入的场景。 |
 | `export` | 构建输出目录 `output`，以及每个平台一个预设（`macos`、`windows`、`linux`、`ios`、`tvos`、`watchos`、`android`、`harmonyos`、`web`、`miniprogram`），每个预设列出该平台要构建的 NSGo `targets`；不列目标的预设直接构建平台名，由 NSGo 展开为它的默认目标。 |
+| `editor` | 场景编辑器的设置：`plugins` 列出它为本项目启用的[编辑器插件](editor.md#编辑器插件492)，顺序即插件面板和工具出现的顺序。插件是编译进编辑器程序的 Go 代码，这个列表只负责启用它们。 |
 
 `Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标以及越界的值，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`gameproject fmt` 会把文件改写为规范形式，规范形式不保留注释。
 
@@ -151,7 +154,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 在编辑器中
 
-`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。
+`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。`SetPluginEnabled(name, on)` 以同样的可撤销步骤把插件加入 `editor.plugins` 或从中移除。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。
 
 ## 起手模板与示例
 

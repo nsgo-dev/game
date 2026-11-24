@@ -84,6 +84,9 @@ func TestParseReadsEveryField(t *testing.T) {
 	if _, ok := f.Preset("ios"); ok {
 		t.Fatal("Preset(ios) found a preset the file has not")
 	}
+	if f.Editor == nil || !reflect.DeepEqual(f.Editor.Plugins, []string{"health", "waypoints"}) {
+		t.Fatalf("Editor = %+v, want plugins health and waypoints", f.Editor)
+	}
 }
 
 func TestDefaultsOfAMinimalFile(t *testing.T) {
@@ -185,6 +188,10 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"foreign target":         head + "export: {presets: [{platform: macos, targets: [linux_x64]}]}\n",
 		"unknown target":         head + "export: {presets: [{platform: macos, targets: [macos_ppc]}]}\n",
 		"duplicate target":       head + "export: {presets: [{platform: macos, targets: [macos_arm64, macos_arm64]}]}\n",
+		"plugin name":            head + "editor: {plugins: ['']}\n",
+		"plugin spaces":          head + "editor: {plugins: ['level tools']}\n",
+		"duplicate plugin":       head + "editor: {plugins: [health, health]}\n",
+		"unknown editor field":   head + "editor: {plugins: [health], theme: dark}\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -239,6 +246,7 @@ func TestCloneIsDeep(t *testing.T) {
 	c.Audio.Buses[0].Effects[0].LowPass.CutoffHz = 1
 	c.Autoload.Scenes[0].Path = "x.yaml"
 	c.Export.Presets[1].Targets[0] = "windows_arm64"
+	c.Editor.Plugins[0] = "other"
 	if !reflect.DeepEqual(f, project.MustParse(readGolden(t))) {
 		t.Fatal("changing the clone changed the original")
 	}

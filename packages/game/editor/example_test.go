@@ -2,11 +2,15 @@ package editor_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // props is the atlas the example scene's sprites come from.
@@ -77,4 +81,71 @@ func ExampleHistory() {
 	// Output:
 	// Caves Rename to Deep Caves
 	// Crypt false 2
+}
+
+// A plugin adds a panel, an inspector for its own component and a viewport tool to the editor. The editor binary registers it, and a project turns it on by naming it under editor.plugins in game.yaml.
+func ExampleEditor_RegisterPlugin() {
+	health := editor.Plugin{
+		Name: "health",
+		Panels: []editor.Panel{{
+			ID:    "overview",
+			Title: "Health",
+			Dock:  editor.DockRight,
+			View: func(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64]) core.Node {
+				return core.Text{ContentFunc: func() string {
+					_ = rev.Get()
+					hp, _ := ed.ComponentField("crate", "health", "hp")
+					return fmt.Sprint("crate: ", hp, " hp")
+				}}
+			},
+		}},
+		Inspectors: []editor.Inspector{{
+			Component: "health",
+			View: func(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64], id string) core.Node {
+				return ui.Button{Text: "Heal", OnPress: func() {
+					_ = ed.SetComponentField(id, "health", "hp", 10)
+				}}
+			},
+		}},
+	}
+
+	dir, err := os.MkdirTemp("", "plugin-example")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	gameYAML := "version: 1\nname: Yard\nid: dev.example.yard\nappVersion: 1.0.0\nwindow: {width: 640, height: 360}\neditor:\n  plugins: [health, terrain]\n"
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	ed, err := editor.New(nil, props())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if err := ed.RegisterPlugin(health); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("on:", ed.ActivePlugins(), "missing:", ed.MissingPlugins())
+
+	// Turning a plugin off is an undoable edit of game.yaml.
+	if err := ed.SetPluginEnabled("health", false); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("on:", ed.ActivePlugins(), "project lists:", ed.Project.Editor.Plugins)
+	ed.Undo()
+	fmt.Println("on:", ed.ActivePlugins())
+	// Output:
+	// on: [health] missing: [terrain]
+	// on: [] project lists: [terrain]
+	// on: [health]
 }
