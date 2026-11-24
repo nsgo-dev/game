@@ -403,9 +403,9 @@ scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "do
 
 ### Projects
 
-The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `go tool game mv` does ([Stable references](project.md#stable-references)), as one step that Undo takes back and Redo makes again.
+The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `go tool game mv` does ([Stable references](project.md#stable-references)), as one step that Undo takes back and Redo makes again. Undo puts each file the move rewrote back byte for byte, unless it changed since, in which case only its references are rewritten back.
 
-While a project is open, the file browser below the asset browser (`FilesView`) lists its files and directories (`ProjectFiles`), leaving out names that start with `.` or `_` and `testdata` directories. Pressing one selects it and puts its path in the field below the list; edit the path and press Move to rename or move it through `MoveFile`. Refresh lists the files again after something outside the editor changed them.
+While a project is open, the file browser below the asset browser (`FilesView`) lists its files and directories (`ProjectFiles`), leaving out the directories that `game index` and `game mv` skip too: those whose names start with `.` or `_` and those named `testdata`. Pressing one selects it and puts its path in the field below the list; edit the path and press Move to rename or move it through `MoveFile`. Refresh lists the files again after something outside the editor changed them.
 
 ## Animation editor
 

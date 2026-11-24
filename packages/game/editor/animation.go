@@ -134,6 +134,7 @@ func (e *Editor) SaveClipFile(path string) error {
 		return err
 	}
 	e.clipMeta.path = path
+	e.filesRev++
 	e.Status = "Saved clip " + path
 	e.notify()
 	return nil

@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -20,23 +21,39 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 		_ = rev.Get()
 		return fmt.Sprintf("%s\x00%d\x00%d", ed.ProjectPath, ed.filesRev, refresh.Get())
 	})
+	type listed struct {
+		files []ProjectFile
+		err   error
+	}
+	files := core.NewMemoFunc(cx, func() listed {
+		_ = listing.Get()
+		got, err := ed.ProjectFiles()
+		return listed{got, err}
+	}, func(a, b listed) bool { return slices.Equal(a.files, b.files) && a.err == b.err })
+	// current is the selected path while the project still holds it: after an undo moves it away, nothing is selected and the field is empty.
+	current := core.NewMemo(cx, func() string {
+		s := selected.Get()
+		if s == "" || !slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == s }) {
+			return ""
+		}
+		return s
+	})
 	open := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
 		return ed.Project != nil && ed.ProjectPath != ""
 	})
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = listing.Get()
-		files, err := ed.ProjectFiles()
-		if err != nil {
+		l := files.Get()
+		if err := l.err; err != nil {
 			return core.Text{
 				TestID:  "files-error",
 				Content: err.Error(),
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			}
 		}
-		rows := make([]core.Node, 0, len(files))
-		for _, f := range files {
+		rows := make([]core.Node, 0, len(l.files))
+		for _, f := range l.files {
 			p := f.Path
 			name := path.Base(p)
 			if f.Dir {
@@ -46,7 +63,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				TestID: "files-row-" + p,
 				StyleFunc: func() core.Style {
 					bg := colors.Inset()
-					if selected.Get() == p {
+					if current.Get() == p {
 						bg = colors.Raised()
 					}
 					return core.Style{
@@ -107,8 +124,13 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					ui.Input{
 						TestID:   "files-path",
 						Label:    "New path of the selected file",
-						Disabled: func() bool { return selected.Get() == "" },
-						Value:    target.Get,
+						Disabled: func() bool { return current.Get() == "" },
+						Value: func() string {
+							if current.Get() == "" {
+								return ""
+							}
+							return target.Get()
+						},
 						OnChange: target.Set,
 					},
 					ui.Button{
@@ -119,11 +141,14 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
 							_ = rev.Get()
-							from, to := selected.Get(), strings.TrimSpace(target.Get())
+							from, to := current.Get(), strings.TrimSpace(target.Get())
 							return ed.Playing() || from == "" || to == "" || to == from
 						},
 						OnPress: func() {
-							from, to := selected.Get(), strings.TrimSpace(target.Get())
+							from, to := current.Get(), strings.TrimSpace(target.Get())
+							if from == "" {
+								return
+							}
 							if err := ed.MoveFile(from, to); err != nil {
 								ed.report(err)
 								return

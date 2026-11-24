@@ -5,4 +5,4 @@
 
 ### Changed
 
-- `game/editor`: `Editor.MoveFile` is now one undoable step instead of emptying the undo history: Undo moves the files back and rewrites the references again, removing the directories the move created when they are left empty, and Redo moves them once more. A step that something on disk now blocks stays where it was, and the status bar says why (#486).
+- `game/editor`: `Editor.MoveFile` is now one undoable step instead of emptying the undo history: Undo moves the files back and puts each file the move rewrote back byte for byte (only its references when it changed since), removing an index and the directories the move created when they are left empty, and Redo moves them once more. A step that something on disk now blocks stays where it was, and the status bar says why (#486).

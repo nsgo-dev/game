@@ -1,6 +1,6 @@
 package editor
 
-// Command is a reversible scene edit executed through History.
+// Command is a reversible edit executed through History: a change to the open scene, project or clip, or a move of the project's files (MoveFile).
 type Command interface {
 	Do()
 	Undo()
@@ -26,8 +26,7 @@ func NewHistory() *History {
 	return &History{}
 }
 
-// Execute runs cmd.Do(), discards any redo tail beyond the current cursor,
-// pushes cmd onto the stack, and notifies any change hook.
+// Execute runs cmd.Do(), discards any redo tail beyond the current cursor, pushes cmd onto the stack, and notifies any change hook.
 func (h *History) Execute(cmd Command) {
 	_ = h.execute(cmd)
 }
@@ -56,8 +55,7 @@ func (h *History) execute(cmd Command) error {
 	return nil
 }
 
-// Undo reverts the most recently executed command and returns true,
-// or returns false when there is nothing to undo.
+// Undo reverts the most recently executed command and returns true. It returns false when there is nothing to undo, and also when the command is one whose step can fail, such as a file move (MoveFile) that something on disk now blocks, and it failed; the command then stays applied. Editor.Undo reports why in the status bar.
 func (h *History) Undo() bool {
 	ok, _ := h.undo()
 	return ok
@@ -83,8 +81,7 @@ func (h *History) undo() (bool, error) {
 	return true, nil
 }
 
-// Redo re-applies the most recently undone command and returns true,
-// or returns false when there is nothing to redo.
+// Redo re-applies the most recently undone command and returns true. It returns false when there is nothing to redo, and also when the command is one whose step can fail, such as a file move (MoveFile) that something on disk now blocks, and it failed; the command then stays undone. Editor.Redo reports why in the status bar.
 func (h *History) Redo() bool {
 	ok, _ := h.redo()
 	return ok
