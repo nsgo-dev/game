@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、相机 uniform 以及距离雾与高度雾，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、相机 uniform、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -453,6 +453,74 @@ gpu.View(cx, gpu.ViewProps{
 - **原始缓冲与纹理**：`QueueRawBuffer` 流式上传自定义顶点、存储或 uniform 缓冲（`RawBufferUpload`）；`QueueRawTexture` 流式上传预编码或块压缩的 mip 链、数组层和立方体贴图面（`RawTextureUpload`、`TextureMipData`），交付 `gpu.Texture`。
 - **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时决定解码队列和上传队列的顺序（同一优先级先进先出），高优先级资产会在下一个分块抢占上传到一半的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，其 `State()`、`Progress()`、`Err()`、`Done()` 与 `Cancel()` 可在任意协程调用。
 - **生命周期**：向 `NewUploader` 传入 `*core.Scope` 后，作用域销毁时会关闭上传器。`Close` 取消未完成的解码、等待全部工作协程退出、释放上传到一半的 GPU 资源，并以 `ErrUploaderClosed` 调用每个未完成上传的 `onReady`；它须在调用 `Step` 的协程上执行，作用域销毁正是如此。无界面测试可传入 `nil` 并自行调用 `Close`。`UploaderOptions.MaxPending` 限制未完成上传的数量，超出时以 `ErrUploadQueueFull` 失败。
+
+||||||| parent of 6ae11efc (feat(render3d): add HDR render target, tone mapping, and sRGB/gamma pass)
+
+## HDR 渲染、色调映射与伽马（`HDRTarget`、`ToneMapPass`）
+
+将 3D 光照与自发光表面渲染到线性浮点 `HDRTarget`（`gpu.FormatRGBA16Float`，在不支持 `SupportsHDR(dev)` 的设备上自动回退到 `gpu.FormatRGBA8Unorm`），再用 `ToneMapPass` 解析并编码到显示目标：
+
+```go
+var (
+	hdr      *render3d.HDRTarget
+	tonePass *render3d.ToneMapPass
+)
+
+gpu.View(cx, gpu.ViewProps{
+	OnReady: func(dev *gpu.Device) {
+		w, h := dev.SurfaceSize()
+		if hdr == nil {
+			hdr, err = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
+				Label:       "scene-hdr",
+				Width:       uint32(w),
+				Height:      uint32(h),
+				DepthFormat: gpu.FormatDepth24Plus,
+				Retained:    true,
+			})
+		}
+		if tonePass == nil {
+			tonePass, err = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
+				Label:        "tonemap",
+				TargetFormat: dev.SurfaceFormat(),
+				Retained:     true,
+			})
+		} else {
+			tonePass.SetDevice(dev)
+		}
+	},
+	OnFrame: func(frame *gpu.Frame) {
+		// 1. 以线性 HDR 辐亮度渲染 3D 场景（保留 > 1.0 的高光）：
+		scenePass := frame.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x0a0e18), 1))
+		// ... 绑定相机、管线并绘制网格 ...
+		scenePass.End()
+
+		// 2. 色调映射并编码为 sRGB 输出到交换链：
+		opts := render3d.ToneMapOptions{
+			Operator: render3d.ToneMapAgX,
+			Exposure: render3d.ExposureFromEV(0),
+		}
+		displayPass := frame.BeginRenderPass(gpu.RenderPassDesc{Label: "tonemap"})
+		_ = tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
+		displayPass.End()
+		frame.Submit()
+	},
+})
+```
+
+`ToneMapOptions.Operator` 选择高光压缩曲线：
+
+| 算子 | 曲线 | 适用场景 |
+| --- | --- | --- |
+| `ToneMapNone` | 线性钳位到 `[0, 1]` | 调试线性输出 |
+| `ToneMapReinhard` | 逐通道 `c / (1 + c)` | 简单的平滑高光滚降 |
+| `ToneMapACES`（`DefaultToneMapOptions`） | Narkowicz ACES 电影拟合曲线 | 高对比度电影观感 |
+| `ToneMapNeutral` | Khronos PBR Neutral | 忠实保留中间调色相与 PBR 资产预览 |
+| `ToneMapAgX` | Troy Sobotka AgX 默认观感 | 高饱和高光平滑去饱和且不偏色 |
+
+- **曝光**：直接设置 `ToneMapOptions.Exposure`，或通过 `ExposureFromEV(ev)` 按摄影档位计算（`0 -> 1.0`、`+1 -> 2.0`、`-1 -> 0.5`）。非正数或非有限值默认按 `1.0` 处理。
+- **伽马与 sRGB**：当 `ToneMapOptions.Gamma <= 0`（默认）且 `LinearOutput` 为 false 时，`ToneMapPass` 应用精确的 IEC 61966-2-1 线性到 sRGB OETF（CPU 端提供 `LinearToSRGBExact` 与 `SRGBToLinearExact`）；正数 `Gamma`（如 `2.2`）应用幂律 `pow(c, 1/Gamma)`。当 `ToneMapPassDesc.TargetFormat.IsSRGB()` 为真时，`ToneMapPass` 自动输出线性色调映射 RGB，由 GPU 的 sRGB 帧缓冲硬件单次完成编码，避免双重伽马。
+- **稳态零分配与设备丢失恢复**：`AppendToneMapUniforms` 零分配写入 `ToneMapUniformSize`（16 字节）uniform 块，`ToneMapPass` 按源纹理缓存绑定组。在 `HDRTargetDesc` 与 `ToneMapPassDesc` 上同时开启 `Retained: true`，设备丢失后 NSGo 会自动重建纹理、采样器、uniform 缓冲、已缓存绑定组与管线。
+- **CPU 参考实现与可移植性**：`ApplyToneMap` 在 CPU 端镜像 `ToneMapWGSL`。`ToneMapWGSL` 避开了 `exp` 与 `log2` 内建函数（AgX 使用范围缩减多项式 `log2`），在完整 GPU 配置和 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）下均可稳定运行。参考测试会将带 HDR 光照的场景输出与 `render3d/testdata/golden/tonemap_aces.png`、`tonemap_agx.png`、`tonemap_neutral.png` 比对；设置 `UPDATE_GOLDEN=1` 可重写基准图。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
