@@ -512,6 +512,43 @@ gpuMesh.Draw(pass)
 - **glTF helpers**: `UnlitMaterialFromGLTF` validates that a glTF material declares `KHR_materials_unlit` (returning `ErrInvalidUnlitMaterial` otherwise). `UploadGLTFUnlitMaterial` decodes and uploads embedded or external `baseColorTexture` images in sRGB with a sampler from `SamplerOptionsFromGLTF` (so a non-mipmapped `minFilter` stays on level 0 even when mipmaps exist) and applies `GLTFMaterialUpload`'s mipmap, anisotropy and `Retained` options as `UploadGLTFMaterials` does. A `baseColorTexture` whose image comes only through an extension such as `KHR_texture_basisu` returns `ErrInvalidUnlitMaterial` instead of drawing white.
 - **Reference renders**: `render3d`'s tests draw the Khronos `UnlitTest` sample end to end (loader, `ColoredMeshFromGLTF`, `UploadGLTFUnlitMaterial`, `NewUnlitPipeline`) and require every covered pixel to be the sample's flat `#FF7F00` or `#007FFF`, compare a multi-mode unlit + vertex-color scene against `render3d/testdata/golden/unlit_vertex_colors_scene.png`, and verify `gpu.View` pixel parity against `EvaluateUnlit` on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles.
 
+## Toon shading (`ToonMaterial`, `ToonRenderer`)
+
+`ToonMaterial` and `ToonRenderer` draw cel/toon shading: quantized diffuse light bands (or a 1D color ramp texture), hard stepped Blinn-Phong highlights, Fresnel rim light, and inverted-hull outlines. The shaders (`ToonWGSL`, `ToonOutlineWGSL`) use only vertex and fragment stages, so they run on WebGPU, Metal, Vulkan, Direct3D 11, OpenGL 3.3, OpenGL ES 3.0, WebGL 2, and NSGo's software renderer:
+
+```go
+defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+renderer, err := render3d.NewToonRenderer(cx, dev, render3d.ToonRendererOptions{
+	CameraLayout: camBuf.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Retained:     true,
+})
+spec := render3d.DefaultToonMaterial()
+spec.BaseColorFactor = [4]float32{0.94, 0.34, 0.24, 1}
+spec.OutlineWidth = 0.045
+heroMat, err := renderer.NewMaterial(cx, dev, defaults, spec, "hero")
+
+// Hard-edged meshes (boxes, low-poly props) need shared corner normals for a closed outline:
+boxOutlineCPU, err := render3d.SmoothOutlineNormals(boxMesh)
+boxOutline, err := render3d.UploadMesh(cx, dev, boxOutlineCPU, render3d.MeshUpload{Label: "box-outline"})
+
+// In OnFrame, inside a render pass with a depth attachment:
+light, err := render3d.ToonLightFromRig(rig) // or render3d.DefaultToonLight()
+err = renderer.Draw(dev, pass, camBuf.BindGroup(), light,
+	render3d.ToonDraw{Mesh: sphereMesh, Material: heroMat, Transform: sphereXform},
+	render3d.ToonDraw{Mesh: boxGPU, OutlineMesh: boxOutline, Material: boxMat, Transform: boxXform},
+)
+```
+
+- **Bands and ramps**: `Bands` selects 2 to 8 diffuse steps (`0` means `3`), blending from `ShadowColor` to fully lit across `N·L`; `BandSmoothness` in `[0, 0.5]` softens the band edges (`0` gives hard steps). A `RampTexture`, sampled at `u = clamp(N·L, 0, 1)`, replaces the bands with an artist-drawn color ramp; without its own `RampSampler` the material creates a linear-clamp sampler so the ramp's ends do not wrap.
+- **Highlights**: `SpecularColor`, `SpecularPower` (`0` means `32`), `SpecularThreshold`, and `SpecularSmoothness` add a stepped Blinn-Phong highlight on lit surfaces; `RimColor`, `RimThreshold`, and `RimSmoothness` add a Fresnel rim based on `1 - N·V`.
+- **Lights**: `ToonLight` holds one `DirectionalLight` key light, whose `N·L` is banded, and an `AmbientLight` fill, with the same conventions as a `LightRig`: `Direction` is the way the rays travel, a zero direction is an error, intensity `0` turns a light off, and errors wrap `ErrInvalidLight`. `ToonLightFromRig` takes the first directional light and the ambient fill of a scene's rig; point lights are not used.
+- **Bind groups**: `CameraGroup` (0), `ToonMaterialGroup` (1, the same slot as `MaterialGroup`) and `ToonSceneGroup` (2, the per-draw model matrix and the key light, with a dynamic offset in `ToonRenderer`).
+- **Materials**: `NewGPUToonMaterial` and `ToonRenderer.NewMaterial` take a shared `MaterialDefaults` and bind its white textures and sampler for omitted ones, as `NewGPUMaterial` does. `GPUToonMaterial.Update` rewrites the uniform block without allocating but cannot swap textures or samplers.
+- **Outlines**: the outline pipeline (`NewToonOutlinePipeline`, `gpu.CullFront`) pushes back faces out along their normals by `OutlineWidth` and fills them with `OutlineColor`; an outline alpha of `0` or a width of `0` turns it off. The width is in world units, or with `OutlineClipSpace` in NDC y units, which gives `OutlineWidth × viewport height / 2` pixels in every direction at every distance as long as the camera's aspect ratio matches the viewport's. `SmoothOutlineNormals` averages the normals of vertices at the same position (coordinates equal after rounding to 1e-5), each corner weighted by its angle, and returns an error wrapping `ErrInvalidMesh` for an invalid mesh.
+- **Drawing**: `ToonRenderer.Draw` draws the outlines first and the cel-shaded surfaces second, opaque and with depth writes. It can run any number of times before a submission, into one pass or several: each call writes its per-draw uniforms after the slots earlier calls of the frame used. Inside a `gpu.Frame` the slots rewind on their own when `dev.FrameIndex()` advances; code that submits with `dev.Submit` directly calls `ToonRenderer.Begin` once per frame (at most `MaxToonDrawsPerFrame` draws between two calls). `Draw` returns a `gpu.Error` for a nil or closed renderer, device, pass, or camera bind group. For blended toon surfaces, build pipelines with `NewToonPipeline` and `NewToonOutlinePipeline` and a `ToonPipelineOptions.Blend`.
+- **CPU reference and tests**: `EvaluateToon` and `ToonQuantizeBand` evaluate `ToonWGSL` in Go. `render3d`'s tests compare a multi-object scene with `render3d/testdata/golden/toon_scene.png` (`UPDATE_GOLDEN=1` rewrites it), draw in a headless `gpu.View` on both the full and `nsgotest.NoGPUCompute` profiles, restore a `Retained` renderer after a device loss, draw twice before one submission, and measure the clip-space outline on a wide viewport.
+
 ## Budgeted async GPU uploads (`Uploader`)
 
 `Uploader` runs the decoding and CPU packing of meshes, textures and raw GPU payloads on background worker goroutines, and `Uploader.Step`, called once per frame, writes the results to the `gpu.Device` in chunks within a per-frame byte budget, so loading a large 3D model does not stall a frame:
