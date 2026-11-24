@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、方向光阴影贴图、相机 uniform、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、方向光阴影贴图、相机 uniform、离屏渲染到纹理相机与多视口分屏渲染、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -797,6 +797,47 @@ mainPass.End()
 - **消除自阴影伪影与全后端兼容**：着色器中的斜率缩放 `DepthBias`（按 `1 + 2*(1 - NdotL)` 缩放）、世界空间 `NormalBias` 与硬件光栅深度偏移（`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`）共同消除平面与掠射角表面的阴影痤疮。自定义着色器只需前置 `ShadowWGSL`（第 3 组已被占用时使用 `ShadowWGSLForGroup(n)`）并调用 `sample_directional_shadow(world_pos, world_normal)`；`LightWGSL` 的 `shade_pbr_shadowed` 接收该可见度并作用于第 0 个方向光。整个流程不依赖计算着色器或存储缓冲，可在包括 WebGL 2 与 OpenGL ES 3.0 在内的所有 NSGo 目标上运行。
 - **画质预设**：要遵循 `quality.Preset.Shadows`，在其关闭时跳过阴影 pass 并把 `Strength` 设为 0，如上例所示；`Strength` 为 0 时着色器直接返回完全可见，不再采样阴影贴图。
 - **零分配编码与 CPU 参考实现**：`AppendShadowUniforms` 与 `ShadowUniforms.Encode` 无堆分配打包 96 字节 uniform 数据；NaN 或无穷大的矩阵或 `Strength` 会关闭阴影，非有限的偏移量变为 0，未知的 `PCFKernel` 按 `ShadowFilterHard` 处理，因此手工构造的 uniform 不会把 NaN 画到屏幕上。`EvaluateDirectionalShadow` 是在 `ShadowDepthGrid`（可由 `ShadowDepthGridFromBytes` 从 GPU 深度回读解码）上与之对应的纯 Go 参考实现，`ShadePointShadowed` 是带阴影光照的 CPU 参考实现。`render3d` 的测试用这两个参考实现逐一核对硬阴影与 3x3 PCF 渲染中所有露出的地面像素（包括半影），沿光线投射投影体以核对阴影落点，并在 `gpu.View` 的两种配置（`full` 与 `nsgotest.NoGPUCompute`）、`Retained` 设备丢失恢复以及作用域销毁中将渲染结果与参考图（`render3d/testdata/golden/shadow_directional_hard.png` 与 `shadow_directional_pcf.png`）比对。
+
+## 渲染到纹理相机与多视口（`RenderTexture`、`ViewportRenderer`）
+
+`RenderTexture` 分配归属于作用域的离屏 `gpu.RenderTarget`（颜色附件、可选深度/模板附件，以及带自动解析的可选 4x MSAA），并通过 `RenderTexture.GPUTexture()` 将可采样颜色输出直接暴露为 `*GPUTexture`。将其传入 `BindTexture`（或任意材质纹理槽位），即可把副相机渲染出的画面作为材质纹理贴在主场景的 3D 几何体上（如镜面、小地图、监控屏幕或传送门）：
+
+```go
+rt, err := render3d.NewRenderTexture(cx, dev, render3d.RenderTextureDesc{
+	Label:       "mirror",
+	Width:       256,
+	Height:      256,
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true, // 设备丢失后与保留的采样器和绑定组一起自动恢复
+})
+mirrorBG, err := render3d.BindTexture(cx, dev, texLayout, rt.GPUTexture(), samp)
+```
+
+`ViewportRenderer` 负责编排包含离屏 `RenderTexture` 相机与主表面多视口（左右分屏、上下分屏、四人四分屏或重叠画中画）的整帧渲染：
+
+```go
+renderer, err := render3d.NewViewportRenderer(cx, dev) // 在管线 CameraGroup 位置填入 renderer.CameraLayout()
+
+halves := render3d.SplitScreenHorizontal(2) // 左半屏 [0..0.5]，右半屏 [0.5..1]
+views := []render3d.CameraView{
+	{Name: "mirror", Camera: mirrorCam, Target: rt, LayerMask: layerWorld, ClearColor: core.RGB(0x182030)},
+	{Name: "player1", Camera: p1Cam, Viewport: halves[0], LayerMask: layerWorld | layerMirror, ClearColor: core.RGB(0x0c1018)},
+	{Name: "player2", Camera: p2Cam, Viewport: halves[1], LayerMask: layerWorld | layerMirror},
+}
+
+err = renderer.RenderFrame(frame, render3d.SurfaceDesc{HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+	visible = render3d.FilterLayeredItems(sceneItems, ctx.LayerMask, visible[:0])
+	plan := queue.Build(ctx.Uniform.ViewProj, ctx.Camera.Pos, visible)
+	// ctx.Pass 已设置好当前视口的 SetViewport、SetScissor 与 CameraGroup 绑定组。
+	drawPlan(ctx.Pass, plan)
+})
+```
+
+- **执行顺序**：`ViewportRenderer` 始终先渲染离屏视图（`Target != nil`），再渲染主表面视图（`Target == nil`），每个阶段内按 `CameraView.Priority` 升序稳定排序（`OrderCameraViews`），确保主通道材质采样时离屏纹理已完成更新。
+- **独立相机 uniform 与宽高比**：每个活跃视图拥有独立的保留 uniform 缓冲槽位，在录制渲染通道前统一上传并绑定到 `CameraGroup`，避免同一 `gpu.Frame` 或 `gpu.Encoder` 中的多个相机相互覆盖矩阵。除非设置 `CameraView.PreserveAspect`，否则会复制一份 `Camera` 并将 `Projection.Aspect` 调整为解析后的 `PixelViewport` 宽高比，不修改调用方的 `*scene3d.Camera`。
+- **每相机图层掩码**：`CameraView.LayerMask` 遵循 `scene3d.Node.Layer` 位掩码约定（零值默认等同于 `scene3d.LayerAll`）。`LayerMatches`、`FilterLayeredItems` 与 `FilterNodesByLayer` 支持复用目标切片以零稳态分配按图层筛选 `LayeredDrawItem` 和 `*scene3d.Node`。
+- **分屏接缝与重叠视口**：`SplitScreenHorizontal`（`SplitScreenSideBySide`）、`SplitScreenVertical`（`SplitScreenStacked`）、`SplitScreenQuad` 与 `ViewportFromPixels` 生成归一化 `[0, 1]` 的 `ViewportRect`。`ViewportRect.Resolve` 对左右/上下边界分别取整，使相邻分屏视口严丝合缝且无像素重叠；`PixelViewport.Apply` 同时设置 `SetViewport` 与 `SetScissor`，杜绝跨分屏边界溢色。同一目标上的连续视口共享单个 GPU 渲染通道；若重叠画中画视口需要独立深度测试，设置 `CameraView.ResetDepth` 可在保留已有颜色的前提下清零深度缓冲。
+- **尺寸调整与设备丢失**：`RenderTexture.Resize` 在尺寸未变时为空操作，尺寸变化时原子替换目标并递增 `Generation()`，方便调用方感知并重建 `BindTexture` 绑定组。开启 `Retained: true` 后，`RenderTexture` 与 `ViewportRenderer` 均可在 GPU 设备丢失恢复后继续工作，并在所属 `core.Scope` 销毁或调用 `Close()` 时释放。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
