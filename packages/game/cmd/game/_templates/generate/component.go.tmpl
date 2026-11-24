@@ -1,0 +1,14 @@
+package {{.Package}}
+
+import "github.com/nsgo-dev/game/packages/game/sceneformat"
+
+// {{.Go}} is a component: data that entities.Set attaches to an entity and that systems read with entities.Get and queries such as entities.Each1. Give it the fields its entities need, and describe each one a scene file may set in {{.Camel}}Component.
+type {{.Go}} struct{}
+
+// {{.Camel}}Component describes {{.Go}} to scene files, which set it under an object's components as {{.Camel}}. Add a sceneformat.Field for each field a scene may set, with its kind, default and range.
+var {{.Camel}}Component = sceneformat.ComponentType{
+	Name: "{{.Camel}}",
+	Doc:  "{{.Title}}",
+}
+
+func init() { Components.MustRegister({{.Camel}}Component) }

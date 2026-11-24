@@ -1,0 +1,6 @@
+package {{.Package}}
+
+import "github.com/nsgo-dev/game/packages/game/sceneformat"
+
+// Components are the component types the game's scene files may set under an object's components. Each component game generate writes registers itself here; load a scene with sceneformat.ParseWith and sceneformat.ParseOptions{Components: Components} to refuse a component or field it does not know.
+var Components = sceneformat.NewComponentRegistry()

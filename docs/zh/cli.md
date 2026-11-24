@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -29,12 +29,13 @@ go tool game help
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
 | `assets` | 从 `game.yaml` 打包图集、编码纹理、转换音频并生成资源清单，只重建有改动的部分 |
+| `generate` | 向游戏项目写入新的组件、系统、场景或预制体：它的 Go 代码和测试、场景或预制体的场景文件，以及它的注册 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。[命令参考](cli-reference.md)在一页中列出每个命令的参数及其默认值，由命令定义生成。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用、`generate` 要写的文件已存在）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -252,6 +253,28 @@ assets:
 
 `-force` 重建所有目标。`-check` 不在项目里写任何文件：它列出过期的目标，有过期目标时以 1 退出，供 CI 使用。缓存不能证明是最新的目标（例如在没有 `.game` 文件夹的全新检出中）会在临时文件夹里构建，项目中的文件与它写出的完全一致时即算最新，因此只要提交了输出，CI 就不需要缓存。AAC 和 MP3 是例外：不同的编码器或同一编码器的不同版本会为同一输入写出不同的字节，所以没有缓存条目时，只要它们的输出存在就算最新，CI 上也不需要编码器。图集的文件夹里若有它不再写出的同名页面文件（例如之前需要更多页面时留下的 `ui-1.png`），在某次构建删除它之前该图集都算过期。某个目标失败时，命令会保留它之前已构建目标的缓存，下次运行从那里继续。
 
+### generate
+
+```sh
+go tool game generate component player_health
+go tool game generate system movement
+go tool game generate -main scene level_one
+go tool game generate prefab enemy
+```
+
+把一个新的组件、系统、场景或预制体的代码和文件写入 `-dir`（默认为当前工作目录）中的游戏，布局与 [`game new`](#new) 创建的项目一致，并打印写出的每个文件的路径。Go 代码写进该目录中的包，使用该包的包名，每个 Go 文件旁边都附带一个测试。名称由 ASCII 字母和数字组成、以字母开头，可以用驼峰写法，也可以用 `-` 或 `_` 连接单词，并按用到它的每个地方写成相应的形式：`player_health`、`player-health` 和 `PlayerHealth` 都得到 Go 类型 `PlayerHealth`、键名 `playerHealth` 以及名为 `player_health_*` 的文件。
+
+| 种类 | 写出 | 注册到 |
+| --- | --- | --- |
+| `component` | `<name>_component.go`：一个结构体（`PlayerHealth`），以及场景文件用来设置它的 `sceneformat.ComponentType`（`playerHealth`），两者都还没有字段 | `Components`，加载场景时用来检查其对象组件的 `sceneformat.ComponentRegistry` |
+| `system` | `<name>_system.go`：一个函数 `MovementSystem(w *entities.World, dt time.Duration)`，以 `movement` 为名加入调度器 | `Systems`，游戏每个固定步长推进一次的 `entities.Scheduler` |
+| `scene` | `scenes/<name>.scene.yaml`：采用场景格式当前版本的场景，含一个名为 `main` 的空图层，虚拟分辨率取自 `game.yaml`（没有时取其窗口大小）；以及 `<name>_scene.go`，它嵌入该文件，并用 `LoadLevelOneScene` 解析，按 `Components` 检查其组件 | 加 `-autoload` 时注册到 `game.yaml` 的 `autoload` 场景，加 `-main` 时同时设为其 `mainScene` |
+| `prefab` | `prefabs/<name>.scene.yaml`：只含一个对象的场景，该对象的 `prefab` 就是这个名称，供其他场景用 `scene: prefabs/enemy.scene.yaml` 实例化；以及 `<name>_prefab.go`，同名的 `entities.Prefab`（`EnemyPrefab`） | `Prefabs`，按名称索引的游戏预制体 |
+
+这些注册表各只声明一次，分别在 `components.go`、`systems.go` 和 `prefabs.go` 中，由第一个需要它的组件、系统、场景或预制体写出。每个生成的文件在 `init` 函数中把自己加入注册表，因此 `generate` 从不修改已经存在的文件。游戏在加载场景和运行循环的地方使用它们：`sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` 拒绝场景中设置了却没有任何组件描述的组件或字段，`game.Loop` 的 `Update` 中调用 `Systems.Step(world, dt)` 按顺序运行各个系统，顺序由加入每个系统时的 `entities.After` 和 `entities.Before` 决定。之后在生成的代码上继续填写：组件的字段以及场景可设置的每个字段对应的 `sceneformat.Field`、系统的查询、用 `entities.With` 给预制体添加的组件。
+
+`generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestProjectFileIsValidAndCanonical` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败。
+
 ### completion
 
 ```sh
@@ -259,7 +282,7 @@ mkdir -p ~/.zfunc
 go tool game completion zsh > ~/.zfunc/_game
 ```
 
-把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
+把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
 
 脚本补全的是名为 `game` 的命令。输入 `go tool game` 时，shell 补全的是 `go`，所以要么用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，要么把 `game` 定义为运行 `go tool game` 的 shell 函数：它在游戏的模块内可用，并沿用 `go.mod` 固定的版本。`go tool game` 只能在模块内运行，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
 

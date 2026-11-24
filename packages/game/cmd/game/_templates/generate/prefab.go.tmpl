@@ -1,0 +1,8 @@
+package {{.Package}}
+
+import "github.com/nsgo-dev/game/packages/game/entities"
+
+// {{.Go}}Prefab spawns a {{.Title}} entity with the components added to it with entities.With and entities.WithFunc. A scene places one as an object whose prefab is {{.Camel}}, such as by instancing {{.Path}} with scene: {{.Path}}.
+var {{.Go}}Prefab = entities.NewPrefab("{{.Camel}}")
+
+func init() { Prefabs[{{.Go}}Prefab.Name()] = {{.Go}}Prefab }

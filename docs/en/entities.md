@@ -6,6 +6,8 @@ A small, zero-reflection entity-component-system (ECS) for NSGo games: generatio
 import "github.com/nsgo-dev/game/packages/game/entities"
 ```
 
+`go tool game generate component <name>`, `system <name>` and `prefab <name>` write a new component, system or prefab into a game with its registration and a test; see [Command Line](cli.md#generate).
+
 ## Architectural decision
 
 Before implementing `entities` ([#136](https://github.com/nsgo-dev/game/issues/136)), three designs were compared for representing game objects in `packages/game`:

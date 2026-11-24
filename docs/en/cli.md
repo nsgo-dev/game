@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -29,12 +29,13 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
 | `assets` | Packs atlases, encodes textures, converts audio and generates the manifest from `game.yaml`, rebuilding only what changed |
+| `generate` | Writes a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
-A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found, a file `generate` would overwrite) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
@@ -252,6 +253,28 @@ What each target was built from is kept in a cache, `.game/assets-cache.yaml` un
 
 `-force` rebuilds every target. `-check` writes nothing in the project: it lists the targets that are out of date and exits with 1 if there are any, for CI. A target the cache does not show as up to date, as in a fresh checkout without the `.game` folder, is built in a temporary folder and counts as up to date when the files in the project are exactly what it writes, so CI needs no cache when the outputs are committed. AAC and MP3 are the exception: another encoder, or another version of one, writes different bytes for the same input, so without a cache entry they count as up to date when their output exists, and CI needs no encoder. An atlas whose folder holds a page file of its name that it does not write, such as `ui-1.png` left from a build that needed more pages, is out of date until a build deletes it. When a target fails, the command keeps the cache of the targets it built before it, so the next run starts from there.
 
+### generate
+
+```sh
+go tool game generate component player_health
+go tool game generate system movement
+go tool game generate -main scene level_one
+go tool game generate prefab enemy
+```
+
+Writes the code and files of a new component, system, scene or prefab into the game in `-dir`, the working directory by default, laid out as [`game new`](#new) lays out a project, and prints the path of each file it writes. The Go code goes into the package in that directory, under that package's name, and every Go file comes with a test beside it. The name is ASCII letters and digits starting with a letter, in camel case or with its words joined by `-` or `_`, and is written in each form it is used in: `player_health`, `player-health` and `PlayerHealth` all give the Go type `PlayerHealth`, the key `playerHealth` and files named `player_health_*`.
+
+| Kind | Writes | Registers it in |
+| --- | --- | --- |
+| `component` | `<name>_component.go`: a struct (`PlayerHealth`) and the `sceneformat.ComponentType` scene files set it by (`playerHealth`), both without fields | `Components`, the `sceneformat.ComponentRegistry` that loading a scene checks its objects' components against |
+| `system` | `<name>_system.go`: a function `MovementSystem(w *entities.World, dt time.Duration)`, added to the scheduler as `movement` | `Systems`, the `entities.Scheduler` the game steps each fixed step |
+| `scene` | `scenes/<name>.scene.yaml`: a scene in the scene format's current version with an empty layer named `main` and the virtual resolution of `game.yaml` (its window's size when it has none); and `<name>_scene.go`, which embeds the file and parses it with `LoadLevelOneScene`, checking its components against `Components` | `game.yaml`'s `autoload` scenes with `-autoload`, and as its `mainScene` with `-main` |
+| `prefab` | `prefabs/<name>.scene.yaml`: a scene of one object whose `prefab` is the name, for other scenes to instance with `scene: prefabs/enemy.scene.yaml`; and `<name>_prefab.go`, an `entities.Prefab` (`EnemyPrefab`) of that name | `Prefabs`, the game's prefabs by name |
+
+The registries are declared once, in `components.go`, `systems.go` and `prefabs.go`, which the first component, system, scene or prefab that needs one writes. Each generated file adds itself to its registry in an `init` function, so `generate` never edits a file that is already there. The game uses them where it loads scenes and runs its loop: `sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` refuses a component or field a scene sets that no component describes, and `Systems.Step(world, dt)` in the `game.Loop`'s `Update` runs the systems in their order, which `entities.After` and `entities.Before` set where each one is added. Fill in the generated code from there: a component's fields and the `sceneformat.Field` of each one a scene may set, a system's queries, a prefab's components with `entities.With`.
+
+What `generate` writes builds, passes the tests `go tool nsgo test` runs and passes `game check` as it is. It writes nothing and fails with 1 when a file it would write already exists, or when the package already declares an identifier it would declare, in any of its files, tests and files for other platforms included; choose another name then. `-autoload` and `-main` rewrite `game.yaml` in the form `gameproject fmt` writes, so they refuse a `game.yaml` in another form, such as one with comments, which rewriting would lose, until `gameproject fmt` has rewritten it, and refuse a name `game.yaml` already autoloads. The starter's `TestProjectFileIsValidAndCanonical` checks the files `game.yaml` autoloads, so an autoloaded scene that goes missing fails the game's tests.
+
 ### completion
 
 ```sh
@@ -259,7 +282,7 @@ mkdir -p ~/.zfunc
 go tool game completion zsh > ~/.zfunc/_game
 ```
 
-Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
+Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, the kinds `generate` writes, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
 
 The script completes a command named `game`. Typed as `go tool game`, the shell completes `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which works inside the game's module and keeps the version its `go.mod` pins. Save the script to a file once rather than generating it each time a shell starts, since `go tool game` only runs inside the module.
 
