@@ -31,7 +31,7 @@ const (
 	IBLUniformSize = 9*16 + 16
 )
 
-// SkyboxWGSL renders a cubemap as an infinitely distant background using a single fullscreen triangle driven by @builtin(vertex_index) (zero vertex buffers). It emits depth z = 0.99999994 (1 - 2^-24, the largest float32 below 1.0), so a pipeline with [gpu.CompareLessEqual] and DepthWrite disabled draws the skybox after opaque geometry without shading occluded pixels: only geometry whose depth is within 2^-24 of the far plane, below the precision of a 24-bit depth buffer, is painted over. Emitting exactly 1.0 would be the textbook choice, but NSGo's software rasterizer rejects fragments whose interpolated depth rounds above 1.0, which leaves clear-color holes in the sky.
+// SkyboxWGSL renders a cubemap as an infinitely distant background using a single fullscreen triangle driven by @builtin(vertex_index) (zero vertex buffers). It emits depth z = 0.99999994 (1 - 2^-24, the largest float32 below 1.0), so a pipeline with [gpu.CompareLessEqual] and DepthWrite disabled draws the skybox after opaque geometry without shading occluded pixels: only geometry whose depth is within 2^-24 of the far plane, below the precision of a 24-bit depth buffer, is painted over. Emitting exactly 1.0 would be the textbook choice, but NSGo's software rasterizer rejects fragments whose interpolated depth rounds above 1.0, which leaves clear-color holes in the sky (nsgo-dev/nsgo#2344).
 const SkyboxWGSL = `struct SkyboxParams {
 	inv_view_proj: mat4x4<f32>,
 	exposure: f32,
@@ -109,7 +109,7 @@ fn env_brdf_approx(f0: vec3<f32>, roughness: f32, n_dot_v: f32) -> vec3<f32> {
 	let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
 	let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
 	let r = roughness * c0 + c1;
-	// pow(2.0, x) instead of exp2(x): NSGo v0.3.0's software GPU VM has no exp, exp2, log or log2 and evaluates them to zero.
+	// pow(2.0, x) instead of exp2(x): NSGo v0.3.0's software GPU VM has no exp, exp2, log or log2 and evaluates them to zero (nsgo-dev/nsgo#2334).
 	let a004 = min(r.x * r.x, pow(2.0, -9.28 * n_dot_v)) * r.x + r.y;
 	let ab = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
 	return f0 * ab.x + vec3<f32>(ab.y);

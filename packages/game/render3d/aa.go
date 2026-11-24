@@ -607,7 +607,7 @@ fn fs_main(in: FXAAVertexOut) -> @location(0) vec4<f32> {
 	let lumaCenterSmaller = lumaM < lumaLocalAvg;
 	let endLuma = select(lumaEnd2, lumaEnd1, isDir1);
 	let endSmaller = endLuma < 0.0;
-	// Spelled out instead of endSmaller != lumaCenterSmaller: NSGo v0.3.0's software VM compares bool operands as equal (cmpVal in internal/driver/gpu_software.go ignores irVal.b).
+	// Spelled out instead of endSmaller != lumaCenterSmaller: NSGo v0.3.0's software VM compares bool operands as equal (cmpVal in internal/driver/gpu_software.go ignores irVal.b) (nsgo-dev/nsgo#2335).
 	let correctVariation = (endSmaller && !lumaCenterSmaller) || (!endSmaller && lumaCenterSmaller);
 
 	var pixelOffset = 0.0;

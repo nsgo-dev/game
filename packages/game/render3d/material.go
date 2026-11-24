@@ -396,7 +396,7 @@ func (d *MaterialDefaults) Layout() *gpu.BindGroupLayout {
 
 // UnlitLayout returns the [MaterialGroup] bind group layout shared by every [GPUUnlitMaterial] created with d, for [NewUnlitPipeline].
 //
-// [MaterialDefaults.Valid] does not cover it: NSGo restores a bind group layout after a device loss only when a restored bind group uses it, so this layout comes back only while a retained [GPUUnlitMaterial] exists. Check its Valid method before building an unlit pipeline after a restore.
+// [MaterialDefaults.Valid] does not cover it: NSGo restores a bind group layout after a device loss only when a restored bind group uses it, so this layout comes back only while a retained [GPUUnlitMaterial] exists (nsgo-dev/nsgo#2338). Check its Valid method before building an unlit pipeline after a restore.
 func (d *MaterialDefaults) UnlitLayout() *gpu.BindGroupLayout {
 	if d == nil {
 		return nil

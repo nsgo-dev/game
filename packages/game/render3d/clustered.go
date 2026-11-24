@@ -996,7 +996,7 @@ func DeviceSupportsClusteredLighting(dev *gpu.Device) bool {
 //
 // It returns shade_pbr for the rig plus every local light binned into the cluster that holds the fragment, each shaded with pbr_brdf, point_light_attenuation and spot_cone_attenuation, so it matches [ShadeClusteredGridPoint]. frag_pos is the fragment's @builtin(position). Prepend [CameraWGSL], which supplies camera.view for the depth slice, and pair it with a [ClusteredLightSystem] in clustered mode; [ClusteredFallbackBindingsWGSL] declares the same helper for the fallback path.
 //
-// Depth slicing is a 6-step binary search over the uniform split-depth table rather than log2 and exp, because NSGo v0.3.0's software GPU VM has no log, log2, exp or exp2 builtin and silently evaluates them to zero (internal/driver/gpu_software.go, evalCall).
+// Depth slicing is a 6-step binary search over the uniform split-depth table rather than log2 and exp, because NSGo v0.3.0's software GPU VM has no log, log2, exp or exp2 builtin and silently evaluates them to zero (internal/driver/gpu_software.go, evalCall) (nsgo-dev/nsgo#2334).
 const ClusteredBindingsWGSL = LightWGSL + clusteredStorageWGSL
 
 // ClusteredFallbackBindingsWGSL is [LightWGSL] plus the fallback uniform block at [LightGroup] binding 1 and shade_pbr_clustered with the same signature as in [ClusteredBindingsWGSL], using no storage buffers or compute, for WebGL 2 and OpenGL ES 3.0 targets. frag_pos is ignored: every uploaded light is evaluated for every fragment.

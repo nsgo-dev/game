@@ -441,6 +441,7 @@ func (m *Manager) runReloads(ctx context.Context, jobs []*reloadJob) ([]Reloaded
 			j.fetch(ctx)
 		}
 	}()
+	// Waits on the engine goroutine instead of posting the apply back, because an automation tool handler can only answer synchronously (nsgo-dev/nsgo#2342).
 	select {
 	case <-done:
 	case <-ctx.Done():
