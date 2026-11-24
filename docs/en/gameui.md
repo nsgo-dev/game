@@ -89,6 +89,41 @@ nav.StepActions(func(a gameui.NavAction) bool {
 
 Customize focus outlines with `FocusRingStyle` on `Root.FocusRing`, `Theme.FocusRing`, or `SpatialNavigator.FocusRing` (including dashed outlines or a custom `Draw` callback).
 
+## Ready settings menu (`SettingsMenu`)
+
+`SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, and configurable bus volumes), **Video** (window mode, resolution, scale mode, integer scale, quality preset, VSync, and frame cap), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, and game speed).
+
+It persists through `save.DefaultSettingsStore` and dispatches validated updates through `save.SettingsTargets` (`save.Apply`):
+
+```go
+store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
+menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+	Store: store,
+	Targets: save.SettingsTargets{
+		Sound:              mixer,
+		ApplyDisplay:       video.Apply,
+		ApplyBindings:      func(b map[string][]string) error { gameui.ApplyBindingsToActions(actions, b, true); return nil },
+		ApplyLocale:        setLocale,
+		ApplyAccessibility: setAccessibility,
+	},
+	OnBack: closeSettings,
+})
+
+// In Canvas.Draw:
+menu.Draw(d, bounds)
+
+// Forward mouse, touch, keyboard, and gamepad input:
+// - Pointer:  menu.OnPointerMove / OnPointerDown / OnPointerUp / OnPress
+// - Touch:    menu.OnTouch(ev)
+// - Keyboard: menu.OnKeyDown(ev)
+// - Gamepad:  menu.StepGamepad(gamepad.Pads(cx)) (D-pad / left stick, A confirm, B back, LB/RB tabs, button capture)
+```
+
+- Use `SettingsResolutionFrom` / `SetSettingsResolution` and `SettingsReduceFlashesFrom` / `SetSettingsReduceFlashes` to read or write the resolution and flash-reduction entries stored in `save.Settings.Custom`.
+- Use `FormatBindingToken`, `ParseBindingToken`, `FormatBindingLabel`, `GamepadButtonToken`, and `ApplyBindingsToActions` to bridge `save.Settings.Bindings` with `input.Actions`.
+- Call `SetText` with a translated `SettingsText` struct when the player switches language, and omit `Theme` (or call `HighContrastTheme()`) to automatically switch to high-contrast styling when `Accessibility.HighContrast` is enabled.
+- Call `SyncGamepad` when opening the menu so any button held to open it does not immediately trigger inside the screen.
+
 ## World-anchored native views (`AnchorOverlay`)
 
 Pin ordinary native NSGo views (name tags, speech bubbles, chat inputs) to 2D world coordinates over your game canvas using `AnchorOverlay`:

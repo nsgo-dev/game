@@ -4,7 +4,11 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/quality"
+	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/game/packages/game/sound"
@@ -32,14 +36,15 @@ const (
 
 // Action names bound by bindControls. left, right and jump drive the explorer; the rest drive the menus.
 const (
-	actionLeft    = "left"
-	actionRight   = "right"
-	actionJump    = "jump"
-	actionMove    = "move"
-	actionConfirm = "confirm"
-	actionPause   = "pause"
-	actionRestart = "restart"
-	actionSwarm   = "swarm"
+	actionLeft     = "left"
+	actionRight    = "right"
+	actionJump     = "jump"
+	actionMove     = "move"
+	actionConfirm  = "confirm"
+	actionPause    = "pause"
+	actionRestart  = "restart"
+	actionSwarm    = "swarm"
+	actionSettings = "settings"
 )
 
 // stickDeadZone is the left stick deflection below which the explorer stands still.
@@ -95,6 +100,20 @@ type caveRun struct {
 	// swarm is whether the 1000-firefly stress swarm is on; it stays on across restarts. sprites is how many sprites the level draws.
 	swarm   *core.Signal[bool]
 	sprites *core.Signal[int]
+
+	// Ready settings menu and persisted player settings.
+	settingsStore *save.DefaultSettingsStore
+	settingsMenu  *gameui.SettingsMenu
+	settingsOpen  *core.Signal[bool]
+	settingsTick  *core.Signal[int]
+	settingsRef   core.Ref
+	video         *screen.Video
+	quality       *quality.Selector
+	catalog       *l10n.Catalog
+	locale        *core.Signal[string]
+	a11y          save.AccessibilitySettings
+	resolution    string
+	reduceFlashes bool
 }
 
 func newCaveRun(cx *core.Scope) (*caveRun, error) {
@@ -104,23 +123,26 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 	}
 
 	g := &caveRun{
-		cx:          cx,
-		env:         cx.Env(),
-		assets:      assets,
-		viewport:    gameViewport,
-		scenes:      scene.NewManager(cx),
-		actions:     input.NewActions(),
-		mixer:       sound.NewMixer(cx, "caverun.sound"),
-		savedMaster: 1,
-		phase:       core.NewSignal(cx, phaseTitle),
-		paused:      core.NewSignal(cx, false),
-		hearts:      core.NewSignal(cx, maxHearts),
-		gems:        core.NewSignal(cx, 0),
-		totalGems:   core.NewSignal(cx, 0),
-		score:       core.NewSignal(cx, 0),
-		frameTick:   core.NewSignal(cx, 0),
-		swarm:       core.NewSignal(cx, false),
-		sprites:     core.NewSignal(cx, 0),
+		cx:           cx,
+		env:          cx.Env(),
+		assets:       assets,
+		viewport:     gameViewport,
+		scenes:       scene.NewManager(cx),
+		actions:      input.NewActions(),
+		mixer:        sound.NewMixer(cx, "caverun.sound"),
+		savedMaster:  1,
+		phase:        core.NewSignal(cx, phaseTitle),
+		paused:       core.NewSignal(cx, false),
+		hearts:       core.NewSignal(cx, maxHearts),
+		gems:         core.NewSignal(cx, 0),
+		totalGems:    core.NewSignal(cx, 0),
+		score:        core.NewSignal(cx, 0),
+		frameTick:    core.NewSignal(cx, 0),
+		swarm:        core.NewSignal(cx, false),
+		sprites:      core.NewSignal(cx, 0),
+		settingsOpen: core.NewSignal(cx, false),
+		settingsTick: core.NewSignal(cx, 0),
+		locale:       core.NewSignal(cx, ""),
 	}
 
 	gameProject.ConfigureMixer(g.mixer)
@@ -137,18 +159,21 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 	g.actions.WatchKeys(cx)
 	g.actions.WatchGamepads(cx)
 
-	// Build initial level for title backdrop.
-	if err := g.resetLevel(); err != nil {
-		return nil, err
-	}
-	g.scenes.Switch(g.titleController(), nil)
-
 	// Fixed-step 60 Hz game loop driving updates and triggering Canvas redraws.
 	g.loop = game.Loop{
 		Rate:   60,
 		Update: g.update,
 		Draw:   g.onLoopDraw,
 	}
+
+	g.initSettings(cx)
+
+	// Build initial level for title backdrop.
+	if err := g.resetLevel(); err != nil {
+		return nil, err
+	}
+	g.scenes.Switch(g.titleController(), nil)
+
 	g.loop.Run(cx)
 
 	return g, nil
@@ -221,6 +246,7 @@ func (g *caveRun) resetLevel() error {
 	}
 	lvl.setSwarm(g.swarm.GetUntracked())
 	g.level = lvl
+	g.syncLevelAccessibility()
 	g.syncHUD()
 	return nil
 }
@@ -345,14 +371,17 @@ func bindControls(a *input.Actions) {
 	a.Bind(actionPause, input.Key("escape"), input.Key("p"), input.GamepadButton(gamepad.ButtonStart))
 	a.Bind(actionRestart, input.Key("r"), input.GamepadButton(gamepad.ButtonBack))
 	a.Bind(actionSwarm, input.Key("f"), input.GamepadButton(gamepad.ButtonNorth))
+	a.Bind(actionSettings, input.GamepadButton(gamepad.ButtonWest))
 }
 
-// handleMenuActions acts on the step's menu actions: start from the title, pause, restart, toggle the firefly swarm, and play again from an end screen.
+// handleMenuActions acts on the step's menu actions: start from the title, pause, restart, toggle the firefly swarm, open settings, and play again from an end screen.
 func (g *caveRun) handleMenuActions() {
 	a := g.actions
 	switch g.phase.Get() {
 	case phaseTitle:
 		switch {
+		case a.JustPressed(actionSettings):
+			g.openSettings()
 		case a.JustPressed(actionConfirm) || a.JustPressed(actionJump):
 			g.startGame()
 		case a.JustPressed(actionSwarm):
@@ -360,6 +389,8 @@ func (g *caveRun) handleMenuActions() {
 		}
 	case phasePlaying:
 		switch {
+		case g.paused.Get() && a.JustPressed(actionSettings):
+			g.openSettings()
 		case a.JustPressed(actionRestart):
 			g.restartGame()
 		case a.JustPressed(actionPause):
@@ -403,6 +434,12 @@ func (g *caveRun) sampleInput() stepInput {
 // update runs one fixed step: it samples input once, acts on the menu actions, and advances the current scene.
 func (g *caveRun) update(dt time.Duration) {
 	g.actions.Step()
+	if g.settingsOpen.Get() {
+		if g.settingsMenu != nil && g.settingsMenu.StepGamepad(g.actions.Gamepads()) {
+			g.bumpSettingsTick()
+		}
+		return
+	}
 	g.handleMenuActions()
 	g.scenes.Update(dt)
 }
@@ -450,7 +487,11 @@ func (g *caveRun) playingController() *scene.Controller {
 			if g.paused.Get() || g.level == nil {
 				return
 			}
-			g.level.update(dt, g.sampleInput())
+			stepDT := dt
+			if speed := g.a11y.GameSpeed; speed > 0 && speed != 1.0 {
+				stepDT = time.Duration(float64(dt) * speed)
+			}
+			g.level.update(stepDT, g.sampleInput())
 		},
 		Draw: func(d *core.Drawing, alpha float64) {
 			if g.level != nil {

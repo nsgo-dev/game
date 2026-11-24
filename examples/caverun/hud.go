@@ -49,6 +49,7 @@ func (g *caveRun) render(cx *core.Scope) core.Node {
 			g.renderTitleOverlay(cx),
 			g.renderPauseOverlay(cx),
 			g.renderEndOverlay(cx),
+			g.renderSettingsOverlay(cx),
 		},
 	}
 }
@@ -340,8 +341,15 @@ func (g *caveRun) renderTitleOverlay(cx *core.Scope) core.Node {
 								Style:     core.Style{Width: core.Pct(100)},
 								OnPress:   g.startGame,
 							},
+							ui.Button{
+								Text:    "Settings",
+								Variant: ui.ButtonSecondary,
+								TestID:  "settings-btn",
+								Style:   core.Style{Width: core.Pct(100)},
+								OnPress: g.openSettings,
+							},
 							core.Text{
-								Content: "A/D or ←/→ move • Space jump • Esc pause • F fireflies\nGamepad: stick or D-pad • A jump • Start pause",
+								Content: "A/D or ←/→ move • Space jump • Esc pause • F fireflies\nGamepad: stick or D-pad • A jump • Start pause • X settings",
 								Style: core.Style{
 									Color:     core.RGB(0x94a3b8),
 									FontSize:  11,
@@ -415,6 +423,13 @@ func (g *caveRun) renderPauseOverlay(cx *core.Scope) core.Node {
 								TestID:  "restart-btn",
 								Style:   core.Style{Width: core.Pct(100)},
 								OnPress: g.restartGame,
+							},
+							ui.Button{
+								Text:    "Settings",
+								Variant: ui.ButtonSecondary,
+								TestID:  "pause-settings-btn",
+								Style:   core.Style{Width: core.Pct(100)},
+								OnPress: g.openSettings,
 							},
 							ui.Button{
 								TextFunc: func() string {

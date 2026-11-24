@@ -8,5 +8,6 @@
 //   - Route pointer/touch events via OnPointerMove, OnPointerDown, OnPointerUp, or OnPress, and keyboard/gamepad navigation via SpatialNavigator (2D spatial lookup, explicit NavOverrides, StepActions, OnConfirm/OnBack, and customizable FocusRingStyle) or Root.OnKeyDown.
 //   - Call Root.Draw(d, bounds) inside Canvas.Draw; all operations run inside Save/Restore using Path fills and strokes so caller drawing state is never mutated.
 //   - Customize visuals with Theme (starting from DefaultTheme), NineSlice / FrameDrawer hooks, and custom TextDrawer / TextMeasurer hooks for bitmap fonts.
+//   - Drop in SettingsMenu for a ready-to-use Audio, Video, Controls (rebinding), Language, and Accessibility screen persisted through save.DefaultSettingsStore and playable with mouse, touch, keyboard, and gamepad alone.
 //   - Mount AnchorOverlay over your game Canvas and call Sync(proj) each frame to pin native NSGo views (name tags, speech bubbles, text inputs) to 2D world positions with automatic off-screen hiding.
 package gameui
