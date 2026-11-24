@@ -212,9 +212,9 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	// 1. Back-facing shadow band (N·L <= 0), facing camera (N·V = 1 -> no rim, no specular).
 	shadow := render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 		Normal:     math3d.Vec3{Z: 1},
-		LightDir:   math3d.Vec3{Z: -1},
+		ToLight:    math3d.Vec3{Z: -1},
 		ViewDir:    math3d.Vec3{Z: 1},
-		LightColor: [3]float32{1, 1, 1},
+		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	wantShadow := [4]float32{0.8 * 0.2, 0.4 * 0.25, 0.2 * 0.4, 1}
 	for c := range 4 {
@@ -227,9 +227,9 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	// N = (0, 0, 1), L = (sqrt(3)/2, 0, 0.5) -> N·L = 0.5, H = normalize(L + V) = normalize(0.866, 0, 1.5) -> N·H ≈ 0.866, 0.866^16 ≈ 0.10 < 0.6 -> no spec.
 	mid := render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 		Normal:     math3d.Vec3{Z: 1},
-		LightDir:   math3d.Vec3{X: float32(math.Sqrt(3) / 2), Z: 0.5},
+		ToLight:    math3d.Vec3{X: float32(math.Sqrt(3) / 2), Z: 0.5},
 		ViewDir:    math3d.Vec3{Z: 1},
-		LightColor: [3]float32{1, 1, 1},
+		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	for c := range 3 {
 		tint := mat.ShadowColor[c] + (1-mat.ShadowColor[c])*0.5
@@ -242,9 +242,9 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	// 3. Full lit + hard specular hit (N = L = V = +Z -> N·L = 1, N·H = 1 -> spec = 1, rim = 0).
 	litSpec := render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 		Normal:     math3d.Vec3{Z: 1},
-		LightDir:   math3d.Vec3{Z: 1},
+		ToLight:    math3d.Vec3{Z: 1},
 		ViewDir:    math3d.Vec3{Z: 1},
-		LightColor: [3]float32{1, 1, 1},
+		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	for c := range 3 {
 		want := min(float32(1), mat.BaseColor[c]+mat.SpecularColor[c])
@@ -256,9 +256,9 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	// 4. Grazing Fresnel rim highlight (N = +X, V = +Z -> N·V = 0 -> fresnel = 1 >= 0.7, L = -X -> shadow band, no spec).
 	rim := render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 		Normal:     math3d.Vec3{X: 1},
-		LightDir:   math3d.Vec3{X: -1},
+		ToLight:    math3d.Vec3{X: -1},
 		ViewDir:    math3d.Vec3{Z: 1},
-		LightColor: [3]float32{1, 1, 1},
+		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	for c := range 3 {
 		want := min(float32(1), mat.BaseColor[c]*mat.ShadowColor[c]+mat.RimColor[c])
@@ -272,9 +272,9 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	baseTex := [4]float32{0.5, 1.0, 0.5, 0.75}
 	rampOut := render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 		Normal:     math3d.Vec3{Z: 1},
-		LightDir:   math3d.Vec3{Z: -1},
+		ToLight:    math3d.Vec3{Z: -1},
 		ViewDir:    math3d.Vec3{Z: 1},
-		LightColor: [3]float32{1, 1, 1},
+		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 		BaseSample: &baseTex,
 		RampSample: &rampTint,
 	})
@@ -362,14 +362,56 @@ func TestToonMaterialValidate(t *testing.T) {
 		t.Fatalf("NewGPUToonMaterial(nil dev) = %v, want gpu.ErrDeviceLost", err)
 	}
 
-	// Light validation.
-	badLight := render3d.ToonLight{Direction: math3d.Vec3{X: nan}}
-	if !errors.Is(badLight.Validate(), render3d.ErrInvalidToonMaterial) {
-		t.Fatalf("badLight.Validate = %v, want ErrInvalidToonMaterial", badLight.Validate())
+}
+
+func TestToonLightMatchesLightRigConventions(t *testing.T) {
+	nan := float32(math.NaN())
+	def := render3d.DefaultToonLight()
+	if err := def.Validate(); err != nil {
+		t.Fatalf("DefaultToonLight().Validate() = %v", err)
 	}
-	badIntensity := render3d.ToonLight{Intensity: -1}
-	if !errors.Is(badIntensity.Validate(), render3d.ErrInvalidToonMaterial) {
-		t.Fatalf("badIntensity.Validate = %v, want ErrInvalidToonMaterial", badIntensity.Validate())
+	for name, mut := range map[string]func(*render3d.ToonLight){
+		"zero direction":     func(l *render3d.ToonLight) { l.Key.Direction = math3d.Vec3{} },
+		"nan direction":      func(l *render3d.ToonLight) { l.Key.Direction.X = nan },
+		"negative intensity": func(l *render3d.ToonLight) { l.Key.Intensity = -1 },
+		"negative color":     func(l *render3d.ToonLight) { l.Key.Color.Y = -0.1 },
+		"negative ambient":   func(l *render3d.ToonLight) { l.Ambient.Intensity = -1 },
+	} {
+		l := def
+		mut(&l)
+		if err := l.Validate(); !errors.Is(err, render3d.ErrInvalidLight) {
+			t.Errorf("%s: Validate = %v, want ErrInvalidLight", name, err)
+		}
+	}
+
+	// Direction is the way the rays travel, as in DirectionalLight: light shining down reaches a surface from above.
+	down := render3d.ToonLight{Key: render3d.DirectionalLight{Direction: math3d.Vec3{Y: -2}, Color: math3d.Vec3{X: 1, Y: 0.5, Z: 0.25}, Intensity: 2}}
+	u := render3d.NewToonSceneUniform(math3d.Mat4Identity(), down)
+	if !u.ToLight.ApproxEqual(math3d.Vec3{Y: 1}, 1e-6) {
+		t.Errorf("ToLight = %v, want (0, 1, 0)", u.ToLight)
+	}
+	if u.LightColor != (math3d.Vec3{X: 2, Y: 1, Z: 0.5}) {
+		t.Errorf("LightColor = %v, want Color × Intensity", u.LightColor)
+	}
+	off := down
+	off.Key.Intensity = 0
+	if c := render3d.NewToonSceneUniform(math3d.Mat4Identity(), off).LightColor; c != (math3d.Vec3{}) {
+		t.Errorf("intensity 0 LightColor = %v, want off", c)
+	}
+
+	rig := render3d.LightRig{
+		Ambient:     render3d.AmbientLight{Color: math3d.Vec3{X: 0.1, Y: 0.1, Z: 0.1}, Intensity: 1},
+		Directional: []render3d.DirectionalLight{down.Key, {Direction: math3d.Vec3{X: 1}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 1}},
+	}
+	got, err := render3d.ToonLightFromRig(rig)
+	if err != nil {
+		t.Fatalf("ToonLightFromRig: %v", err)
+	}
+	if got.Key != down.Key || got.Ambient != rig.Ambient {
+		t.Errorf("ToonLightFromRig = %+v, want the first directional light and the ambient fill", got)
+	}
+	if _, err := render3d.ToonLightFromRig(render3d.LightRig{}); !errors.Is(err, render3d.ErrInvalidLight) {
+		t.Errorf("ToonLightFromRig(no directional) = %v, want ErrInvalidLight", err)
 	}
 }
 
@@ -480,11 +522,12 @@ func TestToonDrawsInGPUView(t *testing.T) {
 				OutlineColor:   [4]float32{0.04, 0.04, 0.06, 1},
 				OutlineWidth:   0.08,
 			}
-			light := render3d.ToonLight{
-				Direction: math3d.Vec3{X: 0.7, Y: 0.4, Z: 0.6}.Norm(),
-				Color:     [3]float32{1, 1, 1},
+			toLight := math3d.Vec3{X: 0.7, Y: 0.4, Z: 0.6}.Norm()
+			light := render3d.ToonLight{Key: render3d.DirectionalLight{
+				Direction: toLight.Scale(-1),
+				Color:     math3d.Vec3{X: 1, Y: 1, Z: 1},
 				Intensity: 1,
-			}
+			}}
 
 			var (
 				camBuf   *render3d.CameraBuffer
@@ -561,7 +604,7 @@ func TestToonDrawsInGPUView(t *testing.T) {
 			// Compute expected 3 band colors via CPU EvaluateToon and verify all 3 bands plus crisp dark outline pixels appear on screen!
 			evalBand := func(ndl float32) color.RGBA {
 				// Construct unit normal with dot(N, L) == ndl.
-				l := light.Direction
+				l := toLight
 				// Pick perpendicular vector to L.
 				perp := l.Cross(math3d.Vec3Up())
 				if perp.LenSq() < 1e-4 {
@@ -572,9 +615,9 @@ func TestToonDrawsInGPUView(t *testing.T) {
 				n := l.Scale(ndl).Add(perp.Scale(sinA))
 				return toonRGBAFromLinear(render3d.EvaluateToon(mat, render3d.ToonEvalInput{
 					Normal:     n,
-					LightDir:   l,
+					ToLight:    l,
 					ViewDir:    math3d.Vec3{Z: 1},
-					LightColor: [3]float32{1, 1, 1},
+					LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 				}))
 			}
 			wantBand0 := evalBand(0.05) // shadow band
@@ -618,11 +661,11 @@ func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 		OutlineColor: [4]float32{0.05, 0.05, 0.05, 1},
 		OutlineWidth: 0.08,
 	}
-	light := render3d.ToonLight{
-		Direction: math3d.Vec3{Z: 1},
-		Color:     [3]float32{1, 1, 1},
+	light := render3d.ToonLight{Key: render3d.DirectionalLight{
+		Direction: math3d.Vec3{Z: -1},
+		Color:     math3d.Vec3{X: 1, Y: 1, Z: 1},
 		Intensity: 1,
-	}
+	}}
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 3.4}, math3d.DegToRad(45), 1, 0.1, 20)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 
@@ -861,11 +904,11 @@ func TestToonRampTextureAndClipSpaceOutline(t *testing.T) {
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 	camBuf.WriteCamera(cam)
 
-	light := render3d.ToonLight{
-		Direction: math3d.Vec3{X: 1, Y: 0, Z: 0}, // illuminates right half, darkens left half
-		Color:     [3]float32{1, 1, 1},
+	light := render3d.ToonLight{Key: render3d.DirectionalLight{
+		Direction: math3d.Vec3{X: -1}, // shines toward -X: lights the right half, darkens the left half
+		Color:     math3d.Vec3{X: 1, Y: 1, Z: 1},
 		Intensity: 1,
-	}
+	}}
 
 	enc := dev.BeginEncoder()
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
@@ -1040,10 +1083,12 @@ func TestToonSceneMatchesReference(t *testing.T) {
 	camBuf.WriteCamera(cam)
 
 	light := render3d.ToonLight{
-		Direction: math3d.Vec3{X: 0.55, Y: 0.75, Z: 0.45}.Norm(),
-		Color:     [3]float32{1, 0.98, 0.94},
-		Intensity: 1,
-		Ambient:   [3]float32{0.04, 0.05, 0.08},
+		Key: render3d.DirectionalLight{
+			Direction: math3d.Vec3{X: 0.55, Y: 0.75, Z: 0.45}.Norm().Scale(-1),
+			Color:     math3d.Vec3{X: 1, Y: 0.98, Z: 0.94},
+			Intensity: 1,
+		},
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.04, Y: 0.05, Z: 0.08}, Intensity: 1},
 	}
 
 	boxTransform := math3d.Translate(math3d.Vec3{X: 1.15, Y: 0.65, Z: -0.15}).Mul(math3d.RotateY(math3d.DegToRad(-28)))
