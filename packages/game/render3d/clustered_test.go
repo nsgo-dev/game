@@ -16,6 +16,8 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
+var clusterTestMat = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.9, Y: 0.9, Z: 0.9}, Roughness: 0.6}
+
 func clusterTestFloorMesh(half float32) render3d.Mesh {
 	up := math3d.Vec3Up()
 	return render3d.Mesh{
@@ -52,33 +54,27 @@ func clusterTest256PointLights() []render3d.ClusterLight {
 			idx := gz*16 + gx
 			x := -15.0 + float32(gx)*2.0
 			z := -15.0 + float32(gz)*2.0
-			col := palette[idx%len(palette)]
-			lights = append(lights, render3d.NewPointClusterLight(
-				math3d.Vec3{X: x, Y: 1.25, Z: z},
-				col,
-				1.8,
-				2.8,
-			))
+			lights = append(lights, render3d.NewPointClusterLight(math3d.Vec3{X: x, Y: 1.25, Z: z}, palette[idx%len(palette)], 5.5, 2.8))
 		}
 	}
 	return lights
 }
 
-func clusterTestClampByte(v float32) uint8 {
-	if v <= 0 {
-		return 0
+// clusterTestRig is a LightRig with ambient, a dim sun and one rig point light, shaded together with the clustered lights.
+func clusterTestRig() render3d.LightRig {
+	return render3d.LightRig{
+		Ambient:     render3d.AmbientLight{Color: math3d.Vec3{X: 0.2, Y: 0.2, Z: 0.25}, Intensity: 0.2},
+		Directional: []render3d.DirectionalLight{{Direction: math3d.Vec3{X: 0.3, Y: -1, Z: -0.2}, Color: math3d.Vec3{X: 1, Y: 0.95, Z: 0.9}, Intensity: 0.3}},
+		Point:       []render3d.PointLight{{Position: math3d.Vec3{X: 6, Y: 2, Z: 4}, Color: math3d.Vec3{X: 0.6, Y: 0.6, Z: 1}, Intensity: 4, Range: 6}},
 	}
-	if v >= 1 {
-		return 255
-	}
-	return uint8(math.Round(float64(v) * 255.0))
 }
 
-func clusterTestVec3ToRGBA(v math3d.Vec3) color.RGBA {
+func clusterTestSRGB(lin math3d.Vec3) color.RGBA {
+	srgb := render3d.LinearToSRGB(lin)
 	return color.RGBA{
-		R: clusterTestClampByte(v.X),
-		G: clusterTestClampByte(v.Y),
-		B: clusterTestClampByte(v.Z),
+		R: uint8(math.Round(float64(srgb.X) * 255)),
+		G: uint8(math.Round(float64(srgb.Y) * 255)),
+		B: uint8(math.Round(float64(srgb.Z) * 255)),
 		A: 255,
 	}
 }
@@ -94,42 +90,73 @@ func clusterTestAssertPixelNear(t *testing.T, img *image.RGBA, x, y int, want co
 		return d
 	}
 	if diff(got.R, want.R) > tol || diff(got.G, want.G) > tol || diff(got.B, want.B) > tol || diff(got.A, want.A) > tol {
-		t.Errorf("%s at (%d,%d): got RGBA(%d,%d,%d,%d), want RGBA(%d,%d,%d,%d) ±%d",
-			label, x, y, got.R, got.G, got.B, got.A, want.R, want.G, want.B, want.A, tol)
+		t.Errorf("%s at (%d,%d): got RGBA(%d,%d,%d,%d), want RGBA(%d,%d,%d,%d) ±%d", label, x, y, got.R, got.G, got.B, got.A, want.R, want.G, want.B, want.A, tol)
 	}
 }
 
-func clusterTestBuildPipeline(t *testing.T, cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGroupLayout, sys *render3d.ClusteredLightSystem, depth gpu.TextureFormat) *gpu.Pipeline {
+func clusterTestAssertVecNear(t *testing.T, got, want math3d.Vec3, label string) {
 	t.Helper()
-	mod, err := gpu.CompileWGSL(sys.WGSL())
-	if err != nil {
-		t.Fatalf("CompileWGSL: %v", err)
+	near := func(a, b float32) bool { return math.Abs(float64(a-b)) <= 1e-4*(1+math.Abs(float64(b))) }
+	if !near(got.X, want.X) || !near(got.Y, want.Y) || !near(got.Z, want.Z) {
+		t.Fatalf("%s: got %v, want %v", label, got, want)
 	}
-	layouts := make([]*gpu.BindGroupLayout, render3d.ClusteredLightGroup+1)
-	layouts[render3d.CameraGroup] = camLayout
-	layouts[render3d.ClusteredLightGroup] = sys.Layout()
+}
 
-	desc := gpu.PipelineDesc{
-		Label:         "clustered-lit",
-		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
-		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
-		Layouts:       layouts,
-		VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
-		Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, CullMode: gpu.CullNone},
-		Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat(), WriteMask: gpu.ColorWriteAll}},
-	}
-	if depth != gpu.FormatUndefined {
-		desc.DepthStencil = &gpu.DepthStencilState{
-			Format:       depth,
-			DepthWrite:   true,
-			DepthCompare: gpu.CompareLess,
-		}
-	}
-	pipe, err := dev.CreatePipeline(cx, desc)
+// clusterTestGPU holds the camera, per-draw and pipeline resources a clustered draw needs besides the ClusteredLightSystem.
+type clusterTestGPU struct {
+	cam  *render3d.CameraBuffer
+	draw *render3d.PBRDrawBuffer
+	pipe *gpu.Pipeline
+}
+
+func newClusterTestGPU(t *testing.T, cx *core.Scope, dev *gpu.Device, sys *render3d.ClusteredLightSystem) clusterTestGPU {
+	t.Helper()
+	camBuf, err := render3d.NewCameraBuffer(cx, dev)
 	if err != nil {
-		t.Fatalf("CreatePipeline: %v", err)
+		t.Fatalf("NewCameraBuffer: %v", err)
 	}
-	return pipe
+	drawBuf, err := render3d.NewPBRDrawBuffer(cx, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), clusterTestMat), false)
+	if err != nil {
+		t.Fatalf("NewPBRDrawBuffer: %v", err)
+	}
+	pipe, err := render3d.NewClusteredLitPBRPipeline(cx, dev, camBuf.Layout(), sys, drawBuf.Layout(), gpu.FormatDepth24Plus)
+	if err != nil {
+		t.Fatalf("NewClusteredLitPBRPipeline: %v", err)
+	}
+	if cx == nil {
+		t.Cleanup(func() {
+			_ = pipe.Close()
+			_ = drawBuf.Close()
+			_ = camBuf.Close()
+		})
+	}
+	return clusterTestGPU{cam: camBuf, draw: drawBuf, pipe: pipe}
+}
+
+func (g clusterTestGPU) record(pass *gpu.RenderPass, sys *render3d.ClusteredLightSystem, mesh *render3d.GPUMesh) {
+	pass.SetPipeline(g.pipe)
+	pass.SetBindGroup(render3d.CameraGroup, g.cam.BindGroup())
+	sys.Bind(pass)
+	pass.SetBindGroup(render3d.PBRDrawGroup, g.draw.BindGroup())
+	mesh.Draw(pass)
+}
+
+func clusterTestRenderSoftware(t *testing.T, sr *gpu.SoftwareRenderer, g clusterTestGPU, sys *render3d.ClusteredLightSystem, mesh *render3d.GPUMesh) *image.RGBA {
+	t.Helper()
+	dev := sr.Device()
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	g.record(pass, sys, mesh)
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+	return sr.Image()
 }
 
 func clusterTestWorldPointAtPixel(cam *scene3d.Camera, px, py, w, h float32) (math3d.Vec3, bool) {
@@ -143,6 +170,15 @@ func clusterTestWorldPointAtPixel(cam *scene3d.Camera, px, py, w, h float32) (ma
 		return math3d.Vec3{}, false
 	}
 	return ray.At(t), true
+}
+
+func clusterTestUpdate(t *testing.T, sys *render3d.ClusteredLightSystem, dev *gpu.Device, cam *scene3d.Camera, w, h float32, rig render3d.LightRig, lights []render3d.ClusterLight) render3d.ClusterStats {
+	t.Helper()
+	stats, err := sys.UpdateCamera(dev, cam, w, h, rig, lights)
+	if err != nil {
+		t.Fatalf("UpdateCamera: %v", err)
+	}
+	return stats
 }
 
 func TestClusterConfigAndLightValidation(t *testing.T) {
@@ -163,7 +199,10 @@ func TestClusterConfigAndLightValidation(t *testing.T) {
 		{"SlicesZ too large", render3d.ClusterConfig{SlicesZ: render3d.MaxClusterSlicesZ + 1}},
 		{"negative SlicesZ", render3d.ClusterConfig{SlicesZ: -1}},
 		{"negative MaxLights", render3d.ClusterConfig{MaxLights: -5}},
+		{"MaxLights too large", render3d.ClusterConfig{MaxLights: render3d.MaxClusterLights + 1}},
 		{"negative MaxLightsPerCluster", render3d.ClusterConfig{MaxLightsPerCluster: -1}},
+		{"MaxLightsPerCluster above MaxLights", render3d.ClusterConfig{MaxLights: 8, MaxLightsPerCluster: 9}},
+		{"index slots overflow", render3d.ClusterConfig{TilesX: 64, TilesY: 64, SlicesZ: 64, MaxLights: 4096, MaxLightsPerCluster: 4096}},
 		{"FallbackMaxLights too large", render3d.ClusterConfig{FallbackMaxLights: render3d.MaxFallbackLights + 1}},
 		{"negative FallbackMaxLights", render3d.ClusterConfig{FallbackMaxLights: -1}},
 	}
@@ -209,6 +248,63 @@ func TestClusterConfigAndLightValidation(t *testing.T) {
 	}
 }
 
+func TestClusterLightFromPointAndSpotMatchLightRigAttenuation(t *testing.T) {
+	ranged := render3d.PointLight{Position: math3d.Vec3{X: 1, Y: 2, Z: -1}, Color: math3d.Vec3{X: 1, Y: 0.5, Z: 0.25}, Intensity: 3, Range: 5}
+	cl, err := render3d.ClusterLightFromPoint(ranged)
+	if err != nil {
+		t.Fatalf("ClusterLightFromPoint: %v", err)
+	}
+	if cl.Kind != render3d.ClusterLightPoint || cl.Range != 5 {
+		t.Fatalf("ClusterLightFromPoint = %+v, want a point light with Range 5", cl)
+	}
+	spot := render3d.SpotLight{Position: math3d.Vec3{Y: 4}, Direction: math3d.Vec3{X: 0.2, Y: -1}, Color: math3d.Vec3{X: 0.5, Y: 1, Z: 0.5}, Intensity: 8, Range: 9, InnerConeAngle: 0.2, OuterConeAngle: 0.6}
+	cs, err := render3d.ClusterLightFromSpot(spot)
+	if err != nil {
+		t.Fatalf("ClusterLightFromSpot: %v", err)
+	}
+	for _, p := range []math3d.Vec3{{}, {X: 0.5, Z: 0.3}, {X: 1.5, Y: 0.2, Z: -1}, {X: 3}, {X: -2, Z: 2}} {
+		_, got := render3d.EvaluateLightAttenuation(cl, p)
+		want := render3d.PointLightAttenuation(ranged.Position.Sub(p).LenSq(), ranged.Range) * ranged.Intensity
+		if math.Abs(float64(got-want)) > 1e-5*(1+float64(want)) {
+			t.Fatalf("point attenuation at %v = %v, want %v", p, got, want)
+		}
+		_, got = render3d.EvaluateLightAttenuation(cs, p)
+		want = spot.Attenuation(p) * spot.Intensity
+		if math.Abs(float64(got-want)) > 1e-5*(1+float64(want)) {
+			t.Fatalf("spot attenuation at %v = %v, want %v", p, got, want)
+		}
+	}
+
+	// Range 0 is unbounded in a LightRig; the converters derive the distance where the radiance falls to ClusterRangeCutoff.
+	unbounded := render3d.PointLight{Position: math3d.Vec3{Y: 1}, Color: math3d.Vec3{X: 0.5, Y: 1, Z: 0.25}, Intensity: 4}
+	cu, err := render3d.ClusterLightFromPoint(unbounded)
+	if err != nil {
+		t.Fatalf("ClusterLightFromPoint(unbounded): %v", err)
+	}
+	if want := float32(math.Sqrt(4 * 1 / render3d.ClusterRangeCutoff)); math.Abs(float64(cu.Range-want)) > 1e-3 {
+		t.Fatalf("derived range = %v, want %v", cu.Range, want)
+	}
+	if err := cu.Validate(); err != nil {
+		t.Fatalf("converted unbounded light fails Validate: %v", err)
+	}
+	unboundedSpot := spot
+	unboundedSpot.Range = 0
+	if c, err := render3d.ClusterLightFromSpot(unboundedSpot); err != nil || c.Range <= 0 {
+		t.Fatalf("ClusterLightFromSpot(unbounded) = %+v, %v; want a positive range", c, err)
+	}
+	dark, err := render3d.ClusterLightFromPoint(render3d.PointLight{Color: math3d.Vec3{X: 1}})
+	if err != nil || dark.Validate() != nil {
+		t.Fatalf("zero-intensity light converts to %+v, %v; want a valid record", dark, err)
+	}
+
+	if _, err := render3d.ClusterLightFromPoint(render3d.PointLight{Color: math3d.Vec3{X: -1}, Intensity: 1}); !errors.Is(err, render3d.ErrInvalidLight) {
+		t.Fatalf("invalid point light error = %v, want ErrInvalidLight", err)
+	}
+	if _, err := render3d.ClusterLightFromSpot(render3d.SpotLight{Direction: math3d.Vec3{Y: -1}, Color: math3d.Vec3{X: 1}, Intensity: 1, InnerConeAngle: 0.5, OuterConeAngle: 0.4}); !errors.Is(err, render3d.ErrInvalidLight) {
+		t.Fatalf("invalid spot light error = %v, want ErrInvalidLight", err)
+	}
+}
+
 func TestClusterGridLogarithmicSlicesAndBinarySearch(t *testing.T) {
 	grid, err := render3d.NewClusterGrid(render3d.DefaultClusterConfig())
 	if err != nil {
@@ -231,7 +327,6 @@ func TestClusterGridLogarithmicSlicesAndBinarySearch(t *testing.T) {
 		}
 	}
 
-	// Verify SliceForDepth matches exact logarithmic intervals.
 	if got := grid.SliceForDepth(near * 0.5); got != 0 {
 		t.Fatalf("SliceForDepth(before near) = %d, want 0", got)
 	}
@@ -289,13 +384,12 @@ func TestClusterGridCullingSpotBoundsAndZeroAllocs(t *testing.T) {
 	ptStats := grid.AssignLights(view, proj, 0.5, 50, pointAtCenter)
 	spStats := grid.AssignLights(view, proj, 0.5, 50, spotAtCenter)
 	if spStats.ActiveClusters == 0 || spStats.ActiveClusters >= ptStats.ActiveClusters {
-		t.Fatalf("expected narrow spot (%d clusters) to occupy >0 and fewer clusters than equal-range point (%d clusters)",
-			spStats.ActiveClusters, ptStats.ActiveClusters)
+		t.Fatalf("expected narrow spot (%d clusters) to occupy >0 and fewer clusters than equal-range point (%d clusters)", spStats.ActiveClusters, ptStats.ActiveClusters)
 	}
 
 	// 3. Light straddling the camera / near plane must still assign clusters (no false negative).
 	nearLight := []render3d.ClusterLight{
-		render3d.NewPointClusterLight(math3d.Vec3{Y: 2, Z: 10}, math3d.Vec3{X: 1}, 2, 4), // centered on camera!
+		render3d.NewPointClusterLight(math3d.Vec3{Y: 2, Z: 10}, math3d.Vec3{X: 1}, 2, 4), // centered on camera
 	}
 	nearStats := grid.AssignLights(view, proj, 0.5, 50, nearLight)
 	if nearStats.VisibleLights != 1 || nearStats.ActiveClusters == 0 {
@@ -304,7 +398,6 @@ func TestClusterGridCullingSpotBoundsAndZeroAllocs(t *testing.T) {
 
 	// 4. Steady-state 256 lights AssignLights must perform zero heap allocations.
 	lights256 := clusterTest256PointLights()
-	// Warm up once (builds frustum cache & sizes lightIndices).
 	grid.AssignLights(view, proj, 0.5, 50, lights256)
 	allocs := testing.AllocsPerRun(50, func() {
 		grid.AssignLights(view, proj, 0.5, 50, lights256)
@@ -314,7 +407,46 @@ func TestClusterGridCullingSpotBoundsAndZeroAllocs(t *testing.T) {
 	}
 }
 
-func TestClustered256PointLightsParityAndBudget(t *testing.T) {
+func TestClusterGridTruncationKeepsInputOrder(t *testing.T) {
+	cfg := render3d.ClusterConfig{TilesX: 4, TilesY: 4, SlicesZ: 4, MaxLights: 4, MaxLightsPerCluster: 2}
+	grid, err := render3d.NewClusterGrid(cfg)
+	if err != nil {
+		t.Fatalf("NewClusterGrid: %v", err)
+	}
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 2, Z: 10}, math3d.DegToRad(60), 1, 0.5, 50)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+
+	// Ten overlapping lights in front of the camera: the grid keeps the first four (MaxLights) and every shared cell keeps the first two of those (MaxLightsPerCluster).
+	lights := make([]render3d.ClusterLight, 10)
+	for i := range lights {
+		lights[i] = render3d.NewPointClusterLight(math3d.Vec3{X: float32(i) * 0.01, Y: 1}, math3d.Vec3{X: 1, Y: 1, Z: 1}, 1, 3)
+	}
+	st := grid.AssignLights(cam.ViewMatrix(), cam.ProjMatrix(), 0.5, 50, lights)
+	if st.VisibleLights != 4 || st.TruncatedLights != 6 || st.CulledLights != 0 {
+		t.Fatalf("stats = %+v, want 4 visible, 6 truncated, 0 culled", st)
+	}
+	if st.TruncatedClusters == 0 || st.MaxClusterLights != 2 {
+		t.Fatalf("stats = %+v, want truncated clusters holding MaxLightsPerCluster (2) lights", st)
+	}
+	for i, l := range grid.ActiveLights() {
+		if l.Position != lights[i].Position {
+			t.Fatalf("active light %d = %v, want input light %d at %v", i, l.Position, i, lights[i].Position)
+		}
+	}
+	for c, oc := range grid.Offsets() {
+		if oc.Count > 2 {
+			t.Fatalf("cluster %d holds %d lights, want at most 2", c, oc.Count)
+		}
+		for _, idx := range grid.LightIndices()[oc.Offset : oc.Offset+oc.Count] {
+			if idx > 1 {
+				t.Fatalf("cluster %d holds light %d, want only the first two lights in input order", c, idx)
+			}
+		}
+	}
+}
+
+// TestClustered256PointLightsParity renders a floor lit by a LightRig plus 256 clustered point lights through NewClusteredLitPBRPipeline and checks that the grid lookup misses no light and that the pixels match the CPU reference.
+func TestClustered256PointLightsParity(t *testing.T) {
 	const (
 		viewW = 128
 		viewH = 96
@@ -323,7 +455,7 @@ func TestClustered256PointLightsParityAndBudget(t *testing.T) {
 	)
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 14, Z: 18}, math3d.DegToRad(50), float32(viewW)/float32(viewH), near, far)
 	cam.LookAt(math3d.Vec3{X: 0, Y: 0, Z: 0}, math3d.Vec3Up())
-	ambient := math3d.Vec3{X: 0.04, Y: 0.04, Z: 0.05}
+	rig := clusterTestRig()
 	lights := clusterTest256PointLights()
 
 	sr := gpu.NewSoftwareRenderer(viewW, viewH, gpu.FormatDepth24Plus)
@@ -333,19 +465,11 @@ func TestClustered256PointLightsParityAndBudget(t *testing.T) {
 	if !render3d.DeviceSupportsClusteredLighting(dev) {
 		t.Fatal("default SoftwareRenderer must support clustered lighting")
 	}
-
-	camBuf, err := render3d.NewCameraBuffer(nil, dev)
-	if err != nil {
-		t.Fatalf("NewCameraBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = camBuf.Close() })
-
 	sys, err := render3d.NewClusteredLightSystem(nil, dev, render3d.DefaultClusterConfig())
 	if err != nil {
 		t.Fatalf("NewClusteredLightSystem: %v", err)
 	}
 	t.Cleanup(func() { _ = sys.Close() })
-
 	if !sys.IsClustered() || sys.IsFallback() {
 		t.Fatalf("expected clustered mode on full device, got clustered=%v fallback=%v", sys.IsClustered(), sys.IsFallback())
 	}
@@ -358,65 +482,22 @@ func TestClustered256PointLightsParityAndBudget(t *testing.T) {
 		t.Fatalf("UploadMesh: %v", err)
 	}
 	t.Cleanup(func() { _ = floor.Close() })
+	g := newClusterTestGPU(t, nil, dev, sys)
 
-	pipe := clusterTestBuildPipeline(t, nil, dev, camBuf.Layout(), sys, gpu.FormatDepth24Plus)
-	t.Cleanup(func() { _ = pipe.Close() })
-
-	// Warm up frustum cache once, then time 256-light assignment against the 16.6ms 60fps desktop budget.
-	_ = sys.UpdateCamera(dev, cam, viewW, viewH, ambient, lights)
-	start := time.Now()
-	stats := sys.UpdateCamera(dev, cam, viewW, viewH, ambient, lights)
-	assignElapsed := time.Since(start)
-
+	stats := clusterTestUpdate(t, sys, dev, cam, viewW, viewH, rig, lights)
 	if stats.InputLights != 256 {
 		t.Fatalf("InputLights = %d, want 256", stats.InputLights)
 	}
-	if stats.VisibleLights < 100 {
-		t.Fatalf("expected >= 100 visible point lights across the 16x16 grid, got %d (stats=%+v)", stats.VisibleLights, stats)
-	}
-	if stats.ActiveClusters == 0 {
-		t.Fatalf("expected active clusters > 0, got %+v", stats)
-	}
-	if assignElapsed > 16*time.Millisecond {
-		t.Fatalf("256-light UpdateCamera took %v, exceeding 16ms frame budget", assignElapsed)
+	if stats.VisibleLights < 100 || stats.ActiveClusters == 0 || stats.TruncatedLights != 0 || stats.TruncatedClusters != 0 {
+		t.Fatalf("expected >= 100 visible lights in active clusters with no truncation, got %+v", stats)
 	}
 
-	// Render the floor lit by all 256 clustered point lights.
-	camBuf.WriteCamera(cam)
-	enc := dev.BeginEncoder()
-	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
-		Label: "clustered-256",
-		ColorAttachments: []gpu.ColorAttachment{{
-			LoadOp:     gpu.LoadClear,
-			StoreOp:    gpu.StoreStore,
-			ClearColor: core.RGB(0x050608),
-		}},
-		DepthStencil: &gpu.DepthStencilAttachment{
-			DepthLoadOp:  gpu.LoadClear,
-			DepthStoreOp: gpu.StoreDiscard,
-			ClearDepth:   1,
-		},
-	})
-	pass.SetPipeline(pipe)
-	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	sys.Bind(pass, render3d.ClusteredLightGroup)
-	floor.Draw(pass)
-	pass.End()
-	dev.Submit(enc.Finish())
-	sr.WaitIdle()
-	if err := sr.LastError(); err != nil {
-		t.Fatalf("software renderer: %v", err)
-	}
+	g.cam.WriteCamera(cam)
+	img := clusterTestRenderSoftware(t, sr, g, sys, floor)
 
-	img := sr.Image()
 	view := cam.ViewMatrix()
 	proj := cam.ProjMatrix()
-	white := math3d.Vec3{X: 1, Y: 1, Z: 1}
 	up := math3d.Vec3Up()
-
-	// Sample a 7x5 grid across the visible floor and assert BOTH:
-	// 1. Pure-Go clustered evaluation matches brute-force EvaluateDirectLights (zero false culls across 256 lights).
-	// 2. GPU rasterized pixel matches pure-Go analytic reference within ±3/255.
 	litSamples := 0
 	for sy := 24; sy <= 80; sy += 14 {
 		for sx := 20; sx <= 108; sx += 14 {
@@ -424,23 +505,19 @@ func TestClustered256PointLightsParityAndBudget(t *testing.T) {
 			if !ok || math.Abs(float64(worldPt.X)) > 19 || math.Abs(float64(worldPt.Z)) > 19 {
 				continue
 			}
-			direct := render3d.EvaluateDirectLights(worldPt, up, white, ambient, lights)
-			clustered := render3d.EvaluateClusteredLights(worldPt, up, white, ambient, sys.Grid(), view, proj, viewW, viewH)
-			if math.Abs(float64(direct.X-clustered.X)) > 1e-4 ||
-				math.Abs(float64(direct.Y-clustered.Y)) > 1e-4 ||
-				math.Abs(float64(direct.Z-clustered.Z)) > 1e-4 {
-				t.Fatalf("CPU clustered vs direct mismatch at pixel (%d,%d) world %v: clustered=%v direct=%v",
-					sx, sy, worldPt, clustered, direct)
-			}
-			wantRGBA := clusterTestVec3ToRGBA(direct)
-			clusterTestAssertPixelNear(t, img, sx, sy, wantRGBA, 3, "clustered-256")
-			if wantRGBA.R > 25 || wantRGBA.G > 25 || wantRGBA.B > 25 {
+			viewDir := cam.Pos.Sub(worldPt)
+			direct := render3d.ShadeClusteredPoint(worldPt, up, viewDir, clusterTestMat, rig, lights)
+			clustered := render3d.ShadeClusteredGridPoint(worldPt, up, viewDir, clusterTestMat, rig, sys.Grid(), view, proj, viewW, viewH)
+			clusterTestAssertVecNear(t, clustered, direct, "grid lookup vs brute force")
+			want := clusterTestSRGB(direct)
+			clusterTestAssertPixelNear(t, img, sx, sy, want, 3, "clustered-256")
+			if base := clusterTestSRGB(render3d.ShadePoint(worldPt, up, viewDir, clusterTestMat, rig)); int(want.R)+int(want.G)+int(want.B) > int(base.R)+int(base.G)+int(base.B)+30 {
 				litSamples++
 			}
 		}
 	}
 	if litSamples < 10 {
-		t.Fatalf("expected at least 10 visibly lit floor sample points, got %d", litSamples)
+		t.Fatalf("expected at least 10 samples visibly lit by clustered lights, got %d", litSamples)
 	}
 }
 
@@ -453,78 +530,44 @@ func TestClusteredMixedPointAndSpotLightsGPU(t *testing.T) {
 	)
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 10, Z: 10}, math3d.DegToRad(50), 1, near, far)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
-	ambient := math3d.Vec3{X: 0.02, Y: 0.02, Z: 0.02}
+	rig := render3d.LightRig{Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 0.02}}
 
+	spot, err := render3d.ClusterLightFromSpot(render3d.SpotLight{
+		Position: math3d.Vec3{X: 3, Y: 3}, Direction: math3d.Vec3{Y: -1}, Color: math3d.Vec3{X: 0.1, Y: 1, Z: 0.1},
+		Intensity: 24, Range: 7, InnerConeAngle: math3d.DegToRad(15), OuterConeAngle: math3d.DegToRad(25),
+	})
+	if err != nil {
+		t.Fatalf("ClusterLightFromSpot: %v", err)
+	}
 	lights := []render3d.ClusterLight{
-		// Red point light on the left (-3, 1.5, 0).
-		render3d.NewPointClusterLight(math3d.Vec3{X: -3, Y: 1.5, Z: 0}, math3d.Vec3{X: 1, Y: 0.1, Z: 0.1}, 3.0, 4.5),
-		// Green downward spotlight on the right (3, 3, 0) with a tight cone (15 deg inner, 25 deg outer).
-		render3d.NewSpotClusterLight(
-			math3d.Vec3{X: 3, Y: 3, Z: 0},
-			math3d.Vec3{Y: -1},
-			math3d.Vec3{X: 0.1, Y: 1, Z: 0.1},
-			8.0, 7.0,
-			math3d.DegToRad(15), math3d.DegToRad(25),
-		),
-		// Blue spotlight at center aiming UP away from the floor -> must contribute zero to the floor!
-		render3d.NewSpotClusterLight(
-			math3d.Vec3{X: 0, Y: 2, Z: 0},
-			math3d.Vec3{Y: 1},
-			math3d.Vec3{X: 0.1, Y: 0.2, Z: 1},
-			10.0, 8.0,
-			math3d.DegToRad(20), math3d.DegToRad(35),
-		),
+		// Red point light on the left.
+		render3d.NewPointClusterLight(math3d.Vec3{X: -3, Y: 1.5, Z: 0}, math3d.Vec3{X: 1, Y: 0.1, Z: 0.1}, 5.0, 4.5),
+		// Green downward spot light on the right with a 15 to 25 degree cone.
+		spot,
+		// Blue spot light at the center aiming up, away from the floor: it must add nothing.
+		render3d.NewSpotClusterLight(math3d.Vec3{X: 0, Y: 2, Z: 0}, math3d.Vec3{Y: 1}, math3d.Vec3{X: 0.1, Y: 0.2, Z: 1}, 30.0, 8.0, math3d.DegToRad(20), math3d.DegToRad(35)),
 	}
 
 	sr := gpu.NewSoftwareRenderer(viewW, viewH, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
-
-	camBuf, err := render3d.NewCameraBuffer(nil, dev)
-	if err != nil {
-		t.Fatalf("NewCameraBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = camBuf.Close() })
-
 	sys, err := render3d.NewClusteredLightSystem(nil, dev, render3d.DefaultClusterConfig())
 	if err != nil {
 		t.Fatalf("NewClusteredLightSystem: %v", err)
 	}
 	t.Cleanup(func() { _ = sys.Close() })
-
 	floor, err := render3d.UploadMesh(nil, dev, clusterTestFloorMesh(10), render3d.MeshUpload{})
 	if err != nil {
 		t.Fatalf("UploadMesh: %v", err)
 	}
 	t.Cleanup(func() { _ = floor.Close() })
+	g := newClusterTestGPU(t, nil, dev, sys)
 
-	pipe := clusterTestBuildPipeline(t, nil, dev, camBuf.Layout(), sys, gpu.FormatDepth24Plus)
-	t.Cleanup(func() { _ = pipe.Close() })
+	clusterTestUpdate(t, sys, dev, cam, viewW, viewH, rig, lights)
+	g.cam.WriteCamera(cam)
+	img := clusterTestRenderSoftware(t, sr, g, sys, floor)
 
-	sys.UpdateCamera(dev, cam, viewW, viewH, ambient, lights)
-	camBuf.WriteCamera(cam)
-
-	enc := dev.BeginEncoder()
-	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
-		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
-		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
-	})
-	pass.SetPipeline(pipe)
-	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	sys.Bind(pass, render3d.ClusteredLightGroup)
-	floor.Draw(pass)
-	pass.End()
-	dev.Submit(enc.Finish())
-	sr.WaitIdle()
-	if err := sr.LastError(); err != nil {
-		t.Fatalf("software renderer: %v", err)
-	}
-
-	img := sr.Image()
-	white := math3d.Vec3{X: 1, Y: 1, Z: 1}
 	up := math3d.Vec3Up()
-
-	// Project key world points to pixel coordinates and verify exact shading.
 	checks := []struct {
 		name  string
 		world math3d.Vec3
@@ -545,24 +588,55 @@ func TestClusteredMixedPointAndSpotLightsGPU(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s failed raycast", ch.name)
 		}
-		want := clusterTestVec3ToRGBA(render3d.EvaluateDirectLights(exactWorld, up, white, ambient, lights))
+		want := clusterTestSRGB(render3d.ShadeClusteredPoint(exactWorld, up, cam.Pos.Sub(exactWorld), clusterTestMat, rig, lights))
 		clusterTestAssertPixelNear(t, img, px, py, want, 3, ch.name)
 
-		// Sanity checks on expected visual contrast.
 		switch ch.name {
 		case "under-red-point":
-			if want.R < 150 || want.G > 40 {
+			if want.R < 150 || 2*int(want.G) > int(want.R) {
 				t.Fatalf("expected bright red under point light, got %+v", want)
 			}
 		case "under-green-spot-center":
-			if want.G < 150 || want.R > 40 {
+			if want.G < 150 || 2*int(want.R) > int(want.G) {
 				t.Fatalf("expected bright green under spot light, got %+v", want)
 			}
 		case "under-upward-blue-spot":
-			if want.B > 30 {
-				t.Fatalf("upward spotlight should not light floor, got %+v", want)
+			if want.B > 50 {
+				t.Fatalf("upward spot light should not light the floor, got %+v", want)
 			}
 		}
+	}
+}
+
+func TestClusteredUpdateRejectsInvalidLights(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 4, Z: 6}, math3d.DegToRad(50), 1, 0.5, 40)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	for _, force := range []bool{false, true} {
+		sys, err := render3d.NewClusteredLightSystem(nil, dev, render3d.ClusterConfig{ForceFallback: force})
+		if err != nil {
+			t.Fatalf("NewClusteredLightSystem: %v", err)
+		}
+		// Range 0 is unbounded in a LightRig, so the clustered system refuses it instead of dropping it silently.
+		unbounded := render3d.NewPointClusterLight(math3d.Vec3{Y: 1}, math3d.Vec3{X: 1, Y: 1, Z: 1}, 2, 0)
+		if _, err := sys.UpdateCamera(dev, cam, 16, 16, render3d.LightRig{}, []render3d.ClusterLight{unbounded}); !errors.Is(err, render3d.ErrInvalidClusterLight) {
+			t.Fatalf("fallback=%v: Update with a Range 0 light = %v, want ErrInvalidClusterLight", force, err)
+		}
+		badRig := render3d.LightRig{Ambient: render3d.AmbientLight{Intensity: -1}}
+		if _, err := sys.UpdateCamera(dev, cam, 16, 16, badRig, nil); !errors.Is(err, render3d.ErrInvalidLight) {
+			t.Fatalf("fallback=%v: Update with a malformed rig = %v, want ErrInvalidLight", force, err)
+		}
+		converted, err := render3d.ClusterLightFromPoint(render3d.PointLight{Position: math3d.Vec3{Y: 1}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 2})
+		if err != nil {
+			t.Fatalf("ClusterLightFromPoint: %v", err)
+		}
+		st, err := sys.UpdateCamera(dev, cam, 16, 16, render3d.LightRig{}, []render3d.ClusterLight{converted})
+		if err != nil || st.VisibleLights != 1 {
+			t.Fatalf("fallback=%v: Update with a converted unbounded light = %+v, %v; want 1 visible light", force, st, err)
+		}
+		_ = sys.Close()
 	}
 }
 
@@ -575,12 +649,12 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 	)
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 14, Z: 18}, math3d.DegToRad(50), 1, near, far)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
-	ambient := math3d.Vec3{X: 0.03, Y: 0.03, Z: 0.04}
-	// Start with 256 point lights across the floor plus bright foreground lights near the center so both clustered and fallback modes visibly illuminate the sampled pixels.
+	rig := clusterTestRig()
+	// 256 point lights across the floor plus bright foreground lights near the center so every mode visibly lights the sampled pixels.
 	lights := clusterTest256PointLights()
-	lights[0] = render3d.NewPointClusterLight(math3d.Vec3{X: 0, Y: 1.5, Z: 0}, math3d.Vec3{X: 1, Y: 0.3, Z: 0.2}, 6.0, 6.0)
-	lights[1] = render3d.NewPointClusterLight(math3d.Vec3{X: -3, Y: 1.5, Z: 1}, math3d.Vec3{X: 0.2, Y: 1, Z: 0.3}, 6.0, 6.0)
-	lights[2] = render3d.NewPointClusterLight(math3d.Vec3{X: 3, Y: 1.5, Z: 1}, math3d.Vec3{X: 0.2, Y: 0.4, Z: 1}, 6.0, 6.0)
+	lights[0] = render3d.NewPointClusterLight(math3d.Vec3{X: 0, Y: 1.5, Z: 0}, math3d.Vec3{X: 1, Y: 0.3, Z: 0.2}, 18.0, 6.0)
+	lights[1] = render3d.NewPointClusterLight(math3d.Vec3{X: -3, Y: 1.5, Z: 1}, math3d.Vec3{X: 0.2, Y: 1, Z: 0.3}, 18.0, 6.0)
+	lights[2] = render3d.NewPointClusterLight(math3d.Vec3{X: 3, Y: 1.5, Z: 1}, math3d.Vec3{X: 0.2, Y: 0.4, Z: 1}, 18.0, 6.0)
 
 	modes := []struct {
 		name        string
@@ -589,39 +663,17 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 		wantCluster bool
 		wantCaps    bool
 	}{
-		{
-			name:        "full-clustered",
-			cfg:         render3d.DefaultClusterConfig(),
-			appOpts:     nil,
-			wantCluster: true,
-			wantCaps:    true,
-		},
-		{
-			name:        "webgl2-gles3-no-compute-fallback",
-			cfg:         render3d.DefaultClusterConfig(),
-			appOpts:     []nsgotest.Option{nsgotest.NoGPUCompute()},
-			wantCluster: false,
-			wantCaps:    false,
-		},
-		{
-			name: "force-fallback-on-full-device",
-			cfg: render3d.ClusterConfig{
-				ForceFallback:     true,
-				FallbackMaxLights: 8,
-			},
-			appOpts:     nil,
-			wantCluster: false,
-			wantCaps:    true,
-		},
+		{name: "full-clustered", cfg: render3d.DefaultClusterConfig(), wantCluster: true, wantCaps: true},
+		{name: "webgl2-gles3-no-compute-fallback", cfg: render3d.DefaultClusterConfig(), appOpts: []nsgotest.Option{nsgotest.NoGPUCompute()}},
+		{name: "force-fallback-on-full-device", cfg: render3d.ClusterConfig{ForceFallback: true, FallbackMaxLights: 8}, wantCaps: true},
 	}
 
 	for _, m := range modes {
 		t.Run(m.name, func(t *testing.T) {
 			var (
-				camBuf   *render3d.CameraBuffer
 				sys      *render3d.ClusteredLightSystem
 				floor    *render3d.GPUMesh
-				pipe     *gpu.Pipeline
+				g        clusterTestGPU
 				gotCaps  bool
 				gotStats render3d.ClusterStats
 			)
@@ -634,10 +686,6 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 					OnReady: func(dev *gpu.Device) {
 						gotCaps = render3d.DeviceSupportsClusteredLighting(dev)
 						var err error
-						camBuf, err = render3d.NewCameraBuffer(cx, dev)
-						if err != nil {
-							t.Fatalf("NewCameraBuffer: %v", err)
-						}
 						sys, err = render3d.NewClusteredLightSystem(cx, dev, m.cfg)
 						if err != nil {
 							t.Fatalf("NewClusteredLightSystem: %v", err)
@@ -646,19 +694,16 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 						if err != nil {
 							t.Fatalf("UploadMesh: %v", err)
 						}
-						pipe = clusterTestBuildPipeline(t, cx, dev, camBuf.Layout(), sys, gpu.FormatDepth24Plus)
+						g = newClusterTestGPU(t, cx, dev, sys)
 					},
 					OnFrame: func(frame *gpu.Frame) {
 						dev := frame.Device()
-						camBuf.WriteCamera(cam)
-						gotStats = sys.UpdateCamera(dev, cam, viewW, viewH, ambient, lights)
+						g.cam.WriteCamera(cam)
+						gotStats = clusterTestUpdate(t, sys, dev, cam, viewW, viewH, rig, lights)
 						pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 						pass.ClearColor(core.RGB(0x050608))
 						pass.ClearDepth(1)
-						pass.SetPipeline(pipe)
-						pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-						sys.Bind(pass, render3d.ClusteredLightGroup)
-						floor.Draw(pass)
+						g.record(pass, sys, floor)
 						pass.End()
 						frame.Submit()
 					},
@@ -679,8 +724,6 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 				t.Fatalf("GPUReadPixels: %v", err)
 			}
 
-			white := math3d.Vec3{X: 1, Y: 1, Z: 1}
-			up := math3d.Vec3Up()
 			refLights := lights
 			if sys.IsFallback() {
 				wantCap := m.cfg.FallbackMaxLights
@@ -688,24 +731,24 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 					wantCap = render3d.DefaultFallbackMaxLights
 				}
 				refLights = sys.FallbackLights()
-				if len(refLights) != wantCap {
+				if len(refLights) != wantCap || gotStats.VisibleLights != wantCap {
 					t.Fatalf("fallback selected %d lights, want %d (stats=%+v)", len(refLights), wantCap, gotStats)
 				}
-				if gotStats.TruncatedLights != 256-wantCap {
-					t.Fatalf("TruncatedLights = %d, want %d", gotStats.TruncatedLights, 256-wantCap)
+				if gotStats.TruncatedLights == 0 || gotStats.CulledLights+gotStats.TruncatedLights+gotStats.VisibleLights != 256 {
+					t.Fatalf("fallback stats %+v must split 256 lights into culled, truncated and visible with some truncated", gotStats)
 				}
 			}
 
-			// Verify pixel parity against analytic reference for active light set and confirm non-trivial lighting.
+			up := math3d.Vec3Up()
 			litCount := 0
 			for _, pt := range [][2]int{{22, 32}, {32, 32}, {42, 32}, {32, 42}} {
 				worldPt, ok := clusterTestWorldPointAtPixel(cam, float32(pt[0]), float32(pt[1]), viewW, viewH)
 				if !ok {
 					continue
 				}
-				want := clusterTestVec3ToRGBA(render3d.EvaluateDirectLights(worldPt, up, white, ambient, refLights))
+				want := clusterTestSRGB(render3d.ShadeClusteredPoint(worldPt, up, cam.Pos.Sub(worldPt), clusterTestMat, rig, refLights))
 				clusterTestAssertPixelNear(t, img, pt[0], pt[1], want, 3, m.name)
-				if want.R > 40 || want.G > 40 || want.B > 40 {
+				if want.R > 120 || want.G > 120 || want.B > 120 {
 					litCount++
 				}
 			}
@@ -716,8 +759,31 @@ func TestClusteredFallbackNoGPUComputeAndForceFallback(t *testing.T) {
 	}
 }
 
+func TestClusteredFallbackUpdateZeroAllocs(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	sys, err := render3d.NewClusteredLightSystem(nil, sr.Device(), render3d.ClusterConfig{ForceFallback: true})
+	if err != nil {
+		t.Fatalf("NewClusteredLightSystem: %v", err)
+	}
+	t.Cleanup(func() { _ = sys.Close() })
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 14, Z: 18}, math3d.DegToRad(50), 16.0/9.0, 0.5, 60)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	view, proj := cam.ViewMatrix(), cam.ProjMatrix()
+	rig := clusterTestRig()
+	lights := clusterTest256PointLights()
+	update := func() {
+		if _, err := sys.Update(nil, view, proj, 0.5, 60, 1280, 720, rig, lights); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+	}
+	update()
+	if allocs := testing.AllocsPerRun(50, update); allocs != 0 {
+		t.Fatalf("steady-state fallback Update(256 lights) allocated %.2f times/op, want 0", allocs)
+	}
+}
+
 func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
-	// 1. Nil device error & nil receiver safety.
 	if _, err := render3d.NewClusteredLightSystem(nil, nil, render3d.DefaultClusterConfig()); err == nil {
 		t.Fatal("expected error for nil device")
 	}
@@ -729,7 +795,6 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 		t.Fatalf("nil Close: %v", err)
 	}
 
-	// 2. Empty lights + viewport resize + Retained device-loss recovery on both full and NoGPUCompute profiles.
 	profiles := []struct {
 		name string
 		opts []nsgotest.Option
@@ -742,14 +807,13 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 			const size = 48
 			cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 6, Z: 6}, math3d.DegToRad(50), 1, 0.5, 40)
 			cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
-			ambient := math3d.Vec3{X: 0.2, Y: 0.3, Z: 0.4}
-			activeLights := []render3d.ClusterLight{} // start empty, then populate
+			rig := render3d.LightRig{Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.2, Y: 0.3, Z: 0.4}, Intensity: 1}}
+			activeLights := []render3d.ClusterLight{}
 
 			var (
-				camBuf *render3d.CameraBuffer
-				sys    *render3d.ClusteredLightSystem
-				floor  *render3d.GPUMesh
-				pipe   *gpu.Pipeline
+				sys   *render3d.ClusteredLightSystem
+				floor *render3d.GPUMesh
+				g     clusterTestGPU
 			)
 			opts := append([]nsgotest.Option{nsgotest.Size(size, size), nsgotest.ManualFrames()}, prof.opts...)
 			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -771,42 +835,36 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 								t.Fatalf("UploadMesh: %v", err)
 							}
 						}
-						camBuf, err = render3d.NewCameraBuffer(cx, dev)
-						if err != nil {
-							t.Fatalf("NewCameraBuffer: %v", err)
-						}
-						pipe = clusterTestBuildPipeline(t, cx, dev, camBuf.Layout(), sys, gpu.FormatDepth24Plus)
+						g = newClusterTestGPU(t, cx, dev, sys)
 					},
 					OnFrame: func(frame *gpu.Frame) {
 						dev := frame.Device()
 						w, h := dev.SurfaceSize()
 						cam.SetViewport(float32(w), float32(h))
-						camBuf.WriteCamera(cam)
-						sys.UpdateCamera(dev, cam, float32(w), float32(h), ambient, activeLights)
+						g.cam.WriteCamera(cam)
+						clusterTestUpdate(t, sys, dev, cam, float32(w), float32(h), rig, activeLights)
 						pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 						pass.ClearColor(core.RGB(0x000000))
 						pass.ClearDepth(1)
-						pass.SetPipeline(pipe)
-						pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-						sys.Bind(pass, render3d.ClusteredLightGroup)
-						floor.Draw(pass)
+						g.record(pass, sys, floor)
 						pass.End()
 						frame.Submit()
 					},
 				})
 			}, opts...)
 
-			// Frame 1: 0 lights -> pure ambient color.
+			// Frame 1: no local lights, so only the rig's ambient term lights the floor.
 			app.Advance(16 * time.Millisecond)
 			img, err := app.GPUReadPixels("id:ret-view")
 			if err != nil {
 				t.Fatalf("GPUReadPixels empty: %v", err)
 			}
-			clusterTestAssertPixelNear(t, img, size/2, size/2, clusterTestVec3ToRGBA(ambient), 3, "empty-ambient")
+			ambientOnly := render3d.ShadeClusteredPoint(math3d.Vec3Zero(), math3d.Vec3Up(), cam.Pos, clusterTestMat, rig, nil)
+			clusterTestAssertPixelNear(t, img, size/2, size/2, clusterTestSRGB(ambientOnly), 3, "empty-ambient")
 
-			// Frame 2: add bright yellow light at origin.
+			// Frame 2: add a bright yellow light above the origin.
 			activeLights = []render3d.ClusterLight{
-				render3d.NewPointClusterLight(math3d.Vec3{Y: 1.5}, math3d.Vec3{X: 1, Y: 0.9, Z: 0.1}, 4.0, 6.0),
+				render3d.NewPointClusterLight(math3d.Vec3{Y: 1.5}, math3d.Vec3{X: 1, Y: 0.9, Z: 0.1}, 12.0, 6.0),
 			}
 			app.Advance(16 * time.Millisecond)
 			beforeLoss, err := app.GPUReadPixels("id:ret-view")
@@ -818,7 +876,7 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 				t.Fatalf("expected bright yellow center before loss, got %+v", centerBefore)
 			}
 
-			// Trigger device loss and restore: retained ClusteredLightSystem must recover cleanly.
+			// Lose and restore the device: the retained ClusteredLightSystem must recover.
 			firstSys := sys
 			app.TriggerGPUDeviceLost("id:ret-view", nsgotest.GPULostContextLost, "context lost")
 			if firstSys.Valid() {
@@ -836,7 +894,6 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 			}
 			clusterTestAssertPixelNear(t, afterRestore, size/2, size/2, centerBefore, 2, "after-restore")
 
-			// Close is idempotent.
 			if err := sys.Close(); err != nil {
 				t.Fatalf("Close: %v", err)
 			}
@@ -851,28 +908,30 @@ func TestClusteredEmptyLightsResizeRetainedAndClose(t *testing.T) {
 }
 
 func TestSelectFallbackLightsPrioritization(t *testing.T) {
-	camPos := math3d.Vec3{Z: 10}
-	camFwd := math3d.Vec3Forward() // (0, 0, -1)
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 10}, math3d.DegToRad(60), 1, 0.5, 100)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 	lights := []render3d.ClusterLight{
-		render3d.NewPointClusterLight(math3d.Vec3{Z: 20}, math3d.Vec3{X: 1}, 2, 3),  // behind camera
-		render3d.NewPointClusterLight(math3d.Vec3{Z: 5}, math3d.Vec3{Y: 1}, 5, 6),   // closest & bright in front
-		render3d.NewPointClusterLight(math3d.Vec3{Z: -30}, math3d.Vec3{Z: 1}, 1, 3), // far in front
-		render3d.NewPointClusterLight(math3d.Vec3{Z: 4}, math3d.Vec3{X: 1}, 0, 5),   // inactive (zero intensity)
-		render3d.NewPointClusterLight(math3d.Vec3{Z: 6}, math3d.Vec3{X: 1}, 3, 6),   // second best in front
+		render3d.NewPointClusterLight(math3d.Vec3{Z: 20}, math3d.Vec3{X: 1}, 2, 3),         // behind the camera
+		render3d.NewPointClusterLight(math3d.Vec3{Z: 5}, math3d.Vec3{Y: 1}, 5, 6),          // closest and bright in front
+		render3d.NewPointClusterLight(math3d.Vec3{Z: -30}, math3d.Vec3{Z: 1}, 1, 3),        // far in front
+		render3d.NewPointClusterLight(math3d.Vec3{Z: 4}, math3d.Vec3{X: 1}, 0, 5),          // no power
+		render3d.NewPointClusterLight(math3d.Vec3{Z: 6}, math3d.Vec3{X: 1}, 3, 6),          // second best in front
+		render3d.NewPointClusterLight(math3d.Vec3{X: 60, Z: 8}, math3d.Vec3{X: 1}, 500, 6), // brightest of all, but off screen to the side
 	}
-	picked := render3d.SelectFallbackLights(nil, camPos, camFwd, lights, 2)
+	picked := render3d.SelectFallbackLights(nil, cam.ViewMatrix(), cam.ProjMatrix(), lights, 2)
 	if len(picked) != 2 {
 		t.Fatalf("picked %d lights, want 2", len(picked))
 	}
-	// Light index 1 (Z=5, intensity=5, green) and index 4 (Z=6, intensity=3, red) must be the top two.
-	if picked[0].Position.Z != 5 && picked[1].Position.Z != 5 {
-		t.Fatalf("expected closest bright front light (Z=5) in top 2, got %+v", picked)
+	if picked[0].Position.Z != 5 || picked[1].Position.Z != 6 {
+		t.Fatalf("picked %+v, want the visible lights at Z=5 then Z=6", picked)
 	}
-	if picked[0].Position.Z != 6 && picked[1].Position.Z != 6 {
-		t.Fatalf("expected second front light (Z=6) in top 2, got %+v", picked)
+	all := render3d.SelectFallbackLights(nil, cam.ViewMatrix(), cam.ProjMatrix(), lights, 16)
+	if len(all) != 3 {
+		t.Fatalf("picked %d lights with room for 16, want the 3 visible powered lights: %+v", len(all), all)
 	}
 }
 
+// BenchmarkClusterAssign256Lights measures the CPU side of clustering 256 lights per frame, which a 60 FPS desktop frame must fit in well under 16 ms.
 func BenchmarkClusterAssign256Lights(b *testing.B) {
 	grid, err := render3d.NewClusterGrid(render3d.DefaultClusterConfig())
 	if err != nil {
@@ -884,7 +943,6 @@ func BenchmarkClusterAssign256Lights(b *testing.B) {
 	proj := cam.ProjMatrix()
 	lights := clusterTest256PointLights()
 
-	// Warm up frustum cache and scratch capacity.
 	grid.AssignLights(view, proj, 0.5, 60, lights)
 
 	b.ReportAllocs()
@@ -895,14 +953,15 @@ func BenchmarkClusterAssign256Lights(b *testing.B) {
 }
 
 func BenchmarkClusterFallbackSelect256Lights(b *testing.B) {
-	camPos := math3d.Vec3{X: 0, Y: 14, Z: 18}
-	camFwd := math3d.Vec3{X: 0, Y: -14, Z: -18}.Norm()
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 14, Z: 18}, math3d.DegToRad(50), 16.0/9.0, 0.5, 60)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	view, proj := cam.ViewMatrix(), cam.ProjMatrix()
 	lights := clusterTest256PointLights()
 	dst := make([]render3d.ClusterLight, 0, render3d.DefaultFallbackMaxLights)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		dst = render3d.SelectFallbackLights(dst, camPos, camFwd, lights, render3d.DefaultFallbackMaxLights)
+		dst = render3d.SelectFallbackLights(dst, view, proj, lights, render3d.DefaultFallbackMaxLights)
 	}
 }
