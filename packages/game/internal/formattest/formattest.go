@@ -1,4 +1,4 @@
-// Package formattest checks, in a format package's tests, that a YAML format this repository defines follows the rules in AGENTS.md: it refuses unknown fields and versions it does not support, writes the same bytes every time it saves the same value, and loads and saves each of its testdata files without changing a byte.
+// Package formattest checks, in a format package's tests, that a YAML format this repository defines follows the rules in AGENTS.md: it refuses unknown fields and versions it does not support, writes the same bytes every time it saves the same value, and loads and saves each of its testdata files without changing a byte. It also checks that the format has an entry on the File Formats reference page, docs/en/formats.md and docs/zh/formats.md, whose examples load and save to the same bytes.
 //
 // Every package that defines such a format runs [Run] from a test, and TestFormatPackagesRunConformance in package game fails a package that decodes YAML and does not, unless it is listed there as one that reads no format of its own.
 package formattest
@@ -38,6 +38,20 @@ type Format[T any] struct {
 	VersionField string
 	// MaxVersion is the newest schema version the format supports; when set, the future-version check tests max(document version, MaxVersion) + 1 instead of the document's version + 1, so a multi-version format can check older fixtures against an unsupported future version.
 	MaxVersion int
+	// Doc names the format's entry on the reference pages docs/en/formats.md and docs/zh/formats.md: the package's path relative to the module root, such as "quest" or "tooling/importsettings", followed by "#" and a name of the format when the package defines more than one, such as "achievements#progress". Each page marks the entry with the line "<!-- format: Doc -->" before its heading, and every YAML code block in the entry must load and save to the same bytes, so the page never shows an example the format refuses or would rewrite. Run requires it.
+	Doc string
+}
+
+// DocPages are the reference pages that list every format, relative to the module root. [Run] checks the entry [Format.Doc] names on each.
+var DocPages = []string{"../../docs/en/formats.md", "../../docs/zh/formats.md"}
+
+// docMarker is how the line that marks a format's entry on a reference page starts; the entry's Doc and " -->" follow.
+const docMarker = "<!-- format: "
+
+// page is a reference page's name, for messages, and contents.
+type page struct {
+	name string
+	data []byte
 }
 
 // check is one named conformance check of one format.
@@ -47,12 +61,28 @@ type check struct {
 }
 
 // Run checks f, each rule in a subtest of its own: that Decode refuses an unknown field, a missing version, a version of 0 and a future version in each testdata file; that Encode writes the same bytes each time it saves a value, including one it loaded from its own output; and that each testdata file loads and saves to the same bytes.
+//
+// It also checks the entry f.Doc names on each of [DocPages]: that the entry exists once and has at least one YAML example, and that each example loads and saves to the same bytes. The test must run in the format's package directory, as go test runs it.
 func Run[T any](t *testing.T, f Format[T]) {
 	t.Helper()
 	checks, err := f.checks(os.Getenv(UpdateEnv) == "1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	pkg, pages, err := docPages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := f.docChecks(pkg, pages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runChecks(t, append(checks, docs...))
+}
+
+// runChecks runs each check in a subtest named after it.
+func runChecks(t *testing.T, checks []check) {
+	t.Helper()
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
 			if err := c.run(); err != nil {
@@ -96,6 +126,118 @@ func (f Format[T]) checks(update bool) ([]check, error) {
 		)
 	}
 	return checks, nil
+}
+
+// docPages returns the path of the package in the working directory relative to its module's root, and the contents of [DocPages].
+func docPages() (string, []page, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", nil, err
+	}
+	root := wd
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return "", nil, fmt.Errorf("formattest: no go.mod in %s or above it", wd)
+		}
+		root = parent
+	}
+	rel, err := filepath.Rel(root, wd)
+	if err != nil {
+		return "", nil, err
+	}
+	var pages []page
+	for _, p := range DocPages {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil {
+			return "", nil, fmt.Errorf("formattest: read the reference page: %w", err)
+		}
+		pages = append(pages, page{name: strings.TrimPrefix(p, "../../"), data: data})
+	}
+	return filepath.ToSlash(rel), pages, nil
+}
+
+// docChecks returns the checks of f's entry on each of pages, for a format defined in the package at path pkg relative to the module root.
+func (f Format[T]) docChecks(pkg string, pages []page) ([]check, error) {
+	if f.Doc == "" {
+		return nil, fmt.Errorf("formattest: Format needs Doc, the format's entry on the reference pages %s, such as %q; add the entry to both pages and name it here", strings.Join(DocPages, " and "), pkg)
+	}
+	if path, _, _ := strings.Cut(f.Doc, "#"); path != pkg {
+		return nil, fmt.Errorf("formattest: Doc %q names package %s, but the format is defined in %s; start Doc with %q", f.Doc, path, pkg, pkg)
+	}
+	var checks []check
+	for _, p := range pages {
+		examples, err := entryExamples(p.data, f.Doc)
+		if err != nil {
+			checks = append(checks, check{p.name + "/entry", func() error { return fmt.Errorf("%s: %w", p.name, err) }})
+			continue
+		}
+		for i, ex := range examples {
+			checks = append(checks, check{fmt.Sprintf("%s/example_%d", p.name, i+1), func() error {
+				out, err := f.canonical(ex.data)
+				if err != nil {
+					return fmt.Errorf("%s:%d: the example of %s does not load: %w", p.name, ex.line, f.Doc, err)
+				}
+				if !bytes.Equal(out, ex.data) {
+					return fmt.Errorf("%s:%d: the example of %s changes when loaded and saved, so it is not what the format writes; replace it with:\n%s", p.name, ex.line, f.Doc, out)
+				}
+				return nil
+			}})
+		}
+	}
+	return checks, nil
+}
+
+// example is a YAML code block on a reference page and the line its first line is on.
+type example struct {
+	data []byte
+	line int
+}
+
+// entryExamples returns the YAML code blocks of the entry doc on a reference page: those between the line "<!-- format: doc -->" and the next such line or level-2 heading. It fails when the page marks the entry other than once or the entry has no YAML block.
+func entryExamples(data []byte, doc string) ([]example, error) {
+	marker := docMarker + doc + " -->"
+	lines := strings.Split(string(data), "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) != marker {
+			continue
+		}
+		if start >= 0 {
+			return nil, fmt.Errorf("the entry %s is marked twice, on lines %d and %d; keep one", doc, start+1, i+1)
+		}
+		start = i
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("no entry for %s; add a section that starts with the line %q, a heading, the format's files, version and functions, and a YAML example", doc, marker)
+	}
+	var examples []example
+	var block []string
+	fence := "" // the fence line of the open code block, or ""
+	for i := start + 1; i < len(lines); i++ {
+		l := lines[i]
+		switch {
+		case fence == "" && (strings.HasPrefix(l, docMarker) || strings.HasPrefix(l, "## ") || strings.HasPrefix(l, "# ")):
+			i = len(lines)
+		case fence == "" && strings.HasPrefix(l, "```"):
+			fence = l
+			block = nil
+		case fence != "" && l == "```":
+			if fence == "```yaml" {
+				examples = append(examples, example{data: []byte(strings.Join(block, "\n") + "\n"), line: i - len(block) + 1})
+			}
+			fence = ""
+		case fence != "":
+			block = append(block, l)
+		}
+	}
+	if len(examples) == 0 {
+		return nil, fmt.Errorf("the entry %s on line %d has no YAML example; add one in a ```yaml block, as the format saves it", doc, start+1)
+	}
+	return examples, nil
 }
 
 // files returns the sorted testdata files f.Files match, failing when they match none.

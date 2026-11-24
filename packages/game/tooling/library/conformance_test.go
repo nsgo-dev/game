@@ -13,6 +13,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: library.ParseManifest,
 			Encode: library.EncodeManifest,
 			Files:  []string{"testdata/pack.yaml"},
+			Doc:    "tooling/library",
 		})
 	})
 	t.Run("index", func(t *testing.T) {
@@ -20,6 +21,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: library.ParseIndex,
 			Encode: library.EncodeIndex,
 			Files:  []string{"testdata/index.yaml"},
+			Doc:    "tooling/library#index",
 		})
 	})
 }

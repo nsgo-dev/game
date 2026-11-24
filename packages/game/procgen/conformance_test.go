@@ -13,5 +13,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: procgen.ParseRules,
 		Encode: procgen.EncodeRules,
 		Files:  []string{"testdata/canonical/*.yaml"},
+		Doc:    "procgen",
 	})
 }

@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: rts.ParseFormations,
 		Encode: (*rts.Formations).Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "rts",
 	})
 }

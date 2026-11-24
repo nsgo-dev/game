@@ -13,5 +13,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: worldmap.Parse,
 		Encode: worldmap.Encode,
 		Files:  []string{"testdata/castle.yaml"},
+		Doc:    "worldmap",
 	})
 }

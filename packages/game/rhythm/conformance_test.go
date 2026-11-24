@@ -13,6 +13,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: rhythm.ParseBeatMap,
 			Encode: rhythm.EncodeBeatMap,
 			Files:  []string{"testdata/*.beatmap.yaml"},
+			Doc:    "rhythm",
 		})
 	})
 	t.Run("calibrations", func(t *testing.T) {
@@ -20,6 +21,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: rhythm.ParseCalibrations,
 			Encode: rhythm.EncodeCalibrations,
 			Files:  []string{"testdata/calibrations.yaml"},
+			Doc:    "rhythm#calibrations",
 		})
 	})
 }

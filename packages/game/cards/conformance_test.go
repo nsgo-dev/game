@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: cards.ParseBoardDoc,
 		Encode: cards.EncodeBoardDoc,
 		Files:  []string{"testdata/board.yaml"},
+		Doc:    "cards",
 	})
 }

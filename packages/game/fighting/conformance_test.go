@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: fighting.Parse,
 		Encode: fighting.Encode,
 		Files:  []string{"testdata/moves.yaml"},
+		Doc:    "fighting",
 	})
 }

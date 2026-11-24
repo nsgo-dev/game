@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: vn.ParseCast,
 		Encode: vn.EncodeCast,
 		Files:  []string{"testdata/cast.yaml"},
+		Doc:    "vn",
 	})
 }

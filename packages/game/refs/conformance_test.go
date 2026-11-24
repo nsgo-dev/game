@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: refs.ParseIndex,
 		Encode: refs.EncodeIndex,
 		Files:  []string{"testdata/game.index.yaml"},
+		Doc:    "refs",
 	})
 }

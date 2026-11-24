@@ -59,7 +59,12 @@ func failures(t *testing.T, f Format[team]) []string {
 }
 
 func TestConformingFormatPasses(t *testing.T) {
-	Run(t, conforming())
+	f := conforming()
+	checks, err := f.checks(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runChecks(t, checks)
 	if got := failures(t, conforming()); got != nil {
 		t.Errorf("failed checks = %v, want none", got)
 	}
@@ -243,11 +248,15 @@ func TestVersionField(t *testing.T) {
 		Files:        []string{file},
 		VersionField: "manifestVersion",
 	}
-	Run(t, f)
+	checks, err := f.checks(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runChecks(t, checks)
 
 	// The same format checked against version, a string, cannot be.
 	f.VersionField = ""
-	checks, err := f.checks(false)
+	checks, err = f.checks(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,5 +303,165 @@ func TestFormatErrors(t *testing.T) {
 	f.Encode = nil
 	if _, err := f.checks(false); err == nil {
 		t.Error("checks without Encode = nil error, want one")
+	}
+}
+
+// teamPage is a reference page with an entry for the test format, whose example is in canonical form, and one for another format after it.
+const teamPage = `# File formats
+
+<!-- format: internal/formattest -->
+### Team
+
+` + "```yaml" + `
+version: 1
+name: red
+scores:
+    a: 1
+` + "```" + `
+
+<!-- format: internal/formattest#other -->
+### Other
+
+` + "```yaml" + `
+not: a team
+` + "```" + `
+`
+
+// docFailures returns the names of the failing doc checks of f on the page data, without the page name, and each failure's message.
+func docFailures(t *testing.T, f Format[team], data string) ([]string, []string) {
+	t.Helper()
+	checks, err := f.docChecks("internal/formattest", []page{{name: "docs/en/formats.md", data: []byte(data)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) == 0 {
+		t.Fatal("no doc checks")
+	}
+	var names, msgs []string
+	for _, c := range checks {
+		if err := c.run(); err != nil {
+			names = append(names, c.name[strings.LastIndex(c.name, "/")+1:])
+			msgs = append(msgs, err.Error())
+		}
+	}
+	return names, msgs
+}
+
+func TestDocEntryPasses(t *testing.T) {
+	f := conforming()
+	f.Doc = "internal/formattest"
+	checks, err := f.docChecks("internal/formattest", []page{{name: "docs/en/formats.md", data: []byte(teamPage)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The entry ends at the next marker, so the other format's example is not checked against this one.
+	if len(checks) != 1 || checks[0].name != "docs/en/formats.md/example_1" {
+		t.Fatalf("checks = %v, want one example check", checks)
+	}
+	runChecks(t, checks)
+}
+
+func TestDocEntryFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		page  string
+		want  string
+		words []string
+	}{
+		{
+			name:  "no entry",
+			page:  strings.ReplaceAll(teamPage, "<!-- format: internal/formattest -->", ""),
+			want:  "entry",
+			words: []string{"no entry for internal/formattest", "<!-- format: internal/formattest -->"},
+		},
+		{
+			name:  "marked twice",
+			page:  teamPage + "\n<!-- format: internal/formattest -->\n",
+			want:  "entry",
+			words: []string{"marked twice", "lines 3 and"},
+		},
+		{
+			name:  "no YAML example",
+			page:  strings.Replace(teamPage, "```yaml", "```json", 1),
+			want:  "entry",
+			words: []string{"has no YAML example"},
+		},
+		{
+			name:  "example ends at the next level-2 heading",
+			page:  strings.Replace(teamPage, "### Team\n", "### Team\n\n## Programs\n", 1),
+			want:  "entry",
+			words: []string{"has no YAML example"},
+		},
+		{
+			name:  "non-canonical example",
+			page:  strings.Replace(teamPage, "    a: 1", "  a: 1", 1),
+			want:  "example_1",
+			words: []string{"docs/en/formats.md:7:", "changes when loaded and saved", "    a: 1"},
+		},
+		{
+			name:  "example the format refuses",
+			page:  strings.Replace(teamPage, "version: 1\nname: red", "version: 1\nname: red\ncolour: red", 1),
+			want:  "example_1",
+			words: []string{"does not load", "colour"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := conforming()
+			f.Doc = "internal/formattest"
+			names, msgs := docFailures(t, f, tt.page)
+			if !slices.Equal(names, []string{tt.want}) {
+				t.Fatalf("failed checks = %v, want [%s]", names, tt.want)
+			}
+			for _, w := range tt.words {
+				if !strings.Contains(msgs[0], w) {
+					t.Errorf("message %q does not contain %q", msgs[0], w)
+				}
+			}
+		})
+	}
+}
+
+func TestDocCodeBlocksAreSkipped(t *testing.T) {
+	// A heading or marker inside another code block does not end the entry, and only yaml blocks are examples.
+	page := strings.Replace(teamPage, "### Team\n", "### Team\n\n```go\n## not a heading\n<!-- format: x -->\n```\n", 1)
+	f := conforming()
+	f.Doc = "internal/formattest"
+	if names, msgs := docFailures(t, f, page); names != nil {
+		t.Errorf("failed checks = %v (%v), want none", names, msgs)
+	}
+}
+
+func TestDocNames(t *testing.T) {
+	f := conforming()
+	pages := []page{{name: "docs/en/formats.md", data: []byte(teamPage)}}
+	if _, err := f.docChecks("internal/formattest", pages); err == nil || !strings.Contains(err.Error(), "Format needs Doc") {
+		t.Errorf("docChecks without Doc = %v, want an error asking for it", err)
+	}
+	f.Doc = "quest"
+	if _, err := f.docChecks("internal/formattest", pages); err == nil || !strings.Contains(err.Error(), `start Doc with "internal/formattest"`) {
+		t.Errorf("docChecks with another package's Doc = %v, want an error naming the package", err)
+	}
+	f.Doc = "internal/formattest#other"
+	checks, err := f.docChecks("internal/formattest", pages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The other entry's example is not a team, so it fails to load.
+	if len(checks) != 1 || checks[0].run() == nil {
+		t.Errorf("checks of the other entry = %d, want one that fails", len(checks))
+	}
+}
+
+func TestDocPagesFromPackageDir(t *testing.T) {
+	pkg, pages, err := docPages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg != "internal/formattest" {
+		t.Errorf("package = %q, want internal/formattest", pkg)
+	}
+	if len(pages) != len(DocPages) || pages[0].name != "docs/en/formats.md" || pages[1].name != "docs/zh/formats.md" {
+		t.Errorf("pages = %d, want docs/en/formats.md and docs/zh/formats.md", len(pages))
 	}
 }

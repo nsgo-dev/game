@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: inventory.Parse,
 		Encode: (*inventory.Catalog).Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "inventory",
 	})
 }

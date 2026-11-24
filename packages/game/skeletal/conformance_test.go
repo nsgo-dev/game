@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: skeletal.Load,
 		Encode: skeletal.Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "skeletal",
 	})
 }

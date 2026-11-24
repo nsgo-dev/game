@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: token.ParseKeySet,
 		Encode: (*token.KeySet).Marshal,
 		Files:  []string{"testdata/keys.yaml"},
+		Doc:    "accounts/token",
 	})
 }

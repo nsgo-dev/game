@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: particles.UnmarshalConfigYAML,
 		Encode: particles.MarshalConfigYAML,
 		Files:  []string{"testdata/sparks.yaml"},
+		Doc:    "particles",
 	})
 }
