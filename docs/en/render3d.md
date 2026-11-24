@@ -265,3 +265,36 @@ if violations := render3d.CheckBudget(plan.Stats, render3d.MobileBudget()); len(
 	}
 }
 ```
+
+## Hot-reloading shaders and materials
+
+Run the game with [`go tool game dev`](cli.md#dev) and attach `hotreload.ShaderReloader` and `hotreload.MaterialReloader` (from `github.com/nsgo-dev/game/packages/game/tooling/hotreload`) to `hotreload.NewDevWatcher` so edited WGSL (`.wgsl`), Kage (`.kage`), and material YAML (`.material.yaml`, `.mat.yaml`, `.material.yml`, `.mat.yml`) files reload within a second without restarting:
+
+```go
+w := hotreload.NewDevWatcher(cx) // nil outside game dev and in release builds
+dir := hotreload.DevAssetsDir()
+
+shaders := hotreload.NewShaderReloader(cx, dev,
+	hotreload.WithShaderDir(dir),
+	hotreload.WithOnShaderError(func(re hotreload.ReloadError) {
+		log.Printf("shader error (%s): %v", re.Name, re)
+	}),
+)
+materials := hotreload.NewMaterialReloader(cx, shaders,
+	hotreload.WithMaterialDir(dir),
+	hotreload.WithOnMaterialError(func(re hotreload.ReloadError) {
+		log.Printf("material error (%s): %v", re.Name, re)
+	}),
+)
+w.WatchMaterials(materials) // watches both material YAML and referenced .wgsl/.kage shaders
+
+_, _, err := materials.Register("crystal", "materials/crystal.material.yaml", buildPipeline)
+```
+
+Every reload compiles a candidate `*gpu.ShaderModule` and builds a candidate `*gpu.Pipeline` before swapping:
+
+- **Safe fallback on errors**: if a shader edit fails to compile, misses an entry point, or fails pipeline creation — or if a material YAML has invalid syntax, an unknown field, or an out-of-range value — the previous working shader, material, and `*gpu.Pipeline` remain active without crashing. The failure is recorded as a `ReloadError` (unwrapping to `*loaderr.Error` with file, line, and column when reported) accessible via `LastError` and `Errors`, and clears automatically once a subsequent save compiles cleanly.
+- **Shader-to-material dependencies**: editing a shader referenced by one or more materials automatically rebuilds and swaps every dependent material's pipeline, closing replaced pipelines cleanly.
+- **Text material format (`MaterialDef`)**: a versioned YAML document (`version: 1`, refusing unknown fields and round-tripping deterministically via `ParseMaterial` / `EncodeMaterial`) declaring `shader` (or split `vertexShader` / `fragmentShader`), entry points (`vertexEntry`, `fragmentEntry`), GPU render state (`blend`, `cull`, `frontFace`, `depthWrite`, `depthCompare`, applied via `ApplyToPipelineDesc`), and typed uniform parameters (`scalars`, `vec2`, `vec3`, `vec4`, `colors`, `textures`). For shared 2D/PBR `resource.Material` files (`type: material`), use `w.WatchResources` ([resource](resources.md#reloading-on-edit)).
+- **Direct shader watching**: for standalone pipelines without material YAML, use `ShaderReloader.RegisterPipeline` with `w.WatchShaders(shaders)`, or `w.WatchShader(relPath, onReload)` for a single `.wgsl` or `.kage` file.
+- **Release builds**: under `-tags release`, `NewDevWatcher` returns nil and `WatchShader`, `WatchShaders`, and `WatchMaterials` compile to no-ops while `ShaderReloader` and `MaterialReloader` continue serving initial loads.
