@@ -35,7 +35,7 @@ func Effect(pos vec2) vec4 {
 `
 ```
 
-效果不能声明 `Input`、`InputSize` 或 `Fragment`，不能 import，只能通过 `Input` 读取画面（不能用 `image0At`），以画面的像素为单位（不能用视图的 `rectSize` 或 `pixelScale`），也不能使用以 `__` 开头的名字（留给着色器编译器）或以 `p` 或 `P` 加数字和 `_` 开头的名字，后者留给效果链重命名各效果的声明。
+效果不能声明 `Input`、`InputSize`、`Texture`、`TextureSize` 或 `Fragment`，不能 import，只能通过 `Input` 读取画面（不能用 `image0At`），通过 `Texture(pos)` 和 `TextureSize()` 读取可选的附加纹理（每条效果链最多 3 个带纹理的效果，依次绑定到 `image1` 至 `image3`），以画面的像素为单位（不能用视图的 `rectSize` 或 `pixelScale`），也不能使用以 `__` 开头的名字（留给着色器编译器）或以 `p` 或 `P` 加数字和 `_` 开头的名字，后者留给效果链重命名各效果的声明。
 
 ## 串联效果
 
@@ -158,6 +158,34 @@ return effects.View{
 ```
 
 闪屏和震屏遵循减弱动态效果设置：`ReduceMotion` 返回 true 时，`Trigger` 什么也不做并返回 false。可传入 `a11y.Assist` 的 `ReduceMotion`，它优先采用玩家的选择，否则跟随平台设置；`ReduceMotion` 为 nil 时读取平台设置。峰值、幅度或时长不大于 0 时同样不会启动，也不影响正在进行的那次：要结束它请用 `Stop`，这与 `tilemap.Camera.Shake` 不同，后者的强度为 0 时会取消震动。
+
+## 调色板替换
+
+本包提供两个通过调色板纹理映射颜色的现成效果，调色板绑定在 `Effect.Texture` 上，由着色器通过 `Texture(pos)` 和 `TextureSize()` 读取。两者都自带 `Reference`，只要调色板带有 `Pixels` 或 PNG `Data`，包含它们的效果链即可在无头环境下绘制参考图。
+
+- `PaletteSwap(palette)` 按颜色键替换：第 `0` 行存放最多 256 个源颜色（透明格会被跳过），从第 `0` 行到第 `height - 1` 行的每一行都是一套目标调色板。它的 uniform 有：`Amount`，0 到 1（0 或更小、即默认值时原样透传输入）；`Row`，从 `0` 到 `height - 1`，小数会在相邻两行之间线性混合；`Tolerance`，非预乘 RGB 各通道允许匹配第 `0` 行源颜色的最大差值，不大于 `0.002/alpha`（含默认值 0）时按精确的 8 位颜色匹配，更大的值会按欧氏 RGB 距离选取最近的匹配键，设为 `1` 则把所有非透明颜色映射到最近的键。未匹配的颜色和透明像素保持不变。
+- `PaletteRamp(palette)` 按像素非预乘颜色的 Rec. 709 亮度映射到任意宽度的由暗到亮调色板行（黑对应第 `0` 列，白对应第 `width - 1` 列），uniform 为 `Amount`（0 到 1）和 `Row`（0 到 `height - 1`，小数在相邻行之间混合）。
+
+`PaletteImage(rows...)` 可用多行 `core.Color` 构造预乘 `*image.RGBA` 调色板纹理：
+
+```go
+pal := effects.PaletteImage(
+	[]core.Color{core.RGB(0xd03030), core.RGB(0xf0c030), core.RGB(0x3060d0)}, // 第 0 行：源颜色键
+	[]core.Color{core.RGB(0x40c8f0), core.RGB(0xe0f8ff), core.RGB(0x205090)}, // 第 1 行：冰霜配色
+	[]core.Color{core.RGB(0x8838c8), core.RGB(0xb8f040), core.RGB(0x386030)}, // 第 2 行：剧毒配色
+)
+post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+
+return effects.View{
+	Chain:    post,
+	Frame:    src,
+	Uniforms: []core.Uniforms{{"Amount": 1, "Row": 1}},
+}
+```
+
+- 颜色保持预乘：命中像素的 alpha 会乘到目标调色板条目的预乘颜色上，因此半透明精灵会保留自身 alpha，调色板条目本身也可以是半透明或透明的。
+- 把 `Amount` 或 `Row` 设为 `core.AnimatedNode`，即可随平台帧时钟平滑淡入或在调色板之间过渡，无需重新上传纹理。
+- 如需在视图上动态更换效果纹理而不重新编译效果链，可设置 `View.Textures` 或 `View.TexturesFunc`（自建 `core.Shader` 时用 `Chain.Images`，无头测试中用 `Chain.ReferenceWithTextures`）。
 
 ## 参考图
 
