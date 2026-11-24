@@ -96,12 +96,12 @@ func TestExposureFromEV(t *testing.T) {
 		{3, 8.0},
 		{-3, 0.125},
 		{float32(math.NaN()), 1.0},
-		{float32(math.Inf(-1)), 0.0},
-		{-200, 0.0},
+		{float32(math.Inf(-1)), float32(math.Exp2(-126))},
+		{-200, float32(math.Exp2(-126))},
 	}
 	for _, tc := range cases {
 		got := render3d.ExposureFromEV(tc.ev)
-		if math.Abs(float64(got-tc.want)) > 1e-6 {
+		if math.Abs(float64(got-tc.want)) > 1e-6 || got <= 0 {
 			t.Errorf("ExposureFromEV(%v) = %v, want %v", tc.ev, got, tc.want)
 		}
 	}
@@ -193,6 +193,30 @@ func TestToneMapOperatorMetadataAndDefaults(t *testing.T) {
 	}).Normalized()
 	if norm.Operator != render3d.ToneMapNone || norm.Exposure != 1.0 || norm.Gamma != 0 {
 		t.Errorf("Normalized(bad) = %+v", norm)
+	}
+	for _, e := range []float32{-1, inf, float32(math.Inf(-1))} {
+		if got := (render3d.ToneMapOptions{Exposure: e}).Normalized().Exposure; got != 1.0 {
+			t.Errorf("Normalized(Exposure %v).Exposure = %v, want 1", e, got)
+		}
+	}
+	if got := (render3d.ToneMapOptions{Exposure: 0}).Normalized().Exposure; got != 0 {
+		t.Errorf("Normalized(Exposure 0).Exposure = %v, want 0 (black)", got)
+	}
+}
+
+// TestApplyToneMapExposureZeroIsBlack checks that a fade to black ending at Exposure 0 ends black instead of flashing to full brightness, and that the darkest EV stays dark.
+func TestApplyToneMapExposureZeroIsBlack(t *testing.T) {
+	inputs := []math3d.Vec3{{X: 0.5, Y: 2, Z: 10}, {X: float32(math.Inf(1)), Y: 65504, Z: 1e30}}
+	for op := render3d.ToneMapNone; op <= render3d.ToneMapAgX; op++ {
+		for _, in := range inputs {
+			if got := render3d.ApplyToneMap(in, render3d.ToneMapOptions{Operator: op, Exposure: 0}); got != (math3d.Vec3{}) {
+				t.Errorf("%s: ApplyToneMap(%v, Exposure 0) = %v, want black", op, in, got)
+			}
+			dark := render3d.ApplyToneMap(math3d.Vec3{X: 0.5, Y: 2, Z: 10}, render3d.ToneMapOptions{Operator: op, Exposure: render3d.ExposureFromEV(-200)})
+			if dark.X > 0.01 || dark.Y > 0.01 || dark.Z > 0.01 {
+				t.Errorf("%s: ApplyToneMap at EV -200 = %v, want near black", op, dark)
+			}
+		}
 	}
 }
 
@@ -460,6 +484,12 @@ var hdrCalibrationBands = []hdrBand{
 // into hdr using linear HDR floats (including values > 1.0).
 func renderHDRBandsInto(t *testing.T, dev *gpu.Device, hdr *render3d.HDRTarget, enc *gpu.Encoder) {
 	t.Helper()
+	renderBandsInto(t, dev, hdr, enc, hdrCalibrationBands)
+}
+
+// renderBandsInto draws each band as a vertical strip into hdr.
+func renderBandsInto(t *testing.T, dev *gpu.Device, hdr *render3d.HDRTarget, enc *gpu.Encoder, bands []hdrBand) {
+	t.Helper()
 	mod, err := gpu.CompileWGSL(hdrPatchWGSL)
 	if err != nil {
 		t.Fatalf("CompileWGSL hdrPatchWGSL: %v", err)
@@ -485,10 +515,10 @@ func renderHDRBandsInto(t *testing.T, dev *gpu.Device, hdr *render3d.HDRTarget, 
 		t.Fatalf("CreatePipeline hdr-patch: %v", err)
 	}
 
-	n := len(hdrCalibrationBands)
+	n := len(bands)
 	pass := enc.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x000000), 1))
 	pass.SetPipeline(pipe)
-	for i, band := range hdrCalibrationBands {
+	for i, band := range bands {
 		x0 := -1.0 + 2.0*float32(i)/float32(n)
 		x1 := -1.0 + 2.0*float32(i+1)/float32(n)
 		quad := packFloat32s([]float32{
@@ -622,6 +652,89 @@ func TestToneMapGPUMatchesCPUReference(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestToneMapGPUOverflowAndExposureZero writes +Inf, NaN and values beyond the half-float range into the HDR target and checks the GPU pass against ApplyToneMap, including extreme and zero exposure.
+func TestToneMapGPUOverflowAndExposureZero(t *testing.T) {
+	const (
+		bandWidth = 8
+		height    = 8
+	)
+	inf := float32(math.Inf(1))
+	bands := []hdrBand{
+		{"inf", math3d.Vec3{X: inf, Y: inf, Z: inf}},
+		{"nan", math3d.Vec3{X: float32(math.NaN()), Y: 0.5, Z: float32(math.NaN())}},
+		{"huge", math3d.Vec3{X: 1e30, Y: 1e30, Z: 1e30}},
+		{"max-half", math3d.Vec3{X: 65504, Y: 65504, Z: 65504}},
+		{"mixed", math3d.Vec3{X: inf, Y: 0.25, Z: 3}},
+		{"mid", math3d.Vec3{X: 0.18, Y: 0.5, Z: 2}},
+	}
+	width := bandWidth * len(bands)
+	sr := gpu.NewSoftwareRenderer(width, height, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	hdr, err := render3d.NewHDRTarget(nil, dev, render3d.HDRTargetDesc{Width: uint32(width), Height: height})
+	if err != nil {
+		t.Fatalf("NewHDRTarget: %v", err)
+	}
+	t.Cleanup(func() { _ = hdr.Close() })
+	if !hdr.IsHDR() {
+		t.Skip("software device has no RGBA16Float target")
+	}
+	enc := dev.BeginEncoder()
+	renderBandsInto(t, dev, hdr, enc, bands)
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+
+	tonePass, err := render3d.NewToneMapPass(nil, dev, render3d.ToneMapPassDesc{TargetFormat: dev.SurfaceFormat(), NearestFilter: true})
+	if err != nil {
+		t.Fatalf("NewToneMapPass: %v", err)
+	}
+	t.Cleanup(func() { _ = tonePass.Close() })
+
+	var configs []render3d.ToneMapOptions
+	for op := render3d.ToneMapNone; op <= render3d.ToneMapAgX; op++ {
+		configs = append(configs,
+			render3d.ToneMapOptions{Operator: op, Exposure: 1},
+			render3d.ToneMapOptions{Operator: op, Exposure: render3d.ExposureFromEV(126)},
+			render3d.ToneMapOptions{Operator: op, Exposure: render3d.ExposureFromEV(-200)},
+			render3d.ToneMapOptions{Operator: op, Exposure: 0},
+		)
+	}
+	for _, opts := range configs {
+		enc := dev.BeginEncoder()
+		pass := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+		if err := tonePass.DrawTarget(pass, dev, hdr, opts); err != nil {
+			t.Fatalf("DrawTarget: %v", err)
+		}
+		pass.End()
+		dev.Submit(enc.Finish())
+		sr.WaitIdle()
+		if err := sr.LastError(); err != nil {
+			t.Fatalf("software renderer: %v", err)
+		}
+		img := sr.Image()
+		for i, band := range bands {
+			got := img.RGBAAt(i*bandWidth+bandWidth/2, height/2)
+			// The RGBA16Float target stores values beyond the half-float range as +Inf.
+			want := render3d.ApplyToneMap(math3d.Vec3{X: storedAsHalf(band.rgb.X), Y: storedAsHalf(band.rgb.Y), Z: storedAsHalf(band.rgb.Z)}, opts)
+			wr, wg, wb := quantizeByte(want.X), quantizeByte(want.Y), quantizeByte(want.Z)
+			if absDiffU8(got.R, wr) > 2 || absDiffU8(got.G, wg) > 2 || absDiffU8(got.B, wb) > 2 {
+				t.Errorf("%s exposure %g band %s: GPU=%v, want CPU~{%d %d %d}", opts.Operator, opts.Exposure, band.name, got, wr, wg, wb)
+			}
+			if opts.Exposure == 0 && (got.R|got.G|got.B) != 0 {
+				t.Errorf("%s exposure 0 band %s: GPU=%v, want black", opts.Operator, band.name, got)
+			}
+		}
+	}
+}
+
+// storedAsHalf returns v as an RGBA16Float target keeps it for the overflow test: values at or beyond the rounding threshold above 65504 become +Inf.
+func storedAsHalf(v float32) float32 {
+	if v >= 65520 {
+		return float32(math.Inf(1))
+	}
+	return v
 }
 
 func TestToneMapHardwareSRGBTargetAvoidsDoubleGamma(t *testing.T) {
