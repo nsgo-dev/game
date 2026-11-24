@@ -638,13 +638,20 @@ target, err := render3d.NewMSAATarget(cx, dev, render3d.MSAATargetDesc{
 	Retained:    true,
 })
 // In OnFrame:
-pass := frame.BeginRenderPass(target.RenderPassDesc(clearColor, 1.0))
+desc, err := target.RenderPassDesc(clearColor, 1.0)
+if err != nil {
+	return // the target is closed or its device is lost
+}
+pass := frame.BeginRenderPass(desc)
 // ... draw with a pipeline using SampleCount: target.SampleCount() ...
 pass.End()
 resolved := target.OutputTexture()
 ```
 
-When MSAA is multisampled, `ColorAttachment` sets `ResolveTarget` to the resolve texture and `StoreOp` to `gpu.StoreDiscard` so tile GPUs avoid writing back the transient multisample buffer; when clamped to `1x`, it stores directly into the color texture with `gpu.StoreStore`.
+When MSAA is multisampled, `ColorAttachment` sets `ResolveTarget` to the resolve texture and `StoreOp` to `gpu.StoreDiscard` so tile GPUs avoid writing back the transient multisample buffer; when clamped to `1x`, it stores directly into the color texture with `gpu.StoreStore`. `ColorAttachment` and `RenderPassDesc` return an error for a closed target or a lost device rather than an attachment with a nil texture, which NSGo would draw into the view's swapchain.
+
+- **Depth**: the depth attachment is transient by default: it is cleared at the start of the pass and discarded at the end (and so is the stencil of a depth-stencil format). Set `KeepDepth: true` on `MSAATargetDesc` to store it, so later passes can read `DepthTexture()`; the depth texture of a `4x` target is multisampled.
+- **Sample count across devices**: the target keeps the requested sample count, and `Resize` clamps it against the current device, reallocating even at the same size when the clamped count changes. After `SetDevice` to a device with different MSAA support, call `Resize`, compare `SampleCount()` with its previous value, and rebuild the pipelines built with the old count.
 
 For post-process anti-aliasing, `FXAAPass` compiles `FXAAWGSL` (a bufferless full-screen triangle FXAA 3.11 Quality shader using only `textureSampleLevel(..., 0.0)`, so it runs without compute shaders on both full and `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 profiles) and keeps one bind group per source texture, so steady-state draws do not allocate. The shader reads the texel size from the source with `textureDimensions`, so one pass can filter sources of different sizes in the same frame:
 
