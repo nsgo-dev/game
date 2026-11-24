@@ -31,7 +31,7 @@ func testComponents(t testing.TB) *sceneformat.ComponentRegistry {
 	return reg
 }
 
-// componentScene is written exactly as Encode writes it, so a load and save must reproduce it byte for byte.
+// componentScene is written exactly as Encode writes it after the SchemaComment line, so a load and save must reproduce it byte for byte.
 const componentScene = `version: 1
 name: Room
 layers:
@@ -60,8 +60,8 @@ func TestParseWithComponentsRoundTripsWithoutWritingDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	if string(out) != componentScene {
-		t.Fatalf("round trip changed the file:\n--- got ---\n%s\n--- want ---\n%s", out, componentScene)
+	if want := sceneformat.SchemaComment + "\n" + componentScene; string(out) != want {
+		t.Fatalf("round trip changed the file:\n--- got ---\n%s\n--- want ---\n%s", out, want)
 	}
 
 	resolved, err := reg.Resolve("body", doc.Layers[0].Objects[0].Components["body"].(map[string]any))

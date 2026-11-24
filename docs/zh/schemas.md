@@ -81,7 +81,7 @@ if err != nil {
 data, err := s.Marshal()
 ```
 
-这份 Schema 描述 [YAML 数据表格式](datatable.md)：一个映射，必须有 `version` 且其值为 `1`，`rows` 是行列表，可以省略或写 `null` 表示空表；其他顶层键都会被标出。每行的键是 `LoadYAML` 匹配的列名：字段的 `table` 标签，其次是 `json` 标签，再次是小写的 Go 字段名；行的 Schema 位于 `#/definitions/<行类型>`。两个字段对应同一列的行类型会报错，与 `LoadYAML` 一致。`time.Duration` 单元格是 `"1.5s"` 这样的字符串或以纳秒计的整数。Schema 会标出不对应任何字段的列和类型不符的单元格；`LoadYAML` 还会拒绝合并键（`<<`），而 YAML 语言服务器会在校验前先展开合并键，因此 Schema 无法标出它们。
+这份 Schema 描述 [YAML 数据表格式](datatable.md)：一个映射，必须有 `version` 且其值为 `1`，`rows` 是行列表，可以省略或写 `null` 表示空表；其他顶层键都会被标出。每行的键是 `LoadYAML` 匹配的列名：字段的 `table` 标签，其次是 `json` 标签，再次是 Go 字段名，拼写与 `MarshalYAML` 写出的一致；行的 Schema 位于 `#/definitions/<行类型>`。两个字段对应同一列的行类型会报错，与 `LoadYAML` 一致。`time.Duration` 单元格是 `"1.5s"` 这样的字符串或以纳秒计的整数。Schema 会标出不对应任何字段的列和类型不符的单元格；`LoadYAML` 还会拒绝合并键（`<<`），而 YAML 语言服务器会在校验前先展开合并键，因此 Schema 无法标出它们。
 
 ## 在 Go 中构建和检查 Schema
 

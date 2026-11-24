@@ -81,7 +81,7 @@ if err != nil {
 data, err := s.Marshal()
 ```
 
-The schema describes the [YAML data table format](datatable.md): a mapping with a required `version`, which must be `1`, and `rows`, a list of rows that may be left out or `null` for an empty table; any other top-level key is flagged. Each row is keyed by the columns `LoadYAML` matches: a field's `table` tag, else its `json` tag, else its Go name in lower case, and the row schema is at `#/definitions/<row type>`. A row type in which two fields share a column is an error, as it is for `LoadYAML`. A `time.Duration` cell is a string such as `"1.5s"` or an integer of nanoseconds. The schema flags a column that matches no field and a cell of the wrong type; `LoadYAML` also refuses merge keys (`<<`), which a YAML language server resolves before validating, so the schema cannot flag them.
+The schema describes the [YAML data table format](datatable.md): a mapping with a required `version`, which must be `1`, and `rows`, a list of rows that may be left out or `null` for an empty table; any other top-level key is flagged. Each row is keyed by the columns `LoadYAML` matches: a field's `table` tag, else its `json` tag, else its Go name, spelled as `MarshalYAML` writes them, and the row schema is at `#/definitions/<row type>`. A row type in which two fields share a column is an error, as it is for `LoadYAML`. A `time.Duration` cell is a string such as `"1.5s"` or an integer of nanoseconds. The schema flags a column that matches no field and a cell of the wrong type; `LoadYAML` also refuses merge keys (`<<`), which a YAML language server resolves before validating, so the schema cannot flag them.
 
 ## Building and checking schemas in Go
 
