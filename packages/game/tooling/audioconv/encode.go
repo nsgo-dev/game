@@ -170,7 +170,7 @@ func (e *Encoder) ConvertToMP3(ctx context.Context, wavPath, outPath string, bit
 	return nil
 }
 
-// ConvertBuffer processes buf according to opts and writes it to outPath in format.
+// ConvertBuffer processes buf according to opts and writes it to outPath in format. A WAV file keeps buf.Loop, scaled to the output rate, in its smpl chunk; AAC and MP3 files carry no loop points.
 func (e *Encoder) ConvertBuffer(ctx context.Context, buf *Buffer, outPath string, format Format, opts Options) error {
 	processed, err := Process(buf, opts)
 	if err != nil {

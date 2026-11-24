@@ -51,7 +51,7 @@ func WriteWAVFile(path string, buf *Buffer) error {
 	return os.WriteFile(path, out.Bytes(), 0o644)
 }
 
-// DecodeWAV reads a RIFF/WAVE stream containing 8-bit unsigned, 16-bit signed, 24-bit signed, 32-bit signed, or 32-bit/64-bit IEEE float PCM audio (mono or stereo).
+// DecodeWAV reads a RIFF/WAVE stream containing 8-bit unsigned, 16-bit signed, 24-bit signed, 32-bit signed, or 32-bit/64-bit IEEE float PCM audio (mono or stereo). The first forward loop of a smpl chunk becomes the Buffer's Loop when it lies inside the audio.
 func DecodeWAV(r io.Reader) (*Buffer, error) {
 	var header [12]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
@@ -70,6 +70,9 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 
 		hasData bool
 		rawData []byte
+
+		loop    Loop
+		hasLoop bool
 	)
 
 	var chunkHdr [8]byte
@@ -127,6 +130,20 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 			}
 			hasData = true
 
+		case "smpl":
+			// Loop points are optional metadata: a chunk too large to be a sampler chunk with a few loops is skipped, as an unknown chunk is.
+			if size > smplHeaderSize+64*smplLoopSize || hasLoop {
+				if _, err := io.CopyN(io.Discard, r, int64(size)); err != nil {
+					return nil, fmt.Errorf("audioconv: skip chunk %q: %w", id, err)
+				}
+				break
+			}
+			chunk := make([]byte, size)
+			if _, err := io.ReadFull(r, chunk); err != nil {
+				return nil, fmt.Errorf("audioconv: smpl chunk: %w", err)
+			}
+			loop, hasLoop = parseSmplLoop(chunk)
+
 		default:
 			if _, err := io.CopyN(io.Discard, r, int64(size)); err != nil {
 				return nil, fmt.Errorf("audioconv: skip chunk %q: %w", id, err)
@@ -159,11 +176,16 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Buffer{
+	out := &Buffer{
 		SampleRate: int(sampleRate),
 		Channels:   int(channels),
 		Samples:    samples,
-	}, nil
+	}
+	// A loop outside the audio, which another tool may have written, is dropped rather than refusing audio that plays.
+	if hasLoop && loop.Start >= 0 && loop.Start < loop.End && loop.End <= out.Frames() {
+		out.Loop = &loop
+	}
+	return out, nil
 }
 
 func decodePCMSamples(raw []byte, audioFormat, bitsPerSample uint16, channels int) ([]float64, error) {
@@ -234,7 +256,7 @@ func decodePCMSamples(raw []byte, audioFormat, bitsPerSample uint16, channels in
 	return out, nil
 }
 
-// EncodeWAV writes buf as a standard 16-bit signed little-endian PCM RIFF/WAVE stream.
+// EncodeWAV writes buf as a standard 16-bit signed little-endian PCM RIFF/WAVE stream, followed by a smpl chunk holding buf.Loop as a forward loop that repeats forever when it is set.
 func EncodeWAV(w io.Writer, buf *Buffer) error {
 	if err := buf.Validate(); err != nil {
 		return err
@@ -242,12 +264,16 @@ func EncodeWAV(w io.Writer, buf *Buffer) error {
 	const bitsPerSample = 16
 	const bytesPerSample = 2
 
+	var smpl []byte
+	if buf.Loop != nil {
+		smpl = smplChunk(buf.SampleRate, *buf.Loop)
+	}
 	dataSize64 := uint64(len(buf.Samples)) * bytesPerSample
-	if dataSize64 > math.MaxUint32-36 {
+	if dataSize64 > math.MaxUint32-36-uint64(len(smpl)) {
 		return errors.New("audioconv: audio buffer exceeds 4 GiB RIFF WAV limit")
 	}
 	dataSize := uint32(dataSize64)
-	riffSize := 36 + dataSize
+	riffSize := 36 + dataSize + uint32(len(smpl))
 	blockAlign := uint16(buf.Channels * bytesPerSample)
 	byteRate := uint32(buf.SampleRate) * uint32(blockAlign)
 
@@ -286,7 +312,60 @@ func EncodeWAV(w io.Writer, buf *Buffer) error {
 			return fmt.Errorf("audioconv: write wav data: %w", err)
 		}
 	}
+	if smpl != nil {
+		if _, err := w.Write(smpl); err != nil {
+			return fmt.Errorf("audioconv: write wav smpl chunk: %w", err)
+		}
+	}
 	return nil
+}
+
+// smplHeaderSize and smplLoopSize are the sizes of a smpl chunk's fixed fields and of each loop record in it.
+const (
+	smplHeaderSize = 36
+	smplLoopSize   = 24
+)
+
+// smplChunk returns a sampler chunk, header included, holding loop as its one forward loop that repeats forever. A smpl chunk's loop end is the last frame played, so it is loop.End-1.
+func smplChunk(sampleRate int, loop Loop) []byte {
+	chunk := make([]byte, 8+smplHeaderSize+smplLoopSize)
+	copy(chunk[0:4], "smpl")
+	binary.LittleEndian.PutUint32(chunk[4:8], smplHeaderSize+smplLoopSize)
+	b := chunk[8:]
+	// Manufacturer and product are 0: no particular sampler.
+	binary.LittleEndian.PutUint32(b[8:12], uint32(1_000_000_000/sampleRate)) // sample period in nanoseconds
+	binary.LittleEndian.PutUint32(b[12:16], 60)                              // MIDI unity note: middle C, played at the recorded pitch
+	binary.LittleEndian.PutUint32(b[28:32], 1)                               // one loop
+	l := b[smplHeaderSize:]
+	// Cue point ID 0, type 0 (forward), fraction 0 and play count 0 (forever) stay zero.
+	binary.LittleEndian.PutUint32(l[8:12], uint32(loop.Start))
+	binary.LittleEndian.PutUint32(l[12:16], uint32(loop.End-1))
+	return chunk
+}
+
+// parseSmplLoop returns the first forward loop of a smpl chunk's body, with its end made exclusive, or false when it holds none.
+func parseSmplLoop(chunk []byte) (Loop, bool) {
+	if len(chunk) < smplHeaderSize {
+		return Loop{}, false
+	}
+	n := binary.LittleEndian.Uint32(chunk[28:32])
+	for i := uint64(0); i < uint64(n); i++ {
+		off := smplHeaderSize + i*smplLoopSize
+		if off+smplLoopSize > uint64(len(chunk)) {
+			break
+		}
+		l := chunk[off : off+smplLoopSize]
+		if binary.LittleEndian.Uint32(l[4:8]) != 0 {
+			continue
+		}
+		start := int64(binary.LittleEndian.Uint32(l[8:12]))
+		end := int64(binary.LittleEndian.Uint32(l[12:16])) + 1
+		if start > math.MaxInt32 || end > math.MaxInt32 {
+			return Loop{}, false
+		}
+		return Loop{Start: int(start), End: int(end)}, true
+	}
+	return Loop{}, false
 }
 
 func quantizeInt16(s float64) int16 {
