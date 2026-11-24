@@ -190,3 +190,50 @@ func TestSlicedFrameNamedAsAnImage(t *testing.T) {
 		t.Fatalf("Build error = %v, want a frame name clash", err)
 	}
 }
+
+func TestSidecarSharedByAnAtlasAndATexture(t *testing.T) {
+	root := newProject(t)
+	editProject(t, root, "  textures:\n", "  textures:\n    - in: art/hero/run.png\n      out: assets/run.ktx2\n")
+	// The atlas reads only the slice and the texture target only the filter and format, so neither refuses the other's settings.
+	writeFile(t, filepath.Join(root, "art/hero/run.png.import.yaml"), []byte("version: 1\nimage: {filter: nearest, format: rgba8, slice: {width: 8, height: 8}}\n"))
+	build(t, root, assetbuild.Builder{})
+	if got, want := framesOf(t, root, "assets/atlases/hero.json"), []string{"idle.png", "run_0.png", "run_1.png", "run_2.png", "run_3.png"}; !slices.Equal(got, want) {
+		t.Fatalf("frames = %v, want %v", got, want)
+	}
+	if format, levels, kvd := textureOf(t, root, "assets/run.ktx2"); format != ktx2.FormatRGBA8 || levels != 1 || string(kvd[importsettings.FilterKey]) != "nearest" {
+		t.Fatalf("texture: %s, %d levels, filter %q; want the whole image as rgba8, 1 level, nearest", format, levels, kvd[importsettings.FilterKey])
+	}
+}
+
+func TestSidecarsNoTargetReads(t *testing.T) {
+	for _, tc := range []struct {
+		name, asset, sidecar string
+	}{
+		{"mistyped name", "", "art/hero/runn.png.import.yaml"},
+		{"no extension", "", "art/hero/run.import.yaml"},
+		{"other case", "", "art/Albedo.png.import.yaml"},
+		{"image an atlas skips", "art/ui/photo.jpg", "art/ui/photo.jpg.import.yaml"},
+		{"in a subfolder of an atlas", "", "art/ui/icons/moon.png.import.yaml"},
+		{"beside a sound", "", "sfx/land.wav.import.yaml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newProject(t)
+			if tc.asset != "" {
+				writeFile(t, filepath.Join(root, tc.asset), []byte("not read"))
+			}
+			writeFile(t, filepath.Join(root, tc.sidecar), []byte("version: 1\nimage: {filter: nearest}\n"))
+			for _, check := range []bool{false, true} {
+				_, err := tryBuild(root, assetbuild.Builder{Check: check})
+				if err == nil || !strings.Contains(err.Error(), tc.sidecar+": no target in game.yaml reads") {
+					t.Fatalf("Build (Check %v) error = %v, want %s refused", check, err, tc.sidecar)
+				}
+			}
+		})
+	}
+
+	// A sidecar outside every folder a target reads from, or hidden, is not looked at.
+	root := newProject(t)
+	writeFile(t, filepath.Join(root, "docs/shot.png.import.yaml"), []byte("version: 1\nimage: {filter: nearest}\n"))
+	writeFile(t, filepath.Join(root, "art/ui/.draft.png.import.yaml"), []byte("version: 1\nimage: {filter: nearest}\n"))
+	build(t, root, assetbuild.Builder{})
+}

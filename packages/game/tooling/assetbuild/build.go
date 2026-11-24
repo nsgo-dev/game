@@ -94,12 +94,23 @@ type Builder struct {
 
 	// tools memoizes Audio's Tool for each format during a build.
 	tools map[audioconv.Format]string
+	// readers maps each input file of a build, slash-separated and relative to Root, to the kinds of target that read it.
+	readers map[string]reader
 }
+
+// reader is a set of the kinds of target that read one input file.
+type reader uint8
+
+const (
+	readByAtlas reader = 1 << iota
+	readByTexture
+	readByAudio
+)
 
 // cacheFormat is mixed into every target's key, so a change to what a key covers rebuilds every target.
 const cacheFormat = "assetbuild/1"
 
-// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, those of the import settings sidecars beside them, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A setting in a sidecar overrides the target's: a texture target takes an image sidecar's filter, format, mipmaps and sRGB, an atlas cuts each image whose sidecar has a slice into frames, and an audio target takes every setting of a sound's sidecar, loop points included. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
+// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, those of the import settings sidecars beside them, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A setting in a sidecar overrides the target's: a texture target takes an image sidecar's filter, format, mipmaps and sRGB, an atlas cuts each image whose sidecar has a slice into frames, and an audio target takes every setting of a sound's sidecar, loop points included. An image that both an atlas and a texture target read may hold both kinds of settings in its sidecar, each target taking its own; otherwise a setting no target of the image reads is refused. Before building, Build refuses a sidecar in a folder a target reads from whose asset no target reads, such as one with a mistyped name, and one whose name differs from its asset's in case. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
 func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error) {
 	if b.Force && b.Check {
 		return nil, errors.New("assetbuild: Force and Check cannot both be set")
@@ -111,6 +122,10 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		return nil, err
 	}
 	b.tools = nil
+	b.readers = b.inputs(a)
+	if err := b.checkSidecars(a); err != nil {
+		return nil, err
+	}
 	cachePath := b.abs(a.CachePath())
 	prev := loadCache(cachePath)
 	next := &cache{Version: cacheVersion}
@@ -393,8 +408,8 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		if im == nil {
 			continue
 		}
-		if set := textureSettings(im); len(set) > 0 {
-			return prepared{}, fmt.Errorf("%s: %s %s for a texture target; an atlas packs %s into its pages, so only slice applies", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), name)
+		if set := textureSettings(im); len(set) > 0 && b.readers[rel]&readByTexture == 0 {
+			return prepared{}, fmt.Errorf("%s: %s %s for a texture target, and none reads %s; an atlas packs it into its pages, so only slice applies", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), rel)
 		}
 		sheets[i] = im.Slice
 		k.input(importsettings.Path(name), sc)
@@ -439,8 +454,8 @@ func (b *Builder) texture(t project.TextureTarget) (prepared, error) {
 	}
 	var filter string
 	if im != nil {
-		if im.Slice != nil {
-			return prepared{}, fmt.Errorf("%s: slice cuts a sprite sheet into an atlas's frames; a texture target encodes the whole image", importsettings.Path(t.In))
+		if im.Slice != nil && b.readers[path.Clean(t.In)]&readByAtlas == 0 {
+			return prepared{}, fmt.Errorf("%s: slice cuts a sprite sheet into an atlas's frames, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
 		}
 		if im.Format != "" {
 			t.Format = im.Format
@@ -622,6 +637,87 @@ func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return f, data, nil
+}
+
+// inputs maps each file a's targets read to the kinds of target that read it. An atlas whose folder cannot be scanned adds nothing; its own step reports the error.
+func (b *Builder) inputs(a *project.Assets) map[string]reader {
+	m := map[string]reader{}
+	for _, at := range a.Atlases {
+		names, err := pack.ScanDir(b.abs(at.In))
+		if err != nil {
+			continue
+		}
+		for _, name := range names {
+			m[path.Join(at.In, name)] |= readByAtlas
+		}
+	}
+	for _, t := range a.Textures {
+		m[path.Clean(t.In)] |= readByTexture
+	}
+	for _, au := range a.Audio {
+		m[path.Clean(au.In)] |= readByAudio
+	}
+	return m
+}
+
+// checkSidecars refuses each sidecar in a folder a's targets read from (an atlas's folder and the folders below it, and the folder of each texture and audio input) whose asset no target reads, since its settings would apply to nothing. On a case-insensitive file system a sidecar named Hero.PNG.import.yaml is read for hero.png, but not on a case-sensitive one, so it is refused everywhere. Hidden files and folders are skipped, as an atlas skips them.
+func (b *Builder) checkSidecars(a *project.Assets) error {
+	type folder struct {
+		dir     string
+		recurse bool
+	}
+	var folders []folder
+	for _, at := range a.Atlases {
+		folders = append(folders, folder{path.Clean(at.In), true})
+	}
+	for _, t := range a.Textures {
+		folders = append(folders, folder{path.Dir(path.Clean(t.In)), false})
+	}
+	for _, au := range a.Audio {
+		folders = append(folders, folder{path.Dir(path.Clean(au.In)), false})
+	}
+	seen := map[string]bool{}
+	for _, f := range folders {
+		root := b.abs(f.dir)
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if p == root && errors.Is(err, fs.ErrNotExist) {
+					return fs.SkipAll
+				}
+				return err
+			}
+			if d.IsDir() {
+				if p == root {
+					return nil
+				}
+				if !f.recurse || strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasPrefix(d.Name(), ".") || !importsettings.IsSidecar(d.Name()) {
+				return nil
+			}
+			rel, err := filepath.Rel(b.Root, p)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			if seen[rel] {
+				return nil
+			}
+			seen[rel] = true
+			asset := strings.TrimSuffix(rel, importsettings.Suffix)
+			if b.readers[asset] == 0 {
+				return fmt.Errorf("assetbuild: %s: no target in %s reads %s, so these import settings apply to nothing; name a sidecar exactly after its asset, case included, or remove it", rel, project.FileName, asset)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // imageSettings reads the import settings beside the image at rel, as sidecar does, and returns its image section and the sidecar's bytes, or nil when the image has no sidecar.

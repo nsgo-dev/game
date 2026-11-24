@@ -53,6 +53,8 @@ The scene schema is generated from the Go types `sceneformat.Parse` decodes into
 
 A schema sees one file at a time, so `Parse` still checks what spans the document: unique layer names and object IDs, tilemap `ref`s that name an entry of `tilemaps`, one tilemap mode at a time, inline grid sizes, and colors `core.ParseColor` accepts. In a few places the schema is stricter than `Parse`, such as refusing `null` for a field `Parse` reads as its zero value; every scene `Encode` writes validates against it, which a fuzz test holds.
 
+The import settings schema likewise checks each field on its own: known keys, the allowed `filter`, `format` and audio `format` values, and non-negative sizes and rates. It does not say which fields go together, since the schema generator emits no `oneOf`, `not` or dependency keywords and a loop's end cannot be compared with its start in JSON Schema, so `importsettings.Parse` and `game assets` still refuse a sidecar with no section or with both `image` and `audio`, `peakDB` together with `rmsDB`, a loop whose end is not after its start, and a loop with `aac` or `mp3` output, while an editor shows such a file as valid.
+
 ## Checking schemas in CI
 
 `cmd/gameschema` writes the published schemas into `apps/website/public/schemas`, which the website serves at `https://game.nsgo.dev/schemas/`. After changing a format's Go types or doc comments, regenerate them from `packages/game`:
