@@ -23,9 +23,7 @@ import (
 // CustomMaterialGroup is the bind group slot (@group(1)) that holds a custom material's uniform buffer and texture/sampler bindings alongside [CameraGroup] (@group(0)). It is [MaterialGroup], the slot every material in this package binds at.
 const CustomMaterialGroup = MaterialGroup
 
-// CustomMaterialUniformBinding is the @binding index inside [CustomMaterialGroup]
-// used for the generated MaterialParams uniform struct when a custom material
-// declares at least one non-texture parameter.
+// CustomMaterialUniformBinding is the @binding index inside [CustomMaterialGroup] used for the generated MaterialParams uniform struct when a custom material declares at least one non-texture parameter.
 const CustomMaterialUniformBinding = 0
 
 // ErrInvalidCustomMaterial is wrapped by every error returned when validating, compiling, or updating a [CustomMaterial]. Those errors also match [ErrInvalidMaterial].
@@ -41,8 +39,7 @@ type CustomMaterialError struct {
 	Err      error
 }
 
-// Error formats the custom material diagnostic with optional material name,
-// parameter name, and 1-based shader source line/column.
+// Error formats the custom material diagnostic with optional material name, parameter name, and 1-based shader source line/column.
 func (e *CustomMaterialError) Error() string {
 	var b strings.Builder
 	b.WriteString("render3d: custom material")
@@ -82,12 +79,9 @@ func (e *CustomMaterialError) Is(target error) bool {
 type ShaderLanguage uint8
 
 const (
-	// ShaderWGSL compiles WGSL vertex and fragment stages directly, with
-	// optional auto-generated @group(1) MaterialParams and texture bindings.
+	// ShaderWGSL compiles WGSL vertex and fragment stages directly, with optional auto-generated @group(1) MaterialParams and texture bindings.
 	ShaderWGSL ShaderLanguage = iota
-	// ShaderKage translates a Kage surface shader (declared package-level var
-	// uniforms plus func Surface(...) vec4 or func Fragment(...) vec4) into
-	// portable WGSL targeting every NSGo GPU backend.
+	// ShaderKage translates a Kage surface shader (declared package-level var uniforms plus func Surface(...) vec4 or func Fragment(...) vec4) into portable WGSL targeting every NSGo GPU backend.
 	ShaderKage
 )
 
@@ -152,15 +146,12 @@ func (k ShaderParamKind) Valid() bool {
 	return k >= ParamFloat && k <= ParamTexture
 }
 
-// IsUniform reports whether k is stored in the std140 uniform buffer rather
-// than bound as a separate texture/sampler pair.
+// IsUniform reports whether k is stored in the std140 uniform buffer rather than bound as a separate texture/sampler pair.
 func (k ShaderParamKind) IsUniform() bool {
 	return k >= ParamFloat && k <= ParamBool
 }
 
-// WGSLType returns the portable WGSL type emitted for k in MaterialParams or
-// texture bindings. ParamBool uses u32 (0 or 1) because WGSL uniform buffers
-// forbid host-unshareable bool fields.
+// WGSLType returns the portable WGSL type emitted for k in MaterialParams or texture bindings. ParamBool uses u32 (0 or 1) because WGSL uniform buffers forbid host-unshareable bool fields.
 func (k ShaderParamKind) WGSLType() string {
 	switch k {
 	case ParamFloat:
@@ -200,10 +191,7 @@ func (k ShaderParamKind) UniformLayout() (align, size int) {
 
 // ShaderParamDesc declares one typed parameter of a [CustomMaterial].
 //
-// Uniform parameters are packed in declared order into a std140 uniform struct
-// at @group(1) @binding(0). Each [ParamTexture] parameter allocates a
-// consecutive (texture_2d<f32>, sampler) pair at @group(1) named <Name> and
-// <Name>_sampler.
+// Uniform parameters are packed in declared order into a std140 uniform struct at @group(1) @binding(0). Each [ParamTexture] parameter allocates a consecutive (texture_2d<f32>, sampler) pair at @group(1) named <Name> and <Name>_sampler.
 type ShaderParamDesc struct {
 	Name    string
 	Kind    ShaderParamKind
@@ -223,8 +211,7 @@ type CustomParamLayout struct {
 	SamplerBinding uint32 // @binding index in CustomMaterialGroup (ParamTexture only)
 }
 
-// CustomUniformLayout holds the deterministic std140 uniform layout and
-// texture/sampler binding indices computed for a list of [ShaderParamDesc].
+// CustomUniformLayout holds the deterministic std140 uniform layout and texture/sampler binding indices computed for a list of [ShaderParamDesc].
 type CustomUniformLayout struct {
 	Params      []CustomParamLayout
 	Offsets     map[string]int
@@ -233,9 +220,7 @@ type CustomUniformLayout struct {
 	TextureNum  int
 }
 
-// ComputeUniformLayout validates params and computes their deterministic
-// WGSL/std140 uniform offsets and @group(1) texture/sampler bindings in
-// declared order.
+// ComputeUniformLayout validates params and computes their deterministic WGSL/std140 uniform offsets and @group(1) texture/sampler bindings in declared order.
 func ComputeUniformLayout(params []ShaderParamDesc) (CustomUniformLayout, error) {
 	return computeCustomLayout("", params)
 }
@@ -359,9 +344,7 @@ type CustomShaderDesc struct {
 	Retained     bool              // opt in to automatic restoration across device loss
 }
 
-// CustomShaderWGSL validates desc and returns the portable WGSL source that
-// [NewCustomMaterial] compiles (translating Kage surface shaders or prepending
-// auto-generated @group(1) declarations for WGSL).
+// CustomShaderWGSL validates desc and returns the portable WGSL source that [NewCustomMaterial] compiles (translating Kage surface shaders or prepending auto-generated @group(1) declarations for WGSL).
 func CustomShaderWGSL(desc CustomShaderDesc) (string, error) {
 	compiled, err := prepareCustomShader(desc)
 	if err != nil {
@@ -370,10 +353,7 @@ func CustomShaderWGSL(desc CustomShaderDesc) (string, error) {
 	return compiled.wgsl, nil
 }
 
-// CompileCheck validates source, lang, and params, generates portable WGSL,
-// compiles it via [gpu.CompileWGSL], and verifies cross-backend pipeline
-// lowering (MSL, HLSL, GLSL 3.30, GLSL ES 3.00 / WebGL 2, and WGSL) using an
-// in-memory pipeline cache on a headless software device.
+// CompileCheck validates source, lang, and params, generates portable WGSL, compiles it via [gpu.CompileWGSL], and verifies cross-backend pipeline lowering (MSL, HLSL, GLSL 3.30, GLSL ES 3.00 / WebGL 2, and WGSL) using an in-memory pipeline cache on a headless software device.
 func CompileCheck(source string, lang ShaderLanguage, params []ShaderParamDesc) error {
 	return CompileCheckDesc(CustomShaderDesc{
 		Label:    "compile-check",
@@ -455,15 +435,9 @@ func CompileCheckDesc(desc CustomShaderDesc) error {
 	return nil
 }
 
-// CustomMaterial is a compiled WGSL or Kage 3D material with declared,
-// strongly-typed uniform and texture parameters on an NSGo [gpu.Device].
+// CustomMaterial is a compiled WGSL or Kage 3D material with declared, strongly-typed uniform and texture parameters on an NSGo [gpu.Device].
 //
-// Its uniform buffer, fallback 1x1 textures, default sampler, bind group, and
-// pipeline belong to the [core.Scope] passed to [NewCustomMaterial] and are
-// released automatically on scope disposal or earlier via [CustomMaterial.Close].
-// Call [CustomMaterial.Sync] (or [CustomMaterial.Update]) before drawing
-// whenever parameters have been modified, then bind with [CustomMaterial.Bind]
-// or draw directly with [CustomMaterial.Draw].
+// Its uniform buffer, fallback 1x1 textures, default sampler, bind group, and pipeline belong to the [core.Scope] passed to [NewCustomMaterial] and are released automatically on scope disposal or earlier via [CustomMaterial.Close]. Call [CustomMaterial.Sync] (or [CustomMaterial.Update]) before drawing whenever parameters have been modified, then bind with [CustomMaterial.Bind] or draw directly with [CustomMaterial.Draw].
 type CustomMaterial struct {
 	label string
 	scope *core.Scope
@@ -502,9 +476,7 @@ type customBindGroup struct {
 	bg   *gpu.BindGroup
 }
 
-// NewCustomMaterial validates desc, compiles the WGSL or Kage shader, computes
-// the std140 uniform layout, allocates GPU resources scoped to cx, and builds
-// the render pipeline on dev.
+// NewCustomMaterial validates desc, compiles the WGSL or Kage shader, computes the std140 uniform layout, allocates GPU resources scoped to cx, and builds the render pipeline on dev.
 func NewCustomMaterial(cx *core.Scope, dev *gpu.Device, desc CustomShaderDesc) (*CustomMaterial, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -764,8 +736,7 @@ func (m *CustomMaterial) SetVec4(name string, v math3d.Vec4) error {
 	return nil
 }
 
-// SetColor sets a declared [ParamColor] parameter from an sRGB [core.Color],
-// normalized into [0, 1] RGBA float32 components.
+// SetColor sets a declared [ParamColor] parameter from an sRGB [core.Color], normalized into [0, 1] RGBA float32 components.
 func (m *CustomMaterial) SetColor(name string, c core.Color) error {
 	_, pl, err := m.lookupParam(name, ParamColor)
 	if err != nil {
@@ -813,10 +784,7 @@ func (m *CustomMaterial) SetBool(name string, v bool) error {
 	return nil
 }
 
-// SetTexture binds tex and samp to a declared [ParamTexture] parameter. Passing
-// a nil tex resets the slot to its 1x1 fallback texture; passing a nil samp
-// uses the material's default linear-repeat sampler. Call [CustomMaterial.Sync]
-// before drawing to upload the updated bind group.
+// SetTexture binds tex and samp to a declared [ParamTexture] parameter. Passing a nil tex resets the slot to its 1x1 fallback texture; passing a nil samp uses the material's default linear-repeat sampler. Call [CustomMaterial.Sync] before drawing to upload the updated bind group.
 func (m *CustomMaterial) SetTexture(name string, tex *GPUTexture, samp *GPUSampler) error {
 	_, _, err := m.lookupParam(name, ParamTexture)
 	if err != nil {
@@ -855,10 +823,7 @@ func (m *CustomMaterial) SetTexture(name string, tex *GPUTexture, samp *GPUSampl
 	return nil
 }
 
-// ApplyMap validates and applies a batch of named parameters atomically (in
-// deterministic sorted key order). If any key is unknown or has an incompatible
-// type or out-of-range value, no parameter is mutated and an error wrapping
-// [ErrInvalidCustomMaterial] is returned.
+// ApplyMap validates and applies a batch of named parameters atomically (in deterministic sorted key order). If any key is unknown or has an incompatible type or out-of-range value, no parameter is mutated and an error wrapping [ErrInvalidCustomMaterial] is returned.
 func (m *CustomMaterial) ApplyMap(values map[string]any) error {
 	if m == nil || m.closed {
 		return &CustomMaterialError{Message: "material is nil or closed"}
@@ -1107,8 +1072,7 @@ func (m *CustomMaterial) Bind(pass *gpu.RenderPass) {
 	}
 }
 
-// Draw binds the material on pass and draws mesh. It records nothing if either
-// the material or mesh is invalid.
+// Draw binds the material on pass and draws mesh. It records nothing if either the material or mesh is invalid.
 func (m *CustomMaterial) Draw(pass *gpu.RenderPass, mesh *GPUMesh) {
 	if pass == nil || !m.Valid() || !mesh.Valid() {
 		return
@@ -1117,8 +1081,7 @@ func (m *CustomMaterial) Draw(pass *gpu.RenderPass, mesh *GPUMesh) {
 	mesh.Draw(pass)
 }
 
-// ParamOffset returns the std140 byte offset of the uniform parameter named
-// name, or (0, false) if absent or not a uniform parameter.
+// ParamOffset returns the std140 byte offset of the uniform parameter named name, or (0, false) if absent or not a uniform parameter.
 func (m *CustomMaterial) ParamOffset(name string) (int, bool) {
 	if m == nil {
 		return 0, false
@@ -1127,8 +1090,7 @@ func (m *CustomMaterial) ParamOffset(name string) (int, bool) {
 	return off, ok
 }
 
-// ParamBinding returns the @group(1) texture and sampler binding numbers for
-// the [ParamTexture] parameter named name.
+// ParamBinding returns the @group(1) texture and sampler binding numbers for the [ParamTexture] parameter named name.
 func (m *CustomMaterial) ParamBinding(name string) (texBinding, samplerBinding uint32, ok bool) {
 	if m == nil {
 		return 0, 0, false
@@ -1149,8 +1111,7 @@ func (m *CustomMaterial) Params() []ShaderParamDesc {
 	return slices.Clone(m.params)
 }
 
-// UniformSize returns the byte size of the material's std140 uniform buffer
-// (a multiple of 16, or 0 when the material declares no uniform parameters).
+// UniformSize returns the byte size of the material's std140 uniform buffer (a multiple of 16, or 0 when the material declares no uniform parameters).
 func (m *CustomMaterial) UniformSize() int {
 	if m == nil {
 		return 0
@@ -1182,8 +1143,7 @@ func (m *CustomMaterial) Pipeline() *gpu.Pipeline {
 	return m.pipeline
 }
 
-// Layout returns the material's @group(1) [gpu.BindGroupLayout], or nil when
-// the material declares no parameters.
+// Layout returns the material's @group(1) [gpu.BindGroupLayout], or nil when the material declares no parameters and has no DrawLayout.
 func (m *CustomMaterial) Layout() *gpu.BindGroupLayout {
 	if m == nil {
 		return nil
@@ -1191,8 +1151,7 @@ func (m *CustomMaterial) Layout() *gpu.BindGroupLayout {
 	return m.matLayout
 }
 
-// BindGroup returns the material's @group(1) [gpu.BindGroup], or nil when the
-// material declares no parameters.
+// BindGroup returns the material's @group(1) [gpu.BindGroup], or nil when the material declares no parameters and has no DrawLayout.
 func (m *CustomMaterial) BindGroup() *gpu.BindGroup {
 	if m == nil {
 		return nil
@@ -1208,8 +1167,7 @@ func (m *CustomMaterial) Dirty() bool {
 	return m.uniformDirty || m.bindGroupDirty
 }
 
-// Valid reports whether the material's GPU pipeline, uniform buffer, and bind
-// group are open and belong to a live device.
+// Valid reports whether the material's GPU pipeline, uniform buffer, and bind group are open and belong to a live device.
 func (m *CustomMaterial) Valid() bool {
 	if m == nil || m.closed || m.pipeline == nil || !m.pipeline.Valid() {
 		return false
@@ -1235,9 +1193,7 @@ func (m *CustomMaterial) ByteSize() uint64 {
 	return n
 }
 
-// Close releases every GPU resource owned by the material now rather than
-// waiting for its owning scope to dispose. It is safe to call on a nil receiver
-// or more than once.
+// Close releases every GPU resource owned by the material now rather than waiting for its owning scope to dispose. It is safe to call on a nil receiver or more than once.
 func (m *CustomMaterial) Close() error {
 	if m == nil || m.closed {
 		return nil
