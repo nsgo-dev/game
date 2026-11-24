@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/quality"
+	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -467,5 +468,24 @@ func BenchmarkSelectorObserve(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; b.Loop(); i++ {
 		s.Observe(at30 + time.Duration(i%5)*time.Millisecond)
+	}
+}
+
+// TestSaveSettingsNormalizeLikeNormalizeSetting checks that save.Settings, which is stable and so keeps its own copy of the setting's names, reads a quality setting as NormalizeSetting does and falls back to auto for one it refuses.
+func TestSaveSettingsNormalizeLikeNormalizeSetting(t *testing.T) {
+	if got := save.DefaultSettings().Display.Quality; got != quality.SettingAuto {
+		t.Fatalf("save.DefaultSettings().Display.Quality = %q, want %q", got, quality.SettingAuto)
+	}
+	for _, in := range []string{"", "auto", " AUTO ", "low", " Low ", "MEDIUM", "high", " High ", "ultra", "Level(3)", "lo w"} {
+		want, err := quality.NormalizeSetting(in)
+		if err != nil {
+			want = quality.SettingAuto
+		}
+		s := save.DefaultSettings()
+		s.Display.Quality = in
+		s.Validate()
+		if s.Display.Quality != want {
+			t.Errorf("save.Settings.Validate(%q) = %q, want %q", in, s.Display.Quality, want)
+		}
 	}
 }

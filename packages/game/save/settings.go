@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/quality"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -133,7 +132,7 @@ func DefaultSettings() Settings {
 			FrameCap:         0,
 			VSync:            true,
 			AutoDropLowPower: true,
-			Quality:          quality.SettingAuto,
+			Quality:          qualityAuto,
 		},
 		Locale: "",
 		Accessibility: AccessibilitySettings{
@@ -166,11 +165,7 @@ func (s *Settings) Validate() {
 	if s.Display.ScaleMode == "" {
 		s.Display.ScaleMode = "fit"
 	}
-	if q, err := quality.NormalizeSetting(s.Display.Quality); err == nil {
-		s.Display.Quality = q
-	} else {
-		s.Display.Quality = quality.SettingAuto
-	}
+	s.Display.Quality = normalizeQuality(s.Display.Quality)
 
 	s.Locale = strings.TrimSpace(s.Locale)
 
@@ -181,6 +176,19 @@ func (s *Settings) Validate() {
 	}
 	s.Accessibility.ScreenShake = clampUnit(s.Accessibility.ScreenShake, 1.0)
 	s.Accessibility.GameSpeed = clampPositiveRange(s.Accessibility.GameSpeed, minGameSpeed, maxGameSpeed, 1.0)
+}
+
+// qualityAuto is quality.SettingAuto. save is stable and quality is experimental, so save keeps its own copy of the setting's names rather than importing quality; quality's tests check that the two agree.
+const qualityAuto = "auto"
+
+// normalizeQuality returns the canonical form of a quality setting as quality.NormalizeSetting does, ignoring case and surrounding space, and "auto" for anything it does not name.
+func normalizeQuality(q string) string {
+	switch t := strings.ToLower(strings.TrimSpace(q)); t {
+	case "low", "medium", "high":
+		return t
+	default:
+		return qualityAuto
+	}
 }
 
 func clampUnit(v, defaultVal float64) float64 {
