@@ -133,6 +133,70 @@ func TestAssetsBeforeTheManifestFolderExists(t *testing.T) {
 	}
 }
 
+// fontModelProject declares a font and a model whose inputs live outside the manifest's folder, the model naming a buffer and an image beside it and embedding another image as a data URI.
+const fontModelProject = `version: 1
+name: Sample
+id: dev.example.sample
+appVersion: '1'
+window: {width: 320, height: 240}
+assets:
+  fonts:
+    - in: fonts/Inter.ttf
+      out: assets/inter.fnt
+  models:
+    - in: models/ship.gltf
+      out: assets/ship.glb
+  manifest:
+    in: assets
+    out: gen/assets_gen.go
+`
+
+func TestAssetsFontsAndModels(t *testing.T) {
+	root := t.TempDir()
+	for rel, data := range map[string]string{
+		"game.yaml":                 fontModelProject,
+		"fonts/Inter.ttf":           "font",
+		"models/ship.gltf":          `{"asset":{"version":"2.0"},"buffers":[{"uri":"ship.bin","byteLength":4}],"images":[{"uri":"tex/hull%20paint.png"},{"uri":"ship.bin"},{"uri":"data:image/png;base64,AA=="}]}`,
+		"models/ship.bin":           "data",
+		"models/tex/hull paint.png": "png",
+		"assets/inter.fnt":          "info",
+		"assets/inter.png":          "png",
+		"assets/ship.glb":           "glTF",
+	} {
+		writeFile(t, root, rel, []byte(data))
+	}
+	f, err := project.Parse([]byte(fontModelProject))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := credits.Assets(root, f.Assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"fonts/Inter.ttf", "models/ship.bin", "models/ship.gltf", "models/tex/hull paint.png"}; !slices.Equal(got, want) {
+		t.Fatalf("Assets = %v, want %v", got, want)
+	}
+
+	// An uncredited font is reported rather than left out of the credits.
+	writeFile(t, root, "models/ship.gltf.import.yaml", []byte("version: 1\ncredit: {author: A, license: CC0-1.0}\n"))
+	writeFile(t, root, "models/ship.bin.import.yaml", []byte("version: 1\ncredit: {author: A, license: CC0-1.0}\n"))
+	writeFile(t, root, "models/tex/hull paint.png.import.yaml", []byte("version: 1\ncredit: {author: B, license: CC-BY-4.0}\n"))
+	entries, err := credits.Collect(root, f.Assets)
+	var missing *credits.MissingError
+	if !errors.As(err, &missing) || !slices.Equal(missing.Assets, []string{"fonts/Inter.ttf"}) {
+		t.Fatalf("Collect error = %v, want the font named as uncredited", err)
+	}
+	if len(entries) != 3 || entries[2].Asset != "models/tex/hull paint.png" || entries[2].Credit.Author != "B" {
+		t.Fatalf("Collect entries = %+v, want the model, its buffer and its image credited", entries)
+	}
+
+	// A model naming a file outside the project is refused.
+	writeFile(t, root, "models/ship.gltf", []byte(`{"asset":{"version":"2.0"},"images":[{"uri":"../../secret.png"}]}`))
+	if _, err := credits.Assets(root, f.Assets); err == nil || !strings.Contains(err.Error(), "leaves the project") {
+		t.Fatalf("Assets error = %v, want the URI leaving the project refused", err)
+	}
+}
+
 func TestAssetsMissingInput(t *testing.T) {
 	root, a := newProject(t)
 	if err := os.Remove(filepath.Join(root, "sfx/jump.wav")); err != nil {

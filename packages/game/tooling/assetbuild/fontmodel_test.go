@@ -3,6 +3,7 @@ package assetbuild_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"image/color"
 	"math"
 	"os"
@@ -12,12 +13,15 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/text"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetbuild"
 	"github.com/nsgo-dev/nsgo/core"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
+	"golang.org/x/image/math/fixed"
 )
 
 // fontAndModelProject extends sampleProject with a font target and a model target.
@@ -136,19 +140,60 @@ func TestFontTargetBakesABitmapFont(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	face, err := opentype.NewFace(otf, &opentype.FaceOptions{Size: 16, DPI: 72, Hinting: font.HintingFull})
-	if err != nil {
-		t.Fatal(err)
+	var buf sfnt.Buffer
+	kern := func(a, b rune, size int) float32 {
+		t.Helper()
+		ga, err := otf.GlyphIndex(&buf, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gb, err := otf.GlyphIndex(&buf, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		k, err := otf.Kern(&buf, ga, gb, fixed.I(size), font.HintingFull)
+		if err != nil && !errors.Is(err, sfnt.ErrNotFound) {
+			t.Fatal(err)
+		}
+		return float32(k.Round())
 	}
 	for _, a := range "AVa " {
 		for _, b := range "AVa " {
-			if got, want := f.Kerning(a, b), float32(face.Kern(a, b).Round()); got != want {
+			if got, want := f.Kerning(a, b), kern(a, b, 16); got != want {
 				t.Errorf("kerning %q %q = %v, want %v", a, b, got, want)
 			}
 		}
 	}
 	if f.LineHeight < 16 || f.Base <= 0 || f.Base > f.LineHeight {
 		t.Fatalf("line height %v, base %v", f.LineHeight, f.Base)
+	}
+}
+
+// withKern returns the TrueType font ttf with a kern table of pairs added, as assetbuild.AddKernTable adds it.
+func withKern(t *testing.T, ttf []byte, pairs [][3]int) []byte {
+	t.Helper()
+	out, err := assetbuild.AddKernTable(ttf, pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestFontKerningScalesWithSize checks that the baked kerning is the font's at the baked size, which opentype's Face.Kern, giving the same amount at every size, does not report.
+func TestFontKerningScalesWithSize(t *testing.T) {
+	root := newFontAndModelProject(t)
+	// Go Regular has 2048 units per em, so -256 units is -2 pixels at 16 pixels and -8 at 64.
+	writeFile(t, filepath.Join(root, "fonts/go.ttf"), withKern(t, goregular.TTF, [][3]int{{'A', 'V', -256}, {'V', 'a', -128}}))
+	build(t, root, assetbuild.Builder{})
+	f := loadFont(t, root, "assets/fonts/hud.fnt")
+	if got := [3]float32{f.Kerning('A', 'V'), f.Kerning('V', 'a'), f.Kerning('V', 'A')}; got != [3]float32{-2, -1, 0} {
+		t.Fatalf("kerning at 16 pixels: A V, V a, V A = %v, want [-2 -1 0]", got)
+	}
+	editProject(t, root, "      size: 16\n", "      size: 64\n")
+	build(t, root, assetbuild.Builder{})
+	f = loadFont(t, root, "assets/fonts/hud.fnt")
+	if got := [3]float32{f.Kerning('A', 'V'), f.Kerning('V', 'a'), f.Kerning('V', 'A')}; got != [3]float32{-8, -4, 0} {
+		t.Fatalf("kerning at 64 pixels: A V, V a, V A = %v, want [-8 -4 0]", got)
 	}
 }
 
@@ -231,6 +276,45 @@ func TestFontWithSeveralPages(t *testing.T) {
 	wantGone(t, root, "assets/fonts/hud-0.png", "assets/fonts/hud-1.png")
 }
 
+// TestFontPagesLeftWithoutTheCache checks that pages of an earlier build are removed, and reported as stale by Check, when the cache that lists them was not kept, as in a checkout that commits the outputs but not the cache.
+func TestFontPagesLeftWithoutTheCache(t *testing.T) {
+	root := newFontAndModelProject(t)
+	editProject(t, root, "      size: 16\n      chars: \"AVa \"\n", "      size: 1500\n      chars: \"MW\"\n")
+	build(t, root, assetbuild.Builder{})
+	removeCache := func() {
+		t.Helper()
+		if err := os.Remove(filepath.Join(root, project.DefaultAssetsCache)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeCache()
+	editProject(t, root, "      size: 1500\n", "      size: 20\n")
+	r := build(t, root, assetbuild.Builder{})
+	if got := r.Targets[0].Outputs; strings.Join(got, " ") != "assets/fonts/hud.fnt assets/fonts/hud.png" {
+		t.Fatalf("font outputs = %v", got)
+	}
+	wantGone(t, root, "assets/fonts/hud-0.png", "assets/fonts/hud-1.png")
+
+	// A leftover page next to current outputs makes the font stale for Check, which removes nothing.
+	page, err := os.ReadFile(filepath.Join(root, "assets/fonts/hud.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "assets/fonts/hud-1.png"), page)
+	writeFile(t, filepath.Join(root, "assets/fonts/hud-1.json"), []byte("{}"))
+	removeCache()
+	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), map[string]assetbuild.Status{fontID: assetbuild.Stale, modelID: assetbuild.UpToDate})
+	if _, err := os.Stat(filepath.Join(root, "assets/fonts/hud-1.png")); err != nil {
+		t.Fatalf("Check removed the leftover page: %v", err)
+	}
+	build(t, root, assetbuild.Builder{})
+	wantGone(t, root, "assets/fonts/hud-1.png")
+	// A JSON file is never a font's page, so it is left alone.
+	if _, err := os.Stat(filepath.Join(root, "assets/fonts/hud-1.json")); err != nil {
+		t.Fatalf("hud-1.json was removed: %v", err)
+	}
+}
+
 func TestModelTargetPacksOneGLB(t *testing.T) {
 	root := newFontAndModelProject(t)
 	build(t, root, assetbuild.Builder{})
@@ -293,6 +377,32 @@ func TestEditingAModelSidecarRepacksIt(t *testing.T) {
 	wantStatuses(t, build(t, root, assetbuild.Builder{}), all2(assetbuild.UpToDate))
 }
 
+// TestModelScaleWithScenesSharingARoot checks that scenes listing the same root node share the scaled node put above it, since glTF allows a node only one parent.
+func TestModelScaleWithScenesSharingARoot(t *testing.T) {
+	root := newFontAndModelProject(t)
+	src := strings.Replace(triangleGLTF, `"scenes": [{"nodes": [0]}],`, `"scenes": [{"nodes": [0]}, {"nodes": [0, 1]}],`, 1)
+	src = strings.Replace(src, `"nodes": [{"name": "tri", "mesh": 0}],`, `"nodes": [{"name": "tri", "mesh": 0}, {"name": "marker"}],`, 1)
+	writeFile(t, filepath.Join(root, "models/tri.gltf"), []byte(src))
+	writeFile(t, filepath.Join(root, "models/tri.gltf.import.yaml"), []byte("version: 1\nmodel: {scale: 2}\n"))
+	build(t, root, assetbuild.Builder{})
+	doc := loadGLB(t, root, "assets/tri.glb")
+	if len(doc.Scenes) != 2 || len(doc.Scenes[0].Roots) != 1 || len(doc.Scenes[1].Roots) != 2 {
+		t.Fatalf("scenes = %+v", doc.Scenes)
+	}
+	if doc.Scenes[0].Roots[0] != doc.Scenes[1].Roots[0] {
+		t.Fatalf("the scenes put tri under different nodes: %+v", doc.Scenes)
+	}
+	for _, r := range doc.Scenes[1].Roots {
+		n := doc.Nodes[r]
+		if n.Scale != (math3d.Vec3{X: 2, Y: 2, Z: 2}) || len(n.Children) != 1 {
+			t.Fatalf("root %d = %+v, want a node scaled by 2 above one of the model's roots", r, n)
+		}
+	}
+	if len(doc.Nodes) != 4 {
+		t.Fatalf("%d nodes, want the model's 2 and one scaled node above each", len(doc.Nodes))
+	}
+}
+
 func all2(s assetbuild.Status) map[string]assetbuild.Status {
 	return map[string]assetbuild.Status{fontID: s, modelID: s}
 }
@@ -330,7 +440,7 @@ func TestFontAndModelRefusals(t *testing.T) {
 	}{
 		{"image settings on a font", "fonts/go.ttf.import.yaml", "version: 1\nimage: {filter: nearest}\n", "holds image settings, but a font target bakes it as a font"},
 		{"font settings on a model", "models/tri.gltf.import.yaml", "version: 1\nfont: {size: 8}\n", "holds font settings, but a model target packs it as a model"},
-		{"model settings on an image a model embeds", "models/tri skin.png.import.yaml", "version: 1\nimage: {filter: nearest}\n", "no target in game.yaml reads models/tri skin.png"},
+		{"image settings on an image a model embeds", "models/tri skin.png.import.yaml", "version: 1\nimage: {filter: nearest}\n", "no target in game.yaml reads models/tri skin.png"},
 		{"not a font", "fonts/go.ttf", "not a font", "parse font"},
 		{"no glyph", "fonts/go.ttf.import.yaml", "version: 1\nfont: {chars: \"\U0001F600\"}\n", "a glyph for none"},
 		{"missing buffer", "models/tri.bin", "", "byteLength 68"},

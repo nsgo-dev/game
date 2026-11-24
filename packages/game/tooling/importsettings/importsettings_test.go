@@ -83,6 +83,7 @@ func TestParseRefuses(t *testing.T) {
 		{"both sections", "version: 1\nimage: {}\naudio: {}\n", "not image and audio"},
 		{"font and model", "version: 1\nfont: {}\nmodel: {}\n", "not font and model"},
 		{"font size", "version: 1\nfont: {size: -1}\n", "size -1"},
+		{"font size too large", "version: 1\nfont: {size: 2049}\n", "size 2049 must be from 0 to 2048"},
 		{"font padding", "version: 1\nfont: {padding: -2}\n", "padding -2"},
 		{"font chars", "version: 1\nfont: {chars: \"ab\\ncd\"}\n", "control character"},
 		{"font field", "version: 1\nfont: {sizes: 3}\n", "sizes"},

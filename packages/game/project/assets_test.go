@@ -80,6 +80,9 @@ func TestAssetsRefused(t *testing.T) {
 		{"font pages clash with an atlas", atlas + "  fonts:\n    - in: a.ttf\n      out: assets/ui.fnt\n", "fonts[0] writes assets/ui.png, which atlases[0] also writes"},
 		{"font pages in atlas images", atlas + "  fonts:\n    - in: a.ttf\n      out: art/ui/hud.fnt\n", "fonts[0] writes its pages to art/ui, inside atlases[0]'s images"},
 		{"texture over font page", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: a.png\n      out: assets/hud-1.png\n", "textures[0] writes assets/hud-1.png, which fonts[0] also writes"},
+		{"texture reads a font page", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: assets/hud.png\n      out: assets/hud.ktx2\n", "textures[0] reads assets/hud.png, a page fonts[0] writes"},
+		{"texture reads a page of a font with several", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: assets/hud-2.png\n      out: assets/hud.ktx2\n", "textures[0] reads assets/hud-2.png"},
+		{"font size too large", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      size: 100000\n", "size 100000"},
 		{"two fonts write one fnt", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: hud.fnt\n    - in: b.otf\n      out: hud.fnt\n", "also writes"},
 		{"model in not a model", assetsHead + "assets:\n  models:\n    - in: a.obj\n      out: a.glb\n", ".gltf or .glb"},
 		{"model out not glb", assetsHead + "assets:\n  models:\n    - in: a.gltf\n      out: a.gltf\n", ".glb file"},
@@ -105,6 +108,8 @@ func TestAssetsAccepted(t *testing.T) {
 		{"non-PNG output beside atlas images", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  textures:\n    - in: a.png\n      out: art/ui/a.ktx2\n"},
 		{"default cache with the manifest of the project", assetsHead + "assets:\n  manifest:\n    in: .\n    out: gen/assets.go\n"},
 		{"font and model", assetsHead + "assets:\n  fonts:\n    - in: fonts/Inter.TTF\n      out: assets/hud.fnt\n      size: 24\n      chars: \" 0123456789\"\n      padding: 0\n  models:\n    - in: models/ship.gltf\n      out: assets/ship.glb\n      scale: 0.01\n      animations: false\n"},
+		{"texture of a JSON-named neighbor of a font page", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: assets/hud-x.png\n      out: assets/hud.ktx2\n"},
+		{"largest font size", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      size: 2048\n"},
 		{"font beside an atlas", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  fonts:\n    - in: a.otf\n      out: assets/ui-x.fnt\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

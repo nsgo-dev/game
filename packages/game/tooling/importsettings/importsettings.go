@@ -125,7 +125,7 @@ type Loop struct {
 // Font holds how a font target bakes a TrueType or OpenType font into an AngelCode BMFont. Each field left out keeps the target's setting in game.yaml.
 type Font struct {
 	// Size is the font size in pixels the glyphs are drawn at; 0 keeps the target's.
-	Size int `yaml:"size,omitempty" schema:"minimum=0"`
+	Size int `yaml:"size,omitempty" schema:"minimum=0,maximum=2048"`
 	// Chars are the characters baked into the font, each once, in any order, such as " 0123456789"; empty keeps the target's.
 	Chars string `yaml:"chars,omitempty"`
 	// Padding is the transparent gap around each glyph on the font's pages, in pixels.
@@ -270,8 +270,8 @@ func (im *Image) validate() error {
 }
 
 func (fo *Font) validate() error {
-	if fo.Size < 0 {
-		return fmt.Errorf("size %d must not be negative", fo.Size)
+	if err := project.ValidateFontSize(fo.Size); err != nil {
+		return err
 	}
 	if fo.Padding != nil && *fo.Padding < 0 {
 		return fmt.Errorf("padding %d must not be negative", *fo.Padding)
