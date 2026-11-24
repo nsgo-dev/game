@@ -824,3 +824,43 @@ func TestOnPauseFromUpdateAndStopInsideOnPause(t *testing.T) {
 		}
 	})
 }
+
+func TestLoopStepsElapsedAndStepNow(t *testing.T) {
+	var updates, draws int
+	l := &game.Loop{
+		Rate:   60,
+		Paused: true,
+		Update: func(time.Duration) { updates++ },
+		Draw:   func(float64) { draws++ },
+	}
+	if l.StepRate() != 60 || l.StepDuration() != time.Second/60 || l.EffectiveTimeScale() != 1 {
+		t.Fatalf("defaults: rate=%d dur=%v scale=%v", l.StepRate(), l.StepDuration(), l.EffectiveTimeScale())
+	}
+	if ran := l.StepNow(0); ran != 0 || l.StepNow(-3) != 0 {
+		t.Fatalf("non-positive StepNow ran %d, want 0", ran)
+	}
+
+	// Stepping 60 updates at 60 Hz advances exact 1.0 second even without Run.
+	if ran := l.StepNow(60); ran != 60 {
+		t.Fatalf("StepNow(60) = %d, want 60", ran)
+	}
+	if updates != 60 || draws != 1 || l.Steps() != 60 || l.ElapsedSeconds() != 1.0 || l.Elapsed() != time.Second {
+		t.Fatalf("after 60 steps: updates=%d draws=%d steps=%d sec=%v elapsed=%v",
+			updates, draws, l.Steps(), l.ElapsedSeconds(), l.Elapsed())
+	}
+
+	// Rate change mid-run preserves exact elapsed seconds across segments.
+	l.Rate = 120
+	if ran := l.StepNow(120); ran != 120 {
+		t.Fatalf("StepNow(120) = %d, want 120", ran)
+	}
+	if l.Steps() != 180 || l.ElapsedSeconds() != 2.0 || l.Elapsed() != 2*time.Second {
+		t.Fatalf("after rate change: steps=%d sec=%v elapsed=%v", l.Steps(), l.ElapsedSeconds(), l.Elapsed())
+	}
+
+	// Nil receiver helpers are safe.
+	var nilLoop *game.Loop
+	if nilLoop.Steps() != 0 || nilLoop.Elapsed() != 0 || nilLoop.ElapsedSeconds() != 0 || nilLoop.StepRate() != 60 || nilLoop.StepDuration() != time.Second/60 || nilLoop.EffectiveTimeScale() != 1 || nilLoop.StepNow(5) != 0 {
+		t.Fatal("nil Loop helpers returned unexpected values")
+	}
+}

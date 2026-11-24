@@ -41,6 +41,11 @@ type Loop struct {
 	pendingSteps int
 	dirty        bool
 	lastPaused   bool
+	steps        uint64
+	segRate      int
+	segSteps     uint64
+	prevElapsed  float64
+	activeRun    *loopRun
 }
 
 // SetPaused pauses or resumes the loop's updates without accumulating a catch-up backlog, calling OnPause if the paused state changed.
@@ -84,6 +89,129 @@ func (l *Loop) MarkDirty() {
 	l.dirty = true
 }
 
+// Steps returns the total number of fixed Update steps executed by l.
+func (l *Loop) Steps() uint64 {
+	if l == nil {
+		return 0
+	}
+	return l.steps
+}
+
+// ElapsedSeconds returns the simulated game time advanced by fixed Update steps
+// in seconds. Each contiguous run at a fixed rate contributes steps/rate seconds
+// without integer-nanosecond drift, so 60 steps at 60 Hz is exactly 1.0.
+func (l *Loop) ElapsedSeconds() float64 {
+	if l == nil {
+		return 0
+	}
+	if l.segRate <= 0 {
+		return l.prevElapsed
+	}
+	return l.prevElapsed + float64(l.segSteps)/float64(l.segRate)
+}
+
+// Elapsed returns the simulated game time advanced by fixed Update steps,
+// rounded to the nearest nanosecond from ElapsedSeconds (so 60 steps at 60 Hz
+// is exactly time.Second).
+func (l *Loop) Elapsed() time.Duration {
+	sec := l.ElapsedSeconds()
+	if sec <= 0 {
+		return 0
+	}
+	ns := sec * float64(time.Second)
+	if ns >= float64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return time.Duration(math.Round(ns))
+}
+
+// StepRate returns the effective fixed update rate in Hz (Rate when > 0, else 60).
+func (l *Loop) StepRate() int {
+	if l == nil {
+		return 60
+	}
+	return l.rate()
+}
+
+// StepDuration returns the fixed duration passed to Update (time.Second / StepRate()).
+func (l *Loop) StepDuration() time.Duration {
+	if l == nil {
+		return time.Second / 60
+	}
+	return l.step()
+}
+
+// EffectiveTimeScale returns the simulation time scale actually applied by Run
+// (TimeScale when finite and > 0, else 1).
+func (l *Loop) EffectiveTimeScale() float64 {
+	if l == nil {
+		return 1
+	}
+	return l.timeScale()
+}
+
+// StepNow synchronously executes n fixed Update steps right away (whether Paused
+// is true or false), followed by a Draw when Draw is set, and returns how many
+// steps ran. Values at or below 0 do nothing and return 0. If Update stops an
+// active Run, StepNow stops immediately without calling Draw.
+func (l *Loop) StepNow(n int) int {
+	if l == nil || n <= 0 {
+		return 0
+	}
+	r := l.activeRun
+	if r != nil && l.Paused {
+		l.pendingSteps = 0
+		r.acc = 0
+	}
+	ran := 0
+	var lastStep time.Duration
+	for range n {
+		rate := l.rate()
+		step := time.Second / time.Duration(rate)
+		lastStep = step
+		ran++
+		l.recordStep(rate)
+		if l.Update != nil {
+			l.Update(step)
+		}
+		if r != nil && r.ended {
+			return ran
+		}
+	}
+	l.syncPause()
+	if r != nil {
+		if r.ended {
+			return ran
+		}
+		r.syncImmersive()
+	}
+	l.dirty = true
+	if l.Draw != nil {
+		l.dirty = false
+		alpha := 0.0
+		if r != nil && !l.Paused && r.acc > 0 && lastStep > 0 {
+			alpha = float64(r.acc) / float64(lastStep)
+			if alpha >= 1 {
+				alpha = 0
+			}
+		}
+		l.Draw(alpha)
+	}
+	return ran
+}
+
+func (l *Loop) recordStep(rate int) {
+	l.steps++
+	if l.segRate == 0 {
+		l.segRate = rate
+	} else if l.segRate != rate {
+		l.prevElapsed += float64(l.segSteps) / float64(l.segRate)
+		l.segRate = rate
+		l.segSteps = 0
+	}
+	l.segSteps++
+}
+
 // Run starts the loop on cx's display frames until cx is disposed or stop is called.
 //
 // The loop pauses while cx's window is in the background (core.Env.Lifecycle), that is hidden, minimized or covered on a desktop and the app in the background on a phone, and resumes from the time it shows again, so the time away runs no updates. While running in the foreground it keeps the display awake (core.Scope.KeepAwake), releasing the hold when paused, stopped or disposed.
@@ -94,6 +222,7 @@ func (l *Loop) MarkDirty() {
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
 	l.syncPause()
 	r := &loopRun{loop: l, cx: cx, env: cx.Env()}
+	l.activeRun = r
 	stopEffect := cx.Effect(func() {
 		if cx.Env().Lifecycle() == core.LifecycleBackground {
 			r.pause()
@@ -167,6 +296,9 @@ func (r *loopRun) syncImmersive() {
 // end ends the run for good, giving up its share of the hidden system bars. Stopping pauses the run first, while disposing cx cancels the frame and keep-awake hold that cx owns.
 func (r *loopRun) end() {
 	r.ended = true
+	if r.loop.activeRun == r {
+		r.loop.activeRun = nil
+	}
 	r.syncImmersive()
 }
 
@@ -215,7 +347,8 @@ func (r *loopRun) frame(at time.Time) {
 	if r.cancel == nil {
 		return
 	}
-	step := r.loop.step()
+	rate := r.loop.rate()
+	step := time.Second / time.Duration(rate)
 	steps := 0
 	if r.loop.Paused {
 		if n := r.loop.pendingSteps; n > 0 {
@@ -223,6 +356,7 @@ func (r *loopRun) frame(at time.Time) {
 			r.acc = 0
 			for range n {
 				steps++
+				r.loop.recordStep(rate)
 				if r.loop.Update != nil {
 					r.loop.Update(step)
 				}
@@ -249,6 +383,7 @@ func (r *loopRun) frame(at time.Time) {
 			}
 			r.acc -= step
 			steps++
+			r.loop.recordStep(rate)
 			if r.loop.Update != nil {
 				r.loop.Update(step)
 			}

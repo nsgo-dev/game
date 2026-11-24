@@ -800,3 +800,42 @@ func TestAssertHelpersFormatDivergingStates(t *testing.T) {
 		t.Fatalf("AssertDeterministicSteps failure message = %q, want step 3 and both states", spy2.failed)
 	}
 }
+
+func TestSetSeedRewindsAndReseedsStreams(t *testing.T) {
+	s := random.New(11)
+	_ = s.Uint64()
+	_ = s.Uint64()
+
+	s.SetSeed(99)
+	if s.Seed() != 99 {
+		t.Fatalf("Stream.Seed() = %d, want 99", s.Seed())
+	}
+	want := random.New(99)
+	for i := range 10 {
+		if a, b := s.Uint64(), want.Uint64(); a != b {
+			t.Fatalf("Stream after SetSeed diverged at %d: %d != %d", i, a, b)
+		}
+	}
+
+	ms := random.NewStreams(11)
+	loot := ms.Stream("loot")
+	ai := ms.Stream("ai")
+	_ = loot.Uint64()
+	_ = ai.Uint64()
+
+	ms.SetSeed(777)
+	if ms.Seed() != 777 {
+		t.Fatalf("Streams.Seed() = %d, want 777", ms.Seed())
+	}
+	fresh := random.NewStreams(777)
+	freshLoot := fresh.Stream("loot")
+	freshAI := fresh.Stream("ai")
+	for i := range 10 {
+		if a, b := loot.Uint64(), freshLoot.Uint64(); a != b {
+			t.Fatalf("child loot stream after SetSeed diverged at %d: %d != %d", i, a, b)
+		}
+		if a, b := ai.Uint64(), freshAI.Uint64(); a != b {
+			t.Fatalf("child ai stream after SetSeed diverged at %d: %d != %d", i, a, b)
+		}
+	}
+}

@@ -13,7 +13,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/packages/game/random"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
@@ -76,6 +78,21 @@ type Config struct {
 
 	// EntityLayer returns the scene layer name an entity belongs to. When nil or returning "", inspection falls back to sceneformat.ObjectRef.Layer if attached.
 	EntityLayer func(entities.Entity) string
+
+	// Loop is the game's fixed-step loop for pause, resume, synchronous stepping and time-scale tools.
+	Loop *game.Loop
+
+	// LoopFunc dynamically resolves the active game loop on each tool call. When non-nil and returning a non-nil loop, it overrides Loop.
+	LoopFunc func() *game.Loop
+
+	// Random is a deterministic random stream re-seeded by game_loop_seed.
+	Random *random.Stream
+
+	// RandomStreams is a named deterministic random stream manager re-seeded by game_loop_seed.
+	RandomStreams *random.Streams
+
+	// SetSeed is a custom callback invoked by game_loop_seed to apply a deterministic random seed.
+	SetSeed func(uint64)
 }
 
 type compTypeKey any
@@ -208,6 +225,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	}
 	var out []automation.Tool
 	out = append(out, b.inspectTools()...)
+	out = append(out, b.loopTools()...)
 	return out
 }
 
