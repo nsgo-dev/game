@@ -113,6 +113,7 @@
 | `game/loot` | 实验性 | [loot](loot.md) |
 | `game/math2d` | 稳定 | [math2d](math2d.md) |
 | `game/math3d` | 实验性 | [math3d](math3d.md) |
+| `game/mcp` | 实验性 | [mcp](mcp.md) |
 | `game/modding` | 实验性 | [modding](modding.md) |
 | `game/net` | 实验性 | [net](net.md) |
 | `game/particles` | 实验性 | [particles](particles.md) |

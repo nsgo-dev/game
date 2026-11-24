@@ -22,6 +22,15 @@ func makeEntity(index, generation uint32) Entity {
 	return Entity(generation)<<32 | Entity(index)
 }
 
+// MakeEntity constructs a generational Entity handle from its 32-bit slot index and generation.
+// It returns Zero when generation is 0.
+func MakeEntity(index, generation uint32) Entity {
+	if generation == 0 {
+		return Zero
+	}
+	return makeEntity(index, generation)
+}
+
 // Index returns the entity's 32-bit slot index.
 func (e Entity) Index() uint32 { return uint32(e) }
 
@@ -141,6 +150,18 @@ func (w *World) Alive(e Entity) bool {
 		return false
 	}
 	return w.alive[idx] && w.gens[idx] == e.Generation()
+}
+
+// Resolve reconstructs the entity handle for (index, generation) and reports whether it is currently live in w.
+func (w *World) Resolve(index, generation uint32) (Entity, bool) {
+	if w == nil {
+		return Zero, false
+	}
+	e := MakeEntity(index, generation)
+	if !w.Alive(e) {
+		return Zero, false
+	}
+	return e, true
 }
 
 // Count returns the number of live entities in w.

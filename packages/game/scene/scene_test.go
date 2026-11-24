@@ -956,3 +956,49 @@ func TestDisposingManagerParentScopeExitsStackedScenes(t *testing.T) {
 		t.Fatalf("loops kept running after parent scope disposal: A %d->%d, B %d->%d", savedA, aTicks, savedB, bTicks)
 	}
 }
+
+func TestManagerStackAndLayerParallax(t *testing.T) {
+	var mgr *scene.Manager
+	a := &scene.Controller{Scene: scene.NewScene(nil)}
+	b := &scene.Controller{Scene: scene.NewScene(nil), Transparent: true}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = scene.NewManager(cx)
+		return core.View{}
+	})
+	if stack := mgr.Stack(); stack != nil {
+		t.Fatalf("empty Stack = %v, want nil", stack)
+	}
+	app.Post(func() {
+		mgr.Switch(a, nil)
+		mgr.Push(b)
+	})
+	app.Settle()
+
+	stack := mgr.Stack()
+	if len(stack) != 2 || stack[0] != a || stack[1] != b {
+		t.Fatalf("Stack = %v, want [a b]", stack)
+	}
+	// Mutating the returned slice must not affect the manager's stack.
+	stack[0] = nil
+	if mgr.Stack()[0] != a {
+		t.Fatal("mutating Stack() slice affected Manager")
+	}
+
+	var nilMgr *scene.Manager
+	if nilMgr.Stack() != nil {
+		t.Fatal("nil Manager.Stack() should be nil")
+	}
+
+	lit := &scene.Layer{Name: "literal"}
+	if px, py := lit.Parallax(); px != 1 || py != 1 {
+		t.Fatalf("literal Layer.Parallax() = (%v, %v), want (1, 1)", px, py)
+	}
+	locked := scene.NewLayer("locked", scene.SpaceWorld, 0).SetParallax(0, 0.5)
+	if px, py := locked.Parallax(); px != 0 || py != 0.5 {
+		t.Fatalf("SetParallax(0, 0.5).Parallax() = (%v, %v), want (0, 0.5)", px, py)
+	}
+	var nilLayer *scene.Layer
+	if px, py := nilLayer.Parallax(); px != 1 || py != 1 {
+		t.Fatalf("nil Layer.Parallax() = (%v, %v), want (1, 1)", px, py)
+	}
+}

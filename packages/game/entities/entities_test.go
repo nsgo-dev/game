@@ -1077,3 +1077,77 @@ func TestRestoreAdvancesDeadSlotGenerations(t *testing.T) {
 		t.Fatalf("stale handle %v is alive after restore", a)
 	}
 }
+
+func TestInspectionHelpers(t *testing.T) {
+	w := entities.NewWorld()
+	registerGameCodecs(t, w)
+
+	names := w.CodecNames()
+	wantNames := []string{"health", "inventory", "parent", "position", "tag", "velocity"}
+	if !slices.Equal(names, wantNames) {
+		t.Fatalf("CodecNames = %v, want %v", names, wantNames)
+	}
+	if cname, ok := entities.CodecName[Position](w); !ok || cname != "position" {
+		t.Fatalf("CodecName[Position] = (%q, %v), want (position, true)", cname, ok)
+	}
+	if _, ok := entities.CodecName[entities.Transform2D](w); ok {
+		t.Fatal("CodecName[Transform2D] should be false when unregistered")
+	}
+
+	e := w.Spawn()
+	entities.Set(w, e, Position{X: 10, Y: 20})
+	entities.Set(w, e, Health{Current: 80, Max: 100})
+
+	// ParentOf / ChildrenOf without a hierarchy must not create one.
+	if p, ok := w.ParentOf(e); ok || p != entities.Zero {
+		t.Fatalf("ParentOf without hierarchy = (%v, %v), want (Zero, false)", p, ok)
+	}
+	if ch := w.ChildrenOf(e); len(ch) != 0 {
+		t.Fatalf("ChildrenOf without hierarchy = %v, want empty", ch)
+	}
+	if entities.Has[entities.Transform2D](w, e) {
+		t.Fatal("ParentOf/ChildrenOf unexpectedly created Transform2D")
+	}
+
+	if got, ok := w.Resolve(e.Index(), e.Generation()); !ok || got != e {
+		t.Fatalf("Resolve(%d, %d) = (%v, %v), want (%v, true)", e.Index(), e.Generation(), got, ok, e)
+	}
+	if _, ok := w.Resolve(e.Index(), 0); ok {
+		t.Fatal("Resolve with generation 0 should fail")
+	}
+	if entities.MakeEntity(0, 0) != entities.Zero {
+		t.Fatal("MakeEntity(0, 0) should be Zero")
+	}
+
+	if !w.HasCodec(e, "position") || w.HasCodec(e, "velocity") || w.HasCodec(e, "missing") {
+		t.Fatal("HasCodec mismatch")
+	}
+	raw, ok, err := w.EncodeComponent(e, "position")
+	if err != nil || !ok || string(raw) != `{"x":10,"y":20}` {
+		t.Fatalf("EncodeComponent(position) = (%s, %v, %v)", raw, ok, err)
+	}
+	if _, ok, err := w.EncodeComponent(e, "velocity"); err != nil || ok {
+		t.Fatalf("EncodeComponent(absent) = (%v, %v), want (false, nil)", ok, err)
+	}
+	comps, err := w.EntityComponents(e)
+	if err != nil || len(comps) != 2 || comps[0].Type != "health" || comps[1].Type != "position" {
+		t.Fatalf("EntityComponents = (%v, %v)", comps, err)
+	}
+
+	child := w.Spawn()
+	h := w.Hierarchy2D()
+	if err := h.SetParent(child, e, false); err != nil {
+		t.Fatalf("SetParent: %v", err)
+	}
+	if p, ok := w.ParentOf(child); !ok || p != e {
+		t.Fatalf("ParentOf(child) = (%v, %v), want (%v, true)", p, ok, e)
+	}
+	if ch := w.ChildrenOf(e); len(ch) != 1 || ch[0] != child {
+		t.Fatalf("ChildrenOf(e) = %v, want [%v]", ch, child)
+	}
+
+	w.Destroy(e)
+	if _, ok := w.Resolve(e.Index(), e.Generation()); ok {
+		t.Fatal("Resolve should reject destroyed entity")
+	}
+}
