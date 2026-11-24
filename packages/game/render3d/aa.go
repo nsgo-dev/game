@@ -506,7 +506,7 @@ func encodeFXAAUniform(dst *[FXAAUniformSize]byte, opts FXAAOptions) {
 // (Draw(3, 0)), uses only textureSampleLevel(..., 0.0) so non-uniform early
 // exits and edge-search loops remain valid on every GPU backend (Metal,
 // Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software
-// device), and matches [ApplyFXAA] on the CPU.
+// device), and matches [ApplyFXAA] on the CPU for a non-sRGB, gamma-encoded source (see [FXAAPass]).
 //
 // Bind group 0 layout:
 //   - @binding(0): uniform FXAAParams (16 bytes: params = (subpixel, edgeThreshold, edgeThresholdMin, 0)); the texel size comes from textureDimensions(fxaa_tex)
@@ -684,7 +684,7 @@ type FXAAPassDesc struct {
 	// Label names the pass's GPU resources in capture tools.
 	Label string
 	// TargetFormat is the color format of the render pass into which [FXAAPass]
-	// draws. FormatUndefined defaults to dev.SurfaceFormat() (or FormatRGBA8Unorm).
+	// draws. FormatUndefined defaults to dev.SurfaceFormat() (or FormatRGBA8Unorm), which is an sRGB format on some platforms; see [FXAAPass] for the color space the pass expects.
 	TargetFormat gpu.TextureFormat
 	// Options configures FXAA 3.11 edge detection and sub-pixel blending. Zero
 	// uses [DefaultFXAAOptions].
@@ -697,6 +697,8 @@ type FXAAPassDesc struct {
 // FXAAPass owns the compiled pipeline, sampler, uniform buffer, and cached bind groups for full-screen FXAA 3.11 post-processing on a [gpu.Device] (#249).
 //
 // Create it once in OnReady and call [FXAAPass.Draw] (inside an open single-sampled render pass) or [FXAAPass.Encode] (to open and close the render pass automatically) with any single-sampled color texture (such as an offscreen render target or [MSAATarget.OutputTexture]). The pass keeps one bind group per source texture, so it can filter several sources of different sizes in the same frame, and steady-state draws of sources it has seen do not allocate.
+//
+// FXAA's thresholds are tuned for gamma-encoded luma and [ApplyFXAA] works on stored bytes, so give the pass a non-sRGB source holding gamma-encoded (for example tone-mapped LDR) color and a target of the same kind: an sRGB source is sampled as linear values and no longer matches ApplyFXAA, and a gamma-encoded source drawn into an sRGB target is encoded twice.
 //
 // The options are one uniform block, and buffer writes are applied before the submission's commands, so every draw one pass records into a submission uses the options set at its last draw. To filter several views with different options in one frame, create one FXAAPass per option set.
 type FXAAPass struct {

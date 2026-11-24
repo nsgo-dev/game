@@ -669,7 +669,8 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 - **每次提交一组参数**：参数只占一个 uniform 块，而缓冲写入会在本次提交的命令之前生效，因此同一个 `FXAAPass` 在一帧内记录的所有绘制都使用最后一次绘制的参数。要在一帧内以不同参数处理多个视图，请为每组参数各建一个 `FXAAPass`。
 - `ApplyFXAA(src, opts)` 在 CPU 上对 `*image.RGBA` 运行与 GPU 一致的纯 Go FXAA 3.11 参考实现，低于对比度阈值的平坦内部区域保持原样，斜边得到平滑抗锯齿。
 - 开启 `Retained` 的 `MSAATarget` 或 `FXAAPass` 在设备丢失恢复后，需在 `OnReady` / `OnDeviceRestored` 中调用 `SetDevice(dev)`，以便后续 `Resize` 或 uniform/绑定组更新指向恢复后的设备。
-- 本包参考测试会在 `full` 与 `NoGPUCompute` 两种档位下校验 `render3d/testdata/golden/` 中的 `aa_baseline.png`、`aa_msaa4x.png`、`aa_fxaa.png` 以及 GPU `FXAAPass` 与 CPU `ApplyFXAA` 的一致性（设置 `UPDATE_GOLDEN=1` 可重写基准图）。
+- **色彩空间**：FXAA 的阈值针对感知上的、经过 gamma 编码的亮度调校，`ApplyFXAA` 也直接处理存储的字节。请给该 pass 输入保存 gamma 编码颜色（例如色调映射后的 LDR 颜色）的非 sRGB 源纹理，并绘制到同类目标上。sRGB 源纹理会以线性值被采样，边缘检测因此与 `ApplyFXAA` 不再一致；gamma 编码的源绘制到 sRGB 目标上则会被编码两次。`TargetFormat` 默认取 `dev.SurfaceFormat()`，在某些平台上是 sRGB 格式，因此请显式设置。
+- **参考渲染**：软件渲染器测试将场景与 `render3d/testdata/golden/` 中的 `aa_baseline.png`、`aa_msaa4x.png`、`aa_fxaa.png` 比对（设置 `UPDATE_GOLDEN=1` 可重写参考图），并校验 `FXAAPass` 与 `ApplyFXAA` 的一致性。在完整与 `NoGPUCompute` 两种档位下，测试将 MSAA 输出与软件渲染器的参考渲染比对，并将 `FXAAPass` 输出与 `ApplyFXAA` 比对。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
