@@ -2,6 +2,7 @@ package sceneformat_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -748,4 +749,34 @@ func (m fixedScenes) Scene(path string) (*sceneformat.SceneDoc, error) {
 		return nil, fmt.Errorf("no scene %q", path)
 	}
 	return d, nil
+}
+
+func TestUIDIsTheScenesOwn(t *testing.T) {
+	scenes := newMemScenes(map[string]string{
+		"base.yaml": "version: 2\nuid: base000000001\nlayers:\n  - name: a\n",
+	})
+	const src = "version: 2\nuid: derv000000001\ninherits: base.yaml\n"
+	doc, err := sceneformat.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sceneformat.Encode(doc)
+	if err != nil || string(out) != sceneformat.SchemaCommentV2+"\n"+src {
+		t.Fatalf("Encode = %q, %v", out, err)
+	}
+	resolved, err := sceneformat.Resolve(doc, scenes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.UID != "derv000000001" {
+		t.Fatalf("resolved UID = %q, want the inheriting scene's own", resolved.UID)
+	}
+	for _, v := range []int{1, 2} {
+		bad := fmt.Sprintf("version: %d\nuid: Derv000000001\n", v)
+		_, err := sceneformat.Parse([]byte(bad))
+		var fe *sceneformat.FieldError
+		if !errors.As(err, &fe) || strings.Join(fe.Path, ".") != "uid" {
+			t.Fatalf("version %d with a bad uid: %v", v, err)
+		}
+	}
 }

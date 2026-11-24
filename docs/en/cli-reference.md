@@ -203,6 +203,32 @@ game generate [flags] component|system|scene|prefab <name>
 | `-in string` | `.` | the game's project directory, which holds its game.yaml and the Go package the code is written into |
 | `-main` |  | for a scene, also add it to the scenes game.yaml autoloads and make it the main scene |
 
+## game mv
+
+Move or rename a file or directory of a project and rewrite every reference to it, keeping the project index up to date.
+
+```sh
+game mv [flags] <from> <to>
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-in string` |  | project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
+| `-n` |  | print what would change without changing anything |
+
+## game index
+
+Give every scene and resource file a uid, point references at files moved without the tools, and write the project index.
+
+```sh
+game index [flags] [dir]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-in string` |  | project directory (alternative to the positional argument; defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
+| `-n` |  | print what would change without changing anything |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.
