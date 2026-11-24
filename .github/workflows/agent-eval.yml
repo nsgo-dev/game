@@ -1,6 +1,6 @@
 name: Agent Eval
 
-# Runs the agent evaluation suite on a daily schedule (and on demand or when the suite changes) to catch regressions in docs, YAML formats, project checks, builds, and MCP tools, reporting a score per task.
+# Grades the agent evaluation suite's reference solutions on a daily schedule (and on demand or when the suite changes) to catch regressions in the game APIs, YAML formats, project checks and MCP tools they use, reporting a score per task. It does not run a coding agent; that is tools/agenteval -mode=command, run by hand.
 on:
   schedule:
     - cron: "0 4 * * *"

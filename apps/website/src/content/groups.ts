@@ -3,7 +3,7 @@
 export type GroupKey = 'guides' | 'tutorial' | 'comingFrom' | 'core2d' | 'extended2d' | 'multiplayerModding' | 'threeD' | 'other'
 
 const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonly string[] }[] = [
-  { key: 'guides', slugs: ['index', 'getting-started', 'project', 'playground', 'packages', 'stability', 'shipping', 'cli', 'cli-reference', 'agent-eval'] },
+  { key: 'guides', slugs: ['index', 'getting-started', 'project', 'playground', 'packages', 'stability', 'shipping', 'cli', 'cli-reference'] },
   {
     key: 'tutorial',
     slugs: [
