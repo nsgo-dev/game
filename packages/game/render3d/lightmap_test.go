@@ -42,13 +42,12 @@ func lightmapTestBakedSceneGLTF(t *testing.T) []byte {
 	albedoImg.SetNRGBA(0, 1, color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	albedoImg.SetNRGBA(1, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
 
-	// Baked lightmap: 4x2 linear irradiance map. Left half (x=0,1): warm sunlight (R=250, G=210, B=130). Right half (x=2,3): cool shadow (R=45, G=65, B=130).
-	lmImg := image.NewNRGBA(image.Rect(0, 0, 4, 2))
-	for y := range 2 {
-		lmImg.SetNRGBA(0, y, color.NRGBA{R: 250, G: 210, B: 130, A: 255})
-		lmImg.SetNRGBA(1, y, color.NRGBA{R: 250, G: 210, B: 130, A: 255})
-		lmImg.SetNRGBA(2, y, color.NRGBA{R: 45, G: 65, B: 130, A: 255})
-		lmImg.SetNRGBA(3, y, color.NRGBA{R: 45, G: 65, B: 130, A: 255})
+	// Baked lightmap: 4x2 HDR irradiance map stored as RGBM (range 4) at twice the intended level, which the material's intensity 0.5 brings back. Left half (x=0,1): warm sunlight (R=250, G=210, B=130 in linear 8-bit steps). Right half (x=2,3): cool shadow (R=45, G=65, B=130).
+	sun := math3d.Vec3{X: 2 * 250.0 / 255, Y: 2 * 210.0 / 255, Z: 2 * 130.0 / 255}
+	shadow := math3d.Vec3{X: 2 * 45.0 / 255, Y: 2 * 65.0 / 255, Z: 2 * 130.0 / 255}
+	lmImg, err := render3d.EncodeRGBMImage([]math3d.Vec3{sun, sun, shadow, shadow, sun, sun, shadow, shadow}, 4, 2, 4)
+	if err != nil {
+		t.Fatalf("EncodeRGBMImage: %v", err)
 	}
 
 	var bin []byte
@@ -142,9 +141,11 @@ func lightmapTestBakedSceneGLTF(t *testing.T) []byte {
 			},
 			"extensions": map[string]any{
 				gltf.ExtMOZLightmap: map[string]any{
-					"index":     1,
-					"texCoord":  1,
-					"intensity": 1.0,
+					"index":        1,
+					"texCoord":     1,
+					"intensity":    0.5,
+					"encoding":     "RGBM",
+					"rgbmMaxRange": 4.0,
 				},
 			},
 		}},
@@ -205,14 +206,16 @@ func lightmapTestUnitQuad(x0, y0, x1, y1 float32) render3d.LightmapMesh {
 	}
 }
 
+// lightmapTestApproxByte checks a rendered channel against a linear 8-bit expectation. The lightmap shader encodes its linear result to sRGB like the lit PBR pipelines, so got is decoded back to linear first and the tolerance stays in linear steps.
 func lightmapTestApproxByte(t *testing.T, label string, got, want uint8, tol int) {
 	t.Helper()
-	diff := int(got) - int(want)
+	gotLinear := int(math.Round(float64(render3d.SRGBToLinearChannel(float32(got)/255)) * 255))
+	diff := gotLinear - int(want)
 	if diff < 0 {
 		diff = -diff
 	}
 	if diff > tol {
-		t.Errorf("%s = %d, want %d (±%d)", label, got, want, tol)
+		t.Errorf("%s = %d (linear %d), want linear %d (±%d)", label, got, gotLinear, want, tol)
 	}
 }
 
@@ -230,6 +233,10 @@ func TestLightmapBakedGLTFSceneDrawsInGPUView(t *testing.T) {
 	lmUVs, usedFallback, err := doc.LightmapTexCoords(prim, lmRef)
 	if err != nil || usedFallback {
 		t.Fatalf("LightmapTexCoords: fallback=%v err=%v", usedFallback, err)
+	}
+	lmEncoding, err := render3d.ParseLightmapEncoding(lmRef.Encoding)
+	if err != nil || lmEncoding != render3d.LightmapRGBM || lmRef.Intensity != 0.5 || lmRef.RGBMMaxRange != 4 {
+		t.Fatalf("lightmap metadata: encoding=%q (%v, %v) intensity=%v range=%v", lmRef.Encoding, lmEncoding, err, lmRef.Intensity, lmRef.RGBMMaxRange)
 	}
 
 	mat := doc.Materials[prim.Material]
@@ -343,10 +350,10 @@ func TestLightmapBakedGLTFSceneDrawsInGPUView(t *testing.T) {
 						lmMat.BaseColorSampler = albedoSmp
 						lmMat.Lightmap = lmTex
 						lmMat.LightmapSampler = lmSmp
-						lmMat.Encoding = render3d.LightmapLinear
+						lmMat.Encoding = lmEncoding
 						lmMat.Intensity = lmRef.Intensity
-						lmMat.UVScale = lmRef.UVScale
-						lmMat.UVOffset = lmRef.UVOffset
+						lmMat.RGBMMaxRange = lmRef.RGBMMaxRange
+						lmMat.SetUVTransform(render3d.UVTransform{Scale: lmRef.UVScale, Offset: lmRef.UVOffset})
 						if err := renderer.Draw(pass, camBuf, gpuMesh, math3d.Mat4Identity(), lmMat); err != nil {
 							drawErr = err
 						}
@@ -758,8 +765,8 @@ func TestLightmapAmbientFallbackDirectLightAndUV0Fallback(t *testing.T) {
 	// Draw 1 (left): UV0 fallback sampling lmTex + additive directional light along +Z (N·L = 1). Expected: (0.4+0.2, 0.2+0.4, 0.1+0.5) = (0.6, 0.6, 0.6) -> ~(153, 153, 153).
 	matLeft := render3d.DefaultLightmapMaterial()
 	matLeft.Lightmap = lmTex
-	matLeft.DirectLight = render3d.LightmapDirectLight{
-		Direction: math3d.Vec3{Z: 1},
+	matLeft.DirectLight = &render3d.DirectionalLight{
+		Direction: math3d.Vec3{Z: -1},
 		Color:     math3d.Vec3{X: 0.2, Y: 0.4, Z: 0.5},
 		Intensity: 1.0,
 	}
@@ -856,7 +863,8 @@ func TestLightmapValidationErrors(t *testing.T) {
 		{"rgbm_with_srgb_tex", render3d.LightmapMaterial{Encoding: render3d.LightmapRGBM, Lightmap: srgbTex}},
 		{"rgbd_with_srgb_tex", render3d.LightmapMaterial{Encoding: render3d.LightmapRGBD, Lightmap: srgbTex}},
 		{"closed_lightmap_tex", render3d.LightmapMaterial{Lightmap: closedTex}},
-		{"negative_direct_intensity", render3d.LightmapMaterial{DirectLight: render3d.LightmapDirectLight{Intensity: -0.5}}},
+		{"negative_direct_intensity", render3d.LightmapMaterial{DirectLight: &render3d.DirectionalLight{Direction: math3d.Vec3{Z: -1}, Intensity: -0.5}}},
+		{"zero_direct_direction", render3d.LightmapMaterial{DirectLight: &render3d.DirectionalLight{Intensity: 1}}},
 	}
 	for _, tc := range badMats {
 		if err := tc.mat.Validate(); !errors.Is(err, render3d.ErrInvalidLightmap) {
@@ -867,8 +875,24 @@ func TestLightmapValidationErrors(t *testing.T) {
 	if _, err := render3d.ParseLightmapEncoding("invalid"); !errors.Is(err, render3d.ErrInvalidLightmap) {
 		t.Errorf("ParseLightmapEncoding(invalid) = %v, want ErrInvalidLightmap", err)
 	}
+	for in, want := range map[string]render3d.LightmapEncoding{
+		"": render3d.LightmapLinear, "Linear": render3d.LightmapLinear, " linear ": render3d.LightmapLinear,
+		"sRgb": render3d.LightmapSRGB, "SRGB": render3d.LightmapSRGB,
+		"Rgbm": render3d.LightmapRGBM, "rgbD": render3d.LightmapRGBD,
+	} {
+		if got, err := render3d.ParseLightmapEncoding(in); err != nil || got != want {
+			t.Errorf("ParseLightmapEncoding(%q) = %v, %v, want %v", in, got, err, want)
+		}
+	}
 	if _, err := render3d.EncodeRGBMImage(nil, 0, 2, 8); !errors.Is(err, render3d.ErrInvalidLightmap) {
 		t.Errorf("EncodeRGBMImage(0x2) = %v, want ErrInvalidLightmap", err)
+	}
+	inf := float32(math.Inf(1))
+	if _, err := render3d.EncodeRGBMImage([]math3d.Vec3{{X: nan}}, 1, 1, 8); !errors.Is(err, render3d.ErrInvalidLightmap) {
+		t.Errorf("EncodeRGBMImage(NaN) = %v, want ErrInvalidLightmap", err)
+	}
+	if _, err := render3d.EncodeRGBDImage([]math3d.Vec3{{Y: inf}}, 1, 1); !errors.Is(err, render3d.ErrInvalidLightmap) {
+		t.Errorf("EncodeRGBDImage(+Inf) = %v, want ErrInvalidLightmap", err)
 	}
 	if _, err := render3d.UploadLightmapRGBA16F(nil, dev, []math3d.Vec3{{X: nan}}, 1, 1, render3d.TextureUpload{}); !errors.Is(err, render3d.ErrInvalidLightmap) {
 		t.Errorf("UploadLightmapRGBA16F(NaN) = %v, want ErrInvalidLightmap", err)
@@ -972,4 +996,140 @@ func TestLightmapIntensityNonIndexedAndLifecycle(t *testing.T) {
 	if err := renderer.Close(); err != nil {
 		t.Fatalf("renderer second Close: %v", err)
 	}
+}
+
+// lightmapTestRenderer sets up a software renderer, an ortho camera over [-1, 1]^2 and a LightmapRenderer targeting RGBA8Unorm.
+func lightmapTestRenderer(t *testing.T, size int) (*gpu.SoftwareRenderer, *gpu.Device, *render3d.CameraBuffer, *render3d.LightmapRenderer) {
+	t.Helper()
+	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	camBuf.WriteCamera(lightmapTestOrthoCamera(1))
+	renderer, err := render3d.NewLightmapRenderer(nil, dev, camBuf.Layout(), render3d.LightmapRendererOptions{
+		ColorFormat: gpu.FormatRGBA8Unorm,
+		DepthFormat: gpu.FormatDepth24Plus,
+		DoubleSided: true,
+	})
+	if err != nil {
+		t.Fatalf("NewLightmapRenderer: %v", err)
+	}
+	t.Cleanup(func() { _ = renderer.Close() })
+	return sr, dev, camBuf, renderer
+}
+
+// lightmapTestDrawCenter draws mesh once with model and mat into a cleared target and returns the center pixel.
+func lightmapTestDrawCenter(t *testing.T, sr *gpu.SoftwareRenderer, dev *gpu.Device, camBuf *render3d.CameraBuffer, r *render3d.LightmapRenderer, mesh *render3d.GPULightmapMesh, model math3d.Mat4, mat render3d.LightmapMaterial) color.RGBA {
+	t.Helper()
+	r.BeginFrame()
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	if err := r.Draw(pass, camBuf, mesh, model, mat); err != nil {
+		t.Fatalf("Draw: %v", err)
+	}
+	pass.End()
+	dev.Submit(enc.Finish())
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+	b := sr.Image().Bounds()
+	return sr.Image().RGBAAt(b.Dx()/2, b.Dy()/2)
+}
+
+func TestLightmapOutputMatchesLitPBRSRGBEncode(t *testing.T) {
+	sr, dev, camBuf, r := lightmapTestRenderer(t, 16)
+	quad, err := render3d.UploadLightmapMesh(nil, dev, lightmapTestUnitQuad(-1, -1, 1, 1), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadLightmapMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = quad.Close() })
+
+	// Ambient irradiance 0.2 on white albedo is linear 0.2; the lit PBR pipelines write linear_to_srgb of their linear result, so the lightmap pass must write render3d.LinearToSRGB(0.2) (~124), not 51.
+	mat := render3d.DefaultLightmapMaterial()
+	mat.AmbientFallback = [3]float32{0.2, 0.05, 0.8}
+	px := lightmapTestDrawCenter(t, sr, dev, camBuf, r, quad, math3d.Mat4Identity(), mat)
+	want := render3d.LinearToSRGB(math3d.Vec3{X: 0.2, Y: 0.05, Z: 0.8})
+	for i, got := range []uint8{px.R, px.G, px.B} {
+		w := [3]float32{want.X, want.Y, want.Z}[i]
+		if d := math.Abs(float64(got) - float64(w*255)); d > 2 {
+			t.Errorf("channel %d = %d, want LinearToSRGB %.1f", i, got, w*255)
+		}
+	}
+
+	// An sRGB color target leaves the encode to the hardware, so the shader variant for it must still build.
+	srgb, err := render3d.NewLightmapRenderer(nil, dev, camBuf.Layout(), render3d.LightmapRendererOptions{ColorFormat: gpu.FormatRGBA8UnormSRGB})
+	if err != nil {
+		t.Fatalf("NewLightmapRenderer(sRGB target): %v", err)
+	}
+	_ = srgb.Close()
+}
+
+func TestLightmapIntensityZeroIsBlack(t *testing.T) {
+	sr, dev, camBuf, r := lightmapTestRenderer(t, 16)
+	quad, err := render3d.UploadLightmapMesh(nil, dev, lightmapTestUnitQuad(-1, -1, 1, 1), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadLightmapMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = quad.Close() })
+	lmTex, err := render3d.UploadTexturePixels(nil, dev, render3d.PixelBuffer{
+		Width: 1, Height: 1, Format: gpu.FormatRGBA8Unorm, Pixels: []byte{200, 200, 200, 255},
+	}, render3d.TextureUpload{})
+	if err != nil {
+		t.Fatalf("UploadTexturePixels: %v", err)
+	}
+	t.Cleanup(func() { _ = lmTex.Close() })
+
+	mat := render3d.DefaultLightmapMaterial()
+	mat.Lightmap = lmTex
+	mat.Intensity = 0
+	px := lightmapTestDrawCenter(t, sr, dev, camBuf, r, quad, math3d.Mat4Identity(), mat)
+	if px.R != 0 || px.G != 0 || px.B != 0 {
+		t.Errorf("Intensity 0 pixel = %v, want black", px)
+	}
+}
+
+func TestLightmapDirectLightUsesNormalMatrixAndTravelDirection(t *testing.T) {
+	sr, dev, camBuf, r := lightmapTestRenderer(t, 16)
+
+	// A quad in the XY plane whose normals lean toward +X at 45 degrees. Scaling X by 0.5 tilts the true surface normal to (2, 0, 1)/sqrt(5) (N·L 0.894 with light from +X); transforming the normal with the model matrix instead would give (0.5, 0, 1)/sqrt(1.25) (N·L 0.447).
+	m := lightmapTestUnitQuad(-1, -1, 1, 1)
+	n := math3d.Vec3{X: 1, Z: 1}.Norm()
+	m.Normals = []math3d.Vec3{n, n, n, n}
+	quad, err := render3d.UploadLightmapMesh(nil, dev, m, render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadLightmapMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = quad.Close() })
+
+	mat := render3d.DefaultLightmapMaterial()
+	// Travels toward -X, so it lights surfaces facing +X, the same convention as a LightRig's DirectionalLight.
+	mat.DirectLight = &render3d.DirectionalLight{Direction: math3d.Vec3{X: -1}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 1}
+	px := lightmapTestDrawCenter(t, sr, dev, camBuf, r, quad, math3d.Scale(math3d.Vec3{X: 0.5, Y: 1, Z: 1}), mat)
+	lightmapTestApproxByte(t, "non-uniform scale N·L", px.R, uint8(math.Round(2/math.Sqrt(5)*255)), 4)
+
+	// The opposite travel direction lights the back of the surface, which receives nothing.
+	mat.DirectLight.Direction = math3d.Vec3{X: 1}
+	px = lightmapTestDrawCenter(t, sr, dev, camBuf, r, quad, math3d.Mat4Identity(), mat)
+	if px.R != 0 {
+		t.Errorf("light travelling away from the surface gave R = %d, want 0", px.R)
+	}
+
+	// A non-finite model matrix is refused before any GPU work.
+	bad := math3d.Mat4Identity()
+	bad[0] = float32(math.NaN())
+	r.BeginFrame()
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	if err := r.Draw(pass, camBuf, quad, bad, mat); !errors.Is(err, render3d.ErrInvalidLightmap) {
+		t.Errorf("Draw(NaN model) = %v, want ErrInvalidLightmap", err)
+	}
+	pass.End()
+	dev.Submit(enc.Finish())
 }
