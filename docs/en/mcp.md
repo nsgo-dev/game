@@ -44,8 +44,8 @@ if err != nil {
 Components registered on an [`entities.World`](entities.md) with `entities.RegisterCodec` are readable and editable automatically. In addition:
 
 - Built-in `entities.Transform2D`, `entities.WorldTransform2D` and `sceneformat.ObjectRef` components are surfaced automatically as `"transform2d"`, `"world_transform2d"` and `"object_ref"` unless that type or name is already registered. `"transform2d"` and `"object_ref"` are editable directly (with `"transform2d"` propagating `Hierarchy2D` dirty flags automatically); `"world_transform2d"` is derived from the hierarchy and read-only.
-- Transient or non-saved runtime components can be exposed read-only with `mcp.RegisterComponent[T](bridge, name)` or `mcp.RegisterComponentFunc(bridge, name, read)`, or exposed for both reading and editing with `mcp.RegisterMutableComponent[T](bridge, name)` or `mcp.RegisterComponentEditor[T](bridge, name, apply)`.
-- `game_component_set` decodes values strictly with `DisallowUnknownFields`, rejects non-finite floats (`NaN`, `±Inf`) and invalid nulls, and patches existing fields by default (preserving omitted fields unless `"replace": true` is passed) without leaving partially mutated state on error.
+- Transient or non-saved runtime components can be exposed read-only with `mcp.RegisterComponent[T](bridge, name)` or `mcp.RegisterComponentFunc(bridge, name, read)`, or exposed for both reading and editing with `mcp.RegisterMutableComponent[T](bridge, name)` or `mcp.RegisterComponentEditor[T](bridge, name, apply)`. `RegisterComponentEditor` can add editing to an earlier `RegisterComponent[T]` registration of the same type, but not to a `RegisterComponentFunc` reader, whose value need not be stored as `T`.
+- `game_component_set` decodes values strictly with `DisallowUnknownFields`, rejects non-finite floats (`NaN`, `±Inf`) and invalid nulls, and patches existing fields by default (preserving omitted fields unless `"replace": true` is passed) without leaving partially mutated state on error. A patch keeps every field it does not change exactly as it was, including unexported fields, fields tagged `json:"-"` such as callbacks and handles, and the identity of pointers, maps and slices; a field it changes gets a freshly allocated value, so an error or an editor that rejects the value leaves the live component untouched. A codec component whose decoded value cannot be encoded back, such as a `NaN` produced by a custom `UnmarshalJSON`, is refused before it is stored.
 - Component values are serialized with `encoding/json`; if a runtime value contains non-finite floats (`NaN`, `+Inf`, `-Inf`), callback fields, channels or cyclic pointers, `game/mcp` falls back to a safe sanitizer (`"NaN"`, `"+Inf"`, `"-Inf"`, `"<func>"`, `"<chan>"`, `"<cycle>"`) so an agent can still diagnose broken runtime state.
 
 ```go
@@ -69,7 +69,7 @@ Prefabs can be registered on `mcp.Config.Prefabs` or on the `*mcp.Bridge` so age
 
 - `bridge.RegisterPrefab(name, spawn)` (or `Config.Prefabs`) registers a custom `mcp.PrefabSpawner` (`func(w *entities.World, overrides map[string]any) (entities.Entity, error)`).
 - `bridge.RegisterEntityPrefab(p)` registers an [`*entities.Prefab`](entities.md) under `p.Name()`.
-- `bridge.RegisterScenePrefab(name, doc)` registers a validated, self-contained [`*sceneformat.SceneDoc`](editor.md) template spawned via `sceneformat.SpawnEntities`.
+- `bridge.RegisterScenePrefab(name, doc)` registers a validated, self-contained [`*sceneformat.SceneDoc`](editor.md) template spawned via `sceneformat.SpawnEntities`. The document must hold exactly one top-level object, the spawned root; nest the rest under it. Every spawn attaches the document's `sceneformat.ObjectRef` IDs unchanged, so repeated spawns produce entities with the same object IDs, which `game_entities_list` also shows as their names unless `EntityName` says otherwise.
 
 ```go
 if err := bridge.RegisterEntityPrefab(coinPrefab); err != nil {
@@ -80,7 +80,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 }
 ```
 
-If `game_entity_spawn` fails while applying `parent`, `x`/`y`, or `components` after spawning, the newly spawned entity (and any scene-prefab children) are rolled back automatically.
+If `game_entity_spawn` fails while applying `parent` or `components`, or while reading the new entity's components back, the newly spawned entity (and any scene-prefab children) are rolled back automatically. `x` and `y` are validated before anything is spawned.
 
 ## Registered tools
 
@@ -108,8 +108,8 @@ If `game_entity_spawn` fails while applying `parent`, `x`/`y`, or `components` a
 | `game_console_exec` | `command` (required) | Runs one command line through `debug.Console`, returning `command`, `ok`, `output`, `lines`, and `error` (when the console command fails). |
 | `game_prefabs_list` | `{}` | Sorted list of registered prefabs (`name` and `kind`: `"custom"`, `"entity_prefab"`, or `"scene"`). |
 | `game_entity_spawn` | `prefab`, `overrides`, `parent`, `x`, `y`, `components` (all optional) | Newly spawned live entity's stable `ref`, `index`, `generation`, `prefab`, metadata, `parent`, `children`, and initial `components` snapshot. |
-| `game_entity_destroy` | `ref` (required), `policy` (optional: `"cascade"`, `"orphan"`, `"keep_world"`, or `"reparent"`) | Confirmation of destruction with `ref`, effective `policy`, and count of `destroyed` entities. |
-| `game_component_set` | `ref` (required), `component` (required), `value` (required), `replace` (optional, default `false`) | Updated component `value` read back from the live entity; edits take effect on the next simulation step. |
+| `game_entity_destroy` | `ref` (required), `policy` (optional: `"cascade"`, `"orphan"`, `"keep_world"`, or `"reparent"`) | Confirmation of destruction with `ref`, the `policy` applied to children (the hierarchy's default, usually `"orphan"`, when omitted; `"none"` when omitted and the entity had no children), and count of `destroyed` entities. `"reparent"` keeps the children's world transforms. |
+| `game_component_set` | `ref` (required), `component` (required), `value` (required), `replace` (optional, default `false`) | Updated component `value` read back from the live entity; edits take effect on the next simulation step. If the write succeeded but the read-back failed, `value` is `null` and `read_error` says why; the edit still stands. |
 | `game_component_remove` | `ref` (required), `component` (required) | Whether the component was present and `removed` from the live entity. |
 
 All tools reject unknown argument fields.

@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/packages/game/internal/jsonedit"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/automation"
 )
@@ -84,6 +84,8 @@ type ComponentSetResult struct {
 	Ref       string          `json:"ref"`
 	Component string          `json:"component"`
 	Value     json.RawMessage `json:"value"`
+	// ReadError is set when the write succeeded but reading the component back failed; Value is then null.
+	ReadError string `json:"read_error,omitempty"`
 }
 
 // ComponentRemoveResult is the JSON result of game_component_remove.
@@ -143,7 +145,7 @@ var (
 			"policy": {
 				"type": "string",
 				"enum": ["cascade", "orphan", "keep_world", "reparent"],
-				"description": "How to handle hierarchy children: \"cascade\" destroys descendants, \"orphan\" detaches direct children to root keeping local transforms, \"keep_world\" detaches direct children to root preserving world transforms, \"reparent\" moves direct children to the destroyed entity's parent (or root). Omit to use the world's default policy."
+				"description": "How to handle hierarchy children: \"cascade\" destroys descendants, \"orphan\" detaches direct children to root keeping local transforms, \"keep_world\" detaches direct children to root preserving world transforms, \"reparent\" moves direct children to the destroyed entity's parent (or root) preserving world transforms. Omit to use the hierarchy's default policy."
 			}
 		}
 	}`)
@@ -316,7 +318,7 @@ func (b *Bridge) RegisterEntityPrefab(p *entities.Prefab) error {
 
 // RegisterScenePrefab registers a self-contained *sceneformat.SceneDoc template under name on b so game_entity_spawn can instantiate it via sceneformat.SpawnEntities.
 //
-// doc must pass sceneformat.Validate, must not refer to unresolved external scenes, and must contain at least one object. The first top-level object in document order is returned as the spawned root entity.
+// doc must pass sceneformat.Validate, must not refer to unresolved external scenes, and must hold exactly one top-level object across its layers, which becomes the spawned root entity; nest every other object under it as a child. Each spawn attaches the document's sceneformat.ObjectRef IDs unchanged, so repeated spawns produce entities with the same object IDs and names.
 func (b *Bridge) RegisterScenePrefab(name string, doc *sceneformat.SceneDoc) error {
 	if b == nil {
 		return ErrNilBridge
@@ -333,9 +335,9 @@ func (b *Bridge) RegisterScenePrefab(name string, doc *sceneformat.SceneDoc) err
 	if doc.RefersToScenes() {
 		return fmt.Errorf("mcp: scene prefab %q refers to external scenes; call sceneformat.Resolve first", name)
 	}
-	rootID := firstSceneObjectID(doc)
-	if rootID == "" {
-		return fmt.Errorf("mcp: scene prefab %q has no objects", name)
+	rootID, top := sceneRootObjectID(doc)
+	if top != 1 {
+		return fmt.Errorf("mcp: scene prefab %q has %d top-level objects, want exactly 1 root object", name, top)
 	}
 	return b.addPrefabEntry(prefabEntry{
 		name: name,
@@ -361,13 +363,18 @@ func (b *Bridge) RegisterScenePrefab(name string, doc *sceneformat.SceneDoc) err
 	})
 }
 
-func firstSceneObjectID(doc *sceneformat.SceneDoc) string {
+func sceneRootObjectID(doc *sceneformat.SceneDoc) (string, int) {
+	var id string
+	top := 0
 	for li := range doc.Layers {
-		if len(doc.Layers[li].Objects) > 0 {
-			return doc.Layers[li].Objects[0].ID
+		for oi := range doc.Layers[li].Objects {
+			if top == 0 {
+				id = doc.Layers[li].Objects[oi].ID
+			}
+			top++
 		}
 	}
-	return ""
+	return id, top
 }
 
 // RegisterMutableComponent registers component type T under name on b for both inspection (game_entities_list, game_entity_inspect, game_component_get) and mutation (game_component_set, game_component_remove, game_entity_spawn).
@@ -391,8 +398,7 @@ func RegisterMutableComponent[T any](b *Bridge, name string) error {
 
 // RegisterComponentEditor registers a typed component editor for component type T under name on b.
 //
-// When name is not yet registered on b, it also registers inspection and removal for T. When name was previously registered read-only with RegisterComponent[T] (for the same type T) or RegisterComponentFunc, it attaches the editor to that registration.
-// apply receives the strictly decoded and finite-validated value and may enforce domain invariants or synchronize secondary runtime state before writing.
+// When name is not yet registered on b, it also registers inspection and removal for T. When name was previously registered read-only with RegisterComponent[T] for the same type T, it attaches the editor to that registration. It refuses a name registered with RegisterComponentFunc, whose reader may expose data that is not stored as T, and a name registered for another type. apply receives the strictly decoded and finite-validated value and may enforce domain invariants or synchronize secondary runtime state before writing.
 func RegisterComponentEditor[T any](b *Bridge, name string, apply func(w *entities.World, e entities.Entity, v T) error) error {
 	if b == nil {
 		return ErrNilBridge
@@ -427,17 +433,15 @@ func registerTypedComponentEditor[T any](b *Bridge, name string, apply func(w *e
 		if existing.write != nil {
 			return fmt.Errorf("mcp: component %q: %w", name, ErrDuplicateComponent)
 		}
-		if existing.typeKey != nil && existing.typeKey != k {
+		if existing.typeKey == nil {
+			return fmt.Errorf("mcp: component %q is registered with RegisterComponentFunc, whose reader is not backed by a stored type: %w", name, ErrDuplicateComponent)
+		}
+		if existing.typeKey != k {
 			return fmt.Errorf("mcp: component %q already registered with a different type: %w", name, ErrDuplicateComponent)
 		}
-		existing.typeKey = k
 		existing.write = writeFn
 		existing.remove = removeFn
 		b.components[name] = existing
-		if b.compByType == nil {
-			b.compByType = make(map[compTypeKey]string)
-		}
-		b.compByType[k] = name
 		return nil
 	}
 
@@ -607,6 +611,7 @@ func (b *Bridge) handleEntitySpawn(_ context.Context, raw json.RawMessage) (any,
 
 	vals, err := b.readAllComponents(w, e)
 	if err != nil {
+		rollback()
 		return nil, err
 	}
 	res := EntitySpawnResult{
@@ -663,9 +668,13 @@ func (b *Bridge) handleEntityDestroy(_ context.Context, raw json.RawMessage) (an
 	}
 
 	before := w.Count()
+	children := w.ChildrenOf(e)
 	effectivePolicy := args.Policy
 	if effectivePolicy == "" {
-		effectivePolicy = "default"
+		effectivePolicy = "none"
+		if len(children) > 0 {
+			effectivePolicy = removePolicyName(w.Hierarchy2D().RemovePolicy())
+		}
 	}
 
 	switch args.Policy {
@@ -690,16 +699,18 @@ func (b *Bridge) handleEntityDestroy(_ context.Context, raw json.RawMessage) (an
 			w.Destroy(e)
 		}
 	case "reparent":
-		if children := w.ChildrenOf(e); len(children) > 0 {
+		if len(children) > 0 {
 			h := w.Hierarchy2D()
-			parent, hasParent := w.ParentOf(e)
+			parent, _ := w.ParentOf(e)
+			// Every child is alive and parent is one of its ancestors, so SetParent cannot fail with a dead entity or a cycle; it is checked anyway before any child moves so a change in entities cannot leave a half-moved family.
 			for _, ch := range children {
-				if hasParent {
-					if err := h.SetParent(ch, parent, false); err != nil {
-						return nil, fmt.Errorf("mcp: reparent child %s: %w", FormatEntityRef(ch), err)
-					}
-				} else {
-					h.Detach(ch, false)
+				if !w.Alive(ch) || (parent != entities.Zero && !w.Alive(parent)) {
+					return nil, fmt.Errorf("mcp: reparent child %s: %w", FormatEntityRef(ch), entities.ErrDeadEntity)
+				}
+			}
+			for _, ch := range children {
+				if err := h.SetParent(ch, parent, true); err != nil {
+					return nil, fmt.Errorf("mcp: reparent child %s: %w", FormatEntityRef(ch), err)
 				}
 			}
 		}
@@ -711,6 +722,17 @@ func (b *Bridge) handleEntityDestroy(_ context.Context, raw json.RawMessage) (an
 		Policy:    effectivePolicy,
 		Destroyed: before - w.Count(),
 	}, nil
+}
+
+func removePolicyName(p entities.RemovePolicy) string {
+	switch p {
+	case entities.RemoveCascade:
+		return "cascade"
+	case entities.RemoveDetachKeepWorld:
+		return "keep_world"
+	default:
+		return "orphan"
+	}
 }
 
 type componentSetArgs struct {
@@ -751,18 +773,20 @@ func (b *Bridge) handleComponentSet(_ context.Context, raw json.RawMessage) (any
 		return nil, err
 	}
 
-	val, ok, err := b.readComponent(w, e, args.Component)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		val = json.RawMessage("null")
-	}
-	return ComponentSetResult{
+	res := ComponentSetResult{
 		Ref:       FormatEntityRef(e),
 		Component: args.Component,
-		Value:     val,
-	}, nil
+		Value:     json.RawMessage("null"),
+	}
+	// The write has already happened, so a failing read-back is reported next to the result rather than as an error that would suggest the edit did not apply.
+	val, ok, err := b.readComponent(w, e, args.Component)
+	switch {
+	case err != nil:
+		res.ReadError = err.Error()
+	case ok:
+		res.Value = val
+	}
+	return res, nil
 }
 
 type componentRemoveArgs struct {
@@ -947,7 +971,7 @@ func writeBuiltinTransform2D(w *entities.World, e entities.Entity, raw json.RawM
 			t = entities.IdentityTransform2D()
 		}
 	}
-	if err := decodeStrictValue(trimmed, &t); err != nil {
+	if err := jsonedit.DecodeStrict(trimmed, &t); err != nil {
 		return fmt.Errorf("mcp: set component %q on %s: %w", "transform2d", FormatEntityRef(e), err)
 	}
 	for _, pair := range []struct {
@@ -982,7 +1006,7 @@ func writeBuiltinObjectRef(w *entities.World, e entities.Entity, raw json.RawMes
 			ref = *cur
 		}
 	}
-	if err := decodeStrictValue(trimmed, &ref); err != nil {
+	if err := jsonedit.DecodeStrict(trimmed, &ref); err != nil {
 		return fmt.Errorf("mcp: set component %q on %s: %w", "object_ref", FormatEntityRef(e), err)
 	}
 	entities.Set(w, e, ref)
@@ -1004,39 +1028,19 @@ func decodeTypedComponent[T any](w *entities.World, e entities.Entity, name stri
 			return v, fmt.Errorf("cannot set non-nullable component %q to null; use game_component_remove to remove a component", name)
 		}
 	}
-	if !replace {
-		if cur, ok := entities.Get[T](w, e); ok {
-			// Prefer an isolated JSON copy so a partial decode error never mutates *cur's maps or slices;
-			// fall back to a shallow copy when *cur contains non-JSON fields (such as callbacks or NaN being repaired).
-			if curJSON, err := json.Marshal(*cur); err == nil {
-				if err := json.Unmarshal(curJSON, &v); err != nil {
-					v = *cur
-				}
-			} else {
-				v = *cur
-			}
+	if cur, ok := entities.Get[T](w, e); ok && !replace {
+		patched, err := jsonedit.Patch(cur, trimmed)
+		if err != nil {
+			return v, err
 		}
-	}
-	if err := decodeStrictValue(trimmed, &v); err != nil {
+		v = patched
+	} else if err := jsonedit.DecodeStrict(trimmed, &v); err != nil {
 		return v, err
 	}
 	if err := validateFiniteValue(reflect.ValueOf(v), 0, make(map[visitKey]bool)); err != nil {
 		return v, err
 	}
 	return v, nil
-}
-
-func decodeStrictValue(trimmed []byte, dst any) error {
-	dec := json.NewDecoder(bytes.NewReader(trimmed))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return errors.New("unexpected trailing data")
-	}
-	return nil
 }
 
 func validateFloat32Arg(field string, v float64) error {
