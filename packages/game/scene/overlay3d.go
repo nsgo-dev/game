@@ -6,8 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -30,26 +28,41 @@ func (s *Scene) DrawScreenLayers(d *core.Drawing) {
 	}
 }
 
-// ProjectToOverlay projects worldPos through cam into 2D overlay coordinates
+// ProjectToOverlay projects the 3D world point (worldX, worldY, worldZ) through
+// the column-major view-projection matrix viewProj (using [0, 1] clip depth, as
+// math3d.Mat4 and scene3d.Camera.ViewProj produce) into 2D overlay coordinates
 // spanning (0..viewWidth, 0..viewHeight) with (0, 0) at the top-left corner.
 //
-// visible is true when worldPos lies inside cam's view frustum (NDC X and Y in
-// [-1, 1] and NDC Z in [0, 1]). Points in front of the camera but outside the
-// frustum return their projected off-screen coordinates with visible == false;
-// points behind the camera, non-finite inputs, a nil camera, or non-positive
-// view dimensions return (0, 0, false).
-func ProjectToOverlay(cam *scene3d.Camera, worldPos math3d.Vec3, viewWidth, viewHeight float32) (x, y float32, visible bool) {
-	if cam == nil || !finite32(viewWidth) || !finite32(viewHeight) || viewWidth <= 0 || viewHeight <= 0 {
+// visible is true when the projected point lies inside the view frustum (NDC X
+// and Y in [-1, 1] and NDC Z in [0, 1]). Points in front of the camera but
+// outside the frustum return their projected off-screen coordinates with
+// visible == false; points behind the camera, degenerate matrices, non-finite
+// inputs, or non-positive view dimensions return (0, 0, false).
+func ProjectToOverlay(viewProj [16]float32, worldX, worldY, worldZ, viewWidth, viewHeight float32) (x, y float32, visible bool) {
+	if !finite32(viewWidth) || !finite32(viewHeight) || viewWidth <= 0 || viewHeight <= 0 {
 		return 0, 0, false
 	}
-	if !finite32(worldPos.X) || !finite32(worldPos.Y) || !finite32(worldPos.Z) {
+	if !finite32(worldX) || !finite32(worldY) || !finite32(worldZ) {
 		return 0, 0, false
 	}
-	pt, _, inView := cam.WorldToScreen(worldPos, viewWidth, viewHeight)
-	if !finite32(pt.X) || !finite32(pt.Y) {
+	clipX := viewProj[0]*worldX + viewProj[4]*worldY + viewProj[8]*worldZ + viewProj[12]
+	clipY := viewProj[1]*worldX + viewProj[5]*worldY + viewProj[9]*worldZ + viewProj[13]
+	clipZ := viewProj[2]*worldX + viewProj[6]*worldY + viewProj[10]*worldZ + viewProj[14]
+	clipW := viewProj[3]*worldX + viewProj[7]*worldY + viewProj[11]*worldZ + viewProj[15]
+	if !finite32(clipW) || clipW <= 1e-6 {
 		return 0, 0, false
 	}
-	return pt.X, pt.Y, inView
+	invW := 1 / clipW
+	ndcX := clipX * invW
+	ndcY := clipY * invW
+	ndcZ := clipZ * invW
+	sx := (ndcX + 1) * 0.5 * viewWidth
+	sy := (1 - ndcY) * 0.5 * viewHeight
+	if !finite32(sx) || !finite32(sy) || !finite32(ndcZ) {
+		return 0, 0, false
+	}
+	inView := ndcX >= -1 && ndcX <= 1 && ndcY >= -1 && ndcY <= 1 && ndcZ >= 0 && ndcZ <= 1
+	return sx, sy, inView
 }
 
 func finite32(v float32) bool {
@@ -251,13 +264,15 @@ func (o *Overlay3D) drawContent(d *core.Drawing, size core.Size) {
 	}
 }
 
-// Project maps worldPos through cam into o's active 2D drawing coordinates for
-// a 3D view of size window. When o.Viewport is set, projected view coordinates
-// are converted into virtual coordinates via Viewport.ViewToGame, returning
-// visible == false if the projected point falls outside the camera frustum or
-// inside clipped letterbox/pillarbox margins.
-func (o *Overlay3D) Project(cam *scene3d.Camera, worldPos math3d.Vec3, window core.Size) (x, y float32, visible bool) {
-	sx, sy, inView := ProjectToOverlay(cam, worldPos, float32(window.Width), float32(window.Height))
+// Project maps the 3D world point (worldX, worldY, worldZ) through the
+// column-major view-projection matrix viewProj (as scene3d.Camera.ViewProj
+// returns) into o's active 2D drawing coordinates for a 3D view of size window.
+// When o.Viewport is set, projected view coordinates are converted into virtual
+// coordinates via Viewport.ViewToGame, returning visible == false if the
+// projected point falls outside the frustum or inside clipped letterbox/pillarbox
+// margins.
+func (o *Overlay3D) Project(viewProj [16]float32, worldX, worldY, worldZ float32, window core.Size) (x, y float32, visible bool) {
+	sx, sy, inView := ProjectToOverlay(viewProj, worldX, worldY, worldZ, float32(window.Width), float32(window.Height))
 	if o == nil || o.Viewport == nil {
 		return sx, sy, inView
 	}

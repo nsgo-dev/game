@@ -577,14 +577,14 @@ func TestOverlay3DViewportScalingAndTransparentBars(t *testing.T) {
 	win := core.Size{Width: winW, Height: winH}
 
 	// Center of 3D view (0, 0, 0) maps to window center (80, 60) => virtual center (80, 45).
-	gx, gy, vis := ov.Project(cam, math3d.Vec3{X: 0, Y: 0, Z: 0}, win)
+	gx, gy, vis := ov.Project(cam.ViewProj(), 0, 0, 0, win)
 	if !vis || math.Abs(float64(gx-80)) > 1e-2 || math.Abs(float64(gy-45)) > 1e-2 {
 		t.Fatalf("Project(origin) = (%v, %v, %v), want (80, 45, true)", gx, gy, vis)
 	}
 
 	// Point high enough to land in the top letterbox margin (view Y < 15) is clipped => visible == false.
 	// At Z=0, distance=5, halfH = 5*tan(30 deg) ≈ 2.88675; Y=2.6 projects to ndcY ≈ 0.9 => viewY ≈ 6 < 15.
-	if _, _, vis := ov.Project(cam, math3d.Vec3{X: 0, Y: 2.6, Z: 0}, win); vis {
+	if _, _, vis := ov.Project(cam.ViewProj(), 0, 2.6, 0, win); vis {
 		t.Fatal("Project into top letterbox bar reported visible == true, want false")
 	}
 }
@@ -595,7 +595,7 @@ func TestOverlay3DProjectToOverlayAndMarkerTracking(t *testing.T) {
 	target := math3d.Vec3{X: 0.6, Y: 0.3, Z: 0}
 	mesh := overlayQuad3D(target, 0.35)
 
-	px, py, visible := scene.ProjectToOverlay(cam, target, size, size)
+	px, py, visible := scene.ProjectToOverlay(cam.ViewProj(), target.X, target.Y, target.Z, size, size)
 	if !visible {
 		t.Fatalf("ProjectToOverlay(%v) = (%v, %v, false), want visible", target, px, py)
 	}
@@ -676,27 +676,27 @@ func TestOverlay3DProjectToOverlayAndMarkerTracking(t *testing.T) {
 	}
 	wantOverlayPixel(t, sr.Image(), int(math.Round(float64(px))), int(math.Round(float64(py))), color.RGBA{R: 255, G: 0, B: 255, A: 255})
 
-	// Edge cases: orthographic camera, behind camera, outside frustum, nil/invalid inputs.
+	// Edge cases: orthographic camera, behind camera, outside frustum, zero matrix, invalid inputs.
 	ortho := scene3d.NewOrthographicCamera(math3d.Vec3{Z: 5}, 4, 2, 0.1, 20)
-	ox, oy, ovis := scene.ProjectToOverlay(ortho, math3d.Vec3{X: 2, Y: 1, Z: 0}, 200, 100)
+	ox, oy, ovis := scene.ProjectToOverlay(ortho.ViewProj(), 2, 1, 0, 200, 100)
 	// OrthoHeight=4, Aspect=2 => halfW=4, halfH=2 => (2, 1) -> ndc=(0.5, 0.5) -> (150, 25).
 	if !ovis || math.Abs(float64(ox-150)) > 1e-2 || math.Abs(float64(oy-25)) > 1e-2 {
 		t.Fatalf("ortho ProjectToOverlay = (%v, %v, %v), want (150, 25, true)", ox, oy, ovis)
 	}
-	if _, _, vis := scene.ProjectToOverlay(cam, math3d.Vec3{Z: 10}, size, size); vis {
+	if _, _, vis := scene.ProjectToOverlay(cam.ViewProj(), 0, 0, 10, size, size); vis {
 		t.Fatal("point behind camera reported visible == true")
 	}
-	offX, _, offVis := scene.ProjectToOverlay(cam, math3d.Vec3{X: 50, Y: 0, Z: 0}, size, size)
+	offX, _, offVis := scene.ProjectToOverlay(cam.ViewProj(), 50, 0, 0, size, size)
 	if offVis || offX <= size {
 		t.Fatalf("off-screen right point = (%v, vis=%v), want x > %d and vis=false", offX, offVis, size)
 	}
-	if _, _, vis := scene.ProjectToOverlay(nil, target, size, size); vis {
-		t.Fatal("nil camera reported visible == true")
+	if _, _, vis := scene.ProjectToOverlay([16]float32{}, target.X, target.Y, target.Z, size, size); vis {
+		t.Fatal("zero matrix reported visible == true")
 	}
-	if _, _, vis := scene.ProjectToOverlay(cam, target, 0, size); vis {
+	if _, _, vis := scene.ProjectToOverlay(cam.ViewProj(), target.X, target.Y, target.Z, 0, size); vis {
 		t.Fatal("zero width reported visible == true")
 	}
-	if _, _, vis := scene.ProjectToOverlay(cam, math3d.Vec3{X: float32(math.NaN())}, size, size); vis {
+	if _, _, vis := scene.ProjectToOverlay(cam.ViewProj(), float32(math.NaN()), 0, 0, size, size); vis {
 		t.Fatal("NaN worldPos reported visible == true")
 	}
 }
@@ -920,7 +920,7 @@ func TestOverlay3DStructLiteralCustomOnPressAndNilSafety(t *testing.T) {
 	nilOv.SetHidden(true)
 	nilOv.Update(16 * time.Millisecond)
 	nilOv.Draw(nil, core.Size{Width: 10, Height: 10})
-	if _, _, ok := nilOv.Project(nil, math3d.Vec3{}, core.Size{Width: 10, Height: 10}); ok {
+	if _, _, ok := nilOv.Project([16]float32{}, 0, 0, 0, core.Size{Width: 10, Height: 10}); ok {
 		t.Fatal("nil Overlay3D.Project returned visible == true")
 	}
 	if _, ok := nilOv.HitTest(core.Size{Width: 10, Height: 10}, core.Point{}); ok {

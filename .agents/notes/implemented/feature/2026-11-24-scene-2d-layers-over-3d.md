@@ -15,7 +15,7 @@ Games using NSGo's 3D `gpu.View` need to render 2D HUD elements—sprite batches
 - **Transparent-by-default virtual viewports**: When `Overlay3D.Viewport` is set, `Overlay3D.Draw` copies the `screen.Viewport` value and substitutes `core.Transparent` whenever `BarColor == 0` so letterbox/pillarbox margins leave the 3D scene visible without mutating the caller's struct. Callers who explicitly set a non-zero `BarColor` (such as `core.RGB(0x000000)`) still get opaque bars.
 - **Non-blocking pointer routing by default**: `Overlay3D.Canvas` sets `core.PointerEventsNone` unless `Interactive` is true or `OnPress` is non-nil, ensuring clicks and touches pass straight through to `gpu.View` by default. `HitTest`, `HitTestAll`, `DispatchPress`, and `DispatchTouch` test standalone batches and merged layers in reverse draw order (converting through `Viewport.ViewToGame` when set) so games can either opt into canvas interaction or dispatch 2D hits before 3D raycasting.
 - **On-demand invalidation**: `Overlay3D` binds an internal `core.Signal[uint64]` to the mounting `*core.Scope` and reads it inside `Draw`. Static 2D overlays trigger zero view-tree commits while `gpu.View.OnFrame` runs off-commit; dynamic overlays call `Overlay3D.Invalidate()` (or `SetHidden`) to redraw.
-- **3D-to-2D world projection**: `ProjectToOverlay(cam, worldPos, viewW, viewH)` delegates to `scene3d.Camera.WorldToScreen` with nil/non-finite/non-positive guards, and `Overlay3D.Project` additionally maps visible screen coordinates into `Viewport` virtual space via `ViewToGame`.
+- **3D-to-2D world projection without experimental dependencies**: `game/scene` is a stable package and cannot import experimental `game/math3d` or `game/scene3d` (enforced by `TestStabilityTable`). `ProjectToOverlay(viewProj [16]float32, worldX, worldY, worldZ, viewWidth, viewHeight float32)` accepts a column-major `[16]float32` view-projection matrix with `[0, 1]` clip depth—directly assignable from `math3d.Mat4` / `scene3d.Camera.ViewProj()` without conversion—and `Overlay3D.Project` additionally maps visible screen coordinates into `Viewport` virtual space via `ViewToGame`.
 
 ## Alternatives considered
 
@@ -31,7 +31,7 @@ Stacking `gpu.View` and `core.Canvas` as siblings inside a new wrapper `core.Vie
 
 - **Benefits**:
   - Any existing `sprite.Batch`, `scene.Layer`, `scene.Drawable`, `screen.Viewport`, or `scene.Scene` screen layer works unchanged over a 3D `gpu.View` across all targets (including WebGL 2 / OpenGL ES 3.0 and `NoGPU` fallbacks).
-  - Keeping the overlay in `packages/game/scene/overlay3d.go` avoids modifying existing `scene` files and introduces no circular imports (`scene` imports `math3d`, `scene3d`, `screen`, and `nsgo/gpu`).
+  - Keeping the overlay in `packages/game/scene/overlay3d.go` avoids modifying existing `scene` files, preserves `game/scene`'s stable-package boundary (importing only stable `game/screen`, `game/sprite`, `nsgo/core`, and `nsgo/gpu`), and introduces no circular imports.
   - Zero per-frame UI commits when the 2D overlay is static.
 - **Costs & limits**:
   - 2D overlay elements always composite on top of the entire 3D surface; they cannot depth-interleave with 3D geometry (use `render3d.BillboardRenderer` when 3D depth occlusion is needed).
