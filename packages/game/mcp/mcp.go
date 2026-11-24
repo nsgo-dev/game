@@ -120,6 +120,9 @@ type Config struct {
 
 	// ConsoleFunc dynamically resolves the active debug console on each tool call. When non-nil and returning a non-nil console, it overrides Console.
 	ConsoleFunc func() *debug.Console
+
+	// Prefabs registers named prefab spawners available to game_prefabs_list and game_entity_spawn. Additional prefabs (including *entities.Prefab and *sceneformat.SceneDoc templates) can also be registered on the Bridge via RegisterPrefab, RegisterEntityPrefab and RegisterScenePrefab.
+	Prefabs map[string]PrefabSpawner
 }
 
 type compTypeKey any
@@ -135,11 +138,13 @@ type componentEntry struct {
 	typeKey compTypeKey
 	has     func(w *entities.World, e entities.Entity) bool
 	read    func(w *entities.World, e entities.Entity) (any, bool, error)
+	write   func(w *entities.World, e entities.Entity, raw json.RawMessage, replace bool) error
+	remove  func(w *entities.World, e entities.Entity) (bool, error)
 }
 
 // Bridge exposes a running game's subsystems to nsgo mcp via automation.Register.
 //
-// Create a Bridge with New or Attach, optionally register additional component inspectors with RegisterComponent or RegisterComponentFunc, and attach it to a core.Scope on the engine goroutine. Disposing the scope or calling Detach unregisters every tool automatically.
+// Create a Bridge with New or Attach, optionally register additional component inspectors, editors or prefabs, and attach it to a core.Scope on the engine goroutine. Disposing the scope or calling Detach unregisters every tool automatically.
 type Bridge struct {
 	cfg Config
 	sub *core.Scope
@@ -148,6 +153,9 @@ type Bridge struct {
 	compOrder     []string
 	compByType    map[compTypeKey]string
 	pointerButton core.MouseButton
+
+	prefabs     map[string]prefabEntry
+	prefabOrder []string
 }
 
 // New constructs a Bridge for cfg without registering its tools yet.
@@ -160,7 +168,10 @@ func New(cfg Config) *Bridge {
 		}
 		cfg.NamedScenes = copied
 	}
-	return &Bridge{cfg: cfg}
+	b := &Bridge{cfg: cfg}
+	b.initPrefabs(cfg.Prefabs)
+	b.cfg.Prefabs = nil
+	return b
 }
 
 // Attach constructs a Bridge for cfg and registers its tools on cx until cx is disposed.
@@ -283,6 +294,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.loopTools()...)
 	out = append(out, b.inputTools()...)
 	out = append(out, b.consoleTools()...)
+	out = append(out, b.editTools()...)
 	return out
 }
 

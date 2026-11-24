@@ -1,9 +1,11 @@
 package entities
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
@@ -25,11 +27,13 @@ var (
 const maxSnapshotIndex = 1 << 20
 
 type componentCodec struct {
-	name   string
-	key    typeKey
-	has    func(w *World, e Entity) bool
-	encode func(w *World, e Entity) (json.RawMessage, bool, error)
-	decode func(w *World, e Entity, raw json.RawMessage) error
+	name         string
+	key          typeKey
+	has          func(w *World, e Entity) bool
+	encode       func(w *World, e Entity) (json.RawMessage, bool, error)
+	decode       func(w *World, e Entity, raw json.RawMessage) error
+	decodeStrict func(w *World, e Entity, raw json.RawMessage, patch bool) error
+	remove       func(w *World, e Entity) bool
 }
 
 // WorldSnapshot is a deterministic, JSON-serializable snapshot of a World's live entities and registered components.
@@ -99,6 +103,42 @@ func RegisterCodec[T any](w *World, typeName string) error {
 			Set[T](w, e, v)
 			return nil
 		},
+		decodeStrict: func(w *World, e Entity, raw json.RawMessage, patch bool) error {
+			trimmed := bytes.TrimSpace(raw)
+			if len(trimmed) == 0 {
+				return errors.New("empty JSON value")
+			}
+			var v T
+			if bytes.Equal(trimmed, []byte("null")) {
+				zeroJSON, err := json.Marshal(v)
+				if err != nil || !bytes.Equal(bytes.TrimSpace(zeroJSON), []byte("null")) {
+					return errors.New("cannot decode null into non-nullable component")
+				}
+			} else if patch {
+				if cur, ok := Get[T](w, e); ok {
+					// Deep-copy via JSON so a partial decode error never mutates *cur's maps or slices.
+					curJSON, err := json.Marshal(*cur)
+					if err != nil {
+						return err
+					}
+					if err := json.Unmarshal(curJSON, &v); err != nil {
+						return err
+					}
+				}
+			}
+			if err := decodeStrictJSON(trimmed, &v); err != nil {
+				return err
+			}
+			Set[T](w, e, v)
+			return nil
+		},
+		remove: func(w *World, e Entity) bool {
+			if !Has[T](w, e) {
+				return false
+			}
+			Remove[T](w, e)
+			return true
+		},
 	}
 	w.codecByKey[k] = typeName
 	w.codecOrder = append(w.codecOrder, typeName)
@@ -156,6 +196,69 @@ func (w *World) EncodeComponent(e Entity, typeName string) (json.RawMessage, boo
 		return nil, false, fmt.Errorf("entities: encode %s on %s: %w", typeName, e, err)
 	}
 	return raw, present, nil
+}
+
+func decodeStrictJSON(trimmed []byte, dst any) error {
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return errors.New("unexpected trailing data")
+	}
+	return nil
+}
+
+// DecodeComponent strictly decodes raw JSON into the codec-registered component named typeName and attaches or replaces it on live entity e.
+// Unknown JSON fields, trailing data and invalid nulls for non-nullable component types are rejected without mutating e.
+func (w *World) DecodeComponent(e Entity, typeName string, raw json.RawMessage) error {
+	return w.decodeComponentStrict(e, typeName, raw, false)
+}
+
+// PatchComponent strictly decodes raw JSON into a copy of live entity e's existing codec-registered component (or its zero value when absent) and writes the result back atomically.
+// Unknown JSON fields and trailing data are rejected without mutating e.
+func (w *World) PatchComponent(e Entity, typeName string, raw json.RawMessage) error {
+	return w.decodeComponentStrict(e, typeName, raw, true)
+}
+
+func (w *World) decodeComponentStrict(e Entity, typeName string, raw json.RawMessage, patch bool) error {
+	if w == nil {
+		return errors.New("entities: nil world")
+	}
+	if w.disposed {
+		return ErrWorldDisposed
+	}
+	if !w.Alive(e) {
+		return ErrDeadEntity
+	}
+	codec, ok := w.codecs[typeName]
+	if !ok {
+		return fmt.Errorf("entities: component %q: %w", typeName, ErrUnknownCodec)
+	}
+	if err := codec.decodeStrict(w, e, raw, patch); err != nil {
+		return fmt.Errorf("entities: decode %s on %s: %w", typeName, e, err)
+	}
+	return nil
+}
+
+// RemoveComponent detaches the codec-registered component named typeName from live entity e and reports whether it was present.
+func (w *World) RemoveComponent(e Entity, typeName string) (bool, error) {
+	if w == nil {
+		return false, errors.New("entities: nil world")
+	}
+	if w.disposed {
+		return false, ErrWorldDisposed
+	}
+	if !w.Alive(e) {
+		return false, ErrDeadEntity
+	}
+	codec, ok := w.codecs[typeName]
+	if !ok {
+		return false, fmt.Errorf("entities: component %q: %w", typeName, ErrUnknownCodec)
+	}
+	return codec.remove(w, e), nil
 }
 
 // EntityComponents encodes all codec-registered components carried by live entity e in ascending codec-name order.

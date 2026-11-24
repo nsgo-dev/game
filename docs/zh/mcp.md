@@ -39,19 +39,48 @@ if err != nil {
 - 如果 `scene.Manager` 的控制器通过自定义 `Controller.Draw` 绘制而没有设置 `Controller.Scene`，`SceneFunc` / `Scene` 会自动作为当前场景的图层来源。
 - 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
 
-## 检查组件
+## 检查与编辑组件
 
-已在 [`entities.World`](entities.md) 上通过 `entities.RegisterCodec` 注册的组件会自动可读。此外：
+已在 [`entities.World`](entities.md) 上通过 `entities.RegisterCodec` 注册的组件会自动支持读取和编辑。此外：
 
-- 内置的 `entities.Transform2D`、`entities.WorldTransform2D` 和 `sceneformat.ObjectRef` 组件在未被同类型或同名注册覆盖时，会自动以 `"transform2d"`、`"world_transform2d"` 和 `"object_ref"` 的名称暴露。
-- 未写入存档的瞬态运行时组件可以通过 `mcp.RegisterComponent[T](bridge, name)` 注册，或使用 `mcp.RegisterComponentFunc(bridge, name, read)` 提供自定义读取器。
+- 内置的 `entities.Transform2D`、`entities.WorldTransform2D` 和 `sceneformat.ObjectRef` 组件在未被同类型或同名注册覆盖时，会自动以 `"transform2d"`、`"world_transform2d"` 和 `"object_ref"` 的名称暴露。其中 `"transform2d"` 和 `"object_ref"` 可直接编辑（编辑 `"transform2d"` 会自动传播 `Hierarchy2D` 脏标记）；`"world_transform2d"` 由层级派生，为只读组件。
+- 未写入存档的瞬态运行时组件可以通过 `mcp.RegisterComponent[T](bridge, name)` 或 `mcp.RegisterComponentFunc(bridge, name, read)` 只读暴露，也可以通过 `mcp.RegisterMutableComponent[T](bridge, name)` 或 `mcp.RegisterComponentEditor[T](bridge, name, apply)` 同时支持读取与编辑。
+- `game_component_set` 使用 `DisallowUnknownFields` 严格解码，拒绝非有限浮点数（`NaN`、`±Inf`）及非法 `null`，默认以补丁模式更新现有字段（保留未传入字段，传入 `"replace": true` 时从零值整块替换），且解码失败时不会留下半修改状态。
 - 组件值默认用 `encoding/json` 序列化；若运行时值包含非有限浮点数（`NaN`、`+Inf`、`-Inf`）、回调函数字段、channel 或循环指针，`game/mcp` 会回退到安全的清洗编码（`"NaN"`、`"+Inf"`、`"-Inf"`、`"<func>"`、`"<chan>"`、`"<cycle>"`），使智能体在状态异常时仍能诊断问题。
 
 ```go
-if err := mcp.RegisterComponent[AIState](bridge, "ai"); err != nil {
+if err := mcp.RegisterMutableComponent[AIState](bridge, "ai"); err != nil {
+	return err
+}
+if err := mcp.RegisterComponentEditor[Health](bridge, "health", func(w *entities.World, e entities.Entity, h Health) error {
+	if h.HP < 0 {
+		return errors.New("hp cannot be negative")
+	}
+	entities.Set(w, e, h)
+	return nil
+}); err != nil {
 	return err
 }
 ```
+
+## 注册预制体
+
+可以在 `mcp.Config.Prefabs` 或 `*mcp.Bridge` 上注册预制体，供智能体通过 `game_prefabs_list` 发现并用 `game_entity_spawn` 生成：
+
+- `bridge.RegisterPrefab(name, spawn)`（或 `Config.Prefabs`）注册自定义 `mcp.PrefabSpawner`（`func(w *entities.World, overrides map[string]any) (entities.Entity, error)`）。
+- `bridge.RegisterEntityPrefab(p)` 按 `p.Name()` 注册 [`*entities.Prefab`](entities.md)。
+- `bridge.RegisterScenePrefab(name, doc)` 注册经过校验且自包含的 [`*sceneformat.SceneDoc`](editor.md) 模板，并通过 `sceneformat.SpawnEntities` 实例化。
+
+```go
+if err := bridge.RegisterEntityPrefab(coinPrefab); err != nil {
+	return err
+}
+if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
+	return err
+}
+```
+
+如果在 `game_entity_spawn` 生成实体后，应用 `parent`、`x`/`y` 或 `components` 时发生错误，新生成的实体（以及场景预制体的子实体）会自动回滚销毁。
 
 ## 已注册的工具
 
@@ -77,6 +106,11 @@ if err := mcp.RegisterComponent[AIState](bridge, "ai"); err != nil {
 | `game_tunable_set` | `name`（必填）、`value`（必填）、`clamp`（可选，默认 `false`） | 按严格类型检查与范围校验（或 `clamp: true` 时钳位）更新已注册的可调参数（`float`、`int`、`bool` 或 `string`），返回 `old_value`、生效后的 `value`、元数据与 `clamped` 标记。 |
 | `game_console_commands_list` | `include_builtin`（可选，默认 `true`） | 按名称排序的 `debug.Console` 内置命令与自定义命令列表，包含 `help` 说明与 `builtin` 标记。 |
 | `game_console_exec` | `command`（必填） | 通过 `debug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
+| `game_prefabs_list` | `{}` | 已注册预制体的排序列表（`name` 与 `kind`：`"custom"`、`"entity_prefab"` 或 `"scene"`）。 |
+| `game_entity_spawn` | `prefab`、`overrides`、`parent`、`x`、`y`、`components`（均为可选） | 新生成存活实体的稳定引用 `ref`、`index`、`generation`、`prefab`、元数据、`parent`、`children` 及初始 `components` 快照。 |
+| `game_entity_destroy` | `ref`（必填）、`policy`（可选：`"cascade"`、`"orphan"`、`"keep_world"` 或 `"reparent"`） | 销毁结果，包含 `ref`、生效的 `policy` 与实际销毁实体数 `destroyed`。 |
+| `game_component_set` | `ref`（必填）、`component`（必填）、`value`（必填）、`replace`（可选，默认 `false`） | 回读自存活实体的更新后组件 `value`；修改会在下一次模拟步进中生效。 |
+| `game_component_remove` | `ref`（必填）、`component`（必填） | 报告指定组件是否存在并已从存活实体移除（`removed`）。 |
 
 所有工具都会拒绝未知的参数字段。
 

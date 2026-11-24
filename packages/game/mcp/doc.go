@@ -22,8 +22,13 @@
 //   - game_tunable_set: update one registered tunable's value with type checking and range validation or optional clamping.
 //   - game_console_commands_list: list built-in and registered debug console commands with their usage descriptions.
 //   - game_console_exec: execute a debug console command line and return its structured status, output text, output lines and error.
+//   - game_prefabs_list: list registered prefabs available to game_entity_spawn.
+//   - game_entity_spawn: spawn a registered prefab or empty entity with optional parent, position and component overrides.
+//   - game_entity_destroy: destroy a live entity by stable reference with an optional hierarchy child policy.
+//   - game_component_set: set or patch a component's value on a live entity so the change takes effect on the next simulation step.
+//   - game_component_remove: remove a component from a live entity.
 //
-// Components registered on an [entities.World] with [entities.RegisterCodec] are readable automatically. Transient or non-saved components can also be exposed with [RegisterComponent] or [RegisterComponentFunc], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name.
+// Components registered on an [entities.World] with [entities.RegisterCodec] are readable and editable automatically. Transient or non-saved components can also be exposed with [RegisterComponent], [RegisterComponentFunc], [RegisterMutableComponent] or [RegisterComponentEditor], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name. Prefabs can be registered via [Config.Prefabs], [Bridge.RegisterPrefab], [Bridge.RegisterEntityPrefab] or [Bridge.RegisterScenePrefab].
 //
 // Like [automation.Register], attachment is active in `nsgo dev -automation` and test builds (`nsgo test`) and is a no-op in ordinary and release builds. Call [Attach], [Bridge.Attach] and [Bridge.Detach] on the engine goroutine.
 package mcp
