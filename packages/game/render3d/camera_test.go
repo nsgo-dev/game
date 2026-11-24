@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"image"
 	"math"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,7 +266,13 @@ func renderOnLoop(t *testing.T, r *refRenderer, cam *scene3d.Camera) (*image.RGB
 // assertReference compares got with testdata/golden/<name>.png, allowing a few edge pixels to differ by rounding between CPU architectures (fused multiply-add on arm64), and writes got and a diff image on mismatch. UPDATE_GOLDEN=1 rewrites the reference.
 func assertReference(t *testing.T, name string, got *image.RGBA) {
 	t.Helper()
-	path := gametest.GoldenPath("", name)
+	assertReferenceAt(t, gametest.GoldenPath("", name), got)
+}
+
+// assertReferenceAt compares got with the reference PNG at path, as assertReference does for the golden directory.
+func assertReferenceAt(t *testing.T, path string, got *image.RGBA) {
+	t.Helper()
+	name := strings.TrimSuffix(filepath.Base(path), ".png")
 	if gametest.ShouldUpdateGolden() {
 		if err := gametest.WritePNG(path, got); err != nil {
 			t.Fatal(err)

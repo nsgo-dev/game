@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,9 +70,15 @@ func transformGLTFMesh(prim gltf.Primitive, world math3d.Mat4) render3d.Mesh {
 	}
 }
 
+// damagedHelmetDir holds the Khronos DamagedHelmet fixture. It is a separate module because the model is CC-BY-NC-4.0, so a downloaded copy of this module lacks it (testdata/damagedhelmet/README.md).
+var damagedHelmetDir = filepath.Join("testdata", "damagedhelmet")
+
 func loadDamagedHelmet(t *testing.T) (*gltf.Document, render3d.Mesh) {
 	t.Helper()
-	dir := filepath.Join("..", "gltf", "testdata", "khronos", "DamagedHelmet", "glTF")
+	dir := filepath.Join(damagedHelmetDir, "glTF")
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		t.Skipf("DamagedHelmet fixture %s is not in this copy of the module", damagedHelmetDir)
+	}
 	doc, err := gltf.LoadFS(os.DirFS(dir), "DamagedHelmet.gltf")
 	if err != nil {
 		t.Fatalf("gltf.LoadFS DamagedHelmet: %v", err)
@@ -1009,7 +1016,7 @@ func TestDamagedHelmetMatchesReference(t *testing.T) {
 
 	helmetMat := matSet.MaterialForPrimitive(doc.Meshes[0].Primitives[0], -1)
 	img := renderHelmet(helmetMat)
-	assertReference(t, "damaged_helmet_reference", img)
+	assertReferenceAt(t, filepath.Join(damagedHelmetDir, "reference.png"), img)
 
 	// Analytical sanity checks on the rendered DamagedHelmet:
 	// 1. All four background corners stay clear color (entire helmet fits inside frame).
@@ -1053,6 +1060,205 @@ func TestDamagedHelmetMatchesReference(t *testing.T) {
 	diff := countDifferentPixels(img, untextured)
 	if diff < litPixels/2 {
 		t.Errorf("textured vs untextured DamagedHelmet differed by only %d pixels (lit=%d)", diff, litPixels)
+	}
+}
+
+// TestDamagedHelmetSamplesTexturesAtGLTFUVs checks the DamagedHelmet render against the asset's own base color image rather than against a render: it reads each pixel's UV back from a probe texture and predicts the pixel from the decoded JPEG under glTF's conventions (UV origin at the image's top-left, sRGB color, RGB channel order). A V flip, a linear upload or swapped channels would match the prediction far worse than the real mapping, even if a golden image had been written from that wrong output.
+func TestDamagedHelmetSamplesTexturesAtGLTFUVs(t *testing.T) {
+	doc, helmetMesh := loadDamagedHelmet(t)
+
+	const size = 160
+	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	defaults, err := render3d.NewMaterialDefaults(nil, dev, render3d.MaterialDefaultsOptions{})
+	if err != nil {
+		t.Fatalf("NewMaterialDefaults: %v", err)
+	}
+	t.Cleanup(func() { _ = defaults.Close() })
+	matSet, err := render3d.UploadGLTFMaterials(nil, dev, defaults, doc, render3d.GLTFMaterialUpload{Label: "DamagedHelmet"})
+	if err != nil {
+		t.Fatalf("UploadGLTFMaterials: %v", err)
+	}
+	t.Cleanup(func() { _ = matSet.Close() })
+	info, _ := matSet.Info(0)
+	albedo, err := doc.DecodeImage(info.BaseColor.ImageIndex)
+	if err != nil {
+		t.Fatalf("DecodeImage(base color): %v", err)
+	}
+	const texSize = 256
+	if b := albedo.Bounds(); b.Dx() != texSize || b.Dy() != texSize {
+		t.Fatalf("base color image is %v, want %dx%d", b, texSize, texSize)
+	}
+
+	// The probe texture stores each texel's column in R and row in G, so an emissive-only render of it shows which texel every pixel samples.
+	probe := image.NewNRGBA(image.Rect(0, 0, texSize, texSize))
+	for y := range texSize {
+		for x := range texSize {
+			probe.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), A: 255})
+		}
+	}
+	probeTex, err := render3d.UploadTexture(nil, dev, probe, render3d.TextureUpload{Label: "uv-probe"})
+	if err != nil {
+		t.Fatalf("UploadTexture(probe): %v", err)
+	}
+	t.Cleanup(func() { _ = probeTex.Close() })
+	// Nearest filtering on the base level, so each pixel shows exactly one texel of the uploaded base color texture (which has mips).
+	samplerOpts := render3d.SamplerNearestRepeat()
+	samplerOpts.MaxLOD = 0.25
+	nearest, err := render3d.NewGPUSampler(nil, dev, samplerOpts)
+	if err != nil {
+		t.Fatalf("NewGPUSampler: %v", err)
+	}
+	t.Cleanup(func() { _ = nearest.Close() })
+
+	// Black metallic base color removes diffuse and ambient light, so a pixel is its emissive texel plus the same small grazing specular term in every pass.
+	emissiveOnly := func(tex *render3d.GPUTexture, factor float32) *render3d.GPUMaterial {
+		m := render3d.DefaultMaterial()
+		m.BaseColorFactor = [4]float32{0, 0, 0, 1}
+		m.EmissiveFactor = [3]float32{factor, factor, factor}
+		m.EmissiveTexture = tex
+		m.EmissiveSampler = nearest
+		gm, err := render3d.NewGPUMaterial(nil, dev, defaults, m, render3d.MaterialUpload{Label: "emissive-only"})
+		if err != nil {
+			t.Fatalf("NewGPUMaterial: %v", err)
+		}
+		t.Cleanup(func() { _ = gm.Close() })
+		return gm
+	}
+
+	gpuMesh, err := render3d.UploadMesh(nil, dev, helmetMesh, render3d.MeshUpload{Label: "DamagedHelmet"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = gpuMesh.Close() })
+	pipe, err := render3d.NewMaterialPipeline(nil, dev, camBuf.Layout(), defaults.Layout(), render3d.MaterialPipelineOptions{DepthFormat: gpu.FormatDepth24Plus})
+	if err != nil {
+		t.Fatalf("NewMaterialPipeline: %v", err)
+	}
+	center := gpuMesh.Bounds().Center()
+	cam := scene3d.NewPerspectiveCamera(center.Add(math3d.Vec3{X: 0.80, Y: 0.12, Z: 3.10}), math3d.DegToRad(42), 1, 0.1, 50)
+	cam.LookAt(center, math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+	render := func(mat *render3d.GPUMaterial) *image.RGBA {
+		enc := dev.BeginEncoder()
+		pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+			ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x10141c)}},
+			DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+		})
+		pass.SetPipeline(pipe)
+		pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+		mat.Bind(pass)
+		gpuMesh.Draw(pass)
+		pass.End()
+		dev.Submit(enc.Finish())
+		sr.WaitIdle()
+		if err := sr.LastError(); err != nil {
+			t.Fatalf("software renderer: %v", err)
+		}
+		return cloneRGBA(sr.Image())
+	}
+	probeImg := render(emissiveOnly(probeTex, 1))
+	albedoImg := render(emissiveOnly(info.BaseColor.Texture, 1))
+	leakImg := render(emissiveOnly(probeTex, 0))
+
+	// MaterialWGSL's output is pow(c / (1 + c), 1 / 2.2) of the linear color c; untonemap inverts it.
+	untonemap := func(v uint8) float64 {
+		m := math.Pow(float64(v)/255, 2.2)
+		return m / (1 - min(m, 0.999))
+	}
+	tonemap := func(c float64) float64 { return 255 * math.Pow(c/(1+c), 1/2.2) }
+	srgbToLinear := func(v uint8) float64 {
+		c := float64(v) / 255
+		if c <= 0.04045 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
+	texel := func(c float64) int { return min(max(int(math.Round(c*255)), 0), texSize-1) }
+
+	hypotheses := []struct {
+		name   string
+		sample func(x, y int) [3]float64
+	}{
+		{"glTF", func(x, y int) [3]float64 {
+			c := color.NRGBAModel.Convert(albedo.At(x, y)).(color.NRGBA)
+			return [3]float64{srgbToLinear(c.R), srgbToLinear(c.G), srgbToLinear(c.B)}
+		}},
+		{"V flipped", func(x, y int) [3]float64 {
+			c := color.NRGBAModel.Convert(albedo.At(x, texSize-1-y)).(color.NRGBA)
+			return [3]float64{srgbToLinear(c.R), srgbToLinear(c.G), srgbToLinear(c.B)}
+		}},
+		{"uploaded as linear", func(x, y int) [3]float64 {
+			c := color.NRGBAModel.Convert(albedo.At(x, y)).(color.NRGBA)
+			return [3]float64{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255}
+		}},
+		{"BGR", func(x, y int) [3]float64 {
+			c := color.NRGBAModel.Convert(albedo.At(x, y)).(color.NRGBA)
+			return [3]float64{srgbToLinear(c.B), srgbToLinear(c.G), srgbToLinear(c.R)}
+		}},
+	}
+	errSum := make([]float64, len(hypotheses))
+	pixels := 0
+	for py := 1; py < size-1; py++ {
+		for px := 1; px < size-1; px++ {
+			// Skip silhouette pixels, whose neighbours can be background.
+			covered := true
+			for dy := -1; dy <= 1 && covered; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if probeImg.RGBAAt(px+dx, py+dy) == meshClear {
+						covered = false
+						break
+					}
+				}
+			}
+			if !covered {
+				continue
+			}
+			p, a, l := probeImg.RGBAAt(px, py), albedoImg.RGBAAt(px, py), leakImg.RGBAAt(px, py)
+			leak := [3]float64{untonemap(l.R), untonemap(l.G), untonemap(l.B)}
+			tx := texel(untonemap(p.R) - leak[0])
+			ty := texel(untonemap(p.G) - leak[1])
+			got := [3]float64{float64(a.R), float64(a.G), float64(a.B)}
+			// The 8-bit render quantizes the probe to a few texels near u or v = 1, so each hypothesis is scored by its best texel within 2 of the decoded one.
+			for h, hyp := range hypotheses {
+				best := math.Inf(1)
+				for dy := -2; dy <= 2; dy++ {
+					for dx := -2; dx <= 2; dx++ {
+						want := hyp.sample((tx+dx+texSize)%texSize, (ty+dy+texSize)%texSize)
+						e := 0.0
+						for ch := range 3 {
+							e += math.Abs(tonemap(want[ch]+leak[ch]) - got[ch])
+						}
+						best = min(best, e)
+					}
+				}
+				errSum[h] += best
+			}
+			pixels++
+		}
+	}
+	if pixels < size*size/5 {
+		t.Fatalf("only %d interior helmet pixels, want at least %d", pixels, size*size/5)
+	}
+	meanErr := make([]float64, len(hypotheses))
+	for h := range hypotheses {
+		meanErr[h] = errSum[h] / float64(pixels*3)
+		t.Logf("%s: mean error %.2f of 255 over %d pixels", hypotheses[h].name, meanErr[h], pixels)
+	}
+	// Measured with the software renderer: 0.3 for glTF's convention, 9 to 30 for the others.
+	if meanErr[0] > 1.5 {
+		t.Errorf("render differs from the base color image by %.2f of 255 on average, want <= 1.5", meanErr[0])
+	}
+	for h := 1; h < len(hypotheses); h++ {
+		if meanErr[h] < max(4, 5*meanErr[0]) {
+			t.Errorf("%s predicts the render about as well as glTF's convention (%.2f vs %.2f): the check cannot tell them apart", hypotheses[h].name, meanErr[h], meanErr[0])
+		}
 	}
 }
 
