@@ -14,7 +14,8 @@ var refsProject = map[string]string{
 	"materials/stone.material.yaml": "type: material\nversion: 1\nname: Stone\n",
 }
 
-func readFile(t *testing.T, name string) string {
+// readPath returns the content of the file at name, a path from the working directory.
+func readPath(t *testing.T, name string) string {
 	t.Helper()
 	data, err := os.ReadFile(name)
 	if err != nil {
@@ -30,21 +31,21 @@ func TestIndexMvAndCheck(t *testing.T) {
 
 	// game index, run below the project root, finds the root, gives both files a uid and writes the index.
 	a, stdout, stderr := newTestApp(t)
-	if code := run([]string{"index", "-n"}, a); code != 0 {
-		t.Fatalf("index -n exit %d (stderr: %s)", code, stderr)
+	if code := run([]string{"index", "-dry-run"}, a); code != 0 {
+		t.Fatalf("index -dry-run exit %d (stderr: %s)", code, stderr)
 	}
 	if want := "../materials/stone.material.yaml: add a uid\ncave.scene.yaml: add a uid\nwrite ../game.index.yaml\nwrite ../materials/stone.material.yaml\nwrite cave.scene.yaml\n"; stdout.String() != want {
-		t.Fatalf("index -n stdout = %q, want %q", stdout, want)
+		t.Fatalf("index -dry-run stdout = %q, want %q", stdout, want)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "game.index.yaml")); !os.IsNotExist(err) {
-		t.Fatalf("index -n wrote the index: %v", err)
+		t.Fatalf("index -dry-run wrote the index: %v", err)
 	}
 	a, _, stderr = newTestApp(t)
 	if code := run([]string{"index"}, a); code != 0 {
 		t.Fatalf("index exit %d (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(readFile(t, filepath.Join(dir, "materials", "stone.material.yaml")), "\nversion: 1\nuid: ") {
-		t.Fatalf("material has no uid:\n%s", readFile(t, filepath.Join(dir, "materials", "stone.material.yaml")))
+	if !strings.Contains(readPath(t, filepath.Join(dir, "materials", "stone.material.yaml")), "\nversion: 1\nuid: ") {
+		t.Fatalf("material has no uid:\n%s", readPath(t, filepath.Join(dir, "materials", "stone.material.yaml")))
 	}
 	a, stdout, _ = newTestApp(t)
 	if code := run([]string{"index", dir}, a); code != 0 || stdout.String() != "the index is up to date\n" {
@@ -59,7 +60,7 @@ func TestIndexMvAndCheck(t *testing.T) {
 	if want := "move ../materials/stone.material.yaml to ../materials/rock.material.yaml\ncave.scene.yaml:7: update material \"materials/stone.material.yaml\"\nwrite ../game.index.yaml\nwrite cave.scene.yaml\n"; stdout.String() != want {
 		t.Fatalf("mv stdout = %q, want %q", stdout, want)
 	}
-	if got := readFile(t, "cave.scene.yaml"); !strings.HasSuffix(got, "        material: materials/rock.material.yaml\n") {
+	if got := readPath(t, "cave.scene.yaml"); !strings.HasSuffix(got, "        material: materials/rock.material.yaml\n") {
 		t.Fatalf("scene:\n%s", got)
 	}
 

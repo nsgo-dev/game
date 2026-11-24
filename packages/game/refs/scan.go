@@ -1,9 +1,11 @@
 package refs
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -32,12 +34,14 @@ const (
 	KindTiled FileKind = "tiled"
 	// KindLDtk is an LDtk project (.ldtk).
 	KindLDtk FileKind = "ldtk"
+	// KindAtlas is a sprite atlas: a JSON file with top-level frames and meta objects, as TexturePacker and Aseprite write it.
+	KindAtlas FileKind = "atlas"
 )
 
-// Fields name what a reference is, in Ref.Field and in messages.
+// Fields name what a reference is, in Ref.Field and in messages. A reference in game.yaml has the Field project.PathRefs gives it, such as project.FieldAtlasIn; the two autoload ones are repeated here.
 const (
-	FieldAutoloadScene    = "autoload scene"
-	FieldAutoloadResource = "autoload resource"
+	FieldAutoloadScene    = project.FieldAutoloadScene
+	FieldAutoloadResource = project.FieldAutoloadResource
 	FieldInherits         = "inherits"
 	FieldScene            = "scene"
 	FieldMaterial         = "material"
@@ -49,6 +53,7 @@ const (
 	FieldImageLayer       = "image layer"
 	FieldLevelBackground  = "level background"
 	FieldExternalLevel    = "external level"
+	FieldAtlasImage       = "atlas image"
 )
 
 // Ref is one reference from a file to another.
@@ -57,7 +62,7 @@ type Ref struct {
 	File string
 	// Line and Column are where its value is written in File, both counting from 1 and Column in characters.
 	Line, Column int
-	// Field says what the reference is, one of the Field constants, such as FieldMaterial.
+	// Field says what the reference is, one of the Field constants, such as FieldMaterial, or in game.yaml one of package project's.
 	Field string
 	// Value is the path as File writes it.
 	Value string
@@ -65,6 +70,10 @@ type Ref struct {
 	Target string
 	// FromFile reports whether Value is relative to File's directory, as Tiled and LDtk write paths, rather than to the project root.
 	FromFile bool
+	// Dir reports whether Value names a folder rather than a file, as an assets target's in may in game.yaml.
+	Dir bool
+	// Output reports whether Value names what a tool writes, such as an assets target's out in game.yaml, which need not exist yet.
+	Output bool
 
 	span span
 }
@@ -82,8 +91,8 @@ type File struct {
 
 	data   []byte
 	starts []int
-	// uid is the node of the uid value, and doc the root mapping of a YAML file.
-	uid, doc *yaml.Node
+	// uid is the node of the uid value, also when it is empty or null, and uidKey its key; doc is the root mapping of a YAML file.
+	uid, uidKey, doc *yaml.Node
 }
 
 // Problem is one thing wrong that Scan found or Project.Check reports.
@@ -110,21 +119,23 @@ type Project struct {
 	Files []*File
 	// Refs are the references found, in file order and then in the order each file writes them.
 	Refs []Ref
-	// Problems are what makes the references unsafe to follow or rewrite: an index that does not parse, and a uid two files share. A reference to a file that is gone is not one of them; Check reports those.
+	// Problems are what makes the references unsafe to follow or rewrite: a game.yaml or an index that does not parse, and a uid two files of one project share. A reference to a file that is gone is not one of them; Check reports those.
 	Problems []Problem
 
 	fsys fs.FS
 	// paths are every file in the scanned directory, in path order, and exists marks them.
 	paths  []string
 	exists map[string]bool
-	files  map[string]*File
+	// dirs marks the directories in the scanned directory.
+	dirs  map[string]bool
+	files map[string]*File
 	// roots caches the project root of each directory.
 	roots map[string]string
 	// indexes holds the parsed index of each project root that has a valid one.
 	indexes map[string]*Index
 	// uids lists the files holding each uid, in path order.
 	uids map[string][]string
-	// indexProblems are the Problems about index files, which game index cannot fix.
+	// indexProblems are the Problems about game.yaml and index files, which game index cannot fix.
 	indexProblems []Problem
 	// unread are YAML files that should have been read for references but do not parse.
 	unread []string
@@ -140,13 +151,14 @@ func Scan(fsys fs.FS) (*Project, error) {
 	p := &Project{
 		fsys:    fsys,
 		exists:  make(map[string]bool),
+		dirs:    make(map[string]bool),
 		files:   make(map[string]*File),
 		roots:   make(map[string]string),
 		indexes: make(map[string]*Index),
 		uids:    make(map[string][]string),
 		hashes:  make(map[string]string),
 	}
-	var yamls, jsons, indexes []string
+	var yamls, jsons, others, indexes []string
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if name == "." {
@@ -158,6 +170,7 @@ func Scan(fsys fs.FS) (*Project, error) {
 			if name != "." && skipDir(d.Name()) {
 				return fs.SkipDir
 			}
+			p.dirs[name] = true
 			return nil
 		}
 		p.paths = append(p.paths, name)
@@ -170,6 +183,8 @@ func Scan(fsys fs.FS) (*Project, error) {
 			yamls = append(yamls, name)
 		case strings.HasSuffix(lower, ".tmj"), strings.HasSuffix(lower, ".tsj"), strings.HasSuffix(lower, ".ldtk"):
 			jsons = append(jsons, name)
+		case strings.HasSuffix(lower, ".json"):
+			others = append(others, name)
 		}
 		return nil
 	})
@@ -186,7 +201,22 @@ func Scan(fsys fs.FS) (*Project, error) {
 		}
 	}
 	for _, name := range jsons {
-		p.readJSON(name)
+		p.readJSON(name, strings.ToLower(path.Ext(name)))
+	}
+	// A .json file a Tiled map names as an external tileset is a Tiled tileset, as older Tiled versions named them; any other with top-level frames and meta objects is a sprite atlas.
+	tilesets := make(map[string]bool)
+	for _, r := range p.Refs {
+		if r.Field == FieldExternalTileset && strings.EqualFold(path.Ext(r.Target), ".json") {
+			tilesets[r.Target] = true
+		}
+	}
+	for _, name := range others {
+		switch {
+		case tilesets[name]:
+			p.readJSON(name, ".tsj")
+		case isAtlas(p.fsys, name):
+			p.readJSON(name, formatAtlas)
+		}
 	}
 	// A YAML file another file names as a scene is a scene, whatever its name; reading it may name more.
 	for changed := true; changed; {
@@ -207,12 +237,23 @@ func Scan(fsys fs.FS) (*Project, error) {
 		if f.UID == "" {
 			continue
 		}
-		holders := p.uids[f.UID]
+		holders := p.holders(f.UID, f.Root)
 		if len(holders) > 1 && holders[0] != f.Path {
 			p.problem(f.Path, f.uid.Line, "uid %q is also the uid of %s: one of them is a copy, which game index gives a new uid", f.UID, holders[0])
 		}
 	}
 	return p, nil
+}
+
+// holders returns the files of the project at root that hold the uid id, in path order. Files of different projects may share a uid, as two games made from one template do, since each project's index is its own.
+func (p *Project) holders(id, root string) []string {
+	var out []string
+	for _, h := range p.uids[id] {
+		if p.files[h].Root == root {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // skipDir reports whether the walk skips a directory called name, as the go command skips it.
@@ -301,27 +342,20 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	if err != nil {
 		return false
 	}
+	if path.Base(name) == project.FileName {
+		p.readProject(name, data)
+		return true
+	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) || path.Base(name) == project.FileName {
+		if asScene || isSceneName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false
 	}
 	doc := root.Content[0]
 	f := &File{Path: name, data: data, starts: lineStarts(data), doc: doc, Root: p.Root(name)}
-	base := path.Base(name)
 	switch {
-	case base == project.FileName:
-		f.Kind = KindProject
-		p.add(f)
-		autoload := field(doc, "autoload")
-		for _, list := range []struct{ key, field string }{{"scenes", FieldAutoloadScene}, {"resources", FieldAutoloadResource}} {
-			for _, e := range items(field(autoload, list.key)) {
-				p.ref(f, field(e, "path"), list.field)
-			}
-		}
-		return true
 	case isResourceKind(field(doc, "type")):
 		f.Kind = KindResource
 		p.add(f)
@@ -338,6 +372,24 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	return false
 }
 
+// readProject reads the paths of the game.yaml at name through package project, which owns its schema. A game.yaml that project.Parse refuses is a problem, and its paths are neither checked nor rewritten until it is fixed.
+func (p *Project) readProject(name string, data []byte) {
+	f := &File{Path: name, Kind: KindProject, data: data, starts: lineStarts(data), Root: p.Root(name)}
+	p.add(f)
+	paths, err := project.PathRefs(data)
+	if err != nil {
+		line, msg := splitYAMLLine(err.Error())
+		p.problem(name, line, "%s", msg)
+		p.indexProblems = append(p.indexProblems, p.Problems[len(p.Problems)-1])
+		return
+	}
+	for _, pr := range paths {
+		if r := p.ref(f, pr.Node, pr.Field); r != nil {
+			r.Dir, r.Output = pr.Dir, pr.Output
+		}
+	}
+}
+
 // isSceneName reports whether name is a scene file by its name, *.scene.yaml or *.scene.yml.
 func isSceneName(name string) bool {
 	lower := strings.ToLower(name)
@@ -349,13 +401,18 @@ func isResourceKind(n *yaml.Node) bool {
 	return n != nil && n.Kind == yaml.ScalarNode && slices.Contains(resource.Kinds(), resource.Kind(n.Value))
 }
 
-// add records f and its uid.
+// add records f and its uid. An empty or null uid, which sceneformat and resource read as no uid, is kept as f.uid without f.UID, so that game index fills it in.
 func (p *Project) add(f *File) {
 	if f.Kind == KindScene || f.Kind == KindResource {
-		if n := field(f.doc, "uid"); n != nil && n.Kind == yaml.ScalarNode && resource.ValidUID(n.Value) {
-			f.UID, f.uid = n.Value, n
+		k, n := entry(f.doc, "uid")
+		switch {
+		case n == nil || n.Kind != yaml.ScalarNode:
+		case resource.ValidUID(n.Value):
+			f.UID, f.uid, f.uidKey = n.Value, n, k
 			p.uids[f.UID] = append(p.uids[f.UID], f.Path)
 			slices.Sort(p.uids[f.UID])
+		case n.Value == "" || n.Tag == "!!null":
+			f.uid, f.uidKey = n, k
 		}
 	}
 	p.Files = append(p.Files, f)
@@ -398,10 +455,10 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 	}
 }
 
-// ref records the root-relative reference whose value is the node n of f, when n is a non-empty string.
-func (p *Project) ref(f *File, n *yaml.Node, what string) {
+// ref records the root-relative reference whose value is the node n of f, when n is a non-empty string, and returns it, or nil.
+func (p *Project) ref(f *File, n *yaml.Node, what string) *Ref {
 	if n == nil || n.Kind != yaml.ScalarNode || n.Value == "" || (n.Tag != "" && n.Tag != "!!str") {
-		return
+		return nil
 	}
 	r := Ref{File: f.Path, Line: n.Line, Column: n.Column, Field: what, Value: n.Value}
 	if s, err := yamlSpan(f.data, f.starts, n); err == nil {
@@ -413,20 +470,27 @@ func (p *Project) ref(f *File, n *yaml.Node, what string) {
 		r.Target = path.Join(f.Root, n.Value)
 	}
 	p.Refs = append(p.Refs, r)
+	return &p.Refs[len(p.Refs)-1]
 }
 
 // field returns the value of key in the mapping n, following aliases, or nil.
 func field(n *yaml.Node, key string) *yaml.Node {
+	_, v := entry(n, key)
+	return v
+}
+
+// entry returns the key node and the value of key in the mapping n, following aliases, or nils.
+func entry(n *yaml.Node, key string) (k, v *yaml.Node) {
 	n = deref(n)
 	if n == nil || n.Kind != yaml.MappingNode {
-		return nil
+		return nil, nil
 	}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		if n.Content[i].Value == key {
-			return deref(n.Content[i+1])
+			return n.Content[i], deref(n.Content[i+1])
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // items returns the items of the sequence n, or nil.
@@ -465,11 +529,14 @@ func deref(n *yaml.Node) *yaml.Node {
 	return nil
 }
 
-// jsonFields are the paths, with "*" for any index or key and "**" for any run of layers' groups, of the string values in Tiled and LDtk files that name a file relative to the file.
+// formatAtlas is the format readJSON reads a sprite atlas as.
+const formatAtlas = "atlas"
+
+// jsonFields are the paths, with "*" for any index or key and "**" for any run of layers' groups, of the string values in Tiled and LDtk files and sprite atlases that name a file relative to the file. format is the extension of the Tiled or LDtk file, ".tsj" also for a tileset named .json, or formatAtlas.
 var jsonFields = []struct {
-	ext   string
-	path  []string
-	field string
+	format string
+	path   []string
+	field  string
 }{
 	{".tmj", []string{"tilesets", "*", "source"}, FieldExternalTileset},
 	{".tmj", []string{"tilesets", "*", "image"}, FieldTilesetImage},
@@ -480,6 +547,7 @@ var jsonFields = []struct {
 	{".ldtk", []string{"defs", "tilesets", "*", "relPath"}, FieldTilesetImage},
 	{".ldtk", []string{"levels", "*", "bgRelPath"}, FieldLevelBackground},
 	{".ldtk", []string{"levels", "*", "externalRelPath"}, FieldExternalLevel},
+	{formatAtlas, []string{"meta", "image"}, FieldAtlasImage},
 }
 
 // matchJSON reports whether path matches pattern: "*" matches one step, and a leading "**" matches one or more "layers", index pairs, as Tiled nests group layers.
@@ -508,16 +576,18 @@ func matchJSON(pattern, path []string) bool {
 	return true
 }
 
-// readJSON reads the references of the Tiled or LDtk file at name.
-func (p *Project) readJSON(name string) {
+// readJSON reads the references of the Tiled or LDtk file or sprite atlas at name, read as format, one of jsonFields' formats.
+func (p *Project) readJSON(name, format string) {
 	data, err := fs.ReadFile(p.fsys, name)
 	if err != nil {
 		return
 	}
-	ext := strings.ToLower(path.Ext(name))
 	kind := KindTiled
-	if ext == ".ldtk" {
+	switch format {
+	case ".ldtk":
 		kind = KindLDtk
+	case formatAtlas:
+		kind = KindAtlas
 	}
 	f := &File{Path: name, Kind: kind, data: data, starts: lineStarts(data), Root: p.Root(name)}
 	var refs []Ref
@@ -526,7 +596,7 @@ func (p *Project) readJSON(name string) {
 			return
 		}
 		for _, jf := range jsonFields {
-			if jf.ext != ext || !matchJSON(jf.path, jp) {
+			if jf.format != format || !matchJSON(jf.path, jp) {
 				continue
 			}
 			line, col := position(data, f.starts, s.start)
@@ -541,6 +611,20 @@ func (p *Project) readJSON(name string) {
 	}
 	p.add(f)
 	p.Refs = append(p.Refs, refs...)
+}
+
+// isAtlas reports whether the JSON file at name is a sprite atlas: an object with top-level frames, an object or array, and meta, an object, as package tooling/assetcheck finds atlases.
+func isAtlas(fsys fs.FS, name string) bool {
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return false
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(data, &top) != nil {
+		return false
+	}
+	frames, meta := bytes.TrimSpace(top["frames"]), bytes.TrimSpace(top["meta"])
+	return len(frames) > 0 && (frames[0] == '{' || frames[0] == '[') && len(meta) > 0 && meta[0] == '{'
 }
 
 // resolveFrom joins ref, a path written in a file, to dir, the directory it is relative to, and returns the slash-separated path in the scanned directory, or false when ref cannot name a file there.
@@ -696,7 +780,7 @@ func rootPrefix(root string) string {
 func (p *Project) Check() []Problem {
 	out := slices.Clone(p.Problems)
 	for _, r := range p.Refs {
-		if r.Target == "" || p.exists[r.Target] {
+		if r.Target == "" || r.Output || p.Found(r) {
 			continue
 		}
 		msg := fmt.Sprintf("%s %q: not found", r.Field, r.Value)
@@ -711,9 +795,17 @@ func (p *Project) Check() []Problem {
 	return slices.Compact(out)
 }
 
+// Found reports whether r names something that was there when Scan walked the directory: a file, or a folder when r.Dir is set.
+func (p *Project) Found(r Ref) bool {
+	if r.Dir {
+		return p.dirs[r.Target]
+	}
+	return p.exists[r.Target]
+}
+
 // MovedHint returns what to tell a person about r when its target is gone and Moved finds it, such as `it moved to "materials/rock.material.yaml"; run game index to update the reference`, or "" when Moved does not find it.
 func (p *Project) MovedHint(r Ref) string {
-	if r.Target == "" {
+	if r.Target == "" || r.Dir {
 		return ""
 	}
 	to, ok := p.Moved(r.Target)

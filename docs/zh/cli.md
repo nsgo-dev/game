@@ -191,8 +191,8 @@ game check: 1 problem
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
-| `game.yaml` 以及其他文件引用的场景 | 每个自动加载的场景和资源都存在；场景 `inherits` 的场景和对象实例化的场景（`scene`）也必须存在，不论其文件名是什么 |
-| 项目索引（`game.index.yaml`） | 能够解析，且没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况） |
+| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质和瓦片地图 `source`，还有材质的 `texture`（无论该材质在哪里被使用）。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）可以暂不存在 |
+| 项目索引（`game.index.yaml`） | 能够解析，且同一项目中没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况）；不同的项目（例如由同一模板创建的两个游戏）可以共用 |
 
 地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
 
@@ -289,19 +289,19 @@ go tool game generate prefab enemy
 
 ```sh
 go tool game mv materials/stone.material.yaml materials/rock.material.yaml
-go tool game mv -n art gfx
+go tool game mv -dry-run art gfx
 ```
 
-移动或重命名一个文件或目录，并改写所有指向被移动内容的引用：包括 `game.yaml`、场景、资源文件以及 Tiled 和 LDtk 文件；Tiled 和 LDtk 文件本身被移动时，其中相对自身书写的路径也会改写。每个引用都原地修改，保留引号，文件其余部分（包括注释）逐字节不变。项目索引 `game.index.yaml` 会随之更新。路径从工作目录算起，且必须位于项目之内：即 `-in` 指定的目录，未指定时为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。每项修改都会打印出来；`-n` 只打印而不执行。会导致引用失效的移动会在做任何修改之前被拒绝，移动 `game.yaml` 或索引、移动到已存在的文件以及移出项目也会被拒绝。见[稳定引用](project.md#稳定引用)。
+移动或重命名一个文件或目录，并改写所有指向被移动内容的引用：包括 `game.yaml`、场景、资源文件以及 Tiled 和 LDtk 文件；Tiled 和 LDtk 文件本身被移动时，其中相对自身书写的路径也会改写。每个引用都原地修改，保留引号，文件其余部分（包括注释）逐字节不变。项目索引 `game.index.yaml` 会随之更新。路径从工作目录算起，且必须位于项目之内：即 `-in` 指定的目录，未指定时为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。每项修改都会打印出来；`-dry-run` 只打印而不执行，与 `release` 相同。会导致引用失效的移动会在做任何修改之前被拒绝，移动 `game.yaml` 或索引、移动到已存在的文件以及移出项目也会被拒绝。见[稳定引用](project.md#稳定引用)。
 
 ### index
 
 ```sh
 go tool game index
-go tool game index -n examples/caverun
+go tool game index -dry-run examples/caverun
 ```
 
-给每个还没有 `uid` 的场景文件和资源文件加上 uid（写在 `version` 之后的一行），把指向未经工具移动的文件的引用改到文件的新路径，给保留了原文件 uid 的副本换一个新 uid，并在每个项目根目录写出 `game.index.yaml`，其中列出每个场景和资源文件的路径与 uid，以及其他被引用文件的路径与 SHA-256。命令会打印每项修改，或者打印索引已是最新；`-n` 只打印而不执行。目录为所指定的目录或 `-in`，否则为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。首次使用时运行一次以开始维护索引，之后每次手动或用 Git 移动文件后再运行；把索引和文件一起提交。
+给每个还没有 `uid` 的场景文件和资源文件加上 uid（写在 `version` 之后的一行），把指向未经工具移动的文件的引用改到文件的新路径，给保留了原文件 uid 的副本换一个新 uid，并在每个项目根目录写出 `game.index.yaml`，其中列出每个场景和资源文件的路径与 uid，以及其他被引用文件的路径与 SHA-256。命令会打印每项修改，或者打印索引已是最新；`-dry-run` 只打印而不执行。目录为所指定的目录或 `-in`，否则为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。`check` 检查的是工作目录及其下的内容，而 `mv` 和 `index` 默认作用于上述整个项目，因为指向被移动文件的引用可能出现在项目的任何位置，而索引位于项目根目录：在子目录中运行时，`check` 只检查该子目录，`index` 则更新整个项目。首次使用时运行一次以开始维护索引，之后每次手动或用 Git 移动文件后再运行；把索引和文件一起提交。
 
 ### completion
 

@@ -58,8 +58,31 @@ func (pl *Plan) Apply(dir string) error {
 				return fmt.Errorf("refs: %w", err)
 			}
 		}
-		if _, err := root.Lstat(m.To); err == nil {
-			return fmt.Errorf("refs: move %s to %s: %s already exists", m.From, m.To, m.To)
+		if toInfo, err := root.Lstat(m.To); err == nil {
+			fromInfo, ferr := root.Lstat(m.From)
+			if ferr != nil || !strings.EqualFold(m.From, m.To) || !os.SameFile(fromInfo, toInfo) {
+				return fmt.Errorf("refs: move %s to %s: %s already exists", m.From, m.To, m.To)
+			}
+			// A rename that changes only the case of the name, on a file system that ignores case, where To already names From: go through a temporary name, so that the new case is kept.
+			tmp, err := tempName(root, m.From)
+			if err != nil {
+				return fmt.Errorf("refs: %w", err)
+			}
+			if err := root.Rename(m.From, tmp); err != nil {
+				return fmt.Errorf("refs: %w", err)
+			}
+			// Where To is a second link to the file rather than the same name, it is still there, and a rename onto a link of the same file does nothing; drop that link first.
+			if toInfo, err := root.Lstat(m.To); err == nil {
+				if tmpInfo, err := root.Lstat(tmp); err == nil && os.SameFile(toInfo, tmpInfo) {
+					if err := root.Remove(m.To); err != nil {
+						return fmt.Errorf("refs: %w", err)
+					}
+				}
+			}
+			if err := root.Rename(tmp, m.To); err != nil {
+				return fmt.Errorf("refs: %w", err)
+			}
+			continue
 		}
 		if err := root.Rename(m.From, m.To); err != nil {
 			return fmt.Errorf("refs: %w", err)
@@ -71,6 +94,17 @@ func (pl *Plan) Apply(dir string) error {
 		}
 	}
 	return nil
+}
+
+// tempName returns an unused name beside name in root to move name through.
+func tempName(root *os.Root, name string) (string, error) {
+	for i := range 100 {
+		tmp := path.Join(path.Dir(name), fmt.Sprintf(".%s.%d.move", path.Base(name), i))
+		if _, err := root.Lstat(tmp); errors.Is(err, fs.ErrNotExist) {
+			return tmp, nil
+		}
+	}
+	return "", fmt.Errorf("no unused name to move %s through", name)
 }
 
 // writeAtomic writes data to a temporary file beside name in root and renames it over name, keeping name's permissions when it exists.
@@ -154,14 +188,23 @@ func (pl *planner) rewrite(r Ref, file, target string) error {
 	return nil
 }
 
-// assignUID plans giving the scene or resource file f the uid id: replacing the one it has, or adding a line after its version.
+// assignUID plans giving the scene or resource file f the uid id: replacing the one it has, filling in an empty one, or adding a line after its version.
 func (pl *planner) assignUID(f *File, id string) error {
 	if f.uid != nil {
 		s, err := yamlSpan(f.data, f.starts, f.uid)
-		if err != nil {
+		switch {
+		case err == nil:
+			pl.edits[f.Path] = append(pl.edits[f.Path], edit{s.start, s.end, formatValue(s.syntax, id)})
+		case f.uid.Value == "" && f.uid.Style == 0:
+			// "uid:" with nothing after it: write the value after the colon.
+			at, aerr := afterKey(f, f.uidKey)
+			if aerr != nil {
+				return fmt.Errorf("%s:%d: uid: %w", f.Path, f.uidKey.Line, aerr)
+			}
+			pl.edits[f.Path] = append(pl.edits[f.Path], edit{at, at, " " + formatValue(syntaxPlain, id)})
+		default:
 			return fmt.Errorf("%s:%d: uid: %w", f.Path, f.uid.Line, err)
 		}
-		pl.edits[f.Path] = append(pl.edits[f.Path], edit{s.start, s.end, formatValue(s.syntax, id)})
 	} else {
 		at, text, err := uidLine(f, id)
 		if err != nil {
@@ -172,6 +215,25 @@ func (pl *planner) assignUID(f *File, id string) error {
 	f.UID = id
 	pl.plan.Assigned = append(pl.plan.Assigned, pl.mapPath(f.Path))
 	return nil
+}
+
+// afterKey returns the offset just after the colon that ends the plain key k of f, written on one line.
+func afterKey(f *File, k *yaml.Node) (int, error) {
+	if k == nil || k.Style != 0 {
+		return 0, errors.New("the key is not written plain")
+	}
+	o := offset(f.data, f.starts, k.Line, k.Column)
+	if o < 0 || !bytes.HasPrefix(f.data[o:], []byte(k.Value)) {
+		return 0, errors.New("the key is not where the parser put it")
+	}
+	o += len(k.Value)
+	for o < len(f.data) && f.data[o] == ' ' {
+		o++
+	}
+	if o >= len(f.data) || f.data[o] != ':' {
+		return 0, errors.New("no colon after the key")
+	}
+	return o + 1, nil
 }
 
 // uidLine returns where to add the line giving f the uid id, the line after its version key, and the line itself, indented as that key is and ended as that line is.
@@ -246,7 +308,8 @@ func (pl *planner) indexes(edited map[string][]byte) ([]Write, error) {
 		if t, ok := pl.retarget[refKey{r.File, r.span.start}]; ok {
 			r.Target = t
 		}
-		if r.Target == "" {
+		// A folder has no contents to hash, and what a tool writes changes with every build, so neither is listed.
+		if r.Target == "" || r.Dir || r.Output {
 			continue
 		}
 		if !p.exists[r.Target] {
@@ -351,8 +414,11 @@ func PlanMove(fsys fs.FS, from, to string) (*Plan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("refs: %w", err)
 	}
-	if _, err := fs.Stat(fsys, to); err == nil {
-		return nil, fmt.Errorf("refs: %s already exists", to)
+	if toInfo, err := fs.Stat(fsys, to); err == nil {
+		// On a file system that ignores case, to names from itself when only the case differs; that rename is allowed.
+		if !strings.EqualFold(from, to) || !os.SameFile(info, toInfo) {
+			return nil, fmt.Errorf("refs: %s already exists", to)
+		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("refs: %w", err)
 	}
@@ -436,7 +502,7 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 	}
 	pl := newPlanner(p, func(s string) string { return s })
 	for _, r := range p.Refs {
-		if r.Target == "" || p.exists[r.Target] {
+		if r.Target == "" || r.Dir || r.Output || p.exists[r.Target] {
 			continue
 		}
 		if to, ok := p.Moved(r.Target); ok {
@@ -465,28 +531,36 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 		return "", errors.New("refs: no unused uid after 100 tries")
 	}
 	for _, id := range sortedKeys(p.uids) {
-		holders := p.uids[id]
-		if len(holders) < 2 {
-			continue
-		}
-		keep := holders[0]
-		for _, h := range holders {
-			root := p.Root(h)
-			if e, ok := p.indexes[root].Lookup(strings.TrimPrefix(h, rootPrefix(root))); ok && e.UID == id {
-				keep = h
-				break
+		// Only files of one project share a uid by mistake; each project's index is its own.
+		var roots []string
+		for _, h := range p.uids[id] {
+			if !slices.Contains(roots, p.files[h].Root) {
+				roots = append(roots, p.files[h].Root)
 			}
 		}
-		for _, h := range holders {
-			if h == keep {
+		for _, root := range roots {
+			holders := p.holders(id, root)
+			if len(holders) < 2 {
 				continue
 			}
-			nid, err := newUID()
-			if err != nil {
-				return nil, err
+			keep := holders[0]
+			for _, h := range holders {
+				if e, ok := p.indexes[root].Lookup(strings.TrimPrefix(h, rootPrefix(root))); ok && e.UID == id {
+					keep = h
+					break
+				}
 			}
-			if err := pl.assignUID(p.files[h], nid); err != nil {
-				return nil, fmt.Errorf("refs: %w", err)
+			for _, h := range holders {
+				if h == keep {
+					continue
+				}
+				nid, err := newUID()
+				if err != nil {
+					return nil, err
+				}
+				if err := pl.assignUID(p.files[h], nid); err != nil {
+					return nil, fmt.Errorf("refs: %w", err)
+				}
 			}
 		}
 	}

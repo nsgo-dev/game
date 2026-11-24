@@ -72,17 +72,12 @@ func (e *Editor) MoveFile(from, to string) error {
 	return nil
 }
 
-// moveProjectPaths applies move to the path of every autoload entry of f.
+// moveProjectPaths applies move to every path f holds to a file or folder of the project: the autoload entries and the assets section's targets, as refs rewrites them on disk.
 func moveProjectPaths(f *project.File, move func(*string)) {
-	if f == nil || f.Autoload == nil {
+	if f == nil {
 		return
 	}
-	for i := range f.Autoload.Scenes {
-		move(&f.Autoload.Scenes[i].Path)
-	}
-	for i := range f.Autoload.Resources {
-		move(&f.Autoload.Resources[i].Path)
-	}
+	f.EachPath(func(_ string, p *string) { move(p) })
 }
 
 // moveScenePaths applies move to every file path doc holds: the scene it inherits, tilemap sources, and the scenes and materials of objects and overrides.

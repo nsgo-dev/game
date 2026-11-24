@@ -6,7 +6,7 @@
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
-//   - the references refs.Scan finds that the checks above do not follow: the scene a scene inherits or an object instances, and the scenes and resources game.yaml autoloads, which must exist; and the project indexes refs reads, which must parse, with no uid shared by two files.
+//   - every other reference refs.Scan finds, which must name a file that exists, or a folder for game.yaml's asset inputs that are folders: the scene a scene inherits or an object instances, references in scenes not named *.scene.yaml that a reference names as a scene, a material's texture, the paths game.yaml autoloads and builds assets from, and the rest; what a tool writes, such as an asset target's out, need not exist yet. game.yaml must parse, and so must the project indexes refs reads, with no uid shared by two files of one project.
 //
 // A reference to a file that is gone says where the file went when the project index (refs.IndexFileName) finds it again (refs.Project.Moved), and that game index updates the reference.
 //
@@ -347,24 +347,49 @@ func (c *checker) movedHint(dir, p string, err error) string {
 	return fmt.Sprintf("; it moved to %q; run game index to update the reference", refs.RelPath(dir, to))
 }
 
-// checkRefs reports what refs.Scan found wrong, a shared uid or an index that does not parse, and checks the references the rest of the check does not follow: the scene a scene inherits or an object instances, and game.yaml's autoloaded scenes and resources, which must exist.
+// checkRefs reports what refs.Scan found wrong, a game.yaml or an index that does not parse or a shared uid, and checks every reference refs.Scan found that the rest of the check did not already report at its file and line: what it names must exist, as a folder when the reference names one, unless a tool writes it.
 func (c *checker) checkRefs() {
+	type fileLine struct {
+		file string
+		line int
+	}
+	reported := make(map[fileLine]bool, len(c.report.Problems))
+	for _, p := range c.report.Problems {
+		reported[fileLine{p.File, p.Line}] = true
+	}
 	for _, p := range c.refs.Problems {
 		c.problem(p.File, p.Line, "%s", p.Message)
 	}
 	for _, r := range c.refs.Refs {
-		switch r.Field {
-		case refs.FieldInherits, refs.FieldScene, refs.FieldAutoloadScene, refs.FieldAutoloadResource:
-		default:
+		if r.Target == "" || r.Output || reported[fileLine{r.File, r.Line}] {
 			continue
 		}
-		if r.Target == "" {
-			continue
+		missing := c.fileMissing
+		if r.Dir {
+			missing = c.dirMissing
 		}
-		if err := c.fileMissing(r.Target); err != nil {
-			c.problem(r.File, r.Line, "%s %q: %v%s", r.Field, r.Value, err, c.movedHint(c.projectRoot(path.Dir(r.File)), r.Target, err))
+		if err := missing(r.Target); err != nil {
+			hint := ""
+			if h := c.refs.MovedHint(r); h != "" && errors.Is(err, errNotFound) {
+				hint = "; " + h
+			}
+			c.problem(r.File, r.Line, "%s %q: %v%s", r.Field, r.Value, err, hint)
 		}
 	}
+}
+
+// dirMissing returns why p cannot be read as a folder, or nil when it can.
+func (c *checker) dirMissing(p string) error {
+	info, err := fs.Stat(c.fsys, p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return errNotFound
+	case err != nil:
+		return unwrapPathError(err)
+	case !info.IsDir():
+		return errors.New("is not a directory")
+	}
+	return nil
 }
 
 // plural returns "n one" when n is 1 and "n many" otherwise.

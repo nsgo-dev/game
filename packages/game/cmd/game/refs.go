@@ -37,7 +37,7 @@ var indexCommand = &command{
 
 func defineMv(a *app, fs *flag.FlagSet) func() error {
 	inArg := inFlag(fs, "", "project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod)")
-	dryRun := fs.Bool("n", false, "print what would change without changing anything")
+	dryRun := fs.Bool("dry-run", false, "print what would change without changing anything")
 
 	return func() error {
 		if fs.NArg() != 2 {
@@ -65,7 +65,7 @@ func defineMv(a *app, fs *flag.FlagSet) func() error {
 
 func defineIndex(a *app, fs *flag.FlagSet) func() error {
 	inArg := inFlag(fs, "", "project directory (alternative to the positional argument; defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod)")
-	dryRun := fs.Bool("n", false, "print what would change without changing anything")
+	dryRun := fs.Bool("dry-run", false, "print what would change without changing anything")
 
 	return func() error {
 		in := strings.TrimSpace(*inArg)

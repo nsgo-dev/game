@@ -177,7 +177,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## Stable references
 
-Files refer to each other by path: `game.yaml` autoloads scenes and resources, a scene inherits or instances other scenes and names materials and Tiled maps, a material names its texture, and Tiled and LDtk files name their tilesets and images. Package `game/refs` keeps those references working when files are renamed or moved.
+Files refer to each other by path: `game.yaml` autoloads scenes and resources and builds assets from files and folders, a scene inherits or instances other scenes and names materials and Tiled maps, a material names its texture, Tiled and LDtk files name their tilesets and images (a Tiled tileset may be `.tsj` or `.json`), and a sprite atlas names its page image in `meta.image`. Package `game/refs` keeps those references working when files are renamed or moved. It reads `game.yaml`'s paths through package `project` (`project.PathRefs`), so a `game.yaml` that does not validate is reported and nothing is moved until it is fixed.
 
 Every scene and resource file carries a stable ID in its header, a `uid` written once and never changed, so it travels with the file:
 
@@ -187,7 +187,7 @@ uid: 4kq0w8m2c7d9x
 name: Cave
 ```
 
-A uid is 13 characters of `0`-`9` and `a`-`z` without `i`, `l`, `o` and `u` (`resource.NewUID`), and `sceneformat` and `resource` refuse any other value. The project index, `game.index.yaml` beside `game.yaml`, records where each file was the last time a tool looked: each scene and resource file's path with its uid, and every other file a reference names, such as an image or a Tiled map, with the SHA-256 of its contents. The tools keep it, in path order so that it changes only when files do; keep it in version control with the files it describes.
+A uid is 13 characters of `0`-`9` and `a`-`z` without `i`, `l`, `o` and `u` (`resource.NewUID`), and `sceneformat` and `resource` refuse any other value; an empty or null `uid` is read as none, and `game index` fills it in where it is. A uid is unique within one project: two projects, such as two games made from one template, may share one, since each keeps its own index. The project index, `game.index.yaml` beside `game.yaml`, records where each file was the last time a tool looked: each scene and resource file's path with its uid, and every other file a reference names, such as an image or a Tiled map, with the SHA-256 of its contents. The tools keep it, in path order so that it changes only when files do; keep it in version control with the files it describes.
 
 ```yaml
 # The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
@@ -199,7 +199,7 @@ files:
     uid: 4kq0w8m2c7d9x
 ```
 
-- `go tool game mv <from> <to>` moves or renames a file or a directory and rewrites every reference to what it moves, including the paths a moved Tiled or LDtk file writes relative to itself, and updates the index. `-n` prints the changes without making them. The editor does the same with `Editor.MoveFile(from, to)`, which also updates the open scene, project and clip, unsaved edits included.
+- `go tool game mv <from> <to>` moves or renames a file or a directory and rewrites every reference to what it moves, including the paths a moved Tiled or LDtk file writes relative to itself, and updates the index. `-dry-run` prints the changes without making them. The editor does the same with `Editor.MoveFile(from, to)`, which also updates the open scene, project and clip, unsaved edits included.
 - `go tool game index` gives every scene and resource file without a uid one, as a line after its `version`; points each reference to a file that was moved without the tools at the file's new path; gives a copied file that kept its original's uid a new one; and writes the index. Run it once to start, and again after moving files by hand or with Git.
 - `go tool game check` fails on a reference to a file that is gone, at the file and line that holds it, and says where the file went when the index finds it again: the scene or resource file that now holds the uid the index lists for the old path, or the one other file with the same extension and contents.
 
@@ -207,7 +207,7 @@ files:
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-A reference is rewritten in place: its quotes are kept, and the rest of the file, comments and formatting included, is left byte for byte, so a move shows in review as the lines it changes. A move that would leave a reference broken is refused before anything changes: one that would lead out of the project root, one written over several lines, or one in a scene that does not parse. Atlas, tileset and prefab names in scenes are names the game's resolver looks up rather than paths, so they are not rewritten.
+A reference is rewritten in place: its quotes are kept, and the rest of the file, comments and formatting included, is left byte for byte, so a move shows in review as the lines it changes. A move that would leave a reference broken is refused before anything changes: one that would lead out of the project root, one written over several lines, or one in a scene that does not parse. Atlas, tileset and prefab names in scenes are names the game's resolver looks up rather than paths, so they are not rewritten, and neither is an object's `mesh`, which names a built-in primitive or a path no loader resolves yet. What `game assets` writes (an `assets` target's `out`, the `cache`, and the manifest's `in` folder) is rewritten when it moves but need not exist, and is not listed in the index; nor are folders. A rename that changes only the case of a name, such as `a.png` to `A.png`, works on file systems that ignore case too.
 
 ## The starter and the examples
 

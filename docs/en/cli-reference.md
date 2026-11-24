@@ -213,8 +213,8 @@ game mv [flags] <from> <to>
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
-| `-n` |  | print what would change without changing anything |
 
 ## game index
 
@@ -226,8 +226,8 @@ game index [flags] [dir]
 
 | Flag | Default | Description |
 | --- | --- | --- |
+| `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (alternative to the positional argument; defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
-| `-n` |  | print what would change without changing anything |
 
 ## game completion
 

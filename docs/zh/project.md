@@ -177,7 +177,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 稳定引用
 
-文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，场景继承或实例化其他场景并引用材质和 Tiled 地图，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。
+文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，并从文件和文件夹构建资源，场景继承或实例化其他场景并引用材质和 Tiled 地图，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片（Tiled 图块集可以是 `.tsj` 或 `.json`），精灵图集在 `meta.image` 中引用它的页面图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。它通过 `project` 包（`project.PathRefs`）读取 `game.yaml` 中的路径，因此无法通过校验的 `game.yaml` 会被报告，修好之前不会移动任何文件。
 
 每个场景文件和资源文件的文件头里都有一个稳定 ID，即 `uid`：只写入一次、此后不再改变，因此会跟着文件一起移动：
 
@@ -187,7 +187,7 @@ uid: 4kq0w8m2c7d9x
 name: Cave
 ```
 
-uid 由 13 个字符组成，取自 `0`-`9` 和去掉 `i`、`l`、`o`、`u` 的 `a`-`z`（`resource.NewUID`），`sceneformat` 和 `resource` 会拒绝其他取值。项目索引 `game.index.yaml` 位于 `game.yaml` 旁边，记录工具上一次看到的各文件位置：每个场景文件和资源文件记录路径和 uid，引用指向的其他文件（如图片或 Tiled 地图）记录路径和内容的 SHA-256。索引由工具维护，按路径排序，只有文件变化时才会变化；请把它和它描述的文件一起纳入版本控制。
+uid 由 13 个字符组成，取自 `0`-`9` 和去掉 `i`、`l`、`o`、`u` 的 `a`-`z`（`resource.NewUID`），`sceneformat` 和 `resource` 会拒绝其他取值；空的或为 null 的 `uid` 视为没有 uid，`game index` 会就地填上。uid 在同一项目内唯一：两个项目（例如由同一模板创建的两个游戏）可以共用同一个 uid，因为它们各有自己的索引。项目索引 `game.index.yaml` 位于 `game.yaml` 旁边，记录工具上一次看到的各文件位置：每个场景文件和资源文件记录路径和 uid，引用指向的其他文件（如图片或 Tiled 地图）记录路径和内容的 SHA-256。索引由工具维护，按路径排序，只有文件变化时才会变化；请把它和它描述的文件一起纳入版本控制。
 
 ```yaml
 # The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
@@ -199,7 +199,7 @@ files:
     uid: 4kq0w8m2c7d9x
 ```
 
-- `go tool game mv <from> <to>` 移动或重命名一个文件或目录，改写所有指向被移动内容的引用（包括被移动的 Tiled 或 LDtk 文件中相对自身书写的路径），并更新索引。`-n` 只打印将要做的修改而不实际执行。编辑器中的 `Editor.MoveFile(from, to)` 做同样的事，并同时更新当前打开的场景、项目和动画片段，未保存的编辑也会保留。
+- `go tool game mv <from> <to>` 移动或重命名一个文件或目录，改写所有指向被移动内容的引用（包括被移动的 Tiled 或 LDtk 文件中相对自身书写的路径），并更新索引。`-dry-run` 只打印将要做的修改而不实际执行。编辑器中的 `Editor.MoveFile(from, to)` 做同样的事，并同时更新当前打开的场景、项目和动画片段，未保存的编辑也会保留。
 - `go tool game index` 给每个还没有 uid 的场景文件和资源文件加上 uid（写在 `version` 之后的一行）；把指向“未经工具移动的文件”的引用改到文件的新路径；给保留了原文件 uid 的副本换一个新 uid；然后写出索引。首次使用时运行一次，之后每次手动或用 Git 移动文件后再运行。
 - `go tool game check` 会对指向已不存在文件的引用报错，给出引用所在的文件和行号；如果索引能重新找到该文件，还会说明它移到了哪里：即现在持有索引中旧路径对应 uid 的场景或资源文件，或者扩展名和内容都相同的唯一另一个文件。
 
@@ -207,7 +207,7 @@ files:
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-引用是原地改写的：保留原有的引号，文件其余部分（包括注释和格式）逐字节不变，因此一次移动在代码审查中只显示它改动的那几行。会导致引用失效的移动会在做任何修改之前被拒绝：引用会指到项目根目录之外、引用跨多行书写，或者引用所在的场景无法解析。场景中的图集、图块集和预制体名称是由游戏的解析器查找的名称而不是路径，因此不会被改写。
+引用是原地改写的：保留原有的引号，文件其余部分（包括注释和格式）逐字节不变，因此一次移动在代码审查中只显示它改动的那几行。会导致引用失效的移动会在做任何修改之前被拒绝：引用会指到项目根目录之外、引用跨多行书写，或者引用所在的场景无法解析。场景中的图集、图块集和预制体名称是由游戏的解析器查找的名称而不是路径，因此不会被改写；对象的 `mesh` 也不会被改写，它指代内置的基本形体，或者一个目前还没有加载器解析的路径。`game assets` 写出的路径（`assets` 目标的 `out`、`cache` 以及清单的 `in` 文件夹）在移动时会被改写，但可以暂不存在，也不会列入索引；文件夹同样不列入。只改变大小写的重命名（例如把 `a.png` 改为 `A.png`）在不区分大小写的文件系统上同样可用。
 
 ## 起手模板与示例
 

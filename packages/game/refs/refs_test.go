@@ -18,6 +18,9 @@ import (
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
+// gameHead is the smallest valid game.yaml, which tests extend.
+const gameHead = "version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\n"
+
 const (
 	gameYAML = `version: 1
 name: Room
@@ -196,7 +199,7 @@ func TestScanRootsAndOutsidePaths(t *testing.T) {
 	fsys := fstest.MapFS{
 		"a/nsgo.yaml":              {Data: []byte("name: A\n")},
 		"a/scenes/x.scene.yaml":    {Data: []byte("version: 1\nlayers:\n  - name: l\n    objects:\n      - id: o\n        material: m.material.yaml\n")},
-		"b/game.yaml":              {Data: []byte("version: 1\n")},
+		"b/game.yaml":              {Data: []byte(gameHead)},
 		"b/scenes/y.scene.yaml":    {Data: []byte("version: 1\nlayers:\n  - name: l\n    objects:\n      - id: o\n        material: ../m.material.yaml\n")},
 		"b/maps/m.tmj":             {Data: []byte(`{"layers": [{"image": "C:/x.png"}, {"image": "asset:x.png"}, {"image": "../../../x.png"}, {"image": ""}]}`)},
 		"testdata/z.scene.yaml":    {Data: []byte("version: 1\ninherits: q.yaml\n")},
@@ -700,14 +703,14 @@ func TestRewriteKeepsQuoting(t *testing.T) {
 				return
 			}
 			fsys := fstest.MapFS{
-				"game.yaml":                     {Data: []byte("autoload:\n  resources:\n    - name: s\n      path: " + tc.value + " # the stone\n")},
+				"game.yaml":                     {Data: []byte(gameHead + "autoload:\n  resources:\n    - name: s\n      path: " + tc.value + " # the stone\n")},
 				"materials/stone.material.yaml": {Data: []byte(stoneMaterial)},
 			}
 			pl, err := refs.PlanMove(fsys, "materials/stone.material.yaml", "materials/rock.material.yaml")
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := "autoload:\n  resources:\n    - name: s\n      path: " + tc.written + " # the stone\n"
+			want := gameHead + "autoload:\n  resources:\n    - name: s\n      path: " + tc.written + " # the stone\n"
 			if got := string(pl.Writes[1].Data); pl.Writes[1].Path != "game.yaml" || got != want {
 				t.Fatalf("%s:\n%s\nwant:\n%s", pl.Writes[1].Path, got, want)
 			}
@@ -715,7 +718,7 @@ func TestRewriteKeepsQuoting(t *testing.T) {
 	}
 	// A new path that plain YAML would read differently is quoted.
 	fsys := fstest.MapFS{
-		"game.yaml":   {Data: []byte("autoload:\n  resources:\n    - name: s\n      path: a.png\n    - name: t\n      path: 'b.png'\n")},
+		"game.yaml":   {Data: []byte(gameHead + "autoload:\n  resources:\n    - name: s\n      path: a.png\n    - name: t\n      path: 'b.png'\n")},
 		"a.png":       {Data: []byte("a")},
 		"b.png":       {Data: []byte("b")},
 		"sub/ok.yaml": {Data: []byte("x: 1\n")},
