@@ -290,7 +290,21 @@ func (m *Manager) entryStyle(id uint64) core.Style {
 	p := clamp01(m.trans.progress)
 	hasView := m.transitionHasView()
 
-	switch tr.kind {
+	switch tr.hostKind() {
+	case transitionNone:
+		// No Draw: show the incoming stack at once, as Manager.Draw draws only the new stack.
+		if inOld {
+			return hiddenFillStyle()
+		}
+		st := fillStyle()
+		st.Visibility = core.VisibilityVisible
+		if newIdx == len(m.stack)-1 {
+			st.PointerEvents = core.PointerEventsAuto
+		} else {
+			st.PointerEvents = core.PointerEventsNone
+		}
+		return st
+
 	case transitionFadeColor:
 		if p < 0.5 {
 			if inNew {
@@ -471,7 +485,10 @@ func (m *Manager) drawHostTransitionOverlay(d *core.Drawing, size core.Size, alp
 	tr := m.trans.tr
 	p := clamp01(m.trans.progress)
 
-	switch tr.kind {
+	switch tr.hostKind() {
+	case transitionNone:
+		// The incoming stack is shown by entryStyle.
+
 	case transitionFadeColor:
 		var overlayAlpha float32
 		if p < 0.5 {
