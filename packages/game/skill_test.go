@@ -37,6 +37,7 @@ var (
 	skillNamePattern      = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	markdownLinkPattern   = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 	skillPackageRowRegexp = regexp.MustCompile("^\\| `(game(?:/[a-z0-9_.-]+)*)` \\| (Stable|Experimental) \\|")
+	skillToolRowRegexp    = regexp.MustCompile("^\\| `(game_[a-z0-9_]+)` \\|")
 )
 
 func parseSkillFrontmatter(t *testing.T, data []byte) (skillFrontmatter, string) {
@@ -76,10 +77,7 @@ func stripFencedCodeBlocks(md string) string {
 	return out.String()
 }
 
-// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout
-// (installable via `bunx skills add`), has valid relative links, stays in sync with all
-// packages under packages/game, documents all CLI subcommands, and lists every registered
-// game/mcp tool.
+// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout (installable via `bunx skills add`), has valid relative links, lists every package under packages/game with the status docs/en/stability.md gives it, and catalogs exactly the tools game/mcp registers. cmd/game's TestAgentSkillDocumentsEveryCommand checks the CLI subcommands.
 func TestAgentSkillValid(t *testing.T) {
 	skillDir := filepath.Join("..", "..", "skills", "nsgo-game")
 	skillPath := filepath.Join(skillDir, "SKILL.md")
@@ -163,17 +161,22 @@ func TestAgentSkillValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	documentedPkgs := map[string]bool{}
+	documentedPkgs := map[string]string{}
 	for i, line := range strings.Split(string(pkgsDoc), "\n") {
 		m := skillPackageRowRegexp.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		pkg := m[1]
-		if documentedPkgs[pkg] {
+		if _, dup := documentedPkgs[pkg]; dup {
 			t.Errorf("skills/nsgo-game/references/packages.md:%d: duplicate package %q", i+1, pkg)
 		}
-		documentedPkgs[pkg] = true
+		documentedPkgs[pkg] = statusWords["en"][m[2]]
+	}
+	for _, row := range readStabilityTable(t, "en") {
+		if got, ok := documentedPkgs[row.pkg]; ok && got != row.status {
+			t.Errorf("skills/nsgo-game/references/packages.md gives %s status %q, docs/en/stability.md gives %q", row.pkg, got, row.status)
+		}
 	}
 	actualPkgs := modulePackages(t)
 	for pkg := range documentedPkgs {
@@ -183,7 +186,7 @@ func TestAgentSkillValid(t *testing.T) {
 	}
 	var missingPkgs []string
 	for pkg := range actualPkgs {
-		if !documentedPkgs[pkg] {
+		if _, ok := documentedPkgs[pkg]; !ok {
 			missingPkgs = append(missingPkgs, pkg)
 		}
 	}
@@ -192,52 +195,36 @@ func TestAgentSkillValid(t *testing.T) {
 		t.Errorf("skills/nsgo-game/references/packages.md is missing package %q", pkg)
 	}
 
-	// Verify references/cli-and-formats.md covers every `game` CLI subcommand.
-	cliDocBytes, err := os.ReadFile(filepath.Join(skillDir, "references", "cli-and-formats.md"))
+	// Verify the tool catalog in references/mcp-tools.md names exactly the tools game/mcp registers.
+	mcpDoc, err := os.ReadFile(filepath.Join(skillDir, "references", "mcp-tools.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cliDoc := string(cliDocBytes)
-	for _, cmd := range []string{
-		"game new",
-		"game dev",
-		"game generate",
-		"game editor",
-		"game check",
-		"game index",
-		"game mv",
-		"game library",
-		"game assets",
-		"game pack",
-		"game audio",
-		"game tex",
-		"game manifest",
-		"game credits",
-		"game replay",
-		"game bench",
-		"game release",
-		"game completion",
-		"game help",
-	} {
-		if !strings.Contains(cliDoc, "`"+cmd+"`") {
-			t.Errorf("skills/nsgo-game/references/cli-and-formats.md does not document `%s`", cmd)
+	documentedTools := map[string]bool{}
+	for i, line := range strings.Split(string(mcpDoc), "\n") {
+		m := skillToolRowRegexp.FindStringSubmatch(line)
+		if m == nil {
+			continue
 		}
+		if documentedTools[m[1]] {
+			t.Errorf("skills/nsgo-game/references/mcp-tools.md:%d: duplicate tool %q", i+1, m[1])
+		}
+		documentedTools[m[1]] = true
 	}
-
-	// Verify references/mcp-tools.md documents every currently registered MCP tool.
-	mcpDocBytes, err := os.ReadFile(filepath.Join(skillDir, "references", "mcp-tools.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mcpDoc := string(mcpDocBytes)
-	bridge := mcp.New(mcp.Config{})
-	tools := bridge.Tools()
+	tools := mcp.New(mcp.Config{}).Tools()
 	if len(tools) == 0 {
 		t.Fatal("mcp.New returned zero tools")
 	}
+	registered := map[string]bool{}
 	for _, tool := range tools {
-		if !strings.Contains(mcpDoc, "`"+tool.Name+"`") {
+		registered[tool.Name] = true
+		if !documentedTools[tool.Name] {
 			t.Errorf("skills/nsgo-game/references/mcp-tools.md is missing registered MCP tool %q", tool.Name)
+		}
+	}
+	for name := range documentedTools {
+		if !registered[name] {
+			t.Errorf("skills/nsgo-game/references/mcp-tools.md documents %q, which game/mcp does not register", name)
 		}
 	}
 }
@@ -275,10 +262,7 @@ func callSkillMCPTool[T any](t *testing.T, app *nsgotest.App, cx *core.Scope, na
 	return out
 }
 
-// TestAgentSkillWorkflowBuildAndVerifyThroughMCP simulates an agent following
-// skills/nsgo-game: authoring plain-text YAML project & scene files, validating them,
-// loading the scene into an ECS world with a fixed-step game.Loop, attaching mcp.Bridge,
-// and verifying deterministic gameplay over MCP.
+// TestAgentSkillWorkflowBuildAndVerifyThroughMCP simulates an agent following skills/nsgo-game: authoring plain-text YAML project & scene files, validating them, loading the scene into an ECS world with a fixed-step game.Loop, attaching mcp.Bridge, and verifying deterministic gameplay over MCP.
 func TestAgentSkillWorkflowBuildAndVerifyThroughMCP(t *testing.T) {
 	dir := t.TempDir()
 	gameYAML := strings.Join([]string{
@@ -358,7 +342,9 @@ func TestAgentSkillWorkflowBuildAndVerifyThroughMCP(t *testing.T) {
 		t.Fatalf("sceneformat.Parse: %v", err)
 	}
 	world := entities.NewWorld()
-	entities.RegisterCodec[skillVelocity](world, "velocity")
+	if err := entities.RegisterCodec[skillVelocity](world, "velocity"); err != nil {
+		t.Fatal(err)
+	}
 
 	spawned, err := sceneformat.SpawnEntities(doc, world)
 	if err != nil {
