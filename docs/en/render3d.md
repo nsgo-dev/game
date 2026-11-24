@@ -89,15 +89,16 @@ pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 
 The reference tests render the same scene headless through `gpu.NewSoftwareRenderer` with a perspective and an orthographic camera orbiting on `game.Loop`, and compare each frame with `render3d/testdata/golden/camera_perspective.png` and `camera_orthographic.png`; `UPDATE_GOLDEN=1` rewrites them.
 
-## Directional and point lights in PBR shading (`LightRig`, `GPULightBuffer`)
+## Directional, point and spot lights in PBR shading (`LightRig`, `GPULightBuffer`)
 
-`LightRig` holds a scene's linear-RGB lighting: an `AmbientLight`, up to `MaxDirectionalLights` (4) `DirectionalLight`s, and up to `MaxPointLights` (16) `PointLight`s.
+`LightRig` holds a scene's linear-RGB lighting: an `AmbientLight`, up to `MaxDirectionalLights` (4) `DirectionalLight`s, up to `MaxPointLights` (16) `PointLight`s, and up to `MaxSpotLights` (8) `SpotLight`s. One pass shades all of them together, so a scene can mix a sun, lamps and a flashlight.
 
 - **`DirectionalLight`**: parallel rays travelling along `Direction` (for example `{Y: -1}` shines straight down onto a `+Y` surface; normalized when shaded or packed), with linear `Color` and `Intensity`.
 - **`PointLight`**: omnidirectional emitter at `Position` with linear `Color`, `Intensity`, and optional cutoff `Range`. When `Range > 0`, distance falloff uses the glTF `KHR_lights_punctual` smooth windowing curve `max(min(1 - (d/Range)^4, 1), 0)^2 / max(d^2, 1e-4)` so contribution reaches zero smoothly at `Range`; `Range == 0` uses pure clamped inverse-square `1 / max(d^2, 1e-4)` (`PointLightAttenuation`).
+- **`SpotLight`**: a glTF `KHR_lights_punctual` cone at `Position` pointing along `Direction` (normalized when shaded or packed), with linear `Color`, `Intensity` and `Range` falloff exactly as for a `PointLight`, multiplied by the angular falloff between the half-angles `InnerConeAngle` and `OuterConeAngle` (radians, `0 <= inner < outer <= pi/2`): full intensity inside the inner cone, `clamp(cos(angle) * angleScale + angleOffset, 0, 1)^2` between the cones, and zero outside the outer cone or behind the light (`SpotConeAttenuation`, with `angleScale` and `angleOffset` from `SpotLight.ConeScaleOffset`, and `SpotLight.Attenuation` for the combined distance and cone factor). `Validate` refuses a zero outer cone, an outer cone past `pi/2` and an inner cone that is not smaller than the outer one.
 - **`AmbientLight`**: uniform isotropic linear fill applied as `Ambient.Color * Ambient.Intensity * BaseColor`.
 
-`GPULightBuffer` uploads a validated `LightRig` into a 672-byte (`LightUniformSize`), 16-byte-aligned std140/WGSL uniform buffer bound at `LightGroup` (group 1), scoped to `*core.Scope` with optional `LightBufferOptions.Retained` survival across GPU device loss:
+`GPULightBuffer` uploads a validated `LightRig` into a 1056-byte (`LightUniformSize`), 16-byte-aligned std140/WGSL uniform buffer bound at `LightGroup` (group 1), scoped to `*core.Scope` with optional `LightBufferOptions.Retained` survival across GPU device loss:
 
 ```go
 rig := render3d.LightRig{
@@ -107,6 +108,13 @@ rig := render3d.LightRig{
 	},
 	Point: []render3d.PointLight{
 		{Position: math3d.Vec3{X: 1.6, Y: 1.15, Z: 1.5}, Color: math3d.Vec3{X: 0.25, Y: 0.72, Z: 1}, Intensity: 9, Range: 6.5},
+	},
+	Spot: []render3d.SpotLight{
+		{
+			Position: math3d.Vec3{X: -1.8, Y: 3.6, Z: 1.2}, Direction: math3d.Vec3{X: 0.7, Y: -3.6, Z: -1.1},
+			Color: math3d.Vec3{X: 1, Y: 0.72, Z: 0.38}, Intensity: 28, Range: 9,
+			InnerConeAngle: math3d.DegToRad(14), OuterConeAngle: math3d.DegToRad(26),
+		},
 	},
 }
 
@@ -127,9 +135,9 @@ pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
 mesh.Draw(pass)
 ```
 
-Custom 3D shaders can prepend `CameraWGSL + LightWGSL` to read `@group(1) @binding(0) var<uniform> lights: LightRigUniform` and call the portable WGSL helpers `point_light_attenuation`, `pbr_brdf`, `shade_pbr`, and `linear_to_srgb`. `LitPBRWGSL` combines them with `MeshVertexLayout` and a per-draw `PBRDrawUniform` at `PBRDrawGroup` (group 2).
+Custom 3D shaders can prepend `CameraWGSL + LightWGSL` to read `@group(1) @binding(0) var<uniform> lights: LightRigUniform` and call the portable WGSL helpers `point_light_attenuation`, `spot_cone_attenuation`, `pbr_brdf`, `shade_pbr`, and `linear_to_srgb`. `LitPBRWGSL` combines them with `MeshVertexLayout` and a per-draw `PBRDrawUniform` at `PBRDrawGroup` (group 2).
 
-The shading model follows glTF 2.0 metallic-roughness PBR (dielectric `F0 = 0.04`, Schlick Fresnel, Trowbridge-Reitz GGX normal distribution, height-correlated Smith-GGX visibility, energy-conserving Lambertian diffuse, perceptual roughness floored at `0.045`, and IEC 61966-2-1 linear-to-sRGB output). `EvaluatePBR`, `ShadePoint`, `PointLightAttenuation`, and `LinearToSRGB` implement the exact same equations on the CPU; `LightRig.AppendUniformData` and `LightUniforms.Encode` pack the uniform block without allocating. Reference tests verify GPU output pixel-for-pixel against CPU `ShadePoint`, exercise both full and WebGL 2 / GLES 3.0 (`nsgotest.NoGPUCompute`) profiles plus `Retained` device loss, and compare lit scenes against `render3d/testdata/golden/lights_pbr_scene.png` and `lights_point_falloff.png`.
+The shading model follows glTF 2.0 metallic-roughness PBR (dielectric `F0 = 0.04`, Schlick Fresnel, Trowbridge-Reitz GGX normal distribution, height-correlated Smith-GGX visibility, energy-conserving Lambertian diffuse, perceptual roughness floored at `0.045`, and IEC 61966-2-1 linear-to-sRGB output). `EvaluatePBR`, `ShadePoint`, `PointLightAttenuation`, `SpotConeAttenuation`, and `LinearToSRGB` implement the exact same equations on the CPU; `LightRig.AppendUniformData` and `LightUniforms.Encode` pack the uniform block without allocating. Reference tests verify GPU output pixel-for-pixel against CPU `ShadePoint`, exercise both full and WebGL 2 / GLES 3.0 (`nsgotest.NoGPUCompute`) profiles plus `Retained` device loss, and compare lit scenes against `render3d/testdata/golden/lights_pbr_scene.png`, `lights_point_falloff.png` and `spot_lights_scene.png`.
 
 ## Distance and height fog (`Fog`, `GPUFogBuffer`)
 
