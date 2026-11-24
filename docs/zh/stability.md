@@ -76,7 +76,6 @@
 | `game/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/animclip` | 实验性 | [animclip](animclip.md) |
 | `game/assets` | 实验性 | [assets](assets.md) |
-| `game/cmd/benchcheck` | 实验性 | |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
@@ -135,6 +134,7 @@
 | `game/tilemap` | 稳定 | [tilemap](tilemap.md) |
 | `game/tooling/apiref` | 实验性 | |
 | `game/tooling/audioconv` | 实验性 | |
+| `game/tooling/bench` | 实验性 | [命令行](cli.md) |
 | `game/tooling/datatable` | 实验性 | |
 | `game/tooling/devstate` | 实验性 | |
 | `game/tooling/hotreload` | 实验性 | |

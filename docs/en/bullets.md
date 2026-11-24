@@ -115,7 +115,7 @@ An emitter draws its jitter from its own `random.Stream`. Two emitters with the 
 
 ## Performance
 
-`BenchmarkFrame5000` runs one 60 fps frame of a steady 5000-bullet scene: ten spiral emitters with jitter and curving paths, half of them with turned sprites, moving, expiring, spawning and drawing into a `core.Drawing`. On a desktop Ryzen 9 3900X it takes about 0.63 ms of the 16.7 ms a frame has; moving 5000 bullets alone (`BenchmarkUpdate5000`) takes about 0.14 ms. The performance baselines in CI (`benchmarks/baseline.json`) fail a change that makes a frame take more than 6.25 ms on the CI runner.
+`BenchmarkFrame5000` runs one 60 fps frame of a steady 5000-bullet scene: ten spiral emitters with jitter and curving paths, half of them with turned sprites, moving, expiring, spawning and drawing into a `core.Drawing`. On a desktop Ryzen 9 3900X it takes about 0.63 ms of the 16.7 ms a frame has; moving 5000 bullets alone (`BenchmarkUpdate5000`) takes about 0.14 ms. The performance baselines in CI (`benchmarks/baseline.yaml`) fail a change that makes a frame take more than 6.25 ms on the CI runner.
 
 This measures the CPU work of a frame: simulating the bullets and recording their draw ops. It does not measure how long the platform's renderer takes to put those ops on screen, which is NSGo's and depends on the GPU.
 

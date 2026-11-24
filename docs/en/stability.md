@@ -76,7 +76,6 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/animclip` | Experimental | [animclip](animclip.md) |
 | `game/assets` | Experimental | [assets](assets.md) |
-| `game/cmd/benchcheck` | Experimental | |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
@@ -135,6 +134,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tilemap` | Stable | [tilemap](tilemap.md) |
 | `game/tooling/apiref` | Experimental | |
 | `game/tooling/audioconv` | Experimental | |
+| `game/tooling/bench` | Experimental | [Command Line](cli.md) |
 | `game/tooling/datatable` | Experimental | |
 | `game/tooling/devstate` | Experimental | |
 | `game/tooling/hotreload` | Experimental | |
