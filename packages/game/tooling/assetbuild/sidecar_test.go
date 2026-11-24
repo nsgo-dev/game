@@ -237,3 +237,39 @@ func TestSidecarsNoTargetReads(t *testing.T) {
 	writeFile(t, filepath.Join(root, "art/ui/.draft.png.import.yaml"), []byte("version: 1\nimage: {filter: nearest}\n"))
 	build(t, root, assetbuild.Builder{})
 }
+
+// TestCreditOnlySidecars checks that a sidecar holding only a credit builds like no sidecar, beside an image or a sound a target reads or beside any other file in a folder a target reads from, and that a credit beside a file that is not there is still refused.
+func TestCreditOnlySidecars(t *testing.T) {
+	const credit = "version: 1\ncredit: {author: Ana, license: CC0-1.0}\n"
+	root := newProject(t)
+	build(t, root, assetbuild.Builder{})
+	writeFile(t, filepath.Join(root, "art/albedo.png.import.yaml"), []byte(credit))
+	writeFile(t, filepath.Join(root, "art/hero/run.png.import.yaml"), []byte(credit))
+	writeFile(t, filepath.Join(root, "sfx/jump.wav.import.yaml"), []byte(credit))
+	writeFile(t, filepath.Join(root, "art/ui/photo.jpg"), []byte("not read"))
+	writeFile(t, filepath.Join(root, "art/ui/photo.jpg.import.yaml"), []byte(credit))
+	build(t, root, assetbuild.Builder{})
+	if format, levels, kvd := textureOf(t, root, "assets/albedo.ktx2"); format != ktx2.FormatBC1 || levels != 5 || kvd[importsettings.FilterKey] != nil {
+		t.Fatalf("with a credit: %s, %d levels, filter %q; want game.yaml's bc1 with mipmaps and no filter", format, levels, kvd[importsettings.FilterKey])
+	}
+	if got, want := framesOf(t, root, "assets/atlases/hero.json"), []string{"idle.png", "run.png"}; !slices.Equal(got, want) {
+		t.Fatalf("frames = %v, want %v", got, want)
+	}
+	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), all(assetbuild.UpToDate))
+
+	for _, missing := range []string{"art/ui/gone.ttf.import.yaml", "art/Albedo.png.import.yaml"} {
+		root := newProject(t)
+		writeFile(t, filepath.Join(root, missing), []byte(credit))
+		_, err := tryBuild(root, assetbuild.Builder{})
+		if err == nil || !strings.Contains(err.Error(), missing+": no target in game.yaml reads") {
+			t.Fatalf("Build error = %v, want %s refused", err, missing)
+		}
+	}
+
+	root = newProject(t)
+	writeFile(t, filepath.Join(root, "art/ui/font.ttf"), []byte("not read"))
+	writeFile(t, filepath.Join(root, "art/ui/font.ttf.import.yaml"), []byte("version: 1\ncredit: {author: Ana, license: CC BY}\n"))
+	if _, err := tryBuild(root, assetbuild.Builder{}); err == nil || !strings.Contains(err.Error(), "art/ui/font.ttf.import.yaml: importsettings: credit: license") {
+		t.Fatalf("Build error = %v, want the invalid credit refused", err)
+	}
+}

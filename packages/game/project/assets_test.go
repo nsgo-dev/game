@@ -96,3 +96,42 @@ func TestAssetsAccepted(t *testing.T) {
 		})
 	}
 }
+
+func TestAssetsIsOutput(t *testing.T) {
+	f := project.MustParse([]byte(assetsHead + `assets:
+  atlases:
+    - name: ui
+      in: art/ui
+      out: assets
+  textures:
+    - in: art/sky.png
+      out: assets/sky.ktx2
+  audio:
+    - in: sfx/jump.wav
+      out: assets/jump.wav
+  manifest:
+    in: assets
+    out: internal/assets/assets.go
+`))
+	for p, want := range map[string]bool{
+		".game/assets-cache.yaml":   true,
+		"assets/ui.png":             true,
+		"assets/ui.json":            true,
+		"assets/ui-2.png":           true,
+		"assets/ui-x.png":           false,
+		"assets/sub/ui.png":         false,
+		"assets/sky.ktx2":           true,
+		"assets/jump.wav":           true,
+		"internal/assets/assets.go": true,
+		"art/sky.png":               false,
+		"sfx/jump.wav":              false,
+		"assets/font.ttf":           false,
+	} {
+		if got := f.Assets.IsOutput(p); got != want {
+			t.Errorf("IsOutput(%q) = %v, want %v", p, got, want)
+		}
+	}
+	if (*project.Assets)(nil).IsOutput("assets/ui.png") {
+		t.Error("a nil assets section writes a file")
+	}
+}
