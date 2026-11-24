@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
+	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
 func FuzzLoad(f *testing.F) {
@@ -18,9 +19,11 @@ func FuzzLoad(f *testing.F) {
 	boxJSONBytes, _ := json.Marshal(boxJSON)
 	f.Add(buildGLB(boxJSONBytes, boxBin))
 
-	// Self-contained Draco and meshopt documents.
+	// Self-contained Draco, meshopt, texture transform, and material variants documents.
 	f.Add(inlineBuffers(f, "Box/glTF-Draco", "Box.gltf"))
 	f.Add(inlineBuffers(f, "MeshoptCubeTest/glTF-Meshopt", "MeshoptCubeTest.gltf"))
+	f.Add(inlineBuffers(f, "TextureTransformTest/glTF", "TextureTransformTest.gltf"))
+	f.Add(inlineBuffers(f, "GlamVelvetSofa/glTF", "GlamVelvetSofa.gltf"))
 
 	// Corrupt / truncated GLB & JSON seeds.
 	f.Add([]byte{})
@@ -39,20 +42,32 @@ func FuzzLoad(f *testing.F) {
 		}
 		// Exercise post-load operations to verify they never panic on valid parsed docs.
 		_ = doc.ComputeWorldMatrices()
+		_ = doc.ResolveVariantMaterials(0)
+		_ = doc.ResolveVariantMaterials(-1)
+		_ = doc.VariantIndex("Champagne")
 		for i := range doc.Meshes {
+			_, _ = doc.MeshMaterials(i, 0)
 			for _, prim := range doc.Meshes[i].Primitives {
 				_ = doc.MaterialForPrimitive(prim, 0)
 				_ = doc.MaterialForPrimitive(prim, -1)
+				_ = doc.MaterialForVariant(prim, "Champagne")
 				if len(prim.Targets) > 0 && len(prim.Positions) <= 4096 {
 					weights := make([]float32, len(prim.Targets))
 					weights[0] = 0.5
 					_ = gltf.EvaluateMorphPositions(prim, weights, nil)
+				}
+				if prim.Material >= 0 && prim.Material < len(doc.Materials) {
+					if ref := doc.Materials[prim.Material].BaseColorTexture; ref != nil && len(prim.Positions) <= 4096 {
+						_, _ = doc.TransformTexCoords(prim, ref, nil)
+					}
 				}
 			}
 		}
 		for i := range doc.Materials {
 			if ref := doc.Materials[i].BaseColorTexture; ref != nil && ref.Transform != nil {
 				_, _ = ref.Transform.ApplyUV(0.25, 0.75)
+				_ = ref.ApplyUV(math3d.Vec2{X: 0.25, Y: 0.75})
+				_ = ref.Transform.Matrix()
 			}
 		}
 		for i := range doc.Animations {

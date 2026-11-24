@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
+	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
 // floats packs little-endian float32 values as a glTF buffer stores them.
@@ -101,4 +102,44 @@ func ExampleAnimation() {
 	// Output:
 	// 0 translation {1 0 0}
 	// {2 0 0}
+}
+
+// TextureTransform evaluates KHR_texture_transform in exact T * R * S order.
+func ExampleTextureTransform() {
+	tr := gltf.DefaultTextureTransform()
+	tr.Offset = [2]float32{0.5, 0.25}
+	tr.Scale = [2]float32{2, 2}
+	fmt.Println(tr.Apply(math3d.Vec2{X: 0.25, Y: 0.5}))
+	// Output:
+	// {1 1.25}
+}
+
+// KHR_materials_variants maps named variants to per-primitive materials and falls back to Primitive.Material when a variant is unmapped.
+func ExampleDocument_MaterialForVariant() {
+	posURI := "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString(floats(0, 0, 0, 1, 0, 0, 0, 1, 0))
+	raw := fmt.Sprintf(`{
+		"asset": {"version": "2.0"},
+		"extensionsUsed": ["KHR_materials_variants"],
+		"extensions": {"KHR_materials_variants": {"variants": [{"name": "Day"}, {"name": "Night"}]}},
+		"buffers": [{"byteLength": 36, "uri": %q}],
+		"bufferViews": [{"buffer": 0, "byteLength": 36}],
+		"accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+		"materials": [{"name": "Default"}, {"name": "NightMat"}],
+		"meshes": [{"primitives": [{
+			"attributes": {"POSITION": 0},
+			"material": 0,
+			"extensions": {"KHR_materials_variants": {"mappings": [{"material": 1, "variants": [1]}]}}
+		}]}]
+	}`, posURI)
+	doc, err := gltf.Load([]byte(raw), nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	prim := doc.Meshes[0].Primitives[0]
+	fmt.Println(doc.Materials[doc.MaterialForVariant(prim, "Day")].Name)
+	fmt.Println(doc.Materials[doc.MaterialForVariant(prim, "Night")].Name)
+	// Output:
+	// Default
+	// NightMat
 }

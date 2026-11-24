@@ -218,6 +218,19 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 
 两种解码器在分配之前，就把输出和工作内存与未压缩数据计入同一份单次加载预算，因此声明了巨大数量或大量宽属性的小数据流会立即失败；格式错误的数据流返回错误而不会 panic。`EXT_meshopt_compression` 文件只能使用该扩展定义的内容：属性编码第 0 版，且不能用 `COLOR` 过滤器。其他必需扩展（如 `KHR_texture_basisu`）在加载时仍会被拒绝。
 
+## 纹理变换与材质变体
+
+`game/gltf` 同时支持 `KHR_texture_transform` 和 `KHR_materials_variants`（无论出现在 `extensionsUsed` 还是 `extensionsRequired` 中）：
+
+- **`KHR_texture_transform`**：会在所有 PBR 贴图槽位（`BaseColorTexture`、`MetallicRoughnessTexture`、`NormalTexture`、`OcclusionTexture`、`EmissiveTexture`）上解析到 `TextureRef.Transform`（`*TextureTransform`）。
+  - 默认值严格遵循 Khronos 规范（`offset: [0, 0]`、`rotation: 0`、`scale: [1, 1]`），并在 glTF UV 空间（`+U` 向右、`+V` 向下、正角度逆时针）中按精确的 `T * R * S` 顺序生效，可通过 `TextureTransform.Apply`、`TextureTransform.ApplyUV`、`TextureTransform.Matrix` 或 `TextureRef.ApplyUV` 计算。
+  - 当 `KHR_texture_transform.texCoord` 存在时，`TextureRef.EffectiveTexCoord()` 会返回覆盖后的 UV 通道索引，而非 `TextureRef.TexCoord`。
+  - `Document.PrimitiveTexCoords(prim, set)` 会直接返回 `TEXCOORD_0`/`TEXCOORD_1`，并按需解码更高的 UV 通道（`TEXCOORD_2` 等）；`Document.TransformTexCoords(prim, ref, out)` 可将图元对应贴图槽位变换后的 UV 写入可复用的切片中。
+  - 加载时会拒绝格式错误的变换（非对象载荷、长度不为 2 的 `offset`/`scale`、非有限数值、负值或非整数 `texCoord`），并返回带位置信息的 `*loaderr.Error`。
+- **`KHR_materials_variants`**：顶层变体列表加载到 `Document.Variants`（`[]MaterialVariant`），逐图元映射加载到 `Primitive.VariantMappings`（`map[int]int`）。
+  - 可用 `Document.VariantIndex(name)` 按名称查找变体索引，并通过 `Document.MaterialForPrimitive(prim, variantIndex)`、`Document.MaterialForVariant(prim, name)`、`Document.MeshMaterials(meshIndex, variantIndex)` 和 `Document.ResolveVariantMaterials(variantIndex)` 解析材质，且不修改 `Primitive.Material`。未映射的图元或越界/负值变体会自动回退到 `Primitive.Material`。
+  - 加载时严格校验规范约束：`variants` 与 `mappings` 均须非空、每个变体必须有 `name`、材质与变体索引须在有效范围内，且同一图元上每个变体索引最多映射一次。
+
 ## 往返校验示例模型
 
 [占位素材包](placeholder.md)在 [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。

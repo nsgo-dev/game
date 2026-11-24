@@ -1,6 +1,7 @@
 package gltf
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -179,6 +180,9 @@ type Document struct {
 }
 
 const (
+	extTextureTransform  = "KHR_texture_transform"
+	extMaterialsVariants = "KHR_materials_variants"
+
 	// Safety cap for zero-initialized (bufferView-less) accessors to prevent
 	// adversarial inputs from triggering huge allocations.
 	maxZeroInitAccessorBytes uint64 = 16 << 20 // 16 MiB
@@ -300,7 +304,7 @@ func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	}
 	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
-		case "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_variants", "KHR_mesh_quantization",
+		case "KHR_materials_unlit", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
 			extDraco, extMeshoptEXT, extMeshoptKHR:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
@@ -684,6 +688,88 @@ func (d *Document) loadTextures(raws []rawTexture) (err error) {
 	return nil
 }
 
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func parseTextureTransformVec2(field string, raw json.RawMessage) ([2]float32, error) {
+	if isJSONNull(raw) {
+		return [2]float32{}, fmt.Errorf("gltf: %s %s must be a 2-element number array", extTextureTransform, field)
+	}
+	var elems []*float32
+	if err := json.Unmarshal(raw, &elems); err != nil {
+		return [2]float32{}, fmt.Errorf("gltf: parse %s %s: %w", extTextureTransform, field, err)
+	}
+	if len(elems) != 2 {
+		return [2]float32{}, fmt.Errorf("gltf: %s %s must have 2 elements, got %d", extTextureTransform, field, len(elems))
+	}
+	if elems[0] == nil || elems[1] == nil {
+		return [2]float32{}, fmt.Errorf("gltf: %s %s elements must be finite numbers", extTextureTransform, field)
+	}
+	v0, v1 := *elems[0], *elems[1]
+	if !finite32(v0) || !finite32(v1) {
+		return [2]float32{}, fmt.Errorf("gltf: %s %s elements must be finite numbers", extTextureTransform, field)
+	}
+	return [2]float32{v0, v1}, nil
+}
+
+func parseTextureTransform(extData json.RawMessage) (*TextureTransform, error) {
+	if !isJSONObject(extData) {
+		return nil, fmt.Errorf("gltf: %s must be a JSON object", extTextureTransform)
+	}
+	var rawTT rawTextureTransform
+	if err := json.Unmarshal(extData, &rawTT); err != nil {
+		return nil, fmt.Errorf("gltf: parse %s: %w", extTextureTransform, err)
+	}
+	tt := DefaultTextureTransform()
+	if len(rawTT.Offset) > 0 {
+		off, err := parseTextureTransformVec2("offset", rawTT.Offset)
+		if err != nil {
+			return nil, err
+		}
+		tt.Offset = off
+	}
+	if len(rawTT.Rotation) > 0 {
+		if isJSONNull(rawTT.Rotation) {
+			return nil, fmt.Errorf("gltf: %s rotation must be a finite number", extTextureTransform)
+		}
+		var rot float32
+		if err := json.Unmarshal(rawTT.Rotation, &rot); err != nil {
+			return nil, fmt.Errorf("gltf: parse %s rotation: %w", extTextureTransform, err)
+		}
+		if !finite32(rot) {
+			return nil, fmt.Errorf("gltf: %s rotation must be finite", extTextureTransform)
+		}
+		tt.Rotation = rot
+	}
+	if len(rawTT.Scale) > 0 {
+		sc, err := parseTextureTransformVec2("scale", rawTT.Scale)
+		if err != nil {
+			return nil, err
+		}
+		tt.Scale = sc
+	}
+	if len(rawTT.TexCoord) > 0 {
+		if isJSONNull(rawTT.TexCoord) {
+			return nil, fmt.Errorf("gltf: %s texCoord must be a non-negative integer", extTextureTransform)
+		}
+		var tc int
+		if err := json.Unmarshal(rawTT.TexCoord, &tc); err != nil {
+			return nil, fmt.Errorf("gltf: parse %s texCoord: %w", extTextureTransform, err)
+		}
+		if tc < 0 {
+			return nil, fmt.Errorf("gltf: %s has negative texCoord %d", extTextureTransform, tc)
+		}
+		tt.TexCoord = &tc
+	}
+	return &tt, nil
+}
+
 func (d *Document) parseTextureRef(info *rawTextureInfo, defaultScale, defaultStrength float32) (*TextureRef, error) {
 	if info == nil {
 		return nil, nil
@@ -706,28 +792,10 @@ func (d *Document) parseTextureRef(info *rawTextureInfo, defaultScale, defaultSt
 	if info.Strength != nil {
 		ref.Strength = *info.Strength
 	}
-	if extData, ok := info.Extensions["KHR_texture_transform"]; ok {
-		var rawTT rawTextureTransform
-		if err := json.Unmarshal(extData, &rawTT); err != nil {
-			return nil, fmt.Errorf("gltf: parse KHR_texture_transform: %w", err)
-		}
-		tt := &TextureTransform{
-			Offset:   [2]float32{0, 0},
-			Rotation: rawTT.Rotation,
-			Scale:    [2]float32{1, 1},
-		}
-		if rawTT.Offset != nil {
-			tt.Offset = *rawTT.Offset
-		}
-		if rawTT.Scale != nil {
-			tt.Scale = *rawTT.Scale
-		}
-		if rawTT.TexCoord != nil {
-			if *rawTT.TexCoord < 0 {
-				return nil, fmt.Errorf("gltf: KHR_texture_transform has negative texCoord %d", *rawTT.TexCoord)
-			}
-			tc := *rawTT.TexCoord
-			tt.TexCoord = &tc
+	if extData, ok := info.Extensions[extTextureTransform]; ok {
+		tt, err := parseTextureTransform(extData)
+		if err != nil {
+			return nil, err
 		}
 		ref.Transform = tt
 	}
@@ -806,22 +874,82 @@ func (d *Document) loadMaterials(raws []rawMaterial) (err error) {
 }
 
 func (d *Document) loadVariants(exts map[string]json.RawMessage) error {
-	rawExt, ok := exts["KHR_materials_variants"]
+	rawExt, ok := exts[extMaterialsVariants]
 	if !ok {
 		return nil
 	}
+	field := loaderr.Path("extensions", extMaterialsVariants)
+	if !isJSONObject(rawExt) {
+		return loaderr.Errorf(field, fixGLTF, "gltf: %s must be a JSON object", extMaterialsVariants)
+	}
 	var parsed rawVariantsExt
 	if err := json.Unmarshal(rawExt, &parsed); err != nil {
-		return fmt.Errorf("gltf: parse KHR_materials_variants: %w", err)
+		return loaderr.Errorf(field, fixGLTF, "gltf: parse %s: %w", extMaterialsVariants, err)
+	}
+	if len(parsed.Variants) == 0 {
+		return loaderr.Errorf(field, fixGLTF, "gltf: %s requires a non-empty variants array", extMaterialsVariants)
 	}
 	d.Variants = make([]MaterialVariant, len(parsed.Variants))
-	for i, rv := range parsed.Variants {
+	for i, rawItem := range parsed.Variants {
+		if !isJSONObject(rawItem) {
+			return loaderr.Errorf(field, fixGLTF, "gltf: %s variant %d must be a JSON object", extMaterialsVariants, i)
+		}
+		var rv rawVariant
+		if err := json.Unmarshal(rawItem, &rv); err != nil {
+			return loaderr.Errorf(field, fixGLTF, "gltf: parse %s variant %d: %w", extMaterialsVariants, i, err)
+		}
+		if rv.Name == nil {
+			return loaderr.Errorf(field, fixGLTF, "gltf: %s variant %d is missing required name", extMaterialsVariants, i)
+		}
 		d.Variants[i] = MaterialVariant{
-			Name:   rv.Name,
+			Name:   *rv.Name,
 			Extras: cloneRawMessage(rv.Extras),
 		}
 	}
 	return nil
+}
+
+func (d *Document) parsePrimitiveVariants(mi, pi int, extData json.RawMessage) (map[int]int, error) {
+	if !isJSONObject(extData) {
+		return nil, fmt.Errorf("gltf: mesh %d primitive %d %s must be a JSON object", mi, pi, extMaterialsVariants)
+	}
+	var parsed rawPrimitiveVariantsExt
+	if err := json.Unmarshal(extData, &parsed); err != nil {
+		return nil, fmt.Errorf("gltf: mesh %d primitive %d parse %s: %w", mi, pi, extMaterialsVariants, err)
+	}
+	if len(parsed.Mappings) == 0 {
+		return nil, fmt.Errorf("gltf: mesh %d primitive %d %s requires a non-empty mappings array", mi, pi, extMaterialsVariants)
+	}
+	mappings := make(map[int]int)
+	for ki, rawMap := range parsed.Mappings {
+		if !isJSONObject(rawMap) {
+			return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d must be a JSON object", mi, pi, extMaterialsVariants, ki)
+		}
+		var m rawVariantMapping
+		if err := json.Unmarshal(rawMap, &m); err != nil {
+			return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d: %w", mi, pi, extMaterialsVariants, ki, err)
+		}
+		if m.Material == nil || *m.Material < 0 || *m.Material >= len(d.Materials) {
+			return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d invalid material", mi, pi, extMaterialsVariants, ki)
+		}
+		if len(m.Variants) == 0 {
+			return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d requires a non-empty variants array", mi, pi, extMaterialsVariants, ki)
+		}
+		for _, vPtr := range m.Variants {
+			if vPtr == nil {
+				return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d contains null variant index", mi, pi, extMaterialsVariants, ki)
+			}
+			vIdx := *vPtr
+			if vIdx < 0 || vIdx >= len(d.Variants) {
+				return nil, fmt.Errorf("gltf: mesh %d primitive %d %s mapping %d invalid variant %d", mi, pi, extMaterialsVariants, ki, vIdx)
+			}
+			if _, exists := mappings[vIdx]; exists {
+				return nil, fmt.Errorf("gltf: mesh %d primitive %d %s variant %d is mapped more than once", mi, pi, extMaterialsVariants, vIdx)
+			}
+			mappings[vIdx] = *m.Material
+		}
+	}
+	return mappings, nil
 }
 
 func (d *Document) loadCameras(raws []rawCamera) (err error) {
@@ -1082,22 +1210,10 @@ func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) (err error) 
 				return fmt.Errorf("gltf: mesh %d primitive %d: %w", mi, pi, err)
 			}
 
-			if extData, ok := rp.Extensions["KHR_materials_variants"]; ok {
-				var parsed rawPrimitiveVariantsExt
-				if err := json.Unmarshal(extData, &parsed); err != nil {
-					return fmt.Errorf("gltf: mesh %d primitive %d parse KHR_materials_variants: %w", mi, pi, err)
-				}
-				mappings := make(map[int]int)
-				for _, m := range parsed.Mappings {
-					if m.Material == nil || *m.Material < 0 || *m.Material >= len(d.Materials) {
-						return fmt.Errorf("gltf: mesh %d primitive %d variant mapping invalid material", mi, pi)
-					}
-					for _, vIdx := range m.Variants {
-						if vIdx < 0 || vIdx >= len(d.Variants) {
-							return fmt.Errorf("gltf: mesh %d primitive %d variant mapping invalid variant %d", mi, pi, vIdx)
-						}
-						mappings[vIdx] = *m.Material
-					}
+			if extData, ok := rp.Extensions[extMaterialsVariants]; ok {
+				mappings, err := d.parsePrimitiveVariants(mi, pi, extData)
+				if err != nil {
+					return err
 				}
 				prim.VariantMappings = mappings
 			}
@@ -2243,10 +2359,10 @@ type rawTextureInfo struct {
 }
 
 type rawTextureTransform struct {
-	Offset   *[2]float32 `json:"offset"`
-	Rotation float32     `json:"rotation"`
-	Scale    *[2]float32 `json:"scale"`
-	TexCoord *int        `json:"texCoord"`
+	Offset   json.RawMessage `json:"offset"`
+	Rotation json.RawMessage `json:"rotation"`
+	Scale    json.RawMessage `json:"scale"`
+	TexCoord json.RawMessage `json:"texCoord"`
 }
 
 type rawPBR struct {
@@ -2272,21 +2388,21 @@ type rawMaterial struct {
 }
 
 type rawVariantsExt struct {
-	Variants []rawVariant `json:"variants"`
+	Variants []json.RawMessage `json:"variants"`
 }
 
 type rawVariant struct {
-	Name   string          `json:"name"`
+	Name   *string         `json:"name"`
 	Extras json.RawMessage `json:"extras"`
 }
 
 type rawPrimitiveVariantsExt struct {
-	Mappings []rawVariantMapping `json:"mappings"`
+	Mappings []json.RawMessage `json:"mappings"`
 }
 
 type rawVariantMapping struct {
-	Material *int  `json:"material"`
-	Variants []int `json:"variants"`
+	Material *int   `json:"material"`
+	Variants []*int `json:"variants"`
 }
 
 type rawMesh struct {
