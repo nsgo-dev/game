@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-// Check reads the project at the root of fsys and reports every problem a person should fix before running or building it, joined with errors.Join: a game.yaml that fails Parse, an nsgo.yaml beside it that disagrees with it (CheckNSGo), and an autoloaded scene or resource that is missing or, for a scene, invalid (LoadAutoloads). It returns the parsed file whenever game.yaml parses, so a caller can go on with it after reporting the rest. A project without an nsgo.yaml has nothing to disagree with.
+// Check reads the project at the root of fsys and reports every problem a person should fix before running or building it, joined with errors.Join: a game.yaml that fails Parse, an nsgo.yaml beside it that disagrees with it (CheckNSGo), an autoloaded scene or resource that is missing or, for a scene, invalid (LoadAutoloads), and a file an installed pack wrote (File.Packs) that is missing. It returns the parsed file whenever game.yaml parses, so a caller can go on with it after reporting the rest. A project without an nsgo.yaml has nothing to disagree with.
 func Check(fsys fs.FS) (*File, error) {
 	f, err := ReadFS(fsys)
 	if err != nil {
@@ -22,6 +22,13 @@ func Check(fsys fs.FS) (*File, error) {
 	}
 	if _, err := f.LoadAutoloads(fsys); err != nil {
 		errs = append(errs, err)
+	}
+	for _, p := range f.Packs {
+		for _, name := range p.Paths() {
+			if _, err := fs.Stat(fsys, name); err != nil {
+				errs = append(errs, fmt.Errorf("project: pack %q: %w", p.Name, err))
+			}
+		}
 	}
 	return f, errors.Join(errs...)
 }

@@ -7,7 +7,9 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -48,6 +50,8 @@ type File struct {
 	Editor *Editor `yaml:"editor,omitempty"`
 	// Assets declares the atlases, textures, audio and asset manifest game assets builds; nil declares none.
 	Assets *Assets `yaml:"assets,omitempty"`
+	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
+	Packs []Pack `yaml:"packs,omitempty"`
 }
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
@@ -264,6 +268,60 @@ type Editor struct {
 	Plugins []string `yaml:"plugins,omitempty,flow"`
 }
 
+// Pack kinds name what a library pack holds.
+const (
+	// PackAsset is a pack of assets, such as images, atlases, sounds and data files.
+	PackAsset = "asset"
+	// PackPlugin is a pack that turns on editor plugins, with any files they read.
+	PackPlugin = "plugin"
+	// PackTemplate is a pack of scenes and prefabs a game starts from or builds on.
+	PackTemplate = "template"
+)
+
+// PackKinds are the kinds a Pack may have, in the order the tools list them.
+var PackKinds = []string{PackAsset, PackPlugin, PackTemplate}
+
+// Pack is one library pack installed into the project. Its files are Dir joined with each of Files, and Scenes, Resources and Plugins name the autoload entries and editor plugins the install added, which must still be in the file; an entry or plugin the project held before the install is not the pack's and is not listed.
+type Pack struct {
+	// Name identifies the pack in its library: lower-case ASCII letters, digits and '-', starting with a letter or digit.
+	Name string `yaml:"name"`
+	// Kind is one of PackKinds.
+	Kind string `yaml:"kind"`
+	// PackVersion is the version of the pack that was installed, such as 1.2.0.
+	PackVersion string `yaml:"packVersion"`
+	// SHA256 is the pack's digest, 64 lower-case hexadecimal digits, which tells one release of the pack from another whatever its version says.
+	SHA256 string `yaml:"sha256"`
+	// Dir is the slash-separated directory inside the project the pack's files were written to.
+	Dir string `yaml:"dir"`
+	// Files are the slash-separated paths of the pack's files relative to Dir, sorted and unique.
+	Files []string `yaml:"files,omitempty"`
+	// Scenes names the autoload scenes the install added.
+	Scenes []string `yaml:"scenes,omitempty,flow"`
+	// Resources names the autoload resources the install added.
+	Resources []string `yaml:"resources,omitempty,flow"`
+	// Plugins names the editor plugins the install turned on.
+	Plugins []string `yaml:"plugins,omitempty,flow"`
+}
+
+// Paths returns the slash-separated paths of p's files from the project root, in the order of Files.
+func (p *Pack) Paths() []string {
+	out := make([]string, len(p.Files))
+	for i, f := range p.Files {
+		out[i] = path.Join(p.Dir, f)
+	}
+	return out
+}
+
+// FindPack returns the installed pack called name, or nil.
+func (f *File) FindPack(name string) *Pack {
+	for i := range f.Packs {
+		if f.Packs[i].Name == name {
+			return &f.Packs[i]
+		}
+	}
+	return nil
+}
+
 // Bool returns a pointer to v for optional fields such as Window.Resizable.
 func Bool(v bool) *bool { return &v }
 
@@ -409,6 +467,16 @@ func (f *File) Clone() *File {
 		c.Editor = &Editor{Plugins: append([]string(nil), f.Editor.Plugins...)}
 	}
 	c.Assets = f.Assets.clone()
+	if f.Packs != nil {
+		c.Packs = make([]Pack, len(f.Packs))
+		for i, p := range f.Packs {
+			p.Files = slices.Clone(p.Files)
+			p.Scenes = slices.Clone(p.Scenes)
+			p.Resources = slices.Clone(p.Resources)
+			p.Plugins = slices.Clone(p.Plugins)
+			c.Packs[i] = p
+		}
+	}
 	return &c
 }
 
@@ -470,7 +538,10 @@ func Validate(f *File) error {
 			return err
 		}
 	}
-	return f.Assets.Validate()
+	if err := f.Assets.Validate(); err != nil {
+		return err
+	}
+	return validatePacks(f)
 }
 
 // validateText refuses control characters and surrounding spaces, and an empty value when required.
@@ -813,6 +884,115 @@ func validateEditor(e *Editor) error {
 		seen[name] = struct{}{}
 	}
 	return nil
+}
+
+func validatePacks(f *File) error {
+	names := make(map[string]struct{}, len(f.Packs))
+	// owner maps each file, autoload entry and plugin a pack claims to that pack, so no two packs claim one.
+	owner := map[string]string{}
+	claim := func(pack, what string) error {
+		if other, ok := owner[what]; ok {
+			return fmt.Errorf("project: packs %q and %q both claim %s", other, pack, what)
+		}
+		owner[what] = pack
+		return nil
+	}
+	for i := range f.Packs {
+		p := &f.Packs[i]
+		if err := ValidatePackName(p.Name); err != nil {
+			return fmt.Errorf("project: pack %d: %w", i, err)
+		}
+		if _, dup := names[p.Name]; dup {
+			return fmt.Errorf("project: pack %q is listed twice", p.Name)
+		}
+		names[p.Name] = struct{}{}
+		where := fmt.Sprintf("project: pack %q", p.Name)
+		if !slices.Contains(PackKinds, p.Kind) {
+			return fmt.Errorf("%s: kind %q must be one of %s", where, p.Kind, strings.Join(PackKinds, ", "))
+		}
+		if err := ValidatePackVersion(p.PackVersion); err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		if !IsSHA256(p.SHA256) {
+			return fmt.Errorf("%s: sha256 %q must be 64 lower-case hexadecimal digits", where, p.SHA256)
+		}
+		if !isProjectPath(p.Dir) {
+			return fmt.Errorf("%s: dir %q must be a slash-separated directory inside the project", where, p.Dir)
+		}
+		for j, file := range p.Files {
+			if !isProjectPath(file) {
+				return fmt.Errorf("%s: file %q must be a slash-separated path inside its dir", where, file)
+			}
+			if j > 0 && p.Files[j-1] >= file {
+				return fmt.Errorf("%s: files must be sorted and unique, but %q follows %q", where, file, p.Files[j-1])
+			}
+			if err := claim(p.Name, "file "+path.Join(p.Dir, file)); err != nil {
+				return err
+			}
+		}
+		for _, ref := range []struct {
+			kind  string
+			names []string
+			has   func(string) bool
+		}{
+			{"autoload scene", p.Scenes, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Scenes, n) }},
+			{"autoload resource", p.Resources, func(n string) bool { return f.Autoload != nil && hasEntry(f.Autoload.Resources, n) }},
+			{"editor plugin", p.Plugins, func(n string) bool { return f.Editor != nil && slices.Contains(f.Editor.Plugins, n) }},
+		} {
+			for _, n := range ref.names {
+				if !ref.has(n) {
+					return fmt.Errorf("%s: added %s %q, which the project does not have", where, ref.kind, n)
+				}
+				if err := claim(p.Name, ref.kind+" "+strconv.Quote(n)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func hasEntry(entries []Entry, name string) bool {
+	return slices.ContainsFunc(entries, func(e Entry) bool { return e.Name == name })
+}
+
+// isProjectPath reports whether p is a slash-separated relative path that stays inside the directory it is relative to, and is not that directory itself.
+func isProjectPath(p string) bool {
+	return p != "." && fs.ValidPath(p) && !strings.Contains(p, `\`)
+}
+
+// ValidatePackName reports whether name can name a library pack: 1 to 64 lower-case ASCII letters, digits and '-', starting with a letter or digit, so that it is also a directory name on every platform.
+func ValidatePackName(name string) error {
+	if name == "" || len(name) > 64 || name[0] == '-' {
+		return fmt.Errorf("pack name %q must be 1 to 64 lower-case letters, digits and '-', starting with a letter or digit", name)
+	}
+	for i := range len(name) {
+		if c := name[i]; (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+			return fmt.Errorf("pack name %q must be 1 to 64 lower-case letters, digits and '-', starting with a letter or digit", name)
+		}
+	}
+	return nil
+}
+
+// ValidatePackVersion reports whether v can be a pack's version: 1 to 64 characters with no spaces or control characters, such as 1.2.0.
+func ValidatePackVersion(v string) error {
+	if v == "" || len(v) > 64 || strings.IndexFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return fmt.Errorf("packVersion %q must be 1 to 64 characters without spaces", v)
+	}
+	return nil
+}
+
+// IsSHA256 reports whether s is a SHA-256 digest written as 64 lower-case hexadecimal digits.
+func IsSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := range len(s) {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // validateName refuses empty names and names with spaces or control characters, which input actions, axes, buses, autoload entries and editor plugins are looked up by.
