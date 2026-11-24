@@ -11,7 +11,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/internal/devimage"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -105,7 +104,7 @@ func (g *Group) readsFromPack(uri string) bool {
 	return err == nil
 }
 
-// Revision returns how many Reload calls have replaced an asset. Reading it inside a core.Canvas Draw callback or a core.Effect subscribes to later reloads.
+// Revision counts the Reload, ReloadAsset and ReloadGroup calls that replaced at least one asset; each such call adds one. Reading it inside a core.Canvas Draw callback or a core.Effect subscribes to later reloads.
 func (m *Manager) Revision() int {
 	return m.revision.Get()
 }
@@ -119,26 +118,31 @@ func normalizeURI(uri string) string {
 	return "asset:" + strings.TrimPrefix(path.Clean("/"+rel), "/")
 }
 
-// ReloadedAsset describes one loaded asset touched by ReloadAsset or ReloadGroup.
+// ReloadedAsset describes one loaded asset that ReloadAsset or ReloadGroup matched. Err holds a read or parse failure, after which the previous asset stays in place. Skipped says why an asset was left unchanged without an error.
 type ReloadedAsset struct {
-	Group  string
-	Name   string
-	Kind   string
-	URI    string
-	Bytes  int64
-	Frames int
-	Err    error
+	Group   string
+	Name    string
+	Kind    string
+	URI     string
+	Bytes   int64
+	Frames  int
+	Skipped string
+	Err     error
 }
 
-// ReloadAsset reloads loaded assets matching key by asset name, URI, or relative path,
-// reading fresh bytes through each group's configured reader (group FS, Manager.ReadAsset,
-// Manager FS, or local assets/). When groupName is non-empty, only that group is searched.
+// Reasons ReloadAsset and ReloadGroup give in ReloadedAsset.Skipped.
+const (
+	// SkippedSound marks a sound: sounds decode asynchronously on the platform, so they are not replaced in place.
+	SkippedSound = "sounds are not reloaded in place"
+	// SkippedNoFile marks an image with no file behind it, such as one registered with in-memory pixels, or, in ReloadGroup, one whose URI the group's reader cannot find.
+	SkippedNoFile = "no file to reload from"
+	// SkippedDensity marks an image file at a density the screen does not show, so replacing it would change nothing on screen.
+	SkippedDensity = "file is at a density the screen does not show"
+)
+
+// ReloadAsset reloads the loaded assets that match key by asset name, URI or relative path, reading fresh bytes through each group's reader (the group's FS, Manager.ReadAsset, the Manager's FS or the local assets/ directory). When groupName is non-empty, only that group is searched. It returns an empty slice and a nil error when no loaded asset matches key, and an error when groupName names no group.
 //
-// Matching atlases are updated in place (*cur = *next), preserving existing *sprite.Atlas
-// pointers held by the running game. On a read or parse error, the previous working asset
-// stays intact and the failure is reported both in the returned slice entry's Err and in
-// the joined error. ReloadAsset returns an empty slice and nil error when no loaded asset
-// matches key (or a group-not-found error when groupName is unknown).
+// The reads, atlas parses and custom loaders run off the engine goroutine, as they do in Group.Load, while ReloadAsset waits for them, so a reader or loader must not wait on the engine goroutine. When ctx is done first, ReloadAsset returns ctx's error and changes nothing. The results are applied on the engine goroutine: an atlas is updated in place (*cur = *next), so the *sprite.Atlas pointers the game holds stay valid, and a failed read or parse leaves the previous asset in place and is reported both in the item's Err and in the joined error. Sounds, images with no file behind them and files at a density the screen does not show are reported in Skipped and left unchanged. Revision goes up by one when at least one asset was replaced.
 //
 // Call ReloadAsset on the engine goroutine.
 func (m *Manager) ReloadAsset(ctx context.Context, groupName, key string) ([]ReloadedAsset, error) {
@@ -165,38 +169,20 @@ func (m *Manager) ReloadAsset(ctx context.Context, groupName, key string) ([]Rel
 	}
 
 	ratio := core.Untracked(m.cx, func() float32 { return m.cx.Env().PixelRatio() })
-	var (
-		results  []ReloadedAsset
-		errs     []error
-		replaced bool
-	)
+	var jobs []*reloadJob
 	for _, g := range groups {
 		for _, spec := range g.specs {
 			matchMode, matchedURI := matchSpec(spec, key, ratio)
-			if matchMode == specMatchNone {
+			if matchMode == specMatchNone || !g.isSpecLoaded(spec) {
 				continue
 			}
-			if !g.isSpecLoaded(spec) {
-				continue
-			}
-			res := m.reloadSpec(ctx, g, spec, matchMode, matchedURI, ratio)
-			results = append(results, res)
-			if res.Err != nil {
-				errs = append(errs, res.Err)
-			} else {
-				replaced = true
-			}
+			jobs = append(jobs, g.planReload(spec, matchMode, matchedURI, ratio, false))
 		}
 	}
-	if replaced {
-		m.revision.Set(m.revision.GetUntracked() + 1)
-	}
-	return results, errors.Join(errs...)
+	return m.runReloads(ctx, jobs)
 }
 
-// ReloadGroup reloads every loaded asset in the named group in place by re-reading its
-// sources through the group's configured asset reader. Individual asset read/parse errors
-// keep the previous working asset intact and are returned both per-item and as a joined error.
+// ReloadGroup reloads every loaded asset in the named group in place, as ReloadAsset does for one key. Images whose file the group's reader cannot find are reported as skipped rather than failed, so a group that mixes files with generated textures reloads cleanly.
 //
 // Call ReloadGroup on the engine goroutine.
 func (m *Manager) ReloadGroup(ctx context.Context, groupName string) ([]ReloadedAsset, error) {
@@ -218,27 +204,14 @@ func (m *Manager) ReloadGroup(ctx context.Context, groupName string) ([]Reloaded
 	}
 
 	ratio := core.Untracked(m.cx, func() float32 { return m.cx.Env().PixelRatio() })
-	results := make([]ReloadedAsset, 0, len(g.specs))
-	var (
-		errs     []error
-		replaced bool
-	)
+	jobs := make([]*reloadJob, 0, len(g.specs))
 	for _, spec := range g.specs {
 		if !g.isSpecLoaded(spec) {
 			continue
 		}
-		res := m.reloadSpec(ctx, g, spec, specMatchName, "", ratio)
-		results = append(results, res)
-		if res.Err != nil {
-			errs = append(errs, res.Err)
-		} else {
-			replaced = true
-		}
+		jobs = append(jobs, g.planReload(spec, specMatchName, "", ratio, true))
 	}
-	if replaced {
-		m.revision.Set(m.revision.GetUntracked() + 1)
-	}
-	return results, errors.Join(errs...)
+	return m.runReloads(ctx, jobs)
 }
 
 type specMatchKind uint8
@@ -310,168 +283,276 @@ func (g *Group) isSpecLoaded(spec assetSpec) bool {
 	}
 }
 
-func (m *Manager) reloadSpec(ctx context.Context, g *Group, spec assetSpec, mode specMatchKind, matchedURI string, ratio float32) ReloadedAsset {
-	res := ReloadedAsset{
-		Group: g.name,
-		Name:  spec.name,
-		Kind:  assetKindName(spec.kind),
-		URI:   specURI(spec),
-	}
-	readFn := g.readAssetFunc()
-	same := func(a, b string) bool { return normalizeURI(a) == normalizeURI(b) }
+// reloadJob is one asset ReloadAsset or ReloadGroup reloads. planReload fills the plan on the engine goroutine, fetch fills the fetched fields off it, and apply swaps the result in on the engine goroutine.
+type reloadJob struct {
+	g     *Group
+	gen   uint64
+	spec  assetSpec
+	res   ReloadedAsset
+	bulk  bool
+	ratio float32
 
+	readFn   func(context.Context, string) ([]byte, error)
+	dataURI  string
+	imgURI   string
+	imgOnly  bool
+	curImage core.ImageSource
+
+	data    []byte
+	img     core.ImageSource
+	imgOK   bool
+	atlas   *sprite.Atlas
+	custom  any
+	readErr error
+	err     error
+}
+
+func (g *Group) planReload(spec assetSpec, mode specMatchKind, matchedURI string, ratio float32, bulk bool) *reloadJob {
+	j := &reloadJob{
+		g:      g,
+		gen:    g.gen,
+		spec:   spec,
+		bulk:   bulk,
+		ratio:  ratio,
+		readFn: g.readAssetFunc(),
+		res: ReloadedAsset{
+			Group: g.name,
+			Name:  spec.name,
+			Kind:  assetKindName(spec.kind),
+			URI:   specURI(spec),
+		},
+	}
+	switch spec.kind {
+	case kindSound:
+		j.res.Skipped = SkippedSound
+	case kindAtlas:
+		j.curImage = g.atlases[spec.name].Image
+		if mode == specMatchImageURI {
+			j.imgOnly = true
+			j.planImage(matchedURI)
+			return j
+		}
+		j.dataURI = spec.uri
+		if mode == specMatchName && spec.img.URI != "" {
+			j.imgURI = devimage.Shown(spec.img, ratio)
+		}
+	case kindImage:
+		j.planImage(matchedURI)
+	case kindBytes, kindCustom:
+		j.dataURI = spec.uri
+	}
+	return j
+}
+
+func (j *reloadJob) planImage(matchedURI string) {
+	if j.spec.img.URI == "" {
+		j.res.Skipped = SkippedNoFile
+		return
+	}
+	shown := devimage.Shown(j.spec.img, j.ratio)
+	target := matchedURI
+	if target == "" {
+		target = shown
+	}
+	j.res.URI = target
+	if normalizeURI(target) != normalizeURI(shown) {
+		j.res.Skipped = SkippedDensity
+		return
+	}
+	j.imgURI = target
+}
+
+// fetch reads and parses the job's files. It runs off the engine goroutine and touches only the job.
+func (j *reloadJob) fetch(ctx context.Context) {
+	if j.res.Skipped != "" {
+		return
+	}
+	same := func(a, b string) bool { return normalizeURI(a) == normalizeURI(b) }
+	name := j.spec.name
+	if j.imgURI != "" {
+		data, err := j.readFn(ctx, j.imgURI)
+		switch {
+		case err == nil && len(data) > 0:
+			j.img, j.imgOK = devimage.Reloaded(j.spec.img, j.imgURI, data, j.ratio, same)
+		case j.imgOnly || j.spec.kind == kindImage:
+			if err == nil {
+				err = errors.New("file is empty")
+			}
+			j.readErr = err
+			j.err = fmt.Errorf("assets: %s %q: read %q: %w", assetKindName(j.spec.kind), name, j.imgURI, err)
+			return
+		}
+	}
+	if j.dataURI == "" {
+		return
+	}
+	data, err := j.readFn(ctx, j.dataURI)
+	if err != nil {
+		j.readErr = err
+		j.err = fmt.Errorf("assets: %s %q: read %q: %w", assetKindName(j.spec.kind), name, j.dataURI, err)
+		return
+	}
+	j.data = data
+	switch j.spec.kind {
+	case kindAtlas:
+		img := j.curImage
+		if j.imgOK {
+			img = j.img
+		}
+		atlas, err := sprite.LoadAtlas(img, data)
+		if err != nil {
+			j.err = fmt.Errorf("assets: atlas %q: %w", name, loaderr.WithFile(err, j.dataURI))
+			return
+		}
+		j.atlas = atlas
+	case kindCustom:
+		var val any = data
+		if j.spec.loader != nil {
+			val, err = j.spec.loader(ctx, data)
+			if err != nil {
+				j.err = fmt.Errorf("assets: custom %q: %w", name, err)
+				return
+			}
+		}
+		j.custom = val
+	}
+}
+
+// releaseUnused releases a custom value the job loaded but did not apply.
+func (j *reloadJob) releaseUnused(m *Manager) {
+	if j.custom == nil || j.spec.release == nil {
+		return
+	}
+	v, release := j.custom, j.spec.release
+	j.custom = nil
+	done := func() { release(v) }
+	m.postWithCleanup(done, done)
+}
+
+// runReloads fetches every job off the engine goroutine, waits for the fetches or for ctx, and applies the results on the engine goroutine.
+func (m *Manager) runReloads(ctx context.Context, jobs []*reloadJob) ([]ReloadedAsset, error) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, j := range jobs {
+			if ctx.Err() != nil {
+				return
+			}
+			j.fetch(ctx)
+		}
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		go func() {
+			<-done
+			for _, j := range jobs {
+				j.releaseUnused(m)
+			}
+		}()
+		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		for _, j := range jobs {
+			j.releaseUnused(m)
+		}
+		return nil, err
+	}
+
+	results := make([]ReloadedAsset, 0, len(jobs))
+	var (
+		errs     []error
+		replaced bool
+	)
+	for _, j := range jobs {
+		if j.apply(m) {
+			replaced = true
+		}
+		if j.res.Err != nil {
+			errs = append(errs, j.res.Err)
+		}
+		results = append(results, j.res)
+	}
+	if replaced {
+		m.revision.Set(m.revision.GetUntracked() + 1)
+	}
+	return results, errors.Join(errs...)
+}
+
+// apply swaps the fetched result in on the engine goroutine and reports whether it replaced the asset.
+func (j *reloadJob) apply(m *Manager) bool {
+	g, spec := j.g, j.spec
+	defer func() { j.res.Bytes, j.res.Frames = g.reloadedSize(spec) }()
+	if j.res.Skipped != "" {
+		return false
+	}
+	if m.isDisposed() || g.gen != j.gen || g.state != stateLoaded || !g.isSpecLoaded(spec) {
+		j.releaseUnused(m)
+		j.res.Err = fmt.Errorf("assets: %s %q: group %q changed during the reload", j.res.Kind, spec.name, g.name)
+		return false
+	}
+	if j.err != nil {
+		if j.bulk && spec.kind == kindImage && errors.Is(j.readErr, fs.ErrNotExist) {
+			j.res.Skipped = SkippedNoFile
+			return false
+		}
+		j.res.Err = j.err
+		return false
+	}
+	if g.rawBytes == nil {
+		g.rawBytes = map[string]int64{}
+	}
 	switch spec.kind {
 	case kindAtlas:
 		cur := g.atlases[spec.name]
-		if mode == specMatchImageURI {
-			targetURI := matchedURI
-			if targetURI == "" {
-				targetURI = devimage.Shown(spec.img, ratio)
+		if j.imgOnly {
+			if !j.imgOK {
+				j.res.Skipped = SkippedDensity
+				return false
 			}
-			res.URI = targetURI
-			data, err := readFn(ctx, targetURI)
-			if err != nil {
-				res.Bytes = estimateAtlasBytes(cur, g.rawBytes[spec.name])
-				res.Frames = len(cur.Frames)
-				res.Err = fmt.Errorf("assets: atlas %q: read %q: %w", spec.name, targetURI, err)
-				return res
-			}
-			if img, ok := devimage.Reloaded(spec.img, targetURI, data, ratio, same); ok {
-				cur.Image = img
-			} else {
-				cur.Image = devimage.WithData(cur.Image, data)
-			}
-			res.Bytes = estimateAtlasBytes(cur, g.rawBytes[spec.name])
-			res.Frames = len(cur.Frames)
-			return res
+			cur.Image = j.img
+			return true
 		}
-
-		data, err := readFn(ctx, spec.uri)
-		if err != nil {
-			res.Bytes = estimateAtlasBytes(cur, g.rawBytes[spec.name])
-			res.Frames = len(cur.Frames)
-			res.Err = fmt.Errorf("assets: atlas %q: read %q: %w", spec.name, spec.uri, err)
-			return res
-		}
-		img := cur.Image
-		if mode == specMatchName && spec.img.URI != "" {
-			shown := devimage.Shown(spec.img, ratio)
-			if imgData, imgErr := readFn(ctx, shown); imgErr == nil && len(imgData) > 0 {
-				if nextImg, ok := devimage.Reloaded(spec.img, shown, imgData, ratio, same); ok {
-					img = nextImg
-				}
-			}
-		}
-		next, err := sprite.LoadAtlas(img, data)
-		if err != nil {
-			res.Bytes = estimateAtlasBytes(cur, g.rawBytes[spec.name])
-			res.Frames = len(cur.Frames)
-			res.Err = fmt.Errorf("assets: atlas %q: %w", spec.name, loaderr.WithFile(err, spec.uri))
-			return res
-		}
-		*cur = *next
-		if g.rawBytes == nil {
-			g.rawBytes = map[string]int64{}
-		}
-		g.rawBytes[spec.name] = int64(len(data))
-		res.Bytes = estimateAtlasBytes(cur, g.rawBytes[spec.name])
-		res.Frames = len(cur.Frames)
-		return res
-
+		*cur = *j.atlas
+		g.rawBytes[spec.name] = int64(len(j.data))
 	case kindImage:
-		targetURI := matchedURI
-		if targetURI == "" {
-			targetURI = devimage.Shown(spec.img, ratio)
+		if !j.imgOK {
+			j.res.Skipped = SkippedDensity
+			return false
 		}
-		if targetURI == "" {
-			res.Bytes = estimateImageBytes(g.images[spec.name])
-			res.Err = fmt.Errorf("assets: image %q has no reloadable URI", spec.name)
-			return res
-		}
-		res.URI = targetURI
-		data, err := readFn(ctx, targetURI)
-		if err != nil {
-			res.Bytes = estimateImageBytes(g.images[spec.name])
-			res.Err = fmt.Errorf("assets: image %q: read %q: %w", spec.name, targetURI, err)
-			return res
-		}
-		if img, ok := devimage.Reloaded(spec.img, targetURI, data, ratio, same); ok {
-			g.images[spec.name] = img
-		} else {
-			g.images[spec.name] = devimage.WithData(g.images[spec.name], data)
-		}
-		if g.rawBytes == nil {
-			g.rawBytes = map[string]int64{}
-		}
-		g.rawBytes[spec.name] = int64(len(data))
-		res.Bytes = estimateImageBytes(g.images[spec.name])
-		return res
-
+		g.images[spec.name] = j.img
+		g.rawBytes[spec.name] = int64(len(j.img.Data))
 	case kindBytes:
-		data, err := readFn(ctx, spec.uri)
-		if err != nil {
-			res.Bytes = int64(len(g.bytes[spec.name]))
-			res.Err = fmt.Errorf("assets: bytes %q: read %q: %w", spec.name, spec.uri, err)
-			return res
-		}
-		g.bytes[spec.name] = data
-		res.Bytes = int64(len(data))
-		return res
-
+		g.bytes[spec.name] = j.data
 	case kindCustom:
 		old := g.custom[spec.name]
-		data, err := readFn(ctx, spec.uri)
-		if err != nil {
-			res.Bytes = estimateCustomBytes(old.value, g.rawBytes[spec.name])
-			res.Err = fmt.Errorf("assets: custom %q: read %q: %w", spec.name, spec.uri, err)
-			return res
-		}
-		var val any = data
-		if spec.loader != nil {
-			val, err = spec.loader(ctx, data)
-			if err != nil {
-				res.Bytes = estimateCustomBytes(old.value, g.rawBytes[spec.name])
-				res.Err = fmt.Errorf("assets: custom %q: %w", spec.name, err)
-				return res
-			}
-		}
 		if old.release != nil && old.value != nil {
 			old.release(old.value)
 		}
-		g.custom[spec.name] = customEntry{value: val, release: spec.release}
-		if g.rawBytes == nil {
-			g.rawBytes = map[string]int64{}
-		}
-		g.rawBytes[spec.name] = int64(len(data))
-		res.Bytes = estimateCustomBytes(val, g.rawBytes[spec.name])
-		return res
-
-	case kindSound:
-		src := spec.sound
-		if src.URI != "" {
-			if data, err := readFn(ctx, src.URI); err == nil && len(data) > 0 {
-				src = audio.Source{URI: src.URI, Data: data}
-			}
-		}
-		gen := g.gen
-		name := spec.name
-		m.cx.Run(func() {
-			audio.LoadSound(m.cx, src, func(s *audio.Sound, err error) {
-				if m.isDisposed() || g.gen != gen || err != nil || s == nil {
-					if s != nil {
-						s.Close()
-					}
-					return
-				}
-				if old := g.sounds[name]; old != nil && old != s {
-					old.Close()
-				}
-				g.sounds[name] = s
-				m.revision.Set(m.revision.GetUntracked() + 1)
-			})
-		})
-		res.Bytes = g.assetStats(spec).Bytes
-		return res
+		g.custom[spec.name] = customEntry{value: j.custom, release: spec.release}
+		g.rawBytes[spec.name] = int64(len(j.data))
+		j.custom = nil
+	default:
+		return false
 	}
-	return res
+	return true
+}
+
+// reloadedSize reports the estimated bytes and atlas frame count of a loaded asset.
+func (g *Group) reloadedSize(spec assetSpec) (int64, int) {
+	switch spec.kind {
+	case kindAtlas:
+		if a := g.atlases[spec.name]; a != nil {
+			return EstimateAtlasBytes(a, g.rawBytes[spec.name]), len(a.Frames)
+		}
+	case kindImage:
+		return estimateImageBytes(g.images[spec.name]), 0
+	case kindBytes:
+		return int64(len(g.bytes[spec.name])), 0
+	case kindCustom:
+		return estimateCustomBytes(g.custom[spec.name].value, g.rawBytes[spec.name]), 0
+	case kindSound:
+		return g.assetStats(spec).Bytes, 0
+	}
+	return 0, 0
 }

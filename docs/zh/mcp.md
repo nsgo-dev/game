@@ -128,8 +128,8 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `debug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
 | `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间耗时以及 `debug.GCMonitor` 历史记录。通过 `StartRecording` 开始的分析器追踪录制会继续进行，已录制的事件也会保留。 |
 | `game_assets_list` | `group`（可选）、`state`（`loaded`/`loading`/`unloaded`/`failed`）、`kind`（可选） | 按确定顺序排列的资源组列表（涵盖 `assets.Manager`、`resource.Library`、`hotreload.ShaderReloader`、`hotreload.MaterialReloader` 与自定义注册资源），包含加载状态、资源键/类型/URI、图集帧数、各组估算内存字节数及 `total_bytes`。 |
-| `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。 |
-| `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
+| `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`；未报错但保持不变的条目会带有 `skipped`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。`all: true` 需要配置资源管理器、重载器或已注册资源；`Config.ReloadAsset` 只用于重载单个 key。 |
+| `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、重载数 `count`、失败数 `failed`、跳过数 `skipped`、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -215,6 +215,8 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - **图集就地更新**：在 `assets.Manager` 中按资源名（如 `"hero"`）、完整 URI（`"asset:sprites/hero.json"`）、相对路径（`"sprites/hero.json"`）或图片路径（`"sprites/hero.png"`）重载图集时，会直接就地更新原有的 `*sprite.Atlas` 指针并递增 `assets.Manager.Revision()`，使持有该指针的精灵与读取 `Revision()` 的画布立即刷新。
 - **独立资源与图集**：若游戏在 `assets.Manager` 之外维护了独立的 `*sprite.Atlas` 或自定义资源，可通过 `bridge.RegisterAtlas(...)` 或 `bridge.RegisterAsset(mcp.CustomAsset{...})` 注册。
 - **安全的错误处理**：遇到语法、Schema 或着色器编译错误时，原有可用的图集、着色器、材质或资源会保持激活状态，工具返回 `reloaded: false` 并在 `error` 字段中附带详细诊断信息。
+- **跳过的资源**：音效不会就地替换；没有对应文件的图片（如程序生成的纹理）无从重载；屏幕不显示的密度对应的文件（如 2x 屏幕上的 1x 文件）即使替换也不会改变画面。这些条目会在 `skipped` 中给出原因（`assets.SkippedSound`、`assets.SkippedNoFile`、`assets.SkippedDensity`），既不计入重载成功，也不计入失败。按组重载时，组的读取器找不到文件的图片同样会被跳过；按 key 单独重载该图片则会返回读取错误。
+- **不在引擎 goroutine 上读取**：`Manager.ReloadAsset` 与 `Manager.ReloadGroup` 与 `Group.Load` 一样，在其他 goroutine 上读取文件、解析图集并运行自定义加载器，完成后再在引擎 goroutine 上应用结果。工具调用会等待这些工作完成，因此自定义读取器或加载器不能等待引擎 goroutine；若调用的 context 先结束，则不会替换任何资源，工具返回该 context 的错误。
 
 ## 稳定的实体引用
 
