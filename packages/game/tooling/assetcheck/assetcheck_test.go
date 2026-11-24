@@ -222,6 +222,7 @@ func TestBrokenReferencesNameFileAndLine(t *testing.T) {
 	}{
 		{"unknown atlas", "scenes/room.scene.yaml", "atlas: actors", "atlas: heroes", "scenes/room.scene.yaml", "atlas: heroes", `atlas "heroes" not found: no atlas JSON named heroes.json in the checked directory`},
 		{"missing frame", "scenes/room.scene.yaml", "frame: hero", "frame: villain", "scenes/room.scene.yaml", "frame: villain", `frame "villain" is not in atlas "actors" (atlases/actors.json)`},
+		{"child missing frame", "scenes/room.scene.yaml", "        material: materials/stone.material.yaml\n", "        material: materials/stone.material.yaml\n        children:\n          - id: hat\n            sprite:\n              atlas: actors\n              frame: hat\n", "scenes/room.scene.yaml", "frame: hat", `frame "hat" is not in atlas "actors" (atlases/actors.json)`},
 		{"tile without frame", "scenes/room.scene.yaml", "data: [1, 2]", "data: [1, 7]", "scenes/room.scene.yaml", "data: [1, 7]", `tile 7 has no frame "7" in tileset atlas "tiles" (atlases/tiles.json)`},
 		{"unknown tileset atlas", "scenes/room.scene.yaml", "tileset: tiles", "tileset: cave", "scenes/room.scene.yaml", "tileset: cave", `tileset atlas "cave" not found`},
 		{"missing material", "materials/stone.material.yaml", "", "-", "scenes/room.scene.yaml", "material:", `material "materials/stone.material.yaml": not found`},

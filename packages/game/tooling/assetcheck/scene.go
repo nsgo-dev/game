@@ -41,16 +41,22 @@ func (c *checker) checkScene(p string) {
 		if l.Tilemap != nil && !l.Tilemap.IsRef() {
 			s.tilemap(l.Tilemap, "layers", li, "tilemap")
 		}
-		for j := range l.Objects {
-			o := &l.Objects[j]
-			oj := strconv.Itoa(j)
-			if o.Sprite != nil {
-				s.sprite(o.Sprite, "layers", li, "objects", oj, "sprite")
-			}
-			if o.Material != "" {
-				s.material(o.Material, "layers", li, "objects", oj, "material")
-			}
+		s.objects(l.Objects, "layers", li, "objects")
+	}
+}
+
+// objects checks the sprites and materials of objs, found at steps in the scene, and of their descendants.
+func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
+	for j := range objs {
+		o := &objs[j]
+		op := append(slices.Clip(steps), strconv.Itoa(j))
+		if o.Sprite != nil {
+			s.sprite(o.Sprite, append(slices.Clip(op), "sprite")...)
 		}
+		if o.Material != "" {
+			s.material(o.Material, append(slices.Clip(op), "material")...)
+		}
+		s.objects(o.Children, append(slices.Clip(op), "children")...)
 	}
 }
 
