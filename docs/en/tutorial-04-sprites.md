@@ -38,6 +38,8 @@ func makeAtlas() *sprite.Atlas {
 - `core.ImageSource{Pixels: sheet}` hands the pixels to the platform, which uploads them once.
 - `frame` makes an untrimmed frame with its pivot in its middle, so a sprite of it turns about its center.
 
+To try art from files without drawing any, start from the CC0 [placeholder pack](placeholder.md): `placeholder.Sheet("player")` loads a sprite sheet and its Aseprite export through `sprite.LoadAtlas`, animations included, and the pack's files can be copied into a game and replaced one by one.
+
 ## Sprites and a batch
 
 A `sprite.Sprite` places a frame: where its origin goes, how it turns, scales, flips and fades. A `sprite.Batch` draws sprites of one atlas, in order:

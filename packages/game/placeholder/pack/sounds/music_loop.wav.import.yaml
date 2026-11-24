@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/import.v1.json
+version: 1
+audio:
+  format: wav
+  peakDB: -6
+  loop:
+    start: 0

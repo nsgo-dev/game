@@ -1,5 +1,4 @@
-// Package samplegltf generates and validates the deterministic glTF 2.0 sample
-// models referenced by the NSGo 3D Blender pipeline documentation.
+// Package samplegltf generates and validates the deterministic glTF 2.0 sample models of the placeholder asset pack (package placeholder's models folder), which the 3D Blender pipeline documentation describes.
 package samplegltf
 
 import (
@@ -167,7 +166,7 @@ type Buffer struct {
 	ByteLength int    `json:"byteLength"`
 }
 
-// WriteSamples writes crate.glb and robot_arm.gltf into dir.
+// WriteSamples writes crate.glb, robot_arm.gltf and gem.glb into dir.
 func WriteSamples(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create sample dir: %w", err)
@@ -186,7 +185,110 @@ func WriteSamples(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "robot_arm.gltf"), arm, 0o644); err != nil {
 		return fmt.Errorf("write robot_arm.gltf: %w", err)
 	}
+	gem, err := GenerateGemGLB()
+	if err != nil {
+		return fmt.Errorf("generate gem.glb: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gem.glb"), gem, 0o644); err != nil {
+		return fmt.Errorf("write gem.glb: %w", err)
+	}
 	return nil
+}
+
+// GenerateGemGLB builds a deterministic binary glTF 2.0 (GLB) pickup gem: a flat-shaded hexagonal bipyramid 0.8 m across and 1 m tall, pivot at its bottom point (Y in [0, 1]), with CCW outward faces, one normal per face and a glossy emerald PBR material. It uses only exactly rounded arithmetic (square roots, and products rounded before they are summed), so it writes the same bytes on every architecture.
+func GenerateGemGLB() ([]byte, error) {
+	const (
+		radius  = 0.4
+		girdleY = 0.6
+		topY    = 1.0
+	)
+	half := math.Sqrt(3) / 2
+	ring := [6][3]float64{
+		{radius, girdleY, 0},
+		{radius * 0.5, girdleY, float64(radius * half)},
+		{-radius * 0.5, girdleY, float64(radius * half)},
+		{-radius, girdleY, 0},
+		{-radius * 0.5, girdleY, -float64(radius * half)},
+		{radius * 0.5, girdleY, -float64(radius * half)},
+	}
+	top := [3]float64{0, topY, 0}
+	bottom := [3]float64{0, 0, 0}
+	center := [3]float64{0, girdleY, 0}
+
+	var positions, normals [][3]float32
+	var indices []uint16
+	addFace := func(a, b, c [3]float64) {
+		n := faceNormal(a, b, c)
+		centroid := [3]float64{(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3}
+		out := float64(n[0]*(centroid[0]-center[0])) + float64(n[1]*(centroid[1]-center[1])) + float64(n[2]*(centroid[2]-center[2]))
+		if out < 0 {
+			b, c = c, b
+			n = [3]float64{-n[0], -n[1], -n[2]}
+		}
+		base := uint16(len(positions))
+		for _, v := range [][3]float64{a, b, c} {
+			positions = append(positions, [3]float32{float32(v[0]), float32(v[1]), float32(v[2])})
+			normals = append(normals, [3]float32{float32(n[0]), float32(n[1]), float32(n[2])})
+		}
+		indices = append(indices, base, base+1, base+2)
+	}
+	for i := range ring {
+		next := ring[(i+1)%len(ring)]
+		addFace(top, ring[i], next)
+		addFace(bottom, next, ring[i])
+	}
+
+	var bb binBuilder
+	posBV := bb.addVec3(positions, TargetArrayBuffer)
+	normBV := bb.addVec3(normals, TargetArrayBuffer)
+	idxBV := bb.addUint16(indices, TargetElementArrayBuffer)
+	bin := bb.bytes()
+	posMin, posMax := vec3Bounds(positions)
+
+	doc := &Document{
+		Asset:  Asset{Version: "2.0", Generator: "nsgo-game samplegltf"},
+		Scene:  intPtr(0),
+		Scenes: []Scene{{Name: "Scene", Nodes: []int{0}}},
+		Nodes:  []Node{{Name: "Gem", Mesh: intPtr(0)}},
+		Meshes: []Mesh{{
+			Name: "GemMesh",
+			Primitives: []Primitive{{
+				Attributes: map[string]int{"POSITION": 0, "NORMAL": 1},
+				Indices:    intPtr(2),
+				Material:   intPtr(0),
+				Mode:       intPtr(ModeTriangles),
+			}},
+		}},
+		Materials: []Material{{
+			Name: "GemMaterial",
+			PBRMetallicRoughness: &PBRMetallicRoughness{
+				BaseColorFactor: [4]float64{0.13, 0.77, 0.45, 1},
+				MetallicFactor:  0,
+				RoughnessFactor: 0.2,
+			},
+		}},
+		Accessors: []Accessor{
+			{BufferView: intPtr(posBV), ComponentType: ComponentFloat, Count: len(positions), Type: "VEC3", Min: posMin, Max: posMax},
+			{BufferView: intPtr(normBV), ComponentType: ComponentFloat, Count: len(normals), Type: "VEC3"},
+			{BufferView: intPtr(idxBV), ComponentType: ComponentUnsignedShort, Count: len(indices), Type: "SCALAR"},
+		},
+		BufferViews: bb.views,
+		Buffers:     []Buffer{{ByteLength: len(bin)}},
+	}
+	return PackGLB(doc, bin)
+}
+
+// faceNormal returns the unit normal of the triangle a, b, c by the right-hand rule. Each product is converted to float64 before it is summed, which forbids the compiler from fusing it into a multiply-add, so the result is the same on every architecture.
+func faceNormal(a, b, c [3]float64) [3]float64 {
+	u := [3]float64{b[0] - a[0], b[1] - a[1], b[2] - a[2]}
+	v := [3]float64{c[0] - a[0], c[1] - a[1], c[2] - a[2]}
+	n := [3]float64{
+		float64(u[1]*v[2]) - float64(u[2]*v[1]),
+		float64(u[2]*v[0]) - float64(u[0]*v[2]),
+		float64(u[0]*v[1]) - float64(u[1]*v[0]),
+	}
+	l := math.Sqrt(float64(n[0]*n[0]) + float64(n[1]*n[1]) + float64(n[2]*n[2]))
+	return [3]float64{n[0] / l, n[1] / l, n[2] / l}
 }
 
 // GenerateCrateGLB builds a deterministic binary glTF 2.0 (GLB) 1 m cube crate:

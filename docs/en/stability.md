@@ -119,6 +119,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/perf` | Experimental | [perf](perf.md) |
 | `game/physics` | Stable | [physics](physics.md) |
 | `game/physics3d` | Experimental | [physics3d](physics3d.md) |
+| `game/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
 | `game/procgen` | Experimental | [procgen](procgen.md) |
 | `game/project` | Experimental | [Project File](project.md) |

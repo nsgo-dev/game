@@ -38,6 +38,8 @@ func makeAtlas() *sprite.Atlas {
 - `core.ImageSource{Pixels: sheet}` 把像素交给平台，平台只上传一次。
 - `frame` 生成一个未裁剪的帧，轴心在中间，所以用它的精灵绕中心旋转。
 
+若想不画一笔就试用来自文件的素材，可以从 CC0 的[占位素材包](placeholder.md)开始：`placeholder.Sheet("player")` 通过 `sprite.LoadAtlas` 加载一张精灵表及其 Aseprite 导出（包括动画），素材包的文件也可以复制进游戏，再逐个替换。
+
 ## 精灵和批次
 
 `sprite.Sprite` 摆放一个帧：原点放在哪里，如何旋转、缩放、翻转和淡出。`sprite.Batch` 按顺序绘制同一图集里的精灵：

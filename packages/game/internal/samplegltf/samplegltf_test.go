@@ -10,11 +10,11 @@ import (
 	"github.com/nsgo-dev/game/packages/game/internal/samplegltf"
 )
 
-var update = flag.Bool("update", false, "regenerate committed sample glTF/GLB assets under docs/assets/3d-sample")
+var update = flag.Bool("update", false, "regenerate the sample glTF/GLB models committed in the placeholder pack's models folder")
 
 func sampleDir(t *testing.T) string {
 	t.Helper()
-	return filepath.Join("..", "..", "..", "..", "docs", "assets", "3d-sample")
+	return filepath.Join("..", "..", "placeholder", "pack", "models")
 }
 
 func TestCrateGLBRoundTrip(t *testing.T) {
@@ -169,5 +169,46 @@ func TestCommittedSamplesMatchGenerator(t *testing.T) {
 		t.Fatalf("ParseEmbeddedGLTF committed robot_arm.gltf: %v", err)
 	} else if err := samplegltf.ValidateDocument(doc, bin); err != nil {
 		t.Fatalf("ValidateDocument committed robot_arm.gltf: %v", err)
+	}
+
+	gemWant, err := samplegltf.GenerateGemGLB()
+	if err != nil {
+		t.Fatalf("GenerateGemGLB: %v", err)
+	}
+	gemGot, err := os.ReadFile(filepath.Join(dir, "gem.glb"))
+	if err != nil {
+		t.Fatalf("read committed gem.glb (run `go test ./internal/samplegltf -update` to generate): %v", err)
+	}
+	if !bytes.Equal(gemGot, gemWant) {
+		t.Fatalf("committed gem.glb differs from generator output (%d vs %d bytes); run `go test ./internal/samplegltf -update`", len(gemGot), len(gemWant))
+	}
+}
+
+func TestGemGLB(t *testing.T) {
+	raw, err := samplegltf.GenerateGemGLB()
+	if err != nil {
+		t.Fatalf("GenerateGemGLB: %v", err)
+	}
+	doc, bin, err := samplegltf.UnpackGLB(raw)
+	if err != nil {
+		t.Fatalf("UnpackGLB: %v", err)
+	}
+	if err := samplegltf.ValidateDocument(doc, bin); err != nil {
+		t.Fatalf("ValidateDocument: %v", err)
+	}
+	prim := doc.Meshes[0].Primitives[0]
+	if n := doc.Accessors[prim.Attributes["POSITION"]].Count; n != 36 {
+		t.Fatalf("gem vertex count = %d, want 36 (12 flat-shaded faces)", n)
+	}
+	pos := doc.Accessors[prim.Attributes["POSITION"]]
+	if pos.Min[1] != 0 || pos.Max[1] != 1 {
+		t.Fatalf("gem height = [%v, %v], want [0, 1]", pos.Min[1], pos.Max[1])
+	}
+	again, err := samplegltf.GenerateGemGLB()
+	if err != nil {
+		t.Fatalf("second GenerateGemGLB: %v", err)
+	}
+	if !bytes.Equal(raw, again) {
+		t.Fatalf("GenerateGemGLB is not deterministic")
 	}
 }
