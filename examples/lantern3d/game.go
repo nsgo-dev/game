@@ -80,7 +80,9 @@ func NewView(cx *core.Scope) (*Controller, core.Node) {
 	c.Loop = &game.Loop{
 		Rate: stepRate,
 		Update: func(dt time.Duration) {
-			c.Scene.Step(dt)
+			if err := c.Scene.Step(dt); err != nil && c.gpuErrSig.GetUntracked() == "" {
+				c.gpuErrSig.Set(fmt.Sprintf("Failed to animate the 3D scene: %v", err))
+			}
 		},
 		Draw: func(alpha float64) {
 			c.alpha = float32(alpha)
@@ -378,7 +380,7 @@ func (c *Controller) buildHUD() {
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "3D GPU View Unavailable",
+						Content: "3D View Unavailable",
 						Style: core.Style{
 							FontSize:   15,
 							FontWeight: core.FontWeightBold,

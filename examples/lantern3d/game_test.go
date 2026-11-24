@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -119,9 +120,53 @@ func TestGLBAssetLoadsWithTexturesAndHierarchy(t *testing.T) {
 
 	// Advancing with AnimateLights moves the orbiting point light.
 	posBefore := sc.Lights.Point[wispLight].Position
-	sc.Step(500 * time.Millisecond)
+	if err := sc.Step(500 * time.Millisecond); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
 	if sc.Lights.Point[wispLight].Position.ApproxEqual(posBefore, 1e-4) {
 		t.Fatalf("orbiting point light did not move: before=%v after=%v", posBefore, sc.Lights.Point[wispLight].Position)
+	}
+}
+
+func TestLightsFollowTheirNodesUnderAMovedRoot(t *testing.T) {
+	sc, err := NewScene()
+	if err != nil {
+		t.Fatalf("NewScene: %v", err)
+	}
+	root := -1
+	for i := range sc.Doc.Nodes {
+		if sc.Doc.Nodes[i].Name == "CourtyardRoot" {
+			root = i
+		}
+	}
+	if root < 0 {
+		t.Fatal("glb lacks CourtyardRoot")
+	}
+	sc.Doc.Nodes[root].Translation = math3d.Vec3{X: 3, Y: 0.5, Z: -2}
+	sc.Doc.Nodes[root].Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), 0.7)
+	if err := sc.Doc.ComputeWorldMatrices(); err != nil {
+		t.Fatalf("ComputeWorldMatrices: %v", err)
+	}
+	if err := sc.Step(time.Second / stepRate); err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+
+	wisp := sc.Doc.Nodes[sc.wispNodeIdx].WorldMatrix.TransformPoint(math3d.Vec3{})
+	if got := sc.Lights.Point[wispLight].Position; !got.ApproxEqual(wisp, 1e-4) {
+		t.Fatalf("wisp light at %v, wisp mesh at %v", got, wisp)
+	}
+	// The wisp orbits in world space, whatever its parent's transform.
+	if r := math.Hypot(float64(wisp.X), float64(wisp.Z)); math.Abs(r-1.95) > 1e-3 {
+		t.Fatalf("wisp orbit radius = %.4f, want 1.95", r)
+	}
+
+	glow := sc.Doc.Nodes[sc.coreNodeIdx].WorldMatrix.TransformPoint(shrineGlowLocal)
+	if got := sc.Lights.Point[shrineLight].Position; !got.ApproxEqual(glow, 1e-4) {
+		t.Fatalf("shrine glow light at %v, shrine core at %v", got, glow)
+	}
+	// The shrine stands at the root's origin, so its glow moves with the root.
+	if math.Abs(float64(glow.X-3)) > 1e-3 || math.Abs(float64(glow.Z+2)) > 1e-3 {
+		t.Fatalf("shrine glow at %v, want above the moved root at (3, _, -2)", glow)
 	}
 }
 
@@ -217,7 +262,9 @@ func TestCameraOrbitAndResetChangeRenderedView(t *testing.T) {
 	// Advance several fixed steps without rendering 30 full software frames.
 	app.Post(func() {
 		for range 24 {
-			c.Scene.Step(time.Second / stepRate)
+			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+				t.Errorf("Step: %v", err)
+			}
 		}
 	})
 	app.Advance(16 * time.Millisecond)
@@ -285,7 +332,9 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	}
 	app.Post(func() {
 		for range 20 {
-			c.Scene.Step(time.Second / stepRate)
+			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+				t.Errorf("Step: %v", err)
+			}
 		}
 	})
 	app.Settle()
@@ -304,7 +353,9 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	finger.Lift()
 	app.Post(func() {
 		for range 20 {
-			c.Scene.Step(time.Second / stepRate)
+			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+				t.Errorf("Step: %v", err)
+			}
 		}
 	})
 	app.Settle()
@@ -317,7 +368,9 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	app.Wheel("id:lantern-viewport", core.Point{Y: -120}, core.Modifiers{})
 	app.Post(func() {
 		for range 20 {
-			c.Scene.Step(time.Second / stepRate)
+			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+				t.Errorf("Step: %v", err)
+			}
 		}
 	})
 	app.Settle()

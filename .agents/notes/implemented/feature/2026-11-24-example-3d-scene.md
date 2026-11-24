@@ -64,6 +64,7 @@ Rejected because WebGL 2 and OpenGL ES 3.0 (`nsgotest.NoGPUCompute()`) do not su
 
 - `examples/lantern3d/game_test.go` and `examples/lantern3d/project_test.go`:
   - `TestGLBAssetLoadsWithTexturesAndHierarchy` verifies glTF hierarchy, embedded PNG decoding, mesh/triangle counts, and animated point-light stepping.
+  - `TestLightsFollowTheirNodesUnderAMovedRoot` verifies the wisp and shrine glow lights sit where their nodes are in world space even when `CourtyardRoot` is moved and rotated, and that the wisp's orbit stays in world space.
   - `TestSceneDrawsOnFullAndWebGL2Profiles` verifies lit 3D pixel rendering (sky clear, non-sky geometry coverage, >=12 distinct shaded tones, warm lantern highlights) on both `full` and `nsgotest.NoGPUCompute()` profiles.
   - `TestCameraOrbitAndResetChangeRenderedView` verifies keyboard orbit/zoom measurably changes rendered GPU pixels and `Reset` restores default camera angles/distance.
   - `TestHUDControlsAndOpenAreaDragPassThrough` verifies `ui.Button` clicks do not leak into 3D orbit drags while open-region mouse drag, touch drag, and wheel zoom drive the orbit camera, and `H` toggles HUD visibility.
