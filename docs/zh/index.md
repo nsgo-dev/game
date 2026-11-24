@@ -84,7 +84,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `framedata` | `github.com/nsgo-dev/game/packages/game/framedata` | [framedata](framedata.md) | 以 YAML 编写的格斗游戏逐帧攻击框、受击框、硬直与取消窗口，每步确定性解析 |
 | `vehicle` | `github.com/nsgo-dev/game/packages/game/vehicle` | [vehicle](vehicle.md) | 基于 `physics3d` 的射线车辆：车轮悬挂、轮胎摩擦与车辆控制器，比赛检查点与圈数，以及 YAML 车辆文件和单圈幽灵 |
 
-核心包 API 的单页速查见[包](packages.md)。每个加载器在文件无法使用时都会给出文件、行号、字段和修复方法，见[错误](errors.md)。
+核心包 API 的单页速查见[包](packages.md)。每个加载器在文件无法使用时都会给出文件、行号、字段和修复方法，见[错误](errors.md)。游戏读写的每种文件及其版本和示例见[文件格式](formats.md)。
 
 ## 从其他引擎迁移
 
