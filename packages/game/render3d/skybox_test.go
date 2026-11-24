@@ -127,40 +127,6 @@ func studioEnvironmentCubemap(size int) *render3d.Cubemap {
 	return cm
 }
 
-// uvSphereMesh generates a unit sphere centered at origin with outward normals.
-func uvSphereMesh(stacks, slices int) render3d.Mesh {
-	var m render3d.Mesh
-	for i := 0; i <= stacks; i++ {
-		v := float64(i) / float64(stacks)
-		phi := v * math.Pi
-		sinPhi := math.Sin(phi)
-		cosPhi := math.Cos(phi)
-		for j := 0; j <= slices; j++ {
-			u := float64(j) / float64(slices)
-			theta := u * 2 * math.Pi
-			nx := float32(sinPhi * math.Cos(theta))
-			ny := float32(cosPhi)
-			nz := float32(sinPhi * math.Sin(theta))
-			p := math3d.Vec3{X: nx, Y: ny, Z: nz}
-			m.Positions = append(m.Positions, p)
-			m.Normals = append(m.Normals, p)
-			m.UVs = append(m.UVs, math3d.Vec2{X: float32(u), Y: float32(v)})
-		}
-	}
-	stride := uint32(slices + 1)
-	for i := uint32(0); i < uint32(stacks); i++ {
-		for j := uint32(0); j < uint32(slices); j++ {
-			a := i*stride + j
-			b := a + 1
-			c := (i+1)*stride + j
-			d := c + 1
-			// Counter-clockwise when viewed from outside the sphere.
-			m.Indices = append(m.Indices, a, b, c, b, d, c)
-		}
-	}
-	return m
-}
-
 func encodeMaterialParams(model math3d.Mat4, baseColor [3]float32, metallic, roughness, ao float32) []byte {
 	var buf [96]byte
 	off := 0
@@ -822,7 +788,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 	if err != nil {
 		t.Fatalf("CreatePipeline fg: %v", err)
 	}
-	sphereGPU, err := render3d.UploadMesh(nil, dev, uvSphereMesh(16, 24), render3d.MeshUpload{Label: "sphere"})
+	sphereGPU, err := render3d.UploadMesh(nil, dev, uvSphereMesh(1, 24, 16), render3d.MeshUpload{Label: "sphere"})
 	if err != nil {
 		t.Fatalf("UploadMesh sphere: %v", err)
 	}
@@ -972,7 +938,7 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 		t.Fatalf("CreatePipeline pbr-ibl: %v", err)
 	}
 
-	sphereGPU, err := render3d.UploadMesh(nil, dev, uvSphereMesh(20, 28), render3d.MeshUpload{Label: "ibl-sphere"})
+	sphereGPU, err := render3d.UploadMesh(nil, dev, uvSphereMesh(1, 28, 20), render3d.MeshUpload{Label: "ibl-sphere"})
 	if err != nil {
 		t.Fatalf("UploadMesh sphere: %v", err)
 	}
@@ -1185,7 +1151,7 @@ func skyboxIBLViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*ns
 	if err != nil {
 		t.Fatalf("PrefilterEnvironment: %v", err)
 	}
-	sphere := uvSphereMesh(14, 20)
+	sphere := uvSphereMesh(1, 20, 14)
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 3.2}, math3d.DegToRad(50), 1, 0.1, 50)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 
