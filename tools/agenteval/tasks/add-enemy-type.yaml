@@ -6,8 +6,8 @@ prompt: |
   Add a patrolling enemy type to this NSGo game project.
 
   Requirements:
-  1. Update `scenes/arena.scene.yaml` to place at least one enemy object carrying an `enemy` component alongside `player`, keeping `game.yaml` and the scene valid under `assetcheck.Check`.
-  2. Define and register an `enemy` component codec on `entities.World`, spawn the enemy tagged `"enemy"`, and update its patrol motion on the 60 Hz `game.Loop`.
+  1. Update `scenes/arena.scene.yaml` to place at least one enemy object (`prefab: enemy`) named `patrol_slime` carrying an `enemy` component (`kind`, `hp`, `speed`, `min_x`, `max_x`) alongside `player`, keeping `game.yaml` and the scene valid under `assetcheck.Check`.
+  2. Define and register an `enemy` component codec on `entities.World`, spawn each enemy from the scene with the values of its `enemy` component, tag it `"enemy"`, and update its patrol motion on the 60 Hz `game.Loop`.
   3. Expose the scene, world, entity names/tags (`"enemy"`), `position` and `enemy` components, and loop controls through `mcp.Bridge`.
 min_score: 100
 context_docs:
@@ -37,9 +37,8 @@ checks:
     expect_moved_entity: patrol_slime
     expect_component: enemy
   weights:
-    docs_context: 10
     yaml_valid: 15
     project_check: 15
-    domain_check: 20
+    domain_check: 25
     build_check: 15
-    mcp_verify: 25
+    mcp_verify: 30

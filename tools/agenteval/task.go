@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,7 +25,7 @@ type Task struct {
 	Title        string     `yaml:"title"`
 	Description  string     `yaml:"description"`
 	Prompt       string     `yaml:"prompt"`
-	MinScore     int        `yaml:"min_score,omitempty"`
+	MinScore     *int       `yaml:"min_score,omitempty"`
 	ContextDocs  []string   `yaml:"context_docs"`
 	StarterDir   string     `yaml:"starter_dir"`
 	ReferenceDir string     `yaml:"reference_dir"`
@@ -41,9 +42,8 @@ type ChecksSpec struct {
 	Weights         CriteriaWeights `yaml:"weights"`
 }
 
-// CriteriaWeights distributes 100 points across the six rubric checks.
+// CriteriaWeights distributes 100 points across the five rubric checks.
 type CriteriaWeights struct {
-	DocsContext  int `yaml:"docs_context"`
 	YAMLValid    int `yaml:"yaml_valid"`
 	ProjectCheck int `yaml:"project_check"`
 	DomainCheck  int `yaml:"domain_check"`
@@ -56,6 +56,7 @@ type PlatformerSpec struct {
 	SceneFile    string  `yaml:"scene_file"`
 	MinPlatforms int     `yaml:"min_platforms"`
 	MaxGap       float64 `yaml:"max_gap"`
+	MaxRise      float64 `yaml:"max_rise"`
 	PlayerID     string  `yaml:"player_id"`
 	GoalID       string  `yaml:"goal_id"`
 }
@@ -67,7 +68,7 @@ type EnemySpec struct {
 	RequiredComponent string `yaml:"required_component,omitempty"`
 }
 
-// MenuSpec validates a menu scene's screen-space layer and interactive items.
+// MenuSpec validates a menu scene's screen-space layer and its buttons (objects with prefab `button` or a `button` component).
 type MenuSpec struct {
 	SceneFile          string `yaml:"scene_file"`
 	MinMenuItems       int    `yaml:"min_menu_items"`
@@ -85,6 +86,19 @@ type MCPVerifySpec struct {
 	StepCount          int      `yaml:"step_count,omitempty"`
 	ExpectMovedEntity  string   `yaml:"expect_moved_entity,omitempty"`
 	ExpectComponent    string   `yaml:"expect_component,omitempty"`
+	// PressActions are input actions held through game_input_action before stepping, so movement comes from input.
+	PressActions []string `yaml:"press_actions,omitempty"`
+	// ApproachEntity names an entity that ExpectMovedEntity must get horizontally closer to while stepping.
+	ApproachEntity string `yaml:"approach_entity,omitempty"`
+	// Click is a pointer click sent through game_input_pointer after stepping, with the scene it must switch to.
+	Click *ClickSpec `yaml:"click,omitempty"`
+}
+
+// ClickSpec is a click at game coordinates (X, Y) that must make ExpectScene the current scene.
+type ClickSpec struct {
+	X           float64 `yaml:"x"`
+	Y           float64 `yaml:"y"`
+	ExpectScene string  `yaml:"expect_scene"`
 }
 
 // ParseTask decodes a versioned YAML task definition, refusing unknown fields and trailing documents.
@@ -148,8 +162,8 @@ func (t *Task) Validate() error {
 	if strings.TrimSpace(t.Prompt) == "" {
 		return fmt.Errorf("task %q: prompt is required", t.ID)
 	}
-	if t.MinScore < 0 || t.MinScore > 100 {
-		return fmt.Errorf("task %q: min_score must be in [0, 100] (got %d)", t.ID, t.MinScore)
+	if t.MinScore != nil && (*t.MinScore < 0 || *t.MinScore > 100) {
+		return fmt.Errorf("task %q: min_score must be in [0, 100] (got %d)", t.ID, *t.MinScore)
 	}
 	if len(t.ContextDocs) == 0 {
 		return fmt.Errorf("task %q: context_docs must list at least one document", t.ID)
@@ -218,6 +232,25 @@ func (m *MCPVerifySpec) validate(taskID string) error {
 	if m.ExpectComponent != "" && m.ExpectMovedEntity == "" {
 		return fmt.Errorf("task %q: checks.mcp_verify.expect_component requires expect_moved_entity", taskID)
 	}
+	if m.ApproachEntity != "" && m.ExpectMovedEntity == "" {
+		return fmt.Errorf("task %q: checks.mcp_verify.approach_entity requires expect_moved_entity", taskID)
+	}
+	if len(m.PressActions) > 0 && m.StepCount == 0 {
+		return fmt.Errorf("task %q: checks.mcp_verify.press_actions requires step_count > 0", taskID)
+	}
+	for _, a := range m.PressActions {
+		if strings.TrimSpace(a) == "" {
+			return fmt.Errorf("task %q: checks.mcp_verify.press_actions has an empty name", taskID)
+		}
+	}
+	if c := m.Click; c != nil {
+		if math.IsNaN(c.X) || math.IsInf(c.X, 0) || math.IsNaN(c.Y) || math.IsInf(c.Y, 0) {
+			return fmt.Errorf("task %q: checks.mcp_verify.click x and y must be finite", taskID)
+		}
+		if strings.TrimSpace(c.ExpectScene) == "" {
+			return fmt.Errorf("task %q: checks.mcp_verify.click.expect_scene is required", taskID)
+		}
+	}
 	return nil
 }
 
@@ -278,8 +311,11 @@ func (p *PlatformerSpec) validate(taskID string) error {
 	if p.MinPlatforms <= 0 {
 		return fmt.Errorf("task %q: platformer_level.min_platforms must be > 0", taskID)
 	}
-	if p.MaxGap <= 0 {
-		return fmt.Errorf("task %q: platformer_level.max_gap must be > 0", taskID)
+	if !(p.MaxGap > 0) || math.IsInf(p.MaxGap, 0) {
+		return fmt.Errorf("task %q: platformer_level.max_gap must be a finite number > 0 (got %v)", taskID, p.MaxGap)
+	}
+	if !(p.MaxRise > 0) || math.IsInf(p.MaxRise, 0) {
+		return fmt.Errorf("task %q: platformer_level.max_rise must be a finite number > 0 (got %v)", taskID, p.MaxRise)
 	}
 	if strings.TrimSpace(p.PlayerID) == "" || strings.TrimSpace(p.GoalID) == "" {
 		return fmt.Errorf("task %q: platformer_level player_id and goal_id are required", taskID)
@@ -312,7 +348,6 @@ func (w CriteriaWeights) validate(taskID string) error {
 		name string
 		val  int
 	}{
-		{"docs_context", w.DocsContext},
 		{"yaml_valid", w.YAMLValid},
 		{"project_check", w.ProjectCheck},
 		{"domain_check", w.DomainCheck},
@@ -332,10 +367,10 @@ func (w CriteriaWeights) validate(taskID string) error {
 	return nil
 }
 
-// EffectiveMinScore returns the passing score threshold for t, falling back to fallback when unset.
+// EffectiveMinScore returns the passing score threshold for t, falling back to fallback when min_score is unset (an explicit 0 is kept).
 func (t *Task) EffectiveMinScore(fallback int) int {
-	if t.MinScore > 0 {
-		return t.MinScore
+	if t.MinScore != nil {
+		return *t.MinScore
 	}
 	return fallback
 }

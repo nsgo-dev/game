@@ -1,6 +1,4 @@
-// Command agenteval runs fixed agent evaluation tasks against NSGo game docs,
-// YAML formats, project checks, builds, and live MCP tools, reporting a score
-// (0..100) per task in Markdown and optional JSON.
+// Command agenteval runs fixed evaluation tasks for the game layer: in reference mode it grades the hand-written reference solutions as an API regression suite, and in command mode it runs an agent command on each task's starter workspace and grades what the agent leaves, reporting a score (0..100) per task in Markdown and optional JSON.
 //
 //	go run ./tools/agenteval
 //	go run ./tools/agenteval -out report.json -summary "$GITHUB_STEP_SUMMARY"
@@ -28,14 +26,15 @@ func main() {
 func runCLI(args []string) error {
 	fs := flag.NewFlagSet("agenteval", flag.ContinueOnError)
 	var (
-		mode        = fs.String("mode", ModeReference, "evaluation mode: reference or command")
-		agentCmd    = fs.String("agent-cmd", "", "shell command executed per task when -mode=command")
-		tasksDir    = fs.String("tasks-dir", "", "directory containing versioned task YAML files (defaults to tools/agenteval/tasks)")
-		taskFilter  = fs.String("task", "", "comma-separated list of task IDs to run (default: all)")
-		minScore    = fs.Int("min-score", -1, "override minimum passing score per task (0..100; -1 uses each task's threshold)")
-		outPath     = fs.String("out", "", "optional path to write machine-readable JSON report")
-		summaryPath = fs.String("summary", "", "optional path to append Markdown summary (defaults to $GITHUB_STEP_SUMMARY when set)")
-		timeout     = fs.Duration("timeout", 5*time.Minute, "per-task execution and grading timeout")
+		mode         = fs.String("mode", ModeReference, "evaluation mode: reference or command")
+		agentCmd     = fs.String("agent-cmd", "", "shell command executed per task when -mode=command")
+		tasksDir     = fs.String("tasks-dir", "", "directory containing versioned task YAML files (defaults to tools/agenteval/tasks)")
+		taskFilter   = fs.String("task", "", "comma-separated list of task IDs to run (default: all)")
+		minScore     = fs.Int("min-score", -1, "override minimum passing score per task (0..100; -1 uses each task's threshold)")
+		outPath      = fs.String("out", "", "optional path to write machine-readable JSON report")
+		summaryPath  = fs.String("summary", "", "optional path to append Markdown summary (defaults to $GITHUB_STEP_SUMMARY when set)")
+		timeout      = fs.Duration("timeout", 5*time.Minute, "per-task grading timeout (nsgo check and the MCP verification test)")
+		agentTimeout = fs.Duration("agent-timeout", 15*time.Minute, "per-task agent command timeout in -mode=command, separate from -timeout")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -48,6 +47,9 @@ func runCLI(args []string) error {
 	}
 	if *timeout < 0 {
 		return fmt.Errorf("agenteval: -timeout must be non-negative (got %s)", *timeout)
+	}
+	if *agentTimeout < 0 {
+		return fmt.Errorf("agenteval: -agent-timeout must be non-negative (got %s)", *agentTimeout)
 	}
 
 	root, err := findRepoRoot()
@@ -72,6 +74,7 @@ func runCLI(args []string) error {
 		TaskFilter:       filter,
 		MinScoreOverride: *minScore,
 		Timeout:          *timeout,
+		AgentTimeout:     *agentTimeout,
 	})
 	if err != nil {
 		return err

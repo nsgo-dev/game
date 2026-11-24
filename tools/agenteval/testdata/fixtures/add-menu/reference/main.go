@@ -6,7 +6,6 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/entities"
-	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -24,9 +23,10 @@ func main() {
 	nsgo.Run(Root)
 }
 
-// Root boots the reference game with title, gameplay, and pause menu controllers wired through scene.Manager and mcp.Bridge.
+// Root boots the reference game: the menu's buttons come from scenes/menu.scene.yaml, Play switches to gameplay, and scene.Manager and mcp.Bridge expose the menu, gameplay and pause scenes.
 func Root(cx *core.Scope) core.Node {
-	if _, err := sceneformat.Parse(menuSceneYAML); err != nil {
+	menuDoc, err := sceneformat.Parse(menuSceneYAML)
+	if err != nil {
 		panic(err)
 	}
 	if _, err := sceneformat.Parse(gameplaySceneYAML); err != nil {
@@ -40,41 +40,42 @@ func Root(cx *core.Scope) core.Node {
 	gameplayCtrl := &scene.Controller{Scene: gameplayScene}
 
 	pauseScene := scene.NewScene(nil)
-	pauseLayer := scene.NewLayer("pause_ui", scene.SpaceScreen, 100)
-	pauseScene.AddLayer(pauseLayer)
+	pauseScene.AddLayer(scene.NewLayer("pause_ui", scene.SpaceScreen, 100))
 	pauseCtrl := &scene.Controller{Scene: pauseScene, Transparent: true}
 
-	menuRoot := gameui.NewRoot(&gameui.Panel{
-		Child: &gameui.VBox{
-			Spacing: 12,
-			Children: []gameui.Widget{
-				&gameui.Label{Text: "Menu Eval"},
-				&gameui.Button{
-					Text: "Play",
-					OnClick: func() {
-						mgr.Switch(gameplayCtrl, nil)
-					},
-				},
-				&gameui.Button{
-					Text: "Pause",
-					OnClick: func() {
-						mgr.Push(pauseCtrl)
-					},
-				},
-			},
-		},
-	})
-	menuBounds := core.Bounds{Size: core.Size{Width: 480, Height: 320}}
-	menuRoot.Layout(menuBounds)
+	actions := map[string]func(){
+		"play_button": func() { mgr.Switch(gameplayCtrl, nil) },
+	}
 
 	menuScene := scene.NewScene(nil)
-	menuLayer := scene.NewLayer("menu_ui", scene.SpaceScreen, 100)
-	menuLayer.AddDrawable(scene.NewDrawable(func(d *core.Drawing) {
-		menuRoot.Draw(d, menuBounds)
-	}))
-	menuScene.AddLayer(menuLayer)
+	for _, layerDoc := range menuDoc.Layers {
+		space := scene.SpaceWorld
+		if layerDoc.EffectiveSpace() == sceneformat.SpaceScreen {
+			space = scene.SpaceScreen
+		}
+		layer := scene.NewLayer(layerDoc.Name, space, layerDoc.Order)
+		for _, obj := range layerDoc.Objects {
+			if obj.Prefab != "button" {
+				continue
+			}
+			x, y := obj.X, obj.Y
+			w := propFloat(obj.Properties, "width", 120)
+			h := propFloat(obj.Properties, "height", 36)
+			btn := scene.NewDrawable(func(d *core.Drawing) {
+				d.BeginPath().Rect(x, y, w, h).Fill()
+			})
+			btn.Hit = func(p core.Point) bool {
+				px, py := float32(p.X), float32(p.Y)
+				return px >= x && px < x+w && py >= y && py < y+h
+			}
+			if onPress := actions[obj.ID]; onPress != nil {
+				btn.OnPress = func(scene.HitResult, core.PressEvent) { onPress() }
+			}
+			layer.AddDrawable(btn)
+		}
+		menuScene.AddLayer(layer)
+	}
 	menuCtrl := &scene.Controller{Scene: menuScene}
-
 	mgr.Push(menuCtrl)
 
 	sceneNames := map[*scene.Controller]string{
@@ -108,4 +109,15 @@ func Root(cx *core.Scope) core.Node {
 		panic(err)
 	}
 	return core.View{}
+}
+
+func propFloat(m map[string]any, key string, fallback float32) float32 {
+	switch v := m[key].(type) {
+	case int:
+		return float32(v)
+	case float64:
+		return float32(v)
+	default:
+		return fallback
+	}
 }

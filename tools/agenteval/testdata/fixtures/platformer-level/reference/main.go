@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/platformer"
@@ -95,10 +96,22 @@ func Root(cx *core.Scope) core.Node {
 		panic(err)
 	}
 
+	actions := input.NewActions()
+	actions.Bind("left", input.Key("ArrowLeft"))
+	actions.Bind("right", input.Key("ArrowRight"))
+	actions.Bind("jump", input.Key("Space"))
+	actions.BindAxis("move", "left", "right")
+
 	loop := &game.Loop{
 		Rate: 60,
 		Update: func(dt time.Duration) {
-			ctrl.Step(platformer.Input{Move: 1}, nil, nil, platforms, dt)
+			actions.Step()
+			in := platformer.Input{
+				Move:        float32(actions.Axis("move")),
+				JumpPressed: actions.JustPressed("jump"),
+				JumpHeld:    actions.Pressed("jump"),
+			}
+			ctrl.Step(in, nil, nil, platforms, dt)
 			b := body.Body.Shape.Bounds()
 			if p, ok := entities.Get[Pos](world, player); ok {
 				p.X = b.X
@@ -114,6 +127,7 @@ func Root(cx *core.Scope) core.Node {
 		World:       world,
 		EntityName:  func(e entities.Entity) string { return names[e] },
 		EntityLayer: func(e entities.Entity) string { return layers[e] },
+		Actions:     actions,
 		Loop:        loop,
 	}); err != nil {
 		panic(err)

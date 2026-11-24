@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"encoding/json"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
@@ -69,15 +70,20 @@ func Root(cx *core.Scope) core.Node {
 			}
 			names[e] = displayName
 			if obj.Prefab == "enemy" {
+				// The enemy's stats come from its `enemy` component in the scene YAML.
+				raw, err := json.Marshal(obj.Components["enemy"])
+				if err != nil {
+					panic(err)
+				}
+				var en Enemy
+				if err := json.Unmarshal(raw, &en); err != nil {
+					panic(err)
+				}
+				if en.Dir == 0 {
+					en.Dir = 1
+				}
 				tags[e] = []string{"enemy"}
-				entities.Set(world, e, Enemy{
-					Kind:  "slime",
-					HP:    3,
-					Speed: 48,
-					Dir:   1,
-					MinX:  120,
-					MaxX:  240,
-				})
+				entities.Set(world, e, en)
 				enemyEnts = append(enemyEnts, e)
 			}
 		}
