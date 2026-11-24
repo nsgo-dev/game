@@ -478,7 +478,7 @@ func TestRenderTextureMSAA4xSampledAsMaterial(t *testing.T) {
 		{Name: "off", Camera: cam, Target: rt, LayerMask: 1, ClearColor: core.RGB(0x101010)},
 		{Name: "main", Camera: cam, LayerMask: 2, ClearColor: core.RGB(0x000000)},
 	}
-	err = renderer.RenderEncoder(enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+	err = renderer.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
 		if ctx.LayerMask == 1 {
 			ctx.Pass.SetPipeline(solidPipe)
 			ctx.Pass.SetBindGroup(1, yellowBG)
@@ -792,7 +792,7 @@ func TestPictureInPictureResetDepth(t *testing.T) {
 		{Name: "main", Camera: cam, Viewport: render3d.FullViewport(), LayerMask: 1, Priority: 0, ClearColor: core.RGB(0x000000)},
 		{Name: "pip", Camera: cam, Viewport: pipRect, LayerMask: 2, Priority: 10, ResetDepth: true},
 	}
-	err = renderer.RenderEncoder(enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+	err = renderer.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
 		ctx.Pass.SetPipeline(pipe)
 		if ctx.LayerMask == 1 {
 			ctx.Pass.SetBindGroup(1, redBG)
@@ -879,7 +879,7 @@ func TestInterleavedOffscreenTargetsKeepEarlierViews(t *testing.T) {
 	colors := []*gpu.BindGroup{redBG, greenBG, blueBG}
 
 	enc := dev.BeginEncoder()
-	err = renderer.RenderEncoder(enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+	err = renderer.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 64, Height: 64, HasDepth: true}, views, func(ctx render3d.ViewportContext) {
 		if ctx.View.Target == nil {
 			ctx.Pass.SetPipeline(texPipe)
 			ctx.Pass.SetBindGroup(1, atlasBG)
@@ -1470,7 +1470,7 @@ func TestRenderTextureAndViewportValidationAndNilSafety(t *testing.T) {
 	}
 	enc := dev.BeginEncoder()
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 5}, math3d.DegToRad(60), 1, 0.1, 50)
-	if err := r.RenderEncoder(enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Name: "nil-cam"}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
+	if err := r.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Name: "nil-cam"}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
 		t.Errorf("nil camera = %v, want ErrInvalidViewport", err)
 	}
 	closedRT, err := render3d.NewRenderTexture(nil, dev, render3d.RenderTextureDesc{Width: 16, Height: 16})
@@ -1478,21 +1478,24 @@ func TestRenderTextureAndViewportValidationAndNilSafety(t *testing.T) {
 		t.Fatalf("NewRenderTexture: %v", err)
 	}
 	_ = closedRT.Close()
-	if err := r.RenderEncoder(enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Camera: cam, Target: closedRT}}, nil); !errors.Is(err, render3d.ErrInvalidRenderTexture) {
+	if err := r.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Camera: cam, Target: closedRT}}, nil); !errors.Is(err, render3d.ErrInvalidRenderTexture) {
 		t.Errorf("closed target = %v, want ErrInvalidRenderTexture", err)
 	}
-	if err := r.RenderEncoder(enc, render3d.SurfaceDesc{Width: 0, Height: 32}, []render3d.CameraView{{Camera: cam}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
+	if err := r.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 0, Height: 32}, []render3d.CameraView{{Camera: cam}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
 		t.Errorf("zero surface = %v, want ErrInvalidViewport", err)
 	}
+	if err := r.RenderEncoder(nil, enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Camera: cam}}, nil); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("nil device = %v, want ErrDeviceLost", err)
+	}
 	// Empty / all-disabled views succeed as no-op.
-	if err := r.RenderEncoder(enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Disabled: true}}, nil); err != nil {
+	if err := r.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Disabled: true}}, nil); err != nil {
 		t.Errorf("disabled view = %v, want nil", err)
 	}
 	_ = r.Close()
 	if err := r.Close(); err != nil {
 		t.Errorf("second Close = %v, want nil", err)
 	}
-	if err := r.RenderEncoder(enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Camera: cam}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
+	if err := r.RenderEncoder(dev, enc, render3d.SurfaceDesc{Width: 32, Height: 32}, []render3d.CameraView{{Camera: cam}}, nil); !errors.Is(err, render3d.ErrInvalidViewport) {
 		t.Errorf("closed renderer = %v, want ErrInvalidViewport", err)
 	}
 }
