@@ -35,16 +35,30 @@ type Loop struct {
 	Draw func(alpha float64)
 	// FrameTime, when set, receives each frame's length, the time it adds (0 for a frame stamped before the run started or resumed), ahead of the frame's updates. It is what frame-time statistics such as quality.Selector's read; a frame that ends a pause in the background measures from the time the window showed again, not the time away. It fires while Paused is set too, so a caller measuring only frames that simulate skips those itself.
 	FrameTime func(dt time.Duration)
+	// OnPause, when set, runs whenever Paused changes, so subsystems such as sound.Mixer (sound.Mixer.SetPaused) pause and resume with the loop. SetPaused calls it at once when the state changes; changing Paused directly calls it on the next frame, or in the same frame when Update changes it. If Paused is already true when Run starts, Run calls OnPause(true). Backgrounding does not call OnPause; both Loop and sound.Mixer follow core.Env.Lifecycle directly.
+	OnPause func(paused bool)
 
 	pendingSteps int
 	dirty        bool
+	lastPaused   bool
 }
 
-// SetPaused pauses or resumes the loop's updates without accumulating a catch-up backlog.
+// SetPaused pauses or resumes the loop's updates without accumulating a catch-up backlog, calling OnPause if the paused state changed.
 func (l *Loop) SetPaused(paused bool) {
 	l.Paused = paused
 	if !paused {
 		l.pendingSteps = 0
+	}
+	l.syncPause()
+}
+
+func (l *Loop) syncPause() {
+	if l.Paused == l.lastPaused {
+		return
+	}
+	l.lastPaused = l.Paused
+	if l.OnPause != nil {
+		l.OnPause(l.Paused)
 	}
 }
 
@@ -78,6 +92,7 @@ func (l *Loop) MarkDirty() {
 //
 // With Immersive set, the run hides the system bars while the game plays and shows them again when it is paused, stopped or disposed. Runs in the same window share the bars: they stay hidden while any of them plays with Immersive set, and come back once the last of those pauses or ends, so a scene that starts its own loop before the last scene's loop is disposed keeps them hidden.
 func (l *Loop) Run(cx *core.Scope) (stop func()) {
+	l.syncPause()
 	r := &loopRun{loop: l, cx: cx, env: cx.Env()}
 	stopEffect := cx.Effect(func() {
 		if cx.Env().Lifecycle() == core.LifecycleBackground {
@@ -196,6 +211,10 @@ func (r *loopRun) frame(at time.Time) {
 			return
 		}
 	}
+	r.loop.syncPause()
+	if r.cancel == nil {
+		return
+	}
 	step := r.loop.step()
 	steps := 0
 	if r.loop.Paused {
@@ -242,6 +261,10 @@ func (r *loopRun) frame(at time.Time) {
 				break
 			}
 		}
+	}
+	r.loop.syncPause()
+	if r.cancel == nil {
+		return
 	}
 	r.syncImmersive()
 	if steps > 0 {

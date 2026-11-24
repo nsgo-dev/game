@@ -100,6 +100,26 @@ loop := &game.Loop{
 }
 ```
 
+## 暂停与同步子系统
+
+`SetPaused(true)`（或直接将 `Paused` 设为 `true`）会停止 `Update` 推进而保持 `Draw` 继续运行，取消暂停后不会产生补帧积压。设置 `OnPause` 可以让 [`sound.Mixer`](sound.md#随游戏暂停) 等子系统与循环的暂停状态保持同步：
+
+```go
+mixer.SetPauseExempt("ui", true)
+loop := &game.Loop{
+	Rate:    60,
+	OnPause: mixer.SetPaused,
+	Update:  stepWorld,
+	Draw:    renderWorld,
+}
+loop.Run(cx)
+```
+
+- 暂停状态变化时，`SetPaused` 会立即调用 `OnPause`（重复设置相同值不会再次触发）。
+- 直接修改 `Paused` 字段会在下一帧触发 `OnPause`（若在 `Update` 中修改，则在同一帧触发）。
+- 如果调用 `Run` 时 `Paused` 已经为 `true`，`Run` 会先调用一次 `OnPause(true)`。
+- 应用切入后台不会触发 `OnPause`；`Loop.Run` 和 `sound.NewMixer` 都直接监听 `core.Env.Lifecycle`，因此在切入后台和切回前台时两者同步暂停和恢复，且不会清除仍然打开的暂停菜单状态。
+
 ## 后台暂停与停止
 
 `Loop.Run` 会监听 `cx.Env().Lifecycle()`：

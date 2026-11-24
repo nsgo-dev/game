@@ -112,12 +112,31 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 
 On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAllowed`) until the user interacts with the page; start music from a button press or first tap/click.
 
+## Pausing with the game
+
+`mixer.SetPaused(true)` pauses gameplay audio when a pause menu opens, and `mixer.SetPaused(false)` resumes it when the menu closes:
+
+- **Gameplay groups** (any group not marked exempt): playing `Effect`s are silenced through their `audio.Playback` without stopping, new `Effect.Play` calls return `false`, and `Music` pauses at its current position. On resume, effects still playing return to their volume and music continues from where it paused. Because NSGo v0.3.0's `audio.Playback` provides volume, rate and stop controls without a playhead pause command, short one-shot effects finish silently if the pause lasts longer than their remaining duration, while looping effects and `Music` (`audio.Player`) resume right where they left off.
+- **Exempt groups**: call `mixer.SetPauseExempt("ui", true)` so pause-menu clicks or menu music keep playing while `mixer.Paused()` is `true`. `mixer.PauseExempt(group)` reports whether a group is exempt, and toggling exemption while paused applies immediately.
+- **Loop sync**: pair `mixer.SetPaused` with [`game.Loop.OnPause`](loop.md#pausing-and-syncing-subsystems) so gameplay sounds pause and resume automatically whenever `loop.SetPaused` or `loop.Paused` changes:
+
+```go
+mixer.SetPauseExempt("ui", true)
+loop := &game.Loop{
+	Rate:    60,
+	OnPause: mixer.SetPaused,
+	Update:  stepWorld,
+	Draw:    renderWorld,
+}
+loop.Run(cx)
+```
+
 ## Background muting
 
-`NewMixer` watches `cx.Env().Lifecycle()`:
+`NewMixer` watches `cx.Env().Lifecycle()` on the same condition as `game.Loop.Run`, so backgrounding pauses and resumes audio in sync with the loop:
 
-- When the app enters **`core.LifecycleBackground`** (minimized, hidden or covered on desktop; backgrounded on iOS or Android), the mixer silences the effects playing, drops new `Effect.Play` calls, and pauses music.
-- When the window returns to **`core.LifecycleActive`** or **`core.LifecycleInactive`** (visible, even unfocused on desktop), music resumes from where it paused, effects still playing are heard again at their volume, and new effects can play.
+- When the app enters **`core.LifecycleBackground`** (minimized, hidden or covered on desktop; backgrounded on iOS or Android), the mixer silences every playing effect (including pause-exempt groups such as `"ui"`), drops new `Effect.Play` calls, and pauses all music.
+- When the window returns to **`core.LifecycleActive`** or **`core.LifecycleInactive`** (visible, even unfocused on desktop), pause-exempt groups resume at once, while gameplay groups resume only if `mixer.Paused()` is `false` — returning from the background while the pause menu is still open keeps gameplay sounds silenced and gameplay music paused at its position until the menu closes.
 
 ## Suspending for a cutscene
 

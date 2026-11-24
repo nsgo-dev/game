@@ -112,12 +112,31 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 
 在 Web 平台上，浏览器有自动播放策略，在首次用户交互前会拒绝播放（`audio.NotAllowed`）；请在按钮点击或玩家首次操作时启动音乐。
 
+## 随游戏暂停
+
+打开暂停菜单时调用 `mixer.SetPaused(true)` 暂停玩法音频，关闭菜单时调用 `mixer.SetPaused(false)` 恢复：
+
+- **玩法分组**（未标记豁免的分组）：正在播放的 `Effect` 会通过各自的 `audio.Playback` 静音而不停止，新的 `Effect.Play` 调用返回 `false`，`Music` 在当前位置暂停。恢复后，仍在播放的音效恢复原音量，音乐从暂停处继续播放。由于 NSGo v0.3.0 的 `audio.Playback` 只提供音量、速率和停止控制而没有播放头暂停命令，如果暂停时间长于短一次性音效的剩余时长，它会在静音中自然结束；循环音效和 `Music`（`audio.Player`）则会从原处恢复。
+- **豁免分组**：调用 `mixer.SetPauseExempt("ui", true)` 让暂停菜单点击音或菜单音乐在 `mixer.Paused()` 为 `true` 时继续播放。`mixer.PauseExempt(group)` 查询分组是否豁免，在暂停期间切换豁免状态会立即生效。
+- **与循环同步**：把 `mixer.SetPaused` 赋给 [`game.Loop.OnPause`](loop.md#暂停与同步子系统)，当 `loop.SetPaused` 或 `loop.Paused` 变化时，玩法音频会自动随循环暂停和恢复：
+
+```go
+mixer.SetPauseExempt("ui", true)
+loop := &game.Loop{
+	Rate:    60,
+	OnPause: mixer.SetPaused,
+	Update:  stepWorld,
+	Draw:    renderWorld,
+}
+loop.Run(cx)
+```
+
 ## 后台静音
 
-`NewMixer` 会监听 `cx.Env().Lifecycle()`：
+`NewMixer` 以与 `game.Loop.Run` 相同的条件监听 `cx.Env().Lifecycle()`，因此切入后台和回到前台时音频会与游戏循环同步暂停和恢复：
 
-- 应用进入 **`core.LifecycleBackground`**（桌面端最小化、隐藏或被完全遮挡；iOS 或 Android 退到后台）时，混音器会把正在播放的音效静音、忽略新的 `Effect.Play` 调用，并暂停音乐。
-- 窗口回到 **`core.LifecycleActive`** 或 **`core.LifecycleInactive`**（窗口可见，包括桌面端失焦状态）时，音乐从暂停处继续，仍在播放的音效恢复原来的音量，新的音效也可以播放。
+- 应用进入 **`core.LifecycleBackground`**（桌面端最小化、隐藏或被完全遮挡；iOS 或 Android 退到后台）时，混音器会把所有正在播放的音效静音（包括 `"ui"` 等暂停豁免分组）、忽略新的 `Effect.Play` 调用，并暂停所有音乐。
+- 窗口回到 **`core.LifecycleActive`** 或 **`core.LifecycleInactive`**（窗口可见，包括桌面端失焦状态）时，暂停豁免分组立即恢复；玩法分组只有在 `mixer.Paused()` 为 `false` 时才恢复——因此暂停菜单仍打开时从后台切回前台，玩法音效仍保持静音，玩法音乐仍停在原位置，直到关闭菜单才继续播放。
 
 ## 为过场动画挂起
 

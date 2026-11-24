@@ -724,3 +724,103 @@ func TestStopFromFrameTimeEndsTheFrame(t *testing.T) {
 	}
 	c.expect(t, 2, 2)
 }
+
+func TestOnPauseFollowsSetPausedDirectEditsAndInitialPaused(t *testing.T) {
+	var events []bool
+	l := &game.Loop{
+		Rate:    60,
+		Paused:  true,
+		OnPause: func(paused bool) { events = append(events, paused) },
+	}
+	app := start(t, l)
+	// Starting with Paused: true notifies once.
+	if len(events) != 1 || !events[0] {
+		t.Fatalf("after Run with Paused: true: events=%v, want [true]", events)
+	}
+
+	// Repeated SetPaused(true) does not fire again.
+	app.Post(func() { l.SetPaused(true) })
+	app.Settle()
+	if len(events) != 1 {
+		t.Fatalf("after redundant SetPaused(true): events=%v, want [true]", events)
+	}
+
+	// SetPaused(false) fires immediately without waiting for a frame.
+	app.Post(func() { l.SetPaused(false) })
+	app.Settle()
+	if len(events) != 2 || events[1] {
+		t.Fatalf("after SetPaused(false): events=%v, want [true false]", events)
+	}
+
+	// Backgrounding does not trigger OnPause.
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	app.Advance(time.Second)
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleActive})
+	app.Advance(17 * time.Millisecond)
+	if len(events) != 2 {
+		t.Fatalf("backgrounding fired OnPause: events=%v, want [true false]", events)
+	}
+
+	// Direct Paused field mutation fires OnPause on the next frame.
+	app.Post(func() { l.Paused = true })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if len(events) != 3 || !events[2] {
+		t.Fatalf("after direct Paused=true: events=%v, want [true false true]", events)
+	}
+
+	app.Post(func() { l.Paused = false })
+	app.Settle()
+	app.Advance(17 * time.Millisecond)
+	if len(events) != 4 || events[3] {
+		t.Fatalf("after direct Paused=false: events=%v, want [true false true false]", events)
+	}
+}
+
+func TestOnPauseFromUpdateAndStopInsideOnPause(t *testing.T) {
+	t.Run("direct_pause_in_update", func(t *testing.T) {
+		var events []bool
+		updates := 0
+		var l *game.Loop
+		l = &game.Loop{
+			Rate: 60,
+			Update: func(time.Duration) {
+				updates++
+				if updates == 2 {
+					l.Paused = true
+				}
+			},
+			OnPause: func(paused bool) { events = append(events, paused) },
+		}
+		app := start(t, l)
+		app.FastForward(50 * time.Millisecond)
+		if updates != 2 || len(events) != 1 || !events[0] {
+			t.Fatalf("updates=%d events=%v, want 2 and [true]", updates, events)
+		}
+	})
+
+	t.Run("stop_in_on_pause", func(t *testing.T) {
+		var stop func()
+		draws := 0
+		var l *game.Loop
+		l = &game.Loop{
+			Rate: 60,
+			Draw: func(float64) { draws++ },
+			OnPause: func(paused bool) {
+				if paused {
+					stop()
+				}
+			},
+		}
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			stop = l.Run(cx)
+			return core.View{}
+		})
+		app.Post(func() { l.Paused = true })
+		app.Settle()
+		app.Advance(time.Second)
+		if draws != 0 {
+			t.Fatalf("draws=%d after stop in OnPause, want 0", draws)
+		}
+	})
+}

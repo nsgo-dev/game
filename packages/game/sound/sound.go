@@ -9,7 +9,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Mixer sets how loud a game's sounds and music play: a master volume and a volume for each group the app names, such as "effects", "music" and "ui", each from 0 to 1 and 1 until set. It keeps them in the app's storage (core.Storage), so they hold across launches, and plays nothing while the app is in the background.
+// Mixer sets how loud a game's sounds and music play: a master volume and a volume for each group the app names, such as "effects", "music" and "ui", each from 0 to 1 and 1 until set. It keeps them in the app's storage (core.Storage), so they hold across launches, pauses gameplay groups with SetPaused while letting pause-exempt groups (SetPauseExempt) keep playing, and plays nothing while the app is in the background or suspended.
 //
 // An effect plays at its own voice's volume times its group's and the master volume, and music at its group's and the master volume; a volume change applies at once to the effects playing, through their audio.Playback, and to music as it plays. An effect whose group or master volume reaches 0 plays on in silence and is heard again as the volume comes back.
 //
@@ -20,6 +20,10 @@ type Mixer struct {
 	key   string
 	// background says the app is in the background, where nothing plays.
 	background bool
+	// paused says gameplay audio is paused (as under a pause menu); groups not in pauseExempt are silenced and paused.
+	paused bool
+	// pauseExempt are the groups that keep playing while paused (such as "ui"); backgrounding and Suspend still silence them.
+	pauseExempt map[string]bool
 	// suspends counts the Suspend calls not resumed yet; nothing plays while it is above 0.
 	suspends int
 	// sounds are the effects whose playbacks may still play; music what Music made.
@@ -105,7 +109,42 @@ func (m *Mixer) set(key string, v float32) error {
 	return err
 }
 
-// Suspend silences the mixer until resume is called, as the background does: it silences the sounds playing, plays no new ones and pauses the music, which plays on from where it paused once every Suspend has been resumed. A game suspends its sound while something else has the speakers, such as a cutscene (cutscene.Player does). Calling resume again does nothing.
+// SetPaused pauses or resumes gameplay audio on the mixer, as when a pause menu opens or closes. While paused, every group not marked exempt with SetPauseExempt is silenced: effects playing are silenced through their audio.Playback without stopping, new Effect.Play calls play nothing, and music pauses at its current position. Groups marked exempt (such as "ui") keep playing while paused, though they are still silenced in the background or while suspended. When resumed, effects still playing return to their volume and music plays on from where it paused, unless the app is in the background or the mixer is suspended.
+//
+// Pair with game.Loop.OnPause (loop.OnPause = mixer.SetPaused) so gameplay audio pauses and resumes with the loop while backgrounding pauses and resumes everything in sync through core.Env.Lifecycle.
+func (m *Mixer) SetPaused(paused bool) {
+	if m.paused == paused {
+		return
+	}
+	m.paused = paused
+	m.apply()
+}
+
+// Paused reports whether gameplay audio is paused by SetPaused.
+func (m *Mixer) Paused() bool { return m.paused }
+
+// SetPauseExempt sets whether group keeps playing while the mixer is paused with SetPaused, such as a "ui" group for pause-menu sounds. Exempt groups are still silenced while the app is in the background or while the mixer is suspended (Suspend). Changing a group's exemption while paused applies at once to effects and music in that group.
+func (m *Mixer) SetPauseExempt(group string, exempt bool) {
+	if m.pauseExempt[group] == exempt {
+		return
+	}
+	if exempt {
+		if m.pauseExempt == nil {
+			m.pauseExempt = map[string]bool{}
+		}
+		m.pauseExempt[group] = true
+	} else {
+		delete(m.pauseExempt, group)
+	}
+	if m.paused {
+		m.apply()
+	}
+}
+
+// PauseExempt reports whether group keeps playing while the mixer is paused with SetPaused.
+func (m *Mixer) PauseExempt(group string) bool { return m.pauseExempt[group] }
+
+// Suspend silences the mixer until resume is called, as the background does: it silences the sounds playing (including pause-exempt groups), plays no new ones and pauses the music, which plays on from where it paused once every Suspend has been resumed. A game suspends its sound while something else has the speakers, such as a cutscene (cutscene.Player does). Calling resume again does nothing.
 func (m *Mixer) Suspend() (resume func()) {
 	m.suspends++
 	m.apply()
@@ -123,9 +162,12 @@ func (m *Mixer) Suspend() (resume func()) {
 // Suspended reports whether a Suspend has not been resumed yet.
 func (m *Mixer) Suspended() bool { return m.suspends > 0 }
 
-// gain is what group plays at: its volume times the master volume, 0 in the background or while suspended.
+// gain is what group plays at: its volume times the master volume, 0 in the background, while suspended, or while paused unless group is exempt from game pause.
 func (m *Mixer) gain(group string) float32 {
 	if m.background || m.suspends > 0 {
+		return 0
+	}
+	if m.paused && !m.pauseExempt[group] {
 		return 0
 	}
 	return core.Untracked(m.cx, func() float32 { return m.Master() * m.Volume(group) })
@@ -171,7 +213,7 @@ func (m *Mixer) Effect(s *audio.Sound, group string, limit int) *Effect {
 	return &Effect{Group: group, Limit: limit, m: m, sound: s}
 }
 
-// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
+// Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, suspended, or the effect's group is paused, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
 func (s *Effect) Play(v audio.Voice) bool {
 	volume := voiceVolume(v.Volume)
 	if v.Muted {
