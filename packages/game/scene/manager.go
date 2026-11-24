@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -16,8 +15,9 @@ type Controller struct {
 	Scene *Scene
 	// Transparent, when true on a pushed overlay scene, lets Manager.Draw and Manager.View also show the underlying scene(s) first.
 	Transparent bool
-	// View optionally builds a native NSGo view tree for this scene, such as a 3D gpu.View or Overlay3D.View.
-	// Resources created under cx are automatically released when the scene leaves the Manager.
+	// View optionally builds a native NSGo view tree for this scene, such as a 3D gpu.View or Overlay3D.View, when Manager.View mounts the scene.
+	//
+	// Its cx is the mounted row's scope, not the child scope Enter receives: when the scene leaves the Manager, Exit runs and Enter's scope is disposed first, and the row (with everything created under View's cx) is unmounted right after, within the same Switch, Pop, or transition step, so no frame or OnFrame callback runs in between. State that View's nodes read every frame should therefore be created in View or on the Manager's parent scope rather than under Enter's cx.
 	View func(cx *core.Scope) core.Node
 	// Enter runs once when the scene becomes active, with a child Scope owned by the Manager.
 	// Loops, signals, effects, timers, and cleanups created under cx are automatically disposed when the scene exits.
@@ -48,16 +48,16 @@ type activeTransition struct {
 	stop     func()
 }
 
-// Manager owns a stack of scenes under a core.Scope, driving their lifecycle hooks, child-scope disposal, view mounting for 2D and 3D scenes, shared input and audio, and animated transitions.
+// Manager owns a stack of scenes under a core.Scope, driving their lifecycle hooks, child-scope disposal, view mounting for 2D and 3D scenes, shared input, and animated transitions.
+//
+// Audio needs no Manager support to outlive a switch: a sound.Mixer created on the Manager's parent scope (the cx passed to NewManager, or an ancestor of it) is not disposed when scenes exit, so its music keeps playing and its SFX groups stay live while scenes reach it through their own closures. A Mixer created under a scene's Enter scope is disposed with that scene.
 type Manager struct {
 	// Actions is an optional input action map shared across all 2D and 3D scenes managed by this Manager.
 	//
-	// When non-nil, Manager.View attaches Actions to its persistent stage view so touch, mouse, pointer-lock, and focused key input survive scene switches without re-binding. Switch, Push, and Pop call Actions.Reset() by default (unless KeepInputOnSwitch is true) so transient press edges and held keys do not leak into the newly active scene while bindings, axes, and pointer lock remain intact.
+	// When non-nil, Manager.View attaches Actions to its persistent stage view so touch, mouse, pointer-lock, and focused key input survive scene switches without re-binding. Set Actions before calling Manager.View: the stage is wired once when View builds it, so assigning Actions afterwards attaches nothing. Key events reach the stage only while it holds focus (focus it through HostOptions.Ref); to read keys regardless of focus, also call Actions.WatchKeys on the Manager's scope. Switch, Push, and Pop call Actions.Reset() by default (unless KeepInputOnSwitch is true) so transient press edges and held keys do not leak into the newly active scene while bindings, axes, and pointer lock remain intact.
 	Actions *input.Actions
 	// KeepInputOnSwitch, when true, skips calling Actions.Reset() on Switch, Push, and Pop so held keys and buttons stay continuously active across scene changes.
 	KeepInputOnSwitch bool
-	// Mixer is an optional sound mixer shared across all 2D and 3D scenes managed by this Manager, keeping music playing uninterrupted and SFX groups live across scene switches.
-	Mixer *sound.Mixer
 
 	cx         *core.Scope
 	rev        *core.Signal[uint64]

@@ -178,14 +178,17 @@ return hud.View(cx, gpu.ViewProps{
 
 ## 在 2D 与 3D 场景之间切换
 
-`Manager.View(cx, opts)` 挂载响应式视图宿主，可在 2D 画布场景（`Controller.Scene` / `Controller.Draw`）与 3D 或原生视图场景（`Controller.View`，例如 `gpu.View` 或 `Overlay3D.View`）之间无缝切换，同时共享同一个 `*input.Actions` 与 `*sound.Mixer`：
+`Manager.View(opts)` 挂载响应式视图宿主，可在 2D 画布场景（`Controller.Scene` / `Controller.Draw`）与 3D 或原生视图场景（`Controller.View`，例如 `gpu.View` 或 `Overlay3D.View`）之间无缝切换，所有场景共享同一个 `*input.Actions` 与同一个 `*sound.Mixer`：
 
 ```go
 mgr := scene.NewManager(cx)
-mgr.Actions = actions // 绑定在持久舞台视图上，跨 2D <-> 3D 切换保持生效
-mgr.Mixer = mixer     // 跨 2D <-> 3D 切换时背景音乐不中断
+actions.WatchKeys(cx) // 无论舞台视图是否持有焦点，按键都会送达 Actions
+mgr.Actions = actions // 须在 mgr.View 之前设置：绑定在持久舞台视图上，跨 2D <-> 3D 切换保持生效
+mixer := sound.NewMixer(cx, "game.sound") // 建在 Manager 的作用域而非场景的作用域上，切换时音乐不中断
+mixer.Music("music").Play(theme, 0) // 在此处启动一次，不归任何场景所有
 
-overworld2D := &scene.Controller{
+var overworld2D, dungeon3D *scene.Controller
+overworld2D = &scene.Controller{
 	Scene: mapScene,
 	Update: func(dt time.Duration) {
 		if mgr.Actions.JustPressed("enter_3d") {
@@ -193,8 +196,7 @@ overworld2D := &scene.Controller{
 		}
 	},
 }
-
-dungeon3D := &scene.Controller{
+dungeon3D = &scene.Controller{
 	View: func(scx *core.Scope) core.Node {
 		return ov.View(scx, gpu.ViewProps{
 			Style:       core.Style{Width: core.Pct(100), Height: core.Pct(100)},
@@ -211,14 +213,16 @@ dungeon3D := &scene.Controller{
 }
 
 mgr.Switch(overworld2D, nil)
-return mgr.View(cx, scene.HostOptions{
+return mgr.View(scene.HostOptions{
 	Alpha:    func() float64 { _ = frameTick.Get(); return alpha },
 	Viewport: &viewport,
 	Children: persistentHUD,
 })
 ```
 
-- **稳定的 GPU 视图挂载**：每个进入的场景都会获得唯一实例 ID 并通过 `core.Each` 渲染。已挂载的 3D `gpu.View` 表面与 GPU 管线在过渡动画帧之间以及压入/弹出 2D 叠加场景（透明或不透明）期间均保持存活不重建，并在场景退出时随作用域销毁而干净卸载。
-- **跨 2D ↔ 3D 的过渡动画**：`Fade(d, color)` 在前半段通过顶层画布将旧场景淡出到 `color`，在中点（`0.5`）切换显示新场景并在后半段淡入；`Crossfade(d)` 直接动画化旧/新场景包装层的 `Opacity`；`Wipe(d, dir)` 在纯 2D 之间使用精确路径裁剪，涉及 `Controller.View` 场景时回退为平滑交叉淡化；`CustomTransition` 在涉及 `Controller.View` 场景时于中点切换并在顶层绘制自定义过渡特效。
-- **共享输入与音频**：`Manager.View` 将 `Manager.Actions` 附加到持久舞台视图（可通过 `HostOptions.Ref` 跨场景保持键盘焦点与指针锁定），`Switch`、`Push`、`Pop` 默认调用 `Actions.Reset()` 清理瞬态边沿与按住状态而不丢失绑定、轴和指针锁定（设置 `Manager.KeepInputOnSwitch = true` 可在切换时保留按住状态）。在父作用域持有 `Manager.Mixer` 可让背景音乐与音效组在 2D ↔ 3D 切换期间持续无缝播放。
+- **稳定的 GPU 视图挂载**：每个进入的场景都会获得唯一实例 ID 并通过 `core.Each` 渲染。已挂载的 3D `gpu.View` 表面与 GPU 管线在过渡动画帧之间以及压入/弹出 2D 叠加场景（透明或不透明）期间均保持存活不重建，并在场景退出时干净卸载。
+- **视图作用域**：传给 `Controller.View` 的 `cx` 是挂载行的作用域，而不是 `Enter` 收到的作用域。场景离开时先运行 `Exit` 并销毁 `Enter` 的作用域，随后在同一次 `Switch`、`Pop` 或过渡步骤中卸载该行以及 `View` 的 `cx` 下创建的一切，两者之间不会运行任何帧或 `OnFrame` 回调。3D 视图每帧读取的状态应在 `View` 中或 Manager 的作用域上创建。
+- **跨 2D ↔ 3D 的过渡动画**：`Fade(d, color)` 在前半段通过顶层画布将旧场景淡出到 `color`，在中点（`0.5`）切换显示新场景并在后半段淡入；`Crossfade(d)` 直接动画化旧/新场景包装层的 `Opacity`；`Wipe(d, dir)` 在纯 2D 之间使用精确路径裁剪，涉及 `Controller.View` 场景时回退为平滑交叉淡化；`CustomTransition`（或替换了 `Draw` 的内置过渡）在纯 2D 之间自行绘制每一帧，涉及 `Controller.View` 场景时于中点切换并在顶层绘制自定义过渡特效。`Draw` 为 nil 的 `Transition` 在整个 `Duration` 内直接显示新场景，与 `Manager.Draw` 一致。
+- **共享输入**：`Manager.View` 在被调用时把 `Manager.Actions` 附加到持久舞台视图，因此要先设置 `Actions`。按键事件只在舞台视图持有焦点时送达：传入 `HostOptions.Ref` 并在挂载后调用其 `Focus()`（焦点与指针锁定随后在每次切换中保持），或像上例那样调用 `Actions.WatchKeys`。`Switch`、`Push`、`Pop` 默认调用 `Actions.Reset()` 清理瞬态边沿与按住状态而不丢失绑定、轴和指针锁定（设置 `Manager.KeepInputOnSwitch = true` 可在切换时保留按住状态）。
+- **共享音频**：Manager 不需要自己的混音器。建在 Manager 作用域（或其祖先作用域）上的 `sound.Mixer` 不会随场景退出而销毁，因此背景音乐与音效组在每次 2D ↔ 3D 切换期间持续播放，各场景通过自身闭包访问该混音器。建在场景 `Enter` 作用域下的混音器会随该场景一起停止。
 - **2D 叠加层与按需重绘**：在 3D 场景上 `Push` 一个 `Transparent: true` 的 2D 控制器会保持下方 3D 画面可见，同时暂停其 `Update` 并将被暂停层的指针事件设为 `PointerEventsNone`。配置 `HostOptions.Viewport` 时，透明压入的 2D 叠加层会将零值 `BarColor` 视为 `core.Transparent` 以免黑边遮挡 3D 视图。调用 `mgr.Invalidate()` 可按需重绘已挂载的 2D 画布，而不会重建 3D 视图。

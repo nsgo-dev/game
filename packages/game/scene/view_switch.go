@@ -9,67 +9,43 @@ import (
 type HostOptions struct {
 	// Class sets Tailwind CSS classes on the outer host container view.
 	Class string
-	// Style sets layout and appearance on the outer host container view.
-	// When Width or Height are unset, the missing dimension defaults to 100%.
-	// When Position is unset, it defaults to core.Relative.
+	// Style sets layout and appearance on the outer host container view. When Width or Height are unset, the missing dimension defaults to 100%. When Position is unset, it defaults to core.Relative.
 	Style core.Style
 	// StyleFunc optionally supplies reactive styles for the outer host container view.
 	StyleFunc func() core.Style
-	// Ref optionally attaches a core.Ref to the persistent interactive stage view
-	// (where Manager.Actions is attached), preserving keyboard focus and pointer
-	// lock across 2D and 3D scene switches.
+	// Ref optionally attaches a core.Ref to the persistent interactive stage view (where Manager.Actions is attached). Call Ref.Focus once the host is mounted so focused key input reaches Manager.Actions; the stage persists across 2D and 3D scene switches, so focus and pointer lock survive them.
 	Ref *core.Ref
 	// TestID optionally sets core.View.TestID on the outer host container view.
 	TestID string
-	// StageTestID optionally sets core.View.TestID on the inner stage view that
-	// receives attached input events and hosts mounted scenes.
+	// StageTestID optionally sets core.View.TestID on the inner stage view that receives attached input events and hosts mounted scenes.
 	StageTestID string
-	// TransitionTestID optionally sets core.View.TestID on the top transition
-	// overlay canvas.
+	// TransitionTestID optionally sets core.View.TestID on the top transition overlay canvas.
 	TransitionTestID string
 	// Label optionally sets core.View.Label on the outer host container view.
 	Label string
 	// OnLayout optionally receives layout bounds changes of the outer host view.
 	OnLayout func(core.Bounds)
-	// Alpha optionally returns the interpolation fraction in [0, 1) for 2D scene
-	// redraws. Reading a reactive signal inside Alpha (such as a loop tick or
-	// interpolation signal) redraws mounted 2D canvases on every loop frame
-	// without causing mounted 3D gpu.View scenes to rebuild or commit.
+	// Alpha optionally returns the interpolation fraction in [0, 1) for 2D scene redraws. Reading a reactive signal inside Alpha (such as a loop tick or interpolation signal) redraws mounted 2D canvases on every loop frame without causing mounted 3D gpu.View scenes to rebuild or commit.
 	Alpha func() float64
-	// Viewport optionally scales and clips 2D scenes rendered by the host through
-	// screen.Viewport. Transparent pushed 2D overlays treat a zero BarColor as
-	// core.Transparent so underlying 3D views remain visible in margin areas.
+	// Viewport optionally scales and clips 2D scenes rendered by the host through screen.Viewport. Transparent pushed 2D overlays treat a zero BarColor as core.Transparent so underlying 3D views remain visible in margin areas.
 	Viewport *screen.Viewport
-	// Children are optional persistent native views (such as a global HUD, audio
-	// controls, or debug overlay) mounted above all scenes and transitions.
+	// Children are optional persistent native views (such as a global HUD, audio controls, or debug overlay) mounted above all scenes and transitions.
 	Children []core.Node
 }
 
-// View returns a reactive NSGo view host that mounts and switches between 2D
-// canvas scenes (Controller.Draw / Controller.Scene) and 3D or native view
-// scenes (Controller.View, such as gpu.View or Overlay3D.View).
+// View returns a reactive NSGo view host that mounts and switches between 2D canvas scenes (Controller.Draw / Controller.Scene) and 3D or native view scenes (Controller.View, such as gpu.View or Overlay3D.View).
 //
-// Each entered scene is keyed by a unique instance ID via core.Each so mounted
-// views (including 3D gpu.View surfaces and GPU pipelines) stay alive across
-// transition frames and across Push/Pop of 2D overlays, and unmount cleanly
-// when the scene exits.
+// Each entered scene is keyed by a unique instance ID via core.Each so mounted views (including 3D gpu.View surfaces and GPU pipelines) stay alive across transition frames and across Push/Pop of 2D overlays, and unmount cleanly when the scene exits. The host owns no state of its own: everything it renders lives on the Manager, so it needs no scope beyond the one it is mounted in.
 //
-// When Manager.Actions is non-nil, View attaches it to the persistent stage
-// view so touch, mouse, pointer-lock, and focused key input stay wired across
-// 2D <-> 3D scene switches.
+// When Manager.Actions is non-nil at the time View is called, View attaches it to the persistent stage view so touch, mouse, pointer-lock, and focused key input stay wired across 2D <-> 3D scene switches. Key events reach the stage only while it holds focus; focus it through HostOptions.Ref, or call Actions.WatchKeys to read keys regardless of focus.
 //
 // Across a boundary involving a Controller.View scene:
-//   - Fade(d, color) (non-transparent) fades the outgoing scene under a colored
-//     overlay canvas over the first half, reveals the incoming scene at the
-//     midpoint, and fades the overlay out over the second half.
-//   - Crossfade(d) (or Fade(d, 0)) crossfades the outgoing and incoming scene
-//     wrappers' Opacity from 1->0 and 0->1.
-//   - Wipe(d, dir) uses exact path clipping between 2D scenes and falls back to
-//     smooth crossfade opacity when a Controller.View scene is involved.
-//   - CustomTransition runs Transition.Draw directly between 2D scenes, or
-//     switches visibility at the midpoint while drawing custom overlay effects
-//     on top when a Controller.View scene is involved.
-func (m *Manager) View(cx *core.Scope, opts HostOptions) core.Node {
+//   - Fade(d, color) (non-transparent) fades the outgoing scene under a colored overlay canvas over the first half, reveals the incoming scene at the midpoint, and fades the overlay out over the second half.
+//   - Crossfade(d) (or Fade(d, 0)) crossfades the outgoing and incoming scene wrappers' Opacity from 1->0 and 0->1.
+//   - Wipe(d, dir) uses exact path clipping between 2D scenes and falls back to smooth crossfade opacity when a Controller.View scene is involved.
+//   - CustomTransition, or a constructor's Transition whose Draw the caller replaced, runs Transition.Draw directly between 2D scenes, or switches visibility at the midpoint while drawing custom overlay effects on top when a Controller.View scene is involved.
+//   - A Transition with a nil Draw shows the incoming scene for its whole Duration, as Manager.Draw does.
+func (m *Manager) View(opts HostOptions) core.Node {
 	hostStyle := opts.Style
 	if hostStyle.Position == 0 {
 		hostStyle.Position = core.Relative

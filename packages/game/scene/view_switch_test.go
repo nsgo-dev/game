@@ -25,9 +25,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// ExampleManager_switch2D3D switches between a 2D canvas scene and a 3D
-// gpu.View scene using the same Manager, shared input.Actions, and shared
-// sound.Mixer.
+// ExampleManager_switch2D3D switches between a 2D canvas scene and a 3D gpu.View scene through one Manager and one shared input.Actions, fading through black each way. Mounting the scenes with Manager.View needs a running app, so this example shows the scene lifecycle the host follows; TestManagerSwitch2DTo3DAndBackWithSharedInputAndSound mounts the same pair and checks the 3D view mounts once and unmounts on exit.
 func ExampleManager_switch2D3D() {
 	clock := core.NewManualClock(time.Unix(0, 0))
 	frameWanted := false
@@ -44,7 +42,6 @@ func ExampleManager_switch2D3D() {
 	mgr := scene.NewManager(root)
 	mgr.Actions = input.NewActions()
 	mgr.Actions.Bind("toggle", input.Key("tab"))
-	mgr.Mixer = sound.NewMixer(root, "example.sound")
 
 	var scene2D, scene3D *scene.Controller
 	scene2D = &scene.Controller{
@@ -220,7 +217,6 @@ func TestManagerSwitch2DTo3DAndBackWithSharedInputAndSound(t *testing.T) {
 
 				mgr = scene.NewManager(cx)
 				mgr.Actions = actions
-				mgr.Mixer = mixer
 
 				scene2DCtrl = &scene.Controller{
 					Scene: sc2D,
@@ -280,7 +276,7 @@ func TestManagerSwitch2DTo3DAndBackWithSharedInputAndSound(t *testing.T) {
 				}
 				loop.Run(cx)
 
-				return mgr.View(cx, scene.HostOptions{
+				return mgr.View(scene.HostOptions{
 					TestID:           "host",
 					StageTestID:      "stage",
 					TransitionTestID: "transition-overlay",
@@ -489,7 +485,7 @@ func TestManagerCrossfadeBetween2DAnd3D(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		mgr = scene.NewManager(cx)
 		mgr.Switch(scene2D, nil)
-		return mgr.View(cx, scene.HostOptions{
+		return mgr.View(scene.HostOptions{
 			TestID:           "host",
 			StageTestID:      "stage",
 			TransitionTestID: "transition-overlay",
@@ -621,7 +617,7 @@ func TestManagerPushPop2DOverlayOver3DPreserves3DState(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		mgr = scene.NewManager(cx)
 		mgr.Switch(scene3D, nil)
-		return mgr.View(cx, scene.HostOptions{
+		return mgr.View(scene.HostOptions{
 			TestID:           "host",
 			StageTestID:      "stage",
 			TransitionTestID: "transition-overlay",
@@ -792,7 +788,7 @@ func TestManagerKeepInputOnSwitchViewportAndPersistentHUD(t *testing.T) {
 		mgr.KeepInputOnSwitch = true
 		mgr.Switch(scene2D, nil)
 
-		return mgr.View(cx, scene.HostOptions{
+		return mgr.View(scene.HostOptions{
 			TestID:           "host",
 			StageTestID:      "stage",
 			TransitionTestID: "transition-overlay",
@@ -908,7 +904,7 @@ func TestManagerKeepInputOnSwitchViewportAndPersistentHUD(t *testing.T) {
 
 	var nilMgr *scene.Manager
 	nilMgr.Invalidate()
-	if node := nilMgr.View(nil, scene.HostOptions{TestID: "nil-host"}); node == nil {
+	if node := nilMgr.View(scene.HostOptions{TestID: "nil-host"}); node == nil {
 		t.Fatal("nil Manager.View returned nil node")
 	}
 }
@@ -945,7 +941,7 @@ func TestManagerSwitch2D3DNoGPUFallback(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		mgr = scene.NewManager(cx)
 		mgr.Switch(scene2D, nil)
-		return mgr.View(cx, scene.HostOptions{
+		return mgr.View(scene.HostOptions{
 			TestID:           "host",
 			StageTestID:      "stage",
 			TransitionTestID: "transition-overlay",
