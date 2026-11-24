@@ -1095,3 +1095,123 @@ func TestToonSceneMatchesReference(t *testing.T) {
 
 	assertReference(t, "toon_scene", got)
 }
+
+func TestToonRendererDrawsSeveralTimesPerSubmit(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	sr := gpu.NewSoftwareRenderer(width, height, gpu.FormatDepth24Plus)
+	defer sr.Close()
+	dev := sr.Device()
+
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	defer func() { _ = camBuf.Close() }()
+	renderer, err := render3d.NewToonRenderer(nil, dev, render3d.ToonRendererOptions{
+		CameraLayout:    camBuf.Layout(),
+		DepthFormat:     gpu.FormatDepth24Plus,
+		InitialCapacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewToonRenderer: %v", err)
+	}
+	defer func() { _ = renderer.Close() }()
+	mat := render3d.ToonMaterial{BaseColor: [4]float32{1, 1, 1, 1}, ShadowColor: [3]float32{1, 1, 1}}
+	gpuMat, err := renderer.NewMaterial(nil, dev, mat, "white")
+	if err != nil {
+		t.Fatalf("NewMaterial: %v", err)
+	}
+	defer func() { _ = gpuMat.Close() }()
+	sphere, err := render3d.UploadMesh(nil, dev, toonSphereMesh(math3d.Vec3Zero(), 0.8, 12, 18), render3d.MeshUpload{Label: "sphere"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	defer func() { _ = sphere.Close() }()
+
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 5}, math3d.DegToRad(45), float32(width)/float32(height), 0.1, 20)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+	light := render3d.DefaultToonLight()
+	left := render3d.ToonDraw{Mesh: sphere, Material: gpuMat, Transform: math3d.Translate(math3d.Vec3{X: -1.5})}
+	right := render3d.ToonDraw{Mesh: sphere, Material: gpuMat, Transform: math3d.Translate(math3d.Vec3{X: 1.5})}
+	// Empty draws are skipped but still take a slot, so the second call outgrows the 32-slot buffer while the first call's draw still binds it.
+	grow := append([]render3d.ToonDraw{right}, make([]render3d.ToonDraw, 40)...)
+
+	clearCol := color.RGBA{R: 0x10, G: 0x14, B: 0x1c, A: 255}
+	for _, tc := range []struct {
+		name   string
+		second []render3d.ToonDraw
+	}{
+		{"same buffer", []render3d.ToonDraw{right}},
+		{"buffer grows", grow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			renderer.Begin()
+			enc := dev.BeginEncoder()
+			pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+				ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x10141c)}},
+				DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+			})
+			if err := renderer.Draw(dev, pass, camBuf.BindGroup(), light, left); err != nil {
+				t.Fatalf("first Draw: %v", err)
+			}
+			if err := renderer.Draw(dev, pass, camBuf.BindGroup(), light, tc.second...); err != nil {
+				t.Fatalf("second Draw: %v", err)
+			}
+			pass.End()
+			dev.Submit(enc.Finish())
+			sr.WaitIdle()
+			if err := sr.LastError(); err != nil {
+				t.Fatalf("software renderer: %v", err)
+			}
+			img := sr.Image()
+			for _, x := range []int{41, 87} {
+				if got := img.RGBAAt(x, height/2); toonNearColor(got, clearCol, 2) {
+					t.Errorf("pixel (%d, %d) = %v, want a sphere", x, height/2, got)
+				}
+			}
+		})
+	}
+}
+
+func TestToonRendererDrawReportsInvalidInputs(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+	defer sr.Close()
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	defer func() { _ = camBuf.Close() }()
+	renderer, err := render3d.NewToonRenderer(nil, dev, render3d.ToonRendererOptions{CameraLayout: camBuf.Layout()})
+	if err != nil {
+		t.Fatalf("NewToonRenderer: %v", err)
+	}
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	light := render3d.DefaultToonLight()
+	if err := renderer.Draw(nil, pass, camBuf.BindGroup(), light); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("Draw(nil device) = %v, want gpu.ErrDeviceLost", err)
+	}
+	if err := renderer.Draw(dev, nil, camBuf.BindGroup(), light); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("Draw(nil pass) = %v, want gpu.ErrInvalidDescriptor", err)
+	}
+	if err := renderer.Draw(dev, pass, nil, light); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("Draw(nil camera group) = %v, want gpu.ErrInvalidDescriptor", err)
+	}
+	if err := renderer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := renderer.Draw(dev, pass, camBuf.BindGroup(), light); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("Draw(closed renderer) = %v, want gpu.ErrDeviceLost", err)
+	}
+	var nilRenderer *render3d.ToonRenderer
+	if err := nilRenderer.Draw(dev, pass, camBuf.BindGroup(), light); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("Draw(nil renderer) = %v, want gpu.ErrDeviceLost", err)
+	}
+	pass.End()
+	enc.Finish()
+}

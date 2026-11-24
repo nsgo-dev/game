@@ -32,6 +32,9 @@ const (
 
 	// DefaultToonSpecularPower is the Blinn-Phong exponent used when [ToonMaterial.SpecularPower] is zero.
 	DefaultToonSpecularPower = 32
+
+	// MaxToonDrawsPerFrame is the most draws [ToonRenderer.Draw] accepts between two calls of [ToonRenderer.Begin] (or two frames), which bounds the scene uniform buffer when a caller that submits with [gpu.Device.Submit] directly forgets to call Begin.
+	MaxToonDrawsPerFrame = 1 << 16
 )
 
 // ErrInvalidToonMaterial is wrapped by every error [ToonMaterial.Validate], [NewGPUToonMaterial], [GPUToonMaterial.Update], and [ToonLight.Validate] return for malformed material or lighting parameters.
@@ -1232,7 +1235,7 @@ type ToonRendererOptions struct {
 	DepthFormat gpu.TextureFormat
 	// DoubleSided disables back-face culling on the main cel-shaded pass.
 	DoubleSided bool
-	// InitialCapacity is the starting number of per-draw transform slots in the dynamic scene uniform buffer (defaults to 32). The buffer grows automatically if a single Draw call submits more objects.
+	// InitialCapacity is the starting number of per-draw transform slots in the dynamic scene uniform buffer (defaults to 32). The buffer grows when the draws of one frame need more slots.
 	InitialCapacity int
 	// Retained opts owned pipelines, layouts, and uniform buffers into automatic restoration across GPU device loss.
 	Retained bool
@@ -1254,6 +1257,19 @@ type ToonRenderer struct {
 	sceneBuf    *gpu.Buffer
 	sceneGroup  *gpu.BindGroup
 	staging     []byte
+
+	// cursor is the first scene slot of sceneBuf no Draw has used since the last Begin. Every Draw writes its slots after the previous one's, because buffer writes are applied before the submission's commands and a later write to the same slots would replace the transforms an earlier Draw recorded.
+	cursor int
+	// lastFrame is dev.FrameIndex() at the last Draw, so Draw can rewind on its own when a gpu.Frame has been submitted in between.
+	lastFrame uint64
+	drawn     bool
+	// retired holds the scene buffers and bind groups a Draw outgrew while earlier draws of the same frame still reference them; Begin closes them.
+	retired []toonSceneSlots
+}
+
+type toonSceneSlots struct {
+	buf   *gpu.Buffer
+	group *gpu.BindGroup
 }
 
 // NewToonRenderer creates the shared material/scene layouts, both toon and outline pipelines, and the dynamic scene uniform buffer on dev, scoped to cx.
@@ -1377,10 +1393,34 @@ func (r *ToonRenderer) Valid() bool {
 		r.sceneGroup != nil && r.sceneGroup.Valid()
 }
 
-// Draw writes per-draw transform/light uniforms and records the inverted-hull outline pass followed by the main cel-shaded pass into pass. Draws with invalid meshes or materials are skipped safely. Returns an error only if light fails validation or growing the dynamic uniform buffer fails.
+// Begin starts a new frame: the next Draw reuses the scene uniform slots from the start of the buffer, and scene buffers that a Draw outgrew during the previous frame are released. Call it once per frame, after the previous frame's submission and before its first Draw, when submitting with [gpu.Device.Submit] directly. Inside a [gpu.Frame] (for example a [gpu.View] OnFrame callback) Draw rewinds on its own when [gpu.Device.FrameIndex] advances, so calling Begin there is optional.
+func (r *ToonRenderer) Begin() {
+	if r == nil {
+		return
+	}
+	r.cursor = 0
+	r.drawn = false
+	for _, s := range r.retired {
+		_ = s.group.Close()
+		_ = s.buf.Close()
+	}
+	clear(r.retired)
+	r.retired = r.retired[:0]
+}
+
+// Draw writes per-draw transform/light uniforms and records the inverted-hull outline pass followed by the main cel-shaded pass into pass. Draws with invalid meshes or materials are skipped. Draw may run any number of times between two submissions, into one pass or several: each call writes its uniforms to slots no earlier call of the frame uses (see [ToonRenderer.Begin]). It returns a [gpu.Error] when r, dev, pass, or camGroup is nil, closed, or lost, an error wrapping [ErrInvalidLight] when light is invalid, and the error from growing the uniform buffer.
 func (r *ToonRenderer) Draw(dev *gpu.Device, pass *gpu.RenderPass, camGroup *gpu.BindGroup, light ToonLight, draws ...ToonDraw) error {
-	if r == nil || !r.Valid() || dev == nil || pass == nil || camGroup == nil || !camGroup.Valid() {
-		return nil
+	if r == nil || !r.Valid() {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: toon renderer is closed or its device is lost"}
+	}
+	if dev == nil || dev.IsLost() {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil or lost device"}
+	}
+	if pass == nil {
+		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: nil render pass"}
+	}
+	if camGroup == nil || !camGroup.Valid() {
+		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid camera bind group"}
 	}
 	if err := light.Validate(); err != nil {
 		return err
@@ -1388,9 +1428,15 @@ func (r *ToonRenderer) Draw(dev *gpu.Device, pass *gpu.RenderPass, camGroup *gpu
 	if len(draws) == 0 {
 		return nil
 	}
-	if err := r.ensureSceneCapacity(dev, len(draws)); err != nil {
+	if r.drawn && dev.FrameIndex() != r.lastFrame {
+		r.Begin()
+	}
+	r.lastFrame = dev.FrameIndex()
+	r.drawn = true
+	if err := r.ensureSceneCapacity(dev, r.cursor+len(draws)); err != nil {
 		return err
 	}
+	base := r.cursor
 
 	stride := int(r.sceneStride)
 	totalBytes := len(draws) * stride
@@ -1418,7 +1464,8 @@ func (r *ToonRenderer) Draw(dev *gpu.Device, pass *gpu.RenderPass, camGroup *gpu
 		return nil
 	}
 
-	dev.WriteBuffer(r.sceneBuf, 0, r.staging)
+	dev.WriteBuffer(r.sceneBuf, uint64(base)*uint64(r.sceneStride), r.staging)
+	r.cursor = base + len(draws)
 
 	if anyOutline {
 		pass.SetPipeline(r.outlinePipeline)
@@ -1435,7 +1482,7 @@ func (r *ToonRenderer) Draw(dev *gpu.Device, pass *gpu.RenderPass, camGroup *gpu
 				continue
 			}
 			d.Material.Bind(pass)
-			pass.SetBindGroup(ToonSceneGroup, r.sceneGroup, uint32(i)*r.sceneStride)
+			pass.SetBindGroup(ToonSceneGroup, r.sceneGroup, uint32(base+i)*r.sceneStride)
 			outlineMesh.Draw(pass)
 		}
 	}
@@ -1447,7 +1494,7 @@ func (r *ToonRenderer) Draw(dev *gpu.Device, pass *gpu.RenderPass, camGroup *gpu
 			continue
 		}
 		d.Material.Bind(pass)
-		pass.SetBindGroup(ToonSceneGroup, r.sceneGroup, uint32(i)*r.sceneStride)
+		pass.SetBindGroup(ToonSceneGroup, r.sceneGroup, uint32(base+i)*r.sceneStride)
 		d.Mesh.Draw(pass)
 	}
 	return nil
@@ -1459,6 +1506,10 @@ func (r *ToonRenderer) Close() error {
 		return nil
 	}
 	var err error
+	for _, s := range r.retired {
+		err = errors.Join(err, s.group.Close(), s.buf.Close())
+	}
+	r.retired = nil
 	if r.sceneGroup != nil {
 		err = errors.Join(err, r.sceneGroup.Close())
 	}
@@ -1483,6 +1534,9 @@ func (r *ToonRenderer) Close() error {
 func (r *ToonRenderer) ensureSceneCapacity(dev *gpu.Device, need int) error {
 	if need <= r.sceneCap && r.sceneBuf != nil && r.sceneBuf.Valid() && r.sceneGroup != nil && r.sceneGroup.Valid() {
 		return nil
+	}
+	if need > MaxToonDrawsPerFrame {
+		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: fmt.Sprintf("render3d: %d toon draws since the last ToonRenderer.Begin exceed MaxToonDrawsPerFrame (%d); call Begin once per frame", need, MaxToonDrawsPerFrame)}
 	}
 	nextCap := max(r.sceneCap*2, need)
 	if nextCap < 32 {
@@ -1511,15 +1565,19 @@ func (r *ToonRenderer) ensureSceneCapacity(dev *gpu.Device, need int) error {
 		_ = buf.Close()
 		return err
 	}
-	if r.sceneGroup != nil {
-		_ = r.sceneGroup.Close()
-	}
-	if r.sceneBuf != nil {
-		_ = r.sceneBuf.Close()
+	if r.sceneGroup != nil && r.sceneBuf != nil {
+		if r.cursor > 0 {
+			// Draws already recorded this frame still bind the old buffer, so it stays open until Begin.
+			r.retired = append(r.retired, toonSceneSlots{buf: r.sceneBuf, group: r.sceneGroup})
+		} else {
+			_ = r.sceneGroup.Close()
+			_ = r.sceneBuf.Close()
+		}
 	}
 	r.sceneBuf = buf
 	r.sceneGroup = group
 	r.sceneCap = nextCap
+	r.cursor = 0
 	return nil
 }
 
