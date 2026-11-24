@@ -7,7 +7,6 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
@@ -15,25 +14,20 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// ErrInvalidCubemap is wrapped by every error returned for malformed cubemap
-// inputs, invalid prefilter parameters, or invalid BRDF LUT dimensions.
+// ErrInvalidCubemap is wrapped by every error returned for malformed cubemap inputs, invalid prefilter parameters, or invalid BRDF LUT dimensions.
 var ErrInvalidCubemap = errors.New("render3d: invalid cubemap")
 
+// ErrInvalidIBL is wrapped by every error [IBLUniform.Validate], [NewGPUIBLBuffer] and [GPUIBLBuffer.Update] return for malformed image-based lighting parameters.
+var ErrInvalidIBL = errors.New("render3d: invalid image-based lighting")
+
 const (
-	// SkyboxUniformSize is the byte size of the skybox uniform block written by
-	// [SkyboxUniform.Encode] and declared by [SkyboxWGSL].
+	// SkyboxUniformSize is the byte size of the skybox uniform block written by [SkyboxUniform.Encode] and declared by [SkyboxWGSL].
 	SkyboxUniformSize = 64 + 16
 
-	// IBLGroup is the default bind group index declared by [IBLWGSL] for
-	// image-based lighting (group 0 is [CameraGroup]; group 1 is typically left
-	// for material or direct-light bindings). Use [IBLWGSLForGroup] if a shader
-	// binds the [IBLBuffer] at a different group index.
-	IBLGroup = 2
+	// IBLGroup is the bind group index [IBLWGSL] and [LitPBRIBLWGSL] declare for image-based lighting ([GPUIBLBuffer.BindGroup]), after [CameraGroup], [LightGroup] and [PBRDrawGroup]. [FogGroup] uses the same index, so a lit pipeline has either IBL or fog. Use [IBLWGSLForGroup] when a custom shader binds the [GPUIBLBuffer] at another group.
+	IBLGroup = 3
 
-	// IBLUniformSize is the byte size of the IBL uniform block written by
-	// [IBLUniform.Encode] and declared by [IBLWGSL]: nine vec4<f32> L2 spherical
-	// harmonic irradiance coefficients followed by intensity, max_lod, and two
-	// padding floats.
+	// IBLUniformSize is the byte size of the IBL uniform block written by [IBLUniform.Encode] and declared by [IBLWGSL]: nine vec4<f32> L2 spherical harmonic irradiance coefficients followed by intensity, max_lod, and two padding floats.
 	IBLUniformSize = 9*16 + 16
 )
 
@@ -78,7 +72,8 @@ fn fs_skybox(in: SkyboxVertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-const iblWGSLTemplate = `struct IBLUniform {
+// iblWGSLStruct declares the IBL uniform block layout [IBLUniform.Encode] writes.
+const iblWGSLStruct = `struct IBLUniform {
 	sh: array<vec4<f32>, 9>,
 	intensity: f32,
 	max_lod: f32,
@@ -86,11 +81,17 @@ const iblWGSLTemplate = `struct IBLUniform {
 	_pad1: f32,
 }
 
-@group(__IBL_GROUP__) @binding(0) var<uniform> ibl: IBLUniform;
-@group(__IBL_GROUP__) @binding(1) var ibl_prefilter: texture_cube<f32>;
-@group(__IBL_GROUP__) @binding(2) var ibl_sampler: sampler;
+`
 
-fn evaluate_irradiance_sh(n: vec3<f32>) -> vec3<f32> {
+// iblWGSLDecl3 declares the IBL bindings at [IBLGroup].
+const iblWGSLDecl3 = iblWGSLStruct + `@group(3) @binding(0) var<uniform> ibl: IBLUniform;
+@group(3) @binding(1) var ibl_prefilter: texture_cube<f32>;
+@group(3) @binding(2) var ibl_sampler: sampler;
+
+`
+
+// iblWGSLFuncs holds the IBL helper functions, which read the bindings the declarations before them make.
+const iblWGSLFuncs = `fn evaluate_irradiance_sh(n: vec3<f32>) -> vec3<f32> {
 	let d = normalize(n);
 	var e = ibl.sh[0].xyz * 0.28209479;
 	e = e + ibl.sh[1].xyz * (0.48860251 * d.y);
@@ -108,6 +109,7 @@ fn env_brdf_approx(f0: vec3<f32>, roughness: f32, n_dot_v: f32) -> vec3<f32> {
 	let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
 	let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
 	let r = roughness * c0 + c1;
+	// pow(2.0, x) instead of exp2(x): NSGo v0.3.0's software GPU VM has no exp, exp2, log or log2 and evaluates them to zero.
 	let a004 = min(r.x * r.x, pow(2.0, -9.28 * n_dot_v)) * r.x + r.y;
 	let ab = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
 	return f0 * ab.x + vec3<f32>(ab.y);
@@ -137,17 +139,16 @@ fn evaluate_ibl(normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, m
 }
 `
 
-// IBLWGSL declares the IBL uniform block, prefiltered environment cubemap, and
-// sampler at [IBLGroup] (@group(2)), together with evaluate_irradiance_sh,
-// env_brdf_approx, fresnel_schlick_roughness, and evaluate_ibl. Prepend it to a
-// PBR fragment shader whose pipeline binds [IBLBuffer.BindGroup] at [IBLGroup].
-var IBLWGSL = IBLWGSLForGroup(IBLGroup)
+// IBLWGSL declares the IBL uniform block, prefiltered environment cubemap, and sampler at [IBLGroup] (@group(3)), together with evaluate_irradiance_sh, env_brdf_approx, fresnel_schlick_roughness, and evaluate_ibl. Prepend it to a PBR fragment shader whose pipeline binds [GPUIBLBuffer.BindGroup] at [IBLGroup]; [LitPBRIBLWGSL] does this for the repository's lit PBR shader.
+const IBLWGSL = iblWGSLDecl3 + iblWGSLFuncs
 
-// IBLWGSLForGroup returns the same WGSL declarations and helper functions as
-// [IBLWGSL] with the uniform, cubemap, and sampler placed at the given @group
-// index.
+// IBLWGSLForGroup returns the same WGSL declarations and helper functions as [IBLWGSL] with the uniform, cubemap, and sampler placed at the given @group index.
 func IBLWGSLForGroup(group uint32) string {
-	return strings.ReplaceAll(iblWGSLTemplate, "__IBL_GROUP__", fmt.Sprintf("%d", group))
+	return iblWGSLStruct + fmt.Sprintf(`@group(%d) @binding(0) var<uniform> ibl: IBLUniform;
+@group(%d) @binding(1) var ibl_prefilter: texture_cube<f32>;
+@group(%d) @binding(2) var ibl_sampler: sampler;
+
+`, group, group, group) + iblWGSLFuncs
 }
 
 // Spherical harmonic basis constants (orthonormal real L0..L2 basis).
@@ -406,8 +407,10 @@ func CubemapFromImages(faces [6]image.Image, srgb bool) (*Cubemap, error) {
 //
 // Longitude u = 0.5 + atan2(z, x) / (2*pi) maps +X to u = 0.5 and +Z to
 // u = 0.75; latitude v = acos(y) / pi maps +Y (zenith) to the top row (v = 0)
-// and -Y (nadir) to the bottom row (v = 1).
-func CubemapFromEquirectangular(img image.Image, faceSize int) (*Cubemap, error) {
+// and -Y (nadir) to the bottom row (v = 1). Texels are copied unchanged, and
+// srgb marks them as sRGB-encoded, as in [CubemapFromImages]: pass true for a
+// typical PNG or JPEG panorama.
+func CubemapFromEquirectangular(img image.Image, faceSize int, srgb bool) (*Cubemap, error) {
 	if img == nil {
 		return nil, fmt.Errorf("%w: nil equirectangular image", ErrInvalidCubemap)
 	}
@@ -420,7 +423,7 @@ func CubemapFromEquirectangular(img image.Image, faceSize int) (*Cubemap, error)
 		return nil, fmt.Errorf("%w: faceSize %d must be positive", ErrInvalidCubemap, faceSize)
 	}
 	src := imageToRGBA(img)
-	cm := &Cubemap{}
+	cm := &Cubemap{SRGB: srgb}
 	invSize := 1.0 / float64(faceSize)
 	for face := range gpu.CubeFace(6) {
 		dst := image.NewRGBA(image.Rect(0, 0, faceSize, faceSize))
@@ -449,14 +452,15 @@ func CubemapFromEquirectangular(img image.Image, faceSize int) (*Cubemap, error)
 // GradientSkyCubemap builds a procedural 3-band sky cubemap interpolating
 // smoothly from horizon to zenith across the upper hemisphere (y >= 0) and from
 // horizon to ground across the lower hemisphere (y < 0). Colors are linear RGB
-// values in [0, 1].
+// values; they must be finite and non-negative, and the RGBA8 faces clamp them
+// to [0, 1].
 func GradientSkyCubemap(zenith, horizon, ground [3]float32, faceSize int) (*Cubemap, error) {
 	if faceSize <= 0 {
 		return nil, fmt.Errorf("%w: faceSize %d must be positive", ErrInvalidCubemap, faceSize)
 	}
 	for _, c := range [...][3]float32{zenith, horizon, ground} {
-		if !finite(c[0]) || !finite(c[1]) || !finite(c[2]) {
-			return nil, fmt.Errorf("%w: non-finite gradient sky color", ErrInvalidCubemap)
+		if !finite(c[0]) || !finite(c[1]) || !finite(c[2]) || c[0] < 0 || c[1] < 0 || c[2] < 0 {
+			return nil, fmt.Errorf("%w: gradient sky colors must be finite and non-negative", ErrInvalidCubemap)
 		}
 	}
 	cm := &Cubemap{}
@@ -1237,7 +1241,9 @@ func EnvBRDFApprox(f0 [3]float32, roughness, nDotV float32) [3]float32 {
 
 // EvaluateIBL evaluates the exact CPU reference for [IBLWGSL]'s evaluate_ibl
 // function: L2 spherical harmonic diffuse irradiance combined with split-sum
-// GGX prefiltered specular reflection using [EnvBRDFApprox].
+// GGX prefiltered specular reflection using [EnvBRDFApprox]. A NaN or infinite
+// metallic, roughness, ao or intensity counts as 0, and a negative intensity as
+// 0, so the result stays finite.
 func EvaluateIBL(
 	sh IrradianceSH,
 	prefilter *Cubemap,
@@ -1246,6 +1252,7 @@ func EvaluateIBL(
 	baseColor [3]float32,
 	metallic, roughness, ao float32,
 ) [3]float32 {
+	metallic, roughness, ao, intensity = finiteOrZero(metallic), finiteOrZero(roughness), finiteOrZero(ao), max(finiteOrZero(intensity), 0)
 	n := normal.Norm()
 	v := viewDir.Norm()
 	m := float32(clamp64(float64(metallic), 0, 1))
@@ -1290,16 +1297,14 @@ func EvaluateIBL(
 	}
 }
 
-// IBLUniform holds the diffuse L2 spherical harmonic irradiance coefficients
-// and specular prefilter parameters bound by [IBLBuffer] and read by [IBLWGSL].
+// IBLUniform holds the diffuse L2 spherical harmonic irradiance coefficients and specular prefilter parameters bound by [GPUIBLBuffer] and read by [IBLWGSL].
 type IBLUniform struct {
 	SH        IrradianceSH
 	Intensity float32
 	MaxLOD    float32
 }
 
-// NewIBLUniform populates an [IBLUniform] from sh, prefilter's maximum mip LOD,
-// and intensity.
+// NewIBLUniform populates an [IBLUniform] from sh, prefilter's maximum mip LOD, and intensity.
 func NewIBLUniform(sh IrradianceSH, prefilter *GPUCubemap, intensity float32) IBLUniform {
 	var maxLOD float32
 	if prefilter != nil {
@@ -1312,9 +1317,25 @@ func NewIBLUniform(sh IrradianceSH, prefilter *GPUCubemap, intensity float32) IB
 	}
 }
 
-// Encode writes u into dst as the little-endian [IBLUniformSize]-byte block
-// matching [IBLWGSL] and returns dst[:IBLUniformSize]. It panics if len(dst) <
-// IBLUniformSize.
+// Validate reports whether every spherical harmonic coefficient is finite and Intensity and MaxLOD are finite and non-negative. Every error wraps [ErrInvalidIBL].
+func (u IBLUniform) Validate() error {
+	for k := range 9 {
+		for ch := range 3 {
+			if !finite(u.SH.Coeff[k][ch]) {
+				return fmt.Errorf("%w: spherical harmonic coefficient %d channel %d is not finite", ErrInvalidIBL, k, ch)
+			}
+		}
+	}
+	if !finite(u.Intensity) || u.Intensity < 0 {
+		return fmt.Errorf("%w: intensity must be finite and non-negative", ErrInvalidIBL)
+	}
+	if !finite(u.MaxLOD) || u.MaxLOD < 0 {
+		return fmt.Errorf("%w: max LOD must be finite and non-negative", ErrInvalidIBL)
+	}
+	return nil
+}
+
+// Encode writes u into dst as the little-endian [IBLUniformSize]-byte block matching [IBLWGSL] and returns dst[:IBLUniformSize]. It panics if len(dst) < IBLUniformSize.
 func (u *IBLUniform) Encode(dst []byte) []byte {
 	if len(dst) < IBLUniformSize {
 		panic("render3d: IBLUniform.Encode: dst shorter than IBLUniformSize")
@@ -1338,24 +1359,18 @@ func (u *IBLUniform) Encode(dst []byte) []byte {
 	return dst
 }
 
-// IBLBufferDesc configures [NewIBLBuffer].
-type IBLBufferDesc struct {
-	// Label names the GPU buffer, layout, and bind group in capture tools.
+// IBLBufferOptions configures [NewGPUIBLBuffer].
+type IBLBufferOptions struct {
+	// Label names the buffer, bind group layout, and bind group in GPU capture tools.
 	Label string
-	// Prefilter is the uploaded prefiltered specular cubemap (required).
-	Prefilter *GPUCubemap
-	// Uniform holds the initial SH irradiance and specular settings.
-	Uniform IBLUniform
-	// Retained keeps CPU shadow copies so NSGo restores the uniform buffer,
-	// layout, and bind group automatically after a device loss (when Prefilter
-	// is also retained).
+	// Retained keeps a CPU shadow copy so NSGo recreates the uniform buffer, layout, and bind group with their latest data after a device loss. The prefiltered cubemap must be retained too.
 	Retained bool
 }
 
-// IBLBuffer holds the uniform buffer, bind group layout, and bind group that
-// expose diffuse L2 SH irradiance and a prefiltered specular cubemap to 3D
-// shaders using [IBLWGSL] (or [IBLWGSLForGroup]).
-type IBLBuffer struct {
+// GPUIBLBuffer holds the uniform buffer, bind group layout, and bind group that expose diffuse L2 spherical harmonic irradiance and a prefiltered specular cubemap to shaders that prepend [IBLWGSL] (or [IBLWGSLForGroup]).
+//
+// Create it once when the device is ready, call [GPUIBLBuffer.Update] when the environment or intensity changes, and bind it at [IBLGroup] for [NewLitPBRIBLPipeline] ([GPUIBLBuffer.Bind]) or at the group a custom shader chose with [IBLWGSLForGroup]. Its resources belong to the scope passed to [NewGPUIBLBuffer] and are released with it, or earlier by Close.
+type GPUIBLBuffer struct {
 	dev     *gpu.Device
 	buf     *gpu.Buffer
 	layout  *gpu.BindGroupLayout
@@ -1363,33 +1378,34 @@ type IBLBuffer struct {
 	scratch [IBLUniformSize]byte
 }
 
-// NewIBLBuffer allocates an [IBLBuffer] on dev, scoped to cx, binding its
-// uniform buffer at binding 0, desc.Prefilter's cubemap at binding 1, and its
-// sampler at binding 2.
-func NewIBLBuffer(cx *core.Scope, dev *gpu.Device, desc IBLBufferDesc) (*IBLBuffer, error) {
+// NewGPUIBLBuffer validates initial and creates the IBL uniform buffer, bind group layout, and bind group on dev, owned by cx (nil for resources closed manually), binding the uniform at binding 0, prefilter's cubemap at binding 1, and its sampler at binding 2. An invalid uniform returns an error wrapping [ErrInvalidIBL], and a nil or closed prefilter one wrapping [ErrInvalidCubemap], before any GPU resource is created.
+func NewGPUIBLBuffer(cx *core.Scope, dev *gpu.Device, prefilter *GPUCubemap, initial IBLUniform, opts IBLBufferOptions) (*GPUIBLBuffer, error) {
+	if err := initial.Validate(); err != nil {
+		return nil, err
+	}
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	if !desc.Prefilter.Valid() {
+	if !prefilter.Valid() {
 		return nil, fmt.Errorf("%w: prefilter cubemap is nil or closed", ErrInvalidCubemap)
 	}
-	label := desc.Label
+	label := opts.Label
 	if label == "" {
 		label = "render3d.ibl"
 	}
-	var initBytes [IBLUniformSize]byte
+	b := &GPUIBLBuffer{dev: dev}
 	buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " uniform",
+		Label:    label,
 		Size:     IBLUniformSize,
 		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Data:     desc.Uniform.Encode(initBytes[:]),
-		Retained: desc.Retained,
+		Data:     initial.Encode(b.scratch[:]),
+		Retained: opts.Retained,
 	})
 	if err != nil {
 		return nil, err
 	}
 	layout, err := dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: label + " layout",
+		Label: label,
 		Entries: []gpu.BindGroupLayoutEntry{
 			{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
 			{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
@@ -1401,12 +1417,12 @@ func NewIBLBuffer(cx *core.Scope, dev *gpu.Device, desc IBLBufferDesc) (*IBLBuff
 		return nil, err
 	}
 	group, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:  label + " group",
+		Label:  label,
 		Layout: layout,
 		Entries: []gpu.BindGroupEntry{
 			{Binding: 0, Buffer: buf, Size: IBLUniformSize},
-			{Binding: 1, Texture: desc.Prefilter.tex},
-			{Binding: 2, Sampler: desc.Prefilter.sampler},
+			{Binding: 1, Texture: prefilter.tex},
+			{Binding: 2, Sampler: prefilter.sampler},
 		},
 	})
 	if err != nil {
@@ -1414,66 +1430,77 @@ func NewIBLBuffer(cx *core.Scope, dev *gpu.Device, desc IBLBufferDesc) (*IBLBuff
 		_ = buf.Close()
 		return nil, err
 	}
-	return &IBLBuffer{
-		dev:    dev,
-		buf:    buf,
-		layout: layout,
-		group:  group,
-	}, nil
+	b.buf = buf
+	b.layout = layout
+	b.group = group
+	return b, nil
 }
 
-// SetDevice updates the device handle used by [IBLBuffer.Write] after a
-// retained IBLBuffer is restored on a new device in OnReady.
-func (b *IBLBuffer) SetDevice(dev *gpu.Device) {
-	if b != nil && dev != nil {
+// Update validates u and writes it to the uniform buffer; the only copy made is the one gpu.Device.WriteBuffer takes of the bytes it queues. Pass the active [gpu.Device] (for example frame.Device()) so a retained buffer keeps accepting updates after a device loss and restore; passing nil reuses the last device.
+func (b *GPUIBLBuffer) Update(dev *gpu.Device, u IBLUniform) error {
+	if err := u.Validate(); err != nil {
+		return err
+	}
+	if !b.Valid() {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: IBL buffer is not valid"}
+	}
+	if dev != nil {
 		b.dev = dev
 	}
-}
-
-// Write uploads u to the IBL uniform buffer. It encodes into storage the
-// IBLBuffer owns, so the only copy made is the one gpu.Device.WriteBuffer takes
-// of the bytes it queues.
-func (b *IBLBuffer) Write(u IBLUniform) {
-	if b == nil || b.dev == nil || !b.buf.Valid() {
-		return
+	if b.dev == nil {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
 	b.dev.WriteBuffer(b.buf, 0, u.Encode(b.scratch[:]))
+	return nil
 }
 
-// Buffer returns the underlying uniform buffer.
-func (b *IBLBuffer) Buffer() *gpu.Buffer {
+// Buffer returns the underlying uniform buffer, or nil when b is nil.
+func (b *GPUIBLBuffer) Buffer() *gpu.Buffer {
 	if b == nil {
 		return nil
 	}
 	return b.buf
 }
 
-// Layout returns the bind group layout a pipeline lists at [IBLGroup] (or the
-// group chosen with [IBLWGSLForGroup]).
-func (b *IBLBuffer) Layout() *gpu.BindGroupLayout {
+// Layout returns the bind group layout a pipeline lists at [IBLGroup] (or the group chosen with [IBLWGSLForGroup]).
+func (b *GPUIBLBuffer) Layout() *gpu.BindGroupLayout {
 	if b == nil {
 		return nil
 	}
 	return b.layout
 }
 
-// BindGroup returns the bind group a render pass binds at [IBLGroup].
-func (b *IBLBuffer) BindGroup() *gpu.BindGroup {
+// BindGroup returns the bind group a render pass sets at [IBLGroup] (or the group chosen with [IBLWGSLForGroup]).
+func (b *GPUIBLBuffer) BindGroup() *gpu.BindGroup {
 	if b == nil {
 		return nil
 	}
 	return b.group
 }
 
-// Valid reports whether the uniform buffer, layout, and bind group are open and
-// belong to a live device.
-func (b *IBLBuffer) Valid() bool {
+// Bind sets b's bind group at [IBLGroup] on pass. It records nothing when b is not [GPUIBLBuffer.Valid].
+func (b *GPUIBLBuffer) Bind(pass *gpu.RenderPass) {
+	if !b.Valid() {
+		return
+	}
+	pass.SetBindGroup(IBLGroup, b.group)
+}
+
+// ByteSize returns the GPU memory held by the IBL uniform buffer (for [RenderStats] and [Budget] accounting), or zero for a nil buffer. The prefiltered cubemap is counted by its own [GPUCubemap.ByteSize].
+func (b *GPUIBLBuffer) ByteSize() uint64 {
+	if b == nil || b.buf == nil {
+		return 0
+	}
+	return b.buf.Size()
+}
+
+// Valid reports whether the uniform buffer, layout, and bind group are open and belong to a live device.
+func (b *GPUIBLBuffer) Valid() bool {
 	return b != nil && b.buf.Valid() && b.layout.Valid() && b.group.Valid()
 }
 
-// Close releases the bind group, layout, and uniform buffer. Safe to call more
-// than once.
-func (b *IBLBuffer) Close() error {
+// Close releases the bind group, layout, and uniform buffer now instead of waiting for their owning scope. It is safe to call on nil or more than once.
+func (b *GPUIBLBuffer) Close() error {
 	if b == nil {
 		return nil
 	}
@@ -1488,6 +1515,27 @@ func (b *IBLBuffer) Close() error {
 		err = errors.Join(err, b.buf.Close())
 	}
 	return err
+}
+
+// LitPBRIBLWGSL is [LitPBRWGSL] with image-based lighting: the same vertex stage, bind groups [CameraGroup], [LightGroup] and [PBRDrawGroup], and direct lighting, plus a [GPUIBLBuffer] at [IBLGroup]. The fragment stage adds [IBLWGSL]'s evaluate_ibl (diffuse spherical harmonic irradiance and prefiltered specular, with ambient occlusion 1) to the directly lit color before encoding to sRGB, so [ShadePoint] plus [EvaluateIBL] reproduces it on the CPU. Set the [LightRig]'s ambient light to zero when the environment provides the ambient term. Use [NewLitPBRIBLPipeline] to create a pipeline from it.
+//
+// IBL and fog both use bind group 3 ([IBLGroup] and [FogGroup]), the last of the four groups every backend guarantees, so this module has no fog.
+const LitPBRIBLWGSL = litPBRPreludeWGSL + "\n" + IBLWGSL + litPBRFragmentHeadWGSL + `	let ibl_lit = lit + evaluate_ibl(in.world_normal, view_dir, pbr_draw.base_color.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, 1.0);
+	return vec4<f32>(linear_to_srgb(ibl_lit), pbr_draw.base_color.a);
+}
+`
+
+// NewLitPBRIBLPipeline compiles [LitPBRIBLWGSL] and creates a pipeline configured like [NewLitPBRPipeline] with iblLayout ([GPUIBLBuffer.Layout]) added at [IBLGroup].
+func NewLitPBRIBLPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout, iblLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+	if dev == nil {
+		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	layouts := make([]*gpu.BindGroupLayout, IBLGroup+1)
+	layouts[CameraGroup] = camLayout
+	layouts[LightGroup] = lightLayout
+	layouts[PBRDrawGroup] = drawLayout
+	layouts[IBLGroup] = iblLayout
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_ibl", LitPBRIBLWGSL, layouts, depthFormat)
 }
 
 // --- Internal math and sampling helpers ---
@@ -1544,6 +1592,14 @@ func encodeTexelByte(v float64, srgb bool) byte {
 func floatToByte(v float64) byte {
 	v = clamp64(v, 0, 1)
 	return byte(math.Round(v * 255.0))
+}
+
+// finiteOrZero returns v, or 0 when v is NaN or infinite.
+func finiteOrZero(v float32) float32 {
+	if !finite(v) {
+		return 0
+	}
+	return v
 }
 
 func clamp64(v, lo, hi float64) float64 {
