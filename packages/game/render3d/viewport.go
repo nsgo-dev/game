@@ -444,8 +444,7 @@ func (rt *RenderTexture) Close() error {
 // top-left coordinates (matching NSGo's GPU viewport and scissor convention),
 // together with its clip-depth range [MinDepth, MaxDepth].
 //
-// The zero value (Width == 0 && Height == 0) represents the full target
-// [0, 0, 1, 1] with depth range [0, 1].
+// The zero value (Width == 0 && Height == 0) represents the full target [0, 0, 1, 1] with depth range [0, 1]. A depth range of [0, 0] also means [0, 1], so a viewport cannot pin depth to exactly 0.
 type ViewportRect struct {
 	X        float32
 	Y        float32
@@ -691,9 +690,7 @@ type LayeredDrawItem struct {
 	Layer uint32
 }
 
-// FilterLayeredItems appends every item in src whose Layer intersects mask to
-// dst and returns the extended slice. Pass dst[:0] with preallocated capacity
-// for zero steady-state allocations per camera view.
+// FilterLayeredItems appends every item in src whose Layer intersects mask to dst and returns the extended slice. A zero mask matches nothing, unlike a zero [CameraView.LayerMask]; pass [ViewportContext.LayerMask]. Pass dst[:0] with preallocated capacity for zero steady-state allocations per camera view.
 func FilterLayeredItems(src []LayeredDrawItem, mask uint32, dst []DrawItem) []DrawItem {
 	if mask == 0 {
 		return dst
@@ -706,9 +703,7 @@ func FilterLayeredItems(src []LayeredDrawItem, mask uint32, dst []DrawItem) []Dr
 	return dst
 }
 
-// FilterNodesByLayer appends every non-nil node in src whose Layer intersects
-// mask to dst and returns the extended slice. Pass dst[:0] with preallocated
-// capacity for zero steady-state allocations per camera view.
+// FilterNodesByLayer appends every non-nil node in src whose Layer intersects mask to dst and returns the extended slice. It tests the layer only: hidden or disabled nodes (Visible or Enabled false on the node or an ancestor) are included, so skip them yourself as the scene3d decal path does. A zero mask matches nothing, unlike a zero [CameraView.LayerMask]; pass [ViewportContext.LayerMask]. Pass dst[:0] with preallocated capacity for zero steady-state allocations per camera view.
 func FilterNodesByLayer(src []*scene3d.Node, mask uint32, dst []*scene3d.Node) []*scene3d.Node {
 	if mask == 0 {
 		return dst
@@ -736,17 +731,14 @@ type CameraView struct {
 	// Viewport selects the normalized sub-rectangle of Target (or the main
 	// surface) to render into. The zero value covers the entire target.
 	Viewport ViewportRect
-	// LayerMask selects which [scene3d.Node.Layer] bits this camera sees.
-	// Zero defaults to [scene3d.LayerAll] via [CameraView.EffectiveLayerMask]
-	// so struct literals render all layers unless restricted.
+	// LayerMask selects which [scene3d.Node.Layer] bits this camera sees. Zero defaults to [scene3d.LayerAll] via [CameraView.EffectiveLayerMask] so struct literals render all layers unless restricted; to render nothing, set Disabled. This differs from [FilterLayeredItems], [FilterNodesByLayer] and [scene3d.Decal.LayerMask], where a zero mask matches nothing, so filter with [ViewportContext.LayerMask], which is already the effective mask.
 	LayerMask uint32
 	// Priority orders views ascending within the offscreen phase and within the
 	// main-surface phase; ties preserve input slice order.
 	Priority int
-	// ClearColor sets the clear color when this view begins a clearing pass.
-	// For the first main-surface view, zero falls back to [SurfaceDesc.ClearColor].
+	// ClearColor sets the clear color when this view opens a clearing pass. Only the view that opens a pass clears: a view that shares the pass of the view before it (consecutive viewports on one target, such as split-screen players) or continues it with ResetDepth keeps the color already there, so give such views distinct backgrounds by drawing a full-viewport quad first. On the main surface, zero falls back to [SurfaceDesc.ClearColor], so an explicit transparent black clear is not expressible there while SurfaceDesc.ClearColor is set.
 	ClearColor core.Color
-	// ClearDepth sets the depth clear value (0 defaults to 1.0).
+	// ClearDepth sets the depth clear value for a pass this view opens, or for the depth clear ResetDepth requests. Zero defaults to 1.0 (on the main surface, to [SurfaceDesc.ClearDepth] first), so a reversed-Z clear to 0 is not expressible.
 	ClearDepth float32
 	// LoadColor controls whether the first pass targeting this view's target in a frame clears color ([gpu.LoadClear], the zero default) or preserves existing contents ([gpu.LoadLoad]). A later view that returns to an offscreen target after views on another target always loads color and depth, so what the earlier views drew is kept; set ResetDepth on it to clear depth instead.
 	LoadColor gpu.LoadOp
@@ -882,6 +874,8 @@ type resolvedCameraView struct {
 // [gpu.Frame] never overwrite each other's uniform data before GPU execution.
 // Adjacent views targeting the same surface share a single [gpu.RenderPass]
 // unless a view requests [CameraView.ResetDepth].
+//
+// The uniform slots are reused by every call, so call [ViewportRenderer.RenderFrame] or [ViewportRenderer.RenderEncoder] at most once per submitted frame or command buffer: a second call on the same renderer before submission overwrites the first call's camera uniforms before the GPU runs its passes. Use a separate ViewportRenderer for each call that shares one submission.
 type ViewportRenderer struct {
 	cx         *core.Scope
 	dev        *gpu.Device
@@ -999,14 +993,12 @@ func (r *ViewportRenderer) RenderFrame(frame *gpu.Frame, surface SurfaceDesc, vi
 	return r.renderWith(frame.Device(), surface, views, frame.BeginRenderPass, draw)
 }
 
-// RenderEncoder renders all active views in execution order (offscreen
-// [RenderTexture] views first, then main-surface viewports) into enc (for
-// example on [gpu.NewSoftwareRenderer]). The caller submits enc.Finish().
-func (r *ViewportRenderer) RenderEncoder(enc *gpu.Encoder, surface SurfaceDesc, views []CameraView, draw func(ViewportContext)) error {
+// RenderEncoder renders all active views in execution order (offscreen [RenderTexture] views first, then main-surface viewports) into enc (for example on [gpu.NewSoftwareRenderer]). dev is the device enc was begun on: a device restored after a loss is a new [*gpu.Device], and per-view camera bind groups created on any other device are dropped by the pass. The caller submits enc.Finish().
+func (r *ViewportRenderer) RenderEncoder(dev *gpu.Device, enc *gpu.Encoder, surface SurfaceDesc, views []CameraView, draw func(ViewportContext)) error {
 	if enc == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil encoder"}
 	}
-	return r.renderWith(r.dev, surface, views, enc.BeginRenderPass, draw)
+	return r.renderWith(dev, surface, views, enc.BeginRenderPass, draw)
 }
 
 func (r *ViewportRenderer) ensureSlot(dev *gpu.Device, index int) (viewportCameraSlot, error) {
@@ -1060,12 +1052,11 @@ func (r *ViewportRenderer) renderWith(
 	if r == nil || r.closed {
 		return fmt.Errorf("%w: viewport renderer is closed", ErrInvalidViewport)
 	}
-	if dev == nil {
-		dev = r.dev
-	} else {
-		r.dev = dev
+	if dev == nil || dev.IsLost() {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: viewport renderer device is nil or lost"}
 	}
-	if dev == nil || !r.camLayout.Valid() {
+	r.dev = dev
+	if !r.camLayout.Valid() {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: viewport renderer device or camera layout is not valid"}
 	}
 
