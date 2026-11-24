@@ -305,21 +305,15 @@ func (p *Profiler) RecordedFrames() int {
 	return n
 }
 
-// Reset clears all recorded scope timings, ring buffers and trace events.
+// Reset clears every scope's accumulated timings and frame history, so TopScopes reports nothing until scopes run again. Scope names keep their IDs, so a ScopeToken opened before Reset and ended after it is still charged to its own scope, and an active or finished trace recording (StartRecording, WriteChromeTrace) is left as it is.
 func (p *Profiler) Reset() {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
-	clear(p.scopeIndex)
-	p.scopes = p.scopes[:0]
-	p.inFrame = false
-	p.completedFrames = 0
-	p.depth = 0
-	p.recording = false
-	p.recordTarget = 0
-	p.recordedFrames = 0
-	p.events = p.events[:0]
+	for i := range p.scopes {
+		p.scopes[i] = scopeRecord{name: p.scopes[i].name}
+	}
 	p.mu.Unlock()
 }
 

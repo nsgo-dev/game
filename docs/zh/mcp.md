@@ -121,7 +121,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_replay_list` | `{}` | 按名称排序列出已存储的录制及其 `frames`、`seed`、`step_rate`、`events`、`actions`、`axes` 与 `metadata`。 |
 | `game_perf_readout` | `include_history`（可选，默认 `false`）、`history_limit`（可选）、`include_zones`（可选，默认 `false`）、`zones_limit`（可选） | 与调试浮层数值一致的实时性能读数：`fps`、滑动平均与最近一帧的 `frame_ms`/`update_ms`/`draw_ms`、最小/最大及 p50/p95/p99 帧时间、绘制统计（`draw_calls`、`sprites`、`batches`、`triangles`、`vertices`）、每帧堆分配（`allocs_per_frame`、`alloc_bytes_per_frame`、`last_frame_allocs`、`last_frame_alloc_bytes`）、`heap_bytes`、`gc_count`、GC 停顿与卡顿统计、可选的 `render3d` 与 `asset_memory` 明细，以及可选的时间序 `history` 与分析器 `zones`。 |
 | `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `debug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
-| `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间以及 `debug.GCMonitor` 历史记录。 |
+| `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间耗时以及 `debug.GCMonitor` 历史记录。通过 `StartRecording` 开始的分析器追踪录制会继续进行，已录制的事件也会保留。 |
 
 所有工具都会拒绝未知的参数字段。
 

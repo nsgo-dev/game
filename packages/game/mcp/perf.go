@@ -202,7 +202,7 @@ func (b *Bridge) perfTools() []automation.Tool {
 		},
 		{
 			Name:        ToolPerfReset,
-			Description: "Reset accumulated debug overlay frame timings, pushed draw statistics, profiler zones and GC monitor history.",
+			Description: "Reset accumulated debug overlay frame timings, pushed draw statistics, profiler zone timings and GC monitor history. An active profiler trace recording keeps running.",
 			InputSchema: schemaPerfReset,
 			Handler:     b.handlePerfReset,
 		},

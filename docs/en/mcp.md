@@ -121,7 +121,7 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_replay_list` | `{}` | Lists stored recordings in sorted name order with `frames`, `seed`, `step_rate`, `events`, `actions`, `axes` and `metadata`. |
 | `game_perf_readout` | `include_history` (optional, default `false`), `history_limit` (optional), `include_zones` (optional, default `false`), `zones_limit` (optional) | Live performance readout matching the debug overlay: `fps`, rolling average and latest `frame_ms`/`update_ms`/`draw_ms`, min/max/p50/p95/p99 frame times, draw stats (`draw_calls`, `sprites`, `batches`, `triangles`, `vertices`), per-frame heap allocations (`allocs_per_frame`, `alloc_bytes_per_frame`, `last_frame_allocs`, `last_frame_alloc_bytes`), `heap_bytes`, `gc_count`, GC pause/hitch metrics, optional `render3d` and `asset_memory` breakdowns, and optional chronological `history` and profiler `zones`. |
 | `game_perf_zones` | `limit` (optional) | Named timing zones from `debug.Profiler` sorted by recent frame cost (`name`, `last_ms`, `avg_ms`, `max_ms`, `calls`), plus `recording`, `recorded_frames` and `total`. |
-| `game_perf_reset` | `{}` | Resets accumulated `debug.Overlay` frame timings and pushed draw stats, `debug.Profiler` zones, and `debug.GCMonitor` history. |
+| `game_perf_reset` | `{}` | Resets accumulated `debug.Overlay` frame timings and pushed draw stats, `debug.Profiler` zone timings, and `debug.GCMonitor` history. A profiler trace recording started with `StartRecording` keeps running and keeps its events. |
 
 All tools reject unknown argument fields.
 
