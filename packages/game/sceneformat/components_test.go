@@ -93,6 +93,37 @@ func TestParseWithMisspelledFieldReportsFileAndLine(t *testing.T) {
 	}
 }
 
+func TestParseWithChecksChildObjects(t *testing.T) {
+	src := `version: 1
+name: Room
+layers:
+  - name: actors
+    objects:
+      - id: hero
+        children:
+          - id: sword
+            components:
+              body:
+                sped: 2
+`
+	_, err := sceneformat.ParseWith([]byte(src), sceneformat.ParseOptions{File: "c.yaml", Components: testComponents(t)})
+	var ce *sceneformat.ComponentError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v (%T), want *ComponentError", err, err)
+	}
+	if ce.Object != "sword" || ce.Field != "sped" || ce.Line != 11 || ce.Column != 17 {
+		t.Fatalf("error = object %q field %q at %d:%d, want sword sped at 11:17", ce.Object, ce.Field, ce.Line, ce.Column)
+	}
+
+	doc, err := sceneformat.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := sceneformat.ValidateComponents(doc, testComponents(t)); !errors.As(err, &ce) || ce.Object != "sword" {
+		t.Fatalf("ValidateComponents = %v, want a *ComponentError for sword", err)
+	}
+}
+
 func TestParseWithComponentErrors(t *testing.T) {
 	reg := testComponents(t)
 	cases := []struct {
