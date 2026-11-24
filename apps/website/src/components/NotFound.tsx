@@ -1,8 +1,8 @@
-import { Link } from '@tanstack/react-router'
 import { copies } from '../copy'
-import { routes, useLang } from '../i18n'
+import { useLang } from '../i18n'
 import { SpeedLines } from './Brand'
 import { Icon } from './Icon'
+import { LocaleLink } from './LocaleLink'
 
 // nsgo.dev's 404: the mark's speed lines, a pill and the way back, in the language of the address.
 export function NotFound() {
@@ -15,14 +15,14 @@ export function NotFound() {
       <h1 id="not-found-title">{copy.notFound.heading}</h1>
       <p className="placeholder__lead">{copy.notFound.body}</p>
       <nav className="placeholder__actions" aria-label={copy.notFound.where}>
-        <Link className="btn btn--secondary" to={routes[lang].home}>
+        <LocaleLink page="home" lang={lang} className="btn btn--secondary">
           {copy.nav.home}
           <Icon name="arrow" size={14} />
-        </Link>
-        <Link className="btn btn--secondary" to={routes[lang].docs}>
+        </LocaleLink>
+        <LocaleLink page="docs" lang={lang} className="btn btn--secondary">
           {copy.nav.docs}
           <Icon name="arrow" size={14} />
-        </Link>
+        </LocaleLink>
       </nav>
     </section>
   )

@@ -5,7 +5,7 @@ import { Footer } from '../components/Footer'
 import { Header } from '../components/Header'
 import { NotFound } from '../components/NotFound'
 import { copies } from '../copy'
-import { htmlLang, LANG_KEY, localeHref, useLang, useLangPath, useNotFound } from '../i18n'
+import { htmlLang, LANG_KEY, NON_DEFAULT_LANGS, useLang, useLangPath, useNotFound } from '../i18n'
 import { THEME_SCRIPT } from '../lib/theme'
 import css from '../styles.css?url'
 
@@ -28,34 +28,55 @@ export const Route = createRootRoute({
   notFoundComponent: NotFound,
 })
 
-// langScript sends a first visit from a Chinese browser to the Chinese twin of an English page, as nsgo.dev does, unless English was chosen with the language menu. zhHref is null on a page with no twin.
-const langScript = (zhHref: string | null) => `(function () {
-  var zh = ${JSON.stringify(zhHref)};
-  if (!zh) return;
+// langScript sends a first visit on an English page to the visitor's preferred supported language, respecting any choice saved via the language menu. path is null on non-English pages and on pages with no localized twin.
+const langScript = (base: string, path: string | null) => `(function () {
+  var path = ${JSON.stringify(path)};
+  if (path === null) return;
+  var base = ${JSON.stringify(base)};
+  var supported = ${JSON.stringify(NON_DEFAULT_LANGS)};
   var stored = null;
   try {
     stored = localStorage.getItem('${LANG_KEY}');
   } catch (error) {}
   if (stored === 'en') return;
-  var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
-  var chinese = languages.some(function (language) {
-    return String(language).toLowerCase().indexOf('zh') === 0;
-  });
-  if (stored === 'zh' || (!stored && chinese)) location.replace(zh + location.hash);
+  var target = null;
+  if (stored && supported.indexOf(stored) >= 0) {
+    target = stored;
+  } else if (!stored) {
+    var list = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+    for (var i = 0; i < list.length; i++) {
+      var raw = String(list[i] || '').trim().toLowerCase().replace(/_/g, '-');
+      if (!raw) continue;
+      var parts = raw.split('-');
+      var primary = parts[0];
+      if (primary === 'en') break;
+      if (primary === 'zh') {
+        var hans = parts.indexOf('hans') >= 0;
+        var hant = !hans && (parts.indexOf('hant') >= 0 || parts.indexOf('tw') >= 0 || parts.indexOf('hk') >= 0 || parts.indexOf('mo') >= 0);
+        target = hant ? 'zh-tw' : 'zh';
+        break;
+      }
+      if (supported.indexOf(primary) >= 0) {
+        target = primary;
+        break;
+      }
+    }
+  }
+  if (target) location.replace(base + target + '/' + path + location.search + location.hash);
 })();`
 
 function Document({ children }: { children: ReactNode }) {
   const lang = useLang()
   const path = useLangPath()
   const missing = useNotFound()
-  const zhHref = lang === 'en' && !missing ? localeHref('zh', path) : null
+  const redirectPath = lang === 'en' && !missing ? path : null
   // The appearance is light until the inline script, which runs before the first paint, applies the stored one, so the html element's attributes differ from the server's by design.
   return (
     <html lang={htmlLang(lang)} data-theme="light" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
-        <script dangerouslySetInnerHTML={{ __html: langScript(zhHref) }} />
+        <script dangerouslySetInnerHTML={{ __html: langScript(import.meta.env.BASE_URL, redirectPath) }} />
       </head>
       <body>
         {children}
@@ -67,7 +88,7 @@ function Document({ children }: { children: ReactNode }) {
 
 function Layout() {
   const lang = useLang()
-  // 404.html is prerendered in English and hydrates at every address the site has no page for, below /zh/ too, where hydration keeps the html element's lang; set it to the address's.
+  // 404.html is prerendered in English and hydrates at every address the site has no page for, below /<lang>/ too, where hydration keeps the html element's lang; set it to the address's.
   useEffect(() => {
     document.documentElement.lang = htmlLang(lang)
   }, [lang])

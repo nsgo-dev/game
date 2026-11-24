@@ -1,12 +1,12 @@
-import { Link } from '@tanstack/react-router'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { docs } from 'virtual:docs'
 import { groupDocs } from '../content/groups'
 import type { DocPackage, DocPage } from '../content/types'
 import { copies } from '../copy'
-import { htmlLang, type Lang, pageHead, routes, useLang } from '../i18n'
+import { htmlLang, type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
 import { Icon, iconMarkup } from './Icon'
+import { LocaleLink } from './LocaleLink'
 
 const NARROW = '(max-width: 820px)'
 
@@ -25,13 +25,13 @@ export function docHead(lang: Lang, doc: DocPage | undefined) {
 function DocLink({ lang, doc, children, className }: { lang: Lang; doc: DocPage; children: ReactNode; className?: string }) {
   const current = { 'aria-current': 'page' } as const
   return doc.slug === 'index' ? (
-    <Link to={routes[lang].docs} className={className} activeOptions={{ exact: true }} activeProps={current}>
+    <LocaleLink page="docs" lang={lang} className={className} activeOptions={{ exact: true }} activeProps={current}>
       {children}
-    </Link>
+    </LocaleLink>
   ) : (
-    <Link to={routes[lang].doc} params={{ slug: doc.slug }} className={className} activeProps={current}>
+    <LocaleLink page="doc" slug={doc.slug} lang={lang} className={className} activeProps={current}>
       {children}
-    </Link>
+    </LocaleLink>
   )
 }
 
@@ -81,7 +81,9 @@ export function DocView({ doc }: { doc: DocPage }) {
               <p className="docs__group-title">{copy.docs.reference}</p>
               <ul>
                 <li>
-                  <Link to={routes[lang].api}>{copy.api.nav}</Link>
+                  <LocaleLink page="api" lang={lang}>
+                    {copy.api.nav}
+                  </LocaleLink>
                 </li>
               </ul>
             </div>
@@ -148,10 +150,10 @@ function PackageStatuses({ lang, packages }: { lang: Lang; packages: DocPackage[
     <ul className="docs__packages" aria-label={words.label}>
       {packages.map((pkg) => (
         <li key={pkg.path}>
-          <Link to={routes[lang].doc} params={{ slug: 'stability' }}>
+          <LocaleLink page="doc" slug="stability" lang={lang}>
             <code>{pkg.path}</code>
             <span className={pkg.status === 'stable' ? 'chip chip--cleared' : 'chip chip--accent'}>{words[pkg.status]}</span>
-          </Link>
+          </LocaleLink>
         </li>
       ))}
     </ul>

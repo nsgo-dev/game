@@ -597,6 +597,7 @@ html:not([data-theme='dark']) .logo--dark {
   color: var(--muted);
   font-size: 14.5px;
   font-weight: 500;
+  white-space: nowrap;
   transition:
     background 0.15s ease,
     color 0.15s ease,
@@ -747,6 +748,8 @@ html:not([data-theme='dark']) .logo--dark {
   z-index: 50;
   display: grid;
   min-width: 180px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);

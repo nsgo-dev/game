@@ -1,13 +1,13 @@
-import { Link } from '@tanstack/react-router'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { examples, sources } from 'virtual:playground'
 import { CopyCommand } from '../components/CopyCommand'
 import { Icon } from '../components/Icon'
+import { LocaleLink } from '../components/LocaleLink'
 import { PLAYGROUND_BUILDS, type PlaygroundId } from '../content/playground'
 import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import type { PlaygroundExample, PlaygroundSource } from '../content/types'
 import { type Copy, copies } from '../copy'
-import { type Lang, pageHead, routes, useLang } from '../i18n'
+import { type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
 
 // The playground runs each example's web build, made ahead by scripts/build-playground.ts, in a frame beside its source. Nothing is compiled in the browser: to change an example, its page shows how to run it with the dev server, which rebuilds and reloads it on each save.
@@ -59,9 +59,9 @@ export function PlaygroundIndex() {
                 <span className="chip chip--cleared">Web</span>
               </div>
               <h2>
-                <Link to={routes[lang].playgroundExample} params={{ example: example.id }}>
+                <LocaleLink page="playgroundExample" example={example.id} lang={lang}>
                   {entry.title[lang]}
-                </Link>
+                </LocaleLink>
               </h2>
               <p className="showcase-card__desc">{entry.description[lang]}</p>
               <ul className="showcase-card__tags">
@@ -72,10 +72,10 @@ export function PlaygroundIndex() {
               <div className="showcase-card__foot">
                 <span className="showcase-card__meta">{copy.lines(totalLines(example))}</span>
                 <div className="showcase-card__links">
-                  <Link to={routes[lang].playgroundExample} params={{ example: example.id }}>
+                  <LocaleLink page="playgroundExample" example={example.id} lang={lang}>
                     {copy.open}
                     <Icon name="arrow" size={12} />
-                  </Link>
+                  </LocaleLink>
                 </div>
               </div>
             </li>
@@ -94,13 +94,13 @@ export function PlaygroundExamplePage({ example }: { example: PlaygroundExample 
   return (
     <div className="container playground">
       <nav className="playground__examples" aria-label={copy.examples}>
-        <Link to={routes[lang].playground} className="playground__home" activeOptions={{ exact: true }}>
+        <LocaleLink page="playground" lang={lang} className="playground__home" activeOptions={{ exact: true }}>
           {copy.heading}
-        </Link>
+        </LocaleLink>
         {examples.map((other) => (
-          <Link key={other.id} to={routes[lang].playgroundExample} params={{ example: other.id }} activeProps={{ 'aria-current': 'page' }}>
+          <LocaleLink key={other.id} page="playgroundExample" example={other.id} lang={lang} activeProps={{ 'aria-current': 'page' }}>
             {entryOf(other.id).title[lang]}
-          </Link>
+          </LocaleLink>
         ))}
       </nav>
       <header className="page-head">

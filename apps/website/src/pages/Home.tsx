@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router'
 import { type KeyboardEvent, useRef, useState } from 'react'
 import { roadmap } from 'virtual:roadmap'
 import { snippets } from 'virtual:snippets'
@@ -7,10 +6,11 @@ import { CopyCommand } from '../components/CopyCommand'
 import { Cta } from '../components/Footer'
 import { HeroField } from '../components/HeroField'
 import { Icon } from '../components/Icon'
+import { LocaleLink } from '../components/LocaleLink'
 import { Segments } from '../components/Segments'
 import type { Snippet } from '../content/types'
 import { copies } from '../copy'
-import { type Lang, pageHead, routes, useLang } from '../i18n'
+import { type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL, issueUrl, nsgoUrl } from '../links'
 
 export const homeHead = (lang: Lang) => pageHead(lang, '', copies[lang].site.title, copies[lang].site.description)
@@ -63,7 +63,6 @@ function stageCards(): StageCard[] {
 export function Home() {
   const lang = useLang()
   const copy = copies[lang].home
-  const to = routes[lang]
   return (
     <>
       <section className="hero">
@@ -84,10 +83,10 @@ export function Home() {
               {copy.lead[1]}
             </p>
             <div className="hero__actions">
-              <Link className="btn btn--primary btn--large" to={to.docs}>
+              <LocaleLink page="docs" lang={lang} className="btn btn--primary btn--large">
                 <Icon name="play" size={14} />
                 {copy.docs}
-              </Link>
+              </LocaleLink>
               <a className="btn btn--secondary btn--large" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
                 GitHub
               </a>
@@ -118,10 +117,10 @@ export function Home() {
               <StageCardView key={stage.number} stage={stage} />
             ))}
           </ol>
-          <Link className="btn btn--secondary section__more" to={to.roadmap}>
+          <LocaleLink page="roadmap" lang={lang} className="btn btn--secondary section__more">
             {copy.stages.more}
             <Icon name="arrow" size={14} />
-          </Link>
+          </LocaleLink>
         </div>
       </section>
 
@@ -169,9 +168,9 @@ function StageCardView({ stage }: { stage: StageCard }) {
         )}
       </div>
       <h3>
-        <Link to={routes[lang].roadmap} hash={`stage-${stage.number}`} lang={name ? undefined : 'en'}>
+        <LocaleLink page="roadmap" lang={lang} hash={`stage-${stage.number}`} langAttr={name ? undefined : 'en'}>
           {name ?? stage.title}
-        </Link>
+        </LocaleLink>
       </h3>
       {(line ?? stage.description) && <p lang={line ? undefined : 'en'}>{line ?? stage.description}</p>}
       {progress && <Segments closed={progress.closed} total={progress.total} />}
@@ -194,9 +193,9 @@ function LevelCard({ level, n }: { level: Level; n: number }) {
       </div>
       <h3>
         {level.shipped ? (
-          <Link to={routes[lang].doc} params={{ slug: 'packages' }} hash={level.anchor}>
+          <LocaleLink page="doc" slug="packages" lang={lang} hash={level.anchor}>
             {level.name}
-          </Link>
+          </LocaleLink>
         ) : (
           level.name
         )}

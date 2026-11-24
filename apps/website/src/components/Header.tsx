@@ -1,18 +1,17 @@
-import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { copies } from '../copy'
-import { routes, useLang } from '../i18n'
+import { useLang } from '../i18n'
 import { GITHUB_URL, nsgoUrl } from '../links'
 import { Logo } from './Brand'
 import { Icon } from './Icon'
 import { LanguageSwitch } from './LanguageSwitch'
+import { LocaleLink } from './LocaleLink'
 import { ThemeSwitch } from './ThemeSwitch'
 
 // nsgo.dev's header: the mark and the name, the pages, then the language and appearance menus and GitHub. Narrow screens fold the pages under a menu button.
 export function Header() {
   const lang = useLang()
   const copy = copies[lang].nav
-  const to = routes[lang]
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
@@ -41,27 +40,27 @@ export function Header() {
   return (
     <header className={className} id="top">
       <div className="container header__inner">
-        <Link className="brand" to={to.home} aria-label="NSGo Game">
+        <LocaleLink page="home" lang={lang} className="brand" aria-label="NSGo Game">
           <Logo size={26} />
           <span className="brand__name">NSGo Game</span>
-        </Link>
+        </LocaleLink>
 
         <nav id="site-menu" className="header__links" aria-label={copy.primary}>
-          <Link to={to.home} activeOptions={{ exact: true }} activeProps={current} onClick={close}>
+          <LocaleLink page="home" lang={lang} activeOptions={{ exact: true }} activeProps={current} onClick={close}>
             {copy.home}
-          </Link>
-          <Link to={to.docs} activeProps={current} onClick={close}>
+          </LocaleLink>
+          <LocaleLink page="docs" lang={lang} activeProps={current} onClick={close}>
             {copy.docs}
-          </Link>
-          <Link to={to.playground} activeProps={current} onClick={close}>
+          </LocaleLink>
+          <LocaleLink page="playground" lang={lang} activeProps={current} onClick={close}>
             {copy.playground}
-          </Link>
-          <Link to={to.showcase} activeProps={current} onClick={close}>
+          </LocaleLink>
+          <LocaleLink page="showcase" lang={lang} activeProps={current} onClick={close}>
             {copy.showcase}
-          </Link>
-          <Link to={to.roadmap} activeProps={current} onClick={close}>
+          </LocaleLink>
+          <LocaleLink page="roadmap" lang={lang} activeProps={current} onClick={close}>
             {copy.roadmap}
-          </Link>
+          </LocaleLink>
           <a href={nsgoUrl(lang)} target="_blank" rel="noopener noreferrer" onClick={close}>
             {copy.nsgo}
             <Icon name="external" size={13} className="header__external" />

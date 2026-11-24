@@ -1,11 +1,11 @@
-import { Link } from '@tanstack/react-router'
 import { Fragment, type ReactNode, useEffect, useRef } from 'react'
 import { api } from 'virtual:api'
 import type { ApiFunc, ApiIdent, ApiPackage, ApiSummary, ApiType, ApiValue } from '../content/types'
 import { copies } from '../copy'
-import { htmlLang, type Lang, pageHead, routes, useLang } from '../i18n'
+import { htmlLang, type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
 import { Icon } from './Icon'
+import { LocaleLink } from './LocaleLink'
 
 const NARROW = '(max-width: 820px)'
 const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector('.docs__nav').open = false;`
@@ -48,9 +48,9 @@ function groupTitle(lang: Lang, dir: string): string {
 
 function PackageLink({ lang, page, children, className }: { lang: Lang; page: string; children: ReactNode; className?: string }) {
   return (
-    <Link to={routes[lang].apiPackage} params={{ _splat: page }} className={className} activeProps={{ 'aria-current': 'page' }}>
+    <LocaleLink page="apiPackage" splat={page} lang={lang} className={className} activeProps={{ 'aria-current': 'page' }}>
       {children}
-    </Link>
+    </LocaleLink>
   )
 }
 
@@ -76,14 +76,14 @@ function ApiLayout({ children, toc, page }: { children: ReactNode; toc?: { id: s
               <p className="docs__group-title">{copy.docs.reference}</p>
               <ul>
                 <li>
-                  <Link to={routes[lang].api} activeOptions={{ exact: true }} activeProps={{ 'aria-current': 'page' }}>
+                  <LocaleLink page="api" lang={lang} activeOptions={{ exact: true }} activeProps={{ 'aria-current': 'page' }}>
                     {copy.api.overview}
-                  </Link>
+                  </LocaleLink>
                 </li>
                 <li>
-                  <Link to={routes[lang].docs} activeOptions={{ exact: true }}>
+                  <LocaleLink page="docs" lang={lang} activeOptions={{ exact: true }}>
                     {copy.nav.docs}
-                  </Link>
+                  </LocaleLink>
                 </li>
               </ul>
             </div>
