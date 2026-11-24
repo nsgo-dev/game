@@ -687,14 +687,9 @@ func (t *HDRTarget) allocate(dev *gpu.Device, width, height uint32) error {
 		label = "render3d.hdr"
 	}
 
-	var colorFormat gpu.TextureFormat
-	if SupportsHDR(dev) {
-		colorFormat = gpu.FormatRGBA16Float
-	} else {
-		if t.desc.DisableFallback {
-			return gpu.Error{Code: gpu.ErrUnsupported, Message: "render3d: FormatRGBA16Float is unsupported on this device"}
-		}
-		colorFormat = gpu.FormatRGBA8Unorm
+	colorFormat, err := hdrColorFormat(SupportsHDR(dev), t.desc.DisableFallback)
+	if err != nil {
+		return err
 	}
 
 	rt, err := dev.CreateRenderTarget(t.cx, gpu.RenderTargetDesc{
@@ -706,8 +701,8 @@ func (t *HDRTarget) allocate(dev *gpu.Device, width, height uint32) error {
 		SampleCount: samples,
 		Retained:    t.desc.Retained,
 	})
-	if err != nil && colorFormat == gpu.FormatRGBA16Float && !t.desc.DisableFallback && errors.Is(err, gpu.ErrUnsupported) {
-		colorFormat = gpu.FormatRGBA8Unorm
+	if retry, ok := hdrFallbackFormat(colorFormat, t.desc.DisableFallback, err); ok {
+		colorFormat = retry
 		rt, err = dev.CreateRenderTarget(t.cx, gpu.RenderTargetDesc{
 			Label:       label,
 			Width:       width,
@@ -729,6 +724,25 @@ func (t *HDRTarget) allocate(dev *gpu.Device, width, height uint32) error {
 	t.desc.Width = width
 	t.desc.Height = height
 	return nil
+}
+
+// hdrColorFormat picks [NewHDRTarget]'s color format: [gpu.FormatRGBA16Float] when the device supports it, otherwise [gpu.FormatRGBA8Unorm], or [gpu.ErrUnsupported] when the fallback is disabled.
+func hdrColorFormat(supportsHDR, disableFallback bool) (gpu.TextureFormat, error) {
+	if supportsHDR {
+		return gpu.FormatRGBA16Float, nil
+	}
+	if disableFallback {
+		return gpu.FormatUndefined, gpu.Error{Code: gpu.ErrUnsupported, Message: "render3d: FormatRGBA16Float is unsupported on this device"}
+	}
+	return gpu.FormatRGBA8Unorm, nil
+}
+
+// hdrFallbackFormat reports whether creating a render target in format failed with err only because the device cannot render to RGBA16Float, and the format to retry with.
+func hdrFallbackFormat(format gpu.TextureFormat, disableFallback bool, err error) (gpu.TextureFormat, bool) {
+	if err == nil || format != gpu.FormatRGBA16Float || disableFallback || !errors.Is(err, gpu.ErrUnsupported) {
+		return format, false
+	}
+	return gpu.FormatRGBA8Unorm, true
 }
 
 // RenderTarget returns the underlying [*gpu.RenderTarget].
