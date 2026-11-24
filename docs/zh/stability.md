@@ -143,5 +143,7 @@
 | `game/tooling/pack` | 实验性 | |
 | `game/tween` | 稳定 | [tween](tween.md) |
 | `game/undo` | 实验性 | [undo](undo.md) |
+| `game/vn` | 实验性 | [vn](vn.md) |
+| `game/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
 | `game/world3d` | 实验性 | [world3d](world3d.md) |
 | `game/worldmap` | 实验性 | [worldmap](worldmap.md) |
