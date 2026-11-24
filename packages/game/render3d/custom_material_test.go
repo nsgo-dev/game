@@ -1248,3 +1248,78 @@ func BenchmarkCustomMaterialUniformUpdate(b *testing.B) {
 		_ = mat.Sync(dev)
 	}
 }
+
+func TestCustomMaterialMatchesMaterialAPI(t *testing.T) {
+	if render3d.CustomMaterialGroup != render3d.MaterialGroup {
+		t.Fatalf("CustomMaterialGroup = %d, want MaterialGroup %d", render3d.CustomMaterialGroup, render3d.MaterialGroup)
+	}
+	_, err := render3d.ComputeUniformLayout([]render3d.ShaderParamDesc{{Name: "bad name", Kind: render3d.ParamFloat}})
+	if !errors.Is(err, render3d.ErrInvalidCustomMaterial) || !errors.Is(err, render3d.ErrInvalidMaterial) {
+		t.Fatalf("error %v should match ErrInvalidCustomMaterial and ErrInvalidMaterial", err)
+	}
+
+	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	mat, err := render3d.NewCustomMaterial(nil, dev, render3d.CustomShaderDesc{
+		Label:    "bytesize",
+		Language: render3d.ShaderWGSL,
+		Source:   customMatWGSLClip,
+		Params: []render3d.ShaderParamDesc{
+			{Name: "intensity", Kind: render3d.ParamFloat},
+			{Name: "light_dir", Kind: render3d.ParamVec3},
+			{Name: "tint", Kind: render3d.ParamColor},
+			{Name: "albedo", Kind: render3d.ParamTexture},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewCustomMaterial: %v", err)
+	}
+	// 48-byte uniform block plus one 1x1 RGBA8 fallback texture.
+	if got := mat.ByteSize(); got != 48+4 {
+		t.Fatalf("ByteSize = %d, want 52", got)
+	}
+
+	// ApplyMap samples a new texture with the default sampler, as SetTexture with a nil sampler does.
+	tex, err := render3d.UploadTexturePixels(nil, dev, render3d.PixelBuffer{Width: 1, Height: 1, Format: gpu.FormatRGBA8Unorm, Pixels: []byte{1, 2, 3, 255}}, render3d.TextureUpload{Label: "t"})
+	if err != nil {
+		t.Fatalf("UploadTexturePixels: %v", err)
+	}
+	t.Cleanup(func() { _ = tex.Close() })
+	nearest, err := render3d.NewGPUSampler(nil, dev, render3d.SamplerNearestClamp())
+	if err != nil {
+		t.Fatalf("NewGPUSampler: %v", err)
+	}
+	t.Cleanup(func() { _ = nearest.Close() })
+	if err := mat.SetTexture("albedo", tex, nearest); err != nil {
+		t.Fatalf("SetTexture: %v", err)
+	}
+	if err := mat.Sync(dev); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	withNearest := mat.BindGroup()
+	if err := mat.ApplyMap(map[string]any{"albedo": tex}); err != nil {
+		t.Fatalf("ApplyMap: %v", err)
+	}
+	if !mat.Dirty() {
+		t.Fatal("ApplyMap with the same texture but a custom sampler should switch to the default sampler")
+	}
+	if err := mat.Sync(dev); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if mat.BindGroup() == withNearest {
+		t.Fatal("ApplyMap kept the custom sampler's bind group")
+	}
+	if err := mat.SetTexture("albedo", tex, nil); err != nil {
+		t.Fatalf("SetTexture: %v", err)
+	}
+	if mat.Dirty() {
+		t.Fatal("SetTexture with a nil sampler after ApplyMap should be a no-op")
+	}
+	if err := mat.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := mat.ByteSize(); got != 0 {
+		t.Fatalf("ByteSize after Close = %d, want 0", got)
+	}
+}

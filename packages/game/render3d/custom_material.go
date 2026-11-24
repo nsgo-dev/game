@@ -19,23 +19,18 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// CustomMaterialGroup is the bind group slot (@group(1)) reserved for custom
-// material uniform buffers and texture/sampler bindings alongside
-// [CameraGroup] (@group(0)).
-const CustomMaterialGroup = 1
+// CustomMaterialGroup is the bind group slot (@group(1)) that holds a custom material's uniform buffer and texture/sampler bindings alongside [CameraGroup] (@group(0)). It is [MaterialGroup], the slot every material in this package binds at.
+const CustomMaterialGroup = MaterialGroup
 
 // CustomMaterialUniformBinding is the @binding index inside [CustomMaterialGroup]
 // used for the generated MaterialParams uniform struct when a custom material
 // declares at least one non-texture parameter.
 const CustomMaterialUniformBinding = 0
 
-// ErrInvalidCustomMaterial is wrapped by every error returned when validating,
-// compiling, or updating a [CustomMaterial].
+// ErrInvalidCustomMaterial is wrapped by every error returned when validating, compiling, or updating a [CustomMaterial]. Those errors also match [ErrInvalidMaterial].
 var ErrInvalidCustomMaterial = errors.New("render3d: invalid custom material")
 
-// CustomMaterialError reports a validation, shader-compilation, or parameter
-// update error for a [CustomMaterial]. It always matches [ErrInvalidCustomMaterial]
-// via errors.Is and unwraps to Err when an underlying error is present.
+// CustomMaterialError reports a validation, shader-compilation, or parameter update error for a [CustomMaterial]. It always matches [ErrInvalidCustomMaterial] and [ErrInvalidMaterial] via errors.Is and unwraps to Err when an underlying error is present.
 type CustomMaterialError struct {
 	Material string
 	Param    string
@@ -77,9 +72,9 @@ func (e *CustomMaterialError) Error() string {
 // Unwrap returns the underlying error, if any.
 func (e *CustomMaterialError) Unwrap() error { return e.Err }
 
-// Is reports that every CustomMaterialError matches [ErrInvalidCustomMaterial].
+// Is reports that every CustomMaterialError matches [ErrInvalidCustomMaterial] and [ErrInvalidMaterial].
 func (e *CustomMaterialError) Is(target error) bool {
-	return target == ErrInvalidCustomMaterial
+	return target == ErrInvalidCustomMaterial || target == ErrInvalidMaterial
 }
 
 // ShaderLanguage identifies the source language of a [CustomShaderDesc].
@@ -951,8 +946,10 @@ func (m *CustomMaterial) ApplyMap(values map[string]any) error {
 			if targetTex == nil {
 				targetTex = m.fallbackTex[slot]
 			}
-			if m.boundTex[slot] != targetTex {
+			// Like SetTexture with a nil sampler, a texture from ApplyMap samples with the default sampler.
+			if m.boundTex[slot] != targetTex || m.boundSamp[slot] != m.defaultSamp {
 				m.boundTex[slot] = targetTex
+				m.boundSamp[slot] = m.defaultSamp
 				m.bindGroupDirty = true
 			}
 		}
@@ -1126,6 +1123,18 @@ func (m *CustomMaterial) Valid() bool {
 		return false
 	}
 	return true
+}
+
+// ByteSize returns the GPU memory the material owns, in bytes: its uniform buffer plus its 1x1 fallback textures, for [RenderStats] and [Budget] accounting. Textures bound with [CustomMaterial.SetTexture] belong to the caller and are not counted.
+func (m *CustomMaterial) ByteSize() uint64 {
+	if m == nil || m.closed {
+		return 0
+	}
+	n := uint64(m.layout.UniformSize)
+	for _, fb := range m.fallbackTex {
+		n += fb.ByteSize()
+	}
+	return n
 }
 
 // Close releases every GPU resource owned by the material now rather than
