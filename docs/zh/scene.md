@@ -140,3 +140,40 @@ return ov.View(cx, gpu.ViewProps{
 - **透明叠层与虚拟视口**：叠加画布默认无背景填充，透明区域会完整透出下方的 3D 画面，半透明精灵则直接与 3D 画面进行 Alpha 混合。配置 `Viewport` 且 `BarColor` 为零值时，上下/左右黑边区域保持透明而不遮挡 3D 视图；如需绘制不透明黑边，请显式设置 `BarColor`（例如 `core.RGB(0x000000)`）。
 - **指针穿透与命中测试**：叠加画布默认设置 `core.PointerEventsNone`，点击和触摸会无阻挡地穿透到下方的 3D `gpu.View`。需要画布直接接收指针事件时可设置 `Interactive: true`（或提供 `OnPress`），也可结合视图尺寸手动调用 `ov.HitTest`、`ov.HitTestAll`、`ov.DispatchPress` 和 `ov.DispatchTouch`。
 - **3D 到 2D 投影**：使用 `scene.ProjectToOverlay(cam.ViewProj(), p.X, p.Y, p.Z, viewW, viewH)`（或使用 `ov.Project(cam.ViewProj(), p.X, p.Y, p.Z, windowSize)` 自动转换到 `ov.Viewport` 虚拟坐标）通过列主序视图投影矩阵（例如 `game/scene3d` 的 `cam.ViewProj()`）将 3D 世界坐标投影到 2D 叠加层，便于让血条、准星和标记精准跟随 3D 物体。动态 2D 叠加内容更新后调用 `ov.Invalidate()`（或 `ov.SetHidden(bool)`）即可触发重绘。
+
+
+## 3D 视图上的原生 HUD（`HUD3D`）
+
+`HUD3D` 将原生 NSGo 视图（`ui.Button`、`ui.Card`、`ui.Badge`、`ui.Progress`、`ui.Switch`、`core.Text` 及自定义 `core.View` 子树）叠放在 3D `gpu.View` 之上，自带安全区缩进、响应式显隐切换与鼠标/触摸穿透：
+
+```go
+hud := scene.NewHUD3D(cx)
+hud.Padding = core.All(12)
+
+// 装饰性读数：鼠标与触摸直接穿透到下方 3D 场景。
+hud.AddPassThrough(scene.HUDTopLeft, ui.Badge{Text: "HP 100"})
+
+// 锚定到安全区角落的交互控件：
+hud.AddAt(scene.HUDTopRight, ui.Button{
+	Text:    "Pause",
+	OnPress: togglePause,
+})
+hud.AddAt(scene.HUDBottomRight, ui.Button{
+	Text:    "Jump",
+	OnPress: triggerJump,
+})
+
+// 直接叠放在 3D gpu.View 之上：
+return hud.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady:     onReady,
+	OnFrame:     onFrame,
+	OnPress:     pick3DObject,
+})
+```
+
+- **鼠标与触摸穿透**：HUD 叠层容器使用 `core.PointerEventsBoxNone`，交互式 HUD 控件直接响应点击与触摸，空白区域则将鼠标与触摸事件无阻挡地穿透给下方的 3D 视图。使用 `AddPassThrough`（或 `HUDSlot{PassThrough: true}`）可为装饰性元素（如准星、分数面板）设置 `core.PointerEventsNone`。
+- **锚点与自定义布局**：通过 `AddAt`、`AddPassThrough`、`AddSlot` 将控件定位到 9 个安全区锚点（`HUDTopLeft`、`HUDTopCenter`、`HUDTopRight`、`HUDCenterLeft`、`HUDCenter`、`HUDCenterRight`、`HUDBottomLeft`、`HUDBottomCenter`、`HUDBottomRight`）或 `HUDFull`，也可以通过 `Add` / `Children` 直接添加自定义穿透容器。
+- **安全区缩进**：默认自动启用 `core.EnvSafeArea` 内边距（并与 `HUD3D.Padding` 叠加），让 HUD 避开刘海、状态栏与底部指示条，并在屏幕旋转时响应式更新；需要关闭时可设置 `IgnoreSafeArea: true` 或调用 `hud.SetSafeArea(false)`。
+- **显隐切换**：调用 `hud.SetHidden(true)`、`hud.SetVisible(false)` 或 `hud.Toggle()` 即可隐藏 HUD（应用 `core.DisplayNone` 与 `core.PointerEventsNone`）而无需重新挂载子树；隐藏期间所有点击和触摸都会直接传递给 3D 视图。
+- **与 3D 输入容器或 2D 叠层组合**：使用 `hud.Wrap(cx, view3D)` 可将 HUD 作为同级节点 Z 轴叠放在任意已构建的 3D 视图之上（例如外层 `core.View` 监听 `OnMouseDown`、`OnMouseMove` 和 `OnTouch` 实现 3D 镜头旋转的场景），也可以直接将 `hud.Layer(cx)` 放入 `gpu.ViewProps.Children` 并置于 2D 叠加画布之上。
