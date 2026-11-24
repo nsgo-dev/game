@@ -1,9 +1,15 @@
 package game_test
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,14 +17,29 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/anim3d"
+	"github.com/nsgo-dev/game/packages/game/assets"
+	"github.com/nsgo-dev/game/packages/game/debug"
+	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/packages/game/flow"
+	"github.com/nsgo-dev/game/packages/game/fog"
+	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/internal/formattest"
+	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/leaderboard/selfhost"
+	"github.com/nsgo-dev/game/packages/game/liveops"
+	"github.com/nsgo-dev/game/packages/game/quest"
+	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game/packages/game/tooling/apiref"
+	"github.com/nsgo-dev/game/packages/game/tooling/devstate"
+	"github.com/nsgo-dev/game/packages/game/worldmap"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-const (
-	// jsonImport is the JSON package every JSON format in this module decodes with.
-	jsonImport = "encoding/json"
-	// formatMarker starts the line that marks an entry on the File Formats page; the entry's ID and " -->" follow.
-	formatMarker = "<!-- format: "
-)
+// jsonImport is the JSON package every JSON format in this module decodes with.
+const jsonImport = "encoding/json"
 
 // notJSONFormats are the packages that decode JSON without defining a file format of their own, each with the reason, so the File Formats page need not list them. Every other package that decodes JSON must have an entry there.
 var notJSONFormats = map[string]string{
@@ -32,31 +53,326 @@ var notJSONFormats = map[string]string{
 	"tooling/assetcheck":  "scans other formats' JSON documents for asset references",
 }
 
-// formatEntry is an entry of the File Formats page: its ID, as in "<!-- format: ID -->", and the line it is marked on.
-type formatEntry struct {
-	id   string
-	line int
+// codeFormat is an entry of the File Formats page for a format that is not a YAML format with conformance checks: a JSON format, a Yarn script or another tool's format.
+type codeFormat struct {
+	// decl is the declaration in the entry's package that reads, writes or defines the format: a function, type, constant or variable, or a method written as "Type.Method". The test fails when the package no longer declares it, so an entry does not outlive its format.
+	decl string
+	// lang is the language of the examples the entry must show, such as "json", or empty for another tool's format, which the page describes without one.
+	lang string
+	// read loads one example with the format's reader and returns the reader's error. Nil when checkedBy names the test that does it instead.
+	read func(t *testing.T, data []byte) error
+	// checkedBy is the test, in the entry's package, that loads the entry's examples with formattest.Examples, for a reader that is unexported or in a main package.
+	checkedBy string
 }
 
-// readFormatEntries returns the entries docs/<lang>/formats.md marks, in page order.
-func readFormatEntries(t *testing.T, lang string) []formatEntry {
+// codeFormats are the entries of the File Formats page that formattest.Run does not check, by ID. Every entry is either the Doc of a formattest.Format or listed here.
+var codeFormats = map[string]codeFormat{
+	"save":                         {decl: "Store.Load", lang: "json", read: readSaveSlot},
+	"save#settings":                {decl: "SettingsStore.Load", lang: "json", read: readSettings},
+	"worldmap#state":               {decl: "State.UnmarshalJSON", lang: "json", read: readStrict[worldmap.State]},
+	"fog":                          {decl: "Fog.UnmarshalJSON", lang: "json", read: readStrict[fog.Fog]},
+	"entities":                     {decl: "World.Restore", lang: "json", read: readWorldSnapshot},
+	"input":                        {decl: "Actions.Load", lang: "json", read: readInputBindings},
+	"debug":                        {decl: "Console.LoadTunables", lang: "json", read: readTunables},
+	"tooling/devstate":             {decl: "Store.LoadSnapshot", lang: "json", read: readDevSnapshot},
+	"liveops":                      {decl: "DecodeCloudSave", lang: "json", read: readCloudSave},
+	"liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
+	"quest#snapshot":               {decl: "Snapshot", lang: "json", read: readQuestSnapshot},
+	"leaderboard/selfhost#records": {decl: "FileStore.Load", lang: "json", read: readLeaderboardRecords},
+	"l10n#catalog":                 {decl: "Catalog.LoadJSON", lang: "json", read: readStringTable},
+	"anim3d":                       {decl: "LoadEventsSidecar", lang: "json", read: readClipEvents},
+	"assets":                       {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
+	"cmd/sizecheck":                {decl: "LoadBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
+	"cmd/sizecheck#mobile":         {decl: "LoadMobileBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
+	"tooling/apiref":               {decl: "Unmarshal", lang: "json", read: readAPIReference},
+	"flow":                         {decl: "ParseYarn", lang: "yarn", read: readYarn},
+	"tilemap":                      {decl: "LoadTiled"},
+	"tilemap#ldtk":                 {decl: "LoadLDtk"},
+	"sprite":                       {decl: "LoadAtlas"},
+	"text":                         {decl: "LoadBMFont"},
+	"gltf":                         {decl: "Load"},
+	"world3d":                      {decl: "LoadMeshLibraryFromGLTF"},
+	"debug#trace":                  {decl: "Profiler.WriteChromeTrace"},
+}
+
+// formatVersions maps each exported constant whose name ends in "Version" and that holds an integer, as "<package>.<name>", to the entry of the File Formats page for the format whose version it is, or to "" for one notFormatVersions explains. A versioned format the page lacks is found this way even when its package already has an entry for another format.
+var formatVersions = map[string]string{
+	"ability.CurrentVersion":                "ability",
+	"accounts.ConfigVersion":                "accounts",
+	"accounts/sqlstore.SchemaVersion":       "",
+	"accounts/token.KeySetVersion":          "accounts/token",
+	"achievements.CurrentVersion":           "achievements",
+	"bullets.FormatVersion":                 "bullets",
+	"cards.FormatVersion":                   "cards",
+	"cloudsave.ConfigVersion":               "cloudsave",
+	"cloudsave/sqlstore.SchemaVersion":      "",
+	"cutscene.CurrentVersion":               "cutscene",
+	"fog.FormatVersion":                     "fog",
+	"fighting.FormatVersion":                "fighting",
+	"framedata.CurrentVersion":              "framedata",
+	"idle.LocaleVersion":                    "idle",
+	"internal/samplegltf.GLBVersion":        "",
+	"inventory.CurrentVersion":              "inventory",
+	"l10n.AssetManifestVersion":             "l10n",
+	"leaderboard.CurrentVersion":            "leaderboard",
+	"leaderboard/selfhost.ConfigVersion":    "leaderboard/selfhost",
+	"liveops.CloudSaveVersion":              "liveops",
+	"loot.CurrentVersion":                   "loot",
+	"modding.ManifestVersion":               "modding",
+	"particles.FormatVersion":               "particles",
+	"platformer.CurrentVersion":             "platformer",
+	"procgen.RulesVersion":                  "procgen",
+	"project.CurrentVersion":                "project",
+	"quality.FormatVersion":                 "quality",
+	"quest.FormatVersion":                   "quest",
+	"quest.SnapshotVersion":                 "quest#snapshot",
+	"refs.IndexVersion":                     "refs",
+	"replay.FormatVersion":                  "replay",
+	"resource.CurrentVersion":               "resource",
+	"rhythm.BeatMapVersion":                 "rhythm",
+	"rhythm.CalibrationsVersion":            "rhythm#calibrations",
+	"rooms.FormatVersion":                   "rooms",
+	"rts.FormationsVersion":                 "rts",
+	"sceneformat.CurrentVersion":            "sceneformat",
+	"sceneformat.MinVersion":                "sceneformat",
+	"skeletal.FormatVersion":                "skeletal",
+	"statedump.FormatVersion":               "statedump",
+	"stats.CurrentVersion":                  "stats",
+	"tooling/apiref.Version":                "tooling/apiref",
+	"tooling/bench.FormatVersion":           "tooling/bench",
+	"tooling/datatable.FormatVersion":       "tooling/datatable",
+	"tooling/importsettings.CurrentVersion": "tooling/importsettings",
+	"tooling/library.IndexVersion":          "tooling/library#index",
+	"tooling/library.ManifestVersion":       "tooling/library",
+	"undo.LogVersion":                       "undo",
+	"vehicle.ConfigVersion":                 "vehicle",
+	"vehicle.GhostVersion":                  "vehicle#ghost",
+	"vn.CastVersion":                        "vn",
+	"worldmap.StateVersion":                 "worldmap#state",
+	"worldmap.Version":                      "worldmap",
+}
+
+// notFormatVersions are the version constants formatVersions maps to no entry, each with the reason.
+var notFormatVersions = map[string]string{
+	"accounts/sqlstore.SchemaVersion":  "the version of a PostgreSQL schema, which lives in the database",
+	"cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
+	"internal/samplegltf.GLBVersion":   "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
+}
+
+// readStrict loads data as a T, refusing unknown fields and trailing data, for a type whose own UnmarshalJSON is the format's reader or that a save slot holds as it is.
+func readStrict[T any](_ *testing.T, data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var v T
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("trailing data")
+	}
+	return nil
+}
+
+func readSaveSlot(t *testing.T, data []byte) error {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The example is a game's second schema version, as a game that has migrated its saves once writes.
+	var v map[string]any
+	return save.NewFileStore(dir, save.WithVersion(2)).Load("main", &v)
+}
+
+func readSettings(t *testing.T, data []byte) error {
+	// The settings store keeps its defaults for a field it does not know, so the envelope's data is decoded strictly as Settings too.
+	type envelope struct {
+		Version int             `json:"version"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := readStrict[envelope](t, data); err != nil {
+		return err
+	}
+	var env envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return err
+	}
+	if err := readStrict[save.Settings](t, env.Data); err != nil {
+		return err
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := save.NewFileSettingsStore(dir).Load()
+	return err
+}
+
+// examplePosition and exampleHealth are the components the entities example holds, as a game registers its own with entities.RegisterCodec.
+type (
+	examplePosition struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}
+	exampleHealth struct {
+		HP int `json:"hp"`
+	}
+)
+
+func readWorldSnapshot(t *testing.T, data []byte) error {
+	if err := readStrict[entities.WorldSnapshot](t, data); err != nil {
+		return err
+	}
+	var snap entities.WorldSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+	w := entities.NewWorld()
+	if err := entities.RegisterCodec[examplePosition](w, "position"); err != nil {
+		t.Fatal(err)
+	}
+	if err := entities.RegisterCodec[exampleHealth](w, "health"); err != nil {
+		t.Fatal(err)
+	}
+	return w.Restore(snap)
+}
+
+// storage returns the core.Storage of a test app.
+func storage(t *testing.T) core.Storage {
+	return nsgotest.Start(t, func(cx *core.Scope) core.Node { return core.View{} }).Storage()
+}
+
+func readInputBindings(t *testing.T, data []byte) error {
+	st := storage(t)
+	if err := st.SetItem("controls", string(data)); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := input.NewActions().Load(st, "controls")
+	if err == nil && !ok {
+		err = errors.New("Load found no bindings")
+	}
+	return err
+}
+
+// exampleTunables are the tunables the debug example sets, registered as a game registers its own, since LoadTunables skips a name nothing registered.
+var exampleTunables = []string{"cheat.god", "player.lives", "player.speed"}
+
+func readTunables(t *testing.T, data []byte) error {
+	var names map[string]json.RawMessage
+	if err := json.Unmarshal(data, &names); err != nil {
+		return err
+	}
+	for name := range names {
+		if !slices.Contains(exampleTunables, name) {
+			return fmt.Errorf("tunable %q is not one this test registers; add it to exampleTunables and readTunables", name)
+		}
+	}
+	st := storage(t)
+	if err := st.SetItem("debug.console.tunables", string(data)); err != nil {
+		t.Fatal(err)
+	}
+	c := debug.NewConsole()
+	var speed float64
+	var lives int
+	var god bool
+	c.RegisterFloat("player.speed", 0, 10, &speed)
+	c.RegisterInt("player.lives", 1, 9, &lives)
+	c.RegisterBool("cheat.god", &god)
+	return c.LoadTunables(st, "")
+}
+
+func readDevSnapshot(t *testing.T, data []byte) error {
+	if err := readStrict[devstate.SessionSnapshot](t, data); err != nil {
+		return err
+	}
+	file := filepath.Join(t.TempDir(), "session.json")
+	if err := os.WriteFile(file, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := devstate.NewStore(file).LoadSnapshot()
+	if err == nil && !ok {
+		err = errors.New("LoadSnapshot found no snapshot")
+	}
+	return err
+}
+
+func readCloudSave(_ *testing.T, data []byte) error {
+	v, err := liveops.DecodeCloudSave(data)
+	if err == nil && v.Revision == 0 {
+		err = errors.New("DecodeCloudSave read a plain save, not a cloud payload")
+	}
+	return err
+}
+
+func readQuestSnapshot(t *testing.T, data []byte) error {
+	if err := readStrict[quest.Snapshot](t, data); err != nil {
+		return err
+	}
+	var s quest.Snapshot
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s.Version != quest.SnapshotVersion {
+		return fmt.Errorf("version %d, want %d", s.Version, quest.SnapshotVersion)
+	}
+	return nil
+}
+
+func readLeaderboardRecords(t *testing.T, data []byte) error {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scores"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scores", selfhost.AllTimePeriod+".jsonl"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := selfhost.OpenFileStore(dir, selfhost.FileStoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	n := 0
+	err = store.Load(context.Background(), func(selfhost.Record) error { n++; return nil })
+	if err == nil && n == 0 {
+		err = errors.New("Load read no record")
+	}
+	return err
+}
+
+func readStringTable(_ *testing.T, data []byte) error {
+	return l10n.NewCatalog("en").LoadJSON("en", data)
+}
+
+func readClipEvents(_ *testing.T, data []byte) error {
+	_, err := anim3d.LoadEventsSidecar(data)
+	return err
+}
+
+func readPackManifest(_ *testing.T, data []byte) error {
+	_, err := assets.ParsePackManifest(data)
+	return err
+}
+
+func readAPIReference(_ *testing.T, data []byte) error {
+	_, err := apiref.Unmarshal(data)
+	return err
+}
+
+func readYarn(_ *testing.T, data []byte) error {
+	_, err := flow.ParseYarn(string(data))
+	return err
+}
+
+// readFormatEntries returns the entries docs/<lang>/formats.md marks, in page order, as formattest reads them.
+func readFormatEntries(t *testing.T, lang string) []formattest.Entry {
 	t.Helper()
 	name := "docs/" + lang + "/formats.md"
 	data, err := os.ReadFile(filepath.Join("..", "..", "docs", lang, "formats.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var entries []formatEntry
-	for i, line := range strings.Split(string(data), "\n") {
-		if !strings.HasPrefix(line, formatMarker) {
-			continue
-		}
-		id, ok := strings.CutSuffix(strings.TrimPrefix(line, formatMarker), " -->")
-		if !ok || id == "" || strings.ContainsAny(id, " \t") {
-			t.Errorf("%s:%d: malformed entry marker %q; write <!-- format: <package>[#<name>] -->", name, i+1, line)
-			continue
-		}
-		entries = append(entries, formatEntry{id: id, line: i + 1})
+	entries, err := formattest.ParseEntries(data)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
 	}
 	if len(entries) == 0 {
 		t.Fatalf("%s marks no entries", name)
@@ -64,8 +380,8 @@ func readFormatEntries(t *testing.T, lang string) []formatEntry {
 	return entries
 }
 
-// walkSources calls visit with the slash path of the package directory and the parsed syntax of every non-test Go file of the module, skipping testdata, hidden and underscored directories and other modules.
-func walkSources(t *testing.T, visit func(pkg string, f *ast.File)) {
+// walkSources calls visit with the slash path of the package directory, the slash path of the file and its parsed syntax for every Go file of the module, test files included when tests is set, skipping testdata, hidden and underscored directories and other modules.
+func walkSources(t *testing.T, tests bool, visit func(pkg, file string, f *ast.File)) {
 	t.Helper()
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
@@ -84,14 +400,14 @@ func walkSources(t *testing.T, visit func(pkg string, f *ast.File)) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if !strings.HasSuffix(name, ".go") || (!tests && strings.HasSuffix(name, "_test.go")) {
 			return nil
 		}
 		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return err
 		}
-		visit(filepath.ToSlash(filepath.Dir(p)), f)
+		visit(filepath.ToSlash(filepath.Dir(p)), filepath.ToSlash(p), f)
 		return nil
 	})
 	if err != nil {
@@ -103,7 +419,7 @@ func walkSources(t *testing.T, visit func(pkg string, f *ast.File)) {
 func jsonDecoders(t *testing.T) []string {
 	t.Helper()
 	var pkgs []string
-	walkSources(t, func(pkg string, f *ast.File) {
+	walkSources(t, false, func(pkg, _ string, f *ast.File) {
 		if slices.Contains(pkgs, pkg) {
 			return
 		}
@@ -127,78 +443,209 @@ func jsonDecoders(t *testing.T) []string {
 	return pkgs
 }
 
-// conformanceDocs returns the Doc of every formattest.Run call in the module's tests, by the test file that makes it. A call whose Format has no Doc string literal is reported with an empty Doc.
-func conformanceDocs(t *testing.T) map[string][]string {
+// declarations returns, by package, the names its non-test files declare at top level: functions, types, constants and variables by name, and methods as "Type.Method".
+func declarations(t *testing.T) map[string]map[string]bool {
 	t.Helper()
-	docs := map[string][]string{}
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	decls := map[string]map[string]bool{}
+	walkSources(t, false, func(pkg, _ string, f *ast.File) {
+		if decls[pkg] == nil {
+			decls[pkg] = map[string]bool{}
 		}
-		if d.IsDir() {
-			if p != "." && (d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".")) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(p, "_test.go") {
-			return nil
-		}
-		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		name, ok := importName(f, formattestImport)
-		if !ok {
-			return nil
-		}
-		file := filepath.ToSlash(p)
-		ast.Inspect(f, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 2 {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "Run" {
-				return true
-			}
-			if x, ok := sel.X.(*ast.Ident); !ok || x.Name != name {
-				return true
-			}
-			doc := ""
-			if lit, ok := call.Args[1].(*ast.CompositeLit); ok {
-				for _, elt := range lit.Elts {
-					kv, ok := elt.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Doc" {
-						if s, ok := kv.Value.(*ast.BasicLit); ok && s.Kind == token.STRING {
-							doc, _ = strconv.Unquote(s.Value)
+		for _, d := range f.Decls {
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				name := d.Name.Name
+				if d.Recv != nil && len(d.Recv.List) == 1 {
+					name = recvName(d.Recv.List[0].Type) + "." + name
+				}
+				decls[pkg][name] = true
+			case *ast.GenDecl:
+				for _, s := range d.Specs {
+					switch s := s.(type) {
+					case *ast.TypeSpec:
+						decls[pkg][s.Name.Name] = true
+					case *ast.ValueSpec:
+						for _, n := range s.Names {
+							decls[pkg][n.Name] = true
 						}
 					}
 				}
 			}
-			docs[file] = append(docs[file], doc)
+		}
+	})
+	return decls
+}
+
+// recvName returns the type name of a method's receiver, without a pointer or type parameters.
+func recvName(x ast.Expr) string {
+	for {
+		switch e := x.(type) {
+		case *ast.StarExpr:
+			x = e.X
+		case *ast.IndexExpr:
+			x = e.X
+		case *ast.IndexListExpr:
+			x = e.X
+		case *ast.Ident:
+			return e.Name
+		default:
+			return ""
+		}
+	}
+}
+
+// versionConstants returns, as "<package>.<name>" and sorted, the exported top-level constants of the module's non-test files whose name ends in "Version" and whose value is an integer literal.
+func versionConstants(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	walkSources(t, false, func(pkg, _ string, f *ast.File) {
+		for _, d := range f.Decls {
+			g, ok := d.(*ast.GenDecl)
+			if !ok || g.Tok != token.CONST {
+				continue
+			}
+			for _, s := range g.Specs {
+				v := s.(*ast.ValueSpec)
+				for i, n := range v.Names {
+					if !n.IsExported() || !strings.HasSuffix(n.Name, "Version") || i >= len(v.Values) {
+						continue
+					}
+					if lit, ok := v.Values[i].(*ast.BasicLit); ok && lit.Kind == token.INT {
+						out = append(out, pkg+"."+n.Name)
+					}
+				}
+			}
+		}
+	})
+	slices.Sort(out)
+	return out
+}
+
+// conformanceDocs returns the Doc of every formattest.Format composite literal in the module's tests, by the test file that holds it, whether the literal is passed to formattest.Run directly or built in a variable or helper first. Doc may be a string literal or a string constant of the package; any other Doc, or a literal without one, is returned as "".
+func conformanceDocs(t *testing.T) map[string][]string {
+	t.Helper()
+	consts := map[string]map[string]string{} // package -> constant -> its string value
+	type format struct {
+		pkg string
+		doc ast.Expr // the Doc field's value, or nil
+	}
+	formats := map[string][]format{}
+	walkSources(t, true, func(pkg, file string, f *ast.File) {
+		if consts[pkg] == nil {
+			consts[pkg] = map[string]string{}
+		}
+		for _, d := range f.Decls {
+			g, ok := d.(*ast.GenDecl)
+			if !ok || g.Tok != token.CONST {
+				continue
+			}
+			for _, s := range g.Specs {
+				v := s.(*ast.ValueSpec)
+				for i, n := range v.Names {
+					if i < len(v.Values) {
+						if b, ok := v.Values[i].(*ast.BasicLit); ok && b.Kind == token.STRING {
+							consts[pkg][n.Name], _ = strconv.Unquote(b.Value)
+						}
+					}
+				}
+			}
+		}
+		if !strings.HasSuffix(file, "_test.go") {
+			return
+		}
+		name, ok := importName(f, formattestImport)
+		if !ok {
+			return
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			cl, ok := n.(*ast.CompositeLit)
+			if !ok || !isFormatType(cl.Type, name) {
+				return true
+			}
+			fm := format{pkg: pkg}
+			for _, elt := range cl.Elts {
+				if kv, ok := elt.(*ast.KeyValueExpr); ok {
+					if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Doc" {
+						fm.doc = kv.Value
+					}
+				}
+			}
+			formats[file] = append(formats[file], fm)
 			return true
 		})
-		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	docs := map[string][]string{}
+	for file, list := range formats {
+		for _, fm := range list {
+			doc := ""
+			switch e := fm.doc.(type) {
+			case *ast.BasicLit:
+				if e.Kind == token.STRING {
+					doc, _ = strconv.Unquote(e.Value)
+				}
+			case *ast.Ident:
+				doc = consts[fm.pkg][e.Name]
+			}
+			docs[file] = append(docs[file], doc)
+		}
 	}
 	return docs
 }
 
-// TestFormatsPage checks the File Formats page, docs/en/formats.md and docs/zh/formats.md, against the code: both pages mark the same entries in the same order, each entry names a package of the module, every YAML format that runs the conformance checks has its entry (whose examples formattest.Run checks), every package that decodes JSON has an entry unless notJSONFormats lists it, and an entry for a package that runs no conformance check is one that decodes JSON, so an entry outlives neither its format nor its package.
+// isFormatType reports whether x is the type formattest.Format, with or without type arguments, where name is the name the file imports formattest by.
+func isFormatType(x ast.Expr, name string) bool {
+	switch e := x.(type) {
+	case *ast.IndexExpr:
+		x = e.X
+	case *ast.IndexListExpr:
+		x = e.X
+	}
+	sel, ok := x.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Format" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == name
+}
+
+// testFuncs returns, by package, the names of the top-level test functions in the module's test files.
+func testFuncs(t *testing.T) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	walkSources(t, true, func(pkg, file string, f *ast.File) {
+		if !strings.HasSuffix(file, "_test.go") {
+			return
+		}
+		for _, d := range f.Decls {
+			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+				out[pkg] = append(out[pkg], fn.Name.Name)
+			}
+		}
+	})
+	return out
+}
+
+// validJSONLines reports whether data is JSON Lines of more than one line: one well-formed JSON value on each line.
+func validJSONLines(data []byte) bool {
+	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	for _, l := range lines {
+		if !json.Valid(l) {
+			return false
+		}
+	}
+	return len(lines) > 1
+}
+
+// TestFormatsPage checks the File Formats page, docs/en/formats.md and docs/zh/formats.md, against the code. Both pages mark the same entries in the same order, and each entry names a package of the module. Each entry is either the Doc of a formattest.Format, whose formattest.Run checks the entry's YAML examples, or in codeFormats, whose declaration the package must still have and whose JSON or Yarn examples the format's reader must load. Every package that decodes JSON has an entry unless notJSONFormats lists it, every exported integer constant named *Version is the version of an entry's format unless notFormatVersions explains it, and every JSON block on the page is well-formed.
+//
+// A format can still be missed when it is not YAML with conformance checks, its package decodes no JSON or already has an entry, and no such constant versions it, so a new format adds its entry to the page in the same change.
 func TestFormatsPage(t *testing.T) {
 	en := readFormatEntries(t, "en")
 	zh := readFormatEntries(t, "zh")
-	ids := func(entries []formatEntry) []string {
+	ids := func(entries []formattest.Entry) []string {
 		var out []string
 		for _, e := range entries {
-			out = append(out, e.id)
+			out = append(out, e.ID)
 		}
 		return out
 	}
@@ -208,32 +655,77 @@ func TestFormatsPage(t *testing.T) {
 	onPage := map[string]bool{}
 	pkgsOnPage := map[string]bool{}
 	for _, e := range en {
-		if onPage[e.id] {
-			t.Errorf("docs/en/formats.md:%d: entry %s is marked twice", e.line, e.id)
-		}
-		onPage[e.id] = true
-		pkg, _, _ := strings.Cut(e.id, "#")
+		onPage[e.ID] = true
+		pkg, _, _ := strings.Cut(e.ID, "#")
 		pkgsOnPage[pkg] = true
 		if goFiles, _ := filepath.Glob(filepath.Join(filepath.FromSlash(pkg), "*.go")); len(goFiles) == 0 {
-			t.Errorf("docs/en/formats.md:%d: entry %s names %s, which is not a package of the module", e.line, e.id, pkg)
+			t.Errorf("docs/en/formats.md:%d: entry %s names %s, which is not a package of the module", e.Line, e.ID, pkg)
+		}
+	}
+	for lang, entries := range map[string][]formattest.Entry{"en": en, "zh": zh} {
+		for _, e := range entries {
+			for _, b := range e.Blocks {
+				if b.Lang == "json" && !json.Valid(b.Data) && !validJSONLines(b.Data) {
+					t.Errorf("docs/%s/formats.md:%d: the JSON example of %s is not well-formed JSON", lang, b.Line, e.ID)
+				}
+			}
 		}
 	}
 
 	conformance := map[string]bool{}
 	docs := conformanceDocs(t)
 	if len(docs) == 0 {
-		t.Fatal("found no formattest.Run call; the scan is broken")
+		t.Fatal("found no formattest.Format literal; the scan is broken")
 	}
 	for file, list := range docs {
 		for _, doc := range list {
 			if doc == "" {
-				t.Errorf("%s: a formattest.Run call has no Doc string literal; name the format's entry on docs/en/formats.md", file)
+				t.Errorf("%s: a formattest.Format has no Doc this test can read; set it to a string literal or a string constant naming the format's entry on docs/en/formats.md", file)
 				continue
 			}
 			conformance[doc] = true
 			if !onPage[doc] {
 				t.Errorf("%s runs the conformance checks of %s, which docs/en/formats.md has no entry for; add one marked <!-- format: %s --> to both pages", file, doc, doc)
 			}
+		}
+	}
+
+	decls := declarations(t)
+	tests := testFuncs(t)
+	for _, e := range en {
+		cf, listed := codeFormats[e.ID]
+		switch {
+		case conformance[e.ID] && listed:
+			t.Errorf("entry %s is the Doc of a formattest.Format and in codeFormats; remove it from codeFormats", e.ID)
+		case !conformance[e.ID] && !listed:
+			t.Errorf("docs/en/formats.md:%d: entry %s is neither the Doc of a formattest.Format nor in codeFormats; remove the entry if its format is gone, or list it", e.Line, e.ID)
+		}
+		if !listed {
+			continue
+		}
+		pkg, _, _ := strings.Cut(e.ID, "#")
+		if !decls[pkg][cf.decl] {
+			t.Errorf("codeFormats lists %s as read by %s.%s, which the package no longer declares; update the entry and codeFormats, or remove both if the format is gone", e.ID, pkg, cf.decl)
+		}
+		switch {
+		case cf.lang == "":
+		case cf.read != nil:
+			for _, ex := range formattest.Examples(t, e.ID, cf.lang) {
+				if err := cf.read(t, ex.Data); err != nil {
+					t.Errorf("%s:%d: the example of %s does not load: %v", ex.Page, ex.Line, e.ID, err)
+				}
+			}
+		case cf.checkedBy != "":
+			if !slices.Contains(tests[pkg], cf.checkedBy) {
+				t.Errorf("codeFormats says %s in %s loads the examples of %s, but the package has no such test", cf.checkedBy, pkg, e.ID)
+			}
+		default:
+			t.Errorf("codeFormats gives %s examples in %s but neither a reader nor the test that loads them", e.ID, cf.lang)
+		}
+	}
+	for id := range codeFormats {
+		if !onPage[id] {
+			t.Errorf("codeFormats lists %s, which docs/en/formats.md has no entry for; add the entry or remove it from the list", id)
 		}
 	}
 
@@ -252,10 +744,30 @@ func TestFormatsPage(t *testing.T) {
 		}
 		t.Errorf("%s decodes JSON but docs/en/formats.md has no entry for it; add one marked <!-- format: %s --> to both pages, or, if it reads no file format of its own, list it in notJSONFormats with the reason", pkg, pkg)
 	}
-	for _, e := range en {
-		pkg, _, _ := strings.Cut(e.id, "#")
-		if !conformance[e.id] && !slices.Contains(decoders, pkg) {
-			t.Errorf("docs/en/formats.md:%d: entry %s is neither a YAML format whose conformance checks name it nor in a package that decodes JSON; remove it or name it in its format's formattest.Run Doc", e.line, e.id)
+
+	versions := versionConstants(t)
+	if len(versions) == 0 {
+		t.Fatal("found no version constant; the scan is broken")
+	}
+	for _, c := range versions {
+		id, ok := formatVersions[c]
+		switch {
+		case !ok:
+			t.Errorf("%s looks like the version of a format; map it in formatVersions to the format's entry on docs/en/formats.md, adding the entry to both pages if there is none, or to \"\" with the reason in notFormatVersions", c)
+		case id == "" && notFormatVersions[c] == "":
+			t.Errorf("formatVersions maps %s to no entry, but notFormatVersions gives no reason", c)
+		case id != "" && !onPage[id]:
+			t.Errorf("formatVersions maps %s to %s, which docs/en/formats.md has no entry for", c, id)
+		}
+	}
+	for c := range formatVersions {
+		if !slices.Contains(versions, c) {
+			t.Errorf("formatVersions lists %s, which the module no longer declares as an integer constant; remove it", c)
+		}
+	}
+	for c := range notFormatVersions {
+		if id, ok := formatVersions[c]; !ok || id != "" {
+			t.Errorf("notFormatVersions explains %s, which formatVersions does not map to \"\"", c)
 		}
 	}
 }

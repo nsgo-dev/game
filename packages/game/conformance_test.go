@@ -32,7 +32,7 @@ var notFormats = map[string]string{
 func yamlDecoders(t *testing.T) []string {
 	t.Helper()
 	var pkgs []string
-	walkSources(t, func(pkg string, f *ast.File) {
+	walkSources(t, false, func(pkg, _ string, f *ast.File) {
 		if slices.Contains(pkgs, pkg) {
 			return
 		}

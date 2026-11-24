@@ -465,3 +465,69 @@ func TestDocPagesFromPackageDir(t *testing.T) {
 		t.Errorf("pages = %d, want docs/en/formats.md and docs/zh/formats.md", len(pages))
 	}
 }
+
+func TestParseEntries(t *testing.T) {
+	const fence = "```"
+	page := "# Formats\n\n<!-- format: a -->\n### A\n\n" + fence + "yaml \n" + "x: 1\n" + fence + "  \n\n" + fence + "json\n{}\n" + fence + "\n\n" + fence + "go\n<!-- format: a -->\n<!-- format: quoted -->\n## not a heading\n" + fence + "\n\n## Next\n\n" + fence + "yaml\nlost: 1\n" + fence + "\n\n<!-- format: b#c -->\n" + fence + "yaml title=\"b\"\ny: 2\n" + fence + "\n"
+	entries, err := ParseEntries([]byte(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Entry{
+		{ID: "a", Line: 3, Blocks: []Block{{Lang: "yaml", Data: []byte("x: 1\n"), Line: 7}, {Lang: "json", Data: []byte("{}\n"), Line: 11}, {Lang: "go", Data: []byte("<!-- format: a -->\n<!-- format: quoted -->\n## not a heading\n"), Line: 15}}},
+		{ID: "b#c", Line: 26, Blocks: []Block{{Lang: "yaml", Data: []byte("y: 2\n"), Line: 28}}},
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("entries = %+v, want %+v", entries, want)
+	}
+	for i, e := range entries {
+		w := want[i]
+		if e.ID != w.ID || e.Line != w.Line || len(e.Blocks) != len(w.Blocks) {
+			t.Fatalf("entry %d = %+v, want %+v", i, e, w)
+		}
+		for j, b := range e.Blocks {
+			if b.Lang != w.Blocks[j].Lang || !bytes.Equal(b.Data, w.Blocks[j].Data) || b.Line != w.Blocks[j].Line {
+				t.Errorf("entry %s block %d = %q %q line %d, want %q %q line %d", e.ID, j, b.Lang, b.Data, b.Line, w.Blocks[j].Lang, w.Blocks[j].Data, w.Blocks[j].Line)
+			}
+		}
+	}
+
+	crlf := strings.ReplaceAll(page, "\n", "\r\n")
+	entries, err = ParseEntries([]byte(crlf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || !bytes.Equal(entries[0].Blocks[0].Data, []byte("x: 1\n")) {
+		t.Errorf("CRLF page entries = %+v, want the same entries without carriage returns", entries)
+	}
+}
+
+func TestParseEntriesFailures(t *testing.T) {
+	const fence = "```"
+	tests := []struct {
+		name, page string
+		words      []string
+	}{
+		{"indented marker", "  <!-- format: a -->\n", []string{"line 1:", "malformed entry marker", "start of the line"}},
+		{"no space", "<!--format: a -->\n", []string{"line 1:", "malformed entry marker"}},
+		{"no closing", "<!-- format: a\n", []string{"malformed entry marker"}},
+		{"space in ID", "<!-- format: a b -->\n", []string{"malformed entry marker"}},
+		{"marked twice", "<!-- format: a -->\n\n<!-- format: a -->\n", []string{"marked twice", "lines 1 and 3"}},
+		{"yml", "<!-- format: a -->\n" + fence + "yml\nx: 1\n" + fence + "\n", []string{"line 2:", "write ```yaml"}},
+		{"unclosed", "<!-- format: a -->\n" + fence + "yaml\nx: 1\n", []string{"line 2:", "not closed"}},
+		{"closing fence with text", "<!-- format: a -->\n" + fence + "yaml\nx: 1\n" + fence + " x\n", []string{"line 2:", "not closed"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseEntries([]byte(tt.page))
+			if err == nil {
+				t.Fatal("ParseEntries succeeded, want an error")
+			}
+			for _, w := range tt.words {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q does not contain %q", err, w)
+				}
+			}
+		})
+	}
+}
