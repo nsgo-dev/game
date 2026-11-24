@@ -1,6 +1,6 @@
 # Khronos sample models
 
-Unmodified copies of models from [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models), used by the Draco, meshopt, `KHR_texture_transform`, and `KHR_materials_variants` tests to verify decoded geometry, transformed UVs, and variant material selection against Khronos references, and by `render3d`'s skinning tests (`Cesium Man`, `Rigged Simple`). Only the `.gltf` and `.bin` files are kept except for `TextureTransformTest`, which also keeps `UV.png` and `Arrow.png` to verify transformed texture sampling directly. Each directory keeps the model's `LICENSE.md`.
+Unmodified copies of models from [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models), used by the Draco, meshopt, `KHR_texture_transform`, and `KHR_materials_variants` tests to verify decoded geometry, transformed UVs, and variant material selection against Khronos references, and by `render3d`'s skinning tests (`Cesium Man`, `Rigged Simple`) and unlit reference render (`Unlit Test`). Only the `.gltf` and `.bin` files are kept except for `TextureTransformTest`, which also keeps `UV.png` and `Arrow.png` to verify transformed texture sampling directly. Each directory keeps the model's `LICENSE.md`.
 
 | Model | Variants | Credit | License |
 | --- | --- | --- | --- |
@@ -16,3 +16,4 @@ Unmodified copies of models from [KhronosGroup/glTF-Sample-Assets](https://githu
 | Sunglasses Khronos | `glTF`, `glTF-Draco` | Eric Chadwick, Darmstadt Graphics Group GmbH, 2024 | CC-BY-4.0 |
 | Texture Transform Multi Test | `glTF` (`KHR_texture_transform` across PBR slots & UV sets) | Ed Mackey, Analytical Graphics, Inc., 2020 | CC-BY-4.0 |
 | Texture Transform Test | `glTF` (`KHR_texture_transform` offset, rotation, scale) | Microsoft, 2018 | CC0-1.0 |
+| Unlit Test | `glTF` (`KHR_materials_unlit`) | Ed Mackey, Analytical Graphics, Inc., 2019 | CC-BY-4.0 |
