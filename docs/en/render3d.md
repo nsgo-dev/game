@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, camera uniforms, and distance and height fog for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, camera uniforms, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -453,6 +453,74 @@ gpu.View(cx, gpu.ViewProps{
 - **Raw buffers and textures**: `QueueRawBuffer` streams custom vertex, storage or uniform buffers (`RawBufferUpload`), and `QueueRawTexture` streams pre-encoded or block-compressed mip chains, array layers and cube faces (`RawTextureUpload`, `TextureMipData`) and delivers the `gpu.Texture`.
 - **Priority and cancellation**: `PriorityHigh`, `PriorityNormal` and `PriorityLow` order both the decode and the upload queue (FIFO within a priority), so a high-priority asset preempts a low-priority one that is partway through its upload at the next chunk. Each `Queue*` call returns an `*UploadHandle` whose `State()`, `Progress()`, `Err()`, `Done()` and `Cancel()` are safe from any goroutine.
 - **Lifecycle**: passing a `*core.Scope` to `NewUploader` closes the uploader when the scope is disposed. `Close` cancels pending decodes, joins every worker goroutine, releases partially uploaded GPU resources and calls the `onReady` of each unfinished upload with `ErrUploaderClosed`; call it on the goroutine that calls `Step`, as scope disposal does. Pass `nil` in headless tests and call `Close` yourself. `UploaderOptions.MaxPending` bounds the unfinished uploads, failing further ones with `ErrUploadQueueFull`.
+
+||||||| parent of 6ae11efc (feat(render3d): add HDR render target, tone mapping, and sRGB/gamma pass)
+
+## HDR rendering, tone mapping, and gamma (`HDRTarget`, `ToneMapPass`)
+
+Render 3D lighting and emissive surfaces into a linear floating-point `HDRTarget` (`gpu.FormatRGBA16Float`, with automatic fallback to `gpu.FormatRGBA8Unorm` on devices that do not report `SupportsHDR(dev)`), then resolve it to the display with `ToneMapPass`:
+
+```go
+var (
+	hdr      *render3d.HDRTarget
+	tonePass *render3d.ToneMapPass
+)
+
+gpu.View(cx, gpu.ViewProps{
+	OnReady: func(dev *gpu.Device) {
+		w, h := dev.SurfaceSize()
+		if hdr == nil {
+			hdr, err = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
+				Label:       "scene-hdr",
+				Width:       uint32(w),
+				Height:      uint32(h),
+				DepthFormat: gpu.FormatDepth24Plus,
+				Retained:    true,
+			})
+		}
+		if tonePass == nil {
+			tonePass, err = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
+				Label:        "tonemap",
+				TargetFormat: dev.SurfaceFormat(),
+				Retained:     true,
+			})
+		} else {
+			tonePass.SetDevice(dev)
+		}
+	},
+	OnFrame: func(frame *gpu.Frame) {
+		// 1. Render 3D scene in linear HDR radiance (values > 1.0 preserved):
+		scenePass := frame.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x0a0e18), 1))
+		// ... bind camera, pipelines, and draw meshes ...
+		scenePass.End()
+
+		// 2. Tone-map and encode to sRGB onto the swapchain:
+		opts := render3d.ToneMapOptions{
+			Operator: render3d.ToneMapAgX,
+			Exposure: render3d.ExposureFromEV(0),
+		}
+		displayPass := frame.BeginRenderPass(gpu.RenderPassDesc{Label: "tonemap"})
+		_ = tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
+		displayPass.End()
+		frame.Submit()
+	},
+})
+```
+
+`ToneMapOptions.Operator` chooses the highlight compression curve:
+
+| Operator | Curve | Best for |
+| --- | --- | --- |
+| `ToneMapNone` | Linear clamp to `[0, 1]` | Debugging linear inputs |
+| `ToneMapReinhard` | Per-channel `c / (1 + c)` | Simple soft highlight roll-off |
+| `ToneMapACES` (`DefaultToneMapOptions`) | Narkowicz ACES filmic fit | High-contrast cinematic look |
+| `ToneMapNeutral` | Khronos PBR Neutral | Faithful mid-tone hues and PBR asset viewing |
+| `ToneMapAgX` | Troy Sobotka AgX default look | Smooth highlight desaturation without hue skew |
+
+- **Exposure**: set `ToneMapOptions.Exposure` directly or derive it from photographic stops with `ExposureFromEV(ev)` (`0 -> 1.0`, `+1 -> 2.0`, `-1 -> 0.5`). Non-positive or non-finite values default to `1.0`.
+- **Gamma & sRGB**: when `ToneMapOptions.Gamma <= 0` (the default) and `LinearOutput` is false, `ToneMapPass` applies the exact IEC 61966-2-1 linear-to-sRGB OETF (`LinearToSRGBExact` / `SRGBToLinearExact` on the CPU); a positive `Gamma` (such as `2.2`) applies power-law `pow(c, 1/Gamma)`. When `ToneMapPassDesc.TargetFormat.IsSRGB()` is true, `ToneMapPass` automatically emits linear tone-mapped RGB so the GPU's sRGB framebuffer hardware encodes linear-to-sRGB once without double gamma.
+- **Zero steady-state allocations & device loss**: `AppendToneMapUniforms` writes the `ToneMapUniformSize` (16-byte) uniform block with zero allocations, and `ToneMapPass` caches its bind group per source texture. Passing `Retained: true` to both `HDRTargetDesc` and `ToneMapPassDesc` lets NSGo recreate the textures, sampler, uniform buffer, cached bind group, and pipeline automatically after a device loss.
+- **CPU reference & portability**: `ApplyToneMap` mirrors `ToneMapWGSL` on the CPU. `ToneMapWGSL` avoids `exp` and `log2` builtins (using a range-reduced polynomial `log2` for AgX) and runs cleanly on both the full GPU profile and `nsgotest.NoGPUCompute` (WebGL 2 / OpenGL ES 3.0). Reference tests compare lit HDR renders against `render3d/testdata/golden/tonemap_aces.png`, `tonemap_agx.png`, and `tonemap_neutral.png`; `UPDATE_GOLDEN=1` rewrites them.
 
 ## 3D debug draw and transform gizmos
 
