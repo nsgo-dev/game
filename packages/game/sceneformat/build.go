@@ -53,6 +53,8 @@ type BuiltScene struct {
 	Layers []*BuiltLayer
 	// Objects indexes every built object in the scene, children included, by its unique ID.
 	Objects map[string]*BuiltObject
+	// Events is the EventBus wired from Doc.Connections when built with BuildWith and BuildOptions.Events (or via BindEvents), or nil otherwise.
+	Events *EventBus
 
 	// materialed are the sprite objects with a material, in build order, which SyncMaterials updates.
 	materialed []*BuiltObject
@@ -102,8 +104,19 @@ type BuiltObject struct {
 	WorldAlpha float32
 }
 
+// BuildOptions configures BuildWith.
+type BuildOptions struct {
+	// Events, when non-nil, validates the resolved scene's connections against it and binds them into BuiltScene.Events, linked to the built objects.
+	Events *EventRegistry
+}
+
 // Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
 func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
+	return BuildWith(doc, resolver, BuildOptions{})
+}
+
+// BuildWith is Build with BuildOptions, such as binding declared event connections into BuiltScene.Events.
+func BuildWith(doc *SceneDoc, resolver AssetResolver, opts BuildOptions) (*BuiltScene, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
 	}
@@ -114,6 +127,11 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 			return nil, err
 		}
 		doc = resolved
+	}
+	if opts.Events != nil {
+		if err := ValidateConnections(doc, opts.Events); err != nil {
+			return nil, err
+		}
 	}
 
 	built := &BuiltScene{
@@ -222,7 +240,26 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		built.Layers = append(built.Layers, bl)
 	}
 
+	if opts.Events != nil {
+		if _, err := built.BindEvents(opts.Events); err != nil {
+			return nil, err
+		}
+	}
+
 	return built, nil
+}
+
+// BindEvents validates s.Doc's connections against reg, wires them into an EventBus whose EventCall values carry s, SourceObject and TargetObject, stores the bus on s.Events, and returns it.
+func (s *BuiltScene) BindEvents(reg *EventRegistry) (*EventBus, error) {
+	if s == nil {
+		return nil, fmt.Errorf("sceneformat: nil built scene")
+	}
+	bus, err := reg.bind(s.Doc, nil, nil, s)
+	if err != nil {
+		return nil, err
+	}
+	s.Events = bus
+	return bus, nil
 }
 
 // buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite to drawables in depth-first order, each parent before its children.

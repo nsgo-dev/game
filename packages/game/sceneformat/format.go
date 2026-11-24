@@ -17,7 +17,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides) and inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides).
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides), and declarative event connections (SceneDoc.Connections).
 const CurrentVersion = 2
 
 // MinVersion is the oldest scene format schema version this package still reads. A version 1 document is read and written unchanged, and may not use any field version 2 added.
@@ -76,6 +76,8 @@ type SceneDoc struct {
 	Overrides map[string]ObjectOverride `yaml:"overrides,omitempty"`
 	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.
 	Layers []LayerDoc `yaml:"layers,omitempty"`
+	// Connections declares event-to-handler wiring between objects in the scene, as Godot's signal connections do, resolved through an EventRegistry when the scene is bound at runtime. Version 2.
+	Connections []ConnectionDoc `yaml:"connections,omitempty"`
 }
 
 // LayerOverride changes an inherited layer in a scene that inherits another (SceneDoc.LayerOverrides). A field left unset keeps the base layer's value.
@@ -417,11 +419,13 @@ type ParseOptions struct {
 	File string
 	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column.
 	Components *ComponentRegistry
+	// Events, when non-nil, checks every connection in the scene against the registered events and handlers: an unregistered event or handler, a missing required component on the source or target object, or an invalid connection arg fails the load with a *loaderr.Error carrying File, Line, Column, Field and Fix.
+	Events *EventRegistry
 }
 
-// ParseWith is Parse with a source name for errors and an optional component registry. Defaults of unset component fields are not written into the document, so saving it again changes nothing; read them with ComponentRegistry.Resolve.
+// ParseWith is Parse with a source name for errors and optional component and event registries. Defaults of unset component fields and handler args are not written into the document, so saving it again changes nothing; read them with ComponentRegistry.Resolve and EventRegistry.Bind.
 func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
-	doc, err := parse(data, opts.Components)
+	doc, err := parse(data, opts.Components, opts.Events)
 	if err != nil {
 		var ce *ComponentError
 		if errors.As(err, &ce) {
@@ -436,8 +440,11 @@ func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
 // fixScene is the fix for a scene document error that has no more specific one.
 const fixScene = "correct the scene document to match its version's schema in docs/en/scene.md"
 
-// fieldError returns err as a *loaderr.Error about the field a *FieldError in its chain names, which wraps err, or err itself when it holds no FieldError.
+// fieldError returns err as a *loaderr.Error about the field a *FieldError in its chain names, which wraps err, or err itself when it already holds a *loaderr.Error or holds no FieldError.
 func fieldError(err error, data []byte) error {
+	if _, ok := loaderr.As(err); ok {
+		return err
+	}
 	var fe *FieldError
 	if !errors.As(err, &fe) {
 		return err
@@ -485,7 +492,7 @@ func fieldPath(data []byte, steps []string) string {
 	return loaderr.Path(parts...)
 }
 
-func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
+func parse(data []byte, reg *ComponentRegistry, events *EventRegistry) (*SceneDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("sceneformat: empty scene document")
 	}
@@ -516,6 +523,11 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 		}
 		// The node walk above locates errors in plain mappings; this pass also covers values it could not see key by key, such as merge keys.
 		if err := ValidateComponents(&doc, reg); err != nil {
+			return nil, err
+		}
+	}
+	if events != nil {
+		if err := ValidateConnections(&doc, events); err != nil {
 			return nil, err
 		}
 	}
@@ -656,6 +668,9 @@ func Validate(doc *SceneDoc) error {
 		if err := validateObjects(doc.Version, at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
 			return err
 		}
+	}
+	if err := validateConnectionsDoc(doc.Connections, objectIDs, !doc.RefersToScenes()); err != nil {
+		return err
 	}
 	return nil
 }

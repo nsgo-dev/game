@@ -119,42 +119,56 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 	if _, dup := r.types[t.Name]; dup {
 		return fmt.Errorf("sceneformat: component type %q is already registered", t.Name)
 	}
-	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: make([]Field, len(t.Fields))}
-	seen := make(map[string]struct{}, len(t.Fields))
-	for i, f := range t.Fields {
+	fields, err := validateFields(fmt.Sprintf("component type %q", t.Name), "field", t.Fields)
+	if err != nil {
+		return err
+	}
+	ct := &ComponentType{Name: t.Name, Doc: t.Doc, Fields: fields}
+	if r.types == nil {
+		r.types = make(map[string]*ComponentType)
+	}
+	r.types[t.Name] = ct
+	return nil
+}
+
+// validateFields validates and normalizes a slice of Field definitions for owner (such as `component type "body"` or `handler "open"`), naming each item kind (such as "field" or "arg") in errors.
+func validateFields(owner, item string, fields []Field) ([]Field, error) {
+	out := make([]Field, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for i, f := range fields {
 		if f.Name == "" {
-			return fmt.Errorf("sceneformat: component type %q field %d has an empty name", t.Name, i)
+			return nil, fmt.Errorf("sceneformat: %s %s %d has an empty name", owner, item, i)
 		}
 		if _, dup := seen[f.Name]; dup {
-			return fmt.Errorf("sceneformat: component type %q has duplicate field %q", t.Name, f.Name)
+			return nil, fmt.Errorf("sceneformat: %s has duplicate %s %q", owner, item, f.Name)
 		}
 		seen[f.Name] = struct{}{}
 		if f.Kind < FieldBool || f.Kind > FieldString {
-			return fmt.Errorf("sceneformat: component type %q field %q has unknown kind %v", t.Name, f.Name, f.Kind)
+			return nil, fmt.Errorf("sceneformat: %s %s %q has unknown kind %v", owner, item, f.Name, f.Kind)
 		}
 		if f.Min != nil || f.Max != nil {
 			if !f.Kind.IsNumeric() {
-				return fmt.Errorf("sceneformat: component type %q field %q is %v and cannot have a range", t.Name, f.Name, f.Kind)
+				return nil, fmt.Errorf("sceneformat: %s %s %q is %v and cannot have a range", owner, item, f.Name, f.Kind)
 			}
 			if (f.Min != nil && !isFinite64(*f.Min)) || (f.Max != nil && !isFinite64(*f.Max)) {
-				return fmt.Errorf("sceneformat: component type %q field %q range must be finite", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s %s %q range must be finite", owner, item, f.Name)
 			}
 			if f.Min != nil && f.Max != nil && *f.Min > *f.Max {
-				return fmt.Errorf("sceneformat: component type %q field %q has min %v above max %v", t.Name, f.Name, *f.Min, *f.Max)
+				return nil, fmt.Errorf("sceneformat: %s %s %q has min %v above max %v", owner, item, f.Name, *f.Min, *f.Max)
 			}
 			if f.Kind == FieldInt && ((f.Min != nil && *f.Min != math.Trunc(*f.Min)) || (f.Max != nil && *f.Max != math.Trunc(*f.Max))) {
-				return fmt.Errorf("sceneformat: component type %q field %q is int and its range must be whole numbers", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s %s %q is int and its range must be whole numbers", owner, item, f.Name)
 			}
 		}
 		if f.Step != 0 {
 			if !f.Kind.IsNumeric() {
-				return fmt.Errorf("sceneformat: component type %q field %q is %v and cannot have a step", t.Name, f.Name, f.Kind)
+				return nil, fmt.Errorf("sceneformat: %s %s %q is %v and cannot have a step", owner, item, f.Name, f.Kind)
 			}
 			if !isFinite64(f.Step) || f.Step < 0 {
-				return fmt.Errorf("sceneformat: component type %q field %q step must be positive and finite", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s %s %q step must be positive and finite", owner, item, f.Name)
 			}
 			if f.Kind == FieldInt && f.Step != math.Trunc(f.Step) {
-				return fmt.Errorf("sceneformat: component type %q field %q is int and its step must be a whole number", t.Name, f.Name)
+				return nil, fmt.Errorf("sceneformat: %s %s %q is int and its step must be a whole number", owner, item, f.Name)
 			}
 		}
 		nf := f
@@ -170,16 +184,12 @@ func (r *ComponentRegistry) Register(t ComponentType) error {
 		}
 		norm, msg := nf.check(def)
 		if msg != "" {
-			return fmt.Errorf("sceneformat: component type %q field %q default: %s", t.Name, f.Name, msg)
+			return nil, fmt.Errorf("sceneformat: %s %s %q default: %s", owner, item, f.Name, msg)
 		}
 		nf.Default = norm
-		ct.Fields[i] = nf
+		out[i] = nf
 	}
-	if r.types == nil {
-		r.types = make(map[string]*ComponentType)
-	}
-	r.types[t.Name] = ct
-	return nil
+	return out, nil
 }
 
 // MustRegister is Register for package-level setup; it panics when Register returns an error.
@@ -388,14 +398,21 @@ func unknownFieldMsg(t *ComponentType, field string) string {
 }
 
 func cloneComponentType(t *ComponentType) ComponentType {
-	out := ComponentType{Name: t.Name, Doc: t.Doc, Fields: make([]Field, len(t.Fields))}
-	for i, f := range t.Fields {
-		out.Fields[i] = f
+	return ComponentType{Name: t.Name, Doc: t.Doc, Fields: cloneFields(t.Fields)}
+}
+
+func cloneFields(fields []Field) []Field {
+	if fields == nil {
+		return nil
+	}
+	out := make([]Field, len(fields))
+	for i, f := range fields {
+		out[i] = f
 		if f.Min != nil {
-			out.Fields[i].Min = Float64(*f.Min)
+			out[i].Min = Float64(*f.Min)
 		}
 		if f.Max != nil {
-			out.Fields[i].Max = Float64(*f.Max)
+			out[i].Max = Float64(*f.Max)
 		}
 	}
 	return out

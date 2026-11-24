@@ -11,7 +11,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Format | Schema | Files |
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
-| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, read by `sceneformat.Parse` |
+| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` using instancing, inheritance or event connections, read by `sceneformat.Parse` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), import sidecars (#487), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).

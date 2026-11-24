@@ -2,6 +2,7 @@ package assetcheck
 
 import (
 	"errors"
+	"io/fs"
 	"maps"
 	"path"
 	"regexp"
@@ -33,6 +34,11 @@ func (c *checker) checkScene(p string) {
 		return
 	}
 	s := &sceneCheck{checker: c, path: p, root: &root, lines: yamlLineCount(data), project: c.projectRoot(path.Dir(p))}
+	if doc.Inherits != "" {
+		if _, ok := s.fileRef(s.path, s.line("inherits"), s.project, doc.Inherits, "inherited scene"); !ok {
+			s.sceneRefBroken = true
+		}
+	}
 	for _, name := range slices.Sorted(maps.Keys(doc.Tilemaps)) {
 		s.tilemap(doc.Tilemaps[name], "tilemaps", name)
 	}
@@ -44,9 +50,12 @@ func (c *checker) checkScene(p string) {
 		}
 		s.objects(l.Objects, "layers", li, "objects")
 	}
+	if doc.RefersToScenes() && !s.sceneRefBroken {
+		s.checkResolved(doc, data)
+	}
 }
 
-// objects checks the sprites and materials of objs, found at steps in the scene, and of their descendants.
+// objects checks the sprites, materials and instanced scene references of objs, found at steps in the scene, and of their descendants.
 func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 	for j := range objs {
 		o := &objs[j]
@@ -57,17 +66,43 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 		if o.Material != "" {
 			s.material(o.Material, append(slices.Clip(op), "material")...)
 		}
+		if o.Scene != "" {
+			if _, ok := s.fileRef(s.path, s.line(append(slices.Clip(op), "scene")...), s.project, o.Scene, "instanced scene"); !ok {
+				s.sceneRefBroken = true
+			}
+		}
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
+	}
+}
+
+// checkResolved resolves a scene that inherits or instances other scenes, so connection endpoints, overrides and ID collisions across files are checked too.
+func (s *sceneCheck) checkResolved(doc *sceneformat.SceneDoc, data []byte) {
+	projectFS := s.fsys
+	if s.project != "." {
+		sub, err := fs.Sub(s.fsys, s.project)
+		if err != nil {
+			s.problem(s.path, 0, "%v", err)
+			return
+		}
+		projectFS = sub
+	}
+	if _, err := sceneformat.Resolve(doc, sceneformat.FSScenes{FS: projectFS}); err != nil {
+		if strings.HasPrefix(err.Error(), "sceneformat: resolved scene:") {
+			s.yamlError(s.path, data, err)
+			return
+		}
+		s.problem(s.path, 0, "%v", err)
 	}
 }
 
 // sceneCheck checks the references of one valid scene.
 type sceneCheck struct {
 	*checker
-	path    string
-	root    *yaml.Node
-	lines   int
-	project string
+	path           string
+	root           *yaml.Node
+	lines          int
+	project        string
+	sceneRefBroken bool
 }
 
 // line returns the line of the field at steps in the scene.

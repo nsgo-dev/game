@@ -47,6 +47,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2，需要 `inherits`）。 |
 | `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2，需要 `inherits`）。 |
 | `layers` | 列表 | 有序图层列表，按 `order` 从小到大绘制，`order` 相同时保持文档顺序。 |
+| `connections` | 列表 | 可选，场景内对象之间的事件到处理函数连接（版本 2，见下文“事件连接”）。 |
 
 ### 相机（Camera）
 
@@ -210,6 +211,65 @@ built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: 
 ```
 
 在编辑器中，`PlaceScene(layer, path, x, y)` 以可撤销命令放置一个场景文件的实例，其 ID 以文件名命名。编辑器的 `Resolver` 必须实现 `SceneResolver`；`PlaceScene`，以及 `PlaceObject` 在放置的对象树中含有 `scene` 时，会先按放置后的样子解析整个场景，解析失败则拒绝放置：文件缺失或无效、override 指向不存在的对象或取值无效、展开实例后 ID 冲突。把编辑器的 `ScenePath` 设为当前场景相对项目根目录的路径（`OpenYAML` 会清空它），这样直接或经由其他文件回到当前场景的实例会在保存出自我实例化的文件之前，作为场景循环被拒绝。在版本 1 的场景中放置实例会把场景升级到版本 2（撤销时恢复）。新 ID 不仅与场景自身的 ID 比较，还与继承的基础场景和实例带来的 ID 比较。视口通过实例的根对象选择和移动整个实例；运行（Play）时使用解析后的场景副本，因此通过 `BuiltObject.Doc` 所做的改动在停止（Stop）恢复之前会反映在编辑器的文档中。
+
+### 事件连接（#490）
+
+版本 2 的场景可以在 `connections` 下把一个对象的命名事件连接到另一个对象的命名处理函数，就像 Godot 在 `.tscn` 文件中连接信号一样，关卡作者可以在 YAML 中把按钮连到门，而无需在两者之间手写 Go 胶水代码。
+
+`connections` 中的每条连接包含：
+
+- `from`（必填）：发出事件的对象 ID（例如 `red_button` 或 `west/button`）
+- `event`（必填）：`from` 发出的事件名（例如 `pressed`）
+- `to`（必填）：接收事件的对象 ID（例如 `exit_door` 或 `west/door`）
+- `handler`（必填）：在 `to` 上调用的处理函数名（例如 `open`）
+- `args`（可选）：声明在 YAML 中的静态参数映射，与运行时负载一起传给处理函数；键按字母序编码以保持确定性输出
+- `once`（可选）：布尔值；为 `true` 时在首次触发调用处理函数之前断开该连接
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Puzzle Room
+layers:
+  - name: actors
+    objects:
+      - id: red_button
+        components: { button: {} }
+      - id: exit_door
+        components: { door: { open: false } }
+connections:
+  - from: red_button
+    event: pressed
+    to: exit_door
+    handler: open
+    args:
+      speed: 2.5
+    once: true
+```
+
+`Validate` 会拒绝版本 1 场景中的 `connections`、空的 `from`/`event`/`to`/`handler` 字段，以及（对自包含场景）未在场景中声明的 `from` 或 `to` 对象 ID。`Resolve` 会把被实例化场景的连接一并带入解析后的场景，并为 `from` 和 `to` 加上 `<实例ID>/` 前缀，从而保证子场景的多个实例彼此隔离；在继承场景中，基础场景的连接排在派生场景自身连接之前；解析后的总连接数上限为 `MaxResolvedConnections`，且所有声明的连接都会按解析后的对象 ID 集合校验。`game check`（`assetcheck`）同时检查自包含场景与解析后的连接，并定位到出错行。
+
+`EventRegistry` 在 Go 中显式声明已知事件（`EventType`）和处理函数（`HandlerType`），不依赖反射——每一项都可指定必需的 `Component` 名称、带类型的静态参数 `Args`（`[]Field`，沿用与 `ComponentType.Fields` 相同的种类与范围校验规则）以及 `Func(EventCall)` 回调（仅用于校验的注册表可留空 `Func`）：
+
+```go
+events := sceneformat.NewEventRegistry()
+events.MustRegisterEvent(sceneformat.EventType{Name: "pressed", Component: "button"})
+events.MustRegisterHandler(sceneformat.HandlerType{
+	Name:      "open",
+	Component: "door",
+	Args:      []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}},
+	Func: func(call sceneformat.EventCall) {
+		openDoor(call.World, call.TargetEntity, call.Args["speed"].(float64))
+	},
+})
+
+doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "scenes/room.scene.yaml", Events: events})
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Scenes: scenes, Events: events})
+spawned.Events.EmitEntity(spawned.Entities["red_button"], "pressed", nil)
+```
+
+- 传入 `ParseOptions.Events` 的 `ParseWith`（以及 `ValidateConnections`）会拒绝未注册的事件或处理函数、缺少必需组件的对象，以及未知、种类不符或越界的处理函数 `args`，并返回带有文件、行号、列号、字段路径和修复建议的 `*loaderr.Error`。未设置参数的默认值不会写回文档，因此重新保存保持无损往返。
+- `EventRegistry.Bind(doc)` 按对象 ID 绑定一个 `EventBus`；`BuildWith(doc, resolver, BuildOptions{Events: events})`（或 `BuiltScene.BindEvents(events)`）绑定 `BuiltScene.Events` 并填充 `SourceObject` 与 `TargetObject`；`SpawnEntitiesWith(doc, world, SpawnOptions{Scenes: scenes, Events: events})`（或 `EventRegistry.BindEntities`）绑定 `SpawnedScene.Events` 并填充 `World`、`SourceEntity` 与 `TargetEntity`，会自动跳过已销毁的实体，且绑定失败时不会向 `world` 生成任何实体。
+- `EventBus.Emit` / `EmitEntity` 按文档顺序同步派发（支持链式和重入触发），`Enqueue` / `EnqueueEntity` 配合 `Flush` 按 FIFO 顺序延迟派发，`DisconnectAll` 断开所有连接。
 
 ### 示例
 

@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Puzzle Room
+layers:
+  - name: actors
+    objects:
+      - id: master_switch
+        components:
+          button: {}
+      - id: west
+        x: 16
+        scene: scenes/button_door.scene.yaml
+      - id: east
+        x: 128
+        scene: scenes/button_door.scene.yaml
+connections:
+  - from: master_switch
+    event: pressed
+    to: west/door
+    handler: open
+  - from: master_switch
+    event: pressed
+    to: east/door
+    handler: open

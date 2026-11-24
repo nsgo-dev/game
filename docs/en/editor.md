@@ -47,6 +47,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `layerOverrides` | map | Changes to inherited layers by name: `space`, `order`, `visible`, `tilemap` (version 2, requires `inherits`). |
 | `overrides` | map | Changes to inherited objects by ID (version 2, requires `inherits`). |
 | `layers` | list | Ordered list of layers drawn lowest `order` first, preserving document order on ties. |
+| `connections` | list | Optional event-to-handler wiring between objects in the scene (version 2, see Event connections below). |
 
 ### Camera
 
@@ -210,6 +211,65 @@ built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: 
 ```
 
 In the editor, `PlaceScene(layer, path, x, y)` places an instance of a scene file as an undoable command, with an ID named after the file. The editor's `Resolver` must implement `SceneResolver`; `PlaceScene`, and `PlaceObject` for any object tree that names a `scene`, resolve the scene as it would be with the instance placed and refuse it when that fails: a missing or invalid file, an override that names no object or holds a bad value, or IDs that collide once instances are expanded. Set the editor's `ScenePath` to the open scene's path from the project root (`OpenYAML` clears it) so that an instance leading back to the open scene, directly or through other files, is refused as a scene cycle before the saved file instances itself. Placing an instance raises a version 1 scene to version 2 (which Undo restores). New IDs are checked against the IDs the scene gets from its base and its instances as well as its own. The viewports select and move an instance by its root object, and Play runs a resolved copy of the scene, so changes made through `BuiltObject.Doc` show in the editor's document until Stop restores it.
+
+### Event connections (#490)
+
+A version 2 scene can wire one object's named events to another object's named handlers under `connections`, as Godot connects signals in `.tscn` files, so a level author can connect a button to a door in YAML without Go glue code between them.
+
+Each entry in `connections` has:
+
+- `from` (required): ID of the object that emits the event (such as `red_button` or `west/button`)
+- `event` (required): name of the event emitted by `from` (such as `pressed`)
+- `to` (required): ID of the object receiving the event (such as `exit_door` or `west/door`)
+- `handler` (required): name of the handler invoked on `to` (such as `open`)
+- `args` (optional): static arguments mapping passed to the handler alongside any runtime payload; keys encode in sorted order for deterministic YAML
+- `once` (optional): boolean; when `true`, disconnects the connection before running the handler the first time it fires
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Puzzle Room
+layers:
+  - name: actors
+    objects:
+      - id: red_button
+        components: { button: {} }
+      - id: exit_door
+        components: { door: { open: false } }
+connections:
+  - from: red_button
+    event: pressed
+    to: exit_door
+    handler: open
+    args:
+      speed: 2.5
+    once: true
+```
+
+`Validate` refuses `connections` in version 1 scenes, empty `from`/`event`/`to`/`handler` fields, and—for self-contained scenes—`from` or `to` IDs that name no object in the scene. `Resolve` carries an instanced scene's connections into the resolved scene with both `from` and `to` prefixed by `<instanceID>/` so multiple instances of a sub-scene stay isolated, carries base connections into inherited scenes ahead of the derived scene's own connections, caps total resolved connections at `MaxResolvedConnections`, and checks every declared connection against the resolved object IDs. `game check` (`assetcheck`) validates both self-contained and resolved connections and points at the offending line.
+
+An `EventRegistry` declares the known events (`EventType`) and handlers (`HandlerType`) in Go without reflection—each with an optional required `Component` name, optional typed `Args` (`[]Field`, validated with the same kind and range rules as `ComponentType.Fields`), and a `Func(EventCall)` callback (which may be nil in a validation-only registry):
+
+```go
+events := sceneformat.NewEventRegistry()
+events.MustRegisterEvent(sceneformat.EventType{Name: "pressed", Component: "button"})
+events.MustRegisterHandler(sceneformat.HandlerType{
+	Name:      "open",
+	Component: "door",
+	Args:      []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}},
+	Func: func(call sceneformat.EventCall) {
+		openDoor(call.World, call.TargetEntity, call.Args["speed"].(float64))
+	},
+})
+
+doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "scenes/room.scene.yaml", Events: events})
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Scenes: scenes, Events: events})
+spawned.Events.EmitEntity(spawned.Entities["red_button"], "pressed", nil)
+```
+
+- `ParseWith` with `ParseOptions.Events` (and `ValidateConnections`) refuses unregistered events or handlers, objects missing a required component, and unknown, wrong-kind or out-of-range handler `args`, returning a `*loaderr.Error` with file, line, column, field and fix. Defaults of unset handler args are not written back into the document, so saving stays round-trip clean.
+- `EventRegistry.Bind(doc)` wires an `EventBus` keyed by object ID; `BuildWith(doc, resolver, BuildOptions{Events: events})` (or `BuiltScene.BindEvents(events)`) wires `BuiltScene.Events` with `SourceObject` and `TargetObject`; `SpawnEntitiesWith(doc, world, SpawnOptions{Scenes: scenes, Events: events})` (or `EventRegistry.BindEntities`) wires `SpawnedScene.Events` with `World`, `SourceEntity` and `TargetEntity`, skipping destroyed entities and leaving `world` untouched if binding fails.
+- `EventBus.Emit` / `EmitEntity` deliver synchronously in document order (supporting chained and re-entrant emissions), `Enqueue` / `EnqueueEntity` with `Flush` deliver deferred events in FIFO order, and `DisconnectAll` tears down all connections.
 
 ### Example
 

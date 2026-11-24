@@ -43,7 +43,7 @@ type format struct {
 }
 
 // sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
-var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true}
+var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Connections": true}
 
 // sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 2 added.
 func sceneV1Field(f reflect.StructField) jsonschema.Field {

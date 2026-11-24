@@ -477,6 +477,77 @@ func TestExamples(t *testing.T) {
 	}
 }
 
+func TestCheckSceneConnections(t *testing.T) {
+	sub := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: button
+      - id: door
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+`
+	good := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: west
+        scene: scenes/pair.scene.yaml
+      - id: lever
+connections:
+  - from: lever
+    event: pressed
+    to: west/door
+    handler: open
+`
+	fsys := fstest.MapFS{
+		"nsgo.yaml":               &fstest.MapFile{Data: []byte("name: test\n")},
+		"scenes/pair.scene.yaml":  &fstest.MapFile{Data: []byte(sub)},
+		"scenes/level.scene.yaml": &fstest.MapFile{Data: []byte(good)},
+	}
+	r, err := assetcheck.Check(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.OK() {
+		t.Fatalf("valid connected scenes reported problems:\n%s", problems(r))
+	}
+
+	// Self-contained scene with unknown target object reports the exact line of "to".
+	badLocal := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: button
+connections:
+  - from: button
+    event: pressed
+    to: missing_door
+    handler: open
+`
+	fsys["scenes/bad_local.scene.yaml"] = &fstest.MapFile{Data: []byte(badLocal)}
+	// Instancing scene with unknown instanced target reports the exact line of "to".
+	badInst := strings.Replace(good, "to: west/door", "to: west/ghost", 1)
+	fsys["scenes/bad_inst.scene.yaml"] = &fstest.MapFile{Data: []byte(badInst)}
+
+	r, err = assetcheck.Check(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := problems(r)
+	for _, want := range []string{
+		`scenes/bad_local.scene.yaml:9: sceneformat: connection 0 references unknown target object "missing_door"`,
+		`scenes/bad_inst.scene.yaml:11: sceneformat: connection 0 references unknown target object "west/ghost"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("problems do not include %q:\n%s", want, got)
+		}
+	}
+}
+
 func FuzzCheckScene(f *testing.F) {
 	f.Add([]byte(roomScene))
 	f.Add([]byte("version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: tiles\n      data: [1, 9]\n"))

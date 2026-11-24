@@ -39,6 +39,9 @@ const MaxSceneNesting = 64
 // MaxResolvedObjects is the most objects Resolve creates for one scene, counting each copy of an instanced or inherited object. It stops scenes that instance each other many times over from growing without bound.
 const MaxResolvedObjects = 1 << 17
 
+// MaxResolvedConnections is the most connections Resolve creates for one scene, counting each copy of an instanced or inherited connection.
+const MaxResolvedConnections = 1 << 17
+
 // RefersToScenes reports whether doc instances or inherits another scene file, so that Resolve must load them before doc can be spawned (SpawnEntities) or built into 3D nodes (BuildNodes3D). Build resolves such a scene itself.
 func (doc *SceneDoc) RefersToScenes() bool {
 	if doc == nil {
@@ -71,12 +74,13 @@ func Resolve(doc *SceneDoc, scenes SceneResolver) (*SceneDoc, error) {
 	return r.resolve(doc, "")
 }
 
-// sceneResolver carries one Resolve call's state: the files resolved so far, the chain of files being resolved, and the objects created.
+// sceneResolver carries one Resolve call's state: the files resolved so far, the chain of files being resolved, and the objects and connections created.
 type sceneResolver struct {
-	scenes  SceneResolver
-	done    map[string]*SceneDoc
-	stack   []string
-	objects int
+	scenes      SceneResolver
+	done        map[string]*SceneDoc
+	stack       []string
+	objects     int
+	connections int
 }
 
 // file returns the resolved scene at path, loading and resolving it on first use. The result is shared by every later use and must be cloned before it is changed.
@@ -128,14 +132,28 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 	if doc.Layers != nil {
 		own.Layers = make([]LayerDoc, len(doc.Layers))
 	}
+	var instConns []ConnectionDoc
 	for i := range doc.Layers {
 		l := &doc.Layers[i]
 		own.Layers[i] = cloneLayerFields(l)
-		objs, err := r.expandObjects(l.Objects)
+		objs, conns, err := r.expandObjects(l.Objects)
 		if err != nil {
 			return nil, err
 		}
 		own.Layers[i].Objects = objs
+		instConns = append(instConns, conns...)
+	}
+	if len(doc.Connections) > 0 {
+		if err := r.spendConnections(len(doc.Connections)); err != nil {
+			return nil, err
+		}
+	}
+	if len(instConns) > 0 || doc.Connections != nil {
+		own.Connections = make([]ConnectionDoc, 0, len(instConns)+len(doc.Connections))
+		own.Connections = append(own.Connections, instConns...)
+		for i := range doc.Connections {
+			own.Connections = append(own.Connections, doc.Connections[i].Clone())
+		}
 	}
 
 	out := own
@@ -143,6 +161,21 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 		var err error
 		if out, err = r.inherit(doc, own); err != nil {
 			return nil, err
+		}
+	}
+	if len(doc.Connections) > 0 {
+		objectIDs := make(map[string]struct{})
+		for li := range out.Layers {
+			WalkObjects(out.Layers[li].Objects, func(o, _ *ObjectDoc) bool {
+				objectIDs[o.ID] = struct{}{}
+				return true
+			})
+		}
+		if err := validateConnectionsDoc(doc.Connections, objectIDs, true); err != nil {
+			if path == "" {
+				return nil, fmt.Errorf("sceneformat: resolved scene: %w", err)
+			}
+			return nil, fmt.Errorf("sceneformat: scene %q resolves to an invalid scene: %w", path, err)
 		}
 	}
 	if err := Validate(out); err != nil {
@@ -166,6 +199,11 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 	}
 	if err := r.spend(n); err != nil {
 		return nil, err
+	}
+	if len(base.Connections) > 0 {
+		if err := r.spendConnections(len(base.Connections)); err != nil {
+			return nil, err
+		}
 	}
 	out := base.Clone()
 	out.Version = doc.Version
@@ -224,50 +262,56 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 		}
 		out.Layers[li].Objects = append(out.Layers[li].Objects, l.Objects...)
 	}
+	if len(own.Connections) > 0 {
+		out.Connections = append(out.Connections, own.Connections...)
+	}
 	return out, nil
 }
 
-// expandObjects returns copies of objs with every instance expanded, or nil for no objects.
-func (r *sceneResolver) expandObjects(objs []ObjectDoc) ([]ObjectDoc, error) {
+// expandObjects returns copies of objs with every instance expanded, along with any connections carried by instanced scenes, or nil for no objects.
+func (r *sceneResolver) expandObjects(objs []ObjectDoc) ([]ObjectDoc, []ConnectionDoc, error) {
 	if objs == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	out := make([]ObjectDoc, len(objs))
+	var conns []ConnectionDoc
 	for i := range objs {
-		o, err := r.expandObject(&objs[i])
+		o, oc, err := r.expandObject(&objs[i])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out[i] = o
+		conns = append(conns, oc...)
 	}
-	return out, nil
+	return out, conns, nil
 }
 
-// expandObject returns a copy of o that instances nothing: the objects of o's instanced scene, overridden and with prefixed IDs, followed by o's own children expanded in turn.
-func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, error) {
+// expandObject returns a copy of o that instances nothing: the objects of o's instanced scene, overridden and with prefixed IDs, followed by o's own children expanded in turn, together with the instanced scene's connections (prefixed with o.ID + "/") and any connections from child instances.
+func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, []ConnectionDoc, error) {
 	if err := r.spend(1); err != nil {
-		return ObjectDoc{}, err
+		return ObjectDoc{}, nil, err
 	}
 	out := cloneObjectFields(o)
 	out.Scene = ""
 	out.Overrides = nil
 
 	var kids []ObjectDoc
+	var conns []ConnectionDoc
 	if o.Scene != "" {
 		inst, err := r.file(o.Scene)
 		if err != nil {
-			return ObjectDoc{}, err
+			return ObjectDoc{}, nil, err
 		}
 		n := 0
 		for li := range inst.Layers {
 			l := &inst.Layers[li]
 			if l.Tilemap != nil {
-				return ObjectDoc{}, fmt.Errorf("sceneformat: object %q instances scene %q, whose layer %q holds a tilemap", o.ID, o.Scene, l.Name)
+				return ObjectDoc{}, nil, fmt.Errorf("sceneformat: object %q instances scene %q, whose layer %q holds a tilemap", o.ID, o.Scene, l.Name)
 			}
 			n += countObjects(l.Objects)
 		}
 		if err := r.spend(n); err != nil {
-			return ObjectDoc{}, err
+			return ObjectDoc{}, nil, err
 		}
 		for li := range inst.Layers {
 			for j := range inst.Layers[li].Objects {
@@ -280,7 +324,7 @@ func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, error) {
 			for _, id := range slices.Sorted(maps.Keys(o.Overrides)) {
 				t, ok := byID[id]
 				if !ok {
-					return ObjectDoc{}, fmt.Errorf("sceneformat: object %q overrides %q, which scene %q does not hold", o.ID, id, o.Scene)
+					return ObjectDoc{}, nil, fmt.Errorf("sceneformat: object %q overrides %q, which scene %q does not hold", o.ID, id, o.Scene)
 				}
 				ov := o.Overrides[id]
 				ov.applyTo(t)
@@ -290,16 +334,28 @@ func (r *sceneResolver) expandObject(o *ObjectDoc) (ObjectDoc, error) {
 			c.ID = o.ID + "/" + c.ID
 			return true
 		})
+		if len(inst.Connections) > 0 {
+			if err := r.spendConnections(len(inst.Connections)); err != nil {
+				return ObjectDoc{}, nil, err
+			}
+			for i := range inst.Connections {
+				cc := inst.Connections[i].Clone()
+				cc.From = o.ID + "/" + cc.From
+				cc.To = o.ID + "/" + cc.To
+				conns = append(conns, cc)
+			}
+		}
 	}
 	for i := range o.Children {
-		c, err := r.expandObject(&o.Children[i])
+		c, cc, err := r.expandObject(&o.Children[i])
 		if err != nil {
-			return ObjectDoc{}, err
+			return ObjectDoc{}, nil, err
 		}
 		kids = append(kids, c)
+		conns = append(conns, cc...)
 	}
 	out.Children = kids
-	return out, nil
+	return out, conns, nil
 }
 
 // spend counts n more created objects against MaxResolvedObjects.
@@ -307,6 +363,15 @@ func (r *sceneResolver) spend(n int) error {
 	r.objects += n
 	if r.objects > MaxResolvedObjects {
 		return fmt.Errorf("sceneformat: resolving the scene creates more than %d objects", MaxResolvedObjects)
+	}
+	return nil
+}
+
+// spendConnections counts n more created connections against MaxResolvedConnections.
+func (r *sceneResolver) spendConnections(n int) error {
+	r.connections += n
+	if r.connections > MaxResolvedConnections {
+		return fmt.Errorf("sceneformat: resolving the scene creates more than %d connections", MaxResolvedConnections)
 	}
 	return nil
 }
@@ -325,6 +390,9 @@ func validateSceneRefs(doc *SceneDoc) error {
 		}
 		if field != "" {
 			return fieldErr([]string{field}, "sceneformat: inherits, overrides and layerOverrides need version 2, not %d", doc.Version)
+		}
+		if len(doc.Connections) > 0 {
+			return fieldErr([]string{"connections"}, "sceneformat: connections need version 2, not %d", doc.Version)
 		}
 		return nil
 	}
@@ -522,6 +590,12 @@ func (doc *SceneDoc) Clone() *SceneDoc {
 					out.Layers[i].Objects[j] = l.Objects[j].Clone()
 				}
 			}
+		}
+	}
+	if doc.Connections != nil {
+		out.Connections = make([]ConnectionDoc, len(doc.Connections))
+		for i := range doc.Connections {
+			out.Connections[i] = doc.Connections[i].Clone()
 		}
 	}
 	return &out

@@ -59,8 +59,9 @@ Godot 的 `.tres` 资源对应 [resource](resources.md) 文件：每个文件是
 
 ## 信号
 
-Godot 的信号在这里承担的两件事，各有各的工具：
+Godot 的信号按连接所在的位置对应三种工具：
 
+- **场景文件里声明的连接**（`.tscn` 中的 `[connection ...]` 段）写在版本 2 场景文件的 `connections:` 列表里，在实例化时（`BuildWith`、`SpawnEntitiesWith` 或 `EventRegistry.Bind`）经由 `sceneformat.EventRegistry` 解析为 `sceneformat.EventBus`，支持 `once: true`、静态 `args` 以及子场景实例内的连接隔离。见[编辑器与场景格式](editor.md#事件连接490)。
 - **系统之间的游戏事件**走类型化的 `flow.Bus`。一个结构体类型就是一个信号；`flow.Subscribe` 相当于连接，`flow.Publish` 立即发出，`flow.Enqueue` 配合 `Bus.Flush` 延后发出（Godot 的延迟连接），`flow.SubscribeOnce` 是一次性连接。没有任何东西以字符串为键，拼错的事件编译不过。见 [flow](flow.md)。
 - **视图显示的状态**，例如 HUD 里的分数，是一个 [`core.Signal`](https://pkg.go.dev/github.com/nsgo-dev/nsgo/core#Signal)。读取它的视图会在它变化时重新渲染，不需要手动接处理函数。
 

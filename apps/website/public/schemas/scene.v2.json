@@ -69,6 +69,13 @@
       "items": {
         "$ref": "#/definitions/LayerDoc"
       }
+    },
+    "connections": {
+      "description": "Connections declares event-to-handler wiring between objects in the scene, as Godot's signal connections do, resolved through an EventRegistry when the scene is bound at runtime. Version 2.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ConnectionDoc"
+      }
     }
   },
   "required": [
@@ -151,6 +158,48 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "ConnectionDoc": {
+      "description": "ConnectionDoc declares one event-to-handler connection between objects in a version 2 scene document, as Godot's signal connections do in .tscn files.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "From is the ID of the object that emits Event (such as \"button\" or \"room_a/button\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "event": {
+          "description": "Event is the name of the event emitted by From (such as \"pressed\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "description": "To is the ID of the object whose handler runs when From emits Event (such as \"door\" or \"room_a/door\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "handler": {
+          "description": "Handler is the name of the handler invoked on To (such as \"open\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Args holds optional static arguments declared in YAML and passed to Handler alongside any runtime payload.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "once": {
+          "description": "Once, when true, disconnects this connection after the first time it fires.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "event",
+        "to",
+        "handler"
+      ],
       "additionalProperties": false
     },
     "LayerDoc": {

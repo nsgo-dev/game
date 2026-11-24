@@ -20,6 +20,71 @@ type ObjectRef struct {
 	Layer string
 }
 
+// SpawnOptions configures SpawnEntitiesWith.
+type SpawnOptions struct {
+	// Scenes, when non-nil and doc refers to other scene files, resolves doc with Resolve before spawning. When nil, SpawnEntitiesWith refuses an unresolved scene just as SpawnEntities does.
+	Scenes SceneResolver
+	// Events, when non-nil, validates the resolved scene's connections against it and binds them into SpawnedScene.Events before spawning any entities, so a connection error leaves w untouched.
+	Events *EventRegistry
+}
+
+// SpawnedScene is the result of SpawnEntitiesWith: the resolved document, the spawned entity map, and the bound EventBus when SpawnOptions.Events was set.
+type SpawnedScene struct {
+	// Doc is the validated (and resolved) SceneDoc spawned into World.
+	Doc *SceneDoc
+	// World is the entities.World the entities were spawned into.
+	World *entities.World
+	// Entities maps every object ID in Doc, children included, to its spawned entity.
+	Entities map[string]entities.Entity
+	// Events is the EventBus wired from Doc.Connections when SpawnOptions.Events was set, or nil otherwise.
+	Events *EventBus
+}
+
+// SpawnEntitiesWith spawns doc into w as SpawnEntities does, optionally resolving referenced scenes (SpawnOptions.Scenes) and binding declared event connections (SpawnOptions.Events). It validates doc and its connections (and checks that every connected handler has a non-nil Func) before spawning any entities, so a failure leaves w unchanged.
+func SpawnEntitiesWith(doc *SceneDoc, w *entities.World, opts SpawnOptions) (*SpawnedScene, error) {
+	if err := Validate(doc); err != nil {
+		return nil, err
+	}
+	if doc.RefersToScenes() {
+		if opts.Scenes == nil {
+			return nil, errUnresolved
+		}
+		resolved, err := Resolve(doc, opts.Scenes)
+		if err != nil {
+			return nil, err
+		}
+		doc = resolved
+	}
+	if w == nil {
+		return nil, errors.New("sceneformat: nil entity world")
+	}
+	if w.Disposed() {
+		return nil, fmt.Errorf("sceneformat: spawn entities: %w", entities.ErrWorldDisposed)
+	}
+	if opts.Events != nil {
+		if _, err := opts.Events.Bind(doc); err != nil {
+			return nil, err
+		}
+	}
+	spawned, err := SpawnEntities(doc, w)
+	if err != nil {
+		return nil, err
+	}
+	out := &SpawnedScene{
+		Doc:      doc,
+		World:    w,
+		Entities: spawned,
+	}
+	if opts.Events != nil {
+		bus, err := opts.Events.BindEntities(doc, w, spawned)
+		if err != nil {
+			return nil, err
+		}
+		out.Events = bus
+	}
+	return out, nil
+}
+
 // SpawnEntities validates doc and spawns one entity per object into w, children included, linked into w's 2D transform hierarchy (entities.Hierarchy2D) the way the objects nest in the document. Each entity's local entities.Transform2D holds the object's X, Y, Rotation, ScaleX and ScaleY, and each carries an ObjectRef component. The top-level objects of a hidden layer are spawned hidden, so their subtrees are not world-visible. Entities are spawned in depth-first document order, each parent before its children, and the result maps every object ID to its entity.
 //
 // SpawnEntities returns an error and spawns nothing when doc is invalid, still instances or inherits other scene files (pass it through Resolve first), or w is nil or disposed.

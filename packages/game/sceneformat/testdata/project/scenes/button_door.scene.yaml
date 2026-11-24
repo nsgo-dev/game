@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Button Door
+layers:
+  - name: actors
+    objects:
+      - id: button
+        components:
+          button: {}
+      - id: door
+        x: 48
+        components:
+          door:
+            open: false
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+    args:
+      reason: button
+      speed: 2.5
+    once: true

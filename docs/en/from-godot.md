@@ -59,8 +59,9 @@ Saved games take the place of `ConfigFile` and `FileAccess` writes: [save](save.
 
 ## Signals
 
-Godot's signals do two jobs here, each with its own tool:
+Godot's signals map to three tools depending on where the connection lives:
 
+- **Scene-declared connections** (`.tscn` `[connection ...]` blocks) live in a version 2 scene file's `connections:` list and resolve through a `sceneformat.EventRegistry` into a `sceneformat.EventBus` on instantiation (`BuildWith`, `SpawnEntitiesWith`, or `EventRegistry.Bind`), with `once: true`, static `args`, and isolated connections inside instanced sub-scenes. See [Editor & Scene Format](editor.md#event-connections-490).
 - **Gameplay events** between systems go through a typed `flow.Bus`. A struct type is the signal; `flow.Subscribe` connects, `flow.Publish` emits at once, `flow.Enqueue` with `Bus.Flush` emits later (Godot's deferred connection) and `flow.SubscribeOnce` is a one-shot connection. Nothing is keyed by a string, so a misspelt event does not compile. See [flow](flow.md).
 - **State a view shows**, such as a score in the HUD, is a [`core.Signal`](https://pkg.go.dev/github.com/nsgo-dev/nsgo/core#Signal). A view that reads it re-renders when it changes, without a handler wired by hand.
 

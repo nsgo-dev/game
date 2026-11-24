@@ -101,7 +101,7 @@ func TestSceneSchemaShape(t *testing.T) {
 	if version == nil || version.Const != int64(1) || !strings.Contains(version.Description, "CurrentVersion") {
 		t.Fatalf("version property = %+v", version)
 	}
-	for _, key := range []string{"inherits", "overrides", "layerOverrides"} {
+	for _, key := range []string{"inherits", "overrides", "layerOverrides", "connections"} {
 		if s.Property(key) != nil {
 			t.Errorf("version 1 schema has the version 2 key %q", key)
 		}
@@ -109,8 +109,10 @@ func TestSceneSchemaShape(t *testing.T) {
 	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("scene") != nil || obj.Property("overrides") != nil {
 		t.Errorf("version 1 ObjectDoc = %+v, want one without scene and overrides", obj)
 	}
-	if _, ok := s.Definitions["ObjectOverride"]; ok {
-		t.Error("version 1 schema defines ObjectOverride")
+	for _, name := range []string{"ObjectOverride", "ConnectionDoc"} {
+		if _, ok := s.Definitions[name]; ok {
+			t.Errorf("version 1 schema defines %s", name)
+		}
 	}
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
 		t.Fatal("scene schema accepts unknown top-level keys")
@@ -136,7 +138,7 @@ func TestSceneSchemaV2Shape(t *testing.T) {
 	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
 		t.Fatalf("version property = %+v", version)
 	}
-	for _, key := range []string{"inherits", "overrides", "layerOverrides"} {
+	for _, key := range []string{"inherits", "overrides", "layerOverrides", "connections"} {
 		if p := s.Property(key); p == nil || p.Description == "" {
 			t.Errorf("version 2 schema property %q = %+v, want one with a description", key, p)
 		}
@@ -144,7 +146,7 @@ func TestSceneSchemaV2Shape(t *testing.T) {
 	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("scene") == nil || obj.Property("overrides") == nil {
 		t.Errorf("version 2 ObjectDoc = %+v, want one with scene and overrides", obj)
 	}
-	for _, name := range []string{"ObjectOverride", "LayerOverride"} {
+	for _, name := range []string{"ObjectOverride", "LayerOverride", "ConnectionDoc"} {
 		def := s.Definitions[name]
 		if def == nil || def.Description == "" {
 			t.Fatalf("definition %s = %+v, want one with a description", name, def)
@@ -202,24 +204,25 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		yaml  string
 		issue string
 	}{
-		"unknown top-level key": {"version: 1\nnmae: x\n", `/nmae: unknown key "nmae"`},
-		"unknown object key":    {"version: 1\nlayers: [{name: a, objects: [{id: o, colour: red}]}]\n", `/layers/0/objects/0/colour: unknown key`},
-		"missing version":       {"name: x\n", `/: missing required key "version"`},
-		"future version":        {"version: 3\n", "/version: 3 is not the allowed value 1"},
-		"inherits in version 1": {"version: 1\ninherits: base.scene.yaml\n", `/inherits: unknown key "inherits"`},
-		"layer without name":    {"version: 1\nlayers: [{order: 1}]\n", `/layers/0: missing required key "name"`},
-		"bad space":             {"version: 1\nlayers: [{name: a, space: sky}]\n", `/layers/0/space: "sky" is not one of "world", "screen"`},
-		"object without id":     {"version: 1\nlayers: [{name: a, objects: [{x: 1}]}]\n", `/layers/0/objects/0: missing required key "id"`},
-		"alpha above 1":         {"version: 1\nlayers: [{name: a, objects: [{id: o, alpha: 1.5}]}]\n", "/layers/0/objects/0/alpha: 1.5 is greater than the maximum 1"},
-		"zero zoom":             {"version: 1\ncamera: {zoom: 0}\n", "/camera/zoom: 0 is not greater than 0"},
-		"empty bounds":          {"version: 1\ncamera: {bounds: {width: 0, height: 1}}\n", "/camera/bounds/width: 0 is not greater than 0"},
-		"sprite without frame":  {"version: 1\nlayers: [{name: a, objects: [{id: o, sprite: {atlas: x}}]}]\n", `/layers/0/objects/0/sprite: missing required key "frame"`},
-		"negative depth":        {"version: 1\nlayers: [{name: a, objects: [{id: o, depth: -1}]}]\n", "/layers/0/objects/0/depth: -1 is less than the minimum 0"},
-		"string for number":     {"version: 1\nvirtualWidth: wide\n", `/virtualWidth: want number, got the string "wide"`},
-		"fractional tile size":  {"version: 1\ntilemaps: {t: {tileWidth: 1.5}}\n", "/tilemaps/t/tileWidth: want integer, got the number 1.5"},
-		"order overflows int":   {"version: 1\nlayers: [{name: a, order: 1e20}]\n", "/layers/0/order: 100000000000000000000 is greater than the maximum 9223372036854776000"},
-		"tile overflows int":    {"version: 1\ntilemaps: {t: {data: [1e20]}}\n", "/tilemaps/t/data/0: 100000000000000000000 is greater than the maximum"},
-		"x overflows float32":   {"version: 1\nlayers: [{name: a, objects: [{id: o, x: 1e39}]}]\n", "/layers/0/objects/0/x: 1e+39 is greater than the maximum 3.4028234663852886e+38"},
+		"unknown top-level key":    {"version: 1\nnmae: x\n", `/nmae: unknown key "nmae"`},
+		"unknown object key":       {"version: 1\nlayers: [{name: a, objects: [{id: o, colour: red}]}]\n", `/layers/0/objects/0/colour: unknown key`},
+		"missing version":          {"name: x\n", `/: missing required key "version"`},
+		"future version":           {"version: 3\n", "/version: 3 is not the allowed value 1"},
+		"inherits in version 1":    {"version: 1\ninherits: base.scene.yaml\n", `/inherits: unknown key "inherits"`},
+		"connections in version 1": {"version: 1\nconnections: [{from: a, event: e, to: b, handler: h}]\n", `/connections: unknown key "connections"`},
+		"layer without name":       {"version: 1\nlayers: [{order: 1}]\n", `/layers/0: missing required key "name"`},
+		"bad space":                {"version: 1\nlayers: [{name: a, space: sky}]\n", `/layers/0/space: "sky" is not one of "world", "screen"`},
+		"object without id":        {"version: 1\nlayers: [{name: a, objects: [{x: 1}]}]\n", `/layers/0/objects/0: missing required key "id"`},
+		"alpha above 1":            {"version: 1\nlayers: [{name: a, objects: [{id: o, alpha: 1.5}]}]\n", "/layers/0/objects/0/alpha: 1.5 is greater than the maximum 1"},
+		"zero zoom":                {"version: 1\ncamera: {zoom: 0}\n", "/camera/zoom: 0 is not greater than 0"},
+		"empty bounds":             {"version: 1\ncamera: {bounds: {width: 0, height: 1}}\n", "/camera/bounds/width: 0 is not greater than 0"},
+		"sprite without frame":     {"version: 1\nlayers: [{name: a, objects: [{id: o, sprite: {atlas: x}}]}]\n", `/layers/0/objects/0/sprite: missing required key "frame"`},
+		"negative depth":           {"version: 1\nlayers: [{name: a, objects: [{id: o, depth: -1}]}]\n", "/layers/0/objects/0/depth: -1 is less than the minimum 0"},
+		"string for number":        {"version: 1\nvirtualWidth: wide\n", `/virtualWidth: want number, got the string "wide"`},
+		"fractional tile size":     {"version: 1\ntilemaps: {t: {tileWidth: 1.5}}\n", "/tilemaps/t/tileWidth: want integer, got the number 1.5"},
+		"order overflows int":      {"version: 1\nlayers: [{name: a, order: 1e20}]\n", "/layers/0/order: 100000000000000000000 is greater than the maximum 9223372036854776000"},
+		"tile overflows int":       {"version: 1\ntilemaps: {t: {data: [1e20]}}\n", "/tilemaps/t/data/0: 100000000000000000000 is greater than the maximum"},
+		"x overflows float32":      {"version: 1\nlayers: [{name: a, objects: [{id: o, x: 1e39}]}]\n", "/layers/0/objects/0/x: 1e+39 is greater than the maximum 3.4028234663852886e+38"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -257,7 +260,7 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 	f.Add([]byte("version: 1\n"))
 	f.Add([]byte("version: 1\nlayers: [{name: a, space: screen, visible: false, objects: [{id: o, alpha: 0, scaleX: -1, components: {c: {k: [1]}}}]}]\n"))
 	f.Add([]byte("version: 1\ncamera: {zoom: 0.5, bounds: {width: 1, height: 2}}\ntilemaps: {g: {tileWidth: 1, tileHeight: 1, width: 1, height: 1, tileset: t, data: [0]}}\nlayers: [{name: a, tilemap: {ref: g}}, {name: b, tilemap: {source: m.tmj}}]\n"))
-	f.Add([]byte("version: 2\ninherits: base.scene.yaml\noverrides: {o: {x: 1, alpha: 0.5}}\nlayerOverrides: {a: {order: 2}}\nlayers: [{name: b, objects: [{id: e, scene: enemy.scene.yaml, overrides: {body: {z: 1}}}]}]\n"))
+	f.Add([]byte("version: 2\ninherits: base.scene.yaml\noverrides: {o: {x: 1, alpha: 0.5}}\nlayerOverrides: {a: {order: 2}}\nlayers: [{name: b, objects: [{id: e, scene: enemy.scene.yaml, overrides: {body: {z: 1}}}]}]\nconnections: [{from: e/body, event: pressed, to: o, handler: open, args: {speed: 2}, once: true}]\n"))
 	schemas := sceneSchemas(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doc, err := sceneformat.Parse(data)

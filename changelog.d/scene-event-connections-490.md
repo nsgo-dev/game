@@ -1,0 +1,6 @@
+### Added
+
+- `game/sceneformat`: version 2 scenes accept a top-level `connections` list (`ConnectionDoc`: `from`, `event`, `to`, `handler`, optional `args` and `once`) to wire one object's events to another object's handlers in YAML without Go glue code, published in `scene.v2.json` and refused in version 1 scenes (#490).
+- `game/sceneformat`: `EventRegistry` (`EventType`, `HandlerType`, `ValidateConnections`, `ParseOptions.Events`) registers events and handlers without reflection with optional required components and typed `Args` fields, reporting errors as `*loaderr.Error` values with file, line, column, field and fix; `EventRegistry.Bind`, `EventRegistry.BindEntities`, `BuildWith` / `BuiltScene.BindEvents`, and `SpawnEntitiesWith` wire declared connections automatically into a live `EventBus` (`Emit`, `EmitEntity`, `Enqueue`, `EnqueueEntity`, `Flush`, `DisconnectAll`) (#490).
+- `game/sceneformat`: `Resolve` carries an instanced scene's connections with `<instanceID>/` prefixes so multiple instances stay isolated, carries base connections into inherited scenes ahead of derived connections, and enforces `MaxResolvedConnections` (#490).
+- `game/tooling/assetcheck`: `game check` resolves scenes that inherit or instance other scenes and validates connection endpoints across files with line numbers (#490).
