@@ -122,6 +122,7 @@
 | `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
 | `game/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
+| `game/presence` | 实验性 | [presence](presence.md) |
 | `game/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/project` | 实验性 | [项目文件](project.md) |
 | `game/quality` | 实验性 | [quality](quality.md) |
