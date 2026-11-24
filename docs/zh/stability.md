@@ -76,9 +76,16 @@
 | `game/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/animclip` | 实验性 | [animclip](animclip.md) |
 | `game/assets` | 实验性 | [assets](assets.md) |
+| `game/bullets` | 实验性 | [bullets](bullets.md) |
+| `game/cards` | 实验性 | [cards](cards.md) |
+| `game/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/cloudsave/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
+| `game/cmd/gameschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cutscene` | 实验性 | [cutscene](cutscene.md) |
@@ -86,8 +93,10 @@
 | `game/editor` | 实验性 | [editor](editor.md) |
 | `game/effects` | 实验性 | [effects](effects.md) |
 | `game/entities` | 实验性 | [entities](entities.md) |
+| `game/fighting` | 实验性 | [fighting](fighting.md) |
 | `game/flow` | 稳定 | [flow](flow.md) |
 | `game/fog` | 实验性 | [fog](fog.md) |
+| `game/framedata` | 实验性 | [framedata](framedata.md) |
 | `game/gametest` | 实验性 | |
 | `game/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
@@ -100,6 +109,7 @@
 | `game/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | 实验性 | [lights2d](lights2d.md) |
 | `game/liveops` | 实验性 | [liveops](liveops.md) |
+| `game/loaderr` | 稳定 | [可据以行动的错误](errors.md) |
 | `game/loot` | 实验性 | [loot](loot.md) |
 | `game/math2d` | 稳定 | [math2d](math2d.md) |
 | `game/math3d` | 实验性 | [math3d](math3d.md) |
@@ -110,6 +120,7 @@
 | `game/physics` | 稳定 | [physics](physics.md) |
 | `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
+| `game/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/project` | 实验性 | [项目文件](project.md) |
 | `game/quest` | 实验性 | [quest](quest.md) |
 | `game/random` | 稳定 | [确定性指南](determinism.md) |
@@ -117,6 +128,7 @@
 | `game/replay` | 实验性 | [replay](replay.md) |
 | `game/resource` | 实验性 | [resources](resources.md) |
 | `game/rhythm` | 实验性 | [rhythm](rhythm.md) |
+| `game/rooms` | 实验性 | [rooms](rooms.md) |
 | `game/rts` | 实验性 | [rts](rts.md) |
 | `game/save` | 稳定 | [save](save.md) |
 | `game/scene` | 稳定 | [scene](scene.md) |
@@ -133,16 +145,19 @@
 | `game/text` | 实验性 | [text](text.md) |
 | `game/tilemap` | 稳定 | [tilemap](tilemap.md) |
 | `game/tooling/apiref` | 实验性 | |
+| `game/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
 | `game/tooling/audioconv` | 实验性 | |
 | `game/tooling/bench` | 实验性 | [命令行](cli.md) |
 | `game/tooling/datatable` | 实验性 | |
 | `game/tooling/devstate` | 实验性 | |
 | `game/tooling/hotreload` | 实验性 | |
+| `game/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
 | `game/tooling/ktx2` | 实验性 | |
 | `game/tooling/manifest` | 实验性 | |
 | `game/tooling/pack` | 实验性 | |
 | `game/tween` | 稳定 | [tween](tween.md) |
 | `game/undo` | 实验性 | [undo](undo.md) |
+| `game/vehicle` | 实验性 | [vehicle](vehicle.md) |
 | `game/vn` | 实验性 | [vn](vn.md) |
 | `game/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
 | `game/world3d` | 实验性 | [world3d](world3d.md) |
