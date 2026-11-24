@@ -111,7 +111,7 @@ w.WatchAssets(mgr, func(path string, names []string, err error) {
 
 监视器和 Manager 必须看到同一批文件：没有 `WithFS` 的 `Manager` 从工作目录下的 `assets/` 读取 `"asset:"` URI，而 `nsgo dev` 在运行 `game dev` 的目录（而非项目目录）中启动游戏，所以在 `game dev` 下要像上面那样让 Manager 从 `hotreload.DevAssetsDir()` 读取，即 `game dev` 传入的目录的绝对路径。`WatchAssets` 把目录下每个改动的文件以 `"asset:<path>"` 的形式在引擎 goroutine 上交给 `Manager.Reload`。JSON 改动的图集会重新解析，图片改动的图集以相同的帧绘制文件的新字节；资源组持有的 `*sprite.Atlas` 会原地更新，因此保留了该指针的代码也会画出改动。无法解析的 JSON 会保留之前的帧并报告错误。图片显示新的字节，原始字节被替换；音效和自定义资源只在其资源组重新加载时才会重新加载。有多种像素密度（`Scales`）的图片从屏幕实际显示的那个文件重新加载，例如 2x 屏幕上的 `hero@2x.png`；保存其他密度的文件不会有变化，直到屏幕显示该密度。用 `SetFS` 挂载了 DLC 包的资源组会保留包里已有文件的副本，保存基础文件不会改动它。`Manager.Revision` 统计替换了资源的重新加载次数，在 `Draw` 中读取它的 `core.Canvas` 会在每次重新加载后重绘；由 `game.Loop` 每帧绘制的游戏无需额外处理。
 
-对于游戏自行加载的图集，例如用 `go:embed` 嵌入的图集，`w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` 会交付从保存后的文件解析出的图集。游戏不在 `game dev` 下运行时 `NewDevWatcher` 返回 nil，而 nil 监视器的方法什么也不做，因此这些调用可以一直留在游戏里；在发布构建（`-tags release`）中它们会被编译为空操作。
+对于游戏自行加载的图集，例如用 `go:embed` 嵌入的图集，`w.WatchAtlasFiles("sprites.json", "sprites.png", img, onReload)` 会交付从保存后的文件解析出的图集。对于 WGSL/Kage 着色器和 3D 着色器材质，可使用 `w.WatchShaders` 和 `w.WatchMaterials` 挂载 `hotreload.ShaderReloader` 与 `hotreload.MaterialReloader`，见[着色器与材质热重载](render3d.md#着色器与材质热重载)。游戏不在 `game dev` 下运行时 `NewDevWatcher` 返回 nil，而 nil 监视器的方法什么也不做，因此这些调用可以一直留在游戏里；在发布构建（`-tags release`）中它们会被编译为空操作。
 
 ## 可下载资源包（DLC）
 

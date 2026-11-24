@@ -7,6 +7,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gpu"
 )
 
 // Watcher is a zero-cost stub in release builds: it starts no goroutines and performs no disk polling.
@@ -63,3 +64,12 @@ func (w *Watcher) WatchAssets(*assets.Manager, func(string, []string, error)) {}
 
 // WatchAtlasFiles is a no-op in release builds.
 func (w *Watcher) WatchAtlasFiles(string, string, core.ImageSource, func(*sprite.Atlas, error)) {}
+
+// WatchShader is a no-op in release builds.
+func (w *Watcher) WatchShader(string, func(*gpu.ShaderModule, error)) {}
+
+// WatchShaders is a no-op in release builds.
+func (w *Watcher) WatchShaders(*ShaderReloader) {}
+
+// WatchMaterials is a no-op in release builds.
+func (w *Watcher) WatchMaterials(*MaterialReloader) {}

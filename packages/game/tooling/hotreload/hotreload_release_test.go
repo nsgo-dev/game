@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gpu"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -38,6 +39,11 @@ func TestReleaseWatcherIsANoOp(t *testing.T) {
 		watcher.WatchAtlas("hero.json", core.ImageSource{URI: "asset:hero.png"}, func(*sprite.Atlas, error) { calls.Add(1) })
 		watcher.WatchPattern(".json", func(string, []byte) { calls.Add(1) })
 		watcher.WatchResources(resource.NewLibrary(os.DirFS(dir)), func(string, error) { calls.Add(1) })
+		watcher.WatchShader("quad.wgsl", func(*gpu.ShaderModule, error) { calls.Add(1) })
+		sr := hotreload.NewShaderReloader(cx, nil, hotreload.WithShaderDir(dir))
+		mr := hotreload.NewMaterialReloader(cx, sr, hotreload.WithMaterialDir(dir))
+		watcher.WatchShaders(sr)
+		watcher.WatchMaterials(mr)
 		return core.View{}
 	})
 

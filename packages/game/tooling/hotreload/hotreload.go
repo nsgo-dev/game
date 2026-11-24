@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gpu"
 )
 
 // Watcher polls a directory off the engine goroutine and delivers asset reloads back onto the engine goroutine via core.Scope.Post.
@@ -169,6 +170,34 @@ func (w *Watcher) WatchResources(lib *resource.Library, onReload func(path strin
 	}
 	w.WatchPattern(".yaml", reload)
 	w.WatchPattern(".yml", reload)
+}
+
+// WatchShader watches a WGSL (.wgsl) or Kage (.kage) shader file at relPath, compiles it with CompileShaderSource, and delivers the compiled module or a *loaderr.Error to onReload on the engine goroutine.
+func (w *Watcher) WatchShader(relPath string, onReload func(*gpu.ShaderModule, error)) {
+	if w == nil || onReload == nil || w.stopped.Load() {
+		return
+	}
+	clean := normalizeRelPath(relPath)
+	w.Watch(relPath, func(data []byte) {
+		mod, err := CompileShaderSource(clean, data)
+		onReload(mod, err)
+	})
+}
+
+// WatchShaders attaches r to w so edited .wgsl and .kage shader files recompile and swap candidate pipelines on the engine goroutine, keeping the previous working pipeline on compile errors.
+func (w *Watcher) WatchShaders(r *ShaderReloader) {
+	if w == nil || r == nil || w.stopped.Load() {
+		return
+	}
+	r.Watch(w)
+}
+
+// WatchMaterials attaches r to w so edited material YAML files (.material.yaml, .mat.yaml, .material.yml, .mat.yml) and any shaders referenced by r's ShaderReloader reload live on the engine goroutine, keeping the previous working material and pipeline on errors.
+func (w *Watcher) WatchMaterials(r *MaterialReloader) {
+	if w == nil || r == nil || w.stopped.Load() {
+		return
+	}
+	r.Watch(w)
 }
 
 // WatchPattern watches every file under the watcher's directory whose extension matches ext (for example ".json" or "json", or "" / "*" for all files) and calls onChange on the engine goroutine with the slash-separated relative path and file bytes when a matching file is created or modified.
@@ -479,5 +508,5 @@ func matchesExt(name, normExt string) bool {
 	if normExt == "" {
 		return true
 	}
-	return strings.EqualFold(filepath.Ext(name), normExt)
+	return strings.HasSuffix(strings.ToLower(name), normExt)
 }
