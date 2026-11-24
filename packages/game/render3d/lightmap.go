@@ -12,13 +12,9 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// Interleaved vertex layout written by [LightmapMesh.AppendVertexData] and
-// described by [LightmapVertexLayout]. Every lightmapped mesh uses this 40-byte
-// layout so one pipeline draws any [GPULightmapMesh] with distinct UV0 (albedo)
-// and UV1 (baked lightmap) channels.
+// Interleaved vertex layout written by [LightmapMesh.AppendVertexData] and described by [LightmapVertexLayout]. Every lightmapped mesh uses this 40-byte layout so one pipeline draws any [GPULightmapMesh] with distinct UV0 (albedo) and UV1 (baked lightmap) channels.
 const (
-	// LightmapVertexStride is the byte size of one interleaved lightmapped
-	// vertex: position (12 bytes), normal (12 bytes), UV0 (8 bytes), UV1 (8 bytes).
+	// LightmapVertexStride is the byte size of one interleaved lightmapped vertex: position (12 bytes), normal (12 bytes), UV0 (8 bytes), UV1 (8 bytes).
 	LightmapVertexStride = 40
 
 	// LightmapPositionOffset is the byte offset of the float32x3 position inside a vertex.
@@ -49,39 +45,27 @@ const (
 
 	// LightmapDrawUniformSize is the byte size of the WGSL LightmapDraw uniform struct (160 bytes).
 	LightmapDrawUniformSize = 64 + 6*16
-	// LightmapDrawUniformStride is the byte stride between per-draw uniform slots
-	// (256 bytes, matching WebGPU's minimum dynamic uniform buffer offset alignment).
+	// LightmapDrawUniformStride is the byte stride between per-draw uniform slots (256 bytes, matching WebGPU's minimum dynamic uniform buffer offset alignment).
 	LightmapDrawUniformStride = 256
 
 	// DefaultRGBMMaxRange is the default HDR multiplier for [LightmapRGBM] lightmaps.
 	DefaultRGBMMaxRange float32 = 8.0
 )
 
-// ErrInvalidLightmap is wrapped by errors returned when lightmap encoding,
-// material parameters, UV transforms, or renderer descriptors are invalid.
+// ErrInvalidLightmap is wrapped by errors returned when lightmap encoding, material parameters, UV transforms, or renderer descriptors are invalid.
 var ErrInvalidLightmap = errors.New("render3d: invalid lightmap")
 
-// LightmapEncoding identifies how a baked lightmap texture encodes linear
-// irradiance values.
+// LightmapEncoding identifies how a baked lightmap texture encodes linear irradiance values.
 type LightmapEncoding uint8
 
 const (
-	// LightmapLinear indicates the lightmap texture stores linear irradiance
-	// directly (for example in FormatRGBA16Float HDR or linear FormatRGBA8Unorm).
+	// LightmapLinear indicates the lightmap texture stores linear irradiance directly (for example in FormatRGBA16Float HDR or linear FormatRGBA8Unorm).
 	LightmapLinear LightmapEncoding = iota
-	// LightmapSRGB indicates the lightmap texture stores sRGB-encoded LDR
-	// irradiance. When uploaded as FormatRGBA8Unorm, the shader decodes sRGB to
-	// linear; when uploaded as FormatRGBA8UnormSRGB, hardware sampling already
-	// decodes to linear and the shader avoids double-decoding.
+	// LightmapSRGB indicates the lightmap texture stores sRGB-encoded LDR irradiance. When uploaded as FormatRGBA8Unorm, the shader decodes sRGB to linear; when uploaded as FormatRGBA8UnormSRGB, hardware sampling already decodes to linear and the shader avoids double-decoding.
 	LightmapSRGB
-	// LightmapRGBM indicates an 8-bit linear RGBA8Unorm texture packed with a
-	// shared multiplier in alpha: linearRGB = rgb * (a * RGBMMaxRange).
-	// This allows HDR baked lightmaps in standard 8-bit PNGs across mobile and
-	// WebGL 2 backends without float textures.
+	// LightmapRGBM indicates an 8-bit linear RGBA8Unorm texture packed with a shared multiplier in alpha: linearRGB = rgb * (a * RGBMMaxRange). This allows HDR baked lightmaps in standard 8-bit PNGs across mobile and WebGL 2 backends without float textures.
 	LightmapRGBM
-	// LightmapRGBD indicates an 8-bit linear RGBA8Unorm texture packed with a
-	// shared divisor in alpha: linearRGB = rgb / max(a, 1/255), preserving full
-	// 8-bit precision for LDR values <= 1 while representing HDR highlights.
+	// LightmapRGBD indicates an 8-bit linear RGBA8Unorm texture packed with a shared divisor in alpha: linearRGB = rgb / max(a, 1/255), preserving full 8-bit precision for LDR values <= 1 while representing HDR highlights.
 	LightmapRGBD
 )
 
@@ -106,9 +90,7 @@ func (e LightmapEncoding) Valid() bool {
 	return e <= LightmapRGBD
 }
 
-// ParseLightmapEncoding converts a case-insensitive encoding string ("",
-// "linear", "srgb", "rgbm", "rgbd") into a [LightmapEncoding]. An empty string
-// resolves to [LightmapLinear].
+// ParseLightmapEncoding converts a case-insensitive encoding string ("", "linear", "srgb", "rgbm", "rgbd") into a [LightmapEncoding]. An empty string resolves to [LightmapLinear].
 func ParseLightmapEncoding(s string) (LightmapEncoding, error) {
 	switch s {
 	case "", "linear", "LINEAR":
@@ -124,9 +106,7 @@ func ParseLightmapEncoding(s string) (LightmapEncoding, error) {
 	}
 }
 
-// UVTransform applies an affine scale and offset (uv * Scale + Offset) to
-// lightmap coordinates so multiple meshes can share regions of a single baked
-// lightmap atlas.
+// UVTransform applies an affine scale and offset (uv * Scale + Offset) to lightmap coordinates so multiple meshes can share regions of a single baked lightmap atlas.
 type UVTransform struct {
 	Scale  [2]float32
 	Offset [2]float32
@@ -165,8 +145,7 @@ func (t UVTransform) Validate() error {
 	return nil
 }
 
-// LightmapVertex is one interleaved vertex for lightmapped 3D geometry carrying
-// both primary (albedo) UV0 and secondary (baked lightmap) UV1 coordinates.
+// LightmapVertex is one interleaved vertex for lightmapped 3D geometry carrying both primary (albedo) UV0 and secondary (baked lightmap) UV1 coordinates.
 type LightmapVertex struct {
 	Position [3]float32
 	Normal   [3]float32
@@ -174,15 +153,9 @@ type LightmapVertex struct {
 	UV1      [2]float32
 }
 
-// LightmapMesh is triangle-list geometry carrying two UV sets: UV0 for tiled
-// material maps (matching glTF TEXCOORD_0) and UV1 for baked lightmaps
-// (matching glTF TEXCOORD_1).
+// LightmapMesh is triangle-list geometry carrying two UV sets: UV0 for tiled material maps (matching glTF TEXCOORD_0) and UV1 for baked lightmaps (matching glTF TEXCOORD_1).
 //
-// Positions is required. Normals, UV0, and UV1 are optional: each is either
-// empty or holds one entry per position. When UV1 is empty, [UploadLightmapMesh]
-// and [LightmapMesh.AppendVertexData] fall back cleanly to UV0 (or zeros if UV0
-// is also empty). A glTF primitive's Positions, Normals, TexCoords0, TexCoords1,
-// and Indices fields map directly onto LightmapMesh.
+// Positions is required. Normals, UV0, and UV1 are optional: each is either empty or holds one entry per position. When UV1 is empty, [UploadLightmapMesh] and [LightmapMesh.AppendVertexData] fall back cleanly to UV0 (or zeros if UV0 is also empty). A glTF primitive's Positions, Normals, TexCoords0, TexCoords1, and Indices fields map directly onto LightmapMesh.
 type LightmapMesh struct {
 	Positions []math3d.Vec3
 	Normals   []math3d.Vec3
@@ -191,9 +164,7 @@ type LightmapMesh struct {
 	Indices   []uint32
 }
 
-// LightmapMeshFromAttributes constructs a [LightmapMesh] from separate attribute
-// slices (such as a glTF primitive's Positions, Normals, TexCoords0, TexCoords1,
-// and Indices). When uv1 is empty, UV1 falls back cleanly to uv0 during upload.
+// LightmapMeshFromAttributes constructs a [LightmapMesh] from separate attribute slices (such as a glTF primitive's Positions, Normals, TexCoords0, TexCoords1, and Indices). When uv1 is empty, UV1 falls back cleanly to uv0 during upload.
 func LightmapMeshFromAttributes(positions, normals []math3d.Vec3, uv0, uv1 []math3d.Vec2, indices []uint32) LightmapMesh {
 	return LightmapMesh{
 		Positions: positions,
@@ -204,8 +175,7 @@ func LightmapMeshFromAttributes(positions, normals []math3d.Vec3, uv0, uv1 []mat
 	}
 }
 
-// LightmapMeshFromVertices converts interleaved [LightmapVertex] values and
-// optional indices into a [LightmapMesh].
+// LightmapMeshFromVertices converts interleaved [LightmapVertex] values and optional indices into a [LightmapMesh].
 func LightmapMeshFromVertices(vertices []LightmapVertex, indices []uint32) LightmapMesh {
 	n := len(vertices)
 	m := LightmapMesh{
@@ -224,9 +194,7 @@ func LightmapMeshFromVertices(vertices []LightmapVertex, indices []uint32) Light
 	return m
 }
 
-// Validate reports whether m can be uploaded: at least one whole triangle,
-// optional attributes empty or matching len(Positions) with finite values, and
-// every index in range. Every error wraps [ErrInvalidMesh].
+// Validate reports whether m can be uploaded: at least one whole triangle, optional attributes empty or matching len(Positions) with finite values, and every index in range. Every error wraps [ErrInvalidMesh].
 func (m LightmapMesh) Validate() error {
 	base := Mesh{
 		Positions: m.Positions,
@@ -249,8 +217,7 @@ func (m LightmapMesh) Validate() error {
 	return nil
 }
 
-// HasUV1 reports whether m provides a dedicated secondary UV1 channel rather
-// than falling back to UV0.
+// HasUV1 reports whether m provides a dedicated secondary UV1 channel rather than falling back to UV0.
 func (m LightmapMesh) HasUV1() bool {
 	return len(m.Positions) > 0 && len(m.UV1) == len(m.Positions)
 }
@@ -261,8 +228,7 @@ func (m LightmapMesh) VertexCount() int { return len(m.Positions) }
 // Indexed reports whether m has an index list.
 func (m LightmapMesh) Indexed() bool { return len(m.Indices) != 0 }
 
-// IndexFormat returns [gpu.IndexUint16] while all vertex indices fit below
-// 0xFFFF (WebGL 2 primitive restart), otherwise [gpu.IndexUint32].
+// IndexFormat returns [gpu.IndexUint16] while all vertex indices fit below 0xFFFF (WebGL 2 primitive restart), otherwise [gpu.IndexUint32].
 func (m LightmapMesh) IndexFormat() gpu.IndexFormat {
 	if len(m.Positions) <= maxUint16Vertices {
 		return gpu.IndexUint16
@@ -282,8 +248,7 @@ func (m LightmapMesh) Bounds() math3d.AABB {
 // VertexDataSize returns the byte length [LightmapMesh.AppendVertexData] appends.
 func (m LightmapMesh) VertexDataSize() int { return len(m.Positions) * LightmapVertexStride }
 
-// IndexDataSize returns the byte length [LightmapMesh.AppendIndexData] appends,
-// padded to a multiple of four bytes as WebGPU requires.
+// IndexDataSize returns the byte length [LightmapMesh.AppendIndexData] appends, padded to a multiple of four bytes as WebGPU requires.
 func (m LightmapMesh) IndexDataSize() int {
 	n := len(m.Indices)
 	if m.IndexFormat() == gpu.IndexUint32 {
@@ -292,8 +257,7 @@ func (m LightmapMesh) IndexDataSize() int {
 	return (n*2 + 3) &^ 3
 }
 
-// Vertices materializes m as a slice of interleaved [LightmapVertex] values,
-// falling back from empty UV1 to UV0.
+// Vertices materializes m as a slice of interleaved [LightmapVertex] values, falling back from empty UV1 to UV0.
 func (m LightmapMesh) Vertices() []LightmapVertex {
 	n := len(m.Positions)
 	out := make([]LightmapVertex, n)
@@ -322,10 +286,7 @@ func (m LightmapMesh) Vertices() []LightmapVertex {
 	return out
 }
 
-// AppendVertexData appends m's vertices to dst in the little-endian 40-byte
-// interleaved layout of [LightmapVertexLayout] and returns the extended slice.
-// Missing normals are written as zeros; missing UV1 falls back cleanly to UV0
-// (or zeros if UV0 is also absent). Call [LightmapMesh.Validate] first.
+// AppendVertexData appends m's vertices to dst in the little-endian 40-byte interleaved layout of [LightmapVertexLayout] and returns the extended slice. Missing normals are written as zeros; missing UV1 falls back cleanly to UV0 (or zeros if UV0 is also absent). Call [LightmapMesh.Validate] first.
 func (m LightmapMesh) AppendVertexData(dst []byte) []byte {
 	start := len(dst)
 	dst = grow(dst, m.VertexDataSize())
@@ -361,16 +322,13 @@ func (m LightmapMesh) AppendVertexData(dst []byte) []byte {
 	return dst
 }
 
-// AppendIndexData appends m's indices to dst at [LightmapMesh.IndexFormat]
-// width, little-endian and zero-padded to a 4-byte multiple.
+// AppendIndexData appends m's indices to dst at [LightmapMesh.IndexFormat] width, little-endian and zero-padded to a 4-byte multiple.
 func (m LightmapMesh) AppendIndexData(dst []byte) []byte {
 	base := Mesh{Positions: m.Positions, Indices: m.Indices}
 	return base.AppendIndexData(dst)
 }
 
-// LightmapVertexLayout returns the vertex buffer layout for [GPULightmapMesh]:
-// one 40-byte per-vertex buffer with position at location 0, normal at 1,
-// UV0 at 2, and UV1 at 3. Each call returns a fresh Attributes slice.
+// LightmapVertexLayout returns the vertex buffer layout for [GPULightmapMesh]: one 40-byte per-vertex buffer with position at location 0, normal at 1, UV0 at 2, and UV1 at 3. Each call returns a fresh Attributes slice.
 func LightmapVertexLayout() gpu.VertexBufferLayout {
 	return gpu.VertexBufferLayout{
 		Stride:   LightmapVertexStride,
@@ -384,8 +342,7 @@ func LightmapVertexLayout() gpu.VertexBufferLayout {
 	}
 }
 
-// GPULightmapMesh is a [LightmapMesh] uploaded to GPU vertex and optional index
-// buffers using [LightmapVertexLayout].
+// GPULightmapMesh is a [LightmapMesh] uploaded to GPU vertex and optional index buffers using [LightmapVertexLayout].
 type GPULightmapMesh struct {
 	vertices        *gpu.Buffer
 	indices         *gpu.Buffer
@@ -396,10 +353,7 @@ type GPULightmapMesh struct {
 	usedUV0Fallback bool
 }
 
-// UploadLightmapMesh validates m and uploads its 40-byte interleaved vertex
-// buffer (position, normal, UV0, UV1) and optional index buffer onto dev,
-// scoped to cx. When m.UV1 is empty, UV0 is copied into the UV1 attribute slot
-// and [GPULightmapMesh.UsedUV0Fallback] reports true.
+// UploadLightmapMesh validates m and uploads its 40-byte interleaved vertex buffer (position, normal, UV0, UV1) and optional index buffer onto dev, scoped to cx. When m.UV1 is empty, UV0 is copied into the UV1 attribute slot and [GPULightmapMesh.UsedUV0Fallback] reports true.
 func UploadLightmapMesh(cx *core.Scope, dev *gpu.Device, m LightmapMesh, opts MeshUpload) (*GPULightmapMesh, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
@@ -439,8 +393,7 @@ func UploadLightmapMesh(cx *core.Scope, dev *gpu.Device, m LightmapMesh, opts Me
 	return g, nil
 }
 
-// UploadLightmapVertices uploads interleaved [LightmapVertex] data and optional
-// triangle indices as a [GPULightmapMesh].
+// UploadLightmapVertices uploads interleaved [LightmapVertex] data and optional triangle indices as a [GPULightmapMesh].
 func UploadLightmapVertices(cx *core.Scope, dev *gpu.Device, vertices []LightmapVertex, indices []uint32, opts MeshUpload) (*GPULightmapMesh, error) {
 	return UploadLightmapMesh(cx, dev, LightmapMeshFromVertices(vertices, indices), opts)
 }
@@ -507,8 +460,7 @@ func (g *GPULightmapMesh) Bounds() math3d.AABB {
 	return g.bounds
 }
 
-// UsedUV0Fallback reports whether g was uploaded without dedicated UV1
-// coordinates and therefore reused UV0 in the lightmap UV slot.
+// UsedUV0Fallback reports whether g was uploaded without dedicated UV1 coordinates and therefore reused UV0 in the lightmap UV slot.
 func (g *GPULightmapMesh) UsedUV0Fallback() bool {
 	return g != nil && g.usedUV0Fallback
 }
@@ -569,9 +521,7 @@ func (g *GPULightmapMesh) Close() error {
 	return err
 }
 
-// EncodeRGBM packs a linear HDR RGB irradiance value into 8-bit RGBM bytes
-// using maxRange (defaults to [DefaultRGBMMaxRange] when <= 0).
-// Decoding is linearRGB = (rgb / 255) * ((a / 255) * maxRange).
+// EncodeRGBM packs a linear HDR RGB irradiance value into 8-bit RGBM bytes using maxRange (defaults to [DefaultRGBMMaxRange] when <= 0). Decoding is linearRGB = (rgb / 255) * ((a / 255) * maxRange).
 func EncodeRGBM(rgb math3d.Vec3, maxRange float32) [4]uint8 {
 	if maxRange <= 0 || !finite(maxRange) {
 		maxRange = DefaultRGBMMaxRange
@@ -602,8 +552,7 @@ func EncodeRGBM(rgb math3d.Vec3, maxRange float32) [4]uint8 {
 	}
 }
 
-// DecodeRGBM unpacks an 8-bit RGBM texel back to linear HDR RGB irradiance
-// using maxRange (defaults to [DefaultRGBMMaxRange] when <= 0).
+// DecodeRGBM unpacks an 8-bit RGBM texel back to linear HDR RGB irradiance using maxRange (defaults to [DefaultRGBMMaxRange] when <= 0).
 func DecodeRGBM(rgba [4]uint8, maxRange float32) math3d.Vec3 {
 	if maxRange <= 0 || !finite(maxRange) {
 		maxRange = DefaultRGBMMaxRange
@@ -616,9 +565,7 @@ func DecodeRGBM(rgba [4]uint8, maxRange float32) math3d.Vec3 {
 	}
 }
 
-// EncodeRGBMImage encodes a row-major slice of width*height linear HDR RGB
-// irradiance pixels into a straight-alpha [*image.NRGBA] suitable for upload
-// with [UploadTexture] (SRGB: false) and [LightmapRGBM].
+// EncodeRGBMImage encodes a row-major slice of width*height linear HDR RGB irradiance pixels into a straight-alpha [*image.NRGBA] suitable for upload with [UploadTexture] (SRGB: false) and [LightmapRGBM].
 func EncodeRGBMImage(hdr []math3d.Vec3, width, height int, maxRange float32) (*image.NRGBA, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("%w: RGBM image dimensions %dx%d must be positive", ErrInvalidLightmap, width, height)
@@ -643,9 +590,7 @@ func EncodeRGBMImage(hdr []math3d.Vec3, width, height int, maxRange float32) (*i
 	return img, nil
 }
 
-// EncodeRGBD packs a linear HDR RGB irradiance value into 8-bit RGBD bytes.
-// LDR values (max channel <= 1) store D = 255 with full 8-bit precision; HDR
-// values > 1 store D = floor(255 / maxChannel) and decode via rgb / max(d, 1/255).
+// EncodeRGBD packs a linear HDR RGB irradiance value into 8-bit RGBD bytes. LDR values (max channel <= 1) store D = 255 with full 8-bit precision; HDR values > 1 store D = floor(255 / maxChannel) and decode via rgb / max(d, 1/255).
 func EncodeRGBD(rgb math3d.Vec3) [4]uint8 {
 	r := clampPositive(rgb.X)
 	g := clampPositive(rgb.Y)
@@ -689,9 +634,7 @@ func DecodeRGBD(rgba [4]uint8) math3d.Vec3 {
 	}
 }
 
-// EncodeRGBDImage encodes a row-major slice of width*height linear HDR RGB
-// irradiance pixels into a straight-alpha [*image.NRGBA] suitable for upload
-// with [UploadTexture] (SRGB: false) and [LightmapRGBD].
+// EncodeRGBDImage encodes a row-major slice of width*height linear HDR RGB irradiance pixels into a straight-alpha [*image.NRGBA] suitable for upload with [UploadTexture] (SRGB: false) and [LightmapRGBD].
 func EncodeRGBDImage(hdr []math3d.Vec3, width, height int) (*image.NRGBA, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("%w: RGBD image dimensions %dx%d must be positive", ErrInvalidLightmap, width, height)
@@ -713,9 +656,7 @@ func EncodeRGBDImage(hdr []math3d.Vec3, width, height int) (*image.NRGBA, error)
 	return img, nil
 }
 
-// UploadLightmapRGBA16F packs linear HDR RGB irradiance pixels into an IEEE-754
-// float16 RGBA16F texture ([gpu.FormatRGBA16Float]) and uploads it to dev,
-// scoped to cx, for use with [LightmapLinear].
+// UploadLightmapRGBA16F packs linear HDR RGB irradiance pixels into an IEEE-754 float16 RGBA16F texture ([gpu.FormatRGBA16Float]) and uploads it to dev, scoped to cx, for use with [LightmapLinear].
 func UploadLightmapRGBA16F(cx *core.Scope, dev *gpu.Device, hdr []math3d.Vec3, width, height int, opts TextureUpload) (*GPUTexture, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("%w: RGBA16F lightmap dimensions %dx%d must be positive", ErrInvalidLightmap, width, height)
@@ -772,9 +713,7 @@ func UploadLightmapRGBA16F(cx *core.Scope, dev *gpu.Device, hdr []math3d.Vec3, w
 	}, nil
 }
 
-// LightmapDirectLight describes an optional dynamic directional light summed
-// additively with baked lightmap irradiance (Lambertian N·L diffuse). Setting
-// Intensity to 0 disables direct lighting.
+// LightmapDirectLight describes an optional dynamic directional light summed additively with baked lightmap irradiance (Lambertian N·L diffuse). Setting Intensity to 0 disables direct lighting.
 type LightmapDirectLight struct {
 	// Direction points from the shaded surface toward the light source.
 	Direction math3d.Vec3
@@ -784,48 +723,35 @@ type LightmapDirectLight struct {
 	Intensity float32
 }
 
-// LightmapMaterial configures albedo, baked lightmap sampling, encoding, atlas
-// UV sub-rectangle transform, fallback ambient irradiance, and optional
-// additive direct light for [LightmapRenderer.Draw].
+// LightmapMaterial configures albedo, baked lightmap sampling, encoding, atlas UV sub-rectangle transform, fallback ambient irradiance, and optional additive direct light for [LightmapRenderer.Draw].
 type LightmapMaterial struct {
-	// BaseColor is a linear RGBA multiplier on BaseColorTexture. An all-zero
-	// value defaults to opaque white {1, 1, 1, 1}.
+	// BaseColor is a linear RGBA multiplier on BaseColorTexture. An all-zero value defaults to opaque white {1, 1, 1, 1}.
 	BaseColor [4]float32
-	// BaseColorTexture is an optional albedo texture sampled at UV0. When nil,
-	// a 1x1 white texture is bound.
+	// BaseColorTexture is an optional albedo texture sampled at UV0. When nil, a 1x1 white texture is bound.
 	BaseColorTexture *GPUTexture
-	// BaseColorSampler is an optional sampler for BaseColorTexture (defaults to
-	// linear repeat).
+	// BaseColorSampler is an optional sampler for BaseColorTexture (defaults to linear repeat).
 	BaseColorSampler *GPUSampler
-	// Lightmap is the baked irradiance texture sampled at UV1*UVScale+UVOffset.
-	// When nil, AmbientFallback provides the baked irradiance term.
+	// Lightmap is the baked irradiance texture sampled at UV1*UVScale+UVOffset. When nil, AmbientFallback provides the baked irradiance term.
 	Lightmap *GPUTexture
-	// LightmapSampler is an optional sampler for Lightmap (defaults to linear
-	// clamp-to-edge).
+	// LightmapSampler is an optional sampler for Lightmap (defaults to linear clamp-to-edge).
 	LightmapSampler *GPUSampler
 	// Encoding specifies how Lightmap texels are decoded to linear irradiance.
 	Encoding LightmapEncoding
 	// Intensity scales decoded lightmap irradiance. Zero defaults to 1.0.
 	Intensity float32
-	// RGBMMaxRange sets the HDR peak scale for [LightmapRGBM]. Zero defaults to
-	// [DefaultRGBMMaxRange] (8.0).
+	// RGBMMaxRange sets the HDR peak scale for [LightmapRGBM]. Zero defaults to [DefaultRGBMMaxRange] (8.0).
 	RGBMMaxRange float32
 	// UVScale scales UV1 before sampling Lightmap (defaults to {1, 1} when {0, 0}).
 	UVScale [2]float32
-	// UVOffset offsets scaled UV1 before sampling Lightmap, allowing multiple
-	// objects to share a single baked lightmap atlas.
+	// UVOffset offsets scaled UV1 before sampling Lightmap, allowing multiple objects to share a single baked lightmap atlas.
 	UVOffset [2]float32
 	// AmbientFallback is linear RGB irradiance used when Lightmap is nil.
 	AmbientFallback [3]float32
-	// DirectLight is an optional dynamic directional light added to the baked
-	// irradiance so baked indirect lighting combines cleanly with dynamic sun
-	// or key lights.
+	// DirectLight is an optional dynamic directional light added to the baked irradiance so baked indirect lighting combines cleanly with dynamic sun or key lights.
 	DirectLight LightmapDirectLight
 }
 
-// DefaultLightmapMaterial returns a [LightmapMaterial] with opaque white base
-// color, [LightmapLinear] encoding, unit intensity, default RGBM range, and
-// identity atlas UV scale/offset.
+// DefaultLightmapMaterial returns a [LightmapMaterial] with opaque white base color, [LightmapLinear] encoding, unit intensity, default RGBM range, and identity atlas UV scale/offset.
 func DefaultLightmapMaterial() LightmapMaterial {
 	return LightmapMaterial{
 		BaseColor:    [4]float32{1, 1, 1, 1},
@@ -848,8 +774,7 @@ func (m LightmapMaterial) UVTransform() UVTransform {
 	return UVTransform{Scale: m.UVScale, Offset: m.UVOffset}.Normalized()
 }
 
-// Validate checks that m's numeric fields, encoding, and non-nil GPU handles
-// are valid. Every error wraps [ErrInvalidLightmap].
+// Validate checks that m's numeric fields, encoding, and non-nil GPU handles are valid. Every error wraps [ErrInvalidLightmap].
 func (m LightmapMaterial) Validate() error {
 	for i, c := range m.BaseColor {
 		if !finite(c) || c < 0 {
@@ -902,9 +827,7 @@ func (m LightmapMaterial) Validate() error {
 	return nil
 }
 
-// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer].
-// It uses only pow and algebraic math (no exp/exp2/log2) so it executes
-// identically across hardware GPU backends and NSGo's software GPU VM.
+// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer]. It uses only pow and algebraic math (no exp/exp2/log2) so it executes identically across hardware GPU backends and NSGo's software GPU VM.
 const LightmapWGSL = CameraWGSL + `
 struct LightmapDraw {
 	model: mat4x4<f32>,
@@ -1007,15 +930,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-// LightmapRendererOptions configures [NewLightmapRenderer]. The zero value
-// enables depth testing ([gpu.FormatDepth24Plus]), back-face culling
-// ([gpu.CullBack] with [gpu.FrontCCW]), and targets the device surface format.
+// LightmapRendererOptions configures [NewLightmapRenderer]. The zero value enables depth testing ([gpu.FormatDepth24Plus]), back-face culling ([gpu.CullBack] with [gpu.FrontCCW]), and targets the device surface format.
 type LightmapRendererOptions struct {
-	// ColorFormat overrides the color target format (defaults to
-	// dev.SurfaceFormat(), or [gpu.FormatRGBA8Unorm] if undefined).
+	// ColorFormat overrides the color target format (defaults to dev.SurfaceFormat(), or [gpu.FormatRGBA8Unorm] if undefined).
 	ColorFormat gpu.TextureFormat
-	// DepthFormat overrides the depth target format when DisableDepth is false
-	// (defaults to [gpu.FormatDepth24Plus]).
+	// DepthFormat overrides the depth target format when DisableDepth is false (defaults to [gpu.FormatDepth24Plus]).
 	DepthFormat gpu.TextureFormat
 	// DisableDepth creates the pipeline without a depth-stencil attachment.
 	DisableDepth bool
@@ -1023,8 +942,7 @@ type LightmapRendererOptions struct {
 	DoubleSided bool
 	// Retained keeps internal GPU resources across device loss.
 	Retained bool
-	// InitialCapacity sets the initial per-frame dynamic uniform slot count
-	// (defaults to 64).
+	// InitialCapacity sets the initial per-frame dynamic uniform slot count (defaults to 64).
 	InitialCapacity int
 	// Label prefixes GPU resource debug labels.
 	Label string
@@ -1037,13 +955,9 @@ type lightmapTexKey struct {
 	lmSmp   *gpu.Sampler
 }
 
-// LightmapRenderer draws [GPULightmapMesh] geometry shaded with baked lightmaps
-// (sampling albedo at UV0 and baked irradiance at UV1 * UVScale + UVOffset),
-// supporting linear/HDR RGBA16F, sRGB LDR, RGBM, and RGBD lightmaps as well as
-// optional additive dynamic directional lighting.
+// LightmapRenderer draws [GPULightmapMesh] geometry shaded with baked lightmaps (sampling albedo at UV0 and baked irradiance at UV1 * UVScale + UVOffset), supporting linear/HDR RGBA16F, sRGB LDR, RGBM, and RGBD lightmaps as well as optional additive dynamic directional lighting.
 //
-// Call [LightmapRenderer.BeginFrame] at the start of each frame to reuse the
-// dynamic uniform buffer without steady-state allocations.
+// Call [LightmapRenderer.BeginFrame] at the start of each frame to reuse the dynamic uniform buffer without steady-state allocations.
 type LightmapRenderer struct {
 	cx       *core.Scope
 	dev      *gpu.Device
@@ -1069,9 +983,7 @@ type LightmapRenderer struct {
 	closed     bool
 }
 
-// NewLightmapRenderer compiles [LightmapWGSL] and creates the pipeline,
-// fallback 1x1 white texture, default samplers, and dynamic per-draw uniform
-// ring buffer on dev, owned by cx.
+// NewLightmapRenderer compiles [LightmapWGSL] and creates the pipeline, fallback 1x1 white texture, default samplers, and dynamic per-draw uniform ring buffer on dev, owned by cx.
 func NewLightmapRenderer(cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGroupLayout, opts LightmapRendererOptions) (*LightmapRenderer, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -1265,8 +1177,7 @@ func (r *LightmapRenderer) allocateDrawRing(capacity int) error {
 	return nil
 }
 
-// BeginFrame resets the per-frame dynamic uniform ring offset and releases any
-// older uniform buffers retired when the ring grew in a previous frame.
+// BeginFrame resets the per-frame dynamic uniform ring offset and releases any older uniform buffers retired when the ring grew in a previous frame.
 func (r *LightmapRenderer) BeginFrame() {
 	if r == nil || r.closed {
 		return
@@ -1295,10 +1206,7 @@ func (r *LightmapRenderer) Valid() bool {
 	return r != nil && !r.closed && r.pipeline.Valid() && r.drawBuf.Valid() && r.drawGroup.Valid()
 }
 
-// Draw encodes the model transform and mat into a dynamic uniform slot, binds
-// camera, per-draw uniforms, and albedo/lightmap textures on pass, and draws
-// mesh. Multiple objects with different transforms, materials, or shared atlas
-// UV sub-rectangles may be drawn within the same render pass.
+// Draw encodes the model transform and mat into a dynamic uniform slot, binds camera, per-draw uniforms, and albedo/lightmap textures on pass, and draws mesh. Multiple objects with different transforms, materials, or shared atlas UV sub-rectangles may be drawn within the same render pass.
 func (r *LightmapRenderer) Draw(pass *gpu.RenderPass, cam *CameraBuffer, mesh *GPULightmapMesh, model math3d.Mat4, mat LightmapMaterial) error {
 	if !r.Valid() {
 		return fmt.Errorf("%w: renderer is not valid", ErrInvalidLightmap)

@@ -31,24 +31,18 @@ func lightmapTestEncodePNGDataURI(t *testing.T, img image.Image) string {
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// lightmapTestBakedSceneGLTF builds a self-contained glTF 2.0 scene containing
-// a quad with distinct TEXCOORD_0 (tiled 4x2 albedo checkerboard) and
-// TEXCOORD_1 (non-overlapping [0,1]x[0,1] baked lightmap chart with warm
-// sunlit left half and cool shadowed right half), referenced via MOZ_lightmap.
+// lightmapTestBakedSceneGLTF builds a self-contained glTF 2.0 scene containing a quad with distinct TEXCOORD_0 (tiled 4x2 albedo checkerboard) and TEXCOORD_1 (non-overlapping [0,1]x[0,1] baked lightmap chart with warm sunlit left half and cool shadowed right half), referenced via MOZ_lightmap.
 func lightmapTestBakedSceneGLTF(t *testing.T) []byte {
 	t.Helper()
 
-	// Albedo texture: 2x2 high-contrast neutral checkerboard (0.5 and 1.0) so
-	// tiled UV0 modulation is clearly distinguishable from UV1 lightmap zones.
+	// Albedo texture: 2x2 high-contrast neutral checkerboard (0.5 and 1.0) so tiled UV0 modulation is clearly distinguishable from UV1 lightmap zones.
 	albedoImg := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 	albedoImg.SetNRGBA(0, 0, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
 	albedoImg.SetNRGBA(1, 0, color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	albedoImg.SetNRGBA(0, 1, color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	albedoImg.SetNRGBA(1, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255})
 
-	// Baked lightmap: 4x2 linear irradiance map.
-	// Left half (x=0,1): warm sunlight (R=250, G=210, B=130).
-	// Right half (x=2,3): cool shadow (R=45, G=65, B=130).
+	// Baked lightmap: 4x2 linear irradiance map. Left half (x=0,1): warm sunlight (R=250, G=210, B=130). Right half (x=2,3): cool shadow (R=45, G=65, B=130).
 	lmImg := image.NewNRGBA(image.Rect(0, 0, 4, 2))
 	for y := range 2 {
 		lmImg.SetNRGBA(0, y, color.NRGBA{R: 250, G: 210, B: 130, A: 255})
@@ -377,8 +371,7 @@ func TestLightmapBakedGLTFSceneDrawsInGPUView(t *testing.T) {
 				t.Fatalf("GPUReadPixels: img=%v err=%v", img, err)
 			}
 
-			// Verify TEXCOORD_0 checkerboard tiles and TEXCOORD_1 warm-left vs cool-right baked lighting:
-			// With 4x2 repeating 2x2 checker over 64x64 viewport, each checker cell is 8x16 pixels:
+			// Verify TEXCOORD_0 checkerboard tiles and TEXCOORD_1 warm-left vs cool-right baked lighting: With 4x2 repeating 2x2 checker over 64x64 viewport, each checker cell is 8x16 pixels:
 			// - (4, 8): left half (warm light 250,210,130) * white tile (1.0) -> ~(250, 210, 130)
 			// - (12, 8): left half (warm light 250,210,130) * gray tile (0.5) -> ~(125, 105, 65)
 			// - (36, 8): right half (cool shadow 45,65,130) * white tile (1.0) -> ~(45, 65, 130)
@@ -538,8 +531,7 @@ func TestLightmapEncodingsCPUAndGPU(t *testing.T) {
 		}
 	}
 
-	// 2. GPU rendering checks for Linear, RGBA16F HDR, sRGB (software decode),
-	// sRGB (hardware FormatRGBA8UnormSRGB), RGBM HDR, and RGBD HDR.
+	// 2. GPU rendering checks for Linear, RGBA16F HDR, sRGB (software decode), sRGB (hardware FormatRGBA8UnormSRGB), RGBM HDR, and RGBD HDR.
 	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
@@ -629,8 +621,7 @@ func TestLightmapEncodingsCPUAndGPU(t *testing.T) {
 	lightmapTestApproxByte(t, "rgba16f G", pxHDR.G, 102, 3)
 	lightmapTestApproxByte(t, "rgba16f B", pxHDR.B, 51, 3)
 
-	// 2c. sRGB software decode: sRGB byte 188 (~0.737) -> linear ~0.50; * 0.25 = 0.125 -> ~32.
-	// Contrast with raw linear 188/255 * 0.25 = 0.184 -> 47, confirming sRGB decode ran!
+	// 2c. sRGB software decode: sRGB byte 188 (~0.737) -> linear ~0.50; * 0.25 = 0.125 -> ~32. Contrast with raw linear 188/255 * 0.25 = 0.184 -> 47, confirming sRGB decode ran!
 	srgbSoftTex, err := render3d.UploadTexturePixels(nil, dev, render3d.PixelBuffer{
 		Width: 1, Height: 1, Format: gpu.FormatRGBA8Unorm, Pixels: []byte{188, 188, 188, 255},
 	}, render3d.TextureUpload{Label: "lm-srgb-soft", SRGB: false})
@@ -764,8 +755,7 @@ func TestLightmapAmbientFallbackDirectLightAndUV0Fallback(t *testing.T) {
 		},
 	})
 
-	// Draw 1 (left): UV0 fallback sampling lmTex + additive directional light along +Z (N·L = 1).
-	// Expected: (0.4+0.2, 0.2+0.4, 0.1+0.5) = (0.6, 0.6, 0.6) -> ~(153, 153, 153).
+	// Draw 1 (left): UV0 fallback sampling lmTex + additive directional light along +Z (N·L = 1). Expected: (0.4+0.2, 0.2+0.4, 0.1+0.5) = (0.6, 0.6, 0.6) -> ~(153, 153, 153).
 	matLeft := render3d.DefaultLightmapMaterial()
 	matLeft.Lightmap = lmTex
 	matLeft.DirectLight = render3d.LightmapDirectLight{
@@ -777,8 +767,7 @@ func TestLightmapAmbientFallbackDirectLightAndUV0Fallback(t *testing.T) {
 		t.Fatalf("Draw left: %v", err)
 	}
 
-	// Draw 2 (right, forces ring growth from capacity 1 -> 2): nil Lightmap using AmbientFallback.
-	// Expected: (0.2, 0.6, 0.8) -> ~(51, 153, 204).
+	// Draw 2 (right, forces ring growth from capacity 1 -> 2): nil Lightmap using AmbientFallback. Expected: (0.2, 0.6, 0.8) -> ~(51, 153, 204).
 	matRight := render3d.DefaultLightmapMaterial()
 	matRight.AmbientFallback = [3]float32{0.2, 0.6, 0.8}
 	if err := renderer.Draw(pass, camBuf, gpuRight, math3d.Mat4Identity(), matRight); err != nil {

@@ -9,40 +9,30 @@ import (
 )
 
 const (
-	// ExtMOZLightmap is the Mozilla Hubs / Blender glTF material extension name
-	// for baked lightmaps.
+	// ExtMOZLightmap is the Mozilla Hubs / Blender glTF material extension name for baked lightmaps.
 	ExtMOZLightmap = "MOZ_lightmap"
 
-	// ExtLightmap is the generic EXT_lightmap glTF material extension name for
-	// baked lightmaps.
+	// ExtLightmap is the generic EXT_lightmap glTF material extension name for baked lightmaps.
 	ExtLightmap = "EXT_lightmap"
 )
 
-// LightmapRef describes a baked lightmap binding extracted from a glTF
-// material's MOZ_lightmap extension, EXT_lightmap extension, or
-// extras.lightmap metadata.
+// LightmapRef describes a baked lightmap binding extracted from a glTF material's MOZ_lightmap extension, EXT_lightmap extension, or extras.lightmap metadata.
 type LightmapRef struct {
-	// Texture points to the lightmap texture in Document.Textures and its UV
-	// channel (defaulting to 1 for TEXCOORD_1) plus optional KHR_texture_transform.
+	// Texture points to the lightmap texture in Document.Textures and its UV channel (defaulting to 1 for TEXCOORD_1) plus optional KHR_texture_transform.
 	Texture TextureRef
 	// Intensity scales the decoded lightmap irradiance (defaults to 1).
 	Intensity float32
-	// Encoding is an optional encoding hint such as "linear", "srgb", "rgbm",
-	// or "rgbd", normalized to lower case. Empty when unspecified.
+	// Encoding is an optional encoding hint such as "linear", "srgb", "rgbm", or "rgbd", normalized to lower case. Empty when unspecified.
 	Encoding string
-	// RGBMMaxRange is an optional peak HDR scale hint for RGBM lightmaps (0
-	// when unspecified, letting the renderer apply its default range).
+	// RGBMMaxRange is an optional peak HDR scale hint for RGBM lightmaps (0 when unspecified, letting the renderer apply its default range).
 	RGBMMaxRange float32
-	// UVScale scales lightmap UVs when mapping into a shared lightmap atlas
-	// (defaults to [1, 1]).
+	// UVScale scales lightmap UVs when mapping into a shared lightmap atlas (defaults to [1, 1]).
 	UVScale [2]float32
-	// UVOffset offsets scaled lightmap UVs when mapping into a shared lightmap
-	// atlas (defaults to [0, 0]).
+	// UVOffset offsets scaled lightmap UVs when mapping into a shared lightmap atlas (defaults to [0, 0]).
 	UVOffset [2]float32
 }
 
-// DefaultLightmapRef returns a LightmapRef referencing textureIndex on
-// TEXCOORD_1 with unit intensity and identity atlas UV transform.
+// DefaultLightmapRef returns a LightmapRef referencing textureIndex on TEXCOORD_1 with unit intensity and identity atlas UV transform.
 func DefaultLightmapRef(textureIndex int) LightmapRef {
 	return LightmapRef{
 		Texture: TextureRef{
@@ -69,9 +59,7 @@ type rawLightmapExt struct {
 	Extensions   map[string]json.RawMessage `json:"extensions"`
 }
 
-// MaterialLightmap extracts baked lightmap metadata from d.Materials[materialIndex],
-// checking MOZ_lightmap, EXT_lightmap, and extras.lightmap in that order.
-// It returns (nil, nil) when the material carries no lightmap metadata.
+// MaterialLightmap extracts baked lightmap metadata from d.Materials[materialIndex], checking MOZ_lightmap, EXT_lightmap, and extras.lightmap in that order. It returns (nil, nil) when the material carries no lightmap metadata.
 func (d *Document) MaterialLightmap(materialIndex int) (*LightmapRef, error) {
 	if d == nil {
 		return nil, fmt.Errorf("gltf: nil document")
@@ -183,10 +171,7 @@ func (d *Document) MaterialLightmap(materialIndex int) (*LightmapRef, error) {
 	return &ref, nil
 }
 
-// PrimitiveLightmapUVs returns the lightmap UV channel for prim: prim.TexCoords1
-// (TEXCOORD_1) when present, falling back to prim.TexCoords0 (TEXCOORD_0) when
-// TEXCOORD_1 is absent. The second return value reports whether the fallback
-// path was used.
+// PrimitiveLightmapUVs returns the lightmap UV channel for prim: prim.TexCoords1 (TEXCOORD_1) when present, falling back to prim.TexCoords0 (TEXCOORD_0) when TEXCOORD_1 is absent. The second return value reports whether the fallback path was used.
 func PrimitiveLightmapUVs(prim Primitive) (uvs []math3d.Vec2, usedFallback bool) {
 	if len(prim.TexCoords1) > 0 {
 		return prim.TexCoords1, false
@@ -197,9 +182,7 @@ func PrimitiveLightmapUVs(prim Primitive) (uvs []math3d.Vec2, usedFallback bool)
 	return nil, true
 }
 
-// LightmapTexCoords resolves the baked lightmap UVs for prim using ref (or
-// TEXCOORD_1 when ref is nil). When TEXCOORD_1 is requested but absent on prim,
-// it falls back to prim.TexCoords0 and reports usedFallback = true.
+// LightmapTexCoords resolves the baked lightmap UVs for prim using ref (or TEXCOORD_1 when ref is nil). When TEXCOORD_1 is requested but absent on prim, it falls back to prim.TexCoords0 and reports usedFallback = true.
 func (d *Document) LightmapTexCoords(prim Primitive, ref *LightmapRef) (uvs []math3d.Vec2, usedFallback bool, err error) {
 	if d == nil {
 		return nil, false, fmt.Errorf("gltf: nil document")
