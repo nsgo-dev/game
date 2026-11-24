@@ -3,6 +3,7 @@ package net
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"slices"
 )
@@ -54,7 +55,25 @@ const (
 	// replMsgResync asks the server to send a full snapshot because the client
 	// no longer holds the baseline a delta needs.
 	replMsgResync byte = 4
+	// replMsgSnapshotFullPart carries one part of a full snapshot too large for one packet: tick, part index, part count, then the entity count and entities of a full snapshot.
+	replMsgSnapshotFullPart byte = 5
 )
+
+const (
+	// DefaultMaxSnapshotSize is the largest snapshot payload a ServerWorld passes to Transport.Send unless SetMaxSnapshotSize changes it. It fits every transport in this package: UDP datagrams (65000 bytes), relay messages (MaxRelayPayload) and WebSocket frames.
+	DefaultMaxSnapshotSize = 60000
+	// minSnapshotSize is the smallest size SetMaxSnapshotSize accepts.
+	minSnapshotSize = 256
+	// snapshotPartHeader is the most bytes a part's header takes: the message type and four uvarints of at most 5 bytes each.
+	snapshotPartHeader = 1 + 4*binary.MaxVarintLen32
+	// maxSnapshotParts bounds how many parts one full snapshot may be split into, on both ends.
+	maxSnapshotParts = 4096
+)
+
+// tickAfter reports whether tick a comes after tick b in serial-number order (RFC 1982). A uint32 tick counter wraps after 2^32 ticks, about 2.27 years at 60 Hz; compared as plain integers, every snapshot after the wrap would look older than the last one and be dropped (#546). Ticks more than 2^31 apart compare the wrong way, far beyond any history replication keeps.
+func tickAfter(a, b uint32) bool {
+	return int32(a-b) > 0
+}
 
 const (
 	fieldKind     uint8 = 1 << 0
@@ -80,7 +99,9 @@ type ReplicationStats struct {
 }
 
 type worldSnapshot struct {
-	tick     uint32
+	tick uint32
+	// ext is tick extended past 32 bits, counting wraparounds, so interpolation can order snapshots on either side of a wrap.
+	ext      int64
 	entities map[EntityID]EntityState
 }
 
@@ -103,6 +124,7 @@ type ServerWorld struct {
 
 	stats     ReplicationStats
 	stepTicks uint64
+	maxSize   int
 }
 
 // NewServerWorld creates a new authoritative replication world backed by transport.
@@ -114,7 +136,16 @@ func NewServerWorld(transport Transport) *ServerWorld {
 		historyCap: defaultSnapshotHistory,
 		history:    make(map[uint32]map[EntityID]EntityState),
 		peers:      make(map[PeerID]*peerReplState),
+		maxSize:    DefaultMaxSnapshotSize,
 	}
+}
+
+// SetMaxSnapshotSize sets the largest payload Step passes to Transport.Send. A full snapshot larger than n is split into parts of at most n bytes, which ClientWorld reassembles before applying, and a delta larger than n is replaced by a full snapshot split the same way. Without the split, a world that outgrew the transport's packet limit could never reach a new peer again (#546). Zero restores DefaultMaxSnapshotSize, and a value below 256 is raised to 256.
+func (w *ServerWorld) SetMaxSnapshotSize(n int) {
+	if n == 0 {
+		n = DefaultMaxSnapshotSize
+	}
+	w.maxSize = max(n, minSnapshotSize)
 }
 
 // Spawn creates a new entity with the given initial state and returns its assigned EntityID.
@@ -204,7 +235,8 @@ func (w *ServerWorld) Step(tick uint32) error {
 
 	w.stepTicks++
 	var firstErr error
-	var fullPayload []byte
+	var fullParts [][]byte
+	var fullErr error
 
 	for _, peerID := range connected {
 		ps := w.peers[peerID]
@@ -213,29 +245,45 @@ func (w *ServerWorld) Step(tick uint32) error {
 			w.peers[peerID] = ps
 		}
 
-		var payload []byte
+		var parts [][]byte
 		isDelta := false
-		if ps.hasAck && ps.ackedTick < tick {
+		if ps.hasAck && tickAfter(tick, ps.ackedTick) {
 			if base, ok := w.history[ps.ackedTick]; ok {
-				payload = encodeDeltaSnapshot(tick, ps.ackedTick, base, w.entities)
-				isDelta = true
+				// A delta that outgrew the packet limit falls back to a split full snapshot.
+				if delta := encodeDeltaSnapshot(tick, ps.ackedTick, base, w.entities); len(delta) <= w.maxSize {
+					parts = [][]byte{delta}
+					isDelta = true
+				}
 			}
 		}
 		if !isDelta {
-			if fullPayload == nil {
-				fullPayload = encodeFullSnapshot(tick, w.entities)
+			if fullParts == nil && fullErr == nil {
+				fullParts, fullErr = w.encodeFull(tick)
 			}
-			payload = fullPayload
+			if fullErr != nil {
+				if firstErr == nil {
+					firstErr = fullErr
+				}
+				continue
+			}
+			parts = fullParts
 		}
 
-		if err := w.transport.Send(peerID, ChannelUnreliable, payload); err != nil {
-			if firstErr == nil {
-				firstErr = err
+		sent := true
+		for _, payload := range parts {
+			if err := w.transport.Send(peerID, ChannelUnreliable, payload); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				sent = false
+				break
 			}
+			w.stats.BytesSent += uint64(len(payload))
+			w.stats.PacketsSent++
+		}
+		if !sent {
 			continue
 		}
-		w.stats.BytesSent += uint64(len(payload))
-		w.stats.PacketsSent++
 		w.stats.SnapshotsSent++
 		if isDelta {
 			w.stats.DeltaSnapshotsSent++
@@ -244,6 +292,18 @@ func (w *ServerWorld) Step(tick uint32) error {
 		}
 	}
 	return firstErr
+}
+
+// encodeFull encodes the full snapshot for tick as one payload when it fits the size limit, and as parts otherwise.
+func (w *ServerWorld) encodeFull(tick uint32) ([][]byte, error) {
+	maxSize := w.maxSize
+	if maxSize == 0 {
+		maxSize = DefaultMaxSnapshotSize
+	}
+	if full := encodeFullSnapshot(tick, w.entities); len(full) <= maxSize {
+		return [][]byte{full}, nil
+	}
+	return encodeFullSnapshotParts(tick, w.entities, maxSize)
 }
 
 func (w *ServerWorld) drainAcks() {
@@ -273,7 +333,7 @@ func (w *ServerWorld) drainAcks() {
 				ps = &peerReplState{}
 				w.peers[pkt.From] = ps
 			}
-			if !ps.hasAck || t > ps.ackedTick {
+			if !ps.hasAck || tickAfter(t, ps.ackedTick) {
 				ps.ackedTick = t
 				ps.hasAck = true
 			}
@@ -466,6 +526,56 @@ func encodeFullSnapshot(tick uint32, entities map[EntityID]EntityState) []byte {
 	return buf
 }
 
+// encodeFullSnapshotParts splits a full snapshot into parts of at most maxSize bytes, each holding whole entities in ascending ID order. An entity that does not fit in a part on its own, or a snapshot that needs more than maxSnapshotParts parts, returns ErrPayloadTooLarge.
+func encodeFullSnapshotParts(tick uint32, entities map[EntityID]EntityState, maxSize int) ([][]byte, error) {
+	ids := make([]EntityID, 0, len(entities))
+	for id := range entities {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	budget := maxSize - snapshotPartHeader
+	type group struct {
+		body  []byte
+		count int
+	}
+	var groups []group
+	var cur group
+	var zero ComponentState
+	var scratch []byte
+	for _, id := range ids {
+		e := entities[id]
+		scratch = appendEntityFields(scratch[:0], id, diffComponentMask(zero, e.ComponentState), e.ComponentState)
+		if len(scratch) > budget {
+			return nil, fmt.Errorf("%w: entity %d needs %d bytes, more than a %d-byte snapshot part holds", ErrPayloadTooLarge, id, len(scratch), maxSize)
+		}
+		if len(cur.body)+len(scratch) > budget {
+			groups = append(groups, cur)
+			cur = group{}
+		}
+		cur.body = append(cur.body, scratch...)
+		cur.count++
+	}
+	if cur.count > 0 {
+		groups = append(groups, cur)
+	}
+	if len(groups) > maxSnapshotParts {
+		return nil, fmt.Errorf("%w: full snapshot needs %d parts, more than %d", ErrPayloadTooLarge, len(groups), maxSnapshotParts)
+	}
+
+	parts := make([][]byte, len(groups))
+	for i, g := range groups {
+		buf := make([]byte, 0, snapshotPartHeader+len(g.body))
+		buf = append(buf, replMsgSnapshotFullPart)
+		buf = binary.AppendUvarint(buf, uint64(tick))
+		buf = binary.AppendUvarint(buf, uint64(i))
+		buf = binary.AppendUvarint(buf, uint64(len(groups)))
+		buf = binary.AppendUvarint(buf, uint64(g.count))
+		parts[i] = append(buf, g.body...)
+	}
+	return parts, nil
+}
+
 func encodeDeltaSnapshot(tick, baselineTick uint32, baseline, current map[EntityID]EntityState) []byte {
 	var despawns []EntityID
 	for id := range baseline {
@@ -561,6 +671,17 @@ type ClientWorld struct {
 	lastReconcileError float32
 	// lastResyncTick is the tick of the last resync request, to space them out.
 	lastResyncTick uint32
+	hasResync      bool
+	// assembly collects the parts of a split full snapshot.
+	assembly *snapshotAssembly
+}
+
+// snapshotAssembly is a full snapshot whose parts are still arriving.
+type snapshotAssembly struct {
+	tick     uint32
+	got      []bool
+	received int
+	entities map[EntityID]EntityState
 }
 
 // NewClientWorld creates a replication client connected to serverID via transport.
@@ -619,6 +740,10 @@ func (c *ClientWorld) Poll() int {
 			if c.applyDelta(pkt.Payload[1:]) {
 				applied++
 			}
+		case replMsgSnapshotFullPart:
+			if c.applyFullPart(pkt.Payload[1:]) {
+				applied++
+			}
 		}
 	}
 	return applied
@@ -631,10 +756,10 @@ const resyncIntervalTicks = 30
 // requestResync asks the server for a full snapshot, at most once every
 // resyncIntervalTicks ticks.
 func (c *ClientWorld) requestResync(tick uint32) {
-	if c.lastResyncTick != 0 && tick >= c.lastResyncTick && tick-c.lastResyncTick < resyncIntervalTicks {
+	if since := tick - c.lastResyncTick; c.hasResync && int32(since) >= 0 && since < resyncIntervalTicks {
 		return
 	}
-	c.lastResyncTick = tick
+	c.lastResyncTick, c.hasResync = tick, true
 	_ = c.transport.Send(c.serverID, ChannelUnreliable, []byte{replMsgResync})
 }
 
@@ -650,19 +775,28 @@ func (c *ClientWorld) applyFull(src []byte) bool {
 	}
 	src = src[n:]
 	tick := uint32(tickVal)
-	if c.hasLatest && tick <= c.latestTick {
+	if c.hasLatest && !tickAfter(tick, c.latestTick) {
 		return false
 	}
+	entities, ok := readFullEntities(src, MaxEntitiesPerSnapshot)
+	if !ok {
+		return false
+	}
+	c.commitSnapshot(tick, entities)
+	return true
+}
 
+// readFullEntities parses a full snapshot's entity count and entities, refusing more than limit entities.
+func readFullEntities(src []byte, limit int) (map[EntityID]EntityState, bool) {
 	count, n := binary.Uvarint(src)
 	if n <= 0 {
-		return false
+		return nil, false
 	}
 	src = src[n:]
-	// Every entity needs at least one byte of id, so a count beyond the payload
+	// Every entity needs at least one byte of id and one of mask, so a count beyond the payload
 	// is a corrupt packet, not a reason to allocate a huge map.
-	if count > uint64(len(src)/2) || count > MaxEntitiesPerSnapshot {
-		return false
+	if count > uint64(len(src)/2) || count > uint64(limit) {
+		return nil, false
 	}
 
 	entities := make(map[EntityID]EntityState, count)
@@ -670,12 +804,65 @@ func (c *ClientWorld) applyFull(src []byte) bool {
 	for range count {
 		id, comp, rest, ok := readEntityFields(src, zero)
 		if !ok {
-			return false
+			return nil, false
 		}
 		src = rest
 		entities[id] = EntityState{ID: id, ComponentState: comp}
 	}
-	c.commitSnapshot(tick, entities)
+	return entities, true
+}
+
+// applyFullPart adds one part of a split full snapshot and applies the snapshot once every part has arrived. Parts of an older tick than the one being assembled are ignored, and a newer tick starts over, so a lost part costs one snapshot rather than stalling the client.
+func (c *ClientWorld) applyFullPart(src []byte) bool {
+	var hdr [3]uint64 // tick, index, total
+	for i := range hdr {
+		v, n := binary.Uvarint(src)
+		if n <= 0 {
+			return false
+		}
+		hdr[i] = v
+		src = src[n:]
+	}
+	tick, index, total := uint32(hdr[0]), hdr[1], hdr[2]
+	if total == 0 || total > maxSnapshotParts || index >= total || hdr[0] > math.MaxUint32 {
+		return false
+	}
+	if c.hasLatest && !tickAfter(tick, c.latestTick) {
+		return false
+	}
+	a := c.assembly
+	if a != nil && a.tick != tick {
+		if tickAfter(a.tick, tick) {
+			return false
+		}
+		a = nil
+	}
+	if a == nil {
+		a = &snapshotAssembly{tick: tick, got: make([]bool, total), entities: make(map[EntityID]EntityState)}
+		c.assembly = a
+	}
+	if uint64(len(a.got)) != total {
+		// Parts of one tick that disagree on the count are corrupt; drop the whole snapshot.
+		c.assembly = nil
+		return false
+	}
+	if a.got[index] {
+		return false
+	}
+	part, ok := readFullEntities(src, MaxEntitiesPerSnapshot-len(a.entities))
+	if !ok {
+		return false
+	}
+	for id, e := range part {
+		a.entities[id] = e
+	}
+	a.got[index] = true
+	a.received++
+	if a.received < len(a.got) {
+		return false
+	}
+	c.assembly = nil
+	c.commitSnapshot(tick, a.entities)
 	return true
 }
 
@@ -686,7 +873,7 @@ func (c *ClientWorld) applyDelta(src []byte) bool {
 	}
 	src = src[n:]
 	tick := uint32(tickVal)
-	if c.hasLatest && tick <= c.latestTick {
+	if c.hasLatest && !tickAfter(tick, c.latestTick) {
 		return false
 	}
 
@@ -767,8 +954,16 @@ func (c *ClientWorld) commitSnapshot(tick uint32, entities map[EntityID]EntitySt
 		prev = c.byTick[c.latestTick]
 	}
 
-	c.snapshots = append(c.snapshots, worldSnapshot{tick: tick, entities: entities})
+	ext := int64(tick)
+	if n := len(c.snapshots); n > 0 {
+		last := c.snapshots[n-1]
+		ext = last.ext + int64(int32(tick-last.tick))
+	}
+	c.snapshots = append(c.snapshots, worldSnapshot{tick: tick, ext: ext, entities: entities})
 	c.byTick[tick] = entities
+	if c.assembly != nil && !tickAfter(c.assembly.tick, tick) {
+		c.assembly = nil
+	}
 	c.latestTick = tick
 	c.hasLatest = true
 
@@ -833,7 +1028,7 @@ func (c *ClientWorld) Predict(localEntity EntityID, input any, apply func(*Entit
 	}
 
 	targetTick := tr.lastTargetTick + 1
-	if c.hasLatest && targetTick <= c.latestTick {
+	if c.hasLatest && !tickAfter(targetTick, c.latestTick) {
 		targetTick = c.latestTick + 1
 	}
 	tr.lastTargetTick = targetTick
@@ -885,7 +1080,7 @@ func (c *ClientWorld) reconcile(authTick uint32, entities map[EntityID]EntitySta
 		// Discard predicted inputs whose targetTick is already covered by authTick.
 		kept := tr.pending[:0]
 		for _, p := range tr.pending {
-			if p.targetTick > authTick {
+			if tickAfter(p.targetTick, authTick) {
 				kept = append(kept, p)
 			}
 		}
@@ -907,30 +1102,39 @@ func (c *ClientWorld) reconcile(authTick uint32, entities map[EntityID]EntitySta
 // Interpolate returns a sorted slice of entities interpolated at renderTick
 // across the buffered authoritative snapshots (smoothly lerping X, Y, VX, VY,
 // and shortest-arc Rotation).
+//
+// renderTick is read relative to the latest snapshot's tick, modulo 2^32, so a render time computed from uint32 ticks keeps working across a tick counter wraparound.
 func (c *ClientWorld) Interpolate(renderTick float64) []EntityState {
 	n := len(c.snapshots)
 	if n == 0 {
 		return nil
 	}
-	if renderTick <= float64(c.snapshots[0].tick) {
+	last := c.snapshots[n-1]
+	// Place renderTick on the extended timeline: its distance from the latest tick, folded into [-2^31, 2^31].
+	delta := math.Remainder(renderTick-float64(last.tick), 1<<32)
+	if math.IsNaN(delta) {
+		return snapshotToSortedSlice(last.entities)
+	}
+	at := float64(last.ext) + delta
+	if at <= float64(c.snapshots[0].ext) {
 		return snapshotToSortedSlice(c.snapshots[0].entities)
 	}
-	if renderTick >= float64(c.snapshots[n-1].tick) {
-		return snapshotToSortedSlice(c.snapshots[n-1].entities)
+	if at >= float64(last.ext) {
+		return snapshotToSortedSlice(last.entities)
 	}
 
-	// Find bracketing snapshots s0.tick <= renderTick <= s1.tick.
+	// Find bracketing snapshots s0 <= at <= s1.
 	idx := 0
-	for idx+1 < n && float64(c.snapshots[idx+1].tick) < renderTick {
+	for idx+1 < n && float64(c.snapshots[idx+1].ext) < at {
 		idx++
 	}
 	s0 := c.snapshots[idx]
 	s1 := c.snapshots[idx+1]
-	if s0.tick == s1.tick {
+	if s0.ext == s1.ext {
 		return snapshotToSortedSlice(s1.entities)
 	}
 
-	alpha := float32((renderTick - float64(s0.tick)) / float64(s1.tick-s0.tick))
+	alpha := float32((at - float64(s0.ext)) / float64(s1.ext-s0.ext))
 
 	ids := make([]EntityID, 0, len(s1.entities))
 	for id := range s1.entities {

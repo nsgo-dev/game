@@ -19,7 +19,7 @@ type Auth struct {
 	Verify func(peer PeerID, token []byte) error
 	// GracePeriod is how long a dropped peer keeps its ID and session. A client that reconnects within it resumes with the same ID and NextEvent reports PeerResumed; once it passes, NextEvent reports PeerLeft. Zero reports PeerLeft as soon as the connection drops.
 	GracePeriod time.Duration
-	// IdleTimeout is how long a UDP peer may stay silent before the server counts it as dropped; 10 seconds when zero. UDP clients ping every second while idle, so a gap of up to 2 seconds is normal, and a value below 3 seconds is raised to 3 seconds. WebSocket servers rely on the TCP connection instead and ignore it.
+	// IdleTimeout is how long a peer may stay silent before the server counts it as dropped; 10 seconds when zero, and a value below 3 seconds is raised to 3 seconds. UDP clients ping every second while idle, so a gap of up to 2 seconds is normal. A WebSocket server pings each client every third of IdleTimeout and drops one that sends no frame, not even the pong, for IdleTimeout, so a client whose network vanished without closing the TCP connection does not keep its session forever. The WebSocket timeout runs on the wall clock, not on Now.
 	IdleTimeout time.Duration
 	// MaxPeers is the most sessions the server holds at once, counting peers inside their grace period and handshakes waiting on Verify; 1024 when zero. A client past it is rejected with the reason "server full", so a flood of handshakes cannot grow the server without bound.
 	MaxPeers int

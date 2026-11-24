@@ -4,10 +4,13 @@ package net
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	stdnet "net"
 	"net/netip"
 	"slices"
 	"sync"
+	"syscall"
 )
 
 const (
@@ -27,8 +30,9 @@ type UDPTransport struct {
 	mu     sync.Mutex
 	peers  map[PeerID]stdnet.Addr
 	seq    map[seqKey]uint32
-	inbox  []Packet
+	inbox  packetQueue
 	closed bool
+	err    error
 }
 
 // ListenUDP binds a UDP socket on addr for localID and starts receiving datagrams.
@@ -37,6 +41,10 @@ func ListenUDP(addr string, localID PeerID) (*UDPTransport, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newUDPTransport(conn, localID), nil
+}
+
+func newUDPTransport(conn stdnet.PacketConn, localID PeerID) *UDPTransport {
 	u := &UDPTransport{
 		conn:    conn,
 		localID: localID,
@@ -44,7 +52,21 @@ func ListenUDP(addr string, localID PeerID) (*UDPTransport, error) {
 		seq:     make(map[seqKey]uint32),
 	}
 	go u.readLoop()
-	return u, nil
+	return u
+}
+
+// udpReadRetry reports whether a read error on a UDP socket concerns one datagram rather than the socket, so reading goes on: a timeout, or an ICMP error such as port unreachable that the system reports for an earlier send.
+func udpReadRetry(err error) bool {
+	var ne stdnet.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+}
+
+// udpReadError wraps a socket error that stopped a receive loop.
+func udpReadError(err error) error {
+	return fmt.Errorf("%w: %w", ErrReceiveFailed, err)
 }
 
 // Addr returns the local bound UDP address.
@@ -79,6 +101,14 @@ func (u *UDPTransport) readLoop() {
 	for {
 		n, remoteAddr, err := u.conn.ReadFrom(buf)
 		if err != nil {
+			if udpReadRetry(err) {
+				continue
+			}
+			u.mu.Lock()
+			if !u.closed {
+				u.err = udpReadError(err)
+			}
+			u.mu.Unlock()
 			return
 		}
 		if n < udpHeaderSize {
@@ -95,7 +125,7 @@ func (u *UDPTransport) readLoop() {
 		u.mu.Lock()
 		// Only a registered peer's own address may speak for it: the From header is chosen by the sender, so it never registers or moves a peer.
 		if addr, ok := u.peers[from]; ok && !u.closed && sameUDPAddr(addr, remoteAddr) {
-			u.inbox = append(u.inbox, Packet{
+			u.inbox.push(Packet{
 				From:    from,
 				Channel: ch,
 				Payload: cp,
@@ -124,6 +154,11 @@ func (u *UDPTransport) Send(to PeerID, ch Channel, payload []byte) error {
 	if u.closed {
 		u.mu.Unlock()
 		return ErrClosed
+	}
+	if u.err != nil {
+		err := u.err
+		u.mu.Unlock()
+		return err
 	}
 	type target struct {
 		id   PeerID
@@ -168,13 +203,14 @@ func (u *UDPTransport) Send(to PeerID, ch Channel, payload []byte) error {
 func (u *UDPTransport) Recv() (Packet, bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if len(u.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := u.inbox[0]
-	copy(u.inbox, u.inbox[1:])
-	u.inbox = u.inbox[:len(u.inbox)-1]
-	return pkt, true
+	return u.inbox.pop()
+}
+
+// Err returns why the transport stopped receiving: ErrReceiveFailed wrapping the socket's error. Send returns the same error from then on. It is nil while the transport receives, and after Close. Errors about a single datagram, such as an ICMP port unreachable for an earlier send, do not stop it.
+func (u *UDPTransport) Err() error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.err
 }
 
 // LocalID returns this endpoint's PeerID.

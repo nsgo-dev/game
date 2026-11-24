@@ -132,8 +132,9 @@ type UDPServer struct {
 	mu      sync.Mutex
 	table   *sessionTable
 	byNonce map[[hsNonceSize]byte]PeerID
-	inbox   []Packet
+	inbox   packetQueue
 	closed  bool
+	err     error
 	changed chan struct{}
 }
 
@@ -146,6 +147,10 @@ func ListenUDPServer(addr string, serverID PeerID, auth Auth) (*UDPServer, error
 	if err != nil {
 		return nil, err
 	}
+	return newUDPServer(conn, serverID, auth), nil
+}
+
+func newUDPServer(conn stdnet.PacketConn, serverID PeerID, auth Auth) *UDPServer {
 	s := &UDPServer{
 		conn:     conn,
 		serverID: serverID,
@@ -154,7 +159,7 @@ func ListenUDPServer(addr string, serverID PeerID, auth Auth) (*UDPServer, error
 		changed:  make(chan struct{}, 1),
 	}
 	go s.readLoop()
-	return s, nil
+	return s
 }
 
 // Addr returns the local bound UDP address.
@@ -167,6 +172,15 @@ func (s *UDPServer) readLoop() {
 	for {
 		n, from, err := s.conn.ReadFrom(buf)
 		if err != nil {
+			if udpReadRetry(err) {
+				continue
+			}
+			s.mu.Lock()
+			if !s.closed {
+				s.err = udpReadError(err)
+			}
+			s.mu.Unlock()
+			s.notify()
 			return
 		}
 		if n == 0 {
@@ -299,7 +313,7 @@ func (s *UDPServer) handleSealed(b []byte, from stdnet.Addr) {
 	switch hdr.typ {
 	case udpData:
 		if hdr.ch == ChannelUnreliable {
-			s.inbox = append(s.inbox, Packet{
+			s.inbox.push(Packet{
 				From:    hdr.peer,
 				Channel: hdr.ch,
 				Payload: slices.Clone(b[udpSealedHeader:]),
@@ -348,6 +362,11 @@ func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 		s.mu.Unlock()
 		return ErrClosed
 	}
+	if s.err != nil {
+		err := s.err
+		s.mu.Unlock()
+		return err
+	}
 	var ids []PeerID
 	if to == PeerBroadcast {
 		ids = s.table.connectedIDs()
@@ -380,13 +399,7 @@ func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 func (s *UDPServer) Recv() (Packet, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := s.inbox[0]
-	copy(s.inbox, s.inbox[1:])
-	s.inbox = s.inbox[:len(s.inbox)-1]
-	return pkt, true
+	return s.inbox.pop()
 }
 
 // NextEvent pops the next join, drop, resume or leave without blocking, after dropping clients silent for Auth.IdleTimeout and ending sessions whose grace period has passed.
@@ -400,6 +413,13 @@ func (s *UDPServer) NextEvent() (PeerEvent, bool) {
 // LocalID returns the server's PeerID.
 func (s *UDPServer) LocalID() PeerID {
 	return s.serverID
+}
+
+// Err returns why the server stopped receiving: ErrReceiveFailed wrapping the socket's error. Send returns the same error from then on, and clients time out as their datagrams go unread, so a game should close the server and listen again. It is nil while the server receives, and after Close. Errors about a single datagram, such as an ICMP port unreachable for an earlier send, do not stop it.
+func (s *UDPServer) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
 }
 
 // Peers returns the sorted IDs of connected clients. Clients inside their grace period are left out.
@@ -443,7 +463,7 @@ type UDPClient struct {
 	err      error
 	resume   resumeState
 	resumed  bool
-	inbox    []Packet
+	inbox    packetQueue
 	changed  chan struct{}
 
 	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
@@ -608,7 +628,7 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 		}
 		c.lastRecv = time.Now()
 		if hdr.typ == udpServerData && hdr.ch == ChannelUnreliable {
-			c.inbox = append(c.inbox, Packet{
+			c.inbox.push(Packet{
 				From:    c.serverID,
 				Channel: hdr.ch,
 				Payload: slices.Clone(b[udpSealedHeader:]),
@@ -714,13 +734,7 @@ func (c *UDPClient) Send(to PeerID, ch Channel, payload []byte) error {
 func (c *UDPClient) Recv() (Packet, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := c.inbox[0]
-	copy(c.inbox, c.inbox[1:])
-	c.inbox = c.inbox[:len(c.inbox)-1]
-	return pkt, true
+	return c.inbox.pop()
 }
 
 // LocalID returns the PeerID the server assigned this client.
