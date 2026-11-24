@@ -116,6 +116,15 @@ func toonRampImage(steps []color.NRGBA) *image.NRGBA {
 	return img
 }
 
+func toonDefaults(t *testing.T, cx *core.Scope, dev *gpu.Device, retained bool) *render3d.MaterialDefaults {
+	t.Helper()
+	d, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: retained})
+	if err != nil {
+		t.Fatalf("NewMaterialDefaults: %v", err)
+	}
+	return d
+}
+
 func toonRGBAFromLinear(c [4]float32) color.RGBA {
 	toU8 := func(v float32) uint8 {
 		if v <= 0 {
@@ -196,7 +205,7 @@ func TestToonQuantizeBandAndSmoothness(t *testing.T) {
 
 func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	mat := render3d.ToonMaterial{
-		BaseColor:          [4]float32{0.8, 0.4, 0.2, 1},
+		BaseColorFactor:    [4]float32{0.8, 0.4, 0.2, 1},
 		ShadowColor:        [3]float32{0.2, 0.25, 0.4},
 		Bands:              3,
 		BandSmoothness:     0,
@@ -233,7 +242,7 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 	})
 	for c := range 3 {
 		tint := mat.ShadowColor[c] + (1-mat.ShadowColor[c])*0.5
-		want := mat.BaseColor[c] * tint
+		want := mat.BaseColorFactor[c] * tint
 		if math.Abs(float64(mid[c]-want)) > 1e-4 {
 			t.Errorf("mid[%d] = %g, want %g", c, mid[c], want)
 		}
@@ -247,7 +256,7 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	for c := range 3 {
-		want := min(float32(1), mat.BaseColor[c]+mat.SpecularColor[c])
+		want := min(float32(1), mat.BaseColorFactor[c]+mat.SpecularColor[c])
 		if math.Abs(float64(litSpec[c]-want)) > 1e-5 {
 			t.Errorf("litSpec[%d] = %g, want %g", c, litSpec[c], want)
 		}
@@ -261,7 +270,7 @@ func TestEvaluateToonDiffuseSpecularRimAndRamp(t *testing.T) {
 		LightColor: math3d.Vec3{X: 1, Y: 1, Z: 1},
 	})
 	for c := range 3 {
-		want := min(float32(1), mat.BaseColor[c]*mat.ShadowColor[c]+mat.RimColor[c])
+		want := min(float32(1), mat.BaseColorFactor[c]*mat.ShadowColor[c]+mat.RimColor[c])
 		if math.Abs(float64(rim[c]-want)) > 1e-5 {
 			t.Errorf("rim[%d] = %g, want %g", c, rim[c], want)
 		}
@@ -302,6 +311,7 @@ func TestToonMaterialValidate(t *testing.T) {
 		t.Fatalf("NewGPUSampler: %v", err)
 	}
 	_ = closedSamp.Close()
+	defaults := toonDefaults(t, nil, sr.Device(), false)
 
 	valid := render3d.DefaultToonMaterial()
 	if err := valid.Validate(); err != nil {
@@ -320,9 +330,9 @@ func TestToonMaterialValidate(t *testing.T) {
 		name string
 		mut  func(*render3d.ToonMaterial)
 	}{
-		{"negative base color", func(m *render3d.ToonMaterial) { m.BaseColor[0] = -0.1 }},
-		{"nan base color", func(m *render3d.ToonMaterial) { m.BaseColor[1] = nan }},
-		{"alpha > 1", func(m *render3d.ToonMaterial) { m.BaseColor[3] = 1.2 }},
+		{"negative base color", func(m *render3d.ToonMaterial) { m.BaseColorFactor[0] = -0.1 }},
+		{"nan base color", func(m *render3d.ToonMaterial) { m.BaseColorFactor[1] = nan }},
+		{"alpha > 1", func(m *render3d.ToonMaterial) { m.BaseColorFactor[3] = 1.2 }},
 		{"negative shadow", func(m *render3d.ToonMaterial) { m.ShadowColor[2] = -0.01 }},
 		{"bands 1", func(m *render3d.ToonMaterial) { m.Bands = 1 }},
 		{"bands negative", func(m *render3d.ToonMaterial) { m.Bands = -2 }},
@@ -351,15 +361,18 @@ func TestToonMaterialValidate(t *testing.T) {
 			if !errors.Is(err, render3d.ErrInvalidToonMaterial) {
 				t.Fatalf("Validate = %v, want ErrInvalidToonMaterial", err)
 			}
-			if _, err := render3d.NewGPUToonMaterial(nil, sr.Device(), m, render3d.ToonMaterialOptions{}); !errors.Is(err, render3d.ErrInvalidToonMaterial) {
+			if _, err := render3d.NewGPUToonMaterial(nil, sr.Device(), defaults, m, render3d.ToonMaterialOptions{}); !errors.Is(err, render3d.ErrInvalidToonMaterial) {
 				t.Fatalf("NewGPUToonMaterial = %v, want ErrInvalidToonMaterial", err)
 			}
 		})
 	}
 
 	// Nil device returns gpu.ErrDeviceLost.
-	if _, err := render3d.NewGPUToonMaterial(nil, nil, valid, render3d.ToonMaterialOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
+	if _, err := render3d.NewGPUToonMaterial(nil, nil, defaults, valid, render3d.ToonMaterialOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Fatalf("NewGPUToonMaterial(nil dev) = %v, want gpu.ErrDeviceLost", err)
+	}
+	if _, err := render3d.NewGPUToonMaterial(nil, sr.Device(), nil, valid, render3d.ToonMaterialOptions{}); !errors.Is(err, render3d.ErrInvalidToonMaterial) {
+		t.Fatalf("NewGPUToonMaterial(nil defaults) = %v, want ErrInvalidToonMaterial", err)
 	}
 
 }
@@ -513,14 +526,14 @@ func TestToonDrawsInGPUView(t *testing.T) {
 			const size = 96
 			clearCol := color.RGBA{R: 20, G: 24, B: 36, A: 255}
 			mat := render3d.ToonMaterial{
-				BaseColor:      [4]float32{0.92, 0.32, 0.24, 1},
-				ShadowColor:    [3]float32{0.2, 0.22, 0.36},
-				Bands:          3,
-				BandSmoothness: 0,
-				SpecularColor:  [3]float32{0, 0, 0},
-				RimColor:       [3]float32{0, 0, 0},
-				OutlineColor:   [4]float32{0.04, 0.04, 0.06, 1},
-				OutlineWidth:   0.08,
+				BaseColorFactor: [4]float32{0.92, 0.32, 0.24, 1},
+				ShadowColor:     [3]float32{0.2, 0.22, 0.36},
+				Bands:           3,
+				BandSmoothness:  0,
+				SpecularColor:   [3]float32{0, 0, 0},
+				RimColor:        [3]float32{0, 0, 0},
+				OutlineColor:    [4]float32{0.04, 0.04, 0.06, 1},
+				OutlineWidth:    0.08,
 			}
 			toLight := math3d.Vec3{X: 0.7, Y: 0.4, Z: 0.6}.Norm()
 			light := render3d.ToonLight{Key: render3d.DirectionalLight{
@@ -564,7 +577,7 @@ func TestToonDrawsInGPUView(t *testing.T) {
 						if err != nil {
 							t.Fatalf("UploadMesh: %v", err)
 						}
-						gpuMat, err = renderer.NewMaterial(cx, dev, mat, "hero")
+						gpuMat, err = renderer.NewMaterial(cx, dev, toonDefaults(t, cx, dev, false), mat, "hero")
 						if err != nil {
 							t.Fatalf("NewMaterial: %v", err)
 						}
@@ -655,11 +668,11 @@ func TestToonDrawsInGPUView(t *testing.T) {
 func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 	const size = 64
 	mat := render3d.ToonMaterial{
-		BaseColor:    [4]float32{0.2, 0.85, 0.55, 1},
-		ShadowColor:  [3]float32{0.15, 0.25, 0.35},
-		Bands:        3,
-		OutlineColor: [4]float32{0.05, 0.05, 0.05, 1},
-		OutlineWidth: 0.08,
+		BaseColorFactor: [4]float32{0.2, 0.85, 0.55, 1},
+		ShadowColor:     [3]float32{0.15, 0.25, 0.35},
+		Bands:           3,
+		OutlineColor:    [4]float32{0.05, 0.05, 0.05, 1},
+		OutlineWidth:    0.08,
 	}
 	light := render3d.ToonLight{Key: render3d.DirectionalLight{
 		Direction: math3d.Vec3{Z: -1},
@@ -701,7 +714,7 @@ func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 					if err != nil {
 						t.Fatalf("UploadMesh: %v", err)
 					}
-					gpuMat, err = renderer.NewMaterial(cx, dev, mat, "retained-mat")
+					gpuMat, err = renderer.NewMaterial(cx, dev, toonDefaults(t, cx, dev, true), mat, "retained-mat")
 					if err != nil {
 						t.Fatalf("NewMaterial: %v", err)
 					}
@@ -729,7 +742,7 @@ func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GPUReadPixels before loss: %v", err)
 	}
-	wantLit := toonRGBAFromLinear(mat.BaseColor)
+	wantLit := toonRGBAFromLinear(mat.BaseColorFactor)
 	if got := before.RGBAAt(size/2, size/2); !toonNearColor(got, wantLit, 4) {
 		t.Fatalf("center before loss = %v, want %v", got, wantLit)
 	}
@@ -747,7 +760,7 @@ func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 
 	// Update material color after restore using the new device handle to prove Update stays live after device loss!
 	updated := mat
-	updated.BaseColor = [4]float32{0.3, 0.5, 0.95, 1}
+	updated.BaseColorFactor = [4]float32{0.3, 0.5, 0.95, 1}
 	app.Post(func() {
 		if err := firstMat.Update(devRef, updated); err != nil {
 			t.Errorf("Update after device restore: %v", err)
@@ -760,7 +773,7 @@ func TestRetainedToonDrawsAfterDeviceLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GPUReadPixels after restore: %v", err)
 	}
-	wantUpdated := toonRGBAFromLinear(updated.BaseColor)
+	wantUpdated := toonRGBAFromLinear(updated.BaseColorFactor)
 	if got := after.RGBAAt(size/2, size/2); !toonNearColor(got, wantUpdated, 4) {
 		t.Fatalf("center after restore + Update = %v, want %v", got, wantUpdated)
 	}
@@ -788,7 +801,7 @@ func TestToonMaterialScopeDisposalAndUpdateErrors(t *testing.T) {
 					if err != nil {
 						t.Fatalf("NewToonRenderer: %v", err)
 					}
-					gpuMat, err = renderer.NewMaterial(cx, dev, render3d.DefaultToonMaterial(), "scoped")
+					gpuMat, err = renderer.NewMaterial(cx, dev, toonDefaults(t, cx, dev, false), render3d.DefaultToonMaterial(), "scoped")
 					if err != nil {
 						t.Fatalf("NewMaterial: %v", err)
 					}
@@ -819,7 +832,7 @@ func TestToonMaterialScopeDisposalAndUpdateErrors(t *testing.T) {
 		t.Fatalf("UploadTexture: %v", err)
 	}
 	defer func() { _ = tex.Close() }()
-	m, err := render3d.NewGPUToonMaterial(nil, dev, render3d.DefaultToonMaterial(), render3d.ToonMaterialOptions{})
+	m, err := render3d.NewGPUToonMaterial(nil, dev, toonDefaults(t, nil, dev, false), render3d.DefaultToonMaterial(), render3d.ToonMaterialOptions{})
 	if err != nil {
 		t.Fatalf("NewGPUToonMaterial: %v", err)
 	}
@@ -881,14 +894,14 @@ func TestToonRampTextureAndClipSpaceOutline(t *testing.T) {
 	defer func() { _ = rampSamp.Close() }()
 
 	mat := render3d.ToonMaterial{
-		BaseColor:        [4]float32{1, 1, 1, 1},
+		BaseColorFactor:  [4]float32{1, 1, 1, 1},
 		RampTexture:      rampTex,
 		RampSampler:      rampSamp,
 		OutlineColor:     [4]float32{0.02, 0.02, 0.04, 1},
 		OutlineWidth:     0.05,
 		OutlineClipSpace: true,
 	}
-	gpuMat, err := renderer.NewMaterial(nil, dev, mat, "ramp-sphere")
+	gpuMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), mat, "ramp-sphere")
 	if err != nil {
 		t.Fatalf("NewMaterial: %v", err)
 	}
@@ -1005,7 +1018,7 @@ func TestToonSceneMatchesReference(t *testing.T) {
 	}
 
 	heroMatSpec := render3d.ToonMaterial{
-		BaseColor:          [4]float32{0.94, 0.34, 0.24, 1},
+		BaseColorFactor:    [4]float32{0.94, 0.34, 0.24, 1},
 		ShadowColor:        [3]float32{0.24, 0.22, 0.40},
 		Bands:              3,
 		BandSmoothness:     0,
@@ -1019,13 +1032,13 @@ func TestToonSceneMatchesReference(t *testing.T) {
 		OutlineColor:       [4]float32{0.05, 0.05, 0.08, 1},
 		OutlineWidth:       0.045,
 	}
-	heroMat, err := renderer.NewMaterial(nil, dev, heroMatSpec, "hero")
+	heroMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), heroMatSpec, "hero")
 	if err != nil {
 		t.Fatalf("NewMaterial hero: %v", err)
 	}
 
 	boxMatSpec := render3d.ToonMaterial{
-		BaseColor:          [4]float32{0.20, 0.76, 0.64, 1},
+		BaseColorFactor:    [4]float32{0.20, 0.76, 0.64, 1},
 		ShadowColor:        [3]float32{0.18, 0.30, 0.42},
 		Bands:              4,
 		BandSmoothness:     0.03,
@@ -1039,7 +1052,7 @@ func TestToonSceneMatchesReference(t *testing.T) {
 		OutlineColor:       [4]float32{0.04, 0.06, 0.09, 1},
 		OutlineWidth:       0.055,
 	}
-	boxMat, err := renderer.NewMaterial(nil, dev, boxMatSpec, "box")
+	boxMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), boxMatSpec, "box")
 	if err != nil {
 		t.Fatalf("NewMaterial box: %v", err)
 	}
@@ -1057,23 +1070,23 @@ func TestToonSceneMatchesReference(t *testing.T) {
 		t.Fatalf("NewGPUSampler ramp: %v", err)
 	}
 	miniMatSpec := render3d.ToonMaterial{
-		BaseColor:    [4]float32{1, 1, 1, 1},
-		RampTexture:  rampTex,
-		RampSampler:  rampSamp,
-		OutlineColor: [4]float32{0.06, 0.05, 0.09, 1},
-		OutlineWidth: 0.035,
+		BaseColorFactor: [4]float32{1, 1, 1, 1},
+		RampTexture:     rampTex,
+		RampSampler:     rampSamp,
+		OutlineColor:    [4]float32{0.06, 0.05, 0.09, 1},
+		OutlineWidth:    0.035,
 	}
-	miniMat, err := renderer.NewMaterial(nil, dev, miniMatSpec, "mini")
+	miniMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), miniMatSpec, "mini")
 	if err != nil {
 		t.Fatalf("NewMaterial mini: %v", err)
 	}
 
 	floorMatSpec := render3d.ToonMaterial{
-		BaseColor:   [4]float32{0.58, 0.62, 0.70, 1},
-		ShadowColor: [3]float32{0.35, 0.38, 0.48},
-		Bands:       3,
+		BaseColorFactor: [4]float32{0.58, 0.62, 0.70, 1},
+		ShadowColor:     [3]float32{0.35, 0.38, 0.48},
+		Bands:           3,
 	}
-	floorMat, err := renderer.NewMaterial(nil, dev, floorMatSpec, "floor")
+	floorMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), floorMatSpec, "floor")
 	if err != nil {
 		t.Fatalf("NewMaterial floor: %v", err)
 	}
@@ -1164,8 +1177,8 @@ func TestToonRendererDrawsSeveralTimesPerSubmit(t *testing.T) {
 		t.Fatalf("NewToonRenderer: %v", err)
 	}
 	defer func() { _ = renderer.Close() }()
-	mat := render3d.ToonMaterial{BaseColor: [4]float32{1, 1, 1, 1}, ShadowColor: [3]float32{1, 1, 1}}
-	gpuMat, err := renderer.NewMaterial(nil, dev, mat, "white")
+	mat := render3d.ToonMaterial{BaseColorFactor: [4]float32{1, 1, 1, 1}, ShadowColor: [3]float32{1, 1, 1}}
+	gpuMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), mat, "white")
 	if err != nil {
 		t.Fatalf("NewMaterial: %v", err)
 	}
