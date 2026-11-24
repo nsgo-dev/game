@@ -17,7 +17,6 @@ const (
 	wheelZoomSensitivity = 0.0045 // meters per wheel point
 	keyOrbitStep         = 0.14   // radians per keypress
 	keyZoomStep          = 0.55   // meters per keypress
-	pinchZoomSensitivity = 0.015  // meters per point of pinch delta
 )
 
 // Controller connects the glTF Scene, GPU Renderer, fixed-step game.Loop,
@@ -47,7 +46,7 @@ type Controller struct {
 	lastMousePos  core.Point
 
 	activeTouches map[int]core.Point
-	lastPinchDist float64
+	pinchStart    float32 // orbit distance when the current pinch began
 }
 
 // Root is Lantern 3D's NSGo root component.
@@ -173,74 +172,57 @@ func (c *Controller) onWheel(ev core.WheelEvent) {
 	c.Scene.Orbit.Zoom(float32(ev.Delta.Y) * wheelZoomSensitivity)
 }
 
+// onTouch orbits the camera while exactly one finger is down; two or more fingers belong to the pinch, which onPinch follows.
 func (c *Controller) onTouch(ev core.TouchEvent) {
 	switch ev.Phase {
 	case core.TouchStart:
 		for _, t := range ev.Touches {
 			c.activeTouches[t.ID] = t.Position
 		}
-		c.Scene.Dragging = len(c.activeTouches) > 0
-		c.lastPinchDist = c.pinchDistance()
 	case core.TouchMove:
-		if len(c.activeTouches) == 1 && len(ev.Touches) >= 1 {
-			t := ev.Touches[0]
-			if prev, ok := c.activeTouches[t.ID]; ok {
+		if len(c.activeTouches) == 1 {
+			for _, t := range ev.Touches {
+				prev, ok := c.activeTouches[t.ID]
+				if !ok {
+					continue
+				}
 				dx := float32(t.Position.X - prev.X)
 				dy := float32(t.Position.Y - prev.Y)
 				c.Scene.Orbit.Orbit(-dx*dragOrbitSensitivity, dy*dragOrbitSensitivity)
 			}
-			c.activeTouches[t.ID] = t.Position
-		} else {
-			for _, t := range ev.Touches {
+		}
+		for _, t := range ev.Touches {
+			if _, ok := c.activeTouches[t.ID]; ok {
 				c.activeTouches[t.ID] = t.Position
 			}
-			dist := c.pinchDistance()
-			if c.lastPinchDist > 0 && dist > 0 {
-				delta := float32(c.lastPinchDist - dist)
-				c.Scene.Orbit.Zoom(delta * pinchZoomSensitivity)
-			}
-			c.lastPinchDist = dist
 		}
 	case core.TouchEnd, core.TouchCancel:
-		if len(ev.Touches) == 0 {
+		anyChanged := false
+		for _, t := range ev.Touches {
+			anyChanged = anyChanged || t.Changed
+		}
+		if len(ev.Touches) == 0 || ev.Phase == core.TouchCancel || !anyChanged {
 			clear(c.activeTouches)
-		} else {
-			hasChanged := false
-			for _, t := range ev.Touches {
-				if t.Changed {
-					hasChanged = true
-					break
-				}
-			}
-			for _, t := range ev.Touches {
-				if t.Changed || !hasChanged {
-					delete(c.activeTouches, t.ID)
-				} else {
-					c.activeTouches[t.ID] = t.Position
-				}
+		}
+		for _, t := range ev.Touches {
+			if t.Changed {
+				delete(c.activeTouches, t.ID)
 			}
 		}
-		c.Scene.Dragging = c.mouseDragging || len(c.activeTouches) > 0
-		c.lastPinchDist = c.pinchDistance()
 	}
+	c.Scene.Dragging = c.mouseDragging || len(c.activeTouches) > 0
 }
 
-func (c *Controller) pinchDistance() float64 {
-	if len(c.activeTouches) < 2 {
-		return 0
-	}
-	var pts [2]core.Point
-	i := 0
-	for _, p := range c.activeTouches {
-		pts[i] = p
-		i++
-		if i == 2 {
-			break
+// onPinch zooms by the pinch's scale, two fingers on a touch screen or a trackpad's pinch on desktops: scale 2 halves the orbit distance it began at.
+func (c *Controller) onPinch(ev core.GestureEvent) {
+	switch ev.Phase {
+	case core.GestureBegan:
+		c.pinchStart = c.Scene.Orbit.Distance
+	case core.GestureChanged, core.GestureEnded:
+		if c.pinchStart > 0 && ev.Value > 0 {
+			c.Scene.Orbit.SetDistance(c.pinchStart / ev.Value)
 		}
 	}
-	dx := float64(pts[0].X - pts[1].X)
-	dy := float64(pts[0].Y - pts[1].Y)
-	return math.Hypot(dx, dy)
 }
 
 func (c *Controller) recordFPS(now time.Time) {
@@ -415,6 +397,7 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 		OnMouseLeave: c.onMouseLeave,
 		OnWheel:      c.onWheel,
 		OnTouch:      c.onTouch,
+		OnPinch:      c.onPinch,
 		Children: []core.Node{
 			gpu.View(cx, gpu.ViewProps{
 				TestID:          "lantern-gpu",

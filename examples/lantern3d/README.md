@@ -7,7 +7,7 @@ It loads an embedded binary glTF 2.0 diorama (`assets/lantern_shrine.glb`) conta
 ## Controls
 
 - **Drag** (mouse left button or 1-finger touch): orbit the camera around the shrine.
-- **Scroll** (mouse wheel or 2-finger pinch): zoom in and out.
+- **Scroll** the mouse wheel, or **pinch** with two fingers or on a trackpad: zoom in and out.
 - **Arrow keys** or **WASD**: orbit camera; **`=` / `-`**: zoom.
 - **`Space`** (or **Orbit** button): toggle gentle auto-orbit.
 - **`L`** (or **Lights** button): toggle the orbiting point light and crystal motion.
