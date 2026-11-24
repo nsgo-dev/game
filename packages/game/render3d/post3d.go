@@ -1260,10 +1260,10 @@ type SSAOConfig struct {
 	BlurRadius int
 	// DepthThreshold is the view-space depth tolerance for bilateral blur edge preservation (> 0). Default: 0.2.
 	DepthThreshold float32
-	// Near and Far are fallback perspective clip planes used only when ProjMatrix is zero.
+	// Near and Far are fallback perspective clip planes used only when ProjMatrix is zero; the fallback projection also assumes a 60-degree vertical field of view and the pass's aspect ratio, so set ProjMatrix whenever the camera differs from that.
 	Near float32
 	Far  float32
-	// ProjMatrix is the camera's [0, 1] NDC depth projection matrix (e.g. cam.ProjMatrix()).
+	// ProjMatrix is the camera's [0, 1] NDC depth projection matrix (e.g. cam.ProjMatrix()). It is captured when the config is set, so refresh it with [SSAOPass.SetConfig] or [PostStack3D.SetCamera] whenever the projection changes, such as after a resize changes the camera's aspect ratio.
 	ProjMatrix math3d.Mat4
 	// InvProjMatrix optionally supplies ProjMatrix.Inverse(); when zero, it is computed from ProjMatrix.
 	InvProjMatrix math3d.Mat4
@@ -1284,16 +1284,28 @@ func DefaultSSAOConfig() SSAOConfig {
 	}
 }
 
-// SSAOConfigFromCamera initializes an [SSAOConfig] using cam's projection matrix
-// and clip planes combined with [DefaultSSAOConfig] quality settings.
+// SSAOConfigFromCamera initializes an [SSAOConfig] using cam's projection matrix and the clip planes that matrix uses, combined with [DefaultSSAOConfig] quality settings.
 func SSAOConfigFromCamera(cam *scene3d.Camera) SSAOConfig {
 	cfg := DefaultSSAOConfig()
 	if cam != nil {
 		cfg.ProjMatrix = cam.ProjMatrix()
-		cfg.Near = cam.Projection.Near
-		cfg.Far = cam.Projection.Far
+		if near, far, ortho := postClipPlanes(cfg.ProjMatrix); !ortho {
+			cfg.Near, cfg.Far = near, far
+		}
 	}
 	return cfg
+}
+
+// postClipPlanes recovers the near and far planes and the projection kind from a [0, 1]-depth projection built by [math3d.Perspective] or [math3d.Ortho]. Reading them from the matrix, not from [scene3d.Projection]'s fields, keeps them equal to what the depth buffer holds when the projection fills in defaults for zero or out-of-range fields.
+func postClipPlanes(m math3d.Mat4) (near, far float32, ortho bool) {
+	a, b := m[10], m[14]
+	if m[11] == 0 && m[15] == 1 {
+		// Orthographic: a = -1/(far-near), b = -near/(far-near).
+		near = b / a
+		return near, near - 1/a, true
+	}
+	// Perspective: a = -far/(far-near), b = -far*near/(far-near).
+	return b / a, b / (a + 1), false
 }
 
 // Validate checks that every field of c is finite and within its valid range.
@@ -1946,7 +1958,7 @@ type DepthOfFieldConfig struct {
 	// MaxBlurRadius is the maximum bokeh disc radius in pixels at CoC = 1 (>= 0).
 	// 0 leaves the scene unchanged. Default: 6.0.
 	MaxBlurRadius float32
-	// Near and Far are the camera clip planes used to linearize [0, 1] depth values (0 < Near < Far).
+	// Near and Far are the camera clip planes used to linearize [0, 1] depth values: Near < Far, and Near > 0 for a perspective projection. They must match the projection that wrote the depth buffer; [DepthOfFieldConfigFromCamera] and [PostStack3D.SetCamera] read them from the camera's projection matrix.
 	Near float32
 	Far  float32
 	// Orthographic selects linear orthographic depth reconstruction instead of perspective.
@@ -1964,21 +1976,14 @@ func DefaultDepthOfFieldConfig() DepthOfFieldConfig {
 	}
 }
 
-// DepthOfFieldConfigFromCamera initializes a [DepthOfFieldConfig] with cam's clip
-// planes and projection kind.
+// DepthOfFieldConfigFromCamera initializes a [DepthOfFieldConfig] with the clip planes and projection kind of cam's projection matrix, so a projection whose fields [scene3d.Projection.Matrix] fills in with defaults still linearizes depth correctly.
 func DepthOfFieldConfigFromCamera(cam *scene3d.Camera, focusDistance, focusRange, maxBlurRadius float32) DepthOfFieldConfig {
 	cfg := DefaultDepthOfFieldConfig()
 	cfg.FocusDistance = focusDistance
 	cfg.FocusRange = focusRange
 	cfg.MaxBlurRadius = maxBlurRadius
 	if cam != nil {
-		if cam.Projection.Near > 0 {
-			cfg.Near = cam.Projection.Near
-		}
-		if cam.Projection.Far > cfg.Near {
-			cfg.Far = cam.Projection.Far
-		}
-		cfg.Orthographic = cam.Projection.Kind == scene3d.ProjectionOrthographic
+		cfg.Near, cfg.Far, cfg.Orthographic = postClipPlanes(cam.ProjMatrix())
 	}
 	return cfg
 }
@@ -1995,8 +2000,11 @@ func (c DepthOfFieldConfig) Validate() error {
 	if !finite(c.MaxBlurRadius) || c.MaxBlurRadius < 0 {
 		return fmt.Errorf("%w: dof MaxBlurRadius %v must be finite and >= 0", ErrInvalidPostProcess, c.MaxBlurRadius)
 	}
-	if !finite(c.Near) || !finite(c.Far) || c.Near <= 0 || c.Far <= c.Near {
-		return fmt.Errorf("%w: dof requires 0 < Near < Far (got Near=%v, Far=%v)", ErrInvalidPostProcess, c.Near, c.Far)
+	if !finite(c.Near) || !finite(c.Far) || c.Far <= c.Near {
+		return fmt.Errorf("%w: dof requires Near < Far (got Near=%v, Far=%v)", ErrInvalidPostProcess, c.Near, c.Far)
+	}
+	if !c.Orthographic && c.Near <= 0 {
+		return fmt.Errorf("%w: perspective dof requires Near > 0 (got %v)", ErrInvalidPostProcess, c.Near)
 	}
 	return nil
 }
@@ -2833,6 +2841,31 @@ func (s *PostStack3D) SetBloom(enabled bool, cfg BloomConfig) error {
 		return err
 	}
 	s.enableBloom = enabled
+	return nil
+}
+
+// SetCamera refreshes the projection SSAO reconstructs view-space positions with and the clip planes Depth of Field linearizes depth with from cam's projection matrix, keeping every other setting. Call it whenever the camera's projection changes, such as after a resize changes its aspect ratio or a zoom changes its field of view.
+func (s *PostStack3D) SetCamera(cam *scene3d.Camera) error {
+	if s == nil || s.closed {
+		return fmt.Errorf("%w: post stack is not valid", ErrInvalidPostProcess)
+	}
+	if cam == nil {
+		return fmt.Errorf("%w: nil camera", ErrInvalidPostProcess)
+	}
+	proj := cam.ProjMatrix()
+	ssao := s.ssao.Config()
+	ssao.ProjMatrix = proj
+	ssao.InvProjMatrix = math3d.Mat4{}
+	dof := s.dof.Config()
+	dof.Near, dof.Far, dof.Orthographic = postClipPlanes(proj)
+	if err := ssao.Validate(); err != nil {
+		return err
+	}
+	if err := dof.Validate(); err != nil {
+		return err
+	}
+	s.ssao.cfg = ssao.normalized()
+	s.dof.cfg = dof
 	return nil
 }
 
