@@ -54,7 +54,7 @@ func TestComponentsChecksScenesOnLoad(t *testing.T) {
 	}
 }
 
-func TestObjectsListsPatientsInDocumentOrderWithChildren(t *testing.T) {
+func TestObjectsListsTopLevelPatientsInDocumentOrder(t *testing.T) {
 	doc := &sceneformat.SceneDoc{Layers: []sceneformat.LayerDoc{
 		{Name: "a", Objects: []sceneformat.ObjectDoc{
 			{ID: "bed", Children: []sceneformat.ObjectDoc{{ID: "child", Components: map[string]any{health.Name: map[string]any{}}}}},
@@ -62,7 +62,7 @@ func TestObjectsListsPatientsInDocumentOrderWithChildren(t *testing.T) {
 		}},
 		{Name: "b", Objects: []sceneformat.ObjectDoc{{ID: "bram", Components: map[string]any{health.Name: map[string]any{}}}}},
 	}}
-	if got, want := health.Objects(doc), []string{"child", "ada", "bram"}; !reflect.DeepEqual(got, want) {
+	if got, want := health.Objects(doc), []string{"ada", "bram"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Objects = %v, want %v", got, want)
 	}
 	if got := health.Objects(nil); got != nil {

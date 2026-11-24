@@ -3,6 +3,7 @@ package healthplugin
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
@@ -41,15 +42,13 @@ func Plugin() editor.Plugin {
 	}
 }
 
-// stats reads the health of objectID through the editor, so an unset field reads its registered default.
+// stats reads the health of the patient objectID as the game does, through health.Read: an unset field reads its default and hp is capped at max. It returns zero stats when objectID is not a top-level object or its component does not match the type.
 func stats(ed *editor.Editor, objectID string) health.Stats {
-	var s health.Stats
-	if v, ok := ed.ComponentField(objectID, health.Name, health.FieldHP); ok {
-		s.HP, _ = v.(int)
+	o, _, _ := ed.FindObject(objectID)
+	if o == nil {
+		return health.Stats{}
 	}
-	if v, ok := ed.ComponentField(objectID, health.Name, health.FieldMax); ok {
-		s.Max, _ = v.(int)
-	}
+	s, _, _ := health.Read(o)
 	return s
 }
 
@@ -100,11 +99,14 @@ func wardPanel(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64]) core
 
 func inspector(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64], id string) core.Node {
 	playing := func() bool { _ = rev.Get(); return ed.Playing() }
-	field := func(testID, label, name string) core.Node {
+	// The steppers and scrub stay within the bounds the component type registers, as the generic fields do.
+	field := func(testID, label, name string, lo float64) core.Node {
 		return ui.NumberInput{
 			TestID:   testID,
 			Label:    label,
 			Step:     1,
+			Min:      lo,
+			Max:      health.Limit,
 			Disabled: playing,
 			Value: func() float64 {
 				_ = rev.Get()
@@ -118,8 +120,8 @@ func inspector(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64], id s
 	return core.View{
 		Style: core.Style{Gap: 6},
 		Children: []core.Node{
-			field("health-hp", "Hit points", health.FieldHP),
-			field("health-max", "Max", health.FieldMax),
+			field("health-hp", "Hit points", health.FieldHP, 0),
+			field("health-max", "Max", health.FieldMax, 1),
 			core.Text{
 				TestID: "health-bar",
 				Style:  core.Style{FontFamily: core.FontMonospace, FontSize: 12},
@@ -133,9 +135,21 @@ func inspector(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64], id s
 	}
 }
 
-// admit places a patient with AdmitHP hit points where the viewport is pressed, on the active layer.
+// worldLayer reports whether layer draws in world space, under the scene's camera, rather than in screen space.
+func worldLayer(layer *sceneformat.LayerDoc) bool {
+	return layer.EffectiveSpace() == sceneformat.SpaceWorld
+}
+
+// admit places a patient with AdmitHP hit points where the viewport is pressed, on the active layer: at the world point under the press on a world-space layer, and at the press itself on a screen-space one.
 func admit(ed *editor.Editor, x, y float32) {
-	wx, wy := ed.CanvasToWorld(x, y)
+	wx, wy := x, y
+	if ed.Doc != nil {
+		for i := range ed.Doc.Layers {
+			if ed.Doc.Layers[i].Name == ed.ActiveLayer && worldLayer(&ed.Doc.Layers[i]) {
+				wx, wy = ed.CanvasToWorld(x, y)
+			}
+		}
+	}
 	_, err := ed.PlaceObject(ed.ActiveLayer, sceneformat.ObjectDoc{
 		Name:       "Patient",
 		X:          wx,
@@ -145,13 +159,17 @@ func admit(ed *editor.Editor, x, y float32) {
 	ed.Report(err)
 }
 
-// drawPatients outlines every top-level patient while the Admit tool is active, red when it is at a quarter of its max or below.
+// OutlineHalf is half the side of the square the Admit tool outlines each patient with, in world units.
+const OutlineHalf = 12
+
+// drawPatients outlines every patient while the Admit tool is active, red when it is at a quarter of its max or below. A tool draws in canvas coordinates, so each corner of a patient on a world-space layer goes through the scene's camera (Editor.WorldToCanvas), and the outline pans, zooms and turns with the patient.
 func drawPatients(ed *editor.Editor, d *core.Drawing) {
 	if ed.Doc == nil {
 		return
 	}
-	const half = 12
-	for _, layer := range ed.Doc.Layers {
+	for li := range ed.Doc.Layers {
+		layer := &ed.Doc.Layers[li]
+		world := worldLayer(layer)
 		for i := range layer.Objects {
 			o := &layer.Objects[i]
 			s, ok, err := health.Read(o)
@@ -162,7 +180,20 @@ func drawPatients(ed *editor.Editor, d *core.Drawing) {
 			if s.HP*4 <= s.Max {
 				color = core.RGBA(0xEF4444, 1)
 			}
-			d.SetStrokeColor(color).StrokeRect(o.X-half, o.Y-half, 2*half, 2*half)
+			d.SetStrokeColor(color).BeginPath()
+			corners := [4][2]float32{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}
+			for k, c := range corners {
+				x, y := o.X+c[0]*OutlineHalf, o.Y+c[1]*OutlineHalf
+				if world {
+					x, y = ed.WorldToCanvas(x, y)
+				}
+				if k == 0 {
+					d.MoveTo(x, y)
+				} else {
+					d.LineTo(x, y)
+				}
+			}
+			d.ClosePath().Stroke()
 		}
 	}
 }
@@ -172,20 +203,15 @@ func HealAll(ed *editor.Editor) error {
 	if ed.Playing() {
 		return editor.ErrPlaying
 	}
-	cmd := &healAll{ed: ed, before: map[string]any{}}
+	cmd := &healAll{ed: ed}
 	for _, id := range health.Objects(ed.Doc) {
 		s := stats(ed, id)
 		if s.HP >= s.Max {
 			continue
 		}
 		o, _, _ := ed.FindObject(id)
-		comp, _ := o.Components[health.Name].(map[string]any)
-		before, set := comp[health.FieldHP]
-		if !set {
-			before = nil
-		}
 		cmd.ids = append(cmd.ids, id)
-		cmd.before[id] = before
+		cmd.before = append(cmd.before, o.Components[health.Name])
 		cmd.max = append(cmd.max, s.Max)
 	}
 	if len(cmd.ids) == 0 {
@@ -195,43 +221,35 @@ func HealAll(ed *editor.Editor) error {
 	return nil
 }
 
-// healAll sets the hit points of ids to max, and puts back what each had before: a value, or nil when the scene left the field unset.
+// healAll sets the hit points of ids to max, and puts back each patient's component exactly as it was before: the same mapping, or the null a scene writes as `health:` with no fields.
 type healAll struct {
 	ed     *editor.Editor
 	ids    []string
 	max    []int
-	before map[string]any
+	before []any
 }
 
 func (c *healAll) Label() string { return "Heal All" }
 
+// Do gives each patient's health component a new mapping with hp set to its max, so the mapping Undo puts back is not changed under it.
 func (c *healAll) Do() {
 	for i, id := range c.ids {
-		c.set(id, c.max[i])
+		o, _, _ := c.ed.FindObject(id)
+		if o == nil {
+			continue
+		}
+		old, _ := c.before[i].(map[string]any)
+		next := make(map[string]any, len(old)+1)
+		maps.Copy(next, old)
+		next[health.FieldHP] = c.max[i]
+		o.Components[health.Name] = next
 	}
 }
 
 func (c *healAll) Undo() {
-	for _, id := range c.ids {
-		c.set(id, c.before[id])
+	for i, id := range c.ids {
+		if o, _, _ := c.ed.FindObject(id); o != nil {
+			o.Components[health.Name] = c.before[i]
+		}
 	}
-}
-
-// set gives objectID's health component a new map with hp set to v, or without hp when v is nil, so a map an earlier step holds is not changed under it.
-func (c *healAll) set(objectID string, v any) {
-	o, _, _ := c.ed.FindObject(objectID)
-	if o == nil {
-		return
-	}
-	old, _ := o.Components[health.Name].(map[string]any)
-	next := make(map[string]any, len(old)+1)
-	for k, val := range old {
-		next[k] = val
-	}
-	if v == nil {
-		delete(next, health.FieldHP)
-	} else {
-		next[health.FieldHP] = v
-	}
-	o.Components[health.Name] = next
 }

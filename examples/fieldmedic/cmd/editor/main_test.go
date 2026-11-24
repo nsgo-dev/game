@@ -61,3 +61,13 @@ func TestNewRefusesAProjectListingPluginsItLacks(t *testing.T) {
 		t.Fatal("New opened a directory without a project")
 	}
 }
+
+func TestNewOpensAProjectByItsGameYAML(t *testing.T) {
+	ed, err := New(filepath.Join("..", "..", "game.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.ActivePlugins(); !reflect.DeepEqual(got, []string{"health"}) || ed.Doc == nil || ed.Doc.Name != "Ward" {
+		t.Fatalf("opened %+v with plugins %v", ed.Doc, got)
+	}
+}

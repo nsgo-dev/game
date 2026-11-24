@@ -227,3 +227,129 @@ func TestSummaryOfAWardWithoutPatients(t *testing.T) {
 		t.Fatalf("Summary = %q", got)
 	}
 }
+
+// wardEditor returns an editor with the health component on a one-layer scene of objects, with no project.
+func wardEditor(t *testing.T, objects ...sceneformat.ObjectDoc) *editor.Editor {
+	t.Helper()
+	doc := &sceneformat.SceneDoc{Version: sceneformat.CurrentVersion, VirtualWidth: 320, VirtualHeight: 180, Layers: []sceneformat.LayerDoc{{Name: "patients", Objects: objects}}}
+	ed, err := editor.New(doc, sceneformat.AtlasMap{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetComponentRegistry(health.Components()); err != nil {
+		t.Fatal(err)
+	}
+	return ed
+}
+
+func TestSummaryAndHealAllSeePatientsAsTheGameDoes(t *testing.T) {
+	ed := wardEditor(t,
+		sceneformat.ObjectDoc{ID: "ada", Components: map[string]any{health.Name: map[string]any{"hp": 12, "max": 10}}},
+		sceneformat.ObjectDoc{ID: "bed", Children: []sceneformat.ObjectDoc{{ID: "kid", Components: map[string]any{health.Name: map[string]any{"hp": 1}}}}},
+		sceneformat.ObjectDoc{ID: "bo", Components: map[string]any{health.Name: map[string]any{"hp": 2}}},
+	)
+	// A nested child is not a patient, and hp above max reads as max, as health.Read gives the game.
+	if got, want := healthplugin.Summary(ed), "ada 10/10\nbo 2/10"; got != want {
+		t.Fatalf("Summary = %q, want %q", got, want)
+	}
+	before, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := healthplugin.HealAll(ed); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := healthplugin.Summary(ed), "ada 10/10\nbo 10/10"; got != want {
+		t.Fatalf("Summary after Heal All = %q, want %q", got, want)
+	}
+	if got := ed.Doc.Layers[0].Objects[0].Components[health.Name].(map[string]any)["hp"]; got != 12 {
+		t.Fatalf("Heal All rewrote ada's hp to %v; a capped patient is already healed", got)
+	}
+	if got := ed.Doc.Layers[0].Objects[1].Children[0].Components[health.Name].(map[string]any)["hp"]; got != 1 {
+		t.Fatalf("Heal All changed the nested child's hp to %v", got)
+	}
+	ed.Undo()
+	after, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("Undo of Heal All changed the scene:\n%s\nwant:\n%s", after, before)
+	}
+}
+
+func TestInspectorFieldsHoldTypedValuesToTheComponentsBounds(t *testing.T) {
+	ed := newEditor(t)
+	ed.SelectObject("bram")
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	for _, c := range []struct {
+		id, field, typed string
+		want             int
+	}{
+		{"id:health-max", health.FieldMax, "150", health.Limit},
+		{"id:health-max", health.FieldMax, "0", 1},
+		{"id:health-hp", health.FieldHP, "-3", 0},
+	} {
+		app.Clear(c.id)
+		app.Type(c.id, c.typed)
+		app.Submit(c.id)
+		app.Settle()
+		v, _ := ed.ComponentField("bram", health.Name, c.field)
+		if v != c.want {
+			t.Errorf("typing %s into %s set %v, want %d", c.typed, c.field, v, c.want)
+		}
+	}
+}
+
+// outlines returns the closed four-corner paths in d, each as its corners in drawing order.
+func outlines(d *core.Drawing) [][4][2]float32 {
+	var out [][4][2]float32
+	for i := 0; i+5 < len(d.Ops); i++ {
+		ops := d.Ops[i : i+6]
+		if ops[0].Kind != core.DrawMoveTo || ops[1].Kind != core.DrawLineTo || ops[2].Kind != core.DrawLineTo || ops[3].Kind != core.DrawLineTo || ops[4].Kind != core.DrawClosePath || ops[5].Kind != core.DrawStroke {
+			continue
+		}
+		var q [4][2]float32
+		for k := range q {
+			q[k] = [2]float32{ops[k].X, ops[k].Y}
+		}
+		out = append(out, q)
+	}
+	return out
+}
+
+func TestAdmitOutlinesPatientsWhereTheCameraShowsThem(t *testing.T) {
+	ed := newEditor(t)
+	zoom := float32(2)
+	ed.Doc.Camera = &sceneformat.CameraDoc{X: 128, Y: 90, Zoom: &zoom}
+	size := core.Size{Width: 320, Height: 180}
+
+	d := &core.Drawing{}
+	ed.DrawViewport(d, size)
+	if got := outlines(d); len(got) != 0 {
+		t.Fatalf("outlines drawn with the Admit tool inactive: %v", got)
+	}
+
+	if err := ed.SetPluginTool(healthplugin.Name, "admit"); err != nil {
+		t.Fatal(err)
+	}
+	d = &core.Drawing{}
+	ed.DrawViewport(d, size)
+	got := outlines(d)
+	ids := health.Objects(ed.Doc)
+	if len(got) != len(ids) {
+		t.Fatalf("drew %d outlines for %d patients", len(got), len(ids))
+	}
+	// The camera centers (128, 90) in the 320x180 viewport at twice the size, so a world point p lands at (160, 90) + 2*(p - (128, 90)).
+	const h = healthplugin.OutlineHalf
+	for i, id := range ids {
+		o, _, _ := ed.FindObject(id)
+		cx, cy := 160+2*(o.X-128), 90+2*(o.Y-90)
+		want := [4][2]float32{{cx - 2*h, cy - 2*h}, {cx + 2*h, cy - 2*h}, {cx + 2*h, cy + 2*h}, {cx - 2*h, cy + 2*h}}
+		if got[i] != want {
+			t.Errorf("%s outlined at %v, want %v", id, got[i], want)
+		}
+	}
+}
