@@ -13,9 +13,11 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode"
@@ -30,9 +32,9 @@ var generateCommand = &command{
 	args:    "component|system|scene|prefab <name>",
 	summary: "Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration",
 	define:  defineGenerate,
+	// The kinds complete at every argument, the name included, since the completion scripts complete a command's arguments alike whatever their position.
 	complete: map[string]completion{
-		"":    oneOf(generateKinds...),
-		"dir": filePaths,
+		"": oneOf(generateKinds...),
 	},
 }
 
@@ -82,6 +84,9 @@ var (
 	componentsRegistry = registry{"Components", generatedFile{name: "components.go", template: "components.go.tmpl", declares: []string{"Components"}}}
 	systemsRegistry    = registry{"Systems", generatedFile{name: "systems.go", template: "systems.go.tmpl", declares: []string{"Systems"}}}
 	prefabsRegistry    = registry{"Prefabs", generatedFile{name: "prefabs.go", template: "prefabs.go.tmpl", declares: []string{"Prefabs"}}}
+
+	// registries are every registry; no generated thing may be named after one.
+	registries = []registry{componentsRegistry, systemsRegistry, prefabsRegistry}
 )
 
 // generateKind is one kind of thing game generate writes.
@@ -122,7 +127,7 @@ var kinds = map[string]generateKind{
 	},
 	"prefab": {
 		files: []generatedFile{
-			{name: "{{.Snake}}_prefab.go", template: "prefab.go.tmpl", declares: []string{"{{.Go}}Prefab"}},
+			{name: "{{.Snake}}_prefab.go", template: "prefab.go.tmpl", declares: []string{"{{.Camel}}PrefabYAML", "{{.Go}}Prefab"}},
 			{name: "{{.Snake}}_prefab_test.go", template: "prefab_test.go.tmpl", declares: []string{"Test{{.Go}}Prefab"}},
 		},
 		registries: []registry{componentsRegistry, prefabsRegistry},
@@ -135,7 +140,7 @@ var kinds = map[string]generateKind{
 var generateNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*([-_][A-Za-z0-9]+)*$`)
 
 func defineGenerate(a *app, fs *flag.FlagSet) func() error {
-	dirArg := fs.String("dir", ".", "the game's project directory, which holds its game.yaml and the Go package the code is written into")
+	dirArg := inFlag(fs, ".", "the game's project directory, which holds its game.yaml and the Go package the code is written into")
 	autoload := fs.Bool("autoload", false, "for a scene, also add it to the scenes game.yaml autoloads")
 	mainScene := fs.Bool("main", false, "for a scene, also add it to the scenes game.yaml autoloads and make it the main scene")
 
@@ -195,6 +200,11 @@ func generateNames(name string) (generateData, error) {
 	}
 	d.Snake = strings.Join(snake, "_")
 	d.Title = strings.Join(title, " ")
+	for _, r := range registries {
+		if d.Go == r.ident {
+			return generateData{}, usagef("name %q gives the Go name %s, the name of the registry game generate declares for the game's %s; choose another name", name, d.Go, strings.ToLower(r.ident))
+		}
+	}
 	return d, nil
 }
 
@@ -237,8 +247,12 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 
 	var goFiles []generatedFile
 	for _, r := range kind.registries {
-		if !declared[r.ident] {
+		switch declared[r.ident] {
+		case "":
 			goFiles = append(goFiles, r.file)
+		case "var":
+		default:
+			return nil, false, fmt.Errorf("package %s in %s declares %s as a %s, where the code game generate writes needs the registry variable %s declares; rename the %s", pkg, dir, r.ident, declared[r.ident], r.file.name, declared[r.ident])
 		}
 	}
 	goFiles = append(goFiles, kind.files...)
@@ -254,10 +268,10 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 			if err != nil {
 				return nil, false, err
 			}
-			if declared[ident] {
+			if declared[ident] != "" {
 				return nil, false, fmt.Errorf("package %s in %s already declares %s, which %s would declare; choose another name", pkg, dir, ident, name)
 			}
-			declared[ident] = true
+			declared[ident] = "generated"
 		}
 		src, err := fs.ReadFile(generateFS, "_templates/generate/"+f.template)
 		if err != nil {
@@ -270,6 +284,15 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 		formatted, err := format.Source([]byte(content))
 		if err != nil {
 			return nil, false, fmt.Errorf("%s: %w", name, err)
+		}
+		imports, err := importNames(formatted)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %w", name, err)
+		}
+		for _, imp := range imports {
+			if declared[imp] != "" {
+				return nil, false, fmt.Errorf("package %s in %s declares %s, which %s imports as a package; rename the %s", pkg, dir, imp, name, declared[imp])
+			}
 		}
 		files = append(files, projectFile{name: name, content: formatted})
 	}
@@ -308,7 +331,7 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 		}
 	}
 	if gameYAML != nil {
-		if err := replaceFile(filepath.Join(dir, project.FileName), gameYAML); err != nil {
+		if err := replaceProjectFile(filepath.Join(dir, project.FileName), gameYAML); err != nil {
 			for _, name := range slices.Backward(append(created, written...)) {
 				err = errors.Join(err, os.Remove(filepath.Join(dir, filepath.FromSlash(name))))
 			}
@@ -331,8 +354,31 @@ func render(text string, data generateData) (string, error) {
 	return b.String(), nil
 }
 
-// packageDecls returns the name of the Go package in dir and the identifiers it declares at its top level, its in-package tests and files built only for other platforms included.
-func packageDecls(dir string) (string, map[string]bool, error) {
+// importNames returns the names the imports of src, a Go file, bring into its scope: each import's alias, or the last element of its path, which is the package's name for every package the templates import. Blank and dot imports bring no name.
+func importNames(src []byte) ([]string, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ImportsOnly|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, imp := range f.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			return nil, err
+		}
+		name := path.Base(p)
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		if name != "_" && name != "." {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+// packageDecls returns the name of the Go package in dir and the identifiers it declares at its top level, its in-package tests and files built only for other platforms included, each with what declares it: func, type, var or const.
+func packageDecls(dir string) (string, map[string]string, error) {
 	bp, err := build.ImportDir(dir, 0)
 	if err != nil {
 		if _, ok := errors.AsType[*build.NoGoError](err); ok {
@@ -340,7 +386,7 @@ func packageDecls(dir string) (string, map[string]bool, error) {
 		}
 		return "", nil, err
 	}
-	declared := map[string]bool{}
+	declared := map[string]string{}
 	fset := token.NewFileSet()
 	for _, name := range slices.Concat(bp.GoFiles, bp.CgoFiles, bp.TestGoFiles, bp.IgnoredGoFiles) {
 		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
@@ -357,16 +403,16 @@ func packageDecls(dir string) (string, map[string]bool, error) {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
 				if d.Recv == nil && d.Name.Name != "init" {
-					declared[d.Name.Name] = true
+					declared[d.Name.Name] = "func"
 				}
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
 					case *ast.TypeSpec:
-						declared[s.Name.Name] = true
+						declared[s.Name.Name] = "type"
 					case *ast.ValueSpec:
 						for _, n := range s.Names {
-							declared[n.Name] = true
+							declared[n.Name] = d.Tok.String()
 						}
 					}
 				}
@@ -451,6 +497,9 @@ func newDirs(dir string, files []projectFile) ([]string, error) {
 	}
 	return created, nil
 }
+
+// replaceProjectFile replaces game.yaml when generate adds a scene to its autoloads. It is replaceFile, and a variable so that a test can make it fail.
+var replaceProjectFile = replaceFile
 
 // replaceFile replaces the file at name with content, writing it beside name first and renaming it over name, so a failure leaves the old file whole. The new file keeps the old one's permissions.
 func replaceFile(name string, content []byte) (err error) {
