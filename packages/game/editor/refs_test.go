@@ -2,6 +2,8 @@ package editor_test
 
 import (
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -226,9 +228,148 @@ func TestMoveFileUndoRemovesMadeDirectoriesAndReportsABlockedStep(t *testing.T) 
 	}
 }
 
+// TestMoveFileUndoIsExact moves files and undoes the moves: every file is back byte for byte, a reference that already named the destination is left alone, a path a moved Tiled map wrote as ./tiles.png keeps that form, and an index the move created goes again. A file changed since the move has its references rewritten back instead.
+func TestMoveFileUndoIsExact(t *testing.T) {
+	dir := writeEditorProject(t)
+	writeFiles(t, dir, map[string]string{
+		"materials/stone.material.yaml": "type: material\nversion: 1\nuid: mat0000000001\n",
+		"scenes/other.scene.yaml":       "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: wall\n        material: materials/stone.material.yaml\n",
+		"scenes/ghost.scene.yaml":       "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: wall\n        material: materials/rock.material.yaml\n",
+		"maps/level.tmj":                `{"tilesets": [{"image": "./tiles.png"}]}` + "\n",
+		"maps/tiles.png":                "png",
+	})
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	before := readTree(t, dir)
+
+	if err := ed.MoveFile("materials/stone.material.yaml", "materials/rock.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveFile("maps/level.tmj", "levels/level.tmj"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "levels", "level.tmj")); err != nil || !strings.Contains(string(data), `"../maps/tiles.png"`) {
+		t.Fatalf("level.tmj after the move (%v):\n%s", err, data)
+	}
+	for range 2 {
+		if !ed.Undo() {
+			t.Fatalf("undo failed: %s", ed.Status)
+		}
+	}
+	if got := readTree(t, dir); !maps.Equal(got, before) {
+		t.Fatalf("after undo:\n%v\nwant:\n%v", got, before)
+	}
+
+	// A file edited after the move keeps the edit, and its reference goes back.
+	if err := ed.MoveFile("materials/stone.material.yaml", "materials/rock.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "scenes", "other.scene.yaml")
+	data, err := os.ReadFile(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, append([]byte("# edited\n"), data...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.Undo() {
+		t.Fatalf("undo failed: %s", ed.Status)
+	}
+	if data, err := os.ReadFile(other); err != nil || string(data) != "# edited\n"+before["scenes/other.scene.yaml"] {
+		t.Fatalf("other.scene.yaml after undo (%v):\n%s", err, data)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "scenes", "ghost.scene.yaml")); err != nil || string(data) != before["scenes/ghost.scene.yaml"] {
+		t.Fatalf("ghost.scene.yaml after undo (%v):\n%s", err, data)
+	}
+}
+
+func TestMoveFileUndoFailsWhenBlocked(t *testing.T) {
+	dir := writeEditorProject(t)
+	mat := filepath.Join(dir, "materials", "stone.material.yaml")
+	writeFiles(t, dir, map[string]string{"materials/stone.material.yaml": "type: material\nversion: 1\nuid: mat0000000001\n"})
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveFile("materials/stone.material.yaml", "art/stone/stone.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A file put where the undo would move back to blocks it: the move stays applied and the status bar says why.
+	if err := os.WriteFile(mat, []byte("type: material\nversion: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ed.Undo() {
+		t.Fatal("an undo onto an existing file succeeded")
+	}
+	if !strings.HasPrefix(ed.Status, "Undo failed: ") || !ed.History.CanUndo() || ed.History.CanRedo() {
+		t.Fatalf("status %q, can undo %v, can redo %v", ed.Status, ed.History.CanUndo(), ed.History.CanRedo())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art", "stone", "stone.material.yaml")); err != nil {
+		t.Fatalf("the failed undo moved the file: %v", err)
+	}
+	if err := os.Remove(mat); err != nil {
+		t.Fatal(err)
+	}
+
+	// A directory the move made that now holds another file stays; the one left empty goes.
+	writeFiles(t, dir, map[string]string{"art/notes.txt": "keep"})
+	if !ed.Undo() {
+		t.Fatalf("undo failed once unblocked: %s", ed.Status)
+	}
+	if _, err := os.Stat(mat); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art", "stone")); !os.IsNotExist(err) {
+		t.Fatalf("art/stone is still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art", "notes.txt")); err != nil {
+		t.Fatalf("undo removed a directory holding another file: %v", err)
+	}
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, data := range files {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// readTree returns every file under dir by its slash-separated path, with its contents.
+func readTree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := make(map[string]string)
+	err := fs.WalkDir(os.DirFS(dir), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(os.DirFS(dir), p)
+		out[p] = string(data)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func TestProjectFiles(t *testing.T) {
 	dir := writeEditorProject(t)
-	for _, name := range []string{".git/HEAD", "_scratch/a.txt", "testdata/x.txt", "art/.hidden.png", "art/hero.png"} {
+	for _, name := range []string{".git/HEAD", "_scratch/a.txt", "testdata/x.txt", "art/.hidden.png", "art/_hero.png", "art/hero.png"} {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -253,6 +394,8 @@ func TestProjectFiles(t *testing.T) {
 	}
 	want := []editor.ProjectFile{
 		{Path: "art", Dir: true},
+		{Path: "art/.hidden.png"},
+		{Path: "art/_hero.png"},
 		{Path: "art/hero.png"},
 		{Path: "game.yaml"},
 		{Path: "nsgo.yaml"},
@@ -322,5 +465,20 @@ func TestFileBrowserMovesAFile(t *testing.T) {
 	}
 	if !app.Exists("id:files-row-materials/stone.material.yaml") {
 		t.Fatal("the file list does not show the name undo brought back")
+	}
+	// The selection was the name undo took away, so nothing is selected any more.
+	if got := app.Find("id:files-path").Text; got != "" || app.Enabled("id:files-move") {
+		t.Fatalf("after undo the field holds %q and Move is enabled %v", got, app.Enabled("id:files-move"))
+	}
+
+	// A scene saved under a new name shows in the list.
+	app.Post(func() {
+		if err := ed.SaveFile(filepath.Join(dir, "scenes", "copy.yaml")); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if !app.Exists("id:files-row-scenes/copy.yaml") {
+		t.Fatal("the file list does not show the scene saved under a new name")
 	}
 }

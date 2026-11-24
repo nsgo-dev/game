@@ -222,7 +222,7 @@ type Editor struct {
 	listeners    map[uint64]func()
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
-	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files and installing or removing packs; the file browser lists the files again when it changes.
+	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
 	filesRev uint64
 }
 
@@ -497,6 +497,7 @@ func (e *Editor) SaveFile(path string) error {
 		return err
 	}
 	e.FilePath = path
+	e.filesRev++
 	e.Status = "Saved " + path
 	e.notify()
 	return nil
