@@ -844,6 +844,137 @@ func TestUnlitKhronosGLTFTestdataSamples(t *testing.T) {
 	}
 }
 
+// TestUnlitKhronosUnlitTestMatchesReference draws the Khronos UnlitTest sample end to end (glTF loader, ColoredMeshFromGLTF, UploadGLTFUnlitMaterial, NewUnlitPipeline) from an angle that shows several faces of each object. The sample's reference is analytic: both objects must appear as flat #FF7F00 and #007FFF in sRGB with no shading at all, so every pixel must be the clear color or one of those two colors.
+func TestUnlitKhronosUnlitTestMatchesReference(t *testing.T) {
+	const (
+		width  = 128
+		height = 96
+	)
+	dir := filepath.Join("..", "gltf", "testdata", "khronos", "UnlitTest", "glTF")
+	doc, err := gltf.LoadFS(os.DirFS(dir), "UnlitTest.gltf")
+	if err != nil {
+		t.Fatalf("LoadFS UnlitTest: %v", err)
+	}
+
+	sr := gpu.NewSoftwareRenderer(width, height, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	defs := unlitDefaults(t, nil, dev, false)
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 2.2, Y: 3.0, Z: 6.5}, math3d.DegToRad(45), float32(width)/float32(height), 0.1, 40)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+	pipe, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+		ColorFormat: gpu.FormatRGBA8Unorm,
+		DepthFormat: gpu.FormatDepth24Plus,
+	})
+	if err != nil {
+		t.Fatalf("NewUnlitPipeline: %v", err)
+	}
+
+	type drawn struct {
+		mesh *render3d.GPUColoredMesh
+		mat  *render3d.GPUUnlitMaterial
+		want color.RGBA
+	}
+	var draws []drawn
+	for ni, node := range doc.Nodes {
+		if node.Mesh < 0 {
+			continue
+		}
+		cm, err := render3d.ColoredMeshFromGLTF(doc, node.Mesh, 0)
+		if err != nil {
+			t.Fatalf("ColoredMeshFromGLTF(node %d): %v", ni, err)
+		}
+		if cm.HasVertexColors() {
+			t.Fatalf("node %d: UnlitTest has no COLOR_0, got vertex colors", ni)
+		}
+		// The unlit shader has no model matrix, so bake the node's world transform into the positions.
+		for i, p := range cm.Positions {
+			cm.Positions[i] = node.WorldMatrix.TransformPoint(p)
+		}
+		gm, err := render3d.UploadColoredMesh(nil, dev, cm, render3d.MeshUpload{Label: node.Name})
+		if err != nil {
+			t.Fatalf("UploadColoredMesh(node %d): %v", ni, err)
+		}
+		matIndex := doc.Meshes[node.Mesh].Primitives[0].Material
+		mat, err := render3d.UploadGLTFUnlitMaterial(nil, dev, defs, doc, matIndex, render3d.GLTFMaterialUpload{})
+		if err != nil {
+			t.Fatalf("UploadGLTFUnlitMaterial(%d): %v", matIndex, err)
+		}
+		want := render3d.EvaluateUnlit(mat.Material(), [4]float32{1, 1, 1, 1}, [4]float32{1, 1, 1, 1}).RGBA8()
+		draws = append(draws, drawn{mesh: gm, mat: mat, want: want})
+	}
+	if len(draws) != 2 {
+		t.Fatalf("UnlitTest drew %d objects, want 2", len(draws))
+	}
+	near := func(a, b color.RGBA) bool {
+		return max(absDiffU8(a.R, b.R), absDiffU8(a.G, b.G), absDiffU8(a.B, b.B), absDiffU8(a.A, b.A)) <= 1
+	}
+	// The sample's README gives the expected sRGB colors: #FF7F00 (Orange, node 0) and #007FFF (Blue, node 1).
+	for i, ref := range []color.RGBA{{R: 0xFF, G: 0x7F, B: 0x00, A: 0xFF}, {R: 0x00, G: 0x7F, B: 0xFF, A: 0xFF}} {
+		if !near(draws[i].want, ref) {
+			t.Fatalf("EvaluateUnlit for object %d = %v, want the sample's %v", i, draws[i].want, ref)
+		}
+	}
+
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		Label:            "unlit-khronos-unlittest",
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x10141c)}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	pass.SetPipeline(pipe)
+	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	for _, d := range draws {
+		d.mat.Bind(pass)
+		d.mesh.Draw(pass)
+	}
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+
+	img := sr.Image()
+	var counts, sumX [2]int
+	other := 0
+	for y := range height {
+		for x := range width {
+			c := img.RGBAAt(x, y)
+			switch {
+			case near(c, unlitClearColor):
+			case near(c, draws[0].want):
+				counts[0]++
+				sumX[0] += x
+			case near(c, draws[1].want):
+				counts[1]++
+				sumX[1] += x
+			default:
+				if other < 5 {
+					t.Errorf("pixel (%d, %d) = %v is neither the clear color nor a flat unlit color", x, y, c)
+				}
+				other++
+			}
+		}
+	}
+	if other != 0 {
+		t.Fatalf("%d pixels carry shading or blending, want flat unlit colors only", other)
+	}
+	for i, n := range counts {
+		if n < 500 {
+			t.Fatalf("object %d covers %d pixels, want at least 500", i, n)
+		}
+	}
+	if sumX[0]/counts[0] >= sumX[1]/counts[1] {
+		t.Fatalf("orange object (x=-1.2) is not left of the blue one (x=+1.2): mean x %d vs %d", sumX[0]/counts[0], sumX[1]/counts[1])
+	}
+}
+
 func unlitColoredCubeMesh(center math3d.Vec3, half float32, faceColors [6]math3d.Vec4) render3d.ColoredMesh {
 	type face struct{ n, u, v math3d.Vec3 }
 	faces := [...]face{
