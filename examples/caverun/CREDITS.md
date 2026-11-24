@@ -17,6 +17,7 @@ All art, tilemap, font, and audio assets in `examples/caverun/assets/` are **100
 | `assets/sfx_hurt.wav` | 16-bit mono 22050 Hz PCM WAV — damage sound effect | NSGo Game Contributors (`tools/genassets`) | [CC0-1.0](#cc0-10-universal) |
 | `assets/sfx_win.wav` | 16-bit mono 22050 Hz PCM WAV — level-clear victory fanfare | NSGo Game Contributors (`tools/genassets`) | [CC0-1.0](#cc0-10-universal) |
 | `assets/music_cave.wav` | 16-bit mono 22050 Hz PCM WAV — seamless looping cavern theme | NSGo Game Contributors (`tools/genassets`) | [CC0-1.0](#cc0-10-universal) |
+| `screenshot.png` | Screenshot of the game for its README | NSGo Game Contributors | [Apache-2.0](../../LICENSE) |
 
 ## Regenerating Assets
 

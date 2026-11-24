@@ -1,0 +1,345 @@
+{
+ "columns": 8,
+ "image": "tileset.png",
+ "imageheight": 64,
+ "imagewidth": 128,
+ "margin": 0,
+ "name": "placeholder",
+ "spacing": 0,
+ "tilecount": 32,
+ "tiledversion": "1.11.0",
+ "tileheight": 16,
+ "tiles": [
+  {
+   "id": 0,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "grass"
+  },
+  {
+   "id": 1,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "dirt"
+  },
+  {
+   "id": 2,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "stone"
+  },
+  {
+   "id": 3,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "brick"
+  },
+  {
+   "id": 4,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "wood"
+  },
+  {
+   "id": 5,
+   "properties": [
+    {
+     "name": "oneWay",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "platform"
+  },
+  {
+   "id": 6,
+   "properties": [
+    {
+     "name": "ladder",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "ladder"
+  },
+  {
+   "id": 7,
+   "properties": [
+    {
+     "name": "hazard",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "spikes"
+  },
+  {
+   "animation": [
+    {
+     "duration": 150,
+     "tileid": 8
+    },
+    {
+     "duration": 150,
+     "tileid": 9
+    },
+    {
+     "duration": 150,
+     "tileid": 10
+    },
+    {
+     "duration": 150,
+     "tileid": 11
+    }
+   ],
+   "id": 8,
+   "properties": [
+    {
+     "name": "water",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "water"
+  },
+  {
+   "id": 9,
+   "properties": [
+    {
+     "name": "water",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "water"
+  },
+  {
+   "id": 10,
+   "properties": [
+    {
+     "name": "water",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "water"
+  },
+  {
+   "id": 11,
+   "properties": [
+    {
+     "name": "water",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "water"
+  },
+  {
+   "animation": [
+    {
+     "duration": 200,
+     "tileid": 12
+    },
+    {
+     "duration": 200,
+     "tileid": 13
+    },
+    {
+     "duration": 200,
+     "tileid": 14
+    },
+    {
+     "duration": 200,
+     "tileid": 15
+    }
+   ],
+   "id": 12,
+   "properties": [
+    {
+     "name": "hazard",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "lava"
+  },
+  {
+   "id": 13,
+   "properties": [
+    {
+     "name": "hazard",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "lava"
+  },
+  {
+   "id": 14,
+   "properties": [
+    {
+     "name": "hazard",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "lava"
+  },
+  {
+   "id": 15,
+   "properties": [
+    {
+     "name": "hazard",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "lava"
+  },
+  {
+   "id": 16,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "ice"
+  },
+  {
+   "id": 17,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "crate"
+  },
+  {
+   "id": 18,
+   "type": "bush"
+  },
+  {
+   "id": 19,
+   "type": "flower"
+  },
+  {
+   "id": 20,
+   "type": "sign"
+  },
+  {
+   "id": 21,
+   "type": "door_top"
+  },
+  {
+   "id": 22,
+   "type": "door_bottom"
+  },
+  {
+   "id": 23,
+   "type": "wall"
+  },
+  {
+   "id": 24,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "metal"
+  },
+  {
+   "id": 25,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "bonus"
+  },
+  {
+   "id": 26,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "sand"
+  },
+  {
+   "id": 27,
+   "properties": [
+    {
+     "name": "solid",
+     "type": "bool",
+     "value": true
+    }
+   ],
+   "type": "snow"
+  },
+  {
+   "animation": [
+    {
+     "duration": 250,
+     "tileid": 28
+    },
+    {
+     "duration": 250,
+     "tileid": 29
+    }
+   ],
+   "id": 28,
+   "type": "torch"
+  },
+  {
+   "id": 29,
+   "type": "torch"
+  },
+  {
+   "id": 30,
+   "type": "chain"
+  },
+  {
+   "id": 31,
+   "type": "window"
+  }
+ ],
+ "tilewidth": 16,
+ "type": "tileset",
+ "version": "1.10"
+}

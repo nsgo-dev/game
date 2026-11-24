@@ -220,11 +220,11 @@ Both decoders charge their output and working memory to the same per-load budget
 
 ## Round-trip sample models
 
-The repository commits two minimal, deterministic glTF 2.0 sample models under [`docs/assets/3d-sample/`](../assets/3d-sample/) generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go).
+The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/), generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.
 
 ### 1. Static binary crate (`crate.glb`)
 
-File: [`docs/assets/3d-sample/crate.glb`](../assets/3d-sample/crate.glb) (1,920 bytes, GLB 2.0)
+File: [`models/crate.glb`](../../packages/game/placeholder/pack/models/crate.glb) (1,920 bytes, GLB 2.0)
 
 - **Geometry**: `1 m × 1 m × 1 m` cube with pivot at bottom center (`X ∈ [-0.5, 0.5]`, `Y ∈ [0, 1]`, `Z ∈ [-0.5, 0.5]`), right-handed `+Y` up, `-Z` forward.
 - **Mesh data**: 24 vertices (4 per face for crisp hard normals), 12 triangles (36 `UNSIGNED_SHORT` indices), strict CCW outward winding, `POSITION` (with exact `min`/`max`), unit `NORMAL`, and per-face `TEXCOORD_0`.
@@ -233,7 +233,7 @@ File: [`docs/assets/3d-sample/crate.glb`](../assets/3d-sample/crate.glb) (1,920 
 
 ### 2. Skinned & animated 2-bone arm (`robot_arm.gltf`)
 
-File: [`docs/assets/3d-sample/robot_arm.gltf`](../assets/3d-sample/robot_arm.gltf) (embedded base64 buffer, human-readable JSON)
+File: [`models/robot_arm.gltf`](../../packages/game/placeholder/pack/models/robot_arm.gltf) (embedded base64 buffer, human-readable JSON)
 
 - **Hierarchy**:
   ```text
@@ -246,9 +246,18 @@ File: [`docs/assets/3d-sample/robot_arm.gltf`](../assets/3d-sample/robot_arm.glt
 - **Skin (`ArmSkin`)**: `joints: [2, 3]`, `skeleton: 2`, and `inverseBindMatrices` containing identity `I` for `UpperArm` and translation `T(0, -0.5, 0)` for `Forearm`, satisfying `worldBind × IBM = I`.
 - **Animation (`Wave`)**: 1.0-second clip (`times = [0, 0.5, 1]`) with two `LINEAR` quaternion rotation channels (`UpperArm` +15° Z, `Forearm` +60° Z) and three `extras.events` markers (`wave_start` at `0.0 s`, `wave_apex` at `0.5 s`, `wave_end` at `1.0 s`).
 
+### 3. Flat-shaded gem (`gem.glb`)
+
+File: [`models/gem.glb`](../../packages/game/placeholder/pack/models/gem.glb) (1,924 bytes, GLB 2.0)
+
+- **Geometry**: a hexagonal bipyramid `0.8 m` across and `1 m` tall with its pivot at its bottom point (`Y ∈ [0, 1]`), its girdle at `y = 0.6`, right-handed `+Y` up.
+- **Mesh data**: 36 vertices and 12 triangles, three vertices per face so each face has its own unit `NORMAL`, with CCW outward winding.
+- **Material**: `GemMaterial` using `pbrMetallicRoughness` (`baseColorFactor: [0.13, 0.77, 0.45, 1]`, `metallicFactor: 0`, `roughnessFactor: 0.2`).
+- **Reproducibility**: the generator uses only exactly rounded arithmetic, so it writes the same bytes on every architecture.
+
 ### Running the round-trip verifier
 
-The Go test suite in [`packages/game/internal/samplegltf/samplegltf_test.go`](../../packages/game/internal/samplegltf/samplegltf_test.go) unpacks both committed assets and verifies:
+The Go test suite in [`packages/game/internal/samplegltf/samplegltf_test.go`](../../packages/game/internal/samplegltf/samplegltf_test.go) unpacks the committed models and verifies:
 
 - GLB magic, version `2`, 4-byte alignment, JSON/BIN chunk bounds, and zero-byte BIN padding
 - Embedded data URI base64 decoding and exact buffer byte lengths
@@ -264,7 +273,7 @@ Run the tests from `packages/game/`:
 go tool nsgo test ./internal/samplegltf
 ```
 
-If you edit the generator, regenerate both committed sample files and re-verify in one command:
+If you edit the generator, regenerate the committed models and re-verify in one command:
 
 ```sh
 go test ./internal/samplegltf -update
