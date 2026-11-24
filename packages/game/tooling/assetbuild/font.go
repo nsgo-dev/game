@@ -2,6 +2,7 @@ package assetbuild
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -28,8 +29,8 @@ type fontSettings struct {
 	Padding int
 }
 
-// maxFontPage bounds each page of a baked font, as game pack bounds an atlas page by default.
-const maxFontPage = 2048
+// maxFontPage bounds each page of a baked font, as game pack bounds an atlas page by default; a font's size is bounded by it too.
+const maxFontPage = project.MaxFontSize
 
 func (b *Builder) font(t project.FontTarget) (prepared, error) {
 	settings, sc, err := b.sidecar(t.In)
@@ -121,6 +122,7 @@ type bakedFont struct {
 // fontGlyph is one character's glyph as baked: its image, nil for one with no ink such as the space, and its metrics in pixels.
 type fontGlyph struct {
 	r        rune
+	index    sfnt.GlyphIndex
 	img      *image.NRGBA
 	xoffset  int
 	yoffset  int
@@ -174,7 +176,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 		if !ok {
 			continue
 		}
-		g := fontGlyph{r: r, xoffset: dr.Min.X, yoffset: dr.Min.Y, xadvance: adv.Round()}
+		g := fontGlyph{r: r, index: gi, xoffset: dr.Min.X, yoffset: dr.Min.Y, xadvance: adv.Round()}
 		if !dr.Empty() {
 			// The mask is valid only until the next Glyph call, so copy it now, as white ink with the mask as alpha.
 			img := image.NewNRGBA(image.Rect(0, 0, dr.Dx(), dr.Dy()))
@@ -240,9 +242,18 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 		amount        int
 	}
 	var kernings []kerning
+	// opentype's Face.Kern scales by the font's units per em rather than the face's size (golang.org/x/image v0.48.0 font/opentype/opentype.go:145), so the font is asked directly, at the baked size, with each glyph's index looked up once; every ordered pair is still asked, so a chars list of n characters costs n*n lookups (BenchmarkBakeFontKerning).
+	ppem := fixed.I(s.Size)
 	for _, a := range glyphs {
 		for _, c := range glyphs {
-			if k := face.Kern(a.r, c.r).Round(); k != 0 {
+			k, err := f.Kern(&buf, a.index, c.index, ppem, font.HintingFull)
+			if errors.Is(err, sfnt.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("kerning of %q and %q: %w", a.r, c.r, err)
+			}
+			if k := k.Round(); k != 0 {
 				kernings = append(kernings, kerning{a.r, c.r, k})
 			}
 		}

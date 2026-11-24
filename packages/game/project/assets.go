@@ -24,6 +24,9 @@ var AudioFormats = []string{"wav", "aac", "mp3"}
 // DefaultFontSize is the size in pixels a font target bakes its glyphs at when neither it nor its font's import settings set one.
 const DefaultFontSize = 32
 
+// MaxFontSize is the largest size in pixels a font target or a font's import settings may set: the width and height of a font's page, which each glyph must fit on.
+const MaxFontSize = 2048
+
 // DefaultFontChars are the characters a font target bakes when neither it nor its font's import settings list them: printable ASCII, from the space to the tilde.
 const DefaultFontChars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
@@ -130,6 +133,14 @@ type ModelTarget struct {
 // FontPages returns the slash-separated folder a font target writes its pages to and the name they are named after: Out's folder and its base name without the .fnt extension.
 func (t FontTarget) FontPages() (dir, name string) {
 	return path.Dir(t.Out), strings.TrimSuffix(path.Base(t.Out), path.Ext(t.Out))
+}
+
+// ValidateFontSize checks the size of a font target or a font's import settings: 0, which keeps the default, up to MaxFontSize.
+func ValidateFontSize(size int) error {
+	if size < 0 || size > MaxFontSize {
+		return fmt.Errorf("size %d must be from 0 to %d", size, MaxFontSize)
+	}
+	return nil
 }
 
 // ValidateFontChars checks the characters of a font target or a font's import settings: valid UTF-8 without control characters, line breaks included. The space is allowed.
@@ -255,7 +266,7 @@ func (a *Assets) Validate() error {
 			return fmt.Errorf("project: assets %s: %w", where, err)
 		}
 		dir, name := f.FontPages()
-		pagers = append(pagers, pager{name: name, dir: dir, owner: where})
+		pagers = append(pagers, pager{name: name, dir: dir, owner: where, font: true})
 	}
 	for i, pg := range pagers {
 		for _, prev := range pagers[:i] {
@@ -344,6 +355,14 @@ func (a *Assets) Validate() error {
 	if m := a.Manifest; m != nil {
 		read(m.In, "manifest")
 	}
+	// Fonts build after the textures and models, so one of those reading a font's page would encode the page of the previous run, or fail on a fresh checkout, and the font would overwrite an image written by hand under that name.
+	for in, reader := range reads {
+		for _, pg := range pagers {
+			if pg.font && path.Dir(in) == pg.dir && path.Ext(in) == ".png" && isPage(pg.name, path.Base(in)) {
+				return fmt.Errorf("project: assets %s reads %s, a page %s writes", reader, in, pg.owner)
+			}
+		}
+	}
 	for _, f := range order {
 		// A file written over game.yaml or over a target's input destroys what the next run reads, so that run fails or never settles.
 		if f == FileName {
@@ -429,6 +448,8 @@ func (a *Assets) clone() *Assets {
 // pager is a target that writes pages named after name into the folder dir: an atlas, or a font beside its .fnt file.
 type pager struct {
 	name, dir, owner string
+	// font is set for a font target, which builds after the targets that read files, so its pages must not be one of their inputs.
+	font bool
 }
 
 // isPage reports whether base is the name of a page file game pack writes for the atlas name: name.png and name.json, or name-N.png and name-N.json when the atlas needs several pages.
@@ -562,8 +583,8 @@ func validateFontTarget(f FontTarget) error {
 	if _, name := f.FontPages(); name == "" || strings.HasPrefix(name, ".") || strings.Contains(name, `"`) {
 		return fmt.Errorf("out %q must have a name before .fnt that does not start with a dot or hold a double quote, which its pages are named after", f.Out)
 	}
-	if f.Size < 0 {
-		return fmt.Errorf("size %d must not be negative", f.Size)
+	if err := ValidateFontSize(f.Size); err != nil {
+		return err
 	}
 	if f.Padding != nil && *f.Padding < 0 {
 		return fmt.Errorf("padding %d must not be negative", *f.Padding)

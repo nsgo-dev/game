@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
@@ -154,6 +155,25 @@ func splitGLB(data []byte) (jsonChunk, bin []byte, err error) {
 	return jsonChunk, bin, nil
 }
 
+// ModelFiles returns the slash-separated paths, relative to the project root, of the files the glTF or GLB model at model (slash-separated, relative to the project root) names by relative path in its buffers and images, given the model file's bytes, in the order the model lists them and without repeats: the files a model target embeds and counts as inputs. Data URIs name no file. A URI with a scheme, an absolute path, or one that leaves the project is an error, as is a model whose JSON does not decode.
+func ModelFiles(model string, data []byte) ([]string, error) {
+	doc, _, err := decodeModel(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", model, err)
+	}
+	var out []string
+	for _, uri := range externalURIs(doc) {
+		rel, err := resolveModelURI(model, uri)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", model, err)
+		}
+		if !slices.Contains(out, rel) {
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
 // externalURIs returns the URIs of the model's buffers and images that name files rather than hold data, in the order the model lists them.
 func externalURIs(doc map[string]any) []string {
 	var uris []string
@@ -249,7 +269,7 @@ func align(buf []byte, n int) []byte {
 	return buf
 }
 
-// packGLB packs the model in data, a .gltf or .glb file, into one GLB file: the buffers it holds or names are merged into the GLB's binary chunk and the images it names are embedded in it, files holding what data names by relative URI. With s.Scale other than 1 each scene's nodes are put under a new root node scaled by it, and with s.Animations false the animations are left out. The JSON keeps every other property, extensions and extras included, in sorted key order.
+// packGLB packs the model in data, a .gltf or .glb file, into one GLB file: the buffers it holds or names are merged into the GLB's binary chunk and the images it names are embedded in it, files holding what data names by relative URI. With s.Scale other than 1 each root node of a scene is put under a new node scaled by it, one per root however many scenes list it, and with s.Animations false the animations are left out. The JSON keeps every other property, extensions and extras included, in sorted key order.
 func packGLB(data []byte, files map[string][]byte, s modelSettings) ([]byte, error) {
 	resolve := func(uri string) ([]byte, error) {
 		if strings.HasPrefix(uri, "data:") {
@@ -404,14 +424,26 @@ func packGLB(data []byte, files map[string][]byte, s modelSettings) ([]byte, err
 
 	if s.Scale != 1 {
 		nodes, _ := doc["nodes"].([]any)
+		sc := json.Number(fmt.Sprint(s.Scale))
+		// wrappers maps each root node, by its index as written, to the scaled node put above it; scenes that share a root share its wrapper, since glTF allows a node only one parent.
+		wrappers := map[string]json.Number{}
 		for _, scene := range objects(doc["scenes"]) {
 			roots, ok := scene["nodes"].([]any)
 			if !ok || len(roots) == 0 {
 				continue
 			}
-			sc := json.Number(fmt.Sprint(s.Scale))
-			nodes = append(nodes, map[string]any{"scale": []any{sc, sc, sc}, "children": roots})
-			scene["nodes"] = []any{json.Number(fmt.Sprint(len(nodes) - 1))}
+			wrapped := make([]any, len(roots))
+			for i, r := range roots {
+				key := fmt.Sprint(r)
+				w, ok := wrappers[key]
+				if !ok {
+					nodes = append(nodes, map[string]any{"scale": []any{sc, sc, sc}, "children": []any{r}})
+					w = json.Number(fmt.Sprint(len(nodes) - 1))
+					wrappers[key] = w
+				}
+				wrapped[i] = w
+			}
+			scene["nodes"] = wrapped
 		}
 		if nodes != nil {
 			doc["nodes"] = nodes

@@ -142,12 +142,12 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		kind Kind
 		// prepare reads the target's inputs and import settings and returns what builds it.
 		prepare func() (prepared, error)
-		// atlas is the atlas target a KindAtlas step packs, whose output folder may hold pages of an earlier build.
-		atlas *project.AtlasTarget
+		// pages names the pages a KindAtlas or KindFont step writes, whose folder may hold pages of an earlier build; nil for the other kinds.
+		pages *pageSet
 	}
 	var steps []step
 	for _, at := range a.Atlases {
-		steps = append(steps, step{id: "atlas " + path.Join(at.Out, at.Name), kind: KindAtlas, prepare: func() (prepared, error) { return b.atlas(at) }, atlas: &at})
+		steps = append(steps, step{id: "atlas " + path.Join(at.Out, at.Name), kind: KindAtlas, prepare: func() (prepared, error) { return b.atlas(at) }, pages: &pageSet{dir: at.Out, name: at.Name}})
 	}
 	for _, t := range a.Textures {
 		steps = append(steps, step{id: "texture " + t.Out, kind: KindTexture, prepare: func() (prepared, error) { return b.texture(t) }})
@@ -156,7 +156,8 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		steps = append(steps, step{id: "audio " + au.Out, kind: KindAudio, prepare: func() (prepared, error) { return b.audio(ctx, au) }})
 	}
 	for _, f := range a.Fonts {
-		steps = append(steps, step{id: "font " + f.Out, kind: KindFont, prepare: func() (prepared, error) { return b.font(f) }})
+		dir, name := f.FontPages()
+		steps = append(steps, step{id: "font " + f.Out, kind: KindFont, prepare: func() (prepared, error) { return b.font(f) }, pages: &pageSet{dir: dir, name: name, pngOnly: true}})
 	}
 	for _, m := range a.Models {
 		steps = append(steps, step{id: "model " + m.Out, kind: KindModel, prepare: func() (prepared, error) { return b.model(m) }})
@@ -234,9 +235,9 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 			t.Outputs = entry.paths()
 			next.Targets = append(next.Targets, *entry)
 		}
-		if s.atlas != nil && t.Status != Stale {
-			// Pages of this atlas's name that it does not write, such as ui-1.png left by a build that needed more pages and committed without the cache, would be listed by the manifest as current.
-			extra, err := b.extraPages(*s.atlas, t.Outputs)
+		if s.pages != nil && t.Status != Stale {
+			// Pages of this atlas's or font's name that it does not write, such as ui-1.png left by a build that needed more pages and committed without the cache, would be listed by the manifest as current.
+			extra, err := b.extraPages(*s.pages, t.Outputs)
 			if err != nil {
 				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 				break
@@ -970,9 +971,16 @@ func (b *Builder) remove(paths []string, written map[string]string) error {
 	return nil
 }
 
-// extraPages returns the slash-separated paths of the page files of a's name in its output folder, as game pack names them, that outputs does not list, sorted. A missing output folder has none.
-func (b *Builder) extraPages(a project.AtlasTarget, outputs []string) ([]string, error) {
-	entries, err := os.ReadDir(b.abs(a.Out))
+// pageSet names the pages an atlas or font target writes: name.png, or name-N.png when it needs several, in dir, with a .json file beside each atlas page.
+type pageSet struct {
+	dir, name string
+	// pngOnly is set for a font, whose pages are PNG images only.
+	pngOnly bool
+}
+
+// extraPages returns the slash-separated paths of the page files of ps's name in its folder, as game pack names them, that outputs does not list, sorted. A missing folder has none.
+func (b *Builder) extraPages(ps pageSet, outputs []string) ([]string, error) {
+	entries, err := os.ReadDir(b.abs(ps.dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -981,8 +989,11 @@ func (b *Builder) extraPages(a project.AtlasTarget, outputs []string) ([]string,
 	}
 	var extra []string
 	for _, e := range entries {
-		p := path.Join(a.Out, e.Name())
-		if e.Type().IsRegular() && isPage(a.Name, e.Name()) && !slices.Contains(outputs, p) {
+		p := path.Join(ps.dir, e.Name())
+		if ps.pngOnly && path.Ext(p) != ".png" {
+			continue
+		}
+		if e.Type().IsRegular() && isPage(ps.name, e.Name()) && !slices.Contains(outputs, p) {
 			extra = append(extra, p)
 		}
 	}

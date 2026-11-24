@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/tooling/assetbuild"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/manifest"
 	"github.com/nsgo-dev/game/packages/game/tooling/pack"
@@ -52,7 +53,7 @@ func (e *MissingError) Error() string {
 	return b.String()
 }
 
-// Assets returns the slash-separated paths, relative to root, of the assets a reaches, sorted: the PNG images each atlas packs, the input of each texture and audio target, and every file the manifest lists in its folder, leaving out what a target writes (Assets.IsOutput), since that is made from the targets' inputs. A file a target wrote before its output changed counts as an asset until game assets removes it. A nil a reaches none. It fails when an input a target names is missing; a manifest folder that is not there yet holds no asset.
+// Assets returns the slash-separated paths, relative to root, of the assets a reaches, sorted: the PNG images each atlas packs, the input of each texture, audio, font and model target, the buffers and images each model names by relative path (assetbuild.ModelFiles), which its GLB embeds, and every file the manifest lists in its folder, leaving out what a target writes (Assets.IsOutput), since that is made from the targets' inputs. A file a target wrote before its output changed counts as an asset until game assets removes it. A nil a reaches none. It fails when an input a target names is missing; a manifest folder that is not there yet holds no asset.
 func Assets(root string, a *project.Assets) ([]string, error) {
 	if a == nil {
 		return nil, nil
@@ -82,6 +83,22 @@ func Assets(root string, a *project.Assets) ([]string, error) {
 	}
 	for _, au := range a.Audio {
 		files = append(files, au.In)
+	}
+	for _, f := range a.Fonts {
+		files = append(files, f.In)
+	}
+	for _, m := range a.Models {
+		files = append(files, m.In)
+		data, err := os.ReadFile(abs(m.In))
+		if err != nil {
+			return nil, fmt.Errorf("credits: %w", err)
+		}
+		// The buffers and images a model embeds ship inside its GLB, so each is credited as an asset of its own.
+		embedded, err := assetbuild.ModelFiles(m.In, data)
+		if err != nil {
+			return nil, fmt.Errorf("credits: %w", err)
+		}
+		files = append(files, embedded...)
 	}
 	for _, f := range files {
 		info, err := os.Stat(abs(f))
