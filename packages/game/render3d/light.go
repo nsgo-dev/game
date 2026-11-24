@@ -27,10 +27,8 @@ const (
 	// MaxPointLights is the maximum number of point lights a [LightRig] encodes into the GPU uniform block.
 	MaxPointLights = 16
 
-	// LightUniformSize is the byte size of the light uniform block that [LightRig.AppendUniformData] and
-	// [LightUniforms.Encode] write and [LightWGSL] declares: ambient (16) + counts (16) +
-	// MaxDirectionalLights*32 + MaxPointLights*32 = 672 bytes.
-	LightUniformSize = 16 + 16 + MaxDirectionalLights*32 + MaxPointLights*32
+	// LightUniformSize is the byte size of the light uniform block that [LightRig.AppendUniformData] and [LightUniforms.Encode] write and [LightWGSL] declares: ambient (16) + counts (16) + MaxDirectionalLights*32 + MaxPointLights*32 + [MaxSpotLights]*48 = 1056 bytes.
+	LightUniformSize = 16 + 16 + MaxDirectionalLights*32 + MaxPointLights*32 + MaxSpotLights*48
 
 	// PBRDrawUniformSize is the byte size of the per-draw PBR uniform block that [PBRDrawUniform.Encode]
 	// writes and [LitPBRWGSL] declares: model (64) + normal_matrix (64) + base_color (16) +
@@ -55,6 +53,7 @@ var ErrInvalidLight = errors.New("render3d: invalid light")
 // along with portable glTF 2.0 metallic-roughness PBR shading helpers:
 //
 //   - point_light_attenuation(dist_sq, light_range) -> f32
+//   - spot_cone_attenuation(spot_dir, l, angle_scale, angle_offset) -> f32
 //   - pbr_brdf(n, v, l, base_color, metallic, roughness) -> vec3<f32>
 //   - shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness) -> vec3<f32>
 //   - shade_pbr_shadowed(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis) -> vec3<f32>
@@ -63,7 +62,7 @@ var ErrInvalidLight = errors.New("render3d: invalid light")
 //
 // Prepend [CameraWGSL] and LightWGSL to any 3D shader that reads scene lights; the block's layout
 // matches [LightUniforms.Encode] and [LightRig.AppendUniformData] byte for byte, and the shading math
-// matches [EvaluatePBR], [ShadePoint], [ShadePointShadowed], [PointLightAttenuation], and [LinearToSRGB].
+// matches [EvaluatePBR], [ShadePoint], [ShadePointShadowed], [PointLightAttenuation], [SpotConeAttenuation], and [LinearToSRGB].
 const LightWGSL = `struct DirectionalLightUniform {
 	to_light: vec4<f32>,
 	color: vec4<f32>,
@@ -74,11 +73,18 @@ struct PointLightUniform {
 	color: vec4<f32>,
 }
 
+struct SpotLightUniform {
+	position_range: vec4<f32>,
+	direction_scale: vec4<f32>,
+	color_offset: vec4<f32>,
+}
+
 struct LightRigUniform {
 	ambient: vec4<f32>,
 	counts: vec4<u32>,
 	directional: array<DirectionalLightUniform, 4>,
 	point: array<PointLightUniform, 16>,
+	spot: array<SpotLightUniform, 8>,
 }
 
 @group(1) @binding(0) var<uniform> lights: LightRigUniform;
@@ -92,6 +98,11 @@ fn point_light_attenuation(dist_sq: f32, light_range: f32) -> f32 {
 		return inv_d2 * window * window;
 	}
 	return inv_d2;
+}
+
+fn spot_cone_attenuation(spot_dir: vec3<f32>, l: vec3<f32>, angle_scale: f32, angle_offset: f32) -> f32 {
+	let t = clamp(dot(spot_dir, -l) * angle_scale + angle_offset, 0.0, 1.0);
+	return t * t;
 }
 
 fn pbr_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
@@ -170,6 +181,23 @@ fn shade_pbr_shadowed(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f3
 			let ndotl = max(dot(n, l), 0.0);
 			if (ndotl > 0.0) {
 				lo = lo + pbr_brdf(n, v, l, base_color, metallic, roughness) * (pl.color.xyz * atten * ndotl);
+			}
+		}
+	}
+	let spot_count = lights.counts.z;
+	for (var si: u32 = 0u; si < 8u; si = si + 1u) {
+		if (si >= spot_count) {
+			break;
+		}
+		let sl = lights.spot[si];
+		let to_light = sl.position_range.xyz - world_pos;
+		let dist_sq = dot(to_light, to_light);
+		if (dist_sq > 1e-12) {
+			let l = to_light / sqrt(dist_sq);
+			let atten = point_light_attenuation(dist_sq, sl.position_range.w) * spot_cone_attenuation(sl.direction_scale.xyz, l, sl.direction_scale.w, sl.color_offset.w);
+			let ndotl = max(dot(n, l), 0.0);
+			if (atten > 0.0 && ndotl > 0.0) {
+				lo = lo + pbr_brdf(n, v, l, base_color, metallic, roughness) * (sl.color_offset.xyz * atten * ndotl);
 			}
 		}
 	}
@@ -334,16 +362,15 @@ func (l AmbientLight) Validate() error {
 	return nil
 }
 
-// LightRig holds the active lights for a 3D scene: an ambient fill, up to [MaxDirectionalLights]
-// directional lights, and up to [MaxPointLights] point lights.
+// LightRig holds the active lights for a 3D scene: an ambient fill, up to [MaxDirectionalLights] directional lights, up to [MaxPointLights] point lights, and up to [MaxSpotLights] spot lights, all shaded together by one pass.
 type LightRig struct {
 	Ambient     AmbientLight
 	Directional []DirectionalLight
 	Point       []PointLight
+	Spot        []SpotLight
 }
 
-// Validate checks ambient, directional, and point lights and enforces [MaxDirectionalLights] and
-// [MaxPointLights]. Every error wraps [ErrInvalidLight].
+// Validate checks ambient, directional, point, and spot lights and enforces [MaxDirectionalLights], [MaxPointLights], and [MaxSpotLights]. Every error wraps [ErrInvalidLight].
 func (r LightRig) Validate() error {
 	if err := r.Ambient.Validate(); err != nil {
 		return err
@@ -364,6 +391,14 @@ func (r LightRig) Validate() error {
 			return fmt.Errorf("%w: point[%d]: %w", ErrInvalidLight, i, err)
 		}
 	}
+	if len(r.Spot) > MaxSpotLights {
+		return fmt.Errorf("%w: %d spot lights exceed MaxSpotLights (%d)", ErrInvalidLight, len(r.Spot), MaxSpotLights)
+	}
+	for i, sl := range r.Spot {
+		if err := sl.Validate(); err != nil {
+			return fmt.Errorf("%w: spot[%d]: %w", ErrInvalidLight, i, err)
+		}
+	}
 	return nil
 }
 
@@ -372,8 +407,7 @@ func (r LightRig) UniformDataSize() int { return LightUniformSize }
 
 // AppendUniformData appends r's lights to dst in the little-endian std140/WGSL layout of [LightWGSL]
 // and returns the extended slice. It allocates only when dst lacks capacity for [LightUniformSize]
-// more bytes. Call [LightRig.Validate] first: lights beyond [MaxDirectionalLights] or [MaxPointLights]
-// are omitted, and a directional light with a degenerate direction writes zero radiance.
+// more bytes. Call [LightRig.Validate] first: lights beyond [MaxDirectionalLights], [MaxPointLights] or [MaxSpotLights] are omitted, and a directional or spot light with a degenerate direction writes zero radiance.
 func (r LightRig) AppendUniformData(dst []byte) []byte {
 	start := len(dst)
 	dst = grow(dst, LightUniformSize)
@@ -398,14 +432,26 @@ type GPUPointLight struct {
 	Color math3d.Vec4
 }
 
+// GPUSpotLight is the 48-byte GPU uniform representation of one [SpotLight].
+type GPUSpotLight struct {
+	// PositionRange holds world-space Position in xyz and Range in w (0 for unbounded falloff).
+	PositionRange math3d.Vec4
+	// DirectionScale holds the unit cone direction in xyz and the angular scale from [SpotLight.ConeScaleOffset] in w.
+	DirectionScale math3d.Vec4
+	// ColorOffset holds premultiplied linear radiant intensity (Color * Intensity) in rgb and the angular offset from [SpotLight.ConeScaleOffset] in w.
+	ColorOffset math3d.Vec4
+}
+
 // LightUniforms is the fixed-size, 16-byte-aligned GPU uniform payload matching [LightWGSL].
 type LightUniforms struct {
 	// Ambient holds premultiplied linear ambient radiance (Color * Intensity) in rgb and Intensity in w.
 	Ambient          math3d.Vec4
 	DirectionalCount uint32
 	PointCount       uint32
+	SpotCount        uint32
 	Directional      [MaxDirectionalLights]GPUDirectionalLight
 	Point            [MaxPointLights]GPUPointLight
+	Spot             [MaxSpotLights]GPUSpotLight
 }
 
 // NewLightUniforms validates rig and packs it into a GPU-ready [LightUniforms].
@@ -448,7 +494,33 @@ func packLightUniforms(rig LightRig) LightUniforms {
 			Color:         math3d.Vec4{X: col.X, Y: col.Y, Z: col.Z, W: pl.Intensity},
 		}
 	}
+
+	nSpot := min(len(rig.Spot), MaxSpotLights)
+	u.SpotCount = uint32(nSpot)
+	for i := range nSpot {
+		sl := rig.Spot[i]
+		dir, ok := spotUnitDirection(sl)
+		if !ok {
+			continue
+		}
+		scale, offset := sl.ConeScaleOffset()
+		col := sl.Color.Scale(sl.Intensity)
+		u.Spot[i] = GPUSpotLight{
+			PositionRange:  math3d.Vec4{X: sl.Position.X, Y: sl.Position.Y, Z: sl.Position.Z, W: sl.Range},
+			DirectionScale: math3d.Vec4{X: dir.X, Y: dir.Y, Z: dir.Z, W: scale},
+			ColorOffset:    math3d.Vec4{X: col.X, Y: col.Y, Z: col.Z, W: offset},
+		}
+	}
 	return u
+}
+
+// spotUnitDirection returns sl's normalized cone direction, or false when it is degenerate.
+func spotUnitDirection(sl SpotLight) (math3d.Vec3, bool) {
+	lenSq := sl.Direction.LenSq()
+	if lenSq <= minLightDirLenSq {
+		return math3d.Vec3{}, false
+	}
+	return sl.Direction.Scale(float32(1.0 / math.Sqrt(float64(lenSq)))), true
 }
 
 // Encode writes u into dst as the little-endian std140/WGSL block [LightWGSL] declares and returns
@@ -462,7 +534,7 @@ func (u *LightUniforms) Encode(dst []byte) []byte {
 	putVec4(dst[0:], u.Ambient)
 	binary.LittleEndian.PutUint32(dst[16:], u.DirectionalCount)
 	binary.LittleEndian.PutUint32(dst[20:], u.PointCount)
-	binary.LittleEndian.PutUint32(dst[24:], 0)
+	binary.LittleEndian.PutUint32(dst[24:], u.SpotCount)
 	binary.LittleEndian.PutUint32(dst[28:], 0)
 	off := 32
 	for i := range MaxDirectionalLights {
@@ -474,6 +546,12 @@ func (u *LightUniforms) Encode(dst []byte) []byte {
 		putVec4(dst[off:], u.Point[i].PositionRange)
 		putVec4(dst[off+16:], u.Point[i].Color)
 		off += 32
+	}
+	for i := range MaxSpotLights {
+		putVec4(dst[off:], u.Spot[i].PositionRange)
+		putVec4(dst[off+16:], u.Spot[i].DirectionScale)
+		putVec4(dst[off+32:], u.Spot[i].ColorOffset)
+		off += 48
 	}
 	return dst
 }
@@ -1033,9 +1111,7 @@ func EvaluatePBR(n, v, l math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
 	}
 }
 
-// ShadePoint evaluates total outgoing linear RGB radiance at worldPos with surface normal and view
-// direction viewDir (from surface toward the eye) under rig and mat, matching shade_pbr + emissive
-// in [LitPBRWGSL].
+// ShadePoint evaluates total outgoing linear RGB radiance at worldPos with surface normal and view direction viewDir (from surface toward the eye) under rig (ambient, directional, point, and spot lights) and mat, matching shade_pbr + emissive in [LitPBRWGSL].
 //
 // normal and viewDir do not need to be unit length; if either is degenerate, only ambient and emissive
 // terms contribute. Call [LinearToSRGB] on the returned linear color to encode sRGB display output.
@@ -1098,6 +1174,32 @@ func ShadePointShadowed(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, 
 		}
 		brdf := EvaluatePBR(n, v, l, mat)
 		rad := pl.Color.Scale(pl.Intensity * atten * ndotl)
+		lo.X += brdf.X * rad.X
+		lo.Y += brdf.Y * rad.Y
+		lo.Z += brdf.Z * rad.Z
+	}
+
+	nSpot := min(len(rig.Spot), MaxSpotLights)
+	for i := range nSpot {
+		sl := rig.Spot[i]
+		dir, ok := spotUnitDirection(sl)
+		if !ok {
+			continue
+		}
+		toLight := sl.Position.Sub(worldPos)
+		distSq := toLight.LenSq()
+		if distSq <= minLightDirLenSq {
+			continue
+		}
+		l := toLight.Scale(float32(1.0 / math.Sqrt(float64(distSq))))
+		scale, offset := sl.ConeScaleOffset()
+		atten := PointLightAttenuation(distSq, sl.Range) * SpotConeAttenuation(dir, l, scale, offset)
+		ndotl := n.Dot(l)
+		if atten <= 0 || ndotl <= 0 {
+			continue
+		}
+		brdf := EvaluatePBR(n, v, l, mat)
+		rad := sl.Color.Scale(sl.Intensity * atten * ndotl)
 		lo.X += brdf.X * rad.X
 		lo.Y += brdf.Y * rad.Y
 		lo.Z += brdf.Z * rad.Z

@@ -115,8 +115,8 @@ func TestPointLightAttenuation(t *testing.T) {
 }
 
 func TestLightUniformLayout(t *testing.T) {
-	if render3d.LightUniformSize != 672 {
-		t.Fatalf("LightUniformSize = %d, want 672", render3d.LightUniformSize)
+	if render3d.LightUniformSize != 1056 {
+		t.Fatalf("LightUniformSize = %d, want 1056", render3d.LightUniformSize)
 	}
 	rig := render3d.LightRig{
 		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.2, Y: 0.4, Z: 0.6}, Intensity: 0.5},
@@ -184,7 +184,7 @@ func TestLightUniformLayout(t *testing.T) {
 	if !nearF32(f32(176), 1, 1e-6) || !nearF32(f32(180), 2, 1e-6) || !nearF32(f32(184), 4, 1e-6) || !nearF32(f32(188), 4, 1e-6) {
 		t.Errorf("point[0].color = (%v, %v, %v, %v)", f32(176), f32(180), f32(184), f32(188))
 	}
-	// Unused Point[1..15] at offset 192..672 must be zeroed.
+	// Unused Point[1..15] and every spot slot from offset 192 must be zeroed.
 	for off := 192; off < render3d.LightUniformSize; off += 4 {
 		if u32(off) != 0 {
 			t.Fatalf("unused point slot at offset %d = %x, want 0", off, u32(off))
@@ -426,6 +426,33 @@ func TestLitPBRMatchesCPUReference(t *testing.T) {
 				Point: []render3d.PointLight{
 					{Position: math3d.Vec3{X: -0.6, Y: 0.3, Z: 1.2}, Color: math3d.Vec3{X: 1, Y: 0.3, Z: 0.1}, Intensity: 2.5, Range: 5},
 					{Position: math3d.Vec3{X: 0.7, Y: -0.4, Z: 1.1}, Color: math3d.Vec3{X: 0.1, Y: 0.6, Z: 1}, Intensity: 2.5, Range: 5},
+				},
+			},
+		},
+		{
+			// The cone's axis hits the quad's center pixel inside the inner cone, and the four corner samples lie in the falloff band between the cones.
+			name: "spot cone on dielectric",
+			mat:  render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.8, Y: 0.75, Z: 0.7}, Metallic: 0, Roughness: 0.5},
+			rig: render3d.LightRig{
+				Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.1, Y: 0.1, Z: 0.15}, Intensity: 0.2},
+				Spot: []render3d.SpotLight{
+					{Position: math3d.Vec3{X: 0.3, Y: -0.3, Z: 2.5}, Direction: math3d.Vec3{X: -0.3, Y: 0.3, Z: -2.5}, Color: math3d.Vec3{X: 1, Y: 0.85, Z: 0.6}, Intensity: 9, Range: 6, InnerConeAngle: 0.2, OuterConeAngle: 0.45},
+				},
+			},
+		},
+		{
+			name: "sun plus flashlight spot on metal",
+			mat:  render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.9, Y: 0.6, Z: 0.4}, Metallic: 0.8, Roughness: 0.4},
+			rig: render3d.LightRig{
+				Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.12, Y: 0.14, Z: 0.2}, Intensity: 0.25},
+				Directional: []render3d.DirectionalLight{
+					{Direction: math3d.Vec3{X: 0.3, Y: -0.4, Z: -1}, Color: math3d.Vec3{X: 1, Y: 0.95, Z: 0.85}, Intensity: 0.8},
+				},
+				Point: []render3d.PointLight{
+					{Position: math3d.Vec3{X: 0.7, Y: 0.6, Z: 1}, Color: math3d.Vec3{X: 0.2, Y: 0.5, Z: 1}, Intensity: 1.5, Range: 4},
+				},
+				Spot: []render3d.SpotLight{
+					{Position: math3d.Vec3{X: -0.4, Y: -0.4, Z: 1.8}, Direction: math3d.Vec3{X: 0.1, Y: 0.1, Z: -1}, Color: math3d.Vec3{X: 1, Y: 1, Z: 0.9}, Intensity: 6, InnerConeAngle: 0.2, OuterConeAngle: 0.5},
 				},
 			},
 		},
