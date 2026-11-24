@@ -163,7 +163,7 @@ func NewLitPBRFogPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayou
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
 	layouts[FogGroup] = fogLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_fog", LitPBRFogWGSL, layouts, dev.SurfaceFormat(), depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_fog", LitPBRFogWGSL, layouts, MeshVertexLayout(), dev.SurfaceFormat(), depthFormat)
 }
 
 // FogMode selects how distance fog attenuates visibility with camera distance.

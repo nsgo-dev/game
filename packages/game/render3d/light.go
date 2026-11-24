@@ -187,27 +187,11 @@ const LitPBRWGSL = litPBRPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f3
 `
 
 // litPBRPreludeWGSL holds the declarations and vertex stage [LitPBRWGSL] and [LitPBRFogWGSL] share.
-const litPBRPreludeWGSL = CameraWGSL + LightWGSL + `
-struct PBRDrawUniform {
-	model: mat4x4<f32>,
-	normal_matrix: mat4x4<f32>,
-	base_color: vec4<f32>,
-	pbr_params: vec4<f32>,
-	emissive: vec4<f32>,
-}
-
-@group(2) @binding(0) var<uniform> pbr_draw: PBRDrawUniform;
-
+const litPBRPreludeWGSL = litPBRDeclarationsWGSL + `
 struct PBRVertexIn {
 	@location(0) pos: vec3<f32>,
 	@location(1) normal: vec3<f32>,
 	@location(2) uv: vec2<f32>,
-}
-
-struct PBRVertexOut {
-	@builtin(position) clip: vec4<f32>,
-	@location(0) world_pos: vec3<f32>,
-	@location(1) world_normal: vec3<f32>,
 }
 
 @vertex
@@ -218,6 +202,25 @@ fn vs_main(in: PBRVertexIn) -> PBRVertexOut {
 	out.world_pos = world.xyz;
 	out.world_normal = (pbr_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;
 	return out;
+}
+`
+
+// litPBRDeclarationsWGSL declares the camera, lights, per-draw uniform and vertex output that the plain and skinned lit PBR vertex stages share.
+const litPBRDeclarationsWGSL = CameraWGSL + LightWGSL + `
+struct PBRDrawUniform {
+	model: mat4x4<f32>,
+	normal_matrix: mat4x4<f32>,
+	base_color: vec4<f32>,
+	pbr_params: vec4<f32>,
+	emissive: vec4<f32>,
+}
+
+@group(2) @binding(0) var<uniform> pbr_draw: PBRDrawUniform;
+
+struct PBRVertexOut {
+	@builtin(position) clip: vec4<f32>,
+	@location(0) world_pos: vec3<f32>,
+	@location(1) world_normal: vec3<f32>,
 }
 `
 
@@ -817,7 +820,7 @@ func NewLitPBRPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, 
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr", LitPBRWGSL, layouts, dev.SurfaceFormat(), depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr", LitPBRWGSL, layouts, MeshVertexLayout(), dev.SurfaceFormat(), depthFormat)
 }
 
 // litPBRLinearWGSL is [LitPBRWGSL] writing the lit linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput is set.
@@ -837,11 +840,13 @@ type LitPBRPipelineOptions struct {
 	FogLayout *gpu.BindGroupLayout
 	// IBLLayout, when set, compiles [LitPBRIBLWGSL] with this layout ([GPUIBLBuffer.Layout]) at [IBLGroup], as [NewLitPBRIBLPipeline] does. Fog and IBL share bind group 3, so setting both is an error.
 	IBLLayout *gpu.BindGroupLayout
+	// SkinLayout, when set, compiles [LitPBRSkinnedWGSL] with this layout ([GPUSkinPalette.Layout]) at [LitPBRSkinGroup] and takes [SkinnedVertexLayout] vertices, so a [GPUSkinnedMesh] is drawn with scene lights. The vertex stage skins each vertex with the palette and then applies the per-draw model and normal matrices: use an identity model with [SkinJointMatrices] (world-space joints), or the mesh node's world matrix with mesh-local joints such as anim3d's Player.SkinMatricesForNode. Fog, IBL and skinning all use bind group 3, so SkinLayout cannot be combined with FogLayout or IBLLayout.
+	SkinLayout *gpu.BindGroupLayout
 	// LinearOutput skips the final linear-to-sRGB encoding and its clamp to [0, 1] and writes the lit linear radiance ([ShadePoint], plus [EvaluateIBL] or [Fog.Apply] when enabled), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display.
 	LinearOutput bool
 }
 
-// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline] or [NewLitPBRIBLPipeline], with a configurable color format and, with [LitPBRPipelineOptions].LinearOutput, linear HDR output for an [HDRTarget].
+// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline] or [NewLitPBRIBLPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
 func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout *gpu.BindGroupLayout, opts LitPBRPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -849,9 +854,20 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	if opts.FogLayout != nil && opts.IBLLayout != nil {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: fog and IBL both use bind group 3; set FogLayout or IBLLayout, not both"}
 	}
+	if opts.SkinLayout != nil && (opts.FogLayout != nil || opts.IBLLayout != nil) {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: skinning shares bind group 3 with fog and IBL; set SkinLayout without FogLayout or IBLLayout"}
+	}
 	label, src, linearSrc := "render3d.lit_pbr", LitPBRWGSL, litPBRLinearWGSL
+	vertexLayout := MeshVertexLayout()
 	layouts := make([]*gpu.BindGroupLayout, PBRDrawGroup+1, FogGroup+1)
 	switch {
+	case opts.SkinLayout != nil:
+		if !opts.SkinLayout.Valid() {
+			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid skin bind group layout"}
+		}
+		label, src, linearSrc = "render3d.lit_pbr_skinned", LitPBRSkinnedWGSL, litPBRSkinnedLinearWGSL
+		vertexLayout = SkinnedVertexLayout()
+		layouts = append(layouts, opts.SkinLayout)
 	case opts.FogLayout != nil:
 		label, src, linearSrc = "render3d.lit_pbr_fog", LitPBRFogWGSL, litPBRFogLinearWGSL
 		layouts = append(layouts, opts.FogLayout)
@@ -873,11 +889,11 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	if colorFmt == gpu.FormatUndefined {
 		colorFmt = dev.SurfaceFormat()
 	}
-	return newLitPBRPipeline(cx, dev, label, src, layouts, colorFmt, opts.DepthFormat)
+	return newLitPBRPipeline(cx, dev, label, src, layouts, vertexLayout, colorFmt, opts.DepthFormat)
 }
 
 // newLitPBRPipeline compiles src and creates the back-face-culled triangle-list pipeline [NewLitPBRPipeline] and [NewLitPBRFogPipeline] share.
-func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layouts []*gpu.BindGroupLayout, colorFormat, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layouts []*gpu.BindGroupLayout, vertexLayout gpu.VertexBufferLayout, colorFormat, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
 	mod, err := gpu.CompileWGSL(src)
 	if err != nil {
 		return nil, err
@@ -887,7 +903,7 @@ func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layou
 		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
 		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
 		Layouts:       layouts,
-		VertexBuffers: []gpu.VertexBufferLayout{MeshVertexLayout()},
+		VertexBuffers: []gpu.VertexBufferLayout{vertexLayout},
 		Primitive: gpu.PrimitiveState{
 			Topology:  gpu.TopologyTriangleList,
 			FrontFace: gpu.FrontCCW,

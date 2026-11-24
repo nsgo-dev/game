@@ -12,7 +12,7 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// Portable GPU skinning limits, uniform layout, bind group slot, and interleaved vertex layout.
+// Portable GPU skinning limits, uniform layout, bind group slots, and interleaved vertex layout.
 const (
 	// MaxSkinJoints is the maximum number of joint matrices stored in one [GPUSkinPalette] uniform buffer. 128 mat4x4<f32> entries occupy 8192 bytes ([SkinUniformSize]), staying comfortably below WebGL 2 and OpenGL ES 3.0's 16 KiB minimum MAX_UNIFORM_BLOCK_SIZE while covering full character rigs.
 	MaxSkinJoints = 128
@@ -20,8 +20,14 @@ const (
 	// SkinUniformSize is the byte size of the skin uniform block that [AppendJointMatrices] writes and [SkinWGSL] declares: MaxSkinJoints * 64 = 8192 bytes.
 	SkinUniformSize = MaxSkinJoints * 64
 
-	// SkinGroup is the bind group index reserved for the skin joint palette ([GPUSkinPalette.BindGroup]) in [SkinWGSL] and [NewSkinnedMeshPipeline].
+	// SkinGroup is the bind group index of the joint palette ([GPUSkinPalette.BindGroup]) in [SkinWGSL] and the unlit [NewSkinnedMeshPipeline], which binds only [CameraGroup] and the palette. Lit and material pipelines keep group 1 for lights and materials, so they bind the palette at [LitPBRSkinGroup] or [MaterialSkinGroup] instead.
 	SkinGroup = 1
+
+	// LitPBRSkinGroup is the bind group index of the joint palette in [LitPBRSkinnedWGSL] ([LitPBRPipelineOptions].SkinLayout), after [CameraGroup], [LightGroup] and [PBRDrawGroup]. It is the slot [FogGroup] and [IBLGroup] use, the last of the four bind groups WebGPU and WebGL 2 guarantee, so a skinned lit PBR draw has neither fog nor IBL.
+	LitPBRSkinGroup = 3
+
+	// MaterialSkinGroup is the bind group index of the joint palette in [MaterialSkinnedWGSL] ([MaterialPipelineOptions].SkinLayout), after [CameraGroup] and [MaterialGroup]. It is the slot [MaterialFogGroup] uses, so a skinned material draw has no fog.
+	MaterialSkinGroup = 2
 
 	// SkinnedVertexStride is the byte size of one interleaved skinned vertex: position (12 bytes), normal (12 bytes), UV (8 bytes), four joint indices (16 bytes), and four normalized weights (16 bytes).
 	SkinnedVertexStride = 64
@@ -52,15 +58,20 @@ const (
 // ErrInvalidSkin is wrapped by errors returned for malformed skinning attributes, out-of-range joint indices, invalid glTF skin definitions, or oversized joint palettes.
 var ErrInvalidSkin = errors.New("render3d: invalid skin")
 
-// SkinWGSL declares the portable joint palette uniform block at @group(1) @binding(0) and linear blend skinning helpers matching CPU [SkinVertex]. Prepend [CameraWGSL] and [SkinWGSL] to a custom skinned vertex shader, or use [SkinnedMeshWGSL] via [NewSkinnedMeshPipeline].
+// SkinWGSL declares the portable joint palette uniform block at @group(1) @binding(0) ([SkinGroup]) and linear blend skinning helpers matching CPU [SkinVertex]. Prepend [CameraWGSL] and SkinWGSL to a custom skinned vertex shader that binds nothing else at group 1, or use [SkinnedMeshWGSL] via [NewSkinnedMeshPipeline]. To draw a skinned mesh with lights or a material, use [LitPBRPipelineOptions].SkinLayout or [MaterialPipelineOptions].SkinLayout, which declare the same helpers at [LitPBRSkinGroup] and [MaterialSkinGroup].
 //
-// Blending is evaluated per-influence as sum_i (skin.joints[j_i] * v) * w_i rather than summing scaled 4x4 matrices first, which is both fewer scalar operations on GPU hardware and exact across every NSGo backend (Metal, D3D11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software rasterizer).
-const SkinWGSL = `struct SkinPalette {
+// Blending is evaluated per influence as sum_i (skin.joints[j_i] * v) * w_i rather than summing scaled 4x4 matrices first, which is both fewer scalar operations on GPU hardware and exact across every NSGo backend (Metal, D3D11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software rasterizer).
+const SkinWGSL = skinPaletteStructWGSL + "@group(1) @binding(0) var<uniform> skin: SkinPalette;\n" + skinFunctionsWGSL
+
+// skinPaletteStructWGSL declares the joint palette uniform block type; each module that skins adds the binding at its own group.
+const skinPaletteStructWGSL = `struct SkinPalette {
 	joints: array<mat4x4<f32>, 128>,
 }
 
-@group(1) @binding(0) var<uniform> skin: SkinPalette;
+`
 
+// skinFunctionsWGSL holds the skin_position and skin_normal helpers, which read the palette through the module's skin binding.
+const skinFunctionsWGSL = `
 fn skin_position(pos: vec3<f32>, joints: vec4<u32>, weights: vec4<f32>) -> vec3<f32> {
 	let p = vec4<f32>(pos, 1.0);
 	let blended = (skin.joints[joints.x] * p) * weights.x
@@ -84,8 +95,8 @@ fn skin_normal(normal: vec3<f32>, joints: vec4<u32>, weights: vec4<f32>) -> vec3
 }
 `
 
-// SkinnedMeshWGSL is the default ready-to-use WGSL module compiled by [NewSkinnedMeshPipeline]. It binds [CameraBuffer] at [CameraGroup] (group 0) and [GPUSkinPalette] at [SkinGroup] (group 1), skins positions and normals with [SkinWGSL], and applies view-aligned shading with normal-based coloring.
-const SkinnedMeshWGSL = CameraWGSL + "\n" + SkinWGSL + `
+// skinnedVertexInWGSL declares the [SkinnedVertexLayout] vertex input every skinned vertex stage reads.
+const skinnedVertexInWGSL = `
 struct SkinnedVertexIn {
 	@location(0) pos: vec3<f32>,
 	@location(1) normal: vec3<f32>,
@@ -93,7 +104,10 @@ struct SkinnedVertexIn {
 	@location(3) joints: vec4<u32>,
 	@location(4) weights: vec4<f32>,
 }
+`
 
+// SkinnedMeshWGSL is the default ready-to-use WGSL module compiled by [NewSkinnedMeshPipeline]. It binds [CameraBuffer] at [CameraGroup] (group 0) and [GPUSkinPalette] at [SkinGroup] (group 1), skins positions and normals with [SkinWGSL], and applies view-aligned shading with normal-based coloring. It has no lights or materials; use [LitPBRSkinnedWGSL] or [MaterialSkinnedWGSL] for those.
+const SkinnedMeshWGSL = CameraWGSL + "\n" + SkinWGSL + skinnedVertexInWGSL + `
 struct SkinnedVertexOut {
 	@builtin(position) clip: vec4<f32>,
 	@location(0) world: vec3<f32>,
@@ -126,6 +140,52 @@ fn fs_main(in: SkinnedVertexOut) -> @location(0) vec4<f32> {
 	return vec4<f32>(base * shade, 1.0);
 }
 `
+
+// litPBRSkinnedPreludeWGSL is [LitPBRWGSL]'s declarations with the joint palette at [LitPBRSkinGroup] and a vertex stage that skins each vertex before applying the per-draw model and normal matrices.
+const litPBRSkinnedPreludeWGSL = litPBRDeclarationsWGSL + "\n" + skinPaletteStructWGSL + "@group(3) @binding(0) var<uniform> skin: SkinPalette;\n" + skinFunctionsWGSL + skinnedVertexInWGSL + `
+@vertex
+fn vs_main(in: SkinnedVertexIn) -> PBRVertexOut {
+	var out: PBRVertexOut;
+	let skinned = skin_position(in.pos, in.joints, in.weights);
+	let world = pbr_draw.model * vec4<f32>(skinned, 1.0);
+	out.clip = camera.view_proj * world;
+	out.world_pos = world.xyz;
+	out.world_normal = (pbr_draw.normal_matrix * vec4<f32>(skin_normal(in.normal, in.joints, in.weights), 0.0)).xyz;
+	return out;
+}
+`
+
+// LitPBRSkinnedWGSL is [LitPBRWGSL] for [GPUSkinnedMesh] vertices ([SkinnedVertexLayout]): it binds the joint palette at [LitPBRSkinGroup] (group 3) and shades with the scene lights at [LightGroup] and the per-draw [PBRDrawUniform] at [PBRDrawGroup]. [NewLitPBRPipelineWithOptions] compiles it when [LitPBRPipelineOptions].SkinLayout is set.
+const LitPBRSkinnedWGSL = litPBRSkinnedPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
+}
+`
+
+// litPBRSkinnedLinearWGSL is [LitPBRSkinnedWGSL] writing the lit linear color without sRGB encoding, for [LitPBRPipelineOptions].LinearOutput.
+const litPBRSkinnedLinearWGSL = litPBRSkinnedPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f32>(lit, pbr_draw.base_color.a);
+}
+`
+
+// materialSkinnedHeadWGSL is [MaterialWGSL]'s declarations and fragment head with the joint palette at [MaterialSkinGroup] and a vertex stage that skins each vertex into world space.
+const materialSkinnedHeadWGSL = CameraWGSL + MaterialBindingsWGSL + "\n" + skinPaletteStructWGSL + "@group(2) @binding(0) var<uniform> skin: SkinPalette;\n" + skinFunctionsWGSL + skinnedVertexInWGSL + materialVertexOutWGSL + `
+@vertex
+fn vs_main(in: SkinnedVertexIn) -> MaterialVertexOut {
+	var out: MaterialVertexOut;
+	let world_pos = skin_position(in.pos, in.joints, in.weights);
+	out.clip_pos = camera.view_proj * vec4<f32>(world_pos, 1.0);
+	out.world_pos = world_pos;
+	out.world_normal = skin_normal(in.normal, in.joints, in.weights);
+	out.uv = in.uv;
+	return out;
+}
+` + materialFragmentHeadWGSL
+
+// MaterialSkinnedWGSL is [MaterialWGSL] for [GPUSkinnedMesh] vertices ([SkinnedVertexLayout]): it binds the joint palette at [MaterialSkinGroup] (group 2) next to a [GPUMaterial] at [MaterialGroup], so a skinned glTF character draws with its textures. [NewMaterialPipeline] compiles it when [MaterialPipelineOptions].SkinLayout is set.
+const MaterialSkinnedWGSL = materialSkinnedHeadWGSL + `	let srgb_rgb = material_tonemap_srgb(linear_rgb);
+` + materialStagesTailWGSL
+
+// materialSkinnedLinearWGSL is [MaterialSkinnedWGSL] writing the linear radiance, for [MaterialPipelineOptions].LinearOutput.
+const materialSkinnedLinearWGSL = materialSkinnedHeadWGSL + `	let srgb_rgb = linear_rgb;
+` + materialStagesTailWGSL
 
 // SkinnedMesh is indexed or non-indexed triangle-list geometry with up to four joint influences per vertex, ready to upload with [UploadSkinnedMesh].
 //
@@ -502,7 +562,7 @@ func (g *GPUSkinnedMesh) Bind(pass *gpu.RenderPass) {
 	}
 }
 
-// Draw binds the skinned mesh to pass and issues one draw call. The pass must already have a pipeline whose vertex buffer 0 is [SkinnedVertexLayout] and a [GPUSkinPalette] bound at [SkinGroup]. When the mesh is not valid it records nothing.
+// Draw binds the skinned mesh to pass and issues one draw call. The pass must already have a pipeline whose vertex buffer 0 is [SkinnedVertexLayout] and a [GPUSkinPalette] bound at the pipeline's skin group ([SkinGroup], [LitPBRSkinGroup] or [MaterialSkinGroup]). When the mesh is not valid it records nothing.
 func (g *GPUSkinnedMesh) Draw(pass *gpu.RenderPass) {
 	if !g.Valid() {
 		return
@@ -558,7 +618,7 @@ func SkinVertex(pos, normal math3d.Vec3, joints [4]uint16, weights math3d.Vec4, 
 	return math3d.Vec3{X: outP.X, Y: outP.Y, Z: outP.Z}, outN
 }
 
-// SkinJointMatrices computes glTF 2.0 world-space joint skinning matrices for doc.Skins[skinIndex] as jointNode.WorldMatrix * InverseBindMatrices[i] (with identity when InverseBindMatrices is omitted). Per glTF 2.0 section 3.7.3.2, only joint transforms apply to a skinned mesh and the mesh node's own transform is ignored. Call [gltf.Document.ComputeWorldMatrices] before calling SkinJointMatrices after modifying node transforms or applying an animation.
+// SkinJointMatrices computes glTF 2.0 world-space joint skinning matrices for doc.Skins[skinIndex] as jointNode.WorldMatrix * InverseBindMatrices[i] (with identity when InverseBindMatrices is omitted). Per glTF 2.0 section 3.7.3.2, only joint transforms apply to a skinned mesh and the mesh node's own transform is ignored. Call [gltf.Document.ComputeWorldMatrices] before calling SkinJointMatrices after modifying node transforms or applying an animation with [gltf.Animation.Apply]. anim3d's Player keeps its own world matrices instead of writing doc.Nodes[].WorldMatrix, and its SkinMatricesForNode returns mesh-local matrices (inverse(meshWorld) * jointWorld * inverseBind); upload those with [GPUSkinPalette.UpdateWithTransform] and the mesh node's world matrix, or draw them through [LitPBRPipelineOptions].SkinLayout with that matrix as the model.
 //
 // Results are appended to dst[:0]; when cap(dst) >= len(skin.Joints), this function performs zero heap allocations.
 func SkinJointMatrices(doc *gltf.Document, skinIndex int, dst []math3d.Mat4) ([]math3d.Mat4, error) {
@@ -648,7 +708,7 @@ type SkinPaletteOptions struct {
 
 // GPUSkinPalette holds up to [MaxSkinJoints] joint matrices in a portable uniform buffer ([SkinUniformSize] = 8192 bytes, fitting WebGL 2 and OpenGL ES 3.0's 16 KiB uniform block limit) together with the bind group layout and bind group exposed at [SkinGroup].
 //
-// Create it once on device readiness, call [GPUSkinPalette.Update] or [GPUSkinPalette.UpdateFromGLTF] when joint poses change, and bind [GPUSkinPalette.BindGroup] at [SkinGroup]. Resources belong to the scope passed to [NewGPUSkinPalette] and are released on scope disposal or Close.
+// Create it once on device readiness, call [GPUSkinPalette.Update] or [GPUSkinPalette.UpdateFromGLTF] when joint poses change, and bind [GPUSkinPalette.BindGroup] at the pipeline's skin group ([SkinGroup], [LitPBRSkinGroup] or [MaterialSkinGroup]). Resources belong to the scope passed to [NewGPUSkinPalette] and are released on scope disposal or Close.
 type GPUSkinPalette struct {
 	dev        *gpu.Device
 	buf        *gpu.Buffer
@@ -731,6 +791,21 @@ func (p *GPUSkinPalette) Update(dev *gpu.Device, joints []math3d.Mat4) error {
 	dev.WriteBuffer(p.buf, 0, p.scratch[:])
 	p.joints = len(joints)
 	return nil
+}
+
+// UpdateWithTransform uploads worldTransform * joints[i] for every joint, like [GPUSkinPalette.Update]. Use it for mesh-local joint matrices, such as anim3d's Player.SkinMatricesForNode (inverse(meshWorld) * jointWorld * inverseBind), with the mesh node's world matrix (Player.WorldTransform), so pipelines without a model matrix ([NewSkinnedMeshPipeline], [MaterialPipelineOptions].SkinLayout) draw the mesh where its node is. It reuses internal storage and does not modify joints.
+func (p *GPUSkinPalette) UpdateWithTransform(dev *gpu.Device, worldTransform math3d.Mat4, joints []math3d.Mat4) error {
+	if !p.Valid() {
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: invalid skin palette"}
+	}
+	if len(joints) > MaxSkinJoints {
+		return fmt.Errorf("%w: %d joints exceed MaxSkinJoints (%d)", ErrInvalidSkin, len(joints), MaxSkinJoints)
+	}
+	mats := p.matScratch[:len(joints)]
+	for i := range joints {
+		mats[i] = worldTransform.Mul(joints[i])
+	}
+	return p.Update(dev, mats)
 }
 
 // UpdateFromGLTF computes joint matrices for doc.Skins[skinIndex] into internal scratch storage and uploads them with [GPUSkinPalette.Update], with zero steady-state heap allocations. Call [gltf.Document.ComputeWorldMatrices] first whenever node transforms or animations change.

@@ -688,11 +688,13 @@ type MaterialPipelineOptions struct {
 	DoubleSided bool
 	// FogLayout, when set, compiles [MaterialFogWGSL] instead of [MaterialWGSL] and lists this layout ([GPUFogBuffer.Layout]) at [MaterialFogGroup]; bind [GPUFogBuffer.BindGroup] there when drawing.
 	FogLayout *gpu.BindGroupLayout
+	// SkinLayout, when set, compiles [MaterialSkinnedWGSL] with this layout ([GPUSkinPalette.Layout]) at [MaterialSkinGroup] and takes [SkinnedVertexLayout] vertices, so a [GPUSkinnedMesh] is drawn with a textured [GPUMaterial]. Material shaders have no model matrix, so the palette must hold world-space joints: [SkinJointMatrices], or mesh-local joints uploaded with [GPUSkinPalette.UpdateWithTransform]. Fog and skinning both use bind group 2, so SkinLayout cannot be combined with FogLayout.
+	SkinLayout *gpu.BindGroupLayout
 	// LinearOutput skips the shader's built-in Reinhard tone mapping and gamma encoding and writes the unclamped linear radiance ([MaterialEvalResult].Linear), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display. Set ColorFormat to [HDRTarget.Format] with it.
 	LinearOutput bool
 }
 
-// NewMaterialPipeline compiles [MaterialWGSL] and builds a render pipeline using [MeshVertexLayout] at vertex slot 0, camLayout at [CameraGroup] (group 0), and matLayout at [MaterialGroup] (group 1). With [MaterialPipelineOptions].FogLayout set it compiles [MaterialFogWGSL] and adds the fog layout at [MaterialFogGroup] (group 2).
+// NewMaterialPipeline compiles [MaterialWGSL] and builds a render pipeline using [MeshVertexLayout] at vertex slot 0, camLayout at [CameraGroup] (group 0), and matLayout at [MaterialGroup] (group 1). With [MaterialPipelineOptions].FogLayout set it compiles [MaterialFogWGSL] and adds the fog layout at [MaterialFogGroup] (group 2); with [MaterialPipelineOptions].SkinLayout set it compiles [MaterialSkinnedWGSL], takes [SkinnedVertexLayout] vertices and adds the skin layout at [MaterialSkinGroup] (group 2).
 func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *gpu.BindGroupLayout, opts MaterialPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -711,6 +713,21 @@ func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *
 		src = materialLinearWGSL
 	}
 	layouts := []*gpu.BindGroupLayout{CameraGroup: camLayout, MaterialGroup: matLayout}
+	vertexLayout := MeshVertexLayout()
+	if opts.SkinLayout != nil {
+		if opts.FogLayout != nil {
+			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: skinning shares bind group 2 with material fog; set SkinLayout or FogLayout, not both"}
+		}
+		if !opts.SkinLayout.Valid() {
+			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid skin bind group layout"}
+		}
+		src = MaterialSkinnedWGSL
+		if opts.LinearOutput {
+			src = materialSkinnedLinearWGSL
+		}
+		layouts = append(layouts, opts.SkinLayout)
+		vertexLayout = SkinnedVertexLayout()
+	}
 	if opts.FogLayout != nil {
 		if !opts.FogLayout.Valid() {
 			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid fog bind group layout"}
@@ -743,6 +760,9 @@ func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *
 		if opts.FogLayout != nil {
 			label += ".fog"
 		}
+		if opts.SkinLayout != nil {
+			label += ".skinned"
+		}
 		if opts.LinearOutput {
 			label += ".linear"
 		}
@@ -752,7 +772,7 @@ func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *
 		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
 		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
 		Layouts:       layouts,
-		VertexBuffers: []gpu.VertexBufferLayout{MeshVertexLayout()},
+		VertexBuffers: []gpu.VertexBufferLayout{vertexLayout},
 		Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: cull},
 		Targets:       []gpu.ColorTargetState{target},
 	}
@@ -911,17 +931,23 @@ const materialLinearWGSL = CameraWGSL + MaterialBindingsWGSL + materialStagesHea
 ` + materialStagesTailWGSL
 
 // materialStagesHeadWGSL holds the vertex stage and the part of fs_main up to the linear radiance linear_rgb that [MaterialWGSL] and [MaterialFogWGSL] share; each then defines srgb_rgb and appends [materialStagesTailWGSL].
-const materialStagesHeadWGSL = `
-struct MaterialVertexIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
-}
+const materialStagesHeadWGSL = materialVertexStageWGSL + materialFragmentHeadWGSL
 
+// materialVertexOutWGSL declares the vertex output that the plain and skinned material vertex stages write and [materialFragmentHeadWGSL] reads.
+const materialVertexOutWGSL = `
 struct MaterialVertexOut {
 	@builtin(position) clip_pos: vec4<f32>,
 	@location(0) world_pos: vec3<f32>,
 	@location(1) world_normal: vec3<f32>,
+	@location(2) uv: vec2<f32>,
+}
+`
+
+// materialVertexStageWGSL is the vertex stage of [MaterialWGSL], which takes [MeshVertexLayout] vertices already in world space.
+const materialVertexStageWGSL = materialVertexOutWGSL + `
+struct MaterialVertexIn {
+	@location(0) pos: vec3<f32>,
+	@location(1) normal: vec3<f32>,
 	@location(2) uv: vec2<f32>,
 }
 
@@ -934,7 +960,10 @@ fn vs_main(in: MaterialVertexIn) -> MaterialVertexOut {
 	out.uv = in.uv;
 	return out;
 }
+`
 
+// materialFragmentHeadWGSL opens fs_main and computes the linear radiance linear_rgb from [MaterialVertexOut] inputs.
+const materialFragmentHeadWGSL = `
 @fragment
 fn fs_main(in: MaterialVertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
 	// Sample every map and compute screen-space derivatives in uniform control flow before any alpha-mask discard.
