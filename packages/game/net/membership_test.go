@@ -329,3 +329,178 @@ func TestRollbackPeerJoinsAndLeavesMidMatch(t *testing.T) {
 		})
 	}
 }
+
+// TestLockstepPeerLeavesBeforeANewcomerHasItsState removes peer 2 after the host admits peer 3 but before peer 3 has its join state, with the leave tick after the join tick. The join state carries the inputs the host declared for peer 2 from the join tick to its leave, so peer 3 plays those ticks instead of waiting for inputs no one sends it.
+func TestLockstepPeerLeavesBeforeANewcomerHasItsState(t *testing.T) {
+	const latency = 20 * time.Millisecond
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: latency})
+	sims := map[gamenet.PeerID]*crowdSim{1: newCrowdSim(), 2: newCrowdSim(), 3: {}}
+	sessions := map[gamenet.PeerID]*gamenet.LockstepSession{}
+	for _, id := range []gamenet.PeerID{1, 2} {
+		sessions[id] = gamenet.NewLockstepSession(gamenet.LockstepConfig{Transport: hub.AddPeer(id), Sim: sims[id], Peers: []gamenet.PeerID{1, 2}, ChecksumInterval: 5})
+	}
+	submitted := map[gamenet.PeerID]uint32{}
+	submit := func(id gamenet.PeerID, tick uint32) {
+		if err := sessions[id].SubmitInput(crowdInput(id, tick)); err != nil {
+			t.Fatalf("peer %d submit %d: %v", id, tick, err)
+		}
+		submitted[id] = tick + 1
+	}
+	round := func(players ...gamenet.PeerID) {
+		for _, id := range players {
+			if s := sessions[id]; s.Active() && submitted[id] <= s.Tick() {
+				submit(id, s.Tick())
+			}
+		}
+		hub.Advance(latency)
+		for _, s := range sessions {
+			s.Step()
+		}
+	}
+	for range 10 {
+		round(1, 2)
+	}
+	if sessions[1].Tick() != 10 || sessions[2].Tick() != 10 {
+		t.Fatalf("peers at %d and %d, want 10", sessions[1].Tick(), sessions[2].Tick())
+	}
+
+	// Peer 2 stops sending. The host submits ahead, admits peer 3, submits once more and removes peer 2, all before its simulation reaches the join tick.
+	for tick := uint32(10); tick < 13; tick++ {
+		submit(1, tick)
+	}
+	sessions[3] = gamenet.NewLockstepSession(gamenet.LockstepConfig{Transport: hub.AddPeer(3), Sim: sims[3], Host: 1, Join: true, ChecksumInterval: 5})
+	join, err := sessions[1].AddPeer(3)
+	if err != nil || join != 13 {
+		t.Fatalf("AddPeer = %d, %v; want 13", join, err)
+	}
+	submit(1, 13)
+	leave, err := sessions[1].RemovePeer(2)
+	if err != nil || leave != 14 {
+		t.Fatalf("RemovePeer = %d, %v; want 14", leave, err)
+	}
+	if sessions[3].Active() {
+		t.Fatal("the newcomer had its state before the leave")
+	}
+	for range 60 {
+		if sessions[1].Tick() == 40 && sessions[3].Tick() == 40 {
+			break
+		}
+		round(1, 3)
+	}
+	if !sessions[3].Active() || sims[1].tick != 40 || sims[3].tick != 40 {
+		t.Fatalf("the match stalled: newcomer active=%v, peer 1 at %d, peer 3 at %d", sessions[3].Active(), sims[1].tick, sims[3].tick)
+	}
+	if sessions[2].Tick() != leave || sessions[2].Active() {
+		t.Fatalf("the removed peer is at %d, active=%v; want stopped at %d", sessions[2].Tick(), sessions[2].Active(), leave)
+	}
+	ref := replay(map[gamenet.PeerID]span{
+		1: {until: never},
+		2: {until: leave, zero: func(tick uint32) bool { return tick >= 10 }},
+		3: {from: join, until: never},
+	}, 40)
+	checkAgainst(t, "peer 1", sims[1], 0, ref)
+	checkAgainst(t, "peer 2", sims[2], 0, ref)
+	checkAgainst(t, "peer 3", sims[3], join, ref)
+	for id, s := range sessions {
+		if d := s.Desyncs(); len(d) != 0 {
+			t.Fatalf("peer %d desyncs: %+v", id, d)
+		}
+	}
+}
+
+// TestRollbackPeerLeavesBeforeANewcomerHasItsState is the rollback form of TestLockstepPeerLeavesBeforeANewcomerHasItsState: the host removes peer 2 while the ticks before peer 3's join tick are not all confirmed yet, so peer 3's join state goes out after the leave, and peer 3 must still confirm every tick it plays.
+func TestRollbackPeerLeavesBeforeANewcomerHasItsState(t *testing.T) {
+	for _, delay := range []uint32{2, 3} {
+		t.Run(fmt.Sprintf("delay=%d", delay), func(t *testing.T) {
+			const frame = 16 * time.Millisecond
+			hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: 50 * time.Millisecond})
+			sims := map[gamenet.PeerID]*crowdSim{1: newCrowdSim(), 2: newCrowdSim(), 3: {}}
+			sessions := map[gamenet.PeerID]*gamenet.RollbackSession{}
+			cfg := func(id gamenet.PeerID) gamenet.RollbackConfig {
+				return gamenet.RollbackConfig{Transport: hub.AddPeer(id), Sim: sims[id], Peers: []gamenet.PeerID{1, 2}, MaxRollback: 32, InputDelay: int(delay), ChecksumInterval: 5}
+			}
+			for _, id := range []gamenet.PeerID{1, 2} {
+				sessions[id] = gamenet.NewRollbackSession(cfg(id))
+			}
+			step := func(id gamenet.PeerID) {
+				s := sessions[id]
+				if err := s.Step(crowdInput(id, s.Tick()+delay)); err != nil {
+					t.Fatalf("peer %d step at %d: %v", id, s.Tick(), err)
+				}
+			}
+			settle := func() {
+				for range 20 {
+					hub.Advance(frame)
+					for id, s := range sessions {
+						if err := s.Poll(); err != nil {
+							t.Fatalf("peer %d poll: %v", id, err)
+						}
+					}
+				}
+			}
+			for range 20 {
+				step(1)
+				step(2)
+				hub.Advance(frame)
+			}
+			settle()
+			t0 := sessions[1].Tick()
+			if sessions[2].Tick() != t0 || sessions[1].ConfirmedTick() != int64(t0)-1 {
+				t.Fatalf("not settled: peer 1 at %d (confirmed %d), peer 2 at %d", t0, sessions[1].ConfirmedTick(), sessions[2].Tick())
+			}
+
+			// Peer 2 stops sending; the host admits peer 3, runs one tick and removes peer 2.
+			c := cfg(3)
+			c.Peers, c.Join, c.Host = nil, true, 1
+			sessions[3] = gamenet.NewRollbackSession(c)
+			join, err := sessions[1].AddPeer(3)
+			if err != nil || join != t0+delay {
+				t.Fatalf("AddPeer = %d, %v; want %d", join, err, t0+delay)
+			}
+			step(1)
+			leave, err := sessions[1].RemovePeer(2)
+			if err != nil || leave != join+1 {
+				t.Fatalf("RemovePeer = %d, %v; want %d", leave, err, join+1)
+			}
+			if sessions[1].ConfirmedTick()+1 >= int64(join) {
+				t.Fatalf("the host confirmed tick %d, so the join state left before the leave", sessions[1].ConfirmedTick())
+			}
+			for range 40 {
+				for _, id := range []gamenet.PeerID{1, 3} {
+					step(id)
+					for sessions[id].Active() && sessions[id].Tick() < sessions[1].Tick() {
+						step(id)
+					}
+				}
+				if err := sessions[2].Poll(); err != nil {
+					t.Fatal(err)
+				}
+				hub.Advance(frame)
+			}
+			settle()
+
+			end := sessions[1].Tick()
+			for _, id := range []gamenet.PeerID{1, 3} {
+				if s := sessions[id]; s.Tick() != end || s.ConfirmedTick() != int64(end)-1 {
+					t.Fatalf("peer %d at %d confirmed %d, want %d confirmed %d", id, s.Tick(), s.ConfirmedTick(), end, end-1)
+				}
+			}
+			ref := replay(map[gamenet.PeerID]span{
+				1: {until: never, zero: func(tick uint32) bool { return tick < delay }},
+				2: {until: leave, zero: func(tick uint32) bool { return tick < delay || tick >= join }},
+				3: {from: join, until: never, zero: func(tick uint32) bool { return tick < join+delay }},
+			}, end)
+			if sims[3].sums[join] != ref[join] {
+				t.Fatalf("the newcomer's state at its join tick is %x, want %x", sims[3].sums[join], ref[join])
+			}
+			if sims[1].Checksum() != ref[end] || sims[3].Checksum() != ref[end] {
+				t.Fatalf("final states differ from the replay: peer 1 %x, peer 3 %x, want %x", sims[1].Checksum(), sims[3].Checksum(), ref[end])
+			}
+			for id, s := range sessions {
+				if d := s.Desyncs(); len(d) != 0 {
+					t.Fatalf("peer %d desyncs: %+v", id, d)
+				}
+			}
+		})
+	}
+}
