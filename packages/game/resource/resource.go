@@ -38,12 +38,14 @@ func Kinds() []Kind {
 	return []Kind{KindMaterial, KindCurve, KindGradient, KindAnimation, KindTheme, KindBusLayout, KindPhysicsMaterial}
 }
 
-// Header is the common start of every resource file: its type and schema version. Every resource type embeds it, so Type and Version are the first two fields of each file.
+// Header is the common start of every resource file: its type, schema version and stable ID. Every resource type embeds it, so Type, Version and UID are the first fields of each file.
 type Header struct {
 	// Type names the resource's type; it must match the Go type holding it.
 	Type Kind `yaml:"type"`
 	// Version is the schema version; it must equal CurrentVersion (1).
 	Version int `yaml:"version"`
+	// UID is the file's stable ID, which stays the same when the file is renamed or moved so the tools can find it again (see package refs); empty until a tool such as game index gives it one. When set it must be a UID as NewUID returns it.
+	UID string `yaml:"uid,omitempty"`
 }
 
 // NewHeader returns the header for a resource of kind at CurrentVersion.
@@ -57,6 +59,9 @@ func (h *Header) validate(want Kind) error {
 	}
 	if h.Version != CurrentVersion {
 		return fmt.Errorf("resource: %s: unsupported version %d (want %d)", want, h.Version, CurrentVersion)
+	}
+	if h.UID != "" && !ValidUID(h.UID) {
+		return fmt.Errorf("resource: %s: uid %q must be %d characters of 0-9 and a-z without i, l, o and u", want, h.UID, UIDLength)
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -57,6 +58,8 @@ const (
 type SceneDoc struct {
 	// Version is the schema version, from MinVersion to CurrentVersion. Encode writes it back as it is.
 	Version int `yaml:"version" schema:"required"`
+	// UID is the scene file's stable ID, which stays the same when the file is renamed or moved so the tools can find it again (see package refs); empty until a tool such as game index gives it one. When set it must be a UID as resource.NewUID returns it. Resolve keeps the UID of the scene it resolves, not its base's. Both versions accept it.
+	UID string `yaml:"uid,omitempty"`
 	// Inherits optionally names a base scene file by its slash-separated path from the project root, such as "scenes/enemy.scene.yaml". The scene then starts as a copy of its base and changes only what it declares: its own scalar fields, camera and tilemaps replace the base's when set, its Overrides and LayerOverrides change inherited objects and layers, and its Layers add objects to the base's layers of the same name or add new layers after them. Resolve applies it. Version 2.
 	Inherits string `yaml:"inherits,omitempty"`
 	// Name is the scene's human-readable name.
@@ -591,6 +594,9 @@ func Validate(doc *SceneDoc) error {
 	}
 	if doc.Version < MinVersion || doc.Version > CurrentVersion {
 		return fieldErr([]string{"version"}, "sceneformat: unsupported version %d (want %d to %d)", doc.Version, MinVersion, CurrentVersion)
+	}
+	if doc.UID != "" && !resource.ValidUID(doc.UID) {
+		return fieldErr([]string{"uid"}, "sceneformat: uid %q must be %d characters of 0-9 and a-z without i, l, o and u", doc.UID, resource.UIDLength)
 	}
 	if err := validateSceneRefs(doc); err != nil {
 		return err

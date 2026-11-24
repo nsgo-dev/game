@@ -10,6 +10,10 @@
       "type": "integer",
       "const": 1
     },
+    "uid": {
+      "description": "UID is the scene file's stable ID, which stays the same when the file is renamed or moved so the tools can find it again (see package refs); empty until a tool such as game index gives it one. When set it must be a UID as resource.NewUID returns it. Resolve keeps the UID of the scene it resolves, not its base's. Both versions accept it.",
+      "type": "string"
+    },
     "name": {
       "description": "Name is the scene's human-readable name.",
       "type": "string"
