@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: undo.DecodeLog[*push],
 		Encode: undo.EncodeLog[*push],
 		Files:  []string{"testdata/log.yaml"},
+		Doc:    "undo",
 	})
 }

@@ -13,6 +13,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: vehicle.ParseConfig,
 			Encode: vehicle.EncodeConfig,
 			Files:  []string{"testdata/reference_car.yaml"},
+			Doc:    "vehicle",
 		})
 	})
 	t.Run("ghost", func(t *testing.T) {
@@ -20,6 +21,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: vehicle.ParseGhost,
 			Encode: vehicle.EncodeGhost,
 			Files:  []string{"testdata/*.ghost.yaml"},
+			Doc:    "vehicle#ghost",
 		})
 	})
 }

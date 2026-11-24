@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: selfhost.ParseConfig,
 		Encode: selfhost.Config.Marshal,
 		Files:  []string{"testdata/selfhost.yaml"},
+		Doc:    "leaderboard/selfhost",
 	})
 }

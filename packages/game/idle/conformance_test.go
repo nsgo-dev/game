@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: idle.ParseLocale,
 		Encode: idle.EncodeLocale,
 		Files:  []string{"testdata/de.yaml"},
+		Doc:    "idle",
 	})
 }

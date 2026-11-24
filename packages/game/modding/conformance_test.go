@@ -12,6 +12,7 @@ func TestFormatConformance(t *testing.T) {
 		Decode:       modding.ParseManifest,
 		Encode:       modding.EncodeManifest,
 		Files:        []string{"testdata/mods/*/mod.yaml"},
+		Doc:          "modding",
 		VersionField: "manifestVersion",
 	})
 }

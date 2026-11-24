@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: stats.Parse,
 		Encode: stats.Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "stats",
 	})
 }

@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: platformer.ParseConfig,
 		Encode: platformer.EncodeConfig,
 		Files:  []string{"testdata/hero.yaml"},
+		Doc:    "platformer",
 	})
 }

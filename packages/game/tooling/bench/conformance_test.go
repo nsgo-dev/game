@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: bench.Decode,
 		Encode: (*bench.Baseline).Encode,
 		Files:  []string{"testdata/baseline.yaml"},
+		Doc:    "tooling/bench",
 	})
 }

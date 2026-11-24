@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: func(data []byte) ([]weapon, error) { return datatable.LoadYAML[weapon]("weapons.yaml", data) },
 		Encode: datatable.MarshalYAML[weapon],
 		Files:  []string{"testdata/weapons.yaml"},
+		Doc:    "tooling/datatable",
 	})
 }

@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: leaderboard.Parse,
 		Encode: (*leaderboard.Catalog).Encode,
 		Files:  []string{"testdata/leaderboards.yaml"},
+		Doc:    "leaderboard",
 	})
 }

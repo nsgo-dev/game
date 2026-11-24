@@ -13,6 +13,7 @@ func TestFormatConformance(t *testing.T) {
 		Decode:     sceneformat.Parse,
 		Encode:     sceneformat.Encode,
 		Files:      []string{"testdata/fleet.scene.yaml", "testdata/hall.scene.yaml", "testdata/canonical/*.scene.yaml", "testdata/project/*.scene.yaml", "testdata/project/scenes/*.scene.yaml"},
+		Doc:        "sceneformat",
 		MaxVersion: 2,
 	})
 }

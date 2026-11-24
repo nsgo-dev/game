@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: replay.Decode,
 		Encode: (*replay.Recording).Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "replay",
 	})
 }

@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: l10n.ParseAssetManifest,
 		Encode: l10n.EncodeAssetManifest,
 		Files:  []string{"testdata/assets.yaml"},
+		Doc:    "l10n",
 	})
 }

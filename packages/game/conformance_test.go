@@ -4,8 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -34,37 +32,13 @@ var notFormats = map[string]string{
 func yamlDecoders(t *testing.T) []string {
 	t.Helper()
 	var pkgs []string
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if p != "." && (name == "testdata" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
-				return filepath.SkipDir
-			}
-			if p != "." {
-				if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
-					return filepath.SkipDir // another module
-				}
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		pkg := filepath.ToSlash(filepath.Dir(p))
+	walkSources(t, func(pkg string, f *ast.File) {
 		if slices.Contains(pkgs, pkg) {
-			return nil
-		}
-		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
+			return
 		}
 		yamlName, ok := importName(f, yamlImport)
 		if !ok {
-			return nil
+			return
 		}
 		decodes := false
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -84,11 +58,7 @@ func yamlDecoders(t *testing.T) []string {
 		if decodes {
 			pkgs = append(pkgs, pkg)
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	slices.Sort(pkgs)
 	return pkgs
 }

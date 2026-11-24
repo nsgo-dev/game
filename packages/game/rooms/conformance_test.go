@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: rooms.Parse,
 		Encode: rooms.Encode,
 		Files:  []string{"testdata/castle.rooms.yaml"},
+		Doc:    "rooms",
 	})
 }

@@ -11,5 +11,6 @@ func TestCacheFormatConformance(t *testing.T) {
 		Decode: parseCache,
 		Encode: encodeCache,
 		Files:  []string{"testdata/cache.yaml"},
+		Doc:    "tooling/assetbuild",
 	})
 }

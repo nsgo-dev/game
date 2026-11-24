@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: cloudsave.ParseConfig,
 		Encode: cloudsave.Config.Marshal,
 		Files:  []string{"testdata/cloudsave.yaml"},
+		Doc:    "cloudsave",
 	})
 }

@@ -12,5 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: cutscene.Parse,
 		Encode: cutscene.Encode,
 		Files:  []string{"testdata/intro.yaml"},
+		Doc:    "cutscene",
 	})
 }

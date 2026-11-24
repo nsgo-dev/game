@@ -13,6 +13,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: achievements.Parse,
 			Encode: achievements.Encode,
 			Files:  []string{"testdata/achievements.yaml"},
+			Doc:    "achievements",
 		})
 	})
 	t.Run("progress", func(t *testing.T) {
@@ -20,6 +21,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: achievements.ParseProgress,
 			Encode: achievements.EncodeProgress,
 			Files:  []string{"testdata/progress.yaml"},
+			Doc:    "achievements#progress",
 		})
 	})
 }

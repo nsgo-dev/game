@@ -75,6 +75,7 @@ func TestFormatConformance(t *testing.T) {
 		Decode: quest.Parse,
 		Encode: quest.Encode,
 		Files:  []string{"testdata/*.yaml"},
+		Doc:    "quest",
 	})
 }
 ```
@@ -84,6 +85,8 @@ For each file, the checks require that:
 - loading and saving it gives back the same bytes;
 - saving the same value again, saving a second load of the file and saving a load of what was saved all give the same bytes, so the output never depends on map order, the time or randomness;
 - loading refuses the file with an extra top-level key, without its `version`, with `version: 0` and with the version after the newest one the format reads, with an error that names the key.
+
+`Doc` names the format's entry on [File Formats](formats.md), the line `<!-- format: quest -->` before its heading in `docs/en/formats.md` and `docs/zh/formats.md`, and `Run` fails when either page lacks the entry or the entry has a YAML example that does not load and save to the same bytes, printing what the format saves for it. The path before an optional `#name` must be the package's, and a package with two formats names the second one, as in `achievements#progress`. `TestFormatsPage` in `packages/game` checks the rest of the page: that both languages list the same entries in the same order, that every package that decodes JSON has an entry unless its `notJSONFormats` list says why, and that no entry names a format that is gone.
 
 `TestFormatPackagesRunConformance` in `packages/game` fails when a package decodes YAML with `go.yaml.in/yaml/v3`, however leniently, and none of its tests calls `formattest.Run`, so `go tool nsgo test` in CI fails a new format that skips the checks. A package that decodes YAML without defining a format of its own, such as `loaderr`, is listed in the test's `notFormats` with the reason. The test looks at whole packages, so a package with a second format must run the checks on that one too; one call satisfies it. A hand-written fixture whose comments or layout other tests rely on stays as it is, and its canonical form goes in a file of its own, such as `testdata/canonical/`, for the checks. A format whose version is under another key, such as a mod manifest's `manifestVersion`, sets `VersionField`, and one that reads several versions sets `MaxVersion`. To add a testdata file, write the document, then run the test once with `FORMATTEST_UPDATE=1`, which rewrites each file with what the format saves for it before checking it; comments the encoder does not write are dropped.
 
