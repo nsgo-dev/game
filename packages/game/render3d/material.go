@@ -688,6 +688,8 @@ type MaterialPipelineOptions struct {
 	DoubleSided bool
 	// FogLayout, when set, compiles [MaterialFogWGSL] instead of [MaterialWGSL] and lists this layout ([GPUFogBuffer.Layout]) at [MaterialFogGroup]; bind [GPUFogBuffer.BindGroup] there when drawing.
 	FogLayout *gpu.BindGroupLayout
+	// LinearOutput skips the shader's built-in Reinhard tone mapping and gamma encoding and writes the unclamped linear radiance ([MaterialEvalResult].Linear), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display. Set ColorFormat to [HDRTarget.Format] with it.
+	LinearOutput bool
 }
 
 // NewMaterialPipeline compiles [MaterialWGSL] and builds a render pipeline using [MeshVertexLayout] at vertex slot 0, camLayout at [CameraGroup] (group 0), and matLayout at [MaterialGroup] (group 1). With [MaterialPipelineOptions].FogLayout set it compiles [MaterialFogWGSL] and adds the fog layout at [MaterialFogGroup] (group 2).
@@ -705,12 +707,18 @@ func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *
 		return nil, fmt.Errorf("%w: invalid AlphaMode %d", ErrInvalidMaterial, opts.AlphaMode)
 	}
 	src := MaterialWGSL
+	if opts.LinearOutput {
+		src = materialLinearWGSL
+	}
 	layouts := []*gpu.BindGroupLayout{CameraGroup: camLayout, MaterialGroup: matLayout}
 	if opts.FogLayout != nil {
 		if !opts.FogLayout.Valid() {
 			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid fog bind group layout"}
 		}
 		src = MaterialFogWGSL
+		if opts.LinearOutput {
+			src = materialFogLinearWGSL
+		}
 		layouts = append(layouts, opts.FogLayout)
 	}
 	mod, err := gpu.CompileWGSL(src)
@@ -734,6 +742,9 @@ func NewMaterialPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *
 		label = "render3d.material." + opts.AlphaMode.String()
 		if opts.FogLayout != nil {
 			label += ".fog"
+		}
+		if opts.LinearOutput {
+			label += ".linear"
 		}
 	}
 	desc := gpu.PipelineDesc{
@@ -893,6 +904,10 @@ fn material_tonemap_srgb(linear_rgb: vec3<f32>) -> vec3<f32> {
 
 // MaterialWGSL is the complete portable WGSL shader module compiled by [NewMaterialPipeline], combining [CameraWGSL] at [CameraGroup] (group 0), [MaterialBindingsWGSL] at [MaterialGroup] (group 1), [MeshVertexLayout] inputs, tangent-space normal mapping, glTF 2.0 metallic-roughness Cook-Torrance GGX shading under [DefaultMaterialLight], alpha masking/blending, and double-sided normal flipping.
 const MaterialWGSL = CameraWGSL + MaterialBindingsWGSL + materialStagesHeadWGSL + `	let srgb_rgb = material_tonemap_srgb(linear_rgb);
+` + materialStagesTailWGSL
+
+// materialLinearWGSL is [MaterialWGSL] writing the linear radiance without tone mapping or gamma encoding, compiled by [NewMaterialPipeline] when [MaterialPipelineOptions].LinearOutput is set.
+const materialLinearWGSL = CameraWGSL + MaterialBindingsWGSL + materialStagesHeadWGSL + `	let srgb_rgb = linear_rgb;
 ` + materialStagesTailWGSL
 
 // materialStagesHeadWGSL holds the vertex stage and the part of fs_main up to the linear radiance linear_rgb that [MaterialWGSL] and [MaterialFogWGSL] share; each then defines srgb_rgb and appends [materialStagesTailWGSL].

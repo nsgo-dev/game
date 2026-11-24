@@ -134,6 +134,16 @@ const LitPBRFogWGSL = litPBRPreludeWGSL + FogWGSL + FogBindingWGSL + FogCameraWG
 const MaterialFogWGSL = CameraWGSL + MaterialBindingsWGSL + FogWGSL + MaterialFogBindingWGSL + FogCameraWGSL + materialStagesHeadWGSL + `	let srgb_rgb = material_tonemap_srgb(apply_fog(linear_rgb, fog_camera_pos(in.world_pos), in.world_pos, fog));
 ` + materialStagesTailWGSL
 
+// materialFogLinearWGSL is [MaterialFogWGSL] writing the fogged linear radiance without tone mapping or gamma encoding, compiled by [NewMaterialPipeline] when [MaterialPipelineOptions].LinearOutput and FogLayout are set.
+const materialFogLinearWGSL = CameraWGSL + MaterialBindingsWGSL + FogWGSL + MaterialFogBindingWGSL + FogCameraWGSL + materialStagesHeadWGSL + `	let srgb_rgb = apply_fog(linear_rgb, fog_camera_pos(in.world_pos), in.world_pos, fog);
+` + materialStagesTailWGSL
+
+// litPBRFogLinearWGSL is [LitPBRFogWGSL] writing the fogged linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput and FogLayout are set.
+const litPBRFogLinearWGSL = litPBRPreludeWGSL + FogWGSL + FogBindingWGSL + FogCameraWGSL + litPBRFragmentHeadWGSL + `	let fogged = apply_fog(lit, fog_camera_pos(in.world_pos), in.world_pos, fog);
+	return vec4<f32>(fogged, pbr_draw.base_color.a);
+}
+`
+
 // FogCameraPos returns the point the view ray toward worldPos starts from under cam, matching fog_camera_pos in [FogCameraWGSL]: cam's eye for a perspective camera, and for an orthographic camera the point on the camera's plane that worldPos projects from. Pass it as camPos to [Fog.Factor] or [Fog.Apply] to reproduce on the CPU the fog the fogged pipelines draw.
 func FogCameraPos(cam CameraUniform, worldPos math3d.Vec3) math3d.Vec3 {
 	if cam.Eye.W > 0.5 {
@@ -153,7 +163,7 @@ func NewLitPBRFogPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayou
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
 	layouts[FogGroup] = fogLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_fog", LitPBRFogWGSL, layouts, depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_fog", LitPBRFogWGSL, layouts, dev.SurfaceFormat(), depthFormat)
 }
 
 // FogMode selects how distance fog attenuates visibility with camera distance.
