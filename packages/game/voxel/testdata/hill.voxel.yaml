@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/voxel.v1.json
+version: 1
+name: hill
+chunkSize: 4
+voxelSize: 1
+palette:
+  - id: 1
+    name: stone
+chunks:
+  - x: 0
+    "y": 0
+    z: 0
+    runs:
+      - 1*4
+      - 0*60

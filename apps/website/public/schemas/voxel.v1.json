@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/voxel.v1.json",
+  "title": "NSGo game voxel world (version 1)",
+  "description": "WorldDoc is the root of a versioned YAML voxel world document.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; must be 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is an optional human-readable name for the world.",
+      "type": "string"
+    },
+    "chunkSize": {
+      "description": "ChunkSize is the power-of-two cubic chunk edge length, from 4 to 64.",
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 64
+    },
+    "voxelSize": {
+      "description": "VoxelSize is the world-space edge length of one voxel; omitted or 0 defaults to 1.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "exclusiveMinimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "palette": {
+      "description": "Palette lists the non-air block definitions used by the world, sorted by ID.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BlockDoc"
+      }
+    },
+    "chunks": {
+      "description": "Chunks lists the non-empty chunks in the world, sorted by (x, y, z).",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ChunkDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "chunkSize"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BlockDoc": {
+      "description": "BlockDoc describes one non-air block type in a [WorldDoc] palette.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID is the non-zero numeric block ID referenced by chunk runs.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "name": {
+          "description": "Name is the unique human-readable name of the block type.",
+          "type": "string",
+          "minLength": 1
+        },
+        "transparent": {
+          "description": "Transparent marks blocks whose neighbors remain visible behind them (such as glass or water).",
+          "type": "boolean"
+        },
+        "nonSolid": {
+          "description": "NonSolid marks blocks excluded from solid collision and default raycasts.",
+          "type": "boolean"
+        },
+        "materialId": {
+          "description": "MaterialID groups emitted faces into SubMesh ranges when meshing.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "ChunkDoc": {
+      "description": "ChunkDoc stores one non-empty chunk using run-length encoded block runs in (y, z, x) order.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the chunk's X index in chunk-grid coordinates.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "y": {
+          "description": "Y is the chunk's Y index in chunk-grid coordinates.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "z": {
+          "description": "Z is the chunk's Z index in chunk-grid coordinates.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "runs": {
+          "description": "Runs holds run-length encoded block tokens (\"id*count\" or \"id\" for count 1) in (y, z, x) order whose counts sum to chunkSize^3.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -153,6 +153,7 @@ var formatVersions = map[string]string{
 	"vehicle.ConfigVersion":                 "vehicle",
 	"vehicle.GhostVersion":                  "vehicle#ghost",
 	"vn.CastVersion":                        "vn",
+	"voxel.FormatVersion":                   "voxel",
 	"worldmap.StateVersion":                 "worldmap#state",
 	"worldmap.Version":                      "worldmap",
 }

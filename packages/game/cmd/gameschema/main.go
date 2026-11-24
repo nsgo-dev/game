@@ -19,6 +19,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
+	"github.com/nsgo-dev/game/packages/game/voxel"
 )
 
 func main() {
@@ -77,6 +78,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[importsettings.File](),
 		pkg:     "tooling/importsettings",
 		version: importsettings.CurrentVersion,
+	},
+	{
+		url:     voxel.SchemaURL,
+		title:   "NSGo game voxel world (version 1)",
+		typ:     reflect.TypeFor[voxel.WorldDoc](),
+		pkg:     "voxel",
+		version: voxel.FormatVersion,
 	},
 }
 

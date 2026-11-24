@@ -203,6 +203,31 @@ textures:
   albedo: textures/crate.png
 ```
 
+<!-- format: voxel -->
+### Voxel world
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.voxel.yaml` | `version: 1` | `voxel.Parse`, `voxel.Encode` | [voxel](voxel.md); schema `https://game.nsgo.dev/schemas/voxel.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/voxel.v1.json
+version: 1
+name: hill
+chunkSize: 4
+voxelSize: 1
+palette:
+  - id: 1
+    name: stone
+chunks:
+  - x: 0
+    "y": 0
+    z: 0
+    runs:
+      - 1*4
+      - 0*60
+```
+
 ## Scenes, resources and animation
 
 <!-- format: sceneformat -->

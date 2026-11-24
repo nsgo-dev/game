@@ -169,5 +169,6 @@
 | `game/vehicle` | 实验性 | [vehicle](vehicle.md) |
 | `game/vn` | 实验性 | [vn](vn.md) |
 | `game/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
+| `game/voxel` | 实验性 | [voxel](voxel.md) |
 | `game/world3d` | 实验性 | [world3d](world3d.md) |
 | `game/worldmap` | 实验性 | [worldmap](worldmap.md) |

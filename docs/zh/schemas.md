@@ -13,6 +13,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 资源旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取，其中的署名由 `game release` 和 `game credits` 读取（见[命令行](cli.md#assets)） |
+| 体素世界，版本 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`，由 `voxel.Parse` 和 `voxel.LoadYAML` 读取 |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。

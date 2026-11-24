@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
+	"github.com/nsgo-dev/game/packages/game/voxel"
 )
 
 // root is packages/game, and published the directory the website serves the schemas from, both relative to this package.
@@ -275,4 +276,52 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 			t.Fatalf("schema refuses an encoded scene: %v\n%s", err, encoded)
 		}
 	})
+}
+
+func TestVoxelSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, voxel.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != voxel.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(voxel.FormatVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("voxel schema accepts unknown top-level keys")
+	}
+	for _, name := range []string{"BlockDoc", "ChunkDoc"} {
+		def := s.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", name, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", name)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", name, p.Name)
+			}
+		}
+	}
+
+	reg := voxel.NewRegistry()
+	stone := reg.MustRegister(voxel.BlockDef{Name: "stone"})
+	glass := reg.MustRegister(voxel.BlockDef{Name: "glass", Transparent: true, MaterialID: 1})
+	w, err := voxel.NewWorld(voxel.WorldConfig{ChunkSize: 4, Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.FillBox(voxel.BlockCoord{}, voxel.BlockCoord{X: 3, Y: 0, Z: 3}, stone)
+	w.SetBlock(voxel.BlockCoord{X: 1, Y: 1, Z: 1}, glass)
+
+	data, err := voxel.SaveYAML(w, "Sample")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("voxel schema refused SaveYAML output: %v\n%s", err, data)
+	}
+	if err := s.ValidateYAML([]byte("version: 1\nchunkSize: 16\nunknownKey: true\n")); err == nil {
+		t.Fatal("voxel schema accepted unknown top-level key")
+	}
 }
