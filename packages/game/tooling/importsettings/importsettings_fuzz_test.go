@@ -17,6 +17,8 @@ func FuzzParse(f *testing.F) {
 		"version: 1\naudio: {format: mp3, bitrate: 192, peakDB: -0.5}\n",
 		"# comment\nversion: 1\naudio: {loop: {start: 3}}\n",
 		"version: 1\naudio: {peakDB: -0}\n",
+		"version: 1\ncredit: {author: Kenney, license: CC0-1.0, source: 'https://kenney.nl'}\n",
+		"version: 1\nimage: {filter: nearest}\ncredit:\n  author: Ana\n  license: (MIT OR Apache-2.0) AND LicenseRef-x\n  notice: |-\n    Copyright 2026 Ana\n      indented: yes\n",
 	} {
 		f.Add([]byte(seed))
 	}

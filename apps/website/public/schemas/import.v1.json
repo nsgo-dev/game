@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://game.nsgo.dev/schemas/import.v1.json",
   "title": "NSGo game import settings (version 1)",
-  "description": "File is one asset's import settings. Exactly one of Image and Audio is set, the one of the asset's kind.",
+  "description": "File is one asset's import settings and credit. It holds at least one section: Image or Audio, never both, for how game assets imports the asset, and Credit for who made it and under what license.",
   "type": "object",
   "properties": {
     "version": {
@@ -23,6 +23,14 @@
       "allOf": [
         {
           "$ref": "#/definitions/Audio"
+        }
+      ]
+    },
+    "credit": {
+      "description": "Credit records who made the asset and its license, which game release and game credits list in the credits file; any kind of asset may carry one.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Credit"
         }
       ]
     }
@@ -80,6 +88,35 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "Credit": {
+      "description": "Credit records where an asset comes from, for the credits file a release ships with.",
+      "type": "object",
+      "properties": {
+        "author": {
+          "description": "Author is who made the asset, a person, a group or a company, as its license asks it to be attributed.",
+          "type": "string",
+          "minLength": 1
+        },
+        "license": {
+          "description": "License is the asset's license as an SPDX license expression, such as \"CC0-1.0\", \"CC-BY-4.0\" or \"MIT OR Apache-2.0\"; a license with no SPDX identifier is named \"LicenseRef-\" followed by a name of its own, with its terms in Notice.",
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "description": "Source is where the asset was obtained, usually a URL; empty for an asset made for the game.",
+          "type": "string"
+        },
+        "notice": {
+          "description": "Notice is text the license requires to be shipped with the asset, such as a copyright line or a license's terms; it may span several lines.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "author",
+        "license"
+      ],
       "additionalProperties": false
     },
     "Image": {

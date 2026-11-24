@@ -41,7 +41,7 @@ func IsSidecar(name string) bool {
 	return strings.HasSuffix(name, Suffix)
 }
 
-// File is one asset's import settings. Exactly one of Image and Audio is set, the one of the asset's kind.
+// File is one asset's import settings and credit. It holds at least one section: Image or Audio, never both, for how game assets imports the asset, and Credit for who made it and under what license.
 type File struct {
 	// Version is the schema version; it must equal CurrentVersion (1).
 	Version int `yaml:"version" schema:"required"`
@@ -49,6 +49,20 @@ type File struct {
 	Image *Image `yaml:"image,omitempty"`
 	// Audio holds the settings of a sound (WAV).
 	Audio *Audio `yaml:"audio,omitempty"`
+	// Credit records who made the asset and its license, which game release and game credits list in the credits file; any kind of asset may carry one.
+	Credit *Credit `yaml:"credit,omitempty"`
+}
+
+// Credit records where an asset comes from, for the credits file a release ships with.
+type Credit struct {
+	// Author is who made the asset, a person, a group or a company, as its license asks it to be attributed.
+	Author string `yaml:"author" schema:"required,minLength=1"`
+	// License is the asset's license as an SPDX license expression, such as "CC0-1.0", "CC-BY-4.0" or "MIT OR Apache-2.0"; a license with no SPDX identifier is named "LicenseRef-" followed by a name of its own, with its terms in Notice.
+	License string `yaml:"license" schema:"required,minLength=1"`
+	// Source is where the asset was obtained, usually a URL; empty for an asset made for the game.
+	Source string `yaml:"source,omitempty"`
+	// Notice is text the license requires to be shipped with the asset, such as a copyright line or a license's terms; it may span several lines.
+	Notice string `yaml:"notice,omitempty"`
 }
 
 // Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.
@@ -156,7 +170,7 @@ func Encode(f *File) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks f: the version, exactly one section, known formats and filters, and values in range.
+// Validate checks f: the version, at least one section and not both image and audio, known formats and filters, values in range, and a credit with an author and a valid SPDX license expression.
 func (f *File) Validate() error {
 	if f == nil {
 		return errors.New("importsettings: nil sidecar")
@@ -164,9 +178,16 @@ func (f *File) Validate() error {
 	if f.Version != CurrentVersion {
 		return fmt.Errorf("importsettings: version %d is not supported; want %d", f.Version, CurrentVersion)
 	}
+	if f.Credit != nil {
+		if err := f.Credit.validate(); err != nil {
+			return fmt.Errorf("importsettings: credit: %w", err)
+		}
+	}
 	switch {
 	case f.Image == nil && f.Audio == nil:
-		return errors.New("importsettings: a sidecar needs an image or an audio section")
+		if f.Credit == nil {
+			return errors.New("importsettings: a sidecar needs an image, an audio or a credit section")
+		}
 	case f.Image != nil && f.Audio != nil:
 		return errors.New("importsettings: a sidecar holds an image or an audio section, not both")
 	case f.Image != nil:

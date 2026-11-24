@@ -43,3 +43,29 @@ func ExampleEncode() {
 	//   loop:
 	//     start: 4410
 }
+
+// A credit section records who made an asset and its license; a font, which game assets does not import, may carry one on its own.
+func ExampleCredit() {
+	f, err := importsettings.Parse([]byte(`version: 1
+credit:
+  author: Kenney
+  license: CC0-1.0
+  source: https://kenney.nl/assets/kenney-fonts
+`))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(f.Credit.Author, f.Credit.License, f.Image == nil && f.Audio == nil)
+	// Output:
+	// Kenney CC0-1.0 true
+}
+
+// ValidateLicense checks the form of an SPDX license expression.
+func ExampleValidateLicense() {
+	fmt.Println(importsettings.ValidateLicense("MIT OR Apache-2.0"))
+	fmt.Println(importsettings.ValidateLicense("CC BY 4.0"))
+	// Output:
+	// <nil>
+	// license "CC BY 4.0": unexpected "BY"
+}
