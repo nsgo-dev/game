@@ -97,6 +97,26 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 - 它近似的是模糊后的高亮通道：半径较大时光晕呈柔和的星形，而不是平滑的圆盘。`Radius` 保持在画面的几个像素以内，想要脉动效果就给 `Intensity` 做动画。
 - `Bloom` 自带 `Reference`，因此包含它的效果链可以在无头环境下绘制参考图。
 
+## CRT 与扫描线
+
+`CRT()` 返回一个现成的效果，在一个通道内将画面弯曲到显像管曲面上，并沿曲面绘制水平扫描线。它的 uniform 有：`Curvature`，桶形畸变强度，0 或更小（默认 0）或 NaN 保持画面平直，0.1 到 0.3 是常见的 CRT 弯曲度，大于 4 时按 4 处理；`Scanlines`，0 到 1，扫描线之间暗带的变暗程度，0 不改变亮度，1 使暗带全黑，超出 0 到 1 时取范围内最接近的值；`Lines`，画面高度上的扫描线条数，0 或更小（默认 0）时按画面的像素行数每行画一条扫描线，大于 16384 时按 16384 处理。
+
+```go
+post := effects.MustCompile(effects.Bloom(), effects.CRT(), effects.VignetteEffect())
+effects.View{
+	Chain:    post,
+	Frame:    src,
+	Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.2, "Radius": 3}, {"Curvature": 0.25, "Scanlines": 0.35}},
+	Style:    core.Style{Width: core.Pt(640), Height: core.Pt(360)},
+}
+```
+
+- 只设 `Curvature` 不设 `Scanlines` 时只弯曲画面；只设 `Scanlines` 不设 `Curvature` 时绘制平直扫描线；两者都为 0 或更小时原样输出输入。
+- 四条边的中点仍紧贴画面边界，四角向内收拢到不透明的黑色边框中。屏幕内部扫描线只压暗 RGB 并保留每个像素的 alpha，颜色保持预乘。
+- `Lines` 为 0 时每像素行一条扫描线，在视图放大画面（2 倍或更高）时呈明暗交替的条纹；以 1:1 尺寸绘制画面时，把 `Lines` 设为画面高度的一半或更小。
+- 每个点最多读取输入一次，因此 `CRT` 可以放在 `Bloom` 等多次采样通道之后而不会放大其采样次数；需要四角压暗时可以再串联 `VignetteEffect`。
+- `CRT` 自带 `Reference`，因此包含它的效果链可以在无头环境下绘制参考图。
+
 ## 暗角、闪屏与震屏
 
 本包自带三个效果及其 `Reference` 函数，因此由它们组成的效果链可以绘制参考图。每个函数都返回一个新的 `Effect`，可直接放进效果链。

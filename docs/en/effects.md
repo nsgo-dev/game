@@ -97,6 +97,26 @@ effects.View{Chain: post, Frame: src, Uniforms: []core.Uniforms{{"Threshold": 0.
 - It approximates a blurred bright pass: at a large radius the glow is a soft star rather than a smooth disc. Keep `Radius` to a few pixels of the frame, and animate `Intensity` for a pulse.
 - `Bloom` carries its own `Reference`, so a chain with it draws a reference picture headless.
 
+## CRT and scanlines
+
+`CRT()` returns a ready effect that bends the frame onto a curved cathode-ray tube and draws horizontal scanlines along the curve in one pass. Its uniforms are `Curvature`, the barrel distortion strength, where 0 or less, the default, or NaN leaves the frame flat, 0.1 to 0.3 is a typical CRT curve and values above 4 act as 4; `Scanlines`, from 0 to 1, how dark the gaps between scanlines turn, where 0 leaves the brightness unchanged, 1 turns the troughs black and values outside 0 to 1 are clamped; and `Lines`, how many scanlines span the frame's height, where 0 or less, the default, draws one scanline per pixel row of the frame and values above 16384 act as 16384.
+
+```go
+post := effects.MustCompile(effects.Bloom(), effects.CRT(), effects.VignetteEffect())
+effects.View{
+	Chain:    post,
+	Frame:    src,
+	Uniforms: []core.Uniforms{{"Threshold": 0.6, "Intensity": 1.2, "Radius": 3}, {"Curvature": 0.25, "Scanlines": 0.35}},
+	Style:    core.Style{Width: core.Pt(640), Height: core.Pt(360)},
+}
+```
+
+- Setting `Curvature` without `Scanlines` curves the frame alone; setting `Scanlines` without `Curvature` draws flat scanlines; leaving both 0 or less passes the input through unchanged.
+- The four edge midpoints stay pinned to the frame border while the corners pull inward onto an opaque black bezel. Inside the screen, scanlines darken RGB while keeping each pixel's alpha, so colors stay premultiplied.
+- With `Lines` left 0, one scanline per pixel row shows as alternating bright and dark rows when the view scales the frame up (at 2x or higher); set `Lines` to half the frame's height or less when drawing a frame at 1:1.
+- Each point reads its input at most once, so `CRT` can follow multi-tap passes such as `Bloom` without multiplying their taps, and chains with `VignetteEffect` when darkened corners are also wanted.
+- `CRT` carries its own `Reference`, so a chain with it draws a reference picture headless.
+
 ## Vignette, flash and shake
 
 The package ships three effects with their `Reference` functions, so a chain of them draws reference pictures. Each returns a fresh `Effect` to put in a chain.

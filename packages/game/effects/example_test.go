@@ -48,3 +48,10 @@ func ExampleBloom() {
 	fmt.Println(len(u), post.HasUniform(0, "Radius"))
 	// Output: 3 true
 }
+
+func ExampleCRT() {
+	post := effects.MustCompile(effects.CRT())
+	u := post.Uniforms([]core.Uniforms{{"Curvature": 0.25, "Scanlines": 0.35}})
+	fmt.Println(len(u), post.HasUniform(0, "Curvature"))
+	// Output: 2 true
+}
