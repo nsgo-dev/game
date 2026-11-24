@@ -45,6 +45,10 @@
 //
 // [Mesh] holds triangle geometry (positions, optional normals and UVs, optional indices) on the CPU. [UploadMesh] validates it and uploads it into the vertex and index buffers of NSGo's GPU view ([gpu.Device], nsgo-dev/nsgo#1059) as a [GPUMesh], whose buffers belong to a [core.Scope]. Every mesh shares one interleaved vertex layout, [MeshVertexLayout], so one pipeline draws any of them, and [GPUMesh.Draw] binds the buffers and issues the draw inside a [gpu.RenderPass]. The index width is chosen per mesh (uint16 below 0xFFFF vertices, otherwise uint32), which every GPU view backend accepts, WebGL 2 included.
 //
+// # Textures and Samplers (#114)
+//
+// [UploadTexture] converts any [image.Image] into a straight-alpha RGBA8 [PixelBuffer] ([PixelBufferFromImage]) and uploads it as a scope-owned [GPUTexture] on [gpu.Device]; [UploadTexturePixels] uploads raw RGBA8, RG8, or R8 pixel buffers directly with optional row padding. Setting [TextureUpload.SRGB] uses [gpu.FormatRGBA8UnormSRGB] for color maps while keeping linear formats for data maps; setting [TextureUpload.Mipmaps] builds a CPU area-weighted box mipmap chain (in linear light when sRGB) and uploads every level via [gpu.Device.WriteTextureMip], so mipmapping works on every GPU backend and survives device loss when Retained is set. [NewGPUSampler] validates filtering, wrapping, LOD bounds, and WebGPU anisotropy constraints from [SamplerOptions] (with presets such as [SamplerLinearRepeat] and [SamplerNearestClamp]); [TextureBindingLayout] and [BindTexture] bind a texture and sampler to a shader group.
+//
 // # Effects (#281)
 //
 //   - Billboards: [Billboard] builds a quad facing a [CameraBasis] in view-plane, view-point or axis-locked mode, [BillboardQuad.DrawItem] feeds it to transparent sorting, and [BillboardRenderer] fills billboards back to front into [*core.Drawing] with near-plane clipping.
@@ -54,5 +58,5 @@
 //
 // [CameraBuffer] (#115) keeps a [scene3d.Camera]'s view, projection and eye point in a uniform buffer on an NSGo gpu.Device and binds it at [CameraGroup], with [CameraWGSL] declaring the matching block for 3D shaders.
 //
-// The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera and mesh buffers are the parts that talk to [gpu.Device].
+// The CPU culling, LOD, sorting, instancing, gizmo, debug, statistics, and budget pipeline stays deterministic, pure Go, and independent of the GPU view, so it runs the same in headless tests and servers; the camera, mesh, texture, and sampler helpers are the parts that talk to [gpu.Device].
 package render3d
