@@ -1018,6 +1018,24 @@ func LinearToSRGB(rgb math3d.Vec3) math3d.Vec3 {
 	}
 }
 
+// SRGBToLinearChannel decodes a single sRGB-encoded channel in [0, 1] (clamped, NaN to 0) to linear light using the IEC 61966-2-1 transfer function; it is the inverse of [LinearToSRGBChannel].
+func SRGBToLinearChannel(c float32) float32 {
+	x := clamp01(c)
+	if x <= 0.04045 {
+		return x / 12.92
+	}
+	return float32(math.Pow(float64((x+0.055)/1.055), 2.4))
+}
+
+// SRGBToLinear decodes an sRGB triple (clamped to [0, 1] per channel) to linear RGB; it is the inverse of [LinearToSRGB].
+func SRGBToLinear(rgb math3d.Vec3) math3d.Vec3 {
+	return math3d.Vec3{
+		X: SRGBToLinearChannel(rgb.X),
+		Y: SRGBToLinearChannel(rgb.Y),
+		Z: SRGBToLinearChannel(rgb.Z),
+	}
+}
+
 func validLinearColor(c math3d.Vec3) bool {
 	return finite3(c) && c.X >= 0 && c.Y >= 0 && c.Z >= 0
 }

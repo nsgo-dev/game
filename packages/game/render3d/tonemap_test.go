@@ -111,51 +111,51 @@ func TestExposureFromEV(t *testing.T) {
 	}
 }
 
-func TestSRGBExactRoundTrip(t *testing.T) {
+func TestSRGBRoundTrip(t *testing.T) {
 	// Edge & out-of-range clamping.
-	if got := render3d.LinearToSRGBExact(-0.5); got != 0 {
-		t.Errorf("LinearToSRGBExact(-0.5) = %v, want 0", got)
+	if got := render3d.LinearToSRGBChannel(-0.5); got != 0 {
+		t.Errorf("LinearToSRGBChannel(-0.5) = %v, want 0", got)
 	}
-	if got := render3d.LinearToSRGBExact(float32(math.NaN())); got != 0 {
-		t.Errorf("LinearToSRGBExact(NaN) = %v, want 0", got)
+	if got := render3d.LinearToSRGBChannel(float32(math.NaN())); got != 0 {
+		t.Errorf("LinearToSRGBChannel(NaN) = %v, want 0", got)
 	}
-	if got := render3d.LinearToSRGBExact(2.5); got != 1 {
-		t.Errorf("LinearToSRGBExact(2.5) = %v, want 1", got)
+	if got := render3d.LinearToSRGBChannel(2.5); got != 1 {
+		t.Errorf("LinearToSRGBChannel(2.5) = %v, want 1", got)
 	}
-	if got := render3d.SRGBToLinearExact(-0.5); got != 0 {
-		t.Errorf("SRGBToLinearExact(-0.5) = %v, want 0", got)
+	if got := render3d.SRGBToLinearChannel(-0.5); got != 0 {
+		t.Errorf("SRGBToLinearChannel(-0.5) = %v, want 0", got)
 	}
-	if got := render3d.SRGBToLinearExact(float32(math.NaN())); got != 0 {
-		t.Errorf("SRGBToLinearExact(NaN) = %v, want 0", got)
+	if got := render3d.SRGBToLinearChannel(float32(math.NaN())); got != 0 {
+		t.Errorf("SRGBToLinearChannel(NaN) = %v, want 0", got)
 	}
-	if got := render3d.SRGBToLinearExact(2.5); got != 1 {
-		t.Errorf("SRGBToLinearExact(2.5) = %v, want 1", got)
+	if got := render3d.SRGBToLinearChannel(2.5); got != 1 {
+		t.Errorf("SRGBToLinearChannel(2.5) = %v, want 1", got)
 	}
 
 	// Known IEC 61966-2-1 reference values: linear 0.5 -> sRGB ~0.735357, linear 0.18 -> sRGB ~0.461356.
-	if got := render3d.LinearToSRGBExact(0.5); math.Abs(float64(got)-0.7353569) > 1e-5 {
-		t.Errorf("LinearToSRGBExact(0.5) = %v, want ~0.735357", got)
+	if got := render3d.LinearToSRGBChannel(0.5); math.Abs(float64(got)-0.7353569) > 1e-5 {
+		t.Errorf("LinearToSRGBChannel(0.5) = %v, want ~0.735357", got)
 	}
-	if got := render3d.LinearToSRGBExact(0.18); math.Abs(float64(got)-0.4613561) > 1e-5 {
-		t.Errorf("LinearToSRGBExact(0.18) = %v, want ~0.461356", got)
+	if got := render3d.LinearToSRGBChannel(0.18); math.Abs(float64(got)-0.4613561) > 1e-5 {
+		t.Errorf("LinearToSRGBChannel(0.18) = %v, want ~0.461356", got)
 	}
 	// Linear segment below 0.0031308.
-	if got := render3d.LinearToSRGBExact(0.002); math.Abs(float64(got)-0.02584) > 1e-6 {
-		t.Errorf("LinearToSRGBExact(0.002) = %v, want 0.02584", got)
+	if got := render3d.LinearToSRGBChannel(0.002); math.Abs(float64(got)-0.02584) > 1e-6 {
+		t.Errorf("LinearToSRGBChannel(0.002) = %v, want 0.02584", got)
 	}
 
 	// Full sweep round-trip.
 	for i := 0; i <= 1000; i++ {
 		lin := float32(i) / 1000.0
-		srgb := render3d.LinearToSRGBExact(lin)
-		back := render3d.SRGBToLinearExact(srgb)
+		srgb := render3d.LinearToSRGBChannel(lin)
+		back := render3d.SRGBToLinearChannel(srgb)
 		if math.Abs(float64(back-lin)) > 1e-5 {
 			t.Fatalf("round-trip failed at %v: srgb=%v back=%v", lin, srgb, back)
 		}
 	}
 
 	v := math3d.Vec3{X: 0.002, Y: 0.18, Z: 0.5}
-	roundVec := render3d.SRGBToLinearVec3(render3d.LinearToSRGBVec3(v))
+	roundVec := render3d.SRGBToLinear(render3d.LinearToSRGB(v))
 	if !roundVec.ApproxEqual(v, 1e-5) {
 		t.Errorf("Vec3 sRGB round-trip = %v, want %v", roundVec, v)
 	}
