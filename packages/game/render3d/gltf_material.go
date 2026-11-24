@@ -10,8 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// AlphaModeFromGLTF maps a glTF 2.0 alpha mode string ("", "OPAQUE", "MASK", or "BLEND")
-// to [AlphaMode]. Unknown values return an error wrapping [ErrInvalidMaterial].
+// AlphaModeFromGLTF maps a glTF 2.0 alpha mode string ("", "OPAQUE", "MASK", or "BLEND") to [AlphaMode]. Unknown values return an error wrapping [ErrInvalidMaterial].
 func AlphaModeFromGLTF(mode gltf.AlphaMode) (AlphaMode, error) {
 	switch mode {
 	case "", gltf.AlphaOpaque:
@@ -25,13 +24,9 @@ func AlphaModeFromGLTF(mode gltf.AlphaMode) (AlphaMode, error) {
 	}
 }
 
-// SamplerOptionsFromGLTF converts a glTF 2.0 [gltf.Sampler] into [SamplerOptions]
-// and reports whether the sampler uses mipmapped minification filtering.
+// SamplerOptionsFromGLTF converts a glTF 2.0 [gltf.Sampler] into [SamplerOptions] and reports whether the sampler uses mipmapped minification filtering.
 //
-// Per the glTF 2.0 specification, omitted wrap modes (0) default to [gpu.AddressRepeat],
-// and omitted filter modes (0) default to linear filtering with linear mipmap filtering
-// (wantMipmaps = true). Unknown filter or wrap constants return an error wrapping
-// [ErrInvalidSampler].
+// Per the glTF 2.0 specification, omitted wrap modes (0) default to [gpu.AddressRepeat], and omitted filter modes (0) default to linear filtering with linear mipmap filtering (wantMipmaps = true). Unknown filter or wrap constants return an error wrapping [ErrInvalidSampler].
 func SamplerOptionsFromGLTF(s gltf.Sampler) (opts SamplerOptions, wantMipmaps bool, err error) {
 	opts = SamplerLinearRepeat()
 	opts.Label = s.Name
@@ -53,10 +48,12 @@ func SamplerOptionsFromGLTF(s gltf.Sampler) (opts SamplerOptions, wantMipmaps bo
 	case gltf.FilterNearest:
 		opts.MinFilter = gpu.FilterNearest
 		opts.MipmapFilter = gpu.FilterNearest
+		opts.MaxLOD = gltfNoMipMaxLOD
 		wantMipmaps = false
 	case gltf.FilterLinear:
 		opts.MinFilter = gpu.FilterLinear
 		opts.MipmapFilter = gpu.FilterNearest
+		opts.MaxLOD = gltfNoMipMaxLOD
 		wantMipmaps = false
 	case gltf.FilterNearestMipmapNearest:
 		opts.MinFilter = gpu.FilterNearest
@@ -92,6 +89,9 @@ func SamplerOptionsFromGLTF(s gltf.Sampler) (opts SamplerOptions, wantMipmaps bo
 	return opts, wantMipmaps, nil
 }
 
+// gltfNoMipMaxLOD clamps a sampler with a non-mipmapped glTF minFilter (NEAREST or LINEAR) to the base level even when its texture has mips, because the same image can be uploaded with mips for another sampler or for [GLTFMaterialUpload.Mipmaps]. A level-of-detail clamp of 0.25 keeps the minification filter (a clamp of 0 would switch to the magnification filter) while nearest mip selection always picks level 0, as OpenGL ES documents for emulating non-mipmapped minification.
+const gltfNoMipMaxLOD = 0.25
+
 func addressModeFromGLTF(wrap gltf.WrapMode, field string) (gpu.AddressMode, error) {
 	switch wrap {
 	case 0, gltf.WrapRepeat:
@@ -109,26 +109,19 @@ func addressModeFromGLTF(wrap gltf.WrapMode, field string) (gpu.AddressMode, err
 type GLTFMaterialUpload struct {
 	// Label prefixes debug labels on uploaded textures, samplers, and GPU materials.
 	Label string
-	// Mipmaps forces CPU mipmap generation on every uploaded glTF texture when true
-	// (unless DisableMipmaps is also set). When false, mipmaps are generated for any
-	// texture sampled with a mipmapped or unspecified glTF minFilter.
+	// Mipmaps forces CPU mipmap generation on every uploaded glTF texture when true (unless DisableMipmaps is also set). When false, mipmaps are generated for any texture sampled with a mipmapped or unspecified glTF minFilter.
 	Mipmaps bool
 	// DisableMipmaps disables mipmap generation even when glTF samplers request mipmaps.
 	DisableMipmaps bool
 	// MaxMipLevels caps generated mipmap chains when mipmaps are enabled; 0 builds the full chain.
 	MaxMipLevels uint32
-	// MaxAnisotropy sets anisotropic filtering on all-linear glTF samplers (0 or 1 disables it).
-	// Samplers that use nearest min, mag, or mipmap filtering keep MaxAnisotropy = 1 to satisfy
-	// WebGPU validation rules.
+	// MaxAnisotropy sets anisotropic filtering on all-linear glTF samplers, including the glTF default sampler used by textures that name none (0 or 1 disables it). Samplers that use nearest min, mag, or mipmap filtering keep MaxAnisotropy = 1 to satisfy WebGPU validation rules.
 	MaxAnisotropy uint16
-	// Retained keeps CPU shadow copies of every uploaded texture, sampler, and material uniform
-	// buffer so the returned [GLTFMaterialSet] recovers automatically after a GPU device loss.
-	// Pair with [MaterialDefaultsOptions.Retained] on defaults.
+	// Retained keeps CPU shadow copies of every uploaded texture, sampler, and material uniform buffer so the returned [GLTFMaterialSet] recovers automatically after a GPU device loss. Pair with [MaterialDefaultsOptions.Retained] on defaults.
 	Retained bool
 }
 
-// GLTFTextureSlot records the mapped GPU handles and glTF UV metadata for one
-// texture slot on an uploaded glTF material.
+// GLTFTextureSlot records the mapped GPU handles and glTF UV metadata for one texture slot on an uploaded glTF material.
 type GLTFTextureSlot struct {
 	Present      bool
 	TextureIndex int
@@ -141,8 +134,7 @@ type GLTFTextureSlot struct {
 	Sampler      *GPUSampler
 }
 
-// EffectiveTexCoord returns Transform.TexCoord when KHR_texture_transform overrides
-// the UV channel, otherwise TexCoord.
+// EffectiveTexCoord returns Transform.TexCoord when KHR_texture_transform overrides the UV channel, otherwise TexCoord.
 func (s GLTFTextureSlot) EffectiveTexCoord() int {
 	if s.Transform != nil && s.Transform.TexCoord != nil {
 		return *s.Transform.TexCoord
@@ -150,9 +142,7 @@ func (s GLTFTextureSlot) EffectiveTexCoord() int {
 	return s.TexCoord
 }
 
-// GLTFMaterialInfo holds the mapped CPU [Material], uploaded [GPUMaterial], and
-// glTF-specific metadata (material name, KHR_materials_unlit flag, and per-slot
-// UV/transform info) for one entry in [GLTFMaterialSet].
+// GLTFMaterialInfo holds the mapped CPU [Material], uploaded [GPUMaterial], and glTF-specific metadata (material name, KHR_materials_unlit flag, and per-slot UV/transform info) for one entry in [GLTFMaterialSet].
 type GLTFMaterialInfo struct {
 	Name              string
 	Material          Material
@@ -165,21 +155,50 @@ type GLTFMaterialInfo struct {
 	Emissive          GLTFTextureSlot
 }
 
+// NeedsUVBake reports whether [MaterialWGSL] samples this slot differently from the asset. The shader reads every texture with the mesh's first UV set (TEXCOORD_0) and no transform, so a present slot whose [GLTFTextureSlot.EffectiveTexCoord] is not 0 or whose KHR_texture_transform is not the identity draws with the wrong UVs unless the mesh's UVs are baked for it (for example with [gltf.Document.TransformTexCoords]) or a custom shader applies them.
+func (s GLTFTextureSlot) NeedsUVBake() bool {
+	if !s.Present {
+		return false
+	}
+	if s.EffectiveTexCoord() != 0 {
+		return true
+	}
+	t := s.Transform
+	return t != nil && (t.Offset != [2]float32{} || t.Rotation != 0 || t.Scale != [2]float32{1, 1})
+}
+
+// Unsupported lists what [MaterialWGSL] does not draw as the glTF material specifies: "KHR_materials_unlit" when the material is unlit (the shader always applies metallic-roughness lighting), and "<slot> UVs" for each texture slot whose [GLTFTextureSlot.NeedsUVBake] is true. It returns nil when the shader draws the material as written.
+func (i GLTFMaterialInfo) Unsupported() []string {
+	var out []string
+	if i.Unlit {
+		out = append(out, "KHR_materials_unlit")
+	}
+	slots := [...]struct {
+		name string
+		slot GLTFTextureSlot
+	}{
+		{"baseColorTexture", i.BaseColor},
+		{"metallicRoughnessTexture", i.MetallicRoughness},
+		{"normalTexture", i.Normal},
+		{"occlusionTexture", i.Occlusion},
+		{"emissiveTexture", i.Emissive},
+	}
+	for _, s := range slots {
+		if s.slot.NeedsUVBake() {
+			out = append(out, s.name+" UVs")
+		}
+	}
+	return out
+}
+
 type gltfTextureKey struct {
 	imageIndex int
 	srgb       bool
 }
 
-// GLTFMaterialSet owns every [GPUTexture], [GPUSampler], and [GPUMaterial]
-// uploaded from a [*gltf.Document] by [UploadGLTFMaterials].
+// GLTFMaterialSet owns every [GPUTexture], [GPUSampler], and [GPUMaterial] uploaded from a [*gltf.Document] by [UploadGLTFMaterials].
 //
-// Referenced glTF images are decoded once per image index and uploaded once per
-// unique (imageIndex, sRGB) key: color slots (baseColorTexture, emissiveTexture)
-// upload as sRGB ([gpu.FormatRGBA8UnormSRGB]) while data slots
-// (metallicRoughnessTexture, normalTexture, occlusionTexture) upload as linear
-// ([gpu.FormatRGBA8Unorm]). Packed textures shared across linear slots (such as
-// occlusion + metallic-roughness) or across multiple materials are uploaded only
-// once. Samplers are deduplicated by glTF sampler index.
+// Referenced glTF images are decoded once per image index and uploaded once per unique (imageIndex, sRGB) key: color slots (baseColorTexture, emissiveTexture) upload as sRGB ([gpu.FormatRGBA8UnormSRGB]) while data slots (metallicRoughnessTexture, normalTexture, occlusionTexture) upload as linear ([gpu.FormatRGBA8Unorm]). Packed textures shared across linear slots (such as occlusion + metallic-roughness) or across multiple materials are uploaded only once. Samplers are deduplicated by glTF sampler index, and every texture without a sampler shares one sampler built from the glTF 2.0 default (repeat wrapping, automatic filtering).
 type GLTFMaterialSet struct {
 	doc             *gltf.Document
 	materials       []GLTFMaterialInfo
@@ -188,17 +207,14 @@ type GLTFMaterialSet struct {
 	textureByKey    map[gltfTextureKey]*GPUTexture
 	samplers        []*GPUSampler
 	samplerByIndex  map[int]*GPUSampler
+	defaultSampler  *GPUSampler
 }
 
-// UploadGLTFMaterials decodes and uploads all textures, samplers, and PBR
-// metallic-roughness materials referenced by doc onto dev, owned by cx.
+// UploadGLTFMaterials decodes and uploads all textures, samplers, and PBR metallic-roughness materials referenced by doc onto dev, owned by cx.
 //
-// Omitted texture and sampler slots fall back to defaults. A glTF 2.0 default
-// material is always created and returned by [GLTFMaterialSet.DefaultMaterial]
-// (and by [GLTFMaterialSet.Material](-1)) for primitives with Material == -1.
+// Omitted texture slots, and textures without an image source, fall back to defaults. A glTF 2.0 default material is always created and returned by [GLTFMaterialSet.DefaultMaterial] (and by [GLTFMaterialSet.Material](-1)) for primitives with Material == -1.
 //
-// If any material, sampler, or image fails validation, decoding, or GPU upload,
-// every GPU resource allocated during the call is closed before returning the error.
+// If any material, sampler, or image fails validation, decoding, or GPU upload, every GPU resource allocated during the call is closed before returning the error.
 func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, doc *gltf.Document, opts GLTFMaterialUpload) (*GLTFMaterialSet, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -235,8 +251,7 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 	texOrder := make([]gltfTextureKey, 0, len(doc.Images))
 	texPlans := make(map[gltfTextureKey]*plannedTexture, len(doc.Images))
 
-	// Pass 1: validate every material, sampler, and texture reference before
-	// decoding images or creating any GPU resources.
+	// Pass 1: validate every material, sampler, and texture reference before decoding images or creating any GPU resources.
 	parsedMats := make([]Material, len(doc.Materials))
 	for i, gm := range doc.Materials {
 		mat, err := mapGLTFMaterialScalars(gm, i)
@@ -265,48 +280,48 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 					ErrInvalidMaterial, i, slot.name, texIdx, len(doc.Textures))
 			}
 			tex := doc.Textures[texIdx]
-			if tex.Source < 0 {
+			if tex.Source == -1 {
 				// glTF 2.0 allows a texture with no image source; fall back to defaults.
 				continue
 			}
-			if tex.Source >= len(doc.Images) {
+			if tex.Source < -1 || tex.Source >= len(doc.Images) {
 				return nil, fmt.Errorf("%w: glTF material %d %s texture %d image index %d out of range [0, %d)",
 					ErrInvalidMaterial, i, slot.name, texIdx, tex.Source, len(doc.Images))
 			}
 
-			wantMipmaps := true // default when texture omits a sampler (glTF 2.0 repeat + linear/mip)
-			if tex.Sampler >= 0 {
-				if tex.Sampler >= len(doc.Samplers) {
-					return nil, fmt.Errorf("%w: glTF material %d %s texture %d sampler index %d out of range [0, %d)",
-						ErrInvalidMaterial, i, slot.name, texIdx, tex.Sampler, len(doc.Samplers))
-				}
-				ps, ok := samplerPlans[tex.Sampler]
-				if !ok {
-					so, wm, err := SamplerOptionsFromGLTF(doc.Samplers[tex.Sampler])
-					if err != nil {
-						return nil, fmt.Errorf("gltf sampler %d: %w", tex.Sampler, err)
-					}
-					if opts.MaxAnisotropy > 1 &&
-						so.MinFilter == gpu.FilterLinear &&
-						so.MagFilter == gpu.FilterLinear &&
-						so.MipmapFilter == gpu.FilterLinear {
-						so.MaxAnisotropy = opts.MaxAnisotropy
-					}
-					so.Retained = opts.Retained
-					if so.Label == "" {
-						so.Label = fmt.Sprintf("%s.sampler.%d", prefix, tex.Sampler)
-					} else {
-						so.Label = fmt.Sprintf("%s.sampler.%d.%s", prefix, tex.Sampler, so.Label)
-					}
-					ps = plannedSampler{index: tex.Sampler, opts: so, wantMipmaps: wm}
-					samplerPlans[tex.Sampler] = ps
-					samplerOrder = append(samplerOrder, tex.Sampler)
-				}
-				wantMipmaps = ps.wantMipmaps
-			} else if tex.Sampler < -1 {
-				return nil, fmt.Errorf("%w: glTF material %d %s texture %d has invalid sampler index %d",
-					ErrInvalidMaterial, i, slot.name, texIdx, tex.Sampler)
+			if tex.Sampler < -1 || tex.Sampler >= len(doc.Samplers) {
+				return nil, fmt.Errorf("%w: glTF material %d %s texture %d sampler index %d out of range [-1, %d)",
+					ErrInvalidMaterial, i, slot.name, texIdx, tex.Sampler, len(doc.Samplers))
 			}
+			// A texture without a sampler (index -1) uses the glTF 2.0 default sampler: repeat wrapping and automatic filtering, the same as an empty sampler object.
+			ps, ok := samplerPlans[tex.Sampler]
+			if !ok {
+				gs := gltf.Sampler{}
+				label := fmt.Sprintf("%s.sampler.default", prefix)
+				if tex.Sampler >= 0 {
+					gs = doc.Samplers[tex.Sampler]
+					label = fmt.Sprintf("%s.sampler.%d", prefix, tex.Sampler)
+				}
+				so, wm, err := SamplerOptionsFromGLTF(gs)
+				if err != nil {
+					return nil, fmt.Errorf("gltf sampler %d: %w", tex.Sampler, err)
+				}
+				if opts.MaxAnisotropy > 1 &&
+					so.MinFilter == gpu.FilterLinear &&
+					so.MagFilter == gpu.FilterLinear &&
+					so.MipmapFilter == gpu.FilterLinear {
+					so.MaxAnisotropy = opts.MaxAnisotropy
+				}
+				so.Retained = opts.Retained
+				if so.Label != "" {
+					label = fmt.Sprintf("%s.%s", label, so.Label)
+				}
+				so.Label = label
+				ps = plannedSampler{index: tex.Sampler, opts: so, wantMipmaps: wm}
+				samplerPlans[tex.Sampler] = ps
+				samplerOrder = append(samplerOrder, tex.Sampler)
+			}
+			wantMipmaps := ps.wantMipmaps
 
 			useMips := !opts.DisableMipmaps && (opts.Mipmaps || wantMipmaps)
 			key := gltfTextureKey{imageIndex: tex.Source, srgb: slot.srgb}
@@ -340,7 +355,11 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 			return cleanup(fmt.Errorf("gltf sampler %d: %w", sampIdx, err))
 		}
 		set.samplers = append(set.samplers, gs)
-		set.samplerByIndex[sampIdx] = gs
+		if sampIdx == -1 {
+			set.defaultSampler = gs
+		} else {
+			set.samplerByIndex[sampIdx] = gs
+		}
 	}
 
 	// Pass 3: decode each referenced image once and upload unique (imageIndex, sRGB) textures.
@@ -397,7 +416,7 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 			return GLTFTextureSlot{TextureIndex: ref.TextureIndex, ImageIndex: -1, SamplerIndex: tex.Sampler, SRGB: srgb}
 		}
 		gt := set.textureByKey[gltfTextureKey{imageIndex: tex.Source, srgb: srgb}]
-		var gs *GPUSampler
+		gs := set.defaultSampler
 		if tex.Sampler >= 0 {
 			gs = set.samplerByIndex[tex.Sampler]
 		}
@@ -410,10 +429,6 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 			}
 			trCopy = &cp
 		}
-		effectiveSampler := gs
-		if effectiveSampler == nil {
-			effectiveSampler = defaults.Sampler()
-		}
 		return GLTFTextureSlot{
 			Present:      true,
 			TextureIndex: ref.TextureIndex,
@@ -423,7 +438,7 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 			Transform:    trCopy,
 			SRGB:         srgb,
 			Texture:      gt,
-			Sampler:      effectiveSampler,
+			Sampler:      gs,
 		}
 	}
 
@@ -433,41 +448,31 @@ func UploadGLTFMaterials(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefa
 		bcSlot := resolveSlot(gm.BaseColorTexture, true)
 		if bcSlot.Present {
 			mat.BaseColorTexture = bcSlot.Texture
-			if bcSlot.SamplerIndex >= 0 {
-				mat.BaseColorSampler = set.samplerByIndex[bcSlot.SamplerIndex]
-			}
+			mat.BaseColorSampler = bcSlot.Sampler
 		}
 
 		mrSlot := resolveSlot(gm.MetallicRoughnessTexture, false)
 		if mrSlot.Present {
 			mat.MetallicRoughnessTexture = mrSlot.Texture
-			if mrSlot.SamplerIndex >= 0 {
-				mat.MetallicRoughnessSampler = set.samplerByIndex[mrSlot.SamplerIndex]
-			}
+			mat.MetallicRoughnessSampler = mrSlot.Sampler
 		}
 
 		normSlot := resolveSlot(gm.NormalTexture, false)
 		if normSlot.Present {
 			mat.NormalTexture = normSlot.Texture
-			if normSlot.SamplerIndex >= 0 {
-				mat.NormalSampler = set.samplerByIndex[normSlot.SamplerIndex]
-			}
+			mat.NormalSampler = normSlot.Sampler
 		}
 
 		occSlot := resolveSlot(gm.OcclusionTexture, false)
 		if occSlot.Present {
 			mat.OcclusionTexture = occSlot.Texture
-			if occSlot.SamplerIndex >= 0 {
-				mat.OcclusionSampler = set.samplerByIndex[occSlot.SamplerIndex]
-			}
+			mat.OcclusionSampler = occSlot.Sampler
 		}
 
 		emisSlot := resolveSlot(gm.EmissiveTexture, true)
 		if emisSlot.Present {
 			mat.EmissiveTexture = emisSlot.Texture
-			if emisSlot.SamplerIndex >= 0 {
-				mat.EmissiveSampler = set.samplerByIndex[emisSlot.SamplerIndex]
-			}
+			mat.EmissiveSampler = emisSlot.Sampler
 		}
 
 		matLabel := fmt.Sprintf("%s.material.%d", prefix, i)
@@ -533,8 +538,7 @@ func mapGLTFMaterialScalars(gm gltf.Material, index int) (Material, error) {
 	}, nil
 }
 
-// Len returns the number of glTF materials uploaded from the document (excluding the
-// built-in glTF default material returned by [GLTFMaterialSet.DefaultMaterial]).
+// Len returns the number of glTF materials uploaded from the document (excluding the built-in glTF default material returned by [GLTFMaterialSet.DefaultMaterial]).
 func (s *GLTFMaterialSet) Len() int {
 	if s == nil {
 		return 0
@@ -542,8 +546,7 @@ func (s *GLTFMaterialSet) Len() int {
 	return len(s.materials)
 }
 
-// DefaultMaterial returns the uploaded glTF 2.0 default [GPUMaterial] used when a
-// primitive has Material == -1, or nil for a nil receiver.
+// DefaultMaterial returns the uploaded glTF 2.0 default [GPUMaterial] used when a primitive has Material == -1, or nil for a nil receiver.
 func (s *GLTFMaterialSet) DefaultMaterial() *GPUMaterial {
 	if s == nil {
 		return nil
@@ -551,9 +554,7 @@ func (s *GLTFMaterialSet) DefaultMaterial() *GPUMaterial {
 	return s.defaultMaterial
 }
 
-// Material returns the uploaded [*GPUMaterial] for glTF material index, or
-// [GLTFMaterialSet.DefaultMaterial] when index == -1 (the glTF sentinel for an
-// unassigned material). Out-of-range indices and nil receivers return nil.
+// Material returns the uploaded [*GPUMaterial] for glTF material index, or [GLTFMaterialSet.DefaultMaterial] when index == -1 (the glTF sentinel for an unassigned material). Out-of-range indices and nil receivers return nil.
 func (s *GLTFMaterialSet) Material(index int) *GPUMaterial {
 	if s == nil {
 		return nil
@@ -575,9 +576,7 @@ func (s *GLTFMaterialSet) Info(index int) (GLTFMaterialInfo, bool) {
 	return s.materials[index], true
 }
 
-// MaterialForPrimitive resolves the active material for prim under the
-// KHR_materials_variants variantIndex (falling back to prim.Material and then
-// [GLTFMaterialSet.DefaultMaterial] when -1).
+// MaterialForPrimitive resolves the active material for prim under the KHR_materials_variants variantIndex (falling back to prim.Material and then [GLTFMaterialSet.DefaultMaterial] when -1).
 func (s *GLTFMaterialSet) MaterialForPrimitive(prim gltf.Primitive, variantIndex int) *GPUMaterial {
 	if s == nil || s.doc == nil {
 		return nil
@@ -585,9 +584,7 @@ func (s *GLTFMaterialSet) MaterialForPrimitive(prim gltf.Primitive, variantIndex
 	return s.Material(s.doc.MaterialForPrimitive(prim, variantIndex))
 }
 
-// MaterialForVariant resolves the active material for prim under the named
-// KHR_materials_variants variant (falling back to prim.Material and then
-// [GLTFMaterialSet.DefaultMaterial] when -1).
+// MaterialForVariant resolves the active material for prim under the named KHR_materials_variants variant (falling back to prim.Material and then [GLTFMaterialSet.DefaultMaterial] when -1).
 func (s *GLTFMaterialSet) MaterialForVariant(prim gltf.Primitive, variantName string) *GPUMaterial {
 	if s == nil || s.doc == nil {
 		return nil
@@ -595,8 +592,7 @@ func (s *GLTFMaterialSet) MaterialForVariant(prim gltf.Primitive, variantName st
 	return s.Material(s.doc.MaterialForVariant(prim, variantName))
 }
 
-// InfoForPrimitive returns the [GLTFMaterialInfo] for prim under variantIndex,
-// returning false when the resolved material index is -1 (default material) or out of range.
+// InfoForPrimitive returns the [GLTFMaterialInfo] for prim under variantIndex, returning false when the resolved material index is -1 (default material) or out of range.
 func (s *GLTFMaterialSet) InfoForPrimitive(prim gltf.Primitive, variantIndex int) (GLTFMaterialInfo, bool) {
 	if s == nil || s.doc == nil {
 		return GLTFMaterialInfo{}, false
@@ -604,8 +600,7 @@ func (s *GLTFMaterialSet) InfoForPrimitive(prim gltf.Primitive, variantIndex int
 	return s.Info(s.doc.MaterialForPrimitive(prim, variantIndex))
 }
 
-// InfoForVariant returns the [GLTFMaterialInfo] for prim under variantName,
-// returning false when the resolved material index is -1 (default material) or out of range.
+// InfoForVariant returns the [GLTFMaterialInfo] for prim under variantName, returning false when the resolved material index is -1 (default material) or out of range.
 func (s *GLTFMaterialSet) InfoForVariant(prim gltf.Primitive, variantName string) (GLTFMaterialInfo, bool) {
 	if s == nil || s.doc == nil {
 		return GLTFMaterialInfo{}, false
@@ -613,8 +608,7 @@ func (s *GLTFMaterialSet) InfoForVariant(prim gltf.Primitive, variantName string
 	return s.Info(s.doc.MaterialForVariant(prim, variantName))
 }
 
-// Texture returns the deduplicated [*GPUTexture] uploaded for glTF imageIndex in
-// the requested sRGB/linear color space, or nil if that pair was not uploaded.
+// Texture returns the deduplicated [*GPUTexture] uploaded for glTF imageIndex in the requested sRGB/linear color space, or nil if that pair was not uploaded.
 func (s *GLTFMaterialSet) Texture(imageIndex int, srgb bool) *GPUTexture {
 	if s == nil {
 		return nil
@@ -622,8 +616,7 @@ func (s *GLTFMaterialSet) Texture(imageIndex int, srgb bool) *GPUTexture {
 	return s.textureByKey[gltfTextureKey{imageIndex: imageIndex, srgb: srgb}]
 }
 
-// Sampler returns the deduplicated [*GPUSampler] created for glTF samplerIndex,
-// or nil if that sampler was not referenced by any uploaded material.
+// Sampler returns the deduplicated [*GPUSampler] created for glTF samplerIndex, or nil if that sampler was not referenced by any uploaded material.
 func (s *GLTFMaterialSet) Sampler(samplerIndex int) *GPUSampler {
 	if s == nil {
 		return nil
@@ -639,7 +632,7 @@ func (s *GLTFMaterialSet) TextureCount() int {
 	return len(s.textures)
 }
 
-// SamplerCount returns the number of unique GPU samplers created for the document.
+// SamplerCount returns the number of unique GPU samplers created for the document, counting the shared glTF default sampler when a texture without a sampler is referenced.
 func (s *GLTFMaterialSet) SamplerCount() int {
 	if s == nil {
 		return 0
@@ -647,8 +640,7 @@ func (s *GLTFMaterialSet) SamplerCount() int {
 	return len(s.samplers)
 }
 
-// ByteSize returns the total GPU memory held by all uploaded textures and material
-// uniform buffers in s (excluding shared [MaterialDefaults]).
+// ByteSize returns the total GPU memory held by all uploaded textures and material uniform buffers in s (excluding shared [MaterialDefaults]).
 func (s *GLTFMaterialSet) ByteSize() uint64 {
 	if s == nil {
 		return 0
@@ -666,8 +658,7 @@ func (s *GLTFMaterialSet) ByteSize() uint64 {
 	return total
 }
 
-// Valid reports whether every material, texture, and sampler owned by s is currently
-// open on a live GPU device.
+// Valid reports whether every material, texture, and sampler owned by s is currently open on a live GPU device.
 func (s *GLTFMaterialSet) Valid() bool {
 	if s == nil || !s.defaultMaterial.Valid() {
 		return false
@@ -690,8 +681,7 @@ func (s *GLTFMaterialSet) Valid() bool {
 	return true
 }
 
-// Close releases every [GPUMaterial], [GPUSampler], and [GPUTexture] owned by s
-// immediately instead of waiting for scope disposal. Safe to call on nil or more than once.
+// Close releases every [GPUMaterial], [GPUSampler], and [GPUTexture] owned by s immediately instead of waiting for scope disposal. Safe to call on nil or more than once.
 func (s *GLTFMaterialSet) Close() error {
 	if s == nil {
 		return nil
