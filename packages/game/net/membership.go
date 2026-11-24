@@ -33,7 +33,7 @@ const MaxJoinStateSize = 16 << 20
 //	change:     syncMsgMembership(1) kind(1) peer(4) tick(4) count(2) input(20)...
 //	join state: syncMsgJoinState(1) part(2) parts(2) data
 //
-// A change of kind memberJoin carries no inputs; one of kind memberLeave carries the leaving peer's inputs for ticks before tick. The parts of a join state concatenate to: tick(4) count(2) {peer(4) from(4) until(4)}... inputs(4) input(20)... state, the members sorted by ID, until noLeave for a member with no leave scheduled, and the inputs those with a leave scheduled play from the join tick to their leave tick, as the host declared them, sorted by peer and tick.
+// A change of kind memberJoin carries no inputs; one of kind memberLeave carries the leaving peer's inputs for ticks before tick. The parts of a join state concatenate to: tick(4) count(2) {peer(4) from(4) hasLeave(1) until(4)}... inputs(4) input(20)... state, the members sorted by ID, hasLeave 0 and until 0 for a member with no leave scheduled, and the inputs those with a leave scheduled play from the join tick to their leave tick, as the host declared them, sorted by peer and tick.
 const (
 	syncMsgMembership byte = 13
 	syncMsgJoinState  byte = 14
@@ -41,12 +41,10 @@ const (
 	memberJoin  byte = 1
 	memberLeave byte = 2
 
-	noLeave = ^uint32(0)
-
 	membershipHeader = 1 + 1 + 4 + 4 + 2
 	joinPartHeader   = 1 + 2 + 2
 	joinBlobHeader   = 4 + 2
-	joinMemberSize   = 12
+	joinMemberSize   = 13
 	joinInputsHeader = 4
 
 	// joinPartSize is the most state bytes in one join-state part, so a part fits a relay, WebSocket or loopback payload.
@@ -65,16 +63,23 @@ const (
 	maxOutbox = 4096
 	// memberRetention is how many ticks a departed member's record outlives its leave tick.
 	memberRetention = 512
+	// maxAnchorAge and keepAnchorAge keep match.start and matchMember.from within half-space of the current tick so serial-number comparisons never invert in matches that run past 2^31 ticks.
+	maxAnchorAge  = 1 << 29
+	keepAnchorAge = 1 << 20
 )
 
-// matchMember is one peer of a match and the ticks it takes part in: from (inclusive) to until (exclusive).
+// matchMember is one peer of a match and the ticks it takes part in: from (inclusive) to until (exclusive, when hasLeave is true).
 type matchMember struct {
 	id          PeerID
 	from, until uint32
+	hasLeave    bool
 }
 
 func (m matchMember) activeAt(tick uint32) bool {
-	return tick >= m.from && tick < m.until
+	if tickBefore(tick, m.from) {
+		return false
+	}
+	return !m.hasLeave || tickBefore(tick, m.until)
 }
 
 // memberChange is a change to the match's peers, as the host announces it.
@@ -114,7 +119,7 @@ func decodeMemberChange(b []byte) (memberChange, bool) {
 	src := b[membershipHeader:]
 	for i := range c.inputs {
 		in, _ := decodeInputFrame(src[i*inputFrameWireSize:])
-		if in.Peer != c.peer || in.Tick >= c.tick {
+		if in.Peer != c.peer || tickAtOrAfter(in.Tick, c.tick) {
 			return memberChange{}, false
 		}
 		c.inputs[i] = in
@@ -137,7 +142,13 @@ func encodeJoinState(js joinState) []byte {
 	for _, m := range js.members {
 		b = binary.BigEndian.AppendUint32(b, uint32(m.id))
 		b = binary.BigEndian.AppendUint32(b, m.from)
-		b = binary.BigEndian.AppendUint32(b, m.until)
+		if m.hasLeave {
+			b = append(b, 1)
+			b = binary.BigEndian.AppendUint32(b, m.until)
+		} else {
+			b = append(b, 0)
+			b = binary.BigEndian.AppendUint32(b, 0)
+		}
 	}
 	b = binary.BigEndian.AppendUint32(b, uint32(len(js.inputs)))
 	for _, in := range js.inputs {
@@ -159,12 +170,21 @@ func decodeJoinState(b []byte) (joinState, bool) {
 	js.members = make([]matchMember, n)
 	for i := range js.members {
 		o := joinBlobHeader + i*joinMemberSize
-		m := matchMember{
-			id:    PeerID(binary.BigEndian.Uint32(b[o : o+4])),
-			from:  binary.BigEndian.Uint32(b[o+4 : o+8]),
-			until: binary.BigEndian.Uint32(b[o+8 : o+12]),
+		leaveFlag := b[o+8]
+		until := binary.BigEndian.Uint32(b[o+9 : o+13])
+		if leaveFlag > 1 || (leaveFlag == 0 && until != 0) {
+			return joinState{}, false
 		}
-		if m.id == 0 || (i > 0 && m.id <= js.members[i-1].id) || m.from >= m.until || m.until <= js.tick {
+		m := matchMember{
+			id:       PeerID(binary.BigEndian.Uint32(b[o : o+4])),
+			from:     binary.BigEndian.Uint32(b[o+4 : o+8]),
+			until:    until,
+			hasLeave: leaveFlag == 1,
+		}
+		if m.id == 0 || (i > 0 && m.id <= js.members[i-1].id) {
+			return joinState{}, false
+		}
+		if m.hasLeave && (!tickBefore(m.from, m.until) || !tickAfter(m.until, js.tick)) {
 			return joinState{}, false
 		}
 		js.members[i] = m
@@ -185,14 +205,14 @@ func decodeJoinState(b []byte) (joinState, bool) {
 		in, _ := decodeInputFrame(rest[i*inputFrameWireSize:])
 		if i > 0 {
 			prev := js.inputs[i-1]
-			if in.Peer < prev.Peer || (in.Peer == prev.Peer && in.Tick <= prev.Tick) {
+			if in.Peer < prev.Peer || (in.Peer == prev.Peer && !tickAfter(in.Tick, prev.Tick)) {
 				return joinState{}, false
 			}
 		}
 		j, found := slices.BinarySearchFunc(js.members, in.Peer, func(mm matchMember, id PeerID) int {
 			return cmp.Compare(mm.id, id)
 		})
-		if !found || js.members[j].until == noLeave || in.Tick < js.tick || !js.members[j].activeAt(in.Tick) {
+		if !found || !js.members[j].hasLeave || tickBefore(in.Tick, js.tick) || !js.members[j].activeAt(in.Tick) {
 			return joinState{}, false
 		}
 		js.inputs[i] = in
@@ -294,7 +314,7 @@ func newMatch(transport Transport, peers []PeerID, host PeerID, join bool) match
 	}
 	if !join {
 		for _, id := range peers {
-			m.members = append(m.members, matchMember{id: id, until: noLeave})
+			m.members = append(m.members, matchMember{id: id})
 		}
 	}
 	if join && host == m.localID {
@@ -341,7 +361,7 @@ func (m *match) addMember(id PeerID, from uint32) {
 	i, _ := slices.BinarySearchFunc(m.members, id, func(mm matchMember, id PeerID) int {
 		return cmp.Compare(mm.id, id)
 	})
-	m.members = slices.Insert(m.members, i, matchMember{id: id, from: from, until: noLeave})
+	m.members = slices.Insert(m.members, i, matchMember{id: id, from: from})
 }
 
 func (m *match) activeAt(id PeerID, tick uint32) bool {
@@ -367,7 +387,7 @@ func (m *match) isHost() bool {
 // accepts reports whether an input sent by its own peer is one the session takes directly: from a member with no leave scheduled, for a tick it takes part in and the local peer does too. A leaving member's inputs before its leave tick come from the host's change instead, so a late one cannot disagree with it.
 func (m *match) accepts(in InputFrame) bool {
 	mm := m.member(in.Peer)
-	return mm != nil && mm.until == noLeave && mm.activeAt(in.Tick) && in.Tick >= m.start
+	return mm != nil && !mm.hasLeave && mm.activeAt(in.Tick) && tickAtOrAfter(in.Tick, m.start)
 }
 
 // stray keeps an input from a sender that is not a member yet, such as a joining peer whose inputs overtake the host's announcement, or every sender while the local peer waits for its join state.
@@ -388,7 +408,15 @@ func (m *match) stray(in InputFrame) {
 	}
 	byTick[in.Tick] = in
 	if len(byTick) > maxStrayTicks {
-		delete(byTick, slices.Min(mapKeys(byTick)))
+		var oldest uint32
+		first := true
+		for t := range byTick {
+			if first || tickBefore(t, oldest) {
+				oldest = t
+				first = false
+			}
+		}
+		delete(byTick, oldest)
 	}
 }
 
@@ -400,7 +428,7 @@ func (m *match) takeStrays(id PeerID) []InputFrame {
 	}
 	delete(m.strays, id)
 	ticks := mapKeys(byTick)
-	slices.Sort(ticks)
+	slices.SortFunc(ticks, tickCompare)
 	out := make([]InputFrame, len(ticks))
 	for i, t := range ticks {
 		out[i] = byTick[t]
@@ -508,7 +536,7 @@ func (m *match) announce(c memberChange, now uint32) {
 		if mm.id == m.localID || (mm.id == c.peer && c.kind == memberJoin) {
 			continue
 		}
-		if mm.until > now || mm.id == c.peer {
+		if !mm.hasLeave || tickAfter(mm.until, now) || mm.id == c.peer {
 			_ = m.send(mm.id, msg)
 		}
 	}
@@ -518,14 +546,14 @@ func (m *match) announce(c memberChange, now uint32) {
 func (m *match) joinStateFor(p pendingJoin, state []byte, held func(PeerID, uint32) (InputFrame, bool)) (joinState, bool) {
 	js := joinState{tick: p.tick, state: state}
 	for _, mm := range m.members {
-		if mm.until <= p.tick || mm.from >= mm.until {
+		if mm.hasLeave && (tickAtOrBefore(mm.until, p.tick) || !tickBefore(mm.from, mm.until)) {
 			continue
 		}
 		js.members = append(js.members, mm)
-		if mm.until == noLeave {
+		if !mm.hasLeave {
 			continue
 		}
-		for t := max(p.tick, mm.from); t < mm.until; t++ {
+		for t := tickMax(p.tick, mm.from); tickBefore(t, mm.until); t++ {
 			if in, ok := held(mm.id, t); ok {
 				js.inputs = append(js.inputs, in)
 			}
@@ -557,7 +585,7 @@ func (m *match) acceptJoinState(js joinState) bool {
 // pruneMembers forgets members that left more than memberRetention ticks before tick, with the messages kept for them, keeping only their leave ticks in departed.
 func (m *match) pruneMembers(tick uint32) {
 	m.members = slices.DeleteFunc(m.members, func(mm matchMember) bool {
-		gone := mm.until != noLeave && tick > mm.until && tick-mm.until > memberRetention
+		gone := mm.hasLeave && tickDelta(tick, mm.until) > memberRetention
 		if gone {
 			if m.departed == nil {
 				m.departed = make(map[PeerID]uint32)
@@ -568,6 +596,17 @@ func (m *match) pruneMembers(tick uint32) {
 		}
 		return gone
 	})
+	if tickDelta(tick, m.start) > maxAnchorAge {
+		m.start = tick - keepAnchorAge
+	}
+	for i := range m.members {
+		if tickDelta(tick, m.members[i].from) > maxAnchorAge {
+			anchor := tick - keepAnchorAge
+			if !m.members[i].hasLeave || tickBefore(anchor, m.members[i].until) {
+				m.members[i].from = anchor
+			}
+		}
+	}
 }
 
 // takePending removes and returns the pending joins ready by ready, in tick order.
@@ -595,7 +634,7 @@ func (m *match) checkAdd(id PeerID) (uint32, bool, error) {
 		return 0, false, ErrPeerRejoin
 	}
 	if mm := m.member(id); mm != nil {
-		if mm.until != noLeave {
+		if mm.hasLeave {
 			return 0, false, ErrPeerRejoin
 		}
 		return mm.from, true, nil
@@ -618,7 +657,7 @@ func (m *match) checkRemove(id PeerID) (*matchMember, uint32, bool, error) {
 	if mm == nil {
 		return nil, 0, false, ErrUnknownPeer
 	}
-	if mm.until != noLeave {
+	if mm.hasLeave {
 		return mm, mm.until, true, nil
 	}
 	return mm, 0, false, nil
@@ -627,10 +666,10 @@ func (m *match) checkRemove(id PeerID) (*matchMember, uint32, bool, error) {
 // leaveInputs builds the inputs a leave change carries for ticks first to leave-1: the ones held, and from declareFrom on a zero input for any tick the host never received. Before declareFrom every peer has already run or confirmed the tick, so only held inputs go along, for peers still behind.
 func leaveInputs(peer PeerID, first, declareFrom, leave uint32, held func(uint32) (InputFrame, bool)) []InputFrame {
 	var out []InputFrame
-	for t := first; t < leave; t++ {
+	for t := first; tickBefore(t, leave); t++ {
 		in, ok := held(t)
 		if !ok {
-			if t < declareFrom {
+			if tickBefore(t, declareFrom) {
 				continue
 			}
 			in = InputFrame{Tick: t, Peer: peer}

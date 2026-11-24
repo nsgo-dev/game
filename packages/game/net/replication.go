@@ -136,9 +136,54 @@ const (
 	maxSnapshotParts = 4096
 )
 
+// tickDelta returns the signed serial-number distance a - b (RFC 1982).
+// Positive when a comes after b, negative when a comes before b, zero when equal.
+// Valid for ticks less than 2^31 apart (about 1.13 years at 60 Hz).
+func tickDelta(a, b uint32) int32 {
+	return int32(a - b)
+}
+
 // tickAfter reports whether tick a comes after tick b in serial-number order (RFC 1982). A uint32 tick counter wraps after 2^32 ticks, about 2.27 years at 60 Hz; compared as plain integers, every snapshot after the wrap would look older than the last one and be dropped (#546). Ticks more than 2^31 apart compare the wrong way, far beyond any history replication keeps.
 func tickAfter(a, b uint32) bool {
 	return int32(a-b) > 0
+}
+
+func tickBefore(a, b uint32) bool {
+	return int32(a-b) < 0
+}
+
+func tickAtOrAfter(a, b uint32) bool {
+	return int32(a-b) >= 0
+}
+
+func tickAtOrBefore(a, b uint32) bool {
+	return int32(a-b) <= 0
+}
+
+func tickCompare(a, b uint32) int {
+	d := int32(a - b)
+	switch {
+	case d < 0:
+		return -1
+	case d > 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func tickMax(a, b uint32) uint32 {
+	if tickAfter(a, b) {
+		return a
+	}
+	return b
+}
+
+func tickMin(a, b uint32) uint32 {
+	if tickBefore(a, b) {
+		return a
+	}
+	return b
 }
 
 const (

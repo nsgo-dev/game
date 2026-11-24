@@ -1,7 +1,6 @@
 package net
 
 import (
-	"cmp"
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
@@ -231,11 +230,12 @@ func (s *LockstepSession) Desyncs() []DesyncEvent {
 // SubmitInput records the local peer's input for in.Tick and sends it to every other peer taking part in that tick. An input for a tick already run or more than 256 ticks ahead, or for a tick the local peer takes no part in, is ignored, as is any input once the host has removed the local peer: the host's leave change carries the inputs every peer uses. A send the transport cannot make right now, to a peer that is reconnecting or that a relay has not announced yet, is kept and retried by Poll; once too many wait for one peer, SubmitInput returns ErrSessionBacklog.
 func (s *LockstepSession) SubmitInput(in InputFrame) error {
 	in.Peer = s.localID
-	if !s.joined || !s.accepts(in) || in.Tick < s.tick || in.Tick > s.tick+maxLockstepLeadTicks {
+	d := tickDelta(in.Tick, s.tick)
+	if !s.joined || !s.accepts(in) || d < 0 || d > maxLockstepLeadTicks {
 		return nil
 	}
 	s.recordInput(in)
-	s.nextInput = max(s.nextInput, in.Tick+1)
+	s.nextInput = tickMax(s.nextInput, in.Tick+1)
 	payload := encodeSingleInput(in)
 	var firstErr error
 	for _, mm := range s.members {
@@ -259,7 +259,7 @@ func (s *LockstepSession) AddPeer(id PeerID) (uint32, error) {
 	if len(s.sim.Save()) > MaxJoinStateSize {
 		return 0, ErrPayloadTooLarge
 	}
-	c := memberChange{kind: memberJoin, peer: id, tick: max(s.tick, s.nextInput)}
+	c := memberChange{kind: memberJoin, peer: id, tick: tickMax(s.tick, s.nextInput)}
 	s.applyChange(c)
 	s.announce(c, s.tick)
 	s.pending = append(s.pending, pendingJoin{peer: id, tick: c.tick})
@@ -275,8 +275,12 @@ func (s *LockstepSession) RemovePeer(id PeerID) (uint32, error) {
 	if err != nil || done {
 		return tick, err
 	}
-	leave := max(s.tick, s.nextInput, mm.from)
-	first := max(mm.from, s.tick-min(s.tick, lockstepChecksumHistory))
+	leave := tickMax(tickMax(s.tick, s.nextInput), mm.from)
+	first := s.tick - lockstepChecksumHistory
+	if tickDelta(s.tick, s.start) < lockstepChecksumHistory {
+		first = s.start
+	}
+	first = tickMax(mm.from, first)
 	c := memberChange{kind: memberLeave, peer: id, tick: leave, inputs: leaveInputs(id, first, s.tick, leave, func(t uint32) (InputFrame, bool) {
 		if in, ok := s.inputs[t][id]; ok {
 			return in, true
@@ -408,28 +412,29 @@ func (s *LockstepSession) applyChange(c memberChange) {
 		// Local inputs sent before this peer was known never reached it.
 		var own []InputFrame
 		for t, m := range s.inputs {
-			if in, ok := m[s.localID]; ok && t >= c.tick {
+			if in, ok := m[s.localID]; ok && tickAtOrAfter(t, c.tick) {
 				own = append(own, in)
 			}
 		}
-		slices.SortFunc(own, func(a, b InputFrame) int { return cmp.Compare(a.Tick, b.Tick) })
+		slices.SortFunc(own, func(a, b InputFrame) int { return tickCompare(a.Tick, b.Tick) })
 		if c.peer != s.localID {
 			s.sendInputs(c.peer, own)
 		}
 	case memberLeave:
 		mm := s.member(c.peer)
-		if mm == nil || mm.until != noLeave || c.tick < mm.from {
+		if mm == nil || mm.hasLeave || tickBefore(c.tick, mm.from) {
 			return
 		}
 		mm.until = c.tick
+		mm.hasLeave = true
 		for t, m := range s.inputs {
-			if t >= c.tick {
+			if tickAtOrAfter(t, c.tick) {
 				delete(m, c.peer)
 			}
 		}
 		// The host's view of the leaving peer's inputs is final. Ticks more than 256 ahead are kept too: a peer may trail the host and still need them.
 		for _, in := range c.inputs {
-			if in.Tick >= mm.from && in.Tick >= s.tick {
+			if tickAtOrAfter(in.Tick, mm.from) && tickAtOrAfter(in.Tick, s.tick) {
 				s.storeInput(in)
 			}
 		}
@@ -454,7 +459,7 @@ func (s *LockstepSession) join(blob []byte) {
 	}
 	for _, mm := range s.members {
 		for _, in := range s.takeStrays(mm.id) {
-			if s.accepts(in) && in.Tick <= s.tick+maxLockstepLeadTicks {
+			if s.accepts(in) {
 				s.recordInput(in)
 			}
 		}
@@ -463,8 +468,8 @@ func (s *LockstepSession) join(blob []byte) {
 
 // sendDueJoinStates sends each pending join its state once the host's simulation stands at the start of its join tick. A state grown past MaxJoinStateSize turns the join into a leave.
 func (s *LockstepSession) sendDueJoinStates() {
-	for _, p := range s.takePending(func(p pendingJoin) bool { return p.tick <= s.tick }) {
-		if mm := s.member(p.peer); mm == nil || mm.until <= p.tick {
+	for _, p := range s.takePending(func(p pendingJoin) bool { return tickAtOrBefore(p.tick, s.tick) }) {
+		if mm := s.member(p.peer); mm == nil || (mm.hasLeave && tickAtOrBefore(mm.until, p.tick)) {
 			continue
 		}
 		js, ok := s.joinStateFor(p, s.sim.Save(), func(id PeerID, t uint32) (InputFrame, bool) {
@@ -491,7 +496,8 @@ const maxLockstepLeadTicks = 256
 const lockstepChecksumHistory = 256
 
 func (s *LockstepSession) recordInput(in InputFrame) {
-	if in.Tick < s.tick || in.Tick > s.tick+maxLockstepLeadTicks {
+	d := tickDelta(in.Tick, s.tick)
+	if d < 0 || d > maxLockstepLeadTicks {
 		return
 	}
 	s.storeInput(in)
@@ -508,27 +514,27 @@ func (s *LockstepSession) storeInput(in InputFrame) {
 
 // pruneChecksums drops checksum, desync and input history older than the retention window so a long session does not accumulate it forever.
 func (s *LockstepSession) pruneChecksums(executedTick uint32) {
-	if executedTick < lockstepChecksumHistory {
+	if tickDelta(executedTick, s.start) < lockstepChecksumHistory {
 		return
 	}
 	floor := executedTick - lockstepChecksumHistory
 	for t := range s.localChecksums {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.localChecksums, t)
 		}
 	}
 	for t := range s.remoteChecksums {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.remoteChecksums, t)
 		}
 	}
 	for k := range s.reportedDesync {
-		if k.tick < floor {
+		if tickBefore(k.tick, floor) {
 			delete(s.reportedDesync, k)
 		}
 	}
 	for t := range s.history {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.history, t)
 		}
 	}
@@ -617,7 +623,8 @@ type RollbackSession struct {
 	onDesync         func(DesyncEvent)
 
 	currentTick   uint32
-	confirmedTick int64 // highest tick with all peers' confirmed inputs and already simulated (-1 = none)
+	confirmedTick uint32 // highest tick with all peers' confirmed inputs and already simulated (valid when hasConfirmed)
+	hasConfirmed  bool
 
 	confirmedInputs map[uint32]map[PeerID]InputFrame
 	usedInputs      map[uint32]map[PeerID]InputFrame
@@ -654,7 +661,6 @@ func NewRollbackSession(cfg RollbackConfig) *RollbackSession {
 		inputDelay:        delay,
 		checksumInterval:  interval,
 		onDesync:          cfg.OnDesync,
-		confirmedTick:     -1,
 		confirmedInputs:   make(map[uint32]map[PeerID]InputFrame),
 		usedInputs:        make(map[uint32]map[PeerID]InputFrame),
 		snapshots:         make(map[uint32][]byte),
@@ -673,11 +679,24 @@ func NewRollbackSession(cfg RollbackConfig) *RollbackSession {
 func (s *RollbackSession) preconfirm(mm matchMember) {
 	for i := range uint32(s.inputDelay) {
 		t := mm.from + i
-		if t < mm.from || !mm.activeAt(t) {
+		if !mm.activeAt(t) {
 			return
 		}
 		s.storeConfirmed(InputFrame{Tick: t, Peer: mm.id})
 	}
+}
+
+// nextToConfirm returns the next tick awaiting confirmation.
+func (s *RollbackSession) nextToConfirm() uint32 {
+	if !s.hasConfirmed {
+		return s.start
+	}
+	return s.confirmedTick + 1
+}
+
+// isConfirmed reports whether tick is at or before the highest confirmed tick.
+func (s *RollbackSession) isConfirmed(tick uint32) bool {
+	return s.hasConfirmed && tickAtOrBefore(tick, s.confirmedTick)
 }
 
 // Tick returns the current simulation tick (number of ticks executed so far). A joining peer's count starts at its join tick.
@@ -688,7 +707,10 @@ func (s *RollbackSession) Tick() uint32 {
 // ConfirmedTick returns the highest tick for which all peers' inputs are confirmed,
 // or -1 if no tick is fully confirmed yet.
 func (s *RollbackSession) ConfirmedTick() int64 {
-	return s.confirmedTick
+	if !s.hasConfirmed {
+		return -1
+	}
+	return int64(s.confirmedTick)
 }
 
 // Members returns the sorted IDs of the peers taking part in the current tick; it is empty while a joining peer waits for its join state.
@@ -738,15 +760,16 @@ func (s *RollbackSession) RemovePeer(id PeerID) (uint32, error) {
 	if err != nil || done {
 		return tick, err
 	}
-	return s.removeAt(mm, max(s.currentTick+uint32(s.inputDelay), mm.from))
+	return s.removeAt(mm, tickMax(s.currentTick+uint32(s.inputDelay), mm.from))
 }
 
 // dropJoin removes a joining peer whose join state cannot be sent, so no peer waits for or predicts it. Its leave tick is the one RemovePeer picks when the change fits one message. Otherwise it is the first tick after the peer's preconfirmed zero inputs, or the first tick the host has not confirmed if that is later: the peer never sent an input, so no peer can have confirmed a tick from there on, and the change carries at most InputDelay inputs.
 func (s *RollbackSession) dropJoin(p pendingJoin) error {
 	mm := s.member(p.peer)
-	leave := max(s.currentTick+uint32(s.inputDelay), mm.from)
-	if declareFrom := uint32(s.confirmedTick + 1); leave-declareFrom > maxLeaveInputs {
-		leave = max(mm.from+uint32(s.inputDelay), declareFrom)
+	leave := tickMax(s.currentTick+uint32(s.inputDelay), mm.from)
+	declareFrom := s.nextToConfirm()
+	if tickDelta(leave, declareFrom) > maxLeaveInputs {
+		leave = tickMax(mm.from+uint32(s.inputDelay), declareFrom)
 	}
 	_, err := s.removeAt(mm, leave)
 	return err
@@ -755,15 +778,15 @@ func (s *RollbackSession) dropJoin(p pendingJoin) error {
 // removeAt announces that mm leaves at tick leave, which no peer can have confirmed yet, with the inputs the host holds from it and a zero input for each unconfirmed tick it never received.
 func (s *RollbackSession) removeAt(mm *matchMember, leave uint32) (uint32, error) {
 	id := mm.id
-	declareFrom := uint32(s.confirmedTick + 1)
-	if leave > declareFrom && leave-declareFrom > maxLeaveInputs {
+	declareFrom := s.nextToConfirm()
+	if tickDelta(leave, declareFrom) > maxLeaveInputs {
 		return 0, ErrRollbackWindowExceeded
 	}
 	first := declareFrom
 	for t := range s.confirmedInputs {
-		first = min(first, t)
+		first = tickMin(first, t)
 	}
-	first = max(first, mm.from)
+	first = tickMax(first, mm.from)
 	inputs := leaveInputs(id, first, declareFrom, leave, func(t uint32) (InputFrame, bool) {
 		in, ok := s.confirmedInputs[t][id]
 		return in, ok
@@ -838,7 +861,7 @@ func (s *RollbackSession) poll() error {
 	earliestMispredict := uint32(0)
 	hasMispredict := false
 	mark := func(mis bool, tick uint32) {
-		if mis && (!hasMispredict || tick < earliestMispredict) {
+		if mis && (!hasMispredict || tickBefore(tick, earliestMispredict)) {
 			earliestMispredict = tick
 			hasMispredict = true
 		}
@@ -914,7 +937,7 @@ func (s *RollbackSession) broadcastLocalInput(in InputFrame) {
 	payload := encodeInputBundle(s.localHistory)
 	first, last := s.localHistory[0].Tick, s.localHistory[len(s.localHistory)-1].Tick
 	for _, mm := range s.members {
-		if mm.id != s.localID && last >= mm.from && first < mm.until {
+		if mm.id != s.localID && tickAtOrAfter(last, mm.from) && (!mm.hasLeave || tickBefore(first, mm.until)) {
 			_ = s.send(mm.id, payload)
 		}
 	}
@@ -941,7 +964,7 @@ func (s *RollbackSession) receiveInput(in InputFrame) (mispredicted bool, tick u
 	case s.member(in.Peer) == nil:
 		s.stray(in)
 		return false, 0
-	case !s.accepts(in) || in.Tick > s.currentTick+maxRollbackLeadTicks:
+	case !s.accepts(in) || tickDelta(in.Tick, s.currentTick) > maxRollbackLeadTicks:
 		return false, 0
 	}
 	return s.confirmInput(in)
@@ -955,7 +978,7 @@ func (s *RollbackSession) confirmInput(in InputFrame) (mispredicted bool, tick u
 	}
 	s.storeConfirmed(in)
 
-	if in.Tick >= s.currentTick {
+	if tickAtOrAfter(in.Tick, s.currentTick) {
 		return false, 0
 	}
 	used, ok := s.usedInputs[in.Tick][in.Peer]
@@ -969,7 +992,7 @@ func (s *RollbackSession) confirmInput(in InputFrame) (mispredicted bool, tick u
 // applyChange applies a membership change, the host's own or one it announced, and reports the earliest tick already simulated that it changes.
 func (s *RollbackSession) applyChange(c memberChange) (mispredicted bool, tick uint32) {
 	mark := func(mis bool, t uint32) {
-		if mis && t < s.currentTick && (!mispredicted || t < tick) {
+		if mis && tickBefore(t, s.currentTick) && (!mispredicted || tickBefore(t, tick)) {
 			mispredicted, tick = true, t
 		}
 	}
@@ -982,36 +1005,37 @@ func (s *RollbackSession) applyChange(c memberChange) (mispredicted bool, tick u
 		s.preconfirm(*s.member(c.peer))
 		mark(true, c.tick)
 		for _, in := range s.takeStrays(c.peer) {
-			if s.accepts(in) && in.Tick <= s.currentTick+maxRollbackLeadTicks {
+			if s.accepts(in) && tickDelta(in.Tick, s.currentTick) <= maxRollbackLeadTicks {
 				mark(s.confirmInput(in))
 			}
 		}
 		// Local inputs sent before this peer was known never reached it.
 		var own []InputFrame
 		for t, m := range s.confirmedInputs {
-			if in, ok := m[s.localID]; ok && t >= c.tick {
+			if in, ok := m[s.localID]; ok && tickAtOrAfter(t, c.tick) {
 				own = append(own, in)
 			}
 		}
-		slices.SortFunc(own, func(a, b InputFrame) int { return cmp.Compare(a.Tick, b.Tick) })
+		slices.SortFunc(own, func(a, b InputFrame) int { return tickCompare(a.Tick, b.Tick) })
 		if c.peer != s.localID {
 			s.sendInputs(c.peer, own)
 		}
 	case memberLeave:
 		mm := s.member(c.peer)
-		if mm == nil || mm.until != noLeave || c.tick < mm.from {
+		if mm == nil || mm.hasLeave || tickBefore(c.tick, mm.from) {
 			return false, 0
 		}
 		mm.until = c.tick
+		mm.hasLeave = true
 		for t, m := range s.confirmedInputs {
-			if t >= c.tick {
+			if tickAtOrAfter(t, c.tick) {
 				delete(m, c.peer)
 			}
 		}
 		mark(true, c.tick)
 		// The host's view of the leaving peer's inputs is final. Ticks this peer has confirmed already hold the same inputs.
 		for _, in := range c.inputs {
-			if in.Tick >= mm.from && int64(in.Tick) > s.confirmedTick {
+			if tickAtOrAfter(in.Tick, mm.from) && !s.isConfirmed(in.Tick) {
 				mark(s.confirmInput(in))
 			}
 		}
@@ -1029,7 +1053,20 @@ func (s *RollbackSession) join(blob []byte) {
 	s.joined = true
 	s.start = js.tick
 	s.currentTick = js.tick
-	s.confirmedTick = int64(js.tick) - 1
+	s.hasConfirmed = false
+	s.confirmedTick = 0
+	if js.tick > 0 {
+		s.hasConfirmed = true
+		s.confirmedTick = js.tick - 1
+	} else {
+		for _, mm := range js.members {
+			if tickBefore(mm.from, js.tick) {
+				s.hasConfirmed = true
+				s.confirmedTick = js.tick - 1
+				break
+			}
+		}
+	}
 	clear(s.confirmedInputs)
 	clear(s.usedInputs)
 	clear(s.snapshots)
@@ -1043,7 +1080,7 @@ func (s *RollbackSession) join(blob []byte) {
 	}
 	for _, mm := range s.members {
 		for _, in := range s.takeStrays(mm.id) {
-			if s.accepts(in) && in.Tick <= s.currentTick+maxRollbackLeadTicks {
+			if s.accepts(in) && tickDelta(in.Tick, s.currentTick) <= maxRollbackLeadTicks {
 				s.confirmInput(in)
 			}
 		}
@@ -1052,8 +1089,8 @@ func (s *RollbackSession) join(blob []byte) {
 
 // sendDueJoinStates sends each pending join its state once every tick before its join tick is confirmed, so the state is final. A state grown past MaxJoinStateSize turns the join into a leave.
 func (s *RollbackSession) sendDueJoinStates() error {
-	for _, p := range s.takePending(func(p pendingJoin) bool { return s.confirmedTick+1 >= int64(p.tick) }) {
-		if mm := s.member(p.peer); mm == nil || mm.until <= p.tick {
+	for _, p := range s.takePending(func(p pendingJoin) bool { return tickAtOrAfter(s.nextToConfirm(), p.tick) }) {
+		if mm := s.member(p.peer); mm == nil || (mm.hasLeave && tickAtOrBefore(mm.until, p.tick)) {
 			continue
 		}
 		state, ok := s.snapshots[p.tick]
@@ -1080,18 +1117,20 @@ func (s *RollbackSession) sendDueJoinStates() error {
 
 func (s *RollbackSession) predictInput(peer PeerID, tick uint32) InputFrame {
 	// Repeat the most recent confirmed input for peer strictly before tick.
-	bestTick := int64(-1)
+	var bestTick uint32
+	hasBest := false
 	var best InputFrame
 	for t, m := range s.confirmedInputs {
-		if t >= tick {
+		if !tickBefore(t, tick) {
 			continue
 		}
-		if in, ok := m[peer]; ok && int64(t) > bestTick {
-			bestTick = int64(t)
+		if in, ok := m[peer]; ok && (!hasBest || tickAfter(t, bestTick)) {
+			bestTick = t
+			hasBest = true
 			best = in
 		}
 	}
-	if bestTick >= 0 {
+	if hasBest {
 		best.Tick = tick
 		best.Peer = peer
 		return best
@@ -1119,11 +1158,11 @@ func (s *RollbackSession) buildTickInputs(tick uint32, countPredictions bool) ([
 }
 
 func (s *RollbackSession) rollbackTo(targetTick uint32) error {
-	if targetTick >= s.currentTick {
+	depth := tickDelta(s.currentTick, targetTick)
+	if depth <= 0 {
 		return nil
 	}
-	depth := int(s.currentTick - targetTick)
-	if depth > s.maxRollback {
+	if int(depth) > s.maxRollback {
 		return ErrRollbackWindowExceeded
 	}
 	snap, ok := s.snapshots[targetTick]
@@ -1135,12 +1174,12 @@ func (s *RollbackSession) rollbackTo(targetTick uint32) error {
 	}
 
 	s.stats.Rollbacks++
-	if depth > s.stats.MaxRollbackDepth {
-		s.stats.MaxRollbackDepth = depth
+	if int(depth) > s.stats.MaxRollbackDepth {
+		s.stats.MaxRollbackDepth = int(depth)
 	}
 
-	for t := targetTick; t < s.currentTick; t++ {
-		if t > targetTick {
+	for t := targetTick; tickBefore(t, s.currentTick); t++ {
+		if t != targetTick {
 			saved := s.sim.Save()
 			cp := make([]byte, len(saved))
 			copy(cp, saved)
@@ -1157,11 +1196,10 @@ func (s *RollbackSession) rollbackTo(targetTick uint32) error {
 
 func (s *RollbackSession) advanceConfirmedAndChecksums() {
 	for {
-		next := s.confirmedTick + 1
-		if next >= int64(s.currentTick) {
+		t := s.nextToConfirm()
+		if !tickBefore(t, s.currentTick) {
 			break
 		}
-		t := uint32(next)
 		m := s.confirmedInputs[t]
 		allPresent := true
 		for _, p := range s.activeIDs(t) {
@@ -1173,7 +1211,8 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 		if !allPresent {
 			break
 		}
-		s.confirmedTick = next
+		s.confirmedTick = t
+		s.hasConfirmed = true
 
 		if s.checksumInterval > 0 && (t+1)%s.checksumInterval == 0 {
 			if !s.sentChecksum[t] {
@@ -1192,7 +1231,7 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 }
 
 func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
-	if peer == s.localID || s.member(peer) == nil || tick > s.currentTick+maxRollbackLeadTicks {
+	if peer == s.localID || s.member(peer) == nil || tickDelta(tick, s.currentTick) > maxRollbackLeadTicks {
 		return
 	}
 	m := s.remoteChecksums[tick]
@@ -1201,13 +1240,13 @@ func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uin
 		s.remoteChecksums[tick] = m
 	}
 	m[peer] = sum
-	if int64(tick) <= s.confirmedTick {
+	if s.isConfirmed(tick) {
 		s.checkDesyncAt(tick)
 	}
 }
 
 func (s *RollbackSession) checkDesyncAt(tick uint32) {
-	if int64(tick) > s.confirmedTick {
+	if !s.isConfirmed(tick) {
 		return
 	}
 	localSum, ok := s.computedChecksums[tick]
@@ -1239,43 +1278,60 @@ func (s *RollbackSession) checkDesyncAt(tick uint32) {
 }
 
 func (s *RollbackSession) pruneHistory() {
-	// Retain snapshots and inputs needed for up to maxRollback ticks and
-	// at least one confirmed tick behind confirmedTick for prediction lookup.
-	keepFrom := int64(s.currentTick) - int64(s.maxRollback) - 2
-	if s.confirmedTick-1 < keepFrom {
-		keepFrom = s.confirmedTick - 1
-	}
-	if keepFrom <= 0 {
+	// Do not prune while nothing is confirmed, so a peer whose first input
+	// arrives more than MaxRollback+2 ticks late can still confirm and advance.
+	if !s.hasConfirmed {
 		return
 	}
-	floor := uint32(keepFrom)
+	// Retain snapshots and inputs needed for up to maxRollback ticks and
+	// at least one confirmed tick behind confirmedTick for prediction lookup.
+	rbKeep := int64(s.maxRollback) + 2
+	if int64(tickDelta(s.currentTick, s.start)) <= rbKeep {
+		return
+	}
+	floor := s.currentTick - uint32(rbKeep)
+	confirmFloor := s.confirmedTick - 1
+	if tickBefore(confirmFloor, floor) {
+		floor = confirmFloor
+	}
+	if tickAtOrBefore(floor, s.start) {
+		return
+	}
 	for t := range s.snapshots {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.snapshots, t)
 		}
 	}
 	for t := range s.usedInputs {
-		if t < floor {
+		if tickBefore(t, floor) {
 			delete(s.usedInputs, t)
 		}
 	}
-	// Keep one extra tick of confirmedInputs so predictInput always has a prior sample.
-	if floor > 2 {
+	// Keep extra ticks of confirmedInputs so predictInput always has a prior sample.
+	if tickDelta(floor, s.start) > 2 {
 		inputFloor := floor - 2
 		for t := range s.confirmedInputs {
-			if t < inputFloor {
+			if tickBefore(t, inputFloor) {
 				delete(s.confirmedInputs, t)
 			}
 		}
 	}
-	// Keep checksums for a wider window (256 ticks) for delayed verification.
-	if s.currentTick > 256 {
-		sumFloor := s.currentTick - 256
-		for t := range s.computedChecksums {
-			if t < sumFloor {
-				delete(s.computedChecksums, t)
-				delete(s.remoteChecksums, t)
-				delete(s.sentChecksum, t)
+	// Keep checksums for a wider window (256 ticks) for delayed verification,
+	// without dropping unconfirmed ticks.
+	if tickDelta(s.currentTick, s.start) > 256 {
+		sumFloor := tickMin(s.currentTick-256, floor)
+		if tickAfter(sumFloor, s.start) {
+			for t := range s.computedChecksums {
+				if tickBefore(t, sumFloor) {
+					delete(s.computedChecksums, t)
+					delete(s.remoteChecksums, t)
+					delete(s.sentChecksum, t)
+				}
+			}
+			for k := range s.reportedDesync {
+				if tickBefore(k.tick, sumFloor) {
+					delete(s.reportedDesync, k)
+				}
 			}
 		}
 	}
