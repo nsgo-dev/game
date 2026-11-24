@@ -222,6 +222,8 @@ type Editor struct {
 	listeners    map[uint64]func()
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
+	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files and installing or removing packs; the file browser lists the files again when it changes.
+	filesRev uint64
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -528,12 +530,16 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// Undo reverts the last edit in History (no-op while playing).
+// Undo reverts the last edit in History (no-op while playing). A step that fails to revert, such as a file move (MoveFile) that something now on disk blocks, stays in place, and the status bar says why.
 func (e *Editor) Undo() bool {
 	if e.playing {
 		return false
 	}
-	ok := e.History.Undo()
+	ok, err := e.History.undo()
+	if err != nil {
+		e.Status = "Undo failed: " + err.Error()
+		e.notify()
+	}
 	if ok {
 		e.Status = "Undo"
 		e.notify()
@@ -541,12 +547,16 @@ func (e *Editor) Undo() bool {
 	return ok
 }
 
-// Redo re-applies the last undone edit in History (no-op while playing).
+// Redo re-applies the last undone edit in History (no-op while playing). A step that fails to re-apply stays undone, and the status bar says why.
 func (e *Editor) Redo() bool {
 	if e.playing {
 		return false
 	}
-	ok := e.History.Redo()
+	ok, err := e.History.redo()
+	if err != nil {
+		e.Status = "Redo failed: " + err.Error()
+		e.notify()
+	}
 	if ok {
 		e.Status = "Redo"
 		e.notify()
