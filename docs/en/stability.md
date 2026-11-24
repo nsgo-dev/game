@@ -153,6 +153,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tooling/datatable` | Experimental | |
 | `game/tooling/devstate` | Experimental | |
 | `game/tooling/hotreload` | Experimental | |
+| `game/tooling/importsettings` | Experimental | [Command Line](cli.md) |
 | `game/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
 | `game/tooling/ktx2` | Experimental | |
 | `game/tooling/manifest` | Experimental | |

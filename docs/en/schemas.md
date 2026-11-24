@@ -12,9 +12,10 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
 | Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, read by `sceneformat.Parse` |
+| Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an image or a sound, read by `importsettings.Parse` and by `game assets` ([Command Line](cli.md#assets)) |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
-The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), import sidecars (#487), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
+The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
 
 A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json`, which refuses the keys version 2 added, now that `scene.v2.json` is published beside it; `Encode` names the schema of the document's own version.
 
@@ -28,7 +29,7 @@ version: 1
 name: Cave Room
 ```
 
-The comment is read by the YAML language server (`yaml-language-server`) that VS Code's YAML extension (`redhat.vscode-yaml`) runs, as do Neovim, Helix and Zed when set up with it, so the file validates with nothing else to set up. `Parse` ignores it like any other comment.
+The comment is read by the YAML language server (`yaml-language-server`) that VS Code's YAML extension (`redhat.vscode-yaml`) runs, as do Neovim, Helix and Zed when set up with it, so the file validates with nothing else to set up. `Parse` ignores it like any other comment. `importsettings.Encode` writes the same kind of line, naming `import.v1.json`, at the top of an import settings sidecar.
 
 For files without the comment, map a pattern to the schema in the editor's settings instead, such as VS Code's `.vscode/settings.json`:
 
