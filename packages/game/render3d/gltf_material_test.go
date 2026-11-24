@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -49,8 +50,7 @@ func transformGLTFMesh(prim gltf.Primitive, world math3d.Mat4) render3d.Mesh {
 	}
 	var normals []math3d.Vec3
 	if len(prim.Normals) > 0 {
-		// Upper-left 3x3 inverse transpose handles non-uniform scale; for rigid
-		// transforms it equals the rotation matrix.
+		// Upper-left 3x3 inverse transpose handles non-uniform scale; for rigid transforms it equals the rotation matrix.
 		inv, ok := world.Inverse()
 		normMat := world
 		if ok {
@@ -336,8 +336,7 @@ func TestUploadGLTFMaterialsDeduplicationAndColorSpaces(t *testing.T) {
 		t.Fatalf("Len() = %d, want 2", set.Len())
 	}
 	// Unique (imageIndex, sRGB) pairs:
-	// (0, true), (1, false), (2, false), (3, true), (0, false) => 5 unique GPU textures!
-	// ORM (1, false) is shared across Mat0.MR, Mat0.Occ, and Mat1.MR -> uploaded ONCE.
+	// (0, true), (1, false), (2, false), (3, true), (0, false) => 5 unique GPU textures! ORM (1, false) is shared across Mat0.MR, Mat0.Occ, and Mat1.MR -> uploaded ONCE.
 	if set.TextureCount() != 5 {
 		t.Fatalf("TextureCount() = %d, want 5", set.TextureCount())
 	}
@@ -358,6 +357,13 @@ func TestUploadGLTFMaterialsDeduplicationAndColorSpaces(t *testing.T) {
 	}
 	if info0.BaseColor.EffectiveTexCoord() != 1 || info0.BaseColor.Transform == nil || info0.BaseColor.Transform.Scale != [2]float32{2, 2} {
 		t.Errorf("BaseColor KHR_texture_transform mismatch: %+v", info0.BaseColor)
+	}
+	// MaterialWGSL samples every slot with untransformed TEXCOORD_0, so the transformed base color on UV set 1 is reported.
+	if got := info0.Unsupported(); !slices.Equal(got, []string{"baseColorTexture UVs"}) {
+		t.Errorf("info0.Unsupported() = %q, want [baseColorTexture UVs]", got)
+	}
+	if !info0.BaseColor.NeedsUVBake() || info0.MetallicRoughness.NeedsUVBake() || info0.Emissive.NeedsUVBake() {
+		t.Error("NeedsUVBake: want only the transformed base color slot")
 	}
 	if info0.MetallicRoughness.Texture != info0.Occlusion.Texture {
 		t.Error("shared ORM image should reuse the exact same *GPUTexture for MetallicRoughness and Occlusion")
@@ -389,6 +395,9 @@ func TestUploadGLTFMaterialsDeduplicationAndColorSpaces(t *testing.T) {
 	}
 	if !info1.Unlit || info1.Material.AlphaMode != render3d.AlphaMask || info1.Material.AlphaCutoff != 0.35 || !info1.Material.DoubleSided {
 		t.Errorf("info1 fields mismatch: %+v", info1.Material)
+	}
+	if got := info1.Unsupported(); !slices.Equal(got, []string{"KHR_materials_unlit"}) {
+		t.Errorf("info1.Unsupported() = %q, want [KHR_materials_unlit]", got)
 	}
 	if info1.MetallicRoughness.Texture != info0.MetallicRoughness.Texture {
 		t.Error("Mat1 should share the same ORM *GPUTexture as Mat0")
@@ -808,6 +817,76 @@ func TestUploadGLTFMaterialsErrors(t *testing.T) {
 	}
 }
 
+func TestUploadGLTFMaterialsSamplerSemantics(t *testing.T) {
+	pixelURI := pngDataURI(t, solidImage(16, 16, color.NRGBA{R: 90, G: 160, B: 220, A: 255}))
+	normalURI := pngDataURI(t, solidImage(4, 4, color.NRGBA{R: 128, G: 128, B: 255, A: 255}))
+	// Image 0 is the base color of material 0 through a NEAREST sampler and of material 1 through a mipmapped sampler, so it is uploaded once with mips. Texture 2 has no sampler, and material 1's normal map has a negative scale.
+	docJSON := fmt.Sprintf(`{
+		"asset": {"version": "2.0"},
+		"samplers": [
+			{"magFilter": 9728, "minFilter": 9728},
+			{"magFilter": 9729, "minFilter": 9987},
+			{}
+		],
+		"images": [{"uri": %q}, {"uri": %q}],
+		"textures": [
+			{"sampler": 0, "source": 0},
+			{"sampler": 1, "source": 0},
+			{"source": 1}
+		],
+		"materials": [
+			{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}},
+			{"pbrMetallicRoughness": {"baseColorTexture": {"index": 1}}, "normalTexture": {"index": 2, "scale": -1}}
+		]
+	}`, pixelURI, normalURI)
+	doc, err := gltf.Load([]byte(docJSON), nil)
+	if err != nil {
+		t.Fatalf("gltf.Load: %v", err)
+	}
+
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
+	defer sr.Close()
+	dev := sr.Device()
+	defaults, err := render3d.NewMaterialDefaults(nil, dev, render3d.MaterialDefaultsOptions{})
+	if err != nil {
+		t.Fatalf("NewMaterialDefaults: %v", err)
+	}
+	defer func() { _ = defaults.Close() }()
+
+	set, err := render3d.UploadGLTFMaterials(nil, dev, defaults, doc, render3d.GLTFMaterialUpload{MaxAnisotropy: 8})
+	if err != nil {
+		t.Fatalf("UploadGLTFMaterials: %v", err)
+	}
+	defer func() { _ = set.Close() }()
+
+	nearest, _ := set.Info(0)
+	mipmapped, _ := set.Info(1)
+	if nearest.BaseColor.Texture != mipmapped.BaseColor.Texture || nearest.BaseColor.Texture.MipLevels() != 5 {
+		t.Fatalf("shared image: textures %p/%p with %d mip levels, want one 16x16 texture with 5 levels", nearest.BaseColor.Texture, mipmapped.BaseColor.Texture, nearest.BaseColor.Texture.MipLevels())
+	}
+	// The NEAREST sampler must stay on the base level although the texture it samples has mips.
+	if got := nearest.BaseColor.Sampler.Options(); got.MaxLOD >= 0.5 || got.MipmapFilter != gpu.FilterNearest {
+		t.Errorf("NEAREST sampler options = %+v, want MaxLOD < 0.5 with nearest mip selection", got)
+	}
+	if got := mipmapped.BaseColor.Sampler.Options(); got.MaxLOD != 32 || got.MaxAnisotropy != 8 {
+		t.Errorf("mipmapped sampler options = %+v, want MaxLOD 32 and MaxAnisotropy 8", got)
+	}
+	// A texture without a sampler uses the glTF default sampler, which gets the same anisotropy as an empty sampler object.
+	if got := mipmapped.Normal.Sampler; got == nil || got == defaults.Sampler() || got.Options().MaxAnisotropy != 8 || got.Options().AddressU != gpu.AddressRepeat {
+		t.Errorf("sampler-less normal texture sampler = %+v, want a set-owned repeat sampler with MaxAnisotropy 8", got)
+	}
+	if mipmapped.Material.NormalSampler != mipmapped.Normal.Sampler {
+		t.Error("Material.NormalSampler differs from the slot's sampler")
+	}
+	if mipmapped.Material.NormalScale != -1 {
+		t.Errorf("NormalScale = %v, want -1", mipmapped.Material.NormalScale)
+	}
+	// Samplers 0 and 1 plus the glTF default sampler; sampler 2 is unused.
+	if set.SamplerCount() != 3 || set.Sampler(2) != nil {
+		t.Errorf("SamplerCount() = %d, Sampler(2) = %v, want 3 and nil", set.SamplerCount(), set.Sampler(2))
+	}
+}
+
 func TestDamagedHelmetMatchesReference(t *testing.T) {
 	doc, helmetMesh := loadDamagedHelmet(t)
 
@@ -865,6 +944,9 @@ func TestDamagedHelmetMatchesReference(t *testing.T) {
 	}
 	if !info.Occlusion.Present || info.Occlusion.Texture.SRGB() {
 		t.Error("Occlusion must be present and linear")
+	}
+	if got := info.Unsupported(); got != nil {
+		t.Errorf("DamagedHelmet Unsupported() = %q, want nil", got)
 	}
 	if info.Material.EmissiveFactor != [3]float32{1, 1, 1} {
 		t.Errorf("EmissiveFactor = %v, want [1, 1, 1]", info.Material.EmissiveFactor)
