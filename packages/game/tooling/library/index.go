@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"slices"
 	"strings"
 	"unicode"
@@ -164,12 +163,12 @@ func validateLicense(license string) error {
 	return nil
 }
 
-// validateSource accepts an absolute https URL with a host, or a slash-separated path that stays inside the index's directory.
+// validateSource accepts an absolute URL Open would read (https, or http to a loopback host, as parseFetchURL accepts) without credentials, query or fragment, or a slash-separated path that stays inside the index's directory.
 func validateSource(source string) error {
 	if isURL(source) {
-		u, err := url.Parse(source)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return fmt.Errorf("source %q must be an https URL without credentials, query or fragment, or a path inside the library", source)
+		u, err := parseFetchURL(source)
+		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("source %q must be an https URL, or http to a loopback host, without credentials, query or fragment, or a path inside the library", source)
 		}
 		return nil
 	}

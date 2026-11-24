@@ -112,13 +112,18 @@ func validateManifest(m *Manifest) error {
 	if err := validateLicense(m.License); err != nil {
 		return err
 	}
-	if m.Into != "" && !isPackPath(m.Into) {
-		return fmt.Errorf("into %q must be a slash-separated directory inside the project", m.Into)
+	if m.Into != "" {
+		if err := validateInstallDir(m.Into); err != nil {
+			return fmt.Errorf("into: %w", err)
+		}
 	}
 	if len(m.Files) > MaxFiles {
 		return fmt.Errorf("lists %d files, more than %d", len(m.Files), MaxFiles)
 	}
 	files := make(map[string]struct{}, len(m.Files))
+	// folded maps each file's path folded to lower case to the file, so that two names one file on a case-insensitive file system are refused.
+	folded := make(map[string]string, len(m.Files)+1)
+	folded[ManifestFileName] = ManifestFileName
 	for _, f := range m.Files {
 		if !isPackPath(f) {
 			return fmt.Errorf("file %q must be a slash-separated path inside the pack", f)
@@ -129,12 +134,22 @@ func validateManifest(m *Manifest) error {
 		if _, dup := files[f]; dup {
 			return fmt.Errorf("file %q is listed twice", f)
 		}
+		if err := validatePortablePath(f); err != nil {
+			return fmt.Errorf("file %q: %w", f, err)
+		}
+		if isCodeFile(f) {
+			return fmt.Errorf("file %q is Go source or a file the Go toolchain builds, which a pack may not install into a project", f)
+		}
+		if other, clash := folded[strings.ToLower(f)]; clash {
+			return fmt.Errorf("files %q and %q differ only in case, which is one file on macOS and Windows", other, f)
+		}
+		folded[strings.ToLower(f)] = f
 		files[f] = struct{}{}
 	}
 	for f := range files {
 		for dir := path.Dir(f); dir != "."; dir = path.Dir(dir) {
-			if _, ok := files[dir]; ok || dir == ManifestFileName {
-				return fmt.Errorf("file %q is inside %q, which is a file", f, dir)
+			if other, ok := folded[strings.ToLower(dir)]; ok {
+				return fmt.Errorf("file %q is inside %q, which is the file %q", f, dir, other)
 			}
 		}
 	}
@@ -183,6 +198,57 @@ func validateManifest(m *Manifest) error {
 // isPackPath reports whether p is a slash-separated relative path that stays inside the directory it is relative to and is not that directory itself.
 func isPackPath(p string) bool {
 	return p != "." && fs.ValidPath(p) && !strings.Contains(p, `\`)
+}
+
+// validateInstallDir reports whether dir can be the project directory a pack's files are written to, as a manifest's into or an installer's choice: a slash-separated relative path inside the project whose every element a file system on any platform can hold and none of which is hidden, starting with '.', so that a pack cannot write into .github, .git or an editor's settings.
+func validateInstallDir(dir string) error {
+	if !isPackPath(dir) {
+		return fmt.Errorf("library: install directory %q must be a slash-separated directory inside the project", dir)
+	}
+	if err := validatePortablePath(dir); err != nil {
+		return fmt.Errorf("library: install directory %q: %w", dir, err)
+	}
+	return nil
+}
+
+// validatePortablePath refuses a slash-separated path, already accepted by isPackPath, with an element that is hidden (starting with '.'), that holds a control character or one of <>:"|?*, that ends in a dot or a space, or that Windows reserves as a device name (CON, PRN, AUX, NUL, COM1 to COM9 and LPT1 to LPT9, with any extension).
+func validatePortablePath(p string) error {
+	for elem := range strings.SplitSeq(p, "/") {
+		switch {
+		case strings.HasPrefix(elem, "."):
+			return fmt.Errorf("element %q is hidden, starting with '.'", elem)
+		case strings.IndexFunc(elem, func(r rune) bool { return unicode.IsControl(r) || strings.ContainsRune(`<>:"|?*`, r) }) >= 0:
+			return fmt.Errorf("element %q holds a control character or one of <>:\"|?*", elem)
+		case strings.HasSuffix(elem, ".") || strings.HasSuffix(elem, " "):
+			return fmt.Errorf("element %q ends in a dot or a space", elem)
+		case isReservedName(elem):
+			return fmt.Errorf("element %q is a device name on Windows", elem)
+		}
+	}
+	return nil
+}
+
+// isReservedName reports whether elem, before its first dot and ignoring case, is a name Windows reserves for a device.
+func isReservedName(elem string) bool {
+	base, _, _ := strings.Cut(strings.ToUpper(elem), ".")
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9'
+}
+
+// codeExtensions are the file extensions the Go toolchain compiles or links into a package, which no pack may install.
+var codeExtensions = []string{".go", ".s", ".sx", ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".m", ".f", ".for", ".f90", ".syso", ".swig", ".swigcxx"}
+
+// isCodeFile reports whether the pack file p, ignoring case, is Go source, a file the Go toolchain builds into a package (codeExtensions), or a Go module or workspace file.
+func isCodeFile(p string) bool {
+	base := strings.ToLower(path.Base(p))
+	switch base {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	}
+	return slices.Contains(codeExtensions, path.Ext(base))
 }
 
 // Pack is a pack read into memory: its manifest and the content of every file it holds.

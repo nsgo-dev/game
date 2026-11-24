@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 )
 
 // Library is an index together with where it was read from, so that its entries' relative sources resolve.
@@ -19,7 +20,7 @@ type Library struct {
 	Index *Index
 	// Location is where the index was read from: a URL, a file path, or the name of the index in an fs.FS.
 	Location string
-	// Client fetches http(s) indexes and packs; nil uses http.DefaultClient.
+	// Client fetches http(s) indexes and packs; nil uses a client that gives up on a server that does not connect within 30 seconds or answer within a minute, and on any one file after 10 minutes.
 	Client *http.Client
 
 	// fsys and dir are a local library's files and the directory of its index in them; fsys is nil for a library read over http(s).
@@ -146,6 +147,15 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// defaultClient is the client a Library without one fetches with: http.DefaultTransport's settings with a limit on waiting for a response's headers, and a limit on a whole request, so that a stalled server cannot hold the game library command or the editor's panel for ever.
+var defaultClient = func() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = 30 * time.Second
+	t.ResponseHeaderTimeout = time.Minute
+	return &http.Client{Transport: t, Timeout: 10 * time.Minute}
+}()
+
 // get fetches u, refusing a status other than 200 OK and a body larger than MaxFileSize, and a redirect to a URL parseFetchURL refuses.
 func (l *Library) get(ctx context.Context, u *url.URL) ([]byte, error) {
 	if _, err := parseFetchURL(u.String()); err != nil {
@@ -157,7 +167,7 @@ func (l *Library) get(ctx context.Context, u *url.URL) ([]byte, error) {
 	}
 	client := l.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	// A redirect must stay on a URL Open would read, so an https library cannot be sent to plain http.
 	c := *client

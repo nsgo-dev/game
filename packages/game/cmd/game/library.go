@@ -38,7 +38,7 @@ func defineLibrary(a *app, fs *flag.FlagSet) func() error {
 	index := fs.String("index", library.DefaultIndex, "the library's index: an https URL, an index file, or a directory holding index.yaml")
 	dir := fs.String("project", ".", "the project directory holding game.yaml, which install and remove change and list marks installed packs from")
 	kind := fs.String("kind", "", "list only packs of this kind: "+strings.Join(project.PackKinds, ", "))
-	into := fs.String("dir", "", "install the pack into this directory of the project instead of the one its manifest names (one pack at a time)")
+	into := fs.String("dir", "", "install the pack into this directory of the project instead of the one it is installed in or its manifest names (one pack at a time)")
 
 	return func() error {
 		if fs.NArg() == 0 {
@@ -161,19 +161,14 @@ func libraryInstall(ctx context.Context, a *app, index, dir, into string, names 
 	return nil
 }
 
-// readProjectIfAny reads the game.yaml in dir, returning nil when there is none.
+// readProjectIfAny reads the game.yaml in dir with project.ReadFS, returning nil when there is none.
 func readProjectIfAny(dir string) (*project.File, error) {
-	path := filepath.Join(dir, project.FileName)
-	data, err := os.ReadFile(path)
+	f, err := project.ReadFS(os.DirFS(dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
-	}
-	f, err := project.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Join(dir, project.FileName), err)
 	}
 	return f, nil
 }

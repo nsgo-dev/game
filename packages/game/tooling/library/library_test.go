@@ -341,8 +341,12 @@ func TestInstallUpdatesAnInstalledPack(t *testing.T) {
 	if f.Packs != nil || f.Autoload.MainScene != "" || !reflect.DeepEqual(f.Autoload.Scenes, []project.Entry{{Name: "title", Path: "title.yaml"}}) {
 		t.Fatalf("after the removal: autoload %+v, packs %+v", f.Autoload, f.Packs)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "scenes")); !os.IsNotExist(err) {
-		t.Fatalf("the removal left the emptied scenes directory: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "scenes", "rooms")); !os.IsNotExist(err) {
+		t.Fatalf("the removal left the pack's emptied directory: %v", err)
+	}
+	// scenes holds the pack's directory and may be the project's own, so it stays.
+	if info, err := os.Stat(filepath.Join(dir, "scenes")); err != nil || !info.IsDir() {
+		t.Fatalf("the removal deleted the directory above the pack's: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "title.yaml")); err != nil {
 		t.Fatalf("the removal deleted the project's own scene: %v", err)
@@ -414,9 +418,18 @@ func TestPlanInstallRefusesConflicts(t *testing.T) {
 		t.Fatalf("another pack's file: %v", err)
 	}
 
-	// A directory outside the project is refused.
-	if _, err := library.PlanInstall(fstest.MapFS{}, base, rooms, "../elsewhere"); err == nil {
-		t.Fatal("an install directory outside the project was accepted")
+	// A directory outside the project, or a hidden one, is refused.
+	for _, dir := range []string{"../elsewhere", ".github/workflows", "assets/.hidden", "aux"} {
+		if _, err := library.PlanInstall(fstest.MapFS{}, base, rooms, dir); err == nil {
+			t.Fatalf("install directory %q was accepted", dir)
+		}
+	}
+
+	// A file another pack wrote is refused when the names differ only in case, as they name one file on macOS and Windows.
+	upper := testPack{manifest: strings.Replace(toolsPack, "files: [waypoints.yaml]", "files: [SHARED.TXT]", 1), files: map[string]string{"SHARED.TXT": "x\n"}}
+	libUpper, _ := newLibrary(t, upper)
+	if _, err := library.PlanInstall(fstest.MapFS{}, installed.Project, fetch(t, libUpper, "level-tools"), "Scenes/Rooms"); err == nil || !strings.Contains(err.Error(), "pack rooms") {
+		t.Fatalf("another pack's file in another case: %v", err)
 	}
 	if _, err := library.PlanRemove(fstest.MapFS{}, base, "rooms"); err == nil {
 		t.Fatal("removing a pack that is not installed succeeded")
@@ -593,8 +606,10 @@ func TestParseIndexRefusesInvalidIndexes(t *testing.T) {
 	if _, err := library.ParseIndex([]byte(entry(", tags: [2d]"))); err != nil {
 		t.Fatalf("a valid index: %v", err)
 	}
-	if _, err := library.ParseIndex([]byte(strings.Replace(entry(""), "source: packs/tiles", "source: 'https://example.com/packs/tiles'", 1))); err != nil {
-		t.Fatalf("an https source: %v", err)
+	for _, source := range []string{"https://example.com/packs/tiles", "http://127.0.0.1:8080/packs/tiles", "http://localhost/packs/tiles"} {
+		if _, err := library.ParseIndex([]byte(strings.Replace(entry(""), "source: packs/tiles", "source: '"+source+"'", 1))); err != nil {
+			t.Fatalf("source %s: %v", source, err)
+		}
 	}
 }
 
@@ -609,6 +624,24 @@ func TestParseManifestRefusesInvalidManifests(t *testing.T) {
 		"manifest listed":   head + "files: [pack.yaml]\n",
 		"duplicate file":    head + "files: [a, a]\n",
 		"file in a file":    head + "files: [a, a/b]\n",
+		"hidden into":       head + "into: .github/workflows\n",
+		"hidden into elem":  head + "into: assets/.cache\n",
+		"hidden file":       head + "files: [.github/workflows/ci.yml]\n",
+		"go source":         head + "files: [init.go]\n",
+		"go source case":    head + "files: [sub/INIT.GO]\n",
+		"assembly":          head + "files: [a.s]\n",
+		"cgo":               head + "files: [a.c]\n",
+		"go.mod":            head + "files: [sub/go.mod]\n",
+		"go.sum":            head + "files: [go.sum]\n",
+		"case clash":        head + "files: [Tiles.png, tiles.png]\n",
+		"case dir clash":    head + "files: [A, a/b]\n",
+		"manifest case":     head + "files: [Pack.yaml]\n",
+		"colon":             head + "files: ['a:b.png']\n",
+		"reserved":          head + "files: [con.txt]\n",
+		"reserved com":      head + "files: [sub/COM1]\n",
+		"trailing dot":      head + "files: ['a.']\n",
+		"trailing space":    head + "files: ['a ']\n",
+		"newline":           head + "files: [\"a\\nb\"]\n",
 		"autoload missing":  head + "files: [a.json]\nautoload: {resources: [{name: r, path: b.json}]}\n",
 		"autoload name":     head + "files: [a.json]\nautoload: {resources: [{name: 'r r', path: a.json}]}\n",
 		"autoload twice":    head + "files: [a.json]\nautoload: {resources: [{name: r, path: a.json}, {name: r, path: a.json}]}\n",
@@ -657,5 +690,106 @@ func TestKindsMatchTheProjectFile(t *testing.T) {
 		if _, err := library.ParseManifest([]byte(m)); err != nil {
 			t.Errorf("kind %s: %v", kind, err)
 		}
+	}
+}
+
+// TestUpdateKeepsTheInstallDirectory installs a pack into a directory of the installer's choosing and updates it without naming one: the new release goes where the old one is, not where its manifest says.
+func TestUpdateKeepsTheInstallDirectory(t *testing.T) {
+	lib1, _ := newLibrary(t, roomsV1)
+	lib2, _ := newLibrary(t, roomsV2)
+	dir := newProject(t, minimalProject)
+	if _, err := library.Install(dir, fetch(t, lib1, "rooms"), "levels/rooms"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := library.Install(dir, fetch(t, lib2, "rooms"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Pack.Dir != "levels/rooms" {
+		t.Fatalf("the update went to %s, want levels/rooms", c.Pack.Dir)
+	}
+	for _, name := range []string{"cellar.scene.yaml", "hall.scene.yaml", "shared.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, "levels", "rooms", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "scenes")); !os.IsNotExist(err) {
+		t.Fatalf("the update wrote into the manifest's directory: %v", err)
+	}
+	if f := readProjectFile(t, dir); f.FindPack("rooms").Dir != "levels/rooms" || f.Autoload.Scenes[0].Path != "levels/rooms/hall.scene.yaml" {
+		t.Fatalf("after the update: record %+v, scenes %+v", f.FindPack("rooms"), f.Autoload.Scenes)
+	}
+}
+
+// layoutPack is a release of a pack called layout holding files, each with content of its own name.
+func layoutPack(version string, files ...string) testPack {
+	content := map[string]string{}
+	for _, f := range files {
+		content[f] = f + "\n"
+	}
+	return testPack{
+		manifest: "version: 1\nname: layout\nkind: asset\npackVersion: " + version + "\ndescription: Layout.\nlicense: MIT\nfiles: [" + strings.Join(files, ", ") + "]\n",
+		files:    content,
+	}
+}
+
+// TestUpdateSwapsAFileAndADirectory updates a pack whose new release has a directory where the old one had a file, and back again.
+func TestUpdateSwapsAFileAndADirectory(t *testing.T) {
+	v1, _ := newLibrary(t, layoutPack("1", "notes", "keep.txt"))
+	v2, _ := newLibrary(t, layoutPack("2", "notes/a.txt", "notes/b.txt", "keep.txt"))
+	dir := newProject(t, minimalProject)
+	notes := filepath.Join(dir, "packs", "layout", "notes")
+	if _, err := library.Install(dir, fetch(t, v1, "layout"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := library.Install(dir, fetch(t, v2, "layout"), ""); err != nil {
+		t.Fatalf("a file turned into a directory: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(notes, "a.txt")); err != nil || string(got) != "notes/a.txt\n" {
+		t.Fatalf("notes/a.txt = %q, %v", got, err)
+	}
+	if _, err := library.Install(dir, fetch(t, v1, "layout"), ""); err != nil {
+		t.Fatalf("a directory turned into a file: %v", err)
+	}
+	if got, err := os.ReadFile(notes); err != nil || string(got) != "notes\n" {
+		t.Fatalf("notes = %q, %v", got, err)
+	}
+	if _, err := project.Check(os.DirFS(dir)); err != nil {
+		t.Fatal(err)
+	}
+
+	// A directory that also holds a file of the project's own is not the pack's to replace.
+	if _, err := library.Install(dir, fetch(t, v2, "layout"), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(notes, "mine.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := library.Install(dir, fetch(t, v1, "layout"), ""); err == nil {
+		t.Fatal("an update replaced a directory holding a file of the project's own")
+	}
+	if got, _ := os.ReadFile(filepath.Join(notes, "mine.txt")); string(got) != "mine\n" {
+		t.Fatalf("the refused update changed mine.txt to %q", got)
+	}
+}
+
+// TestRemoveKeepsDirectoriesAboveThePack installs a pack into a directory inside one the project already had empty, and checks that removing it deletes the pack's directory but not that one.
+func TestRemoveKeepsDirectoriesAboveThePack(t *testing.T) {
+	lib, _ := newLibrary(t, roomsV1)
+	dir := newProject(t, minimalProject)
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := library.Install(dir, fetch(t, lib, "rooms"), "assets/rooms"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := library.Remove(dir, "rooms"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "assets", "rooms")); !os.IsNotExist(err) {
+		t.Fatalf("the pack's directory is still there: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "assets")); err != nil || !info.IsDir() {
+		t.Fatalf("the removal deleted the project's own empty assets directory: %v", err)
 	}
 }

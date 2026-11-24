@@ -241,7 +241,7 @@ game library [flags] list [words] | install <pack>... | remove <pack>... | diges
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `-dir string` |  | install the pack into this directory of the project instead of the one its manifest names (one pack at a time) |
+| `-dir string` |  | install the pack into this directory of the project instead of the one it is installed in or its manifest names (one pack at a time) |
 | `-index string` | `https://raw.githubusercontent.com/nsgo-dev/game/main/library/index.yaml` | the library's index: an https URL, an index file, or a directory holding index.yaml |
 | `-kind string` |  | list only packs of this kind: asset, plugin, template |
 | `-project string` | `.` | the project directory holding game.yaml, which install and remove change and list marks installed packs from |
