@@ -27,6 +27,22 @@ type Options struct {
 	Memory *MemoryTracker
 	// GC, when set, samples GC pauses each frame and highlights GC-hitched frames in the overlay.
 	GC *GCMonitor
+	// DrawStats, when set, supplies live per-frame draw statistics displayed in the overlay and exposed to MCP performance readouts.
+	DrawStats func() DrawStats
+}
+
+// DrawStats captures per-frame draw submission counts for overlay display and MCP performance readouts.
+type DrawStats struct {
+	// DrawCalls is the number of draw calls submitted in the frame.
+	DrawCalls int
+	// Sprites is the number of sprites drawn in the frame.
+	Sprites int
+	// Batches is the number of sprite or instanced draw batches submitted in the frame.
+	Batches int
+	// Triangles is the number of triangles submitted in the frame.
+	Triangles uint64
+	// Vertices is the number of vertices submitted in the frame.
+	Vertices uint64
 }
 
 // FrameSample holds the measured durations of one rendered frame.
@@ -189,6 +205,10 @@ type GCFrameSample struct {
 	Pause time.Duration
 	// HeapObjectsBytes is the live heap object bytes reported by /memory/classes/heap/objects:bytes.
 	HeapObjectsBytes uint64
+	// AllocsDelta is the number of heap objects allocated during this frame (/gc/heap/allocs:objects).
+	AllocsDelta uint64
+	// AllocBytesDelta is the number of heap bytes allocated during this frame (/gc/heap/allocs:bytes).
+	AllocBytesDelta uint64
 	// Hitched reports whether a GC pause occurred during this frame.
 	Hitched bool
 }

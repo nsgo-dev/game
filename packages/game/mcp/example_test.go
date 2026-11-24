@@ -66,4 +66,7 @@ func ExampleNew() {
 	// game_replay_play
 	// game_replay_stop
 	// game_replay_list
+	// game_perf_readout
+	// game_perf_zones
+	// game_perf_reset
 }

@@ -305,6 +305,24 @@ func (p *Profiler) RecordedFrames() int {
 	return n
 }
 
+// Reset clears all recorded scope timings, ring buffers and trace events.
+func (p *Profiler) Reset() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	clear(p.scopeIndex)
+	p.scopes = p.scopes[:0]
+	p.inFrame = false
+	p.completedFrames = 0
+	p.depth = 0
+	p.recording = false
+	p.recordTarget = 0
+	p.recordedFrames = 0
+	p.events = p.events[:0]
+	p.mu.Unlock()
+}
+
 // TopScopes returns up to limit scope summaries sorted descending by per-frame Total duration (then Avg, then Name). If limit <= 0, all scopes are returned.
 func (p *Profiler) TopScopes(limit int) []ScopeSummary {
 	if p == nil {

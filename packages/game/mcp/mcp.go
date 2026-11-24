@@ -18,6 +18,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/nsgo/automation"
@@ -126,6 +127,24 @@ type Config struct {
 
 	// Replay configures input recording and deterministic playback tools.
 	Replay *ReplayController
+
+	// Overlay is the game's development debug overlay for frame timing, draw statistics, GC/allocation and asset memory readouts.
+	Overlay *debug.Overlay
+
+	// Profiler is a named-scope timing profiler. When nil, performance tools fall back to Overlay.Profiler().
+	Profiler *debug.Profiler
+
+	// GC is a per-frame GC and allocation monitor. When nil, performance tools fall back to Overlay.GC().
+	GC *debug.GCMonitor
+
+	// Memory is an asset memory tracker. When nil, performance tools fall back to Overlay.Memory().
+	Memory *debug.MemoryTracker
+
+	// DrawStatsFunc dynamically supplies per-frame draw statistics (draw calls, sprites, batches, triangles, vertices). When nil, performance tools fall back to Overlay.DrawStats() or RenderStatsFunc.
+	DrawStatsFunc func() debug.DrawStats
+
+	// RenderStatsFunc dynamically supplies 3D per-frame render statistics (culling, batching, state switches, geometry and GPU memory).
+	RenderStatsFunc func() render3d.RenderStats
 }
 
 type compTypeKey any
@@ -299,6 +318,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.consoleTools()...)
 	out = append(out, b.editTools()...)
 	out = append(out, b.replayTools()...)
+	out = append(out, b.perfTools()...)
 	return out
 }
 

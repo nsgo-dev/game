@@ -255,6 +255,53 @@ func TestFrameGraphDrawsStackedBarsAndReferenceLine(t *testing.T) {
 	}
 }
 
+func TestOverlayDrawStatsAndResetStats(t *testing.T) {
+	dbg := debug.New(debug.Options{Visible: true})
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{
+			Style:    core.Style{Width: core.Pt(400), Height: core.Pt(300)},
+			Children: []core.Node{dbg.View(cx)},
+		}
+	})
+
+	if dbg.HasDrawStats() || app.Exists("debug-draw-stats") {
+		t.Fatal("draw stats should be absent before SetDrawStats")
+	}
+
+	want := debug.DrawStats{DrawCalls: 7, Sprites: 42, Batches: 2, Triangles: 84, Vertices: 168}
+	app.Post(func() {
+		dbg.RecordFrame(16*time.Millisecond, 3*time.Millisecond, 2*time.Millisecond)
+		dbg.SetDrawStats(want)
+	})
+	app.Settle()
+
+	if !dbg.HasDrawStats() || dbg.DrawStats() != want {
+		t.Fatalf("DrawStats() = %+v (has=%v), want %+v", dbg.DrawStats(), dbg.HasDrawStats(), want)
+	}
+	if !app.Exists("debug-draw-stats") {
+		t.Fatal("debug-draw-stats section not mounted after SetDrawStats")
+	}
+	foundDraw := false
+	for _, txt := range app.Texts() {
+		if strings.Contains(txt, "7 calls") && strings.Contains(txt, "42 sprites") && strings.Contains(txt, "84 tris") {
+			foundDraw = true
+			break
+		}
+	}
+	if !foundDraw {
+		t.Fatalf("overlay texts %v missing draw stats summary", app.Texts())
+	}
+
+	app.Post(dbg.ResetStats)
+	app.Settle()
+	if dbg.Stats().Len() != 0 || dbg.HasDrawStats() || dbg.DrawStats() != (debug.DrawStats{}) {
+		t.Fatalf("ResetStats did not clear frame/draw stats: len=%d has=%v ds=%+v", dbg.Stats().Len(), dbg.HasDrawStats(), dbg.DrawStats())
+	}
+	if app.Exists("debug-draw-stats") {
+		t.Fatal("debug-draw-stats still mounted after ResetStats")
+	}
+}
+
 func TestShapesAlignAcrossCameraZoomsAndRotations(t *testing.T) {
 	green := core.RGB(0x22C55E)
 	cyan := core.RGB(0x38BDF8)

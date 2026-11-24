@@ -33,6 +33,9 @@
 //   - game_replay_play: replay a stored or inline YAML recording deterministically, optionally resetting and running to completion.
 //   - game_replay_stop: stop an active replay playback cleanly.
 //   - game_replay_list: list stored recordings with frame counts, seeds, step rates and metadata.
+//   - game_perf_readout: read live frame timing (FPS, frame/update/draw costs and percentiles), draw statistics, allocations per frame, heap/GC counters, asset memory, and optional frame history or profiler zones matching the debug overlay.
+//   - game_perf_zones: list named profiler timing zones sorted by recent per-frame cost.
+//   - game_perf_reset: reset accumulated debug overlay frame timings, pushed draw statistics, profiler zones and GC monitor history.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable and editable automatically. Transient or non-saved components can also be exposed with [RegisterComponent], [RegisterComponentFunc], [RegisterMutableComponent] or [RegisterComponentEditor], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name. Prefabs can be registered via [Config.Prefabs], [Bridge.RegisterPrefab], [Bridge.RegisterEntityPrefab] or [Bridge.RegisterScenePrefab].
 //

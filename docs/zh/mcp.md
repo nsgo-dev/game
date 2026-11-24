@@ -14,20 +14,22 @@ import "github.com/nsgo-dev/game/packages/game/mcp"
 
 ```go
 bridge, err := mcp.Attach(cx, mcp.Config{
-	Scenes:        g.scenes,
-	SceneName:     func(c *scene.Controller) string { return g.sceneNames[c] },
-	SceneFunc:     func() *scene.Scene { return g.activeScene },
-	NamedScenes:   map[string]*scene.Scene{"title": g.titleScene},
-	WorldFunc:     func() *entities.World { return g.world },
-	EntityName:    func(e entities.Entity) string { return g.names[e] },
-	EntityTags:    func(e entities.Entity) []string { return g.tags[e] },
-	EntityLayer:   func(e entities.Entity) string { return g.layers[e] },
-	Loop:          g.loop,
-	RandomStreams: g.rng,
-	Actions:       g.actions,
-	Viewport:      &g.viewport,
-	ViewSizeFunc:  g.currentViewSize,
-	Console:       g.console,
+	Scenes:          g.scenes,
+	SceneName:       func(c *scene.Controller) string { return g.sceneNames[c] },
+	SceneFunc:       func() *scene.Scene { return g.activeScene },
+	NamedScenes:     map[string]*scene.Scene{"title": g.titleScene},
+	WorldFunc:       func() *entities.World { return g.world },
+	EntityName:      func(e entities.Entity) string { return g.names[e] },
+	EntityTags:      func(e entities.Entity) []string { return g.tags[e] },
+	EntityLayer:     func(e entities.Entity) string { return g.layers[e] },
+	Loop:            g.loop,
+	RandomStreams:   g.rng,
+	Actions:         g.actions,
+	Viewport:        &g.viewport,
+	ViewSizeFunc:    g.currentViewSize,
+	Console:         g.console,
+	Overlay:         g.debugOverlay,
+	RenderStatsFunc: func() render3d.RenderStats { return g.lastRenderStats },
 })
 if err != nil {
 	return err
@@ -117,6 +119,9 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_replay_play` | `name` 或 `yaml`（二选一）、`run_to_end`（默认 `false`）、`steps`（`1..3600`）、`reset`（配置了 `ResetFunc` 或种子目标时默认 `true`） | 按录制的种子重置，然后通过 `replay.Player` 开始确定性回放，并可选通过 `StepFunc` 或游戏循环的 `StepNow` 同步推进全部帧（`run_to_end`，录制不超过 `3600` 步）或 `steps` 帧。`rate` 与游戏固定步频不同的录制会被拒绝。 |
 | `game_replay_stop` | `{}` | 安全停止当前正在进行的回放，并报告已回放的帧数。 |
 | `game_replay_list` | `{}` | 按名称排序列出已存储的录制及其 `frames`、`seed`、`step_rate`、`events`、`actions`、`axes` 与 `metadata`。 |
+| `game_perf_readout` | `include_history`（可选，默认 `false`）、`history_limit`（可选）、`include_zones`（可选，默认 `false`）、`zones_limit`（可选） | 与调试浮层数值一致的实时性能读数：`fps`、滑动平均与最近一帧的 `frame_ms`/`update_ms`/`draw_ms`、最小/最大及 p50/p95/p99 帧时间、绘制统计（`draw_calls`、`sprites`、`batches`、`triangles`、`vertices`）、每帧堆分配（`allocs_per_frame`、`alloc_bytes_per_frame`、`last_frame_allocs`、`last_frame_alloc_bytes`）、`heap_bytes`、`gc_count`、GC 停顿与卡顿统计、可选的 `render3d` 与 `asset_memory` 明细，以及可选的时间序 `history` 与分析器 `zones`。 |
+| `game_perf_zones` | `limit`（可选） | 按最近帧耗时降序排列的 `debug.Profiler` 命名计时区间列表（`name`、`last_ms`、`avg_ms`、`max_ms`、`calls`），以及 `recording`、`recorded_frames` 和 `total`。 |
+| `game_perf_reset` | `{}` | 重置累积的 `debug.Overlay` 帧耗时与推送绘制统计、`debug.Profiler` 区间以及 `debug.GCMonitor` 历史记录。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -186,6 +191,14 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - 通过 `game_replay_record_stop` 结束的录制会按名称存入内存，并返回标准、确定性的 [`game/replay`](replay.md) v2 YAML 文本。若希望智能体同时通过 `save_path` 落盘，可配置 `ReplayConfig.SaveDir`；写入经由 `os.Root` 进行，绝对路径、`..` 与符号链接都无法离开 `SaveDir`。`metadata` 只保存在内存存储中，不属于 YAML，因此保存的文件或内联 `yaml` 回放都不带它。
 - `game_replay_play` 支持按已存 `name` 或内联 `yaml` 文本回放，可同步回放（`run_to_end: true` 或 `steps: N`），也可随游戏循环逐帧回放。未设置 `StepFunc` 时，同步回放通过 `Loop.StepNow` 推进桥接器的游戏循环，因此 `game_loop_status` 会计入回放的步数与游戏时间。与 `game_loop_step` 相同，单次调用最多推进 `MaxLoopSteps`（`3600`）步。
 - 最后一个录制步之后，下一次 `ctrl.Step()` 是一个收尾回放步，会释放录制结束时仍按住的动作（触发一次 `JustReleased`）；再下一步才恢复实时输入并调用 `OnReplayStop`。
+
+## 性能读数
+
+通过 `Config.Overlay` 传入 [`debug.Overlay`](debug.md)，即可把调试 HUD 显示的帧耗时、绘制统计（`debug.Options.DrawStats` 或 `Overlay.SetDrawStats`）、GC 与每帧分配计数（`debug.GCMonitor`）、资源内存（`debug.MemoryTracker`）以及命名计时区间（`debug.Profiler`）以完全一致的数值暴露给智能体。
+
+- `Config.Profiler`、`Config.GC`、`Config.Memory` 与 `Config.DrawStatsFunc` 既可覆盖 `Config.Overlay` 上的对应组件，也可在不启用浮层时单独使用。
+- `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。
+- `game_perf_readout` 始终返回 `sources` 对象，标明哪些遥测来源已启用（`overlay`、`profiler`、`gc`、`memory`、`draw_stats`、`render3d`）。
 
 ## 稳定的实体引用
 

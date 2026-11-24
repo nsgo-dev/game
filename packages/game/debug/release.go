@@ -58,6 +58,18 @@ func (*Overlay) Memory() *MemoryTracker { return &releaseMemoryTracker }
 // GC returns a no-op GCMonitor in release builds.
 func (*Overlay) GC() *GCMonitor { return &releaseGCMonitor }
 
+// SetDrawStats is a no-op in release builds.
+func (*Overlay) SetDrawStats(DrawStats) {}
+
+// DrawStats always returns the zero DrawStats in release builds.
+func (*Overlay) DrawStats() DrawStats { return DrawStats{} }
+
+// HasDrawStats always returns false in release builds.
+func (*Overlay) HasDrawStats() bool { return false }
+
+// ResetStats is a no-op in release builds.
+func (*Overlay) ResetStats() {}
+
 // SetScenes is a no-op in release builds.
 func (*Overlay) SetScenes([]SceneSnapshot) {}
 
