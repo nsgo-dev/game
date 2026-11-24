@@ -1431,3 +1431,97 @@ func absDiffU8(a, b uint8) uint8 {
 	}
 	return b - a
 }
+
+// TestSkyboxKeepsGeometryNearFarPlane draws a quad a few units inside the far plane before the skybox and checks the skybox does not paint over it, at a near/far ratio where z = 0.999999 would.
+func TestSkyboxKeepsGeometryNearFarPlane(t *testing.T) {
+	const (
+		w    = 32
+		h    = 32
+		near = 0.1
+		far  = 1000
+		dist = 995
+	)
+	sr := gpu.NewSoftwareRenderer(w, h, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	cube, err := render3d.UploadCubemap(nil, dev, cardinalCubemap(4), render3d.CubemapUpload{Label: "cardinal"})
+	if err != nil {
+		t.Fatalf("UploadCubemap: %v", err)
+	}
+	t.Cleanup(func() { _ = cube.Close() })
+	skyPipe, err := render3d.NewSkyboxPipeline(nil, dev, render3d.SkyboxPipelineDesc{ColorFormat: gpu.FormatRGBA8Unorm, DepthFormat: gpu.FormatDepth24Plus})
+	if err != nil {
+		t.Fatalf("NewSkyboxPipeline: %v", err)
+	}
+	t.Cleanup(func() { _ = skyPipe.Close() })
+	skyGroup, err := skyPipe.BindCubemap(nil, cube)
+	if err != nil {
+		t.Fatalf("BindCubemap: %v", err)
+	}
+	t.Cleanup(func() { _ = skyGroup.Close() })
+
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	mod, err := gpu.CompileWGSL(render3d.CameraWGSL + `
+@vertex
+fn vs_main(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>) -> @builtin(position) vec4<f32> {
+	return camera.view_proj * vec4<f32>(pos, 1.0);
+}
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+	return vec4<f32>(1.0, 1.0, 1.0, 1.0);
+}
+`)
+	if err != nil {
+		t.Fatalf("CompileWGSL: %v", err)
+	}
+	pipe, err := dev.CreatePipeline(nil, gpu.PipelineDesc{
+		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
+		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
+		Layouts:       []*gpu.BindGroupLayout{camBuf.Layout()},
+		VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
+		Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: gpu.CullNone},
+		DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
+		Targets:       []gpu.ColorTargetState{{Format: gpu.FormatRGBA8Unorm, WriteMask: gpu.ColorWriteAll}},
+	})
+	if err != nil {
+		t.Fatalf("CreatePipeline: %v", err)
+	}
+	const s = 100
+	quad, err := render3d.UploadMesh(nil, dev, render3d.Mesh{
+		Positions: []math3d.Vec3{{X: -s, Y: -s, Z: -dist}, {X: s, Y: -s, Z: -dist}, {X: s, Y: s, Z: -dist}, {X: -s, Y: s, Z: -dist}},
+		Normals:   []math3d.Vec3{{Z: 1}, {Z: 1}, {Z: 1}, {Z: 1}},
+		UVs:       []math3d.Vec2{{}, {X: 1}, {X: 1, Y: 1}, {Y: 1}},
+		Indices:   []uint32{0, 1, 2, 0, 2, 3},
+	}, render3d.MeshUpload{Label: "far-quad"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = quad.Close() })
+
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3Zero(), math3d.DegToRad(60), 1, near, far)
+	cam.LookAt(math3d.Vec3{Z: -1}, math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+	skyPipe.WriteCamera(cam)
+
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	pass.SetPipeline(pipe)
+	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	quad.Draw(pass)
+	skyPipe.Draw(pass, skyGroup)
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+	wantPixel(t, sr.Image(), w/2, h/2, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+}
