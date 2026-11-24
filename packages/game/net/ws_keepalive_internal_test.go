@@ -11,6 +11,7 @@ import (
 	stdnet "net"
 	"net/http"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -226,5 +227,100 @@ func TestWebSocketServerRefusesAnOversizedHello(t *testing.T) {
 	}
 	if _, err := br.ReadByte(); !errors.Is(err, io.EOF) {
 		t.Fatalf("read after an oversized hello = %v, want the server to close the connection", err)
+	}
+}
+
+// #546 review: the idle deadline was set once per frame, so a large frame that took longer than the idle timeout to arrive dropped the connection mid-frame even though its bytes kept coming.
+func TestWebSocketServerReadsAFrameThatArrivesSlowlyButSteadily(t *testing.T) {
+	srv := listenWSKeepAlive(t, Auth{}, wsKeepAlive{ping: 20 * time.Millisecond, idle: 150 * time.Millisecond})
+	h, _ := newHello([]byte("token"), resumeState{})
+	conn, br, w, err := rawWSHello(t, srv, h)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+		t.Fatalf("event = %+v, want joined", ev)
+	}
+
+	want := bytes.Repeat([]byte("slow"), 4096)
+	var frame bytes.Buffer
+	if err := writeWSFrame(&frame, wsOpBinary, true, encodeWireFrame(ChannelReliableOrdered, 1, want)); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	// Send one slice of the frame per server ping: 24 pings, about 480 ms, more than three idle timeouts, with bytes arriving every 20 ms.
+	const parts = 24
+	raw := frame.Bytes()
+	step := (len(raw) + parts - 1) / parts
+	for off := 0; off < len(raw); off += step {
+		_, op, _, _, err := readWSFrame(br)
+		if err != nil {
+			t.Fatalf("read at offset %d: %v", off, err)
+		}
+		if op != wsOpPing {
+			t.Fatalf("server sent opcode %#x, want a ping", op)
+		}
+		if _, err := conn.Write(raw[off:min(off+step, len(raw))]); err != nil {
+			t.Fatalf("write at offset %d: %v", off, err)
+		}
+	}
+
+	var pkt Packet
+	awaitChange(t, srv.changed, "the slow frame", func() bool {
+		var ok bool
+		pkt, ok = srv.Recv()
+		return ok
+	})
+	if pkt.From != w.peer || !bytes.Equal(pkt.Payload, want) {
+		t.Fatalf("packet from %d with %d bytes, want %d bytes from %d", pkt.From, len(pkt.Payload), len(want), w.peer)
+	}
+	expectNoEvent(t, srv)
+}
+
+// #546 review: Close took each client's write lock in turn without breaking a Send already blocked on a client that does not read, so it waited out that Send's 10-second write deadline, once per such client.
+func TestWebSocketServerCloseBreaksABlockedSend(t *testing.T) {
+	srv, err := listenWebSocket("127.0.0.1:0", 1, Auth{}, nil, nil, serverKeepAlive(Auth{}))
+	if err != nil {
+		t.Fatalf("listenWebSocket: %v", err)
+	}
+	var clients []PeerID
+	for range 2 {
+		h, _ := newHello([]byte("token"), resumeState{})
+		if _, _, w, err := rawWSHello(t, srv, h); err != nil {
+			t.Fatalf("handshake: %v", err)
+		} else {
+			clients = append(clients, w.peer)
+		}
+	}
+	// The raw clients never read, so a Send of 4 MiB frames blocks on a full socket buffer once loopback's buffers are full, within the first frame or two.
+	big := make([]byte, maxWSMessageSize-wireHeaderSize)
+	var started atomic.Int32
+	done := make(chan struct{}, len(clients))
+	for _, id := range clients {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for {
+				started.Add(1)
+				if err := srv.Send(id, ChannelReliableOrdered, big); err != nil {
+					return
+				}
+			}
+		}()
+	}
+	waitFor(t, "every sender to start sending", func() bool { return started.Load() >= int32(len(clients)) })
+
+	begin := time.Now()
+	if err := srv.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("Close took %v with Sends blocked on clients that do not read", took)
+	}
+	for range clients {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a blocked Send did not return after Close")
+		}
 	}
 }

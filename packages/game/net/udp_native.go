@@ -241,6 +241,7 @@ func (u *UDPTransport) Close() error {
 		return nil
 	}
 	u.closed = true
+	u.err = nil
 	u.mu.Unlock()
 	return u.conn.Close()
 }

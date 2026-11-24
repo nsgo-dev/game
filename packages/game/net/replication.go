@@ -700,6 +700,28 @@ func (c *ClientWorld) LatestTick() (uint32, bool) {
 	return c.latestTick, c.hasLatest
 }
 
+// Reset forgets every snapshot, partial snapshot and prediction, as when the client joins a new match or the server restarts its tick count, and reports every entity the client knew through OnDespawn, in EntityID order. Snapshot ticks are compared in serial-number order, so without a Reset a client whose server went back to tick 0 drops every snapshot as stale until the new ticks pass the old ones. Reconciliations and LastReconcileError keep counting.
+func (c *ClientWorld) Reset() {
+	var known []EntityID
+	if c.hasLatest {
+		for id := range c.byTick[c.latestTick] {
+			known = append(known, id)
+		}
+	}
+	c.snapshots = nil
+	c.byTick = make(map[uint32]map[EntityID]EntityState)
+	c.hasLatest, c.latestTick = false, 0
+	c.predicted = make(map[EntityID]*predictedTracker)
+	c.lastResyncTick, c.hasResync = 0, false
+	c.assembly = nil
+	if c.OnDespawn != nil {
+		slices.Sort(known)
+		for _, id := range known {
+			c.OnDespawn(id)
+		}
+	}
+}
+
 // Entity returns the latest authoritative state of id.
 func (c *ClientWorld) Entity(id EntityID) (EntityState, bool) {
 	if !c.hasLatest {
@@ -793,8 +815,7 @@ func readFullEntities(src []byte, limit int) (map[EntityID]EntityState, bool) {
 		return nil, false
 	}
 	src = src[n:]
-	// Every entity needs at least one byte of id and one of mask, so a count beyond the payload
-	// is a corrupt packet, not a reason to allocate a huge map.
+	// Every entity needs at least one byte of id and one of mask, so a count beyond the payload is a corrupt packet, not a reason to allocate a huge map.
 	if count > uint64(len(src)/2) || count > uint64(limit) {
 		return nil, false
 	}

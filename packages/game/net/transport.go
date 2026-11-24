@@ -71,10 +71,9 @@ var (
 	ErrInvalidPacket = errors.New("net: invalid packet")
 	// ErrPayloadTooLarge is returned when a payload exceeds transport limits.
 	ErrPayloadTooLarge = errors.New("net: payload too large")
-	// ErrUnsupportedChannel is returned when a transport cannot provide the
-	// delivery guarantees the requested channel asks for.
+	// ErrUnsupportedChannel is returned when a transport cannot provide the delivery guarantees the requested channel asks for.
 	ErrUnsupportedChannel = errors.New("net: channel not supported by transport")
-	// ErrReceiveFailed is returned, wrapping the socket's error, by a transport whose socket failed so that it can no longer receive. Before #546 a UDP transport stopped receiving silently in that case.
+	// ErrReceiveFailed is returned, wrapping the socket's error, by a transport whose socket failed so that it can no longer receive.
 	ErrReceiveFailed = errors.New("net: receive failed")
 )
 
@@ -105,6 +104,9 @@ func decodeWireFrame(frame []byte) (ch Channel, seq uint32, payload []byte, err 
 	return ch, seq, payload, nil
 }
 
+// packetQueueKeep is the largest buffer, in packets, a packetQueue keeps once it is empty.
+const packetQueueKeep = 256
+
 // packetQueue is a FIFO of received packets. Pop advances a head index instead of shifting the slice, and the queue compacts only once the consumed prefix is at least as long as what remains, so draining n packets moves at most n packets in total rather than n²/2 (#546).
 type packetQueue struct {
 	buf  []Packet
@@ -127,6 +129,8 @@ func (q *packetQueue) pop() (Packet, bool) {
 	q.buf[q.head] = Packet{} // release the payload for the garbage collector
 	q.head++
 	switch rest := len(q.buf) - q.head; {
+	case rest == 0 && cap(q.buf) > packetQueueKeep:
+		q.buf, q.head = nil, 0 // a burst is over: give its buffer back rather than hold it for good
 	case rest == 0:
 		q.buf, q.head = q.buf[:0], 0
 	case q.head >= 64 && q.head >= rest:
