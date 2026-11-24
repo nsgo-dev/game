@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/scene"
+	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -15,31 +17,71 @@ import (
 const (
 	dragOrbitSensitivity = 0.0085 // radians per point dragged
 	wheelZoomSensitivity = 0.0045 // meters per wheel point
-	keyOrbitStep         = 0.14   // radians per keypress
-	keyZoomStep          = 0.55   // meters per keypress
+	keyOrbitStep         = 0.14   // radians per single tap
+	keyOrbitRate         = 1.6    // radians per second while held
+	keyZoomStep          = 0.55   // meters per single tap
+	keyZoomRate          = 4.5    // meters per second while held
+
+	switchFadeDuration = 320 * time.Millisecond
 )
 
-// Controller connects the glTF Scene, GPU Renderer, fixed-step game.Loop, mouse/touch/keyboard camera orbit controls, and native scene.HUD3D overlay.
+// SceneMode identifies which primary scene is active in Lantern 3D's scene.Manager.
+type SceneMode int
+
+const (
+	// Mode3D shows the interactive 3D glTF Lantern Shrine on a gpu.View.
+	Mode3D SceneMode = iota
+	// Mode2D shows the top-down 2D Courtyard Overworld map on a 2D Canvas.
+	Mode2D
+)
+
+// Controller connects the 3D glTF Scene, the 2D Courtyard Map2D, the GPU Renderer, scene.Manager (with shared input.Actions and shared sound.Mixer), fixed-step game.Loop, and native scene.HUD3D overlay.
 type Controller struct {
+	Manager  *scene.Manager
+	Actions  *input.Actions
+	Audio    *Audio
 	Scene    *Scene
+	Map      *Map2D
 	Renderer *Renderer
 	Loop     *game.Loop
 	HUD      *scene.HUD3D
+
+	// SwitchFade is the duration of the twilight fade used when switching between 2D and 3D scenes.
+	SwitchFade time.Duration
 
 	RenderedFrames uint64
 	DeviceReady    int
 	DeviceLost     int
 	DeviceRestored int
 
+	Shrine3DEnters  int
+	Shrine3DExits   int
+	Shrine3DPauses  int
+	Shrine3DResumes int
+	Map2DEnters     int
+	Map2DExits      int
+	ViewBuilds3D    int
+	ViewCleanups3D  int
+	SwitchCount     int
+
+	shrine3D     *scene.Controller
+	map2D        *scene.Controller
+	pauseOverlay *scene.Controller
+	stageRef     *core.Ref
+
 	alpha       float32
 	lastFrameAt time.Time
 	fpsAccum    float64
 	fpsFrames   int
 
+	modeSig       *core.Signal[SceneMode]
+	pausedSig     *core.Signal[bool]
+	nearPortalSig *core.Signal[bool]
 	autoOrbitSig  *core.Signal[bool]
 	animLightsSig *core.Signal[bool]
 	fpsSig        *core.Signal[int]
 	gpuErrSig     *core.Signal[string]
+	frameTick     *core.Signal[uint64]
 
 	mouseDragging bool
 	lastMousePos  core.Point
@@ -54,79 +96,326 @@ func Root(cx *core.Scope) core.Node {
 	return node
 }
 
-// NewView builds the 3D scene, GPU renderer, fixed-step loop, and native HUD overlay, returning the controller alongside the root node.
+// NewView builds the 3D glTF shrine scene, 2D courtyard map scene, shared input actions, shared audio mixer, scene.Manager host, fixed-step loop, and native HUD overlay, starting in the 3D shrine scene.
 func NewView(cx *core.Scope) (*Controller, core.Node) {
+	return newView(cx, Mode3D)
+}
+
+func newView(cx *core.Scope, initialMode SceneMode) (*Controller, core.Node) {
 	cx.SetTitle(gameProject.Title())
 
 	sc, err := NewScene()
 	if err != nil {
 		panic(err)
 	}
+	aud, err := NewAudio(cx)
+	if err != nil {
+		panic(err)
+	}
+
+	actions := newSharedActions(cx)
+	mgr := scene.NewManager(cx)
+	mgr.Actions = actions
 
 	c := &Controller{
+		Manager:       mgr,
+		Actions:       actions,
+		Audio:         aud,
 		Scene:         sc,
+		Map:           NewMap2D(),
 		Renderer:      &Renderer{},
 		HUD:           scene.NewHUD3D(cx),
+		SwitchFade:    switchFadeDuration,
+		stageRef:      &core.Ref{},
+		modeSig:       core.NewSignal(cx, initialMode),
+		pausedSig:     core.NewSignal(cx, false),
+		nearPortalSig: core.NewSignal(cx, false),
 		autoOrbitSig:  core.NewSignal(cx, sc.AutoOrbit),
 		animLightsSig: core.NewSignal(cx, sc.AnimateLights),
 		fpsSig:        core.NewSignal(cx, 60),
 		gpuErrSig:     core.NewSignal(cx, ""),
+		frameTick:     core.NewSignal[uint64](cx, 0),
 		activeTouches: make(map[int]core.Point, 2),
+	}
+
+	c.initScenes()
+	if initialMode == Mode2D {
+		c.Manager.Switch(c.map2D, nil)
+	} else {
+		c.Manager.Switch(c.shrine3D, nil)
 	}
 
 	c.Loop = &game.Loop{
 		Rate: stepRate,
 		Update: func(dt time.Duration) {
-			if err := c.Scene.Step(dt); err != nil && c.gpuErrSig.GetUntracked() == "" {
-				c.gpuErrSig.Set(fmt.Sprintf("Failed to animate the 3D scene: %v", err))
+			c.Actions.Step()
+			if c.Actions.JustPressed("toggle_hud") {
+				c.HUD.Toggle()
 			}
+			c.Manager.Update(dt)
 		},
 		Draw: func(alpha float64) {
 			c.alpha = float32(alpha)
+			if c.modeSig.GetUntracked() == Mode2D || c.pausedSig.GetUntracked() || c.Manager.Transitioning() {
+				c.frameTick.Set(c.frameTick.GetUntracked() + 1)
+			}
 		},
 	}
 	c.Loop.Run(cx)
 
-	c.bindKeys(cx)
 	return c, c.view(cx)
 }
 
-func (c *Controller) bindKeys(cx *core.Scope) {
-	repeat := core.KeyOptions{When: core.KeyAlways, Repeat: true}
-	once := core.KeyOptions{When: core.KeyAlways}
+func newSharedActions(cx *core.Scope) *input.Actions {
+	a := input.NewActions()
+	a.Bind("move_left", input.Key("left"), input.Key("a"))
+	a.Bind("move_right", input.Key("right"), input.Key("d"))
+	a.Bind("move_up", input.Key("up"), input.Key("w"))
+	a.Bind("move_down", input.Key("down"), input.Key("s"))
+	a.BindAxis("move_x", "move_left", "move_right")
+	a.BindAxis("move_y", "move_up", "move_down")
 
-	cx.OnKeyWith("left", repeat, func() { c.Scene.Orbit.Orbit(-keyOrbitStep, 0) })
-	cx.OnKeyWith("right", repeat, func() { c.Scene.Orbit.Orbit(keyOrbitStep, 0) })
-	cx.OnKeyWith("a", repeat, func() { c.Scene.Orbit.Orbit(-keyOrbitStep, 0) })
-	cx.OnKeyWith("d", repeat, func() { c.Scene.Orbit.Orbit(keyOrbitStep, 0) })
-	cx.OnKeyWith("up", repeat, func() { c.Scene.Orbit.Orbit(0, keyOrbitStep) })
-	cx.OnKeyWith("down", repeat, func() { c.Scene.Orbit.Orbit(0, -keyOrbitStep) })
-	cx.OnKeyWith("w", repeat, func() { c.Scene.Orbit.Orbit(0, keyOrbitStep) })
-	cx.OnKeyWith("s", repeat, func() { c.Scene.Orbit.Orbit(0, -keyOrbitStep) })
-	cx.OnKeyWith("=", repeat, func() { c.Scene.Orbit.Zoom(-keyZoomStep) })
-	cx.OnKeyWith("+", repeat, func() { c.Scene.Orbit.Zoom(-keyZoomStep) })
-	cx.OnKeyWith("-", repeat, func() { c.Scene.Orbit.Zoom(keyZoomStep) })
-	cx.OnKeyWith("space", once, c.ToggleAutoOrbit)
-	cx.OnKeyWith("l", once, c.ToggleLights)
-	cx.OnKeyWith("r", once, c.ResetCamera)
-	cx.OnKeyWith("h", once, func() { c.HUD.Toggle() })
+	a.Bind("zoom_in", input.Key("="), input.Key("+"), input.KeyCode("Equal"))
+	a.Bind("zoom_out", input.Key("-"), input.KeyCode("Minus"))
+	a.Bind("toggle_orbit", input.Key("space"))
+	a.Bind("toggle_lights", input.Key("l"))
+	a.Bind("reset", input.Key("r"))
+	a.Bind("toggle_hud", input.Key("h"))
+	a.Bind("switch_scene", input.Key("tab"), input.Key("m"))
+	a.Bind("interact", input.Key("e"), input.Key("enter"))
+	a.Bind("pause", input.Key("p"), input.Key("escape"))
+	a.WatchKeys(cx)
+	return a
+}
+
+func (c *Controller) initScenes() {
+	c.shrine3D = &scene.Controller{
+		Enter: func(*core.Scope) {
+			c.Shrine3DEnters++
+			c.modeSig.Set(Mode3D)
+			c.nearPortalSig.Set(false)
+		},
+		Exit: func() {
+			c.Shrine3DExits++
+			c.clearPointerDrag()
+		},
+		Pause: func() {
+			c.Shrine3DPauses++
+			c.clearPointerDrag()
+		},
+		Resume: func() {
+			c.Shrine3DResumes++
+		},
+		Update: c.update3D,
+		View:   c.build3DSceneView,
+	}
+
+	c.map2D = &scene.Controller{
+		Enter: func(*core.Scope) {
+			c.Map2DEnters++
+			c.modeSig.Set(Mode2D)
+			c.nearPortalSig.Set(c.Map.NearPortal())
+		},
+		Exit: func() {
+			c.Map2DExits++
+		},
+		Update: c.update2D,
+		Draw: func(d *core.Drawing, alpha float64) {
+			c.Map.Draw(d, alpha)
+		},
+	}
+
+	c.pauseOverlay = &scene.Controller{
+		Transparent: true,
+		Enter: func(*core.Scope) {
+			c.pausedSig.Set(true)
+		},
+		Exit: func() {
+			c.pausedSig.Set(false)
+		},
+		Update: func(time.Duration) {
+			if c.Actions.JustPressed("pause") {
+				c.TogglePause()
+				return
+			}
+			if c.Actions.JustPressed("switch_scene") {
+				c.SwitchMode()
+			}
+		},
+		Draw: drawPauseOverlay,
+	}
+}
+
+func (c *Controller) clearPointerDrag() {
+	c.mouseDragging = false
+	clear(c.activeTouches)
+	c.Scene.Dragging = false
+}
+
+func (c *Controller) update3D(dt time.Duration) {
+	if c.Actions.JustPressed("switch_scene") {
+		c.SwitchTo2D()
+		return
+	}
+	if c.Actions.JustPressed("pause") {
+		c.TogglePause()
+		return
+	}
+	if c.Actions.JustPressed("toggle_orbit") {
+		c.ToggleAutoOrbit()
+	}
+	if c.Actions.JustPressed("toggle_lights") {
+		c.ToggleLights()
+	}
+	if c.Actions.JustPressed("reset") {
+		c.ResetCamera()
+	}
+
+	sec := float32(dt.Seconds())
+	if c.Actions.JustPressed("move_left") {
+		c.Scene.Orbit.Orbit(-keyOrbitStep, 0)
+	} else if c.Actions.Pressed("move_left") {
+		c.Scene.Orbit.Orbit(-keyOrbitRate*sec, 0)
+	}
+	if c.Actions.JustPressed("move_right") {
+		c.Scene.Orbit.Orbit(keyOrbitStep, 0)
+	} else if c.Actions.Pressed("move_right") {
+		c.Scene.Orbit.Orbit(keyOrbitRate*sec, 0)
+	}
+	if c.Actions.JustPressed("move_up") {
+		c.Scene.Orbit.Orbit(0, keyOrbitStep)
+	} else if c.Actions.Pressed("move_up") {
+		c.Scene.Orbit.Orbit(0, keyOrbitRate*sec)
+	}
+	if c.Actions.JustPressed("move_down") {
+		c.Scene.Orbit.Orbit(0, -keyOrbitStep)
+	} else if c.Actions.Pressed("move_down") {
+		c.Scene.Orbit.Orbit(0, -keyOrbitRate*sec)
+	}
+	if c.Actions.JustPressed("zoom_in") {
+		c.Scene.Orbit.Zoom(-keyZoomStep)
+	} else if c.Actions.Pressed("zoom_in") {
+		c.Scene.Orbit.Zoom(-keyZoomRate * sec)
+	}
+	if c.Actions.JustPressed("zoom_out") {
+		c.Scene.Orbit.Zoom(keyZoomStep)
+	} else if c.Actions.Pressed("zoom_out") {
+		c.Scene.Orbit.Zoom(keyZoomRate * sec)
+	}
+
+	if err := c.Scene.Step(dt); err != nil && c.gpuErrSig.GetUntracked() == "" {
+		c.gpuErrSig.Set(fmt.Sprintf("Failed to animate the 3D scene: %v", err))
+	}
+}
+
+func (c *Controller) update2D(dt time.Duration) {
+	if c.Actions.JustPressed("switch_scene") {
+		c.SwitchTo3D()
+		return
+	}
+	if c.Actions.JustPressed("pause") {
+		c.TogglePause()
+		return
+	}
+	if c.Actions.JustPressed("reset") {
+		c.ResetCurrentView()
+	}
+
+	if c.Scene.AnimateLights {
+		c.Scene.LightPhase += lightOrbitRate * dt.Seconds()
+	}
+	c.Map.Step(dt, c.Actions.Axis("move_x"), c.Actions.Axis("move_y"), c.Scene.LightPhase)
+
+	near := c.Map.NearPortal()
+	if near != c.nearPortalSig.GetUntracked() {
+		c.nearPortalSig.Set(near)
+	}
+	if near && c.Actions.JustPressed("interact") {
+		c.SwitchTo3D()
+	}
+}
+
+// Mode returns the currently active primary scene mode (Mode3D or Mode2D).
+func (c *Controller) Mode() SceneMode {
+	return c.modeSig.GetUntracked()
+}
+
+// Paused reports whether the transparent 2D pause overlay is pushed on top of the active scene.
+func (c *Controller) Paused() bool {
+	return c.pausedSig.GetUntracked()
+}
+
+// SwitchMode fades between the 3D Lantern Shrine and the 2D Courtyard Map.
+func (c *Controller) SwitchMode() {
+	if c.Mode() == Mode3D {
+		c.SwitchTo2D()
+	} else {
+		c.SwitchTo3D()
+	}
+}
+
+// SwitchTo2D transitions to the 2D Courtyard Map scene with a twilight fade, keeping shared input and audio alive.
+func (c *Controller) SwitchTo2D() {
+	if c.Mode() == Mode2D && !c.Paused() {
+		return
+	}
+	c.SwitchCount++
+	c.Audio.PlaySwitch()
+	c.Manager.Switch(c.map2D, scene.Fade(c.SwitchFade, core.RGB(clearSkyHex)))
+}
+
+// SwitchTo3D transitions to the 3D Lantern Shrine scene with a twilight fade, keeping shared input and audio alive.
+func (c *Controller) SwitchTo3D() {
+	if c.Mode() == Mode3D && !c.Paused() {
+		return
+	}
+	c.SwitchCount++
+	c.Audio.PlaySwitch()
+	c.Manager.Switch(c.shrine3D, scene.Fade(c.SwitchFade, core.RGB(clearSkyHex)))
+}
+
+// TogglePause pushes or pops the transparent 2D pause overlay without unmounting the underlying 3D gpu.View.
+func (c *Controller) TogglePause() {
+	if c.Manager.Transitioning() {
+		return
+	}
+	c.Audio.PlayAction()
+	if c.Paused() {
+		c.Manager.Pop()
+	} else {
+		c.Manager.Push(c.pauseOverlay)
+	}
 }
 
 // ToggleAutoOrbit switches continuous gentle camera orbiting on or off.
 func (c *Controller) ToggleAutoOrbit() {
 	c.Scene.AutoOrbit = !c.Scene.AutoOrbit
 	c.autoOrbitSig.Set(c.Scene.AutoOrbit)
+	c.Audio.PlayAction()
 }
 
 // ToggleLights switches animated point light & crystal motion on or off.
 func (c *Controller) ToggleLights() {
 	c.Scene.AnimateLights = !c.Scene.AnimateLights
 	c.animLightsSig.Set(c.Scene.AnimateLights)
+	c.Audio.PlayAction()
 }
 
-// ResetCamera restores the default camera angle and zoom distance.
+// ResetCamera restores the default 3D camera angle and zoom distance.
 func (c *Controller) ResetCamera() {
 	c.Scene.ResetCamera()
+	c.Audio.PlayAction()
+}
+
+// ResetCurrentView resets the 3D camera in 3D mode or returns the 2D traveler to the courtyard gate in 2D mode.
+func (c *Controller) ResetCurrentView() {
+	if c.Mode() == Mode2D {
+		c.Map.Reset()
+		c.nearPortalSig.Set(c.Map.NearPortal())
+		c.Audio.PlayAction()
+		return
+	}
+	c.ResetCamera()
 }
 
 func (c *Controller) onMouseDown(ev core.MouseButtonEvent) {
@@ -257,8 +546,13 @@ func (c *Controller) buildHUD() {
 		},
 		Children: []core.Node{
 			core.Text{
-				TestID:  "hud-title",
-				Content: "LANTERN 3D",
+				TestID: "hud-title",
+				ContentFunc: func() string {
+					if c.modeSig.Get() == Mode2D {
+						return "COURTYARD 2D"
+					}
+					return "LANTERN 3D"
+				},
 				Style: core.Style{
 					FontSize:   13,
 					FontWeight: core.FontWeightBold,
@@ -268,6 +562,12 @@ func (c *Controller) buildHUD() {
 			core.Text{
 				TestID: "hud-stats",
 				ContentFunc: func() string {
+					if c.modeSig.Get() == Mode2D {
+						if c.nearPortalSig.Get() {
+							return "2D Map · Shrine portal ready (Press E)"
+						}
+						return "2D Map · Walk north to the shrine"
+					}
 					return fmt.Sprintf("%d meshes · %d tris · %d FPS",
 						c.Scene.MeshCount(),
 						c.Scene.TriangleCount(),
@@ -284,48 +584,58 @@ func (c *Controller) buildHUD() {
 		},
 	})
 
-	// Top-right: interactive native NSGo buttons over the 3D view.
+	// Top-right: scene-specific interactive native NSGo buttons.
 	c.HUD.AddAt(scene.HUDTopRight, core.View{
 		Style: core.Style{
 			Direction: core.Row,
 			Gap:       8,
 		},
 		Children: []core.Node{
-			ui.Button{
-				TestID:  "btn-orbit",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				TextFunc: func() string {
-					if c.autoOrbitSig.Get() {
-						return "Orbit: On"
+			core.Show{
+				When: func() bool { return c.modeSig.Get() == Mode3D },
+				Then: func(*core.Scope) core.Node {
+					return core.View{
+						Style: core.Style{Direction: core.Row, Gap: 8},
+						Children: []core.Node{
+							ui.Button{
+								TestID:  "btn-orbit",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								TextFunc: func() string {
+									if c.autoOrbitSig.Get() {
+										return "Orbit: On"
+									}
+									return "Orbit: Off"
+								},
+								OnPress: c.ToggleAutoOrbit,
+							},
+							ui.Button{
+								TestID:  "btn-lights",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								TextFunc: func() string {
+									if c.animLightsSig.Get() {
+										return "Lights: On"
+									}
+									return "Lights: Off"
+								},
+								OnPress: c.ToggleLights,
+							},
+						},
 					}
-					return "Orbit: Off"
 				},
-				OnPress: c.ToggleAutoOrbit,
-			},
-			ui.Button{
-				TestID:  "btn-lights",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				TextFunc: func() string {
-					if c.animLightsSig.Get() {
-						return "Lights: On"
-					}
-					return "Lights: Off"
-				},
-				OnPress: c.ToggleLights,
 			},
 			ui.Button{
 				TestID:  "btn-reset",
 				Size:    ui.SizeSmall,
 				Variant: ui.ButtonSecondary,
 				Text:    "Reset",
-				OnPress: c.ResetCamera,
+				OnPress: c.ResetCurrentView,
 			},
 		},
 	})
 
-	// Bottom-left: subtle controls hint (pass-through so drags work everywhere).
+	// Bottom-left: contextual controls hint (pass-through so drags work everywhere).
 	c.HUD.AddPassThrough(scene.HUDBottomLeft, core.View{
 		Style: core.Style{
 			Padding:      core.Edges{Top: 5, Right: 10, Bottom: 5, Left: 10},
@@ -334,8 +644,13 @@ func (c *Controller) buildHUD() {
 		},
 		Children: []core.Node{
 			core.Text{
-				TestID:  "hud-hint",
-				Content: "Drag to orbit · Scroll to zoom · Space: orbit · L: lights · R: reset · H: HUD",
+				TestID: "hud-hint",
+				ContentFunc: func() string {
+					if c.modeSig.Get() == Mode2D {
+						return "WASD / Arrows: move · E: enter shrine · Tab: 3D · P: pause · H: HUD"
+					}
+					return "Drag: orbit · Scroll: zoom · Tab: 2D Map · P: pause · Space/L/R/H"
+				},
 				Style: core.Style{
 					FontSize: 11,
 					Color:    core.RGB(0x94A3B8),
@@ -344,51 +659,173 @@ func (c *Controller) buildHUD() {
 		},
 	})
 
-	// Center: graceful fallback banner when no GPU backend is available.
-	c.HUD.AddAt(scene.HUDCenter, core.Show{
-		When: func() bool { return c.gpuErrSig.Get() != "" },
-		Then: func(*core.Scope) core.Node {
-			return core.View{
-				TestID: "no-gpu-fallback",
-				Style: core.Style{
-					Direction:    core.Column,
-					Gap:          6,
-					Padding:      core.All(16),
-					Background:   core.RGBA(0x111827, 0.94),
-					CornerRadius: 10,
-					MaxWidth:     core.Pt(420),
+	// Bottom-right: persistent cross-scene controls (2D <-> 3D switch, pause overlay, shared audio mute).
+	c.HUD.AddAt(scene.HUDBottomRight, core.View{
+		Style: core.Style{
+			Direction: core.Row,
+			Gap:       8,
+		},
+		Children: []core.Node{
+			ui.Button{
+				TestID:  "btn-switch-scene",
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonPrimary,
+				TextFunc: func() string {
+					if c.modeSig.Get() == Mode3D {
+						return "2D Map"
+					}
+					return "3D Shrine"
 				},
-				Children: []core.Node{
-					core.Text{
-						Content: "3D View Unavailable",
-						Style: core.Style{
-							FontSize:   15,
-							FontWeight: core.FontWeightBold,
-							Color:      core.RGB(0xF8D27A),
-						},
-					},
-					core.Text{
-						TestID: "no-gpu-message",
-						ContentFunc: func() string {
-							return c.gpuErrSig.Get()
-						},
-						Style: core.Style{
-							FontSize: 12,
-							Color:    core.RGB(0xCBD5E1),
-						},
-					},
+				OnPress: c.SwitchMode,
+			},
+			ui.Button{
+				TestID:  "btn-pause",
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonSecondary,
+				TextFunc: func() string {
+					if c.pausedSig.Get() {
+						return "Resume"
+					}
+					return "Pause"
 				},
-			}
+				OnPress: c.TogglePause,
+			},
+			ui.Button{
+				TestID:  "btn-mute",
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonSecondary,
+				TextFunc: func() string {
+					if c.Audio.Muted() {
+						return "Audio: Off"
+					}
+					return "Audio: On"
+				},
+				OnPress: c.Audio.ToggleMute,
+			},
+		},
+	})
+
+	// Center: pause menu card & graceful NoGPU fallback banner (shown only when in 3D without a GPU).
+	c.HUD.AddAt(scene.HUDCenter, core.View{
+		Style: core.Style{
+			Direction:  core.Column,
+			Gap:        10,
+			AlignItems: core.AlignCenter,
+		},
+		Children: []core.Node{
+			core.Show{
+				When: func() bool { return c.pausedSig.Get() },
+				Then: func(*core.Scope) core.Node {
+					return core.View{
+						TestID: "pause-banner",
+						Style: core.Style{
+							Direction:    core.Column,
+							Gap:          8,
+							AlignItems:   core.AlignCenter,
+							Padding:      core.All(16),
+							Background:   core.RGBA(0x0F172A, 0.94),
+							CornerRadius: 10,
+							MaxWidth:     core.Pt(320),
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: "Paused",
+								Style: core.Style{
+									FontSize:   16,
+									FontWeight: core.FontWeightBold,
+									Color:      core.RGB(0xF8D27A),
+								},
+							},
+							core.Text{
+								ContentFunc: func() string {
+									if c.modeSig.Get() == Mode3D {
+										return "3D scene paused underneath without rebuilding GPU pipelines."
+									}
+									return "2D courtyard map paused underneath."
+								},
+								Style: core.Style{
+									FontSize: 12,
+									Color:    core.RGB(0xCBD5E1),
+								},
+							},
+							core.View{
+								Style: core.Style{Direction: core.Row, Gap: 8},
+								Children: []core.Node{
+									ui.Button{
+										TestID:  "btn-resume",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonPrimary,
+										Text:    "Resume",
+										OnPress: c.TogglePause,
+									},
+									ui.Button{
+										TestID:  "btn-pause-switch",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonSecondary,
+										TextFunc: func() string {
+											if c.modeSig.Get() == Mode3D {
+												return "Switch to 2D Map"
+											}
+											return "Switch to 3D Shrine"
+										},
+										OnPress: c.SwitchMode,
+									},
+								},
+							},
+						},
+					}
+				},
+			},
+			core.Show{
+				When: func() bool { return c.modeSig.Get() == Mode3D && c.gpuErrSig.Get() != "" },
+				Then: func(*core.Scope) core.Node {
+					return core.View{
+						TestID: "no-gpu-fallback",
+						Style: core.Style{
+							Direction:    core.Column,
+							Gap:          6,
+							Padding:      core.All(16),
+							Background:   core.RGBA(0x111827, 0.94),
+							CornerRadius: 10,
+							MaxWidth:     core.Pt(420),
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: "3D View Unavailable",
+								Style: core.Style{
+									FontSize:   15,
+									FontWeight: core.FontWeightBold,
+									Color:      core.RGB(0xF8D27A),
+								},
+							},
+							core.Text{
+								TestID: "no-gpu-message",
+								ContentFunc: func() string {
+									return c.gpuErrSig.Get()
+								},
+								Style: core.Style{
+									FontSize: 12,
+									Color:    core.RGB(0xCBD5E1),
+								},
+							},
+						},
+					}
+				},
+			},
 		},
 	})
 }
 
-func (c *Controller) view(cx *core.Scope) core.Node {
-	c.buildHUD()
+func (c *Controller) build3DSceneView(scx *core.Scope) core.Node {
+	c.ViewBuilds3D++
+	scx.Cleanup(func() {
+		c.ViewCleanups3D++
+		c.Renderer.Reset()
+	})
 
-	view3D := core.View{
+	return core.View{
 		TestID:       "lantern-viewport",
-		Style:        core.Style{FlexGrow: 1, FlexShrink: 1},
+		Style:        core.Style{Width: core.Pct(100), Height: core.Pct(100)},
 		OnMouseDown:  c.onMouseDown,
 		OnMouseMove:  c.onMouseMove,
 		OnMouseUp:    c.onMouseUp,
@@ -397,14 +834,14 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 		OnTouch:      c.onTouch,
 		OnPinch:      c.onPinch,
 		Children: []core.Node{
-			gpu.View(cx, gpu.ViewProps{
+			gpu.View(scx, gpu.ViewProps{
 				TestID:          "lantern-gpu",
 				DepthFormat:     gpu.FormatDepth24Plus,
 				RetainResources: true,
 				Style:           core.Style{FlexGrow: 1, FlexShrink: 1},
 				OnReady: func(dev *gpu.Device) {
 					c.DeviceReady++
-					if err := c.Renderer.Setup(cx, dev, c.Scene); err != nil {
+					if err := c.Renderer.Setup(scx, dev, c.Scene); err != nil {
 						c.gpuErrSig.Set(fmt.Sprintf("Failed to initialize 3D renderer: %v", err))
 						return
 					}
@@ -429,13 +866,13 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 				},
 				OnDeviceRestored: func(dev *gpu.Device) {
 					c.DeviceRestored++
-					if err := c.Renderer.Setup(cx, dev, c.Scene); err != nil {
+					if err := c.Renderer.Setup(scx, dev, c.Scene); err != nil {
 						c.gpuErrSig.Set(fmt.Sprintf("Failed to restore 3D renderer: %v", err))
 					}
 				},
 				OnError: func(err gpu.Error) {
 					if err.Code == gpu.ErrUnsupported {
-						c.gpuErrSig.Set("This environment has no GPU backend. Run Lantern 3D on macOS, iOS, Windows, Linux, Android, or a WebGL 2 / WebGPU browser.")
+						c.gpuErrSig.Set("This environment has no GPU backend. Run Lantern 3D on macOS, iOS, Windows, Linux, Android, or a WebGL 2 / WebGPU browser, or switch to the 2D Map.")
 						return
 					}
 					c.gpuErrSig.Set(fmt.Sprintf("GPU error: %v", err))
@@ -443,17 +880,33 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 			}),
 		},
 	}
+}
 
-	return core.View{
-		TestID: "lantern-root",
+func (c *Controller) view(cx *core.Scope) core.Node {
+	c.buildHUD()
+
+	return c.Manager.View(scene.HostOptions{
+		TestID:           "lantern-root",
+		StageTestID:      "lantern-stage",
+		TransitionTestID: "lantern-transition",
+		Ref:              c.stageRef,
 		Style: core.Style{
 			Width:      core.Pct(100),
 			Height:     core.Pct(100),
 			Background: core.RGB(clearSkyHex),
 			Overflow:   core.Hidden,
 		},
-		Children: []core.Node{
-			c.HUD.Wrap(cx, view3D),
+		Alpha: func() float64 {
+			_ = c.frameTick.Get()
+			return float64(c.alpha)
 		},
-	}
+		Viewport: &screen.Viewport{
+			Width:  mapWidth,
+			Height: mapHeight,
+			Mode:   screen.ModeFit,
+		},
+		Children: []core.Node{
+			c.HUD.Layer(cx),
+		},
+	})
 }

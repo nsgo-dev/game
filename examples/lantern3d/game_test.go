@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,55 @@ import (
 )
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+const fixedStep = time.Second / stepRate
+
+func withTestAudio(t *testing.T) nsgotest.Option {
+	t.Helper()
+	srcs, err := audioSources()
+	if err != nil {
+		t.Fatalf("audioSources: %v", err)
+	}
+	return func(a *nsgotest.App) {
+		nsgotest.Environment(core.Environment{Audio: true})(a)
+		if a.AudioDurations == nil {
+			a.AudioDurations = make(map[string]time.Duration)
+		}
+		a.AudioDurations[srcs.ambient.URI] = 4 * time.Second
+		a.AudioDurations[string(srcs.ambient.Data)] = 4 * time.Second
+		a.AudioDurations[srcs.chime.URI] = 290 * time.Millisecond
+		a.AudioDurations[string(srcs.chime.Data)] = 290 * time.Millisecond
+		a.AudioDurations[srcs.tick.URI] = 60 * time.Millisecond
+		a.AudioDurations[string(srcs.tick.Data)] = 60 * time.Millisecond
+	}
+}
+
+func soundPlayCount(app *nsgotest.App, uri string) int {
+	for _, snd := range app.Sounds {
+		if snd.Source.URI == uri {
+			return len(snd.Plays)
+		}
+	}
+	return 0
+}
+
+func findCanvasChildren(stage *nsgotest.View, excludeTestIDs ...string) []*nsgotest.View {
+	var out []*nsgotest.View
+	var walk func(v *nsgotest.View)
+	walk = func(v *nsgotest.View) {
+		if v == nil {
+			return
+		}
+		if v.Kind == nsgotest.KindCanvas && !slices.Contains(excludeTestIDs, v.Props.TestID) {
+			out = append(out, v)
+		}
+		for _, ch := range v.Children {
+			walk(ch)
+		}
+	}
+	walk(stage)
+	return out
+}
 
 func viewCenter(v *nsgotest.View) core.Point {
 	b := v.Bounds()
@@ -147,7 +197,7 @@ func TestLightsFollowTheirNodesUnderAMovedRoot(t *testing.T) {
 	if err := sc.Doc.ComputeWorldMatrices(); err != nil {
 		t.Fatalf("ComputeWorldMatrices: %v", err)
 	}
-	if err := sc.Step(time.Second / stepRate); err != nil {
+	if err := sc.Step(fixedStep); err != nil {
 		t.Fatalf("Step: %v", err)
 	}
 
@@ -229,6 +279,229 @@ func TestSceneDrawsOnFullAndWebGL2Profiles(t *testing.T) {
 	}
 }
 
+func TestSwitch3DTo2DAndBackWithSharedInputAndSound(t *testing.T) {
+	profiles := []struct {
+		name string
+		opts []nsgotest.Option
+	}{
+		{"full", nil},
+		{"webgl2-gles3", []nsgotest.Option{nsgotest.NoGPUCompute()}},
+	}
+
+	for _, p := range profiles {
+		t.Run(p.name, func(t *testing.T) {
+			var c *Controller
+			opts := []nsgotest.Option{
+				nsgotest.Size(128, 96),
+				nsgotest.ManualFrames(),
+				withTestAudio(t),
+			}
+			opts = append(opts, p.opts...)
+
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				var node core.Node
+				c, node = NewView(cx)
+				c.SwitchFade = 60 * time.Millisecond
+				return node
+			}, opts...)
+
+			// 1. Starts in 3D shrine with looping ambient music playing and 3D GPU pixels drawn.
+			app.Advance(20 * time.Millisecond)
+			if c.Mode() != Mode3D || c.ViewBuilds3D != 1 || c.DeviceReady != 1 {
+				t.Fatalf("initial 3D state: mode=%v builds=%d ready=%d", c.Mode(), c.ViewBuilds3D, c.DeviceReady)
+			}
+			if len(app.Players) != 1 || !app.Players[0].Playing || app.Players[0].Closed {
+				t.Fatalf("ambient music not playing in 3D: %+v", app.Players)
+			}
+			imgBefore, err := app.GPUReadPixels("id:lantern-gpu")
+			if err != nil {
+				t.Fatalf("GPUReadPixels initial 3D: %v", err)
+			}
+			if st := analyzeFrame(imgBefore); st.nonSkyPixels < 200 || st.warmLitPixels == 0 {
+				t.Fatalf("initial 3D frame missing lit shrine geometry: %+v", st)
+			}
+
+			// 2. Shared input.Actions drives 3D camera orbit (Space disables auto-orbit, D orbits right).
+			app.Key("space")
+			app.Post(func() {
+				c.Actions.Step()
+				c.Manager.Update(fixedStep)
+				c.Actions.Step()
+				c.Scene.Orbit.Snap()
+			})
+			app.Settle()
+			yawBefore := c.Scene.Orbit.Yaw
+			app.KeyDown("d")
+			app.Post(func() {
+				c.Actions.Step()
+				c.Manager.Update(fixedStep)
+				c.Scene.Orbit.Snap()
+			})
+			app.Settle()
+			app.KeyUp("d")
+			if math.Abs(float64(c.Scene.Orbit.Yaw-yawBefore-keyOrbitStep)) > 1e-4 {
+				t.Fatalf("shared Actions did not orbit 3D camera: yaw %.4f -> %.4f", yawBefore, c.Scene.Orbit.Yaw)
+			}
+
+			// 3. Hold Tab to fade 3D -> 2D; Actions.Reset() prevents bouncing back while Tab stays held.
+			app.KeyDown("tab")
+			app.Advance(20 * time.Millisecond)
+			if !c.Manager.Transitioning() || c.Mode() != Mode2D {
+				t.Fatalf("after Tab in 3D: transitioning=%v mode=%v", c.Manager.Transitioning(), c.Mode())
+			}
+			if got := soundPlayCount(app, switchChimeURI); got != 1 {
+				t.Fatalf("switch chime plays after 3D->2D = %d, want 1", got)
+			}
+			app.Advance(c.SwitchFade + 20*time.Millisecond)
+			app.KeyUp("tab")
+
+			if c.Manager.Transitioning() || c.Mode() != Mode2D {
+				t.Fatalf("after 3D->2D fade: transitioning=%v mode=%v (held Tab should not bounce back)", c.Manager.Transitioning(), c.Mode())
+			}
+			if c.ViewCleanups3D != 1 || c.Renderer.Ready() {
+				t.Fatalf("3D view did not unmount cleanly on exit: cleanups=%d ready=%v", c.ViewCleanups3D, c.Renderer.Ready())
+			}
+			if got := len(app.Query("id:lantern-gpu")); got != 0 {
+				t.Fatalf("expected 0 GPU views in 2D map, got %d", got)
+			}
+			canvases := findCanvasChildren(app.Find("id:lantern-stage"), "lantern-transition")
+			if len(canvases) != 1 || len(canvases[0].Ops) == 0 {
+				t.Fatalf("expected 1 active 2D map canvas with draw ops, got %d canvases", len(canvases))
+			}
+
+			// 4. Shared ambient music stayed playing uninterrupted across 3D -> 2D!
+			if len(app.Players) != 1 || !app.Players[0].Playing || app.Players[0].Closed {
+				t.Fatalf("ambient music interrupted across 3D->2D: %+v", app.Players)
+			}
+
+			// 5. The SAME shared input.Actions ("w") moves the 2D traveler north into the shrine portal!
+			posBefore := c.Map.TravelerPos()
+			app.KeyDown("w")
+			app.Advance(500 * time.Millisecond)
+			app.KeyUp("w")
+			app.Advance(20 * time.Millisecond)
+
+			posAfter := c.Map.TravelerPos()
+			if posAfter.Y >= posBefore.Y-30 {
+				t.Fatalf("shared Actions W did not move 2D traveler north: before=%v after=%v", posBefore, posAfter)
+			}
+			if !c.Map.NearPortal() {
+				t.Fatalf("traveler at %v should have reached shrine portal", posAfter)
+			}
+
+			// 6. Pressing E on the shrine portal fades 2D -> 3D, remounting gpu.View cleanly!
+			app.KeyDown("e")
+			app.Advance(20 * time.Millisecond)
+			app.KeyUp("e")
+			if !c.Manager.Transitioning() || c.Mode() != Mode3D {
+				t.Fatalf("pressing E at portal did not switch 2D->3D: transitioning=%v mode=%v", c.Manager.Transitioning(), c.Mode())
+			}
+			if got := soundPlayCount(app, switchChimeURI); got != 2 {
+				t.Fatalf("switch chime plays after 2D->3D = %d, want 2", got)
+			}
+			app.Advance(c.SwitchFade + 20*time.Millisecond)
+
+			if c.Manager.Transitioning() || c.Mode() != Mode3D {
+				t.Fatalf("after 2D->3D fade: transitioning=%v mode=%v", c.Manager.Transitioning(), c.Mode())
+			}
+			if c.ViewBuilds3D != 2 || c.DeviceReady != 2 || !c.Renderer.Ready() {
+				t.Fatalf("3D view did not remount cleanly: builds=%d readyCount=%d ready=%v", c.ViewBuilds3D, c.DeviceReady, c.Renderer.Ready())
+			}
+			imgAfter, err := app.GPUReadPixels("id:lantern-gpu")
+			if err != nil {
+				t.Fatalf("GPUReadPixels after 2D->3D return: %v", err)
+			}
+			if st := analyzeFrame(imgAfter); st.nonSkyPixels < 200 || st.warmLitPixels == 0 {
+				t.Fatalf("remounted 3D frame missing lit geometry: %+v", st)
+			}
+			if len(app.Players) != 1 || !app.Players[0].Playing || app.Players[0].Closed {
+				t.Fatalf("ambient music interrupted across 2D->3D: %+v", app.Players)
+			}
+		})
+	}
+}
+
+func TestSwitch2DTo3DTo2DViaHUDButtonAndPauseOverlayPreserves3D(t *testing.T) {
+	var c *Controller
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		var node core.Node
+		c, node = newView(cx, Mode2D)
+		c.SwitchFade = 40 * time.Millisecond
+		return node
+	}, nsgotest.Size(280, 140), nsgotest.ManualFrames(), withTestAudio(t))
+
+	// Starts in 2D Map with 0 GPU views mounted and ambient music playing.
+	app.Advance(20 * time.Millisecond)
+	if c.Mode() != Mode2D || c.ViewBuilds3D != 0 {
+		t.Fatalf("initial 2D start: mode=%v builds3D=%d", c.Mode(), c.ViewBuilds3D)
+	}
+	if app.Find("id:hud-title").Text != "COURTYARD 2D" {
+		t.Fatalf("hud-title in 2D = %q, want COURTYARD 2D", app.Find("id:hud-title").Text)
+	}
+
+	// HUD button switches 2D -> 3D.
+	app.Press("id:btn-switch-scene")
+	app.Advance(c.SwitchFade + 20*time.Millisecond)
+	if c.Mode() != Mode3D || c.ViewBuilds3D != 1 || c.DeviceReady != 1 || !c.Renderer.Ready() {
+		t.Fatalf("after HUD 2D->3D: mode=%v builds=%d readyCount=%d ready=%v", c.Mode(), c.ViewBuilds3D, c.DeviceReady, c.Renderer.Ready())
+	}
+	if app.Find("id:hud-title").Text != "LANTERN 3D" {
+		t.Fatalf("hud-title in 3D = %q, want LANTERN 3D", app.Find("id:hud-title").Text)
+	}
+
+	// Push transparent 2D pause overlay over 3D: 3D gpu.View stays mounted & alive while simulation pauses!
+	stepsBeforePause := c.Scene.Steps
+	app.Press("id:btn-pause")
+	app.Advance(20 * time.Millisecond)
+	if !c.Paused() || c.Shrine3DPauses != 1 || app.Find("id:pause-banner") == nil {
+		t.Fatalf("pause overlay did not push cleanly: paused=%v pauses=%d", c.Paused(), c.Shrine3DPauses)
+	}
+	app.Post(func() {
+		for range 10 {
+			c.Actions.Step()
+			c.Manager.Update(fixedStep)
+		}
+	})
+	if c.Scene.Steps != stepsBeforePause {
+		t.Fatalf("3D scene stepped while paused: before=%d after=%d", stepsBeforePause, c.Scene.Steps)
+	}
+	if !c.Renderer.Ready() || c.ViewBuilds3D != 1 || c.ViewCleanups3D != 0 {
+		t.Fatalf("pushing 2D pause overlay tore down 3D GPU view: ready=%v builds=%d cleanups=%d", c.Renderer.Ready(), c.ViewBuilds3D, c.ViewCleanups3D)
+	}
+
+	// Pop pause overlay via Resume button: 3D resumes with ZERO GPU rebuilds!
+	app.Press("id:btn-resume")
+	app.Advance(20 * time.Millisecond)
+	if c.Paused() || c.Shrine3DResumes != 1 {
+		t.Fatalf("resume failed: paused=%v resumes=%d", c.Paused(), c.Shrine3DResumes)
+	}
+	if c.ViewBuilds3D != 1 || c.DeviceReady != 1 || !c.Renderer.Ready() {
+		t.Fatalf("popping pause overlay rebuilt 3D GPU view: builds=%d readyCount=%d ready=%v", c.ViewBuilds3D, c.DeviceReady, c.Renderer.Ready())
+	}
+	if c.Scene.Steps <= stepsBeforePause {
+		t.Fatalf("3D scene did not resume stepping after pop: before=%d after=%d", stepsBeforePause, c.Scene.Steps)
+	}
+
+	// Switch back 3D -> 2D via HUD button; shared music stays uninterrupted and mute button toggles master volume across scenes.
+	app.Press("id:btn-switch-scene")
+	app.Advance(c.SwitchFade + 20*time.Millisecond)
+	if c.Mode() != Mode2D || c.ViewCleanups3D != 1 {
+		t.Fatalf("after 3D->2D button: mode=%v cleanups=%d", c.Mode(), c.ViewCleanups3D)
+	}
+	if len(app.Players) != 1 || !app.Players[0].Playing || app.Players[0].Closed {
+		t.Fatalf("music interrupted across 2D->3D->pause->2D: %+v", app.Players)
+	}
+
+	app.Press("id:btn-mute")
+	if !c.Audio.Muted() || c.Audio.Mixer.Master() != 0 {
+		t.Fatalf("mute button did not mute shared mixer: muted=%v master=%v", c.Audio.Muted(), c.Audio.Mixer.Master())
+	}
+	app.Press("id:btn-mute")
+	if c.Audio.Muted() || c.Audio.Mixer.Master() != 1 {
+		t.Fatalf("second mute press did not unmute shared mixer: muted=%v master=%v", c.Audio.Muted(), c.Audio.Mixer.Master())
+	}
+}
+
 func TestCameraOrbitAndResetChangeRenderedView(t *testing.T) {
 	var c *Controller
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -254,19 +527,28 @@ func TestCameraOrbitAndResetChangeRenderedView(t *testing.T) {
 	}
 	yawBefore := c.Scene.Orbit.Yaw
 
-	// Orbit significantly via keyboard right arrow + zoom in.
+	// Orbit significantly via shared input.Actions right arrow + zoom in.
 	for range 8 {
 		app.Key("right")
+		app.Post(func() {
+			c.Actions.Step()
+			c.Manager.Update(fixedStep)
+			c.Actions.Step()
+		})
+		app.Settle()
 	}
 	app.Key("=")
-	// Advance several fixed steps without rendering 30 full software frames.
 	app.Post(func() {
+		c.Actions.Step()
+		c.Manager.Update(fixedStep)
+		c.Actions.Step()
 		for range 24 {
-			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+			if err := c.Scene.Step(fixedStep); err != nil {
 				t.Errorf("Step: %v", err)
 			}
 		}
 	})
+	app.Settle()
 	app.Advance(16 * time.Millisecond)
 
 	if math.Abs(float64(c.Scene.Orbit.Yaw-yawBefore)) < 0.4 {
@@ -332,7 +614,7 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	}
 	app.Post(func() {
 		for range 20 {
-			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+			if err := c.Scene.Step(fixedStep); err != nil {
 				t.Errorf("Step: %v", err)
 			}
 		}
@@ -353,7 +635,7 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	finger.Lift()
 	app.Post(func() {
 		for range 20 {
-			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+			if err := c.Scene.Step(fixedStep); err != nil {
 				t.Errorf("Step: %v", err)
 			}
 		}
@@ -368,7 +650,7 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	app.Wheel("id:lantern-viewport", core.Point{Y: -120}, core.Modifiers{})
 	app.Post(func() {
 		for range 20 {
-			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+			if err := c.Scene.Step(fixedStep); err != nil {
 				t.Errorf("Step: %v", err)
 			}
 		}
@@ -378,15 +660,26 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 		t.Fatalf("mouse wheel did not zoom in: before=%.3f after=%.3f", distBefore, c.Scene.Orbit.Distance)
 	}
 
-	// H key toggles HUD visibility.
+	// H key toggles HUD visibility via shared input.Actions.
 	if !c.HUD.Visible() {
 		t.Fatal("HUD should start visible")
 	}
-	app.Key("h")
+	stepKey := func(k string) {
+		app.Key(k)
+		app.Post(func() {
+			c.Actions.Step()
+			if c.Actions.JustPressed("toggle_hud") {
+				c.HUD.Toggle()
+			}
+			c.Actions.Step()
+		})
+		app.Settle()
+	}
+	stepKey("h")
 	if c.HUD.Visible() {
 		t.Fatal("H key did not hide HUD")
 	}
-	app.Key("h")
+	stepKey("h")
 	if !c.HUD.Visible() {
 		t.Fatal("second H key did not restore HUD")
 	}
@@ -436,7 +729,7 @@ func TestPinchZoomsAndExtraFingersDoNotOrbit(t *testing.T) {
 		c.onTouch(three(core.TouchEnd, 120, 2))
 		c.onTouch(three(core.TouchEnd, 120, 0))
 		for range 20 {
-			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+			if err := c.Scene.Step(fixedStep); err != nil {
 				t.Errorf("Step: %v", err)
 			}
 		}
@@ -457,23 +750,30 @@ func TestKeyboardControls(t *testing.T) {
 		c, node = NewView(cx)
 		return node
 	}, nsgotest.Size(480, 320), nsgotest.ManualFrames())
-	settle := func() {
+
+	pressAndStep := func(key string) {
 		t.Helper()
-		app.Post(func() { c.Scene.Orbit.Snap() })
+		app.Key(key)
+		app.Post(func() {
+			c.Actions.Step()
+			c.Manager.Update(fixedStep)
+			c.Actions.Step()
+			c.Scene.Orbit.Snap()
+		})
 		app.Settle()
 	}
 
-	app.Key("space")
+	pressAndStep("space")
 	if c.Scene.AutoOrbit || app.Find("Orbit: Off") == nil {
 		t.Fatalf("Space did not turn auto-orbit off: AutoOrbit=%v", c.Scene.AutoOrbit)
 	}
-	app.Key("space")
+	pressAndStep("space")
 	if !c.Scene.AutoOrbit {
 		t.Fatal("second Space did not turn auto-orbit back on")
 	}
-	app.Key("space")
+	pressAndStep("space")
 
-	app.Key("l")
+	pressAndStep("l")
 	if c.Scene.AnimateLights || app.Find("Lights: Off") == nil {
 		t.Fatalf("L did not stop the lights: AnimateLights=%v", c.Scene.AnimateLights)
 	}
@@ -487,13 +787,12 @@ func TestKeyboardControls(t *testing.T) {
 		{keys: []string{"right", "d"}, yaw: keyOrbitStep},
 		{keys: []string{"up", "w"}, pitch: keyOrbitStep},
 		{keys: []string{"down", "s"}, pitch: -keyOrbitStep},
-		{keys: []string{"=", "+"}, zoomOutSign: -1},
+		{keys: []string{"=", "shift+="}, zoomOutSign: -1},
 		{keys: []string{"-"}, zoomOutSign: 1},
 	} {
 		for _, key := range k.keys {
 			yaw, pitch, dist := c.Scene.Orbit.Yaw, c.Scene.Orbit.Pitch, c.Scene.Orbit.Distance
-			app.Key(key)
-			settle()
+			pressAndStep(key)
 			if d := c.Scene.Orbit.Yaw - yaw; math.Abs(float64(d-k.yaw)) > 1e-4 {
 				t.Errorf("%s: yaw moved %.4f, want %.4f", key, d, k.yaw)
 			}
@@ -506,7 +805,7 @@ func TestKeyboardControls(t *testing.T) {
 		}
 	}
 
-	app.Key("r")
+	pressAndStep("r")
 	if math.Abs(float64(c.Scene.Orbit.Yaw-defaultOrbitYaw)) > 1e-3 ||
 		math.Abs(float64(c.Scene.Orbit.Pitch-defaultOrbitPitch)) > 1e-3 ||
 		math.Abs(float64(c.Scene.Orbit.Distance-defaultOrbitDist)) > 1e-3 {
@@ -588,13 +887,13 @@ func TestDeviceLossRestoreAndCleanShutdown(t *testing.T) {
 	}
 }
 
-func TestNoGPUFallbackShowsMessage(t *testing.T) {
+func TestNoGPUFallbackShowsMessageAndAllowsSwitchingTo2D(t *testing.T) {
 	var c *Controller
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		var node core.Node
 		c, node = NewView(cx)
 		return node
-	}, nsgotest.Size(480, 320), nsgotest.NoGPU())
+	}, nsgotest.Size(480, 320), nsgotest.ManualFrames(), nsgotest.NoGPU())
 
 	fallback := app.Find("id:no-gpu-fallback")
 	if fallback == nil {
@@ -609,5 +908,19 @@ func TestNoGPUFallbackShowsMessage(t *testing.T) {
 	app.Press("id:btn-orbit")
 	if c.Scene.AutoOrbit {
 		t.Fatal("btn-orbit did not toggle AutoOrbit under NoGPU fallback")
+	}
+
+	// Switching to the 2D Courtyard Map works cleanly even without a GPU backend!
+	app.Press("id:btn-switch-scene")
+	app.Advance(switchFadeDuration + 40*time.Millisecond)
+	if c.Mode() != Mode2D {
+		t.Fatalf("mode after switch under NoGPU = %v, want Mode2D", c.Mode())
+	}
+	if len(app.Query("id:no-gpu-fallback")) != 0 {
+		t.Fatal("no-gpu-fallback banner should hide in 2D Map mode")
+	}
+	canvases := findCanvasChildren(app.Find("id:lantern-stage"), "lantern-transition")
+	if len(canvases) != 1 || len(canvases[0].Ops) == 0 {
+		t.Fatalf("expected 1 active 2D map canvas under NoGPU, got %d canvases", len(canvases))
 	}
 }
