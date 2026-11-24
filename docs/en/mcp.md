@@ -111,6 +111,12 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_entity_destroy` | `ref` (required), `policy` (optional: `"cascade"`, `"orphan"`, `"keep_world"`, or `"reparent"`) | Confirmation of destruction with `ref`, the `policy` applied to children (the hierarchy's default, usually `"orphan"`, when omitted; `"none"` when omitted and the entity had no children), and count of `destroyed` entities. `"reparent"` keeps the children's world transforms. |
 | `game_component_set` | `ref` (required), `component` (required), `value` (required), `replace` (optional, default `false`) | Updated component `value` read back from the live entity; edits take effect on the next simulation step. If the write succeeded but the read-back failed, `value` is `null` and `read_error` says why; the edit still stands. |
 | `game_component_remove` | `ref` (required), `component` (required) | Whether the component was present and `removed` from the live entity. |
+| `game_replay_status` | `{}` | Current recording and playback state (`recording`, `replaying`, `replay_done`, `frames_recorded`, `replay_frame`, `replay_total_frames`), active names/metadata, and sorted `saved_recordings`. |
+| `game_replay_record_start` | `name`, `seed`, `step_rate`, `actions`, `axes`, `metadata`, `reset` (all optional) | Starts recording per-step inputs via `replay.Recorder`, returning the resolved recording name, seed, step rate, watched names and metadata. |
+| `game_replay_record_stop` | `name` (optional), `save_path` (optional, relative to `ReplayConfig.SaveDir`) | Stops the active recording, stores it in memory (and optionally writes it under `SaveDir`), and returns its summary plus deterministic version-2 YAML text (`yaml`). |
+| `game_replay_play` | `name` or `yaml` (mutually exclusive), `run_to_end` (default `false`), `steps`, `reset` (default `true` when `ResetFunc` is set) | Starts deterministic playback via `replay.Player`, invoking `ResetFunc(seed)` before playback and optionally advancing all or `steps` frames synchronously via `StepFunc`/`Loop.Update`. |
+| `game_replay_stop` | `{}` | Stops an active replay playback cleanly and reports how many frames were played. |
+| `game_replay_list` | `{}` | Lists stored recordings in sorted name order with `frames`, `seed`, `step_rate`, `events`, `actions`, `axes` and `metadata`. |
 
 All tools reject unknown argument fields.
 
@@ -146,6 +152,38 @@ console.RegisterCommand("spawn", "spawn <kind> [count]", g.handleSpawn)
 - `game_tunables_list` and `game_tunable_get` read live values directly without adding entries to the console's interactive command history or output log.
 - `game_tunable_set` enforces each tunable's registered type (`float`, `int`, `bool` or `string`) and numeric `[min, max]` bounds by default without mutating the variable on error. Passing `"clamp": true` clamps out-of-range numeric values into `[min, max]` and sets `"clamped": true` in the response.
 - `game_console_exec` executes built-in commands (`help`, `list`, `get`, `set`, `clear`) and game-registered commands through `debug.Console.Exec`, returning `{command, ok, output, lines, error}`. Invalid MCP arguments or a missing `Console` return a tool error, while command execution failures (such as an unknown command name or invalid command arguments) return `ok: false` with the command's `error` message.
+## Recording and replaying inputs
+
+Create a `*mcp.ReplayController` with `mcp.NewReplayController`, pass it to your simulation as its [`replay.ActionSource`](replay.md), and attach it on `mcp.Config.Replay`:
+
+```go
+var ctrl *mcp.ReplayController
+ctrl = mcp.NewReplayController(mcp.ReplayConfig{
+	Source:   g.actions,
+	Actions:  []string{"left", "right", "jump", "dash"},
+	Axes:     []string{"move_x"},
+	StepRate: 60,
+	SeedFunc: func() uint64 { return g.seed },
+	ResetFunc: func(seed uint64) error {
+		g.actions.Reset()
+		g.Reset(seed)
+		return nil
+	},
+	StepFunc: func(dt time.Duration) {
+		g.Step(ctrl, dt)
+	},
+})
+
+bridge, err := mcp.Attach(cx, mcp.Config{
+	WorldFunc: func() *entities.World { return g.world },
+	Replay:    ctrl,
+})
+```
+
+- Because `ReplayController` implements `replay.ActionSource`, your game loop reads input from `ctrl` identically during live play (forwarded to `Source`), recording (`replay.Recorder`) and playback (`replay.Player`).
+- Recordings stopped via `game_replay_record_stop` are stored in memory under their name and returned as canonical deterministic [`game/replay`](replay.md) v2 YAML text. Set `ReplayConfig.SaveDir` if you also want agents to write recordings to safe relative paths on disk via `save_path` (absolute paths and `..` escapes are rejected).
+- `game_replay_play` accepts either a stored `name` or inline `yaml` text, invokes `ResetFunc(recording.Seed)` to restore the starting state, and replays either synchronously (`run_to_end: true` or `steps: N`) or frame-by-frame as the game loop advances.
+
 ## Stable entity references
 
 Every live entity receives a generational reference formatted as `"entity:<index>:<generation>"` (such as `"entity:0:1"`), produced by `FormatEntityRef` and parsed by `ParseEntityRef`:

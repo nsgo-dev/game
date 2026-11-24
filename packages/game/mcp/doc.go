@@ -27,6 +27,12 @@
 //   - game_entity_destroy: destroy a live entity by stable reference with an optional hierarchy child policy.
 //   - game_component_set: set or patch a component's value on a live entity so the change takes effect on the next simulation step.
 //   - game_component_remove: remove a component from a live entity.
+//   - game_replay_status: report input recording and playback status, frame progress and saved recordings.
+//   - game_replay_record_start: start recording per-step inputs into a named recording.
+//   - game_replay_record_stop: stop the active recording, store it and return its deterministic YAML text and summary.
+//   - game_replay_play: replay a stored or inline YAML recording deterministically, optionally resetting and running to completion.
+//   - game_replay_stop: stop an active replay playback cleanly.
+//   - game_replay_list: list stored recordings with frame counts, seeds, step rates and metadata.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable and editable automatically. Transient or non-saved components can also be exposed with [RegisterComponent], [RegisterComponentFunc], [RegisterMutableComponent] or [RegisterComponentEditor], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name. Prefabs can be registered via [Config.Prefabs], [Bridge.RegisterPrefab], [Bridge.RegisterEntityPrefab] or [Bridge.RegisterScenePrefab].
 //
