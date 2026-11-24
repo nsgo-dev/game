@@ -1163,9 +1163,16 @@ pass := stack.BeginScenePass(frame, core.RGB(0x0c1018))
 pass.End()
 _ = stack.ApplyScene(frame.Device(), frame, nil) // SSAO -> 景深 -> Bloom -> 交换链
 frame.Submit()
+
+// 视图尺寸变化（或相机缩放）时，刷新 SSAO 与景深所依赖的投影：
+_ = stack.Resize(dev, uint32(w), uint32(h))
+cam.SetViewport(float32(w), float32(h))
+_ = stack.SetCamera(cam)
 ```
 
-- **可组合管线与独立通道**：`PostStack3D` 按固定顺序执行已启用的阶段——**SSAO → 景深 → Bloom**——中间结果在乒乓离屏渲染目标之间流转，最后一个阶段直接以 `OutputFormat` 输出（全部关闭时执行干净直通复制）。每个通道（`SSAOPass`、`DepthOfFieldPass`、`BloomPass`）也可独立创建，并通过 `RenderPassRecorder`（`*gpu.Frame` 与 `*gpu.Encoder` 均已实现）作用于调用方自建的 `gpu.Texture` 颜色与深度附件。
+- **可组合管线与独立通道**：`PostStack3D` 按固定顺序执行已启用的阶段——**SSAO → 景深 → Bloom**——中间结果在乒乓离屏渲染目标之间流转，最后一个阶段直接以 `OutputFormat` 输出（全部关闭时执行干净直通复制）。`SetSSAO`、`SetDepthOfField` 与 `SetBloom` 用于开关单个阶段；传入零值配置时保留当前设置，因此 `stack.SetSSAO(false, render3d.SSAOConfig{})` 只会关闭 SSAO。每个通道（`SSAOPass`、`DepthOfFieldPass`、`BloomPass`）也可独立创建，并通过 `RenderPassRecorder`（`*gpu.Frame` 与 `*gpu.Encoder` 均已实现）作用于调用方自建的 `gpu.Texture` 颜色与深度附件。
+- **格式与输出目标**：`ColorFormat`（场景与中间渲染目标）可取 `FormatRGBA16Float`（默认）、`FormatRGBA8Unorm`、`FormatRGBA8UnormSRGB`、`FormatBGRA8Unorm` 或 `FormatBGRA8UnormSRGB`，即可过滤采样的四通道格式，因为景深把弥散圆存放在 alpha 通道中。目标为 nil 时以 `OutputFormat` 写入交换链；目标纹理必须是 `ColorFormat` 或 `OutputFormat`，最后一个阶段使用为该格式构建的管线绘制。所有输入与目标纹理的尺寸都必须与通道或后处理栈一致，且目标不能同时是输入，否则 `Apply` 返回 `ErrInvalidPostProcess`。
+- **相机投影**：`SSAOConfigFromCamera` 记录 `cam.ProjMatrix()`，`DepthOfFieldConfigFromCamera` 从该矩阵读取近、远裁剪面与投影类型，因此 `scene3d.Projection` 为零值字段填入的默认值（以及位于相机处或其后方的正交近裁剪面）都与深度缓冲一致。两者只在创建配置时记录一次；投影变化时请调用 `PostStack3D.SetCamera`（独立通道则调用 `SetConfig`）。`ProjMatrix` 为零时，SSAO 回退为按通道宽高比、使用配置中 `Near` 与 `Far` 的 60° 透视投影。
 - **SSAO（`SSAOConfig`、`SSAOPass`）**：从 3D 深度缓冲重建视空间位置与保边法线，使用带 4×4 分层切线旋转的确定性 4–16 采样半球核计算遮蔽，支持可选的深度感知双边模糊（`BlurRadius`、`DepthThreshold`），并将环境光遮蔽乘入场景颜色（可通过 `AOTexture` 获取 AO 纹理）。
 - **景深（`DepthOfFieldConfig`、`DepthOfFieldPass`）**：支持透视与正交 `[0, 1]` 深度线性化，围绕 `FocusDistance` ± `FocusRange` 计算带符号弥散圆（CoC），并通过 18 采样双环圆盘散景模糊平滑虚化近景与远景，同时阻止背景模糊色溢入清晰的焦内轮廓。
 - **泛光（`BloomConfig`、`BloomPass`）**：用二次软拐点阈值曲线（`Threshold`、`SoftKnee`）提取 LDR 或 HDR（`> 1.0`）高亮像素，执行 `BlurPasses` 轮可分离 9 采样高斯横纵模糊（可通过 `HalfRes` 启用半分辨率以获得更宽柔和光晕），再以 `Intensity` 加法混合回场景。
