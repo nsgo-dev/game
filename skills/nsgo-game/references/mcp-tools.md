@@ -184,4 +184,4 @@ app.Post(func() {
 app.Settle()
 ```
 
-Note: `game_scenes_list`, `game_layers_list`, `game_entities_list`, `game_entity_inspect`, `game_component_get`, and `game_loop_*` are the foundational inspection and loop tools; additional groups (input, editing, screenshots, console, replay, performance, assets) activate automatically as each subsystem is wired into `mcp.Config`.
+Every tool above is always registered once the Bridge is attached. A tool whose subsystem is not configured in `mcp.Config` returns an error naming what is missing, such as `mcp: no game loop configured` or `mcp: no debug console configured`, so wire the matching `Config` field before calling it.
