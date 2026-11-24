@@ -349,6 +349,45 @@ morph.Draw(pass)
 - **Live object-space bounds**: `GPUMorphMesh.Bounds` evaluates pending CPU blends on demand (caching the result so `Update` does not blend twice) and keeps the underlying `GPUMesh.Bounds` in sync for frustum culling.
 - **Device-loss restore**: with `MeshUpload.Retained`, NSGo recreates the vertex buffer with the last uploaded morphed bytes after a device loss; if `SetWeights` is called while the device is lost, the mesh stays `Dirty` so the first `Update` after restore uploads the pending pose.
 
+## GPU skinning (`SkinnedMesh`, `GPUSkinnedMesh`, `GPUSkinPalette`)
+
+`SkinnedMesh` extends `Mesh` with per-vertex glTF skinning attributes (`Joints [][4]uint16` and `Weights []math3d.Vec4`) and optional `JointCount`. `SkinnedMeshFromGLTF` and `SkinnedMeshesFromGLTFNode` extract and validate triangle primitives from a loaded `gltf.Document`, checking joint bounds and normalizing each vertex's four weights so they sum to 1 (falling back to `(1, 0, 0, 0)` when all four weights are zero). `UploadSkinnedMesh` uploads the interleaved 64-byte vertex buffer and optional index buffer (`uint16` up to 65,535 vertices, `uint32` beyond) as a scope-owned `GPUSkinnedMesh` with optional `Retained` device-loss restoration.
+
+Every skinned mesh shares one interleaved little-endian layout (`SkinnedVertexLayout`), extending `MeshVertexLayout` at locations 0..2:
+
+| Attribute | `@location` | Format | Offset |
+| --- | --- | --- | --- |
+| position | 0 (`SkinnedPositionLocation`) | `float32x3` | 0 |
+| normal | 1 (`SkinnedNormalLocation`) | `float32x3` | 12 |
+| UV | 2 (`SkinnedUVLocation`) | `float32x2` | 24 |
+| joints | 3 (`SkinnedJointsLocation`) | `uint32x4` | 32 |
+| weights | 4 (`SkinnedWeightsLocation`) | `float32x4` | 48 |
+
+`GPUSkinPalette` stores up to `MaxSkinJoints` (128) joint matrices in a portable uniform buffer (`SkinUniformSize` = 8,192 bytes, fitting comfortably below WebGL 2 and OpenGL ES 3.0's 16 KiB `MAX_UNIFORM_BLOCK_SIZE` minimum) and binds it at `SkinGroup` (group 1). Unused joint slots are padded with identity matrices. `AppendJointMatrices` and `SkinJointMatrices` / `SkinJointMatricesWithTransform` (which compute glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]`) reuse caller storage with zero allocations.
+
+`SkinWGSL` declares the uniform block (`skin: SkinPalette`) and portable `skin_position` / `skin_normal` vertex helpers matching CPU `SkinVertex`. `NewSkinnedMeshPipeline` compiles `SkinnedMeshWGSL` (`CameraWGSL` at group 0 + `SkinWGSL` at group 1) for immediate rendering:
+
+```go
+doc, _ := gltf.LoadFS(assetsFS, "CesiumMan.gltf")
+_ = doc.ComputeWorldMatrices()
+meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, 2)
+
+// In gpu.View OnReady:
+camBuf, _ := render3d.NewCameraBuffer(cx, dev)
+palette, _ := render3d.NewGPUSkinPalette(cx, dev, render3d.SkinPaletteOptions{Label: "hero", Retained: true})
+gpuMesh, _ := render3d.UploadSkinnedMesh(cx, dev, meshes[0], render3d.MeshUpload{Label: "hero", Retained: true})
+pipe, _ := render3d.NewSkinnedMeshPipeline(cx, dev, camBuf.Layout(), palette.Layout(), render3d.SkinnedMeshPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+})
+
+// Each frame:
+_ = palette.UpdateFromGLTF(dev, doc, 0) // 0 allocations
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.SkinGroup, palette.BindGroup())
+gpuMesh.Draw(pass)
+```
+
 ## Metallic-roughness materials (`Material`, `MaterialDefaults`, `GPUMaterial`)
 
 `Material` (aliased as `MetallicRoughnessMaterial`) represents a glTF 2.0 metallic-roughness PBR surface with base color (`BaseColorFactor`, `BaseColorTexture`), metallic-roughness (`MetallicFactor`, `RoughnessFactor`, `MetallicRoughnessTexture` using the glTF G = roughness, B = metallic channel packing), tangent-space normal mapping (`NormalTexture`, `NormalScale`), ambient occlusion (`OcclusionTexture`, `OcclusionStrength`), emissive (`EmissiveFactor`, `EmissiveTexture`), alpha modes (`AlphaOpaque`, `AlphaMask` with `AlphaCutoff`, `AlphaBlend`), and `DoubleSided` back-face normal flipping.

@@ -349,6 +349,45 @@ morph.Draw(pass)
 - **实时物体空间包围盒**：`GPUMorphMesh.Bounds` 会按需执行待处理的 CPU 混合（并缓存结果，确保 `Update` 不会重复混合），同时同步更新底层 `GPUMesh.Bounds` 以供视锥裁剪使用。
 - **设备丢失恢复**：开启 `MeshUpload.Retained` 后，设备丢失恢复时 NSGo 会用最近一次上传的变形顶点数据重建缓冲；若设备丢失期间调用了 `SetWeights`，网格会保持 `Dirty`，恢复后的首次 `Update` 会立即上传新姿态。
 
+## GPU 蒙皮（`SkinnedMesh`、`GPUSkinnedMesh`、`GPUSkinPalette`）
+
+`SkinnedMesh` 在 `Mesh` 的基础上增加逐顶点的 glTF 蒙皮属性（`Joints [][4]uint16` 与 `Weights []math3d.Vec4`）以及可选的 `JointCount`。`SkinnedMeshFromGLTF` 与 `SkinnedMeshesFromGLTFNode` 从已加载的 `gltf.Document` 提取并校验三角形图元，检查骨骼索引范围并将每个顶点的四个权重归一化为和等于 1（全零权重回退为 `(1, 0, 0, 0)`）。`UploadSkinnedMesh` 将 64 字节交错顶点缓冲与可选索引缓冲（65,535 个顶点及以下用 `uint16`，超过用 `uint32`）上传为归属于作用域的 `GPUSkinnedMesh`，支持 `Retained` 设备丢失自动恢复。
+
+所有蒙皮网格共用同一种交错小端布局（`SkinnedVertexLayout`），位置 0..2 与 `MeshVertexLayout` 完全一致：
+
+| 属性 | `@location` | 格式 | 偏移 |
+| --- | --- | --- | --- |
+| 位置 | 0（`SkinnedPositionLocation`） | `float32x3` | 0 |
+| 法线 | 1（`SkinnedNormalLocation`） | `float32x3` | 12 |
+| UV | 2（`SkinnedUVLocation`） | `float32x2` | 24 |
+| 骨骼索引 | 3（`SkinnedJointsLocation`） | `uint32x4` | 32 |
+| 骨骼权重 | 4（`SkinnedWeightsLocation`） | `float32x4` | 48 |
+
+`GPUSkinPalette` 在可移植 uniform 缓冲中保存最多 `MaxSkinJoints`（128）个骨骼矩阵（`SkinUniformSize` = 8,192 字节，远低于 WebGL 2 与 OpenGL ES 3.0 的 16 KiB `MAX_UNIFORM_BLOCK_SIZE` 下限），并绑定到 `SkinGroup`（第 1 组）。未使用的槽位自动填充单位矩阵。`AppendJointMatrices` 以及计算 glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]` 的 `SkinJointMatrices` / `SkinJointMatricesWithTransform` 均可复用调用方缓冲实现零分配。
+
+`SkinWGSL` 声明 uniform 数据块（`skin: SkinPalette`）以及与 CPU 参考函数 `SkinVertex` 一致的 `skin_position` / `skin_normal` 顶点辅助函数。`NewSkinnedMeshPipeline` 编译内置的 `SkinnedMeshWGSL`（第 0 组为 `CameraWGSL`，第 1 组为 `SkinWGSL`），开箱即可绘制：
+
+```go
+doc, _ := gltf.LoadFS(assetsFS, "CesiumMan.gltf")
+_ = doc.ComputeWorldMatrices()
+meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, 2)
+
+// 在 gpu.View 的 OnReady 中：
+camBuf, _ := render3d.NewCameraBuffer(cx, dev)
+palette, _ := render3d.NewGPUSkinPalette(cx, dev, render3d.SkinPaletteOptions{Label: "hero", Retained: true})
+gpuMesh, _ := render3d.UploadSkinnedMesh(cx, dev, meshes[0], render3d.MeshUpload{Label: "hero", Retained: true})
+pipe, _ := render3d.NewSkinnedMeshPipeline(cx, dev, camBuf.Layout(), palette.Layout(), render3d.SkinnedMeshPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+})
+
+// 每帧：
+_ = palette.UpdateFromGLTF(dev, doc, 0) // 零分配
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.SkinGroup, palette.BindGroup())
+gpuMesh.Draw(pass)
+```
+
 ## 金属度-粗糙度材质（`Material`、`MaterialDefaults`、`GPUMaterial`）
 
 `Material`（别名 `MetallicRoughnessMaterial`）描述符合 glTF 2.0 规范的金属度-粗糙度 PBR 表面，涵盖基础色（`BaseColorFactor`、`BaseColorTexture`）、金属度与粗糙度（`MetallicFactor`、`RoughnessFactor`、遵循 glTF 约定的 G=粗糙度、B=金属度的 `MetallicRoughnessTexture`）、切线空间法线贴图（`NormalTexture`、`NormalScale`）、环境光遮蔽（`OcclusionTexture`、`OcclusionStrength`）、自发光（`EmissiveFactor`、`EmissiveTexture`）、透明模式（`AlphaOpaque`、带 `AlphaCutoff` 的 `AlphaMask`、`AlphaBlend`）以及双面渲染（`DoubleSided` 背面法线翻转）。
