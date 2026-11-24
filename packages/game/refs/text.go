@@ -45,7 +45,7 @@ func lineStarts(data []byte) []int {
 		case c >= 0x80:
 			r, size := utf8.DecodeRune(data[i:])
 			i += size
-			if r != '\u0085' && r != ' ' && r != ' ' {
+			if r != '\u0085' && r != '\u2028' && r != '\u2029' {
 				continue
 			}
 		default:

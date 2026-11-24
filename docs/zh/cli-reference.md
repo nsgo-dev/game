@@ -213,8 +213,8 @@ game mv [flags] <from> <to>
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
+| `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
-| `-n` |  | print what would change without changing anything |
 
 ## game index
 
@@ -226,8 +226,8 @@ game index [flags] [dir]
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
+| `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (alternative to the positional argument; defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
-| `-n` |  | print what would change without changing anything |
 
 ## game completion
 

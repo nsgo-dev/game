@@ -55,7 +55,7 @@ layers:
 // After a file moves without the tools, Check reports each reference that broke, and where the index says the file went.
 func ExampleProject_Check() {
 	fsys := fstest.MapFS{
-		"game.yaml":               {Data: []byte("version: 1\n")},
+		"game.yaml":               {Data: []byte("version: 1\nname: Cave\nid: dev.example.cave\nappVersion: 0.1.0\nwindow: {width: 640, height: 360}\n")},
 		"scenes/a.scene.yaml":     {Data: []byte("version: 2\nlayers:\n  - name: l\n    objects:\n      - id: e\n        scene: scenes/enemy.scene.yaml\n")},
 		"actors/enemy.scene.yaml": {Data: []byte("version: 2\nuid: enemy00000001\n")},
 		refs.IndexFileName:        {Data: []byte("version: 1\nfiles:\n  - path: scenes/enemy.scene.yaml\n    uid: enemy00000001\n")},

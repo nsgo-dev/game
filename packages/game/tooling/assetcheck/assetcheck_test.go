@@ -543,6 +543,9 @@ func yamlLines(data []byte) int {
 	return 1 + strings.Count(s, "\n") + strings.Count(s, "\r") + strings.Count(s, "\u0085") + strings.Count(s, "\u2028") + strings.Count(s, "\u2029")
 }
 
+// gameHead is the smallest valid game.yaml, which the cases extend.
+const gameHead = "version: 1\nname: G\nid: dev.example.g\nappVersion: '1'\nwindow: {width: 1, height: 1}\n"
+
 func TestReferencesBetweenProjectFiles(t *testing.T) {
 	const enemy = "version: 2\nuid: enemy00000001\nlayers:\n  - name: a\n    objects:\n      - id: body\n"
 	const index = `version: 1
@@ -556,7 +559,7 @@ files:
 `
 	base := func(t *testing.T) fstest.MapFS {
 		fsys := project(t)
-		fsys["game.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nautoload:\n  scenes:\n    - name: room\n      path: scenes/room.scene.yaml\n  resources:\n    - name: stone\n      path: materials/stone.material.yaml\n")}
+		fsys["game.yaml"] = &fstest.MapFile{Data: []byte(gameHead + "autoload:\n  scenes:\n    - name: room\n      path: scenes/room.scene.yaml\n  resources:\n    - name: stone\n      path: materials/stone.material.yaml\n")}
 		fsys["scenes/enemy.yaml"] = &fstest.MapFile{Data: []byte(enemy)}
 		fsys["scenes/room.scene.yaml"].Data = []byte(strings.Replace(roomScene, "version: 1", "version: 2", 1) + "      - id: foe\n        scene: scenes/enemy.yaml\n")
 		fsys["materials/stone.material.yaml"].Data = []byte(strings.Replace(stoneMaterial, "version: 1\n", "version: 1\nuid: mat0000000001\n", 1))
@@ -577,7 +580,7 @@ files:
 		}},
 		{"missing autoload", func(fsys fstest.MapFS) {
 			fsys["game.yaml"].Data = []byte(strings.Replace(string(fsys["game.yaml"].Data), "room.scene.yaml", "hall.scene.yaml", 1))
-		}, []string{`game.yaml:5: autoload scene "scenes/hall.scene.yaml": not found`}},
+		}, []string{`game.yaml:9: autoload scene "scenes/hall.scene.yaml": not found`}},
 		{"moved scene", func(fsys fstest.MapFS) {
 			fsys["actors/enemy.yaml"] = fsys["scenes/enemy.yaml"]
 			delete(fsys, "scenes/enemy.yaml")
@@ -586,7 +589,7 @@ files:
 			fsys["materials/rock/stone.material.yaml"] = fsys["materials/stone.material.yaml"]
 			delete(fsys, "materials/stone.material.yaml")
 		}, []string{
-			`game.yaml:8: autoload resource "materials/stone.material.yaml": not found; it moved to "materials/rock/stone.material.yaml"; run game index to update the reference`,
+			`game.yaml:12: autoload resource "materials/stone.material.yaml": not found; it moved to "materials/rock/stone.material.yaml"; run game index to update the reference`,
 			`scenes/room.scene.yaml:%d: material "materials/stone.material.yaml": not found; it moved to "materials/rock/stone.material.yaml"; run game index to update the reference`,
 		}},
 		{"moved texture", func(fsys fstest.MapFS) {
@@ -594,6 +597,27 @@ files:
 			delete(fsys, "art/stone.png")
 		}, []string{`materials/stone.material.yaml:5: texture "art/stone.png": not found; it moved to "art/stones/stone.png"; run game index to update the reference`}},
 		{"shared uid", func(fsys fstest.MapFS) { fsys["scenes/copy.scene.yaml"] = fsys["scenes/enemy.yaml"] }, nil},
+		{"uid shared with another project", func(fsys fstest.MapFS) {
+			fsys["other/go.mod"] = &fstest.MapFile{Data: []byte("module other\n")}
+			fsys["other/enemy.scene.yaml"] = fsys["scenes/enemy.yaml"]
+		}, nil},
+		{"missing override material", func(fsys fstest.MapFS) {
+			fsys["scenes/room.scene.yaml"].Data = append(fsys["scenes/room.scene.yaml"].Data, "        overrides:\n          body:\n            material: materials/gone.material.yaml\n"...)
+		}, []string{`scenes/room.scene.yaml:%d: material "materials/gone.material.yaml": not found`}},
+		{"missing layer override tilemap", func(fsys fstest.MapFS) {
+			fsys["scenes/derived.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\ninherits: scenes/enemy.yaml\nlayerOverrides:\n  a:\n    tilemap:\n      source: maps/gone.tmj\n")}
+		}, []string{`scenes/derived.scene.yaml:6: tilemap source "maps/gone.tmj": not found`}},
+		{"missing material in an instanced scene", func(fsys fstest.MapFS) {
+			fsys["scenes/enemy.yaml"].Data = []byte(enemy + "        material: materials/gone.material.yaml\n")
+		}, []string{`scenes/enemy.yaml:7: material "materials/gone.material.yaml": not found`}},
+		{"missing texture of an autoloaded material", func(fsys fstest.MapFS) {
+			fsys["materials/extra.material.yaml"] = &fstest.MapFile{Data: []byte("type: material\nversion: 1\nname: Extra\ntexture: art/gone.png\n")}
+			fsys["game.yaml"].Data = append(fsys["game.yaml"].Data, "    - name: extra\n      path: materials/extra.material.yaml\n"...)
+		}, []string{`materials/extra.material.yaml:4: texture "art/gone.png": not found`}},
+		{"assets", func(fsys fstest.MapFS) {
+			fsys["game.yaml"].Data = append(fsys["game.yaml"].Data, "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: gen/atlases\n    - name: hud\n      in: art\n      out: gen/atlases\n  textures:\n    - in: art/stone.png\n      out: gen/stone.ktx2\n"...)
+		}, []string{`game.yaml:16: assets atlas in "art/ui": not found`}},
+		{"invalid game.yaml", func(fsys fstest.MapFS) { fsys["game.yaml"].Data = []byte("version: 1\n") }, nil},
 		{"broken index", func(fsys fstest.MapFS) {
 			fsys["game.index.yaml"].Data = append(fsys["game.index.yaml"].Data, "    size: 3\n"...)
 		}, []string{`game.index.yaml:9: field size not found in type refs.IndexEntry`}},
@@ -611,12 +635,27 @@ files:
 			for _, w := range tc.want {
 				if strings.Contains(w, "%d") {
 					marker := `scene: scenes/enemy.yaml`
-					if strings.Contains(w, "material") {
+					switch {
+					case strings.Contains(w, "gone.material"):
+						marker = "material: materials/gone"
+					case strings.Contains(w, "material"):
 						marker = "material: materials"
 					}
 					w = fmt.Sprintf(w, lineOf(t, string(fsys["scenes/room.scene.yaml"].Data), marker))
 				}
 				want = append(want, w)
+			}
+			switch tc.name {
+			case "uid shared with another project":
+				if len(got) != 0 {
+					t.Fatalf("problems:\n%s", strings.Join(got, "\n"))
+				}
+				return
+			case "invalid game.yaml":
+				if len(got) != 1 || !strings.HasPrefix(got[0], "game.yaml: project: ") {
+					t.Fatalf("problems:\n%s", strings.Join(got, "\n"))
+				}
+				return
 			}
 			if tc.name == "shared uid" {
 				// A copy is reported where it is read; which of the two files is the copy is for game index to decide.
