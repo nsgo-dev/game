@@ -203,6 +203,31 @@ textures:
   albedo: textures/crate.png
 ```
 
+<!-- format: voxel -->
+### 体素世界
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.voxel.yaml` | `version: 1` | `voxel.Parse`、`voxel.Encode` | [voxel](voxel.md)；Schema 为 `https://game.nsgo.dev/schemas/voxel.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/voxel.v1.json
+version: 1
+name: hill
+chunkSize: 4
+voxelSize: 1
+palette:
+  - id: 1
+    name: stone
+chunks:
+  - x: 0
+    "y": 0
+    z: 0
+    runs:
+      - 1*4
+      - 0*60
+```
+
 ## 场景、资源与动画
 
 <!-- format: sceneformat -->

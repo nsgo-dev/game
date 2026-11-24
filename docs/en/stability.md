@@ -169,5 +169,6 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/vehicle` | Experimental | [vehicle](vehicle.md) |
 | `game/vn` | Experimental | [vn](vn.md) |
 | `game/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
+| `game/voxel` | Experimental | [voxel](voxel.md) |
 | `game/world3d` | Experimental | [world3d](world3d.md) |
 | `game/worldmap` | Experimental | [worldmap](worldmap.md) |
