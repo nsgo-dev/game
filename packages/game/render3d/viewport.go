@@ -629,12 +629,15 @@ func (p PixelViewport) Apply(pass *gpu.RenderPass) {
 	pass.SetScissor(p.X, p.Y, p.Width, p.Height)
 }
 
-// Bounds returns p as a [core.Bounds] rectangle for 2D/debug helpers such as
-// [DebugDraw.Flush], [Gizmo.DrawGizmo], and [BillboardRenderer.Draw].
-func (p PixelViewport) Bounds() core.Bounds {
+// Bounds converts p from physical pixels to a [core.Bounds] in logical points for 2D overlay helpers such as [DebugDraw.Flush], [Gizmo.DrawGizmo], and [BillboardRenderer.Draw], which draw into a [*core.Drawing] measured in points. pixelsPerPoint is the surface's content scale: its width in pixels (frame.Size) divided by the view's width in points. A non-positive or non-finite pixelsPerPoint is treated as 1.
+func (p PixelViewport) Bounds(pixelsPerPoint float32) core.Bounds {
+	s := pixelsPerPoint
+	if !(s > 0) || !finite(s) {
+		s = 1
+	}
 	return core.Bounds{
-		Origin: core.Point{X: core.Points(p.X), Y: core.Points(p.Y)},
-		Size:   core.Size{Width: core.Points(p.Width), Height: core.Points(p.Height)},
+		Origin: core.Point{X: core.Points(float32(p.X) / s), Y: core.Points(float32(p.Y) / s)},
+		Size:   core.Size{Width: core.Points(float32(p.Width) / s), Height: core.Points(float32(p.Height) / s)},
 	}
 }
 
