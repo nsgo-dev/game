@@ -1,0 +1,7 @@
+version: 1
+name: Platformer Eval
+id: dev.nsgo.agenteval.platformer
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360

@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: gameplay
+virtualWidth: 480
+virtualHeight: 320
+layers:
+  - name: arena
+    space: world
+    order: 0
+    objects:
+      - id: hero
+        x: 240
+        y: 160

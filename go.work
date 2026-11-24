@@ -11,5 +11,6 @@ use (
 	./examples/fountain
 	./examples/fieldmedic
 	./tools/changelog
+	./tools/agenteval
 )
 

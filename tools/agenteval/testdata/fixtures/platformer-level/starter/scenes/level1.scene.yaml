@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: level1
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: terrain
+    space: world
+    order: 0

@@ -1,0 +1,7 @@
+version: 1
+name: Enemy Eval
+id: dev.nsgo.agenteval.enemy
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360

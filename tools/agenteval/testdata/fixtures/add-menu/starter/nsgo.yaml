@@ -1,0 +1,4 @@
+name: Menu Eval
+id: dev.nsgo.agenteval.menu
+version: 0.1.0
+game: true

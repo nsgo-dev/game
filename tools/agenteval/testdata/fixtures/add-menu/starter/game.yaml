@@ -1,0 +1,7 @@
+version: 1
+name: Menu Eval
+id: dev.nsgo.agenteval.menu
+appVersion: 0.1.0
+window:
+  width: 480
+  height: 320

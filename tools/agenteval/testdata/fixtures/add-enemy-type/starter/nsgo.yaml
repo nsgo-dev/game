@@ -1,0 +1,4 @@
+name: Enemy Eval
+id: dev.nsgo.agenteval.enemy
+version: 0.1.0
+game: true

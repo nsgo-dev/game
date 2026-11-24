@@ -136,4 +136,4 @@ With those, this repository would add an XR camera rig to `scene3d` and XR actio
 
 ## For language models
 
-The site publishes the English docs for language models and coding agents, as [nsgo.dev](https://nsgo.dev/llms.txt) does: [llms.txt](https://game.nsgo.dev/llms.txt) lists every page with a line about it, and [llms-full.txt](https://game.nsgo.dev/llms-full.txt) holds every page's Markdown in one file. Both are built from `docs/en` with the site, so they always match these pages.
+The site publishes the English docs for language models and coding agents, as [nsgo.dev](https://nsgo.dev/llms.txt) does: [llms.txt](https://game.nsgo.dev/llms.txt) lists every page with a line about it, and [llms-full.txt](https://game.nsgo.dev/llms-full.txt) holds every page's Markdown in one file. Both are built from `docs/en` with the site, so they always match these pages. See [Agent Evaluation Suite](agent-eval.md) for the scheduled benchmark tasks that verify docs, YAML formats, builds, and `game/mcp` tools end to end.

@@ -1,0 +1,48 @@
+version: 1
+id: platformer-level
+title: Build a platformer level
+description: Create a playable 2D platformer level in YAML with reachable platforms, player spawn and goal markers, platformer physics on a fixed-step loop, and live MCP inspection.
+prompt: |
+  Build a playable 2D platformer level in this NSGo game project.
+
+  Requirements:
+  1. Keep `game.yaml` valid (version 1) and ensure `scenes/level1.scene.yaml` parses with `sceneformat.Parse` and passes `assetcheck.Check`.
+  2. Place at least 3 reachable world-space platform objects bridging `player_spawn` to `goal` with no horizontal gap wider than 64 points.
+  3. Wire `physics.CharacterBody` and `platformer.Controller` on a 60 Hz `game.Loop` so the player advances deterministically across fixed updates.
+  4. Attach `mcp.Bridge` to the root `core.Scope` exposing the scene, world, entities (`player` and `goal`), `position` component, and loop controls.
+min_score: 100
+context_docs:
+  - docs/en/platformer.md
+  - docs/en/scene.md
+  - docs/en/physics.md
+  - docs/en/mcp.md
+  - docs/en/project.md
+  - docs/en/formats.md
+starter_dir: tools/agenteval/testdata/fixtures/platformer-level/starter
+reference_dir: tools/agenteval/testdata/fixtures/platformer-level/reference
+checks:
+  yaml_files:
+    - game.yaml
+    - scenes/level1.scene.yaml
+  platformer_level:
+    scene_file: scenes/level1.scene.yaml
+    min_platforms: 3
+    max_gap: 64
+    player_id: player_spawn
+    goal_id: goal
+  mcp_verify:
+    min_scenes: 1
+    require_layer_space: world
+    require_entity_names:
+      - player
+      - goal
+    step_count: 60
+    expect_moved_entity: player
+    expect_component: position
+  weights:
+    docs_context: 10
+    yaml_valid: 15
+    project_check: 15
+    domain_check: 20
+    build_check: 15
+    mcp_verify: 25

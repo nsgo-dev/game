@@ -136,4 +136,4 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 
 ## 面向语言模型
 
-与 [nsgo.dev](https://nsgo.dev/llms.txt) 一样，本站为语言模型和编程智能体发布英文文档：[llms.txt](https://game.nsgo.dev/llms.txt) 列出每个页面并附一句简介，[llms-full.txt](https://game.nsgo.dev/llms-full.txt) 把每个页面的 Markdown 合在一个文件里。两者都随网站从 `docs/en` 构建，因此始终与这些页面一致。
+与 [nsgo.dev](https://nsgo.dev/llms.txt) 一样，本站为语言模型和编程智能体发布英文文档：[llms.txt](https://game.nsgo.dev/llms.txt) 列出每个页面并附一句简介，[llms-full.txt](https://game.nsgo.dev/llms-full.txt) 把每个页面的 Markdown 合在一个文件里。两者都随网站从 `docs/en` 构建，因此始终与这些页面一致。另见[智能体评测套件](agent-eval.md)，了解按计划端到端验证文档、YAML 格式、构建与 `game/mcp` 工具的评测任务。

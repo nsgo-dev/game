@@ -1,0 +1,45 @@
+version: 1
+id: add-enemy-type
+title: Add an enemy type
+description: Add a patrolling enemy type declared in YAML and simulated via an ECS component on the fixed-step loop, inspectable over MCP across simulation steps.
+prompt: |
+  Add a patrolling enemy type to this NSGo game project.
+
+  Requirements:
+  1. Update `scenes/arena.scene.yaml` to place at least one enemy object carrying an `enemy` component alongside `player`, keeping `game.yaml` and the scene valid under `assetcheck.Check`.
+  2. Define and register an `enemy` component codec on `entities.World`, spawn the enemy tagged `"enemy"`, and update its patrol motion on the 60 Hz `game.Loop`.
+  3. Expose the scene, world, entity names/tags (`"enemy"`), `position` and `enemy` components, and loop controls through `mcp.Bridge`.
+min_score: 100
+context_docs:
+  - docs/en/entities.md
+  - docs/en/ai.md
+  - docs/en/loop.md
+  - docs/en/mcp.md
+  - docs/en/project.md
+starter_dir: tools/agenteval/testdata/fixtures/add-enemy-type/starter
+reference_dir: tools/agenteval/testdata/fixtures/add-enemy-type/reference
+checks:
+  yaml_files:
+    - game.yaml
+    - scenes/arena.scene.yaml
+  enemy_spec:
+    scene_file: scenes/arena.scene.yaml
+    min_enemies: 1
+    required_component: enemy
+  mcp_verify:
+    min_scenes: 1
+    require_layer_space: world
+    require_entity_tag: enemy
+    require_entity_names:
+      - player
+      - patrol_slime
+    step_count: 60
+    expect_moved_entity: patrol_slime
+    expect_component: enemy
+  weights:
+    docs_context: 10
+    yaml_valid: 15
+    project_check: 15
+    domain_check: 20
+    build_check: 15
+    mcp_verify: 25

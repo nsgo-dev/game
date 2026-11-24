@@ -1,0 +1,44 @@
+version: 1
+id: add-menu
+title: Add a menu
+description: Add a screen-space menu scene with interactive items and scene manager transitions alongside gameplay, discoverable through MCP scene and layer inspection.
+prompt: |
+  Add a title and pause menu to this NSGo game project.
+
+  Requirements:
+  1. Add `scenes/menu.scene.yaml` with a visible screen-space layer (`space: screen`) containing at least 2 menu items, keeping `game.yaml` and `scenes/gameplay.scene.yaml` valid under `assetcheck.Check`.
+  2. Wire `scene.Manager` with named `"menu"`, `"gameplay"`, and `"pause"` controllers using `gameui.Root` for the menu layout.
+  3. Attach `mcp.Bridge` with `Scenes`, `SceneName`, `NamedScenes`, `World`, and `Loop` so `game_scenes_list` reports both `"menu"` and `"gameplay"` and `game_layers_list` shows the screen-space menu layer.
+min_score: 100
+context_docs:
+  - docs/en/scene.md
+  - docs/en/gameui.md
+  - docs/en/mcp.md
+  - docs/en/project.md
+  - docs/en/flow.md
+starter_dir: tools/agenteval/testdata/fixtures/add-menu/starter
+reference_dir: tools/agenteval/testdata/fixtures/add-menu/reference
+checks:
+  yaml_files:
+    - game.yaml
+    - scenes/menu.scene.yaml
+    - scenes/gameplay.scene.yaml
+  menu_spec:
+    scene_file: scenes/menu.scene.yaml
+    min_menu_items: 2
+    require_screen_layer: true
+  mcp_verify:
+    min_scenes: 2
+    require_scene_names:
+      - menu
+      - gameplay
+    inspect_layer_scene: menu
+    require_layer_space: screen
+    step_count: 15
+  weights:
+    docs_context: 10
+    yaml_valid: 15
+    project_check: 15
+    domain_check: 20
+    build_check: 15
+    mcp_verify: 25
