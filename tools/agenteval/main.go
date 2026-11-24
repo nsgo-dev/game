@@ -40,8 +40,14 @@ func runCLI(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("agenteval: unexpected positional argument(s): %s", strings.Join(fs.Args(), " "))
+	}
 	if *minScore < -1 || *minScore > 100 {
 		return fmt.Errorf("agenteval: -min-score must be between -1 and 100 (got %d)", *minScore)
+	}
+	if *timeout < 0 {
+		return fmt.Errorf("agenteval: -timeout must be non-negative (got %s)", *timeout)
 	}
 
 	root, err := findRepoRoot()

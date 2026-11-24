@@ -97,6 +97,21 @@ checks:
 	if _, err := ParseTask(badWeights); err == nil {
 		t.Fatal("ParseTask accepted weights summing to 85, want error")
 	}
+
+	// Path traversal, absolute paths, and unsafe task IDs must be refused.
+	validBase := bytes.Replace(badUnknown, []byte("extra_unknown_field: true\n"), nil, 1)
+	for name, mutated := range map[string][]byte{
+		"traversal_starter":  bytes.Replace(validBase, []byte("starter_dir: a"), []byte("starter_dir: ../outside"), 1),
+		"abs_context_doc":    bytes.Replace(validBase, []byte("docs/en/mcp.md"), []byte("/etc/passwd"), 1),
+		"traversal_scene":    bytes.Replace(validBase, []byte("scenes/menu.scene.yaml"), []byte("../../escape.scene.yaml"), 1),
+		"unsafe_task_id":     bytes.Replace(validBase, []byte("id: bad"), []byte("id: ../bad"), 1),
+		"moved_without_step": bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_moved_entity: player"), 1),
+		"comp_without_moved": bytes.Replace(validBase, []byte("min_scenes: 1"), []byte("min_scenes: 1\n    expect_component: enemy"), 1),
+	} {
+		if _, err := ParseTask(mutated); err == nil {
+			t.Errorf("ParseTask(%s) accepted invalid spec, want error", name)
+		}
+	}
 }
 
 func TestReferenceSuitePassesAllTasks(t *testing.T) {
@@ -261,5 +276,69 @@ func TestCommandModeWithMockAgent(t *testing.T) {
 	}
 	if !report.Passed || report.TotalTasks != 1 || report.Tasks[0].Score != 100 {
 		t.Fatalf("mock agent command run failed:\n%s", report.RenderMarkdown())
+	}
+}
+
+func TestPlatformerReachabilityEdgeCases(t *testing.T) {
+	root := testRepoRoot(t)
+	tasks, err := LoadTasksDir(filepath.Join(root, "tools", "agenteval", "tasks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plat *Task
+	for _, task := range tasks {
+		if task.ID == "platformer-level" {
+			plat = task
+		}
+	}
+	if plat == nil {
+		t.Fatal("platformer-level task not found")
+	}
+
+	// Extra decorative platforms far left of player or far right of goal must not cause false failures.
+	wsExtra := filepath.Join(t.TempDir(), "extra-platforms")
+	if err := copyDir(filepath.Join(root, filepath.FromSlash(plat.ReferenceDir)), wsExtra); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(wsExtra, "scenes", "level1.scene.yaml")
+	data, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extraPlatforms := strings.Replace(string(data), "      - id: platform_start", `      - id: platform_left_bg
+        prefab: platform
+        x: -400
+        y: 144
+        properties:
+          height: 16
+          width: 64
+      - id: platform_right_bg
+        prefab: platform
+        x: 700
+        y: 96
+        properties:
+          height: 16
+          width: 64
+      - id: platform_start`, 1)
+	if err := os.WriteFile(scenePath, []byte(extraPlatforms), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := gradePlatformerLevel(wsExtra, plat.Checks.PlatformerLevel, 20)
+	if !res.Passed {
+		t.Fatalf("decorative platforms outside [player, goal] falsely failed reachability: %+v", res)
+	}
+
+	// Removing platform_goal leaves goal unsupported (x=344 past reach=288) and must fail.
+	wsUnsupported := filepath.Join(t.TempDir(), "unsupported-goal")
+	if err := copyDir(filepath.Join(root, filepath.FromSlash(plat.ReferenceDir)), wsUnsupported); err != nil {
+		t.Fatal(err)
+	}
+	unsupported := strings.Split(string(data), "      - id: platform_goal")[0] + "  - name: actors" + strings.Split(string(data), "  - name: actors")[1]
+	if err := os.WriteFile(filepath.Join(wsUnsupported, "scenes", "level1.scene.yaml"), []byte(unsupported), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res2 := gradePlatformerLevel(wsUnsupported, plat.Checks.PlatformerLevel, 20)
+	if res2.Passed {
+		t.Fatalf("unsupported goal unexpectedly passed reachability: %+v", res2)
 	}
 }

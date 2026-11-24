@@ -87,7 +87,7 @@ func (r SuiteReport) RenderMarkdown() string {
 			status = "FAIL"
 		}
 		fmt.Fprintf(&b, "| `%s` (%s) | %d/%d | %d | %d/%d | %s | %dms |\n",
-			t.ID, t.Title, t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), status, t.DurationMS)
+			t.ID, mdCell(t.Title), t.Score, t.MaxScore, t.MinScore, passedCriteria, len(t.Criteria), status, t.DurationMS)
 	}
 
 	b.WriteString("\n### Criterion Breakdown\n")
@@ -100,12 +100,15 @@ func (r SuiteReport) RenderMarkdown() string {
 			if !c.Passed {
 				status = "FAIL"
 			}
-			detail := strings.ReplaceAll(strings.TrimSpace(c.Detail), "\n", " ")
-			detail = strings.ReplaceAll(detail, "|", "\\|")
-			fmt.Fprintf(&b, "| `%s` | %d/%d | %s | %s |\n", c.Name, c.Earned, c.Weight, status, detail)
+			fmt.Fprintf(&b, "| `%s` | %d/%d | %s | %s |\n", c.Name, c.Earned, c.Weight, status, mdCell(c.Detail))
 		}
 	}
 	return b.String()
+}
+
+func mdCell(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	return strings.ReplaceAll(s, "|", "\\|")
 }
 
 // WriteJSON writes r as formatted deterministic JSON to path.

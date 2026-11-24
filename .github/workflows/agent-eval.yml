@@ -63,10 +63,10 @@ jobs:
           set -euo pipefail
           args=(-mode=reference -out agent-eval-report.json)
           if [ -n "$EVAL_TASK" ]; then
-            args+=(-task "$EVAL_TASK")
+            args+=("-task=$EVAL_TASK")
           fi
           if [ -n "$EVAL_MIN_SCORE" ]; then
-            args+=(-min-score "$EVAL_MIN_SCORE")
+            args+=("-min-score=$EVAL_MIN_SCORE")
           fi
           go run ./tools/agenteval "${args[@]}"
       - name: Upload evaluation report

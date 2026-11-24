@@ -120,11 +120,15 @@ func runSingleTask(ctx context.Context, opts RunOptions, task *Task) (TaskReport
 		return TaskReport{}, fmt.Errorf("create workspace dir: %w", err)
 	}
 
-	var srcDir string
+	var relSrc string
 	if opts.Mode == ModeReference {
-		srcDir = filepath.Join(opts.RepoRoot, filepath.FromSlash(task.ReferenceDir))
+		relSrc = task.ReferenceDir
 	} else {
-		srcDir = filepath.Join(opts.RepoRoot, filepath.FromSlash(task.StarterDir))
+		relSrc = task.StarterDir
+	}
+	srcDir, err := safeJoin(opts.RepoRoot, relSrc)
+	if err != nil {
+		return TaskReport{}, fmt.Errorf("resolve fixture %s: %w", relSrc, err)
 	}
 	if err := copyDir(srcDir, workspaceDir); err != nil {
 		return TaskReport{}, fmt.Errorf("stage fixture %s: %w", srcDir, err)
@@ -167,6 +171,7 @@ func renderAgentPrompt(repoRoot string, task *Task) string {
 
 func runAgentCommand(ctx context.Context, repoRoot, workspaceDir, promptPath, agentCmd string, task *Task) (string, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", agentCmd)
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = workspaceDir
 	env := os.Environ()
 	env = append(env,
