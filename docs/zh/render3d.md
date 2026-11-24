@@ -1177,3 +1177,38 @@ _ = stack.SetCamera(cam)
 - **景深（`DepthOfFieldConfig`、`DepthOfFieldPass`）**：支持透视与正交 `[0, 1]` 深度线性化，围绕 `FocusDistance` ± `FocusRange` 计算带符号弥散圆（CoC），并通过 18 采样双环圆盘散景模糊平滑虚化近景与远景，同时阻止背景模糊色溢入清晰的焦内轮廓。
 - **泛光（`BloomConfig`、`BloomPass`）**：用二次软拐点阈值曲线（`Threshold`、`SoftKnee`）提取 LDR 或 HDR（`> 1.0`）高亮像素，执行 `BlurPasses` 轮可分离 9 采样高斯横纵模糊（可通过 `HalfRes` 启用半分辨率以获得更宽柔和光晕），再以 `Intensity` 加法混合回场景。
 - **跨后端兼容性、生命周期与参考渲染**：所有通道均使用纯片元可移植 WGSL、显式 `textureSampleLevel` 以及代数/预计算权重（不依赖计算着色器，也不使用 `exp`/`log2` 指令），同时兼容完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）配置，并支持 `Resize(dev, w, h)` 与 `Retained` 设备丢失恢复。黄金参考图（`render3d/testdata/golden/post3d_bloom.png`、`post3d_ssao.png`、`post3d_dof.png` 与 `post3d_combined.png`）用于验证各个独立通道与组合栈；设置 `UPDATE_GOLDEN=1` 可重写参考图。
+
+## 集群前向光照（`ClusteredLightSystem`、`ClusterGrid`）
+
+`ClusterGrid` 与 `ClusteredLightSystem` 将视锥体划分为屏幕瓦片 × 对数深度切片的 3D 网格（默认 `16 × 9 × 24`，最多支持 `512` 个可见局部光源、单格最多 `64` 个光源），让数百个点光源与聚光灯保持在帧预算内；在不支持存储缓冲或计算着色器的目标（WebGL 2、OpenGL ES 3.0 及 `nsgotest.NoGPUCompute` 无头测试）上自动回退为纯 uniform 缓冲着色路径：
+
+```go
+camBuf, err := render3d.NewCameraBuffer(cx, dev)
+lights, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
+
+// 编译与当前生效路径匹配的着色器（ClusteredLitWGSL 或 ClusteredFallbackWGSL）：
+mod, err := gpu.CompileWGSL(lights.WGSL())
+pipe, err := dev.CreatePipeline(cx, gpu.PipelineDesc{
+	Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
+	Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
+	Layouts:       []*gpu.BindGroupLayout{render3d.CameraGroup: camBuf.Layout(), render3d.ClusteredLightGroup: lights.Layout()},
+	VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
+	DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
+	Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat(), WriteMask: gpu.ColorWriteAll}},
+})
+
+// 每帧录制绘制命令前更新相机与光源集群：
+camBuf.WriteCamera(cam)
+stats := lights.UpdateCamera(dev, cam, viewW, viewH, ambient, sceneLights)
+
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lights.Bind(pass, render3d.ClusteredLightGroup)
+mesh.Draw(pass)
+```
+
+- **稳态零分配 CPU 集群分配（`ClusterGrid`）**：视空间集群 AABB 按 `(proj, near, far)` 缓存并在相机移动/旋转时直接复用。`AssignLights` 剔除视锥外光源，计算紧凑的屏幕瓦片与对数深度切片范围，执行球体与 AABB 相交检测（聚光灯 `ClusterLightSpot` 额外执行保守圆锥-AABB 剔除），并稳态零分配地打包 `Offsets` 与 `LightIndices`。
+- **可移植的深度切片查找**：集群片元着色器（`ClusteredBindingsWGSL` / `ClusteredLitWGSL`）在 uniform 分割深度表上通过 6 步二分查找定位视空间深度切片，而非依赖 `log2`/`exp`，在 Metal、Direct3D 11、OpenGL 3.3、WebGPU 与 NSGo 软件 GPU 虚拟机上行为完全一致。
+- **移动端 / WebGL 2 自动回退**：当 `DeviceSupportsClusteredLighting(dev)` 为 false（或设置 `ClusterConfig.ForceFallback`）时，`NewClusteredLightSystem` 自动切换为单个 1,056 字节的 uniform 缓冲（`ClusteredFallbackBindingsWGSL` / `ClusteredFallbackWGSL`），每帧通过 `SelectFallbackLights` 选取优先级最高的 `FallbackMaxLights`（默认 `16`）个光源。两条路径提供完全同名的 `evaluate_clustered_lights(world_pos, normal, frag_pos)` WGSL 辅助函数，自定义材质着色器无需分叉即可同时兼容桌面端与移动端。
+- **衰减模型与纯 Go 参考**：点光源与聚光灯（`NewPointClusterLight`、`NewSpotClusterLight`）遵循 glTF `KHR_lights_punctual` 平滑距离窗口与聚光灯锥角衰减；`EvaluateLightAttenuation`、`EvaluateDirectLights` 与 `EvaluateClusteredLights` 提供与 WGSL 一致的纯 Go 参考计算。
+- **生命周期与设备丢失恢复**：开启 `ClusterConfig.Retained` 可在 GPU 设备丢失恢复后自动重建缓冲；`ByteSize()` 上报显存占用供 `RenderStats` 与预算检查使用，`Close()` 可提前释放资源。
