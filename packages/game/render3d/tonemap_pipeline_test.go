@@ -417,3 +417,98 @@ func TestToneMapDrawDynamicResolution(t *testing.T) {
 		}
 	}
 }
+
+// TestHDRTargetMSAAResolve creates a 4x multisampled HDR target on a device that supports MSAA4x and checks the resolve wiring and memory accounting.
+func TestHDRTargetMSAAResolve(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(16, 8, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	if !dev.Features().MSAA4x {
+		t.Skip("device has no MSAA4x")
+	}
+	hdr, err := render3d.NewHDRTarget(nil, dev, render3d.HDRTargetDesc{Width: 16, Height: 8, SampleCount: 4, DepthFormat: gpu.FormatDepth24Plus})
+	if err != nil {
+		t.Fatalf("NewHDRTarget: %v", err)
+	}
+	t.Cleanup(func() { _ = hdr.Close() })
+	rt := hdr.RenderTarget()
+	if hdr.SampleCount() != 4 || rt.Resolve == nil {
+		t.Fatalf("SampleCount = %d, Resolve = %v, want 4 and a resolve texture", hdr.SampleCount(), rt.Resolve)
+	}
+	if hdr.ColorTexture() != rt.Resolve || hdr.ColorAttachmentTexture() != rt.Color {
+		t.Error("ColorTexture must be the resolve texture and ColorAttachmentTexture the multisampled one")
+	}
+	if a := hdr.ColorAttachment(core.RGB(0)); a.Texture != rt.Color || a.ResolveTarget != rt.Resolve {
+		t.Errorf("ColorAttachment = %+v, want the color texture resolving into Resolve", a)
+	}
+	f := hdr.Format()
+	want := f.ByteSize(16, 8)*4 + f.ByteSize(16, 8) + gpu.FormatDepth24Plus.ByteSize(16, 8)*4
+	if got := hdr.ByteSize(); got != want {
+		t.Errorf("ByteSize = %d, want %d (4x color + resolve + 4x depth)", got, want)
+	}
+
+	// The resolved texture feeds the tone-map pass like a single-sampled one.
+	tonePass, err := render3d.NewToneMapPass(nil, dev, render3d.ToneMapPassDesc{TargetFormat: dev.SurfaceFormat()})
+	if err != nil {
+		t.Fatalf("NewToneMapPass: %v", err)
+	}
+	t.Cleanup(func() { _ = tonePass.Close() })
+	enc := dev.BeginEncoder()
+	enc.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x808080), 1)).End()
+	resolve := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	opts := render3d.ToneMapOptions{Operator: render3d.ToneMapNone, Exposure: 1, LinearOutput: true}
+	if err := tonePass.DrawTarget(resolve, dev, hdr, opts); err != nil {
+		t.Fatalf("DrawTarget: %v", err)
+	}
+	resolve.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+	if got := sr.Image().RGBAAt(8, 4); absDiffU8(got.R, 0x80) > 2 {
+		t.Errorf("resolved clear color through the tone map = %v, want ~0x80", got)
+	}
+}
+
+// TestToneMapPassDrawErrors checks Draw's and DrawTarget's argument errors.
+func TestToneMapPassDrawErrors(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	tonePass, err := render3d.NewToneMapPass(nil, dev, render3d.ToneMapPassDesc{})
+	if err != nil {
+		t.Fatalf("NewToneMapPass: %v", err)
+	}
+	t.Cleanup(func() { _ = tonePass.Close() })
+	hdr, err := render3d.NewHDRTarget(nil, dev, render3d.HDRTargetDesc{Width: 8, Height: 8})
+	if err != nil {
+		t.Fatalf("NewHDRTarget: %v", err)
+	}
+	opts := render3d.DefaultToneMapOptions()
+
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}}})
+	if err := tonePass.Draw(nil, dev, hdr.ColorTexture(), opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("Draw(nil pass): err = %v, want ErrInvalidDescriptor", err)
+	}
+	if err := tonePass.Draw(pass, dev, nil, opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("Draw(nil texture): err = %v, want ErrInvalidDescriptor", err)
+	}
+	if err := tonePass.DrawTarget(pass, dev, nil, opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("DrawTarget(nil): err = %v, want ErrInvalidDescriptor", err)
+	}
+	closed := hdr.ColorTexture()
+	_ = hdr.Close()
+	if err := tonePass.Draw(pass, dev, closed, opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("Draw(closed texture): err = %v, want ErrInvalidDescriptor", err)
+	}
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+
+	_ = tonePass.Close()
+	if err := tonePass.Draw(pass, dev, closed, opts); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("Draw on a closed pass: err = %v, want ErrDeviceLost", err)
+	}
+}
