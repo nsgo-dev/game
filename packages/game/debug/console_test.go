@@ -209,13 +209,16 @@ func TestConsoleStoragePersistence(t *testing.T) {
 	g1 := 9.8
 	n1 := 5
 	b1 := false
+	s1 := "start"
 	c1.RegisterFloat("gravity", 0, 100, &g1)
 	c1.RegisterInt("lives", 1, 99, &n1)
 	c1.RegisterBool("debug_ai", &b1)
+	c1.RegisterString("level", &s1)
 
 	_, _ = c1.Exec("set gravity 33.25")
 	_, _ = c1.Exec("set lives 12")
 	_, _ = c1.Exec("set debug_ai true")
+	_, _ = c1.Exec(`set level "boss room"`)
 
 	if err := c1.SaveTunables(st, "dev.tunables"); err != nil {
 		t.Fatalf("SaveTunables error = %v", err)
@@ -226,15 +229,17 @@ func TestConsoleStoragePersistence(t *testing.T) {
 	g2 := 1.0
 	n2 := 1
 	b2 := false
+	s2 := "initial"
 	c2.RegisterFloat("gravity", 0, 100, &g2)
 	c2.RegisterInt("lives", 1, 99, &n2)
 	c2.RegisterBool("debug_ai", &b2)
+	c2.RegisterString("level", &s2)
 
 	if err := c2.LoadTunables(st, "dev.tunables"); err != nil {
 		t.Fatalf("LoadTunables error = %v", err)
 	}
-	if g2 != 33.25 || n2 != 12 || !b2 {
-		t.Fatalf("restored tunables = (%v, %d, %v), want (33.25, 12, true)", g2, n2, b2)
+	if g2 != 33.25 || n2 != 12 || !b2 || s2 != "boss room" {
+		t.Fatalf("restored tunables = (%v, %d, %v, %q), want (33.25, 12, true, %q)", g2, n2, b2, s2, "boss room")
 	}
 
 	// Missing key is a clean no-op.
@@ -242,15 +247,21 @@ func TestConsoleStoragePersistence(t *testing.T) {
 		t.Fatalf("LoadTunables(missing) error = %v", err)
 	}
 
-	// Out-of-range persisted value fails without mutating current values.
+	// Out-of-range or null persisted values fail without mutating current values.
 	if err := st.SetItem("dev.bad", `{"gravity": 999}`); err != nil {
 		t.Fatalf("SetItem error = %v", err)
 	}
 	if err := c2.LoadTunables(st, "dev.bad"); err == nil {
 		t.Fatal("LoadTunables(out-of-range) succeeded, want error")
 	}
-	if g2 != 33.25 {
-		t.Fatalf("gravity mutated to %v after rejected LoadTunables", g2)
+	if err := st.SetItem("dev.badstr", `{"level": null}`); err != nil {
+		t.Fatalf("SetItem error = %v", err)
+	}
+	if err := c2.LoadTunables(st, "dev.badstr"); err == nil {
+		t.Fatal("LoadTunables(null string) succeeded, want error")
+	}
+	if g2 != 33.25 || s2 != "boss room" {
+		t.Fatalf("tunables mutated after rejected LoadTunables: gravity=%v level=%q", g2, s2)
 	}
 }
 
@@ -310,5 +321,86 @@ func TestConsoleViewInteractionAndOverlayComposition(t *testing.T) {
 	}
 	if !foundErr {
 		t.Fatalf("console output %v missing unknown command error", app.Texts())
+	}
+}
+
+func TestConsoleStructuredInspectionAndStringTunable(t *testing.T) {
+	c := debug.NewConsole()
+	gravity := 9.8
+	lives := 3
+	god := false
+	level := "cave_1"
+
+	c.RegisterFloat("gravity", 0, 50, &gravity)
+	c.RegisterInt("lives", 1, 99, &lives)
+	c.RegisterBool("god", &god)
+	c.RegisterString("level", &level)
+	c.RegisterCommand("spawn", "spawn <kind> [count]", func(args []string) (string, error) {
+		return "spawned", nil
+	})
+	// Custom command with the same name as a built-in must not shadow built-in in Commands().
+	c.RegisterCommand("help", "shadowed", func(args []string) (string, error) {
+		return "nope", nil
+	})
+
+	tunables := c.Tunables()
+	if len(tunables) != 4 {
+		t.Fatalf("len(Tunables) = %d, want 4", len(tunables))
+	}
+	wantNames := []string{"god", "gravity", "level", "lives"}
+	for i, want := range wantNames {
+		if tunables[i].Name != want {
+			t.Fatalf("tunables[%d].Name = %q, want %q", i, tunables[i].Name, want)
+		}
+	}
+
+	oldV, newV, err := c.SetTunable("gravity", 20.5)
+	if err != nil || oldV != 9.8 || newV != 20.5 || gravity != 20.5 {
+		t.Fatalf("SetTunable(gravity) = (%v, %v, %v), gravity=%v", oldV, newV, err, gravity)
+	}
+	if info, ok := c.Tunable("gravity"); !ok || info.Value != 20.5 || info.Default != 9.8 || info.Min != 0.0 || info.Max != 50.0 {
+		t.Fatalf("Tunable(gravity) = (%+v, %v)", info, ok)
+	}
+	oldS, newS, err := c.SetTunable("level", "cave_2")
+	if err != nil || oldS != "cave_1" || newS != "cave_2" || level != "cave_2" {
+		t.Fatalf("SetTunable(level) = (%v, %v, %v), level=%q", oldS, newS, err, level)
+	}
+	if out, err := c.Exec(`set level "boss room"`); err != nil || out != "level = boss room" || level != "boss room" {
+		t.Fatalf("Exec(set level) = (%q, %v), level=%q", out, err, level)
+	}
+
+	// Range and type rejections leave variables untouched.
+	if _, _, err := c.SetTunable("gravity", 99.0); err == nil || gravity != 20.5 {
+		t.Fatalf("out-of-range SetTunable(gravity) = %v, gravity=%v", err, gravity)
+	}
+	if _, _, err := c.SetTunable("lives", "10"); err == nil || lives != 3 {
+		t.Fatalf("wrong-type SetTunable(lives) = %v, lives=%d", err, lives)
+	}
+	if _, _, err := c.SetTunable("god", 1); err == nil || god != false {
+		t.Fatalf("wrong-type SetTunable(god) = %v, god=%v", err, god)
+	}
+	if _, _, err := c.SetTunable("level", 42); err == nil || level != "boss room" {
+		t.Fatalf("wrong-type SetTunable(level) = %v, level=%q", err, level)
+	}
+	if _, _, err := c.SetTunable("missing", 1); err == nil {
+		t.Fatal("SetTunable(missing) succeeded, want error")
+	}
+
+	// Commands() returns sorted built-ins + custom commands without duplicates.
+	cmds := c.Commands()
+	wantCmds := []string{"clear", "get", "help", "list", "set", "spawn"}
+	if len(cmds) != len(wantCmds) {
+		t.Fatalf("len(Commands) = %d (%+v), want %d", len(cmds), cmds, len(wantCmds))
+	}
+	for i, want := range wantCmds {
+		if cmds[i].Name != want {
+			t.Fatalf("cmds[%d] = %+v, want %q", i, cmds[i], want)
+		}
+		if want == "spawn" && cmds[i].Builtin {
+			t.Fatalf("spawn marked builtin: %+v", cmds[i])
+		}
+		if want != "spawn" && !cmds[i].Builtin {
+			t.Fatalf("%q not marked builtin: %+v", want, cmds[i])
+		}
 	}
 }

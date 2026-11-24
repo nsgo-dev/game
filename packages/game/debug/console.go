@@ -3,6 +3,8 @@
 package debug
 
 import (
+	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,18 +36,63 @@ const (
 	tunableFloat tunableKind = iota
 	tunableInt
 	tunableBool
+	tunableString
 )
 
 type consoleTunable struct {
-	name     string
-	kind     tunableKind
-	minFloat float64
-	maxFloat float64
-	floatPtr *float64
-	minInt   int
-	maxInt   int
-	intPtr   *int
-	boolPtr  *bool
+	name          string
+	kind          tunableKind
+	minFloat      float64
+	maxFloat      float64
+	defaultFloat  float64
+	floatPtr      *float64
+	minInt        int
+	maxInt        int
+	defaultInt    int
+	intPtr        *int
+	defaultBool   bool
+	boolPtr       *bool
+	defaultString string
+	stringPtr     *string
+}
+
+func (t *consoleTunable) info() TunableInfo {
+	switch t.kind {
+	case tunableFloat:
+		return TunableInfo{
+			Name:    t.name,
+			Type:    "float",
+			Value:   *t.floatPtr,
+			Default: t.defaultFloat,
+			Min:     t.minFloat,
+			Max:     t.maxFloat,
+		}
+	case tunableInt:
+		return TunableInfo{
+			Name:    t.name,
+			Type:    "int",
+			Value:   *t.intPtr,
+			Default: t.defaultInt,
+			Min:     t.minInt,
+			Max:     t.maxInt,
+		}
+	case tunableBool:
+		return TunableInfo{
+			Name:    t.name,
+			Type:    "bool",
+			Value:   *t.boolPtr,
+			Default: t.defaultBool,
+		}
+	case tunableString:
+		return TunableInfo{
+			Name:    t.name,
+			Type:    "string",
+			Value:   *t.stringPtr,
+			Default: t.defaultString,
+		}
+	default:
+		return TunableInfo{Name: t.name}
+	}
 }
 
 func (t *consoleTunable) formatValue() string {
@@ -56,6 +103,8 @@ func (t *consoleTunable) formatValue() string {
 		return strconv.Itoa(*t.intPtr)
 	case tunableBool:
 		return strconv.FormatBool(*t.boolPtr)
+	case tunableString:
+		return *t.stringPtr
 	default:
 		return ""
 	}
@@ -69,6 +118,8 @@ func (t *consoleTunable) formatRange() string {
 		return fmt.Sprintf("[%d, %d]", t.minInt, t.maxInt)
 	case tunableBool:
 		return "[true|false]"
+	case tunableString:
+		return "[string]"
 	default:
 		return ""
 	}
@@ -103,8 +154,117 @@ func (t *consoleTunable) setString(raw string) error {
 		}
 		*t.boolPtr = v
 		return nil
+	case tunableString:
+		*t.stringPtr = raw
+		return nil
 	default:
 		return fmt.Errorf("unsupported tunable %q", t.name)
+	}
+}
+
+func (t *consoleTunable) setValue(value any) (oldVal, newVal any, err error) {
+	switch t.kind {
+	case tunableFloat:
+		var v float64
+		switch x := value.(type) {
+		case float64:
+			v = x
+		case float32:
+			v = float64(x)
+		case int:
+			v = float64(x)
+		case int8:
+			v = float64(x)
+		case int16:
+			v = float64(x)
+		case int32:
+			v = float64(x)
+		case int64:
+			v = float64(x)
+		case uint:
+			v = float64(x)
+		case uint8:
+			v = float64(x)
+		case uint16:
+			v = float64(x)
+		case uint32:
+			v = float64(x)
+		case uint64:
+			v = float64(x)
+		default:
+			return nil, nil, fmt.Errorf("invalid float value %T for %q", value, t.name)
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, nil, fmt.Errorf("invalid float %v for %q", v, t.name)
+		}
+		if v < t.minFloat || v > t.maxFloat {
+			return nil, nil, fmt.Errorf("%q value %g out of range [%g, %g]", t.name, v, t.minFloat, t.maxFloat)
+		}
+		old := *t.floatPtr
+		*t.floatPtr = v
+		return old, v, nil
+	case tunableInt:
+		var v int
+		switch x := value.(type) {
+		case int:
+			v = x
+		case int8:
+			v = int(x)
+		case int16:
+			v = int(x)
+		case int32:
+			v = int(x)
+		case int64:
+			if x < math.MinInt || x > math.MaxInt {
+				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+			}
+			v = int(x)
+		case uint:
+			if uint64(x) > math.MaxInt {
+				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+			}
+			v = int(x)
+		case uint8:
+			v = int(x)
+		case uint16:
+			v = int(x)
+		case uint32:
+			if uint64(x) > math.MaxInt {
+				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+			}
+			v = int(x)
+		case uint64:
+			if x > math.MaxInt {
+				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+			}
+			v = int(x)
+		default:
+			return nil, nil, fmt.Errorf("invalid int value %T for %q", value, t.name)
+		}
+		if v < t.minInt || v > t.maxInt {
+			return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, v, t.minInt, t.maxInt)
+		}
+		old := *t.intPtr
+		*t.intPtr = v
+		return old, v, nil
+	case tunableBool:
+		v, ok := value.(bool)
+		if !ok {
+			return nil, nil, fmt.Errorf("invalid bool value %T for %q", value, t.name)
+		}
+		old := *t.boolPtr
+		*t.boolPtr = v
+		return old, v, nil
+	case tunableString:
+		v, ok := value.(string)
+		if !ok {
+			return nil, nil, fmt.Errorf("invalid string value %T for %q", value, t.name)
+		}
+		old := *t.stringPtr
+		*t.stringPtr = v
+		return old, v, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported tunable %q", t.name)
 	}
 }
 
@@ -181,11 +341,12 @@ func (c *Console) RegisterFloat(name string, minVal, maxVal float64, ptr *float6
 	}
 	c.mu.Lock()
 	c.tunables[name] = &consoleTunable{
-		name:     name,
-		kind:     tunableFloat,
-		minFloat: minVal,
-		maxFloat: maxVal,
-		floatPtr: ptr,
+		name:         name,
+		kind:         tunableFloat,
+		minFloat:     minVal,
+		maxFloat:     maxVal,
+		defaultFloat: *ptr,
+		floatPtr:     ptr,
 	}
 	c.mu.Unlock()
 }
@@ -204,11 +365,12 @@ func (c *Console) RegisterInt(name string, minVal, maxVal int, ptr *int) {
 	}
 	c.mu.Lock()
 	c.tunables[name] = &consoleTunable{
-		name:   name,
-		kind:   tunableInt,
-		minInt: minVal,
-		maxInt: maxVal,
-		intPtr: ptr,
+		name:       name,
+		kind:       tunableInt,
+		minInt:     minVal,
+		maxInt:     maxVal,
+		defaultInt: *ptr,
+		intPtr:     ptr,
 	}
 	c.mu.Unlock()
 }
@@ -224,11 +386,113 @@ func (c *Console) RegisterBool(name string, ptr *bool) {
 	}
 	c.mu.Lock()
 	c.tunables[name] = &consoleTunable{
-		name:    name,
-		kind:    tunableBool,
-		boolPtr: ptr,
+		name:        name,
+		kind:        tunableBool,
+		defaultBool: *ptr,
+		boolPtr:     ptr,
 	}
 	c.mu.Unlock()
+}
+
+// RegisterString registers a string tunable bound to ptr.
+func (c *Console) RegisterString(name string, ptr *string) {
+	if c == nil || ptr == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	c.mu.Lock()
+	c.tunables[name] = &consoleTunable{
+		name:          name,
+		kind:          tunableString,
+		defaultString: *ptr,
+		stringPtr:     ptr,
+	}
+	c.mu.Unlock()
+}
+
+// Tunables returns a snapshot of all registered tunables sorted by name.
+func (c *Console) Tunables() []TunableInfo {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.tunables) == 0 {
+		return nil
+	}
+	out := make([]TunableInfo, 0, len(c.tunables))
+	for _, t := range c.tunables {
+		out = append(out, t.info())
+	}
+	slices.SortFunc(out, func(a, b TunableInfo) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return out
+}
+
+// Tunable returns a snapshot of the named tunable and reports whether it is registered.
+func (c *Console) Tunable(name string) (TunableInfo, bool) {
+	if c == nil {
+		return TunableInfo{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.tunables[name]
+	if !ok {
+		return TunableInfo{}, false
+	}
+	return t.info(), true
+}
+
+// SetTunable updates the named tunable to value after checking its type and numeric range.
+// On success it returns the previous and new values; on failure the tunable is left unchanged.
+func (c *Console) SetTunable(name string, value any) (oldVal, newVal any, err error) {
+	if c == nil {
+		return nil, nil, errors.New("debug: nil console")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.tunables[name]
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown tunable %q", name)
+	}
+	return t.setValue(value)
+}
+
+// Commands returns all built-in and registered console commands sorted by name.
+func (c *Console) Commands() []CommandInfo {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	seen := make(map[string]struct{}, len(builtinHelp)+len(c.commands))
+	out := make([]CommandInfo, 0, len(builtinHelp)+len(c.commands))
+	for _, b := range builtinHelp {
+		seen[b.name] = struct{}{}
+		out = append(out, CommandInfo{
+			Name:    b.name,
+			Help:    b.help,
+			Builtin: true,
+		})
+	}
+	for _, cmd := range c.commands {
+		if _, dup := seen[cmd.name]; dup {
+			continue
+		}
+		out = append(out, CommandInfo{
+			Name:    cmd.name,
+			Help:    cmd.help,
+			Builtin: false,
+		})
+	}
+	slices.SortFunc(out, func(a, b CommandInfo) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return out
 }
 
 // Exec parses and executes one command line, updating history and output entries.
@@ -529,6 +793,8 @@ func (c *Console) SaveTunables(st core.Storage, key string) error {
 			payload[name] = *t.intPtr
 		case tunableBool:
 			payload[name] = *t.boolPtr
+		case tunableString:
+			payload[name] = *t.stringPtr
 		}
 	}
 	c.mu.Unlock()
@@ -573,6 +839,7 @@ func (c *Console) LoadTunables(st core.Storage, key string) error {
 		f float64
 		i int
 		b bool
+		s string
 	}
 	names := make([]string, 0, len(parsed))
 	for name := range parsed {
@@ -612,6 +879,12 @@ func (c *Console) LoadTunables(st core.Storage, key string) error {
 				return bad(name, "store true or false", "invalid stored bool for %q", name)
 			}
 			updates = append(updates, pendingUpdate{t: t, b: v})
+		case tunableString:
+			var v string
+			if bytes.Equal(bytes.TrimSpace(rawVal), []byte("null")) || json.Unmarshal(rawVal, &v) != nil {
+				return bad(name, "store a string", "invalid stored string for %q", name)
+			}
+			updates = append(updates, pendingUpdate{t: t, s: v})
 		}
 	}
 
@@ -623,6 +896,8 @@ func (c *Console) LoadTunables(st core.Storage, key string) error {
 			*u.t.intPtr = u.i
 		case tunableBool:
 			*u.t.boolPtr = u.b
+		case tunableString:
+			*u.t.stringPtr = u.s
 		}
 	}
 	return nil

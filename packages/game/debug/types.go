@@ -69,6 +69,32 @@ type ConsoleEntry struct {
 	IsError bool
 }
 
+// TunableInfo describes one registered tunable variable on a Console.
+type TunableInfo struct {
+	// Name is the tunable's registered name.
+	Name string
+	// Type is "float", "int", "bool" or "string".
+	Type string
+	// Value is the tunable's current value (float64, int, bool or string).
+	Value any
+	// Default is the value captured when the tunable was registered.
+	Default any
+	// Min is the inclusive lower bound for numeric tunables ("float" or "int"), or nil for other types.
+	Min any
+	// Max is the inclusive upper bound for numeric tunables ("float" or "int"), or nil for other types.
+	Max any
+}
+
+// CommandInfo describes one command available on a Console.
+type CommandInfo struct {
+	// Name is the command name as typed on the console.
+	Name string
+	// Help is the command's usage or description text.
+	Help string
+	// Builtin reports whether the command is built into Console.
+	Builtin bool
+}
+
 // ScopeSummary summarizes a named timing scope's cost for overlay display.
 type ScopeSummary struct {
 	// Name is the scope identifier passed to Begin or Scope.
