@@ -11,27 +11,25 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// Bind group slots and byte sizes for GPU fog uniforms and the built-in fog pipeline.
+// Bind group slots and byte size for GPU fog uniforms.
 const (
-	// FogGroup is the bind group index reserved for [GPUFogBuffer.BindGroup] alongside [CameraGroup] (group 0) in [FogBindingWGSL] and [NewFogPipeline].
-	FogGroup = 1
-	// FogObjectGroup is the bind group index [FogPipeline] uses for per-object transforms, colors, and directional lighting ([GPUFogObject.Bind]).
-	FogObjectGroup = 2
+	// FogGroup is the bind group index [LitPBRFogWGSL] and [FogBindingWGSL] reserve for the fog uniform block, after [CameraGroup], [LightGroup] and [PBRDrawGroup]. [GPUFogBuffer.Bind] binds at this slot.
+	FogGroup = 3
+	// MaterialFogGroup is the bind group index [MaterialFogWGSL] and [MaterialFogBindingWGSL] reserve for the fog uniform block, after [CameraGroup] and [MaterialGroup]. Bind [GPUFogBuffer.BindGroup] here when drawing with a fogged [NewMaterialPipeline].
+	MaterialFogGroup = 2
 
 	// FogUniformSize is the byte size of [FogUniforms] as written by [AppendFogUniforms] and declared by [FogWGSL] (three vec4<f32> blocks).
 	FogUniformSize = 48
-	// FogObjectUniformSize is the byte size of the per-object uniform block used by [FogPipeline] (one mat4x4<f32> and two vec4<f32> blocks).
-	FogObjectUniformSize = 96
 )
 
-// ErrInvalidFog is wrapped by every error [Fog.Validate], [FogObject.Validate], [NewGPUFogBuffer], [GPUFogBuffer.Update], [FogPipeline.NewObjectBuffer], and [GPUFogObject.Update] return for malformed parameters.
+// ErrInvalidFog is wrapped by every error [Fog.Validate], [NewGPUFogBuffer] and [GPUFogBuffer.Update] return for malformed parameters.
 var ErrInvalidFog = errors.New("render3d: invalid fog")
 
 // FogWGSL declares the portable WGSL Fog uniform struct and its evaluation helpers:
 //   - fog_factor(cam_pos, world_pos, fog) -> f32
 //   - apply_fog(color, cam_pos, world_pos, fog) -> vec3<f32>
 //
-// It intentionally declares no @group/@binding variable so any shader can embed Fog in its own uniform layout or prepend [FogBindingWGSL] to bind [GPUFogBuffer] at [FogGroup].
+// It intentionally declares no @group/@binding variable so any shader can embed Fog in its own uniform layout or prepend [FogBindingWGSL] (or [MaterialFogBindingWGSL]) to bind [GPUFogBuffer].
 // Its struct layout matches [AppendFogUniforms] byte for byte, and its formulas match [Fog.Factor] and [Fog.Apply].
 const FogWGSL = `struct Fog {
 	color_opacity: vec4<f32>,
@@ -39,6 +37,7 @@ const FogWGSL = `struct Fog {
 	height_params: vec4<f32>,
 }
 
+// pow with base e instead of exp: NSGo v0.3.0's software GPU VM evaluates exp, exp2, log, log2 and atan as 0 (internal/driver/gpu_software.go evalCall has no case for them). Switch back to exp once NSGo handles it.
 fn fog_exp(x: f32) -> f32 {
 	return pow(2.718281828, x);
 }
@@ -105,62 +104,57 @@ fn apply_fog(color: vec3<f32>, cam_pos: vec3<f32>, world_pos: vec3<f32>, fog: Fo
 }
 `
 
-// FogBindingWGSL declares the Fog uniform binding at @group(1) @binding(0) matching [FogGroup] and [GPUFogBuffer].
-const FogBindingWGSL = `@group(1) @binding(0) var<uniform> fog: Fog;
+// FogBindingWGSL declares the Fog uniform binding at @group(3) @binding(0) as the variable fog, matching [FogGroup] and [GPUFogBuffer]. Prepend [FogWGSL] first.
+const FogBindingWGSL = `@group(3) @binding(0) var<uniform> fog: Fog;
 `
 
-// FogLitWGSL is the complete WGSL module compiled by [NewFogPipeline]. It combines [CameraWGSL], [FogWGSL], [FogBindingWGSL], [MeshVertexLayout] inputs, directional Lambertian lighting with configurable ambient, and distance/height fog for both perspective and orthographic cameras.
-const FogLitWGSL = CameraWGSL + FogWGSL + FogBindingWGSL + `struct FogObject {
-	model: mat4x4<f32>,
-	base_color: vec4<f32>,
-	light_dir_ambient: vec4<f32>,
-}
+// MaterialFogBindingWGSL declares the Fog uniform binding at @group(2) @binding(0) as the variable fog, matching [MaterialFogGroup] and [GPUFogBuffer]. Prepend [FogWGSL] first.
+const MaterialFogBindingWGSL = `@group(2) @binding(0) var<uniform> fog: Fog;
+`
 
-@group(2) @binding(0) var<uniform> fog_object: FogObject;
-
-struct FogVertexIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
-}
-
-struct FogVertexOut {
-	@builtin(position) clip_pos: vec4<f32>,
-	@location(0) world_pos: vec3<f32>,
-	@location(1) world_normal: vec3<f32>,
-}
-
-@vertex
-fn vs_fog(in: FogVertexIn) -> FogVertexOut {
-	var out: FogVertexOut;
-	let world = fog_object.model * vec4<f32>(in.pos, 1.0);
-	out.clip_pos = camera.view_proj * world;
-	out.world_pos = world.xyz;
-	out.world_normal = (fog_object.model * vec4<f32>(in.normal, 0.0)).xyz;
-	return out;
-}
-
-@fragment
-fn fs_fog(in: FogVertexOut) -> @location(0) vec4<f32> {
-	let ambient = clamp(fog_object.light_dir_ambient.w, 0.0, 1.0);
-	var shade: f32 = ambient;
-	let l_dir = fog_object.light_dir_ambient.xyz;
-	let l_len = length(l_dir);
-	let n_len = length(in.world_normal);
-	if l_len > 0.00001 && n_len > 0.00001 {
-		let ndotl = max(dot(in.world_normal / n_len, l_dir / l_len), 0.0);
-		shade = ambient + (1.0 - ambient) * ndotl;
+// FogCameraWGSL declares fog_camera_pos(world_pos) -> vec3<f32>, the point a fogged view ray starts from, read from the camera block [CameraWGSL] declares (prepend that first). It matches [FogCameraPos]:
+//   - a perspective camera (camera.eye.w = 1) returns the eye position, so fog grows with the distance from the eye;
+//   - an orthographic camera (camera.eye.w = 0) returns world_pos moved back along camera.eye.xyz (the direction toward the viewer) by its view depth, which is the point on the camera's plane the parallel ray starts from, so fog grows with the distance from that plane.
+const FogCameraWGSL = `fn fog_camera_pos(world_pos: vec3<f32>) -> vec3<f32> {
+	if camera.eye.w > 0.5 {
+		return camera.eye.xyz;
 	}
-	let lit = fog_object.base_color.rgb * shade;
-	var cam_pos = camera.eye.xyz;
-	if camera.eye.w <= 0.5 {
-		let view_pos = camera.view * vec4<f32>(in.world_pos, 1.0);
-		cam_pos = in.world_pos + camera.eye.xyz * max(-view_pos.z, 0.0);
-	}
-	let fogged = apply_fog(lit, cam_pos, in.world_pos, fog);
-	return vec4<f32>(fogged, fog_object.base_color.a);
+	let view_pos = camera.view * vec4<f32>(world_pos, 1.0);
+	return world_pos + camera.eye.xyz * max(-view_pos.z, 0.0);
 }
 `
+
+// LitPBRFogWGSL is [LitPBRWGSL] with distance and height fog: the same vertex stage, bind groups [CameraGroup], [LightGroup] and [PBRDrawGroup], and lighting, plus a [GPUFogBuffer] at [FogGroup]. The fragment stage blends the lit linear color toward the fog color with [FogWGSL]'s apply_fog from [FogCameraWGSL]'s ray origin before encoding to sRGB. Use [NewLitPBRFogPipeline] to create a pipeline from it.
+const LitPBRFogWGSL = litPBRPreludeWGSL + FogWGSL + FogBindingWGSL + FogCameraWGSL + litPBRFragmentHeadWGSL + `	let fogged = apply_fog(lit, fog_camera_pos(in.world_pos), in.world_pos, fog);
+	return vec4<f32>(linear_to_srgb(fogged), pbr_draw.base_color.a);
+}
+`
+
+// MaterialFogWGSL is [MaterialWGSL] with distance and height fog: the same vertex stage, bind groups [CameraGroup] and [MaterialGroup], and shading, plus a [GPUFogBuffer] at [MaterialFogGroup]. The fragment stage blends the linear radiance toward the fog color with [FogWGSL]'s apply_fog from [FogCameraWGSL]'s ray origin, then tone-maps and encodes it as [MaterialWGSL] does, so the fog color is tone-mapped with the scene. [NewMaterialPipeline] compiles it when [MaterialPipelineOptions].FogLayout is set.
+const MaterialFogWGSL = CameraWGSL + MaterialBindingsWGSL + FogWGSL + MaterialFogBindingWGSL + FogCameraWGSL + materialStagesHeadWGSL + `	let srgb_rgb = material_tonemap_srgb(apply_fog(linear_rgb, fog_camera_pos(in.world_pos), in.world_pos, fog));
+` + materialStagesTailWGSL
+
+// FogCameraPos returns the point the view ray toward worldPos starts from under cam, matching fog_camera_pos in [FogCameraWGSL]: cam's eye for a perspective camera, and for an orthographic camera the point on the camera's plane that worldPos projects from. Pass it as camPos to [Fog.Factor] or [Fog.Apply] to reproduce on the CPU the fog the fogged pipelines draw.
+func FogCameraPos(cam CameraUniform, worldPos math3d.Vec3) math3d.Vec3 {
+	if cam.Eye.W > 0.5 {
+		return math3d.Vec3{X: cam.Eye.X, Y: cam.Eye.Y, Z: cam.Eye.Z}
+	}
+	depth := max(-cam.View.TransformPoint(worldPos).Z, 0)
+	return worldPos.Add(math3d.Vec3{X: cam.Eye.X, Y: cam.Eye.Y, Z: cam.Eye.Z}.Scale(depth))
+}
+
+// NewLitPBRFogPipeline compiles [LitPBRFogWGSL] and creates a pipeline configured like [NewLitPBRPipeline] with fogLayout ([GPUFogBuffer.Layout]) added at [FogGroup].
+func NewLitPBRFogPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout, fogLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+	if dev == nil {
+		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	layouts := make([]*gpu.BindGroupLayout, FogGroup+1)
+	layouts[CameraGroup] = camLayout
+	layouts[LightGroup] = lightLayout
+	layouts[PBRDrawGroup] = drawLayout
+	layouts[FogGroup] = fogLayout
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_fog", LitPBRFogWGSL, layouts, depthFormat)
+}
 
 // FogMode selects how distance fog attenuates visibility with camera distance.
 type FogMode uint8
@@ -203,7 +197,7 @@ func (m FogMode) String() string {
 // Height fog models exponential vertical extinction σ(y) = HeightDensity * exp(-HeightFalloff * (y - HeightBase)) analytically integrated along the segment from camPos to worldPos, so it is smooth at grazing angles and symmetric between endpoints.
 type Fog struct {
 	Mode       FogMode
-	Color      [3]float32
+	Color      math3d.Vec3
 	Start      float32
 	End        float32
 	Density    float32
@@ -220,10 +214,8 @@ func (f Fog) Validate() error {
 	if f.Mode > FogExp2 {
 		return fmt.Errorf("%w: unknown mode %d", ErrInvalidFog, f.Mode)
 	}
-	for i, c := range f.Color {
-		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: color[%d] must be finite and >= 0, got %v", ErrInvalidFog, i, c)
-		}
+	if !validLinearColor(f.Color) {
+		return fmt.Errorf("%w: color must be finite and >= 0, got %v", ErrInvalidFog, f.Color)
 	}
 	if !finite(f.Start) || f.Start < 0 {
 		return fmt.Errorf("%w: start must be finite and >= 0, got %v", ErrInvalidFog, f.Start)
@@ -257,9 +249,9 @@ func (f Fog) Sanitized() Fog {
 	if f.Mode > FogExp2 {
 		f.Mode = FogOff
 	}
-	for i := range f.Color {
-		if !finite(f.Color[i]) || f.Color[i] < 0 {
-			f.Color[i] = 0
+	for _, c := range [...]*float32{&f.Color.X, &f.Color.Y, &f.Color.Z} {
+		if !finite(*c) || *c < 0 {
+			*c = 0
 		}
 	}
 	if !finite(f.Start) || f.Start < 0 {
@@ -292,19 +284,21 @@ func (f Fog) Sanitized() Fog {
 }
 
 // Factor evaluates the CPU reference fog blend factor in [0, MaxOpacity] along the view ray from camPos to worldPos, matching fog_factor in [FogWGSL]. Non-finite coordinates return 0.
+//
+// camPos is where the ray starts: the eye for a perspective camera, and for an orthographic camera the point on the camera's plane that worldPos projects from, not the camera's position. [FogCameraPos] computes it from a [CameraUniform] the way the fogged pipelines do.
 func (f Fog) Factor(camPos, worldPos math3d.Vec3) float32 {
 	return fogFactorSanitized(f.Sanitized(), camPos, worldPos)
 }
 
-// Apply blends linear RGB color toward f.Color using [Fog.Factor](camPos, worldPos), matching apply_fog in [FogWGSL].
-func (f Fog) Apply(color [3]float32, camPos, worldPos math3d.Vec3) [3]float32 {
+// Apply blends linear RGB color toward f.Color using [Fog.Factor](camPos, worldPos), matching apply_fog in [FogWGSL]. camPos follows the rule [Fog.Factor] states.
+func (f Fog) Apply(color, camPos, worldPos math3d.Vec3) math3d.Vec3 {
 	s := f.Sanitized()
 	factor := fogFactorSanitized(s, camPos, worldPos)
 	inv := 1 - factor
-	return [3]float32{
-		color[0]*inv + s.Color[0]*factor,
-		color[1]*inv + s.Color[1]*factor,
-		color[2]*inv + s.Color[2]*factor,
+	return math3d.Vec3{
+		X: color.X*inv + s.Color.X*factor,
+		Y: color.Y*inv + s.Color.Y*factor,
+		Z: color.Z*inv + s.Color.Z*factor,
 	}
 }
 
@@ -406,7 +400,7 @@ func (f Fog) Uniforms() FogUniforms {
 		heightEnabled = 1
 	}
 	return FogUniforms{
-		ColorOpacity:   [4]float32{s.Color[0], s.Color[1], s.Color[2], s.MaxOpacity},
+		ColorOpacity:   [4]float32{s.Color.X, s.Color.Y, s.Color.Z, s.MaxOpacity},
 		DistanceParams: [4]float32{float32(s.Mode), s.Start, s.End, s.Density},
 		HeightParams:   [4]float32{heightEnabled, s.HeightBase, s.HeightFalloff, s.HeightDensity},
 	}
@@ -434,7 +428,7 @@ func (u FogUniforms) Encode(dst []byte) []byte {
 	return dst[:FogUniformSize]
 }
 
-// FogBufferOptions configures [NewGPUFogBuffer] and [FogPipeline.NewObjectBuffer].
+// FogBufferOptions configures [NewGPUFogBuffer].
 type FogBufferOptions struct {
 	// Label names the buffer and bind group in GPU capture tools.
 	Label string
@@ -444,7 +438,7 @@ type FogBufferOptions struct {
 
 // GPUFogBuffer holds a [Fog] uniform buffer, its bind group layout, and its bind group on an NSGo [gpu.Device], scoped to the [core.Scope] passed to [NewGPUFogBuffer].
 //
-// Bind it at [FogGroup] when using [FogBindingWGSL] or [NewFogPipeline], or at any group chosen by a custom shader that embeds [FogWGSL].
+// Bind it at [FogGroup] for [NewLitPBRFogPipeline] and [FogBindingWGSL] ([GPUFogBuffer.Bind]), at [MaterialFogGroup] for a fogged [NewMaterialPipeline], or at any group a custom shader that embeds [FogWGSL] chooses.
 type GPUFogBuffer struct {
 	dev     *gpu.Device
 	buf     *gpu.Buffer
@@ -543,6 +537,22 @@ func (b *GPUFogBuffer) BindGroup() *gpu.BindGroup {
 	return b.group
 }
 
+// Bind sets b's bind group at [FogGroup] on pass. It records nothing when b is not [GPUFogBuffer.Valid].
+func (b *GPUFogBuffer) Bind(pass *gpu.RenderPass) {
+	if !b.Valid() {
+		return
+	}
+	pass.SetBindGroup(FogGroup, b.group)
+}
+
+// ByteSize returns the GPU memory held by the fog uniform buffer (for [RenderStats] and [Budget] accounting), or zero for a nil buffer.
+func (b *GPUFogBuffer) ByteSize() uint64 {
+	if b == nil || b.buf == nil {
+		return 0
+	}
+	return b.buf.Size()
+}
+
 // Valid reports whether the buffer, layout, and bind group are open on a live device.
 func (b *GPUFogBuffer) Valid() bool {
 	return b != nil && b.buf.Valid() && b.layout.Valid() && b.group.Valid()
@@ -554,289 +564,6 @@ func (b *GPUFogBuffer) Close() error {
 		return nil
 	}
 	return errors.Join(b.group.Close(), b.layout.Close(), b.buf.Close())
-}
-
-// FogObject holds per-draw transform, linear RGBA base color, and directional lighting parameters for [FogPipeline].
-//
-// A zero Model defaults to identity; a zero BaseColor defaults to opaque white {1, 1, 1, 1}. When LightDir is zero and Ambient is 0, shading defaults to unlit (Ambient = 1.0) so fragments emit exact BaseColor before fog is applied.
-type FogObject struct {
-	Model     math3d.Mat4
-	BaseColor [4]float32
-	LightDir  math3d.Vec3
-	Ambient   float32
-}
-
-// Validate checks that every field of o is finite and Ambient is in [0, 1]. Every error wraps [ErrInvalidFog].
-func (o FogObject) Validate() error {
-	for i, v := range o.Model {
-		if !finite(v) {
-			return fmt.Errorf("%w: object model[%d] is not finite", ErrInvalidFog, i)
-		}
-	}
-	for i, c := range o.BaseColor {
-		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: object base_color[%d] must be finite and >= 0, got %v", ErrInvalidFog, i, c)
-		}
-	}
-	if !finite3(o.LightDir) {
-		return fmt.Errorf("%w: object light_dir is not finite", ErrInvalidFog)
-	}
-	if !finite(o.Ambient) || o.Ambient < 0 || o.Ambient > 1 {
-		return fmt.Errorf("%w: object ambient must be in [0, 1], got %v", ErrInvalidFog, o.Ambient)
-	}
-	return nil
-}
-
-// FogPipelineOptions configures [NewFogPipeline].
-type FogPipelineOptions struct {
-	Label       string
-	ColorFormat gpu.TextureFormat
-	DepthFormat gpu.TextureFormat
-	CullMode    gpu.CullMode
-	SampleCount int
-	Retained    bool
-}
-
-// FogPipeline wraps a ready-to-use lit and fogged [gpu.Pipeline] built from [FogLitWGSL] and [MeshVertexLayout], together with the per-object bind group layout at [FogObjectGroup].
-type FogPipeline struct {
-	pipe      *gpu.Pipeline
-	objLayout *gpu.BindGroupLayout
-}
-
-// NewFogPipeline compiles [FogLitWGSL] and creates a render pipeline expecting [CameraBuffer.Layout] at [CameraGroup], [GPUFogBuffer.Layout] at [FogGroup], and per-object uniforms from [FogPipeline.NewObjectBuffer] at [FogObjectGroup].
-func NewFogPipeline(cx *core.Scope, dev *gpu.Device, camLayout, fogLayout *gpu.BindGroupLayout, opts FogPipelineOptions) (*FogPipeline, error) {
-	if dev == nil {
-		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
-	}
-	if camLayout == nil || !camLayout.Valid() || fogLayout == nil || !fogLayout.Valid() {
-		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: camera and fog bind group layouts must be valid"}
-	}
-	mod, err := gpu.CompileWGSL(FogLitWGSL)
-	if err != nil {
-		return nil, err
-	}
-	label := fogLabel(opts.Label, "render3d.fog-lit")
-	objLayout, err := dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: label + " object",
-		Entries: []gpu.BindGroupLayoutEntry{{
-			Binding:    0,
-			Visibility: gpu.StageVertex | gpu.StageFragment,
-			Type:       gpu.BindingUniform,
-		}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	colorFormat := opts.ColorFormat
-	if colorFormat == gpu.FormatUndefined {
-		colorFormat = dev.SurfaceFormat()
-	}
-	layouts := make([]*gpu.BindGroupLayout, FogObjectGroup+1)
-	layouts[CameraGroup] = camLayout
-	layouts[FogGroup] = fogLayout
-	layouts[FogObjectGroup] = objLayout
-	desc := gpu.PipelineDesc{
-		Label:         label,
-		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_fog"},
-		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_fog"},
-		Layouts:       layouts,
-		VertexBuffers: []gpu.VertexBufferLayout{MeshVertexLayout()},
-		Primitive: gpu.PrimitiveState{
-			Topology:  gpu.TopologyTriangleList,
-			FrontFace: gpu.FrontCCW,
-			CullMode:  opts.CullMode,
-		},
-		Targets: []gpu.ColorTargetState{{
-			Format:    colorFormat,
-			WriteMask: gpu.ColorWriteAll,
-		}},
-		SampleCount: opts.SampleCount,
-		Retained:    opts.Retained,
-	}
-	if opts.DepthFormat != gpu.FormatUndefined {
-		desc.DepthStencil = &gpu.DepthStencilState{
-			Format:       opts.DepthFormat,
-			DepthWrite:   true,
-			DepthCompare: gpu.CompareLess,
-		}
-	}
-	pipe, err := dev.CreatePipeline(cx, desc)
-	if err != nil {
-		_ = objLayout.Close()
-		return nil, err
-	}
-	return &FogPipeline{pipe: pipe, objLayout: objLayout}, nil
-}
-
-// Pipeline returns the underlying [gpu.Pipeline].
-func (p *FogPipeline) Pipeline() *gpu.Pipeline {
-	if p == nil {
-		return nil
-	}
-	return p.pipe
-}
-
-// ObjectLayout returns the bind group layout bound at [FogObjectGroup].
-func (p *FogPipeline) ObjectLayout() *gpu.BindGroupLayout {
-	if p == nil {
-		return nil
-	}
-	return p.objLayout
-}
-
-// Bind sets the pipeline along with the camera and fog bind groups on pass. It does nothing when p is not [FogPipeline.Valid].
-func (p *FogPipeline) Bind(pass *gpu.RenderPass, camGroup, fogGroup *gpu.BindGroup) {
-	if !p.Valid() || pass == nil {
-		return
-	}
-	pass.SetPipeline(p.pipe)
-	if camGroup != nil && camGroup.Valid() {
-		pass.SetBindGroup(CameraGroup, camGroup)
-	}
-	if fogGroup != nil && fogGroup.Valid() {
-		pass.SetBindGroup(FogGroup, fogGroup)
-	}
-}
-
-// NewObjectBuffer creates a per-object uniform buffer and bind group matching p's [FogObjectGroup] layout.
-func (p *FogPipeline) NewObjectBuffer(cx *core.Scope, dev *gpu.Device, obj FogObject, opts FogBufferOptions) (*GPUFogObject, error) {
-	if err := obj.Validate(); err != nil {
-		return nil, err
-	}
-	if dev == nil || !p.Valid() {
-		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: fog pipeline or device is not valid"}
-	}
-	var initData [FogObjectUniformSize]byte
-	fogEncodeObject(initData[:], obj)
-	label := fogLabel(opts.Label, "render3d.fog-object")
-	buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label,
-		Size:     FogObjectUniformSize,
-		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Data:     initData[:],
-		Retained: opts.Retained,
-	})
-	if err != nil {
-		return nil, err
-	}
-	group, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:   label,
-		Layout:  p.objLayout,
-		Entries: []gpu.BindGroupEntry{{Binding: 0, Buffer: buf, Size: FogObjectUniformSize}},
-	})
-	if err != nil {
-		_ = buf.Close()
-		return nil, err
-	}
-	return &GPUFogObject{dev: dev, buf: buf, group: group}, nil
-}
-
-// Valid reports whether the pipeline and object layout are open on a live device.
-func (p *FogPipeline) Valid() bool {
-	return p != nil && p.pipe.Valid() && p.objLayout.Valid()
-}
-
-// Close releases the pipeline and object bind group layout. It is safe to call on nil or more than once.
-func (p *FogPipeline) Close() error {
-	if p == nil {
-		return nil
-	}
-	return errors.Join(p.pipe.Close(), p.objLayout.Close())
-}
-
-// GPUFogObject holds per-object transform, color, and directional light uniforms for [FogPipeline].
-type GPUFogObject struct {
-	dev     *gpu.Device
-	buf     *gpu.Buffer
-	group   *gpu.BindGroup
-	scratch [FogObjectUniformSize]byte
-}
-
-// Update validates obj and uploads its uniform bytes to the GPU buffer.
-func (o *GPUFogObject) Update(dev *gpu.Device, obj FogObject) error {
-	if err := obj.Validate(); err != nil {
-		return err
-	}
-	if !o.Valid() {
-		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: fog object buffer is not valid"}
-	}
-	if dev != nil {
-		o.dev = dev
-	}
-	if o.dev == nil {
-		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
-	}
-	fogEncodeObject(o.scratch[:], obj)
-	o.dev.WriteBuffer(o.buf, 0, o.scratch[:])
-	return nil
-}
-
-// Bind sets the object's bind group at [FogObjectGroup] on pass. It does nothing when o is not [GPUFogObject.Valid].
-func (o *GPUFogObject) Bind(pass *gpu.RenderPass) {
-	if !o.Valid() || pass == nil {
-		return
-	}
-	pass.SetBindGroup(FogObjectGroup, o.group)
-}
-
-// Buffer returns the underlying uniform buffer.
-func (o *GPUFogObject) Buffer() *gpu.Buffer {
-	if o == nil {
-		return nil
-	}
-	return o.buf
-}
-
-// BindGroup returns the per-object bind group.
-func (o *GPUFogObject) BindGroup() *gpu.BindGroup {
-	if o == nil {
-		return nil
-	}
-	return o.group
-}
-
-// Valid reports whether the object's buffer and bind group are open on a live device.
-func (o *GPUFogObject) Valid() bool {
-	return o != nil && o.buf.Valid() && o.group.Valid()
-}
-
-// Close releases the bind group and uniform buffer. It is safe to call on nil or more than once.
-func (o *GPUFogObject) Close() error {
-	if o == nil {
-		return nil
-	}
-	return errors.Join(o.group.Close(), o.buf.Close())
-}
-
-func fogEncodeObject(dst []byte, obj FogObject) {
-	model := obj.Model
-	if fogMat4IsZero(model) {
-		model = math3d.Mat4Identity()
-	}
-	for i, f := range model {
-		binary.LittleEndian.PutUint32(dst[i*4:], math.Float32bits(f))
-	}
-	col := obj.BaseColor
-	if col == ([4]float32{}) {
-		col = [4]float32{1, 1, 1, 1}
-	}
-	fogPutVec4(dst[64:80], col)
-
-	ambient := obj.Ambient
-	lightDir := obj.LightDir
-	if lightDir.LenSq() == 0 && ambient == 0 {
-		ambient = 1
-	}
-	fogPutVec4(dst[80:96], [4]float32{lightDir.X, lightDir.Y, lightDir.Z, ambient})
-}
-
-func fogMat4IsZero(m math3d.Mat4) bool {
-	for _, f := range m {
-		if f != 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func fogPutVec4(dst []byte, v [4]float32) {

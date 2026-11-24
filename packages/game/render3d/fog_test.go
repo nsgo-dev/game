@@ -25,7 +25,9 @@ func fogApprox(t *testing.T, label string, got, want, tol float32) {
 	}
 }
 
-func fogColorToRGBA(c [3]float32) color.RGBA {
+// fogSRGB returns the 8-bit pixel a fogged pipeline writes for the linear color c: sRGB-encoded with [render3d.LinearToSRGB] and rounded.
+func fogSRGB(c math3d.Vec3) color.RGBA {
+	e := render3d.LinearToSRGB(c)
 	toU8 := func(v float32) uint8 {
 		if v <= 0 {
 			return 0
@@ -35,7 +37,7 @@ func fogColorToRGBA(c [3]float32) color.RGBA {
 		}
 		return uint8(math.Round(float64(v) * 255))
 	}
-	return color.RGBA{R: toU8(c[0]), G: toU8(c[1]), B: toU8(c[2]), A: 255}
+	return color.RGBA{R: toU8(e.X), G: toU8(e.Y), B: toU8(e.Z), A: 255}
 }
 
 func fogAssertPixelNear(t *testing.T, img *image.RGBA, x, y int, want color.RGBA, tol uint8) {
@@ -168,8 +170,8 @@ func TestFogModeString(t *testing.T) {
 
 func TestFogAnalyticalDistanceModes(t *testing.T) {
 	cam := math3d.Vec3{X: 0, Y: 2, Z: 0}
-	src := [3]float32{0.8, 0.2, 0.1}
-	fogCol := [3]float32{0.6, 0.7, 0.9}
+	src := math3d.Vec3{X: 0.8, Y: 0.2, Z: 0.1}
+	fogCol := math3d.Vec3{X: 0.6, Y: 0.7, Z: 0.9}
 
 	t.Run("off", func(t *testing.T) {
 		f := render3d.Fog{Mode: render3d.FogOff, Color: fogCol, Start: 1, End: 10, Density: 0.5}
@@ -202,10 +204,10 @@ func TestFogAnalyticalDistanceModes(t *testing.T) {
 			p := math3d.Vec3{X: 0, Y: 2, Z: -tc.d}
 			fogApprox(t, "linear", f.Factor(cam, p), tc.want, 1e-6)
 			got := f.Apply(src, cam, p)
-			for i := range 3 {
-				wantC := src[i]*(1-tc.want) + fogCol[i]*tc.want
-				fogApprox(t, "linear color", got[i], wantC, 1e-6)
-			}
+			want := src.Scale(1 - tc.want).Add(fogCol.Scale(tc.want))
+			fogApprox(t, "linear color r", got.X, want.X, 1e-6)
+			fogApprox(t, "linear color g", got.Y, want.Y, 1e-6)
+			fogApprox(t, "linear color b", got.Z, want.Z, 1e-6)
 		}
 	})
 
@@ -239,7 +241,7 @@ func TestFogAnalyticalDistanceModes(t *testing.T) {
 }
 
 func TestFogAnalyticalHeightAndCombined(t *testing.T) {
-	fogCol := [3]float32{0.7, 0.75, 0.85}
+	fogCol := math3d.Vec3{X: 0.7, Y: 0.75, Z: 0.85}
 
 	t.Run("horizontal-altitudes", func(t *testing.T) {
 		f := render3d.Fog{
@@ -390,13 +392,13 @@ func TestFogValidateAndSanitize(t *testing.T) {
 		ok   bool
 	}{
 		{"zero off", render3d.Fog{}, true},
-		{"linear", render3d.Fog{Mode: render3d.FogLinear, Color: [3]float32{0.5, 0.6, 0.7}, Start: 10, End: 50}, true},
+		{"linear", render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.5, Y: 0.6, Z: 0.7}, Start: 10, End: 50}, true},
 		{"exp", render3d.Fog{Mode: render3d.FogExp, Density: 0.04, MaxOpacity: 0.8}, true},
 		{"exp2", render3d.Fog{Mode: render3d.FogExp2, Density: 0.02, MaxOpacity: 1}, true},
 		{"height negative base", render3d.Fog{HeightEnabled: true, HeightBase: -25, HeightFalloff: 0.1, HeightDensity: 0.05}, true},
 		{"unknown mode", render3d.Fog{Mode: render3d.FogMode(9)}, false},
-		{"negative color", render3d.Fog{Color: [3]float32{-0.1, 0, 0}}, false},
-		{"nan color", render3d.Fog{Color: [3]float32{0, nan, 0}}, false},
+		{"negative color", render3d.Fog{Color: math3d.Vec3{X: -0.1, Y: 0, Z: 0}}, false},
+		{"nan color", render3d.Fog{Color: math3d.Vec3{X: 0, Y: nan, Z: 0}}, false},
 		{"negative start", render3d.Fog{Mode: render3d.FogLinear, Start: -1, End: 10}, false},
 		{"linear end <= start", render3d.Fog{Mode: render3d.FogLinear, Start: 10, End: 10}, false},
 		{"linear end < start", render3d.Fog{Mode: render3d.FogLinear, Start: 20, End: 10}, false},
@@ -434,16 +436,6 @@ func TestFogValidateAndSanitize(t *testing.T) {
 		t.Errorf("Factor(Inf pos) = %v, want 0", got)
 	}
 
-	// FogObject.Validate checks.
-	if err := (render3d.FogObject{}).Validate(); err != nil {
-		t.Errorf("zero FogObject.Validate = %v, want nil", err)
-	}
-	if err := (render3d.FogObject{Ambient: 1.5}).Validate(); !errors.Is(err, render3d.ErrInvalidFog) {
-		t.Errorf("Ambient=1.5 Validate = %v, want ErrInvalidFog", err)
-	}
-	if err := (render3d.FogObject{LightDir: math3d.Vec3{X: nan}}).Validate(); !errors.Is(err, render3d.ErrInvalidFog) {
-		t.Errorf("NaN LightDir Validate = %v, want ErrInvalidFog", err)
-	}
 }
 
 func TestFogUniformLayoutAndZeroAlloc(t *testing.T) {
@@ -452,7 +444,7 @@ func TestFogUniformLayoutAndZeroAlloc(t *testing.T) {
 	}
 	fog := render3d.Fog{
 		Mode:          render3d.FogExp2,
-		Color:         [3]float32{0.25, 0.5, 0.75},
+		Color:         math3d.Vec3{X: 0.25, Y: 0.5, Z: 0.75},
 		Start:         5,
 		End:           40,
 		Density:       0.03,
@@ -515,7 +507,7 @@ func FuzzFogUniformsAndFactor(f *testing.F) {
 	f.Fuzz(func(t *testing.T, mode uint8, r, g, b, start, end, density, maxOp float32, hOn bool, hBase, hFall, hDens, dist, y float32) {
 		cfg := render3d.Fog{
 			Mode:          render3d.FogMode(mode),
-			Color:         [3]float32{r, g, b},
+			Color:         math3d.Vec3{X: r, Y: g, Z: b},
 			Start:         start,
 			End:           end,
 			Density:       density,
@@ -546,8 +538,8 @@ func FuzzFogUniformsAndFactor(f *testing.F) {
 		if math.IsNaN(float64(fac)) || math.IsInf(float64(fac), 0) || fac < 0 || fac > 1 {
 			t.Fatalf("Factor = %v, want finite in [0, 1]", fac)
 		}
-		res := cfg.Apply([3]float32{0.5, 0.5, 0.5}, cam, pos)
-		for i, c := range res {
+		res := cfg.Apply(math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}, cam, pos)
+		for i, c := range [...]float32{res.X, res.Y, res.Z} {
 			if math.IsNaN(float64(c)) || math.IsInf(float64(c), 0) {
 				t.Fatalf("Apply[%d] = %v, want finite", i, c)
 			}
@@ -558,7 +550,7 @@ func FuzzFogUniformsAndFactor(f *testing.F) {
 func BenchmarkAppendFogUniforms(b *testing.B) {
 	fog := render3d.Fog{
 		Mode:          render3d.FogExp2,
-		Color:         [3]float32{0.6, 0.7, 0.8},
+		Color:         math3d.Vec3{X: 0.6, Y: 0.7, Z: 0.8},
 		Density:       0.04,
 		HeightEnabled: true,
 		HeightBase:    2,
@@ -576,7 +568,7 @@ func BenchmarkAppendFogUniforms(b *testing.B) {
 func BenchmarkFogFactor(b *testing.B) {
 	fog := render3d.Fog{
 		Mode:          render3d.FogExp,
-		Color:         [3]float32{0.6, 0.7, 0.8},
+		Color:         math3d.Vec3{X: 0.6, Y: 0.7, Z: 0.8},
 		Density:       0.04,
 		HeightEnabled: true,
 		HeightBase:    2,
@@ -595,83 +587,91 @@ func BenchmarkFogFactor(b *testing.B) {
 	}
 }
 
-// fogTestPanel describes one flat-colored vertical quad placed at a known world position facing +Z.
+// fogTestPanel describes one flat emissive quad placed at a known world position facing +Z.
 type fogTestPanel struct {
 	center math3d.Vec3
 	scale  math3d.Vec3
-	color  [3]float32
+	color  math3d.Vec3
 }
 
-// fogRenderPanels renders panels using FogPipeline + GPUFogBuffer + CameraBuffer on the software GPU device and returns the rendered image.
+// fogPanelDraw returns the per-draw uniform for p: a black, unlit-by-default surface whose only radiance is its emissive color, so with an empty [render3d.LightRig] the lit color equals p.color exactly.
+func fogPanelDraw(p fogTestPanel) render3d.PBRDrawUniform {
+	model := math3d.Translate(p.center).Mul(math3d.Scale(p.scale))
+	return render3d.NewPBRDrawUniform(model, render3d.PBRMaterial{Roughness: 1, Emissive: p.color})
+}
+
+// fogScene holds everything that draws panels through [render3d.NewLitPBRFogPipeline] on one device.
+type fogScene struct {
+	cam   *render3d.CameraBuffer
+	light *render3d.GPULightBuffer
+	fog   *render3d.GPUFogBuffer
+	pipe  *gpu.Pipeline
+	quad  *render3d.GPUMesh
+	draws []*render3d.PBRDrawBuffer
+}
+
+// newFogScene creates the scene's GPU objects on dev, owned by cx. A non-nil fogBuf is reused instead of creating one from fog.
+func newFogScene(t *testing.T, cx *core.Scope, dev *gpu.Device, fog render3d.Fog, fogBuf *render3d.GPUFogBuffer, rig render3d.LightRig, mesh render3d.Mesh, panels []fogTestPanel) *fogScene {
+	t.Helper()
+	var err error
+	s := &fogScene{fog: fogBuf}
+	if s.cam, err = render3d.NewCameraBuffer(cx, dev); err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	if s.light, err = render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{Label: "fog-test"}); err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	if s.fog == nil {
+		if s.fog, err = render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "fog-test"}); err != nil {
+			t.Fatalf("NewGPUFogBuffer: %v", err)
+		}
+	}
+	var shared *gpu.BindGroupLayout
+	for i, p := range panels {
+		d, err := render3d.NewPBRDrawBuffer(cx, dev, shared, fogPanelDraw(p), false)
+		if err != nil {
+			t.Fatalf("NewPBRDrawBuffer %d: %v", i, err)
+		}
+		shared = d.Layout()
+		s.draws = append(s.draws, d)
+	}
+	if s.pipe, err = render3d.NewLitPBRFogPipeline(cx, dev, s.cam.Layout(), s.light.Layout(), shared, s.fog.Layout(), gpu.FormatDepth24Plus); err != nil {
+		t.Fatalf("NewLitPBRFogPipeline: %v", err)
+	}
+	if s.quad, err = render3d.UploadMesh(cx, dev, mesh, render3d.MeshUpload{Label: "fog-test"}); err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	return s
+}
+
+func (s *fogScene) record(pass *gpu.RenderPass, cam *scene3d.Camera) {
+	s.cam.WriteCamera(cam)
+	pass.SetPipeline(s.pipe)
+	pass.SetBindGroup(render3d.CameraGroup, s.cam.BindGroup())
+	s.light.Bind(pass)
+	s.fog.Bind(pass)
+	for _, d := range s.draws {
+		pass.SetBindGroup(render3d.PBRDrawGroup, d.BindGroup())
+		s.quad.Draw(pass)
+	}
+}
+
+// fogRenderPanels draws panels with fog through NewLitPBRFogPipeline on the software GPU device and returns the image.
 func fogRenderPanels(t *testing.T, w, h int, cam *scene3d.Camera, fog render3d.Fog, panels []fogTestPanel, clear core.Color) *image.RGBA {
 	t.Helper()
 	sr := gpu.NewSoftwareRenderer(w, h, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
+	var cx *core.Scope // nil: the objects live as long as the software renderer
+	scene := newFogScene(t, cx, dev, fog, nil, render3d.LightRig{}, fogMakeUnitQuadMesh(), panels)
 
-	camBuf, err := render3d.NewCameraBuffer(nil, dev)
-	if err != nil {
-		t.Fatalf("NewCameraBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = camBuf.Close() })
-
-	fogBuf, err := render3d.NewGPUFogBuffer(nil, dev, fog, render3d.FogBufferOptions{Label: "test-fog"})
-	if err != nil {
-		t.Fatalf("NewGPUFogBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = fogBuf.Close() })
-
-	pipe, err := render3d.NewFogPipeline(nil, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
-		Label:       "test-fog-pipe",
-		DepthFormat: gpu.FormatDepth24Plus,
-		CullMode:    gpu.CullBack,
-	})
-	if err != nil {
-		t.Fatalf("NewFogPipeline: %v", err)
-	}
-	t.Cleanup(func() { _ = pipe.Close() })
-
-	quad, err := render3d.UploadMesh(nil, dev, fogMakeUnitQuadMesh(), render3d.MeshUpload{Label: "panel"})
-	if err != nil {
-		t.Fatalf("UploadMesh: %v", err)
-	}
-	t.Cleanup(func() { _ = quad.Close() })
-
-	objs := make([]*render3d.GPUFogObject, len(panels))
-	for i, p := range panels {
-		model := math3d.Translate(p.center).Mul(math3d.Scale(p.scale))
-		obj, err := pipe.NewObjectBuffer(nil, dev, render3d.FogObject{
-			Model:     model,
-			BaseColor: [4]float32{p.color[0], p.color[1], p.color[2], 1},
-			Ambient:   1, // unlit flat base color for exact fog formula verification
-		}, render3d.FogBufferOptions{Label: "panel"})
-		if err != nil {
-			t.Fatalf("NewObjectBuffer %d: %v", i, err)
-		}
-		t.Cleanup(func() { _ = obj.Close() })
-		objs[i] = obj
-	}
-
-	camBuf.WriteCamera(cam)
 	enc := dev.BeginEncoder()
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
-		Label: "fog-test",
-		ColorAttachments: []gpu.ColorAttachment{{
-			LoadOp:     gpu.LoadClear,
-			StoreOp:    gpu.StoreStore,
-			ClearColor: clear,
-		}},
-		DepthStencil: &gpu.DepthStencilAttachment{
-			DepthLoadOp:  gpu.LoadClear,
-			DepthStoreOp: gpu.StoreDiscard,
-			ClearDepth:   1,
-		},
+		Label:            "fog-test",
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: clear}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
 	})
-	pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-	for _, obj := range objs {
-		obj.Bind(pass)
-		quad.Draw(pass)
-	}
+	scene.record(pass, cam)
 	pass.End()
 	dev.Submit(enc.Finish())
 	sr.WaitIdle()
@@ -679,6 +679,15 @@ func fogRenderPanels(t *testing.T, w, h int, cam *scene3d.Camera, fog render3d.F
 		t.Fatalf("software renderer: %v", err)
 	}
 	return sr.Image()
+}
+
+func fogPanelPixel(t *testing.T, cam *scene3d.Camera, p math3d.Vec3, w, h int) (int, int) {
+	t.Helper()
+	s, _, vis := cam.WorldToScreen(p, float32(w), float32(h))
+	if !vis {
+		t.Fatalf("panel center %v not visible", p)
+	}
+	return int(math.Round(float64(s.X))), int(math.Round(float64(s.Y)))
 }
 
 func TestFogGPUDistanceModesMatchReference(t *testing.T) {
@@ -689,10 +698,9 @@ func TestFogGPUDistanceModesMatchReference(t *testing.T) {
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 0, Z: 0}, math3d.DegToRad(50), float32(w)/float32(h), 0.1, 100)
 	cam.LookAt(math3d.Vec3{Z: -10}, math3d.Vec3Up())
 
-	// Four flat panels at exact set Z distances (4, 12, 20, 32), placed side-by-side in screen space
-	// so every panel's center projects cleanly onto a distinct pixel with no overlap.
-	baseCol := [3]float32{0.9, 0.18, 0.12}
-	fogCol := [3]float32{0.62, 0.72, 0.86}
+	// Four flat panels at exact set Z distances (4, 12, 20, 32), placed side-by-side in screen space so every panel's center projects cleanly onto a distinct pixel with no overlap.
+	baseCol := math3d.Vec3{X: 0.9, Y: 0.18, Z: 0.12}
+	fogCol := math3d.Vec3{X: 0.62, Y: 0.72, Z: 0.86}
 	panels := []fogTestPanel{
 		{center: math3d.Vec3{X: -2.0, Y: 0, Z: -4}, scale: math3d.Vec3{X: 0.45, Y: 1.0, Z: 1}, color: baseCol},
 		{center: math3d.Vec3{X: -2.0, Y: 0, Z: -12}, scale: math3d.Vec3{X: 1.35, Y: 3.0, Z: 1}, color: baseCol},
@@ -705,41 +713,20 @@ func TestFogGPUDistanceModesMatchReference(t *testing.T) {
 		fog    render3d.Fog
 		golden string
 	}{
-		{
-			name: "off",
-			fog:  render3d.Fog{Mode: render3d.FogOff, Color: fogCol, Start: 8, End: 24},
-		},
-		{
-			name:   "linear",
-			fog:    render3d.Fog{Mode: render3d.FogLinear, Color: fogCol, Start: 8, End: 24},
-			golden: "fog_linear_distances",
-		},
-		{
-			name: "linear-max-opacity",
-			fog:  render3d.Fog{Mode: render3d.FogLinear, Color: fogCol, Start: 8, End: 24, MaxOpacity: 0.65},
-		},
-		{
-			name: "exp",
-			fog:  render3d.Fog{Mode: render3d.FogExp, Color: fogCol, Density: 0.06},
-		},
-		{
-			name: "exp2",
-			fog:  render3d.Fog{Mode: render3d.FogExp2, Color: fogCol, Density: 0.05},
-		},
+		{name: "off", fog: render3d.Fog{Mode: render3d.FogOff, Color: fogCol, Start: 8, End: 24}},
+		{name: "linear", fog: render3d.Fog{Mode: render3d.FogLinear, Color: fogCol, Start: 8, End: 24}, golden: "fog_linear_distances"},
+		{name: "linear-max-opacity", fog: render3d.Fog{Mode: render3d.FogLinear, Color: fogCol, Start: 8, End: 24, MaxOpacity: 0.65}},
+		{name: "exp", fog: render3d.Fog{Mode: render3d.FogExp, Color: fogCol, Density: 0.06}},
+		{name: "exp2", fog: render3d.Fog{Mode: render3d.FogExp2, Color: fogCol, Density: 0.05}},
 	}
 
 	clearCol := core.RGB(0x121620)
 	for _, tc := range modes {
 		t.Run(tc.name, func(t *testing.T) {
 			img := fogRenderPanels(t, w, h, cam, tc.fog, panels, clearCol)
-			for i, p := range panels {
-				s, _, vis := cam.WorldToScreen(p.center, w, h)
-				if !vis {
-					t.Fatalf("panel %d center %v not visible", i, p.center)
-				}
-				px, py := int(math.Round(float64(s.X))), int(math.Round(float64(s.Y)))
-				wantCol := fogColorToRGBA(tc.fog.Apply(p.color, cam.Pos, p.center))
-				fogAssertPixelNear(t, img, px, py, wantCol, 2)
+			for _, p := range panels {
+				px, py := fogPanelPixel(t, cam, p.center, w, h)
+				fogAssertPixelNear(t, img, px, py, fogSRGB(tc.fog.Apply(p.color, cam.Pos, p.center)), 2)
 			}
 			if tc.golden != "" {
 				fogAssertGolden(t, tc.golden, img)
@@ -756,11 +743,10 @@ func TestFogGPUHeightAndCombinedMatchReference(t *testing.T) {
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 4, Z: 10}, math3d.DegToRad(50), float32(w)/float32(h), 0.1, 100)
 	cam.LookAt(math3d.Vec3{X: 0, Y: 3, Z: -10}, math3d.Vec3Up())
 
-	baseCol := [3]float32{0.85, 0.45, 0.15}
-	fogCol := [3]float32{0.7, 0.8, 0.92}
+	baseCol := math3d.Vec3{X: 0.85, Y: 0.45, Z: 0.15}
+	fogCol := math3d.Vec3{X: 0.7, Y: 0.8, Z: 0.92}
 
-	// Three panels at the same horizontal Z (-10) but three distinct altitudes:
-	// low (below HeightBase=3), mid (at HeightBase=3), high (well above HeightBase=3).
+	// Three panels at the same Z (-10) but three altitudes: below, at, and well above HeightBase = 3.
 	panels := []fogTestPanel{
 		{center: math3d.Vec3{X: -5, Y: -1, Z: -10}, scale: math3d.Vec3{X: 2, Y: 2, Z: 1}, color: baseCol},
 		{center: math3d.Vec3{X: 0, Y: 3, Z: -10}, scale: math3d.Vec3{X: 2, Y: 2, Z: 1}, color: baseCol},
@@ -781,35 +767,23 @@ func TestFogGPUHeightAndCombinedMatchReference(t *testing.T) {
 
 	samples := make([]color.RGBA, len(panels))
 	for i, p := range panels {
-		s, _, vis := cam.WorldToScreen(p.center, w, h)
-		if !vis {
-			t.Fatalf("panel %d center not visible", i)
-		}
-		px, py := int(math.Round(float64(s.X))), int(math.Round(float64(s.Y)))
-		wantCol := fogColorToRGBA(heightFog.Apply(p.color, cam.Pos, p.center))
-		fogAssertPixelNear(t, img, px, py, wantCol, 2)
+		px, py := fogPanelPixel(t, cam, p.center, w, h)
+		fogAssertPixelNear(t, img, px, py, fogSRGB(heightFog.Apply(p.color, cam.Pos, p.center)), 2)
 		samples[i] = img.RGBAAt(px, py)
 	}
-	// Blue channel increases monotonically as fog intensifies (fogCol.B=0.92 > baseCol.B=0.15):
-	// low panel must be foggier than mid, and mid foggier than high.
+	// Blue rises as fog thickens (fog blue 0.92 > panel blue 0.15): the low panel is foggier than the middle one, and the middle one foggier than the high one.
 	if !(samples[0].B > samples[1].B && samples[1].B > samples[2].B) {
 		t.Errorf("height fog blue ordering low=%d mid=%d high=%d, want low > mid > high", samples[0].B, samples[1].B, samples[2].B)
 	}
 
-	// Combined distance + height fog.
 	combinedFog := heightFog
 	combinedFog.Mode = render3d.FogExp
 	combinedFog.Density = 0.03
 	combinedFog.MaxOpacity = 0.9
 	imgCombined := fogRenderPanels(t, w, h, cam, combinedFog, panels, core.RGB(0x10141c))
-	for i, p := range panels {
-		s, _, vis := cam.WorldToScreen(p.center, w, h)
-		if !vis {
-			t.Fatalf("combined panel %d center not visible", i)
-		}
-		px, py := int(math.Round(float64(s.X))), int(math.Round(float64(s.Y)))
-		wantCol := fogColorToRGBA(combinedFog.Apply(p.color, cam.Pos, p.center))
-		fogAssertPixelNear(t, imgCombined, px, py, wantCol, 2)
+	for _, p := range panels {
+		px, py := fogPanelPixel(t, cam, p.center, w, h)
+		fogAssertPixelNear(t, imgCombined, px, py, fogSRGB(combinedFog.Apply(p.color, cam.Pos, p.center)), 2)
 	}
 }
 
@@ -820,15 +794,10 @@ func TestFogGPUOrthographicMatchesReference(t *testing.T) {
 	)
 	cam := scene3d.NewOrthographicCamera(math3d.Vec3{X: 0, Y: 0, Z: 0}, 8, float32(w)/float32(h), 0.1, 60)
 	cam.LookAt(math3d.Vec3{Z: -10}, math3d.Vec3Up())
+	camU := render3d.NewCameraUniform(cam)
 
-	baseCol := [3]float32{0.9, 0.2, 0.2}
-	fogCol := [3]float32{0.5, 0.7, 0.9}
-	fog := render3d.Fog{
-		Mode:  render3d.FogLinear,
-		Color: fogCol,
-		Start: 5,
-		End:   25,
-	}
+	baseCol := math3d.Vec3{X: 0.9, Y: 0.2, Z: 0.2}
+	fog := render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.5, Y: 0.7, Z: 0.9}, Start: 5, End: 25}
 	panels := []fogTestPanel{
 		{center: math3d.Vec3{X: -3, Y: 0, Z: -5}, scale: math3d.Vec3{X: 1.5, Y: 2, Z: 1}, color: baseCol},
 		{center: math3d.Vec3{X: 0, Y: 0, Z: -15}, scale: math3d.Vec3{X: 1.5, Y: 2, Z: 1}, color: baseCol},
@@ -836,117 +805,160 @@ func TestFogGPUOrthographicMatchesReference(t *testing.T) {
 	}
 
 	img := fogRenderPanels(t, w, h, cam, fog, panels, core.RGB(0x10141c))
-	for i, p := range panels {
-		s, _, vis := cam.WorldToScreen(p.center, w, h)
-		if !vis {
-			t.Fatalf("ortho panel %d not visible", i)
+	for _, p := range panels {
+		// Under an orthographic camera looking along -Z from z = 0, the ray toward p starts on the camera plane at (p.X, p.Y, 0).
+		origin := render3d.FogCameraPos(camU, p.center)
+		if want := (math3d.Vec3{X: p.center.X, Y: p.center.Y}); origin.Sub(want).Len() > 1e-4 {
+			t.Errorf("FogCameraPos(ortho, %v) = %v, want %v", p.center, origin, want)
 		}
-		px, py := int(math.Round(float64(s.X))), int(math.Round(float64(s.Y)))
-		// Under an orthographic camera looking along -Z from z=0, the ray starts on the camera plane at (p.X, p.Y, 0).
-		rayOrigin := math3d.Vec3{X: p.center.X, Y: p.center.Y, Z: 0}
-		wantCol := fogColorToRGBA(fog.Apply(p.color, rayOrigin, p.center))
-		fogAssertPixelNear(t, img, px, py, wantCol, 2)
+		px, py := fogPanelPixel(t, cam, p.center, w, h)
+		fogAssertPixelNear(t, img, px, py, fogSRGB(fog.Apply(p.color, origin, p.center)), 2)
+	}
+
+	persp := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 1, Y: 2, Z: 3}, math3d.DegToRad(50), 1, 0.1, 60)
+	if got := render3d.FogCameraPos(render3d.NewCameraUniform(persp), math3d.Vec3{Z: -10}); got != persp.Pos {
+		t.Errorf("FogCameraPos(perspective) = %v, want the eye %v", got, persp.Pos)
 	}
 }
 
-func TestFogGPULitShadingAndMeshWithoutNormals(t *testing.T) {
+// TestFogLitPBRMatchesShadePoint checks the fogged lit pipeline against the CPU lighting reference: the pixel must equal ShadePoint's lit color blended by Fog.Apply and encoded to sRGB.
+func TestFogLitPBRMatchesShadePoint(t *testing.T) {
 	const size = 64
 	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
+	var cx *core.Scope // nil: the objects live as long as the software renderer
 
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 4}, math3d.DegToRad(50), 1, 0.1, 50)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
-
+	rig := render3d.LightRig{
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.2, Y: 0.25, Z: 0.3}, Intensity: 0.4},
+		Directional: []render3d.DirectionalLight{
+			{Direction: math3d.Vec3{X: -0.3, Y: -0.4, Z: -1}, Color: math3d.Vec3{X: 1, Y: 0.95, Z: 0.9}, Intensity: 1.6},
+		},
+	}
+	mat := render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.8, Y: 0.3, Z: 0.2}, Roughness: 0.6}
 	fog := render3d.Fog{
-		Mode:  render3d.FogLinear,
-		Color: [3]float32{0.5, 0.6, 0.8},
-		Start: 2,
-		End:   10,
+		Mode:          render3d.FogLinear,
+		Color:         math3d.Vec3{X: 0.5, Y: 0.6, Z: 0.8},
+		Start:         2,
+		End:           6,
+		HeightEnabled: true,
+		HeightFalloff: 0.3,
+		HeightDensity: 0.05,
 	}
-	camBuf, err := render3d.NewCameraBuffer(nil, dev)
-	if err != nil {
-		t.Fatalf("NewCameraBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = camBuf.Close() })
+	scene := newFogScene(t, cx, dev, fog, nil, rig, fogMakeUnitCubeMesh(), []fogTestPanel{{scale: math3d.Vec3One()}})
+	scene.draws[0].Write(dev, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), mat))
 
-	fogBuf, err := render3d.NewGPUFogBuffer(nil, dev, fog, render3d.FogBufferOptions{})
-	if err != nil {
-		t.Fatalf("NewGPUFogBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = fogBuf.Close() })
-
-	pipe, err := render3d.NewFogPipeline(nil, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
-		DepthFormat: gpu.FormatDepth24Plus,
-		CullMode:    gpu.CullBack,
-	})
-	if err != nil {
-		t.Fatalf("NewFogPipeline: %v", err)
-	}
-	t.Cleanup(func() { _ = pipe.Close() })
-
-	cube, err := render3d.UploadMesh(nil, dev, fogMakeUnitCubeMesh(), render3d.MeshUpload{})
-	if err != nil {
-		t.Fatalf("UploadMesh cube: %v", err)
-	}
-	t.Cleanup(func() { _ = cube.Close() })
-
-	// Front face of unit cube sits at z = +0.5 (distance 3.5 from cam at z = 4), normal = (0, 0, 1).
-	// LightDir = (0, 0, 1), Ambient = 0.25 -> NdotL = 1 -> shade = 1.0 -> lit = baseColor.
-	base := [3]float32{0.8, 0.3, 0.2}
-	obj, err := pipe.NewObjectBuffer(nil, dev, render3d.FogObject{
-		BaseColor: [4]float32{base[0], base[1], base[2], 1},
-		LightDir:  math3d.Vec3{Z: 1},
-		Ambient:   0.25,
-	}, render3d.FogBufferOptions{})
-	if err != nil {
-		t.Fatalf("NewObjectBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = obj.Close() })
-
-	camBuf.WriteCamera(cam)
 	enc := dev.BeginEncoder()
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
 		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x10141c)}},
 		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
 	})
-	pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-	obj.Bind(pass)
-	cube.Draw(pass)
+	scene.record(pass, cam)
 	pass.End()
 	dev.Submit(enc.Finish())
 	sr.WaitIdle()
 	if err := sr.LastError(); err != nil {
 		t.Fatalf("software renderer: %v", err)
 	}
-	wantLit := fogColorToRGBA(fog.Apply(base, cam.Pos, math3d.Vec3{Z: 0.5}))
-	fogAssertPixelNear(t, sr.Image(), size/2, size/2, wantLit, 2)
 
-	// Also verify a mesh with NO normals does not produce NaN with directional lighting active.
-	noNormMesh := render3d.Mesh{
-		Positions: []math3d.Vec3{{X: -1, Y: -1}, {X: 1, Y: -1}, {X: 1, Y: 1}, {X: -1, Y: 1}},
-		Indices:   []uint32{0, 1, 2, 0, 2, 3},
+	// The cube's front face sits at z = 0.5 facing the camera, 3.5 units away.
+	p := math3d.Vec3{Z: 0.5}
+	n := math3d.Vec3{Z: 1}
+	v := cam.Pos.Sub(p).Norm()
+	lit := render3d.ShadePoint(p, n, v, mat, rig)
+	want := fogSRGB(fog.Apply(lit, cam.Pos, p))
+	fogAssertPixelNear(t, sr.Image(), size/2, size/2, want, 2)
+	if unfogged := fogSRGB(lit); unfogged == want {
+		t.Fatalf("fog left the lit color %v unchanged; the test does not exercise fog", unfogged)
 	}
-	bare, err := render3d.UploadMesh(nil, dev, noNormMesh, render3d.MeshUpload{})
+}
+
+// TestFogMaterialPipelineMatchesEvaluateMaterial checks NewMaterialPipeline with a fog layout against EvaluateMaterial: the pixel must equal the material's linear radiance blended by Fog.Apply, then tone-mapped and encoded as MaterialWGSL does.
+func TestFogMaterialPipelineMatchesEvaluateMaterial(t *testing.T) {
+	const size = 64
+	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	var cx *core.Scope // nil: the objects live as long as the software renderer
+
+	camBuf, err := render3d.NewCameraBuffer(cx, dev)
 	if err != nil {
-		t.Fatalf("UploadMesh bare: %v", err)
+		t.Fatalf("NewCameraBuffer: %v", err)
 	}
-	t.Cleanup(func() { _ = bare.Close() })
-	enc = dev.BeginEncoder()
-	pass = enc.BeginRenderPass(gpu.RenderPassDesc{
+	defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{})
+	if err != nil {
+		t.Fatalf("NewMaterialDefaults: %v", err)
+	}
+	fog := render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.35, Y: 0.45, Z: 0.7}, Start: 1, End: 5}
+	fogBuf, err := render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "material-fog"})
+	if err != nil {
+		t.Fatalf("NewGPUFogBuffer: %v", err)
+	}
+	pipe, err := render3d.NewMaterialPipeline(cx, dev, camBuf.Layout(), defaults.Layout(), render3d.MaterialPipelineOptions{
+		DepthFormat: gpu.FormatDepth24Plus,
+		FogLayout:   fogBuf.Layout(),
+	})
+	if err != nil {
+		t.Fatalf("NewMaterialPipeline with fog: %v", err)
+	}
+	m := render3d.DefaultMaterial()
+	m.BaseColorFactor = [4]float32{0.82, 0.18, 0.16, 1}
+	m.MetallicFactor = 0
+	m.RoughnessFactor = 0.85
+	gm, err := render3d.NewGPUMaterial(cx, dev, defaults, m, render3d.MaterialUpload{Label: "fogged"})
+	if err != nil {
+		t.Fatalf("NewGPUMaterial: %v", err)
+	}
+	quad, err := render3d.UploadMesh(cx, dev, worldQuadMesh(math3d.Vec3{}, 2, 2), render3d.MeshUpload{Label: "quad"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 3}, math3d.DegToRad(50), 1, 0.1, 20)
+	cam.LookAt(math3d.Vec3{}, math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
 		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x10141c)}},
 		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
 	})
-	pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-	obj.Bind(pass)
-	bare.Draw(pass)
+	pass.SetPipeline(pipe)
+	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	gm.Bind(pass)
+	pass.SetBindGroup(render3d.MaterialFogGroup, fogBuf.BindGroup())
+	quad.Draw(pass)
 	pass.End()
 	dev.Submit(enc.Finish())
 	sr.WaitIdle()
-	// With zero normals, shader falls back to ambient=0.25 without NaN.
-	ambientLit := [3]float32{base[0] * 0.25, base[1] * 0.25, base[2] * 0.25}
-	wantBare := fogColorToRGBA(fog.Apply(ambientLit, cam.Pos, math3d.Vec3{Z: 0}))
-	fogAssertPixelNear(t, sr.Image(), size/2, size/2, wantBare, 2)
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+
+	res := render3d.EvaluateMaterial(render3d.MaterialEvalInput{
+		Material:    m,
+		Normal:      math3d.Vec3{Z: 1},
+		ViewDir:     math3d.Vec3{Z: 1},
+		FrontFacing: true,
+	})
+	linear := math3d.Vec3{X: res.Linear.X, Y: res.Linear.Y, Z: res.Linear.Z}
+	fogged := fog.Apply(linear, cam.Pos, math3d.Vec3{})
+	// MaterialWGSL's output transform: Reinhard tone mapping, then a 1/2.2 gamma.
+	tonemap := func(c float32) uint8 {
+		c = max(c, 0)
+		return uint8(math.Round(math.Pow(float64(c/(c+1)), 1/2.2) * 255))
+	}
+	want := color.RGBA{R: tonemap(fogged.X), G: tonemap(fogged.Y), B: tonemap(fogged.Z), A: 255}
+	fogAssertPixelNear(t, sr.Image(), size/2, size/2, want, 3)
+	if unfogged := srgbVec4ToRGBA(res.SRGB); unfogged == want {
+		t.Fatalf("fog left the material color %v unchanged; the test does not exercise fog", unfogged)
+	}
+
+	if _, err := render3d.NewMaterialPipeline(cx, dev, camBuf.Layout(), defaults.Layout(), render3d.MaterialPipelineOptions{FogLayout: &gpu.BindGroupLayout{}}); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewMaterialPipeline(invalid fog layout) = %v, want ErrInvalidDescriptor", err)
+	}
 }
 
 func TestFogDrawsInGPUViewProfiles(t *testing.T) {
@@ -962,19 +974,14 @@ func TestFogDrawsInGPUViewProfiles(t *testing.T) {
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 0}, math3d.DegToRad(50), 1, 0.1, 100)
 	cam.LookAt(math3d.Vec3{Z: -10}, math3d.Vec3Up())
 
-	baseCol := [3]float32{0.9, 0.2, 0.1}
-	fogCol := [3]float32{0.4, 0.6, 0.9}
-	fog1 := render3d.Fog{Mode: render3d.FogLinear, Color: fogCol, Start: 5, End: 15}
-	fog2 := render3d.Fog{Mode: render3d.FogExp, Color: [3]float32{0.2, 0.85, 0.4}, Density: 0.12}
+	panel := fogTestPanel{center: math3d.Vec3{Z: -10}, scale: math3d.Vec3{X: 3, Y: 3, Z: 1}, color: math3d.Vec3{X: 0.9, Y: 0.2, Z: 0.1}}
+	fog1 := render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.4, Y: 0.6, Z: 0.9}, Start: 5, End: 15}
+	fog2 := render3d.Fog{Mode: render3d.FogExp, Color: math3d.Vec3{X: 0.2, Y: 0.85, Z: 0.4}, Density: 0.12}
 
 	for _, prof := range profiles {
 		t.Run(prof.name, func(t *testing.T) {
 			var (
-				camBuf *render3d.CameraBuffer
-				fogBuf *render3d.GPUFogBuffer
-				pipe   *render3d.FogPipeline
-				mesh   *render3d.GPUMesh
-				obj    *render3d.GPUFogObject
+				scene  *fogScene
 				active = fog1
 				update bool
 			)
@@ -985,60 +992,34 @@ func TestFogDrawsInGPUViewProfiles(t *testing.T) {
 					Style:       core.Style{Width: core.Pt(size), Height: core.Pt(size)},
 					DepthFormat: gpu.FormatDepth24Plus,
 					OnReady: func(dev *gpu.Device) {
-						var err error
-						if camBuf, err = render3d.NewCameraBuffer(cx, dev); err != nil {
-							t.Fatalf("NewCameraBuffer: %v", err)
-						}
-						if fogBuf, err = render3d.NewGPUFogBuffer(cx, dev, active, render3d.FogBufferOptions{Label: "view-fog"}); err != nil {
-							t.Fatalf("NewGPUFogBuffer: %v", err)
-						}
-						if pipe, err = render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
-							DepthFormat: gpu.FormatDepth24Plus,
-							CullMode:    gpu.CullBack,
-						}); err != nil {
-							t.Fatalf("NewFogPipeline: %v", err)
-						}
-						if mesh, err = render3d.UploadMesh(cx, dev, fogMakeUnitQuadMesh(), render3d.MeshUpload{Label: "quad"}); err != nil {
-							t.Fatalf("UploadMesh: %v", err)
-						}
-						if obj, err = pipe.NewObjectBuffer(cx, dev, render3d.FogObject{
-							Model:     math3d.Translate(math3d.Vec3{Z: -10}).Mul(math3d.Scale(math3d.Vec3{X: 3, Y: 3, Z: 1})),
-							BaseColor: [4]float32{baseCol[0], baseCol[1], baseCol[2], 1},
-							Ambient:   1,
-						}, render3d.FogBufferOptions{Label: "obj"}); err != nil {
-							t.Fatalf("NewObjectBuffer: %v", err)
-						}
+						scene = newFogScene(t, cx, dev, active, nil, render3d.LightRig{}, fogMakeUnitQuadMesh(), []fogTestPanel{panel})
 					},
 					OnFrame: func(frame *gpu.Frame) {
 						if update {
-							if err := fogBuf.Update(frame.Device(), active); err != nil {
-								t.Fatalf("fogBuf.Update: %v", err)
+							if err := scene.fog.Update(frame.Device(), active); err != nil {
+								t.Fatalf("GPUFogBuffer.Update: %v", err)
 							}
 							update = false
 						}
-						camBuf.WriteCamera(cam)
 						pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 						pass.ClearColor(core.RGB(0x10141c))
 						pass.ClearDepth(1)
-						pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-						obj.Bind(pass)
-						mesh.Draw(pass)
+						scene.record(pass, cam)
 						pass.End()
 						frame.Submit()
 					},
 				})
 			}, opts...)
 
-			// Frame 1: linear fog at midpoint (d=10 between 5 and 15 => factor 0.5).
+			// Frame 1: linear fog halfway (d = 10 between 5 and 15).
 			app.Advance(16 * time.Millisecond)
 			img1, err := app.GPUReadPixels("id:fogview")
 			if err != nil {
 				t.Fatalf("GPUReadPixels frame 1: %v", err)
 			}
-			want1 := fogColorToRGBA(fog1.Apply(baseCol, cam.Pos, math3d.Vec3{Z: -10}))
-			fogAssertPixelNear(t, img1, size/2, size/2, want1, 2)
+			fogAssertPixelNear(t, img1, size/2, size/2, fogSRGB(fog1.Apply(panel.color, cam.Pos, panel.center)), 2)
 
-			// Frame 2: dynamically update fog to green exponential fog and verify pixels track it.
+			// Frame 2: switch to green exponential fog and check the pixel follows.
 			app.Post(func() {
 				active = fog2
 				update = true
@@ -1049,8 +1030,7 @@ func TestFogDrawsInGPUViewProfiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GPUReadPixels frame 2: %v", err)
 			}
-			want2 := fogColorToRGBA(fog2.Apply(baseCol, cam.Pos, math3d.Vec3{Z: -10}))
-			fogAssertPixelNear(t, img2, size/2, size/2, want2, 2)
+			fogAssertPixelNear(t, img2, size/2, size/2, fogSRGB(fog2.Apply(panel.color, cam.Pos, panel.center)), 2)
 		})
 	}
 }
@@ -1060,16 +1040,13 @@ func TestRetainedFogBufferSurvivesDeviceLoss(t *testing.T) {
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 0}, math3d.DegToRad(50), 1, 0.1, 100)
 	cam.LookAt(math3d.Vec3{Z: -10}, math3d.Vec3Up())
 
-	baseCol := [3]float32{0.9, 0.2, 0.1}
-	fogBefore := render3d.Fog{Mode: render3d.FogLinear, Color: [3]float32{0.3, 0.5, 0.9}, Start: 5, End: 15}
-	fogAfter := render3d.Fog{Mode: render3d.FogLinear, Color: [3]float32{0.2, 0.9, 0.3}, Start: 5, End: 15}
+	panel := fogTestPanel{center: math3d.Vec3{Z: -10}, scale: math3d.Vec3{X: 3, Y: 3, Z: 1}, color: math3d.Vec3{X: 0.9, Y: 0.2, Z: 0.1}}
+	fogBefore := render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.3, Y: 0.5, Z: 0.9}, Start: 5, End: 15}
+	fogAfter := render3d.Fog{Mode: render3d.FogLinear, Color: math3d.Vec3{X: 0.2, Y: 0.9, Z: 0.3}, Start: 5, End: 15}
 
 	var (
-		camBuf *render3d.CameraBuffer
+		scene  *fogScene
 		fogBuf *render3d.GPUFogBuffer
-		pipe   *render3d.FogPipeline
-		mesh   *render3d.GPUMesh
-		obj    *render3d.GPUFogObject
 		next   *render3d.Fog
 	)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -1078,50 +1055,26 @@ func TestRetainedFogBufferSurvivesDeviceLoss(t *testing.T) {
 			Style:       core.Style{Width: core.Pt(size), Height: core.Pt(size)},
 			DepthFormat: gpu.FormatDepth24Plus,
 			OnReady: func(dev *gpu.Device) {
-				var err error
-				// CameraBuffer is not retained, so recreate it per device epoch.
-				if camBuf, err = render3d.NewCameraBuffer(cx, dev); err != nil {
-					t.Fatalf("NewCameraBuffer: %v", err)
-				}
-				// Retained fogBuf and mesh are created only once and automatically restored by NSGo.
+				// Only the retained fog buffer is created once; NSGo restores it after a device loss, and everything else is rebuilt per device.
 				if fogBuf == nil {
+					var err error
 					if fogBuf, err = render3d.NewGPUFogBuffer(cx, dev, fogBefore, render3d.FogBufferOptions{Label: "retained-fog", Retained: true}); err != nil {
 						t.Fatalf("NewGPUFogBuffer: %v", err)
 					}
 				}
-				if mesh == nil {
-					if mesh, err = render3d.UploadMesh(cx, dev, fogMakeUnitQuadMesh(), render3d.MeshUpload{Label: "retained-quad", Retained: true}); err != nil {
-						t.Fatalf("UploadMesh: %v", err)
-					}
-				}
-				if pipe, err = render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
-					DepthFormat: gpu.FormatDepth24Plus,
-					CullMode:    gpu.CullBack,
-				}); err != nil {
-					t.Fatalf("NewFogPipeline: %v", err)
-				}
-				if obj, err = pipe.NewObjectBuffer(cx, dev, render3d.FogObject{
-					Model:     math3d.Translate(math3d.Vec3{Z: -10}).Mul(math3d.Scale(math3d.Vec3{X: 3, Y: 3, Z: 1})),
-					BaseColor: [4]float32{baseCol[0], baseCol[1], baseCol[2], 1},
-					Ambient:   1,
-				}, render3d.FogBufferOptions{Label: "obj"}); err != nil {
-					t.Fatalf("NewObjectBuffer: %v", err)
-				}
+				scene = newFogScene(t, cx, dev, render3d.Fog{}, fogBuf, render3d.LightRig{}, fogMakeUnitQuadMesh(), []fogTestPanel{panel})
 			},
 			OnFrame: func(frame *gpu.Frame) {
 				if next != nil {
 					if err := fogBuf.Update(frame.Device(), *next); err != nil {
-						t.Fatalf("fogBuf.Update after restore: %v", err)
+						t.Fatalf("GPUFogBuffer.Update after restore: %v", err)
 					}
 					next = nil
 				}
-				camBuf.WriteCamera(cam)
 				pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 				pass.ClearColor(core.RGB(0x10141c))
 				pass.ClearDepth(1)
-				pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-				obj.Bind(pass)
-				mesh.Draw(pass)
+				scene.record(pass, cam)
 				pass.End()
 				frame.Submit()
 			},
@@ -1134,7 +1087,7 @@ func TestRetainedFogBufferSurvivesDeviceLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GPUReadPixels before loss: %v", err)
 	}
-	fogAssertPixelNear(t, img, size/2, size/2, fogColorToRGBA(fogBefore.Apply(baseCol, cam.Pos, math3d.Vec3{Z: -10})), 2)
+	fogAssertPixelNear(t, img, size/2, size/2, fogSRGB(fogBefore.Apply(panel.color, cam.Pos, panel.center)), 2)
 
 	app.TriggerGPUDeviceLost("id:fogloss", nsgotest.GPULostContextLost, "context lost")
 	if firstFogBuf.Valid() {
@@ -1146,15 +1099,15 @@ func TestRetainedFogBufferSurvivesDeviceLoss(t *testing.T) {
 		t.Fatalf("retained fog buffer not restored: same=%v valid=%v", fogBuf == firstFogBuf, firstFogBuf.Valid())
 	}
 
-	// Render immediately after restore without calling Update: shadow data must still match fogBefore.
+	// Without an Update, the restored buffer still holds fogBefore.
 	app.Advance(16 * time.Millisecond)
 	img, err = app.GPUReadPixels("id:fogloss")
 	if err != nil {
 		t.Fatalf("GPUReadPixels after restore: %v", err)
 	}
-	fogAssertPixelNear(t, img, size/2, size/2, fogColorToRGBA(fogBefore.Apply(baseCol, cam.Pos, math3d.Vec3{Z: -10})), 2)
+	fogAssertPixelNear(t, img, size/2, size/2, fogSRGB(fogBefore.Apply(panel.color, cam.Pos, panel.center)), 2)
 
-	// Now update the restored retained fog buffer on the new device and verify the new fog renders.
+	// An Update on the new device takes effect.
 	app.Post(func() {
 		f := fogAfter
 		next = &f
@@ -1165,14 +1118,13 @@ func TestRetainedFogBufferSurvivesDeviceLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GPUReadPixels after update: %v", err)
 	}
-	fogAssertPixelNear(t, img, size/2, size/2, fogColorToRGBA(fogAfter.Apply(baseCol, cam.Pos, math3d.Vec3{Z: -10})), 2)
+	fogAssertPixelNear(t, img, size/2, size/2, fogSRGB(fogAfter.Apply(panel.color, cam.Pos, panel.center)), 2)
 }
 
 func TestFogScopeDisposalAndLifecycle(t *testing.T) {
 	var (
 		fogBuf *render3d.GPUFogBuffer
-		pipe   *render3d.FogPipeline
-		obj    *render3d.GPUFogObject
+		pipe   *gpu.Pipeline
 		show   *core.Signal[bool]
 	)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -1181,62 +1133,40 @@ func TestFogScopeDisposalAndLifecycle(t *testing.T) {
 			return gpu.View(cx, gpu.ViewProps{
 				Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)},
 				OnReady: func(dev *gpu.Device) {
-					camBuf, err := render3d.NewCameraBuffer(cx, dev)
-					if err != nil {
-						t.Fatalf("NewCameraBuffer: %v", err)
-					}
-					fogBuf, err = render3d.NewGPUFogBuffer(cx, dev, render3d.Fog{}, render3d.FogBufferOptions{})
-					if err != nil {
-						t.Fatalf("NewGPUFogBuffer: %v", err)
-					}
-					pipe, err = render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{})
-					if err != nil {
-						t.Fatalf("NewFogPipeline: %v", err)
-					}
-					obj, err = pipe.NewObjectBuffer(cx, dev, render3d.FogObject{}, render3d.FogBufferOptions{})
-					if err != nil {
-						t.Fatalf("NewObjectBuffer: %v", err)
-					}
+					scene := newFogScene(t, cx, dev, render3d.Fog{}, nil, render3d.LightRig{}, fogMakeUnitQuadMesh(), []fogTestPanel{{scale: math3d.Vec3One()}})
+					fogBuf, pipe = scene.fog, scene.pipe
 				},
 			})
 		}}
 	}, nsgotest.Size(8, 8), nsgotest.ManualFrames())
 
-	if !fogBuf.Valid() || !pipe.Valid() || !obj.Valid() {
+	if !fogBuf.Valid() || !pipe.Valid() {
 		t.Fatal("fog GPU resources not valid while mounted")
+	}
+	if got := fogBuf.ByteSize(); got != render3d.FogUniformSize {
+		t.Errorf("GPUFogBuffer.ByteSize = %d, want %d", got, render3d.FogUniformSize)
 	}
 	app.Post(func() { show.Set(false) })
 	app.Settle()
-	if fogBuf.Valid() || pipe.Valid() || obj.Valid() {
+	if fogBuf.Valid() || pipe.Valid() {
 		t.Error("fog GPU resources still valid after scope disposal")
 	}
 
-	// Error and nil safety checks.
 	if _, err := render3d.NewGPUFogBuffer(nil, nil, render3d.Fog{}, render3d.FogBufferOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("NewGPUFogBuffer(nil dev) = %v, want ErrDeviceLost", err)
 	}
 	if _, err := render3d.NewGPUFogBuffer(nil, nil, render3d.Fog{Mode: render3d.FogLinear, Start: 10, End: 5}, render3d.FogBufferOptions{}); !errors.Is(err, render3d.ErrInvalidFog) {
 		t.Errorf("NewGPUFogBuffer(invalid fog) = %v, want ErrInvalidFog", err)
 	}
-	if _, err := render3d.NewFogPipeline(nil, nil, nil, nil, render3d.FogPipelineOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Errorf("NewFogPipeline(nil dev) = %v, want ErrDeviceLost", err)
+	if _, err := render3d.NewLitPBRFogPipeline(nil, nil, nil, nil, nil, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("NewLitPBRFogPipeline(nil dev) = %v, want ErrDeviceLost", err)
 	}
 	var nilBuf *render3d.GPUFogBuffer
-	if nilBuf.Valid() || nilBuf.Buffer() != nil || nilBuf.Layout() != nil || nilBuf.BindGroup() != nil || nilBuf.Close() != nil {
+	if nilBuf.Valid() || nilBuf.Buffer() != nil || nilBuf.Layout() != nil || nilBuf.BindGroup() != nil || nilBuf.ByteSize() != 0 || nilBuf.Close() != nil {
 		t.Error("nil GPUFogBuffer accessors/Close failed")
 	}
+	nilBuf.Bind(nil)
 	if err := nilBuf.Update(nil, render3d.Fog{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("nil GPUFogBuffer.Update = %v, want ErrDeviceLost", err)
-	}
-	var nilPipe *render3d.FogPipeline
-	if nilPipe.Valid() || nilPipe.Pipeline() != nil || nilPipe.ObjectLayout() != nil || nilPipe.Close() != nil {
-		t.Error("nil FogPipeline accessors/Close failed")
-	}
-	var nilObj *render3d.GPUFogObject
-	if nilObj.Valid() || nilObj.Buffer() != nil || nilObj.BindGroup() != nil || nilObj.Close() != nil {
-		t.Error("nil GPUFogObject accessors/Close failed")
-	}
-	if err := nilObj.Update(nil, render3d.FogObject{}); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Errorf("nil GPUFogObject.Update = %v, want ErrDeviceLost", err)
 	}
 }
