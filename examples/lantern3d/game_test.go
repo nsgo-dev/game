@@ -392,6 +392,148 @@ func TestHUDControlsAndOpenAreaDragPassThrough(t *testing.T) {
 	}
 }
 
+func TestPinchZoomsAndExtraFingersDoNotOrbit(t *testing.T) {
+	var c *Controller
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		var node core.Node
+		c, node = NewView(cx)
+		return node
+	}, nsgotest.Size(480, 320), nsgotest.ManualFrames())
+	app.Press("id:btn-orbit")
+
+	// A pinch to twice the size halves the distance it began at.
+	start := c.Scene.Orbit.Distance
+	app.Pinch("id:lantern-viewport", 1, 1.5, 2)
+	app.Post(func() {
+		c.Scene.Orbit.Snap()
+	})
+	app.Settle()
+	if want := start / 2; math.Abs(float64(c.Scene.Orbit.Distance-want)) > 1e-3 {
+		t.Fatalf("pinch to 2x: distance = %.3f, want %.3f", c.Scene.Orbit.Distance, want)
+	}
+
+	// Three fingers moving together belong to the pinch: they must not orbit, and lifting them in any order must leave no finger behind.
+	yaw := c.Scene.Orbit.Yaw
+	three := func(phase core.TouchPhase, dx core.Points, changed int) core.TouchEvent {
+		ev := core.TouchEvent{Phase: phase}
+		for id := 1; id <= 3; id++ {
+			ev.Touches = append(ev.Touches, core.Touch{
+				ID:       id,
+				Position: core.Point{X: core.Points(100*id) + dx, Y: 150},
+				Changed:  changed == 0 || changed == id,
+			})
+		}
+		return ev
+	}
+	app.Post(func() {
+		c.onTouch(three(core.TouchStart, 0, 0))
+		for step := range 10 {
+			c.onTouch(three(core.TouchMove, core.Points(step*12), 0))
+		}
+		if !c.Scene.Dragging {
+			t.Error("Dragging = false with three fingers down")
+		}
+		c.onTouch(three(core.TouchEnd, 120, 2))
+		c.onTouch(three(core.TouchEnd, 120, 0))
+		for range 20 {
+			if err := c.Scene.Step(time.Second / stepRate); err != nil {
+				t.Errorf("Step: %v", err)
+			}
+		}
+	})
+	app.Settle()
+	if math.Abs(float64(c.Scene.Orbit.Yaw-yaw)) > 1e-4 {
+		t.Fatalf("three-finger move orbited the camera: yaw %.4f -> %.4f", yaw, c.Scene.Orbit.Yaw)
+	}
+	if len(c.activeTouches) != 0 || c.Scene.Dragging {
+		t.Fatalf("after lifting every finger: activeTouches=%v Dragging=%v", c.activeTouches, c.Scene.Dragging)
+	}
+}
+
+func TestKeyboardControls(t *testing.T) {
+	var c *Controller
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		var node core.Node
+		c, node = NewView(cx)
+		return node
+	}, nsgotest.Size(480, 320), nsgotest.ManualFrames())
+	settle := func() {
+		t.Helper()
+		app.Post(func() { c.Scene.Orbit.Snap() })
+		app.Settle()
+	}
+
+	app.Key("space")
+	if c.Scene.AutoOrbit || app.Find("Orbit: Off") == nil {
+		t.Fatalf("Space did not turn auto-orbit off: AutoOrbit=%v", c.Scene.AutoOrbit)
+	}
+	app.Key("space")
+	if !c.Scene.AutoOrbit {
+		t.Fatal("second Space did not turn auto-orbit back on")
+	}
+	app.Key("space")
+
+	app.Key("l")
+	if c.Scene.AnimateLights || app.Find("Lights: Off") == nil {
+		t.Fatalf("L did not stop the lights: AnimateLights=%v", c.Scene.AnimateLights)
+	}
+
+	for _, k := range []struct {
+		keys        []string
+		yaw, pitch  float32
+		zoomOutSign float32
+	}{
+		{keys: []string{"left", "a"}, yaw: -keyOrbitStep},
+		{keys: []string{"right", "d"}, yaw: keyOrbitStep},
+		{keys: []string{"up", "w"}, pitch: keyOrbitStep},
+		{keys: []string{"down", "s"}, pitch: -keyOrbitStep},
+		{keys: []string{"=", "+"}, zoomOutSign: -1},
+		{keys: []string{"-"}, zoomOutSign: 1},
+	} {
+		for _, key := range k.keys {
+			yaw, pitch, dist := c.Scene.Orbit.Yaw, c.Scene.Orbit.Pitch, c.Scene.Orbit.Distance
+			app.Key(key)
+			settle()
+			if d := c.Scene.Orbit.Yaw - yaw; math.Abs(float64(d-k.yaw)) > 1e-4 {
+				t.Errorf("%s: yaw moved %.4f, want %.4f", key, d, k.yaw)
+			}
+			if d := c.Scene.Orbit.Pitch - pitch; math.Abs(float64(d-k.pitch)) > 1e-4 {
+				t.Errorf("%s: pitch moved %.4f, want %.4f", key, d, k.pitch)
+			}
+			if d := c.Scene.Orbit.Distance - dist; math.Abs(float64(d-k.zoomOutSign*keyZoomStep)) > 1e-4 {
+				t.Errorf("%s: distance moved %.4f, want %.4f", key, d, k.zoomOutSign*keyZoomStep)
+			}
+		}
+	}
+
+	app.Key("r")
+	if math.Abs(float64(c.Scene.Orbit.Yaw-defaultOrbitYaw)) > 1e-3 ||
+		math.Abs(float64(c.Scene.Orbit.Pitch-defaultOrbitPitch)) > 1e-3 ||
+		math.Abs(float64(c.Scene.Orbit.Distance-defaultOrbitDist)) > 1e-3 {
+		t.Fatalf("R did not reset the camera: yaw=%.3f pitch=%.3f dist=%.3f", c.Scene.Orbit.Yaw, c.Scene.Orbit.Pitch, c.Scene.Orbit.Distance)
+	}
+}
+
+func TestMouseLeaveEndsDrag(t *testing.T) {
+	var c *Controller
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		var node core.Node
+		c, node = NewView(cx)
+		return node
+	}, nsgotest.Size(480, 320), nsgotest.ManualFrames(),
+		nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	app.HoverAt("id:lantern-root", core.Point{X: 220, Y: 170})
+	app.MouseDownAt("id:lantern-root", core.Point{X: 220, Y: 170}, core.MouseButtonLeft)
+	if !c.mouseDragging || !c.Scene.Dragging {
+		t.Fatal("MouseDown on the open 3D area did not start a drag")
+	}
+	app.HoverOut()
+	if c.mouseDragging || c.Scene.Dragging {
+		t.Fatalf("leaving the view kept the drag: mouseDragging=%v Dragging=%v", c.mouseDragging, c.Scene.Dragging)
+	}
+}
+
 func TestDeviceLossRestoreAndCleanShutdown(t *testing.T) {
 	var (
 		c    *Controller
