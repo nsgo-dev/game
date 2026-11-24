@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
 	"github.com/nsgo-dev/game/packages/game/tooling/manifest"
 	"github.com/nsgo-dev/game/packages/game/tooling/pack"
@@ -98,7 +99,7 @@ type Builder struct {
 // cacheFormat is mixed into every target's key, so a change to what a key covers rebuilds every target.
 const cacheFormat = "assetbuild/1"
 
-// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
+// Build builds the targets of a, game.yaml's assets section, in order, skipping each whose key (a hash of its settings, its inputs' paths and contents, those of the import settings sidecars beside them, and Version) and outputs match the cache, then saves the cache when it changed. A nil a declares no targets: Build then reads and writes nothing. A setting in a sidecar overrides the target's: a texture target takes an image sidecar's filter, format, mipmaps and sRGB, an atlas cuts each image whose sidecar has a slice into frames, and an audio target takes every setting of a sound's sidecar, loop points included. A second Build with nothing changed writes no file. When a target fails, Build saves what it built so far and returns the report up to that target with the error.
 func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error) {
 	if b.Force && b.Check {
 		return nil, errors.New("assetbuild: Force and Check cannot both be set")
@@ -118,26 +119,20 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 	type step struct {
 		id   string
 		kind Kind
-		// prepare reads the target's inputs and returns its key and what builds it under a root directory.
-		prepare func() (key string, build builder, err error)
+		// prepare reads the target's inputs and import settings and returns what builds it.
+		prepare func() (prepared, error)
 		// atlas is the atlas target a KindAtlas step packs, whose output folder may hold pages of an earlier build.
 		atlas *project.AtlasTarget
-		// encoded is the output of an AAC or MP3 target, which an external encoder writes, so its bytes depend on the machine.
-		encoded string
 	}
 	var steps []step
 	for _, at := range a.Atlases {
-		steps = append(steps, step{id: "atlas " + path.Join(at.Out, at.Name), kind: KindAtlas, prepare: func() (string, builder, error) { return b.atlas(at) }, atlas: &at})
+		steps = append(steps, step{id: "atlas " + path.Join(at.Out, at.Name), kind: KindAtlas, prepare: func() (prepared, error) { return b.atlas(at) }, atlas: &at})
 	}
 	for _, t := range a.Textures {
-		steps = append(steps, step{id: "texture " + t.Out, kind: KindTexture, prepare: func() (string, builder, error) { return b.texture(t) }})
+		steps = append(steps, step{id: "texture " + t.Out, kind: KindTexture, prepare: func() (prepared, error) { return b.texture(t) }})
 	}
 	for _, au := range a.Audio {
-		s := step{id: "audio " + au.Out, kind: KindAudio, prepare: func() (string, builder, error) { return b.audio(ctx, au) }}
-		if au.Format != "" && au.Format != string(audioconv.FormatWAV) {
-			s.encoded = au.Out
-		}
-		steps = append(steps, s)
+		steps = append(steps, step{id: "audio " + au.Out, kind: KindAudio, prepare: func() (prepared, error) { return b.audio(ctx, au) }})
 	}
 
 	var runErr error
@@ -149,7 +144,8 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 			break
 		}
 		old := prev.lookup(s.id)
-		key, build, err := s.prepare()
+		p, err := s.prepare()
+		key, build := p.key, p.build
 		if err != nil {
 			runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 			break
@@ -162,15 +158,15 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		} else if b.Check {
 			var current bool
 			var outs []string
-			if s.encoded != "" && old == nil {
+			if p.encoded != "" && old == nil {
 				// Another encoder, or another version of one, writes other bytes for the same input, so with no cache entry from this machine only the output's presence can be checked.
-				_, err := os.Stat(b.abs(s.encoded))
+				_, err := os.Stat(b.abs(p.encoded))
 				if err != nil && !errors.Is(err, fs.ErrNotExist) {
 					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 					break
 				}
 				if err == nil {
-					current, outs = true, []string{s.encoded}
+					current, outs = true, []string{p.encoded}
 				}
 			} else {
 				// Without a matching cache entry, as in a fresh checkout that does not commit the cache, the target is built in a temporary folder and is up to date when the files on disk are what it writes.
@@ -296,6 +292,14 @@ func (b *Builder) abs(rel string) string {
 // builder writes a target's outputs under root, the directory its slash-separated output paths are relative to, and returns the files it wrote.
 type builder func(root string) ([]string, error)
 
+// prepared is a target whose inputs and import settings were read: its key and what builds it.
+type prepared struct {
+	key   string
+	build builder
+	// encoded is the output of an AAC or MP3 target, which an external encoder writes, so its bytes depend on the machine.
+	encoded string
+}
+
 // under returns the filesystem path of rel, a slash-separated path relative to root.
 func under(root, rel string) string {
 	return filepath.Join(root, filepath.FromSlash(rel))
@@ -344,7 +348,7 @@ func sum(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (b *Builder) atlas(a project.AtlasTarget) (string, builder, error) {
+func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 	opts := pack.DefaultOptions()
 	opts.Name = a.Name
 	if a.Padding != nil {
@@ -365,55 +369,111 @@ func (b *Builder) atlas(a project.AtlasTarget) (string, builder, error) {
 	}
 	k, err := newKeyer(b, KindAtlas, opts)
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	inDir := b.abs(a.In)
 	names, err := pack.ScanDir(inDir)
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	files := make([][]byte, len(names))
+	sheets := make([]*importsettings.Slice, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join(inDir, filepath.FromSlash(name)))
 		if err != nil {
-			return "", nil, err
+			return prepared{}, err
 		}
 		files[i] = data
 		k.input(name, data)
+		rel := path.Join(a.In, name)
+		im, sc, err := b.imageSettings(rel)
+		if err != nil {
+			return prepared{}, err
+		}
+		if im == nil {
+			continue
+		}
+		if set := textureSettings(im); len(set) > 0 {
+			return prepared{}, fmt.Errorf("%s: %s %s for a texture target; an atlas packs %s into its pages, so only slice applies", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), name)
+		}
+		sheets[i] = im.Slice
+		k.input(importsettings.Path(name), sc)
 	}
-	return k.key(), func(root string) ([]string, error) {
-		inputs := make([]pack.Input, len(names))
+	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+		inputs := make([]pack.Input, 0, len(names))
 		for i, name := range names {
 			img, err := png.Decode(bytes.NewReader(files[i]))
 			if err != nil {
 				return nil, fmt.Errorf("decode %s: %w", path.Join(a.In, name), err)
 			}
-			inputs[i] = pack.Input{Name: name, Image: img}
+			if sheets[i] == nil {
+				inputs = append(inputs, pack.Input{Name: name, Image: img})
+				continue
+			}
+			frames, err := sliceFrames(name, img, *sheets[i])
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
+			}
+			inputs = append(inputs, frames...)
+		}
+		// A frame cut from a sheet may take the name of an image beside it, such as run_0.png beside run.png sliced; packing both would leave one of them out of the atlas's JSON.
+		seen := make(map[string]bool, len(inputs))
+		for _, in := range inputs {
+			if seen[in.Name] {
+				return nil, fmt.Errorf("two frames of %s are named %s; rename the image or the sheet sliced into that frame", a.In, in.Name)
+			}
+			seen[in.Name] = true
 		}
 		res, err := pack.PackImages(inputs, opts)
 		if err != nil {
 			return nil, err
 		}
 		return res.Write(under(root, a.Out))
-	}, nil
+	}}, nil
 }
 
-func (b *Builder) texture(t project.TextureTarget) (string, builder, error) {
+func (b *Builder) texture(t project.TextureTarget) (prepared, error) {
+	im, sc, err := b.imageSettings(t.In)
+	if err != nil {
+		return prepared{}, err
+	}
+	var filter string
+	if im != nil {
+		if im.Slice != nil {
+			return prepared{}, fmt.Errorf("%s: slice cuts a sprite sheet into an atlas's frames; a texture target encodes the whole image", importsettings.Path(t.In))
+		}
+		if im.Format != "" {
+			t.Format = im.Format
+		}
+		if im.Mipmaps != nil {
+			t.Mipmaps = *im.Mipmaps
+		}
+		if im.SRGB != nil {
+			t.SRGB = *im.SRGB
+		}
+		filter = im.Filter
+	}
 	format, err := ktx2.ParseFormat(t.Format)
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	opts := ktx2.Options{Format: format, Mipmaps: t.Mipmaps, SRGB: t.SRGB}
+	if filter != "" {
+		opts.KVD = map[string]string{importsettings.FilterKey: filter}
+	}
 	k, err := newKeyer(b, KindTexture, opts)
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	data, err := os.ReadFile(b.abs(t.In))
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	k.input(t.In, data)
-	return k.key(), func(root string) ([]string, error) {
+	if im != nil {
+		k.input(importsettings.Path(t.In), sc)
+	}
+	return prepared{key: k.key(), build: func(root string) ([]string, error) {
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", t.In, err)
@@ -427,7 +487,7 @@ func (b *Builder) texture(t project.TextureTarget) (string, builder, error) {
 			return nil, err
 		}
 		return []string{dest}, nil
-	}, nil
+	}}, nil
 }
 
 // audioSettings is what an audio target's key covers.
@@ -457,14 +517,44 @@ func (b *Builder) encoderTool(ctx context.Context, enc *audioconv.Encoder, forma
 	return tool, nil
 }
 
-func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, builder, error) {
+func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (prepared, error) {
+	settings, sc, err := b.sidecar(au.In)
+	if err != nil {
+		return prepared{}, err
+	}
+	var loop *importsettings.Loop
+	if settings != nil {
+		s := settings.Audio
+		if s == nil {
+			return prepared{}, fmt.Errorf("%s holds image settings, but an audio target converts %s as a sound", importsettings.Path(au.In), au.In)
+		}
+		if s.Format != "" {
+			au.Format = s.Format
+		}
+		if s.Rate != 0 {
+			au.Rate = s.Rate
+		}
+		if s.Channels != 0 {
+			au.Channels = s.Channels
+		}
+		if s.Bitrate != 0 {
+			au.Bitrate = s.Bitrate
+		}
+		if s.PeakDB != nil || s.RMSDB != nil {
+			au.PeakDB, au.RMSDB = s.PeakDB, s.RMSDB
+		}
+		loop = s.Loop
+	}
 	format := audioconv.FormatWAV
 	if au.Format != "" {
 		f, err := audioconv.ParseFormat(au.Format)
 		if err != nil {
-			return "", nil, err
+			return prepared{}, err
 		}
 		format = f
+	}
+	if loop != nil && format != audioconv.FormatWAV {
+		return prepared{}, fmt.Errorf("%s: loop points need wav output, but %s converts %s to %s, which carries none", importsettings.Path(au.In), au.Out, au.In, format)
 	}
 	opts := audioconv.Options{SampleRate: au.Rate, Channels: au.Channels, PeakDBFS: au.PeakDB, RMSDBFS: au.RMSDB, Bitrate: au.Bitrate}
 	if opts.Bitrate == 0 {
@@ -476,28 +566,140 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, bu
 	}
 	tool, err := b.encoderTool(ctx, enc, format)
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	k, err := newKeyer(b, KindAudio, audioSettings{format, opts, tool})
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	data, err := os.ReadFile(b.abs(au.In))
 	if err != nil {
-		return "", nil, err
+		return prepared{}, err
 	}
 	k.input(au.In, data)
-	return k.key(), func(root string) ([]string, error) {
+	if settings != nil {
+		k.input(importsettings.Path(au.In), sc)
+	}
+	p := prepared{key: k.key(), build: func(root string) ([]string, error) {
 		buf, err := audioconv.DecodeWAV(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", au.In, err)
+		}
+		if loop != nil {
+			end := loop.End
+			if end == 0 {
+				end = buf.Frames()
+			}
+			if loop.Start >= end || end > buf.Frames() {
+				return nil, fmt.Errorf("%s: loop from frame %d to %d is not inside %s's %d frames", importsettings.Path(au.In), loop.Start, end, au.In, buf.Frames())
+			}
+			buf.Loop = &audioconv.Loop{Start: loop.Start, End: end}
 		}
 		dest := under(root, au.Out)
 		if err := enc.ConvertBuffer(ctx, buf, dest, format, opts); err != nil {
 			return nil, err
 		}
 		return []string{dest}, nil
-	}, nil
+	}}
+	if format != audioconv.FormatWAV {
+		p.encoded = au.Out
+	}
+	return p, nil
+}
+
+// sidecar reads the import settings beside the asset at rel, slash-separated and relative to b.Root: the parsed file and its bytes, or nil when the asset has none.
+func (b *Builder) sidecar(rel string) (*importsettings.File, []byte, error) {
+	name := importsettings.Path(rel)
+	data, err := os.ReadFile(b.abs(name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := importsettings.Parse(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return f, data, nil
+}
+
+// imageSettings reads the import settings beside the image at rel, as sidecar does, and returns its image section and the sidecar's bytes, or nil when the image has no sidecar.
+func (b *Builder) imageSettings(rel string) (*importsettings.Image, []byte, error) {
+	f, data, err := b.sidecar(rel)
+	if err != nil || f == nil {
+		return nil, nil, err
+	}
+	if f.Image == nil {
+		return nil, nil, fmt.Errorf("%s holds audio settings, but %s is read as an image", importsettings.Path(rel), rel)
+	}
+	return f.Image, data, nil
+}
+
+// textureSettings returns the keys of the settings im sets that only a texture target reads.
+func textureSettings(im *importsettings.Image) []string {
+	var set []string
+	if im.Filter != "" {
+		set = append(set, "filter")
+	}
+	if im.Format != "" {
+		set = append(set, "format")
+	}
+	if im.Mipmaps != nil {
+		set = append(set, "mipmaps")
+	}
+	if im.SRGB != nil {
+		set = append(set, "srgb")
+	}
+	return set
+}
+
+// are returns the verb that agrees with n settings.
+func are(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
+}
+
+// sliceFrames cuts img into the frames s describes, row by row from the top left, naming frame i of name.png name_i.png.
+func sliceFrames(name string, img image.Image, s importsettings.Slice) ([]pack.Input, error) {
+	sub, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
+	if !ok {
+		return nil, fmt.Errorf("cannot cut a %T image into frames", img)
+	}
+	bounds := img.Bounds()
+	cols := cellsAlong(bounds.Dx(), s.Width, s.Margin, s.Spacing)
+	rows := cellsAlong(bounds.Dy(), s.Height, s.Margin, s.Spacing)
+	n := cols * rows
+	if n == 0 {
+		return nil, fmt.Errorf("no %dx%d cell fits the %dx%d image after a margin of %d", s.Width, s.Height, bounds.Dx(), bounds.Dy(), s.Margin)
+	}
+	if s.Count > n {
+		return nil, fmt.Errorf("slice count %d is more than the %d cells that fit the %dx%d image", s.Count, n, bounds.Dx(), bounds.Dy())
+	}
+	if s.Count > 0 {
+		n = s.Count
+	}
+	ext := path.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	frames := make([]pack.Input, n)
+	for i := range n {
+		x := bounds.Min.X + s.Margin + (i%cols)*(s.Width+s.Spacing)
+		y := bounds.Min.Y + s.Margin + (i/cols)*(s.Height+s.Spacing)
+		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: sub.SubImage(image.Rect(x, y, x+s.Width, y+s.Height))}
+	}
+	return frames, nil
+}
+
+// cellsAlong returns how many cells of size cell, spaced spacing apart, fit along size after margin, as Tiled counts a tileset image's columns.
+func cellsAlong(size, cell, margin, spacing int) int {
+	if size-margin < cell {
+		return 0
+	}
+	return (size-margin-cell)/(cell+spacing) + 1
 }
 
 // manifest generates the manifest and writes it only when it differs from the file there; it has no cache entry, because generating it reads no file's content and costs less than hashing.

@@ -42,6 +42,7 @@ func TestScanDeterminismClassificationAndCollisions(t *testing.T) {
 		"a_b.txt",
 		".DS_Store",
 		".hidden/secret.png",
+		"hero.png.import.yaml",
 	}
 	for _, f := range files {
 		writeTestFile(t, filepath.Join(dir, filepath.FromSlash(f)), "x")
@@ -51,7 +52,7 @@ func TestScanDeterminismClassificationAndCollisions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	// 9 visible files; dotfiles and dotdirs are skipped.
+	// 9 visible files; dotfiles, dotdirs and import settings sidecars are skipped.
 	if len(entries) != 9 {
 		t.Fatalf("got %d entries, want 9: %+v", len(entries), entries)
 	}
