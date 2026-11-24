@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers for the NSGo GPU view and the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, and camera uniforms for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -139,6 +139,32 @@ Indices are written as `uint16` while the mesh has at most 65,535 vertices and a
 - `MeshUpload.Retained` keeps a CPU copy so NSGo recreates the buffers after a device loss and the same `GPUMesh` draws again, so upload a retained mesh only once, as in the example; leave it off when `OnReady` uploads the meshes again.
 - `GPUMesh.Draw` and `GPUMesh.Bind` record nothing for a mesh that is not `Valid` (nil after a failed upload, closed, its scope disposed, or not retained across a device loss), so it never draws with buffers an earlier mesh left bound.
 - `GPUMesh.Bounds` is the object-space box to transform into `DrawItem.WorldBounds`, and `GPUMesh.ByteSize` the GPU memory for `RenderStats` and budgets.
+
+## Textures and samplers (`GPUTexture`, `GPUSampler`)
+
+`UploadTexture` uploads any Go `image.Image` (including non-zero-origin sub-images) to a `gpu.Device` as a scope-owned `GPUTexture`, converting it to straight-alpha RGBA8 (`PixelBufferFromImage`; `*image.NRGBA` bytes are copied verbatim even when alpha is zero so packed data maps stay intact). `UploadTexturePixels` uploads raw `PixelBuffer` bytes in `FormatRGBA8Unorm`, `FormatRGBA8UnormSRGB`, `FormatRG8Unorm`, or `FormatR8Unorm`, with optional `Stride` row padding:
+
+```go
+texLayout, err := render3d.TextureBindingLayout(cx, dev)
+albedo, err := render3d.UploadTexture(cx, dev, img, render3d.TextureUpload{
+	Label:    "crate-albedo",
+	SRGB:     true, // color maps decode sRGB to linear on sample; leave false for normal/ORM data maps
+	Mipmaps:  true, // CPU area-weighted box chain (in linear light for sRGB) uploaded per level
+	Retained: true, // survives device loss alongside retained samplers
+})
+samp, err := render3d.NewGPUSampler(cx, dev, render3d.SamplerLinearRepeat())
+bg, err := render3d.BindTexture(cx, dev, texLayout, albedo, samp)
+
+// In OnFrame, alongside CameraGroup (group 0):
+pass.SetBindGroup(1, bg)
+mesh.Draw(pass)
+```
+
+- **Mipmaps**: setting `TextureUpload.Mipmaps` builds a CPU area-weighted box mipmap chain (in linear light when `SRGB` is true, avoiding dark halos) and uploads every level via `Device.WriteTextureMip`. This works identically on every NSGo backend without depending on GPU mipmap generation, and every uploaded level is replayed automatically when `Retained` is true. Cap the level count with `TextureUpload.MaxMipLevels`.
+- **Dynamic updates**: `GPUTexture.UpdateImage` and `GPUTexture.UpdatePixels` replace texels in place for a matching dimension and format, regenerating and re-uploading the mip chain when the texture was created with mipmaps.
+- **Sampler presets and validation**: `SamplerLinearRepeat()`, `SamplerLinearClamp()`, `SamplerLinearMirror()`, `SamplerNearestRepeat()`, and `SamplerNearestClamp()` return customizable `SamplerOptions`. `SamplerOptions.Validate` rejects invalid filter/address modes, non-finite or inverted LOD bounds, and `MaxAnisotropy > 1` with non-linear filters (matching WebGPU's validation rule) with errors wrapping `ErrInvalidSampler`.
+- **Lifecycle and memory**: `GPUTexture.ByteSize` sums every uploaded mip level for `RenderStats.TextureBytes` and `Budget` checks. Both `GPUTexture` and `GPUSampler` are released when their owning `core.Scope` is disposed or earlier via `Close()`, and `Valid()` reports whether they belong to a live device.
+- **Reference renders**: `render3d`'s tests verify textured meshes, filtering, wrapping, sRGB/linear sampling, and mipmaps against golden reference PNGs (`render3d/testdata/golden/textured_mesh_scene.png` and `textured_filtering_wrapping.png`) as well as headless `gpu.View` tests on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles; `UPDATE_GOLDEN=1` rewrites the reference images.
 
 ## 3D debug draw and transform gizmos
 
