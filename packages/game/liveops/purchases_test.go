@@ -23,8 +23,8 @@ var (
 		Subscription: &core.Subscription{GroupID: "pass", Period: core.SubscriptionPeriod{Unit: core.PeriodMonth, Value: 1}}}
 )
 
-// progress is a game's save: the coins purchases credit and the ledger that records them, written together.
-type progress struct {
+// purchaseProgress is a game's save: the coins purchases credit and the ledger that records them, written together.
+type purchaseProgress struct {
 	Coins     int            `json:"coins"`
 	Purchases liveops.Ledger `json:"purchases"`
 }
@@ -33,7 +33,7 @@ type progress struct {
 type shop struct {
 	app       *nsgotest.App
 	cx        *core.Scope
-	state     progress
+	state     purchaseProgress
 	saves     *save.Store
 	purchases *liveops.Purchases
 	credits   int
@@ -98,9 +98,9 @@ func (s *shop) disk() map[string]string {
 }
 
 // saved is the progress the storage holds.
-func (s *shop) saved(t *testing.T) progress {
+func (s *shop) saved(t *testing.T) purchaseProgress {
 	t.Helper()
-	var p progress
+	var p purchaseProgress
 	if err := s.saves.Load("main", &p); err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestTheServerVerifiesBeforeDelivery(t *testing.T) {
 
 func TestWithoutAServerOnlyDeviceVerifiedTransactionsAreDelivered(t *testing.T) {
 	var errs []error
-	var state progress
+	var state purchaseProgress
 	app := nsgotest.StartApp(t, func(cx *core.Scope) {
 		liveops.NewPurchases(cx, liveops.PurchasesOptions{
 			Ledger:  &state.Purchases,
@@ -544,7 +544,7 @@ func TestLedgerRoundTripsAndStaysBounded(t *testing.T) {
 	}
 
 	// A long-lived save keeps only the newest LedgerLimit credits.
-	var state progress
+	var state purchaseProgress
 	n := liveops.LedgerLimit + 5
 	txs := make([]core.Transaction, n)
 	for i := range txs {
