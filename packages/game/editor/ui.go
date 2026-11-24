@@ -10,7 +10,7 @@ import (
 
 // EditorView returns the root NSGo UI node for ed, composing:
 //   - Top toolbar (scene title, tool selector, Undo/Redo, Play/Stop, Save)
-//   - Left Asset Browser panel
+//   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
 //   - Right Property Inspector panel
 //   - The library panel, when Editor.Library is set (LibraryView)
@@ -62,9 +62,20 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	}
 }
 
-// mainRow is the editor's middle row: the asset browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
+// mainRow is the editor's middle row: the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
 func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	row := []core.Node{AssetBrowserView(cx, ed, rev)}
+	row := []core.Node{core.View{
+		TestID: "editor-left",
+		Style:  core.Style{Width: core.Pt(224)},
+		Children: []core.Node{
+			// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
+			core.View{
+				Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
+				Children: []core.Node{AssetBrowserView(cx, ed, rev)},
+			},
+			FilesView(cx, ed, rev),
+		},
+	}}
 	if ed.Library != nil {
 		row = append(row, LibraryView(cx, ed, rev))
 	}

@@ -1,8 +1,11 @@
 package editor
 
 import (
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -10,7 +13,9 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// MoveFile moves or renames the file or directory from to to, both slash-separated paths from the root of the open project (the directory of ProjectPath), and rewrites every reference to what it moves across the project, as refs.PlanMove plans and `game mv` does: in the scenes, resource files, game.yaml, Tiled and LDtk files on disk, and in the open scene, project and clip, which keep their unsaved edits. When the open scene, or the open clip's file, is among the files moved, FilePath, ScenePath and ClipPath follow it. The move cannot be undone in the editor, so it empties the undo history, whose steps hold the old paths. It refuses while playing (ErrPlaying) or without a project (ErrNoProject), and changes nothing when the plan fails.
+// MoveFile moves or renames the file or directory from to to, both slash-separated paths from the root of the open project (the directory of ProjectPath), and rewrites every reference to what it moves across the project, as refs.PlanMove plans and `game mv` does: in the scenes, resource files, game.yaml, Tiled and LDtk files on disk, and in the open scene, project and clip, which keep their unsaved edits. When the open scene, or the open clip's file, is among the files moved, FilePath, ScenePath and ClipPath follow it.
+//
+// The move is one undoable step: Undo moves the files back, rewriting the references again as a move from to to from does, and removes the directories the move created when they are empty; Redo moves them once more. The uids and the project index the move wrote stay, since they describe the files wherever they are. A step that something on disk now blocks, such as a new file where the move would put one, fails and stays where it was, and the status bar says why. MoveFile refuses while playing (ErrPlaying) or without a project (ErrNoProject), and changes nothing when the plan fails.
 func (e *Editor) MoveFile(from, to string) error {
 	if e.playing {
 		return ErrPlaying
@@ -18,7 +23,55 @@ func (e *Editor) MoveFile(from, to string) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
-	root := filepath.Dir(e.ProjectPath)
+	return e.History.execute(&moveFileCmd{ed: e, from: from, to: to, root: filepath.Dir(e.ProjectPath)})
+}
+
+// moveFileCmd moves from to to in the project at root, and back.
+type moveFileCmd struct {
+	ed       *Editor
+	from, to string
+	root     string
+	// made are the directories the last do created to move into, outermost first.
+	made []string
+}
+
+func (c *moveFileCmd) Label() string { return "Move " + c.from + " to " + c.to }
+
+func (c *moveFileCmd) Do() { c.ed.report(c.do()) }
+
+func (c *moveFileCmd) Undo() { c.ed.report(c.undo()) }
+
+func (c *moveFileCmd) do() error {
+	var made []string
+	for d := path.Dir(c.to); d != "." && d != "/"; d = path.Dir(d) {
+		if _, err := os.Lstat(filepath.Join(c.root, filepath.FromSlash(d))); err == nil {
+			break
+		}
+		made = append(made, d)
+	}
+	slices.Reverse(made)
+	if err := c.ed.moveFiles(c.root, c.from, c.to); err != nil {
+		return err
+	}
+	c.made = made
+	return nil
+}
+
+func (c *moveFileCmd) undo() error {
+	if err := c.ed.moveFiles(c.root, c.to, c.from); err != nil {
+		return err
+	}
+	// Directories the move created go again when the move back left them empty; one that now holds other files stays, and its removal fails harmlessly.
+	for i := len(c.made) - 1; i >= 0; i-- {
+		if err := os.Remove(filepath.Join(c.root, filepath.FromSlash(c.made[i]))); err != nil {
+			break
+		}
+	}
+	return nil
+}
+
+// moveFiles applies refs.PlanMove's plan to move from to to in the project at root, and moves the paths the editor holds with it.
+func (e *Editor) moveFiles(root, from, to string) error {
 	plan, err := refs.PlanMove(os.DirFS(root), from, to)
 	if err != nil {
 		return err
@@ -65,11 +118,43 @@ func (e *Editor) MoveFile(from, to string) error {
 	moveFile(&e.FilePath)
 	movePath(&e.ScenePath)
 	moveFile(&e.clipMeta.path)
-
+	e.filesRev++
 	e.Status = "Moved " + from + " to " + to
-	// Clear rebuilds the scene and notifies listeners.
-	e.History.Clear()
 	return nil
+}
+
+// ProjectFile is a file or directory of the open project, as the file browser lists it.
+type ProjectFile struct {
+	// Path is the slash-separated path from the project root.
+	Path string
+	// Dir reports whether Path is a directory.
+	Dir bool
+}
+
+// ProjectFiles lists the files and directories of the open project, the directory of ProjectPath, in the order fs.WalkDir visits them: by name, each directory followed by what it holds. It leaves out the files and directories whose names start with "." or "_" and the directories named testdata, as refs.Scan does. It returns ErrNoProject without a project.
+func (e *Editor) ProjectFiles() ([]ProjectFile, error) {
+	if e.Project == nil || e.ProjectPath == "" {
+		return nil, ErrNoProject
+	}
+	var out []ProjectFile
+	err := fs.WalkDir(os.DirFS(filepath.Dir(e.ProjectPath)), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == "." {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || (d.IsDir() && name == "testdata") {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		out = append(out, ProjectFile{Path: p, Dir: d.IsDir()})
+		return nil
+	})
+	return out, err
 }
 
 // moveProjectPaths applies move to every path f holds to a file or folder of the project: the autoload entries and the assets section's targets, as refs rewrites them on disk.

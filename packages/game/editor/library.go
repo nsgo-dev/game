@@ -78,6 +78,7 @@ func (e *Editor) applyPackChange(dir string, c *library.Change, done string) err
 		return errors.Join(err, undo())
 	}
 	e.History.Clear()
+	e.filesRev++
 	e.dropStalePluginTool()
 	e.Status = done
 	if missing := e.MissingPlugins(); len(missing) > 0 {

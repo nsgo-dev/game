@@ -45,6 +45,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
+	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
 	e.Status = "Opened project " + path
