@@ -159,6 +159,9 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"negative depth":        {"version: 1\nlayers: [{name: a, objects: [{id: o, depth: -1}]}]\n", "/layers/0/objects/0/depth: -1 is less than the minimum 0"},
 		"string for number":     {"version: 1\nvirtualWidth: wide\n", `/virtualWidth: want number, got the string "wide"`},
 		"fractional tile size":  {"version: 1\ntilemaps: {t: {tileWidth: 1.5}}\n", "/tilemaps/t/tileWidth: want integer, got the number 1.5"},
+		"order overflows int":   {"version: 1\nlayers: [{name: a, order: 1e20}]\n", "/layers/0/order: 100000000000000000000 is greater than the maximum 9223372036854776000"},
+		"tile overflows int":    {"version: 1\ntilemaps: {t: {data: [1e20]}}\n", "/tilemaps/t/data/0: 100000000000000000000 is greater than the maximum"},
+		"x overflows float32":   {"version: 1\nlayers: [{name: a, objects: [{id: o, x: 1e39}]}]\n", "/layers/0/objects/0/x: 1e+39 is greater than the maximum 3.4028234663852886e+38"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -174,6 +177,17 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 				t.Fatalf("issues %q do not include %q", verr.Issues, tc.issue)
 			}
 		})
+	}
+}
+
+// TestSceneSchemaRefusesRepeatedKeys checks that ValidateYAML refuses a key written twice in one mapping, as Parse and a language server do, rather than letting the later one win.
+func TestSceneSchemaRefusesRepeatedKeys(t *testing.T) {
+	data := []byte("version: 1\nname: a\nname: b\n")
+	if _, err := sceneformat.Parse(data); err == nil {
+		t.Fatal("Parse accepted a repeated key")
+	}
+	if err := sceneSchema(t).ValidateYAML(data); err == nil || !strings.Contains(err.Error(), `line 3: mapping key "name" already defined`) {
+		t.Fatalf("ValidateYAML = %v", err)
 	}
 }
 

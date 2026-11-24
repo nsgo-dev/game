@@ -90,7 +90,8 @@ func TestReflectMarshal(t *testing.T) {
     },
     "count": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 255
     },
     "scale": {
       "type": "number",
@@ -118,7 +119,9 @@ func TestReflectMarshal(t *testing.T) {
     "byName": {
       "type": "object",
       "additionalProperties": {
-        "type": "integer"
+        "type": "integer",
+        "minimum": -9223372036854776000,
+        "maximum": 9223372036854776000
       }
     },
     "extra": {
@@ -170,6 +173,43 @@ func TestReflectMarshal(t *testing.T) {
 	var parsed map[string]any
 	if err := json.Unmarshal(got, &parsed); err != nil {
 		t.Fatalf("Marshal output is not JSON: %v", err)
+	}
+}
+
+type Sized struct {
+	Small  int8    `yaml:"small"`
+	Count  uint32  `yaml:"count"`
+	Order  int     `yaml:"order"`
+	Weight float32 `yaml:"weight"`
+	Exact  float64 `yaml:"exact"`
+	Level  int16   `yaml:"level" schema:"minimum=1"`
+}
+
+// TestReflectSizedNumbers checks that a number field is bounded by what its Go type holds, so the schema refuses a value its loader would overflow, and that a schema tag's bound replaces the type's.
+func TestReflectSizedNumbers(t *testing.T) {
+	s := mustReflect(t, Sized{}, jsonschema.Options{})
+	if err := s.ValidateYAML([]byte("small: -128\ncount: 4294967295\norder: -9000000000000000000\nweight: 3.4e38\nexact: 1e300\nlevel: 32767\n")); err != nil {
+		t.Fatalf("values in range: %v", err)
+	}
+	err := s.ValidateYAML([]byte("small: 128\ncount: 4294967296\norder: 1e20\nweight: -1e39\nlevel: 0\n"))
+	var verr *jsonschema.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("ValidateYAML = %v, want a *ValidationError", err)
+	}
+	want := []string{
+		"/count: 4294967296 is greater than the maximum 4294967295",
+		"/level: 0 is less than the minimum 1",
+		"/order: 100000000000000000000 is greater than the maximum 9223372036854776000",
+		"/small: 128 is greater than the maximum 127",
+		"/weight: -1e+39 is less than the minimum -3.4028234663852886e+38",
+	}
+	if len(verr.Issues) != len(want) {
+		t.Fatalf("issues = %q, want %q", verr.Issues, want)
+	}
+	for i, issue := range verr.Issues {
+		if issue.String() != want[i] {
+			t.Fatalf("issue %d = %q, want %q", i, issue.String(), want[i])
+		}
 	}
 }
 
@@ -260,6 +300,7 @@ func TestValidate(t *testing.T) {
 		{name: "integral float is an integer", yaml: "version: 2.0\n"},
 		{name: "enum", yaml: "version: 2\nmode: medium\n", want: []string{`/mode: "medium" is not one of "fast", "slow"`}},
 		{name: "bounds", yaml: "version: 2\nratio: -1\ncount: -2\nscale: 10\n", want: []string{"/count: -2 is less than the minimum 0", "/ratio: -1 is less than the minimum 0", "/scale: 10 is not less than 10"}},
+		{name: "bounds of the Go type", yaml: "version: 2\ncount: 256\n", want: []string{"/count: 256 is greater than the maximum 255"}},
 		{name: "exclusive minimum", yaml: "version: 2\nscale: 0\n", want: []string{"/scale: 0 is not greater than 0"}},
 		{name: "not finite", yaml: "version: 2\nscale: .inf\n", want: []string{"/scale: want number, got +Inf, which is not a finite number"}},
 		{name: "min items", yaml: "version: 2\ntags: []\n", want: []string{"/tags: array has 0 items, want at least 1"}},
@@ -351,6 +392,9 @@ func TestValidateYAMLForms(t *testing.T) {
 	}
 	if err := s.ValidateYAML([]byte("version: [\n")); err == nil || errors.As(err, new(*jsonschema.ValidationError)) {
 		t.Fatalf("bad YAML: %v", err)
+	}
+	if err := s.ValidateYAML([]byte("version: 2\nroot:\n  name: a\n  name: b\n")); err == nil || errors.As(err, new(*jsonschema.ValidationError)) || !strings.Contains(err.Error(), `line 4: mapping key "name" already defined`) {
+		t.Fatalf("a repeated key: %v", err)
 	}
 	if v, err := jsonschema.DecodeYAML(nil); v != nil || err != nil {
 		t.Fatalf("DecodeYAML(nil) = %v, %v", v, err)

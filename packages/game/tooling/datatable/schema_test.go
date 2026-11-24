@@ -24,8 +24,15 @@ func TestSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Schema: %v", err)
 	}
-	if s.ID != "https://example.com/enemies.json" || len(s.Types) != 1 || s.Types[0] != jsonschema.TypeArray || s.Items.Ref != "#/definitions/Enemy" {
+	if s.ID != "https://example.com/enemies.json" || len(s.Types) != 1 || s.Types[0] != jsonschema.TypeObject || len(s.Required) != 1 || s.Required[0] != "version" {
 		t.Fatalf("root = %+v", s)
+	}
+	if v := s.Property("version"); v == nil || v.Const != datatable.FormatVersion {
+		t.Fatalf("version = %+v", v)
+	}
+	rowsSchema := s.Property("rows")
+	if rowsSchema == nil || len(rowsSchema.Types) != 2 || rowsSchema.Types[0] != jsonschema.TypeArray || rowsSchema.Types[1] != jsonschema.TypeNull || rowsSchema.Items.Ref != "#/definitions/Enemy" {
+		t.Fatalf("rows = %+v", rowsSchema)
 	}
 	row := s.Definitions["Enemy"]
 	var names []string
@@ -42,19 +49,64 @@ func TestSchema(t *testing.T) {
 		t.Fatalf("cooldown types = %v, want string or integer", got)
 	}
 
-	// The YAML table the loader tests read is in the canonical form, so the schema accepts it.
-	table := "- enemy_id: goblin\n  display_name: Cave Goblin\n  hp: 45\n  armor: 2\n  move_speed: 3.5\n  is_boss: false\n  tags: [melee]\n  drop_ids: [101]\n  cooldown: 500ms\n- enemy_id: dragon\n  cooldown: 2000000000\n"
-	if _, err := datatable.LoadYAML[Enemy]("enemies.yaml", []byte(table)); err != nil {
+	// The table MarshalYAML writes is in the canonical form, so the schema accepts it.
+	table, err := datatable.MarshalYAML(wantEnemies())
+	if err != nil {
+		t.Fatalf("MarshalYAML: %v", err)
+	}
+	if err := s.ValidateYAML(table); err != nil {
+		t.Fatalf("ValidateYAML of a canonical table:\n%s\n%v", table, err)
+	}
+	hand := "version: 1\nrows:\n  - enemy_id: goblin\n    cooldown: 500ms\n  - enemy_id: dragon\n    cooldown: 2000000000\n"
+	if _, err := datatable.LoadYAML[Enemy]("enemies.yaml", []byte(hand)); err != nil {
 		t.Fatalf("LoadYAML: %v", err)
 	}
-	if err := s.ValidateYAML([]byte(table)); err != nil {
-		t.Fatalf("ValidateYAML of a canonical table: %v", err)
+	if err := s.ValidateYAML([]byte(hand)); err != nil {
+		t.Fatalf("ValidateYAML: %v", err)
 	}
-	// A misspelt column loads silently as zero; the schema points at it.
-	err = s.ValidateYAML([]byte("- enemy_id: goblin\n  hp_max: 45\n  armor: -1\n"))
+	// A misspelt column or an out-of-range cell is flagged where it is written.
+	err = s.ValidateYAML([]byte("version: 1\nrows:\n  - enemy_id: goblin\n    hp_max: 45\n    armor: -1\n"))
 	var verr *jsonschema.ValidationError
-	if !errors.As(err, &verr) || len(verr.Issues) != 2 || verr.Issues[0].Path != "/0/armor" || verr.Issues[1].Path != "/0/hp_max" {
+	if !errors.As(err, &verr) || len(verr.Issues) != 2 || verr.Issues[0].Path != "/rows/0/armor" || verr.Issues[1].Path != "/rows/0/hp_max" {
 		t.Fatalf("ValidateYAML of a misspelt table = %v", err)
+	}
+	// LoadYAML reads a missing or null rows key as a table with no rows, so the schema accepts both.
+	for _, empty := range []string{"version: 1\n", "version: 1\nrows:\n", "version: 1\nrows: []\n"} {
+		if rows, err := datatable.LoadYAML[Enemy]("enemies.yaml", []byte(empty)); err != nil || len(rows) != 0 {
+			t.Fatalf("LoadYAML(%q) = %v, %v", empty, rows, err)
+		}
+		if err := s.ValidateYAML([]byte(empty)); err != nil {
+			t.Fatalf("ValidateYAML(%q): %v", empty, err)
+		}
+	}
+	// What LoadYAML refuses at the top level, the schema refuses too.
+	for _, bad := range []string{"", "- enemy_id: goblin\n", "rows: []\n", "version: 2\nrows: []\n", "version: 1\nrows: []\nextra: 1\n"} {
+		if _, err := datatable.LoadYAML[Enemy]("enemies.yaml", []byte(bad)); err == nil {
+			t.Fatalf("LoadYAML(%q) succeeded", bad)
+		}
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("ValidateYAML(%q) succeeded", bad)
+		}
+	}
+}
+
+type Base struct {
+	ID string `table:"id"`
+}
+
+type Shadowed struct {
+	Base
+	ID   string `table:"id"`
+	Note string `table:"note"`
+}
+
+func TestSchemaRefusesSharedColumns(t *testing.T) {
+	// LoadYAML refuses a row type in which two fields share a column, and so does Schema.
+	if _, err := datatable.LoadYAML[Shadowed]("t.yaml", []byte("version: 1\nrows: []\n")); err == nil {
+		t.Fatal("LoadYAML of a type with a shared column succeeded")
+	}
+	if _, err := datatable.Schema[Shadowed](jsonschema.Options{}); err == nil {
+		t.Fatal("Schema of a type with a shared column succeeded")
 	}
 }
 
@@ -63,10 +115,10 @@ func TestSchemaEmbeddedAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Schema: %v", err)
 	}
-	if err := s.Validate([]any{map[string]any{"id": "a", "speed": 1.5, "rank": 2}}); err != nil {
+	if err := s.Validate(map[string]any{"version": 1, "rows": []any{map[string]any{"id": "a", "speed": 1.5, "rank": 2}}}); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if err := s.Validate([]any{map[string]any{"speed": 1}}); err == nil {
+	if err := s.Validate(map[string]any{"version": 1, "rows": []any{map[string]any{"speed": 1}}}); err == nil {
 		t.Fatal("a row without its required id validated")
 	}
 	if _, err := datatable.Schema[int](jsonschema.Options{}); err == nil {

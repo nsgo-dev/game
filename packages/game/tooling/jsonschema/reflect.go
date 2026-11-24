@@ -3,6 +3,7 @@ package jsonschema
 import (
 	"encoding"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -34,6 +35,8 @@ type Options struct {
 	Types map[reflect.Type]*Schema
 	// AllowUnknown leaves additionalProperties unset on struct schemas, for loaders that ignore keys they do not know; by default unknown keys are refused, as a decoder with KnownFields(true) does.
 	AllowUnknown bool
+	// FirstFieldWins keeps the first field written under a key and leaves out later ones, for loaders that bind each key to the first field claiming it, such as datatable's CSV and JSON loaders; by default two fields under one key are an error.
+	FirstFieldWins bool
 }
 
 // YAMLField maps a struct field the way go.yaml.in/yaml/v3 does: the first part of its `yaml` tag names it, "-" skips it, ",inline" merges it, and an untagged field is named by its Go name in lower case.
@@ -64,7 +67,7 @@ func YAMLField(f reflect.StructField) Field {
 //   - a pointer is the schema of what it points to;
 //   - a slice or array is an array of its elements' schema;
 //   - a map with string keys is an object whose values all have the map's element schema;
-//   - strings, booleans, integers (unsigned ones with minimum 0) and floats map to their JSON types, and an interface accepts any value.
+//   - strings, booleans, integers and floats map to their JSON types, integers and float32 bounded by the range their Go type holds, and an interface accepts any value.
 //
 // A field's `schema` struct tag adds what its Go type cannot say, as comma-separated entries: required, const=V, enum=A|B|C, minimum=N, maximum=N, exclusiveMinimum=N, exclusiveMaximum=N, minLength=N and minItems=N, where const and enum values are read as the field's type. Channels, functions, complex numbers and maps with keys other than strings are refused.
 func Reflect(t reflect.Type, opts Options) (*Schema, error) {
@@ -130,12 +133,15 @@ func (r *reflector) schema(t reflect.Type) (*Schema, error) {
 		return r.schema(t.Elem())
 	case reflect.Bool:
 		return &Schema{Types: []Type{TypeBoolean}}, nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return &Schema{Types: []Type{TypeInteger}}, nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		zero := 0.0
-		return &Schema{Types: []Type{TypeInteger}, Minimum: &zero}, nil
-	case reflect.Float32, reflect.Float64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		lo, hi := intRange(t.Kind())
+		return &Schema{Types: []Type{TypeInteger}, Minimum: &lo, Maximum: &hi}, nil
+	case reflect.Float32:
+		// yaml.v3 stores a value beyond float32's range as an infinity, which a loader checking for finite numbers then refuses.
+		lo, hi := -float64(math.MaxFloat32), float64(math.MaxFloat32)
+		return &Schema{Types: []Type{TypeNumber}, Minimum: &lo, Maximum: &hi}, nil
+	case reflect.Float64:
 		return &Schema{Types: []Type{TypeNumber}}, nil
 	case reflect.String:
 		return &Schema{Types: []Type{TypeString}}, nil
@@ -160,6 +166,28 @@ func (r *reflector) schema(t reflect.Type) (*Schema, error) {
 		return r.structRef(t)
 	default:
 		return nil, fmt.Errorf("jsonschema: type %v (%v) has no JSON form", t, t.Kind())
+	}
+}
+
+// intRange returns the bounds of an integer kind, so a schema refuses a value its loader cannot store. int, uint and uintptr take their 64-bit bounds, so a schema is the same whichever platform generates it. The bounds are float64, so the 64-bit ones round to 2^63 and 2^64, written 9223372036854776000 and 18446744073709552000.
+func intRange(k reflect.Kind) (lo, hi float64) {
+	switch k {
+	case reflect.Int8:
+		return math.MinInt8, math.MaxInt8
+	case reflect.Int16:
+		return math.MinInt16, math.MaxInt16
+	case reflect.Int32:
+		return math.MinInt32, math.MaxInt32
+	case reflect.Int, reflect.Int64:
+		return math.MinInt64, math.MaxInt64
+	case reflect.Uint8:
+		return 0, math.MaxUint8
+	case reflect.Uint16:
+		return 0, math.MaxUint16
+	case reflect.Uint32:
+		return 0, math.MaxUint32
+	default:
+		return 0, math.MaxUint64
 	}
 }
 
@@ -227,6 +255,9 @@ func (r *reflector) addFields(s *Schema, t reflect.Type, seen map[string]bool) e
 			continue
 		}
 		if seen[info.Name] {
+			if r.opts.FirstFieldWins {
+				continue
+			}
 			return fmt.Errorf("jsonschema: %v has two fields named %q", t, info.Name)
 		}
 		seen[info.Name] = true
@@ -261,6 +292,7 @@ func applyTag(s *Schema, f reflect.StructField) (required bool, err error) {
 		return false, nil
 	}
 	base := deref(f.Type)
+	bounded := false
 	for entry := range strings.SplitSeq(tag, ",") {
 		key, value, hasValue := strings.Cut(strings.TrimSpace(entry), "=")
 		switch key {
@@ -288,6 +320,7 @@ func applyTag(s *Schema, f reflect.StructField) (required bool, err error) {
 			if err != nil {
 				return false, fmt.Errorf("schema tag %s: %w", key, err)
 			}
+			bounded = true
 			switch key {
 			case "minimum":
 				s.Minimum = &n
@@ -311,6 +344,10 @@ func applyTag(s *Schema, f reflect.StructField) (required bool, err error) {
 		default:
 			return false, fmt.Errorf("unknown schema tag entry %q", entry)
 		}
+	}
+	if (s.Const != nil || len(s.Enum) > 0) && !bounded {
+		// The allowed values already lie within the Go type's range, so its bounds would only repeat them.
+		s.Minimum, s.Maximum = nil, nil
 	}
 	return required, nil
 }
