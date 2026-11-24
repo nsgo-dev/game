@@ -79,9 +79,7 @@ type ToneMapOptions struct {
 	// Operator selects the tone mapping curve. The zero value is [ToneMapNone];
 	// use [DefaultToneMapOptions] for the recommended [ToneMapACES] preset.
 	Operator ToneMapOperator
-	// Exposure is the linear exposure multiplier applied before tone mapping.
-	// Non-positive or non-finite values default to 1.0 (0 EV). Compute from
-	// photographic stops with [ExposureFromEV].
+	// Exposure is the linear exposure multiplier applied before tone mapping. Zero renders black, so a fade to black can interpolate it down to 0; negative, NaN and infinite values are treated as 1.0 (0 EV). Compute it from photographic stops with [ExposureFromEV], and start from [DefaultToneMapOptions] so the zero value of this field does not leave the image black.
 	Exposure float32
 	// Gamma selects the display transfer function when LinearOutput is false:
 	// zero (or non-positive / non-finite) applies the exact IEC 61966-2-1
@@ -104,15 +102,12 @@ func DefaultToneMapOptions() ToneMapOptions {
 	}
 }
 
-// Normalized returns a copy of o with invalid or default-valued fields
-// canonicalized identically for CPU and GPU evaluation: non-positive or
-// non-finite Exposure becomes 1.0, negative or non-finite Gamma becomes 0
-// (exact sRGB), and unknown Operator values become [ToneMapNone].
+// Normalized returns a copy of o with invalid fields canonicalized identically for CPU and GPU evaluation: a negative, NaN or infinite Exposure becomes 1.0 (zero stays black), a non-positive or non-finite Gamma becomes 0 (exact sRGB), and unknown Operator values become [ToneMapNone].
 func (o ToneMapOptions) Normalized() ToneMapOptions {
 	if !o.Operator.Valid() {
 		o.Operator = ToneMapNone
 	}
-	if !(o.Exposure > 0) || isInf32(o.Exposure) {
+	if !(o.Exposure >= 0) || isInf32(o.Exposure) {
 		o.Exposure = 1.0
 	}
 	if !(o.Gamma > 0) || isInf32(o.Gamma) {
@@ -121,16 +116,13 @@ func (o ToneMapOptions) Normalized() ToneMapOptions {
 	return o
 }
 
-// ExposureFromEV converts photographic exposure compensation in stops (EV) to
-// a linear exposure multiplier 2^ev (0 -> 1.0, +1 -> 2.0, -1 -> 0.5).
-// NaN returns 1.0; extreme values are clamped to [-126, 126] so the result is
-// always finite and non-negative.
+// ExposureFromEV converts photographic exposure compensation in stops (EV) to a linear exposure multiplier 2^ev (0 -> 1.0, +1 -> 2.0, -1 -> 0.5). NaN returns 1.0, and ev is clamped to [-126, 126] (including the infinities), so the result is always finite and positive; set [ToneMapOptions].Exposure to 0 for black.
 func ExposureFromEV(ev float32) float32 {
 	if isNaN32(ev) {
 		return 1.0
 	}
 	if ev < -126 {
-		return 0
+		return float32(math.Exp2(-126))
 	}
 	if ev > 126 {
 		return float32(math.Exp2(126))
@@ -184,14 +176,16 @@ func ApplyToneMap(rgb math3d.Vec3, opts ToneMapOptions) math3d.Vec3 {
 	return LinearToSRGB(mapped)
 }
 
+// maxHDRChannel is the largest finite half-float value; [ToneMapWGSL] and [ApplyToneMap] clamp exposed radiance to it so overflowed RGBA16Float highlights and extreme exposures stay finite.
+const maxHDRChannel = 65504
+
+// sanitizeHDRChannel mirrors sanitize_hdr in [ToneMapWGSL]: it scales v by exposure, maps NaN and negative results (including +Inf * 0) to 0, and clamps the rest to [maxHDRChannel].
 func sanitizeHDRChannel(v, exposure float32) float32 {
-	if !(v > 0) {
+	x := v * exposure
+	if !(x > 0) {
 		return 0
 	}
-	if isInf32(v) {
-		return float32(math.Inf(1))
-	}
-	return v * exposure
+	return min(x, maxHDRChannel)
 }
 
 func safePow01(v float32, p float64) float32 {
@@ -291,14 +285,12 @@ func toneMapAgXCPU(c math3d.Vec3) math3d.Vec3 {
 		agxMinLin = 0.0001757761
 		agxMaxLin = 16.291573
 	)
+	// Inputs arrive from sanitizeHDRChannel, finite in [0, maxHDRChannel]; the inset matrix mixes channels before the log encoding clamps, as tonemap_agx does on the GPU.
 	clampLin := func(v float32) float64 {
 		if !(v > 0) {
 			return 0
 		}
-		if isInf32(v) || float64(v) > agxMaxLin*2 {
-			return agxMaxLin * 2
-		}
-		return float64(v)
+		return float64(min(v, maxHDRChannel))
 	}
 	r, g, b := clampLin(c.X), clampLin(c.Y), clampLin(c.Z)
 	// AgX inset matrix (linear Rec.709/sRGB -> AgX working space).
@@ -548,10 +540,19 @@ fn tonemap_agx(c: vec3<f32>) -> vec3<f32> {
 	);
 }
 
+// sanitize_hdr maps NaN and non-positive values to 0 and clamps the rest to the largest finite half float, so overflowed RGBA16Float highlights (+Inf) and extreme exposures never reach the operators as Inf or NaN. It tests NaN with a strict comparison, which is false for NaN under IEEE 754, instead of relying on how max and min treat NaN; NSGo v0.3.0's software VM also treats NaN as equal to every value, so >= and <= would let it through there.
+fn sanitize_hdr(x: f32) -> f32 {
+	if (x > 0.0) {
+		return min(x, 65504.0);
+	}
+	return 0.0;
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 	let src = textureSample(hdr_tex, hdr_samp, in.uv);
-	let exposed = max(src.xyz * params.exposure, vec3<f32>(0.0, 0.0, 0.0));
+	let raw = src.xyz * params.exposure;
+	let exposed = vec3<f32>(sanitize_hdr(raw.x), sanitize_hdr(raw.y), sanitize_hdr(raw.z));
 	var mapped: vec3<f32>;
 	if (params.operator_id < 0.5) {
 		mapped = clamp(exposed, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
