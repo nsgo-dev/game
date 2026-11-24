@@ -21,7 +21,7 @@ go tool game help
 | `audio` | 对 WAV 文件做归一化、重采样，并转换为 WAV、AAC 或 MP3 |
 | `manifest` | 从资源目录生成带类型的 Go 资源清单，缺少资源时构建失败 |
 | `tex` | 把 PNG 或 JPEG 纹理编码为 BC1、BC3、ETC2 或 RGBA8 格式的 KTX2 容器，可选生成 mipmap |
-| `editor` | 在场景编辑器中打开一个 YAML 场景，未指定时打开演示场景 |
+| `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开演示场景 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。
@@ -66,6 +66,7 @@ go tool game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.p
 
 ```sh
 go tool game editor scenes/level1.yaml
+go tool game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。场景格式见[编辑器与场景格式](editor.md)。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。场景格式见[编辑器与场景格式](editor.md)。
