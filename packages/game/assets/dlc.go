@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
@@ -87,7 +88,7 @@ type PackManifest struct {
 // ParsePackManifest decodes a JSON pack manifest containing either a
 // PackManifest object ({"packs": [...]}) or a bare JSON array of PackSpec.
 //
-// A field the manifest does not define, such as a misspelt "sha265", is refused rather than ignored, as are bytes after the manifest, so a typo cannot silently drop a check (#546).
+// A field the manifest does not define, such as a misspelt "sha265", is refused rather than ignored, as are a key given twice in one object and bytes after the manifest, so a typo cannot silently drop a check and a reader cannot be shown one value while another is used (#546).
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func ParsePackManifest(data []byte) ([]PackSpec, error) {
@@ -111,16 +112,89 @@ func ParsePackManifest(data []byte) ([]PackSpec, error) {
 	return manifest.Packs, nil
 }
 
-// decodeStrictJSON decodes the one JSON value in data into v, refusing unknown fields and anything after the value.
+// decodeStrictJSON decodes the one JSON value in data into v, refusing unknown fields, a key given twice in one object and anything after the value.
 func decodeStrictJSON(data []byte, v any) error {
 	// json.Unmarshal reports bytes after the value as a located syntax error, which a Decoder would leave unread.
 	var raw json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	if err := refuseDuplicateKeys(data); err != nil {
+		return err
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
+}
+
+// refuseDuplicateKeys reports the first key that appears twice in one object of data, which must be valid JSON. encoding/json keeps the last of duplicate keys and matches keys to fields without regard to case, so keys are compared as it matches them.
+func refuseDuplicateKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	var value func() error
+	value = func() error {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return nil
+		}
+		var seen map[string]bool
+		if delim == '{' {
+			seen = map[string]bool{}
+		}
+		for dec.More() {
+			if seen != nil {
+				start := dec.InputOffset()
+				keyTok, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				key, _ := keyTok.(string)
+				folded := foldJSONKey(key)
+				if seen[folded] {
+					line, column := jsonKeyPosition(data, start)
+					return &loaderr.Error{Line: line, Column: column, Problem: fmt.Sprintf("key %q appears more than once in one object", key), Fix: "give each key once; JSON keeps only the last value of a repeated key"}
+				}
+				seen[folded] = true
+			}
+			if err := value(); err != nil {
+				return err
+			}
+		}
+		_, err = dec.Token() // the closing delimiter
+		return err
+	}
+	return value()
+}
+
+// foldJSONKey maps key to one spelling per class of keys that encoding/json matches to the same field: each rune becomes the smallest rune of its simple case-folding orbit.
+func foldJSONKey(key string) string {
+	return strings.Map(func(r rune) rune {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		return least
+	}, key)
+}
+
+// jsonKeyPosition returns the 1-based line and column of the key that starts after offset in data, skipping the separator and white space before it.
+func jsonKeyPosition(data []byte, offset int64) (line, column int) {
+	i := int(min(offset, int64(len(data))))
+	for i < len(data) && strings.IndexByte(", \t\r\n", data[i]) >= 0 {
+		i++
+	}
+	line, column = 1, 1
+	for _, b := range data[:i] {
+		if b == '\n' {
+			line, column = line+1, 1
+		} else {
+			column++
+		}
+	}
+	return line, column
 }
 
 // Compatible reports whether appBuild falls within the pack's inclusive
@@ -741,17 +815,12 @@ func (d *DLCManager) checkSpec(spec PackSpec) error {
 	return nil
 }
 
-// Fetch ensures spec is compatible with AppBuild, checks and re-verifies any
-// cached pack, downloads missing or resumed bytes via HTTP Range requests into
-// a .part staging entry, strictly verifies size, SHA-256, Ed25519 signature,
-// and ZIP structure, commits atomically to the cache, and returns the mounted
-// ZIP archive as an fs.FS.
+// Fetch ensures spec is compatible with AppBuild, checks and re-verifies any cached pack, downloads missing or resumed bytes via HTTP Range requests into a .part staging entry, strictly verifies size, SHA-256, Ed25519 signature, and ZIP structure, commits atomically to the cache, and returns the mounted ZIP archive as an fs.FS.
 //
 // The returned fs.FS also implements io.Closer and fs.ReadFileFS. It reads through the one cache reader it was verified on, and each file as it decompresses, bounded by PackLimits. Close it when the pack is no longer used: that releases the cache entry for Remove; one that is never closed is released when it is garbage collected. FetchGroup closes the pack it mounts when the group is reset or mounted again.
 //
-// On network or context interruption, the .part entry is preserved so a
-// subsequent Fetch resumes via HTTP Range ("bytes=<offset>-"). A spec that could never verify (a missing ID, a negative Size, a malformed SHA256 or Signature) is refused before the cache is touched. A cached pack whose bytes do not match the spec's size or SHA-256, and a download that fails verification, are removed from the cache; a cached pack whose bytes match but whose signature or contents are refused is kept, because downloading it again would fetch the same bytes.
-func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(downloaded, total int64)) (fs.FS, error) {
+// On network or context interruption, the .part entry is preserved so a subsequent Fetch resumes via HTTP Range ("bytes=<offset>-"). A spec that could never verify (a missing ID, a negative Size, a malformed SHA256 or Signature) is refused before the cache is touched. A cached pack whose bytes do not match the spec's size or SHA-256, and a download that fails verification, are removed from the cache; a cached pack whose bytes match but whose signature or contents are refused is kept, because downloading it again would fetch the same bytes.
+func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(downloaded, total int64)) (fsys fs.FS, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -762,6 +831,14 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	key := spec.CacheKey()
 	unlock := d.lockKey(key)
 	defer unlock()
+	// A Remove pending on a mounted pack is held off while this Fetch runs, so the last mount released meanwhile cannot delete the pack this Fetch is opening or has just committed; a Fetch that fails puts it back (#546).
+	if d.takePendingRemove(key) {
+		defer func() {
+			if fsys == nil {
+				d.restorePendingRemove(key)
+			}
+		}()
+	}
 
 	// 1. Check build compatibility upfront before any network or mount work.
 	if !spec.Compatible(d.appBuild) {
@@ -786,6 +863,7 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 		}
 		closeReader(r)
 		if bytesBad {
+			// Bytes that fail this very spec's size or hash are deleted even under a mount, which keeps its open file where the platform allows: keeping them would fail every later Fetch until the mount went.
 			_ = d.cache.Remove(key)
 			_ = d.cache.RemovePart(key)
 		}
@@ -945,9 +1023,7 @@ func (d *DLCManager) FetchGroup(
 			return
 		}
 		g := loader.Group(groupName)
-		// A reused group must forget the previous pack's specs; otherwise its
-		// next load reads the old pack's asset list against the new pack.
-		// Reset also releases the previous pack.
+		// A reused group must forget the previous pack's specs; otherwise its next load reads the old pack's asset list against the new pack. Reset also releases the previous pack.
 		g.Reset()
 		g.SetFS(packFS)
 		g.pack, _ = packFS.(*mountedPack)

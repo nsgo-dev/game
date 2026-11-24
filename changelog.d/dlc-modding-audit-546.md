@@ -4,9 +4,9 @@
 
 ### Changed
 
-- `game/assets`: `ParsePackManifest` refuses fields it does not define and bytes after the manifest, with the line and a fix (#546).
+- `game/assets`: `ParsePackManifest` refuses fields it does not define, keys given twice in one object, and bytes after the manifest, with the line and a fix (#546).
 - `game/assets`: the `fs.FS` that `DLCManager.Fetch` returns is also an `io.Closer`; `Remove` of a pack that is still mounted deletes the cached pack when the last mount is released, by `Close` or by the group `FetchGroup` loaded being reset or mounted again (#546).
-- `game/modding`: `Manager.SetGrant` on a loaded mod takes effect at once, reloading the mod when the grant changes `CapAudio` or `CapStorage` (#546).
+- `game/modding`: `Manager.SetGrant` on a loaded mod takes effect at once, removing the mod's panels when it revokes `CapUI` and reloading the mod when the grant changes `CapAudio` or `CapStorage` (#546).
 
 ### Fixed
 
@@ -18,4 +18,4 @@
 
 ### Security
 
-- `game/modding`: a mod without `CapStorage` can no longer persist data through the `"nsgo"` module's `Storage`, which NSGo exposes in every sandbox: its storage partition gets a one-byte quota (#546).
+- `game/modding`: a mod without `CapStorage` can keep at most one byte through the `"nsgo"` module's `Storage`, which NSGo exposes in every sandbox: its storage partition gets a one-byte quota (#546).

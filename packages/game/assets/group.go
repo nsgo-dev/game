@@ -100,14 +100,13 @@ func newGroup(m *Manager, name string) *Group {
 // Name returns the group's name.
 func (g *Group) Name() string { return g.name }
 
-// SetFS mounts fsys as the primary file system for this group's file-backed
-// assets, such as a downloaded DLC zip archive. When set, asset URIs in this
-// group are read from fsys first and fall back to the Manager's asset reader
-// if a file is not present in fsys.
+// SetFS mounts fsys as the primary file system for this group's file-backed assets, such as a downloaded DLC zip archive. When set, asset URIs in this group are read from fsys first and fall back to the Manager's asset reader if a file is not present in fsys.
 //
-// Replacing the pack DLCManager.FetchGroup mounted on the group releases that pack, as Reset does.
+// Replacing the pack DLCManager.FetchGroup mounted on the group releases that pack, as Reset does; setting that same pack again keeps it.
 func (g *Group) SetFS(fsys fs.FS) *Group {
-	g.releasePack()
+	if g.pack == nil || fsys != fs.FS(g.pack) {
+		g.releasePack()
+	}
 	g.fs = fsys
 	return g
 }
@@ -629,11 +628,7 @@ func (g *Group) failLoad(gen uint64, err error) {
 	}
 }
 
-// Reset drops the group's asset specs and loaded resources, cancels any in-flight
-// load, and leaves the group idle so a new asset set (such as a freshly mounted
-// DLC pack) can be registered into it. It also unmounts the group's file system,
-// releasing a pack DLCManager.FetchGroup mounted. Concurrent mounts of the same
-// group must be serialized by the caller.
+// Reset drops the group's asset specs and loaded resources, cancels any in-flight load, and leaves the group idle so a new asset set (such as a freshly mounted DLC pack) can be registered into it. It also unmounts the group's file system, releasing a pack DLCManager.FetchGroup mounted. Concurrent mounts of the same group must be serialized by the caller.
 func (g *Group) Reset() {
 	if g == nil {
 		return
@@ -648,11 +643,7 @@ func (g *Group) Reset() {
 	}
 }
 
-// Release closes every loaded *audio.Sound in the group (ignoring already-closed
-// sounds), invokes custom release hooks, drops all atlas, image and byte
-// references for GC, cancels any in-flight load, and resets progress to 0 so
-// the group can be loaded again later. It keeps the group's specs and mounted
-// file system, so a DLC pack stays mounted for the next Load.
+// Release closes every loaded *audio.Sound in the group (ignoring already-closed sounds), invokes custom release hooks, drops all atlas, image and byte references for GC, cancels any in-flight load, and resets progress to 0 so the group can be loaded again later. It keeps the group's specs and mounted file system, so a DLC pack stays mounted for the next Load.
 //
 // Keeping decoded atlas images pinned outside NSGo's 64-source canvas cache
 // waits on nsgo-dev/nsgo#1127.

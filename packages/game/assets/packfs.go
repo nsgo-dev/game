@@ -151,7 +151,7 @@ type packMount struct {
 	removePending bool
 }
 
-// unmount releases one mount of key, deleting the cache entry when it was the last one and a Remove is pending.
+// unmount releases one mount of key, deleting the cache entry when it was the last one and a Remove is pending. It runs from Close or a cleanup on any goroutine without key's lock: a Fetch of key takes the pending Remove under mountsMu before it touches the cache (takePendingRemove), so the delete here never races one.
 func (d *DLCManager) unmount(key string) {
 	d.mountsMu.Lock()
 	defer d.mountsMu.Unlock()
@@ -168,6 +168,29 @@ func (d *DLCManager) unmount(key string) {
 		// Nobody is left to report an error to; a failed delete leaves the entry for the next Fetch to verify.
 		_ = d.cache.Remove(key)
 	}
+}
+
+// takePendingRemove clears a Remove pending on key's mounts and reports whether there was one. The caller holds key's lock.
+func (d *DLCManager) takePendingRemove(key string) bool {
+	d.mountsMu.Lock()
+	defer d.mountsMu.Unlock()
+	m := d.mounts[key]
+	if m == nil || !m.removePending {
+		return false
+	}
+	m.removePending = false
+	return true
+}
+
+// restorePendingRemove puts back a Remove that takePendingRemove took: it stays pending while key is mounted, and the cache entry is deleted now when the last mount went meanwhile. The caller holds key's lock.
+func (d *DLCManager) restorePendingRemove(key string) {
+	d.mountsMu.Lock()
+	defer d.mountsMu.Unlock()
+	if m := d.mounts[key]; m != nil {
+		m.removePending = true
+		return
+	}
+	_ = d.cache.Remove(key)
 }
 
 // mounted reports whether a pack of key is mounted.
