@@ -28,10 +28,10 @@ func FlashEffect() Effect {
 
 // flashReference is flashSource on the CPU.
 func flashReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
-	k := clamp01(Float(u, "Amount"))
+	k := saturate(Float(u, "Amount"))
 	color := vector(u, "Color", 3)
 	for i := range 3 {
-		color[i] = clamp01(color[i])
+		color[i] = saturate(color[i])
 	}
 	color[3] = 1
 	c := in.At(x, y)

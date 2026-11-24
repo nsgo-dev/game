@@ -47,18 +47,18 @@ func VignetteEffect() Effect {
 func vignetteReference(in Input, u core.Uniforms, x, y float64) [4]float64 {
 	w, h := in.Size()
 	d := math.Hypot(x-w*0.5, y-h*0.5) / math.Max(math.Hypot(w, h)*0.5, 0.0001)
-	t := clamp01((d - Float(u, "Radius")) / math.Max(Float(u, "Softness"), 0.0001))
-	k := t * t * (3 - 2*t) * clamp01(Float(u, "Strength"))
+	t := saturate((d - Float(u, "Radius")) / math.Max(Float(u, "Softness"), 0.0001))
+	k := t * t * (3 - 2*t) * saturate(Float(u, "Strength"))
 	color := vector(u, "Color", 3)
 	c := in.At(x, y)
 	for i := range 3 {
-		c[i] += (clamp01(color[i])*c[3] - c[i]) * k
+		c[i] += (saturate(color[i])*c[3] - c[i]) * k
 	}
 	return c
 }
 
-// clamp01 is Kage's clamp(v, 0.0, 1.0), with NaN as 0.
-func clamp01(v float64) float64 {
+// saturate is Kage's clamp(v, 0.0, 1.0), with NaN as 0.
+func saturate(v float64) float64 {
 	if !(v > 0) {
 		return 0
 	}
