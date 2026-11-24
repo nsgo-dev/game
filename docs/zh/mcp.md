@@ -112,9 +112,9 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_component_set` | `ref`（必填）、`component`（必填）、`value`（必填）、`replace`（可选，默认 `false`） | 回读自存活实体的更新后组件 `value`；修改会在下一次模拟步进中生效。若写入成功但回读失败，`value` 为 `null`，`read_error` 说明原因，修改依然有效。 |
 | `game_component_remove` | `ref`（必填）、`component`（必填） | 报告指定组件是否存在并已从存活实体移除（`removed`）。 |
 | `game_replay_status` | `{}` | 当前录制与回放状态（`recording`、`replaying`、`replay_done`、`frames_recorded`、`replay_frame`、`replay_total_frames`）、当前录制/回放名称与元数据，以及排序后的 `saved_recordings`。 |
-| `game_replay_record_start` | `name`、`seed`、`step_rate`、`actions`、`axes`、`metadata`、`reset`（均可选） | 通过 `replay.Recorder` 开始按固定步长录制输入，并返回解析后的录制名称、种子、步频、监听列表与元数据。 |
-| `game_replay_record_stop` | `name`（可选）、`save_path`（可选，相对于 `ReplayConfig.SaveDir`） | 停止当前录制，将其保存到内存（并可选写入 `SaveDir` 下的安全相对路径），返回摘要与确定性的 v2 YAML 文本（`yaml`）。 |
-| `game_replay_play` | `name` 或 `yaml`（二选一）、`run_to_end`（默认 `false`）、`steps`、`reset`（配置 `ResetFunc` 时默认 `true`） | 通过 `replay.Player` 开始确定性回放，在回放前调用 `ResetFunc(seed)` 重置状态，并可选通过 `StepFunc`/`Loop.Update` 同步推进全部或指定步数。 |
+| `game_replay_record_start` | `name`、`seed`、`actions`、`axes`、`metadata`、`reset`（均可选；配置了 `ResetFunc` 或种子目标时 `reset` 默认 `true`） | 按 `seed` 重置（见下文），然后通过 `replay.Recorder` 以游戏的固定步频开始逐步录制输入，并返回解析后的录制名称、种子、步频、监听列表与元数据。 |
+| `game_replay_record_stop` | `name`（可选）、`save_path`（可选，相对于 `ReplayConfig.SaveDir`）、`overwrite`（默认 `false`） | 停止当前录制，将其保存到内存（并可选写入 `SaveDir`），返回摘要与确定性的 v2 YAML 文本（`yaml`）。同名的已存录制或已存在的文件会被拒绝（除非 `overwrite: true`），录制继续进行。 |
+| `game_replay_play` | `name` 或 `yaml`（二选一）、`run_to_end`（默认 `false`）、`steps`（`1..3600`）、`reset`（配置了 `ResetFunc` 或种子目标时默认 `true`） | 按录制的种子重置，然后通过 `replay.Player` 开始确定性回放，并可选通过 `StepFunc` 或游戏循环的 `StepNow` 同步推进全部帧（`run_to_end`，录制不超过 `3600` 步）或 `steps` 帧。`rate` 与游戏固定步频不同的录制会被拒绝。 |
 | `game_replay_stop` | `{}` | 安全停止当前正在进行的回放，并报告已回放的帧数。 |
 | `game_replay_list` | `{}` | 按名称排序列出已存储的录制及其 `frames`、`seed`、`step_rate`、`events`、`actions`、`axes` 与 `metadata`。 |
 
@@ -180,9 +180,12 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 })
 ```
 
-- `ReplayController` 实现了 `replay.ActionSource`，游戏逻辑在实时游玩（转发至 `Source`）、录制（`replay.Recorder`）与回放（`replay.Player`）三种模式下完全共用同一套更新循环。
-- 通过 `game_replay_record_stop` 结束的录制会按名称存入内存，并返回标准、确定性的 [`game/replay`](replay.md) v2 YAML 文本。若希望智能体同时通过 `save_path` 落盘，可配置 `ReplayConfig.SaveDir`（绝对路径与 `..` 越界路径都会被拒绝）。
-- `game_replay_play` 支持按已存 `name` 或内联 `yaml` 文本回放，默认调用 `ResetFunc(recording.Seed)` 恢复初始确定性状态，并支持同步跑到结束（`run_to_end: true`）、同步步进（`steps: N`）或随游戏循环逐帧回放。
+- `ReplayController` 实现了 `replay.ActionSource`，游戏逻辑在实时游玩（转发至 `Source`）、录制（`replay.Recorder`）与回放（`replay.Player`）三种模式下完全共用同一套更新循环。`Source` 为必填项。回放期间它仍会被步进，因此恢复实时输入时它的上一步快照是最新的。
+- 录制与回放共用同一个重置：先用种子重新设定桥接器的种子目标（`Config.Random`、`Config.RandomStreams`、`Config.SetSeed`，与 `game_loop_seed` 使用的相同），再调用 `ResetFunc(seed)`。只要有可重置的内容，两个工具的 `reset` 都默认为 `true`，因此在游戏中途以默认参数开始的录制也能回放到相同状态。向 `game_replay_record_start` 传 `reset: false` 会从当前状态开始录制，这样的录制只有从同一状态出发才能复现。
+- 录制的 `rate` 就是游戏的固定步频：桥接器有游戏循环（`Config.Loop` / `Config.LoopFunc`）时取其 `StepRate()`，否则取 `ReplayConfig.StepRate`（默认 `60`）。`game_replay_play` 会拒绝以其他步频录制的录制，因为每一步的 `dt` 都会不同。
+- 通过 `game_replay_record_stop` 结束的录制会按名称存入内存，并返回标准、确定性的 [`game/replay`](replay.md) v2 YAML 文本。若希望智能体同时通过 `save_path` 落盘，可配置 `ReplayConfig.SaveDir`；写入经由 `os.Root` 进行，绝对路径、`..` 与符号链接都无法离开 `SaveDir`。`metadata` 只保存在内存存储中，不属于 YAML，因此保存的文件或内联 `yaml` 回放都不带它。
+- `game_replay_play` 支持按已存 `name` 或内联 `yaml` 文本回放，可同步回放（`run_to_end: true` 或 `steps: N`），也可随游戏循环逐帧回放。未设置 `StepFunc` 时，同步回放通过 `Loop.StepNow` 推进桥接器的游戏循环，因此 `game_loop_status` 会计入回放的步数与游戏时间。与 `game_loop_step` 相同，单次调用最多推进 `MaxLoopSteps`（`3600`）步。
+- 最后一个录制步之后，下一次 `ctrl.Step()` 是一个收尾回放步，会释放录制结束时仍按住的动作（触发一次 `JustReleased`）；再下一步才恢复实时输入并调用 `OnReplayStop`。
 
 ## 稳定的实体引用
 
