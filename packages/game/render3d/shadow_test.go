@@ -23,10 +23,19 @@ const (
 )
 
 var (
-	shadowClearColor   = core.RGB(0x182230)
-	shadowLightDir     = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
-	shadowLightColor   = math3d.Vec3{X: 0.82, Y: 0.80, Z: 0.76}
-	shadowAmbientColor = math3d.Vec3{X: 0.18, Y: 0.20, Z: 0.24}
+	shadowClearColor = core.RGB(0x182230)
+	shadowLightDir   = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
+	// shadowRig lights the shadow scene with the shadowed sun (directional light 0), an unshadowed fill light from the other side (directional light 1), and an ambient term.
+	shadowRig = render3d.LightRig{
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.18, Y: 0.20, Z: 0.24}, Intensity: 1},
+		Directional: []render3d.DirectionalLight{
+			{Direction: shadowLightDir, Color: math3d.Vec3{X: 0.82, Y: 0.80, Z: 0.76}, Intensity: 3.5},
+			{Direction: math3d.Vec3{X: 0.6, Y: -1.0, Z: 0.5}, Color: math3d.Vec3{X: 0.70, Y: 0.72, Z: 0.78}, Intensity: 0.6},
+		},
+	}
+	shadowFloorMat  = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.78, Y: 0.80, Z: 0.82}, Roughness: 0.9}
+	shadowPillarMat = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.88, Y: 0.42, Z: 0.30}, Roughness: 0.6}
+	shadowBlockMat  = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.32, Y: 0.68, Z: 0.88}, Roughness: 0.6}
 )
 
 // shadowFloorMesh returns an indexed horizontal quad on y = 0 spanning [-half, half] in X and Z with +Y normals.
@@ -92,6 +101,41 @@ type shadowTestScene struct {
 	cam         *scene3d.Camera
 }
 
+// drawUniforms returns the per-draw uniforms of the floor, the pillar and the floating block, in draw order.
+func (sc shadowTestScene) drawUniforms() [3]render3d.PBRDrawUniform {
+	return [3]render3d.PBRDrawUniform{
+		render3d.NewPBRDrawUniform(sc.floorModel, shadowFloorMat),
+		render3d.NewPBRDrawUniform(sc.pillarModel, shadowPillarMat),
+		render3d.NewPBRDrawUniform(sc.blockModel, shadowBlockMat),
+	}
+}
+
+// expectedFloor returns the sRGB 8-bit color LitPBRShadowWGSL draws for the floor at wp when the sun's shadow visibility there is vis, from the CPU references ShadePointShadowed and LinearToSRGB.
+func (sc shadowTestScene) expectedFloor(wp math3d.Vec3, vis float32) [3]float64 {
+	e := sc.cam.Eye()
+	eye := math3d.Vec3{X: e.X, Y: e.Y, Z: e.Z}
+	c := render3d.LinearToSRGB(render3d.ShadePointShadowed(wp, math3d.Vec3Up(), eye.Sub(wp), shadowFloorMat, shadowRig, vis))
+	return [3]float64{float64(c.X) * 255, float64(c.Y) * 255, float64(c.Z) * 255}
+}
+
+// shadowDrawBuffers creates the floor, pillar and block draw buffers sharing one bind group layout.
+func shadowDrawBuffers(t *testing.T, cx *core.Scope, dev *gpu.Device, sc shadowTestScene, retained bool) [3]*render3d.PBRDrawBuffer {
+	t.Helper()
+	var draws [3]*render3d.PBRDrawBuffer
+	var layout *gpu.BindGroupLayout
+	for i, u := range sc.drawUniforms() {
+		db, err := render3d.NewPBRDrawBuffer(cx, dev, layout, u, retained)
+		if err != nil {
+			t.Fatalf("NewPBRDrawBuffer[%d]: %v", i, err)
+		}
+		if layout == nil {
+			layout = db.Layout()
+		}
+		draws[i] = db
+	}
+	return draws
+}
+
 func newShadowTestScene(w, h int) shadowTestScene {
 	floorModel := math3d.Mat4Identity()
 	// Tall pillar standing on the floor to the right of center so its shadow stretches across the middle-left floor.
@@ -120,12 +164,10 @@ type shadowSoftwareHarness struct {
 	sr         *gpu.SoftwareRenderer
 	dev        *gpu.Device
 	camBuf     *render3d.CameraBuffer
+	lightBuf   *render3d.GPULightBuffer
+	draws      [3]*render3d.PBRDrawBuffer
 	shadowMap  *render3d.DirectionalShadowMap
 	litPipe    *gpu.Pipeline
-	objLayout  *gpu.BindGroupLayout
-	objBuf     *gpu.Buffer
-	objBG      *gpu.BindGroup
-	objAlign   uint64
 	floorMesh  *render3d.GPUMesh
 	boxMesh    *render3d.GPUMesh
 	scene      shadowTestScene
@@ -137,12 +179,26 @@ func newShadowSoftwareHarness(t *testing.T, res uint32, filter render3d.ShadowFi
 	sr := gpu.NewSoftwareRenderer(shadowRefWidth, shadowRefHeight, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
+	scene := newShadowTestScene(shadowRefWidth, shadowRefHeight)
 
 	camBuf, err := render3d.NewCameraBuffer(nil, dev)
 	if err != nil {
 		t.Fatalf("NewCameraBuffer: %v", err)
 	}
 	t.Cleanup(func() { _ = camBuf.Close() })
+
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, shadowRig, render3d.LightBufferOptions{Label: "shadow-lights"})
+	if err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+
+	draws := shadowDrawBuffers(t, nil, dev, scene, false)
+	t.Cleanup(func() {
+		for _, d := range draws {
+			_ = d.Close()
+		}
+	})
 
 	smOpts := render3d.DefaultShadowMapOptions()
 	smOpts.Resolution = res
@@ -155,51 +211,13 @@ func newShadowSoftwareHarness(t *testing.T, res uint32, filter render3d.ShadowFi
 	}
 	t.Cleanup(func() { _ = sm.Close() })
 
-	objLayout, err := render3d.ShadowLitObjectLayout(nil, dev, true)
-	if err != nil {
-		t.Fatalf("ShadowLitObjectLayout: %v", err)
-	}
-	t.Cleanup(func() { _ = objLayout.Close() })
-
-	align := uint64(dev.Limits().MinUniformBufferAlignment)
-	if align < render3d.ShadowLitObjectUniformSize {
-		align = 256
-	}
-	objBuf, err := dev.CreateBuffer(nil, gpu.BufferDesc{
-		Label: "shadow-lit-objects",
-		Size:  align * 4,
-		Usage: gpu.UsageUniform | gpu.UsageCopyDst,
-	})
-	if err != nil {
-		t.Fatalf("CreateBuffer objects: %v", err)
-	}
-	t.Cleanup(func() { _ = objBuf.Close() })
-
-	objBG, err := dev.CreateBindGroupDesc(nil, gpu.BindGroupDesc{
-		Label:  "shadow-lit-objects",
-		Layout: objLayout,
-		Entries: []gpu.BindGroupEntry{{
-			Binding: 0,
-			Buffer:  objBuf,
-			Size:    render3d.ShadowLitObjectUniformSize,
-		}},
-	})
-	if err != nil {
-		t.Fatalf("CreateBindGroup objects: %v", err)
-	}
-	t.Cleanup(func() { _ = objBG.Close() })
-
-	litPipe, err := render3d.NewShadowLitPipeline(nil, dev, render3d.ShadowLitPipelineOptions{
-		Label:        "shadow-lit",
-		CameraLayout: camBuf.Layout(),
-		ObjectLayout: objLayout,
-		ShadowLayout: sm.Layout(),
+	litPipe, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draws[0].Layout(), render3d.LitPBRPipelineOptions{
 		ColorFormat:  gpu.FormatRGBA8Unorm,
 		DepthFormat:  gpu.FormatDepth24Plus,
-		CullMode:     gpu.CullBack,
+		ShadowLayout: sm.Layout(),
 	})
 	if err != nil {
-		t.Fatalf("NewShadowLitPipeline: %v", err)
+		t.Fatalf("NewLitPBRPipelineWithOptions(ShadowLayout): %v", err)
 	}
 	t.Cleanup(func() { _ = litPipe.Close() })
 
@@ -219,16 +237,26 @@ func newShadowSoftwareHarness(t *testing.T, res uint32, filter render3d.ShadowFi
 		sr:         sr,
 		dev:        dev,
 		camBuf:     camBuf,
+		lightBuf:   lightBuf,
+		draws:      draws,
 		shadowMap:  sm,
 		litPipe:    litPipe,
-		objLayout:  objLayout,
-		objBuf:     objBuf,
-		objBG:      objBG,
-		objAlign:   align,
 		floorMesh:  floorMesh,
 		boxMesh:    boxMesh,
-		scene:      newShadowTestScene(shadowRefWidth, shadowRefHeight),
+		scene:      scene,
 		resolution: res,
+	}
+}
+
+// drawShadowScene records the lit main pass: the floor, the pillar and the floating block with the camera, the lights and the shadow map bound.
+func drawShadowScene(pass *gpu.RenderPass, pipe *gpu.Pipeline, camBuf *render3d.CameraBuffer, lightBuf *render3d.GPULightBuffer, sm *render3d.DirectionalShadowMap, draws [3]*render3d.PBRDrawBuffer, floorMesh, boxMesh *render3d.GPUMesh) {
+	pass.SetPipeline(pipe)
+	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	pass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+	pass.SetBindGroup(render3d.ShadowGroup, sm.BindGroup())
+	for i, mesh := range [3]*render3d.GPUMesh{floorMesh, boxMesh, boxMesh} {
+		pass.SetBindGroup(render3d.PBRDrawGroup, draws[i].BindGroup())
+		mesh.Draw(pass)
 	}
 }
 
@@ -239,18 +267,6 @@ func (h *shadowSoftwareHarness) render(t *testing.T, cfg render3d.DirectionalSha
 		t.Fatalf("UpdateBounds: %v", err)
 	}
 	h.camBuf.WriteCamera(h.scene.cam)
-
-	// Upload per-object uniforms at aligned dynamic offsets.
-	objs := [3]render3d.ShadowLitObjectUniform{
-		render3d.NewShadowLitObjectUniform(h.scene.floorModel, math3d.Vec4{X: 0.78, Y: 0.80, Z: 0.82, W: 1}, shadowLightColor, shadowAmbientColor),
-		render3d.NewShadowLitObjectUniform(h.scene.pillarModel, math3d.Vec4{X: 0.88, Y: 0.42, Z: 0.30, W: 1}, shadowLightColor, shadowAmbientColor),
-		render3d.NewShadowLitObjectUniform(h.scene.blockModel, math3d.Vec4{X: 0.32, Y: 0.68, Z: 0.88, W: 1}, shadowLightColor, shadowAmbientColor),
-	}
-	var scratch [render3d.ShadowLitObjectUniformSize]byte
-	for i, o := range objs {
-		data := render3d.AppendShadowLitObjectUniform(scratch[:0], o)
-		h.dev.WriteBuffer(h.objBuf, uint64(i)*h.objAlign, data)
-	}
 
 	enc := h.dev.BeginEncoder()
 
@@ -281,19 +297,7 @@ func (h *shadowSoftwareHarness) render(t *testing.T, cfg render3d.DirectionalSha
 			ClearDepth:   1.0,
 		},
 	})
-	mPass.SetPipeline(h.litPipe)
-	mPass.SetBindGroup(render3d.CameraGroup, h.camBuf.BindGroup())
-	mPass.SetBindGroup(render3d.ShadowGroup, h.shadowMap.BindGroup())
-
-	mPass.SetBindGroup(1, h.objBG, 0)
-	h.floorMesh.Draw(mPass)
-
-	mPass.SetBindGroup(1, h.objBG, uint32(h.objAlign))
-	h.boxMesh.Draw(mPass)
-
-	mPass.SetBindGroup(1, h.objBG, uint32(2*h.objAlign))
-	h.boxMesh.Draw(mPass)
-
+	drawShadowScene(mPass, h.litPipe, h.camBuf, h.lightBuf, h.shadowMap, h.draws, h.floorMesh, h.boxMesh)
 	mPass.End()
 	h.dev.Submit(enc.Finish())
 	h.sr.WaitIdle()
@@ -345,7 +349,8 @@ func TestDirectionalShadowConfigValidation(t *testing.T) {
 		{"nan direction", func(c *render3d.DirectionalShadowConfig) { c.Direction = math3d.Vec3{X: nan, Y: -1} }},
 		{"inf target", func(c *render3d.DirectionalShadowConfig) { c.Target = math3d.Vec3{Y: inf} }},
 		{"negative ortho", func(c *render3d.DirectionalShadowConfig) { c.OrthoSize = -1 }},
-		{"inverted near far", func(c *render3d.DirectionalShadowConfig) { c.Near, c.Far = 10, 5 }},
+		{"negative depth range", func(c *render3d.DirectionalShadowConfig) { c.DepthRange = -5 }},
+		{"nan depth range", func(c *render3d.DirectionalShadowConfig) { c.DepthRange = nan }},
 		{"non-pow2 resolution", func(c *render3d.DirectionalShadowConfig) { c.Resolution = 300 }},
 		{"too small resolution", func(c *render3d.DirectionalShadowConfig) { c.Resolution = 8 }},
 		{"too large resolution", func(c *render3d.DirectionalShadowConfig) { c.Resolution = 16384 }},
@@ -406,11 +411,30 @@ func TestShadowMapOptionsValidation(t *testing.T) {
 	if _, err := render3d.ShadowBindingLayout(nil, nil); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Fatalf("ShadowBindingLayout(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.ShadowLitObjectLayout(nil, nil, false); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("ShadowLitObjectLayout(nil dev) = %v, want ErrDeviceLost", err)
+	if _, err := render3d.NewLitPBRShadowPipeline(nil, nil, nil, nil, nil, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("NewLitPBRShadowPipeline(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewShadowLitPipeline(nil, nil, render3d.ShadowLitPipelineOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("NewShadowLitPipeline(nil dev) = %v, want ErrDeviceLost", err)
+
+	// The shadow takes bind group 3, which fog, IBL and skinning also use, so the options refuse combining them, and the dedicated constructor needs a shadow layout.
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatDepth24Plus)
+	defer sr.Close()
+	dev := sr.Device()
+	layout, err := render3d.ShadowBindingLayout(nil, dev)
+	if err != nil {
+		t.Fatalf("ShadowBindingLayout: %v", err)
+	}
+	defer func() { _ = layout.Close() }()
+	for name, opts := range map[string]render3d.LitPBRPipelineOptions{
+		"fog":  {ShadowLayout: layout, FogLayout: layout},
+		"ibl":  {ShadowLayout: layout, IBLLayout: layout},
+		"skin": {ShadowLayout: layout, SkinLayout: layout},
+	} {
+		if _, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, layout, layout, layout, opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+			t.Errorf("ShadowLayout with %s = %v, want ErrInvalidDescriptor", name, err)
+		}
+	}
+	if _, err := render3d.NewLitPBRShadowPipeline(nil, dev, layout, layout, layout, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewLitPBRShadowPipeline(nil shadow layout) = %v, want ErrInvalidDescriptor", err)
 	}
 }
 
@@ -532,6 +556,94 @@ func TestDirectionalShadowTexelSnapping(t *testing.T) {
 	}
 }
 
+// TestDirectionalShadowFitBoundsTexelStable moves the fitted bounds, as UpdateBounds does when the framing follows moving casters or the camera, and checks that static world points move by whole texels (zero for a sub-texel move), so shadow edges do not shimmer.
+func TestDirectionalShadowFitBoundsTexelStable(t *testing.T) {
+	const res uint32 = 256
+	cfg := render3d.DefaultDirectionalShadowConfig()
+	cfg.Direction = math3d.Vec3{X: -0.4, Y: -1.0, Z: -0.3}
+	cfg.Resolution = res
+	cfg.TexelSnap = true
+	bounds := math3d.AABB{Min: math3d.Vec3{X: -5.5, Y: -0.2, Z: -5.5}, Max: math3d.Vec3{X: 5.5, Y: 2.8, Z: 5.5}}
+	base, err := cfg.FitBounds(cfg.Direction, bounds)
+	if err != nil {
+		t.Fatalf("FitBounds: %v", err)
+	}
+	statics := []math3d.Vec3{{X: 1.25, Y: 0.5, Z: -0.75}, {X: -3.1, Y: 0, Z: 2.2}, {X: 4.4, Y: 2.1, Z: 4.9}}
+	texelShift := func(a, b math3d.Mat4, p math3d.Vec3) (du, dv float64) {
+		pa, pb := a.TransformPoint(p), b.TransformPoint(p)
+		return float64(pb.X-pa.X) * 0.5 * float64(res), float64(pa.Y-pb.Y) * 0.5 * float64(res)
+	}
+	moves := []struct {
+		name     string
+		delta    math3d.Vec3
+		wantZero bool
+	}{
+		{"sub-texel", math3d.Vec3{X: 0.004, Y: 0.002, Z: -0.003}, true},
+		{"multi-texel", math3d.Vec3{X: 1.37, Y: 0.21, Z: -0.83}, false},
+		{"far", math3d.Vec3{X: -12.9, Y: 3.3, Z: 7.1}, false},
+	}
+	for _, m := range moves {
+		moved := math3d.AABB{Min: bounds.Min.Add(m.delta), Max: bounds.Max.Add(m.delta)}
+		lvp, err := cfg.FitBounds(cfg.Direction, moved)
+		if err != nil {
+			t.Fatalf("%s FitBounds: %v", m.name, err)
+		}
+		for _, p := range statics {
+			du, dv := texelShift(base, lvp, p)
+			if math.Abs(du-math.Round(du)) > 2e-3 || math.Abs(dv-math.Round(dv)) > 2e-3 {
+				t.Errorf("%s: static point %v moved by a fractional number of texels (%v, %v)", m.name, p, du, dv)
+			}
+			if m.wantZero && (math.Round(du) != 0 || math.Round(dv) != 0) {
+				t.Errorf("%s: static point %v moved by (%v, %v) texels, want 0", m.name, p, du, dv)
+			}
+		}
+	}
+
+	// Turning the light keeps the frustum width (the bounding sphere does not depend on the direction), so the texel size, and with it the penumbra width, stays the same.
+	// Row 0 of the matrix is (2/width) times the light basis' unit right vector.
+	width := func(lvp math3d.Mat4) float32 {
+		return 2 / math3d.Vec3{X: lvp[0], Y: lvp[4], Z: lvp[8]}.Len()
+	}
+	turned, err := cfg.FitBounds(math3d.Vec3{X: 0.7, Y: -1.0, Z: 0.2}, bounds)
+	if err != nil {
+		t.Fatalf("turned FitBounds: %v", err)
+	}
+	if w0, w1 := width(base), width(turned); math.Abs(float64(w0-w1)) > 1e-4*float64(w0) {
+		t.Errorf("frustum width changed with light direction: %v -> %v", w0, w1)
+	}
+}
+
+// TestDirectionalShadowLightViewProjDepthRange pins DepthRange: the slab is centred on Target, with Target at depth 0.5 and the slab's faces DepthRange/2 along the light axis at depths 0 and 1.
+func TestDirectionalShadowLightViewProjDepthRange(t *testing.T) {
+	cfg := render3d.DefaultDirectionalShadowConfig()
+	cfg.Direction = math3d.Vec3{X: -0.4, Y: -1.0, Z: -0.3}
+	cfg.Target = math3d.Vec3{X: 2, Y: 1, Z: -3}
+	cfg.DepthRange = 40
+	cfg.TexelSnap = false
+	lvp, err := cfg.LightViewProj()
+	if err != nil {
+		t.Fatalf("LightViewProj: %v", err)
+	}
+	dir := cfg.Direction.Norm()
+	for _, tc := range []struct {
+		along, want float32
+	}{{0, 0.5}, {-20, 0}, {20, 1}, {-10, 0.25}} {
+		p := cfg.Target.Add(dir.Scale(tc.along))
+		if got := lvp.TransformPoint(p).Z; !math3d.ApproxEqual(got, tc.want, 1e-4) {
+			t.Errorf("depth %v along the light from Target = %v, want %v", tc.along, got, tc.want)
+		}
+	}
+	cfg.DepthRange = 0
+	lvp, err = cfg.LightViewProj()
+	if err != nil {
+		t.Fatalf("LightViewProj default: %v", err)
+	}
+	// The default range is max(OrthoSize*2, 100) = 100 for OrthoSize 20.
+	if got := lvp.TransformPoint(cfg.Target.Add(dir.Scale(50))).Z; !math3d.ApproxEqual(got, 1, 1e-4) {
+		t.Errorf("default depth range: point 50 past Target at depth %v, want 1", got)
+	}
+}
+
 func TestShadowUniformsLayoutAndZeroAlloc(t *testing.T) {
 	cfg := render3d.DefaultDirectionalShadowConfig()
 	cfg.Direction = math3d.Vec3{X: 0, Y: -3, Z: -4} // length 5 -> unit (0, -0.6, -0.8) -> to_light (0, 0.6, 0.8)
@@ -571,15 +683,12 @@ func TestShadowUniformsLayoutAndZeroAlloc(t *testing.T) {
 		t.Fatalf("params = (%v, %v, %v, %v, %v)", readF(19), readF(20), readF(21), readF(22), readF(23))
 	}
 
-	// Zero-allocation check for AppendShadowUniforms, Encode, and AppendShadowLitObjectUniform.
+	// Zero-allocation check for AppendShadowUniforms and Encode.
 	buf := make([]byte, 0, render3d.ShadowUniformSize)
 	var encBuf [render3d.ShadowUniformSize]byte
-	objBuf := make([]byte, 0, render3d.ShadowLitObjectUniformSize)
-	obj := render3d.NewShadowLitObjectUniform(math3d.Mat4Identity(), math3d.Vec4{X: 1, Y: 1, Z: 1, W: 1}, shadowLightColor, shadowAmbientColor)
 	allocs := testing.AllocsPerRun(100, func() {
 		buf = render3d.AppendShadowUniforms(buf[:0], u)
 		u.Encode(encBuf[:])
-		objBuf = render3d.AppendShadowLitObjectUniform(objBuf[:0], obj)
 	})
 	if allocs != 0 {
 		t.Fatalf("uniform packing allocated %v times, want 0", allocs)
@@ -595,8 +704,45 @@ func TestShadowUniformsLayoutAndZeroAlloc(t *testing.T) {
 		u.Encode(make([]byte, 0, render3d.ShadowUniformSize))
 	}()
 
+	// Uniforms built by hand skip DirectionalShadowConfig.Validate, so encoding must keep NaN and infinity away from the shader: a broken matrix or strength disables the shadow, and broken biases and texel size become 0.
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for name, bad := range map[string]render3d.ShadowUniforms{
+		"nan strength":   {LightViewProj: lvp, LightDirection: cfg.Direction, Strength: nan, DepthBias: nan, NormalBias: inf, TexelSize: nan},
+		"inf strength":   {LightViewProj: lvp, LightDirection: math3d.Vec3{X: nan}, Strength: inf, DepthBias: -inf, NormalBias: nan, TexelSize: -inf},
+		"nan matrix":     {LightViewProj: math3d.Mat4{nan}, LightDirection: cfg.Direction, Strength: 1},
+		"unknown filter": {LightViewProj: lvp, LightDirection: cfg.Direction, Strength: 1, PCFKernel: 2},
+	} {
+		body := render3d.AppendShadowUniforms(nil, bad)
+		for i := 16; i < 24; i++ {
+			if f := math.Float32frombits(binary.LittleEndian.Uint32(body[i*4:])); !(f == f) || math.IsInf(float64(f), 0) {
+				t.Errorf("%s: encoded float %d = %v, want finite", name, i, f)
+			}
+		}
+		strength := math.Float32frombits(binary.LittleEndian.Uint32(body[19*4:]))
+		filter := math.Float32frombits(binary.LittleEndian.Uint32(body[23*4:]))
+		switch name {
+		case "unknown filter":
+			if strength != 1 || filter != 0 {
+				t.Errorf("%s: strength %v filter %v, want 1 and 0 (hard)", name, strength, filter)
+			}
+		default:
+			if strength != 0 {
+				t.Errorf("%s: strength %v, want 0 (shadow disabled)", name, strength)
+			}
+		}
+	}
+
+	// ShadowWGSL is ShadowWGSLForGroup at ShadowGroup, the slot after the lit PBR pipeline's camera, lights and per-draw groups.
+	if render3d.ShadowWGSLForGroup(render3d.ShadowGroup) != render3d.ShadowWGSL {
+		t.Fatal("ShadowWGSLForGroup(ShadowGroup) differs from ShadowWGSL")
+	}
+	if _, err := gpu.CompileWGSL(render3d.LitPBRShadowWGSL); err != nil {
+		t.Fatalf("CompileWGSL(LitPBRShadowWGSL): %v", err)
+	}
+
 	// Verify ShadowWGSLForGroup compiles cleanly at an alternate group slot.
-	customWGSL := render3d.CameraWGSL + "\n" + render3d.ShadowWGSLForGroup(3) + `
+	customWGSL := render3d.CameraWGSL + "\n" + render3d.ShadowWGSLForGroup(2) + `
 @vertex fn vs_main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	return camera.view_proj * vec4<f32>(pos, 1.0);
 }
@@ -606,7 +752,7 @@ func TestShadowUniformsLayoutAndZeroAlloc(t *testing.T) {
 }
 `
 	if _, err := gpu.CompileWGSL(customWGSL); err != nil {
-		t.Fatalf("CompileWGSL(ShadowWGSLForGroup(3)): %v", err)
+		t.Fatalf("CompileWGSL(ShadowWGSLForGroup(2)): %v", err)
 	}
 }
 
@@ -672,6 +818,19 @@ func TestEvaluateDirectionalShadowCPUReference(t *testing.T) {
 	if !(penumbra > 0.1 && penumbra < 0.9) {
 		t.Errorf("PCF boundary visibility = %v, want intermediate value in (0.1, 0.9)", penumbra)
 	}
+	// An unknown filter is encoded as hard, and the CPU reference samples it as hard too.
+	uUnknown := u
+	uUnknown.PCFKernel = 2
+	boundary := math3d.Vec3{X: 0, Y: 0, Z: 0.6}
+	if got, want := render3d.EvaluateDirectionalShadow(boundary, math3d.Vec3Up(), uUnknown, grid), render3d.EvaluateDirectionalShadow(boundary, math3d.Vec3Up(), u, grid); got != want {
+		t.Errorf("unknown filter visibility = %v, want the hard result %v", got, want)
+	}
+	// NaN strength disables the shadow, as the encoded uniforms do.
+	uNaN := u
+	uNaN.Strength = float32(math.NaN())
+	if got := render3d.EvaluateDirectionalShadow(math3d.Vec3{X: -0.6, Y: 0, Z: 0.6}, math3d.Vec3Up(), uNaN, grid); got != 1 {
+		t.Errorf("NaN strength visibility = %v, want 1", got)
+	}
 }
 
 func TestDirectionalShadowMatchesReferenceHardAndPCF(t *testing.T) {
@@ -697,105 +856,124 @@ func TestDirectionalShadowMatchesReferenceHardAndPCF(t *testing.T) {
 	imgPCF, uPCF := hPCF.render(t, cfgPCF)
 	assertReference(t, "shadow_directional_pcf", imgPCF)
 
-	// Read back the GPU depth shadow map and verify CPU EvaluateDirectionalShadow agrees with GPU pixels across the floor.
+	// Read back the GPU depth shadow maps: the CPU reference must reproduce every floor pixel from them.
 	depthGrid := hHard.readShadowDepth(t)
 	depthGridPCF := hPCF.readShadowDepth(t)
 
-	// Check a grid of floor sample points projected onto screen space:
-	// - Every unoccluded floor sample must be brightly lit with zero shadow acne.
-	// - Every occluded floor sample must be visibly darker (umbra).
-	// - Both GPU pixel luma and CPU EvaluateDirectionalShadow must agree on lit vs shadowed points.
-	litCount := 0
-	umbraCount := 0
+	// floorPixel returns the floor point seen through the center of pixel (px, py) and the GPU color there, or ok=false when the pixel does not show the open floor: off the floor, or on or next to the red pillar or the blue block (the floor is neutral gray, R close to B).
+	cam := hHard.scene.cam
+	floorPixel := func(img *image.RGBA, px, py int) (wp math3d.Vec3, got color.RGBA, ok bool) {
+		if px < 1 || px >= shadowRefWidth-1 || py < 1 || py >= shadowRefHeight-1 {
+			return wp, got, false
+		}
+		ray := cam.ScreenRay(float32(px)+0.5, float32(py)+0.5, shadowRefWidth, shadowRefHeight)
+		if ray.Dir.Y >= 0 {
+			return wp, got, false
+		}
+		wp = ray.At(-ray.Origin.Y / ray.Dir.Y)
+		if math.Abs(float64(wp.X)) > 5.4 || math.Abs(float64(wp.Z)) > 5.4 {
+			return wp, got, false
+		}
+		for _, off := range [5][2]int{{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+			nc := img.RGBAAt(px+off[0], py+off[1])
+			if math.Abs(float64(nc.R)-float64(nc.B)) > 20 {
+				return wp, got, false
+			}
+		}
+		return wp, img.RGBAAt(px, py), true
+	}
+	near := func(got color.RGBA, want [3]float64, tol float64) bool {
+		return math.Abs(float64(got.R)-want[0]) <= tol && math.Abs(float64(got.G)-want[1]) <= tol && math.Abs(float64(got.B)-want[2]) <= tol
+	}
+
+	// Check every open floor pixel against the CPU reference at the floor point under the pixel's center. With hard shadows, every pixel the reference calls lit must match the fully lit color (no shadow acne) and every pixel in umbra the shadowed color, in which the fill light (directional light 1) still shines; pixels within a texel of the shadow edge may round either way and are skipped. With PCF every pixel, penumbra included, must match the reference's filtered visibility.
+	litCount, umbraCount, pcfPenumbraCount := 0, 0, 0
 	var litLumaSum, umbraLumaSum float64
-	var litLumaMin, litLumaMax float64 = 1e9, -1e9
-	floorColor := math3d.Vec3{X: 0.78, Y: 0.80, Z: 0.82}
-	toLight := shadowLightDir.Neg().Norm()
-	ndl := max(math3d.Vec3Up().Dot(toLight), 0)
-
-	// Sample a fine grid across the open floor and verify both lit and umbra pixels match CPU EvaluateDirectionalShadow.
-	for iz := -8; iz <= 8; iz++ {
-		for ix := -10; ix <= 10; ix++ {
-			wp := math3d.Vec3{X: float32(ix) * 0.35, Y: 0, Z: float32(iz) * 0.35}
-			scr, _, vis := hHard.scene.cam.WorldToScreen(wp, shadowRefWidth, shadowRefHeight)
-			if !vis {
-				continue
-			}
-			px, py := int(scr.X), int(scr.Y)
-			if px < 4 || px >= shadowRefWidth-4 || py < 4 || py >= shadowRefHeight-4 {
-				continue
-			}
-			got := imgHard.RGBAAt(px, py)
-			// Skip background or colored box/pillar pixels (the floor is neutral gray: R ~ G ~ B and brighter than the dark blue clear color).
-			if math.Abs(float64(got.R)-float64(got.B)) > 20 || (got.R < 32 && got.G < 40 && got.B < 55) {
-				continue
-			}
-			// Guard against screen pixels right on a silhouette edge where a neighbor pixel is a colored box.
-			edgeColored := false
-			for _, off := range [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
-				nc := imgHard.RGBAAt(px+off[0], py+off[1])
-				if math.Abs(float64(nc.R)-float64(nc.B)) > 20 {
-					edgeColored = true
-					break
-				}
-			}
-			if edgeColored {
-				continue
-			}
-
-			cpuVis := render3d.EvaluateDirectionalShadow(wp, math3d.Vec3Up(), uHard, depthGrid)
-			wantR := float64(floorColor.X * (shadowAmbientColor.X + shadowLightColor.X*ndl*cpuVis) * 255)
-			wantG := float64(floorColor.Y * (shadowAmbientColor.Y + shadowLightColor.Y*ndl*cpuVis) * 255)
-			wantB := float64(floorColor.Z * (shadowAmbientColor.Z + shadowLightColor.Z*ndl*cpuVis) * 255)
-
-			luma := shadowLuma(got)
-			if cpuVis > 0.95 {
-				litCount++
-				litLumaSum += luma
-				litLumaMin = min(litLumaMin, luma)
-				litLumaMax = max(litLumaMax, luma)
-				// Zero shadow acne: lit floor pixels must match full lit color tightly.
-				if math.Abs(float64(got.R)-wantR) > 10 || math.Abs(float64(got.G)-wantG) > 10 || math.Abs(float64(got.B)-wantB) > 10 {
-					t.Errorf("lit floor point %v px=(%d,%d) got=%v want≈(%.0f,%.0f,%.0f) — possible shadow acne", wp, px, py, got, wantR, wantG, wantB)
-				}
-			} else if cpuVis < 0.05 {
-				// Confirm that at least one sample inside a solid 3x3 shadow neighborhood matches umbra (avoiding 1-pixel shadow-edge rounding differences).
-				if render3d.EvaluateDirectionalShadow(wp.Add(math3d.Vec3{X: 0.15}), math3d.Vec3Up(), uHard, depthGrid) < 0.05 &&
-					render3d.EvaluateDirectionalShadow(wp.Add(math3d.Vec3{X: -0.15}), math3d.Vec3Up(), uHard, depthGrid) < 0.05 {
-					umbraCount++
-					umbraLumaSum += luma
-					if math.Abs(float64(got.R)-wantR) > 10 || math.Abs(float64(got.G)-wantG) > 10 || math.Abs(float64(got.B)-wantB) > 10 {
-						t.Errorf("umbra floor point %v px=(%d,%d) got=%v want≈(%.0f,%.0f,%.0f)", wp, px, py, got, wantR, wantG, wantB)
+	edgeStep := float32(0.5) * hHard.scene.sceneBounds.Max.Sub(hHard.scene.sceneBounds.Min).Len() / 128
+	for py := 0; py < shadowRefHeight; py++ {
+		for px := 0; px < shadowRefWidth; px++ {
+			if wp, got, ok := floorPixel(imgHard, px, py); ok {
+				cpuVis := render3d.EvaluateDirectionalShadow(wp, math3d.Vec3Up(), uHard, depthGrid)
+				stable := true
+				for _, d := range [4]math3d.Vec3{{X: edgeStep}, {X: -edgeStep}, {Z: edgeStep}, {Z: -edgeStep}} {
+					if render3d.EvaluateDirectionalShadow(wp.Add(d), math3d.Vec3Up(), uHard, depthGrid) != cpuVis {
+						stable = false
 					}
+				}
+				if stable {
+					want := hHard.scene.expectedFloor(wp, cpuVis)
+					if cpuVis == 1 {
+						litCount++
+						litLumaSum += shadowLuma(got)
+					} else {
+						umbraCount++
+						umbraLumaSum += shadowLuma(got)
+					}
+					if !near(got, want, 8) {
+						t.Errorf("hard: floor point %v px=(%d,%d) vis=%v got=%v want≈(%.0f,%.0f,%.0f)", wp, px, py, cpuVis, got, want[0], want[1], want[2])
+					}
+				}
+			}
+			if wp, got, ok := floorPixel(imgPCF, px, py); ok {
+				cpuVis := render3d.EvaluateDirectionalShadow(wp, math3d.Vec3Up(), uPCF, depthGridPCF)
+				if cpuVis > 0.05 && cpuVis < 0.95 {
+					pcfPenumbraCount++
+				}
+				if want := hPCF.scene.expectedFloor(wp, cpuVis); !near(got, want, 8) {
+					t.Errorf("pcf: floor point %v px=(%d,%d) vis=%.3f got=%v want≈(%.0f,%.0f,%.0f)", wp, px, py, cpuVis, got, want[0], want[1], want[2])
 				}
 			}
 		}
 	}
 
-	if litCount < 20 {
+	if litCount < 200 {
 		t.Fatalf("too few lit floor samples (%d)", litCount)
 	}
-	if umbraCount < 5 {
+	if umbraCount < 50 {
 		t.Fatalf("too few umbra floor samples (%d) — shadow did not land on floor", umbraCount)
+	}
+	if pcfPenumbraCount < 20 {
+		t.Errorf("too few PCF penumbra floor samples (%d) to compare the filtered edge", pcfPenumbraCount)
 	}
 	avgLit := litLumaSum / float64(litCount)
 	avgUmbra := umbraLumaSum / float64(umbraCount)
-	if avgLit-avgUmbra < 80 {
+	if avgLit-avgUmbra < 60 {
 		t.Fatalf("shadow contrast too weak: avgLit=%.1f avgUmbra=%.1f", avgLit, avgUmbra)
 	}
-	// Uniform lit floor (zero acne variance).
-	if litLumaMax-litLumaMin > 4 {
-		t.Errorf("lit floor luma variance too high (min=%.1f max=%.1f) — possible shadow acne", litLumaMin, litLumaMax)
+
+	// Independently of the depth readback, the block's shadow must fall where its center projects along the light onto the floor, and a floor point far from both casters must be fully lit.
+	blockCenter := math3d.Vec3{X: -0.6, Y: 1.9, Z: 0.8}
+	blockShadowCenter := blockCenter.Add(shadowLightDir.Scale(-blockCenter.Y / shadowLightDir.Y))
+	for name, img := range map[string]*image.RGBA{"hard": imgHard, "pcf": imgPCF} {
+		for _, tc := range []struct {
+			what string
+			at   math3d.Vec3
+			vis  float32
+		}{
+			{"block shadow center", blockShadowCenter, 0},
+			{"far floor", math3d.Vec3{X: 2.6, Y: 0, Z: 2.4}, 1},
+		} {
+			scr, _, visible := cam.WorldToScreen(tc.at, shadowRefWidth, shadowRefHeight)
+			if !visible {
+				t.Fatalf("%s: %s %v is off screen", name, tc.what, tc.at)
+			}
+			wp, got, ok := floorPixel(img, int(scr.X), int(scr.Y))
+			if !ok {
+				t.Fatalf("%s: %s %v is not open floor on screen", name, tc.what, tc.at)
+			}
+			if want := hHard.scene.expectedFloor(wp, tc.vis); !near(got, want, 8) {
+				t.Errorf("%s: %s px=(%d,%d) got=%v, want ≈(%.0f,%.0f,%.0f) for visibility %v", name, tc.what, int(scr.X), int(scr.Y), got, want[0], want[1], want[2], tc.vis)
+			}
+		}
 	}
 
-	// Verify PCF produces strictly more intermediate penumbra floor pixels than Hard shadows!
+	// PCF must produce clearly more intermediate penumbra floor pixels than hard shadows.
 	countPenumbra := func(img *image.RGBA) int {
 		n := 0
 		b := img.Bounds()
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := b.Min.X; x < b.Max.X; x++ {
 				c := img.RGBAAt(x, y)
-				// Neutral gray floor pixel whose luma lies strictly between umbra and lit.
 				if math.Abs(float64(c.R)-float64(c.B)) <= 20 {
 					l := shadowLuma(c)
 					if l > avgUmbra+15 && l < avgLit-15 {
@@ -812,25 +990,13 @@ func TestDirectionalShadowMatchesReferenceHardAndPCF(t *testing.T) {
 		t.Errorf("PCF penumbra pixel count (%d) should clearly exceed Hard (%d)", pcfPenumbra, hardPenumbra)
 	}
 
-	// Verify dynamic filter switching on the same DirectionalShadowMap switches between Hard and PCF cleanly.
+	// Switching PCFKernel on the same DirectionalShadowMap switches between the nearest and linear comparison samplers.
 	bgHard := hHard.shadowMap.BindGroup()
 	imgSwitched, _ := hHard.render(t, cfgPCF)
 	if hHard.shadowMap.BindGroup() == bgHard {
 		t.Error("switching PCFKernel did not switch BindGroup from nearest to linear comparison sampler")
 	}
 	assertReference(t, "shadow_directional_pcf", imgSwitched)
-
-	// Verify CPU PCF evaluation matches lit and umbra regions on the GPU depth readback.
-	if pcfLit := render3d.EvaluateDirectionalShadow(math3d.Vec3{X: 3.5, Y: 0, Z: 3.0}, math3d.Vec3Up(), uPCF, depthGridPCF); pcfLit < 0.99 {
-		t.Errorf("CPU PCF far lit floor sample = %v, want 1.0", pcfLit)
-	}
-	// Center of the floating block projected straight along shadowLightDir onto y = 0 must be deep in umbra.
-	blockCenter := math3d.Vec3{X: -0.6, Y: 1.9, Z: 0.8}
-	tHit := -blockCenter.Y / shadowLightDir.Y
-	blockShadowCenter := blockCenter.Add(shadowLightDir.Scale(tHit))
-	if pcfUmbra := render3d.EvaluateDirectionalShadow(blockShadowCenter, math3d.Vec3Up(), uPCF, depthGridPCF); pcfUmbra > 0.05 {
-		t.Errorf("CPU PCF block shadow center %v = %v, want < 0.05", blockShadowCenter, pcfUmbra)
-	}
 }
 
 // shadowViewApp mounts a gpu.View rendering the directional shadow scene (retained when retained is true).
@@ -839,11 +1005,9 @@ func shadowViewApp(t *testing.T, retained bool, filter render3d.ShadowFilter, op
 	const w, h = shadowRefWidth, shadowRefHeight
 	var (
 		camBuf    *render3d.CameraBuffer
+		lightBuf  *render3d.GPULightBuffer
+		draws     [3]*render3d.PBRDrawBuffer
 		shadowMap *render3d.DirectionalShadowMap
-		objLayout *gpu.BindGroupLayout
-		objBuf    *gpu.Buffer
-		objBG     *gpu.BindGroup
-		objAlign  uint64
 		litPipe   *gpu.Pipeline
 		floorMesh *render3d.GPUMesh
 		boxMesh   *render3d.GPUMesh
@@ -897,45 +1061,14 @@ func shadowViewApp(t *testing.T, retained bool, filter render3d.ShadowFilter, op
 						t.Fatalf("UploadMesh box: %v", err)
 					}
 				}
-				objLayout, err = render3d.ShadowLitObjectLayout(cx, dev, true)
+				lightBuf, err = render3d.NewLightBuffer(cx, dev, shadowRig, render3d.LightBufferOptions{Label: "shadow-lights"})
 				if err != nil {
-					t.Fatalf("ShadowLitObjectLayout: %v", err)
+					t.Fatalf("NewLightBuffer: %v", err)
 				}
-				objAlign = uint64(dev.Limits().MinUniformBufferAlignment)
-				if objAlign < render3d.ShadowLitObjectUniformSize {
-					objAlign = 256
-				}
-				objBuf, err = dev.CreateBuffer(cx, gpu.BufferDesc{
-					Label: "objects",
-					Size:  objAlign * 4,
-					Usage: gpu.UsageUniform | gpu.UsageCopyDst,
-				})
+				draws = shadowDrawBuffers(t, cx, dev, scene, false)
+				litPipe, err = render3d.NewLitPBRShadowPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), draws[0].Layout(), shadowMap.Layout(), gpu.FormatDepth24Plus)
 				if err != nil {
-					t.Fatalf("CreateBuffer objects: %v", err)
-				}
-				objBG, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-					Label:  "objects",
-					Layout: objLayout,
-					Entries: []gpu.BindGroupEntry{{
-						Binding: 0,
-						Buffer:  objBuf,
-						Size:    render3d.ShadowLitObjectUniformSize,
-					}},
-				})
-				if err != nil {
-					t.Fatalf("CreateBindGroup objects: %v", err)
-				}
-				litPipe, err = render3d.NewShadowLitPipeline(cx, dev, render3d.ShadowLitPipelineOptions{
-					Label:        "shadow-lit",
-					CameraLayout: camBuf.Layout(),
-					ObjectLayout: objLayout,
-					ShadowLayout: shadowMap.Layout(),
-					ColorFormat:  dev.SurfaceFormat(),
-					DepthFormat:  gpu.FormatDepth24Plus,
-					CullMode:     gpu.CullBack,
-				})
-				if err != nil {
-					t.Fatalf("NewShadowLitPipeline: %v", err)
+					t.Fatalf("NewLitPBRShadowPipeline: %v", err)
 				}
 			},
 			OnFrame: func(frame *gpu.Frame) {
@@ -946,37 +1079,18 @@ func shadowViewApp(t *testing.T, retained bool, filter render3d.ShadowFilter, op
 				}
 				camBuf.WriteCamera(scene.cam)
 
-				objs := [3]render3d.ShadowLitObjectUniform{
-					render3d.NewShadowLitObjectUniform(scene.floorModel, math3d.Vec4{X: 0.78, Y: 0.80, Z: 0.82, W: 1}, shadowLightColor, shadowAmbientColor),
-					render3d.NewShadowLitObjectUniform(scene.pillarModel, math3d.Vec4{X: 0.88, Y: 0.42, Z: 0.30, W: 1}, shadowLightColor, shadowAmbientColor),
-					render3d.NewShadowLitObjectUniform(scene.blockModel, math3d.Vec4{X: 0.32, Y: 0.68, Z: 0.88, W: 1}, shadowLightColor, shadowAmbientColor),
-				}
-				var scratch [render3d.ShadowLitObjectUniformSize]byte
-				for i, o := range objs {
-					dev.WriteBuffer(objBuf, uint64(i)*objAlign, render3d.AppendShadowLitObjectUniform(scratch[:0], o))
-				}
-
 				// Shadow depth pass on frame.
-				sPass := shadowMap.BeginShadowPass(dev, frame)
-				shadowMap.DrawCaster(sPass, boxMesh, scene.pillarModel)
-				shadowMap.DrawCaster(sPass, boxMesh, scene.blockModel)
-				sPass.End()
+				if sPass := shadowMap.BeginShadowPass(dev, frame); sPass != nil {
+					shadowMap.DrawCaster(sPass, boxMesh, scene.pillarModel)
+					shadowMap.DrawCaster(sPass, boxMesh, scene.blockModel)
+					sPass.End()
+				}
 
 				// Main lit pass on frame.
 				mPass := frame.BeginRenderPass(gpu.RenderPassDesc{Label: "main"})
 				mPass.ClearColor(shadowClearColor)
 				mPass.ClearDepth(1.0)
-				mPass.SetPipeline(litPipe)
-				mPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-				mPass.SetBindGroup(render3d.ShadowGroup, shadowMap.BindGroup())
-
-				mPass.SetBindGroup(1, objBG, 0)
-				floorMesh.Draw(mPass)
-				mPass.SetBindGroup(1, objBG, uint32(objAlign))
-				boxMesh.Draw(mPass)
-				mPass.SetBindGroup(1, objBG, uint32(2*objAlign))
-				boxMesh.Draw(mPass)
-
+				drawShadowScene(mPass, litPipe, camBuf, lightBuf, shadowMap, draws, floorMesh, boxMesh)
 				mPass.End()
 				frame.Submit()
 			},

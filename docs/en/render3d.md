@@ -370,7 +370,7 @@ Three pipelines draw a `GPUSkinnedMesh`, each binding the palette at its own gro
 | Pipeline | Shader | Palette group | Not combinable with |
 | --- | --- | --- | --- |
 | `NewSkinnedMeshPipeline` (unlit, colored by normal) | `SkinnedMeshWGSL` | `SkinGroup` (1) | |
-| `NewLitPBRPipelineWithOptions` with `LitPBRPipelineOptions.SkinLayout` (scene lights) | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup` (3) | `FogLayout`, `IBLLayout` |
+| `NewLitPBRPipelineWithOptions` with `LitPBRPipelineOptions.SkinLayout` (scene lights) | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup` (3) | `FogLayout`, `IBLLayout`, `ShadowLayout` |
 | `NewMaterialPipeline` with `MaterialPipelineOptions.SkinLayout` (glTF material with textures) | `MaterialSkinnedWGSL` | `MaterialSkinGroup` (2) | `FogLayout` |
 
 `SkinWGSL` declares the uniform block at group 1 and the portable `skin_position` / `skin_normal` vertex helpers matching CPU `SkinVertex`, for custom shaders that bind nothing else at group 1.
@@ -749,7 +749,7 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 
 ## Directional light shadows (`DirectionalShadowMap`, `DirectionalShadowConfig`)
 
-`DirectionalShadowMap` manages an offscreen `FormatDepth32Float` shadow map render target, a depth-only caster pipeline (`ShadowDepthWGSL`) with a dynamic-offset caster transform buffer, a 96-byte `ShadowUniforms` buffer, and both nearest (hard) and linear (PCF) comparison samplers on an NSGo `gpu.Device`. `ShadowWGSL` declares the matching bindings at `ShadowGroup` (group 2, leaving `CameraGroup` at group 0 and group 1 for materials or per-object data) together with a portable `sample_directional_shadow(world_pos, world_normal)` helper, and `NewShadowLitPipeline` builds a ready-to-use forward-lit shadowed pipeline (`ShadowLitWGSL`):
+`DirectionalShadowMap` manages an offscreen `FormatDepth32Float` shadow map render target, a depth-only caster pipeline (`ShadowDepthWGSL`) with a dynamic-offset caster transform buffer, a 96-byte `ShadowUniforms` buffer, and both nearest (hard) and linear (PCF) comparison samplers on an NSGo `gpu.Device`. `ShadowWGSL` declares the matching bindings at `ShadowGroup` (group 3, after `CameraGroup`, `LightGroup` and `PBRDrawGroup`) together with a portable `sample_directional_shadow(world_pos, world_normal)` helper. `NewLitPBRShadowPipeline` (or `LitPBRPipelineOptions.ShadowLayout`) builds the lit PBR pipeline with the shadow (`LitPBRShadowWGSL`): it shades a `LightRig` exactly like `LitPBRWGSL` and multiplies the rig's first directional light, `Directional[0]`, by the shadow, leaving the other lights, ambient and emission unshadowed. Group 3 is also where fog, IBL and skinning go, so a lit PBR pipeline takes one of them.
 
 ```go
 sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
@@ -760,39 +760,43 @@ sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
 	CullMode:            gpu.CullBack,
 	Retained:            true, // survives GPU device loss automatically
 })
-litPipe, err := render3d.NewShadowLitPipeline(cx, dev, render3d.ShadowLitPipelineOptions{
-	CameraLayout: camBuf.Layout(),
-	ObjectLayout: objLayout,
-	ShadowLayout: sm.Layout(),
-	DepthFormat:  gpu.FormatDepth24Plus,
-	CullMode:     gpu.CullBack,
-})
+litPipe, err := render3d.NewLitPBRShadowPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), sm.Layout(), gpu.FormatDepth24Plus)
 
 // Each frame in OnFrame(frame *gpu.Frame):
 dev := frame.Device()
 cfg := render3d.DefaultDirectionalShadowConfig()
-cfg.Direction = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
-_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // tightly fits orthographic frustum with texel snapping
+cfg.Direction = rig.Directional[0].Direction // the light the shadow attenuates
+cfg.Strength = 1
+if !preset.Shadows { // quality.Preset from the quality package
+	cfg.Strength = 0 // the shader then skips the shadow map
+}
+_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // fits the orthographic frustum, texel-snapped
 
-// 1. Depth-only shadow pass:
-shadowPass := sm.BeginShadowPass(dev, frame)
-sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
-sm.DrawCaster(shadowPass, crateMesh, crateModel)
-shadowPass.End()
+// 1. Depth-only shadow pass (nil while the device is lost or after Close):
+if preset.Shadows {
+	if shadowPass := sm.BeginShadowPass(dev, frame); shadowPass != nil {
+		sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
+		sm.DrawCaster(shadowPass, crateMesh, crateModel)
+		shadowPass.End()
+	}
+}
 
 // 2. Main lit pass:
 mainPass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 mainPass.SetPipeline(litPipe)
 mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
 mainPass.SetBindGroup(render3d.ShadowGroup, sm.BindGroup())
-// bind per-object/material group 1 and draw receivers...
+mainPass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+floorMesh.Draw(mainPass)
 mainPass.End()
 ```
 
-- **Tight orthographic framing and texel snapping**: `DirectionalShadowConfig.LightViewProj()` builds an orthographic frustum of width `OrthoSize` around `Target`; `FitBounds(lightDir, sceneBounds)` tightly encloses an `AABB` with optional `CasterPadding` toward the light. Setting `TexelSnap: true` locks the light-space XY center to exact shadow-map texel increments in a rotation-only light basis so moving targets never cause shadow-edge shimmering ("shadow swimming").
+- **Framing and texel snapping**: `DirectionalShadowConfig.LightViewProj()` builds an orthographic frustum `OrthoSize` wide and `DepthRange` deep, centred on `Target` (which sits at depth 0.5). `FitBounds(lightDir, sceneBounds)` encloses an `AABB`, extending toward the light by `CasterPadding`. With `TexelSnap: true` the shadow map's texel grid stays fixed in world space: the frustum is sized from the bounds' bounding sphere, rounded up to a coarse step, so the texel size does not change as the bounds move or the light turns, and the light-space center snaps to whole texels, so moving the framing (for example `UpdateBounds` following the camera) shifts static shadows by whole texels and their edges do not shimmer. Without `TexelSnap`, `FitBounds` hugs the bounds' light-space extent for the most texels per world unit, at the cost of shimmering when the bounds move.
 - **Hard 1-tap vs 3x3 PCF filtering**: `ShadowFilterHard` uses a nearest comparison sampler with a single `textureSampleCompareLevel` tap; `ShadowFilterPCF3x3` averages 9 comparison taps with a linear comparison sampler (combining hardware 2x2 PCF per tap with a 3x3 neighborhood) for soft penumbras. Switching `PCFKernel` via `WriteUniforms`, `Update`, or `UpdateBounds` swaps `BindGroup()` dynamically without allocating or recreating GPU resources.
-- **Acne control and portability**: `DepthBias` (slope-scaled in the shader by `1 + 2*(1 - NdotL)`), world-space `NormalBias`, and hardware rasterizer bias (`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`) suppress shadow acne across flat and grazing surfaces. Custom shaders can prepend `ShadowWGSL` (or `ShadowWGSLForGroup(n)` for another bind group index) and call `sample_directional_shadow(world_pos, world_normal)`. No compute shaders or storage buffers are used, so directional shadows run on every NSGo target including WebGL 2 and OpenGL ES 3.0.
-- **Zero-allocation uniforms and CPU reference**: `AppendShadowUniforms` and `ShadowUniforms.Encode` pack the 96-byte uniform block with zero heap allocations. `EvaluateDirectionalShadow` implements the matching pure-Go CPU reference over a `ShadowDepthGrid` (decoded from GPU depth readback via `ShadowDepthGridFromBytes`), and `render3d`'s tests verify hard and 3x3 PCF renders against golden reference PNGs (`render3d/testdata/golden/shadow_directional_hard.png` and `shadow_directional_pcf.png`), both `gpu.View` profiles (`full` and `nsgotest.NoGPUCompute`), `Retained` device-loss restoration, and scope disposal.
+- **Acne control and portability**: `DepthBias` (slope-scaled in the shader by `1 + 2*(1 - NdotL)`), world-space `NormalBias`, and hardware rasterizer bias (`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`) suppress shadow acne across flat and grazing surfaces. Custom shaders can prepend `ShadowWGSL` (or `ShadowWGSLForGroup(n)` when group 3 holds something else) and call `sample_directional_shadow(world_pos, world_normal)`; `LightWGSL`'s `shade_pbr_shadowed` takes that visibility for directional light 0. No compute shaders or storage buffers are used, so directional shadows run on every NSGo target including WebGL 2 and OpenGL ES 3.0.
+- **Quality presets**: to honour `quality.Preset.Shadows`, skip the shadow pass and set `Strength` to 0 when it is off, as in the example; with `Strength` 0 the shader returns full visibility without sampling the map.
+- **Zero-allocation uniforms and CPU reference**: `AppendShadowUniforms` and `ShadowUniforms.Encode` pack the 96-byte uniform block with zero heap allocations; a NaN or infinite matrix or `Strength` disables the shadow, non-finite biases become 0 and an unknown `PCFKernel` is treated as `ShadowFilterHard`, so uniforms built by hand cannot put NaN on screen. `EvaluateDirectionalShadow` is the matching pure-Go CPU reference over a `ShadowDepthGrid` (decoded from GPU depth readback via `ShadowDepthGridFromBytes`), and `ShadePointShadowed` is the CPU reference of the shadowed lighting. `render3d`'s tests check every open floor pixel of hard and 3x3 PCF renders, penumbras included, against these references, check where the shadow falls by projecting a caster along the light, and compare the renders with golden PNGs (`render3d/testdata/golden/shadow_directional_hard.png` and `shadow_directional_pcf.png`) on both `gpu.View` profiles (`full` and `nsgotest.NoGPUCompute`), across `Retained` device-loss restoration, and through scope disposal.
 
 ## 3D debug draw and transform gizmos
 
