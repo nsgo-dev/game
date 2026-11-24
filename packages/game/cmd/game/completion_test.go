@@ -348,7 +348,8 @@ func TestFishCompletion(t *testing.T) {
 	prog.WriteString("source " + fishQuote(script) + "\n")
 	for _, tc := range completionCases {
 		prog.WriteString("echo " + fishQuote("## "+tc.line) + "\n")
-		prog.WriteString("complete -C " + fishQuote(tc.line) + " | string replace -r '\\t.*' ''\n")
+		// string replace fails when it replaces nothing, as for words without a description, and fish -c exits with the last command's status, so its status is dropped.
+		prog.WriteString("complete -C " + fishQuote(tc.line) + " | string replace -r '\\t.*' ''; or true\n")
 	}
 	checkCompletions(t, "fish", runShell(t, dir, "fish", "--no-config", "-c", prog.String()))
 }
