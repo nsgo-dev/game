@@ -35,6 +35,9 @@ const (
 
 var defaultOrbitTarget = math3d.Vec3{X: 0, Y: 1.25, Z: 0}
 
+// shrineGlowLocal is where the shrine's glow sits in the ShrineCore node's space: the center of the crystal bipyramid tools/genassets builds for that mesh.
+var shrineGlowLocal = math3d.Vec3{X: 0, Y: 1.48, Z: 0}
+
 // Scene holds the loaded glTF 2.0 diorama, its orbit camera rig, animated node
 // handles, and dynamic lighting state.
 type Scene struct {
@@ -118,8 +121,14 @@ func NewScene() (*Scene, error) {
 	s.Orbit.MaxDistance = maxOrbitDist
 	s.Orbit.Damping = 10.0
 
+	if s.wispNodeIdx < 0 || s.coreNodeIdx < 0 {
+		return nil, fmt.Errorf("lantern3d: glb lacks the LightWisp or ShrineCore node")
+	}
+
 	s.ResetCamera()
-	s.updateLightsAndNodes()
+	if err := s.updateLightsAndNodes(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -144,10 +153,10 @@ func (s *Scene) SetViewport(width, height int) {
 }
 
 // Step advances the fixed-step camera damping, auto-orbit, orbiting warm point
-// light, and animated glTF scene nodes.
-func (s *Scene) Step(dt time.Duration) {
+// light, and animated glTF scene nodes. It returns an error when the node hierarchy no longer yields world matrices.
+func (s *Scene) Step(dt time.Duration) error {
 	if dt <= 0 {
-		return
+		return nil
 	}
 	sec := dt.Seconds()
 	s.Time += sec
@@ -163,7 +172,7 @@ func (s *Scene) Step(dt time.Duration) {
 		s.LightPhase += lightOrbitRate * sec
 		s.CorePhase += coreSpinRate * sec
 	}
-	s.updateLightsAndNodes()
+	return s.updateLightsAndNodes()
 }
 
 // CameraFor returns the camera pose interpolated between the previous and
@@ -186,16 +195,35 @@ func (s *Scene) MeshCount() int { return s.meshCount }
 // primitives.
 func (s *Scene) TriangleCount() int { return s.triCount }
 
-func (s *Scene) updateLightsAndNodes() {
+// updateLightsAndNodes moves the wisp and the shrine core for the current phases, recomputes the world matrices and places the two point lights where their nodes are in world space.
+func (s *Scene) updateLightsAndNodes() error {
 	ang := s.LightPhase
 	const orbitRadius = 1.95
-	wispX := float32(orbitRadius * math.Cos(ang))
-	wispZ := float32(orbitRadius * math.Sin(ang))
-	wispY := float32(1.92 + 0.24*math.Sin(ang*2.0))
-
+	wispPos := math3d.Vec3{
+		X: float32(orbitRadius * math.Cos(ang)),
+		Y: float32(1.92 + 0.24*math.Sin(ang*2.0)),
+		Z: float32(orbitRadius * math.Sin(ang)),
+	}
 	pulse := float32(0.92 + 0.12*math.Sin(s.LightPhase*3.3))
 
-	wispPos := math3d.Vec3{X: wispX, Y: wispY, Z: wispZ}
+	wisp := &s.Doc.Nodes[s.wispNodeIdx]
+	local, err := s.worldToParent(s.wispNodeIdx, wispPos)
+	if err != nil {
+		return err
+	}
+	wisp.Translation = local
+	wisp.Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), float32(ang*2.2))
+	wisp.HasMatrix = false
+
+	core := &s.Doc.Nodes[s.coreNodeIdx]
+	core.Translation = math3d.Vec3{X: 0, Y: float32(0.04 * math.Sin(s.CorePhase*2.0)), Z: 0}
+	core.Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), float32(s.CorePhase))
+	core.HasMatrix = false
+
+	if err := s.Doc.ComputeWorldMatrices(); err != nil {
+		return fmt.Errorf("lantern3d: compute world matrices: %w", err)
+	}
+
 	s.Lights = render3d.LightRig{
 		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.045, Y: 0.06, Z: 0.10}, Intensity: 1},
 		Directional: []render3d.DirectionalLight{{
@@ -205,31 +233,31 @@ func (s *Scene) updateLightsAndNodes() {
 		}},
 		Point: []render3d.PointLight{
 			wispLight: {
-				Position:  wispPos,
+				Position:  wisp.WorldMatrix.TransformPoint(math3d.Vec3{}),
 				Color:     math3d.Vec3{X: 1.00, Y: 0.55, Z: 0.18},
 				Intensity: 9 * pulse,
 				Range:     8,
 			},
 			shrineLight: {
-				Position:  math3d.Vec3{X: 0, Y: 1.82, Z: 0},
+				Position:  core.WorldMatrix.TransformPoint(shrineGlowLocal),
 				Color:     math3d.Vec3{X: 1.00, Y: 0.45, Z: 0.12},
 				Intensity: 4 * (0.94 + 0.08*float32(math.Cos(s.CorePhase*2.7))),
 				Range:     5.5,
 			},
 		},
 	}
+	return nil
+}
 
-	if s.wispNodeIdx >= 0 {
-		n := &s.Doc.Nodes[s.wispNodeIdx]
-		n.Translation = wispPos
-		n.Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), float32(ang*2.2))
-		n.HasMatrix = false
+// worldToParent converts a world-space point into the space of node i's parent, so it can be the node's local translation whatever transforms its ancestors carry.
+func (s *Scene) worldToParent(i int, p math3d.Vec3) (math3d.Vec3, error) {
+	parent := s.Doc.Nodes[i].Parent
+	if parent < 0 {
+		return p, nil
 	}
-	if s.coreNodeIdx >= 0 {
-		n := &s.Doc.Nodes[s.coreNodeIdx]
-		n.Translation = math3d.Vec3{X: 0, Y: float32(0.04 * math.Sin(s.CorePhase*2.0)), Z: 0}
-		n.Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), float32(s.CorePhase))
-		n.HasMatrix = false
+	inv, ok := s.Doc.Nodes[parent].WorldMatrix.Inverse()
+	if !ok {
+		return math3d.Vec3{}, fmt.Errorf("lantern3d: node %q has a singular parent transform", s.Doc.Nodes[i].Name)
 	}
-	_ = s.Doc.ComputeWorldMatrices()
+	return inv.TransformPoint(p), nil
 }
