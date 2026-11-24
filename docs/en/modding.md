@@ -40,6 +40,8 @@ The format is strict: `ParseManifest` refuses unknown or misspelled fields, dupl
 
 Capabilities are bitflags on `Capability`: `CapReadState` (`readState`), `CapWriteState` (`writeState`), `CapSpawnEntity` (`spawnEntity`), `CapEmitEvent` (`emitEvent`), `CapUI` (`ui`), `CapAudio` (`audio`), and `CapStorage` (`storage`). Calls outside a mod's granted capabilities fail with `*PermissionError` without crashing the host.
 
+NSGo gives every sandbox the `"nsgo"` module's `Storage`, in a partition of its own, with no capability to withhold it. A mod without `CapStorage` therefore gets a partition quota of one byte, the smallest NSGo accepts, so its `Storage.setItem` calls fail and it cannot persist data that way; reading still sees what the partition already holds, such as what the mod wrote while it had the capability.
+
 ## The `"game"` TSX module
 
 Mods import `"game"` (`GameModule`) to hook fixed simulation steps, emit or listen for events, spawn prefabs, read/write scoped state, play audio, persist per-mod storage, and mount TSX UI panels. Export TypeScript definitions for mod authors with `modding.WriteGameAPIDTS("game.d.ts")`.
@@ -107,6 +109,8 @@ _ = hudPanels
 Control individual mods at runtime with `Enable`, `Disable`, `Install`, `InstallFS`, `Uninstall`, `Load`, `Unload`, `Reload`, `SetGrant`, `Emit`, `Call`, `List`, `Info`, and `Logs`. A panicking or throwing mod transitions to `StateFailed` while the host game and sibling mods keep running.
 
 `Reload` validates the updated `mod.yaml` (syntax, ID, game version and dependencies) before it unloads anything, so a broken manifest returns an error and the version already loaded keeps running.
+
+`SetGrant` on a loaded mod takes effect at once: the `"game"` module checks the new capabilities from the next call, and when the grant changes `CapAudio` or `CapStorage`, which the sandbox itself enforces, the mod is unloaded and loaded again in a sandbox built for them, which runs its entry script again. `Close` unloads every mod, after which `Info` reports each as `StateDiscovered` (or `StateDisabled`), and an unsubscribe function a mod kept from `onEvent` or `onStep` does nothing once the mod is unloaded.
 
 Browsers cannot isolate a mod from the page: a mod running on the web can use the page's own APIs (`XMLHttpRequest`, `WebSocket`, `localStorage`) whatever its capabilities say. Loading a mod on the web therefore fails with `ErrWebUnisolated` unless you set `ManagerOptions.WebUnisolated`, which you should only do for mods you trust as much as your own code. Other targets isolate mods and ignore the option.
 

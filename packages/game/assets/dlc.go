@@ -46,6 +46,8 @@ var (
 	// ErrSizeMismatch reports that a pack's byte length does not match
 	// PackSpec.Size.
 	ErrSizeMismatch = errors.New("assets: pack size mismatch")
+	// ErrPackTooLarge reports that a pack archive, or a file read from a mounted pack, would exceed PackLimits: a download without a PackSpec.Size that grows past MaxPackBytes, or an entry that decompresses past MaxFileBytes.
+	ErrPackTooLarge = errors.New("assets: pack exceeds its size limit")
 )
 
 // PackSpec describes a downloadable content (DLC) pack archive.
@@ -78,11 +80,14 @@ type PackSpec struct {
 
 // PackManifest is a JSON catalog of downloadable content packs.
 type PackManifest struct {
+	// Packs lists the packs the catalog offers.
 	Packs []PackSpec `json:"packs"`
 }
 
 // ParsePackManifest decodes a JSON pack manifest containing either a
 // PackManifest object ({"packs": [...]}) or a bare JSON array of PackSpec.
+//
+// A field the manifest does not define, such as a misspelt "sha265", is refused rather than ignored, as are bytes after the manifest, so a typo cannot silently drop a check (#546).
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func ParsePackManifest(data []byte) ([]PackSpec, error) {
@@ -94,16 +99,28 @@ func ParsePackManifest(data []byte) ([]PackSpec, error) {
 	// Decode data rather than trimmed, so the decoder's offsets are the file's.
 	if trimmed[0] == '[' {
 		var packs []PackSpec
-		if err := json.Unmarshal(data, &packs); err != nil {
+		if err := decodeStrictJSON(data, &packs); err != nil {
 			return nil, loaderr.Locate(err, "", data, fix)
 		}
 		return packs, nil
 	}
 	var manifest PackManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := decodeStrictJSON(data, &manifest); err != nil {
 		return nil, loaderr.Locate(err, "", data, fix)
 	}
 	return manifest.Packs, nil
+}
+
+// decodeStrictJSON decodes the one JSON value in data into v, refusing unknown fields and anything after the value.
+func decodeStrictJSON(data []byte, v any) error {
+	// json.Unmarshal reports bytes after the value as a located syntax error, which a Decoder would leave unread.
+	var raw json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
 }
 
 // Compatible reports whether appBuild falls within the pack's inclusive
@@ -436,6 +453,8 @@ func (w *syncFileWriter) Close() error {
 
 // MemoryPackCache is an in-memory PackCache that works on every target
 // including Web/WASM and unit tests.
+//
+// A pack is held once: readers share the stored bytes, which are never written after they are stored, and CommitPart moves the partial download into place instead of copying it (#546).
 type MemoryPackCache struct {
 	mu    sync.RWMutex
 	packs map[string][]byte
@@ -504,15 +523,12 @@ func (c *MemoryPackCache) OpenPartWriter(key string, appendMode bool) (io.WriteC
 func (c *MemoryPackCache) OpenPartReader(key string) (io.ReaderAt, int64, error) {
 	c.mu.RLock()
 	data, ok := c.parts[key]
-	var cp []byte
-	if ok {
-		cp = slices.Clone(data)
-	}
 	c.mu.RUnlock()
 	if !ok {
 		return nil, 0, fs.ErrNotExist
 	}
-	return bytes.NewReader(cp), int64(len(cp)), nil
+	// Appends write past len(data) or into a new array and a truncating OpenPartWriter starts a new slice, so the bytes this reader sees never change.
+	return bytes.NewReader(data), int64(len(data)), nil
 }
 
 // CommitPart implements PackCache.
@@ -523,7 +539,8 @@ func (c *MemoryPackCache) CommitPart(key string) error {
 	if !ok {
 		return fs.ErrNotExist
 	}
-	c.packs[key] = slices.Clone(data)
+	// The part leaves the map, so no writer appends to this slice again.
+	c.packs[key] = data
 	delete(c.parts, key)
 	return nil
 }
@@ -585,23 +602,25 @@ type DLCOptions struct {
 	// ChunkSize sets the buffer size for streaming reads and progress updates.
 	// When <= 0, DefaultDLCChunkSize (32 KiB) is used.
 	ChunkSize int
-	// Limits caps what a pack may contain; zero fields use DefaultPackLimits. A pack over any limit is refused before it is mounted, and archive/zip refuses to decompress an entry past the size its header declares, so the caps also bound what reading an asset can allocate.
+	// Limits caps how large a pack may be and what it may contain; zero fields use DefaultPackLimits. A pack over any limit is refused before it is mounted, a download stops as soon as it would pass MaxPackBytes, and a mounted pack reads each file as it decompresses, failing with ErrPackTooLarge past MaxFileBytes, so the caps also bound what reading an asset can allocate.
 	Limits PackLimits
 }
 
-// PackLimits bounds the structure of a DLC pack ZIP.
+// PackLimits bounds the size and structure of a DLC pack ZIP.
 type PackLimits struct {
 	// MaxEntries is the largest number of files a pack may hold.
 	MaxEntries int
-	// MaxFileBytes is the largest uncompressed size of one file.
+	// MaxFileBytes is the largest uncompressed size of one file, checked against the archive's headers before mounting and against the bytes themselves as a mounted pack reads them.
 	MaxFileBytes uint64
 	// MaxTotalBytes is the largest uncompressed size of all files together.
 	MaxTotalBytes uint64
+	// MaxPackBytes is the largest archive a DLCManager downloads or opens. It bounds the .part file of a PackSpec without a Size, which would otherwise grow as long as the server sends bytes, and a PackSpec whose Size is larger is refused before anything is downloaded.
+	MaxPackBytes int64
 }
 
-// DefaultPackLimits returns the limits a DLCManager uses for zero PackLimits fields: 32768 entries, 256 MiB per file and 1 GiB in total.
+// DefaultPackLimits returns the limits a DLCManager uses for zero PackLimits fields: 32768 entries, 256 MiB per file, 1 GiB in total and a 1088 MiB (1 GiB + 64 MiB) archive.
 func DefaultPackLimits() PackLimits {
-	return PackLimits{MaxEntries: maxPackEntries, MaxFileBytes: maxPackFileUnpacked, MaxTotalBytes: maxPackTotalUnpacked}
+	return PackLimits{MaxEntries: maxPackEntries, MaxFileBytes: maxPackFileUnpacked, MaxTotalBytes: maxPackTotalUnpacked, MaxPackBytes: maxPackArchive}
 }
 
 func (l PackLimits) withDefaults() PackLimits {
@@ -614,6 +633,9 @@ func (l PackLimits) withDefaults() PackLimits {
 	}
 	if l.MaxTotalBytes == 0 {
 		l.MaxTotalBytes = def.MaxTotalBytes
+	}
+	if l.MaxPackBytes <= 0 {
+		l.MaxPackBytes = def.MaxPackBytes
 	}
 	return l
 }
@@ -631,6 +653,9 @@ type DLCManager struct {
 
 	locksMu sync.Mutex
 	locks   map[string]*keyLock
+
+	mountsMu sync.Mutex
+	mounts   map[string]*packMount
 }
 
 type keyLock struct {
@@ -665,6 +690,7 @@ func NewDLCManager(opts DLCOptions) *DLCManager {
 		chunkSize:     chunkSize,
 		limits:        opts.Limits.withDefaults(),
 		locks:         map[string]*keyLock{},
+		mounts:        map[string]*packMount{},
 	}
 }
 
@@ -672,6 +698,8 @@ func NewDLCManager(opts DLCOptions) *DLCManager {
 func (d *DLCManager) Cache() PackCache { return d.cache }
 
 // Remove deletes both the cached pack and any partial download for spec.
+//
+// A pack that Fetch or FetchGroup mounted and that is still in use is not pulled from under its readers: its partial download goes at once, and the cached pack when the last mount is released, by closing the fs.FS Fetch returned or by resetting or re-mounting the group FetchGroup loaded (#546). A Fetch of the same pack before then keeps it.
 func (d *DLCManager) Remove(spec PackSpec) error {
 	if strings.TrimSpace(spec.ID) == "" {
 		return errors.New("assets: dlc: pack ID is required")
@@ -679,9 +707,38 @@ func (d *DLCManager) Remove(spec PackSpec) error {
 	key := spec.CacheKey()
 	unlock := d.lockKey(key)
 	defer unlock()
-	errPack := d.cache.Remove(key)
 	errPart := d.cache.RemovePart(key)
+	d.mountsMu.Lock()
+	if m := d.mounts[key]; m != nil {
+		m.removePending = true
+		d.mountsMu.Unlock()
+		return errPart
+	}
+	d.mountsMu.Unlock()
+	errPack := d.cache.Remove(key)
 	return errors.Join(errPack, errPart)
+}
+
+// checkSpec refuses a PackSpec that could never verify, before Fetch touches the cache, so a malformed spec cannot delete a good cached pack (#546).
+func (d *DLCManager) checkSpec(spec PackSpec) error {
+	if strings.TrimSpace(spec.ID) == "" {
+		return errors.New("assets: dlc: pack ID is required")
+	}
+	if spec.Size < 0 {
+		return fmt.Errorf("%w: pack %q has a negative size %d", ErrSizeMismatch, spec.ID, spec.Size)
+	}
+	if spec.Size > d.limits.MaxPackBytes {
+		return fmt.Errorf("%w: pack %q is %d bytes, more than %d", ErrPackTooLarge, spec.ID, spec.Size, d.limits.MaxPackBytes)
+	}
+	if _, err := decodeSHA256(spec.SHA256); err != nil {
+		return fmt.Errorf("%w: pack %q: %v", ErrHashMismatch, spec.ID, err)
+	}
+	if strings.TrimSpace(spec.Signature) != "" {
+		if _, err := decodeSignature(spec.Signature); err != nil {
+			return fmt.Errorf("%w: pack %q: %v", ErrInvalidSignature, spec.ID, err)
+		}
+	}
+	return nil
 }
 
 // Fetch ensures spec is compatible with AppBuild, checks and re-verifies any
@@ -690,16 +747,16 @@ func (d *DLCManager) Remove(spec PackSpec) error {
 // and ZIP structure, commits atomically to the cache, and returns the mounted
 // ZIP archive as an fs.FS.
 //
+// The returned fs.FS also implements io.Closer and fs.ReadFileFS. It reads through the one cache reader it was verified on, and each file as it decompresses, bounded by PackLimits. Close it when the pack is no longer used: that releases the cache entry for Remove; one that is never closed is released when it is garbage collected. FetchGroup closes the pack it mounts when the group is reset or mounted again.
+//
 // On network or context interruption, the .part entry is preserved so a
-// subsequent Fetch resumes via HTTP Range ("bytes=<offset>-"). On any
-// compatibility or verification failure, corrupt or mismatched .part and pack
-// entries are immediately removed from the cache.
+// subsequent Fetch resumes via HTTP Range ("bytes=<offset>-"). A spec that could never verify (a missing ID, a negative Size, a malformed SHA256 or Signature) is refused before the cache is touched. A cached pack whose bytes do not match the spec's size or SHA-256, and a download that fails verification, are removed from the cache; a cached pack whose bytes match but whose signature or contents are refused is kept, because downloading it again would fetch the same bytes.
 func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(downloaded, total int64)) (fs.FS, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(spec.ID) == "" {
-		return nil, errors.New("assets: dlc: pack ID is required")
+	if err := d.checkSpec(spec); err != nil {
+		return nil, err
 	}
 
 	key := spec.CacheKey()
@@ -709,7 +766,7 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	// 1. Check build compatibility upfront before any network or mount work.
 	if !spec.Compatible(d.appBuild) {
 		_ = d.cache.RemovePart(key)
-		_ = d.cache.Remove(key)
+		d.removeUnlessMounted(key)
 		return nil, fmt.Errorf("%w: app build %d incompatible with pack %q (min=%d max=%d)",
 			ErrIncompatibleBuild, d.appBuild, spec.ID, spec.MinBuild, spec.MaxBuild)
 	}
@@ -720,16 +777,18 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 
 	// 2. Re-verify an already cached pack before using it.
 	if r, size, err := d.cache.Open(key); err == nil {
-		zr, verifyErr := d.verifyPack(r, size, spec)
+		zr, bytesBad, verifyErr := d.verifyPack(r, size, spec)
 		if verifyErr == nil {
 			if onProgress != nil {
 				onProgress(size, size)
 			}
-			return zr, nil
+			return d.newPackFS(key, r, zr), nil
 		}
 		closeReader(r)
-		_ = d.cache.Remove(key)
-		_ = d.cache.RemovePart(key)
+		if bytesBad {
+			_ = d.cache.Remove(key)
+			_ = d.cache.RemovePart(key)
+		}
 		return nil, verifyErr
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("assets: dlc %q: open cache: %w", spec.ID, err)
@@ -741,12 +800,12 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	if err != nil {
 		return nil, fmt.Errorf("assets: dlc %q: stat partial download: %w", spec.ID, err)
 	}
-	if spec.Size > 0 && offset > spec.Size {
+	if limit := d.maxDownload(spec); offset > limit {
 		_ = d.cache.RemovePart(key)
 		offset = 0
 	} else if spec.Size > 0 && offset == spec.Size {
 		if r, size, openErr := d.cache.OpenPartReader(key); openErr == nil {
-			_, verifyErr := d.verifyPack(r, size, spec)
+			_, _, verifyErr := d.verifyPack(r, size, spec)
 			closeReader(r) // release the staging file before it is renamed
 			if verifyErr == nil {
 				if commitErr := d.cache.CommitPart(key); commitErr != nil {
@@ -775,14 +834,14 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	r, size, err := d.cache.OpenPartReader(key)
 	if err != nil {
 		_ = d.cache.RemovePart(key)
-		_ = d.cache.Remove(key)
+		d.removeUnlessMounted(key)
 		return nil, fmt.Errorf("assets: dlc %q: open partial pack: %w", spec.ID, err)
 	}
-	_, err = d.verifyPack(r, size, spec)
+	_, _, err = d.verifyPack(r, size, spec)
 	closeReader(r) // release the staging file before it is renamed
 	if err != nil {
 		_ = d.cache.RemovePart(key)
-		_ = d.cache.Remove(key)
+		d.removeUnlessMounted(key)
 		return nil, err
 	}
 
@@ -794,19 +853,34 @@ func (d *DLCManager) Fetch(ctx context.Context, spec PackSpec, onProgress func(d
 	return d.openVerifiedCommitted(key, spec)
 }
 
+// maxDownload is the most bytes a download of spec may write: its Size, or PackLimits.MaxPackBytes when it has none.
+func (d *DLCManager) maxDownload(spec PackSpec) int64 {
+	if spec.Size > 0 {
+		return spec.Size
+	}
+	return d.limits.MaxPackBytes
+}
+
 // openVerifiedCommitted opens the committed pack and verifies it again on the very reader it mounts, so bytes swapped in between the staging check and the mount are never served (#546).
 func (d *DLCManager) openVerifiedCommitted(key string, spec PackSpec) (fs.FS, error) {
 	r, size, err := d.cache.Open(key)
 	if err != nil {
 		return nil, fmt.Errorf("assets: dlc %q: open committed pack: %w", spec.ID, err)
 	}
-	zr, err := d.verifyPack(r, size, spec)
+	zr, _, err := d.verifyPack(r, size, spec)
 	if err != nil {
 		closeReader(r)
 		_ = d.cache.Remove(key)
 		return nil, err
 	}
-	return zr, nil
+	return d.newPackFS(key, r, zr), nil
+}
+
+// closeFS closes fsys when it holds a resource, such as a pack Fetch mounted.
+func closeFS(fsys fs.FS) {
+	if c, ok := fsys.(io.Closer); ok {
+		_ = c.Close()
+	}
 }
 
 // closeReader releases r early when it holds a resource, such as the open file of a DirPackCache entry; otherwise the resource is released when r is garbage collected.
@@ -824,6 +898,8 @@ func closeReader(r io.ReaderAt) {
 // FetchGroup blocks until download and group loading finish or ctx (or
 // loader's scope) is cancelled, so it should be called off the engine
 // goroutine.
+//
+// The group owns the mounted pack: Group.Reset, Group.SetFS, a later FetchGroup into the same group and disposing loader's scope release it, and with it the cache entry for Remove.
 func (d *DLCManager) FetchGroup(
 	ctx context.Context,
 	loader *Manager,
@@ -864,14 +940,17 @@ func (d *DLCManager) FetchGroup(
 
 	loader.cx.Post(func() {
 		if loader.isDisposed() {
+			closeFS(packFS)
 			doneCh <- loadResult{err: context.Canceled}
 			return
 		}
 		g := loader.Group(groupName)
 		// A reused group must forget the previous pack's specs; otherwise its
 		// next load reads the old pack's asset list against the new pack.
+		// Reset also releases the previous pack.
 		g.Reset()
 		g.SetFS(packFS)
+		g.pack, _ = packFS.(*mountedPack)
 		if registerFn != nil {
 			if err := registerFn(g, packFS); err != nil {
 				doneCh <- loadResult{err: err}
@@ -940,31 +1019,36 @@ func (d *DLCManager) handleDownloadResponse(
 		totalSize = spec.Size
 	}
 
+	limit := d.maxDownload(spec)
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
 		if offset == 0 {
 			return false, fmt.Errorf("assets: dlc %q: unexpected 206 Partial Content without Range request", spec.ID)
 		}
-		if cr := resp.Header.Get("Content-Range"); cr != "" {
-			start, _, total, ok := parseContentRange(cr)
-			if !ok {
-				return false, fmt.Errorf("assets: dlc %q: invalid Content-Range %q", spec.ID, cr)
+		// Appending a body whose range the server does not state could splice the wrong bytes onto the partial download, so a 206 without Content-Range starts over (#546).
+		cr := resp.Header.Get("Content-Range")
+		if cr == "" {
+			return true, nil
+		}
+		start, _, total, ok := parseContentRange(cr)
+		if !ok {
+			return false, fmt.Errorf("assets: dlc %q: invalid Content-Range %q", spec.ID, cr)
+		}
+		if start != offset {
+			return false, fmt.Errorf("assets: dlc %q: Content-Range start %d does not match requested offset %d", spec.ID, start, offset)
+		}
+		if total >= 0 {
+			if spec.Size > 0 && total != spec.Size {
+				_ = d.cache.RemovePart(key)
+				return false, fmt.Errorf("%w: server total %d != spec size %d", ErrSizeMismatch, total, spec.Size)
 			}
-			if start != offset {
-				return false, fmt.Errorf("assets: dlc %q: Content-Range start %d does not match requested offset %d", spec.ID, start, offset)
+			if total > limit {
+				_ = d.cache.RemovePart(key)
+				return false, fmt.Errorf("%w: server total %d is more than %d", ErrPackTooLarge, total, limit)
 			}
-			if total >= 0 {
-				if spec.Size > 0 && total != spec.Size {
-					_ = d.cache.RemovePart(key)
-					_ = d.cache.Remove(key)
-					return false, fmt.Errorf("%w: server total %d != spec size %d", ErrSizeMismatch, total, spec.Size)
-				}
-				if totalSize < 0 {
-					totalSize = total
-				}
+			if totalSize < 0 {
+				totalSize = total
 			}
-		} else if totalSize < 0 && resp.ContentLength >= 0 {
-			totalSize = offset + resp.ContentLength
 		}
 		appendMode = true
 		downloaded = offset
@@ -972,8 +1056,11 @@ func (d *DLCManager) handleDownloadResponse(
 	case http.StatusOK:
 		if spec.Size > 0 && resp.ContentLength >= 0 && resp.ContentLength != spec.Size {
 			_ = d.cache.RemovePart(key)
-			_ = d.cache.Remove(key)
 			return false, fmt.Errorf("%w: server content-length %d != spec size %d", ErrSizeMismatch, resp.ContentLength, spec.Size)
+		}
+		if resp.ContentLength > limit {
+			_ = d.cache.RemovePart(key)
+			return false, fmt.Errorf("%w: server content-length %d is more than %d", ErrPackTooLarge, resp.ContentLength, limit)
 		}
 		if totalSize < 0 && resp.ContentLength >= 0 {
 			totalSize = resp.ContentLength
@@ -987,7 +1074,9 @@ func (d *DLCManager) handleDownloadResponse(
 			// complete archive, let caller verify it cleanly.
 			if spec.Size == 0 {
 				if r, size, openErr := d.cache.OpenPartReader(key); openErr == nil {
-					if _, verifyErr := d.verifyPack(r, size, spec); verifyErr == nil {
+					_, _, verifyErr := d.verifyPack(r, size, spec)
+					closeReader(r)
+					if verifyErr == nil {
 						if onProgress != nil {
 							onProgress(size, size)
 						}
@@ -1019,11 +1108,13 @@ func (d *DLCManager) handleDownloadResponse(
 		}
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
-			if spec.Size > 0 && downloaded+int64(n) > spec.Size {
+			if downloaded+int64(n) > limit {
 				_ = w.Close()
 				_ = d.cache.RemovePart(key)
-				_ = d.cache.Remove(key)
-				return false, fmt.Errorf("%w: download exceeded expected size %d", ErrSizeMismatch, spec.Size)
+				if spec.Size > 0 {
+					return false, fmt.Errorf("%w: download exceeded expected size %d", ErrSizeMismatch, spec.Size)
+				}
+				return false, fmt.Errorf("%w: download of pack %q without a size passed %d bytes", ErrPackTooLarge, spec.ID, limit)
 			}
 			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
 				_ = w.Close()
@@ -1050,14 +1141,18 @@ func (d *DLCManager) handleDownloadResponse(
 	return false, nil
 }
 
-func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (*zip.Reader, error) {
+// verifyPack checks the size, SHA-256, signature and ZIP structure of the pack r holds. bytesBad reports a failure of the bytes themselves (their size, their hash, or reading them), which another download could fix, as opposed to a spec or a pack that verifies the same way every time.
+func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (zr *zip.Reader, bytesBad bool, err error) {
 	if spec.Size > 0 && size != spec.Size {
-		return nil, fmt.Errorf("%w: got %d bytes, want %d", ErrSizeMismatch, size, spec.Size)
+		return nil, true, fmt.Errorf("%w: got %d bytes, want %d", ErrSizeMismatch, size, spec.Size)
+	}
+	if size > d.limits.MaxPackBytes {
+		return nil, true, fmt.Errorf("%w: pack %q is %d bytes, more than %d", ErrPackTooLarge, spec.ID, size, d.limits.MaxPackBytes)
 	}
 
 	expectedHash, err := decodeSHA256(spec.SHA256)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrHashMismatch, err)
+		return nil, false, fmt.Errorf("%w: %v", ErrHashMismatch, err)
 	}
 
 	h := sha256.New()
@@ -1065,44 +1160,46 @@ func (d *DLCManager) verifyPack(r io.ReaderAt, size int64, spec PackSpec) (*zip.
 	buf := make([]byte, d.chunkSize)
 	n, err := io.CopyBuffer(h, sr, buf)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read pack: %v", ErrCorruptPack, err)
+		return nil, true, fmt.Errorf("%w: read pack: %v", ErrCorruptPack, err)
 	}
 	if n != size {
-		return nil, fmt.Errorf("%w: read %d bytes, expected %d", ErrSizeMismatch, n, size)
+		return nil, true, fmt.Errorf("%w: read %d bytes, expected %d", ErrSizeMismatch, n, size)
 	}
 
 	actualHash := h.Sum(nil)
 	if subtle.ConstantTimeCompare(actualHash, expectedHash) != 1 {
-		return nil, fmt.Errorf("%w: got %x, want %x", ErrHashMismatch, actualHash, expectedHash)
+		return nil, true, fmt.Errorf("%w: got %x, want %x", ErrHashMismatch, actualHash, expectedHash)
 	}
 
 	if len(d.publicKey) > 0 || strings.TrimSpace(spec.Signature) != "" || !d.allowUnsigned {
 		if len(d.publicKey) != ed25519.PublicKeySize {
-			return nil, fmt.Errorf("%w: public key missing or invalid length (set DLCOptions.AllowUnsigned to accept unsigned packs)", ErrInvalidSignature)
+			return nil, false, fmt.Errorf("%w: public key missing or invalid length (set DLCOptions.AllowUnsigned to accept unsigned packs)", ErrInvalidSignature)
 		}
 		sigBytes, err := decodeSignature(spec.Signature)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+			return nil, false, fmt.Errorf("%w: %v", ErrInvalidSignature, err)
 		}
 		if !ed25519.Verify(d.publicKey, actualHash, sigBytes) {
-			return nil, fmt.Errorf("%w: verification failed for pack %q", ErrInvalidSignature, spec.ID)
+			return nil, false, fmt.Errorf("%w: verification failed for pack %q", ErrInvalidSignature, spec.ID)
 		}
 	}
 
-	zr, err := zip.NewReader(r, size)
+	zr, err = zip.NewReader(r, size)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid zip archive: %v", ErrCorruptPack, err)
+		return nil, false, fmt.Errorf("%w: invalid zip archive: %v", ErrCorruptPack, err)
 	}
 	if err := validatePackZip(zr, d.limits); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return zr, nil
+	return zr, false, nil
 }
 
 const (
 	maxPackEntries       = 1 << 15
 	maxPackFileUnpacked  = 256 << 20
 	maxPackTotalUnpacked = 1 << 30
+	// maxPackArchive leaves room for the headers of a pack that stores maxPackTotalUnpacked bytes uncompressed.
+	maxPackArchive = maxPackTotalUnpacked + 64<<20
 )
 
 // validatePackZip bounds what a downloaded pack can expand to, so a hostile or

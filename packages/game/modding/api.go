@@ -270,7 +270,8 @@ func (a *ModAPI) OnStep(fn func(dt float64)) (func(), error) {
 	h := &stepHook{id: a.nextHookID, fn: fn, active: true}
 	a.stepHooks = append(a.stepHooks, h)
 	return func() {
-		if !h.active {
+		if !h.active || a.closed {
+			h.active = false
 			return
 		}
 		h.active = false
@@ -296,7 +297,9 @@ func (a *ModAPI) OnEvent(name string, fn func(payload any)) (func(), error) {
 	h := &eventHook{id: a.nextHookID, name: name, fn: fn, active: true}
 	a.eventHooks[name] = append(a.eventHooks[name], h)
 	return func() {
-		if !h.active {
+		// After the mod unloads its hooks are gone (and eventHooks is nil), so unsubscribing then does nothing (#546).
+		if !h.active || a.closed {
+			h.active = false
 			return
 		}
 		h.active = false
@@ -491,6 +494,14 @@ func (a *ModAPI) StorageRemove(key string) error {
 
 func (a *ModAPI) cleanup() bool {
 	a.closed = true
+	for _, h := range a.stepHooks {
+		h.active = false
+	}
+	for _, hooks := range a.eventHooks {
+		for _, h := range hooks {
+			h.active = false
+		}
+	}
 	a.stepHooks = nil
 	a.eventHooks = nil
 	hadPanels := len(a.panels) > 0

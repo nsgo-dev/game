@@ -429,7 +429,9 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 }
 
 // SetGrant sets a per-mod capability grant for id, further narrowing its manifest capabilities
-// (and ManagerOptions.Grant if set). Takes effect on the next Load or Reload.
+// (and ManagerOptions.Grant if set).
+//
+// On a loaded mod it takes effect at once (#546): the game module checks the new capabilities from the next call, and when the change reaches what the sandbox itself enforces ([CapAudio], [CapStorage]), the mod is unloaded and loaded again with a sandbox built for them, running its entry script again. The error is that load's.
 func (m *Manager) SetGrant(id string, caps Capability) error {
 	mod, ok := m.mods[id]
 	if !ok {
@@ -437,8 +439,26 @@ func (m *Manager) SetGrant(id string, caps Capability) error {
 	}
 	c := caps
 	mod.grant = &c
-	return nil
+	if mod.state != StateLoaded || mod.api == nil {
+		return nil
+	}
+	prev := mod.api.caps
+	next := m.effectiveCapabilities(mod)
+	mod.api.caps = next
+	if prev&sandboxCapabilities == next&sandboxCapabilities {
+		return nil
+	}
+	m.unloadMod(mod)
+	mod.state = StateDiscovered
+	mod.err = nil
+	return m.Load(id)
 }
+
+// sandboxCapabilities are the capabilities the tsx sandbox enforces itself, which loadSingle bakes into a mod's sandbox: changing them needs a new sandbox.
+const sandboxCapabilities = CapAudio | CapStorage
+
+// noStorageQuota is the partition quota a mod without CapStorage gets: the smallest NSGo accepts, since 0 means unlimited. NSGo's sandboxes always expose the "nsgo" module's Storage, with no capability to withhold it, so without this a mod could persist data in its partition whatever its capabilities say (#546).
+const noStorageQuota = 1
 
 // Enable marks mod id as enabled and persists the preference when StorageKey is configured.
 func (m *Manager) Enable(id string) error {
@@ -591,8 +611,15 @@ func (m *Manager) loadSingle(mod *managedMod) (loadErr error) {
 		eventHooks: map[string][]*eventHook{},
 	}
 
+	limits := tsx.DefaultLimits
+	if m.opts.Limits != nil {
+		limits = *m.opts.Limits
+	}
+	if !effCaps.Has(CapStorage) {
+		limits.Storage = noStorageQuota
+	}
 	sandbox := tsx.Sandbox{
-		Limits:        m.opts.Limits,
+		Limits:        &limits,
 		Modules:       []string{GameModule},
 		Storage:       m.sandboxStoragePartition(mod.manifest.ID),
 		WebUnisolated: m.opts.WebUnisolated,
@@ -954,13 +981,23 @@ func (m *Manager) resolvePanelNode(mod *managedMod, p *mountedPanel) core.Node {
 	return node
 }
 
-// Close unloads all mods and releases resources held by the manager.
+// Close unloads all mods and releases resources held by the manager. Afterwards no mod reports [StateLoaded]: [Manager.Info] shows each loaded mod as discovered, or disabled when it is.
 func (m *Manager) Close() {
 	if m.closed {
 		return
 	}
 	m.closed = true
-	if m.unloadAll() {
+	hadPanels := m.unloadAll()
+	for _, mod := range m.mods {
+		if mod.state == StateLoaded {
+			if mod.enabled {
+				mod.state = StateDiscovered
+			} else {
+				mod.state = StateDisabled
+			}
+		}
+	}
+	if hadPanels {
 		// Disposing the mods' scopes removed any panels they contributed; tell
 		// the host so it stops rendering nodes from disposed scopes.
 		m.bumpPanels()

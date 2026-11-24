@@ -53,6 +53,7 @@ type Group struct {
 	m    *Manager
 	name string
 	fs   fs.FS
+	pack *mountedPack // the pack FetchGroup mounted as fs, released when it is replaced
 
 	specs []assetSpec
 	index map[string]int
@@ -103,7 +104,10 @@ func (g *Group) Name() string { return g.name }
 // assets, such as a downloaded DLC zip archive. When set, asset URIs in this
 // group are read from fsys first and fall back to the Manager's asset reader
 // if a file is not present in fsys.
+//
+// Replacing the pack DLCManager.FetchGroup mounted on the group releases that pack, as Reset does.
 func (g *Group) SetFS(fsys fs.FS) *Group {
+	g.releasePack()
 	g.fs = fsys
 	return g
 }
@@ -625,15 +629,11 @@ func (g *Group) failLoad(gen uint64, err error) {
 	}
 }
 
-// Release closes every loaded *audio.Sound in the group (ignoring already-closed
-// sounds), invokes custom release hooks, drops all atlas, image and byte
-// references for GC, cancels any in-flight load, and resets progress to 0 so
-// the group can be loaded again later.
-//
 // Reset drops the group's asset specs and loaded resources, cancels any in-flight
 // load, and leaves the group idle so a new asset set (such as a freshly mounted
-// DLC pack) can be registered into it. Concurrent mounts of the same group must
-// be serialized by the caller.
+// DLC pack) can be registered into it. It also unmounts the group's file system,
+// releasing a pack DLCManager.FetchGroup mounted. Concurrent mounts of the same
+// group must be serialized by the caller.
 func (g *Group) Reset() {
 	if g == nil {
 		return
@@ -641,12 +641,19 @@ func (g *Group) Reset() {
 	g.releaseResources(!g.m.isDisposed())
 	g.specs = nil
 	g.index = make(map[string]int)
+	g.releasePack()
 	g.fs = nil
 	if !g.m.isDisposed() {
 		g.m.cx.Batch(func() { g.totalSig.Set(0) })
 	}
 }
 
+// Release closes every loaded *audio.Sound in the group (ignoring already-closed
+// sounds), invokes custom release hooks, drops all atlas, image and byte
+// references for GC, cancels any in-flight load, and resets progress to 0 so
+// the group can be loaded again later. It keeps the group's specs and mounted
+// file system, so a DLC pack stays mounted for the next Load.
+//
 // Keeping decoded atlas images pinned outside NSGo's 64-source canvas cache
 // waits on nsgo-dev/nsgo#1127.
 func (g *Group) Release() {
