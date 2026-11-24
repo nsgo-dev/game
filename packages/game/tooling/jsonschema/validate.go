@@ -65,7 +65,7 @@ func (s *Schema) Validate(v any) error {
 	return &ValidationError{Issues: val.issues}
 }
 
-// ValidateYAML decodes the single YAML document in data as a YAML language server reads it (mapping keys as strings, timestamps and binary as strings, merge keys merged) and validates it with Validate. A document that is not YAML, or that holds more than one document, is an error that is not a *ValidationError.
+// ValidateYAML decodes the single YAML document in data as a YAML language server reads it (mapping keys as strings, timestamps and binary as strings, merge keys merged, a key repeated within one mapping refused) and validates it with Validate. A document that is not YAML, or that holds more than one document, is an error that is not a *ValidationError.
 func (s *Schema) ValidateYAML(data []byte) error {
 	v, err := DecodeYAML(data)
 	if err != nil {
@@ -142,11 +142,16 @@ func (c *yamlConverter) convert(n *yaml.Node, depth int) (any, error) {
 			if err != nil {
 				return nil, err
 			}
+			name := keyString(k)
+			if _, dup := out[name]; dup {
+				// yaml.v3 refuses a repeated key when it decodes into a struct or map, as Parse does, and so does a language server.
+				return nil, fmt.Errorf("jsonschema: decode YAML: line %d: mapping key %q already defined", key.Line, name)
+			}
 			v, err := c.convert(value, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			out[keyString(k)] = v
+			out[name] = v
 		}
 		// Keys written in the mapping win over merged ones, and earlier merge sources over later ones, as YAML's merge key specifies.
 		for _, m := range merged {
@@ -503,7 +508,11 @@ func describe(v any) string {
 	return "the value"
 }
 
+// formatNumber writes an integral number below 1e21 in full, as encoding/json does, so a bound such as 4294967295 reads as written rather than as 4.294967295e+09.
 func formatNumber(f float64) string {
+	if f == math.Trunc(f) && math.Abs(f) < 1e21 {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
 	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
