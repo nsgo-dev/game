@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
+uid: 519r1nxwtp104
 name: Ward
 virtualWidth: 320
 virtualHeight: 180

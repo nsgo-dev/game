@@ -551,7 +551,7 @@ func TestLitPBRSceneMatchesReference(t *testing.T) {
 	}
 
 	img := renderLitScene(t, w, h, cam, rig, core.RGB(0x0c1018), func(dev *gpu.Device) []litSceneObject {
-		sphere, err := render3d.UploadMesh(nil, dev, uvSphereMesh(1, 24, 16), render3d.MeshUpload{Label: "sphere"})
+		sphere, err := render3d.UploadMesh(nil, dev, lightUVSphereMesh(1, 24, 16), render3d.MeshUpload{Label: "sphere"})
 		if err != nil {
 			t.Fatalf("UploadMesh sphere: %v", err)
 		}
@@ -657,7 +657,7 @@ func TestPointLightRangeSceneMatchesReference(t *testing.T) {
 	}
 
 	img := renderLitScene(t, w, h, cam, rig, core.RGB(0x06080d), func(dev *gpu.Device) []litSceneObject {
-		sphere, err := render3d.UploadMesh(nil, dev, uvSphereMesh(0.7, 24, 16), render3d.MeshUpload{Label: "sphere"})
+		sphere, err := render3d.UploadMesh(nil, dev, lightUVSphereMesh(0.7, 24, 16), render3d.MeshUpload{Label: "sphere"})
 		if err != nil {
 			t.Fatalf("UploadMesh sphere: %v", err)
 		}
@@ -743,7 +743,7 @@ func litViewApp(t *testing.T, retained bool, initialRig render3d.LightRig, opts 
 					}
 				}
 				if mesh == nil || !retained {
-					mesh, err = render3d.UploadMesh(cx, dev, uvSphereMesh(0.95, 20, 14), render3d.MeshUpload{Label: "sphere", Retained: retained})
+					mesh, err = render3d.UploadMesh(cx, dev, lightUVSphereMesh(0.95, 20, 14), render3d.MeshUpload{Label: "sphere", Retained: retained})
 					if err != nil {
 						t.Fatalf("UploadMesh: %v", err)
 					}
@@ -1008,8 +1008,8 @@ func nearF32(a, b, eps float32) bool {
 	return float32(math.Abs(float64(a-b))) <= eps
 }
 
-// uvSphereMesh builds an indexed counter-clockwise UV sphere of radius r with outward unit normals.
-func uvSphereMesh(r float32, slices, stacks int) render3d.Mesh {
+// lightUVSphereMesh builds an indexed counter-clockwise UV sphere of radius r with outward unit normals.
+func lightUVSphereMesh(r float32, slices, stacks int) render3d.Mesh {
 	var m render3d.Mesh
 	for y := 0; y <= stacks; y++ {
 		v := float64(y) / float64(stacks)
