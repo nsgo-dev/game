@@ -18,13 +18,14 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/tooling/credits"
 )
 
 // releaseCommand builds a game's release packages for every platform in one run of nsgo build.
 var releaseCommand = &command{
 	name:    "release",
 	args:    "[dir]",
-	summary: "Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build",
+	summary: "Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build, with a credits file of its assets' licenses",
 	define:  defineRelease,
 	complete: map[string]completion{
 		"output":        filePaths,
@@ -70,12 +71,14 @@ var runNSGo = func(args []string, stdout, stderr io.Writer) error {
 	return cmd.Run()
 }
 
-// releaseSettings are the parts of game.yaml that game release reads: the build output directory and the build targets of the export presets.
+// releaseSettings are the parts of game.yaml that game release reads: the build output directory, the build targets of the export presets and the assets section, whose assets the credits file lists.
 type releaseSettings struct {
 	// Output is export.output, a slash-separated directory inside the project; empty leaves nsgo.yaml's build.output.
 	Output string
 	// Targets are the presets' targets in order, a preset without targets giving its platform name; nil without presets.
 	Targets []string
+	// Assets is the assets section as package project parses it with the whole file; nil when game.yaml has none, and then no credits file is written.
+	Assets *project.Assets
 }
 
 // gameFileKeys are game.yaml's top-level fields, taken from the yaml tags of package project's File (#488) so that the two cannot drift apart, and so that a misspelt section such as exprot is refused rather than ignored.
@@ -96,6 +99,7 @@ func projectFileKeys() []string {
 type gameFileHead struct {
 	Version yaml.Node `yaml:"version"`
 	Export  yaml.Node `yaml:"export"`
+	Assets  yaml.Node `yaml:"assets"`
 }
 
 // exportSection is game.yaml's export section, decoded once knownFields has refused unknown fields.
@@ -110,8 +114,28 @@ type exportPreset struct {
 	Targets  []string `yaml:"targets"`
 }
 
-// parseReleaseSettings reads the version and export section of a game.yaml, refusing unknown top-level fields, a version other than the integer 1, unknown fields in export, an empty preset list, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project.
+// parseReleaseSettings reads the version and export section of a game.yaml, refusing unknown top-level fields, a version other than the integer 1, unknown fields in export, an empty preset list, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project. When the file has an assets section, which game release reads for the credits file, the whole file is parsed and validated by package project, as game assets parses it.
 func parseReleaseSettings(data []byte) (releaseSettings, error) {
+	settings, err := parseExportSettings(data)
+	if err != nil {
+		return releaseSettings{}, err
+	}
+	var head gameFileHead
+	if err := yaml.Unmarshal(data, &head); err != nil {
+		return releaseSettings{}, err
+	}
+	if assets := resolveAlias(&head.Assets); assets.Kind != 0 && assets.Tag != "!!null" {
+		f, err := project.Parse(data)
+		if err != nil {
+			return releaseSettings{}, err
+		}
+		settings.Assets = f.Assets
+	}
+	return settings, nil
+}
+
+// parseExportSettings reads the version and export section of a game.yaml for parseReleaseSettings.
+func parseExportSettings(data []byte) (releaseSettings, error) {
 	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&doc); err != nil {
@@ -278,6 +302,8 @@ func readReleaseSettings(dir string) (releaseSettings, error) {
 type nsgoSettings struct {
 	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
 	Channel string
+	// Output is build.output, the directory nsgo build writes to when neither -output nor game.yaml's export.output says, relative to the project unless absolute; empty is nsgo's default, dist.
+	Output string
 }
 
 // readNSGoSettings reads dir's nsgo.yaml. The file is nsgo's, which validates it when it builds, so fields game release does not read are left alone rather than refused.
@@ -294,11 +320,33 @@ func readNSGoSettings(dir string) (nsgoSettings, error) {
 		Updates struct {
 			Channel string `yaml:"channel"`
 		} `yaml:"updates"`
+		Build struct {
+			Output string `yaml:"output"`
+		} `yaml:"build"`
 	}
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return nsgoSettings{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return nsgoSettings{Channel: file.Updates.Channel}, nil
+	return nsgoSettings{Channel: file.Updates.Channel, Output: file.Build.Output}, nil
+}
+
+// nsgoDefaultOutput is the directory nsgo build writes to when nsgo.yaml's build.output is empty, from NSGo v0.3.0's cmd/nsgo/project.go.
+const nsgoDefaultOutput = "dist"
+
+// releaseOutput returns the absolute directory nsgo build writes the release to, as releaseArgs passes it and nsgo resolves it: -output, relative to the working directory, else game.yaml's export.output, else nsgo.yaml's build.output, else dist, these relative to dir.
+func releaseOutput(dir string, opts releaseOptions, settings releaseSettings, nsgo nsgoSettings) (string, error) {
+	switch {
+	case opts.output != "":
+		return filepath.Abs(opts.output)
+	case settings.Output != "":
+		return filepath.Join(dir, filepath.FromSlash(settings.Output)), nil
+	case nsgo.Output != "":
+		if filepath.IsAbs(nsgo.Output) {
+			return filepath.Clean(nsgo.Output), nil
+		}
+		return filepath.Join(dir, filepath.FromSlash(nsgo.Output)), nil
+	}
+	return filepath.Join(dir, nsgoDefaultOutput), nil
 }
 
 // releaseOptions are game release's flags.
@@ -414,12 +462,33 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		if err != nil {
 			return err
 		}
+		// The credits are collected before building, so an asset without a license stops the release before nsgo build spends its time.
+		var entries []credits.Entry
+		var creditsDir string
+		if settings.Assets != nil {
+			if entries, err = credits.Collect(dir, settings.Assets); err != nil {
+				return err
+			}
+			if creditsDir, err = releaseOutput(dir, opts, settings, nsgo); err != nil {
+				return err
+			}
+		}
 		if *dryRun {
 			fmt.Fprintln(a.stdout, shellQuote(append([]string{"go"}, args...)))
+			if creditsDir != "" {
+				fmt.Fprintf(a.stdout, "# then writes the credits of %d assets to %s\n", len(entries), filepath.Join(creditsDir, credits.FileName))
+			}
 			return nil
 		}
 		if err := runNSGo(args, a.stdout, a.stderr); err != nil {
 			return fmt.Errorf("nsgo build: %w", err)
+		}
+		if creditsDir != "" {
+			name, err := credits.Write(creditsDir, entries)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(a.stdout, "wrote the credits of %d assets to %s\n", len(entries), name)
 		}
 		return nil
 	}

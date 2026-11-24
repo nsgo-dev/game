@@ -317,12 +317,22 @@ func TestParseReleaseSettingsFollowsAliases(t *testing.T) {
 }
 
 func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
-	settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\neditor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n"))
+	settings, err := parseReleaseSettings([]byte(assetsProjectHead + "editor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"web"}; !reflect.DeepEqual(settings.Targets, want) {
 		t.Fatalf("targets %q, want %q", settings.Targets, want)
+	}
+	if settings.Assets == nil || settings.Assets.Manifest == nil || settings.Assets.Manifest.Out != "gen/assets.go" {
+		t.Fatalf("assets %+v, want the manifest target", settings.Assets)
+	}
+	// The assets section is read through package project, which validates the whole file, as game assets does.
+	if _, err := parseReleaseSettings([]byte("version: 1\nname: Demo\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n")); err == nil || !strings.Contains(err.Error(), "project: id") {
+		t.Fatalf("an invalid project file with assets: %v", err)
+	}
+	if settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\nassets: null\n")); err != nil || settings.Assets != nil {
+		t.Fatalf("a null assets section: %+v, %v", settings, err)
 	}
 	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets", "packs"}
 	if !reflect.DeepEqual(gameFileKeys, want) {

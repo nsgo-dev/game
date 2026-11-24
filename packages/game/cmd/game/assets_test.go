@@ -220,6 +220,10 @@ func TestOneGameYAMLServesReleaseEditorAndAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeDot(t, filepath.Join(dir, "art/ui/dot.png"), color.NRGBA{R: 255, A: 255})
+	// game release lists the atlas's image in the credits file, so it needs a credit.
+	if err := os.WriteFile(filepath.Join(dir, "art/ui/dot.png.import.yaml"), []byte("version: 1\ncredit: {author: Ana, license: CC0-1.0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
 		t.Fatal(err)
 	}

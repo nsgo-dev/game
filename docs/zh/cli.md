@@ -22,7 +22,7 @@ go tool game help
 | `manifest` | 从资源目录生成带类型的 Go 资源清单，缺少资源时构建失败 |
 | `tex` | 把 PNG 或 JPEG 纹理编码为 BC1、BC3、ETC2 或 RGBA8 格式的 KTX2 容器，可选生成 mipmap |
 | `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开演示场景 |
-| `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包 |
+| `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包，并附上列出各资源许可证的署名文件 |
 | `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
@@ -33,12 +33,13 @@ go tool game help
 | `mv` | 移动或重命名项目中的文件或目录，改写所有指向它的引用，并保持项目索引最新 |
 | `index` | 给每个场景文件和资源文件分配 uid，把引用指向未经工具移动的文件的新位置，并写出项目索引 |
 | `library` | 在库中查找资源、编辑器插件和模板包并安装到项目中，更新或移除它们，或打印包的摘要 |
+| `credits` | 写出 `release` 随发布附带的署名文件：每个资源的作者和许可证，取自它旁边的导入设置附属文件，有资源缺少署名时失败 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。[命令参考](cli-reference.md)在一页中列出每个命令的参数及其默认值，由命令定义生成。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用、`generate` 要写的文件已存在）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用、`generate` 要写的文件已存在、有资源缺少署名）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -109,7 +110,9 @@ export:
     - platform: android
 ```
 
-命令只读取 `game.yaml` 的 `version`（必须是整数 1）和 `export` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload` 和 `export`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
+命令读取 `game.yaml` 的 `version`（必须是整数 1）、`export` 部分，以及为署名文件读取的 `assets` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload`、`export`、`editor` 和 `assets`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
+
+`game.yaml` 有 `assets` 部分时（此时整个文件都必须通过[项目文件](project.md)的校验），发布会附带一份署名文件：`nsgo build` 成功后，命令把 `CREDITS.md` 写入输出目录、与各个包放在一起，列出该部分涉及的每个资源的作者、许可证和来源，以及许可证要求随资源附带的每段声明，内容取自每个资源的[导入设置附属文件](#资源旁的导入设置)中的 `credit` 部分，与 [`game credits`](#credits) 写出的相同。这些资源是每个图集打包的图片、每个纹理和音频目标的输入，以及资源清单在其文件夹里列出的每个文件（例如字体、地图和模型），但不含各目标写出的文件，因为它们由这些输入生成。只要有资源缺少署名，发布就会在构建任何东西之前停止，并列出需要写的附属文件；`-dry-run` 同样检查署名，并给出它会写出的文件。没有 `assets` 部分的游戏不生成署名文件。
 
 一台机器能构建哪些目标，以 `nsgo doctor` 的显示为准：iOS 需要装有 Xcode 的 Mac，macOS 磁盘映像需要在已登录的会话里运行 `hdiutil`，所以为所有平台发布要在 Mac 上运行。
 
@@ -266,7 +269,7 @@ assets:
 
 #### 资源旁的导入设置
 
-图片或声音可以带一个附属文件（sidecar）（字体和模型在 `game assets` 里还没有对应的目标，所以附属文件没有它们的部分）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它，与 Godot 的 `.import` 文件相同。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/packages/game/tooling/importsettings` 包读写；它含有 `image` 或 `audio` 部分之一，不能两者都有，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
+资源可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它（与 Godot 的 `.import` 文件相同），以及它由谁制作、以什么许可证提供。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/packages/game/tooling/importsettings` 包读写；它含有 `image` 或 `audio` 部分之一（不能两者都有）、一个 `credit` 部分，或者署名加上前两者之一，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
 
 ```yaml
 # art/albedo.png.import.yaml，由纹理目标读取
@@ -297,11 +300,24 @@ audio:
   loop: {start: 44100, end: 1323000}  # 以源文件的采样帧计；end 为 0 或省略表示声音结尾
 ```
 
+```yaml
+# assets/fonts/pixel.ttf.import.yaml，没有目标导入的资源旁的署名
+version: 1
+credit:
+  author: Ana Souza
+  license: OFL-1.1    # SPDX 许可证表达式
+  source: https://example.com/pixel-font
+  notice: |-
+    Copyright 2026 Ana Souza.
+    Licensed under the SIL Open Font License, Version 1.1.
+```
+
 - 纹理目标读取 `filter`、`format`、`mipmaps` 和 `srgb`。`filter` 存放在 KTX2 文件键值数据的 `game.filter` 键下；游戏层目前还没有代码加载 KTX2 纹理或读取这个键，所以它只改变文件，不改变纹理的绘制方式。`slice` 会被拒绝，因为纹理包含整张图片，除非还有图集读取这张图片。
 - 图集目标从它文件夹里每张图片的附属文件中读取 `slice`：图片被切成 `width` × `height` 像素的格子，距上边和左边 `margin` 像素，格子之间相隔 `spacing` 像素，逐行取出，`run.png` 的第 `i` 个格子作为帧 `run_i.png` 打包。`count` 只保留前若干个格子；省略时每个放得下的格子都是一帧。纹理设置（包括 `filter`）在这里会被拒绝，因为图集页面是打包进去的所有图片共用的一张纹理，除非还有纹理目标读取这张图片：同时被两者读取的图片可以同时带两类设置，每个目标各取所需。与文件夹里另一张图片同名的帧会被拒绝。
+- `game release` 和 `game credits` 读取 `credit`。任何资源的附属文件都可以带它，字体、模型与图片、声音一样，可以与 `image` 或 `audio` 部分并存，也可以单独出现；`game assets` 不根据它构建任何东西。`author` 和 `license` 是必填项。`license` 是一个 [SPDX 许可证表达式](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/)：SPDX 许可证列表中的标识符，例如 `CC0-1.0`、`CC-BY-4.0` 或 `OFL-1.1`，用 `AND` 和 `OR` 连接、用括号分组，`+` 表示“或任何更新版本”，`WITH` 表示例外条款，例如 `MIT OR Apache-2.0`；没有标识符的许可证（例如商店或工作室自己的许可证）写作 `LicenseRef-` 加上自己的名字，条款写在 `notice` 里。这里只检查表达式的形式，不对照列表检查标识符，并拒绝 `NONE` 和 `NOASSERTION`。`source` 是资源的来源，通常是一个 URL；`notice` 是许可证要求随资源附带的文字，例如版权声明，会逐字保留，需要时可以写成多行。
 - 音频目标读取全部 `audio` 设置。`loop` 以无限重复的正向循环写入 WAV 输出的 `smpl` 块，并按输出采样率缩放；AAC 和 MP3 不带循环点，所以带循环的声音必须转换为 `wav`。源 WAV 的 `smpl` 块里已有的循环也会照此保留。
 
-附属文件的内容是读取其资源的每个目标的键的一部分，因此新增、编辑或删除附属文件只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game tex` 和 `game audio` 通过参数接收设置，不读取附属文件。目标读取的文件夹（图集的文件夹及其下的文件夹，或纹理、音频输入所在的文件夹）里，如果某个附属文件对应的资源没有任何目标读取，它会被拒绝；因此拼错的文件名、图集文件夹里 JPEG 旁边的附属文件、或者与资源大小写不同的名字（例如 `hero.png` 旁边的 `Hero.PNG.import.yaml`）都会报错，而不是让设置悄无声息地不起作用。
+附属文件的内容是读取其资源的每个目标的键的一部分，因此新增、编辑或删除附属文件只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game tex` 和 `game audio` 通过参数接收设置，不读取附属文件。目标读取的文件夹（图集的文件夹及其下的文件夹，或纹理、音频输入所在的文件夹）里，如果某个附属文件对应的资源没有任何目标读取，它会被拒绝；因此拼错的文件名、图集文件夹里 JPEG 旁边的附属文件、或者与资源大小写不同的名字（例如 `hero.png` 旁边的 `Hero.PNG.import.yaml`）都会报错，而不是让设置悄无声息地不起作用。只含 `credit` 的附属文件不影响构建，所以它可以放在这些文件夹里任何文件旁边，例如 JPEG 或字体，只要该文件确实以完全相同的名字存在。
 
 ### generate
 
@@ -353,6 +369,44 @@ go tool game library digest library/packs/dungeon-tiles
 ```
 
 列出库中与给定词匹配的包（`-kind` 只保留一种类型），并显示项目已安装的版本；把包安装到当前目录（或 `-project`）的项目中，写入包的文件，并在 `game.yaml` 中记录它们以及它们新增的自动加载条目和编辑器插件；用新版本覆盖旧版本；移除已安装的包；以及为库索引打印包目录的摘要。除非 `-index` 指定了其他库，否则使用本仓库中的共享库。索引和包的格式、安装可以覆盖和不能覆盖什么，以及如何添加包，见[资源与插件库](library.md)。
+
+### credits
+
+```sh
+go tool game credits
+go tool game credits -in game.yaml -out CREDITS.md
+```
+
+从 `-in`（默认是 `game.yaml`）的 `assets` 部分写出 `game release` 随包附带的署名文件，写到 `-out`，`-out` 为空时直接打印，不构建任何东西。它列出的资源与 `release` 相同，每个资源的作者、许可证和来源取自它旁边[导入设置附属文件](#资源旁的导入设置)中的 `credit` 部分；只要有资源没有署名，就以 1 退出，并给出每个缺少署名的资源需要的附属文件，因此 CI 可以运行它来确保每个资源都有署名。文件是 Markdown，只取决于署名内容，相同的附属文件总是生成相同的字节：
+
+````markdown
+# Credits
+
+<!-- Generated from the credit section of each asset's import settings sidecar (*.import.yaml). DO NOT EDIT. -->
+
+| Asset | Author | License | Source |
+| --- | --- | --- | --- |
+| `assets/fonts/pixel.ttf` | Ana Souza | OFL-1.1 | <https://example.com/pixel-font> |
+| `sfx/jump.wav` | Kenney | CC0-1.0 |  |
+
+## Licenses
+
+| License | Assets |
+| --- | --- |
+| [CC0-1.0](https://spdx.org/licenses/CC0-1.0.html) | 1 |
+| [OFL-1.1](https://spdx.org/licenses/OFL-1.1.html) | 1 |
+
+## Notices
+
+### `assets/fonts/pixel.ttf`
+
+```text
+Copyright 2026 Ana Souza.
+Licensed under the SIL Open Font License, Version 1.1.
+```
+````
+
+资源按路径排序。许可证表统计每个许可证表达式下的资源数，并把单个 SPDX 标识符链接到它在 SPDX 许可证列表中的页面；随后逐字列出每段声明。`github.com/nsgo-dev/game/packages/game/tooling/credits` 包负责收集署名并写出文件，游戏若想在自己的界面里展示署名也可以使用它。
 
 ### completion
 

@@ -151,6 +151,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tooling/assetcheck` | Experimental | [Command Line](cli.md) |
 | `game/tooling/audioconv` | Experimental | |
 | `game/tooling/bench` | Experimental | [Command Line](cli.md) |
+| `game/tooling/credits` | Experimental | [Command Line](cli.md) |
 | `game/tooling/datatable` | Experimental | |
 | `game/tooling/devstate` | Experimental | |
 | `game/tooling/hotreload` | Experimental | |
