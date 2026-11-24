@@ -272,6 +272,100 @@ func TestLightmapTexCoordsAndFallback(t *testing.T) {
 	if len(fbUVs2) != 3 || fbUVs2[1] != (math3d.Vec2{X: 2, Y: 0}) {
 		t.Fatalf("LightmapTexCoords fallback UVs = %v", fbUVs2)
 	}
+
+	// Neither TEXCOORD_1 nor TEXCOORD_0: an error instead of every vertex sampling texel (0, 0).
+	bare := gltf.Primitive{Positions: []math3d.Vec3{{}, {X: 1}, {Y: 1}}}
+	if uvs, _, err := docNoUV1.LightmapTexCoords(bare, nil); err == nil {
+		t.Fatalf("LightmapTexCoords without any UV set = %v, want error", uvs)
+	}
+}
+
+func TestMaterialLightmapTransformPrecedence(t *testing.T) {
+	materials := []map[string]any{
+		{
+			// KHR_texture_transform, then scaleOffset, then uvScale: uvScale wins for scale, scaleOffset for offset.
+			"extensions": map[string]any{
+				"EXT_lightmap": map[string]any{
+					"index":       0,
+					"scaleOffset": []float32{0.5, 0.5, 0.25, 0.25},
+					"uvScale":     []float32{0.125, 0.25},
+					"extensions": map[string]any{
+						"KHR_texture_transform": map[string]any{"scale": []float32{2, 2}, "offset": []float32{0.9, 0.9}},
+					},
+				},
+			},
+		},
+		{
+			// KHR_texture_transform alone, with a texCoord override.
+			"extensions": map[string]any{
+				"MOZ_lightmap": map[string]any{
+					"index": 0,
+					"extensions": map[string]any{
+						"KHR_texture_transform": map[string]any{"scale": []float32{0.5, 0.5}, "offset": []float32{0.5, 0}, "texCoord": 2},
+					},
+				},
+			},
+		},
+	}
+	doc, err := gltf.Load(buildLightmapTestGLTF(t, true, true, materials, 1), nil)
+	if err != nil {
+		t.Fatalf("gltf.Load: %v", err)
+	}
+	ref0, err := doc.MaterialLightmap(0)
+	if err != nil {
+		t.Fatalf("MaterialLightmap(0): %v", err)
+	}
+	if ref0.UVScale != [2]float32{0.125, 0.25} || ref0.UVOffset != [2]float32{0.25, 0.25} {
+		t.Fatalf("precedence: scale %v offset %v, want [0.125 0.25] [0.25 0.25]", ref0.UVScale, ref0.UVOffset)
+	}
+
+	ref1, err := doc.MaterialLightmap(1)
+	if err != nil {
+		t.Fatalf("MaterialLightmap(1): %v", err)
+	}
+	if ref1.UVScale != [2]float32{0.5, 0.5} || ref1.UVOffset != [2]float32{0.5, 0} {
+		t.Fatalf("KHR_texture_transform: scale %v offset %v", ref1.UVScale, ref1.UVOffset)
+	}
+	if ref1.Texture.EffectiveTexCoord() != 2 {
+		t.Fatalf("texCoord override = %d, want 2", ref1.Texture.EffectiveTexCoord())
+	}
+	// UVScale/UVOffset carry the atlas transform, so TransformTexCoords on ref.Texture must return the raw channel rather than apply it again.
+	prim := doc.Meshes[0].Primitives[0]
+	got, err := doc.TransformTexCoords(prim, &ref1.Texture, nil)
+	if err != nil {
+		t.Fatalf("TransformTexCoords: %v", err)
+	}
+	raw, err := doc.PrimitiveTexCoords(prim, 2)
+	if err != nil {
+		t.Fatalf("PrimitiveTexCoords: %v", err)
+	}
+	for i := range raw {
+		if got[i] != raw[i] {
+			t.Fatalf("TransformTexCoords[%d] = %v, want untransformed %v", i, got[i], raw[i])
+		}
+	}
+}
+
+func TestLightmapExtensionsAllowedAsRequired(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal(buildLightmapTestGLTF(t, true, false, []map[string]any{{
+		"extensions": map[string]any{"MOZ_lightmap": map[string]any{"index": 0}},
+	}}, 1), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	doc["extensionsUsed"] = []string{gltf.ExtMOZLightmap, gltf.ExtLightmap}
+	doc["extensionsRequired"] = []string{gltf.ExtMOZLightmap, gltf.ExtLightmap}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	loaded, err := gltf.Load(raw, nil)
+	if err != nil {
+		t.Fatalf("gltf.Load with lightmap extensions required: %v", err)
+	}
+	if ref, err := loaded.MaterialLightmap(0); err != nil || ref == nil {
+		t.Fatalf("MaterialLightmap = %+v, %v", ref, err)
+	}
 }
 
 func TestMaterialLightmapValidationErrors(t *testing.T) {
@@ -287,6 +381,7 @@ func TestMaterialLightmapValidationErrors(t *testing.T) {
 		{"non_positive_rgbm_range", map[string]any{"extensions": map[string]any{"EXT_lightmap": map[string]any{"index": 0, "rgbmMaxRange": 0}}}},
 		{"bad_uv_scale", map[string]any{"extensions": map[string]any{"EXT_lightmap": map[string]any{"index": 0, "uvScale": []float32{1}}}}},
 		{"bad_scale_offset", map[string]any{"extras": map[string]any{"lightmap": map[string]any{"index": 0, "scaleOffset": []float32{1, 1, 0}}}}},
+		{"rotated_transform", map[string]any{"extensions": map[string]any{"MOZ_lightmap": map[string]any{"index": 0, "extensions": map[string]any{"KHR_texture_transform": map[string]any{"rotation": 0.5}}}}}},
 	}
 
 	for _, tc := range cases {

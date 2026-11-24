@@ -305,7 +305,7 @@ func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
 		case "KHR_materials_unlit", "KHR_materials_emissive_strength", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
-			extDraco, extMeshoptEXT, extMeshoptKHR:
+			extDraco, extMeshoptEXT, extMeshoptKHR, ExtMOZLightmap, ExtLightmap:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
 			return nil, jsonData, loaderr.Errorf(loaderr.Path("extensionsRequired", i), "export the model without this extension, such as without Basis Universal (KHR_texture_basisu) texture compression", "required extension %q is not supported", ext)
