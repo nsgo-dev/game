@@ -71,11 +71,11 @@ import "github.com/nsgo-dev/game/packages/game/sprite"
 
 ### Sprite 与 Batch
 
-`Sprite` 是放在绘图中的一帧：可以移动（`X`、`Y`）、旋转（`Rotation`，单位为弧度，顺时针）、缩放（`ScaleX`、`ScaleY`；负值表示镜像）、在未裁剪的帧内翻转（`FlipX`、`FlipY`），淡化（`Alpha`）以及着色（`Tint`），这些都以它的原点（`OriginX`、`OriginY`）为中心。`Z` 决定批次中精灵的先后顺序。
+`Sprite` 是放在绘图中的一帧：可以移动（`X`、`Y`）、旋转（`Rotation`，单位为弧度，顺时针）、缩放（`ScaleX`、`ScaleY`；负值表示镜像）、在未裁剪的帧内翻转（`FlipX`、`FlipY`）、淡化（`Alpha`）、着色（`Tint`）以及应用单精灵特效（`Effect`：纯色闪光与剪影、透明度描边、溶解、调色板替换或自定义像素钩子），这些都以它的原点（`OriginX`、`OriginY`）为中心。`Z` 决定批次中精灵的先后顺序。
 
-它的零值不绘制任何内容；`NewSprite(f)` 返回一个原始尺寸、完全不透明的精灵。着色只与精灵自身的像素相乘，不会改变它下方已绘制的内容。
+它的零值不绘制任何内容；`NewSprite(f)` 返回一个原始尺寸、完全不透明的精灵。`Tint` 与 `Effect` 只改变精灵自身的像素，不会影响相邻精灵和它下方已绘制的内容。
 
-`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序。相邻且只做了平移、旋转和等比缩放的精灵合并为一次 NSGo `DrawAtlas`；镜像、非等比缩放、着色、设置了混合方式或遮罩的精灵各自调用一次 `DrawImageFrom`，着色的精灵调用 `DrawTintedImageFrom`。它会把绘图的状态恢复成绘制前的样子。
+`Batch` 把同一图集的精灵绘制到 `core.Drawing` 中，`Z` 最小的先画，`Z` 相同时按批次中的顺序。相邻且只做了平移、旋转和等比缩放的精灵合并为一次 NSGo `DrawAtlas`；镜像、非等比缩放、着色、设置了混合方式、遮罩或激活了 `Effect` 的精灵单独绘制（`DrawImageFrom`、`DrawTintedImageFrom` 或复用的每槽位特效缓冲区）。`EffectProgram` 与 `EffectShader` 也支持通过 `core.Shader` 在 GPU 上运行内置单精灵特效。它会把绘图的状态恢复成绘制前的样子。
 
 ```go
 walk := atlas.Animations["walk"]

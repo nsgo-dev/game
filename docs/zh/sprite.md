@@ -140,6 +140,7 @@ hero.X, hero.Y = 120, 200
 | `FlipX`、`FlipY` | 在摆放前将画面在未裁剪画框内左右/上下翻转，原点位置保持不变。 |
 | `Alpha` | 不透明度，范围 `[0, 1]`；`<= 0` 不绘制。绘制该精灵时会替换当前绘图的透明度。 |
 | `Tint` | 一个 `core.Color`，在合成前与帧的红、绿、蓝和透明度通道相乘；零值和不透明白色按原样绘制，其他透明度为 `0` 的着色不绘制任何内容。要让精灵淡出，请降低 `Alpha`：着色渐变到透明黑色时就等于零值，会按原样绘制帧。 |
+| `Effect` | 可选的 `*Effect`，只对当前精灵自身的像素应用纯色闪白/剪影、透明度描边、溶解、调色板替换或自定义像素钩子。为 `nil` 或未激活时仍走 `DrawAtlas` 快速路径。 |
 | `Z` | 批次中的前后顺序；`Z` 越大越靠前绘制。 |
 
 着色只改变精灵自身的像素：它通过 NSGo 的 `DrawTintedImageFrom` 绘制，先把图像各通道与着色相乘，再以默认的 source-over 模式合成，因此透明像素不会改变精灵下方已有的内容。`Tint` 可以与 `Alpha`、`Blend` 和 `Mask` 在同一次绘制中组合使用：
@@ -152,6 +153,76 @@ ghost.Tint = core.RGBA(0x80c0ff, 0.5) // 淡蓝色，不透明度减半
 ```
 
 在 Web 上，跨域的图集图片必须允许匿名 CORS 请求，NSGo 才能为它的像素着色。在 HarmonyOS 上，NSGo 可以为从字节或应用资源加载的图集着色，但着色尚未在真机上验证，而由像素缓冲区或离屏图像构建的图集目前在那里不会绘制。
+
+## 单个精灵特效
+
+`Sprite.Tint` 是乘法着色（深色像素在白色着色下仍保持深色），而 `game/effects` 作用于整个游戏视图。要为单个精灵添加受击闪白、剪影、描边、溶解或调色板替换，同时不改变相邻精灵或精灵下方已绘制的内容，请设置 `Sprite.Effect`：
+
+```go
+fx := &sprite.Effect{
+	Flash:   sprite.Flash{Color: core.RGB(0xffffff), Strength: 0.8}, // 或 sprite.Silhouette(core.RGB(0xffffff))
+	Outline: sprite.Outline{Color: core.RGB(0xffdd00), Thickness: 1},
+}
+hero.Effect = fx
+
+// 参数可以每帧修改；清零后精灵会自动回到 DrawAtlas 合批路径。
+fx.Flash.Strength = 0
+```
+
+`Effect` 上的各个阶段按固定顺序组合执行：
+
+1. **`PaletteSwap`**：在非预乘 8 位 sRGB 空间中按顺序匹配 `Entries`（允许 `Tolerance` 容差，先匹配者生效），并按 `To` 的不透明度缩放像素 alpha。
+2. **`Sprite.Tint`**：若同时设置了 `Tint`，在基础精灵颜色上执行乘法着色（因此闪白和描边不会被基础着色压暗）。
+3. **`Dissolve`**：丢弃噪声值低于 `Threshold`（`[0, 1]`）的像素，并可将 `[Threshold, Threshold+EdgeWidth)` 范围内的存活像素向 `EdgeColor` 混合。默认使用由 `Seed` 与单元大小 `Scale` 控制的确定性哈希/值噪声，也可采样自定义灰度 `Noise` 图像。
+4. **`Flash`**：按 `Strength`（`[0, 1]`）把非透明像素的 RGB 向 `Flash.Color` 插值并保留每个像素的透明度。`Silhouette(color)` 等价于 `Strength: 1`。
+5. **`Outline`**：在不透明度达到 `AlphaThreshold`（默认任意非零透明像素）的区域外围绘制宽度为 `Thickness`（源像素单位）的纯色描边。缓冲区会自动在四边扩展 `ceil(Thickness)` 像素的透明边距，因此紧裁剪帧不会被截断，图集中紧邻的其他帧也不会渗色到描边里。
+6. **`Custom`**：可选的逐像素回调 `func(x, y, w, h int, r, g, b, a float32) (nr, ng, nb, na float32)`，在所有内置阶段之后运行于预乘 RGBA 通道上。
+
+### GPU 着色器视图（`EffectShader`）
+
+当单个精灵需要作为独立 GPU 着色器节点渲染时（例如用 `core.AnimatedNode` 在平台帧时钟上零提交驱动 Boss/立绘特效，或在支持 GPU 的平台上直接对 `asset:` URI 图集运行全部特效），可以使用 `EffectProgram`、`Effect.Uniforms` 和 `EffectShader` 通过 Kage 片段着色器（`core.Shader`）运行相同的内置阶段（GPU 调色板替换支持最多 `MaxShaderPaletteEntries` = 8 项）：
+
+```go
+sh, err := sprite.EffectShader(atlas, hero)
+if err != nil {
+	return err
+}
+sh.Uniforms["FlashStrength"] = flashNode // 跟随平台帧时钟动画，无需每帧提交
+```
+
+`EffectProgram` 仅在首次调用时延迟编译，因此只使用 `Batch.Draw` 的游戏不会链接 NSGo 的着色器编译器。
+
+### 单精灵开销
+
+- **未激活 `Effect`**：`nil` 或全零/未激活的 `*Effect` 只增加一次空指针/布尔检查，继续走 `Batch` 的 `DrawAtlas` 合批路径，无额外绘制调用或像素开销。
+- **`Batch.Draw` 中的静态特效**：每个带特效的精灵占用 `Batch` 中一个复用的槽位缓冲区。当图集版本、帧矩形、着色与特效参数与上一帧相同时，`Batch.Draw` 跳过像素重算并复用相同的 `ImageSource.Version`，NSGo 不会重新拷贝或上传纹理（32×32 精灵约 `0.21 µs`）。
+- **`Batch.Draw` 中每帧变化的参数**：`Batch` 原地复用每个槽位的 `*image.RGBA` 和 alpha 临时切片（仅在尺寸超出容量时扩容，并在空闲时收缩多余尾槽），每帧修改 `Flash.Strength`、`Outline.Thickness`、`Dissolve.Threshold` 或 `PaletteSwap.Entries` 均不会产生新的像素缓冲区分配，并单调递增 `ImageSource.Version`。开销与帧像素面积线性相关（`W × H`，开启 `Outline` 时对非完全不透明边缘像素额外检查约 `πr²` 邻域）。Apple Silicon（`-cpu 1`）上 `BenchmarkSpriteEffects` 参考读数：
+
+| 特效（32×32 精灵，每帧修改参数） | 单精灵 CPU 耗时 | 每帧堆分配 |
+| --- | ---: | ---: |
+| `Flash`（16×16） | 0.84 µs | 1（`96 B`，`DrawOp` 图像值） |
+| `Flash`（32×32） | 3.3 µs | 1（`96 B`） |
+| `Outline`（1 px，32×32） | 6.2 µs | 1（`96 B`） |
+| `Outline`（2 px，32×32） | 13.1 µs | 1（`96 B`） |
+| `Dissolve` + 边缘发光（32×32） | 7.1 µs | 1（`96 B`） |
+| 静态 `PaletteSwap`（32×32，命中缓存） | 0.21 µs | 1（`96 B`） |
+
+- **GPU `EffectShader`**：每个精灵视图占用一个 `core.Shader` 表面（图集纹理上传到 GPU 后无需每帧 CPU 像素写入或上传；适合少量主角/Boss/UI 精灵，不适合数百个合批实体）。
+
+### 各目标平台行为与降级方案
+
+只要图集提供可读像素（`Atlas.Image.Pixels != nil`，或提供 `Atlas.Image.Data` 并由应用导入如 `_ "image/png"` 等解码器供 `image.Decode` 延迟解码），`Batch.Draw` 就会输出完全一致的逐像素特效。若图集仅通过 URI 指定（`core.Src("asset:...")`，既无 `Pixels` 也无 `Data`），`Batch.Draw` 会安全降级且绝不修改画布混合模式或影响邻居：完全溶解（`Threshold >= 1`）跳过绘制；`Flash` 降级为 NSGo 逐次绘制乘法着色（`DrawTintedImageFrom`，对变暗闪光和黑色剪影完全精确，但无法将深色像素提亮为白色）；`Outline`、部分 `Dissolve`、`PaletteSwap` 和 `Custom` 则按原样绘制精灵。
+
+| 目标平台 | `Batch.Draw`（`Pixels` 或 `Data` 图集） | `Batch.Draw`（仅 URI 图集） | `EffectShader`（`core.Shader` GPU） |
+| --- | --- | --- | --- |
+| macOS、iOS | 经 `CGImage` 像素缓冲区精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级；完全溶解跳过 | 完整 GPU 着色器（Metal） |
+| Windows | 经 Direct2D 预乘 BGRA 位图精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级；完全溶解跳过 | 完整 GPU 着色器（Direct3D 11） |
+| Linux | 经 Cairo ARGB32 表面精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级；完全溶解跳过 | 完整 GPU 着色器（OpenGL 3.3 / ES 3.0） |
+| Android | 经管道 `Bitmap` 传输精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级；完全溶解跳过 | 完整 GPU 着色器（GLES 3.0） |
+| Web（Wasm） | 经缓存离屏 `<canvas>` 精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级（跨域需 CORS）；完全溶解跳过 | 完整 GPU 着色器（WebGL 2） |
+| HarmonyOS | 经 `PixelMap` 像素缓冲区精确渲染全部特效（`Tint` 合并进像素） | `DrawTintedImageFrom` 闪光降级（尚未真机验证）；完全溶解跳过 | 不可用（着色器视图空白；请使用 `Batch.Draw`） |
+| 小程序 | 经离屏 2D 画布 `putImageData` 精确渲染全部特效 | `DrawTintedImageFrom` 闪光降级；完全溶解跳过 | 不可用（`nsgo_noshader`；请使用 `Batch.Draw`） |
+| 无头测试（`gametest.RenderOps`） | 完整逐像素输出，可直接做像素比对测试 | 记录 `DrawTintedImageFrom` / `DrawImageFrom` 指令 | 在 `nsgotest` 中建模 uniform 通道与绑定 |
 
 ## Batch 与 Z 排序
 

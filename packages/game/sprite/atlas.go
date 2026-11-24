@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
 	"math"
 	"strconv"
 	"time"
@@ -25,6 +26,11 @@ type Atlas struct {
 	Animations map[string]Animation
 	// Slices are the atlas's nine-slice insets by name: an Aseprite export's nine-slice entries in meta.slices.
 	Slices map[string]Insets
+
+	// decoded caches Image.Data decoded into premultiplied RGBA for per-sprite effects.
+	decoded    *image.RGBA
+	decodedSrc []byte
+	decodedVer uint64
 }
 
 // Frame is one picture in an atlas: a part of its image, which a packer may have trimmed of the transparent border the picture had.

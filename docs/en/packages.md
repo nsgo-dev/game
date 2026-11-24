@@ -71,11 +71,11 @@ An `Animation` plays frames one after another, each for its own duration, moved 
 
 ### Sprite and Batch
 
-A `Sprite` is a frame placed in a drawing: moved (`X`, `Y`), turned (`Rotation`, in radians, clockwise), scaled (`ScaleX`, `ScaleY`; negative mirrors), flipped inside its untrimmed frame (`FlipX`, `FlipY`), faded (`Alpha`) and tinted (`Tint`) about its origin (`OriginX`, `OriginY`). `Z` orders the sprites of a batch.
+A `Sprite` is a frame placed in a drawing: moved (`X`, `Y`), turned (`Rotation`, in radians, clockwise), scaled (`ScaleX`, `ScaleY`; negative mirrors), flipped inside its untrimmed frame (`FlipX`, `FlipY`), faded (`Alpha`), tinted (`Tint`) and styled per sprite (`Effect`: solid-color flash and silhouette, alpha outline, dissolve, palette swap or custom pixel hook) about its origin (`OriginX`, `OriginY`). `Z` orders the sprites of a batch.
 
-Its zero value draws nothing; `NewSprite(f)` returns one at full size and opacity. A tint multiplies only the sprite's own pixels, leaving what is drawn under it unchanged.
+Its zero value draws nothing; `NewSprite(f)` returns one at full size and opacity. `Tint` and `Effect` modify only the sprite's own pixels, leaving neighboring sprites and what is drawn under it unchanged.
 
-A `Batch` draws sprites of one atlas into a `core.Drawing`, lowest `Z` first and in the batch's order for the same `Z`. Consecutive sprites that are only moved, rotated and scaled evenly draw with one NSGo `DrawAtlas`; a sprite that is mirrored, scaled unevenly, tinted, blended or masked draws with its own `DrawImageFrom`, or `DrawTintedImageFrom` when tinted. It leaves the drawing's state as it found it.
+A `Batch` draws sprites of one atlas into a `core.Drawing`, lowest `Z` first and in the batch's order for the same `Z`. Consecutive sprites that are only moved, rotated and scaled evenly draw with one NSGo `DrawAtlas`; a sprite that is mirrored, scaled unevenly, tinted, blended, masked or has an active `Effect` draws on its own (`DrawImageFrom`, `DrawTintedImageFrom`, or a reused per-slot effect buffer). `EffectProgram` and `EffectShader` also run the built-in per-sprite effects on the GPU via `core.Shader`. It leaves the drawing's state as it found it.
 
 ```go
 walk := atlas.Animations["walk"]
