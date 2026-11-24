@@ -1519,3 +1519,35 @@ fn fs_main() -> @location(0) vec4<f32> {
 		t.Fatalf("texture at group 0 without CameraLayout: err = %v, want a CameraLayout error", err)
 	}
 }
+
+func TestCustomMaterialKageTypeErrorReportsKageLine(t *testing.T) {
+	src := `package main
+
+func Surface(uv vec2) vec4 {
+	a := uv.x
+	bad := vec2(a, 2.0) + vec3(1.0, 2.0, 3.0)
+	return vec4(bad.x, 0.0, 0.0, 1.0)
+}
+`
+	err := render3d.CompileCheck(src, render3d.ShaderKage, nil)
+	var cerr *render3d.CustomMaterialError
+	if !errors.As(err, &cerr) {
+		t.Fatalf("CompileCheck error = %v, want a CustomMaterialError", err)
+	}
+	if cerr.Line != 5 {
+		t.Fatalf("type error reported at line %d, want Kage line 5: %v", cerr.Line, err)
+	}
+
+	// A local named like a WGSL keyword fails in the translated code and is reported on its Kage line too.
+	src = `package main
+
+func Surface(uv vec2) vec4 {
+	loop := uv.x
+	return vec4(loop, 0.0, 0.0, 1.0)
+}
+`
+	err = render3d.CompileCheck(src, render3d.ShaderKage, nil)
+	if !errors.As(err, &cerr) || cerr.Line < 4 || cerr.Line > 5 {
+		t.Fatalf("WGSL keyword local error = %v, want a CustomMaterialError on Kage line 4 or 5", err)
+	}
+}
