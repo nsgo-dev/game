@@ -1,3 +1,3 @@
 ### Added
 
-- `game/render3d`: distance (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`) and analytical exponential height fog (`Fog`, `Fog.Factor`, `Fog.Apply`, `Fog.Validate`, `Fog.Sanitized`), allocation-free `FogUniforms`/`AppendFogUniforms`, scope-owned retained-capable `GPUFogBuffer`, portable `FogWGSL`/`FogBindingWGSL` shader snippets, and ready-to-use lit `FogPipeline` (#254).
+- `game/render3d`: distance (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`) and analytical exponential height fog (`Fog`, `Fog.Factor`, `Fog.Apply`, `FogCameraPos`), allocation-free `FogUniforms`/`AppendFogUniforms`, a scope-owned `GPUFogBuffer` that survives device loss when retained, fogged lit pipelines (`NewLitPBRFogPipeline` with the buffer at `FogGroup`, and `NewMaterialPipeline` with `MaterialPipelineOptions.FogLayout` at `MaterialFogGroup`), and the `FogWGSL`, `FogBindingWGSL`, `MaterialFogBindingWGSL` and `FogCameraWGSL` shader snippets (#254).

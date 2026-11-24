@@ -180,8 +180,14 @@ fn linear_to_srgb(rgb: vec3<f32>) -> vec3<f32> {
 
 // LitPBRWGSL is a complete, portable metallic-roughness PBR WGSL module built on [CameraWGSL],
 // [LightWGSL], [MeshVertexLayout], and a per-draw [PBRDrawUniform] at [PBRDrawGroup]. Entry points
-// are vs_main and fs_main; use [NewLitPBRPipeline] to create a pipeline from it.
-const LitPBRWGSL = CameraWGSL + LightWGSL + `
+// are vs_main and fs_main; use [NewLitPBRPipeline] to create a pipeline from it. [LitPBRFogWGSL] is
+// the same module with fog.
+const LitPBRWGSL = litPBRPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
+}
+`
+
+// litPBRPreludeWGSL holds the declarations and vertex stage [LitPBRWGSL] and [LitPBRFogWGSL] share.
+const litPBRPreludeWGSL = CameraWGSL + LightWGSL + `
 struct PBRDrawUniform {
 	model: mat4x4<f32>,
 	normal_matrix: mat4x4<f32>,
@@ -213,7 +219,10 @@ fn vs_main(in: PBRVertexIn) -> PBRVertexOut {
 	out.world_normal = (pbr_draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz;
 	return out;
 }
+`
 
+// litPBRFragmentHeadWGSL opens fs_main and computes the lit linear color lit; [LitPBRWGSL] and [LitPBRFogWGSL] each close it with their own return.
+const litPBRFragmentHeadWGSL = `
 @fragment
 fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
 	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
@@ -225,8 +234,6 @@ fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
 		pbr_draw.pbr_params.x,
 		pbr_draw.pbr_params.y,
 	) + pbr_draw.emissive.rgb;
-	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
-}
 `
 
 // DirectionalLight is an infinitely distant light source whose parallel rays travel along Direction.
@@ -806,16 +813,21 @@ func NewLitPBRPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, 
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	mod, err := gpu.CompileWGSL(LitPBRWGSL)
-	if err != nil {
-		return nil, err
-	}
 	layouts := make([]*gpu.BindGroupLayout, PBRDrawGroup+1)
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr", LitPBRWGSL, layouts, depthFormat)
+}
+
+// newLitPBRPipeline compiles src and creates the back-face-culled triangle-list pipeline [NewLitPBRPipeline] and [NewLitPBRFogPipeline] share.
+func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layouts []*gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+	mod, err := gpu.CompileWGSL(src)
+	if err != nil {
+		return nil, err
+	}
 	desc := gpu.PipelineDesc{
-		Label:         "render3d.lit_pbr",
+		Label:         label,
 		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
 		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
 		Layouts:       layouts,

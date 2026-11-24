@@ -9,11 +9,11 @@ Status: implemented
 1. CPU reference evaluation (`Fog.Factor`, `Fog.Apply`) and GPU WGSL shaders (`fog_factor`, `apply_fog`) must match within 1–2 LSBs across all modes and altitudes, including grazing horizontal rays, vertical rays, and high cameras looking down into low valleys without `NaN` or `Inf`.
 2. GPU uniform packing must be 16-byte aligned and allocation-free across all NSGo GPU backends (Metal, D3D11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and NSGo's software GPU renderer).
 3. `GPUFogBuffer` must work with `core.Scope` disposal and `Retained: true` automatic device-loss recovery, including accepting `Update` calls after a restored device replaces the lost `*gpu.Device`.
-4. `FogWGSL` must compose cleanly into arbitrary custom shaders as well as a built-in lit/fogged pipeline without conflicting with parallel `render3d` additions (`texture.go`, `light.go`, `ktx2.go`, `morph.go`).
+4. Fog must reach the engine's real lit pipelines (`NewLitPBRPipeline` with `LightGroup` = 1 and `PBRDrawGroup` = 2, and `NewMaterialPipeline` with `MaterialGroup` = 1), not only a separate sample pipeline, and `FogWGSL` must still compose into custom shaders.
 
 ## Decision
 
-`packages/game/render3d/fog.go` implements distance and analytical exponential height fog as a self-contained pair of CPU evaluators, std140/WGSL uniform layout, GPU buffer wrapper, portable WGSL snippets, and a lit/fogged `FogPipeline`.
+`packages/game/render3d/fog.go` implements distance and analytical exponential height fog as CPU evaluators, a std140/WGSL uniform layout, a GPU buffer wrapper, portable WGSL snippets, and fogged variants of the two lit pipelines: `LitPBRFogWGSL` / `NewLitPBRFogPipeline` and `MaterialFogWGSL` (compiled by `NewMaterialPipeline` when `MaterialPipelineOptions.FogLayout` is set).
 
 ### Uniform contract and shader layout
 
@@ -21,8 +21,9 @@ Status: implemented
   - `color_opacity`: linear RGB fog color in `.xyz`, clamped `MaxOpacity` in `.w` (zero `Fog.MaxOpacity` defaults to `1.0` so idiomatic struct literals apply full fog).
   - `distance_params`: `f32(Mode)` in `.x` (`0=off`, `1=linear`, `2=exp`, `3=exp2`), `Start` in `.y`, `End` in `.z`, `Density` in `.w`.
   - `height_params`: `height_enabled` (`0` or `1`) in `.x`, `HeightBase` in `.y`, `HeightFalloff` in `.z`, `HeightDensity` in `.w`.
-- `FogWGSL` declares `struct Fog`, `fog_exp`, `fog_factor(cam_pos, world_pos, fog)`, and `apply_fog(color, cam_pos, world_pos, fog)` with **no** `@group/@binding` declaration. Shaders that bind `GPUFogBuffer` at `FogGroup` (group 1, alongside `CameraGroup` = 0) prepend `FogBindingWGSL`; custom shaders can bind `Fog` at any group/binding or embed it inside a larger scene uniform block.
-- `NewFogPipeline` compiles `FogLitWGSL` using `MeshVertexLayout`, `CameraBuffer` at `CameraGroup` (0), `GPUFogBuffer` at `FogGroup` (1), and `GPUFogObject` at `FogObjectGroup` (2), handling both perspective (`camera.eye.w > 0.5`) and orthographic (`camera.eye.w <= 0.5`) view rays and zero-length normals safely.
+- `FogWGSL` declares `struct Fog`, `fog_exp`, `fog_factor(cam_pos, world_pos, fog)`, and `apply_fog(color, cam_pos, world_pos, fog)` with **no** `@group/@binding` declaration. `FogBindingWGSL` binds it at `FogGroup` (group 3, after camera 0, lights 1 and the per-draw PBR block 2) and `MaterialFogBindingWGSL` at `MaterialFogGroup` (group 2, after camera 0 and material 1). Custom shaders can bind `Fog` anywhere or embed it in a larger uniform block.
+- `FogCameraWGSL`'s `fog_camera_pos(world_pos)` and the CPU `FogCameraPos(CameraUniform, worldPos)` give the ray's start: the eye under a perspective camera (`camera.eye.w > 0.5`), and under an orthographic camera the point on the camera plane the surface projects from (`world_pos + eye.xyz * view depth`).
+- `LitPBRWGSL` and `MaterialWGSL` are split into shared prelude/fragment-head/tail constants so the fogged variants reuse the exact lighting code and only change the output line: lit PBR fogs the linear color before `linear_to_srgb`, and the material shader fogs the linear radiance before its Reinhard tone map.
 
 ### Analytical height fog and transmittance composition
 
@@ -50,18 +51,26 @@ The textbook one-sided height-fog form `exp(-k*h0) * (1 - exp(-k*(h1-h0))) / (k*
 
 Taking `max(f_dist, f_height)` is simpler and guarantees the result stays in `[0, 1]`. However, it produces a visible slope discontinuity where distance fog overtakes height fog and under-attenuates rays passing through both media. Multiplying transmittances `1 - (1 - f_dist) * (1 - f_height)` is smooth everywhere, exact for additive exponential optical depths (`exp(-tau_d) * exp(-tau_h) = exp(-(tau_d + tau_h))`), and reduces identically to either component when the other is disabled.
 
+### Why fog at group 3 for lit PBR but group 2 for materials?
+
+One group index for both pipelines would be simpler for callers. Group 1 is taken by lights and materials and group 2 by the per-draw PBR block, so the lit PBR pipeline needs group 3. The material pipeline leaves group 2 empty, and NSGo v0.3.0 refuses a pipeline layout with a nil entry (`gpu/device.go` rejects nil `PipelineDesc.Layouts`), so putting its fog at group 3 would force callers to bind an empty placeholder group at 2. Using the first free group in each pipeline keeps both free of placeholders; `MaterialFogGroup` names the difference.
+
+### Why drop the standalone `FogPipeline`?
+
+The first version shipped a Lambert-only `FogPipeline` with its own `FogObject` per-draw block at group 2. It duplicated `PBRDrawBuffer` and left the engine's real lit pipelines without fog, so games using `NewLitPBRPipeline` or `NewMaterialPipeline` would have had to write their own shaders. Fogged variants of those pipelines replace it.
+
 ### Why omit `@group/@binding` from `FogWGSL`?
 
-Declaring `@group(1) @binding(0) var<uniform> fog: Fog;` inside `FogWGSL` would save callers one line when using `GPUFogBuffer` at `FogGroup`. However, engines or materials that already occupy group 1 (or pack fog inside a shared environment buffer) would be unable to reuse `FogWGSL` without string-rewriting it. Splitting `FogWGSL` (struct + pure functions) from `FogBindingWGSL` (`@group(1) @binding(0)`) serves both standalone pipelines and custom shader layouts.
+Declaring the binding inside `FogWGSL` would save callers one line. However, the two built-in pipelines already need different groups, and shaders that pack fog inside a shared environment buffer would be unable to reuse `FogWGSL` without string-rewriting it. Splitting `FogWGSL` (struct + pure functions) from `FogBindingWGSL` / `MaterialFogBindingWGSL` serves both.
 
 ## Consequences
 
-- **Benefit:** CPU `Fog.Factor`/`Fog.Apply` and GPU `FogWGSL`/`FogLitWGSL` agree within 1–2 LSBs across all distance modes, height configurations, orthographic and perspective cameras, and WebGL 2 / GLES 3 capability profiles.
+- **Benefit:** CPU `Fog.Apply` over `ShadePoint` / `EvaluateMaterial` and the GPU fogged pipelines agree within 2–3 LSBs across all distance modes, height configurations, orthographic and perspective cameras, and WebGL 2 / GLES 3 capability profiles.
 - **Benefit:** `AppendFogUniforms` allocates zero bytes per call (~29 ns/op), and `GPUFogBuffer` survives device loss cleanly when `Retained: true`.
 - **Cost:** `FogUniforms` encodes `Mode` and `HeightEnabled` as `f32` flags inside `vec4<f32>` rather than `u32`, which avoids cross-backend std140/uint alignment pitfalls at the cost of floating-point range comparisons (`mode > 0.5 && mode < 1.5`) in WGSL.
-- **Cost:** `FogLitWGSL` uses a single directional light plus ambient term on rigid/uniformly-scaled `Model` matrices; callers requiring PBR lighting or non-uniform scale normal matrices embed `FogWGSL` into their own shader.
+- **Cost:** fog sits at different group indices in the two pipelines (`FogGroup` = 3, `MaterialFogGroup` = 2), so callers bind it with `GPUFogBuffer.Bind` for lit PBR and `SetBindGroup(MaterialFogGroup, ...)` for materials.
 
 ## Testing
 
-- `packages/game/render3d/fog_test.go` verifies exact analytical values at set distances (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`, `MaxOpacity`), height fog at/below/above `HeightBase`, vertical and grazing-ray continuity, high-camera-looking-down stability, validation/sanitization, zero-allocation uniform encoding (`BenchmarkAppendFogUniforms`, `FuzzFogUniformsAndFactor`), software GPU pixel parity against CPU reference within 2 LSBs, golden renders (`fog_linear_distances.png`, `fog_height.png`), `nsgotest` `gpu.View` rendering under both full and `nsgotest.NoGPUCompute` profiles, dynamic `Update`, `Retained` device-loss restoration, and `core.Scope` disposal.
+- `packages/game/render3d/fog_test.go` verifies exact analytical values at set distances (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`, `MaxOpacity`), height fog at/below/above `HeightBase`, vertical and grazing-ray continuity, high-camera-looking-down stability, validation/sanitization, zero-allocation uniform encoding (`BenchmarkAppendFogUniforms`, `FuzzFogUniformsAndFactor`), software GPU pixel parity against `ShadePoint` and `EvaluateMaterial` blended by `Fog.Apply` within 2–3 LSBs, `FogCameraPos` under orthographic and perspective cameras, golden renders (`fog_linear_distances.png`, `fog_height.png`), `nsgotest` `gpu.View` rendering under both full and `nsgotest.NoGPUCompute` profiles, dynamic `Update`, `Retained` device-loss restoration, and `core.Scope` disposal.
 - Verified with `go tool nsgo check -target macos,windows,linux,android,web`, `go tool nsgo test ./render3d/... .`, `go run ./cmd/gameschema -check`, `go run ./tools/changelog check`, and `bun run verify-notes`.

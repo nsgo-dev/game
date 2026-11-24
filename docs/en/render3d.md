@@ -131,6 +131,61 @@ Custom 3D shaders can prepend `CameraWGSL + LightWGSL` to read `@group(1) @bindi
 
 The shading model follows glTF 2.0 metallic-roughness PBR (dielectric `F0 = 0.04`, Schlick Fresnel, Trowbridge-Reitz GGX normal distribution, height-correlated Smith-GGX visibility, energy-conserving Lambertian diffuse, perceptual roughness floored at `0.045`, and IEC 61966-2-1 linear-to-sRGB output). `EvaluatePBR`, `ShadePoint`, `PointLightAttenuation`, and `LinearToSRGB` implement the exact same equations on the CPU; `LightRig.AppendUniformData` and `LightUniforms.Encode` pack the uniform block without allocating. Reference tests verify GPU output pixel-for-pixel against CPU `ShadePoint`, exercise both full and WebGL 2 / GLES 3.0 (`nsgotest.NoGPUCompute`) profiles plus `Retained` device loss, and compare lit scenes against `render3d/testdata/golden/lights_pbr_scene.png` and `lights_point_falloff.png`.
 
+## Distance and height fog (`Fog`, `GPUFogBuffer`)
+
+`Fog` configures distance fog (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`), analytical exponential height fog along the view ray (`HeightEnabled`, `HeightBase`, `HeightFalloff`, `HeightDensity`), or both. `Color` is linear RGB (`math3d.Vec3`) and `MaxOpacity` caps the final blend factor in `(0, 1]` (zero means `1.0`). With both kinds enabled, their transmittances multiply:
+
+```text
+factor = clamp(1 - (1 - f_dist) * (1 - f_height), 0, MaxOpacity)
+```
+
+Height fog integrates the vertical extinction `HeightDensity * exp(-HeightFalloff * (y - HeightBase))` analytically along the segment from the ray's start to the surface, switching to a four-term Taylor expansion near horizontal rays, so grazing and vertical rays stay smooth and a high camera looking down never overflows.
+
+`GPUFogBuffer` holds the 48-byte `FogUniforms` block (`FogUniformSize`) with optional `Retained` survival across device loss. Both lit pipelines take it:
+
+- **Lights**: `NewLitPBRFogPipeline` compiles `LitPBRFogWGSL`, the `LitPBRWGSL` lighting above with the fog buffer at `FogGroup` (group 3) after the camera, lights and per-draw groups. `GPUFogBuffer.Bind` binds it there.
+- **Materials**: set `MaterialPipelineOptions.FogLayout` and `NewMaterialPipeline` compiles `MaterialFogWGSL` with the fog buffer at `MaterialFogGroup` (group 2), after the camera and material groups. Fog blends the linear radiance before the material shader's tone mapping, so the fog color is tone-mapped with the scene.
+
+```go
+fog := render3d.Fog{
+	Mode:          render3d.FogExp,
+	Color:         math3d.Vec3{X: 0.62, Y: 0.72, Z: 0.86},
+	Density:       0.03,
+	MaxOpacity:    0.9,
+	HeightEnabled: true,
+	HeightBase:    2,
+	HeightFalloff: 0.25,
+	HeightDensity: 0.05,
+}
+fogBuf, err := render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "fog", Retained: true})
+pipe, err := render3d.NewLitPBRFogPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), fogBuf.Layout(), gpu.FormatDepth24Plus)
+matPipe, err := render3d.NewMaterialPipeline(cx, dev, camBuf.Layout(), defaults.Layout(), render3d.MaterialPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	FogLayout:   fogBuf.Layout(),
+})
+
+// Each frame:
+_ = fogBuf.Update(frame.Device(), fog)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+fogBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+mesh.Draw(pass)
+
+pass.SetPipeline(matPipe)
+pass.SetBindGroup(render3d.MaterialFogGroup, fogBuf.BindGroup())
+gpuMat.Bind(pass)
+gltfMesh.Draw(pass)
+```
+
+The view ray starts at the eye for a perspective camera. For an orthographic camera it starts on the camera's plane, at the point the surface projects from, so fog grows with the distance from that plane rather than from the camera's position. `FogCameraWGSL`'s `fog_camera_pos(world_pos)` computes that start point in shaders, and `FogCameraPos(cameraUniform, worldPos)` computes the same point on the CPU.
+
+- **CPU reference**: `Fog.Factor(camPos, worldPos)` and `Fog.Apply(color, camPos, worldPos)` evaluate the shader's formulas, with `camPos` the ray's start from `FogCameraPos`. `Fog.Validate` rejects non-finite or out-of-range fields with `ErrInvalidFog`, and `Fog.Sanitized` replaces them with safe defaults. `AppendFogUniforms` packs the block without allocating.
+- **Custom shaders**: prepend `FogWGSL` for the `Fog` struct, `fog_factor(cam_pos, world_pos, fog)` and `apply_fog(color, cam_pos, world_pos, fog)`, then `FogBindingWGSL` (group 3) or `MaterialFogBindingWGSL` (group 2) for the binding, and `FogCameraWGSL` after `CameraWGSL` for the ray start. `FogWGSL` declares no binding of its own, so a shader can also embed `Fog` in its own uniform block.
+
+Reference tests check rendered pixels against `ShadePoint` and `EvaluateMaterial` blended by `Fog.Apply` on the software GPU and in `nsgotest` (`full` and `nsgotest.NoGPUCompute` profiles), cover orthographic cameras, `Update`, `Retained` device loss and scope disposal, and compare against `render3d/testdata/golden/fog_linear_distances.png` and `fog_height.png`.
+
 ## Mesh buffers (`Mesh`, `GPUMesh`)
 
 A `Mesh` is triangle-list geometry on the CPU: `Positions` (required), `Normals` and `UVs` (each empty or one per position) and `Indices` (empty for a non-indexed mesh). The fields have the same types as a glTF primitive's `Positions`, `Normals`, `TexCoords0` and `Indices`, and front faces wind counter-clockwise as in glTF and [math3d](math3d.md). `UploadMesh` validates the mesh and creates its vertex buffer and, when indexed, its index buffer on the [NSGo GPU view](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md)'s `gpu.Device`. The buffers belong to the scope you pass and are released when it is disposed or when you call `GPUMesh.Close`:
@@ -306,53 +361,6 @@ gpuMesh.Draw(pass)
 - **Extensions, metadata & default material**: `GLTFMaterialSet` always uploads a glTF 2.0 default material returned by `DefaultMaterial()` and `Material(-1)` for unassigned primitives. `KHR_materials_emissive_strength` is folded into `EmissiveFactor`, and a negative `normalTexture.scale` flips the normal map's X and Y as the specification allows. `Info(i)` / `InfoForVariant(prim, name)` expose `GLTFMaterialInfo` with the `KHR_materials_unlit` flag (`Unlit`) and per-slot `GLTFTextureSlot` UV metadata (`EffectiveTexCoord`, `Transform` for `KHR_texture_transform`).
 - **What `MaterialWGSL` does not draw**: the shader lights every material and samples every texture with the mesh's `TEXCOORD_0` and no transform. Unlit materials, texture transforms and other UV sets are recorded but not applied, so such assets draw wrong unless you handle them. `GLTFMaterialInfo.Unsupported()` lists these cases for a material and `GLTFTextureSlot.NeedsUVBake()` reports a slot that needs its UVs baked into the mesh (for example with `Document.TransformTexCoords`) or a custom shader.
 - **Khronos reference verification**: `render3d`'s tests render the Khronos `DamagedHelmet` sample and check it against the asset's own base color image: a probe texture reads back the UV of every pixel, and the render must match the decoded JPEG under glTF's UV origin, sRGB color and channel order far better than under a flipped V, a linear upload or swapped channels. The tests also compare the render with `render3d/testdata/damagedhelmet/reference.png` to catch regressions and verify `gpu.View` parity across both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles as well as `Retained` device-loss restoration. The model is licensed CC-BY-NC-4.0, so its directory is a separate module that is left out of the published `packages/game` module, and these tests skip when it is absent.
-
-
-## Distance and height fog (`Fog`, `GPUFogBuffer`, `FogPipeline`)
-
-`Fog` configures distance fog (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`), analytical exponential height fog along the view ray (`HeightEnabled`, `HeightBase`, `HeightFalloff`, `HeightDensity`), or both combined. `Color` is linear RGB and `MaxOpacity` caps the final blend factor in `(0, 1]` (zero defaults to `1.0`). When both distance and height fog are enabled, their transmittances multiply:
-
-```text
-factor = clamp(1 - (1 - f_dist) * (1 - f_height), 0, MaxOpacity)
-```
-
-Height fog integrates vertical extinction `HeightDensity * exp(-HeightFalloff * (y - HeightBase))` analytically along the segment from `camPos` to `worldPos`, using a four-term Taylor expansion near horizontal rays so grazing and vertical rays stay smooth and symmetric without floating-point overflow.
-
-- **CPU reference**: `Fog.Factor(camPos, worldPos)` and `Fog.Apply(color, camPos, worldPos)` evaluate the exact same formulas on the CPU; `Fog.Validate` rejects non-finite or out-of-range fields with `ErrInvalidFog`, and `Fog.Sanitized` replaces invalid values with safe defaults.
-- **GPU uniforms and WGSL**: `Fog.Uniforms` packs the parameters into `FogUniforms` (`FogUniformSize` = 48 bytes, three `vec4<f32>` blocks), and `AppendFogUniforms` writes them with zero allocations when capacity suffices. `GPUFogBuffer` (`NewGPUFogBuffer`, `Update`, `Retained: true` for automatic device-loss restoration) manages the scope-owned uniform buffer and bind group at `FogGroup` (group 1). Prepend `FogWGSL` to any custom shader to call `fog_factor(cam_pos, world_pos, fog)` and `apply_fog(color, cam_pos, world_pos, fog)`, plus `FogBindingWGSL` when binding at `FogGroup`.
-- **Ready-to-use pipeline**: `NewFogPipeline` compiles `FogLitWGSL` for `MeshVertexLayout`, `CameraBuffer` (`CameraGroup`), `GPUFogBuffer` (`FogGroup`), and per-object transforms, base colors, and directional lighting via `FogPipeline.NewObjectBuffer` (`FogObjectGroup`), supporting both perspective and orthographic cameras.
-
-```go
-fog := render3d.Fog{
-	Mode:          render3d.FogExp,
-	Color:         [3]float32{0.62, 0.72, 0.86},
-	Density:       0.03,
-	MaxOpacity:    0.9,
-	HeightEnabled: true,
-	HeightBase:    2,
-	HeightFalloff: 0.25,
-	HeightDensity: 0.05,
-}
-fogBuf, err := render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "fog", Retained: true})
-pipe, err := render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
-	DepthFormat: gpu.FormatDepth24Plus,
-	CullMode:    gpu.CullBack,
-})
-objBuf, err := pipe.NewObjectBuffer(cx, dev, render3d.FogObject{
-	Model:     worldMatrix,
-	BaseColor: [4]float32{0.85, 0.35, 0.2, 1},
-	LightDir:  math3d.Vec3{X: 0.4, Y: 0.8, Z: 0.4},
-	Ambient:   0.3,
-}, render3d.FogBufferOptions{Label: "crate"})
-
-// Each frame:
-_ = fogBuf.Update(frame.Device(), fog)
-pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
-objBuf.Bind(pass)
-mesh.Draw(pass)
-```
-
-The reference tests verify analytical distance and height fog formulas against rendered pixels on the software GPU and in `nsgotest` (`full` and `nsgotest.NoGPUCompute` profiles), and compare against `render3d/testdata/golden/fog_linear_distances.png` and `fog_height.png`.
 
 ## 3D debug draw and transform gizmos
 
