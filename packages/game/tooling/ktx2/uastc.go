@@ -5,8 +5,7 @@ import (
 	"math"
 )
 
-// Pure-Go Khronos UASTC LDR 4x4 (19-mode) decoder and encoder, implementing the
-// Khronos Data Format Specification §22 ("Universal ASTC Compressed Texture Images").
+// Pure-Go Khronos UASTC LDR 4x4 (19-mode) decoder and encoder, implementing the Khronos Data Format Specification §22 ("Universal ASTC Compressed Texture Images").
 
 type uastcModeInfo struct {
 	huffCode    uint8
@@ -379,15 +378,18 @@ func decodeUASTCBlock(block []byte, srgb bool, out *[16][4]uint8) {
 			rem := numEndpoints - idx
 			var bits int
 			var count int
-			switch {
-			case rem >= 5:
-				bits, count = 8, 5
-			case rem == 3:
-				bits, count = 5, 3
-			case rem == 1:
+			// A trailing bundle of fewer than five trits is stored in fewer bits (ASTC integer sequence encoding, as basisu's unpack_uastc reads it).
+			switch rem {
+			case 1:
 				bits, count = 2, 1
+			case 2:
+				bits, count = 4, 2
+			case 3:
+				bits, count = 5, 3
+			case 4:
+				bits, count = 7, 4
 			default:
-				bits, count = 8, rem
+				bits, count = 8, 5
 			}
 			et := readBitsLE128(block, pos, bits)
 			pos += bits
@@ -404,8 +406,16 @@ func decodeUASTCBlock(block []byte, srgb bool, out *[16][4]uint8) {
 		// Unpack quints (3 per 7-bit EQ).
 		idx := 0
 		for idx < numEndpoints {
-			eq := readBitsLE128(block, pos, 7)
-			pos += 7
+			// A trailing bundle of one or two quints is stored in 3 or 5 bits.
+			bits := 7
+			switch numEndpoints - idx {
+			case 1:
+				bits = 3
+			case 2:
+				bits = 5
+			}
+			eq := readBitsLE128(block, pos, bits)
+			pos += bits
 			if eq >= 125 {
 				eq -= 125
 			}
@@ -540,11 +550,7 @@ func decodeUASTC(raw []byte, width, height int, srgb bool) *image.NRGBA {
 	return dst
 }
 
-// encodeUASTC compresses img into Khronos-spec UASTC 4x4 blocks (16 bytes per 4x4 block).
-// Solid blocks use Mode 8 (lossless 8-bit RGBA); opaque blocks select the lowest-error
-// encoding between Mode 5 (8-bit endpoints, 3-bit weights) and Mode 18 (5-bit endpoints,
-// 5-bit weights); blocks with non-opaque alpha use Mode 14 (8-bit RGBA endpoints, 2-bit
-// weights) with endpoint refinement.
+// encodeUASTC compresses img into Khronos-spec UASTC 4x4 blocks (16 bytes per 4x4 block). Solid blocks use Mode 8 (lossless 8-bit RGBA); opaque blocks select the lowest-error encoding between Mode 5 (8-bit endpoints, 3-bit weights) and Mode 18 (5-bit endpoints, 5-bit weights); blocks with non-opaque alpha use Mode 14 (8-bit RGBA endpoints, 2-bit weights) with endpoint refinement.
 func encodeUASTC(img *image.NRGBA, srgb bool) []byte {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	bw := (w + 3) / 4
