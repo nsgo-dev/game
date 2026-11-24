@@ -18,9 +18,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// hdrPatchWGSL draws a solid linear HDR RGBA color supplied via uniform buffer
-// into a clip-space rectangle, letting tests write arbitrary HDR values (> 1.0)
-// into FormatRGBA16Float targets.
+// hdrPatchWGSL draws a solid linear HDR RGBA color supplied via uniform buffer into a clip-space rectangle, letting tests write arbitrary HDR values (> 1.0) into FormatRGBA16Float targets.
 const hdrPatchWGSL = `
 struct PatchColor {
 	rgba: vec4<f32>,
@@ -444,8 +442,7 @@ var hdrCalibrationBands = []hdrBand{
 	{"emissive_blue", math3d.Vec3{X: 0.3, Y: 0.4, Z: 12.0}},
 }
 
-// renderHDRBandsInto draws each band in hdrCalibrationBands as a vertical strip
-// into hdr using linear HDR floats (including values > 1.0).
+// renderHDRBandsInto draws each band in hdrCalibrationBands as a vertical strip into hdr using linear HDR floats (including values > 1.0).
 func renderHDRBandsInto(t *testing.T, dev *gpu.Device, hdr *render3d.HDRTarget, enc *gpu.Encoder) {
 	t.Helper()
 	renderBandsInto(t, dev, hdr, enc, hdrCalibrationBands)
@@ -702,10 +699,7 @@ func storedAsHalf(v float32) float32 {
 }
 
 func TestToneMapHardwareSRGBTargetAvoidsDoubleGamma(t *testing.T) {
-	// Rendering the exact same HDR target into a FormatRGBA8UnormSRGB target
-	// (where ToneMapPass automatically emits linear RGB and hardware applies
-	// sRGB) must match rendering into FormatRGBA8Unorm (where ToneMapPass
-	// applies exact sRGB in the shader).
+	// Rendering the exact same HDR target into a FormatRGBA8UnormSRGB target (where ToneMapPass automatically emits linear RGB and hardware applies sRGB) must match rendering into FormatRGBA8Unorm (where ToneMapPass applies exact sRGB in the shader).
 	const (
 		bandWidth = 8
 		width     = bandWidth * 8
@@ -795,8 +789,7 @@ func TestToneMapHardwareSRGBTargetAvoidsDoubleGamma(t *testing.T) {
 	}
 }
 
-// toneMapViewApp mounts a 64x64 gpu.View that draws an HDR emissive color
-// (4.0, 2.0, 0.5) into an HDRTarget and tone-maps it onto the swapchain.
+// toneMapViewApp mounts a 64x64 gpu.View that draws an HDR emissive color (4.0, 2.0, 0.5) into an HDRTarget and tone-maps it onto the swapchain.
 func toneMapViewApp(t *testing.T, retained bool, optsPtr *render3d.ToneMapOptions, testOpts ...nsgotest.Option) (*nsgotest.App, **render3d.HDRTarget, **render3d.ToneMapPass) {
 	t.Helper()
 	const size = 64
