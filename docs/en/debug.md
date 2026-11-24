@@ -71,6 +71,31 @@ Convenience shortcuts `overlay.DrawBox`, `overlay.DrawCircle`, `overlay.DrawSpri
 overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))
 ```
 
+## Draw statistics
+
+Report each frame's draw submissions in either of two ways, and the overlay shows them as a `Draw: N calls · N sprites · N batches` line, followed by `· N tris · N verts` once either count is non-zero:
+
+1. **Pull via `Options.DrawStats`**: a `func() debug.DrawStats` called whenever the overlay refreshes.
+2. **Push via `overlay.SetDrawStats(stats)`**: used when `Options.DrawStats` is nil; call it once per frame after drawing.
+
+```go
+overlay := debug.New(debug.Options{
+	DrawStats: func() debug.DrawStats {
+		return debug.DrawStats{DrawCalls: r.drawCalls, Sprites: len(actorsBatch.Sprites), Batches: r.batches}
+	},
+})
+```
+
+`overlay.DrawStats()` returns the current values and `overlay.HasDrawStats()` reports whether either source is set; the line stays hidden until one is. [`game/mcp`](mcp.md)'s `game_perf_readout` reports the same values.
+
+## Resetting the readouts
+
+- `overlay.ResetStats()` clears the frame-time ring buffer and any pushed draw statistics and refreshes the HUD. An `Options.DrawStats` callback keeps reporting.
+- `GCMonitor.Reset()` clears the GC frame history, hitch count, pause peaks and per-frame allocation averages, and re-reads the runtime counters so the next frame is measured from that point (see [GC and frame allocations](gc-and-allocations.md)).
+- `Profiler.Reset()` clears every timing scope's accumulated timings and history. Scope names keep their IDs, so a scope still open across the reset is charged to its own name, and a trace recording started with `StartRecording` keeps running and keeps its events.
+
+[`game/mcp`](mcp.md)'s `game_perf_reset` calls all three.
+
 ## Scene inspector
 
 Supply live scene structure in either of two ways:

@@ -38,7 +38,7 @@ func configureGC() {
 
 ### 运行时覆盖层（`GCMonitor`）
 
-将 `debug.NewGCMonitor` 传入 `debug.Options.GC`，每帧以零稳态分配采样 `runtime/metrics`（`/gc/pauses:seconds`、`/gc/cycles/total:gc-cycles`、`/memory/classes/heap/objects:bytes`）：
+将 `debug.NewGCMonitor` 传入 `debug.Options.GC`，每帧以零稳态分配采样 `runtime/metrics`（`/gc/pauses:seconds`、`/gc/cycles/total:gc-cycles`、`/memory/classes/heap/objects:bytes`、`/gc/heap/allocs:objects`、`/gc/heap/allocs:bytes`）：
 
 ```go
 gcMon := debug.NewGCMonitor(debug.FrameHistory)
@@ -48,6 +48,8 @@ overlay := debug.New(debug.Options{
 ```
 
 当某帧内发生 GC 周期或停顿时，该帧会被标记为 `GCFrameSample.Hitched == true`，并直接在调试覆盖层的帧耗时柱状图上高亮标出，同时显示累计周期数、最近/最大停顿、存活堆大小以及近期卡顿帧数。
+
+每个 `GCFrameSample` 还记录该帧内分配的堆对象数与字节数（`AllocsDelta`、`AllocBytesDelta`）。`gcMon.AllocsPerFrame()` 与 `gcMon.AllocBytesPerFrame()` 给出它们在保留历史内的平均值，浮层在 GC 摘要下以 `allocs 12.0/f (1.5 KB/f)` 的形式显示。稳定游玩时这个值始终大于零，说明某条热路径每帧都在分配。在加载画面或切换关卡之后调用 `gcMon.Reset()`，即可丢弃历史，从此刻重新计量。
 
 ### CI 分配回归检查（`AssertZeroAllocs`）
 
