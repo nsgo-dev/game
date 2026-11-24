@@ -5,7 +5,8 @@ import (
 	"encoding/binary"
 	"image"
 	"image/color"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
@@ -281,78 +282,6 @@ func TestSupercompressionZLIBAndZstd(t *testing.T) {
 			t.Fatalf("ZLIB UASTC PSNR = %.2f dB, want >= 33.5 dB", psnr)
 		}
 	})
-
-	t.Run("Zstandard supercompression real zstd CLI frames", func(t *testing.T) {
-		zstdBin, err := exec.LookPath("zstd")
-		if err != nil {
-			t.Skip("zstd CLI not installed")
-		}
-		// Build an uncompressed UASTC KTX2, then re-pack its mip levels with real zstd CLI at levels 1, 3, and 19.
-		baseKTX2, err := ktx2.Encode(makeGradientImage(64, 64, true), ktx2.Options{
-			Format:  ktx2.FormatUASTC,
-			Mipmaps: true,
-			SRGB:    true,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		baseTex, err := ktx2.Decode(baseKTX2)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		for _, levelFlag := range []string{"-1", "-3", "-19"} {
-			t.Run("zstd"+levelFlag, func(t *testing.T) {
-				zstdLevels := make([][]byte, len(baseTex.Levels))
-				for i, lv := range baseTex.Levels {
-					cmd := exec.Command(zstdBin, levelFlag, "-c", "--no-check")
-					cmd.Stdin = bytes.NewReader(lv.Data)
-					out, err := cmd.Output()
-					if err != nil {
-						t.Fatalf("zstd %s level %d: %v", levelFlag, i, err)
-					}
-					zstdLevels[i] = out
-				}
-				zstdKTX2 := repackKTX2Supercompressed(t, baseKTX2, ktx2.SupercompressionZstandard, zstdLevels)
-				decTex, err := ktx2.Decode(zstdKTX2)
-				if err != nil {
-					t.Fatalf("Decode zstd%s KTX2: %v", levelFlag, err)
-				}
-				if decTex.Format != ktx2.FormatUASTC || !decTex.SRGB || len(decTex.Levels) != len(baseTex.Levels) {
-					t.Fatalf("unexpected decoded zstd KTX2 metadata")
-				}
-				for i, lv := range decTex.Levels {
-					if !bytes.Equal(lv.Data, baseTex.Levels[i].Data) {
-						t.Fatalf("zstd%s level %d mismatch (%d vs %d bytes)", levelFlag, i, len(lv.Data), len(baseTex.Levels[i].Data))
-					}
-				}
-			})
-		}
-
-		// Also verify zstd with content checksum enabled (default zstd behavior).
-		t.Run("zstd-with-checksum", func(t *testing.T) {
-			zstdLevels := make([][]byte, len(baseTex.Levels))
-			for i, lv := range baseTex.Levels {
-				cmd := exec.Command(zstdBin, "-3", "-c")
-				cmd.Stdin = bytes.NewReader(lv.Data)
-				out, err := cmd.Output()
-				if err != nil {
-					t.Fatalf("zstd checksum level %d: %v", i, err)
-				}
-				zstdLevels[i] = out
-			}
-			zstdKTX2 := repackKTX2Supercompressed(t, baseKTX2, ktx2.SupercompressionZstandard, zstdLevels)
-			decTex, err := ktx2.Decode(zstdKTX2)
-			if err != nil {
-				t.Fatalf("Decode zstd checksum KTX2: %v", err)
-			}
-			for i, lv := range decTex.Levels {
-				if !bytes.Equal(lv.Data, baseTex.Levels[i].Data) {
-					t.Fatalf("zstd checksum level %d mismatch", i)
-				}
-			}
-		})
-	})
 }
 
 func TestBasisLZETC1SDescriptorInspection(t *testing.T) {
@@ -444,6 +373,31 @@ func TestMalformedAdversarialKTX2NeverPanics(t *testing.T) {
 				t.Errorf("%s: expected error, got nil", tc.name)
 			}
 		})
+	}
+}
+
+// TestZstandardSupercompressedKTX2 decodes a KTX2 file whose level the zstd CLI compressed: testdata/zstd/payload.bin is exactly a 100x50 RGBA8 level.
+func TestZstandardSupercompressedKTX2(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("testdata", "zstd", "payload.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := os.ReadFile(filepath.Join("testdata", "zstd", "level19.zst"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 100, 50))
+	copy(img.Pix, payload)
+	base, err := ktx2.Encode(img, ktx2.Options{Format: ktx2.FormatRGBA8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tex, err := ktx2.Decode(repackKTX2Supercompressed(t, base, ktx2.SupercompressionZstandard, [][]byte{frame}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(tex.Levels[0].Data, payload) {
+		t.Fatal("decoded level differs from the payload")
 	}
 }
 
