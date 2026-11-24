@@ -27,7 +27,7 @@ Out of scope for the initial editor: custom scripting languages, bespoke shader/
 
 ---
 
-## Scene Format (`version: 1`) (#160)
+## Scene Format (`version: 2`) (#160)
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -37,12 +37,15 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `version` | `int` | Required schema version. Must be `1`. |
+| `version` | `int` | Required schema version: `2` (`CurrentVersion`), or `1` for a scene that uses none of the fields version 2 added. `Encode` writes it back unchanged. |
+| `inherits` | `string` | Optional slash-separated path from the project root to a base scene this one inherits (version 2, see Instancing and inheritance below). |
 | `name` | `string` | Optional human-readable scene name. |
 | `virtualWidth`, `virtualHeight` | `float32` | Virtual viewport size in points. Must both be `0` or both positive. |
 | `backgroundColor` | `string` | Optional CSS color string parsed by `core.ParseColor` (for example `"#141824"`). Filled over `(0, 0, virtualWidth, virtualHeight)` before layers draw. |
 | `camera` | object | Optional default 2D camera for world-space layers (`x`, `y`, `zoom`, `rotation`, optional `bounds`). |
 | `tilemaps` | map | Optional named tilemaps referenced from layers via `tilemap.ref`. |
+| `layerOverrides` | map | Changes to inherited layers by name: `space`, `order`, `visible`, `tilemap` (version 2, requires `inherits`). |
+| `overrides` | map | Changes to inherited objects by ID (version 2, requires `inherits`). |
 | `layers` | list | Ordered list of layers drawn lowest `order` first, preserving document order on ties. |
 
 ### Camera
@@ -81,6 +84,8 @@ Each object has:
 - `material`: optional slash-separated path from the project root to a shared material file, such as `materials/stone.material.yaml`, resolved at build time through `MaterialResolver` (see [resource](resources.md))
 - `components`: optional mapping from a component type name to its fields; free-form unless a component registry is given (see [Component types](#component-types))
 - `properties`: optional `map[string]any` for custom metadata
+- `scene`: optional slash-separated path from the project root to a scene file this object instances (version 2, see Instancing and inheritance below)
+- `overrides`: optional changes to the instanced scene's objects by ID (version 2, requires `scene`)
 - `children`: optional list of objects attached to this one (see Node tree below)
 
 ### Node tree (#484)
@@ -130,11 +135,87 @@ pos := nodes.Objects["barrel"].WorldTransform().Pos
 
 Moving, deleting or undoing an object in the editor carries its children along, and the editor never hands out an ID that a nested child already uses. It refuses to place a tree deeper than `MaxObjectDepth` or holding a sheared sprite, and refuses a scale that would shear a child's sprite. The 2D viewport draws nested children through `Build`; the 3D viewport draws and picks top-level objects only, and selecting or editing a nested child in either viewport is not supported yet.
 
+### Instancing and inheritance (#483)
+
+A version 2 scene reuses other scene files the way Godot's scenes do. Every reference is a slash-separated path from the project root, like a material's, and `Parse` and `Encode` keep references and overrides exactly as written: a level of instances saves as the same instances, never as copies of their objects.
+
+An object with `scene` instances that file. The top-level objects of every layer of the instanced scene, in document order, become the object's first children, ahead of its own `children`, so the object's transform places the whole instance. Their IDs are prefixed with the object's ID and a slash, so ten instances of one enemy hold `enemy_1/body` to `enemy_10/body`. `overrides` changes the instanced objects, keyed by their IDs inside the instanced scene; a scene instanced inside it is reached by its prefixed ID, such as `gun/barrel`. The instanced scene's layer settings, camera, background and virtual size do not carry over, and a scene whose layers hold a tilemap cannot be instanced.
+
+```yaml
+# scenes/enemy.scene.yaml
+version: 2
+name: Enemy
+layers:
+  - name: root
+    objects:
+      - id: body
+        sprite: { atlas: actors, frame: hero }
+        properties: { health: 3, speed: 40 }
+        children:
+          - id: torch
+            x: 6
+            sprite: { atlas: actors, frame: torch }
+
+# level.scene.yaml
+version: 2
+layers:
+  - name: actors
+    objects:
+      - id: enemy_1
+        x: 32
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          body:
+            alpha: 0.5
+      - id: enemy_2
+        x: 64
+        "y": 40
+        scene: scenes/enemy.scene.yaml
+        overrides:
+          torch:
+            x: -6
+```
+
+A scene with `inherits` starts as a copy of its base and changes only what it declares:
+
+- `name`, `backgroundColor`, the virtual size and `camera` replace the base's when set, and `tilemaps` entries are added or replaced by name.
+- `overrides` changes inherited objects by ID, nested children and instanced objects (`enemy_1/body`) included.
+- `layerOverrides` changes inherited layers by name.
+- A layer named like one of the base's adds its objects to that layer and may set nothing else; any other layer is added after the base's layers.
+
+An inherited object or layer cannot be removed, and its ID cannot change.
+
+```yaml
+# scenes/fast_enemy.scene.yaml: the enemy above, twice as fast
+version: 2
+inherits: scenes/enemy.scene.yaml
+overrides:
+  body:
+    properties:
+      speed: 80
+```
+
+An override sets any object field except `id`, `children`, `scene` and `overrides`; a field it leaves out keeps the base's value, and a value of `0` or `false` is still a change. `components` and `properties` are replaced key by key, keeping the object's other keys.
+
+`Resolve(doc, scenes)` loads the referenced files through a `SceneResolver`, such as `FSScenes{FS: os.DirFS(root)}`, and returns a self-contained copy in which no object instances anything and nothing is inherited. It loads each file once per call and never changes `doc` or the documents the resolver returns. It refuses a cycle of scenes that instance or inherit each other, a chain deeper than `MaxSceneNesting` files, a result of more than `MaxResolvedObjects` objects, an override that names no object or layer of the scene it changes, and a result that does not validate, such as one whose prefixed IDs collide with other IDs. `Build` resolves a scene itself when its `AssetResolver` also implements `SceneResolver`, and `BuiltScene.Doc` is then the resolved copy; `SpawnEntities` and `BuildNodes3D` refuse a scene that still refers to others, so resolve it first.
+
+```go
+type assets struct {
+	sceneformat.AtlasMap
+	sceneformat.FSScenes
+}
+
+built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: os.DirFS("project")}})
+```
+
+In the editor, `PlaceScene(layer, path, x, y)` places an instance of a scene file as an undoable command, with an ID named after the file. The editor's `Resolver` must implement `SceneResolver`; the file is resolved before it is placed, and placing an instance raises a version 1 scene to version 2 (which Undo restores). The viewports select and move an instance by its root object.
+
 ### Example
 
 ```yaml
-# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
-version: 1
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
 name: Cave Room
 virtualWidth: 320
 virtualHeight: 180
@@ -214,7 +295,7 @@ if err != nil {
 built.Draw(d)
 ```
 
-`Parse` rejects unknown YAML keys, trailing documents, unsupported versions, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
+`Parse` rejects unknown YAML keys, trailing documents, unsupported versions, version 2 fields in a version 1 scene, scene references that are not slash-separated paths from the project root, overrides without the `scene` or `inherits` they change, duplicate layer names or object IDs (nested children included), object trees deeper than `MaxObjectDepth`, invalid spaces, malformed colors, and non-finite or out-of-range transforms. `Encode` validates and emits deterministic 2-space YAML that round-trips through `Parse` without loss.
 
 ### Schema
 

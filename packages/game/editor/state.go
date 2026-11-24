@@ -3,9 +3,12 @@ package editor
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
@@ -700,9 +703,41 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 		layerName:    e.Doc.Layers[li].Name,
 		obj:          placed,
 		prevSelected: e.SelectedID,
+		prevVersion:  e.Doc.Version,
 	}
 	e.History.Execute(cmd)
 	return placed.ID, nil
+}
+
+// PlaceScene places an instance of the scene file at scenePath, a slash-separated path from the project root such as "scenes/enemy.scene.yaml", at (x, y) on layerName (or ActiveLayer when empty) as an undoable command, and returns the new object's ID, derived from the file's name. The saved scene keeps the reference (sceneformat.ObjectDoc.Scene), not a copy of the instanced objects, and the viewport draws them through sceneformat.Build. The editor's Resolver must implement sceneformat.SceneResolver; PlaceScene loads the file through it first and refuses one that fails to resolve. Placing an instance in a version 1 scene raises it to sceneformat.CurrentVersion, which Undo restores.
+func (e *Editor) PlaceScene(layerName, scenePath string, x, y float32) (string, error) {
+	if e.playing {
+		return "", ErrPlaying
+	}
+	scenes, ok := e.Resolver.(sceneformat.SceneResolver)
+	if !ok {
+		return "", errors.New("editor: the resolver cannot load scene files (it does not implement sceneformat.SceneResolver)")
+	}
+	if !validScenePath(scenePath) {
+		return "", fmt.Errorf("editor: scene %q must be a slash-separated path relative to the project root", scenePath)
+	}
+	base := path.Base(scenePath)
+	if i := strings.IndexByte(base, '.'); i > 0 {
+		base = base[:i]
+	}
+	probe := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers:  []sceneformat.LayerDoc{{Name: "probe", Objects: []sceneformat.ObjectDoc{{ID: base, Scene: scenePath}}}},
+	}
+	if _, err := sceneformat.Resolve(probe, scenes); err != nil {
+		return "", err
+	}
+	return e.PlaceObject(layerName, sceneformat.ObjectDoc{ID: e.generateObjectID(base), Scene: scenePath, X: x, Y: y})
+}
+
+// validScenePath reports whether p has the form sceneformat accepts for a scene reference.
+func validScenePath(p string) bool {
+	return fs.ValidPath(p) && p != "."
 }
 
 // PlacePrefab instantiates a registered prefab at (x, y) on layerName as an undoable command.
@@ -1089,6 +1124,8 @@ type placeObjectCmd struct {
 	obj          sceneformat.ObjectDoc
 	prevSelected string
 	wasNilSlice  bool
+	// prevVersion is the scene's version before the placement, which raises a version 1 scene to sceneformat.CurrentVersion when obj instances another scene.
+	prevVersion int
 }
 
 func (c *placeObjectCmd) Label() string { return "Place object " + c.obj.ID }
@@ -1099,6 +1136,9 @@ func (c *placeObjectCmd) Do() {
 		return
 	}
 	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
+	if c.ed.Doc.Version < sceneformat.CurrentVersion && instancesScene(&c.obj) {
+		c.ed.Doc.Version = sceneformat.CurrentVersion
+	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
 	c.ed.SelectedID = c.obj.ID
 	c.ed.Status = "Placed " + c.obj.ID
@@ -1120,7 +1160,18 @@ func (c *placeObjectCmd) Undo() {
 		objs = nil
 	}
 	c.ed.Doc.Layers[li].Objects = objs
+	c.ed.Doc.Version = c.prevVersion
 	c.ed.SelectedID = c.prevSelected
+}
+
+// instancesScene reports whether o or any of its descendants instances a scene file.
+func instancesScene(o *sceneformat.ObjectDoc) bool {
+	found := false
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
+		found = c.Scene != ""
+		return !found
+	})
+	return found
 }
 
 type deleteObjectCmd struct {
@@ -1480,32 +1531,17 @@ func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
 	if o.Sprite != nil && (o.Sprite.Atlas == "" || o.Sprite.Frame == "") {
 		return errors.New("editor: object sprite requires both atlas and frame")
 	}
+	if o.Scene != "" && !validScenePath(o.Scene) {
+		return fmt.Errorf("editor: object scene %q must be a slash-separated path relative to the project root", o.Scene)
+	}
+	if len(o.Overrides) > 0 && o.Scene == "" {
+		return errors.New("editor: object overrides require a scene")
+	}
 	return nil
 }
 
 func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {
-	out := o
-	out.ScaleX = cloneFloat32Ptr(o.ScaleX)
-	out.ScaleY = cloneFloat32Ptr(o.ScaleY)
-	out.ScaleZ = cloneFloat32Ptr(o.ScaleZ)
-	out.Alpha = cloneFloat32Ptr(o.Alpha)
-	if o.Sprite != nil {
-		sp := *o.Sprite
-		out.Sprite = &sp
-	}
-	if o.Components != nil {
-		out.Components = cloneMap(o.Components)
-	}
-	if o.Properties != nil {
-		out.Properties = cloneMap(o.Properties)
-	}
-	if o.Children != nil {
-		out.Children = make([]sceneformat.ObjectDoc, len(o.Children))
-		for i := range o.Children {
-			out.Children[i] = cloneObjectDoc(o.Children[i])
-		}
-	}
-	return out
+	return o.Clone()
 }
 
 func cloneFloat32Ptr(p *float32) *float32 {
