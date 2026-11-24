@@ -63,6 +63,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | --- | --- | --- |
 | `game` | Stable | [Loop](loop.md) |
 | `game/a11y` | Experimental | [a11y](a11y.md) |
+| `game/ability` | Experimental | [ability](ability.md) |
 | `game/accounts` | Experimental | [accounts](accounts.md) |
 | `game/accounts/cmd/accountsd` | Experimental | [accounts](accounts.md) |
 | `game/accounts/pgstore` | Experimental | [accounts](accounts.md) |

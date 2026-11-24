@@ -63,6 +63,7 @@
 | --- | --- | --- |
 | `game` | 稳定 | [Loop](loop.md) |
 | `game/a11y` | 实验性 | [a11y](a11y.md) |
+| `game/ability` | 实验性 | [ability](ability.md) |
 | `game/accounts` | 实验性 | [accounts](accounts.md) |
 | `game/accounts/cmd/accountsd` | 实验性 | [accounts](accounts.md) |
 | `game/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
