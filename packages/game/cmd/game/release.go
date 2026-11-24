@@ -10,11 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/packages/game/project"
 )
 
 // releaseCommand builds a game's release packages for every platform in one run of nsgo build.
@@ -75,8 +78,19 @@ type releaseSettings struct {
 	Targets []string
 }
 
-// gameFileKeys are game.yaml's top-level fields, those of the project file's schema (#488), so that a misspelt section such as exprot is refused rather than ignored.
-var gameFileKeys = []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export"}
+// gameFileKeys are game.yaml's top-level fields, taken from the yaml tags of package project's File (#488) so that the two cannot drift apart, and so that a misspelt section such as exprot is refused rather than ignored.
+var gameFileKeys = projectFileKeys()
+
+// projectFileKeys returns the yaml field names of project.File in declaration order.
+func projectFileKeys() []string {
+	t := reflect.TypeFor[project.File]()
+	keys := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+		keys = append(keys, name)
+	}
+	return keys
+}
 
 // gameFileHead is game.yaml's version and export section, decoded on their own so the rest of the file, whose schema is package project's (#488), is left to it.
 type gameFileHead struct {

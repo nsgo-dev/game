@@ -290,8 +290,9 @@ func inspectorSchemaKey(ed *Editor) string {
 			b.WriteByte('{')
 			if _, plugin := ed.pluginInspector(cn); plugin != "" {
 				// A plugin's inspector follows the component's fields itself, so only a change of the plugin drawing it remounts it.
-				b.WriteString("plugin:")
+				b.WriteString("plugin\x00")
 				b.WriteString(plugin)
+				b.WriteByte(0)
 			} else if t, ok := ed.components.Lookup(cn); ok {
 				// A registered component always shows every field, so setting an unset one must not remount its controls.
 				b.WriteString("registered:")

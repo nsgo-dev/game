@@ -476,3 +476,31 @@ func TestCheckReportsEveryProblemOfAProject(t *testing.T) {
 		t.Fatal("Check accepted a project without game.yaml")
 	}
 }
+
+func TestEmptyEditorSectionRoundTrips(t *testing.T) {
+	const head = "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\n"
+	for _, section := range []string{"editor: {}\n", "editor: {plugins: []}\n", "editor:\n  plugins: []\n"} {
+		f, err := project.Parse([]byte(head + section))
+		if err != nil {
+			t.Fatalf("%q: Parse: %v", section, err)
+		}
+		if f.Editor == nil || len(f.Editor.Plugins) != 0 {
+			t.Fatalf("%q: Editor = %+v, want an empty section", section, f.Editor)
+		}
+		out, err := project.Encode(f)
+		if err != nil {
+			t.Fatalf("%q: Encode: %v", section, err)
+		}
+		// An empty plugin list is the same as none, so every spelling saves as editor: {} and keeps the section.
+		if want := head + "editor: {}\n"; string(out) != want {
+			t.Fatalf("%q: Encode = %q, want %q", section, out, want)
+		}
+		again, err := project.Parse(out)
+		if err != nil {
+			t.Fatalf("%q: Parse(Encode): %v", section, err)
+		}
+		if again2, _ := project.Encode(again); !bytes.Equal(again2, out) {
+			t.Fatalf("%q: second round trip = %q, want %q", section, again2, out)
+		}
+	}
+}

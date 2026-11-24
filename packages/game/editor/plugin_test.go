@@ -74,7 +74,7 @@ func healthPlugin(draws *int) editor.Plugin {
 							},
 							OnPress: func() {
 								for _, id := range healthObjects(ed) {
-									_ = ed.SetComponentField(id, "health", "hp", intField(ed, id, "max"))
+									ed.Report(ed.SetComponentField(id, "health", "hp", intField(ed, id, "max")))
 								}
 							},
 						},
@@ -92,12 +92,16 @@ func healthPlugin(draws *int) editor.Plugin {
 							TestID: "health-hp",
 							Label:  "Hit points",
 							Step:   1,
+							Disabled: func() bool {
+								_ = rev.Get()
+								return ed.Playing()
+							},
 							Value: func() float64 {
 								_ = rev.Get()
 								return float64(intField(ed, id, "hp"))
 							},
 							OnChange: func(v float64) {
-								_ = ed.SetComponentField(id, "health", "hp", int(v))
+								ed.Report(ed.SetComponentField(id, "health", "hp", int(v)))
 							},
 						},
 						core.Text{
@@ -362,7 +366,7 @@ func TestPluginsFollowTheProjectsEditorPlugins(t *testing.T) {
 		t.Fatal("the saved plugin is off in a reopened project")
 	}
 
-	// Turning it off removes the editor section it added, so game.yaml reads as before.
+	// Turning the last plugin off removes the editor section left empty.
 	if err := reopened.SetPluginEnabled("health", false); err != nil {
 		t.Fatal(err)
 	}
@@ -468,6 +472,9 @@ func TestRegisterPluginRefusesInvalidPlugins(t *testing.T) {
 		"tool label":          {Name: "p", Tools: []editor.PluginTool{{ID: "a", Press: press}}},
 		"tool press":          {Name: "p", Tools: []editor.PluginTool{{ID: "a", Label: "T"}}},
 		"duplicate tool":      {Name: "p", Tools: []editor.PluginTool{{ID: "a", Label: "T", Press: press}, {ID: "a", Label: "U", Press: press}}},
+		"control panel ID":    {Name: "p", Panels: []editor.Panel{{ID: "a\x00b", Title: "T", View: view}}},
+		"control component":   {Name: "p", Inspectors: []editor.Inspector{{Component: "a\nb", View: inspect}}},
+		"control tool ID":     {Name: "p", Tools: []editor.PluginTool{{ID: "a\tb", Label: "T", Press: press}}},
 	}
 	for name, p := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -542,5 +549,197 @@ func TestPluginPanelsDockLeftAndBelow(t *testing.T) {
 	bottom := app.Find("id:plugin-dock-bottom").Bounds()
 	if bottom.Origin.Y < view.Origin.Y+view.Size.Height {
 		t.Fatalf("bottom dock %+v is not below the viewport %+v", bottom, view)
+	}
+}
+
+func TestComponentFieldNeedsTheComponent(t *testing.T) {
+	ed := newPluginEditor(t, writePluginProject(t))
+	if v, ok := ed.ComponentField("hero", "health", "max"); !ok || v != 12 {
+		t.Fatalf("hero max = %v %v, want 12 true", v, ok)
+	}
+	id, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{X: 1, Y: 1, Components: map[string]any{"health": map[string]any{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := ed.ComponentField(id, "health", "hp"); !ok || v != 10 {
+		t.Fatalf("unset hp = %v %v, want the default 10 true", v, ok)
+	}
+	if v, ok := ed.ComponentField(id, "health", "armor"); ok {
+		t.Fatalf("unregistered field = %v, want false", v)
+	}
+	bare, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{X: 2, Y: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := ed.ComponentField(bare, "health", "hp"); ok {
+		t.Fatalf("an object without the component reads hp = %v, want false", v)
+	}
+	if v, ok := ed.ComponentField("ghost", "health", "hp"); ok {
+		t.Fatalf("a missing object reads hp = %v, want false", v)
+	}
+}
+
+// medicPlugin draws the health component with an inspector of its own, to compete with the health plugin's.
+func medicPlugin() editor.Plugin {
+	return editor.Plugin{
+		Name: "medic",
+		Inspectors: []editor.Inspector{{
+			Component: "health",
+			View: func(*core.Scope, *editor.Editor, *core.Signal[uint64], string) core.Node {
+				return core.Text{TestID: "medic-health", Content: "medic"}
+			},
+		}},
+	}
+}
+
+func TestTheFirstPluginInEditorPluginsDrawsAComponent(t *testing.T) {
+	ed := newPluginEditor(t, writePluginProject(t, "health", "medic"))
+	if err := ed.RegisterPlugin(medicPlugin()); err != nil {
+		t.Fatal(err)
+	}
+	ed.SelectObject("hero")
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	if !app.Exists("id:inspector-plugin-health-health") || app.Exists("id:inspector-plugin-medic-health") || app.Exists("id:medic-health") {
+		t.Fatal("health, listed first, does not draw the health component")
+	}
+	// Turning health off and on again puts it after medic, which then draws the component.
+	app.Post(func() {
+		for _, on := range []bool{false, true} {
+			if err := ed.SetPluginEnabled("health", on); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	app.Settle()
+	if got := ed.ActivePlugins(); !reflect.DeepEqual(got, []string{"medic", "health"}) {
+		t.Fatalf("ActivePlugins = %v", got)
+	}
+	if !app.Exists("id:inspector-plugin-medic-health") || !app.Exists("id:medic-health") || app.Exists("id:inspector-plugin-health-health") {
+		t.Fatal("medic, now listed first, does not draw the health component")
+	}
+}
+
+func TestPluginToolIsIdleWhilePlayingAndIn3D(t *testing.T) {
+	var draws int
+	ed := newPluginEditor(t, writePluginProject(t, "health"), &draws)
+	ed.SelectObject("hero")
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	app.Press("id:tool-health-spawn")
+	if draws == 0 {
+		t.Fatal("the active tool did not draw in 2D")
+	}
+	before := len(healthObjects(ed))
+
+	// In 3D the plugin tools leave the tool bar, the tool does not draw and a press does not reach it.
+	app.Press("id:view-mode-3d")
+	if app.Exists("id:tool-health-spawn") {
+		t.Fatal("the plugin tool is in the tool bar in 3D")
+	}
+	draws = 0
+	app.Post(func() { ed.HandleCanvasPress(100, 60) })
+	app.Settle()
+	if draws != 0 {
+		t.Fatalf("the tool drew %d times in 3D", draws)
+	}
+	if got := len(healthObjects(ed)); got != before {
+		t.Fatalf("a press in 3D spawned: %d health objects, want %d", got, before)
+	}
+	app.Press("id:view-mode-2d")
+	if !app.Exists("id:tool-health-spawn") || draws == 0 {
+		t.Fatalf("back in 2D: tool shown %v, draws %d", app.Exists("id:tool-health-spawn"), draws)
+	}
+
+	// While playing the tool does not draw, a press does not reach it, and the plugin's inspector controls are off. The press in 3D picked empty space, so the hero is selected again first.
+	app.Post(func() { ed.SelectObject("hero") })
+	app.Settle()
+	if !app.Enabled("id:health-hp") {
+		t.Fatal("the plugin's inspector is disabled in edit mode")
+	}
+	app.Press("id:toolbar-play")
+	if !ed.Playing() {
+		t.Fatal("Play did not start")
+	}
+	draws = 0
+	app.Post(func() { ed.HandleCanvasPress(100, 60) })
+	app.Settle()
+	if draws != 0 {
+		t.Fatalf("the tool drew %d times while playing", draws)
+	}
+	if got := len(healthObjects(ed)); got != before {
+		t.Fatalf("a press while playing spawned: %d health objects, want %d", got, before)
+	}
+	if app.Exists("id:health-hp") && app.Enabled("id:health-hp") {
+		t.Fatal("the plugin's inspector takes input while playing")
+	}
+	app.Press("id:toolbar-play")
+}
+
+func TestReportShowsAPluginsRefusedEdit(t *testing.T) {
+	ed := newPluginEditor(t, writePluginProject(t, "health"))
+	ed.Report(nil)
+	if strings.HasPrefix(ed.Status, "Error:") {
+		t.Fatalf("Report(nil) set the status to %q", ed.Status)
+	}
+	ed.Report(ed.SetComponentField("ghost", "health", "hp", 1))
+	if !strings.HasPrefix(ed.Status, "Error: ") {
+		t.Fatalf("status after a refused edit = %q", ed.Status)
+	}
+}
+
+func TestPluginPanelsStayMountedWhileOthersComeAndGo(t *testing.T) {
+	builds := map[string]int{}
+	panel := func(name string) editor.Plugin {
+		return editor.Plugin{Name: name, Panels: []editor.Panel{{
+			ID:    "main",
+			Title: name,
+			Dock:  editor.DockRight,
+			View: func(*core.Scope, *editor.Editor, *core.Signal[uint64]) core.Node {
+				builds[name]++
+				return core.Text{TestID: name + "-main", Content: name}
+			},
+		}}}
+	}
+	ed := newTestEditor(t)
+	for _, name := range []string{"notes", "stats"} {
+		if err := ed.RegisterPlugin(panel(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ed.OpenProject(writeBareProject(t, "Bare")); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	toggle := func(name string, on bool) {
+		app.Post(func() {
+			if err := ed.SetPluginEnabled(name, on); err != nil {
+				t.Error(err)
+			}
+		})
+		app.Settle()
+	}
+	toggle("notes", true)
+	toggle("stats", true)
+	if !app.Exists("id:notes-main") || !app.Exists("id:stats-main") {
+		t.Fatal("both panels are not docked")
+	}
+	toggle("stats", false)
+	if app.Exists("id:stats-main") || !app.Exists("id:notes-main") {
+		t.Fatal("turning stats off did not leave only notes' panel")
+	}
+	app.Press("id:toolbar-undo")
+	if !app.Exists("id:notes-main") || !app.Exists("id:stats-main") {
+		t.Fatal("undoing stats' removal did not bring its panel back")
+	}
+	if builds["notes"] != 1 {
+		t.Fatalf("notes' panel was built %d times while stats came and went, want 1", builds["notes"])
+	}
+	if builds["stats"] != 2 {
+		t.Fatalf("stats' panel was built %d times, want 2", builds["stats"])
 	}
 }

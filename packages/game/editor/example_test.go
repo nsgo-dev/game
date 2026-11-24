@@ -94,7 +94,10 @@ func ExampleEditor_RegisterPlugin() {
 			View: func(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64]) core.Node {
 				return core.Text{ContentFunc: func() string {
 					_ = rev.Get()
-					hp, _ := ed.ComponentField("crate", "health", "hp")
+					hp, ok := ed.ComponentField("crate", "health", "hp")
+					if !ok {
+						return "crate: no health"
+					}
 					return fmt.Sprint("crate: ", hp, " hp")
 				}}
 			},
@@ -102,9 +105,17 @@ func ExampleEditor_RegisterPlugin() {
 		Inspectors: []editor.Inspector{{
 			Component: "health",
 			View: func(cx *core.Scope, ed *editor.Editor, rev *core.Signal[uint64], id string) core.Node {
-				return ui.Button{Text: "Heal", OnPress: func() {
-					_ = ed.SetComponentField(id, "health", "hp", 10)
-				}}
+				return ui.Button{
+					Text: "Heal",
+					// Like the generic fields, the control is off while playing and shows a refused edit in the status bar.
+					Disabled: func() bool {
+						_ = rev.Get()
+						return ed.Playing()
+					},
+					OnPress: func() {
+						ed.Report(ed.SetComponentField(id, "health", "hp", 10))
+					},
+				}
 			},
 		}},
 	}
