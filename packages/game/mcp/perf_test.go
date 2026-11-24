@@ -338,7 +338,7 @@ func TestPerfRender3DAndStandaloneProviders(t *testing.T) {
 		app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
 			cx = scope
 			if _, err := mcp.Attach(cx, mcp.Config{
-				RenderStatsFunc: func() render3d.RenderStats { return r3d },
+				RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(r3d) },
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -367,7 +367,7 @@ func TestPerfRender3DAndStandaloneProviders(t *testing.T) {
 				DrawStatsFunc: func() debug.DrawStats {
 					return debug.DrawStats{DrawCalls: 5, Sprites: 80, Batches: 2, Triangles: 160, Vertices: 320}
 				},
-				RenderStatsFunc: func() render3d.RenderStats { return r3d },
+				RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(r3d) },
 			}); err != nil {
 				t.Fatal(err)
 			}
