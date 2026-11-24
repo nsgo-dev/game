@@ -1,0 +1,8 @@
+version: 1
+devices:
+  android/Google Pixel 8:
+    audioMs: 41.25
+    videoMs: -3
+  ios/iPhone15,2:
+    audioMs: 182.5
+    videoMs: 21

@@ -1,0 +1,16 @@
+package inventory_test
+
+import (
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/internal/formattest"
+	"github.com/nsgo-dev/game/packages/game/inventory"
+)
+
+func TestFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*inventory.Catalog]{
+		Decode: inventory.Parse,
+		Encode: (*inventory.Catalog).Encode,
+		Files:  []string{"testdata/*.yaml"},
+	})
+}

@@ -1,0 +1,9 @@
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: art/hero.png
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - path: materials/stone.material.yaml
+    uid: mat0000000004
+  - path: scenes/room.scene.yaml
+    uid: scene00000001

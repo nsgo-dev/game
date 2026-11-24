@@ -1,0 +1,6 @@
+version: 1
+applied: 2
+moves:
+  - dir: right
+  - dir: down
+  - dir: down

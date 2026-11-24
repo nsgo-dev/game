@@ -1,0 +1,10 @@
+version: 1
+rows:
+  - id: sword
+    damage: 12
+    cooldown: 400ms
+    tags: [melee]
+  - id: bow
+    damage: 8
+    cooldown: 1s
+    tags: [ranged, two-handed]

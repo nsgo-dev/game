@@ -1,0 +1,25 @@
+package vehicle_test
+
+import (
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/internal/formattest"
+	"github.com/nsgo-dev/game/packages/game/vehicle"
+)
+
+func TestFormatConformance(t *testing.T) {
+	t.Run("config", func(t *testing.T) {
+		formattest.Run(t, formattest.Format[vehicle.Config]{
+			Decode: vehicle.ParseConfig,
+			Encode: vehicle.EncodeConfig,
+			Files:  []string{"testdata/reference_car.yaml"},
+		})
+	})
+	t.Run("ghost", func(t *testing.T) {
+		formattest.Run(t, formattest.Format[*vehicle.Ghost]{
+			Decode: vehicle.ParseGhost,
+			Encode: vehicle.EncodeGhost,
+			Files:  []string{"testdata/*.ghost.yaml"},
+		})
+	})
+}

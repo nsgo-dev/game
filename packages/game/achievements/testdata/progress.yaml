@@ -1,0 +1,9 @@
+version: 1
+achievements:
+  - id: first-match
+    steps: 1
+  - id: gem-collector
+    steps: 120
+    reported:
+      gameCenter: 120
+      playGames: 100

@@ -1,0 +1,17 @@
+version: 1
+base_locale: en
+assets:
+  sfx/click.wav:
+    en: sfx/click.wav
+  ui/title_banner.png:
+    en: ui/title_banner.png
+    zh-Hans: ui/title_banner.zh-Hans.png
+  voice/intro.wav:
+    en: locales/en/voice/intro.wav
+    ja: locales/ja/voice/intro.wav
+    zh-Hans: locales/zh-Hans/voice/intro.wav
+groups:
+  shared:
+    - sfx/click.wav
+  voice:
+    - voice/intro.wav

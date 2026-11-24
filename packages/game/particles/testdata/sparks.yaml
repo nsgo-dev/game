@@ -1,0 +1,59 @@
+version: 1
+x: 160
+y: 120
+space: local
+shape:
+  kind: circle
+  radius: 6
+rate: 45
+maxParticles: 128
+lifetimeMin: 300ms
+lifetimeMax: 700ms
+speedMin: 20
+speedMax: 65
+angleMin: -2.3561945
+angleMax: -0.7853982
+gravityY: -30
+sizeCurve:
+  - t: 0
+    value: 0.6
+  - t: 1
+    value: 0
+alphaCurve:
+  - t: 0
+    value: 1
+  - t: 1
+    value: 0
+colorCurve:
+  - t: 0
+    color: "#ffd166ff"
+  - t: 1
+    color: "#ef476f00"
+seed: 42
+z: 20
+frameNames:
+  - spark_0
+  - spark_1
+collision:
+  enabled: true
+  mode: bounce
+  bounce: 0.5
+trail:
+  maxPoints: 24
+  lifetime: 0.4
+  width: 3
+  color: "#ffeeaaff"
+  textureURI: asset:trail.png
+subEmitters:
+  - trigger: death
+    burstCount: 6
+    inheritVelocity: 0.25
+    config:
+      space: world
+      shape:
+        kind: ring
+        radius: 8
+      lifetimeMin: 100ms
+      lifetimeMax: 1m30s
+      frameNames:
+        - smoke

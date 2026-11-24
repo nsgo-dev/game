@@ -1,0 +1,17 @@
+version: 1
+coyote_time: 100ms
+jump_buffer: 100ms
+jump_speed: 284
+jump_cut: 0.55
+jump_cut_min_speed: 110
+gravity: 720
+max_fall_speed: 320
+run_speed: 98
+ground_accel: 960
+ground_decel: 1150
+air_accel: 680
+wall_slide_speed: 60
+wall_coyote_time: 80ms
+wall_jump_speed_x: 150
+wall_jump_speed_y: 260
+wall_jump_lock: 150ms

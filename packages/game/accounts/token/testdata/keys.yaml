@@ -1,0 +1,6 @@
+version: 1
+issuer: https://accounts.example.com
+audience: my-game
+keys:
+  - id: 2317febd373fcbcd
+    key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
