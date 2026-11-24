@@ -113,6 +113,36 @@ func (a *Assets) CachePath() string {
 	return a.Cache
 }
 
+// IsOutput reports whether a target of a writes the file at the slash-separated path p, relative to the project root: the cache, a texture, an audio output, the manifest, or a page of an atlas (name.png, name.json, name-N.png or name-N.json in its out folder). Such a file is built from the targets' inputs rather than authored, so it is not an asset of its own. A nil a writes nothing.
+func (a *Assets) IsOutput(p string) bool {
+	if a == nil {
+		return false
+	}
+	p = path.Clean(p)
+	if p == path.Clean(a.CachePath()) {
+		return true
+	}
+	for _, t := range a.Textures {
+		if p == path.Clean(t.Out) {
+			return true
+		}
+	}
+	for _, au := range a.Audio {
+		if p == path.Clean(au.Out) {
+			return true
+		}
+	}
+	if a.Manifest != nil && p == path.Clean(a.Manifest.Out) {
+		return true
+	}
+	for _, at := range a.Atlases {
+		if path.Dir(p) == path.Clean(at.Out) && isPage(at.Name, path.Base(p)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks the assets section as Validate checks the whole file: paths that are relative, slash-separated and stay inside the project, settings in range, known formats, no two targets writing the same file, no file written over game.yaml or over a target's input, no atlas page or other PNG written where an atlas reads its images, and no cache where the manifest lists assets.
 func (a *Assets) Validate() error {
 	if a == nil {
