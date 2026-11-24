@@ -195,5 +195,27 @@ if err := session.Step(net.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID
 ```
 
 - `RollbackSession` 会预测尚未到达的远端输入、按帧保存快照，并在延迟到达的远端输入与预测不一致时自动回滚重算（若延迟超出 `MaxRollback` 则返回 `ErrRollbackWindowExceeded`）。
-- `LockstepSession`（`SubmitInput`、`Poll`、`Step`）仅在所有对等端当前帧输入齐全时推进模拟，适合 RTS 或严格同步玩法。
+- `LockstepSession`（`SubmitInput`、`Poll`、`Step`）仅在所有对等端当前帧输入齐全时推进模拟，适合 RTS 或严格同步玩法。`SubmitInput` 会忽略已执行过的 tick 或超前 256 个 tick 以上的输入。
 - 两种会话均支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。
+
+### 对局中途加入与离开的玩家
+
+对局的对等端并不在创建会话时固定。由其中一个对等端，即主机（配置中的 `Host`，默认为最小的对等端 ID），在对局进行中接纳和移除对等端，每个对等端都在同一个 tick 应用每一次变更：
+
+```go
+// 在主机上，当它的传输报告新玩家时（PeerJoined，或 RelayTransport.Peers 中出现新 ID）：
+joinTick, err := session.AddPeer(newPeer)
+
+// 在新玩家的机器上；照常每帧调用 Step，在 Active 报告 true 之前它只做轮询：
+session := net.NewRollbackSession(net.RollbackConfig{Transport: peerTx, Sim: sim, Host: hostID, Join: true})
+
+// 在主机上，当它的传输报告该玩家已离开时（PeerLeft，或 Peers 中不再有该 ID）：
+leaveTick, err := session.RemovePeer(oldPeer)
+```
+
+- 加入 tick 是主机下一条自身输入所对应的 tick：锁步取 `Tick` 与其最新已提交输入的下一个 tick 中较晚者，回滚取 `Tick + InputDelay`。任何对等端都不可能已经执行（锁步）或确认（回滚）该 tick，因为这需要主机在该 tick 的输入，而变更消息走可靠通道、先于那条输入送达。已经预测越过该 tick 的回滚对等端会回滚到该 tick。
+- 当主机的模拟处在加入 tick 的开头（锁步），或加入 tick 之前的每个 tick 都已确认（回滚）时，主机把该 tick 的 `Sim.Save()` 连同 tick 与对等端列表发给新玩家，按 48000 字节分片。新玩家把它载入自己的 `Sim`，其 `Tick` 从加入 tick 开始，此后与其他人一样参与对局。状态大于 `MaxJoinStateSize`（16 MiB）时 `AddPeer` 返回 `ErrPayloadTooLarge`；到加入 tick 时状态才增长到超过上限的，这次加入会变为一次离开，因此没有人会一直等待新玩家。
+- 加入 tick 之前不需要新玩家的输入。回滚中，新玩家最初 `InputDelay` 个 tick 的输入在每个对等端上都是零输入，与对局开始时每个对等端的情况相同。每个对等端会把自己已经发出的、加入 tick 及以后的输入补发给新玩家；新玩家的输入如果先于主机的通知到达某个对等端，会被保留到通知到达为止。
+- 离开 tick 是主机下一条自身输入的 tick，若该对等端的加入 tick 更晚则取加入 tick。变更消息携带主机持有的、该对等端在离开 tick 之前的输入，主机从未收到的 tick 则以零输入代替，因此每个对等端以相同的方式执行这些 tick；此后直接来自离开者的输入一律忽略。请在对等端停止发送之后再移除它：仍在发送时被移除的对等端，可能已有某条主机从未见过的输入送达其他对等端，这会表现为不同步。被移除者自己的会话在离开 tick 停止，其 `Active` 报告 false。
+- `Members` 列出参与当前 tick 的对等端。只有主机可以调用 `AddPeer` 与 `RemovePeer`（其他对等端调用返回 `ErrNotHost`），主机不能离开（`ErrHostLeave`），离开过的对等端要以新的 ID 回来（`ErrPeerRejoin`），中继和服务端本来也会分配新 ID。
+- 传输暂时无法投递的消息（中继尚未把新玩家告知发送方，或某个对等端正在重连）会留在会话中，由下一次 `Poll` 重新发送，并与其后的消息保持顺序。

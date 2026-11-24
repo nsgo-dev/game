@@ -195,5 +195,27 @@ if err := session.Step(net.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID
 ```
 
 - `RollbackSession` predicts missing remote inputs, saves snapshots per tick, and automatically rewinds and resimulates when a late remote input disagrees with prediction (returning `ErrRollbackWindowExceeded` if a peer falls beyond `MaxRollback`).
-- `LockstepSession` (`SubmitInput`, `Poll`, `Step`) advances only when every peer's input for the current tick has arrived, ideal for RTS or turn-synchronized play.
+- `LockstepSession` (`SubmitInput`, `Poll`, `Step`) advances only when every peer's input for the current tick has arrived, ideal for RTS or turn-synchronized play. `SubmitInput` ignores an input for a tick already run or more than 256 ticks ahead.
 - Both sessions exchange periodic checksums (use `ChecksumBytes` helper) to surface determinism bugs immediately via `OnDesync` and `Desyncs()`.
+
+### Players joining and leaving mid-match
+
+A match's peers are not fixed when the session is created. One peer, the host (`Host` in the config, the lowest peer ID by default), admits and removes peers while the match runs, and every peer applies each change at the same tick:
+
+```go
+// On the host, when its transport reports a new player (PeerJoined, or a new ID in RelayTransport.Peers):
+joinTick, err := session.AddPeer(newPeer)
+
+// On the new player's machine; Step it every frame as usual, it only polls until Active reports true:
+session := net.NewRollbackSession(net.RollbackConfig{Transport: peerTx, Sim: sim, Host: hostID, Join: true})
+
+// On the host, once its transport reports the player gone (PeerLeft, or the ID missing from Peers):
+leaveTick, err := session.RemovePeer(oldPeer)
+```
+
+- The join tick is the one the host's next own input is for: the later of `Tick` and the tick after its latest submitted input for lockstep, `Tick + InputDelay` for rollback. No peer can have run (lockstep) or confirmed (rollback) that tick yet, since that takes the host's input for it, and the change travels on the reliable channel ahead of that input. A rollback peer that has already predicted past the tick rolls back to it.
+- Once the host's simulation stands at the start of the join tick (lockstep), or every tick before it is confirmed (rollback), the host sends the newcomer `Sim.Save()` at that tick together with the tick and the peers, in parts of 48000 bytes. The newcomer loads it into its own `Sim`, its `Tick` starts at the join tick, and from then on it plays like the others. A state larger than `MaxJoinStateSize` (16 MiB) makes `AddPeer` return `ErrPayloadTooLarge`, and one that has grown past it by the join tick turns the join into a leave, so nobody waits for the newcomer.
+- Inputs before the join tick are not expected from the newcomer. In rollback its first `InputDelay` ticks are zero inputs on every peer, as every peer's are at the start of a match. Each peer sends the newcomer the inputs it had already sent for the join tick and later, and an input from the newcomer that reaches a peer before the host's announcement is kept until the announcement arrives.
+- The leave tick is the host's next own input tick, or the peer's join tick if that is later. The change carries the inputs the host holds from the leaving peer for the ticks before it, and a zero input for each tick the host never received from it, so every peer runs those ticks alike; inputs arriving straight from the leaving peer are ignored from then on. Remove a peer after it has stopped sending: one removed while still sending may have reached another peer with an input the host never saw, which shows up as a desync. The removed peer's own session stops at the leave tick, and its `Active` reports false.
+- `Members` lists the peers taking part in the current tick. Only the host may call `AddPeer` and `RemovePeer` (`ErrNotHost` elsewhere), the host cannot leave (`ErrHostLeave`), and a peer that left comes back under a new ID (`ErrPeerRejoin`), as relays and servers assign one.
+- A message the transport cannot deliver yet, because a relay has not told the sender of the newcomer or a peer is reconnecting, waits in the session and is sent again by the next `Poll`, in order with the messages that follow it.
