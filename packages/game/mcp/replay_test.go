@@ -178,6 +178,7 @@ func TestReplayRecordAndPlaybackDeterminism(t *testing.T) {
 		recordStops   []string
 		replayStarts  int
 		replayStops   int
+		seededWith    []uint64
 		fixedStepRate = 60
 		fixedDT       = time.Second / time.Duration(fixedStepRate)
 	)
@@ -215,6 +216,7 @@ func TestReplayRecordAndPlaybackDeterminism(t *testing.T) {
 		cx = scope
 		if _, err := mcp.Attach(cx, mcp.Config{
 			WorldFunc: func() *entities.World { return sim.world },
+			SetSeed:   func(s uint64) { seededWith = append(seededWith, s) },
 			Replay:    ctrl,
 		}); err != nil {
 			t.Fatal(err)
@@ -228,14 +230,22 @@ func TestReplayRecordAndPlaybackDeterminism(t *testing.T) {
 		t.Fatalf("initial status = %+v", status0)
 	}
 
-	// Start recording via MCP with deterministic reset and seed.
+	// Play a while first so recording starts mid-game; the default reset must still rewind to the seed's initial state.
+	app.Post(func() {
+		actions.OnKeyDown(core.KeyEvent{Key: "right"})
+		for range 7 {
+			sim.Step(ctrl, fixedDT)
+		}
+		actions.OnKeyUp(core.KeyEvent{Key: "right"})
+	})
+	app.Settle()
+
+	// Start recording via MCP with default arguments apart from name, seed and metadata: reset defaults to true because ResetFunc is set.
 	const seed uint64 = 123456789
 	startRes := callTool[mcp.ReplayRecordStartResult](t, app, cx, mcp.ToolReplayRecordStart, map[string]any{
-		"name":      "run_alpha",
-		"seed":      seed,
-		"step_rate": fixedStepRate,
-		"reset":     true,
-		"metadata":  map[string]string{"level": "cavern_1", "agent": "tester"},
+		"name":     "run_alpha",
+		"seed":     seed,
+		"metadata": map[string]string{"level": "cavern_1", "agent": "tester"},
 	})
 	if !startRes.Recording || startRes.Name != "run_alpha" || startRes.Seed != seed || startRes.StepRate != fixedStepRate {
 		t.Fatalf("startRes = %+v", startRes)
@@ -407,11 +417,15 @@ func TestReplayRecordAndPlaybackDeterminism(t *testing.T) {
 		t.Fatalf("frame-by-frame replay mismatch:\n got: %+v\nwant: %+v", got, wantSnap)
 	}
 
-	// Stepping one more tick transitions cleanly back to live input and fires OnReplayStop.
+	// One trailing playback tick releases recorded holds; the tick after it returns cleanly to live input and fires OnReplayStop.
 	app.Post(func() {
+		ctrl.Step()
+		if ctrl.Pressed("right") {
+			t.Error("trailing playback tick must not read live input")
+		}
 		actions.OnKeyDown(core.KeyEvent{Key: "right"})
-		sim.Step(ctrl, fixedDT)
-		if !ctrl.Pressed("right") {
+		ctrl.Step()
+		if !ctrl.Pressed("right") || !ctrl.JustPressed("right") {
 			t.Error("expected live input to resume after replay finished")
 		}
 		actions.Reset()
@@ -425,8 +439,11 @@ func TestReplayRecordAndPlaybackDeterminism(t *testing.T) {
 	if replayStarts != 3 || replayStops != 3 {
 		t.Fatalf("replay hooks = (starts=%d, stops=%d), want (3, 3)", replayStarts, replayStops)
 	}
-	if len(resetSeeds) != 4 { // 1 record(reset:true) + 3 replays
+	if len(resetSeeds) != 4 { // 1 record (default reset) + 3 replays
 		t.Fatalf("resetSeeds = %v, want 4 resets", resetSeeds)
+	}
+	if !reflect.DeepEqual(seededWith, resetSeeds) {
+		t.Fatalf("Config.SetSeed calls = %v, want %v", seededWith, resetSeeds)
 	}
 	for i, gotSeed := range resetSeeds {
 		if gotSeed != seed {
@@ -461,7 +478,6 @@ func TestReplayStepChunkLoopFallbackAndEarlyStop(t *testing.T) {
 	ctrl = mcp.NewReplayController(mcp.ReplayConfig{
 		Source:  actions,
 		Actions: []string{"jump"},
-		Loop:    loop,
 		ResetFunc: func(uint64) error {
 			stepsRun = 0
 			jumpPress = 0
@@ -474,13 +490,13 @@ func TestReplayStepChunkLoopFallbackAndEarlyStop(t *testing.T) {
 
 	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
 		cx = scope
-		if _, err := mcp.Attach(cx, mcp.Config{Replay: ctrl}); err != nil {
+		if _, err := mcp.Attach(cx, mcp.Config{Loop: loop, Replay: ctrl}); err != nil {
 			t.Fatal(err)
 		}
 		return core.View{}
 	})
 
-	// Start with omitted name and step_rate (should auto-name "recording_1" and inherit Loop.Rate=30).
+	// Start with omitted name (should auto-name "recording_1" and use the loop's rate of 30).
 	recStart := callTool[mcp.ReplayRecordStartResult](t, app, cx, mcp.ToolReplayRecordStart, nil)
 	if recStart.Name != "recording_1" || recStart.StepRate != 30 {
 		t.Fatalf("recStart = %+v", recStart)
@@ -502,7 +518,8 @@ func TestReplayStepChunkLoopFallbackAndEarlyStop(t *testing.T) {
 		t.Fatalf("recStop = %+v", recStop)
 	}
 
-	// Advance only 5 steps via Loop.Update fallback, then stop early.
+	// Advance only 5 steps through the Bridge's loop (Loop.StepNow), then stop early.
+	stepsBefore := loop.Steps()
 	playRes := callTool[mcp.ReplayPlayResult](t, app, cx, mcp.ToolReplayPlay, map[string]any{
 		"name":  "jump_demo",
 		"steps": 5,
@@ -512,6 +529,9 @@ func TestReplayStepChunkLoopFallbackAndEarlyStop(t *testing.T) {
 	}
 	if stepsRun != 5 || jumpPress != 1 {
 		t.Fatalf("after 5 steps: stepsRun=%d jumpPress=%d, want 5, 1", stepsRun, jumpPress)
+	}
+	if got := loop.Steps() - stepsBefore; got != 5 {
+		t.Fatalf("loop advanced %d steps during replay, want 5 so game_loop_status stays in sync", got)
 	}
 
 	stopRes := callTool[mcp.ReplayStopResult](t, app, cx, mcp.ToolReplayStop, nil)
@@ -586,9 +606,150 @@ func TestReplaySaveDirAndPathSecurity(t *testing.T) {
 	if loaded.Seed != 42 || loaded.TotalSteps != 2 || len(loaded.Events) != 2 {
 		t.Fatalf("loaded recording = %+v", loaded)
 	}
+
+	// A second recording under the same name and path is refused without overwrite and keeps recording.
+	_ = callTool[mcp.ReplayRecordStartResult](t, app, cx, mcp.ToolReplayRecordStart, map[string]any{"name": "boss_fight"})
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayRecordStop, nil); err == nil || !strings.Contains(err.Error(), "already stored") {
+		t.Fatalf("stop over a stored name = %v", err)
+	}
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayRecordStop, map[string]any{"name": "boss_fight_2", "save_path": "runs/boss_fight.replay.yaml"}); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("stop over an existing file = %v", err)
+	}
+	if !ctrl.Recording() {
+		t.Fatal("refused overwrite unexpectedly aborted the active recording")
+	}
+
+	// A symbolic link inside SaveDir cannot carry a write outside it.
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(saveDir, "out")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayRecordStop, map[string]any{"name": "boss_fight_2", "save_path": "out/escape.replay.yaml"}); err == nil {
+		t.Fatal("expected error for save_path through a symlink leaving SaveDir")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escape.replay.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("file written outside SaveDir: stat err = %v", err)
+	}
+
+	again := callTool[mcp.ReplayRecordStopResult](t, app, cx, mcp.ToolReplayRecordStop, map[string]any{
+		"save_path": "runs/boss_fight.replay.yaml",
+		"overwrite": true,
+	})
+	if again.Name != "boss_fight" || again.Frames != 0 {
+		t.Fatalf("overwrite stop = %+v", again)
+	}
+	if b, err := os.ReadFile(diskPath); err != nil || string(b) != again.YAML {
+		t.Fatalf("overwritten file = %q, %v", b, err)
+	}
 }
 
-func TestReplayControllerHelpersPrebuiltRecorderAndZeroFrame(t *testing.T) {
+func TestReplayPlayRefusesMismatchedRateAndUnboundedRuns(t *testing.T) {
+	actions := input.NewActions()
+	steps := 0
+	var ctrl *mcp.ReplayController
+	ctrl = mcp.NewReplayController(mcp.ReplayConfig{
+		Source:   actions,
+		StepRate: 60,
+		StepFunc: func(time.Duration) {
+			ctrl.Step()
+			steps++
+		},
+	})
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		if _, err := mcp.Attach(cx, mcp.Config{Replay: ctrl}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+
+	// Recorded at 30 Hz, replayed in a 60 Hz game: every step would get the wrong dt.
+	for _, args := range []map[string]any{
+		{"yaml": "version: 2\nseed: 1\nrate: 30\ntotal_steps: 3\n", "run_to_end": true},
+		{"yaml": "version: 2\nseed: 1\nrate: 30\ntotal_steps: 3\n"},
+	} {
+		if _, err := callToolRaw(t, app, cx, mcp.ToolReplayPlay, args); err == nil || !strings.Contains(err.Error(), "rate") {
+			t.Fatalf("play at mismatched rate %v = %v", args, err)
+		}
+	}
+
+	// run_to_end over more than MaxLoopSteps is refused before anything runs.
+	long := "version: 2\nseed: 1\nrate: 60\ntotal_steps: 2000000000\n"
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayPlay, map[string]any{"yaml": long, "run_to_end": true}); err == nil || !strings.Contains(err.Error(), "3600") {
+		t.Fatalf("run_to_end over the cap = %v", err)
+	}
+	if ctrl.Replaying() || steps != 0 {
+		t.Fatalf("refused play left replaying=%v steps=%d", ctrl.Replaying(), steps)
+	}
+
+	// steps is capped per call and the rest plays frame by frame.
+	res := callTool[mcp.ReplayPlayResult](t, app, cx, mcp.ToolReplayPlay, map[string]any{"yaml": long, "steps": mcp.MaxLoopSteps})
+	if !res.Replaying || res.FramesPlayed != mcp.MaxLoopSteps || steps != mcp.MaxLoopSteps {
+		t.Fatalf("capped steps play = %+v steps=%d", res, steps)
+	}
+	_ = callTool[mcp.ReplayStopResult](t, app, cx, mcp.ToolReplayStop, nil)
+}
+
+func TestReplayTrailingReleaseAndLiveSnapshot(t *testing.T) {
+	actions := input.NewActions()
+	actions.Bind("jump", input.Key("space"))
+	ctrl := mcp.NewReplayController(mcp.ReplayConfig{
+		Source:  actions,
+		Actions: []string{"jump"},
+	})
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		if _, err := mcp.Attach(cx, mcp.Config{Replay: ctrl}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+
+	// Record jump held through the final recorded step.
+	_ = callTool[mcp.ReplayRecordStartResult](t, app, cx, mcp.ToolReplayRecordStart, map[string]any{"name": "hold"})
+	app.Post(func() {
+		actions.OnKeyDown(core.KeyEvent{Key: "space"})
+		for range 3 {
+			ctrl.Step()
+		}
+	})
+	app.Settle()
+	_ = callTool[mcp.ReplayRecordStopResult](t, app, cx, mcp.ToolReplayRecordStop, nil)
+
+	// Release the key without a live step, so the live snapshot still says held, then replay frame by frame (no reset is configured).
+	app.Post(func() { actions.OnKeyUp(core.KeyEvent{Key: "space"}) })
+	app.Settle()
+	_ = callTool[mcp.ReplayPlayResult](t, app, cx, mcp.ToolReplayPlay, map[string]any{"name": "hold"})
+
+	app.Post(func() {
+		for i := range 3 {
+			ctrl.Step()
+			if !ctrl.Pressed("jump") {
+				t.Errorf("playback step %d: jump not held", i)
+			}
+		}
+		// Trailing step: the hold recorded at the end is released once.
+		ctrl.Step()
+		if ctrl.Pressed("jump") || !ctrl.JustReleased("jump") {
+			t.Errorf("trailing step: pressed=%v just_released=%v, want false, true", ctrl.Pressed("jump"), ctrl.JustReleased("jump"))
+		}
+		// First live step: the live source was stepped during playback, so no stale edge appears.
+		ctrl.Step()
+		if ctrl.Replaying() || ctrl.Pressed("jump") || ctrl.JustPressed("jump") || ctrl.JustReleased("jump") {
+			t.Errorf("first live step: replaying=%v pressed=%v just_pressed=%v just_released=%v, want all false", ctrl.Replaying(), ctrl.Pressed("jump"), ctrl.JustPressed("jump"), ctrl.JustReleased("jump"))
+		}
+	})
+	app.Settle()
+
+	status := callTool[mcp.ReplayStatusResult](t, app, cx, mcp.ToolReplayStatus, nil)
+	if status.Replaying || status.ReplayDone || status.ReplayName != "" {
+		t.Fatalf("status after playback = %+v", status)
+	}
+}
+
+func TestReplayControllerHelpersAndZeroFrame(t *testing.T) {
 	// Verify all registered tool schemas are valid JSON.
 	bridge := mcp.New(mcp.Config{})
 	for _, tool := range bridge.Tools() {
@@ -597,12 +758,12 @@ func TestReplayControllerHelpersPrebuiltRecorderAndZeroFrame(t *testing.T) {
 		}
 	}
 
-	// Pre-built Recorder fallback + Go helper methods.
+	// Go helper methods.
 	actions := input.NewActions()
 	actions.Bind("a", input.Key("a"))
-	rec := replay.NewRecorder(actions, 7, 60, []string{"a"}, nil)
 	ctrl := mcp.NewReplayController(mcp.ReplayConfig{
-		Recorder: rec,
+		Source:  actions,
+		Actions: []string{"a"},
 	})
 	bridge.SetReplay(ctrl)
 	if bridge.Replay() != ctrl {
@@ -733,9 +894,9 @@ func TestReplayErrorHandling(t *testing.T) {
 		t.Fatalf("replay_stop idle = %v", err)
 	}
 
-	// Negative step_rate rejected.
-	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayRecordStart, map[string]any{"step_rate": -5}); err == nil {
-		t.Fatal("expected error for negative step_rate")
+	// The recording's rate is the game's fixed rate, not an argument.
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayRecordStart, map[string]any{"step_rate": 30}); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("record_start with step_rate = %v, want unknown field error", err)
 	}
 
 	// Start recording, then verify conflicting start/play and save_path without SaveDir fail cleanly.
@@ -777,6 +938,9 @@ func TestReplayErrorHandling(t *testing.T) {
 	}
 	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayPlay, map[string]any{"name": "rec1", "steps": -1}); err == nil {
 		t.Fatal("expected error for negative steps")
+	}
+	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayPlay, map[string]any{"name": "rec1", "steps": mcp.MaxLoopSteps + 1}); err == nil || !strings.Contains(err.Error(), "3600") {
+		t.Fatalf("play with steps above MaxLoopSteps = %v", err)
 	}
 	// run_to_end without StepFunc or Loop.Update fails cleanly before starting replay.
 	if _, err := callToolRaw(t, app, cx, mcp.ToolReplayPlay, map[string]any{"name": "rec1", "run_to_end": true}); err == nil || !strings.Contains(err.Error(), "StepFunc") {

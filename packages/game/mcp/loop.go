@@ -314,6 +314,12 @@ func (b *Bridge) handleLoopSeed(_ context.Context, raw json.RawMessage) (any, er
 		return nil, errors.New("mcp: no random seed target configured (set Config.Random, Config.RandomStreams, or Config.SetSeed)")
 	}
 	seed := *args.Seed
+	b.applySeed(seed)
+	return LoopSeedResult{Seed: seed}, nil
+}
+
+// applySeed re-seeds every configured seed target (Config.Random, Config.RandomStreams and Config.SetSeed) with seed.
+func (b *Bridge) applySeed(seed uint64) {
 	if b.cfg.Random != nil {
 		b.cfg.Random.SetSeed(seed)
 	}
@@ -323,5 +329,4 @@ func (b *Bridge) handleLoopSeed(_ context.Context, raw json.RawMessage) (any, er
 	if b.cfg.SetSeed != nil {
 		b.cfg.SetSeed(seed)
 	}
-	return LoopSeedResult{Seed: seed}, nil
 }

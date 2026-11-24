@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/replay"
 	"github.com/nsgo-dev/nsgo/automation"
 )
@@ -54,12 +54,8 @@ var _ replay.ActionSource = (*ReplayController)(nil)
 //
 // Pass the resulting *ReplayController as your game's replay.ActionSource so live play, recording and playback share the exact same update loop.
 type ReplayConfig struct {
-	// Source is the live replay.ActionSource (such as *input.Actions) forwarded during live play and wrapped by replay.Recorder during recording.
+	// Source is the live replay.ActionSource (such as *input.Actions) forwarded during live play and wrapped by a fresh replay.Recorder on each game_replay_record_start. It is required for recording, and it keeps being stepped during playback so its previous-step snapshot is current when live input resumes.
 	Source replay.ActionSource
-
-	// Recorder is an optional pre-built *replay.Recorder used as a fallback when Source is nil.
-	// When Source is set, ReplayController creates a fresh replay.Recorder on each game_replay_record_start with the requested seed, step rate and watched actions/axes.
-	Recorder *replay.Recorder
 
 	// Actions lists the default watched action names recorded by game_replay_record_start when the caller omits actions.
 	Actions []string
@@ -67,20 +63,16 @@ type ReplayConfig struct {
 	// Axes lists the default watched axis names recorded by game_replay_record_start when the caller omits axes.
 	Axes []string
 
-	// StepRate is the default fixed step rate in steps per second (falls back to Loop.Rate, then 60 when <= 0).
+	// StepRate is the game's fixed step rate in steps per second when the Bridge has no game loop (Config.Loop or Config.LoopFunc); with a loop, the loop's StepRate is used. It defaults to 60. Recordings are made at this rate, and game_replay_play refuses a recording made at another rate.
 	StepRate int
 
-	// Loop is an optional *game.Loop whose Update callback and Rate serve as fallbacks when StepFunc or StepRate are unset.
-	Loop *game.Loop
-
-	// StepFunc advances the simulation by one fixed step of duration dt.
-	// It is used by game_replay_play when run_to_end is true or steps > 0, and is expected to call the controller's Step method once per update.
+	// StepFunc, when set, advances the simulation by one fixed step of duration dt and is expected to call the controller's Step method once. game_replay_play uses it for run_to_end and steps; without it, those advance the Bridge's game loop with Loop.StepNow.
 	StepFunc func(dt time.Duration)
 
 	// SeedFunc, when set, supplies the default seed for game_replay_record_start when the caller omits seed.
 	SeedFunc func() uint64
 
-	// ResetFunc, when set, resets the simulation deterministically to seed before playback begins (and before recording begins when reset is true).
+	// ResetFunc, when set, resets the simulation deterministically to seed. With reset (the default when ResetFunc or a seed target is configured), game_replay_record_start and game_replay_play first re-seed the Bridge's seed targets (Config.Random, Config.RandomStreams, Config.SetSeed) and then call ResetFunc, so a recording and its replay start from the same state.
 	ResetFunc func(seed uint64) error
 
 	// OnRecordStart, when set, is called after a recording starts.
@@ -95,8 +87,7 @@ type ReplayConfig struct {
 	// OnReplayStop, when set, is called when playback finishes or is stopped early.
 	OnReplayStop func()
 
-	// SaveDir is an optional root directory on disk where game_replay_record_stop may write YAML recordings when save_path is supplied.
-	// Relative paths are strictly confined inside SaveDir; when SaveDir is empty, save_path is refused.
+	// SaveDir is an optional root directory on disk where game_replay_record_stop may write YAML recordings when save_path is supplied. Writes go through os.Root, so relative paths and symbolic links cannot leave SaveDir; when SaveDir is empty, save_path is refused.
 	SaveDir string
 }
 
@@ -117,6 +108,8 @@ type ReplayController struct {
 
 	player     *replay.Player
 	replayName string
+	// trailing is set once the player has run its trailing step after the final recorded step, so the next Step returns to live input.
+	trailing bool
 
 	saved   map[string]storedRecording
 	nextSeq int
@@ -150,18 +143,23 @@ func (b *Bridge) SetReplay(ctrl *ReplayController) {
 
 // Step advances the active replay.Player, active replay.Recorder or live Source by one fixed step.
 //
-// When a frame-by-frame replay reached its final recorded step on the previous tick, the next Step finishes playback and resumes live input cleanly.
+// After the final recorded step, one more Step is a trailing playback step that releases actions still held at the end of the recording (firing JustReleased once); the Step after it finishes playback and resumes live input. The live Source is stepped during playback too, so its previous-step snapshot is current when live input resumes.
 func (c *ReplayController) Step() {
 	if c == nil {
 		return
 	}
+	if c.player != nil && c.trailing {
+		c.finishReplay()
+	}
 	if c.player != nil {
 		if c.player.Done() {
-			c.finishReplay()
-		} else {
-			c.player.Step()
-			return
+			c.trailing = true
 		}
+		c.player.Step()
+		if c.cfg.Source != nil {
+			c.cfg.Source.Step()
+		}
+		return
 	}
 	if c.activeRec != nil {
 		c.activeRec.Step()
@@ -305,24 +303,41 @@ func (c *ReplayController) RecordingNames() []string {
 	return names
 }
 
-func (c *ReplayController) defaultStepRate() int {
+// replayStepRate returns the game's fixed step rate: the active game loop's StepRate, else ReplayConfig.StepRate, else 60.
+func (b *Bridge) replayStepRate(c *ReplayController) int {
+	if l := b.activeLoop(); l != nil {
+		return l.StepRate()
+	}
 	if c.cfg.StepRate > 0 {
 		return c.cfg.StepRate
-	}
-	if c.cfg.Loop != nil && c.cfg.Loop.Rate > 0 {
-		return c.cfg.Loop.Rate
 	}
 	return defaultReplayStepRate
 }
 
-func (c *ReplayController) stepFunc() func(time.Duration) {
-	if c.cfg.StepFunc != nil {
-		return c.cfg.StepFunc
-	}
-	if c.cfg.Loop != nil {
-		return c.cfg.Loop.Update
+// canResetReplay reports whether a reset before recording or playback has anything to do.
+func (b *Bridge) canResetReplay(c *ReplayController) bool {
+	return c.cfg.ResetFunc != nil || b.seedConfigured()
+}
+
+// resetReplay re-seeds the Bridge's seed targets and then calls ReplayConfig.ResetFunc with seed.
+func (b *Bridge) resetReplay(c *ReplayController, seed uint64) error {
+	b.applySeed(seed)
+	if c.cfg.ResetFunc != nil {
+		return c.cfg.ResetFunc(seed)
 	}
 	return nil
+}
+
+// resolveReplayReset returns whether to reset, given the caller's optional reset argument: it defaults to true whenever a reset has something to do.
+func (b *Bridge) resolveReplayReset(c *ReplayController, arg *bool) (bool, error) {
+	can := b.canResetReplay(c)
+	if arg == nil {
+		return can, nil
+	}
+	if *arg && !can {
+		return false, errors.New("mcp: reset requested but neither ReplayConfig.ResetFunc nor a seed target (Config.Random, Config.RandomStreams, Config.SetSeed) is configured")
+	}
+	return *arg, nil
 }
 
 func (c *ReplayController) finishReplay() {
@@ -331,6 +346,7 @@ func (c *ReplayController) finishReplay() {
 	}
 	c.player = nil
 	c.replayName = ""
+	c.trailing = false
 	if c.cfg.OnReplayStop != nil {
 		c.cfg.OnReplayStop()
 	}
@@ -444,11 +460,6 @@ var (
 				"minimum": 0,
 				"description": "Deterministic RNG seed recorded in the replay header (defaults to ReplayConfig.SeedFunc or 0)."
 			},
-			"step_rate": {
-				"type": "integer",
-				"minimum": 1,
-				"description": "Fixed simulation step rate in steps per second (defaults to ReplayConfig.StepRate, Loop.Rate, or 60)."
-			},
 			"actions": {
 				"type": "array",
 				"items": {"type": "string"},
@@ -462,11 +473,11 @@ var (
 			"metadata": {
 				"type": "object",
 				"additionalProperties": {"type": "string"},
-				"description": "Optional string key-value metadata stored alongside the recording."
+				"description": "Optional string key-value metadata kept with the recording in this game's in-memory store and returned by game_replay_status and game_replay_list. It is not part of the recording's YAML, so save_path, the returned yaml and replays from inline yaml do not carry it."
 			},
 			"reset": {
 				"type": "boolean",
-				"description": "Call ReplayConfig.ResetFunc(seed) before recording starts (default false)."
+				"description": "Re-seed Config.Random, Config.RandomStreams and Config.SetSeed with seed and call ReplayConfig.ResetFunc(seed) before recording starts, so the recording starts from the state game_replay_play resets to (default true when ResetFunc or a seed target is configured)."
 			}
 		}
 	}`)
@@ -482,6 +493,10 @@ var (
 			"save_path": {
 				"type": "string",
 				"description": "Optional relative file path under ReplayConfig.SaveDir to also write the deterministic YAML recording."
+			},
+			"overwrite": {
+				"type": "boolean",
+				"description": "Replace an existing stored recording of the same name and an existing file at save_path (default false, which refuses both and keeps recording)."
 			}
 		}
 	}`)
@@ -500,16 +515,17 @@ var (
 			},
 			"run_to_end": {
 				"type": "boolean",
-				"description": "Advance every recorded frame synchronously via ReplayConfig.StepFunc or Loop.Update before returning (default false)."
+				"description": "Advance every recorded frame synchronously via ReplayConfig.StepFunc or the game loop's StepNow before returning (default false). Refused for a recording longer than 3600 steps; play it with steps or frame by frame instead."
 			},
 			"steps": {
 				"type": "integer",
 				"minimum": 1,
-				"description": "Advance up to this many recorded frames synchronously via ReplayConfig.StepFunc or Loop.Update. Mutually exclusive with run_to_end."
+				"maximum": 3600,
+				"description": "Advance up to this many recorded frames synchronously via ReplayConfig.StepFunc or the game loop's StepNow (1..3600). Mutually exclusive with run_to_end."
 			},
 			"reset": {
 				"type": "boolean",
-				"description": "Call ReplayConfig.ResetFunc(recording.Seed) before playback starts (default true when ResetFunc is configured)."
+				"description": "Re-seed Config.Random, Config.RandomStreams and Config.SetSeed with the recording's seed and call ReplayConfig.ResetFunc(seed) before playback starts (default true when ResetFunc or a seed target is configured)."
 			}
 		}
 	}`)
@@ -610,11 +626,10 @@ func (b *Bridge) handleReplayStatus(_ context.Context, raw json.RawMessage) (any
 type replayRecordStartArgs struct {
 	Name     string            `json:"name"`
 	Seed     *uint64           `json:"seed"`
-	StepRate int               `json:"step_rate"`
 	Actions  []string          `json:"actions"`
 	Axes     []string          `json:"axes"`
 	Metadata map[string]string `json:"metadata"`
-	Reset    bool              `json:"reset"`
+	Reset    *bool             `json:"reset"`
 }
 
 func (b *Bridge) handleReplayRecordStart(_ context.Context, raw json.RawMessage) (any, error) {
@@ -626,9 +641,6 @@ func (b *Bridge) handleReplayRecordStart(_ context.Context, raw json.RawMessage)
 	if err != nil {
 		return nil, err
 	}
-	if args.StepRate < 0 {
-		return nil, fmt.Errorf("mcp: step_rate must be >= 0 (got %d)", args.StepRate)
-	}
 	if c.activeRec != nil {
 		return nil, ErrAlreadyRecording
 	}
@@ -638,8 +650,12 @@ func (b *Bridge) handleReplayRecordStart(_ context.Context, raw json.RawMessage)
 		}
 		c.finishReplay()
 	}
-	if c.cfg.Source == nil && c.cfg.Recorder == nil {
-		return nil, errors.New("mcp: replay controller has no input source configured")
+	if c.cfg.Source == nil {
+		return nil, errors.New("mcp: replay controller has no input source configured (set ReplayConfig.Source)")
+	}
+	doReset, err := b.resolveReplayReset(c, args.Reset)
+	if err != nil {
+		return nil, err
 	}
 
 	var seed uint64
@@ -649,41 +665,20 @@ func (b *Bridge) handleReplayRecordStart(_ context.Context, raw json.RawMessage)
 		seed = c.cfg.SeedFunc()
 	}
 
-	var rec *replay.Recorder
-	if c.cfg.Source != nil {
-		rate := args.StepRate
-		if rate <= 0 {
-			rate = c.defaultStepRate()
-		}
-		actions := c.cfg.Actions
-		if len(args.Actions) > 0 {
-			actions = args.Actions
-		}
-		axes := c.cfg.Axes
-		if len(args.Axes) > 0 {
-			axes = args.Axes
-		}
-		rec = replay.NewRecorder(c.cfg.Source, seed, rate, actions, axes)
-	} else {
-		if args.StepRate > 0 && args.StepRate != c.cfg.Recorder.Rate() {
-			return nil, fmt.Errorf("mcp: cannot override step_rate (%d) when using pre-built Recorder (rate %d); configure ReplayConfig.Source instead", args.StepRate, c.cfg.Recorder.Rate())
-		}
-		if len(args.Actions) > 0 || len(args.Axes) > 0 {
-			return nil, errors.New("mcp: cannot override actions or axes when using pre-built Recorder; configure ReplayConfig.Source instead")
-		}
-		rec = c.cfg.Recorder
+	actions := c.cfg.Actions
+	if len(args.Actions) > 0 {
+		actions = args.Actions
 	}
+	axes := c.cfg.Axes
+	if len(args.Axes) > 0 {
+		axes = args.Axes
+	}
+	rec := replay.NewRecorder(c.cfg.Source, seed, b.replayStepRate(c), actions, axes)
 
-	if args.Reset {
-		if c.cfg.ResetFunc == nil {
-			return nil, errors.New("mcp: reset requested but no ResetFunc configured")
-		}
-		if err := c.cfg.ResetFunc(seed); err != nil {
+	if doReset {
+		if err := b.resetReplay(c, seed); err != nil {
 			return nil, fmt.Errorf("mcp: reset before record failed: %w", err)
 		}
-	}
-	if c.cfg.Source == nil {
-		rec.Reset(seed)
 	}
 
 	name := strings.TrimSpace(args.Name)
@@ -712,8 +707,9 @@ func (b *Bridge) handleReplayRecordStart(_ context.Context, raw json.RawMessage)
 }
 
 type replayRecordStopArgs struct {
-	Name     string `json:"name"`
-	SavePath string `json:"save_path"`
+	Name      string `json:"name"`
+	SavePath  string `json:"save_path"`
+	Overwrite bool   `json:"overwrite"`
 }
 
 func (b *Bridge) handleReplayRecordStop(_ context.Context, raw json.RawMessage) (any, error) {
@@ -729,12 +725,20 @@ func (b *Bridge) handleReplayRecordStop(_ context.Context, raw json.RawMessage) 
 		return nil, ErrNotRecording
 	}
 
-	var targetPath, cleanRel string
+	var cleanRel string
 	if args.SavePath != "" {
-		targetPath, cleanRel, err = resolveSafeSavePath(c.cfg.SaveDir, args.SavePath)
+		cleanRel, err = resolveSafeSavePath(c.cfg.SaveDir, args.SavePath)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	name := strings.TrimSpace(args.Name)
+	if name == "" {
+		name = c.recordingName
+	}
+	if _, exists := c.saved[name]; exists && !args.Overwrite {
+		return nil, fmt.Errorf("mcp: a recording named %q is already stored; pass a different name or overwrite: true (still recording)", name)
 	}
 
 	rec := c.activeRec.Recording()
@@ -743,19 +747,12 @@ func (b *Bridge) handleReplayRecordStop(_ context.Context, raw json.RawMessage) 
 		return nil, fmt.Errorf("mcp: encode recording: %w", err)
 	}
 
-	if targetPath != "" {
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return nil, fmt.Errorf("mcp: create recording directory: %w", err)
-		}
-		if err := os.WriteFile(targetPath, yamlBytes, 0o644); err != nil {
-			return nil, fmt.Errorf("mcp: write recording %q: %w", cleanRel, err)
+	if cleanRel != "" {
+		if err := writeSaveFile(c.cfg.SaveDir, cleanRel, yamlBytes, args.Overwrite); err != nil {
+			return nil, err
 		}
 	}
 
-	name := strings.TrimSpace(args.Name)
-	if name == "" {
-		name = c.recordingName
-	}
 	meta := cloneStringMap(c.recordingMeta)
 
 	if c.saved == nil {
@@ -783,7 +780,7 @@ func (b *Bridge) handleReplayRecordStop(_ context.Context, raw json.RawMessage) 
 		Actions:   slices.Clone(rec.Actions),
 		Axes:      slices.Clone(rec.Axes),
 		Metadata:  meta,
-		SavedPath: cleanRel,
+		SavedPath: filepath.ToSlash(cleanRel),
 		YAML:      string(yamlBytes),
 	}, nil
 }
@@ -811,8 +808,8 @@ func (b *Bridge) handleReplayPlay(_ context.Context, raw json.RawMessage) (any, 
 	if args.Name != "" && args.YAML != "" {
 		return nil, errors.New("mcp: specify either name or yaml, not both")
 	}
-	if args.Steps < 0 {
-		return nil, fmt.Errorf("mcp: steps must be >= 0 (got %d)", args.Steps)
+	if args.Steps < 0 || args.Steps > MaxLoopSteps {
+		return nil, fmt.Errorf("mcp: steps must be between 1 and %d (got %d)", MaxLoopSteps, args.Steps)
 	}
 	if args.RunToEnd && args.Steps > 0 {
 		return nil, errors.New("mcp: cannot specify both run_to_end and steps")
@@ -853,29 +850,34 @@ func (b *Bridge) handleReplayPlay(_ context.Context, raw json.RawMessage) (any, 
 	if err := rec.Validate(); err != nil {
 		return nil, fmt.Errorf("mcp: invalid recording: %w", err)
 	}
+	// A recording only reproduces its run at the fixed rate it was made at: a different dt per step changes the simulation.
+	if rate := b.replayStepRate(c); rec.Rate != rate {
+		return nil, fmt.Errorf("mcp: invalid recording: %w", loaderr.Errorf("rate", fmt.Sprintf("record again at the game's fixed rate of %d steps per second, or run the game at %d", rate, rec.Rate), "recording rate %d differs from the game's fixed step rate %d", rec.Rate, rate))
+	}
+	if args.RunToEnd && rec.TotalSteps > MaxLoopSteps {
+		return nil, fmt.Errorf("mcp: run_to_end is limited to %d steps but the recording has %d; omit run_to_end to play it frame by frame and advance it with game_loop_step or the running game", MaxLoopSteps, rec.TotalSteps)
+	}
 
-	var stepFn func(time.Duration)
+	var advance func(n int)
 	if args.RunToEnd || args.Steps > 0 {
-		stepFn = c.stepFunc()
-		if stepFn == nil {
-			return nil, errors.New("mcp: advancing replay frames requires ReplayConfig.StepFunc or Loop.Update")
+		advance = b.replayAdvancer(c, rec.StepDuration())
+		if advance == nil {
+			return nil, errors.New("mcp: advancing replay frames requires ReplayConfig.StepFunc or a game loop (Config.Loop or Config.LoopFunc)")
 		}
 	}
 
-	doReset := true
-	if args.Reset != nil {
-		doReset = *args.Reset
-		if doReset && c.cfg.ResetFunc == nil {
-			return nil, errors.New("mcp: reset requested but no ResetFunc configured")
-		}
+	doReset, err := b.resolveReplayReset(c, args.Reset)
+	if err != nil {
+		return nil, err
 	}
 
 	player := replay.NewPlayer(rec)
 	c.player = player
 	c.replayName = replayName
+	c.trailing = false
 
-	if doReset && c.cfg.ResetFunc != nil {
-		if err := c.cfg.ResetFunc(rec.Seed); err != nil {
+	if doReset {
+		if err := b.resetReplay(c, rec.Seed); err != nil {
 			c.player = nil
 			c.replayName = ""
 			return nil, fmt.Errorf("mcp: reset before replay failed: %w", err)
@@ -885,67 +887,47 @@ func (b *Bridge) handleReplayPlay(_ context.Context, raw json.RawMessage) (any, 
 		c.cfg.OnReplayStart(rec.Clone())
 	}
 
-	dt := rec.StepDuration()
 	switch {
 	case args.RunToEnd:
-		for range rec.TotalSteps {
-			if c.player != player {
-				break
-			}
-			stepFn(dt)
-		}
-		framesPlayed := player.StepIndex()
-		completed := player.Done()
-		if c.player == player && completed {
-			c.finishReplay()
-		}
-		return ReplayPlayResult{
-			Name:              replayName,
-			Seed:              rec.Seed,
-			StepRate:          rec.Rate,
-			Replaying:         c.player == player && !completed,
-			Completed:         completed,
-			FramesPlayed:      framesPlayed,
-			ReplayTotalFrames: rec.TotalSteps,
-		}, nil
-
+		advance(rec.TotalSteps)
 	case args.Steps > 0:
-		for range args.Steps {
-			if c.player != player || player.Done() {
-				break
-			}
-			stepFn(dt)
-		}
-		framesPlayed := player.StepIndex()
-		completed := player.Done()
-		if c.player == player && completed {
-			c.finishReplay()
-		}
-		return ReplayPlayResult{
-			Name:              replayName,
-			Seed:              rec.Seed,
-			StepRate:          rec.Rate,
-			Replaying:         c.player == player && !completed,
-			Completed:         completed,
-			FramesPlayed:      framesPlayed,
-			ReplayTotalFrames: rec.TotalSteps,
-		}, nil
-
-	default:
-		completed := player.Done()
-		if completed {
-			c.finishReplay()
-		}
-		return ReplayPlayResult{
-			Name:              replayName,
-			Seed:              rec.Seed,
-			StepRate:          rec.Rate,
-			Replaying:         !completed,
-			Completed:         completed,
-			FramesPlayed:      player.StepIndex(),
-			ReplayTotalFrames: rec.TotalSteps,
-		}, nil
+		advance(min(args.Steps, rec.TotalSteps))
 	}
+	// A completed player stays active until the game's next Step runs its trailing step, which releases actions held at the end of the recording.
+	completed := player.Done()
+	return ReplayPlayResult{
+		Name:              replayName,
+		Seed:              rec.Seed,
+		StepRate:          rec.Rate,
+		Replaying:         c.player == player && !completed,
+		Completed:         completed,
+		FramesPlayed:      player.StepIndex(),
+		ReplayTotalFrames: rec.TotalSteps,
+	}, nil
+}
+
+// replayAdvancer returns a function that advances the simulation by n recorded frames: through ReplayConfig.StepFunc when set, otherwise through the Bridge's game loop with Loop.StepNow so the loop's step count, game time and Draw stay in sync. It returns nil when neither is configured.
+func (b *Bridge) replayAdvancer(c *ReplayController, dt time.Duration) func(n int) {
+	if c.cfg.StepFunc != nil {
+		step := c.cfg.StepFunc
+		return func(n int) {
+			player := c.player
+			for range n {
+				if c.player != player || player.Done() {
+					return
+				}
+				step(dt)
+			}
+		}
+	}
+	if l := b.activeLoop(); l != nil {
+		return func(n int) {
+			if n > 0 {
+				l.StepNow(n)
+			}
+		}
+	}
+	return nil
 }
 
 func (b *Bridge) handleReplayStop(_ context.Context, raw json.RawMessage) (any, error) {
@@ -1012,28 +994,56 @@ func cloneStringMap(m map[string]string) map[string]string {
 	return maps.Clone(m)
 }
 
-func resolveSafeSavePath(saveDir, rel string) (absTarget, cleanRel string, err error) {
+// resolveSafeSavePath checks that rel is a relative path inside saveDir and returns it cleaned. The write itself goes through os.Root (writeSaveFile), which also refuses symbolic links that leave saveDir.
+func resolveSafeSavePath(saveDir, rel string) (cleanRel string, err error) {
 	if strings.TrimSpace(saveDir) == "" {
-		return "", "", errors.New("mcp: save_path requires ReplayConfig.SaveDir to be configured")
+		return "", errors.New("mcp: save_path requires ReplayConfig.SaveDir to be configured")
 	}
 	if strings.TrimSpace(rel) == "" {
-		return "", "", errors.New("mcp: save_path must not be empty")
+		return "", errors.New("mcp: save_path must not be empty")
 	}
 	if filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, "\\") || filepath.VolumeName(rel) != "" {
-		return "", "", fmt.Errorf("mcp: save_path %q must be relative to SaveDir", rel)
+		return "", fmt.Errorf("mcp: save_path %q must be relative to SaveDir", rel)
 	}
 	cleaned := filepath.Clean(rel)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("mcp: save_path %q escapes SaveDir", rel)
+		return "", fmt.Errorf("mcp: save_path %q escapes SaveDir", rel)
 	}
-	absRoot, err := filepath.Abs(saveDir)
+	return cleaned, nil
+}
+
+// writeSaveFile writes data to rel inside saveDir through os.Root, creating saveDir and any parent directories. Without overwrite, an existing file is refused.
+func writeSaveFile(saveDir, rel string, data []byte, overwrite bool) error {
+	if err := os.MkdirAll(saveDir, 0o755); err != nil {
+		return fmt.Errorf("mcp: create SaveDir: %w", err)
+	}
+	root, err := os.OpenRoot(saveDir)
 	if err != nil {
-		return "", "", fmt.Errorf("mcp: resolve SaveDir: %w", err)
+		return fmt.Errorf("mcp: open SaveDir: %w", err)
 	}
-	target := filepath.Join(absRoot, cleaned)
-	check, err := filepath.Rel(absRoot, target)
-	if err != nil || check == "." || check == ".." || strings.HasPrefix(check, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("mcp: save_path %q escapes SaveDir", rel)
+	defer root.Close()
+	if dir := filepath.Dir(rel); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("mcp: create recording directory for %q: %w", filepath.ToSlash(rel), err)
+		}
 	}
-	return target, filepath.ToSlash(cleaned), nil
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if !overwrite {
+		flags |= os.O_EXCL
+	}
+	f, err := root.OpenFile(rel, flags, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("mcp: save_path %q already exists; pass overwrite: true to replace it (still recording)", filepath.ToSlash(rel))
+		}
+		return fmt.Errorf("mcp: write recording %q: %w", filepath.ToSlash(rel), err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("mcp: write recording %q: %w", filepath.ToSlash(rel), err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("mcp: write recording %q: %w", filepath.ToSlash(rel), err)
+	}
+	return nil
 }
