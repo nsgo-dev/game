@@ -231,6 +231,13 @@ Both decoders charge their output and working memory to the same per-load budget
   - Look up variants by name with `Document.VariantIndex(name)` and resolve materials without mutating `Primitive.Material` via `Document.MaterialForPrimitive(prim, variantIndex)`, `Document.MaterialForVariant(prim, name)`, `Document.MeshMaterials(meshIndex, variantIndex)`, and `Document.ResolveVariantMaterials(variantIndex)`. Any unmapped primitive or out-of-range/negative variant falls back to `Primitive.Material`.
   - Spec constraints are enforced at load time: non-empty `variants` and `mappings` arrays, required variant `name`, valid material and variant indices, and at most one mapping per variant on any primitive.
 
+## Material extensions
+
+`game/gltf` also accepts two material extensions in `extensionsUsed` and `extensionsRequired`:
+
+- **`KHR_materials_unlit`**: sets `Material.Unlit`.
+- **`KHR_materials_emissive_strength`**: `Material.EmissiveStrength()` returns the multiplier for `EmissiveFactor`, 1 when the extension or its `emissiveStrength` is omitted, and an error when the payload is not an object or the value is not a finite number >= 0.
+
 ## Morph targets
 
 `game/gltf` decodes glTF 2.0 morph targets (`POSITION`, `NORMAL`, and `TANGENT` displacement deltas, including sparse accessors), default `mesh.weights` and `node.weights`, and animated `weights` channels (`STEP`, `LINEAR`, and `CUBICSPLINE`). In Blender, author morph targets as **Shape Keys** on the mesh, keyframe their *Value* sliders in an Action, and enable *Data → Shape Keys* (plus *Shape Key Normals* and *Shape Key Tangents* when needed) in the glTF 2.0 exporter.

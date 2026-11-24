@@ -304,7 +304,7 @@ func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	}
 	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
-		case "KHR_materials_unlit", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
+		case "KHR_materials_unlit", "KHR_materials_emissive_strength", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
 			extDraco, extMeshoptEXT, extMeshoptKHR:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).

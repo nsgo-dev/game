@@ -231,6 +231,13 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
   - 可用 `Document.VariantIndex(name)` 按名称查找变体索引，并通过 `Document.MaterialForPrimitive(prim, variantIndex)`、`Document.MaterialForVariant(prim, name)`、`Document.MeshMaterials(meshIndex, variantIndex)` 和 `Document.ResolveVariantMaterials(variantIndex)` 解析材质，且不修改 `Primitive.Material`。未映射的图元或越界/负值变体会自动回退到 `Primitive.Material`。
   - 加载时严格校验规范约束：`variants` 与 `mappings` 均须非空、每个变体必须有 `name`、材质与变体索引须在有效范围内，且同一图元上每个变体索引最多映射一次。
 
+## 材质扩展
+
+`game/gltf` 还接受出现在 `extensionsUsed` 与 `extensionsRequired` 中的两个材质扩展：
+
+- **`KHR_materials_unlit`**：设置 `Material.Unlit`。
+- **`KHR_materials_emissive_strength`**：`Material.EmissiveStrength()` 返回 `EmissiveFactor` 的倍率；扩展或其 `emissiveStrength` 省略时为 1，载荷不是对象或数值不是 >= 0 的有限数时返回错误。
+
 ## 变形目标
 
 `game/gltf` 解码 glTF 2.0 变形目标（`POSITION`、`NORMAL`、`TANGENT` 位移增量，支持稀疏访问器）、默认 `mesh.weights` 与 `node.weights`，以及 `weights` 权重动画通道（`STEP`、`LINEAR`、`CUBICSPLINE`）。在 Blender 中通过网格的 **Shape Keys**（形态键）制作变形目标，在 Action 中为其 *Value* 滑块打关键帧，并在 glTF 2.0 导出器中启用 *Data → Shape Keys*（按需勾选 *Shape Key Normals* 和 *Shape Key Tangents*）。

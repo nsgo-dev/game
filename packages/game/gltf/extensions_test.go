@@ -732,3 +732,68 @@ func TestMaterialsVariantsRejectsMalformed(t *testing.T) {
 		})
 	}
 }
+
+func TestMaterialEmissiveStrengthRequired(t *testing.T) {
+	doc, err := gltf.Load([]byte(`{
+		"asset": {"version": "2.0"},
+		"extensionsUsed": ["KHR_materials_emissive_strength"],
+		"extensionsRequired": ["KHR_materials_emissive_strength"],
+		"materials": [{"emissiveFactor": [1, 0.5, 0], "extensions": {"KHR_materials_emissive_strength": {"emissiveStrength": 4}}}]
+	}`), nil)
+	if err != nil {
+		t.Fatalf("Load with required KHR_materials_emissive_strength: %v", err)
+	}
+	if got, err := doc.Materials[0].EmissiveStrength(); err != nil || got != 4 {
+		t.Fatalf("EmissiveStrength() = (%v, %v), want (4, nil)", got, err)
+	}
+}
+
+func TestMaterialEmissiveStrength(t *testing.T) {
+	validCases := []struct {
+		name string
+		ext  json.RawMessage
+		want float32
+	}{
+		{"absent", nil, 1},
+		{"empty object", json.RawMessage(`{}`), 1},
+		{"zero", json.RawMessage(`{"emissiveStrength": 0}`), 0},
+		{"positive", json.RawMessage(`{"emissiveStrength": 3.5}`), 3.5},
+	}
+	for _, tc := range validCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var m gltf.Material
+			if tc.ext != nil {
+				m.Extensions = map[string]json.RawMessage{"KHR_materials_emissive_strength": tc.ext}
+			}
+			got, err := m.EmissiveStrength()
+			if err != nil {
+				t.Fatalf("EmissiveStrength() err = %v, want nil", err)
+			}
+			if got != tc.want {
+				t.Fatalf("EmissiveStrength() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	badCases := []struct {
+		name string
+		ext  json.RawMessage
+	}{
+		{"null extension", json.RawMessage(`null`)},
+		{"array extension", json.RawMessage(`[]`)},
+		{"null property", json.RawMessage(`{"emissiveStrength": null}`)},
+		{"string property", json.RawMessage(`{"emissiveStrength": "bright"}`)},
+		{"negative", json.RawMessage(`{"emissiveStrength": -0.5}`)},
+		{"overflow", json.RawMessage(`{"emissiveStrength": 1e40}`)},
+	}
+	for _, tc := range badCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := gltf.Material{
+				Extensions: map[string]json.RawMessage{"KHR_materials_emissive_strength": tc.ext},
+			}
+			if got, err := m.EmissiveStrength(); err == nil {
+				t.Fatalf("EmissiveStrength() = (%v, nil), want error", got)
+			}
+		})
+	}
+}
