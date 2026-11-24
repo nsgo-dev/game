@@ -614,6 +614,55 @@ gpu.View(cx, gpu.ViewProps{
 - **CPU reference and portability**: `ApplyToneMap` mirrors `ToneMapWGSL` on the CPU. `ToneMapWGSL` avoids the `exp` and `log2` builtins (AgX uses a range-reduced polynomial `log2`), because NSGo v0.3.0's software GPU returns 0 for them, and runs on both the full GPU profile and `nsgotest.NoGPUCompute` (WebGL 2 / OpenGL ES 3.0).
 - **Reference renders**: the tests draw a scene through the lit PBR pipeline's linear output mode, with emissive boxes and highlights well above 1.0, and compare it with `render3d/testdata/golden/tonemap_aces.png`, `tonemap_agx.png` and `tonemap_neutral.png`; `UPDATE_GOLDEN=1` rewrites them. Other tests check the lit PBR and material linear modes against `ShadePoint` and `EvaluateMaterial` through `ApplyToneMap`.
 
+## Anti-aliasing (`MSAATarget`, `FXAAPass`)
+
+`render3d` supports hardware multisample anti-aliasing (MSAA) where the GPU device offers it and a full-screen FXAA 3.11 post-processing pass for single-sampled paths, post-FX chains, or devices without MSAA:
+
+| Mode (`AAMode`) | Behavior |
+| --- | --- |
+| `AANone` | Single-sampled (`1x`), no post-processing. |
+| `AAFXAA` | Single-sampled render into an offscreen target followed by `FXAAPass`. |
+| `AAMSAA2x` | Requests `2x` MSAA; `ClampSampleCount` promotes it to `4x` when `Features.MSAA4x` is true (WebGPU and NSGo expose `1x` and `4x` sample counts) and falls back to `1x` otherwise. |
+| `AAMSAA4x` | Requests `4x` MSAA; resolves to `4x` when `Features.MSAA4x` is true and falls back to `1x` otherwise. |
+
+`MSAATarget` wraps an offscreen color (and optional depth) `gpu.RenderTarget` whose sample count is clamped via `ClampSampleCount`. Call `Resize` on viewport size changes (redundant calls at the same dimensions are zero-allocation no-ops), pass `ColorAttachment` / `DepthStencilAttachment` (or `RenderPassDesc`) into `BeginRenderPass`, and read the single-sampled result from `OutputTexture` (the resolved texture when multisampled, or the color texture when single-sampled):
+
+```go
+target, err := render3d.NewMSAATarget(cx, dev, render3d.MSAATargetDesc{
+	Label:       "scene",
+	Width:       uint32(w),
+	Height:      uint32(h),
+	ColorFormat: gpu.FormatRGBA8Unorm,
+	DepthFormat: gpu.FormatDepth24Plus,
+	SampleCount: mode.SampleCount(), // clamped automatically via ClampSampleCount
+	Retained:    true,
+})
+// In OnFrame:
+pass := frame.BeginRenderPass(target.RenderPassDesc(clearColor, 1.0))
+// ... draw with a pipeline using SampleCount: target.SampleCount() ...
+pass.End()
+resolved := target.OutputTexture()
+```
+
+When MSAA is multisampled, `ColorAttachment` sets `ResolveTarget` to the resolve texture and `StoreOp` to `gpu.StoreDiscard` so tile GPUs avoid writing back the transient multisample buffer; when clamped to `1x`, it stores directly into the color texture with `gpu.StoreStore`.
+
+For post-process anti-aliasing, `FXAAPass` compiles `FXAAWGSL` (a bufferless full-screen triangle FXAA 3.11 Quality shader using only `textureSampleLevel(..., 0.0)`, so it runs without compute shaders on both full and `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 profiles) and caches the source texture's bind group across frames:
+
+```go
+fxaa, err := render3d.NewFXAAPass(cx, dev, render3d.FXAAPassDesc{
+	TargetFormat: dev.SurfaceFormat(),
+	Options:      render3d.DefaultFXAAOptions(),
+	Retained:     true,
+})
+// Inside a single-sampled render pass (e.g. swapchain) or via fxaa.Encode(enc, src, dst):
+err = fxaa.Draw(swapchainPass, target.OutputTexture())
+```
+
+- `FXAAOptions` tunes `SubpixelQuality` (default `0.75`, set `DisableSubpixel: true` for edge-only smoothing), `EdgeThreshold` (default `0.166`), and `EdgeThresholdMin` (default `0.0833`); non-finite or out-of-range fields are sanitized via `Sanitize()`.
+- `ApplyFXAA(src, opts)` runs the matching pure-Go CPU FXAA 3.11 reference on an `*image.RGBA`, leaving flat interiors below the contrast threshold untouched while smoothing diagonal edges.
+- If a `Retained` `MSAATarget` or `FXAAPass` survives a device loss, call `SetDevice(dev)` in `OnReady` / `OnDeviceRestored` so subsequent `Resize` or uniform/bind-group updates target the restored device.
+- The package's reference tests compare `aa_baseline.png`, `aa_msaa4x.png`, and `aa_fxaa.png` under `render3d/testdata/golden/` and verify GPU `FXAAPass` parity with `ApplyFXAA` on both `full` and `NoGPUCompute` profiles (`UPDATE_GOLDEN=1` rewrites the goldens).
+
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:

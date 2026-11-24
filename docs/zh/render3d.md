@@ -614,6 +614,55 @@ gpu.View(cx, gpu.ViewProps{
 - **CPU 参考实现与可移植性**：`ApplyToneMap` 在 CPU 端镜像 `ToneMapWGSL`。由于 NSGo v0.3.0 的软件 GPU 对 `exp` 与 `log2` 内建函数返回 0，`ToneMapWGSL` 避开了它们（AgX 使用范围缩减多项式 `log2`），在完整 GPU 配置和 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）下均可运行。
 - **参考渲染**：测试通过光照 PBR 管线的线性输出模式绘制一个带自发光方块、高光远超 1.0 的场景，并与 `render3d/testdata/golden/tonemap_aces.png`、`tonemap_agx.png`、`tonemap_neutral.png` 比对；设置 `UPDATE_GOLDEN=1` 可重写参考图。另有测试经 `ApplyToneMap` 将光照 PBR 与材质的线性模式与 `ShadePoint`、`EvaluateMaterial` 比对。
 
+## 抗锯齿（`MSAATarget`、`FXAAPass`）
+
+`render3d` 在 GPU 设备支持时提供硬件多重采样抗锯齿（MSAA），并为单采样路径、后处理管线或不支持 MSAA 的设备提供全屏 FXAA 3.11 后处理通道：
+
+| 模式（`AAMode`） | 行为 |
+| --- | --- |
+| `AANone` | 单采样（`1x`），不执行后处理。 |
+| `AAFXAA` | 单采样渲染到离屏目标，随后执行 `FXAAPass`。 |
+| `AAMSAA2x` | 请求 `2x` MSAA；由于 WebGPU 与 NSGo 仅暴露 `1x` 与 `4x` 采样数，`ClampSampleCount` 在 `Features.MSAA4x` 为真时提升为 `4x`，否则回退为 `1x`。 |
+| `AAMSAA4x` | 请求 `4x` MSAA；`Features.MSAA4x` 为真时使用 `4x`，否则回退为 `1x`。 |
+
+`MSAATarget` 封装了离屏颜色（及可选深度）`gpu.RenderTarget`，并通过 `ClampSampleCount` 自动裁剪采样数。视口尺寸变化时调用 `Resize`（尺寸未变时为零分配空操作），将 `ColorAttachment` / `DepthStencilAttachment`（或 `RenderPassDesc`）传给 `BeginRenderPass`，最后通过 `OutputTexture` 获取可供后续通道采样或回读的单采样结果（多重采样时返回解析纹理，单采样时返回颜色纹理）：
+
+```go
+target, err := render3d.NewMSAATarget(cx, dev, render3d.MSAATargetDesc{
+	Label:       "scene",
+	Width:       uint32(w),
+	Height:      uint32(h),
+	ColorFormat: gpu.FormatRGBA8Unorm,
+	DepthFormat: gpu.FormatDepth24Plus,
+	SampleCount: mode.SampleCount(), // 自动通过 ClampSampleCount 裁剪
+	Retained:    true,
+})
+// 在 OnFrame 中：
+pass := frame.BeginRenderPass(target.RenderPassDesc(clearColor, 1.0))
+// ... 使用 SampleCount: target.SampleCount() 的管线绘制 ...
+pass.End()
+resolved := target.OutputTexture()
+```
+
+多重采样时，`ColorAttachment` 会自动把 `ResolveTarget` 指向解析纹理，并将 `StoreOp` 设为 `gpu.StoreDiscard`，避免移动端/图块 GPU 写回临时多重采样缓冲；回退到 `1x` 时则使用 `gpu.StoreStore` 直接写入颜色纹理。
+
+需要后处理抗锯齿时，`FXAAPass` 会编译 `FXAAWGSL`（无顶点缓冲的全屏三角形 FXAA 3.11 Quality 着色器，仅使用 `textureSampleLevel(..., 0.0)`，无需计算着色器，可在完整能力与 `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 档位下运行），并跨帧缓存源纹理的绑定组：
+
+```go
+fxaa, err := render3d.NewFXAAPass(cx, dev, render3d.FXAAPassDesc{
+	TargetFormat: dev.SurfaceFormat(),
+	Options:      render3d.DefaultFXAAOptions(),
+	Retained:     true,
+})
+// 在单采样渲染通道（如交换链）中调用，或使用 fxaa.Encode(enc, src, dst)：
+err = fxaa.Draw(swapchainPass, target.OutputTexture())
+```
+
+- `FXAAOptions` 可配置 `SubpixelQuality`（默认 `0.75`，设 `DisableSubpixel: true` 仅平滑边缘）、`EdgeThreshold`（默认 `0.166`）和 `EdgeThresholdMin`（默认 `0.0833`）；越界或非有限值会由 `Sanitize()` 规范化。
+- `ApplyFXAA(src, opts)` 在 CPU 上对 `*image.RGBA` 运行与 GPU 一致的纯 Go FXAA 3.11 参考实现，低于对比度阈值的平坦内部区域保持原样，斜边得到平滑抗锯齿。
+- 开启 `Retained` 的 `MSAATarget` 或 `FXAAPass` 在设备丢失恢复后，需在 `OnReady` / `OnDeviceRestored` 中调用 `SetDevice(dev)`，以便后续 `Resize` 或 uniform/绑定组更新指向恢复后的设备。
+- 本包参考测试会在 `full` 与 `NoGPUCompute` 两种档位下校验 `render3d/testdata/golden/` 中的 `aa_baseline.png`、`aa_msaa4x.png`、`aa_fxaa.png` 以及 GPU `FXAAPass` 与 CPU `ApplyFXAA` 的一致性（设置 `UPDATE_GOLDEN=1` 可重写基准图）。
+
 ## 3D 调试线框与变换手柄（Gizmo）
 
 `DebugDraw` 将 3D 线框经近裁剪面裁剪后直接投影绘制到 NSGo 的 `*core.Drawing` 叠加层：
