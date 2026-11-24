@@ -193,7 +193,7 @@ game check: 1 problem
 
 | 文件 | 检查内容 |
 | --- | --- |
-| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在且检查通过的 Tiled `.tmj` 地图；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在 |
+| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在且检查通过的 Tiled `.tmj` 地图；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
@@ -210,7 +210,7 @@ game check: 1 problem
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题。
+Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，用来检查连接所指的事件和处理函数。
 
 ### assets
 

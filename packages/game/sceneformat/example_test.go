@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -123,4 +124,53 @@ connections:
 	// button opens door at speed 2
 	// <nil>
 	// hall.scene.yaml:8:55: sceneformat: connection 0 ("button" pressed -> "door" opne): no registered component of object "door" declares handler "opne" (it has: door.open)
+}
+
+// SpawnConnected spawns a scene's objects as entities and connects them; events enqueued during an update step run when the step flushes them, in order, and the handlers see the entities at both ends.
+func ExampleSpawnConnected() {
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "pressed"}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name: "door",
+		Handlers: []sceneformat.Handler{{
+			Name: "open",
+			Func: func(c sceneformat.Call) {
+				fmt.Printf("%s opens %s (entity %v), press %v\n", c.Source.ID, c.Target.ID, c.TargetEntity.Index(), c.Payload)
+			},
+		}},
+	})
+	doc, err := sceneformat.ParseWith([]byte(`version: 1
+layers:
+  - name: props
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: open}
+`), sceneformat.ParseOptions{Components: reg})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	world := entities.NewWorld()
+	spawned, signals, err := sceneformat.SpawnConnected(doc, world, reg, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// During the step, the game's input code enqueues the presses instead of running the handlers at once.
+	_ = signals.EnqueueEntity(spawned["button"], "pressed", 1)
+	_ = signals.EnqueueEntity(spawned["button"], "pressed", 2)
+	fmt.Println("pending:", signals.Pending())
+	// At the end of the step, such as at the end of game.Loop's Update, the queue runs.
+	fmt.Println(signals.Flush())
+	// Output:
+	// pending: 2
+	// button opens door (entity 1), press 1
+	// button opens door (entity 1), press 2
+	// <nil>
 }

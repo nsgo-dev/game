@@ -2,6 +2,7 @@ package assetcheck
 
 import (
 	"errors"
+	"io/fs"
 	"maps"
 	"path"
 	"regexp"
@@ -44,6 +45,108 @@ func (c *checker) checkScene(p string) {
 		}
 		s.objects(l.Objects, "layers", li, "objects")
 	}
+	registry := c.components
+	if registry != nil {
+		// Parse has accepted the file, so what the registry adds can only be a component or connection error, which names its line. Its connections are not checked against components that break their types.
+		if _, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: registry}); err != nil {
+			s.located(err)
+			registry = nil
+		}
+	}
+	if doc.RefersToScenes() && len(doc.Connections) > 0 {
+		s.connections(doc, registry)
+	}
+}
+
+// located records err, a *sceneformat.ComponentError or *sceneformat.ConnectionError that names its line in the scene, at that line.
+func (s *sceneCheck) located(err error) {
+	if ce, ok := errors.AsType[*sceneformat.ComponentError](err); ok {
+		e := *ce
+		e.File, e.Line, e.Column = "", 0, 0
+		s.problem(s.path, min(ce.Line, s.lines), "%v", &e)
+		return
+	}
+	if ce, ok := errors.AsType[*sceneformat.ConnectionError](err); ok {
+		e := *ce
+		e.File, e.Line, e.Column = "", 0, 0
+		s.problem(s.path, min(ce.Line, s.lines), "%v", &e)
+		return
+	}
+	s.problem(s.path, 0, "%v", err)
+}
+
+// connections checks the connections of doc, a scene that instances or inherits other scenes, against the objects it has once they are resolved and, given component types reg, against the events and handlers those objects declare. The connections of the scenes it instances and inherits are not checked here: they come from those files, which are checked on their own.
+func (s *sceneCheck) connections(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry) {
+	projectFS := s.fsys
+	if s.project != "." {
+		sub, err := fs.Sub(s.fsys, s.project)
+		if err != nil {
+			s.problem(s.path, 0, "%v", err)
+			return
+		}
+		projectFS = sub
+	}
+	files := &sceneFiles{fsys: projectFS}
+	own := doc.Clone()
+	conns := own.Connections
+	own.Connections = nil
+	resolved, err := sceneformat.Resolve(own, files)
+	if err != nil {
+		// A scene file that is missing or does not load is reported on its reference or on the file itself.
+		if !files.failed {
+			line := 0
+			if doc.Inherits != "" {
+				line = s.line("inherits")
+			}
+			s.problem(s.path, line, "%v", err)
+		}
+		return
+	}
+	ids := make(map[string]bool)
+	for li := range resolved.Layers {
+		sceneformat.WalkObjects(resolved.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			ids[o.ID] = true
+			return true
+		})
+	}
+	missing := false
+	for i, c := range conns {
+		for _, end := range []struct{ field, id string }{{"from", c.From}, {"to", c.To}} {
+			if !ids[end.id] {
+				missing = true
+				s.problem(s.path, s.line("connections", strconv.Itoa(i), end.field), "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
+			}
+		}
+	}
+	if missing || reg == nil {
+		return
+	}
+	resolved.Connections = conns
+	err = sceneformat.ValidateConnections(resolved, reg)
+	if ce, ok := errors.AsType[*sceneformat.ConnectionError](err); ok {
+		steps := []string{"connections", strconv.Itoa(ce.Index), ce.Field}
+		if ce.Arg != "" {
+			steps = append(steps, ce.Arg)
+		}
+		s.problem(s.path, s.line(steps...), "%v", ce)
+	} else if err != nil {
+		s.problem(s.path, 0, "%v", err)
+	}
+}
+
+// sceneFiles loads the scenes a scene instances and inherits from a project's files, and records whether one failed to load.
+type sceneFiles struct {
+	fsys   fs.FS
+	failed bool
+}
+
+// Scene loads the scene file at p, a path from the project root.
+func (r *sceneFiles) Scene(p string) (*sceneformat.SceneDoc, error) {
+	doc, err := sceneformat.FSScenes{FS: r.fsys}.Scene(p)
+	if err != nil {
+		r.failed = true
+	}
+	return doc, err
 }
 
 // objects checks the sprites and materials of objs, found at steps in the scene, and of their descendants.

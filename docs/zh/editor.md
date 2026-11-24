@@ -401,6 +401,47 @@ scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "do
 
 `Resolve` 会带上连接：实例化场景的连接随实例一起进来，其中的对象名与对象 ID 一样加上前缀（`door_1/button`），因此预制件的每个副本都保留自己的连线；继承的场景保留基础场景的连接，并把自己的连接加在后面。场景可以连接它所实例化或继承的场景中的对象，这些名称在解析之后才检查。在编辑器中，`DeleteObject` 会同时删除来自或指向被删对象及其后代的连接，撤销删除时把它们放回原处。
 
+#### 排队的事件
+
+`Emit` 在返回前就运行处理函数，所以发出事件的处理函数会在自身内部运行下一批处理函数。要让一步之内的顺序简单明了，改用 `Signals.Enqueue(from, event, payload)` 发出事件，并在每一步调用一次 `Signals.Flush()`，例如在 `game.Loop` 的 `Update` 末尾：
+
+```go
+loop.Update = func(dt time.Duration) {
+	world.Update(dt) // input and systems call signals.Enqueue
+	if err := signals.Flush(); err != nil {
+		log.Print(err)
+	}
+}
+```
+
+`Enqueue` 在排入任何东西之前就拒绝 `Emit` 会拒绝的情况，所以拼错的事件在发出的地方就会失败。`Flush` 按入队顺序运行它开始之前入队的事件，每个都像 `Emit` 那样运行；处理函数入队的事件（包括它自己的事件）要等到下一次 `Flush`，所以一次 `Flush` 总会结束，处理函数也不会重入自身。在处理函数中调用 `Flush` 会被拒绝，`Pending` 返回等待中的事件数。队列增长到一步的事件量之后，每一步的分配不会多于直接发出这些事件。
+
+#### 生成连接好的实体
+
+`SpawnConnected(doc, world, reg, ctx)` 像 `Connect` 那样检查场景，像 `SpawnEntities` 那样生成它的对象，然后返回每个对象 ID 对应的实体，以及连接这些实体的 `*Signals`。所有检查都在生成第一个实体之前完成，所以连接指向不存在的对象、事件、处理函数或 `Func`，或者组件不符合其类型的场景，什么都不会生成。`EmitEntity(e, event, payload)` 和 `EnqueueEntity` 用实体指定对象，`Entity(id)` 返回对象的实体，每个 `Call` 都带有 `SourceEntity` 和 `TargetEntity`，处理函数可以用 `entities.Get` 取到目标的组件。被销毁的实体不再发出事件：`Emit`、`Enqueue` 及其实体形式会拒绝它，`Flush` 丢弃它之前入队的事件，指向它的连接会被跳过。实例化或继承其他场景的场景在 `Resolve` 之后生成，实例的连接作用于实例的实体（`west/door`）。
+
+#### 检查连接
+
+`go tool game check` 会解析每个实例化或继承其他场景、且自己带有连接的场景，连接的 `from` 或 `to` 指向解析后场景中不存在的对象时失败，并报告写有该名称的行。事件和处理函数在 Go 中声明，命令行无法加载它们，所以游戏在自己的测试中用 `assetcheck.CheckWith` 和自己的注册表检查它们；它会在文件和行上报告指向对象未声明的事件、处理函数或参数的连接，以及不符合类型的组件，实例化或继承其他场景的场景也一样：
+
+```go
+func TestScenesCheck(t *testing.T) {
+	report, err := assetcheck.CheckWith(os.DirFS("."), assetcheck.Options{Components: Components})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range report.Problems {
+		t.Error(p)
+	}
+}
+```
+
+```text
+scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/door" open): no registered component of object "lever" declares event "held" (it has: button.pressed)
+```
+
+场景所实例化或继承的场景，其连接在那些文件中检查，所以每个问题只报告一次。
+
 ### 项目
 
 编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `go tool game editor <dir>` 即可打开一个项目目录。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `go tool game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
