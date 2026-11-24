@@ -169,6 +169,7 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 	}
 	out := base.Clone()
 	out.Version = doc.Version
+	out.UID = doc.UID
 	if own.Name != "" {
 		out.Name = own.Name
 	}

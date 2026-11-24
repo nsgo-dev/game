@@ -10,6 +10,10 @@
       "type": "integer",
       "const": 2
     },
+    "uid": {
+      "description": "UID is the scene file's stable ID, which stays the same when the file is renamed or moved so the tools can find it again (see package refs); empty until a tool such as game index gives it one. When set it must be a UID as resource.NewUID returns it. Resolve keeps the UID of the scene it resolves, not its base's. Both versions accept it.",
+      "type": "string"
+    },
     "inherits": {
       "description": "Inherits optionally names a base scene file by its slash-separated path from the project root, such as \"scenes/enemy.scene.yaml\". The scene then starts as a copy of its base and changes only what it declares: its own scalar fields, camera and tilemaps replace the base's when set, its Overrides and LayerOverrides change inherited objects and layers, and its Layers add objects to the base's layers of the same name or add new layers after them. Resolve applies it. Version 2.",
       "type": "string"

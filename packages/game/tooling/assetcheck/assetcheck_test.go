@@ -2,6 +2,9 @@ package assetcheck_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -538,4 +541,93 @@ func BenchmarkCheck(b *testing.B) {
 func yamlLines(data []byte) int {
 	s := strings.ReplaceAll(string(data), "\r\n", "\n")
 	return 1 + strings.Count(s, "\n") + strings.Count(s, "\r") + strings.Count(s, "\u0085") + strings.Count(s, "\u2028") + strings.Count(s, "\u2029")
+}
+
+func TestReferencesBetweenProjectFiles(t *testing.T) {
+	const enemy = "version: 2\nuid: enemy00000001\nlayers:\n  - name: a\n    objects:\n      - id: body\n"
+	const index = `version: 1
+files:
+  - path: art/stone.png
+    sha256: SHA
+  - path: materials/stone.material.yaml
+    uid: mat0000000001
+  - path: scenes/enemy.yaml
+    uid: enemy00000001
+`
+	base := func(t *testing.T) fstest.MapFS {
+		fsys := project(t)
+		fsys["game.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nautoload:\n  scenes:\n    - name: room\n      path: scenes/room.scene.yaml\n  resources:\n    - name: stone\n      path: materials/stone.material.yaml\n")}
+		fsys["scenes/enemy.yaml"] = &fstest.MapFile{Data: []byte(enemy)}
+		fsys["scenes/room.scene.yaml"].Data = []byte(strings.Replace(roomScene, "version: 1", "version: 2", 1) + "      - id: foe\n        scene: scenes/enemy.yaml\n")
+		fsys["materials/stone.material.yaml"].Data = []byte(strings.Replace(stoneMaterial, "version: 1\n", "version: 1\nuid: mat0000000001\n", 1))
+		sum := sha256.Sum256(fsys["art/stone.png"].Data)
+		fsys["game.index.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(index, "SHA", hex.EncodeToString(sum[:]), 1))}
+		return fsys
+	}
+	if r := mustCheck(t, base(t)); !r.OK() {
+		t.Fatalf("problems in a clean project:\n%s", problems(r))
+	}
+	cases := []struct {
+		name   string
+		change func(fsys fstest.MapFS)
+		want   []string
+	}{
+		{"missing instanced scene", func(fsys fstest.MapFS) { delete(fsys, "scenes/enemy.yaml") }, []string{
+			`scenes/room.scene.yaml:%d: scene "scenes/enemy.yaml": not found`,
+		}},
+		{"missing autoload", func(fsys fstest.MapFS) {
+			fsys["game.yaml"].Data = []byte(strings.Replace(string(fsys["game.yaml"].Data), "room.scene.yaml", "hall.scene.yaml", 1))
+		}, []string{`game.yaml:5: autoload scene "scenes/hall.scene.yaml": not found`}},
+		{"moved scene", func(fsys fstest.MapFS) {
+			fsys["actors/enemy.yaml"] = fsys["scenes/enemy.yaml"]
+			delete(fsys, "scenes/enemy.yaml")
+		}, []string{`scenes/room.scene.yaml:%d: scene "scenes/enemy.yaml": not found; it moved to "actors/enemy.yaml"; run game index to update the reference`}},
+		{"moved material", func(fsys fstest.MapFS) {
+			fsys["materials/rock/stone.material.yaml"] = fsys["materials/stone.material.yaml"]
+			delete(fsys, "materials/stone.material.yaml")
+		}, []string{
+			`game.yaml:8: autoload resource "materials/stone.material.yaml": not found; it moved to "materials/rock/stone.material.yaml"; run game index to update the reference`,
+			`scenes/room.scene.yaml:%d: material "materials/stone.material.yaml": not found; it moved to "materials/rock/stone.material.yaml"; run game index to update the reference`,
+		}},
+		{"moved texture", func(fsys fstest.MapFS) {
+			fsys["art/stones/stone.png"] = fsys["art/stone.png"]
+			delete(fsys, "art/stone.png")
+		}, []string{`materials/stone.material.yaml:5: texture "art/stone.png": not found; it moved to "art/stones/stone.png"; run game index to update the reference`}},
+		{"shared uid", func(fsys fstest.MapFS) { fsys["scenes/copy.scene.yaml"] = fsys["scenes/enemy.yaml"] }, nil},
+		{"broken index", func(fsys fstest.MapFS) {
+			fsys["game.index.yaml"].Data = append(fsys["game.index.yaml"].Data, "    size: 3\n"...)
+		}, []string{`game.index.yaml:9: field size not found in type refs.IndexEntry`}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := base(t)
+			tc.change(fsys)
+			r := mustCheck(t, fsys)
+			var got []string
+			for _, p := range r.Problems {
+				got = append(got, p.String())
+			}
+			var want []string
+			for _, w := range tc.want {
+				if strings.Contains(w, "%d") {
+					marker := `scene: scenes/enemy.yaml`
+					if strings.Contains(w, "material") {
+						marker = "material: materials"
+					}
+					w = fmt.Sprintf(w, lineOf(t, string(fsys["scenes/room.scene.yaml"].Data), marker))
+				}
+				want = append(want, w)
+			}
+			if tc.name == "shared uid" {
+				// A copy is reported where it is read; which of the two files is the copy is for game index to decide.
+				if len(got) != 1 || !strings.Contains(got[0], `scenes/enemy.yaml:2: uid "enemy00000001" is also the uid of scenes/copy.scene.yaml`) {
+					t.Fatalf("problems:\n%s", strings.Join(got, "\n"))
+				}
+				return
+			}
+			if !slices.Equal(got, want) {
+				t.Fatalf("problems:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
 }

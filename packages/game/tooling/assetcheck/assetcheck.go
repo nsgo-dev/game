@@ -5,9 +5,12 @@
 //   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, and whose sprite frames and tile IDs must be in their atlases;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
-//   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas.
+//   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
+//   - the references refs.Scan finds that the checks above do not follow: the scene a scene inherits or an object instances, and the scenes and resources game.yaml autoloads, which must exist; and the project indexes refs reads, which must parse, with no uid shared by two files.
 //
-// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source and material paths are resolved from its project root, the nearest directory above the scene that holds nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene, counting the directories up from the scene and down to the atlas, wins. A JSON file of that name that does not parse, or is not an atlas, is reported when a scene names it. PNG, JPEG and GIF images must also decode; other images only have to exist.
+// A reference to a file that is gone says where the file went when the project index (refs.IndexFileName) finds it again (refs.Project.Moved), and that game index updates the reference.
+//
+// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source and material paths are resolved from its project root, the nearest directory above the scene that holds game.yaml, nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene, counting the directories up from the scene and down to the atlas, wins. A JSON file of that name that does not parse, or is not an atlas, is reported when a scene names it. PNG, JPEG and GIF images must also decode; other images only have to exist.
 //
 // Directories whose names start with "." or "_", and those named testdata, are skipped, as the go command skips them.
 package assetcheck
@@ -25,6 +28,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/refs"
 )
 
 // Problem is one thing wrong with a file Check read.
@@ -100,6 +106,9 @@ func Check(fsys fs.FS) (*Report, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assetcheck: %w", err)
 	}
+	if c.refs, err = refs.Scan(fsys); err != nil {
+		return nil, fmt.Errorf("assetcheck: %w", err)
+	}
 
 	// Atlases first, so that scenes find their frames.
 	for _, p := range jsons {
@@ -120,6 +129,7 @@ func Check(fsys fs.FS) (*Report, error) {
 	for _, p := range scenes {
 		c.checkScene(p)
 	}
+	c.checkRefs()
 	return c.finish(), nil
 }
 
@@ -147,6 +157,8 @@ type checker struct {
 	materials map[string]bool
 	// roots caches the project root of each directory.
 	roots map[string]string
+	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.
+	refs *refs.Project
 }
 
 // problem records a problem in file at line (0 for none).
@@ -221,12 +233,15 @@ func hasScheme(ref string) bool {
 	return true
 }
 
+// errNotFound is why a referenced file that does not exist cannot be read.
+var errNotFound = errors.New("not found")
+
 // fileMissing returns why p cannot be read as a file, or nil when it can.
 func (c *checker) fileMissing(p string) error {
 	info, err := fs.Stat(c.fsys, p)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return errors.New("not found")
+		return errNotFound
 	case err != nil:
 		return unwrapPathError(err)
 	case info.IsDir():
@@ -243,7 +258,7 @@ func (c *checker) fileRef(file string, line int, dir, ref, what string) (string,
 		return "", false
 	}
 	if err := c.fileMissing(p); err != nil {
-		c.problem(file, line, "%s %q: %v", what, ref, err)
+		c.problem(file, line, "%s %q: %v%s", what, ref, err, c.movedHint(dir, p, err))
 		return "", false
 	}
 	return p, true
@@ -267,7 +282,7 @@ func (c *checker) imageRef(file string, line int, dir, ref, what string) *imageI
 	}
 	img := c.image(p)
 	if img.err != nil {
-		c.problem(file, line, "%s %q: %v", what, ref, img.err)
+		c.problem(file, line, "%s %q: %v%s", what, ref, img.err, c.movedHint(dir, p, img.err))
 		return nil
 	}
 	return img
@@ -303,14 +318,14 @@ func (c *checker) image(p string) *imageInfo {
 	return img
 }
 
-// projectRoot returns the project root of the files in dir: the nearest directory at or above it that holds nsgo.yaml or go.mod, or "." when none does.
+// projectRoot returns the project root of the files in dir: the nearest directory at or above it that holds game.yaml, nsgo.yaml or go.mod, or "." when none does, as refs.Project.Root finds it.
 func (c *checker) projectRoot(dir string) string {
 	if r, ok := c.roots[dir]; ok {
 		return r
 	}
 	root := "."
 	if dir != "." {
-		if c.fileMissing(path.Join(dir, "nsgo.yaml")) == nil || c.fileMissing(path.Join(dir, "go.mod")) == nil {
+		if c.fileMissing(path.Join(dir, project.FileName)) == nil || c.fileMissing(path.Join(dir, project.NSGoFileName)) == nil || c.fileMissing(path.Join(dir, "go.mod")) == nil {
 			root = dir
 		} else {
 			root = c.projectRoot(path.Dir(dir))
@@ -318,6 +333,38 @@ func (c *checker) projectRoot(dir string) string {
 	}
 	c.roots[dir] = root
 	return root
+}
+
+// movedHint returns, for a reference written relative to dir to the file p that could not be read because of err, where the project index says the file went, as "; it moved to ..." in the reference's own form, or "" when err is not that the file is gone or the index does not know where it went.
+func (c *checker) movedHint(dir, p string, err error) string {
+	if !errors.Is(err, errNotFound) || c.refs == nil {
+		return ""
+	}
+	to, ok := c.refs.Moved(p)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("; it moved to %q; run game index to update the reference", refs.RelPath(dir, to))
+}
+
+// checkRefs reports what refs.Scan found wrong, a shared uid or an index that does not parse, and checks the references the rest of the check does not follow: the scene a scene inherits or an object instances, and game.yaml's autoloaded scenes and resources, which must exist.
+func (c *checker) checkRefs() {
+	for _, p := range c.refs.Problems {
+		c.problem(p.File, p.Line, "%s", p.Message)
+	}
+	for _, r := range c.refs.Refs {
+		switch r.Field {
+		case refs.FieldInherits, refs.FieldScene, refs.FieldAutoloadScene, refs.FieldAutoloadResource:
+		default:
+			continue
+		}
+		if r.Target == "" {
+			continue
+		}
+		if err := c.fileMissing(r.Target); err != nil {
+			c.problem(r.File, r.Line, "%s %q: %v%s", r.Field, r.Value, err, c.movedHint(c.projectRoot(path.Dir(r.File)), r.Target, err))
+		}
+	}
 }
 
 // plural returns "n one" when n is 1 and "n many" otherwise.
