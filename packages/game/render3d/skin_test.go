@@ -261,20 +261,6 @@ func renderGPUSkinnedInView(t *testing.T, width, height int, sm render3d.Skinned
 	return img
 }
 
-func countNonClearPixels(img *image.RGBA, clear color.RGBA) int {
-	b := img.Bounds()
-	n := 0
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			c := img.RGBAAt(x, y)
-			if absDiffU8(c.R, clear.R) > 3 || absDiffU8(c.G, clear.G) > 3 || absDiffU8(c.B, clear.B) > 3 {
-				n++
-			}
-		}
-	}
-	return n
-}
-
 func countDifferingPixels(a, b *image.RGBA, tol uint8) int {
 	bounds := a.Bounds()
 	diff := 0
@@ -288,13 +274,6 @@ func countDifferingPixels(a, b *image.RGBA, tol uint8) int {
 		}
 	}
 	return diff
-}
-
-func absDiffU8(a, b uint8) uint8 {
-	if a > b {
-		return a - b
-	}
-	return b - a
 }
 
 func TestCesiumManBindPoseAndPosedGPUParity(t *testing.T) {
