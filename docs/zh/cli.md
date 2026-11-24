@@ -32,6 +32,7 @@ go tool game help
 | `generate` | 向游戏项目写入新的组件、系统、场景或预制体：它的 Go 代码和测试、场景或预制体的场景文件，以及它的注册 |
 | `mv` | 移动或重命名项目中的文件或目录，改写所有指向它的引用，并保持项目索引最新 |
 | `index` | 给每个场景文件和资源文件分配 uid，把引用指向未经工具移动的文件的新位置，并写出项目索引 |
+| `library` | 在库中查找资源、编辑器插件和模板包并安装到项目中，更新或移除它们，或打印包的摘要 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -80,7 +81,7 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。场景格式见[编辑器与场景格式](editor.md)。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。场景格式见[编辑器与场景格式](editor.md)。
 
 ### release
 
@@ -341,6 +342,17 @@ go tool game index -dry-run examples/caverun
 ```
 
 给每个还没有 `uid` 的场景文件和资源文件加上 uid（写在 `version` 之后的一行），把指向未经工具移动的文件的引用改到文件的新路径，给保留了原文件 uid 的副本换一个新 uid，并在每个项目根目录写出 `game.index.yaml`，其中列出每个场景和资源文件的路径与 uid，以及其他被引用文件的路径与 SHA-256。命令会打印每项修改，或者打印索引已是最新；`-dry-run` 只打印而不执行。目录为所指定的目录或 `-in`，否则为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。`check` 检查的是工作目录及其下的内容，而 `mv` 和 `index` 默认作用于上述整个项目，因为指向被移动文件的引用可能出现在项目的任何位置，而索引位于项目根目录：在子目录中运行时，`check` 只检查该子目录，`index` 则更新整个项目。首次使用时运行一次以开始维护索引，之后每次手动或用 Git 移动文件后再运行；把索引和文件一起提交。
+
+### library
+
+```sh
+go tool game library list tiles
+go tool game library install dungeon-tiles
+go tool game library remove dungeon-tiles
+go tool game library digest library/packs/dungeon-tiles
+```
+
+列出库中与给定词匹配的包（`-kind` 只保留一种类型），并显示项目已安装的版本；把包安装到当前目录（或 `-project`）的项目中，写入包的文件，并在 `game.yaml` 中记录它们以及它们新增的自动加载条目和编辑器插件；用新版本覆盖旧版本；移除已安装的包；以及为库索引打印包目录的摘要。除非 `-index` 指定了其他库，否则使用本仓库中的共享库。索引和包的格式、安装可以覆盖和不能覆盖什么，以及如何添加包，见[资源与插件库](library.md)。
 
 ### completion
 

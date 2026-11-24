@@ -32,6 +32,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `generate` | Writes a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration |
 | `mv` | Moves or renames a file or directory of a project and rewrites every reference to it, keeping the project index up to date |
 | `index` | Gives every scene and resource file a uid, points references at files moved without the tools, and writes the project index |
+| `library` | Finds asset, editor plugin and template packs in a library and installs them into a project, updates or removes them, or prints a pack's digest |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
@@ -80,7 +81,7 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. The scene format is described in [Editor & Scene Format](editor.md).
+Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. `-library` adds a panel that installs packs from that [library](library.md) into the open project. The scene format is described in [Editor & Scene Format](editor.md).
 
 ### release
 
@@ -341,6 +342,17 @@ go tool game index -dry-run examples/caverun
 ```
 
 Gives every scene and resource file without a `uid` one, as a line after its `version`, points every reference to a file that was moved without the tools at the file's new path, gives a copied file that kept its original's uid a new one, and writes `game.index.yaml` at each project root, listing each scene and resource file's path and uid and each other referenced file's path and SHA-256. It prints each change, or that the index is up to date; `-dry-run` prints them without making them. The directory is the one named, `-in`, or else the nearest at or above the working directory holding `game.yaml`, `nsgo.yaml` or `go.mod`. Unlike `check`, which checks the working directory and what is under it, `mv` and `index` default to that whole project, since a reference to a moved file can be anywhere in it and the index sits at its root: run from a subdirectory, `check` looks at the subdirectory alone while `index` updates the whole project. Run it once to start keeping an index, and again after moving files by hand or with Git; commit the index with the files.
+
+### library
+
+```sh
+go tool game library list tiles
+go tool game library install dungeon-tiles
+go tool game library remove dungeon-tiles
+go tool game library digest library/packs/dungeon-tiles
+```
+
+Lists the packs of a library that match the words given (`-kind` keeps one kind), with the version the project has installed; installs packs into the project in the working directory (or `-project`), writing their files and recording them and the autoload entries and editor plugins they add in `game.yaml`; installs a newer release over an older one; removes an installed pack; and prints a pack directory's digest for the library's index. The library is the shared one in this repository unless `-index` names another. The index and pack formats, what an install may and may not overwrite, and how to add a pack are in [Asset and Plugin Library](library.md).
 
 ### completion
 

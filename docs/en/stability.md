@@ -157,6 +157,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tooling/importsettings` | Experimental | [Command Line](cli.md) |
 | `game/tooling/jsonschema` | Experimental | [Schemas for YAML files](schemas.md) |
 | `game/tooling/ktx2` | Experimental | |
+| `game/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
 | `game/tooling/manifest` | Experimental | |
 | `game/tooling/pack` | Experimental | |
 | `game/tween` | Stable | [tween](tween.md) |
