@@ -1,0 +1,11 @@
+name: Lantern 3D
+id: dev.nsgo.examples.lantern3d
+version: 0.1.0
+appearance: dark
+
+dev:
+  target: native
+
+build:
+  output: dist
+  targets: [macos, windows, linux, android, web]

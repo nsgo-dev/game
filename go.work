@@ -10,6 +10,7 @@ use (
 	./examples/tutorial
 	./examples/fountain
 	./examples/fieldmedic
+	./examples/lantern3d
 	./tools/changelog
 	./tools/agenteval
 )

@@ -1,0 +1,16 @@
+version: 1
+name: Lantern 3D
+id: dev.nsgo.examples.lantern3d
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+  appearance: dark
+export:
+  output: dist
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+    - platform: android
+    - platform: web

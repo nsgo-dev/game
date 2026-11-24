@@ -40,7 +40,7 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 - `game/tilemap`: tilemaps and the camera ([#5](https://github.com/nsgo-dev/game/issues/5)).
 - `game/scene`: drawing layers, hit testing and scene switching ([#6](https://github.com/nsgo-dev/game/issues/6)).
 
-`examples/caverun` is the playable sample game, [Cave Run](examples/caverun/README.md) ([#8](https://github.com/nsgo-dev/game/issues/8)).
+`examples/caverun` is the playable 2D platformer sample, [Cave Run](examples/caverun/README.md) ([#8](https://github.com/nsgo-dev/game/issues/8)), and `examples/lantern3d` is the interactive 3D glTF scene sample, [Lantern 3D](examples/lantern3d/README.md) ([#205](https://github.com/nsgo-dev/game/issues/205)).
 
 ## Docs
 

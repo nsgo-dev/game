@@ -7,7 +7,7 @@ game is a game layer for [NSGo](https://nsgo.dev) apps, written in Go. A game dr
 ## Stages
 
 1. **2D**: a fixed-step loop, input actions, sprites, tilemaps, scenes and sound, drawn at 60 fps or the display's rate.
-2. **3D**: meshes, cameras, lights and glTF models drawn with depth on a GPU view NSGo adds for it ([nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)). See [3D Models from Blender](3d-models-blender.md) for coordinate conventions, Blender 4.x export settings, FBX/OBJ conversion and sample glTF assets.
+2. **3D**: meshes, cameras, lights and glTF models drawn with depth on a GPU view NSGo adds for it ([nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)). See [3D Models from Blender](3d-models-blender.md) for coordinate conventions, Blender 4.x export settings, FBX/OBJ conversion and sample glTF assets, and [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d) for an interactive glTF 3D scene example with orbit camera, dynamic lighting and a native HUD.
 
 The loop, input actions, sound and scene switching are shared by both stages, so 3D adds drawing without replacing them. The plan is [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047); its tasks are this repository's issues and the engine primitives NSGo adds for it.
 
