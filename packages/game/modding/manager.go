@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -254,6 +255,177 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 	}
 
 	return slices.Clone(ordered), nil
+}
+
+// Install validates a single mod directory on disk and installs or updates it in the manager
+// without disturbing unrelated mods. If a mod with the same ID is already registered, its
+// running instance (if any) is unloaded and replaced. Call [Manager.Load] or [Manager.LoadAll]
+// to start the installed mod.
+func (m *Manager) Install(dir string) (ModManifest, error) {
+	if m.closed {
+		return ModManifest{}, errors.New("modding: manager is closed")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return ModManifest{}, fmt.Errorf("modding: install %q: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return ModManifest{}, fmt.Errorf("modding: install %q: not a directory", dir)
+	}
+	return m.InstallFS(os.DirFS(dir), filepath.Base(filepath.Clean(dir)))
+}
+
+// InstallFS validates a single mod rooted at fsys and installs or updates it in the manager
+// without disturbing unrelated mods. dirName labels the mod directory in manifest errors.
+// Dependency order across all registered mods is re-validated; if validation fails, existing
+// mods remain untouched.
+func (m *Manager) InstallFS(fsys fs.FS, dirName string) (ModManifest, error) {
+	if m.closed {
+		return ModManifest{}, errors.New("modding: manager is closed")
+	}
+	manifest, err := m.validateModFS(fsys, dirName)
+	if err != nil {
+		return ModManifest{}, err
+	}
+	if err := m.installValidated([]validatedMod{{
+		manifest: manifest,
+		fsys:     fsys,
+		dir:      dirName,
+	}}); err != nil {
+		return ModManifest{}, err
+	}
+	return manifest, nil
+}
+
+// Uninstall unloads mod id (if loaded) and removes it from the manager.
+func (m *Manager) Uninstall(id string) error {
+	if m.closed {
+		return errors.New("modding: manager is closed")
+	}
+	mod, ok := m.mods[id]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrNotFound, id)
+	}
+	m.unloadMod(mod)
+	delete(m.mods, id)
+	m.order = slices.DeleteFunc(m.order, func(existing string) bool { return existing == id })
+	for i, existing := range m.order {
+		if other := m.mods[existing]; other != nil {
+			other.order = i
+		}
+	}
+	return nil
+}
+
+type validatedMod struct {
+	manifest ModManifest
+	fsys     fs.FS
+	dir      string
+}
+
+func (m *Manager) validateModFS(fsys fs.FS, dirName string) (ModManifest, error) {
+	manifestPath := ManifestFile
+	if dirName != "" && dirName != "." {
+		manifestPath = path.Join(dirName, ManifestFile)
+	}
+	data, err := fs.ReadFile(fsys, ManifestFile)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			if _, legacyErr := fs.Stat(fsys, legacyManifestFile); legacyErr == nil {
+				return ModManifest{}, fmt.Errorf("%w: %s: mod.json is no longer read; rewrite it as %s", ErrInvalidManifest, dirName, ManifestFile)
+			}
+			return ModManifest{}, loaderr.Locate(fmt.Errorf("%w: %w", ErrInvalidManifest, err), manifestPath, nil, fixReadManifest)
+		}
+		return ModManifest{}, loaderr.Locate(fmt.Errorf("read: %w", err), manifestPath, nil, fixReadManifest)
+	}
+	manifest, err := ParseManifest(data)
+	if err != nil {
+		return ModManifest{}, loaderr.WithFile(err, manifestPath)
+	}
+	if m.opts.GameVersion != "" && manifest.GameVersion != "" {
+		if err := checkGameVersion(m.opts.GameVersion, manifest); err != nil {
+			return ModManifest{}, loaderr.Locate(err, manifestPath, data, "")
+		}
+	}
+	entryPath := path.Clean(manifest.Entry)
+	fi, err := fs.Stat(fsys, entryPath)
+	if err != nil {
+		return ModManifest{}, loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
+	}
+	if fi.IsDir() {
+		return ModManifest{}, loaderr.Locate(loaderr.Errorf("entry", "name the mod's script file, not a directory", "%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry), manifestPath, data, "")
+	}
+	return manifest, nil
+}
+
+// installValidated installs or updates a validated set of mods atomically after verifying
+// topological dependency order against all already-registered mods.
+func (m *Manager) installValidated(incoming []validatedMod) error {
+	if len(incoming) == 0 {
+		return nil
+	}
+	incomingByID := make(map[string]validatedMod, len(incoming))
+	for _, item := range incoming {
+		if _, dup := incomingByID[item.manifest.ID]; dup {
+			return fmt.Errorf("%w: %q", ErrDuplicateMod, item.manifest.ID)
+		}
+		incomingByID[item.manifest.ID] = item
+	}
+
+	manifests := make([]ModManifest, 0, len(m.mods)+len(incoming))
+	for id, existing := range m.mods {
+		if _, replaced := incomingByID[id]; replaced {
+			continue
+		}
+		manifests = append(manifests, existing.manifest)
+	}
+	for _, item := range incoming {
+		manifests = append(manifests, item.manifest)
+	}
+
+	ordered, err := ResolveOrder(manifests)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range incoming {
+		if existing, ok := m.mods[item.manifest.ID]; ok {
+			if existing.state == StateLoaded {
+				m.unloadMod(existing)
+			}
+			existing.manifest = item.manifest
+			existing.fsys = item.fsys
+			existing.dir = item.dir
+			if existing.enabled {
+				existing.state = StateDiscovered
+			} else {
+				existing.state = StateDisabled
+			}
+			existing.err = nil
+			continue
+		}
+		enabled := m.loadEnabledPref(item.manifest.ID)
+		state := StateDiscovered
+		if !enabled {
+			state = StateDisabled
+		}
+		m.mods[item.manifest.ID] = &managedMod{
+			manifest: item.manifest,
+			fsys:     item.fsys,
+			dir:      item.dir,
+			enabled:  enabled,
+			state:    state,
+		}
+	}
+
+	m.order = m.order[:0]
+	for i, manifest := range ordered {
+		if mod := m.mods[manifest.ID]; mod != nil {
+			mod.order = i
+		}
+		m.order = append(m.order, manifest.ID)
+	}
+	return nil
 }
 
 // SetGrant sets a per-mod capability grant for id, further narrowing its manifest capabilities

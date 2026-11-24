@@ -104,8 +104,77 @@ hudPanels := mgr.PanelsView("hud")
 _ = hudPanels
 ```
 
-Control individual mods at runtime with `Enable`, `Disable`, `Load`, `Unload`, `Reload`, `SetGrant`, `Emit`, `Call`, `List`, `Info`, and `Logs`. A panicking or throwing mod transitions to `StateFailed` while the host game and sibling mods keep running.
+Control individual mods at runtime with `Enable`, `Disable`, `Install`, `InstallFS`, `Uninstall`, `Load`, `Unload`, `Reload`, `SetGrant`, `Emit`, `Call`, `List`, `Info`, and `Logs`. A panicking or throwing mod transitions to `StateFailed` while the host game and sibling mods keep running.
 
 `Reload` validates the updated `mod.yaml` (syntax, ID, game version and dependencies) before it unloads anything, so a broken manifest returns an error and the version already loaded keeps running.
 
 Browsers cannot isolate a mod from the page: a mod running on the web can use the page's own APIs (`XMLHttpRequest`, `WebSocket`, `localStorage`) whatever its capabilities say. Loading a mod on the web therefore fails with `ErrWebUnisolated` unless you set `ManagerOptions.WebUnisolated`, which you should only do for mods you trust as much as your own code. Other targets isolate mods and ignore the option.
+
+## Steam Workshop (`Workshop`)
+
+`Workshop` connects Steamworks `ISteamUGC` to `Manager` so authors can publish mods and custom levels and subscribed players automatically download, validate, install, update, and remove them.
+
+### Workshop metadata (`workshop.yaml`)
+
+Publishing writes a deterministic `workshop.yaml` (`WorkshopMetadata`) beside `mod.yaml` so subsequent publishes update the same Steam Workshop item instead of creating duplicates:
+
+```yaml
+version: 1
+appId: 480
+publishedFileId: 123456789
+title: Boss Rush
+description: Spawns a slime every five seconds and shows a HUD badge while the rush runs.
+tags: [bosses, gameplay]
+visibility: public
+preview: preview.png
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `version` | yes | Schema version of `workshop.yaml`, currently `1` (`modding.WorkshopMetadataVersion`) |
+| `appId` | yes | Steam application ID that owns the Workshop item |
+| `publishedFileId` | no | Assigned Steam Workshop `PublishedFileID` (populated automatically on first publish) |
+| `title`, `description` | no | Override `mod.yaml`'s `name` and `description` on Workshop |
+| `tags` | no | Steam Workshop tags (encoded sorted in byte order; empty or duplicate tags are refused) |
+| `visibility` | no | One of `public`, `friendsOnly`, `private`, or `unlisted` (defaults to `public`) |
+| `preview` | no | Relative slash-separated path inside the mod directory to a preview image |
+
+Like `mod.yaml`, `ParseWorkshopMetadata` refuses unknown fields, duplicate keys, trailing YAML documents, invalid visibility/tag/preview values, and a missing or non-literal `version: 1` as `ErrInvalidWorkshopMetadata`. `EncodeWorkshopMetadata` emits canonical 2-space YAML with no timestamps or volatile fields so round trips are byte-for-byte stable.
+
+### Publishing and syncing subscribed items
+
+Use `NewSteamWorkshop` on macOS, Linux, and Windows to bind `libsteam_api.dylib`, `libsteam_api.so`, or `steam_api64.dll` via `purego` (no CGo). When the Steamworks library or running Steam client is absent—or on web, iOS, and Android—`NewSteamWorkshop` returns `ErrWorkshopUnavailable`. For tests and offline tools, use `NewMemoryWorkshop`, which simulates multi-user publishing, querying, subscribing, downloading, and updates on disk.
+
+```go
+backend, err := modding.NewSteamWorkshop(modding.SteamWorkshopOptions{})
+if err != nil {
+	// Fall back cleanly when Steam is not running (errors.Is(err, modding.ErrWorkshopUnavailable)).
+	return err
+}
+defer backend.Close()
+
+ws := modding.NewWorkshop(backend, mgr, modding.WorkshopOptions{
+	AppID:    480,
+	AutoLoad: true,
+})
+
+// Author: validate mod.yaml and publish or update the Workshop item.
+res, err := ws.Publish(ctx, "mods/boss-rush", modding.PublishOptions{
+	Tags:       []string{"gameplay", "bosses"},
+	Visibility: modding.VisibilityPublic,
+	Preview:    "preview.png",
+	ChangeNote: "Initial release",
+})
+if errors.Is(err, modding.ErrWorkshopLegalAgreementRequired) {
+	// Item ID is already saved in workshop.yaml; prompt author to open res.LegalAgreementURL.
+	_ = res.LegalAgreementURL
+}
+
+// Player: query, subscribe, and reconcile Manager with all subscribed Workshop items.
+if _, err := ws.SyncSubscribed(ctx); err != nil {
+	return err
+}
+```
+
+- `Publish` validates `mod.yaml`, entry script, preview path, and `workshop.yaml` before creating or updating any Steam Workshop item. When Steamworks reports that the author must accept the Steam Workshop Subscriber Agreement, `Publish` still saves `publishedFileId` to `workshop.yaml` and returns `PublishResult{NeedsLegalAgreement: true, LegalAgreementURL: WorkshopLegalAgreementURL}` alongside `ErrWorkshopLegalAgreementRequired`.
+- `SyncSubscribed` unloads and uninstalls items that were unsubscribed, downloads missing or outdated items, checks path confinement (`WorkshopOptions.AllowedRoots` and escaping symlinks via `ErrWorkshopUnsafePath`), and installs valid mods in topological dependency order while isolating failures in broken sibling items. `InstallSubscribed` installs a single subscribed item on demand.

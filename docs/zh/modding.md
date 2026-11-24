@@ -104,8 +104,77 @@ hudPanels := mgr.PanelsView("hud")
 _ = hudPanels
 ```
 
-运行时可通过 `Enable`、`Disable`、`Load`、`Unload`、`Reload`、`SetGrant`、`Emit`、`Call`、`List`、`Info` 和 `Logs` 管理单个模组。异常抛错的模组会被标记为 `StateFailed`，不会影响宿主游戏或其他正常模组。
+运行时可通过 `Enable`、`Disable`、`Install`、`InstallFS`、`Uninstall`、`Load`、`Unload`、`Reload`、`SetGrant`、`Emit`、`Call`、`List`、`Info` 和 `Logs` 管理单个模组。异常抛错的模组会被标记为 `StateFailed`，不会影响宿主游戏或其他正常模组。
 
 `Reload` 会先校验更新后的 `mod.yaml`（语法、ID、游戏版本和依赖），再卸载任何内容，因此清单损坏时会返回错误，已加载的版本继续运行。
 
 浏览器无法把模组与页面隔离：在 Web 上运行的模组无论声明了哪些能力，都能使用页面自身的 API（`XMLHttpRequest`、`WebSocket`、`localStorage`）。因此在 Web 上加载模组会以 `ErrWebUnisolated` 失败，除非设置了 `ManagerOptions.WebUnisolated`；只有对像自己的代码一样可信的模组才应这样做。其他平台会隔离模组并忽略该选项。
+
+## Steam 创意工坊（`Workshop`）
+
+`Workshop` 将 Steamworks `ISteamUGC` 与 `Manager` 衔接，使作者可以发布模组和自定义关卡，已订阅的玩家会自动下载、校验、安装、更新和卸载对应内容。
+
+### 创意工坊元数据（`workshop.yaml`）
+
+发布时会在 `mod.yaml` 同目录下写入确定性的 `workshop.yaml`（`WorkshopMetadata`），保存分配到的 `publishedFileId`，以便后续发布更新同一个创意工坊条目而不是重复创建：
+
+```yaml
+version: 1
+appId: 480
+publishedFileId: 123456789
+title: Boss Rush
+description: Spawns a slime every five seconds and shows a HUD badge while the rush runs.
+tags: [bosses, gameplay]
+visibility: public
+preview: preview.png
+```
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `version` | 是 | `workshop.yaml` 的格式版本，目前为 `1`（`modding.WorkshopMetadataVersion`） |
+| `appId` | 是 | 拥有该创意工坊条目的 Steam 应用 ID |
+| `publishedFileId` | 否 | Steam 创意工坊分配的 `PublishedFileID`（首次发布时自动写入） |
+| `title`、`description` | 否 | 在创意工坊上覆盖 `mod.yaml` 的 `name` 和 `description` |
+| `tags` | 否 | Steam 创意工坊标签（编码时按字节序排序；拒绝空标签或重复标签） |
+| `visibility` | 否 | `public`、`friendsOnly`、`private` 或 `unlisted` 之一（默认为 `public`） |
+| `preview` | 否 | 相对模组目录的预览图路径（以 `/` 分隔） |
+
+与 `mod.yaml` 相同，`ParseWorkshopMetadata` 会拒绝未知字段、重复键、尾随 YAML 文档、非法可见性/标签/预览图路径，以及缺失或未写成普通整数 `1` 的 `version`，统一返回 `ErrInvalidWorkshopMetadata`。`EncodeWorkshopMetadata` 输出规范的 2 空格缩进 YAML，不包含时间戳或易变字段，读写往返逐字节一致。
+
+### 发布与同步订阅内容
+
+在 macOS、Linux 和 Windows 上使用 `NewSteamWorkshop` 通过 `purego` 动态绑定 `libsteam_api.dylib`、`libsteam_api.so` 或 `steam_api64.dll`（无需 CGo）。当 Steamworks 动态库缺失、Steam 客户端未运行，或在 Web、iOS、Android 等不支持平台上调用时，`NewSteamWorkshop` 会返回 `ErrWorkshopUnavailable`。在测试和离线工具中可使用 `NewMemoryWorkshop`，它在本地目录模拟多用户发布、查询、订阅、下载和更新流程。
+
+```go
+backend, err := modding.NewSteamWorkshop(modding.SteamWorkshopOptions{})
+if err != nil {
+	// Steam 未运行时可优雅降级（errors.Is(err, modding.ErrWorkshopUnavailable)）。
+	return err
+}
+defer backend.Close()
+
+ws := modding.NewWorkshop(backend, mgr, modding.WorkshopOptions{
+	AppID:    480,
+	AutoLoad: true,
+})
+
+// 作者端：先校验 mod.yaml，再创建或更新创意工坊条目。
+res, err := ws.Publish(ctx, "mods/boss-rush", modding.PublishOptions{
+	Tags:       []string{"gameplay", "bosses"},
+	Visibility: modding.VisibilityPublic,
+	Preview:    "preview.png",
+	ChangeNote: "Initial release",
+})
+if errors.Is(err, modding.ErrWorkshopLegalAgreementRequired) {
+	// 条目 ID 已写入 workshop.yaml；提示作者打开 res.LegalAgreementURL 接受协议。
+	_ = res.LegalAgreementURL
+}
+
+// 玩家端：查询、订阅并将 Manager 与所有已订阅的创意工坊条目同步。
+if _, err := ws.SyncSubscribed(ctx); err != nil {
+	return err
+}
+```
+
+- `Publish` 会在创建或更新任何创意工坊条目之前校验 `mod.yaml`、入口脚本、预览图路径和 `workshop.yaml`。如果 Steamworks 要求作者先接受 Steam 创意工坊订户协议，`Publish` 仍会将 `publishedFileId` 写入 `workshop.yaml`，并返回包含 `NeedsLegalAgreement: true` 和 `LegalAgreementURL: WorkshopLegalAgreementURL` 的 `PublishResult` 以及 `ErrWorkshopLegalAgreementRequired` 错误。
+- `SyncSubscribed` 会卸载并移除已取消订阅的模组，下载缺失或有更新的条目，校验路径边界（通过 `WorkshopOptions.AllowedRoots` 和逃逸符号链接检查返回 `ErrWorkshopUnsafePath`），并按依赖拓扑顺序安装有效模组，同时隔离单个损坏条目的错误。`InstallSubscribed` 用于按需安装单个已订阅条目。
