@@ -1454,3 +1454,68 @@ func TestCustomMaterialTextureSwapsReuseBindGroups(t *testing.T) {
 		t.Fatal("material invalid after dropping a closed texture's bind group")
 	}
 }
+
+func TestCustomMaterialManualBindingsKeepCameraPreamble(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+
+	// The source declares its own @group(1) block but relies on the CameraWGSL preamble for camera.
+	manual := `
+struct Params { gain: f32, }
+@group(1) @binding(0) var<uniform> params: Params;
+
+@vertex
+fn vs_main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
+	return camera.view_proj * vec4<f32>(pos, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+	return vec4<f32>(params.gain, 0.0, 0.0, 1.0);
+}
+`
+	desc := render3d.CustomShaderDesc{
+		Label:          "manual",
+		Language:       render3d.ShaderWGSL,
+		Source:         manual,
+		CameraLayout:   camBuf.Layout(),
+		ManualBindings: true,
+		Params:         []render3d.ShaderParamDesc{{Name: "gain", Kind: render3d.ParamFloat, Default: float32(1)}},
+	}
+	src, err := render3d.CustomShaderWGSL(desc)
+	if err != nil {
+		t.Fatalf("CustomShaderWGSL: %v", err)
+	}
+	if !strings.HasPrefix(src, render3d.CameraWGSL) || strings.Contains(src, "MaterialParams") {
+		t.Fatalf("ManualBindings source should get CameraWGSL but no generated material bindings:\n%s", src)
+	}
+	mat, err := render3d.NewCustomMaterial(nil, dev, desc)
+	if err != nil {
+		t.Fatalf("NewCustomMaterial: %v", err)
+	}
+	_ = mat.Close()
+
+	// A group 0 declaration hidden in a comment does not suppress the preamble, and spacing inside the attribute is recognized.
+	commented := "// @group(0) @binding(0) var<uniform> camera: Camera;\n" + customMatWGSL3D
+	src, err = render3d.CustomShaderWGSL(render3d.CustomShaderDesc{Language: render3d.ShaderWGSL, Source: commented, CameraLayout: camBuf.Layout(), Params: customMatWGSLParams()})
+	if err != nil || !strings.HasPrefix(src, render3d.CameraWGSL) {
+		t.Fatalf("commented group 0 declaration suppressed the camera preamble (err %v)", err)
+	}
+	spaced := strings.Replace(render3d.CameraWGSL, "@group(0)", "@group( 0 )", 1) + customMatWGSL3D
+	src, err = render3d.CustomShaderWGSL(render3d.CustomShaderDesc{Language: render3d.ShaderWGSL, Source: spaced, CameraLayout: camBuf.Layout(), Params: customMatWGSLParams()})
+	if err != nil || strings.Count(src, "struct Camera") != 1 {
+		t.Fatalf("@group( 0 ) declaration was not recognized (err %v)", err)
+	}
+
+	// Without a CameraLayout, a group 0 binding the material cannot make a layout for is refused up front.
+	texAtGroup0 := "@group(0) @binding(0) var tex: texture_2d<f32>;\n" + customMatWGSLClip
+	if _, err := render3d.CustomShaderWGSL(render3d.CustomShaderDesc{Language: render3d.ShaderWGSL, Source: texAtGroup0, Params: customMatWGSLParams()}); !errors.Is(err, render3d.ErrInvalidCustomMaterial) || !strings.Contains(err.Error(), "CameraLayout") {
+		t.Fatalf("texture at group 0 without CameraLayout: err = %v, want a CameraLayout error", err)
+	}
+}
