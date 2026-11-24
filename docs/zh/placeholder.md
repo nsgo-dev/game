@@ -10,7 +10,7 @@ import "github.com/nsgo-dev/game/packages/game/placeholder"
 
 ## 包含内容
 
-文件位于 `packages/game/placeholder/pack`，由 `placeholder.FS` 嵌入：
+文件位于 `packages/game/placeholder/pack`，由这个包嵌入，并由 `placeholder.FS()` 返回：
 
 | 文件夹 | 文件 | 内容 |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ jump, err := placeholder.Sound("jump")       // core.AudioSource，可交给 aud
 ```
 
 - `Sheet`、`Font` 和 `Level` 给出的图片是 `core.ImageSource` 值，持有 PNG 的字节及其以点为单位的尺寸，一点对应一个像素。`Image` 对素材包中的任意 PNG 做同样的事。
-- `FS` 是作为 `fs.FS` 的整个素材包，用于其他用途，例如 `fs.ReadFile(placeholder.FS, "CREDITS.md")`。
+- `FS()` 以只读 `fs.FS` 的形式返回整个素材包，用于其他用途，例如 `fs.ReadFile(placeholder.FS(), "CREDITS.md")`。
 - `License` 是 `"CC0-1.0"`，即每个文件的 SPDX 标识符。
 
 只有导入了这个包的游戏才会把素材包嵌入二进制文件，增加约 430 KB，其中三分之二是音乐。
@@ -97,6 +97,7 @@ assets:
 - 每张精灵表的旁车文件把它切成 16×16 的帧，图集将其命名为 `<精灵表>_<i>.png`。图集只包含帧；精灵表的动画仍保存在各自的 JSON 文件中。
 - 图块集和字体页的旁车文件设置 `nearest` 过滤，让像素画缩放时保持清晰。
 - 每个音效的旁车文件把峰值归一化到 -3 dBFS；音乐的旁车文件把它归一化到 -6 dBFS，保持 WAV 格式并循环整段，game assets 会把循环写进输出文件的 `smpl` 块。
+- `game assets` 只构建图片、图集和声音，所以字体的 `pixel.fnt`、Tiled 的 `tileset.tsj` 和 `level.tmj`，以及精灵表的 JSON 文件都不是构建目标。需要自己把它们复制到游戏打包的素材中，放在它们所引用的 PNG 页面（`pixel.png`、`tileset.png`）旁边，并像 `Font` 和 `Level` 那样用 `text.LoadBMFontImage` 和 `tilemap.LoadTiled` 加载，后者的 `TilesetLoader.LoadImage` 把图块集的图片路径映射为图片源。KTX2 纹理为读取 KTX2 的渲染器带上了 `nearest` 过滤，但游戏层目前还不加载 KTX2（[命令行](cli.md#assets)），所以在此之前游戏从 PNG 页面绘制字体和关卡。
 - 没有任何目标读取其素材的旁车文件会被拒绝，所以只用到部分素材的项目只需复制那些文件及其旁车文件。
 
 ## 重新生成
@@ -111,7 +112,7 @@ go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update
 
 ## 本仓库中的署名
 
-示例、教程、文档和项目模板只使用这套素材包，或写明了许可证的自有素材。`game/placeholder` 中的一个测试负责保证这一点：`examples/`、`docs/` 和 `template/` 下的每个图片、声音、字体、模型，以及其他工具导出的地图、图块集或图集，都必须连同许可证列在其所在文件夹或上级文件夹的 `CREDITS.md` 中，写在带有 `License` 列的 Markdown 表格里：
+示例、教程、文档和项目模板只使用这套素材包，或写明了许可证的自有素材。`game/placeholder` 中的一个测试负责保证这一点：`examples/`、`docs/` 和 `template/` 下的每个图片、声音、字体、模型，其他工具导出的地图或图块集，以及放在图片旁边、以 JSON 导出的图集，都必须连同许可证列在其所在文件夹或上级文件夹的 `CREDITS.md` 中，写在带有 `License` 列的 Markdown 表格里。许可证是 `CC0-1.0`、`Apache-2.0` 这样的 SPDX 标识符，可以直接写，也可以写成链接的文字；`CREDITS.md` 列出的每个文件都必须存在：
 
 ```markdown
 | File | Kind | Author | License |

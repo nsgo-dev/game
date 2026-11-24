@@ -246,7 +246,6 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 - **蒙皮定义（`ArmSkin`）**：`joints: [2, 3]`、`skeleton: 2`，`inverseBindMatrices` 依次存放 `UpperArm` 的单位矩阵 `I` 与 `Forearm` 的平移矩阵 `T(0, -0.5, 0)`，精确满足 `worldBind × IBM = I`。
 - **动画（`Wave`）**：1.0 秒剪辑（`times = [0, 0.5, 1]`），包含两条 `LINEAR` 四元数旋转通道（`UpperArm` 绕 Z 轴 `+15°`，`Forearm` 绕 Z 轴 `+60°`），以及三条 `extras.events` 事件标记（`0.0 s` 的 `wave_start`、`0.5 s` 的 `wave_apex`、`1.0 s` 的 `wave_end`）。
 
-
 ### 3. 平面着色宝石（`gem.glb`）
 
 文件：[`models/gem.glb`](../../packages/game/placeholder/pack/models/gem.glb)（1,924 字节，GLB 2.0）
@@ -255,6 +254,7 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 - **网格属性**：36 个顶点、12 个三角形，每个面使用独立的 3 个顶点，因此每个面都有自己的单位长度 `NORMAL`，绕序为 CCW 外向。
 - **材质**：`GemMaterial`，采用 `pbrMetallicRoughness`（`baseColorFactor: [0.13, 0.77, 0.45, 1]`、`metallicFactor: 0`、`roughnessFactor: 0.2`）。
 - **可复现性**：生成器只使用精确舍入的运算，因此在每种架构上都写出相同的字节。
+
 ### 运行往返校验测试
 
 [`packages/game/internal/samplegltf/samplegltf_test.go`](../../packages/game/internal/samplegltf/samplegltf_test.go) 会解包已提交的模型并逐项校验：
