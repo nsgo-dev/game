@@ -1,4 +1,4 @@
-// Package ktx2 provides a pure-Go KTX2 v2.0 texture container encoder, decoder, supercompression decoder (Zstandard, ZLIB), mipmap chain generator, Basis Universal UASTC 4x4 codec, and block texture transcoder (BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, RGBA8).
+// Package ktx2 provides a pure-Go KTX2 v2.0 texture container encoder, decoder, supercompression decoder (BasisLZ, Zstandard, ZLIB), mipmap chain generator, Basis Universal ETC1S and UASTC 4x4 codecs, and block texture transcoder (BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, RGBA8).
 package ktx2
 
 import (

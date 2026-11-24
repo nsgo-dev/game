@@ -284,8 +284,8 @@ func TestSupercompressionZLIBAndZstd(t *testing.T) {
 	})
 }
 
-func TestBasisLZETC1SDescriptorInspection(t *testing.T) {
-	// Synthesize a valid KTX2 container with VkFormat=0, DFD colorModel=ETC1S, and BasisLZ supercompression.
+func TestBasisLZETC1SRejectsTruncatedSGD(t *testing.T) {
+	// Synthesize a KTX2 container with VkFormat=0, DFD colorModel=ETC1S, and a truncated BasisLZ SGD.
 	dfd := make([]byte, 4+24+16)
 	binary.LittleEndian.PutUint32(dfd[0:4], uint32(len(dfd)))
 	binary.LittleEndian.PutUint32(dfd[4:8], 0)
@@ -323,15 +323,8 @@ func TestBasisLZETC1SDescriptorInspection(t *testing.T) {
 	copy(buf[sgdOff:], sgd)
 	copy(buf[lvlOff:], lvlPayload)
 
-	tex, err := ktx2.Decode(buf)
-	if err != nil {
-		t.Fatalf("Decode ETC1S container: %v", err)
-	}
-	if tex.Format != ktx2.FormatETC1S || !tex.SRGB || !bytes.Equal(tex.SGD, sgd) {
-		t.Fatalf("unexpected ETC1S metadata: format=%s srgb=%v sgd=%q", tex.Format, tex.SRGB, tex.SGD)
-	}
-	if _, err := tex.Transcode(ktx2.FormatRGBA8); err == nil {
-		t.Fatal("expected clear unsupported error when transcoding ETC1S")
+	if _, err := ktx2.Decode(buf); err == nil {
+		t.Fatal("expected error when decoding ETC1S container with truncated BasisLZ SGD")
 	}
 }
 
@@ -466,6 +459,11 @@ func FuzzDecodeKTX2(f *testing.F) {
 	}
 	if rawZ, err := ktx2.Encode(img, ktx2.Options{Format: ktx2.FormatUASTC, Supercompression: ktx2.SupercompressionZLIB}); err == nil {
 		f.Add(rawZ)
+	}
+	for _, name := range []string{"etc1s_alpha_srgb.ktx2", "uastc_linear_zstd.ktx2", "astc4x4_alpha_srgb.ktx2"} {
+		if raw, err := os.ReadFile(filepath.Join("testdata", "ref", name)); err == nil {
+			f.Add(raw)
+		}
 	}
 	f.Add([]byte{})
 	f.Add(ktx2.Identifier[:])

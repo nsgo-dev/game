@@ -315,7 +315,7 @@ mesh.Draw(pass)
 ```
 
 - **Mipmap 链**：开启 `TextureUpload.Mipmaps` 会在 CPU 上生成面积加权盒式滤波的 mipmap 链（`SRGB` 为 true 时在线性光下求平均，避免暗边）并通过 `Device.WriteTextureMip` 逐级上传。这不依赖后端的 GPU mipmap 生成能力，在所有 NSGo 后端行为一致，且在 `Retained` 开启时设备丢失后会自动重放所有层级；可用 `TextureUpload.MaxMipLevels` 限制层数。
-- **KTX2 纹理**：`LoadKTX2` 上传 `game assets` 和 `game tex` 写出的那种 2D KTX2 文件，包括它含有的每一级 mip，保持其 sRGB 或线性格式，并返回绘制它所用的采样器：即 `KTX2Upload.Sampler`，其过滤方式按文件的 `game.filter` 键（`KTX2FilterKey`）设置，这个键由图片[导入设置附属文件](cli.md#资源旁的导入设置)的 `filter` 写入，因此 `nearest` 让像素画清晰锐利，`linear` 则做混合。Zstandard 和 ZLIB 超压缩的层级会先解压。BC1、BC3、BC7、ETC2 RGB8 与 RGBA8 以及 ASTC 4x4 层级在 `Device.SupportsCompressedFormat` 允许时以压缩格式上传，否则在 CPU 上解码为 RGBA8，因此在所有后端都能加载；`KTX2Sampler` 无需设备即可把过滤方式应用到采样器选项上。不是这类纹理的文件或未知的过滤方式会返回包装 `ErrInvalidTexture` 的错误：
+- **KTX2 纹理**：`LoadKTX2` 上传 `game assets` 和 `game tex` 写出的那种 2D KTX2 文件，包括它含有的每一级 mip，保持其 sRGB 或线性格式，并返回绘制它所用的采样器：即 `KTX2Upload.Sampler`，其过滤方式按文件的 `game.filter` 键（`KTX2FilterKey`）设置，这个键由图片[导入设置附属文件](cli.md#资源旁的导入设置)的 `filter` 写入，因此 `nearest` 让像素画清晰锐利，`linear` 则做混合。BasisLZ、Zstandard 和 ZLIB 超压缩的层级会先解压。BC1、BC3、BC7、ETC2 RGB8 与 RGBA8 以及 ASTC 4x4 层级（包括 `astcenc` 写出的多分区、双平面与 BISE 编码块）在 `Device.SupportsCompressedFormat` 允许时以压缩格式上传，否则在 CPU 上解码为 RGBA8，因此在所有后端都能加载；`KTX2Sampler` 无需设备即可把过滤方式应用到采样器选项上。不是这类纹理的文件或未知的过滤方式会返回包装 `ErrInvalidTexture` 的错误：
 
   ```go
   data, err := fs.ReadFile(assets, "albedo.ktx2")
@@ -323,7 +323,7 @@ mesh.Draw(pass)
   samp, err := render3d.NewGPUSampler(cx, dev, opts)
   ```
 
-- **Basis Universal UASTC**：`LoadKTX2` 也接受 UASTC 4x4 的 KTX2 文件，即 Basis Universal 的高质量模式，并把它转码为设备支持的最佳块格式：依次为 BC7、不透明纹理用的 BC1、BC3、ETC2 RGB8 或 RGBA8（仅线性，因为 NSGo 没有 sRGB ETC2），然后是 ASTC 4x4。设备一种都不支持、基础层级的宽或高不是 4 的倍数，或设置了 `KTX2Upload.ForceRGBA8` 时，解码为 RGBA8。转码会在调用 `LoadKTX2` 的 goroutine 上把每个块解码后再编码：在桌面 CPU（Ryzen 9 3900X）上，一个 1024×1024 层级转为 BC7 约需 0.5 秒，转为 ETC2 约 0.8 秒，转为 ASTC 约 0.16 秒，2048×2048 约为四倍（见 `tooling/ktx2` 的 `BenchmarkTranscodeUASTC`），因此大的 UASTC 纹理应在加载画面中加载。`basisu` 的默认模式 BasisLZ/ETC1S 会被拒绝，不带 alpha 的 BC1（`VK_FORMAT_BC1_RGB_*`）也会被拒绝，因为以 RGBA BC1 上传会把它的穿透纹素画成透明。CPU 上的 ASTC 解码器只处理 `tooling/ktx2` 写出的单分区块，所以其他编码器生成的 ASTC 文件只能在支持 ASTC 的设备上加载。
+- **Basis Universal（UASTC 与 BasisLZ/ETC1S）**：`LoadKTX2` 同时接受 UASTC 4x4（高质量模式）和 BasisLZ/ETC1S（`basisu` 的默认模式，含 alpha 切片）的 KTX2 文件，并把它们转码为设备支持的最佳块格式：依次为 BC7、不透明纹理用的 BC1、BC3、ETC2 RGB8 或 RGBA8（仅线性，因为 NSGo 没有 sRGB ETC2），然后是 ASTC 4x4。设备一种都不支持、基础层级的宽或高不是 4 的倍数，或设置了 `KTX2Upload.ForceRGBA8` 时，解码为 RGBA8。转码会在调用 `LoadKTX2` 的 goroutine 上把每个块解码后再编码：在桌面 CPU（Ryzen 9 3900X）上，一个 1024×1024 层级转为 BC7 约需 0.5 秒，转为 ETC2 约 0.8 秒，转为 ASTC 约 0.16 秒，2048×2048 约为四倍（见 `tooling/ktx2` 的 `BenchmarkTranscodeUASTC`），因此大的通用压缩纹理应在加载画面中加载。不带 alpha 的 BC1（`VK_FORMAT_BC1_RGB_*`）仍会被拒绝，因为以 RGBA BC1 上传会把它的穿透纹素画成透明。
 
 - **动态更新**：`GPUTexture.UpdateImage` 与 `GPUTexture.UpdatePixels` 原地更新同尺寸、同格式的纹素，若纹理启用了 mipmap 会同时重算并重传各级 mip。
 - **采样器预设与校验**：`SamplerLinearRepeat()`、`SamplerLinearClamp()`、`SamplerLinearMirror()`、`SamplerNearestRepeat()` 与 `SamplerNearestClamp()` 返回可修改的 `SamplerOptions`。`SamplerOptions.Validate` 拒绝非法滤波/寻址模式、非有限或倒置的 LOD 范围，以及在非全线性滤波下设置 `MaxAnisotropy > 1`（遵循 WebGPU 校验规则），错误均包装 `ErrInvalidSampler`。
