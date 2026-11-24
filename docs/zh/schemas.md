@@ -65,6 +65,28 @@ go run ./cmd/gameschema
 
 Check 工作流会运行 `go run ./cmd/gameschema -check`：提交的 Schema 与 Go 类型生成的结果不一致、缺少某个 Schema，或目录里有不再生成的 Schema 时都会失败。`cmd/gameschema` 中的一个测试在 `go tool nsgo test` 下做同样的检查。
 
+## 在 CI 中检查格式
+
+Schema 检查的是有人编写的文件，格式自身的测试检查的是读写它的代码。每个读取 YAML 格式的包都在 `conformance_test.go` 中对规范形式（即编码器写出的字节）的 testdata 文件运行 `internal/formattest` 提供的共享检查：
+
+```go
+func TestFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*quest.Book]{
+		Decode: quest.Parse,
+		Encode: quest.Encode,
+		Files:  []string{"testdata/*.yaml"},
+	})
+}
+```
+
+对每个文件，这些检查要求：
+
+- 加载后再保存，得到的字节与原文件相同；
+- 再次保存同一个值、保存对该文件的第二次加载、保存对已保存输出的加载，得到的字节都相同，因此输出不依赖 map 顺序、时间或随机数；
+- 加载时拒绝多出一个顶层键、缺少 `version`、`version: 0`，以及比格式能读取的最新版本还新一版的文件，且错误信息中写出该键名。
+
+`packages/game` 中的 `TestFormatPackagesRunConformance` 会在某个包以拒绝未知字段的方式解码 YAML、却没有任何测试运行这些检查时失败，因此跳过检查的新格式会让 CI 中的 `go tool nsgo test` 失败。版本号放在其他键下的格式（例如 mod 清单的 `manifestVersion`）设置 `VersionField`，能读取多个版本的格式设置 `MaxVersion`。新增 testdata 文件时，先写好文档，再用 `FORMATTEST_UPDATE=1` 运行一次测试：它会在检查前用格式为每个文件保存出的内容重写该文件，编码器不会写出的注释会被丢弃。
+
 ## 数据表的 Schema
 
 数据表的行是游戏自己的 Go 类型，因此由 `datatable.Schema[T]` 为其构建 Schema，游戏把它写在数据表旁边：

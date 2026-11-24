@@ -65,6 +65,28 @@ go run ./cmd/gameschema
 
 The Check workflow runs `go run ./cmd/gameschema -check`, which fails when a committed schema differs from what the Go types generate, when one is missing, or when the directory holds a schema it no longer generates. A test in `cmd/gameschema` does the same check under `go tool nsgo test`.
 
+## Checking formats in CI
+
+A schema checks a file someone writes; a format's tests check the code that reads and writes it. Every package that reads a YAML format runs the shared checks of `internal/formattest` from a `conformance_test.go`, on testdata files in the format's canonical form, the bytes its encoder writes:
+
+```go
+func TestFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*quest.Book]{
+		Decode: quest.Parse,
+		Encode: quest.Encode,
+		Files:  []string{"testdata/*.yaml"},
+	})
+}
+```
+
+For each file, the checks require that:
+
+- loading and saving it gives back the same bytes;
+- saving the same value again, saving a second load of the file and saving a load of what was saved all give the same bytes, so the output never depends on map order, the time or randomness;
+- loading refuses the file with an extra top-level key, without its `version`, with `version: 0` and with the version after the newest one the format reads, with an error that names the key.
+
+`TestFormatPackagesRunConformance` in `packages/game` fails when a package decodes YAML with unknown fields refused and none of its tests runs the checks, so `go tool nsgo test` in CI fails a new format that skips them. A format whose version is under another key, such as a mod manifest's `manifestVersion`, sets `VersionField`, and one that reads several versions sets `MaxVersion`. To add a testdata file, write the document, then run the test once with `FORMATTEST_UPDATE=1`, which rewrites each file with what the format saves for it before checking it; comments the encoder does not write are dropped.
+
 ## Data table schemas
 
 A data table's rows are a game's own Go type, so `datatable.Schema[T]` builds the schema for it, for the game to write next to its tables:
