@@ -204,6 +204,7 @@ jobs:
       - name: Check Fountain targets
         working-directory: examples/fountain
         run: go tool nsgo check -target macos,windows,linux,android,web
+
   fieldmedic:
     name: Test and check Field Medic
     runs-on: depot-ubuntu-24.04-4
