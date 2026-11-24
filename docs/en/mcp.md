@@ -14,20 +14,22 @@ Call `mcp.Attach` (or `mcp.New` followed by `bridge.Attach`) on the engine gorou
 
 ```go
 bridge, err := mcp.Attach(cx, mcp.Config{
-	Scenes:        g.scenes,
-	SceneName:     func(c *scene.Controller) string { return g.sceneNames[c] },
-	SceneFunc:     func() *scene.Scene { return g.activeScene },
-	NamedScenes:   map[string]*scene.Scene{"title": g.titleScene},
-	WorldFunc:     func() *entities.World { return g.world },
-	EntityName:    func(e entities.Entity) string { return g.names[e] },
-	EntityTags:    func(e entities.Entity) []string { return g.tags[e] },
-	EntityLayer:   func(e entities.Entity) string { return g.layers[e] },
-	Loop:          g.loop,
-	RandomStreams: g.rng,
-	Actions:       g.actions,
-	Viewport:      &g.viewport,
-	ViewSizeFunc:  g.currentViewSize,
-	Console:       g.console,
+	Scenes:          g.scenes,
+	SceneName:       func(c *scene.Controller) string { return g.sceneNames[c] },
+	SceneFunc:       func() *scene.Scene { return g.activeScene },
+	NamedScenes:     map[string]*scene.Scene{"title": g.titleScene},
+	WorldFunc:       func() *entities.World { return g.world },
+	EntityName:      func(e entities.Entity) string { return g.names[e] },
+	EntityTags:      func(e entities.Entity) []string { return g.tags[e] },
+	EntityLayer:     func(e entities.Entity) string { return g.layers[e] },
+	Loop:            g.loop,
+	RandomStreams:   g.rng,
+	Actions:         g.actions,
+	Viewport:        &g.viewport,
+	ViewSizeFunc:    g.currentViewSize,
+	Console:         g.console,
+	Overlay:         g.debugOverlay,
+	RenderStatsFunc: func() render3d.RenderStats { return g.lastRenderStats },
 })
 if err != nil {
 	return err
@@ -117,6 +119,9 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_replay_play` | `name` or `yaml` (mutually exclusive), `run_to_end` (default `false`), `steps` (`1..3600`), `reset` (default `true` when `ResetFunc` or a seed target is configured) | Resets to the recording's seed and starts deterministic playback via `replay.Player`, optionally advancing all (`run_to_end`, recordings up to `3600` steps) or `steps` frames synchronously via `StepFunc` or the game loop's `StepNow`. A recording whose `rate` differs from the game's fixed step rate is refused. |
 | `game_replay_stop` | `{}` | Stops an active replay playback cleanly and reports how many frames were played. |
 | `game_replay_list` | `{}` | Lists stored recordings in sorted name order with `frames`, `seed`, `step_rate`, `events`, `actions`, `axes` and `metadata`. |
+| `game_perf_readout` | `include_history` (optional, default `false`), `history_limit` (optional), `include_zones` (optional, default `false`), `zones_limit` (optional) | Live performance readout matching the debug overlay: `fps`, rolling average and latest `frame_ms`/`update_ms`/`draw_ms`, min/max/p50/p95/p99 frame times, draw stats (`draw_calls`, `sprites`, `batches`, `triangles`, `vertices`), per-frame heap allocations (`allocs_per_frame`, `alloc_bytes_per_frame`, `last_frame_allocs`, `last_frame_alloc_bytes`), `heap_bytes`, `gc_count`, GC pause/hitch metrics, optional `render3d` and `asset_memory` breakdowns, and optional chronological `history` and profiler `zones`. |
+| `game_perf_zones` | `limit` (optional) | Named timing zones from `debug.Profiler` sorted by recent frame cost (`name`, `last_ms`, `avg_ms`, `max_ms`, `calls`), plus `recording`, `recorded_frames` and `total`. |
+| `game_perf_reset` | `{}` | Resets accumulated `debug.Overlay` frame timings and pushed draw stats, `debug.Profiler` zones, and `debug.GCMonitor` history. |
 
 All tools reject unknown argument fields.
 
@@ -186,6 +191,14 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - Recordings stopped via `game_replay_record_stop` are stored in memory under their name and returned as canonical deterministic [`game/replay`](replay.md) v2 YAML text. Set `ReplayConfig.SaveDir` if you also want agents to write recordings to relative paths on disk via `save_path`; the write goes through `os.Root`, so absolute paths, `..` and symbolic links cannot leave `SaveDir`. `metadata` stays only in the in-memory store: it is not part of the YAML, so a saved file or an inline `yaml` replay does not carry it.
 - `game_replay_play` accepts either a stored `name` or inline `yaml` text and replays either synchronously (`run_to_end: true` or `steps: N`) or frame by frame as the game loop advances. Without `StepFunc`, synchronous playback advances the Bridge's loop with `Loop.StepNow`, so `game_loop_status` counts the replayed steps and game time. Like `game_loop_step`, a single call advances at most `MaxLoopSteps` (`3600`) steps.
 - After the final recorded step, the next `ctrl.Step()` is a trailing playback step that releases actions still held at the end of the recording (firing `JustReleased` once); the step after it returns to live input and calls `OnReplayStop`.
+
+## Performance readouts
+
+Pass your [`debug.Overlay`](debug.md) via `Config.Overlay` to expose the exact same frame timings, draw statistics (`debug.Options.DrawStats` or `Overlay.SetDrawStats`), GC/allocation counters (`debug.GCMonitor`), asset memory (`debug.MemoryTracker`) and timing scopes (`debug.Profiler`) shown by the on-screen debug HUD.
+
+- `Config.Profiler`, `Config.GC`, `Config.Memory` and `Config.DrawStatsFunc` override (or work standalone without) `Config.Overlay`.
+- `Config.RenderStatsFunc` attaches detailed 3D culling, batching, state-switch and GPU memory metrics from [`render3d.RenderStats`](render3d.md) under `render3d`, and populates top-level `draw_calls`, `batches`, `triangles` and `vertices` automatically when no 2D draw-stats provider is set.
+- `game_perf_readout` always includes a `sources` object indicating which telemetry providers are active (`overlay`, `profiler`, `gc`, `memory`, `draw_stats`, `render3d`).
 
 ## Stable entity references
 

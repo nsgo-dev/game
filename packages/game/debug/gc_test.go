@@ -13,6 +13,8 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
+var gcTestAllocSink []byte
+
 func TestGCMonitorSamplesAndDetectsHitch(t *testing.T) {
 	m := debug.NewGCMonitor(8)
 	beforeCycles := m.TotalCycles()
@@ -45,6 +47,23 @@ func TestGCMonitorSamplesAndDetectsHitch(t *testing.T) {
 	}
 	if m.Len() != 8 {
 		t.Fatalf("Len() = %d after 13 samples with historyLen=8, want 8", m.Len())
+	}
+
+	// Deliberate heap allocations are reflected in per-frame alloc averages and cleared by Reset.
+	gcTestAllocSink = make([]byte, 64<<10)
+	gcTestAllocSink[0] = 42
+	allocSample := m.SampleFrame(16 * time.Millisecond)
+	gcTestAllocSink = nil
+	if allocSample.AllocsDelta == 0 || allocSample.AllocBytesDelta == 0 {
+		t.Fatalf("expected non-zero AllocsDelta/AllocBytesDelta after heap allocation, got %+v", allocSample)
+	}
+	if m.AllocsPerFrame() <= 0 || m.AllocBytesPerFrame() <= 0 {
+		t.Fatalf("AllocsPerFrame=%v AllocBytesPerFrame=%v, want > 0", m.AllocsPerFrame(), m.AllocBytesPerFrame())
+	}
+
+	m.Reset()
+	if m.Len() != 0 || m.RecentHitches() != 0 || m.LastPause() != 0 || m.MaxPause() != 0 || m.AllocsPerFrame() != 0 || m.AllocBytesPerFrame() != 0 {
+		t.Fatalf("GCMonitor not cleared after Reset: len=%d hitches=%d allocs=%v", m.Len(), m.RecentHitches(), m.AllocsPerFrame())
 	}
 }
 

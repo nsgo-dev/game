@@ -60,6 +60,11 @@ func TestProfilerNestedScopesAndTopScopes(t *testing.T) {
 	if len(all) != 3 || all[2].Name != "render" || all[2].Total != 4*time.Millisecond || all[2].Avg != 3*time.Millisecond {
 		t.Fatalf("TopScopes(0) = %+v, want 3 scopes with render last", all)
 	}
+
+	p.Reset()
+	if got := p.TopScopes(0); len(got) != 0 {
+		t.Fatalf("TopScopes(0) after Reset = %+v, want empty", got)
+	}
 }
 
 func TestProfilerChromeTrace300Frames(t *testing.T) {

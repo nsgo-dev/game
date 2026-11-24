@@ -55,6 +55,9 @@ func (*Profiler) Recording() bool { return false }
 // RecordedFrames always returns 0 in release builds.
 func (*Profiler) RecordedFrames() int { return 0 }
 
+// Reset is a no-op in release builds.
+func (*Profiler) Reset() {}
+
 // TopScopes always returns nil in release builds.
 func (*Profiler) TopScopes(int) []ScopeSummary { return nil }
 

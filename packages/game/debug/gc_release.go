@@ -33,6 +33,15 @@ func (*GCMonitor) RecentHitches() int { return 0 }
 // HeapObjectsBytes always returns 0 in release builds.
 func (*GCMonitor) HeapObjectsBytes() uint64 { return 0 }
 
+// AllocsPerFrame always returns 0 in release builds.
+func (*GCMonitor) AllocsPerFrame() float64 { return 0 }
+
+// AllocBytesPerFrame always returns 0 in release builds.
+func (*GCMonitor) AllocBytesPerFrame() float64 { return 0 }
+
+// Reset is a no-op in release builds.
+func (*GCMonitor) Reset() {}
+
 // Len always returns 0 in release builds.
 func (*GCMonitor) Len() int { return 0 }
 

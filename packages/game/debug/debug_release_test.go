@@ -113,6 +113,11 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	}
 
 	dbg.RecordFrame(16*time.Millisecond, 4*time.Millisecond, 3*time.Millisecond)
+	dbg.SetDrawStats(debug.DrawStats{DrawCalls: 5, Sprites: 10})
+	if dbg.HasDrawStats() || dbg.DrawStats() != (debug.DrawStats{}) {
+		t.Fatal("Overlay recorded DrawStats in release build")
+	}
+	dbg.ResetStats()
 	dbg.SetScenes([]debug.SceneSnapshot{{Name: "world"}})
 	dbg.RefreshScenes()
 
@@ -181,6 +186,7 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	if p.Recording() || p.RecordedFrames() != 0 || len(p.TopScopes(5)) != 0 {
 		t.Fatal("Profiler recorded data in release build")
 	}
+	p.Reset()
 	var traceBuf bytes.Buffer
 	if err := p.WriteChromeTrace(&traceBuf); err != nil || traceBuf.Len() != 0 {
 		t.Fatalf("WriteChromeTrace in release = (len=%d, err=%v), want (0, nil)", traceBuf.Len(), err)
@@ -211,9 +217,10 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	if sample := gc.SampleFrame(16 * time.Millisecond); sample != (debug.GCFrameSample{}) {
 		t.Fatalf("GCMonitor.SampleFrame in release = %+v, want zero", sample)
 	}
-	if gc.TotalCycles() != 0 || gc.MaxPause() != 0 || gc.LastPause() != 0 || gc.RecentHitches() != 0 || gc.HeapObjectsBytes() != 0 || gc.Len() != 0 || gc.At(0) != (debug.GCFrameSample{}) || gc.Latest() != (debug.GCFrameSample{}) {
+	if gc.TotalCycles() != 0 || gc.MaxPause() != 0 || gc.LastPause() != 0 || gc.RecentHitches() != 0 || gc.HeapObjectsBytes() != 0 || gc.AllocsPerFrame() != 0 || gc.AllocBytesPerFrame() != 0 || gc.Len() != 0 || gc.At(0) != (debug.GCFrameSample{}) || gc.Latest() != (debug.GCFrameSample{}) {
 		t.Fatal("GCMonitor returned non-zero metrics in release build")
 	}
+	gc.Reset()
 	if got := debug.MeasureAllocs(10, func() { _ = make([]byte, 64) }); got != 0 {
 		t.Fatalf("MeasureAllocs in release = %v, want 0", got)
 	}

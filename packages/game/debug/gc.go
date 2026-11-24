@@ -9,19 +9,23 @@ import (
 	"time"
 )
 
-// GCMonitor samples Go runtime/metrics GC counters and pause histograms once per frame with zero steady-state allocations, flagging frames hitched by garbage collection.
+// GCMonitor samples Go runtime/metrics GC counters, heap allocations and pause histograms once per frame with zero steady-state allocations, flagging frames hitched by garbage collection.
 type GCMonitor struct {
-	history         []GCFrameSample
-	head            int
-	count           int
-	recentHitches   int
-	samples         [3]metrics.Sample
-	prevPauseCounts []uint64
-	prevCycles      uint64
-	totalCycles     uint64
-	heapBytes       uint64
-	lastPause       time.Duration
-	maxPause        time.Duration
+	history           []GCFrameSample
+	head              int
+	count             int
+	recentHitches     int
+	recentAllocs      uint64
+	recentAllocBytes  uint64
+	samples           [5]metrics.Sample
+	prevPauseCounts   []uint64
+	prevCycles        uint64
+	totalCycles       uint64
+	prevAllocsObjects uint64
+	prevAllocsBytes   uint64
+	heapBytes         uint64
+	lastPause         time.Duration
+	maxPause          time.Duration
 }
 
 // NewGCMonitor returns a GCMonitor retaining up to historyLen recent frame samples (defaulting to FrameHistory when <= 0).
@@ -31,10 +35,12 @@ func NewGCMonitor(historyLen int) *GCMonitor {
 	}
 	m := &GCMonitor{
 		history: make([]GCFrameSample, historyLen),
-		samples: [3]metrics.Sample{
+		samples: [5]metrics.Sample{
 			{Name: "/gc/pauses:seconds"},
 			{Name: "/gc/cycles/total:gc-cycles"},
 			{Name: "/memory/classes/heap/objects:bytes"},
+			{Name: "/gc/heap/allocs:objects"},
+			{Name: "/gc/heap/allocs:bytes"},
 		},
 	}
 	metrics.Read(m.samples[:])
@@ -51,6 +57,12 @@ func NewGCMonitor(historyLen int) *GCMonitor {
 	}
 	if m.samples[2].Value.Kind() == metrics.KindUint64 {
 		m.heapBytes = m.samples[2].Value.Uint64()
+	}
+	if m.samples[3].Value.Kind() == metrics.KindUint64 {
+		m.prevAllocsObjects = m.samples[3].Value.Uint64()
+	}
+	if m.samples[4].Value.Kind() == metrics.KindUint64 {
+		m.prevAllocsBytes = m.samples[4].Value.Uint64()
 	}
 	return m
 }
@@ -99,6 +111,24 @@ func (m *GCMonitor) SampleFrame(frameDur time.Duration) GCFrameSample {
 		m.heapBytes = heapBytes
 	}
 
+	var allocsDelta uint64
+	if m.samples[3].Value.Kind() == metrics.KindUint64 {
+		cur := m.samples[3].Value.Uint64()
+		if cur > m.prevAllocsObjects {
+			allocsDelta = cur - m.prevAllocsObjects
+		}
+		m.prevAllocsObjects = cur
+	}
+
+	var allocBytesDelta uint64
+	if m.samples[4].Value.Kind() == metrics.KindUint64 {
+		cur := m.samples[4].Value.Uint64()
+		if cur > m.prevAllocsBytes {
+			allocBytesDelta = cur - m.prevAllocsBytes
+		}
+		m.prevAllocsBytes = cur
+	}
+
 	pause := time.Duration(pauseSec * float64(time.Second))
 	if pause < 0 {
 		pause = 0
@@ -116,17 +146,26 @@ func (m *GCMonitor) SampleFrame(frameDur time.Duration) GCFrameSample {
 		CyclesDelta:      cyclesDelta,
 		Pause:            pause,
 		HeapObjectsBytes: heapBytes,
+		AllocsDelta:      allocsDelta,
+		AllocBytesDelta:  allocBytesDelta,
 		Hitched:          hitched,
 	}
 
 	if len(m.history) > 0 {
-		if m.count == len(m.history) && m.history[m.head].Hitched {
-			m.recentHitches--
+		if m.count == len(m.history) {
+			old := m.history[m.head]
+			if old.Hitched {
+				m.recentHitches--
+			}
+			m.recentAllocs -= old.AllocsDelta
+			m.recentAllocBytes -= old.AllocBytesDelta
 		}
 		m.history[m.head] = sample
 		if sample.Hitched {
 			m.recentHitches++
 		}
+		m.recentAllocs += sample.AllocsDelta
+		m.recentAllocBytes += sample.AllocBytesDelta
 		m.head = (m.head + 1) % len(m.history)
 		if m.count < len(m.history) {
 			m.count++
@@ -174,6 +213,57 @@ func (m *GCMonitor) HeapObjectsBytes() uint64 {
 		return 0
 	}
 	return m.heapBytes
+}
+
+// AllocsPerFrame returns the average number of heap objects allocated per frame across the retained history window, or 0 when empty.
+func (m *GCMonitor) AllocsPerFrame() float64 {
+	if m == nil || m.count == 0 {
+		return 0
+	}
+	return float64(m.recentAllocs) / float64(m.count)
+}
+
+// AllocBytesPerFrame returns the average number of heap bytes allocated per frame across the retained history window, or 0 when empty.
+func (m *GCMonitor) AllocBytesPerFrame() float64 {
+	if m == nil || m.count == 0 {
+		return 0
+	}
+	return float64(m.recentAllocBytes) / float64(m.count)
+}
+
+// Reset clears retained GC frame history, hitch counts and peak pause timings, and re-baselines runtime/metrics counters to the current point in time.
+func (m *GCMonitor) Reset() {
+	if m == nil {
+		return
+	}
+	m.head = 0
+	m.count = 0
+	m.recentHitches = 0
+	m.recentAllocs = 0
+	m.recentAllocBytes = 0
+	m.lastPause = 0
+	m.maxPause = 0
+
+	metrics.Read(m.samples[:])
+	if m.samples[0].Value.Kind() == metrics.KindFloat64Histogram {
+		if h := m.samples[0].Value.Float64Histogram(); h != nil && len(h.Counts) == len(m.prevPauseCounts) {
+			copy(m.prevPauseCounts, h.Counts)
+		}
+	}
+	if m.samples[1].Value.Kind() == metrics.KindUint64 {
+		c := m.samples[1].Value.Uint64()
+		m.prevCycles = c
+		m.totalCycles = c
+	}
+	if m.samples[2].Value.Kind() == metrics.KindUint64 {
+		m.heapBytes = m.samples[2].Value.Uint64()
+	}
+	if m.samples[3].Value.Kind() == metrics.KindUint64 {
+		m.prevAllocsObjects = m.samples[3].Value.Uint64()
+	}
+	if m.samples[4].Value.Kind() == metrics.KindUint64 {
+		m.prevAllocsBytes = m.samples[4].Value.Uint64()
+	}
 }
 
 // Len returns how many frame samples are currently retained in history.

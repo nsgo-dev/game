@@ -22,11 +22,13 @@ type Overlay struct {
 	stats  FrameStats
 	shapes ShapeOverlay
 
-	visible    bool
-	frameTick  uint64
-	scenesTick uint64
-	scenes     []SceneSnapshot
-	lastScenes []SceneSnapshot
+	visible      bool
+	frameTick    uint64
+	scenesTick   uint64
+	scenes       []SceneSnapshot
+	lastScenes   []SceneSnapshot
+	drawStats    DrawStats
+	hasDrawStats bool
 
 	attached  *core.Scope
 	visSig    *core.Signal[bool]
@@ -213,6 +215,56 @@ func (o *Overlay) GC() *GCMonitor {
 	return o.opts.GC
 }
 
+// SetDrawStats updates the overlay's pushed per-frame draw statistics and refreshes the visible overlay. It is used when Options.DrawStats is nil.
+func (o *Overlay) SetDrawStats(s DrawStats) {
+	if o == nil {
+		return
+	}
+	o.drawStats = s
+	o.hasDrawStats = true
+	if o.visible {
+		o.frameTick++
+		if o.frameSig != nil {
+			o.frameSig.Set(o.frameTick)
+		}
+	}
+}
+
+// DrawStats returns the current per-frame draw statistics from Options.DrawStats if configured, or the most recent SetDrawStats value.
+func (o *Overlay) DrawStats() DrawStats {
+	if o == nil {
+		return DrawStats{}
+	}
+	if o.opts.DrawStats != nil {
+		return o.opts.DrawStats()
+	}
+	return o.drawStats
+}
+
+// HasDrawStats reports whether draw statistics have been configured via Options.DrawStats or pushed via SetDrawStats.
+func (o *Overlay) HasDrawStats() bool {
+	if o == nil {
+		return false
+	}
+	return o.opts.DrawStats != nil || o.hasDrawStats
+}
+
+// ResetStats clears the overlay's recorded frame timings and pushed draw statistics and refreshes the visible overlay.
+func (o *Overlay) ResetStats() {
+	if o == nil {
+		return
+	}
+	o.stats.Reset()
+	o.drawStats = DrawStats{}
+	o.hasDrawStats = false
+	if o.visible {
+		o.frameTick++
+		if o.frameSig != nil {
+			o.frameSig.Set(o.frameTick)
+		}
+	}
+}
+
 // SetScenes updates the scene inspector's snapshot list and immediately refreshes the inspector view. It is used when Options.Scenes is nil.
 func (o *Overlay) SetScenes(scenes []SceneSnapshot) {
 	if o == nil {
@@ -383,6 +435,7 @@ func (o *Overlay) View(cx *core.Scope) core.Node {
 			if o.opts.GC != nil {
 				children = append(children, o.gcSummaryView())
 			}
+			children = append(children, o.drawStatsView())
 			if o.opts.Profiler != nil {
 				children = append(children, o.profilerScopesView())
 			}
@@ -455,6 +508,7 @@ func (o *Overlay) gcSummaryView() core.Node {
 				hitches := gc.RecentHitches()
 				header := fmt.Sprintf("GC (%d cycles · %s heap)", gc.TotalCycles(), formatBytes(int64(gc.HeapObjectsBytes())))
 				line := fmt.Sprintf("last %.2fms · max %.2fms · hitches %d", ms(gc.LastPause()), ms(gc.MaxPause()), hitches)
+				allocLine := fmt.Sprintf("allocs %.1f/f (%s/f)", gc.AllocsPerFrame(), formatBytes(int64(gc.AllocBytesPerFrame())))
 				lineStyle := layerLabelStyle
 				if hitches > 0 {
 					lineStyle = gcHitchTextStyle
@@ -462,8 +516,39 @@ func (o *Overlay) gcSummaryView() core.Node {
 				return core.Group([]core.Node{
 					core.Text{Content: header, Style: sectionHeaderStyle},
 					core.Text{Content: line, Style: lineStyle},
+					core.Text{Content: allocLine, Style: layerLabelStyle},
 				})
 			}),
+		},
+	}
+}
+
+func (o *Overlay) drawStatsView() core.Node {
+	return core.Show{
+		When: func() bool {
+			if o.frameSig != nil {
+				_ = o.frameSig.Get()
+			}
+			return o.HasDrawStats()
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return core.View{
+				TestID: "debug-draw-stats",
+				Style:  sectionDividerStyle,
+				Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						if o.frameSig != nil {
+							_ = o.frameSig.Get()
+						}
+						ds := o.DrawStats()
+						line := fmt.Sprintf("Draw: %d calls · %d sprites · %d batches", ds.DrawCalls, ds.Sprites, ds.Batches)
+						if ds.Triangles > 0 || ds.Vertices > 0 {
+							line += fmt.Sprintf(" · %d tris · %d verts", ds.Triangles, ds.Vertices)
+						}
+						return core.Text{Content: line, Style: layerLabelStyle}
+					}),
+				},
+			}
 		},
 	}
 }
