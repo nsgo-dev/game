@@ -1273,3 +1273,75 @@ func TestToonRendererDrawReportsInvalidInputs(t *testing.T) {
 	pass.End()
 	enc.Finish()
 }
+
+func TestToonClipSpaceOutlineIsEvenOnWideViewport(t *testing.T) {
+	const (
+		width  = 160
+		height = 60
+	)
+	sr := gpu.NewSoftwareRenderer(width, height, gpu.FormatDepth24Plus)
+	defer sr.Close()
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	defer func() { _ = camBuf.Close() }()
+	renderer, err := render3d.NewToonRenderer(nil, dev, render3d.ToonRendererOptions{CameraLayout: camBuf.Layout(), DepthFormat: gpu.FormatDepth24Plus})
+	if err != nil {
+		t.Fatalf("NewToonRenderer: %v", err)
+	}
+	defer func() { _ = renderer.Close() }()
+	mat := render3d.ToonMaterial{
+		BaseColorFactor:  [4]float32{1, 1, 1, 1},
+		ShadowColor:      [3]float32{1, 1, 1},
+		OutlineColor:     [4]float32{0, 0, 0, 1},
+		OutlineWidth:     0.2, // 0.2 × 60 / 2 = 6 pixels
+		OutlineClipSpace: true,
+	}
+	gpuMat, err := renderer.NewMaterial(nil, dev, toonDefaults(t, nil, dev, false), mat, "outlined")
+	if err != nil {
+		t.Fatalf("NewMaterial: %v", err)
+	}
+	sphere, err := render3d.UploadMesh(nil, dev, toonSphereMesh(math3d.Vec3Zero(), 1, 24, 48), render3d.MeshUpload{Label: "sphere"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 6}, math3d.DegToRad(45), float32(width)/float32(height), 0.1, 20)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x808080)}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	light := render3d.ToonLight{Key: render3d.DirectionalLight{Direction: math3d.Vec3{Z: -1}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 1}}
+	if err := renderer.Draw(dev, pass, camBuf.BindGroup(), light, render3d.ToonDraw{Mesh: sphere, Material: gpuMat}); err != nil {
+		t.Fatalf("Draw: %v", err)
+	}
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+	img := sr.Image()
+	black := color.RGBA{A: 255}
+	run := func(x, y, dx, dy int) int {
+		for x >= 0 && y >= 0 && x < width && y < height && !toonNearColor(img.RGBAAt(x, y), black, 8) {
+			x, y = x+dx, y+dy
+		}
+		n := 0
+		for x >= 0 && y >= 0 && x < width && y < height && toonNearColor(img.RGBAAt(x, y), black, 8) {
+			n++
+			x, y = x+dx, y+dy
+		}
+		return n
+	}
+	horizontal := run(0, height/2, 1, 0)
+	vertical := run(width/2, 0, 0, 1)
+	if horizontal < 5 || horizontal > 7 || vertical < 5 || vertical > 7 {
+		t.Fatalf("outline thickness = %d px horizontally, %d px vertically, want about 6 in both", horizontal, vertical)
+	}
+}
