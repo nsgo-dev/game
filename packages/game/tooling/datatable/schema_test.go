@@ -39,7 +39,7 @@ func TestSchema(t *testing.T) {
 	for _, p := range row.Properties {
 		names = append(names, p.Name)
 	}
-	if got := strings.Join(names, ","); got != "enemy_id,display_name,hp,armor,move_speed,is_boss,tags,drop_ids,cooldown" {
+	if got := strings.Join(names, ","); got != "enemy_id,display_name,hp,Armor,move_speed,is_boss,tags,drop_ids,cooldown" {
 		t.Fatalf("columns = %s", got)
 	}
 	if row.Property("hp").Description != "Hit points." {
@@ -65,9 +65,9 @@ func TestSchema(t *testing.T) {
 		t.Fatalf("ValidateYAML: %v", err)
 	}
 	// A misspelt column or an out-of-range cell is flagged where it is written.
-	err = s.ValidateYAML([]byte("version: 1\nrows:\n  - enemy_id: goblin\n    hp_max: 45\n    armor: -1\n"))
+	err = s.ValidateYAML([]byte("version: 1\nrows:\n  - enemy_id: goblin\n    hp_max: 45\n    Armor: -1\n"))
 	var verr *jsonschema.ValidationError
-	if !errors.As(err, &verr) || len(verr.Issues) != 2 || verr.Issues[0].Path != "/rows/0/armor" || verr.Issues[1].Path != "/rows/0/hp_max" {
+	if !errors.As(err, &verr) || len(verr.Issues) != 2 || verr.Issues[0].Path != "/rows/0/Armor" || verr.Issues[1].Path != "/rows/0/hp_max" {
 		t.Fatalf("ValidateYAML of a misspelt table = %v", err)
 	}
 	// LoadYAML reads a missing or null rows key as a table with no rows, so the schema accepts both.
@@ -115,7 +115,7 @@ func TestSchemaEmbeddedAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Schema: %v", err)
 	}
-	if err := s.Validate(map[string]any{"version": 1, "rows": []any{map[string]any{"id": "a", "speed": 1.5, "rank": 2}}}); err != nil {
+	if err := s.Validate(map[string]any{"version": 1, "rows": []any{map[string]any{"id": "a", "speed": 1.5, "Rank": 2}}}); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	if err := s.Validate(map[string]any{"version": 1, "rows": []any{map[string]any{"speed": 1}}}); err == nil {

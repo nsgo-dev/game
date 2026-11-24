@@ -9,7 +9,8 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-const room = `version: 1
+const room = `# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
 name: cave
 layers:
   - name: props
