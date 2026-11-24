@@ -18,7 +18,7 @@ func BindDoc(doc *sceneformat.SceneDoc, self string) Binder {
 	}
 }
 
-// BindScene returns a Binder that writes into the objects of a built scene, as BindDoc does, and copies each written transform, flip and alpha onto the object's sprite so the next Draw shows it; alpha is multiplied by the object's material opacity as Build does.
+// BindScene returns a Binder that writes into the objects of a built scene, as BindDoc does, and syncs each object whose field it writes (sceneformat.BuiltObject.Sync), so the next Draw shows the object and its children at their new world transform and alpha, alpha multiplied by the material's opacity as Build does.
 func BindScene(scene *sceneformat.BuiltScene, self string) Binder {
 	return func(target string, p Property) (func(float64), error) {
 		id := targetID(target, self)
@@ -28,7 +28,9 @@ func BindScene(scene *sceneformat.BuiltScene, self string) Binder {
 		}
 		return func(v float64) {
 			p.Set(bo.Doc, v)
-			syncSprite(bo, p)
+			if !p.IsComponent() {
+				bo.Sync()
+			}
 		}, nil
 	}
 }
@@ -44,47 +46,17 @@ func findObject(doc *sceneformat.SceneDoc, id string) *sceneformat.ObjectDoc {
 	if doc == nil || id == "" {
 		return nil
 	}
+	var found *sceneformat.ObjectDoc
 	for li := range doc.Layers {
-		objs := doc.Layers[li].Objects
-		for oi := range objs {
-			if objs[oi].ID == id {
-				return &objs[oi]
+		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			if o.ID == id {
+				found = o
 			}
+			return found == nil
+		})
+		if found != nil {
+			return found
 		}
 	}
 	return nil
-}
-
-// syncSprite copies the object field p wrote from the object's document onto its sprite.
-func syncSprite(bo *sceneformat.BuiltObject, p Property) {
-	sp, o := bo.Sprite, bo.Doc
-	if sp == nil || p.IsComponent() {
-		return
-	}
-	switch p.Name {
-	case "x":
-		sp.X = o.X
-	case "y":
-		sp.Y = o.Y
-	case "rotation":
-		sp.Rotation = o.Rotation
-	case "scaleX":
-		sp.ScaleX = o.EffectiveScaleX()
-	case "scaleY":
-		sp.ScaleY = o.EffectiveScaleY()
-	case "alpha":
-		a := o.EffectiveAlpha()
-		if bo.Material != nil {
-			a *= bo.Material.EffectiveOpacity()
-		}
-		sp.Alpha = a
-	case "originX":
-		sp.OriginX = o.OriginX
-	case "originY":
-		sp.OriginY = o.OriginY
-	case "flipX":
-		sp.FlipX = o.FlipX
-	case "flipY":
-		sp.FlipY = o.FlipY
-	}
 }

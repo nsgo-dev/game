@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/sprite"
 )
 
 const treeEps = 1e-4
@@ -536,4 +537,49 @@ func objectIDs(objs []*sceneformat.BuiltObject) []string {
 		ids[i] = o.ID
 	}
 	return ids
+}
+
+func TestSyncRecomposesAnEditedObjectAndItsChildren(t *testing.T) {
+	built, err := sceneformat.Build(loadFleet(t), caveResolver)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := map[string]sprite.Sprite{}
+	for id, bo := range built.Objects {
+		if bo.Sprite != nil {
+			want[id] = *bo.Sprite
+			bo.Sprite.X, bo.Sprite.Alpha = -999, 0
+		}
+	}
+	for _, l := range built.Layers {
+		for _, bo := range l.Objects {
+			if !bo.Sync() {
+				t.Fatalf("Sync(%q) reported a sheared sprite", bo.ID)
+			}
+		}
+	}
+	for id, sp := range want {
+		if got := *built.Object(id).Sprite; !reflect.DeepEqual(got, sp) {
+			t.Errorf("%q sprite after Sync = %+v, want %+v as built", id, got, sp)
+		}
+	}
+
+	ship := built.Object("ship")
+	before := map[string]math2d.Affine{}
+	for _, c := range ship.Children {
+		before[c.ID] = c.World
+	}
+	ship.Doc.X += 10
+	ship.Doc.Alpha = sceneformat.Float32(0.5)
+	if !ship.Sync() {
+		t.Fatal("Sync(ship) reported a sheared sprite")
+	}
+	for _, c := range ship.Children {
+		if !near(c.World.Tx, before[c.ID].Tx+10) || !near(c.World.Ty, before[c.ID].Ty) {
+			t.Errorf("%q world position after moving its parent = (%v, %v), want (%v, %v)", c.ID, c.World.Tx, c.World.Ty, before[c.ID].Tx+10, before[c.ID].Ty)
+		}
+		if !near(c.WorldAlpha, c.Doc.EffectiveAlpha()*0.5) {
+			t.Errorf("%q world alpha = %v, want %v", c.ID, c.WorldAlpha, c.Doc.EffectiveAlpha()*0.5)
+		}
+	}
 }

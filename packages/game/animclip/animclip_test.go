@@ -510,3 +510,64 @@ func BenchmarkPlayerUpdate(b *testing.B) {
 		p.Update(time.Second / 60)
 	}
 }
+
+func TestBindSceneMovesChildrenWithTheirParent(t *testing.T) {
+	reg := bodyRegistry(t)
+	doc := &sceneformat.SceneDoc{Version: 1, Layers: []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{
+		{ID: "hero", Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}, Children: []sceneformat.ObjectDoc{
+			{ID: "hat", X: 4, Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}},
+		}},
+	}}}}
+	built, err := sceneformat.Build(doc, resolver{
+		atlas: &sprite.Atlas{Image: core.ImageSource{URI: "asset:actors.png"}, Frames: map[string]sprite.Frame{"hero": {Name: "hero", W: 16, H: 16, Width: 16, Height: 16}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clip := parseClip(t, `type: animation
+version: 1
+name: Fade
+length: 1
+tracks:
+  - property: x
+    keys:
+      - time: 0
+        value: 10
+      - time: 1
+        value: 30
+  - property: alpha
+    keys:
+      - time: 1
+        value: 0.5
+  - target: hat
+    property: y
+    keys:
+      - time: 1
+        value: 2
+`)
+	p, err := animclip.NewPlayer(clip, reg, animclip.BindScene(built, "hero"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Seek(time.Second)
+	hero, hat := built.Object("hero"), built.Object("hat")
+	if hero.Sprite.X != 30 || hero.Sprite.Alpha != 0.5 {
+		t.Fatalf("hero sprite x %v alpha %v, want 30 and 0.5", hero.Sprite.X, hero.Sprite.Alpha)
+	}
+	if hat.Sprite.X != 34 || hat.Sprite.Y != 2 || hat.Sprite.Alpha != 0.5 || hat.WorldAlpha != 0.5 {
+		t.Fatalf("hat sprite (%v, %v) alpha %v world alpha %v, want (34, 2) and 0.5 under its parent", hat.Sprite.X, hat.Sprite.Y, hat.Sprite.Alpha, hat.WorldAlpha)
+	}
+
+	// BindDoc finds a nested object by its ID too.
+	doc2 := &sceneformat.SceneDoc{Version: 1, Layers: []sceneformat.LayerDoc{{Name: "main", Objects: []sceneformat.ObjectDoc{
+		{ID: "hero", Children: []sceneformat.ObjectDoc{{ID: "hat"}}},
+	}}}}
+	p, err = animclip.NewPlayer(clip, reg, animclip.BindDoc(doc2, "hero"))
+	if err != nil {
+		t.Fatalf("NewPlayer on a nested target: %v", err)
+	}
+	p.Seek(time.Second)
+	if got := doc2.Layers[0].Objects[0].Children[0].Y; got != 2 {
+		t.Fatalf("nested hat y = %v, want 2", got)
+	}
+}

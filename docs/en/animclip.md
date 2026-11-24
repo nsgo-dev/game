@@ -55,7 +55,7 @@ The player reads the clip once; to play a clip edited or reloaded by `Library.Re
 A `Binder` connects each track to what it drives. It receives the track's target and resolved `Property` and returns the function that writes the value, which arrives already rounded and clamped for the property; an error fails `NewPlayer`, so a clip that names a missing object is refused before it plays.
 
 - `BindDoc(doc, self)` writes into the objects of a `sceneformat.SceneDoc`.
-- `BindScene(built, self)` writes into the objects of a `sceneformat.BuiltScene` and copies each written transform, flip and alpha onto the object's sprite, multiplying alpha by its material's opacity as `Build` does, so the next `Draw` shows it.
+- `BindScene(built, self)` writes into the objects of a `sceneformat.BuiltScene` and syncs each object it writes (`BuiltObject.Sync`), so the next `Draw` shows the object and its children at their new world transform and alpha, multiplied by the material's opacity as `Build` does. A track's target may be a nested child object's ID.
 
 Component fields are written into the object's `components` mapping as `float64`, `int` or `bool`, creating the component's mapping when the object has none, so code that reads them with `ComponentRegistry.Resolve` sees the animated value. A game that keeps its own state binds it with a `Binder` of its own:
 
