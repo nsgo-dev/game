@@ -38,7 +38,7 @@ Keep `Loop.Update`, `Loop.Draw`, and `Canvas.Draw` callbacks free of steady-stat
 
 ### Runtime Overlay (`GCMonitor`)
 
-Wire `debug.NewGCMonitor` into `debug.Options.GC` to sample `runtime/metrics` (`/gc/pauses:seconds`, `/gc/cycles/total:gc-cycles`, `/memory/classes/heap/objects:bytes`) once per frame with zero steady-state allocations:
+Wire `debug.NewGCMonitor` into `debug.Options.GC` to sample `runtime/metrics` (`/gc/pauses:seconds`, `/gc/cycles/total:gc-cycles`, `/memory/classes/heap/objects:bytes`, `/gc/heap/allocs:objects`, `/gc/heap/allocs:bytes`) once per frame with zero steady-state allocations:
 
 ```go
 gcMon := debug.NewGCMonitor(debug.FrameHistory)
@@ -48,6 +48,8 @@ overlay := debug.New(debug.Options{
 ```
 
 Frames where a GC cycle or pause occurred are flagged (`GCFrameSample.Hitched == true`) and marked directly on the overlay's frame-time graph, alongside cycle count, last/max pause, live heap bytes, and recent hitch count.
+
+Each `GCFrameSample` also carries the heap objects and bytes allocated during that frame (`AllocsDelta`, `AllocBytesDelta`). `gcMon.AllocsPerFrame()` and `gcMon.AllocBytesPerFrame()` average them over the retained history, and the overlay shows them under the GC summary as `allocs 12.0/f (1.5 KB/f)`. A value that stays above zero in steady gameplay means a hot path allocates every frame. Call `gcMon.Reset()` after a loading screen or level change to drop the history and measure from that point.
 
 ### CI Regression Checks (`AssertZeroAllocs`)
 

@@ -71,6 +71,31 @@ d.Restore()
 overlay.DrawFighterBoxes(d, p1, core.RGB(0x38bdf8), core.RGB(0xef4444))
 ```
 
+## 绘制统计
+
+可以用以下两种方式提供每帧的绘制提交数，浮层会显示一行 `Draw: N calls · N sprites · N batches`，三角形数或顶点数不为零时再追加 `· N tris · N verts`：
+
+1. **通过 `Options.DrawStats` 拉取**：一个 `func() debug.DrawStats`，浮层每次刷新时调用。
+2. **通过 `overlay.SetDrawStats(stats)` 推送**：在 `Options.DrawStats` 为 nil 时使用，每帧绘制完成后调用一次。
+
+```go
+overlay := debug.New(debug.Options{
+	DrawStats: func() debug.DrawStats {
+		return debug.DrawStats{DrawCalls: r.drawCalls, Sprites: len(actorsBatch.Sprites), Batches: r.batches}
+	},
+})
+```
+
+`overlay.DrawStats()` 返回当前数值，`overlay.HasDrawStats()` 表示两种来源是否设置了其一；都未设置时不显示这一行。[`game/mcp`](mcp.md) 的 `game_perf_readout` 报告的是同一组数值。
+
+## 重置读数
+
+- `overlay.ResetStats()` 清空帧耗时环形缓冲区和已推送的绘制统计，并刷新 HUD。`Options.DrawStats` 回调会继续提供数值。
+- `GCMonitor.Reset()` 清空 GC 帧历史、卡顿计数、停顿峰值和每帧分配均值，并重新读取运行时计数器，下一帧从此刻开始计量（见 [GC 与帧分配预算](gc-and-allocations.md)）。
+- `Profiler.Reset()` 清空每个计时区间累积的耗时和历史。区间名保留原有 ID，因此跨越重置仍未结束的区间会计入它自己的名字；通过 `StartRecording` 开始的追踪录制会继续进行，已录制的事件也会保留。
+
+[`game/mcp`](mcp.md) 的 `game_perf_reset` 会依次调用这三者。
+
 ## 场景检查器
 
 提供实时场景结构有两种方式：
