@@ -115,7 +115,7 @@ field.Draw(d)
 
 ## 性能
 
-`BenchmarkFrame5000` 运行一个稳定 5000 颗子弹场景中的一帧（60 fps）：十个带随机偏差和弯曲路径的螺旋发射器，其中一半的精灵会旋转，子弹在这一帧中移动、过期、生成并绘制到 `core.Drawing`。在桌面 Ryzen 9 3900X 上约需 0.63 ms，而一帧有 16.7 ms；单独移动 5000 颗子弹（`BenchmarkUpdate5000`）约需 0.14 ms。CI 的性能基线（`benchmarks/baseline.json`）会让在 CI 运行器上一帧超过 6.25 ms 的改动失败。
+`BenchmarkFrame5000` 运行一个稳定 5000 颗子弹场景中的一帧（60 fps）：十个带随机偏差和弯曲路径的螺旋发射器，其中一半的精灵会旋转，子弹在这一帧中移动、过期、生成并绘制到 `core.Drawing`。在桌面 Ryzen 9 3900X 上约需 0.63 ms，而一帧有 16.7 ms；单独移动 5000 颗子弹（`BenchmarkUpdate5000`）约需 0.14 ms。CI 的性能基线（`benchmarks/baseline.yaml`）会让在 CI 运行器上一帧超过 6.25 ms 的改动失败。
 
 这测量的是一帧的 CPU 工作：模拟子弹并记录它们的绘制操作。它不测量平台渲染器把这些操作画到屏幕上所需的时间，那部分属于 NSGo，并取决于 GPU。
 
