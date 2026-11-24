@@ -817,11 +817,67 @@ func NewLitPBRPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, 
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr", LitPBRWGSL, layouts, depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr", LitPBRWGSL, layouts, dev.SurfaceFormat(), depthFormat)
+}
+
+// litPBRLinearWGSL is [LitPBRWGSL] writing the lit linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput is set.
+const litPBRLinearWGSL = litPBRPreludeWGSL + litPBRFragmentHeadWGSL + `	return vec4<f32>(lit, pbr_draw.base_color.a);
+}
+`
+
+// LitPBRPipelineOptions configures [NewLitPBRPipelineWithOptions].
+type LitPBRPipelineOptions struct {
+	// Label names the pipeline in GPU capture tools; empty picks render3d.lit_pbr, lit_pbr_fog or lit_pbr_ibl with a .linear suffix for LinearOutput.
+	Label string
+	// ColorFormat sets the color attachment format; [gpu.FormatUndefined] defaults to dev.SurfaceFormat(). Use [HDRTarget.Format] when drawing into an [HDRTarget].
+	ColorFormat gpu.TextureFormat
+	// DepthFormat enables depth testing and writes when not [gpu.FormatUndefined].
+	DepthFormat gpu.TextureFormat
+	// FogLayout, when set, compiles [LitPBRFogWGSL] with this layout ([GPUFogBuffer.Layout]) at [FogGroup], as [NewLitPBRFogPipeline] does.
+	FogLayout *gpu.BindGroupLayout
+	// IBLLayout, when set, compiles [LitPBRIBLWGSL] with this layout ([GPUIBLBuffer.Layout]) at [IBLGroup], as [NewLitPBRIBLPipeline] does. Fog and IBL share bind group 3, so setting both is an error.
+	IBLLayout *gpu.BindGroupLayout
+	// LinearOutput skips the final linear-to-sRGB encoding and its clamp to [0, 1] and writes the lit linear radiance ([ShadePoint], plus [EvaluateIBL] or [Fog.Apply] when enabled), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display.
+	LinearOutput bool
+}
+
+// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline] or [NewLitPBRIBLPipeline], with a configurable color format and, with [LitPBRPipelineOptions].LinearOutput, linear HDR output for an [HDRTarget].
+func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout *gpu.BindGroupLayout, opts LitPBRPipelineOptions) (*gpu.Pipeline, error) {
+	if dev == nil {
+		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	if opts.FogLayout != nil && opts.IBLLayout != nil {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: fog and IBL both use bind group 3; set FogLayout or IBLLayout, not both"}
+	}
+	label, src, linearSrc := "render3d.lit_pbr", LitPBRWGSL, litPBRLinearWGSL
+	layouts := make([]*gpu.BindGroupLayout, PBRDrawGroup+1, FogGroup+1)
+	switch {
+	case opts.FogLayout != nil:
+		label, src, linearSrc = "render3d.lit_pbr_fog", LitPBRFogWGSL, litPBRFogLinearWGSL
+		layouts = append(layouts, opts.FogLayout)
+	case opts.IBLLayout != nil:
+		label, src, linearSrc = "render3d.lit_pbr_ibl", LitPBRIBLWGSL, litPBRIBLLinearWGSL
+		layouts = append(layouts, opts.IBLLayout)
+	}
+	layouts[CameraGroup] = camLayout
+	layouts[LightGroup] = lightLayout
+	layouts[PBRDrawGroup] = drawLayout
+	if opts.LinearOutput {
+		src = linearSrc
+		label += ".linear"
+	}
+	if opts.Label != "" {
+		label = opts.Label
+	}
+	colorFmt := opts.ColorFormat
+	if colorFmt == gpu.FormatUndefined {
+		colorFmt = dev.SurfaceFormat()
+	}
+	return newLitPBRPipeline(cx, dev, label, src, layouts, colorFmt, opts.DepthFormat)
 }
 
 // newLitPBRPipeline compiles src and creates the back-face-culled triangle-list pipeline [NewLitPBRPipeline] and [NewLitPBRFogPipeline] share.
-func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layouts []*gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layouts []*gpu.BindGroupLayout, colorFormat, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
 	mod, err := gpu.CompileWGSL(src)
 	if err != nil {
 		return nil, err
@@ -837,7 +893,7 @@ func newLitPBRPipeline(cx *core.Scope, dev *gpu.Device, label, src string, layou
 			FrontFace: gpu.FrontCCW,
 			CullMode:  gpu.CullBack,
 		},
-		Targets: []gpu.ColorTargetState{{Format: dev.SurfaceFormat(), WriteMask: gpu.ColorWriteAll}},
+		Targets: []gpu.ColorTargetState{{Format: colorFormat, WriteMask: gpu.ColorWriteAll}},
 	}
 	if depthFormat != gpu.FormatUndefined {
 		desc.DepthStencil = &gpu.DepthStencilState{

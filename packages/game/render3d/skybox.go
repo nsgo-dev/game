@@ -1431,6 +1431,12 @@ const LitPBRIBLWGSL = litPBRPreludeWGSL + "\n" + IBLWGSL + litPBRFragmentHeadWGS
 }
 `
 
+// litPBRIBLLinearWGSL is [LitPBRIBLWGSL] writing the linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput and IBLLayout are set.
+const litPBRIBLLinearWGSL = litPBRPreludeWGSL + "\n" + IBLWGSL + litPBRFragmentHeadWGSL + `	let ibl_lit = lit + evaluate_ibl(in.world_normal, view_dir, pbr_draw.base_color.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, 1.0);
+	return vec4<f32>(ibl_lit, pbr_draw.base_color.a);
+}
+`
+
 // NewLitPBRIBLPipeline compiles [LitPBRIBLWGSL] and creates a pipeline configured like [NewLitPBRPipeline] with iblLayout ([GPUIBLBuffer.Layout]) added at [IBLGroup].
 func NewLitPBRIBLPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout, iblLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
 	if dev == nil {
@@ -1441,7 +1447,7 @@ func NewLitPBRIBLPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayou
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
 	layouts[IBLGroup] = iblLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_ibl", LitPBRIBLWGSL, layouts, depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_ibl", LitPBRIBLWGSL, layouts, dev.SurfaceFormat(), depthFormat)
 }
 
 // --- Internal math and sampling helpers ---

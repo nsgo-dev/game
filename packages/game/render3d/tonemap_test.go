@@ -43,48 +43,6 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 `
 
-// hdrSceneWGSL renders a lit 3D scene in linear HDR radiance (with bright
-// directional lighting and emissive cubes exceeding 1.0) for golden reference
-// renders.
-const hdrSceneWGSL = render3d.CameraWGSL + `
-struct VertexIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) color: vec4<f32>,
-}
-
-struct VertexOut {
-	@builtin(position) clip: vec4<f32>,
-	@location(0) world: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) color: vec4<f32>,
-}
-
-@vertex
-fn vs_main(in: VertexIn) -> VertexOut {
-	var out: VertexOut;
-	out.clip = camera.view_proj * vec4<f32>(in.pos, 1.0);
-	out.world = in.pos;
-	out.normal = in.normal;
-	out.color = in.color;
-	return out;
-}
-
-@fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-	let n = normalize(in.normal);
-	let l = normalize(vec3<f32>(0.55, 0.80, 0.35));
-	let v = normalize(camera.eye.xyz - in.world * camera.eye.w);
-	let h = normalize(l + v);
-	let ndotl = max(dot(n, l), 0.0);
-	let ndoth = max(dot(n, h), 0.0);
-	let spec = pow(ndoth, 24.0) * 6.0;
-	let diffuse = in.color.rgb * (0.12 + 3.2 * ndotl);
-	let radiance = diffuse + vec3<f32>(spec, spec * 0.95, spec * 0.85);
-	return vec4<f32>(radiance, 1.0);
-}
-`
-
 func TestExposureFromEV(t *testing.T) {
 	cases := []struct {
 		ev   float32
@@ -1074,116 +1032,26 @@ func TestToneMapScopeDisposalReleasesResources(t *testing.T) {
 	}
 }
 
-// renderHDRReferenceScene draws a 128x96 lit 3D scene with bright HDR specular
-// highlights and emissive cubes (> 4.0 linear radiance) into an HDRTarget and
-// resolves it through ToneMapPass with opts.
+// renderHDRReferenceScene draws a 128x96 scene through render3d's own lit PBR pipeline in linear HDR mode (NewLitPBRPipelineWithOptions with LinearOutput) into an HDRTarget, with a bright key light, glossy specular highlights and emissive boxes well above 1.0, and resolves it through ToneMapPass with opts.
 func renderHDRReferenceScene(t *testing.T, opts render3d.ToneMapOptions) *image.RGBA {
 	t.Helper()
-	sr := gpu.NewSoftwareRenderer(refWidth, refHeight, gpu.FormatUndefined)
-	t.Cleanup(sr.Close)
-	dev := sr.Device()
-
-	hdr, err := render3d.NewHDRTarget(nil, dev, render3d.HDRTargetDesc{
-		Label:       "ref-hdr",
-		Width:       refWidth,
-		Height:      refHeight,
-		DepthFormat: gpu.FormatDepth24Plus,
-	})
-	if err != nil {
-		t.Fatalf("NewHDRTarget: %v", err)
-	}
-	t.Cleanup(func() { _ = hdr.Close() })
-
-	camBuf, err := render3d.NewCameraBuffer(nil, dev)
-	if err != nil {
-		t.Fatalf("NewCameraBuffer: %v", err)
-	}
-	t.Cleanup(func() { _ = camBuf.Close() })
-
-	sceneMod, err := gpu.CompileWGSL(hdrSceneWGSL)
-	if err != nil {
-		t.Fatalf("CompileWGSL hdrSceneWGSL: %v", err)
-	}
-
-	// Build an HDR scene: ground plane + 3 cubes, including an emissive orange-gold cube > 3.0 radiance.
-	var verts []float32
-	verts = appendQuad(verts,
-		math3d.Vec3{X: -5, Z: 5}, math3d.Vec3{X: 5, Z: 5}, math3d.Vec3{X: 5, Z: -5}, math3d.Vec3{X: -5, Z: -5},
-		math3d.Vec3Up(), [3]float32{0.35, 0.35, 0.38})
-	for _, c := range [...]refCube{
-		{center: math3d.Vec3{X: -1.6, Y: 0.5, Z: 1.2}, color: [3]float32{3.5, 0.45, 0.15}}, // intense HDR red-orange
-		{center: math3d.Vec3{X: 0.0, Y: 0.5, Z: -0.6}, color: [3]float32{1.8, 1.8, 1.8}},   // bright HDR white
-		{center: math3d.Vec3{X: 1.7, Y: 0.5, Z: 0.9}, color: [3]float32{0.2, 0.7, 2.8}},    // intense HDR cyan-blue
-	} {
-		verts = appendCube(verts, c)
-	}
-	vb, err := dev.CreateBuffer(nil, gpu.BufferDesc{Usage: gpu.UsageVertex, Data: packFloat32s(verts)})
-	if err != nil {
-		t.Fatalf("CreateBuffer scene: %v", err)
-	}
-
-	layouts := make([]*gpu.BindGroupLayout, render3d.CameraGroup+1)
-	layouts[render3d.CameraGroup] = camBuf.Layout()
-	scenePipe, err := dev.CreatePipeline(nil, gpu.PipelineDesc{
-		Label:    "hdr-scene",
-		Vertex:   gpu.ShaderStage{Module: sceneMod, EntryPoint: "vs_main"},
-		Fragment: gpu.ShaderStage{Module: sceneMod, EntryPoint: "fs_main"},
-		Layouts:  layouts,
-		VertexBuffers: []gpu.VertexBufferLayout{{
-			Stride: 10 * 4,
-			Attributes: []gpu.VertexAttribute{
-				{Location: 0, Offset: 0, Format: gpu.VertexFloat32x3},
-				{Location: 1, Offset: 3 * 4, Format: gpu.VertexFloat32x3},
-				{Location: 2, Offset: 6 * 4, Format: gpu.VertexFloat32x4},
-			},
-		}},
-		Primitive: gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, CullMode: gpu.CullNone},
-		DepthStencil: &gpu.DepthStencilState{
-			Format:       gpu.FormatDepth24Plus,
-			DepthWrite:   true,
-			DepthCompare: gpu.CompareLess,
-		},
-		Targets: []gpu.ColorTargetState{{Format: hdr.Format(), WriteMask: gpu.ColorWriteAll}},
-	})
-	if err != nil {
-		t.Fatalf("CreatePipeline hdr-scene: %v", err)
-	}
-
-	tonePass, err := render3d.NewToneMapPass(nil, dev, render3d.ToneMapPassDesc{
-		Label:        "ref-tonemap",
-		TargetFormat: dev.SurfaceFormat(),
-	})
-	if err != nil {
-		t.Fatalf("NewToneMapPass: %v", err)
-	}
-	t.Cleanup(func() { _ = tonePass.Close() })
-
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0.4, Y: 3.0, Z: 6.2}, math3d.DegToRad(48), float32(refWidth)/float32(refHeight), 0.1, 50)
 	cam.LookAt(math3d.Vec3{Y: 0.4, Z: 0}, math3d.Vec3Up())
-	camBuf.WriteCamera(cam)
-
-	enc := dev.BeginEncoder()
-	p0 := enc.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x0a0e18), 1))
-	p0.SetPipeline(scenePipe)
-	p0.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	p0.SetVertexBuffer(0, vb, 0)
-	p0.Draw(uint32(len(verts)/10), 0)
-	p0.End()
-
-	p1 := enc.BeginRenderPass(gpu.RenderPassDesc{
-		Label:            "tonemap-resolve",
-		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}},
-	})
-	if err := tonePass.DrawTarget(p1, dev, hdr, opts); err != nil {
-		t.Fatalf("DrawTarget: %v", err)
+	rig := render3d.LightRig{
+		Ambient:     render3d.AmbientLight{Color: math3d.Vec3{X: 0.5, Y: 0.6, Z: 0.8}, Intensity: 0.25},
+		Directional: []render3d.DirectionalLight{{Direction: math3d.Vec3{X: -0.55, Y: -0.8, Z: -0.35}, Color: math3d.Vec3{X: 1, Y: 0.95, Z: 0.88}, Intensity: 6}},
 	}
-	p1.End()
-	dev.Submit(enc.Finish())
-	sr.WaitIdle()
-	if err := sr.LastError(); err != nil {
-		t.Fatalf("software renderer: %v", err)
-	}
-	return sr.Image()
+	return renderLitSceneThroughToneMap(t, refWidth, refHeight, cam, rig, core.RGB(0x0a0e18), func(dev *gpu.Device) []litSceneObject {
+		box := uploadTestMesh(t, dev, unitBoxMesh())
+		sphere := uploadTestMesh(t, dev, uvSphereMesh(1, 24, 16))
+		ground := uploadTestMesh(t, dev, lightGroundPlaneMesh(5))
+		return []litSceneObject{
+			{mesh: ground, model: math3d.Mat4Identity(), mat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.35, Y: 0.35, Z: 0.38}, Roughness: 0.8}},
+			{mesh: box, model: math3d.Translate(math3d.Vec3{X: -1.6, Y: 0.5, Z: 1.2}), mat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.8, Y: 0.2, Z: 0.1}, Roughness: 0.5, Emissive: math3d.Vec3{X: 3.5, Y: 0.45, Z: 0.15}}},
+			{mesh: sphere, model: math3d.Translate(math3d.Vec3{X: 0, Y: 0.8, Z: -0.6}).Mul(math3d.Scale(math3d.Vec3{X: 0.8, Y: 0.8, Z: 0.8})), mat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.95, Y: 0.95, Z: 0.95}, Roughness: 0.15}},
+			{mesh: box, model: math3d.Translate(math3d.Vec3{X: 1.7, Y: 0.5, Z: 0.9}), mat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.1, Y: 0.3, Z: 0.8}, Roughness: 0.5, Emissive: math3d.Vec3{X: 0.2, Y: 0.7, Z: 2.8}}},
+		}
+	}, opts)
 }
 
 func TestToneMapReferenceScenes(t *testing.T) {
@@ -1199,8 +1067,8 @@ func TestToneMapReferenceScenes(t *testing.T) {
 	for _, r := range refs {
 		t.Run(r.name, func(t *testing.T) {
 			img := renderHDRReferenceScene(t, r.opts)
-			assertReference(t, r.name, img)
 			rendered[r.name] = img
+			assertReference(t, r.name, img)
 		})
 	}
 	// Confirm operators produce visually distinct renders on the HDR reference scene.
