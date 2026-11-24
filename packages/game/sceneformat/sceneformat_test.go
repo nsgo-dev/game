@@ -539,7 +539,7 @@ func TestValidateNamesTheField(t *testing.T) {
 		yaml string
 		want []string
 	}{
-		{"version", "version: 2\n", []string{"version"}},
+		{"version", "version: 3\n", []string{"version"}},
 		{"virtual_size", "version: 1\nvirtualWidth: 320\n", []string{"virtualWidth"}},
 		{"background", "version: 1\nbackgroundColor: nope\n", []string{"backgroundColor"}},
 		{"zoom", "version: 1\ncamera:\n  zoom: -1\n", []string{"camera", "zoom"}},
@@ -558,6 +558,11 @@ func TestValidateNamesTheField(t *testing.T) {
 		{"material", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        material: ../stone.material.yaml\n", []string{"layers", "0", "objects", "0", "material"}},
 		{"child_id", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        children:\n          - id: c\n          - id: o\n", []string{"layers", "0", "objects", "0", "children", "1", "id"}},
 		{"child_alpha", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        children:\n          - id: c\n            alpha: 2\n", []string{"layers", "0", "objects", "0", "children", "0", "alpha"}},
+		{"inherits_in_version_1", "version: 1\ninherits: base.scene.yaml\n", []string{"inherits"}},
+		{"layer_override_space", "version: 2\ninherits: base.scene.yaml\nlayerOverrides:\n  a:\n    space: sky\n", []string{"layerOverrides", "a", "space"}},
+		{"override_alpha", "version: 2\ninherits: base.scene.yaml\noverrides:\n  o:\n    alpha: 2\n", []string{"overrides", "o", "alpha"}},
+		{"instance_scene", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: ../enemy.scene.yaml\n", []string{"layers", "0", "objects", "0", "scene"}},
+		{"instance_override_depth", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: enemy.scene.yaml\n        overrides:\n          body:\n            depth: -1\n", []string{"layers", "0", "objects", "0", "overrides", "body", "depth"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
