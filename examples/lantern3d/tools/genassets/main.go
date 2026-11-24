@@ -1,10 +1,6 @@
-// Command genassets deterministically generates the original glTF 2.0 binary
-// scene (.glb) and its embedded textures for the Lantern 3D example under
-// examples/lantern3d/assets/.
+// Command genassets deterministically generates the original glTF 2.0 binary scene (.glb) and its embedded textures for the Lantern 3D example under examples/lantern3d/assets/.
 //
-// All generated assets are original works dedicated to the public domain under
-// CC0-1.0 (see examples/lantern3d/CREDITS.md). This generator uses only the Go
-// standard library and produces byte-for-byte identical output on every run.
+// All generated assets are original works dedicated to the public domain under CC0-1.0 (see examples/lantern3d/CREDITS.md). This generator uses only the Go standard library and produces byte-for-byte identical output on every run.
 //
 // Usage:
 //
@@ -143,8 +139,7 @@ func (p *primData) addFrustum(cx, cz, y0, y1, r0, r1 float32, sides int, phase, 
 		u0 := float32(i) / float32(sides) * uvScale * 2
 		u1 := float32(i+1) / float32(sides) * uvScale * 2
 		// Outward CCW winding when viewed from outside:
-		// As angle increases from +X toward +Z (Wait: cos(0)=1,sin(0)=0 -> cos(90)=0,sin(90)=1 is clockwise from +Y!).
-		// So ring[j] -> ring[i] runs CCW when viewed from +Y, making (ring0[j], ring0[i], ring1[i], ring1[j]) outward CCW.
+		// As angle increases from +X toward +Z (Wait: cos(0)=1,sin(0)=0 -> cos(90)=0,sin(90)=1 is clockwise from +Y!). So ring[j] -> ring[i] runs CCW when viewed from +Y, making (ring0[j], ring0[i], ring1[i], ring1[j]) outward CCW.
 		p.addQuad(ring0[j], ring0[i], ring1[i], ring1[j],
 			vec2{u0, h}, vec2{u1, h}, vec2{u1, 0}, vec2{u0, 0})
 	}
@@ -494,8 +489,7 @@ func clampU8(v int) uint8 {
 	return uint8(v)
 }
 
-// makeStoneTexture builds a 64x64 procedural flagstone tile texture with mortar joints,
-// subtle bevel highlights, and carved granite grain.
+// makeStoneTexture builds a 64x64 procedural flagstone tile texture with mortar joints, subtle bevel highlights, and carved granite grain.
 func makeStoneTexture() *image.NRGBA {
 	const size = 64
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
@@ -545,8 +539,7 @@ func rowUint(v int) uint32 {
 	return uint32(v)
 }
 
-// makeCedarTexture builds a 64x64 warm cedar timber plank texture with wood grain
-// and corner bronze bracket trim.
+// makeCedarTexture builds a 64x64 warm cedar timber plank texture with wood grain and corner bronze bracket trim.
 func makeCedarTexture() *image.NRGBA {
 	const size = 64
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))

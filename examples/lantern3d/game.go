@@ -19,8 +19,7 @@ const (
 	keyZoomStep          = 0.55   // meters per keypress
 )
 
-// Controller connects the glTF Scene, GPU Renderer, fixed-step game.Loop,
-// mouse/touch/keyboard camera orbit controls, and native scene.HUD3D overlay.
+// Controller connects the glTF Scene, GPU Renderer, fixed-step game.Loop, mouse/touch/keyboard camera orbit controls, and native scene.HUD3D overlay.
 type Controller struct {
 	Scene    *Scene
 	Renderer *Renderer
@@ -55,8 +54,7 @@ func Root(cx *core.Scope) core.Node {
 	return node
 }
 
-// NewView builds the 3D scene, GPU renderer, fixed-step loop, and native HUD
-// overlay, returning the controller alongside the root node.
+// NewView builds the 3D scene, GPU renderer, fixed-step loop, and native HUD overlay, returning the controller alongside the root node.
 func NewView(cx *core.Scope) (*Controller, core.Node) {
 	cx.SetTitle(gameProject.Title())
 
