@@ -21,7 +21,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `audio` | Normalizes, resamples and converts a WAV file to WAV, AAC or MP3 |
 | `manifest` | Generates a typed Go asset manifest from a directory of assets, so a missing asset fails the build |
 | `tex` | Encodes a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps |
-| `editor` | Opens the scene editor on a YAML scene, or on a demo scene when none is named |
+| `editor` | Opens the scene editor on a project or a YAML scene, or on a demo scene when none is named |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags.
@@ -66,6 +66,7 @@ Encodes the image named by the argument (or `-in`) into a KTX2 file at `-out` (`
 
 ```sh
 go tool game editor scenes/level1.yaml
+go tool game editor .
 ```
 
-Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. The scene format is described in [Editor & Scene Format](editor.md).
+Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. The scene format is described in [Editor & Scene Format](editor.md).
