@@ -24,9 +24,7 @@ func approxEqual(a, b, tol float64) bool {
 	return math.Abs(a-b) <= tol
 }
 
-// TestPerfReadoutMatchesDebugOverlay verifies that game_perf_readout returns
-// values matching debug.Overlay's frame timing, draw statistics, GC/allocation
-// counters, asset memory, and profiler scopes, including the rendered overlay HUD.
+// TestPerfReadoutMatchesDebugOverlay verifies that game_perf_readout returns values matching debug.Overlay's frame timing, draw statistics, GC/allocation counters, asset memory, and profiler scopes, including the rendered overlay HUD.
 func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 	now := time.Unix(5000, 0)
 	prof := debug.NewProfiler(60)
