@@ -181,8 +181,7 @@ func (k ShaderParamKind) WGSLType() string {
 	}
 }
 
-// UniformLayout returns the WGSL/std140 alignment and byte size of k inside a
-// uniform struct, or (0, 0) for non-uniform kinds such as [ParamTexture].
+// UniformLayout returns the WGSL/std140 alignment and byte size of k inside a uniform struct, or (0, 0) for non-uniform kinds such as [ParamTexture]. A [ParamVec3] is 12 bytes, but [ComputeUniformLayout] refuses a 4-byte parameter right after one, so the 4 bytes that follow it stay padding on every backend.
 func (k ShaderParamKind) UniformLayout() (align, size int) {
 	switch k {
 	case ParamFloat, ParamInt, ParamBool:
@@ -283,9 +282,22 @@ func computeCustomLayout(label string, params []ShaderParamDesc) (CustomUniformL
 	}
 
 	offset := 0
+	prevVec3 := ""
 	for i, p := range params {
 		if p.Kind.IsUniform() {
 			align, size := p.Kind.UniformLayout()
+			// WGSL packs a 4-byte member into the last 4 bytes of a preceding vec3, but NSGo's Metal backend declares the struct with float3 members, which take 16 bytes, so every member after that would be read from the wrong offset on macOS and iOS.
+			if prevVec3 != "" && align == 4 {
+				return CustomUniformLayout{}, &CustomMaterialError{
+					Material: label,
+					Param:    p.Name,
+					Message:  fmt.Sprintf("a %s parameter cannot directly follow vec3 parameter %q, because Metal pads vec3 to 16 bytes; declare it before the vec3 or after a vec2/vec4 parameter, or make %q a ParamVec4", p.Kind, prevVec3, prevVec3),
+				}
+			}
+			prevVec3 = ""
+			if p.Kind == ParamVec3 {
+				prevVec3 = p.Name
+			}
 			offset = alignUp(offset, align)
 			out.Params[i] = CustomParamLayout{
 				Name:   p.Name,
