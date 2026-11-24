@@ -44,7 +44,7 @@ Storing a second palette of 128 `mat3x3`/`mat4x4` normal matrices would double t
 ## Testing
 
 - `packages/game/render3d/skin_test.go` verifies:
-  - Khronos `CesiumMan` (`packages/game/render3d/testdata/khronos/CesiumMan/`) bind-pose and animated walk-cycle GPU renders against CPU `SkinVertex` reference renders on both `full` and `nsgotest.NoGPUCompute()` profiles.
+  - Khronos `CesiumMan` (`packages/game/gltf/testdata/khronos/CesiumMan/`) bind-pose and animated walk-cycle GPU renders against CPU `SkinVertex` reference renders on both `full` and `nsgotest.NoGPUCompute()` profiles.
   - Khronos `RiggedSimple` bind-pose and animated bend GPU-vs-CPU parity on both profiles.
   - Multi-influence `SkinVertex` math, weight normalization, zero-weight fallback, out-of-palette identity padding, validation errors (`ErrInvalidMesh` / `ErrInvalidSkin`), uint32 index promotion at 65,536 vertices, non-indexed and double-sided draws, `Retained` device-loss restoration + post-restore pose update, `core.Scope` disposal, zero-allocation steady-state benchmarks, and `FuzzSkinnedMeshData`.
 - Verified with `go tool nsgo check -target macos,windows,linux,android,web`, `go tool nsgo test ./render3d`, `go tool nsgo test -run TestStabilityTable .`, `go run ./cmd/gameschema -check`, `go run ./tools/changelog check`, and `bun run verify-notes`.

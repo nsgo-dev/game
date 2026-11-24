@@ -277,7 +277,7 @@ func countDifferingPixels(a, b *image.RGBA, tol uint8) int {
 }
 
 func TestCesiumManBindPoseAndPosedGPUParity(t *testing.T) {
-	doc, skinIdx, sm := loadGLTFSkinnedFixture(t, "testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
+	doc, skinIdx, sm := loadGLTFSkinnedFixture(t, "../gltf/testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
 	if sm.JointCount != 19 {
 		t.Fatalf("CesiumMan JointCount = %d, want 19", sm.JointCount)
 	}
@@ -845,7 +845,7 @@ func TestAppendJointMatricesLayoutAndErrors(t *testing.T) {
 }
 
 func TestSkinnedMeshAndPaletteZeroAllocs(t *testing.T) {
-	doc, skinIdx, sm := loadGLTFSkinnedFixture(t, "testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
+	doc, skinIdx, sm := loadGLTFSkinnedFixture(t, "../gltf/testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
 	if err := doc.ComputeWorldMatrices(); err != nil {
 		t.Fatalf("ComputeWorldMatrices: %v", err)
 	}
@@ -1220,7 +1220,7 @@ func FuzzSkinnedMeshData(f *testing.F) {
 }
 
 func BenchmarkSkinnedMeshAppendVertexData(b *testing.B) {
-	fsPath := filepath.FromSlash("testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
+	fsPath := filepath.FromSlash("../gltf/testdata/khronos/CesiumMan/glTF/CesiumMan.gltf")
 	doc, err := gltf.LoadFS(os.DirFS(filepath.Dir(fsPath)), filepath.Base(fsPath))
 	if err != nil {
 		b.Fatal(err)
