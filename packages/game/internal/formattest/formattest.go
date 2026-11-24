@@ -45,8 +45,8 @@ type Format[T any] struct {
 // DocPages are the reference pages that list every format, relative to the module root. [Run] checks the entry [Format.Doc] names on each.
 var DocPages = []string{"../../docs/en/formats.md", "../../docs/zh/formats.md"}
 
-// docMarker is how the line that marks a format's entry on a reference page starts; the entry's Doc and " -->" follow.
-const docMarker = "<!-- format: "
+// Marker is how the line that marks a format's entry on a reference page starts; the entry's ID and " -->" follow, as in "<!-- format: quest -->".
+const Marker = "<!-- format: "
 
 // page is a reference page's name, for messages, and contents.
 type page struct {
@@ -177,12 +177,12 @@ func (f Format[T]) docChecks(pkg string, pages []page) ([]check, error) {
 		}
 		for i, ex := range examples {
 			checks = append(checks, check{fmt.Sprintf("%s/example_%d", p.name, i+1), func() error {
-				out, err := f.canonical(ex.data)
+				out, err := f.canonical(ex.Data)
 				if err != nil {
-					return fmt.Errorf("%s:%d: the example of %s does not load: %w", p.name, ex.line, f.Doc, err)
+					return fmt.Errorf("%s:%d: the example of %s does not load: %w", p.name, ex.Line, f.Doc, err)
 				}
-				if !bytes.Equal(out, ex.data) {
-					return fmt.Errorf("%s:%d: the example of %s changes when loaded and saved, so it is not what the format writes; replace it with:\n%s", p.name, ex.line, f.Doc, out)
+				if !bytes.Equal(out, ex.Data) {
+					return fmt.Errorf("%s:%d: the example of %s changes when loaded and saved, so it is not what the format writes; replace it with:\n%s", p.name, ex.Line, f.Doc, out)
 				}
 				return nil
 			}})
@@ -191,53 +191,93 @@ func (f Format[T]) docChecks(pkg string, pages []page) ([]check, error) {
 	return checks, nil
 }
 
-// example is a YAML code block on a reference page and the line its first line is on.
-type example struct {
-	data []byte
-	line int
-}
-
-// entryExamples returns the YAML code blocks of the entry doc on a reference page: those between the line "<!-- format: doc -->" and the next such line or level-2 heading. It fails when the page marks the entry other than once or the entry has no YAML block.
-func entryExamples(data []byte, doc string) ([]example, error) {
-	marker := docMarker + doc + " -->"
-	lines := strings.Split(string(data), "\n")
-	start := -1
-	for i, l := range lines {
-		if strings.TrimSpace(l) != marker {
-			continue
-		}
-		if start >= 0 {
-			return nil, fmt.Errorf("the entry %s is marked twice, on lines %d and %d; keep one", doc, start+1, i+1)
-		}
-		start = i
+// entryExamples returns the YAML code blocks of the entry doc on a reference page. It fails when the page does not parse, has no entry doc or the entry has no YAML block.
+func entryExamples(data []byte, doc string) ([]Block, error) {
+	entries, err := ParseEntries(data)
+	if err != nil {
+		return nil, err
 	}
-	if start < 0 {
-		return nil, fmt.Errorf("no entry for %s; add a section that starts with the line %q, a heading, the format's files, version and functions, and a YAML example", doc, marker)
+	i := slices.IndexFunc(entries, func(e Entry) bool { return e.ID == doc })
+	if i < 0 {
+		return nil, fmt.Errorf("no entry for %s; add a section that starts with the line %q, a heading, the format's files, version and functions, and a YAML example", doc, Marker+doc+" -->")
 	}
-	var examples []example
-	var block []string
-	fence := "" // the fence line of the open code block, or ""
-	for i := start + 1; i < len(lines); i++ {
-		l := lines[i]
-		switch {
-		case fence == "" && (strings.HasPrefix(l, docMarker) || strings.HasPrefix(l, "## ") || strings.HasPrefix(l, "# ")):
-			i = len(lines)
-		case fence == "" && strings.HasPrefix(l, "```"):
-			fence = l
-			block = nil
-		case fence != "" && l == "```":
-			if fence == "```yaml" {
-				examples = append(examples, example{data: []byte(strings.Join(block, "\n") + "\n"), line: i - len(block) + 1})
-			}
-			fence = ""
-		case fence != "":
-			block = append(block, l)
+	var examples []Block
+	for _, b := range entries[i].Blocks {
+		if b.Lang == "yaml" {
+			examples = append(examples, b)
 		}
 	}
 	if len(examples) == 0 {
-		return nil, fmt.Errorf("the entry %s on line %d has no YAML example; add one in a ```yaml block, as the format saves it", doc, start+1)
+		return nil, fmt.Errorf("the entry %s on line %d has no YAML example; add one in a ```yaml block, as the format saves it", doc, entries[i].Line)
 	}
 	return examples, nil
+}
+
+// Entry is a format's entry on a reference page: the ID its marker line names, the line of that marker, and the fenced code blocks from there to the next marker or level-1 or level-2 heading.
+type Entry struct {
+	ID     string
+	Line   int
+	Blocks []Block
+}
+
+// Block is a fenced code block: the language its opening fence names, such as "yaml" or "json", its contents with a newline after each line, and the line of its first line of contents.
+type Block struct {
+	Lang string
+	Data []byte
+	Line int
+}
+
+// ParseEntries returns the entries a reference page marks, in page order. [Run] and the test of the page's entries in package game read the page with it, so both see the same entries and examples.
+//
+// An entry starts at a line "<!-- format: ID -->", where ID has no spaces, and ends at the next such line or at a line that starts with "# " or "## ". Trailing spaces and a carriage return on a line are ignored. A fenced code block starts at a line of three backticks and a language, possibly indented, and ends at a line of three backticks; markers and headings inside one are its contents. ParseEntries fails on a marker that is indented, malformed or given twice, on a block whose language is "yml" (write "yaml", which the checks look for) and on a block that is not closed, naming the line.
+func ParseEntries(data []byte) ([]Entry, error) {
+	var entries []Entry
+	seen := map[string]int{}
+	var open *Block // the code block being read, or nil
+	var block []string
+	for i, raw := range strings.Split(string(data), "\n") {
+		n := i + 1
+		line := strings.TrimRight(raw, " \t\r")
+		trimmed := strings.TrimSpace(line)
+		if open != nil {
+			if trimmed == "```" {
+				open.Data = []byte(strings.Join(block, "\n") + "\n")
+				if len(entries) > 0 {
+					entries[len(entries)-1].Blocks = append(entries[len(entries)-1].Blocks, *open)
+				}
+				open = nil
+				continue
+			}
+			block = append(block, strings.TrimSuffix(raw, "\r"))
+			continue
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "```"):
+			lang, _, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(trimmed, "```")), " ")
+			if lang == "yml" {
+				return nil, fmt.Errorf("line %d: a code block in yml; write ```yaml, the language the checks read", n)
+			}
+			open = &Block{Lang: lang, Line: n + 1}
+			block = nil
+		case strings.HasPrefix(trimmed, "<!-- format:") || strings.HasPrefix(trimmed, "<!--format:"):
+			id, ok := strings.CutSuffix(strings.TrimPrefix(line, Marker), " -->")
+			if !strings.HasPrefix(line, Marker) || !ok || id == "" || strings.ContainsAny(id, " \t") {
+				return nil, fmt.Errorf("line %d: malformed entry marker %q; write <!-- format: <package>[#<name>] --> at the start of the line", n, trimmed)
+			}
+			if first, dup := seen[id]; dup {
+				return nil, fmt.Errorf("the entry %s is marked twice, on lines %d and %d; keep one", id, first, n)
+			}
+			seen[id] = n
+			entries = append(entries, Entry{ID: id, Line: n})
+		case strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## "):
+			// A heading ends the entry: blocks after it, until the next marker, belong to none.
+			entries = append(entries, Entry{Line: n})
+		}
+	}
+	if open != nil {
+		return nil, fmt.Errorf("line %d: a code block is not closed; end it with a line of three backticks", open.Line-1)
+	}
+	return slices.DeleteFunc(entries, func(e Entry) bool { return e.ID == "" }), nil
 }
 
 // files returns the sorted testdata files f.Files match, failing when they match none.
@@ -473,4 +513,40 @@ func diff(want, got []byte) string {
 		}
 	}
 	return "(same lines)"
+}
+
+// Example is a code block of an entry on one of [DocPages], with the page's path relative to the repository root, for messages.
+type Example struct {
+	Page string
+	Block
+}
+
+// Examples returns the code blocks in language lang, such as "json", of the entry id on each of [DocPages], for a test that loads a format's examples with its reader when the format is not YAML and so has no [Run]. It fails t when a page does not parse or the entry has no such block. The test must run in a package directory of the module, as go test runs it.
+func Examples(t *testing.T, id, lang string) []Example {
+	t.Helper()
+	_, pages, err := docPages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Example
+	for _, p := range pages {
+		entries, err := ParseEntries(p.data)
+		if err != nil {
+			t.Fatalf("%s: %v", p.name, err)
+		}
+		i := slices.IndexFunc(entries, func(e Entry) bool { return e.ID == id })
+		if i < 0 {
+			t.Fatalf("%s has no entry %s", p.name, id)
+		}
+		n := len(out)
+		for _, b := range entries[i].Blocks {
+			if b.Lang == lang {
+				out = append(out, Example{Page: p.name, Block: b})
+			}
+		}
+		if len(out) == n {
+			t.Fatalf("%s:%d: the entry %s has no %s example", p.name, entries[i].Line, id, lang)
+		}
+	}
+	return out
 }
