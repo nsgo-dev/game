@@ -218,6 +218,19 @@ Choosing between them:
 
 Both decoders charge their output and working memory to the same per-load budget as uncompressed data before allocating it, so a small stream that declares huge counts or many wide attributes fails fast, and malformed streams return an error instead of panicking. An `EXT_meshopt_compression` file may use only what that extension defines: version 0 of the attribute codec and no `COLOR` filter. Other required extensions, such as `KHR_texture_basisu`, are still refused at load time.
 
+## Texture transforms and material variants
+
+`game/gltf` supports both `KHR_texture_transform` and `KHR_materials_variants` (whether listed in `extensionsUsed` or `extensionsRequired`):
+
+- **`KHR_texture_transform`**: parsed on every PBR texture slot (`BaseColorTexture`, `MetallicRoughnessTexture`, `NormalTexture`, `OcclusionTexture`, `EmissiveTexture`) into `TextureRef.Transform` (`*TextureTransform`).
+  - Defaults match the Khronos specification (`offset: [0, 0]`, `rotation: 0`, `scale: [1, 1]`), and transforms apply in exact `T * R * S` order in glTF UV space (`+U` right, `+V` down, positive rotation counter-clockwise) via `TextureTransform.Apply`, `TextureTransform.ApplyUV`, `TextureTransform.Matrix`, or `TextureRef.ApplyUV`.
+  - When `KHR_texture_transform.texCoord` is present, `TextureRef.EffectiveTexCoord()` returns the overridden UV set instead of `TextureRef.TexCoord`.
+  - `Document.PrimitiveTexCoords(prim, set)` returns `TEXCOORD_0`/`TEXCOORD_1` directly and decodes higher sets (`TEXCOORD_2`, …) on demand; `Document.TransformTexCoords(prim, ref, out)` evaluates the final transformed UVs for a primitive and texture slot into a reusable slice.
+  - Malformed transforms (non-object payloads, `offset` or `scale` arrays with length other than 2, non-finite numbers, or negative/non-integer `texCoord`) are rejected at load time with `*loaderr.Error` locations.
+- **`KHR_materials_variants`**: top-level variant names load into `Document.Variants` (`[]MaterialVariant`), and per-primitive mappings load into `Primitive.VariantMappings` (`map[int]int`).
+  - Look up variants by name with `Document.VariantIndex(name)` and resolve materials without mutating `Primitive.Material` via `Document.MaterialForPrimitive(prim, variantIndex)`, `Document.MaterialForVariant(prim, name)`, `Document.MeshMaterials(meshIndex, variantIndex)`, and `Document.ResolveVariantMaterials(variantIndex)`. Any unmapped primitive or out-of-range/negative variant falls back to `Primitive.Material`.
+  - Spec constraints are enforced at load time: non-empty `variants` and `mappings` arrays, required variant `name`, valid material and variant indices, and at most one mapping per variant on any primitive.
+
 ## Round-trip sample models
 
 The repository commits two minimal, deterministic glTF 2.0 sample models under [`docs/assets/3d-sample/`](../assets/3d-sample/) generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go).

@@ -85,6 +85,20 @@ type TextureTransform struct {
 	TexCoord *int
 }
 
+// DefaultTextureTransform returns the identity KHR_texture_transform value
+// (offset [0, 0], rotation 0, scale [1, 1], no texCoord override).
+func DefaultTextureTransform() TextureTransform {
+	return TextureTransform{
+		Scale: [2]float32{1, 1},
+	}
+}
+
+// IsIdentity reports whether t leaves UV coordinates unchanged (offset [0, 0],
+// rotation 0, and scale [1, 1]).
+func (t TextureTransform) IsIdentity() bool {
+	return t.Offset == [2]float32{0, 0} && t.Rotation == 0 && t.Scale == [2]float32{1, 1}
+}
+
 // ApplyUV transforms texture coordinates (u, v) using the exact
 // KHR_texture_transform matrix order M = T * R * S:
 //
@@ -98,6 +112,13 @@ func (t TextureTransform) ApplyUV(u, v float32) (float32, float32) {
 	s, c := math.Sincos(float64(t.Rotation))
 	sf, cf := float32(s), float32(c)
 	return cf*su + sf*sv + t.Offset[0], -sf*su + cf*sv + t.Offset[1]
+}
+
+// Apply transforms a 2D texture coordinate using the exact
+// KHR_texture_transform matrix order M = T * R * S.
+func (t TextureTransform) Apply(uv math3d.Vec2) math3d.Vec2 {
+	u, v := t.ApplyUV(uv.X, uv.Y)
+	return math3d.Vec2{X: u, Y: v}
 }
 
 // Matrix returns the column-major 3x3 homogeneous UV transform matrix T * R * S
@@ -130,6 +151,14 @@ func (r TextureRef) EffectiveTexCoord() int {
 		return *r.Transform.TexCoord
 	}
 	return r.TexCoord
+}
+
+// ApplyUV transforms uv with r.Transform if present, or returns uv unchanged.
+func (r TextureRef) ApplyUV(uv math3d.Vec2) math3d.Vec2 {
+	if r.Transform == nil {
+		return uv
+	}
+	return r.Transform.Apply(uv)
 }
 
 // Material defines a glTF 2.0 PBR metallic-roughness material.
@@ -169,6 +198,120 @@ func (d *Document) MaterialForPrimitive(prim Primitive, variantIndex int) int {
 		}
 	}
 	return prim.Material
+}
+
+// VariantIndex returns the index of the first KHR_materials_variants entry
+// whose Name equals name, or -1 when no variant matches.
+func (d *Document) VariantIndex(name string) int {
+	for i := range d.Variants {
+		if d.Variants[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// MaterialForVariant returns the material index to use for prim under the
+// named KHR_materials_variants variant. If name does not match any variant or
+// is unmapped on prim, it falls back to prim.Material.
+func (d *Document) MaterialForVariant(prim Primitive, variantName string) int {
+	return d.MaterialForPrimitive(prim, d.VariantIndex(variantName))
+}
+
+// MeshMaterials returns the resolved material index for each primitive of
+// d.Meshes[meshIndex] under variantIndex, falling back to each primitive's
+// default Material when variantIndex is negative, out of range, or unmapped.
+func (d *Document) MeshMaterials(meshIndex, variantIndex int) ([]int, error) {
+	if meshIndex < 0 || meshIndex >= len(d.Meshes) {
+		return nil, fmt.Errorf("gltf: mesh index %d out of range [0, %d)", meshIndex, len(d.Meshes))
+	}
+	prims := d.Meshes[meshIndex].Primitives
+	out := make([]int, len(prims))
+	for i, prim := range prims {
+		out[i] = d.MaterialForPrimitive(prim, variantIndex)
+	}
+	return out, nil
+}
+
+// ResolveVariantMaterials returns resolved material indices [mesh][primitive]
+// for every mesh in d under variantIndex without modifying Primitive.Material,
+// so switching variants or reverting to defaults (variantIndex < 0) is
+// repeatable.
+func (d *Document) ResolveVariantMaterials(variantIndex int) [][]int {
+	out := make([][]int, len(d.Meshes))
+	for mi := range d.Meshes {
+		prims := d.Meshes[mi].Primitives
+		mats := make([]int, len(prims))
+		for pi, prim := range prims {
+			mats[pi] = d.MaterialForPrimitive(prim, variantIndex)
+		}
+		out[mi] = mats
+	}
+	return out
+}
+
+// PrimitiveTexCoords returns the raw texture coordinates for UV set texCoord
+// (TEXCOORD_<texCoord>) on prim. Sets 0 and 1 return prim.TexCoords0 and
+// prim.TexCoords1 directly when loaded; higher sets (TEXCOORD_2, ...) are
+// decoded on demand from prim.Attributes.
+func (d *Document) PrimitiveTexCoords(prim Primitive, texCoord int) ([]math3d.Vec2, error) {
+	if texCoord < 0 {
+		return nil, fmt.Errorf("gltf: negative texCoord %d", texCoord)
+	}
+	switch texCoord {
+	case 0:
+		if prim.TexCoords0 != nil {
+			return prim.TexCoords0, nil
+		}
+	case 1:
+		if prim.TexCoords1 != nil {
+			return prim.TexCoords1, nil
+		}
+	}
+	attrName := fmt.Sprintf("TEXCOORD_%d", texCoord)
+	accIdx, ok := prim.Attributes[attrName]
+	if !ok {
+		return nil, fmt.Errorf("gltf: primitive has no %s attribute", attrName)
+	}
+	uvs, err := d.ReadVec2(accIdx)
+	if err != nil {
+		return nil, fmt.Errorf("gltf: %s: %w", attrName, err)
+	}
+	for i, v := range uvs {
+		if !finite32(v.X) || !finite32(v.Y) {
+			return nil, fmt.Errorf("gltf: %s element %d is not finite", attrName, i)
+		}
+	}
+	return uvs, nil
+}
+
+// TransformTexCoords evaluates the final UV coordinates for ref on prim,
+// selecting ref.EffectiveTexCoord() and applying ref.Transform when present.
+// If out has sufficient capacity it is reused without allocation; otherwise a
+// new slice is allocated and returned.
+func (d *Document) TransformTexCoords(prim Primitive, ref *TextureRef, out []math3d.Vec2) ([]math3d.Vec2, error) {
+	if ref == nil {
+		return nil, errors.New("gltf: nil texture reference")
+	}
+	raw, err := d.PrimitiveTexCoords(prim, ref.EffectiveTexCoord())
+	if err != nil {
+		return nil, err
+	}
+	n := len(raw)
+	if cap(out) >= n {
+		out = out[:n]
+	} else {
+		out = make([]math3d.Vec2, n)
+	}
+	if ref.Transform == nil || ref.Transform.IsIdentity() {
+		copy(out, raw)
+		return out, nil
+	}
+	tr := *ref.Transform
+	for i, uv := range raw {
+		out[i] = tr.Apply(uv)
+	}
+	return out, nil
 }
 
 // ImageBytes returns the raw encoded bytes (e.g. PNG or JPEG) for image index.
