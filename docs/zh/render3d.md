@@ -418,7 +418,7 @@ gpuMesh.Draw(pass)
 
 `Material`（别名 `MetallicRoughnessMaterial`）描述符合 glTF 2.0 规范的金属度-粗糙度 PBR 表面，涵盖基础色（`BaseColorFactor`、`BaseColorTexture`）、金属度与粗糙度（`MetallicFactor`、`RoughnessFactor`、遵循 glTF 约定的 G=粗糙度、B=金属度的 `MetallicRoughnessTexture`）、切线空间法线贴图（`NormalTexture`、`NormalScale`）、环境光遮蔽（`OcclusionTexture`、`OcclusionStrength`）、自发光（`EmissiveFactor`、`EmissiveTexture`）、透明模式（`AlphaOpaque`、带 `AlphaCutoff` 的 `AlphaMask`、`AlphaBlend`）以及双面渲染（`DoubleSided` 背面法线翻转）。
 
-每个 `gpu.Device` 创建一份共享的 `MaterialDefaults`，持有 `MaterialGroup`（第 1 组）的绑定组布局、默认线性重复采样器以及四张 1×1 回退纹理（缺失基础色用的 sRGB 白色、缺失金属度-粗糙度与遮蔽用的线性白色、缺失法线贴图用的平坦法线 `(128, 128, 255, 255)` 以及缺失自发光用的黑色）。所有 `GPUMaterial` 在省略可选贴图时都会绑定这些回退纹理，因此全部材质共用同一个绑定组布局，无需管线排列组合：
+每个 `gpu.Device` 创建一份共享的 `MaterialDefaults`，持有 `MaterialGroup`（第 1 组）的绑定组布局（以及无光照材质的 `UnlitLayout`，见下文“无光照材质与顶点色”）、默认线性重复采样器以及四张 1×1 回退纹理（缺失基础色用的 sRGB 白色、缺失金属度-粗糙度与遮蔽用的线性白色、缺失法线贴图用的平坦法线 `(128, 128, 255, 255)` 以及缺失自发光用的黑色）。所有 `GPUMaterial` 在省略可选贴图时都会绑定这些回退纹理，因此全部材质共用同一个绑定组布局，无需管线排列组合：
 
 ```go
 defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
@@ -478,39 +478,39 @@ gpuMesh.Draw(pass)
 
 `ColoredMesh` 与 `GPUColoredMesh` 在 `MeshVertexLayout`（location 0–2）基础上于 `@location(3)` 扩展了线性 RGBA 顶点色属性（`ColoredVertexLayout`，步长 48 字节），用于 glTF `COLOR_0`。当 `Colors` 为空时，`AppendVertexData` 为每个顶点写入线性不透明白色 `(1, 1, 1, 1)`，使带顶点色与不带顶点色的网格共用同一管线。`ColoredMeshFromGLTF` 从 `gltf.Document` 提取三角形图元，包括 `COLOR_0`（将 VEC3 RGB 的 alpha 补为 `1.0`）以及 `baseColorTexture` 上的 `KHR_texture_transform` UV 变换。
 
-`UnlitMaterial`、`GPUUnlitMaterial`、`UnlitWGSL` 与 `NewUnlitPipeline` 实现不受场景光照影响的 glTF `KHR_materials_unlit` 表面（在线性空间计算 `baseColorFactor * baseColorTexture * vertexColor`，再应用透明模式与 IEC 61966-2-1 线性到 sRGB 编码）：
+`UnlitMaterial`、`GPUUnlitMaterial`、`UnlitWGSL` 与 `NewUnlitPipeline` 实现不受场景光照影响的 glTF `KHR_materials_unlit` 表面（在线性空间计算 `baseColorFactor * baseColorTexture * vertexColor`，再应用透明模式与 IEC 61966-2-1 线性到 sRGB 编码）。与金属度-粗糙度材质重叠的部分直接复用同一套类型：`AlphaMode`、`MaterialGroup`（group 1）、`MaterialUpload`、`GLTFMaterialUpload`、`SamplerOptionsFromGLTF`，以及每个设备一份的 `MaterialDefaults`，无光照材质的绑定组布局也由它持有（`MaterialDefaults.UnlitLayout`）：
 
 ```go
+defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+
 cm, err := render3d.ColoredMeshFromGLTF(doc, 0, 0)
 gpuMesh, err := render3d.UploadColoredMesh(cx, dev, cm, render3d.MeshUpload{Label: "sign", Retained: true})
 
-matLayout, err := render3d.UnlitMaterialBindingLayout(cx, dev)
-gpuMat, err := render3d.UploadGLTFUnlitMaterial(cx, dev, matLayout, doc, 0, render3d.UnlitMaterialOptions{
+gpuMat, err := render3d.UploadGLTFUnlitMaterial(cx, dev, defaults, doc, 0, render3d.GLTFMaterialUpload{
 	Label:    "sign-unlit",
 	Retained: true,
 })
-pipe, err := render3d.NewUnlitPipeline(cx, dev, render3d.UnlitPipelineOptions{
-	CameraLayout:   camBuf.Layout(),
-	MaterialLayout: matLayout,
-	AlphaMode:      gpuMat.Material().AlphaMode,
-	DoubleSided:    gpuMat.Material().DoubleSided,
-	DepthFormat:    gpu.FormatDepth24Plus,
-	Retained:       true,
+pipe, err := render3d.NewUnlitPipeline(cx, dev, camBuf.Layout(), defaults.UnlitLayout(), render3d.UnlitPipelineOptions{
+	AlphaMode:   gpuMat.Material().AlphaMode,
+	DoubleSided: gpuMat.Material().DoubleSided,
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
 })
 
 // 在 OnFrame 中：
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-gpuMat.Bind(pass) // 绑定到 @group(1)（UnlitMaterialGroup）
+gpuMat.Bind(pass) // 绑定到 @group(1)（MaterialGroup）
 gpuMesh.Draw(pass)
 ```
 
-- **默认回退纹理与采样器**：当 `UnlitMaterial.BaseColorTexture` 或 `BaseColorSampler` 为 nil 时，`NewGPUUnlitMaterial` 自动创建并绑定归属于该材质的 1×1 白色 sRGB 纹理与线性重复采样器（随材质一同关闭）。
-- **透明模式与背面剔除**：`UnlitAlphaOpaque` 强制输出 alpha 为 `1.0` 并开启深度写入；`UnlitAlphaMask` 丢弃合成 alpha `< AlphaCutoff`（默认 `0.5`）的片元，存活片元输出 alpha `1.0`；`UnlitAlphaBlend` 启用标准透明混合（`gpu.BlendAlpha`）并关闭深度写入。`DoubleSided` 将剔除模式从 `gpu.CullBack` 切换为 `gpu.CullNone`。`AlphaMode.BlendMode()` 直接映射到 `Queue` 的 `BlendOpaque` / `BlendAlphaMask` / `BlendAlphaBlend`。
-- **目标色彩空间与 CPU 参考一致**：`NewUnlitPipeline` 对非 sRGB 渲染目标（如 `FormatRGBA8Unorm`）选择 `fs_main`（在着色器内完成线性到 sRGB 编码），对硬件 sRGB 交换链目标（`TargetFormat.IsSRGB()`）选择 `fs_linear`，避免双重伽马编码。`EvaluateUnlit` 提供对应的纯 Go CPU 参考实现（`Linear`、`SRGB`、`Discarded`、`RGBA8()`、`BlendOver()`）。
-- **零分配 uniform 更新与设备丢失恢复**：`AppendUnlitUniforms` 在切片容量足够时以零分配写出 32 字节 uniform 块；`GPUUnlitMaterial.Update(dev, mat)` 原地更新参数且不缓存 `*gpu.Device` 指针，开启 `Retained: true` 的材质在设备丢失恢复后仍可继续更新与绘制。
-- **glTF 辅助函数**：`UnlitMaterialFromGLTF` 校验 glTF 材质是否声明 `KHR_materials_unlit`（未声明时返回包装 `ErrInvalidUnlitMaterial` 的错误），`UnlitSamplerFromGLTF` 将 glTF 滤波/环绕枚举映射为 `SamplerOptions`，`UploadGLTFUnlitMaterial` 自动解码并以 sRGB 上传内嵌或外部 `baseColorTexture`。
-- **参考渲染验证**：`render3d` 的测试将涵盖不透明、顶点色、纹理叠加、镂空裁剪与半透明混合的场景与参考图 `render3d/testdata/golden/unlit_vertex_colors_scene.png` 比对，并在无界面 `gpu.View` 上同时验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置与 `EvaluateUnlit` 的像素一致性。
+- **默认回退纹理与采样器**：当 `UnlitMaterial.BaseColorTexture` 或 `BaseColorSampler` 为 nil 时，`NewGPUUnlitMaterial` 绑定共享的 `MaterialDefaults.WhiteSRGB()` 纹理与 `MaterialDefaults.Sampler()`，因此没有纹理的无光照材质除 32 字节 uniform 缓冲外不再分配任何资源。
+- **透明模式与背面剔除**：`AlphaOpaque` 强制输出 alpha 为 `1.0` 并开启深度写入；`AlphaMask` 丢弃合成 alpha `< AlphaCutoff`（默认 `0.5`）的片元，存活片元输出 alpha `1.0`；`AlphaBlend` 启用标准透明混合（`gpu.BlendAlpha`）并关闭深度写入。`DoubleSided` 将剔除模式从 `gpu.CullBack` 切换为 `gpu.CullNone`。`BaseColorFactor` 与 `Material` 一样必须位于 `[0, 1]`。
+- **目标色彩空间与 CPU 参考一致**：`NewUnlitPipeline` 对非 sRGB 渲染目标（如 `FormatRGBA8Unorm`）选择 `fs_main`（在着色器内完成线性到 sRGB 编码）；对 sRGB 目标（`ColorFormat.IsSRGB()`，由硬件在写入时编码）或为 `HDRTarget` 设置了 `LinearOutput` 时选择 `fs_linear`（输出线性值）。`NewMaterialPipeline` 与带光照的 PBR 管线总是在着色器内编码，不会根据 sRGB 格式切换，因此无光照与 PBR 绘制共用同一渲染通道时，请使用非 sRGB 目标。`EvaluateUnlit` 提供对应的纯 Go CPU 参考实现（`Linear`、`SRGB`、`Discarded`、`RGBA8()`、`BlendOver()`）。
+- **顶点色仅用于无光照管线**：只有 `NewUnlitPipeline` 使用 `ColoredVertexLayout`。`NewMaterialPipeline` 采用 `MeshVertexLayout`，因此带光照的 glTF 网格上的 `COLOR_0` 暂不绘制。
+- **零分配 uniform 更新与设备丢失恢复**：`AppendUnlitUniforms` 在切片容量足够时以零分配写出 32 字节 uniform 块；`GPUUnlitMaterial.Update(dev, mat)` 原地更新参数且不缓存 `*gpu.Device` 指针，开启 `Retained: true` 的材质在设备丢失恢复后仍可继续更新与绘制。NSGo 只在有已恢复的绑定组使用某个绑定组布局时才恢复该布局，因此只有存在 retained 的 `GPUUnlitMaterial` 时 `MaterialDefaults.UnlitLayout()` 才会恢复；`MaterialDefaults.Valid` 不检查它。
+- **glTF 辅助函数**：`UnlitMaterialFromGLTF` 校验 glTF 材质是否声明 `KHR_materials_unlit`（未声明时返回包装 `ErrInvalidUnlitMaterial` 的错误）。`UploadGLTFUnlitMaterial` 以 sRGB 解码并上传内嵌或外部的 `baseColorTexture` 图像，采样器由 `SamplerOptionsFromGLTF` 转换（因此即使纹理带有 mipmap，非 mipmap 的 `minFilter` 也只采样第 0 级），并像 `UploadGLTFMaterials` 一样应用 `GLTFMaterialUpload` 的 mipmap、各向异性与 `Retained` 选项。若 `baseColorTexture` 的图像只通过 `KHR_texture_basisu` 等扩展提供，则返回 `ErrInvalidUnlitMaterial`，而不是绘制成白色。
+- **参考渲染验证**：`render3d` 的测试端到端绘制 Khronos `UnlitTest` 样例（加载器、`ColoredMeshFromGLTF`、`UploadGLTFUnlitMaterial`、`NewUnlitPipeline`），要求每个被覆盖的像素都是样例规定的纯色 `#FF7F00` 或 `#007FFF`；同时将涵盖不透明、顶点色、纹理叠加、镂空裁剪与半透明混合的场景与参考图 `render3d/testdata/golden/unlit_vertex_colors_scene.png` 比对，并在无界面 `gpu.View` 上同时验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置与 `EvaluateUnlit` 的像素一致性。
 
 ## 按预算跨帧异步 GPU 上传（`Uploader`）
 

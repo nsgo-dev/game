@@ -310,9 +310,10 @@ type MaterialDefaultsOptions struct {
 	Retained bool
 }
 
-// MaterialDefaults owns the shared 1x1 fallback textures, default linear-repeat sampler, and [MaterialGroup] bind group layout used by [NewGPUMaterial] whenever a [Material] omits optional maps or samplers. Create one per [gpu.Device] and share it across all materials on that device.
+// MaterialDefaults owns the shared 1x1 fallback textures, default linear-repeat sampler, and [MaterialGroup] bind group layouts used by [NewGPUMaterial] and [NewGPUUnlitMaterial] whenever a material omits optional maps or samplers. Create one per [gpu.Device] and share it across all materials on that device.
 type MaterialDefaults struct {
 	layout      *gpu.BindGroupLayout
+	unlitLayout *gpu.BindGroupLayout
 	whiteSRGB   *GPUTexture
 	whiteLinear *GPUTexture
 	flatNormal  *GPUTexture
@@ -320,7 +321,7 @@ type MaterialDefaults struct {
 	sampler     *GPUSampler
 }
 
-// NewMaterialDefaults allocates the shared [MaterialGroup] layout, default linear-repeat sampler, and four 1x1 fallback textures on dev, owned by cx:
+// NewMaterialDefaults allocates the shared [MaterialGroup] layouts (metallic-roughness and unlit), default linear-repeat sampler, and four 1x1 fallback textures on dev, owned by cx:
 //   - WhiteSRGB: (255, 255, 255, 255) RGBA8 sRGB for missing base color maps.
 //   - WhiteLinear: (255, 255, 255, 255) RGBA8 unorm for missing metallic-roughness and occlusion maps.
 //   - FlatNormal: (128, 128, 255, 255) RGBA8 unorm for missing tangent-space normal maps.
@@ -340,6 +341,10 @@ func NewMaterialDefaults(cx *core.Scope, dev *gpu.Device, opts MaterialDefaultsO
 	}
 	var err error
 	d.layout, err = MaterialBindGroupLayout(cx, dev)
+	if err != nil {
+		return cleanup(err)
+	}
+	d.unlitLayout, err = UnlitMaterialBindGroupLayout(cx, dev)
 	if err != nil {
 		return cleanup(err)
 	}
@@ -387,6 +392,16 @@ func (d *MaterialDefaults) Layout() *gpu.BindGroupLayout {
 		return nil
 	}
 	return d.layout
+}
+
+// UnlitLayout returns the [MaterialGroup] bind group layout shared by every [GPUUnlitMaterial] created with d, for [NewUnlitPipeline].
+//
+// [MaterialDefaults.Valid] does not cover it: NSGo restores a bind group layout after a device loss only when a restored bind group uses it, so this layout comes back only while a retained [GPUUnlitMaterial] exists. Check its Valid method before building an unlit pipeline after a restore.
+func (d *MaterialDefaults) UnlitLayout() *gpu.BindGroupLayout {
+	if d == nil {
+		return nil
+	}
+	return d.unlitLayout
 }
 
 // WhiteSRGB returns the 1x1 sRGB white fallback texture (255, 255, 255, 255).
@@ -437,7 +452,7 @@ func (d *MaterialDefaults) ByteSize() uint64 {
 	return d.whiteSRGB.ByteSize() + d.whiteLinear.ByteSize() + d.flatNormal.ByteSize() + d.black.ByteSize()
 }
 
-// Valid reports whether all fallback resources and the bind group layout are open on a live device.
+// Valid reports whether all fallback resources and the metallic-roughness bind group layout are open on a live device.
 func (d *MaterialDefaults) Valid() bool {
 	return d != nil &&
 		d.layout != nil && d.layout.Valid() &&
@@ -448,7 +463,7 @@ func (d *MaterialDefaults) Valid() bool {
 		d.sampler.Valid()
 }
 
-// Close releases the fallback textures, sampler, and bind group layout now rather than waiting for scope disposal. Safe to call on nil or more than once.
+// Close releases the fallback textures, sampler, and bind group layouts now rather than waiting for scope disposal. Safe to call on nil or more than once.
 func (d *MaterialDefaults) Close() error {
 	if d == nil {
 		return nil
@@ -468,6 +483,9 @@ func (d *MaterialDefaults) Close() error {
 	}
 	if d.whiteSRGB != nil {
 		err = errors.Join(err, d.whiteSRGB.Close())
+	}
+	if d.unlitLayout != nil {
+		err = errors.Join(err, d.unlitLayout.Close())
 	}
 	if d.layout != nil {
 		err = errors.Join(err, d.layout.Close())
