@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"image/color"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -334,15 +335,10 @@ type CustomShaderDesc struct {
 	FragmentEntry string // defaults to "fs_main" (or "Surface" / "Fragment" for ShaderKage)
 	Params        []ShaderParamDesc
 
-	// CameraLayout optionally supplies the @group(0) bind group layout (such as
-	// CameraBuffer.Layout()). When non-nil, @group(0) is bound to CameraWGSL and
-	// the generated preamble prepends CameraWGSL automatically unless Source
-	// already declares @group(0).
+	// CameraLayout optionally supplies the @group(0) bind group layout (such as CameraBuffer.Layout()). When it is set and Source declares nothing in @group(0), [CameraWGSL] is prepended, with or without ManualBindings. When it is nil, a source that declares @group(0) gets a layout with one uniform buffer at binding 0, the layout [CameraBuffer] uses; any other group 0 binding is refused.
 	CameraLayout *gpu.BindGroupLayout
 
-	// ManualBindings disables automatic generation of the @group(1)
-	// MaterialParams uniform struct and texture/sampler declarations for
-	// ShaderWGSL when the shader source declares them explicitly.
+	// ManualBindings disables automatic generation of the @group(1) MaterialParams uniform struct and texture/sampler declarations for ShaderWGSL when the shader source declares them explicitly. It does not affect the [CameraWGSL] preamble.
 	ManualBindings bool
 
 	// Pipeline render state.
@@ -1440,15 +1436,27 @@ func prepareWGSLShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 		fragEntry = "fs_main"
 	}
 
-	hasGroup0 := strings.Contains(desc.Source, "@group(0)")
+	group0 := wgslGroupBindings(desc.Source, CameraGroup)
+	if desc.CameraLayout == nil {
+		// Without a CameraLayout the material makes group 0 itself, as a single uniform buffer at binding 0 (the layout [CameraBuffer] uses), so any other group 0 binding needs the caller's layout.
+		for _, gb := range group0 {
+			if gb.binding != 0 || !gb.uniform {
+				return preparedCustomShader{}, &CustomMaterialError{
+					Material: desc.Label,
+					Message:  fmt.Sprintf("shader declares @group(0) @binding(%d) as something other than the camera uniform at binding 0; set CameraLayout to the layout of its group 0 bindings", gb.binding),
+				}
+			}
+		}
+	}
+	hasGroup0 := len(group0) > 0
 	usesCamera := desc.CameraLayout != nil || hasGroup0
 
 	var preamble strings.Builder
+	if desc.CameraLayout != nil && !hasGroup0 {
+		preamble.WriteString(CameraWGSL)
+		preamble.WriteByte('\n')
+	}
 	if !desc.ManualBindings {
-		if desc.CameraLayout != nil && !hasGroup0 {
-			preamble.WriteString(CameraWGSL)
-			preamble.WriteByte('\n')
-		}
 		writeMaterialWGSLBindings(&preamble, layout)
 	}
 	preStr := preamble.String()
@@ -1463,6 +1471,65 @@ func prepareWGSLShader(desc CustomShaderDesc) (preparedCustomShader, error) {
 		preambleLines:   preambleLines,
 		usesCameraGroup: usesCamera,
 	}, nil
+}
+
+// wgslGroupBinding is one resource declaration a WGSL source makes in a bind group.
+type wgslGroupBinding struct {
+	binding int
+	uniform bool
+}
+
+// wgslResourceDecl matches the attributes and address space of a module-scope resource declaration, such as "@group(0) @binding(1) var<uniform>" or "@binding( 2 )\n@group(0) var".
+var wgslResourceDecl = regexp.MustCompile(`((?:@\s*(?:group|binding)\s*\(\s*\d+\s*\)\s*){2})var\s*(<\s*\w+)?`)
+
+// wgslAttr matches one @group(n) or @binding(n) attribute.
+var wgslAttr = regexp.MustCompile(`@\s*(group|binding)\s*\(\s*(\d+)\s*\)`)
+
+// wgslGroupBindings returns the bindings src declares in bind group group, ignoring comments and whitespace inside the attributes.
+func wgslGroupBindings(src string, group int) []wgslGroupBinding {
+	var out []wgslGroupBinding
+	for _, m := range wgslResourceDecl.FindAllStringSubmatch(stripWGSLComments(src), -1) {
+		g, b := -1, -1
+		for _, a := range wgslAttr.FindAllStringSubmatch(m[1], -1) {
+			n, _ := strconv.Atoi(a[2])
+			if a[1] == "group" {
+				g = n
+			} else {
+				b = n
+			}
+		}
+		if g == group && b >= 0 {
+			space := strings.TrimSpace(strings.TrimPrefix(m[2], "<"))
+			out = append(out, wgslGroupBinding{binding: b, uniform: space == "uniform"})
+		}
+	}
+	return out
+}
+
+// stripWGSLComments replaces WGSL line and (nested) block comments with spaces, keeping line breaks so positions stay on the same line.
+func stripWGSLComments(src string) string {
+	b := []byte(src)
+	depth := 0
+	for i := 0; i < len(b); i++ {
+		switch {
+		case depth == 0 && b[i] == '/' && i+1 < len(b) && b[i+1] == '/':
+			for i < len(b) && b[i] != '\n' {
+				b[i] = ' '
+				i++
+			}
+		case b[i] == '/' && i+1 < len(b) && b[i+1] == '*':
+			depth++
+			b[i], b[i+1] = ' ', ' '
+			i++
+		case depth > 0 && b[i] == '*' && i+1 < len(b) && b[i+1] == '/':
+			depth--
+			b[i], b[i+1] = ' ', ' '
+			i++
+		case depth > 0 && b[i] != '\n':
+			b[i] = ' '
+		}
+	}
+	return string(b)
 }
 
 func writeMaterialWGSLBindings(b *strings.Builder, layout CustomUniformLayout) {
