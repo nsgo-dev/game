@@ -97,6 +97,10 @@ go tool nsgo build -channel store -target macos,windows,linux,ios,android
 
 Pass `-installers=false` if you only want the raw unpacked app directories on desktop targets. Pass `-run` to launch a built package immediately on this machine, a connected device, or a local web server.
 
+## Credit your assets
+
+Most licenses an asset comes under, Creative Commons Attribution and the SIL Open Font License among them, ask for its author and license to be shipped with the game. Record them in the `credit` section of the import settings sidecar beside each asset (`hero.png.import.yaml`); `go tool game release`, which runs `nsgo build` for every platform, then writes `CREDITS.md` beside the packages and refuses to build while an asset in `game.yaml`'s `assets` section has no credit. `go tool game credits` checks the credits and prints the file without building ([Command Line](cli.md#credits)).
+
 ## Targets
 
 | Platform | Target names | Direct build (`-channel direct`) | Store build (`-channel store`) | Host requirements |

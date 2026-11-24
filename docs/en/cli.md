@@ -22,7 +22,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `manifest` | Generates a typed Go asset manifest from a directory of assets, so a missing asset fails the build |
 | `tex` | Encodes a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps |
 | `editor` | Opens the scene editor on a project or a YAML scene, or on a demo scene when none is named |
-| `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build` |
+| `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build`, with a credits file of its assets' licenses |
 | `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
 | `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
@@ -33,12 +33,13 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `mv` | Moves or renames a file or directory of a project and rewrites every reference to it, keeping the project index up to date |
 | `index` | Gives every scene and resource file a uid, points references at files moved without the tools, and writes the project index |
 | `library` | Finds asset, editor plugin and template packs in a library and installs them into a project, updates or removes them, or prints a pack's digest |
+| `credits` | Writes the credits file `release` ships: every asset's author and license, from the import settings sidecar beside it, failing when an asset has none |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
 `go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
-A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found, a file `generate` would overwrite) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
+A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found, a file `generate` would overwrite, an asset without a credit) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
@@ -109,7 +110,9 @@ export:
     - platform: android
 ```
 
-The command reads only `game.yaml`'s `version`, which must be the integer 1, and its `export` section. It refuses top-level fields outside the project file's (`version`, `name`, `id`, `appVersion`, `window`, `display`, `input`, `audio`, `autoload` and `export`), so a misspelt `export` is not skipped, and in `export` it refuses unknown fields, an empty `presets` list, unknown platforms and targets, a target of another platform, duplicates and an output outside the project; the rest of the file is the project file's. `-channel` is `nsgo build`'s: `store` builds the packages stores take (a Mac App Store package, universal when both macOS architectures are built, a Windows MSIX, a Flatpak bundle and an Android App Bundle) in place of the disk images, installers and APKs handed out directly, and `-release-notes` and `-jobs` pass through too. Signing, notarizing and store uploads follow `nsgo.yaml` and `nsgo publish`.
+The command reads `game.yaml`'s `version`, which must be the integer 1, its `export` section and, for the credits file, its `assets` section. It refuses top-level fields outside the project file's (`version`, `name`, `id`, `appVersion`, `window`, `display`, `input`, `audio`, `autoload`, `export`, `editor` and `assets`), so a misspelt `export` is not skipped, and in `export` it refuses unknown fields, an empty `presets` list, unknown platforms and targets, a target of another platform, duplicates and an output outside the project; the rest of the file is the project file's. `-channel` is `nsgo build`'s: `store` builds the packages stores take (a Mac App Store package, universal when both macOS architectures are built, a Windows MSIX, a Flatpak bundle and an Android App Bundle) in place of the disk images, installers and APKs handed out directly, and `-release-notes` and `-jobs` pass through too. Signing, notarizing and store uploads follow `nsgo.yaml` and `nsgo publish`.
+
+When `game.yaml` has an `assets` section, which the whole file must then pass [project file](project.md) validation for, the release ships a credits file: after `nsgo build` succeeds, the command writes `CREDITS.md` into the output directory, beside the packages, listing the author, license and source of every asset that section reaches and each notice a license asks to be shipped, from the `credit` section of each asset's [import settings sidecar](#import-settings-beside-each-asset), as [`game credits`](#credits) writes it. The assets are the images each atlas packs, the input of each texture and audio target, and every file the manifest lists in its folder, such as fonts, maps and models, leaving out the files the targets write, which are made from those inputs. An asset without a credit stops the release before anything is built, with the list of the sidecars to write; `-dry-run` checks the credits too and names the file it would write. A game without an `assets` section gets no credits file.
 
 Which targets a machine can build is what `nsgo doctor` shows: iOS needs a Mac with Xcode, and the macOS disk image needs `hdiutil` in a logged-in session, so a release of every platform runs on a Mac.
 
@@ -266,7 +269,7 @@ What each target was built from is kept in a cache, `.game/assets-cache.yaml` un
 
 #### Import settings beside each asset
 
-An image or a sound may have a sidecar (fonts and models have no `game assets` target yet, so a sidecar has no section for them): a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/packages/game/tooling/importsettings` reads and writes; it holds an `image` or an `audio` section, never both, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
+An asset may have a sidecar: a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do, and who made it under what license. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/packages/game/tooling/importsettings` reads and writes; it holds an `image` or an `audio` section, never both, a `credit` section, or a credit with one of the others, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
 
 ```yaml
 # art/albedo.png.import.yaml, read by a texture target
@@ -297,11 +300,24 @@ audio:
   loop: {start: 44100, end: 1323000}  # in the source's sample frames; end 0 or left out is the end of the sound
 ```
 
+```yaml
+# assets/fonts/pixel.ttf.import.yaml, a credit beside an asset no target imports
+version: 1
+credit:
+  author: Ana Souza
+  license: OFL-1.1    # an SPDX license expression
+  source: https://example.com/pixel-font
+  notice: |-
+    Copyright 2026 Ana Souza.
+    Licensed under the SIL Open Font License, Version 1.1.
+```
+
 - A texture target reads `filter`, `format`, `mipmaps` and `srgb`. `filter` is stored under the key `game.filter` of the KTX2 file's key/value data; nothing in the game layer loads KTX2 textures or reads that key yet, so it changes the file but not how the texture is drawn. `slice` is refused, since a texture holds the whole image, unless an atlas also reads the image.
 - An atlas target reads `slice` from the sidecar of each image in its folder: the image is cut into cells of `width` by `height` pixels, `margin` pixels from its top and left edges and `spacing` pixels apart, taken row by row, and cell `i` of `run.png` is packed as the frame `run_i.png`. `count` keeps the first cells; left out, every cell that fits is a frame. The texture settings, `filter` included, are refused there, since an atlas page is one texture for every image packed into it, unless a texture target also reads the image: an image read by both may hold both kinds of settings, and each target takes its own. A frame that takes the name of another image in the folder is refused.
+- `game release` and `game credits` read `credit`, which any asset's sidecar may hold, a font's or a model's as well as an image's or a sound's, beside an `image` or `audio` section or on its own; `game assets` builds nothing from it. `author` and `license` are required. `license` is an [SPDX license expression](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/): identifiers from the SPDX license list such as `CC0-1.0`, `CC-BY-4.0` or `OFL-1.1`, joined by `AND` and `OR` and grouped by parentheses, a `+` for "or any later version" and `WITH` for an exception, such as `MIT OR Apache-2.0`; a license with no identifier, such as a store's or a studio's own, is `LicenseRef-` followed by a name of its own, with its terms in `notice`. Its form is checked, not the identifier against the list, and `NONE` and `NOASSERTION` are refused. `source` is where the asset came from, usually a URL, and `notice` is text the license asks to be shipped with the asset, such as a copyright line, kept word for word and on several lines if need be.
 - An audio target reads every `audio` setting. `loop` is written into the WAV output's `smpl` chunk as a forward loop that repeats forever, scaled to the output rate; AAC and MP3 carry no loop points, so a sound with a loop must be converted to `wav`. A loop already in a source WAV's `smpl` chunk is kept the same way.
 
-A sidecar's content is part of the key of every target that reads its asset, so adding, editing or deleting one rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game tex` and `game audio` take their settings as flags and read no sidecar. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture or audio input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing.
+A sidecar's content is part of the key of every target that reads its asset, so adding, editing or deleting one rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game tex` and `game audio` take their settings as flags and read no sidecar. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture or audio input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing. A sidecar that holds only a `credit` says nothing about the build, so it may sit beside any file in those folders, such as a JPEG or a font, as long as the file is there under exactly its name.
 
 ### generate
 
@@ -353,6 +369,44 @@ go tool game library digest library/packs/dungeon-tiles
 ```
 
 Lists the packs of a library that match the words given (`-kind` keeps one kind), with the version the project has installed; installs packs into the project in the working directory (or `-project`), writing their files and recording them and the autoload entries and editor plugins they add in `game.yaml`; installs a newer release over an older one; removes an installed pack; and prints a pack directory's digest for the library's index. The library is the shared one in this repository unless `-index` names another. The index and pack formats, what an install may and may not overwrite, and how to add a pack are in [Asset and Plugin Library](library.md).
+
+### credits
+
+```sh
+go tool game credits
+go tool game credits -in game.yaml -out CREDITS.md
+```
+
+Writes the credits file that `game release` ships beside its packages, to `-out`, or prints it when `-out` is empty, from the `assets` section of `-in` (`game.yaml` by default), without building anything. It lists the same assets as `release`, with the author, license and source from the `credit` section of the [import settings sidecar](#import-settings-beside-each-asset) beside each one, and fails with 1, naming the sidecar each uncredited asset needs, when any has no credit, so CI can run it to keep every asset credited. The file is Markdown and depends only on the credits, so the same sidecars always give the same bytes:
+
+````markdown
+# Credits
+
+<!-- Generated from the credit section of each asset's import settings sidecar (*.import.yaml). DO NOT EDIT. -->
+
+| Asset | Author | License | Source |
+| --- | --- | --- | --- |
+| `assets/fonts/pixel.ttf` | Ana Souza | OFL-1.1 | <https://example.com/pixel-font> |
+| `sfx/jump.wav` | Kenney | CC0-1.0 |  |
+
+## Licenses
+
+| License | Assets |
+| --- | --- |
+| [CC0-1.0](https://spdx.org/licenses/CC0-1.0.html) | 1 |
+| [OFL-1.1](https://spdx.org/licenses/OFL-1.1.html) | 1 |
+
+## Notices
+
+### `assets/fonts/pixel.ttf`
+
+```text
+Copyright 2026 Ana Souza.
+Licensed under the SIL Open Font License, Version 1.1.
+```
+````
+
+The assets are sorted by path. The licenses table counts the assets under each license expression and links each single SPDX identifier to its page in the SPDX license list, and every notice follows word for word. Package `github.com/nsgo-dev/game/packages/game/tooling/credits` collects the credits and writes the file, for a game that shows them on a screen of its own.
 
 ### completion
 

@@ -12,7 +12,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
 | Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, read by `sceneformat.Parse` |
-| Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an image or a sound, read by `importsettings.Parse` and by `game assets` ([Command Line](cli.md#assets)) |
+| Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
@@ -53,7 +53,7 @@ The scene schema is generated from the Go types `sceneformat.Parse` decodes into
 
 A schema sees one file at a time, so `Parse` still checks what spans the document: unique layer names and object IDs, tilemap `ref`s that name an entry of `tilemaps`, one tilemap mode at a time, inline grid sizes, and colors `core.ParseColor` accepts. In a few places the schema is stricter than `Parse`, such as refusing `null` for a field `Parse` reads as its zero value; every scene `Encode` writes validates against it, which a fuzz test holds.
 
-The import settings schema likewise checks each field on its own: known keys, the allowed `filter`, `format` and audio `format` values, and non-negative sizes and rates. It does not say which fields go together, since the schema generator emits no `oneOf`, `not` or dependency keywords and a loop's end cannot be compared with its start in JSON Schema, so `importsettings.Parse` and `game assets` still refuse a sidecar with no section or with both `image` and `audio`, `peakDB` together with `rmsDB`, a loop whose end is not after its start, and a loop with `aac` or `mp3` output, while an editor shows such a file as valid.
+The import settings schema likewise checks each field on its own: known keys, the allowed `filter`, `format` and audio `format` values, non-negative sizes and rates, and a credit's required `author` and `license`. It does not say which fields go together, since the schema generator emits no `oneOf`, `not` or dependency keywords and a loop's end cannot be compared with its start in JSON Schema, so `importsettings.Parse` and `game assets` still refuse a sidecar with no section or with both `image` and `audio`, `peakDB` together with `rmsDB`, a loop whose end is not after its start, a loop with `aac` or `mp3` output, and a `license` that is not an SPDX license expression, while an editor shows such a file as valid.
 
 ## Checking schemas in CI
 

@@ -92,7 +92,7 @@ game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml 
 
 ## game release
 
-Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build.
+Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build, with a credits file of its assets' licenses.
 
 ```sh
 game release [flags] [dir]
@@ -245,6 +245,19 @@ game library [flags] list [words] | install <pack>... | remove <pack>... | diges
 | `-index string` | `https://raw.githubusercontent.com/nsgo-dev/game/main/library/index.yaml` | the library's index: an https URL, an index file, or a directory holding index.yaml |
 | `-kind string` |  | list only packs of this kind: asset, plugin, template |
 | `-project string` | `.` | the project directory holding game.yaml, which install and remove change and list marks installed packs from |
+
+## game credits
+
+List every asset's author and license from its import settings sidecar as the credits file game release ships, failing when an asset has none.
+
+```sh
+game credits [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-in string` | `game.yaml` | project file whose assets section names the assets |
+| `-out file` |  | the credits file to write (default: print it) |
 
 ## game completion
 

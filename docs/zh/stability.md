@@ -151,6 +151,7 @@
 | `game/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
 | `game/tooling/audioconv` | 实验性 | |
 | `game/tooling/bench` | 实验性 | [命令行](cli.md) |
+| `game/tooling/credits` | 实验性 | [命令行](cli.md) |
 | `game/tooling/datatable` | 实验性 | |
 | `game/tooling/devstate` | 实验性 | |
 | `game/tooling/hotreload` | 实验性 | |
