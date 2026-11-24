@@ -3,12 +3,12 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { ApiFunc, ApiReference, ApiValue } from '../src/content/types'
+import type { ApiFunc, ApiReference, ApiValue } from '../src/content/types.ts'
 import { LANGS } from '../src/locales.ts'
 
 const langs = LANGS
 
-const dist = path.resolve(import.meta.dirname, '../dist/client')
+const dist = path.resolve(import.meta.dirname, '../dist')
 const json = path.join(dist, 'api.json')
 
 if (!existsSync(json)) {

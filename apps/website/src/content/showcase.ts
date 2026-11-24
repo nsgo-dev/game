@@ -1,5 +1,5 @@
-import type { Lang } from '../locales'
-import { repoTreeUrl } from '../links'
+import type { Lang } from '../locales.ts'
+import { repoTreeUrl } from '../links.ts'
 
 export type ShowcaseKind = 'example' | 'template' | 'community'
 export type ShowcaseTarget = 'macOS' | 'iOS' | 'Windows' | 'Linux' | 'Android' | 'Web'

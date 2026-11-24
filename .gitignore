@@ -7,9 +7,7 @@
 # The website's dependencies and build output
 node_modules/
 /apps/website/dist/
-/apps/website/.output/
-/apps/website/.tanstack/
-/apps/website/src/routeTree.gen.ts
+/apps/website/.astro/
 # The playground's web builds of the examples (bun run playground)
 /apps/website/public/play/
 # The agent notes board (bun run init-board, bun run bundle-board)

@@ -54,10 +54,12 @@ From the repository root:
 ```sh
 bun install --frozen-lockfile
 bun run dev        # local dev server
-bun run typecheck  # TypeScript check
-bun run test       # the build plugins' tests
-bun run build      # Vite build, prerender, and tsc --noEmit
+bun run typecheck  # astro check
+bun run test       # the site's own tests
+bun run build      # Astro build, then the API reference's anchor check
 ```
+
+The site is [Astro](https://astro.build) with [nsgo-website](https://github.com/nsgo-dev/nsgo-website) in its demoscene look: `apps/website/site.config.ts` holds its settings, `src/components/Home.astro` its home page, and the docs are read from `docs/en` and `docs/zh` as they are. `bun run --cwd apps/website share-cards` redraws the share images in `public/share/` after the site's title changes; it needs Chrome.
 
 ## Coding conventions
 

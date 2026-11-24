@@ -1,0 +1,40 @@
+---
+// A page of the API reference inside the docs' frame: the packages in its sidebar, grouped by directory, and the page's contents beside it.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { site } from 'nsgo-website/site';
+import { copies } from '../../copy.ts';
+import { apiBuild, groupPackages } from '../../lib/api.ts';
+import type { Heading } from '../../lib/api-html.ts';
+import type { Lang } from '../../locales.ts';
+import '../../styles/api.css';
+
+interface Props {
+	lang: Lang;
+	title: string;
+	description: string;
+	headings?: Heading[];
+}
+const { lang, title, description, headings = [] } = Astro.props;
+const copy = copies[lang];
+const build = apiBuild();
+const packages = build.status === 'ok' ? build.ref.packages : [];
+const groupTitle = (dir: string) => (dir === '' ? copy.api.packages : dir === 'tooling' ? copy.api.tooling : dir);
+// Starlight places the sidebar's links under the site's base and the page's language.
+const sidebar = [
+	{
+		label: copy.docs.reference,
+		items: [
+			{ label: copy.api.overview, link: '/docs/api/' },
+			{ label: copy.nav.docs, link: '/docs/' },
+		],
+	},
+	...groupPackages(packages).map((group) => ({
+		label: groupTitle(group.dir),
+		items: group.items.map((pkg) => ({ label: group.dir === '' ? pkg.page : pkg.page.slice(group.dir.length + 1), link: `/docs/api/${pkg.page}/` })),
+	})),
+];
+---
+
+<StarlightPage frontmatter={{ title, description, editUrl: false }} sidebar={sidebar} headings={headings} lang={site[lang].locale.tag}>
+	<slot />
+</StarlightPage>
