@@ -362,6 +362,59 @@ gpuMesh.Draw(pass)
 - **`MaterialWGSL` 不会绘制的内容**：该着色器对所有材质都做光照，并且所有纹理都用网格的 `TEXCOORD_0` 采样、不做变换。无光照材质、纹理变换和其他 UV 通道只被记录而不会生效，若不另行处理，这类资产会绘制错误。`GLTFMaterialInfo.Unsupported()` 列出某个材质的这些情况，`GLTFTextureSlot.NeedsUVBake()` 报告需要把 UV 烘焙进网格（例如用 `Document.TransformTexCoords`）或改用自定义着色器的槽位。
 - **Khronos 参考验证**：`render3d` 的测试渲染 Khronos `DamagedHelmet` 样本，并以资产自身的基础色图像为准进行校验：用探测纹理读回每个像素的 UV，渲染结果必须在 glTF 的 UV 原点、sRGB 色彩与通道顺序下与解码后的 JPEG 吻合，且明显优于 V 翻转、按线性上传或通道交换的情形。测试还会与 `render3d/testdata/damagedhelmet/reference.png` 比对以捕捉回归，并在 `gpu.View` 上验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置的像素一致性，以及 `Retained` 设备丢失恢复。该模型采用 CC-BY-NC-4.0 许可，因此其目录是独立模块，不包含在发布的 `packages/game` 模块中；目录缺失时这些测试会跳过。
 
+## 按预算跨帧异步 GPU 上传（`Uploader`）
+
+`Uploader` 在后台工作协程上解码网格、纹理和原始 GPU 数据，并在每帧调用 `Uploader.Step` 时按可配置的每帧字节预算分块写入 `gpu.Device`，避免加载大型 3D 模型时出现帧耗时尖峰与卡顿：
+
+```go
+gpu.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady: func(dev *gpu.Device) {
+		uploader = render3d.NewUploader(cx, dev, render3d.UploaderOptions{
+			BytesPerFrame: 2 * 1024 * 1024, // 每帧 2 MiB 上限（默认 4 MiB）
+			ChunkBytes:    256 * 1024,      // 单次写入分块 256 KiB
+			Workers:       2,               // 后台解码协程数
+		})
+
+		meshHandle = uploader.QueueMesh(ctx, func(ctx context.Context) (render3d.Mesh, error) {
+			return loadAndDecodeMesh(ctx, "hero.glb")
+		}, func(g *render3d.GPUMesh, err error) {
+			if err == nil {
+				heroMesh = g
+			}
+		}, render3d.MeshUploadOptions{
+			Label:    "hero",
+			Retained: true,
+			Priority: render3d.PriorityHigh,
+		})
+
+		texHandle = uploader.QueueTexture(ctx, func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
+			img, err := decodeTexturePNG(ctx, "hero_albedo.png")
+			return img, gpu.FormatRGBA8UnormSRGB, err
+		}, func(tex *gpu.Texture, err error) {
+			if err == nil {
+				heroAlbedo = tex
+			}
+		}, render3d.TextureUploadOptions{
+			Label:           "hero_albedo",
+			GenerateMipmaps: true,
+			Retained:        true,
+		})
+	},
+	OnFrame: func(frame *gpu.Frame) {
+		stats := uploader.Step() // 在引擎协程上按 BytesPerFrame 预算推进 GPU 上传
+		_ = stats
+		// 使用已就绪的网格与纹理渲染本帧……
+	},
+})
+```
+
+- **后台解码、主线程上传**：解码回调、网格校验与打包、像素格式转换以及可选的 CPU mipmap 生成（`TextureUploadOptions.GenerateMipmaps`）全部在后台工作协程执行；所有 GPU 资源创建、分块写入（`WriteBuffer`、`WriteTextureRegion`、`WriteTexture`）与异步完成回调仅在调用 `Step()` 的协程上运行。
+- **每帧字节预算**：`UploaderOptions.BytesPerFrame`（默认 `DefaultUploadBytesPerFrame`，4 MiB）与 `ChunkBytes`（默认 `DefaultUploadChunkBytes`，256 KiB）限制单次 `Step()` 的 GPU 传输量，并可通过 `SetBytesPerFrame`、`SetChunkBytes` 在运行时动态调整（例如在加载画面调高预算、在游玩过程中调低预算）。缓冲写入按 4 字节对齐分块；未压缩纹理按 mip 级别、行带拆分，单行超出剩余预算时还会按水平子行拆分。
+- **原始缓冲与压缩纹理**：通过 `QueueRawBuffer` 流式上传自定义顶点/存储/uniform 缓冲（`RawBufferUpload`），通过 `QueueRawTexture` 流式上传预编码或块压缩纹理 mip 链（`RawTextureUpload`、`TextureMipData`）。
+- **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时控制解码队列与上传队列的调度顺序（同优先级先进先出），高优先级资产可在下一分块抢占正在上传的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，支持并发安全地查询 `State()`、`Progress()`、`Err()`、`Done()` 与调用 `Cancel()`。
+- **作用域生命周期**：向 `NewUploader` 传入非 nil `*core.Scope` 会自动注册清理钩子，作用域销毁时调用 `Close()`，取消未完成的解码、回收全部工作协程（零协程泄漏）并释放未完成的 GPU 资源。无界面测试可传入 `nil` 并显式调用 `Close()`。`UploaderOptions.MaxPending` 可选限制挂起任务上限，超出时立即返回 `ErrUploadQueueFull`。
+
 ## 3D 调试线框与变换手柄（Gizmo）
 
 `DebugDraw` 将 3D 线框经近裁剪面裁剪后直接投影绘制到 NSGo 的 `*core.Drawing` 叠加层：
