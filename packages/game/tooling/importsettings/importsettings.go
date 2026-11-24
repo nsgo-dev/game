@@ -222,7 +222,7 @@ func (a *Audio) validate() error {
 		return fmt.Errorf("rate %d must not be negative", a.Rate)
 	}
 	if a.Channels < 0 || a.Channels > 2 {
-		return fmt.Errorf("channels %d must be 1 or 2", a.Channels)
+		return fmt.Errorf("channels %d must be 1, 2, or 0 to keep the target's", a.Channels)
 	}
 	if a.Bitrate < 0 {
 		return fmt.Errorf("bitrate %d must not be negative", a.Bitrate)

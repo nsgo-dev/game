@@ -255,7 +255,7 @@ assets:
 
 #### 资源旁的导入设置
 
-图片或声音可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它，与 Godot 的 `.import` 文件相同。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/packages/game/tooling/importsettings` 包读写；它含有 `image` 或 `audio` 部分之一，不能两者都有，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
+图片或声音可以带一个附属文件（sidecar）（字体和模型在 `game assets` 里还没有对应的目标，所以附属文件没有它们的部分）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它，与 Godot 的 `.import` 文件相同。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/packages/game/tooling/importsettings` 包读写；它含有 `image` 或 `audio` 部分之一，不能两者都有，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
 
 ```yaml
 # art/albedo.png.import.yaml，由纹理目标读取
@@ -286,11 +286,11 @@ audio:
   loop: {start: 44100, end: 1323000}  # 以源文件的采样帧计；end 为 0 或省略表示声音结尾
 ```
 
-- 纹理目标读取 `filter`、`format`、`mipmaps` 和 `srgb`。`filter` 存放在 KTX2 文件键值数据的 `game.filter` 键下，供采样该纹理的代码读取；`slice` 会被拒绝，因为纹理包含整张图片。
-- 图集目标从它文件夹里每张图片的附属文件中读取 `slice`：图片被切成 `width` × `height` 像素的格子，距上边和左边 `margin` 像素，格子之间相隔 `spacing` 像素，逐行取出，`run.png` 的第 `i` 个格子作为帧 `run_i.png` 打包。`count` 只保留前若干个格子；省略时每个放得下的格子都是一帧。纹理设置在这里会被拒绝，因为图集页面是打包进去的所有图片共用的一张纹理。与文件夹里另一张图片同名的帧会被拒绝。
+- 纹理目标读取 `filter`、`format`、`mipmaps` 和 `srgb`。`filter` 存放在 KTX2 文件键值数据的 `game.filter` 键下；游戏层目前还没有代码加载 KTX2 纹理或读取这个键，所以它只改变文件，不改变纹理的绘制方式。`slice` 会被拒绝，因为纹理包含整张图片，除非还有图集读取这张图片。
+- 图集目标从它文件夹里每张图片的附属文件中读取 `slice`：图片被切成 `width` × `height` 像素的格子，距上边和左边 `margin` 像素，格子之间相隔 `spacing` 像素，逐行取出，`run.png` 的第 `i` 个格子作为帧 `run_i.png` 打包。`count` 只保留前若干个格子；省略时每个放得下的格子都是一帧。纹理设置（包括 `filter`）在这里会被拒绝，因为图集页面是打包进去的所有图片共用的一张纹理，除非还有纹理目标读取这张图片：同时被两者读取的图片可以同时带两类设置，每个目标各取所需。与文件夹里另一张图片同名的帧会被拒绝。
 - 音频目标读取全部 `audio` 设置。`loop` 以无限重复的正向循环写入 WAV 输出的 `smpl` 块，并按输出采样率缩放；AAC 和 MP3 不带循环点，所以带循环的声音必须转换为 `wav`。源 WAV 的 `smpl` 块里已有的循环也会照此保留。
 
-附属文件的内容是读取其资源的每个目标的键的一部分，因此新增、编辑或删除附属文件只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game tex` 和 `game audio` 通过参数接收设置，不读取附属文件。
+附属文件的内容是读取其资源的每个目标的键的一部分，因此新增、编辑或删除附属文件只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game tex` 和 `game audio` 通过参数接收设置，不读取附属文件。目标读取的文件夹（图集的文件夹及其下的文件夹，或纹理、音频输入所在的文件夹）里，如果某个附属文件对应的资源没有任何目标读取，它会被拒绝；因此拼错的文件名、图集文件夹里 JPEG 旁边的附属文件、或者与资源大小写不同的名字（例如 `hero.png` 旁边的 `Hero.PNG.import.yaml`）都会报错，而不是让设置悄无声息地不起作用。
 
 ### generate
 
