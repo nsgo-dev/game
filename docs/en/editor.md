@@ -38,6 +38,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | Field | Type | Description |
 | --- | --- | --- |
 | `version` | `int` | Required schema version: `2` (`CurrentVersion`), or `1` for a scene that uses none of the fields version 2 added. `Encode` writes it back unchanged. |
+| `uid` | `string` | Optional stable ID that stays the same when the file is renamed or moved, written by `go tool game index` (both versions; see [Stable references](project.md#stable-references)). `Resolve` keeps the scene's own uid, not its base's. |
 | `inherits` | `string` | Optional slash-separated path from the project root to a base scene this one inherits (version 2, see Instancing and inheritance below). |
 | `name` | `string` | Optional human-readable scene name. |
 | `virtualWidth`, `virtualHeight` | `float32` | Virtual viewport size in points. Must both be `0` or both positive. |
@@ -332,7 +333,7 @@ In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene, then ma
 
 ### Projects
 
-The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory.
+The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `go tool game mv` does ([Stable references](project.md#stable-references)).
 
 ## Animation editor
 

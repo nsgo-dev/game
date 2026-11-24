@@ -125,6 +125,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/quality` | Experimental | [quality](quality.md) |
 | `game/quest` | Experimental | [quest](quest.md) |
 | `game/random` | Stable | [Determinism](determinism.md) |
+| `game/refs` | Experimental | [Project File](project.md) |
 | `game/render3d` | Experimental | [render3d](render3d.md) |
 | `game/replay` | Experimental | [replay](replay.md) |
 | `game/resource` | Experimental | [resources](resources.md) |

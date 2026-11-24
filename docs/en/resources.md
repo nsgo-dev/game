@@ -8,12 +8,13 @@ import "github.com/nsgo-dev/game/packages/game/resource"
 
 ## The common header
 
-Every resource file is one YAML document that starts with the same two fields:
+Every resource file is one YAML document that starts with the same fields:
 
 | Field | Description |
 | --- | --- |
 | `type` | The resource's type: `material`, `curve`, `gradient`, `animation`, `theme`, `busLayout` or `physicsMaterial`. |
 | `version` | The schema version. Must be `1`. |
+| `uid` | Optional stable ID that stays the same when the file is renamed or moved, 13 characters of `0`-`9` and `a`-`z` without `i`, `l`, `o` and `u`. `go tool game index` writes it; see [Stable references](project.md#stable-references). |
 
 The fields of that type follow. `Parse` reads the header first, refuses an unknown type or a version other than `1` with a message that says so, then decodes the whole document into the matching Go type (`*resource.Material`, `*resource.Curve`, …) and refuses unknown fields, trailing documents and values out of range. `Encode` writes the header first and the other fields in a fixed order, leaving out fields at their defaults, so a file it wrote reads back and encodes to the same bytes and a diff shows only what changed.
 

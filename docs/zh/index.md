@@ -25,6 +25,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `platformer` | `github.com/nsgo-dev/game/packages/game/platformer` | [platformer](platformer.md) | 基于 `CharacterBody` 的平台跳跃 `Controller`：土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑与蹬墙跳，参数来自 YAML 配置 |
 | `screen` | `github.com/nsgo-dev/game/packages/game/screen` | [screen](screen.md) | 虚拟分辨率 `Viewport` 缩放、像素对齐、移动端安全区与视频设置 |
 | `project` | `github.com/nsgo-dev/game/packages/game/project` | [项目文件](project.md) | 唯一的项目文件 `game.yaml`：窗口、虚拟分辨率、输入映射、音频总线、自动加载和导出预设，并与 `nsgo.yaml` 保持一致 |
+| `refs` | `github.com/nsgo-dev/game/packages/game/refs` | [稳定引用](project.md#稳定引用) | 稳定文件 ID、项目索引，以及改写所有引用的文件移动，供 `game mv`、`game index` 和 `game check` 使用 |
 | `assets` | `github.com/nsgo-dev/game/packages/game/assets` | [assets](assets.md) | 按场景异步加载的资源组、响应式进度与 `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/packages/game/resource` | [resource](resources.md) | 共享 YAML 资源文件（材质、曲线、渐变、动画片段、UI 主题、总线布局、物理材质），以及共享并重载它们的 `Library` |
 | `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont 位图字体、2D 与 3D 世界空间中的有向距离场字体，以及 `DrawPlatform` 平台矢量文本 |
