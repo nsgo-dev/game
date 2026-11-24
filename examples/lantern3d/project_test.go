@@ -13,8 +13,7 @@ import (
 //go:embed nsgo.yaml
 var nsgoYAML []byte
 
-// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form
-// project.Encode writes and that nsgo.yaml agrees with it.
+// TestProjectFileIsValidAndCanonical checks that game.yaml is in the form project.Encode writes and that nsgo.yaml agrees with it.
 func TestProjectFileIsValidAndCanonical(t *testing.T) {
 	fsys := fstest.MapFS{
 		project.FileName:     {Data: gameYAML},

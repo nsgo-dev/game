@@ -38,8 +38,7 @@ var defaultOrbitTarget = math3d.Vec3{X: 0, Y: 1.25, Z: 0}
 // shrineGlowLocal is where the shrine's glow sits in the ShrineCore node's space: the center of the crystal bipyramid tools/genassets builds for that mesh.
 var shrineGlowLocal = math3d.Vec3{X: 0, Y: 1.48, Z: 0}
 
-// Scene holds the loaded glTF 2.0 diorama, its orbit camera rig, animated node
-// handles, and dynamic lighting state.
+// Scene holds the loaded glTF 2.0 diorama, its orbit camera rig, animated node handles, and dynamic lighting state.
 type Scene struct {
 	Doc *gltf.Document
 
@@ -65,8 +64,7 @@ type Scene struct {
 	triCount    int
 }
 
-// NewScene parses the embedded glTF 2.0 shrine diorama and initializes its
-// orbit camera and lights.
+// NewScene parses the embedded glTF 2.0 shrine diorama and initializes its orbit camera and lights.
 func NewScene() (*Scene, error) {
 	doc, err := gltf.Load(lanternShrineGLB, nil)
 	if err != nil {
@@ -142,8 +140,7 @@ func (s *Scene) ResetCamera() {
 	s.PrevCamera = *s.Camera
 }
 
-// SetViewport updates the perspective camera aspect ratio to match the GPU
-// surface dimensions.
+// SetViewport updates the perspective camera aspect ratio to match the GPU surface dimensions.
 func (s *Scene) SetViewport(width, height int) {
 	if width <= 0 || height <= 0 {
 		return
@@ -152,8 +149,7 @@ func (s *Scene) SetViewport(width, height int) {
 	s.PrevCamera.SetViewport(float32(width), float32(height))
 }
 
-// Step advances the fixed-step camera damping, auto-orbit, orbiting warm point
-// light, and animated glTF scene nodes. It returns an error when the node hierarchy no longer yields world matrices.
+// Step advances the fixed-step camera damping, auto-orbit, orbiting warm point light, and animated glTF scene nodes. It returns an error when the node hierarchy no longer yields world matrices.
 func (s *Scene) Step(dt time.Duration) error {
 	if dt <= 0 {
 		return nil
@@ -175,8 +171,7 @@ func (s *Scene) Step(dt time.Duration) error {
 	return s.updateLightsAndNodes()
 }
 
-// CameraFor returns the camera pose interpolated between the previous and
-// current fixed step by alpha in [0, 1].
+// CameraFor returns the camera pose interpolated between the previous and current fixed step by alpha in [0, 1].
 func (s *Scene) CameraFor(alpha float32) scene3d.Camera {
 	if alpha <= 0 {
 		return s.PrevCamera
@@ -187,12 +182,10 @@ func (s *Scene) CameraFor(alpha float32) scene3d.Camera {
 	return s.PrevCamera.Lerp(s.Camera, alpha)
 }
 
-// MeshCount returns the number of drawable glTF primitives instantiated by the
-// scene's nodes.
+// MeshCount returns the number of drawable glTF primitives instantiated by the scene's nodes.
 func (s *Scene) MeshCount() int { return s.meshCount }
 
-// TriangleCount returns the total triangle count across all instantiated glTF
-// primitives.
+// TriangleCount returns the total triangle count across all instantiated glTF primitives.
 func (s *Scene) TriangleCount() int { return s.triCount }
 
 // updateLightsAndNodes moves the wisp and the shrine core for the current phases, recomputes the world matrices and places the two point lights where their nodes are in world space.
