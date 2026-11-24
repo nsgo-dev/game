@@ -566,6 +566,45 @@ func postValidateSize(w, h uint32) error {
 	return nil
 }
 
+// postDestFormat returns the format the final draw of a pass writes: OutputFormat for the swapchain (nil dst), otherwise dst's own format, which must be the pass's ColorFormat or OutputFormat because those are the only formats it has pipelines for.
+func postDestFormat(dst *gpu.Texture, colorFmt, outFmt gpu.TextureFormat) (gpu.TextureFormat, error) {
+	if dst == nil {
+		return outFmt, nil
+	}
+	f := dst.Desc().Format
+	if f != colorFmt && f != outFmt {
+		return gpu.FormatUndefined, fmt.Errorf("%w: destination format %s is neither ColorFormat %s nor OutputFormat %s", ErrInvalidPostProcess, f, colorFmt, outFmt)
+	}
+	return f, nil
+}
+
+// postPickPipeline returns the pipeline built for dstFmt: inter targets colorFmt, out (nil when OutputFormat equals ColorFormat) targets OutputFormat.
+func postPickPipeline(dstFmt, colorFmt gpu.TextureFormat, inter, out *gpu.Pipeline) *gpu.Pipeline {
+	if dstFmt == colorFmt || out == nil {
+		return inter
+	}
+	return out
+}
+
+// postCheckInputs rejects textures whose size differs from the pass size (texel steps and kernel radii are derived from it) and a destination that is also an input, which would read and write one texture in the same draw.
+func postCheckInputs(w, h uint32, src, depth, dst *gpu.Texture) error {
+	for _, in := range [...]struct {
+		name string
+		tex  *gpu.Texture
+	}{{"source color", src}, {"depth", depth}, {"destination", dst}} {
+		if in.tex == nil {
+			continue
+		}
+		if d := in.tex.Desc(); d.Width != w || d.Height != h {
+			return fmt.Errorf("%w: %s texture is %dx%d, pass is %dx%d", ErrInvalidPostProcess, in.name, d.Width, d.Height, w, h)
+		}
+	}
+	if dst != nil && (dst == src || dst == depth) {
+		return fmt.Errorf("%w: destination texture is also an input", ErrInvalidPostProcess)
+	}
+	return nil
+}
+
 func postCloseAll(closers ...interface{ Close() error }) error {
 	var first error
 	for _, c := range closers {
@@ -1064,13 +1103,19 @@ func (p *BloomPass) Resize(dev *gpu.Device, width, height uint32) error {
 	return p.allocTargets(dev)
 }
 
-// Apply runs bright extraction, separable blur, and additive composite from srcColor
-// into dstColor (nil writes to the swapchain using OutputFormat).
+// Apply runs bright extraction, separable blur, and additive composite from srcColor into dstColor. A nil dstColor writes to the swapchain in OutputFormat, and a texture dstColor must be in ColorFormat or OutputFormat. Every texture must have the pass size and dstColor cannot also be an input; otherwise Apply returns an error wrapping [ErrInvalidPostProcess].
 func (p *BloomPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, dstColor *gpu.Texture) error {
-	return p.applyWithOutput(dev, rec, srcColor, dstColor, dstColor == nil)
+	if p == nil || p.closed {
+		return fmt.Errorf("%w: bloom pass is not valid", ErrInvalidPostProcess)
+	}
+	dstFmt, err := postDestFormat(dstColor, p.colorFormat, p.outputFormat)
+	if err != nil {
+		return err
+	}
+	return p.applyTo(dev, rec, srcColor, dstColor, dstFmt)
 }
 
-func (p *BloomPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *BloomPass) applyTo(dev *gpu.Device, rec RenderPassRecorder, srcColor, dstColor *gpu.Texture, dstFmt gpu.TextureFormat) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -1085,6 +1130,9 @@ func (p *BloomPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, src
 	}
 	if dstColor != nil && !dstColor.Valid() {
 		return fmt.Errorf("%w: invalid destination texture", ErrInvalidPostProcess)
+	}
+	if err := postCheckInputs(p.width, p.height, srcColor, nil, dstColor); err != nil {
+		return err
 	}
 	// Ensure half-res/full-res internal targets match current config.
 	wantBW, wantBH := p.width, p.height
@@ -1168,10 +1216,7 @@ func (p *BloomPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, src
 	}
 
 	// 3. Additive composite -> dstColor (or swapchain).
-	pipe := p.compPipe
-	if useOutputFormat && p.compOutPipe != nil {
-		pipe = p.compOutPipe
-	}
+	pipe := postPickPipeline(dstFmt, p.colorFormat, p.compPipe, p.compOutPipe)
 	drawPostFullscreen(rec, p.label+".composite", dstColor, pipe, p.cachedCompBG, p.vb)
 	return nil
 }
@@ -1730,6 +1775,9 @@ func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec RenderPassRecorder, depthTex *
 	if depthTex == nil || !depthTex.Valid() {
 		return nil, fmt.Errorf("%w: invalid depth texture", ErrInvalidPostProcess)
 	}
+	if err := postCheckInputs(p.width, p.height, nil, depthTex, nil); err != nil {
+		return nil, err
+	}
 
 	proj, invProj := p.cfg.resolveMatrices(p.width, p.height)
 	kernel := buildSSAOKernel(p.cfg.SampleCount)
@@ -1810,18 +1858,30 @@ func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec RenderPassRecorder, depthTex *
 	return aoTex, nil
 }
 
-// Apply computes SSAO from depthTex and multiplies it onto srcColor, writing to
-// dstColor (nil writes to the swapchain using OutputFormat).
+// Apply computes SSAO from depthTex and multiplies it onto srcColor, writing to dstColor. A nil dstColor writes to the swapchain in OutputFormat, and a texture dstColor must be in ColorFormat or OutputFormat. Every texture must have the pass size and dstColor cannot also be an input; otherwise Apply returns an error wrapping [ErrInvalidPostProcess].
 func (p *SSAOPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
-	return p.applyWithOutput(dev, rec, srcColor, depthTex, dstColor, dstColor == nil)
+	if p == nil || p.closed {
+		return fmt.Errorf("%w: ssao pass is not valid", ErrInvalidPostProcess)
+	}
+	dstFmt, err := postDestFormat(dstColor, p.colorFormat, p.outputFormat)
+	if err != nil {
+		return err
+	}
+	return p.applyTo(dev, rec, srcColor, depthTex, dstColor, dstFmt)
 }
 
-func (p *SSAOPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *SSAOPass) applyTo(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, dstFmt gpu.TextureFormat) error {
+	if p == nil || p.closed {
+		return fmt.Errorf("%w: ssao pass is not valid", ErrInvalidPostProcess)
+	}
 	if srcColor == nil || !srcColor.Valid() {
 		return fmt.Errorf("%w: invalid source color texture", ErrInvalidPostProcess)
 	}
 	if dstColor != nil && !dstColor.Valid() {
 		return fmt.Errorf("%w: invalid destination texture", ErrInvalidPostProcess)
+	}
+	if err := postCheckInputs(p.width, p.height, srcColor, depthTex, dstColor); err != nil {
+		return err
 	}
 	aoTex, err := p.ComputeAO(dev, rec, depthTex)
 	if err != nil {
@@ -1845,10 +1905,7 @@ func (p *SSAOPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcC
 		p.cachedCompAO = aoTex
 		p.cachedCompBG = bg
 	}
-	pipe := p.compPipe
-	if useOutputFormat && p.compOutPipe != nil {
-		pipe = p.compOutPipe
-	}
+	pipe := postPickPipeline(dstFmt, p.colorFormat, p.compPipe, p.compOutPipe)
 	drawPostFullscreen(rec, p.label+".composite", dstColor, pipe, p.cachedCompBG, p.vb)
 	return nil
 }
@@ -2278,13 +2335,19 @@ func (p *DepthOfFieldPass) Resize(dev *gpu.Device, width, height uint32) error {
 	return p.allocTargets(dev)
 }
 
-// Apply runs the CoC prepass and depth-aware disc bokeh gather from srcColor and
-// depthTex into dstColor (nil writes to the swapchain using OutputFormat).
+// Apply runs the CoC prepass and depth-aware disc bokeh gather from srcColor and depthTex into dstColor. A nil dstColor writes to the swapchain in OutputFormat, and a texture dstColor must be in ColorFormat or OutputFormat. Every texture must have the pass size and dstColor cannot also be an input; otherwise Apply returns an error wrapping [ErrInvalidPostProcess].
 func (p *DepthOfFieldPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
-	return p.applyWithOutput(dev, rec, srcColor, depthTex, dstColor, dstColor == nil)
+	if p == nil || p.closed {
+		return fmt.Errorf("%w: dof pass is not valid", ErrInvalidPostProcess)
+	}
+	dstFmt, err := postDestFormat(dstColor, p.colorFormat, p.outputFormat)
+	if err != nil {
+		return err
+	}
+	return p.applyTo(dev, rec, srcColor, depthTex, dstColor, dstFmt)
 }
 
-func (p *DepthOfFieldPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *DepthOfFieldPass) applyTo(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, dstFmt gpu.TextureFormat) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -2302,6 +2365,9 @@ func (p *DepthOfFieldPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecord
 	}
 	if dstColor != nil && !dstColor.Valid() {
 		return fmt.Errorf("%w: invalid destination texture", ErrInvalidPostProcess)
+	}
+	if err := postCheckInputs(p.width, p.height, srcColor, depthTex, dstColor); err != nil {
+		return err
 	}
 
 	var cocData [postDoFCoCUniformSize]byte
@@ -2372,10 +2438,7 @@ func (p *DepthOfFieldPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecord
 	drawPostFullscreen(rec, p.label+".coc", p.cocRT.Color, p.cocPipe, p.cachedCoCBG, p.vb)
 
 	// 2. Depth-aware disc bokeh gather -> dstColor (or swapchain).
-	pipe := p.bokehPipe
-	if useOutputFormat && p.bokehOutPipe != nil {
-		pipe = p.bokehOutPipe
-	}
+	pipe := postPickPipeline(dstFmt, p.colorFormat, p.bokehPipe, p.bokehOutPipe)
 	drawPostFullscreen(rec, p.label+".bokeh", dstColor, pipe, p.cachedBokehBG, p.vb)
 	return nil
 }
@@ -2414,8 +2477,7 @@ type PostStack3DOptions struct {
 	ColorFormat gpu.TextureFormat
 	// DepthFormat is the scene render target's depth format. Defaults to [gpu.FormatDepth32Float] when zero.
 	DepthFormat gpu.TextureFormat
-	// OutputFormat is the format of the final destination (swapchain or dstColor).
-	// Defaults to dev.SurfaceFormat() (or [gpu.FormatRGBA8Unorm]) when zero.
+	// OutputFormat is the swapchain format the final stage writes when dstColor is nil. A non-nil dstColor may be in OutputFormat or ColorFormat. Defaults to dev.SurfaceFormat() (or [gpu.FormatRGBA8Unorm]) when zero.
 	OutputFormat gpu.TextureFormat
 	// Retained opts offscreen targets, buffers, and samplers into automatic recreation after device loss.
 	Retained bool
@@ -2880,8 +2942,7 @@ func (s *PostStack3D) Resize(dev *gpu.Device, width, height uint32) error {
 	return nil
 }
 
-// ApplyScene executes all enabled passes on [PostStack3D.SceneTarget]'s color
-// and depth attachments, writing the result into dstColor (nil targets the swapchain).
+// ApplyScene executes all enabled passes on [PostStack3D.SceneTarget]'s color and depth attachments, writing the result into dstColor as [PostStack3D.Apply] does.
 func (s *PostStack3D) ApplyScene(dev *gpu.Device, rec RenderPassRecorder, dstColor *gpu.Texture) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -2892,11 +2953,7 @@ func (s *PostStack3D) ApplyScene(dev *gpu.Device, rec RenderPassRecorder, dstCol
 	return s.Apply(dev, rec, s.sceneRT.Color, s.sceneRT.Depth, dstColor)
 }
 
-// Apply executes all enabled passes in order (SSAO -> Depth of Field -> Bloom)
-// on caller-provided srcColor and depthTex textures, writing the final result
-// into dstColor (nil writes to the swapchain using OutputFormat). If depthTex
-// is nil, depth-dependent passes (SSAO and Depth of Field) are skipped; if no
-// pass runs, srcColor is blitted cleanly to dstColor.
+// Apply executes all enabled passes in order (SSAO -> Depth of Field -> Bloom) on caller-provided srcColor and depthTex textures, writing the final result into dstColor. A nil dstColor writes to the swapchain in OutputFormat; a texture must have the stack size and either ColorFormat or OutputFormat. srcColor and depthTex must have the stack size too, and dstColor cannot be one of them; a mismatch returns an error wrapping [ErrInvalidPostProcess]. If depthTex is nil, depth-dependent passes (SSAO and Depth of Field) are skipped; if no pass runs, srcColor is blitted to dstColor.
 func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -2915,6 +2972,13 @@ func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, d
 	}
 	if dstColor != nil && !dstColor.Valid() {
 		return fmt.Errorf("%w: invalid destination texture", ErrInvalidPostProcess)
+	}
+	if err := postCheckInputs(s.width, s.height, srcColor, depthTex, dstColor); err != nil {
+		return err
+	}
+	dstFmt, err := postDestFormat(dstColor, s.colorFormat, s.outputFormat)
+	if err != nil {
+		return err
 	}
 
 	type stage uint8
@@ -2938,8 +3002,6 @@ func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, d
 		n++
 	}
 
-	useOutputFormat := dstColor == nil
-
 	if n == 0 {
 		if s.cachedBlitSrc != srcColor || !s.cachedBlitBG.Valid() {
 			bg, err := dev.CreateBindGroupDesc(s.cx, gpu.BindGroupDesc{
@@ -2957,10 +3019,7 @@ func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, d
 			s.cachedBlitSrc = srcColor
 			s.cachedBlitBG = bg
 		}
-		pipe := s.blitPipe
-		if useOutputFormat && s.blitOutPipe != nil {
-			pipe = s.blitOutPipe
-		}
+		pipe := postPickPipeline(dstFmt, s.colorFormat, s.blitPipe, s.blitOutPipe)
 		drawPostFullscreen(rec, s.label+".blit", dstColor, pipe, s.cachedBlitBG, s.vb)
 		return nil
 	}
@@ -2970,10 +3029,10 @@ func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, d
 	for i := range n {
 		last := i == n-1
 		var target *gpu.Texture
-		targetUsesOutput := false
+		targetFmt := s.colorFormat
 		if last {
 			target = dstColor
-			targetUsesOutput = useOutputFormat
+			targetFmt = dstFmt
 		} else {
 			if pingNext {
 				target = s.pingRT.Color
@@ -2986,11 +3045,11 @@ func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, d
 		var err error
 		switch active[i] {
 		case stageSSAO:
-			err = s.ssao.applyWithOutput(dev, rec, cur, depthTex, target, targetUsesOutput)
+			err = s.ssao.applyTo(dev, rec, cur, depthTex, target, targetFmt)
 		case stageDoF:
-			err = s.dof.applyWithOutput(dev, rec, cur, depthTex, target, targetUsesOutput)
+			err = s.dof.applyTo(dev, rec, cur, depthTex, target, targetFmt)
 		case stageBloom:
-			err = s.bloom.applyWithOutput(dev, rec, cur, target, targetUsesOutput)
+			err = s.bloom.applyTo(dev, rec, cur, target, targetFmt)
 		}
 		if err != nil {
 			return err
