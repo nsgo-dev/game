@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: level1
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: terrain
+    space: world
+    order: 0
+    objects:
+      - id: platform_start
+        prefab: platform
+        x: 0
+        y: 144
+        properties:
+          height: 16
+          width: 96
+      - id: platform_mid1
+        prefab: platform
+        x: 112
+        y: 128
+        properties:
+          height: 16
+          width: 80
+      - id: platform_mid2
+        prefab: platform
+        x: 208
+        y: 112
+        properties:
+          height: 16
+          width: 80
+      - id: platform_goal
+        prefab: platform
+        x: 304
+        y: 96
+        properties:
+          height: 16
+          width: 96
+  - name: actors
+    space: world
+    order: 10
+    objects:
+      - id: player_spawn
+        prefab: player_spawn
+        x: 24
+        y: 128
+      - id: goal
+        prefab: goal
+        x: 344
+        y: 80

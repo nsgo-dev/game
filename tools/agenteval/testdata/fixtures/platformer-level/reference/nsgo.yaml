@@ -1,0 +1,4 @@
+name: Platformer Eval
+id: dev.nsgo.agenteval.platformer
+version: 0.1.0
+game: true
