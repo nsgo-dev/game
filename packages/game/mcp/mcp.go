@@ -123,6 +123,9 @@ type Config struct {
 
 	// Prefabs registers named prefab spawners available to game_prefabs_list and game_entity_spawn. Additional prefabs (including *entities.Prefab and *sceneformat.SceneDoc templates) can also be registered on the Bridge via RegisterPrefab, RegisterEntityPrefab and RegisterScenePrefab.
 	Prefabs map[string]PrefabSpawner
+
+	// Replay configures input recording and deterministic playback tools.
+	Replay *ReplayController
 }
 
 type compTypeKey any
@@ -295,6 +298,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.inputTools()...)
 	out = append(out, b.consoleTools()...)
 	out = append(out, b.editTools()...)
+	out = append(out, b.replayTools()...)
 	return out
 }
 

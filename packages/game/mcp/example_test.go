@@ -60,4 +60,10 @@ func ExampleNew() {
 	// game_entity_destroy
 	// game_component_set
 	// game_component_remove
+	// game_replay_status
+	// game_replay_record_start
+	// game_replay_record_stop
+	// game_replay_play
+	// game_replay_stop
+	// game_replay_list
 }

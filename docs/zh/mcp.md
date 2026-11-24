@@ -111,6 +111,12 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_entity_destroy` | `ref`（必填）、`policy`（可选：`"cascade"`、`"orphan"`、`"keep_world"` 或 `"reparent"`） | 销毁结果，包含 `ref`、应用于子实体的 `policy`（省略时为层级的默认策略，通常是 `"orphan"`；省略且实体没有子实体时为 `"none"`）与实际销毁实体数 `destroyed`。`"reparent"` 会保持子实体的世界变换。 |
 | `game_component_set` | `ref`（必填）、`component`（必填）、`value`（必填）、`replace`（可选，默认 `false`） | 回读自存活实体的更新后组件 `value`；修改会在下一次模拟步进中生效。若写入成功但回读失败，`value` 为 `null`，`read_error` 说明原因，修改依然有效。 |
 | `game_component_remove` | `ref`（必填）、`component`（必填） | 报告指定组件是否存在并已从存活实体移除（`removed`）。 |
+| `game_replay_status` | `{}` | 当前录制与回放状态（`recording`、`replaying`、`replay_done`、`frames_recorded`、`replay_frame`、`replay_total_frames`）、当前录制/回放名称与元数据，以及排序后的 `saved_recordings`。 |
+| `game_replay_record_start` | `name`、`seed`、`step_rate`、`actions`、`axes`、`metadata`、`reset`（均可选） | 通过 `replay.Recorder` 开始按固定步长录制输入，并返回解析后的录制名称、种子、步频、监听列表与元数据。 |
+| `game_replay_record_stop` | `name`（可选）、`save_path`（可选，相对于 `ReplayConfig.SaveDir`） | 停止当前录制，将其保存到内存（并可选写入 `SaveDir` 下的安全相对路径），返回摘要与确定性的 v2 YAML 文本（`yaml`）。 |
+| `game_replay_play` | `name` 或 `yaml`（二选一）、`run_to_end`（默认 `false`）、`steps`、`reset`（配置 `ResetFunc` 时默认 `true`） | 通过 `replay.Player` 开始确定性回放，在回放前调用 `ResetFunc(seed)` 重置状态，并可选通过 `StepFunc`/`Loop.Update` 同步推进全部或指定步数。 |
+| `game_replay_stop` | `{}` | 安全停止当前正在进行的回放，并报告已回放的帧数。 |
+| `game_replay_list` | `{}` | 按名称排序列出已存储的录制及其 `frames`、`seed`、`step_rate`、`events`、`actions`、`axes` 与 `metadata`。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -146,6 +152,38 @@ console.RegisterCommand("spawn", "spawn <kind> [count]", g.handleSpawn)
 - `game_tunables_list` 与 `game_tunable_get` 直接读取实时值，不会向控制台交互历史或输出日志中写入多余记录。
 - `game_tunable_set` 默认严格校验参数注册类型（`float`、`int`、`bool` 或 `string`）及数值 `[min, max]` 范围，校验失败时不修改变量。传入 `"clamp": true` 时会将越界数值钳位到 `[min, max]` 并在响应中标记 `"clamped": true`。
 - `game_console_exec` 通过 `debug.Console.Exec` 运行内置命令（`help`、`list`、`get`、`set`、`clear`）与游戏自定义命令，返回 `{command, ok, output, lines, error}`。无效的 MCP 参数或未配置 `Console` 会返回工具级错误；命令本身的执行失败（例如未知命令名或参数无效）则返回 `ok: false` 与对应的 `error` 信息。
+## 录制与回放输入
+
+使用 `mcp.NewReplayController` 创建 `*mcp.ReplayController`，将其作为游戏的 [`replay.ActionSource`](replay.md) 传入更新循环，并挂到 `mcp.Config.Replay`：
+
+```go
+var ctrl *mcp.ReplayController
+ctrl = mcp.NewReplayController(mcp.ReplayConfig{
+	Source:   g.actions,
+	Actions:  []string{"left", "right", "jump", "dash"},
+	Axes:     []string{"move_x"},
+	StepRate: 60,
+	SeedFunc: func() uint64 { return g.seed },
+	ResetFunc: func(seed uint64) error {
+		g.actions.Reset()
+		g.Reset(seed)
+		return nil
+	},
+	StepFunc: func(dt time.Duration) {
+		g.Step(ctrl, dt)
+	},
+})
+
+bridge, err := mcp.Attach(cx, mcp.Config{
+	WorldFunc: func() *entities.World { return g.world },
+	Replay:    ctrl,
+})
+```
+
+- `ReplayController` 实现了 `replay.ActionSource`，游戏逻辑在实时游玩（转发至 `Source`）、录制（`replay.Recorder`）与回放（`replay.Player`）三种模式下完全共用同一套更新循环。
+- 通过 `game_replay_record_stop` 结束的录制会按名称存入内存，并返回标准、确定性的 [`game/replay`](replay.md) v2 YAML 文本。若希望智能体同时通过 `save_path` 落盘，可配置 `ReplayConfig.SaveDir`（绝对路径与 `..` 越界路径都会被拒绝）。
+- `game_replay_play` 支持按已存 `name` 或内联 `yaml` 文本回放，默认调用 `ResetFunc(recording.Seed)` 恢复初始确定性状态，并支持同步跑到结束（`run_to_end: true`）、同步步进（`steps: N`）或随游戏循环逐帧回放。
+
 ## 稳定的实体引用
 
 每个存活实体都会获得一个格式为 `"entity:<index>:<generation>"`（例如 `"entity:0:1"`）的代数引用，由 `FormatEntityRef` 格式化并由 `ParseEntityRef` 解析：
