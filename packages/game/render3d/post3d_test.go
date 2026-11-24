@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
@@ -176,47 +175,6 @@ func (sp *post3dScenePipeline) draw(pass *gpu.RenderPass, vb *gpu.Buffer, vertCo
 	pass.Draw(vertCount, 0)
 }
 
-func post3dAssertGolden(t *testing.T, name string, got *image.RGBA) {
-	t.Helper()
-	path := gametest.GoldenPath("", name)
-	if gametest.ShouldUpdateGolden() {
-		if err := gametest.WritePNG(path, got); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := gametest.ReadPNG(path)
-	if err != nil {
-		t.Fatalf("read reference %s: %v (UPDATE_GOLDEN=1 writes it)", path, err)
-	}
-	if !want.Bounds().Eq(got.Bounds()) {
-		t.Fatalf("%s: size %v, reference %v", name, got.Bounds(), want.Bounds())
-	}
-	const channelTolerance = 3
-	far := 0
-	b := got.Bounds()
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			g := got.RGBAAt(x, y)
-			wr, wg, wb, wa := want.At(x, y).RGBA()
-			w := [4]int{int(wr >> 8), int(wg >> 8), int(wb >> 8), int(wa >> 8)}
-			for i, c := range [4]int{int(g.R), int(g.G), int(g.B), int(g.A)} {
-				if d := c - w[i]; d > channelTolerance || d < -channelTolerance {
-					far++
-					break
-				}
-			}
-		}
-	}
-	if limit := b.Dx() * b.Dy() / 200; far > limit {
-		dir := t.TempDir()
-		diff, _ := gametest.DiffImage(got, want)
-		_ = gametest.WritePNG(dir+"/"+name+".got.png", got)
-		_ = gametest.WritePNG(dir+"/"+name+".diff.png", diff)
-		t.Fatalf("%s: %d pixels differ from reference (limit %d); got and diff written to %s", name, far, limit, dir)
-	}
-}
-
 func post3dLuma(img *image.RGBA, x, y int) float64 {
 	c := img.RGBAAt(x, y)
 	return (0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B)) / 255.0
@@ -366,7 +324,7 @@ func TestPost3DBloomMatchesReference(t *testing.T) {
 	}
 
 	bloomImg := renderFrame(bloom.Config())
-	post3dAssertGolden(t, "post3d_bloom", bloomImg)
+	assertReference(t, "post3d_bloom", bloomImg)
 
 	noIntensity := bloom.Config()
 	noIntensity.Intensity = 0
@@ -509,7 +467,7 @@ func TestPost3DSSAOMatchesReference(t *testing.T) {
 	}
 
 	ssaoImg := renderFrame(cfg)
-	post3dAssertGolden(t, "post3d_ssao", ssaoImg)
+	assertReference(t, "post3d_ssao", ssaoImg)
 
 	if ssao.AOTexture() == nil || !ssao.AOTexture().Valid() {
 		t.Error("AOTexture() invalid after Apply")
@@ -624,7 +582,7 @@ func TestPost3DDepthOfFieldMatchesReference(t *testing.T) {
 	}
 
 	dofImg := renderFrame(dofCfg)
-	post3dAssertGolden(t, "post3d_dof", dofImg)
+	assertReference(t, "post3d_dof", dofImg)
 
 	sharpCfg := dofCfg
 	sharpCfg.MaxBlurRadius = 0
@@ -739,7 +697,7 @@ func TestPost3DStackCombinedResizeAndProfiles(t *testing.T) {
 	}
 
 	combinedImg := renderCombined()
-	post3dAssertGolden(t, "post3d_combined", combinedImg)
+	assertReference(t, "post3d_combined", combinedImg)
 
 	// Passthrough blit when all passes are disabled must differ cleanly from combined post-processed output.
 	if err := stack.SetSSAO(false, ssaoCfg); err != nil {
