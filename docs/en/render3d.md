@@ -137,6 +137,8 @@ mesh.Draw(pass)
 
 Custom 3D shaders can prepend `CameraWGSL + LightWGSL` to read `@group(1) @binding(0) var<uniform> lights: LightRigUniform` and call the portable WGSL helpers `point_light_attenuation`, `spot_cone_attenuation`, `pbr_brdf`, `shade_pbr`, and `linear_to_srgb`. `LitPBRWGSL` combines them with `MeshVertexLayout` and a per-draw `PBRDrawUniform` at `PBRDrawGroup` (group 2).
 
+For more local lights than the rig holds, bind a `ClusteredLightSystem` at `LightGroup` instead of a `GPULightBuffer`: it uploads the same rig and adds any number of clustered point and spot lights, shaded with the same BRDF ([Clustered forward lighting](#clustered-forward-lighting-clusteredlightsystem-clustergrid)).
+
 The shading model follows glTF 2.0 metallic-roughness PBR (dielectric `F0 = 0.04`, Schlick Fresnel, Trowbridge-Reitz GGX normal distribution, height-correlated Smith-GGX visibility, energy-conserving Lambertian diffuse, perceptual roughness floored at `0.045`, and IEC 61966-2-1 linear-to-sRGB output). `EvaluatePBR`, `ShadePoint`, `PointLightAttenuation`, `SpotConeAttenuation`, and `LinearToSRGB` implement the exact same equations on the CPU; `LightRig.AppendUniformData` and `LightUniforms.Encode` pack the uniform block without allocating. Reference tests verify GPU output pixel-for-pixel against CPU `ShadePoint`, exercise both full and WebGL 2 / GLES 3.0 (`nsgotest.NoGPUCompute`) profiles plus `Retained` device loss, and compare lit scenes against `render3d/testdata/golden/lights_pbr_scene.png`, `lights_point_falloff.png` and `spot_lights_scene.png`.
 
 ## Distance and height fog (`Fog`, `GPUFogBuffer`)
@@ -1180,35 +1182,39 @@ _ = stack.SetCamera(cam)
 
 ## Clustered forward lighting (`ClusteredLightSystem`, `ClusterGrid`)
 
-`ClusterGrid` and `ClusteredLightSystem` scale local point and spot lighting to hundreds of simultaneous lights by partitioning the view frustum into a 3D screen-tile × logarithmic-depth-slice grid (default `16 × 9 × 24`, up to `512` visible lights and `64` lights per cluster), with automatic fallback to a pure uniform-buffer shader on targets without storage buffers or compute shaders (WebGL 2, OpenGL ES 3.0, and headless tests using `nsgotest.NoGPUCompute`):
+A `LightRig` shades at most 16 point and 8 spot lights. For scenes with hundreds of local lights, `ClusteredLightSystem` takes the place of `GPULightBuffer` at `LightGroup`: it uploads the same `LightRig` (ambient, directional, and the rig's own point and spot lights) at binding 0, and bins any number of extra local lights (`ClusterLight`) into a 3D grid of screen tiles × logarithmic depth slices (default `16 × 9 × 24`, up to `512` visible lights and `64` per cluster). Each fragment then shades only the lights in its own cluster, with the same Cook-Torrance BRDF and glTF `KHR_lights_punctual` falloff as `shade_pbr`, so clustered and rig lights look identical. On targets without storage buffers or compute shaders (WebGL 2, OpenGL ES 3.0, and headless tests using `nsgotest.NoGPUCompute`) it falls back to one uniform buffer holding the `FallbackMaxLights` (default `16`) most important visible lights:
 
 ```go
-camBuf, err := render3d.NewCameraBuffer(cx, dev)
-lights, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
+sys, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
+pipe, err := render3d.NewClusteredLitPBRPipeline(cx, dev, camBuf.Layout(), sys, drawBuf.Layout(), gpu.FormatDepth24Plus)
 
-// Compile the shader matching the active path (ClusteredLitWGSL or ClusteredFallbackWGSL):
-mod, err := gpu.CompileWGSL(lights.WGSL())
-pipe, err := dev.CreatePipeline(cx, gpu.PipelineDesc{
-	Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
-	Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
-	Layouts:       []*gpu.BindGroupLayout{render3d.CameraGroup: camBuf.Layout(), render3d.ClusteredLightGroup: lights.Layout()},
-	VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
-	DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
-	Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat(), WriteMask: gpu.ColorWriteAll}},
-})
+// Convert scene lights once; a Range of 0 (unbounded) gets a derived cutoff range.
+local := make([]render3d.ClusterLight, 0, len(lamps))
+for _, l := range lamps {
+	cl, err := render3d.ClusterLightFromPoint(l)
+	if err != nil {
+		return err
+	}
+	local = append(local, cl)
+}
 
 // Each frame, before recording draws:
 camBuf.WriteCamera(cam)
-stats := lights.UpdateCamera(dev, cam, viewW, viewH, ambient, sceneLights)
+stats, err := sys.UpdateCamera(frame.Device(), cam, viewW, viewH, rig, local)
 
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-lights.Bind(pass, render3d.ClusteredLightGroup)
+sys.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
 mesh.Draw(pass)
 ```
 
-- **Zero-allocation CPU clustering (`ClusterGrid`)**: view-space cluster AABBs are cached by `(proj, near, far)` and reused across camera motion. `AssignLights` culls off-frustum lights, computes tight screen-tile and logarithmic depth-slice bounds, tests sphere-vs-AABB (plus conservative cone-vs-AABB rejection for `ClusterLightSpot`), and packs compact `Offsets` and `LightIndices` slices with zero steady-state allocations.
-- **Portable depth-slice lookup**: the clustered fragment shader (`ClusteredBindingsWGSL` / `ClusteredLitWGSL`) maps each fragment's view-space depth to its slice via a 6-step binary search over the uniform split-depth table rather than `log2`/`exp`, so it produces identical results on Metal, Direct3D 11, OpenGL 3.3, WebGPU, and NSGo's software GPU VM.
-- **Automatic mobile / WebGL 2 fallback**: when `DeviceSupportsClusteredLighting(dev)` is false (or `ClusterConfig.ForceFallback` is set), `NewClusteredLightSystem` switches to a single 1,056-byte uniform buffer (`ClusteredFallbackBindingsWGSL` / `ClusteredFallbackWGSL`) and selects up to `FallbackMaxLights` (default `16`) highest-priority lights each frame via `SelectFallbackLights`. Both shader paths expose the identical `evaluate_clustered_lights(world_pos, normal, frag_pos)` WGSL helper so custom material shaders share one fragment body across desktop and mobile.
-- **Attenuation & CPU reference**: point and spot lights (`NewPointClusterLight`, `NewSpotClusterLight`) use glTF `KHR_lights_punctual` smooth range and cone attenuation; `EvaluateLightAttenuation`, `EvaluateDirectLights`, and `EvaluateClusteredLights` provide pure-Go reference shading matching the WGSL math.
-- **Lifecycle & device loss**: set `ClusterConfig.Retained` to restore buffers across GPU device loss automatically; `ByteSize()` reports GPU buffer bytes for `RenderStats` and budgets, and `Close()` releases resources eagerly.
+- **Lights**: `ClusterLight` is a point or spot record whose `Range` must be positive, because clustering needs a bounding sphere. `ClusterLightFromPoint` and `ClusterLightFromSpot` convert a `PointLight` or `SpotLight` and, for `Range == 0`, derive the distance at which `Intensity * max(Color) / d^2` falls to `ClusterRangeCutoff` (1/256). `Update` returns an error wrapping `ErrInvalidClusterLight` for a light that fails `Validate` (including `Range == 0`) or `ErrInvalidLight` for a malformed rig, instead of dropping it. `EvaluateLightAttenuation` reuses `PointLightAttenuation` and `SpotConeAttenuation`.
+- **Viewport size**: `viewW` and `viewH` must be the size of the area the pass renders, starting at its origin, because the shader finds a fragment's tile from `@builtin(position)`. Under a `DynamicResolutionTarget`, pass `ScaledSize()`, not the native size.
+- **Shaders**: `NewClusteredLitPBRPipeline` compiles `ClusteredLitWGSL` or `ClusteredFallbackWGSL` (whichever matches `sys.WGSL()`), the `LitPBRWGSL` module with `shade_pbr_clustered` in place of `shade_pbr`, writing sRGB. Custom shaders prepend `CameraWGSL` and `sys.BindingsWGSL()` (`ClusteredBindingsWGSL` or `ClusteredFallbackBindingsWGSL`, both of which include `LightWGSL`) and call `shade_pbr_clustered(world_pos, normal, view_dir, base_color, metallic, roughness, frag_pos)`, which has the same signature on both paths.
+- **CPU clustering (`ClusterGrid`)**: view-space cluster AABBs are cached by `(proj, near, far)` and reused across camera motion. `AssignLights` culls off-frustum lights, computes tight screen-tile and depth-slice bounds, tests sphere-vs-AABB (plus conservative cone-vs-AABB rejection for spot lights), and packs `Offsets` and `LightIndices` with zero steady-state allocations. Lights beyond `MaxLights`, and lights beyond `MaxLightsPerCluster` in one cell, are dropped in input order (`TruncatedLights`, `TruncatedClusters`), so put important lights first when a scene can exceed either cap.
+- **Fallback selection**: `SelectFallbackLights` drops lights whose bounding sphere is outside the view frustum, then ranks the rest by power, range and distance to the camera. In fallback mode `CulledLights` counts lights outside the frustum or without power, and `TruncatedLights` the visible lights the cap left out.
+- **Depth-slice lookup**: the shader finds a fragment's depth slice with a 6-step binary search over a uniform split-depth table rather than `log2` and `exp`, because NSGo v0.3.0's software GPU renderer evaluates those builtins to zero.
+- **CPU reference**: `ShadeClusteredPoint` is `ShadePoint` plus every clustered light, and `ShadeClusteredGridPoint` uses only the lights of the fragment's cluster, exactly as the GPU does. Tests compare GPU pixels against them on the full and `NoGPUCompute` profiles, including a 256-light scene.
+- **Limits**: `Validate` caps `MaxLights` at `MaxClusterLights` (65,536), keeps `MaxLightsPerCluster` at or below `MaxLights`, and caps index slots (`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`) at `MaxClusterIndexEntries`; `NewClusteredLightSystem` returns `ErrInvalidClusterConfig` when a storage buffer would exceed the device's `MaxStorageBufferBindingSize`.
+- **Lifecycle**: set `ClusterConfig.Retained` to restore buffers across GPU device loss; `ByteSize()` reports GPU buffer bytes for `RenderStats` and budgets, and `Close()` releases resources eagerly.

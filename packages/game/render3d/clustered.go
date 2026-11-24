@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
@@ -33,19 +33,25 @@ const (
 	// MaxFallbackLights is the uniform-buffer array capacity of [ClusteredFallbackWGSL].
 	MaxFallbackLights = 16
 
-	// ClusteredLightGroup is the bind group index declared by [ClusteredBindingsWGSL], [ClusteredFallbackBindingsWGSL], [ClusteredLitWGSL], and [ClusteredFallbackWGSL] (group 1, alongside [CameraGroup] at group 0).
-	ClusteredLightGroup = 1
+	// MaxClusterLights is the largest [ClusterConfig.MaxLights] accepted.
+	MaxClusterLights = 1 << 16
+	// MaxClusterIndexEntries bounds TilesX * TilesY * SlicesZ * MaxLightsPerCluster, the number of light-index slots [ClusterGrid] preallocates (64 MiB of uint32 indices).
+	MaxClusterIndexEntries = 1 << 24
 
 	// ClusterLightGPUSize is the byte size of one GPU light record (4 vec4<f32>, 16-byte aligned in both std140 and std430).
 	ClusterLightGPUSize = 64
-	// ClusterParamsUniformSize is the byte size of the clustered-path ClusterParams uniform block: grid_info (16) + viewport_depth (16) + ambient (16) + 17*vec4 slice_depths (272) = 320 bytes.
-	ClusterParamsUniformSize = 320
+	// ClusterParamsUniformSize is the byte size of the clustered-path ClusterParams uniform block at [LightGroup] binding 1: grid_info (16) + viewport_depth (16) + 17*vec4 slice_depths (272) = 304 bytes.
+	ClusterParamsUniformSize = 304
 	// ClusterCellGPUSize is the byte size of one cluster cell offset/count entry (vec4<u32>, 16-byte aligned across all backends).
 	ClusterCellGPUSize = 16
-	// ClusteredFallbackUniformSize is the byte size of the fallback uniform block: info (16) + ambient (16) + 16*ClusterLightGPUSize (1024) = 1056 bytes.
-	ClusteredFallbackUniformSize = 32 + MaxFallbackLights*ClusterLightGPUSize
+	// ClusteredFallbackUniformSize is the byte size of the fallback uniform block at [LightGroup] binding 1: info (16) + 16*ClusterLightGPUSize (1024) = 1040 bytes.
+	ClusteredFallbackUniformSize = 16 + MaxFallbackLights*ClusterLightGPUSize
+
+	// ClusterRangeCutoff is the radiance below which [ClusterLightFromPoint] and [ClusterLightFromSpot] treat a light with Range 0 (unbounded, the glTF default) as finished: the derived range is sqrt(Intensity * max(Color) / ClusterRangeCutoff).
+	ClusterRangeCutoff = 1.0 / 256
 
 	clusterMinStorageBindingBytes = 64 * 1024
+	minClusterLightRange          = 1e-3
 )
 
 // Sentinel errors returned for invalid clustered lighting configuration or light data.
@@ -66,10 +72,9 @@ const (
 	ClusterLightSpot ClusterLightKind = 1
 )
 
-// ClusterLight describes a local punctual light (point or spot) in world space.
+// ClusterLight is the record [ClusterGrid] bins and [ClusteredLightSystem] uploads for one local point or spot light in world space. Build it from a [PointLight] or [SpotLight] with [ClusterLightFromPoint] or [ClusterLightFromSpot], or directly with [NewPointClusterLight] and [NewSpotClusterLight].
 //
-// Range attenuation follows glTF KHR_lights_punctual: clamp(1 - (d/Range)^4, 0, 1)^2 / max(d^2, 1e-4).
-// Spot lights additionally multiply by clamp(dot(dir, lightToPoint)*spotScale + spotOffset, 0, 1)^2.
+// Distance falloff is [PointLightAttenuation] with Range, and spot lights also multiply by [SpotConeAttenuation], so a light shades exactly as the [PointLight] or [SpotLight] it came from. Unlike those, Range must be positive: clustering needs a bounding sphere, so a light with Range 0 (unbounded) is refused by [ClusterLight.Validate] and [ClusteredLightSystem.Update]; the converters derive a range for it from [ClusterRangeCutoff].
 type ClusterLight struct {
 	Kind      ClusterLightKind
 	Position  math3d.Vec3
@@ -81,6 +86,41 @@ type ClusterLight struct {
 	// InnerConeCos and OuterConeCos are cos(innerHalfAngle) and cos(outerHalfAngle) for [ClusterLightSpot] with 1 >= InnerConeCos >= OuterConeCos >= -1.
 	InnerConeCos float32
 	OuterConeCos float32
+}
+
+// ClusterLightFromPoint validates l and converts it to a [ClusterLightPoint]. When l.Range is 0 (unbounded), the range is derived as sqrt(Intensity * max(Color) / [ClusterRangeCutoff]), where the light's unwindowed radiance falls to the cutoff; the windowed falloff then reaches exactly zero there instead of trailing off forever. Errors wrap [ErrInvalidLight].
+func ClusterLightFromPoint(l PointLight) (ClusterLight, error) {
+	if err := l.Validate(); err != nil {
+		return ClusterLight{}, err
+	}
+	return NewPointClusterLight(l.Position, l.Color, l.Intensity, clusterRange(l.Range, l.Color, l.Intensity)), nil
+}
+
+// ClusterLightFromSpot validates l and converts it to a [ClusterLightSpot] with the same cone, deriving a range for Range 0 as [ClusterLightFromPoint] does. Errors wrap [ErrInvalidLight].
+func ClusterLightFromSpot(l SpotLight) (ClusterLight, error) {
+	if err := l.Validate(); err != nil {
+		return ClusterLight{}, err
+	}
+	dir, _ := spotUnitDirection(l)
+	return ClusterLight{
+		Kind:         ClusterLightSpot,
+		Position:     l.Position,
+		Range:        clusterRange(l.Range, l.Color, l.Intensity),
+		Color:        l.Color,
+		Intensity:    l.Intensity,
+		Direction:    dir,
+		InnerConeCos: float32(math.Cos(float64(l.InnerConeAngle))),
+		OuterConeCos: float32(math.Cos(float64(l.OuterConeAngle))),
+	}, nil
+}
+
+// clusterRange returns lightRange when it is positive, and otherwise the distance at which intensity * max(color) / d^2 falls to [ClusterRangeCutoff], at least minClusterLightRange.
+func clusterRange(lightRange float32, color math3d.Vec3, intensity float32) float32 {
+	if lightRange > 0 {
+		return lightRange
+	}
+	power := float64(intensity) * float64(max(color.X, color.Y, color.Z))
+	return max(float32(math.Sqrt(power/ClusterRangeCutoff)), minClusterLightRange)
 }
 
 // NewPointClusterLight returns a [ClusterLightPoint] with finite range and linear RGB color.
@@ -131,7 +171,7 @@ func (l ClusterLight) Validate() error {
 		return fmt.Errorf("%w: position is not finite", ErrInvalidClusterLight)
 	}
 	if !finite(l.Range) || l.Range <= 0 {
-		return fmt.Errorf("%w: range %v must be finite and positive", ErrInvalidClusterLight, l.Range)
+		return fmt.Errorf("%w: range %v must be finite and positive (ClusterLightFromPoint and ClusterLightFromSpot derive one for an unbounded light)", ErrInvalidClusterLight, l.Range)
 	}
 	if !finite3(l.Color) || l.Color.X < 0 || l.Color.Y < 0 || l.Color.Z < 0 {
 		return fmt.Errorf("%w: color %v must be finite and non-negative", ErrInvalidClusterLight, l.Color)
@@ -169,10 +209,7 @@ func (l ClusterLight) spotScaleOffset() (scale, offset float32) {
 	}
 	inner := math3d.Clamp(l.InnerConeCos, -1, 1)
 	outer := math3d.Clamp(l.OuterConeCos, -1, inner)
-	denom := inner - outer
-	if denom < 1e-4 {
-		denom = 1e-4
-	}
+	denom := max(inner-outer, minSpotConeCosDelta)
 	scale = 1.0 / denom
 	offset = -outer * scale
 	return scale, offset
@@ -259,11 +296,11 @@ func (c ClusterConfig) Validate() error {
 	if c.SlicesZ < 1 || c.SlicesZ > MaxClusterSlicesZ {
 		return fmt.Errorf("%w: SlicesZ %d must be in [1, %d]", ErrInvalidClusterConfig, c.SlicesZ, MaxClusterSlicesZ)
 	}
-	if c.MaxLights < 1 {
-		return fmt.Errorf("%w: MaxLights %d must be positive", ErrInvalidClusterConfig, c.MaxLights)
+	if c.MaxLights < 1 || c.MaxLights > MaxClusterLights {
+		return fmt.Errorf("%w: MaxLights %d must be in [1, %d]", ErrInvalidClusterConfig, c.MaxLights, MaxClusterLights)
 	}
-	if c.MaxLightsPerCluster < 1 {
-		return fmt.Errorf("%w: MaxLightsPerCluster %d must be positive", ErrInvalidClusterConfig, c.MaxLightsPerCluster)
+	if c.MaxLightsPerCluster < 1 || c.MaxLightsPerCluster > c.MaxLights {
+		return fmt.Errorf("%w: MaxLightsPerCluster %d must be in [1, MaxLights %d]", ErrInvalidClusterConfig, c.MaxLightsPerCluster, c.MaxLights)
 	}
 	if c.FallbackMaxLights < 1 || c.FallbackMaxLights > MaxFallbackLights {
 		return fmt.Errorf("%w: FallbackMaxLights %d must be in [1, %d]", ErrInvalidClusterConfig, c.FallbackMaxLights, MaxFallbackLights)
@@ -271,6 +308,9 @@ func (c ClusterConfig) Validate() error {
 	totalClusters := uint64(c.TilesX) * uint64(c.TilesY) * uint64(c.SlicesZ)
 	if totalClusters == 0 || totalClusters > 1<<20 {
 		return fmt.Errorf("%w: cluster count %d out of range", ErrInvalidClusterConfig, totalClusters)
+	}
+	if entries := totalClusters * uint64(c.MaxLightsPerCluster); entries > MaxClusterIndexEntries {
+		return fmt.Errorf("%w: %d clusters x %d lights per cluster = %d index slots exceed MaxClusterIndexEntries (%d)", ErrInvalidClusterConfig, totalClusters, c.MaxLightsPerCluster, entries, MaxClusterIndexEntries)
 	}
 	return nil
 }
@@ -497,7 +537,7 @@ func (g *ClusterGrid) BuildFrustum(proj math3d.Mat4, near, far float32) bool {
 
 // AssignLights transforms lights into view space, culls lights outside the camera frustum, tests each visible light against its candidate frustum clusters (sphere-vs-AABB for all lights plus exact cone-vs-AABB rejection for spot lights), and packs compact offset/count and index arrays.
 //
-// Steady-state calls perform zero heap allocations.
+// Lights that fail [ClusterLight.Validate] or have no power are skipped and counted in CulledLights; [ClusteredLightSystem.Update] validates first and reports them as errors. Once MaxLights lights are visible, further lights are dropped in input order (TruncatedLights), and once a cell holds MaxLightsPerCluster lights it drops the rest in input order (TruncatedClusters), so put the most important lights first when a scene can exceed either cap. Steady-state calls perform zero heap allocations.
 func (g *ClusterGrid) AssignLights(view, proj math3d.Mat4, near, far float32, lights []ClusterLight) ClusterStats {
 	stats := ClusterStats{InputLights: len(lights)}
 	g.activeLights = g.activeLights[:0]
@@ -794,171 +834,149 @@ type scoredClusterLight struct {
 	score float32
 }
 
-// SelectFallbackLights chooses up to maxLights highest-priority local lights for mobile / WebGL 2 / GLES 3.0 uniform-buffer fallback shading.
+// SelectFallbackLights chooses up to maxLights local lights for the uniform-buffer fallback path (mobile, WebGL 2, OpenGL ES 3.0) and appends them to dst[:0].
 //
-// Active lights are ranked deterministically by radiant luminance, proximity to cameraPos (and distance relative to Range), and whether their sphere extends in front of cameraForward, breaking ties by input order. Results are appended to dst[:0].
-func SelectFallbackLights(dst []ClusterLight, cameraPos, cameraForward math3d.Vec3, lights []ClusterLight, maxLights int) []ClusterLight {
+// Lights whose bounding sphere lies outside the view frustum of proj * view, or that fail [ClusterLight.Validate] or have no power, are dropped first, so off-screen lights never take a slot from visible ones. The rest are ranked deterministically by luminous power, range, and distance to the camera, breaking ties by input order. This allocates a scratch slice per call; [ClusteredLightSystem.Update] reuses one.
+func SelectFallbackLights(dst []ClusterLight, view, proj math3d.Mat4, lights []ClusterLight, maxLights int) []ClusterLight {
 	dst = dst[:0]
 	if maxLights <= 0 || len(lights) == 0 {
 		return dst
 	}
 	scored := make([]scoredClusterLight, 0, len(lights))
-	return selectFallbackLightsWithScratch(dst, &scored, cameraPos, cameraForward, lights, maxLights)
+	return selectFallbackLightsWithScratch(dst, &scored, view, proj, lights, maxLights)
 }
 
-func selectFallbackLightsWithScratch(dst []ClusterLight, scratch *[]scoredClusterLight, cameraPos, cameraForward math3d.Vec3, lights []ClusterLight, maxLights int) []ClusterLight {
+// clusterLightBounds returns a world-space sphere enclosing everything l can light.
+func clusterLightBounds(l ClusterLight) math3d.Sphere {
+	if l.Kind != ClusterLightSpot {
+		return math3d.Sphere{Center: l.Position, Radius: l.Range}
+	}
+	cosOuter := math3d.Clamp(l.OuterConeCos, -1, 1)
+	sinOuter := float32(math.Sqrt(float64(max(1-cosOuter*cosOuter, 0))))
+	c, r := spotBoundingSphere(l.Position, l.normalizedDir(), l.Range, cosOuter, sinOuter)
+	return math3d.Sphere{Center: c, Radius: r}
+}
+
+func selectFallbackLightsWithScratch(dst []ClusterLight, scratch *[]scoredClusterLight, view, proj math3d.Mat4, lights []ClusterLight, maxLights int) []ClusterLight {
 	dst = dst[:0]
+	*scratch = (*scratch)[:0]
 	if maxLights <= 0 || len(lights) == 0 {
 		return dst
 	}
-	fwd := cameraForward
-	if fwd.LenSq() < 1e-12 {
-		fwd = math3d.Vec3Forward()
-	} else {
-		fwd = fwd.Norm()
-	}
+	frustum := math3d.FrustumFromMat4(proj.Mul(view))
+	cameraPos, _ := cameraPoseFromView(view)
 
 	scored := (*scratch)[:0]
 	for i := range lights {
 		l := lights[i]
-		if !l.isActive() {
+		if !l.isActive() || !frustum.IntersectsSphere(clusterLightBounds(l)) {
 			continue
 		}
 		lum := 0.2126*l.Color.X + 0.7152*l.Color.Y + 0.0722*l.Color.Z
 		if lum <= 0 {
-			lum = max(l.Color.X, max(l.Color.Y, l.Color.Z))
+			lum = max(l.Color.X, l.Color.Y, l.Color.Z)
 		}
-		toLight := l.Position.Sub(cameraPos)
-		distSq := toLight.LenSq()
+		distSq := l.Position.Sub(cameraPos).LenSq()
 		dist := float32(math.Sqrt(float64(distSq)))
-
 		// Smooth importance combining power, range coverage, and camera distance.
-		denom := distSq + 0.25
-		score := l.Intensity * lum * (l.Range * l.Range) / (denom * (1.0 + dist/max(l.Range, 1e-3)))
-
-		// Prefer lights whose sphere extends in front of the camera plane.
-		if toLight.Dot(fwd)+l.Range >= 0 {
-			score *= 4.0
-		} else {
-			score *= 0.25
-		}
+		score := l.Intensity * lum * (l.Range * l.Range) / ((distSq + 0.25) * (1.0 + dist/max(l.Range, minClusterLightRange)))
 		scored = append(scored, scoredClusterLight{index: i, score: score})
 	}
 	*scratch = scored
 
-	if len(scored) == 0 {
-		return dst
-	}
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score > scored[j].score
-		}
-		return scored[i].index < scored[j].index
-	})
+	slices.SortFunc(scored, compareScoredClusterLights)
 	keep := min(len(scored), maxLights)
-	if cap(dst) < keep {
-		dst = make([]ClusterLight, 0, keep)
-	}
 	for i := range keep {
 		dst = append(dst, lights[scored[i].index])
 	}
 	return dst
 }
 
-// EvaluateLightAttenuation computes the unit direction from worldPos to light and its combined glTF KHR_lights_punctual range, intensity, and spotlight angular attenuation.
+// compareScoredClusterLights orders by descending score, then ascending input index.
+func compareScoredClusterLights(a, b scoredClusterLight) int {
+	switch {
+	case a.score > b.score:
+		return -1
+	case a.score < b.score:
+		return 1
+	}
+	return a.index - b.index
+}
+
+// EvaluateLightAttenuation returns the unit direction from worldPos toward light and the light's attenuation times its Intensity: [PointLightAttenuation] with Range, times [SpotConeAttenuation] for a [ClusterLightSpot]. It returns zeros for a light with no power or an invalid record, and when worldPos coincides with the light.
 func EvaluateLightAttenuation(light ClusterLight, worldPos math3d.Vec3) (dirToLight math3d.Vec3, attenuation float32) {
 	if !light.isActive() {
 		return math3d.Vec3{}, 0
 	}
 	toLight := light.Position.Sub(worldPos)
 	distSq := toLight.LenSq()
-	dist := float32(math.Sqrt(float64(distSq)))
-	if dist >= light.Range {
+	if distSq <= minLightDirLenSq {
 		return math3d.Vec3{}, 0
 	}
-	if dist > 1e-6 {
-		dirToLight = toLight.Scale(1.0 / dist)
-	} else {
-		dirToLight = math3d.Vec3Up()
-	}
-
-	ratio := dist / light.Range
-	r2 := ratio * ratio
-	r4 := r2 * r2
-	win := math3d.Clamp(1.0-r4, 0, 1)
-	atten := (win * win) / max(distSq, 1e-4)
-
+	dirToLight = toLight.Scale(float32(1.0 / math.Sqrt(float64(distSq))))
+	atten := PointLightAttenuation(distSq, light.Range)
 	if light.Kind == ClusterLightSpot {
-		lightDir := light.normalizedDir()
 		scale, offset := light.spotScaleOffset()
-		cd := lightDir.Dot(dirToLight.Neg())
-		spot := math3d.Clamp(cd*scale+offset, 0, 1)
-		atten *= spot * spot
+		atten *= SpotConeAttenuation(light.normalizedDir(), dirToLight, scale, offset)
 	}
 	return dirToLight, atten * light.Intensity
 }
 
-// EvaluateDirectLights computes the pure-Go analytic Lambertian diffuse radiance for worldPos and normal over all lights, matching [ClusteredFallbackWGSL] and serving as ground truth for clustered lighting parity tests.
-func EvaluateDirectLights(worldPos, normal, albedo, ambient math3d.Vec3, lights []ClusterLight) math3d.Vec3 {
-	n := normal
-	if n.LenSq() > 1e-12 {
-		n = n.Norm()
+// ShadeClusteredPoint is [ShadePoint] for rig plus every light in lights, shaded with the same Cook-Torrance BRDF ([EvaluatePBR]). It is the brute-force reference for shade_pbr_clustered in [ClusteredBindingsWGSL] and [ClusteredFallbackBindingsWGSL] when no light is culled or truncated; call [LinearToSRGB] on the result to compare it with what [ClusteredLitWGSL] writes.
+func ShadeClusteredPoint(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig, lights []ClusterLight) math3d.Vec3 {
+	lo := ShadePoint(worldPos, normal, viewDir, mat, rig)
+	n, v, ok := clusterUnitNormalView(normal, viewDir)
+	if !ok {
+		return lo
 	}
-	irr := ambient
 	for i := range lights {
-		l := lights[i]
-		lDir, atten := EvaluateLightAttenuation(l, worldPos)
-		if atten <= 0 {
-			continue
-		}
-		ndl := max(n.Dot(lDir), 0)
-		if ndl <= 0 {
-			continue
-		}
-		irr = irr.Add(l.Color.Scale(atten * ndl))
+		lo = lo.Add(clusterLightRadiance(lights[i], worldPos, n, v, mat))
 	}
-	return math3d.Vec3{X: irr.X * albedo.X, Y: irr.Y * albedo.Y, Z: irr.Z * albedo.Z}
+	return lo
 }
 
-// EvaluateClusteredLights computes the pure-Go analytic Lambertian diffuse radiance at worldPos using only the lights assigned to worldPos's frustum cluster in grid, matching [ClusteredLitWGSL] byte-for-byte in formula.
-func EvaluateClusteredLights(worldPos, normal, albedo, ambient math3d.Vec3, grid *ClusterGrid, view, proj math3d.Mat4, viewportW, viewportH float32) math3d.Vec3 {
-	if grid == nil {
-		return math3d.Vec3{X: ambient.X * albedo.X, Y: ambient.Y * albedo.Y, Z: ambient.Z * albedo.Z}
+// ShadeClusteredGridPoint is [ShadeClusteredPoint] restricted to the lights grid assigned, on its last [ClusterGrid.AssignLights], to the cluster that holds worldPos in a viewportW x viewportH viewport, looked up exactly as shade_pbr_clustered in [ClusteredBindingsWGSL] looks it up.
+func ShadeClusteredGridPoint(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig, grid *ClusterGrid, view, proj math3d.Mat4, viewportW, viewportH float32) math3d.Vec3 {
+	lo := ShadePoint(worldPos, normal, viewDir, mat, rig)
+	n, v, ok := clusterUnitNormalView(normal, viewDir)
+	if grid == nil || !ok {
+		return lo
 	}
 	viewPos := view.TransformPoint(worldPos)
-	viewZ := -viewPos.Z
-
 	clip := proj.MulVec4(viewPos.Vec4(1))
 	if clip.W <= 1e-6 {
-		return math3d.Vec3{X: ambient.X * albedo.X, Y: ambient.Y * albedo.Y, Z: ambient.Z * albedo.Z}
+		return lo
 	}
-	ndcX := clip.X / clip.W
-	ndcY := clip.Y / clip.W
-	fragX := (ndcX + 1.0) * 0.5 * viewportW
-	fragY := (1.0 - ndcY) * 0.5 * viewportH
-
+	fragX := (clip.X/clip.W + 1.0) * 0.5 * viewportW
+	fragY := (1.0 - clip.Y/clip.W) * 0.5 * viewportH
 	tx := clusterClampInt(int(max(fragX, 0)/max(viewportW, 1)*float32(grid.cfg.TilesX)), 0, grid.cfg.TilesX-1)
 	ty := clusterClampInt(int(max(fragY, 0)/max(viewportH, 1)*float32(grid.cfg.TilesY)), 0, grid.cfg.TilesY-1)
-	sz := grid.SliceForDepth(viewZ)
-
-	n := normal
-	if n.LenSq() > 1e-12 {
-		n = n.Norm()
-	}
-	irr := ambient
+	sz := grid.SliceForDepth(-viewPos.Z)
 	for _, lightIdx := range grid.ClusterLightIndices(tx, ty, sz) {
-		l := grid.activeLights[lightIdx]
-		lDir, atten := EvaluateLightAttenuation(l, worldPos)
-		if atten <= 0 {
-			continue
-		}
-		ndl := max(n.Dot(lDir), 0)
-		if ndl <= 0 {
-			continue
-		}
-		irr = irr.Add(l.Color.Scale(atten * ndl))
+		lo = lo.Add(clusterLightRadiance(grid.activeLights[lightIdx], worldPos, n, v, mat))
 	}
-	return math3d.Vec3{X: irr.X * albedo.X, Y: irr.Y * albedo.Y, Z: irr.Z * albedo.Z}
+	return lo
+}
+
+func clusterUnitNormalView(normal, viewDir math3d.Vec3) (n, v math3d.Vec3, ok bool) {
+	nLenSq := normal.LenSq()
+	vLenSq := viewDir.LenSq()
+	if nLenSq <= minLightDirLenSq || vLenSq <= minLightDirLenSq {
+		return math3d.Vec3{}, math3d.Vec3{}, false
+	}
+	return normal.Scale(float32(1.0 / math.Sqrt(float64(nLenSq)))), viewDir.Scale(float32(1.0 / math.Sqrt(float64(vLenSq)))), true
+}
+
+// clusterLightRadiance is the outgoing radiance one local light adds at worldPos for unit n and v, matching cluster_light_radiance in the clustered WGSL.
+func clusterLightRadiance(l ClusterLight, worldPos, n, v math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
+	lDir, atten := EvaluateLightAttenuation(l, worldPos)
+	ndotl := n.Dot(lDir)
+	if atten <= 0 || ndotl <= 0 {
+		return math3d.Vec3{}
+	}
+	brdf := EvaluatePBR(n, v, lDir, mat)
+	rad := l.Color.Scale(atten * ndotl)
+	return math3d.Vec3{X: brdf.X * rad.X, Y: brdf.Y * rad.Y, Z: brdf.Z * rad.Z}
 }
 
 // DeviceSupportsClusteredLighting reports whether dev exposes the storage-buffer and compute capabilities needed for the clustered forward shading path. Devices without them (such as WebGL 2, OpenGL ES 3.0, or headless tests under nsgotest.NoGPUCompute) fall back to the uniform-buffer path automatically.
@@ -972,10 +990,20 @@ func DeviceSupportsClusteredLighting(dev *gpu.Device) bool {
 		caps.Limits.MaxStorageBufferBindingSize >= clusterMinStorageBindingBytes
 }
 
-// ClusteredBindingsWGSL declares the @group(1) uniform and read-only storage bindings plus evaluate_clustered_lights(world_pos, normal, frag_pos) for the desktop clustered forward shading path.
+// ClusteredBindingsWGSL is [LightWGSL] (the [LightRig] block at [LightGroup] binding 0 and its PBR helpers) plus the clustered forward bindings at bindings 1 to 4 of the same group and this helper:
 //
-// Depth slicing uses a 6-step binary search over the uniform slice_depths split table (avoiding log2/exp so it runs identically on Metal, D3D11, OpenGL, WebGPU, and NSGo's software GPU VM).
-const ClusteredBindingsWGSL = `
+//   - shade_pbr_clustered(world_pos, normal, view_dir, base_color, metallic, roughness, frag_pos) -> vec3<f32>
+//
+// It returns shade_pbr for the rig plus every local light binned into the cluster that holds the fragment, each shaded with pbr_brdf, point_light_attenuation and spot_cone_attenuation, so it matches [ShadeClusteredGridPoint]. frag_pos is the fragment's @builtin(position). Prepend [CameraWGSL], which supplies camera.view for the depth slice, and pair it with a [ClusteredLightSystem] in clustered mode; [ClusteredFallbackBindingsWGSL] declares the same helper for the fallback path.
+//
+// Depth slicing is a 6-step binary search over the uniform split-depth table rather than log2 and exp, because NSGo v0.3.0's software GPU VM has no log, log2, exp or exp2 builtin and silently evaluates them to zero (internal/driver/gpu_software.go, evalCall).
+const ClusteredBindingsWGSL = LightWGSL + clusteredStorageWGSL
+
+// ClusteredFallbackBindingsWGSL is [LightWGSL] plus the fallback uniform block at [LightGroup] binding 1 and shade_pbr_clustered with the same signature as in [ClusteredBindingsWGSL], using no storage buffers or compute, for WebGL 2 and OpenGL ES 3.0 targets. frag_pos is ignored: every uploaded light is evaluated for every fragment.
+const ClusteredFallbackBindingsWGSL = LightWGSL + clusteredFallbackWGSL
+
+// clusterLightRadianceWGSL declares the light record both paths upload and cluster_light_radiance, the outgoing radiance one local light adds, matching clusterLightRadiance.
+const clusterLightRadianceWGSL = `
 struct ClusterLightGPU {
 	pos_range: vec4<f32>,
 	color_intensity: vec4<f32>,
@@ -983,17 +1011,41 @@ struct ClusterLightGPU {
 	spot_params: vec4<f32>,
 }
 
+fn cluster_light_radiance(light: ClusterLightGPU, world_pos: vec3<f32>, n: vec3<f32>, v: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+	let intensity = light.color_intensity.w;
+	if (light.pos_range.w <= 0.0 || intensity <= 0.0) {
+		return vec3<f32>(0.0, 0.0, 0.0);
+	}
+	let to_light = light.pos_range.xyz - world_pos;
+	let dist_sq = dot(to_light, to_light);
+	if (dist_sq <= 1e-12) {
+		return vec3<f32>(0.0, 0.0, 0.0);
+	}
+	let l = to_light / sqrt(dist_sq);
+	var atten = point_light_attenuation(dist_sq, light.pos_range.w);
+	if (light.dir_kind.w > 0.5) {
+		atten = atten * spot_cone_attenuation(light.dir_kind.xyz, l, light.spot_params.x, light.spot_params.y);
+	}
+	let ndotl = dot(n, l);
+	if (atten <= 0.0 || ndotl <= 0.0) {
+		return vec3<f32>(0.0, 0.0, 0.0);
+	}
+	return pbr_brdf(n, v, l, base_color, metallic, roughness) * (light.color_intensity.rgb * (intensity * atten * ndotl));
+}
+`
+
+// clusteredStorageWGSL is the storage-buffer half of [ClusteredBindingsWGSL], after [LightWGSL].
+const clusteredStorageWGSL = clusterLightRadianceWGSL + `
 struct ClusterParams {
 	grid_info: vec4<u32>,
 	viewport_depth: vec4<f32>,
-	ambient: vec4<f32>,
 	slice_depths: array<vec4<f32>, 17>,
 }
 
-@group(1) @binding(0) var<uniform> cluster_params: ClusterParams;
-@group(1) @binding(1) var<storage, read> cluster_lights: array<ClusterLightGPU>;
-@group(1) @binding(2) var<storage, read> cluster_cells: array<vec4<u32>>;
-@group(1) @binding(3) var<storage, read> cluster_indices: array<u32>;
+@group(1) @binding(1) var<uniform> cluster_params: ClusterParams;
+@group(1) @binding(2) var<storage, read> cluster_lights: array<ClusterLightGPU>;
+@group(1) @binding(3) var<storage, read> cluster_cells: array<vec4<u32>>;
+@group(1) @binding(4) var<storage, read> cluster_indices: array<u32>;
 
 fn cluster_slice_depth(idx: u32) -> f32 {
 	let v = cluster_params.slice_depths[idx / 4u];
@@ -1024,164 +1076,93 @@ fn cluster_find_slice(view_z: f32) -> u32 {
 	return min(lo, slices - 1u);
 }
 
-fn cluster_eval_one_light(light: ClusterLightGPU, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-	let light_range = light.pos_range.w;
-	let intensity = light.color_intensity.w;
-	if (light_range <= 0.0 || intensity <= 0.0) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	let to_light = light.pos_range.xyz - world_pos;
-	let dist_sq = dot(to_light, to_light);
-	let dist = sqrt(dist_sq);
-	if (dist >= light_range) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	var l_dir = vec3<f32>(0.0, 1.0, 0.0);
-	if (dist > 0.000001) {
-		l_dir = to_light / dist;
-	}
-	let ndl = max(dot(normal, l_dir), 0.0);
-	if (ndl <= 0.0) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	let ratio = dist / light_range;
-	let r2 = ratio * ratio;
-	let r4 = r2 * r2;
-	let win = clamp(1.0 - r4, 0.0, 1.0);
-	var atten = (win * win) / max(dist_sq, 0.0001);
-	if (light.dir_kind.w > 0.5) {
-		let cd = dot(light.dir_kind.xyz, -l_dir);
-		let spot = clamp(cd * light.spot_params.x + light.spot_params.y, 0.0, 1.0);
-		atten = atten * spot * spot;
-	}
-	return light.color_intensity.rgb * (intensity * atten * ndl);
-}
-
-fn evaluate_clustered_lights(world_pos: vec3<f32>, normal: vec3<f32>, frag_pos: vec4<f32>) -> vec3<f32> {
-	let n = normalize(normal);
-	var irradiance = cluster_params.ambient.rgb;
+fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	var lo = shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness);
 	let tiles_x = cluster_params.grid_info.x;
 	let tiles_y = cluster_params.grid_info.y;
 	if (tiles_x == 0u || tiles_y == 0u) {
-		return irradiance;
+		return lo;
 	}
+	let n = normalize(normal);
+	let v = normalize(view_dir);
 	let vp_w = max(cluster_params.viewport_depth.x, 1.0);
 	let vp_h = max(cluster_params.viewport_depth.y, 1.0);
 	let tx = min(u32(max(frag_pos.x, 0.0) / vp_w * f32(tiles_x)), tiles_x - 1u);
 	let ty = min(u32(max(frag_pos.y, 0.0) / vp_h * f32(tiles_y)), tiles_y - 1u);
 	let view_pos = camera.view * vec4<f32>(world_pos, 1.0);
 	let slice_z = cluster_find_slice(-view_pos.z);
-	let cluster_idx = (slice_z * tiles_y + ty) * tiles_x + tx;
-	let cell = cluster_cells[cluster_idx];
-	let offset = cell.x;
-	let count = cell.y;
-	for (var i: u32 = 0u; i < count; i = i + 1u) {
-		let light_idx = cluster_indices[offset + i];
-		irradiance = irradiance + cluster_eval_one_light(cluster_lights[light_idx], world_pos, n);
+	let cell = cluster_cells[(slice_z * tiles_y + ty) * tiles_x + tx];
+	for (var i: u32 = 0u; i < cell.y; i = i + 1u) {
+		let light_idx = cluster_indices[cell.x + i];
+		lo = lo + cluster_light_radiance(cluster_lights[light_idx], world_pos, n, v, base_color, metallic, roughness);
 	}
-	return irradiance;
+	return lo;
 }
 `
 
-// ClusteredFallbackBindingsWGSL declares the @group(1) pure uniform-buffer binding plus evaluate_clustered_lights(world_pos, normal, frag_pos) with the identical signature as [ClusteredBindingsWGSL], using zero storage buffers and zero compute shaders for WebGL 2 / OpenGL ES 3.0 targets.
-const ClusteredFallbackBindingsWGSL = `
-struct ClusterLightGPU {
-	pos_range: vec4<f32>,
-	color_intensity: vec4<f32>,
-	dir_kind: vec4<f32>,
-	spot_params: vec4<f32>,
-}
-
+// clusteredFallbackWGSL is the uniform-buffer half of [ClusteredFallbackBindingsWGSL], after [LightWGSL].
+const clusteredFallbackWGSL = clusterLightRadianceWGSL + `
 struct FallbackLightUniform {
 	info: vec4<u32>,
-	ambient: vec4<f32>,
-	lights: array<ClusterLightGPU, 16>,
+	local: array<ClusterLightGPU, 16>,
 }
 
-@group(1) @binding(0) var<uniform> fallback_lights: FallbackLightUniform;
+@group(1) @binding(1) var<uniform> fallback_lights: FallbackLightUniform;
 
-fn cluster_eval_one_light(light: ClusterLightGPU, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-	let light_range = light.pos_range.w;
-	let intensity = light.color_intensity.w;
-	if (light_range <= 0.0 || intensity <= 0.0) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	let to_light = light.pos_range.xyz - world_pos;
-	let dist_sq = dot(to_light, to_light);
-	let dist = sqrt(dist_sq);
-	if (dist >= light_range) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	var l_dir = vec3<f32>(0.0, 1.0, 0.0);
-	if (dist > 0.000001) {
-		l_dir = to_light / dist;
-	}
-	let ndl = max(dot(normal, l_dir), 0.0);
-	if (ndl <= 0.0) {
-		return vec3<f32>(0.0, 0.0, 0.0);
-	}
-	let ratio = dist / light_range;
-	let r2 = ratio * ratio;
-	let r4 = r2 * r2;
-	let win = clamp(1.0 - r4, 0.0, 1.0);
-	var atten = (win * win) / max(dist_sq, 0.0001);
-	if (light.dir_kind.w > 0.5) {
-		let cd = dot(light.dir_kind.xyz, -l_dir);
-		let spot = clamp(cd * light.spot_params.x + light.spot_params.y, 0.0, 1.0);
-		atten = atten * spot * spot;
-	}
-	return light.color_intensity.rgb * (intensity * atten * ndl);
-}
-
-fn evaluate_clustered_lights(world_pos: vec3<f32>, normal: vec3<f32>, frag_pos: vec4<f32>) -> vec3<f32> {
+fn shade_pbr_clustered(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, frag_pos: vec4<f32>) -> vec3<f32> {
+	var lo = shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness);
 	let n = normalize(normal);
-	var irradiance = fallback_lights.ambient.rgb;
+	let v = normalize(view_dir);
 	let count = min(fallback_lights.info.x, 16u);
 	for (var i: u32 = 0u; i < count; i = i + 1u) {
-		irradiance = irradiance + cluster_eval_one_light(fallback_lights.lights[i], world_pos, n);
+		lo = lo + cluster_light_radiance(fallback_lights.local[i], world_pos, n, v, base_color, metallic, roughness);
 	}
-	return irradiance;
+	return lo;
 }
 `
 
-const clusteredDefaultStageWGSL = `
-struct ClusterVertexIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
-}
-
-struct ClusterVertexOut {
-	@builtin(position) clip: vec4<f32>,
-	@location(0) world_pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-}
-
-@vertex
-fn vs_main(in: ClusterVertexIn) -> ClusterVertexOut {
-	var out: ClusterVertexOut;
-	out.clip = camera.view_proj * vec4<f32>(in.pos, 1.0);
-	out.world_pos = in.pos;
-	out.normal = in.normal;
-	return out;
-}
-
+// clusteredLitFragmentWGSL is the fragment stage of [ClusteredLitWGSL] and [ClusteredFallbackWGSL]: [LitPBRWGSL]'s, with shade_pbr_clustered in place of shade_pbr.
+const clusteredLitFragmentWGSL = `
 @fragment
-fn fs_main(in: ClusterVertexOut) -> @location(0) vec4<f32> {
-	let lit = evaluate_clustered_lights(in.world_pos, in.normal, in.clip);
-	return vec4<f32>(clamp(lit, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let lit = shade_pbr_clustered(
+		in.world_pos,
+		in.world_normal,
+		view_dir,
+		pbr_draw.base_color.rgb,
+		pbr_draw.pbr_params.x,
+		pbr_draw.pbr_params.y,
+		in.clip,
+	) + pbr_draw.emissive.rgb;
+	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
 }
 `
 
-// ClusteredLitWGSL is a ready-to-compile WGSL module for [MeshVertexLayout] meshes combining [CameraWGSL] (@group(0)) and [ClusteredBindingsWGSL] (@group(1)).
-const ClusteredLitWGSL = CameraWGSL + ClusteredBindingsWGSL + clusteredDefaultStageWGSL
+// ClusteredLitWGSL is [LitPBRWGSL] with clustered local lights: the same metallic-roughness module on [CameraWGSL], [MeshVertexLayout] and a per-draw [PBRDrawUniform] at [PBRDrawGroup], whose fragment stage shades with shade_pbr_clustered from [ClusteredBindingsWGSL] and writes sRGB. [NewClusteredLitPBRPipeline] creates a pipeline from it.
+const ClusteredLitWGSL = litPBRPreludeWGSL + clusteredStorageWGSL + clusteredLitFragmentWGSL
 
-// ClusteredFallbackWGSL is a ready-to-compile WGSL module for [MeshVertexLayout] meshes combining [CameraWGSL] (@group(0)) and [ClusteredFallbackBindingsWGSL] (@group(1)) without storage buffers or compute shaders.
-const ClusteredFallbackWGSL = CameraWGSL + ClusteredFallbackBindingsWGSL + clusteredDefaultStageWGSL
+// ClusteredFallbackWGSL is [ClusteredLitWGSL] built on [ClusteredFallbackBindingsWGSL], for devices without storage buffers or compute.
+const ClusteredFallbackWGSL = litPBRPreludeWGSL + clusteredFallbackWGSL + clusteredLitFragmentWGSL
 
-// ClusteredLightSystem manages the GPU buffers, bind group layout, and bind group for clustered forward shading with automatic fallback to a pure uniform-buffer path on devices without storage buffers or compute (WebGL 2, OpenGL ES 3.0, nsgotest.NoGPUCompute).
+// NewClusteredLitPBRPipeline compiles sys's ready-made shader ([ClusteredLitWGSL] or [ClusteredFallbackWGSL]) and creates the same back-face-culled pipeline as [NewLitPBRPipeline], with sys's layout at [LightGroup] in place of a [GPULightBuffer]'s. Pass depthFormat = [gpu.FormatUndefined] when rendering without a depth attachment.
+func NewClusteredLitPBRPipeline(cx *core.Scope, dev *gpu.Device, camLayout *gpu.BindGroupLayout, sys *ClusteredLightSystem, drawLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+	if dev == nil {
+		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	if sys == nil {
+		return nil, fmt.Errorf("%w: nil ClusteredLightSystem", ErrInvalidClusterConfig)
+	}
+	layouts := make([]*gpu.BindGroupLayout, PBRDrawGroup+1)
+	layouts[CameraGroup] = camLayout
+	layouts[LightGroup] = sys.Layout()
+	layouts[PBRDrawGroup] = drawLayout
+	return newLitPBRPipeline(cx, dev, "render3d.clustered_lit_pbr", sys.WGSL(), layouts, MeshVertexLayout(), dev.SurfaceFormat(), depthFormat)
+}
+
+// ClusteredLightSystem owns the whole [LightGroup] bind group for clustered forward shading: the [LightRig] uniform [LightWGSL] reads at binding 0 (ambient, directional, and the rig's own point and spot lights) and the local-light buffers at bindings 1 to 4. On devices without storage buffers or compute (WebGL 2, OpenGL ES 3.0, nsgotest.NoGPUCompute) it falls back to one uniform buffer at binding 1 holding the [ClusterConfig.FallbackMaxLights] most important visible lights.
 //
-// Create it once on device readiness, call [ClusteredLightSystem.Update] or [ClusteredLightSystem.UpdateCamera] each frame, bind [ClusteredLightSystem.BindGroup] at [ClusteredLightGroup] (group 1), and shade with [ClusteredLightSystem.WGSL] or your own shader prepending [CameraWGSL] + [ClusteredLightSystem.BindingsWGSL].
+// Create it once the device is ready, call [ClusteredLightSystem.Update] or [ClusteredLightSystem.UpdateCamera] each frame, and draw with [NewClusteredLitPBRPipeline] or a custom shader that prepends [CameraWGSL] and [ClusteredLightSystem.BindingsWGSL], binding the system with [ClusteredLightSystem.Bind] in place of a [GPULightBuffer].
 type ClusteredLightSystem struct {
 	cfg      ClusterConfig
 	fallback bool
@@ -1190,16 +1171,17 @@ type ClusteredLightSystem struct {
 	// GPU resources (owned by the core.Scope passed to NewClusteredLightSystem).
 	layout      *gpu.BindGroupLayout
 	group       *gpu.BindGroup
-	paramsBuf   *gpu.Buffer // clustered: ClusterParams uniform; fallback: FallbackLightUniform
-	lightsBuf   *gpu.Buffer // clustered only: storage array<ClusterLightGPU>
-	cellsBuf    *gpu.Buffer // clustered only: storage array<vec4<u32>>
-	indicesBuf  *gpu.Buffer // clustered only: storage array<u32>
-	indicesCap  int         // capacity of indicesBuf in uint32 entries
+	rigBuf      *gpu.Buffer // binding 0: LightRig uniform
+	paramsBuf   *gpu.Buffer // binding 1: clustered ClusterParams uniform, or fallback FallbackLightUniform
+	lightsBuf   *gpu.Buffer // clustered only, binding 2: storage array<ClusterLightGPU>
+	cellsBuf    *gpu.Buffer // clustered only, binding 3: storage array<vec4<u32>>
+	indicesBuf  *gpu.Buffer // clustered only, binding 4: storage array<u32>
 	fallbackDst []ClusterLight
 	fallbackTmp []scoredClusterLight
 	lastStats   ClusterStats
 
 	// Reusable CPU upload scratch buffers (zero steady-state allocations).
+	rigBytes     [LightUniformSize]byte
 	paramsBytes  [ClusterParamsUniformSize]byte
 	fallbackData [ClusteredFallbackUniformSize]byte
 	lightsBytes  []byte
@@ -1207,7 +1189,7 @@ type ClusteredLightSystem struct {
 	indicesBytes []byte
 }
 
-// NewClusteredLightSystem validates cfg, inspects dev's GPU capabilities, and allocates either the storage-buffer clustered lighting path or the uniform-buffer mobile/WebGL 2 fallback path scoped to cx.
+// NewClusteredLightSystem validates cfg, inspects dev's GPU capabilities, and allocates either the storage-buffer clustered lighting path or the uniform-buffer fallback path scoped to cx. In clustered mode it returns an error wrapping [ErrInvalidClusterConfig] when the light or index storage buffer cfg needs exceeds dev's MaxStorageBufferBindingSize.
 func NewClusteredLightSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfig) (*ClusteredLightSystem, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -1217,84 +1199,42 @@ func NewClusteredLightSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfig)
 	}
 	cfg = cfg.withDefaults()
 
-	useFallback := cfg.ForceFallback || !DeviceSupportsClusteredLighting(dev)
-
 	label := cfg.Label
 	if label == "" {
 		label = "render3d.clustered"
 	}
-
-	if useFallback {
-		return newClusteredFallbackSystem(cx, dev, cfg, label)
+	if cfg.ForceFallback || !DeviceSupportsClusteredLighting(dev) {
+		return newClusteredSystem(cx, dev, cfg, label, true)
 	}
-	return newClusteredStorageSystem(cx, dev, cfg, label)
+	return newClusteredSystem(cx, dev, cfg, label, false)
 }
 
-func newClusteredFallbackSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfig, label string) (*ClusteredLightSystem, error) {
-	buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " fallback lights",
-		Size:     ClusteredFallbackUniformSize,
-		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Retained: cfg.Retained,
-	})
-	if err != nil {
-		return nil, err
-	}
-	layout, err := dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: label + " fallback layout",
-		Entries: []gpu.BindGroupLayoutEntry{{
-			Binding:    0,
-			Visibility: gpu.StageFragment,
-			Type:       gpu.BindingUniform,
-		}},
-	})
-	if err != nil {
-		_ = buf.Close()
-		return nil, err
-	}
-	group, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:  label + " fallback group",
-		Layout: layout,
-		Entries: []gpu.BindGroupEntry{{
-			Binding: 0,
-			Buffer:  buf,
-			Size:    ClusteredFallbackUniformSize,
-		}},
-	})
-	if err != nil {
-		_ = layout.Close()
-		_ = buf.Close()
-		return nil, err
-	}
-
-	return &ClusteredLightSystem{
-		cfg:         cfg,
-		fallback:    true,
-		layout:      layout,
-		group:       group,
-		paramsBuf:   buf,
-		fallbackDst: make([]ClusterLight, 0, cfg.FallbackMaxLights),
-		fallbackTmp: make([]scoredClusterLight, 0, cfg.MaxLights),
-	}, nil
-}
-
-func newClusteredStorageSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfig, label string) (*ClusteredLightSystem, error) {
-	grid, err := NewClusterGrid(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	numClusters := cfg.ClusterCount()
-	lightsSize := uint64(cfg.MaxLights) * ClusterLightGPUSize
-	cellsSize := uint64(numClusters) * ClusterCellGPUSize
-	indicesCap := numClusters * cfg.MaxLightsPerCluster
-	indicesSize := uint64(indicesCap) * 4
-
-	// Respect MaxStorageBufferBindingSize by capping indices buffer capacity safely if needed.
-	maxBind := dev.Capabilities().Limits.MaxStorageBufferBindingSize
-	if maxBind > 0 && indicesSize > maxBind {
-		indicesCap = max(int(maxBind/4), 1)
-		indicesSize = uint64(indicesCap) * 4
+func newClusteredSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfig, label string, fallback bool) (*ClusteredLightSystem, error) {
+	s := &ClusteredLightSystem{cfg: cfg, fallback: fallback}
+	var lightsSize, cellsSize, indicesSize uint64
+	if fallback {
+		s.fallbackDst = make([]ClusterLight, 0, cfg.FallbackMaxLights)
+		s.fallbackTmp = make([]scoredClusterLight, 0, cfg.MaxLights)
+	} else {
+		grid, err := NewClusterGrid(cfg)
+		if err != nil {
+			return nil, err
+		}
+		s.grid = grid
+		numClusters := uint64(cfg.ClusterCount())
+		lightsSize = uint64(cfg.MaxLights) * ClusterLightGPUSize
+		cellsSize = numClusters * ClusterCellGPUSize
+		indicesSize = numClusters * uint64(cfg.MaxLightsPerCluster) * 4
+		if maxBind := dev.Capabilities().Limits.MaxStorageBufferBindingSize; maxBind > 0 {
+			for _, b := range []struct {
+				name string
+				size uint64
+			}{{"lights", lightsSize}, {"cells", cellsSize}, {"indices", indicesSize}} {
+				if b.size > maxBind {
+					return nil, fmt.Errorf("%w: %s storage buffer of %d bytes exceeds the device's MaxStorageBufferBindingSize (%d); lower MaxLights, MaxLightsPerCluster or the grid size", ErrInvalidClusterConfig, b.name, b.size, maxBind)
+				}
+			}
+		}
 	}
 
 	var toClose []interface{ Close() error }
@@ -1304,94 +1244,71 @@ func newClusteredStorageSystem(cx *core.Scope, dev *gpu.Device, cfg ClusterConfi
 		}
 		return nil, err
 	}
-
-	paramsBuf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " params",
-		Size:     ClusterParamsUniformSize,
-		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Retained: cfg.Retained,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	toClose = append(toClose, paramsBuf)
-
-	lightsBuf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " lights",
-		Size:     lightsSize,
-		Usage:    gpu.UsageStorage | gpu.UsageCopyDst,
-		Retained: cfg.Retained,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	toClose = append(toClose, lightsBuf)
-
-	cellsBuf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " cells",
-		Size:     cellsSize,
-		Usage:    gpu.UsageStorage | gpu.UsageCopyDst,
-		Retained: cfg.Retained,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	toClose = append(toClose, cellsBuf)
-
-	indicesBuf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    label + " indices",
-		Size:     indicesSize,
-		Usage:    gpu.UsageStorage | gpu.UsageCopyDst,
-		Retained: cfg.Retained,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	toClose = append(toClose, indicesBuf)
-
-	layout, err := dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: label + " layout",
-		Entries: []gpu.BindGroupLayoutEntry{
-			{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
-			{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
-			{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
-			{Binding: 3, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
-		},
-	})
-	if err != nil {
-		return fail(err)
-	}
-	toClose = append(toClose, layout)
-
-	group, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:  label + " group",
-		Layout: layout,
-		Entries: []gpu.BindGroupEntry{
-			{Binding: 0, Buffer: paramsBuf, Size: ClusterParamsUniformSize},
-			{Binding: 1, Buffer: lightsBuf, Size: lightsSize},
-			{Binding: 2, Buffer: cellsBuf, Size: cellsSize},
-			{Binding: 3, Buffer: indicesBuf, Size: indicesSize},
-		},
-	})
-	if err != nil {
-		return fail(err)
+	newBuffer := func(name string, size uint64, usage gpu.BufferUsage) (*gpu.Buffer, error) {
+		buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
+			Label:    label + " " + name,
+			Size:     size,
+			Usage:    usage | gpu.UsageCopyDst,
+			Retained: cfg.Retained,
+		})
+		if err == nil {
+			toClose = append(toClose, buf)
+		}
+		return buf, err
 	}
 
-	return &ClusteredLightSystem{
-		cfg:          cfg,
-		fallback:     false,
-		grid:         grid,
-		layout:       layout,
-		group:        group,
-		paramsBuf:    paramsBuf,
-		lightsBuf:    lightsBuf,
-		cellsBuf:     cellsBuf,
-		indicesBuf:   indicesBuf,
-		indicesCap:   indicesCap,
-		lightsBytes:  make([]byte, lightsSize),
-		cellsBytes:   make([]byte, cellsSize),
-		indicesBytes: make([]byte, indicesSize),
-	}, nil
+	var err error
+	if s.rigBuf, err = newBuffer("rig", LightUniformSize, gpu.UsageUniform); err != nil {
+		return fail(err)
+	}
+	paramsSize := uint64(ClusterParamsUniformSize)
+	if fallback {
+		paramsSize = ClusteredFallbackUniformSize
+	}
+	if s.paramsBuf, err = newBuffer("params", paramsSize, gpu.UsageUniform); err != nil {
+		return fail(err)
+	}
+	layoutEntries := []gpu.BindGroupLayoutEntry{
+		{Binding: 0, Visibility: gpu.StageVertex | gpu.StageFragment, Type: gpu.BindingUniform},
+		{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+	}
+	groupEntries := []gpu.BindGroupEntry{
+		{Binding: 0, Buffer: s.rigBuf, Size: LightUniformSize},
+		{Binding: 1, Buffer: s.paramsBuf, Size: paramsSize},
+	}
+	if !fallback {
+		if s.lightsBuf, err = newBuffer("lights", lightsSize, gpu.UsageStorage); err != nil {
+			return fail(err)
+		}
+		if s.cellsBuf, err = newBuffer("cells", cellsSize, gpu.UsageStorage); err != nil {
+			return fail(err)
+		}
+		if s.indicesBuf, err = newBuffer("indices", indicesSize, gpu.UsageStorage); err != nil {
+			return fail(err)
+		}
+		layoutEntries = append(layoutEntries,
+			gpu.BindGroupLayoutEntry{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+			gpu.BindGroupLayoutEntry{Binding: 3, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+			gpu.BindGroupLayoutEntry{Binding: 4, Visibility: gpu.StageFragment, Type: gpu.BindingStorageRead},
+		)
+		groupEntries = append(groupEntries,
+			gpu.BindGroupEntry{Binding: 2, Buffer: s.lightsBuf, Size: lightsSize},
+			gpu.BindGroupEntry{Binding: 3, Buffer: s.cellsBuf, Size: cellsSize},
+			gpu.BindGroupEntry{Binding: 4, Buffer: s.indicesBuf, Size: indicesSize},
+		)
+		s.lightsBytes = make([]byte, lightsSize)
+		s.cellsBytes = make([]byte, cellsSize)
+		s.indicesBytes = make([]byte, indicesSize)
+	}
+
+	if s.layout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{Label: label + " layout", Entries: layoutEntries}); err != nil {
+		return fail(err)
+	}
+	toClose = append(toClose, s.layout)
+	if s.group, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{Label: label + " group", Layout: s.layout, Entries: groupEntries}); err != nil {
+		return fail(err)
+	}
+	return s, nil
 }
 
 // IsClustered reports whether s is running the storage-buffer clustered forward shading path.
@@ -1416,7 +1333,7 @@ func (s *ClusteredLightSystem) Grid() *ClusterGrid {
 	return s.grid
 }
 
-// Layout returns the bind group layout a pipeline lists at [ClusteredLightGroup] (group 1).
+// Layout returns the bind group layout a pipeline lists at [LightGroup].
 func (s *ClusteredLightSystem) Layout() *gpu.BindGroupLayout {
 	if s == nil {
 		return nil
@@ -1424,7 +1341,7 @@ func (s *ClusteredLightSystem) Layout() *gpu.BindGroupLayout {
 	return s.layout
 }
 
-// BindGroup returns the bind group a render pass sets at [ClusteredLightGroup] (group 1).
+// BindGroup returns the bind group a render pass sets at [LightGroup].
 func (s *ClusteredLightSystem) BindGroup() *gpu.BindGroup {
 	if s == nil {
 		return nil
@@ -1432,7 +1349,7 @@ func (s *ClusteredLightSystem) BindGroup() *gpu.BindGroup {
 	return s.group
 }
 
-// WGSL returns the ready-to-compile WGSL shader matching s's active path ([ClusteredLitWGSL] or [ClusteredFallbackWGSL]).
+// WGSL returns the ready-made shader matching s's active path ([ClusteredLitWGSL] or [ClusteredFallbackWGSL]).
 func (s *ClusteredLightSystem) WGSL() string {
 	if s.IsFallback() {
 		return ClusteredFallbackWGSL
@@ -1440,7 +1357,7 @@ func (s *ClusteredLightSystem) WGSL() string {
 	return ClusteredLitWGSL
 }
 
-// BindingsWGSL returns the @group(1) declarations and evaluate_clustered_lights function matching s's active path ([ClusteredBindingsWGSL] or [ClusteredFallbackBindingsWGSL]).
+// BindingsWGSL returns the [LightGroup] declarations and shade_pbr_clustered helper matching s's active path ([ClusteredBindingsWGSL] or [ClusteredFallbackBindingsWGSL]).
 func (s *ClusteredLightSystem) BindingsWGSL() string {
 	if s.IsFallback() {
 		return ClusteredFallbackBindingsWGSL
@@ -1470,7 +1387,7 @@ func (s *ClusteredLightSystem) ByteSize() uint64 {
 		return 0
 	}
 	var total uint64
-	for _, b := range []*gpu.Buffer{s.paramsBuf, s.lightsBuf, s.cellsBuf, s.indicesBuf} {
+	for _, b := range []*gpu.Buffer{s.rigBuf, s.paramsBuf, s.lightsBuf, s.cellsBuf, s.indicesBuf} {
 		if b != nil {
 			total += b.Size()
 		}
@@ -1480,7 +1397,7 @@ func (s *ClusteredLightSystem) ByteSize() uint64 {
 
 // Valid reports whether s's GPU resources are open and belong to a live device.
 func (s *ClusteredLightSystem) Valid() bool {
-	if s == nil || !s.paramsBuf.Valid() || !s.layout.Valid() || !s.group.Valid() {
+	if s == nil || !s.rigBuf.Valid() || !s.paramsBuf.Valid() || !s.layout.Valid() || !s.group.Valid() {
 		return false
 	}
 	if s.fallback {
@@ -1489,93 +1406,94 @@ func (s *ClusteredLightSystem) Valid() bool {
 	return s.lightsBuf.Valid() && s.cellsBuf.Valid() && s.indicesBuf.Valid()
 }
 
-// Bind sets s's bind group at group on pass. It records nothing when s is not [ClusteredLightSystem.Valid].
-func (s *ClusteredLightSystem) Bind(pass *gpu.RenderPass, group uint32) {
+// Bind sets s's bind group at [LightGroup] on pass, like [GPULightBuffer.Bind]. It records nothing when s is not [ClusteredLightSystem.Valid].
+func (s *ClusteredLightSystem) Bind(pass *gpu.RenderPass) {
 	if !s.Valid() || pass == nil {
 		return
 	}
-	pass.SetBindGroup(group, s.group)
+	pass.SetBindGroup(LightGroup, s.group)
 }
 
-// Update assigns lights for the frame and uploads the resulting lighting buffers to dev.
+// Update validates rig and lights, assigns lights for the frame, and uploads the rig and the resulting light buffers to dev. viewportW and viewportH are the size of the rendered area the fragment shader's @builtin(position) covers, starting at its origin: under a [DynamicResolutionTarget] pass [DynamicResolutionTarget.ScaledSize], not the native size.
 //
-// In clustered mode, lights are binned into view-space frustum clusters via [ClusterGrid.AssignLights] and uploaded into the uniform and storage buffers. In fallback mode, the top [ClusterConfig.FallbackMaxLights] prioritized lights are selected via [SelectFallbackLights] and uploaded into the uniform buffer.
-func (s *ClusteredLightSystem) Update(dev *gpu.Device, view, proj math3d.Mat4, near, far, viewportW, viewportH float32, ambient math3d.Vec3, lights []ClusterLight) ClusterStats {
+// It returns an error wrapping [ErrInvalidLight] for a malformed rig, or [ErrInvalidClusterLight] for a light that fails [ClusterLight.Validate] (including Range 0; see [ClusterLightFromPoint]), and uploads nothing in that case. Lights with zero intensity or color are culled.
+//
+// In clustered mode, lights are binned into view-space frustum clusters via [ClusterGrid.AssignLights]. In fallback mode, the top [ClusterConfig.FallbackMaxLights] visible lights are selected as [SelectFallbackLights] does; CulledLights counts lights outside the frustum or without power and TruncatedLights those dropped by the cap. Steady-state calls allocate nothing beyond the copies gpu.Device.WriteBuffer queues.
+func (s *ClusteredLightSystem) Update(dev *gpu.Device, view, proj math3d.Mat4, near, far, viewportW, viewportH float32, rig LightRig, lights []ClusterLight) (ClusterStats, error) {
 	if s == nil {
-		return ClusterStats{}
+		return ClusterStats{}, nil
 	}
-	if s.fallback {
-		camPos, camFwd := cameraPoseFromView(view)
-		s.fallbackDst = selectFallbackLightsWithScratch(s.fallbackDst, &s.fallbackTmp, camPos, camFwd, lights, s.cfg.FallbackMaxLights)
-		stats := ClusterStats{
-			InputLights:   len(lights),
-			VisibleLights: len(s.fallbackDst),
-			CulledLights:  len(lights) - len(s.fallbackDst),
+	if err := rig.Validate(); err != nil {
+		return ClusterStats{}, err
+	}
+	for i := range lights {
+		if err := lights[i].Validate(); err != nil {
+			return ClusterStats{}, fmt.Errorf("lights[%d]: %w", i, err)
 		}
-		if len(s.fallbackTmp) > len(s.fallbackDst) {
-			stats.TruncatedLights = len(s.fallbackTmp) - len(s.fallbackDst)
+	}
+	upload := dev != nil && s.Valid()
+	if upload {
+		u := packLightUniforms(rig)
+		u.Encode(s.rigBytes[:])
+		dev.WriteBuffer(s.rigBuf, 0, s.rigBytes[:])
+	}
+
+	if s.fallback {
+		s.fallbackDst = selectFallbackLightsWithScratch(s.fallbackDst, &s.fallbackTmp, view, proj, lights, s.cfg.FallbackMaxLights)
+		stats := ClusterStats{
+			InputLights:     len(lights),
+			VisibleLights:   len(s.fallbackDst),
+			CulledLights:    len(lights) - len(s.fallbackTmp),
+			TruncatedLights: len(s.fallbackTmp) - len(s.fallbackDst),
 		}
 		s.lastStats = stats
-		if dev != nil && s.Valid() {
-			encodeFallbackUniform(&s.fallbackData, ambient, s.fallbackDst)
+		if upload {
+			encodeFallbackUniform(&s.fallbackData, s.fallbackDst)
 			dev.WriteBuffer(s.paramsBuf, 0, s.fallbackData[:])
 		}
-		return stats
+		return stats, nil
 	}
 
 	stats := s.grid.AssignLights(view, proj, near, far, lights)
 	s.lastStats = stats
-	if dev == nil || !s.Valid() {
-		return stats
+	if !upload {
+		return stats, nil
 	}
 
-	encodeClusterParams(&s.paramsBytes, s.cfg, uint32(len(s.grid.activeLights)), viewportW, viewportH, near, far, ambient, s.grid.SliceDepths())
+	encodeClusterParams(&s.paramsBytes, s.cfg, uint32(len(s.grid.activeLights)), viewportW, viewportH, near, far, s.grid.SliceDepths())
 	dev.WriteBuffer(s.paramsBuf, 0, s.paramsBytes[:])
 
 	active := s.grid.activeLights
 	if len(active) > 0 {
-		nBytes := len(active) * ClusterLightGPUSize
 		for i := range active {
 			encodeClusterLightGPU(s.lightsBytes[i*ClusterLightGPUSize:], active[i])
 		}
-		dev.WriteBuffer(s.lightsBuf, 0, s.lightsBytes[:nBytes])
+		dev.WriteBuffer(s.lightsBuf, 0, s.lightsBytes[:len(active)*ClusterLightGPUSize])
 	}
 
-	offsets := s.grid.offsets
-	indices := s.grid.lightIndices
-	maxIdx := uint32(s.indicesCap)
-	for i, oc := range offsets {
-		off := oc.Offset
-		cnt := oc.Count
-		if off >= maxIdx {
-			off = 0
-			cnt = 0
-		} else if off+cnt > maxIdx {
-			cnt = maxIdx - off
-		}
+	// Every cell holds at most MaxLightsPerCluster indices, so the packed list always fits the indices buffer.
+	for i, oc := range s.grid.offsets {
 		base := i * ClusterCellGPUSize
-		binary.LittleEndian.PutUint32(s.cellsBytes[base+0:], off)
-		binary.LittleEndian.PutUint32(s.cellsBytes[base+4:], cnt)
+		binary.LittleEndian.PutUint32(s.cellsBytes[base+0:], oc.Offset)
+		binary.LittleEndian.PutUint32(s.cellsBytes[base+4:], oc.Count)
 		binary.LittleEndian.PutUint32(s.cellsBytes[base+8:], 0)
 		binary.LittleEndian.PutUint32(s.cellsBytes[base+12:], 0)
 	}
 	dev.WriteBuffer(s.cellsBuf, 0, s.cellsBytes)
 
-	if len(indices) > 0 {
-		nIdx := min(len(indices), s.indicesCap)
-		for i := range nIdx {
-			binary.LittleEndian.PutUint32(s.indicesBytes[i*4:], indices[i])
+	if indices := s.grid.lightIndices; len(indices) > 0 {
+		for i, idx := range indices {
+			binary.LittleEndian.PutUint32(s.indicesBytes[i*4:], idx)
 		}
-		dev.WriteBuffer(s.indicesBuf, 0, s.indicesBytes[:nIdx*4])
+		dev.WriteBuffer(s.indicesBuf, 0, s.indicesBytes[:len(indices)*4])
 	}
-
-	return stats
+	return stats, nil
 }
 
-// UpdateCamera is a convenience wrapper around [ClusteredLightSystem.Update] extracting view, projection, near, and far from cam.
-func (s *ClusteredLightSystem) UpdateCamera(dev *gpu.Device, cam *scene3d.Camera, viewportW, viewportH float32, ambient math3d.Vec3, lights []ClusterLight) ClusterStats {
+// UpdateCamera is [ClusteredLightSystem.Update] with view, projection, near, and far taken from cam.
+func (s *ClusteredLightSystem) UpdateCamera(dev *gpu.Device, cam *scene3d.Camera, viewportW, viewportH float32, rig LightRig, lights []ClusterLight) (ClusterStats, error) {
 	if cam == nil {
-		return ClusterStats{}
+		return ClusterStats{}, nil
 	}
 	near := cam.Projection.Near
 	far := cam.Projection.Far
@@ -1587,7 +1505,7 @@ func (s *ClusteredLightSystem) UpdateCamera(dev *gpu.Device, cam *scene3d.Camera
 	} else if far <= near {
 		far = near + 1000
 	}
-	return s.Update(dev, cam.ViewMatrix(), cam.ProjMatrix(), near, far, viewportW, viewportH, ambient, lights)
+	return s.Update(dev, cam.ViewMatrix(), cam.ProjMatrix(), near, far, viewportW, viewportH, rig, lights)
 }
 
 // Close releases all GPU resources owned by s now instead of when their scope is disposed. Safe to call on nil or more than once.
@@ -1596,7 +1514,7 @@ func (s *ClusteredLightSystem) Close() error {
 		return nil
 	}
 	var err error
-	for _, c := range []interface{ Close() error }{s.group, s.layout, s.indicesBuf, s.cellsBuf, s.lightsBuf, s.paramsBuf} {
+	for _, c := range []interface{ Close() error }{s.group, s.layout, s.indicesBuf, s.cellsBuf, s.lightsBuf, s.paramsBuf, s.rigBuf} {
 		if c == nil {
 			continue
 		}
@@ -1649,7 +1567,7 @@ func encodeClusterLightGPU(dst []byte, l ClusterLight) {
 	clusterPutFloat32LE(dst[60:], l.InnerConeCos)
 }
 
-func encodeClusterParams(dst *[ClusterParamsUniformSize]byte, cfg ClusterConfig, lightCount uint32, viewportW, viewportH, near, far float32, ambient math3d.Vec3, sliceDepths []float32) {
+func encodeClusterParams(dst *[ClusterParamsUniformSize]byte, cfg ClusterConfig, lightCount uint32, viewportW, viewportH, near, far float32, sliceDepths []float32) {
 	clear(dst[:])
 	// grid_info: vec4<u32>
 	binary.LittleEndian.PutUint32(dst[0:], uint32(cfg.TilesX))
@@ -1661,28 +1579,19 @@ func encodeClusterParams(dst *[ClusterParamsUniformSize]byte, cfg ClusterConfig,
 	clusterPutFloat32LE(dst[20:], viewportH)
 	clusterPutFloat32LE(dst[24:], near)
 	clusterPutFloat32LE(dst[28:], far)
-	// ambient: vec4<f32>
-	clusterPutFloat32LE(dst[32:], ambient.X)
-	clusterPutFloat32LE(dst[36:], ambient.Y)
-	clusterPutFloat32LE(dst[40:], ambient.Z)
-	clusterPutFloat32LE(dst[44:], 0)
-	// slice_depths: array<vec4<f32>, 17> (68 float32 slots starting at byte 48)
+	// slice_depths: array<vec4<f32>, 17> (68 float32 slots starting at byte 32)
 	n := min(len(sliceDepths), MaxClusterSlicesZ+1)
 	for i := range n {
-		clusterPutFloat32LE(dst[48+i*4:], sliceDepths[i])
+		clusterPutFloat32LE(dst[32+i*4:], sliceDepths[i])
 	}
 }
 
-func encodeFallbackUniform(dst *[ClusteredFallbackUniformSize]byte, ambient math3d.Vec3, lights []ClusterLight) {
+func encodeFallbackUniform(dst *[ClusteredFallbackUniformSize]byte, lights []ClusterLight) {
 	clear(dst[:])
 	n := min(len(lights), MaxFallbackLights)
 	binary.LittleEndian.PutUint32(dst[0:], uint32(n))
-	clusterPutFloat32LE(dst[16:], ambient.X)
-	clusterPutFloat32LE(dst[20:], ambient.Y)
-	clusterPutFloat32LE(dst[24:], ambient.Z)
-	clusterPutFloat32LE(dst[28:], 0)
 	for i := range n {
-		encodeClusterLightGPU(dst[32+i*ClusterLightGPUSize:], lights[i])
+		encodeClusterLightGPU(dst[16+i*ClusterLightGPUSize:], lights[i])
 	}
 }
 

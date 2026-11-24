@@ -4,38 +4,51 @@ Status: implemented
 
 ## Problem
 
-`render3d` needs to render scenes with hundreds of local point and spot lights (256+ lights within a 60 fps desktop frame budget) without switching away from forward rendering or breaking mobile and browser targets (WebGL 2 / OpenGL ES 3.0) that lack compute shaders and storage buffers (`Features.Compute == false`, `Features.StorageBuffers == false`, simulated in tests via `nsgotest.NoGPUCompute`).
+`render3d` needs to render scenes with hundreds of local point and spot lights without leaving forward rendering, and without breaking mobile and browser targets (WebGL 2 / OpenGL ES 3.0) that lack compute shaders and storage buffers (`Features.Compute == false`, `Features.StorageBuffers == false`, simulated in tests via `nsgotest.NoGPUCompute`).
 
-Three NSGo-specific constraints shape the design:
-- NSGo v0.3.0's software GPU VM (used by headless `nsgotest` and `gpu.NewSoftwareRenderer`) omits `shaderir.Log2`, `shaderir.Exp`, and `shaderir.Exp2`, so the textbook `floor(log2(z / near) * scale)` depth-slice formula in WGSL would fail in software GPU tests.
-- WebGL 2 and OpenGL ES 3.0 disallow `UsageStorage` buffers and `BindingStorageRead` bind-group entries; any light system targeting all NSGo backends must automatically drop to a pure uniform-buffer path when `DeviceSupportsClusteredLighting(dev)` is false.
-- Retained GPU resources survive device loss and restore by retargeting buffers to the restored device; holding a stale `*gpu.Device` inside the light system breaks updates after `RestoreGPUDevice`.
+The scene lighting model already exists: `light.go` defines `LightRig` (ambient, up to 4 directional, 16 point and 8 spot lights) at `LightGroup` binding 0, the Cook-Torrance `pbr_brdf`, `point_light_attenuation`, `spot_cone_attenuation`, `shade_pbr`, and `LitPBRWGSL` with sRGB output. Clustered lights must combine with that rig in one shader and look identical to rig lights, not introduce a second shading model or a second binding at `@group(1) @binding(0)`.
+
+Constraints:
+
+- NSGo v0.3.0's software GPU VM (headless `nsgotest`, `gpu.NewSoftwareRenderer`) has no case for `log`, `log2`, `exp` or `exp2` in `evalCall` (`internal/driver/gpu_software.go`) and silently returns zero, so the textbook `floor(log2(z / near) * scale)` slice formula would shade every fragment from slice 0 in software tests. Upstream main still lacks them.
+- WebGL 2 and OpenGL ES 3.0 disallow storage buffers, so the system must fall back to uniform buffers when `DeviceSupportsClusteredLighting(dev)` is false.
+- Retained GPU resources survive device loss by retargeting buffers; holding a stale `*gpu.Device` breaks updates after `RestoreGPUDevice`.
 
 ## Decision
 
-`packages/game/render3d/clustered.go` implements a dual-path clustered forward lighting system (`ClusterGrid`, `ClusteredLightSystem`, `ClusterLight`, `ClusterConfig`) alongside pure-Go analytic evaluators (`EvaluateLightAttenuation`, `EvaluateDirectLights`, `EvaluateClusteredLights`):
+`packages/game/render3d/clustered.go` makes `ClusteredLightSystem` own the whole `LightGroup` bind group:
 
-- **Zero-allocation CPU frustum clustering (`ClusterGrid`)**: Partitions view space into `TilesX × TilesY × SlicesZ` (default `16 × 9 × 24 = 3,456` clusters) using logarithmic depth splits `z_i = near * (far/near)^(i/SlicesZ)` for perspective projections (and linear splits for orthographic). Cluster view-space AABBs are cached by `(proj, near, far)` and reused across camera translation/rotation. `AssignLights` culls off-frustum lights, computes conservative screen-tile and Z-slice bounds (clamping near-plane-straddling lights to the full tile span so there are zero false negatives), runs exact sphere-vs-AABB plus Bart Wronski tight bounding-sphere + cone-vs-AABB rejection for `ClusterLightSpot`, and packs contiguous `ClusterOffsetCount` + `LightIndices` slices with 0 heap allocations in steady state.
-- **Portable binary-search depth slicing in WGSL**: `ClusteredBindingsWGSL` passes up to `MaxClusterSlicesZ + 1` (65) slice boundaries in a fixed 17 × `vec4<f32>` uniform array (`ClusterParams.slice_depths`) and computes `slice_z` with a fixed 6-step binary search (`cluster_find_slice`) over `view_z = -(camera.view * vec4(world_pos, 1.0)).z`. This avoids `log2`/`exp`, avoids dynamic vector indexing, and works identically across Metal, Direct3D 11, OpenGL 3.3, WebGPU, and NSGo's software GPU VM.
-- **Automatic capability-gated fallback (`ClusteredLightSystem`)**: `NewClusteredLightSystem` inspects `DeviceSupportsClusteredLighting(dev)` (requiring `Features.StorageBuffers`, `Features.Compute`, and `MaxStorageBufferBindingSize >= 64 KiB`, unless `ForceFallback` is set). On capable devices it binds 1 uniform buffer (`ClusterParams`, 320 bytes) + 3 read-only storage buffers (`cluster_lights`, `cluster_cells`, `cluster_indices`) at `@group(1)` (`ClusteredLightGroup = 1`), all 16-byte aligned (`vec4<f32>` / `vec4<u32>`). On WebGL 2 / OpenGL ES 3.0 / `nsgotest.NoGPUCompute` devices it allocates a single 1,056-byte uniform buffer (`FallbackLightUniform`) holding up to `FallbackMaxLights` (default/max `16`) lights prioritized per frame by `SelectFallbackLights`.
-- **Shared WGSL evaluation signature**: Both `ClusteredBindingsWGSL` and `ClusteredFallbackBindingsWGSL` expose `evaluate_clustered_lights(world_pos, normal, frag_pos) -> vec3<f32>` with glTF `KHR_lights_punctual` smooth range and spotlight attenuation, so both the built-in shaders (`ClusteredLitWGSL`, `ClusteredFallbackWGSL`) and user material shaders share one fragment body across desktop and mobile paths.
-- **Explicit `*gpu.Device` on `Update`/`UpdateCamera`**: Matching `GPUTexture` and `GPUMorphMesh`, `ClusteredLightSystem` never caches a `*gpu.Device` pointer, allowing `ClusterConfig.Retained` buffers to recover and resume updating cleanly across GPU device loss and restore.
+- **One light group, one shading model**: binding 0 is the `LightRig` uniform `LightWGSL` declares, encoded with `packLightUniforms` / `LightUniforms.Encode`; binding 1 is the cluster parameters (clustered) or the fallback light array (fallback); bindings 2 to 4 are the light, cell and index storage buffers. `ClusteredBindingsWGSL` and `ClusteredFallbackBindingsWGSL` are `LightWGSL` plus those bindings and `shade_pbr_clustered`, which returns `shade_pbr` plus each local light through `pbr_brdf`, `point_light_attenuation` and `spot_cone_attenuation`. `ClusteredLitWGSL` / `ClusteredFallbackWGSL` are `LitPBRWGSL` with `shade_pbr_clustered`, writing `linear_to_srgb`, and `NewClusteredLitPBRPipeline` builds them with `newLitPBRPipeline`. `Bind(pass)` matches `GPULightBuffer.Bind`.
+- **Lights from the existing types**: `ClusterLight` stays as the packed record the grid bins, but `ClusterLightFromPoint` / `ClusterLightFromSpot` build it from `PointLight` / `SpotLight`, and `EvaluateLightAttenuation` reuses `PointLightAttenuation` and `SpotConeAttenuation` (with the same `minSpotConeCosDelta`). Clustering needs a bounding sphere, so `Range` must be positive: the converters derive one for `Range == 0` (where `Intensity * max(Color) / d^2` falls to `ClusterRangeCutoff`, 1/256), and `Update` returns an error for an invalid light instead of dropping it.
+- **Zero-allocation CPU clustering (`ClusterGrid`)**: logarithmic depth splits for perspective, linear for orthographic, cluster AABBs cached by `(proj, near, far)`, conservative tile and slice bounds, sphere-vs-AABB plus cone rejection for spot lights, and packed offsets and indices with no steady-state allocations. Overflow past `MaxLights` or `MaxLightsPerCluster` drops lights in input order and is reported in the stats.
+- **Binary-search depth slicing in WGSL**: up to 65 slice boundaries in a 17 × `vec4<f32>` uniform table and a fixed 6-step binary search, instead of `log2` / `exp`.
+- **Fallback selection**: `SelectFallbackLights` frustum-culls light bounding spheres before ranking, so off-screen lights never take one of the 16 uniform slots, and sorts with `slices.SortFunc` so the per-frame path allocates nothing.
+- **Bounded sizes**: `Validate` caps `MaxLights` (65,536), `MaxLightsPerCluster <= MaxLights`, and index slots (`MaxClusterIndexEntries`); `NewClusteredLightSystem` refuses a storage buffer larger than the device's binding limit instead of clamping it.
+- **Explicit `*gpu.Device` on `Update` / `UpdateCamera`**, as `GPUTexture` and `GPUMorphMesh` do.
 
 ## Alternatives considered
 
+### Clustered bindings next to a separate `GPULightBuffer`
+
+Keeping `GPULightBuffer` at group 1 and putting the cluster buffers in another group would avoid touching the rig upload, but group 2 is `PBRDrawGroup` and group 3 is a custom material's extra layout, so the clustered pass would need a fourth group that WebGL 2 pipelines with materials cannot spare. One bind group with the rig at binding 0 keeps `LightWGSL` unchanged and fits every existing pipeline layout.
+
+### A Lambert-only clustered shader
+
+The first version shaded clustered lights with `color * intensity * atten * ndotl` and wrote linear color. It was simpler, but a scene mixing it with `LitPBRWGSL` would be darker and inconsistent, and it duplicated the attenuation math. Reusing `pbr_brdf` costs a few more ALU operations per light and keeps one shading model.
+
 ### Compute-shader light assignment on the GPU
 
-Assigning lights to clusters in a WGSL compute pass avoids uploading per-frame cell and index buffers from the CPU. However, NSGo's software GPU device runs compute workgroups sequentially on the CPU (making 3,456 × 256 invocations far slower in headless tests), requires atomic append counters in WGSL (`atomicAdd`) across all native backends, and still needs a CPU path for capability-limited targets. CPU `ClusterGrid.AssignLights` handles 256 point lights in well under 1 ms with 0 heap allocations, keeps buffer sizes deterministic (~884 KiB max index buffer), and lets headless tests and servers share the exact same culling logic.
+Assigning lights in a compute pass avoids uploading cell and index buffers, but the software GPU runs compute workgroups sequentially, native backends need atomic append counters, and capability-limited targets still need a CPU path. `ClusterGrid.AssignLights` handles 256 lights with no allocations (`BenchmarkClusterAssign256Lights`).
 
 ### `log2(view_z / near)` slice indexing in WGSL
 
-Computing `u32(log2(view_z / near) * inv_log_ratio)` saves 272 bytes in `ClusterParams`. It was rejected because NSGo v0.3.0's software GPU VM does not implement `shaderir.Log2`, which would break headless GPU parity tests, and because a uniform split-depth table also supports orthographic linear slicing and custom depth distributions with zero shader changes.
+It would save 272 bytes of uniforms, but NSGo's software VM evaluates `log2` to zero, and a split table also covers orthographic slicing.
 
-### Packing clustered light lists into a 2D RGBA32UI texture for WebGL 2
+### Packing light lists into textures for WebGL 2
 
-Emulating storage buffers via `textureLoad` on floating-point/integer textures could allow clustering on WebGL 2 without storage buffers, at the cost of requiring `Features.ExtendedFormats` (`FormatRGBA32Float` / integer texture formats) and much higher fragment-shader texture-fetch pressure on mobile tile GPUs. A prioritized 16-light uniform-buffer fallback (`SelectFallbackLights`) uses only core WebGL 2 / GLES 3.0 uniform buffers and stays comfortably within mobile fragment budgets.
+Emulating storage buffers with integer textures needs `Features.ExtendedFormats` and costs texture fetches per light on mobile tile GPUs. A 16-light uniform fallback uses only core WebGL 2 / GLES 3.0 features.
 
 ## Consequences
 
-- **Benefits**: Desktop GPU targets render 256+ local point and spot lights with zero steady-state CPU allocations, exact CPU-vs-GPU pixel parity (verified by `TestClustered256PointLightsParityAndBudget` and `TestClusteredMixedPointAndSpotLightsGPU`), and automatic seamless fallback on `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) with `Retained` device-loss recovery. Keeping all code in standalone `clustered.go` / `clustered_test.go` avoids merge conflicts with parallel `render3d` work.
-- **Costs**: Cluster assignment runs on the CPU and uploads `cells` and `indices` buffers each frame via `Device.WriteBuffer` (scaling linearly with active cluster assignments, capped by `MaxLightsPerCluster` and `MaxStorageBufferBindingSize`). Depth slice count is capped at `MaxClusterSlicesZ = 64` to fit the fixed 17 × `vec4<f32>` uniform split table, and `FallbackMaxLights` is capped at `16` to stay compact inside WebGL 2 / GLES 3.0 uniform buffers.
+- **Benefits**: clustered and rig lights share one BRDF, one attenuation curve and one sRGB output; GPU pixels match `ShadeClusteredPoint` / `ShadeClusteredGridPoint` on the full and `NoGPUCompute` profiles, including a 256-light scene; glTF lights with no range work through the converters.
+- **Costs**: cluster assignment runs on the CPU and uploads cell and index buffers each frame. The shader-side cost of 256 lights at desktop resolution on native GPUs has not been measured here; only the software renderer and the CPU benchmark run in CI. Depth slices are capped at 64 and fallback lights at 16. The tile lookup assumes the viewport starts at the attachment origin, so callers pass `DynamicResolutionTarget.ScaledSize()` under dynamic resolution.

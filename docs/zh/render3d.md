@@ -137,6 +137,8 @@ mesh.Draw(pass)
 
 自定义 3D 着色器只需在开头拼接 `CameraWGSL + LightWGSL`，即可访问 `@group(1) @binding(0) var<uniform> lights: LightRigUniform` 并调用可移植 WGSL 函数 `point_light_attenuation`、`spot_cone_attenuation`、`pbr_brdf`、`shade_pbr` 与 `linear_to_srgb`。`LitPBRWGSL` 将它们与 `MeshVertexLayout` 及位于 `PBRDrawGroup`（第 2 组）的逐绘制 `PBRDrawUniform` 组合为完整管线。
 
+如果局部光源多于 rig 的容量，请在 `LightGroup` 上绑定 `ClusteredLightSystem` 来代替 `GPULightBuffer`：它上传同一个 rig，并加入任意数量的集群点光源和聚光灯，使用同一个 BRDF 着色（[集群前向光照](#集群前向光照clusteredlightsystemclustergrid)）。
+
 着色模型遵循 glTF 2.0 金属度-粗糙度 PBR（电介质 `F0 = 0.04`、Schlick 菲涅尔、Trowbridge-Reitz GGX 法线分布、高度相关 Smith-GGX 可见度项、能量守恒 Lambert 漫反射、感知粗糙度下限 `0.045`，以及 IEC 61966-2-1 线性到 sRGB 输出）。`EvaluatePBR`、`ShadePoint`、`PointLightAttenuation`、`SpotConeAttenuation` 与 `LinearToSRGB` 在 CPU 上实现完全一致的公式；`LightRig.AppendUniformData` 与 `LightUniforms.Encode` 零分配打包 uniform 块。测试逐像素比对 GPU 渲染结果与 CPU `ShadePoint`，覆盖完整能力与 WebGL 2 / GLES 3.0（`nsgotest.NoGPUCompute`）配置及 `Retained` 设备丢失恢复，并将光照场景与 `render3d/testdata/golden/lights_pbr_scene.png`、`lights_point_falloff.png` 和 `spot_lights_scene.png` 参考图比对。
 
 ## 距离雾与高度雾（`Fog`、`GPUFogBuffer`）
@@ -1180,35 +1182,39 @@ _ = stack.SetCamera(cam)
 
 ## 集群前向光照（`ClusteredLightSystem`、`ClusterGrid`）
 
-`ClusterGrid` 与 `ClusteredLightSystem` 将视锥体划分为屏幕瓦片 × 对数深度切片的 3D 网格（默认 `16 × 9 × 24`，最多支持 `512` 个可见局部光源、单格最多 `64` 个光源），让数百个点光源与聚光灯保持在帧预算内；在不支持存储缓冲或计算着色器的目标（WebGL 2、OpenGL ES 3.0 及 `nsgotest.NoGPUCompute` 无头测试）上自动回退为纯 uniform 缓冲着色路径：
+`LightRig` 最多着色 16 个点光源和 8 个聚光灯。对于有数百个局部光源的场景，`ClusteredLightSystem` 在 `LightGroup` 上取代 `GPULightBuffer`：它在绑定 0 上传同一个 `LightRig`（环境光、方向光以及 rig 自身的点光源和聚光灯），并把任意数量的额外局部光源（`ClusterLight`）分配到由屏幕图块 × 对数深度切片组成的三维网格中（默认 `16 × 9 × 24`，最多 `512` 个可见光源、每个集群 `64` 个）。每个片元只着色自己所在集群的光源，使用与 `shade_pbr` 相同的 Cook-Torrance BRDF 和 glTF `KHR_lights_punctual` 衰减，因此集群光源与 rig 光源的效果完全一致。在不支持存储缓冲区或计算着色器的目标上（WebGL 2、OpenGL ES 3.0，以及使用 `nsgotest.NoGPUCompute` 的无头测试），它回退为单个 uniform 缓冲区，存放 `FallbackMaxLights`（默认 `16`）个最重要的可见光源：
 
 ```go
-camBuf, err := render3d.NewCameraBuffer(cx, dev)
-lights, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
+sys, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
+pipe, err := render3d.NewClusteredLitPBRPipeline(cx, dev, camBuf.Layout(), sys, drawBuf.Layout(), gpu.FormatDepth24Plus)
 
-// 编译与当前生效路径匹配的着色器（ClusteredLitWGSL 或 ClusteredFallbackWGSL）：
-mod, err := gpu.CompileWGSL(lights.WGSL())
-pipe, err := dev.CreatePipeline(cx, gpu.PipelineDesc{
-	Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
-	Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
-	Layouts:       []*gpu.BindGroupLayout{render3d.CameraGroup: camBuf.Layout(), render3d.ClusteredLightGroup: lights.Layout()},
-	VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
-	DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
-	Targets:       []gpu.ColorTargetState{{Format: dev.SurfaceFormat(), WriteMask: gpu.ColorWriteAll}},
-})
+// 场景光源只需转换一次；Range 为 0（无界）时会推导出截止范围。
+local := make([]render3d.ClusterLight, 0, len(lamps))
+for _, l := range lamps {
+	cl, err := render3d.ClusterLightFromPoint(l)
+	if err != nil {
+		return err
+	}
+	local = append(local, cl)
+}
 
-// 每帧录制绘制命令前更新相机与光源集群：
+// 每帧录制绘制命令之前：
 camBuf.WriteCamera(cam)
-stats := lights.UpdateCamera(dev, cam, viewW, viewH, ambient, sceneLights)
+stats, err := sys.UpdateCamera(frame.Device(), cam, viewW, viewH, rig, local)
 
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-lights.Bind(pass, render3d.ClusteredLightGroup)
+sys.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
 mesh.Draw(pass)
 ```
 
-- **稳态零分配 CPU 集群分配（`ClusterGrid`）**：视空间集群 AABB 按 `(proj, near, far)` 缓存并在相机移动/旋转时直接复用。`AssignLights` 剔除视锥外光源，计算紧凑的屏幕瓦片与对数深度切片范围，执行球体与 AABB 相交检测（聚光灯 `ClusterLightSpot` 额外执行保守圆锥-AABB 剔除），并稳态零分配地打包 `Offsets` 与 `LightIndices`。
-- **可移植的深度切片查找**：集群片元着色器（`ClusteredBindingsWGSL` / `ClusteredLitWGSL`）在 uniform 分割深度表上通过 6 步二分查找定位视空间深度切片，而非依赖 `log2`/`exp`，在 Metal、Direct3D 11、OpenGL 3.3、WebGPU 与 NSGo 软件 GPU 虚拟机上行为完全一致。
-- **移动端 / WebGL 2 自动回退**：当 `DeviceSupportsClusteredLighting(dev)` 为 false（或设置 `ClusterConfig.ForceFallback`）时，`NewClusteredLightSystem` 自动切换为单个 1,056 字节的 uniform 缓冲（`ClusteredFallbackBindingsWGSL` / `ClusteredFallbackWGSL`），每帧通过 `SelectFallbackLights` 选取优先级最高的 `FallbackMaxLights`（默认 `16`）个光源。两条路径提供完全同名的 `evaluate_clustered_lights(world_pos, normal, frag_pos)` WGSL 辅助函数，自定义材质着色器无需分叉即可同时兼容桌面端与移动端。
-- **衰减模型与纯 Go 参考**：点光源与聚光灯（`NewPointClusterLight`、`NewSpotClusterLight`）遵循 glTF `KHR_lights_punctual` 平滑距离窗口与聚光灯锥角衰减；`EvaluateLightAttenuation`、`EvaluateDirectLights` 与 `EvaluateClusteredLights` 提供与 WGSL 一致的纯 Go 参考计算。
-- **生命周期与设备丢失恢复**：开启 `ClusterConfig.Retained` 可在 GPU 设备丢失恢复后自动重建缓冲；`ByteSize()` 上报显存占用供 `RenderStats` 与预算检查使用，`Close()` 可提前释放资源。
+- **光源**：`ClusterLight` 是点光源或聚光灯记录，其 `Range` 必须为正，因为集群划分需要包围球。`ClusterLightFromPoint` 和 `ClusterLightFromSpot` 转换 `PointLight` 或 `SpotLight`；`Range == 0` 时，推导出 `Intensity * max(Color) / d^2` 降到 `ClusterRangeCutoff`（1/256）的距离。对于未通过 `Validate` 的光源（包括 `Range == 0`），`Update` 返回包装 `ErrInvalidClusterLight` 的错误；对于格式错误的 rig 返回包装 `ErrInvalidLight` 的错误，而不是丢弃它。`EvaluateLightAttenuation` 复用 `PointLightAttenuation` 和 `SpotConeAttenuation`。
+- **视口尺寸**：`viewW` 和 `viewH` 必须是该渲染通道实际渲染区域的尺寸，且区域从原点开始，因为着色器根据 `@builtin(position)` 计算片元所在的图块。使用 `DynamicResolutionTarget` 时，传入 `ScaledSize()`，而不是原生尺寸。
+- **着色器**：`NewClusteredLitPBRPipeline` 编译 `ClusteredLitWGSL` 或 `ClusteredFallbackWGSL`（与 `sys.WGSL()` 一致的那个），即把 `LitPBRWGSL` 中的 `shade_pbr` 换成 `shade_pbr_clustered` 的模块，输出 sRGB。自定义着色器在前面拼接 `CameraWGSL` 和 `sys.BindingsWGSL()`（`ClusteredBindingsWGSL` 或 `ClusteredFallbackBindingsWGSL`，两者都已包含 `LightWGSL`），并调用 `shade_pbr_clustered(world_pos, normal, view_dir, base_color, metallic, roughness, frag_pos)`，它在两条路径上签名相同。
+- **CPU 集群划分（`ClusterGrid`）**：视图空间的集群 AABB 按 `(proj, near, far)` 缓存，相机移动时复用。`AssignLights` 剔除视锥外的光源，计算紧凑的屏幕图块和深度切片范围，进行球体与 AABB 相交测试（聚光灯另加保守的圆锥与 AABB 剔除），并在稳态下零分配地打包 `Offsets` 和 `LightIndices`。超出 `MaxLights` 的光源，以及单个集群中超出 `MaxLightsPerCluster` 的光源，按输入顺序丢弃（`TruncatedLights`、`TruncatedClusters`），因此当场景可能超出任一上限时，请把重要光源放在前面。
+- **回退选择**：`SelectFallbackLights` 先丢弃包围球在视锥外的光源，再按功率、范围和到相机的距离对其余光源排序。回退模式下，`CulledLights` 统计视锥外或没有功率的光源，`TruncatedLights` 统计因上限而未被选中的可见光源。
+- **深度切片查找**：着色器在 uniform 切分深度表上做 6 步二分查找来确定片元的深度切片，而不使用 `log2` 和 `exp`，因为 NSGo v0.3.0 的软件 GPU 渲染器会把这些内置函数求值为零。
+- **CPU 参考实现**：`ShadeClusteredPoint` 是 `ShadePoint` 加上所有集群光源，`ShadeClusteredGridPoint` 只使用片元所在集群的光源，与 GPU 完全一致。测试在完整能力和 `NoGPUCompute` 配置下将 GPU 像素与它们比对，包括一个 256 光源的场景。
+- **上限**：`Validate` 将 `MaxLights` 限制在 `MaxClusterLights`（65,536）以内，要求 `MaxLightsPerCluster` 不超过 `MaxLights`，并将索引槽数（`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`）限制在 `MaxClusterIndexEntries` 以内；当某个存储缓冲区超过设备的 `MaxStorageBufferBindingSize` 时，`NewClusteredLightSystem` 返回 `ErrInvalidClusterConfig`。
+- **生命周期**：设置 `ClusterConfig.Retained` 可在 GPU 设备丢失后恢复缓冲区；`ByteSize()` 报告 GPU 缓冲区字节数，供 `RenderStats` 和预算使用，`Close()` 立即释放资源。
