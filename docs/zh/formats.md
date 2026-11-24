@@ -162,6 +162,47 @@ gameVersion: '>=0.2.0'
 capabilities: [readState, spawnEntity, emitEvent, ui]
 ```
 
+<!-- format: modding#workshop -->
+### Steam 创意工坊元数据
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 发布到 Steam 创意工坊的模组目录中、`mod.yaml` 旁的 `workshop.yaml` | `version: 1` | `modding.ParseWorkshopMetadata`、`modding.EncodeWorkshopMetadata` | [modding](modding.md) |
+
+```yaml
+version: 1
+appId: 480
+publishedFileId: 1001
+title: Boss Rush
+description: Spawns a slime every five seconds.
+tags: [gameplay, survival]
+visibility: public
+preview: preview.png
+```
+
+<!-- format: tooling/hotreload -->
+### 3D 着色器材质
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.material.yaml`，在 `game dev` 中热重载 | `version: 1` | `hotreload.ParseMaterial`、`hotreload.EncodeMaterial` | [render3d](render3d.md) |
+
+```yaml
+version: 1
+name: Crate
+shader: shaders/lit.wgsl
+blend: opaque
+cull: back
+frontFace: ccw
+depthCompare: less
+scalars:
+  roughness: 0.4
+colors:
+  tint: '#d9c6a5'
+textures:
+  albedo: textures/crate.png
+```
+
 ## 场景、资源与动画
 
 <!-- format: sceneformat -->

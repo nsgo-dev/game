@@ -1,0 +1,8 @@
+version: 1
+appId: 480
+publishedFileId: 1001
+title: Boss Rush
+description: Spawns a slime every five seconds.
+tags: [gameplay, survival]
+visibility: public
+preview: preview.png
