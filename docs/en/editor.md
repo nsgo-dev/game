@@ -407,14 +407,14 @@ scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "do
 
 ```go
 loop.Update = func(dt time.Duration) {
-	world.Update(dt) // input and systems call signals.Enqueue
+	updateSystems(dt) // the game's own input and systems, which call signals.Enqueue
 	if err := signals.Flush(); err != nil {
 		log.Print(err)
 	}
 }
 ```
 
-`Enqueue` refuses what `Emit` refuses before it holds anything, so a misspelled event fails where it is raised. `Flush` runs the events enqueued before it began, in the order they were enqueued, each as `Emit` runs it; an event a handler enqueues, its own included, waits for the next `Flush`, so one `Flush` always ends and a handler never re-enters itself. `Flush` from a handler is refused, and `Pending` says how many events wait. Once the queue has grown to a step's events, a step allocates nothing more than emitting them would.
+`Enqueue` refuses what `Emit` refuses before it holds anything, so a misspelled event fails where it is raised. `Flush` runs the events enqueued before it began, in the order they were enqueued, each as `Emit` runs it; an event a handler enqueues, its own included, waits for the next `Flush`, so one `Flush` always ends and a handler never re-enters itself. `Flush` from a handler is refused, and `Pending` says how many events wait. A handler's panic passes through `Flush`, and the events after the one that panicked stay queued for the next `Flush`. Once the queue has grown to a step's events, a step allocates nothing more than emitting them would.
 
 #### Spawning connected entities
 
@@ -422,7 +422,7 @@ loop.Update = func(dt time.Duration) {
 
 #### Checking connections
 
-`go tool game check` resolves each scene that instances or inherits others and has connections of its own, and fails on a connection whose `from` or `to` names no object of the resolved scene, at the line that names it. The events and handlers are declared in Go, which the command cannot load, so a game checks them in its own tests with `assetcheck.CheckWith` and its registry; that reports a connection naming an event, handler or argument its objects do not declare, and a component that breaks its type, at the file and line, in scenes that instance or inherit others too:
+`go tool game check` resolves each scene that instances or inherits others. It fails on a scene that does not resolve, such as a cycle or an override naming no object, at the instance or `inherits` line, and on a connection whose `from` or `to` names no object of the resolved scene, at the line that names it. The events and handlers are declared in Go, which the command cannot load, so a game checks them in its own tests with `assetcheck.CheckWith` and its registry. That reports, at the file and line, a connection naming an event, handler or argument its objects do not declare and a component that breaks its type; in a scene that instances or inherits others, it also checks the components its overrides write and every connection of the resolved scene, so an override that breaks a connection the instanced or inherited scene brings, such as one adding a second component that declares the same event, fails at the override:
 
 ```go
 func TestScenesCheck(t *testing.T) {
@@ -440,7 +440,7 @@ func TestScenesCheck(t *testing.T) {
 scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/door" open): no registered component of object "lever" declares event "held" (it has: button.pressed)
 ```
 
-The connections of the scenes a scene instances or inherits are checked in those files, so each fault is reported once.
+A fault that a scene brings unchanged from a scene it instances or inherits is reported on that file, and one that its overrides cause on the override, so each fault is reported once. Problems carry the line, not the column.
 
 ### Projects
 

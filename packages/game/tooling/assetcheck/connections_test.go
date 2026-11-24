@@ -23,6 +23,10 @@ func connectionsRegistry(t testing.TB) *sceneformat.ComponentRegistry {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// switch declares pressed too, so an object with a button and a switch must name the component of its event.
+	if err := reg.Register(sceneformat.ComponentType{Name: "switch", Events: []sceneformat.Event{{Name: "pressed"}}}); err != nil {
+		t.Fatal(err)
+	}
 	return reg
 }
 
@@ -233,4 +237,116 @@ func FuzzCheckConnections(f *testing.F) {
 			}
 		}
 	})
+}
+
+// An override that breaks a connection a scene brings from the scene it instances or inherits fails at the override, in a scene with no connections of its own too, and the scene the connection comes from passes.
+func TestCheckWithComponentsReportsConnectionsOverridesBreak(t *testing.T) {
+	fsys := connectionsProject()
+	level := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: west
+        scene: scenes/pair.scene.yaml
+        overrides:
+          button:
+            components:
+              switch: {}
+`
+	derived := `version: 2
+inherits: scenes/pair.scene.yaml
+overrides:
+  button:
+    components:
+      switch: {}
+`
+	fsys["scenes/level.scene.yaml"].Data = []byte(level)
+	fsys["scenes/derived.scene.yaml"].Data = []byte(derived)
+	r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: connectionsRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"scenes/derived.scene.yaml:" + strconv.Itoa(lineOf(t, derived, "button:")) + `: sceneformat: the override of object "button" breaks connection ("button" pressed -> "door" open), which a scene it instances or inherits brings: several components of object "button" declare event "pressed"`,
+		"scenes/level.scene.yaml:" + strconv.Itoa(lineOf(t, level, "button:")) + `: sceneformat: the override of object "west/button" breaks connection ("west/button" pressed -> "west/door" open), which a scene it instances or inherits brings: several components of object "west/button" declare event "pressed"`,
+	}
+	if len(r.Problems) != len(want) {
+		t.Fatalf("%d problems, want %d:\n%s", len(r.Problems), len(want), problems(r))
+	}
+	for i, w := range want {
+		if got := r.Problems[i].String(); !strings.HasPrefix(got, w) {
+			t.Errorf("problem %d = %q\nwant prefix %q", i, got, w)
+		}
+	}
+}
+
+// A component an override writes is checked against its type, at the override's field.
+func TestCheckWithComponentsReportsOverriddenComponents(t *testing.T) {
+	fsys := connectionsProject()
+	level := strings.Replace(levelScene, "        scene: scenes/pair.scene.yaml\n", "        scene: scenes/pair.scene.yaml\n        overrides:\n          door:\n            components:\n              door: {nope: 3}\n", 1)
+	derived := strings.Replace(derivedScene, "layers:", "overrides:\n  door:\n    components:\n      door:\n        nope: 3\nlayers:", 1)
+	fsys["scenes/level.scene.yaml"].Data = []byte(level)
+	fsys["scenes/derived.scene.yaml"].Data = []byte(derived)
+	r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: connectionsRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []assetcheck.Problem{
+		{File: "scenes/derived.scene.yaml", Line: lineOf(t, derived, "nope: 3"), Message: `sceneformat: object "door" component "door" field "nope": unknown field (the type has no fields)`},
+		{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "door: {nope: 3}"), Message: `sceneformat: object "west/door" component "door" field "nope": unknown field (the type has no fields)`},
+	}
+	if got := r.Problems; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("problems:\n%s\nwant:\n%v\n%v", problems(r), want[0], want[1])
+	}
+}
+
+// A connection of a scene's own that repeats one a scene it instances brings fails at its line.
+func TestCheckWithComponentsReportsConnectionsRepeatingBroughtOnes(t *testing.T) {
+	fsys := connectionsProject()
+	level := strings.Replace(levelScene, "  - from: lever\n", "  - from: west/button\n    event: pressed\n    to: west/door\n    handler: open\n  - from: lever\n", 1)
+	fsys["scenes/level.scene.yaml"].Data = []byte(level)
+	r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: connectionsRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := assetcheck.Problem{File: "scenes/level.scene.yaml", Line: lineOf(t, level, "handler: open"), Message: `sceneformat: connection 0 ("west/button" pressed -> "west/door" open): connects the same event and handler as a connection that a scene it instances or inherits brings`}
+	if len(r.Problems) != 1 || r.Problems[0] != want {
+		t.Fatalf("problems:\n%s\nwant:\n%v", problems(r), want)
+	}
+}
+
+// A scene that does not resolve is reported whether or not it has connections, at the instance at fault when there is one.
+func TestUnresolvableSceneWithoutConnectionsIsReported(t *testing.T) {
+	fsys := connectionsProject()
+	level := `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: lever
+      - id: west
+        scene: scenes/pair.scene.yaml
+        overrides:
+          ghost:
+            name: boo
+`
+	fsys["scenes/level.scene.yaml"].Data = []byte(level)
+	fsys["scenes/a.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\ninherits: scenes/b.scene.yaml\n")}
+	fsys["scenes/b.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\ninherits: scenes/a.scene.yaml\n")}
+	r, err := assetcheck.Check(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := problems(r)
+	for _, want := range []string{
+		"scenes/a.scene.yaml:2: sceneformat: scene cycle",
+		"scenes/b.scene.yaml:2: sceneformat: scene cycle",
+		"scenes/level.scene.yaml:" + strconv.Itoa(lineOf(t, level, "overrides:")) + `: sceneformat: object "west" overrides "ghost", which scene "scenes/pair.scene.yaml" does not hold`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("problems do not include %q:\n%s", want, got)
+		}
+	}
+	if len(r.Problems) != 3 {
+		t.Fatalf("%d problems, want 3:\n%s", len(r.Problems), got)
+	}
 }

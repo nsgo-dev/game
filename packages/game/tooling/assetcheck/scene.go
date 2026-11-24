@@ -2,6 +2,7 @@ package assetcheck
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"path"
@@ -53,8 +54,8 @@ func (c *checker) checkScene(p string) {
 			registry = nil
 		}
 	}
-	if doc.RefersToScenes() && len(doc.Connections) > 0 {
-		s.connections(doc, registry)
+	if doc.RefersToScenes() {
+		s.sceneRefs(doc, registry)
 	}
 }
 
@@ -75,8 +76,8 @@ func (s *sceneCheck) located(err error) {
 	s.problem(s.path, 0, "%v", err)
 }
 
-// connections checks the connections of doc, a scene that instances or inherits other scenes, against the objects it has once they are resolved and, given component types reg, against the events and handlers those objects declare. The connections of the scenes it instances and inherits are not checked here: they come from those files, which are checked on their own.
-func (s *sceneCheck) connections(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry) {
+// sceneRefs checks doc, a scene that instances or inherits other scenes: that it resolves, that its own connections name objects of the resolved scene and, given component types reg, that the components its overrides change keep their types and that every connection of the resolved scene, its own and those the scenes it instances and inherits bring, names events, handlers and arguments its objects declare. A fault a scene brings unchanged from a file it instances or inherits is reported on that file, which is checked on its own; one this scene's overrides cause is reported at the override, so each fault is reported once.
+func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry) {
 	projectFS := s.fsys
 	if s.project != "." {
 		sub, err := fs.Sub(s.fsys, s.project)
@@ -94,25 +95,21 @@ func (s *sceneCheck) connections(doc *sceneformat.SceneDoc, reg *sceneformat.Com
 	if err != nil {
 		// A scene file that is missing or does not load is reported on its reference or on the file itself.
 		if !files.failed {
-			line := 0
-			if doc.Inherits != "" {
-				line = s.line("inherits")
-			}
-			s.problem(s.path, line, "%v", err)
+			s.unresolved(own, files, err)
 		}
 		return
 	}
-	ids := make(map[string]bool)
+	byID := make(map[string]*sceneformat.ObjectDoc)
 	for li := range resolved.Layers {
 		sceneformat.WalkObjects(resolved.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
-			ids[o.ID] = true
+			byID[o.ID] = o
 			return true
 		})
 	}
 	missing := false
 	for i, c := range conns {
 		for _, end := range []struct{ field, id string }{{"from", c.From}, {"to", c.To}} {
-			if !ids[end.id] {
+			if byID[end.id] == nil {
 				missing = true
 				s.problem(s.path, s.line("connections", strconv.Itoa(i), end.field), "sceneformat: connection %d (%q %s -> %q %s): the scene has no object %q, counting those of the scenes it instances and inherits", i, c.From, c.Event, c.To, c.Handler, end.id)
 			}
@@ -121,16 +118,153 @@ func (s *sceneCheck) connections(doc *sceneformat.SceneDoc, reg *sceneformat.Com
 	if missing || reg == nil {
 		return
 	}
-	resolved.Connections = conns
-	err = sceneformat.ValidateConnections(resolved, reg)
-	if ce, ok := errors.AsType[*sceneformat.ConnectionError](err); ok {
-		steps := []string{"connections", strconv.Itoa(ce.Index), ce.Field}
-		if ce.Arg != "" {
-			steps = append(steps, ce.Arg)
+	overrides := s.overrides(doc)
+	for _, ov := range overrides {
+		o := byID[ov.id]
+		if o == nil {
+			continue // Resolve refuses an override that names no object.
 		}
-		s.problem(s.path, s.line(steps...), "%v", ce)
-	} else if err != nil {
-		s.problem(s.path, 0, "%v", err)
+		for _, name := range slices.Sorted(maps.Keys(ov.components)) {
+			err := reg.CheckComponent(name, o.Components[name])
+			if err == nil {
+				continue
+			}
+			ce, ok := errors.AsType[*sceneformat.ComponentError](err)
+			if !ok {
+				s.problem(s.path, s.line(append(slices.Clip(ov.steps), "components", name)...), "sceneformat: object %q component %q: %v", ov.id, name, err)
+				continue
+			}
+			e := *ce
+			e.File, e.Line, e.Column, e.Object = "", 0, 0, ov.id
+			s.problem(s.path, s.line(append(slices.Clip(ov.steps), "components", name, ce.Field)...), "%v", &e)
+		}
+	}
+	s.resolvedConnections(resolved, len(resolved.Connections), conns, overrides, reg)
+}
+
+// resolvedConnections checks every connection of resolved, a scene that holds merged connections brought by the scenes it instances and inherits followed by own, its own connections, against reg. A fault in an own connection is reported at the line that names it; one in a brought connection only when an override of this scene changes the object at fault, at that override, since the file the connection comes from reports the others.
+func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged int, own []sceneformat.ConnectionDoc, overrides []objectOverride, reg *sceneformat.ComponentRegistry) {
+	resolved.Connections = append(resolved.Connections, own...)
+	// index maps a connection of resolved.Connections to its index before faulty ones were taken out.
+	index := make([]int, len(resolved.Connections))
+	for i := range index {
+		index[i] = i
+	}
+	// Each pass reports the first fault and takes its connection out, so every faulty connection is reported and the others are still checked against each other.
+	for len(resolved.Connections) > 0 {
+		err := sceneformat.ValidateConnections(resolved, reg)
+		if err == nil {
+			return
+		}
+		ce, ok := errors.AsType[*sceneformat.ConnectionError](err)
+		if !ok {
+			s.problem(s.path, 0, "%v", err)
+			return
+		}
+		e := *ce
+		e.File, e.Line, e.Column = "", 0, 0
+		e.Index = index[ce.Index]
+		if rest, ok := strings.CutPrefix(e.Msg, duplicatePrefix); ok {
+			if j, err := strconv.Atoi(rest); err == nil && j >= 0 && j < len(index) {
+				if index[j] >= merged {
+					e.Msg = duplicatePrefix + strconv.Itoa(index[j]-merged)
+				} else {
+					e.Msg = "connects the same event and handler as a connection that a scene it instances or inherits brings"
+				}
+			}
+		}
+		if e.Index >= merged {
+			e.Index -= merged
+			steps := []string{"connections", strconv.Itoa(e.Index), e.Field}
+			if e.Arg != "" {
+				steps = append(steps, e.Arg)
+			}
+			s.problem(s.path, s.line(steps...), "%v", &e)
+		} else {
+			at := e.To
+			if e.Field == "from" || e.Field == "event" {
+				at = e.From
+			}
+			if i := slices.IndexFunc(overrides, func(ov objectOverride) bool { return ov.id == at }); i >= 0 {
+				arg := ""
+				if e.Arg != "" {
+					arg = fmt.Sprintf(" argument %q", e.Arg)
+				}
+				s.problem(s.path, s.line(overrides[i].steps...), "sceneformat: the override of object %q breaks connection (%q %s -> %q %s)%s, which a scene it instances or inherits brings: %s", at, e.From, e.Event, e.To, e.Handler, arg, e.Msg)
+			}
+		}
+		resolved.Connections = slices.Delete(resolved.Connections, ce.Index, ce.Index+1)
+		index = slices.Delete(index, ce.Index, ce.Index+1)
+	}
+}
+
+// duplicatePrefix starts the message of a sceneformat.ConnectionError for a connection that repeats an earlier one, which ends with the earlier one's index.
+const duplicatePrefix = "connects the same event and handler as connection "
+
+// objectOverride is an override a scene applies to an object of a scene it instances or inherits: the object's ID in the resolved scene, the components it changes, and the steps to it in the scene file.
+type objectOverride struct {
+	id         string
+	components map[string]any
+	steps      []string
+}
+
+// overrides returns the overrides doc applies, those of SceneDoc.Overrides first and then those of its instances in document order, each sorted by ID.
+func (s *sceneCheck) overrides(doc *sceneformat.SceneDoc) []objectOverride {
+	var out []objectOverride
+	for _, id := range slices.Sorted(maps.Keys(doc.Overrides)) {
+		out = append(out, objectOverride{id: id, components: doc.Overrides[id].Components, steps: []string{"overrides", id}})
+	}
+	walkInstances(doc, func(o *sceneformat.ObjectDoc, steps []string) {
+		for _, id := range slices.Sorted(maps.Keys(o.Overrides)) {
+			out = append(out, objectOverride{id: o.ID + "/" + id, components: o.Overrides[id].Components, steps: append(slices.Clip(steps), "overrides", id)})
+		}
+	})
+	return out
+}
+
+// unresolved reports err, why own (doc without its connections) does not resolve, at the instance that causes it when resolving each instance alone finds one, and otherwise at the inherits line, or at line 0 for a scene that inherits nothing.
+func (s *sceneCheck) unresolved(own *sceneformat.SceneDoc, files *sceneFiles, err error) {
+	found := false
+	walkInstances(own, func(o *sceneformat.ObjectDoc, steps []string) {
+		alone := o.Clone()
+		alone.Children = nil
+		one := &sceneformat.SceneDoc{Version: own.Version, Layers: []sceneformat.LayerDoc{{Name: "instance", Objects: []sceneformat.ObjectDoc{alone}}}}
+		_, ierr := sceneformat.Resolve(one, files)
+		if ierr == nil {
+			return
+		}
+		found = true
+		field := "scene"
+		if len(o.Overrides) > 0 && strings.Contains(ierr.Error(), " overrides ") {
+			field = "overrides"
+		}
+		s.problem(s.path, s.line(append(slices.Clip(steps), field)...), "%v", ierr)
+	})
+	if found {
+		return
+	}
+	line := 0
+	if own.Inherits != "" {
+		line = s.line("inherits")
+	}
+	s.problem(s.path, line, "%v", err)
+}
+
+// walkInstances calls fn for every object of doc's own layers, at any depth, that instances a scene file, with the steps to it in the scene file, in document order.
+func walkInstances(doc *sceneformat.SceneDoc, fn func(o *sceneformat.ObjectDoc, steps []string)) {
+	var walk func(objs []sceneformat.ObjectDoc, steps []string)
+	walk = func(objs []sceneformat.ObjectDoc, steps []string) {
+		for j := range objs {
+			o := &objs[j]
+			op := append(slices.Clip(steps), strconv.Itoa(j))
+			if o.Scene != "" {
+				fn(o, op)
+			}
+			walk(o.Children, append(slices.Clip(op), "children"))
+		}
+	}
+	for li := range doc.Layers {
+		walk(doc.Layers[li].Objects, []string{"layers", strconv.Itoa(li), "objects"})
 	}
 }
 

@@ -2,7 +2,7 @@
 //
 // Check walks a directory and reads:
 //
-//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose sprite frames and tile IDs must be in their atlases, and whose connections must name objects of the scene, counting in a scene that instances or inherits other scenes the objects they bring once sceneformat.Resolve has merged them, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
+//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose sprite frames and tile IDs must be in their atlases, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
@@ -65,7 +65,7 @@ func (r *Report) OK() bool { return len(r.Problems) == 0 }
 
 // Options configures CheckWith.
 type Options struct {
-	// Components, when non-nil, are the game's component types, whose events and handlers a scene's connections name: every object's components are checked against them, as sceneformat.ParseWith checks them, and so is every connection, in a scene that instances or inherits other scenes once they are resolved, so a connection naming an event or handler its object does not declare, or a handler argument it does not take, is a Problem at the line that names it. Nil checks a connection's objects only, since the command line cannot know the types a game registers in Go.
+	// Components, when non-nil, are the game's component types, whose events and handlers a scene's connections name: every object's components are checked against them, as sceneformat.ParseWith checks them, and so is every connection, so a connection naming an event or handler its object does not declare, or a handler argument it does not take, is a Problem at the line that names it. In a scene that instances or inherits other scenes, the components its overrides write and every connection of the resolved scene are checked too, and an override that breaks a connection the other scenes bring is a Problem at the override; a fault a scene brings unchanged from another file is reported on that file only. Nil checks a connection's objects only, since the command line cannot know the types a game registers in Go.
 	Components *sceneformat.ComponentRegistry
 }
 
