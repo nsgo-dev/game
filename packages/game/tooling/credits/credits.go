@@ -48,10 +48,11 @@ func (e *MissingError) Error() string {
 		b.WriteString("\n\t")
 		b.WriteString(importsettings.Path(a))
 	}
+	b.WriteString("\na file in the manifest's folder that a target no longer writes is a leftover of an earlier build, which game assets removes")
 	return b.String()
 }
 
-// Assets returns the slash-separated paths, relative to root, of the assets a reaches, sorted: the PNG images each atlas packs, the input of each texture and audio target, and every file the manifest lists in its folder, leaving out what a target writes (Assets.IsOutput), since that is made from the targets' inputs. A nil a reaches none. It fails when an input a target names is missing; a manifest folder that is not there yet holds no asset.
+// Assets returns the slash-separated paths, relative to root, of the assets a reaches, sorted: the PNG images each atlas packs, the input of each texture and audio target, and every file the manifest lists in its folder, leaving out what a target writes (Assets.IsOutput), since that is made from the targets' inputs. A file a target wrote before its output changed counts as an asset until game assets removes it. A nil a reaches none. It fails when an input a target names is missing; a manifest folder that is not there yet holds no asset.
 func Assets(root string, a *project.Assets) ([]string, error) {
 	if a == nil {
 		return nil, nil
@@ -111,7 +112,7 @@ func Assets(root string, a *project.Assets) ([]string, error) {
 	return out, nil
 }
 
-// Collect returns the credit of every asset Assets returns, in its order, read from the credit section of the import settings sidecar beside each one. When some assets have none, it returns the entries of the others with a *MissingError naming them; a sidecar that fails to parse is an error of its own.
+// Collect returns the credit of every asset Assets returns, in its order, read from the credit section of the import settings sidecar beside each one. A sidecar counts only under exactly its asset's name and the suffix, so a case-insensitive file system, which would open Hero.PNG.import.yaml for hero.png, credits the same assets as a case-sensitive one. When some assets have none, it returns the entries of the others with a *MissingError naming them; a sidecar that fails to parse is an error of its own.
 func Collect(root string, a *project.Assets) ([]Entry, error) {
 	assets, err := Assets(root, a)
 	if err != nil {
@@ -119,6 +120,8 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 	}
 	entries := make([]Entry, 0, len(assets))
 	var missing []string
+	// names caches each folder's file names, for the exact-name check.
+	names := map[string]map[string]bool{}
 	for _, asset := range assets {
 		sidecar := importsettings.Path(asset)
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(sidecar)))
@@ -128,6 +131,21 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 		}
 		if err != nil {
 			return nil, fmt.Errorf("credits: %w", err)
+		}
+		dir := path.Dir(sidecar)
+		if names[dir] == nil {
+			list, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
+			if err != nil {
+				return nil, fmt.Errorf("credits: %w", err)
+			}
+			names[dir] = map[string]bool{}
+			for _, e := range list {
+				names[dir][e.Name()] = true
+			}
+		}
+		if !names[dir][path.Base(sidecar)] {
+			missing = append(missing, asset)
+			continue
 		}
 		f, err := importsettings.Parse(data)
 		if err != nil {
@@ -159,7 +177,7 @@ func Markdown(entries []Entry) []byte {
 	counts := map[string]int{}
 	var licenses []string
 	for _, e := range entries {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", codeSpan(e.Asset), escape(e.Credit.Author), escape(e.Credit.License), source(e.Credit.Source))
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", codeSpan(e.Asset, true), escape(e.Credit.Author), escape(e.Credit.License), source(e.Credit.Source))
 		if counts[e.Credit.License] == 0 {
 			licenses = append(licenses, e.Credit.License)
 		}
@@ -180,7 +198,7 @@ func Markdown(entries []Entry) []byte {
 			first = false
 		}
 		fence := strings.Repeat("`", max(3, longestRun(e.Credit.Notice, '`')+1))
-		fmt.Fprintf(&b, "\n### %s\n\n%stext\n%s\n%s\n", codeSpan(e.Asset), fence, e.Credit.Notice, fence)
+		fmt.Fprintf(&b, "\n### %s\n\n%stext\n%s\n%s\n", codeSpan(e.Asset, false), fence, e.Credit.Notice, fence)
 	}
 	return b.Bytes()
 }
@@ -194,10 +212,10 @@ func licenseLink(l string) string {
 	return "[" + escape(l) + "](https://spdx.org/licenses/" + id + ".html)"
 }
 
-// source returns a credit's source as table text: an autolink for a URL, else the text escaped.
+// source returns a credit's source as table text: an autolink for a URL, its pipes percent-encoded since a table cell ends at one even inside an autolink, else the text escaped.
 func source(s string) string {
 	if (strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://")) && !strings.ContainsAny(s, " <>") {
-		return "<" + s + ">"
+		return "<" + strings.ReplaceAll(s, "|", "%7C") + ">"
 	}
 	return escape(s)
 }
@@ -214,14 +232,17 @@ func escape(s string) string {
 	return b.String()
 }
 
-// codeSpan returns s as a Markdown code span, delimited by more backticks than any run in it and, in a table, with its pipes escaped.
-func codeSpan(s string) string {
+// codeSpan returns s as a Markdown code span, delimited by more backticks than any run in it and, when inTable, with its pipes escaped, since a table cell ends at an unescaped pipe even in a code span, while elsewhere the backslash would show.
+func codeSpan(s string, inTable bool) string {
 	ticks := strings.Repeat("`", longestRun(s, '`')+1)
 	pad := ""
 	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
 		pad = " "
 	}
-	return ticks + pad + strings.ReplaceAll(s, "|", `\|`) + pad + ticks
+	if inTable {
+		s = strings.ReplaceAll(s, "|", `\|`)
+	}
+	return ticks + pad + s + pad + ticks
 }
 
 // longestRun returns the length of the longest run of c in s.

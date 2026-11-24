@@ -248,6 +248,8 @@ func TestCreditOnlySidecars(t *testing.T) {
 	writeFile(t, filepath.Join(root, "sfx/jump.wav.import.yaml"), []byte(credit))
 	writeFile(t, filepath.Join(root, "art/ui/photo.jpg"), []byte("not read"))
 	writeFile(t, filepath.Join(root, "art/ui/photo.jpg.import.yaml"), []byte(credit))
+	// A credit changes no output, so it leaves every target's key as it was.
+	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), all(assetbuild.UpToDate))
 	build(t, root, assetbuild.Builder{})
 	if format, levels, kvd := textureOf(t, root, "assets/albedo.ktx2"); format != ktx2.FormatBC1 || levels != 5 || kvd[importsettings.FilterKey] != nil {
 		t.Fatalf("with a credit: %s, %d levels, filter %q; want game.yaml's bc1 with mipmaps and no filter", format, levels, kvd[importsettings.FilterKey])
@@ -256,6 +258,16 @@ func TestCreditOnlySidecars(t *testing.T) {
 		t.Fatalf("frames = %v, want %v", got, want)
 	}
 	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), all(assetbuild.UpToDate))
+
+	// Beside settings, editing the credit, or a comment, still rebuilds nothing, while editing a setting does.
+	writeFile(t, filepath.Join(root, "art/albedo.png.import.yaml"), []byte("version: 1\nimage: {filter: nearest}\ncredit: {author: Ana, license: CC0-1.0}\n"))
+	build(t, root, assetbuild.Builder{})
+	writeFile(t, filepath.Join(root, "art/albedo.png.import.yaml"), []byte("# Fixed the author's name.\nversion: 1\nimage: {filter: nearest}\ncredit: {author: Ana Lima, license: CC-BY-4.0, notice: Thanks.}\n"))
+	wantStatuses(t, build(t, root, assetbuild.Builder{Check: true}), all(assetbuild.UpToDate))
+	writeFile(t, filepath.Join(root, "art/albedo.png.import.yaml"), []byte("version: 1\nimage: {filter: linear}\ncredit: {author: Ana Lima, license: CC-BY-4.0}\n"))
+	if r := build(t, root, assetbuild.Builder{Check: true}); r.Count(assetbuild.Stale) != 1 {
+		t.Fatalf("after a filter edit: %d stale targets, want 1", r.Count(assetbuild.Stale))
+	}
 
 	for _, missing := range []string{"art/ui/gone.ttf.import.yaml", "art/Albedo.png.import.yaml"} {
 		root := newProject(t)

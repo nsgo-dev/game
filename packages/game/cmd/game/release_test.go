@@ -50,7 +50,8 @@ func TestReleaseBuildsEveryPlatformByDefault(t *testing.T) {
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("ran %q, want %q", *calls, want)
 	}
-	if stdout.Len() != 0 || stderr.Len() != 0 {
+	// Without an assets section, the command notes that it writes no credits file.
+	if stdout.Len() != 0 || stderr.String() != noCreditsNote+"\n" {
 		t.Errorf("wrote stdout %q, stderr %q", stdout, stderr)
 	}
 }
@@ -258,7 +259,7 @@ func TestReleaseReportsAFailedBuild(t *testing.T) {
 	if code := run([]string{"release", dir}, a); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	if got := stderr.String(); got != "game release: nsgo build: exit status 1\n" {
+	if got := stderr.String(); got != noCreditsNote+"\ngame release: nsgo build: exit status 1\n" {
 		t.Fatalf("stderr = %q", got)
 	}
 }

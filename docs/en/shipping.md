@@ -99,7 +99,7 @@ Pass `-installers=false` if you only want the raw unpacked app directories on de
 
 ## Credit your assets
 
-Most licenses an asset comes under, Creative Commons Attribution and the SIL Open Font License among them, ask for its author and license to be shipped with the game. Record them in the `credit` section of the import settings sidecar beside each asset (`hero.png.import.yaml`); `go tool game release`, which runs `nsgo build` for every platform, then writes `CREDITS.md` beside the packages and refuses to build while an asset in `game.yaml`'s `assets` section has no credit. `go tool game credits` checks the credits and prints the file without building ([Command Line](cli.md#credits)).
+Most licenses an asset comes under, Creative Commons Attribution and the SIL Open Font License among them, ask for its author and license to be shipped with the game. Record them in the `credit` section of the import settings sidecar beside each asset (`hero.png.import.yaml`); `go tool game release`, which runs `nsgo build` for every platform, then writes `CREDITS.md` beside the packages, for the store or download page, and refuses to build while an asset in `game.yaml`'s `assets` section has no credit. `go tool game credits` checks the credits and prints the file without building; `go tool game credits -out resources/CREDITS.md` before the release puts it in every package too, since `nsgo build` copies the `resources` folder into each one ([Command Line](cli.md#credits)). Assets the game loads from outside the `assets` section are not listed, so credit those yourself.
 
 ## Targets
 
