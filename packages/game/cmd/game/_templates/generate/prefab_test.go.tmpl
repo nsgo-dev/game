@@ -1,7 +1,6 @@
 package {{.Package}}
 
 import (
-	"os"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/entities"
@@ -9,11 +8,7 @@ import (
 )
 
 func Test{{.Go}}Prefab(t *testing.T) {
-	data, err := os.ReadFile("{{.Path}}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "{{.Path}}", Components: Components})
+	doc, err := sceneformat.ParseWith({{.Camel}}PrefabYAML, sceneformat.ParseOptions{File: "{{.Path}}", Components: Components})
 	if err != nil {
 		t.Fatal(err)
 	}

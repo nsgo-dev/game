@@ -4,4 +4,4 @@
 
 ### Changed
 
-- The starter's `TestProjectFileIsValidAndCanonical` checks the project directory itself, so the scenes and resources `game.yaml` autoloads must exist and load, where it used to see only `game.yaml` and `nsgo.yaml` and failed on any autoload (#505).
+- The starter's `TestProjectFileIsValidAndCanonical` checks `nsgo.yaml` against `game.yaml` with `CheckNSGo` instead of `project.Check`, which failed on any autoload because the test saw only those two files, and the new `TestAutoloadsLoad` checks the scenes and resources `game.yaml` autoloads from the project directory, skipped under `nsgo test -target` where that directory cannot be read (#505).

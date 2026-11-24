@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -39,7 +40,7 @@ func generateProject(t *testing.T, files map[string]string) string {
 func runGenerate(t *testing.T, dir string, args ...string) (int, string, string) {
 	t.Helper()
 	a, stdout, stderr := newTestApp(t)
-	code := run(append([]string{"generate", "-dir", dir}, args...), a)
+	code := run(append([]string{"generate", "-in", dir}, args...), a)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -299,7 +300,7 @@ func TestGeneratePrefab(t *testing.T) {
 	}
 	checkSceneRoundTrips(t, scene)
 	src := readFile(t, dir, "enemy_prefab.go")
-	for _, want := range []string{`var EnemyPrefab = entities.NewPrefab("enemy")`, "Prefabs[EnemyPrefab.Name()] = EnemyPrefab"} {
+	for _, want := range []string{"//go:embed prefabs/enemy.scene.yaml\nvar enemyPrefabYAML []byte", `var EnemyPrefab = entities.NewPrefab("enemy")`, "Prefabs[EnemyPrefab.Name()] = EnemyPrefab"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("enemy_prefab.go lacks %q:\n%s", want, src)
 		}
@@ -367,8 +368,7 @@ func TestGenerateRefusesDeclaredIdentifiers(t *testing.T) {
 		{map[string]string{"move_windows.go": "package main\n\nfunc MoveSystem() {}\n"}, []string{"system", "move"}, "MoveSystem"},
 		{map[string]string{"load.go": "package main\n\nconst (\n\tx = 1\n\tLoadTitleScene = 2\n)\n"}, []string{"scene", "title"}, "LoadTitleScene"},
 		{map[string]string{"boss.go": "package main\n\nvar a, BossPrefab int\n"}, []string{"prefab", "boss"}, "BossPrefab"},
-		// A component called Components collides with the registry the same run writes.
-		{nil, []string{"component", "components"}, "Components"},
+		{map[string]string{"boss.go": "package main\n\nvar bossPrefabYAML []byte\n"}, []string{"prefab", "boss"}, "bossPrefabYAML"},
 	}
 	for _, tc := range cases {
 		dir := generateProject(t, tc.files)
@@ -383,6 +383,80 @@ func TestGenerateRefusesDeclaredIdentifiers(t *testing.T) {
 		if after := listFiles(t, dir); !slices.Equal(after, before) {
 			t.Errorf("%v: wrote %q", tc.args, after)
 		}
+	}
+}
+
+func TestGenerateRefusesARegistryThatIsNotAVariable(t *testing.T) {
+	cases := []struct {
+		files map[string]string
+		args  []string
+		want  string
+	}{
+		{map[string]string{"systems.go": "package main\n\ntype Systems struct{}\n"}, []string{"system", "move"}, "declares Systems as a type"},
+		{map[string]string{"components.go": "package main\n\nfunc Components() {}\n"}, []string{"scene", "title"}, "declares Components as a func"},
+		{map[string]string{"prefabs.go": "package main\n\nconst Prefabs = 1\n"}, []string{"prefab", "enemy"}, "declares Prefabs as a const"},
+	}
+	for _, tc := range cases {
+		dir := generateProject(t, tc.files)
+		before := listFiles(t, dir)
+		if code, _, stderr := runGenerate(t, dir, tc.args...); code != 1 || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%v: exit %d, stderr %q; want 1 and %q", tc.args, code, stderr, tc.want)
+		}
+		if after := listFiles(t, dir); !slices.Equal(after, before) {
+			t.Errorf("%v: wrote %q", tc.args, after)
+		}
+	}
+}
+
+func TestGenerateRefusesIdentifiersItsImportsShadow(t *testing.T) {
+	cases := []struct {
+		files map[string]string
+		args  []string
+		want  string
+	}{
+		{map[string]string{"x.go": "package main\n\nvar entities = 1\n"}, []string{"system", "move"}, "declares entities, which systems.go imports"},
+		{map[string]string{"x.go": "package main\n\nfunc time() {}\n"}, []string{"system", "move"}, "declares time, which move_system.go imports"},
+		{map[string]string{"x.go": "package main\n\ntype sceneformat struct{}\n"}, []string{"component", "health"}, "declares sceneformat, which components.go imports"},
+		{map[string]string{"x_test.go": "package main\n\nvar slices = 1\n"}, []string{"system", "move"}, "declares slices, which move_system_test.go imports"},
+	}
+	for _, tc := range cases {
+		dir := generateProject(t, tc.files)
+		before := listFiles(t, dir)
+		if code, _, stderr := runGenerate(t, dir, tc.args...); code != 1 || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%v: exit %d, stderr %q; want 1 and %q", tc.args, code, stderr, tc.want)
+		}
+		if after := listFiles(t, dir); !slices.Equal(after, before) {
+			t.Errorf("%v: wrote %q", tc.args, after)
+		}
+	}
+}
+
+func TestGenerateRemovesWhatItWroteWhenGameYAMLCannotBeReplaced(t *testing.T) {
+	replaceProjectFile = func(string, []byte) error { return errors.New("disk full") }
+	t.Cleanup(func() { replaceProjectFile = replaceFile })
+
+	dir := generateProject(t, nil)
+	code, stdout, stderr := runGenerate(t, dir, "-main", "scene", "title")
+	if code != 1 || !strings.Contains(stderr, "disk full") || stdout != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if got := listFiles(t, dir); !slices.Equal(got, []string{"game.yaml", "main.go"}) {
+		t.Errorf("left %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "scenes")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("left the scenes directory: %v", err)
+	}
+	if got := readFile(t, dir, project.FileName); got != generateGameYAML {
+		t.Errorf("game.yaml changed:\n%s", got)
+	}
+
+	// A scenes directory that was there before stays, with what it held.
+	dir = generateProject(t, map[string]string{"scenes/menu.scene.yaml": "version: 2\n"})
+	if code, _, stderr := runGenerate(t, dir, "-autoload", "scene", "title"); code != 1 || !strings.Contains(stderr, "disk full") {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if got := listFiles(t, dir); !slices.Equal(got, []string{"game.yaml", "main.go", "scenes/menu.scene.yaml"}) {
+		t.Errorf("left %q", got)
 	}
 }
 
@@ -448,6 +522,9 @@ func TestGenerateUsageErrors(t *testing.T) {
 		{[]string{"scene", "1up"}, `name "1up"`},
 		{[]string{"-autoload", "component", "health"}, "-autoload and -main are for a scene"},
 		{[]string{"-main", "prefab", "enemy"}, "-autoload and -main are for a scene"},
+		{[]string{"component", "components"}, "the registry game generate declares for the game's components"},
+		{[]string{"component", "systems"}, "the registry game generate declares for the game's systems"},
+		{[]string{"system", "Prefabs"}, "the registry game generate declares for the game's prefabs"},
 	}
 	for _, tc := range cases {
 		dir := generateProject(t, nil)
@@ -537,7 +614,7 @@ func TestGeneratedCodeBuildsAndPassesCheck(t *testing.T) {
 	}
 	goCmd("mod", "edit", "-replace="+gameModule+"="+gameDir)
 	goCmd("vet", ".")
-	tests := []string{"TestVelocityComponent", "TestPlayerHealthComponent", "TestMovementSystem", "TestDamageSystem", "TestLoadLevelOneScene", "TestLoadTitleScene", "TestEnemyPrefab", "TestProjectFileIsValidAndCanonical"}
+	tests := []string{"TestVelocityComponent", "TestPlayerHealthComponent", "TestMovementSystem", "TestDamageSystem", "TestLoadLevelOneScene", "TestLoadTitleScene", "TestEnemyPrefab", "TestProjectFileIsValidAndCanonical", "TestAutoloadsLoad"}
 	out := goCmd("tool", "nsgo", "test", "-run", "^("+strings.Join(tests, "|")+")$", ".", "-count=1")
 	if n, ok := passedTests([]byte(out)); !ok || n != len(tests) {
 		t.Errorf("%d tests passed, want %d:\n%s", n, len(tests), out)

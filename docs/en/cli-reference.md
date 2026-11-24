@@ -189,6 +189,20 @@ game assets [flags]
 | `-force` |  | rebuild every target, even those the cache says are up to date |
 | `-in string` | `game.yaml` | project file whose assets section declares the targets |
 
+## game generate
+
+Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration.
+
+```sh
+game generate [flags] component|system|scene|prefab <name>
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-autoload` |  | for a scene, also add it to the scenes game.yaml autoloads |
+| `-in string` | `.` | the game's project directory, which holds its game.yaml and the Go package the code is written into |
+| `-main` |  | for a scene, also add it to the scenes game.yaml autoloads and make it the main scene |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

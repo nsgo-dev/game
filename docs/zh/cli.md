@@ -262,7 +262,7 @@ go tool game generate -main scene level_one
 go tool game generate prefab enemy
 ```
 
-把一个新的组件、系统、场景或预制体的代码和文件写入 `-dir`（默认为当前工作目录）中的游戏，布局与 [`game new`](#new) 创建的项目一致，并打印写出的每个文件的路径。Go 代码写进该目录中的包，使用该包的包名，每个 Go 文件旁边都附带一个测试。名称由 ASCII 字母和数字组成、以字母开头，可以用驼峰写法，也可以用 `-` 或 `_` 连接单词，并按用到它的每个地方写成相应的形式：`player_health`、`player-health` 和 `PlayerHealth` 都得到 Go 类型 `PlayerHealth`、键名 `playerHealth` 以及名为 `player_health_*` 的文件。
+把一个新的组件、系统、场景或预制体的代码和文件写入 `-in`（默认为当前工作目录）中的游戏，布局与 [`game new`](#new) 创建的项目一致，并打印写出的每个文件的路径。Go 代码写进该目录中的包，使用该包的包名，每个 Go 文件旁边都附带一个测试。名称由 ASCII 字母和数字组成、以字母开头，可以用驼峰写法，也可以用 `-` 或 `_` 连接单词，并按用到它的每个地方写成相应的形式：`player_health`、`player-health` 和 `PlayerHealth` 都得到 Go 类型 `PlayerHealth`、键名 `playerHealth` 以及名为 `player_health_*` 的文件。
 
 | 种类 | 写出 | 注册到 |
 | --- | --- | --- |
@@ -273,7 +273,7 @@ go tool game generate prefab enemy
 
 这些注册表各只声明一次，分别在 `components.go`、`systems.go` 和 `prefabs.go` 中，由第一个需要它的组件、系统、场景或预制体写出。每个生成的文件在 `init` 函数中把自己加入注册表，因此 `generate` 从不修改已经存在的文件。游戏在加载场景和运行循环的地方使用它们：`sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` 拒绝场景中设置了却没有任何组件描述的组件或字段，`game.Loop` 的 `Update` 中调用 `Systems.Step(world, dt)` 按顺序运行各个系统，顺序由加入每个系统时的 `entities.After` 和 `entities.Before` 决定。之后在生成的代码上继续填写：组件的字段以及场景可设置的每个字段对应的 `sceneformat.Field`、系统的查询、用 `entities.With` 给预制体添加的组件。
 
-`generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestProjectFileIsValidAndCanonical` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败。
+`generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。包中把 `Components`、`Systems` 或 `Prefabs` 声明成变量以外的东西，或者声明了生成的文件导入包时使用的名称（例如 `entities` 或 `time`）时，它同样失败；名称 `components`、`systems` 和 `prefabs` 也会被拒绝，因为它们的 Go 名称就是注册表的名称。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestAutoloadsLoad` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败；它从项目目录读取这些文件，所以在手机、模拟器或 Web 上用 `nsgo test -target` 运行时会跳过，而生成的测试只读取其代码嵌入的场景文件。
 
 ### completion
 
@@ -282,7 +282,7 @@ mkdir -p ~/.zfunc
 go tool game completion zsh > ~/.zfunc/_game
 ```
 
-把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
+把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类（由于命令的参数在每个位置的补全方式相同，补全名称时也会提供这些种类），以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
 
 脚本补全的是名为 `game` 的命令。输入 `go tool game` 时，shell 补全的是 `go`，所以要么用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，要么把 `game` 定义为运行 `go tool game` 的 shell 函数：它在游戏的模块内可用，并沿用 `go.mod` 固定的版本。`go tool game` 只能在模块内运行，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
 
