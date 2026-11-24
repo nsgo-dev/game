@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // ClipEvent marks a named gameplay or audio event at a specific time (in seconds)
@@ -285,10 +287,12 @@ type gltfAnimationExtras struct {
 // animations[i].extras.events and/or animations[i].extras.nsgo_events arrays.
 // Each clip's events are returned sorted by ascending Time.
 // Animations without a name fall back to "animation_<index>".
+//
+// Its errors are *loaderr.Error values that give the line of the problem and how to fix it; a caller that read the document from a file names it with loaderr.WithFile.
 func LoadEventsFromGLTFExtras(gltfJSON []byte) (map[string][]ClipEvent, error) {
 	var doc gltfDocument
 	if err := json.Unmarshal(gltfJSON, &doc); err != nil {
-		return nil, fmt.Errorf("anim3d: parse glTF JSON: %w", err)
+		return nil, loaderr.Locate(err, "", gltfJSON, "export the glTF again, or correct its JSON so it parses")
 	}
 
 	result := make(map[string][]ClipEvent)
@@ -351,23 +355,26 @@ func MarshalEventsSidecar(clips map[string][]ClipEvent) ([]byte, error) {
 // LoadEventsSidecar parses a JSON sidecar file produced by MarshalEventsSidecar
 // ({"version": 1, "clips": {...}}) or a flat {"clipName": [...]} map into
 // per-clip event slices sorted by ascending Time.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadEventsSidecar(data []byte) (map[string][]ClipEvent, error) {
+	const fix = `write {"version": 1, "clips": {"<clip>": [{"time": <seconds>, "name": "<event>"}]}}`
 	// Probe top-level object keys to distinguish envelope format from flat map.
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("anim3d: parse events sidecar: %w", err)
+		return nil, loaderr.Locate(err, "", data, fix)
 	}
 
 	var clips map[string][]ClipEvent
 	if _, hasClips := raw["clips"]; hasClips {
 		var doc eventsSidecarFile
 		if err := json.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("anim3d: parse events sidecar clips: %w", err)
+			return nil, loaderr.Locate(err, "", data, fix)
 		}
 		clips = doc.Clips
 	} else {
 		if err := json.Unmarshal(data, &clips); err != nil {
-			return nil, fmt.Errorf("anim3d: parse flat events sidecar: %w", err)
+			return nil, loaderr.Locate(err, "", data, fix)
 		}
 	}
 

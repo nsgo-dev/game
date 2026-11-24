@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/flow"
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 const merchantQuestYarn = `
@@ -486,20 +488,21 @@ func TestDialogueErrorsAndGuards(t *testing.T) {
 			name string
 			src  string
 			want string
+			line int
 		}{
-			{"EmptyScript", "   \n// only comment\n", "no nodes"},
-			{"MissingTitle", "tags: a\n---\nHello\n===\n", "missing a 'title'"},
-			{"DuplicateTitle", "title: A\n---\nHi\n===\ntitle: A\n---\nBye\n===\n", "duplicate node title"},
-			{"MissingBodySeparator", "title: A\n===\n", "before '---'"},
-			{"UnterminatedNode", "title: A\n---\nHello\n", "missing '==='"},
-			{"UnclosedIf", "title: A\n---\n<<if true>>\nHi\n===\n", "unclosed <<if>>"},
-			{"StrayEndif", "title: A\n---\n<<endif>>\n===\n", "unexpected <<endif>>"},
-			{"ElseifAfterElse", "title: A\n---\n<<if true>>\nA\n<<else>>\nB\n<<elseif false>>\nC\n<<endif>>\n===\n", "after <<else>>"},
-			{"UnclosedCommand", "title: A\n---\n<<set $x = 1\n===\n", "unclosed command"},
-			{"InvalidExpr", "title: A\n---\n<<set $x = 1 + >>\n===\n", "invalid expression"},
-			{"UnclosedInterpolation", "title: A\n---\nHello {$name\n===\n", "unclosed '{'"},
-			{"EmptyChoice", "title: A\n---\n-> <<if true>>\n    Hi\n===\n", "empty choice text"},
-			{"UnterminatedCmdString", "title: A\n---\n<<say \"unterminated>>\n===\n", "unterminated quoted"},
+			{"EmptyScript", "   \n// only comment\n", "no nodes", 1},
+			{"MissingTitle", "tags: a\n---\nHello\n===\n", "missing a 'title'", 2},
+			{"DuplicateTitle", "title: A\n---\nHi\n===\ntitle: A\n---\nBye\n===\n", "duplicate node title", 6},
+			{"MissingBodySeparator", "title: A\n===\n", "before '---'", 2},
+			{"UnterminatedNode", "title: A\n---\nHello\n", "missing '==='", 1},
+			{"UnclosedIf", "title: A\n---\n<<if true>>\nHi\n===\n", "unclosed <<if>>", 3},
+			{"StrayEndif", "title: A\n---\n<<endif>>\n===\n", "unexpected <<endif>>", 3},
+			{"ElseifAfterElse", "title: A\n---\n<<if true>>\nA\n<<else>>\nB\n<<elseif false>>\nC\n<<endif>>\n===\n", "after <<else>>", 7},
+			{"UnclosedCommand", "title: A\n---\n<<set $x = 1\n===\n", "unclosed command", 3},
+			{"InvalidExpr", "title: A\n---\n<<set $x = 1 + >>\n===\n", "invalid expression", 3},
+			{"UnclosedInterpolation", "title: A\n---\nHello {$name\n===\n", "unclosed '{'", 3},
+			{"EmptyChoice", "title: A\n---\n-> <<if true>>\n    Hi\n===\n", "empty choice text", 3},
+			{"UnterminatedCmdString", "title: A\n---\n<<say \"unterminated>>\n===\n", "unterminated quoted", 3},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -510,6 +513,7 @@ func TestDialogueErrorsAndGuards(t *testing.T) {
 				if !strings.Contains(err.Error(), tc.want) {
 					t.Fatalf("ParseYarn error = %q, want substring %q", err.Error(), tc.want)
 				}
+				loaderrtest.Expect(t, loaderr.WithFile(err, "intro.yarn"), "intro.yarn", tc.line)
 			})
 		}
 	})

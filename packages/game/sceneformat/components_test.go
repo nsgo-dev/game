@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
@@ -173,10 +174,10 @@ func TestParseWithoutRegistryKeepsFreeFormComponents(t *testing.T) {
 	}
 }
 
-func TestParseWithPrefixesOtherErrorsWithFile(t *testing.T) {
+func TestParseWithNamesTheFileInOtherErrors(t *testing.T) {
 	_, err := sceneformat.ParseWith([]byte("version: 1\nnmae: x\n"), sceneformat.ParseOptions{File: "bad.yaml", Components: testComponents(t)})
-	if err == nil || !strings.HasPrefix(err.Error(), "bad.yaml: sceneformat: decode:") || !strings.Contains(err.Error(), "line 2") {
-		t.Fatalf("err = %v, want a decode error prefixed with the file and naming line 2", err)
+	if e := loaderrtest.Expect(t, err, "bad.yaml", 2); !strings.Contains(e.Problem, `unknown field "nmae"`) {
+		t.Fatalf("err = %v, want the unknown field named", err)
 	}
 }
 

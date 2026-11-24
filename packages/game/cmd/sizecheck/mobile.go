@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // PackageKind identifies the package artifact format inspected by sizecheck.
@@ -179,15 +181,15 @@ func DefaultMobileBudget(kind PackageKind) (MobileBudget, error) {
 	}
 }
 
-// LoadMobileBudget reads and decodes a MobileBudget JSON file from filePath.
+// LoadMobileBudget reads and decodes a MobileBudget JSON file from filePath. Its errors are *loaderr.Error values that name filePath, with the line of the problem and how to fix it.
 func LoadMobileBudget(filePath string) (MobileBudget, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return MobileBudget{}, err
+		return MobileBudget{}, loaderr.Locate(err, filePath, nil, "check the budget file path")
 	}
 	var b MobileBudget
 	if err := json.Unmarshal(data, &b); err != nil {
-		return MobileBudget{}, err
+		return MobileBudget{}, loaderr.Locate(err, filePath, data, "correct the budget file; see docs/en/package-size-budgets.md")
 	}
 	return b, nil
 }

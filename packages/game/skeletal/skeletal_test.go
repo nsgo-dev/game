@@ -1,7 +1,9 @@
 package skeletal_test
 
 import (
+	"bytes"
 	_ "embed"
+	"encoding/json"
 	"math"
 	"reflect"
 	"strings"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/gametest"
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/skeletal"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -124,99 +128,118 @@ func TestLoadRunnerAndDefaults(t *testing.T) {
 
 func TestLoadValidationErrors(t *testing.T) {
 	cases := []struct {
-		name string
-		doc  string
-		want string
+		name  string
+		doc   string
+		want  string
+		field string // the field the error names; the test checks its line in the indented document
 	}{
 		{
-			name: "invalid YAML",
-			doc:  `{`,
-			want: "skeletal:",
+			name:  "invalid YAML",
+			doc:   `{`,
+			want:  "invalid YAML",
+			field: "",
 		},
 		{
-			name: "missing version",
-			doc:  `{"bones":[{"name":"root"}]}`,
-			want: "unsupported version 0",
+			name:  "missing version",
+			doc:   `{"bones":[{"name":"root"}]}`,
+			want:  "unsupported version 0",
+			field: "version",
 		},
 		{
-			name: "unsupported version",
-			doc:  `{"version":99,"bones":[{"name":"root"}]}`,
-			want: "unsupported version 99",
+			name:  "unsupported version",
+			doc:   `{"version":99,"bones":[{"name":"root"}]}`,
+			want:  "unsupported version 99",
+			field: "version",
 		},
 		{
-			name: "duplicate bone",
-			doc:  `{"version":1,"bones":[{"name":"root"},{"name":"root"}]}`,
-			want: `duplicate bone "root"`,
+			name:  "duplicate bone",
+			doc:   `{"version":1,"bones":[{"name":"root"},{"name":"root"}]}`,
+			want:  `duplicate bone "root"`,
+			field: "bones[1].name",
 		},
 		{
-			name: "unknown parent",
-			doc:  `{"version":1,"bones":[{"name":"torso","parent":"missing"}]}`,
-			want: `unknown parent "missing"`,
+			name:  "unknown parent",
+			doc:   `{"version":1,"bones":[{"name":"torso","parent":"missing"}]}`,
+			want:  `unknown parent "missing"`,
+			field: "bones[0].parent",
 		},
 		{
-			name: "self cycle",
-			doc:  `{"version":1,"bones":[{"name":"a","parent":"a"}]}`,
-			want: `bone cycle`,
+			name:  "self cycle",
+			doc:   `{"version":1,"bones":[{"name":"a","parent":"a"}]}`,
+			want:  `bone cycle`,
+			field: "bones[0].parent",
 		},
 		{
-			name: "multi-bone cycle",
-			doc:  `{"version":1,"bones":[{"name":"a","parent":"c"},{"name":"b","parent":"a"},{"name":"c","parent":"b"}]}`,
-			want: `bone cycle`,
+			name:  "multi-bone cycle",
+			doc:   `{"version":1,"bones":[{"name":"a","parent":"c"},{"name":"b","parent":"a"},{"name":"c","parent":"b"}]}`,
+			want:  `bone cycle`,
+			field: "bones[0].parent",
 		},
 		{
-			name: "duplicate slot",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"},{"name":"s","bone":"root"}]}`,
-			want: `duplicate slot "s"`,
+			name:  "duplicate slot",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"},{"name":"s","bone":"root"}]}`,
+			want:  `duplicate slot "s"`,
+			field: "slots[1].name",
 		},
 		{
-			name: "slot unknown bone",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"nope"}]}`,
-			want: `unknown bone "nope"`,
+			name:  "slot unknown bone",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"nope"}]}`,
+			want:  `unknown bone "nope"`,
+			field: "slots[0].bone",
 		},
 		{
-			name: "slot alpha out of range",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","alpha":1.5}]}`,
-			want: `alpha`,
+			name:  "slot alpha out of range",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","alpha":1.5}]}`,
+			want:  `alpha`,
+			field: "slots[0].alpha",
 		},
 		{
-			name: "skin unknown slot",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"skins":{"default":{"ghost":{"frame":"x"}}}}`,
-			want: `unknown slot "ghost"`,
+			name:  "skin unknown slot",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"skins":{"default":{"ghost":{"frame":"x"}}}}`,
+			want:  `unknown slot "ghost"`,
+			field: "skins.default.ghost",
 		},
 		{
-			name: "animation unknown bone",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"nope":{"rotate":[{"time":0,"angle":1}]}}}}}`,
-			want: `unknown bone "nope"`,
+			name:  "animation unknown bone",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"nope":{"rotate":[{"time":0,"angle":1}]}}}}}`,
+			want:  `unknown bone "nope"`,
+			field: "animations.a.bones.nope",
 		},
 		{
-			name: "animation unknown slot",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"slots":{"nope":{"alpha":[{"time":0,"value":1}]}}}}}`,
-			want: `unknown slot "nope"`,
+			name:  "animation unknown slot",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"slots":{"nope":{"alpha":[{"time":0,"value":1}]}}}}}`,
+			want:  `unknown slot "nope"`,
+			field: "animations.a.slots.nope",
 		},
 		{
-			name: "negative duration",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"duration":-1}}}`,
-			want: `negative duration`,
+			name:  "negative duration",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"duration":-1}}}`,
+			want:  `negative duration`,
+			field: "animations.a.duration",
 		},
 		{
-			name: "unsorted keyframes",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0.5,"angle":0},{"time":0.2,"angle":1}]}}}}}`,
-			want: `precedes previous`,
+			name:  "unsorted keyframes",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0.5,"angle":0},{"time":0.2,"angle":1}]}}}}}`,
+			want:  `precedes previous`,
+			field: "animations.a.bones.root.rotate[1].time",
 		},
 		{
-			name: "invalid curve",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"elastic"}]}}}}}`,
-			want: `unknown curve`,
+			name:  "invalid curve",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"elastic"}]}}}}}`,
+			want:  `unknown curve`,
+			field: "animations.a.bones.root.rotate[0].curve",
 		},
 		{
-			name: "invalid bezier x",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"bezier","bezier":[-0.1,0,0.5,1]}]}}}}}`,
-			want: `control points`,
+			name:  "invalid bezier x",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"animations":{"a":{"bones":{"root":{"rotate":[{"time":0,"angle":0,"curve":"bezier","bezier":[-0.1,0,0.5,1]}]}}}}}`,
+			want:  `control points`,
+			field: "animations.a.bones.root.rotate[0].curve",
 		},
 		{
-			name: "slot alpha keyframe out of range",
-			doc:  `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"animations":{"a":{"slots":{"s":{"alpha":[{"time":0,"value":-0.2}]}}}}}`,
-			want: `out of range`,
+			name:  "slot alpha keyframe out of range",
+			doc:   `{"version":1,"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root"}],"animations":{"a":{"slots":{"s":{"alpha":[{"time":0,"value":-0.2}]}}}}}`,
+			want:  `out of range`,
+			field: "animations.a.slots.s.alpha[0].value",
 		},
 		{
 			name: "empty document",
@@ -226,12 +249,12 @@ func TestLoadValidationErrors(t *testing.T) {
 		{
 			name: "unknown top-level field",
 			doc:  "version: 1\nbones: [{name: root}]\nrig: x\n",
-			want: "field rig not found",
+			want: `unknown field "rig"`,
 		},
 		{
 			name: "unknown keyframe field",
 			doc:  "version: 1\nbones: [{name: root}]\nanimations:\n  a:\n    bones:\n      root:\n        rotate: [{time: 0, angle: 0, ease: in}]\n",
-			want: "field ease not found",
+			want: `unknown field "ease"`,
 		},
 		{
 			name: "duplicate key",
@@ -292,12 +315,25 @@ func TestLoadValidationErrors(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := skeletal.Load([]byte(tc.doc))
+			data := []byte(tc.doc)
+			var indented bytes.Buffer
+			if json.Indent(&indented, data, "", "  ") == nil {
+				data = indented.Bytes()
+			}
+			_, err := skeletal.Load(data)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.want)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tc.want)
+			}
+			if tc.field == "" {
+				return
+			}
+			line, _ := loaderr.FindField(data, tc.field)
+			e := loaderrtest.Expect(t, loaderr.WithFile(err, "runner.skel.yaml"), "runner.skel.yaml", line)
+			if e.Field != tc.field {
+				t.Fatalf("Field = %q, want %q", e.Field, tc.field)
 			}
 		})
 	}

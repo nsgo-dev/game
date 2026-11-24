@@ -179,7 +179,7 @@ func TestBenchErrors(t *testing.T) {
 		{[]string{"bench", "-baseline", baseline, "-in", noResults}, 1, "no benchmark results in " + noResults},
 		{[]string{"bench", "-baseline", missing, "-in", results}, 1, "record a baseline with -update"},
 		{[]string{"bench", "-baseline", empty, "-in", results}, 1, "holds no benchmarks; record them with -update"},
-		{[]string{"bench", "-baseline", results, "-in", results}, 1, "bench: load"},
+		{[]string{"bench", "-baseline", results, "-in", results}, 1, results + ":1: "},
 		{[]string{"bench", "-baseline", baseline, "-in", missing}, 1, "no such file or directory"},
 	} {
 		a, _, stderr := newTestApp(t)

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -107,24 +109,38 @@ func TestLoadAtlasRefusesWhatItCannotDraw(t *testing.T) {
 	frame := `"frame": {"x":0,"y":0,"w":8,"h":8}, "sourceSize": {"w":8,"h":8}, "duration": 100`
 	for _, tc := range []struct {
 		name, json, err string
+		field           string // the field the error names, checked with its line in the indented document
 	}{
-		{"not JSON", `{"frames": [`, "unexpected end"},
-		{"no frames", `{"meta": {}}`, "no frames"},
-		{"rotated", `{"frames": {"a": {` + frame + `, "rotated": true}}}`, "rotated"},
-		{"duplicate", `{"frames": [{"filename": "a", ` + frame + `}, {"filename": "a", ` + frame + `}]}`, "two frames"},
-		{"tag past the frames", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 1}]}}`, "runs from frame 0 to 1 of 1"},
-		{"unknown direction", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0, "direction": "sideways"}]}}`, "unknown direction"},
-		{"bad scale", `{"frames": {"a": {` + frame + `}}, "meta": {"scale": "0"}}`, "meta.scale"},
-		{"tag frame without a duration", `{"frames": {"a": {"frame": {"x":0,"y":0,"w":8,"h":8}}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0}]}}`, "no duration"},
-		{"slice center outside bounds", `{"frames": {"a": {` + frame + `}}, "meta": {"slices": [{"name": "bad", "keys": [{"frame": 0, "bounds": {"x":0,"y":0,"w":8,"h":8}, "center": {"x":2,"y":2,"w":8,"h":4}}]}]}}`, "outside its bounds"},
+		{"no frames", `{"meta": {}}`, "no frames", ""},
+		{"rotated", `{"frames": {"a": {` + frame + `, "rotated": true}}}`, "rotated", "frames.a.rotated"},
+		{"duplicate", `{"frames": [{"filename": "a", ` + frame + `}, {"filename": "a", ` + frame + `}]}`, "two frames", "frames[1]"},
+		{"nameless", `{"frames": [{` + frame + `}]}`, "no filename", "frames[0]"},
+		{"bad frame", `{"frames": {"a": {"frame": "big"}}}`, "cannot unmarshal", `frames.a`},
+		{"tag past the frames", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 1}]}}`, "runs from frame 0 to 1 of 1", "meta.frameTags[0]"},
+		{"unknown direction", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0, "direction": "sideways"}]}}`, "unknown direction", "meta.frameTags[0].direction"},
+		{"bad repeat", `{"frames": {"a": {` + frame + `}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0, "repeat": "-1"}]}}`, "repeats", "meta.frameTags[0].repeat"},
+		{"bad scale", `{"frames": {"a": {` + frame + `}}, "meta": {"scale": "0"}}`, "meta.scale", "meta.scale"},
+		{"tag frame without a duration", `{"frames": {"a": {"frame": {"x":0,"y":0,"w":8,"h":8}}}, "meta": {"frameTags": [{"name": "t", "from": 0, "to": 0}]}}`, "no duration", "frames.a.duration"},
+		{"slice center outside bounds", `{"frames": {"a": {` + frame + `}}, "meta": {"slices": [{"name": "bad", "keys": [{"frame": 0, "bounds": {"x":0,"y":0,"w":8,"h":8}, "center": {"x":2,"y":2,"w":8,"h":4}}]}]}}`, "outside its bounds", "meta.slices[0].keys[0].center"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := sprite.LoadAtlas(heroImage, []byte(tc.json))
+			data := loaderrtest.Indent(tc.json)
+			_, err := sprite.LoadAtlas(heroImage, data)
 			if err == nil || !strings.Contains(err.Error(), tc.err) {
 				t.Fatalf("error %v, want one saying %q", err, tc.err)
 			}
+			loaderrtest.ExpectField(t, loaderr.WithFile(err, "hero.json"), "hero.json", data, tc.field)
 		})
 	}
+	t.Run("not JSON", func(t *testing.T) {
+		_, err := sprite.LoadAtlas(heroImage, []byte("{\n  \"frames\": [\n"))
+		if err == nil || !strings.Contains(err.Error(), "unexpected end") {
+			t.Fatalf("error %v, want one saying the document ends early", err)
+		}
+		if e := loaderrtest.Expect(t, loaderr.WithFile(err, "hero.json"), "hero.json", 2); e.Fix != loaderr.FixTruncated {
+			t.Fatalf("Fix = %q, want FixTruncated", e.Fix)
+		}
+	})
 }
 
 func TestLoadAtlasReadsAsepriteNineSlices(t *testing.T) {

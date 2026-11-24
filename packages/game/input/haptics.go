@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -93,7 +94,7 @@ func (h *Haptics) Save(store core.Storage, key string) error {
 }
 
 // Load restores h.Enabled from store under key and reports whether key was present.
-// When key is absent or invalid, h.Enabled is left untouched.
+// When key is absent or invalid, h.Enabled is left untouched. An invalid value's error is a *loaderr.Error that names key as its file.
 func (h *Haptics) Load(store core.Storage, key string) (bool, error) {
 	raw, ok := store.GetItem(key)
 	if !ok {
@@ -101,7 +102,7 @@ func (h *Haptics) Load(store core.Storage, key string) (bool, error) {
 	}
 	v, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false, fmt.Errorf("input: load haptics %q: %w", key, err)
+		return false, &loaderr.Error{File: key, Line: 1, Problem: fmt.Sprintf("haptics setting %q is not a boolean", raw), Expected: "true or false", Fix: "save the setting again with Haptics.Save, or remove the key", Err: err}
 	}
 	h.SetEnabled(v)
 	return true, nil

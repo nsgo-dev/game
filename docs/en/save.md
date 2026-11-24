@@ -83,3 +83,19 @@ Sentinel errors to check with `errors.Is`:
 - **`StorageBackend`**: writes the backup key before updating the primary key, so a `*core.StorageFullError` leaves the last good save intact.
 
 On `Load`, if the primary copy is missing, unreadable, or corrupt, `Store` automatically falls back to the backup copy. It rewrites the primary from the backup only when the primary is missing or is not a JSON object at all (empty, truncated or garbage). A primary that failed to read for another reason, such as a permission or I/O error, or that is a JSON object `Load` cannot use, is left in place, since it may be newer than the backup. If the primary carries a version newer than `Store.Version`, even with envelope fields this build does not know, `Load` returns `ErrFutureVersion` without silently downgrading to an older backup.
+
+## Load errors and checks
+
+An error about a copy's contents is a `*loaderr.Error` (see [Errors](errors.md)) that names the copy, the line in the stored JSON, the field, such as `data.items[1]`, and a fix. A `FileBackend` copy is named by its file, such as `saves/slot1.json` or `saves/slot1.json.bak` for the backup, and a `StorageBackend` copy by its storage key; a custom `Backend`'s copy by its slot, `slot1 (backup)` for the backup. The sentinels above still match it with `errors.Is`.
+
+`LoadChecked` is `Load` with a check of the decoded value. A copy the check refuses is treated as corrupt, so the backup is tried, decoded into the value `dst` held before the call rather than over what the refused copy left; when every copy fails, `dst` keeps that value; when the check returns a `*loaderr.Error` about a field of the value, the error gives that field's line in the stored copy, under `data`. `entities.LoadWorld` checks a world snapshot this way:
+
+```go
+var snap Progress
+err := store.LoadChecked("slot1", &snap, func() error {
+	if snap.Level < 1 {
+		return loaderr.Errorf("level", "start levels at 1", "level %d is below 1", snap.Level)
+	}
+	return nil
+})
+```

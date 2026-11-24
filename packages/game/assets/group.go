@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
@@ -431,7 +432,7 @@ func (g *Group) startAtlas(gen uint64, loadCtx context.Context, readFn func(cont
 		atlas, err := sprite.LoadAtlas(spec.img, data)
 		if err != nil {
 			g.m.postWithCleanup(nil, func() {
-				finish(fmt.Errorf("assets: atlas %q: %w", spec.name, err))
+				finish(loaderr.WithFile(err, spec.uri))
 			})
 			return
 		}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -92,12 +93,17 @@ func fieldAt(data []byte, line int) string {
 	return formatPath(found)
 }
 
-// findKey returns the position of the first mapping key named key in data, in document order.
+// findKey returns the position of the mapping key named key in data when data has exactly one key of that name. When it has none, or several and so the one meant is not known, it returns 0, 0 and "".
 func findKey(data []byte, key string) (line, column int, field string) {
+	found := 0
 	walk(data, func(path []segment, l, c int) bool {
 		if len(path) > 0 && !path[len(path)-1].isIndex && path[len(path)-1].key == key {
+			found++
+			if found > 1 {
+				line, column, field = 0, 0, ""
+				return false
+			}
 			line, column, field = l, c, formatPath(path)
-			return false
 		}
 		return true
 	})
@@ -135,7 +141,7 @@ func walk(data []byte, visit func(path []segment, line, column int) bool) {
 	walkYAML(data, visit)
 }
 
-// position turns byte offsets into 1-based lines and columns, scanning forward from the last offset it was asked about.
+// position turns byte offsets into 1-based lines and columns, scanning forward from the last offset it was asked about. Columns count characters (runes), as YAML's and editors' columns do, not bytes.
 type position struct {
 	data         []byte
 	off          int
@@ -147,13 +153,16 @@ func (p *position) at(off int) (int, int) {
 		p.off, p.line, p.column = 0, 1, 1
 	}
 	off = min(off, len(p.data))
-	for ; p.off < off; p.off++ {
+	for p.off < off {
 		if p.data[p.off] == '\n' {
 			p.line++
 			p.column = 1
-		} else {
-			p.column++
+			p.off++
+			continue
 		}
+		_, size := utf8.DecodeRune(p.data[p.off:])
+		p.off += size
+		p.column++
 	}
 	return p.line, p.column
 }
@@ -291,21 +300,30 @@ func fromDecode(err error, data []byte) *Error {
 	var syn *json.SyntaxError
 	if errors.As(err, &syn) {
 		e := &Error{Problem: "invalid JSON: " + syn.Error(), Fix: FixSyntax, Err: err}
-		if data != nil && int(syn.Offset) >= len(bytes.TrimRight(data, " \t\r\n")) {
-			e.Fix = FixTruncated
+		if data != nil {
+			if int(syn.Offset) >= len(bytes.TrimRight(data, " \t\r\n")) {
+				e.Fix = FixTruncated
+			}
+			e.Line, e.Column = offsetPosition(data, int(syn.Offset)-1)
 		}
-		e.Line, e.Column = offsetPosition(data, int(syn.Offset)-1)
 		return e
 	}
 	var typ *json.UnmarshalTypeError
 	if errors.As(err, &typ) {
 		problem := fmt.Sprintf("cannot use a JSON %s here", typ.Value)
-		if typ.Err != nil {
-			// A custom UnmarshalJSON said why.
-			problem = typ.Err.Error()
+		// encoding/json built on encoding/json/v2 (Go 1.27's default) keeps the error a custom UnmarshalJSON returned in a field Err that the first implementation, which nsgo build links (GOEXPERIMENT=nojsonv2), does not have; Unwrap reaches it in the one and returns nil in the other.
+		if why := errors.Unwrap(typ); why != nil {
+			problem = why.Error()
+		}
+		field := jsonFieldPath(data, typ.Field)
+		if data != nil {
+			// The first implementation of encoding/json, which nsgo build links, leaves array indexes and map keys out of Field, which then names no path in data or only a value around the one at fault; its Offset finds that value.
+			if at := jsonPathAt(data, typ.Offset); within(at, field) {
+				field = at
+			}
 		}
 		e := &Error{
-			Field:    jsonFieldPath(typ.Field),
+			Field:    field,
 			Problem:  problem,
 			Expected: describeType(typ.Type),
 			Fix:      FixType,
@@ -314,7 +332,7 @@ func fromDecode(err error, data []byte) *Error {
 		if e.Field != "" {
 			e.Line, e.Column = FindField(data, e.Field)
 		}
-		if e.Line == 0 {
+		if e.Line == 0 && data != nil {
 			e.Line, e.Column = offsetPosition(data, int(typ.Offset)-1)
 		}
 		return e
@@ -337,7 +355,9 @@ func fromDecode(err error, data []byte) *Error {
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		e := &Error{Problem: "unexpected end of the document", Fix: FixTruncated, Err: err}
-		e.Line, e.Column = offsetPosition(data, len(data))
+		if data != nil {
+			e.Line, e.Column = offsetPosition(data, len(data))
+		}
 		return e
 	}
 	return nil
@@ -415,20 +435,119 @@ func fromYAMLMessage(msg string, data []byte, err error) *Error {
 }
 
 // jsonFieldPath turns the dotted field encoding/json reports, such as "layers.0.order", into a path as Path writes it, "layers[0].order".
-func jsonFieldPath(field string) string {
+//
+// The dotted form is ambiguous: a map key may be a number ("10") or hold dots ("hero.run"). So the field is matched against data, taking a part as an index only where data has an array, and joining parts into one key where data has such a key. It returns "" when no path in data matches. Without data, every numeric part is read as an index.
+func jsonFieldPath(data []byte, field string) string {
 	if field == "" {
 		return ""
 	}
 	parts := strings.Split(field, ".")
-	segs := make([]any, len(parts))
-	for i, p := range parts {
-		if n, err := strconv.Atoi(p); err == nil && n >= 0 {
-			segs[i] = n
-		} else {
-			segs[i] = p
+	if data == nil {
+		segs := make([]any, len(parts))
+		for i, p := range parts {
+			if n, err := strconv.Atoi(p); err == nil && n >= 0 {
+				segs[i] = n
+			} else {
+				segs[i] = p
+			}
 		}
+		return Path(segs...)
 	}
-	return Path(segs...)
+	paths := map[string]bool{}
+	walk(data, func(path []segment, _, _ int) bool {
+		paths[formatPath(path)] = true
+		return true
+	})
+	var match func(i int, prefix []segment) []segment
+	match = func(i int, prefix []segment) []segment {
+		if i == len(parts) {
+			return prefix
+		}
+		// try takes seg, which stands for parts up to end, when data has a value there.
+		try := func(seg segment, end int) []segment {
+			next := append(slices.Clip(prefix), seg)
+			if !paths[formatPath(next)] {
+				return nil
+			}
+			return match(end, next)
+		}
+		for end := i + 1; end <= len(parts); end++ {
+			if found := try(segment{key: strings.Join(parts[i:end], ".")}, end); found != nil {
+				return found
+			}
+			if end == i+1 {
+				if n, err := strconv.Atoi(parts[i]); err == nil && n >= 0 {
+					if found := try(segment{index: n, isIndex: true}, end); found != nil {
+						return found
+					}
+				}
+			}
+		}
+		return nil
+	}
+	return formatPath(match(0, nil))
+}
+
+// jsonPathAt returns the field path, as Path writes it, of the innermost value in the JSON document data whose first token ends at or after offset, the number of bytes encoding/json had read when it met a value of the wrong type. It returns "" when data does not parse that far.
+func jsonPathAt(data []byte, offset int64) string {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var path []segment
+	found := false
+	// value reads one value at path and reports whether to read on.
+	var value func() bool
+	value = func() bool {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
+		}
+		if dec.InputOffset() >= offset {
+			found = true
+			return false
+		}
+		d, ok := tok.(json.Delim)
+		if !ok {
+			return true
+		}
+		switch d {
+		case '{':
+			for dec.More() {
+				k, err := dec.Token()
+				if err != nil {
+					return false
+				}
+				key, _ := k.(string)
+				path = append(path, segment{key: key})
+				if !value() {
+					return false
+				}
+				path = path[:len(path)-1]
+			}
+		case '[':
+			for i := 0; dec.More(); i++ {
+				path = append(path, segment{index: i, isIndex: true})
+				if !value() {
+					return false
+				}
+				path = path[:len(path)-1]
+			}
+		}
+		_, err = dec.Token()
+		return err == nil
+	}
+	value()
+	if !found {
+		return ""
+	}
+	return formatPath(path)
+}
+
+// within reports whether the field path path is base or a path inside it, as Path writes them; every path is within "".
+func within(path, base string) bool {
+	if base == "" || path == base {
+		return true
+	}
+	return strings.HasPrefix(path, base) && (path[len(base)] == '.' || path[len(base)] == '[')
 }
 
 // lineCount returns the number of lines in data as YAML counts them, with "\n", "\r\n" and a lone "\r" each ending a line, not counting the empty line after a final break.

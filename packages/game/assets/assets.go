@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
@@ -295,7 +296,7 @@ func (m *Manager) LoadAtlas(jsonURI string, img core.ImageSource, done func(*spr
 		atlas, err := sprite.LoadAtlas(img, data)
 		if err != nil {
 			m.postWithCleanup(nil, func() {
-				deliver(fmt.Errorf("assets: atlas %q: %w", jsonURI, err))
+				deliver(loaderr.WithFile(err, jsonURI))
 			})
 			return
 		}

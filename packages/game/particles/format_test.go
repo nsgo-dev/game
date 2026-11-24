@@ -2,12 +2,16 @@ package particles_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"math"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -164,26 +168,67 @@ func TestConfigJSONValidationErrors(t *testing.T) {
 	cases := []struct {
 		name string
 		json string
+		line int
 	}{
-		{"empty", ""},
-		{"invalid_json", "{not-json"},
-		{"missing_version", `{"rate": 10}`},
-		{"future_version", `{"version": 2, "rate": 10}`},
-		{"negative_version", `{"version": -1}`},
-		{"bad_space", `{"version": 1, "space": "hyperspace"}`},
-		{"bad_shape", `{"version": 1, "shape": {"kind": "triangle"}}`},
-		{"bad_collision_mode", `{"version": 1, "collision": {"mode": "explode"}}`},
-		{"bad_trigger", `{"version": 1, "subEmitters": [{"trigger": "never"}]}`},
-		{"bad_duration", `{"version": 1, "lifetimeMin": "soon"}`},
-		{"bad_color", `{"version": 1, "colorCurve": [{"t": 0, "color": "red"}]}`},
-		{"short_color_hex", `{"version": 1, "colorCurve": [{"t": 0, "color": "#fff"}]}`},
+		{"empty", "", 0},
+		{"invalid_json", "{not-json", 1},
+		{"missing_version", `{"rate": 10}`, 1},
+		{"future_version", "{\n  \"version\": 2,\n  \"rate\": 10\n}", 2},
+		{"negative_version", `{"version": -1}`, 1},
+		{"bad_space", "{\"version\": 1,\n \"space\": \"hyperspace\"}", 2},
+		{"bad_shape", "{\"version\": 1,\n \"shape\": {\n  \"kind\": \"triangle\"}}", 2},
+		{"bad_collision_mode", "{\"version\": 1,\n \"collision\": {\"mode\": \"explode\"}}", 2},
+		{"bad_trigger", "{\"version\": 1,\n \"subEmitters\": [\n  {\"trigger\": \"never\"}]}", 3},
+		{"bad_nested_trigger", "{\"version\": 1,\n \"subEmitters\": [{\"config\": {\n  \"subEmitters\": [\n   {\"trigger\": \"never\"}]}}]}", 4},
+		{"wrong_type", "{\"version\": 1,\n \"rate\": \"fast\"}", 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := particles.UnmarshalConfigJSON([]byte(tc.json)); err == nil {
-				t.Fatalf("expected error for %s (%s), got nil", tc.name, tc.json)
-			}
+			_, err := particles.UnmarshalConfigJSON([]byte(tc.json))
+			loaderrtest.Expect(t, err, "", tc.line)
 		})
+	}
+	// A duration or color the JSON form refuses is still an error, though only encoding/json built on encoding/json/v2 says where.
+	for _, doc := range []string{`{"version": 1, "lifetimeMin": "soon"}`, `{"version": 1, "colorCurve": [{"t": 0, "color": "#fff"}]}`} {
+		if _, err := particles.UnmarshalConfigJSON([]byte(doc)); err == nil {
+			t.Errorf("UnmarshalConfigJSON(%s) = nil error", doc)
+		}
+	}
+
+	yamlCases := []struct {
+		name, yaml string
+		line       int
+	}{
+		{"empty", "", 0},
+		{"missing_version", "rate: 10\n", 1},
+		{"future_version", "version: 2\nrate: 10\n", 1},
+		{"bad_space", "version: 1\nspace: hyperspace\n", 2},
+		{"bad_shape", "version: 1\nshape:\n  kind: triangle\n", 2},
+		{"bad_collision_mode", "version: 1\ncollision:\n  mode: explode\n", 3},
+		{"bad_trigger", "version: 1\nsubEmitters:\n  - trigger: never\n", 3},
+		{"bad_nested_trigger", "version: 1\nsubEmitters:\n  - config:\n      subEmitters:\n        - trigger: never\n", 5},
+		{"bad_duration", "version: 1\n\nlifetimeMin: soon\n", 3},
+		{"bad_color", "version: 1\ncolorCurve:\n  - t: 0\n    color: red\n", 4},
+		{"unquoted_color", "version: 1\ncolorCurve:\n  - t: 0\n    color: #ff8800\n", 4},
+		{"wrong_type", "version: 1\nrate: fast\n", 2},
+	}
+	for _, tc := range yamlCases {
+		t.Run("yaml_"+tc.name, func(t *testing.T) {
+			_, err := particles.UnmarshalConfigYAML([]byte(tc.yaml))
+			loaderrtest.Expect(t, err, "", tc.line)
+			// LoadConfigFS names the file in the same error.
+			fsys := fstest.MapFS{"fx/spark.yaml": {Data: []byte(tc.yaml)}}
+			_, err = particles.LoadConfigFS(fsys, "fx/spark.yaml")
+			loaderrtest.Expect(t, err, "fx/spark.yaml", tc.line)
+		})
+	}
+	_, err := particles.LoadConfigFS(fstest.MapFS{}, "missing.yaml")
+	if e := loaderrtest.Expect(t, err, "missing.yaml", 0); !errors.Is(e, fs.ErrNotExist) {
+		t.Fatalf("err = %v, want fs.ErrNotExist", err)
+	}
+	_, err = particles.LoadConfigFile(filepath.Join(t.TempDir(), "missing.yaml"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("LoadConfigFile err = %v, want fs.ErrNotExist", err)
 	}
 
 	// NaN / Inf rejected on marshal.

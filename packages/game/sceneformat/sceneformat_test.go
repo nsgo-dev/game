@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -379,38 +381,41 @@ layers:
 }
 
 func TestValidationErrors(t *testing.T) {
+	// line is where the error points in the document: the field at fault, or the nearest enclosing value present.
 	cases := []struct {
 		name    string
 		yaml    string
 		wantSub string
+		line    int
 	}{
-		{name: "empty", yaml: "   \n", wantSub: "empty"},
-		{name: "bad_yaml", yaml: "version: [1, 2", wantSub: "decode"},
-		{name: "unknown_field", yaml: "version: 1\nbogusField: true\n", wantSub: "not found"},
-		{name: "trailing_doc", yaml: "version: 1\n---\nversion: 1\n", wantSub: "trailing"},
-		{name: "missing_version", yaml: "name: No Version\n", wantSub: "unsupported version"},
-		{name: "future_version", yaml: "version: 3\n", wantSub: "unsupported version"},
-		{name: "half_virtual_size", yaml: "version: 1\nvirtualWidth: 320\n", wantSub: "virtualWidth"},
-		{name: "negative_virtual_size", yaml: "version: 1\nvirtualWidth: -10\nvirtualHeight: 10\n", wantSub: "non-negative"},
-		{name: "bad_background_color", yaml: "version: 1\nbackgroundColor: not-a-color\n", wantSub: "backgroundColor"},
-		{name: "zero_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: 0\n", wantSub: "zoom"},
-		{name: "negative_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: -1\n", wantSub: "zoom"},
-		{name: "bad_camera_bounds", yaml: "version: 1\ncamera:\n  bounds:\n    width: 0\n    height: 100\n", wantSub: "bounds"},
-		{name: "empty_layer_name", yaml: "version: 1\nlayers:\n  - space: world\n", wantSub: "empty name"},
-		{name: "duplicate_layer_name", yaml: "version: 1\nlayers:\n  - name: bg\n  - name: bg\n", wantSub: "duplicate layer"},
-		{name: "invalid_space", yaml: "version: 1\nlayers:\n  - name: bg\n    space: isometric\n", wantSub: "invalid space"},
-		{name: "empty_object_id", yaml: "version: 1\nlayers:\n  - name: bg\n    objects:\n      - name: Nameless\n", wantSub: "empty id"},
-		{name: "duplicate_object_id_across_layers", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: dup\n  - name: b\n    objects:\n      - id: dup\n", wantSub: "duplicate object id"},
-		{name: "alpha_over_one", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: 1.5\n", wantSub: "alpha"},
-		{name: "alpha_negative", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: -0.1\n", wantSub: "alpha"},
-		{name: "negative_depth", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        depth: -4\n", wantSub: "depth"},
-		{name: "incomplete_sprite", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", wantSub: "both atlas and frame"},
-		{name: "unknown_tilemap_ref", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      ref: missing\n", wantSub: "unknown tilemap"},
-		{name: "top_level_tilemap_ref", yaml: "version: 1\ntilemaps:\n  m:\n    ref: other\n", wantSub: "cannot use ref"},
-		{name: "tilemap_mixed_modes", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      source: a.tmj\n      tileset: cave_tiles\n", wantSub: "cannot combine"},
-		{name: "tilemap_bad_data_len", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 2\n      tileset: cave_tiles\n      data: [1, 2, 3]\n", wantSub: "3 tile entries"},
-		{name: "tilemap_dimensions_overflow", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 100000000\n      height: 100000000\n      tileset: cave_tiles\n      data: []\n", wantSub: "more than"},
-		{name: "tilemap_negative_gid", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: cave_tiles\n      data: [1, -1]\n", wantSub: "negative id"},
+		{name: "empty", yaml: "   \n", wantSub: "empty", line: 0},
+		{name: "bad_yaml", yaml: "version: [1, 2", wantSub: "invalid YAML", line: 1},
+		{name: "unknown_field", yaml: "version: 1\nbogusField: true\n", wantSub: `unknown field "bogusField"`, line: 2},
+		{name: "wrong_type", yaml: "version: 1\nlayers:\n  - name: a\n    order: high\n", wantSub: "cannot use", line: 4},
+		{name: "trailing_doc", yaml: "version: 1\n---\nversion: 1\n", wantSub: "trailing", line: 2},
+		{name: "missing_version", yaml: "name: No Version\n", wantSub: "unsupported version", line: 1},
+		{name: "future_version", yaml: "version: 3\n", wantSub: "unsupported version", line: 1},
+		{name: "half_virtual_size", yaml: "version: 1\nvirtualWidth: 320\n", wantSub: "virtualWidth", line: 2},
+		{name: "negative_virtual_size", yaml: "version: 1\nvirtualWidth: -10\nvirtualHeight: 10\n", wantSub: "non-negative", line: 2},
+		{name: "bad_background_color", yaml: "version: 1\nbackgroundColor: not-a-color\n", wantSub: "backgroundColor", line: 2},
+		{name: "zero_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: 0\n", wantSub: "zoom", line: 3},
+		{name: "negative_camera_zoom", yaml: "version: 1\ncamera:\n  zoom: -1\n", wantSub: "zoom", line: 3},
+		{name: "bad_camera_bounds", yaml: "version: 1\ncamera:\n  bounds:\n    width: 0\n    height: 100\n", wantSub: "bounds", line: 4},
+		{name: "empty_layer_name", yaml: "version: 1\nlayers:\n  - space: world\n", wantSub: "empty name", line: 3},
+		{name: "duplicate_layer_name", yaml: "version: 1\nlayers:\n  - name: bg\n  - name: bg\n", wantSub: "duplicate layer", line: 4},
+		{name: "invalid_space", yaml: "version: 1\nlayers:\n  - name: bg\n    space: isometric\n", wantSub: "invalid space", line: 4},
+		{name: "empty_object_id", yaml: "version: 1\nlayers:\n  - name: bg\n    objects:\n      - name: Nameless\n", wantSub: "empty id", line: 5},
+		{name: "duplicate_object_id_across_layers", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: dup\n  - name: b\n    objects:\n      - id: dup\n", wantSub: "duplicate object id", line: 8},
+		{name: "alpha_over_one", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: 1.5\n", wantSub: "alpha", line: 6},
+		{name: "alpha_negative", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        alpha: -0.1\n", wantSub: "alpha", line: 6},
+		{name: "negative_depth", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        depth: -4\n", wantSub: "depth", line: 6},
+		{name: "incomplete_sprite", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", wantSub: "both atlas and frame", line: 6},
+		{name: "unknown_tilemap_ref", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      ref: missing\n", wantSub: "unknown tilemap", line: 5},
+		{name: "top_level_tilemap_ref", yaml: "version: 1\ntilemaps:\n  m:\n    ref: other\n", wantSub: "cannot use ref", line: 4},
+		{name: "tilemap_mixed_modes", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      source: a.tmj\n      tileset: cave_tiles\n", wantSub: "cannot combine", line: 4},
+		{name: "tilemap_bad_data_len", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 2\n      tileset: cave_tiles\n      data: [1, 2, 3]\n", wantSub: "3 tile entries", line: 10},
+		{name: "tilemap_dimensions_overflow", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 100000000\n      height: 100000000\n      tileset: cave_tiles\n      data: []\n", wantSub: "more than", line: 7},
+		{name: "tilemap_negative_gid", yaml: "version: 1\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2\n      height: 1\n      tileset: cave_tiles\n      data: [1, -1]\n", wantSub: "negative id", line: 10},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -421,6 +426,8 @@ func TestValidationErrors(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.wantSub) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSub)
 			}
+			// The caller that read the file names it.
+			loaderrtest.Expect(t, loaderr.WithFile(err, "level.scene.yaml"), "level.scene.yaml", tc.line)
 		})
 	}
 

@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/tsx/pkg"
 	"go.yaml.in/yaml/v3"
 )
@@ -146,22 +148,29 @@ func (c Capability) MarshalYAML() (any, error) {
 	return node, nil
 }
 
+// capabilityError returns the *loaderr.Error for a capabilities list that n, its node or one of its items, makes invalid. It matches ErrInvalidManifest with errors.Is.
+func capabilityError(n *yaml.Node, format string, args ...any) error {
+	e := loaderr.Errorf("capabilities", fixCapabilities, format, args...)
+	e.Line, e.Column = n.Line, n.Column
+	return e
+}
+
 // UnmarshalYAML decodes a YAML sequence of canonical capability names (such as readState) into c. Unknown, non-canonical and repeated names are refused.
 func (c *Capability) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.SequenceNode {
-		return fmt.Errorf("%w: line %d: capabilities must be a sequence of names", ErrInvalidManifest, value.Line)
+		return capabilityError(value, "%w: line %d: capabilities must be a sequence of names", ErrInvalidManifest, value.Line)
 	}
 	var mask Capability
 	for _, item := range value.Content {
 		if item.Kind != yaml.ScalarNode || item.ShortTag() != "!!str" {
-			return fmt.Errorf("%w: line %d: capability must be a name", ErrInvalidManifest, item.Line)
+			return capabilityError(item, "%w: line %d: capability must be a name", ErrInvalidManifest, item.Line)
 		}
 		flag, ok := capabilityByName(item.Value)
 		if !ok {
-			return fmt.Errorf("%w: line %d: unknown capability %q", ErrInvalidManifest, item.Line, item.Value)
+			return capabilityError(item, "%w: line %d: unknown capability %q", ErrInvalidManifest, item.Line, item.Value)
 		}
 		if mask&flag != 0 {
-			return fmt.Errorf("%w: line %d: capability %q listed twice", ErrInvalidManifest, item.Line, item.Value)
+			return capabilityError(item, "%w: line %d: capability %q listed twice", ErrInvalidManifest, item.Line, item.Value)
 		}
 		mask |= flag
 	}
@@ -196,6 +205,12 @@ const legacyManifestFile = "mod.json"
 // ManifestVersion is the mod manifest schema version this package reads and writes.
 const ManifestVersion = 1
 
+// Fixes the manifest's errors give.
+const (
+	fixManifestVersion = "set manifestVersion: 1"
+	fixCapabilities    = "list capability names such as [readState, audio]; see Capability for the names"
+)
+
 // ModManifest describes a mod. Mod authors write it as YAML in a [ManifestFile] (mod.yaml) in the mod's directory; [ParseManifest] reads it and [EncodeManifest] writes it.
 type ModManifest struct {
 	// ManifestVersion is the schema version of the manifest file. A mod.yaml must state [ManifestVersion]; a manifest built in code may leave it 0, and [EncodeManifest] writes [ManifestVersion].
@@ -221,28 +236,40 @@ type ModManifest struct {
 }
 
 // ParseManifest parses and validates a mod.yaml manifest. Unknown fields, duplicate keys, trailing YAML documents and a missing or unsupported manifestVersion are refused.
+//
+// Its errors match ErrInvalidManifest (or ErrCyclicDependency) with errors.Is, and are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile, as Manager does.
 func ParseManifest(data []byte) (ModManifest, error) {
+	m, err := parseManifest(data)
+	return m, loaderr.Locate(err, "", data, fixManifest)
+}
+
+// fixManifest is the fix for a manifest error that has no more specific one.
+const fixManifest = "correct mod.yaml as docs/en/modding.md describes it"
+
+func parseManifest(data []byte) (ModManifest, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return ModManifest{}, fmt.Errorf("%w: empty manifest", ErrInvalidManifest)
+		return ModManifest{}, loaderr.Errorf("", fixManifest, "%w: empty manifest", ErrInvalidManifest)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var m ModManifest
 	if err := dec.Decode(&m); err != nil {
 		if errors.Is(err, ErrInvalidManifest) {
+			// Capability.UnmarshalYAML refused the list and its *loaderr.Error gives the line.
 			return ModManifest{}, err
 		}
-		return ModManifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+		// Locate finds the decode error in the chain for its line, and keeps the chain, so errors.Is still sees ErrInvalidManifest.
+		return ModManifest{}, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return ModManifest{}, fmt.Errorf("%w: unexpected trailing YAML document", ErrInvalidManifest)
+			return ModManifest{}, loaderr.Errorf("", "keep one YAML document in mod.yaml; remove the --- and what follows it", "%w: unexpected trailing YAML document", ErrInvalidManifest)
 		}
-		return ModManifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+		return ModManifest{}, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 	if m.ManifestVersion != ManifestVersion {
-		return ModManifest{}, fmt.Errorf("%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
+		return ModManifest{}, loaderr.Errorf("manifestVersion", fixManifestVersion, "%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
 	}
 	if err := checkManifestVersionLiteral(data); err != nil {
 		return ModManifest{}, err
@@ -257,10 +284,10 @@ func ParseManifest(data []byte) (ModManifest, error) {
 func checkManifestVersionLiteral(data []byte) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+		return fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return fmt.Errorf("%w: manifest must be a mapping", ErrInvalidManifest)
+		return loaderr.Errorf("", fixManifest, "%w: manifest must be a mapping", ErrInvalidManifest)
 	}
 	root := doc.Content[0]
 	for i := 0; i+1 < len(root.Content); i += 2 {
@@ -269,7 +296,7 @@ func checkManifestVersionLiteral(data []byte) error {
 		}
 		value := root.Content[i+1]
 		if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" || value.Value != strconv.Itoa(ManifestVersion) {
-			return fmt.Errorf("%w: line %d: manifestVersion must be the integer %d, not %q", ErrInvalidManifest, value.Line, ManifestVersion, value.Value)
+			return loaderr.Errorf("manifestVersion", fixManifestVersion, "%w: line %d: manifestVersion must be the integer %d, not %q", ErrInvalidManifest, value.Line, ManifestVersion, value.Value)
 		}
 	}
 	return nil
@@ -327,40 +354,47 @@ func sortDependencyKeys(doc *yaml.Node) {
 	}
 }
 
-// Validate checks that m has a valid ID, name, version, entry path, capabilities, and version constraints. ManifestVersion may be 0 for a manifest built in code, or [ManifestVersion]; [ParseManifest] additionally requires a file to state [ManifestVersion].
+// Validate checks that m has a valid ID, name, version, entry path, capabilities, and version constraints. ManifestVersion may be 0 for a manifest built in code, or [ManifestVersion]; [ParseManifest] additionally requires a file to state [ManifestVersion]. Its errors are *loaderr.Error values that name the field at fault and how to fix it, and match ErrInvalidManifest or ErrCyclicDependency with errors.Is.
 func (m ModManifest) Validate() error {
+	const (
+		fixID         = "use 1 to 128 letters, digits, '.', '-' and '_', starting with a letter or digit and without \"..\", such as \"com.example.more-enemies\""
+		fixConstraint = "write a constraint such as \">=1.2.0\", \"^1.2\" or \">=1.0.0 <2.0.0\""
+	)
 	if m.ManifestVersion != 0 && m.ManifestVersion != ManifestVersion {
-		return fmt.Errorf("%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
+		return loaderr.Errorf("manifestVersion", fixManifestVersion, "%w: unsupported manifestVersion %d (want %d)", ErrInvalidManifest, m.ManifestVersion, ManifestVersion)
 	}
 	if !validModID(m.ID) {
-		return fmt.Errorf("%w: invalid mod id %q", ErrInvalidManifest, m.ID)
+		return loaderr.Errorf("id", fixID, "%w: invalid mod id %q", ErrInvalidManifest, m.ID)
 	}
 	if strings.TrimSpace(m.Name) == "" {
-		return fmt.Errorf("%w: mod %q requires a non-empty name", ErrInvalidManifest, m.ID)
+		return loaderr.Errorf("name", "give the mod a name players see", "%w: mod %q requires a non-empty name", ErrInvalidManifest, m.ID)
 	}
 	if _, err := ParseSemVer(m.Version); err != nil {
-		return fmt.Errorf("%w: mod %q version %q: %v", ErrInvalidManifest, m.ID, m.Version, err)
+		return loaderr.Errorf("version", "write the version as MAJOR.MINOR.PATCH, such as \"1.0.0\"", "%w: mod %q version %q: %v", ErrInvalidManifest, m.ID, m.Version, err)
 	}
 	if err := validateEntryPath(m.Entry); err != nil {
-		return fmt.Errorf("%w: mod %q entry %q: %v", ErrInvalidManifest, m.ID, m.Entry, err)
+		return loaderr.Errorf("entry", "name the mod's script as a path inside its directory ending in .tsx, .ts, .jsx, .js or .mjs, such as \"main.ts\"", "%w: mod %q entry %q: %v", ErrInvalidManifest, m.ID, m.Entry, err)
 	}
 	if m.Capabilities&^CapAll != 0 {
-		return fmt.Errorf("%w: mod %q has undefined capability bits %#x", ErrInvalidManifest, m.ID, uint32(m.Capabilities&^CapAll))
+		return loaderr.Errorf("capabilities", fixCapabilities, "%w: mod %q has undefined capability bits %#x", ErrInvalidManifest, m.ID, uint32(m.Capabilities&^CapAll))
 	}
 	if m.GameVersion != "" {
 		if err := ValidateConstraint(m.GameVersion); err != nil {
-			return fmt.Errorf("%w: mod %q gameVersion %q: %v", ErrInvalidManifest, m.ID, m.GameVersion, err)
+			return loaderr.Errorf("gameVersion", fixConstraint, "%w: mod %q gameVersion %q: %v", ErrInvalidManifest, m.ID, m.GameVersion, err)
 		}
 	}
-	for depID, constraint := range m.Dependencies {
+	// Sorted, so the same dependency is reported every time when several are wrong.
+	for _, depID := range slices.Sorted(maps.Keys(m.Dependencies)) {
+		constraint := m.Dependencies[depID]
+		field := loaderr.Path("dependencies", depID)
 		if !validModID(depID) {
-			return fmt.Errorf("%w: mod %q has invalid dependency id %q", ErrInvalidManifest, m.ID, depID)
+			return loaderr.Errorf(field, fixID, "%w: mod %q has invalid dependency id %q", ErrInvalidManifest, m.ID, depID)
 		}
 		if depID == m.ID {
-			return fmt.Errorf("%w: mod %q cannot depend on itself", ErrCyclicDependency, m.ID)
+			return loaderr.Errorf(field, "remove the mod's own id from dependencies", "%w: mod %q cannot depend on itself", ErrCyclicDependency, m.ID)
 		}
 		if err := ValidateConstraint(constraint); err != nil {
-			return fmt.Errorf("%w: mod %q dependency %q constraint %q: %v", ErrInvalidManifest, m.ID, depID, constraint, err)
+			return loaderr.Errorf(field, fixConstraint, "%w: mod %q dependency %q constraint %q: %v", ErrInvalidManifest, m.ID, depID, constraint, err)
 		}
 	}
 	return nil

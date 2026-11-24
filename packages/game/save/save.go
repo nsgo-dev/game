@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -131,16 +132,35 @@ func (s *Store) Save(slot string, value any) error {
 // If the primary copy is missing, unreadable or corrupted, Load automatically recovers from the slot's backup copy. It rewrites the primary from that backup only when the primary is missing or is not a JSON object at all (empty, truncated or garbage); a primary that failed to read for another reason, or that is a JSON object Load cannot use, is left as it is, because it may be newer than the backup. A save whose version exceeds s.Version returns an error wrapping ErrFutureVersion without falling back to an older backup, even when its envelope has fields this build does not know.
 //
 // Load never writes a migrated save back: migrations run in memory on every Load until the slot is saved again, so each Migration must be a pure function of its input that gives the same result every time it runs.
+//
+// An error about a copy's contents is a *loaderr.Error that names the copy, the line in the stored JSON and a fix. FileBackend names it by its file path (<dir>/<slot>.json, or <dir>/<slot>.json.bak for the backup) and StorageBackend by its storage key; another Backend by the slot, with " (backup)" for its backup copy.
 func (s *Store) Load(slot string, dst any) error {
+	return s.LoadChecked(slot, dst, nil)
+}
+
+// LoadChecked is Load with a check of the decoded value: after a copy decodes into dst, LoadChecked calls check, and a copy check refuses is treated as corrupted, so the backup is tried as it would be for one that does not decode.
+//
+// Before the backup is decoded, and when LoadChecked returns an error, dst is put back to the value it had when LoadChecked was called, so nothing of a refused copy is left in it.
+//
+// When check returns a *loaderr.Error whose Field is a path in dst's JSON, the error LoadChecked returns gives that field's line in the stored copy, under "data". A nil check checks nothing.
+func (s *Store) LoadChecked(slot string, dst any, check func() error) error {
 	if err := validateSlot(slot); err != nil {
 		return err
 	}
 	if s.backend == nil {
 		return errors.New("save: store has no backend")
 	}
+	restore := snapshot(dst)
+	decode := func(backup bool, payload []byte) error {
+		err := s.decode(copyName(s.backend, slot, backup), payload, dst, check)
+		if err != nil {
+			restore()
+		}
+		return err
+	}
 	primary, primaryErr := s.backend.Read(slot)
 	if primaryErr == nil {
-		err := s.decode(slot, primary, dst)
+		err := decode(false, primary)
 		if err == nil {
 			return nil
 		}
@@ -148,7 +168,7 @@ func (s *Store) Load(slot string, dst any) error {
 			return err
 		}
 		if backup, bakErr := s.backend.ReadBackup(slot); bakErr == nil {
-			recErr := s.decode(slot, backup, dst)
+			recErr := decode(true, backup)
 			if recErr == nil {
 				if isDamagedPayload(primary) {
 					s.repair(slot, backup)
@@ -168,7 +188,7 @@ func (s *Store) Load(slot string, dst any) error {
 		}
 		return fmt.Errorf("save: load %q: %w", slot, primaryErr)
 	}
-	if err := s.decode(slot, backup, dst); err != nil {
+	if err := decode(true, backup); err != nil {
 		return err
 	}
 	// Only a primary that is really gone is rewritten: a read that failed for another reason (permissions, I/O, too many open files) may be hiding a valid primary newer than this backup (#546).
@@ -176,6 +196,28 @@ func (s *Store) Load(slot string, dst any) error {
 		s.repair(slot, backup)
 	}
 	return nil
+}
+
+// snapshot records the value dst points at and returns a func that puts a copy of that value back into dst. The copy is deep, as unmarshalClean's base is, so decoding into dst again cannot change what is put back. For a dst that is not a non-nil pointer it returns a func that does nothing.
+func snapshot(dst any) func() {
+	rv := reflect.ValueOf(dst)
+	if !rv.IsValid() || rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return func() {}
+	}
+	t := rv.Elem().Type()
+	base, err := json.Marshal(rv.Elem().Interface())
+	if err != nil {
+		// A value JSON cannot encode is put back as it was, sharing its maps and slices with what decoding left.
+		orig := reflect.New(t).Elem()
+		orig.Set(rv.Elem())
+		return func() { rv.Elem().Set(orig) }
+	}
+	return func() {
+		fresh := reflect.New(t)
+		if json.Unmarshal(base, fresh.Interface()) == nil {
+			rv.Elem().Set(fresh.Elem())
+		}
+	}
 }
 
 // repair rewrites a missing or damaged primary copy from the backup Load just recovered, so the slot is whole again instead of depending on the backup until the next Save (#546). The backend keeps the backup, because Write preserves only a valid primary. Repair is best effort: Load has already succeeded, and a failed rewrite leaves the slot exactly as it was.
@@ -251,11 +293,46 @@ func (s *Store) version() int {
 	return s.Version
 }
 
-func (s *Store) decode(slot string, payload []byte, dst any) error {
-	return decodeEnvelope(slot, payload, s.version(), s.Migrations, dst)
+// backupName names a slot's backup copy in errors when its backend has no name for it.
+func backupName(slot string) string { return slot + " (backup)" }
+
+// copyNamer is implemented by the backends this package provides, to name a copy of a slot in errors by the file path or storage key that holds it, which an editor can open or a developer can look up.
+type copyNamer interface {
+	copyName(slot string, backup bool) string
 }
 
-func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any) error {
+// copyName names the primary or backup copy of slot in b for errors: b's own name for it when b has one, else the slot, with " (backup)" for its backup.
+func copyName(b any, slot string, backup bool) string {
+	if n, ok := b.(copyNamer); ok {
+		return n.copyName(slot, backup)
+	}
+	if backup {
+		return backupName(slot)
+	}
+	return slot
+}
+
+// decode decodes payload, the copy of a save named name, into dst.
+func (s *Store) decode(name string, payload []byte, dst any, check func() error) error {
+	return decodeEnvelope(name, payload, s.version(), s.Migrations, dst, check)
+}
+
+// decodeEnvelope decodes payload, the copy of a save named name, into dst. Its errors are *loaderr.Error values that name name and the line of the problem in payload, and match ErrCorrupt, ErrFutureVersion or ErrMissingMigration with errors.Is.
+//
+// When check is not nil, it runs after dst is decoded, and a *loaderr.Error it returns about a field of dst is reported at that field under "data".
+func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any, check func() error) error {
+	return loaderr.Locate(decodeEnvelopeData(payload, target, migrations, dst, check), name, payload, fixCorrupt)
+}
+
+// futureVersion is the error for a save copy whose version, v, is newer than target, the version this build reads. It matches ErrFutureVersion with errors.Is.
+func futureVersion(v, target int) error {
+	return &loaderr.Error{Field: "version", Problem: fmt.Sprintf("save version %d exceeds current version %d", v, target), Expected: fmt.Sprintf("%d or lower", target), Fix: "load the save with the game version that wrote it, or a newer one", Err: ErrFutureVersion}
+}
+
+// fixCorrupt is the fix for a save copy that cannot be read.
+const fixCorrupt = "the copy is damaged or was not written by this game; delete the slot to start over, or restore the file from a backup"
+
+func decodeEnvelopeData(payload []byte, target int, migrations map[int]Migration, dst any, check func() error) error {
 	env, err := parseEnvelope(payload)
 	if err != nil {
 		// An envelope a newer build wrote may carry fields this one does not know; report it as a future version rather than as corrupt, so Load does not fall back to an older backup.
@@ -263,35 +340,73 @@ func decodeEnvelope(name string, payload []byte, target int, migrations map[int]
 			Version int `json:"version"`
 		}
 		if json.Unmarshal(payload, &lenient) == nil && lenient.Version > target {
-			return fmt.Errorf("save: load %q: save version %d exceeds current version %d: %w", name, lenient.Version, target, ErrFutureVersion)
+			return futureVersion(lenient.Version, target)
 		}
-		return fmt.Errorf("save: load %q: %w", name, err)
+		return err
 	}
 	if env.Version > target {
-		return fmt.Errorf("save: load %q: save version %d exceeds current version %d: %w", name, env.Version, target, ErrFutureVersion)
+		return futureVersion(env.Version, target)
 	}
 	data := env.Data
+	migrated := env.Version < target
 	for v := env.Version; v < target; v++ {
 		var fn Migration
 		if migrations != nil {
 			fn = migrations[v]
 		}
 		if fn == nil {
-			return fmt.Errorf("save: load %q: no migration from version %d to %d: %w", name, v, v+1, ErrMissingMigration)
+			return loaderr.Errorf("version", fmt.Sprintf("register a migration from version %d with RegisterMigration", v), "no migration from version %d to %d: %w", v, v+1, ErrMissingMigration)
 		}
 		next, err := fn(data)
 		if err != nil {
-			return fmt.Errorf("save: load %q: migrate version %d to %d: %w", name, v, v+1, err)
+			return loaderr.Errorf("data", fmt.Sprintf("fix the migration from version %d, or the data it refused", v), "migrate version %d to %d: %w", v, v+1, err)
 		}
 		if len(next) == 0 || !json.Valid(next) {
-			return fmt.Errorf("save: load %q: migration %d to %d returned invalid JSON: %w", name, v, v+1, ErrCorrupt)
+			return loaderr.Errorf("data", fmt.Sprintf("make the migration from version %d return valid JSON", v), "migration %d to %d returned invalid JSON: %w", v, v+1, ErrCorrupt)
 		}
 		data = next
 	}
 	if err := unmarshalClean(data, dst); err != nil {
-		return fmt.Errorf("save: load %q: unmarshal: %w", name, err)
+		field := "data"
+		var typ *json.UnmarshalTypeError
+		if !migrated && errors.As(err, &typ) && typ.Field != "" {
+			if e, ok := loaderr.As(loaderr.Locate(err, "", data, "")); ok {
+				field = underData(e.Field)
+			}
+		}
+		return loaderr.Errorf(field, "write the value the game's save type expects here, or delete the slot to start over", "unmarshal: %w", err)
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			e, ok := loaderr.As(err)
+			if !ok {
+				return loaderr.Errorf("data", fixCorrupt, "%w", err)
+			}
+			c := *e
+			// Migrated data is not the payload's text, so its fields have no line there.
+			if migrated {
+				c.Field = "data"
+			} else {
+				c.Field = underData(e.Field)
+			}
+			if c.Fix == "" {
+				c.Fix = fixCorrupt
+			}
+			return &c
+		}
 	}
 	return nil
+}
+
+// underData returns the path of field, a path in a save's data, in the whole envelope, where data sits under "data".
+func underData(field string) string {
+	switch {
+	case field == "":
+		return "data"
+	case field[0] == '[':
+		return "data" + field
+	}
+	return "data." + field
 }
 
 // envelope is the on-disk and in-storage JSON wrapper around a slot's payload.
@@ -301,39 +416,41 @@ type envelope struct {
 }
 
 func parseEnvelope(payload []byte) (envelope, error) {
-	if len(payload) == 0 || !json.Valid(payload) {
-		return envelope{}, ErrCorrupt
+	if len(payload) == 0 {
+		return envelope{}, loaderr.Errorf("", fixCorrupt, "empty save: %w", ErrCorrupt)
 	}
 	if err := checkEnvelopeKeys(payload); err != nil {
 		return envelope{}, err
 	}
 	var env envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
-		return envelope{}, fmt.Errorf("%w: %v", ErrCorrupt, err)
+		// Join keeps the decode error, which loaderr.Locate reads for its line, beside ErrCorrupt.
+		return envelope{}, errors.Join(ErrCorrupt, err)
 	}
-	if env.Version < 1 || len(env.Data) == 0 || !json.Valid(env.Data) {
-		return envelope{}, ErrCorrupt
+	if env.Version < 1 {
+		return envelope{}, loaderr.Errorf("version", fixCorrupt, "save version %d is not 1 or more: %w", env.Version, ErrCorrupt)
 	}
 	// A literal null (or a scalar) is never a legitimate save body; accepting it
 	// would "load" an empty value and skip the backup that may be intact.
 	data := bytes.TrimSpace(env.Data)
 	if len(data) == 0 || (data[0] != '{' && data[0] != '[') {
-		return envelope{}, ErrCorrupt
+		return envelope{}, loaderr.Errorf("data", fixCorrupt, "save data is missing or not an object or array: %w", ErrCorrupt)
 	}
 	return env, nil
 }
 
-// checkEnvelopeKeys refuses an envelope with a key other than "version" and "data" or with a key given twice, which encoding/json would silently ignore or resolve to the last value (#546).
+// checkEnvelopeKeys refuses an envelope with a key other than "version" and "data" or with a key given twice, which encoding/json would silently ignore or resolve to the last value (#546). A payload that is not a JSON object is left to json.Unmarshal, whose error gives the line.
 func checkEnvelopeKeys(payload []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(payload))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return ErrCorrupt
+		// json.Unmarshal, which parseEnvelope runs next, reports what is wrong and where.
+		return nil
 	}
 	var seenVersion, seenData bool
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrCorrupt, err)
+			return nil
 		}
 		key, _ := tok.(string)
 		switch {
@@ -342,13 +459,13 @@ func checkEnvelopeKeys(payload []byte) error {
 		case key == "data" && !seenData:
 			seenData = true
 		case key == "version" || key == "data":
-			return fmt.Errorf("%w: duplicate envelope field %q", ErrCorrupt, key)
+			return loaderr.Errorf(key, fixCorrupt, "%w: duplicate envelope field %q", ErrCorrupt, key)
 		default:
-			return fmt.Errorf("%w: unknown envelope field %q", ErrCorrupt, key)
+			return loaderr.Errorf(key, fixCorrupt, "%w: unknown envelope field %q", ErrCorrupt, key)
 		}
 		var skip json.RawMessage
 		if err := dec.Decode(&skip); err != nil {
-			return fmt.Errorf("%w: %v", ErrCorrupt, err)
+			return nil
 		}
 	}
 	return nil

@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // FormatVersion is the version written to every Baseline and the only one Decode accepts.
@@ -243,15 +245,15 @@ func Decode(data []byte) (*Baseline, error) {
 	return b, nil
 }
 
-// LoadFile reads and decodes the Baseline at path.
+// LoadFile reads and decodes the Baseline at path. Its errors are *loaderr.Error values that name path, with the line of the problem and how to fix it.
 func LoadFile(path string) (*Baseline, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("bench: load %q: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("bench: load: %w", err), path, nil, "check the baseline path, or write a baseline with game bench -update")
 	}
 	b, err := Decode(data)
 	if err != nil {
-		return nil, fmt.Errorf("bench: load %q: %w", path, err)
+		return nil, loaderr.Locate(fmt.Errorf("bench: load: %w", err), path, data, "write the baseline again with game bench -update, or correct the YAML")
 	}
 	return b, nil
 }

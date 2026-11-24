@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -191,7 +192,7 @@ func (s *Store) Save(sceneID string, loopTick uint64, elapsed time.Duration, sta
 }
 
 // LoadSnapshot reads the stored SessionSnapshot without decoding its payload.
-// If no snapshot exists, ok is false and err is nil.
+// If no snapshot exists, ok is false and err is nil. A snapshot that does not decode returns a *loaderr.Error that names the snapshot's file (or storage key) and line.
 func (s *Store) LoadSnapshot() (snap SessionSnapshot, ok bool, err error) {
 	if s == nil {
 		return SessionSnapshot{}, false, errors.New("devstate: nil store")
@@ -201,7 +202,7 @@ func (s *Store) LoadSnapshot() (snap SessionSnapshot, ok bool, err error) {
 		return SessionSnapshot{}, false, err
 	}
 	if err := json.Unmarshal(raw, &snap); err != nil {
-		return SessionSnapshot{}, true, fmt.Errorf("devstate: decode snapshot: %w", err)
+		return SessionSnapshot{}, true, loaderr.Locate(err, s.name(), raw, "delete the snapshot so the next run starts fresh; Save writes a new one")
 	}
 	return snap, true, nil
 }
@@ -355,6 +356,14 @@ func (s *Store) readRaw() ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("devstate: read snapshot: %w", err)
 	}
 	return raw, true, nil
+}
+
+// name names the snapshot in errors: its file, or its storage key on the web.
+func (s *Store) name() string {
+	if s.useStorage {
+		return s.storageKey
+	}
+	return s.path
 }
 
 func shortHash(h string) string {

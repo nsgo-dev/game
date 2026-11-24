@@ -66,10 +66,14 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, so errors.Is and errors.As see through an Error.
 func (e *Error) Unwrap() error { return e.Err }
 
-// Errorf returns an Error for the value at field whose Problem is format formatted with args, as fmt.Errorf formats it, and whose fix is fix. A %w verb keeps the wrapped error as Err.
+// Errorf returns an Error for the value at field whose Problem is format formatted with args, as fmt.Errorf formats it, and whose fix is fix. A %w verb keeps the wrapped error as Err; with two or more, Err is the formatted error, which wraps them all, so errors.Is and errors.As find each one.
 func Errorf(field, fix, format string, args ...any) *Error {
 	err := fmt.Errorf(format, args...)
-	return &Error{Field: field, Problem: err.Error(), Fix: fix, Err: errors.Unwrap(err)}
+	wrapped := errors.Unwrap(err)
+	if _, many := err.(interface{ Unwrap() []error }); many {
+		wrapped = err
+	}
+	return &Error{Field: field, Problem: err.Error(), Fix: fix, Err: wrapped}
 }
 
 // As returns the first *Error in err's chain.
@@ -81,12 +85,12 @@ func As(err error) (*Error, bool) {
 	return nil, false
 }
 
-// WithFile returns err with File set to file on its *Error, when it has one whose File is empty. Any other error is returned unchanged, as is nil.
+// WithFile returns a copy of err with File set to file, when err is itself an *Error whose File is empty. Any other error, including one that only wraps an *Error, is returned unchanged, so the context and sentinels around it still match with errors.Is; so is nil.
 //
-// A caller that read a file and handed its bytes to a loader uses it to name the file in the loader's errors.
+// A caller that read a file and handed its bytes to a loader, whose entry point returns an *Error, uses it to name the file in the loader's errors.
 func WithFile(err error, file string) error {
-	e, ok := As(err)
-	if !ok || e.File != "" {
+	e, ok := err.(*Error)
+	if !ok || e == nil || e.File != "" {
 		return err
 	}
 	c := *e

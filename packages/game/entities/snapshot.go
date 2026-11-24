@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/save"
 )
 
@@ -150,6 +151,8 @@ func (w *World) Snapshot() (WorldSnapshot, error) {
 // Restore atomically replaces w's entities and components with snap using w's registered codecs.
 //
 // Entity indices and generations are preserved verbatim so cross-entity references stored inside components remain valid. If decoding fails (for example due to an unknown codec or invalid JSON), w is left completely unchanged.
+//
+// An error about the snapshot's contents is a *loaderr.Error that names the field at fault, such as "entities[2].parent", and how to fix it, and matches ErrInvalidSnapshot or ErrUnknownCodec with errors.Is.
 func (w *World) Restore(snap WorldSnapshot) error {
 	if w == nil {
 		return errors.New("entities: nil world")
@@ -157,22 +160,43 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	if w.disposed {
 		return ErrWorldDisposed
 	}
+	r, err := w.prepareRestore(snap)
+	if err != nil {
+		return err
+	}
+	return w.commitRestore(r)
+}
 
+// restored is a snapshot decoded into a world of its own, ready for commitRestore to move into the world it was prepared for.
+type restored struct {
+	tmp   *World
+	links [][2]Entity
+}
+
+// fixSnapshot is the fix for a snapshot this build cannot restore.
+const fixSnapshot = "save the world again with SaveWorld from this build; a snapshot edited by hand must keep the indices, generations and parents SaveWorld wrote"
+
+// prepareRestore decodes snap without touching w.
+func (w *World) prepareRestore(snap WorldSnapshot) (*restored, error) {
 	tmp := &World{}
 	var links [][2]Entity
 	if len(snap.Entities) > 0 {
 		var maxIdx uint32
 		gens := make(map[uint32]uint32, len(snap.Entities))
-		for _, es := range snap.Entities {
+		// position maps an entity index to where it is in snap.Entities, for errors.
+		position := make(map[uint32]int, len(snap.Entities))
+		for i, es := range snap.Entities {
+			at := loaderr.Path("entities", i)
 			if es.Generation == 0 {
-				return fmt.Errorf("entities: index %d has zero generation: %w", es.Index, ErrInvalidSnapshot)
+				return nil, loaderr.Errorf(loaderr.Join(at, "generation"), fixSnapshot, "index %d has zero generation: %w", es.Index, ErrInvalidSnapshot)
 			}
 			if es.Index >= maxSnapshotIndex {
-				return fmt.Errorf("entities: index %d exceeds limit: %w", es.Index, ErrInvalidSnapshot)
+				return nil, loaderr.Errorf(loaderr.Join(at, "index"), fixSnapshot, "index %d exceeds limit: %w", es.Index, ErrInvalidSnapshot)
 			}
 			if _, dup := gens[es.Index]; dup {
-				return fmt.Errorf("entities: duplicate entity index %d: %w", es.Index, ErrInvalidSnapshot)
+				return nil, loaderr.Errorf(loaderr.Join(at, "index"), fixSnapshot, "duplicate entity index %d: %w", es.Index, ErrInvalidSnapshot)
 			}
+			position[es.Index] = i
 			gens[es.Index] = es.Generation
 			if es.Index > maxIdx {
 				maxIdx = es.Index
@@ -181,16 +205,16 @@ func (w *World) Restore(snap WorldSnapshot) error {
 		// Validate the recorded parent links before touching w: the parent must
 		// exist in the snapshot and the links must form a forest, born in the
 		// same order Restore writes them.
-		for _, es := range snap.Entities {
+		for i, es := range snap.Entities {
 			if es.Parent == nil {
 				continue
 			}
 			if *es.Parent == es.Index {
-				return fmt.Errorf("entities: entity %d is its own parent: %w", es.Index, ErrInvalidSnapshot)
+				return nil, loaderr.Errorf(loaderr.Path("entities", i, "parent"), fixSnapshot, "entity %d is its own parent: %w", es.Index, ErrInvalidSnapshot)
 			}
 			parentGen, ok := gens[*es.Parent]
 			if !ok {
-				return fmt.Errorf("entities: entity %d has unknown parent %d: %w", es.Index, *es.Parent, ErrInvalidSnapshot)
+				return nil, loaderr.Errorf(loaderr.Path("entities", i, "parent"), fixSnapshot, "entity %d has unknown parent %d: %w", es.Index, *es.Parent, ErrInvalidSnapshot)
 			}
 			links = append(links, [2]Entity{
 				makeEntity(es.Index, es.Generation),
@@ -203,7 +227,12 @@ func (w *World) Restore(snap WorldSnapshot) error {
 				parentOf[es.Index] = *es.Parent
 			}
 		}
-		for start := range parentOf {
+		// Walked in snapshot order, so the same cycle is reported every time.
+		for _, es := range snap.Entities {
+			start := es.Index
+			if _, ok := parentOf[start]; !ok {
+				continue
+			}
 			steps := 0
 			for at := start; ; {
 				parent, ok := parentOf[at]
@@ -212,7 +241,7 @@ func (w *World) Restore(snap WorldSnapshot) error {
 				}
 				steps++
 				if steps > len(parentOf) {
-					return fmt.Errorf("entities: hierarchy cycle through entity %d: %w", start, ErrInvalidSnapshot)
+					return nil, loaderr.Errorf(loaderr.Path("entities", position[start], "parent"), fixSnapshot, "hierarchy cycle through entity %d: %w", start, ErrInvalidSnapshot)
 				}
 				at = parent
 			}
@@ -240,20 +269,26 @@ func (w *World) Restore(snap WorldSnapshot) error {
 			}
 		}
 
-		for _, es := range snap.Entities {
+		for i, es := range snap.Entities {
 			e := makeEntity(es.Index, es.Generation)
-			for _, cs := range es.Components {
+			for j, cs := range es.Components {
+				at := loaderr.Path("entities", i, "components", j)
 				codec, ok := w.codecs[cs.Type]
 				if !ok {
-					return fmt.Errorf("entities: component %q on %s: %w", cs.Type, e, ErrUnknownCodec)
+					return nil, loaderr.Errorf(loaderr.Join(at, "type"), "register the component's codec with RegisterCodec before loading, or remove the component", "component %q on %s: %w", cs.Type, e, ErrUnknownCodec)
 				}
 				if err := codec.decode(tmp, e, cs.Data); err != nil {
-					return fmt.Errorf("entities: decode %q on %s: %w", cs.Type, e, err)
+					return nil, loaderr.Errorf(loaderr.Join(at, "data"), "write the data as the component type's JSON, as SaveWorld does", "decode %q on %s: %w", cs.Type, e, err)
 				}
 			}
 		}
 	}
+	return &restored{tmp: tmp, links: links}, nil
+}
 
+// commitRestore moves r, which prepareRestore made for w, into w.
+func (w *World) commitRestore(r *restored) error {
+	tmp, links := r.tmp, r.links
 	// Commit decoded state into w, preserving existing *Store[T] pointers where present.
 	w.gens = tmp.gens
 	w.alive = tmp.alive
@@ -320,8 +355,15 @@ func LoadWorld(store *save.Store, slot string, w *World) error {
 		return ErrWorldDisposed
 	}
 	var snap WorldSnapshot
-	if err := store.Load(slot, &snap); err != nil {
+	var r *restored
+	// The snapshot is checked while the save is decoded, so its errors give the line in the slot, and a primary copy that cannot be restored falls back to the backup.
+	err := store.LoadChecked(slot, &snap, func() error {
+		var err error
+		r, err = w.prepareRestore(snap)
+		return err
+	})
+	if err != nil {
 		return err
 	}
-	return w.Restore(snap)
+	return w.commitRestore(r)
 }

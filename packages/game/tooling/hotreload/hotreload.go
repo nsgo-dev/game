@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -151,7 +152,7 @@ func (w *Watcher) WatchAtlas(jsonPath string, img core.ImageSource, onReload fun
 	}
 	w.Watch(jsonPath, func(data []byte) {
 		atlas, err := sprite.LoadAtlas(img, data)
-		onReload(atlas, err)
+		onReload(atlas, loaderr.WithFile(err, jsonPath))
 	})
 }
 

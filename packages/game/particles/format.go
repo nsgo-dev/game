@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -23,17 +24,31 @@ const FormatVersion = 1
 
 const maxConfigSubDepth = 8
 
+// Fixes the definition's errors give.
+const (
+	fixConfig   = "correct the emitter definition as docs/en/particles.md describes it"
+	fixDuration = `write a duration string such as "500ms" or "1.5s"`
+	fixColor    = `write a quoted color such as "#ff8800" or "#ff8800cc"`
+)
+
+// nodeError returns the *loaderr.Error for the YAML value n, at its line and column, whose problem is format formatted with args.
+func nodeError(n *yaml.Node, fix, format string, args ...any) error {
+	e := loaderr.Errorf("", fix, format, args...)
+	e.Line, e.Column = n.Line, n.Column
+	return e
+}
+
 // docInt is an integer field. The YAML decoder on its own truncates a float such as 1.9 to 1 when it fills an int, so docInt checks the value as written.
 type docInt int
 
 // UnmarshalYAML accepts only an integer such as 12; a value with a fraction or of another type is refused instead of being truncated.
 func (n *docInt) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" {
-		return fmt.Errorf("line %d: %q must be a whole number", value.Line, value.Value)
+		return nodeError(value, "write a whole number such as 12", "%q must be a whole number", value.Value)
 	}
 	var v int
 	if err := value.Decode(&v); err != nil {
-		return fmt.Errorf("line %d: %w", value.Line, err)
+		return nodeError(value, "write a whole number such as 12", "%q is not a whole number in range", value.Value)
 	}
 	*n = docInt(v)
 	return nil
@@ -45,11 +60,11 @@ type docUint64 uint64
 // UnmarshalYAML accepts only a non-negative integer; a value with a fraction or of another type is refused instead of being truncated.
 func (n *docUint64) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!int" {
-		return fmt.Errorf("line %d: %q must be a whole number", value.Line, value.Value)
+		return nodeError(value, "write a whole number such as 12", "%q must be a whole number", value.Value)
 	}
 	var v uint64
 	if err := value.Decode(&v); err != nil {
-		return fmt.Errorf("line %d: %w", value.Line, err)
+		return nodeError(value, "write a whole number of at least 0", "%q must be a whole number of at least 0", value.Value)
 	}
 	*n = docUint64(v)
 	return nil
@@ -65,11 +80,11 @@ func (d docDuration) MarshalYAML() (any, error) {
 // UnmarshalYAML accepts only a duration string such as "500ms" or "1.5s"; a bare number is refused because its unit would be ambiguous.
 func (d *docDuration) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
-		return fmt.Errorf("line %d: duration %q must be a string such as \"500ms\" or \"1.5s\"", value.Line, value.Value)
+		return nodeError(value, fixDuration, "duration %q must be a string such as \"500ms\" or \"1.5s\"", value.Value)
 	}
 	parsed, err := time.ParseDuration(value.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: invalid duration %q: %w", value.Line, value.Value, err)
+		return nodeError(value, fixDuration, "invalid duration %q: %w", value.Value, err)
 	}
 	*d = docDuration(parsed)
 	return nil
@@ -159,11 +174,11 @@ func (c docColor) MarshalYAML() (any, error) {
 // UnmarshalYAML accepts only a quoted "#rrggbb" or "#rrggbbaa" string.
 func (c *docColor) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
-		return fmt.Errorf("line %d: color %q must be a quoted string such as \"#ff8800\" or \"#ff8800cc\"", value.Line, value.Value)
+		return nodeError(value, fixColor, "color %q must be a quoted string such as \"#ff8800\" or \"#ff8800cc\"", value.Value)
 	}
 	parsed, err := parseHexColor(value.Value)
 	if err != nil {
-		return fmt.Errorf("line %d: %w", value.Line, err)
+		return nodeError(value, fixColor, "%w", err)
 	}
 	*c = parsed
 	return nil
@@ -301,7 +316,17 @@ func MarshalConfigYAML(cfg Config) ([]byte, error) {
 }
 
 // UnmarshalConfigYAML decodes a versioned YAML emitter definition into a Config. It refuses unknown fields, a key with no value, a second YAML document, a version other than FormatVersion or one inside a sub-emitter, an integer field written with a fraction, a shape size that does not apply to its kind, durations that are not strings such as "500ms", and colors that are not quoted "#rrggbb" or "#rrggbbaa" strings.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile, as LoadConfigFile does.
 func UnmarshalConfigYAML(data []byte) (Config, error) {
+	cfg, err := unmarshalConfigYAML(data)
+	if err != nil {
+		return Config{}, loaderr.Locate(err, "", data, fixConfig)
+	}
+	return cfg, nil
+}
+
+func unmarshalConfigYAML(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return Config{}, errors.New("particles: empty config YAML")
 	}
@@ -331,9 +356,14 @@ func UnmarshalConfigYAML(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("particles: decode config YAML: %w", err)
 	}
 	if doc.Version != FormatVersion {
-		return Config{}, fmt.Errorf("particles: unsupported config version %d (want %d)", doc.Version, FormatVersion)
+		return Config{}, versionError(int(doc.Version))
 	}
-	return configFromDoc(&doc, 0)
+	return configFromDoc(&doc, 0, "")
+}
+
+// versionError is the error for a definition whose version is not FormatVersion.
+func versionError(v int) error {
+	return &loaderr.Error{Field: "version", Problem: fmt.Sprintf("particles: unsupported config version %d (want %d)", v, FormatVersion), Expected: strconv.Itoa(FormatVersion), Fix: fmt.Sprintf("set version: %d", FormatVersion)}
 }
 
 // plainYAMLKeys writes every mapping key without quotes. The encoder quotes "y" because YAML 1.1 read it as a boolean, but the schema's keys are all plain identifiers and YAML 1.2 (which the decoder follows) reads "y" as a string, so a hand-written `y: 120` saves back unchanged.
@@ -354,7 +384,7 @@ func refuseYAMLNulls(n *yaml.Node) error {
 	case yaml.DocumentNode, yaml.SequenceNode:
 		for _, child := range n.Content {
 			if n.Kind == yaml.SequenceNode && isYAMLNull(child) {
-				return fmt.Errorf("particles: line %d: list item has no value", child.Line)
+				return nodeError(child, "give the list item a value, or remove it", "particles: line %d: list item has no value", child.Line)
 			}
 			if err := refuseYAMLNulls(child); err != nil {
 				return err
@@ -364,7 +394,7 @@ func refuseYAMLNulls(n *yaml.Node) error {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			key, value := n.Content[i], n.Content[i+1]
 			if isYAMLNull(value) {
-				return fmt.Errorf("particles: line %d: %q has no value (quote colors such as \"#ff8800\": an unquoted # starts a YAML comment)", key.Line, key.Value)
+				return nodeError(key, "give the key a value, or remove it; quote colors such as \"#ff8800\"", "particles: line %d: %q has no value (quote colors such as \"#ff8800\": an unquoted # starts a YAML comment)", key.Line, key.Value)
 			}
 			if err := refuseYAMLNulls(value); err != nil {
 				return err
@@ -387,8 +417,16 @@ func MarshalConfigJSON(cfg Config) ([]byte, error) {
 	return json.MarshalIndent(doc, "", "  ")
 }
 
-// UnmarshalConfigJSON decodes the versioned JSON form of an emitter definition into a Config.
+// UnmarshalConfigJSON decodes the versioned JSON form of an emitter definition into a Config. Its errors are *loaderr.Error values, as UnmarshalConfigYAML's are.
 func UnmarshalConfigJSON(data []byte) (Config, error) {
+	cfg, err := unmarshalConfigJSON(data)
+	if err != nil {
+		return Config{}, loaderr.Locate(err, "", data, fixConfig)
+	}
+	return cfg, nil
+}
+
+func unmarshalConfigJSON(data []byte) (Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return Config{}, errors.New("particles: empty config JSON")
 	}
@@ -397,18 +435,22 @@ func UnmarshalConfigJSON(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("particles: decode config JSON: %w", err)
 	}
 	if doc.Version != FormatVersion {
-		return Config{}, fmt.Errorf("particles: unsupported config version %d (want %d)", doc.Version, FormatVersion)
+		return Config{}, versionError(int(doc.Version))
 	}
-	return configFromDoc(&doc, 0)
+	return configFromDoc(&doc, 0, "")
 }
 
-// LoadConfigFile reads and decodes a versioned YAML emitter definition file from disk.
+// fixReadConfig is the fix for an emitter definition that cannot be read.
+const fixReadConfig = "check that the emitter definition exists at this path and can be read"
+
+// LoadConfigFile reads and decodes a versioned YAML emitter definition file from disk. Its errors are *loaderr.Error values that name path.
 func LoadConfigFile(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, path, nil, fixReadConfig)
 	}
-	return UnmarshalConfigYAML(data)
+	cfg, err := UnmarshalConfigYAML(data)
+	return cfg, loaderr.WithFile(err, path)
 }
 
 // SaveConfigFile encodes cfg as a versioned YAML emitter definition and writes it to path.
@@ -420,16 +462,17 @@ func SaveConfigFile(path string, cfg Config) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// LoadConfigFS reads and decodes a versioned YAML emitter definition file from fsys.
+// LoadConfigFS reads and decodes a versioned YAML emitter definition file from fsys. Its errors are *loaderr.Error values that name the file.
 func LoadConfigFS(fsys fs.FS, name string) (Config, error) {
 	if fsys == nil {
 		return Config{}, errors.New("particles: nil fs.FS")
 	}
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Locate(err, name, nil, fixReadConfig)
 	}
-	return UnmarshalConfigYAML(data)
+	cfg, err := UnmarshalConfigYAML(data)
+	return cfg, loaderr.WithFile(err, name)
 }
 
 func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error) {
@@ -517,23 +560,24 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 	return doc, nil
 }
 
-func configFromDoc(doc *configDoc, depth int) (Config, error) {
+// configFromDoc builds the Config of doc, the definition at the field path at ("" for the top level), whose errors are *loaderr.Error values about fields under at.
+func configFromDoc(doc *configDoc, depth int, at string) (Config, error) {
 	if doc == nil {
 		return Config{}, nil
 	}
 	if depth > maxConfigSubDepth {
-		return Config{}, fmt.Errorf("particles: sub-emitter nesting exceeds max depth %d", maxConfigSubDepth)
+		return Config{}, loaderr.Errorf(at, fmt.Sprintf("nest sub-emitters at most %d deep", maxConfigSubDepth), "particles: sub-emitter nesting exceeds max depth %d", maxConfigSubDepth)
 	}
 	if depth > 0 && doc.Version != 0 {
-		return Config{}, errors.New("particles: version is only allowed at the top level, not in a sub-emitter's config")
+		return Config{}, loaderr.Errorf(loaderr.Join(at, "version"), "remove version from the sub-emitter's config; only the top level has one", "particles: version is only allowed at the top level, not in a sub-emitter's config")
 	}
 	space, err := parseSimulationSpace(doc.Space)
 	if err != nil {
-		return Config{}, err
+		return Config{}, &loaderr.Error{Field: loaderr.Join(at, "space"), Problem: err.Error(), Expected: `"world" or "local"`, Fix: "set space to world or local, or remove it for world", Err: err}
 	}
 	shape, err := shapeFromDoc(doc.Shape)
 	if err != nil {
-		return Config{}, err
+		return Config{}, &loaderr.Error{Field: loaderr.Join(at, "shape"), Problem: err.Error(), Fix: "use one of the shape kinds point, circle, ring or rect, with only the sizes that kind takes", Err: err}
 	}
 	cfg := Config{
 		X:                  doc.X,
@@ -567,7 +611,7 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 	if doc.Collision != nil {
 		mode, err := parseCollisionMode(doc.Collision.Mode)
 		if err != nil {
-			return Config{}, err
+			return Config{}, &loaderr.Error{Field: loaderr.Join(at, "collision", "mode"), Problem: err.Error(), Expected: `"none", "stop", "bounce" or "kill"`, Fix: "use one of the collision modes, or remove mode for none", Err: err}
 		}
 		cfg.Collision = CollisionConfig{
 			Enabled:  doc.Collision.Enabled,
@@ -601,11 +645,11 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 		for i, sub := range doc.SubEmitters {
 			trig, err := parseSubEmitterTrigger(sub.Trigger)
 			if err != nil {
-				return Config{}, err
+				return Config{}, &loaderr.Error{Field: loaderr.Join(at, "subEmitters", i, "trigger"), Problem: err.Error(), Expected: `"birth", "death" or "collision"`, Fix: "use one of the triggers, or remove trigger for birth", Err: err}
 			}
 			var subCfg Config
 			if sub.Config != nil {
-				subCfg, err = configFromDoc(sub.Config, depth+1)
+				subCfg, err = configFromDoc(sub.Config, depth+1, loaderr.Join(at, "subEmitters", i, "config"))
 				if err != nil {
 					return Config{}, err
 				}
@@ -620,7 +664,7 @@ func configFromDoc(doc *configDoc, depth int) (Config, error) {
 	}
 
 	if err := validateConfigFloats(cfg); err != nil {
-		return Config{}, err
+		return Config{}, loaderr.Errorf(at, "use finite numbers throughout the emitter definition", "%w", err)
 	}
 	return cfg, nil
 }
@@ -1004,9 +1048,9 @@ func (h *HotConfig) ReloadFile(path string) error {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return loaderr.Locate(err, path, nil, fixReadConfig)
 	}
-	return h.ReloadBytes(data)
+	return loaderr.WithFile(h.ReloadBytes(data), path)
 }
 
 // ReloadHook returns a file-change callback suitable for plugging into hot-reload watchers (such as tooling/hotreload).

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // BudgetFile is the JSON schema stored in benchmarks/web-budget.json.
@@ -115,15 +117,15 @@ func pctOf(val, limit int64) float64 {
 	return (float64(val) / float64(limit)) * 100
 }
 
-// LoadBudget reads and decodes a BudgetFile from path.
+// LoadBudget reads and decodes a BudgetFile from path. Its errors are *loaderr.Error values that name path, with the line of the problem and how to fix it.
 func LoadBudget(path string) (BudgetFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return BudgetFile{}, err
+		return BudgetFile{}, loaderr.Locate(err, path, nil, "check the budget file path")
 	}
 	var bf BudgetFile
 	if err := json.Unmarshal(data, &bf); err != nil {
-		return BudgetFile{}, err
+		return BudgetFile{}, loaderr.Locate(err, path, data, "correct the budget file; see docs/en/package-size-budgets.md")
 	}
 	return bf, nil
 }

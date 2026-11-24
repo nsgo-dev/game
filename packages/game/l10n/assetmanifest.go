@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // AssetManifestVersion is the asset manifest schema version this package reads and writes.
@@ -41,7 +43,20 @@ type AssetManifest struct {
 }
 
 // ParseAssetManifest decodes and validates a YAML asset manifest. Unknown fields, duplicate keys, trailing YAML documents, a missing or unsupported version, and names or locales that are not in canonical form are refused.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func ParseAssetManifest(data []byte) (*AssetManifest, error) {
+	m, err := parseAssetManifest(data)
+	if err != nil {
+		return nil, loaderr.Locate(err, "", data, fixAssetManifest)
+	}
+	return m, nil
+}
+
+// fixAssetManifest is the fix for an asset manifest error that has no more specific one.
+const fixAssetManifest = "write the manifest as version: 1 with optional base_locale, assets (asset name to locale to path) and groups (group name to a list of asset names)"
+
+func parseAssetManifest(data []byte) (*AssetManifest, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("l10n: empty asset manifest")
 	}
@@ -95,22 +110,25 @@ func checkPlainAssetManifestNode(n *yaml.Node, version int) error {
 		}
 		v := doc.Content[i+1]
 		if want := strconv.Itoa(version); v.Value != want {
-			return fmt.Errorf("l10n: asset manifest version %q must be written as %s", v.Value, want)
+			return loaderr.Errorf("version", "write the version as "+want, "l10n: asset manifest version %q must be written as %s", v.Value, want)
 		}
 	}
 	return nil
 }
 
+// fixYAMLReference is the fix for an anchor, alias or merge key, which a save would expand.
+const fixYAMLReference = "write the value out in full where it is used; a save would expand the reference"
+
 func checkNoYAMLReferences(n *yaml.Node) error {
 	if n.Kind == yaml.AliasNode {
-		return fmt.Errorf("l10n: asset manifest line %d: YAML aliases are not allowed", n.Line)
+		return &loaderr.Error{Line: n.Line, Column: n.Column, Problem: fmt.Sprintf("l10n: asset manifest line %d: YAML aliases are not allowed", n.Line), Fix: fixYAMLReference}
 	}
 	if n.Anchor != "" {
-		return fmt.Errorf("l10n: asset manifest line %d: YAML anchors are not allowed", n.Line)
+		return &loaderr.Error{Line: n.Line, Column: n.Column, Problem: fmt.Sprintf("l10n: asset manifest line %d: YAML anchors are not allowed", n.Line), Fix: fixYAMLReference}
 	}
 	for i, c := range n.Content {
 		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Tag == "!!merge" {
-			return fmt.Errorf("l10n: asset manifest line %d: YAML merge keys are not allowed", c.Line)
+			return &loaderr.Error{Line: c.Line, Column: c.Column, Problem: fmt.Sprintf("l10n: asset manifest line %d: YAML merge keys are not allowed", c.Line), Fix: fixYAMLReference}
 		}
 		if err := checkNoYAMLReferences(c); err != nil {
 			return err
@@ -149,6 +167,13 @@ func EncodeAssetManifest(m *AssetManifest) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Fixes ValidateAssetManifest gives.
+const (
+	fixVersion = "set version: 1"
+	fixLocale  = "write the locale as a normalized BCP-47 tag such as en or zh-Hans"
+	fixPath    = "write a non-empty path without surrounding spaces"
+)
+
 // ValidateAssetManifest checks m against the version 1 schema: the version, a normalized base locale, clean asset names with at least one variant each, normalized variant locales with non-empty paths that carry no surrounding spaces, and non-empty group names whose members are clean and unique.
 func ValidateAssetManifest(m *AssetManifest) error {
 	if m == nil {
@@ -157,47 +182,47 @@ func ValidateAssetManifest(m *AssetManifest) error {
 	switch m.Version {
 	case AssetManifestVersion:
 	case 0:
-		return fmt.Errorf("l10n: asset manifest is missing version (want %d)", AssetManifestVersion)
+		return loaderr.Errorf("version", fixVersion, "l10n: asset manifest is missing version (want %d)", AssetManifestVersion)
 	default:
-		return fmt.Errorf("l10n: unsupported asset manifest version %d (want %d)", m.Version, AssetManifestVersion)
+		return loaderr.Errorf("version", fixVersion, "l10n: unsupported asset manifest version %d (want %d)", m.Version, AssetManifestVersion)
 	}
 	if m.BaseLocale != "" {
 		if err := checkCanonicalLocale(m.BaseLocale); err != nil {
-			return fmt.Errorf("l10n: asset manifest base_locale: %w", err)
+			return loaderr.Errorf("base_locale", fixLocale, "l10n: asset manifest base_locale: %w", err)
 		}
 	}
 	for _, name := range sortedKeys(m.Assets) {
 		if err := checkCanonicalAssetName(name); err != nil {
-			return fmt.Errorf("l10n: asset manifest assets: %w", err)
+			return loaderr.Errorf(loaderr.Path("assets", name), "write the asset name as a clean slash-separated path such as voice/intro.wav", "l10n: asset manifest assets: %w", err)
 		}
 		variants := m.Assets[name]
 		if len(variants) == 0 {
-			return fmt.Errorf("l10n: asset %q has no locale variants", name)
+			return loaderr.Errorf(loaderr.Path("assets", name), "map at least one locale to the asset's path, such as en: locales/en/intro.wav", "l10n: asset %q has no locale variants", name)
 		}
 		for _, loc := range sortedKeys(variants) {
 			if err := checkCanonicalLocale(loc); err != nil {
-				return fmt.Errorf("l10n: asset %q: %w", name, err)
+				return loaderr.Errorf(loaderr.Path("assets", name, loc), fixLocale, "l10n: asset %q: %w", name, err)
 			}
 			p := variants[loc]
 			if p == "" {
-				return fmt.Errorf("l10n: asset %q locale %q has an empty path", name, loc)
+				return loaderr.Errorf(loaderr.Path("assets", name, loc), fixPath, "l10n: asset %q locale %q has an empty path", name, loc)
 			}
 			if strings.TrimSpace(p) != p {
-				return fmt.Errorf("l10n: asset %q locale %q path %q has surrounding spaces", name, loc, p)
+				return loaderr.Errorf(loaderr.Path("assets", name, loc), fixPath, "l10n: asset %q locale %q path %q has surrounding spaces", name, loc, p)
 			}
 		}
 	}
 	for _, group := range sortedKeys(m.Groups) {
 		if group == "" || strings.TrimSpace(group) != group {
-			return fmt.Errorf("l10n: asset manifest group name %q must be non-empty without surrounding spaces", group)
+			return loaderr.Errorf(loaderr.Path("groups", group), "give the group a non-empty name without surrounding spaces", "l10n: asset manifest group name %q must be non-empty without surrounding spaces", group)
 		}
 		seen := make(map[string]struct{}, len(m.Groups[group]))
-		for _, name := range m.Groups[group] {
+		for i, name := range m.Groups[group] {
 			if err := checkCanonicalAssetName(name); err != nil {
-				return fmt.Errorf("l10n: asset group %q: %w", group, err)
+				return loaderr.Errorf(loaderr.Path("groups", group, i), "write the member as a clean slash-separated asset name such as voice/intro.wav", "l10n: asset group %q: %w", group, err)
 			}
 			if _, dup := seen[name]; dup {
-				return fmt.Errorf("l10n: asset group %q lists %q more than once", group, name)
+				return loaderr.Errorf(loaderr.Path("groups", group, i), "remove the repeated member", "l10n: asset group %q lists %q more than once", group, name)
 			}
 			seen[name] = struct{}{}
 		}

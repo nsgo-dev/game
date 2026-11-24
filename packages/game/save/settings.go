@@ -332,6 +332,13 @@ func (b *storageSettingsBackend) backupKey() string {
 	return b.primaryKey() + ".bak"
 }
 
+func (b *storageSettingsBackend) copyName(_ string, backup bool) string {
+	if backup {
+		return b.backupKey()
+	}
+	return b.primaryKey()
+}
+
 func (b *storageSettingsBackend) read() ([]byte, error) {
 	v, ok := b.store.GetItem(b.primaryKey())
 	if !ok {
@@ -385,6 +392,10 @@ func (b *slotSettingsBackend) readBackup() ([]byte, error) { return b.backend.Re
 func (b *slotSettingsBackend) write(data []byte) error     { return b.backend.Write(settingsKey, data) }
 func (b *slotSettingsBackend) delete() error               { return b.backend.Delete(settingsKey) }
 func (b *slotSettingsBackend) exists() bool                { return b.backend.Exists(settingsKey) }
+
+func (b *slotSettingsBackend) copyName(_ string, backup bool) string {
+	return copyName(b.backend, settingsKey, backup)
+}
 
 // SettingsStore persists a versioned settings value of type T in a dedicated settings file or storage key,
 // completely separate from save slots.
@@ -470,7 +481,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 	primary, primaryErr := s.backend.read()
 	if primaryErr == nil {
 		out := s.defaultValue()
-		err := decodeEnvelope(settingsKey, primary, s.version(), s.Migrations, &out)
+		err := decodeEnvelope(copyName(s.backend, settingsKey, false), primary, s.version(), s.Migrations, &out, nil)
 		if err == nil {
 			validateValue(&out)
 			return out, nil
@@ -480,7 +491,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 		}
 		if backup, bakErr := s.backend.readBackup(); bakErr == nil {
 			rec := s.defaultValue()
-			recErr := decodeEnvelope(settingsKey, backup, s.version(), s.Migrations, &rec)
+			recErr := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil)
 			if recErr == nil {
 				validateValue(&rec)
 				return rec, nil
@@ -502,7 +513,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 		return zero, fmt.Errorf("save: load %q: %w", settingsKey, primaryErr)
 	}
 	rec := s.defaultValue()
-	if err := decodeEnvelope(settingsKey, backup, s.version(), s.Migrations, &rec); err != nil {
+	if err := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil); err != nil {
 		return zero, err
 	}
 	validateValue(&rec)

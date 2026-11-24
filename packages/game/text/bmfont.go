@@ -4,12 +4,14 @@ package text
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -68,11 +70,23 @@ func (f *Font) Kerning(first, second rune) float32 {
 // For each texture page defined in the font, pageImage is called with the page
 // ID and filename (in ascending page ID order) to obtain its core.ImageSource.
 // If pageImage is nil, each page's atlas receives a zero core.ImageSource.
+//
+// Its errors are *loaderr.Error values that give the line of the record at fault and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadBMFont(data []byte, pageImage func(id int, file string) core.ImageSource) (*Font, error) {
+	f, err := loadBMFont(data, pageImage)
+	return f, loaderr.Locate(err, "", nil, fixBMFont)
+}
+
+// fixBMFont is the fix for a BMFont error that has no more specific one.
+const fixBMFont = "export the font again from BMFont, Hiero or another AngelCode BMFont tool, as text or XML"
+
+func loadBMFont(data []byte, pageImage func(id int, file string) core.ImageSource) (*Font, error) {
 	trimmed := bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	// Lines are counted in data, so add the blank lines trimmed off its start.
+	lead := bytes.Count(trimmed[:len(trimmed)-len(bytes.TrimLeft(trimmed, " \t\r\n"))], []byte("\n"))
 	trimmed = bytes.TrimSpace(trimmed)
 	if len(trimmed) == 0 {
-		return nil, fmt.Errorf("text: bmfont: empty data")
+		return nil, &loaderr.Error{Problem: "empty data", Fix: fixBMFont}
 	}
 
 	var raw bmfontData
@@ -82,10 +96,26 @@ func LoadBMFont(data []byte, pageImage func(id int, file string) core.ImageSourc
 	} else {
 		raw, err = parseBMFontText(trimmed)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("text: bmfont: %w", err)
+	if err == nil {
+		var f *Font
+		f, err = buildBMFont(raw, pageImage)
+		if err == nil {
+			return f, nil
+		}
 	}
-	return buildBMFont(raw, pageImage)
+	if e, ok := loaderr.As(err); ok && e.Line > 0 {
+		c := *e
+		c.Line += lead
+		return nil, &c
+	}
+	return nil, err
+}
+
+// recordError reports a problem with the record on line, with fix.
+func recordError(line int, fix, format string, args ...any) error {
+	e := loaderr.Errorf("", fix, format, args...)
+	e.Line = line
+	return e
 }
 
 // LoadBMFontImage parses a single-page AngelCode BMFont (plain-text or XML)
@@ -96,7 +126,7 @@ func LoadBMFontImage(img core.ImageSource, data []byte) (*Font, error) {
 		return nil, err
 	}
 	if len(f.Pages) > 1 {
-		return nil, fmt.Errorf("text: bmfont: font has %d pages; use LoadBMFont", len(f.Pages))
+		return nil, recordError(1, "load a font with several pages with LoadBMFont, which takes an image for each page", "font has %d pages; use LoadBMFont", len(f.Pages))
 	}
 	return f, nil
 }
@@ -108,6 +138,7 @@ type bmfontData struct {
 	lineHeight    float32
 	base          float32
 	expectedPages int
+	commonLine    int // the common record's line, 1 when there is none
 	pages         []bmfontPage
 	chars         []bmfontChar
 	kernings      []bmfontKerning
@@ -123,6 +154,7 @@ type bmfontField struct {
 type bmfontPage struct {
 	id   int
 	file string
+	line int
 }
 
 type bmfontChar struct {
@@ -131,41 +163,43 @@ type bmfontChar struct {
 	xoffset, yoffset float32
 	xadvance         float32
 	page             int
+	line             int
 }
 
 type bmfontKerning struct {
 	first, second int
 	amount        float32
+	line          int
 }
 
 func buildBMFont(raw bmfontData, pageImage func(id int, file string) core.ImageSource) (*Font, error) {
 	if !raw.hasCommon {
-		return nil, fmt.Errorf("text: bmfont: missing common record")
+		return nil, recordError(1, "add a common record with lineHeight, base and pages", "missing common record")
 	}
 	if raw.lineHeight <= 0 {
-		return nil, fmt.Errorf("text: bmfont: lineHeight %v must be positive", raw.lineHeight)
+		return nil, recordError(raw.commonLine, "set lineHeight to the font's line spacing in pixels, above 0", "lineHeight %v must be positive", raw.lineHeight)
 	}
 	if raw.expectedPages < 0 {
-		return nil, fmt.Errorf("text: bmfont: invalid page count %d", raw.expectedPages)
+		return nil, recordError(raw.commonLine, "set pages to the number of page records", "invalid page count %d", raw.expectedPages)
 	}
 	if len(raw.pages) == 0 {
-		return nil, fmt.Errorf("text: bmfont: no pages defined")
+		return nil, recordError(raw.commonLine, "add a page record (page id=0 file=\"font.png\") for each texture", "no pages defined")
 	}
 	if raw.expectedPages > 0 && len(raw.pages) != raw.expectedPages {
-		return nil, fmt.Errorf("text: bmfont: common declares %d pages, found %d", raw.expectedPages, len(raw.pages))
+		return nil, recordError(raw.commonLine, "make common's pages match the number of page records", "common declares %d pages, found %d", raw.expectedPages, len(raw.pages))
 	}
 	if len(raw.chars) == 0 {
-		return nil, fmt.Errorf("text: bmfont: no glyphs defined")
+		return nil, recordError(raw.commonLine, "export the font with its glyphs; it has no char records", "no glyphs defined")
 	}
 
 	pageFiles := make(map[int]string, len(raw.pages))
 	pageIDs := make([]int, 0, len(raw.pages))
 	for _, p := range raw.pages {
 		if p.id < 0 {
-			return nil, fmt.Errorf("text: bmfont: invalid page id %d", p.id)
+			return nil, recordError(p.line, "number pages from 0", "invalid page id %d", p.id)
 		}
 		if _, dup := pageFiles[p.id]; dup {
-			return nil, fmt.Errorf("text: bmfont: duplicate page id %d", p.id)
+			return nil, recordError(p.line, "give each page record its own id", "duplicate page id %d", p.id)
 		}
 		pageFiles[p.id] = p.file
 		pageIDs = append(pageIDs, p.id)
@@ -193,18 +227,18 @@ func buildBMFont(raw bmfontData, pageImage func(id int, file string) core.ImageS
 
 	for _, c := range raw.chars {
 		if c.id < 0 {
-			return nil, fmt.Errorf("text: bmfont: invalid char id %d", c.id)
+			return nil, recordError(c.line, "use the character's Unicode code point, 0 or more, as its id", "invalid char id %d", c.id)
 		}
 		if c.x < 0 || c.y < 0 || c.w < 0 || c.h < 0 {
-			return nil, fmt.Errorf("text: bmfont: char %d has negative bounds (%v,%v,%v,%v)", c.id, c.x, c.y, c.w, c.h)
+			return nil, recordError(c.line, "give the glyph a position and size of 0 or more in its page", "char %d has negative bounds (%v,%v,%v,%v)", c.id, c.x, c.y, c.w, c.h)
 		}
 		atlas, ok := f.Pages[c.page]
 		if !ok {
-			return nil, fmt.Errorf("text: bmfont: char %d references unknown page %d", c.id, c.page)
+			return nil, recordError(c.line, "set page to the id of a page record", "char %d references unknown page %d", c.id, c.page)
 		}
 		r := rune(c.id)
 		if _, dup := f.Glyphs[r]; dup {
-			return nil, fmt.Errorf("text: bmfont: duplicate char id %d", c.id)
+			return nil, recordError(c.line, "remove the second char record for this id", "duplicate char id %d", c.id)
 		}
 		name := glyphFrameName(r)
 		frame := sprite.Frame{
@@ -231,7 +265,7 @@ func buildBMFont(raw bmfontData, pageImage func(id int, file string) core.ImageS
 		f.Kernings = make(map[KerningPair]float32, len(raw.kernings))
 		for _, k := range raw.kernings {
 			if k.first < 0 || k.second < 0 {
-				return nil, fmt.Errorf("text: bmfont: invalid kerning pair (%d, %d)", k.first, k.second)
+				return nil, recordError(k.line, "use the characters' code points, 0 or more, as first and second", "invalid kerning pair (%d, %d)", k.first, k.second)
 			}
 			f.Kernings[KerningPair{First: rune(k.first), Second: rune(k.second)}] = k.amount
 		}
@@ -260,7 +294,7 @@ func parseBMFontText(data []byte) (bmfontData, error) {
 		tag, rest, _ := cutField(line)
 		kvs, err := parseKeyValues(rest)
 		if err != nil {
-			return bmfontData{}, fmt.Errorf("line %d: %w", lineNo+1, err)
+			return bmfontData{}, recordError(lineNo+1, fixBMFont, "%w", err)
 		}
 		switch tag {
 		case "info":
@@ -270,62 +304,65 @@ func parseBMFontText(data []byte) (bmfontData, error) {
 			if v, ok := kvs["size"]; ok {
 				n, err := parseFloat32(v)
 				if err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: info size: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "info size: %w", err)
 				}
 				out.size = n
 			}
 		case "common":
 			out.hasCommon = true
+			out.commonLine = lineNo + 1
 			if v, ok := kvs["lineHeight"]; ok {
 				n, err := parseFloat32(v)
 				if err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: common lineHeight: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "common lineHeight: %w", err)
 				}
 				out.lineHeight = n
 			}
 			if v, ok := kvs["base"]; ok {
 				n, err := parseFloat32(v)
 				if err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: common base: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "common base: %w", err)
 				}
 				out.base = n
 			}
 			if v, ok := kvs["pages"]; ok {
 				n, err := strconv.Atoi(v)
 				if err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: common pages: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "common pages: %w", err)
 				}
 				out.expectedPages = n
 			}
 		case "page":
 			idStr, ok := kvs["id"]
 			if !ok {
-				return bmfontData{}, fmt.Errorf("line %d: page missing id", lineNo+1)
+				return bmfontData{}, recordError(lineNo+1, fixBMFont, "page missing id")
 			}
 			id, err := strconv.Atoi(idStr)
 			if err != nil {
-				return bmfontData{}, fmt.Errorf("line %d: page id: %w", lineNo+1, err)
+				return bmfontData{}, recordError(lineNo+1, fixBMFont, "page id: %w", err)
 			}
 			out.pages = append(out.pages, bmfontPage{
 				id:   id,
 				file: kvs["file"],
+				line: lineNo + 1,
 			})
 		case "chars":
 			if v, ok := kvs["count"]; ok {
 				if _, err := strconv.Atoi(v); err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: chars count: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "chars count: %w", err)
 				}
 			}
 		case "char":
 			c, err := parseCharKVs(kvs)
 			if err != nil {
-				return bmfontData{}, fmt.Errorf("line %d: %w", lineNo+1, err)
+				return bmfontData{}, recordError(lineNo+1, fixBMFont, "%w", err)
 			}
+			c.line = lineNo + 1
 			out.chars = append(out.chars, c)
 		case "kernings":
 			if v, ok := kvs["count"]; ok {
 				if _, err := strconv.Atoi(v); err != nil {
-					return bmfontData{}, fmt.Errorf("line %d: kernings count: %w", lineNo+1, err)
+					return bmfontData{}, recordError(lineNo+1, fixBMFont, "kernings count: %w", err)
 				}
 			}
 		case "distanceField":
@@ -344,11 +381,12 @@ func parseBMFontText(data []byte) (bmfontData, error) {
 		case "kerning":
 			k, err := parseKerningKVs(kvs)
 			if err != nil {
-				return bmfontData{}, fmt.Errorf("line %d: %w", lineNo+1, err)
+				return bmfontData{}, recordError(lineNo+1, fixBMFont, "%w", err)
 			}
+			k.line = lineNo + 1
 			out.kernings = append(out.kernings, k)
 		default:
-			return bmfontData{}, fmt.Errorf("line %d: unknown record %q", lineNo+1, tag)
+			return bmfontData{}, recordError(lineNo+1, "remove the line; a BMFont text file has info, common, page, chars, char, kernings and kerning records", "unknown record %q", tag)
 		}
 	}
 	return out, nil
@@ -538,15 +576,28 @@ type xmlBMFont struct {
 func parseBMFontXML(data []byte) (bmfontData, error) {
 	var doc xmlBMFont
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		return bmfontData{}, err
+		var syn *xml.SyntaxError
+		if errors.As(err, &syn) {
+			return bmfontData{}, recordError(syn.Line, "correct the XML so it parses", "invalid XML: %w", err)
+		}
+		return bmfontData{}, recordError(1, fixBMFont, "%w", err)
+	}
+	lines := xmlElementLines(data)
+	line := func(name string, i int) int {
+		if i < len(lines[name]) {
+			return lines[name][i]
+		}
+		return 0
 	}
 	var out bmfontData
 	if doc.Info != nil {
 		out.face = doc.Info.Face
 		out.size = doc.Info.Size
 	}
+	out.commonLine = 1
 	if doc.Common != nil {
 		out.hasCommon = true
+		out.commonLine = line("common", 0)
 		out.lineHeight = doc.Common.LineHeight
 		out.base = doc.Common.Base
 		out.expectedPages = doc.Common.Pages
@@ -556,13 +607,13 @@ func parseBMFontXML(data []byte) (bmfontData, error) {
 	}
 	for i, p := range doc.Pages.Pages {
 		if p.ID == nil {
-			return bmfontData{}, fmt.Errorf("page %d missing id", i)
+			return bmfontData{}, recordError(line("page", i), "add an id attribute to the page", "page %d missing id", i)
 		}
-		out.pages = append(out.pages, bmfontPage{id: *p.ID, file: p.File})
+		out.pages = append(out.pages, bmfontPage{id: *p.ID, file: p.File, line: line("page", i)})
 	}
 	for i, c := range doc.Chars.Chars {
 		if c.ID == nil {
-			return bmfontData{}, fmt.Errorf("char %d missing id", i)
+			return bmfontData{}, recordError(line("char", i), "add an id attribute to the char", "char %d missing id", i)
 		}
 		out.chars = append(out.chars, bmfontChar{
 			id:       *c.ID,
@@ -574,17 +625,36 @@ func parseBMFontXML(data []byte) (bmfontData, error) {
 			yoffset:  c.YOffset,
 			xadvance: c.XAdvance,
 			page:     c.Page,
+			line:     line("char", i),
 		})
 	}
 	for i, k := range doc.Kernings.Kernings {
 		if k.First == nil || k.Second == nil {
-			return bmfontData{}, fmt.Errorf("kerning %d missing first or second", i)
+			return bmfontData{}, recordError(line("kerning", i), "give the kerning both first and second attributes", "kerning %d missing first or second", i)
 		}
 		out.kernings = append(out.kernings, bmfontKerning{
 			first:  *k.First,
 			second: *k.Second,
 			amount: k.Amount,
+			line:   line("kerning", i),
 		})
 	}
 	return out, nil
+}
+
+// xmlElementLines returns the 1-based line each start element of data begins on, by element name in document order, so errors about the n-th char can name its line. data has already been unmarshaled, so it parses.
+func xmlElementLines(data []byte) map[string][]int {
+	lines := make(map[string][]int)
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return lines
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			// InputPos is just past the start tag, which a BMFont exporter writes on one line.
+			line, _ := dec.InputPos()
+			lines[se.Name.Local] = append(lines[se.Name.Local], line)
+		}
+	}
 }

@@ -178,7 +178,7 @@ func TestParseManifestRefusesInvalidDocuments(t *testing.T) {
 		want string
 	}{
 		"empty":                   {"  \n", "empty manifest"},
-		"unknown field":           {base + "homepage: https://example.com\n", "field homepage not found"},
+		"unknown field":           {base + "homepage: https://example.com\n", `unknown field "homepage"`},
 		"misspelled field":        {strings.Replace(base, "entry:", "entrypoint:", 1), "entrypoint"},
 		"missing manifestVersion": {strings.Replace(base, "manifestVersion: 1\n", "", 1), "unsupported manifestVersion 0"},
 		"future manifestVersion":  {strings.Replace(base, "manifestVersion: 1", "manifestVersion: 2", 1), "unsupported manifestVersion 2"},
@@ -187,7 +187,7 @@ func TestParseManifestRefusesInvalidDocuments(t *testing.T) {
 		"duplicate key":           {base + "name: B\n", "already defined"},
 		"trailing document":       {base + "---\nid: b\n", "trailing YAML document"},
 		"json manifest":           {`{"id":"a","name":"A","version":"1.0.0","entry":"mod.js"}`, "unsupported manifestVersion 0"},
-		"not a mapping":           {"- a\n- b\n", "cannot unmarshal"},
+		"not a mapping":           {"- a\n- b\n", "cannot use"},
 		"unknown capability":      {base + "capabilities: [fly]\n", `unknown capability "fly"`},
 		"non-canonical name":      {base + "capabilities: [read_state]\n", `unknown capability "read_state"`},
 		"repeated capability":     {base + "capabilities: [ui, ui]\n", `capability "ui" listed twice`},

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -540,6 +541,8 @@ func (c *Console) SaveTunables(st core.Storage, key string) error {
 }
 
 // LoadTunables restores registered tunables from st under key. Missing entries are a no-op; unknown keys are ignored; out-of-range values return an error without mutating the tunable.
+//
+// Its errors are *loaderr.Error values that name key as the file, with the line of the tunable at fault and how to fix it.
 func (c *Console) LoadTunables(st core.Storage, key string) error {
 	if c == nil {
 		return nil
@@ -552,9 +555,14 @@ func (c *Console) LoadTunables(st core.Storage, key string) error {
 		return nil
 	}
 
+	const fixStored = "save the tunables again with SaveTunables, or remove the key so they keep their defaults"
 	var parsed map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		return fmt.Errorf("debug: unmarshal tunables: %w", err)
+		return loaderr.Locate(err, key, []byte(raw), fixStored)
+	}
+	// bad reports the stored value of the tunable name at its line under key.
+	bad := func(name, fix, format string, args ...any) error {
+		return loaderr.Locate(loaderr.Errorf(loaderr.Path(name), fix, format, args...), key, []byte(raw), fixStored)
 	}
 
 	c.mu.Lock()
@@ -583,25 +591,25 @@ func (c *Console) LoadTunables(st core.Storage, key string) error {
 		case tunableFloat:
 			var v float64
 			if err := json.Unmarshal(rawVal, &v); err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-				return fmt.Errorf("debug: invalid stored float for %q", name)
+				return bad(name, "store a finite number", "invalid stored float for %q", name)
 			}
 			if v < t.minFloat || v > t.maxFloat {
-				return fmt.Errorf("debug: stored %q value %g out of range [%g, %g]", name, v, t.minFloat, t.maxFloat)
+				return bad(name, fmt.Sprintf("store a value from %g to %g", t.minFloat, t.maxFloat), "stored %q value %g out of range [%g, %g]", name, v, t.minFloat, t.maxFloat)
 			}
 			updates = append(updates, pendingUpdate{t: t, f: v})
 		case tunableInt:
 			var v int
 			if err := json.Unmarshal(rawVal, &v); err != nil {
-				return fmt.Errorf("debug: invalid stored int for %q", name)
+				return bad(name, "store a whole number", "invalid stored int for %q", name)
 			}
 			if v < t.minInt || v > t.maxInt {
-				return fmt.Errorf("debug: stored %q value %d out of range [%d, %d]", name, v, t.minInt, t.maxInt)
+				return bad(name, fmt.Sprintf("store a value from %d to %d", t.minInt, t.maxInt), "stored %q value %d out of range [%d, %d]", name, v, t.minInt, t.maxInt)
 			}
 			updates = append(updates, pendingUpdate{t: t, i: v})
 		case tunableBool:
 			var v bool
 			if err := json.Unmarshal(rawVal, &v); err != nil {
-				return fmt.Errorf("debug: invalid stored bool for %q", name)
+				return bad(name, "store true or false", "invalid stored bool for %q", name)
 			}
 			updates = append(updates, pendingUpdate{t: t, b: v})
 		}

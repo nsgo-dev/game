@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -404,13 +405,15 @@ func String(v string) *string { return &v }
 func Float32(v float32) *float32 { return &v }
 
 // Parse decodes a YAML scene document and validates it. Unknown YAML fields and trailing YAML documents are rejected. Component payloads are not checked against any registry; use ParseWith to check them.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it, and wrap the *FieldError Validate returned for a document that decodes but breaks the schema; a caller that read data from a file names it with loaderr.WithFile, or with ParseOptions.File.
 func Parse(data []byte) (*SceneDoc, error) {
 	return ParseWith(data, ParseOptions{})
 }
 
 // ParseOptions configures ParseWith.
 type ParseOptions struct {
-	// File names the source in errors, such as "scenes/level1.scene.yaml". Empty leaves errors unprefixed.
+	// File names the source in errors, such as "scenes/level1.scene.yaml": the File of a *ComponentError or of a *loaderr.Error. Empty leaves it unnamed.
 	File string
 	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column.
 	Components *ComponentRegistry
@@ -425,12 +428,61 @@ func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
 			ce.File = opts.File
 			return nil, ce
 		}
-		if opts.File != "" {
-			return nil, fmt.Errorf("%s: %w", opts.File, err)
-		}
-		return nil, err
+		return nil, loaderr.Locate(fieldError(err, data), opts.File, data, fixScene)
 	}
 	return doc, nil
+}
+
+// fixScene is the fix for a scene document error that has no more specific one.
+const fixScene = "correct the scene document to match its version's schema in docs/en/scene.md"
+
+// fieldError returns err as a *loaderr.Error about the field a *FieldError in its chain names, which wraps err, or err itself when it holds no FieldError.
+func fieldError(err error, data []byte) error {
+	var fe *FieldError
+	if !errors.As(err, &fe) {
+		return err
+	}
+	return &loaderr.Error{Field: fieldPath(data, fe.Path), Problem: fe.Error(), Fix: fixScene, Err: err}
+}
+
+// fieldPath writes steps, a FieldError's path, as loaderr.Path writes it: a step into a sequence of data is an index, any other a key. A step past what data holds is an index when it is a decimal number.
+func fieldPath(data []byte, steps []string) string {
+	var root yaml.Node
+	n := &root
+	if yaml.Unmarshal(data, &root) != nil {
+		n = nil
+	} else if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	parts := make([]any, 0, len(steps))
+	for _, step := range steps {
+		for n != nil && n.Kind == yaml.AliasNode {
+			n = n.Alias
+		}
+		var next *yaml.Node
+		switch {
+		case n != nil && n.Kind == yaml.MappingNode:
+			parts = append(parts, step)
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if n.Content[i].Value == step {
+					next = n.Content[i+1]
+					break
+				}
+			}
+		default:
+			i, err := strconv.Atoi(step)
+			if err != nil || i < 0 || (n != nil && n.Kind != yaml.SequenceNode) {
+				parts = append(parts, step)
+				break
+			}
+			parts = append(parts, i)
+			if n != nil && i < len(n.Content) {
+				next = n.Content[i]
+			}
+		}
+		n = next
+	}
+	return loaderr.Path(parts...)
 }
 
 func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
@@ -447,7 +499,7 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("sceneformat: unexpected trailing YAML document")
+			return nil, &loaderr.Error{Line: trailingDocumentLine(data), Problem: "sceneformat: unexpected trailing YAML document", Fix: "keep one scene per file; remove the --- and the document after it"}
 		}
 		return nil, fmt.Errorf("sceneformat: decode: %w", err)
 	}
@@ -468,6 +520,23 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 		}
 	}
 	return &doc, nil
+}
+
+// trailingDocumentLine returns the 1-based line of the first "---" document marker in data that follows content, which starts a second document, or 0 when there is none.
+func trailingDocumentLine(data []byte) int {
+	sawContent := false
+	for i, line := range bytes.Split(data, []byte("\n")) {
+		if rest, ok := bytes.CutPrefix(line, []byte("---")); ok && (len(rest) == 0 || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\r') {
+			if sawContent {
+				return i + 1
+			}
+			continue
+		}
+		if t := bytes.TrimSpace(line); len(t) > 0 && t[0] != '#' {
+			sawContent = true
+		}
+	}
+	return 0
 }
 
 // Encode validates doc and serializes it as deterministic 2-space YAML, starting with the line SchemaCommentFor returns for its version.

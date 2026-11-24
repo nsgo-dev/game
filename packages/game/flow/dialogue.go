@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // Branching dialogue script runtime using the Yarn Spinner (.yarn) format.
@@ -275,7 +277,24 @@ type bodyLine struct {
 //   - Variables: <<set $var = expr>> (plus to, +=, -=, *=, /=) and <<declare $var = expr>>
 //   - Control flow: <<jump NodeTitle>> and <<stop>>
 //   - Game commands: <<command arg1 "quoted arg" $var {$expr}>>
+//
+// Its errors are *loaderr.Error values that give the line of the problem and how to fix it; a caller that read src from a file names it with loaderr.WithFile.
 func ParseYarn(src string) (*DialogueScript, error) {
+	script, err := parseYarn(src)
+	return script, loaderr.Locate(err, "", nil, fixYarn)
+}
+
+// fixYarn is the fix for a Yarn script error; the problem says what is wrong on the line.
+const fixYarn = "correct the Yarn script on this line; docs/en/flow.md lists the syntax ParseYarn reads"
+
+// yarnError reports a problem on line of a Yarn script, with the message format formats with args.
+func yarnError(line int, format string, args ...any) *loaderr.Error {
+	e := loaderr.Errorf("", fixYarn, format, args...)
+	e.Line = line
+	return e
+}
+
+func parseYarn(src string) (*DialogueScript, error) {
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	lines := strings.Split(normalized, "\n")
@@ -306,10 +325,10 @@ func ParseYarn(src string) (*DialogueScript, error) {
 				continue
 			}
 			if trimmed == "---" {
-				return nil, fmt.Errorf("yarn line %d: unexpected '---' before node headers", lineNum)
+				return nil, yarnError(lineNum, "unexpected '---' before node headers")
 			}
 			if trimmed == "===" {
-				return nil, fmt.Errorf("yarn line %d: unexpected '===' outside node", lineNum)
+				return nil, yarnError(lineNum, "unexpected '===' outside node")
 			}
 			curHeaders = make(map[string]string)
 			curTitle = ""
@@ -331,16 +350,16 @@ func ParseYarn(src string) (*DialogueScript, error) {
 			}
 			if trimmed == "---" {
 				if curTitle == "" {
-					return nil, fmt.Errorf("yarn line %d: node starting at line %d is missing a 'title' header", lineNum, curStartLine)
+					return nil, yarnError(lineNum, "node starting at line %d is missing a 'title' header", curStartLine)
 				}
 				if _, exists := script.nodes[curTitle]; exists {
-					return nil, fmt.Errorf("yarn line %d: duplicate node title %q", lineNum, curTitle)
+					return nil, yarnError(lineNum, "duplicate node title %q", curTitle)
 				}
 				state = stateBody
 				continue
 			}
 			if trimmed == "===" {
-				return nil, fmt.Errorf("yarn line %d: unexpected '===' before '---' in node %q", lineNum, curTitle)
+				return nil, yarnError(lineNum, "unexpected '===' before '---' in node %q", curTitle)
 			}
 			k, v, err := parseHeaderLine(trimmed, lineNum)
 			if err != nil {
@@ -371,13 +390,13 @@ func ParseYarn(src string) (*DialogueScript, error) {
 	}
 
 	if state == stateHeaders {
-		return nil, fmt.Errorf("yarn line %d: unterminated node headers (missing '---')", curStartLine)
+		return nil, yarnError(curStartLine, "unterminated node headers (missing '---')")
 	}
 	if state == stateBody {
-		return nil, fmt.Errorf("yarn line %d: unterminated node %q (missing '===')", curStartLine, curTitle)
+		return nil, yarnError(curStartLine, "unterminated node %q (missing '===')", curTitle)
 	}
 	if len(script.nodeOrder) == 0 {
-		return nil, fmt.Errorf("yarn: script contains no nodes")
+		return nil, yarnError(1, "script contains no nodes; add one as title: Start, then ---, its lines, then ===")
 	}
 	return script, nil
 }
@@ -385,15 +404,15 @@ func ParseYarn(src string) (*DialogueScript, error) {
 func parseHeaderLine(trimmed string, lineNum int) (string, string, error) {
 	colon := strings.IndexByte(trimmed, ':')
 	if colon <= 0 {
-		return "", "", fmt.Errorf("yarn line %d: invalid header %q (expected 'key: value')", lineNum, trimmed)
+		return "", "", yarnError(lineNum, "invalid header %q (expected 'key: value')", trimmed)
 	}
 	key := strings.ToLower(strings.TrimSpace(trimmed[:colon]))
 	val := strings.TrimSpace(stripLineComment(trimmed[colon+1:]))
 	if key == "" {
-		return "", "", fmt.Errorf("yarn line %d: empty header key", lineNum)
+		return "", "", yarnError(lineNum, "empty header key")
 	}
 	if key == "title" && val == "" {
-		return "", "", fmt.Errorf("yarn line %d: empty node title", lineNum)
+		return "", "", yarnError(lineNum, "empty node title")
 	}
 	return key, val, nil
 }
@@ -499,7 +518,11 @@ func parseNodeBody(rawLines []rawLine) ([]dialogueStmt, error) {
 		return nil, err
 	}
 	if closeKw != "" {
-		return nil, fmt.Errorf("yarn: unexpected <<%s>>", closeKw)
+		line := 0
+		if idx < len(blines) {
+			line = blines[idx].num
+		}
+		return nil, yarnError(line, "unexpected <<%s>>", closeKw)
 	}
 	return stmts, nil
 }
@@ -516,17 +539,17 @@ func parseBlock(lines []bodyLine, idx *int, minIndent int, stopOnIfControl bool)
 		// Command statement: << ... >>
 		if strings.HasPrefix(ln.text, "<<") {
 			if !strings.HasSuffix(ln.text, ">>") || len(ln.text) < 4 {
-				return nil, "", fmt.Errorf("yarn line %d: unclosed command %q", ln.num, ln.text)
+				return nil, "", yarnError(ln.num, "unclosed command %q", ln.text)
 			}
 			inner := strings.TrimSpace(ln.text[2 : len(ln.text)-2])
 			if inner == "" {
-				return nil, "", fmt.Errorf("yarn line %d: empty command", ln.num)
+				return nil, "", yarnError(ln.num, "empty command")
 			}
 			kw, rest := splitFirstWord(inner)
 			switch kw {
 			case "elseif", "else", "endif":
 				if !stopOnIfControl {
-					return nil, "", fmt.Errorf("yarn line %d: unexpected <<%s>> without matching <<if>>", ln.num, kw)
+					return nil, "", yarnError(ln.num, "unexpected <<%s>> without matching <<if>>", kw)
 				}
 				return stmts, kw, nil
 			case "if":
@@ -552,13 +575,13 @@ func parseBlock(lines []bodyLine, idx *int, minIndent int, stopOnIfControl bool)
 			case "jump":
 				target := strings.TrimSpace(rest)
 				if target == "" || strings.ContainsAny(target, " \t") {
-					return nil, "", fmt.Errorf("yarn line %d: <<jump>> expects a single target node name, got %q", ln.num, rest)
+					return nil, "", yarnError(ln.num, "<<jump>> expects a single target node name, got %q", rest)
 				}
 				*idx++
 				stmts = append(stmts, jumpStmt{target: target})
 			case "stop":
 				if strings.TrimSpace(rest) != "" {
-					return nil, "", fmt.Errorf("yarn line %d: <<stop>> takes no arguments", ln.num)
+					return nil, "", yarnError(ln.num, "<<stop>> takes no arguments")
 				}
 				*idx++
 				stmts = append(stmts, stopStmt{})
@@ -612,11 +635,11 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 	openInner := strings.TrimSpace(openLine.text[2 : len(openLine.text)-2])
 	_, condSrc := splitFirstWord(openInner)
 	if strings.TrimSpace(condSrc) == "" {
-		return ifStmt{}, fmt.Errorf("yarn line %d: <<if>> requires a condition", openLine.num)
+		return ifStmt{}, yarnError(openLine.num, "<<if>> requires a condition")
 	}
 	cond, err := parseDialogueExpr(condSrc)
 	if err != nil {
-		return ifStmt{}, fmt.Errorf("yarn line %d: invalid <<if>> condition: %w", openLine.num, err)
+		return ifStmt{}, yarnError(openLine.num, "invalid <<if>> condition: %w", err)
 	}
 	*idx++
 
@@ -631,7 +654,7 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 
 	for {
 		if closeKw == "" {
-			return ifStmt{}, fmt.Errorf("yarn line %d: unclosed <<if>> (missing <<endif>>)", openLine.num)
+			return ifStmt{}, yarnError(openLine.num, "unclosed <<if>> (missing <<endif>>)")
 		}
 		ctrlLine := lines[*idx]
 		ctrlInner := strings.TrimSpace(ctrlLine.text[2 : len(ctrlLine.text)-2])
@@ -641,19 +664,19 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 		switch closeKw {
 		case "endif":
 			if strings.TrimSpace(ctrlRest) != "" {
-				return ifStmt{}, fmt.Errorf("yarn line %d: <<endif>> takes no arguments", ctrlLine.num)
+				return ifStmt{}, yarnError(ctrlLine.num, "<<endif>> takes no arguments")
 			}
 			return res, nil
 		case "elseif":
 			if seenElse {
-				return ifStmt{}, fmt.Errorf("yarn line %d: <<elseif>> cannot appear after <<else>>", ctrlLine.num)
+				return ifStmt{}, yarnError(ctrlLine.num, "<<elseif>> cannot appear after <<else>>")
 			}
 			if strings.TrimSpace(ctrlRest) == "" {
-				return ifStmt{}, fmt.Errorf("yarn line %d: <<elseif>> requires a condition", ctrlLine.num)
+				return ifStmt{}, yarnError(ctrlLine.num, "<<elseif>> requires a condition")
 			}
 			ec, err := parseDialogueExpr(ctrlRest)
 			if err != nil {
-				return ifStmt{}, fmt.Errorf("yarn line %d: invalid <<elseif>> condition: %w", ctrlLine.num, err)
+				return ifStmt{}, yarnError(ctrlLine.num, "invalid <<elseif>> condition: %w", err)
 			}
 			b, nextKw, err := parseBlock(lines, idx, minIndent, true)
 			if err != nil {
@@ -663,10 +686,10 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 			closeKw = nextKw
 		case "else":
 			if seenElse {
-				return ifStmt{}, fmt.Errorf("yarn line %d: duplicate <<else>>", ctrlLine.num)
+				return ifStmt{}, yarnError(ctrlLine.num, "duplicate <<else>>")
 			}
 			if strings.TrimSpace(ctrlRest) != "" {
-				return ifStmt{}, fmt.Errorf("yarn line %d: <<else>> takes no arguments", ctrlLine.num)
+				return ifStmt{}, yarnError(ctrlLine.num, "<<else>> takes no arguments")
 			}
 			seenElse = true
 			b, nextKw, err := parseBlock(lines, idx, minIndent, true)
@@ -682,7 +705,7 @@ func parseIfBlock(lines []bodyLine, idx *int, minIndent int) (ifStmt, error) {
 func parseSetCommand(rest string, onlyIfUnset bool, lineNum int) (setStmt, error) {
 	rest = strings.TrimSpace(rest)
 	if !strings.HasPrefix(rest, "$") {
-		return setStmt{}, fmt.Errorf("yarn line %d: expected '$var' in assignment, got %q", lineNum, rest)
+		return setStmt{}, yarnError(lineNum, "expected '$var' in assignment, got %q", rest)
 	}
 	i := 1
 	for i < len(rest) {
@@ -697,7 +720,7 @@ func parseSetCommand(rest string, onlyIfUnset bool, lineNum int) (setStmt, error
 		i += size
 	}
 	if i == 1 {
-		return setStmt{}, fmt.Errorf("yarn line %d: invalid variable name in %q", lineNum, rest)
+		return setStmt{}, yarnError(lineNum, "invalid variable name in %q", rest)
 	}
 	varName := rest[1:i]
 	afterVar := strings.TrimSpace(rest[i:])
@@ -718,20 +741,20 @@ func parseSetCommand(rest string, onlyIfUnset bool, lineNum int) (setStmt, error
 	case strings.HasPrefix(afterVar, "to") && (len(afterVar) == 2 || unicode.IsSpace(rune(afterVar[2]))):
 		op, exprSrc = "=", afterVar[2:]
 	default:
-		return setStmt{}, fmt.Errorf("yarn line %d: expected assignment operator after $%s", lineNum, varName)
+		return setStmt{}, yarnError(lineNum, "expected assignment operator after $%s", varName)
 	}
 
 	if onlyIfUnset && op != "=" {
-		return setStmt{}, fmt.Errorf("yarn line %d: <<declare>> only supports '=' assignment", lineNum)
+		return setStmt{}, yarnError(lineNum, "<<declare>> only supports '=' assignment")
 	}
 
 	exprSrc = strings.TrimSpace(exprSrc)
 	if exprSrc == "" {
-		return setStmt{}, fmt.Errorf("yarn line %d: missing value expression for $%s", lineNum, varName)
+		return setStmt{}, yarnError(lineNum, "missing value expression for $%s", varName)
 	}
 	expr, err := parseDialogueExpr(exprSrc)
 	if err != nil {
-		return setStmt{}, fmt.Errorf("yarn line %d: invalid expression for $%s: %w", lineNum, varName, err)
+		return setStmt{}, yarnError(lineNum, "invalid expression for $%s: %w", varName, err)
 	}
 	return setStmt{
 		varName:     varName,
@@ -783,11 +806,11 @@ func parseCommandArgs(src string, lineNum int) ([]commandArg, error) {
 				i++
 			}
 			if !closed {
-				return nil, fmt.Errorf("yarn line %d: unterminated quoted argument in command", lineNum)
+				return nil, yarnError(lineNum, "unterminated quoted argument in command")
 			}
 			val := sb.String()
 			if err := validateInterpolations(val); err != nil {
-				return nil, fmt.Errorf("yarn line %d: %w", lineNum, err)
+				return nil, yarnError(lineNum, "%w", err)
 			}
 			args = append(args, commandArg{raw: val, quoted: true})
 			continue
@@ -833,14 +856,14 @@ func parseCommandArgs(src string, lineNum int) ([]commandArg, error) {
 			i++
 		}
 		if braceDepth != 0 {
-			return nil, fmt.Errorf("yarn line %d: unclosed '{' in command argument", lineNum)
+			return nil, yarnError(lineNum, "unclosed '{' in command argument")
 		}
 		tok := src[start:i]
 		if isSimpleVarToken(tok) {
 			args = append(args, commandArg{raw: tok[1:], isVar: true})
 		} else {
 			if err := validateInterpolations(tok); err != nil {
-				return nil, fmt.Errorf("yarn line %d: %w", lineNum, err)
+				return nil, yarnError(lineNum, "%w", err)
 			}
 			args = append(args, commandArg{raw: tok})
 		}
@@ -897,17 +920,17 @@ func parseChoiceHeader(s string, lineNum int) (choiceOption, error) {
 	if openIdx := strings.Index(s, "<<"); openIdx >= 0 {
 		closeIdx := findCommandClose(s, openIdx+2)
 		if closeIdx < 0 {
-			return choiceOption{}, fmt.Errorf("yarn line %d: unclosed '<<' in choice option", lineNum)
+			return choiceOption{}, yarnError(lineNum, "unclosed '<<' in choice option")
 		}
 		inner := strings.TrimSpace(s[openIdx+2 : closeIdx])
 		kw, condSrc := splitFirstWord(inner)
 		if kw != "if" || strings.TrimSpace(condSrc) == "" {
-			return choiceOption{}, fmt.Errorf("yarn line %d: choice option only supports <<if expr>> guard, got <<%s>>", lineNum, inner)
+			return choiceOption{}, yarnError(lineNum, "choice option only supports <<if expr>> guard, got <<%s>>", inner)
 		}
 		var err error
 		cond, err = parseDialogueExpr(condSrc)
 		if err != nil {
-			return choiceOption{}, fmt.Errorf("yarn line %d: invalid choice <<if>> condition: %w", lineNum, err)
+			return choiceOption{}, yarnError(lineNum, "invalid choice <<if>> condition: %w", err)
 		}
 		before := strings.TrimRightFunc(s[:openIdx], unicode.IsSpace)
 		after := strings.TrimLeftFunc(s[closeIdx+2:], unicode.IsSpace)
@@ -917,16 +940,16 @@ func parseChoiceHeader(s string, lineNum int) (choiceOption, error) {
 			s = before + after
 		}
 		if strings.Contains(s, "<<") {
-			return choiceOption{}, fmt.Errorf("yarn line %d: multiple inline commands on a single choice option", lineNum)
+			return choiceOption{}, yarnError(lineNum, "multiple inline commands on a single choice option")
 		}
 	}
 
 	text, lineID, tags := extractLineMetadata(s)
 	if text == "" {
-		return choiceOption{}, fmt.Errorf("yarn line %d: empty choice text", lineNum)
+		return choiceOption{}, yarnError(lineNum, "empty choice text")
 	}
 	if err := validateInterpolations(text); err != nil {
-		return choiceOption{}, fmt.Errorf("yarn line %d: %w", lineNum, err)
+		return choiceOption{}, yarnError(lineNum, "%w", err)
 	}
 	return choiceOption{
 		text:   text,
@@ -940,7 +963,7 @@ func parseDialogueLine(s string, lineNum int) (lineStmt, error) {
 	body, lineID, tags := extractLineMetadata(s)
 	speaker, text := splitSpeaker(body)
 	if err := validateInterpolations(text); err != nil {
-		return lineStmt{}, fmt.Errorf("yarn line %d: %w", lineNum, err)
+		return lineStmt{}, yarnError(lineNum, "%w", err)
 	}
 	return lineStmt{
 		speaker: speaker,
