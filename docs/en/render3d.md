@@ -412,3 +412,36 @@ Every reload compiles a candidate `*gpu.ShaderModule` and builds a candidate `*g
 - **Text material format (`MaterialDef`)**: a versioned YAML document (`version: 1`, refusing unknown fields and round-tripping deterministically via `ParseMaterial` / `EncodeMaterial`) declaring `shader` (or split `vertexShader` / `fragmentShader`), entry points (`vertexEntry`, `fragmentEntry`), GPU render state (`blend`, `cull`, `frontFace`, `depthWrite`, `depthCompare`, applied via `ApplyToPipelineDesc`), and typed uniform parameters (`scalars`, `vec2`, `vec3`, `vec4`, `colors`, `textures`). For shared 2D/PBR `resource.Material` files (`type: material`), use `w.WatchResources` ([resource](resources.md#reloading-on-edit)).
 - **Direct shader watching**: for standalone pipelines without material YAML, use `ShaderReloader.RegisterPipeline` with `w.WatchShaders(shaders)`, or `w.WatchShader(relPath, onReload)` for a single `.wgsl` or `.kage` file.
 - **Release builds**: under `-tags release`, `NewDevWatcher` returns nil and `WatchShader`, `WatchShaders`, and `WatchMaterials` compile to no-ops while `ShaderReloader` and `MaterialReloader` continue serving initial loads.
+
+## Dynamic resolution scaling (`DynamicResolutionScaler`, `DynamicResolutionTarget`)
+
+`DynamicResolutionScaler` adapts a linear 3D render scale in `[MinScale, MaxScale]` (default `[0.5, 1.0]`) to hold `TargetFrameTime` (default ~16.67 ms for 60 FPS), and `DynamicResolutionTarget` renders the 3D scene into a scaled sub-viewport of an offscreen `gpu.RenderTarget` and upscales it onto the native surface while keeping 2D HUD overlays at full native resolution:
+
+```go
+target, err := render3d.NewDynamicResolutionTarget(cx, dev, render3d.DynamicResolutionTargetOptions{
+	TimingLabel: "world-3d",
+	Config: render3d.DynamicResolutionConfig{
+		TargetFrameTime: time.Second / 60,
+		MinScale:        0.5,
+		MaxScale:        1.0,
+		Filter:          render3d.DynamicResolutionBilinear, // or DynamicResolutionNearest / DynamicResolutionSharpen
+	},
+})
+
+// In gpu.ViewProps.OnFrame (with scene.Overlay3D mounted over gpu.View for a native-res HUD):
+w, h := frame.Size()
+pass3d, err := target.Begin3D(frame, w, h, core.RGB(0x10141c))
+pass3d.SetPipeline(scenePipe)
+pass3d.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mesh.Draw(pass3d)
+pass3d.End()
+
+_ = target.Upscale(frame, nil, w, h) // blits scaled 3D sub-viewport to native surface
+frame.Submit()
+target.RecordPassTimings(frame.PassTimings()) // or target.RecordFrameTime(gpuDuration)
+```
+
+- **Proportional fill-rate controller with hysteresis**: because fragment work scales with `scale²`, `DynamicResolutionScaler.RecordFrameTime` smooths GPU timings with an EMA (`SmoothingAlpha`), ignores loading/resume spikes above `HitchLimit`, holds steady inside `±Deadband`, steps down promptly on overload (`CooldownDown`, `StepDown`), and recovers smoothly under sustained headroom (`CooldownUp`, `StepUp`). Use `SetFixedScale`, `ClearFixedScale`, `SetEnabled`, and `SetScaleBounds` (for example capping `MaxScale` to `quality.Preset.ResolutionScale`) to override or bound adaptation.
+- **Zero-reallocation sub-viewport scaling**: `DynamicResolutionTarget` allocates its offscreen color+depth `gpu.RenderTarget` at native capacity and sets `SetViewport` and `SetScissor` to `[0, 0, scaledW, scaledH]` on each `Begin3D` call, so scale changes never churn GPU textures. `Upscale` clamps UVs to half-texel inset bounds of the active sub-rectangle so unused padding texels never bleed into the edges.
+- **Native-resolution HUD**: mount [`scene.Overlay3D`](scene.md#2d-layers-over-a-3d-view-overlay3d) over `gpu.View` so 2D HUD layers draw in a crisp 1:1 native `core.Canvas`, record a follow-up `gpu.LoadLoad` native HUD pass after `Upscale`, or call `UpscaleIntoPass` inside a single native color pass and draw GPU HUD elements right after it.
+- **Upscale filters**: switch between `DynamicResolutionBilinear`, `DynamicResolutionNearest`, and `DynamicResolutionSharpen` (a 5-tap contrast-adaptive sharpening pass clamped to the local neighborhood min/max) at runtime via `SetFilter` and `SetSharpness` without reallocating pipelines or textures.

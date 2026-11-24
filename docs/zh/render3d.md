@@ -412,3 +412,36 @@ _, _, err := materials.Register("crystal", "materials/crystal.material.yaml", bu
 - **纯文本材质格式（`MaterialDef`）**：带版本号的 YAML 文档（`version: 1`，拒绝未知字段，经由 `ParseMaterial` / `EncodeMaterial` 确定性往返），可声明 `shader`（或拆分的 `vertexShader` / `fragmentShader`）、入口函数（`vertexEntry`、`fragmentEntry`）、GPU 渲染状态（`blend`、`cull`、`frontFace`、`depthWrite`、`depthCompare`，通过 `ApplyToPipelineDesc` 应用）以及带类型的参数（`scalars`、`vec2`、`vec3`、`vec4`、`colors`、`textures`）。若使用共享 2D/PBR `resource.Material` 文件（`type: material`），可继续使用 `w.WatchResources`（见 [resource](resources.md#编辑时重载)）。
 - **直接监视着色器**：不使用材质 YAML 的独立管线可调用 `ShaderReloader.RegisterPipeline` 配合 `w.WatchShaders(shaders)`，单文件 `.wgsl` 或 `.kage` 可调用 `w.WatchShader(relPath, onReload)`。
 - **发布构建**：在 `-tags release` 下，`NewDevWatcher` 返回 nil，`WatchShader`、`WatchShaders` 与 `WatchMaterials` 编译为空操作，而 `ShaderReloader` 与 `MaterialReloader` 仍正常服务初始加载。
+
+## 动态分辨率缩放（`DynamicResolutionScaler`、`DynamicResolutionTarget`）
+
+`DynamicResolutionScaler` 根据 GPU 帧耗时在 `[MinScale, MaxScale]`（默认 `[0.5, 1.0]`）之间自适应调整 3D 渲染线性分辨率比例以维持 `TargetFrameTime`（默认约 16.67 ms，对应 60 FPS）；`DynamicResolutionTarget` 将 3D 场景渲染到离屏 `gpu.RenderTarget` 的缩放子视口中并上采样到原生输出目标，同时让 2D HUD 叠加层保持完整的原生像素清晰度：
+
+```go
+target, err := render3d.NewDynamicResolutionTarget(cx, dev, render3d.DynamicResolutionTargetOptions{
+	TimingLabel: "world-3d",
+	Config: render3d.DynamicResolutionConfig{
+		TargetFrameTime: time.Second / 60,
+		MinScale:        0.5,
+		MaxScale:        1.0,
+		Filter:          render3d.DynamicResolutionBilinear, // 或 DynamicResolutionNearest / DynamicResolutionSharpen
+	},
+})
+
+// 在 gpu.ViewProps.OnFrame 中（配合挂载在 gpu.View 上的 scene.Overlay3D 绘制原生分辨率 HUD）：
+w, h := frame.Size()
+pass3d, err := target.Begin3D(frame, w, h, core.RGB(0x10141c))
+pass3d.SetPipeline(scenePipe)
+pass3d.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mesh.Draw(pass3d)
+pass3d.End()
+
+_ = target.Upscale(frame, nil, w, h) // 将缩放后的 3D 子视口上采样到原生表面
+frame.Submit()
+target.RecordPassTimings(frame.PassTimings()) // 或 target.RecordFrameTime(gpuDuration)
+```
+
+- **带滞回的比例填充率控制器**：片元开销与 `scale²` 成正比，因此 `DynamicResolutionScaler.RecordFrameTime` 用指数移动平均（`SmoothingAlpha`）平滑 GPU 耗时，丢弃超过 `HitchLimit` 的加载/切后台卡顿尖峰，在 `±Deadband` 死区内保持稳定，过载时快速下调（`CooldownDown`、`StepDown`），连续富余时平滑回升（`CooldownUp`、`StepUp`）。可通过 `SetFixedScale`、`ClearFixedScale`、`SetEnabled` 与 `SetScaleBounds`（例如将 `MaxScale` 上限绑定到 `quality.Preset.ResolutionScale`）覆盖或约束缩放范围。
+- **零重分配子视口缩放**：`DynamicResolutionTarget` 按原生尺寸分配离屏颜色+深度 `gpu.RenderTarget`，每次 `Begin3D` 仅将 `SetViewport` 与 `SetScissor` 设为 `[0, 0, scaledW, scaledH]`，缩放比例逐帧变化时不会反复重建 GPU 纹理；`Upscale` 将采样 UV 钳制在有效子视口向内半纹素范围内，防止未使用区域的边缘纹素渗色。
+- **原生分辨率 HUD**：在 `gpu.View` 上挂载 [`scene.Overlay3D`](scene.md#3d-视图上的-2d-图层overlay3d) 以在 1:1 原生 `core.Canvas` 上绘制 2D HUD，或在 `Upscale` 后追加一个 `gpu.LoadLoad` 的原生 GPU HUD 通道，或在单个原生颜色通道内调用 `UpscaleIntoPass` 后紧接着绘制原生 GPU HUD 元素。
+- **上采样滤波模式**：可在运行时通过 `SetFilter` 与 `SetSharpness` 在 `DynamicResolutionBilinear`、`DynamicResolutionNearest` 和 `DynamicResolutionSharpen`（受局部邻域最值钳制的 5 点对比度自适应锐化，避免振铃光晕）之间零重分配切换。
