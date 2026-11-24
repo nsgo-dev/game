@@ -84,7 +84,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `framedata` | `github.com/nsgo-dev/game/packages/game/framedata` | [framedata](framedata.md) | Fighting game hitboxes, hurtboxes, hitstun and cancel windows per frame in YAML, resolved deterministically each step |
 | `vehicle` | `github.com/nsgo-dev/game/packages/game/vehicle` | [vehicle](vehicle.md) | Raycast cars on `physics3d`: wheel suspension, tire friction and a car controller, race checkpoints and laps, and YAML car files and lap ghosts |
 
-For a single-page summary of the core APIs, see [Packages](packages.md). Every loader reports a file it cannot use with the file, line, field and a fix; see [Errors](errors.md).
+For a single-page summary of the core APIs, see [Packages](packages.md). Every loader reports a file it cannot use with the file, line, field and a fix; see [Errors](errors.md). [File Formats](formats.md) lists every file a game reads or writes, with its version and an example.
 
 ## Coming from another engine
 

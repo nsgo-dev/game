@@ -1,6 +1,6 @@
 # Packages
 
-What each package holds and how its parts behave, from the packages' doc comments. The full API of every package is in the [API reference](https://game.nsgo.dev/docs/api/).
+What each package holds and how its parts behave, from the packages' doc comments. The full API of every package is in the [API reference](https://game.nsgo.dev/docs/api/), and every file format the packages read and write is in [File Formats](formats.md).
 
 ## API reference
 

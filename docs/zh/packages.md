@@ -1,6 +1,6 @@
 # 包
 
-每个包包含什么、各部分如何工作，内容来自包的文档注释。每个包的完整 API 见 [API 参考](https://game.nsgo.dev/zh/docs/api/)。
+每个包包含什么、各部分如何工作，内容来自包的文档注释。每个包的完整 API 见 [API 参考](https://game.nsgo.dev/zh/docs/api/)，各包读写的每种文件格式见[文件格式](formats.md)。
 
 ## API 参考
 
