@@ -1,4 +1,4 @@
-import type { Lang } from './i18n'
+import type { Lang } from './locales'
 
 export const GITHUB_URL = 'https://github.com/nsgo-dev/game'
 export const NSGO_URL = 'https://nsgo.dev'
@@ -16,5 +16,5 @@ export const LLMS_FULL = 'llms-full.txt'
 export const issueUrl = (n: number) => `${GITHUB_URL}/issues/${n}`
 export const repoTreeUrl = (path: string) => `${GITHUB_URL}/tree/main/${path}`
 
-// nsgoUrl is a page of nsgo.dev in lang: it has the site's languages, laid out the same way.
-export const nsgoUrl = (lang: Lang, path = '') => `${NSGO_URL}/${lang === 'en' ? '' : `${lang}/`}${path}`
+// nsgo.dev currently publishes English at / and Simplified Chinese at /zh/; other languages fall back to English until nsgo.dev adds them.
+export const nsgoUrl = (lang: Lang, path = '') => `${NSGO_URL}/${lang === 'zh' ? 'zh/' : ''}${path}`

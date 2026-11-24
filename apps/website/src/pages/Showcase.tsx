@@ -1,10 +1,10 @@
-import { Link } from '@tanstack/react-router'
 import { Eyebrow, SpeedLines } from '../components/Brand'
 import { Icon } from '../components/Icon'
+import { LocaleLink } from '../components/LocaleLink'
 import { isPlaygroundId } from '../content/playground'
 import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import { type Copy, copies } from '../copy'
-import { type Lang, pageHead, routes, useLang } from '../i18n'
+import { type Lang, pageHead, useLang } from '../i18n'
 import { CONTRIBUTING_URL, SHOWCASE_SUBMIT_URL } from '../links'
 
 export const showcaseHead = (lang: Lang) => pageHead(lang, 'showcase/', copies[lang].showcase.title, copies[lang].showcase.description)
@@ -59,9 +59,9 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
       </div>
       <h2>
         {playground ? (
-          <Link to={routes[lang].playgroundExample} params={{ example: playground }}>
+          <LocaleLink page="playgroundExample" example={playground} lang={lang}>
             {entry.title[lang]}
-          </Link>
+          </LocaleLink>
         ) : (
           <a href={entry.playUrl ?? entry.sourceUrl} target="_blank" rel="noopener noreferrer">
             {entry.title[lang]}
@@ -85,10 +85,10 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
         </span>
         <div className="showcase-card__links">
           {playground && (
-            <Link to={routes[lang].playgroundExample} params={{ example: playground }}>
+            <LocaleLink page="playgroundExample" example={playground} lang={lang}>
               {copy.play}
               <Icon name="arrow" size={12} />
-            </Link>
+            </LocaleLink>
           )}
           {!playground && entry.playUrl && (
             <a href={entry.playUrl} target="_blank" rel="noopener noreferrer">

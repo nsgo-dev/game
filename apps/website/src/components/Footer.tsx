@@ -1,28 +1,24 @@
-import { Link } from '@tanstack/react-router'
 import { copies } from '../copy'
-import { type Lang, routes, useLang } from '../i18n'
+import { type Lang, useLang } from '../i18n'
 import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
 import { Logo, SpeedLines } from './Brand'
 import { Icon } from './Icon'
+import { LocaleLink, type SimplePage } from './LocaleLink'
 
 // A link goes to one of the site's routes, to one of the build's files below the base path (opened in place), or to another site (opened in a new tab).
-type FooterLink =
-  | { label: string; to: (typeof routes)[Lang]['home' | 'docs' | 'playground' | 'showcase' | 'roadmap'] }
-  | { label: string; file: string }
-  | { label: string; href: string }
+type FooterLink = { label: string; page: SimplePage } | { label: string; file: string } | { label: string; href: string }
 
 function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
   const copy = copies[lang]
-  const to = routes[lang]
   return [
     {
       title: copy.footer.columns.project,
       links: [
-        { label: copy.nav.home, to: to.home },
-        { label: copy.nav.docs, to: to.docs },
-        { label: copy.nav.playground, to: to.playground },
-        { label: copy.nav.showcase, to: to.showcase },
-        { label: copy.nav.roadmap, to: to.roadmap },
+        { label: copy.nav.home, page: 'home' },
+        { label: copy.nav.docs, page: 'docs' },
+        { label: copy.nav.playground, page: 'playground' },
+        { label: copy.nav.showcase, page: 'showcase' },
+        { label: copy.nav.roadmap, page: 'roadmap' },
         { label: copy.footer.llms, file: LLMS_INDEX },
         { label: copy.footer.llmsFull, file: LLMS_FULL },
       ],
@@ -64,10 +60,10 @@ export function Cta() {
           <p>{copy.cta.body}</p>
         </div>
         <div className="cta__actions">
-          <Link className="btn btn--primary btn--large" to={routes[lang].docs}>
+          <LocaleLink page="docs" lang={lang} className="btn btn--primary btn--large">
             <Icon name="play" size={14} />
             {copy.home.docs}
-          </Link>
+          </LocaleLink>
           <a className="btn btn--secondary btn--large" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
             {copy.nav.github}
           </a>
@@ -86,10 +82,10 @@ export function Footer() {
       <div className="container">
         <div className="footer__grid">
           <div className="footer__brand">
-            <Link className="brand" to={routes[lang].home}>
+            <LocaleLink page="home" lang={lang} className="brand">
               <Logo size={26} />
               <span className="brand__name">NSGo Game</span>
-            </Link>
+            </LocaleLink>
             <p>{copy.tagline}</p>
           </div>
           {columns(lang).map((column) => (
@@ -98,8 +94,10 @@ export function Footer() {
               <ul>
                 {column.links.map((link) => (
                   <li key={link.label}>
-                    {'to' in link ? (
-                      <Link to={link.to}>{link.label}</Link>
+                    {'page' in link ? (
+                      <LocaleLink page={link.page} lang={lang}>
+                        {link.label}
+                      </LocaleLink>
                     ) : 'file' in link ? (
                       <a href={`${import.meta.env.BASE_URL}${link.file}`}>{link.label}</a>
                     ) : (

@@ -4,10 +4,9 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { ApiFunc, ApiReference, ApiValue } from '../src/content/types'
-import type { Lang } from '../src/i18n'
+import { LANGS } from '../src/locales.ts'
 
-// The site's languages; src/i18n.ts, which lists them too, imports the router, which this script has no use for.
-const langs = ['en', 'zh'] as const satisfies readonly Lang[]
+const langs = LANGS
 
 const dist = path.resolve(import.meta.dirname, '../dist/client')
 const json = path.join(dist, 'api.json')

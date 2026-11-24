@@ -14,14 +14,12 @@ import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
 import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
 import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPackage, DocPage, PackageStatus, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
-import type { Lang } from '../src/i18n'
+import { LANGS, type Lang, NON_DEFAULT_LANGS } from '../src/locales.ts'
 
 const REPO = 'nsgo-dev/game'
 const PLAN = { repo: 'nsgo-dev/nsgo', number: 1047 }
 const SNIPPETS: Snippet['id'][] = ['loop', 'sprite', 'sound']
 const THEMES = { light: 'github-light', dark: 'github-dark' } as const
-// The docs' languages, each a directory of docs/: English has every page, and a page another language lacks shows the English one.
-const LANGS = ['en', 'zh'] as const satisfies readonly Lang[]
 
 const modules = {
   'virtual:docs': loadDocsModule,
@@ -116,7 +114,7 @@ export function siteContent(): Plugin {
       if (moduleId === 'virtual:docs') {
         for (const lang of LANGS) {
           const dir = path.join(ctx.docsDir, lang)
-          for (const file of await markdownFiles(dir)) this.addWatchFile(path.join(dir, file))
+          for (const file of await optionalMarkdownFiles(dir)) this.addWatchFile(path.join(dir, file))
         }
       }
       if (moduleId === 'virtual:playground') {
@@ -168,22 +166,74 @@ export async function markdownFiles(dir: string): Promise<string[]> {
   return files.sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b))
 }
 
-// Each language lists English's pages in English's order, its own translation where it has one.
-async function loadDocsModule(ctx: Context): Promise<string> {
-  const english = await markdownFiles(path.join(ctx.docsDir, 'en'))
-  const packages = await readStability(ctx)
-  const docs = {} as Record<Lang, DocPage[]>
-  for (const lang of LANGS) {
-    const own = new Set(await markdownFiles(path.join(ctx.docsDir, lang)))
-    docs[lang] = []
-    for (const file of english) {
-      const from: Lang = own.has(file) ? lang : 'en'
-      const source = await readFile(path.join(ctx.docsDir, from, file), 'utf8')
-      const slug = file.slice(0, -'.md'.length)
-      docs[lang].push({ ...(await renderDoc(slug, source, { lang, from }, ctx)), packages: packages.get(slug) ?? [] })
-    }
+// optionalMarkdownFiles returns dir's Markdown files, or [] when a locale has no docs/<lang>/ directory yet.
+async function optionalMarkdownFiles(dir: string): Promise<string[]> {
+  try {
+    return await markdownFiles(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
   }
-  return `export const docs = ${JSON.stringify(docs)}`
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// localizeDocLinks rewrites rendered internal docs links (href="<base>docs/...") on a fallback English page so navigation stays in lang.
+export function localizeDocLinks(html: string, lang: Lang, base: string): string {
+  if (lang === 'en') return html
+  const pattern = new RegExp(`(<a\\b[^>]*\\shref=")(${escapeRegExp(base)}docs\\/)`, 'g')
+  return html.replace(pattern, `$1${base}${lang}/docs/`)
+}
+
+// Each language lists English's pages in English's order, its own translation where docs/<lang>/<slug>.md exists, and English otherwise.
+// Only files that actually exist on disk are rendered and bundled; fallback locales reuse English's rendered pages with localized internal links so adding languages does not multiply build time or bundle size.
+async function loadDocsModule(ctx: Context): Promise<string> {
+  const englishFiles = await markdownFiles(path.join(ctx.docsDir, 'en'))
+  const packages = await readStability(ctx)
+  const english: DocPage[] = []
+  for (const file of englishFiles) {
+    const source = await readFile(path.join(ctx.docsDir, 'en', file), 'utf8')
+    const slug = file.slice(0, -'.md'.length)
+    english.push({ ...(await renderDoc(slug, source, { lang: 'en', from: 'en' }, ctx)), packages: packages.get(slug) ?? [] })
+  }
+  const translated: Partial<Record<Lang, Record<string, DocPage>>> = {}
+  for (const lang of NON_DEFAULT_LANGS) {
+    const own = new Set(await optionalMarkdownFiles(path.join(ctx.docsDir, lang)))
+    if (own.size === 0) continue
+    const bySlug: Record<string, DocPage> = {}
+    for (const file of englishFiles) {
+      if (!own.has(file)) continue
+      const source = await readFile(path.join(ctx.docsDir, lang, file), 'utf8')
+      const slug = file.slice(0, -'.md'.length)
+      bySlug[slug] = { ...(await renderDoc(slug, source, { lang, from: lang }, ctx)), packages: packages.get(slug) ?? [] }
+    }
+    if (Object.keys(bySlug).length > 0) translated[lang] = bySlug
+  }
+  const linkSource = `(<a\\b[^>]*\\shref=")(?:${escapeRegExp(ctx.base)}docs\\/)`
+  return `const base = ${JSON.stringify(ctx.base)}
+const english = ${JSON.stringify(english)}
+const translated = ${JSON.stringify(translated)}
+const linkPattern = new RegExp(${JSON.stringify(linkSource)}, 'g')
+function localize(html, lang) {
+  return html.replace(linkPattern, '$1' + base + lang + '/docs/')
+}
+const cache = new Map([['en', english]])
+function docsFor(lang) {
+  let list = cache.get(lang)
+  if (!list) {
+    const own = Object.hasOwn(translated, lang) ? translated[lang] : undefined
+    list = english.map((page) => (own && Object.hasOwn(own, page.slug) ? own[page.slug] : { ...page, fallback: true, html: localize(page.html, lang) }))
+    cache.set(lang, list)
+  }
+  return list
+}
+export const docs = new Proxy({}, {
+  get(_, prop) {
+    return typeof prop === 'string' ? docsFor(prop) : undefined
+  },
+})`
 }
 
 // A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test in packages/game keeps the table complete and the Chinese one equal to it.
