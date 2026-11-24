@@ -88,7 +88,9 @@ func (d RenderTextureDesc) effectiveSampleCount() int {
 // [RenderTexture.Close]. Use it from the engine goroutine, like the [gpu.Device]
 // it came from.
 type RenderTexture struct {
-	cx          *core.Scope
+	cx *core.Scope
+	// owner is a child of cx that holds only the current target's cleanups. gpu registers a cleanup on the scope for every texture it creates and closing the texture early does not remove it, so Resize disposes the old target's child scope instead of letting cx collect one set of cleanups per resize. It is nil when cx is nil.
+	owner       *core.Scope
 	target      *gpu.RenderTarget
 	gpuTex      *GPUTexture
 	label       string
@@ -118,7 +120,8 @@ func NewRenderTexture(cx *core.Scope, dev *gpu.Device, desc RenderTextureDesc) (
 	}
 	colorFmt := desc.effectiveColorFormat()
 	samples := desc.effectiveSampleCount()
-	target, err := dev.CreateRenderTarget(cx, gpu.RenderTargetDesc{
+	owner := childScope(cx)
+	target, err := dev.CreateRenderTarget(owner, gpu.RenderTargetDesc{
 		Label:       label,
 		Width:       desc.Width,
 		Height:      desc.Height,
@@ -128,10 +131,12 @@ func NewRenderTexture(cx *core.Scope, dev *gpu.Device, desc RenderTextureDesc) (
 		Retained:    desc.Retained,
 	})
 	if err != nil {
+		disposeScope(owner)
 		return nil, err
 	}
 	return &RenderTexture{
 		cx:          cx,
+		owner:       owner,
 		target:      target,
 		gpuTex:      wrapRenderTargetSampleTexture(target, desc.Width, desc.Height, colorFmt),
 		label:       label,
@@ -143,6 +148,19 @@ func NewRenderTexture(cx *core.Scope, dev *gpu.Device, desc RenderTextureDesc) (
 		retained:    desc.Retained,
 		generation:  1,
 	}, nil
+}
+
+func childScope(cx *core.Scope) *core.Scope {
+	if cx == nil {
+		return nil
+	}
+	return cx.Child()
+}
+
+func disposeScope(cx *core.Scope) {
+	if cx != nil {
+		cx.Dispose()
+	}
 }
 
 func wrapRenderTargetSampleTexture(target *gpu.RenderTarget, w, h uint32, format gpu.TextureFormat) *GPUTexture {
@@ -323,7 +341,11 @@ func (rt *RenderTexture) Resize(dev *gpu.Device, width, height uint32) (bool, er
 	if rt.Valid() && rt.width == width && rt.height == height {
 		return false, nil
 	}
-	next, err := dev.CreateRenderTarget(rt.cx, gpu.RenderTargetDesc{
+	if rt.cx != nil && rt.cx.Disposed() {
+		return false, fmt.Errorf("%w: owning scope is disposed", ErrInvalidRenderTexture)
+	}
+	nextOwner := childScope(rt.cx)
+	next, err := dev.CreateRenderTarget(nextOwner, gpu.RenderTargetDesc{
 		Label:       rt.label,
 		Width:       width,
 		Height:      height,
@@ -333,10 +355,11 @@ func (rt *RenderTexture) Resize(dev *gpu.Device, width, height uint32) (bool, er
 		Retained:    rt.retained,
 	})
 	if err != nil {
+		disposeScope(nextOwner)
 		return false, err
 	}
-	old := rt.target
-	rt.target = next
+	old, oldOwner := rt.target, rt.owner
+	rt.target, rt.owner = next, nextOwner
 	rt.width = width
 	rt.height = height
 	rt.gpuTex = wrapRenderTargetSampleTexture(next, width, height, rt.colorFormat)
@@ -344,6 +367,7 @@ func (rt *RenderTexture) Resize(dev *gpu.Device, width, height uint32) (bool, er
 	if old != nil {
 		_ = old.Close()
 	}
+	disposeScope(oldOwner)
 	return true, nil
 }
 
@@ -410,7 +434,10 @@ func (rt *RenderTexture) Close() error {
 	if rt == nil || rt.target == nil {
 		return nil
 	}
-	return rt.target.Close()
+	err := rt.target.Close()
+	disposeScope(rt.owner)
+	rt.owner = nil
+	return err
 }
 
 // ViewportRect describes a normalized sub-rectangle of a render target in [0, 1]
