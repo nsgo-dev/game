@@ -6,6 +6,8 @@ import (
 	"math"
 	"slices"
 	"time"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // FormatVersion is the version written to every Recording and the only one Decode accepts.
@@ -77,34 +79,35 @@ func (r *Recording) StepDuration() time.Duration {
 	return time.Second / time.Duration(rate)
 }
 
-// Validate checks that r uses the supported format version, has a valid rate and step count, unique non-empty action and axis names, and strictly increasing in-bounds step events.
+// Validate checks that r uses the supported format version, has a valid rate and step count, unique non-empty action and axis names, and strictly increasing in-bounds step events. Its errors are *loaderr.Error values that name the field at fault in the YAML text Encode writes, such as "steps[3].press[0]", and how to fix it.
 func (r *Recording) Validate() error {
 	if r == nil {
-		return fmt.Errorf("replay: recording is nil")
+		return loaderr.Errorf("", "pass a recording", "recording is nil")
 	}
 	if r.Version != FormatVersion {
-		return fmt.Errorf("replay: unsupported version %d (want %d)", r.Version, FormatVersion)
+		return &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", r.Version), Expected: fmt.Sprint(FormatVersion), Fix: fixRecordAgain}
 	}
 	if r.Rate <= 0 {
-		return fmt.Errorf("replay: invalid rate %d", r.Rate)
+		return loaderr.Errorf("rate", "set rate to the fixed steps per second the recording ran at, above 0", "invalid rate %d", r.Rate)
 	}
 	if r.TotalSteps < 0 {
-		return fmt.Errorf("replay: invalid total_steps %d", r.TotalSteps)
+		return loaderr.Errorf("total_steps", "set total_steps to the number of steps recorded, 0 or more", "invalid total_steps %d", r.TotalSteps)
 	}
-	if err := validateNames("action", r.Actions); err != nil {
+	if err := validateNames("actions", "action", r.Actions); err != nil {
 		return err
 	}
-	if err := validateNames("axis", r.Axes); err != nil {
+	if err := validateNames("axes", "axis", r.Axes); err != nil {
 		return err
 	}
 
 	prevStep := -1
 	for i, ev := range r.Events {
+		at := loaderr.Path("steps", i)
 		if ev.Step < 0 || ev.Step >= r.TotalSteps {
-			return fmt.Errorf("replay: event %d step %d out of range [0, %d)", i, ev.Step, r.TotalSteps)
+			return loaderr.Errorf(loaderr.Join(at, "step"), "keep each step below total_steps, or raise total_steps", "event %d step %d out of range [0, %d)", i, ev.Step, r.TotalSteps)
 		}
 		if ev.Step <= prevStep {
-			return fmt.Errorf("replay: event %d step %d is not after previous step %d", i, ev.Step, prevStep)
+			return loaderr.Errorf(loaderr.Join(at, "step"), "list steps in increasing order and merge two entries for the same step into one", "event %d step %d is not after previous step %d", i, ev.Step, prevStep)
 		}
 		prevStep = ev.Step
 
@@ -112,26 +115,21 @@ func (r *Recording) Validate() error {
 		if len(ev.Press)+len(ev.Release) > 1 {
 			seenAction = make(map[int]struct{}, len(ev.Press)+len(ev.Release))
 		}
-		for _, idx := range ev.Press {
-			if idx < 0 || idx >= len(r.Actions) {
-				return fmt.Errorf("replay: step %d press index %d out of range [0, %d)", ev.Step, idx, len(r.Actions))
-			}
-			if seenAction != nil {
-				if _, dup := seenAction[idx]; dup {
-					return fmt.Errorf("replay: step %d lists action %q more than once", ev.Step, r.Actions[idx])
+		for _, list := range []struct {
+			key, verb string
+			idx       []int
+		}{{"press", "press", ev.Press}, {"release", "release", ev.Release}} {
+			for j, idx := range list.idx {
+				field := loaderr.Join(at, list.key, j)
+				if idx < 0 || idx >= len(r.Actions) {
+					return loaderr.Errorf(field, "use the index of a name in actions", "step %d %s index %d out of range [0, %d)", ev.Step, list.verb, idx, len(r.Actions))
 				}
-				seenAction[idx] = struct{}{}
-			}
-		}
-		for _, idx := range ev.Release {
-			if idx < 0 || idx >= len(r.Actions) {
-				return fmt.Errorf("replay: step %d release index %d out of range [0, %d)", ev.Step, idx, len(r.Actions))
-			}
-			if seenAction != nil {
-				if _, dup := seenAction[idx]; dup {
-					return fmt.Errorf("replay: step %d lists action %q more than once", ev.Step, r.Actions[idx])
+				if seenAction != nil {
+					if _, dup := seenAction[idx]; dup {
+						return loaderr.Errorf(field, "list each action once per step, in press or in release", "step %d lists action %q more than once", ev.Step, r.Actions[idx])
+					}
+					seenAction[idx] = struct{}{}
 				}
-				seenAction[idx] = struct{}{}
 			}
 		}
 
@@ -141,14 +139,15 @@ func (r *Recording) Validate() error {
 		}
 		for _, ch := range ev.Axes {
 			if ch.Index < 0 || ch.Index >= len(r.Axes) {
-				return fmt.Errorf("replay: step %d axis index %d out of range [0, %d)", ev.Step, ch.Index, len(r.Axes))
+				return loaderr.Errorf(loaderr.Join(at, "axes"), "use the index of a name in axes", "step %d axis index %d out of range [0, %d)", ev.Step, ch.Index, len(r.Axes))
 			}
+			field := loaderr.Join(at, "axes", r.Axes[ch.Index])
 			if math.IsNaN(ch.Value) || math.IsInf(ch.Value, 0) {
-				return fmt.Errorf("replay: step %d axis %q has a non-finite value", ev.Step, r.Axes[ch.Index])
+				return loaderr.Errorf(field, "use a finite axis value", "step %d axis %q has a non-finite value", ev.Step, r.Axes[ch.Index])
 			}
 			if seenAxis != nil {
 				if _, dup := seenAxis[ch.Index]; dup {
-					return fmt.Errorf("replay: step %d lists axis %q more than once", ev.Step, r.Axes[ch.Index])
+					return loaderr.Errorf(field, "set each axis once per step", "step %d lists axis %q more than once", ev.Step, r.Axes[ch.Index])
 				}
 				seenAxis[ch.Index] = struct{}{}
 			}
@@ -157,17 +156,20 @@ func (r *Recording) Validate() error {
 	return nil
 }
 
-func validateNames(kind string, names []string) error {
+// fixRecordAgain is the fix for a recording this build cannot read.
+const fixRecordAgain = "record the replay again with this build, or correct the text as docs/en/replay.md describes it"
+
+func validateNames(field, kind string, names []string) error {
 	if len(names) == 0 {
 		return nil
 	}
 	seen := make(map[string]struct{}, len(names))
 	for i, name := range names {
 		if name == "" {
-			return fmt.Errorf("replay: %s %d has an empty name", kind, i)
+			return loaderr.Errorf(loaderr.Path(field, i), "give the "+kind+" a non-empty name", "%s %d has an empty name", kind, i)
 		}
 		if _, dup := seen[name]; dup {
-			return fmt.Errorf("replay: duplicate %s name %q", kind, name)
+			return loaderr.Errorf(loaderr.Path(field, i), "list each "+kind+" name once", "duplicate %s name %q", kind, name)
 		}
 		seen[name] = struct{}{}
 	}

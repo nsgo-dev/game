@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"go.yaml.in/yaml/v3"
@@ -141,7 +142,7 @@ func (s *sceneCheck) material(ref string, steps ...string) {
 // yamlLineRE finds the "line N: " that yaml's errors carry.
 var yamlLineRE = regexp.MustCompile(`line (\d+): `)
 
-// yamlError records err, from parsing the YAML file at p, at the line it is about: the field a sceneformat.FieldError names, each line a yaml.TypeError lists, or the line a syntax error states.
+// yamlError records err, from parsing the YAML file at p, at the line it is about: the field a sceneformat.FieldError names, each line a yaml.TypeError lists, the line a syntax error states, or the line a *loaderr.Error gives.
 func (c *checker) yamlError(p string, data []byte, err error) {
 	if fe, ok := errors.AsType[*sceneformat.FieldError](err); ok {
 		var root yaml.Node
@@ -149,7 +150,7 @@ func (c *checker) yamlError(p string, data []byte, err error) {
 		if yaml.Unmarshal(data, &root) == nil {
 			line = min(yamlLine(&root, fe.Path), yamlLineCount(data))
 		}
-		c.problem(p, line, "%v", err)
+		c.problem(p, line, "%v", fe)
 		return
 	}
 	if te, ok := errors.AsType[*yaml.TypeError](err); ok {
@@ -160,6 +161,10 @@ func (c *checker) yamlError(p string, data []byte, err error) {
 		return
 	}
 	line, rest := splitYAMLLine(err.Error())
+	if e, ok := loaderr.As(err); ok && line == 0 && e.Line > 0 {
+		// A loader that reports a *loaderr.Error has already found the line; its message without the location is the problem.
+		line, rest = e.Line, (&loaderr.Error{Field: e.Field, Problem: e.Problem, Expected: e.Expected, Err: e.Err}).Error()
+	}
 	c.problem(p, min(line, yamlLineCount(data)), "%s", rest)
 }
 

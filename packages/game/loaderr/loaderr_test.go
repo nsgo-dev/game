@@ -3,8 +3,10 @@ package loaderr_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -255,5 +257,116 @@ func TestLocateDecodeErrors(t *testing.T) {
 				t.Fatalf("Locate lost the decode error: %+v", got)
 			}
 		})
+	}
+}
+
+func TestErrorfKeepsEveryWrapped(t *testing.T) {
+	a, b := errors.New("a"), errors.New("b")
+	e := loaderr.Errorf("f", "fix", "%w: %w", a, b)
+	if !errors.Is(e, a) || !errors.Is(e, b) {
+		t.Fatalf("Errorf with two %%w: errors.Is lost one of them (Err = %v)", e.Err)
+	}
+	if e.Problem != "a: b" {
+		t.Fatalf("Problem = %q, want %q", e.Problem, "a: b")
+	}
+}
+
+func TestWithFileKeepsWrappingContext(t *testing.T) {
+	sentinel := errors.New("sentinel")
+	inner := &loaderr.Error{Line: 2, Problem: "p"}
+	for _, err := range []error{fmt.Errorf("ctx: %w", inner), errors.Join(sentinel, inner)} {
+		if got := loaderr.WithFile(err, "a.yaml"); got != err {
+			t.Fatalf("WithFile(%v) = %v, want the error unchanged", err, got)
+		}
+	}
+}
+
+func TestLocateUnknownJSONFieldNamedTwice(t *testing.T) {
+	data := "{\n  \"a\": {\n    \"name\": 1\n  },\n  \"b\": {\n    \"name\": 2\n  }\n}"
+	var v struct {
+		A struct {
+			Name int `json:"name"`
+		} `json:"a"`
+		B struct{} `json:"b"`
+	}
+	dec := json.NewDecoder(strings.NewReader(data))
+	dec.DisallowUnknownFields()
+	derr := dec.Decode(&v)
+	if derr == nil {
+		t.Fatal("decode succeeded")
+	}
+	got, _ := loaderr.As(loaderr.Locate(derr, "f.json", []byte(data), ""))
+	if got.Field != "" || got.Line != 0 {
+		t.Fatalf("Locate = %+v, want no field or line when the key is named more than once", got)
+	}
+	if got.Fix != loaderr.FixUnknownField {
+		t.Fatalf("Fix = %q, want FixUnknownField", got.Fix)
+	}
+}
+
+func TestLocateJSONTypeErrorUnderMapKeys(t *testing.T) {
+	cases := []struct {
+		name, data, field string
+		line              int
+	}{
+		{"numeric key", "{\n  \"5\": [],\n  \"10\": [\n    {\"time\": \"x\"}\n  ]\n}", loaderr.Path("10", 0, "time"), 4},
+		{"dotted key", "{\n  \"hero.run\": [\n    {\"time\": \"x\"}\n  ]\n}", loaderr.Path("hero.run", 0, "time"), 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v map[string][]struct {
+				Time float64 `json:"time"`
+			}
+			derr := json.Unmarshal([]byte(tc.data), &v)
+			if derr == nil {
+				t.Fatal("decode succeeded")
+			}
+			got, _ := loaderr.As(loaderr.Locate(derr, "f.json", []byte(tc.data), ""))
+			if got.Field != tc.field || got.Line != tc.line {
+				t.Fatalf("Locate = %+v, want field %q on line %d", got, tc.field, tc.line)
+			}
+		})
+	}
+}
+
+// TestLocateJSONTypeErrorFromFirstImplementation builds the errors encoding/json's first implementation returns, which nsgo build links (GOEXPERIMENT=nojsonv2): a Field without array indexes or map keys and an Offset just past the value at fault.
+func TestLocateJSONTypeErrorFromFirstImplementation(t *testing.T) {
+	cases := []struct {
+		name, data, value, jsonField, field string
+		line                                int
+	}{
+		{"array index", "{\n  \"version\": 1,\n  \"layers\": [{\"name\": \"a\"}, {\"name\": \"b\", \"order\": \"x\"}]\n}", `"x"`, "layers.order", "layers[1].order", 3},
+		{"map key", "{\n  \"5\": [],\n  \"10\": [\n    {\"time\": \"x\"}\n  ]\n}", `"x"`, "time", loaderr.Path("10", 0, "time"), 4},
+		{"inside a field", "{\n  \"items\": [\n    \"a\",\n    3\n  ]\n}", "3", "items", "items[1]", 4},
+		{"object", "{\n  \"version\": {}\n}", "{", "version", "version", 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			derr := &json.UnmarshalTypeError{Value: "string", Type: reflect.TypeFor[int](), Offset: int64(strings.LastIndex(tc.data, tc.value) + len(tc.value)), Field: tc.jsonField}
+			got, _ := loaderr.As(loaderr.Locate(derr, "f.json", []byte(tc.data), ""))
+			if got.Field != tc.field || got.Line != tc.line {
+				t.Fatalf("Locate = %+v, want field %q on line %d", got, tc.field, tc.line)
+			}
+		})
+	}
+}
+
+func TestLocateWithoutDataHasNoLine(t *testing.T) {
+	data := "{\n  \"version\": 1,\n  \"layers\": ]\n}"
+	got, _ := loaderr.As(loaderr.Locate(decodeJSON(data), "f.json", nil, ""))
+	if got.Line != 0 || got.Column != 0 {
+		t.Fatalf("Locate without data = %+v, want line 0", got)
+	}
+	got, _ = loaderr.As(loaderr.Locate(json.Unmarshal([]byte(`{"version": "x"}`), new(doc)), "f.json", nil, ""))
+	if got.Line != 0 || got.Field != "version" {
+		t.Fatalf("Locate without data = %+v, want field version at line 0", got)
+	}
+}
+
+func TestLocateJSONColumnCountsCharacters(t *testing.T) {
+	data := `{"name": "勇者", "version": ]}`
+	got, _ := loaderr.As(loaderr.Locate(decodeJSON(data), "f.json", []byte(data), ""))
+	if want := strings.Index(data, "]") - len("勇者") + len([]rune("勇者")) + 1; got.Column != want {
+		t.Fatalf("Column = %d, want %d (%+v)", got.Column, want, got)
 	}
 }

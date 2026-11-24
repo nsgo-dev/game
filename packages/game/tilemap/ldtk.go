@@ -5,57 +5,74 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
 // LoadLDtk parses an LDtk JSON project and builds a Tilemap for the level matching levelIdentifier (or the first level when levelIdentifier is empty).
 //
 // Tiles (gridTiles), AutoLayer (autoLayerTiles), IntGrid (intGridCsv mapped to TileSolid/TileFlags plus optional autoLayerTiles), and Entities (entityInstances mapped to ObjectLayer with fieldInstances properties) are supported, including LDtk flip bits (bit 0 = FlipHorizontal, bit 1 = FlipVertical).
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+	m, err := loadLDtk(data, levelIdentifier, resolveImage)
+	return m, loaderr.Locate(err, "", data, fixLDtk)
+}
+
+// fixLDtk is the fix for an LDtk project error that has no more specific one.
+const fixLDtk = "correct the project in LDtk and save it again"
+
+func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
 	var proj ldtkProject
 	if err := json.Unmarshal(data, &proj); err != nil {
-		return nil, fmt.Errorf("tilemap: ldtk: %w", err)
+		return nil, err
 	}
 	if len(proj.Levels) == 0 {
-		return nil, fmt.Errorf("tilemap: ldtk: project contains no levels")
+		return nil, loaderr.Errorf("levels", "add a level to the project in LDtk", "project contains no levels")
 	}
 
-	var level *ldtkLevel
-	if levelIdentifier == "" {
-		level = &proj.Levels[0]
-	} else {
+	index := 0
+	if levelIdentifier != "" {
+		index = -1
 		for i := range proj.Levels {
 			if proj.Levels[i].Identifier == levelIdentifier {
-				level = &proj.Levels[i]
+				index = i
 				break
 			}
 		}
-		if level == nil {
-			return nil, fmt.Errorf("tilemap: ldtk: level %q not found", levelIdentifier)
+		if index < 0 {
+			return nil, loaderr.Errorf("levels", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
 		}
 	}
-	return buildLDtkLevel(&proj, level, resolveImage)
+	return buildLDtkLevel(&proj, index, resolveImage)
 }
 
-// LoadLDtkAll parses an LDtk JSON project and builds a Tilemap for every level, keyed by level identifier.
+// LoadLDtkAll parses an LDtk JSON project and builds a Tilemap for every level, keyed by level identifier. Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
+	out, err := loadLDtkAll(data, resolveImage)
+	return out, loaderr.Locate(err, "", data, fixLDtk)
+}
+
+func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
 	var proj ldtkProject
 	if err := json.Unmarshal(data, &proj); err != nil {
-		return nil, fmt.Errorf("tilemap: ldtk: %w", err)
+		return nil, err
 	}
 	out := make(map[string]*Tilemap, len(proj.Levels))
 	for i := range proj.Levels {
-		lvl := &proj.Levels[i]
-		m, err := buildLDtkLevel(&proj, lvl, resolveImage)
+		m, err := buildLDtkLevel(&proj, i, resolveImage)
 		if err != nil {
-			return nil, fmt.Errorf("tilemap: ldtk: level %q: %w", lvl.Identifier, err)
+			return nil, err
 		}
-		out[lvl.Identifier] = m
+		out[proj.Levels[i].Identifier] = m
 	}
 	return out, nil
 }
 
-func buildLDtkLevel(proj *ldtkProject, lvl *ldtkLevel, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+// buildLDtkLevel builds proj.Levels[index].
+func buildLDtkLevel(proj *ldtkProject, index int, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+	lvl := &proj.Levels[index]
+	at := loaderr.Path("levels", index)
 	gridSize := proj.DefaultGridSize
 	if gridSize <= 0 {
 		for _, li := range lvl.LayerInstances {
@@ -66,7 +83,7 @@ func buildLDtkLevel(proj *ldtkProject, lvl *ldtkLevel, resolveImage func(relPath
 		}
 	}
 	if gridSize <= 0 {
-		return nil, fmt.Errorf("tilemap: ldtk: level %q has no positive grid size", lvl.Identifier)
+		return nil, loaderr.Errorf(at, "set the project's default grid size, or a layer's grid size, above 0 in LDtk", "level %q has no positive grid size", lvl.Identifier)
 	}
 
 	mapW := lvl.PxWid / gridSize
@@ -80,9 +97,9 @@ func buildLDtkLevel(proj *ldtkProject, lvl *ldtkLevel, resolveImage func(relPath
 		}
 	}
 
-	props, err := parseLDtkFields(lvl.FieldInstances)
+	props, err := parseLDtkFields(lvl.FieldInstances, loaderr.Join(at, "fieldInstances"))
 	if err != nil {
-		return nil, fmt.Errorf("tilemap: ldtk: level properties: %w", err)
+		return nil, err
 	}
 
 	m := &Tilemap{
@@ -255,9 +272,9 @@ func buildLDtkLevel(proj *ldtkProject, lvl *ldtkLevel, resolveImage func(relPath
 		case "Entities":
 			objs := make([]Object, len(li.EntityInstances))
 			for j, ent := range li.EntityInstances {
-				ep, err := parseLDtkFields(ent.FieldInstances)
+				ep, err := parseLDtkFields(ent.FieldInstances, loaderr.Join(at, "layerInstances", i, "entityInstances", j, "fieldInstances"))
 				if err != nil {
-					return nil, fmt.Errorf("tilemap: ldtk: entity %q fields: %w", ent.Identifier, err)
+					return nil, err
 				}
 				shape := ObjectRect
 				if ent.Width == 0 && ent.Height == 0 {
@@ -374,12 +391,16 @@ func ldtkIntGridFlag(value int, identifier string) TileFlags {
 	return TileSolid
 }
 
-func parseLDtkFields(fields []ldtkFieldInstance) (Properties, error) {
+// parseLDtkFields reads the field instances found at the field path at.
+func parseLDtkFields(fields []ldtkFieldInstance, at string) (Properties, error) {
 	if len(fields) == 0 {
 		return nil, nil
 	}
 	props := make(Properties, len(fields))
-	for _, f := range fields {
+	for fi, f := range fields {
+		bad := func(err error) error {
+			return loaderr.Errorf(loaderr.Join(at, fi, "__value"), fmt.Sprintf("give the field a value of its type, %s, in LDtk", f.Type), "field %q (%s): %w", f.Identifier, f.Type, err)
+		}
 		if len(f.Value) == 0 || string(f.Value) == "null" {
 			props[f.Identifier] = Property{Name: f.Identifier, Type: f.Type, Value: nil}
 			continue
@@ -393,7 +414,7 @@ func parseLDtkFields(fields []ldtkFieldInstance) (Properties, error) {
 			if err := json.Unmarshal(f.Value, &n); err != nil {
 				var fl float64
 				if err2 := json.Unmarshal(f.Value, &fl); err2 != nil {
-					return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+					return nil, bad(err)
 				}
 				n = int(fl)
 			}
@@ -402,34 +423,34 @@ func parseLDtkFields(fields []ldtkFieldInstance) (Properties, error) {
 			typ = "float"
 			var fl float64
 			if err := json.Unmarshal(f.Value, &fl); err != nil {
-				return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+				return nil, bad(err)
 			}
 			val = fl
 		case f.Type == "Bool":
 			typ = "bool"
 			var b bool
 			if err := json.Unmarshal(f.Value, &b); err != nil {
-				return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+				return nil, bad(err)
 			}
 			val = b
 		case f.Type == "Color":
 			typ = "color"
 			var s string
 			if err := json.Unmarshal(f.Value, &s); err != nil {
-				return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+				return nil, bad(err)
 			}
 			val = s
 		case f.Type == "String" || f.Type == "Multilines" || f.Type == "FilePath" || strings.HasPrefix(f.Type, "LocalEnum.") || strings.HasPrefix(f.Type, "ExternEnum."):
 			typ = "string"
 			var s string
 			if err := json.Unmarshal(f.Value, &s); err != nil {
-				return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+				return nil, bad(err)
 			}
 			val = s
 		default:
 			typ = strings.ToLower(f.Type)
 			if err := json.Unmarshal(f.Value, &val); err != nil {
-				return nil, fmt.Errorf("field %q (%s): %w", f.Identifier, f.Type, err)
+				return nil, bad(err)
 			}
 		}
 		props[f.Identifier] = Property{Name: f.Identifier, Type: typ, Value: val}

@@ -3,11 +3,13 @@ package l10n
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -119,6 +121,8 @@ func (c *Catalog) Has(locale, key string) bool {
 //
 // Nested objects may contain plural objects at any depth. Calling LoadJSON
 // multiple times for the same locale merges new keys into the existing table.
+//
+// Errors about data are *loaderr.Error values that give the line and key of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func (c *Catalog) LoadJSON(locale string, data []byte) error {
 	loc := NormalizeLocale(locale)
 	if loc == "" {
@@ -127,15 +131,15 @@ func (c *Catalog) LoadJSON(locale string, data []byte) error {
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("l10n: decode JSON for %q: %w", loc, err)
+		return loaderr.Locate(err, "", data, fixStringTable)
 	}
 	if raw == nil {
-		return fmt.Errorf("l10n: JSON root for %q must be an object", loc)
+		return loaderr.Locate(loaderr.Errorf("", fixStringTable, "JSON root for %q must be an object", loc), "", data, "")
 	}
 
 	parsed := make(map[string]entry)
-	if err := flattenJSON("", raw, parsed); err != nil {
-		return fmt.Errorf("l10n: load JSON for %q: %w", loc, err)
+	if err := flattenJSON(nil, raw, parsed); err != nil {
+		return loaderr.Locate(err, "", data, fixStringTable)
 	}
 
 	c.mu.Lock()
@@ -424,15 +428,19 @@ func isASCIIDigits(s string) bool {
 	return len(s) > 0
 }
 
-func flattenJSON(prefix string, obj map[string]any, out map[string]entry) error {
-	for k, v := range obj {
+// fixStringTable is the fix for a string table error that has no more specific one.
+const fixStringTable = `write the table as a JSON object of strings, nested objects and plural objects, such as {"menu": {"play": "Play"}}`
+
+// flattenJSON adds the entries of obj, the object at the JSON keys path, to out under dotted keys.
+func flattenJSON(path []string, obj map[string]any, out map[string]entry) error {
+	// Sorted, so the same key is reported every time when several are wrong.
+	for _, k := range slices.Sorted(maps.Keys(obj)) {
+		v := obj[k]
+		at := append(slices.Clip(path), k)
 		if k == "" {
-			return fmt.Errorf("empty key under %q", prefix)
+			return loaderr.Errorf(jsonPath(at), "give the entry a non-empty key", "empty key under %q", strings.Join(path, "."))
 		}
-		fullKey := k
-		if prefix != "" {
-			fullKey = prefix + "." + k
-		}
+		fullKey := strings.Join(at, ".")
 		switch val := v.(type) {
 		case string:
 			out[fullKey] = entry{text: val}
@@ -440,15 +448,24 @@ func flattenJSON(prefix string, obj map[string]any, out map[string]entry) error 
 			if forms, ok := asPluralObject(val); ok {
 				out[fullKey] = entry{isPlural: true, plural: forms}
 			} else {
-				if err := flattenJSON(fullKey, val, out); err != nil {
+				if err := flattenJSON(at, val, out); err != nil {
 					return err
 				}
 			}
 		default:
-			return fmt.Errorf("key %q has unsupported JSON value type %T", fullKey, v)
+			return loaderr.Errorf(jsonPath(at), "make the value a string, or an object of nested keys or plural forms", "key %q has unsupported JSON value type %T", fullKey, v)
 		}
 	}
 	return nil
+}
+
+// jsonPath writes JSON object keys as a field path.
+func jsonPath(keys []string) string {
+	parts := make([]any, len(keys))
+	for i, k := range keys {
+		parts[i] = k
+	}
+	return loaderr.Path(parts...)
 }
 
 func asPluralObject(m map[string]any) (PluralForms, bool) {

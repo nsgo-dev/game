@@ -448,7 +448,7 @@ func TestNestedValidationErrors(t *testing.T) {
 		{name: "duplicate_id_across_branches", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - id: c\n      - id: q\n        children:\n          - id: c\n", wantSub: "duplicate object id \"c\""},
 		{name: "duplicate_id_child_and_other_layer", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - id: c\n  - name: b\n    objects:\n      - id: c\n", wantSub: "duplicate object id \"c\""},
 		{name: "empty_child_id", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - name: Nameless\n", wantSub: "object \"p\" child 0 has an empty id"},
-		{name: "unknown_child_field", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - id: c\n            parent: p\n", wantSub: "not found"},
+		{name: "unknown_child_field", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - id: c\n            parent: p\n", wantSub: `unknown field "parent"`},
 		{name: "bad_child_alpha", yaml: "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: p\n        children:\n          - id: c\n            alpha: 2\n", wantSub: "object \"c\" alpha"},
 		{name: "too_deep", yaml: deep, wantSub: "deeper than"},
 	}

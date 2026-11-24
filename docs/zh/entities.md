@@ -133,7 +133,7 @@ _ = wt
 - `RegisterCodec[T](w, typeName)` 为组件类型 `T` 注册 JSON 编解码器；未注册的组件不会写入快照。
 - `w.Snapshot()` 按槽位索引升序输出存活实体、按编解码器名称升序输出组件，完整保留索引与代数，使组件中保存的 `Entity` 引用在恢复后依然有效。
 - `w.Restore(snap)` 先解码到临时世界再原子提交；若缺少编解码器或数据损坏，原世界保持完好。
-- `SaveWorld(store, slot, w)` 与 `LoadWorld(store, slot, w)` 通过 `save.Store`（同时支持 `save.NewStorageStore` 和 `save.NewFileStore`，以及存档版本和迁移）保存和恢复世界。
+- `SaveWorld(store, slot, w)` 与 `LoadWorld(store, slot, w)` 通过 `save.Store`（同时支持 `save.NewStorageStore` 和 `save.NewFileStore`，以及存档版本和迁移）保存和恢复世界。`LoadWorld` 在解码槽位时就检查快照，因此无法恢复的快照（未知的编解码器、错误的父实体、无法解码的组件）会回退到备份副本，其错误给出槽位名、行号和字段，例如 `data.entities[2].parent`。
 
 ```go
 _ = entities.RegisterCodec[Position](world, "position")

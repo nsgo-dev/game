@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -138,28 +141,35 @@ func (a *Actions) Save(store core.Storage, key string) error {
 
 // Load replaces a's action and axis bindings with those saved in store under key, and reports whether key was present.
 //
-// When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON, has a field Load does not know or uses an unknown format, Load leaves a's bindings untouched and returns false and an error.
+// When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON, has a field Load does not know or uses an unknown format, Load leaves a's bindings untouched and returns false and an error: a *loaderr.Error that names key as its file, with the line and field of the problem and how to fix it.
 func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 	raw, ok := store.GetItem(key)
 	if !ok {
 		return false, nil
 	}
+	loaded, err := a.load(raw)
+	return loaded, loaderr.Locate(err, key, []byte(raw), "save the bindings again with Actions.Save, or remove the key so the defaults apply")
+}
+
+func (a *Actions) load(raw string) (bool, error) {
 	var doc savedBindings
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
-		return false, fmt.Errorf("input: load %q: %w", key, err)
+		return false, err
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return false, fmt.Errorf("input: load %q: trailing data after the bindings", key)
+		return false, &loaderr.Error{Problem: "trailing data after the bindings", Fix: "keep one JSON object in the value; remove what follows it"}
 	}
 	if doc.Version != storageVersion {
-		return false, fmt.Errorf("input: load %q: unsupported version %d", key, doc.Version)
+		return false, &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", doc.Version), Expected: fmt.Sprint(storageVersion), Fix: fmt.Sprintf("save the bindings again with this build's Actions.Save, which writes version %d", storageVersion)}
 	}
 	var bindings map[string][]Input
 	if len(doc.Actions) > 0 {
 		bindings = make(map[string][]Input, len(doc.Actions))
-		for name, list := range doc.Actions {
+		// Sorted, so the first bad binding reported is the same on every load.
+		for _, name := range slices.Sorted(maps.Keys(doc.Actions)) {
+			list := doc.Actions[name]
 			if len(list) == 0 {
 				continue
 			}
@@ -167,7 +177,7 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 			for i, item := range list {
 				in, err := decodeInput(item)
 				if err != nil {
-					return false, fmt.Errorf("input: load %q: action %q: %w", key, name, err)
+					return false, loaderr.Errorf(loaderr.Path("actions", name, i), `use kind "none", "touch_region" or "mouse_region" with bounds, "mouse_button" with button left, right, middle, back or forward, "key" with key, "key_code" with code, or "gamepad_button" with button`, "action %q: %w", name, err)
 				}
 				decoded[i] = in
 			}
@@ -188,10 +198,11 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 	var motionAxes map[string]motionAxisBinding
 	if len(doc.MotionAxes) > 0 {
 		motionAxes = make(map[string]motionAxisBinding, len(doc.MotionAxes))
-		for name, ma := range doc.MotionAxes {
+		for _, name := range slices.Sorted(maps.Keys(doc.MotionAxes)) {
+			ma := doc.MotionAxes[name]
 			ax, err := decodeMotionAxis(ma.Axis)
 			if err != nil {
-				return false, fmt.Errorf("input: load %q: motion axis %q: %w", key, name, err)
+				return false, loaderr.Errorf(loaderr.Path("motion_axes", name, "axis"), "use none, tilt_x, tilt_y, tilt_z, gyro_x, gyro_y or gyro_z", "motion axis %q: %w", name, err)
 			}
 			if ax == MotionAxisNone {
 				continue
@@ -212,10 +223,11 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 	var pointerAxes map[string]pointerAxisBinding
 	if len(doc.PointerAxes) > 0 {
 		pointerAxes = make(map[string]pointerAxisBinding, len(doc.PointerAxes))
-		for name, pa := range doc.PointerAxes {
+		for _, name := range slices.Sorted(maps.Keys(doc.PointerAxes)) {
+			pa := doc.PointerAxes[name]
 			ax, err := decodePointerAxis(pa.Axis)
 			if err != nil {
-				return false, fmt.Errorf("input: load %q: pointer axis %q: %w", key, name, err)
+				return false, loaderr.Errorf(loaderr.Path("pointer_axes", name, "axis"), "use none, pointer_x or pointer_y", "pointer axis %q: %w", name, err)
 			}
 			if ax == PointerAxisNone {
 				continue
@@ -227,10 +239,11 @@ func (a *Actions) Load(store core.Storage, key string) (bool, error) {
 	var gamepadAxes map[string]gamepadAxisBinding
 	if len(doc.GamepadAxes) > 0 {
 		gamepadAxes = make(map[string]gamepadAxisBinding, len(doc.GamepadAxes))
-		for name, ga := range doc.GamepadAxes {
+		for _, name := range slices.Sorted(maps.Keys(doc.GamepadAxes)) {
+			ga := doc.GamepadAxes[name]
 			ax, err := decodeGamepadAxis(ga.Axis)
 			if err != nil {
-				return false, fmt.Errorf("input: load %q: gamepad axis %q: %w", key, name, err)
+				return false, loaderr.Errorf(loaderr.Path("gamepad_axes", name, "axis"), "use one of "+strings.Join(gamepadAxisNames[:], ", "), "gamepad axis %q: %w", name, err)
 			}
 			gamepadAxes[name] = gamepadAxisBinding{
 				axis: ax,

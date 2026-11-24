@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -26,6 +27,8 @@ var durationType = reflect.TypeOf(time.Duration(0))
 
 // CellError identifies the exact file, 1-based data row, and column/field name
 // where parsing or type conversion failed.
+//
+// The loaders return it inside a *loaderr.Error, which adds the cell's line and column in the file and a fix; errors.As finds either.
 type CellError struct {
 	File  string
 	Row   int
@@ -39,10 +42,31 @@ func (e *CellError) Error() string {
 	if file == "" {
 		file = "<input>"
 	}
+	return file + ": " + e.detail()
+}
+
+// detail is the message without the file name.
+func (e *CellError) detail() string {
 	if e.Field == "" {
-		return fmt.Sprintf("%s: row %d: %v", file, e.Row, e.Err)
+		return fmt.Sprintf("row %d: %v", e.Row, e.Err)
 	}
-	return fmt.Sprintf("%s: row %d, field %q (value %q): %v", file, e.Row, e.Field, e.Value, e.Err)
+	return fmt.Sprintf("row %d, field %q (value %q): %v", e.Row, e.Field, e.Value, e.Err)
+}
+
+// located returns e as a *loaderr.Error at line and column in its file, about field (a path in the document, or "" in CSV), with fix.
+func (e *CellError) located(line, column int, field, fix string) error {
+	return &loaderr.Error{File: e.File, Line: line, Column: column, Field: field, Problem: e.detail(), Fix: fix, Err: e}
+}
+
+// Fixes for the errors the loaders report.
+const (
+	fixRowShape = "give every row one value per header column"
+	fixTable    = "correct the table so it parses: a header row of column names plus one row per record (CSV), or an array (JSON) or list (YAML) of objects keyed by column name"
+)
+
+// fixCell is the fix for a value that does not convert to a field of type t.
+func fixCell(t reflect.Type) string {
+	return fmt.Sprintf("write a value of the field's type, %s, in this cell", t)
 }
 
 func (e *CellError) Unwrap() error { return e.Err }
@@ -162,7 +186,7 @@ func (p *structPlan) lookup(col string) (fieldBinding, bool) {
 func LoadFile[T any](path string) ([]T, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("datatable: read %q: %w", path, err)
+		return nil, loaderr.Locate(err, path, nil, "check that the table exists at this path and can be read")
 	}
 	return loadByExtension[T](path, data)
 }
@@ -176,7 +200,7 @@ func loadByExtension[T any](filename string, data []byte) ([]T, error) {
 	case ".yaml", ".yml":
 		return LoadYAML[T](filename, data)
 	default:
-		return nil, fmt.Errorf("datatable: unsupported file extension %q for %q (want .csv, .json, .yaml, or .yml)", filepath.Ext(filename), filename)
+		return nil, &loaderr.Error{File: filename, Problem: fmt.Sprintf("unsupported file extension %q", filepath.Ext(filename)), Expected: ".csv, .json, .yaml or .yml", Fix: "save the table with one of those extensions"}
 	}
 }
 
@@ -202,7 +226,7 @@ func LoadCSV[T any](filename string, data []byte) ([]T, error) {
 		if errors.Is(err, io.EOF) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("%s: parse CSV header: %w", displayFile(filename), err)
+		return nil, loaderr.Locate(err, filename, data, fixTable)
 	}
 
 	bindings := make([]*fieldBinding, len(header))
@@ -222,20 +246,26 @@ func LoadCSV[T any](filename string, data []byte) ([]T, error) {
 		}
 		rowNum++
 		if err != nil {
-			return nil, &CellError{
+			ce := &CellError{
 				File: filename,
 				Row:  rowNum,
 				Err:  err,
 			}
+			var pe *csv.ParseError
+			if errors.As(err, &pe) {
+				return nil, ce.located(pe.Line, pe.Column, "", "correct the quoting: a quoted cell starts and ends with \" and doubles any \" inside it")
+			}
+			return nil, ce.located(0, 0, "", fixTable)
 		}
 		if len(rec) != len(header) {
-			return nil, &CellError{
+			line, _ := r.FieldPos(0)
+			return nil, (&CellError{
 				File:  filename,
 				Row:   rowNum,
 				Field: "<row>",
 				Value: strings.Join(rec, ","),
 				Err:   fmt.Errorf("expected %d columns, got %d", len(header), len(rec)),
-			}
+			}).located(line, 1, "", fixRowShape)
 		}
 		var elem T
 		rv := reflect.ValueOf(&elem).Elem()
@@ -246,13 +276,14 @@ func LoadCSV[T any](filename string, data []byte) ([]T, error) {
 			}
 			fv := rv.FieldByIndex(fb.index)
 			if err := assignFromString(fv, val); err != nil {
-				return nil, &CellError{
+				line, col := r.FieldPos(c)
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: strings.TrimSpace(header[c]),
 					Value: val,
 					Err:   err,
-				}
+				}).located(line, col, "", fixCell(fb.typ))
 			}
 		}
 		rows = append(rows, elem)
@@ -274,11 +305,17 @@ func LoadJSON[T any](filename string, data []byte) ([]T, error) {
 
 	var rawRows []json.RawMessage
 	if err := dec.Decode(&rawRows); err != nil {
-		return nil, fmt.Errorf("%s: parse JSON array: %w", displayFile(filename), err)
+		return nil, loaderr.Locate(err, filename, data, "write the table as a JSON array of row objects")
 	}
+	end := int(dec.InputOffset())
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
-		return nil, fmt.Errorf("%s: unexpected trailing JSON data", displayFile(filename))
+		// Point at the first byte after the array that is not white space.
+		for end < len(data) && strings.IndexByte(" \t\r\n", data[end]) >= 0 {
+			end++
+		}
+		line := 1 + bytes.Count(data[:end], []byte("\n"))
+		return nil, &loaderr.Error{File: filename, Line: line, Problem: "unexpected trailing JSON data", Fix: "keep one JSON array in the file; remove what follows it"}
 	}
 
 	rows := make([]T, 0, len(rawRows))
@@ -292,13 +329,15 @@ func LoadJSON[T any](filename string, data []byte) ([]T, error) {
 			if errMsg == nil {
 				errMsg = errors.New("row must be a JSON object")
 			}
-			return nil, &CellError{
+			field := loaderr.Path(i)
+			line, col := loaderr.FindField(data, field)
+			return nil, (&CellError{
 				File:  filename,
 				Row:   rowNum,
 				Field: "<row>",
 				Value: strings.TrimSpace(string(rawRow)),
 				Err:   errMsg,
-			}
+			}).located(line, col, field, "make each row a JSON object of column names to values")
 		}
 
 		var elem T
@@ -317,13 +356,15 @@ func LoadJSON[T any](filename string, data []byte) ([]T, error) {
 			val := obj[k]
 			fv := rv.FieldByIndex(fb.index)
 			if err := assignFromAny(fv, val); err != nil {
-				return nil, &CellError{
+				field := loaderr.Path(i, k)
+				line, col := loaderr.FindField(data, field)
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: k,
 					Value: formatAny(val),
 					Err:   err,
-				}
+				}).located(line, col, field, fixCell(fb.typ))
 			}
 		}
 		rows = append(rows, elem)
@@ -649,13 +690,6 @@ func assignDurationFromString(fv reflect.Value, raw string) error {
 	}
 	fv.SetInt(int64(d))
 	return nil
-}
-
-func displayFile(filename string) string {
-	if filename == "" {
-		return "<input>"
-	}
-	return filename
 }
 
 func formatAny(v any) string {

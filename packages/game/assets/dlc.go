@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // DefaultDLCChunkSize is the default streaming read buffer size (32 KiB) used
@@ -81,21 +83,25 @@ type PackManifest struct {
 
 // ParsePackManifest decodes a JSON pack manifest containing either a
 // PackManifest object ({"packs": [...]}) or a bare JSON array of PackSpec.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func ParsePackManifest(data []byte) ([]PackSpec, error) {
+	const fix = `write the manifest as {"packs": [{"id": "...", "url": "...", "version": "...", "sha256": "..."}]} or as a bare array of packs`
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
-		return nil, errors.New("assets: dlc: empty manifest")
+		return nil, &loaderr.Error{Problem: "empty manifest", Fix: fix}
 	}
+	// Decode data rather than trimmed, so the decoder's offsets are the file's.
 	if trimmed[0] == '[' {
 		var packs []PackSpec
-		if err := json.Unmarshal(trimmed, &packs); err != nil {
-			return nil, fmt.Errorf("assets: dlc: parse manifest array: %w", err)
+		if err := json.Unmarshal(data, &packs); err != nil {
+			return nil, loaderr.Locate(err, "", data, fix)
 		}
 		return packs, nil
 	}
 	var manifest PackManifest
-	if err := json.Unmarshal(trimmed, &manifest); err != nil {
-		return nil, fmt.Errorf("assets: dlc: parse manifest: %w", err)
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, loaderr.Locate(err, "", data, fix)
 	}
 	return manifest.Packs, nil
 }

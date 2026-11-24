@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -447,14 +448,14 @@ func (e *Editor) SaveYAML() ([]byte, error) {
 	return sceneformat.Encode(e.Doc)
 }
 
-// OpenFile reads a YAML scene file from path and loads it into the editor.
+// OpenFile reads a YAML scene file from path and loads it into the editor. A scene that does not parse returns sceneformat.Parse's *loaderr.Error, naming path.
 func (e *Editor) OpenFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
 	}
 	if err := e.openYAML(data, path); err != nil {
-		return err
+		return loaderr.WithFile(err, path)
 	}
 	e.FilePath = path
 	e.Status = "Opened " + path

@@ -83,3 +83,19 @@ store := save.NewFileStore(cx.DataDir(),
 - **`StorageBackend`**：先写入备份键再更新主键，即便遇到 `*core.StorageFullError` 也能保住上一次完好存档。
 
 调用 `Load` 时，若主存档缺失、不可读或损坏，会自动回退到备份恢复。只有主存档缺失、或根本不是 JSON 对象（为空、被截断或是乱码）时，才会用备份重写主存档。主存档因其他原因读取失败（如权限或 I/O 错误），或者是 `Load` 无法使用的 JSON 对象时，保持原样不动，因为它可能比备份更新。若主存档的版本号高于 `Store.Version`，即使信封里有当前版本不认识的字段，也会直接返回 `ErrFutureVersion`，不会静默回退到旧版本备份。
+
+## 读取错误与检查
+
+关于副本内容的错误是 `*loaderr.Error`（见[错误](errors.md)），它给出副本、在存储的 JSON 中的行号、字段（例如 `data.items[1]`）和修复方法。`FileBackend` 的副本以其文件表示，例如 `saves/slot1.json`，备份为 `saves/slot1.json.bak`；`StorageBackend` 的副本以其存储键表示；自定义 `Backend` 的副本以槽位名表示，备份为 `slot1 (backup)`。上文的哨兵错误仍可用 `errors.Is` 匹配它。
+
+`LoadChecked` 是带有解码后检查的 `Load`。检查拒绝的副本会被视为损坏，因此会尝试备份，备份会解码到调用前 `dst` 的值上，而不是被拒绝的副本留下的值上；所有副本都失败时，`dst` 保持该值；检查返回针对某个字段的 `*loaderr.Error` 时，错误会给出该字段在存储副本中 `data` 之下的行号。`entities.LoadWorld` 就用这种方式检查世界快照：
+
+```go
+var snap Progress
+err := store.LoadChecked("slot1", &snap, func() error {
+	if snap.Level < 1 {
+		return loaderr.Errorf("level", "start levels at 1", "level %d is below 1", snap.Level)
+	}
+	return nil
+})
+```

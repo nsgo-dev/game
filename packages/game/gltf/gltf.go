@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
@@ -188,9 +189,17 @@ const (
 // Load parses a glTF 2.0 JSON (.gltf) or binary GLB (.glb) document from data.
 // External buffer/image URIs are resolved via resolver (which may be nil when
 // all resources are embedded via GLB BIN chunks or base64 data URIs).
+//
+// Its errors are *loaderr.Error values that give the field of the problem, the line in the JSON (in a GLB, the line in its JSON chunk) and how to fix it; a caller that read data from a file names it with loaderr.WithFile, as LoadFS does.
 func Load(data []byte, resolver BufferResolver) (*Document, error) {
+	doc, jsonData, err := load(data, resolver)
+	return doc, loaderr.Locate(err, "", jsonData, fixGLTF)
+}
+
+// load parses data and also returns its JSON, which the errors' lines are in.
+func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	if len(data) == 0 {
-		return nil, errors.New("gltf: empty input")
+		return nil, nil, loaderr.Errorf("", "pass the contents of a .gltf or .glb file", "empty input")
 	}
 
 	var jsonData []byte
@@ -199,7 +208,7 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 		var err error
 		jsonData, binChunk, err = parseGLB(data)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	} else {
 		jsonData = data
@@ -211,13 +220,13 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 
 	var raw rawGLTF
 	if err := json.Unmarshal(jsonData, &raw); err != nil {
-		return nil, fmt.Errorf("gltf: parse JSON: %w", err)
+		return nil, jsonData, err
 	}
 	if err := validateVersion(raw.Asset.Version); err != nil {
-		return nil, err
+		return nil, jsonData, loaderr.Errorf("asset.version", `set asset.version to "2.0"`, "%w", err)
 	}
 	if err := validateMinVersion(raw.Asset.MinVersion, raw.Asset.Version); err != nil {
-		return nil, err
+		return nil, jsonData, loaderr.Errorf("asset.minVersion", "remove asset.minVersion, or set it to a 2.x version no newer than asset.version and this loader supports", "%w", err)
 	}
 
 	doc := &Document{
@@ -238,72 +247,73 @@ func Load(data []byte, resolver BufferResolver) (*Document, error) {
 	var decodedBytes uint64
 	placeholders, err := doc.loadBuffers(raw.Buffers, binChunk, resolver, meshoptTargets(raw.BufferViews), &decodedBytes)
 	if err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadBufferViews(raw.BufferViews); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.decodeMeshoptViews(raw.BufferViews, placeholders, &decodedBytes); err != nil {
-		return nil, err
+		return nil, jsonData, itemError(err, "bufferViews", -1)
 	}
 	if err := doc.loadAccessors(raw.Accessors); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadSamplers(raw.Samplers); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadImages(raw.Images); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadTextures(raw.Textures); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadMaterials(raw.Materials); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadVariants(raw.Extensions); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadCameras(raw.Cameras); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 
 	if err := doc.loadMeshes(raw.Meshes, &decodedBytes); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadNodes(raw.Nodes); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadScenes(raw.Scene, raw.Scenes); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.loadSkins(raw.Skins, &decodedBytes); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.validateSkinnedJoints(); err != nil {
-		return nil, err
+		return nil, jsonData, itemError(err, "nodes", -1)
 	}
 	if err := doc.loadAnimations(raw.Animations, &decodedBytes); err != nil {
-		return nil, err
+		return nil, jsonData, err
 	}
 	if err := doc.ComputeWorldMatrices(); err != nil {
-		return nil, err
+		return nil, jsonData, loaderr.Errorf("nodes", fixGLTF, "%w", err)
 	}
-	for _, ext := range doc.ExtensionsRequired {
+	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
 		case "KHR_materials_unlit", "KHR_texture_transform", "KHR_materials_variants", "KHR_mesh_quantization",
 			extDraco, extMeshoptEXT, extMeshoptKHR:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
-			return nil, fmt.Errorf("gltf: required extension %q is not supported", ext)
+			return nil, jsonData, loaderr.Errorf(loaderr.Path("extensionsRequired", i), "export the model without this extension, such as without Basis Universal (KHR_texture_basisu) texture compression", "required extension %q is not supported", ext)
 		}
 	}
 
-	return doc, nil
+	return doc, jsonData, nil
 }
 
 // LoadFS loads a .gltf or .glb file at path from fsys, automatically resolving
 // relative external .bin buffers and image URIs against path's directory in fsys.
+// Its errors are *loaderr.Error values that name path.
 func LoadFS(fsys fs.FS, path string) (*Document, error) {
 	if fsys == nil {
 		return nil, errors.New("gltf: nil fs.FS")
@@ -311,7 +321,7 @@ func LoadFS(fsys fs.FS, path string) (*Document, error) {
 	cleanPath := pathpkg.Clean(path)
 	data, err := fs.ReadFile(fsys, cleanPath)
 	if err != nil {
-		return nil, fmt.Errorf("gltf: read %q: %w", path, err)
+		return nil, loaderr.Locate(err, path, nil, "check that the model exists at this path and can be read")
 	}
 	baseDir := pathpkg.Dir(cleanPath)
 	resolver := func(uri string) ([]byte, error) {
@@ -328,8 +338,27 @@ func LoadFS(fsys fs.FS, path string) (*Document, error) {
 		}
 		return fs.ReadFile(fsys, joined)
 	}
-	return Load(data, resolver)
+	doc, err := Load(data, resolver)
+	return doc, loaderr.WithFile(err, path)
 }
+
+// itemError reports err, from loading the item at index of a document's top-level array section, as a *loaderr.Error about that item, so Load can give its line. index is -1 when the error is about the section rather than one item.
+func itemError(err error, section string, index int) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := loaderr.As(err); ok {
+		return err
+	}
+	field := section
+	if index >= 0 {
+		field = loaderr.Path(section, index)
+	}
+	return loaderr.Errorf(field, fixGLTF, "%w", err)
+}
+
+// fixGLTF is the fix for a glTF error that has no more specific one.
+const fixGLTF = "export the model again as glTF 2.0 from Blender or another exporter, or correct the item the error names; see the glTF 2.0 specification"
 
 func validateVersion(v string) error {
 	if v == "" {
@@ -408,10 +437,13 @@ func decodeDataURI(uri string) ([]byte, error) {
 // --- Loaders for each glTF section ---
 
 // loadBuffers resolves every buffer's bytes and returns the set of meshopt placeholder buffers: those tagged as fallback, and URI-less ones that compressed bufferViews decode into. A placeholder gets zeroed storage of its byteLength, charged to decodedBytes, instead of being fetched.
-func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver BufferResolver, meshoptTargets map[int]bool, decodedBytes *uint64) (map[int]bool, error) {
+func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver BufferResolver, meshoptTargets map[int]bool, decodedBytes *uint64) (_ map[int]bool, err error) {
+	at := -1
+	defer func() { err = itemError(err, "buffers", at) }()
 	d.Buffers = make([]Buffer, len(raws))
 	placeholders := make(map[int]bool)
 	for i, rb := range raws {
+		at = i
 		if rb.ByteLength < 0 {
 			return nil, fmt.Errorf("gltf: buffer %d has negative byteLength %d", i, rb.ByteLength)
 		}
@@ -463,9 +495,12 @@ func (d *Document) loadBuffers(raws []rawBuffer, binChunk []byte, resolver Buffe
 	return placeholders, nil
 }
 
-func (d *Document) loadBufferViews(raws []rawBufferView) error {
+func (d *Document) loadBufferViews(raws []rawBufferView) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "bufferViews", at) }()
 	d.BufferViews = make([]BufferView, len(raws))
 	for i, rv := range raws {
+		at = i
 		if rv.Buffer < 0 || rv.Buffer >= len(d.Buffers) {
 			return fmt.Errorf("gltf: bufferView %d references invalid buffer %d", i, rv.Buffer)
 		}
@@ -490,9 +525,12 @@ func (d *Document) loadBufferViews(raws []rawBufferView) error {
 	return nil
 }
 
-func (d *Document) loadAccessors(raws []rawAccessor) error {
+func (d *Document) loadAccessors(raws []rawAccessor) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "accessors", at) }()
 	d.Accessors = make([]Accessor, len(raws))
 	for i, ra := range raws {
+		at = i
 		bvIdx := -1
 		if ra.BufferView != nil {
 			bvIdx = *ra.BufferView
@@ -565,9 +603,12 @@ func (d *Document) loadAccessors(raws []rawAccessor) error {
 	return nil
 }
 
-func (d *Document) loadSamplers(raws []rawSampler) error {
+func (d *Document) loadSamplers(raws []rawSampler) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "samplers", at) }()
 	d.Samplers = make([]Sampler, len(raws))
 	for i, rs := range raws {
+		at = i
 		wrapS := WrapRepeat
 		if rs.WrapS != nil {
 			wrapS = WrapMode(*rs.WrapS)
@@ -588,9 +629,12 @@ func (d *Document) loadSamplers(raws []rawSampler) error {
 	return nil
 }
 
-func (d *Document) loadImages(raws []rawImage) error {
+func (d *Document) loadImages(raws []rawImage) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "images", at) }()
 	d.Images = make([]Image, len(raws))
 	for i, ri := range raws {
+		at = i
 		bvIdx := -1
 		if ri.BufferView != nil {
 			bvIdx = *ri.BufferView
@@ -609,9 +653,12 @@ func (d *Document) loadImages(raws []rawImage) error {
 	return nil
 }
 
-func (d *Document) loadTextures(raws []rawTexture) error {
+func (d *Document) loadTextures(raws []rawTexture) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "textures", at) }()
 	d.Textures = make([]Texture, len(raws))
 	for i, rt := range raws {
+		at = i
 		samplerIdx := -1
 		if rt.Sampler != nil {
 			samplerIdx = *rt.Sampler
@@ -687,9 +734,12 @@ func (d *Document) parseTextureRef(info *rawTextureInfo, defaultScale, defaultSt
 	return ref, nil
 }
 
-func (d *Document) loadMaterials(raws []rawMaterial) error {
+func (d *Document) loadMaterials(raws []rawMaterial) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "materials", at) }()
 	d.Materials = make([]Material, len(raws))
 	for i, rm := range raws {
+		at = i
 		mat := Material{
 			Name:            rm.Name,
 			BaseColorFactor: math3d.Vec4One(),
@@ -774,9 +824,12 @@ func (d *Document) loadVariants(exts map[string]json.RawMessage) error {
 	return nil
 }
 
-func (d *Document) loadCameras(raws []rawCamera) error {
+func (d *Document) loadCameras(raws []rawCamera) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "cameras", at) }()
 	d.Cameras = make([]Camera, len(raws))
 	for i, rc := range raws {
+		at = i
 		cam := Camera{
 			Name:   rc.Name,
 			Type:   CameraType(rc.Type),
@@ -815,9 +868,12 @@ func chargeDecodedBytes(acc *uint64, n uint64) error {
 	return nil
 }
 
-func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) error {
+func (d *Document) loadMeshes(raws []rawMesh, decodedBytes *uint64) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "meshes", at) }()
 	d.Meshes = make([]Mesh, len(raws))
 	for mi, rm := range raws {
+		at = mi
 		mesh := Mesh{
 			Name:       rm.Name,
 			Primitives: make([]Primitive, len(rm.Primitives)),
@@ -1176,9 +1232,12 @@ func (d *Document) validateSkinnedJoints() error {
 	return nil
 }
 
-func (d *Document) loadNodes(raws []rawNode) error {
+func (d *Document) loadNodes(raws []rawNode) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "nodes", at) }()
 	d.Nodes = make([]Node, len(raws))
 	for i, rn := range raws {
+		at = i
 		node := Node{
 			Name:        rn.Name,
 			Parent:      -1,
@@ -1256,9 +1315,12 @@ func (d *Document) loadNodes(raws []rawNode) error {
 	return nil
 }
 
-func (d *Document) loadScenes(defaultScene *int, raws []rawScene) error {
+func (d *Document) loadScenes(defaultScene *int, raws []rawScene) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "scenes", at) }()
 	d.Scenes = make([]Scene, len(raws))
 	for i, rs := range raws {
+		at = i
 		for _, rootIdx := range rs.Nodes {
 			if rootIdx < 0 || rootIdx >= len(d.Nodes) {
 				return fmt.Errorf("gltf: scene %d references invalid root node %d", i, rootIdx)
@@ -1282,9 +1344,12 @@ func (d *Document) loadScenes(defaultScene *int, raws []rawScene) error {
 	return nil
 }
 
-func (d *Document) loadSkins(raws []rawSkin, decodedBytes *uint64) error {
+func (d *Document) loadSkins(raws []rawSkin, decodedBytes *uint64) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "skins", at) }()
 	d.Skins = make([]Skin, len(raws))
 	for i, rs := range raws {
+		at = i
 		for _, j := range rs.Joints {
 			if j < 0 || j >= len(d.Nodes) {
 				return fmt.Errorf("gltf: skin %d references invalid joint node %d", i, j)
@@ -1339,9 +1404,12 @@ func (d *Document) loadSkins(raws []rawSkin, decodedBytes *uint64) error {
 	return nil
 }
 
-func (d *Document) loadAnimations(raws []rawAnimation, decodedBytes *uint64) error {
+func (d *Document) loadAnimations(raws []rawAnimation, decodedBytes *uint64) (err error) {
+	at := -1
+	defer func() { err = itemError(err, "animations", at) }()
 	d.Animations = make([]Animation, len(raws))
 	for ai, ra := range raws {
+		at = ai
 		anim := Animation{
 			Name:     ra.Name,
 			Channels: make([]AnimationChannel, 0, len(ra.Channels)),

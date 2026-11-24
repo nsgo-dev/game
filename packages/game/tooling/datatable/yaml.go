@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 const (
@@ -22,6 +24,19 @@ const (
 
 // errYAMLMergeKey refuses a merge key (<<) by name, rather than as an unknown field, so a designer sharing row defaults through an anchor learns that every row must spell out its own columns.
 var errYAMLMergeKey = errors.New("merge keys (<<) are not supported; write each column in the row")
+
+// fixYAMLTable is the fix for a YAML table whose layout is wrong.
+const fixYAMLTable = "write the table as a mapping with version: 1 and rows, a list of mappings of column names to values"
+
+// yamlTableError returns the *loaderr.Error for a problem at n, a node of the YAML table in filename, whose message is format formatted with args.
+func yamlTableError(filename string, n *yaml.Node, fix, format string, args ...any) error {
+	e := loaderr.Errorf("", fix, format, args...)
+	e.File = filename
+	if n != nil {
+		e.Line, e.Column = n.Line, n.Column
+	}
+	return e
+}
 
 // buildYAMLPlan is buildStructPlan for the YAML paths, which also refuse a row type in which two fields share a column name, since only the first of them could be saved or loaded.
 func buildYAMLPlan(t reflect.Type) (*structPlan, error) {
@@ -35,7 +50,7 @@ func buildYAMLPlan(t reflect.Type) (*structPlan, error) {
 	return plan, nil
 }
 
-// LoadYAML parses a versioned YAML data table into []T.
+// LoadYAML parses a versioned YAML data table into []T. Its errors about the document are *loaderr.Error values that name filename, the line and a fix; one about a cell wraps the *CellError.
 //
 // The document is a mapping with two keys: version, which must equal FormatVersion, and rows, a list of mappings whose keys name fields of T by their table tag, json tag or Go field name (matched exactly first, then case-insensitively). A missing or empty rows key is an empty table. Any other top-level key, a missing or unsupported version, a row key that names no field (ErrUnknownField) and a field set twice in one row (ErrDuplicateField) are refused, as are a merge key (<<), a second YAML document in the same file, and a row type in which two fields share a column name; errors inside a row are a *CellError naming the 1-based row and the field.
 func LoadYAML[T any](filename string, data []byte) ([]T, error) {
@@ -50,16 +65,16 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 	var doc yaml.Node
 	if err := dec.Decode(&doc); err != nil {
 		if !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
+			return nil, loaderr.Locate(err, filename, data, fixTable)
 		}
 	} else {
 		// Like LoadJSON's trailing-data check: a second document would otherwise be ignored, along with any unknown keys or version in it.
 		var extra yaml.Node
 		if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 			if err != nil {
-				return nil, fmt.Errorf("%s: parse YAML: %w", displayFile(filename), err)
+				return nil, loaderr.Locate(err, filename, data, fixTable)
 			}
-			return nil, fmt.Errorf("%s: line %d: unexpected second YAML document; a data table is one document", displayFile(filename), extra.Line)
+			return nil, yamlTableError(filename, &extra, "keep one document in the file; remove the --- and what follows it", "unexpected second YAML document; a data table is one document")
 		}
 	}
 	var root *yaml.Node
@@ -67,13 +82,13 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 		root = resolveYAMLAlias(doc.Content[0], 0)
 	}
 	if root == nil || root.Tag == "!!null" {
-		return nil, fmt.Errorf("%s: empty YAML data table: want a mapping with %s: %d and %s", displayFile(filename), yamlVersionKey, FormatVersion, yamlRowsKey)
+		return nil, yamlTableError(filename, nil, fixYAMLTable, "empty YAML data table: want a mapping with %s: %d and %s", yamlVersionKey, FormatVersion, yamlRowsKey)
 	}
 	if root.Kind == yaml.SequenceNode {
-		return nil, fmt.Errorf("%s: line %d: a YAML data table is a mapping with %s: %d and %s, not a bare list of rows", displayFile(filename), root.Line, yamlVersionKey, FormatVersion, yamlRowsKey)
+		return nil, yamlTableError(filename, root, "put version: 1 first and the list under rows:", "a YAML data table is a mapping with %s: %d and %s, not a bare list of rows", yamlVersionKey, FormatVersion, yamlRowsKey)
 	}
 	if root.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s: line %d: a YAML data table must be a mapping with %s and %s", displayFile(filename), root.Line, yamlVersionKey, yamlRowsKey)
+		return nil, yamlTableError(filename, root, fixYAMLTable, "a YAML data table must be a mapping with %s and %s", yamlVersionKey, yamlRowsKey)
 	}
 
 	var versionNode, rowsNode *yaml.Node
@@ -81,41 +96,41 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 		kNode := resolveYAMLAlias(root.Content[i], 0)
 		vNode := resolveYAMLAlias(root.Content[i+1], 0)
 		if kNode == nil || kNode.Kind != yaml.ScalarNode {
-			return nil, fmt.Errorf("%s: line %d: top-level keys must be scalars", displayFile(filename), root.Content[i].Line)
+			return nil, yamlTableError(filename, root.Content[i], fixYAMLTable, "top-level keys must be scalars")
 		}
 		if kNode.Tag == yamlMergeTag {
-			return nil, fmt.Errorf("%s: line %d: %v", displayFile(filename), kNode.Line, errYAMLMergeKey)
+			return nil, yamlTableError(filename, kNode, "write version and rows out in full", "%v", errYAMLMergeKey)
 		}
 		switch kNode.Value {
 		case yamlVersionKey:
 			if versionNode != nil {
-				return nil, fmt.Errorf("%s: line %d: duplicate key %q", displayFile(filename), kNode.Line, kNode.Value)
+				return nil, yamlTableError(filename, kNode, "remove one of the two keys", "duplicate key %q", kNode.Value)
 			}
 			versionNode = vNode
 		case yamlRowsKey:
 			if rowsNode != nil {
-				return nil, fmt.Errorf("%s: line %d: duplicate key %q", displayFile(filename), kNode.Line, kNode.Value)
+				return nil, yamlTableError(filename, kNode, "remove one of the two keys", "duplicate key %q", kNode.Value)
 			}
 			rowsNode = vNode
 		default:
-			return nil, fmt.Errorf("%s: line %d: unknown top-level key %q (want %s and %s)", displayFile(filename), kNode.Line, kNode.Value, yamlVersionKey, yamlRowsKey)
+			return nil, yamlTableError(filename, kNode, "remove the key; a table has only version and rows", "unknown top-level key %q (want %s and %s)", kNode.Value, yamlVersionKey, yamlRowsKey)
 		}
 	}
 	if versionNode == nil {
-		return nil, fmt.Errorf("%s: missing %s (want %d)", displayFile(filename), yamlVersionKey, FormatVersion)
+		return nil, yamlTableError(filename, root, fmt.Sprintf("add %s: %d", yamlVersionKey, FormatVersion), "missing %s (want %d)", yamlVersionKey, FormatVersion)
 	}
 	if versionNode.Kind != yaml.ScalarNode || versionNode.Tag != "!!int" {
-		return nil, fmt.Errorf("%s: line %d: %s must be an integer (want %d)", displayFile(filename), versionNode.Line, yamlVersionKey, FormatVersion)
+		return nil, yamlTableError(filename, versionNode, fmt.Sprintf("set %s: %d", yamlVersionKey, FormatVersion), "%s must be an integer (want %d)", yamlVersionKey, FormatVersion)
 	}
 	if v, err := strconv.Atoi(versionNode.Value); err != nil || v != FormatVersion {
-		return nil, fmt.Errorf("%s: line %d: unsupported %s %s (want %d)", displayFile(filename), versionNode.Line, yamlVersionKey, versionNode.Value, FormatVersion)
+		return nil, yamlTableError(filename, versionNode, fmt.Sprintf("set %s: %d", yamlVersionKey, FormatVersion), "unsupported %s %s (want %d)", yamlVersionKey, versionNode.Value, FormatVersion)
 	}
 
 	if rowsNode == nil || rowsNode.Tag == "!!null" {
 		return nil, nil
 	}
 	if rowsNode.Kind != yaml.SequenceNode {
-		return nil, fmt.Errorf("%s: line %d: %s must be a list of mappings", displayFile(filename), rowsNode.Line, yamlRowsKey)
+		return nil, yamlTableError(filename, rowsNode, "write rows as a list, each row starting with \"- \"", "%s must be a list of mappings", yamlRowsKey)
 	}
 
 	rows := make([]T, 0, len(rowsNode.Content))
@@ -124,13 +139,13 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 		rowNum := i + 1
 		node := resolveYAMLAlias(item, 0)
 		if node == nil || node.Kind != yaml.MappingNode {
-			return nil, &CellError{
+			return nil, (&CellError{
 				File:  filename,
 				Row:   rowNum,
 				Field: "<row>",
 				Value: formatYAMLNode(node),
 				Err:   errors.New("row must be a YAML mapping"),
-			}
+			}).located(item.Line, item.Column, loaderr.Path(yamlRowsKey, i), "make each row a mapping of column names to values")
 		}
 
 		clear(seen)
@@ -140,53 +155,53 @@ func LoadYAML[T any](filename string, data []byte) ([]T, error) {
 			kNode := resolveYAMLAlias(node.Content[j], 0)
 			vNode := resolveYAMLAlias(node.Content[j+1], 0)
 			if kNode == nil || kNode.Kind != yaml.ScalarNode {
-				return nil, &CellError{
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: "<key>",
 					Value: formatYAMLNode(kNode),
 					Err:   errors.New("row keys must be scalars"),
-				}
+				}).located(node.Content[j].Line, node.Content[j].Column, loaderr.Path(yamlRowsKey, i), "name each column with a plain key")
 			}
 			if kNode.Tag == yamlMergeTag {
-				return nil, &CellError{
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: kNode.Value,
 					Value: formatYAMLNode(vNode),
 					Err:   errYAMLMergeKey,
-				}
+				}).located(kNode.Line, kNode.Column, loaderr.Path(yamlRowsKey, i), "write each column in the row")
 			}
 			fieldName := kNode.Value
 			fb, ok := plan.lookup(fieldName)
 			if !ok {
-				return nil, &CellError{
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: fieldName,
 					Value: formatYAMLNode(vNode),
 					Err:   ErrUnknownField,
-				}
+				}).located(kNode.Line, kNode.Column, loaderr.Path(yamlRowsKey, i, fieldName), "remove the column or correct its name to one of the row type's columns")
 			}
 			if prev, dup := seen[fb.pos]; dup {
-				return nil, &CellError{
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: fieldName,
 					Value: formatYAMLNode(vNode),
 					Err:   fmt.Errorf("%w: also set as %q", ErrDuplicateField, prev),
-				}
+				}).located(kNode.Line, kNode.Column, loaderr.Path(yamlRowsKey, i, fieldName), "set the column once in the row")
 			}
 			seen[fb.pos] = fieldName
 			fv := rv.FieldByIndex(fb.index)
 			if err := assignFromYAMLNode(fv, vNode, 0); err != nil {
-				return nil, &CellError{
+				return nil, (&CellError{
 					File:  filename,
 					Row:   rowNum,
 					Field: fieldName,
 					Value: formatYAMLNode(vNode),
 					Err:   err,
-				}
+				}).located(kNode.Line, kNode.Column, loaderr.Path(yamlRowsKey, i, fieldName), fixCell(fb.typ))
 			}
 		}
 		rows = append(rows, elem)

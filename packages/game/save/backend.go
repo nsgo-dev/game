@@ -79,6 +79,13 @@ func (b *storageBackend) primaryKey(slot string) string {
 }
 func (b *storageBackend) backupKey(slot string) string { return b.backupPrefix() + escapeSlotKey(slot) }
 
+func (b *storageBackend) copyName(slot string, backup bool) string {
+	if backup {
+		return b.backupKey(slot)
+	}
+	return b.primaryKey(slot)
+}
+
 func (b *storageBackend) Read(slot string) ([]byte, error) {
 	v, ok := b.store.GetItem(b.primaryKey(slot))
 	if !ok {
@@ -166,6 +173,13 @@ func FileBackend(dir string) Backend {
 
 func (b *fileBackend) primaryPath(slot string) string { return filepath.Join(b.dir, slot+".json") }
 func (b *fileBackend) backupPath(slot string) string  { return filepath.Join(b.dir, slot+".json.bak") }
+
+func (b *fileBackend) copyName(slot string, backup bool) string {
+	if backup {
+		return b.backupPath(slot)
+	}
+	return b.primaryPath(slot)
+}
 
 func (b *fileBackend) Read(slot string) ([]byte, error) {
 	if b.dir == "" {

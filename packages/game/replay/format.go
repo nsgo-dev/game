@@ -2,11 +2,11 @@ package replay
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -72,7 +72,7 @@ func (a axisValues) MarshalYAML() (any, error) {
 // UnmarshalYAML reads a mapping from axis name to number, keeping key order and refusing repeated names. A written -0.0 is read as 0 so every zero decodes and encodes the same way.
 func (a *axisValues) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: axes must map axis names to values", node.Line)
+		return &loaderr.Error{Line: node.Line, Column: node.Column, Problem: "axes must map axis names to values", Fix: "write axes as a mapping such as {move_x: 1}"}
 	}
 	out := make(axisValues, 0, len(node.Content)/2)
 	seen := make(map[string]struct{}, len(node.Content)/2)
@@ -83,7 +83,7 @@ func (a *axisValues) UnmarshalYAML(node *yaml.Node) error {
 			return err
 		}
 		if _, dup := seen[av.name]; dup {
-			return fmt.Errorf("line %d: axis %q is listed more than once", k.Line, av.name)
+			return &loaderr.Error{Line: k.Line, Column: k.Column, Problem: fmt.Sprintf("axis %q is listed more than once", av.name), Fix: "set each axis once per step"}
 		}
 		seen[av.name] = struct{}{}
 		if err := v.Decode(&av.value); err != nil {
@@ -168,12 +168,19 @@ func (r *Recording) Encode() ([]byte, error) {
 // Decode reads a Recording from the YAML text Encode writes, including text a person has edited, and validates it.
 //
 // Unknown keys, a missing seed, total_steps or step number, names that are not in the header's actions or axes, and trailing YAML documents are refused. Steps must be listed in increasing order. A recording with another version, such as the compact JSON of version 1, is refused with an error naming that version.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile, as LoadFile does.
 func Decode(data []byte) (*Recording, error) {
+	rec, err := decode(data)
+	return rec, loaderr.Locate(err, "", data, fixRecordAgain)
+}
+
+func decode(data []byte) (*Recording, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, errors.New("replay: decode: empty recording")
+		return nil, loaderr.Errorf("", "pass the text of a recording that Encode or SaveFile wrote", "empty recording")
 	}
 	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-		return nil, errors.New("replay: decode: data is gzip-compressed; recordings are plain YAML text")
+		return nil, loaderr.Errorf("", "decompress the file first; recordings are plain YAML text", "data is gzip-compressed")
 	}
 
 	// Check the version before the strict decode so a recording in another version's layout reports its version instead of its first unknown key.
@@ -181,31 +188,35 @@ func Decode(data []byte) (*Recording, error) {
 		Version int `yaml:"version"`
 	}
 	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return nil, fmt.Errorf("replay: decode: %w", err)
+		return nil, err
 	}
 	if probe.Version != FormatVersion {
-		return nil, fmt.Errorf("replay: unsupported version %d (want %d)", probe.Version, FormatVersion)
+		return nil, &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", probe.Version), Expected: fmt.Sprint(FormatVersion), Fix: fixRecordAgain}
 	}
 
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var doc recordingDoc
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("replay: decode: %w", err)
+		return nil, err
 	}
-	var extra any
+	var extra yaml.Node
 	if err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return nil, errors.New("replay: decode: unexpected trailing YAML document")
+			e := &loaderr.Error{Line: extra.Line, Column: extra.Column, Problem: "unexpected trailing YAML document", Fix: "keep one recording in the file; remove the document that follows it"}
+			if len(extra.Content) > 0 {
+				e.Line, e.Column = extra.Content[0].Line, extra.Content[0].Column
+			}
+			return nil, e
 		}
-		return nil, fmt.Errorf("replay: decode: %w", err)
+		return nil, err
 	}
 
 	if doc.Seed == nil {
-		return nil, errors.New("replay: decode: missing seed")
+		return nil, loaderr.Errorf("", "add seed: the random seed the recorded run started from", "missing seed")
 	}
 	if doc.TotalSteps == nil {
-		return nil, errors.New("replay: decode: missing total_steps")
+		return nil, loaderr.Errorf("", "add total_steps: the number of steps recorded", "missing total_steps")
 	}
 	rec := &Recording{
 		Version:    doc.Version,
@@ -215,10 +226,10 @@ func Decode(data []byte) (*Recording, error) {
 		Axes:       doc.Axes,
 		TotalSteps: *doc.TotalSteps,
 	}
-	if err := validateNames("action", rec.Actions); err != nil {
+	if err := validateNames("actions", "action", rec.Actions); err != nil {
 		return nil, err
 	}
-	if err := validateNames("axis", rec.Axes); err != nil {
+	if err := validateNames("axes", "axis", rec.Axes); err != nil {
 		return nil, err
 	}
 	actionIdx := indexNames(rec.Actions)
@@ -227,15 +238,16 @@ func Decode(data []byte) (*Recording, error) {
 	if len(doc.Steps) > 0 {
 		rec.Events = make([]StepEvent, len(doc.Steps))
 		for i, sd := range doc.Steps {
+			at := loaderr.Path("steps", i)
 			if sd.Step == nil {
-				return nil, fmt.Errorf("replay: decode: steps entry %d has no step", i)
+				return nil, loaderr.Errorf(at, "add step: the zero-based step the changes happen on", "steps entry %d has no step", i)
 			}
 			ev := StepEvent{Step: *sd.Step}
 			var err error
-			if ev.Press, err = lookupActions(actionIdx, ev.Step, "presses", sd.Press); err != nil {
+			if ev.Press, err = lookupActions(actionIdx, loaderr.Join(at, "press"), ev.Step, "presses", sd.Press); err != nil {
 				return nil, err
 			}
-			if ev.Release, err = lookupActions(actionIdx, ev.Step, "releases", sd.Release); err != nil {
+			if ev.Release, err = lookupActions(actionIdx, loaderr.Join(at, "release"), ev.Step, "releases", sd.Release); err != nil {
 				return nil, err
 			}
 			if len(sd.Axes) > 0 {
@@ -243,7 +255,7 @@ func Decode(data []byte) (*Recording, error) {
 				for j, av := range sd.Axes {
 					idx, ok := axisIdx[av.name]
 					if !ok {
-						return nil, fmt.Errorf("replay: step %d sets axis %q, which is not in axes", ev.Step, av.name)
+						return nil, loaderr.Errorf(loaderr.Join(at, "axes", av.name), "add the axis to axes in the header, or correct its name", "step %d sets axis %q, which is not in axes", ev.Step, av.name)
 					}
 					ev.Axes[j] = AxisChange{Index: idx, Value: av.value}
 				}
@@ -265,7 +277,8 @@ func indexNames(names []string) map[string]int {
 	return m
 }
 
-func lookupActions(idx map[string]int, step int, verb string, names []string) ([]int, error) {
+// lookupActions returns the indices of names in idx; field is where names is in the document.
+func lookupActions(idx map[string]int, field string, step int, verb string, names []string) ([]int, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
@@ -273,7 +286,7 @@ func lookupActions(idx map[string]int, step int, verb string, names []string) ([
 	for i, name := range names {
 		j, ok := idx[name]
 		if !ok {
-			return nil, fmt.Errorf("replay: step %d %s action %q, which is not in actions", step, verb, name)
+			return nil, loaderr.Errorf(loaderr.Join(field, i), "add the action to actions in the header, or correct its name", "step %d %s action %q, which is not in actions", step, verb, name)
 		}
 		out[i] = j
 	}
@@ -292,15 +305,15 @@ func SaveFile(path string, rec *Recording) error {
 	return nil
 }
 
-// LoadFile reads and decodes the YAML Recording at path.
+// LoadFile reads and decodes the YAML Recording at path. Its errors are *loaderr.Error values that name path.
 func LoadFile(path string) (*Recording, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("replay: load %q: %w", path, err)
+		return nil, loaderr.Locate(err, path, nil, "check that the recording exists at this path and can be read")
 	}
 	rec, err := Decode(data)
 	if err != nil {
-		return nil, fmt.Errorf("replay: load %q: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	return rec, nil
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/tsx"
 	"github.com/nsgo-dev/nsgo/tsx/bundler"
@@ -90,6 +91,7 @@ var pageAuthorityTarget = runtime.GOOS == "js"
 type managedMod struct {
 	manifest ModManifest
 	fsys     fs.FS
+	dir      string // the mod's directory in the mods file system, which names its mod.yaml in errors
 	order    int
 	enabled  bool
 	state    ModState
@@ -150,6 +152,21 @@ func (m *Manager) Discover(dir string) ([]ModManifest, error) {
 	return m.DiscoverFS(os.DirFS(dir))
 }
 
+// fixReadManifest is the fix for a mod.yaml that cannot be read.
+const fixReadManifest = "check that mod.yaml is a readable file in the mod's directory"
+
+// checkGameVersion reports, as a *loaderr.Error about the manifest's gameVersion, whether host, the game's version, satisfies manifest's gameVersion constraint. A mismatch matches ErrVersionMismatch with errors.Is.
+func checkGameVersion(host string, manifest ModManifest) error {
+	ok, err := CheckConstraint(host, manifest.GameVersion)
+	if err != nil {
+		return loaderr.Errorf("gameVersion", "set ManagerOptions.GameVersion to a version such as \"1.2.0\", and write gameVersion as a constraint such as \">=1.2.0\"", "cannot check game version %q against %q: %w", host, manifest.GameVersion, err)
+	}
+	if !ok {
+		return loaderr.Errorf("gameVersion", fmt.Sprintf("install a release of the mod made for game version %s, or remove the mod", host), "%w: mod %q requires game version %s, host is %s", ErrVersionMismatch, manifest.ID, manifest.GameVersion, host)
+	}
+	return nil
+}
+
 // DiscoverFS scans immediate subdirectories of fsys for mod.yaml manifests ([ManifestFile]), validates them, checks GameVersion compatibility and entry file existence, resolves dependency order via topological sort, and registers them with the manager. Subdirectories without a manifest are skipped; one that still has only a mod.json is refused with [ErrInvalidManifest].
 //
 // If validation or dependency resolution fails, existing loaded mods are left untouched.
@@ -161,6 +178,7 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 
 	var manifests []ModManifest
 	subFSByID := map[string]fs.FS{}
+	dirByID := map[string]string{}
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -177,20 +195,15 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 				}
 				continue
 			}
-			return nil, fmt.Errorf("modding: read %s: %w", manifestPath, err)
+			return nil, loaderr.Locate(fmt.Errorf("read: %w", err), manifestPath, nil, fixReadManifest)
 		}
 		manifest, err := ParseManifest(data)
 		if err != nil {
-			return nil, fmt.Errorf("modding: %s: %w", manifestPath, err)
+			return nil, loaderr.WithFile(err, manifestPath)
 		}
 		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
-			ok, err := CheckConstraint(m.opts.GameVersion, manifest.GameVersion)
-			if err != nil {
-				return nil, fmt.Errorf("modding: %s gameVersion: %w", manifestPath, err)
-			}
-			if !ok {
-				return nil, fmt.Errorf("%w: mod %q requires game version %s, host is %s",
-					ErrVersionMismatch, manifest.ID, manifest.GameVersion, m.opts.GameVersion)
+			if err := checkGameVersion(m.opts.GameVersion, manifest); err != nil {
+				return nil, loaderr.Locate(err, manifestPath, data, "")
 			}
 		}
 		sub, err := fs.Sub(fsys, dirName)
@@ -200,15 +213,16 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 		entryPath := path.Clean(manifest.Entry)
 		fi, err := fs.Stat(sub, entryPath)
 		if err != nil {
-			return nil, fmt.Errorf("%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err)
+			return nil, loaderr.Locate(loaderr.Errorf("entry", "add the script at this path in the mod's directory, or correct entry", "%w: mod %q entry %q not found: %v", ErrInvalidManifest, manifest.ID, manifest.Entry, err), manifestPath, data, "")
 		}
 		if fi.IsDir() {
-			return nil, fmt.Errorf("%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry)
+			return nil, loaderr.Locate(loaderr.Errorf("entry", "name the mod's script file, not a directory", "%w: mod %q entry %q is a directory", ErrInvalidManifest, manifest.ID, manifest.Entry), manifestPath, data, "")
 		}
 		if _, dup := subFSByID[manifest.ID]; dup {
-			return nil, fmt.Errorf("%w: %q", ErrDuplicateMod, manifest.ID)
+			return nil, loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("give each mod its own id; %s already uses this one", path.Join(dirByID[manifest.ID], ManifestFile)), "%w: %q", ErrDuplicateMod, manifest.ID), manifestPath, data, "")
 		}
 		subFSByID[manifest.ID] = sub
+		dirByID[manifest.ID] = dirName
 		manifests = append(manifests, manifest)
 	}
 
@@ -231,6 +245,7 @@ func (m *Manager) DiscoverFS(fsys fs.FS) ([]ModManifest, error) {
 		m.mods[manifest.ID] = &managedMod{
 			manifest: manifest,
 			fsys:     subFSByID[manifest.ID],
+			dir:      dirByID[manifest.ID],
 			order:    i,
 			enabled:  enabled,
 			state:    state,
@@ -483,7 +498,7 @@ func (m *Manager) Reload(id string) error {
 		}
 	}
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
-		return fmt.Errorf("modding: reload mod %q manifest: %w", id, readErr)
+		return loaderr.Locate(fmt.Errorf("read: %w", readErr), path.Join(mod.dir, ManifestFile), nil, fixReadManifest)
 	}
 	var (
 		newManifest ModManifest
@@ -492,21 +507,16 @@ func (m *Manager) Reload(id string) error {
 	if readErr == nil {
 		manifest, err := ParseManifest(data)
 		if err != nil {
-			return fmt.Errorf("modding: reload mod %q manifest: %w", id, err)
+			return loaderr.WithFile(err, path.Join(mod.dir, ManifestFile))
 		}
 		if manifest.ID != id {
-			return fmt.Errorf("%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID)
+			return loaderr.Locate(loaderr.Errorf("id", fmt.Sprintf("put the id back to %q; a mod keeps its id across reloads, so call DiscoverFS again to load it under a new one", id), "%w: mod %q manifest id changed to %q", ErrInvalidManifest, id, manifest.ID), path.Join(mod.dir, ManifestFile), data, "")
 		}
 		// Re-apply the checks DiscoverFS made, so a mod updated on disk cannot
 		// load against an incompatible game version or unsatisfiable dependencies.
 		if m.opts.GameVersion != "" && manifest.GameVersion != "" {
-			ok, err := CheckConstraint(m.opts.GameVersion, manifest.GameVersion)
-			if err != nil {
-				return fmt.Errorf("modding: reload mod %q gameVersion: %w", id, err)
-			}
-			if !ok {
-				return fmt.Errorf("%w: reloaded mod %q requires game version %s, host is %s",
-					ErrVersionMismatch, id, manifest.GameVersion, m.opts.GameVersion)
+			if err := checkGameVersion(m.opts.GameVersion, manifest); err != nil {
+				return loaderr.Locate(err, path.Join(mod.dir, ManifestFile), data, "")
 			}
 		}
 		manifests := make([]ModManifest, 0, len(m.mods))

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -26,36 +27,54 @@ type TilesetLoader struct {
 // LoadTiled parses a Tiled JSON map (.tmj) into a Tilemap, loading any external .tsj tilesets and resolving tileset and image-layer images through resolve.
 //
 // Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, image layers, nested group layers, embedded and external tilesets, GID flip flags, object layers, custom properties and tile animations are supported.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset names that tileset's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
+	m, err := loadTiled(data, resolve)
+	return m, loaderr.Locate(err, "", data, fixTiled)
+}
+
+// fixTiled is the fix for a Tiled map error that has no more specific one.
+const fixTiled = "correct the map in Tiled and export it again as JSON (.tmj)"
+
+func loadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	var raw tiledMap
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("tilemap: tiled: %w", err)
+		return nil, err
 	}
 	orientation, err := parseTiledOrientation(raw.Orientation)
 	if err != nil {
-		return nil, err
+		return nil, &loaderr.Error{Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}
 	}
 	staggerAxis, err := parseTiledStaggerAxis(raw.StaggerAxis)
 	if err != nil {
-		return nil, err
+		return nil, &loaderr.Error{Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}
 	}
 	staggerIndex, err := parseTiledStaggerIndex(raw.StaggerIndex)
 	if err != nil {
-		return nil, err
+		return nil, &loaderr.Error{Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}
 	}
 	if raw.Width < 0 || raw.Height < 0 {
-		return nil, fmt.Errorf("tilemap: tiled: map size %dx%d must be non-negative", raw.Width, raw.Height)
+		field := "width"
+		if raw.Width >= 0 {
+			field = "height"
+		}
+		return nil, loaderr.Errorf(field, "give the map a width and height of 0 or more tiles", "map size %dx%d must be non-negative", raw.Width, raw.Height)
 	}
 	if raw.Width > 0 && raw.Height > 0 && raw.Width > math.MaxInt/raw.Height {
-		return nil, fmt.Errorf("tilemap: tiled: map size %dx%d overflows", raw.Width, raw.Height)
+		return nil, loaderr.Errorf("width", "make the map smaller", "map size %dx%d overflows", raw.Width, raw.Height)
 	}
 	if raw.TileWidth <= 0 || raw.TileHeight <= 0 {
-		return nil, fmt.Errorf("tilemap: tiled: tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight)
+		field := "tilewidth"
+		if raw.TileWidth > 0 {
+			field = "tileheight"
+		}
+		return nil, loaderr.Errorf(field, "give the map a tile size above 0 in Tiled's map properties", "tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight)
 	}
 
 	props, err := parseProperties(raw.Properties)
 	if err != nil {
-		return nil, fmt.Errorf("tilemap: tiled: map properties: %w", err)
+		return nil, nest(err, "properties")
 	}
 
 	m := &Tilemap{
@@ -73,29 +92,33 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 
 	for i, ref := range raw.Tilesets {
 		if ref.FirstGID == 0 {
-			return nil, fmt.Errorf("tilemap: tiled: tileset %d has firstgid 0", i)
+			return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "firstgid"), "export the map again from Tiled; a tileset's firstgid is 1 or more", "tileset %d has firstgid 0", i)
 		}
 		var tsRaw tiledTileset
-		baseDir := ""
 		if ref.Source != "" {
 			if resolve.LoadJSON == nil {
-				return nil, fmt.Errorf("tilemap: tiled: external tileset %q requires TilesetLoader.LoadJSON", ref.Source)
+				return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "source"), "set TilesetLoader.LoadJSON, or embed the tileset in the map in Tiled", "external tileset %q requires TilesetLoader.LoadJSON", ref.Source)
 			}
 			ext, err := resolve.LoadJSON(ref.Source)
 			if err != nil {
-				return nil, fmt.Errorf("tilemap: tiled: load tileset %q: %w", ref.Source, err)
+				return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "source"), "check that the tileset file exists next to the map at this path", "load tileset %q: %w", ref.Source, err)
 			}
 			if err := json.Unmarshal(ext, &tsRaw); err != nil {
-				return nil, fmt.Errorf("tilemap: tiled: parse tileset %q: %w", ref.Source, err)
+				return nil, loaderr.Locate(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
 			}
-			baseDir = path.Dir(ref.Source)
-		} else {
-			tsRaw = ref.tiledTileset
+			ts, err := buildTileset(m, ref.FirstGID, tsRaw, path.Dir(ref.Source), resolve)
+			if err != nil {
+				// The error is about the tileset's own file.
+				return nil, loaderr.Locate(err, ref.Source, ext, "correct the tileset in Tiled and export it again as JSON (.tsj)")
+			}
+			m.Tilesets = append(m.Tilesets, ts)
+			continue
 		}
+		tsRaw = ref.tiledTileset
 
-		ts, err := buildTileset(m, ref.FirstGID, tsRaw, baseDir, resolve)
+		ts, err := buildTileset(m, ref.FirstGID, tsRaw, "", resolve)
 		if err != nil {
-			return nil, fmt.Errorf("tilemap: tiled: tileset %d (%q): %w", i, tsRaw.Name, err)
+			return nil, nest(err, loaderr.Path("tilesets", i))
 		}
 		m.Tilesets = append(m.Tilesets, ts)
 	}
@@ -104,7 +127,7 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	})
 
 	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, 1, 1, true, resolve); err != nil {
-		return nil, err
+		return nil, nest(err, "layers")
 	}
 	return m, nil
 }
@@ -146,6 +169,7 @@ func parseTiledStaggerIndex(s string) (StaggerIndex, error) {
 	}
 }
 
+// buildTileset builds the tileset raw. The fields its errors name are relative to the tileset.
 func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string, resolve TilesetLoader) (*Tileset, error) {
 	tw, th := raw.TileWidth, raw.TileHeight
 	if tw <= 0 {
@@ -173,7 +197,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			var err error
 			img, err = resolve.LoadImage(imgPath)
 			if err != nil {
-				return nil, fmt.Errorf("load image %q: %w", imgPath, err)
+				return nil, loaderr.Errorf("image", "check that the tileset image exists at this path, relative to the tileset", "load image %q: %w", imgPath, err)
 			}
 		} else {
 			img = core.ImageSource{URI: imgPath}
@@ -182,7 +206,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 
 	props, err := parseProperties(raw.Properties)
 	if err != nil {
-		return nil, fmt.Errorf("properties: %w", err)
+		return nil, nest(err, "properties")
 	}
 
 	ts := &Tileset{
@@ -198,11 +222,11 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		Properties: props,
 	}
 
-	for _, tile := range raw.Tiles {
+	for ti, tile := range raw.Tiles {
 		if len(tile.Properties) > 0 {
 			tp, err := parseProperties(tile.Properties)
 			if err != nil {
-				return nil, fmt.Errorf("tile %d properties: %w", tile.ID, err)
+				return nil, nest(err, loaderr.Path("tiles", ti, "properties"))
 			}
 			if ts.TileProperties == nil {
 				ts.TileProperties = make(map[uint32]Properties)
@@ -216,7 +240,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			frames := make([]TileAnimFrame, len(tile.Animation))
 			for j, f := range tile.Animation {
 				if f.Duration < 0 || int64(f.Duration) > math.MaxInt64/int64(time.Millisecond) {
-					return nil, fmt.Errorf("tilemap: tiled: tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration)
+					return nil, loaderr.Errorf(loaderr.Path("tiles", ti, "animation", j, "duration"), "give the animation frame a duration of 0 or more milliseconds in Tiled", "tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration)
 				}
 				frames[j] = TileAnimFrame{
 					TileID:   f.TileID,
@@ -249,8 +273,9 @@ func flagsFromProperties(p Properties) TileFlags {
 	return flags
 }
 
+// loadTiledLayers adds layers to m. The fields its errors name are relative to the array of layers, as in "[2].data".
 func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader) error {
-	for _, raw := range layers {
+	for li, raw := range layers {
 		visible := parentVisible
 		if raw.Visible != nil {
 			visible = visible && *raw.Visible
@@ -272,19 +297,20 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 
 		props, err := parseProperties(raw.Properties)
 		if err != nil {
-			return fmt.Errorf("tilemap: tiled: layer %q properties: %w", raw.Name, err)
+			return nest(err, loaderr.Path(li, "properties"))
 		}
 
+		const fixEncoding = `in Tiled's map properties, set "Tile Layer Format" to CSV, and export again`
 		switch raw.Type {
 		case "tilelayer":
 			if raw.Encoding != "" {
-				return fmt.Errorf("tilemap: tiled: layer %q uses encoding %q; export uncompressed JSON tile data", raw.Name, raw.Encoding)
+				return loaderr.Errorf(loaderr.Path(li, "encoding"), fixEncoding, "layer %q uses encoding %q; export uncompressed JSON tile data", raw.Name, raw.Encoding)
 			}
 			if raw.Compression != "" {
-				return fmt.Errorf("tilemap: tiled: layer %q uses compression %q; export uncompressed JSON tile data", raw.Name, raw.Compression)
+				return loaderr.Errorf(loaderr.Path(li, "compression"), fixEncoding, "layer %q uses compression %q; export uncompressed JSON tile data", raw.Name, raw.Compression)
 			}
 			if len(raw.Chunks) > 0 {
-				layer, err := buildChunkedTileLayer(m, raw, ox, oy, px, py, opacity, visible, props)
+				layer, err := buildChunkedTileLayer(m, raw, li, ox, oy, px, py, opacity, visible, props)
 				if err != nil {
 					return err
 				}
@@ -308,15 +334,15 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				lh = m.Height
 			}
 			if lw > 0 && lh > 0 && lw > math.MaxInt/lh {
-				return fmt.Errorf("tilemap: tiled: layer %q size %dx%d overflows", raw.Name, lw, lh)
+				return loaderr.Errorf(loaderr.Path(li, "width"), "make the layer smaller", "layer %q size %dx%d overflows", raw.Name, lw, lh)
 			}
 			var data []uint32
 			if len(raw.Data) > 0 {
 				if err := json.Unmarshal(raw.Data, &data); err != nil {
-					return fmt.Errorf("tilemap: tiled: layer %q data: %w", raw.Name, err)
+					return loaderr.Errorf(loaderr.Path(li, "data"), "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
 				}
 				if len(data) != lw*lh {
-					return fmt.Errorf("tilemap: tiled: layer %q has %d tiles, want %d (%dx%d)", raw.Name, len(data), lw*lh, lw, lh)
+					return &loaderr.Error{Field: loaderr.Path(li, "data"), Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", lw*lh, lw, lh), Fix: "export the map again from Tiled so data has one GID per tile of the layer"}
 				}
 			}
 			m.addTileLayer(TileLayer{
@@ -341,7 +367,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				if resolve.LoadImage != nil {
 					img, err = resolve.LoadImage(raw.Image)
 					if err != nil {
-						return fmt.Errorf("tilemap: tiled: image layer %q load image %q: %w", raw.Name, raw.Image, err)
+						return loaderr.Errorf(loaderr.Path(li, "image"), "check that the layer's image exists at this path", "image layer %q load image %q: %w", raw.Name, raw.Image, err)
 					}
 				} else {
 					img = core.ImageSource{URI: raw.Image}
@@ -368,7 +394,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			for i, ro := range raw.Objects {
 				op, err := parseProperties(ro.Properties)
 				if err != nil {
-					return fmt.Errorf("tilemap: tiled: layer %q object %d properties: %w", raw.Name, ro.ID, err)
+					return nest(err, loaderr.Path(li, "objects", i, "properties"))
 				}
 				objVisible := true
 				if ro.Visible != nil {
@@ -421,14 +447,15 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 
 		case "group":
 			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve); err != nil {
-				return err
+				return nest(err, loaderr.Path(li, "layers"))
 			}
 		}
 	}
 	return nil
 }
 
-func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
+// buildChunkedTileLayer builds the infinite map's tile layer raw, layer li of its array of layers, which the fields its errors name are relative to.
+func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
 	type parsedChunk struct {
 		x, y, w, h int
 		data       []uint32
@@ -437,14 +464,14 @@ func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, ox, oy, px, py, opacity f
 	var minX, minY, maxX, maxY int
 	for i, rc := range raw.Chunks {
 		if rc.Width <= 0 || rc.Height <= 0 {
-			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height)
+			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i), "export the map again from Tiled; a chunk's width and height are above 0", "layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height)
 		}
 		var cdata []uint32
 		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
-			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d data: %w", raw.Name, i, err)
+			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i, "data"), "export the map again from Tiled; data is an array of tile GIDs", "layer %q chunk %d data: %w", raw.Name, i, err)
 		}
 		if len(cdata) != rc.Width*rc.Height {
-			return TileLayer{}, fmt.Errorf("tilemap: tiled: layer %q chunk %d has %d tiles, want %d (%dx%d)", raw.Name, i, len(cdata), rc.Width*rc.Height, rc.Width, rc.Height)
+			return TileLayer{}, &loaderr.Error{Field: loaderr.Path(li, "chunks", i, "data"), Problem: fmt.Sprintf("layer %q chunk %d has %d tiles", raw.Name, i, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", rc.Width*rc.Height, rc.Width, rc.Height), Fix: "export the map again from Tiled so each chunk's data has one GID per tile"}
 		}
 		chunks[i] = parsedChunk{x: rc.X, y: rc.Y, w: rc.Width, h: rc.Height, data: cdata}
 		if i == 0 {
@@ -512,12 +539,16 @@ func convertPoints(pts []tiledPoint) []core.Point {
 	return out
 }
 
+// parseProperties reads Tiled custom properties. The fields its errors name are relative to the array of properties, as in "[1].value".
 func parseProperties(raw []tiledProperty) (Properties, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 	props := make(Properties, len(raw))
-	for _, rp := range raw {
+	for pi, rp := range raw {
+		bad := func(err error) error {
+			return loaderr.Errorf(loaderr.Path(pi, "value"), fmt.Sprintf("give the property a value of its type, %s, in Tiled", typeName(rp.Type)), "property %q (%s): %w", rp.Name, typeName(rp.Type), err)
+		}
 		typ := rp.Type
 		if typ == "" {
 			typ = "string"
@@ -527,7 +558,7 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 		case "string", "color", "file":
 			var s string
 			if err := json.Unmarshal(rp.Value, &s); err != nil {
-				return nil, fmt.Errorf("property %q (%s): %w", rp.Name, typ, err)
+				return nil, bad(err)
 			}
 			val = s
 		case "int", "object":
@@ -535,7 +566,7 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 			if err := json.Unmarshal(rp.Value, &n); err != nil {
 				var f float64
 				if err2 := json.Unmarshal(rp.Value, &f); err2 != nil {
-					return nil, fmt.Errorf("property %q (%s): %w", rp.Name, typ, err)
+					return nil, bad(err)
 				}
 				n = int(f)
 			}
@@ -543,23 +574,49 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 		case "float":
 			var f float64
 			if err := json.Unmarshal(rp.Value, &f); err != nil {
-				return nil, fmt.Errorf("property %q (%s): %w", rp.Name, typ, err)
+				return nil, bad(err)
 			}
 			val = f
 		case "bool":
 			var b bool
 			if err := json.Unmarshal(rp.Value, &b); err != nil {
-				return nil, fmt.Errorf("property %q (%s): %w", rp.Name, typ, err)
+				return nil, bad(err)
 			}
 			val = b
 		default:
 			if err := json.Unmarshal(rp.Value, &val); err != nil {
-				return nil, fmt.Errorf("property %q (%s): %w", rp.Name, typ, err)
+				return nil, bad(err)
 			}
 		}
 		props[rp.Name] = Property{Name: rp.Name, Type: typ, Value: val}
 	}
 	return props, nil
+}
+
+// nest returns err with the field path base put in front of the field it names, when err is an *loaderr.Error, so a helper can name fields relative to the value it was handed and the full path is built only for an error.
+func nest(err error, base string) error {
+	e, ok := err.(*loaderr.Error)
+	if !ok || e == nil {
+		return err
+	}
+	c := *e
+	switch {
+	case c.Field == "":
+		c.Field = base
+	case c.Field[0] == '[':
+		c.Field = base + c.Field
+	default:
+		c.Field = base + "." + c.Field
+	}
+	return &c
+}
+
+// typeName is a Tiled property type, "string" when the export leaves it out.
+func typeName(typ string) string {
+	if typ == "" {
+		return "string"
+	}
+	return typ
 }
 
 type tiledMap struct {

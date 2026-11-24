@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 )
 
 // FormatVersion is the schema version that Load reads and Encode writes.
@@ -164,13 +168,27 @@ type AttachmentKeyframe struct {
 // Load parses and validates a version-1 skeletal rig from YAML (.skel.yaml).
 //
 // It rejects empty input, unknown fields, duplicate keys, trailing YAML documents, unknown schema versions, non-finite numbers, duplicate bone or slot names, missing parents, cycles in the bone hierarchy, slots or skins referencing missing bones or slots, and animations with unknown targets, unsorted or out-of-range keyframes, or invalid curves. A version-1 rig written as JSON loads too when the JSON is also valid YAML: keys spelled exactly as the schema spells them (matching is case-sensitive) and no `\/` escape, which YAML does not have.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func Load(data []byte) (*SkeletonData, error) {
+	sd, err := load(data)
+	return sd, loaderr.Locate(err, "", data, "correct the rig to match the version 1 format in docs/en/skeletal.md")
+}
+
+// Fixes shared by several checks.
+const (
+	fixKeyTime = "give keyframes finite times of 0 or more seconds, in increasing order"
+	fixCurve   = `use curve "linear", "stepped" or "bezier" with bezier: [cx1, cy1, cx2, cy2] and cx1, cx2 in [0, 1]`
+	fixFinite  = "write a finite number"
+)
+
+func load(data []byte) (*SkeletonData, error) {
 	raw, err := decodeRaw(data)
 	if err != nil {
 		return nil, err
 	}
 	if raw.Version != FormatVersion {
-		return nil, fmt.Errorf("skeletal: unsupported version %d (want %d)", raw.Version, FormatVersion)
+		return nil, &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", raw.Version), Expected: fmt.Sprint(FormatVersion), Fix: fmt.Sprintf(`set "version": %d`, FormatVersion)}
 	}
 
 	sd := &SkeletonData{
@@ -182,10 +200,10 @@ func Load(data []byte) (*SkeletonData, error) {
 
 	for i, rb := range raw.Bones {
 		if rb.Name == "" {
-			return nil, fmt.Errorf("skeletal: bone %d has no name", i)
+			return nil, loaderr.Errorf(loaderr.Path("bones", i), `give the bone a "name"`, "bone %d has no name", i)
 		}
 		if err := checkFinite(rb.X, rb.Y, rb.Rotation, defaultFloat32(rb.ScaleX, 1), defaultFloat32(rb.ScaleY, 1), rb.Length); err != nil {
-			return nil, fmt.Errorf("skeletal: bone %q: %w", rb.Name, err)
+			return nil, loaderr.Errorf(loaderr.Path("bones", i), fixFinite, "skeletal: bone %q: %w", rb.Name, err)
 		}
 		sd.Bones[i] = BoneData{
 			Name:     rb.Name,
@@ -201,11 +219,11 @@ func Load(data []byte) (*SkeletonData, error) {
 
 	for i, rs := range raw.Slots {
 		if rs.Name == "" {
-			return nil, fmt.Errorf("skeletal: slot %d has no name", i)
+			return nil, loaderr.Errorf(loaderr.Path("slots", i), `give the slot a "name"`, "slot %d has no name", i)
 		}
 		alpha := defaultFloat32(rs.Alpha, 1)
 		if !(alpha >= 0 && alpha <= 1) {
-			return nil, fmt.Errorf("skeletal: slot %q alpha %v out of range [0, 1]", rs.Name, alpha)
+			return nil, loaderr.Errorf(loaderr.Path("slots", i, "alpha"), "use an alpha from 0 (transparent) to 1 (opaque)", "slot %q alpha %v out of range [0, 1]", rs.Name, alpha)
 		}
 		sd.Slots[i] = SlotData{
 			Name:       rs.Name,
@@ -221,7 +239,7 @@ func Load(data []byte) (*SkeletonData, error) {
 			skin := make(Skin, len(rawSlots))
 			for slotName, ra := range rawSlots {
 				if err := checkFinite(ra.X, ra.Y, ra.Rotation, defaultFloat32(ra.ScaleX, 1), defaultFloat32(ra.ScaleY, 1), ra.OriginX, ra.OriginY); err != nil {
-					return nil, fmt.Errorf("skeletal: skin %q slot %q: %w", skinName, slotName, err)
+					return nil, loaderr.Errorf(loaderr.Path("skins", skinName, slotName), fixFinite, "skeletal: skin %q slot %q: %w", skinName, slotName, err)
 				}
 				skin[slotName] = Attachment{
 					Frame:    ra.Frame,
@@ -240,8 +258,9 @@ func Load(data []byte) (*SkeletonData, error) {
 
 	if len(raw.Animations) > 0 {
 		sd.Animations = make(map[string]*Animation, len(raw.Animations))
-		for animName, ra := range raw.Animations {
-			anim, err := decodeAnimation(animName, ra)
+		// Sorted, so the same animation is reported every time when several are wrong.
+		for _, animName := range slices.Sorted(maps.Keys(raw.Animations)) {
+			anim, err := decodeAnimation(animName, raw.Animations[animName])
 			if err != nil {
 				return nil, err
 			}
@@ -267,10 +286,10 @@ func (sd *SkeletonData) compile() error {
 	sd.boneIndex = make(map[string]int, len(sd.Bones))
 	for i, b := range sd.Bones {
 		if b.Name == "" {
-			return fmt.Errorf("skeletal: bone %d has no name", i)
+			return loaderr.Errorf(loaderr.Path("bones", i), `give the bone a "name"`, "bone %d has no name", i)
 		}
 		if _, dup := sd.boneIndex[b.Name]; dup {
-			return fmt.Errorf("skeletal: duplicate bone %q", b.Name)
+			return loaderr.Errorf(loaderr.Path("bones", i, "name"), "rename one of the bones; bone names are unique in a rig", "duplicate bone %q", b.Name)
 		}
 		sd.boneIndex[b.Name] = i
 	}
@@ -283,10 +302,10 @@ func (sd *SkeletonData) compile() error {
 		}
 		pi, ok := sd.boneIndex[b.Parent]
 		if !ok {
-			return fmt.Errorf("skeletal: bone %q has unknown parent %q", b.Name, b.Parent)
+			return loaderr.Errorf(loaderr.Path("bones", i, "parent"), "name a bone defined in bones, or remove parent for a root bone", "bone %q has unknown parent %q", b.Name, b.Parent)
 		}
 		if pi == i {
-			return fmt.Errorf("skeletal: bone cycle involving %q", b.Name)
+			return loaderr.Errorf(loaderr.Path("bones", i, "parent"), "name another bone as the parent, or remove parent for a root bone", "bone cycle involving %q", b.Name)
 		}
 		sd.boneParent[i] = pi
 	}
@@ -305,7 +324,7 @@ func (sd *SkeletonData) compile() error {
 		case visited:
 			return nil
 		case visiting:
-			return fmt.Errorf("skeletal: bone cycle involving %q", sd.Bones[i].Name)
+			return loaderr.Errorf(loaderr.Path("bones", i, "parent"), "break the cycle so every bone's parent chain ends at a root bone without a parent", "bone cycle involving %q", sd.Bones[i].Name)
 		}
 		state[i] = visiting
 		if p := sd.boneParent[i]; p >= 0 {
@@ -327,46 +346,48 @@ func (sd *SkeletonData) compile() error {
 	sd.slotBone = make([]int, len(sd.Slots))
 	for i, s := range sd.Slots {
 		if s.Name == "" {
-			return fmt.Errorf("skeletal: slot %d has no name", i)
+			return loaderr.Errorf(loaderr.Path("slots", i), `give the slot a "name"`, "slot %d has no name", i)
 		}
 		if _, dup := sd.slotIndex[s.Name]; dup {
-			return fmt.Errorf("skeletal: duplicate slot %q", s.Name)
+			return loaderr.Errorf(loaderr.Path("slots", i, "name"), "rename one of the slots; slot names are unique in a rig", "duplicate slot %q", s.Name)
 		}
 		bi, ok := sd.boneIndex[s.Bone]
 		if !ok {
-			return fmt.Errorf("skeletal: slot %q references unknown bone %q", s.Name, s.Bone)
+			return loaderr.Errorf(loaderr.Path("slots", i, "bone"), "name a bone defined in bones", "slot %q references unknown bone %q", s.Name, s.Bone)
 		}
 		sd.slotIndex[s.Name] = i
 		sd.slotBone[i] = bi
 	}
 
-	for skinName, skin := range sd.Skins {
-		for slotName := range skin {
+	// Maps are walked in sorted order, so the same problem is reported every time when several are there.
+	for _, skinName := range slices.Sorted(maps.Keys(sd.Skins)) {
+		for _, slotName := range slices.Sorted(maps.Keys(sd.Skins[skinName])) {
 			if _, ok := sd.slotIndex[slotName]; !ok {
-				return fmt.Errorf("skeletal: skin %q references unknown slot %q", skinName, slotName)
+				return loaderr.Errorf(loaderr.Path("skins", skinName, slotName), "key the skin's attachments by slot names defined in slots", "skin %q references unknown slot %q", skinName, slotName)
 			}
 		}
 	}
 
-	for animName, anim := range sd.Animations {
+	for _, animName := range slices.Sorted(maps.Keys(sd.Animations)) {
+		anim := sd.Animations[animName]
 		if anim == nil {
 			continue
 		}
 		anim.boneTimelines = anim.boneTimelines[:0]
-		for boneName, tl := range anim.Bones {
+		for _, boneName := range slices.Sorted(maps.Keys(anim.Bones)) {
 			bi, ok := sd.boneIndex[boneName]
 			if !ok {
-				return fmt.Errorf("skeletal: animation %q references unknown bone %q", animName, boneName)
+				return loaderr.Errorf(loaderr.Path("animations", animName, "bones", boneName), "key the animation's bone timelines by bone names defined in bones", "animation %q references unknown bone %q", animName, boneName)
 			}
-			anim.boneTimelines = append(anim.boneTimelines, indexedBoneTimeline{boneIdx: bi, tl: tl})
+			anim.boneTimelines = append(anim.boneTimelines, indexedBoneTimeline{boneIdx: bi, tl: anim.Bones[boneName]})
 		}
 		anim.slotTimelines = anim.slotTimelines[:0]
-		for slotName, tl := range anim.Slots {
+		for _, slotName := range slices.Sorted(maps.Keys(anim.Slots)) {
 			si, ok := sd.slotIndex[slotName]
 			if !ok {
-				return fmt.Errorf("skeletal: animation %q references unknown slot %q", animName, slotName)
+				return loaderr.Errorf(loaderr.Path("animations", animName, "slots", slotName), "key the animation's slot timelines by slot names defined in slots", "animation %q references unknown slot %q", animName, slotName)
 			}
-			anim.slotTimelines = append(anim.slotTimelines, indexedSlotTimeline{slotIdx: si, tl: tl})
+			anim.slotTimelines = append(anim.slotTimelines, indexedSlotTimeline{slotIdx: si, tl: anim.Slots[slotName]})
 		}
 	}
 
@@ -501,21 +522,23 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 
 	if len(ra.Bones) > 0 {
 		anim.Bones = make(map[string]BoneTimeline, len(ra.Bones))
-		for boneName, rbt := range ra.Bones {
+		for _, boneName := range slices.Sorted(maps.Keys(ra.Bones)) {
+			rbt := ra.Bones[boneName]
+			at := loaderr.Path("animations", name, "bones", boneName)
 			var bt BoneTimeline
 			if len(rbt.Translate) > 0 {
 				bt.Translate = make([]Vec2Keyframe, len(rbt.Translate))
 				for i, rk := range rbt.Translate {
 					t, err := decodeTime(rk.Time, i, bt.Translate, func(k Vec2Keyframe) time.Duration { return k.Time })
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q translate: %w", name, boneName, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "translate", i, "time"), fixKeyTime, "%w", err)
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q translate[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "translate", i, "curve"), fixCurve, "%w", err)
 					}
 					if err := checkFinite(rk.X, rk.Y); err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q translate[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "translate", i), fixFinite, "skeletal: animation %q bone %q translate[%d]: %w", name, boneName, i, err)
 					}
 					bt.Translate[i] = Vec2Keyframe{Time: t, X: rk.X, Y: rk.Y, Curve: c, Bezier: bz}
 					trackMax(t)
@@ -526,14 +549,14 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 				for i, rk := range rbt.Rotate {
 					t, err := decodeTime(rk.Time, i, bt.Rotate, func(k FloatKeyframe) time.Duration { return k.Time })
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q rotate: %w", name, boneName, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "rotate", i, "time"), fixKeyTime, "%w", err)
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q rotate[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "rotate", i, "curve"), fixCurve, "%w", err)
 					}
 					if err := checkFinite(rk.Angle); err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q rotate[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "rotate", i), fixFinite, "skeletal: animation %q bone %q rotate[%d]: %w", name, boneName, i, err)
 					}
 					bt.Rotate[i] = FloatKeyframe{Time: t, Value: rk.Angle, Curve: c, Bezier: bz}
 					trackMax(t)
@@ -544,14 +567,14 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 				for i, rk := range rbt.Scale {
 					t, err := decodeTime(rk.Time, i, bt.Scale, func(k Vec2Keyframe) time.Duration { return k.Time })
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q scale: %w", name, boneName, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "scale", i, "time"), fixKeyTime, "%w", err)
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q scale[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "scale", i, "curve"), fixCurve, "%w", err)
 					}
 					if err := checkFinite(defaultFloat32(rk.X, 1), defaultFloat32(rk.Y, 1)); err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q bone %q scale[%d]: %w", name, boneName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "scale", i), fixFinite, "skeletal: animation %q bone %q scale[%d]: %w", name, boneName, i, err)
 					}
 					bt.Scale[i] = Vec2Keyframe{
 						Time:   t,
@@ -569,14 +592,16 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 
 	if len(ra.Slots) > 0 {
 		anim.Slots = make(map[string]SlotTimeline, len(ra.Slots))
-		for slotName, rst := range ra.Slots {
+		for _, slotName := range slices.Sorted(maps.Keys(ra.Slots)) {
+			rst := ra.Slots[slotName]
+			at := loaderr.Path("animations", name, "slots", slotName)
 			var st SlotTimeline
 			if len(rst.Attachment) > 0 {
 				st.Attachment = make([]AttachmentKeyframe, len(rst.Attachment))
 				for i, rk := range rst.Attachment {
 					t, err := decodeTime(rk.Time, i, st.Attachment, func(k AttachmentKeyframe) time.Duration { return k.Time })
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q slot %q attachment: %w", name, slotName, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "attachment", i, "time"), fixKeyTime, "%w", err)
 					}
 					st.Attachment[i] = AttachmentKeyframe{Time: t, Frame: rk.Frame}
 					trackMax(t)
@@ -587,14 +612,14 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 				for i, rk := range rst.Alpha {
 					t, err := decodeTime(rk.Time, i, st.Alpha, func(k FloatKeyframe) time.Duration { return k.Time })
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q slot %q alpha: %w", name, slotName, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "alpha", i, "time"), fixKeyTime, "%w", err)
 					}
 					if !(rk.Value >= 0 && rk.Value <= 1) {
-						return nil, fmt.Errorf("skeletal: animation %q slot %q alpha[%d]: value %v out of range [0, 1]", name, slotName, i, rk.Value)
+						return nil, loaderr.Errorf(loaderr.Join(at, "alpha", i, "value"), "use an alpha from 0 (transparent) to 1 (opaque)", "value %v out of range [0, 1]", rk.Value)
 					}
 					c, bz, err := decodeCurve(rk.Curve, rk.Bezier)
 					if err != nil {
-						return nil, fmt.Errorf("skeletal: animation %q slot %q alpha[%d]: %w", name, slotName, i, err)
+						return nil, loaderr.Errorf(loaderr.Join(at, "alpha", i, "curve"), fixCurve, "%w", err)
 					}
 					st.Alpha[i] = FloatKeyframe{Time: t, Value: rk.Value, Curve: c, Bezier: bz}
 					trackMax(t)
@@ -606,10 +631,10 @@ func decodeAnimation(name string, ra rawAnimation) (*Animation, error) {
 
 	if ra.Duration != nil {
 		if *ra.Duration < 0 {
-			return nil, fmt.Errorf("skeletal: animation %q has negative duration %v", name, *ra.Duration)
+			return nil, loaderr.Errorf(loaderr.Path("animations", name, "duration"), "use a duration of 0 or more seconds, or remove it to end at the last keyframe", "animation %q has negative duration %v", name, *ra.Duration)
 		}
 		if !(*ra.Duration <= MaxSeconds) {
-			return nil, fmt.Errorf("skeletal: animation %q duration %v is not a number of seconds in [0, %d]", name, *ra.Duration, MaxSeconds)
+			return nil, loaderr.Errorf(loaderr.Path("animations", name, "duration"), fmt.Sprintf("use a duration of at most %d seconds", MaxSeconds), "skeletal: animation %q duration %v is not a number of seconds in [0, %d]", name, *ra.Duration, MaxSeconds)
 		}
 		anim.Duration = secondsToDuration(*ra.Duration)
 	} else {

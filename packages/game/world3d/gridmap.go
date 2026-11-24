@@ -2,12 +2,12 @@ package world3d
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
@@ -263,22 +263,33 @@ type gltfAccessor struct {
 // MeshID is the glTF mesh index, MaterialID is the first primitive's material
 // index (or 0 if omitted), LocalBounds is the union of all primitive POSITION
 // accessor bounds, and ColliderBoxes defaults to LocalBounds when present.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read the document from a file names it with loaderr.WithFile.
 func LoadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
+	lib, err := loadMeshLibraryFromGLTF(gltfJSON)
+	return lib, loaderr.Locate(err, "", gltfJSON, fixGLTFLibrary)
+}
+
+// fixGLTFLibrary is the fix for a mesh library error that has no more specific one.
+const fixGLTFLibrary = "export the mesh library again as glTF 2.0 (.gltf) from Blender or another exporter"
+
+func loadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
 	if len(gltfJSON) == 0 {
-		return nil, errors.New("world3d: empty glTF JSON")
+		return nil, loaderr.Errorf("", fixGLTFLibrary, "empty glTF JSON")
 	}
 	var doc gltfLibraryDoc
 	if err := json.Unmarshal(gltfJSON, &doc); err != nil {
-		return nil, fmt.Errorf("world3d: parse glTF JSON: %w", err)
+		return nil, err
 	}
 	if doc.Asset.Version != "" && !strings.HasPrefix(doc.Asset.Version, "2.") {
-		return nil, fmt.Errorf("world3d: unsupported glTF version %q", doc.Asset.Version)
+		return nil, &loaderr.Error{Field: "asset.version", Problem: fmt.Sprintf("unsupported glTF version %q", doc.Asset.Version), Expected: `"2.0"`, Fix: fixGLTFLibrary}
 	}
 
 	lib := NewMeshLibrary()
-	addMeshTile := func(name string, meshIdx int) error {
+	// addMeshTile adds the mesh at meshIdx, which the value at field names.
+	addMeshTile := func(name string, meshIdx int, field string) error {
 		if meshIdx < 0 || meshIdx >= len(doc.Meshes) {
-			return fmt.Errorf("world3d: glTF node %q references invalid mesh index %d", name, meshIdx)
+			return loaderr.Errorf(field, fmt.Sprintf("use the index of a mesh in meshes, below %d", len(doc.Meshes)), "glTF node %q references invalid mesh index %d", name, meshIdx)
 		}
 		mesh := doc.Meshes[meshIdx]
 		if name == "" {
@@ -291,7 +302,7 @@ func LoadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
 		var matID uint32
 		hasMat := false
 		bounds := math3d.AABBEmpty()
-		for _, prim := range mesh.Primitives {
+		for pi, prim := range mesh.Primitives {
 			if !hasMat && prim.Material != nil && *prim.Material >= 0 {
 				matID = uint32(*prim.Material)
 				hasMat = true
@@ -301,7 +312,7 @@ func LoadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
 				continue
 			}
 			if posIdx < 0 || posIdx >= len(doc.Accessors) {
-				return fmt.Errorf("world3d: glTF mesh %d references invalid POSITION accessor %d", meshIdx, posIdx)
+				return loaderr.Errorf(loaderr.Path("meshes", meshIdx, "primitives", pi, "attributes", "POSITION"), fmt.Sprintf("use the index of an accessor in accessors, below %d", len(doc.Accessors)), "glTF mesh %d references invalid POSITION accessor %d", meshIdx, posIdx)
 			}
 			acc := doc.Accessors[posIdx]
 			if len(acc.Min) >= 3 && len(acc.Max) >= 3 {
@@ -338,13 +349,13 @@ func LoadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
 			if name == "" {
 				name = fmt.Sprintf("tile_%d", i)
 			}
-			if err := addMeshTile(name, *node.Mesh); err != nil {
+			if err := addMeshTile(name, *node.Mesh, loaderr.Path("nodes", i, "mesh")); err != nil {
 				return nil, err
 			}
 		}
 	} else {
 		for meshIdx := range doc.Meshes {
-			if err := addMeshTile(doc.Meshes[meshIdx].Name, meshIdx); err != nil {
+			if err := addMeshTile(doc.Meshes[meshIdx].Name, meshIdx, loaderr.Path("meshes", meshIdx)); err != nil {
 				return nil, err
 			}
 		}

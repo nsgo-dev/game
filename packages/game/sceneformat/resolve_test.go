@@ -545,8 +545,8 @@ func TestValidateSceneReferences(t *testing.T) {
 		{"bad_override_alpha", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: e.yaml\n        overrides:\n          b: {alpha: 2}\n", `overrides "b" alpha 2 must be in [0, 1]`},
 		{"bad_override_sprite", "version: 2\ninherits: e.yaml\noverrides:\n  b: {sprite: {atlas: a}}\n", "sprite requires both atlas and frame"},
 		{"bad_override_material", "version: 2\ninherits: e.yaml\noverrides:\n  b: {material: /m.yaml}\n", "material"},
-		{"unknown_override_field", "version: 2\ninherits: e.yaml\noverrides:\n  b: {id: c}\n", "not found"},
-		{"override_children", "version: 2\ninherits: e.yaml\noverrides:\n  b: {children: []}\n", "not found"},
+		{"unknown_override_field", "version: 2\ninherits: e.yaml\noverrides:\n  b: {id: c}\n", `unknown field "id"`},
+		{"override_children", "version: 2\ninherits: e.yaml\noverrides:\n  b: {children: []}\n", `unknown field "children"`},
 		{"bad_layer_override_space", "version: 2\ninherits: e.yaml\nlayerOverrides:\n  a: {space: sky}\n", "invalid space"},
 		{"empty_layer_override", "version: 2\ninherits: e.yaml\nlayerOverrides:\n  \"\": {visible: false}\n", "empty layer name"},
 	}
