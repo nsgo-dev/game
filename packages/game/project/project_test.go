@@ -102,6 +102,19 @@ func TestParseReadsEveryField(t *testing.T) {
 	if got := f.Assets.Manifest; got == nil || got.Package != "gameassets" || got.Prefix != "res:" || !got.Embed {
 		t.Fatalf("Assets.Manifest = %+v", got)
 	}
+	tiles := f.FindPack("cave-tiles")
+	if tiles == nil || tiles.Kind != project.PackAsset || tiles.PackVersion != "1.2.0" || !reflect.DeepEqual(tiles.Resources, []string{"cave-tiles"}) {
+		t.Fatalf("FindPack(cave-tiles) = %+v", tiles)
+	}
+	if got, want := tiles.Paths(), []string{"packs/cave-tiles/pack.yaml", "packs/cave-tiles/tiles.json", "packs/cave-tiles/tiles.png"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Paths = %v, want %v", got, want)
+	}
+	if p := f.FindPack("waypoint-tools"); p == nil || !reflect.DeepEqual(p.Plugins, []string{"waypoints"}) {
+		t.Fatalf("FindPack(waypoint-tools) = %+v", p)
+	}
+	if f.FindPack("other") != nil {
+		t.Fatal("FindPack found a pack the file has not")
+	}
 }
 
 func TestDefaultsOfAMinimalFile(t *testing.T) {
@@ -139,6 +152,7 @@ func TestDefaultsOfAMinimalFile(t *testing.T) {
 
 func TestValidateRefusesInvalidFiles(t *testing.T) {
 	const head = "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow: {width: 640, height: 360}\n"
+	const sum = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	cases := map[string]string{
 		"empty":                    "",
 		"version":                  strings.Replace(head, "version: 1", "version: 2", 1),
@@ -215,6 +229,22 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"plugin spaces":            head + "editor: {plugins: ['level tools']}\n",
 		"duplicate plugin":         head + "editor: {plugins: [health, health]}\n",
 		"unknown editor field":     head + "editor: {plugins: [health], theme: dark}\n",
+		"pack name":                head + "packs: [{name: Tiles, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack kind":                head + "packs: [{name: t, kind: music, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack version":             head + "packs: [{name: t, kind: asset, packVersion: '1 0', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack sha256":              head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: ABC, dir: packs/t}]\n",
+		"pack dir":                 head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: ../t}]\n",
+		"pack root dir":            head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: .}]\n",
+		"pack file":                head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [../x]}]\n",
+		"pack files unsorted":      head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [b, a]}]\n",
+		"pack files twice":         head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a, a]}]\n",
+		"duplicate pack":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}, {name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/u}]\n",
+		"shared pack file":         head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/a]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a]}]\n",
+		"pack missing resource":    head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, resources: [tiles]}]\n",
+		"pack missing scene":       head + "autoload: {resources: [{name: room, path: a.yaml}]}\npacks: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, scenes: [room]}]\n",
+		"pack missing plugin":      head + "packs: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
+		"shared pack plugin":       head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
+		"unknown pack field":       head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, url: x}]\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -276,6 +306,9 @@ func TestCloneIsDeep(t *testing.T) {
 	*c.Assets.Audio[0].PeakDB = -3
 	*c.Assets.Audio[1].RMSDB = -20
 	c.Assets.Manifest.Package = "other"
+	c.Packs[0].Files[0] = "other"
+	c.Packs[0].Resources[0] = "other"
+	c.Packs[1].Plugins[0] = "other"
 	if !reflect.DeepEqual(f, project.MustParse(readGolden(t))) {
 		t.Fatal("changing the clone changed the original")
 	}
@@ -400,6 +433,8 @@ func TestLoadAutoloads(t *testing.T) {
 	fsys := fstest.MapFS{
 		"scenes/title.yaml": {Data: scene},
 		"data/enemies.csv":  {Data: []byte("name,hp\nbat,3\n")},
+		// The resource the installed cave-tiles pack added.
+		"packs/cave-tiles/tiles.json": {Data: []byte("{}")},
 	}
 	l, err := f.LoadAutoloads(fsys)
 	if err != nil {
@@ -467,10 +502,14 @@ func TestCheckReportsEveryProblemOfAProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := fstest.MapFS{
-		project.FileName:     {Data: golden},
-		project.NSGoFileName: {Data: nsgo},
-		"scenes/title.yaml":  {Data: []byte("version: 1\nname: Title\nlayers:\n  - name: main\n")},
-		"data/enemies.csv":   {Data: []byte("name,hp\n")},
+		project.FileName:                 {Data: golden},
+		project.NSGoFileName:             {Data: nsgo},
+		"scenes/title.yaml":              {Data: []byte("version: 1\nname: Title\nlayers:\n  - name: main\n")},
+		"data/enemies.csv":               {Data: []byte("name,hp\n")},
+		"packs/cave-tiles/pack.yaml":     {Data: []byte("version: 1\n")},
+		"packs/cave-tiles/tiles.json":    {Data: []byte("{}")},
+		"packs/cave-tiles/tiles.png":     {Data: []byte("png")},
+		"packs/waypoint-tools/pack.yaml": {Data: []byte("version: 1\n")},
 	}
 	if got, err := project.Check(good); err != nil || got.Name != "Cave Run" {
 		t.Fatalf("Check of a good project = %+v, %v", got, err)
@@ -487,14 +526,19 @@ func TestCheckReportsEveryProblemOfAProject(t *testing.T) {
 		t.Fatalf("Check without nsgo.yaml: %v", err)
 	}
 
-	// A stale nsgo.yaml and a missing resource are both reported, and the file still comes back.
+	// A stale nsgo.yaml, a missing resource and a missing pack file are all reported, and the file still comes back.
 	bad := fstest.MapFS{
 		project.FileName:     {Data: golden},
 		project.NSGoFileName: {Data: []byte("name: Old Name\n")},
 		"scenes/title.yaml":  good["scenes/title.yaml"],
 	}
+	for name, file := range good {
+		if strings.HasPrefix(name, "packs/") && name != "packs/cave-tiles/tiles.png" {
+			bad[name] = file
+		}
+	}
 	got, err := project.Check(bad)
-	if got == nil || err == nil || !strings.Contains(err.Error(), "name is \"Old Name\"") || !strings.Contains(err.Error(), "enemies") {
+	if got == nil || err == nil || !strings.Contains(err.Error(), "name is \"Old Name\"") || !strings.Contains(err.Error(), "enemies") || !strings.Contains(err.Error(), "packs/cave-tiles/tiles.png") {
 		t.Fatalf("Check of a bad project = %v, %v", got, err)
 	}
 

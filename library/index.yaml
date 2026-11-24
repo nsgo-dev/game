@@ -1,0 +1,10 @@
+version: 1
+packs:
+  - name: dungeon-tiles
+    kind: asset
+    packVersion: 1.0.0
+    description: A 16x16 stone floor tile and brick wall tile with a TexturePacker atlas.
+    tags: [2d, tiles, dungeon, pixel-art]
+    license: CC0-1.0
+    source: packs/dungeon-tiles
+    sha256: 69d89c016fc8eaf19a83ea7bf3f14800fc4b6fff1384cd4d9f2db29f6e5ab177
