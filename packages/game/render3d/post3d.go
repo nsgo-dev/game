@@ -13,10 +13,7 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// ErrInvalidPostProcess is wrapped by every validation error returned by 3D
-// post-processing configurations and constructors ([BloomConfig.Validate],
-// [SSAOConfig.Validate], [DepthOfFieldConfig.Validate], [NewBloomPass],
-// [NewSSAOPass], [NewDepthOfFieldPass], and [NewPostStack3D]).
+// ErrInvalidPostProcess is wrapped by every validation error returned by 3D post-processing configurations and constructors ([BloomConfig.Validate], [SSAOConfig.Validate], [DepthOfFieldConfig.Validate], [NewBloomPass], [NewSSAOPass], [NewDepthOfFieldPass], and [NewPostStack3D]).
 var ErrInvalidPostProcess = errors.New("render3d: invalid post-processing configuration")
 
 const (
@@ -35,8 +32,7 @@ const (
 	postDoFBokehUniformSize       = 16 + postDoFTapCount*16 // 304 bytes
 )
 
-// Shared fullscreen triangle vertex stage prepended to every post-processing WGSL module.
-// Z is 0.0 (never 1.0) so fullscreen triangles never clip at the far depth plane.
+// Shared fullscreen triangle vertex stage prepended to every post-processing WGSL module. Z is 0.0 (never 1.0) so fullscreen triangles never clip at the far depth plane.
 const postFullscreenVertexWGSL = `
 struct PostVertexIn {
 	@location(0) pos: vec2<f32>,
@@ -664,22 +660,17 @@ func postCloseAll(closers ...interface{ Close() error }) error {
 
 // BloomConfig tunes the 3D bloom post-processing pass.
 type BloomConfig struct {
-	// Threshold is the minimum max-channel brightness that contributes to bloom (>= 0).
-	// Values above 1.0 target HDR emissive pixels in floating-point color targets.
+	// Threshold is the minimum max-channel brightness that contributes to bloom (>= 0). Values above 1.0 target HDR emissive pixels in floating-point color targets.
 	Threshold float32
-	// SoftKnee controls the smooth transition width around Threshold in [0, 1].
-	// 0 produces a hard cutoff; 0.5 produces a gradual shoulder.
+	// SoftKnee controls the smooth transition width around Threshold in [0, 1]. 0 produces a hard cutoff; 0.5 produces a gradual shoulder.
 	SoftKnee float32
-	// Intensity scales the blurred glow added onto the scene color (>= 0).
-	// 0 leaves the scene unchanged.
+	// Intensity scales the blurred glow added onto the scene color (>= 0). 0 leaves the scene unchanged.
 	Intensity float32
 	// Radius scales the separable Gaussian blur tap stride in texels (>= 0).
 	Radius float32
-	// BlurPasses is the number of horizontal+vertical separable Gaussian iterations in [1, 8].
-	// 0 defaults to 2.
+	// BlurPasses is the number of horizontal+vertical separable Gaussian iterations in [1, 8]. 0 defaults to 2.
 	BlurPasses int
-	// HalfRes runs bright extraction and Gaussian blur at half resolution (max(1, w/2) x max(1, h/2))
-	// for wider soft halos at a quarter of the pixel cost.
+	// HalfRes runs bright extraction and Gaussian blur at half resolution (max(1, w/2) x max(1, h/2)) for wider soft halos at a quarter of the pixel cost.
 	HalfRes bool
 }
 
@@ -695,8 +686,7 @@ func DefaultBloomConfig() BloomConfig {
 	}
 }
 
-// Validate checks that every field of c is finite and within its valid range.
-// Every error wraps [ErrInvalidPostProcess].
+// Validate checks that every field of c is finite and within its valid range. Every error wraps [ErrInvalidPostProcess].
 func (c BloomConfig) Validate() error {
 	if !finite(c.Threshold) || c.Threshold < 0 {
 		return fmt.Errorf("%w: bloom Threshold %v must be finite and >= 0", ErrInvalidPostProcess, c.Threshold)
@@ -734,9 +724,7 @@ type BloomPassOptions struct {
 	Config       BloomConfig
 }
 
-// BloomPass executes bright-pixel extraction, separable 9-tap Gaussian blur
-// across offscreen ping-pong render targets, and additive composition onto a
-// destination target or swapchain.
+// BloomPass executes bright-pixel extraction, separable 9-tap Gaussian blur across offscreen ping-pong render targets, and additive composition onto a destination target or swapchain.
 type BloomPass struct {
 	cx           *core.Scope
 	label        string
@@ -1015,8 +1003,7 @@ func (p *BloomPass) Config() BloomConfig {
 	return p.cfg
 }
 
-// SetConfig validates and updates the bloom parameters. Changing [BloomConfig.HalfRes]
-// takes effect on the next [BloomPass.Resize] or [BloomPass.Apply].
+// SetConfig validates and updates the bloom parameters. Changing [BloomConfig.HalfRes] takes effect on the next [BloomPass.Resize] or [BloomPass.Apply].
 func (p *BloomPass) SetConfig(cfg BloomConfig) error {
 	if p == nil || p.closed {
 		return fmt.Errorf("%w: bloom pass is not valid", ErrInvalidPostProcess)
@@ -1308,8 +1295,7 @@ func postClipPlanes(m math3d.Mat4) (near, far float32, ortho bool) {
 	return b / a, b / (a + 1), false
 }
 
-// Validate checks that every field of c is finite and within its valid range.
-// Every error wraps [ErrInvalidPostProcess].
+// Validate checks that every field of c is finite and within its valid range. Every error wraps [ErrInvalidPostProcess].
 func (c SSAOConfig) Validate() error {
 	if !finite(c.Radius) || c.Radius <= 0 {
 		return fmt.Errorf("%w: ssao Radius %v must be finite and > 0", ErrInvalidPostProcess, c.Radius)
@@ -1385,8 +1371,7 @@ func (c SSAOConfig) resolveMatrices(w, h uint32) (proj, invProj math3d.Mat4) {
 	return proj, invProj
 }
 
-// buildSSAOKernel generates a deterministic low-discrepancy hemisphere sample kernel
-// in tangent space (+Z along surface normal) with samples concentrated closer to the origin.
+// buildSSAOKernel generates a deterministic low-discrepancy hemisphere sample kernel in tangent space (+Z along surface normal) with samples concentrated closer to the origin.
 func buildSSAOKernel(count int) [postMaxSSAOSamples][4]float32 {
 	var out [postMaxSSAOSamples][4]float32
 	if count < 1 {
@@ -1428,9 +1413,7 @@ type SSAOPassOptions struct {
 	Config       SSAOConfig
 }
 
-// SSAOPass computes screen-space ambient occlusion from a 3D depth texture,
-// optionally filters it with a depth-aware bilateral blur, and multiplies the
-// resulting occlusion factor into a scene color texture.
+// SSAOPass computes screen-space ambient occlusion from a 3D depth texture, optionally filters it with a depth-aware bilateral blur, and multiplies the resulting occlusion factor into a scene color texture.
 type SSAOPass struct {
 	cx           *core.Scope
 	label        string
@@ -1721,8 +1704,7 @@ func (p *SSAOPass) Height() uint32 {
 	return p.height
 }
 
-// AOTexture returns the most recently computed ambient occlusion texture
-// (blurred when BlurRadius > 0, raw otherwise).
+// AOTexture returns the most recently computed ambient occlusion texture (blurred when BlurRadius > 0, raw otherwise).
 func (p *SSAOPass) AOTexture() *gpu.Texture {
 	if p == nil || p.closed {
 		return nil
@@ -1773,8 +1755,7 @@ func (p *SSAOPass) Resize(dev *gpu.Device, width, height uint32) error {
 	return p.allocTargets(dev)
 }
 
-// ComputeAO evaluates the SSAO hemisphere pass (and optional bilateral blur) from
-// depthTex and returns the resulting AO texture for inspection or custom compositing.
+// ComputeAO evaluates the SSAO hemisphere pass (and optional bilateral blur) from depthTex and returns the resulting AO texture for inspection or custom compositing.
 func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec RenderPassRecorder, depthTex *gpu.Texture) (*gpu.Texture, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -1952,11 +1933,9 @@ func (p *SSAOPass) Close() error {
 type DepthOfFieldConfig struct {
 	// FocusDistance is the view-space distance from the camera that renders sharpest (> 0). Default: 5.0.
 	FocusDistance float32
-	// FocusRange is the half-width around FocusDistance over which the Circle of Confusion
-	// ramps from 0 (in focus) to 1 (maximum blur). Must be > 0. Default: 2.0.
+	// FocusRange is the half-width around FocusDistance over which the Circle of Confusion ramps from 0 (in focus) to 1 (maximum blur). Must be > 0. Default: 2.0.
 	FocusRange float32
-	// MaxBlurRadius is the maximum bokeh disc radius in pixels at CoC = 1 (>= 0).
-	// 0 leaves the scene unchanged. Default: 6.0.
+	// MaxBlurRadius is the maximum bokeh disc radius in pixels at CoC = 1 (>= 0). 0 leaves the scene unchanged. Default: 6.0.
 	MaxBlurRadius float32
 	// Near and Far are the camera clip planes used to linearize [0, 1] depth values: Near < Far, and Near > 0 for a perspective projection. They must match the projection that wrote the depth buffer; [DepthOfFieldConfigFromCamera] and [PostStack3D.SetCamera] read them from the camera's projection matrix.
 	Near float32
@@ -1988,8 +1967,7 @@ func DepthOfFieldConfigFromCamera(cam *scene3d.Camera, focusDistance, focusRange
 	return cfg
 }
 
-// Validate checks that every field of c is finite and within its valid range.
-// Every error wraps [ErrInvalidPostProcess].
+// Validate checks that every field of c is finite and within its valid range. Every error wraps [ErrInvalidPostProcess].
 func (c DepthOfFieldConfig) Validate() error {
 	if !finite(c.FocusDistance) || c.FocusDistance <= 0 {
 		return fmt.Errorf("%w: dof FocusDistance %v must be finite and > 0", ErrInvalidPostProcess, c.FocusDistance)
@@ -2009,8 +1987,7 @@ func (c DepthOfFieldConfig) Validate() error {
 	return nil
 }
 
-// buildDoFDiscTaps returns 18 deterministic 2-ring disc bokeh offsets:
-// 6 taps on the inner ring (r = 0.45) and 12 taps on the outer ring (r = 0.95).
+// buildDoFDiscTaps returns 18 deterministic 2-ring disc bokeh offsets: 6 taps on the inner ring (r = 0.45) and 12 taps on the outer ring (r = 0.95).
 func buildDoFDiscTaps() [postDoFTapCount][4]float32 {
 	var taps [postDoFTapCount][4]float32
 	idx := 0
@@ -2050,8 +2027,7 @@ type DepthOfFieldPassOptions struct {
 	Config       DepthOfFieldConfig
 }
 
-// DepthOfFieldPass computes per-pixel signed Circle of Confusion from depth and
-// gathers a depth-aware disc bokeh blur that keeps in-focus silhouettes sharp.
+// DepthOfFieldPass computes per-pixel signed Circle of Confusion from depth and gathers a depth-aware disc bokeh blur that keeps in-focus silhouettes sharp.
 type DepthOfFieldPass struct {
 	cx           *core.Scope
 	label        string
@@ -2501,15 +2477,9 @@ type PostStack3DOptions struct {
 	Bloom       BloomConfig
 }
 
-// PostStack3D composes SSAO, Depth of Field, and Bloom over an offscreen 3D
-// color+depth render target, routing enabled passes cleanly through ping-pong
-// offscreen targets and writing the final result to the swapchain or a chosen
-// destination texture.
+// PostStack3D composes SSAO, Depth of Field, and Bloom over an offscreen 3D color+depth render target, routing enabled passes cleanly through ping-pong offscreen targets and writing the final result to the swapchain or a chosen destination texture.
 //
-// Execution order is fixed to SSAO -> Depth of Field -> Bloom so ambient
-// occlusion darkens crevices before bokeh blurring and highlights bloom after
-// optical blur. All passes use portable WGSL compatible with both full and
-// compute-free (WebGL 2 / OpenGL ES 3.0) NSGo GPU profiles.
+// Execution order is fixed to SSAO -> Depth of Field -> Bloom so ambient occlusion darkens crevices before bokeh blurring and highlights bloom after optical blur. All passes use portable WGSL compatible with both full and compute-free (WebGL 2 / OpenGL ES 3.0) NSGo GPU profiles.
 type PostStack3D struct {
 	cx           *core.Scope
 	label        string
@@ -2761,8 +2731,7 @@ func (s *PostStack3D) SceneTarget() *gpu.RenderTarget {
 	return s.sceneRT
 }
 
-// BeginScenePass begins a render pass targeting [PostStack3D.SceneTarget], clearing
-// color to clearColor and depth to 1.0 and storing both attachments for post-processing.
+// BeginScenePass begins a render pass targeting [PostStack3D.SceneTarget], clearing color to clearColor and depth to 1.0 and storing both attachments for post-processing.
 func (s *PostStack3D) BeginScenePass(rec RenderPassRecorder, clearColor core.Color) *gpu.RenderPass {
 	if s == nil || s.closed || rec == nil || !s.sceneRT.Valid() {
 		return nil

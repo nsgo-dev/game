@@ -91,8 +91,7 @@ func post3dAppendBox(dst []float32, center, half math3d.Vec3, col [3]float32, mo
 	return dst
 }
 
-// post3dAppendCheckerPanel appends a front-facing (+Z) grid of alternating high-contrast tiles,
-// ideal for measuring spatial sharpness vs Depth of Field blur.
+// post3dAppendCheckerPanel appends a front-facing (+Z) grid of alternating high-contrast tiles, ideal for measuring spatial sharpness vs Depth of Field blur.
 func post3dAppendCheckerPanel(dst []float32, center math3d.Vec3, width, height float32, cols, rows int, colA, colB [3]float32) []float32 {
 	n := math3d.Vec3{Z: 1}
 	dx := width / float32(cols)
@@ -238,8 +237,7 @@ func post3dRegionLumaMean(img *image.RGBA, x0, y0, x1, y1 int) float64 {
 	return sum / float64(n)
 }
 
-// post3dRegionContrast measures mean horizontal + vertical adjacent-pixel luminance gradient
-// inside [x0, x1) x [y0, y1), which drops cleanly when a checkerboard blurs.
+// post3dRegionContrast measures mean horizontal + vertical adjacent-pixel luminance gradient inside [x0, x1) x [y0, y1), which drops cleanly when a checkerboard blurs.
 func post3dRegionContrast(img *image.RGBA, x0, y0, x1, y1 int) float64 {
 	var sum float64
 	n := 0
@@ -562,8 +560,7 @@ func TestPost3DDepthOfFieldMatchesReference(t *testing.T) {
 	sp := newPost3dScenePipeline(t, nil, dev, gpu.FormatRGBA16Float, gpu.FormatDepth32Float)
 	defer func() { _ = sp.cam.Close() }()
 
-	// Three high-contrast checkerboard panels placed at near (dist=2.2), focus (dist=5.0), and far (dist=10.5),
-	// scaled proportionally to their distance so all three occupy similar screen regions side by side.
+	// Three high-contrast checkerboard panels placed at near (dist=2.2), focus (dist=5.0), and far (dist=10.5), scaled proportionally to their distance so all three occupy similar screen regions side by side.
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 0}, math3d.DegToRad(50), float32(post3dWidth)/float32(post3dHeight), 0.5, 25.0)
 	cam.LookAt(math3d.Vec3{Z: -5}, math3d.Vec3Up())
 
@@ -784,8 +781,7 @@ func TestPost3DStackCombinedResizeAndProfiles(t *testing.T) {
 		t.Errorf("render after resize round-trip differed by %d", diff)
 	}
 
-	// 2. Run inside mounted headless nsgotest gpu.View on both full and NoGPUCompute (WebGL 2 / GLES 3.0) profiles,
-	// including Retained device-loss recovery.
+	// 2. Run inside mounted headless nsgotest gpu.View on both full and NoGPUCompute (WebGL 2 / GLES 3.0) profiles, including Retained device-loss recovery.
 	for _, tc := range []struct {
 		name string
 		opts []nsgotest.Option
