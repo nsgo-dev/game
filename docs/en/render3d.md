@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, directional shadow maps, camera uniforms, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, directional shadow maps, camera uniforms, offscreen render-to-texture cameras and multi-viewport split-screen rendering, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -797,6 +797,47 @@ mainPass.End()
 - **Acne control and portability**: `DepthBias` (slope-scaled in the shader by `1 + 2*(1 - NdotL)`), world-space `NormalBias`, and hardware rasterizer bias (`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`) suppress shadow acne across flat and grazing surfaces. Custom shaders can prepend `ShadowWGSL` (or `ShadowWGSLForGroup(n)` when group 3 holds something else) and call `sample_directional_shadow(world_pos, world_normal)`; `LightWGSL`'s `shade_pbr_shadowed` takes that visibility for directional light 0. No compute shaders or storage buffers are used, so directional shadows run on every NSGo target including WebGL 2 and OpenGL ES 3.0.
 - **Quality presets**: to honour `quality.Preset.Shadows`, skip the shadow pass and set `Strength` to 0 when it is off, as in the example; with `Strength` 0 the shader returns full visibility without sampling the map.
 - **Zero-allocation uniforms and CPU reference**: `AppendShadowUniforms` and `ShadowUniforms.Encode` pack the 96-byte uniform block with zero heap allocations; a NaN or infinite matrix or `Strength` disables the shadow, non-finite biases become 0 and an unknown `PCFKernel` is treated as `ShadowFilterHard`, so uniforms built by hand cannot put NaN on screen. `EvaluateDirectionalShadow` is the matching pure-Go CPU reference over a `ShadowDepthGrid` (decoded from GPU depth readback via `ShadowDepthGridFromBytes`), and `ShadePointShadowed` is the CPU reference of the shadowed lighting. `render3d`'s tests check every open floor pixel of hard and 3x3 PCF renders, penumbras included, against these references, check where the shadow falls by projecting a caster along the light, and compare the renders with golden PNGs (`render3d/testdata/golden/shadow_directional_hard.png` and `shadow_directional_pcf.png`) on both `gpu.View` profiles (`full` and `nsgotest.NoGPUCompute`), across `Retained` device-loss restoration, and through scope disposal.
+
+## Render-to-texture cameras and multiple viewports (`RenderTexture`, `ViewportRenderer`)
+
+`RenderTexture` allocates a scope-owned offscreen `gpu.RenderTarget` (color, optional depth/stencil, and optional 4x MSAA with automatic resolve) whose sampleable color output is exposed directly as a `*GPUTexture` via `RenderTexture.GPUTexture()`. Pass that handle to `BindTexture` (or any material texture slot) so mirrors, minimaps, security monitors, and portals render from a secondary camera and appear as textures on 3D geometry in the main pass:
+
+```go
+rt, err := render3d.NewRenderTexture(cx, dev, render3d.RenderTextureDesc{
+	Label:       "mirror",
+	Width:       256,
+	Height:      256,
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true, // survives device loss alongside retained samplers and bind groups
+})
+mirrorBG, err := render3d.BindTexture(cx, dev, texLayout, rt.GPUTexture(), samp)
+```
+
+`ViewportRenderer` orchestrates frames with any mix of offscreen `RenderTexture` cameras and multiple viewports on the main surface (side-by-side split screen, stacked split screen, 4-player quad split, or overlapping picture-in-picture overlays):
+
+```go
+renderer, err := render3d.NewViewportRenderer(cx, dev) // list renderer.CameraLayout() at CameraGroup
+
+halves := render3d.SplitScreenHorizontal(2) // left [0..0.5], right [0.5..1]
+views := []render3d.CameraView{
+	{Name: "mirror", Camera: mirrorCam, Target: rt, LayerMask: layerWorld, ClearColor: core.RGB(0x182030)},
+	{Name: "player1", Camera: p1Cam, Viewport: halves[0], LayerMask: layerWorld | layerMirror, ClearColor: core.RGB(0x0c1018)},
+	{Name: "player2", Camera: p2Cam, Viewport: halves[1], LayerMask: layerWorld | layerMirror},
+}
+
+err = renderer.RenderFrame(frame, render3d.SurfaceDesc{HasDepth: true}, views, func(ctx render3d.ViewportContext) {
+	visible = render3d.FilterLayeredItems(sceneItems, ctx.LayerMask, visible[:0])
+	plan := queue.Build(ctx.Uniform.ViewProj, ctx.Camera.Pos, visible)
+	// ctx.Pass already has SetViewport, SetScissor, and CameraGroup bound for this view.
+	drawPlan(ctx.Pass, plan)
+})
+```
+
+- **Execution order**: `ViewportRenderer` always renders offscreen views (`Target != nil`) before main-surface views (`Target == nil`), ordering each phase stably by ascending `CameraView.Priority` (`OrderCameraViews`), so offscreen textures are up to date before any main-pass material samples them.
+- **Per-view camera uniforms & aspect ratio**: each active view gets its own retained uniform buffer slot at `CameraGroup` uploaded before pass recording so multiple views in one `gpu.Frame` or `gpu.Encoder` never clobber each other's matrices. Unless `CameraView.PreserveAspect` is set, a per-view copy of `Camera` adjusts `Projection.Aspect` to the resolved `PixelViewport` without mutating the caller's `*scene3d.Camera`.
+- **Per-camera layer masks**: `CameraView.LayerMask` matches `scene3d.Node.Layer` bitmasks (zero defaults to `scene3d.LayerAll`). `LayerMatches`, `FilterLayeredItems`, and `FilterNodesByLayer` filter `LayeredDrawItem` and `*scene3d.Node` slices with zero steady-state allocations when reusing the destination buffer.
+- **Split-screen seams & overlays**: `SplitScreenHorizontal` (`SplitScreenSideBySide`), `SplitScreenVertical` (`SplitScreenStacked`), `SplitScreenQuad`, and `ViewportFromPixels` construct normalized `[0, 1]` `ViewportRect` values. `ViewportRect.Resolve` rounds both edges independently so adjacent split-screen viewports tile with zero pixel gaps or overlap, and `PixelViewport.Apply` sets both `SetViewport` and `SetScissor` so geometry never bleeds across seams. Consecutive views on the same target share one GPU render pass; set `CameraView.ResetDepth` on an overlapping picture-in-picture view to preserve the underlying color while clearing depth.
+- **Resize & device loss**: `RenderTexture.Resize` is a no-op when dimensions match and swaps atomically on change, incrementing `Generation()` so callers know when to rebind `BindTexture` bind groups. With `Retained: true`, `RenderTexture` and `ViewportRenderer` restore automatically after GPU device loss and are released with their owning `core.Scope` or `Close()`.
 
 ## 3D debug draw and transform gizmos
 
