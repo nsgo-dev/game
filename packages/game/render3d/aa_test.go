@@ -19,8 +19,7 @@ const (
 	aaTestHeight = 96
 )
 
-// aaFlatWGSL draws clip-space colored triangles directly so flat interiors are
-// uniform and diagonal edges are crisp high-contrast steps for AA comparison.
+// aaFlatWGSL draws clip-space colored triangles directly so flat interiors are uniform and diagonal edges are crisp high-contrast steps for AA comparison.
 const aaFlatWGSL = `
 struct VertexIn {
 	@location(0) pos: vec3<f32>,
@@ -46,8 +45,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-// aaBlitWGSL copies a single-sampled color texture onto the swapchain for
-// verifying resolved MSAATarget outputs through gpu.View pixel readback.
+// aaBlitWGSL copies a single-sampled color texture onto the swapchain for verifying resolved MSAATarget outputs through gpu.View pixel readback.
 const aaBlitWGSL = `
 @group(0) @binding(0) var blit_tex: texture_2d<f32>;
 @group(0) @binding(1) var blit_samp: sampler;
@@ -81,8 +79,7 @@ var (
 	aaCoolRGBA   = color.RGBA{R: 0x30, G: 0xd0, B: 0xf0, A: 0xff}
 )
 
-// aaSceneVertices builds a deterministic diagonal geometry scene with shallow
-// and steep diagonal edges plus large solid-colored interiors and background:
+// aaSceneVertices builds a deterministic diagonal geometry scene with shallow and steep diagonal edges plus large solid-colored interiors and background:
 //   - a large rotated bright white diamond/quad in the upper-left/center,
 //   - a warm orange rotated wedge overlapping in depth (nearer Z),
 //   - a cool cyan diagonal triangle in the lower-right.
@@ -96,8 +93,7 @@ func aaSceneVertices() []float32 {
 			x2, y2, z2, r, g, b, a,
 		)
 	}
-	// Rotated white rectangle (two triangles) covering center with shallow ~20° edges.
-	// Interior center around (0, 0) stays completely solid white.
+	// Rotated white rectangle (two triangles) covering center with shallow ~20° edges. Interior center around (0, 0) stays completely solid white.
 	addTri(-0.72, -0.18, 0.6, 0.56, -0.58, 0.6, 0.72, 0.18, 0.6, aaWhiteRGBA)
 	addTri(-0.72, -0.18, 0.6, 0.72, 0.18, 0.6, -0.56, 0.58, 0.6, aaWhiteRGBA)
 
@@ -247,8 +243,7 @@ func countAntiAliasedPixels(img *image.RGBA) int {
 	return n
 }
 
-// assertFlatInteriorsUntouched checks known flat-interior and background pixels
-// stay identical to the aliased baseline.
+// assertFlatInteriorsUntouched checks known flat-interior and background pixels stay identical to the aliased baseline.
 func assertFlatInteriorsUntouched(t *testing.T, label string, base, got *image.RGBA) {
 	t.Helper()
 	// Background corners and solid triangle interiors well away from edges.
@@ -1272,10 +1267,7 @@ func diffMaxChannel(a, b *image.RGBA) (mismatched, maxDelta int) {
 	return mismatched, maxDelta
 }
 
-// assertFXAAParity verifies GPU FXAAPass output matches CPU ApplyFXAA closely:
-// at least 99.5% of pixels agree within 2 channel levels, and the rare
-// half-texel edge-search tie pixels (where 1 ULP of fullscreen-triangle UV
-// interpolation flips abs(lumaEnd) >= 0.25*grad) stay within a tight bound.
+// assertFXAAParity verifies GPU FXAAPass output matches CPU ApplyFXAA closely: at least 99.5% of pixels agree within 2 channel levels, and the rare half-texel edge-search tie pixels (where 1 ULP of fullscreen-triangle UV interpolation flips abs(lumaEnd) >= 0.25*grad) stay within a tight bound.
 func assertFXAAParity(t *testing.T, label string, got, ref *image.RGBA) {
 	t.Helper()
 	b := got.Bounds()
