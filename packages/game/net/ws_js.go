@@ -231,6 +231,20 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 	return nil
 }
 
+// SetInboxLimits bounds the packets the transport keeps until Recv takes them (see InboxLimits).
+func (wt *WebSocketTransport) SetInboxLimits(l InboxLimits) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	wt.inbox.setLimits(l)
+}
+
+// InboxStats reports what the transport's inbox holds and what its limits dropped or warned about.
+func (wt *WebSocketTransport) InboxStats() InboxStats {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	return wt.inbox.stats()
+}
+
 // Recv pops the next received packet without blocking.
 func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	wt.mu.Lock()
@@ -295,3 +309,5 @@ func (wt *WebSocketTransport) Close() error {
 	wt.releaseLocked(false)
 	return nil
 }
+
+var _ InboxReporter = (*WebSocketTransport)(nil)

@@ -23,8 +23,8 @@ func TestPacketQueueDrainIsLinear(t *testing.T) {
 	if _, ok := q.pop(); ok {
 		t.Fatal("pop on an empty queue succeeded")
 	}
-	if q.moved > n {
-		t.Fatalf("draining %d packets moved %d of them, want at most one move per packet", n, q.moved)
+	if q.rel.moved > n {
+		t.Fatalf("draining %d packets moved %d of them, want at most one move per packet", n, q.rel.moved)
 	}
 }
 
@@ -56,8 +56,8 @@ func TestPacketQueueInterleavedPushPopStaysFIFOAndLinear(t *testing.T) {
 	if want != next {
 		t.Fatalf("popped %d packets, pushed %d", want, next)
 	}
-	if q.moved > int(next) {
-		t.Fatalf("compaction moved %d packets for %d pushed, want at most one move per packet", q.moved, next)
+	if q.rel.moved > int(next) {
+		t.Fatalf("compaction moved %d packets for %d pushed, want at most one move per packet", q.rel.moved, next)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestPacketQueueReleasesPoppedPayloads(t *testing.T) {
 	if _, ok := q.pop(); !ok {
 		t.Fatal("pop failed")
 	}
-	if q.buf[0].Payload != nil {
+	if q.rel.buf[0].pkt.Payload != nil {
 		t.Fatal("a popped packet's payload is still referenced by the queue")
 	}
 }
@@ -93,14 +93,14 @@ func BenchmarkLoopbackRecvDrain(b *testing.B) {
 // A burst grows the buffer; once it is drained the queue gives the buffer back instead of holding the burst's capacity for good.
 func TestPacketQueueReleasesItsBufferAfterABurst(t *testing.T) {
 	var q packetQueue
-	for i := range 10 * packetQueueKeep {
+	for i := range 10 * packetFIFOKeep {
 		q.push(Packet{Seq: uint32(i)})
 	}
 	for q.len() > 0 {
 		q.pop()
 	}
-	if c := cap(q.buf); c > packetQueueKeep {
-		t.Fatalf("drained queue keeps capacity %d, want at most %d", c, packetQueueKeep)
+	if c := cap(q.rel.buf); c > packetFIFOKeep {
+		t.Fatalf("drained queue keeps capacity %d, want at most %d", c, packetFIFOKeep)
 	}
 	q.push(Packet{Seq: 1})
 	if p, ok := q.pop(); !ok || p.Seq != 1 {
