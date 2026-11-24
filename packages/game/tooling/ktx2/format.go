@@ -1,7 +1,4 @@
-// Package ktx2 provides a pure-Go KTX2 v2.0 texture container encoder, decoder,
-// supercompression decoder (Zstandard, ZLIB), mipmap chain generator, Basis
-// Universal UASTC 4x4 codec, and block texture transcoder (BC1, BC3, BC7, ETC2
-// RGB8/RGBA8, ASTC 4x4, RGBA8).
+// Package ktx2 provides a pure-Go KTX2 v2.0 texture container encoder, decoder, supercompression decoder (Zstandard, ZLIB), mipmap chain generator, Basis Universal UASTC 4x4 codec, and block texture transcoder (BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, RGBA8).
 package ktx2
 
 import (
@@ -23,8 +20,6 @@ const (
 	VkFormatUndefined            uint32 = 0
 	VkFormatR8G8B8A8Unorm        uint32 = 37
 	VkFormatR8G8B8A8SRGB         uint32 = 43
-	VkFormatBC1RGBUnormBlock     uint32 = 131
-	VkFormatBC1RGBSRGBBlock      uint32 = 132
 	VkFormatBC1RGBAUnormBlock    uint32 = 133
 	VkFormatBC1RGBASRGBBlock     uint32 = 134
 	VkFormatBC3UnormBlock        uint32 = 137
@@ -95,8 +90,7 @@ const (
 	FormatETC1S    Format = "etc1s"
 )
 
-// ParseFormat parses a CLI or configuration format name (rgba8, bc1/dxt1, bc3/dxt5,
-// bc7, etc2, etc2-rgba, astc4x4, or uastc).
+// ParseFormat parses a format name as game tex's -format flag and an image sidecar spell it (rgba8, bc1/dxt1, bc3/dxt5 or etc2), the formats the asset pipeline writes. The other formats this package encodes and decodes, such as [FormatBC7], [FormatETC2RGBA], [FormatASTC4x4] and [FormatUASTC], are set through [Options].Format from Go.
 func ParseFormat(s string) (Format, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "rgba8", "rgba":
@@ -105,18 +99,10 @@ func ParseFormat(s string) (Format, error) {
 		return FormatBC1, nil
 	case "bc3", "dxt5":
 		return FormatBC3, nil
-	case "bc7":
-		return FormatBC7, nil
 	case "etc2", "etc2_rgb8", "etc2-rgb8":
 		return FormatETC2, nil
-	case "etc2-rgba", "etc2_rgba", "etc2_rgba8", "etc2-rgba8":
-		return FormatETC2RGBA, nil
-	case "astc4x4", "astc-4x4", "astc_4x4":
-		return FormatASTC4x4, nil
-	case "uastc":
-		return FormatUASTC, nil
 	default:
-		return "", fmt.Errorf("ktx2: unsupported format %q (want rgba8, bc1, bc3, bc7, etc2, etc2-rgba, astc4x4, or uastc)", s)
+		return "", fmt.Errorf("ktx2: unsupported format %q (want rgba8, bc1, bc3, or etc2)", s)
 	}
 }
 
@@ -128,9 +114,7 @@ func (f Format) String() string {
 	return string(f)
 }
 
-// VkFormat returns the Vulkan VkFormat ID for f and the requested sRGB color space.
-// Universal formats (FormatUASTC, FormatETC1S) use VkFormatUndefined (0) per KTX2 v2.0,
-// with the pixel representation described in the DFD.
+// VkFormat returns the Vulkan VkFormat ID for f and the requested sRGB color space. Universal formats (FormatUASTC, FormatETC1S) use VkFormatUndefined (0) per KTX2 v2.0, with the pixel representation described in the DFD.
 func (f Format) VkFormat(srgb bool) (uint32, error) {
 	switch f {
 	case "", FormatRGBA8:
@@ -175,18 +159,16 @@ func (f Format) VkFormat(srgb bool) (uint32, error) {
 	}
 }
 
-// FormatFromVk maps a supported Vulkan VkFormat ID back to (Format, srgb, ok).
-// For VkFormatUndefined (0), use [FormatFromHeaderDFD] to resolve Basis Universal
-// UASTC or ETC1S from the Data Format Descriptor.
+// FormatFromVk maps a supported Vulkan VkFormat ID back to (Format, srgb, ok). For VkFormatUndefined (0), use [FormatFromHeaderDFD] to resolve Basis Universal UASTC or ETC1S from the Data Format Descriptor.
 func FormatFromVk(vk uint32) (Format, bool, bool) {
 	switch vk {
 	case VkFormatR8G8B8A8Unorm:
 		return FormatRGBA8, false, true
 	case VkFormatR8G8B8A8SRGB:
 		return FormatRGBA8, true, true
-	case VkFormatBC1RGBUnormBlock, VkFormatBC1RGBAUnormBlock:
+	case VkFormatBC1RGBAUnormBlock:
 		return FormatBC1, false, true
-	case VkFormatBC1RGBSRGBBlock, VkFormatBC1RGBASRGBBlock:
+	case VkFormatBC1RGBASRGBBlock:
 		return FormatBC1, true, true
 	case VkFormatBC3UnormBlock:
 		return FormatBC3, false, true
@@ -213,20 +195,14 @@ func FormatFromVk(vk uint32) (Format, bool, bool) {
 	}
 }
 
-// FormatFromHeaderDFD resolves the texture format, sRGB transfer flag, and alpha presence
-// from a KTX2 header and parsed Data Format Descriptor, including Basis Universal UASTC
-// and ETC1S containers that set Header.VkFormat == 0.
+// FormatFromHeaderDFD resolves the texture format, sRGB transfer flag, and alpha presence from a KTX2 header and parsed Data Format Descriptor, including Basis Universal UASTC and ETC1S containers that set Header.VkFormat == 0.
 func FormatFromHeaderDFD(h Header, dfd DFD) (format Format, srgb bool, hasAlpha bool, ok bool) {
 	if h.VkFormat != VkFormatUndefined {
 		f, isSRGB, known := FormatFromVk(h.VkFormat)
 		if !known {
 			return "", false, false, false
 		}
-		alpha := f.HasAlpha()
-		if h.VkFormat == VkFormatBC1RGBUnormBlock || h.VkFormat == VkFormatBC1RGBSRGBBlock {
-			alpha = false
-		}
-		return f, isSRGB, alpha, true
+		return f, isSRGB, f.HasAlpha(), true
 	}
 
 	isSRGB := dfd.TransferFunction == DFDTransferSRGB
