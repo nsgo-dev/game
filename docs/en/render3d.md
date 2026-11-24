@@ -1218,3 +1218,37 @@ mesh.Draw(pass)
 - **CPU reference**: `ShadeClusteredPoint` is `ShadePoint` plus every clustered light, and `ShadeClusteredGridPoint` uses only the lights of the fragment's cluster, exactly as the GPU does. Tests compare GPU pixels against them on the full and `NoGPUCompute` profiles, including a 256-light scene.
 - **Limits**: `Validate` caps `MaxLights` at `MaxClusterLights` (65,536), keeps `MaxLightsPerCluster` at or below `MaxLights`, and caps index slots (`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`) at `MaxClusterIndexEntries`; `NewClusteredLightSystem` returns `ErrInvalidClusterConfig` when a storage buffer would exceed the device's `MaxStorageBufferBindingSize`.
 - **Lifecycle**: set `ClusterConfig.Retained` to restore buffers across GPU device loss; `ByteSize()` reports GPU buffer bytes for `RenderStats` and budgets, and `Close()` releases resources eagerly.
+
+## Cascaded shadow maps (directional lights)
+
+`CascadedShadowMap` provides portable cascaded shadow maps (CSM) for directional lights over large 3D scenes, keeping shadow detail sharp both near the camera and far across the horizon across every NSGo GPU backend (Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software GPU renderer).
+
+- **Practical split scheme (`ComputeCSMSplits`)**: partitions `[near, min(far, MaxShadowDistance)]` into 1–4 cascades (`MaxCascades = 4`) by blending logarithmic and uniform splits via `SplitLambda` (default `0.75`).
+- **Texel-snapped stable cascades (`FitCascades`, `FitCascadesFromCamera`)**: unprojects each cascade's sub-frustum into world space, computes a rotation-invariant bounding sphere, extends the orthographic near plane backward by `CasterPadding` so off-frustum casters behind the camera still cast shadows into view, and snaps the light-space projection origin to whole shadow-map texels (`TexelSnap: true`) to eliminate shadow swimming during camera motion. Zero heap allocations per frame.
+- **Portable 2D depth atlas**: packs all cascades into a single `gpu.FormatDepth32Float` 2D depth texture (`1×1` for 1 cascade, `2×1` for 2, `2×2` for 3–4) using `SetViewport` and `SetScissor` per tile—requiring only `texture_depth_2d` and `sampler_comparison` without `texture_depth_2d_array` or compute shaders. Setting `CSMConfig.Retained` automatically restores the atlas, sampler, buffers, and depth pipeline across GPU device loss.
+- **Portable WGSL & CPU reference**: prepend `CameraWGSL + CSMWGSL` to custom lit shaders (binding `csm.BindGroup()` at `CSMGroup = 1`), or build a ready-to-use lit pipeline with `NewCSMLitPipeline` (`CSMLitWGSL`, `NewCSMObjectLayout`, `CSMLitMaterial`). `CSMWGSL` supports hard 1-tap shadows (`CSMFilterHard`) and tile-clamped 3×3 PCF (`CSMFilterPCF3x3`), smoothly cross-fades across adjacent cascade boundaries over `CascadeBlendRange`, fades out cleanly at `MaxShadowDistance`, and offers optional cascade tinting (`DebugCascades: true`). `EvaluateCSMShadow` and `EvaluateCSM` mirror the WGSL evaluation in pure Go for headless verification.
+
+```go
+cfg := render3d.DefaultCSMConfig()
+cfg.MaxShadowDistance = 80
+cfg.Retained = true
+
+csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
+if err != nil {
+	return err
+}
+
+// Per frame:
+frame := render3d.FitCascadesFromCamera(cam, sunDir, cfg)
+_ = csm.Update(dev, frame)
+for i := range csm.CascadeCount() {
+	pass := csm.BeginCascadePass(gpuFrame, i)
+	csm.DrawCaster(pass, casterMesh, casterModel)
+	pass.End()
+}
+
+// In the main lit pass:
+mainPass.SetPipeline(litPipe)
+mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
+```

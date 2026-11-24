@@ -1218,3 +1218,37 @@ mesh.Draw(pass)
 - **CPU 参考实现**：`ShadeClusteredPoint` 是 `ShadePoint` 加上所有集群光源，`ShadeClusteredGridPoint` 只使用片元所在集群的光源，与 GPU 完全一致。测试在完整能力和 `NoGPUCompute` 配置下将 GPU 像素与它们比对，包括一个 256 光源的场景。
 - **上限**：`Validate` 将 `MaxLights` 限制在 `MaxClusterLights`（65,536）以内，要求 `MaxLightsPerCluster` 不超过 `MaxLights`，并将索引槽数（`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`）限制在 `MaxClusterIndexEntries` 以内；当某个存储缓冲区超过设备的 `MaxStorageBufferBindingSize` 时，`NewClusteredLightSystem` 返回 `ErrInvalidClusterConfig`。
 - **生命周期**：设置 `ClusterConfig.Retained` 可在 GPU 设备丢失后恢复缓冲区；`ByteSize()` 报告 GPU 缓冲区字节数，供 `RenderStats` 和预算使用，`Close()` 立即释放资源。
+
+## 级联阴影贴图（方向光）
+
+`CascadedShadowMap` 为大场景方向光提供可移植的级联阴影贴图（CSM），在近处与远处地平线上同时保持清晰阴影细节，并兼容 NSGo 全部 GPU 后端（Metal、Direct3D 11、OpenGL 3.3、WebGPU、WebGL 2、OpenGL ES 3.0 与软件 GPU 渲染器）。
+
+- **实用分割方案（`ComputeCSMSplits`）**：通过 `SplitLambda`（默认 `0.75`）混合对数与均匀分割，将 `[near, min(far, MaxShadowDistance)]` 划分为 1–4 级级联（`MaxCascades = 4`）。
+- **纹素对齐的稳定级联（`FitCascades`、`FitCascadesFromCamera`）**：将每级子视锥体反投影至世界空间，计算旋转不变的包围球，沿反光方向用 `CasterPadding` 向后拉远近裁剪面（确保相机后方或视锥体外的遮挡物仍能投射阴影），并将光空间正交投影原点按整纹素步长对齐（`TexelSnap: true`）以消除相机移动时的阴影游走。每帧零堆分配。
+- **可移植 2D 深度图集**：通过每块独立的 `SetViewport` 与 `SetScissor` 将所有级联打包至单张 `gpu.FormatDepth32Float` 2D 深度纹理（1 级为 `1×1`，2 级为 `2×1`，3–4 级为 `2×2`），仅依赖 `texture_depth_2d` 与 `sampler_comparison`，无需 `texture_depth_2d_array` 或计算着色器。启用 `CSMConfig.Retained` 可在 GPU 设备丢失恢复后自动重建图集、采样器、缓冲区与深度管线。
+- **可移植 WGSL 与纯 Go 参考实现**：在自定义光照着色器前拼接 `CameraWGSL + CSMWGSL`（将 `csm.BindGroup()` 绑定至 `CSMGroup = 1`），或使用 `NewCSMLitPipeline`（`CSMLitWGSL`、`NewCSMObjectLayout`、`CSMLitMaterial`）直接构建开箱即用的前向光照管线。`CSMWGSL` 支持硬阴影（`CSMFilterHard`）与限制在图块内的 3×3 PCF（`CSMFilterPCF3x3`），按 `CascadeBlendRange` 在相邻级联间平滑过渡并在 `MaxShadowDistance` 处自然淡出，同时支持 `DebugCascades: true` 级联染色调试。`EvaluateCSMShadow` 与 `EvaluateCSM` 以纯 Go 镜像 WGSL 计算，便于无头测试验证。
+
+```go
+cfg := render3d.DefaultCSMConfig()
+cfg.MaxShadowDistance = 80
+cfg.Retained = true
+
+csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
+if err != nil {
+	return err
+}
+
+// 每帧：
+frame := render3d.FitCascadesFromCamera(cam, sunDir, cfg)
+_ = csm.Update(dev, frame)
+for i := range csm.CascadeCount() {
+	pass := csm.BeginCascadePass(gpuFrame, i)
+	csm.DrawCaster(pass, casterMesh, casterModel)
+	pass.End()
+}
+
+// 主光照通道：
+mainPass.SetPipeline(litPipe)
+mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
+```
