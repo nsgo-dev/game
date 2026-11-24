@@ -245,6 +245,7 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"pack missing plugin":      head + "packs: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
 		"shared pack plugin":       head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
 		"unknown pack field":       head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, url: x}]\n",
+		"pack file case":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/A.png]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a.png]}]\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {

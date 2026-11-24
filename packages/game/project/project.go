@@ -888,13 +888,13 @@ func validateEditor(e *Editor) error {
 
 func validatePacks(f *File) error {
 	names := make(map[string]struct{}, len(f.Packs))
-	// owner maps each file, autoload entry and plugin a pack claims to that pack, so no two packs claim one.
+	// owner maps each file, autoload entry and plugin a pack claims to that pack, so no two packs claim one. A file's path is folded to lower case, as a case-insensitive file system such as macOS's or Windows's sees it.
 	owner := map[string]string{}
-	claim := func(pack, what string) error {
-		if other, ok := owner[what]; ok {
+	claim := func(pack, key, what string) error {
+		if other, ok := owner[key]; ok {
 			return fmt.Errorf("project: packs %q and %q both claim %s", other, pack, what)
 		}
-		owner[what] = pack
+		owner[key] = pack
 		return nil
 	}
 	for i := range f.Packs {
@@ -926,7 +926,8 @@ func validatePacks(f *File) error {
 			if j > 0 && p.Files[j-1] >= file {
 				return fmt.Errorf("%s: files must be sorted and unique, but %q follows %q", where, file, p.Files[j-1])
 			}
-			if err := claim(p.Name, "file "+path.Join(p.Dir, file)); err != nil {
+			what := "file " + path.Join(p.Dir, file)
+			if err := claim(p.Name, strings.ToLower(what), what); err != nil {
 				return err
 			}
 		}
@@ -943,7 +944,8 @@ func validatePacks(f *File) error {
 				if !ref.has(n) {
 					return fmt.Errorf("%s: added %s %q, which the project does not have", where, ref.kind, n)
 				}
-				if err := claim(p.Name, ref.kind+" "+strconv.Quote(n)); err != nil {
+				what := ref.kind + " " + strconv.Quote(n)
+				if err := claim(p.Name, what, what); err != nil {
 					return err
 				}
 			}

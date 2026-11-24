@@ -1,0 +1,2 @@
+# The library index and packs are pinned by the SHA-256 of their exact bytes, so Git must never change their line endings.
+library/** -text

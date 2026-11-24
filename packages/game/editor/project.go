@@ -41,6 +41,7 @@ func (e *Editor) OpenProject(path string) error {
 			}
 		}
 	}
+	e.stopFetch()
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved

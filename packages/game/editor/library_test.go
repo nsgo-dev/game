@@ -3,12 +3,16 @@ package editor_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -176,5 +180,151 @@ func TestInstallPackRefusesWhatItCannotSave(t *testing.T) {
 	}
 	if err := ed.RemovePack("dungeon-tiles"); err == nil {
 		t.Fatal("removing a pack that is not installed succeeded")
+	}
+}
+
+// remoteLibrary serves the shared library over http from a test server whose pack files wait for release, or for their request to be cancelled, which they then report on cancelled. A pack file named in missing is not found.
+func remoteLibrary(t *testing.T, missing string) (lib *library.Library, release func(), cancelled <-chan struct{}) {
+	t.Helper()
+	gate := make(chan struct{})
+	gone := make(chan struct{}, 8)
+	files := http.FileServer(http.Dir(repoLibrary))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/packs/") {
+			select {
+			case <-gate:
+			case <-r.Context().Done():
+				gone <- struct{}{}
+				return
+			}
+		}
+		if missing != "" && strings.HasSuffix(r.URL.Path, "/"+missing) {
+			http.NotFound(w, r)
+			return
+		}
+		files.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	// Cleanup runs last registered first, so the gate opens before Close waits for the handlers.
+	t.Cleanup(release)
+	return openLibrary(t, srv.URL+"/index.yaml"), release, gone
+}
+
+// TestLibraryPanelFetchesARemotePack installs a pack from a library over http: while it is fetched the panel says so and its buttons are disabled, and once it arrives it is installed on the event loop.
+func TestLibraryPanelFetchesARemotePack(t *testing.T) {
+	dir := writeBareProject(t, "Bare")
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	lib, release, _ := remoteLibrary(t, "")
+	if !lib.Remote() {
+		t.Fatal("a library over http is not remote")
+	}
+	ed.Library = lib
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	app.Press("id:library-install-dungeon-tiles")
+	app.Settle()
+	if got := ed.FetchingPack(); got != "dungeon-tiles" || !strings.Contains(ed.Status, "Fetching pack dungeon-tiles") {
+		t.Fatalf("while fetching: FetchingPack %q, status %q", got, ed.Status)
+	}
+	if app.Enabled("id:library-install-dungeon-tiles") || app.Enabled("id:library-remove-dungeon-tiles") {
+		t.Fatal("the panel's buttons are enabled while a pack is fetched")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packs")); !os.IsNotExist(err) {
+		t.Fatalf("files were written before the pack arrived: %v", err)
+	}
+
+	release()
+	app.WaitUntil(10*time.Second, func() bool { return ed.FetchingPack() == "" })
+	if !strings.Contains(ed.Status, "Installed pack dungeon-tiles 1.0.0") {
+		t.Fatalf("status = %q", ed.Status)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packs", "dungeon-tiles", "tiles.png")); err != nil {
+		t.Fatal(err)
+	}
+	if !app.Enabled("id:library-remove-dungeon-tiles") {
+		t.Fatal("Remove is disabled after the install")
+	}
+}
+
+// TestLibraryPanelReportsAFailedFetch checks that a fetch that fails reports its error, installs nothing and leaves the panel usable.
+func TestLibraryPanelReportsAFailedFetch(t *testing.T) {
+	dir := writeBareProject(t, "Bare")
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	lib, release, _ := remoteLibrary(t, "tiles.png")
+	release()
+	ed.Library = lib
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	app.Press("id:library-install-dungeon-tiles")
+	app.WaitUntil(10*time.Second, func() bool { return ed.FetchingPack() == "" })
+	if !strings.HasPrefix(ed.Status, "Error: ") || !strings.Contains(ed.Status, "404") {
+		t.Fatalf("status = %q", ed.Status)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packs")); !os.IsNotExist(err) {
+		t.Fatalf("a failed fetch wrote files: %v", err)
+	}
+	if ed.Project.Packs != nil || !app.Enabled("id:library-install-dungeon-tiles") {
+		t.Fatalf("after a failed fetch: packs %+v, Install enabled %v", ed.Project.Packs, app.Enabled("id:library-install-dungeon-tiles"))
+	}
+}
+
+// TestOpeningAProjectCancelsAFetch opens another project while a pack is fetched: the fetch is cancelled, nothing is installed into either project, and a new fetch for the newly opened project installs into it.
+func TestOpeningAProjectCancelsAFetch(t *testing.T) {
+	first := writeBareProject(t, "First")
+	second := writeBareProject(t, "Second")
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(first); err != nil {
+		t.Fatal(err)
+	}
+	lib, release, cancelled := remoteLibrary(t, "")
+	ed.Library = lib
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	app.Press("id:library-install-dungeon-tiles")
+	app.Settle()
+	if ed.FetchingPack() != "dungeon-tiles" {
+		t.Fatalf("FetchingPack = %q", ed.FetchingPack())
+	}
+	if err := ed.OpenProject(second); err != nil {
+		t.Fatal(err)
+	}
+	if ed.FetchingPack() != "" {
+		t.Fatalf("after opening another project FetchingPack = %q", ed.FetchingPack())
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the fetch was not cancelled")
+	}
+	app.Settle()
+	if !app.Enabled("id:library-install-dungeon-tiles") {
+		t.Fatal("Install is disabled after the fetch was cancelled")
+	}
+
+	release()
+	app.Press("id:library-install-dungeon-tiles")
+	app.WaitUntil(10*time.Second, func() bool { return ed.FetchingPack() == "" })
+	if !strings.Contains(ed.Status, "Installed pack dungeon-tiles") {
+		t.Fatalf("status = %q", ed.Status)
+	}
+	if _, err := os.Stat(filepath.Join(second, "packs", "dungeon-tiles", "tiles.png")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(first, "packs")); !os.IsNotExist(err) {
+		t.Fatalf("the cancelled fetch installed into the first project: %v", err)
 	}
 }

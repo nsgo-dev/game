@@ -65,6 +65,21 @@ func TestLibraryInstallIntoAnotherDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "assets", "tiles", "tiles.png")); err != nil {
 		t.Fatal(err)
 	}
+
+	// Installing it again without -dir keeps it where it is rather than moving it to the manifest's directory.
+	a, stdout, stderr = newTestApp(t)
+	if code := run([]string{"library", "-index", repoLibrary, "-project", dir, "install", "dungeon-tiles"}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if got, want := stdout.String(), "dungeon-tiles 1.0.0 is already installed in assets/tiles\n"; got != want {
+		t.Fatalf("installing again = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "packs")); !os.IsNotExist(err) {
+		t.Fatalf("installing again wrote the manifest's directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "assets", "tiles", "tiles.png")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLibraryDigestMatchesTheIndex(t *testing.T) {

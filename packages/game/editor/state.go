@@ -219,8 +219,8 @@ type Editor struct {
 	nextID       int
 	nextListener uint64
 	listeners    map[uint64]func()
-	// fetching names the pack the library panel is fetching from a remote library, or is empty.
-	fetching string
+	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
+	fetch *packFetch
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

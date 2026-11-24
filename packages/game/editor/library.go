@@ -87,13 +87,37 @@ func (e *Editor) applyPackChange(dir string, c *library.Change, done string) err
 	return nil
 }
 
-// FetchingPack names the pack the library panel is fetching from a remote library, or is empty.
-func (e *Editor) FetchingPack() string { return e.fetching }
+// packFetch is a fetch of a pack from a remote library running off the event loop.
+type packFetch struct {
+	// name is the pack's name.
+	name string
+	// project is the path of the project the pack is for.
+	project string
+	// cancel stops the fetch.
+	cancel context.CancelFunc
+}
 
-// installFromLibrary fetches the pack called name from Library and installs it. A library on disk is read at once; a remote one is fetched off the event loop and installed back on it through cx, while FetchingPack names the pack.
+// FetchingPack names the pack the library panel is fetching from a remote library, or is empty.
+func (e *Editor) FetchingPack() string {
+	if e.fetch == nil {
+		return ""
+	}
+	return e.fetch.name
+}
+
+// stopFetch cancels the library panel's fetch under way, if any, so that its pack is not installed; opening another project and closing the panel do.
+func (e *Editor) stopFetch() {
+	if e.fetch != nil {
+		e.fetch.cancel()
+		e.fetch = nil
+		e.notify()
+	}
+}
+
+// installFromLibrary fetches the pack called name from Library and installs it. A library on disk is read at once; a remote one is fetched off the event loop and installed back on it through cx, while FetchingPack names the pack. A fetch that fails, or that is cancelled by stopFetch, installs nothing, and so does one that finishes after another project was opened.
 func (e *Editor) installFromLibrary(cx *core.Scope, name string) {
 	lib := e.Library
-	if lib == nil || e.fetching != "" {
+	if lib == nil || e.fetch != nil {
 		return
 	}
 	if !lib.Remote() {
@@ -104,13 +128,23 @@ func (e *Editor) installFromLibrary(cx *core.Scope, name string) {
 		e.report(err)
 		return
 	}
-	e.fetching = name
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &packFetch{name: name, project: e.ProjectPath, cancel: cancel}
+	e.fetch = f
 	e.Status = "Fetching pack " + name + "…"
 	e.notify()
 	go func() {
-		p, err := lib.Fetch(context.Background(), name)
+		p, err := lib.Fetch(ctx, name)
 		cx.Post(func() {
-			e.fetching = ""
+			cancel()
+			if e.fetch != f {
+				// stopFetch cancelled this fetch; the project it was for may no longer be open.
+				return
+			}
+			e.fetch = nil
+			if err == nil && e.ProjectPath != f.project {
+				err = errors.New("editor: the project changed while pack " + name + " was fetched; it was not installed")
+			}
 			if err == nil {
 				err = e.InstallPack(p)
 			}
@@ -142,8 +176,10 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 	blocked := func() bool {
 		_ = rev.Get()
-		return ed.Playing() || ed.Project == nil || ed.fetching != ""
+		return ed.Playing() || ed.Project == nil || ed.fetch != nil
 	}
+	// A fetch the panel started ends with it.
+	cx.Cleanup(ed.stopFetch)
 
 	rows := make([]core.Node, 0, len(entries))
 	for _, entry := range entries {
@@ -197,7 +233,7 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							},
 							Busy: func() bool {
 								_ = rev.Get()
-								return ed.fetching == e.Name
+								return ed.FetchingPack() == e.Name
 							},
 							Disabled: func() bool {
 								_, digest := installed(e.Name)

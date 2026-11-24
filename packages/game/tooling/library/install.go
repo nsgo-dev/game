@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 )
@@ -26,12 +27,14 @@ type Change struct {
 
 	// unchanged is whether Project encodes as the project file before did.
 	unchanged bool
+	// cleanTop is the directory a removal deletes the emptied directories up to and including (cleanBound), or empty to delete none.
+	cleanTop string
 }
 
 // NoOp reports whether applying c would change nothing: no file to write or remove, and the same project file.
 func (c *Change) NoOp() bool { return c.unchanged && len(c.Write) == 0 && len(c.Remove) == 0 }
 
-// PlanInstall works out what installing p into the project at the root of fsys, whose project file is f, does, without writing anything. The pack's files go under dir, or, when dir is empty, the manifest's into or DefaultDir.
+// PlanInstall works out what installing p into the project at the root of fsys, whose project file is f, does, without writing anything. The pack's files go under dir; when dir is empty, an update keeps them in the directory the installed version went to, and a first install puts them in the manifest's into or DefaultDir. The directory must stay inside the project, and none of its elements may be hidden (start with '.') or be a name some platform cannot hold.
 //
 // When f already records the pack, the install updates it: the files of the old version the new one lacks are removed, the others replaced, and the autoload entries and plugins it added are replaced by the new version's, keeping their places. A file the project already has is refused unless the old version wrote it or it has the content the pack would write, and so is a file another pack wrote; an autoload scene or resource of the pack's name that the project already has is refused too. A plugin the project already turns on is left as it is and not recorded as the pack's.
 //
@@ -41,14 +44,18 @@ func PlanInstall(fsys fs.FS, f *project.File, p *Pack, dir string) (*Change, err
 	if err := ValidateManifest(m); err != nil {
 		return nil, err
 	}
+	at := slices.IndexFunc(f.Packs, func(r project.Pack) bool { return r.Name == m.Name })
+	if dir == "" && at >= 0 {
+		dir = f.Packs[at].Dir
+	}
 	if dir == "" {
 		dir = m.Into
 	}
 	if dir == "" {
 		dir = DefaultDir(m.Name)
 	}
-	if !isPackPath(dir) {
-		return nil, fmt.Errorf("library: install directory %q must be a slash-separated directory inside the project", dir)
+	if err := validateInstallDir(dir); err != nil {
+		return nil, err
 	}
 	names := p.Names()
 	if !slices.Equal(names, manifestFiles(m)) {
@@ -62,7 +69,6 @@ func PlanInstall(fsys fs.FS, f *project.File, p *Pack, dir string) (*Change, err
 	c := &Change{Project: next, Write: map[string][]byte{}}
 
 	var oldPaths map[string]bool
-	at := slices.IndexFunc(next.Packs, func(r project.Pack) bool { return r.Name == m.Name })
 	var old project.Pack
 	if at >= 0 {
 		old = next.Packs[at]
@@ -70,12 +76,14 @@ func PlanInstall(fsys fs.FS, f *project.File, p *Pack, dir string) (*Change, err
 		for _, p := range old.Paths() {
 			oldPaths[p] = true
 		}
+		c.cleanTop = cleanBound(old)
 	}
+	// others maps each file another pack wrote, folded to lower case as a case-insensitive file system sees it, to that pack.
 	others := map[string]string{}
 	for _, r := range next.Packs {
 		if r.Name != m.Name {
 			for _, p := range r.Paths() {
-				others[p] = r.Name
+				others[strings.ToLower(p)] = r.Name
 			}
 		}
 	}
@@ -85,7 +93,7 @@ func PlanInstall(fsys fs.FS, f *project.File, p *Pack, dir string) (*Change, err
 	for _, name := range names {
 		dest := path.Join(dir, name)
 		newPaths[dest] = true
-		if owner, ok := others[dest]; ok {
+		if owner, ok := others[strings.ToLower(dest)]; ok {
 			return nil, fmt.Errorf("library: pack %s would write %s, which pack %s wrote", m.Name, dest, owner)
 		}
 		existing, err := fs.ReadFile(fsys, dest)
@@ -98,7 +106,15 @@ func PlanInstall(fsys fs.FS, f *project.File, p *Pack, dir string) (*Change, err
 		case errors.Is(err, fs.ErrNotExist):
 			c.Write[dest] = p.Files[name]
 		default:
-			return nil, fmt.Errorf("library: pack %s: %w", m.Name, err)
+			blocked, berr := blockedByOld(fsys, dest, oldPaths)
+			if berr != nil {
+				return nil, fmt.Errorf("library: pack %s: %w", m.Name, berr)
+			}
+			if !blocked {
+				return nil, fmt.Errorf("library: pack %s: %w", m.Name, err)
+			}
+			// The old version's file is where the new one has a directory, or the other way round; ApplyFiles removes the old before it writes the new.
+			c.Write[dest] = p.Files[name]
 		}
 	}
 	for _, p := range old.Paths() {
@@ -149,7 +165,7 @@ func PlanRemove(fsys fs.FS, f *project.File, name string) (*Change, error) {
 		return nil, fmt.Errorf("library: the project has no pack %q installed", name)
 	}
 	old := next.Packs[at]
-	c := &Change{Project: next, Pack: old}
+	c := &Change{Project: next, Pack: old, cleanTop: cleanBound(old)}
 	for _, p := range old.Paths() {
 		if _, err := fs.Stat(fsys, p); err == nil {
 			c.Remove = append(c.Remove, p)
@@ -169,6 +185,44 @@ func PlanRemove(fsys fs.FS, f *project.File, name string) (*Change, error) {
 		return nil, fmt.Errorf("library: pack %s: %w", name, err)
 	}
 	return c, c.finish(before)
+}
+
+// blockedByOld reports whether dest, which cannot be read as a file, is blocked only by files of the old version of the pack, recorded in oldPaths, that the update removes: one of its ancestors is such a file, or it is a directory holding only such files.
+func blockedByOld(fsys fs.FS, dest string, oldPaths map[string]bool) (bool, error) {
+	for d := path.Dir(dest); d != "."; d = path.Dir(d) {
+		if oldPaths[d] {
+			return true, nil
+		}
+	}
+	info, err := fs.Stat(fsys, dest)
+	if err != nil || !info.IsDir() {
+		return false, nil
+	}
+	blocked := true
+	err = fs.WalkDir(fsys, dest, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !oldPaths[p] {
+			blocked = false
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return blocked, err
+}
+
+// cleanBound returns the directory removing the files of the installed pack r deletes emptied directories up to, and including: r.Dir, or packs for a pack in its DefaultDir. A directory above it, which the project may have had before the install, is kept even when empty.
+func cleanBound(r project.Pack) string {
+	if r.Dir == DefaultDir(r.Name) {
+		return path.Dir(r.Dir)
+	}
+	return r.Dir
+}
+
+// within reports whether the slash-separated path p is dir or inside it.
+func within(p, dir string) bool {
+	return dir != "" && (p == dir || strings.HasPrefix(p, dir+"/"))
 }
 
 // finish records whether c's project encodes as before did.
@@ -268,7 +322,7 @@ func relinkEntries(kind string, list []project.Entry, old []string, add []projec
 	return out, added, nil
 }
 
-// Apply carries out c in the project directory projectDir: it writes and removes c's files, deleting the directories a removal leaves empty, then writes c.Project to game.yaml in the canonical form project.Encode writes, which keeps no comments. When a step fails, it restores the files it had changed and returns the error.
+// Apply carries out c in the project directory projectDir: it removes and writes c's files, deleting the directories a removal leaves empty inside the pack's directory (and packs, for a pack in its DefaultDir), then writes c.Project to game.yaml in the canonical form project.Encode writes, which keeps no comments. When a step fails, it restores the files it had changed and returns the error.
 func (c *Change) Apply(projectDir string) error {
 	if c.NoOp() {
 		return nil
@@ -289,7 +343,7 @@ func (c *Change) Apply(projectDir string) error {
 	return nil
 }
 
-// ApplyFiles writes and removes c's files in the project directory projectDir, leaving game.yaml to the caller, such as an editor that saves its open project. It returns undo, which restores every file it changed, for when saving the project then fails. When ApplyFiles itself fails, it has already restored them.
+// ApplyFiles removes and writes c's files in the project directory projectDir, leaving game.yaml to the caller, such as an editor that saves its open project. It removes first, so that an update may put a file where the old version had a directory or the other way round, and deletes the directories a removal leaves empty inside the pack's directory (and packs, for a pack in its DefaultDir), never above it. It returns undo, which restores every file it changed, for when saving the project then fails. When ApplyFiles itself fails, it has already restored them.
 func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 	root, err := os.OpenRoot(projectDir)
 	if err != nil {
@@ -298,11 +352,12 @@ func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 	defer root.Close()
 
 	type saved struct {
-		name    string
-		data    []byte
-		existed bool
+		name string
+		data []byte
 	}
-	var journal []saved
+	// removed holds the files removed, with their content; written holds the files written, with their content before when they existed.
+	var removed, written []saved
+	var existed []bool
 	var madeDirs []string
 	undo = func() error {
 		r, err := os.OpenRoot(projectDir)
@@ -311,13 +366,16 @@ func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 		}
 		defer r.Close()
 		var errs []error
-		for _, s := range slices.Backward(journal) {
-			if s.existed {
-				if err := r.MkdirAll(path.Dir(s.name), 0o755); err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				errs = append(errs, writeRoot(r, s.name, s.data))
+		restore := func(s saved) {
+			if err := r.MkdirAll(path.Dir(s.name), 0o755); err != nil {
+				errs = append(errs, err)
+				return
+			}
+			errs = append(errs, writeRoot(r, s.name, s.data))
+		}
+		for i, s := range slices.Backward(written) {
+			if existed[i] {
+				restore(s)
 			} else if err := r.Remove(s.name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				errs = append(errs, err)
 			}
@@ -325,10 +383,33 @@ func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 		for _, d := range slices.Backward(madeDirs) {
 			_ = r.Remove(d)
 		}
+		for _, s := range slices.Backward(removed) {
+			restore(s)
+		}
 		return errors.Join(errs...)
 	}
 	fail := func(err error) (func() error, error) {
 		return nil, errors.Join(fmt.Errorf("library: %w", err), undo())
+	}
+
+	for _, name := range c.Remove {
+		prev, err := root.ReadFile(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fail(err)
+		}
+		removed = append(removed, saved{name, prev})
+		if err := root.Remove(name); err != nil {
+			return fail(err)
+		}
+		// Delete the directories the removal emptied, up to the pack's own; Remove fails on one that is not empty.
+		for d := path.Dir(name); within(d, c.cleanTop); d = path.Dir(d) {
+			if root.Remove(d) != nil {
+				break
+			}
+		}
 	}
 
 	names := make([]string, 0, len(c.Write))
@@ -338,7 +419,7 @@ func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 	slices.Sort(names)
 	for _, name := range names {
 		prev, err := root.ReadFile(name)
-		existed := err == nil
+		ok := err == nil
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fail(err)
 		}
@@ -355,28 +436,10 @@ func (c *Change) ApplyFiles(projectDir string) (undo func() error, err error) {
 		for _, d := range slices.Backward(missing) {
 			madeDirs = append(madeDirs, d)
 		}
-		journal = append(journal, saved{name, prev, existed})
+		written = append(written, saved{name, prev})
+		existed = append(existed, ok)
 		if err := writeRoot(root, name, c.Write[name]); err != nil {
 			return fail(err)
-		}
-	}
-	for _, name := range c.Remove {
-		prev, err := root.ReadFile(name)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return fail(err)
-		}
-		journal = append(journal, saved{name, prev, true})
-		if err := root.Remove(name); err != nil {
-			return fail(err)
-		}
-		// Delete the directories the removal emptied, as the install made them.
-		for d := path.Dir(name); d != "."; d = path.Dir(d) {
-			if root.Remove(d) != nil {
-				break
-			}
 		}
 	}
 	return undo, nil
@@ -439,16 +502,11 @@ func Remove(projectDir, name string) (*Change, error) {
 	return c, c.Apply(projectDir)
 }
 
-// readProject reads and parses the game.yaml in dir.
+// readProject reads and parses the game.yaml in dir with project.ReadFS.
 func readProject(dir string) (*project.File, error) {
-	path := filepath.Join(dir, project.FileName)
-	data, err := os.ReadFile(path)
+	f, err := project.ReadFS(os.DirFS(dir))
 	if err != nil {
-		return nil, fmt.Errorf("library: %w", err)
-	}
-	f, err := project.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Join(dir, project.FileName), err)
 	}
 	return f, nil
 }
