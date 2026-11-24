@@ -1092,3 +1092,48 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **图集变换**：`LightmapRef.UVScale` / `UVOffset` 是唯一生效的图集变换；`LightmapRef.Texture` 不携带 scale 与 offset，因此不要再用 `TransformTexCoords` 对它应用一次。数值来源见[烘焙光照贴图](3d-models-blender.md#烘焙光照贴图)。
 - **纹理流式加载**：`BeginFrame` 会丢弃已关闭的光照贴图与反照率纹理对应的缓存绑定组，因此流式加载关卡或热重载光照贴图不会让缓存无限增长。
 - **适用范围**：`LightmapRenderer` 是独立的渲染路径，结果为反照率乘以（烘焙光照加一盏 Lambert 光源）。它不支持金属度-粗糙度、法线、遮蔽或自发光贴图，也不读取 `LightRig`。把光照贴图作为间接光项接入 PBR 材质路径的工作见 [#752](https://github.com/nsgo-dev/game/issues/752)。
+
+## 反射探针与光照探针（`ReflectionProbeSet`、`LightProbeVolume`、`ProbeRenderer`）
+
+`game/render3d` 提供支持视差盒投影（box projection）与平滑天空回退的局部立方体贴图反射探针，以及基于 L2 9 阶球谐函数（`SH9`）的光照探针，让动态物体在烘焙场景中自然获取间接光照与局部反射：
+
+```go
+// 1. 烘焙或上传局部反射探针，并在天空立方体贴图之上最多混合两个探针：
+var reflSet render3d.ReflectionProbeSet
+probeA := &render3d.ReflectionProbe{
+	ID:            "warm-room",
+	Position:      math3d.Vec3{X: -3},
+	BoxMin:        math3d.Vec3{X: -6, Y: -3, Z: -3},
+	BoxMax:        math3d.Vec3{X: 1, Y: 3, Z: 3},
+	BlendDistance: 2,
+	Priority:      1,
+	BoxProjection: true,
+}
+_ = render3d.BakeReflectionProbe(cx, dev, probeA, 64, render3d.ProbeCubemapUpload{
+	Mipmaps:  true,
+	Retained: true,
+}, sampleRoomRadiance)
+reflSet.Add(probeA)
+
+// 2. 烘焙 3D 光照探针网格（或与散点 LightProbe 组合）供动态物体采样：
+grid, _ := render3d.NewLightProbeGrid(sceneBounds, 4, 2, 4)
+grid.Bake(16, sampleSceneIndirect)
+lightVol := &render3d.LightProbeVolume{Grid: grid}
+
+// 3. 使用 ProbeRenderer（CameraGroup = 0，ProbeGroup = 1）绘制动态物体：
+blend := reflSet.SelectReflectionProbes(objPos)
+sh := lightVol.SampleLightProbes(objPos)
+_ = binding.Update(render3d.ProbeUniform{
+	Model:    objTransform,
+	Material: render3d.ProbeMaterial{Albedo: [3]float32{0.9, 0.9, 0.9}, Roughness: 0.25, Metallic: 0.1, F0: 0.04},
+	Blend:    blend,
+	LightSH:  sh,
+}, skyCubemap)
+probeRenderer.Draw(pass, camBuf, binding, mesh)
+```
+
+- **局部反射立方体贴图与视差盒投影**：`ProbeCubemap` 封装 6 面 `gpu.DimCube` 纹理（`UploadProbeCubemap`、`UploadProbeCubemapRGBA`、`UploadProbeCubemapLinear`、`NewSolidProbeCubemap`），在所有后端通过 CPU 盒式滤波生成 mipmap 链，并保留线性 CPU 副本供 `SampleCPU` 与 `BakeSH9` 使用。`BoxProjectDirection` 在世界空间计算射线与包围盒求交的视差校正方向，与 WGSL 着色器完全一致。
+- **探针之间及天空环境的平滑混合**：`ReflectionProbeSet.SelectReflectionProbes` 按 `Priority`、平滑 `Influence` 权重与包围盒体积选取最多两个重叠探针，输出满足 `Weight0 + Weight1 + SkyWeight == 1` 的连续权重，使物体在相邻或嵌套房间之间以及离开探针范围回到全局天空环境时过渡平滑无跳变。
+- **按需烘焙**：`BakeReflectionProbe` 按需通过 CPU/程序化采样函数烘焙探针；`BakeReflectionProbeGPU` 使用 `ProbeFaceCamera` 将 6 个面渲染到离屏目标、回读并翻转行序到标准立方体贴图方向，上传 mipmap 并清除 `ReflectionProbe.Dirty`。可用 `ReflectionProbeSet.DirtyProbes` 列出待烘焙探针。
+- **球谐光照探针（`SH9`）**：`BakeSH9FromCubemap` 与 `BakeSH9FromFunc` 按精确解析纹素立体角（总和严格等于 `4π`）对立方体贴图积分，`EvaluateSH9` 计算余弦卷积后的漫反射间接光。`LightProbeGrid` 提供 O(1) 三线性插值；`LightProbeVolume` 可将规则网格与散点 `LightProbe`（支持有限半径平滑衰减或全局反距离加权）及 `FallbackSH` 结合。
+- **跨后端 GPU 着色器（`ProbeWGSL`、`ProbeRenderer`）**：复用 `MeshVertexLayout` 与 `CameraGroup`（group 0）的 `CameraBuffer`，在 `ProbeGroup`（group 1）绑定逐物体 `ProbeBinding`，不依赖计算着色器或 `exp`/`exp2`/`log2`，可在 Metal、Direct3D 11、OpenGL 3.3、WebGPU、WebGL 2、OpenGL ES 3.0（`nsgotest.NoGPUCompute`）与 NSGo 软件设备上一致运行。

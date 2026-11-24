@@ -1092,3 +1092,48 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **Atlas transform**: `LightmapRef.UVScale` / `UVOffset` are the authoritative atlas transform; `LightmapRef.Texture` carries no scale or offset, so do not also apply it with `TransformTexCoords`. See [Baked lightmaps](3d-models-blender.md#baked-lightmaps) for where the values come from.
 - **Texture streaming**: `BeginFrame` drops cached bind groups of lightmap and albedo textures that have been closed, so streaming levels or hot-reloading lightmaps does not grow the cache.
 - **Scope**: `LightmapRenderer` is a standalone path, albedo times (baked irradiance plus one Lambertian light). It has no metallic-roughness, normal, occlusion or emissive maps and does not read a `LightRig`. Feeding lightmaps into the PBR material path as its indirect term is tracked in [#752](https://github.com/nsgo-dev/game/issues/752).
+
+## Reflection probes and light probes (`ReflectionProbeSet`, `LightProbeVolume`, `ProbeRenderer`)
+
+`game/render3d` provides local cubemap reflection probes with parallax-corrected box projection and smooth sky fallback, plus L2 9-band spherical-harmonic (`SH9`) light probes that give dynamic objects baked indirect lighting across static scenes:
+
+```go
+// 1. Bake or upload local reflection probes and blend up to two over the sky cubemap:
+var reflSet render3d.ReflectionProbeSet
+probeA := &render3d.ReflectionProbe{
+	ID:            "warm-room",
+	Position:      math3d.Vec3{X: -3},
+	BoxMin:        math3d.Vec3{X: -6, Y: -3, Z: -3},
+	BoxMax:        math3d.Vec3{X: 1, Y: 3, Z: 3},
+	BlendDistance: 2,
+	Priority:      1,
+	BoxProjection: true,
+}
+_ = render3d.BakeReflectionProbe(cx, dev, probeA, 64, render3d.ProbeCubemapUpload{
+	Mipmaps:  true,
+	Retained: true,
+}, sampleRoomRadiance)
+reflSet.Add(probeA)
+
+// 2. Bake a 3D light-probe grid (or combine with scattered LightProbes) for dynamic objects:
+grid, _ := render3d.NewLightProbeGrid(sceneBounds, 4, 2, 4)
+grid.Bake(16, sampleSceneIndirect)
+lightVol := &render3d.LightProbeVolume{Grid: grid}
+
+// 3. Shade each dynamic object with ProbeRenderer (CameraGroup = 0, ProbeGroup = 1):
+blend := reflSet.SelectReflectionProbes(objPos)
+sh := lightVol.SampleLightProbes(objPos)
+_ = binding.Update(render3d.ProbeUniform{
+	Model:    objTransform,
+	Material: render3d.ProbeMaterial{Albedo: [3]float32{0.9, 0.9, 0.9}, Roughness: 0.25, Metallic: 0.1, F0: 0.04},
+	Blend:    blend,
+	LightSH:  sh,
+}, skyCubemap)
+probeRenderer.Draw(pass, camBuf, binding, mesh)
+```
+
+- **Local reflection cubemaps and parallax box projection**: `ProbeCubemap` wraps a 6-face `gpu.DimCube` texture (`UploadProbeCubemap`, `UploadProbeCubemapRGBA`, `UploadProbeCubemapLinear`, `NewSolidProbeCubemap`) with CPU box-filtered mip chains across all backends and a CPU linear mirror (`SampleCPU`, `BakeSH9`). `BoxProjectDirection` computes ray-AABB parallax correction in world space matching the WGSL shader.
+- **Smooth probe blending over sky**: `ReflectionProbeSet.SelectReflectionProbes` picks up to two overlapping probes ordered by `Priority`, smoothstep `Influence`, and box volume, producing continuous weights `Weight0 + Weight1 + SkyWeight == 1` so objects blend seamlessly between adjacent or nested rooms and back to the global sky cubemap outside probe boxes.
+- **On-request baking**: `BakeReflectionProbe` samples a procedural or CPU scene function on demand, while `BakeReflectionProbeGPU` renders all 6 faces (`ProbeFaceCamera`) into an offscreen render target, flips rows to canonical cubemap orientation, uploads mipmaps, and clears `ReflectionProbe.Dirty`. Track probes awaiting a bake with `ReflectionProbeSet.DirtyProbes`.
+- **Spherical-harmonic light probes (`SH9`)**: `BakeSH9FromCubemap` and `BakeSH9FromFunc` integrate cubemap faces with exact analytical per-texel solid angles (`4π` total), and `EvaluateSH9` evaluates cosine-convolved diffuse indirect light. `LightProbeGrid` provides O(1) trilinear interpolation; `LightProbeVolume` combines a regular grid with scattered `LightProbe` points (finite-radius smooth falloff or unbounded inverse-distance weighting) and an optional `FallbackSH`.
+- **Portable GPU shader (`ProbeWGSL`, `ProbeRenderer`)**: renders meshes using `MeshVertexLayout`, `CameraBuffer` at `CameraGroup` (0), and per-object `ProbeBinding` at `ProbeGroup` (1) without compute shaders or `exp`/`exp2`/`log2`, so it runs identically on Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0 (`nsgotest.NoGPUCompute`), and NSGo's software device.
