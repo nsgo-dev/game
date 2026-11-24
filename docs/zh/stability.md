@@ -110,6 +110,7 @@
 | `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
 | `game/project` | 实验性 | [项目文件](project.md) |
+| `game/quest` | 实验性 | [quest](quest.md) |
 | `game/random` | 稳定 | [确定性指南](determinism.md) |
 | `game/render3d` | 实验性 | [render3d](render3d.md) |
 | `game/replay` | 实验性 | [replay](replay.md) |
