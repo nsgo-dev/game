@@ -20,6 +20,10 @@ func TestParseEncodeRoundTrip(t *testing.T) {
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 1, RMSDB: ptr(-14.5), Bitrate: 96, Loop: &importsettings.Loop{Start: 0, End: 4410}}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "mp3", PeakDB: ptr(-1.0)}},
 		{Version: 1, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
+		{Version: 1, Font: &importsettings.Font{}},
+		{Version: 1, Font: &importsettings.Font{Size: 24, Chars: " 0123456789:\"'#-「」漢字", Padding: ptr(0)}},
+		{Version: 1, Model: &importsettings.Model{}},
+		{Version: 1, Model: &importsettings.Model{Scale: 0.01, Animations: ptr(false)}, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
 		{Version: 1, Image: &importsettings.Image{Filter: "nearest"}, Credit: &importsettings.Credit{Author: "Ana Souza", License: "CC-BY-4.0", Source: "https://example.com/hero", Notice: "Hero by Ana Souza.\n\tLicensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/"}},
 		{Version: 1, Audio: &importsettings.Audio{Rate: 22050}, Credit: &importsettings.Credit{Author: "Studio: \"Night\" #1", License: "(MIT OR Apache-2.0) AND GPL-2.0-or-later WITH Classpath-exception-2.0", Notice: "Copyright: 2026 #1\n- not a list"}},
 	} {
@@ -74,9 +78,17 @@ func TestParseRefuses(t *testing.T) {
 		{"version", "version: 2\nimage: {}\n", "version 2"},
 		{"no version", "image: {}\n", "version 0"},
 		{"unknown field", "version: 1\nimage: {filtre: nearest}\n", "filtre"},
-		{"unknown section", "version: 1\nfont: {}\n", "font"},
-		{"no section", "version: 1\n", "an image, an audio or a credit section"},
-		{"both sections", "version: 1\nimage: {}\naudio: {}\n", "not both"},
+		{"unknown section", "version: 1\nshader: {}\n", "shader"},
+		{"no section", "version: 1\n", "an image, an audio, a font, a model or a credit section"},
+		{"both sections", "version: 1\nimage: {}\naudio: {}\n", "not image and audio"},
+		{"font and model", "version: 1\nfont: {}\nmodel: {}\n", "not font and model"},
+		{"font size", "version: 1\nfont: {size: -1}\n", "size -1"},
+		{"font padding", "version: 1\nfont: {padding: -2}\n", "padding -2"},
+		{"font chars", "version: 1\nfont: {chars: \"ab\\ncd\"}\n", "control character"},
+		{"font field", "version: 1\nfont: {sizes: 3}\n", "sizes"},
+		{"model scale", "version: 1\nmodel: {scale: -0.5}\n", "scale -0.5"},
+		{"model scale nan", "version: 1\nmodel: {scale: .nan}\n", "finite"},
+		{"model field", "version: 1\nmodel: {animation: false}\n", "animation"},
 		{"trailing document", "version: 1\nimage: {}\n---\nversion: 1\n", "trailing"},
 		{"filter", "version: 1\nimage: {filter: cubic}\n", `filter "cubic"`},
 		{"texture format", "version: 1\nimage: {format: astc}\n", `format "astc"`},
@@ -99,6 +111,41 @@ func TestParseRefuses(t *testing.T) {
 				t.Fatalf("Parse error = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestSections(t *testing.T) {
+	for _, tc := range []struct {
+		f    importsettings.File
+		want []string
+	}{
+		{importsettings.File{Version: 1, Credit: &importsettings.Credit{Author: "A", License: "MIT"}}, nil},
+		{importsettings.File{Version: 1, Image: &importsettings.Image{}}, []string{"image"}},
+		{importsettings.File{Version: 1, Font: &importsettings.Font{}, Model: &importsettings.Model{}}, []string{"font", "model"}},
+		{importsettings.File{Version: 1, Image: &importsettings.Image{}, Audio: &importsettings.Audio{}, Font: &importsettings.Font{}, Model: &importsettings.Model{}}, []string{"image", "audio", "font", "model"}},
+	} {
+		if got := tc.f.Sections(); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Sections() = %v, want %v", got, tc.want)
+		}
+	}
+}
+
+func TestEncodeFontAndModel(t *testing.T) {
+	data, err := importsettings.Encode(&importsettings.File{Version: 1, Font: &importsettings.Font{Size: 16, Chars: " AB", Padding: ptr(2)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := importsettings.SchemaComment + "\nversion: 1\nfont:\n  size: 16\n  chars: ' AB'\n  padding: 2\n"
+	if string(data) != want {
+		t.Fatalf("Encode =\n%s\nwant\n%s", data, want)
+	}
+	data, err = importsettings.Encode(&importsettings.File{Version: 1, Model: &importsettings.Model{Scale: 0.01, Animations: ptr(false)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = importsettings.SchemaComment + "\nversion: 1\nmodel:\n  scale: 0.01\n  animations: false\n"
+	if string(data) != want {
+		t.Fatalf("Encode =\n%s\nwant\n%s", data, want)
 	}
 }
 

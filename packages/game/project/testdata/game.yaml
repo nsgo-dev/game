@@ -113,6 +113,17 @@ assets:
       format: aac
       rmsDB: -14.5
       bitrate: 192
+  fonts:
+    - in: fonts/hud.ttf
+      out: assets/fonts/hud.fnt
+      size: 24
+      chars: ' 0123456789'
+      padding: 0
+  models:
+    - in: models/ship.gltf
+      out: assets/ship.glb
+      scale: 0.01
+      animations: false
   manifest:
     in: assets
     out: assets/manifest_gen.go

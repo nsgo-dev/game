@@ -28,7 +28,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `new` | Creates a game project in a directory from a template, with its `go.mod` requiring the game layer and the `game` and `nsgo` tools |
 | `dev` | Runs the game with `nsgo dev`, reloading its assets in the running game when they are saved |
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
-| `assets` | Packs atlases, encodes textures, converts audio and generates the manifest from `game.yaml`, rebuilding only what changed |
+| `assets` | Packs atlases, encodes textures, converts audio, bakes fonts, packs models and generates the manifest from `game.yaml`, rebuilding only what changed |
 | `generate` | Writes a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration |
 | `mv` | Moves or renames a file or directory of a project and rewrites every reference to it, keeping the project index up to date |
 | `index` | Gives every scene and resource file a uid, points references at files moved without the tools, and writes the project index |
@@ -58,6 +58,8 @@ go tool game audio -in music/theme.wav -out assets/theme.m4a -format aac -rms-db
 
 Reads a WAV file, resamples it to `-rate`, mixes it to `-channels`, and normalizes either its peak (`-peak-db`) or its loudness (`-rms-db`, with soft clipping), not both. Passing both is a usage error. WAV output is written in Go; MP3 needs `ffmpeg` on `PATH`, and AAC uses `ffmpeg`, or `afconvert` on macOS when `ffmpeg` is missing; otherwise the command fails with an error naming the missing encoder.
 
+When an [import settings sidecar](#import-settings-beside-each-asset) sits beside the input, such as `sfx/jump.wav.import.yaml`, its `audio` settings apply as they do in `assets`, loop points included, and a flag given on the command line wins over the sidecar's setting of the same name: `-peak-db` or `-rms-db` replaces the sidecar's level, whichever kind it is. A loop needs `wav` output, and a sidecar holding settings for another kind of asset is refused.
+
 ### manifest
 
 ```sh
@@ -74,6 +76,8 @@ go tool game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.p
 ```
 
 Encodes the image named by the argument (or `-in`) into a KTX2 file at `-out` (`-o` for short), by default the input's path with a `.ktx2` extension. `-format` is `bc1`, `bc3`, `etc2` or `rgba8`, `-mipmaps` writes the whole chain down to 1x1, and `-srgb` marks the texture sRGB and filters its mipmaps in linear light.
+
+When an [import settings sidecar](#import-settings-beside-each-asset) sits beside the input, such as `art/albedo.png.import.yaml`, its `image` settings apply as they do for a texture target of `assets`: `format`, `mipmaps` and `srgb`, under the flags given, which win, and `filter`, which is written into the KTX2 file as `game.filter`. `slice` is an atlas's setting and is not read, since a texture holds the whole image, and a sidecar holding settings for another kind of asset is refused.
 
 ### editor
 
@@ -219,7 +223,7 @@ go tool game assets
 go tool game assets -check
 ```
 
-Builds every asset target that `game.yaml` (or the file `-in` names) declares, in one run: it packs the atlases, encodes the textures and converts the audio as `pack`, `tex` and `audio` do, then regenerates the manifest as `manifest` does. Each target is rebuilt only when it changed: a second run with nothing changed writes no file, and changing one image repacks only the atlas it belongs to. It prints a line for each target it built and then the counts, such as `1 built, 4 up to date`.
+Builds every asset target that `game.yaml` (or the file `-in` names) declares, in one run: it packs the atlases, encodes the textures and converts the audio as `pack`, `tex` and `audio` do, bakes the fonts into bitmap fonts and packs the models into single GLB files, then regenerates the manifest as `manifest` does. Each target is rebuilt only when it changed: a second run with nothing changed writes no file, and changing one image repacks only the atlas it belongs to. It prints a line for each target it built and then the counts, such as `1 built, 4 up to date`.
 
 The targets are the `assets` section of `game.yaml`, the project file, which the command reads through package `project` as the game and the editor do, and which `release` accepts too, so one `game.yaml` holds them beside the window, input, autoload and export settings ([Project File](project.md)). The file is versioned YAML and the command refuses a field it does not know, a file without an `assets` section, and a file the project schema refuses. The section's paths are slash-separated, relative to the file's directory, and may not leave it:
 
@@ -254,6 +258,17 @@ assets:
       channels: 1
       peakDB: -1          # or rmsDB, not both
       bitrate: 128        # for aac and mp3
+  fonts:
+    - in: fonts/Inter.ttf # a TrueType or OpenType font
+      out: assets/fonts/hud.fnt  # pages hud.png, or hud-0.png, hud-1.png and so on, beside it
+      size: 24            # pixels; 32 when omitted
+      chars: " 0123456789:" # printable ASCII when omitted
+      padding: 1          # 1 when omitted
+  models:
+    - in: models/ship.gltf  # .gltf or .glb, with the buffers and images it names beside it
+      out: assets/ship.glb
+      scale: 0.01         # 1 when omitted
+      animations: true    # true when omitted
   manifest:
     in: assets
     out: assets/manifest_gen.go
@@ -263,15 +278,19 @@ assets:
     embedDir: ""
 ```
 
-Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file: an atlas named `ui` writes `ui.png` and `ui.json`, or `ui-0.png`, `ui-1.png` and so on with their `.json` files when it needs several pages, so no other target in its folder may write those names, nor another atlas there be named `ui` or `ui-1`. No target, and not the cache, may write over `game.yaml` or a file a target reads, since the next run would then read its own output. An atlas may not write its pages into a folder an atlas reads images from, nor may another target or the cache write a `.png` file there, since the atlas would then pack it on the next run, and the cache may not be inside the manifest's folder, since the manifest would then list it; a folder whose name starts with a dot is skipped by both scans, so any of them may go there.
+Every list and the manifest are optional, and each setting means what the flag of the same name means for the single command. Two targets may not write the same file: an atlas named `ui` writes `ui.png` and `ui.json`, or `ui-0.png`, `ui-1.png` and so on with their `.json` files when it needs several pages, so no other target in its folder may write those names, nor another atlas there be named `ui` or `ui-1`. No target, and not the cache, may write over `game.yaml` or a file a target reads, since the next run would then read its own output. An atlas may not write its pages into a folder an atlas reads images from, nor may another target or the cache write a `.png` file there, since the atlas would then pack it on the next run, and the cache may not be inside the manifest's folder, since the manifest would then list it; a folder whose name starts with a dot is skipped by both scans, so any of them may go there. A font's pages are named after its `.fnt` file as an atlas's are after its name, `hud.png` or `hud-0.png`, `hud-1.png` and so on beside `hud.fnt`, and follow the same rules.
 
-What each target was built from is kept in a cache, `.game/assets-cache.yaml` unless `assets.cache` names another path. It is YAML: for each target, a SHA-256 key over its settings, the version of the game layer that built it, the path and content of every input and of the import settings sidecar beside it and, for AAC and MP3, the external encoder and its version, and the path and SHA-256 of every file it wrote. A target is up to date when its key matches and its outputs are still on disk with that content, so editing or deleting an output also rebuilds it, and so does installing another encoder. When an atlas needs fewer pages than before, the pages it no longer writes are deleted, and so are other page files of its name in its folder. When a target is renamed, moved to another output or removed from `game.yaml`, the files it last wrote are deleted before the manifest is generated. The manifest needs no cache entry: it is generated each run, which reads no file's content, and written only when it differs. A missing or damaged cache only costs a full rebuild. Add the `.game` folder to `.gitignore`.
+A font target bakes a TrueType or OpenType font into an [AngelCode BMFont](text.md) that `text.LoadBMFont` reads: each character of `chars` the font has a glyph for is drawn at `size` pixels in white with its coverage as alpha, the glyphs are packed onto PNG pages up to 2048 pixels a side, `padding` pixels apart, and the `.fnt` text file records each glyph's place, offsets and advance, the line height and baseline, and the font's kerning between the baked characters. A character the font has no glyph for is left out; a font with none of them is an error.
+
+A model target packs a glTF model into one binary glTF file that [gltf](3d-models-blender.md) loads with nothing to resolve: the buffers the model holds or names, a `.glb` file's binary chunk among them, are merged into the GLB's binary chunk, and each image it names by file or data URI is embedded there with its media type. Every other property is kept, extensions and extras included, and the result is checked by loading it. `scale` puts each scene's nodes under a new root node scaled by it, such as `0.01` for a model exported in centimeters, and `animations: false` leaves the animations out. The buffers and images the model names must be relative paths inside the project; they are inputs of the target, so editing a texture beside a `.gltf` file repacks it.
+
+What each target was built from is kept in a cache, `.game/assets-cache.yaml` unless `assets.cache` names another path. It is YAML: for each target, a SHA-256 key over its settings, the version of the game layer that built it, the path and content of every input, a model's buffers and images included, and of the import settings sidecar beside it and, for AAC and MP3, the external encoder and its version, and the path and SHA-256 of every file it wrote. A target is up to date when its key matches and its outputs are still on disk with that content, so editing or deleting an output also rebuilds it, and so does installing another encoder. When an atlas needs fewer pages than before, the pages it no longer writes are deleted, and so are other page files of its name in its folder. When a target is renamed, moved to another output or removed from `game.yaml`, the files it last wrote are deleted before the manifest is generated. The manifest needs no cache entry: it is generated each run, which reads no file's content, and written only when it differs. A missing or damaged cache only costs a full rebuild. Add the `.game` folder to `.gitignore`.
 
 `-force` rebuilds every target. `-check` writes nothing in the project: it lists the targets that are out of date and exits with 1 if there are any, for CI. A target the cache does not show as up to date, as in a fresh checkout without the `.game` folder, is built in a temporary folder and counts as up to date when the files in the project are exactly what it writes, so CI needs no cache when the outputs are committed. AAC and MP3 are the exception: another encoder, or another version of one, writes different bytes for the same input, so without a cache entry they count as up to date when their output exists, and CI needs no encoder. An atlas whose folder holds a page file of its name that it does not write, such as `ui-1.png` left from a build that needed more pages, is out of date until a build deletes it. When a target fails, the command keeps the cache of the targets it built before it, so the next run starts from there.
 
 #### Import settings beside each asset
 
-An asset may have a sidecar: a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do, and who made it under what license. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/packages/game/tooling/importsettings` reads and writes; it holds an `image` or an `audio` section, never both, a `credit` section, or a credit with one of the others, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
+An asset may have a sidecar: a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do, and who made it under what license. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/packages/game/tooling/importsettings` reads and writes; it holds one `image`, `audio`, `font` or `model` section, a `credit` section, or a credit with one of the others, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
 
 ```yaml
 # art/albedo.png.import.yaml, read by a texture target
@@ -303,6 +322,23 @@ audio:
 ```
 
 ```yaml
+# fonts/Inter.ttf.import.yaml, read by a font target
+version: 1
+font:
+  size: 24
+  chars: " 0123456789:"  # each once, in any order
+  padding: 2
+```
+
+```yaml
+# models/ship.gltf.import.yaml, read by a model target
+version: 1
+model:
+  scale: 0.01
+  animations: false
+```
+
+```yaml
 # assets/fonts/pixel.ttf.import.yaml, a credit beside an asset no target imports
 version: 1
 credit:
@@ -314,12 +350,14 @@ credit:
     Licensed under the SIL Open Font License, Version 1.1.
 ```
 
-- A texture target reads `filter`, `format`, `mipmaps` and `srgb`. `filter` is stored under the key `game.filter` of the KTX2 file's key/value data; nothing in the game layer loads KTX2 textures or reads that key yet, so it changes the file but not how the texture is drawn. `slice` is refused, since a texture holds the whole image, unless an atlas also reads the image.
+- A texture target reads `filter`, `format`, `mipmaps` and `srgb`. `filter` is stored under the key `game.filter` of the KTX2 file's key/value data, and [`render3d.LoadKTX2`](render3d.md) sets the sampler's filters from it when it loads the texture: `nearest` draws it sharp, as pixel art wants, and `linear` blends neighboring texels. `slice` is refused, since a texture holds the whole image, unless an atlas also reads the image.
 - An atlas target reads `slice` from the sidecar of each image in its folder: the image is cut into cells of `width` by `height` pixels, `margin` pixels from its top and left edges and `spacing` pixels apart, taken row by row, and cell `i` of `run.png` is packed as the frame `run_i.png`. `count` keeps the first cells; left out, every cell that fits is a frame. The texture settings, `filter` included, are refused there, since an atlas page is one texture for every image packed into it, unless a texture target also reads the image: an image read by both may hold both kinds of settings, and each target takes its own. A frame that takes the name of another image in the folder is refused.
-- `game release` and `game credits` read `credit`, which any asset's sidecar may hold, a font's or a model's as well as an image's or a sound's, beside an `image` or `audio` section or on its own; `game assets` builds nothing from it. `author` and `license` are required. `license` is an [SPDX license expression](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/): identifiers from the SPDX license list such as `CC0-1.0`, `CC-BY-4.0` or `OFL-1.1`, joined by `AND` and `OR` and grouped by parentheses, a `+` for "or any later version" and `WITH` for an exception, such as `MIT OR Apache-2.0`; a license with no identifier, such as a store's or a studio's own, is `LicenseRef-` followed by a name of its own, with its terms in `notice`. Its form is checked, not the identifier against the list, and `NONE` and `NOASSERTION` are refused. `source` is where the asset came from, usually a URL, and `notice` is text the license asks to be shipped with the asset, such as a copyright line, kept word for word and on several lines if need be.
+- A font target reads every `font` setting: `size`, `chars` and `padding`. Listing the same characters in another order changes nothing.
+- A model target reads every `model` setting: `scale` and `animations`.
+- `game release` and `game credits` read `credit`, which any asset's sidecar may hold, beside an `image`, `audio`, `font` or `model` section or on its own; `game assets` builds nothing from it. `author` and `license` are required. `license` is an [SPDX license expression](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/): identifiers from the SPDX license list such as `CC0-1.0`, `CC-BY-4.0` or `OFL-1.1`, joined by `AND` and `OR` and grouped by parentheses, a `+` for "or any later version" and `WITH` for an exception, such as `MIT OR Apache-2.0`; a license with no identifier, such as a store's or a studio's own, is `LicenseRef-` followed by a name of its own, with its terms in `notice`. Its form is checked, not the identifier against the list, and `NONE` and `NOASSERTION` are refused. `source` is where the asset came from, usually a URL, and `notice` is text the license asks to be shipped with the asset, such as a copyright line, kept word for word and on several lines if need be.
 - An audio target reads every `audio` setting. `loop` is written into the WAV output's `smpl` chunk as a forward loop that repeats forever, scaled to the output rate; AAC and MP3 carry no loop points, so a sound with a loop must be converted to `wav`. A loop already in a source WAV's `smpl` chunk is kept the same way.
 
-A sidecar's settings are part of the key of every target that reads its asset, so adding, editing or deleting them rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Its `credit` section, comments and layout are not, since they change no output: fixing an author's name rebuilds nothing. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game tex` and `game audio` take their settings as flags and read no sidecar. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture or audio input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing. A sidecar that holds only a `credit` says nothing about the build, so it may sit beside any file in those folders, such as a JPEG or a font, as long as the file is there under exactly its name.
+A sidecar's settings are part of the key of every target that reads its asset, so adding, editing or deleting them rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Its `credit` section, comments and layout are not, since they change no output: fixing an author's name rebuilds nothing. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game tex` and `game audio` read the sidecar beside their input too, under the flags given. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture, audio, font or model input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing. A sidecar that holds only a `credit` says nothing about the build, so it may sit beside any file in those folders, such as a JPEG or an image a model embeds, as long as the file is there under exactly its name.
 
 ### generate
 

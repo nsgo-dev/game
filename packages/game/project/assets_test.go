@@ -70,6 +70,22 @@ func TestAssetsRefused(t *testing.T) {
 		{"audio png in atlas images", atlas + "  audio:\n    - in: a.wav\n      out: art/ui/sub/j.png\n", "audio[0] writes art/ui/sub/j.png, inside atlases[0]'s images in art/ui"},
 		{"cache png in atlas images", atlas + "  cache: art/ui/cache.png\n", "the cache writes art/ui/cache.png, inside atlases[0]'s images in art/ui"},
 		{"manifest not go", assetsHead + "assets:\n  manifest:\n    in: assets\n    out: assets/manifest.txt\n", ".go file"},
+		{"font in not a font", assetsHead + "assets:\n  fonts:\n    - in: a.woff\n      out: a.fnt\n", ".ttf or .otf"},
+		{"font out not fnt", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.txt\n", ".fnt file"},
+		{"font out without a name", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: fonts/.fnt\n", "does not start with a dot"},
+		{"font out with a quote", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: 'fonts/a\"b.fnt'\n", "double quote"},
+		{"font size", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      size: -4\n", "size -4"},
+		{"font padding", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      padding: -1\n", "padding -1"},
+		{"font chars", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      chars: \"a\\tb\"\n", "control character"},
+		{"font pages clash with an atlas", atlas + "  fonts:\n    - in: a.ttf\n      out: assets/ui.fnt\n", "fonts[0] writes assets/ui.png, which atlases[0] also writes"},
+		{"font pages in atlas images", atlas + "  fonts:\n    - in: a.ttf\n      out: art/ui/hud.fnt\n", "fonts[0] writes its pages to art/ui, inside atlases[0]'s images"},
+		{"texture over font page", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: assets/hud.fnt\n  textures:\n    - in: a.png\n      out: assets/hud-1.png\n", "textures[0] writes assets/hud-1.png, which fonts[0] also writes"},
+		{"two fonts write one fnt", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: hud.fnt\n    - in: b.otf\n      out: hud.fnt\n", "also writes"},
+		{"model in not a model", assetsHead + "assets:\n  models:\n    - in: a.obj\n      out: a.glb\n", ".gltf or .glb"},
+		{"model out not glb", assetsHead + "assets:\n  models:\n    - in: a.gltf\n      out: a.gltf\n", ".glb file"},
+		{"model scale", assetsHead + "assets:\n  models:\n    - in: a.gltf\n      out: a.glb\n      scale: -1\n", "scale -1"},
+		{"model out is its in", assetsHead + "assets:\n  models:\n    - in: a.glb\n      out: a.glb\n", "models[0] writes a.glb, which models[0] reads"},
+		{"model out is a font's out", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n  models:\n    - in: a.gltf\n      out: a.fnt\n", "out \"a.fnt\" must be a .glb file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := project.Parse([]byte(tc.src))
@@ -88,6 +104,8 @@ func TestAssetsAccepted(t *testing.T) {
 		{"texture of an atlas page", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  textures:\n    - in: assets/ui.png\n      out: assets/ui.ktx2\n"},
 		{"non-PNG output beside atlas images", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  textures:\n    - in: a.png\n      out: art/ui/a.ktx2\n"},
 		{"default cache with the manifest of the project", assetsHead + "assets:\n  manifest:\n    in: .\n    out: gen/assets.go\n"},
+		{"font and model", assetsHead + "assets:\n  fonts:\n    - in: fonts/Inter.TTF\n      out: assets/hud.fnt\n      size: 24\n      chars: \" 0123456789\"\n      padding: 0\n  models:\n    - in: models/ship.gltf\n      out: assets/ship.glb\n      scale: 0.01\n      animations: false\n"},
+		{"font beside an atlas", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  fonts:\n    - in: a.otf\n      out: assets/ui-x.fnt\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := project.Parse([]byte(tc.src)); err != nil {
@@ -109,6 +127,12 @@ func TestAssetsIsOutput(t *testing.T) {
   audio:
     - in: sfx/jump.wav
       out: assets/jump.wav
+  fonts:
+    - in: fonts/hud.ttf
+      out: assets/fonts/hud.fnt
+  models:
+    - in: models/ship.gltf
+      out: assets/ship.glb
   manifest:
     in: assets
     out: internal/assets/assets.go
@@ -126,6 +150,14 @@ func TestAssetsIsOutput(t *testing.T) {
 		"art/sky.png":               false,
 		"sfx/jump.wav":              false,
 		"assets/font.ttf":           false,
+		"assets/fonts/hud.fnt":      true,
+		"assets/fonts/hud.png":      true,
+		"assets/fonts/hud-3.png":    true,
+		"assets/fonts/hud.json":     false,
+		"assets/fonts/hud-x.png":    false,
+		"fonts/hud.ttf":             false,
+		"assets/ship.glb":           true,
+		"models/ship.gltf":          false,
 	} {
 		if got := f.Assets.IsOutput(p); got != want {
 			t.Errorf("IsOutput(%q) = %v, want %v", p, got, want)

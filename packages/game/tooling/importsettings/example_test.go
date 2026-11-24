@@ -44,7 +44,7 @@ func ExampleEncode() {
 	//     start: 4410
 }
 
-// A credit section records who made an asset and its license; a font, which game assets does not import, may carry one on its own.
+// A credit section records who made an asset and its license, beside an import section or, for an asset no target imports, on its own.
 func ExampleCredit() {
 	f, err := importsettings.Parse([]byte(`version: 1
 credit:
@@ -56,9 +56,25 @@ credit:
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(f.Credit.Author, f.Credit.License, f.Image == nil && f.Audio == nil)
+	fmt.Println(f.Credit.Author, f.Credit.License, len(f.Sections()) == 0)
 	// Output:
 	// Kenney CC0-1.0 true
+}
+
+// A font's sidecar sets the size and characters a font target bakes it with.
+func ExampleFont() {
+	f, err := importsettings.Parse([]byte(`version: 1
+font:
+  size: 24
+  chars: " 0123456789"
+`))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(f.Sections(), f.Font.Size, len(f.Font.Chars))
+	// Output:
+	// [font] 24 11
 }
 
 // ValidateLicense checks the form of an SPDX license expression.

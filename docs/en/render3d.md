@@ -203,6 +203,14 @@ mesh.Draw(pass)
 ```
 
 - **Mipmaps**: setting `TextureUpload.Mipmaps` builds a CPU area-weighted box mipmap chain (in linear light when `SRGB` is true, avoiding dark halos) and uploads every level via `Device.WriteTextureMip`. This works identically on every NSGo backend without depending on GPU mipmap generation, and every uploaded level is replayed automatically when `Retained` is true. Cap the level count with `TextureUpload.MaxMipLevels`.
+- **KTX2 textures**: `LoadKTX2` uploads a 2D KTX2 file such as `game assets` and `game tex` write, with every mip level it holds, in its sRGB or linear format, and returns the sampler to draw it with: `KTX2Upload.Sampler` with its filters set from the file's `game.filter` key (`KTX2FilterKey`), which the `filter` of the image's [import settings sidecar](cli.md#import-settings-beside-each-asset) writes, so `nearest` draws pixel art sharp and `linear` blends. BC1, BC3 and ETC2 levels are uploaded compressed where `Device.SupportsCompressedFormat` allows and decoded to RGBA8 on the CPU elsewhere, so the texture loads on every backend; `KTX2Sampler` applies the filter to sampler options without a device. A file that is not such a texture, or names an unknown filter, returns an error wrapping `ErrInvalidTexture`:
+
+  ```go
+  data, err := fs.ReadFile(assets, "albedo.ktx2")
+  albedo, opts, err := render3d.LoadKTX2(cx, dev, data, render3d.KTX2Upload{Label: "albedo", Retained: true, Sampler: render3d.SamplerLinearRepeat()})
+  samp, err := render3d.NewGPUSampler(cx, dev, opts)
+  ```
+
 - **Dynamic updates**: `GPUTexture.UpdateImage` and `GPUTexture.UpdatePixels` replace texels in place for a matching dimension and format, regenerating and re-uploading the mip chain when the texture was created with mipmaps.
 - **Sampler presets and validation**: `SamplerLinearRepeat()`, `SamplerLinearClamp()`, `SamplerLinearMirror()`, `SamplerNearestRepeat()`, and `SamplerNearestClamp()` return customizable `SamplerOptions`. `SamplerOptions.Validate` rejects invalid filter/address modes, non-finite or inverted LOD bounds, and `MaxAnisotropy > 1` with non-linear filters (matching WebGPU's validation rule) with errors wrapping `ErrInvalidSampler`.
 - **Lifecycle and memory**: `GPUTexture.ByteSize` sums every uploaded mip level for `RenderStats.TextureBytes` and `Budget` checks. Both `GPUTexture` and `GPUSampler` are released when their owning `core.Scope` is disposed or earlier via `Close()`, and `Valid()` reports whether they belong to a live device.

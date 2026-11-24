@@ -25,7 +25,7 @@ const SchemaURL = "https://game.nsgo.dev/schemas/import.v1.json"
 // SchemaComment is the first line Encode writes: a YAML comment that points a YAML language server at SchemaURL. Parse ignores it like any other comment.
 const SchemaComment = "# yaml-language-server: $schema=" + SchemaURL
 
-// FilterKey is the key of a KTX2 texture's key/value data that game assets writes Image.Filter under.
+// FilterKey is the key of a KTX2 texture's key/value data that game assets and game tex write Image.Filter under and render3d.LoadKTX2 reads.
 const FilterKey = "game.filter"
 
 // Filters are the sampling filters an image's sidecar may name: "linear" blends neighboring texels when the image is scaled, "nearest" keeps each texel sharp, as pixel art wants.
@@ -41,7 +41,7 @@ func IsSidecar(name string) bool {
 	return strings.HasSuffix(name, Suffix)
 }
 
-// File is one asset's import settings and credit. It holds at least one section: Image or Audio, never both, for how game assets imports the asset, and Credit for who made it and under what license.
+// File is one asset's import settings and credit. It holds at least one section: at most one of Image, Audio, Font and Model, for how game assets imports the asset, and Credit for who made it and under what license.
 type File struct {
 	// Version is the schema version; it must equal CurrentVersion (1).
 	Version int `yaml:"version" schema:"required"`
@@ -49,6 +49,10 @@ type File struct {
 	Image *Image `yaml:"image,omitempty"`
 	// Audio holds the settings of a sound (WAV).
 	Audio *Audio `yaml:"audio,omitempty"`
+	// Font holds the settings of a font (TrueType or OpenType) that a font target bakes into a bitmap font.
+	Font *Font `yaml:"font,omitempty"`
+	// Model holds the settings of a model (glTF or GLB) that a model target packs into one GLB file.
+	Model *Model `yaml:"model,omitempty"`
 	// Credit records who made the asset and its license, which game release and game credits list in the credits file; any kind of asset may carry one.
 	Credit *Credit `yaml:"credit,omitempty"`
 }
@@ -67,7 +71,7 @@ type Credit struct {
 
 // Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.
 type Image struct {
-	// Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey: "linear" or "nearest".
+	// Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey, which render3d.LoadKTX2 sets the sampler's filters from: "linear" or "nearest".
 	Filter string `yaml:"filter,omitempty" schema:"enum=linear|nearest"`
 	// Format is the KTX2 compression format: "rgba8", "bc1", "bc3" or "etc2".
 	Format string `yaml:"format,omitempty" schema:"enum=rgba8|bc1|bc3|etc2"`
@@ -116,6 +120,38 @@ type Loop struct {
 	Start int `yaml:"start" schema:"minimum=0"`
 	// End is the frame after the loop's last one; 0 is the end of the sound.
 	End int `yaml:"end,omitempty" schema:"minimum=0"`
+}
+
+// Font holds how a font target bakes a TrueType or OpenType font into an AngelCode BMFont. Each field left out keeps the target's setting in game.yaml.
+type Font struct {
+	// Size is the font size in pixels the glyphs are drawn at; 0 keeps the target's.
+	Size int `yaml:"size,omitempty" schema:"minimum=0"`
+	// Chars are the characters baked into the font, each once, in any order, such as " 0123456789"; empty keeps the target's.
+	Chars string `yaml:"chars,omitempty"`
+	// Padding is the transparent gap around each glyph on the font's pages, in pixels.
+	Padding *int `yaml:"padding,omitempty" schema:"minimum=0"`
+}
+
+// Model holds how a model target packs a glTF model into one GLB file. Each field left out keeps the target's setting in game.yaml.
+type Model struct {
+	// Scale multiplies the size of every scene of the model, such as 0.01 for a model exported in centimeters; 0 keeps the target's.
+	Scale float64 `yaml:"scale,omitempty" schema:"minimum=0"`
+	// Animations keeps the model's animations when true and leaves them out of the GLB when false.
+	Animations *bool `yaml:"animations,omitempty"`
+}
+
+// Sections returns the names of the import sections f holds, of "image", "audio", "font" and "model" in that order; Validate allows at most one.
+func (f *File) Sections() []string {
+	var names []string
+	for _, s := range []struct {
+		name string
+		set  bool
+	}{{"image", f.Image != nil}, {"audio", f.Audio != nil}, {"font", f.Font != nil}, {"model", f.Model != nil}} {
+		if s.set {
+			names = append(names, s.name)
+		}
+	}
+	return names
 }
 
 // Parse decodes a sidecar and validates it.
@@ -170,7 +206,7 @@ func Encode(f *File) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks f: the version, at least one section and not both image and audio, known formats and filters, values in range, and a credit with an author and a valid SPDX license expression.
+// Validate checks f: the version, at least one section and at most one of image, audio, font and model, known formats and filters, values in range, and a credit with an author and a valid SPDX license expression.
 func (f *File) Validate() error {
 	if f == nil {
 		return errors.New("importsettings: nil sidecar")
@@ -183,20 +219,28 @@ func (f *File) Validate() error {
 			return fmt.Errorf("importsettings: credit: %w", err)
 		}
 	}
-	switch {
-	case f.Image == nil && f.Audio == nil:
+	switch sections := f.Sections(); {
+	case len(sections) == 0:
 		if f.Credit == nil {
-			return errors.New("importsettings: a sidecar needs an image, an audio or a credit section")
+			return errors.New("importsettings: a sidecar needs an image, an audio, a font, a model or a credit section")
 		}
-	case f.Image != nil && f.Audio != nil:
-		return errors.New("importsettings: a sidecar holds an image or an audio section, not both")
+	case len(sections) > 1:
+		return fmt.Errorf("importsettings: a sidecar holds one of the image, audio, font and model sections, not %s", strings.Join(sections, " and "))
 	case f.Image != nil:
 		if err := f.Image.validate(); err != nil {
 			return fmt.Errorf("importsettings: image: %w", err)
 		}
-	default:
+	case f.Audio != nil:
 		if err := f.Audio.validate(); err != nil {
 			return fmt.Errorf("importsettings: audio: %w", err)
+		}
+	case f.Font != nil:
+		if err := f.Font.validate(); err != nil {
+			return fmt.Errorf("importsettings: font: %w", err)
+		}
+	default:
+		if err := f.Model.validate(); err != nil {
+			return fmt.Errorf("importsettings: model: %w", err)
 		}
 	}
 	return nil
@@ -223,6 +267,20 @@ func (im *Image) validate() error {
 		}
 	}
 	return nil
+}
+
+func (fo *Font) validate() error {
+	if fo.Size < 0 {
+		return fmt.Errorf("size %d must not be negative", fo.Size)
+	}
+	if fo.Padding != nil && *fo.Padding < 0 {
+		return fmt.Errorf("padding %d must not be negative", *fo.Padding)
+	}
+	return project.ValidateFontChars(fo.Chars)
+}
+
+func (m *Model) validate() error {
+	return project.ValidateModelScale(m.Scale)
 }
 
 // normalize replaces a level of negative zero with zero, which YAML writes as -0 but reads back as 0, so Encode writes the same bytes for a File as for the one Parse reads from them.

@@ -54,7 +54,7 @@ Godot 的 `.tres` 资源对应 [resource](resources.md) 文件：每个文件是
 
 游戏运行时加载的图像和声音放在 `resources/` 下，在所有目标平台上都用 `"asset:<路径>"` URI 打开，例如 `core.Src("asset:hero.png")`。`assets.Manager` 自己读取的数据，例如图集 JSON、原始字节和你自己解析的文件，来自你交给它的文件系统：用 `//go:embed` 嵌入后传入 `assets.NewManager(cx, assets.WithFS(fsys))`，或者用 `WithReadAsset` 接入自定义存储。两者都不传时，它读取相对于工作目录的 `assets/` 目录，只有在项目根目录下运行桌面版时才能用。`assets.Manager` 在引擎 goroutine 之外按命名资源组加载图集、声音、图像、字节和你自己解析的文件，以信号形式报告进度供加载界面使用，并在场景结束时释放资源组。见 [assets](assets.md)。
 
-文件按生成它的工具写出的格式直接读取，游戏与它们之间没有导入步骤，只有 `game assets` 构建的文件例外：它打包图集、编码 KTX2 纹理并转换声音，Godot 的 `.import` 文件对应它的导入设置附属文件，即放在每张图片或每个声音旁边的 YAML 文件（如 `hero.png.import.yaml`），保存压缩格式、过滤方式、精灵表切分或循环点（见[命令行](cli.md#assets)）。游戏直接读取的文件包括 TexturePacker 和 Aseprite 图集（[sprite](sprite.md)）、Tiled 地图（[tilemap](tilemap.md)）以及 glTF 模型（[从 Blender 导入 3D 模型](3d-models-blender.md)）。你自己的 `Resource` 子类，写成 YAML 或 JSON 文件并解码到 Go 结构体，像场景格式一样拒绝未知字段。
+文件按生成它的工具写出的格式直接读取，游戏与它们之间没有导入步骤，只有 `game assets` 构建的文件例外：它打包图集、编码 KTX2 纹理、转换声音、把字体烘焙为位图字体并把 glTF 模型打包为 GLB 文件，Godot 的 `.import` 文件对应它的导入设置附属文件，即放在每张图片、每个声音、每个字体或每个模型旁边的 YAML 文件（如 `hero.png.import.yaml`），保存压缩格式、过滤方式、精灵表切分、循环点、字号与字符，或模型缩放（见[命令行](cli.md#assets)）。游戏直接读取的文件包括 TexturePacker 和 Aseprite 图集（[sprite](sprite.md)）、Tiled 地图（[tilemap](tilemap.md)）以及 glTF 模型（[从 Blender 导入 3D 模型](3d-models-blender.md)）。你自己的 `Resource` 子类，写成 YAML 或 JSON 文件并解码到 Go 结构体，像场景格式一样拒绝未知字段。
 
 存档取代 `ConfigFile` 和 `FileAccess` 写文件：[save](save.md) 提供带版本的 JSON 存档槽、迁移和备份。
 

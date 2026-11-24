@@ -45,7 +45,7 @@ autoload:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 图片或声音旁边的 `<资源>.import.yaml`，如 `hero.png.import.yaml` | `version: 1` | `importsettings.Parse`、`importsettings.Encode` | [命令行](cli.md#assets)；Schema 为 `https://game.nsgo.dev/schemas/import.v1.json` |
+| 图片、声音、字体或模型旁边的 `<资源>.import.yaml`，如 `hero.png.import.yaml` | `version: 1` | `importsettings.Parse`、`importsettings.Encode` | [命令行](cli.md#assets)；Schema 为 `https://game.nsgo.dev/schemas/import.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/import.v1.json

@@ -8,6 +8,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // DefaultAssetsCache is where game assets keeps its build cache, relative to the project root, when Assets.Cache is empty. Its directory starts with a dot, so the manifest's scan of an assets directory never lists it.
@@ -19,7 +21,13 @@ var TextureFormats = []string{"rgba8", "bc1", "bc3", "etc2"}
 // AudioFormats are the formats an audio target may name, as game audio's -format flag spells them.
 var AudioFormats = []string{"wav", "aac", "mp3"}
 
-// Assets declares the targets game assets builds: the sprite atlases to pack, the textures to encode, the audio to convert and the asset manifest to generate. Paths in it are slash-separated and relative to the project root, and may not leave it.
+// DefaultFontSize is the size in pixels a font target bakes its glyphs at when neither it nor its font's import settings set one.
+const DefaultFontSize = 32
+
+// DefaultFontChars are the characters a font target bakes when neither it nor its font's import settings list them: printable ASCII, from the space to the tilde.
+const DefaultFontChars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+// Assets declares the targets game assets builds: the sprite atlases to pack, the textures to encode, the audio to convert, the fonts to bake, the models to pack and the asset manifest to generate. Paths in it are slash-separated and relative to the project root, and may not leave it.
 type Assets struct {
 	// Cache is the build cache's path; empty is DefaultAssetsCache.
 	Cache string `yaml:"cache,omitempty"`
@@ -29,6 +37,10 @@ type Assets struct {
 	Textures []TextureTarget `yaml:"textures,omitempty"`
 	// Audio are the WAV files to normalize, resample and convert.
 	Audio []AudioTarget `yaml:"audio,omitempty"`
+	// Fonts are the TrueType and OpenType fonts to bake into bitmap fonts.
+	Fonts []FontTarget `yaml:"fonts,omitempty"`
+	// Models are the glTF models to pack into single GLB files.
+	Models []ModelTarget `yaml:"models,omitempty"`
 	// Manifest, when set, is the typed Go asset manifest generated after every other target is built.
 	Manifest *ManifestTarget `yaml:"manifest,omitempty"`
 }
@@ -89,6 +101,56 @@ type AudioTarget struct {
 	Bitrate int `yaml:"bitrate,omitempty"`
 }
 
+// FontTarget is one TrueType or OpenType font baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.
+type FontTarget struct {
+	// In is the .ttf or .otf font file.
+	In string `yaml:"in"`
+	// Out is the .fnt file written; the pages are written beside it.
+	Out string `yaml:"out"`
+	// Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize.
+	Size int `yaml:"size,omitempty"`
+	// Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out.
+	Chars string `yaml:"chars,omitempty"`
+	// Padding is the transparent gap around each glyph on the pages in pixels; nil is 1.
+	Padding *int `yaml:"padding,omitempty"`
+}
+
+// ModelTarget is one glTF model packed into a single binary glTF (.glb) file: its buffers merged into the file's binary chunk and the images it references by file embedded, so the game loads one file.
+type ModelTarget struct {
+	// In is the .gltf or .glb file; the buffers and images it references by relative path are read beside it.
+	In string `yaml:"in"`
+	// Out is the .glb file written.
+	Out string `yaml:"out"`
+	// Scale multiplies the size of every scene of the model, such as 0.01 for a model exported in centimeters; 0 is 1.
+	Scale float64 `yaml:"scale,omitempty"`
+	// Animations keeps the model's animations when true and leaves them out when false; nil is true.
+	Animations *bool `yaml:"animations,omitempty"`
+}
+
+// FontPages returns the slash-separated folder a font target writes its pages to and the name they are named after: Out's folder and its base name without the .fnt extension.
+func (t FontTarget) FontPages() (dir, name string) {
+	return path.Dir(t.Out), strings.TrimSuffix(path.Base(t.Out), path.Ext(t.Out))
+}
+
+// ValidateFontChars checks the characters of a font target or a font's import settings: valid UTF-8 without control characters, line breaks included. The space is allowed.
+func ValidateFontChars(chars string) error {
+	if !utf8.ValidString(chars) {
+		return errors.New("chars must be valid UTF-8")
+	}
+	if i := strings.IndexFunc(chars, unicode.IsControl); i >= 0 {
+		return fmt.Errorf("chars holds the control character %q; list only characters to draw", chars[i:i+1])
+	}
+	return nil
+}
+
+// ValidateModelScale checks the scale of a model target or a model's import settings: a finite number that is not negative, 0 meaning the default.
+func ValidateModelScale(scale float64) error {
+	if math.IsNaN(scale) || math.IsInf(scale, 0) || scale < 0 {
+		return fmt.Errorf("scale %v must be a finite number that is not negative", scale)
+	}
+	return nil
+}
+
 // ManifestTarget is the typed Go asset manifest generated from a folder of assets, as game manifest generates it.
 type ManifestTarget struct {
 	// In is the assets folder scanned.
@@ -113,7 +175,7 @@ func (a *Assets) CachePath() string {
 	return a.Cache
 }
 
-// IsOutput reports whether a target of a writes the file at the slash-separated path p, relative to the project root: the cache, a texture, an audio output, the manifest, or a page of an atlas (name.png, name.json, name-N.png or name-N.json in its out folder). Such a file is built from the targets' inputs rather than authored, so it is not an asset of its own. A nil a writes nothing.
+// IsOutput reports whether a target of a writes the file at the slash-separated path p, relative to the project root: the cache, a texture, an audio output, a font's .fnt file or one of its pages (name.png or name-N.png beside it), a model, the manifest, or a page of an atlas (name.png, name.json, name-N.png or name-N.json in its out folder). Such a file is built from the targets' inputs rather than authored, so it is not an asset of its own. A nil a writes nothing.
 func (a *Assets) IsOutput(p string) bool {
 	if a == nil {
 		return false
@@ -132,6 +194,17 @@ func (a *Assets) IsOutput(p string) bool {
 			return true
 		}
 	}
+	for _, f := range a.Fonts {
+		dir, name := f.FontPages()
+		if p == path.Clean(f.Out) || path.Dir(p) == dir && path.Ext(p) == ".png" && isPage(name, path.Base(p)) {
+			return true
+		}
+	}
+	for _, m := range a.Models {
+		if p == path.Clean(m.Out) {
+			return true
+		}
+	}
 	if a.Manifest != nil && p == path.Clean(a.Manifest.Out) {
 		return true
 	}
@@ -143,7 +216,7 @@ func (a *Assets) IsOutput(p string) bool {
 	return false
 }
 
-// Validate checks the assets section as Validate checks the whole file: paths that are relative, slash-separated and stay inside the project, settings in range, known formats, no two targets writing the same file, no file written over game.yaml or over a target's input, no atlas page or other PNG written where an atlas reads its images, and no cache where the manifest lists assets.
+// Validate checks the assets section as Validate checks the whole file: paths that are relative, slash-separated and stay inside the project, settings in range, known formats, no two targets writing the same file, no file written over game.yaml or over a target's input, no atlas or font page or other PNG written where an atlas reads its images, and no cache where the manifest lists assets.
 func (a *Assets) Validate() error {
 	if a == nil {
 		return nil
@@ -153,7 +226,7 @@ func (a *Assets) Validate() error {
 			return fmt.Errorf("project: assets cache: %w", err)
 		}
 	}
-	// files maps each single file a target writes to the target; atlas pages are checked against it by name, since how many pages an atlas writes is known only when it is packed.
+	// files maps each single file a target writes to the target; atlas and font pages are checked against it by name, since how many pages a target writes is known only when it is packed.
 	files := map[string]string{}
 	var order []string
 	claim := func(out, owner string) error {
@@ -167,26 +240,44 @@ func (a *Assets) Validate() error {
 	if err := claim(a.CachePath(), "the cache"); err != nil {
 		return err
 	}
+	// pagers are the targets that write a number of pages known only once they are packed: atlases and fonts.
+	var pagers []pager
 	for i, at := range a.Atlases {
 		where := fmt.Sprintf("atlases[%d]", i)
 		if err := validateAtlasTarget(at); err != nil {
 			return fmt.Errorf("project: assets %s: %w", where, err)
 		}
-		for j, prev := range a.Atlases[:i] {
-			if prev.Out != at.Out {
+		pagers = append(pagers, pager{name: at.Name, dir: at.Out, owner: where})
+	}
+	for i, f := range a.Fonts {
+		where := fmt.Sprintf("fonts[%d]", i)
+		if err := validateFontTarget(f); err != nil {
+			return fmt.Errorf("project: assets %s: %w", where, err)
+		}
+		dir, name := f.FontPages()
+		pagers = append(pagers, pager{name: name, dir: dir, owner: where})
+	}
+	for i, pg := range pagers {
+		for _, prev := range pagers[:i] {
+			if prev.dir != pg.dir {
 				continue
 			}
-			if page, clash := pagesClash(prev.Name, at.Name); clash {
-				return fmt.Errorf("project: assets %s writes %s, which atlases[%d] also writes", where, path.Join(at.Out, page), j)
+			if page, clash := pagesClash(prev.name, pg.name); clash {
+				return fmt.Errorf("project: assets %s writes %s, which %s also writes", pg.owner, path.Join(pg.dir, page), prev.owner)
 			}
 		}
 	}
-	// An atlas whose pages land where an atlas reads its images would pack its own pages on the next run, so it would never be up to date.
-	for i, at := range a.Atlases {
+	// A target whose pages land where an atlas reads its images would have them packed on the next run, so the atlas would never be up to date.
+	for _, pg := range pagers {
 		for j, src := range a.Atlases {
-			if scannedUnder(at.Out, src.In) {
-				return fmt.Errorf("project: assets atlases[%d] writes its pages to %s, inside atlases[%d]'s images in %s; write them elsewhere or to a folder whose name starts with a dot", i, at.Out, j, src.In)
+			if scannedUnder(pg.dir, src.In) {
+				return fmt.Errorf("project: assets %s writes its pages to %s, inside atlases[%d]'s images in %s; write them elsewhere or to a folder whose name starts with a dot", pg.owner, pg.dir, j, src.In)
 			}
+		}
+	}
+	for i, f := range a.Fonts {
+		if err := claim(f.Out, fmt.Sprintf("fonts[%d]", i)); err != nil {
+			return err
 		}
 	}
 	for i, t := range a.Textures {
@@ -204,6 +295,15 @@ func (a *Assets) Validate() error {
 			return fmt.Errorf("project: assets %s: %w", where, err)
 		}
 		if err := claim(au.Out, where); err != nil {
+			return err
+		}
+	}
+	for i, m := range a.Models {
+		where := fmt.Sprintf("models[%d]", i)
+		if err := validateModelTarget(m); err != nil {
+			return fmt.Errorf("project: assets %s: %w", where, err)
+		}
+		if err := claim(m.Out, where); err != nil {
 			return err
 		}
 	}
@@ -235,6 +335,12 @@ func (a *Assets) Validate() error {
 	for i, au := range a.Audio {
 		read(au.In, fmt.Sprintf("audio[%d]", i))
 	}
+	for i, f := range a.Fonts {
+		read(f.In, fmt.Sprintf("fonts[%d]", i))
+	}
+	for i, m := range a.Models {
+		read(m.In, fmt.Sprintf("models[%d]", i))
+	}
 	if m := a.Manifest; m != nil {
 		read(m.In, "manifest")
 	}
@@ -246,10 +352,12 @@ func (a *Assets) Validate() error {
 		if reader, ok := reads[f]; ok {
 			return fmt.Errorf("project: assets %s writes %s, which %s reads", files[f], f, reader)
 		}
-		for i, at := range a.Atlases {
-			if path.Dir(f) == at.Out && isPage(at.Name, path.Base(f)) {
-				return fmt.Errorf("project: assets %s writes %s, which atlases[%d] also writes", files[f], f, i)
+		for _, pg := range pagers {
+			if path.Dir(f) == pg.dir && isPage(pg.name, path.Base(f)) {
+				return fmt.Errorf("project: assets %s writes %s, which %s also writes", files[f], f, pg.owner)
 			}
+		}
+		for i, at := range a.Atlases {
 			// game pack packs every .png file its scan reaches, in any letter case, so a PNG written there would be packed on the next run.
 			if strings.EqualFold(path.Ext(f), ".png") && scannedUnder(f, at.In) {
 				return fmt.Errorf("project: assets %s writes %s, inside atlases[%d]'s images in %s; write it elsewhere or to a folder whose name starts with a dot", files[f], f, i, at.In)
@@ -269,6 +377,12 @@ func (a *Assets) normalize() {
 	}
 	if len(a.Audio) == 0 {
 		a.Audio = nil
+	}
+	if len(a.Fonts) == 0 {
+		a.Fonts = nil
+	}
+	if len(a.Models) == 0 {
+		a.Models = nil
 	}
 }
 
@@ -295,7 +409,26 @@ func (a *Assets) clone() *Assets {
 			c.Audio[i] = au
 		}
 	}
+	if a.Fonts != nil {
+		c.Fonts = make([]FontTarget, len(a.Fonts))
+		for i, f := range a.Fonts {
+			f.Padding = clonePtr(f.Padding)
+			c.Fonts[i] = f
+		}
+	}
+	if a.Models != nil {
+		c.Models = make([]ModelTarget, len(a.Models))
+		for i, m := range a.Models {
+			m.Animations = clonePtr(m.Animations)
+			c.Models[i] = m
+		}
+	}
 	return &c
+}
+
+// pager is a target that writes pages named after name into the folder dir: an atlas, or a font beside its .fnt file.
+type pager struct {
+	name, dir, owner string
 }
 
 // isPage reports whether base is the name of a page file game pack writes for the atlas name: name.png and name.json, or name-N.png and name-N.json when the atlas needs several pages.
@@ -414,6 +547,41 @@ func validateAudioTarget(a AudioTarget) error {
 		}
 	}
 	return nil
+}
+
+func validateFontTarget(f FontTarget) error {
+	if err := validateAssetIO(f.In, f.Out, false); err != nil {
+		return err
+	}
+	if ext := strings.ToLower(path.Ext(f.In)); ext != ".ttf" && ext != ".otf" {
+		return fmt.Errorf("in %q must be a .ttf or .otf font", f.In)
+	}
+	if path.Ext(f.Out) != ".fnt" {
+		return fmt.Errorf("out %q must be a .fnt file", f.Out)
+	}
+	if _, name := f.FontPages(); name == "" || strings.HasPrefix(name, ".") || strings.Contains(name, `"`) {
+		return fmt.Errorf("out %q must have a name before .fnt that does not start with a dot or hold a double quote, which its pages are named after", f.Out)
+	}
+	if f.Size < 0 {
+		return fmt.Errorf("size %d must not be negative", f.Size)
+	}
+	if f.Padding != nil && *f.Padding < 0 {
+		return fmt.Errorf("padding %d must not be negative", *f.Padding)
+	}
+	return ValidateFontChars(f.Chars)
+}
+
+func validateModelTarget(m ModelTarget) error {
+	if err := validateAssetIO(m.In, m.Out, false); err != nil {
+		return err
+	}
+	if ext := strings.ToLower(path.Ext(m.In)); ext != ".gltf" && ext != ".glb" {
+		return fmt.Errorf("in %q must be a .gltf or .glb model", m.In)
+	}
+	if path.Ext(m.Out) != ".glb" {
+		return fmt.Errorf("out %q must be a .glb file", m.Out)
+	}
+	return ValidateModelScale(m.Scale)
 }
 
 func validateManifestTarget(m ManifestTarget) error {

@@ -29,6 +29,12 @@ assets:
   audio:
     - in: sfx/jump.wav
       out: gen/jump.wav
+  fonts:
+    - in: fonts/hud.ttf
+      out: gen/hud.fnt
+  models:
+    - in: models/ship.gltf
+      out: gen/ship.glb
   manifest:
     in: gen
     out: gen/manifest_gen.go
@@ -55,8 +61,12 @@ func TestPathRefs(t *testing.T) {
 		"21:12 assets texture out gen/albedo.ktx2 dir=false output=true",
 		"23:11 assets audio in sfx/jump.wav dir=false output=false",
 		"24:12 assets audio out gen/jump.wav dir=false output=true",
-		"26:9 assets manifest in gen dir=true output=true",
-		"27:10 assets manifest out gen/manifest_gen.go dir=false output=true",
+		"26:11 assets font in fonts/hud.ttf dir=false output=false",
+		"27:12 assets font out gen/hud.fnt dir=false output=true",
+		"29:11 assets model in models/ship.gltf dir=false output=false",
+		"30:12 assets model out gen/ship.glb dir=false output=true",
+		"32:9 assets manifest in gen dir=true output=true",
+		"33:10 assets manifest out gen/manifest_gen.go dir=false output=true",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("PathRefs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

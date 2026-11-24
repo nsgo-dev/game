@@ -15,7 +15,7 @@ import (
 // assetsCommand builds every asset target game.yaml's assets section declares, reading game.yaml through package project, rebuilding only those whose inputs or settings changed.
 var assetsCommand = &command{
 	name:    "assets",
-	summary: "Pack atlases, encode textures, convert audio and generate the manifest from game.yaml, rebuilding only what changed",
+	summary: "Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed",
 	define:  defineAssets,
 }
 

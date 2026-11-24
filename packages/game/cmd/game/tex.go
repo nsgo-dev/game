@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
 )
 
-// texCommand encodes PNG and JPEG textures into KTX2 v2.0 containers, with optional mipmaps, sRGB metadata and BC1, BC3, ETC2 or RGBA8 encoding.
+// texCommand encodes PNG and JPEG textures into KTX2 v2.0 containers, with optional mipmaps, sRGB metadata and BC1, BC3, ETC2 or RGBA8 encoding, taking the settings of the import settings sidecar beside the input under the flags given.
 var texCommand = &command{
 	name:    "tex",
 	args:    "[input.png|input.jpg]",
@@ -41,6 +42,26 @@ func defineTex(a *app, fs *flag.FlagSet) func() error {
 			return usagef("specify either -in or a positional input path, not both")
 		}
 
+		// The sidecar beside the input sets what the flags given leave alone, as game assets applies it to a texture target. slice is an atlas's setting, and a texture holds the whole image, so it is not read here.
+		side, err := readSidecar(inPath, "image")
+		if err != nil {
+			return err
+		}
+		set := setFlags(fs)
+		var filter string
+		if side != nil {
+			im := side.Image
+			if im.Format != "" && !set["format"] {
+				*formatFlag = im.Format
+			}
+			if im.Mipmaps != nil && !set["mipmaps"] {
+				*mipmaps = *im.Mipmaps
+			}
+			if im.SRGB != nil && !set["srgb"] {
+				*srgb = *im.SRGB
+			}
+			filter = im.Filter
+		}
 		format, err := ktx2.ParseFormat(*formatFlag)
 		if err != nil {
 			return usagef("%v", err)
@@ -55,10 +76,15 @@ func defineTex(a *app, fs *flag.FlagSet) func() error {
 			Mipmaps: *mipmaps,
 			SRGB:    *srgb,
 		}
+		summary := fmt.Sprintf("format=%s mipmaps=%t srgb=%t", format, *mipmaps, *srgb)
+		if filter != "" {
+			opts.KVD = map[string]string{importsettings.FilterKey: filter}
+			summary += " filter=" + filter
+		}
 		if err := ktx2.EncodeFile(inPath, dest, opts); err != nil {
 			return err
 		}
-		fmt.Fprintf(a.stdout, "wrote %s (format=%s mipmaps=%t srgb=%t)\n", dest, format, *mipmaps, *srgb)
+		fmt.Fprintf(a.stdout, "wrote %s (%s)\n", dest, summary)
 		return nil
 	}
 }
