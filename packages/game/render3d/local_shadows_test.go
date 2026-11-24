@@ -22,15 +22,9 @@ const (
 	localShadowTestHeight = 96
 )
 
-var (
-	localShadowTestClear  = core.RGB(0x0c1018)
-	localShadowTestAlbedo = math3d.Vec3{X: 0.85, Y: 0.85, Z: 0.85}
-)
+var localShadowTestClear = core.RGB(0x0c1018)
 
-// localShadowTestSubdividedQuad builds a grid of subdivisions x subdivisions
-// triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal.
-// Subdividing large floors and walls ensures triangles never straddle w <= 0 of
-// a point light's cube-face frustum in the software rasterizer.
+// localShadowTestSubdividedQuad builds a grid of subdivisions x subdivisions triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal. Subdividing large floors and walls ensures triangles never straddle w <= 0 of a point light's cube-face frustum in the software rasterizer.
 func localShadowTestSubdividedQuad(center, uAxis, vAxis, normal math3d.Vec3, halfU, halfV float32, subdiv int) render3d.Mesh {
 	var m render3d.Mesh
 	n := normal.Norm()
@@ -59,8 +53,7 @@ func localShadowTestSubdividedQuad(center, uAxis, vAxis, normal math3d.Vec3, hal
 	return m
 }
 
-// localShadowTestBoxMesh builds a CCW outward-facing box mesh centered at center
-// with half extents half.
+// localShadowTestBoxMesh builds a CCW outward-facing box mesh centered at center with half extents half.
 func localShadowTestBoxMesh(center, half math3d.Vec3) render3d.Mesh {
 	type face struct{ n, u, v math3d.Vec3 }
 	faces := [...]face{
@@ -206,234 +199,305 @@ func localShadowTestRGBDiff(a, b [3]uint8) int {
 	return maxD
 }
 
-func TestSpotShadowConfigAndLightValidation(t *testing.T) {
-	def := render3d.DefaultSpotShadowConfig()
-	if err := def.Validate(); err != nil {
+var (
+	localShadowFloorMat  = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.85, Y: 0.85, Z: 0.85}, Roughness: 0.9}
+	localShadowPillarMat = render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.88, Y: 0.42, Z: 0.30}, Roughness: 0.6}
+	localShadowAmbient   = render3d.AmbientLight{Color: math3d.Vec3{X: 0.08, Y: 0.09, Z: 0.12}, Intensity: 1}
+
+	localShadowTestSpot = render3d.SpotLight{
+		Position:       math3d.Vec3{X: -2.4, Y: 3.6, Z: 2.3},
+		Direction:      math3d.Vec3{X: 2.5, Y: -3.5, Z: -2.5},
+		Color:          math3d.Vec3{X: 1.0, Y: 0.92, Z: 0.78},
+		Intensity:      45,
+		Range:          14,
+		InnerConeAngle: math3d.DegToRad(26),
+		OuterConeAngle: math3d.DegToRad(44),
+	}
+	localShadowTestPoint = render3d.PointLight{
+		Position:  math3d.Vec3{X: 0.0, Y: 1.8, Z: 0.0},
+		Color:     math3d.Vec3{X: 1.0, Y: 0.94, Z: 0.85},
+		Intensity: 25,
+		Range:     12,
+	}
+)
+
+// localShadowExpected returns the sRGB 8-bit color the lit PBR local shadow pipelines draw at wp for material mat under rig with visibility vis, from the CPU references ShadePointVisibility and LinearToSRGB.
+func localShadowExpected(cam *scene3d.Camera, wp, n math3d.Vec3, mat render3d.PBRMaterial, rig render3d.LightRig, vis render3d.LightVisibility) [3]uint8 {
+	e := cam.Eye()
+	eye := math3d.Vec3{X: e.X, Y: e.Y, Z: e.Z}
+	return localShadowTestColorToRGB8(render3d.LinearToSRGB(render3d.ShadePointVisibility(wp, n, eye.Sub(wp), mat, rig, vis)))
+}
+
+// localShadowDraw is one receiver drawn in the lit pass: a mesh with its own per-draw model matrix and material.
+type localShadowDraw struct {
+	mesh *render3d.GPUMesh
+	buf  *render3d.PBRDrawBuffer
+}
+
+func localShadowDrawBuffers(t *testing.T, cx *core.Scope, dev *gpu.Device, retained bool, meshes []*render3d.GPUMesh, uniforms []render3d.PBRDrawUniform) []localShadowDraw {
+	t.Helper()
+	var layout *gpu.BindGroupLayout
+	draws := make([]localShadowDraw, len(meshes))
+	for i, u := range uniforms {
+		db, err := render3d.NewPBRDrawBuffer(cx, dev, layout, u, retained)
+		if err != nil {
+			t.Fatalf("NewPBRDrawBuffer[%d]: %v", i, err)
+		}
+		if layout == nil {
+			layout = db.Layout()
+		}
+		draws[i] = localShadowDraw{mesh: meshes[i], buf: db}
+	}
+	if cx == nil {
+		t.Cleanup(func() {
+			for _, d := range draws {
+				_ = d.buf.Close()
+			}
+		})
+	}
+	return draws
+}
+
+func localShadowUpload(t *testing.T, cx *core.Scope, dev *gpu.Device, label string, m render3d.Mesh, retained bool) *render3d.GPUMesh {
+	t.Helper()
+	gm, err := render3d.UploadMesh(cx, dev, m, render3d.MeshUpload{Label: label, Retained: retained})
+	if err != nil {
+		t.Fatalf("UploadMesh %s: %v", label, err)
+	}
+	if cx == nil {
+		t.Cleanup(func() { _ = gm.Close() })
+	}
+	return gm
+}
+
+func localShadowMainPass(target render3d.ShadowPassTarget) *gpu.RenderPass {
+	return target.BeginRenderPass(gpu.RenderPassDesc{
+		Label: "local-shadow-main",
+		ColorAttachments: []gpu.ColorAttachment{{
+			LoadOp:     gpu.LoadClear,
+			StoreOp:    gpu.StoreStore,
+			ClearColor: localShadowTestClear,
+		}},
+		DepthStencil: &gpu.DepthStencilAttachment{
+			DepthLoadOp:  gpu.LoadClear,
+			DepthStoreOp: gpu.StoreDiscard,
+			ClearDepth:   1.0,
+		},
+	})
+}
+
+func localShadowDrawReceivers(pass *gpu.RenderPass, pipe *gpu.Pipeline, camBuf *render3d.CameraBuffer, lightBuf *render3d.GPULightBuffer, shadow *gpu.BindGroup, draws []localShadowDraw) {
+	pass.SetPipeline(pipe)
+	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	pass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+	pass.SetBindGroup(render3d.LocalShadowGroup, shadow)
+	for _, d := range draws {
+		pass.SetBindGroup(render3d.PBRDrawGroup, d.buf.BindGroup())
+		d.mesh.Draw(pass)
+	}
+}
+
+func TestLocalShadowConfigValidation(t *testing.T) {
+	spotDef := render3d.DefaultSpotShadowConfig()
+	if err := spotDef.Validate(); err != nil {
 		t.Fatalf("DefaultSpotShadowConfig.Validate: %v", err)
 	}
-	if def.Resolution != 1024 || def.Filter != render3d.LocalShadowFilterPCF3x3 {
-		t.Fatalf("unexpected default spot config: %+v", def)
+	if spotDef.Resolution != 1024 || spotDef.Filter != render3d.LocalShadowFilterPCF3x3 || spotDef.Near != render3d.DefaultLocalShadowNear || spotDef.Far != render3d.DefaultLocalShadowFar {
+		t.Fatalf("unexpected default spot config: %+v", spotDef)
 	}
 	if render3d.LocalShadowFilterHard.String() != "hard" || render3d.LocalShadowFilterPCF3x3.String() != "pcf3x3" {
-		t.Fatalf("unexpected filter string names")
+		t.Fatal("unexpected filter string names")
+	}
+	if render3d.LocalShadowGroup != render3d.ShadowGroup {
+		t.Fatalf("LocalShadowGroup = %d, want ShadowGroup %d", render3d.LocalShadowGroup, render3d.ShadowGroup)
 	}
 
-	badConfigs := []render3d.SpotShadowConfig{
+	badSpot := []render3d.SpotShadowConfig{
 		{DepthBias: -0.01},
 		{DepthBias: float32(math.NaN())},
 		{NormalBias: -0.1},
 		{NormalBias: float32(math.Inf(1))},
 		{Filter: render3d.LocalShadowFilter(99)},
 		{CullMode: gpu.CullMode(99)},
+		{Near: -1},
+		{Near: 5, Far: 4},
+		{Far: float32(math.Inf(1))},
+		{MaxCasters: render3d.MaxLocalShadowCasters + 1},
 	}
-	for i, cfg := range badConfigs {
+	for i, cfg := range badSpot {
 		if err := cfg.Validate(); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
-			t.Errorf("badConfigs[%d] = %v, want ErrInvalidLocalShadow", i, err)
+			t.Errorf("badSpot[%d] = %v, want ErrInvalidLocalShadow", i, err)
 		}
 	}
 
-	if _, err := render3d.NewSpotShadowMap(nil, nil, def); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("nil device error = %v, want gpu.ErrDeviceLost", err)
-	}
-
-	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
-	t.Cleanup(sr.Close)
-	dev := sr.Device()
-	if _, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{
-		Resolution: dev.Limits().MaxTextureDimension2D + 1,
-	}); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
-		t.Fatalf("oversized spot resolution error = %v, want ErrInvalidLocalShadow", err)
-	}
-
-	validLight := render3d.SpotShadowLight{
-		Position:       math3d.Vec3{Y: 4},
-		Direction:      math3d.Vec3{Y: -1},
-		Color:          math3d.Vec3{X: 1, Y: 1, Z: 1},
-		Intensity:      10,
-		Near:           0.1,
-		Range:          12,
-		InnerConeAngle: math3d.DegToRad(20),
-		OuterConeAngle: math3d.DegToRad(35),
-	}
-	if err := validLight.Validate(); err != nil {
-		t.Fatalf("valid spot light failed: %v", err)
-	}
-
-	badLights := []render3d.SpotShadowLight{
-		{Position: math3d.Vec3{X: float32(math.NaN())}, Direction: math3d.Vec3{Y: -1}, Near: 0.1, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3Zero(), Near: 0.1, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Color: math3d.Vec3{X: -1}, Near: 0.1, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Ambient: math3d.Vec3{Y: -0.1}, Near: 0.1, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Intensity: -1, Near: 0.1, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Near: 0, Range: 10, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Near: 5, Range: 5, OuterConeAngle: 0.5},
-		{Direction: math3d.Vec3{Y: -1}, Near: 0.1, Range: 10, OuterConeAngle: 0},
-		{Direction: math3d.Vec3{Y: -1}, Near: 0.1, Range: 10, OuterConeAngle: math.Pi / 2},
-		{Direction: math3d.Vec3{Y: -1}, Near: 0.1, Range: 10, InnerConeAngle: 0.6, OuterConeAngle: 0.5},
-	}
-	for i, l := range badLights {
-		if err := l.Validate(); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
-			t.Errorf("badLights[%d] = %v, want ErrInvalidLocalShadow", i, err)
-		}
-	}
-}
-
-func TestPointShadowConfigAndLightValidation(t *testing.T) {
-	def := render3d.DefaultPointShadowConfig()
-	if err := def.Validate(); err != nil {
+	pointDef := render3d.DefaultPointShadowConfig()
+	if err := pointDef.Validate(); err != nil {
 		t.Fatalf("DefaultPointShadowConfig.Validate: %v", err)
 	}
-	aw, ah := def.AtlasSize()
-	if aw != 3*512 || ah != 2*512 {
+	if aw, ah := pointDef.AtlasSize(); aw != 3*512 || ah != 2*512 {
 		t.Fatalf("default atlas size = %dx%d, want %dx%d", aw, ah, 3*512, 2*512)
 	}
-
-	badConfigs := []render3d.PointShadowConfig{
+	badPoint := []render3d.PointShadowConfig{
 		{DepthBias: -0.01},
 		{NormalBias: float32(math.NaN())},
 		{Filter: render3d.LocalShadowFilter(42)},
 		{CullMode: gpu.CullMode(42)},
+		{Near: 2, Far: 1},
+		{MaxCasters: render3d.MaxLocalShadowCasters + 1},
 	}
-	for i, cfg := range badConfigs {
+	for i, cfg := range badPoint {
 		if err := cfg.Validate(); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
-			t.Errorf("badConfigs[%d] = %v, want ErrInvalidLocalShadow", i, err)
+			t.Errorf("badPoint[%d] = %v, want ErrInvalidLocalShadow", i, err)
 		}
 	}
 
-	if _, err := render3d.NewPointShadowMap(nil, nil, def); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("nil device error = %v, want gpu.ErrDeviceLost", err)
+	if _, err := render3d.NewSpotShadowMap(nil, nil, spotDef); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("spot nil device error = %v, want gpu.ErrDeviceLost", err)
 	}
-
+	if _, err := render3d.NewPointShadowMap(nil, nil, pointDef); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("point nil device error = %v, want gpu.ErrDeviceLost", err)
+	}
 	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
-	if _, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{
-		FaceResolution: dev.Limits().MaxTextureDimension2D/3 + 1,
-	}); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+	if _, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{Resolution: dev.Limits().MaxTextureDimension2D + 1}); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("oversized spot resolution error = %v, want ErrInvalidLocalShadow", err)
+	}
+	if _, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{FaceResolution: dev.Limits().MaxTextureDimension2D/3 + 1}); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
 		t.Fatalf("oversized point atlas error = %v, want ErrInvalidLocalShadow", err)
 	}
-
-	badLights := []render3d.PointShadowLight{
-		{Position: math3d.Vec3{Z: float32(math.Inf(-1))}, Near: 0.1, Range: 10},
-		{Color: math3d.Vec3{Z: -1}, Near: 0.1, Range: 10},
-		{Ambient: math3d.Vec3{X: -0.2}, Near: 0.1, Range: 10},
-		{Intensity: -2, Near: 0.1, Range: 10},
-		{Near: 0, Range: 10},
-		{Near: 4, Range: 2},
-	}
-	for i, l := range badLights {
-		if err := l.Validate(); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
-			t.Errorf("badPointLights[%d] = %v, want ErrInvalidLocalShadow", i, err)
-		}
+	if _, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{Resolution: 16, MaxCasters: render3d.MaxLocalShadowCasters + 1}); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("spot MaxCasters above cap error = %v, want ErrInvalidLocalShadow", err)
 	}
 }
 
-func TestSpotShadowUniformEncodeZeroAlloc(t *testing.T) {
-	light := render3d.SpotShadowLight{
-		Position:       math3d.Vec3{X: -2, Y: 4, Z: 3},
-		Direction:      math3d.Vec3{X: 1, Y: -2, Z: -1},
-		Color:          math3d.Vec3{X: 1, Y: 0.9, Z: 0.7},
-		Intensity:      12,
-		Near:           0.2,
-		Range:          15,
-		InnerConeAngle: math3d.DegToRad(20),
-		OuterConeAngle: math3d.DegToRad(40),
-		Ambient:        math3d.Vec3{X: 0.05, Y: 0.06, Z: 0.08},
+func TestLocalShadowUniformsFromLightRigLights(t *testing.T) {
+	cfg := render3d.SpotShadowConfig{Resolution: 256, Near: 0.2, Far: 30, DepthBias: 0.002, NormalBias: 0.03, Filter: render3d.LocalShadowFilterPCF3x3}
+
+	// A spot light with a Range projects to that range; one with Range 0 (unbounded) projects to cfg.Far.
+	u, err := render3d.NewSpotShadowUniform(localShadowTestSpot, cfg)
+	if err != nil {
+		t.Fatalf("NewSpotShadowUniform: %v", err)
 	}
-	cfg := render3d.SpotShadowConfig{
-		Resolution: 256,
-		DepthBias:  0.002,
-		NormalBias: 0.03,
-		Filter:     render3d.LocalShadowFilterPCF3x3,
+	if want := render3d.SpotShadowViewProj(localShadowTestSpot, 0.2, localShadowTestSpot.Range); u.ViewProj != want {
+		t.Fatalf("ViewProj with Range = %v, want %v", u.ViewProj, want)
 	}
-	u := render3d.NewSpotShadowUniform(light, cfg)
-	var buf [render3d.SpotShadowUniformSize + 8]byte
-	out := u.Encode(buf[:])
-	if len(out) != render3d.SpotShadowUniformSize || render3d.SpotShadowUniformSize != 144 {
-		t.Fatalf("encoded %d bytes, want 144", len(out))
+	unbounded := localShadowTestSpot
+	unbounded.Range = 0
+	u0, err := render3d.NewSpotShadowUniform(unbounded, cfg)
+	if err != nil {
+		t.Fatalf("NewSpotShadowUniform(Range 0): %v", err)
 	}
-	f := func(i int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(out[4*i:])) }
-	for i := range 16 {
-		if f(i) != u.ViewProj[i] {
-			t.Fatalf("ViewProj[%d] = %v, want %v", i, f(i), u.ViewProj[i])
-		}
+	if want := render3d.SpotShadowViewProj(unbounded, 0.2, 30); u0.ViewProj != want {
+		t.Fatalf("ViewProj with Range 0 = %v, want far plane %v", u0.ViewProj, cfg.Far)
 	}
-	if f(16) != -2 || f(17) != 4 || f(18) != 3 || f(19) != 15 {
-		t.Fatalf("position_range mismatch: %v %v %v %v", f(16), f(17), f(18), f(19))
-	}
-	if f(28) != 0.002 || f(29) != 0.03 || f(30) != 1.0/256.0 || f(31) != 1 {
-		t.Fatalf("params mismatch: %v %v %v %v", f(28), f(29), f(30), f(31))
-	}
-	if f(32) != 0.05 || f(33) != 0.06 || f(34) != 0.08 || f(35) != 0.2 {
-		t.Fatalf("ambient_near mismatch: %v %v %v %v", f(32), f(33), f(34), f(35))
+	// The cone apex maps to the shadow map center and the cone edge to its border.
+	dir := localShadowTestSpot.Direction.Norm()
+	center := u.ViewProj.MulVec4(localShadowTestSpot.Position.Add(dir.Scale(5)).Vec4(1))
+	if math.Abs(float64(center.X/center.W)) > 1e-4 || math.Abs(float64(center.Y/center.W)) > 1e-4 {
+		t.Fatalf("cone axis projects to (%v, %v), want (0, 0)", center.X/center.W, center.Y/center.W)
 	}
 
+	wide := localShadowTestSpot
+	wide.OuterConeAngle = math.Pi / 2 // valid for a LightRig, too wide for one perspective map
+	if _, err := render3d.NewSpotShadowUniform(wide, cfg); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("wide cone error = %v, want ErrInvalidLocalShadow", err)
+	}
+	short := localShadowTestSpot
+	short.Range = 0.1
+	if _, err := render3d.NewSpotShadowUniform(short, cfg); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("Range below Near error = %v, want ErrInvalidLocalShadow", err)
+	}
+	broken := localShadowTestSpot
+	broken.Direction = math3d.Vec3{}
+	if _, err := render3d.NewSpotShadowUniform(broken, cfg); !errors.Is(err, render3d.ErrInvalidLight) {
+		t.Fatalf("zero direction error = %v, want ErrInvalidLight", err)
+	}
+
+	pcfg := render3d.PointShadowConfig{FaceResolution: 128, Near: 0.15, Far: 40, DepthBias: 0.001, NormalBias: 0.02}
+	pu, err := render3d.NewPointShadowUniform(localShadowTestPoint, pcfg)
+	if err != nil {
+		t.Fatalf("NewPointShadowUniform: %v", err)
+	}
+	if pu.Far != localShadowTestPoint.Range || pu.Near != 0.15 || pu.Position != localShadowTestPoint.Position {
+		t.Fatalf("point uniform = %+v, want Far = Range", pu)
+	}
+	pl := localShadowTestPoint
+	pl.Range = 0
+	if pu0, err := render3d.NewPointShadowUniform(pl, pcfg); err != nil || pu0.Far != 40 {
+		t.Fatalf("NewPointShadowUniform(Range 0) = %+v, %v; want Far 40", pu0, err)
+	}
+	pl.Range = 0.1
+	if _, err := render3d.NewPointShadowUniform(pl, pcfg); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("point Range below Near error = %v, want ErrInvalidLocalShadow", err)
+	}
+	pl.Intensity = -1
+	if _, err := render3d.NewPointShadowUniform(pl, pcfg); !errors.Is(err, render3d.ErrInvalidLight) {
+		t.Fatalf("invalid point light error = %v, want ErrInvalidLight", err)
+	}
+}
+
+func TestLocalShadowUniformEncodeZeroAlloc(t *testing.T) {
+	u, err := render3d.NewSpotShadowUniform(localShadowTestSpot, render3d.SpotShadowConfig{Resolution: 256, DepthBias: 0.002, NormalBias: 0.03, Filter: render3d.LocalShadowFilterPCF3x3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf [render3d.SpotShadowUniformSize + 8]byte
+	out := u.Encode(buf[:])
+	if len(out) != render3d.SpotShadowUniformSize || render3d.SpotShadowUniformSize != 80 {
+		t.Fatalf("spot encoded %d bytes, want 80", len(out))
+	}
+	f := func(b []byte, i int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b[4*i:])) }
+	for i := range 16 {
+		if f(out, i) != u.ViewProj[i] {
+			t.Fatalf("ViewProj[%d] = %v, want %v", i, f(out, i), u.ViewProj[i])
+		}
+	}
+	if f(out, 16) != 0.002 || f(out, 17) != 0.03 || f(out, 18) != 1.0/256.0 || f(out, 19) != 1 {
+		t.Fatalf("spot params = %v %v %v %v", f(out, 16), f(out, 17), f(out, 18), f(out, 19))
+	}
 	if allocs := testing.AllocsPerRun(100, func() { u.Encode(buf[:]) }); allocs != 0 {
 		t.Fatalf("SpotShadowUniform.Encode allocated %v times", allocs)
 	}
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("Encode with short slice did not panic")
-			}
-		}()
-		u.Encode(make([]byte, render3d.SpotShadowUniformSize-1))
-	}()
-}
 
-func TestPointShadowUniformEncodeZeroAlloc(t *testing.T) {
-	light := render3d.PointShadowLight{
-		Position:  math3d.Vec3{X: 1, Y: 2, Z: -3},
-		Color:     math3d.Vec3{X: 1, Y: 0.8, Z: 0.6},
-		Intensity: 10,
-		Near:      0.15,
-		Range:     14,
-		Ambient:   math3d.Vec3{X: 0.04, Y: 0.05, Z: 0.06},
+	pu, err := render3d.NewPointShadowUniform(render3d.PointLight{Position: math3d.Vec3{X: 1, Y: 2, Z: -3}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 3, Range: 14}, render3d.PointShadowConfig{FaceResolution: 128, Near: 0.15, DepthBias: 0.001, NormalBias: 0.02, Filter: render3d.LocalShadowFilterHard})
+	if err != nil {
+		t.Fatal(err)
 	}
-	cfg := render3d.PointShadowConfig{
-		FaceResolution: 128,
-		DepthBias:      0.001,
-		NormalBias:     0.02,
-		Filter:         render3d.LocalShadowFilterHard,
+	var pbuf [render3d.PointShadowUniformSize + 8]byte
+	pout := pu.Encode(pbuf[:])
+	if len(pout) != render3d.PointShadowUniformSize || render3d.PointShadowUniformSize != 48 {
+		t.Fatalf("point encoded %d bytes, want 48", len(pout))
 	}
-	u := render3d.NewPointShadowUniform(light, cfg)
-	var buf [render3d.PointShadowUniformSize + 8]byte
-	out := u.Encode(buf[:])
-	if len(out) != render3d.PointShadowUniformSize || render3d.PointShadowUniformSize != 64 {
-		t.Fatalf("encoded %d bytes, want 64", len(out))
+	want := [12]float32{1, 2, -3, 14, 0.001, 0.02, 1.0 / 128.0, 0, 0.15, 0, 0, 0}
+	for i, w := range want {
+		if f(pout, i) != w {
+			t.Fatalf("point float %d = %v, want %v", i, f(pout, i), w)
+		}
 	}
-	f := func(i int) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(out[4*i:])) }
-	if f(0) != 1 || f(1) != 2 || f(2) != -3 || f(3) != 14 {
-		t.Fatalf("position_range mismatch: %v %v %v %v", f(0), f(1), f(2), f(3))
-	}
-	if f(4) != 10 || f(5) != 8 || f(6) != 6 || f(7) != 0.15 {
-		t.Fatalf("color_near mismatch: %v %v %v %v", f(4), f(5), f(6), f(7))
-	}
-	if f(8) != 0.001 || f(9) != 0.02 || f(10) != 1.0/128.0 || f(11) != 0 {
-		t.Fatalf("params mismatch: %v %v %v %v", f(8), f(9), f(10), f(11))
-	}
-	if f(12) != 0.04 || f(13) != 0.05 || f(14) != 0.06 || f(15) != 0 {
-		t.Fatalf("ambient_pad mismatch: %v %v %v %v", f(12), f(13), f(14), f(15))
-	}
-
-	if allocs := testing.AllocsPerRun(100, func() { u.Encode(buf[:]) }); allocs != 0 {
+	if allocs := testing.AllocsPerRun(100, func() { pu.Encode(pbuf[:]) }); allocs != 0 {
 		t.Fatalf("PointShadowUniform.Encode allocated %v times", allocs)
 	}
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("Encode with short slice did not panic")
-			}
+
+	for name, enc := range map[string]func(){
+		"spot":  func() { u.Encode(make([]byte, render3d.SpotShadowUniformSize-1)) },
+		"point": func() { pu.Encode(make([]byte, render3d.PointShadowUniformSize-1)) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("%s Encode with short slice did not panic", name)
+				}
+			}()
+			enc()
 		}()
-		u.Encode(make([]byte, render3d.PointShadowUniformSize-1))
-	}()
+	}
 }
 
 func TestPointShadowFaceProjectionConsistency(t *testing.T) {
-	light := render3d.PointShadowLight{
-		Position: math3d.Vec3{X: 1.5, Y: -0.75, Z: 2.25},
-		Near:     0.2,
-		Range:    16.0,
+	u, err := render3d.NewPointShadowUniform(render3d.PointLight{Position: math3d.Vec3{X: 1.5, Y: -0.75, Z: 2.25}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 1, Range: 16}, render3d.PointShadowConfig{Near: 0.2})
+	if err != nil {
+		t.Fatal(err)
 	}
 	probes := []struct {
 		offset   math3d.Vec3
@@ -446,32 +510,37 @@ func TestPointShadowFaceProjectionConsistency(t *testing.T) {
 		{math3d.Vec3{X: 1.2, Y: -0.6, Z: 3.8}, gpu.CubeFacePosZ},
 		{math3d.Vec3{X: -1.3, Y: 1.5, Z: -4.6}, gpu.CubeFaceNegZ},
 	}
-
 	for _, tc := range probes {
-		face, u, v, axisDist := render3d.PointShadowSelectFace(tc.offset)
+		face, fu, fv, axisDist := render3d.PointShadowSelectFace(tc.offset)
 		if face != tc.wantFace {
 			t.Fatalf("offset %v selected face %d, want %d", tc.offset, face, tc.wantFace)
 		}
-		world := light.Position.Add(tc.offset)
-		vp := light.FaceViewProj(face)
-		clip := vp.MulVec4(world.Vec4(1))
+		clip := u.FaceViewProj(face).MulVec4(u.Position.Add(tc.offset).Vec4(1))
 		if clip.W <= 0 {
 			t.Fatalf("face %d clip.W = %v, want > 0", face, clip.W)
 		}
-		ndcX, ndcY, ndcZ := clip.X/clip.W, clip.Y/clip.W, clip.Z/clip.W
-		gotU := ndcX*0.5 + 0.5
-		gotV := 0.5 - ndcY*0.5
-		wantZ := (light.Range / (light.Range - light.Near)) * (1.0 - light.Near/axisDist)
-		if math.Abs(float64(u-gotU)) > 1e-5 || math.Abs(float64(v-gotV)) > 1e-5 {
-			t.Errorf("face %d UV mismatch: select=(%f,%f), proj=(%f,%f)", face, u, v, gotU, gotV)
+		gotU := clip.X/clip.W*0.5 + 0.5
+		gotV := 0.5 - clip.Y/clip.W*0.5
+		wantZ := (u.Far / (u.Far - u.Near)) * (1.0 - u.Near/axisDist)
+		if math.Abs(float64(fu-gotU)) > 1e-5 || math.Abs(float64(fv-gotV)) > 1e-5 {
+			t.Errorf("face %d UV mismatch: select=(%f,%f), proj=(%f,%f)", face, fu, fv, gotU, gotV)
 		}
-		if math.Abs(float64(ndcZ-wantZ)) > 1e-5 {
-			t.Errorf("face %d depth mismatch: analytic=%f, proj=%f", face, wantZ, ndcZ)
+		if math.Abs(float64(clip.Z/clip.W-wantZ)) > 1e-5 {
+			t.Errorf("face %d depth mismatch: analytic=%f, proj=%f", face, wantZ, clip.Z/clip.W)
 		}
 	}
 }
 
-func localShadowTestRenderSpotScene(t *testing.T, filter render3d.LocalShadowFilter) (*image.RGBA, []float32, render3d.SpotShadowUniform, *scene3d.Camera) {
+type localShadowSpotResult struct {
+	img     *image.RGBA
+	depth   []float32
+	uniform render3d.SpotShadowUniform
+	cam     *scene3d.Camera
+	rig     render3d.LightRig
+}
+
+// localShadowTestRenderSpotScene draws a floor and two pillars, all with their own model matrices, lit by the first spot light of a LightRig through LitPBRSpotShadowWGSL.
+func localShadowTestRenderSpotScene(t *testing.T, filter render3d.LocalShadowFilter) localShadowSpotResult {
 	t.Helper()
 	const shadowRes = 128
 
@@ -485,8 +554,16 @@ func localShadowTestRenderSpotScene(t *testing.T, filter render3d.LocalShadowFil
 	}
 	t.Cleanup(func() { _ = camBuf.Close() })
 
+	rig := render3d.LightRig{Ambient: localShadowAmbient, Spot: []render3d.SpotLight{localShadowTestSpot}}
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, rig, render3d.LightBufferOptions{Label: "spot-lights"})
+	if err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+
 	spotShadow, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{
 		Resolution: shadowRes,
+		Near:       0.2,
 		DepthBias:  0.002,
 		NormalBias: 0.025,
 		Filter:     filter,
@@ -497,177 +574,131 @@ func localShadowTestRenderSpotScene(t *testing.T, filter render3d.LocalShadowFil
 	}
 	t.Cleanup(func() { _ = spotShadow.Close() })
 
-	litPipe, err := render3d.NewSpotShadowLitPipeline(nil, dev, camBuf.Layout(), spotShadow.Layout(), render3d.LocalShadowLitPipelineOptions{
-		DepthFormat: gpu.FormatDepth24Plus,
-		CullMode:    gpu.CullBack,
+	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.5, 4.5, 6), false)
+	unitBox := localShadowUpload(t, nil, dev, "unit-box", localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}), false)
+	pillar1Model := math3d.Translate(math3d.Vec3{X: -0.2, Y: 0.9, Z: 0.1}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 1.8, Z: 0.9}))
+	pillar2Model := math3d.Translate(math3d.Vec3{X: 1.15, Y: 0.65, Z: -0.95}).Mul(math3d.Scale(math3d.Vec3{X: 0.7, Y: 1.3, Z: 0.7}))
+	draws := localShadowDrawBuffers(t, nil, dev, false,
+		[]*render3d.GPUMesh{floor, unitBox, unitBox},
+		[]render3d.PBRDrawUniform{
+			render3d.NewPBRDrawUniform(math3d.Mat4Identity(), localShadowFloorMat),
+			render3d.NewPBRDrawUniform(pillar1Model, localShadowPillarMat),
+			render3d.NewPBRDrawUniform(pillar2Model, localShadowPillarMat),
+		})
+
+	litPipe, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draws[0].buf.Layout(), render3d.LitPBRPipelineOptions{
+		ColorFormat:      gpu.FormatRGBA8Unorm,
+		DepthFormat:      gpu.FormatDepth24Plus,
+		SpotShadowLayout: spotShadow.Layout(),
 	})
 	if err != nil {
-		t.Fatalf("NewSpotShadowLitPipeline: %v", err)
+		t.Fatalf("NewLitPBRPipelineWithOptions(SpotShadowLayout): %v", err)
 	}
 	t.Cleanup(func() { _ = litPipe.Close() })
 
-	floorMesh := localShadowTestSubdividedQuad(
-		math3d.Vec3{Y: 0},
-		math3d.Vec3{X: 1},
-		math3d.Vec3{Z: -1},
-		math3d.Vec3Up(),
-		4.5, 4.5, 6,
-	)
-	pillar1 := localShadowTestBoxMesh(math3d.Vec3{X: -0.2, Y: 0.9, Z: 0.1}, math3d.Vec3{X: 0.45, Y: 0.9, Z: 0.45})
-	pillar2Local := localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.35, Y: 0.65, Z: 0.35})
-	pillar2Model := math3d.Translate(math3d.Vec3{X: 1.15, Y: 0.65, Z: -0.95})
-	pillar2World := localShadowTestBoxMesh(math3d.Vec3{X: 1.15, Y: 0.65, Z: -0.95}, math3d.Vec3{X: 0.35, Y: 0.65, Z: 0.35})
-
-	gpuFloor, err := render3d.UploadMesh(nil, dev, floorMesh, render3d.MeshUpload{Label: "floor"})
-	if err != nil {
-		t.Fatalf("UploadMesh floor: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuFloor.Close() })
-	gpuPillar1, err := render3d.UploadMesh(nil, dev, pillar1, render3d.MeshUpload{Label: "pillar1"})
-	if err != nil {
-		t.Fatalf("UploadMesh pillar1: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuPillar1.Close() })
-	gpuPillar2Local, err := render3d.UploadMesh(nil, dev, pillar2Local, render3d.MeshUpload{Label: "pillar2-local"})
-	if err != nil {
-		t.Fatalf("UploadMesh pillar2Local: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuPillar2Local.Close() })
-	gpuScene, err := render3d.UploadMesh(nil, dev, localShadowTestMergeMeshes(floorMesh, pillar1, pillar2World), render3d.MeshUpload{Label: "spot-scene"})
-	if err != nil {
-		t.Fatalf("UploadMesh scene: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuScene.Close() })
-
-	light := render3d.SpotShadowLight{
-		Position:       math3d.Vec3{X: -2.4, Y: 3.6, Z: 2.3},
-		Direction:      math3d.Vec3{X: 2.5, Y: -3.5, Z: -2.5}.Norm(),
-		Color:          math3d.Vec3{X: 1.0, Y: 0.92, Z: 0.78},
-		Intensity:      20.0,
-		Near:           0.2,
-		Range:          14.0,
-		InnerConeAngle: math3d.DegToRad(26),
-		OuterConeAngle: math3d.DegToRad(44),
-		Ambient:        math3d.Vec3{X: 0.08, Y: 0.09, Z: 0.12},
-	}
-	if err := spotShadow.Update(dev, light); err != nil {
+	if err := spotShadow.Update(dev, localShadowTestSpot); err != nil {
 		t.Fatalf("spotShadow.Update: %v", err)
 	}
-
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0.4, Y: 4.8, Z: 5.0}, math3d.DegToRad(48), float32(localShadowTestWidth)/float32(localShadowTestHeight), 0.1, 30)
 	cam.LookAt(math3d.Vec3{X: 0.35, Y: 0.3, Z: -0.35}, math3d.Vec3Up())
 	camBuf.WriteCamera(cam)
 
 	enc := dev.BeginEncoder()
-	// Pass 1: depth-only spot shadow pass with multiple casters using distinct model transforms.
-	sp := spotShadow.BeginShadowPass(enc)
-	spotShadow.DrawCaster(dev, sp, gpuPillar1, math3d.Mat4Identity())
-	spotShadow.DrawCaster(dev, sp, gpuPillar2Local, pillar2Model)
+	sp := spotShadow.BeginShadowPass(dev, enc)
+	if sp == nil {
+		t.Fatal("BeginShadowPass returned nil")
+	}
+	for i, m := range []math3d.Mat4{pillar1Model, pillar2Model} {
+		if !spotShadow.DrawCaster(sp, unitBox, m) {
+			t.Fatalf("DrawCaster %d returned false", i)
+		}
+	}
 	sp.End()
-
-	// Pass 2: lit main pass sampling spot shadow map.
-	mp := enc.BeginRenderPass(gpu.RenderPassDesc{
-		Label: "spot-lit-main",
-		ColorAttachments: []gpu.ColorAttachment{{
-			LoadOp:     gpu.LoadClear,
-			StoreOp:    gpu.StoreStore,
-			ClearColor: localShadowTestClear,
-		}},
-		DepthStencil: &gpu.DepthStencilAttachment{
-			DepthLoadOp:  gpu.LoadClear,
-			DepthStoreOp: gpu.StoreDiscard,
-			ClearDepth:   1.0,
-		},
-	})
-	mp.SetPipeline(litPipe)
-	mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	mp.SetBindGroup(render3d.LocalShadowGroup, spotShadow.BindGroup())
-	gpuScene.Draw(mp)
+	mp := localShadowMainPass(enc)
+	localShadowDrawReceivers(mp, litPipe, camBuf, lightBuf, spotShadow.BindGroup(), draws)
 	mp.End()
-
 	dev.Submit(enc.Finish())
+	sr.WaitIdle()
 	if err := sr.LastError(); err != nil {
 		t.Fatalf("software renderer error: %v", err)
 	}
 
 	depth := localShadowTestReadDepth(t, dev, spotShadow.DepthTexture(), shadowRes, shadowRes)
-	return sr.Image(), depth, spotShadow.Uniforms(), cam
+	return localShadowSpotResult{img: sr.Image(), depth: depth, uniform: spotShadow.Uniforms(), cam: cam, rig: rig}
 }
 
 func TestSpotShadowMatchesReferenceAndGolden(t *testing.T) {
-	pcfImg, pcfDepth, pcfUniform, cam := localShadowTestRenderSpotScene(t, render3d.LocalShadowFilterPCF3x3)
-	hardImg, hardDepth, hardUniform, _ := localShadowTestRenderSpotScene(t, render3d.LocalShadowFilterHard)
+	pcf := localShadowTestRenderSpotScene(t, render3d.LocalShadowFilterPCF3x3)
+	hard := localShadowTestRenderSpotScene(t, render3d.LocalShadowFilterHard)
 
-	localShadowTestAssertGolden(t, "local_shadow_spot", pcfImg)
+	localShadowTestAssertGolden(t, "local_shadow_spot", pcf.img)
 
-	// Probe analytic visibility & GPU-vs-CPU color agreement across lit, shadowed, and out-of-cone points.
 	probes := []struct {
 		name      string
 		world     math3d.Vec3
-		normal    math3d.Vec3
 		wantVisLo float32
 		wantVisHi float32
 	}{
-		{"lit-floor-in-front", math3d.Vec3{X: -1.1, Y: 0, Z: 1.0}, math3d.Vec3Up(), 0.95, 1.0},
-		{"shadowed-floor-behind-pillar1", math3d.Vec3{X: 0.7, Y: 0, Z: -0.7}, math3d.Vec3Up(), 0.0, 0.05},
-		{"shadowed-floor-behind-pillar2", math3d.Vec3{X: 1.7, Y: 0, Z: -1.5}, math3d.Vec3Up(), 0.0, 0.05},
-		{"lit-floor-side", math3d.Vec3{X: -1.4, Y: 0, Z: -0.9}, math3d.Vec3Up(), 0.95, 1.0},
+		{"lit-floor-in-front", math3d.Vec3{X: -1.1, Y: 0, Z: 1.0}, 0.95, 1.0},
+		{"shadowed-floor-behind-pillar1", math3d.Vec3{X: 0.7, Y: 0, Z: -0.7}, 0.0, 0.05},
+		{"shadowed-floor-behind-pillar2", math3d.Vec3{X: 1.7, Y: 0, Z: -1.5}, 0.0, 0.05},
+		{"lit-floor-side", math3d.Vec3{X: -1.4, Y: 0, Z: -0.9}, 0.95, 1.0},
 	}
-
-	for _, tc := range probes {
-		cpuVis := render3d.EvaluateSpotShadow(pcfUniform, pcfDepth, 128, tc.world, tc.normal)
-		if cpuVis < tc.wantVisLo || cpuVis > tc.wantVisHi {
-			t.Errorf("%s: CPU visibility = %.3f, want in [%.2f, %.2f]", tc.name, cpuVis, tc.wantVisLo, tc.wantVisHi)
-		}
-		cpuCol := localShadowTestColorToRGB8(render3d.EvaluateSpotLighting(pcfUniform, pcfDepth, 128, tc.world, tc.normal, localShadowTestAlbedo))
-		gpuCol, px, py, ok := localShadowTestSamplePixel(pcfImg, cam, tc.world)
-		if !ok {
-			t.Fatalf("%s: probe %v outside view", tc.name, tc.world)
-		}
-		if diff := localShadowTestRGBDiff(gpuCol, cpuCol); diff > 10 {
-			t.Errorf("%s at (%d,%d): GPU=%v vs CPU=%v (max diff %d)", tc.name, px, py, gpuCol, cpuCol, diff)
-		}
-
-		hardVis := render3d.EvaluateSpotShadow(hardUniform, hardDepth, 128, tc.world, tc.normal)
-		if hardVis < tc.wantVisLo || hardVis > tc.wantVisHi {
-			t.Errorf("%s (hard): CPU visibility = %.3f, want in [%.2f, %.2f]", tc.name, hardVis, tc.wantVisLo, tc.wantVisHi)
-		}
-		hardGPU, _, _, _ := localShadowTestSamplePixel(hardImg, cam, tc.world)
-		hardCPU := localShadowTestColorToRGB8(render3d.EvaluateSpotLighting(hardUniform, hardDepth, 128, tc.world, tc.normal, localShadowTestAlbedo))
-		if diff := localShadowTestRGBDiff(hardGPU, hardCPU); diff > 10 {
-			t.Errorf("%s (hard): GPU=%v vs CPU=%v (max diff %d)", tc.name, hardGPU, hardCPU, diff)
+	up := math3d.Vec3Up()
+	for _, r := range []struct {
+		name string
+		res  localShadowSpotResult
+	}{{"pcf", pcf}, {"hard", hard}} {
+		for _, tc := range probes {
+			vis := render3d.EvaluateSpotShadow(r.res.uniform, r.res.depth, 128, tc.world, up)
+			if vis < tc.wantVisLo || vis > tc.wantVisHi {
+				t.Errorf("%s %s: CPU visibility = %.3f, want in [%.2f, %.2f]", r.name, tc.name, vis, tc.wantVisLo, tc.wantVisHi)
+			}
+			want := localShadowExpected(r.res.cam, tc.world, up, localShadowFloorMat, r.res.rig, render3d.LightVisibility{Directional0: 1, Point0: 1, Spot0: vis})
+			got, px, py, ok := localShadowTestSamplePixel(r.res.img, r.res.cam, tc.world)
+			if !ok {
+				t.Fatalf("%s: probe %v outside view", tc.name, tc.world)
+			}
+			if diff := localShadowTestRGBDiff(got, want); diff > 10 {
+				t.Errorf("%s %s at (%d,%d): GPU=%v vs CPU=%v (max diff %d)", r.name, tc.name, px, py, got, want, diff)
+			}
 		}
 	}
 
-	// Verify lit floor is markedly brighter than shadowed floor behind both casters.
-	litPx, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: -1.1, Y: 0, Z: 1.0})
-	shad1Px, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: 0.7, Y: 0, Z: -0.7})
-	shad2Px, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: 1.7, Y: 0, Z: -1.5})
+	// The shadow removes the spot light's contribution: lit floor is markedly brighter than floor behind either pillar.
+	litPx, _, _, _ := localShadowTestSamplePixel(pcf.img, pcf.cam, math3d.Vec3{X: -1.1, Y: 0, Z: 1.0})
+	shad1Px, _, _, _ := localShadowTestSamplePixel(pcf.img, pcf.cam, math3d.Vec3{X: 0.7, Y: 0, Z: -0.7})
+	shad2Px, _, _, _ := localShadowTestSamplePixel(pcf.img, pcf.cam, math3d.Vec3{X: 1.7, Y: 0, Z: -1.5})
 	if int(litPx[0]) < int(shad1Px[0])+80 || int(litPx[0]) < int(shad2Px[0])+80 {
 		t.Fatalf("expected strong shadow contrast: lit=%v shad1=%v shad2=%v", litPx, shad1Px, shad2Px)
 	}
 
-	// Verify Hard vs PCF3x3: scanning across the shadow edge produces intermediate
-	// visibility values strictly in (0, 1) for PCF3x3 and only 0 or 1 for Hard.
+	// Hard shadows are binary; PCF 3x3 produces a penumbra along the shadow edge.
 	pcfPenumbra := 0
 	for i := range 60 {
-		x := float32(-0.5) + float32(i)*0.04
-		pt := math3d.Vec3{X: x, Y: 0, Z: -0.7}
-		hv := render3d.EvaluateSpotShadow(hardUniform, hardDepth, 128, pt, math3d.Vec3Up())
-		if hv != 0 && hv != 1 {
+		pt := math3d.Vec3{X: float32(-0.5) + float32(i)*0.04, Y: 0, Z: -0.7}
+		if hv := render3d.EvaluateSpotShadow(hard.uniform, hard.depth, 128, pt, up); hv != 0 && hv != 1 {
 			t.Fatalf("hard shadow returned non-binary visibility %v at %v", hv, pt)
 		}
-		pv := render3d.EvaluateSpotShadow(pcfUniform, pcfDepth, 128, pt, math3d.Vec3Up())
-		if pv > 0.05 && pv < 0.95 {
+		if pv := render3d.EvaluateSpotShadow(pcf.uniform, pcf.depth, 128, pt, up); pv > 0.05 && pv < 0.95 {
 			pcfPenumbra++
 		}
 	}
 	if pcfPenumbra == 0 {
-		t.Errorf("expected PCF3x3 to produce smooth intermediate penumbra taps along shadow boundary")
+		t.Error("expected PCF3x3 to produce intermediate penumbra taps along the shadow boundary")
 	}
 }
 
-func localShadowTestRenderPointScene(t *testing.T, filter render3d.LocalShadowFilter) (*image.RGBA, []float32, render3d.PointShadowUniform, *scene3d.Camera) {
+type localShadowPointResult struct {
+	img     *image.RGBA
+	depth   []float32
+	uniform render3d.PointShadowUniform
+	cam     *scene3d.Camera
+	rig     render3d.LightRig
+}
+
+// localShadowTestRenderPointScene draws an open room corner with three blockers lit by the first point light of a LightRig through LitPBRPointShadowWGSL.
+func localShadowTestRenderPointScene(t *testing.T, filter render3d.LocalShadowFilter) localShadowPointResult {
 	t.Helper()
 	const faceRes = 64
 
@@ -681,8 +712,16 @@ func localShadowTestRenderPointScene(t *testing.T, filter render3d.LocalShadowFi
 	}
 	t.Cleanup(func() { _ = camBuf.Close() })
 
+	rig := render3d.LightRig{Ambient: localShadowAmbient, Point: []render3d.PointLight{localShadowTestPoint}}
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, rig, render3d.LightBufferOptions{Label: "point-lights"})
+	if err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+
 	pointShadow, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{
 		FaceResolution: faceRes,
+		Near:           0.15,
 		DepthBias:      0.0025,
 		NormalBias:     0.03,
 		Filter:         filter,
@@ -693,129 +732,75 @@ func localShadowTestRenderPointScene(t *testing.T, filter render3d.LocalShadowFi
 	}
 	t.Cleanup(func() { _ = pointShadow.Close() })
 
-	litPipe, err := render3d.NewPointShadowLitPipeline(nil, dev, camBuf.Layout(), pointShadow.Layout(), render3d.LocalShadowLitPipelineOptions{
-		DepthFormat: gpu.FormatDepth24Plus,
-		CullMode:    gpu.CullBack,
+	floor := localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3.2, 3.2, 8)
+	backWall := localShadowTestSubdividedQuad(math3d.Vec3{Y: 2.0, Z: -3.0}, math3d.Vec3{X: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{Z: 1}, 3.2, 2.0, 6)
+	rightWall := localShadowTestSubdividedQuad(math3d.Vec3{X: 3.0, Y: 2.0}, math3d.Vec3{Z: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{X: -1}, 3.2, 2.0, 6)
+	room := localShadowUpload(t, nil, dev, "room", localShadowTestMergeMeshes(floor, backWall, rightWall), false)
+	unitBox := localShadowUpload(t, nil, dev, "unit-box", localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}), false)
+
+	// Three blockers along distinct cube faces (+X, -Z and -Y relative to the light at (0, 1.8, 0)).
+	blockers := []math3d.Mat4{
+		math3d.Translate(math3d.Vec3{X: 1.45, Y: 1.45, Z: 0.1}).Mul(math3d.Scale(math3d.Vec3{X: 0.7, Y: 1.1, Z: 0.9})),
+		math3d.Translate(math3d.Vec3{X: -0.1, Y: 1.45, Z: -1.45}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 1.1, Z: 0.7})),
+		math3d.Translate(math3d.Vec3{X: -0.85, Y: 0.75, Z: 0.75}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 0.7, Z: 0.9})),
+	}
+	meshes := []*render3d.GPUMesh{room}
+	uniforms := []render3d.PBRDrawUniform{render3d.NewPBRDrawUniform(math3d.Mat4Identity(), localShadowFloorMat)}
+	for _, m := range blockers {
+		meshes = append(meshes, unitBox)
+		uniforms = append(uniforms, render3d.NewPBRDrawUniform(m, localShadowPillarMat))
+	}
+	draws := localShadowDrawBuffers(t, nil, dev, false, meshes, uniforms)
+
+	litPipe, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draws[0].buf.Layout(), render3d.LitPBRPipelineOptions{
+		ColorFormat:       gpu.FormatRGBA8Unorm,
+		DepthFormat:       gpu.FormatDepth24Plus,
+		PointShadowLayout: pointShadow.Layout(),
 	})
 	if err != nil {
-		t.Fatalf("NewPointShadowLitPipeline: %v", err)
+		t.Fatalf("NewLitPBRPipelineWithOptions(PointShadowLayout): %v", err)
 	}
 	t.Cleanup(func() { _ = litPipe.Close() })
 
-	// Open room corner: subdivided floor (y=0), back wall (z=-3.0, normal +Z), right wall (x=3.0, normal -X).
-	floor := localShadowTestSubdividedQuad(
-		math3d.Vec3{X: 0, Y: 0, Z: 0},
-		math3d.Vec3{X: 1},
-		math3d.Vec3{Z: -1},
-		math3d.Vec3Up(),
-		3.2, 3.2, 8,
-	)
-	backWall := localShadowTestSubdividedQuad(
-		math3d.Vec3{X: 0, Y: 2.0, Z: -3.0},
-		math3d.Vec3{X: 1},
-		math3d.Vec3{Y: 1},
-		math3d.Vec3{Z: 1},
-		3.2, 2.0, 6,
-	)
-	rightWall := localShadowTestSubdividedQuad(
-		math3d.Vec3{X: 3.0, Y: 2.0, Z: 0},
-		math3d.Vec3{Z: 1},
-		math3d.Vec3{Y: 1},
-		math3d.Vec3{X: -1},
-		3.2, 2.0, 6,
-	)
-
-	// Three blockers placed along distinct cube faces (+X, -Z, and -Y relative to light at (0, 1.8, 0)).
-	blockerPosX := localShadowTestBoxMesh(math3d.Vec3{X: 1.45, Y: 1.45, Z: 0.1}, math3d.Vec3{X: 0.35, Y: 0.55, Z: 0.45})
-	blockerNegZ := localShadowTestBoxMesh(math3d.Vec3{X: -0.1, Y: 1.45, Z: -1.45}, math3d.Vec3{X: 0.45, Y: 0.55, Z: 0.35})
-	blockerFloorLocal := localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.45, Y: 0.35, Z: 0.45})
-	blockerFloorPos := math3d.Vec3{X: -0.85, Y: 0.75, Z: 0.75}
-	blockerFloorWorld := localShadowTestBoxMesh(blockerFloorPos, math3d.Vec3{X: 0.45, Y: 0.35, Z: 0.45})
-
-	gpuBlockerX, err := render3d.UploadMesh(nil, dev, blockerPosX, render3d.MeshUpload{Label: "blocker-x"})
-	if err != nil {
-		t.Fatalf("UploadMesh blockerX: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuBlockerX.Close() })
-	gpuBlockerZ, err := render3d.UploadMesh(nil, dev, blockerNegZ, render3d.MeshUpload{Label: "blocker-z"})
-	if err != nil {
-		t.Fatalf("UploadMesh blockerZ: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuBlockerZ.Close() })
-	gpuBlockerFloor, err := render3d.UploadMesh(nil, dev, blockerFloorLocal, render3d.MeshUpload{Label: "blocker-y"})
-	if err != nil {
-		t.Fatalf("UploadMesh blockerFloor: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuBlockerFloor.Close() })
-	gpuRoom, err := render3d.UploadMesh(nil, dev, localShadowTestMergeMeshes(
-		floor, backWall, rightWall, blockerPosX, blockerNegZ, blockerFloorWorld,
-	), render3d.MeshUpload{Label: "point-room"})
-	if err != nil {
-		t.Fatalf("UploadMesh room: %v", err)
-	}
-	t.Cleanup(func() { _ = gpuRoom.Close() })
-
-	light := render3d.PointShadowLight{
-		Position:  math3d.Vec3{X: 0.0, Y: 1.8, Z: 0.0},
-		Color:     math3d.Vec3{X: 1.0, Y: 0.94, Z: 0.85},
-		Intensity: 14.0,
-		Near:      0.15,
-		Range:     12.0,
-		Ambient:   math3d.Vec3{X: 0.07, Y: 0.08, Z: 0.11},
-	}
-	if err := pointShadow.Update(dev, light); err != nil {
+	if err := pointShadow.Update(dev, localShadowTestPoint); err != nil {
 		t.Fatalf("pointShadow.Update: %v", err)
 	}
-
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: -3.8, Y: 4.3, Z: 4.4}, math3d.DegToRad(50), float32(localShadowTestWidth)/float32(localShadowTestHeight), 0.1, 30)
 	cam.LookAt(math3d.Vec3{X: 0.5, Y: 1.0, Z: -0.5}, math3d.Vec3Up())
 	camBuf.WriteCamera(cam)
 
 	enc := dev.BeginEncoder()
-	// Render all 6 omnidirectional cube faces into the 3x2 depth atlas.
 	for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
-		fp := pointShadow.BeginFacePass(enc, face)
-		pointShadow.DrawCaster(dev, fp, gpuBlockerX, math3d.Mat4Identity())
-		pointShadow.DrawCaster(dev, fp, gpuBlockerZ, math3d.Mat4Identity())
-		pointShadow.DrawCaster(dev, fp, gpuBlockerFloor, math3d.Translate(blockerFloorPos))
+		fp := pointShadow.BeginFacePass(dev, enc, face)
+		if fp == nil {
+			t.Fatalf("BeginFacePass(%d) returned nil", face)
+		}
+		for i, m := range blockers {
+			if !pointShadow.DrawCaster(fp, unitBox, m) {
+				t.Fatalf("face %d DrawCaster %d returned false", face, i)
+			}
+		}
 		fp.End()
 	}
-
-	mp := enc.BeginRenderPass(gpu.RenderPassDesc{
-		Label: "point-lit-main",
-		ColorAttachments: []gpu.ColorAttachment{{
-			LoadOp:     gpu.LoadClear,
-			StoreOp:    gpu.StoreStore,
-			ClearColor: localShadowTestClear,
-		}},
-		DepthStencil: &gpu.DepthStencilAttachment{
-			DepthLoadOp:  gpu.LoadClear,
-			DepthStoreOp: gpu.StoreDiscard,
-			ClearDepth:   1.0,
-		},
-	})
-	mp.SetPipeline(litPipe)
-	mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	mp.SetBindGroup(render3d.LocalShadowGroup, pointShadow.BindGroup())
-	gpuRoom.Draw(mp)
+	mp := localShadowMainPass(enc)
+	localShadowDrawReceivers(mp, litPipe, camBuf, lightBuf, pointShadow.BindGroup(), draws)
 	mp.End()
-
 	dev.Submit(enc.Finish())
+	sr.WaitIdle()
 	if err := sr.LastError(); err != nil {
 		t.Fatalf("software renderer error: %v", err)
 	}
 
 	depth := localShadowTestReadDepth(t, dev, pointShadow.DepthTexture(), pointShadow.AtlasWidth(), pointShadow.AtlasHeight())
-	return sr.Image(), depth, pointShadow.Uniforms(), cam
+	return localShadowPointResult{img: sr.Image(), depth: depth, uniform: pointShadow.Uniforms(), cam: cam, rig: rig}
 }
 
 func TestPointShadowMatchesReferenceAndGolden(t *testing.T) {
-	pcfImg, pcfDepth, pcfUniform, cam := localShadowTestRenderPointScene(t, render3d.LocalShadowFilterPCF3x3)
-	hardImg, hardDepth, hardUniform, _ := localShadowTestRenderPointScene(t, render3d.LocalShadowFilterHard)
+	pcf := localShadowTestRenderPointScene(t, render3d.LocalShadowFilterPCF3x3)
+	hard := localShadowTestRenderPointScene(t, render3d.LocalShadowFilterHard)
 
-	localShadowTestAssertGolden(t, "local_shadow_point", pcfImg)
+	localShadowTestAssertGolden(t, "local_shadow_point", pcf.img)
 
-	// Verify omnidirectional shadows across +X wall, -Z wall, and -Y floor!
 	probes := []struct {
 		name      string
 		world     math3d.Vec3
@@ -829,53 +814,314 @@ func TestPointShadowMatchesReferenceAndGolden(t *testing.T) {
 		{"back-wall-shadow-negZ", math3d.Vec3{X: -0.2, Y: 1.1, Z: -3.0}, math3d.Vec3{Z: 1}, gpu.CubeFaceNegZ, 0.0, 0.05},
 		{"back-wall-lit-negZ", math3d.Vec3{X: -2.0, Y: 2.6, Z: -3.0}, math3d.Vec3{Z: 1}, gpu.CubeFaceNegZ, 0.95, 1.0},
 		{"floor-shadow-negY", math3d.Vec3{X: -1.45, Y: 0.0, Z: 1.3}, math3d.Vec3Up(), gpu.CubeFaceNegY, 0.0, 0.05},
-		{"floor-lit-center", math3d.Vec3{X: 0.0, Y: 0.0, Z: 0.0}, math3d.Vec3Up(), gpu.CubeFaceNegY, 0.95, 1.0},
+		{"floor-lit-front", math3d.Vec3{X: 0.8, Y: 0.0, Z: 0.8}, math3d.Vec3Up(), gpu.CubeFaceNegY, 0.95, 1.0},
 	}
-
-	for _, tc := range probes {
-		gotFace, _, _, _ := render3d.PointShadowSelectFace(tc.world.Sub(pcfUniform.Position))
-		if gotFace != tc.wantFace {
-			t.Errorf("%s: cube face = %d, want %d", tc.name, gotFace, tc.wantFace)
-		}
-		cpuVis := render3d.EvaluatePointShadow(pcfUniform, pcfDepth, 64, tc.world, tc.normal)
-		if cpuVis < tc.wantVisLo || cpuVis > tc.wantVisHi {
-			t.Errorf("%s: CPU visibility = %.3f, want in [%.2f, %.2f]", tc.name, cpuVis, tc.wantVisLo, tc.wantVisHi)
-		}
-		cpuCol := localShadowTestColorToRGB8(render3d.EvaluatePointLighting(pcfUniform, pcfDepth, 64, tc.world, tc.normal, localShadowTestAlbedo))
-		gpuCol, px, py, ok := localShadowTestSamplePixel(pcfImg, cam, tc.world)
-		if !ok {
-			t.Fatalf("%s: probe %v outside view", tc.name, tc.world)
-		}
-		if diff := localShadowTestRGBDiff(gpuCol, cpuCol); diff > 12 {
-			t.Errorf("%s at (%d,%d): GPU=%v vs CPU=%v (max diff %d)", tc.name, px, py, gpuCol, cpuCol, diff)
-		}
-
-		hardVis := render3d.EvaluatePointShadow(hardUniform, hardDepth, 64, tc.world, tc.normal)
-		if hardVis < tc.wantVisLo || hardVis > tc.wantVisHi {
-			t.Errorf("%s (hard): CPU visibility = %.3f, want in [%.2f, %.2f]", tc.name, hardVis, tc.wantVisLo, tc.wantVisHi)
-		}
-		hardGPU, _, _, _ := localShadowTestSamplePixel(hardImg, cam, tc.world)
-		hardCPU := localShadowTestColorToRGB8(render3d.EvaluatePointLighting(hardUniform, hardDepth, 64, tc.world, tc.normal, localShadowTestAlbedo))
-		if diff := localShadowTestRGBDiff(hardGPU, hardCPU); diff > 12 {
-			t.Errorf("%s (hard): GPU=%v vs CPU=%v (max diff %d)", tc.name, hardGPU, hardCPU, diff)
+	for _, r := range []struct {
+		name string
+		res  localShadowPointResult
+	}{{"pcf", pcf}, {"hard", hard}} {
+		for _, tc := range probes {
+			if gotFace, _, _, _ := render3d.PointShadowSelectFace(tc.world.Sub(r.res.uniform.Position)); gotFace != tc.wantFace {
+				t.Errorf("%s: cube face = %d, want %d", tc.name, gotFace, tc.wantFace)
+			}
+			vis := render3d.EvaluatePointShadow(r.res.uniform, r.res.depth, 64, tc.world, tc.normal)
+			if vis < tc.wantVisLo || vis > tc.wantVisHi {
+				t.Errorf("%s %s: CPU visibility = %.3f, want in [%.2f, %.2f]", r.name, tc.name, vis, tc.wantVisLo, tc.wantVisHi)
+			}
+			want := localShadowExpected(r.res.cam, tc.world, tc.normal, localShadowFloorMat, r.res.rig, render3d.LightVisibility{Directional0: 1, Point0: vis, Spot0: 1})
+			got, px, py, ok := localShadowTestSamplePixel(r.res.img, r.res.cam, tc.world)
+			if !ok {
+				t.Fatalf("%s: probe %v outside view", tc.name, tc.world)
+			}
+			if diff := localShadowTestRGBDiff(got, want); diff > 12 {
+				t.Errorf("%s %s at (%d,%d): GPU=%v vs CPU=%v (max diff %d)", r.name, tc.name, px, py, got, want, diff)
+			}
 		}
 	}
 
-	// Verify strong visual shadow contrast on every shadowed face (+X wall, -Z wall, -Y floor).
-	wallXShad, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: 3.0, Y: 1.1, Z: 0.2})
-	wallXLit, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: 3.0, Y: 2.8, Z: -1.8})
-	wallZShad, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: -0.2, Y: 1.1, Z: -3.0})
-	wallZLit, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: -2.0, Y: 2.6, Z: -3.0})
-	floorShad, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: -1.45, Y: 0.0, Z: 1.3})
-	floorLit, _, _, _ := localShadowTestSamplePixel(pcfImg, cam, math3d.Vec3{X: 0.0, Y: 0.0, Z: 0.0})
-	if int(wallXLit[0]) < int(wallXShad[0])+40 {
-		t.Errorf("+X wall shadow contrast too low: lit=%v shad=%v", wallXLit, wallXShad)
+	pairs := []struct {
+		name      string
+		lit, shad math3d.Vec3
+	}{
+		{"+X wall", math3d.Vec3{X: 3.0, Y: 2.8, Z: -1.8}, math3d.Vec3{X: 3.0, Y: 1.1, Z: 0.2}},
+		{"-Z wall", math3d.Vec3{X: -2.0, Y: 2.6, Z: -3.0}, math3d.Vec3{X: -0.2, Y: 1.1, Z: -3.0}},
+		{"-Y floor", math3d.Vec3{X: 0.8, Y: 0.0, Z: 0.8}, math3d.Vec3{X: -1.45, Y: 0.0, Z: 1.3}},
 	}
-	if int(wallZLit[0]) < int(wallZShad[0])+40 {
-		t.Errorf("-Z wall shadow contrast too low: lit=%v shad=%v", wallZLit, wallZShad)
+	for _, p := range pairs {
+		litPx, _, _, _ := localShadowTestSamplePixel(pcf.img, pcf.cam, p.lit)
+		shadPx, _, _, _ := localShadowTestSamplePixel(pcf.img, pcf.cam, p.shad)
+		if int(litPx[0]) < int(shadPx[0])+40 {
+			t.Errorf("%s shadow contrast too low: lit=%v shad=%v", p.name, litPx, shadPx)
+		}
 	}
-	if int(floorLit[0]) < int(floorShad[0])+80 {
-		t.Errorf("-Y floor shadow contrast too low: lit=%v shad=%v", floorLit, floorShad)
+}
+
+// TestLocalShadowWGSLComposesWithLightRig compiles the shadow helpers next to CameraWGSL and LightWGSL, and draws with a spot and a point shadow bound at once through the ForGroup variants, proving they share no binding with the camera, light or per-draw groups.
+func TestLocalShadowWGSLComposesWithLightRig(t *testing.T) {
+	if render3d.SpotShadowWGSLForGroup(render3d.LocalShadowGroup) != render3d.SpotShadowWGSL {
+		t.Fatal("SpotShadowWGSLForGroup(LocalShadowGroup) differs from SpotShadowWGSL")
+	}
+	if render3d.PointShadowWGSLForGroup(render3d.LocalShadowGroup) != render3d.PointShadowWGSL {
+		t.Fatal("PointShadowWGSLForGroup(LocalShadowGroup) differs from PointShadowWGSL")
+	}
+	for name, src := range map[string]string{
+		"LitPBRSpotShadowWGSL":           render3d.LitPBRSpotShadowWGSL,
+		"LitPBRPointShadowWGSL":          render3d.LitPBRPointShadowWGSL,
+		"Camera+Light+SpotShadowWGSL":    render3d.CameraWGSL + render3d.LightWGSL + render3d.SpotShadowWGSL + "\n@fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(sample_spot_shadow(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0))); }\n",
+		"Camera+Light+PointShadowWGSL":   render3d.CameraWGSL + render3d.LightWGSL + render3d.PointShadowWGSL + "\n@fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(sample_point_shadow(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0))); }\n",
+		"Spot(3)+Point(2) in one shader": localShadowBothWGSL,
+	} {
+		if _, err := gpu.CompileWGSL(src); err != nil {
+			t.Fatalf("CompileWGSL(%s): %v", name, err)
+		}
+	}
+
+	sr := gpu.NewSoftwareRenderer(32, 32, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	rig := render3d.LightRig{
+		Ambient: localShadowAmbient,
+		Point:   []render3d.PointLight{localShadowTestPoint},
+		Spot:    []render3d.SpotLight{localShadowTestSpot},
+	}
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, rig, render3d.LightBufferOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+	spot, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{Resolution: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = spot.Close() })
+	point, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{FaceResolution: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = point.Close() })
+	if err := spot.Update(dev, localShadowTestSpot); err != nil {
+		t.Fatal(err)
+	}
+	if err := point.Update(dev, localShadowTestPoint); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := gpu.CompileWGSL(localShadowBothWGSL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe, err := dev.CreatePipeline(nil, gpu.PipelineDesc{
+		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs"},
+		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs"},
+		Layouts:       []*gpu.BindGroupLayout{camBuf.Layout(), lightBuf.Layout(), point.Layout(), spot.Layout()},
+		VertexBuffers: []gpu.VertexBufferLayout{render3d.MeshVertexLayout()},
+		Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList},
+		Targets:       []gpu.ColorTargetState{{Format: gpu.FormatRGBA8Unorm, WriteMask: gpu.ColorWriteAll}},
+		DepthStencil:  &gpu.DepthStencilState{Format: gpu.FormatDepth24Plus, DepthWrite: true, DepthCompare: gpu.CompareLess},
+	})
+	if err != nil {
+		t.Fatalf("CreatePipeline(spot at 3, point at 2): %v", err)
+	}
+	t.Cleanup(func() { _ = pipe.Close() })
+	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3, 3, 2), false)
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 5, Z: 5}, math3d.DegToRad(50), 1, 0.1, 30)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+
+	enc := dev.BeginEncoder()
+	mp := localShadowMainPass(enc)
+	mp.SetPipeline(pipe)
+	mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+	mp.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+	mp.SetBindGroup(2, point.BindGroup())
+	mp.SetBindGroup(render3d.LocalShadowGroup, spot.BindGroup())
+	floor.Draw(mp)
+	mp.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer error: %v", err)
+	}
+}
+
+// localShadowBothWGSL shades a world-space mesh with the spot shadow at group 3 and the point shadow at group 2 alongside the camera and light rig.
+var localShadowBothWGSL = render3d.CameraWGSL + render3d.LightWGSL + render3d.SpotShadowWGSL + render3d.PointShadowWGSLForGroup(2) + `
+struct VsOut {
+	@builtin(position) clip: vec4<f32>,
+	@location(0) world_pos: vec3<f32>,
+	@location(1) world_normal: vec3<f32>,
+}
+
+@vertex
+fn vs(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>) -> VsOut {
+	var out: VsOut;
+	out.clip = camera.view_proj * vec4<f32>(pos, 1.0);
+	out.world_pos = pos;
+	out.world_normal = normal;
+	return out;
+}
+
+@fragment
+fn fs(in: VsOut) -> @location(0) vec4<f32> {
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let spot_vis = sample_spot_shadow(in.world_pos, in.world_normal);
+	let point_vis = sample_point_shadow(in.world_pos, in.world_normal);
+	let lit = shade_pbr_visibility(in.world_pos, in.world_normal, view_dir, vec3<f32>(0.8, 0.8, 0.8), 0.0, 0.9, 1.0, point_vis, spot_vis);
+	return vec4<f32>(linear_to_srgb(lit), 1.0);
+}
+`
+
+func TestLitPBRLocalShadowPipelineOptions(t *testing.T) {
+	if _, err := render3d.NewLitPBRSpotShadowPipeline(nil, nil, nil, nil, nil, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("NewLitPBRSpotShadowPipeline(nil dev) = %v, want ErrDeviceLost", err)
+	}
+	if _, err := render3d.NewLitPBRPointShadowPipeline(nil, nil, nil, nil, nil, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("NewLitPBRPointShadowPipeline(nil dev) = %v, want ErrDeviceLost", err)
+	}
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, render3d.LightRig{}, render3d.LightBufferOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+	draw, err := render3d.NewPBRDrawBuffer(nil, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), localShadowFloorMat), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = draw.Close() })
+	spot, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{Resolution: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = spot.Close() })
+	point, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{FaceResolution: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = point.Close() })
+
+	if _, err := render3d.NewLitPBRSpotShadowPipeline(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewLitPBRSpotShadowPipeline(nil layout) = %v, want ErrInvalidDescriptor", err)
+	}
+	if _, err := render3d.NewLitPBRPointShadowPipeline(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewLitPBRPointShadowPipeline(nil layout) = %v, want ErrInvalidDescriptor", err)
+	}
+	for name, opts := range map[string]render3d.LitPBRPipelineOptions{
+		"spot+point":       {SpotShadowLayout: spot.Layout(), PointShadowLayout: point.Layout()},
+		"spot+directional": {SpotShadowLayout: spot.Layout(), ShadowLayout: point.Layout()},
+		"point+fog":        {PointShadowLayout: point.Layout(), FogLayout: spot.Layout()},
+	} {
+		if _, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), opts); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+			t.Errorf("%s: err = %v, want ErrInvalidDescriptor (bind group 3 conflict)", name, err)
+		}
+	}
+	for name, mk := range map[string]func() (*gpu.Pipeline, error){
+		"spot": func() (*gpu.Pipeline, error) {
+			return render3d.NewLitPBRSpotShadowPipeline(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), spot.Layout(), gpu.FormatDepth24Plus)
+		},
+		"point": func() (*gpu.Pipeline, error) {
+			return render3d.NewLitPBRPointShadowPipeline(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), point.Layout(), gpu.FormatDepth24Plus)
+		},
+		"spot-linear": func() (*gpu.Pipeline, error) {
+			return render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), render3d.LitPBRPipelineOptions{SpotShadowLayout: spot.Layout(), LinearOutput: true})
+		},
+		"point-linear": func() (*gpu.Pipeline, error) {
+			return render3d.NewLitPBRPipelineWithOptions(nil, dev, camBuf.Layout(), lightBuf.Layout(), draw.Layout(), render3d.LitPBRPipelineOptions{PointShadowLayout: point.Layout(), LinearOutput: true})
+		},
+	} {
+		p, err := mk()
+		if err != nil {
+			t.Fatalf("%s pipeline: %v", name, err)
+		}
+		_ = p.Close()
+	}
+}
+
+func TestLocalShadowCasterSlots(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	box := localShadowUpload(t, nil, dev, "box", localShadowTestBoxMesh(math3d.Vec3{Y: 0.5}, math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}), false)
+
+	spot, err := render3d.NewSpotShadowMap(nil, dev, render3d.SpotShadowConfig{Resolution: 16, MaxCasters: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = spot.Close() })
+	if spot.MaxCasters() != 2 {
+		t.Fatalf("MaxCasters = %d, want 2", spot.MaxCasters())
+	}
+
+	// Drawing before Update has no light projection, so it is refused.
+	enc := dev.BeginEncoder()
+	sp := spot.BeginShadowPass(dev, enc)
+	if spot.DrawCaster(sp, box, math3d.Mat4Identity()) {
+		t.Fatal("DrawCaster before Update returned true")
+	}
+	sp.End()
+	dev.Submit(enc.Finish())
+
+	if err := spot.Update(dev, localShadowTestSpot); err != nil {
+		t.Fatal(err)
+	}
+	for frame := range 3 {
+		enc := dev.BeginEncoder()
+		sp := spot.BeginShadowPass(dev, enc)
+		for i := range 2 {
+			if !spot.DrawCaster(sp, box, math3d.Translate(math3d.Vec3{X: float32(i)})) {
+				t.Fatalf("frame %d caster %d refused", frame, i)
+			}
+		}
+		if spot.DrawCaster(sp, box, math3d.Mat4Identity()) {
+			t.Fatalf("frame %d: caster beyond MaxCasters accepted", frame)
+		}
+		sp.End()
+		dev.Submit(enc.Finish())
+	}
+
+	point, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{FaceResolution: 8, MaxCasters: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = point.Close() })
+	if err := point.Update(dev, localShadowTestPoint); err != nil {
+		t.Fatal(err)
+	}
+	// Refreshing only some faces, in any order, frame after frame never runs out of slots: each face owns its own.
+	for frame := range 8 {
+		enc := dev.BeginEncoder()
+		for _, face := range []gpu.CubeFace{gpu.CubeFacePosZ, gpu.CubeFaceNegX} {
+			fp := point.BeginFacePass(dev, enc, face)
+			if fp == nil {
+				t.Fatalf("BeginFacePass(%d) returned nil", face)
+			}
+			if !point.DrawCaster(fp, box, math3d.Mat4Identity()) {
+				t.Fatalf("frame %d face %d: caster refused", frame, face)
+			}
+			if point.DrawCaster(fp, box, math3d.Mat4Identity()) {
+				t.Fatalf("frame %d face %d: caster beyond MaxCasters accepted", frame, face)
+			}
+			fp.End()
+		}
+		dev.Submit(enc.Finish())
+	}
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer error: %v", err)
+	}
+	if point.BeginFacePass(dev, dev.BeginEncoder(), render3d.PointShadowFaceCount) != nil {
+		t.Fatal("BeginFacePass accepted an out-of-range face")
 	}
 }
 
@@ -889,45 +1135,43 @@ func localShadowTestStartGPUView(t *testing.T, retained bool, usePoint bool, ext
 	var (
 		dev         *gpu.Device
 		camBuf      *render3d.CameraBuffer
+		lightBuf    *render3d.GPULightBuffer
+		draws       []localShadowDraw
 		spotShadow  *render3d.SpotShadowMap
 		pointShadow *render3d.PointShadowMap
 		litPipe     *gpu.Pipeline
 		gpuCaster   *render3d.GPUMesh
-		gpuScene    *render3d.GPUMesh
+		gpuFloor    *render3d.GPUMesh
 		frames      int
 	)
 
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 4.5, Z: 4.5}, math3d.DegToRad(50), 1.0, 0.1, 30)
-	cam.LookAt(math3d.Vec3{X: 0, Y: 0, Z: 0}, math3d.Vec3Up())
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 
-	floorMesh := localShadowTestSubdividedQuad(
-		math3d.Vec3{Y: 0},
-		math3d.Vec3{X: 1},
-		math3d.Vec3{Z: -1},
-		math3d.Vec3Up(),
-		4.0, 4.0, 6,
-	)
-	pillarMesh := localShadowTestBoxMesh(math3d.Vec3{X: 0, Y: 0.9, Z: 0}, math3d.Vec3{X: 0.45, Y: 0.9, Z: 0.45})
-	sceneMesh := localShadowTestMergeMeshes(floorMesh, pillarMesh)
+	floorMesh := localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.0, 4.0, 6)
+	pillarMesh := localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5})
+	pillarModel := math3d.Translate(math3d.Vec3{Y: 0.9}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 1.8, Z: 0.9}))
 
-	spotLight := render3d.SpotShadowLight{
+	spotLight := render3d.SpotLight{
 		Position:       math3d.Vec3{X: -2.0, Y: 3.2, Z: 0.0},
-		Direction:      math3d.Vec3{X: 2.0, Y: -3.2, Z: 0.0}.Norm(),
+		Direction:      math3d.Vec3{X: 2.0, Y: -3.2, Z: 0.0},
 		Color:          math3d.Vec3{X: 1, Y: 1, Z: 1},
-		Intensity:      18,
-		Near:           0.2,
+		Intensity:      30,
 		Range:          12,
 		InnerConeAngle: math3d.DegToRad(30),
 		OuterConeAngle: math3d.DegToRad(45),
-		Ambient:        math3d.Vec3{X: 0.08, Y: 0.08, Z: 0.08},
 	}
-	pointLight := render3d.PointShadowLight{
+	pointLight := render3d.PointLight{
 		Position:  math3d.Vec3{X: -2.0, Y: 2.0, Z: 0.0},
 		Color:     math3d.Vec3{X: 1, Y: 1, Z: 1},
-		Intensity: 18,
-		Near:      0.15,
+		Intensity: 12,
 		Range:     12,
-		Ambient:   math3d.Vec3{X: 0.08, Y: 0.08, Z: 0.08},
+	}
+	rig := render3d.LightRig{Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.08, Y: 0.08, Z: 0.08}, Intensity: 1}}
+	if usePoint {
+		rig.Point = []render3d.PointLight{pointLight}
+	} else {
+		rig.Spot = []render3d.SpotLight{spotLight}
 	}
 
 	opts := append([]nsgotest.Option{nsgotest.Size(64, 64), nsgotest.ManualFrames()}, extraOpts...)
@@ -939,101 +1183,66 @@ func localShadowTestStartGPUView(t *testing.T, retained bool, usePoint bool, ext
 			OnReady: func(d *gpu.Device) {
 				dev = d
 				var err error
-				camBuf, err = render3d.NewCameraBuffer(cx, d)
-				if err != nil {
+				if camBuf, err = render3d.NewCameraBuffer(cx, d); err != nil {
 					t.Fatalf("NewCameraBuffer: %v", err)
 				}
-				if !retained || gpuCaster == nil {
-					gpuCaster, err = render3d.UploadMesh(cx, d, pillarMesh, render3d.MeshUpload{Label: "caster", Retained: retained})
-					if err != nil {
-						t.Fatalf("UploadMesh caster: %v", err)
-					}
-					gpuScene, err = render3d.UploadMesh(cx, d, sceneMesh, render3d.MeshUpload{Label: "scene", Retained: retained})
-					if err != nil {
-						t.Fatalf("UploadMesh scene: %v", err)
-					}
+				if lightBuf, err = render3d.NewLightBuffer(cx, d, rig, render3d.LightBufferOptions{}); err != nil {
+					t.Fatalf("NewLightBuffer: %v", err)
 				}
+				if !retained || gpuCaster == nil {
+					gpuCaster = localShadowUpload(t, cx, d, "caster", pillarMesh, retained)
+					gpuFloor = localShadowUpload(t, cx, d, "floor", floorMesh, retained)
+				}
+				draws = localShadowDrawBuffers(t, cx, d, false,
+					[]*render3d.GPUMesh{gpuFloor, gpuCaster},
+					[]render3d.PBRDrawUniform{
+						render3d.NewPBRDrawUniform(math3d.Mat4Identity(), localShadowFloorMat),
+						render3d.NewPBRDrawUniform(pillarModel, localShadowPillarMat),
+					})
 				if usePoint {
 					if !retained || pointShadow == nil {
-						pointShadow, err = render3d.NewPointShadowMap(cx, d, render3d.PointShadowConfig{
-							FaceResolution: 32,
-							DepthBias:      0.002,
-							NormalBias:     0.02,
-							Filter:         render3d.LocalShadowFilterPCF3x3,
-							Retained:       retained,
-						})
-						if err != nil {
+						if pointShadow, err = render3d.NewPointShadowMap(cx, d, render3d.PointShadowConfig{FaceResolution: 32, DepthBias: 0.002, NormalBias: 0.02, Filter: render3d.LocalShadowFilterPCF3x3, Retained: retained}); err != nil {
 							t.Fatalf("NewPointShadowMap: %v", err)
 						}
 					}
-					litPipe, err = render3d.NewPointShadowLitPipeline(cx, d, camBuf.Layout(), pointShadow.Layout(), render3d.LocalShadowLitPipelineOptions{
-						DepthFormat: gpu.FormatDepth24Plus,
-						CullMode:    gpu.CullBack,
-					})
-					if err != nil {
-						t.Fatalf("NewPointShadowLitPipeline: %v", err)
+					if litPipe, err = render3d.NewLitPBRPointShadowPipeline(cx, d, camBuf.Layout(), lightBuf.Layout(), draws[0].buf.Layout(), pointShadow.Layout(), gpu.FormatDepth24Plus); err != nil {
+						t.Fatalf("NewLitPBRPointShadowPipeline: %v", err)
 					}
 				} else {
 					if !retained || spotShadow == nil {
-						spotShadow, err = render3d.NewSpotShadowMap(cx, d, render3d.SpotShadowConfig{
-							Resolution: 64,
-							DepthBias:  0.002,
-							NormalBias: 0.02,
-							Filter:     render3d.LocalShadowFilterPCF3x3,
-							Retained:   retained,
-						})
-						if err != nil {
+						if spotShadow, err = render3d.NewSpotShadowMap(cx, d, render3d.SpotShadowConfig{Resolution: 64, DepthBias: 0.002, NormalBias: 0.02, Filter: render3d.LocalShadowFilterPCF3x3, Retained: retained}); err != nil {
 							t.Fatalf("NewSpotShadowMap: %v", err)
 						}
 					}
-					litPipe, err = render3d.NewSpotShadowLitPipeline(cx, d, camBuf.Layout(), spotShadow.Layout(), render3d.LocalShadowLitPipelineOptions{
-						DepthFormat: gpu.FormatDepth24Plus,
-						CullMode:    gpu.CullBack,
-					})
-					if err != nil {
-						t.Fatalf("NewSpotShadowLitPipeline: %v", err)
+					if litPipe, err = render3d.NewLitPBRSpotShadowPipeline(cx, d, camBuf.Layout(), lightBuf.Layout(), draws[0].buf.Layout(), spotShadow.Layout(), gpu.FormatDepth24Plus); err != nil {
+						t.Fatalf("NewLitPBRSpotShadowPipeline: %v", err)
 					}
 				}
 			},
 			OnFrame: func(frame *gpu.Frame) {
 				camBuf.WriteCamera(cam)
+				var shadow *gpu.BindGroup
 				if usePoint {
 					if err := pointShadow.Update(dev, pointLight); err != nil {
 						t.Fatalf("pointShadow.Update: %v", err)
 					}
 					for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
-						fp := pointShadow.BeginFacePass(frame, face)
-						pointShadow.DrawCaster(dev, fp, gpuCaster, math3d.Mat4Identity())
+						fp := pointShadow.BeginFacePass(dev, frame, face)
+						pointShadow.DrawCaster(fp, gpuCaster, pillarModel)
 						fp.End()
 					}
+					shadow = pointShadow.BindGroup()
 				} else {
 					if err := spotShadow.Update(dev, spotLight); err != nil {
 						t.Fatalf("spotShadow.Update: %v", err)
 					}
-					sp := spotShadow.BeginShadowPass(frame)
-					spotShadow.DrawCaster(dev, sp, gpuCaster, math3d.Mat4Identity())
+					sp := spotShadow.BeginShadowPass(dev, frame)
+					spotShadow.DrawCaster(sp, gpuCaster, pillarModel)
 					sp.End()
+					shadow = spotShadow.BindGroup()
 				}
-				mp := frame.BeginRenderPass(gpu.RenderPassDesc{
-					ColorAttachments: []gpu.ColorAttachment{{
-						LoadOp:     gpu.LoadClear,
-						StoreOp:    gpu.StoreStore,
-						ClearColor: localShadowTestClear,
-					}},
-					DepthStencil: &gpu.DepthStencilAttachment{
-						DepthLoadOp:  gpu.LoadClear,
-						DepthStoreOp: gpu.StoreDiscard,
-						ClearDepth:   1.0,
-					},
-				})
-				mp.SetPipeline(litPipe)
-				mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-				if usePoint {
-					mp.SetBindGroup(render3d.LocalShadowGroup, pointShadow.BindGroup())
-				} else {
-					mp.SetBindGroup(render3d.LocalShadowGroup, spotShadow.BindGroup())
-				}
-				gpuScene.Draw(mp)
+				mp := localShadowMainPass(frame)
+				localShadowDrawReceivers(mp, litPipe, camBuf, lightBuf, shadow, draws)
 				mp.End()
 				frame.Submit()
 				frames++
@@ -1125,11 +1334,10 @@ func TestLocalShadowsRetainedDeviceLossRestore(t *testing.T) {
 }
 
 func TestLocalShadowsCloseAndScopeDisposal(t *testing.T) {
-	// Nil safety.
 	var nilSpot *render3d.SpotShadowMap
 	var nilPoint *render3d.PointShadowMap
-	if nilSpot.Valid() || nilPoint.Valid() || nilSpot.ByteSize() != 0 || nilPoint.ByteSize() != 0 {
-		t.Fatal("nil shadow map should report invalid and zero byte size")
+	if nilSpot.Valid() || nilPoint.Valid() || nilSpot.ByteSize() != 0 || nilPoint.ByteSize() != 0 || nilSpot.MaxCasters() != 0 || nilPoint.MaxCasters() != 0 {
+		t.Fatal("nil shadow map should report invalid and zero sizes")
 	}
 	if err := nilSpot.Close(); err != nil {
 		t.Fatalf("nil spot Close: %v", err)
@@ -1137,8 +1345,10 @@ func TestLocalShadowsCloseAndScopeDisposal(t *testing.T) {
 	if err := nilPoint.Close(); err != nil {
 		t.Fatalf("nil point Close: %v", err)
 	}
+	if nilSpot.BeginShadowPass(nil, nil) != nil || nilPoint.BeginFacePass(nil, nil, 0) != nil || nilSpot.DrawCaster(nil, nil, math3d.Mat4Identity()) || nilPoint.DrawCaster(nil, nil, math3d.Mat4Identity()) {
+		t.Fatal("nil shadow map recorded a pass or caster")
+	}
 
-	// Explicit Close idempotency & ByteSize accounting.
 	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
@@ -1159,12 +1369,15 @@ func TestLocalShadowsCloseAndScopeDisposal(t *testing.T) {
 	if spot.Valid() {
 		t.Fatal("spot still valid after Close")
 	}
+	if err := spot.Update(dev, localShadowTestSpot); !errors.Is(err, render3d.ErrInvalidLocalShadow) {
+		t.Fatalf("Update after Close = %v, want ErrInvalidLocalShadow", err)
+	}
 
 	point, err := render3d.NewPointShadowMap(nil, dev, render3d.PointShadowConfig{FaceResolution: 32, MaxCasters: 24})
 	if err != nil {
 		t.Fatalf("NewPointShadowMap: %v", err)
 	}
-	if want := uint64(96*64*4) + render3d.PointShadowUniformSize + 24*256; point.ByteSize() != want {
+	if want := uint64(96*64*4) + render3d.PointShadowUniformSize + 6*24*256; point.ByteSize() != want {
 		t.Fatalf("point ByteSize = %d, want %d", point.ByteSize(), want)
 	}
 	if err := point.Close(); err != nil {
@@ -1177,7 +1390,6 @@ func TestLocalShadowsCloseAndScopeDisposal(t *testing.T) {
 		t.Fatal("point still valid after Close")
 	}
 
-	// Scope disposal releases both maps automatically.
 	var (
 		scopedSpot  *render3d.SpotShadowMap
 		scopedPoint *render3d.PointShadowMap
@@ -1190,12 +1402,10 @@ func TestLocalShadowsCloseAndScopeDisposal(t *testing.T) {
 				Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)},
 				OnReady: func(d *gpu.Device) {
 					var err error
-					scopedSpot, err = render3d.NewSpotShadowMap(cx, d, render3d.SpotShadowConfig{Resolution: 32})
-					if err != nil {
+					if scopedSpot, err = render3d.NewSpotShadowMap(cx, d, render3d.SpotShadowConfig{Resolution: 32}); err != nil {
 						t.Fatalf("NewSpotShadowMap: %v", err)
 					}
-					scopedPoint, err = render3d.NewPointShadowMap(cx, d, render3d.PointShadowConfig{FaceResolution: 16})
-					if err != nil {
+					if scopedPoint, err = render3d.NewPointShadowMap(cx, d, render3d.PointShadowConfig{FaceResolution: 16}); err != nil {
 						t.Fatalf("NewPointShadowMap: %v", err)
 					}
 				},
