@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -14,17 +13,14 @@ import (
 
 // Directional shadow mapping constants and defaults (#117).
 const (
-	// ShadowGroup is the bind group index reserved by [ShadowWGSL] and [ShadowLitWGSL] for directional shadow data (uniform buffer at binding 0, depth texture at binding 1, comparison sampler at binding 2), leaving [CameraGroup] (0) for the camera and group 1 for materials or per-object data.
-	ShadowGroup = 2
+	// ShadowGroup is the bind group index [ShadowWGSL] and [LitPBRShadowWGSL] reserve for directional shadow data (uniform buffer at binding 0, depth texture at binding 1, comparison sampler at binding 2). It is the last of the four bind groups every NSGo backend offers, after [CameraGroup] (0), [LightGroup] (1) and [PBRDrawGroup] (2), so it is the same slot [FogGroup], [IBLGroup] and [LitPBRSkinGroup] use and a lit PBR pipeline takes only one of them. Custom shaders that need group 3 for something else can place the shadow bindings elsewhere with [ShadowWGSLForGroup].
+	ShadowGroup = 3
 
 	// ShadowUniformSize is the byte size of the [ShadowUniforms] block written by [AppendShadowUniforms] and declared by [ShadowWGSL]: one mat4x4<f32> plus two vec4<f32> vectors (96 bytes).
 	ShadowUniformSize = 64 + 16 + 16
 
 	// ShadowCasterUniformSize is the byte size of one caster's light-space MVP matrix in [ShadowDepthWGSL].
 	ShadowCasterUniformSize = 64
-
-	// ShadowLitObjectUniformSize is the byte size of [ShadowLitObjectUniform] declared in [ShadowLitWGSL]: two mat4x4<f32> matrices plus three vec4<f32> vectors (176 bytes).
-	ShadowLitObjectUniformSize = 2*64 + 3*16
 
 	// DefaultShadowResolution is the default width and height in texels of a [DirectionalShadowMap].
 	DefaultShadowResolution uint32 = 1024
@@ -89,15 +85,14 @@ func validateShadowResolution(res uint32) error {
 
 // DirectionalShadowConfig holds the mathematical and shading parameters for a directional light's orthographic shadow frustum.
 type DirectionalShadowConfig struct {
-	// Direction is the world-space direction light rays travel (from the sun toward the scene). It need not be unit length, but must be finite and non-zero.
+	// Direction is the world-space direction light rays travel (from the sun toward the scene). It need not be unit length, but must be finite and non-zero. With [LitPBRShadowWGSL] set it to the Direction of the [LightRig]'s first directional light, the one the shadow attenuates.
 	Direction math3d.Vec3
 	// Target is the world-space center of the orthographic shadow volume used by [DirectionalShadowConfig.LightViewProj] (ignored by [DirectionalShadowConfig.FitBounds]).
 	Target math3d.Vec3
 	// OrthoSize is the full width and height (in world units) of the square orthographic frustum used by [DirectionalShadowConfig.LightViewProj]. When zero, defaults to 20.
 	OrthoSize float32
-	// Near and Far are the depth clip distances along the light axis used by [DirectionalShadowConfig.LightViewProj]. When both are zero, Near defaults to 0.1 and Far defaults to max(OrthoSize*2, 100).
-	Near float32
-	Far  float32
+	// DepthRange is the full depth of the orthographic volume of [DirectionalShadowConfig.LightViewProj] along Direction, centred on Target: points DepthRange/2 toward the light from Target map to depth 0 and points DepthRange/2 past it map to depth 1, so casters and receivers must lie within that slab. Zero defaults to max(OrthoSize*2, 100). [DirectionalShadowConfig.FitBounds] ignores it and derives the depth range from the bounds.
+	DepthRange float32
 	// Resolution is the shadow map width and height in texels used to compute TexelSize and texel snapping. Zero defaults to [DefaultShadowResolution] (1024).
 	Resolution uint32
 	// DepthBias is the receiver-side depth bias in [0, 1] clip depth units (non-negative).
@@ -108,7 +103,7 @@ type DirectionalShadowConfig struct {
 	PCFKernel ShadowFilter
 	// Strength scales shadow darkness in [0, 1] (0 disables shadows; 1 fully occludes the directional light in shadow).
 	Strength float32
-	// TexelSnap snaps the orthographic light-space XY center to integer shadow-map texel increments to prevent shadow swimming as the target moves.
+	// TexelSnap keeps the shadow map's texel grid fixed in world space so shadow edges do not shimmer as the framing moves: the light-space XY center snaps to whole shadow-map texels, and [DirectionalShadowConfig.FitBounds] sizes the frustum from the bounds' bounding sphere, rounded up to a coarse step, instead of their exact light-space extent, so the texel size stays constant while the bounds move or the light turns.
 	TexelSnap bool
 	// CasterPadding extends the near plane of [DirectionalShadowConfig.FitBounds] backward toward the light (in world units, non-negative) so occluders slightly behind the fitted bounds still cast shadows.
 	CasterPadding float32
@@ -146,11 +141,8 @@ func (c DirectionalShadowConfig) Validate() error {
 	if !finite(c.OrthoSize) || c.OrthoSize < 0 {
 		return fmt.Errorf("%w: OrthoSize %v must be finite and non-negative", ErrInvalidShadow, c.OrthoSize)
 	}
-	if !finite(c.Near) || !finite(c.Far) {
-		return fmt.Errorf("%w: Near/Far (%v, %v) must be finite", ErrInvalidShadow, c.Near, c.Far)
-	}
-	if (c.Near != 0 || c.Far != 0) && c.Far <= c.Near {
-		return fmt.Errorf("%w: Far (%g) must be greater than Near (%g)", ErrInvalidShadow, c.Far, c.Near)
+	if !finite(c.DepthRange) || c.DepthRange < 0 {
+		return fmt.Errorf("%w: DepthRange %v must be finite and non-negative", ErrInvalidShadow, c.DepthRange)
 	}
 	if err := validateShadowResolution(c.effectiveResolution()); err != nil {
 		return err
@@ -189,7 +181,7 @@ func snapToTexel(v, texel float32) float32 {
 	return float32(math.Floor(float64(v/texel)+0.5)) * texel
 }
 
-// LightViewProj computes the orthographic light-space view-projection matrix (with [0, 1] NDC depth) centered around c.Target with width and height c.OrthoSize. When c.TexelSnap is true, the light-space XY center is snapped to exact texel increments of c.Resolution to eliminate shadow swimming.
+// LightViewProj computes the orthographic light-space view-projection matrix (with [0, 1] NDC depth) centered on c.Target, c.OrthoSize wide and high and c.DepthRange deep, with c.Target at depth 0.5. When c.TexelSnap is true, the light-space XY center is snapped to exact texel increments of c.Resolution to eliminate shadow swimming.
 func (c DirectionalShadowConfig) LightViewProj() (math3d.Mat4, error) {
 	if err := c.Validate(); err != nil {
 		return math3d.Mat4{}, err
@@ -199,10 +191,9 @@ func (c DirectionalShadowConfig) LightViewProj() (math3d.Mat4, error) {
 	if size == 0 {
 		size = 20
 	}
-	near, far := c.Near, c.Far
-	if near == 0 && far == 0 {
-		near = 0.1
-		far = max(size*2, 100)
+	depthRange := c.DepthRange
+	if depthRange == 0 {
+		depthRange = max(size*2, 100)
 	}
 	res := c.effectiveResolution()
 	view := lightBasisView(dir)
@@ -214,15 +205,17 @@ func (c DirectionalShadowConfig) LightViewProj() (math3d.Mat4, error) {
 		cy = snapToTexel(cy, texel)
 	}
 	half := size * 0.5
-	depthHalf := (far - near) * 0.5
-	// Map target's light-space Z to the midpoint of [near, far].
+	depthHalf := depthRange * 0.5
+	// Map the target's light-space Z to the middle of the depth range.
 	zNear := -centerLS.Z - depthHalf
 	zFar := -centerLS.Z + depthHalf
 	proj := math3d.OrthoZO(cx-half, cx+half, cy-half, cy+half, zNear, zFar)
 	return proj.Mul(view), nil
 }
 
-// FitBounds computes an orthographic light-space view-projection matrix (with [0, 1] NDC depth) tightly framing sceneBounds along lightDir (falling back to c.Direction when lightDir is zero). When c.TexelSnap is true, the light-space XY center is snapped to exact shadow-map texel increments while expanding the frustum margin by one texel per side so every corner of sceneBounds remains inside [0, 1]^2.
+// FitBounds computes an orthographic light-space view-projection matrix (with [0, 1] NDC depth) framing sceneBounds along lightDir (falling back to c.Direction when lightDir is zero).
+//
+// Without c.TexelSnap the frustum hugs the bounds' light-space extent, which gives the most shadow-map texels per world unit but changes the texel size whenever the bounds or the light move. With c.TexelSnap the frustum width is the diameter of the bounds' bounding sphere plus a margin, rounded up to a multiple of a sixteenth of the next power of two: that width does not change as the light turns and changes only in coarse steps as the bounds grow or shrink, and the light-space XY center then snaps to whole texels, so between two fits with the same width every static world point moves by a whole number of texels and shadow edges do not shimmer. Every corner of sceneBounds stays inside [0, 1]^2 either way.
 func (c DirectionalShadowConfig) FitBounds(lightDir math3d.Vec3, sceneBounds math3d.AABB) (math3d.Mat4, error) {
 	if lightDir != (math3d.Vec3{}) {
 		c.Direction = lightDir
@@ -238,30 +231,20 @@ func (c DirectionalShadowConfig) FitBounds(lightDir math3d.Vec3, sceneBounds mat
 	view := lightBasisView(dir)
 	ls := sceneBounds.Transform(view)
 
-	spanX := ls.Max.X - ls.Min.X
-	spanY := ls.Max.Y - ls.Min.Y
-	rawExtent := max(spanX, spanY)
-	if rawExtent < 1e-3 {
-		rawExtent = 1e-3
-	}
-
-	// Keep a small border margin so casters on the AABB boundary do not clip or touch the clamped shadow edge; under texel snapping, guarantee at least one full texel per side so +/-0.5 texel rounding still encloses every corner.
-	var extent float32
+	var extent, cx, cy float32
 	if c.TexelSnap {
-		extent = rawExtent * (1.0 + 2.0/float32(res))
-		if extent < rawExtent*1.02 {
-			extent = rawExtent * 1.02
-		}
-	} else {
-		extent = rawExtent * 1.02
-	}
-
-	cx := (ls.Min.X + ls.Max.X) * 0.5
-	cy := (ls.Min.Y + ls.Max.Y) * 0.5
-	if c.TexelSnap {
+		// The bounding sphere's diameter does not depend on the light direction, and quantizing it keeps the texel size, and so the texel grid, fixed while the bounds move. Every corner lies within diameter/2 of the center in light space; a margin of at least one texel per side covers the half-texel shift of the snapped center, since extent*(1 - 1/res) >= diameter*(1 + 2/res)*(1 - 1/res) >= diameter.
+		diameter := max(sceneBounds.Max.Sub(sceneBounds.Min).Len(), 1e-3)
+		extent = quantizeShadowExtent(diameter * max(1.02, 1+2/float32(res)))
+		center := view.TransformPoint(sceneBounds.Center())
 		texel := extent / float32(res)
-		cx = snapToTexel(cx, texel)
-		cy = snapToTexel(cy, texel)
+		cx = snapToTexel(center.X, texel)
+		cy = snapToTexel(center.Y, texel)
+	} else {
+		// Keep a small border margin so casters on the AABB boundary do not touch the clamped shadow edge.
+		extent = max(ls.Max.X-ls.Min.X, ls.Max.Y-ls.Min.Y, 1e-3) * 1.02
+		cx = (ls.Min.X + ls.Max.X) * 0.5
+		cy = (ls.Min.Y + ls.Max.Y) * 0.5
 	}
 	half := extent * 0.5
 
@@ -276,6 +259,13 @@ func (c DirectionalShadowConfig) FitBounds(lightDir math3d.Vec3, sceneBounds mat
 
 	proj := math3d.OrthoZO(cx-half, cx+half, cy-half, cy+half, zNear, zFar)
 	return proj.Mul(view), nil
+}
+
+// quantizeShadowExtent rounds v up to a multiple of a sixteenth of the next power of two at or above v, so a slowly growing or shrinking extent keeps the same value (and texel size) until it crosses a step, and the result is less than an eighth larger than v.
+func quantizeShadowExtent(v float32) float32 {
+	pow2 := float32(math.Exp2(math.Ceil(math.Log2(float64(v)))))
+	step := pow2 / 16
+	return float32(math.Ceil(float64(v/step))) * step
 }
 
 // Uniforms packages c and lightViewProj into a [ShadowUniforms] ready to upload with [AppendShadowUniforms] or [DirectionalShadowMap.WriteUniforms].
@@ -342,8 +332,34 @@ func (u ShadowUniforms) Encode(dst []byte) []byte {
 	return dst[:ShadowUniformSize]
 }
 
+// sanitizeShadowUniforms returns u with every value the shader and [EvaluateDirectionalShadow] read made safe: a non-finite LightViewProj or Strength disables the shadow (Strength 0), Strength is clamped to [0, 1], non-finite or negative biases and TexelSize become 0, a non-finite LightDirection becomes zero (encoded as straight down), and a PCFKernel other than [ShadowFilterPCF3x3] becomes [ShadowFilterHard]. Encoding and the CPU reference both go through it, so they agree on any input.
+func sanitizeShadowUniforms(u ShadowUniforms) ShadowUniforms {
+	matOK := true
+	for _, f := range u.LightViewProj {
+		if !finite(f) {
+			matOK = false
+			break
+		}
+	}
+	if !matOK || !finite(u.Strength) {
+		u.Strength = 0
+	}
+	u.Strength = clamp01f(u.Strength)
+	u.DepthBias = max(finiteOrZero(u.DepthBias), 0)
+	u.NormalBias = max(finiteOrZero(u.NormalBias), 0)
+	u.TexelSize = max(finiteOrZero(u.TexelSize), 0)
+	if !finite3(u.LightDirection) {
+		u.LightDirection = math3d.Vec3{}
+	}
+	if u.PCFKernel != ShadowFilterPCF3x3 {
+		u.PCFKernel = ShadowFilterHard
+	}
+	return u
+}
+
 func encodeShadowUniforms(out []byte, u ShadowUniforms) {
-	putMat4(out[0:64], u.LightViewProj)
+	u = sanitizeShadowUniforms(u)
+	putMat4(out[0:64], &u.LightViewProj)
 	toLight := u.LightDirection.Neg()
 	if toLight.LenSq() > 1e-12 {
 		toLight = toLight.Norm()
@@ -353,10 +369,10 @@ func encodeShadowUniforms(out []byte, u ShadowUniforms) {
 	putF32(out[64:68], toLight.X)
 	putF32(out[68:72], toLight.Y)
 	putF32(out[72:76], toLight.Z)
-	putF32(out[76:80], clamp01f(u.Strength))
-	putF32(out[80:84], max(u.DepthBias, 0))
-	putF32(out[84:88], max(u.NormalBias, 0))
-	putF32(out[88:92], max(u.TexelSize, 0))
+	putF32(out[76:80], u.Strength)
+	putF32(out[80:84], u.DepthBias)
+	putF32(out[84:88], u.NormalBias)
+	putF32(out[88:92], u.TexelSize)
 	filterVal := float32(0.0)
 	if u.PCFKernel == ShadowFilterPCF3x3 {
 		filterVal = 1.0
@@ -366,12 +382,6 @@ func encodeShadowUniforms(out []byte, u ShadowUniforms) {
 
 func putF32(b []byte, v float32) {
 	binary.LittleEndian.PutUint32(b, math.Float32bits(v))
-}
-
-func putMat4(b []byte, m math3d.Mat4) {
-	for i, f := range m {
-		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(f))
-	}
 }
 
 func clamp01f(v float32) float32 {
@@ -401,16 +411,16 @@ fn vs_shadow(in: ShadowVertexIn) -> @builtin(position) vec4<f32> {
 }
 `
 
-const shadowWGSLTemplate = `struct ShadowUniforms {
+// shadowStructWGSL declares the uniform block shared by [ShadowWGSL] and [ShadowWGSLForGroup].
+const shadowStructWGSL = `struct ShadowUniforms {
 	light_view_proj: mat4x4<f32>,
 	to_light: vec4<f32>,
 	bias_params: vec4<f32>,
 }
+`
 
-@group(__SHADOW_GROUP__) @binding(0) var<uniform> shadow: ShadowUniforms;
-@group(__SHADOW_GROUP__) @binding(1) var shadow_map: texture_depth_2d;
-@group(__SHADOW_GROUP__) @binding(2) var shadow_sampler: sampler_comparison;
-
+// shadowSampleFnWGSL is the sample_directional_shadow helper shared by [ShadowWGSL] and [ShadowWGSLForGroup].
+const shadowSampleFnWGSL = `
 fn sample_directional_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
 	let strength = clamp(shadow.to_light.w, 0.0, 1.0);
 	if (strength <= 0.0) {
@@ -455,118 +465,21 @@ fn sample_directional_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f
 }
 `
 
-// ShadowWGSL declares the directional shadow uniform block, depth map, comparison sampler at [ShadowGroup] (@group(2)), and the portable sample_directional_shadow(world_pos, world_normal) helper returning directional light visibility in [0, 1]. Prepend [CameraWGSL] and ShadowWGSL to any custom 3D lit shader to add directional shadows without compute shaders or backend-specific intrinsics.
-const ShadowWGSL = `struct ShadowUniforms {
-	light_view_proj: mat4x4<f32>,
-	to_light: vec4<f32>,
-	bias_params: vec4<f32>,
-}
+// ShadowWGSL declares the directional shadow uniform block, depth map and comparison sampler at [ShadowGroup] (@group(3)), and the portable sample_directional_shadow(world_pos, world_normal) helper returning directional light visibility in [0, 1]. It equals ShadowWGSLForGroup(ShadowGroup). Prepend [CameraWGSL] and ShadowWGSL to a custom 3D lit shader to add directional shadows without compute shaders or backend-specific intrinsics; [LitPBRShadowWGSL] is the ready-made PBR shader built on it.
+const ShadowWGSL = shadowStructWGSL + `
+@group(3) @binding(0) var<uniform> shadow: ShadowUniforms;
+@group(3) @binding(1) var shadow_map: texture_depth_2d;
+@group(3) @binding(2) var shadow_sampler: sampler_comparison;
+` + shadowSampleFnWGSL
 
-@group(2) @binding(0) var<uniform> shadow: ShadowUniforms;
-@group(2) @binding(1) var shadow_map: texture_depth_2d;
-@group(2) @binding(2) var shadow_sampler: sampler_comparison;
-
-fn sample_directional_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
-	let strength = clamp(shadow.to_light.w, 0.0, 1.0);
-	if (strength <= 0.0) {
-		return 1.0;
-	}
-	var n = vec3<f32>(0.0, 1.0, 0.0);
-	let n_len = length(world_normal);
-	if (n_len > 0.000001) {
-		n = world_normal / n_len;
-	}
-	var l = vec3<f32>(0.0, 1.0, 0.0);
-	let l_len = length(shadow.to_light.xyz);
-	if (l_len > 0.000001) {
-		l = shadow.to_light.xyz / l_len;
-	}
-	let ndl = max(dot(n, l), 0.0);
-	let normal_bias = shadow.bias_params.y;
-	let biased_pos = world_pos + n * normal_bias;
-	let light_clip = shadow.light_view_proj * vec4<f32>(biased_pos, 1.0);
-	let ndc = light_clip.xyz / light_clip.w;
-	let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
-		return 1.0;
-	}
-	let slope_bias = shadow.bias_params.x * (1.0 + (1.0 - ndl) * 2.0);
-	let depth_ref = clamp(ndc.z - slope_bias, 0.0, 1.0);
-	var vis: f32 = 1.0;
-	if (shadow.bias_params.w < 0.5) {
-		vis = textureSampleCompareLevel(shadow_map, shadow_sampler, uv, depth_ref);
-	} else {
-		let texel = shadow.bias_params.z;
-		var sum: f32 = 0.0;
-		for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
-			for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
-				let off = vec2<f32>(f32(dx) * texel, f32(dy) * texel);
-				sum = sum + textureSampleCompareLevel(shadow_map, shadow_sampler, uv + off, depth_ref);
-			}
-		}
-		vis = sum / 9.0;
-	}
-	return mix(1.0, vis, strength);
-}
-`
-
-// ShadowWGSLForGroup returns [ShadowWGSL] with its shadow bindings placed at @group(group) instead of [ShadowGroup] (2).
+// ShadowWGSLForGroup returns [ShadowWGSL] with its shadow bindings placed at @group(group) instead of [ShadowGroup], for custom shaders whose group 3 already holds something else.
 func ShadowWGSLForGroup(group uint32) string {
-	return strings.ReplaceAll(shadowWGSLTemplate, "__SHADOW_GROUP__", fmt.Sprintf("%d", group))
+	return fmt.Sprintf(`%s
+@group(%[2]d) @binding(0) var<uniform> shadow: ShadowUniforms;
+@group(%[2]d) @binding(1) var shadow_map: texture_depth_2d;
+@group(%[2]d) @binding(2) var shadow_sampler: sampler_comparison;
+%[3]s`, shadowStructWGSL, group, shadowSampleFnWGSL)
 }
-
-// ShadowLitWGSL is a complete portable forward-lit directional-shadow WGSL shader combining [CameraWGSL] at @group(0), a [ShadowLitObjectUniform] at @group(1) @binding(0), and [ShadowWGSL] at @group(2). It accepts [MeshVertexLayout] vertices and shades Lambertian directional diffuse light attenuated by sample_directional_shadow plus ambient light. Entry points: "vs_main" and "fs_main".
-const ShadowLitWGSL = CameraWGSL + "\n" + ShadowWGSL + `
-struct ShadowLitObject {
-	model: mat4x4<f32>,
-	normal_mat: mat4x4<f32>,
-	base_color: vec4<f32>,
-	light_color: vec4<f32>,
-	ambient_color: vec4<f32>,
-}
-
-@group(1) @binding(0) var<uniform> obj: ShadowLitObject;
-
-struct ShadowLitVertexIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
-}
-
-struct ShadowLitVertexOut {
-	@builtin(position) clip: vec4<f32>,
-	@location(0) world_pos: vec3<f32>,
-	@location(1) world_normal: vec3<f32>,
-}
-
-@vertex
-fn vs_main(in: ShadowLitVertexIn) -> ShadowLitVertexOut {
-	var out: ShadowLitVertexOut;
-	let world = obj.model * vec4<f32>(in.pos, 1.0);
-	out.clip = camera.view_proj * world;
-	out.world_pos = world.xyz;
-	out.world_normal = (obj.normal_mat * vec4<f32>(in.normal, 0.0)).xyz;
-	return out;
-}
-
-@fragment
-fn fs_main(in: ShadowLitVertexOut) -> @location(0) vec4<f32> {
-	var n = vec3<f32>(0.0, 1.0, 0.0);
-	let n_len = length(in.world_normal);
-	if (n_len > 0.000001) {
-		n = in.world_normal / n_len;
-	}
-	var l = vec3<f32>(0.0, 1.0, 0.0);
-	let l_len = length(shadow.to_light.xyz);
-	if (l_len > 0.000001) {
-		l = shadow.to_light.xyz / l_len;
-	}
-	let ndl = max(dot(n, l), 0.0);
-	let vis = sample_directional_shadow(in.world_pos, n);
-	let lit = obj.base_color.rgb * (obj.ambient_color.rgb + obj.light_color.rgb * (ndl * vis));
-	return vec4<f32>(clamp(lit, vec3<f32>(0.0), vec3<f32>(1.0)), obj.base_color.a);
-}
-`
 
 // ShadowMapOptions configures [NewDirectionalShadowMap].
 type ShadowMapOptions struct {
@@ -993,11 +906,12 @@ func (s *DirectionalShadowMap) Valid() bool {
 		s.pcfBG != nil && s.pcfBG.Valid()
 }
 
-// WriteUniforms encodes u into the shadow uniform buffer on dev without heap allocation and selects the matching hard or PCF comparison sampler bind group.
+// WriteUniforms encodes u into the shadow uniform buffer on dev without heap allocation and selects the matching hard or PCF comparison sampler bind group. Values the shader cannot use are made safe first: a NaN or infinite matrix or Strength disables the shadow, non-finite biases become 0, a missing TexelSize becomes 1/[DirectionalShadowMap.Resolution], and an unknown PCFKernel falls back to [ShadowFilterHard]. [DirectionalShadowMap.Uniforms] returns the values as written.
 func (s *DirectionalShadowMap) WriteUniforms(dev *gpu.Device, u ShadowUniforms) {
 	if s == nil || dev == nil || !s.Valid() {
 		return
 	}
+	u = sanitizeShadowUniforms(u)
 	if u.TexelSize <= 0 && s.resolution > 0 {
 		u.TexelSize = 1.0 / float32(s.resolution)
 	}
@@ -1049,7 +963,7 @@ func (s *DirectionalShadowMap) UpdateBounds(dev *gpu.Device, cfg DirectionalShad
 	return u, nil
 }
 
-// BeginShadowPass resets the per-pass caster slot cursor, opens a depth-only render pass clearing the shadow map depth to 1.0, and binds the shadow depth pipeline. Pass the live [*gpu.Device] and either a [*gpu.Encoder] or [*gpu.Frame] as target. Returns nil when s, dev, or target is nil or invalid.
+// BeginShadowPass resets the per-pass caster slot cursor, opens a depth-only render pass clearing the shadow map depth to 1.0, and binds the shadow depth pipeline. Pass the live [*gpu.Device] and either a [*gpu.Encoder] or [*gpu.Frame] as target. Returns nil when s, dev, or target is nil or s is invalid (after [DirectionalShadowMap.Close], or while the device is lost for a map that is not Retained), so check the result before drawing casters and calling End.
 func (s *DirectionalShadowMap) BeginShadowPass(dev *gpu.Device, target ShadowPassTarget) *gpu.RenderPass {
 	if s == nil || dev == nil || target == nil || !s.Valid() {
 		return nil
@@ -1084,7 +998,7 @@ func (s *DirectionalShadowMap) DrawCaster(pass *gpu.RenderPass, mesh *GPUMesh, m
 	s.casterSlot++
 
 	mvp := s.uniforms.LightViewProj.Mul(model)
-	putMat4(s.casterScratch[:], mvp)
+	putMat4(s.casterScratch[:], &mvp)
 	s.passDev.WriteBuffer(s.casterBuf, offset, s.casterScratch[:])
 	pass.SetBindGroup(0, s.casterBG, uint32(offset))
 	mesh.Draw(pass)
@@ -1139,132 +1053,42 @@ func (s *DirectionalShadowMap) Close() error {
 	return err
 }
 
-// ShadowLitObjectUniform holds per-object transform and shading parameters for [ShadowLitWGSL] ([ShadowLitObjectUniformSize] = 176 bytes).
-type ShadowLitObjectUniform struct {
-	Model        math3d.Mat4
-	NormalMatrix math3d.Mat4
-	BaseColor    math3d.Vec4
-	LightColor   math3d.Vec3
-	AmbientColor math3d.Vec3
+// LitPBRShadowWGSL is [LitPBRWGSL] with a directional shadow: the same vertex stage, bind groups [CameraGroup], [LightGroup] and [PBRDrawGroup], and lighting, plus [ShadowWGSL] at [ShadowGroup]. The fragment stage multiplies the first directional light of the [LightRig] (lights.directional[0]) by sample_directional_shadow before encoding to sRGB; every other light, the ambient term and emission are unshadowed. [ShadePointShadowed] is its CPU reference. Use [NewLitPBRShadowPipeline] or [LitPBRPipelineOptions].ShadowLayout to create a pipeline from it.
+const LitPBRShadowWGSL = litPBRPreludeWGSL + ShadowWGSL + litPBRShadowFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
 }
+`
 
-// NewShadowLitObjectUniform constructs a [ShadowLitObjectUniform] from model, computing its inverse-transpose normal matrix via [math3d.NormalMatrix] (falling back to identity for a singular model).
-func NewShadowLitObjectUniform(model math3d.Mat4, baseColor math3d.Vec4, lightColor, ambientColor math3d.Vec3) ShadowLitObjectUniform {
-	nMat := math3d.Mat4Identity()
-	if nm, ok := math3d.NormalMatrix(model); ok {
-		nMat = math3d.Mat4{
-			nm[0], nm[1], nm[2], 0,
-			nm[3], nm[4], nm[5], 0,
-			nm[6], nm[7], nm[8], 0,
-			0, 0, 0, 1,
-		}
-	}
-	return ShadowLitObjectUniform{
-		Model:        model,
-		NormalMatrix: nMat,
-		BaseColor:    baseColor,
-		LightColor:   lightColor,
-		AmbientColor: ambientColor,
-	}
+// litPBRShadowLinearWGSL is [LitPBRShadowWGSL] writing the lit linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput and ShadowLayout are set.
+const litPBRShadowLinearWGSL = litPBRPreludeWGSL + ShadowWGSL + litPBRShadowFragmentHeadWGSL + `	return vec4<f32>(lit, pbr_draw.base_color.a);
 }
+`
 
-// AppendShadowLitObjectUniform appends u to dst in the little-endian layout declared by [ShadowLitWGSL] ([ShadowLitObjectUniformSize] bytes) and returns the extended slice. It allocates only when dst lacks capacity.
-func AppendShadowLitObjectUniform(dst []byte, u ShadowLitObjectUniform) []byte {
-	start := len(dst)
-	dst = grow(dst, ShadowLitObjectUniformSize)
-	out := dst[start:]
-	putMat4(out[0:64], u.Model)
-	putMat4(out[64:128], u.NormalMatrix)
-	putF32(out[128:132], u.BaseColor.X)
-	putF32(out[132:136], u.BaseColor.Y)
-	putF32(out[136:140], u.BaseColor.Z)
-	putF32(out[140:144], u.BaseColor.W)
-	putF32(out[144:148], u.LightColor.X)
-	putF32(out[148:152], u.LightColor.Y)
-	putF32(out[152:156], u.LightColor.Z)
-	putF32(out[156:160], 0)
-	putF32(out[160:164], u.AmbientColor.X)
-	putF32(out[164:168], u.AmbientColor.Y)
-	putF32(out[168:172], u.AmbientColor.Z)
-	putF32(out[172:176], 0)
-	return dst
-}
+// litPBRShadowFragmentHeadWGSL opens fs_main for the shadowed lit PBR shaders and computes the lit linear color lit with directional light 0 attenuated by the shadow map.
+const litPBRShadowFragmentHeadWGSL = `
+@fragment
+fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let shadow_vis = sample_directional_shadow(in.world_pos, in.world_normal);
+	let lit = shade_pbr_shadowed(
+		in.world_pos,
+		in.world_normal,
+		view_dir,
+		pbr_draw.base_color.rgb,
+		pbr_draw.pbr_params.x,
+		pbr_draw.pbr_params.y,
+		shadow_vis,
+	) + pbr_draw.emissive.rgb;
+`
 
-// ShadowLitObjectLayout creates the @group(1) bind group layout expected by [ShadowLitWGSL] (binding 0 = vertex+fragment uniform buffer for [ShadowLitObjectUniform]). Set dynamicOffset to true to share one aligned uniform buffer across multiple lit meshes.
-func ShadowLitObjectLayout(cx *core.Scope, dev *gpu.Device, dynamicOffset bool) (*gpu.BindGroupLayout, error) {
+// NewLitPBRShadowPipeline compiles [LitPBRShadowWGSL] and creates a pipeline configured like [NewLitPBRPipeline] with shadowLayout ([DirectionalShadowMap.Layout]) added at [ShadowGroup].
+func NewLitPBRShadowPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout, shadowLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	return dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: "render3d.shadow.lit.object",
-		Entries: []gpu.BindGroupLayoutEntry{{
-			Binding:          0,
-			Visibility:       gpu.StageVertex | gpu.StageFragment,
-			Type:             gpu.BindingUniform,
-			HasDynamicOffset: dynamicOffset,
-		}},
-	})
-}
-
-// ShadowLitPipelineOptions configures [NewShadowLitPipeline].
-type ShadowLitPipelineOptions struct {
-	Label        string
-	CameraLayout *gpu.BindGroupLayout // @group(0), e.g. CameraBuffer.Layout()
-	ObjectLayout *gpu.BindGroupLayout // @group(1), e.g. ShadowLitObjectLayout(...)
-	ShadowLayout *gpu.BindGroupLayout // @group(2), e.g. DirectionalShadowMap.Layout()
-	ColorFormat  gpu.TextureFormat    // FormatUndefined defaults to dev.SurfaceFormat()
-	DepthFormat  gpu.TextureFormat    // FormatUndefined disables depth testing
-	CullMode     gpu.CullMode         // CullNone, CullFront, or CullBack
-	SampleCount  int
-	Retained     bool
-}
-
-// NewShadowLitPipeline compiles [ShadowLitWGSL] and creates a forward-lit shadowed [*gpu.Pipeline] for [MeshVertexLayout] meshes, scoped to cx.
-func NewShadowLitPipeline(cx *core.Scope, dev *gpu.Device, opts ShadowLitPipelineOptions) (*gpu.Pipeline, error) {
-	if dev == nil {
-		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	if shadowLayout == nil {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: NewLitPBRShadowPipeline requires a shadow bind group layout"}
 	}
-	if opts.CameraLayout == nil || opts.ObjectLayout == nil || opts.ShadowLayout == nil {
-		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: ShadowLitPipelineOptions requires CameraLayout, ObjectLayout, and ShadowLayout"}
-	}
-	mod, err := gpu.CompileWGSL(ShadowLitWGSL)
-	if err != nil {
-		return nil, fmt.Errorf("render3d: compile shadow lit shader: %w", err)
-	}
-	colorFmt := opts.ColorFormat
-	if colorFmt == gpu.FormatUndefined {
-		colorFmt = dev.SurfaceFormat()
-	}
-	if colorFmt == gpu.FormatUndefined {
-		colorFmt = gpu.FormatRGBA8Unorm
-	}
-	label := opts.Label
-	if label == "" {
-		label = "render3d.shadow.lit"
-	}
-	desc := gpu.PipelineDesc{
-		Label:         label,
-		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
-		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
-		Layouts:       []*gpu.BindGroupLayout{opts.CameraLayout, opts.ObjectLayout, opts.ShadowLayout},
-		VertexBuffers: []gpu.VertexBufferLayout{MeshVertexLayout()},
-		Primitive: gpu.PrimitiveState{
-			Topology:  gpu.TopologyTriangleList,
-			FrontFace: gpu.FrontCCW,
-			CullMode:  opts.CullMode,
-		},
-		Targets:     []gpu.ColorTargetState{{Format: colorFmt, WriteMask: gpu.ColorWriteAll}},
-		SampleCount: opts.SampleCount,
-		Retained:    opts.Retained,
-	}
-	if opts.DepthFormat != gpu.FormatUndefined {
-		desc.DepthStencil = &gpu.DepthStencilState{
-			Format:       opts.DepthFormat,
-			DepthWrite:   true,
-			DepthCompare: gpu.CompareLess,
-		}
-	}
-	return dev.CreatePipeline(cx, desc)
+	return NewLitPBRPipelineWithOptions(cx, dev, camLayout, lightLayout, drawLayout, LitPBRPipelineOptions{ShadowLayout: shadowLayout, DepthFormat: depthFormat})
 }
 
 // ShadowDepthGrid is a CPU-readable row-major [0, 1] depth map (top-to-bottom, index y*Width + x) matching the layout returned by [gpu.Device.ReadTexture] on a [gpu.FormatDepth32Float] shadow map.
@@ -1290,9 +1114,10 @@ func ShadowDepthGridFromBytes(width, height int, raw []byte) (ShadowDepthGrid, e
 	return ShadowDepthGrid{Width: width, Height: height, Depths: depths}, nil
 }
 
-// EvaluateDirectionalShadow is the pure-Go CPU reference matching sample_directional_shadow in [ShadowWGSL]. It returns directional light visibility in [0, 1]: 1.0 when unoccluded, outside the light frustum, or when u.Strength <= 0, and (1 - u.Strength) when fully occluded.
+// EvaluateDirectionalShadow is the pure-Go CPU reference matching sample_directional_shadow in [ShadowWGSL] for the uniforms [AppendShadowUniforms] encodes from u (including its handling of non-finite values and unknown filters). It returns directional light visibility in [0, 1]: 1.0 when unoccluded, outside the light frustum, or when u.Strength <= 0, and (1 - u.Strength) when fully occluded.
 func EvaluateDirectionalShadow(worldPos, worldNormal math3d.Vec3, u ShadowUniforms, grid ShadowDepthGrid) float32 {
-	strength := clamp01f(u.Strength)
+	u = sanitizeShadowUniforms(u)
+	strength := u.Strength
 	if strength <= 0 || grid.Width <= 0 || grid.Height <= 0 || len(grid.Depths) < grid.Width*grid.Height {
 		return 1.0
 	}
@@ -1308,7 +1133,7 @@ func EvaluateDirectionalShadow(worldPos, worldNormal math3d.Vec3, u ShadowUnifor
 	}
 
 	ndl := max(n.Dot(l), 0)
-	normalBias := max(u.NormalBias, 0)
+	normalBias := u.NormalBias
 	biasedPos := worldPos.Add(n.Scale(normalBias))
 	lightClip := u.LightViewProj.MulVec4(math3d.Vec4{X: biasedPos.X, Y: biasedPos.Y, Z: biasedPos.Z, W: 1})
 	if lightClip.W == 0 {
@@ -1325,12 +1150,12 @@ func EvaluateDirectionalShadow(worldPos, worldNormal math3d.Vec3, u ShadowUnifor
 		return 1.0
 	}
 
-	depthBias := max(u.DepthBias, 0)
+	depthBias := u.DepthBias
 	slopeBias := depthBias * (1.0 + (1.0-ndl)*2.0)
 	depthRef := clamp01f(ndcZ - slopeBias)
 
 	var vis float32
-	if u.PCFKernel == ShadowFilterHard {
+	if u.PCFKernel != ShadowFilterPCF3x3 {
 		vis = sampleShadowGridCompareNearest(grid, uCoord, vCoord, depthRef)
 	} else {
 		texel := u.TexelSize

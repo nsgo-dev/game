@@ -51,12 +51,13 @@ var ErrInvalidLight = errors.New("render3d: invalid light")
 //   - point_light_attenuation(dist_sq, light_range) -> f32
 //   - pbr_brdf(n, v, l, base_color, metallic, roughness) -> vec3<f32>
 //   - shade_pbr(world_pos, normal, view_dir, base_color, metallic, roughness) -> vec3<f32>
+//   - shade_pbr_shadowed(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis) -> vec3<f32>
 //   - linear_to_srgb_channel(c) -> f32
 //   - linear_to_srgb(rgb) -> vec3<f32>
 //
 // Prepend [CameraWGSL] and LightWGSL to any 3D shader that reads scene lights; the block's layout
 // matches [LightUniforms.Encode] and [LightRig.AppendUniformData] byte for byte, and the shading math
-// matches [EvaluatePBR], [ShadePoint], [PointLightAttenuation], and [LinearToSRGB].
+// matches [EvaluatePBR], [ShadePoint], [ShadePointShadowed], [PointLightAttenuation], and [LinearToSRGB].
 const LightWGSL = `struct DirectionalLightUniform {
 	to_light: vec4<f32>,
 	color: vec4<f32>,
@@ -126,6 +127,10 @@ fn pbr_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base_color: vec3<f32>, met
 }
 
 fn shade_pbr(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+	return shade_pbr_shadowed(world_pos, normal, view_dir, base_color, metallic, roughness, 1.0);
+}
+
+fn shade_pbr_shadowed(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32) -> vec3<f32> {
 	let n = normalize(normal);
 	let v = normalize(view_dir);
 	var lo = lights.ambient.xyz * base_color;
@@ -137,8 +142,12 @@ fn shade_pbr(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_
 		let dl = lights.directional[di];
 		let l = dl.to_light.xyz;
 		let ndotl = max(dot(n, l), 0.0);
+		var vis = 1.0;
+		if (di == 0u) {
+			vis = shadow_vis;
+		}
 		if (ndotl > 0.0) {
-			lo = lo + pbr_brdf(n, v, l, base_color, metallic, roughness) * dl.color.xyz * ndotl;
+			lo = lo + pbr_brdf(n, v, l, base_color, metallic, roughness) * dl.color.xyz * (ndotl * vis);
 		}
 	}
 	let pt_count = lights.counts.y;
@@ -830,7 +839,7 @@ const litPBRLinearWGSL = litPBRPreludeWGSL + litPBRFragmentHeadWGSL + `	return v
 
 // LitPBRPipelineOptions configures [NewLitPBRPipelineWithOptions].
 type LitPBRPipelineOptions struct {
-	// Label names the pipeline in GPU capture tools; empty picks render3d.lit_pbr, lit_pbr_fog or lit_pbr_ibl with a .linear suffix for LinearOutput.
+	// Label names the pipeline in GPU capture tools; empty picks render3d.lit_pbr, lit_pbr_fog, lit_pbr_ibl or lit_pbr_shadow with a .linear suffix for LinearOutput.
 	Label string
 	// ColorFormat sets the color attachment format; [gpu.FormatUndefined] defaults to dev.SurfaceFormat(). Use [HDRTarget.Format] when drawing into an [HDRTarget].
 	ColorFormat gpu.TextureFormat
@@ -842,11 +851,13 @@ type LitPBRPipelineOptions struct {
 	IBLLayout *gpu.BindGroupLayout
 	// SkinLayout, when set, compiles [LitPBRSkinnedWGSL] with this layout ([GPUSkinPalette.Layout]) at [LitPBRSkinGroup] and takes [SkinnedVertexLayout] vertices, so a [GPUSkinnedMesh] is drawn with scene lights. The vertex stage skins each vertex with the palette and then applies the per-draw model and normal matrices: use an identity model with [SkinJointMatrices] (world-space joints), or the mesh node's world matrix with mesh-local joints such as anim3d's Player.SkinMatricesForNode. Fog, IBL and skinning all use bind group 3, so SkinLayout cannot be combined with FogLayout or IBLLayout.
 	SkinLayout *gpu.BindGroupLayout
+	// ShadowLayout, when set, compiles [LitPBRShadowWGSL] with this layout ([DirectionalShadowMap.Layout]) at [ShadowGroup], as [NewLitPBRShadowPipeline] does, so the first directional light is attenuated by the shadow map. The shadow uses bind group 3 like fog, IBL and skinning, so ShadowLayout cannot be combined with FogLayout, IBLLayout or SkinLayout.
+	ShadowLayout *gpu.BindGroupLayout
 	// LinearOutput skips the final linear-to-sRGB encoding and its clamp to [0, 1] and writes the lit linear radiance ([ShadePoint], plus [EvaluateIBL] or [Fog.Apply] when enabled), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display.
 	LinearOutput bool
 }
 
-// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline] or [NewLitPBRIBLPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
+// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline], [NewLitPBRIBLPipeline] or [NewLitPBRShadowPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
 func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout *gpu.BindGroupLayout, opts LitPBRPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -856,6 +867,9 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	}
 	if opts.SkinLayout != nil && (opts.FogLayout != nil || opts.IBLLayout != nil) {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: skinning shares bind group 3 with fog and IBL; set SkinLayout without FogLayout or IBLLayout"}
+	}
+	if opts.ShadowLayout != nil && (opts.FogLayout != nil || opts.IBLLayout != nil || opts.SkinLayout != nil) {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: the directional shadow shares bind group 3 with fog, IBL and skinning; set ShadowLayout without FogLayout, IBLLayout or SkinLayout"}
 	}
 	label, src, linearSrc := "render3d.lit_pbr", LitPBRWGSL, litPBRLinearWGSL
 	vertexLayout := MeshVertexLayout()
@@ -874,6 +888,9 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	case opts.IBLLayout != nil:
 		label, src, linearSrc = "render3d.lit_pbr_ibl", LitPBRIBLWGSL, litPBRIBLLinearWGSL
 		layouts = append(layouts, opts.IBLLayout)
+	case opts.ShadowLayout != nil:
+		label, src, linearSrc = "render3d.lit_pbr_shadow", LitPBRShadowWGSL, litPBRShadowLinearWGSL
+		layouts = append(layouts, opts.ShadowLayout)
 	}
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout
@@ -1014,6 +1031,11 @@ func EvaluatePBR(n, v, l math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
 // normal and viewDir do not need to be unit length; if either is degenerate, only ambient and emissive
 // terms contribute. Call [LinearToSRGB] on the returned linear color to encode sRGB display output.
 func ShadePoint(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig) math3d.Vec3 {
+	return ShadePointShadowed(worldPos, normal, viewDir, mat, rig, 1)
+}
+
+// ShadePointShadowed is [ShadePoint] with the first directional light (rig.Directional[0]) scaled by shadowVisibility, matching shade_pbr_shadowed in [LightWGSL] and the lighting of [LitPBRShadowWGSL]. Pass [EvaluateDirectionalShadow]'s result as shadowVisibility to reproduce a shadowed pixel on the CPU; 1 gives exactly [ShadePoint].
+func ShadePointShadowed(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig, shadowVisibility float32) math3d.Vec3 {
 	amb := rig.Ambient.Color.Scale(rig.Ambient.Intensity)
 	lo := math3d.Vec3{
 		X: amb.X*mat.BaseColor.X + mat.Emissive.X,
@@ -1041,7 +1063,11 @@ func ShadePoint(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig Ligh
 			continue
 		}
 		brdf := EvaluatePBR(n, v, l, mat)
-		rad := dl.Color.Scale(dl.Intensity * ndotl)
+		vis := float32(1)
+		if i == 0 {
+			vis = shadowVisibility
+		}
+		rad := dl.Color.Scale(dl.Intensity * (ndotl * vis))
 		lo.X += brdf.X * rad.X
 		lo.Y += brdf.Y * rad.Y
 		lo.Z += brdf.Z * rad.Z

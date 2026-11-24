@@ -370,7 +370,7 @@ morph.Draw(pass)
 | 管线 | 着色器 | 骨骼矩阵组 | 不能同时使用 |
 | --- | --- | --- | --- |
 | `NewSkinnedMeshPipeline`（无光照，按法线着色） | `SkinnedMeshWGSL` | `SkinGroup`（1） | |
-| `NewLitPBRPipelineWithOptions` 加 `LitPBRPipelineOptions.SkinLayout`（场景光源） | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup`（3） | `FogLayout`、`IBLLayout` |
+| `NewLitPBRPipelineWithOptions` 加 `LitPBRPipelineOptions.SkinLayout`（场景光源） | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup`（3） | `FogLayout`、`IBLLayout`、`ShadowLayout` |
 | `NewMaterialPipeline` 加 `MaterialPipelineOptions.SkinLayout`（带纹理的 glTF 材质） | `MaterialSkinnedWGSL` | `MaterialSkinGroup`（2） | `FogLayout` |
 
 `SkinWGSL` 在第 1 组声明 uniform 数据块，以及与 CPU `SkinVertex` 一致的 `skin_position` / `skin_normal` 顶点辅助函数，供第 1 组不绑定其他资源的自定义着色器使用。
@@ -749,7 +749,7 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 
 ## 方向光阴影（`DirectionalShadowMap`、`DirectionalShadowConfig`）
 
-`DirectionalShadowMap` 在 NSGo 的 `gpu.Device` 上管理离屏 `FormatDepth32Float` 阴影贴图渲染目标、仅写深度的投影管线（`ShadowDepthWGSL`）及动态偏移投影变换缓冲、96 字节的 `ShadowUniforms` 缓冲，以及最近邻（硬阴影）和线性（PCF）两种比较采样器。`ShadowWGSL` 在 `ShadowGroup`（第 2 组，保留 `CameraGroup` 第 0 组给相机、第 1 组给材质或物体数据）声明对应绑定并提供可移植的 `sample_directional_shadow(world_pos, world_normal)` 辅助函数；`NewShadowLitPipeline` 则构建开箱即用的前向光照阴影管线（`ShadowLitWGSL`）：
+`DirectionalShadowMap` 在 NSGo 的 `gpu.Device` 上管理离屏 `FormatDepth32Float` 阴影贴图渲染目标、仅写深度的投影管线（`ShadowDepthWGSL`）及动态偏移投影变换缓冲、96 字节的 `ShadowUniforms` 缓冲，以及最近邻（硬阴影）和线性（PCF）两种比较采样器。`ShadowWGSL` 在 `ShadowGroup`（第 3 组，位于 `CameraGroup`、`LightGroup` 与 `PBRDrawGroup` 之后）声明对应绑定，并提供可移植的 `sample_directional_shadow(world_pos, world_normal)` 辅助函数。`NewLitPBRShadowPipeline`（或 `LitPBRPipelineOptions.ShadowLayout`）构建带阴影的光照 PBR 管线（`LitPBRShadowWGSL`）：它与 `LitPBRWGSL` 完全相同地着色 `LightRig`，并用阴影衰减光照组的第一个方向光 `Directional[0]`，其他光源、环境光与自发光不受阴影影响。雾、IBL 与蒙皮也使用第 3 组，因此一条光照 PBR 管线只能选其一。
 
 ```go
 sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
@@ -760,39 +760,43 @@ sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
 	CullMode:            gpu.CullBack,
 	Retained:            true, // GPU 设备丢失后自动恢复
 })
-litPipe, err := render3d.NewShadowLitPipeline(cx, dev, render3d.ShadowLitPipelineOptions{
-	CameraLayout: camBuf.Layout(),
-	ObjectLayout: objLayout,
-	ShadowLayout: sm.Layout(),
-	DepthFormat:  gpu.FormatDepth24Plus,
-	CullMode:     gpu.CullBack,
-})
+litPipe, err := render3d.NewLitPBRShadowPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), sm.Layout(), gpu.FormatDepth24Plus)
 
 // 每帧在 OnFrame(frame *gpu.Frame) 中：
 dev := frame.Device()
 cfg := render3d.DefaultDirectionalShadowConfig()
-cfg.Direction = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
-_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // 紧密包围场景并按纹素对齐防抖动
+cfg.Direction = rig.Directional[0].Direction // 阴影所衰减的光源
+cfg.Strength = 1
+if !preset.Shadows { // quality 包的 quality.Preset
+	cfg.Strength = 0 // 着色器随即跳过阴影贴图
+}
+_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // 拟合正交视锥并对齐纹素
 
-// 1. 仅深度阴影通道：
-shadowPass := sm.BeginShadowPass(dev, frame)
-sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
-sm.DrawCaster(shadowPass, crateMesh, crateModel)
-shadowPass.End()
+// 1. 仅写深度的阴影 pass（设备丢失期间或 Close 之后返回 nil）：
+if preset.Shadows {
+	if shadowPass := sm.BeginShadowPass(dev, frame); shadowPass != nil {
+		sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
+		sm.DrawCaster(shadowPass, crateMesh, crateModel)
+		shadowPass.End()
+	}
+}
 
-// 2. 主光照通道：
+// 2. 主光照 pass：
 mainPass := frame.BeginRenderPass(gpu.RenderPassDesc{})
 mainPass.SetPipeline(litPipe)
 mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
 mainPass.SetBindGroup(render3d.ShadowGroup, sm.BindGroup())
-// 绑定第 1 组材质/物体数据并绘制受影网格……
+mainPass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+floorMesh.Draw(mainPass)
 mainPass.End()
 ```
 
-- **紧密正交包围与纹素吸附**：`DirectionalShadowConfig.LightViewProj()` 围绕 `Target` 构建边长为 `OrthoSize` 的正交光空间视锥体；`FitBounds(lightDir, sceneBounds)` 紧密包住 `AABB`，并支持向光源方向延伸的 `CasterPadding`。开启 `TexelSnap: true` 后，光空间 XY 中心在纯旋转光源基底下按阴影贴图纹素步长对齐，避免目标移动时阴影边缘抖动（shadow swimming）。
-- **硬阴影单点采样与 3x3 PCF 柔化**：`ShadowFilterHard` 使用最近邻比较采样器执行单次 `textureSampleCompareLevel`；`ShadowFilterPCF3x3` 配合线性比较采样器对 3x3 共 9 个偏移点求平均（每点叠加硬件 2x2 双线性 PCF），生成平滑半影过渡。通过 `WriteUniforms`、`Update` 或 `UpdateBounds` 切换 `PCFKernel` 时，`BindGroup()` 会零分配自动切换，无需重建 GPU 资源。
-- **消除自阴影伪影与全后端兼容**：着色器中的斜率缩放 `DepthBias`（按 `1 + 2*(1 - NdotL)` 缩放）、世界空间 `NormalBias` 与硬件光栅深度偏移（`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`）共同消除平面与掠射角表面的阴影痤疮。自定义着色器只需前置 `ShadowWGSL`（或使用 `ShadowWGSLForGroup(n)` 指定其他组号）并调用 `sample_directional_shadow(world_pos, world_normal)`。整个流程不依赖计算着色器或存储缓冲，可在包括 WebGL 2 与 OpenGL ES 3.0 在内的所有 NSGo 目标上运行。
-- **零分配编码与 CPU 参考实现**：`AppendShadowUniforms` 与 `ShadowUniforms.Encode` 无堆分配打包 96 字节 uniform 数据；`EvaluateDirectionalShadow` 在 `ShadowDepthGrid`（可由 `ShadowDepthGridFromBytes` 从 GPU 深度回读解码）上提供与 WGSL 逐项一致的纯 Go 参考实现。测试覆盖硬阴影与 3x3 PCF 参考图比对（`render3d/testdata/golden/shadow_directional_hard.png` 与 `shadow_directional_pcf.png`）、完整与 `nsgotest.NoGPUCompute` 两种 `gpu.View` 配置、`Retained` 设备丢失恢复及作用域销毁。
+- **取景与纹素对齐**：`DirectionalShadowConfig.LightViewProj()` 以 `Target` 为中心构建宽 `OrthoSize`、深 `DepthRange` 的正交视锥（`Target` 位于深度 0.5）；`FitBounds(lightDir, sceneBounds)` 包围一个 `AABB`，并可通过 `CasterPadding` 向光源方向延伸。设置 `TexelSnap: true` 后阴影贴图的纹素网格在世界空间中保持固定：视锥尺寸取包围盒外接球直径并向上取整到较粗的步长，因此包围盒移动或光源转动时纹素大小不变，光源空间中心再对齐到整纹素，于是取景移动（例如 `UpdateBounds` 跟随相机）时静止阴影只按整纹素平移，边缘不会闪烁。不设 `TexelSnap` 时 `FitBounds` 紧贴包围盒在光源空间中的范围，每个世界单位得到最多纹素，但包围盒移动时阴影边缘会闪烁。
+- **硬阴影单次采样与 3x3 PCF**：`ShadowFilterHard` 使用最近邻比较采样器进行单次 `textureSampleCompareLevel` 采样；`ShadowFilterPCF3x3` 使用线性比较采样器对 9 个比较采样点求平均（每个采样点结合硬件 2x2 PCF 与 3x3 邻域），得到柔和半影。通过 `WriteUniforms`、`Update` 或 `UpdateBounds` 切换 `PCFKernel` 会动态切换 `BindGroup()`，无需分配内存或重建 GPU 资源。
+- **消除自阴影伪影与全后端兼容**：着色器中的斜率缩放 `DepthBias`（按 `1 + 2*(1 - NdotL)` 缩放）、世界空间 `NormalBias` 与硬件光栅深度偏移（`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`）共同消除平面与掠射角表面的阴影痤疮。自定义着色器只需前置 `ShadowWGSL`（第 3 组已被占用时使用 `ShadowWGSLForGroup(n)`）并调用 `sample_directional_shadow(world_pos, world_normal)`；`LightWGSL` 的 `shade_pbr_shadowed` 接收该可见度并作用于第 0 个方向光。整个流程不依赖计算着色器或存储缓冲，可在包括 WebGL 2 与 OpenGL ES 3.0 在内的所有 NSGo 目标上运行。
+- **画质预设**：要遵循 `quality.Preset.Shadows`，在其关闭时跳过阴影 pass 并把 `Strength` 设为 0，如上例所示；`Strength` 为 0 时着色器直接返回完全可见，不再采样阴影贴图。
+- **零分配编码与 CPU 参考实现**：`AppendShadowUniforms` 与 `ShadowUniforms.Encode` 无堆分配打包 96 字节 uniform 数据；NaN 或无穷大的矩阵或 `Strength` 会关闭阴影，非有限的偏移量变为 0，未知的 `PCFKernel` 按 `ShadowFilterHard` 处理，因此手工构造的 uniform 不会把 NaN 画到屏幕上。`EvaluateDirectionalShadow` 是在 `ShadowDepthGrid`（可由 `ShadowDepthGridFromBytes` 从 GPU 深度回读解码）上与之对应的纯 Go 参考实现，`ShadePointShadowed` 是带阴影光照的 CPU 参考实现。`render3d` 的测试用这两个参考实现逐一核对硬阴影与 3x3 PCF 渲染中所有露出的地面像素（包括半影），沿光线投射投影体以核对阴影落点，并在 `gpu.View` 的两种配置（`full` 与 `nsgotest.NoGPUCompute`）、`Retained` 设备丢失恢复以及作用域销毁中将渲染结果与参考图（`render3d/testdata/golden/shadow_directional_hard.png` 与 `shadow_directional_pcf.png`）比对。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
