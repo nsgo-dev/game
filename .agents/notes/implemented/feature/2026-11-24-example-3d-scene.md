@@ -58,7 +58,7 @@ Rejected because WebGL 2 and OpenGL ES 3.0 (`nsgotest.NoGPUCompute()`) do not su
 
 - **Benefit**: Exercises the complete Stage 2 3D pipeline (glTF loading, embedded PNG texture upload with CPU mipmaps, retained GPU buffers, `CameraBuffer`, `OrbitController`, render3d lights and PBR shading, `HUD3D.Wrap` pass-through, and `NoGPU` fallback) in a single concise example.
 - **Benefit**: Headless tests verify lit pixel output on both `full` and `nsgotest.NoGPUCompute()` (WebGL 2 / GLES 3.0) profiles, plus camera orbit, HUD pass-through, device loss/restore, and clean scope disposal.
-- **Cost**: Adds a 51 KB generated `.glb` binary under `examples/lantern3d/assets/` and a `lantern3d` CI job in `.github/workflows/examples.yml`. Any geometry/material changes must go through `examples/lantern3d/tools/genassets/main.go` so the binary stays reproducible.
+- **Cost**: Adds a 51 KB generated `.glb` binary under `examples/lantern3d/assets/` and a `lantern3d` CI job in `.github/workflows/examples.yml`. Any geometry/material changes must go through `examples/lantern3d/tools/genassets/main.go` so the binary stays reproducible; `tools/genassets/main_test.go` fails when the committed `.glb` and the generator's output differ. The generator converts every product that is added to its type first, because Go fuses multiply-adds on arm64 but not on amd64, and the fused rounding made the arm64 output differ from the amd64 output used in CI.
 
 ## Verification
 

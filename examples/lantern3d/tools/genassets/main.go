@@ -1,6 +1,6 @@
 // Command genassets deterministically generates the original glTF 2.0 binary scene (.glb) and its embedded textures for the Lantern 3D example under examples/lantern3d/assets/.
 //
-// All generated assets are original works dedicated to the public domain under CC0-1.0 (see examples/lantern3d/CREDITS.md). This generator uses only the Go standard library and produces byte-for-byte identical output on every run.
+// All generated assets are original works dedicated to the public domain under CC0-1.0 (see examples/lantern3d/CREDITS.md). This generator uses only the Go standard library and produces byte-for-byte identical output on every run and every architecture: products that are added are converted to their type first, because Go may fuse a multiply and an add into one instruction (it does on arm64, not on amd64), which rounds differently.
 //
 // Usage:
 //
@@ -49,13 +49,13 @@ func (a vec3) sub(b vec3) vec3      { return vec3{a[0] - b[0], a[1] - b[1], a[2]
 func (a vec3) scale(s float32) vec3 { return vec3{a[0] * s, a[1] * s, a[2] * s} }
 func (a vec3) cross(b vec3) vec3 {
 	return vec3{
-		a[1]*b[2] - a[2]*b[1],
-		a[2]*b[0] - a[0]*b[2],
-		a[0]*b[1] - a[1]*b[0],
+		float32(a[1]*b[2]) - float32(a[2]*b[1]),
+		float32(a[2]*b[0]) - float32(a[0]*b[2]),
+		float32(a[0]*b[1]) - float32(a[1]*b[0]),
 	}
 }
 func (a vec3) norm() vec3 {
-	l := float32(math.Sqrt(float64(a[0]*a[0] + a[1]*a[1] + a[2]*a[2])))
+	l := float32(math.Sqrt(float64(float32(a[0]*a[0]) + float32(a[1]*a[1]) + float32(a[2]*a[2]))))
 	if l < 1e-8 {
 		return vec3{0, 1, 0}
 	}
@@ -130,8 +130,8 @@ func (p *primData) addFrustum(cx, cz, y0, y1, r0, r1 float32, sides int, phase, 
 	for i := range sides {
 		ang := float64(phase) + float64(i)*2*math.Pi/float64(sides)
 		c, s := float32(math.Cos(ang)), float32(math.Sin(ang))
-		ring0[i] = vec3{cx + r0*c, y0, cz + r0*s}
-		ring1[i] = vec3{cx + r1*c, y1, cz + r1*s}
+		ring0[i] = vec3{cx + float32(r0*c), y0, cz + float32(r0*s)}
+		ring1[i] = vec3{cx + float32(r1*c), y1, cz + float32(r1*s)}
 	}
 	h := (y1 - y0) * uvScale
 	for i := range sides {
@@ -166,7 +166,7 @@ func (p *primData) addBipyramid(cx, cy, cz, radius, halfH float32, sides int, ph
 	ring := make([]vec3, sides)
 	for i := range sides {
 		ang := float64(phase) + float64(i)*2*math.Pi/float64(sides)
-		ring[i] = vec3{cx + radius*float32(math.Cos(ang)), cy, cz + radius*float32(math.Sin(ang))}
+		ring[i] = vec3{cx + float32(radius*float32(math.Cos(ang))), cy, cz + float32(radius*float32(math.Sin(ang)))}
 	}
 	for i := range sides {
 		j := (i + 1) % sides
@@ -182,7 +182,7 @@ func (p *primData) addPyramid(cx, cz, y0, r0 float32, tip vec3, sides int, phase
 	ring := make([]vec3, sides)
 	for i := range sides {
 		ang := float64(phase) + float64(i)*2*math.Pi/float64(sides)
-		ring[i] = vec3{cx + r0*float32(math.Cos(ang)), y0, cz + r0*float32(math.Sin(ang))}
+		ring[i] = vec3{cx + float32(r0*float32(math.Cos(ang))), y0, cz + float32(r0*float32(math.Sin(ang)))}
 	}
 	for i := range sides {
 		j := (i + 1) % sides
@@ -547,7 +547,7 @@ func makeCedarTexture() *image.NRGBA {
 		for x := range size {
 			plank := y / 16
 			py := y % 16
-			wave := int(math.Round(4.5 * math.Sin(float64(x)*0.22+float64(plank)*1.7)))
+			wave := int(math.Round(4.5 * math.Sin(float64(float64(x)*0.22)+float64(float64(plank)*1.7))))
 			grain := int(hash2D(uint32(x/2), uint32(y), 73)%13) - 6
 			plankShift := int(hash2D(uint32(plank), 3, 91)%15) - 7
 
