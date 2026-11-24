@@ -458,50 +458,75 @@ gpu.View(cx, gpu.ViewProps{
 
 ## HDR rendering, tone mapping, and gamma (`HDRTarget`, `ToneMapPass`)
 
-Render 3D lighting and emissive surfaces into a linear floating-point `HDRTarget` (`gpu.FormatRGBA16Float`, with automatic fallback to `gpu.FormatRGBA8Unorm` on devices that do not report `SupportsHDR(dev)`), then resolve it to the display with `ToneMapPass`:
+Render the scene's linear radiance into an `HDRTarget` (`gpu.FormatRGBA16Float`, falling back to `gpu.FormatRGBA8Unorm` on devices where `SupportsHDR(dev)` is false), then resolve it to the display with `ToneMapPass`. render3d's own shaders tone-map and encode to sRGB by default, so draw into the HDR target with their linear output mode: `LitPBRPipelineOptions.LinearOutput` for lit PBR (with or without fog or IBL, through `NewLitPBRPipelineWithOptions`) and `MaterialPipelineOptions.LinearOutput` for materials. Without it the image is tone-mapped and gamma-encoded twice and the HDR target only stores values already clamped to `[0, 1]`.
 
 ```go
 var (
 	hdr      *render3d.HDRTarget
+	pipe     *gpu.Pipeline
 	tonePass *render3d.ToneMapPass
+	setupErr error
 )
 
 gpu.View(cx, gpu.ViewProps{
 	OnReady: func(dev *gpu.Device) {
+		if tonePass != nil {
+			tonePass.SetDevice(dev) // retained resources come back in place after a device loss
+			return
+		}
 		w, h := dev.SurfaceSize()
-		if hdr == nil {
-			hdr, err = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
-				Label:       "scene-hdr",
-				Width:       uint32(w),
-				Height:      uint32(h),
-				DepthFormat: gpu.FormatDepth24Plus,
-				Retained:    true,
-			})
+		hdr, setupErr = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
+			Label:       "scene-hdr",
+			Width:       uint32(w),
+			Height:      uint32(h),
+			DepthFormat: gpu.FormatDepth24Plus,
+			Retained:    true,
+		})
+		if setupErr != nil {
+			return
 		}
-		if tonePass == nil {
-			tonePass, err = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
-				Label:        "tonemap",
-				TargetFormat: dev.SurfaceFormat(),
-				Retained:     true,
-			})
-		} else {
-			tonePass.SetDevice(dev)
+		pipe, setupErr = render3d.NewLitPBRPipelineWithOptions(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), render3d.LitPBRPipelineOptions{
+			ColorFormat:  hdr.Format(),
+			DepthFormat:  gpu.FormatDepth24Plus,
+			LinearOutput: true,
+		})
+		if setupErr != nil {
+			return
 		}
+		tonePass, setupErr = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
+			Label:        "tonemap",
+			TargetFormat: dev.SurfaceFormat(),
+			Retained:     true,
+		})
 	},
 	OnFrame: func(frame *gpu.Frame) {
-		// 1. Render 3D scene in linear HDR radiance (values > 1.0 preserved):
+		if setupErr != nil || tonePass == nil {
+			return
+		}
+		w, h := frame.Size()
+		if err := hdr.Resize(frame.Device(), uint32(w), uint32(h)); err != nil {
+			return
+		}
+
+		// 1. Render the scene in linear HDR radiance (values above 1.0 are kept):
 		scenePass := frame.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x0a0e18), 1))
-		// ... bind camera, pipelines, and draw meshes ...
+		scenePass.SetPipeline(pipe)
+		scenePass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+		lightBuf.Bind(scenePass)
+		scenePass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+		mesh.Draw(scenePass)
 		scenePass.End()
 
 		// 2. Tone-map and encode to sRGB onto the swapchain:
-		opts := render3d.ToneMapOptions{
-			Operator: render3d.ToneMapAgX,
-			Exposure: render3d.ExposureFromEV(0),
-		}
+		opts := render3d.DefaultToneMapOptions()
+		opts.Operator = render3d.ToneMapAgX
+		opts.Exposure = render3d.ExposureFromEV(0.5)
 		displayPass := frame.BeginRenderPass(gpu.RenderPassDesc{Label: "tonemap"})
-		_ = tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
+		err := tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
 		displayPass.End()
+		if err != nil {
+			return
+		}
 		frame.Submit()
 	},
 })
@@ -517,10 +542,14 @@ gpu.View(cx, gpu.ViewProps{
 | `ToneMapNeutral` | Khronos PBR Neutral | Faithful mid-tone hues and PBR asset viewing |
 | `ToneMapAgX` | Troy Sobotka AgX default look | Smooth highlight desaturation without hue skew |
 
-- **Exposure**: set `ToneMapOptions.Exposure` directly or derive it from photographic stops with `ExposureFromEV(ev)` (`0 -> 1.0`, `+1 -> 2.0`, `-1 -> 0.5`). Non-positive or non-finite values default to `1.0`.
-- **Gamma & sRGB**: when `ToneMapOptions.Gamma <= 0` (the default) and `LinearOutput` is false, `ToneMapPass` applies the exact IEC 61966-2-1 linear-to-sRGB OETF (`LinearToSRGBChannel` / `SRGBToLinearChannel` on the CPU); a positive `Gamma` (such as `2.2`) applies power-law `pow(c, 1/Gamma)`. When `ToneMapPassDesc.TargetFormat.IsSRGB()` is true, `ToneMapPass` automatically emits linear tone-mapped RGB so the GPU's sRGB framebuffer hardware encodes linear-to-sRGB once without double gamma.
-- **Zero steady-state allocations & device loss**: `AppendToneMapUniforms` writes the `ToneMapUniformSize` (16-byte) uniform block with zero allocations, and `ToneMapPass` caches its bind group per source texture. Passing `Retained: true` to both `HDRTargetDesc` and `ToneMapPassDesc` lets NSGo recreate the textures, sampler, uniform buffer, cached bind group, and pipeline automatically after a device loss.
-- **CPU reference & portability**: `ApplyToneMap` mirrors `ToneMapWGSL` on the CPU. `ToneMapWGSL` avoids `exp` and `log2` builtins (using a range-reduced polynomial `log2` for AgX) and runs cleanly on both the full GPU profile and `nsgotest.NoGPUCompute` (WebGL 2 / OpenGL ES 3.0). Reference tests compare lit HDR renders against `render3d/testdata/golden/tonemap_aces.png`, `tonemap_agx.png`, and `tonemap_neutral.png`; `UPDATE_GOLDEN=1` rewrites them.
+- **Exposure**: `ToneMapOptions.Exposure` is a linear multiplier; derive it from photographic stops with `ExposureFromEV(ev)` (`0 -> 1.0`, `+1 -> 2.0`, `-1 -> 0.5`, clamped to `[-126, 126]` stops so it is always positive). Exposure `0` renders black, so a fade to black can interpolate it down to `0`; negative, NaN and infinite values count as `1.0`. Start from `DefaultToneMapOptions()` so the field's zero value does not leave the image black.
+- **Gamma and sRGB**: when `ToneMapOptions.Gamma <= 0` (the default) and `LinearOutput` is false, `ToneMapPass` applies the exact IEC 61966-2-1 linear-to-sRGB transfer function (`LinearToSRGBChannel` / `LinearToSRGB` on the CPU, with `SRGBToLinearChannel` / `SRGBToLinear` as their inverse); a positive `Gamma` (such as `2.2`) applies `pow(c, 1/Gamma)`. When `ToneMapPassDesc.TargetFormat.IsSRGB()` is true, the pass writes linear tone-mapped RGB so the sRGB framebuffer encodes it once, without double gamma. A material drawn with `LinearOutput` and resolved with `ToneMapReinhard` and `Gamma: 2.2` looks the same as the material pipeline's own output.
+- **Overflow**: an `RGBA16Float` target stores values above 65504, such as strong specular highlights, as `+Inf`. The pass clamps exposed radiance to `[0, 65504]` and maps NaN to `0` before the curve (`ApplyToneMap` does the same), so blown highlights stay white instead of turning black.
+- **Dynamic resolution**: create the `DynamicResolutionTarget` with an HDR `ColorFormat` (`PreferredHDRFormat(dev)`), draw the scene with `Begin3D`, and call `ToneMapPass.DrawDynamicResolution` in place of `Upscale`. It tone-maps only the scaled sub-viewport and upscales it with the pass's sampler in the same draw; the sharpen filter is not applied.
+- **One set of options per submission**: each `ToneMapPass` has one uniform buffer, and buffer writes are applied before the submission's commands, so every draw one pass records into a frame uses the options of its last `Draw`. To tone-map several views with different options in one frame (split screen, a picture-in-picture camera), create one `ToneMapPass` per view.
+- **Allocations and device loss**: `AppendToneMapUniforms` encodes the `ToneMapUniformSize` (48-byte) uniform block without allocating, and the pass reuses its bind group while the source texture stays the same; each draw still uploads the block with `gpu.Device.WriteBuffer`, which copies it. With `Retained: true` on `HDRTargetDesc` and `ToneMapPassDesc`, NSGo recreates the textures, sampler, uniform buffer, layout and pipeline after a device loss, and the pass rebuilds its bind group on the next draw.
+- **CPU reference and portability**: `ApplyToneMap` mirrors `ToneMapWGSL` on the CPU. `ToneMapWGSL` avoids the `exp` and `log2` builtins (AgX uses a range-reduced polynomial `log2`), because NSGo v0.3.0's software GPU returns 0 for them, and runs on both the full GPU profile and `nsgotest.NoGPUCompute` (WebGL 2 / OpenGL ES 3.0).
+- **Reference renders**: the tests draw a scene through the lit PBR pipeline's linear output mode, with emissive boxes and highlights well above 1.0, and compare it with `render3d/testdata/golden/tonemap_aces.png`, `tonemap_agx.png` and `tonemap_neutral.png`; `UPDATE_GOLDEN=1` rewrites them. Other tests check the lit PBR and material linear modes against `ShadePoint` and `EvaluateMaterial` through `ApplyToneMap`.
 
 ## 3D debug draw and transform gizmos
 

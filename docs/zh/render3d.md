@@ -458,50 +458,75 @@ gpu.View(cx, gpu.ViewProps{
 
 ## HDR 渲染、色调映射与伽马（`HDRTarget`、`ToneMapPass`）
 
-将 3D 光照与自发光表面渲染到线性浮点 `HDRTarget`（`gpu.FormatRGBA16Float`，在不支持 `SupportsHDR(dev)` 的设备上自动回退到 `gpu.FormatRGBA8Unorm`），再用 `ToneMapPass` 解析并编码到显示目标：
+将场景的线性辐亮度渲染到 `HDRTarget`（`gpu.FormatRGBA16Float`，在 `SupportsHDR(dev)` 为 false 的设备上回退到 `gpu.FormatRGBA8Unorm`），再用 `ToneMapPass` 解析到显示目标。render3d 自带的着色器默认会做色调映射并编码为 sRGB，因此绘制到 HDR 目标时要使用它们的线性输出模式：光照 PBR 用 `LitPBRPipelineOptions.LinearOutput`（通过 `NewLitPBRPipelineWithOptions`，可带雾或 IBL），材质用 `MaterialPipelineOptions.LinearOutput`。不开启时，图像会被色调映射和伽马编码两次，HDR 目标里也只存着已被钳位到 `[0, 1]` 的值。
 
 ```go
 var (
 	hdr      *render3d.HDRTarget
+	pipe     *gpu.Pipeline
 	tonePass *render3d.ToneMapPass
+	setupErr error
 )
 
 gpu.View(cx, gpu.ViewProps{
 	OnReady: func(dev *gpu.Device) {
+		if tonePass != nil {
+			tonePass.SetDevice(dev) // 设备丢失后，保留的资源会原地恢复
+			return
+		}
 		w, h := dev.SurfaceSize()
-		if hdr == nil {
-			hdr, err = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
-				Label:       "scene-hdr",
-				Width:       uint32(w),
-				Height:      uint32(h),
-				DepthFormat: gpu.FormatDepth24Plus,
-				Retained:    true,
-			})
+		hdr, setupErr = render3d.NewHDRTarget(cx, dev, render3d.HDRTargetDesc{
+			Label:       "scene-hdr",
+			Width:       uint32(w),
+			Height:      uint32(h),
+			DepthFormat: gpu.FormatDepth24Plus,
+			Retained:    true,
+		})
+		if setupErr != nil {
+			return
 		}
-		if tonePass == nil {
-			tonePass, err = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
-				Label:        "tonemap",
-				TargetFormat: dev.SurfaceFormat(),
-				Retained:     true,
-			})
-		} else {
-			tonePass.SetDevice(dev)
+		pipe, setupErr = render3d.NewLitPBRPipelineWithOptions(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), render3d.LitPBRPipelineOptions{
+			ColorFormat:  hdr.Format(),
+			DepthFormat:  gpu.FormatDepth24Plus,
+			LinearOutput: true,
+		})
+		if setupErr != nil {
+			return
 		}
+		tonePass, setupErr = render3d.NewToneMapPass(cx, dev, render3d.ToneMapPassDesc{
+			Label:        "tonemap",
+			TargetFormat: dev.SurfaceFormat(),
+			Retained:     true,
+		})
 	},
 	OnFrame: func(frame *gpu.Frame) {
-		// 1. 以线性 HDR 辐亮度渲染 3D 场景（保留 > 1.0 的高光）：
+		if setupErr != nil || tonePass == nil {
+			return
+		}
+		w, h := frame.Size()
+		if err := hdr.Resize(frame.Device(), uint32(w), uint32(h)); err != nil {
+			return
+		}
+
+		// 1. 以线性 HDR 辐亮度渲染场景（保留大于 1.0 的值）：
 		scenePass := frame.BeginRenderPass(hdr.RenderPassDesc(core.RGB(0x0a0e18), 1))
-		// ... 绑定相机、管线并绘制网格 ...
+		scenePass.SetPipeline(pipe)
+		scenePass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+		lightBuf.Bind(scenePass)
+		scenePass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+		mesh.Draw(scenePass)
 		scenePass.End()
 
 		// 2. 色调映射并编码为 sRGB 输出到交换链：
-		opts := render3d.ToneMapOptions{
-			Operator: render3d.ToneMapAgX,
-			Exposure: render3d.ExposureFromEV(0),
-		}
+		opts := render3d.DefaultToneMapOptions()
+		opts.Operator = render3d.ToneMapAgX
+		opts.Exposure = render3d.ExposureFromEV(0.5)
 		displayPass := frame.BeginRenderPass(gpu.RenderPassDesc{Label: "tonemap"})
-		_ = tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
+		err := tonePass.DrawTarget(displayPass, frame.Device(), hdr, opts)
 		displayPass.End()
+		if err != nil {
+			return
+		}
 		frame.Submit()
 	},
 })
@@ -511,16 +536,20 @@ gpu.View(cx, gpu.ViewProps{
 
 | 算子 | 曲线 | 适用场景 |
 | --- | --- | --- |
-| `ToneMapNone` | 线性钳位到 `[0, 1]` | 调试线性输出 |
+| `ToneMapNone` | 线性钳位到 `[0, 1]` | 调试线性输入 |
 | `ToneMapReinhard` | 逐通道 `c / (1 + c)` | 简单的平滑高光滚降 |
 | `ToneMapACES`（`DefaultToneMapOptions`） | Narkowicz ACES 电影拟合曲线 | 高对比度电影观感 |
 | `ToneMapNeutral` | Khronos PBR Neutral | 忠实保留中间调色相与 PBR 资产预览 |
-| `ToneMapAgX` | Troy Sobotka AgX 默认观感 | 高饱和高光平滑去饱和且不偏色 |
+| `ToneMapAgX` | Troy Sobotka AgX 默认观感 | 高光平滑去饱和且不偏色 |
 
-- **曝光**：直接设置 `ToneMapOptions.Exposure`，或通过 `ExposureFromEV(ev)` 按摄影档位计算（`0 -> 1.0`、`+1 -> 2.0`、`-1 -> 0.5`）。非正数或非有限值默认按 `1.0` 处理。
-- **伽马与 sRGB**：当 `ToneMapOptions.Gamma <= 0`（默认）且 `LinearOutput` 为 false 时，`ToneMapPass` 应用精确的 IEC 61966-2-1 线性到 sRGB OETF（CPU 端提供 `LinearToSRGBChannel` 与 `SRGBToLinearChannel`）；正数 `Gamma`（如 `2.2`）应用幂律 `pow(c, 1/Gamma)`。当 `ToneMapPassDesc.TargetFormat.IsSRGB()` 为真时，`ToneMapPass` 自动输出线性色调映射 RGB，由 GPU 的 sRGB 帧缓冲硬件单次完成编码，避免双重伽马。
-- **稳态零分配与设备丢失恢复**：`AppendToneMapUniforms` 零分配写入 `ToneMapUniformSize`（16 字节）uniform 块，`ToneMapPass` 按源纹理缓存绑定组。在 `HDRTargetDesc` 与 `ToneMapPassDesc` 上同时开启 `Retained: true`，设备丢失后 NSGo 会自动重建纹理、采样器、uniform 缓冲、已缓存绑定组与管线。
-- **CPU 参考实现与可移植性**：`ApplyToneMap` 在 CPU 端镜像 `ToneMapWGSL`。`ToneMapWGSL` 避开了 `exp` 与 `log2` 内建函数（AgX 使用范围缩减多项式 `log2`），在完整 GPU 配置和 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）下均可稳定运行。参考测试会将带 HDR 光照的场景输出与 `render3d/testdata/golden/tonemap_aces.png`、`tonemap_agx.png`、`tonemap_neutral.png` 比对；设置 `UPDATE_GOLDEN=1` 可重写基准图。
+- **曝光**：`ToneMapOptions.Exposure` 是线性倍数，可用 `ExposureFromEV(ev)` 按摄影档位计算（`0 -> 1.0`、`+1 -> 2.0`、`-1 -> 0.5`，档位钳位到 `[-126, 126]`，结果总为正数）。曝光为 `0` 时画面全黑，因此淡出到黑可以把它插值到 `0`；负数、NaN 和无穷大按 `1.0` 处理。请从 `DefaultToneMapOptions()` 开始设置，以免该字段的零值让画面变黑。
+- **伽马与 sRGB**：当 `ToneMapOptions.Gamma <= 0`（默认）且 `LinearOutput` 为 false 时，`ToneMapPass` 应用精确的 IEC 61966-2-1 线性到 sRGB 传递函数（CPU 端为 `LinearToSRGBChannel` / `LinearToSRGB`，其逆为 `SRGBToLinearChannel` / `SRGBToLinear`）；正数 `Gamma`（如 `2.2`）应用 `pow(c, 1/Gamma)`。当 `ToneMapPassDesc.TargetFormat.IsSRGB()` 为真时，pass 输出线性的色调映射 RGB，由 sRGB 帧缓冲只编码一次，避免双重伽马。以 `LinearOutput` 绘制的材质用 `ToneMapReinhard` 加 `Gamma: 2.2` 解析后，与材质管线自身的输出一致。
+- **溢出**：`RGBA16Float` 目标会把大于 65504 的值（例如强烈的镜面高光）存为 `+Inf`。pass 在曲线之前把曝光后的辐亮度钳位到 `[0, 65504]`，并把 NaN 变为 `0`（`ApplyToneMap` 同样如此），因此过曝的高光保持白色，而不会变黑。
+- **动态分辨率**：用 HDR 的 `ColorFormat`（`PreferredHDRFormat(dev)`）创建 `DynamicResolutionTarget`，用 `Begin3D` 绘制场景，再调用 `ToneMapPass.DrawDynamicResolution` 代替 `Upscale`。它只对缩放后的子视口做色调映射，并在同一次绘制中用 pass 的采样器放大；不应用锐化滤镜。
+- **每次提交一组参数**：每个 `ToneMapPass` 只有一个 uniform 缓冲，而缓冲写入会在本次提交的命令之前生效，因此同一个 pass 在一帧内记录的所有绘制都使用最后一次 `Draw` 的参数。要在一帧内以不同参数对多个视图做色调映射（分屏、画中画相机），请为每个视图各建一个 `ToneMapPass`。
+- **分配与设备丢失**：`AppendToneMapUniforms` 零分配地编码 `ToneMapUniformSize`（48 字节）uniform 块，源纹理不变时 pass 复用其绑定组；每次绘制仍通过 `gpu.Device.WriteBuffer` 上传该块，而它会复制数据。在 `HDRTargetDesc` 与 `ToneMapPassDesc` 上开启 `Retained: true` 后，设备丢失时 NSGo 会重建纹理、采样器、uniform 缓冲、布局与管线，pass 会在下一次绘制时重建绑定组。
+- **CPU 参考实现与可移植性**：`ApplyToneMap` 在 CPU 端镜像 `ToneMapWGSL`。由于 NSGo v0.3.0 的软件 GPU 对 `exp` 与 `log2` 内建函数返回 0，`ToneMapWGSL` 避开了它们（AgX 使用范围缩减多项式 `log2`），在完整 GPU 配置和 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）下均可运行。
+- **参考渲染**：测试通过光照 PBR 管线的线性输出模式绘制一个带自发光方块、高光远超 1.0 的场景，并与 `render3d/testdata/golden/tonemap_aces.png`、`tonemap_agx.png`、`tonemap_neutral.png` 比对；设置 `UPDATE_GOLDEN=1` 可重写参考图。另有测试经 `ApplyToneMap` 将光照 PBR 与材质的线性模式与 `ShadePoint`、`EvaluateMaterial` 比对。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
