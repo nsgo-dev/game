@@ -18,7 +18,7 @@ const (
 
 // LightmapRef describes a baked lightmap binding extracted from a glTF material's MOZ_lightmap extension, EXT_lightmap extension, or extras.lightmap metadata.
 type LightmapRef struct {
-	// Texture points to the lightmap texture in Document.Textures and its UV channel (defaulting to 1 for TEXCOORD_1) plus optional KHR_texture_transform.
+	// Texture points to the lightmap texture in Document.Textures and its UV channel (defaulting to 1 for TEXCOORD_1). A KHR_texture_transform on the lightmap is folded into UVScale and UVOffset, so Texture.Transform carries only its texCoord override (if any) and passing Texture to [Document.TransformTexCoords] never applies the scale and offset a second time.
 	Texture TextureRef
 	// Intensity scales the decoded lightmap irradiance (defaults to 1).
 	Intensity float32
@@ -26,9 +26,9 @@ type LightmapRef struct {
 	Encoding string
 	// RGBMMaxRange is an optional peak HDR scale hint for RGBM lightmaps (0 when unspecified, letting the renderer apply its default range).
 	RGBMMaxRange float32
-	// UVScale scales lightmap UVs when mapping into a shared lightmap atlas (defaults to [1, 1]).
+	// UVScale scales lightmap UVs when mapping into a shared lightmap atlas (defaults to [1, 1]). UVScale and UVOffset are the authoritative atlas transform: pass them to render3d's LightmapMaterial.SetUVTransform. They come from, in increasing precedence, the lightmap's KHR_texture_transform (scale and offset; a non-zero rotation is refused), a scaleOffset [sx, sy, ox, oy] field, and separate uvScale and uvOffset fields.
 	UVScale [2]float32
-	// UVOffset offsets scaled lightmap UVs when mapping into a shared lightmap atlas (defaults to [0, 0]).
+	// UVOffset offsets scaled lightmap UVs when mapping into a shared lightmap atlas (defaults to [0, 0]). See UVScale for precedence.
 	UVOffset [2]float32
 }
 
@@ -140,9 +140,16 @@ func (d *Document) MaterialLightmap(materialIndex int) (*LightmapRef, error) {
 		if err != nil {
 			return nil, fmt.Errorf("gltf: material %d %s: %w", materialIndex, source, err)
 		}
-		ref.Texture.Transform = tt
+		if tt.Rotation != 0 {
+			return nil, fmt.Errorf("gltf: material %d %s %s rotation %v is not supported for lightmaps; bake the atlas without rotated charts", materialIndex, source, extTextureTransform, tt.Rotation)
+		}
 		ref.UVScale = tt.Scale
 		ref.UVOffset = tt.Offset
+		if tt.TexCoord != nil {
+			keep := DefaultTextureTransform()
+			keep.TexCoord = tt.TexCoord
+			ref.Texture.Transform = &keep
+		}
 	}
 
 	if len(raw.ScaleOffset) > 0 {
@@ -182,7 +189,7 @@ func PrimitiveLightmapUVs(prim Primitive) (uvs []math3d.Vec2, usedFallback bool)
 	return nil, true
 }
 
-// LightmapTexCoords resolves the baked lightmap UVs for prim using ref (or TEXCOORD_1 when ref is nil). When TEXCOORD_1 is requested but absent on prim, it falls back to prim.TexCoords0 and reports usedFallback = true.
+// LightmapTexCoords resolves the baked lightmap UVs for prim using ref (or TEXCOORD_1 when ref is nil). When TEXCOORD_1 is requested but absent on prim, it falls back to prim.TexCoords0 and reports usedFallback = true. A primitive with neither TEXCOORD_1 nor TEXCOORD_0 is an error, since every vertex would sample the same lightmap texel.
 func (d *Document) LightmapTexCoords(prim Primitive, ref *LightmapRef) (uvs []math3d.Vec2, usedFallback bool, err error) {
 	if d == nil {
 		return nil, false, fmt.Errorf("gltf: nil document")
@@ -196,6 +203,9 @@ func (d *Document) LightmapTexCoords(prim Primitive, ref *LightmapRef) (uvs []ma
 	}
 	if tc == 1 && len(prim.TexCoords1) == 0 {
 		if _, hasAttr := prim.Attributes["TEXCOORD_1"]; !hasAttr {
+			if len(prim.TexCoords0) == 0 {
+				return nil, false, fmt.Errorf("gltf: primitive has neither TEXCOORD_1 nor TEXCOORD_0 for its lightmap")
+			}
 			return prim.TexCoords0, true, nil
 		}
 	}
