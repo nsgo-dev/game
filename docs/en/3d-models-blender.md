@@ -231,6 +231,29 @@ Both decoders charge their output and working memory to the same per-load budget
   - Look up variants by name with `Document.VariantIndex(name)` and resolve materials without mutating `Primitive.Material` via `Document.MaterialForPrimitive(prim, variantIndex)`, `Document.MaterialForVariant(prim, name)`, `Document.MeshMaterials(meshIndex, variantIndex)`, and `Document.ResolveVariantMaterials(variantIndex)`. Any unmapped primitive or out-of-range/negative variant falls back to `Primitive.Material`.
   - Spec constraints are enforced at load time: non-empty `variants` and `mappings` arrays, required variant `name`, valid material and variant indices, and at most one mapping per variant on any primitive.
 
+## Morph targets
+
+`game/gltf` decodes glTF 2.0 morph targets (`POSITION`, `NORMAL`, and `TANGENT` displacement deltas, including sparse accessors), default `mesh.weights` and `node.weights`, and animated `weights` channels (`STEP`, `LINEAR`, and `CUBICSPLINE`). In Blender, author morph targets as **Shape Keys** on the mesh, keyframe their *Value* sliders in an Action, and enable *Data → Shape Keys* (plus *Shape Key Normals* and *Shape Key Tangents* when needed) in the glTF 2.0 exporter.
+
+At runtime, evaluate morph targets without per-frame heap allocations by reusing weight and `MorphResult` buffers:
+
+```go
+weights := gltf.ResolveWeights(doc, nodeIdx) // node.Weights > mesh.Weights > zeros
+var morphed gltf.MorphResult
+
+// Each frame:
+if sampled, ok := gltf.SampleMorphWeights(doc.Animations[0], nodeIdx, animTime, weights); ok {
+	weights = sampled
+}
+gltf.ApplyMorphWeights(prim, weights, &morphed)
+// morphed.Positions, morphed.Normals (renormalized), morphed.Tangents (XYZ renormalized, W preserved), morphed.Bounds
+```
+
+- `ResolveWeights` and `ResolveWeightsInto` apply glTF 2.0 weight precedence (`node.Weights` overrides `mesh.Weights`; missing weights default to zeros matching the primitive's morph target count).
+- `SampleMorphWeights` unpacks `N` target weights per keyframe (`3 * N` floats per keyframe in `[inTangent, value, outTangent]` order for `CUBICSPLINE`), clamping outside the channel's keyframe time range.
+- `EvaluateMorphTangents` blends tangent `XYZ` displacements, renormalizes `XYZ`, and preserves `W` handedness unchanged, complementing `EvaluateMorphPositions` and `EvaluateMorphNormals`.
+- To draw an animated morph mesh in an NSGo `gpu.View`, upload the base primitive and targets into `render3d.GPUMorphMesh` (see [`render3d`](render3d.md#morph-target-meshes-morphmesh-gpumorphmesh)). The test suite verifies full animation playback and pixel readback against the Khronos `AnimatedMorphCube` sample model.
+
 ## Round-trip sample models
 
 The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/), generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.

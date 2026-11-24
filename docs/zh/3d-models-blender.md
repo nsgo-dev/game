@@ -231,6 +231,29 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
   - 可用 `Document.VariantIndex(name)` 按名称查找变体索引，并通过 `Document.MaterialForPrimitive(prim, variantIndex)`、`Document.MaterialForVariant(prim, name)`、`Document.MeshMaterials(meshIndex, variantIndex)` 和 `Document.ResolveVariantMaterials(variantIndex)` 解析材质，且不修改 `Primitive.Material`。未映射的图元或越界/负值变体会自动回退到 `Primitive.Material`。
   - 加载时严格校验规范约束：`variants` 与 `mappings` 均须非空、每个变体必须有 `name`、材质与变体索引须在有效范围内，且同一图元上每个变体索引最多映射一次。
 
+## 变形目标
+
+`game/gltf` 解码 glTF 2.0 变形目标（`POSITION`、`NORMAL`、`TANGENT` 位移增量，支持稀疏访问器）、默认 `mesh.weights` 与 `node.weights`，以及 `weights` 权重动画通道（`STEP`、`LINEAR`、`CUBICSPLINE`）。在 Blender 中通过网格的 **Shape Keys**（形态键）制作变形目标，在 Action 中为其 *Value* 滑块打关键帧，并在 glTF 2.0 导出器中启用 *Data → Shape Keys*（按需勾选 *Shape Key Normals* 和 *Shape Key Tangents*）。
+
+运行时复用权重切片与 `MorphResult`，即可在每帧零分配地求值变形目标：
+
+```go
+weights := gltf.ResolveWeights(doc, nodeIdx) // node.Weights > mesh.Weights > 全零
+var morphed gltf.MorphResult
+
+// 每帧：
+if sampled, ok := gltf.SampleMorphWeights(doc.Animations[0], nodeIdx, animTime, weights); ok {
+	weights = sampled
+}
+gltf.ApplyMorphWeights(prim, weights, &morphed)
+// morphed.Positions、morphed.Normals（已重归一化）、morphed.Tangents（XYZ 重归一化、保留 W 手性）、morphed.Bounds
+```
+
+- `ResolveWeights` 与 `ResolveWeightsInto` 按 glTF 2.0 优先级解析权重（`node.Weights` 覆盖 `mesh.Weights`；缺省时返回与图元变形目标数量一致的零值切片）。
+- `SampleMorphWeights` 按每个关键帧解包 `N` 个目标权重（`CUBICSPLINE` 按 `[inTangent, value, outTangent]` 顺序解包每关键帧 `3 * N` 个浮点值），超出关键帧时间范围时钳制到首尾帧。
+- `EvaluateMorphTangents` 混合切线的 `XYZ` 增量并重新归一化，同时原样保留 `W` 手性符号，与 `EvaluateMorphPositions` 和 `EvaluateMorphNormals` 配套。
+- 如需在 NSGo `gpu.View` 中绘制带动画的变形网格，可将基础图元与变形目标上传到 `render3d.GPUMorphMesh`（见 [`render3d`](render3d.md#变形目标网格morphmeshgpumorphmesh)）。测试套件使用 Khronos `AnimatedMorphCube` 示例模型验证了完整动画播放与像素回读。
+
 ## 往返校验示例模型
 
 [占位素材包](placeholder.md)在 [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。

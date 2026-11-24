@@ -166,6 +166,35 @@ mesh.Draw(pass)
 - **Lifecycle and memory**: `GPUTexture.ByteSize` sums every uploaded mip level for `RenderStats.TextureBytes` and `Budget` checks. Both `GPUTexture` and `GPUSampler` are released when their owning `core.Scope` is disposed or earlier via `Close()`, and `Valid()` reports whether they belong to a live device.
 - **Reference renders**: `render3d`'s tests verify textured meshes, filtering, wrapping, sRGB/linear sampling, and mipmaps against golden reference PNGs (`render3d/testdata/golden/textured_mesh_scene.png` and `textured_filtering_wrapping.png`) as well as headless `gpu.View` tests on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles; `UPDATE_GOLDEN=1` rewrites the reference images.
 
+### Morph target meshes (`MorphMesh`, `GPUMorphMesh`)
+
+`MorphMesh` pairs a base `Mesh` with per-vertex `MorphTarget` position and normal deltas (matching `gltf.MorphTarget`) and optional initial `Weights`. `UploadMorphMesh` validates the base mesh, targets, and weights (wrapping `ErrInvalidMesh` on malformed data) and creates a `GPUMorphMesh` backed by the same 32-byte `MeshVertexLayout` vertex buffer and optional index buffer as `GPUMesh`, so any existing 3D pipeline draws it without shader changes on every backend—including WebGL 2 and OpenGL ES 3.0 without compute shaders:
+
+```go
+morph, err := render3d.UploadMorphMesh(cx, dev, render3d.MorphMesh{
+	Base: render3d.Mesh{
+		Positions: prim.Positions,
+		Normals:   prim.Normals,
+		UVs:       prim.TexCoords0,
+		Indices:   prim.Indices,
+	},
+	Targets: targets,
+	Weights: gltf.ResolveWeights(doc, nodeIdx),
+}, render3d.MeshUpload{Label: "character", Retained: true})
+
+// Each frame before recording draws:
+if sampled, ok := gltf.SampleMorphWeights(anim, nodeIdx, animTime, weights); ok {
+	weights = sampled
+}
+_ = morph.SetWeights(weights) // marks dirty only when a weight actually changes
+morph.Update(dev)             // blends on CPU and calls dev.WriteBuffer only when dirty
+morph.Draw(pass)
+```
+
+- **Dirty tracking**: `SetWeights` compares against active weights and marks the mesh dirty only when at least one weight changes; `Update` skips both CPU blending and `Device.WriteBuffer` when clean.
+- **Live object-space bounds**: `GPUMorphMesh.Bounds` evaluates pending CPU blends on demand (caching the result so `Update` does not blend twice) and keeps the underlying `GPUMesh.Bounds` in sync for frustum culling.
+- **Device-loss restore**: with `MeshUpload.Retained`, NSGo recreates the vertex buffer with the last uploaded morphed bytes after a device loss; if `SetWeights` is called while the device is lost, the mesh stays `Dirty` so the first `Update` after restore uploads the pending pose.
+
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:

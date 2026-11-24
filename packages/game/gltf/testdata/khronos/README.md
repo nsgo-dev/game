@@ -4,6 +4,7 @@ Unmodified copies of models from [KhronosGroup/glTF-Sample-Assets](https://githu
 
 | Model | Variants | Credit | License |
 | --- | --- | --- | --- |
+| Animated Morph Cube | `glTF` | Microsoft, 2017 | CC0-1.0 |
 | Avocado | `glTF`, `glTF-Draco` | Microsoft, 2017 | CC0-1.0 |
 | Box | `glTF`, `glTF-Draco` | Cesium, 2017 | CC-BY-4.0 |
 | Cesium Milk Truck | `glTF`, `glTF-Draco` | Cesium, 2017 | CC-BY-4.0 |

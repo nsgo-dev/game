@@ -166,6 +166,35 @@ mesh.Draw(pass)
 - **生命周期与显存统计**：`GPUTexture.ByteSize` 累加所有已上传的 mip 层级字节数，供 `RenderStats.TextureBytes` 和 `Budget` 预算使用。`GPUTexture` 与 `GPUSampler` 会在所属 `core.Scope` 销毁时释放，也可提前调用 `Close()`，并可通过 `Valid()` 查询是否仍属于存活设备。
 - **参考渲染验证**：`render3d` 的测试将带纹理网格、滤波、环绕、sRGB/线性采样与 mipmap 渲染结果与参考图（`render3d/testdata/golden/textured_mesh_scene.png` 和 `textured_filtering_wrapping.png`）比对，并在无界面 `gpu.View` 上同时测试完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置；设置 `UPDATE_GOLDEN=1` 可重写参考图。
 
+### 变形目标网格（`MorphMesh`、`GPUMorphMesh`）
+
+`MorphMesh` 将基础 `Mesh` 与逐顶点 `MorphTarget` 位置/法线位移增量（字段与 `gltf.MorphTarget` 对应）及可选初始 `Weights` 组合在一起。`UploadMorphMesh` 校验基础网格、变形目标与权重（非法数据均包装 `ErrInvalidMesh`），并创建 `GPUMorphMesh`，其底层仍使用与 `GPUMesh` 完全相同的 32 字节 `MeshVertexLayout` 顶点缓冲和可选索引缓冲，因此任何现有 3D 管线无需修改着色器即可在所有后端绘制——包括不具备计算着色器的 WebGL 2 与 OpenGL ES 3.0：
+
+```go
+morph, err := render3d.UploadMorphMesh(cx, dev, render3d.MorphMesh{
+	Base: render3d.Mesh{
+		Positions: prim.Positions,
+		Normals:   prim.Normals,
+		UVs:       prim.TexCoords0,
+		Indices:   prim.Indices,
+	},
+	Targets: targets,
+	Weights: gltf.ResolveWeights(doc, nodeIdx),
+}, render3d.MeshUpload{Label: "character", Retained: true})
+
+// 每帧录制绘制命令前：
+if sampled, ok := gltf.SampleMorphWeights(anim, nodeIdx, animTime, weights); ok {
+	weights = sampled
+}
+_ = morph.SetWeights(weights) // 仅在权重实际变化时标记脏状态
+morph.Update(dev)             // 仅在脏状态时在 CPU 混合并通过 dev.WriteBuffer 上传
+morph.Draw(pass)
+```
+
+- **脏状态追踪**：`SetWeights` 与当前权重逐项比较，仅当至少一个权重变化时才标记脏状态；未变时 `Update` 会同时跳过 CPU 混合与 `Device.WriteBuffer`。
+- **实时物体空间包围盒**：`GPUMorphMesh.Bounds` 会按需执行待处理的 CPU 混合（并缓存结果，确保 `Update` 不会重复混合），同时同步更新底层 `GPUMesh.Bounds` 以供视锥裁剪使用。
+- **设备丢失恢复**：开启 `MeshUpload.Retained` 后，设备丢失恢复时 NSGo 会用最近一次上传的变形顶点数据重建缓冲；若设备丢失期间调用了 `SetWeights`，网格会保持 `Dirty`，恢复后的首次 `Update` 会立即上传新姿态。
+
 ## 3D 调试线框与变换手柄（Gizmo）
 
 `DebugDraw` 将 3D 线框经近裁剪面裁剪后直接投影绘制到 NSGo 的 `*core.Drawing` 叠加层：
