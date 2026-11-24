@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"reflect"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -27,6 +28,7 @@ const (
 	transitionCrossfade
 	transitionFadeColor
 	transitionWipe
+	transitionNone
 )
 
 // Transition animates the visual handoff between an outgoing scene and an incoming scene over Duration.
@@ -35,13 +37,30 @@ type Transition struct {
 	Duration time.Duration
 	// Curve eases the linear progress in [0, 1]; its zero value is core.Linear.
 	Curve core.Curve
-	// Draw draws one transition frame at eased progress in [0, 1] into d for a canvas of size,
-	// calling drawOld and drawNew as needed to render the outgoing and incoming scenes.
+	// Draw draws one transition frame at eased progress in [0, 1] into d for a canvas of size, calling drawOld and drawNew as needed to render the outgoing and incoming scenes. When Draw is nil, Manager.Draw and Manager.View show the incoming scene for the whole Duration.
 	Draw func(d *core.Drawing, size core.Size, progress float64, drawOld, drawNew func(*core.Drawing))
 
 	kind      transitionKind
 	fadeColor core.Color
 	wipeDir   Direction
+	// builtinDraw is the code pointer of the Draw a constructor installed, so Manager.View can tell when a caller replaced or cleared it.
+	builtinDraw uintptr
+}
+
+func builtinTransition(t *Transition) *Transition {
+	t.builtinDraw = reflect.ValueOf(t.Draw).Pointer()
+	return t
+}
+
+// hostKind is how Manager.View renders t: transitionNone when Draw is nil (the incoming scene shows at once, as Manager.Draw draws only the new stack), transitionCustom when a caller replaced a constructor's Draw, and the constructor's kind otherwise.
+func (t *Transition) hostKind() transitionKind {
+	if t.Draw == nil {
+		return transitionNone
+	}
+	if t.kind != transitionCustom && reflect.ValueOf(t.Draw).Pointer() != t.builtinDraw {
+		return transitionCustom
+	}
+	return t.kind
 }
 
 // Fade returns a Transition lasting duration.
@@ -50,7 +69,7 @@ type Transition struct {
 // When color is non-transparent, it fades the old scene to color over the first half of duration and reveals the new scene from color over the second half.
 func Fade(duration time.Duration, color core.Color) *Transition {
 	if color == 0 || color == core.Transparent {
-		return &Transition{
+		return builtinTransition(&Transition{
 			Duration: duration,
 			kind:     transitionCrossfade,
 			Draw: func(d *core.Drawing, _ core.Size, progress float64, drawOld, drawNew func(*core.Drawing)) {
@@ -68,9 +87,9 @@ func Fade(duration time.Duration, color core.Color) *Transition {
 					d.Restore()
 				}
 			},
-		}
+		})
 	}
-	return &Transition{
+	return builtinTransition(&Transition{
 		Duration:  duration,
 		kind:      transitionFadeColor,
 		fadeColor: color,
@@ -100,7 +119,7 @@ func Fade(duration time.Duration, color core.Color) *Transition {
 				d.Restore()
 			}
 		},
-	}
+	})
 }
 
 // Crossfade returns a Transition that crossfades directly from the old scene to the new scene over duration.
@@ -110,7 +129,7 @@ func Crossfade(duration time.Duration) *Transition {
 
 // Wipe returns a Transition that clips the old and new scenes along an axis-aligned dividing edge moving in dir over duration.
 func Wipe(duration time.Duration, dir Direction) *Transition {
-	return &Transition{
+	return builtinTransition(&Transition{
 		Duration: duration,
 		kind:     transitionWipe,
 		wipeDir:  dir,
@@ -166,7 +185,7 @@ func Wipe(duration time.Duration, dir Direction) *Transition {
 				d.Restore()
 			}
 		},
-	}
+	})
 }
 
 // CustomTransition returns a Transition driven over duration with a caller-supplied draw function.
