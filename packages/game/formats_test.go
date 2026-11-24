@@ -262,7 +262,7 @@ func readInputBindings(t *testing.T, data []byte) error {
 }
 
 // exampleTunables are the tunables the debug example sets, registered as a game registers its own, since LoadTunables skips a name nothing registered.
-var exampleTunables = []string{"cheat.god", "player.lives", "player.speed"}
+var exampleTunables = []string{"cheat.god", "level.name", "player.lives", "player.speed"}
 
 func readTunables(t *testing.T, data []byte) error {
 	var names map[string]json.RawMessage
@@ -282,9 +282,11 @@ func readTunables(t *testing.T, data []byte) error {
 	var speed float64
 	var lives int
 	var god bool
+	var level string
 	c.RegisterFloat("player.speed", 0, 10, &speed)
 	c.RegisterInt("player.lives", 1, 9, &lives)
 	c.RegisterBool("cheat.god", &god)
+	c.RegisterString("level.name", &level)
 	return c.LoadTunables(st, "")
 }
 

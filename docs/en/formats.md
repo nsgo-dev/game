@@ -1263,10 +1263,10 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 | A key in `core.Storage`, `debug.console.tunables` by default | none | `debug.Console.SaveTunables`, `debug.Console.LoadTunables` | An object of each tunable's name and value |
 
 ```json
-{"cheat.god":false,"player.lives":3,"player.speed":1.5}
+{"cheat.god":false,"level.name":"cave_1","player.lives":3,"player.speed":1.5}
 ```
 
-The names are those the game registered with `RegisterFloat`, `RegisterInt` and `RegisterBool`; `LoadTunables` skips a name nothing registered and refuses a value outside its range.
+The names are those the game registered with `RegisterFloat`, `RegisterInt`, `RegisterBool` and `RegisterString`; `LoadTunables` skips a name nothing registered, refuses a value outside its range or of the wrong JSON type, and applies none of the values when it refuses one.
 
 <!-- format: tooling/devstate -->
 ### Dev session snapshot
