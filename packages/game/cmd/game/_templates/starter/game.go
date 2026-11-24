@@ -11,6 +11,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 // Root is the game's root NSGo component: a full-screen Canvas driven by a
 // fixed-step game.Loop, with a native HUD layered on top.
 func Root(cx *core.Scope) core.Node {
+	desktop.SetTitle(cx, Project.Title())
 	score := core.NewSignal(cx, 0)
 	frame := core.NewSignal(cx, uint64(0))
 	g := newStarterGame(score)
