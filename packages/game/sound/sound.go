@@ -33,6 +33,8 @@ type Mixer struct {
 	effects map[string]EffectChain
 	// defaults are the volumes, by storage key, that SetDefaultMaster and SetDefaultVolume give keys the storage keeps none for.
 	defaults map[string]float32
+	// listener3D is the active 3D listener used by Effect.Play3D and Cue.Play3D; SetListener3D refreshes live Playback3D volumes.
+	listener3D Listener3D
 }
 
 // NewMixer returns a mixer that keeps its volumes in cx's storage under keys starting with key, such as "sound", and lives as long as cx.
@@ -182,7 +184,7 @@ func (m *Mixer) apply() {
 		}
 		g := m.gain(s.Group)
 		for _, p := range s.live {
-			p.playback.SetVolume(p.volume * g)
+			p.playback.SetVolume(p.effectiveVolume(g))
 		}
 	}
 	for _, mu := range m.music {
@@ -203,9 +205,18 @@ type Effect struct {
 }
 
 // playback is a playback of an effect and its voice's own volume, which the mixer's volumes scale.
+// When spatial is non-nil, the playback is tracked in 3D and spatial.spatial.Gain further scales its volume.
 type playback struct {
 	playback *audio.Playback
 	volume   float32
+	spatial  *Playback3D
+}
+
+func (p playback) effectiveVolume(groupGain float32) float32 {
+	if p.spatial != nil {
+		return p.volume * p.spatial.spatial.Gain * groupGain
+	}
+	return p.volume * groupGain
 }
 
 // Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.

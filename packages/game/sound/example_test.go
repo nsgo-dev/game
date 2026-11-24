@@ -112,3 +112,22 @@ func ExampleMusic() {
 	// Pausing the game fades the music out.
 	music.Stop(500 * time.Millisecond)
 }
+
+// Listener3D spatializes 3D positions in right-handed Y-up space (+X right, +Y up, -Z forward):
+// sounds behind the camera play quieter than equidistant sounds in front while staying panned to their side.
+func ExampleListener3D() {
+	l := sound.Listener3D{
+		Position: sound.V3(0, 0, 0),
+		Forward:  sound.V3(0, 0, -1),
+		Up:       sound.V3(0, 1, 0),
+		Near:     2,
+		Far:      22,
+	}
+	frontLeft := l.Spatialize(sound.V3(-6, 0, -6), sound.Spatial3DOptions{})
+	behindLeft := l.Spatialize(sound.V3(-6, 0, 6), sound.Spatial3DOptions{})
+	fmt.Printf("front-left: gain=%.2f pan=%.2f\n", frontLeft.Gain, frontLeft.Pan)
+	fmt.Printf("behind-left: gain=%.2f pan=%.2f\n", behindLeft.Gain, behindLeft.Pan)
+	// Output:
+	// front-left: gain=0.68 pan=-0.71
+	// behind-left: gain=0.53 pan=-0.71
+}

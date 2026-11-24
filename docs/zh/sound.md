@@ -87,7 +87,7 @@ hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
 ```
 
 - `Position` 和 `Rotation` 跟随摄像机，例如取 `tilemap.Camera` 的 `X`、`Y` 和 `Rotation`，这样摄像机旋转时左右仍按画面来算。距离以世界单位计，不受摄像机缩放影响。
-- `Gain(pos)` 在 `Near` 以内为 `1`，在 `Far` 及更远处为 `0`，两者之间按 `Rolloff` 衰减：`RolloffLinear`（默认）为直线下降，`RolloffInverse` 按 `Near / 距离` 下降并重新缩放，使其在 `Far` 处恰好为 `0`。`Far` 不大于 `Near`、为无穷大或 `NaN` 时关闭距离衰减。
+- `Gain(pos)` 在 `Near` 以内为 `1`，在 `Far` 及更远处为 `0`，两者之间按 `Rolloff` 衰减：`RolloffLinear`（默认）为直线下降，`RolloffInverse` 按 `Near / 距离` 下降并重新缩放使其在 `Far` 处恰好为 `0`，`RolloffExponential` 按 `(Near / 距离)^2` 下降并重新缩放使其在 `Far` 处为 `0`。`Far` 不大于 `Near`、为无穷大或 `NaN` 时关闭距离衰减。
 - `Pan(pos)` 是音效在画面横向上的偏移除以 `PanWidth`，限制在 `[-1, 1]`；`PanWidth` 为 `0` 时取 `Far`。正上方或正下方的音效居中播放。
 - `PlayAt(l, pos, v)` 以 `v.Volume * l.Gain(pos)` 播放，再像 `Play` 一样乘上分组音量和主音量，并用 `l.Pan(pos)` 替换 `v.Pan`。超出 `Far` 时返回 `false`、不播放，因此听不到的音效不会占用发声数，也不计入 `Limit`。
 - `Cue.PlayAt(l, pos)` 像 `Play` 一样选出 cue 的下一个变体，并以该变体的音量和音高通过其音效的 `PlayAt` 播放，因此随机化的脚步声、击打声也能定位。
@@ -95,6 +95,36 @@ hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
 - 摄像机旋转只影响声像，距离不受其影响；`Rotation` 为无穷大或 `NaN` 时按 `0` 处理。
 
 声像和音量在播放开始时就已确定，因为 NSGo 的 `audio.Playback` 播放后无法再修改声像。它适合短音效；跟随移动声源的长音需要重新播放。
+
+## 3D 定位音效
+
+`Listener3D` 在右手 Y 轴朝上的 3D 世界（`+X` 向右、`+Y` 向上、`-Z` 向前，与 `math3d` 和 `scene3d.Camera` 一致）中收听音效。`sound.Vec3` 与 `math3d.Vec3` 具有完全相同的字段布局，因此可以直接用 `sound.Vec3(...)` 转换摄像机向量：
+
+```go
+listener := sound.Listener3D{
+	Position: sound.Vec3(cam.Pos),
+	Forward:  sound.Vec3(cam.Forward()),
+	Up:       sound.Vec3(cam.Up()),
+	Near:     2,
+	Far:      40,
+	Rolloff:  sound.RolloffInverse,
+}
+mixer.SetListener3D(listener)
+
+// 一次性 3D 音效（对应 Effect.PlayAt）：
+hit.PlayAt3D(listener, sound.Vec3(enemyPos), audio.Voice{Volume: 0.9})
+
+// 跟随摄像机与声源移动的实时 3D 播放：
+engine := loopSFX.Play3D(sound.Vec3(shipPos), audio.Voice{Loop: true}, sound.Spatial3DOptions{})
+engine.SetPosition(sound.Vec3(nextShipPos))
+```
+
+- **距离衰减**：`Gain(pos)` 在 `Near` 以内为 `1`，在 `Far` 及更远处为 `0`，两者之间按 `Rolloff`（`RolloffLinear`、`RolloffInverse` 或 `RolloffExponential`，可通过 `RolloffFactor` 调整陡峭度）衰减。`Far` 不大于 `Near`、为无穷大或 `NaN` 时关闭距离衰减。
+- **后方头影衰减**：位于听者后方（`dot(dir, forward) < 0`）的声源从侧面平面的 `1` 线性衰减到正后方的 `RearGain`（`RearGain` 为零、负数或 `NaN` 时默认使用 `DefaultRearGain` 即 `0.7`；设为 `1` 可关闭）。因此摄像机身后的音效比前方等距音效更轻，同时仍准确偏向其所在左右声道。
+- **立体声声像**：`Pan(pos)` 将听者指向声源的单位方向投影到听者右轴（`dot(dir, right)`），限制在 `[-1, 1]`。位于听者原点、正前、正后、正上、正下或含 `NaN` 坐标的声源居中（`0`）播放。设置正有限值 `PanWidth` 可改用类似 `Listener2D` 的横向偏移线性声像。
+- **定向声源锥与单声源覆盖**：将 `Spatial3DOptions` 传入 `Listener3D.Spatialize`、`Spatialize3D`、`Listener3D.VoiceWithOptions`、`Effect.Play3D` 或 `Cue.Play3D`，可配置定向发射锥（`SourceForward`、`InnerConeAngle`、`OuterConeAngle`、`OuterGain`）或覆盖单个声源的 `Near`/`Far`/`Rolloff`/`RolloffFactor`。
+- **实时 `Playback3D` 跟踪**：`Mixer.SetListener3D(l)` 会刷新所有通过 `Effect.Play3D` 或 `Cue.Play3D` 启动的活跃 `Playback3D`，`Playback3D.SetPosition` / `SetOptions` 会刷新单个声源。距离、后方头影与定向声源锥衰减都会通过 `audio.Playback.SetVolume` 实时更新，同时完整遵循主音量、分组音量、`SetPaused`、`SetPauseExempt`、`Suspend` 与后台静音。由于 NSGo 的 `audio.Playback` 在起播后无法修改立体声声像，`Playback3D.Pan()` 记录最新计算的声像，底层播放保持起播时的声像。
+- **姿态辅助与 Cue**：`Listener3D.SetPose(pos, forward, up)` 和 `Listener3D.LookAt(target, up)` 在保留衰减参数的前提下更新姿态；`Cue.PlayAt3D` 和 `Cue.Play3D` 可在 3D 空间中播放随机化音效变体。
 
 ## Music 与交叉淡化
 

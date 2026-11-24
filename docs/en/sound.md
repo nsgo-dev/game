@@ -87,7 +87,7 @@ hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
 ```
 
 - `Position` and `Rotation` follow the camera, such as `tilemap.Camera`'s `X`, `Y` and `Rotation`, so left and right are the view's even when the camera turns. Distances are in world units; the camera's zoom does not change them.
-- `Gain(pos)` is `1` within `Near`, `0` at `Far` and beyond, and falls between them by `Rolloff`: `RolloffLinear` (the default) in a straight line, `RolloffInverse` as `Near / distance` rescaled to reach `0` at `Far`. A `Far` that is not greater than `Near`, infinite or `NaN` turns attenuation off.
+- `Gain(pos)` is `1` within `Near`, `0` at `Far` and beyond, and falls between them by `Rolloff`: `RolloffLinear` (the default) in a straight line, `RolloffInverse` as `Near / distance` rescaled to reach `0` at `Far`, and `RolloffExponential` as `(Near / distance)^2` rescaled to reach `0` at `Far`. A `Far` that is not greater than `Near`, infinite or `NaN` turns attenuation off.
 - `Pan(pos)` is the effect's offset across the view divided by `PanWidth`, clamped to `[-1, 1]`; a `PanWidth` of `0` takes `Far`. An effect straight above or below the camera plays centered.
 - `PlayAt(l, pos, v)` plays with `v.Volume * l.Gain(pos)`, then the group and master volumes as `Play` does, and `v.Pan` replaced by `l.Pan(pos)`. It returns `false` and plays nothing beyond `Far`, so silent effects never take a voice or count against `Limit`.
 - `Cue.PlayAt(l, pos)` picks the cue's next variant as `Play` does and plays it through its effect's `PlayAt`, at the variant's volume and pitch, so randomized footsteps and hits can be placed too.
@@ -95,6 +95,36 @@ hit.PlayAt(listener, math2d.V2(enemy.X, enemy.Y), audio.Voice{Volume: 0.9})
 - The camera's rotation only turns the pan; distance ignores it, and an infinite or `NaN` `Rotation` counts as `0`.
 
 The pan and volume are fixed when the playback starts, because NSGo's `audio.Playback` cannot change its pan once playing. Suit it to short effects; a long sound that follows a moving source would need to be replayed.
+
+## Positional effects in 3D
+
+`Listener3D` hears effects placed in a right-handed Y-up 3D world (`+X` right, `+Y` up, `-Z` forward — matching `math3d` and `scene3d.Camera`). Because `sound.Vec3` shares the exact field layout of `math3d.Vec3`, convert camera vectors directly with `sound.Vec3(...)`:
+
+```go
+listener := sound.Listener3D{
+	Position: sound.Vec3(cam.Pos),
+	Forward:  sound.Vec3(cam.Forward()),
+	Up:       sound.Vec3(cam.Up()),
+	Near:     2,
+	Far:      40,
+	Rolloff:  sound.RolloffInverse,
+}
+mixer.SetListener3D(listener)
+
+// Fire-and-forget 3D effect (mirrors Effect.PlayAt):
+hit.PlayAt3D(listener, sound.Vec3(enemyPos), audio.Voice{Volume: 0.9})
+
+// Live 3D playback that tracks camera and source motion:
+engine := loopSFX.Play3D(sound.Vec3(shipPos), audio.Voice{Loop: true}, sound.Spatial3DOptions{})
+engine.SetPosition(sound.Vec3(nextShipPos))
+```
+
+- **Distance attenuation**: `Gain(pos)` is `1` within `Near`, `0` at `Far` and beyond, and falls between them by `Rolloff` (`RolloffLinear`, `RolloffInverse`, or `RolloffExponential`, shaped by optional `RolloffFactor`). A `Far` not greater than `Near`, infinite, or `NaN` turns distance attenuation off.
+- **Rear head-shadow attenuation**: sounds behind the listener (`dot(dir, forward) < 0`) interpolate linearly from `1` at the lateral plane down to `RearGain` directly behind (`DefaultRearGain`, `0.7`, when `RearGain` is zero, negative, or `NaN`; set `RearGain: 1` to disable). An effect behind the camera is therefore quieter than an equidistant effect in front while remaining panned to its left or right side.
+- **Stereo pan**: `Pan(pos)` projects the unit direction from the listener to the source onto the listener's right axis (`dot(dir, right)`), clamped to `[-1, 1]`. Sounds at the listener, directly ahead, directly behind, directly overhead/underfoot, or with `NaN` coordinates play centered (`0`). Set a positive finite `PanWidth` to use linear lateral-offset panning like `Listener2D`.
+- **Directional source cones & overrides**: pass `Spatial3DOptions` to `Listener3D.Spatialize`, `Spatialize3D`, `Listener3D.VoiceWithOptions`, `Effect.Play3D`, or `Cue.Play3D` to add a directional emission cone (`SourceForward`, `InnerConeAngle`, `OuterConeAngle`, `OuterGain`) or per-source `Near`/`Far`/`Rolloff`/`RolloffFactor` overrides.
+- **Live `Playback3D` tracking**: `Mixer.SetListener3D(l)` refreshes every active `Playback3D` started by `Effect.Play3D` or `Cue.Play3D`, and `Playback3D.SetPosition` / `SetOptions` refresh a single source. Live distance, rear, and source-cone attenuation update immediately through `audio.Playback.SetVolume` while honoring master/group volumes, `SetPaused`, `SetPauseExempt`, `Suspend`, and background muting. Because NSGo's `audio.Playback` cannot change stereo pan after starting, `Playback3D.Pan()` tracks the latest computed pan while the backend playback keeps its initial pan.
+- **Pose helpers & cues**: `Listener3D.SetPose(pos, forward, up)` and `Listener3D.LookAt(target, up)` update orientation without altering attenuation settings. `Cue.PlayAt3D` and `Cue.Play3D` position randomized sound cues in 3D.
 
 ## Music and crossfades
 
