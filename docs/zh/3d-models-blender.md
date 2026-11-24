@@ -254,6 +254,16 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 - `EvaluateMorphTangents` 混合切线的 `XYZ` 增量并重新归一化，同时原样保留 `W` 手性符号，与 `EvaluateMorphPositions` 和 `EvaluateMorphNormals` 配套。
 - 如需在 NSGo `gpu.View` 中绘制带动画的变形网格，可将基础图元与变形目标上传到 `render3d.GPUMorphMesh`（见 [`render3d`](render3d.md#变形目标网格morphmeshgpumorphmesh)）。测试套件使用 Khronos `AnimatedMorphCube` 示例模型验证了完整动画播放与像素回读。
 
+## PBR 材质扩展：自发光强度、清漆层与透射
+
+`game/gltf` 解析并校验三项 Khronos PBR 材质扩展（无论列在 `extensionsUsed` 还是 `extensionsRequired` 中），Blender 的 `Principled BSDF` 均可直接导出：
+
+- **`KHR_materials_emissive_strength`**（Blender *Emission Strength*）：加载到 `Material.EmissiveStrength`（默认 `1.0`，须为有限值且 `>= 0`）。`Material.EffectiveEmissive()` 返回 `EmissiveFactor * EmissiveStrength`。
+- **`KHR_materials_clearcoat`**（Blender *Coat Weight*、*Coat Roughness*、*Coat Normal*）：加载到 `Material.Clearcoat`（`*Clearcoat`，未使用该扩展时为 `nil`），包含 `Factor`（`[0, 1]`）、`RoughnessFactor`（`[0, 1]`）、`Texture`（R 通道）、`RoughnessTexture`（G 通道）与 `NormalTexture`（`Scale` 默认 `1.0`），三个贴图槽位均支持 `KHR_texture_transform`。
+- **`KHR_materials_transmission`**（Blender *Transmission Weight*）：加载到 `Material.Transmission`（`*Transmission`，未使用该扩展时为 `nil`），包含 `Factor`（`[0, 1]`）与 `Texture`（R 通道，支持 `KHR_texture_transform`）。
+
+格式错误的扩展载荷（非 JSON 对象、负值 `emissiveStrength`、越界系数或无效贴图索引/变换）会在 `gltf.Load` 时直接失败，并返回指向 `materials[i]` 的 `*loaderr.Error`。使用 `render3d.PBRMaterialExtFromGLTF` 与 `render3d.ExtendedPBRRenderer` 可直接将解析后的材质送入 GPU 渲染（见 [`render3d`](render3d.md#扩展-pbr-材质自发光强度清漆层与透射)）。
+
 ## 往返校验示例模型
 
 [占位素材包](placeholder.md)在 [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。

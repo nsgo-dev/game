@@ -305,7 +305,8 @@ func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
 		case "KHR_materials_unlit", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
-			extDraco, extMeshoptEXT, extMeshoptKHR:
+			extDraco, extMeshoptEXT, extMeshoptKHR,
+			extMaterialsEmissiveStrength, extMaterialsClearcoat, extMaterialsTransmission:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
 			return nil, jsonData, loaderr.Errorf(loaderr.Path("extensionsRequired", i), "export the model without this extension, such as without Basis Universal (KHR_texture_basisu) texture compression", "required extension %q is not supported", ext)
@@ -809,16 +810,17 @@ func (d *Document) loadMaterials(raws []rawMaterial) (err error) {
 	for i, rm := range raws {
 		at = i
 		mat := Material{
-			Name:            rm.Name,
-			BaseColorFactor: math3d.Vec4One(),
-			MetallicFactor:  1,
-			RoughnessFactor: 1,
-			EmissiveFactor:  math3d.Vec3Zero(),
-			AlphaMode:       AlphaOpaque,
-			AlphaCutoff:     0.5,
-			DoubleSided:     rm.DoubleSided,
-			Extras:          cloneRawMessage(rm.Extras),
-			Extensions:      cloneExtensions(rm.Extensions),
+			Name:             rm.Name,
+			BaseColorFactor:  math3d.Vec4One(),
+			MetallicFactor:   1,
+			RoughnessFactor:  1,
+			EmissiveFactor:   math3d.Vec3Zero(),
+			EmissiveStrength: 1,
+			AlphaMode:        AlphaOpaque,
+			AlphaCutoff:      0.5,
+			DoubleSided:      rm.DoubleSided,
+			Extras:           cloneRawMessage(rm.Extras),
+			Extensions:       cloneExtensions(rm.Extensions),
 		}
 		if rm.AlphaMode != "" {
 			switch AlphaMode(rm.AlphaMode) {
@@ -867,6 +869,9 @@ func (d *Document) loadMaterials(raws []rawMaterial) (err error) {
 		}
 		if _, ok := rm.Extensions["KHR_materials_unlit"]; ok {
 			mat.Unlit = true
+		}
+		if err := d.parseMaterialExtensions(&mat, i, rm.Extensions); err != nil {
+			return err
 		}
 		d.Materials[i] = mat
 	}

@@ -327,3 +327,30 @@ _, _, err := materials.Register("crystal", "materials/crystal.material.yaml", bu
 - **纯文本材质格式（`MaterialDef`）**：带版本号的 YAML 文档（`version: 1`，拒绝未知字段，经由 `ParseMaterial` / `EncodeMaterial` 确定性往返），可声明 `shader`（或拆分的 `vertexShader` / `fragmentShader`）、入口函数（`vertexEntry`、`fragmentEntry`）、GPU 渲染状态（`blend`、`cull`、`frontFace`、`depthWrite`、`depthCompare`，通过 `ApplyToPipelineDesc` 应用）以及带类型的参数（`scalars`、`vec2`、`vec3`、`vec4`、`colors`、`textures`）。若使用共享 2D/PBR `resource.Material` 文件（`type: material`），可继续使用 `w.WatchResources`（见 [resource](resources.md#编辑时重载)）。
 - **直接监视着色器**：不使用材质 YAML 的独立管线可调用 `ShaderReloader.RegisterPipeline` 配合 `w.WatchShaders(shaders)`，单文件 `.wgsl` 或 `.kage` 可调用 `w.WatchShader(relPath, onReload)`。
 - **发布构建**：在 `-tags release` 下，`NewDevWatcher` 返回 nil，`WatchShader`、`WatchShaders` 与 `WatchMaterials` 编译为空操作，而 `ShaderReloader` 与 `MaterialReloader` 仍正常服务初始加载。
+
+## 扩展 PBR 材质：自发光强度、清漆层与透射
+
+`ExtendedPBRRenderer` 在 NSGo 的 `gpu.Device` 上实现了 Khronos glTF 2.0 金属-粗糙度 PBR 以及 `KHR_materials_emissive_strength`、`KHR_materials_clearcoat` 和 `KHR_materials_transmission` 扩展，并与 `render3d` 的其余部分共用 `CameraGroup`（第 0 组）和 `MeshVertexLayout()`：
+
+```go
+renderer, err := render3d.NewExtendedPBRRenderer(cx, dev, camBuf.Layout(), render3d.ExtendedPBRRendererOptions{
+	ColorFormat: dev.SurfaceFormat(),
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+
+mat := render3d.PBRMaterialExtFromGLTF(doc.Materials[prim.Material])
+mat.BaseColorTexture = baseColorTex
+mat.ClearcoatTexture = coatTex
+mat.TransmissionBackground = opaquePassTarget.Color // 来自第一遍不透明渲染目标，用于透射材质
+
+gpuMat, err := renderer.CreateMaterial(cx, mat)
+light := render3d.DefaultPBRExtLighting(width, height) // 默认启用 ACES Filmic 色调映射
+renderer.SetScene(worldMatrix, light)
+renderer.Draw(pass, camBuf, gpuMat, gpuMesh)
+```
+
+- **HDR 自发光强度（`KHR_materials_emissive_strength`）**：在线性 HDR 光照空间中将 `EmissiveFactor * EmissiveTexture` 乘以 `EmissiveStrength`（`>= 0`，默认 `1.0`）。配合 `gpu.FormatRGBA16Float` 与 `PBRToneMapNone` 可保留无上限 HDR 辐射度（`> 1.0`）供后处理/泛光使用；直接渲染到 8 位目标时可选用 `PBRToneMapACES` 或 `PBRToneMapReinhard`。
+- **双瓣清漆层（`KHR_materials_clearcoat`）**：在基础 PBR 表面之上叠加折射率 1.5（`F0 = 0.04`）的 GGX 绝缘清漆层，由 `ClearcoatFactor`、`ClearcoatRoughnessFactor` 以及可选的 `ClearcoatTexture`（R 通道）、`ClearcoatRoughnessTexture`（G 通道）和 `ClearcoatNormalTexture`（`ClearcoatNormalScale`）控制，并按 `1 - clearcoat * F_coat` 对底层执行菲涅尔能量守恒衰减。
+- **光学透射（`KHR_materials_transmission`）**：按 `TransmissionFactor`（及可选 `TransmissionTexture` 的 R 通道）将绝缘体漫反射项与经 `BaseColorFactor` 着色的 `TransmissionBackground` 混合，结合受粗糙度调制的 5 采样屏幕空间滤波（`TransmissionBlur`），同时完整保留基础层与清漆层的镜面高光。标准两遍流程为：第一遍将不透明背景绘制到 `gpu.RenderTarget`，第二遍把 `target.Color` 传入 `TransmissionBackground` 绘制透射网格。
+- **多物体单遍绘制与 CPU 参考求值**：在同一渲染遍内绘制多个不同变换的物体时，使用 `ExtendedPBRRenderer.CreateScene` 与 `DrawWithScene`。`EvaluatePBRMaterialExt` 在 CPU 上执行完全一致的 Khronos 公式，可用于工具检查与参考测试。

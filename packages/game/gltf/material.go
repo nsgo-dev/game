@@ -176,7 +176,10 @@ type Material struct {
 	AlphaMode                AlphaMode
 	AlphaCutoff              float32
 	DoubleSided              bool
-	Unlit                    bool // KHR_materials_unlit
+	Unlit                    bool          // KHR_materials_unlit
+	EmissiveStrength         float32       // KHR_materials_emissive_strength (default 1, >= 0)
+	Clearcoat                *Clearcoat    // KHR_materials_clearcoat
+	Transmission             *Transmission // KHR_materials_transmission
 	Extras                   json.RawMessage
 	// Extensions keeps unsupported optional extension payloads by name.
 	Extensions map[string]json.RawMessage

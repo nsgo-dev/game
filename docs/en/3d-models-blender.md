@@ -254,6 +254,16 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 - `EvaluateMorphTangents` blends tangent `XYZ` displacements, renormalizes `XYZ`, and preserves `W` handedness unchanged, complementing `EvaluateMorphPositions` and `EvaluateMorphNormals`.
 - To draw an animated morph mesh in an NSGo `gpu.View`, upload the base primitive and targets into `render3d.GPUMorphMesh` (see [`render3d`](render3d.md#morph-target-meshes-morphmesh-gpumorphmesh)). The test suite verifies full animation playback and pixel readback against the Khronos `AnimatedMorphCube` sample model.
 
+## PBR material extensions: emissive strength, clearcoat, and transmission
+
+`game/gltf` parses and validates three Khronos PBR material extensions (whether listed in `extensionsUsed` or `extensionsRequired`), all of which Blender's `Principled BSDF` exports natively:
+
+- **`KHR_materials_emissive_strength`** (Blender *Emission Strength*): loads into `Material.EmissiveStrength` (default `1.0`, must be finite and `>= 0`). `Material.EffectiveEmissive()` returns `EmissiveFactor * EmissiveStrength`.
+- **`KHR_materials_clearcoat`** (Blender *Coat Weight*, *Coat Roughness*, *Coat Normal*): loads into `Material.Clearcoat` (`*Clearcoat`, `nil` when absent) with `Factor` (`[0, 1]`), `RoughnessFactor` (`[0, 1]`), `Texture` (R channel), `RoughnessTexture` (G channel), and `NormalTexture` (`Scale` defaulting to `1.0`). All three texture slots support `KHR_texture_transform`.
+- **`KHR_materials_transmission`** (Blender *Transmission Weight*): loads into `Material.Transmission` (`*Transmission`, `nil` when absent) with `Factor` (`[0, 1]`) and `Texture` (R channel, supporting `KHR_texture_transform`).
+
+Malformed payloads (non-objects, negative `emissiveStrength`, out-of-range factors, or invalid texture indices/transforms) fail at `gltf.Load` with `*loaderr.Error` pointing at `materials[i]`. Convert loaded materials directly for GPU rendering with `render3d.PBRMaterialExtFromGLTF` and `render3d.ExtendedPBRRenderer` (see [`render3d`](render3d.md#extended-pbr-materials-emissive-strength-clearcoat-and-transmission)).
+
 ## Round-trip sample models
 
 The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/), generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.

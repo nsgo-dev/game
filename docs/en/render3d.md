@@ -327,3 +327,30 @@ Every reload compiles a candidate `*gpu.ShaderModule` and builds a candidate `*g
 - **Text material format (`MaterialDef`)**: a versioned YAML document (`version: 1`, refusing unknown fields and round-tripping deterministically via `ParseMaterial` / `EncodeMaterial`) declaring `shader` (or split `vertexShader` / `fragmentShader`), entry points (`vertexEntry`, `fragmentEntry`), GPU render state (`blend`, `cull`, `frontFace`, `depthWrite`, `depthCompare`, applied via `ApplyToPipelineDesc`), and typed uniform parameters (`scalars`, `vec2`, `vec3`, `vec4`, `colors`, `textures`). For shared 2D/PBR `resource.Material` files (`type: material`), use `w.WatchResources` ([resource](resources.md#reloading-on-edit)).
 - **Direct shader watching**: for standalone pipelines without material YAML, use `ShaderReloader.RegisterPipeline` with `w.WatchShaders(shaders)`, or `w.WatchShader(relPath, onReload)` for a single `.wgsl` or `.kage` file.
 - **Release builds**: under `-tags release`, `NewDevWatcher` returns nil and `WatchShader`, `WatchShaders`, and `WatchMaterials` compile to no-ops while `ShaderReloader` and `MaterialReloader` continue serving initial loads.
+
+## Extended PBR materials: emissive strength, clearcoat, and transmission
+
+`ExtendedPBRRenderer` implements Khronos glTF 2.0 metallic-roughness PBR together with `KHR_materials_emissive_strength`, `KHR_materials_clearcoat`, and `KHR_materials_transmission` on NSGo's `gpu.Device`, sharing `CameraGroup` (group 0) and `MeshVertexLayout()` with the rest of `render3d`:
+
+```go
+renderer, err := render3d.NewExtendedPBRRenderer(cx, dev, camBuf.Layout(), render3d.ExtendedPBRRendererOptions{
+	ColorFormat: dev.SurfaceFormat(),
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+
+mat := render3d.PBRMaterialExtFromGLTF(doc.Materials[prim.Material])
+mat.BaseColorTexture = baseColorTex
+mat.ClearcoatTexture = coatTex
+mat.TransmissionBackground = opaquePassTarget.Color // from pass 1 for transmissive meshes
+
+gpuMat, err := renderer.CreateMaterial(cx, mat)
+light := render3d.DefaultPBRExtLighting(width, height) // ACES Filmic tone mapping by default
+renderer.SetScene(worldMatrix, light)
+renderer.Draw(pass, camBuf, gpuMat, gpuMesh)
+```
+
+- **HDR emissive strength (`KHR_materials_emissive_strength`)**: multiplies `EmissiveFactor * EmissiveTexture` by `EmissiveStrength` (`>= 0`, default `1.0`) in linear HDR light. Render into `gpu.FormatRGBA16Float` with `PBRToneMapNone` to keep unbounded HDR radiance (`> 1.0`) for post-processing/bloom, or render directly to an 8-bit target with `PBRToneMapACES` or `PBRToneMapReinhard`.
+- **Dual-lobe clearcoat (`KHR_materials_clearcoat`)**: adds an IOR 1.5 (`F0 = 0.04`) GGX dielectric coating controlled by `ClearcoatFactor`, `ClearcoatRoughnessFactor`, and optional `ClearcoatTexture` (R channel), `ClearcoatRoughnessTexture` (G channel), and `ClearcoatNormalTexture` (`ClearcoatNormalScale`). The base PBR layer is attenuated by `1 - clearcoat * F_coat` for Fresnel energy conservation.
+- **Optical transmission (`KHR_materials_transmission`)**: blends the dielectric diffuse response toward `TransmissionBackground` tinted by `BaseColorFactor` according to `TransmissionFactor` (and optional `TransmissionTexture` R channel), with a roughness-controlled 5-tap screen-space filter (`TransmissionBlur`) while preserving base and clearcoat specular reflections. Draw opaque scene geometry into a `gpu.RenderTarget` in pass 1, then pass `target.Color` as `TransmissionBackground` in pass 2.
+- **Multi-object passes & CPU reference**: use `ExtendedPBRRenderer.CreateScene` + `DrawWithScene` when drawing multiple transforms in a single render pass. `EvaluatePBRMaterialExt` evaluates the exact same Khronos equations on the CPU for tools, diagnostics, and reference tests.
