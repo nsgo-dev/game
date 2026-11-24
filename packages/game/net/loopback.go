@@ -155,7 +155,7 @@ func (h *LoopbackHub) flushLocked() {
 	})
 	for _, item := range ready {
 		if dst, ok := h.peers[item.to]; ok && !dst.closed {
-			dst.inbox = append(dst.inbox, item.pkt)
+			dst.inbox.push(item.pkt)
 		}
 	}
 }
@@ -225,7 +225,7 @@ func (h *LoopbackHub) sendLocked(from *LoopbackTransport, to PeerID, ch Channel,
 		h.nextOrder++
 		if deliverAt <= h.now {
 			if dst, ok := h.peers[dstID]; ok && !dst.closed {
-				dst.inbox = append(dst.inbox, pkt)
+				dst.inbox.push(pkt)
 			}
 			continue
 		}
@@ -250,7 +250,7 @@ type LoopbackTransport struct {
 	localID PeerID
 	closed  bool
 	seq     map[seqKey]uint32
-	inbox   []Packet
+	inbox   packetQueue
 }
 
 // Send transmits payload to the target peer (or all other peers if to == PeerBroadcast).
@@ -264,13 +264,7 @@ func (t *LoopbackTransport) Send(to PeerID, ch Channel, payload []byte) error {
 func (t *LoopbackTransport) Recv() (Packet, bool) {
 	t.hub.mu.Lock()
 	defer t.hub.mu.Unlock()
-	if len(t.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := t.inbox[0]
-	copy(t.inbox, t.inbox[1:])
-	t.inbox = t.inbox[:len(t.inbox)-1]
-	return pkt, true
+	return t.inbox.pop()
 }
 
 // LocalID returns this endpoint's PeerID.

@@ -145,7 +145,7 @@ type RelayTransport struct {
 	epoch      uint32
 	members    []PeerID
 	peers      map[PeerID]*relayPeer
-	inbox      []Packet
+	inbox      packetQueue
 }
 
 // relayPeer is the end-to-end state for one remote peer.
@@ -274,12 +274,7 @@ func (rt *RelayTransport) Recv() (Packet, bool) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	rt.pumpLocked()
-	if len(rt.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := rt.inbox[0]
-	rt.inbox = slices.Delete(rt.inbox, 0, 1)
-	return pkt, true
+	return rt.inbox.pop()
 }
 
 // Close closes the inner transport.
@@ -366,7 +361,7 @@ func (rt *RelayTransport) ingestLocked(frame []byte, now time.Time) {
 		if len(body) < relayDataHeader {
 			return
 		}
-		rt.inbox = append(rt.inbox, Packet{From: from, Channel: ChannelUnreliable, Payload: slices.Clone(body[relayDataHeader:]), Seq: binary.BigEndian.Uint32(body[1:5])})
+		rt.inbox.push(Packet{From: from, Channel: ChannelUnreliable, Payload: slices.Clone(body[relayDataHeader:]), Seq: binary.BigEndian.Uint32(body[1:5])})
 	case relayBodyReliable:
 		if len(body) < relayDataHeader {
 			return
@@ -408,7 +403,7 @@ func (rt *RelayTransport) reliableLocked(from PeerID, p *relayPeer, seq uint32, 
 		}
 		return
 	}
-	rt.inbox = append(rt.inbox, Packet{From: from, Channel: ChannelReliableOrdered, Payload: slices.Clone(payload), Seq: seq})
+	rt.inbox.push(Packet{From: from, Channel: ChannelReliableOrdered, Payload: slices.Clone(payload), Seq: seq})
 	p.recvNext++
 	for {
 		next, ok := p.ooo[p.recvNext]
@@ -417,7 +412,7 @@ func (rt *RelayTransport) reliableLocked(from PeerID, p *relayPeer, seq uint32, 
 		}
 		delete(p.ooo, p.recvNext)
 		p.oooBytes -= len(next)
-		rt.inbox = append(rt.inbox, Packet{From: from, Channel: ChannelReliableOrdered, Payload: next, Seq: p.recvNext})
+		rt.inbox.push(Packet{From: from, Channel: ChannelReliableOrdered, Payload: next, Seq: p.recvNext})
 		p.recvNext++
 	}
 }

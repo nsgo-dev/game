@@ -4,6 +4,7 @@ package net
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/tls"
@@ -29,6 +30,19 @@ const (
 	wsDialTimeout      = 10 * time.Second
 	wsHandshakeTimeout = 10 * time.Second
 
+	// wsEagerAlloc is the largest payload readWSFrame allocates before its bytes arrive. A larger payload grows with the bytes actually received, so a peer that announces a 4 MiB frame and then trickles it (a slow-loris attack) holds memory only for what it has sent (#546).
+	wsEagerAlloc = 64 << 10
+	// wsMaxHelloFrame bounds the first frame a server reads from a client, which is the hello: its header and a token of at most MaxTokenSize bytes.
+	wsMaxHelloFrame = hsHelloHeader + MaxTokenSize
+	// wsMaxReplyFrame bounds the welcome or reject a client reads in the handshake.
+	wsMaxReplyFrame = 1 << 10
+
+	// wsMinIdle is the shortest Auth.IdleTimeout a WebSocket server uses, as for UDP.
+	wsMinIdle = 3 * time.Second
+	// wsClientPing is how often a native client pings the server, and wsClientIdle how long it waits for any frame before it counts the server as gone. Pinging much more often than the idle timeout keeps a healthy connection alive whatever interval the server pings at.
+	wsClientPing = 2 * time.Second
+	wsClientIdle = 10 * time.Second
+
 	wsOpContinuation = 0x0
 	wsOpText         = 0x1
 	wsOpBinary       = 0x2
@@ -36,6 +50,24 @@ const (
 	wsOpPing         = 0x9
 	wsOpPong         = 0xA
 )
+
+// readWSPayload reads exactly n payload bytes. Up to wsEagerAlloc it allocates them at once; past that the buffer grows as bytes arrive instead of trusting the length the peer announced.
+func readWSPayload(r io.Reader, n uint64) ([]byte, error) {
+	if n <= wsEagerAlloc {
+		buf := make([]byte, n)
+		_, err := io.ReadFull(r, buf)
+		return buf, err
+	}
+	var buf bytes.Buffer
+	buf.Grow(wsEagerAlloc)
+	if _, err := io.CopyN(&buf, r, int64(n)); err != nil {
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
 func wsAcceptKey(key string) string {
 	h := sha1.New()
@@ -104,7 +136,52 @@ func writeWSFrame(w io.Writer, opcode byte, masked bool, payload []byte) error {
 	return nil
 }
 
+// wsKeepAlive is how often a WebSocket endpoint pings its peer, and how long it waits for any frame, a pong included, before it counts the connection as dropped. Without it a peer whose network vanished without a FIN or RST, a half-open connection, would keep its session forever (#546).
+type wsKeepAlive struct {
+	ping time.Duration
+	idle time.Duration
+}
+
+// serverKeepAlive derives the server's keepalive from Auth.IdleTimeout: 10 seconds when zero, at least wsMinIdle, with a ping every third of it so a client that answers pings is never idle that long.
+func serverKeepAlive(auth Auth) wsKeepAlive {
+	idle := auth.IdleTimeout
+	if idle <= 0 {
+		idle = 10 * time.Second
+	}
+	idle = max(idle, wsMinIdle)
+	return wsKeepAlive{ping: idle / 3, idle: idle}
+}
+
+// clientKeepAlive is the native client's keepalive.
+var clientKeepAlive = wsKeepAlive{ping: wsClientPing, idle: wsClientIdle}
+
+// wsPingLoop pings the peer every ka.ping until stop closes. A ping that cannot be written closes the connection, so the read loop ends and reports the drop.
+func wsPingLoop(conn stdnet.Conn, writeMu *sync.Mutex, masked bool, every time.Duration, stop <-chan struct{}) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			writeMu.Lock()
+			err := writeWSFrameDeadline(conn, wsOpPing, masked, nil)
+			writeMu.Unlock()
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+	}
+}
+
+// readWSFrame reads one frame of at most maxWSMessageSize bytes.
 func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked bool, err error) {
+	return readWSFrameLimit(r, maxWSMessageSize)
+}
+
+// readWSFrameLimit reads one frame whose payload is at most limit bytes.
+func readWSFrameLimit(r *bufio.Reader, limit uint64) (fin bool, opcode byte, payload []byte, masked bool, err error) {
 	var hdr [2]byte
 	if _, err = io.ReadFull(r, hdr[:]); err != nil {
 		return false, 0, nil, false, err
@@ -129,7 +206,7 @@ func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked
 		plen = binary.BigEndian.Uint64(ext[:])
 	}
 
-	if plen > maxWSMessageSize {
+	if plen > limit {
 		return false, 0, nil, false, ErrPayloadTooLarge
 	}
 
@@ -140,15 +217,12 @@ func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked
 		}
 	}
 
-	payload = make([]byte, plen)
-	if plen > 0 {
-		if _, err = io.ReadFull(r, payload); err != nil {
-			return false, 0, nil, false, err
-		}
-		if masked {
-			for i := range payload {
-				payload[i] ^= maskKey[i&3]
-			}
+	if payload, err = readWSPayload(r, plen); err != nil {
+		return false, 0, nil, false, err
+	}
+	if masked {
+		for i := range payload {
+			payload[i] ^= maskKey[i&3]
 		}
 	}
 	return fin, opcode, payload, masked, nil
@@ -160,6 +234,7 @@ func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked
 type WebSocketTransport struct {
 	rawURL string
 	token  []byte
+	ka     wsKeepAlive
 
 	dialMu  sync.Mutex // serializes Reconnect
 	writeMu sync.Mutex
@@ -174,7 +249,7 @@ type WebSocketTransport struct {
 	err      error
 	resume   resumeState
 	resumed  bool
-	inbox    []Packet
+	inbox    packetQueue
 	changed  chan struct{}
 
 	// admissions counts handshakes that admitted the client as a new peer rather than resuming, so a RelayTransport can tell its relay session was lost even when the new ID equals the old one.
@@ -204,13 +279,20 @@ func webSocketHostPort(u *url.URL) (string, error) {
 }
 
 // DialWebSocket opens an RFC 6455 WebSocket connection to rawURL (ws:// or wss://), presents token in the connection handshake and returns a Transport ready for non-blocking Send/Recv once the server accepts it. The server assigns the client's ID, which LocalID reports. A refusal returns a *RejectError that matches ErrRejected.
+//
+// The client pings the server every 2 seconds and counts the connection as dropped, reporting ConnDisconnected, when no frame arrives for 10 seconds.
 func DialWebSocket(rawURL string, token []byte) (*WebSocketTransport, error) {
+	return dialWebSocket(rawURL, token, clientKeepAlive)
+}
+
+func dialWebSocket(rawURL string, token []byte, ka wsKeepAlive) (*WebSocketTransport, error) {
 	if len(token) > MaxTokenSize {
 		return nil, ErrTokenTooLarge
 	}
 	wt := &WebSocketTransport{
 		rawURL:  rawURL,
 		token:   slices.Clone(token),
+		ka:      ka,
 		changed: make(chan struct{}, 1),
 	}
 	if err := wt.connect(); err != nil {
@@ -275,7 +357,9 @@ func (wt *WebSocketTransport) connect() error {
 	wt.state = ConnOpen
 	wt.err = nil
 	wt.mu.Unlock()
-	go wt.readLoop(conn, br)
+	stop := make(chan struct{})
+	go wsPingLoop(conn, &wt.writeMu, true, wt.ka.ping, stop)
+	go wt.readLoop(conn, br, stop)
 	return nil
 }
 
@@ -299,7 +383,7 @@ func clientHandshake(conn stdnet.Conn, br *bufio.Reader, token []byte, res resum
 	if err := writeWSFrame(conn, wsOpBinary, true, encodeHello(h, 0)); err != nil {
 		return welcome{}, err
 	}
-	fin, op, payload, _, err := readWSFrame(br)
+	fin, op, payload, _, err := readWSFrameLimit(br, wsMaxReplyFrame)
 	if err != nil {
 		return welcome{}, fmt.Errorf("net: websocket handshake read: %w", err)
 	}
@@ -373,9 +457,10 @@ func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, error) {
 	return conn, br, nil
 }
 
-func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader) {
+func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop chan struct{}) {
 	cause := ErrDisconnected
 	defer func() {
+		close(stop)
 		wt.mu.Lock()
 		if wt.conn == conn {
 			wt.conn, wt.br = nil, nil
@@ -394,6 +479,8 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader) {
 	inFrag := false
 
 	for {
+		// Any frame, the server's pongs and pings included, proves the connection is alive.
+		_ = conn.SetReadDeadline(time.Now().Add(wt.ka.idle))
 		fin, op, payload, _, err := readWSFrame(br)
 		if err != nil {
 			cause = fmt.Errorf("%w: %w", ErrDisconnected, err)
@@ -451,7 +538,7 @@ func (wt *WebSocketTransport) deliverBinary(conn stdnet.Conn, frame []byte) {
 	copy(cp, payload)
 	wt.mu.Lock()
 	if wt.conn == conn && wt.state == ConnOpen {
-		wt.inbox = append(wt.inbox, Packet{
+		wt.inbox.push(Packet{
 			From:    wt.serverID,
 			Channel: ch,
 			Payload: cp,
@@ -499,13 +586,7 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
-	if len(wt.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := wt.inbox[0]
-	copy(wt.inbox, wt.inbox[1:])
-	wt.inbox = wt.inbox[:len(wt.inbox)-1]
-	return pkt, true
+	return wt.inbox.pop()
 }
 
 // LocalID returns the PeerID the server assigned this client.
@@ -589,21 +670,24 @@ type wsClientConn struct {
 // WebSocketServer accepts RFC 6455 WebSocket clients and exposes them through the standard Transport interface.
 //
 // Every client runs the connection handshake before its packets reach Recv: Auth.Verify checks its token, the server assigns its ID and tells the client, and NextEvent reports joins, drops, resumes and leaves.
+//
+// The server pings every client and reports PeerDropped for one that stays silent for Auth.IdleTimeout. Browsers answer pings on their own, so browser clients need no code for it.
 type WebSocketServer struct {
 	ln       stdnet.Listener
 	serverID PeerID
 	origins  []string
+	ka       wsKeepAlive
 
 	mu      sync.Mutex
 	table   *sessionTable
-	inbox   []Packet
+	inbox   packetQueue
 	closed  bool
 	changed chan struct{}
 }
 
 // ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr. serverID is the server's own PeerID (1 when zero); clients get the IDs after it. auth decides who may connect and how long a dropped client keeps its ID.
 func ListenWebSocket(addr string, serverID PeerID, auth Auth) (*WebSocketServer, error) {
-	return listenWebSocket(addr, serverID, auth, nil, nil)
+	return listenWebSocket(addr, serverID, auth, nil, nil, serverKeepAlive(auth))
 }
 
 // ListenWebSocketTLS starts the server with TLS, so a browser on an HTTPS page can connect with wss:// without a reverse proxy. auth is as for ListenWebSocket. allowedOrigins lists the browser Origins allowed to upgrade; empty allows any, "*" allows all, and an Origin outside the list is refused before the handshake.
@@ -611,7 +695,7 @@ func ListenWebSocketTLS(addr string, serverID PeerID, auth Auth, config *tls.Con
 	if config == nil {
 		return nil, errors.New("net: websocket TLS needs a tls.Config")
 	}
-	return listenWebSocket(addr, serverID, auth, config, allowedOrigins)
+	return listenWebSocket(addr, serverID, auth, config, allowedOrigins, serverKeepAlive(auth))
 }
 
 // ListenWebSocketTLSFiles is ListenWebSocketTLS with a certificate and key loaded from PEM files.
@@ -623,7 +707,7 @@ func ListenWebSocketTLSFiles(addr string, serverID PeerID, auth Auth, certFile, 
 	return ListenWebSocketTLS(addr, serverID, auth, &tls.Config{Certificates: []tls.Certificate{cert}}, allowedOrigins)
 }
 
-func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
+func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config, allowedOrigins []string, ka wsKeepAlive) (*WebSocketServer, error) {
 	if serverID == 0 {
 		serverID = 1
 	}
@@ -642,6 +726,7 @@ func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config
 		ln:       ln,
 		serverID: serverID,
 		origins:  origins,
+		ka:       ka,
 		table:    newSessionTable(auth, serverID, false),
 		changed:  make(chan struct{}, 1),
 	}
@@ -759,7 +844,7 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 
-	fin, op, payload, _, err := readWSFrame(br)
+	fin, op, payload, _, err := readWSFrameLimit(br, wsMaxHelloFrame)
 	if err != nil || !fin || op != wsOpBinary {
 		_ = conn.Close()
 		return
@@ -793,6 +878,9 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
+	stop := make(chan struct{})
+	defer close(stop)
+	go wsPingLoop(conn, &client.writeMu, false, s.ka.ping, stop)
 	s.readClientLoop(client)
 }
 
@@ -868,6 +956,8 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 	inFrag := false
 
 	for {
+		// A client that sends nothing, not even the pong to the server's pings, for the idle timeout is gone: its network vanished without closing the TCP connection.
+		_ = c.conn.SetReadDeadline(time.Now().Add(s.ka.idle))
 		fin, op, payload, _, err := readWSFrame(c.br)
 		if err != nil {
 			return
@@ -934,7 +1024,7 @@ func (s *WebSocketServer) deliverFromClient(c *wsClientConn, frame []byte) {
 	copy(cp, payload)
 	s.mu.Lock()
 	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
-		s.inbox = append(s.inbox, Packet{
+		s.inbox.push(Packet{
 			From:    c.id,
 			Channel: ch,
 			Payload: cp,
@@ -995,13 +1085,7 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 func (s *WebSocketServer) Recv() (Packet, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := s.inbox[0]
-	copy(s.inbox, s.inbox[1:])
-	s.inbox = s.inbox[:len(s.inbox)-1]
-	return pkt, true
+	return s.inbox.pop()
 }
 
 // NextEvent pops the next join, drop, resume or leave without blocking, after ending the sessions whose grace period has passed.

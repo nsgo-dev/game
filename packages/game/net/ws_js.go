@@ -28,7 +28,7 @@ type WebSocketTransport struct {
 	resumed  bool
 	nonce    [hsNonceSize]byte
 	seq      [2]uint32
-	inbox    []Packet
+	inbox    packetQueue
 	pending  [][]byte
 	funcs    []js.Func
 
@@ -155,7 +155,7 @@ func (wt *WebSocketTransport) onMessage(ws js.Value, buf []byte) {
 	case ConnOpen:
 		ch, seq, payload, err := decodeWireFrame(buf)
 		if err == nil {
-			wt.inbox = append(wt.inbox, Packet{
+			wt.inbox.push(Packet{
 				From:    wt.serverID,
 				Channel: ch,
 				Payload: slices.Clone(payload),
@@ -235,13 +235,7 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 func (wt *WebSocketTransport) Recv() (Packet, bool) {
 	wt.mu.Lock()
 	defer wt.mu.Unlock()
-	if len(wt.inbox) == 0 {
-		return Packet{}, false
-	}
-	pkt := wt.inbox[0]
-	copy(wt.inbox, wt.inbox[1:])
-	wt.inbox = wt.inbox[:len(wt.inbox)-1]
-	return pkt, true
+	return wt.inbox.pop()
 }
 
 // LocalID returns the PeerID the server assigned this client, or 0 before its first welcome.
