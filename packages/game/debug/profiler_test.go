@@ -67,6 +67,37 @@ func TestProfilerNestedScopesAndTopScopes(t *testing.T) {
 	}
 }
 
+func TestProfilerResetKeepsOpenScopesAndRecording(t *testing.T) {
+	now := time.Unix(1000, 0)
+	p := debug.NewProfiler(60)
+	p.SetNow(func() time.Time { return now })
+
+	p.BeginFrame()
+	p.End(p.Begin("physics"))
+	p.End(p.Begin("render"))
+	p.EndFrame()
+
+	p.StartRecording(10)
+	p.BeginFrame()
+	open := p.Begin("physics")
+	now = now.Add(3 * time.Millisecond)
+	p.Reset()
+	if !p.Recording() {
+		t.Fatal("Reset stopped an active trace recording")
+	}
+	p.Begin("render").End()
+	p.End(open)
+	p.EndFrame()
+
+	top := p.TopScopes(0)
+	if len(top) != 2 || top[0].Name != "physics" || top[0].Total != 3*time.Millisecond || top[1].Name != "render" || top[1].Total != 0 {
+		t.Fatalf("TopScopes(0) after Reset = %+v, want physics=3ms and render=0", top)
+	}
+	if got := p.RecordedFrames(); got != 1 {
+		t.Fatalf("RecordedFrames() = %d, want 1", got)
+	}
+}
+
 func TestProfilerChromeTrace300Frames(t *testing.T) {
 	now := time.Unix(2000, 0)
 	p := debug.NewProfiler(300)
