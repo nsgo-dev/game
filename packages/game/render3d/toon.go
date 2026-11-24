@@ -238,10 +238,17 @@ fn vs_outline(in: ToonOutlineIn) -> ToonOutlineOut {
 	if (material.flags.y > 0.5) {
 		let base_clip = camera.view_proj * vec4<f32>(world_pos, 1.0);
 		let clip_n = (camera.view_proj * vec4<f32>(world_n, 0.0)).xy;
-		let cn_len = length(clip_n);
+		// The projection's width-to-height ratio. NDC x spans the viewport's width and y its height, so the offset is made isotropic in pixels by measuring it in units of NDC y.
+		var aspect = 1.0;
+		if (abs(camera.proj[0][0]) > 0.00001) {
+			aspect = abs(camera.proj[1][1] / camera.proj[0][0]);
+		}
+		let screen_n = vec2<f32>(clip_n.x * aspect, clip_n.y);
+		let sn_len = length(screen_n);
 		var offset = vec2<f32>(0.0, 0.0);
-		if (cn_len > 0.00001) {
-			offset = (clip_n / cn_len) * (width * base_clip.w);
+		if (sn_len > 0.00001) {
+			let dir = screen_n / sn_len;
+			offset = vec2<f32>(dir.x / aspect, dir.y) * (width * base_clip.w);
 		}
 		out.clip = vec4<f32>(base_clip.xy + offset, base_clip.z, base_clip.w);
 	} else {
@@ -297,9 +304,9 @@ type ToonMaterial struct {
 
 	// OutlineColor is the linear RGBA color of the inverted-hull outline pass. An alpha of 0 turns the outline off; other alpha values only blend in a pipeline built with [NewToonOutlinePipeline] and a [ToonPipelineOptions.Blend], since [ToonRenderer] draws opaque.
 	OutlineColor [4]float32
-	// OutlineWidth is the normal-extrusion distance for the inverted-hull outline pass (in world units, or NDC fraction when OutlineClipSpace is true). Zero disables the outline pass.
+	// OutlineWidth is the normal-extrusion distance of the inverted-hull outline pass: in world units, or with OutlineClipSpace in NDC y units, so the outline is OutlineWidth × viewport height / 2 pixels thick. Zero disables the outline pass.
 	OutlineWidth float32
-	// OutlineClipSpace extrudes outline vertices along their projected clip-space normal scaled by clip.w for distance-independent screen thickness instead of world-space units.
+	// OutlineClipSpace extrudes outline vertices along their projected normal on screen instead of in world space, giving the same thickness in pixels at every distance and in every direction. It reads the aspect ratio from the camera's projection, which must match the viewport's.
 	OutlineClipSpace bool
 }
 
