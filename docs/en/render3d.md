@@ -1092,3 +1092,44 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **Atlas transform**: `LightmapRef.UVScale` / `UVOffset` are the authoritative atlas transform; `LightmapRef.Texture` carries no scale or offset, so do not also apply it with `TransformTexCoords`. See [Baked lightmaps](3d-models-blender.md#baked-lightmaps) for where the values come from.
 - **Texture streaming**: `BeginFrame` drops cached bind groups of lightmap and albedo textures that have been closed, so streaming levels or hot-reloading lightmaps does not grow the cache.
 - **Scope**: `LightmapRenderer` is a standalone path, albedo times (baked irradiance plus one Lambertian light). It has no metallic-roughness, normal, occlusion or emissive maps and does not read a `LightRig`. Feeding lightmaps into the PBR material path as its indirect term is tracked in [#752](https://github.com/nsgo-dev/game/issues/752).
+
+## Point and spot light shadows (`SpotShadowMap`, `PointShadowMap`)
+
+`SpotShadowMap` and `PointShadowMap` render depth-only `FormatDepth32Float` shadow maps for local lights and expose them alongside comparison samplers and WGSL helpers (`SpotShadowWGSL`, `PointShadowWGSL`) that run portably across Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software GPU renderer (`nsgotest.NoGPUCompute` included):
+
+- **Spot light shadows (`SpotShadowMap`)**: builds a square `[0, 1]`-depth perspective projection matching `SpotShadowLight.Position`, `Direction`, `OuterConeAngle` (`fovY = 2 * OuterConeAngle`), `Near`, and `Range`. `BeginShadowPass` clears depth and binds the depth-only caster pipeline; `DrawCaster` writes each caster's `(lightViewProj, model)` transform into a 256-byte dynamic-offset uniform slot so any number of casters (up to `MaxCasters`) draw in one pass without overwriting earlier transforms.
+- **Omnidirectional point light shadows (`PointShadowMap`)**: packs all six 90° cube faces (`gpu.CubeFacePosX`..`gpu.CubeFaceNegZ`) into a single `3×2` `FormatDepth32Float` 2D depth atlas of size `(3 * FaceResolution) × (2 * FaceResolution)`. Calling `BeginFacePass(rec, face)` for `face` `0..5` clears the atlas on face 0, preserves earlier tiles on faces 1..5 (`LoadLoad`), and locks viewport and scissor to each face's tile. In `PointShadowWGSL`, `sample_point_shadow` selects the dominant cube face, computes analytic perspective NDC depth `(far/(far-near))*(1 - near/axisDist)` without uploading six matrices to the fragment shader, and clamps every tap inside `[0.51/faceRes, 1 - 0.51/faceRes]` so 3×3 PCF never bleeds across adjacent atlas tiles.
+- **Filtering, biasing, and ready-made pipelines**: choose `LocalShadowFilterHard` (single nearest comparison tap) or `LocalShadowFilterPCF3x3` (9 linear comparison taps) with configurable `DepthBias` and `NormalBias`. `BeginShadowPass` and `BeginFacePass` accept both `*gpu.Encoder` and `*gpu.Frame` (`LocalShadowPassRecorder`). Use `NewSpotShadowLitPipeline` or `NewPointShadowLitPipeline` for quick shadowed lighting with `CameraGroup` (0) and `LocalShadowGroup` (1), or prepend `CameraWGSL` + `SpotShadowWGSL` / `PointShadowWGSL` to custom fragment shaders.
+- **Device-loss recovery and CPU reference**: setting `Retained: true` recreates the depth render target, comparison sampler, uniform buffers, bind groups, and depth pipeline automatically after a device loss (`Update` and `DrawCaster` take the live `*gpu.Device` explicitly). Pure-Go evaluators `EvaluateSpotShadow`, `EvaluateSpotLighting`, `PointShadowSelectFace`, `EvaluatePointShadow`, and `EvaluatePointLighting` mirror the WGSL shaders for analytic verification, alongside golden reference renders `render3d/testdata/golden/local_shadow_spot.png` and `local_shadow_point.png` (`UPDATE_GOLDEN=1` rewrites them).
+
+```go
+spot, err := render3d.NewSpotShadowMap(cx, dev, render3d.DefaultSpotShadowConfig())
+litPipe, err := render3d.NewSpotShadowLitPipeline(cx, dev, camBuf.Layout(), spot.Layout(), render3d.LocalShadowLitPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+
+// Each frame in OnFrame:
+_ = spot.Update(dev, spotLight)
+sp := spot.BeginShadowPass(frame)
+spot.DrawCaster(dev, sp, pillarMesh, pillarModel)
+sp.End()
+
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mp.SetPipeline(litPipe)
+mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LocalShadowGroup, spot.BindGroup())
+sceneMesh.Draw(mp)
+mp.End()
+```
+
+For an omnidirectional point light, loop `face` from `0` to `render3d.PointShadowFaceCount-1`:
+
+```go
+_ = point.Update(dev, pointLight)
+for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
+	fp := point.BeginFacePass(frame, face)
+	point.DrawCaster(dev, fp, blockerMesh, blockerModel)
+	fp.End()
+}
+```
