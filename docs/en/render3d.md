@@ -1068,13 +1068,19 @@ renderer.BeginFrame()
 camBuf.WriteCamera(cam)
 mat := render3d.DefaultLightmapMaterial()
 mat.BaseColorTexture = albedoTex
-mat.Lightmap = lightmapTex
-mat.Encoding = render3d.LightmapRGBM // LightmapLinear, LightmapSRGB, LightmapRGBM, or LightmapRGBD
-mat.RGBMMaxRange = render3d.DefaultRGBMMaxRange
+mat.Lightmap = lightmapTex // RGBM / RGBD: upload with TextureUpload{SRGB: false}
+mat.Encoding, err = render3d.ParseLightmapEncoding(lmRef.Encoding) // "" is LightmapLinear
+mat.Intensity = lmRef.Intensity
+mat.RGBMMaxRange = lmRef.RGBMMaxRange // 0 uses DefaultRGBMMaxRange
 mat.SetUVTransform(render3d.UVTransform{Scale: lmRef.UVScale, Offset: lmRef.UVOffset})
+mat.DirectLight = &rig.Directional[0] // optional: a LightRig light, Direction is the travel direction
 _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 ```
 
 - **HDR and LDR encodings**: supports linear 8-bit or float16 HDR textures (`LightmapLinear`, with `UploadLightmapRGBA16F` for float16 upload), sRGB LDR textures (`LightmapSRGB`, avoiding double-decode when uploaded with `TextureUpload{SRGB: true}`), and 8-bit packed HDR formats (`LightmapRGBM` via `EncodeRGBM` / `EncodeRGBMImage` and `LightmapRGBD` via `EncodeRGBD` / `EncodeRGBDImage`) for full WebGL 2 and mobile compatibility.
 - **Shared lightmap atlases**: set `LightmapMaterial.UVScale` and `UVOffset` (or `SetUVTransform`) so multiple meshes sample distinct sub-rectangles of one baked lightmap atlas within a single render pass using dynamic uniform offsets.
-- **Fallback and dynamic light blend**: leave `LightmapMaterial.Lightmap` nil to shade with `AmbientFallback`, and optionally set `LightmapMaterial.DirectLight` to sum a dynamic directional light additively with baked indirect irradiance.
+- **Fallback and dynamic light blend**: leave `LightmapMaterial.Lightmap` nil to shade with `AmbientFallback`, and optionally set `LightmapMaterial.DirectLight` to a `*DirectionalLight` (the same type as a `LightRig`'s, with `Direction` the way the light travels) to add its Lambertian N·L term to the baked irradiance. Normals go through the normal matrix, so non-uniformly scaled level geometry is lit correctly. `Intensity` 0 means no baked light; `DefaultLightmapMaterial` sets 1.
+- **Output encoding**: the shader encodes its linear result to sRGB, as `LitPBRWGSL` and the material pipeline do, so lightmapped geometry and PBR-lit props drawn into the same pass match. For an sRGB color format (`LightmapRendererOptions.ColorFormat` or the surface format) the encode is left to the hardware.
+- **Atlas transform**: `LightmapRef.UVScale` / `UVOffset` are the authoritative atlas transform; `LightmapRef.Texture` carries no scale or offset, so do not also apply it with `TransformTexCoords`. See [Baked lightmaps](3d-models-blender.md#baked-lightmaps) for where the values come from.
+- **Texture streaming**: `BeginFrame` drops cached bind groups of lightmap and albedo textures that have been closed, so streaming levels or hot-reloading lightmaps does not grow the cache.
+- **Scope**: `LightmapRenderer` is a standalone path, albedo times (baked irradiance plus one Lambertian light). It has no metallic-roughness, normal, occlusion or emissive maps and does not read a `LightRig`. Feeding lightmaps into the PBR material path as its indirect term is tracked in [#752](https://github.com/nsgo-dev/game/issues/752).
