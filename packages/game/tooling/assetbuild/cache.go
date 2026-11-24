@@ -65,11 +65,23 @@ func loadCache(name string) *cache {
 	if err != nil {
 		return &cache{Version: cacheVersion}
 	}
-	var c cache
-	if err := decodeStrict(data, &c); err != nil || c.Version != cacheVersion {
+	c, err := parseCache(data)
+	if err != nil {
 		return &cache{Version: cacheVersion}
 	}
-	return &c
+	return c
+}
+
+// parseCache decodes a cache file, refusing unknown fields, trailing documents and a version other than cacheVersion.
+func parseCache(data []byte) (*cache, error) {
+	var c cache
+	if err := decodeStrict(data, &c); err != nil {
+		return nil, fmt.Errorf("assetbuild: cache: %w", err)
+	}
+	if c.Version != cacheVersion {
+		return nil, fmt.Errorf("assetbuild: cache: unsupported version %d (want %d)", c.Version, cacheVersion)
+	}
+	return &c, nil
 }
 
 // encodeCache writes c as deterministic YAML, its targets sorted by ID.
