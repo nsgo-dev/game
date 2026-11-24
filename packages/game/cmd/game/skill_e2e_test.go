@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,11 +24,27 @@ import (
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
-// TestAgentSkillCLIScaffoldGenerateCheckAndMCP exercises the end-to-end workflow
-// documented in skills/nsgo-game: scaffold with `game new`, generate a scene and
-// component with `game generate`, index and validate with `game index` and
-// `game check`, load the generated scene into a running game with mcp.Bridge,
-// and verify simulation state through MCP calls.
+// TestAgentSkillDocumentsEveryCommand requires the skill's CLI reference to name every game subcommand, so a new command fails here until skills/nsgo-game documents it.
+func TestAgentSkillDocumentsEveryCommand(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "skills", "nsgo-game", "references", "cli-and-formats.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"help"}
+	for _, c := range commands {
+		names = append(names, c.name)
+	}
+	for _, name := range names {
+		if !strings.Contains(string(doc), "`game "+name+"`") {
+			t.Errorf("skills/nsgo-game/references/cli-and-formats.md does not document `game %s`", name)
+		}
+	}
+}
+
+// skillHealth stands in for the Health component game generate writes into the project, which the test cannot import.
+type skillHealth struct{}
+
+// TestAgentSkillCLIScaffoldGenerateCheckAndMCP exercises the end-to-end workflow documented in skills/nsgo-game: scaffold with `game new`, generate a scene and component with `game generate`, place an object using the component in the generated scene, index and validate with `game index` and `game check`, load the scene into a running game with mcp.Bridge, and verify the scene's object through MCP calls.
 func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 	stubGo(t, nil)
 	dir := filepath.Join(t.TempDir(), "star-hop")
@@ -45,7 +63,45 @@ func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 		t.Fatalf("game generate component exited %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
 	}
 
-	// 3. Assign stable UIDs with `game index` and validate everything with `game check`.
+	// 3. Place a player using the generated health component in the generated scene, as an agent edits the YAML.
+	var componentFile string
+	for _, name := range listFiles(t, dir) {
+		if strings.HasSuffix(name, "/health_component.go") || name == "health_component.go" {
+			componentFile = name
+		}
+	}
+	if componentFile == "" {
+		t.Fatalf("game generate component health wrote no health_component.go: %v", listFiles(t, dir))
+	}
+	componentSrc, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(componentFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(componentSrc), `Name: "health"`) {
+		t.Fatalf("%s does not register a component named health:\n%s", componentFile, componentSrc)
+	}
+	generatedScene := filepath.Join(dir, "scenes", "arena.scene.yaml")
+	raw, err := os.ReadFile(generatedScene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("sceneformat.Parse(generated arena scene): %v", err)
+	}
+	edit.Layers[0].Objects = append(edit.Layers[0].Objects, sceneformat.ObjectDoc{
+		ID: "player", Name: "Player", X: 10, Y: 20,
+		Components: map[string]any{"health": map[string]any{}},
+	})
+	raw, err = sceneformat.Encode(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(generatedScene, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Assign stable UIDs with `game index` and validate everything with `game check`.
 	a, stdout, stderr = newTestApp(t)
 	if code := run([]string{"index", dir}, a); code != 0 {
 		t.Fatalf("game index exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
@@ -55,7 +111,7 @@ func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 		t.Fatalf("game check exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 
-	// 4. Parse the generated project and main scene YAML files.
+	// 5. Parse the generated project and main scene YAML files, checking components against the generated registry.
 	proj, err := project.Check(os.DirFS(dir))
 	if err != nil {
 		t.Fatalf("project.Check: %v", err)
@@ -68,17 +124,36 @@ func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated scene %s: %v", scenePath, err)
 	}
-	doc, err := sceneformat.Parse(sceneBytes)
+	registry := sceneformat.NewComponentRegistry()
+	registry.MustRegister(sceneformat.ComponentType{Name: "health", Doc: "Health"})
+	doc, err := sceneformat.ParseWith(sceneBytes, sceneformat.ParseOptions{File: proj.Autoload.Scenes[0].Path, Components: registry})
 	if err != nil {
-		t.Fatalf("sceneformat.Parse(%s): %v", scenePath, err)
+		t.Fatalf("sceneformat.ParseWith(%s): %v", scenePath, err)
 	}
 
 	world := entities.NewWorld()
-	if _, err := sceneformat.SpawnEntities(doc, world); err != nil {
+	if err := entities.RegisterCodec[skillHealth](world, "health"); err != nil {
+		t.Fatal(err)
+	}
+	spawned, err := sceneformat.SpawnEntities(doc, world)
+	if err != nil {
 		t.Fatalf("sceneformat.SpawnEntities: %v", err)
 	}
-	player := world.Spawn()
-	entities.Set(world, player, entities.Transform2D{X: 10, Y: 20})
+	names := map[entities.Entity]string{}
+	for li := range doc.Layers {
+		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			e := spawned[o.ID]
+			names[e] = o.Name
+			if _, ok := o.Components["health"]; ok {
+				entities.Set(world, e, skillHealth{})
+			}
+			return true
+		})
+	}
+	player, ok := spawned["player"]
+	if !ok {
+		t.Fatalf("player was not spawned from %s", scenePath)
+	}
 
 	sc := scene.NewScene(&tilemap.Camera{Width: 480, Height: 640})
 	sc.AddLayer(scene.NewLayer("world", scene.SpaceWorld, 0))
@@ -100,15 +175,10 @@ func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 		}
 		loop.Run(s)
 		if _, err := mcp.Attach(s, mcp.Config{
-			Scenes:    mgr,
-			SceneName: func(*scene.Controller) string { return proj.Autoload.MainScene },
-			WorldFunc: func() *entities.World { return world },
-			EntityName: func(e entities.Entity) string {
-				if e == player {
-					return "player"
-				}
-				return ""
-			},
+			Scenes:        mgr,
+			SceneName:     func(*scene.Controller) string { return proj.Autoload.MainScene },
+			WorldFunc:     func() *entities.World { return world },
+			EntityName:    func(e entities.Entity) string { return names[e] },
 			Loop:          loop,
 			RandomStreams: rng,
 		}); err != nil {
@@ -166,11 +236,25 @@ func TestAgentSkillCLIScaffoldGenerateCheckAndMCP(t *testing.T) {
 	}
 
 	var list mcp.EntitiesListResult
-	if err := json.Unmarshal(call(mcp.ToolEntitiesList, map[string]any{"name": "player"}), &list); err != nil {
+	if err := json.Unmarshal(call(mcp.ToolEntitiesList, map[string]any{"name": "Player", "component": "health"}), &list); err != nil {
 		t.Fatal(err)
 	}
 	if list.Returned != 1 {
-		t.Fatalf("game_entities_list(name=player) = %+v", list)
+		t.Fatalf("game_entities_list(name=Player, component=health) = %+v", list)
+	}
+
+	var inspect mcp.EntityInspectResult
+	if err := json.Unmarshal(call(mcp.ToolEntityInspect, map[string]any{"ref": list.Entities[0].Ref}), &inspect); err != nil {
+		t.Fatal(err)
+	}
+	components := make([]string, 0, len(inspect.Components))
+	for name := range inspect.Components {
+		components = append(components, name)
+	}
+	for _, want := range []string{"health", "object_ref", "transform2d"} {
+		if !slices.Contains(components, want) {
+			t.Fatalf("game_entity_inspect(player) components = %v, want %s", components, want)
+		}
 	}
 
 	var comp mcp.ComponentGetResult
