@@ -549,6 +549,43 @@ err = renderer.Draw(dev, pass, camBuf.BindGroup(), light,
 - **绘制**：`ToonRenderer.Draw` 先画描边再画卡通着色表面，均为不透明并写入深度。在一次提交前可以调用任意多次，绘入同一个或多个通道：每次调用把每次绘制的 uniform 写在本帧之前调用用过的槽位之后。在 `gpu.Frame` 中，`dev.FrameIndex()` 前进时槽位自动回到起点；直接用 `dev.Submit` 提交的代码每帧调用一次 `ToonRenderer.Begin`（两次调用之间最多 `MaxToonDrawsPerFrame` 次绘制）。渲染器、设备、通道或相机绑定组为 nil 或已关闭时，`Draw` 返回 `gpu.Error`。需要混合的卡通表面，用 `NewToonPipeline` 与 `NewToonOutlinePipeline` 并设置 `ToonPipelineOptions.Blend` 构建管线。
 - **CPU 参考与测试**：`EvaluateToon` 与 `ToonQuantizeBand` 用 Go 计算 `ToonWGSL` 的结果。`render3d` 的测试把多物体场景与 `render3d/testdata/golden/toon_scene.png` 比对（`UPDATE_GOLDEN=1` 重写参考图），在无界面 `gpu.View` 上分别以完整配置与 `nsgotest.NoGPUCompute` 绘制，验证 `Retained` 渲染器在设备丢失后恢复、一次提交前绘制两次，以及宽视口上的裁剪空间描边。
 
+## 自定义着色器材质（`CustomMaterial`）
+
+`NewCustomMaterial` 将使用 **WGSL**（`ShaderWGSL`）或 **Kage**（`ShaderKage`）编写并声明强类型参数（`ShaderParamDesc`）的自定义 3D 材质编译到 NSGo `gpu.Device` 上，并在所属 `core.Scope` 内统一管理 std140 uniform 缓冲、`@group(1)` 绑定组（`CustomMaterialGroup`）、1×1 占位纹理与渲染管线：
+
+```go
+mat, err := render3d.NewCustomMaterial(cx, dev, render3d.CustomShaderDesc{
+	Label:        "hologram",
+	Language:     render3d.ShaderWGSL, // 或 render3d.ShaderKage
+	CameraLayout: camBuf.Layout(),     // 将 CameraWGSL 绑定在 @group(0)；裁剪空间着色器可省略
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Cull:         gpu.CullBack,
+	Retained:     true,                // 支持 GPU 设备丢失后自动恢复
+	Params: []render3d.ShaderParamDesc{
+		{Name: "intensity", Kind: render3d.ParamFloat, Default: float32(1.0)},
+		{Name: "light_dir", Kind: render3d.ParamVec3, Default: math3d.Vec3{X: 0.4, Y: 0.85, Z: 0.35}},
+		{Name: "tint", Kind: render3d.ParamColor, Default: core.RGB(0xf0c878)},
+		{Name: "albedo", Kind: render3d.ParamTexture},
+	},
+	Source: myWGSLSource,
+})
+
+// 运行时更新参数，并在绘制前同步脏数据：
+_ = mat.SetFloat("intensity", 1.5)
+_ = mat.SetColor("tint", core.RGB(0x55d0ff))
+_ = mat.SetTexture("albedo", tex, samp) // tex 为 nil 时恢复 1x1 默认纹理；samp 为 nil 时使用默认线性重复采样器
+_ = mat.Sync(dev)                       // 参数未变化时零分配
+
+// 在 OnFrame 中：
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mat.Draw(pass, mesh) // 设置管线、绑定 @group(1) 并绘制网格
+```
+
+- **声明式参数类型与 std140 布局**：支持 `ParamFloat`（`f32`）、`ParamVec2`（`vec2<f32>`）、`ParamVec3`（`vec3<f32>`）、`ParamVec4` / `ParamColor`（`vec4<f32>`）、`ParamInt`（`i32`）、`ParamBool`（`u32`，`0`/`1`，满足可移植 uniform 结构体约束）和 `ParamTexture`（`texture_2d<f32>` 与 `<name>_sampler`）。所有非纹理参数按声明顺序以 WGSL/std140 对齐规则打包至 `@group(1) @binding(0)`（`material`，可通过 `ComputeUniformLayout`、`ParamOffset`、`UniformSize` 查询），纹理与采样器紧随其后（`ParamBinding`）。未绑定的纹理槽位自动使用 1×1 占位纹理（默认不透明白色，可通过 `ShaderParamDesc.Default` 自定义）。
+- **WGSL 与 Kage 着色器**：`ShaderWGSL` 默认自动前置 `CameraWGSL`（设置 `CameraLayout` 时）以及生成的 `MaterialParams` 与纹理绑定声明（需要手动声明 `@group(1)` 时可设置 `ManualBindings: true`）。`ShaderKage` 解析 Kage 的 `var <Name> float|vec2|vec3|vec4|int|bool` 声明、辅助函数以及 `func Surface(uv vec2, normal vec3, worldPos vec3) vec4`（或经典 `func Fragment(dst vec4, pos vec2) vec4`），翻译为可移植 WGSL，支持 `sample(<tex>, uv)` 与 `image0At(uv)` 采样。
+- **严格校验与全后端编译检查**：强类型设置方法（`SetFloat`、`SetVec2`、`SetVec3`、`SetVec4`、`SetColor`、`SetInt`、`SetBool`、`SetTexture`）及原子批量更新 `ApplyMap` 会拒绝未知参数名、类型不匹配、非有限数值（`NaN`/`Inf`）以及超出 `Min`/`Max` 范围的值，返回包装 `ErrInvalidCustomMaterial` 的 `*CustomMaterialError`。`CompileCheck` / `CompileCheckDesc` 无需打开 `gpu.View` 即可验证着色器在 MSL、HLSL、GLSL 3.30、GLSL ES 3.00（WebGL 2 / Android）与 WGSL 全部后端上的管线编译。
+- **参考渲染验证**：`render3d` 的测试将 WGSL 与 Kage 自定义材质的渲染结果与参考图（`render3d/testdata/golden/custom_material_wgsl.png` 和 `custom_material_kage.png`）比对，检查五个后端的 `PipelineCache` 编译产物，并在无界面 `gpu.View` 上同时覆盖 `full` 与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置、`Retained` 设备丢失恢复及稳态零分配更新；设置 `UPDATE_GOLDEN=1` 可重写参考图。
+
 ## 按预算跨帧异步 GPU 上传（`Uploader`）
 
 `Uploader` 在后台工作协程上完成网格、纹理和原始 GPU 数据的解码与 CPU 打包；每帧调用一次的 `Uploader.Step` 再按每帧字节预算把结果分块写入 `gpu.Device`，加载大型 3D 模型时不会卡住某一帧：
