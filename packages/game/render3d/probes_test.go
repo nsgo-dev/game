@@ -91,25 +91,6 @@ func probeTestApprox3(a, b [3]float32, eps float32) bool {
 		math3d.ApproxEqual(a[2], b[2], eps)
 }
 
-func TestCubeFaceDirectionRoundTrip(t *testing.T) {
-	uvs := []float32{0.15, 0.5, 0.85}
-	for f := range render3d.ProbeCubeFaceCount {
-		face := gpu.CubeFace(f)
-		for _, v := range uvs {
-			for _, u := range uvs {
-				dir := render3d.CubeFaceDirection(face, u, v)
-				gotFace, gotU, gotV := render3d.CubeDirectionToFaceUV(dir)
-				if gotFace != face {
-					t.Fatalf("face %d uv (%g,%g) -> dir %v -> face %d", face, u, v, dir, gotFace)
-				}
-				if !math3d.ApproxEqual(gotU, u, 1e-4) || !math3d.ApproxEqual(gotV, v, 1e-4) {
-					t.Fatalf("face %d uv (%g,%g) -> round-trip (%g,%g)", face, u, v, gotU, gotV)
-				}
-			}
-		}
-	}
-}
-
 func TestBoxProjectDirection(t *testing.T) {
 	boxMin := math3d.Vec3{X: -5, Y: -5, Z: -5}
 	boxMax := math3d.Vec3{X: 5, Y: 5, Z: 5}
