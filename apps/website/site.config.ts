@@ -56,7 +56,7 @@ export default defineSite({
 		description: per((c) => c.roadmap.description),
 	},
 	footer: {
-		copyright: '© 2026 ONEO',
+		copyright: '© 2026 NSGo',
 		license: { label: 'Apache-2.0', href: `${repo}/blob/main/LICENSE` },
 	},
 	home: false,
