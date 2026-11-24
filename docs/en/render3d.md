@@ -493,8 +493,6 @@ gpu.View(cx, gpu.ViewProps{
 - **Priority and cancellation**: `PriorityHigh`, `PriorityNormal` and `PriorityLow` order both the decode and the upload queue (FIFO within a priority), so a high-priority asset preempts a low-priority one that is partway through its upload at the next chunk. Each `Queue*` call returns an `*UploadHandle` whose `State()`, `Progress()`, `Err()`, `Done()` and `Cancel()` are safe from any goroutine.
 - **Lifecycle**: passing a `*core.Scope` to `NewUploader` closes the uploader when the scope is disposed. `Close` cancels pending decodes, joins every worker goroutine, releases partially uploaded GPU resources and calls the `onReady` of each unfinished upload with `ErrUploaderClosed`; call it on the goroutine that calls `Step`, as scope disposal does. Pass `nil` in headless tests and call `Close` yourself. `UploaderOptions.MaxPending` bounds the unfinished uploads, failing further ones with `ErrUploadQueueFull`.
 
-||||||| parent of 6ae11efc (feat(render3d): add HDR render target, tone mapping, and sRGB/gamma pass)
-
 ## HDR rendering, tone mapping, and gamma (`HDRTarget`, `ToneMapPass`)
 
 Render the scene's linear radiance into an `HDRTarget` (`gpu.FormatRGBA16Float`, falling back to `gpu.FormatRGBA8Unorm` on devices where `SupportsHDR(dev)` is false), then resolve it to the display with `ToneMapPass`. render3d's own shaders tone-map and encode to sRGB by default, so draw into the HDR target with their linear output mode: `LitPBRPipelineOptions.LinearOutput` for lit PBR (with or without fog or IBL, through `NewLitPBRPipelineWithOptions`) and `MaterialPipelineOptions.LinearOutput` for materials. Without it the image is tone-mapped and gamma-encoded twice and the HDR target only stores values already clamped to `[0, 1]`.
