@@ -287,7 +287,7 @@ func TestAppendToneMapUniformsLayoutAndZeroAlloc(t *testing.T) {
 		Gamma:    2.2,
 	}
 	got := render3d.AppendToneMapUniforms(prefix, opts)
-	if len(got) != len(prefix)+render3d.ToneMapUniformSize || render3d.ToneMapUniformSize != 16 {
+	if len(got) != len(prefix)+render3d.ToneMapUniformSize || render3d.ToneMapUniformSize != 48 {
 		t.Fatalf("len = %d, ToneMapUniformSize = %d", len(got), render3d.ToneMapUniformSize)
 	}
 	if got[0] != 0xDE || got[1] != 0xAD {
@@ -307,6 +307,12 @@ func TestAppendToneMapUniformsLayoutAndZeroAlloc(t *testing.T) {
 	}
 	if f32(3) != 0 {
 		t.Errorf("pad = %v, want 0", f32(3))
+	}
+	// The whole source texture: uv_scale (1, 1), uv_min (0, 0), uv_max (1, 1), then padding.
+	for i, want := range []float32{1, 1, 0, 0, 1, 1, 0, 0} {
+		if f32(4+i) != want {
+			t.Errorf("region float %d = %v, want %v", i, f32(4+i), want)
+		}
 	}
 
 	// Exact sRGB encodes inv_gamma = 0; LinearOutput encodes inv_gamma = -1.
