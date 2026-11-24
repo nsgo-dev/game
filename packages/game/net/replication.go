@@ -178,8 +178,7 @@ type peerReplState struct {
 	err error
 }
 
-// ServerWorld owns authoritative entity state and replicates compact full and
-// bitmask-delta snapshots to connected peers over a Transport.
+// ServerWorld owns authoritative entity state and replicates compact full and bitmask-delta snapshots to connected peers over a Transport.
 //
 // Every snapshot carries the server's replication epoch, a number NewServerWorld picks at random, so a ClientWorld notices that a restarted server's snapshots come from a new run and starts over on its own.
 type ServerWorld struct {
@@ -757,11 +756,9 @@ type predictedTracker struct {
 	pending        []pendingPrediction
 }
 
-// ClientWorld receives authoritative snapshots from a ServerWorld, maintains a
-// timed snapshot ring buffer for smooth interpolation, fires spawn/despawn hooks,
-// and supports client-side prediction with automatic server reconciliation.
+// ClientWorld receives authoritative snapshots from a ServerWorld, maintains a timed snapshot ring buffer for smooth interpolation, fires spawn/despawn hooks, and supports client-side prediction with automatic server reconciliation.
 //
-// A ClientWorld follows the server's replication epoch. A snapshot of a new epoch means the server restarted: the client forgets every snapshot and prediction of the old epoch as Reset does, reporting each entity it knew through OnDespawn, and resyncs from the new one without the game calling Reset. Late snapshots of an epoch the client has left are ignored.
+// A ClientWorld follows the server's replication epoch. A complete full snapshot of a new epoch means the server restarted: the client forgets every snapshot and prediction of the old epoch as Reset does, reporting each entity it knew through OnDespawn, and continues from the new one without the game calling Reset. A delta of a new epoch only makes the client ask for a full snapshot of it. Late snapshots of an epoch the client has left are ignored, unless that epoch sends 32 snapshots in a row with none of the current epoch between them: then it is the live one, and the client follows it again.
 type ClientWorld struct {
 	transport Transport
 	serverID  PeerID
@@ -791,6 +788,9 @@ type ClientWorld struct {
 	hasEpoch bool
 	// retired holds the epochs the client has left, oldest first, at most maxRetiredEpochs, so their late snapshots are ignored.
 	retired []uint32
+	// strays counts the snapshots of strayEpoch, an epoch other than the current one, received in a row with none of the current epoch between them.
+	strayEpoch uint32
+	strays     int
 	// err is why the server's last replication message could not be used.
 	err error
 }
@@ -798,8 +798,12 @@ type ClientWorld struct {
 // maxRetiredEpochs bounds how many left epochs a ClientWorld remembers. A late snapshot travels for at most a few seconds, far less than 16 server restarts take.
 const maxRetiredEpochs = 16
 
+// epochRecoveryPackets is how many snapshots in a row a retired epoch must send, with none of the current epoch between them, before the client follows it again. Late packets of a finished run come in a short burst among the live run's packets; a run that keeps sending this many alone is the live one, which the client left by mistake because a late snapshot of an epoch it had never seen reached it after the live run's, or because a restarted server drew a retired epoch.
+const epochRecoveryPackets = 32
+
 // snapshotAssembly is a full snapshot whose parts are still arriving.
 type snapshotAssembly struct {
+	epoch    uint32
 	tick     uint32
 	got      []bool
 	received int
@@ -832,21 +836,37 @@ func (c *ClientWorld) Err() error {
 	return c.err
 }
 
-// Reset forgets every snapshot, partial snapshot and prediction and the server's epoch, as when the client joins a new match, and reports every entity the client knew through OnDespawn, in EntityID order. A restarted ServerWorld sends a new epoch, which the client follows without a Reset; a server that starts its tick count over in the same epoch, without SetEpoch, needs one, because snapshot ticks are compared in serial-number order and the client would drop every new snapshot as stale until the new ticks pass the old ones. The epochs the client has left stay ignored. Reconciliations and LastReconcileError keep counting.
+// Reset forgets every snapshot, partial snapshot and prediction and the server's epoch, as when the client joins a new match, and reports every entity the client knew through OnDespawn, in EntityID order. A restarted ServerWorld sends a new epoch, which the client follows without a Reset; a server that starts its tick count over in the same epoch, without SetEpoch, needs one, because snapshot ticks are compared in serial-number order and the client would drop every new snapshot as stale until the new ticks pass the old ones. The epochs the client has left stay ignored, as long as they send no more than a late burst. Reconciliations and LastReconcileError keep counting.
 func (c *ClientWorld) Reset() {
 	c.forget()
 	c.epoch, c.hasEpoch = 0, false
 	c.err = nil
 }
 
-// adoptEpoch reports whether a snapshot of epoch may be applied. The first epoch is adopted; a new one retires the current epoch and forgets its state, so the client resyncs; a retired one is refused.
-func (c *ClientWorld) adoptEpoch(epoch uint32) bool {
+// acceptEpoch reports whether a snapshot of epoch may be used: one of the current epoch, or of an epoch the client has not left. A retired epoch is refused until it has sent epochRecoveryPackets snapshots in a row with none of the current epoch between them, and is then taken off the retired list.
+func (c *ClientWorld) acceptEpoch(epoch uint32) bool {
 	if c.hasEpoch && epoch == c.epoch {
+		c.strays = 0
 		return true
 	}
-	if slices.Contains(c.retired, epoch) {
+	if c.strays > 0 && c.strayEpoch == epoch {
+		c.strays++
+	} else {
+		c.strayEpoch, c.strays = epoch, 1
+	}
+	i := slices.Index(c.retired, epoch)
+	if i < 0 {
+		return true
+	}
+	if c.strays < epochRecoveryPackets {
 		return false
 	}
+	c.retired = slices.Delete(c.retired, i, i+1)
+	return true
+}
+
+// switchEpoch follows the server into epoch: it retires the current epoch, if any, and forgets its state.
+func (c *ClientWorld) switchEpoch(epoch uint32) {
 	if c.hasEpoch {
 		if len(c.retired) == maxRetiredEpochs {
 			c.retired = slices.Delete(c.retired, 0, 1)
@@ -855,7 +875,7 @@ func (c *ClientWorld) adoptEpoch(epoch uint32) bool {
 		c.forget()
 	}
 	c.epoch, c.hasEpoch = epoch, true
-	return true
+	c.strays = 0
 }
 
 // forget drops every snapshot, partial snapshot and prediction and reports every known entity through OnDespawn, in EntityID order.
@@ -893,9 +913,9 @@ func (c *ClientWorld) Entity(id EntityID) (EntityState, bool) {
 	return e.Clone(), true
 }
 
-// Poll drains all pending snapshots from Transport, updates the ring buffer,
-// triggers OnSpawn/OnDespawn callbacks, sends acknowledgments back to the server,
-// and reconciles locally predicted entities. Returns the number of snapshots applied.
+// Poll drains all pending snapshots from Transport, updates the ring buffer, triggers OnSpawn/OnDespawn callbacks, sends acknowledgments back to the server, and reconciles locally predicted entities. Returns the number of snapshots applied.
+//
+// A complete full snapshot of a new epoch makes the client follow the server into it, reporting every entity of the old epoch through OnDespawn first; a delta of a new epoch makes it ask the server for a full snapshot. Snapshots of epochs the client has left are ignored, as described on ClientWorld. A message of another version of the replication protocol sets Err, and the next snapshot that applies clears it.
 func (c *ClientWorld) Poll() int {
 	applied := 0
 	for {
@@ -921,11 +941,11 @@ func (c *ClientWorld) Poll() int {
 		var done bool
 		switch typ {
 		case replMsgSnapshotFull:
-			done = c.adoptEpoch(epoch) && c.applyFull(body)
+			done = c.acceptEpoch(epoch) && c.applyFull(epoch, body)
 		case replMsgSnapshotDelta:
-			done = c.adoptEpoch(epoch) && c.applyDelta(body)
+			done = c.acceptEpoch(epoch) && c.applyDelta(epoch, body)
 		case replMsgSnapshotFullPart:
-			done = c.adoptEpoch(epoch) && c.applyFullPart(body)
+			done = c.acceptEpoch(epoch) && c.applyFullPart(epoch, body)
 		}
 		if done {
 			applied++
@@ -938,14 +958,13 @@ func (c *ClientWorld) Poll() int {
 // deltas sends only one request.
 const resyncIntervalTicks = 30
 
-// requestResync asks the server for a full snapshot, at most once every
-// resyncIntervalTicks ticks.
-func (c *ClientWorld) requestResync(tick uint32) {
+// requestResync asks the server for a full snapshot of epoch, at most once every resyncIntervalTicks ticks.
+func (c *ClientWorld) requestResync(epoch, tick uint32) {
 	if since := tick - c.lastResyncTick; c.hasResync && int32(since) >= 0 && since < resyncIntervalTicks {
 		return
 	}
 	c.lastResyncTick, c.hasResync = tick, true
-	_ = c.transport.Send(c.serverID, ChannelUnreliable, appendReplHeader(make([]byte, 0, replHeaderSize), replMsgResync, c.epoch))
+	_ = c.transport.Send(c.serverID, ChannelUnreliable, appendReplHeader(make([]byte, 0, replHeaderSize), replMsgResync, epoch))
 }
 
 // MaxEntitiesPerSnapshot bounds a full snapshot's entity count. The map is
@@ -953,19 +972,24 @@ func (c *ClientWorld) requestResync(tick uint32) {
 // million entities would reserve hundreds of megabytes before failing (#546).
 const MaxEntitiesPerSnapshot = 1 << 16
 
-func (c *ClientWorld) applyFull(src []byte) bool {
+// applyFull applies a full snapshot of epoch. One of a new epoch is parsed whole before the client follows the server into that epoch, so a corrupt packet cannot wipe the world.
+func (c *ClientWorld) applyFull(epoch uint32, src []byte) bool {
 	tickVal, n := binary.Uvarint(src)
 	if n <= 0 {
 		return false
 	}
 	src = src[n:]
 	tick := uint32(tickVal)
-	if c.hasLatest && !tickAfter(tick, c.latestTick) {
+	current := c.hasEpoch && epoch == c.epoch
+	if current && c.hasLatest && !tickAfter(tick, c.latestTick) {
 		return false
 	}
 	entities, ok := readFullEntities(src, MaxEntitiesPerSnapshot)
 	if !ok {
 		return false
+	}
+	if !current {
+		c.switchEpoch(epoch)
 	}
 	c.commitSnapshot(tick, entities)
 	return true
@@ -996,8 +1020,8 @@ func readFullEntities(src []byte, limit int) (map[EntityID]EntityState, bool) {
 	return entities, true
 }
 
-// applyFullPart adds one part of a split full snapshot and applies the snapshot once every part has arrived. Parts of an older tick than the one being assembled are ignored, and a newer tick starts over, so a lost part costs one snapshot rather than stalling the client.
-func (c *ClientWorld) applyFullPart(src []byte) bool {
+// applyFullPart adds one part of a split full snapshot of epoch and applies the snapshot once every part has arrived. Parts of an older tick of the same epoch than the one being assembled are ignored, and a newer tick or another epoch starts over, so a lost part costs one snapshot rather than stalling the client. The client follows the server into a new epoch only when its snapshot is complete.
+func (c *ClientWorld) applyFullPart(epoch uint32, src []byte) bool {
 	var hdr [3]uint64 // tick, index, total
 	for i := range hdr {
 		v, n := binary.Uvarint(src)
@@ -1011,18 +1035,19 @@ func (c *ClientWorld) applyFullPart(src []byte) bool {
 	if total == 0 || total > maxSnapshotParts || index >= total || hdr[0] > math.MaxUint32 {
 		return false
 	}
-	if c.hasLatest && !tickAfter(tick, c.latestTick) {
+	current := c.hasEpoch && epoch == c.epoch
+	if current && c.hasLatest && !tickAfter(tick, c.latestTick) {
 		return false
 	}
 	a := c.assembly
-	if a != nil && a.tick != tick {
-		if tickAfter(a.tick, tick) {
+	if a != nil && (a.epoch != epoch || a.tick != tick) {
+		if a.epoch == epoch && tickAfter(a.tick, tick) {
 			return false
 		}
 		a = nil
 	}
 	if a == nil {
-		a = &snapshotAssembly{tick: tick, got: make([]bool, total), entities: make(map[EntityID]EntityState)}
+		a = &snapshotAssembly{epoch: epoch, tick: tick, got: make([]bool, total), entities: make(map[EntityID]EntityState)}
 		c.assembly = a
 	}
 	if uint64(len(a.got)) != total {
@@ -1046,17 +1071,25 @@ func (c *ClientWorld) applyFullPart(src []byte) bool {
 		return false
 	}
 	c.assembly = nil
+	if !current {
+		c.switchEpoch(epoch)
+	}
 	c.commitSnapshot(tick, a.entities)
 	return true
 }
 
-func (c *ClientWorld) applyDelta(src []byte) bool {
+// applyDelta applies a delta snapshot of epoch. A delta of another epoch than the current one has no baseline the client holds, so it only asks the server for a full snapshot of that epoch.
+func (c *ClientWorld) applyDelta(epoch uint32, src []byte) bool {
 	tickVal, n := binary.Uvarint(src)
 	if n <= 0 {
 		return false
 	}
 	src = src[n:]
 	tick := uint32(tickVal)
+	if !c.hasEpoch || epoch != c.epoch {
+		c.requestResync(epoch, tick)
+		return false
+	}
 	if c.hasLatest && !tickAfter(tick, c.latestTick) {
 		return false
 	}
@@ -1072,7 +1105,7 @@ func (c *ClientWorld) applyDelta(src []byte) bool {
 	if !ok {
 		// Without the baseline this delta can never apply. Ask the server for a
 		// full snapshot instead of dropping every later delta silently.
-		c.requestResync(tick)
+		c.requestResync(epoch, tick)
 		return false
 	}
 
