@@ -1551,3 +1551,159 @@ func Surface(uv vec2) vec4 {
 		t.Fatalf("WGSL keyword local error = %v, want a CustomMaterialError on Kage line 4 or 5", err)
 	}
 }
+
+func TestCustomMaterialKageDrawLayoutPlacesMeshInWorld(t *testing.T) {
+	const size = 32
+	sr := gpu.NewSoftwareRenderer(size, size, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	// Move the quad half a clip-space unit to the right; worldPos.x is then in [0.2, 0.8] at the quad.
+	draw, err := render3d.NewPBRDrawBuffer(nil, dev, nil, render3d.NewPBRDrawUniform(math3d.Translate(math3d.Vec3{X: 0.5}), render3d.PBRMaterial{}), false)
+	if err != nil {
+		t.Fatalf("NewPBRDrawBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = draw.Close() })
+	desc := render3d.CustomShaderDesc{
+		Label:    "kage-world",
+		Language: render3d.ShaderKage,
+		Source: `package main
+
+func Surface(uv vec2, normal vec3, worldPos vec3) vec4 {
+	return vec4(worldPos.x, normal.z, 0.0, 1.0)
+}
+`,
+		DrawLayout: draw.Layout(),
+	}
+	src, err := render3d.CustomShaderWGSL(desc)
+	if err != nil {
+		t.Fatalf("CustomShaderWGSL: %v", err)
+	}
+	start := strings.Index(src, "struct PBRDrawUniform")
+	end := strings.Index(src, "var<uniform> pbr_draw: PBRDrawUniform;")
+	if start < 0 || end < 0 || !strings.Contains(render3d.LitPBRWGSL, src[start:end]) {
+		t.Fatalf("Kage PBRDrawUniform declaration does not match LitPBRWGSL's:\n%s", src)
+	}
+	if err := render3d.CompileCheckDesc(desc); err != nil {
+		t.Fatalf("CompileCheckDesc: %v", err)
+	}
+	mat, err := render3d.NewCustomMaterial(nil, dev, desc)
+	if err != nil {
+		t.Fatalf("NewCustomMaterial: %v", err)
+	}
+	t.Cleanup(func() { _ = mat.Close() })
+	quad, err := render3d.UploadMesh(nil, dev, render3d.Mesh{
+		Positions: []math3d.Vec3{{X: -0.3, Y: -0.3, Z: 0.5}, {X: 0.3, Y: -0.3, Z: 0.5}, {X: 0.3, Y: 0.3, Z: 0.5}, {X: -0.3, Y: 0.3, Z: 0.5}},
+		Normals:   []math3d.Vec3{{Z: 1}, {Z: 1}, {Z: 1}, {Z: 1}},
+		UVs:       []math3d.Vec2{{}, {X: 1}, {X: 1, Y: 1}, {Y: 1}},
+		Indices:   []uint32{0, 1, 2, 0, 2, 3},
+	}, render3d.MeshUpload{Label: "small-quad"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = quad.Close() })
+
+	if err := mat.Sync(dev); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	enc := dev.BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
+	})
+	mat.Bind(pass)
+	pass.SetBindGroup(render3d.PBRDrawGroup, draw.BindGroup())
+	quad.Draw(pass)
+	pass.End()
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software device: %v", err)
+	}
+	img := sr.Image()
+	if c := img.RGBAAt(size/2-6, size/2); c.R != 0 || c.G != 0 {
+		t.Fatalf("pixel left of center = %v, want the clear color (the quad should have moved right)", c)
+	}
+	c := img.RGBAAt(size*3/4, size/2)
+	// worldPos.x is about 0.5 at the quad's center, and the transformed normal stays +Z.
+	if c.R < 90 || c.R > 170 || c.G < 250 {
+		t.Fatalf("pixel at the moved quad's center = %v, want R about 128 (world-space x) and G 255", c)
+	}
+}
+
+func TestCustomMaterialExtraLayoutForLights(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	lights, err := render3d.NewLightBuffer(nil, dev, render3d.LightRig{}, render3d.LightBufferOptions{})
+	if err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = lights.Close() })
+	draw, err := render3d.NewPBRDrawBuffer(nil, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), render3d.PBRMaterial{}), false)
+	if err != nil {
+		t.Fatalf("NewPBRDrawBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = draw.Close() })
+
+	lit := render3d.LightWGSLForGroup(3)
+	if strings.Contains(lit, "@group(1)") || !strings.Contains(lit, "@group(3) @binding(0) var<uniform> lights") {
+		t.Fatalf("LightWGSLForGroup(3) did not move the lights binding:\n%s", lit)
+	}
+	src := lit + `
+struct PBRDrawUniform {
+	model: mat4x4<f32>,
+	normal_matrix: mat4x4<f32>,
+	base_color: vec4<f32>,
+	pbr_params: vec4<f32>,
+	emissive: vec4<f32>,
+}
+@group(2) @binding(0) var<uniform> pbr_draw: PBRDrawUniform;
+
+struct VOut {
+	@builtin(position) clip: vec4<f32>,
+	@location(0) world_pos: vec3<f32>,
+	@location(1) normal: vec3<f32>,
+}
+
+@vertex
+fn vs_main(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>) -> VOut {
+	var out: VOut;
+	let world = pbr_draw.model * vec4<f32>(pos, 1.0);
+	out.clip = camera.view_proj * world;
+	out.world_pos = world.xyz;
+	out.normal = (pbr_draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
+	return out;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+	let v = normalize(camera.eye.xyz - in.world_pos);
+	let rgb = shade_pbr(in.world_pos, normalize(in.normal), v, material.tint.rgb, 0.0, 0.5);
+	return vec4<f32>(linear_to_srgb(rgb), 1.0);
+}
+`
+	desc := render3d.CustomShaderDesc{
+		Label:        "lit-custom",
+		Language:     render3d.ShaderWGSL,
+		Source:       src,
+		CameraLayout: camBuf.Layout(),
+		DrawLayout:   draw.Layout(),
+		ExtraLayout:  lights.Layout(),
+		Params:       []render3d.ShaderParamDesc{{Name: "tint", Kind: render3d.ParamColor}},
+	}
+	mat, err := render3d.NewCustomMaterial(nil, dev, desc)
+	if err != nil {
+		t.Fatalf("NewCustomMaterial with lights at group 3: %v", err)
+	}
+	_ = mat.Close()
+
+	desc.DrawLayout = nil
+	if _, err := render3d.NewCustomMaterial(nil, dev, desc); !errors.Is(err, render3d.ErrInvalidCustomMaterial) || !strings.Contains(err.Error(), "DrawLayout") {
+		t.Fatalf("ExtraLayout without DrawLayout: err = %v, want a DrawLayout error", err)
+	}
+}
