@@ -299,6 +299,15 @@ func unlitBuildGLTF(t *testing.T, spec unlitGLTFFixtureSpec) *gltf.Document {
 	return doc
 }
 
+func unlitDefaults(t testing.TB, cx *core.Scope, dev *gpu.Device, retained bool) *render3d.MaterialDefaults {
+	t.Helper()
+	defs, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Label: "unlit-test", Retained: retained})
+	if err != nil {
+		t.Fatalf("NewMaterialDefaults: %v", err)
+	}
+	return defs
+}
+
 func unlitIdentityCameraUniform() render3d.CameraUniform {
 	id := math3d.Mat4Identity()
 	return render3d.CameraUniform{
@@ -321,11 +330,8 @@ func unlitRenderClipSoftware(t *testing.T, size int, mesh render3d.ColoredMesh, 
 	}
 	camBuf.Write(unlitIdentityCameraUniform())
 
-	matLayout, err := render3d.UnlitMaterialBindingLayout(nil, dev)
-	if err != nil {
-		t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-	}
-	gpuMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, mat, render3d.UnlitMaterialOptions{Label: "test"})
+	defs := unlitDefaults(t, nil, dev, false)
+	gpuMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, mat, render3d.MaterialUpload{Label: "test"})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial: %v", err)
 	}
@@ -334,10 +340,8 @@ func unlitRenderClipSoftware(t *testing.T, size int, mesh render3d.ColoredMesh, 
 		t.Fatalf("UploadColoredMesh: %v", err)
 	}
 
-	opts.CameraLayout = camBuf.Layout()
-	opts.MaterialLayout = matLayout
 	opts.DepthFormat = gpu.FormatDepth24Plus
-	pipe, err := render3d.NewUnlitPipeline(nil, dev, opts)
+	pipe, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), opts)
 	if err != nil {
 		t.Fatalf("NewUnlitPipeline: %v", err)
 	}
@@ -539,11 +543,8 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 			t.Fatalf("NewCameraBuffer: %v", err)
 		}
 		camBuf.Write(unlitIdentityCameraUniform())
-		matLayout, err := render3d.UnlitMaterialBindingLayout(nil, dev)
-		if err != nil {
-			t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-		}
-		gpuMat, err := render3d.UploadGLTFUnlitMaterial(nil, dev, matLayout, doc, 0, render3d.UnlitMaterialOptions{})
+		defs := unlitDefaults(t, nil, dev, false)
+		gpuMat, err := render3d.UploadGLTFUnlitMaterial(nil, dev, defs, doc, 0, render3d.GLTFMaterialUpload{})
 		if err != nil {
 			t.Fatalf("UploadGLTFUnlitMaterial: %v", err)
 		}
@@ -555,12 +556,10 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UploadColoredMesh: %v", err)
 		}
-		pipe, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{
-			CameraLayout:   camBuf.Layout(),
-			MaterialLayout: matLayout,
-			AlphaMode:      gpuMat.Material().AlphaMode,
-			DoubleSided:    gpuMat.Material().DoubleSided,
-			DepthFormat:    gpu.FormatDepth24Plus,
+		pipe, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+			AlphaMode:   gpuMat.Material().AlphaMode,
+			DoubleSided: gpuMat.Material().DoubleSided,
+			DepthFormat: gpu.FormatDepth24Plus,
 		})
 		if err != nil {
 			t.Fatalf("NewUnlitPipeline: %v", err)
@@ -636,12 +635,12 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 
 		camBuf, _ := render3d.NewCameraBuffer(nil, dev)
 		camBuf.Write(unlitIdentityCameraUniform())
-		matLayout, _ := render3d.UnlitMaterialBindingLayout(nil, dev)
-		gpuMat, err := render3d.UploadGLTFUnlitMaterial(nil, dev, matLayout, doc, 0, render3d.UnlitMaterialOptions{})
+		defs := unlitDefaults(t, nil, dev, false)
+		gpuMat, err := render3d.UploadGLTFUnlitMaterial(nil, dev, defs, doc, 0, render3d.GLTFMaterialUpload{})
 		if err != nil {
 			t.Fatalf("UploadGLTFUnlitMaterial: %v", err)
 		}
-		if gpuMat.Material().AlphaMode != render3d.UnlitAlphaMask || gpuMat.Material().AlphaCutoff != 0.5 {
+		if gpuMat.Material().AlphaMode != render3d.AlphaMask || gpuMat.Material().AlphaCutoff != 0.5 {
 			t.Fatalf("unexpected mask material: %+v", gpuMat.Material())
 		}
 		cm, err := render3d.ColoredMeshFromGLTF(doc, 0, 0)
@@ -649,11 +648,9 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 			t.Fatalf("ColoredMeshFromGLTF: %v", err)
 		}
 		gpuMesh, _ := render3d.UploadColoredMesh(nil, dev, cm, render3d.MeshUpload{})
-		pipe, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{
-			CameraLayout:   camBuf.Layout(),
-			MaterialLayout: matLayout,
-			AlphaMode:      render3d.UnlitAlphaMask,
-			DepthFormat:    gpu.FormatDepth24Plus,
+		pipe, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+			AlphaMode:   render3d.AlphaMask,
+			DepthFormat: gpu.FormatDepth24Plus,
 		})
 		if err != nil {
 			t.Fatalf("NewUnlitPipeline: %v", err)
@@ -702,7 +699,7 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 			t.Fatalf("UnlitMaterialFromGLTF: %v", err)
 		}
 		img := unlitRenderClipSoftware(t, 32, cm, mat, render3d.UnlitPipelineOptions{
-			AlphaMode: render3d.UnlitAlphaBlend,
+			AlphaMode: render3d.AlphaBlend,
 		})
 		want := render3d.EvaluateUnlit(mat, [4]float32{1, 1, 1, 1}, [4]float32{1, 1, 1, 1}).BlendOver(unlitClearColor)
 		unlitWantPixel(t, img, 16, 16, want, 3)
@@ -736,6 +733,23 @@ func TestUnlitGLTFUnlitAndColor0Fixtures(t *testing.T) {
 		unlitWantPixel(t, imgDouble, 16, 16, want, 2)
 	})
 
+	t.Run("rejects a baseColorTexture without a core image source", func(t *testing.T) {
+		doc := unlitBuildGLTF(t, unlitGLTFFixtureSpec{
+			unlit:           true,
+			baseColorFactor: [4]float32{1, 1, 1, 1},
+			image:           unlitSolidNRGBA(2, 2, color.NRGBA{R: 255, A: 255}),
+		})
+		// A texture whose image comes only from an extension such as KHR_texture_basisu has no core source.
+		doc.Textures[0].Source = -1
+		sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+		defer sr.Close()
+		dev := sr.Device()
+		defs := unlitDefaults(t, nil, dev, false)
+		if _, err := render3d.UploadGLTFUnlitMaterial(nil, dev, defs, doc, 0, render3d.GLTFMaterialUpload{}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
+			t.Fatalf("UploadGLTFUnlitMaterial without an image source = %v, want ErrInvalidUnlitMaterial", err)
+		}
+	})
+
 	t.Run("rejects non-unlit glTF material", func(t *testing.T) {
 		doc := unlitBuildGLTF(t, unlitGLTFFixtureSpec{
 			unlit:           false,
@@ -758,10 +772,7 @@ func TestUnlitKhronosGLTFTestdataSamples(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(32, 32, gpu.FormatDepth24Plus)
 	defer sr.Close()
 	dev := sr.Device()
-	matLayout, err := render3d.UnlitMaterialBindingLayout(nil, dev)
-	if err != nil {
-		t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-	}
+	defs := unlitDefaults(t, nil, dev, false)
 
 	unlitCount := 0
 	for i, m := range ttDoc.Materials {
@@ -776,7 +787,7 @@ func TestUnlitKhronosGLTFTestdataSamples(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UnlitMaterialFromGLTF(%d %s): %v", i, m.Name, err)
 		}
-		gpuMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, um, render3d.UnlitMaterialOptions{Label: m.Name})
+		gpuMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, um, render3d.MaterialUpload{Label: m.Name})
 		if err != nil {
 			t.Fatalf("NewGPUUnlitMaterial(%d %s): %v", i, m.Name, err)
 		}
@@ -786,7 +797,7 @@ func TestUnlitKhronosGLTFTestdataSamples(t *testing.T) {
 		_ = gpuMat.Close()
 		// TestMap.png is intentionally omitted from the testdata checkout; UploadGLTFUnlitMaterial must surface an error wrapping ErrInvalidUnlitMaterial rather than panicking.
 		if m.BaseColorTexture != nil {
-			if _, err := render3d.UploadGLTFUnlitMaterial(nil, dev, matLayout, ttDoc, i, render3d.UnlitMaterialOptions{}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
+			if _, err := render3d.UploadGLTFUnlitMaterial(nil, dev, defs, ttDoc, i, render3d.GLTFMaterialUpload{}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
 				t.Errorf("UploadGLTFUnlitMaterial missing external PNG (%s) = %v, want ErrInvalidUnlitMaterial", m.Name, err)
 			}
 		}
@@ -881,36 +892,27 @@ func TestUnlitSceneMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCameraBuffer: %v", err)
 	}
-	matLayout, err := render3d.UnlitMaterialBindingLayout(nil, dev)
-	if err != nil {
-		t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-	}
+	defs := unlitDefaults(t, nil, dev, false)
 
-	pipeOpaque, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{
-		CameraLayout:   camBuf.Layout(),
-		MaterialLayout: matLayout,
-		AlphaMode:      render3d.UnlitAlphaOpaque,
-		DepthFormat:    gpu.FormatDepth24Plus,
+	pipeOpaque, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+		AlphaMode:   render3d.AlphaOpaque,
+		DepthFormat: gpu.FormatDepth24Plus,
 	})
 	if err != nil {
 		t.Fatalf("NewUnlitPipeline opaque: %v", err)
 	}
-	pipeMaskDS, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{
-		CameraLayout:   camBuf.Layout(),
-		MaterialLayout: matLayout,
-		AlphaMode:      render3d.UnlitAlphaMask,
-		DoubleSided:    true,
-		DepthFormat:    gpu.FormatDepth24Plus,
+	pipeMaskDS, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+		AlphaMode:   render3d.AlphaMask,
+		DoubleSided: true,
+		DepthFormat: gpu.FormatDepth24Plus,
 	})
 	if err != nil {
 		t.Fatalf("NewUnlitPipeline mask: %v", err)
 	}
-	pipeBlend, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{
-		CameraLayout:   camBuf.Layout(),
-		MaterialLayout: matLayout,
-		AlphaMode:      render3d.UnlitAlphaBlend,
-		DoubleSided:    true,
-		DepthFormat:    gpu.FormatDepth24Plus,
+	pipeBlend, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+		AlphaMode:   render3d.AlphaBlend,
+		DoubleSided: true,
+		DepthFormat: gpu.FormatDepth24Plus,
 	})
 	if err != nil {
 		t.Fatalf("NewUnlitPipeline blend: %v", err)
@@ -930,7 +932,7 @@ func TestUnlitSceneMatchesReference(t *testing.T) {
 		t.Fatalf("UploadColoredMesh left: %v", err)
 	}
 	leftMatCfg := render3d.DefaultUnlitMaterial()
-	leftMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, leftMatCfg, render3d.UnlitMaterialOptions{Label: "left-mat"})
+	leftMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, leftMatCfg, render3d.MaterialUpload{Label: "left-mat"})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial left: %v", err)
 	}
@@ -954,7 +956,7 @@ func TestUnlitSceneMatchesReference(t *testing.T) {
 	rightMatCfg.BaseColorFactor = [4]float32{0.95, 0.9, 0.85, 1}
 	rightMatCfg.BaseColorTexture = rightTex
 	rightMatCfg.BaseColorSampler = rightSamp
-	rightMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, rightMatCfg, render3d.UnlitMaterialOptions{Label: "right-mat"})
+	rightMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, rightMatCfg, render3d.MaterialUpload{Label: "right-mat"})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial right: %v", err)
 	}
@@ -974,10 +976,10 @@ func TestUnlitSceneMatchesReference(t *testing.T) {
 	maskMatCfg := render3d.DefaultUnlitMaterial()
 	maskMatCfg.BaseColorTexture = maskTex
 	maskMatCfg.BaseColorSampler = rightSamp
-	maskMatCfg.AlphaMode = render3d.UnlitAlphaMask
+	maskMatCfg.AlphaMode = render3d.AlphaMask
 	maskMatCfg.AlphaCutoff = 0.5
 	maskMatCfg.DoubleSided = true
-	maskMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, maskMatCfg, render3d.UnlitMaterialOptions{Label: "mask-mat"})
+	maskMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, maskMatCfg, render3d.MaterialUpload{Label: "mask-mat"})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial mask: %v", err)
 	}
@@ -996,9 +998,9 @@ func TestUnlitSceneMatchesReference(t *testing.T) {
 	// 4. Translucent glass quad in front of left cube's lower edge.
 	blendMatCfg := render3d.DefaultUnlitMaterial()
 	blendMatCfg.BaseColorFactor = [4]float32{1.0, 0.35, 0.15, 0.45}
-	blendMatCfg.AlphaMode = render3d.UnlitAlphaBlend
+	blendMatCfg.AlphaMode = render3d.AlphaBlend
 	blendMatCfg.DoubleSided = true
-	blendMat, err := render3d.NewGPUUnlitMaterial(nil, dev, matLayout, blendMatCfg, render3d.UnlitMaterialOptions{Label: "blend-mat"})
+	blendMat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, blendMatCfg, render3d.MaterialUpload{Label: "blend-mat"})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial blend: %v", err)
 	}
@@ -1069,15 +1071,15 @@ func unlitViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*nsgote
 	t.Helper()
 	const size = 64
 	var (
-		camBuf    *render3d.CameraBuffer
-		matLayout *gpu.BindGroupLayout
-		tex       *render3d.GPUTexture
-		samp      *render3d.GPUSampler
-		gpuMat    *render3d.GPUUnlitMaterial
-		gpuMesh   *render3d.GPUColoredMesh
-		pipe      *gpu.Pipeline
-		curDev    *gpu.Device
-		frames    int
+		camBuf  *render3d.CameraBuffer
+		defs    *render3d.MaterialDefaults
+		tex     *render3d.GPUTexture
+		samp    *render3d.GPUSampler
+		gpuMat  *render3d.GPUUnlitMaterial
+		gpuMesh *render3d.GPUColoredMesh
+		pipe    *gpu.Pipeline
+		curDev  *gpu.Device
+		frames  int
 	)
 	texColor := color.NRGBA{R: 200, G: 150, B: 100, A: 255}
 	vcol := math3d.Vec4{X: 0.75, Y: 0.5, Z: 1.0, W: 1}
@@ -1098,11 +1100,8 @@ func unlitViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*nsgote
 				}
 				camBuf.Write(unlitIdentityCameraUniform())
 
-				if matLayout == nil || !retained {
-					matLayout, err = render3d.UnlitMaterialBindingLayout(cx, dev)
-					if err != nil {
-						t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-					}
+				if defs == nil || !retained {
+					defs = unlitDefaults(t, cx, dev, retained)
 				}
 				if tex == nil || !retained {
 					tex, err = render3d.UploadTexture(cx, dev, unlitSolidNRGBA(2, 2, texColor), render3d.TextureUpload{
@@ -1127,7 +1126,7 @@ func unlitViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*nsgote
 					m.BaseColorFactor = [4]float32{0.8, 0.9, 0.7, 1.0}
 					m.BaseColorTexture = tex
 					m.BaseColorSampler = samp
-					gpuMat, err = render3d.NewGPUUnlitMaterial(cx, dev, matLayout, m, render3d.UnlitMaterialOptions{
+					gpuMat, err = render3d.NewGPUUnlitMaterial(cx, dev, defs, m, render3d.MaterialUpload{
 						Label:    "unlit-mat",
 						Retained: retained,
 					})
@@ -1144,12 +1143,10 @@ func unlitViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*nsgote
 						t.Fatalf("UploadColoredMesh: %v", err)
 					}
 				}
-				pipe, err = render3d.NewUnlitPipeline(cx, dev, render3d.UnlitPipelineOptions{
-					CameraLayout:   camBuf.Layout(),
-					MaterialLayout: matLayout,
-					AlphaMode:      render3d.UnlitAlphaOpaque,
-					DepthFormat:    gpu.FormatDepth24Plus,
-					Retained:       retained,
+				pipe, err = render3d.NewUnlitPipeline(cx, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{
+					AlphaMode:   render3d.AlphaOpaque,
+					DepthFormat: gpu.FormatDepth24Plus,
+					Retained:    retained,
 				})
 				if err != nil {
 					t.Fatalf("NewUnlitPipeline: %v", err)
@@ -1283,6 +1280,7 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 	var (
 		gpuMesh *render3d.GPUColoredMesh
 		gpuMat  *render3d.GPUUnlitMaterial
+		defs    *render3d.MaterialDefaults
 		show    *core.Signal[bool]
 	)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -1291,11 +1289,9 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 			return gpu.View(cx, gpu.ViewProps{
 				Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)},
 				OnReady: func(dev *gpu.Device) {
-					layout, err := render3d.UnlitMaterialBindingLayout(cx, dev)
-					if err != nil {
-						t.Fatalf("UnlitMaterialBindingLayout: %v", err)
-					}
-					gpuMat, err = render3d.NewGPUUnlitMaterial(cx, dev, layout, render3d.DefaultUnlitMaterial(), render3d.UnlitMaterialOptions{})
+					var err error
+					defs = unlitDefaults(t, cx, dev, false)
+					gpuMat, err = render3d.NewGPUUnlitMaterial(cx, dev, defs, render3d.DefaultUnlitMaterial(), render3d.MaterialUpload{})
 					if err != nil {
 						t.Fatalf("NewGPUUnlitMaterial: %v", err)
 					}
@@ -1314,14 +1310,17 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 	if gpuMesh.ByteSize() != 4*render3d.ColoredVertexStride+12 {
 		t.Errorf("GPUColoredMesh.ByteSize = %d, want %d", gpuMesh.ByteSize(), 4*render3d.ColoredVertexStride+12)
 	}
-	// Fallback 1x1 white sRGB texture (4 bytes) + 32 byte uniform buffer = 36 bytes.
-	if gpuMat.ByteSize() != render3d.UnlitUniformSize+4 {
-		t.Errorf("GPUUnlitMaterial.ByteSize = %d, want %d", gpuMat.ByteSize(), render3d.UnlitUniformSize+4)
+	// The fallback texture and sampler are the shared MaterialDefaults, so only the 32 byte uniform buffer counts.
+	if gpuMat.ByteSize() != render3d.UnlitUniformSize {
+		t.Errorf("GPUUnlitMaterial.ByteSize = %d, want %d", gpuMat.ByteSize(), render3d.UnlitUniformSize)
+	}
+	if !defs.UnlitLayout().Valid() {
+		t.Error("MaterialDefaults.UnlitLayout must be valid while mounted")
 	}
 	app.Post(func() { show.Set(false) })
 	app.Settle()
-	if gpuMesh.Valid() || gpuMat.Valid() {
-		t.Errorf("resources still valid after scope disposal: mesh=%v mat=%v", gpuMesh.Valid(), gpuMat.Valid())
+	if gpuMesh.Valid() || gpuMat.Valid() || defs.UnlitLayout().Valid() {
+		t.Errorf("resources still valid after scope disposal: mesh=%v mat=%v layout=%v", gpuMesh.Valid(), gpuMat.Valid(), defs.UnlitLayout().Valid())
 	}
 
 	// 2. Nil safety and double Close.
@@ -1336,41 +1335,13 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 		t.Error("nil GPUUnlitMaterial methods returned unexpected values")
 	}
 
-	// 3. Validation, Update restrictions, and enum helpers.
-	if render3d.UnlitAlphaOpaque.String() != "opaque" || render3d.UnlitAlphaOpaque.BlendMode() != render3d.BlendOpaque {
-		t.Error("UnlitAlphaOpaque string/blend mismatch")
-	}
-	if render3d.UnlitAlphaMask.String() != "mask" || render3d.UnlitAlphaMask.BlendMode() != render3d.BlendAlphaMask {
-		t.Error("UnlitAlphaMask string/blend mismatch")
-	}
-	if render3d.UnlitAlphaBlend.String() != "blend" || render3d.UnlitAlphaBlend.BlendMode() != render3d.BlendAlphaBlend {
-		t.Error("UnlitAlphaBlend string/blend mismatch")
-	}
-	if render3d.UnlitAlphaMode(99).String() != "unknown" {
-		t.Error("unknown alpha mode String mismatch")
-	}
-
-	sampOpts := render3d.UnlitSamplerFromGLTF(gltf.Sampler{
-		Name:      "nearest-mirror",
-		MagFilter: gltf.FilterNearest,
-		MinFilter: gltf.FilterNearestMipmapLinear,
-		WrapS:     gltf.WrapClampToEdge,
-		WrapT:     gltf.WrapMirroredRepeat,
-	})
-	if err := sampOpts.Validate(); err != nil {
-		t.Fatalf("UnlitSamplerFromGLTF invalid: %v", err)
-	}
-	if sampOpts.MagFilter != gpu.FilterNearest || sampOpts.MinFilter != gpu.FilterNearest ||
-		sampOpts.MipmapFilter != gpu.FilterLinear || sampOpts.AddressU != gpu.AddressClampToEdge ||
-		sampOpts.AddressV != gpu.AddressMirrorRepeat {
-		t.Errorf("UnlitSamplerFromGLTF = %+v", sampOpts)
-	}
-
+	// 3. Validation and Update restrictions.
 	nan := float32(math.NaN())
 	badMats := []render3d.UnlitMaterial{
 		{BaseColorFactor: [4]float32{-0.1, 1, 1, 1}},
 		{BaseColorFactor: [4]float32{nan, 1, 1, 1}},
-		{BaseColorFactor: [4]float32{1, 1, 1, 1}, AlphaMode: render3d.UnlitAlphaMode(9)},
+		{BaseColorFactor: [4]float32{1, 1.5, 1, 1}},
+		{BaseColorFactor: [4]float32{1, 1, 1, 1}, AlphaMode: render3d.AlphaMode(9)},
 		{BaseColorFactor: [4]float32{1, 1, 1, 1}, AlphaCutoff: -0.5},
 		{BaseColorFactor: [4]float32{1, 1, 1, 1}, AlphaCutoff: nan},
 	}
@@ -1383,8 +1354,8 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
 	defer sr.Close()
 	dev := sr.Device()
-	layout, _ := render3d.UnlitMaterialBindingLayout(nil, dev)
-	mat, err := render3d.NewGPUUnlitMaterial(nil, dev, layout, render3d.DefaultUnlitMaterial(), render3d.UnlitMaterialOptions{})
+	defs = unlitDefaults(t, nil, dev, false)
+	mat, err := render3d.NewGPUUnlitMaterial(nil, dev, defs, render3d.DefaultUnlitMaterial(), render3d.MaterialUpload{})
 	if err != nil {
 		t.Fatalf("NewGPUUnlitMaterial: %v", err)
 	}
@@ -1414,19 +1385,26 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 	}
 
 	// Nil device / invalid layout error checks.
-	if _, err := render3d.UnlitMaterialBindingLayout(nil, nil); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Errorf("UnlitMaterialBindingLayout(nil) = %v, want ErrDeviceLost", err)
+	if _, err := render3d.UnlitMaterialBindGroupLayout(nil, nil); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Errorf("UnlitMaterialBindGroupLayout(nil) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewGPUUnlitMaterial(nil, nil, layout, render3d.DefaultUnlitMaterial(), render3d.UnlitMaterialOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
+	if _, err := render3d.NewGPUUnlitMaterial(nil, nil, defs, render3d.DefaultUnlitMaterial(), render3d.MaterialUpload{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("NewGPUUnlitMaterial(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewGPUUnlitMaterial(nil, dev, nil, render3d.DefaultUnlitMaterial(), render3d.UnlitMaterialOptions{}); !errors.Is(err, gpu.ErrInvalidDescriptor) {
-		t.Errorf("NewGPUUnlitMaterial(nil layout) = %v, want ErrInvalidDescriptor", err)
+	if _, err := render3d.NewGPUUnlitMaterial(nil, dev, nil, render3d.DefaultUnlitMaterial(), render3d.MaterialUpload{}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
+		t.Errorf("NewGPUUnlitMaterial(nil defaults) = %v, want ErrInvalidUnlitMaterial", err)
 	}
-	if _, err := render3d.NewUnlitPipeline(nil, nil, render3d.UnlitPipelineOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	if _, err := render3d.NewUnlitPipeline(nil, nil, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("NewUnlitPipeline(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewUnlitPipeline(nil, dev, render3d.UnlitPipelineOptions{AlphaMode: render3d.UnlitAlphaMode(99)}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
+	if _, err := render3d.NewUnlitPipeline(nil, dev, nil, defs.UnlitLayout(), render3d.UnlitPipelineOptions{}); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewUnlitPipeline(nil camera layout) = %v, want ErrInvalidDescriptor", err)
+	}
+	if _, err := render3d.NewUnlitPipeline(nil, dev, camBuf.Layout(), defs.UnlitLayout(), render3d.UnlitPipelineOptions{AlphaMode: render3d.AlphaMode(99)}); !errors.Is(err, render3d.ErrInvalidUnlitMaterial) {
 		t.Errorf("NewUnlitPipeline(bad alpha) = %v, want ErrInvalidUnlitMaterial", err)
 	}
 	if _, err := render3d.UploadColoredMesh(nil, nil, unlitClipQuad(-0.5, -0.5, 0.5, 0.5, nil, false), render3d.MeshUpload{}); !errors.Is(err, gpu.ErrDeviceLost) {
@@ -1440,7 +1418,7 @@ func TestUnlitScopeDisposalValidationAndLifecycle(t *testing.T) {
 func TestAppendUnlitUniformsZeroAlloc(t *testing.T) {
 	mat := render3d.DefaultUnlitMaterial()
 	mat.BaseColorFactor = [4]float32{0.2, 0.4, 0.6, 0.8}
-	mat.AlphaMode = render3d.UnlitAlphaMask
+	mat.AlphaMode = render3d.AlphaMask
 	mat.AlphaCutoff = 0.35
 	dst := make([]byte, 0, render3d.UnlitUniformSize)
 	if allocs := testing.AllocsPerRun(100, func() {
@@ -1456,7 +1434,7 @@ func TestAppendUnlitUniformsZeroAlloc(t *testing.T) {
 func BenchmarkAppendUnlitUniforms(b *testing.B) {
 	mat := render3d.DefaultUnlitMaterial()
 	mat.BaseColorFactor = [4]float32{0.8, 0.5, 0.2, 1.0}
-	mat.AlphaMode = render3d.UnlitAlphaMask
+	mat.AlphaMode = render3d.AlphaMask
 	mat.AlphaCutoff = 0.5
 	dst := make([]byte, 0, render3d.UnlitUniformSize)
 	b.SetBytes(render3d.UnlitUniformSize)

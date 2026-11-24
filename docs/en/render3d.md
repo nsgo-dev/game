@@ -418,7 +418,7 @@ Without anim3d, pose the document with `doc.Animations[i].Apply(doc, t)` and `do
 
 `Material` (aliased as `MetallicRoughnessMaterial`) represents a glTF 2.0 metallic-roughness PBR surface with base color (`BaseColorFactor`, `BaseColorTexture`), metallic-roughness (`MetallicFactor`, `RoughnessFactor`, `MetallicRoughnessTexture` using the glTF G = roughness, B = metallic channel packing), tangent-space normal mapping (`NormalTexture`, `NormalScale`), ambient occlusion (`OcclusionTexture`, `OcclusionStrength`), emissive (`EmissiveFactor`, `EmissiveTexture`), alpha modes (`AlphaOpaque`, `AlphaMask` with `AlphaCutoff`, `AlphaBlend`), and `DoubleSided` back-face normal flipping.
 
-Create one shared `MaterialDefaults` per `gpu.Device` to own the `MaterialGroup` (group 1) bind group layout, default linear-repeat sampler, and 1×1 fallback textures (white sRGB for missing base color, white linear for missing metallic-roughness/occlusion, flat `(128, 128, 255, 255)` for missing normal maps, and black for missing emissive maps). Because every `GPUMaterial` binds those fallbacks for omitted slots, all materials share one bind group layout with zero pipeline permutations:
+Create one shared `MaterialDefaults` per `gpu.Device` to own the `MaterialGroup` (group 1) bind group layout (plus the unlit one, `UnlitLayout`, described under [Unlit materials and vertex colors](#unlit-materials-and-vertex-colors-unlitmaterial-coloredmesh)), default linear-repeat sampler, and 1×1 fallback textures (white sRGB for missing base color, white linear for missing metallic-roughness/occlusion, flat `(128, 128, 255, 255)` for missing normal maps, and black for missing emissive maps). Because every `GPUMaterial` binds those fallbacks for omitted slots, all materials share one bind group layout with zero pipeline permutations:
 
 ```go
 defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
@@ -478,39 +478,39 @@ gpuMesh.Draw(pass)
 
 `ColoredMesh` and `GPUColoredMesh` extend `MeshVertexLayout` (locations 0–2) with a linear RGBA vertex color attribute at `@location(3)` (`ColoredVertexLayout`, stride 48 bytes) for glTF `COLOR_0`. When `Colors` is empty, `AppendVertexData` writes linear opaque white `(1, 1, 1, 1)` per vertex so colored and uncolored meshes share one pipeline. `ColoredMeshFromGLTF` extracts triangle primitives from a `gltf.Document` including `COLOR_0` (expanding VEC3 RGB to alpha `1.0`) and `KHR_texture_transform` UVs on `baseColorTexture`.
 
-`UnlitMaterial`, `GPUUnlitMaterial`, `UnlitWGSL`, and `NewUnlitPipeline` implement glTF `KHR_materials_unlit` surfaces unaffected by scene lighting (`baseColorFactor * baseColorTexture * vertexColor` in linear space, followed by alpha handling and IEC 61966-2-1 linear-to-sRGB encoding):
+`UnlitMaterial`, `GPUUnlitMaterial`, `UnlitWGSL`, and `NewUnlitPipeline` implement glTF `KHR_materials_unlit` surfaces unaffected by scene lighting (`baseColorFactor * baseColorTexture * vertexColor` in linear space, followed by alpha handling and IEC 61966-2-1 linear-to-sRGB encoding). They share the metallic-roughness types where the two overlap: `AlphaMode`, `MaterialGroup` (group 1), `MaterialUpload`, `GLTFMaterialUpload`, `SamplerOptionsFromGLTF`, and the per-device `MaterialDefaults`, which also owns the unlit bind group layout (`MaterialDefaults.UnlitLayout`):
 
 ```go
+defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+
 cm, err := render3d.ColoredMeshFromGLTF(doc, 0, 0)
 gpuMesh, err := render3d.UploadColoredMesh(cx, dev, cm, render3d.MeshUpload{Label: "sign", Retained: true})
 
-matLayout, err := render3d.UnlitMaterialBindingLayout(cx, dev)
-gpuMat, err := render3d.UploadGLTFUnlitMaterial(cx, dev, matLayout, doc, 0, render3d.UnlitMaterialOptions{
+gpuMat, err := render3d.UploadGLTFUnlitMaterial(cx, dev, defaults, doc, 0, render3d.GLTFMaterialUpload{
 	Label:    "sign-unlit",
 	Retained: true,
 })
-pipe, err := render3d.NewUnlitPipeline(cx, dev, render3d.UnlitPipelineOptions{
-	CameraLayout:   camBuf.Layout(),
-	MaterialLayout: matLayout,
-	AlphaMode:      gpuMat.Material().AlphaMode,
-	DoubleSided:    gpuMat.Material().DoubleSided,
-	DepthFormat:    gpu.FormatDepth24Plus,
-	Retained:       true,
+pipe, err := render3d.NewUnlitPipeline(cx, dev, camBuf.Layout(), defaults.UnlitLayout(), render3d.UnlitPipelineOptions{
+	AlphaMode:   gpuMat.Material().AlphaMode,
+	DoubleSided: gpuMat.Material().DoubleSided,
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
 })
 
 // In OnFrame:
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-gpuMat.Bind(pass) // binds @group(1) (UnlitMaterialGroup)
+gpuMat.Bind(pass) // binds @group(1) (MaterialGroup)
 gpuMesh.Draw(pass)
 ```
 
-- **Fallback texture and sampler**: when `UnlitMaterial.BaseColorTexture` or `BaseColorSampler` is nil, `NewGPUUnlitMaterial` binds a material-owned 1×1 white sRGB texture and/or linear-repeat sampler automatically (closed with the material).
-- **Alpha modes and culling**: `UnlitAlphaOpaque` forces output alpha to `1.0` with depth writes enabled; `UnlitAlphaMask` discards fragments with combined alpha `< AlphaCutoff` (default `0.5`) and outputs `1.0`; `UnlitAlphaBlend` enables straight-alpha blending (`gpu.BlendAlpha`) with depth writes disabled. `DoubleSided` switches culling from `gpu.CullBack` to `gpu.CullNone`. `AlphaMode.BlendMode()` maps directly to `Queue`'s `BlendOpaque` / `BlendAlphaMask` / `BlendAlphaBlend`.
-- **Target color space and CPU parity**: `NewUnlitPipeline` selects `fs_main` (linear-to-sRGB in shader) for non-sRGB targets such as `FormatRGBA8Unorm`, and `fs_linear` for hardware sRGB swapchain targets (`TargetFormat.IsSRGB()`) to avoid double gamma encoding. `EvaluateUnlit` provides the matching pure-Go CPU reference (`Linear`, `SRGB`, `Discarded`, `RGBA8()`, `BlendOver()`).
-- **Zero-allocation uniform updates and device-loss recovery**: `AppendUnlitUniforms` writes the 32-byte uniform block with zero allocations when given capacity; `GPUUnlitMaterial.Update(dev, mat)` updates parameters in place without caching a `*gpu.Device` pointer, so materials created with `Retained: true` survive device loss and remain updatable after restoration.
-- **glTF helpers**: `UnlitMaterialFromGLTF` validates that a glTF material declares `KHR_materials_unlit` (returning `ErrInvalidUnlitMaterial` otherwise), `UnlitSamplerFromGLTF` maps glTF filter/wrap enums to `SamplerOptions`, and `UploadGLTFUnlitMaterial` decodes and uploads embedded/external `baseColorTexture` images in sRGB.
-- **Reference renders**: `render3d`'s tests compare a multi-mode unlit + vertex-color scene against `render3d/testdata/golden/unlit_vertex_colors_scene.png` and verify `gpu.View` pixel parity against `EvaluateUnlit` on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles.
+- **Fallback texture and sampler**: when `UnlitMaterial.BaseColorTexture` or `BaseColorSampler` is nil, `NewGPUUnlitMaterial` binds the shared `MaterialDefaults.WhiteSRGB()` texture and `MaterialDefaults.Sampler()`, so textureless unlit materials allocate nothing beyond their 32-byte uniform buffer.
+- **Alpha modes and culling**: `AlphaOpaque` forces output alpha to `1.0` with depth writes enabled; `AlphaMask` discards fragments with combined alpha `< AlphaCutoff` (default `0.5`) and outputs `1.0`; `AlphaBlend` enables straight-alpha blending (`gpu.BlendAlpha`) with depth writes disabled. `DoubleSided` switches culling from `gpu.CullBack` to `gpu.CullNone`. `BaseColorFactor` must lie in `[0, 1]`, as for `Material`.
+- **Target color space and CPU parity**: `NewUnlitPipeline` selects `fs_main` (linear-to-sRGB in shader) for non-sRGB targets such as `FormatRGBA8Unorm`, and `fs_linear` (linear output) for sRGB targets (`ColorFormat.IsSRGB()`, where the hardware encodes on write) or when `LinearOutput` is set for an `HDRTarget`. `NewMaterialPipeline` and the lit PBR pipelines always encode in the shader and do not switch on an sRGB format, so when unlit and PBR draws share a pass, give them a non-sRGB target. `EvaluateUnlit` provides the matching pure-Go CPU reference (`Linear`, `SRGB`, `Discarded`, `RGBA8()`, `BlendOver()`).
+- **Vertex colors are unlit-only**: `ColoredVertexLayout` is used only by `NewUnlitPipeline`. `NewMaterialPipeline` takes `MeshVertexLayout`, so `COLOR_0` on a lit glTF mesh is not drawn yet.
+- **Zero-allocation uniform updates and device-loss recovery**: `AppendUnlitUniforms` writes the 32-byte uniform block with zero allocations when given capacity; `GPUUnlitMaterial.Update(dev, mat)` updates parameters in place without caching a `*gpu.Device` pointer, so materials created with `Retained: true` survive device loss and remain updatable after restoration. NSGo restores a bind group layout only when a restored bind group uses it, so `MaterialDefaults.UnlitLayout()` comes back only while a retained `GPUUnlitMaterial` exists; `MaterialDefaults.Valid` does not cover it.
+- **glTF helpers**: `UnlitMaterialFromGLTF` validates that a glTF material declares `KHR_materials_unlit` (returning `ErrInvalidUnlitMaterial` otherwise). `UploadGLTFUnlitMaterial` decodes and uploads embedded or external `baseColorTexture` images in sRGB with a sampler from `SamplerOptionsFromGLTF` (so a non-mipmapped `minFilter` stays on level 0 even when mipmaps exist) and applies `GLTFMaterialUpload`'s mipmap, anisotropy and `Retained` options as `UploadGLTFMaterials` does. A `baseColorTexture` whose image comes only through an extension such as `KHR_texture_basisu` returns `ErrInvalidUnlitMaterial` instead of drawing white.
+- **Reference renders**: `render3d`'s tests draw the Khronos `UnlitTest` sample end to end (loader, `ColoredMeshFromGLTF`, `UploadGLTFUnlitMaterial`, `NewUnlitPipeline`) and require every covered pixel to be the sample's flat `#FF7F00` or `#007FFF`, compare a multi-mode unlit + vertex-color scene against `render3d/testdata/golden/unlit_vertex_colors_scene.png`, and verify `gpu.View` pixel parity against `EvaluateUnlit` on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles.
 
 ## Budgeted async GPU uploads (`Uploader`)
 

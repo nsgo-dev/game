@@ -14,9 +14,7 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// Interleaved vertex layout written by [ColoredMesh.AppendVertexData] and described by [ColoredVertexLayout].
-// Locations 0..2 match [MeshVertexLayout] identically, extended with linear RGBA vertex color at @location(3).
-// Missing normals and UVs are written as zeros; missing vertex colors are written as linear white (1, 1, 1, 1).
+// Interleaved vertex layout written by [ColoredMesh.AppendVertexData] and described by [ColoredVertexLayout]. Locations 0..2 match [MeshVertexLayout] identically, extended with linear RGBA vertex color at @location(3). Missing normals and UVs are written as zeros; missing vertex colors are written as linear white (1, 1, 1, 1).
 const (
 	// ColoredVertexStride is the byte size of one interleaved colored vertex: position (12), normal (12), UV (8), and linear RGBA color (16).
 	ColoredVertexStride = 48
@@ -40,15 +38,10 @@ const (
 	ColoredColorLocation = 3
 )
 
-const (
-	// UnlitMaterialGroup is the bind group index reserved by [UnlitWGSL] and [GPUUnlitMaterial.Bind] for unlit material uniforms, base color texture, and sampler, placed alongside [CameraGroup] at group 0.
-	UnlitMaterialGroup = 1
-
-	// UnlitUniformSize is the byte size of the unlit material uniform block written by [AppendUnlitUniforms] and declared by [UnlitWGSL]:
-	//   base_color_factor: vec4<f32> (16 bytes, offset 0)
-	//   params:            vec4<f32> (16 bytes, offset 16) — (alpha_cutoff, alpha_mode, use_vertex_color, 0)
-	UnlitUniformSize = 32
-)
+// UnlitUniformSize is the byte size of the unlit material uniform block written by [AppendUnlitUniforms] and declared by [UnlitWGSL]:
+//   - base_color_factor: vec4<f32> (16 bytes, offset 0)
+//   - params: vec4<f32> (16 bytes, offset 16) holding (alpha_cutoff, alpha_mode, use_vertex_color, 0)
+const UnlitUniformSize = 32
 
 // ErrInvalidUnlitMaterial is wrapped by every error returned when validating, converting, creating, or updating an unlit material or unlit pipeline.
 var ErrInvalidUnlitMaterial = errors.New("render3d: invalid unlit material")
@@ -390,63 +383,21 @@ func (g *GPUColoredMesh) Close() error {
 	return err
 }
 
-// UnlitAlphaMode controls how an [UnlitMaterial] interprets its combined alpha channel, matching the glTF 2.0 alphaMode specification.
-type UnlitAlphaMode uint8
-
-const (
-	// UnlitAlphaOpaque ignores alpha and outputs alpha = 1.0 with depth writes enabled.
-	UnlitAlphaOpaque UnlitAlphaMode = iota
-	// UnlitAlphaMask discards fragments whose combined alpha is strictly less than AlphaCutoff and outputs alpha = 1.0 for surviving fragments.
-	UnlitAlphaMask
-	// UnlitAlphaBlend blends fragments using straight-alpha blending ([gpu.BlendAlpha]) with depth writes disabled.
-	UnlitAlphaBlend
-)
-
-// String returns a human-readable name for m.
-func (m UnlitAlphaMode) String() string {
-	switch m {
-	case UnlitAlphaOpaque:
-		return "opaque"
-	case UnlitAlphaMask:
-		return "mask"
-	case UnlitAlphaBlend:
-		return "blend"
-	default:
-		return "unknown"
-	}
-}
-
-// BlendMode converts m to the matching [render3d.BlendMode] for [Queue] sorting and batching.
-func (m UnlitAlphaMode) BlendMode() BlendMode {
-	switch m {
-	case UnlitAlphaMask:
-		return BlendAlphaMask
-	case UnlitAlphaBlend:
-		return BlendAlphaBlend
-	default:
-		return BlendOpaque
-	}
-}
-
-func validUnlitAlphaMode(m UnlitAlphaMode) bool {
-	return m == UnlitAlphaOpaque || m == UnlitAlphaMask || m == UnlitAlphaBlend
-}
-
 // UnlitMaterial describes a glTF KHR_materials_unlit surface: flat color unaffected by scene lighting, computed in linear space as
 //
 //	baseColor = BaseColorFactor * baseColorTexture(uv) * vertexColor
 //
-// where BaseColorTexture defaults to a 1x1 white sRGB texture when nil and vertexColor is COLOR_0 (or linear white (1, 1, 1, 1) when UseVertexColor is false or the mesh has no vertex colors).
+// where BaseColorTexture defaults to [MaterialDefaults.WhiteSRGB] when nil and vertexColor is COLOR_0 (or linear white (1, 1, 1, 1) when UseVertexColor is false or the mesh has no vertex colors).
 type UnlitMaterial struct {
-	// BaseColorFactor is the linear RGBA multiplier applied to the texture and vertex color. Use [DefaultUnlitMaterial] for the glTF default [1, 1, 1, 1].
+	// BaseColorFactor is the linear RGBA multiplier applied to the texture and vertex color, each component in [0, 1] as glTF 2.0 requires. Use [DefaultUnlitMaterial] for the glTF default [1, 1, 1, 1].
 	BaseColorFactor [4]float32
-	// BaseColorTexture is an optional base-color texture (typically uploaded with TextureUpload{SRGB: true}). When nil, [NewGPUUnlitMaterial] binds a 1x1 white sRGB fallback texture.
+	// BaseColorTexture is an optional base-color texture (typically uploaded with TextureUpload{SRGB: true}). When nil, [NewGPUUnlitMaterial] binds the shared [MaterialDefaults.WhiteSRGB] texture.
 	BaseColorTexture *GPUTexture
-	// BaseColorSampler is an optional sampler for BaseColorTexture. When nil, [NewGPUUnlitMaterial] binds a default linear-repeat sampler.
+	// BaseColorSampler is an optional sampler for BaseColorTexture. When nil, [NewGPUUnlitMaterial] binds the shared [MaterialDefaults.Sampler].
 	BaseColorSampler *GPUSampler
 	// AlphaMode selects opaque, alpha-masked cutout, or alpha-blended transparency.
-	AlphaMode UnlitAlphaMode
-	// AlphaCutoff is the discard threshold for [UnlitAlphaMask] (default 0.5). Fragments with combined alpha < AlphaCutoff are discarded.
+	AlphaMode AlphaMode
+	// AlphaCutoff is the discard threshold for [AlphaMask] (default 0.5). Fragments with combined alpha < AlphaCutoff are discarded.
 	AlphaCutoff float32
 	// DoubleSided disables back-face culling when building a pipeline for this material.
 	DoubleSided bool
@@ -454,11 +405,11 @@ type UnlitMaterial struct {
 	UseVertexColor bool
 }
 
-// DefaultUnlitMaterial returns the glTF 2.0 KHR_materials_unlit defaults: opaque white BaseColorFactor [1, 1, 1, 1], AlphaMode UnlitAlphaOpaque, AlphaCutoff 0.5, single-sided, and UseVertexColor enabled.
+// DefaultUnlitMaterial returns the glTF 2.0 KHR_materials_unlit defaults: opaque white BaseColorFactor [1, 1, 1, 1], AlphaMode [AlphaOpaque], AlphaCutoff 0.5, single-sided, and UseVertexColor enabled.
 func DefaultUnlitMaterial() UnlitMaterial {
 	return UnlitMaterial{
 		BaseColorFactor: [4]float32{1, 1, 1, 1},
-		AlphaMode:       UnlitAlphaOpaque,
+		AlphaMode:       AlphaOpaque,
 		AlphaCutoff:     0.5,
 		UseVertexColor:  true,
 	}
@@ -483,11 +434,11 @@ func (m UnlitMaterial) Validate() error {
 
 func (m UnlitMaterial) validateUniforms() error {
 	for i, c := range m.BaseColorFactor {
-		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: BaseColorFactor[%d] = %v must be finite and non-negative", ErrInvalidUnlitMaterial, i, c)
+		if !finite(c) || c < 0 || c > 1 {
+			return fmt.Errorf("%w: BaseColorFactor[%d] = %v must be finite in [0, 1]", ErrInvalidUnlitMaterial, i, c)
 		}
 	}
-	if !validUnlitAlphaMode(m.AlphaMode) {
+	if !validAlphaMode(m.AlphaMode) {
 		return fmt.Errorf("%w: invalid alpha mode %d", ErrInvalidUnlitMaterial, m.AlphaMode)
 	}
 	if !finite(m.AlphaCutoff) || m.AlphaCutoff < 0 {
@@ -530,9 +481,9 @@ func UnlitMaterialFromGLTF(doc *gltf.Document, matIndex int, tex *GPUTexture, sa
 	if !gm.Unlit {
 		return UnlitMaterial{}, fmt.Errorf("%w: glTF material %d (%q) does not declare KHR_materials_unlit", ErrInvalidUnlitMaterial, matIndex, gm.Name)
 	}
-	alphaMode, err := unlitAlphaModeFromGLTF(gm.AlphaMode)
+	alphaMode, err := AlphaModeFromGLTF(gm.AlphaMode)
 	if err != nil {
-		return UnlitMaterial{}, err
+		return UnlitMaterial{}, fmt.Errorf("%w: glTF material %d (%q): %w", ErrInvalidUnlitMaterial, matIndex, gm.Name, err)
 	}
 	mat := UnlitMaterial{
 		BaseColorFactor: [4]float32{
@@ -554,74 +505,11 @@ func UnlitMaterialFromGLTF(doc *gltf.Document, matIndex int, tex *GPUTexture, sa
 	return mat, nil
 }
 
-func unlitAlphaModeFromGLTF(mode gltf.AlphaMode) (UnlitAlphaMode, error) {
-	switch mode {
-	case "", gltf.AlphaOpaque:
-		return UnlitAlphaOpaque, nil
-	case gltf.AlphaMask:
-		return UnlitAlphaMask, nil
-	case gltf.AlphaBlend:
-		return UnlitAlphaBlend, nil
-	default:
-		return 0, fmt.Errorf("%w: unsupported glTF alphaMode %q", ErrInvalidUnlitMaterial, mode)
-	}
-}
-
-// UnlitSamplerFromGLTF converts a [gltf.Sampler] into [SamplerOptions] suitable for [NewGPUSampler], defaulting unset filter modes to linear and unset wrap modes to repeat per the glTF 2.0 specification.
-func UnlitSamplerFromGLTF(s gltf.Sampler) SamplerOptions {
-	opts := SamplerLinearRepeat()
-	opts.Label = s.Name
-	switch s.MagFilter {
-	case gltf.FilterNearest:
-		opts.MagFilter = gpu.FilterNearest
-	case gltf.FilterLinear, 0:
-		opts.MagFilter = gpu.FilterLinear
-	}
-	switch s.MinFilter {
-	case gltf.FilterNearest, gltf.FilterNearestMipmapNearest:
-		opts.MinFilter = gpu.FilterNearest
-		opts.MipmapFilter = gpu.FilterNearest
-	case gltf.FilterNearestMipmapLinear:
-		opts.MinFilter = gpu.FilterNearest
-		opts.MipmapFilter = gpu.FilterLinear
-	case gltf.FilterLinearMipmapNearest:
-		opts.MinFilter = gpu.FilterLinear
-		opts.MipmapFilter = gpu.FilterNearest
-	case gltf.FilterLinear, gltf.FilterLinearMipmapLinear, 0:
-		opts.MinFilter = gpu.FilterLinear
-		opts.MipmapFilter = gpu.FilterLinear
-	}
-	opts.AddressU = gltfWrapToGPU(s.WrapS)
-	opts.AddressV = gltfWrapToGPU(s.WrapT)
-	return opts
-}
-
-func gltfWrapToGPU(w gltf.WrapMode) gpu.AddressMode {
-	switch w {
-	case gltf.WrapClampToEdge:
-		return gpu.AddressClampToEdge
-	case gltf.WrapMirroredRepeat:
-		return gpu.AddressMirrorRepeat
-	default:
-		return gpu.AddressRepeat
-	}
-}
-
-// UnlitMaterialOptions configures [NewGPUUnlitMaterial] and [UploadGLTFUnlitMaterial].
-type UnlitMaterialOptions struct {
-	// Label names the material's uniform buffer, bind group, and any fallback resources in GPU capture tools.
-	Label string
-	// Retained keeps CPU shadow copies of the uniform buffer and any material-owned fallback or decoded texture/sampler so NSGo recreates the material and its bind group after a device loss. Caller-supplied BaseColorTexture and BaseColorSampler must also be created with Retained: true for the bind group to restore automatically.
-	Retained bool
-	// Mipmaps enables CPU linear-light mipmap generation when [UploadGLTFUnlitMaterial] uploads a decoded glTF baseColorTexture.
-	Mipmaps bool
-}
-
-// UnlitMaterialBindingLayout creates the [gpu.BindGroupLayout] expected at [UnlitMaterialGroup] (@group(1)) by [UnlitWGSL]:
+// UnlitMaterialBindGroupLayout creates the [gpu.BindGroupLayout] expected at [MaterialGroup] (@group(1)) by [UnlitWGSL]. [NewMaterialDefaults] creates one per device and shares it through [MaterialDefaults.UnlitLayout]; call this only to build a custom pipeline layout.
 //   - binding 0: uniform buffer ([UnlitUniformSize] bytes, vertex & fragment visible)
 //   - binding 1: sampled 2D base-color texture (fragment visible)
 //   - binding 2: sampler (fragment visible)
-func UnlitMaterialBindingLayout(cx *core.Scope, dev *gpu.Device) (*gpu.BindGroupLayout, error) {
+func UnlitMaterialBindGroupLayout(cx *core.Scope, dev *gpu.Device) (*gpu.BindGroupLayout, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -635,15 +523,15 @@ func UnlitMaterialBindingLayout(cx *core.Scope, dev *gpu.Device) (*gpu.BindGroup
 	})
 }
 
-// GPUUnlitMaterial holds the GPU uniform buffer, bind group, and any fallback 1x1 white sRGB texture or default sampler for an [UnlitMaterial].
+// GPUUnlitMaterial holds the GPU uniform buffer and [MaterialGroup] bind group for an [UnlitMaterial]. A nil base color texture or sampler binds the shared fallbacks of the [MaterialDefaults] it was created with.
 //
 // Its resources belong to the [core.Scope] passed at creation and are released when that scope is disposed or when [GPUUnlitMaterial.Close] is called. It does not cache a [*gpu.Device] pointer, so a retained material remains updatable via [GPUUnlitMaterial.Update] after a device loss and restore.
 type GPUUnlitMaterial struct {
 	mat       UnlitMaterial
-	boundTex  *GPUTexture // caller-provided texture (nil if fallback ownedTex is used)
-	boundSamp *GPUSampler // caller-provided sampler (nil if fallback ownedSamp is used)
-	ownedTex  *GPUTexture // fallback or glTF-decoded texture closed with this material
-	ownedSamp *GPUSampler // fallback or glTF-created sampler closed with this material
+	boundTex  *GPUTexture // caller-provided texture (nil when the defaults' white texture is bound)
+	boundSamp *GPUSampler // caller-provided sampler (nil when the defaults' sampler is bound)
+	ownedTex  *GPUTexture // glTF-decoded texture closed with this material
+	ownedSamp *GPUSampler // glTF-created sampler closed with this material
 	tex       *GPUTexture // effective texture bound in group
 	samp      *GPUSampler // effective sampler bound in group
 	buf       *gpu.Buffer
@@ -651,85 +539,59 @@ type GPUUnlitMaterial struct {
 	scratch   [UnlitUniformSize]byte
 }
 
-// NewGPUUnlitMaterial validates mat, uploads its uniform block, allocates a 1x1 white sRGB fallback texture and/or default linear-repeat sampler whenever BaseColorTexture or BaseColorSampler is nil, and creates a bind group matching layout (from [UnlitMaterialBindingLayout]).
-func NewGPUUnlitMaterial(cx *core.Scope, dev *gpu.Device, layout *gpu.BindGroupLayout, mat UnlitMaterial, opts UnlitMaterialOptions) (*GPUUnlitMaterial, error) {
-	if err := mat.Validate(); err != nil {
+// NewGPUUnlitMaterial validates m, uploads its uniform block, and creates a bind group on [MaterialDefaults.UnlitLayout], owned by cx. A nil BaseColorTexture or BaseColorSampler binds [MaterialDefaults.WhiteSRGB] or [MaterialDefaults.Sampler]. Invalid parameters or handles return an error wrapping [ErrInvalidUnlitMaterial] before any GPU object is created.
+func NewGPUUnlitMaterial(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, m UnlitMaterial, opts MaterialUpload) (*GPUUnlitMaterial, error) {
+	if err := m.Validate(); err != nil {
 		return nil, err
 	}
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	if layout == nil || !layout.Valid() {
-		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid unlit material bind group layout"}
+	if !defaults.Valid() || !defaults.UnlitLayout().Valid() {
+		return nil, fmt.Errorf("%w: material defaults are not valid", ErrInvalidUnlitMaterial)
 	}
-	return newGPUUnlitMaterialWithOwnership(cx, dev, layout, mat, opts, false, false)
+	return newGPUUnlitMaterial(cx, dev, defaults, m, opts, nil, nil)
 }
 
-func newGPUUnlitMaterialWithOwnership(cx *core.Scope, dev *gpu.Device, layout *gpu.BindGroupLayout, mat UnlitMaterial, opts UnlitMaterialOptions, ownTex, ownSamp bool) (*GPUUnlitMaterial, error) {
+// newGPUUnlitMaterial creates the material's uniform buffer and bind group; ownedTex and ownedSamp, when non-nil, are m's texture and sampler and are closed with the material (or here, on failure).
+func newGPUUnlitMaterial(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, m UnlitMaterial, opts MaterialUpload, ownedTex *GPUTexture, ownedSamp *GPUSampler) (*GPUUnlitMaterial, error) {
 	label := opts.Label
 	if label == "" {
 		label = "render3d.unlit"
 	}
-
-	var (
-		ownedTex  *GPUTexture
-		ownedSamp *GPUSampler
-		tex       = mat.BaseColorTexture
-		samp      = mat.BaseColorSampler
-		err       error
-	)
-	if ownTex {
-		ownedTex = tex
-	}
-	if ownSamp {
-		ownedSamp = samp
-	}
-
-	cleanup := func() {
+	cleanup := func(err error) (*GPUUnlitMaterial, error) {
 		if ownedTex != nil {
 			_ = ownedTex.Close()
 		}
 		if ownedSamp != nil {
 			_ = ownedSamp.Close()
 		}
+		return nil, err
 	}
 
+	tex := m.BaseColorTexture
 	if tex == nil {
-		ownedTex, err = uploadUnlitWhiteTexture(cx, dev, label+" white", opts.Retained)
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
-		tex = ownedTex
+		tex = defaults.WhiteSRGB()
 	}
+	samp := m.BaseColorSampler
 	if samp == nil {
-		sampOpts := SamplerLinearRepeat()
-		sampOpts.Label = label + " sampler"
-		sampOpts.Retained = opts.Retained
-		ownedSamp, err = NewGPUSampler(cx, dev, sampOpts)
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
-		samp = ownedSamp
+		samp = defaults.Sampler()
 	}
 
 	var initial [UnlitUniformSize]byte
-	data := AppendUnlitUniforms(initial[:0], mat)
 	buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
 		Label:    label + " uniforms",
 		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Data:     data,
+		Data:     AppendUnlitUniforms(initial[:0], m),
 		Retained: opts.Retained,
 	})
 	if err != nil {
-		cleanup()
-		return nil, err
+		return cleanup(err)
 	}
 
 	group, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
 		Label:  label + " bindgroup",
-		Layout: layout,
+		Layout: defaults.UnlitLayout(),
 		Entries: []gpu.BindGroupEntry{
 			{Binding: 0, Buffer: buf, Size: UnlitUniformSize},
 			{Binding: 1, Texture: tex.Texture()},
@@ -738,43 +600,28 @@ func newGPUUnlitMaterialWithOwnership(cx *core.Scope, dev *gpu.Device, layout *g
 	})
 	if err != nil {
 		_ = buf.Close()
-		cleanup()
-		return nil, err
+		return cleanup(err)
 	}
 
-	m := &GPUUnlitMaterial{
-		mat:       mat,
-		boundTex:  mat.BaseColorTexture,
-		boundSamp: mat.BaseColorSampler,
+	return &GPUUnlitMaterial{
+		mat:       m,
+		boundTex:  m.BaseColorTexture,
+		boundSamp: m.BaseColorSampler,
 		ownedTex:  ownedTex,
 		ownedSamp: ownedSamp,
 		tex:       tex,
 		samp:      samp,
 		buf:       buf,
 		group:     group,
-	}
-	return m, nil
+	}, nil
 }
 
-func uploadUnlitWhiteTexture(cx *core.Scope, dev *gpu.Device, label string, retained bool) (*GPUTexture, error) {
-	white := PixelBuffer{
-		Width:  1,
-		Height: 1,
-		Stride: 4,
-		Format: gpu.FormatRGBA8UnormSRGB,
-		Pixels: []byte{255, 255, 255, 255},
-	}
-	return UploadTexturePixels(cx, dev, white, TextureUpload{
-		Label:    label,
-		SRGB:     true,
-		Retained: retained,
-	})
-}
-
-// UploadGLTFUnlitMaterial extracts a KHR_materials_unlit material from doc.Materials[matIndex], decodes and uploads its baseColorTexture as an sRGB [GPUTexture] and matching [GPUSampler] when present (or falls back to the 1x1 white sRGB texture), and creates a scope-owned [GPUUnlitMaterial].
+// UploadGLTFUnlitMaterial extracts a KHR_materials_unlit material from doc.Materials[matIndex], decodes and uploads its baseColorTexture as an sRGB [GPUTexture] with a sampler converted by [SamplerOptionsFromGLTF] (the glTF default sampler when the texture names none), and creates a scope-owned [GPUUnlitMaterial]. Without a baseColorTexture the material binds the fallbacks of defaults.
 //
-// Any texture or sampler decoded by this helper is owned by the returned [GPUUnlitMaterial] and closed when [GPUUnlitMaterial.Close] is called.
-func UploadGLTFUnlitMaterial(cx *core.Scope, dev *gpu.Device, layout *gpu.BindGroupLayout, doc *gltf.Document, matIndex int, opts UnlitMaterialOptions) (*GPUUnlitMaterial, error) {
+// opts applies as in [UploadGLTFMaterials]: Label prefixes the debug labels, Mipmaps forces mipmaps, DisableMipmaps turns them off, mipmaps are otherwise generated when the sampler's minFilter is mipmapped or unset, and MaxMipLevels, MaxAnisotropy and Retained carry over. The decoded texture and created sampler are owned by the returned material and closed with it.
+//
+// A baseColorTexture whose image comes only from an extension (such as KHR_texture_basisu or EXT_texture_webp, which glTF expresses as a texture without a source) returns an error wrapping [ErrInvalidUnlitMaterial] instead of silently drawing white.
+func UploadGLTFUnlitMaterial(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, doc *gltf.Document, matIndex int, opts GLTFMaterialUpload) (*GPUUnlitMaterial, error) {
 	baseMat, err := UnlitMaterialFromGLTF(doc, matIndex, nil, nil)
 	if err != nil {
 		return nil, err
@@ -782,8 +629,8 @@ func UploadGLTFUnlitMaterial(cx *core.Scope, dev *gpu.Device, layout *gpu.BindGr
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	if layout == nil || !layout.Valid() {
-		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid unlit material bind group layout"}
+	if !defaults.Valid() || !defaults.UnlitLayout().Valid() {
+		return nil, fmt.Errorf("%w: material defaults are not valid", ErrInvalidUnlitMaterial)
 	}
 
 	gm := doc.Materials[matIndex]
@@ -794,57 +641,59 @@ func UploadGLTFUnlitMaterial(cx *core.Scope, dev *gpu.Device, layout *gpu.BindGr
 		} else {
 			label = fmt.Sprintf("gltf.unlit.%d", matIndex)
 		}
-		opts.Label = label
+	}
+	upload := MaterialUpload{Label: label, Retained: opts.Retained}
+	if gm.BaseColorTexture == nil {
+		return newGPUUnlitMaterial(cx, dev, defaults, baseMat, upload, nil, nil)
 	}
 
-	var (
-		tex     *GPUTexture
-		samp    *GPUSampler
-		ownTex  bool
-		ownSamp bool
-	)
-	if gm.BaseColorTexture != nil {
-		texIdx := gm.BaseColorTexture.TextureIndex
-		if texIdx < 0 || texIdx >= len(doc.Textures) {
-			return nil, fmt.Errorf("%w: glTF texture index %d out of range [0, %d)", ErrInvalidUnlitMaterial, texIdx, len(doc.Textures))
-		}
-		gt := doc.Textures[texIdx]
-		if gt.Source >= 0 {
-			img, err := doc.DecodeImage(gt.Source)
-			if err != nil {
-				return nil, fmt.Errorf("%w: decode baseColorTexture image %d: %v", ErrInvalidUnlitMaterial, gt.Source, err)
-			}
-			tex, err = UploadTexture(cx, dev, img, TextureUpload{
-				Label:    label + " baseColor",
-				SRGB:     true,
-				Mipmaps:  opts.Mipmaps,
-				Retained: opts.Retained,
-			})
-			if err != nil {
-				return nil, err
-			}
-			ownTex = true
-		}
-		if gt.Sampler >= 0 && gt.Sampler < len(doc.Samplers) {
-			sampOpts := UnlitSamplerFromGLTF(doc.Samplers[gt.Sampler])
-			if sampOpts.Label == "" {
-				sampOpts.Label = label + " sampler"
-			}
-			sampOpts.Retained = opts.Retained
-			samp, err = NewGPUSampler(cx, dev, sampOpts)
-			if err != nil {
-				if tex != nil {
-					_ = tex.Close()
-				}
-				return nil, err
-			}
-			ownSamp = true
-		}
+	texIdx := gm.BaseColorTexture.TextureIndex
+	if texIdx < 0 || texIdx >= len(doc.Textures) {
+		return nil, fmt.Errorf("%w: glTF texture index %d out of range [0, %d)", ErrInvalidUnlitMaterial, texIdx, len(doc.Textures))
 	}
+	gt := doc.Textures[texIdx]
+	if gt.Source < 0 || gt.Source >= len(doc.Images) {
+		return nil, fmt.Errorf("%w: glTF texture %d has no core image source (index %d, %d images); images supplied only through a texture extension are not supported", ErrInvalidUnlitMaterial, texIdx, gt.Source, len(doc.Images))
+	}
+	if gt.Sampler < -1 || gt.Sampler >= len(doc.Samplers) {
+		return nil, fmt.Errorf("%w: glTF texture %d sampler index %d out of range [-1, %d)", ErrInvalidUnlitMaterial, texIdx, gt.Sampler, len(doc.Samplers))
+	}
+	gs := gltf.Sampler{}
+	if gt.Sampler >= 0 {
+		gs = doc.Samplers[gt.Sampler]
+	}
+	sampOpts, wantMipmaps, err := SamplerOptionsFromGLTF(gs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: glTF sampler %d: %w", ErrInvalidUnlitMaterial, gt.Sampler, err)
+	}
+	if opts.MaxAnisotropy > 1 && sampOpts.MinFilter == gpu.FilterLinear && sampOpts.MagFilter == gpu.FilterLinear && sampOpts.MipmapFilter == gpu.FilterLinear {
+		sampOpts.MaxAnisotropy = opts.MaxAnisotropy
+	}
+	sampOpts.Label = label + " sampler"
+	sampOpts.Retained = opts.Retained
 
+	img, err := doc.DecodeImage(gt.Source)
+	if err != nil {
+		return nil, fmt.Errorf("%w: decode baseColorTexture image %d: %w", ErrInvalidUnlitMaterial, gt.Source, err)
+	}
+	tex, err := UploadTexture(cx, dev, img, TextureUpload{
+		Label:        label + " baseColor",
+		SRGB:         true,
+		Mipmaps:      !opts.DisableMipmaps && (opts.Mipmaps || wantMipmaps),
+		MaxMipLevels: opts.MaxMipLevels,
+		Retained:     opts.Retained,
+	})
+	if err != nil {
+		return nil, err
+	}
+	samp, err := NewGPUSampler(cx, dev, sampOpts)
+	if err != nil {
+		_ = tex.Close()
+		return nil, err
+	}
 	baseMat.BaseColorTexture = tex
 	baseMat.BaseColorSampler = samp
-	return newGPUUnlitMaterialWithOwnership(cx, dev, layout, baseMat, opts, ownTex, ownSamp)
+	return newGPUUnlitMaterial(cx, dev, defaults, baseMat, upload, tex, samp)
 }
 
 // Update writes updated uniform parameters (BaseColorFactor, AlphaMode, AlphaCutoff, DoubleSided, UseVertexColor) to the GPU uniform buffer with zero allocations.
@@ -900,7 +749,7 @@ func (m *GPUUnlitMaterial) BindGroup() *gpu.BindGroup {
 	return m.group
 }
 
-// ByteSize returns the GPU memory held by m's uniform buffer and any material-owned fallback or decoded texture. It is zero for a nil receiver.
+// ByteSize returns the GPU memory held by m's uniform buffer and the glTF-decoded texture it owns (the shared [MaterialDefaults] are counted there). It is zero for a nil receiver.
 func (m *GPUUnlitMaterial) ByteSize() uint64 {
 	if m == nil {
 		return 0
@@ -923,9 +772,9 @@ func (m *GPUUnlitMaterial) Valid() bool {
 	return m.tex.Valid() && m.samp.Valid()
 }
 
-// Bind binds m's bind group at [UnlitMaterialGroup] (group 1) on pass. It records nothing when m is not [GPUUnlitMaterial.Valid].
+// Bind binds m's bind group at [MaterialGroup] (group 1) on pass. It records nothing when m is not [GPUUnlitMaterial.Valid].
 func (m *GPUUnlitMaterial) Bind(pass *gpu.RenderPass) {
-	m.BindAt(pass, UnlitMaterialGroup)
+	m.BindAt(pass, MaterialGroup)
 }
 
 // BindAt binds m's bind group at group on pass. It records nothing when m is not [GPUUnlitMaterial.Valid].
@@ -936,7 +785,7 @@ func (m *GPUUnlitMaterial) BindAt(pass *gpu.RenderPass, group uint32) {
 	pass.SetBindGroup(group, m.group)
 }
 
-// Close releases the material's bind group, uniform buffer, and any material-owned fallback or glTF-decoded texture and sampler (leaving caller-supplied textures and samplers untouched). Safe to call on a nil receiver or more than once.
+// Close releases the material's bind group, uniform buffer, and any glTF-decoded texture and sampler it owns (leaving caller-supplied textures and samplers and the shared [MaterialDefaults] untouched). Safe to call on a nil receiver or more than once.
 func (m *GPUUnlitMaterial) Close() error {
 	if m == nil {
 		return nil
@@ -961,13 +810,14 @@ func (m *GPUUnlitMaterial) Close() error {
 //
 // Bind groups:
 //   - @group(0) @binding(0): [CameraWGSL] camera uniform block ([CameraBuffer])
-//   - @group(1) @binding(0..2): UnlitUniforms, base-color texture, and sampler ([UnlitMaterialBindingLayout])
+//   - @group(1) @binding(0..2): UnlitUniforms, base-color texture, and sampler ([MaterialDefaults.UnlitLayout] at [MaterialGroup])
 //
 // Vertex inputs match [ColoredVertexLayout] (@location(0) pos, @location(1) normal, @location(2) uv, @location(3) color).
+//
 // Entry points:
 //   - "vs_main": transforms positions by camera.view_proj and forwards UV and linear vertex color
 //   - "fs_main": evaluates baseColorFactor * baseColorTexture * vertexColor, applies alpha-mask discard and alpha mode, and encodes linear RGB to sRGB (for non-sRGB targets such as FormatRGBA8Unorm)
-//   - "fs_linear": evaluates the same unlit color and outputs linear RGBA directly (for sRGB hardware swapchain targets where the GPU encodes linear -> sRGB on write)
+//   - "fs_linear": evaluates the same unlit color and outputs linear RGBA directly (for sRGB targets, where the GPU encodes linear -> sRGB on write, and for [UnlitPipelineOptions].LinearOutput)
 const UnlitWGSL = CameraWGSL + `
 struct UnlitUniforms {
 	base_color_factor: vec4<f32>,
@@ -1057,89 +907,82 @@ fn fs_linear(in: UnlitVertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-// UnlitPipelineOptions configures [NewUnlitPipeline].
+// UnlitPipelineOptions configures [NewUnlitPipeline]. Label, ColorFormat, DepthFormat, AlphaMode, DoubleSided and LinearOutput mean what they mean in [MaterialPipelineOptions].
 type UnlitPipelineOptions struct {
 	// Label names the pipeline in GPU capture tools.
 	Label string
-	// CameraLayout is the bind group layout for @group(0) (typically [CameraBuffer.Layout]). Required.
-	CameraLayout *gpu.BindGroupLayout
-	// MaterialLayout is the bind group layout for @group(1) (from [UnlitMaterialBindingLayout]). Required.
-	MaterialLayout *gpu.BindGroupLayout
-	// AlphaMode selects blend and depth-write state: UnlitAlphaOpaque and UnlitAlphaMask write depth without color blending; UnlitAlphaBlend enables [gpu.BlendAlpha] and disables depth writes.
-	AlphaMode UnlitAlphaMode
-	// DoubleSided uses [gpu.CullNone] when true; otherwise back faces are culled ([gpu.CullBack], counter-clockwise front faces).
-	DoubleSided bool
-	// TargetFormat is the color target format; [gpu.FormatUndefined] defaults to dev.SurfaceFormat(). Non-sRGB targets select fs_main (linear -> sRGB in shader); sRGB targets select fs_linear so the hardware encodes once.
-	TargetFormat gpu.TextureFormat
-	// DepthFormat is the depth attachment format, or [gpu.FormatUndefined] when rendering without depth testing.
+	// ColorFormat sets the color attachment format; [gpu.FormatUndefined] defaults to dev.SurfaceFormat(). An sRGB format selects fs_linear so the hardware encodes once (see LinearOutput).
+	ColorFormat gpu.TextureFormat
+	// DepthFormat enables depth testing (and depth writes for opaque/alpha-mask modes) when non-zero.
 	DepthFormat gpu.TextureFormat
 	// DepthCompare overrides the depth comparison function when DepthFormat is set; zero defaults to [gpu.CompareLess].
 	DepthCompare gpu.CompareFunc
+	// AlphaMode selects blending and depth-write state: [AlphaOpaque] and [AlphaMask] write depth without color blending; [AlphaBlend] uses straight alpha blending ([gpu.BlendAlpha]) with depth writes disabled.
+	AlphaMode AlphaMode
+	// DoubleSided disables backface culling ([gpu.CullNone]); when false, back faces are culled ([gpu.CullBack], counter-clockwise front faces).
+	DoubleSided bool
+	// LinearOutput writes the linear color ([UnlitSample].Linear) through fs_linear instead of encoding it to sRGB in fs_main, for an [HDRTarget] that a [ToneMapPass] resolves. fs_linear is also chosen whenever ColorFormat is sRGB, because the hardware encodes on write there. [NewMaterialPipeline] does not switch on an sRGB ColorFormat, so give both pipelines a non-sRGB target when they draw into the same pass.
+	LinearOutput bool
 	// SampleCount is the MSAA sample count (0 or 1 disables multisampling).
 	SampleCount int
 	// Retained opts the pipeline into automatic recreation after device loss.
 	Retained bool
 }
 
-// NewUnlitPipeline compiles [UnlitWGSL] and creates a [gpu.Pipeline] configured for [ColoredVertexLayout], [CameraGroup], [UnlitMaterialGroup], and opts.
-func NewUnlitPipeline(cx *core.Scope, dev *gpu.Device, opts UnlitPipelineOptions) (*gpu.Pipeline, error) {
+// NewUnlitPipeline compiles [UnlitWGSL] and builds a render pipeline using [ColoredVertexLayout] at vertex slot 0, camLayout at [CameraGroup] (group 0), and matLayout ([MaterialDefaults.UnlitLayout]) at [MaterialGroup] (group 1).
+func NewUnlitPipeline(cx *core.Scope, dev *gpu.Device, camLayout, matLayout *gpu.BindGroupLayout, opts UnlitPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	if !validUnlitAlphaMode(opts.AlphaMode) {
-		return nil, fmt.Errorf("%w: invalid alpha mode %d", ErrInvalidUnlitMaterial, opts.AlphaMode)
-	}
-	if opts.CameraLayout == nil || !opts.CameraLayout.Valid() {
+	if camLayout == nil || !camLayout.Valid() {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid camera bind group layout"}
 	}
-	if opts.MaterialLayout == nil || !opts.MaterialLayout.Valid() {
+	if matLayout == nil || !matLayout.Valid() {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid unlit material bind group layout"}
+	}
+	if !validAlphaMode(opts.AlphaMode) {
+		return nil, fmt.Errorf("%w: invalid AlphaMode %d", ErrInvalidUnlitMaterial, opts.AlphaMode)
 	}
 	mod, err := gpu.CompileWGSL(UnlitWGSL)
 	if err != nil {
 		return nil, err
 	}
 
-	targetFormat := opts.TargetFormat
-	if targetFormat == gpu.FormatUndefined {
-		targetFormat = dev.SurfaceFormat()
+	colorFmt := opts.ColorFormat
+	if colorFmt == gpu.FormatUndefined {
+		colorFmt = dev.SurfaceFormat()
 	}
 	fragEntry := "fs_main"
-	if targetFormat.IsSRGB() {
+	if opts.LinearOutput || colorFmt.IsSRGB() {
 		fragEntry = "fs_linear"
 	}
 
-	target := gpu.ColorTargetState{Format: targetFormat}
-	depthWrite := true
-	if opts.AlphaMode == UnlitAlphaBlend {
+	target := gpu.ColorTargetState{Format: colorFmt}
+	if opts.AlphaMode == AlphaBlend {
 		target.Blend = gpu.BlendAlpha()
-		depthWrite = false
 	}
-
 	cull := gpu.CullBack
 	if opts.DoubleSided {
 		cull = gpu.CullNone
 	}
-
 	label := opts.Label
 	if label == "" {
 		label = "render3d.unlit." + opts.AlphaMode.String()
+		if opts.LinearOutput {
+			label += ".linear"
+		}
 	}
 
 	desc := gpu.PipelineDesc{
 		Label:         label,
 		Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
 		Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: fragEntry},
-		Layouts:       []*gpu.BindGroupLayout{opts.CameraLayout, opts.MaterialLayout},
+		Layouts:       []*gpu.BindGroupLayout{CameraGroup: camLayout, MaterialGroup: matLayout},
 		VertexBuffers: []gpu.VertexBufferLayout{ColoredVertexLayout()},
-		Primitive: gpu.PrimitiveState{
-			Topology:  gpu.TopologyTriangleList,
-			FrontFace: gpu.FrontCCW,
-			CullMode:  cull,
-		},
-		Targets:     []gpu.ColorTargetState{target},
-		SampleCount: opts.SampleCount,
-		Retained:    opts.Retained,
+		Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: cull},
+		Targets:       []gpu.ColorTargetState{target},
+		SampleCount:   opts.SampleCount,
+		Retained:      opts.Retained,
 	}
 	if opts.DepthFormat != gpu.FormatUndefined {
 		cmp := opts.DepthCompare
@@ -1148,7 +991,7 @@ func NewUnlitPipeline(cx *core.Scope, dev *gpu.Device, opts UnlitPipelineOptions
 		}
 		desc.DepthStencil = &gpu.DepthStencilState{
 			Format:       opts.DepthFormat,
-			DepthWrite:   depthWrite,
+			DepthWrite:   opts.AlphaMode != AlphaBlend,
 			DepthCompare: cmp,
 		}
 	}
@@ -1157,11 +1000,11 @@ func NewUnlitPipeline(cx *core.Scope, dev *gpu.Device, opts UnlitPipelineOptions
 
 // UnlitSample is the pure-Go CPU reference result produced by [EvaluateUnlit], matching [UnlitWGSL].
 type UnlitSample struct {
-	// Linear holds the evaluated linear RGBA color (with alpha 1.0 for UnlitAlphaOpaque and surviving UnlitAlphaMask fragments).
+	// Linear holds the evaluated linear RGBA color (with alpha 1.0 for [AlphaOpaque] and surviving [AlphaMask] fragments).
 	Linear [4]float32
 	// SRGB holds the IEC 61966-2-1 sRGB-encoded RGB and linear alpha in [0, 1], matching [UnlitWGSL]'s fs_main output.
 	SRGB [4]float32
-	// Discarded is true when AlphaMode is UnlitAlphaMask and the combined alpha is strictly less than AlphaCutoff.
+	// Discarded is true when AlphaMode is [AlphaMask] and the combined alpha is strictly less than AlphaCutoff.
 	Discarded bool
 }
 
@@ -1178,7 +1021,7 @@ func (s UnlitSample) RGBA8() color.RGBA {
 	}
 }
 
-// BlendOver composites s over an sRGB RGBA8 destination pixel using straight-alpha blending ([gpu.BlendAlpha]), matching [UnlitAlphaBlend] on a FormatRGBA8Unorm target. When s.Discarded is true, dst is returned unchanged.
+// BlendOver composites s over an sRGB RGBA8 destination pixel using straight-alpha blending ([gpu.BlendAlpha]), matching [AlphaBlend] on a FormatRGBA8Unorm target. When s.Discarded is true, dst is returned unchanged.
 func (s UnlitSample) BlendOver(dst color.RGBA) color.RGBA {
 	if s.Discarded {
 		return dst
@@ -1216,12 +1059,12 @@ func EvaluateUnlit(mat UnlitMaterial, texLinear, vertexColor [4]float32) UnlitSa
 
 	outAlpha := float32(1)
 	switch mat.AlphaMode {
-	case UnlitAlphaMask:
+	case AlphaMask:
 		if a < mat.AlphaCutoff {
 			return UnlitSample{Discarded: true}
 		}
 		outAlpha = 1
-	case UnlitAlphaBlend:
+	case AlphaBlend:
 		outAlpha = unlitClamp01(a)
 	default:
 		outAlpha = 1
