@@ -2,6 +2,7 @@
 package input
 
 import (
+	"math"
 	"slices"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -120,6 +121,11 @@ type Actions struct {
 	curr      map[string]bool
 	prev      map[string]bool
 	padAxes   map[string]float64
+
+	// Programmatically injected holds and axis contributions (e.g. tests, cutscenes, MCP automation).
+	injectedHeld     map[string]bool
+	injectedAxes     map[string]float64
+	injectedAxisSnap map[string]float64
 }
 
 // NewActions returns an Actions with no bindings.
@@ -198,6 +204,156 @@ func (a *Actions) Trigger(name string) {
 	a.latched[name] = true
 }
 
+// Press holds action name pressed across subsequent Step calls until Release or Reset is called, even if name has no physical Input bindings.
+// Like physical input, a Press followed by Release between two Step calls is latched so it still registers for one step.
+func (a *Actions) Press(name string) {
+	if name == "" {
+		return
+	}
+	wasActive := a.rawActive[name] || a.injectedHeld[name]
+	if a.injectedHeld == nil {
+		a.injectedHeld = make(map[string]bool)
+	}
+	a.injectedHeld[name] = true
+	if !wasActive {
+		if a.latched == nil {
+			a.latched = make(map[string]bool)
+		}
+		a.latched[name] = true
+	}
+	if a.rawActive == nil {
+		a.rawActive = make(map[string]bool)
+	}
+	a.rawActive[name] = true
+}
+
+// Release ends an injected hold started by Press for action name.
+func (a *Actions) Release(name string) {
+	if name == "" {
+		return
+	}
+	delete(a.injectedHeld, name)
+	if a.rawActive != nil {
+		a.rawActive[name] = a.activeNow(name)
+	}
+}
+
+// SetAxis sets an injected analog contribution in [-1, 1] for axis name, sampled on each subsequent Step until ClearAxis or Reset is called.
+// Non-finite (NaN) values are ignored; values outside [-1, 1] are clamped.
+func (a *Actions) SetAxis(name string, value float64) {
+	if name == "" || math.IsNaN(value) {
+		return
+	}
+	if a.injectedAxes == nil {
+		a.injectedAxes = make(map[string]float64)
+	}
+	a.injectedAxes[name] = clampAxis(value)
+}
+
+// ClearAxis removes an injected analog contribution previously set with SetAxis for axis name.
+func (a *Actions) ClearAxis(name string) {
+	delete(a.injectedAxes, name)
+}
+
+// ActionNames returns the sorted names of all actions bound, referenced by axes or virtual pads, or currently active or injected on a.
+func (a *Actions) ActionNames() []string {
+	if a == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	add := func(name string) {
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for name := range a.bindings {
+		add(name)
+	}
+	for _, ax := range a.axes {
+		add(ax.negative)
+		add(ax.positive)
+	}
+	for _, pad := range a.pads {
+		for _, btn := range pad.Buttons {
+			if btn != nil {
+				add(btn.Action)
+			}
+		}
+	}
+	for name, held := range a.injectedHeld {
+		if held {
+			add(name)
+		}
+	}
+	for name, ok := range a.curr {
+		if ok {
+			add(name)
+		}
+	}
+	for name, ok := range a.latched {
+		if ok {
+			add(name)
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// AxisNames returns the sorted names of all axes bound or injected on a.
+func (a *Actions) AxisNames() []string {
+	if a == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	add := func(name string) {
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for name := range a.axes {
+		add(name)
+	}
+	for name := range a.motionAxes {
+		add(name)
+	}
+	for name := range a.pointerAxes {
+		add(name)
+	}
+	for name := range a.gpAxes {
+		add(name)
+	}
+	for _, pad := range a.pads {
+		for _, stick := range pad.Sticks {
+			if stick != nil {
+				add(stick.axisXKey())
+				add(stick.axisYKey())
+			}
+		}
+	}
+	for name := range a.injectedAxes {
+		add(name)
+	}
+	for name := range a.injectedAxisSnap {
+		add(name)
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // BindVirtualPad connects pad to a so its virtual buttons drive their bound actions and its virtual sticks drive their named axes on each Step.
 func (a *Actions) BindVirtualPad(pad *VirtualPad) {
 	if pad == nil {
@@ -230,8 +386,9 @@ func (a *Actions) Step() {
 	a.prev, a.curr = a.curr, a.prev
 	clear(a.curr)
 	clear(a.padAxes)
-	if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0) && a.curr == nil {
-		a.curr = make(map[string]bool, len(a.bindings)+len(a.latched))
+	clear(a.injectedAxisSnap)
+	if (len(a.bindings) > 0 || len(a.latched) > 0 || len(a.pads) > 0 || len(a.injectedHeld) > 0) && a.curr == nil {
+		a.curr = make(map[string]bool, len(a.bindings)+len(a.latched)+len(a.injectedHeld))
 	}
 	for name := range a.bindings {
 		now := a.activeNow(name)
@@ -266,12 +423,25 @@ func (a *Actions) Step() {
 			a.recordPadAxis(stick.axisYKey(), stick.AxisY)
 		}
 	}
+	for name, held := range a.injectedHeld {
+		if held {
+			a.curr[name] = true
+		}
+	}
 	for name, ok := range a.latched {
 		if ok {
 			a.curr[name] = true
 		}
 	}
 	clear(a.latched)
+	if len(a.injectedAxes) > 0 {
+		if a.injectedAxisSnap == nil {
+			a.injectedAxisSnap = make(map[string]float64, len(a.injectedAxes))
+		}
+		for name, v := range a.injectedAxes {
+			a.injectedAxisSnap[name] = v
+		}
+	}
 	a.stepMotion()
 	a.stepPointer()
 	a.stepGamepadAxes()
@@ -307,6 +477,9 @@ func (a *Actions) Reset() {
 	a.gpPads = a.gpPads[:0]
 	clear(a.gpSnap)
 	clear(a.padAxes)
+	clear(a.injectedHeld)
+	clear(a.injectedAxes)
+	clear(a.injectedAxisSnap)
 	for _, pad := range a.pads {
 		pad.Reset()
 	}
@@ -333,7 +506,7 @@ func (a *Actions) JustReleased(name string) bool {
 // For an axis bound with BindMotionAxis, the calibrated and dead-zoned motion reading contributes a value in [-1, 1].
 // For an axis bound with BindPointerAxis, the step's scaled relative mouse motion contributes, as Delta reads it.
 // For an axis bound with BindGamepadAxis, the dead-zoned stick reading of the controllers a reads contributes a value in [-1, 1].
-// An analog value from a VirtualPad stick bound to the same axis name is added too.
+// An analog value from a VirtualPad stick bound to the same axis name is added too, as is any injected value set with SetAxis.
 // When more than one is bound to the same axis name, their contributions are summed and clamped to [-1, 1].
 // Otherwise Axis returns 1 when action name is pressed and 0 when it is not.
 func (a *Actions) Axis(name string) float64 {
@@ -363,6 +536,10 @@ func (a *Actions) Axis(name string) float64 {
 	if pv, ok := a.padAxes[name]; ok {
 		hasAxis = true
 		v = clampAxis(v + pv)
+	}
+	if iv, ok := a.injectedAxisSnap[name]; ok {
+		hasAxis = true
+		v = clampAxis(v + iv)
 	}
 	if hasAxis {
 		return clampUnit(v)
@@ -560,6 +737,9 @@ func (a *Actions) syncRaw() {
 }
 
 func (a *Actions) activeNow(name string) bool {
+	if a.injectedHeld[name] {
+		return true
+	}
 	for _, in := range a.bindings[name] {
 		if a.inputActive(in) {
 			return true

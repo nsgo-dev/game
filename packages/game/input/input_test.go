@@ -1,6 +1,7 @@
 package input_test
 
 import (
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -707,5 +708,74 @@ func TestLoadInvalidStorageLeavesBindingsUntouched(t *testing.T) {
 				t.Fatalf("Load(%s) mutated existing bindings: %+v", tc.name, a.Bindings("jump"))
 			}
 		})
+	}
+}
+
+func TestInjectedPressReleaseAxisAndNames(t *testing.T) {
+	a := input.NewActions()
+	a.Bind("jump", input.Key("space"))
+	a.Bind("left", input.Key("a"))
+	a.Bind("right", input.Key("d"))
+	a.BindAxis("move_x", "left", "right")
+
+	// ActionNames and AxisNames return sorted configured names.
+	if got := a.ActionNames(); !slices.Equal(got, []string{"jump", "left", "right"}) {
+		t.Fatalf("ActionNames = %v, want [jump left right]", got)
+	}
+	if got := a.AxisNames(); !slices.Equal(got, []string{"move_x"}) {
+		t.Fatalf("AxisNames = %v, want [move_x]", got)
+	}
+
+	// Press holds across steps until Release.
+	a.Press("right")
+	a.Step()
+	if !a.Pressed("right") || !a.JustPressed("right") || a.JustReleased("right") || a.Axis("move_x") != 1 {
+		t.Fatalf("step 1 right: pressed=%v jp=%v jr=%v axis=%v", a.Pressed("right"), a.JustPressed("right"), a.JustReleased("right"), a.Axis("move_x"))
+	}
+	a.Step()
+	if !a.Pressed("right") || a.JustPressed("right") || a.JustReleased("right") || a.Axis("move_x") != 1 {
+		t.Fatalf("step 2 right: pressed=%v jp=%v jr=%v axis=%v", a.Pressed("right"), a.JustPressed("right"), a.JustReleased("right"), a.Axis("move_x"))
+	}
+	a.Release("right")
+	a.Step()
+	if a.Pressed("right") || a.JustPressed("right") || !a.JustReleased("right") || a.Axis("move_x") != 0 {
+		t.Fatalf("step 3 right: pressed=%v jp=%v jr=%v axis=%v", a.Pressed("right"), a.JustPressed("right"), a.JustReleased("right"), a.Axis("move_x"))
+	}
+
+	// Quick Press+Release before Step still latches for one step (even for an unbound action).
+	a.Press("dash")
+	a.Release("dash")
+	a.Step()
+	if !a.Pressed("dash") || !a.JustPressed("dash") {
+		t.Fatalf("latched unbound dash: pressed=%v jp=%v", a.Pressed("dash"), a.JustPressed("dash"))
+	}
+	a.Step()
+	if a.Pressed("dash") || !a.JustReleased("dash") {
+		t.Fatalf("released unbound dash: pressed=%v jr=%v", a.Pressed("dash"), a.JustReleased("dash"))
+	}
+
+	// SetAxis clamps to [-1, 1], ignores NaN, snapshots on Step, and clears via ClearAxis or Reset.
+	a.SetAxis("move_x", 0.5)
+	a.SetAxis("aim_y", -2.5)
+	a.SetAxis("aim_y", math.NaN()) // ignored
+	if got := a.AxisNames(); !slices.Equal(got, []string{"aim_y", "move_x"}) {
+		t.Fatalf("AxisNames with injected = %v, want [aim_y move_x]", got)
+	}
+	a.Step()
+	if a.Axis("move_x") != 0.5 || a.Axis("aim_y") != -1 {
+		t.Fatalf("injected axes = (%v, %v), want (0.5, -1)", a.Axis("move_x"), a.Axis("aim_y"))
+	}
+	a.ClearAxis("move_x")
+	a.Step()
+	if a.Axis("move_x") != 0 || a.Axis("aim_y") != -1 {
+		t.Fatalf("after ClearAxis = (%v, %v), want (0, -1)", a.Axis("move_x"), a.Axis("aim_y"))
+	}
+
+	// Reset clears injected holds and injected axes.
+	a.Press("jump")
+	a.Reset()
+	a.Step()
+	if a.Pressed("jump") || a.Axis("aim_y") != 0 {
+		t.Fatalf("after Reset: jump=%v aim_y=%v, want false/0", a.Pressed("jump"), a.Axis("aim_y"))
 	}
 }

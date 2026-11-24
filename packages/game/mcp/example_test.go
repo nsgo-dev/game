@@ -46,4 +46,8 @@ func ExampleNew() {
 	// game_loop_step
 	// game_loop_time_scale
 	// game_loop_seed
+	// game_input_action
+	// game_input_axis
+	// game_input_pointer
+	// game_input_actions_list
 }
