@@ -7,6 +7,12 @@
 //   - game_entities_list: list live entities with stable generational references ("entity:<index>:<generation>") across steps, hierarchy links and component names.
 //   - game_entity_inspect: inspect a single live entity by its stable reference, returning metadata, hierarchy links and all readable component values.
 //   - game_component_get: read one component's value on a live entity by reference and component name.
+//   - game_loop_status: report the game loop's paused state, effective time scale, fixed step rate, total steps, simulated game time and whether random seeding is configured.
+//   - game_loop_pause: pause the game loop without accumulating a catch-up backlog.
+//   - game_loop_resume: resume a paused game loop.
+//   - game_loop_step: synchronously advance the game loop by N fixed updates (1..3600, default 1), advancing exact simulated game time.
+//   - game_loop_time_scale: set the game loop's simulation time scale (finite, >= 0; 0 resets to the default 1x speed).
+//   - game_loop_seed: set the deterministic random seed via Config.Random, Config.RandomStreams and/or Config.SetSeed.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable automatically. Transient or non-saved components can also be exposed with [RegisterComponent] or [RegisterComponentFunc], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name.
 //

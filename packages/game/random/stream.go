@@ -81,6 +81,12 @@ func (s *Stream) Seed() uint64 {
 	return s.seed
 }
 
+// SetSeed re-seeds s with seed and rewinds it to the beginning of seed's sequence.
+func (s *Stream) SetSeed(seed uint64) {
+	s.seed = seed
+	s.s = initState(seed)
+}
+
 // Reset rewinds s to the beginning of its seed's sequence.
 func (s *Stream) Reset() {
 	s.s = initState(s.seed)
@@ -304,6 +310,15 @@ func NewStreams(masterSeed uint64) *Streams {
 // Seed returns the master seed.
 func (m *Streams) Seed() uint64 {
 	return m.root.Seed()
+}
+
+// SetSeed re-seeds m with masterSeed and re-derives every named stream already
+// obtained from m so existing references draw from the new master seed.
+func (m *Streams) SetSeed(masterSeed uint64) {
+	m.root.SetSeed(masterSeed)
+	for name, s := range m.streams {
+		s.SetSeed(deriveSeed(masterSeed, name))
+	}
 }
 
 // Stream returns the named child stream, creating it on first use by forking

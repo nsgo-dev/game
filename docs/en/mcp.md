@@ -1,6 +1,6 @@
 # mcp
 
-`game/mcp` exposes a running game's scenes, layers, entities and components to coding agents over MCP through NSGo's `github.com/nsgo-dev/nsgo/automation` package.
+`game/mcp` exposes a running game's scenes, layers, entities, components and fixed-step loop controls to coding agents over MCP through NSGo's `github.com/nsgo-dev/nsgo/automation` package.
 
 NSGo's built-in `nsgo mcp` server sees native views only; a game draws into one `Canvas` or GPU view. Attaching an `mcp.Bridge` to a `core.Scope` registers game-specific tools on the engine's reactive graph so `nsgo mcp` serves them alongside the built-in tools whenever the app runs under `go tool nsgo dev -automation` or `go tool nsgo test`. In ordinary and release builds, `automation.Register` is a no-op and adds no runtime protocol.
 
@@ -14,21 +14,24 @@ Call `mcp.Attach` (or `mcp.New` followed by `bridge.Attach`) on the engine gorou
 
 ```go
 bridge, err := mcp.Attach(cx, mcp.Config{
-	Scenes:      g.scenes,
-	SceneName:   func(c *scene.Controller) string { return g.sceneNames[c] },
-	SceneFunc:   func() *scene.Scene { return g.activeScene },
-	NamedScenes: map[string]*scene.Scene{"title": g.titleScene},
-	WorldFunc:   func() *entities.World { return g.world },
-	EntityName:  func(e entities.Entity) string { return g.names[e] },
-	EntityTags:  func(e entities.Entity) []string { return g.tags[e] },
-	EntityLayer: func(e entities.Entity) string { return g.layers[e] },
+	Scenes:        g.scenes,
+	SceneName:     func(c *scene.Controller) string { return g.sceneNames[c] },
+	SceneFunc:     func() *scene.Scene { return g.activeScene },
+	NamedScenes:   map[string]*scene.Scene{"title": g.titleScene},
+	WorldFunc:     func() *entities.World { return g.world },
+	EntityName:    func(e entities.Entity) string { return g.names[e] },
+	EntityTags:    func(e entities.Entity) []string { return g.tags[e] },
+	EntityLayer:   func(e entities.Entity) string { return g.layers[e] },
+	Loop:          g.loop,
+	RandomStreams: g.rng,
 })
 if err != nil {
 	return err
 }
 ```
 
-- When a game replaces its `*scene.Scene` or `*entities.World` across level restarts, supply `SceneFunc` / `WorldFunc` (or call `bridge.SetScene` / `bridge.SetWorld`).
+- When a game replaces its `*scene.Scene`, `*entities.World` or `*game.Loop` across level restarts, supply `SceneFunc` / `WorldFunc` / `LoopFunc` (or call `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop`).
+- To support `game_loop_seed`, configure `Random` (`*random.Stream`), `RandomStreams` (`*random.Streams`) and/or a custom `SetSeed` callback; if none is set, `game_loop_seed` returns an actionable error.
 - When a `scene.Manager` controller draws via a custom `Controller.Draw` without setting `Controller.Scene`, `SceneFunc` / `Scene` provides the current scene's layers automatically.
 - When `EntityName` or `EntityLayer` is omitted (or returns `""`), `game/mcp` falls back to [`sceneformat.ObjectRef`](editor.md) if the entity carries one.
 
@@ -55,8 +58,22 @@ if err := mcp.RegisterComponent[AIState](bridge, "ai"); err != nil {
 | `game_entities_list` | `component`, `layer`, `name` (substring), `tag`, `parent` (ref or `"root"`), `include_components` (default `false`), `offset`, `limit` | Live entities in ascending slot order with `total`, `returned`, stable `ref`, `index`, `generation`, metadata, `parent`, `child_count`, sorted `components` names, and optional inline `values`. |
 | `game_entity_inspect` | `ref` (required) | Full inspection of one live entity: `ref`, `index`, `generation`, metadata, `parent`, `children` refs, and every readable component value keyed by component name. |
 | `game_component_get` | `ref` (required), `component` (required) | One component's serialized `value` on a live entity. |
+| `game_loop_status` | `{}` | Current loop state: `paused`, effective `time_scale`, `step_seconds`, `step_hz`, total `steps`, `game_time_seconds` and `seed_configured`. |
+| `game_loop_pause` | `{}` | Pauses the loop (`Loop.SetPaused(true)`) without accumulating a catch-up backlog and returns the updated loop status. |
+| `game_loop_resume` | `{}` | Resumes the loop (`Loop.SetPaused(false)`) and returns the updated loop status. |
+| `game_loop_step` | `count` (optional, default `1`, `1..3600`) | Synchronously runs `count` fixed updates (`Loop.StepNow`) whether paused or running, returning `steps_advanced`, `total_steps`, `game_time_seconds`, `delta_seconds` and `paused`. Stepping 60 updates at 60 Hz advances exactly `1.0` second of game time. |
+| `game_loop_time_scale` | `time_scale` (required, finite `>= 0`) | Updates `Loop.TimeScale` (`0` resets to the default `1x` speed) and returns the updated loop status. |
+| `game_loop_seed` | `seed` (required, unsigned 64-bit integer) | Re-seeds `Config.Random`, `Config.RandomStreams` and/or calls `Config.SetSeed`, returning `{seed}`. |
 
 All tools reject unknown argument fields.
+
+## Deterministic loop control
+
+Agents can drive reproducible test scenarios by pausing the loop, setting a deterministic seed, stepping an exact number of fixed updates, and inspecting entity state immediately afterward:
+
+- `game_loop_step` runs `Update` synchronously on the engine goroutine and calls `Draw` once afterward, so subsequent `game_entity_inspect` or `game_component_get` calls observe the updated state immediately without waiting for the next display frame.
+- Simulated time is accumulated per fixed-rate segment (`steps / rate`), so stepping 60 updates at 60 Hz advances `game_time_seconds` and `delta_seconds` by exactly `1.0` with no integer-nanosecond drift.
+- `game_loop_step` caps each call at `MaxLoopSteps` (`3600`, or one minute at 60 Hz) to guard against accidental hangs.
 
 ## Stable entity references
 
