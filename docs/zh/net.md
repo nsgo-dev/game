@@ -104,13 +104,13 @@ me := cli.LocalID() // assigned by the server
 _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 ```
 
-- `NextEvent` 在被调用时检查宽限期与空闲超时，因此服务端应在每个 tick 与 `Recv` 一起轮询它。peer 处于宽限期内时，向它 `Send` 会返回 `ErrDisconnected`，`Peers` 也不会列出它。
+- `NextEvent` 在被调用时检查宽限期与空闲超时，因此服务端应在每个 tick 与 `Recv` 一起轮询它。排队的生命周期事件（`PeerJoined`、`PeerDropped`、`PeerResumed`、`PeerLeft`）按先进先出顺序以均摊常数时间取出，不会静默丢弃。peer 处于宽限期内时，向它 `Send` 会返回 `ErrDisconnected`，`Peers` 也不会列出它。
 - 客户端调用 `Close` 即为主动告别：服务端立即报告 `PeerLeft`，不再为其保留会话。`Reconnect` 则不算告别，即使连接仍处于打开状态也是如此：浏览器关闭旧连接时会带上一个关闭码，服务端据此将其视为掉线。
 - 服务端最多保留 `Auth.MaxPeers` 个会话（默认 1024），处于宽限期内的 peer 也计算在内；超出后客户端会以原因 `server full` 被拒绝。不设置 `Verify` 时任何人都能加入，因此可从互联网访问的服务端务必设置它。
 - 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
 - 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
 - `WebSocketServer` 每隔 `Auth.IdleTimeout` 的三分之一（默认 10 秒，最少 3 秒）向每个客户端发送一次 ping，在这段时间内没有收到客户端的任何字节（连 pong 都没有）就会把它判为掉线，这样网络消失却没有关闭 TCP 连接的客户端不会永远占着会话和 ID。浏览器会自动回应 ping。原生 `WebSocketTransport` 每 2 秒向服务端发送一次 ping，10 秒内没有收到任何字节就转为 `ConnDisconnected`。只要字节持续到达，慢慢传来的大帧也会被完整读取。这些超时使用墙上时钟，而不是 `Auth.Now`。`WebSocketServer.Close` 会同时向所有客户端发送关闭帧，对不读取数据的客户端最多等待一秒。
-- WebSocket 帧的负载按实际到达的字节读取，而不是按帧头声明的长度预先分配，握手请求也不能超过合法请求的长度，因此客户端声明一个很大的帧后再慢慢发送，也无法占用它尚未发送的内存。
+- WebSocket 帧的负载按实际到达的字节读取，而不是按帧头声明的长度预先分配，握手请求也不能超过合法请求的长度，因此客户端声明一个很大的帧后再慢慢发送，也无法占用它尚未发送的内存。控制帧（`Close`、`Ping`、`Pong`）遵循 RFC 6455 §5.5：分片控制帧、负载超过 125 字节的控制帧以及保留控制操作码（`0xB`–`0xF`）会被拒绝。
 - UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时每秒发送一次心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
 - 握手不加密：握手请求携带令牌，欢迎消息携带恢复密钥，UDP 的欢迎消息还携带会话密钥。生产环境的 WebSocket 请使用 `wss://`。UDP 没有这样一层加密，它的地址与密钥绑定只能防住看不到流量的攻击者：任何能观察到握手的人（共享 Wi-Fi、路径上的任一跳）都能伪造该会话的数据报，并从自己的地址恢复该会话。UDP 令牌应短期有效且只能使用一次；若需防范路径上的窃听者，优先使用 `wss://` 上的 WebSocket。
 
@@ -197,6 +197,7 @@ if err := session.Step(net.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID
 - `RollbackSession` 会预测尚未到达的远端输入、按帧保存快照，并在延迟到达的远端输入与预测不一致时自动回滚重算（若延迟超出 `MaxRollback` 则返回 `ErrRollbackWindowExceeded`）。
 - `LockstepSession`（`SubmitInput`、`Poll`、`Step`）仅在所有对等端当前帧输入齐全时推进模拟，适合 RTS 或严格同步玩法。`SubmitInput` 会忽略已执行过的 tick 或超前 256 个 tick 以上的输入。
 - 两种会话均支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。
+- 两种会话均按序列号算术（RFC 1982）比较 `uint32` tick（包括成员参与窗口与待处理加入/离开），因此长时间运行的对局在 2^32 tick 回绕时仍可无缝继续。`RollbackSession` 在首个 tick 确认之前不裁剪历史记录，因此即使某个对等端的首条输入晚于 `MaxRollback + 2` 个 tick 到达，仍可正常确认并推进。
 
 ### 对局中途加入与离开的玩家
 

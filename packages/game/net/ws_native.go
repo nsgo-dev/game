@@ -44,12 +44,13 @@ const (
 	wsClientPing = 2 * time.Second
 	wsClientIdle = 10 * time.Second
 
-	wsOpContinuation = 0x0
-	wsOpText         = 0x1
-	wsOpBinary       = 0x2
-	wsOpClose        = 0x8
-	wsOpPing         = 0x9
-	wsOpPong         = 0xA
+	wsOpContinuation    = 0x0
+	wsOpText            = 0x1
+	wsOpBinary          = 0x2
+	wsOpClose           = 0x8
+	wsOpPing            = 0x9
+	wsOpPong            = 0xA
+	wsMaxControlPayload = 125 // RFC 6455 §5.5
 )
 
 // readWSPayload reads exactly n payload bytes. Up to wsEagerAlloc it allocates them at once; past that the buffer grows as bytes arrive instead of trusting the length the peer announced.
@@ -212,6 +213,14 @@ func readWSFrameLimit(r *bufio.Reader, limit uint64) (fin bool, opcode byte, pay
 	opcode = hdr[0] & 0x0F
 	masked = (hdr[1] & 0x80) != 0
 	plen := uint64(hdr[1] & 0x7F)
+
+	// RFC 6455 §5.5: control frames (opcodes 0x8-0xF) must not be fragmented,
+	// must carry at most 125 payload bytes, and opcodes 0xB-0xF are reserved.
+	if opcode >= wsOpClose {
+		if opcode > wsOpPong || !fin || plen > wsMaxControlPayload {
+			return false, 0, nil, false, ErrInvalidPacket
+		}
+	}
 
 	switch plen {
 	case 126:

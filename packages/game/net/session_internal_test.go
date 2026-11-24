@@ -219,6 +219,80 @@ func TestSessionTableCapsSessions(t *testing.T) {
 	}
 }
 
+func TestSessionTableEventQueueFIFOAndLinear(t *testing.T) {
+	clock := newFakeClock()
+	const burstPeers = 1000
+	tab := newSessionTable(Auth{
+		GracePeriod: 5 * time.Second,
+		MaxPeers:    burstPeers + 16,
+		Now:         clock.Now,
+	}, 1, false)
+
+	var want []PeerEvent
+	// Queue 4000 lifecycle events (join, drop, resume, leave) in one burst
+	// without draining between them; none may be dropped.
+	for range burstPeers {
+		id := mustReserve(t, tab)
+		s := tab.commit(id, clock.Now())
+		want = append(want, PeerEvent{Kind: PeerJoined, Peer: id})
+		secret := s.secret
+		tab.drop(s, clock.Now())
+		want = append(want, PeerEvent{Kind: PeerDropped, Peer: id})
+		if tab.resume(hello{resumePeer: id, resumeSecret: secret}, clock.Now()) == nil {
+			t.Fatalf("peer %d failed to resume", id)
+		}
+		want = append(want, PeerEvent{Kind: PeerResumed, Peer: id})
+		tab.leave(s)
+		want = append(want, PeerEvent{Kind: PeerLeft, Peer: id})
+	}
+
+	var got []PeerEvent
+	for ev, ok := tab.popEvent(); ok; ev, ok = tab.popEvent() {
+		got = append(got, ev)
+	}
+	if !slicesEqual(got, want) {
+		t.Fatalf("drained %d events, want %d (first mismatch or loss)", len(got), len(want))
+	}
+	if tab.events.moved > len(want) {
+		t.Fatalf("compaction moved %d events for %d queued, want at most one move per event", tab.events.moved, len(want))
+	}
+	if c := cap(tab.events.buf); c > packetFIFOKeep {
+		t.Fatalf("drained event queue kept capacity %d, want at most %d", c, packetFIFOKeep)
+	}
+
+	// Interleaved push and pop rounds exercise mid-queue compaction without losing or reordering events.
+	const rounds = 1000
+	want = want[:0]
+	got = got[:0]
+	for range rounds {
+		id := mustReserve(t, tab)
+		s := tab.commit(id, clock.Now())
+		tab.drop(s, clock.Now())
+		tab.leave(s)
+		want = append(want,
+			PeerEvent{Kind: PeerJoined, Peer: id},
+			PeerEvent{Kind: PeerDropped, Peer: id},
+			PeerEvent{Kind: PeerLeft, Peer: id},
+		)
+		for range 2 {
+			ev, ok := tab.popEvent()
+			if !ok {
+				t.Fatal("popEvent returned empty while events remained")
+			}
+			got = append(got, ev)
+		}
+	}
+	for ev, ok := tab.popEvent(); ok; ev, ok = tab.popEvent() {
+		got = append(got, ev)
+	}
+	if !slicesEqual(got, want) {
+		t.Fatalf("interleaved drain got %d events, want %d", len(got), len(want))
+	}
+	if tab.events.moved > 4*burstPeers+len(want) {
+		t.Fatalf("interleaved compaction moved %d events for %d total queued", tab.events.moved, 4*burstPeers+len(want))
+	}
+}
+
 func TestSessionTableRaisesShortIdleTimeouts(t *testing.T) {
 	for _, tc := range []struct {
 		set, want time.Duration

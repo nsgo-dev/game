@@ -324,3 +324,106 @@ func TestWebSocketServerCloseBreaksABlockedSend(t *testing.T) {
 		}
 	}
 }
+
+// rawWSControlFrame builds a raw RFC 6455 frame with exact FIN, opcode, and length fields.
+func rawWSControlFrame(fin bool, opcode byte, masked bool, payload []byte) []byte {
+	var b bytes.Buffer
+	first := opcode & 0x0F
+	if fin {
+		first |= 0x80
+	}
+	b.WriteByte(first)
+	var maskBit byte
+	if masked {
+		maskBit = 0x80
+	}
+	switch n := len(payload); {
+	case n < 126:
+		b.WriteByte(maskBit | byte(n))
+	case n <= 0xFFFF:
+		b.WriteByte(maskBit | 126)
+		_ = binary.Write(&b, binary.BigEndian, uint16(n))
+	default:
+		b.WriteByte(maskBit | 127)
+		_ = binary.Write(&b, binary.BigEndian, uint64(n))
+	}
+	if masked {
+		maskKey := [4]byte{0x12, 0x34, 0x56, 0x78}
+		b.Write(maskKey[:])
+		for i, v := range payload {
+			b.WriteByte(v ^ maskKey[i&3])
+		}
+	} else {
+		b.Write(payload)
+	}
+	return b.Bytes()
+}
+
+// TestReadWSFrameControlFrameChecks verifies RFC 6455 §5.5 control-frame rules:
+// control frames (opcode >= 0x8) must be unfragmented (FIN=1), carry at most
+// 125 payload bytes, and use only defined opcodes 0x8..0xA (rejecting 0xB..0xF).
+func TestReadWSFrameControlFrameChecks(t *testing.T) {
+	ping125 := bytes.Repeat([]byte{'p'}, 125)
+	fin, op, got, masked, err := readWSFrame(bufio.NewReader(bytes.NewReader(rawWSControlFrame(true, wsOpPing, true, ping125))))
+	if err != nil || !fin || op != wsOpPing || !masked || !bytes.Equal(got, ping125) {
+		t.Fatalf("125-byte ping: fin=%v op=%#x masked=%v len=%d err=%v", fin, op, masked, len(got), err)
+	}
+
+	// Valid 125-byte close and pong are accepted too.
+	for _, validOp := range []byte{wsOpClose, wsOpPong} {
+		fin, op, got, _, err := readWSFrame(bufio.NewReader(bytes.NewReader(rawWSControlFrame(true, validOp, false, ping125))))
+		if err != nil || !fin || op != validOp || !bytes.Equal(got, ping125) {
+			t.Fatalf("125-byte opcode %#x: fin=%v op=%#x len=%d err=%v", validOp, fin, op, len(got), err)
+		}
+	}
+
+	over126 := bytes.Repeat([]byte{'x'}, 126)
+	badCases := []struct {
+		name  string
+		frame []byte
+	}{
+		{"126-byte close", rawWSControlFrame(true, wsOpClose, true, over126)},
+		{"126-byte pong", rawWSControlFrame(true, wsOpPong, true, over126)},
+		{"126-byte ping", rawWSControlFrame(true, wsOpPing, true, over126)},
+		{"fragmented ping", rawWSControlFrame(false, wsOpPing, true, []byte("hi"))},
+		{"fragmented close", rawWSControlFrame(false, wsOpClose, true, nil)},
+		{"fragmented pong", rawWSControlFrame(false, wsOpPong, true, nil)},
+		{"reserved 0xB", rawWSControlFrame(true, 0xB, true, nil)},
+		{"reserved 0xC", rawWSControlFrame(true, 0xC, true, nil)},
+		{"reserved 0xD", rawWSControlFrame(true, 0xD, true, nil)},
+		{"reserved 0xE", rawWSControlFrame(true, 0xE, true, nil)},
+		{"reserved 0xF", rawWSControlFrame(true, 0xF, true, nil)},
+	}
+	for _, tc := range badCases {
+		if _, _, _, _, err := readWSFrame(bufio.NewReader(bytes.NewReader(tc.frame))); !errors.Is(err, ErrInvalidPacket) {
+			t.Errorf("%s: err = %v, want ErrInvalidPacket", tc.name, err)
+		}
+	}
+
+	// End-to-end check on WebSocketServer: a 125-byte ping gets a matching pong,
+	// and a fragmented ping closes the connection.
+	srv := listenWSKeepAlive(t, Auth{}, wsKeepAlive{ping: time.Minute, idle: 5 * time.Second})
+	h, _ := newHello([]byte("token"), resumeState{})
+	conn, br, w, err := rawWSHello(t, srv, h)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+		t.Fatalf("event = %+v, want joined", ev)
+	}
+	if _, err := conn.Write(rawWSControlFrame(true, wsOpPing, true, ping125)); err != nil {
+		t.Fatalf("write 125-byte ping: %v", err)
+	}
+	fin, op, got, _, err = readWSFrame(br)
+	if err != nil || !fin || op != wsOpPong || !bytes.Equal(got, ping125) {
+		t.Fatalf("pong reply: fin=%v op=%#x len=%d err=%v", fin, op, len(got), err)
+	}
+	if _, err := conn.Write(rawWSControlFrame(false, wsOpPing, true, []byte("frag"))); err != nil {
+		t.Fatalf("write fragmented ping: %v", err)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, w.peer}) {
+		t.Fatalf("event after fragmented ping = %+v, want left", ev)
+	}
+}

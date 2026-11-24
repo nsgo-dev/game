@@ -45,7 +45,7 @@ func TestJoinStateRoundTripAcrossParts(t *testing.T) {
 	for i := range state {
 		state[i] = byte(i * 31)
 	}
-	js := joinState{tick: 90, members: []matchMember{{id: 1, until: noLeave}, {id: 4, from: 30, until: 120}, {id: 9, from: 90, until: noLeave}}, inputs: []InputFrame{{Tick: 90, Peer: 4, Bits: 3}, {Tick: 119, Peer: 4, Axes: [2]int16{-5, 6}}}, state: state}
+	js := joinState{tick: 90, members: []matchMember{{id: 1}, {id: 4, from: 30, until: 120, hasLeave: true}, {id: 9, from: 90}}, inputs: []InputFrame{{Tick: 90, Peer: 4, Bits: 3}, {Tick: 119, Peer: 4, Axes: [2]int16{-5, 6}}}, state: state}
 	parts := encodeJoinParts(encodeJoinState(js))
 	if len(parts) != 3 {
 		t.Fatalf("%d parts, want 3", len(parts))
@@ -79,12 +79,12 @@ func TestJoinStateRoundTripAcrossParts(t *testing.T) {
 func TestJoinStateRejectsBadMembers(t *testing.T) {
 	for name, members := range map[string][]matchMember{
 		"none":             nil,
-		"unsorted":         {{id: 4, until: noLeave}, {id: 1, until: noLeave}},
-		"duplicate":        {{id: 4, until: noLeave}, {id: 4, until: noLeave}},
-		"zero ID":          {{id: 0, until: noLeave}},
-		"empty span":       {{id: 4, from: 50, until: 50}},
-		"left before it":   {{id: 4, until: 10}},
-		"left at the tick": {{id: 4, until: 20}},
+		"unsorted":         {{id: 4}, {id: 1}},
+		"duplicate":        {{id: 4}, {id: 4}},
+		"zero ID":          {{id: 0}},
+		"empty span":       {{id: 4, from: 50, until: 50, hasLeave: true}},
+		"left before it":   {{id: 4, until: 10, hasLeave: true}},
+		"left at the tick": {{id: 4, until: 20, hasLeave: true}},
 	} {
 		if _, ok := decodeJoinState(encodeJoinState(joinState{tick: 20, members: members})); ok {
 			t.Errorf("%s: accepted", name)
@@ -93,7 +93,7 @@ func TestJoinStateRejectsBadMembers(t *testing.T) {
 }
 
 func TestJoinStateRejectsBadInputs(t *testing.T) {
-	members := []matchMember{{id: 1, until: noLeave}, {id: 4, from: 5, until: 30}, {id: 6, from: 25, until: 40}}
+	members := []matchMember{{id: 1}, {id: 4, from: 5, until: 30, hasLeave: true}, {id: 6, from: 25, until: 40, hasLeave: true}}
 	for name, inputs := range map[string][]InputFrame{
 		"staying member":  {{Tick: 20, Peer: 1}},
 		"unknown peer":    {{Tick: 20, Peer: 5}},
@@ -139,9 +139,9 @@ func FuzzDecodeMemberChange(f *testing.F) {
 }
 
 func FuzzJoinAssembly(f *testing.F) {
-	small := encodeJoinParts(encodeJoinState(joinState{tick: 5, members: []matchMember{{id: 1, until: noLeave}, {id: 2, from: 5, until: noLeave}, {id: 3, until: 7}}, inputs: []InputFrame{{Tick: 5, Peer: 3, Bits: 1}, {Tick: 6, Peer: 3}}, state: []byte("state")}))
+	small := encodeJoinParts(encodeJoinState(joinState{tick: 5, members: []matchMember{{id: 1}, {id: 2, from: 5}, {id: 3, until: 7, hasLeave: true}}, inputs: []InputFrame{{Tick: 5, Peer: 3, Bits: 1}, {Tick: 6, Peer: 3}}, state: []byte("state")}))
 	f.Add(small[0], []byte(nil))
-	big := encodeJoinParts(encodeJoinState(joinState{tick: 5, members: []matchMember{{id: 1, until: noLeave}}, state: make([]byte, joinPartSize)}))
+	big := encodeJoinParts(encodeJoinState(joinState{tick: 5, members: []matchMember{{id: 1}}, state: make([]byte, joinPartSize)}))
 	f.Add(big[0], big[1])
 	f.Add([]byte{syncMsgJoinState, 0, 0, 0, 1}, []byte{syncMsgJoinState, 0, 1, 0, 2})
 	f.Fuzz(func(t *testing.T, first, second []byte) {
@@ -224,7 +224,7 @@ func (s *memberTransport) Close() error    { return nil }
 
 // FuzzSessionsTakeHostMessages feeds arbitrary messages from the host to a running and a joining session of both kinds, which must neither panic nor take part in a tick their members do not cover.
 func FuzzSessionsTakeHostMessages(f *testing.F) {
-	f.Add(encodeMemberChange(memberChange{kind: memberLeave, peer: 2, tick: 3, inputs: []InputFrame{{Tick: 1, Peer: 2, Bits: 1}}}), encodeJoinParts(encodeJoinState(joinState{tick: 4, members: []matchMember{{id: 1, until: noLeave}, {id: 2, until: noLeave}, {id: 3, from: 4, until: noLeave}}, state: make([]byte, 8)}))[0])
+	f.Add(encodeMemberChange(memberChange{kind: memberLeave, peer: 2, tick: 3, inputs: []InputFrame{{Tick: 1, Peer: 2, Bits: 1}}}), encodeJoinParts(encodeJoinState(joinState{tick: 4, members: []matchMember{{id: 1}, {id: 2}, {id: 3, from: 4}}, state: make([]byte, 8)}))[0])
 	f.Add(encodeMemberChange(memberChange{kind: memberJoin, peer: 9, tick: 0}), []byte{syncMsgJoinState, 0, 0, 0, 1, 1})
 	f.Fuzz(func(t *testing.T, a, b []byte) {
 		for _, join := range []bool{false, true} {
@@ -370,6 +370,7 @@ func TestJoinStateLimit(t *testing.T) {
 func TestMembersAreForgottenAfterTheirRetention(t *testing.T) {
 	m := newMatch(&memberTransport{id: 1}, []PeerID{1, 2}, 0, false)
 	m.member(2).until = 10
+	m.member(2).hasLeave = true
 	_ = m.enqueue(2, []byte{1})
 	m.pruneMembers(10 + memberRetention)
 	if m.member(2) == nil {
@@ -470,7 +471,7 @@ func TestJoiningSessionFindsItsHost(t *testing.T) {
 		}
 		_ = s.Poll()
 		tr.peers = []PeerID{5, 3, 1}
-		js := encodeJoinParts(encodeJoinState(joinState{tick: 4, members: []matchMember{{id: 1, until: noLeave}, {id: 3, from: 4, until: noLeave}}, state: make([]byte, 12)}))
+		js := encodeJoinParts(encodeJoinState(joinState{tick: 4, members: []matchMember{{id: 1}, {id: 3, from: 4}}, state: make([]byte, 12)}))
 		tr.inbox = append(tr.inbox, Packet{From: 1, Payload: js[0]})
 		if err := s.Poll(); err != nil || s.host != 1 || !s.Active() || s.Tick() != 4 {
 			t.Fatalf("configured host %d: resolved %d, active %v at %d (%v)", host, s.host, s.Active(), s.Tick(), err)
@@ -569,7 +570,7 @@ func TestStraysAreBounded(t *testing.T) {
 func BenchmarkJoinState(b *testing.B) {
 	state := make([]byte, 1<<20)
 	binary.BigEndian.PutUint64(state, 42)
-	js := joinState{tick: 600, members: []matchMember{{id: 1, until: noLeave}, {id: 2, until: noLeave}, {id: 3, from: 600, until: noLeave}}, state: state}
+	js := joinState{tick: 600, members: []matchMember{{id: 1}, {id: 2}, {id: 3, from: 600}}, state: state}
 	b.SetBytes(int64(len(state)))
 	b.ReportAllocs()
 	for b.Loop() {
