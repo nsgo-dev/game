@@ -493,8 +493,6 @@ gpu.View(cx, gpu.ViewProps{
 - **优先级与取消**：`PriorityHigh`、`PriorityNormal`、`PriorityLow` 同时决定解码队列和上传队列的顺序（同一优先级先进先出），高优先级资产会在下一个分块抢占上传到一半的低优先级资产。每个 `Queue*` 调用返回 `*UploadHandle`，其 `State()`、`Progress()`、`Err()`、`Done()` 与 `Cancel()` 可在任意协程调用。
 - **生命周期**：向 `NewUploader` 传入 `*core.Scope` 后，作用域销毁时会关闭上传器。`Close` 取消未完成的解码、等待全部工作协程退出、释放上传到一半的 GPU 资源，并以 `ErrUploaderClosed` 调用每个未完成上传的 `onReady`；它须在调用 `Step` 的协程上执行，作用域销毁正是如此。无界面测试可传入 `nil` 并自行调用 `Close`。`UploaderOptions.MaxPending` 限制未完成上传的数量，超出时以 `ErrUploadQueueFull` 失败。
 
-||||||| parent of 6ae11efc (feat(render3d): add HDR render target, tone mapping, and sRGB/gamma pass)
-
 ## HDR 渲染、色调映射与伽马（`HDRTarget`、`ToneMapPass`）
 
 将场景的线性辐亮度渲染到 `HDRTarget`（`gpu.FormatRGBA16Float`，在 `SupportsHDR(dev)` 为 false 的设备上回退到 `gpu.FormatRGBA8Unorm`），再用 `ToneMapPass` 解析到显示目标。render3d 自带的着色器默认会做色调映射并编码为 sRGB，因此绘制到 HDR 目标时要使用它们的线性输出模式：光照 PBR 用 `LitPBRPipelineOptions.LinearOutput`（通过 `NewLitPBRPipelineWithOptions`，可带雾或 IBL），材质用 `MaterialPipelineOptions.LinearOutput`。不开启时，图像会被色调映射和伽马编码两次，HDR 目标里也只存着已被钳位到 `[0, 1]` 的值。
