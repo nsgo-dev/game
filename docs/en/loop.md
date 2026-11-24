@@ -100,6 +100,26 @@ loop := &game.Loop{
 }
 ```
 
+## Pausing and syncing subsystems
+
+`SetPaused(true)` (or setting `Paused = true`) stops `Update` from advancing while `Draw` keeps running, and unpausing resumes without a catch-up backlog. Set `OnPause` to keep subsystems such as [`sound.Mixer`](sound.md#pausing-with-the-game) in sync with the loop's paused state:
+
+```go
+mixer.SetPauseExempt("ui", true)
+loop := &game.Loop{
+	Rate:    60,
+	OnPause: mixer.SetPaused,
+	Update:  stepWorld,
+	Draw:    renderWorld,
+}
+loop.Run(cx)
+```
+
+- `SetPaused` calls `OnPause` immediately whenever the paused state changes (repeating the same value does nothing).
+- Editing `Paused` directly calls `OnPause` on the next frame, or in the same frame when `Update` changes it.
+- If `Paused` is already `true` when `Run` starts, `Run` calls `OnPause(true)`.
+- Backgrounding does not call `OnPause`; both `Loop.Run` and `sound.NewMixer` watch `core.Env.Lifecycle` directly so backgrounding pauses and resumes everything in sync without clearing an open pause menu.
+
 ## Background pause and stopping
 
 `Loop.Run` watches `cx.Env().Lifecycle()`:
