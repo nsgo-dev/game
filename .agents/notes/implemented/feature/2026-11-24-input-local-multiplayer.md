@@ -41,7 +41,7 @@ Allowing callers to delete a slot from the middle of `Players` would keep `Len()
 
 - **Benefits**: Local multiplayer games wire `WatchGamepads`, `WatchKeys`, `Attach`, `Step`, and `Reset` once on `Players`; two gamepads, split keyboards, mixed keyboard + gamepad, and split-screen touch all work with the same per-player `Actions` API and per-player `Save`/`Load`; steady-state `Players.Step()` performs zero allocations per step.
 - **Costs**: Callers must remember to call `WatchGamepads` / `WatchKeys` / `Attach` / `Step` on `Players` rather than on individual `p.Actions()` instances, and switching a player from keyboard to gamepad-only requires calling both `UnassignKeyboard(i)` (or `Unassign(i)`) and `AssignGamepad(i, id)`.
-- **Known limit**: `Players` does not yet emit disconnect/reconnect events, auto-pause on controller loss, or perform automatic press-any-button reassignment; those are scoped to issue #316 and build directly on `GamepadID()`, `GamepadConnected()`, and `UnassignedGamepads()`.
+- **Follow-up (#316)**: Mid-game disconnect/reconnect events, auto-pause, press-any-button reassignment, and keyboard/touch fallback are implemented in [Mid-game controller disconnect, reconnect, and fallback in game/input](./2026-11-24-input-controller-disconnect-reconnect.md) on top of `GamepadID()`, `GamepadConnected()`, and `UnassignedGamepads()`.
 
 ## Verification
 

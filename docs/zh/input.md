@@ -167,6 +167,31 @@ p1Jump := players.Player(1).JustPressed("jump")
 - **自动分配与按键加入大厅**：调用 `AssignUnassignedGamepads()` 可按手柄 ID 升序将未分配的已连接手柄依次分配给尚未分配设备的空槽位（`!p.HasDevice()`）；也可以结合 `UnassignedGamepads()` 与 `NextUnassigned()` 实现“按任意键加入”的大厅流程。使用 `Add()` 动态新增槽位，使用 `UnassignGamepad`、`UnassignKeyboard`、`UnassignPointer` 或 `Unassign` 解除分配。
 - **单步轮询、重置与持久化**：`players.Step()` 每步仅轮询一次 `gamepad.Pads` 并步进所有玩家的 `Actions`；`players.Reset()` 重置所有玩家状态并保留槽位、绑定与设备分配；测试和回放可通过 `players.OnGamepads(pads)` 注入手柄快照。每位玩家的按键绑定可通过 `p.Actions().Save` 与 `p.Actions().Load` 各自保存和加载。
 
+### 手柄断开、重连与回退模式
+
+调用 `Players.SetDisconnectPolicy` 可在单人（`NewPlayers(1)`）和本地多人游戏中妥善处理对局途中的手柄断开：
+
+```go
+players.SetDisconnectPolicy(input.DisconnectPolicy{
+	PauseOnDisconnect:    true,
+	AllowReassignOnPress: true,
+	OnPause:              loop.SetPaused,
+	OnDisconnect: func(ev input.DisconnectEvent) {
+		showReconnectPrompt(ev.PlayerIndex)
+	},
+	OnReconnect: func(ev input.ReconnectEvent) {
+		if !ev.ShouldPause {
+			hideReconnectPrompt()
+		}
+	},
+})
+```
+
+- **立即释放输入并自动暂停**：当某位玩家此前已连接的手柄从快照中消失时，`Players` 会在该步立即释放其按住的按键与摇杆轴、记住丢失的手柄 ID、触发 `OnDisconnect`（`DisconnectEvent`），并在开启 `PauseOnDisconnect`（且未启用回退模式）时调用 `OnPause(true)`。只要 `WatchGamepads` 持有存活的作用域且仍有玩家等待重连，即使 `game.Loop` 已暂停，`Players` 也会在显示帧上自动轮询手柄，以便手柄重连或其他手柄按键时自动恢复循环；若在 `game.Loop` 之外自行驱动轮询，可直接调用 `PollGamepads()`。
+- **原手柄重连与按键接管**：原手柄重新连接后会自动恢复该玩家的槽位并触发 `OnReconnect`（`Reassigned: false`）。启用 `AllowReassignOnPress` 时，任意未分配的已连接手柄新按下任一按键即可接管编号最小的断开玩家槽位，并触发 `OnReconnect`（`Reassigned: true`）。待所有需要暂停的断开玩家均已恢复（或手动重新分配/解除分配）后，`Players` 调用 `OnPause(false)` 恢复游戏。
+- **单人键盘/触摸回退**：设置 `FallbackToKeyboardTouch: true` 后，手柄断开不会暂停游戏（`DisconnectEvent.FallbackActive == true`、`ShouldPause == false`）。`Players` 会临时为该玩家开启键盘与指针/触摸路由（并保留原有的键盘或指针分配），待原手柄重连或新手柄接管后平滑切回手柄并清理临时回退状态。
+- **状态查询**：可通过 `p.GamepadDisconnected()`、`p.FallbackActive()`、`players.DisconnectedPlayers()` 与 `players.PausedByDisconnect()` 驱动提示文案或暂停遮罩。
+
 ## 在固定步长中采样
 
 在每次 `game.Loop.Update` 开头调用一次 `actions.Step()`，随后使用 `Pressed`、`JustPressed`、`JustReleased` 和 `Axis` 读取当前步长的输入快照：
