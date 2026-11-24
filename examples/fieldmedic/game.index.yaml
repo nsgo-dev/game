@@ -1,0 +1,5 @@
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: scenes/ward.scene.yaml
+    uid: pkt3m31msjzdb

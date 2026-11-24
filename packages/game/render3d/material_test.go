@@ -17,8 +17,8 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// uvSphereMesh generates a counter-clockwise UV sphere centered at center with radius r.
-func uvSphereMesh(center math3d.Vec3, r float32, stacks, slices int) render3d.Mesh {
+// centeredUVSphereMesh generates a counter-clockwise UV sphere centered at center with radius r.
+func centeredUVSphereMesh(center math3d.Vec3, r float32, stacks, slices int) render3d.Mesh {
 	var m render3d.Mesh
 	for iy := 0; iy <= stacks; iy++ {
 		v := float32(iy) / float32(stacks)
@@ -990,7 +990,7 @@ func TestMetallicRoughnessRampMatchesReference(t *testing.T) {
 	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
 
 	for i, sp := range specs {
-		gm, err := render3d.UploadMesh(nil, dev, uvSphereMesh(sp.pos, 0.68, 18, 28), render3d.MeshUpload{Label: "sphere"})
+		gm, err := render3d.UploadMesh(nil, dev, centeredUVSphereMesh(sp.pos, 0.68, 18, 28), render3d.MeshUpload{Label: "sphere"})
 		if err != nil {
 			t.Fatalf("UploadMesh %d: %v", i, err)
 		}
@@ -1132,7 +1132,7 @@ func TestTexturedNormalMappedPBRSceneMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sphere mat: %v", err)
 	}
-	sphereMesh, err := render3d.UploadMesh(nil, dev, uvSphereMesh(math3d.Vec3{X: -1.15, Y: 0.85, Z: 0.25}, 0.82, 22, 32), render3d.MeshUpload{Label: "hero-sphere"})
+	sphereMesh, err := render3d.UploadMesh(nil, dev, centeredUVSphereMesh(math3d.Vec3{X: -1.15, Y: 0.85, Z: 0.25}, 0.82, 22, 32), render3d.MeshUpload{Label: "hero-sphere"})
 	if err != nil {
 		t.Fatalf("sphere mesh: %v", err)
 	}
@@ -1264,7 +1264,7 @@ func TestMaterialDrawsInGPUView(t *testing.T) {
 						if err != nil {
 							t.Fatalf("NewMaterialPipeline: %v", err)
 						}
-						mesh, err = render3d.UploadMesh(cx, dev, uvSphereMesh(math3d.Vec3{}, 0.85, 14, 20), render3d.MeshUpload{Label: "sphere"})
+						mesh, err = render3d.UploadMesh(cx, dev, centeredUVSphereMesh(math3d.Vec3{}, 0.85, 14, 20), render3d.MeshUpload{Label: "sphere"})
 						if err != nil {
 							t.Fatalf("UploadMesh: %v", err)
 						}
