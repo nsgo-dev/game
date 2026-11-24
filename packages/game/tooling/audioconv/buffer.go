@@ -15,6 +15,16 @@ type Buffer struct {
 	Channels int
 	// Samples stores interleaved channel samples of length Frames() * Channels.
 	Samples []float64
+	// Loop is the region a player repeats, or nil for none. EncodeWAV writes it in a smpl chunk and DecodeWAV reads the first forward loop of one; Resample scales it to the new rate, and ConvertChannels, Process and Clone keep it.
+	Loop *Loop
+}
+
+// Loop is a region of a Buffer that a player repeats, in sample frames: from Start up to, but not including, End.
+type Loop struct {
+	// Start is the first frame of the loop.
+	Start int
+	// End is the frame after the loop's last one; it must be above Start and at most the buffer's Frames.
+	End int
 }
 
 // Validate checks that b describes a supported mono or stereo PCM buffer.
@@ -27,6 +37,9 @@ func (b *Buffer) Validate() error {
 	}
 	if b.Channels != 1 && b.Channels != 2 {
 		return fmt.Errorf("audioconv: unsupported channel count %d (want 1 or 2)", b.Channels)
+	}
+	if l := b.Loop; l != nil && (l.Start < 0 || l.End <= l.Start || l.End > b.Frames()) {
+		return fmt.Errorf("audioconv: loop [%d, %d) is not a non-empty region of the %d frames", l.Start, l.End, b.Frames())
 	}
 	if len(b.Samples)%b.Channels != 0 {
 		return fmt.Errorf("audioconv: sample count %d is not a multiple of %d channels", len(b.Samples), b.Channels)
@@ -61,7 +74,27 @@ func (b *Buffer) Clone() *Buffer {
 		SampleRate: b.SampleRate,
 		Channels:   b.Channels,
 		Samples:    cp,
+		Loop:       b.Loop.clone(),
 	}
+}
+
+// clone returns a copy of l, or nil when l is nil.
+func (l *Loop) clone() *Loop {
+	if l == nil {
+		return nil
+	}
+	c := *l
+	return &c
+}
+
+// scale returns l moved to a buffer of frames frames resampled by ratio, rounding each end to the nearest frame and keeping the loop at least one frame long and inside the buffer; it returns nil when l is nil or the buffer has no frames.
+func (l *Loop) scale(ratio float64, frames int) *Loop {
+	if l == nil || frames <= 0 {
+		return nil
+	}
+	start := min(max(int(math.Round(float64(l.Start)*ratio)), 0), frames-1)
+	end := min(max(int(math.Round(float64(l.End)*ratio)), start+1), frames)
+	return &Loop{Start: start, End: end}
 }
 
 // Peak returns the maximum absolute sample amplitude in b.

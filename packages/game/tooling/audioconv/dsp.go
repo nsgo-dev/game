@@ -132,7 +132,7 @@ func (b *Buffer) Resample(targetRate int) (*Buffer, error) {
 	return Resample(b, targetRate)
 }
 
-// Resample returns a new Buffer resampled from buf.SampleRate to targetRate Hz using Hann-windowed sinc interpolation with anti-aliasing when downsampling.
+// Resample returns a new Buffer resampled from buf.SampleRate to targetRate Hz using Hann-windowed sinc interpolation with anti-aliasing when downsampling. Its Loop is buf's scaled to the new rate, each end rounded to the nearest frame.
 func Resample(buf *Buffer, targetRate int) (*Buffer, error) {
 	if err := buf.Validate(); err != nil {
 		return nil, err
@@ -202,6 +202,7 @@ func Resample(buf *Buffer, targetRate int) (*Buffer, error) {
 		SampleRate: targetRate,
 		Channels:   channels,
 		Samples:    out,
+		Loop:       buf.Loop.scale(ratio, outFrames),
 	}, nil
 }
 
@@ -249,5 +250,6 @@ func ConvertChannels(buf *Buffer, targetChannels int) (*Buffer, error) {
 		SampleRate: buf.SampleRate,
 		Channels:   targetChannels,
 		Samples:    out,
+		Loop:       buf.Loop.clone(),
 	}, nil
 }
