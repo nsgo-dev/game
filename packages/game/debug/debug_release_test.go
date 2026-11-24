@@ -153,8 +153,8 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	if _, ok := c.Tunable("f"); ok {
 		t.Fatal("Console.Tunable returned true in release build")
 	}
-	if oldV, newV, err := c.SetTunable("f", 2.0); oldV != nil || newV != nil || err != nil || vFloat != 1.5 {
-		t.Fatalf("Console.SetTunable in release = (%v, %v, %v), vFloat=%v", oldV, newV, err, vFloat)
+	if ch, err := c.SetTunable("f", 2.0, false); ch != (debug.TunableChange{}) || err == nil || vFloat != 1.5 {
+		t.Fatalf("Console.SetTunable in release = (%+v, %v), vFloat=%v; want an error and no change", ch, err, vFloat)
 	}
 	if len(c.History()) != 0 || c.HistoryPrev() != "" || c.HistoryNext() != "" || len(c.Entries()) != 0 || len(c.Complete("s")) != 0 {
 		t.Fatal("Console history/entries/complete returned data in release build")

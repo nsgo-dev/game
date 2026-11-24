@@ -2,7 +2,11 @@
 
 package debug
 
-import "github.com/nsgo-dev/nsgo/core"
+import (
+	"errors"
+
+	"github.com/nsgo-dev/nsgo/core"
+)
 
 var releaseConsole Console
 
@@ -33,8 +37,10 @@ func (*Console) Tunables() []TunableInfo { return nil }
 // Tunable always reports not found in release builds.
 func (*Console) Tunable(string) (TunableInfo, bool) { return TunableInfo{}, false }
 
-// SetTunable is a no-op in release builds.
-func (*Console) SetTunable(string, any) (any, any, error) { return nil, nil, nil }
+// SetTunable changes nothing and returns an error in release builds, where no tunable is registered.
+func (*Console) SetTunable(string, any, bool) (TunableChange, error) {
+	return TunableChange{}, errors.New("debug: console disabled in release builds")
+}
 
 // Commands always returns nil in release builds.
 func (*Console) Commands() []CommandInfo { return nil }

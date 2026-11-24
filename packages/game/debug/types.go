@@ -85,6 +85,16 @@ type TunableInfo struct {
 	Max any
 }
 
+// TunableChange is the result of Console.SetTunable.
+type TunableChange struct {
+	// Old is the tunable's value before the change.
+	Old any
+	// Tunable describes the tunable after the change; its Value is the value stored.
+	Tunable TunableInfo
+	// Clamped reports whether the requested value lay outside the tunable's range and was stored as the nearest bound.
+	Clamped bool
+}
+
 // CommandInfo describes one command available on a Console.
 type CommandInfo struct {
 	// Name is the command name as typed on the console.

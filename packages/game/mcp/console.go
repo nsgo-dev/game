@@ -28,8 +28,8 @@ const (
 	ToolConsoleExec = "game_console_exec"
 )
 
-// TunableInfo describes one registered tunable variable returned by game_tunables_list and game_tunable_get.
-type TunableInfo struct {
+// TunableResult describes one registered tunable variable, as game_tunables_list and game_tunable_get return it. It is debug.TunableInfo in JSON form, with a non-finite float bound written as "NaN", "+Inf" or "-Inf".
+type TunableResult struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Value   any    `json:"value"`
@@ -40,8 +40,8 @@ type TunableInfo struct {
 
 // TunablesListResult is the JSON result of game_tunables_list.
 type TunablesListResult struct {
-	Total    int           `json:"total"`
-	Tunables []TunableInfo `json:"tunables"`
+	Total    int             `json:"total"`
+	Tunables []TunableResult `json:"tunables"`
 }
 
 // TunableSetResult is the JSON result of game_tunable_set.
@@ -225,8 +225,8 @@ func sanitizeJSONNumber(v any) any {
 	return v
 }
 
-func tunableInfoFrom(t debug.TunableInfo) TunableInfo {
-	return TunableInfo{
+func tunableResultFrom(t debug.TunableInfo) TunableResult {
+	return TunableResult{
 		Name:    t.Name,
 		Type:    t.Type,
 		Value:   sanitizeJSONNumber(t.Value),
@@ -262,12 +262,12 @@ func (b *Bridge) handleTunablesList(_ context.Context, raw json.RawMessage) (any
 		return nil, err
 	}
 	all := c.Tunables()
-	out := make([]TunableInfo, 0, len(all))
+	out := make([]TunableResult, 0, len(all))
 	for _, t := range all {
 		if args.Prefix != "" && !strings.HasPrefix(t.Name, args.Prefix) {
 			continue
 		}
-		out = append(out, tunableInfoFrom(t))
+		out = append(out, tunableResultFrom(t))
 	}
 	return TunablesListResult{
 		Total:    len(out),
@@ -295,7 +295,7 @@ func (b *Bridge) handleTunableGet(_ context.Context, raw json.RawMessage) (any, 
 	if !ok {
 		return nil, missingTunableError(c, args.Name)
 	}
-	return tunableInfoFrom(info), nil
+	return tunableResultFrom(info), nil
 }
 
 type tunableSetArgs struct {
@@ -328,9 +328,10 @@ func (b *Bridge) handleTunableSet(_ context.Context, raw json.RawMessage) (any, 
 		return nil, fmt.Errorf("mcp: tunable %q expects %s, got null", info.Name, info.Type)
 	}
 
+	// Decode the JSON value into the tunable's Go type; SetTunable then checks the type again, clamps and writes under one lock, so a tunable re-registered in between is never written with stale bounds.
 	var (
-		typedVal any
-		clamped  bool
+		typedVal  any
+		saturated bool
 	)
 	switch info.Type {
 	case "float":
@@ -341,36 +342,13 @@ func (b *Bridge) handleTunableSet(_ context.Context, raw json.RawMessage) (any, 
 			}
 			return nil, fmt.Errorf("mcp: tunable %q expects float, got %s", info.Name, jsonValueKind(rawVal))
 		}
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, fmt.Errorf("mcp: tunable %q requires a finite float", info.Name)
-		}
-		if args.Clamp {
-			if minF, ok := info.Min.(float64); ok && !math.IsNaN(minF) && !math.IsInf(minF, 0) && v < minF {
-				v = minF
-				clamped = true
-			}
-			if maxF, ok := info.Max.(float64); ok && !math.IsNaN(maxF) && !math.IsInf(maxF, 0) && v > maxF {
-				v = maxF
-				clamped = true
-			}
-		}
 		typedVal = v
 	case "int":
-		v, err := decodeStrictInt(info.Name, rawVal)
+		v, sat, err := decodeStrictInt(info.Name, rawVal, args.Clamp)
 		if err != nil {
 			return nil, err
 		}
-		if args.Clamp {
-			if minI, ok := info.Min.(int); ok && v < minI {
-				v = minI
-				clamped = true
-			}
-			if maxI, ok := info.Max.(int); ok && v > maxI {
-				v = maxI
-				clamped = true
-			}
-		}
-		typedVal = v
+		typedVal, saturated = v, sat
 	case "bool":
 		var v bool
 		if err := json.Unmarshal(rawVal, &v); err != nil {
@@ -387,53 +365,68 @@ func (b *Bridge) handleTunableSet(_ context.Context, raw json.RawMessage) (any, 
 		return nil, fmt.Errorf("mcp: unsupported tunable type %q for %q", info.Type, info.Name)
 	}
 
-	oldVal, newVal, err := c.SetTunable(args.Name, typedVal)
+	ch, err := c.SetTunable(args.Name, typedVal, args.Clamp)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: %w", err)
 	}
+	after := tunableResultFrom(ch.Tunable)
 	return TunableSetResult{
-		Name:     info.Name,
-		Type:     info.Type,
-		OldValue: sanitizeJSONNumber(oldVal),
-		Value:    sanitizeJSONNumber(newVal),
-		Default:  sanitizeJSONNumber(info.Default),
-		Min:      sanitizeJSONNumber(info.Min),
-		Max:      sanitizeJSONNumber(info.Max),
-		Clamped:  clamped,
+		Name:     after.Name,
+		Type:     after.Type,
+		OldValue: sanitizeJSONNumber(ch.Old),
+		Value:    after.Value,
+		Default:  after.Default,
+		Min:      after.Min,
+		Max:      after.Max,
+		Clamped:  ch.Clamped || saturated,
 	}, nil
 }
 
-func decodeStrictInt(name string, raw []byte) (int, error) {
+// decodeStrictInt decodes an integral JSON number for the int tunable name. A number beyond int's range is refused, or with clamp returned as math.MinInt or math.MaxInt with saturated set, so SetTunable clamps it to the tunable's bound.
+func decodeStrictInt(name string, raw []byte, clamp bool) (v int, saturated bool, err error) {
 	if kind := jsonValueKind(raw); kind != "number" {
-		return 0, fmt.Errorf("mcp: tunable %q expects int, got %s", name, kind)
+		return 0, false, fmt.Errorf("mcp: tunable %q expects int, got %s", name, kind)
 	}
 	var i int
 	if err := json.Unmarshal(raw, &i); err == nil {
-		return i, nil
+		return i, false, nil
 	}
 	var f float64
 	if err := json.Unmarshal(raw, &f); err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, fmt.Errorf("mcp: tunable %q expects int, got invalid number %s", name, string(raw))
+		return 0, false, fmt.Errorf("mcp: tunable %q expects int, got invalid number %s", name, string(raw))
 	}
+	// Checked before big.Rat so a huge exponent is never expanded.
 	if f < float64(math.MinInt) || f > float64(math.MaxInt) {
-		return 0, fmt.Errorf("mcp: tunable %q integer %s overflows int", name, string(raw))
+		if f != math.Trunc(f) {
+			return 0, false, fmt.Errorf("mcp: tunable %q expects int, got non-integer number %s", name, string(raw))
+		}
+		if !clamp {
+			return 0, false, fmt.Errorf("mcp: tunable %q integer %s overflows int", name, string(raw))
+		}
+		if f < 0 {
+			return math.MinInt, true, nil
+		}
+		return math.MaxInt, true, nil
 	}
 	r, ok := new(big.Rat).SetString(string(raw))
 	if !ok {
-		return 0, fmt.Errorf("mcp: tunable %q expects int, got invalid number %s", name, string(raw))
+		return 0, false, fmt.Errorf("mcp: tunable %q expects int, got invalid number %s", name, string(raw))
 	}
 	if !r.IsInt() {
-		return 0, fmt.Errorf("mcp: tunable %q expects int, got non-integer number %s", name, string(raw))
+		return 0, false, fmt.Errorf("mcp: tunable %q expects int, got non-integer number %s", name, string(raw))
 	}
 	num := r.Num()
-	if !num.IsInt64() {
-		return 0, fmt.Errorf("mcp: tunable %q integer %s overflows int", name, string(raw))
+	if !num.IsInt64() || num.Int64() < math.MinInt || num.Int64() > math.MaxInt {
+		// f rounded into int's range although the exact number lies just past it.
+		if !clamp {
+			return 0, false, fmt.Errorf("mcp: tunable %q integer %s overflows int", name, string(raw))
+		}
+		if num.Sign() < 0 {
+			return math.MinInt, true, nil
+		}
+		return math.MaxInt, true, nil
 	}
-	v64 := num.Int64()
-	if v64 < math.MinInt || v64 > math.MaxInt {
-		return 0, fmt.Errorf("mcp: tunable %q integer %s overflows int", name, string(raw))
-	}
-	return int(v64), nil
+	return int(num.Int64()), false, nil
 }
 
 func jsonValueKind(raw []byte) string {

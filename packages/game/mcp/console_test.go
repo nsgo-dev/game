@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/debug"
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/mcp"
@@ -16,10 +18,12 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// TestTunablesChangeAffectsLiveSimulation verifies the end-to-end acceptance
-// flow: an agent lists tunables, reads physics parameters, raises jump_speed
-// and lowers gravity via game_tunable_set, steps the live simulation, and sees
-// the player reach a measurably higher apex via game_component_get.
+// jumpComp records the highest point of the player's current jump.
+type jumpComp struct {
+	Apex float32 `json:"apex"`
+}
+
+// TestTunablesChangeAffectsLiveSimulation is the acceptance flow of #466: an agent lists tunables, starts a jump with game_console_exec, steps the running game.Loop with game_loop_step and reads the apex with game_component_get, then raises jump_speed and lowers gravity with game_tunable_set and sees the next jump reach a far higher apex.
 func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 	gravity := 800.0
 	jumpSpeed := 300.0
@@ -41,38 +45,69 @@ func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 	player := world.Spawn()
 	entities.Set(world, player, posComp{X: 0, Y: 0})
 
-	// Simulate a single jump from Y=0 using the live tunable pointers and record the peak height.
-	simulateJumpApex := func() float64 {
-		y := 0.0
-		vy := jumpSpeed
-		peak := 0.0
-		const dt = 1.0 / 60.0
-		for range 240 {
-			vy -= gravity * dt
-			y += vy * dt
-			if y > peak {
-				peak = y
+	if err := entities.RegisterCodec[jumpComp](world, "jump"); err != nil {
+		t.Fatal(err)
+	}
+	entities.Set(world, player, jumpComp{})
+
+	// The game's own fixed-step physics reads the tunables through their pointers on every update.
+	var y, vy, apex float64
+	console.RegisterCommand("jump", "jump - launch the player at player.jump_speed", func([]string) (string, error) {
+		y, vy, apex = 0, jumpSpeed, 0
+		return "jump", nil
+	})
+	loop := &game.Loop{
+		Rate:   60,
+		Paused: true,
+		Update: func(dt time.Duration) {
+			s := dt.Seconds()
+			vy -= gravity * s
+			y += vy * s
+			if y <= 0 {
+				y, vy = 0, 0
 			}
-			if y <= 0 && vy < 0 {
-				break
-			}
-		}
-		entities.Set(world, player, posComp{X: 0, Y: float32(peak)})
-		return peak
+			apex = max(apex, y)
+			entities.Set(world, player, posComp{X: 0, Y: float32(y)})
+			entities.Set(world, player, jumpComp{Apex: float32(apex)})
+		},
 	}
 
 	var cx *core.Scope
 	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
 		cx = scope
 		world.Attach(cx)
+		loop.Run(cx)
 		if _, err := mcp.Attach(cx, mcp.Config{
 			World:   world,
+			Loop:    loop,
 			Console: console,
 		}); err != nil {
 			t.Fatal(err)
 		}
 		return core.View{}
 	})
+
+	// jumpApex jumps through the console, steps the loop for four seconds of game time, and reads the apex back.
+	jumpApex := func() float64 {
+		t.Helper()
+		exec := callTool[mcp.ConsoleExecResult](t, app, cx, mcp.ToolConsoleExec, map[string]any{"command": "jump"})
+		if !exec.OK {
+			t.Fatalf("game_console_exec(jump) = %+v", exec)
+		}
+		step := callTool[mcp.LoopStepResult](t, app, cx, mcp.ToolLoopStep, map[string]any{"count": 240})
+		if step.StepsAdvanced != 240 {
+			t.Fatalf("game_loop_step = %+v, want 240 steps", step)
+		}
+		comp := callTool[mcp.ComponentGetResult](t, app, cx, mcp.ToolComponentGet, map[string]any{
+			"ref":       mcp.FormatEntityRef(player),
+			"component": "jump",
+		})
+		var j jumpComp
+		if err := json.Unmarshal(comp.Value, &j); err != nil {
+			t.Fatal(err)
+		}
+		return float64(j.Apex)
+	}
 
 	// 1. List all tunables and verify deterministic sorted order and metadata (including min=0).
 	listRaw, err := callToolRaw(t, app, cx, mcp.ToolTunablesList, nil)
@@ -106,23 +141,15 @@ func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 	}
 
 	// 2. Read a single tunable before changing it.
-	gotJump := callTool[mcp.TunableInfo](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "player.jump_speed"})
+	gotJump := callTool[mcp.TunableResult](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "player.jump_speed"})
 	if gotJump.Type != "float" || gotJump.Value != 300.0 || gotJump.Default != 300.0 || gotJump.Min != 100.0 || gotJump.Max != 1200.0 {
 		t.Fatalf("tunable get(player.jump_speed) = %+v", gotJump)
 	}
 
-	// Baseline jump height with default tunables.
-	var baselinePeak float64
-	app.Post(func() { baselinePeak = simulateJumpApex() })
-	app.Settle()
-
-	baseComp := callTool[mcp.ComponentGetResult](t, app, cx, mcp.ToolComponentGet, map[string]any{
-		"ref":       mcp.FormatEntityRef(player),
-		"component": "position",
-	})
-	var basePos posComp
-	if err := json.Unmarshal(baseComp.Value, &basePos); err != nil {
-		t.Fatal(err)
+	// Baseline jump with the registered values: about 300²/(2·800) = 56 units.
+	baselineApex := jumpApex()
+	if baselineApex < 50 || baselineApex > 60 {
+		t.Fatalf("baseline apex = %v, want about 56", baselineApex)
 	}
 
 	// 3. Agent changes float, int, bool and string tunables via game_tunable_set.
@@ -166,22 +193,10 @@ func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 		t.Fatalf("set level.name = %+v, var=%q", setLevel, levelName)
 	}
 
-	// 4. Re-run jump simulation and verify the agent sees the dramatic height increase!
-	var boostedPeak float64
-	app.Post(func() { boostedPeak = simulateJumpApex() })
-	app.Settle()
-
-	boostedComp := callTool[mcp.ComponentGetResult](t, app, cx, mcp.ToolComponentGet, map[string]any{
-		"ref":       mcp.FormatEntityRef(player),
-		"component": "position",
-	})
-	var boostedPos posComp
-	if err := json.Unmarshal(boostedComp.Value, &boostedPos); err != nil {
-		t.Fatal(err)
-	}
-	if boostedPeak <= baselinePeak*4 || float64(boostedPos.Y) <= float64(basePos.Y)*4 {
-		t.Fatalf("expected tunable change to increase jump apex >4x: baseline=%v (%v) boosted=%v (%v)",
-			baselinePeak, basePos.Y, boostedPeak, boostedPos.Y)
+	// 4. The next jump in the running loop uses the new values: about 600²/(2·400) = 450 units.
+	boostedApex := jumpApex()
+	if boostedApex <= baselineApex*4 {
+		t.Fatalf("apex after game_tunable_set = %v, want more than 4x the baseline %v", boostedApex, baselineApex)
 	}
 
 	// 5. Optional clamp clamps out-of-range numeric values cleanly and reports clamped=true.
@@ -207,7 +222,7 @@ func TestTunablesChangeAffectsLiveSimulation(t *testing.T) {
 		t.Fatalf("whole float int = %+v, var=%d", wholeFloatInt, maxJumps)
 	}
 	// Reading back reflects current value while preserving original registration default.
-	afterJump := callTool[mcp.TunableInfo](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "player.jump_speed"})
+	afterJump := callTool[mcp.TunableResult](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "player.jump_speed"})
 	if math.Abs(afterJump.Value.(float64)-1200) > 1e-9 || math.Abs(afterJump.Default.(float64)-300) > 1e-9 {
 		t.Fatalf("after get = %+v", afterJump)
 	}
@@ -451,14 +466,23 @@ func TestConsoleDynamicResolutionAndErrors(t *testing.T) {
 		t.Fatalf("scientific int = %+v, lives=%d", sciInt, lives)
 	}
 
-	// Non-finite runtime floats serialize safely as "NaN"/"+Inf" rather than failing JSON encoding,
-	// and can be inspected and recovered via game_tunable_set.
+	// With clamp, an integer beyond int's range is clamped to the tunable's bound like any other out-of-range value.
+	overMax := callTool[mcp.TunableSetResult](t, app, cx, mcp.ToolTunableSet, `{"name":"lives","value":1e30,"clamp":true}`)
+	if overMax.Value != 10.0 || !overMax.Clamped || lives != 10 {
+		t.Fatalf("clamped 1e30 = %+v, lives=%d", overMax, lives)
+	}
+	underMin := callTool[mcp.TunableSetResult](t, app, cx, mcp.ToolTunableSet, `{"name":"lives","value":-1e30,"clamp":true}`)
+	if underMin.Value != 1.0 || !underMin.Clamped || lives != 1 {
+		t.Fatalf("clamped -1e30 = %+v, lives=%d", underMin, lives)
+	}
+
+	// Non-finite runtime floats serialize safely as "NaN"/"+Inf" rather than failing JSON encoding, and can be inspected and recovered via game_tunable_set.
 	speed = math.NaN()
 	nanList := callTool[mcp.TunablesListResult](t, app, cx, mcp.ToolTunablesList, map[string]any{"prefix": "speed"})
 	if nanList.Total != 1 || nanList.Tunables[0].Value != "NaN" {
 		t.Fatalf("nan list = %+v, want Value=\"NaN\"", nanList)
 	}
-	nanGet := callTool[mcp.TunableInfo](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "speed"})
+	nanGet := callTool[mcp.TunableResult](t, app, cx, mcp.ToolTunableGet, map[string]any{"name": "speed"})
 	if nanGet.Value != "NaN" {
 		t.Fatalf("nan get = %+v, want Value=\"NaN\"", nanGet)
 	}

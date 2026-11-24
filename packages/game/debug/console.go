@@ -162,7 +162,8 @@ func (t *consoleTunable) setString(raw string) error {
 	}
 }
 
-func (t *consoleTunable) setValue(value any) (oldVal, newVal any, err error) {
+// setValue stores value after checking its type and range. With clamp, a number outside the range, including an integer beyond int's range, is stored as the nearest bound and clamped reports it; without clamp it is refused. On error the tunable is unchanged.
+func (t *consoleTunable) setValue(value any, clamp bool) (old any, clamped bool, err error) {
 	switch t.kind {
 	case tunableFloat:
 		var v float64
@@ -192,19 +193,29 @@ func (t *consoleTunable) setValue(value any) (oldVal, newVal any, err error) {
 		case uint64:
 			v = float64(x)
 		default:
-			return nil, nil, fmt.Errorf("invalid float value %T for %q", value, t.name)
+			return nil, false, fmt.Errorf("invalid float value %T for %q", value, t.name)
 		}
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, nil, fmt.Errorf("invalid float %v for %q", v, t.name)
+			return nil, false, fmt.Errorf("invalid float %v for %q", v, t.name)
 		}
 		if v < t.minFloat || v > t.maxFloat {
-			return nil, nil, fmt.Errorf("%q value %g out of range [%g, %g]", t.name, v, t.minFloat, t.maxFloat)
+			if !clamp {
+				return nil, false, fmt.Errorf("%q value %g out of range [%g, %g]", t.name, v, t.minFloat, t.maxFloat)
+			}
+			if v < t.minFloat {
+				v = t.minFloat
+			} else {
+				v = t.maxFloat
+			}
+			clamped = true
 		}
-		old := *t.floatPtr
+		old = *t.floatPtr
 		*t.floatPtr = v
-		return old, v, nil
+		return old, clamped, nil
 	case tunableInt:
 		var v int
+		// beyond is -1 or +1 when value lies below or above int's range.
+		beyond := 0
 		switch x := value.(type) {
 		case int:
 			v = x
@@ -215,56 +226,72 @@ func (t *consoleTunable) setValue(value any) (oldVal, newVal any, err error) {
 		case int32:
 			v = int(x)
 		case int64:
-			if x < math.MinInt || x > math.MaxInt {
-				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+			switch {
+			case x < math.MinInt:
+				beyond = -1
+			case x > math.MaxInt:
+				beyond = 1
+			default:
+				v = int(x)
 			}
-			v = int(x)
 		case uint:
 			if uint64(x) > math.MaxInt {
-				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+				beyond = 1
+			} else {
+				v = int(x)
 			}
-			v = int(x)
 		case uint8:
 			v = int(x)
 		case uint16:
 			v = int(x)
 		case uint32:
 			if uint64(x) > math.MaxInt {
-				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+				beyond = 1
+			} else {
+				v = int(x)
 			}
-			v = int(x)
 		case uint64:
 			if x > math.MaxInt {
-				return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, x, t.minInt, t.maxInt)
+				beyond = 1
+			} else {
+				v = int(x)
 			}
-			v = int(x)
 		default:
-			return nil, nil, fmt.Errorf("invalid int value %T for %q", value, t.name)
+			return nil, false, fmt.Errorf("invalid int value %T for %q", value, t.name)
 		}
-		if v < t.minInt || v > t.maxInt {
-			return nil, nil, fmt.Errorf("%q value %d out of range [%d, %d]", t.name, v, t.minInt, t.maxInt)
+		if beyond != 0 || v < t.minInt || v > t.maxInt {
+			if !clamp {
+				return nil, false, fmt.Errorf("%q value %v out of range [%d, %d]", t.name, value, t.minInt, t.maxInt)
+			}
+			switch {
+			case beyond < 0 || (beyond == 0 && v < t.minInt):
+				v = t.minInt
+			default:
+				v = t.maxInt
+			}
+			clamped = true
 		}
-		old := *t.intPtr
+		old = *t.intPtr
 		*t.intPtr = v
-		return old, v, nil
+		return old, clamped, nil
 	case tunableBool:
 		v, ok := value.(bool)
 		if !ok {
-			return nil, nil, fmt.Errorf("invalid bool value %T for %q", value, t.name)
+			return nil, false, fmt.Errorf("invalid bool value %T for %q", value, t.name)
 		}
-		old := *t.boolPtr
+		old = *t.boolPtr
 		*t.boolPtr = v
-		return old, v, nil
+		return old, false, nil
 	case tunableString:
 		v, ok := value.(string)
 		if !ok {
-			return nil, nil, fmt.Errorf("invalid string value %T for %q", value, t.name)
+			return nil, false, fmt.Errorf("invalid string value %T for %q", value, t.name)
 		}
-		old := *t.stringPtr
+		old = *t.stringPtr
 		*t.stringPtr = v
-		return old, v, nil
+		return old, false, nil
 	default:
-		return nil, nil, fmt.Errorf("unsupported tunable %q", t.name)
+		return nil, false, fmt.Errorf("unsupported tunable %q", t.name)
 	}
 }
 
@@ -447,19 +474,22 @@ func (c *Console) Tunable(name string) (TunableInfo, bool) {
 	return t.info(), true
 }
 
-// SetTunable updates the named tunable to value after checking its type and numeric range.
-// On success it returns the previous and new values; on failure the tunable is left unchanged.
-func (c *Console) SetTunable(name string, value any) (oldVal, newVal any, err error) {
+// SetTunable updates the named tunable to value after checking its type and numeric range, and returns the previous value with a snapshot of the tunable after the change, both taken under the same lock as the write. A float tunable takes any Go integer or float; an int tunable takes any Go integer. With clamp, a number outside the tunable's range, including an integer beyond int's range, is stored as the nearest bound and TunableChange.Clamped is set; without clamp it is refused. On error the tunable is left unchanged.
+func (c *Console) SetTunable(name string, value any, clamp bool) (TunableChange, error) {
 	if c == nil {
-		return nil, nil, errors.New("debug: nil console")
+		return TunableChange{}, errors.New("debug: nil console")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t, ok := c.tunables[name]
 	if !ok {
-		return nil, nil, fmt.Errorf("unknown tunable %q", name)
+		return TunableChange{}, fmt.Errorf("unknown tunable %q", name)
 	}
-	return t.setValue(value)
+	old, clamped, err := t.setValue(value, clamp)
+	if err != nil {
+		return TunableChange{}, err
+	}
+	return TunableChange{Old: old, Tunable: t.info(), Clamped: clamped}, nil
 }
 
 // Commands returns all built-in and registered console commands sorted by name.
