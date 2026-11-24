@@ -518,7 +518,7 @@ gpu.View(cx, gpu.ViewProps{
 | `ToneMapAgX` | Troy Sobotka AgX 默认观感 | 高饱和高光平滑去饱和且不偏色 |
 
 - **曝光**：直接设置 `ToneMapOptions.Exposure`，或通过 `ExposureFromEV(ev)` 按摄影档位计算（`0 -> 1.0`、`+1 -> 2.0`、`-1 -> 0.5`）。非正数或非有限值默认按 `1.0` 处理。
-- **伽马与 sRGB**：当 `ToneMapOptions.Gamma <= 0`（默认）且 `LinearOutput` 为 false 时，`ToneMapPass` 应用精确的 IEC 61966-2-1 线性到 sRGB OETF（CPU 端提供 `LinearToSRGBExact` 与 `SRGBToLinearExact`）；正数 `Gamma`（如 `2.2`）应用幂律 `pow(c, 1/Gamma)`。当 `ToneMapPassDesc.TargetFormat.IsSRGB()` 为真时，`ToneMapPass` 自动输出线性色调映射 RGB，由 GPU 的 sRGB 帧缓冲硬件单次完成编码，避免双重伽马。
+- **伽马与 sRGB**：当 `ToneMapOptions.Gamma <= 0`（默认）且 `LinearOutput` 为 false 时，`ToneMapPass` 应用精确的 IEC 61966-2-1 线性到 sRGB OETF（CPU 端提供 `LinearToSRGBChannel` 与 `SRGBToLinearChannel`）；正数 `Gamma`（如 `2.2`）应用幂律 `pow(c, 1/Gamma)`。当 `ToneMapPassDesc.TargetFormat.IsSRGB()` 为真时，`ToneMapPass` 自动输出线性色调映射 RGB，由 GPU 的 sRGB 帧缓冲硬件单次完成编码，避免双重伽马。
 - **稳态零分配与设备丢失恢复**：`AppendToneMapUniforms` 零分配写入 `ToneMapUniformSize`（16 字节）uniform 块，`ToneMapPass` 按源纹理缓存绑定组。在 `HDRTargetDesc` 与 `ToneMapPassDesc` 上同时开启 `Retained: true`，设备丢失后 NSGo 会自动重建纹理、采样器、uniform 缓冲、已缓存绑定组与管线。
 - **CPU 参考实现与可移植性**：`ApplyToneMap` 在 CPU 端镜像 `ToneMapWGSL`。`ToneMapWGSL` 避开了 `exp` 与 `log2` 内建函数（AgX 使用范围缩减多项式 `log2`），在完整 GPU 配置和 `nsgotest.NoGPUCompute`（WebGL 2 / OpenGL ES 3.0）下均可稳定运行。参考测试会将带 HDR 光照的场景输出与 `render3d/testdata/golden/tonemap_aces.png`、`tonemap_agx.png`、`tonemap_neutral.png` 比对；设置 `UPDATE_GOLDEN=1` 可重写基准图。
 

@@ -138,56 +138,6 @@ func ExposureFromEV(ev float32) float32 {
 	return float32(math.Exp2(float64(ev)))
 }
 
-// LinearToSRGBExact encodes a linear light intensity in [0, 1] using the exact
-// IEC 61966-2-1 sRGB opto-electronic transfer function (OETF). Values <= 0 or
-// NaN return 0; values >= 1 return 1.
-func LinearToSRGBExact(c float32) float32 {
-	if !(c > 0) {
-		return 0
-	}
-	if c >= 1 {
-		return 1
-	}
-	if c <= 0.0031308 {
-		return c * 12.92
-	}
-	return float32(1.055*math.Pow(float64(c), 1.0/2.4) - 0.055)
-}
-
-// SRGBToLinearExact decodes an sRGB-encoded value in [0, 1] to linear light
-// intensity using the exact IEC 61966-2-1 electro-optical transfer function
-// (EOTF). Values <= 0 or NaN return 0; values >= 1 return 1.
-func SRGBToLinearExact(c float32) float32 {
-	if !(c > 0) {
-		return 0
-	}
-	if c >= 1 {
-		return 1
-	}
-	if c <= 0.04045 {
-		return c / 12.92
-	}
-	return float32(math.Pow(float64((c+0.055)/1.055), 2.4))
-}
-
-// LinearToSRGBVec3 applies [LinearToSRGBExact] component-wise to rgb.
-func LinearToSRGBVec3(rgb math3d.Vec3) math3d.Vec3 {
-	return math3d.Vec3{
-		X: LinearToSRGBExact(rgb.X),
-		Y: LinearToSRGBExact(rgb.Y),
-		Z: LinearToSRGBExact(rgb.Z),
-	}
-}
-
-// SRGBToLinearVec3 applies [SRGBToLinearExact] component-wise to rgb.
-func SRGBToLinearVec3(rgb math3d.Vec3) math3d.Vec3 {
-	return math3d.Vec3{
-		X: SRGBToLinearExact(rgb.X),
-		Y: SRGBToLinearExact(rgb.Y),
-		Z: SRGBToLinearExact(rgb.Z),
-	}
-}
-
 // ApplyToneMap evaluates the CPU reference tone-mapping and display-encoding
 // pipeline matching [ToneMapWGSL]:
 //  1. Scale linear HDR rgb by normalized Exposure, clamping negative/NaN to 0.
@@ -214,9 +164,9 @@ func ApplyToneMap(rgb math3d.Vec3, opts ToneMapOptions) math3d.Vec3 {
 		mapped = toneMapAgXCPU(exposed)
 	default:
 		mapped = math3d.Vec3{
-			X: clamp01f32(exposed.X),
-			Y: clamp01f32(exposed.Y),
-			Z: clamp01f32(exposed.Z),
+			X: clamp01(exposed.X),
+			Y: clamp01(exposed.Y),
+			Z: clamp01(exposed.Z),
 		}
 	}
 
@@ -231,7 +181,7 @@ func ApplyToneMap(rgb math3d.Vec3, opts ToneMapOptions) math3d.Vec3 {
 			Z: safePow01(mapped.Z, invGamma),
 		}
 	}
-	return LinearToSRGBVec3(mapped)
+	return LinearToSRGB(mapped)
 }
 
 func sanitizeHDRChannel(v, exposure float32) float32 {
@@ -244,18 +194,8 @@ func sanitizeHDRChannel(v, exposure float32) float32 {
 	return v * exposure
 }
 
-func clamp01f32(v float32) float32 {
-	if !(v > 0) {
-		return 0
-	}
-	if v >= 1 {
-		return 1
-	}
-	return v
-}
-
 func safePow01(v float32, p float64) float32 {
-	c := clamp01f32(v)
+	c := clamp01(v)
 	if c <= 0 {
 		return 0
 	}
@@ -290,7 +230,7 @@ func toneMapACESCPU(c math3d.Vec3) math3d.Vec3 {
 		const a, b, k, d, e = float64(2.51), float64(0.03), float64(2.43), float64(0.59), float64(0.14)
 		xf := float64(x)
 		y := (xf * (a*xf + b)) / (xf*(k*xf+d) + e)
-		return clamp01f32(float32(y))
+		return clamp01(float32(y))
 	}
 	return math3d.Vec3{
 		X: aces(c.X),
@@ -320,9 +260,9 @@ func toneMapNeutralCPU(c math3d.Vec3) math3d.Vec3 {
 	peak := max(r, max(g, b))
 	if peak < startCompression {
 		return math3d.Vec3{
-			X: clamp01f32(float32(r)),
-			Y: clamp01f32(float32(g)),
-			Z: clamp01f32(float32(b)),
+			X: clamp01(float32(r)),
+			Y: clamp01(float32(g)),
+			Z: clamp01(float32(b)),
 		}
 	}
 	d := 1.0 - startCompression
@@ -334,7 +274,7 @@ func toneMapNeutralCPU(c math3d.Vec3) math3d.Vec3 {
 
 	desat := 1.0 - 1.0/(desaturation*(peak-newPeak)+1.0)
 	lerp := func(a, target, t float64) float32 {
-		return clamp01f32(float32(a*(1-t) + target*t))
+		return clamp01(float32(a*(1-t) + target*t))
 	}
 	return math3d.Vec3{
 		X: lerp(r, newPeak, desat),
