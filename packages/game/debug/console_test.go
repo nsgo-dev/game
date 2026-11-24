@@ -260,8 +260,15 @@ func TestConsoleStoragePersistence(t *testing.T) {
 	if err := c2.LoadTunables(st, "dev.badstr"); err == nil {
 		t.Fatal("LoadTunables(null string) succeeded, want error")
 	}
-	if g2 != 33.25 || s2 != "boss room" {
-		t.Fatalf("tunables mutated after rejected LoadTunables: gravity=%v level=%q", g2, s2)
+	// A number for a string tunable is refused, and a refused load applies none of its other values either.
+	if err := st.SetItem("dev.mixed", `{"gravity": 50, "lives": 7, "level": 42}`); err != nil {
+		t.Fatalf("SetItem error = %v", err)
+	}
+	if err := c2.LoadTunables(st, "dev.mixed"); err == nil {
+		t.Fatal("LoadTunables(number for string) succeeded, want error")
+	}
+	if g2 != 33.25 || n2 != 12 || s2 != "boss room" {
+		t.Fatalf("tunables mutated after rejected LoadTunables: gravity=%v lives=%d level=%q", g2, n2, s2)
 	}
 }
 
@@ -354,36 +361,56 @@ func TestConsoleStructuredInspectionAndStringTunable(t *testing.T) {
 		}
 	}
 
-	oldV, newV, err := c.SetTunable("gravity", 20.5)
-	if err != nil || oldV != 9.8 || newV != 20.5 || gravity != 20.5 {
-		t.Fatalf("SetTunable(gravity) = (%v, %v, %v), gravity=%v", oldV, newV, err, gravity)
+	ch, err := c.SetTunable("gravity", 20.5, false)
+	if err != nil || ch.Old != 9.8 || ch.Tunable.Value != 20.5 || ch.Tunable.Max != 50.0 || ch.Clamped || gravity != 20.5 {
+		t.Fatalf("SetTunable(gravity) = (%+v, %v), gravity=%v", ch, err, gravity)
 	}
 	if info, ok := c.Tunable("gravity"); !ok || info.Value != 20.5 || info.Default != 9.8 || info.Min != 0.0 || info.Max != 50.0 {
 		t.Fatalf("Tunable(gravity) = (%+v, %v)", info, ok)
 	}
-	oldS, newS, err := c.SetTunable("level", "cave_2")
-	if err != nil || oldS != "cave_1" || newS != "cave_2" || level != "cave_2" {
-		t.Fatalf("SetTunable(level) = (%v, %v, %v), level=%q", oldS, newS, err, level)
+	ch, err = c.SetTunable("level", "cave_2", false)
+	if err != nil || ch.Old != "cave_1" || ch.Tunable.Value != "cave_2" || level != "cave_2" {
+		t.Fatalf("SetTunable(level) = (%+v, %v), level=%q", ch, err, level)
 	}
 	if out, err := c.Exec(`set level "boss room"`); err != nil || out != "level = boss room" || level != "boss room" {
 		t.Fatalf("Exec(set level) = (%q, %v), level=%q", out, err, level)
 	}
 
 	// Range and type rejections leave variables untouched.
-	if _, _, err := c.SetTunable("gravity", 99.0); err == nil || gravity != 20.5 {
+	if _, err := c.SetTunable("gravity", 99.0, false); err == nil || gravity != 20.5 {
 		t.Fatalf("out-of-range SetTunable(gravity) = %v, gravity=%v", err, gravity)
 	}
-	if _, _, err := c.SetTunable("lives", "10"); err == nil || lives != 3 {
+	if _, err := c.SetTunable("lives", "10", false); err == nil || lives != 3 {
 		t.Fatalf("wrong-type SetTunable(lives) = %v, lives=%d", err, lives)
 	}
-	if _, _, err := c.SetTunable("god", 1); err == nil || god != false {
+	if _, err := c.SetTunable("lives", uint64(math.MaxUint64), false); err == nil || lives != 3 {
+		t.Fatalf("beyond-int SetTunable(lives) = %v, lives=%d", err, lives)
+	}
+	if _, err := c.SetTunable("gravity", math.NaN(), true); err == nil || gravity != 20.5 {
+		t.Fatalf("NaN SetTunable(gravity, clamp) = %v, gravity=%v", err, gravity)
+	}
+	if _, err := c.SetTunable("god", 1, false); err == nil || god != false {
 		t.Fatalf("wrong-type SetTunable(god) = %v, god=%v", err, god)
 	}
-	if _, _, err := c.SetTunable("level", 42); err == nil || level != "boss room" {
+	if _, err := c.SetTunable("level", 42, false); err == nil || level != "boss room" {
 		t.Fatalf("wrong-type SetTunable(level) = %v, level=%q", err, level)
 	}
-	if _, _, err := c.SetTunable("missing", 1); err == nil {
+	if _, err := c.SetTunable("missing", 1, false); err == nil {
 		t.Fatal("SetTunable(missing) succeeded, want error")
+	}
+
+	// Clamping stores the nearest bound, including for integers beyond int's range.
+	if ch, err := c.SetTunable("gravity", 99.0, true); err != nil || !ch.Clamped || ch.Old != 20.5 || ch.Tunable.Value != 50.0 || gravity != 50 {
+		t.Fatalf("clamped SetTunable(gravity) = (%+v, %v), gravity=%v", ch, err, gravity)
+	}
+	if ch, err := c.SetTunable("lives", uint64(math.MaxUint64), true); err != nil || !ch.Clamped || ch.Tunable.Value != 99 || lives != 99 {
+		t.Fatalf("clamped beyond-int SetTunable(lives) = (%+v, %v), lives=%d", ch, err, lives)
+	}
+	if ch, err := c.SetTunable("lives", -5, true); err != nil || !ch.Clamped || ch.Old != 99 || lives != 1 {
+		t.Fatalf("clamped SetTunable(lives, -5) = (%+v, %v), lives=%d", ch, err, lives)
+	}
+	if ch, err := c.SetTunable("lives", 3, true); err != nil || ch.Clamped || lives != 3 {
+		t.Fatalf("in-range SetTunable(lives, clamp) = (%+v, %v), lives=%d", ch, err, lives)
 	}
 
 	// Commands() returns sorted built-ins + custom commands without duplicates.
