@@ -18,6 +18,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -88,9 +89,9 @@ var isStdPackage = func(path string) (bool, error) {
 
 // newData is what a template's rendered files can use, the same fields nsgo init -template offers.
 type newData struct {
-	// Name is the game's display name, written to nsgo.yaml's name.
+	// Name is the game's display name, written to the name of nsgo.yaml and game.yaml.
 	Name string
-	// ID is the app identifier, written to nsgo.yaml's id.
+	// ID is the app identifier, written to the id of nsgo.yaml and game.yaml.
 	ID string
 	// Module is the module path written to go.mod.
 	Module string
@@ -109,7 +110,7 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 	for i, t := range projectTemplates {
 		names[i] = t.name
 	}
-	name := fs.String("name", "", "the game's display name in nsgo.yaml: letters, digits, spaces, - and _ (default: the directory's name)")
+	name := fs.String("name", "", "the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and _ (default: the directory's name)")
 	module := fs.String("module", "", "the module path in go.mod (default: the name in lower case with its words joined by -)")
 	tmpl := fs.String("template", projectTemplates[0].name, "the template to start from: "+strings.Join(names, ", "))
 	version := fs.String("version", "", "the version of "+gameModule+" to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build)")
@@ -159,13 +160,13 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 				return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), dir, err, strings.Join(rest, " && "))
 			}
 		}
-		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", shellQuote(dir, runtime.GOOS))
+		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", shellWord(dir, runtime.GOOS))
 		return nil
 	}
 }
 
-// shellQuote returns s as one word for a shell on goos: as it is when it holds only characters a shell takes literally, and otherwise in single quotes for a POSIX shell or in double quotes on Windows, where cmd and PowerShell both take them and \ separates paths.
-func shellQuote(s, goos string) string {
+// shellWord returns s as one word for a shell on goos: as it is when it holds only characters a shell takes literally, and otherwise in single quotes for a POSIX shell or in double quotes on Windows, where cmd and PowerShell both take them and \ separates paths.
+func shellWord(s, goos string) string {
 	literal := "-_./+,:=@%"
 	if goos == "windows" {
 		literal += `\`
@@ -276,7 +277,7 @@ type projectFile struct {
 	content []byte
 }
 
-// renderProject returns the project files of template src rendered with data, directories before what they hold: a file ending in .tmpl, nsgo.yaml and main.go are rendered with text/template, failing on a missing key, and lose .tmpl, and nsgo.yaml's name and id are then set to data's.
+// renderProject returns the project files of template src rendered with data, directories before what they hold: a file ending in .tmpl, nsgo.yaml and main.go are rendered with text/template, failing on a missing key, and lose .tmpl, and the name and id of nsgo.yaml and, when the template has one, game.yaml are then set to data's.
 func renderProject(src fs.FS, data newData) ([]projectFile, error) {
 	var files []projectFile
 	seen := map[string]bool{}
@@ -303,10 +304,11 @@ func renderProject(src fs.FS, data newData) ([]projectFile, error) {
 				}
 				content = b.Bytes()
 			}
-			if f.name == "nsgo.yaml" {
+			// game.yaml, the project file, holds the name and id that nsgo.yaml repeats, and project.Check refuses the pair when they differ.
+			if f.name == "nsgo.yaml" || f.name == project.FileName {
 				for _, kv := range [][2]string{{"name", data.Name}, {"id", data.ID}} {
 					if content, err = setYAMLScalar(content, kv[0], kv[1]); err != nil {
-						return fmt.Errorf("nsgo.yaml: %w", err)
+						return fmt.Errorf("%s: %w", f.name, err)
 					}
 				}
 			}

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -61,6 +62,25 @@ func readYAML(t *testing.T, path string) map[string]any {
 	return m
 }
 
+// checkProjectFile checks that the project in dir has a game.yaml naming the game name with id, in the form gameproject fmt writes, and that its nsgo.yaml agrees with it, as the starter's own TestProjectFileIsValidAndCanonical does.
+func checkProjectFile(t *testing.T, dir, name, id string) {
+	t.Helper()
+	f, err := project.Check(os.DirFS(dir))
+	if err != nil {
+		t.Fatalf("%s: %v", dir, err)
+	}
+	if f.Name != name || f.ID != id {
+		t.Errorf("%s: game.yaml names %q with id %q, want %q, %q", dir, f.Name, f.ID, name, id)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, project.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical, err := project.Encode(f); err != nil || !bytes.Equal(canonical, src) {
+		t.Errorf("%s: game.yaml is not canonical (%v):\n%s", dir, err, canonical)
+	}
+}
+
 func TestNewCreatesStarter(t *testing.T) {
 	calls := stubGo(t, nil)
 	dir := filepath.Join(t.TempDir(), "mygame")
@@ -70,7 +90,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	}
 
 	names := starterNames(t)
-	for _, want := range []string{".gitignore", "go.mod", "go.sum", "nsgo.yaml", "main.go", "game.go", "game_test.go", "README.md"} {
+	for _, want := range []string{".gitignore", "go.mod", "go.sum", "game.yaml", "nsgo.yaml", "main.go", "game.go", "game_test.go", "README.md"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("starter has no %s: %q", want, names)
 		}
@@ -86,7 +106,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod.tmpl")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("go.mod.tmpl was copied: %v", err)
 	}
-	want := strings.Join(listed, "\n") + "\n\ncd " + shellQuote(dir, runtime.GOOS) + " && go tool nsgo dev\n"
+	want := strings.Join(listed, "\n") + "\n\ncd " + shellWord(dir, runtime.GOOS) + " && go tool nsgo dev\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
@@ -102,6 +122,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	if cfg["name"] != "mygame" || cfg["id"] != "dev.nsgo.mygame" || cfg["game"] != true {
 		t.Errorf("nsgo.yaml = %v", cfg)
 	}
+	checkProjectFile(t, dir, "mygame", "dev.nsgo.mygame")
 
 	// Every other file is the starter's, byte for byte.
 	for _, name := range []string{"game.go", "go.sum", ".gitignore"} {
@@ -159,6 +180,7 @@ func TestNewNameAndModule(t *testing.T) {
 		if cfg["name"] != tc.wantName || cfg["id"] != tc.wantID {
 			t.Errorf("%s: name %#v, id %#v, want %q, %q", tc.dir, cfg["name"], cfg["id"], tc.wantName, tc.wantID)
 		}
+		checkProjectFile(t, dir, tc.wantName, tc.wantID)
 		mod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 		if err != nil {
 			t.Fatal(err)
@@ -250,7 +272,7 @@ func TestNewIntoEmptyDirectory(t *testing.T) {
 		t.Errorf("name = %v", cfg["name"])
 	}
 	// The closing hint quotes the directory, so it can be pasted into a shell.
-	if want := "\ncd " + shellQuote(filepath.Join(dir, "My Game"), runtime.GOOS) + " && go tool nsgo dev\n"; !strings.HasSuffix(stdout.String(), want) || !strings.ContainsAny(want, `'"`) {
+	if want := "\ncd " + shellWord(filepath.Join(dir, "My Game"), runtime.GOOS) + " && go tool nsgo dev\n"; !strings.HasSuffix(stdout.String(), want) || !strings.ContainsAny(want, `'"`) {
 		t.Errorf("stdout = %q, want it to end with %q", stdout, want)
 	}
 }
@@ -296,7 +318,7 @@ func TestNewReportsGoModTidyFailure(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
+func TestShellWord(t *testing.T) {
 	cases := []struct {
 		s, goos, want string
 	}{
@@ -311,8 +333,8 @@ func TestShellQuote(t *testing.T) {
 		{`C:\mygame`, "linux", `'C:\mygame'`},
 	}
 	for _, tc := range cases {
-		if got := shellQuote(tc.s, tc.goos); got != tc.want {
-			t.Errorf("shellQuote(%q, %q) = %s, want %s", tc.s, tc.goos, got, tc.want)
+		if got := shellWord(tc.s, tc.goos); got != tc.want {
+			t.Errorf("shellWord(%q, %q) = %s, want %s", tc.s, tc.goos, got, tc.want)
 		}
 	}
 }
