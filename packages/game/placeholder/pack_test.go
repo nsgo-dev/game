@@ -35,7 +35,7 @@ const credits = "CREDITS.md"
 func packFiles(t *testing.T) []string {
 	t.Helper()
 	var paths []string
-	err := fs.WalkDir(placeholder.FS, ".", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(placeholder.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ func TestPackMatchesGenerator(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := gen.Paths(files); !slices.Equal(committed, want) {
-		t.Fatalf("the pack holds %v, the generator writes %v; run go test ./placeholder -run TestPackMatchesGenerator -update and delete files it no longer writes", committed, want)
+		t.Fatalf("the pack holds %v, the generator writes %v; run go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update from packages/game and delete files it no longer writes", committed, want)
 	}
 	for _, p := range committed {
 		got, err := fs.ReadFile(disk, p)
@@ -97,12 +97,12 @@ func TestPackMatchesGenerator(t *testing.T) {
 		}
 		if strings.HasSuffix(p, ".png") {
 			if !samePixels(t, got, files[p]) {
-				t.Errorf("%s: the committed pixels differ from the generator's; run go test ./placeholder -run TestPackMatchesGenerator -update", p)
+				t.Errorf("%s: the committed pixels differ from the generator's; run go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update from packages/game", p)
 			}
 			continue
 		}
 		if !bytes.Equal(got, files[p]) {
-			t.Errorf("%s: the committed file differs from the generator's (%d and %d bytes); run go test ./placeholder -run TestPackMatchesGenerator -update", p, len(got), len(files[p]))
+			t.Errorf("%s: the committed file differs from the generator's (%d and %d bytes); run go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update from packages/game", p, len(got), len(files[p]))
 		}
 	}
 }
@@ -135,7 +135,7 @@ func TestSidecars(t *testing.T) {
 			if !slices.Contains(paths, asset) {
 				t.Errorf("%s: no asset %s beside it", p, asset)
 			}
-			data, err := fs.ReadFile(placeholder.FS, p)
+			data, err := fs.ReadFile(placeholder.FS(), p)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,7 +203,7 @@ assets:
 func TestPackBuildsWithGameAssets(t *testing.T) {
 	root := t.TempDir()
 	for _, p := range packFiles(t) {
-		data, err := fs.ReadFile(placeholder.FS, p)
+		data, err := fs.ReadFile(placeholder.FS(), p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -253,7 +253,7 @@ func TestPackBuildsWithGameAssets(t *testing.T) {
 // placeholderSounds returns the names of the pack's sounds.
 func placeholderSounds(t *testing.T) []string {
 	t.Helper()
-	entries, err := fs.ReadDir(placeholder.FS, "sounds")
+	entries, err := fs.ReadDir(placeholder.FS(), "sounds")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestSheets(t *testing.T) {
 		"effects": {"explosion", "sparkle", "bullet"},
 		"ui":      {"panel", "button", "button_pressed", "cursor"},
 	}
-	entries, err := fs.Glob(placeholder.FS, "sprites/*.png")
+	entries, err := fs.Glob(placeholder.FS(), "sprites/*.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,6 +404,8 @@ func TestModels(t *testing.T) {
 	}
 	if _, err := placeholder.Model("missing.glb"); err == nil {
 		t.Error("Model of a missing model returned no error")
+	} else if msg := err.Error(); !strings.HasPrefix(msg, `placeholder: no model "missing.glb"`) || !strings.Contains(msg, "crate.glb, robot_arm.gltf, gem.glb") {
+		t.Errorf("Model of a missing model: %v, want it named with the models there are", err)
 	}
 }
 

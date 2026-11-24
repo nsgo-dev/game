@@ -10,7 +10,7 @@ The examples and the tutorial use only this pack or assets of their own whose li
 
 ## What it holds
 
-The files live in `packages/game/placeholder/pack`, which `placeholder.FS` embeds:
+The files live in `packages/game/placeholder/pack`, which the package embeds and `placeholder.FS()` returns:
 
 | Folder | Files | What they are |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ jump, err := placeholder.Sound("jump")       // core.AudioSource for audio.LoadS
 ```
 
 - `Sheet`, `Font` and `Level` give their images as `core.ImageSource` values holding the PNG's bytes and its size in points, one point a pixel. `Image` does the same for any PNG in the pack.
-- `FS` is the pack as an `fs.FS`, for anything else, such as `fs.ReadFile(placeholder.FS, "CREDITS.md")`.
+- `FS()` returns the pack as a read-only `fs.FS`, for anything else, such as `fs.ReadFile(placeholder.FS(), "CREDITS.md")`.
 - `License` is `"CC0-1.0"`, the SPDX identifier of every file.
 
 The pack is embedded in a game's binary only when the game imports the package, and adds about 430 KB, two thirds of it the music.
@@ -97,6 +97,7 @@ assets:
 - Each sprite sheet's sidecar slices it into 16×16 frames, which the atlas names `<sheet>_<i>.png`. The atlas holds frames only; the sheets' animations stay in their JSON files.
 - The sidecars of the tileset and the font page set the `nearest` filter, which keeps pixel art sharp when it is scaled.
 - Each effect's sidecar normalizes its peak to -3 dBFS; the music's normalizes it to -6 dBFS, keeps it WAV and loops all of it, which game assets writes into the output's `smpl` chunk.
+- `game assets` builds images, atlases and sounds only, so the font's `pixel.fnt`, the Tiled `tileset.tsj` and `level.tmj`, and the sheets' JSON files are not build targets. Copy them into the game's bundled assets yourself, beside the PNG pages they name (`pixel.png`, `tileset.png`), and load them with `text.LoadBMFontImage` and `tilemap.LoadTiled`, whose `TilesetLoader.LoadImage` maps the tileset's image path to an image source, as `Font` and `Level` do. The KTX2 textures carry the `nearest` filter for a renderer that reads KTX2, but nothing in the game layer loads KTX2 yet ([Command Line](cli.md#assets)), so a game draws the font and the level from the PNG pages until it does.
 - A sidecar beside an image or sound that no target reads is refused, so a project that uses only some of the pack copies only those files and their sidecars.
 
 ## Regenerating it
@@ -111,7 +112,7 @@ and list any new file in `pack/CREDITS.md`, which a test also checks.
 
 ## Credits in this repository
 
-The examples, the tutorial, the docs and the project template use only this pack or assets of their own with a written license. A test in `game/placeholder` enforces it: every image, sound, font, model, and map, tileset or atlas exported by another tool under `examples/`, `docs/` and `template/` must be listed, with its license, in a `CREDITS.md` in its folder or a folder above it, in a Markdown table with a `License` column:
+The examples, the tutorial, the docs and the project template use only this pack or assets of their own with a written license. A test in `game/placeholder` enforces it: every image, sound, font, model, map or tileset exported by another tool, and atlas exported as JSON beside its image, under `examples/`, `docs/` and `template/` must be listed, with its license, in a `CREDITS.md` in its folder or a folder above it, in a Markdown table with a `License` column. The license is an SPDX identifier such as `CC0-1.0` or `Apache-2.0`, written as it is or as the text of a link, and every file a `CREDITS.md` lists must exist:
 
 ```markdown
 | File | Kind | Author | License |
