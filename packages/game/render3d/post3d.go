@@ -19,19 +19,6 @@ import (
 // [NewSSAOPass], [NewDepthOfFieldPass], and [NewPostStack3D]).
 var ErrInvalidPostProcess = errors.New("render3d: invalid post-processing configuration")
 
-// PostPassRecorder is the minimal render-pass recording surface shared by
-// [*gpu.Frame] (inside [gpu.View]'s OnFrame) and [*gpu.Encoder] (for headless
-// or custom command encoding).
-type PostPassRecorder interface {
-	BeginRenderPass(desc gpu.RenderPassDesc) *gpu.RenderPass
-}
-
-// Compile-time assertions that both *gpu.Frame and *gpu.Encoder implement PostPassRecorder.
-var (
-	_ PostPassRecorder = (*gpu.Frame)(nil)
-	_ PostPassRecorder = (*gpu.Encoder)(nil)
-)
-
 const (
 	postMaxBloomBlurPasses = 8
 	postMaxSSAOSamples     = 16
@@ -513,7 +500,7 @@ func createPostPipeline(
 	})
 }
 
-func drawPostFullscreen(rec PostPassRecorder, label string, dst *gpu.Texture, pipe *gpu.Pipeline, bg *gpu.BindGroup, vb *gpu.Buffer) {
+func drawPostFullscreen(rec RenderPassRecorder, label string, dst *gpu.Texture, pipe *gpu.Pipeline, bg *gpu.BindGroup, vb *gpu.Buffer) {
 	pass := rec.BeginRenderPass(gpu.RenderPassDesc{
 		Label: label,
 		ColorAttachments: []gpu.ColorAttachment{{
@@ -1079,11 +1066,11 @@ func (p *BloomPass) Resize(dev *gpu.Device, width, height uint32) error {
 
 // Apply runs bright extraction, separable blur, and additive composite from srcColor
 // into dstColor (nil writes to the swapchain using OutputFormat).
-func (p *BloomPass) Apply(dev *gpu.Device, rec PostPassRecorder, srcColor, dstColor *gpu.Texture) error {
+func (p *BloomPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, dstColor *gpu.Texture) error {
 	return p.applyWithOutput(dev, rec, srcColor, dstColor, dstColor == nil)
 }
 
-func (p *BloomPass) applyWithOutput(dev *gpu.Device, rec PostPassRecorder, srcColor, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *BloomPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, dstColor *gpu.Texture, useOutputFormat bool) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -1730,7 +1717,7 @@ func (p *SSAOPass) Resize(dev *gpu.Device, width, height uint32) error {
 
 // ComputeAO evaluates the SSAO hemisphere pass (and optional bilateral blur) from
 // depthTex and returns the resulting AO texture for inspection or custom compositing.
-func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec PostPassRecorder, depthTex *gpu.Texture) (*gpu.Texture, error) {
+func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec RenderPassRecorder, depthTex *gpu.Texture) (*gpu.Texture, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -1825,11 +1812,11 @@ func (p *SSAOPass) ComputeAO(dev *gpu.Device, rec PostPassRecorder, depthTex *gp
 
 // Apply computes SSAO from depthTex and multiplies it onto srcColor, writing to
 // dstColor (nil writes to the swapchain using OutputFormat).
-func (p *SSAOPass) Apply(dev *gpu.Device, rec PostPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
+func (p *SSAOPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
 	return p.applyWithOutput(dev, rec, srcColor, depthTex, dstColor, dstColor == nil)
 }
 
-func (p *SSAOPass) applyWithOutput(dev *gpu.Device, rec PostPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *SSAOPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
 	if srcColor == nil || !srcColor.Valid() {
 		return fmt.Errorf("%w: invalid source color texture", ErrInvalidPostProcess)
 	}
@@ -2293,11 +2280,11 @@ func (p *DepthOfFieldPass) Resize(dev *gpu.Device, width, height uint32) error {
 
 // Apply runs the CoC prepass and depth-aware disc bokeh gather from srcColor and
 // depthTex into dstColor (nil writes to the swapchain using OutputFormat).
-func (p *DepthOfFieldPass) Apply(dev *gpu.Device, rec PostPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
+func (p *DepthOfFieldPass) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
 	return p.applyWithOutput(dev, rec, srcColor, depthTex, dstColor, dstColor == nil)
 }
 
-func (p *DepthOfFieldPass) applyWithOutput(dev *gpu.Device, rec PostPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
+func (p *DepthOfFieldPass) applyWithOutput(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture, useOutputFormat bool) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -2706,7 +2693,7 @@ func (s *PostStack3D) SceneTarget() *gpu.RenderTarget {
 
 // BeginScenePass begins a render pass targeting [PostStack3D.SceneTarget], clearing
 // color to clearColor and depth to 1.0 and storing both attachments for post-processing.
-func (s *PostStack3D) BeginScenePass(rec PostPassRecorder, clearColor core.Color) *gpu.RenderPass {
+func (s *PostStack3D) BeginScenePass(rec RenderPassRecorder, clearColor core.Color) *gpu.RenderPass {
 	if s == nil || s.closed || rec == nil || !s.sceneRT.Valid() {
 		return nil
 	}
@@ -2895,7 +2882,7 @@ func (s *PostStack3D) Resize(dev *gpu.Device, width, height uint32) error {
 
 // ApplyScene executes all enabled passes on [PostStack3D.SceneTarget]'s color
 // and depth attachments, writing the result into dstColor (nil targets the swapchain).
-func (s *PostStack3D) ApplyScene(dev *gpu.Device, rec PostPassRecorder, dstColor *gpu.Texture) error {
+func (s *PostStack3D) ApplyScene(dev *gpu.Device, rec RenderPassRecorder, dstColor *gpu.Texture) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
@@ -2910,7 +2897,7 @@ func (s *PostStack3D) ApplyScene(dev *gpu.Device, rec PostPassRecorder, dstColor
 // into dstColor (nil writes to the swapchain using OutputFormat). If depthTex
 // is nil, depth-dependent passes (SSAO and Depth of Field) are skipped; if no
 // pass runs, srcColor is blitted cleanly to dstColor.
-func (s *PostStack3D) Apply(dev *gpu.Device, rec PostPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
+func (s *PostStack3D) Apply(dev *gpu.Device, rec RenderPassRecorder, srcColor, depthTex, dstColor *gpu.Texture) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}

@@ -1165,7 +1165,7 @@ _ = stack.ApplyScene(frame.Device(), frame, nil) // SSAO -> 景深 -> Bloom -> �
 frame.Submit()
 ```
 
-- **可组合管线与独立通道**：`PostStack3D` 按固定顺序执行已启用的阶段——**SSAO → 景深 → Bloom**——中间结果在乒乓离屏渲染目标之间流转，最后一个阶段直接以 `OutputFormat` 输出（全部关闭时执行干净直通复制）。每个通道（`SSAOPass`、`DepthOfFieldPass`、`BloomPass`）也可独立创建，并通过 `PostPassRecorder`（`*gpu.Frame` 与 `*gpu.Encoder` 均已实现）作用于调用方自建的 `gpu.Texture` 颜色与深度附件。
+- **可组合管线与独立通道**：`PostStack3D` 按固定顺序执行已启用的阶段——**SSAO → 景深 → Bloom**——中间结果在乒乓离屏渲染目标之间流转，最后一个阶段直接以 `OutputFormat` 输出（全部关闭时执行干净直通复制）。每个通道（`SSAOPass`、`DepthOfFieldPass`、`BloomPass`）也可独立创建，并通过 `RenderPassRecorder`（`*gpu.Frame` 与 `*gpu.Encoder` 均已实现）作用于调用方自建的 `gpu.Texture` 颜色与深度附件。
 - **SSAO（`SSAOConfig`、`SSAOPass`）**：从 3D 深度缓冲重建视空间位置与保边法线，使用带 4×4 分层切线旋转的确定性 4–16 采样半球核计算遮蔽，支持可选的深度感知双边模糊（`BlurRadius`、`DepthThreshold`），并将环境光遮蔽乘入场景颜色（可通过 `AOTexture` 获取 AO 纹理）。
 - **景深（`DepthOfFieldConfig`、`DepthOfFieldPass`）**：支持透视与正交 `[0, 1]` 深度线性化，围绕 `FocusDistance` ± `FocusRange` 计算带符号弥散圆（CoC），并通过 18 采样双环圆盘散景模糊平滑虚化近景与远景，同时阻止背景模糊色溢入清晰的焦内轮廓。
 - **泛光（`BloomConfig`、`BloomPass`）**：用二次软拐点阈值曲线（`Threshold`、`SoftKnee`）提取 LDR 或 HDR（`> 1.0`）高亮像素，执行 `BlurPasses` 轮可分离 9 采样高斯横纵模糊（可通过 `HalfRes` 启用半分辨率以获得更宽柔和光晕），再以 `Intensity` 加法混合回场景。
