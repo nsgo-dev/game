@@ -113,7 +113,7 @@ func (a *Assets) CachePath() string {
 	return a.Cache
 }
 
-// Validate checks the assets section as Validate checks the whole file: paths that are relative, slash-separated and stay inside the project, settings in range, known formats, no two targets writing the same file, no atlas writing its pages where an atlas reads its images, and no cache where the manifest lists assets.
+// Validate checks the assets section as Validate checks the whole file: paths that are relative, slash-separated and stay inside the project, settings in range, known formats, no two targets writing the same file, no file written over game.yaml or over a target's input, no atlas page or other PNG written where an atlas reads its images, and no cache where the manifest lists assets.
 func (a *Assets) Validate() error {
 	if a == nil {
 		return nil
@@ -189,10 +189,40 @@ func (a *Assets) Validate() error {
 			return fmt.Errorf("project: assets cache %s is inside the manifest's folder %s; move it out or into a folder whose name starts with a dot", a.CachePath(), m.In)
 		}
 	}
+	// reads maps each path a target reads, file or folder, to the first target that reads it.
+	reads := map[string]string{}
+	read := func(in, owner string) {
+		if _, ok := reads[in]; !ok {
+			reads[in] = owner
+		}
+	}
+	for i, at := range a.Atlases {
+		read(at.In, fmt.Sprintf("atlases[%d]", i))
+	}
+	for i, t := range a.Textures {
+		read(t.In, fmt.Sprintf("textures[%d]", i))
+	}
+	for i, au := range a.Audio {
+		read(au.In, fmt.Sprintf("audio[%d]", i))
+	}
+	if m := a.Manifest; m != nil {
+		read(m.In, "manifest")
+	}
 	for _, f := range order {
+		// A file written over game.yaml or over a target's input destroys what the next run reads, so that run fails or never settles.
+		if f == FileName {
+			return fmt.Errorf("project: assets %s writes %s, the project file", files[f], f)
+		}
+		if reader, ok := reads[f]; ok {
+			return fmt.Errorf("project: assets %s writes %s, which %s reads", files[f], f, reader)
+		}
 		for i, at := range a.Atlases {
 			if path.Dir(f) == at.Out && isPage(at.Name, path.Base(f)) {
 				return fmt.Errorf("project: assets %s writes %s, which atlases[%d] also writes", files[f], f, i)
+			}
+			// game pack packs every .png file its scan reaches, in any letter case, so a PNG written there would be packed on the next run.
+			if strings.EqualFold(path.Ext(f), ".png") && scannedUnder(f, at.In) {
+				return fmt.Errorf("project: assets %s writes %s, inside atlases[%d]'s images in %s; write it elsewhere or to a folder whose name starts with a dot", files[f], f, i, at.In)
 			}
 		}
 	}

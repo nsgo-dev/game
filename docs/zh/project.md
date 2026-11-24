@@ -108,7 +108,7 @@ assets:
 | `editor` | 场景编辑器的设置：`plugins` 列出它为本项目启用的[编辑器插件](editor.md#编辑器插件492)，顺序即插件面板和工具出现的顺序。插件是编译进编辑器程序的 Go 代码，这个列表只负责启用它们。 |
 | `assets` | `game assets` 构建的目标，每个列表都可省略：从一个 PNG 图片目录打包的 `atlases`（`name`、`in`、`out` 以及 `padding`、`extrude`、`maxWidth`、`maxHeight`、`scale`、`trim`），编码为 KTX2 的 `textures`（`in`、`out`、`format` 取 `rgba8`、`bc1`、`bc3` 或 `etc2`、`mipmaps`、`srgb`），从 WAV 转换的 `audio`（`in`、`out`、`format` 取 `wav`、`aac` 或 `mp3`、`rate`、`channels`、`peakDB` 或 `rmsDB`、`bitrate`），最后生成的 `manifest`（`in`、`out`、`package`、`prefix`、`embed`、`embedDir`），以及构建缓存路径 `cache`，省略时为 `.game/assets-cache.yaml`。路径以斜杠分隔且位于项目内。各设置的作用见[命令行](cli.md#assets)。 |
 
-`Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标、越界的值，以及写入同一文件或写入其他目标扫描目录的资源目标，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`gameproject fmt` 会把文件改写为规范形式，规范形式不保留注释。
+`Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标、越界的值，以及写入同一文件、覆盖 `game.yaml` 或某个目标读取的文件、或写入其他目标扫描目录的资源目标，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`gameproject fmt` 会把文件改写为规范形式，规范形式不保留注释。
 
 ## 在游戏中读取
 

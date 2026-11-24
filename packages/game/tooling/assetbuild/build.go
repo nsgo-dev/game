@@ -88,8 +88,11 @@ type Builder struct {
 	Version string
 	// Force rebuilds every target even when the cache says it is up to date.
 	Force bool
-	// Check reports which targets are out of date without writing anything under Root: their status is Stale instead of Built. A target whose cache entry does not match is built in a temporary folder and counts as up to date when Root already holds exactly the files it writes, so a check passes on a fresh checkout whose committed outputs are current even without the cache.
+	// Check reports which targets are out of date without writing anything under Root: their status is Stale instead of Built. A target whose cache entry does not match is built in a temporary folder and counts as up to date when Root already holds exactly the files it writes, so a check passes on a fresh checkout whose committed outputs are current even without the cache. AAC and MP3 targets are the exception: an external encoder writes them, and another encoder or encoder version writes different bytes for the same input, so with no cache entry for one, as in a fresh checkout, it counts as up to date when its output exists. An atlas also counts as stale when its output folder holds a page file of its name that it no longer writes.
 	Check bool
+
+	// tools memoizes Audio's Tool for each format during a build.
+	tools map[audioconv.Format]string
 }
 
 // cacheFormat is mixed into every target's key, so a change to what a key covers rebuilds every target.
@@ -106,6 +109,7 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 	if err := a.Validate(); err != nil {
 		return nil, err
 	}
+	b.tools = nil
 	cachePath := b.abs(a.CachePath())
 	prev := loadCache(cachePath)
 	next := &cache{Version: cacheVersion}
@@ -116,16 +120,24 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		kind Kind
 		// prepare reads the target's inputs and returns its key and what builds it under a root directory.
 		prepare func() (key string, build builder, err error)
+		// atlas is the atlas target a KindAtlas step packs, whose output folder may hold pages of an earlier build.
+		atlas *project.AtlasTarget
+		// encoded is the output of an AAC or MP3 target, which an external encoder writes, so its bytes depend on the machine.
+		encoded string
 	}
 	var steps []step
 	for _, at := range a.Atlases {
-		steps = append(steps, step{"atlas " + path.Join(at.Out, at.Name), KindAtlas, func() (string, builder, error) { return b.atlas(at) }})
+		steps = append(steps, step{id: "atlas " + path.Join(at.Out, at.Name), kind: KindAtlas, prepare: func() (string, builder, error) { return b.atlas(at) }, atlas: &at})
 	}
 	for _, t := range a.Textures {
-		steps = append(steps, step{"texture " + t.Out, KindTexture, func() (string, builder, error) { return b.texture(t) }})
+		steps = append(steps, step{id: "texture " + t.Out, kind: KindTexture, prepare: func() (string, builder, error) { return b.texture(t) }})
 	}
 	for _, au := range a.Audio {
-		steps = append(steps, step{"audio " + au.Out, KindAudio, func() (string, builder, error) { return b.audio(ctx, au) }})
+		s := step{id: "audio " + au.Out, kind: KindAudio, prepare: func() (string, builder, error) { return b.audio(ctx, au) }}
+		if au.Format != "" && au.Format != string(audioconv.FormatWAV) {
+			s.encoded = au.Out
+		}
+		steps = append(steps, s)
 	}
 
 	var runErr error
@@ -148,11 +160,25 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 			t.Outputs = old.paths()
 			next.Targets = append(next.Targets, *old)
 		} else if b.Check {
-			// Without a matching cache entry, as in a fresh checkout that does not commit the cache, the target is built in a temporary folder and is up to date when the files on disk are what it writes.
-			current, outs, err := b.matchesDisk(build)
-			if err != nil {
-				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
-				break
+			var current bool
+			var outs []string
+			if s.encoded != "" && old == nil {
+				// Another encoder, or another version of one, writes other bytes for the same input, so with no cache entry from this machine only the output's presence can be checked.
+				_, err := os.Stat(b.abs(s.encoded))
+				if err != nil && !errors.Is(err, fs.ErrNotExist) {
+					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
+					break
+				}
+				if err == nil {
+					current, outs = true, []string{s.encoded}
+				}
+			} else {
+				// Without a matching cache entry, as in a fresh checkout that does not commit the cache, the target is built in a temporary folder and is up to date when the files on disk are what it writes.
+				current, outs, err = b.matchesDisk(build)
+				if err != nil {
+					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
+					break
+				}
 			}
 			switch {
 			case current:
@@ -185,6 +211,27 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 			t.Outputs = entry.paths()
 			next.Targets = append(next.Targets, *entry)
 		}
+		if s.atlas != nil && t.Status != Stale {
+			// Pages of this atlas's name that it does not write, such as ui-1.png left by a build that needed more pages and committed without the cache, would be listed by the manifest as current.
+			extra, err := b.extraPages(*s.atlas, t.Outputs)
+			if err != nil {
+				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
+				break
+			}
+			if len(extra) > 0 && b.Check {
+				t.Status = Stale
+				t.Outputs = nil
+				if old != nil {
+					t.Outputs = old.paths()
+				}
+			}
+			if len(extra) > 0 && !b.Check {
+				if err := b.remove(extra, written); err != nil {
+					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
+					break
+				}
+			}
+		}
 		for _, o := range t.Outputs {
 			if other, dup := written[o]; dup {
 				runErr = fmt.Errorf("assetbuild: %s and %s both write %s", other, s.id, o)
@@ -195,6 +242,19 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		r.Targets = append(r.Targets, t)
 		if runErr != nil {
 			break
+		}
+	}
+
+	if runErr == nil && !b.Check {
+		// A target renamed, moved or removed from game.yaml leaves its cache entry behind; its files go before the manifest scans for assets, so neither the output folders nor the manifest keep them.
+		for _, e := range prev.Targets {
+			if slices.ContainsFunc(steps, func(s step) bool { return s.id == e.Target }) {
+				continue
+			}
+			if err := b.remove(e.paths(), written); err != nil {
+				runErr = fmt.Errorf("assetbuild: remove the outputs of %s, no longer in %s: %w", e.Target, project.FileName, err)
+				break
+			}
 		}
 	}
 
@@ -214,13 +274,11 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 	if b.Check {
 		return r, runErr
 	}
-	// After a failure, the targets the run did not reach keep their entries, so the next run does not rebuild what was already current. Entries of targets no longer in game.yaml are dropped.
+	// After a failure, the targets the run did not reach keep their entries, so the next run does not rebuild what was already current, and so do targets no longer in game.yaml, so the next run that succeeds still removes their files. After a success, their entries are dropped with their files.
 	if runErr != nil {
-		for _, s := range steps {
-			if next.lookup(s.id) == nil {
-				if e := prev.lookup(s.id); e != nil {
-					next.Targets = append(next.Targets, *e)
-				}
+		for _, e := range prev.Targets {
+			if next.lookup(e.Target) == nil {
+				next.Targets = append(next.Targets, e)
 			}
 		}
 	}
@@ -376,6 +434,27 @@ func (b *Builder) texture(t project.TextureTarget) (string, builder, error) {
 type audioSettings struct {
 	Format  audioconv.Format
 	Options audioconv.Options
+	// Encoder is the external encoder an AAC or MP3 target is converted with, as audioconv.Encoder.Tool describes it, or "none" when there is none; it is empty for WAV.
+	Encoder string
+}
+
+// encoderTool returns Audio's Tool for format, memoized for one Build so each format runs ffmpeg -version at most once per build. A missing encoder is "none": a target keyed with it is rebuilt, and fails, until an encoder is installed.
+func (b *Builder) encoderTool(ctx context.Context, enc *audioconv.Encoder, format audioconv.Format) (string, error) {
+	if tool, ok := b.tools[format]; ok {
+		return tool, nil
+	}
+	tool, err := enc.Tool(ctx, format)
+	if errors.Is(err, audioconv.ErrEncoderNotFound) {
+		tool, err = "none", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if b.tools == nil {
+		b.tools = map[audioconv.Format]string{}
+	}
+	b.tools[format] = tool
+	return tool, nil
 }
 
 func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, builder, error) {
@@ -391,7 +470,15 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, bu
 	if opts.Bitrate == 0 {
 		opts.Bitrate = 128
 	}
-	k, err := newKeyer(b, KindAudio, audioSettings{format, opts})
+	enc := b.Audio
+	if enc == nil {
+		enc = &audioconv.Encoder{}
+	}
+	tool, err := b.encoderTool(ctx, enc, format)
+	if err != nil {
+		return "", nil, err
+	}
+	k, err := newKeyer(b, KindAudio, audioSettings{format, opts, tool})
 	if err != nil {
 		return "", nil, err
 	}
@@ -404,10 +491,6 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (string, bu
 		buf, err := audioconv.DecodeWAV(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", au.In, err)
-		}
-		enc := b.Audio
-		if enc == nil {
-			enc = &audioconv.Encoder{}
 		}
 		dest := under(root, au.Out)
 		if err := enc.ConvertBuffer(ctx, buf, dest, format, opts); err != nil {
@@ -490,18 +573,70 @@ func (b *Builder) outputsIntact(e *cacheEntry) bool {
 
 // removeStale deletes the files old recorded that next no longer writes, such as the pages of an atlas that now fits on fewer, so an output folder holds only current files. It removes only files the cache recorded as this target's, and none another target wrote in this run.
 func (b *Builder) removeStale(old, next *cacheEntry, written map[string]string) error {
+	var gone []string
 	for _, o := range old.Outputs {
-		if !fs.ValidPath(o.Path) || slices.ContainsFunc(next.Outputs, func(n cacheOutput) bool { return n.Path == o.Path }) {
+		if !slices.ContainsFunc(next.Outputs, func(n cacheOutput) bool { return n.Path == o.Path }) {
+			gone = append(gone, o.Path)
+		}
+	}
+	return b.remove(gone, written)
+}
+
+// remove deletes the files at paths, slash-separated and relative to b.Root, skipping any path that is not a valid relative path, that another target wrote in this run, or that names game.yaml. A file already gone is not an error.
+func (b *Builder) remove(paths []string, written map[string]string) error {
+	for _, p := range paths {
+		if !fs.ValidPath(p) || p == "." || p == project.FileName {
 			continue
 		}
-		if _, ok := written[o.Path]; ok {
+		if _, ok := written[p]; ok {
 			continue
 		}
-		if err := os.Remove(b.abs(o.Path)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(b.abs(p)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}
 	return nil
+}
+
+// extraPages returns the slash-separated paths of the page files of a's name in its output folder, as game pack names them, that outputs does not list, sorted. A missing output folder has none.
+func (b *Builder) extraPages(a project.AtlasTarget, outputs []string) ([]string, error) {
+	entries, err := os.ReadDir(b.abs(a.Out))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var extra []string
+	for _, e := range entries {
+		p := path.Join(a.Out, e.Name())
+		if e.Type().IsRegular() && isPage(a.Name, e.Name()) && !slices.Contains(outputs, p) {
+			extra = append(extra, p)
+		}
+	}
+	return extra, nil
+}
+
+// isPage reports whether base is the name of a page file game pack writes for the atlas name: name.png and name.json, or name-N.png and name-N.json when the atlas needs several pages. It matches the rule package project's Validate uses to keep other targets' files out of those names.
+func isPage(name, base string) bool {
+	ext := path.Ext(base)
+	if ext != ".png" && ext != ".json" {
+		return false
+	}
+	stem := strings.TrimSuffix(base, ext)
+	if stem == name {
+		return true
+	}
+	n, ok := strings.CutPrefix(stem, name+"-")
+	if !ok || n == "" {
+		return false
+	}
+	for _, c := range n {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // writeFile writes data to name, creating its directory.

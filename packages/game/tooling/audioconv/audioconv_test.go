@@ -378,6 +378,50 @@ func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	return nil, nil
 }
 
+func TestEncoderTool(t *testing.T) {
+	ctx := context.Background()
+	ffmpeg := &fakeRunner{
+		bins: map[string]string{"ffmpeg": "/usr/bin/ffmpeg", "afconvert": "/usr/bin/afconvert"},
+		onRun: func(_ string, args []string) ([]byte, error) {
+			if !reflect.DeepEqual(args, []string{"-version"}) {
+				return nil, errors.New("unexpected arguments")
+			}
+			return []byte("ffmpeg version 7.1.1 Copyright (c) 2000-2025\nbuilt with clang\n"), nil
+		},
+	}
+	afconvert := &fakeRunner{bins: map[string]string{"afconvert": "/usr/bin/afconvert"}}
+	none := &fakeRunner{bins: map[string]string{}}
+	for _, tc := range []struct {
+		name    string
+		runner  *fakeRunner
+		goos    string
+		format  audioconv.Format
+		want    string
+		missing bool
+	}{
+		{"wav needs no encoder", none, "linux", audioconv.FormatWAV, "", false},
+		{"aac via ffmpeg", ffmpeg, "darwin", audioconv.FormatAAC, "ffmpeg version 7.1.1 Copyright (c) 2000-2025", false},
+		{"mp3 via ffmpeg", ffmpeg, "linux", audioconv.FormatMP3, "ffmpeg version 7.1.1 Copyright (c) 2000-2025", false},
+		{"aac via afconvert", afconvert, "darwin", audioconv.FormatAAC, "afconvert", false},
+		{"no afconvert off macOS", afconvert, "linux", audioconv.FormatAAC, "", true},
+		{"mp3 without ffmpeg", afconvert, "darwin", audioconv.FormatMP3, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := &audioconv.Encoder{Runner: tc.runner, GOOS: tc.goos}
+			got, err := enc.Tool(ctx, tc.format)
+			if tc.missing {
+				if !errors.Is(err, audioconv.ErrEncoderNotFound) {
+					t.Fatalf("Tool error = %v, want ErrEncoderNotFound", err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("Tool = %q, %v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestExternalEncoderRunner(t *testing.T) {
 	ctx := context.Background()
 
