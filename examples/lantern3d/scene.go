@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 )
 
@@ -26,27 +27,13 @@ const (
 	autoOrbitSpeed = 0.24 // radians/sec
 	lightOrbitRate = 0.75 // radians/sec
 	coreSpinRate   = 0.55 // radians/sec
+
+	// Indices into Scene.Lights.Point.
+	wispLight   = 0
+	shrineLight = 1
 )
 
 var defaultOrbitTarget = math3d.Vec3{X: 0, Y: 1.25, Z: 0}
-
-// LightRig describes the scene's directional key light, orbiting warm lantern
-// point light, inner shrine glow, and twilight hemisphere ambient lighting.
-type LightRig struct {
-	KeyDir         math3d.Vec3
-	KeyColor       math3d.Vec3
-	KeyIntensity   float32
-	PointPos       math3d.Vec3
-	PointColor     math3d.Vec3
-	PointIntensity float32
-	PointRange     float32
-	InnerPos       math3d.Vec3
-	InnerColor     math3d.Vec3
-	InnerIntensity float32
-	SkyAmbient     math3d.Vec3
-	GroundAmbient  math3d.Vec3
-	FogColor       math3d.Vec3
-}
 
 // Scene holds the loaded glTF 2.0 diorama, its orbit camera rig, animated node
 // handles, and dynamic lighting state.
@@ -66,7 +53,8 @@ type Scene struct {
 	CorePhase  float64
 	Steps      uint64
 
-	Lights LightRig
+	// Lights is the scene's render3d.LightRig: a cool moonlight key, the orbiting wisp (Point[wispLight]), the shrine glow (Point[shrineLight]) and a dim twilight ambient, all in linear light.
+	Lights render3d.LightRig
 
 	wispNodeIdx int
 	coreNodeIdx int
@@ -207,25 +195,33 @@ func (s *Scene) updateLightsAndNodes() {
 
 	pulse := float32(0.92 + 0.12*math.Sin(s.LightPhase*3.3))
 
-	s.Lights = LightRig{
-		KeyDir:         math3d.Vec3{X: 0.52, Y: 0.80, Z: 0.36}.Norm(),
-		KeyColor:       math3d.Vec3{X: 0.62, Y: 0.76, Z: 1.00},
-		KeyIntensity:   0.95,
-		PointPos:       math3d.Vec3{X: wispX, Y: wispY, Z: wispZ},
-		PointColor:     math3d.Vec3{X: 1.00, Y: 0.72, Z: 0.30},
-		PointIntensity: 2.35 * pulse,
-		PointRange:     8.0,
-		InnerPos:       math3d.Vec3{X: 0, Y: 1.82, Z: 0},
-		InnerColor:     math3d.Vec3{X: 1.00, Y: 0.62, Z: 0.22},
-		InnerIntensity: 1.65 * (0.94 + 0.08*float32(math.Cos(s.CorePhase*2.7))),
-		SkyAmbient:     math3d.Vec3{X: 0.20, Y: 0.28, Z: 0.44},
-		GroundAmbient:  math3d.Vec3{X: 0.14, Y: 0.11, Z: 0.09},
-		FogColor:       math3d.Vec3{X: 0.051, Y: 0.075, Z: 0.133}, // matches clear 0x0D1322
+	wispPos := math3d.Vec3{X: wispX, Y: wispY, Z: wispZ}
+	s.Lights = render3d.LightRig{
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.045, Y: 0.06, Z: 0.10}, Intensity: 1},
+		Directional: []render3d.DirectionalLight{{
+			Direction: math3d.Vec3{X: -0.52, Y: -0.80, Z: -0.36},
+			Color:     math3d.Vec3{X: 0.38, Y: 0.52, Z: 1.00},
+			Intensity: 2.2,
+		}},
+		Point: []render3d.PointLight{
+			wispLight: {
+				Position:  wispPos,
+				Color:     math3d.Vec3{X: 1.00, Y: 0.55, Z: 0.18},
+				Intensity: 9 * pulse,
+				Range:     8,
+			},
+			shrineLight: {
+				Position:  math3d.Vec3{X: 0, Y: 1.82, Z: 0},
+				Color:     math3d.Vec3{X: 1.00, Y: 0.45, Z: 0.12},
+				Intensity: 4 * (0.94 + 0.08*float32(math.Cos(s.CorePhase*2.7))),
+				Range:     5.5,
+			},
+		},
 	}
 
 	if s.wispNodeIdx >= 0 {
 		n := &s.Doc.Nodes[s.wispNodeIdx]
-		n.Translation = s.Lights.PointPos
+		n.Translation = wispPos
 		n.Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), float32(ang*2.2))
 		n.HasMatrix = false
 	}
