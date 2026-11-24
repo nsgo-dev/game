@@ -101,9 +101,10 @@ type MSAATargetDesc struct {
 	// DepthFormat is an optional depth/stencil format (e.g. FormatDepth24Plus);
 	// FormatUndefined disables the depth attachment.
 	DepthFormat gpu.TextureFormat
-	// SampleCount is the requested MSAA sample count (e.g. AAMSAA4x.SampleCount()).
-	// It is clamped to a device-supported count via [ClampSampleCount].
+	// SampleCount is the requested MSAA sample count (e.g. AAMSAA4x.SampleCount()). It is clamped to a device-supported count via [ClampSampleCount].
 	SampleCount int
+	// KeepDepth stores the depth (and stencil) attachment at the end of each pass so later passes can read [MSAATarget.DepthTexture]. By default the depth buffer is transient: it is cleared at the start of the pass and discarded at the end. A kept depth texture of a 4x target is multisampled.
+	KeepDepth bool
 	// Retained opts the color, resolve, and depth textures into automatic
 	// recreation by NSGo after a device loss.
 	Retained bool
@@ -129,8 +130,11 @@ type MSAATarget struct {
 	height      uint32
 	colorFormat gpu.TextureFormat
 	depthFormat gpu.TextureFormat
-	sampleCount int
-	retained    bool
+	keepDepth   bool
+	// requestedSamples is the caller's sample count, kept so a later Resize on another device can raise or lower sampleCount, the effective count.
+	requestedSamples int
+	sampleCount      int
+	retained         bool
 }
 
 // NewMSAATarget allocates an [MSAATarget] on dev scoped to cx. It clamps
@@ -179,13 +183,17 @@ func NewMSAATarget(cx *core.Scope, dev *gpu.Device, desc MSAATargetDesc) (*MSAAT
 		height:      desc.Height,
 		colorFormat: colorFmt,
 		depthFormat: desc.DepthFormat,
-		sampleCount: samples,
-		retained:    desc.Retained,
+		keepDepth:   desc.KeepDepth,
+
+		requestedSamples: desc.SampleCount,
+		sampleCount:      samples,
+		retained:         desc.Retained,
 	}, nil
 }
 
-// SetDevice updates the device used by future [MSAATarget.Resize] calls after
-// NSGo restores a lost device onto a new [*gpu.Device] for a retained target.
+// SetDevice updates the device used by future [MSAATarget.Resize] calls after NSGo restores a lost device onto a new [*gpu.Device] for a retained target.
+//
+// The sample count is clamped against the new device on the next Resize, which reallocates the textures even at the same size when the clamped count changes (for example 4x on a device without Features.MSAA4x becomes 1x, and a target created at 1x on such a device becomes 4x on one that has it). Compare [MSAATarget.SampleCount] before and after, and rebuild pipelines created with the old count.
 func (t *MSAATarget) SetDevice(dev *gpu.Device) {
 	if t == nil {
 		return
@@ -193,10 +201,7 @@ func (t *MSAATarget) SetDevice(dev *gpu.Device) {
 	t.dev = dev
 }
 
-// Resize reallocates the underlying textures to width x height. If the target
-// is already valid at that exact size, Resize is a zero-allocation no-op. If
-// allocation fails, the existing textures remain intact and the error is
-// returned.
+// Resize reallocates the underlying textures to width x height. If the target is already valid at that exact size and its sample count, clamped against the current device, is unchanged, Resize is a zero-allocation no-op. If allocation fails, the existing textures remain intact and the error is returned.
 func (t *MSAATarget) Resize(width, height uint32) error {
 	if t == nil || t.dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: MSAATarget has no device"}
@@ -207,10 +212,10 @@ func (t *MSAATarget) Resize(width, height uint32) error {
 			Message: fmt.Sprintf("render3d: MSAATarget resize dimensions must be positive (got %dx%d)", width, height),
 		}
 	}
-	if t.rt != nil && t.rt.Valid() && t.width == width && t.height == height {
+	samples := ClampSampleCount(t.dev, t.requestedSamples)
+	if t.rt != nil && t.rt.Valid() && t.width == width && t.height == height && samples == t.sampleCount {
 		return nil
 	}
-	samples := ClampSampleCount(t.dev, t.sampleCount)
 	next, err := t.dev.CreateRenderTarget(t.cx, gpu.RenderTargetDesc{
 		Label:       t.label,
 		Width:       width,
@@ -233,18 +238,12 @@ func (t *MSAATarget) Resize(width, height uint32) error {
 	return nil
 }
 
-// ColorAttachment returns a [gpu.ColorAttachment] configured to clear the
-// target to clearColor and, when multisampled, automatically resolve into the
-// single-sampled resolve texture at pass end (discarding the transient
-// multisampled backing store). For a single-sampled target it stores directly
-// into the color texture.
-func (t *MSAATarget) ColorAttachment(clearColor core.Color) gpu.ColorAttachment {
-	if t == nil || t.rt == nil {
-		return gpu.ColorAttachment{
-			LoadOp:     gpu.LoadClear,
-			StoreOp:    gpu.StoreStore,
-			ClearColor: clearColor,
-		}
+// ColorAttachment returns a [gpu.ColorAttachment] configured to clear the target to clearColor and, when multisampled, automatically resolve into the single-sampled resolve texture at pass end (discarding the transient multisampled backing store). For a single-sampled target it stores directly into the color texture.
+//
+// It returns an error when the target is nil, closed, or its device is lost, instead of an attachment with a nil Texture, which NSGo would draw into the view's swapchain.
+func (t *MSAATarget) ColorAttachment(clearColor core.Color) (gpu.ColorAttachment, error) {
+	if err := t.usable(); err != nil {
+		return gpu.ColorAttachment{}, err
 	}
 	if t.rt.Resolve != nil {
 		return gpu.ColorAttachment{
@@ -253,43 +252,59 @@ func (t *MSAATarget) ColorAttachment(clearColor core.Color) gpu.ColorAttachment 
 			LoadOp:        gpu.LoadClear,
 			StoreOp:       gpu.StoreDiscard,
 			ClearColor:    clearColor,
-		}
+		}, nil
 	}
 	return gpu.ColorAttachment{
 		Texture:    t.rt.Color,
 		LoadOp:     gpu.LoadClear,
 		StoreOp:    gpu.StoreStore,
 		ClearColor: clearColor,
-	}
+	}, nil
 }
 
-// DepthStencilAttachment returns a [gpu.DepthStencilAttachment] clearing the
-// target's depth buffer to clearDepth, or nil when no depth format was
-// configured.
+// DepthStencilAttachment returns a [gpu.DepthStencilAttachment] clearing the target's depth buffer to clearDepth (and its stencil to 0 when the depth format has a stencil aspect), or nil when no depth format was configured or the target is closed. The depth and stencil are discarded at the end of the pass unless [MSAATargetDesc.KeepDepth] is set.
 func (t *MSAATarget) DepthStencilAttachment(clearDepth float32) *gpu.DepthStencilAttachment {
 	if t == nil || t.rt == nil || t.rt.Depth == nil {
 		return nil
 	}
-	return &gpu.DepthStencilAttachment{
+	store := gpu.StoreDiscard
+	if t.keepDepth {
+		store = gpu.StoreStore
+	}
+	ds := &gpu.DepthStencilAttachment{
 		Texture:      t.rt.Depth,
 		DepthLoadOp:  gpu.LoadClear,
-		DepthStoreOp: gpu.StoreDiscard,
+		DepthStoreOp: store,
 		ClearDepth:   clearDepth,
 	}
+	if t.depthFormat.HasStencil() {
+		ds.StencilLoadOp = gpu.LoadClear
+		ds.StencilStoreOp = store
+	}
+	return ds
 }
 
-// RenderPassDesc builds a [gpu.RenderPassDesc] targeting t with
-// [MSAATarget.ColorAttachment] and (if present) [MSAATarget.DepthStencilAttachment].
-func (t *MSAATarget) RenderPassDesc(clearColor core.Color, clearDepth float32) gpu.RenderPassDesc {
-	label := "render3d.msaa"
-	if t != nil && t.label != "" {
-		label = t.label
+// RenderPassDesc builds a [gpu.RenderPassDesc] targeting t with [MSAATarget.ColorAttachment] and (if present) [MSAATarget.DepthStencilAttachment]. Like ColorAttachment, it returns an error for a nil, closed, or lost target.
+func (t *MSAATarget) RenderPassDesc(clearColor core.Color, clearDepth float32) (gpu.RenderPassDesc, error) {
+	ca, err := t.ColorAttachment(clearColor)
+	if err != nil {
+		return gpu.RenderPassDesc{}, err
 	}
 	return gpu.RenderPassDesc{
-		Label:            label,
-		ColorAttachments: []gpu.ColorAttachment{t.ColorAttachment(clearColor)},
+		Label:            t.label,
+		ColorAttachments: []gpu.ColorAttachment{ca},
 		DepthStencil:     t.DepthStencilAttachment(clearDepth),
+	}, nil
+}
+
+func (t *MSAATarget) usable() error {
+	switch {
+	case t == nil || t.rt == nil:
+		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: MSAATarget is nil or closed"}
+	case !t.rt.Valid():
+		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: MSAATarget's device is lost"}
 	}
+	return nil
 }
 
 // OutputTexture returns the single-sampled color texture holding the resolved
@@ -323,8 +338,7 @@ func (t *MSAATarget) ResolveTexture() *gpu.Texture {
 	return t.rt.Resolve
 }
 
-// DepthTexture returns the depth/stencil texture, or nil when none was
-// configured or the target is closed.
+// DepthTexture returns the depth/stencil texture, or nil when none was configured or the target is closed. Its contents survive a pass only when [MSAATargetDesc.KeepDepth] is set.
 func (t *MSAATarget) DepthTexture() *gpu.Texture {
 	if t == nil || t.rt == nil {
 		return nil

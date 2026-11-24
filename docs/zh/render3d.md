@@ -638,13 +638,20 @@ target, err := render3d.NewMSAATarget(cx, dev, render3d.MSAATargetDesc{
 	Retained:    true,
 })
 // 在 OnFrame 中：
-pass := frame.BeginRenderPass(target.RenderPassDesc(clearColor, 1.0))
+desc, err := target.RenderPassDesc(clearColor, 1.0)
+if err != nil {
+	return // 目标已关闭或设备已丢失
+}
+pass := frame.BeginRenderPass(desc)
 // ... 使用 SampleCount: target.SampleCount() 的管线绘制 ...
 pass.End()
 resolved := target.OutputTexture()
 ```
 
-多重采样时，`ColorAttachment` 会自动把 `ResolveTarget` 指向解析纹理，并将 `StoreOp` 设为 `gpu.StoreDiscard`，避免移动端/图块 GPU 写回临时多重采样缓冲；回退到 `1x` 时则使用 `gpu.StoreStore` 直接写入颜色纹理。
+多重采样时，`ColorAttachment` 会自动把 `ResolveTarget` 指向解析纹理，并将 `StoreOp` 设为 `gpu.StoreDiscard`，避免移动端/图块 GPU 写回临时多重采样缓冲；回退到 `1x` 时则使用 `gpu.StoreStore` 直接写入颜色纹理。目标已关闭或设备已丢失时，`ColorAttachment` 与 `RenderPassDesc` 返回错误，而不是返回纹理为 nil 的附件（NSGo 会把这样的附件画到视图的交换链上）。
+
+- **深度**：深度附件默认是临时的：在通道开始时清除、结束时丢弃（深度模板格式的模板分量同样如此）。在 `MSAATargetDesc` 上设置 `KeepDepth: true` 可保存它，供后续通道读取 `DepthTexture()`；`4x` 目标的深度纹理是多重采样纹理。
+- **跨设备的采样数**：目标会记住请求的采样数，`Resize` 按当前设备重新裁剪；裁剪结果变化时，即使尺寸不变也会重新分配。通过 `SetDevice` 换到 MSAA 支持不同的设备后，请调用 `Resize`，将 `SampleCount()` 与之前的值比较，并重建用旧采样数创建的管线。
 
 需要后处理抗锯齿时，`FXAAPass` 会编译 `FXAAWGSL`（无顶点缓冲的全屏三角形 FXAA 3.11 Quality 着色器，仅使用 `textureSampleLevel(..., 0.0)`，无需计算着色器，可在完整能力与 `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 档位下运行），并为每个源纹理各缓存一个绑定组，稳态绘制不分配内存。着色器通过 `textureDimensions` 从源纹理读取纹素尺寸，因此同一个 pass 可以在一帧内处理尺寸不同的多个源：
 

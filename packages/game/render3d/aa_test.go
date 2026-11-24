@@ -197,7 +197,7 @@ func renderAASceneOffscreen(t *testing.T, sr *gpu.SoftwareRenderer, requestedSam
 	t.Cleanup(func() { _ = pipe.Close() })
 
 	enc := dev.BeginEncoder()
-	pass := enc.BeginRenderPass(target.RenderPassDesc(aaClearColor, 1.0))
+	pass := enc.BeginRenderPass(aaPassDesc(t, target))
 	pass.SetPipeline(pipe)
 	pass.SetVertexBuffer(0, vb, 0)
 	pass.Draw(uint32(len(verts)/7), 0)
@@ -208,6 +208,16 @@ func renderAASceneOffscreen(t *testing.T, sr *gpu.SoftwareRenderer, requestedSam
 		t.Fatalf("software renderer: %v", err)
 	}
 	return readTextureRGBA(t, dev, target.OutputTexture()), target
+}
+
+// aaPassDesc returns target's render pass descriptor cleared to aaClearColor, failing the test when the target cannot be rendered to.
+func aaPassDesc(t testing.TB, target *render3d.MSAATarget) gpu.RenderPassDesc {
+	t.Helper()
+	desc, err := target.RenderPassDesc(aaClearColor, 1.0)
+	if err != nil {
+		t.Fatalf("MSAATarget.RenderPassDesc: %v", err)
+	}
+	return desc
 }
 
 func isSolidSceneColor(c color.RGBA) bool {
@@ -352,12 +362,15 @@ func TestMSAATargetLifecycleAndResize(t *testing.T) {
 	if mt.ColorFormat() != dev.SurfaceFormat() || mt.DepthFormat() != gpu.FormatDepth24Plus {
 		t.Fatalf("formats = (%v, %v)", mt.ColorFormat(), mt.DepthFormat())
 	}
-	ca := mt.ColorAttachment(aaClearColor)
+	ca, err := mt.ColorAttachment(aaClearColor)
+	if err != nil {
+		t.Fatalf("ColorAttachment: %v", err)
+	}
 	if ca.Texture != mt.ColorTexture() || ca.ResolveTarget != mt.ResolveTexture() || ca.StoreOp != gpu.StoreDiscard {
 		t.Fatalf("unexpected 4x ColorAttachment: %+v", ca)
 	}
 	ds := mt.DepthStencilAttachment(1.0)
-	if ds == nil || ds.Texture != mt.DepthTexture() || ds.ClearDepth != 1.0 {
+	if ds == nil || ds.Texture != mt.DepthTexture() || ds.ClearDepth != 1.0 || ds.DepthStoreOp != gpu.StoreDiscard {
 		t.Fatalf("unexpected DepthStencilAttachment: %+v", ds)
 	}
 
@@ -397,6 +410,16 @@ func TestMSAATargetLifecycleAndResize(t *testing.T) {
 	if mt.Valid() || mt.OutputTexture() != nil {
 		t.Fatal("target still valid after Close")
 	}
+	// A closed target must refuse to build attachments: a nil Texture would make NSGo draw into the view's swapchain.
+	if _, err := mt.ColorAttachment(aaClearColor); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Fatalf("ColorAttachment after Close = %v, want ErrInvalidDescriptor", err)
+	}
+	if _, err := mt.RenderPassDesc(aaClearColor, 1.0); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Fatalf("RenderPassDesc after Close = %v, want ErrInvalidDescriptor", err)
+	}
+	if mt.DepthStencilAttachment(1.0) != nil {
+		t.Fatal("DepthStencilAttachment after Close != nil")
+	}
 	if err := mt.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
@@ -417,7 +440,10 @@ func TestMSAATargetLifecycleAndResize(t *testing.T) {
 		t.Fatalf("1x fallback state: samples=%d resolve=%v output==color=%v",
 			mt1.SampleCount(), mt1.ResolveTexture(), mt1.OutputTexture() == mt1.ColorTexture())
 	}
-	ca1 := mt1.ColorAttachment(aaClearColor)
+	ca1, err := mt1.ColorAttachment(aaClearColor)
+	if err != nil {
+		t.Fatalf("ColorAttachment(1x): %v", err)
+	}
 	if ca1.ResolveTarget != nil || ca1.StoreOp != gpu.StoreStore {
 		t.Fatalf("unexpected 1x ColorAttachment: %+v", ca1)
 	}
@@ -435,6 +461,95 @@ func TestMSAATargetLifecycleAndResize(t *testing.T) {
 	}
 	if err := nilTarget.Resize(8, 8); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Fatalf("nil Resize = %v, want ErrDeviceLost", err)
+	}
+	if _, err := nilTarget.RenderPassDesc(aaClearColor, 1.0); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Fatalf("nil RenderPassDesc = %v, want ErrInvalidDescriptor", err)
+	}
+}
+
+// TestMSAATargetSampleCountFollowsDevice moves one target between devices with and without Features.MSAA4x: the requested count is kept, so Resize re-clamps it against the current device even at the same size.
+func TestMSAATargetSampleCountFollowsDevice(t *testing.T) {
+	srNoMSAA := gpu.NewSoftwareRendererWithFeatures(16, 16, gpu.FormatUndefined, gpu.Features{})
+	defer srNoMSAA.Close()
+	srMSAA := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
+	defer srMSAA.Close()
+
+	mt, err := render3d.NewMSAATarget(nil, srNoMSAA.Device(), render3d.MSAATargetDesc{
+		Width:       16,
+		Height:      16,
+		ColorFormat: gpu.FormatRGBA8Unorm,
+		SampleCount: render3d.AAMSAA4x.SampleCount(),
+	})
+	if err != nil {
+		t.Fatalf("NewMSAATarget: %v", err)
+	}
+	defer func() { _ = mt.Close() }()
+	if mt.SampleCount() != 1 {
+		t.Fatalf("SampleCount on a device without MSAA4x = %d, want 1", mt.SampleCount())
+	}
+
+	mt.SetDevice(srMSAA.Device())
+	if err := mt.Resize(16, 16); err != nil {
+		t.Fatalf("Resize after moving to an MSAA4x device: %v", err)
+	}
+	if mt.SampleCount() != 4 || mt.ResolveTexture() == nil || mt.OutputTexture() != mt.ResolveTexture() {
+		t.Fatalf("after moving to an MSAA4x device: samples=%d resolve=%v", mt.SampleCount(), mt.ResolveTexture())
+	}
+
+	rt := mt.RenderTarget()
+	if err := mt.Resize(16, 16); err != nil || mt.RenderTarget() != rt {
+		t.Fatalf("Resize at the same size and count reallocated (err=%v)", err)
+	}
+
+	mt.SetDevice(srNoMSAA.Device())
+	if err := mt.Resize(16, 16); err != nil {
+		t.Fatalf("Resize after moving back: %v", err)
+	}
+	if mt.SampleCount() != 1 || mt.ResolveTexture() != nil {
+		t.Fatalf("after moving back to a device without MSAA4x: samples=%d resolve=%v", mt.SampleCount(), mt.ResolveTexture())
+	}
+}
+
+// TestMSAATargetKeepDepth checks the depth attachment's store ops: transient by default, stored with KeepDepth, and with explicit stencil ops for a depth-stencil format.
+func TestMSAATargetKeepDepth(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
+	defer sr.Close()
+	for _, tc := range []struct {
+		name    string
+		format  gpu.TextureFormat
+		keep    bool
+		store   gpu.StoreOp
+		stencil bool
+	}{
+		{"depth-transient", gpu.FormatDepth24Plus, false, gpu.StoreDiscard, false},
+		{"depth-kept", gpu.FormatDepth24Plus, true, gpu.StoreStore, false},
+		{"depth-stencil-transient", gpu.FormatDepth24PlusStencil8, false, gpu.StoreDiscard, true},
+		{"depth-stencil-kept", gpu.FormatDepth24PlusStencil8, true, gpu.StoreStore, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mt, err := render3d.NewMSAATarget(nil, sr.Device(), render3d.MSAATargetDesc{
+				Width:       16,
+				Height:      16,
+				ColorFormat: gpu.FormatRGBA8Unorm,
+				DepthFormat: tc.format,
+				SampleCount: render3d.AAMSAA4x.SampleCount(),
+				KeepDepth:   tc.keep,
+			})
+			if err != nil {
+				t.Fatalf("NewMSAATarget: %v", err)
+			}
+			defer func() { _ = mt.Close() }()
+			ds := mt.DepthStencilAttachment(1.0)
+			if ds == nil || ds.DepthLoadOp != gpu.LoadClear || ds.DepthStoreOp != tc.store {
+				t.Fatalf("depth attachment = %+v, want LoadClear and store op %v", ds, tc.store)
+			}
+			if tc.stencil && (ds.StencilLoadOp != gpu.LoadClear || ds.StencilStoreOp != tc.store || ds.ClearStencil != 0) {
+				t.Fatalf("stencil ops = (%v, %v, %d), want (LoadClear, %v, 0)", ds.StencilLoadOp, ds.StencilStoreOp, ds.ClearStencil, tc.store)
+			}
+			if desc := aaPassDesc(t, mt); desc.DepthStencil == nil || desc.DepthStencil.DepthStoreOp != tc.store {
+				t.Fatalf("RenderPassDesc depth attachment = %+v", desc.DepthStencil)
+			}
+		})
 	}
 }
 
@@ -861,7 +976,7 @@ func TestAAProfilesFullAndNoGPUCompute(t *testing.T) {
 						}
 					},
 					OnFrame: func(frame *gpu.Frame) {
-						pass1 := frame.BeginRenderPass(sceneTarget.RenderPassDesc(aaClearColor, 1.0))
+						pass1 := frame.BeginRenderPass(aaPassDesc(t, sceneTarget))
 						pass1.SetPipeline(scenePipe)
 						pass1.SetVertexBuffer(0, vb, 0)
 						pass1.Draw(vertsCount, 0)
@@ -984,7 +1099,7 @@ func TestAAProfilesFullAndNoGPUCompute(t *testing.T) {
 						}
 					},
 					OnFrame: func(frame *gpu.Frame) {
-						pass1 := frame.BeginRenderPass(msaaTarget.RenderPassDesc(aaClearColor, 1.0))
+						pass1 := frame.BeginRenderPass(aaPassDesc(t, msaaTarget))
 						pass1.SetPipeline(scenePipe)
 						pass1.SetVertexBuffer(0, vb, 0)
 						pass1.Draw(vertsCount, 0)
@@ -1089,7 +1204,7 @@ func TestMSAATargetAndFXAARetainedAcrossDeviceLoss(t *testing.T) {
 				}
 			},
 			OnFrame: func(frame *gpu.Frame) {
-				pass1 := frame.BeginRenderPass(msaaTarget.RenderPassDesc(aaClearColor, 1.0))
+				pass1 := frame.BeginRenderPass(aaPassDesc(t, msaaTarget))
 				pass1.SetPipeline(scenePipe)
 				pass1.SetVertexBuffer(0, vb, 0)
 				pass1.Draw(vertsCount, 0)
