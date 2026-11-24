@@ -59,6 +59,16 @@ func TestAssetsRefused(t *testing.T) {
 		{"audio over atlas page", atlas + "  audio:\n    - in: a.wav\n      out: assets/ui-1.json\n", "audio[0] writes assets/ui-1.json, which atlases[0] also writes"},
 		{"cache over atlas page", assetsHead + "assets:\n  cache: assets/ui.json\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n", "the cache writes assets/ui.json, which atlases[0] also writes"},
 		{"cache in manifest folder", assetsHead + "assets:\n  cache: assets/cache.yaml\n  manifest:\n    in: assets\n    out: gen/assets.go\n", "inside the manifest's folder"},
+		{"texture out is its in", assetsHead + "assets:\n  textures:\n    - in: art/a.png\n      out: art/a.png\n", "textures[0] writes art/a.png, which textures[0] reads"},
+		{"audio out is its in", assetsHead + "assets:\n  audio:\n    - in: sfx/j.wav\n      out: sfx/j.wav\n", "audio[0] writes sfx/j.wav, which audio[0] reads"},
+		{"audio out is a texture's in", assetsHead + "assets:\n  textures:\n    - in: a.png\n      out: a.ktx2\n  audio:\n    - in: a.wav\n      out: a.png\n", "audio[0] writes a.png, which textures[0] reads"},
+		{"cache is an input", assetsHead + "assets:\n  cache: sfx/j.wav\n  audio:\n    - in: sfx/j.wav\n      out: j.wav\n", "the cache writes sfx/j.wav, which audio[0] reads"},
+		{"cache is game.yaml", assetsHead + "assets:\n  cache: game.yaml\n", "the cache writes game.yaml, the project file"},
+		{"texture out is game.yaml", assetsHead + "assets:\n  textures:\n    - in: a.png\n      out: game.yaml\n", "textures[0] writes game.yaml, the project file"},
+		{"audio out is game.yaml", assetsHead + "assets:\n  audio:\n    - in: a.wav\n      out: game.yaml\n", "audio[0] writes game.yaml, the project file"},
+		{"texture png in atlas images", atlas + "  textures:\n    - in: a.png\n      out: art/ui/a.PNG\n", "textures[0] writes art/ui/a.PNG, inside atlases[0]'s images in art/ui"},
+		{"audio png in atlas images", atlas + "  audio:\n    - in: a.wav\n      out: art/ui/sub/j.png\n", "audio[0] writes art/ui/sub/j.png, inside atlases[0]'s images in art/ui"},
+		{"cache png in atlas images", atlas + "  cache: art/ui/cache.png\n", "the cache writes art/ui/cache.png, inside atlases[0]'s images in art/ui"},
 		{"manifest not go", assetsHead + "assets:\n  manifest:\n    in: assets\n    out: assets/manifest.txt\n", ".go file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,6 +85,8 @@ func TestAssetsAccepted(t *testing.T) {
 		{"atlas pages in a dot folder of its images", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: art/ui/.pages\n"},
 		{"atlases sharing a folder", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n    - name: ui-x\n      in: art/x\n      out: assets\n  textures:\n    - in: a.png\n      out: assets/ui.ktx2\n"},
 		{"cache in a dot folder of the manifest's", assetsHead + "assets:\n  cache: assets/.cache/assets.yaml\n  manifest:\n    in: assets\n    out: gen/assets.go\n"},
+		{"texture of an atlas page", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  textures:\n    - in: assets/ui.png\n      out: assets/ui.ktx2\n"},
+		{"non-PNG output beside atlas images", assetsHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  textures:\n    - in: a.png\n      out: art/ui/a.ktx2\n"},
 		{"default cache with the manifest of the project", assetsHead + "assets:\n  manifest:\n    in: .\n    out: gen/assets.go\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

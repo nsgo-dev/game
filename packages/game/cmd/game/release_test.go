@@ -317,14 +317,14 @@ func TestParseReleaseSettingsFollowsAliases(t *testing.T) {
 }
 
 func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
-	settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\neditor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\n"))
+	settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\neditor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"web"}; !reflect.DeepEqual(settings.Targets, want) {
 		t.Fatalf("targets %q, want %q", settings.Targets, want)
 	}
-	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor"}
+	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets"}
 	if !reflect.DeepEqual(gameFileKeys, want) {
 		t.Fatalf("gameFileKeys = %q, want %q", gameFileKeys, want)
 	}

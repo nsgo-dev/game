@@ -511,6 +511,166 @@ func TestDroppedTargetLeavesTheCache(t *testing.T) {
 	if bytes.Contains(c, []byte("hero")) {
 		t.Fatalf("the cache still records the dropped atlas:\n%s", c)
 	}
+	wantGone(t, dir, "assets/atlases/hero.png", "assets/atlases/hero.json")
+	wantManifestWithout(t, dir, "hero")
+}
+
+// wantGone fails unless none of the slash-separated paths exists under root.
+func wantGone(t *testing.T, root string, paths ...string) {
+	t.Helper()
+	for _, p := range paths {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(p))); !os.IsNotExist(err) {
+			t.Errorf("%s is still there (%v)", p, err)
+		}
+	}
+}
+
+// wantManifestWithout fails if the sample project's generated manifest mentions s.
+func wantManifestWithout(t *testing.T, root, s string) {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join(root, "gen/assets_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(src, []byte(s)) {
+		t.Errorf("manifest still mentions %q:\n%s", s, src)
+	}
+}
+
+func TestRenamedAtlasRemovesItsOldPages(t *testing.T) {
+	dir := newProject(t)
+	build(t, dir, assetbuild.Builder{})
+	editProject(t, dir, "    - name: hero\n", "    - name: player\n")
+	r := build(t, dir, assetbuild.Builder{})
+	if got := statuses(r)["atlas assets/atlases/player"]; got != assetbuild.Built {
+		t.Fatalf("renamed atlas status = %q, want built", got)
+	}
+	wantGone(t, dir, "assets/atlases/hero.png", "assets/atlases/hero.json")
+	wantManifestWithout(t, dir, "hero")
+	if _, err := os.Stat(filepath.Join(dir, "assets/atlases/player.png")); err != nil {
+		t.Fatal(err)
+	}
+	before := stamp(t, dir)
+	wantStatuses(t, build(t, dir, assetbuild.Builder{}), map[string]assetbuild.Status{
+		"atlas assets/atlases/ui":     assetbuild.UpToDate,
+		"atlas assets/atlases/player": assetbuild.UpToDate,
+		"texture assets/albedo.ktx2":  assetbuild.UpToDate,
+		"audio assets/jump.wav":       assetbuild.UpToDate,
+		"manifest gen/assets_gen.go":  assetbuild.UpToDate,
+	})
+	if got := touched(t, dir, before); len(got) != 0 {
+		t.Fatalf("a second run wrote %v", got)
+	}
+}
+
+func TestDroppedTargetIsRemovedAfterAFailedRun(t *testing.T) {
+	dir := newProject(t)
+	build(t, dir, assetbuild.Builder{})
+	editProject(t, dir, "    - name: hero\n      in: art/hero\n      out: assets/atlases\n", "")
+	writeFile(t, filepath.Join(dir, "art/albedo.png"), []byte("not an image"))
+	if _, err := tryBuild(dir, assetbuild.Builder{}); err == nil {
+		t.Fatal("Build accepted a broken texture")
+	}
+	writePNG(t, filepath.Join(dir, "art/albedo.png"), 8, 8, color.NRGBA{R: 1, A: 255})
+	build(t, dir, assetbuild.Builder{})
+	wantGone(t, dir, "assets/atlases/hero.png", "assets/atlases/hero.json")
+	wantManifestWithout(t, dir, "hero")
+}
+
+func TestCheckFindsLeftoverPages(t *testing.T) {
+	dir := newProject(t)
+	build(t, dir, assetbuild.Builder{})
+	// A build that needed two pages left ui-1 behind, committed without the cache.
+	writePNG(t, filepath.Join(dir, "assets/atlases/ui-1.png"), 4, 4, color.NRGBA{R: 1, A: 255})
+	writeFile(t, filepath.Join(dir, "assets/atlases/ui-1.json"), []byte("{}"))
+	want := all(assetbuild.UpToDate)
+	want["atlas assets/atlases/ui"] = assetbuild.Stale
+	// The manifest's scan now finds the leftover pages too.
+	want["manifest gen/assets_gen.go"] = assetbuild.Stale
+	wantStatuses(t, build(t, dir, assetbuild.Builder{Check: true}), want)
+	if err := os.RemoveAll(filepath.Join(dir, ".game")); err != nil {
+		t.Fatal(err)
+	}
+	before := stamp(t, dir)
+	wantStatuses(t, build(t, dir, assetbuild.Builder{Check: true}), want)
+	if got := touched(t, dir, before); len(got) != 0 {
+		t.Fatalf("a check wrote %v", got)
+	}
+
+	build(t, dir, assetbuild.Builder{})
+	wantGone(t, dir, "assets/atlases/ui-1.png", "assets/atlases/ui-1.json")
+	wantManifestWithout(t, dir, "ui-1")
+	wantStatuses(t, build(t, dir, assetbuild.Builder{Check: true}), all(assetbuild.UpToDate))
+}
+
+// fakeEncoder stands in for ffmpeg: its version names what it writes, so two versions write different bytes for the same input.
+type fakeEncoder struct {
+	version string
+	// missing makes LookPath find no encoder.
+	missing bool
+	runs    int
+}
+
+func (f *fakeEncoder) LookPath(file string) (string, error) {
+	if f.missing || file != "ffmpeg" {
+		return "", fs.ErrNotExist
+	}
+	return "/fake/ffmpeg", nil
+}
+
+func (f *fakeEncoder) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	if slices.Equal(args, []string{"-version"}) {
+		return []byte("ffmpeg version " + f.version + "\n"), nil
+	}
+	f.runs++
+	return nil, os.WriteFile(args[len(args)-1], []byte("aac by "+f.version), 0o644)
+}
+
+func TestExternallyEncodedAudio(t *testing.T) {
+	dir := t.TempDir()
+	writeWAV(t, filepath.Join(dir, "sfx/jump.wav"))
+	writeFile(t, filepath.Join(dir, "game.yaml"), []byte(sampleProject[:strings.Index(sampleProject, "assets:")]+"assets:\n  audio:\n    - in: sfx/jump.wav\n      out: assets/jump.m4a\n      format: aac\n"))
+	const id = "audio assets/jump.m4a"
+	with := func(f *fakeEncoder, check bool) assetbuild.Status {
+		t.Helper()
+		r := build(t, dir, assetbuild.Builder{Audio: &audioconv.Encoder{Runner: f, GOOS: "linux"}, Check: check})
+		return statuses(r)[id]
+	}
+
+	v1 := &fakeEncoder{version: "1"}
+	if got := with(v1, false); got != assetbuild.Built {
+		t.Fatalf("first build = %q, want built", got)
+	}
+	if got := with(v1, false); got != assetbuild.UpToDate || v1.runs != 1 {
+		t.Fatalf("second build = %q after %d encodes, want up to date after 1", got, v1.runs)
+	}
+	// Another encoder version writes other bytes, so the key covers it.
+	if got := with(&fakeEncoder{version: "2"}, false); got != assetbuild.Built {
+		t.Fatalf("build with a new encoder = %q, want built", got)
+	}
+
+	// A fresh checkout on a machine whose encoder writes other bytes, or that has none, passes a check while the output exists.
+	if err := os.RemoveAll(filepath.Join(dir, ".game")); err != nil {
+		t.Fatal(err)
+	}
+	before := stamp(t, dir)
+	for _, f := range []*fakeEncoder{{version: "3"}, {missing: true}} {
+		if got := with(f, true); got != assetbuild.UpToDate {
+			t.Fatalf("check with encoder %+v = %q, want up to date", f, got)
+		}
+		if f.runs != 0 {
+			t.Fatalf("check with encoder %+v encoded %d times", f, f.runs)
+		}
+	}
+	if got := touched(t, dir, before); len(got) != 0 {
+		t.Fatalf("a check wrote %v", got)
+	}
+	if err := os.Remove(filepath.Join(dir, "assets/jump.m4a")); err != nil {
+		t.Fatal(err)
+	}
+	if got := with(&fakeEncoder{version: "3"}, true); got != assetbuild.Stale {
+		t.Fatalf("check without the output = %q, want stale", got)
+	}
 }
 
 func TestCustomCachePath(t *testing.T) {

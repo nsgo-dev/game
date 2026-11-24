@@ -103,24 +103,55 @@ func (e *Encoder) ConvertToAAC(ctx context.Context, wavPath, outPath string, bit
 	if bitrateKbps <= 0 {
 		bitrateKbps = 128
 	}
+	name, bin, err := e.tool(FormatAAC)
+	if err != nil {
+		return err
+	}
+	args := []string{"-y", "-i", wavPath, "-c:a", "aac", "-b:a", strconv.Itoa(bitrateKbps) + "k", outPath}
+	if name == "afconvert" {
+		args = []string{"-f", "m4af", "-d", "aac", "-b", strconv.Itoa(bitrateKbps * 1000), wavPath, outPath}
+	}
+	if out, err := e.runner().Run(ctx, bin, args...); err != nil {
+		return fmt.Errorf("audioconv: %s aac: %w (%s)", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// tool returns the name and path of the external encoder ConvertBuffer runs for format, an AAC or MP3 format: ffmpeg when it is on PATH, otherwise afconvert for AAC on macOS. It returns an error wrapping ErrEncoderNotFound when neither is available.
+func (e *Encoder) tool(format Format) (name, bin string, err error) {
 	r := e.runner()
 	if bin, err := r.LookPath("ffmpeg"); err == nil {
-		args := []string{"-y", "-i", wavPath, "-c:a", "aac", "-b:a", strconv.Itoa(bitrateKbps) + "k", outPath}
-		if out, err := r.Run(ctx, bin, args...); err != nil {
-			return fmt.Errorf("audioconv: ffmpeg aac: %w (%s)", err, strings.TrimSpace(string(out)))
-		}
-		return nil
+		return "ffmpeg", bin, nil
+	}
+	if format == FormatMP3 {
+		return "", "", fmt.Errorf("%w: MP3 requires ffmpeg", ErrEncoderNotFound)
 	}
 	if e.goos() == "darwin" {
 		if bin, err := r.LookPath("afconvert"); err == nil {
-			args := []string{"-f", "m4af", "-d", "aac", "-b", strconv.Itoa(bitrateKbps * 1000), wavPath, outPath}
-			if out, err := r.Run(ctx, bin, args...); err != nil {
-				return fmt.Errorf("audioconv: afconvert aac: %w (%s)", err, strings.TrimSpace(string(out)))
-			}
-			return nil
+			return "afconvert", bin, nil
 		}
 	}
-	return fmt.Errorf("%w: AAC requires ffmpeg (or afconvert on macOS)", ErrEncoderNotFound)
+	return "", "", fmt.Errorf("%w: AAC requires ffmpeg (or afconvert on macOS)", ErrEncoderNotFound)
+}
+
+// Tool describes the encoder ConvertBuffer uses for format on this machine, so a caller that caches converted files can tell when the same input would now convert to different bytes. It is "" for WAV, which is encoded in Go. For AAC and MP3 it names the external encoder and, for ffmpeg, the first line of its -version output, such as "ffmpeg version 7.1.1"; afconvert reports no version, so it is only "afconvert". It returns an error wrapping ErrEncoderNotFound when no encoder is available.
+func (e *Encoder) Tool(ctx context.Context, format Format) (string, error) {
+	if format == FormatWAV {
+		return "", nil
+	}
+	if format != FormatAAC && format != FormatMP3 {
+		return "", fmt.Errorf("audioconv: unsupported format %q", format)
+	}
+	name, bin, err := e.tool(format)
+	if err != nil || name != "ffmpeg" {
+		return name, err
+	}
+	out, err := e.runner().Run(ctx, bin, "-version")
+	if err != nil {
+		return "", fmt.Errorf("audioconv: ffmpeg -version: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return strings.TrimSpace(line), nil
 }
 
 // ConvertToMP3 converts the WAV file at wavPath to MP3 at outPath using ffmpeg.
@@ -128,15 +159,15 @@ func (e *Encoder) ConvertToMP3(ctx context.Context, wavPath, outPath string, bit
 	if bitrateKbps <= 0 {
 		bitrateKbps = 128
 	}
-	r := e.runner()
-	if bin, err := r.LookPath("ffmpeg"); err == nil {
-		args := []string{"-y", "-i", wavPath, "-c:a", "libmp3lame", "-b:a", strconv.Itoa(bitrateKbps) + "k", outPath}
-		if out, err := r.Run(ctx, bin, args...); err != nil {
-			return fmt.Errorf("audioconv: ffmpeg mp3: %w (%s)", err, strings.TrimSpace(string(out)))
-		}
-		return nil
+	_, bin, err := e.tool(FormatMP3)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("%w: MP3 requires ffmpeg", ErrEncoderNotFound)
+	args := []string{"-y", "-i", wavPath, "-c:a", "libmp3lame", "-b:a", strconv.Itoa(bitrateKbps) + "k", outPath}
+	if out, err := e.runner().Run(ctx, bin, args...); err != nil {
+		return fmt.Errorf("audioconv: ffmpeg mp3: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // ConvertBuffer processes buf according to opts and writes it to outPath in format.
