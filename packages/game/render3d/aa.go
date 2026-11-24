@@ -17,22 +17,15 @@ type AAMode uint8
 const (
 	// AANone disables anti-aliasing (single-sampled, no post-processing).
 	AANone AAMode = iota
-	// AAFXAA applies a full-screen FXAA 3.11 post-processing pass over a
-	// single-sampled color texture, suitable for deferred pipelines, post-FX
-	// chains, or devices without hardware MSAA.
+	// AAFXAA applies a full-screen FXAA 3.11 post-processing pass over a single-sampled color texture, suitable for deferred pipelines, post-FX chains, or devices without hardware MSAA.
 	AAFXAA
-	// AAMSAA2x requests 2x hardware multisample anti-aliasing. Because WebGPU
-	// and NSGo's portable GPU API expose 1x and 4x sample counts (guarded by
-	// Features.MSAA4x), [ClampSampleCount] promotes 2x to 4x when MSAA4x is
-	// supported and falls back to 1x otherwise.
+	// AAMSAA2x requests 2x hardware multisample anti-aliasing. Because WebGPU and NSGo's portable GPU API expose 1x and 4x sample counts (guarded by Features.MSAA4x), [ClampSampleCount] promotes 2x to 4x when MSAA4x is supported and falls back to 1x otherwise.
 	AAMSAA2x
-	// AAMSAA4x requests 4x hardware multisample anti-aliasing, resolving to 4x
-	// when the device supports Features.MSAA4x and falling back to 1x otherwise.
+	// AAMSAA4x requests 4x hardware multisample anti-aliasing, resolving to 4x when the device supports Features.MSAA4x and falling back to 1x otherwise.
 	AAMSAA4x
 )
 
-// String returns a stable lowercase identifier for m ("none", "fxaa",
-// "msaa2x", "msaa4x", or "unknown").
+// String returns a stable lowercase identifier for m ("none", "fxaa", "msaa2x", "msaa4x", or "unknown").
 func (m AAMode) String() string {
 	switch m {
 	case AANone:
@@ -48,9 +41,7 @@ func (m AAMode) String() string {
 	}
 }
 
-// SampleCount returns the requested hardware sample count for m (1 for AANone
-// and AAFXAA, 2 for AAMSAA2x, 4 for AAMSAA4x). Pass it through
-// [ClampSampleCount] before creating a GPU render target or pipeline.
+// SampleCount returns the requested hardware sample count for m (1 for AANone and AAFXAA, 2 for AAMSAA2x, 4 for AAMSAA4x). Pass it through [ClampSampleCount] before creating a GPU render target or pipeline.
 func (m AAMode) SampleCount() int {
 	switch m {
 	case AAMSAA2x:
@@ -72,12 +63,7 @@ func (m AAMode) UsesFXAA() bool {
 	return m == AAFXAA
 }
 
-// ClampSampleCount returns a sample count accepted by dev for requested: 1
-// when requested <= 1 or dev is nil or lacks Features.MSAA4x, and 4 when
-// requested >= 2 and dev supports Features.MSAA4x. This matches WebGPU and
-// NSGo's portable 1x/4x sample-count set so the returned value is always valid
-// for [gpu.TextureDesc.SampleCount], [gpu.RenderTargetDesc.SampleCount], and
-// [gpu.PipelineDesc.SampleCount].
+// ClampSampleCount returns a sample count accepted by dev for requested: 1 when requested <= 1 or dev is nil or lacks Features.MSAA4x, and 4 when requested >= 2 and dev supports Features.MSAA4x. This matches WebGPU and NSGo's portable 1x/4x sample-count set so the returned value is always valid for [gpu.TextureDesc.SampleCount], [gpu.RenderTargetDesc.SampleCount], and [gpu.PipelineDesc.SampleCount].
 func ClampSampleCount(dev *gpu.Device, requested int) int {
 	if requested <= 1 || dev == nil {
 		return 1
@@ -95,32 +81,21 @@ type MSAATargetDesc struct {
 	// Width and Height are the initial dimensions in physical pixels (both > 0).
 	Width  uint32
 	Height uint32
-	// ColorFormat is the color attachment format. FormatUndefined defaults to
-	// dev.SurfaceFormat(), or FormatRGBA8Unorm if that is undefined.
+	// ColorFormat is the color attachment format. FormatUndefined defaults to dev.SurfaceFormat(), or FormatRGBA8Unorm if that is undefined.
 	ColorFormat gpu.TextureFormat
-	// DepthFormat is an optional depth/stencil format (e.g. FormatDepth24Plus);
-	// FormatUndefined disables the depth attachment.
+	// DepthFormat is an optional depth/stencil format (e.g. FormatDepth24Plus); FormatUndefined disables the depth attachment.
 	DepthFormat gpu.TextureFormat
 	// SampleCount is the requested MSAA sample count (e.g. AAMSAA4x.SampleCount()). It is clamped to a device-supported count via [ClampSampleCount].
 	SampleCount int
 	// KeepDepth stores the depth (and stencil) attachment at the end of each pass so later passes can read [MSAATarget.DepthTexture]. By default the depth buffer is transient: it is cleared at the start of the pass and discarded at the end. A kept depth texture of a 4x target is multisampled.
 	KeepDepth bool
-	// Retained opts the color, resolve, and depth textures into automatic
-	// recreation by NSGo after a device loss.
+	// Retained opts the color, resolve, and depth textures into automatic recreation by NSGo after a device loss.
 	Retained bool
 }
 
-// MSAATarget manages an offscreen 3D color (and optional depth) render target
-// with automatic MSAA resolve and resize support (#249).
+// MSAATarget manages an offscreen 3D color (and optional depth) render target with automatic MSAA resolve and resize support (#249).
 //
-// When created with SampleCount > 1 on a device supporting Features.MSAA4x,
-// the color attachment is multisampled and [MSAATarget.ColorAttachment] binds
-// the single-sampled resolve texture as ResolveTarget (with StoreDiscard on the
-// transient multisample buffer). When SampleCount clamps to 1, ColorAttachment
-// targets the single-sampled color texture directly with StoreStore. In both
-// cases, [MSAATarget.OutputTexture] returns the single-sampled texture ready
-// for sampling in subsequent passes (such as [FXAAPass] or tone mapping) or
-// CPU readback.
+// When created with SampleCount > 1 on a device supporting Features.MSAA4x, the color attachment is multisampled and [MSAATarget.ColorAttachment] binds the single-sampled resolve texture as ResolveTarget (with StoreDiscard on the transient multisample buffer). When SampleCount clamps to 1, ColorAttachment targets the single-sampled color texture directly with StoreStore. In both cases, [MSAATarget.OutputTexture] returns the single-sampled texture ready for sampling in subsequent passes (such as [FXAAPass] or tone mapping) or CPU readback.
 type MSAATarget struct {
 	cx          *core.Scope
 	dev         *gpu.Device
@@ -137,9 +112,7 @@ type MSAATarget struct {
 	retained         bool
 }
 
-// NewMSAATarget allocates an [MSAATarget] on dev scoped to cx. It clamps
-// desc.SampleCount via [ClampSampleCount] so callers do not need separate
-// error-handling paths for devices without MSAA4x.
+// NewMSAATarget allocates an [MSAATarget] on dev scoped to cx. It clamps desc.SampleCount via [ClampSampleCount] so callers do not need separate error-handling paths for devices without MSAA4x.
 func NewMSAATarget(cx *core.Scope, dev *gpu.Device, desc MSAATargetDesc) (*MSAATarget, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -307,9 +280,7 @@ func (t *MSAATarget) usable() error {
 	return nil
 }
 
-// OutputTexture returns the single-sampled color texture holding the resolved
-// render output: Resolve when multisampled, Color when single-sampled, or nil
-// if the target is nil or closed.
+// OutputTexture returns the single-sampled color texture holding the resolved render output: Resolve when multisampled, Color when single-sampled, or nil if the target is nil or closed.
 func (t *MSAATarget) OutputTexture() *gpu.Texture {
 	if t == nil || t.rt == nil {
 		return nil
@@ -320,8 +291,7 @@ func (t *MSAATarget) OutputTexture() *gpu.Texture {
 	return t.rt.Color
 }
 
-// ColorTexture returns the primary color attachment texture (multisampled when
-// SampleCount > 1), or nil if closed.
+// ColorTexture returns the primary color attachment texture (multisampled when SampleCount > 1), or nil if closed.
 func (t *MSAATarget) ColorTexture() *gpu.Texture {
 	if t == nil || t.rt == nil {
 		return nil
@@ -329,8 +299,7 @@ func (t *MSAATarget) ColorTexture() *gpu.Texture {
 	return t.rt.Color
 }
 
-// ResolveTexture returns the single-sampled resolve texture, or nil when the
-// target is single-sampled or closed.
+// ResolveTexture returns the single-sampled resolve texture, or nil when the target is single-sampled or closed.
 func (t *MSAATarget) ResolveTexture() *gpu.Texture {
 	if t == nil || t.rt == nil {
 		return nil
@@ -354,8 +323,7 @@ func (t *MSAATarget) RenderTarget() *gpu.RenderTarget {
 	return t.rt
 }
 
-// SampleCount returns the effective (clamped) MSAA sample count (1 or 4), or 0
-// for a nil target.
+// SampleCount returns the effective (clamped) MSAA sample count (1 or 4), or 0 for a nil target.
 func (t *MSAATarget) SampleCount() int {
 	if t == nil {
 		return 0
@@ -387,8 +355,7 @@ func (t *MSAATarget) ColorFormat() gpu.TextureFormat {
 	return t.colorFormat
 }
 
-// DepthFormat returns the configured depth/stencil format (FormatUndefined if
-// none).
+// DepthFormat returns the configured depth/stencil format (FormatUndefined if none).
 func (t *MSAATarget) DepthFormat() gpu.TextureFormat {
 	if t == nil {
 		return gpu.FormatUndefined
@@ -396,8 +363,7 @@ func (t *MSAATarget) DepthFormat() gpu.TextureFormat {
 	return t.depthFormat
 }
 
-// Retained reports whether the target's textures were created with automatic
-// recreation across device loss enabled.
+// Retained reports whether the target's textures were created with automatic recreation across device loss enabled.
 func (t *MSAATarget) Retained() bool {
 	if t == nil {
 		return false
@@ -405,14 +371,12 @@ func (t *MSAATarget) Retained() bool {
 	return t.retained
 }
 
-// Valid reports whether the target's underlying GPU textures are open and
-// belong to a live device.
+// Valid reports whether the target's underlying GPU textures are open and belong to a live device.
 func (t *MSAATarget) Valid() bool {
 	return t != nil && t.rt != nil && t.rt.Valid()
 }
 
-// Close releases the underlying GPU textures immediately instead of waiting
-// for scope disposal. It is safe to call more than once or on a nil target.
+// Close releases the underlying GPU textures immediately instead of waiting for scope disposal. It is safe to call more than once or on a nil target.
 func (t *MSAATarget) Close() error {
 	if t == nil || t.rt == nil {
 		return nil
@@ -431,29 +395,19 @@ const (
 	defaultFXAAEdgeThresholdMin = float32(0.0833)
 )
 
-// FXAAOptions configures FXAA 3.11 edge detection and sub-pixel anti-aliasing.
-// Zero values fall back to [DefaultFXAAOptions] (SubpixelQuality 0.75,
-// EdgeThreshold 0.166, EdgeThresholdMin 0.0833).
+// FXAAOptions configures FXAA 3.11 edge detection and sub-pixel anti-aliasing. Zero values fall back to [DefaultFXAAOptions] (SubpixelQuality 0.75, EdgeThreshold 0.166, EdgeThresholdMin 0.0833).
 type FXAAOptions struct {
-	// SubpixelQuality controls sub-pixel aliasing removal in [0, 1]. Zero uses
-	// the FXAA 3.11 default (0.75) unless DisableSubpixel is true. Negative or
-	// non-finite values clamp to 0; values above 1 clamp to 1.
+	// SubpixelQuality controls sub-pixel aliasing removal in [0, 1]. Zero uses the FXAA 3.11 default (0.75) unless DisableSubpixel is true. Negative or non-finite values clamp to 0; values above 1 clamp to 1.
 	SubpixelQuality float32
-	// DisableSubpixel forces SubpixelQuality to 0 (edge-only smoothing) even
-	// when SubpixelQuality is zero.
+	// DisableSubpixel forces SubpixelQuality to 0 (edge-only smoothing) even when SubpixelQuality is zero.
 	DisableSubpixel bool
-	// EdgeThreshold is the minimum relative local luma contrast required to
-	// process a pixel as an edge, in (0, 1]. Non-positive or non-finite values
-	// default to 0.166; values above 1 clamp to 1.
+	// EdgeThreshold is the minimum relative local luma contrast required to process a pixel as an edge, in (0, 1]. Non-positive or non-finite values default to 0.166; values above 1 clamp to 1.
 	EdgeThreshold float32
-	// EdgeThresholdMin skips very dark regions whose local luma range falls
-	// below this absolute floor, in (0, 1]. Non-positive or non-finite values
-	// default to 0.0833; values above 1 clamp to 1.
+	// EdgeThresholdMin skips very dark regions whose local luma range falls below this absolute floor, in (0, 1]. Non-positive or non-finite values default to 0.0833; values above 1 clamp to 1.
 	EdgeThresholdMin float32
 }
 
-// DefaultFXAAOptions returns the standard FXAA 3.11 quality defaults
-// (SubpixelQuality: 0.75, EdgeThreshold: 0.166, EdgeThresholdMin: 0.0833).
+// DefaultFXAAOptions returns the standard FXAA 3.11 quality defaults (SubpixelQuality: 0.75, EdgeThreshold: 0.166, EdgeThresholdMin: 0.0833).
 func DefaultFXAAOptions() FXAAOptions {
 	return FXAAOptions{
 		SubpixelQuality:  defaultFXAASubpixelQuality,
@@ -462,8 +416,7 @@ func DefaultFXAAOptions() FXAAOptions {
 	}
 }
 
-// Sanitize returns a copy of o with zero, out-of-range, and non-finite fields
-// resolved to valid FXAA 3.11 parameters.
+// Sanitize returns a copy of o with zero, out-of-range, and non-finite fields resolved to valid FXAA 3.11 parameters.
 func (o FXAAOptions) Sanitize() FXAAOptions {
 	out := o
 	switch {
@@ -499,14 +452,9 @@ func encodeFXAAUniform(dst *[FXAAUniformSize]byte, opts FXAAOptions) {
 	}
 }
 
-// FXAAWGSL is a portable FXAA 3.11 full-screen post-processing WGSL shader
-// module compiled by [NewFXAAPass].
+// FXAAWGSL is a portable FXAA 3.11 full-screen post-processing WGSL shader module compiled by [NewFXAAPass].
 //
-// It draws a single bufferless full-screen triangle via @builtin(vertex_index)
-// (Draw(3, 0)), uses only textureSampleLevel(..., 0.0) so non-uniform early
-// exits and edge-search loops remain valid on every GPU backend (Metal,
-// Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software
-// device), and matches [ApplyFXAA] on the CPU for a non-sRGB, gamma-encoded source (see [FXAAPass]).
+// It draws a single bufferless full-screen triangle via @builtin(vertex_index) (Draw(3, 0)), uses only textureSampleLevel(..., 0.0) so non-uniform early exits and edge-search loops remain valid on every GPU backend (Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software device), and matches [ApplyFXAA] on the CPU for a non-sRGB, gamma-encoded source (see [FXAAPass]).
 //
 // Bind group 0 layout:
 //   - @binding(0): uniform FXAAParams (16 bytes: params = (subpixel, edgeThreshold, edgeThresholdMin, 0)); the texel size comes from textureDimensions(fxaa_tex)
@@ -683,14 +631,11 @@ fn fs_main(in: FXAAVertexOut) -> @location(0) vec4<f32> {
 type FXAAPassDesc struct {
 	// Label names the pass's GPU resources in capture tools.
 	Label string
-	// TargetFormat is the color format of the render pass into which [FXAAPass]
-	// draws. FormatUndefined defaults to dev.SurfaceFormat() (or FormatRGBA8Unorm), which is an sRGB format on some platforms; see [FXAAPass] for the color space the pass expects.
+	// TargetFormat is the color format of the render pass into which [FXAAPass] draws. FormatUndefined defaults to dev.SurfaceFormat() (or FormatRGBA8Unorm), which is an sRGB format on some platforms; see [FXAAPass] for the color space the pass expects.
 	TargetFormat gpu.TextureFormat
-	// Options configures FXAA 3.11 edge detection and sub-pixel blending. Zero
-	// uses [DefaultFXAAOptions].
+	// Options configures FXAA 3.11 edge detection and sub-pixel blending. Zero uses [DefaultFXAAOptions].
 	Options FXAAOptions
-	// Retained opts the pass's GPU resources into automatic recreation after a
-	// device loss.
+	// Retained opts the pass's GPU resources into automatic recreation after a device loss.
 	Retained bool
 }
 
@@ -726,8 +671,7 @@ type fxaaBinding struct {
 	group *gpu.BindGroup
 }
 
-// NewFXAAPass compiles [FXAAWGSL] and creates the sampler, uniform buffer,
-// bind group layout, and full-screen pipeline on dev, scoped to cx.
+// NewFXAAPass compiles [FXAAWGSL] and creates the sampler, uniform buffer, bind group layout, and full-screen pipeline on dev, scoped to cx.
 func NewFXAAPass(cx *core.Scope, dev *gpu.Device, desc FXAAPassDesc) (*FXAAPass, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -817,8 +761,7 @@ func NewFXAAPass(cx *core.Scope, dev *gpu.Device, desc FXAAPassDesc) (*FXAAPass,
 	}, nil
 }
 
-// SetDevice updates the device pointer after NSGo restores a lost device onto
-// a fresh [*gpu.Device] for a retained pass.
+// SetDevice updates the device pointer after NSGo restores a lost device onto a fresh [*gpu.Device] for a retained pass.
 func (p *FXAAPass) SetDevice(dev *gpu.Device) {
 	if p == nil {
 		return
@@ -883,8 +826,7 @@ func (p *FXAAPass) Retained() bool {
 	return p.retained
 }
 
-// Valid reports whether the pass's GPU resources are open and belong to a live
-// device.
+// Valid reports whether the pass's GPU resources are open and belong to a live device.
 func (p *FXAAPass) Valid() bool {
 	return p != nil &&
 		p.pipeline != nil && p.pipeline.Valid() &&
@@ -970,10 +912,7 @@ func (p *FXAAPass) prepare(src *gpu.Texture) (*gpu.BindGroup, error) {
 	return bg, nil
 }
 
-// Draw binds the FXAA pipeline and source texture on pass and issues a
-// bufferless full-screen triangle draw (Draw(3, 0)). The caller owns the
-// render pass, which must target a single-sampled attachment matching
-// [FXAAPass.TargetFormat].
+// Draw binds the FXAA pipeline and source texture on pass and issues a bufferless full-screen triangle draw (Draw(3, 0)). The caller owns the render pass, which must target a single-sampled attachment matching [FXAAPass.TargetFormat].
 func (p *FXAAPass) Draw(pass *gpu.RenderPass, src *gpu.Texture) error {
 	if pass == nil {
 		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: FXAAPass.Draw called with nil render pass"}
@@ -988,8 +927,7 @@ func (p *FXAAPass) Draw(pass *gpu.RenderPass, src *gpu.Texture) error {
 	return nil
 }
 
-// Encode opens a single-attachment render pass on enc targeting dst (or the
-// view's swapchain when dst == nil), draws FXAA from src, and ends the pass.
+// Encode opens a single-attachment render pass on enc targeting dst (or the view's swapchain when dst == nil), draws FXAA from src, and ends the pass.
 func (p *FXAAPass) Encode(enc *gpu.Encoder, src, dst *gpu.Texture) error {
 	if enc == nil {
 		return gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: FXAAPass.Encode called with nil encoder"}
@@ -1013,8 +951,7 @@ func (p *FXAAPass) Encode(enc *gpu.Encoder, src, dst *gpu.Texture) error {
 	return nil
 }
 
-// Close releases the pass's GPU resources immediately instead of waiting for
-// scope disposal. It is safe to call more than once or on a nil pass.
+// Close releases the pass's GPU resources immediately instead of waiting for scope disposal. It is safe to call more than once or on a nil pass.
 func (p *FXAAPass) Close() error {
 	if p == nil {
 		return nil
@@ -1044,11 +981,7 @@ func (p *FXAAPass) Close() error {
 	return err
 }
 
-// ApplyFXAA executes the CPU reference implementation of [FXAAWGSL] (FXAA 3.11
-// Quality) on src and returns a newly allocated anti-aliased [*image.RGBA] with
-// the same bounds. Flat regions below the contrast threshold copy their source
-// pixels unchanged; diagonal edges are smoothed along the detected edge span
-// using bilinear clamp-to-edge sampling identical to the GPU pass.
+// ApplyFXAA executes the CPU reference implementation of [FXAAWGSL] (FXAA 3.11 Quality) on src and returns a newly allocated anti-aliased [*image.RGBA] with the same bounds. Flat regions below the contrast threshold copy their source pixels unchanged; diagonal edges are smoothed along the detected edge span using bilinear clamp-to-edge sampling identical to the GPU pass.
 func ApplyFXAA(src *image.RGBA, opts FXAAOptions) *image.RGBA {
 	if src == nil {
 		return nil
