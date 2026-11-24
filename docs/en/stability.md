@@ -73,13 +73,12 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/achievements` | Experimental | [achievements](achievements.md) |
 | `game/ai` | Stable | [ai](ai.md) |
 | `game/anim3d` | Experimental | [anim3d](anim3d.md) |
+| `game/animclip` | Experimental | [animclip](animclip.md) |
 | `game/assets` | Experimental | [assets](assets.md) |
 | `game/cmd/benchcheck` | Experimental | |
-| `game/cmd/gameaudio` | Experimental | |
-| `game/cmd/gameeditor` | Experimental | |
-| `game/cmd/gamemanifest` | Experimental | |
-| `game/cmd/gamepack` | Experimental | |
-| `game/cmd/gametex` | Experimental | |
+| `game/cmd/game` | Experimental | [Command Line](cli.md) |
+| `game/cmd/gameapi` | Experimental | |
+| `game/cmd/gameproject` | Experimental | [Project File](project.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cutscene` | Experimental | [cutscene](cutscene.md) |
@@ -91,9 +90,13 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/gametest` | Experimental | |
 | `game/gameui` | Experimental | [gameui](gameui.md) |
 | `game/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
+| `game/idle` | Experimental | [idle](idle.md) |
 | `game/input` | Stable | [input](input.md) |
+| `game/inventory` | Experimental | [inventory](inventory.md) |
 | `game/l10n` | Experimental | [l10n](l10n.md) |
 | `game/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
+| `game/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | Experimental | [lights2d](lights2d.md) |
 | `game/liveops` | Experimental | [liveops](liveops.md) |
 | `game/math2d` | Stable | [math2d](math2d.md) |
@@ -104,11 +107,14 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/perf` | Experimental | [perf](perf.md) |
 | `game/physics` | Stable | [physics](physics.md) |
 | `game/physics3d` | Experimental | [physics3d](physics3d.md) |
+| `game/platformer` | Experimental | [platformer](platformer.md) |
+| `game/project` | Experimental | [Project File](project.md) |
 | `game/random` | Stable | [Determinism](determinism.md) |
 | `game/render3d` | Experimental | [render3d](render3d.md) |
 | `game/replay` | Experimental | [replay](replay.md) |
 | `game/resource` | Experimental | [resources](resources.md) |
 | `game/rhythm` | Experimental | [rhythm](rhythm.md) |
+| `game/rts` | Experimental | [rts](rts.md) |
 | `game/save` | Stable | [save](save.md) |
 | `game/scene` | Stable | [scene](scene.md) |
 | `game/scene3d` | Experimental | [scene3d](scene3d.md) |
@@ -119,8 +125,11 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/skeletal` | Experimental | [skeletal](skeletal.md) |
 | `game/sound` | Stable | [sound](sound.md) |
 | `game/sprite` | Stable | [sprite](sprite.md) |
-| `game/text` | Stable | [text](text.md) |
+| `game/statedump` | Experimental | [statedump](statedump.md) |
+| `game/stats` | Experimental | [stats](stats.md) |
+| `game/text` | Experimental | [text](text.md) |
 | `game/tilemap` | Stable | [tilemap](tilemap.md) |
+| `game/tooling/apiref` | Experimental | |
 | `game/tooling/audioconv` | Experimental | |
 | `game/tooling/datatable` | Experimental | |
 | `game/tooling/devstate` | Experimental | |
@@ -129,4 +138,6 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tooling/manifest` | Experimental | |
 | `game/tooling/pack` | Experimental | |
 | `game/tween` | Stable | [tween](tween.md) |
+| `game/undo` | Experimental | [undo](undo.md) |
 | `game/world3d` | Experimental | [world3d](world3d.md) |
+| `game/worldmap` | Experimental | [worldmap](worldmap.md) |

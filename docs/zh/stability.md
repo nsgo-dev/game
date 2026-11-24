@@ -73,13 +73,12 @@
 | `game/achievements` | 实验性 | [achievements](achievements.md) |
 | `game/ai` | 稳定 | [ai](ai.md) |
 | `game/anim3d` | 实验性 | [anim3d](anim3d.md) |
+| `game/animclip` | 实验性 | [animclip](animclip.md) |
 | `game/assets` | 实验性 | [assets](assets.md) |
 | `game/cmd/benchcheck` | 实验性 | |
-| `game/cmd/gameaudio` | 实验性 | |
-| `game/cmd/gameeditor` | 实验性 | |
-| `game/cmd/gamemanifest` | 实验性 | |
-| `game/cmd/gamepack` | 实验性 | |
-| `game/cmd/gametex` | 实验性 | |
+| `game/cmd/game` | 实验性 | [命令行](cli.md) |
+| `game/cmd/gameapi` | 实验性 | |
+| `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cutscene` | 实验性 | [cutscene](cutscene.md) |
@@ -91,9 +90,13 @@
 | `game/gametest` | 实验性 | |
 | `game/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
+| `game/idle` | 实验性 | [idle](idle.md) |
 | `game/input` | 稳定 | [input](input.md) |
+| `game/inventory` | 实验性 | [inventory](inventory.md) |
 | `game/l10n` | 实验性 | [l10n](l10n.md) |
 | `game/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
+| `game/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | 实验性 | [lights2d](lights2d.md) |
 | `game/liveops` | 实验性 | [liveops](liveops.md) |
 | `game/math2d` | 稳定 | [math2d](math2d.md) |
@@ -104,11 +107,14 @@
 | `game/perf` | 实验性 | [perf](perf.md) |
 | `game/physics` | 稳定 | [physics](physics.md) |
 | `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
+| `game/platformer` | 实验性 | [platformer](platformer.md) |
+| `game/project` | 实验性 | [项目文件](project.md) |
 | `game/random` | 稳定 | [确定性指南](determinism.md) |
 | `game/render3d` | 实验性 | [render3d](render3d.md) |
 | `game/replay` | 实验性 | [replay](replay.md) |
 | `game/resource` | 实验性 | [resources](resources.md) |
 | `game/rhythm` | 实验性 | [rhythm](rhythm.md) |
+| `game/rts` | 实验性 | [rts](rts.md) |
 | `game/save` | 稳定 | [save](save.md) |
 | `game/scene` | 稳定 | [scene](scene.md) |
 | `game/scene3d` | 实验性 | [scene3d](scene3d.md) |
@@ -119,8 +125,11 @@
 | `game/skeletal` | 实验性 | [skeletal](skeletal.md) |
 | `game/sound` | 稳定 | [sound](sound.md) |
 | `game/sprite` | 稳定 | [sprite](sprite.md) |
-| `game/text` | 稳定 | [text](text.md) |
+| `game/statedump` | 实验性 | [statedump](statedump.md) |
+| `game/stats` | 实验性 | [stats](stats.md) |
+| `game/text` | 实验性 | [text](text.md) |
 | `game/tilemap` | 稳定 | [tilemap](tilemap.md) |
+| `game/tooling/apiref` | 实验性 | |
 | `game/tooling/audioconv` | 实验性 | |
 | `game/tooling/datatable` | 实验性 | |
 | `game/tooling/devstate` | 实验性 | |
@@ -129,4 +138,6 @@
 | `game/tooling/manifest` | 实验性 | |
 | `game/tooling/pack` | 实验性 | |
 | `game/tween` | 稳定 | [tween](tween.md) |
+| `game/undo` | 实验性 | [undo](undo.md) |
 | `game/world3d` | 实验性 | [world3d](world3d.md) |
+| `game/worldmap` | 实验性 | [worldmap](worldmap.md) |
