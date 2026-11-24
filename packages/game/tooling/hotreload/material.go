@@ -815,9 +815,7 @@ func (r *MaterialReloader) MaterialPath(name string) (string, bool) {
 	return e.path, true
 }
 
-// ReloadMaterialFile resolves nameOrPath (a registered material name or relative path),
-// reads fresh YAML bytes from the reloader's configured file system, and calls ReloadMaterial.
-// It reports the resolved path, file byte length, whether the material is tracked, and any error.
+// ReloadMaterialFile resolves nameOrPath (a registered material name or relative path), reads fresh YAML bytes from the reloader's configured file system, and calls ReloadMaterial. It reports the resolved path, file byte length, whether the material is tracked, and any error.
 func (r *MaterialReloader) ReloadMaterialFile(nameOrPath string) (string, int64, bool, error) {
 	if r == nil || nameOrPath == "" {
 		return "", 0, false, nil

@@ -631,9 +631,7 @@ func (r *ShaderReloader) ShaderPath(name string) (string, bool) {
 	return p, ok
 }
 
-// ReloadShaderFile resolves nameOrPath (a registered shader name or relative path),
-// reads fresh source bytes from the reloader's configured file system, and calls ReloadShader.
-// It reports the resolved path, source byte length, whether the shader is tracked, and any error.
+// ReloadShaderFile resolves nameOrPath (a registered shader name or relative path), reads fresh source bytes from the reloader's configured file system, and calls ReloadShader. It reports the resolved path, source byte length, whether the shader is tracked, and any error.
 func (r *ShaderReloader) ReloadShaderFile(nameOrPath string) (string, int64, bool, error) {
 	if r == nil || nameOrPath == "" {
 		return "", 0, false, nil

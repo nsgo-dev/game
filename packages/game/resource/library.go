@@ -136,9 +136,7 @@ func (l *Library) Paths() []string {
 	return out
 }
 
-// ReloadFile re-reads path from the library's file system and reloads it in place via Reload.
-// It reports the file's byte size, whether path was loaded in the library, and any read or parse error.
-// An unloaded path returns (0, false, nil). On error, the previously loaded resource stays unchanged.
+// ReloadFile re-reads path from the library's file system and reloads it in place via Reload. It reports the file's byte size, whether path was loaded in the library, and any read or parse error. An unloaded path returns (0, false, nil). On error, the previously loaded resource stays unchanged.
 func (l *Library) ReloadFile(path string) (int64, bool, error) {
 	if l == nil {
 		return 0, false, nil
