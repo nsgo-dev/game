@@ -135,6 +135,7 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	vFloat := 1.5
 	vInt := 3
 	vBool := true
+	vStr := "hello"
 	c.RegisterCommand("cmd", "help", func([]string) (string, error) {
 		t.Error("console command invoked in release build")
 		return "bad", nil
@@ -142,8 +143,18 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	c.RegisterFloat("f", 0, 10, &vFloat)
 	c.RegisterInt("i", 0, 10, &vInt)
 	c.RegisterBool("b", &vBool)
+	c.RegisterString("s", &vStr)
 	if out, err := c.Exec("set f 9"); out != "" || err != nil || vFloat != 1.5 {
 		t.Fatalf("Console.Exec in release = (%q, %v), vFloat=%v", out, err, vFloat)
+	}
+	if len(c.Tunables()) != 0 || len(c.Commands()) != 0 {
+		t.Fatal("Console Tunables/Commands returned data in release build")
+	}
+	if _, ok := c.Tunable("f"); ok {
+		t.Fatal("Console.Tunable returned true in release build")
+	}
+	if oldV, newV, err := c.SetTunable("f", 2.0); oldV != nil || newV != nil || err != nil || vFloat != 1.5 {
+		t.Fatalf("Console.SetTunable in release = (%v, %v, %v), vFloat=%v", oldV, newV, err, vFloat)
 	}
 	if len(c.History()) != 0 || c.HistoryPrev() != "" || c.HistoryNext() != "" || len(c.Entries()) != 0 || len(c.Complete("s")) != 0 {
 		t.Fatal("Console history/entries/complete returned data in release build")

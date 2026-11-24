@@ -50,4 +50,9 @@ func ExampleNew() {
 	// game_input_axis
 	// game_input_pointer
 	// game_input_actions_list
+	// game_tunables_list
+	// game_tunable_get
+	// game_tunable_set
+	// game_console_commands_list
+	// game_console_exec
 }

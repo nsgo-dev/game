@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/debug"
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/random"
@@ -113,6 +114,12 @@ type Config struct {
 
 	// OnPointer is called whenever game_input_pointer injects a pointer press, release or move, after viewport mapping and scene hit testing.
 	OnPointer func(PointerEvent)
+
+	// Console is the game's debug console for tunable inspection/mutation and command execution tools.
+	Console *debug.Console
+
+	// ConsoleFunc dynamically resolves the active debug console on each tool call. When non-nil and returning a non-nil console, it overrides Console.
+	ConsoleFunc func() *debug.Console
 }
 
 type compTypeKey any
@@ -258,6 +265,14 @@ func (b *Bridge) SetViewport(vp *screen.Viewport) {
 	b.cfg.Viewport = vp
 }
 
+// SetConsole replaces the static debug Console configured on b.
+// If Config.ConsoleFunc is set and returns a non-nil console, ConsoleFunc continues to take precedence.
+func (b *Bridge) SetConsole(c *debug.Console) {
+	if b == nil {
+		return
+	}
+	b.cfg.Console = c
+}
 // Tools returns the full set of automation.Tool definitions owned by b, assembled from each tool group.
 func (b *Bridge) Tools() []automation.Tool {
 	if b == nil {
@@ -267,6 +282,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	out = append(out, b.inspectTools()...)
 	out = append(out, b.loopTools()...)
 	out = append(out, b.inputTools()...)
+	out = append(out, b.consoleTools()...)
 	return out
 }
 

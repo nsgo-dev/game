@@ -1,6 +1,6 @@
 # mcp
 
-`game/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件以及固定步长主循环控制暴露给 MCP 智能体。
+`game/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件、固定步长主循环控制、游戏坐标输入注入、可调参数与调试控制台暴露给 MCP 智能体。
 
 NSGo 内置的 `nsgo mcp` 服务器只能看到原生视图，而游戏通常绘制在单个 `Canvas` 或 GPU 视图中。把 `mcp.Bridge` 挂载到 `core.Scope` 上后，它会通过 `automation.Register` 在引擎响应式图上注册游戏专用工具；当应用在 `go tool nsgo dev -automation` 或 `go tool nsgo test` 下运行时，`nsgo mcp` 会自动将这些工具与内置工具一并提供。在普通构建与发布构建中，`automation.Register` 为空操作，不会引入运行时协议开销。
 
@@ -27,13 +27,14 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	Actions:       g.actions,
 	Viewport:      &g.viewport,
 	ViewSizeFunc:  g.currentViewSize,
+	Console:       g.console,
 })
 if err != nil {
 	return err
 }
 ```
 
-- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World` 或 `*game.Loop`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop`）。
+- 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop` 或 `*debug.Console`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole`）。
 - 若要启用 `game_loop_seed`，可配置 `Random`（`*random.Stream`）、`RandomStreams`（`*random.Streams`）和/或自定义 `SetSeed` 回调；若都未配置，调用 `game_loop_seed` 会返回明确的可操作错误。
 - 如果 `scene.Manager` 的控制器通过自定义 `Controller.Draw` 绘制而没有设置 `Controller.Scene`，`SceneFunc` / `Scene` 会自动作为当前场景的图层来源。
 - 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
@@ -71,6 +72,11 @@ if err := mcp.RegisterComponent[AIState](bridge, "ai"); err != nil {
 | `game_input_axis` | `name` + `value`、`axes` 映射（`{name: value}`）和/或 `clear`（`bool`） | 在 `input.Actions` 上设置或清除单个或多个 `[-1, 1]` 模拟量轴值。 |
 | `game_input_pointer` | `x`、`y`（必填）、`action`（`"press"`、`"release"`、`"move"`、`"click"`，默认 `"click"`）、`space`（`"game"` 或 `"world"`，默认 `"game"`）、`button`（`"left"`、`"right"`、`"middle"`） | 将坐标经当前场景 `Camera`（当 `space="world"`）和 `screen.Viewport` 映射到视图坐标，转发到 `input.Actions`，执行 `Scene.HitTest` / `Scene.DispatchPress`，调用 `Config.OnPointer`，并返回游戏/视图坐标、`in_viewport` 与命中信息（`hit`、`hit_layer`、`hit_kind`、`hit_frame`、`hit_batch_index`、`hit_sprite_index`、`hit_drawable_index`、`dispatched`）。 |
 | `game_input_actions_list` | `{}` | 列出 `input.Actions` 上已配置的动作和轴名称及其当前步状态（`pressed`、`just_pressed`、`just_released`、`binding_count`、`value`、`negative`、`positive`）。 |
+| `game_tunables_list` | `prefix`（可选） | 按名称排序的已注册 `debug.Console` 可调参数列表，包含 `type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
+| `game_tunable_get` | `name`（必填） | 单个已注册可调参数的 `name`、`type`、当前 `value`、注册时的 `default` 以及数值型的 `min`/`max` 范围。 |
+| `game_tunable_set` | `name`（必填）、`value`（必填）、`clamp`（可选，默认 `false`） | 按严格类型检查与范围校验（或 `clamp: true` 时钳位）更新已注册的可调参数（`float`、`int`、`bool` 或 `string`），返回 `old_value`、生效后的 `value`、元数据与 `clamped` 标记。 |
+| `game_console_commands_list` | `include_builtin`（可选，默认 `true`） | 按名称排序的 `debug.Console` 内置命令与自定义命令列表，包含 `help` 说明与 `builtin` 标记。 |
+| `game_console_exec` | `command`（必填） | 通过 `debug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
 
 所有工具都会拒绝未知的参数字段。
 
@@ -89,6 +95,23 @@ if err := mcp.RegisterComponent[AIState](bridge, "ai"); err != nil {
 - **动作与轴注入**：`game_input_action` 驱动 `Actions.Press`、`Actions.Release`、`Actions.Trigger` 和 `Actions.SetAxis`；`game_input_axis` 一次设置或清除一个或多个 `[-1, 1]` 模拟量轴。所有注入输入与物理输入一样遵循 `Actions.Step()` 步快照语义，并会在 `Actions.Reset()` 时一并清除。
 - **指针坐标管线**：`game_input_pointer` 接收 `"game"` 空间（虚拟画布坐标）或 `"world"` 空间（经当前场景 `Camera.WorldToView` 转换到游戏空间）的 `(x, y)`，随后结合 `ViewSizeFunc`（回退到挂载作用域的 `Env().Window()`，再回退到视口虚拟尺寸）通过 `screen.Viewport.GameToView` 映射到视图坐标。
 - **事件派发**：映射后的视图坐标会转发到 `input.Actions`（因此 `Actions.MapPoint = viewport.ViewToGame` 会准确还原游戏坐标并触发 `MouseRegion` 绑定）。当 `in_viewport` 为真时，会在游戏坐标下执行 `Scene.HitTest` 与主按钮 `Scene.DispatchPress`，确保在精灵游戏位置按下即可命中该精灵并触发其 `OnPress` 回调；`Config.OnPointer` 会收到每次注入的 `PointerEvent`（`"click"` 依次派发 `PointerPress` 和 `PointerRelease`）。
+
+## 可调参数与调试控制台
+
+通过 `Config.Console`、`Config.ConsoleFunc` 或 `bridge.SetConsole` 传入 [`*debug.Console`](debug.md)，即可让智能体检查和调整运行中的游戏参数并执行自定义调试命令：
+
+```go
+console := debug.NewConsole()
+console.RegisterFloat("physics.gravity", 0, 2000, &g.gravity)
+console.RegisterInt("player.max_jumps", 1, 5, &g.maxJumps)
+console.RegisterBool("player.god_mode", &g.godMode)
+console.RegisterString("level.name", &g.levelName)
+console.RegisterCommand("spawn", "spawn <kind> [count]", g.handleSpawn)
+```
+
+- `game_tunables_list` 与 `game_tunable_get` 直接读取实时值，不会向控制台交互历史或输出日志中写入多余记录。
+- `game_tunable_set` 默认严格校验参数注册类型（`float`、`int`、`bool` 或 `string`）及数值 `[min, max]` 范围，校验失败时不修改变量。传入 `"clamp": true` 时会将越界数值钳位到 `[min, max]` 并在响应中标记 `"clamped": true`。
+- `game_console_exec` 通过 `debug.Console.Exec` 运行内置命令（`help`、`list`、`get`、`set`、`clear`）与游戏自定义命令，返回 `{command, ok, output, lines, error}`。无效的 MCP 参数或未配置 `Console` 会返回工具级错误；命令本身的执行失败（例如未知命令名或参数无效）则返回 `ok: false` 与对应的 `error` 信息。
 ## 稳定的实体引用
 
 每个存活实体都会获得一个格式为 `"entity:<index>:<generation>"`（例如 `"entity:0:1"`）的代数引用，由 `FormatEntityRef` 格式化并由 `ParseEntityRef` 解析：

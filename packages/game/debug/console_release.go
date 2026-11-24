@@ -24,6 +24,21 @@ func (*Console) RegisterInt(string, int, int, *int) {}
 // RegisterBool is a no-op in release builds.
 func (*Console) RegisterBool(string, *bool) {}
 
+// RegisterString is a no-op in release builds.
+func (*Console) RegisterString(string, *string) {}
+
+// Tunables always returns nil in release builds.
+func (*Console) Tunables() []TunableInfo { return nil }
+
+// Tunable always reports not found in release builds.
+func (*Console) Tunable(string) (TunableInfo, bool) { return TunableInfo{}, false }
+
+// SetTunable is a no-op in release builds.
+func (*Console) SetTunable(string, any) (any, any, error) { return nil, nil, nil }
+
+// Commands always returns nil in release builds.
+func (*Console) Commands() []CommandInfo { return nil }
+
 // Exec is a no-op in release builds.
 func (*Console) Exec(string) (string, error) { return "", nil }
 
