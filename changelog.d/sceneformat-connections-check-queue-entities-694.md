@@ -1,0 +1,4 @@
+### Added
+
+- `game/tooling/assetcheck`: resolve scenes with their `inherits` bases and instanced `scene` references during `game check` (`Check` / `CheckWith`) to report broken cross-file `connections` (missing objects, absent qualified components, duplicate inherited/instanced connections, and with `Options.Components`, invalid components, events, handlers and arguments) with file, line and column (`Problem.Column`) (#694).
+- `game/sceneformat`: add deferred FIFO event queueing (`Signals.Enqueue`, `Signals.Flush`, `Signals.Queued`, `MaxFlushWaves`) for step-end dispatch without handler recursion, and entity-bound connection spawning and dispatch (`SpawnEntitiesWithSignals`, `ConnectEntities`, `Signals.Entity`, `Signals.EmitEntity`, `Signals.EnqueueEntity`, `Call.World`, `Call.SourceEntity`, `Call.TargetEntity`) that validates before spawning and cleanly skips despawned entities (#694).

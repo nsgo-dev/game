@@ -71,6 +71,30 @@ func SpawnEntities(doc *SceneDoc, w *entities.World) (map[string]entities.Entity
 	return spawned, nil
 }
 
+// SpawnEntitiesWithSignals validates doc, its components and its connections against reg before spawning any entity into w, then spawns every object as SpawnEntities does and binds doc's connections to the spawned entities as ConnectEntities does.
+//
+// If doc is invalid or unresolved, reg is nil, any component or connection fails validation, any connected handler has no Func, or w is nil or disposed, SpawnEntitiesWithSignals returns the error and leaves w untouched.
+func SpawnEntitiesWithSignals(doc *SceneDoc, reg *ComponentRegistry, w *entities.World, ctx any) (map[string]entities.Entity, *Signals, error) {
+	if w == nil {
+		return nil, nil, errors.New("sceneformat: nil entity world")
+	}
+	if w.Disposed() {
+		return nil, nil, fmt.Errorf("sceneformat: spawn entities: %w", entities.ErrWorldDisposed)
+	}
+	sig, err := Connect(doc, reg, ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	spawned, err := SpawnEntities(doc, w)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := sig.bindWorld(w, spawned); err != nil {
+		return nil, nil, err
+	}
+	return spawned, sig, nil
+}
+
 // Nodes3D is the 3D node tree BuildNodes3D builds from a scene.
 type Nodes3D struct {
 	// Layers maps each layer name to its group node, a child of the parent given to BuildNodes3D with an identity transform and the layer's visibility.

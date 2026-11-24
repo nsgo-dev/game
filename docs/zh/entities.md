@@ -127,6 +127,7 @@ _ = wt
 - `SetParent(child, parent, keepWorld)` 与 `Detach(child, keepWorld)` 默认保留子节点的局部变换；传入 `keepWorld` 时会重新计算局部变换，让子节点在屏幕上保持原位。若保持世界变换所需的相对变换含有切变（非均匀缩放父节点下的旋转子节点），会返回 `ErrNotDecomposable` 且不做任何修改；形成环时返回 `ErrCycle`，实体已销毁时返回 `ErrDeadEntity`。
 - 销毁父节点时按层级的 `RemovePolicy`（`SetRemovePolicy`）处理子节点：`RemoveDetach`（默认）分离子节点并保留其局部变换，`RemoveDetachKeepWorld` 分离子节点并保留其世界变换，`RemoveCascade` 销毁整棵子树。`DestroyWithPolicy(e, policy)` 可为单次调用指定策略。
 - 快照只包含已注册的组件：调用 `RegisterCodec[entities.Transform2D](w, "transform2d")` 才会保存局部变换。`WorldTransform2D` 是派生数据，无需编解码器，层级会根据恢复后的局部变换重新建立。
+- 带有 `connections:` 的场景文件可以用 `sceneformat.SpawnEntitiesWithSignals(doc, reg, world, ctx)` 一步原子地校验、生成实体并绑定连接（或在 `sceneformat.SpawnEntities` 之后用 `sceneformat.ConnectEntities` 绑定），之后通过 `Signals.EmitEntity`、`Signals.EnqueueEntity` 与 `Signals.Flush` 在存活实体之间派发连接并干净地跳过已销毁的实体；见[连接](editor.md#连接490)。
 
 ## 世界存档与加载
 

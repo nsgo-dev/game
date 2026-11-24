@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
@@ -634,5 +635,537 @@ func BenchmarkEmit(b *testing.B) {
 	}
 	if n == 0 {
 		b.Fatal("no handler ran")
+	}
+}
+
+func TestEnqueueAndFlushRunInOrderAfterStepWithoutRecursion(t *testing.T) {
+	reg := sceneformat.NewComponentRegistry()
+	var trace []string
+	active := 0
+	maxActive := 0
+	enter := func(label string) {
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		trace = append(trace, "enter:"+label)
+	}
+	exit := func(label string) {
+		trace = append(trace, "exit:"+label)
+		active--
+	}
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "step",
+		Events: []sceneformat.Event{{Name: "fire"}},
+		Handlers: []sceneformat.Handler{
+			{Name: "relay", Func: func(c sceneformat.Call) {
+				label := fmt.Sprintf("%s(%v)", c.Target.ID, c.Payload)
+				enter(label)
+				// Enqueuing inside a handler must NOT recurse; it runs after the current wave's handlers return.
+				if err := c.Signals.Enqueue(c.Target.ID, "fire", fmt.Sprintf("from-%s", c.Target.ID)); err != nil {
+					t.Errorf("Enqueue inside handler: %v", err)
+				}
+				exit(label)
+			}},
+			{Name: "sink", Func: func(c sceneformat.Call) {
+				label := fmt.Sprintf("%s(%v)", c.Target.ID, c.Payload)
+				enter(label)
+				exit(label)
+			}},
+		},
+	})
+	doc, err := sceneformat.Parse([]byte(`version: 1
+layers:
+  - name: a
+    objects:
+      - {id: a, components: {step: {}}}
+      - {id: b, components: {step: {}}}
+      - {id: c, components: {step: {}}}
+      - {id: d, components: {step: {}}}
+connections:
+  - {from: a, event: fire, to: b, handler: relay}
+  - {from: b, event: fire, to: c, handler: sink}
+  - {from: d, event: fire, to: c, handler: sink}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := sceneformat.Connect(doc, reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Enqueue two events during a simulated step: nothing runs yet.
+	if err := sig.Enqueue("a", "fire", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.Enqueue("d", "fire", 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := sig.Queued(); got != 2 {
+		t.Fatalf("Queued() = %d, want 2", got)
+	}
+	if len(trace) != 0 {
+		t.Fatalf("handlers ran before Flush: %v", trace)
+	}
+	if err := sig.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := sig.Queued(); got != 0 {
+		t.Fatalf("Queued() after Flush = %d, want 0", got)
+	}
+	if maxActive != 1 {
+		t.Fatalf("max concurrent handler depth = %d, want 1 (no recursion)", maxActive)
+	}
+	// Wave 1 runs a->b and d->c in enqueue order; wave 2 runs the event b enqueued (b->c) after wave 1 finishes.
+	want := []string{
+		"enter:b(1)", "exit:b(1)",
+		"enter:c(2)", "exit:c(2)",
+		"enter:c(from-b)", "exit:c(from-b)",
+	}
+	if !reflect.DeepEqual(trace, want) {
+		t.Fatalf("trace = %v, want %v", trace, want)
+	}
+	// Flushing an empty queue is a no-op.
+	if err := sig.Flush(); err != nil {
+		t.Fatalf("empty Flush: %v", err)
+	}
+}
+
+func TestFlushGuardsSelfEnqueueLoopAndReentrantFlush(t *testing.T) {
+	reg := sceneformat.NewComponentRegistry()
+	runs := 0
+	maxActive := 0
+	active := 0
+	var nestedFlushErr error
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "relay",
+		Events: []sceneformat.Event{{Name: "ping"}},
+		Handlers: []sceneformat.Handler{{Name: "pass", Func: func(c sceneformat.Call) {
+			active++
+			if active > maxActive {
+				maxActive = active
+			}
+			runs++
+			if runs == 1 {
+				nestedFlushErr = c.Signals.Flush()
+			}
+			if err := c.Signals.Enqueue(c.Target.ID, "ping", nil); err != nil {
+				t.Errorf("Enqueue: %v", err)
+			}
+			active--
+		}}},
+	})
+	doc, err := sceneformat.Parse([]byte(`version: 1
+layers:
+  - name: a
+    objects:
+      - {id: r, components: {relay: {}}}
+connections:
+  - {from: r, event: ping, to: r, handler: pass}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := sceneformat.Connect(doc, reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.Enqueue("r", "ping", nil); err != nil {
+		t.Fatal(err)
+	}
+	err = sig.Flush()
+	if err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("Flush on self-enqueue loop = %v, want wave limit error", err)
+	}
+	if runs != sceneformat.MaxFlushWaves {
+		t.Fatalf("runs = %d, want %d", runs, sceneformat.MaxFlushWaves)
+	}
+	if maxActive != 1 {
+		t.Fatalf("maxActive = %d, want 1 (no recursion)", maxActive)
+	}
+	if nestedFlushErr == nil || !strings.Contains(nestedFlushErr.Error(), "another Flush is running") {
+		t.Fatalf("re-entrant Flush = %v, want refusal", nestedFlushErr)
+	}
+	if sig.Queued() != 0 {
+		t.Fatalf("queue was not cleared after wave overflow: %d", sig.Queued())
+	}
+	// Signals recovers cleanly for subsequent Enqueue + Flush calls.
+	runs = 0
+	if err := sig.Enqueue("r", "ping", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.Flush(); err == nil || runs != sceneformat.MaxFlushWaves {
+		t.Fatalf("second Flush: err=%v runs=%d", err, runs)
+	}
+}
+
+func TestEnqueueAndFlushValidation(t *testing.T) {
+	var calls []sceneformat.Call
+	reg := doorRegistry(t, &calls)
+	reg.MustRegister(sceneformat.ComponentType{Name: "lever", Events: []sceneformat.Event{{Name: "pressed"}}})
+	doc, err := sceneformat.Parse([]byte(`version: 1
+layers:
+  - name: a
+    objects:
+      - {id: both, components: {button: {}, lever: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: both, event: lever.pressed, to: door, handler: open}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := sceneformat.Connect(doc, reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ from, event, want string }{
+		{"ghost", "pressed", `no object "ghost"`},
+		{"door", "pressed", `no registered component of object "door"`},
+		{"both", "pressed", "name it as component.pressed"},
+	} {
+		if err := sig.Enqueue(tc.from, tc.event, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("Enqueue(%q, %q) = %v, want %q", tc.from, tc.event, err, tc.want)
+		}
+	}
+	if sig.Queued() != 0 {
+		t.Fatalf("refused Enqueue queued %d events", sig.Queued())
+	}
+	var nilSig *sceneformat.Signals
+	if err := nilSig.Enqueue("both", "pressed", nil); err == nil {
+		t.Fatal("Enqueue on nil Signals succeeded")
+	}
+	if err := nilSig.Flush(); err == nil {
+		t.Fatal("Flush on nil Signals succeeded")
+	}
+	if nilSig.Queued() != 0 {
+		t.Fatalf("nil Signals Queued() = %d", nilSig.Queued())
+	}
+}
+
+func TestSpawnEntitiesWithSignalsDispatchesAndSkipsDespawned(t *testing.T) {
+	type doorState struct {
+		open  bool
+		speed float64
+		count int
+	}
+	reg := sceneformat.NewComponentRegistry()
+	var calls []sceneformat.Call
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "pressed"}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "door",
+		Events: []sceneformat.Event{{Name: "opened"}},
+		Handlers: []sceneformat.Handler{
+			{
+				Name:   "open",
+				Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0}},
+				Func: func(c sceneformat.Call) {
+					calls = append(calls, c)
+					if st, ok := entities.Get[doorState](c.World, c.TargetEntity); ok {
+						st.open = true
+						st.speed = c.Args["speed"].(float64)
+						st.count++
+					}
+				},
+			},
+			{
+				Name: "destroy_other",
+				Func: func(c sceneformat.Call) {
+					calls = append(calls, c)
+					if other, ok := c.Signals.Entity("gate"); ok {
+						c.World.Destroy(other)
+					}
+				},
+			},
+		},
+	})
+	doc, err := sceneformat.Parse([]byte(`version: 1
+layers:
+  - name: props
+    objects:
+      - id: button
+        x: 10
+        components: {button: {}}
+      - id: door
+        x: 50
+        components: {door: {}}
+      - id: gate
+        x: 90
+        components: {door: {}}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+    args: {speed: 3.5}
+  - from: button
+    event: pressed
+    to: gate
+    handler: open
+    args: {speed: 2.0}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := entities.NewWorld()
+	spawned, sig, err := sceneformat.SpawnEntitiesWithSignals(doc, reg, w, "game-ctx")
+	if err != nil {
+		t.Fatalf("SpawnEntitiesWithSignals: %v", err)
+	}
+	if w.Count() != 3 || len(spawned) != 3 {
+		t.Fatalf("spawned %d entities (world count %d), want 3", len(spawned), w.Count())
+	}
+	btnEnt, ok := sig.Entity("button")
+	if !ok || btnEnt != spawned["button"] {
+		t.Fatalf("Entity(button) = %v, %v; want %v", btnEnt, ok, spawned["button"])
+	}
+	doorEnt := spawned["door"]
+	gateEnt := spawned["gate"]
+	entities.Set(w, doorEnt, doorState{})
+	entities.Set(w, gateEnt, doorState{})
+
+	// EmitEntity dispatches synchronously with World, SourceEntity and TargetEntity set.
+	if err := sig.EmitEntity(btnEnt, "pressed", "click"); err != nil {
+		t.Fatalf("EmitEntity: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("got %d calls, want 2", len(calls))
+	}
+	if calls[0].World != w || calls[0].SourceEntity != btnEnt || calls[0].TargetEntity != doorEnt || calls[0].Context != "game-ctx" || calls[0].Payload != "click" {
+		t.Fatalf("call[0] = %+v", calls[0])
+	}
+	if st, _ := entities.Get[doorState](w, doorEnt); !st.open || st.speed != 3.5 || st.count != 1 {
+		t.Fatalf("door state = %+v", st)
+	}
+	if st, _ := entities.Get[doorState](w, gateEnt); !st.open || st.speed != 2.0 || st.count != 1 {
+		t.Fatalf("gate state = %+v", st)
+	}
+
+	// EnqueueEntity + despawn target before Flush: despawned target is skipped cleanly, live target still runs.
+	if err := sig.EnqueueEntity(btnEnt, "pressed", "queued"); err != nil {
+		t.Fatalf("EnqueueEntity: %v", err)
+	}
+	w.Destroy(gateEnt)
+	if err := sig.Flush(); err != nil {
+		t.Fatalf("Flush after target despawn: %v", err)
+	}
+	if len(calls) != 3 || calls[2].TargetEntity != doorEnt {
+		t.Fatalf("expected only live door to run after gate despawn, calls = %+v", calls)
+	}
+	if st, _ := entities.Get[doorState](w, doorEnt); st.count != 2 {
+		t.Fatalf("door count = %d, want 2", st.count)
+	}
+
+	// EnqueueEntity + despawn source before Flush: despawned source is skipped cleanly.
+	if err := sig.EnqueueEntity(btnEnt, "pressed", "will-skip"); err != nil {
+		t.Fatalf("EnqueueEntity: %v", err)
+	}
+	w.Destroy(btnEnt)
+	if err := sig.Flush(); err != nil {
+		t.Fatalf("Flush after source despawn: %v", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("despawned source still dispatched: %d calls", len(calls))
+	}
+
+	// Direct EmitEntity / EnqueueEntity on despawned source skips cleanly (nil error), while event typos still error.
+	if err := sig.EmitEntity(btnEnt, "pressed", nil); err != nil {
+		t.Fatalf("EmitEntity on despawned source = %v, want nil", err)
+	}
+	if err := sig.EnqueueEntity(btnEnt, "pressed", nil); err != nil || sig.Queued() != 0 {
+		t.Fatalf("EnqueueEntity on despawned source = %v (queued %d), want nil and 0", err, sig.Queued())
+	}
+	if err := sig.EmitEntity(btnEnt, "typo", nil); err == nil {
+		t.Fatal("EmitEntity with unknown event on despawned source succeeded")
+	}
+
+	// Recycling the slot yields a new generation that is NOT bound in this scene.
+	recycled := w.Spawn()
+	if err := sig.EmitEntity(recycled, "pressed", nil); err == nil || !strings.Contains(err.Error(), "not bound in this scene") {
+		t.Fatalf("EmitEntity on recycled entity = %v, want unbound error", err)
+	}
+	if err := sig.EnqueueEntity(entities.Zero, "pressed", nil); err == nil {
+		t.Fatal("EnqueueEntity(Zero) succeeded")
+	}
+
+	// Earlier handler despawning a later handler's target in the same Emit skips the later handler cleanly.
+	doc2, err := sceneformat.Parse([]byte(`version: 1
+layers:
+  - name: props
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+      - {id: gate, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: destroy_other}
+  - {from: button, event: pressed, to: gate, handler: open}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls = nil
+	w2 := entities.NewWorld()
+	spawned2, sig2, err := sceneformat.SpawnEntitiesWithSignals(doc2, reg, w2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sig2.EmitEntity(spawned2["button"], "pressed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0].Handler != "destroy_other" {
+		t.Fatalf("handler targeting mid-emit despawned entity ran: %+v", calls)
+	}
+}
+
+func TestSpawnEntitiesWithSignalsLeavesWorldUntouchedOnValidationError(t *testing.T) {
+	reg := doorRegistry(t, new([]sceneformat.Call))
+	validDoc, err := sceneformat.Parse([]byte(doorScene))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Handler without Func.
+	noFuncReg := sceneformat.NewComponentRegistry()
+	noFuncReg.MustRegister(sceneformat.ComponentType{Name: "button", Events: []sceneformat.Event{{Name: "pressed"}}})
+	noFuncReg.MustRegister(sceneformat.ComponentType{Name: "door", Handlers: []sceneformat.Handler{{Name: "open", Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat}}}}})
+
+	// Bad connection (unknown handler).
+	badConnDoc := validDoc.Clone()
+	badConnDoc.Connections[0].Handler = "shut"
+
+	// Bad component field.
+	badCompDoc := validDoc.Clone()
+	badCompDoc.Layers[0].Objects[1].Components["door"] = map[string]any{"open": "nope"}
+
+	// Unresolved scene.
+	unresolvedDoc, err := sceneformat.Parse([]byte("version: 2\nlayers:\n  - name: a\n    objects:\n      - {id: d, scene: door.scene.yaml}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		doc  *sceneformat.SceneDoc
+		reg  *sceneformat.ComponentRegistry
+	}{
+		{"nil doc", nil, reg},
+		{"nil reg", validDoc, nil},
+		{"handler without Func", validDoc, noFuncReg},
+		{"bad connection", badConnDoc, reg},
+		{"bad component", badCompDoc, reg},
+		{"unresolved scene", unresolvedDoc, reg},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := entities.NewWorld()
+			existing := w.Spawn()
+			spawned, sig, err := sceneformat.SpawnEntitiesWithSignals(tc.doc, tc.reg, w, nil)
+			if err == nil || spawned != nil || sig != nil {
+				t.Fatalf("SpawnEntitiesWithSignals = (%v, %v, %v), want error and nil results", spawned, sig, err)
+			}
+			if w.Count() != 1 || !w.Alive(existing) {
+				t.Fatalf("World was modified on failed SpawnEntitiesWithSignals: count=%d", w.Count())
+			}
+		})
+	}
+
+	// Nil and disposed worlds are refused cleanly.
+	if _, _, err := sceneformat.SpawnEntitiesWithSignals(validDoc, reg, nil, nil); err == nil {
+		t.Fatal("SpawnEntitiesWithSignals with nil world succeeded")
+	}
+	disposed := entities.NewWorld()
+	disposed.Dispose()
+	if _, _, err := sceneformat.SpawnEntitiesWithSignals(validDoc, reg, disposed, nil); !errors.Is(err, entities.ErrWorldDisposed) {
+		t.Fatalf("SpawnEntitiesWithSignals on disposed world = %v, want ErrWorldDisposed", err)
+	}
+}
+
+func TestConnectEntitiesAndResolvedSceneEntities(t *testing.T) {
+	var calls []sceneformat.Call
+	reg := doorRegistry(t, &calls)
+
+	scenes := newMemScenes(map[string]string{
+		"doorway.scene.yaml": `version: 2
+layers:
+  - name: a
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: open}
+`,
+	})
+	doc, err := sceneformat.Parse([]byte(`version: 2
+layers:
+  - name: a
+    objects:
+      - {id: east, scene: doorway.scene.yaml}
+      - {id: alarm, components: {button: {}}}
+connections:
+  - {from: alarm, event: pressed, to: east/door, handler: close}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := sceneformat.Resolve(doc, scenes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := entities.NewWorld()
+	spawned, err := sceneformat.SpawnEntities(res, w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := sceneformat.ConnectEntities(res, reg, w, spawned, nil)
+	if err != nil {
+		t.Fatalf("ConnectEntities: %v", err)
+	}
+	if err := sig.EmitEntity(spawned["east/button"], "pressed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.EnqueueEntity(spawned["alarm"], "pressed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sig.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0].TargetEntity != spawned["east/door"] || calls[0].Handler != "open" || calls[1].TargetEntity != spawned["east/door"] || calls[1].Handler != "close" {
+		t.Fatalf("calls = %+v", calls)
+	}
+
+	// ConnectEntities refuses missing, dead, or duplicate entity mappings, and unbound Signals refuses EmitEntity/EnqueueEntity.
+	incomplete := map[string]entities.Entity{"alarm": spawned["alarm"]}
+	if _, err := sceneformat.ConnectEntities(res, reg, w, incomplete, nil); err == nil || !strings.Contains(err.Error(), "missing entity") {
+		t.Fatalf("ConnectEntities missing entity = %v", err)
+	}
+	dupMap := make(map[string]entities.Entity, len(spawned))
+	for k := range spawned {
+		dupMap[k] = spawned["alarm"]
+	}
+	if _, err := sceneformat.ConnectEntities(res, reg, w, dupMap, nil); err == nil || !strings.Contains(err.Error(), "share entity") {
+		t.Fatalf("ConnectEntities duplicate entity = %v", err)
+	}
+	deadMap := make(map[string]entities.Entity, len(spawned))
+	for k, v := range spawned {
+		deadMap[k] = v
+	}
+	w.Destroy(spawned["alarm"])
+	if _, err := sceneformat.ConnectEntities(res, reg, w, deadMap, nil); err == nil || !strings.Contains(err.Error(), "not alive") {
+		t.Fatalf("ConnectEntities dead entity = %v", err)
+	}
+	unbound, err := sceneformat.Connect(res, reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unbound.EmitEntity(spawned["east/door"], "opened", nil); err == nil || !strings.Contains(err.Error(), "not bound to an entity world") {
+		t.Fatalf("EmitEntity on unbound Signals = %v", err)
+	}
+	if err := unbound.EnqueueEntity(spawned["east/door"], "opened", nil); err == nil || !strings.Contains(err.Error(), "not bound to an entity world") {
+		t.Fatalf("EnqueueEntity on unbound Signals = %v", err)
 	}
 }

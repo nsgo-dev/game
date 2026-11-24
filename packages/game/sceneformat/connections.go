@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -50,25 +51,31 @@ func (h *Handler) Param(name string) (Field, bool) {
 
 // Call is what a HandlerFunc receives: the connection that fired, the objects at both ends and the values passed along.
 type Call struct {
-	// Signals is the dispatcher that called the handler, so a handler can emit further events.
+	// Signals is the dispatcher that called the handler, so a handler can emit or enqueue further events.
 	Signals *Signals
-	// Context is the value passed to Connect, such as the game's own state or a *BuiltScene.
+	// Context is the value passed to Connect, ConnectEntities or SpawnEntitiesWithSignals, such as the game's own state or a *BuiltScene.
 	Context any
+	// World is the entities.World bound to Signals when created with ConnectEntities or SpawnEntitiesWithSignals, or nil otherwise.
+	World *entities.World
 	// Source is the object that emitted the event, in the document passed to Connect.
 	Source *ObjectDoc
+	// SourceEntity is the entity in World bound to Source, or entities.Zero when Signals is not bound to a world.
+	SourceEntity entities.Entity
 	// SourceComponent is the component of Source whose type declares the event.
 	SourceComponent string
 	// Event is the event's name as its component type declares it, without the component.
 	Event string
 	// Target is the object whose handler runs, in the document passed to Connect.
 	Target *ObjectDoc
+	// TargetEntity is the entity in World bound to Target, or entities.Zero when Signals is not bound to a world.
+	TargetEntity entities.Entity
 	// Component is the component of Target whose type declares the handler.
 	Component string
 	// Handler is the handler's name as its component type declares it, without the component.
 	Handler string
 	// Args holds every param of the handler: the connection's value normalized to the param's Go type (bool, int, float64 or string), or the param's default. The map is the handler's own to change.
 	Args map[string]any
-	// Payload is the value passed to Signals.Emit.
+	// Payload is the value passed to Signals.Emit, Signals.Enqueue, Signals.EmitEntity or Signals.EnqueueEntity.
 	Payload any
 }
 
@@ -131,7 +138,17 @@ func ValidateConnections(doc *SceneDoc, reg *ComponentRegistry) error {
 // MaxEmitDepth is how deeply Signals.Emit nests: a handler that emits an event is one level, and a handler that event runs and emits another is two. Emit refuses to go deeper, which stops connections that trigger each other from looping forever.
 const MaxEmitDepth = 64
 
-// Signals dispatches the events a scene's objects emit to the handlers its connections name. Connect makes one. It is not safe for concurrent use: emit from the goroutine that runs the game's update.
+// MaxFlushWaves is how many consecutive waves of events Signals.Flush drains in one call: the events queued before Flush starts are wave 1, any events handlers enqueue during wave 1 are wave 2, and so on. Flush stops, discards the remaining queue and returns an error if more events remain after MaxFlushWaves waves, which stops connections that re-enqueue each other from hanging the game.
+const MaxFlushWaves = MaxEmitDepth
+
+// queuedEvent is one event waiting for Signals.Flush.
+type queuedEvent struct {
+	from    string
+	event   memberRef
+	payload any
+}
+
+// Signals dispatches the events a scene's objects emit to the handlers its connections name. Connect, ConnectEntities and SpawnEntitiesWithSignals make one. It is not safe for concurrent use: emit, enqueue and flush from the goroutine that runs the game's update.
 type Signals struct {
 	ctx any
 	// names maps every object ID to the events its registered components declare, keyed both "component.event" and by the bare event name; a bare name two components declare maps to an empty key.
@@ -139,6 +156,12 @@ type Signals struct {
 	// bindings maps an object ID and its event's "component.event" key to its connections in document order.
 	bindings map[bindKey][]*binding
 	depth    int
+	queue    []queuedEvent
+	flushing bool
+	// world, entities and byEntity are set when Signals is bound to an entities.World via ConnectEntities or SpawnEntitiesWithSignals.
+	world    *entities.World
+	entities map[string]entities.Entity
+	byEntity map[entities.Entity]string
 }
 
 // memberRef names an event or handler of one component.
@@ -154,12 +177,13 @@ type bindKey struct {
 
 // binding is one connection made ready to call.
 type binding struct {
-	index          int
-	source, target *ObjectDoc
-	event, handler memberRef
-	fn             HandlerFunc
-	args           map[string]any
-	once, done     bool
+	index                      int
+	source, target             *ObjectDoc
+	sourceEntity, targetEntity entities.Entity
+	event, handler             memberRef
+	fn                         HandlerFunc
+	args                       map[string]any
+	once, done                 bool
 }
 
 // Connect checks doc's components and connections against reg and returns the Signals that run them; ctx is passed to every handler as Call.Context. doc must be valid, must not instance or inherit other scene files (pass it through Resolve first, or use BuiltScene.Doc), and every connected handler must have a Func. Calls point into doc, so handlers see and may change its objects. The Signals is a snapshot of doc's objects as Connect finds them: after adding or removing objects in doc, which may also move the others in memory, call Connect again, since the old Signals would hand handlers stale objects and refuse events of the new ones.
@@ -198,6 +222,54 @@ func Connect(doc *SceneDoc, reg *ComponentRegistry, ctx any) (*Signals, error) {
 	return s, nil
 }
 
+// ConnectEntities checks doc's components and connections against reg and binds them to the live entities spawned for doc in w (as SpawnEntities returns). ctx is passed to every handler as Call.Context, w as Call.World, and each handler receives SourceEntity and TargetEntity alongside Source and Target. Every object in doc must map to a distinct live entity in w. When an entity is later despawned from w, Emit, Enqueue, EmitEntity, EnqueueEntity and Flush cleanly skip connections whose source or target entity is no longer alive.
+func ConnectEntities(doc *SceneDoc, reg *ComponentRegistry, w *entities.World, spawned map[string]entities.Entity, ctx any) (*Signals, error) {
+	if w == nil {
+		return nil, errors.New("sceneformat: nil entity world")
+	}
+	if w.Disposed() {
+		return nil, fmt.Errorf("sceneformat: connect entities: %w", entities.ErrWorldDisposed)
+	}
+	s, err := Connect(doc, reg, ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.bindWorld(w, spawned); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// bindWorld binds every scene object of s to its live entity in w.
+func (s *Signals) bindWorld(w *entities.World, spawned map[string]entities.Entity) error {
+	ents := make(map[string]entities.Entity, len(s.names))
+	byEnt := make(map[entities.Entity]string, len(s.names))
+	for _, id := range slices.Sorted(maps.Keys(s.names)) {
+		e, ok := spawned[id]
+		if !ok || e.IsZero() {
+			return fmt.Errorf("sceneformat: connect entities: missing entity for object %q", id)
+		}
+		if !w.Alive(e) {
+			return fmt.Errorf("sceneformat: connect entities: entity %s for object %q is not alive", e, id)
+		}
+		if prev, dup := byEnt[e]; dup {
+			return fmt.Errorf("sceneformat: connect entities: objects %q and %q share entity %s", prev, id, e)
+		}
+		ents[id] = e
+		byEnt[e] = id
+	}
+	s.world = w
+	s.entities = ents
+	s.byEntity = byEnt
+	for _, bs := range s.bindings {
+		for _, b := range bs {
+			b.sourceEntity = ents[b.source.ID]
+			b.targetEntity = ents[b.target.ID]
+		}
+	}
+	return nil
+}
+
 // eventNames returns the events o's registered components declare, keyed as Signals.names keeps them.
 func eventNames(o *ObjectDoc, reg *ComponentRegistry) map[string]memberRef {
 	var out map[string]memberRef
@@ -222,31 +294,35 @@ func eventNames(o *ObjectDoc, reg *ComponentRegistry) map[string]memberRef {
 	return out
 }
 
-// Emit fires the event named event of the object with ID from, passing payload, and calls the handler of every connection from that event, in the order the scene lists them. event is a bare name, such as "pressed", or "button.pressed" to say which component when several of the object's components declare it. A once connection runs the first time only. An event no connection names does nothing.
-//
-// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, and when handlers that emit events have nested more than MaxEmitDepth levels.
-func (s *Signals) Emit(from, event string, payload any) error {
+// resolveEvent validates from and event for op ("emit" or "enqueue") and returns the resolved event memberRef.
+func (s *Signals) resolveEvent(op, from, event string) (memberRef, error) {
 	if s == nil {
-		return errors.New("sceneformat: emit on nil Signals")
+		return memberRef{}, fmt.Errorf("sceneformat: %s on nil Signals", op)
 	}
 	names, ok := s.names[from]
 	if !ok {
-		return fmt.Errorf("sceneformat: emit %q: the scene has no object %q", event, from)
+		return memberRef{}, fmt.Errorf("sceneformat: %s %q: the scene has no object %q", op, event, from)
 	}
 	m, ok := names[event]
 	if !ok {
-		return fmt.Errorf("sceneformat: emit %q: no registered component of object %q declares the event", event, from)
+		return memberRef{}, fmt.Errorf("sceneformat: %s %q: no registered component of object %q declares the event", op, event, from)
 	}
 	if m.component == "" {
-		return fmt.Errorf("sceneformat: emit %q: several components of object %q declare the event; name it as component.%s", event, from, event)
+		return memberRef{}, fmt.Errorf("sceneformat: %s %q: several components of object %q declare the event; name it as component.%s", op, event, from, event)
 	}
-	if s.depth >= MaxEmitDepth {
-		return fmt.Errorf("sceneformat: emit %q of object %q: handlers emitting events nest deeper than %d levels", event, from, MaxEmitDepth)
+	return m, nil
+}
+
+// dispatch calls every active binding for (from, ev) in document order, skipping despawned entities when bound to a world.
+func (s *Signals) dispatch(from string, ev memberRef, payload any) {
+	if s.world != nil && !s.world.Alive(s.entities[from]) {
+		return
 	}
-	s.depth++
-	defer func() { s.depth-- }()
-	for _, b := range s.bindings[bindKey{from, m.key()}] {
+	for _, b := range s.bindings[bindKey{from, ev.key()}] {
 		if b.done {
+			continue
+		}
+		if s.world != nil && !s.world.Alive(b.targetEntity) {
 			continue
 		}
 		if b.once {
@@ -255,17 +331,127 @@ func (s *Signals) Emit(from, event string, payload any) error {
 		b.fn(Call{
 			Signals:         s,
 			Context:         s.ctx,
+			World:           s.world,
 			Source:          b.source,
+			SourceEntity:    b.sourceEntity,
 			SourceComponent: b.event.component,
 			Event:           b.event.name,
 			Target:          b.target,
+			TargetEntity:    b.targetEntity,
 			Component:       b.handler.component,
 			Handler:         b.handler.name,
 			Args:            maps.Clone(b.args),
 			Payload:         payload,
 		})
 	}
+}
+
+// Emit fires the event named event of the object with ID from, passing payload, and calls the handler of every connection from that event, in the order the scene lists them. event is a bare name, such as "pressed", or "button.pressed" to say which component when several of the object's components declare it. A once connection runs the first time only. An event no connection names does nothing. When Signals is bound to an entity world, despawned source or target entities are skipped cleanly.
+//
+// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, and when handlers that emit events have nested more than MaxEmitDepth levels.
+func (s *Signals) Emit(from, event string, payload any) error {
+	m, err := s.resolveEvent("emit", from, event)
+	if err != nil {
+		return err
+	}
+	if s.depth >= MaxEmitDepth {
+		return fmt.Errorf("sceneformat: emit %q of object %q: handlers emitting events nest deeper than %d levels", event, from, MaxEmitDepth)
+	}
+	s.depth++
+	defer func() { s.depth-- }()
+	s.dispatch(from, m, payload)
 	return nil
+}
+
+// Enqueue validates from and event and appends the event to s's deferred queue, to be dispatched in FIFO order on the next Flush. Use Enqueue and Flush to drain events once per game.Loop step without handlers re-entering mid-step: a handler that calls Enqueue appends to the queue and returns before the enqueued event runs. When Signals is bound to an entity world and from's entity has been despawned, Enqueue skips queueing cleanly and returns nil.
+//
+// Enqueue returns an error, and queues nothing, when s is nil, the scene has no object from, or no registered component of from unambiguously declares event.
+func (s *Signals) Enqueue(from, event string, payload any) error {
+	m, err := s.resolveEvent("enqueue", from, event)
+	if err != nil {
+		return err
+	}
+	if s.world != nil && !s.world.Alive(s.entities[from]) {
+		return nil
+	}
+	s.queue = append(s.queue, queuedEvent{from: from, event: m, payload: payload})
+	return nil
+}
+
+// Queued returns the number of events currently waiting for Flush.
+func (s *Signals) Queued() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.queue)
+}
+
+// Flush dispatches every queued event in strict FIFO enqueue order and drains any follow-up events enqueued by handlers wave by wave, without recursion: each handler returns before any event it enqueued runs. Events whose source or target entity has been despawned before dispatch are skipped cleanly.
+//
+// Flush returns an error when s is nil, when called re-entrantly from a handler running inside Flush, or when handlers keep enqueuing events past MaxFlushWaves waves (in which case the remaining queue is discarded).
+func (s *Signals) Flush() error {
+	if s == nil {
+		return errors.New("sceneformat: flush on nil Signals")
+	}
+	if s.flushing {
+		return errors.New("sceneformat: Flush cannot be called while another Flush is running")
+	}
+	if len(s.queue) == 0 {
+		return nil
+	}
+	s.flushing = true
+	defer func() { s.flushing = false }()
+	for wave := 0; len(s.queue) > 0; wave++ {
+		if wave >= MaxFlushWaves {
+			s.queue = nil
+			return fmt.Errorf("sceneformat: flush: handlers enqueuing events exceeded %d waves", MaxFlushWaves)
+		}
+		batch := s.queue
+		s.queue = nil
+		for _, q := range batch {
+			s.dispatch(q.from, q.event, q.payload)
+		}
+	}
+	return nil
+}
+
+// Entity returns the entity bound to the scene object with ID id, or entities.Zero and false when s is nil, not bound to an entity world, or has no object id.
+func (s *Signals) Entity(id string) (entities.Entity, bool) {
+	if s == nil || s.entities == nil {
+		return entities.Zero, false
+	}
+	e, ok := s.entities[id]
+	return e, ok
+}
+
+// EmitEntity fires the event named event of the scene object bound to entity from, passing payload. It returns an error when s is nil, not bound to an entity world, from is not bound in this scene, event is not unambiguously declared by a registered component of from's object, or nested Emit calls exceed MaxEmitDepth. When from was bound in this scene and has since been despawned from the world, EmitEntity skips dispatch cleanly and returns nil.
+func (s *Signals) EmitEntity(from entities.Entity, event string, payload any) error {
+	if s == nil {
+		return errors.New("sceneformat: emit on nil Signals")
+	}
+	if s.world == nil {
+		return errors.New("sceneformat: Signals is not bound to an entity world")
+	}
+	id, ok := s.byEntity[from]
+	if !ok {
+		return fmt.Errorf("sceneformat: emit %q: entity %s is not bound in this scene", event, from)
+	}
+	return s.Emit(id, event, payload)
+}
+
+// EnqueueEntity validates and queues event of the scene object bound to entity from, to be dispatched in FIFO order on the next Flush. It returns an error when s is nil, not bound to an entity world, from is not bound in this scene, or event is not unambiguously declared by a registered component of from's object. When from was bound in this scene and has since been despawned from the world, EnqueueEntity skips queueing cleanly and returns nil.
+func (s *Signals) EnqueueEntity(from entities.Entity, event string, payload any) error {
+	if s == nil {
+		return errors.New("sceneformat: enqueue on nil Signals")
+	}
+	if s.world == nil {
+		return errors.New("sceneformat: Signals is not bound to an entity world")
+	}
+	id, ok := s.byEntity[from]
+	if !ok {
+		return fmt.Errorf("sceneformat: enqueue %q: entity %s is not bound in this scene", event, from)
+	}
+	return s.Enqueue(id, event, payload)
 }
 
 // bindConnections checks the connections of doc, a valid scene that refers to no other scene file, against reg and returns them ready to call, in document order.

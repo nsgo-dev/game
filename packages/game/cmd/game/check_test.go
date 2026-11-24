@@ -93,3 +93,39 @@ func TestCheckErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckFailsOnBrokenCrossFileConnection(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"nsgo.yaml": "name: Test\n",
+		"scenes/doorway.scene.yaml": `version: 2
+layers:
+  - name: props
+    objects:
+      - id: button
+        components: {button: {}}
+      - id: door
+        components: {door: {}}
+`,
+		"scenes/level.scene.yaml": `version: 2
+layers:
+  - name: props
+    objects:
+      - id: east
+        scene: scenes/doorway.scene.yaml
+connections:
+  - from: east/button
+    event: pressed
+    to: east/gate
+    handler: open
+`,
+	})
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stdout: %s, stderr: %s)", code, stdout, stderr)
+	}
+	wantPrefix := filepath.Join(dir, "scenes", "level.scene.yaml") + ":10:9: "
+	if !strings.Contains(stderr.String(), wantPrefix) || !strings.Contains(stderr.String(), `to "east/gate" names no object of the scene`) {
+		t.Fatalf("stderr = %q, want %q and missing object message", stderr, wantPrefix)
+	}
+}

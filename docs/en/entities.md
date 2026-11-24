@@ -127,6 +127,7 @@ _ = wt
 - `SetParent(child, parent, keepWorld)` and `Detach(child, keepWorld)` keep the child's local transform, or with `keepWorld` recompute it so the child stays where it is on screen. A keep-world reparent whose exact relative transform needs shear (a rotated child under a non-uniformly scaled parent) returns `ErrNotDecomposable` and changes nothing; cycles return `ErrCycle` and dead entities `ErrDeadEntity`.
 - Destroying a parent applies the hierarchy's `RemovePolicy` (`SetRemovePolicy`): `RemoveDetach` (default) detaches the children keeping their local transforms, `RemoveDetachKeepWorld` detaches them keeping their world transforms, and `RemoveCascade` destroys the whole subtree. `DestroyWithPolicy(e, policy)` overrides it for one call.
 - Snapshots only include registered components: call `RegisterCodec[entities.Transform2D](w, "transform2d")` to save local transforms. `WorldTransform2D` is derived, so it does not need a codec; the hierarchy reseeds from the restored local transforms.
+- Scene files with `connections:` can be spawned and wired in one atomic step with `sceneformat.SpawnEntitiesWithSignals(doc, reg, world, ctx)` (or wired after `sceneformat.SpawnEntities` with `sceneformat.ConnectEntities`), letting `Signals.EmitEntity`, `Signals.EnqueueEntity` and `Signals.Flush` dispatch connections between live entities while cleanly skipping despawned ones; see [Connections](editor.md#connections-490).
 
 ## Saving and loading a world
 

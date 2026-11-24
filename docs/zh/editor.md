@@ -389,7 +389,9 @@ signals, err := sceneformat.Connect(doc, reg, game)
 err = signals.Emit(objectID, "pressed", nil)
 ```
 
-`Connect(doc, reg, ctx)` 检查场景的组件和连接，返回一个 `*Signals`。`Signals.Emit(from, event, payload)` 按文件中列出的顺序调用该事件每条连接的处理函数，已经运行过的 `once` 连接会跳过。每个处理函数收到一个 `Call`：`Signals` 本身（处理函数可以继续发出事件，最多嵌套 `MaxEmitDepth` 层）、传给 `Connect` 的 `ctx`（如游戏状态或 `*BuiltScene`）、场景中源对象与目标对象的 `*ObjectDoc`、事件与处理函数所属的组件和名称、包含全部参数的 `Args`（连接给的值或默认值），以及 `payload`。场景中没有的对象、其已注册组件都没有声明的事件，以及有两个组件都声明了的裸名称（应写成 `component.event`），`Emit` 都会拒绝。`Signals` 是 `Connect` 时场景对象的快照：在 `doc` 中添加或删除对象后（这可能使其他对象在内存中移动），要重新调用 `Connect`。实例化或继承了其他场景文件的场景要在 `Resolve` 之后连接（或使用 `BuiltScene.Doc`）；`Signals` 不能并发使用。
+`Connect(doc, reg, ctx)` 检查场景的组件和连接，返回一个 `*Signals`。`Signals.Emit(from, event, payload)` 按文件中列出的顺序调用该事件每条连接的处理函数，已经运行过的 `once` 连接会跳过。每个处理函数收到一个 `Call`：`Signals` 本身（处理函数可以继续发出或入队事件）、传给 `Connect` 的 `ctx`（如游戏状态或 `*BuiltScene`）、`World` 与 `SourceEntity`/`TargetEntity`（绑定到 `entities.World` 时）、场景中源对象与目标对象的 `*ObjectDoc`、事件与处理函数所属的组件和名称、包含全部参数的 `Args`（连接给的值或默认值），以及 `payload`。同步 `Emit` 最多嵌套 `MaxEmitDepth` 层。为了在步进中避免重入、按步延迟派发，可用 `Signals.Enqueue(from, event, payload)` 校验并入队事件，再在每个 `game.Loop` 步进结束后调用 `Signals.Flush()` 按入队先进先出顺序排空队列（`Signals.Queued()` 返回待派发数量）：处理函数里调用 `Enqueue` 只会把事件追加到队列并在当前处理函数返回后的下一波中执行，不会递归，最多连续排空 `MaxFlushWaves` 波（超出则丢弃剩余队列并报错，防止互相入队死循环），且拒绝在处理函数内重入调用 `Flush()`。场景中没有的对象、其已注册组件都没有声明的事件，以及有两个组件都声明了的裸名称（应写成 `component.event`），`Emit` 和 `Enqueue` 都会拒绝。`Signals` 是 `Connect` 时场景对象的快照：在 `doc` 中添加或删除对象后（这可能使其他对象在内存中移动），要重新调用 `Connect`。实例化或继承了其他场景文件的场景要在 `Resolve` 之后连接（或使用 `BuiltScene.Doc`）；`Signals` 不能并发使用。
+
+要把场景的连接绑定到生成的 ECS 实体，可调用 `SpawnEntitiesWithSignals(doc, reg, world, ctx)`（或先 `SpawnEntities` 再调用 `ConnectEntities(doc, reg, world, spawned, ctx)`）。`SpawnEntitiesWithSignals` 会在生成任何实体之前校验文档、组件、连接和处理函数的 `Func`，绑定失败时不会改动 `world`。绑定了实体的 `Signals` 提供 `Entity(id)`、`EmitEntity(entity, event, payload)` 和 `EnqueueEntity(entity, event, payload)`，在 `Call` 中填入 `World`、`SourceEntity` 和 `TargetEntity`，并会干净地跳过已被销毁的源实体或目标实体（包括在 `EnqueueEntity` 与 `Flush` 之间被销毁，或同一次派发中被前面的处理函数销毁的实体）。
 
 `Parse` 检查连接的形式：四个名称都已填写，`event` 和 `handler` 写成名称或 `component.name`，参数是布尔、有限数字或字符串，没有重复的连接；场景不引用其他场景文件时，`from` 和 `to` 还必须是场景里的对象。提供注册表时，`ParseWith` 还会按注册表检查这些名称，并以带文件、行号和列号的 `*ConnectionError` 报告：对象的已注册组件都没有声明的事件或处理函数、被对象的两个组件同时声明的裸名称、处理函数没有对应参数的实参，以及类型不对或超出范围的实参。错误会列出该对象实际声明了什么：
 
@@ -397,7 +399,7 @@ err = signals.Emit(objectID, "pressed", nil)
 scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "door" opne): no registered component of object "door" declares handler "opne" (it has: door.open)
 ```
 
-`ValidateConnections` 对已解析的文档做同样的检查，但不带位置。`Register` 拒绝名称为空、含有点号或与该类型已有名称重复的事件和处理函数，处理函数参数的检查规则与字段相同；只用于检查文件的注册表（如编辑器的）可以不设 `Func`，但 `Connect` 会拒绝它。
+`ValidateConnections` 对已解析的文档做同样的检查（不带位置）；`game check`（`assetcheck.Check` 以及传入 `Options.Components` 的 `assetcheck.CheckWith`）会解析每个场景继承的基础场景和实例化的场景，让损坏的跨文件连接在运行前就带着文件、行号和列号报错。`Register` 拒绝名称为空、含有点号或与该类型已有名称重复的事件和处理函数，处理函数参数的检查规则与字段相同；只用于检查文件的注册表（如编辑器的）可以不设 `Func`，但 `Connect` 会拒绝它。
 
 `Resolve` 会带上连接：实例化场景的连接随实例一起进来，其中的对象名与对象 ID 一样加上前缀（`door_1/button`），因此预制件的每个副本都保留自己的连线；继承的场景保留基础场景的连接，并把自己的连接加在后面。场景可以连接它所实例化或继承的场景中的对象，这些名称在解析之后才检查。在编辑器中，`DeleteObject` 会同时删除来自或指向被删对象及其后代的连接，撤销删除时把它们放回原处。
 

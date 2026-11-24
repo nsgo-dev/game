@@ -14,6 +14,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -291,6 +292,9 @@ func TestBrokenReferencesNameFileAndLine(t *testing.T) {
 func TestProblemString(t *testing.T) {
 	if got := (assetcheck.Problem{File: "a/b.tmj", Line: 3, Message: "bad"}).String(); got != "a/b.tmj:3: bad" {
 		t.Fatalf("String() = %q", got)
+	}
+	if got := (assetcheck.Problem{File: "a/b.scene.yaml", Line: 3, Column: 9, Message: "bad"}).String(); got != "a/b.scene.yaml:3:9: bad" {
+		t.Fatalf("String() with column = %q", got)
 	}
 	if got := (assetcheck.Problem{File: "a/b.tmj", Message: "bad"}).String(); got != "a/b.tmj: bad" {
 		t.Fatalf("String() without a line = %q", got)
@@ -669,4 +673,321 @@ files:
 			}
 		})
 	}
+}
+
+func testConnectionRegistry(t testing.TB) *sceneformat.ComponentRegistry {
+	t.Helper()
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "button",
+		Events: []sceneformat.Event{{Name: "pressed"}, {Name: "released"}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "lever",
+		Events: []sceneformat.Event{{Name: "pressed"}},
+	})
+	reg.MustRegister(sceneformat.ComponentType{
+		Name:   "door",
+		Fields: []sceneformat.Field{{Name: "open", Kind: sceneformat.FieldBool}},
+		Events: []sceneformat.Event{{Name: "opened"}},
+		Handlers: []sceneformat.Handler{
+			{Name: "open", Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}}},
+			{Name: "close"},
+		},
+	})
+	return reg
+}
+
+func TestCheckResolvedSceneConnections(t *testing.T) {
+	const doorway = `version: 2
+layers:
+  - name: props
+    objects:
+      - id: button
+        components:
+          button: {}
+      - id: door
+        components:
+          door: {}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+`
+	const baseScene = `version: 2
+layers:
+  - name: props
+    objects:
+      - id: west
+        scene: scenes/doorway.scene.yaml
+      - id: alarm
+        components:
+          button: {}
+connections:
+  - from: alarm
+    event: pressed
+    to: west/door
+    handler: close
+`
+	const levelScene = `version: 2
+inherits: scenes/base.scene.yaml
+layers:
+  - name: props
+    objects:
+      - id: east
+        scene: scenes/doorway.scene.yaml
+connections:
+  - from: alarm
+    event: pressed
+    to: east/door
+    handler: open
+    args:
+      speed: 2.5
+`
+	makeFS := func() fstest.MapFS {
+		return fstest.MapFS{
+			"nsgo.yaml":                 {Data: []byte("name: Test\n")},
+			"scenes/doorway.scene.yaml": {Data: []byte(doorway)},
+			"scenes/base.scene.yaml":    {Data: []byte(baseScene)},
+			"scenes/level.scene.yaml":   {Data: []byte(levelScene)},
+		}
+	}
+
+	reg := testConnectionRegistry(t)
+	if r := mustCheck(t, makeFS()); !r.OK() {
+		t.Fatalf("clean cross-file connections without registry:\n%s", problems(r))
+	}
+	if r, err := assetcheck.CheckWith(makeFS(), assetcheck.Options{Components: reg}); err != nil || !r.OK() {
+		t.Fatalf("clean cross-file connections with registry: err=%v\n%s", err, problems(r))
+	}
+
+	// Without a component registry, assetcheck still catches missing from/to objects across instanced and inherited scenes, missing components on qualified names, and duplicate inherited connections, with exact file, line and column.
+	noRegCases := []struct {
+		name      string
+		file      string
+		old, new  string
+		wantFile  string
+		wantLine  int
+		wantCol   int
+		wantInMsg string
+	}{
+		{
+			name:      "missing instanced target object",
+			file:      "scenes/level.scene.yaml",
+			old:       "to: east/door",
+			new:       "to: east/gate",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  11,
+			wantCol:   9,
+			wantInMsg: `to "east/gate" names no object of the scene`,
+		},
+		{
+			name:      "missing inherited source object",
+			file:      "scenes/level.scene.yaml",
+			old:       "from: alarm",
+			new:       "from: ghost",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  9,
+			wantCol:   11,
+			wantInMsg: `from "ghost" names no object of the scene`,
+		},
+		{
+			name:      "missing self-contained object reports line and column",
+			file:      "scenes/doorway.scene.yaml",
+			old:       "to: door",
+			new:       "to: missing",
+			wantFile:  "scenes/doorway.scene.yaml",
+			wantLine:  14,
+			wantCol:   9,
+			wantInMsg: `to "missing" names no object of the scene`,
+		},
+		{
+			name:      "qualified event naming absent component on inherited object",
+			file:      "scenes/level.scene.yaml",
+			old:       "event: pressed",
+			new:       "event: door.opened",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  10,
+			wantCol:   12,
+			wantInMsg: `object "alarm" has no component "door"`,
+		},
+		{
+			name:      "duplicate of inherited connection",
+			file:      "scenes/level.scene.yaml",
+			old:       "to: east/door\n    handler: open",
+			new:       "to: west/door\n    handler: close",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  9,
+			wantCol:   5,
+			wantInMsg: "repeats an inherited or instanced connection",
+		},
+	}
+	for _, tc := range noRegCases {
+		t.Run("no-reg/"+tc.name, func(t *testing.T) {
+			fsys := makeFS()
+			fsys[tc.file].Data = []byte(strings.Replace(string(fsys[tc.file].Data), tc.old, tc.new, 1))
+			r := mustCheck(t, fsys)
+			if len(r.Problems) != 1 {
+				t.Fatalf("got %d problems, want 1:\n%s", len(r.Problems), problems(r))
+			}
+			p := r.Problems[0]
+			if p.File != tc.wantFile || p.Line != tc.wantLine || p.Column != tc.wantCol || !strings.Contains(p.Message, tc.wantInMsg) {
+				t.Fatalf("problem = %q (%s:%d:%d), want %s:%d:%d containing %q", p, p.File, p.Line, p.Column, tc.wantFile, tc.wantLine, tc.wantCol, tc.wantInMsg)
+			}
+		})
+	}
+
+	// With Options.Components, assetcheck also checks events, handlers, arguments and components across instanced and inherited scenes, with exact file, line and column.
+	regCases := []struct {
+		name      string
+		file      string
+		old, new  string
+		wantFile  string
+		wantLine  int
+		wantCol   int
+		wantInMsg string
+	}{
+		{
+			name:      "missing event on inherited object",
+			file:      "scenes/level.scene.yaml",
+			old:       "event: pressed",
+			new:       "event: pulled",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  10,
+			wantCol:   12,
+			wantInMsg: `declares event "pulled"`,
+		},
+		{
+			name:      "missing handler on instanced object",
+			file:      "scenes/level.scene.yaml",
+			old:       "handler: open",
+			new:       "handler: shut",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  12,
+			wantCol:   14,
+			wantInMsg: `declares handler "shut" (it has: door.open, door.close)`,
+		},
+		{
+			name:      "out of range argument on instanced handler",
+			file:      "scenes/level.scene.yaml",
+			old:       "speed: 2.5",
+			new:       "speed: -1",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  14,
+			wantCol:   14,
+			wantInMsg: "below the minimum",
+		},
+		{
+			name:      "canonical duplicate of inherited connection",
+			file:      "scenes/level.scene.yaml",
+			old:       "event: pressed\n    to: east/door\n    handler: open\n    args:\n      speed: 2.5",
+			new:       "event: button.pressed\n    to: west/door\n    handler: door.close",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  12,
+			wantCol:   14,
+			wantInMsg: "connects the same event and handler as an inherited or instanced connection",
+		},
+		{
+			name:      "invalid component field in override",
+			file:      "scenes/level.scene.yaml",
+			old:       "connections:",
+			new:       "overrides:\n  west/door:\n    components:\n      door:\n        open: maybe\nconnections:",
+			wantFile:  "scenes/level.scene.yaml",
+			wantLine:  12,
+			wantCol:   15,
+			wantInMsg: "want bool",
+		},
+	}
+	for _, tc := range regCases {
+		t.Run("reg/"+tc.name, func(t *testing.T) {
+			fsys := makeFS()
+			fsys[tc.file].Data = []byte(strings.Replace(string(fsys[tc.file].Data), tc.old, tc.new, 1))
+			r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: reg})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(r.Problems) != 1 {
+				t.Fatalf("got %d problems, want 1:\n%s", len(r.Problems), problems(r))
+			}
+			p := r.Problems[0]
+			if p.File != tc.wantFile || p.Line != tc.wantLine || p.Column != tc.wantCol || !strings.Contains(p.Message, tc.wantInMsg) {
+				t.Fatalf("problem = %q (%s:%d:%d), want %s:%d:%d containing %q", p, p.File, p.Line, p.Column, tc.wantFile, tc.wantLine, tc.wantCol, tc.wantInMsg)
+			}
+		})
+	}
+
+	// A referenced scene not named *.scene.yaml still has its own broken connection reported at its own file, line and column.
+	t.Run("referenced non-.scene.yaml reports its own file and line", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"nsgo.yaml": {Data: []byte("name: Test\n")},
+			"scenes/prefab.yaml": {Data: []byte(`version: 2
+layers:
+  - name: props
+    objects:
+      - {id: button, components: {button: {}}}
+      - {id: door, components: {door: {}}}
+connections:
+  - {from: button, event: pressed, to: door, handler: shut}
+`)},
+			"scenes/level.scene.yaml": {Data: []byte(`version: 2
+layers:
+  - name: props
+    objects:
+      - {id: east, scene: scenes/prefab.yaml}
+connections:
+  - {from: east/button, event: pressed, to: east/door, handler: open}
+`)},
+		}
+		r, err := assetcheck.CheckWith(fsys, assetcheck.Options{Components: reg})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.Problems) != 1 {
+			t.Fatalf("got %d problems, want 1:\n%s", len(r.Problems), problems(r))
+		}
+		p := r.Problems[0]
+		if p.File != "scenes/prefab.yaml" || p.Line != 8 || p.Column != 55 || !strings.Contains(p.Message, `declares handler "shut"`) {
+			t.Fatalf("problem = %q (%s:%d:%d)", p, p.File, p.Line, p.Column)
+		}
+	})
+
+	// Multiple broken connections in one scene are all reported with their exact lines and columns.
+	t.Run("reports all broken connections in one scene", func(t *testing.T) {
+		fsys := makeFS()
+		fsys["scenes/level.scene.yaml"].Data = []byte(`version: 2
+inherits: scenes/base.scene.yaml
+layers:
+  - name: props
+    objects:
+      - id: east
+        scene: scenes/doorway.scene.yaml
+connections:
+  - {from: missing_a, event: pressed, to: east/door, handler: open}
+  - {from: alarm, event: pressed, to: east/missing_b, handler: open}
+`)
+		r := mustCheck(t, fsys)
+		if len(r.Problems) != 2 {
+			t.Fatalf("got %d problems, want 2:\n%s", len(r.Problems), problems(r))
+		}
+		if r.Problems[0].Line != 9 || r.Problems[0].Column != 12 || !strings.Contains(r.Problems[0].Message, `from "missing_a"`) {
+			t.Fatalf("problem[0] = %q", r.Problems[0])
+		}
+		if r.Problems[1].Line != 10 || r.Problems[1].Column != 39 || !strings.Contains(r.Problems[1].Message, `to "east/missing_b"`) {
+			t.Fatalf("problem[1] = %q", r.Problems[1])
+		}
+	})
+
+	// Scene inheritance cycles fail cleanly without hanging.
+	t.Run("scene cycle fails cleanly", func(t *testing.T) {
+		fsys := fstest.MapFS{
+			"nsgo.yaml":           {Data: []byte("name: Test\n")},
+			"scenes/a.scene.yaml": {Data: []byte("version: 2\ninherits: scenes/b.scene.yaml\n")},
+			"scenes/b.scene.yaml": {Data: []byte("version: 2\ninherits: scenes/a.scene.yaml\n")},
+		}
+		r := mustCheck(t, fsys)
+		if r.OK() || !strings.Contains(problems(r), "scene cycle") {
+			t.Fatalf("expected scene cycle error:\n%s", problems(r))
+		}
+	})
 }

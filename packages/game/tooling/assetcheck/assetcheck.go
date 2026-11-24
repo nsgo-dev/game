@@ -1,8 +1,8 @@
-// Package assetcheck checks a game's scene files, Tiled and LDtk maps and sprite atlases, and the references between them, and reports each problem with the file and line that holds it. The game check command runs it, so a broken reference fails in CI instead of when a player reaches the level.
+// Package assetcheck checks a game's scene files, Tiled and LDtk maps and sprite atlases, and the references between them, and reports each problem with the file and line (and column when known) that holds it. The game check command runs it, so a broken reference or connection fails in CI instead of when a player reaches the level.
 //
 // Check walks a directory and reads:
 //
-//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, and whose sprite frames and tile IDs must be in their atlases;
+//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, resolved with the scenes they inherit or instance so cross-file connections (and, with CheckWith and Options.Components, components, events, handlers and arguments) are checked, whose tilemap sources, sprite and tileset atlases and materials must exist and load, and whose sprite frames and tile IDs must be in their atlases;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
@@ -31,6 +31,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
 // Problem is one thing wrong with a file Check read.
@@ -39,23 +40,34 @@ type Problem struct {
 	File string
 	// Line is the 1-based line of the file that holds the problem, or 0 when the problem is about the whole file, such as a loader error that names no place in it.
 	Line int
+	// Column is the 1-based column of the file that holds the problem, or 0 when unknown.
+	Column int
 	// Message says what is wrong.
 	Message string
 }
 
-// String formats p as "file:line: message", or "file: message" when it has no line, as compilers and go vet print theirs.
+// String formats p as "file:line:col: message" when Column is set, "file:line: message" when only Line is set, or "file: message" when it has no line, as compilers and go vet print theirs.
 func (p Problem) String() string {
 	if p.Line > 0 {
+		if p.Column > 0 {
+			return p.File + ":" + strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Column) + ": " + p.Message
+		}
 		return p.File + ":" + strconv.Itoa(p.Line) + ": " + p.Message
 	}
 	return p.File + ": " + p.Message
+}
+
+// Options configures CheckWith.
+type Options struct {
+	// Components, when non-nil, checks every scene's components and resolved connections against the registered component types, events, handlers and arguments.
+	Components *sceneformat.ComponentRegistry
 }
 
 // Report is what Check found.
 type Report struct {
 	// Scenes, Maps, Tilesets and Atlases count the files of each kind that were checked: scene files, Tiled and LDtk maps, Tiled tilesets, and sprite atlases.
 	Scenes, Maps, Tilesets, Atlases int
-	// Problems are the problems found, sorted by file, then line, then message.
+	// Problems are the problems found, sorted by file, then line, then column, then message.
 	Problems []Problem
 }
 
@@ -64,14 +76,23 @@ func (r *Report) OK() bool { return len(r.Problems) == 0 }
 
 // Check walks fsys, such as os.DirFS of a game's directory, checks every scene, map, tileset and atlas in it as the package comment describes, and returns what it found. It returns an error only when fsys's root cannot be read; a file it cannot read or parse is a Problem.
 func Check(fsys fs.FS) (*Report, error) {
+	return CheckWith(fsys, Options{})
+}
+
+// CheckWith is Check configured by opts.
+func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	c := &checker{
-		fsys:      fsys,
-		atlases:   make(map[string]*atlasInfo),
-		checked:   make(map[string]bool),
-		broken:    make(map[string]bool),
-		images:    make(map[string]*imageInfo),
-		materials: make(map[string]bool),
-		roots:     make(map[string]string),
+		fsys:         fsys,
+		opts:         opts,
+		atlases:      make(map[string]*atlasInfo),
+		checked:      make(map[string]bool),
+		broken:       make(map[string]bool),
+		images:       make(map[string]*imageInfo),
+		materials:    make(map[string]bool),
+		roots:        make(map[string]string),
+		parsedScenes: make(map[string]*parsedScene),
+		checkedConns: make(map[string]bool),
+		resolving:    make(map[string]bool),
 	}
 	var scenes, tiledMaps, tilesets, ldtks, jsons []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
@@ -141,6 +162,7 @@ func skipDir(name string) bool {
 // checker holds what one Check has read so far.
 type checker struct {
 	fsys   fs.FS
+	opts   Options
 	report Report
 	// atlasPaths are the atlas files found, in walk order, and atlases describes each.
 	atlasPaths []string
@@ -157,21 +179,32 @@ type checker struct {
 	materials map[string]bool
 	// roots caches the project root of each directory.
 	roots map[string]string
+	// parsedScenes caches every scene file read during Check, including scenes referenced via inherits or scene that are not named *.scene.yaml.
+	parsedScenes map[string]*parsedScene
+	// checkedConns marks the scene files whose components and resolved connections have been checked.
+	checkedConns map[string]bool
+	// resolving tracks the active chain of scenes being resolved so cycles are handed to sceneformat.Resolve cleanly.
+	resolving map[string]bool
 	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.
 	refs *refs.Project
 }
 
 // problem records a problem in file at line (0 for none).
 func (c *checker) problem(file string, line int, format string, args ...any) {
+	c.problemAt(file, line, 0, format, args...)
+}
+
+// problemAt records a problem in file at line and col (0 for unknown).
+func (c *checker) problemAt(file string, line, col int, format string, args ...any) {
 	c.broken[file] = true
-	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Message: fmt.Sprintf(format, args...)})
+	c.report.Problems = append(c.report.Problems, Problem{File: file, Line: line, Column: col, Message: fmt.Sprintf(format, args...)})
 }
 
 // finish sorts the problems, drops repeats and returns the report.
 func (c *checker) finish() *Report {
 	r := &c.report
 	slices.SortFunc(r.Problems, func(a, b Problem) int {
-		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Message, b.Message))
+		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column), cmp.Compare(a.Message, b.Message))
 	})
 	r.Problems = slices.Compact(r.Problems)
 	return r
