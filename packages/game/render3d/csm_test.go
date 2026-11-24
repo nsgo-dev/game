@@ -128,8 +128,9 @@ type csmTestSceneSpec struct {
 	lightDir  math3d.Vec3
 	ground    render3d.Mesh
 	pillars   []csmTestPillar
-	groundMat render3d.CSMLitMaterial
-	pillarMat render3d.CSMLitMaterial
+	rig       render3d.LightRig
+	groundMat render3d.PBRMaterial
+	pillarMat render3d.PBRMaterial
 }
 
 func csmTestLargeScene() csmTestSceneSpec {
@@ -142,8 +143,7 @@ func csmTestLargeScene() csmTestSceneSpec {
 	)
 	cam.LookAt(math3d.Vec3{X: 0, Y: 0.3, Z: -15}, math3d.Vec3Up())
 
-	// Oblique sun shining downward and toward (+X, -Y, -Z) so shadows stretch
-	// cleanly to the right and slightly away from the camera on the ground plane.
+	// Oblique sun shining downward and toward (+X, -Y, -Z) so shadows stretch cleanly to the right and slightly away from the camera on the ground plane.
 	lightDir := math3d.Vec3{X: 0.55, Y: -0.85, Z: -0.20}.Norm()
 
 	pillars := []csmTestPillar{
@@ -160,25 +160,23 @@ func csmTestLargeScene() csmTestSceneSpec {
 	}
 
 	return csmTestSceneSpec{
-		cam:      cam,
-		lightDir: lightDir,
-		ground:   csmTestGroundMesh(-20, 20, -56, 2.0),
-		pillars:  pillars,
-		groundMat: render3d.CSMLitMaterial{
-			Model:        math3d.Mat4Identity(),
-			Albedo:       [3]float32{0.82, 0.82, 0.78},
-			Alpha:        1,
-			Ambient:      [3]float32{0.18, 0.20, 0.24},
-			SunColor:     [3]float32{1.0, 0.96, 0.88},
-			SunIntensity: 1.0,
-		},
-		pillarMat: render3d.CSMLitMaterial{
-			Model:        math3d.Mat4Identity(),
-			Albedo:       [3]float32{0.76, 0.42, 0.28},
-			Alpha:        1,
-			Ambient:      [3]float32{0.18, 0.20, 0.24},
-			SunColor:     [3]float32{1.0, 0.96, 0.88},
-			SunIntensity: 1.0,
+		cam:       cam,
+		lightDir:  lightDir,
+		ground:    csmTestGroundMesh(-20, 20, -56, 2.0),
+		pillars:   pillars,
+		rig:       csmTestRig(lightDir),
+		groundMat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.82, Y: 0.82, Z: 0.78}, Roughness: 0.9},
+		pillarMat: render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.76, Y: 0.42, Z: 0.28}, Roughness: 0.7},
+	}
+}
+
+// csmTestRig returns a LightRig whose first directional light, the one the cascades shadow, shines along lightDir, plus an unshadowed fill light and an ambient term.
+func csmTestRig(lightDir math3d.Vec3) render3d.LightRig {
+	return render3d.LightRig{
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.18, Y: 0.20, Z: 0.24}, Intensity: 1},
+		Directional: []render3d.DirectionalLight{
+			{Direction: lightDir, Color: math3d.Vec3{X: 1.0, Y: 0.96, Z: 0.88}, Intensity: 2.2},
+			{Direction: math3d.Vec3{X: -0.4, Y: -1, Z: 0.6}, Color: math3d.Vec3{X: 0.6, Y: 0.65, Z: 0.75}, Intensity: 0.4},
 		},
 	}
 }
@@ -235,27 +233,93 @@ func csmTestAssertGolden(t *testing.T, name string, got *image.RGBA) {
 	}
 }
 
-func csmTestCreateObjectGroup(t *testing.T, cx *core.Scope, dev *gpu.Device, layout *gpu.BindGroupLayout, mat render3d.CSMLitMaterial, retained bool) *gpu.BindGroup {
+// csmTestLit holds the camera, light and per-draw buffers and the LitPBRCSMWGSL pipeline that draw a scene shadowed by a CascadedShadowMap.
+type csmTestLit struct {
+	camBuf   *render3d.CameraBuffer
+	lightBuf *render3d.GPULightBuffer
+	pipe     *gpu.Pipeline
+	draws    []*render3d.PBRDrawBuffer
+}
+
+func csmTestNewLit(t *testing.T, cx *core.Scope, dev *gpu.Device, csm *render3d.CascadedShadowMap, rig render3d.LightRig, draws []render3d.PBRDrawUniform, retained bool) csmTestLit {
 	t.Helper()
-	var scratch [render3d.CSMObjectUniformSize]byte
-	buf, err := dev.CreateBuffer(cx, gpu.BufferDesc{
-		Label:    "csm-test-obj",
-		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
-		Data:     mat.Encode(scratch[:]),
-		Retained: retained,
-	})
+	var l csmTestLit
+	var err error
+	l.camBuf, err = render3d.NewCameraBuffer(cx, dev)
 	if err != nil {
-		t.Fatalf("CreateBuffer csm obj: %v", err)
+		t.Fatalf("NewCameraBuffer: %v", err)
 	}
-	grp, err := dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
-		Label:   "csm-test-obj",
-		Layout:  layout,
-		Entries: []gpu.BindGroupEntry{{Binding: 0, Buffer: buf, Size: render3d.CSMObjectUniformSize}},
-	})
+	l.lightBuf, err = render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{Label: "csm-lights", Retained: retained})
 	if err != nil {
-		t.Fatalf("CreateBindGroupDesc csm obj: %v", err)
+		t.Fatalf("NewLightBuffer: %v", err)
 	}
-	return grp
+	var layout *gpu.BindGroupLayout
+	for i, u := range draws {
+		db, err := render3d.NewPBRDrawBuffer(cx, dev, layout, u, retained)
+		if err != nil {
+			t.Fatalf("NewPBRDrawBuffer[%d]: %v", i, err)
+		}
+		if layout == nil {
+			layout = db.Layout()
+		}
+		l.draws = append(l.draws, db)
+	}
+	l.pipe, err = render3d.NewLitPBRCSMPipeline(cx, dev, l.camBuf.Layout(), l.lightBuf.Layout(), layout, csm.Layout(), gpu.FormatDepth24Plus)
+	if err != nil {
+		t.Fatalf("NewLitPBRCSMPipeline: %v", err)
+	}
+	if cx == nil {
+		t.Cleanup(func() {
+			_ = l.pipe.Close()
+			for _, d := range l.draws {
+				_ = d.Close()
+			}
+			_ = l.lightBuf.Close()
+			_ = l.camBuf.Close()
+		})
+	}
+	return l
+}
+
+// draw records the main lit pass: meshes[i] is drawn with the i-th per-draw buffer.
+func (l csmTestLit) draw(pass *gpu.RenderPass, csm *render3d.CascadedShadowMap, meshes ...*render3d.GPUMesh) {
+	pass.SetPipeline(l.pipe)
+	pass.SetBindGroup(render3d.CameraGroup, l.camBuf.BindGroup())
+	pass.SetBindGroup(render3d.LightGroup, l.lightBuf.BindGroup())
+	pass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
+	for i, m := range meshes {
+		pass.SetBindGroup(render3d.PBRDrawGroup, l.draws[i].BindGroup())
+		m.Draw(pass)
+	}
+}
+
+// csmTestMainPass begins the main color + depth pass of a test frame.
+func csmTestMainPass(enc render3d.RenderPassStarter, clear core.Color) *gpu.RenderPass {
+	return enc.BeginRenderPass(gpu.RenderPassDesc{
+		Label: "csm-main",
+		ColorAttachments: []gpu.ColorAttachment{{
+			LoadOp:     gpu.LoadClear,
+			StoreOp:    gpu.StoreStore,
+			ClearColor: clear,
+		}},
+		DepthStencil: &gpu.DepthStencilAttachment{
+			DepthLoadOp:  gpu.LoadClear,
+			DepthStoreOp: gpu.StoreDiscard,
+			ClearDepth:   1.0,
+		},
+	})
+}
+
+// csmTestExpected returns the sRGB 8-bit color LitPBRCSMWGSL draws for an up-facing ground point wp at view depth viewDepth, from the CPU references EvaluateCSMShadow, ShadePointShadowed, CSMFrame.DebugTint and LinearToSRGB.
+func csmTestExpected(frame render3d.CSMFrame, atlas render3d.CSMDepthAtlas, cam *scene3d.Camera, rig render3d.LightRig, mat render3d.PBRMaterial, wp math3d.Vec3, viewDepth float32) ([3]int, float32) {
+	vis := render3d.EvaluateCSMShadow(frame, atlas, wp, math3d.Vec3Up(), viewDepth)
+	e := cam.Eye()
+	eye := math3d.Vec3{X: e.X, Y: e.Y, Z: e.Z}
+	lin := render3d.ShadePointShadowed(wp, math3d.Vec3Up(), eye.Sub(wp), mat, rig, vis)
+	tint := frame.DebugTint(viewDepth)
+	lin = math3d.Vec3{X: lin.X * tint.X, Y: lin.Y * tint.Y, Z: lin.Z * tint.Z}
+	c := render3d.LinearToSRGB(lin)
+	return [3]int{int(math.Round(float64(c.X) * 255)), int(math.Round(float64(c.Y) * 255)), int(math.Round(float64(c.Z) * 255))}, vis
 }
 
 func TestCSMSplitsPracticalScheme(t *testing.T) {
@@ -357,8 +421,7 @@ func TestCSMTexelSnappingStability(t *testing.T) {
 	baseView := math3d.LookAt(baseEye, baseEye.Add(math3d.Vec3{Z: -10}), math3d.Vec3Up())
 	baseFrame := render3d.FitCascades(baseView, proj, 0.5, 80.0, lightDir, cfgSnap)
 
-	// 1. Sub-texel camera translations inside a texel cell produce bit-for-bit
-	// identical cascade matrices (zero jitter).
+	// 1. Sub-texel camera translations inside a texel cell produce bit-for-bit identical cascade matrices (zero jitter).
 	for c := range baseFrame.CascadeCount {
 		// Pick an offset smaller than 0.05 texel along the light's axes.
 		tiny := baseFrame.Cascades[c].TexelSize * 0.02
@@ -369,8 +432,7 @@ func TestCSMTexelSnappingStability(t *testing.T) {
 		movedView := math3d.LookAt(movedEye, movedEye.Add(math3d.Vec3{Z: -10}), math3d.Vec3Up())
 		movedFrame := render3d.FitCascades(movedView, proj, 0.5, 80.0, lightDir, cfgSnap)
 
-		// Even if a tiny move happens to straddle a rounding boundary for one axis,
-		// projecting any static world point must shift by an EXACT integer number of texels.
+		// Even if a tiny move happens to straddle a rounding boundary for one axis, projecting any static world point must shift by an EXACT integer number of texels.
 		staticPt := math3d.Vec3{X: 1.5, Y: 0.5, Z: -5.0}
 		p0 := baseFrame.Cascades[c].LightViewProj.TransformPoint(staticPt)
 		p1 := movedFrame.Cascades[c].LightViewProj.TransformPoint(staticPt)
@@ -384,9 +446,7 @@ func TestCSMTexelSnappingStability(t *testing.T) {
 		}
 	}
 
-	// 2. Arbitrary multi-meter camera translations ALWAYS shift every static
-	// world point by an exact integer number of shadow-map texels when TexelSnap=true,
-	// whereas TexelSnap=false produces fractional texel swimming.
+	// 2. Arbitrary multi-meter camera translations ALWAYS shift every static world point by an exact integer number of shadow-map texels when TexelSnap=true, whereas TexelSnap=false produces fractional texel swimming.
 	staticPt := math3d.Vec3{X: 2.0, Y: 0.0, Z: -12.0}
 	offsets := []math3d.Vec3{
 		{X: 0.13, Y: 0.07, Z: -0.29},
@@ -544,7 +604,7 @@ func TestCSMConfigValidationLayoutAndZeroAlloc(t *testing.T) {
 		{"negative normal bias", render3d.CSMConfig{NormalBias: -0.01}, false},
 		{"blend > 0.5", render3d.CSMConfig{CascadeBlendRange: 0.6}, false},
 		{"blend < 0", render3d.CSMConfig{CascadeBlendRange: -0.05}, false},
-		{"unknown filter", render3d.CSMConfig{Filter: render3d.CSMFilterMode(99)}, false},
+		{"unknown filter", render3d.CSMConfig{Filter: render3d.ShadowFilter(99)}, false},
 		{"negative caster padding", render3d.CSMConfig{CasterPadding: -5}, false},
 		{"negative max casters", render3d.CSMConfig{MaxCasters: -1}, false},
 	}
@@ -580,11 +640,11 @@ func TestCSMConfigValidationLayoutAndZeroAlloc(t *testing.T) {
 	if _, err := render3d.NewCascadedShadowMap(nil, nil, render3d.DefaultCSMConfig()); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Fatalf("NewCascadedShadowMap(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewCSMObjectLayout(nil, nil); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("NewCSMObjectLayout(nil dev) = %v, want ErrDeviceLost", err)
+	if _, err := render3d.NewLitPBRCSMPipeline(nil, nil, nil, nil, nil, nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrDeviceLost) {
+		t.Fatalf("NewLitPBRCSMPipeline(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewCSMLitPipeline(nil, nil, render3d.CSMLitPipelineOptions{}); !errors.Is(err, gpu.ErrDeviceLost) {
-		t.Fatalf("NewCSMLitPipeline(nil dev) = %v, want ErrDeviceLost", err)
+	if render3d.CSMGroup != render3d.ShadowGroup {
+		t.Fatalf("CSMGroup = %d, want ShadowGroup %d", render3d.CSMGroup, render3d.ShadowGroup)
 	}
 
 	// Uniform encoding byte layout & 0-alloc verification.
@@ -639,7 +699,7 @@ func TestCSMConfigValidationLayoutAndZeroAlloc(t *testing.T) {
 		t.Errorf("FitCascades + EncodeUniforms allocated %v times, want 0", allocs)
 	}
 
-	// Short slice must panic on EncodeUniforms and CSMLitMaterial.Encode.
+	// A short slice must panic in EncodeUniforms.
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -648,20 +708,59 @@ func TestCSMConfigValidationLayoutAndZeroAlloc(t *testing.T) {
 		}()
 		frame.EncodeUniforms(make([]byte, 0, render3d.CSMUniformSize))
 	}()
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Error("CSMLitMaterial.Encode on short dst did not panic")
-			}
-		}()
-		render3d.CSMLitMaterial{}.Encode(make([]byte, 0, render3d.CSMObjectUniformSize))
-	}()
 
-	// Incompatible cascade count in Update returns ErrInvalidCSM.
+	// The lit PBR pipeline compiles with the CSM layout and refuses a second group-3 layout.
+	if _, err := render3d.NewLitPBRCSMPipeline(nil, dev, csm.Layout(), csm.Layout(), csm.Layout(), nil, gpu.FormatUndefined); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("NewLitPBRCSMPipeline(nil csm layout) = %v, want ErrInvalidDescriptor", err)
+	}
+	if _, err := render3d.NewLitPBRPipelineWithOptions(nil, dev, csm.Layout(), csm.Layout(), csm.Layout(), render3d.LitPBRPipelineOptions{CSMLayout: csm.Layout(), ShadowLayout: csm.Layout()}); !errors.Is(err, gpu.ErrInvalidDescriptor) {
+		t.Errorf("CSMLayout with ShadowLayout = %v, want ErrInvalidDescriptor", err)
+	}
+	for _, src := range []string{render3d.LitPBRCSMWGSL, render3d.CameraWGSL + render3d.CSMWGSLForGroup(1) + `
+@fragment
+fn fs_main(@location(0) world_pos: vec3<f32>) -> @location(0) vec4<f32> {
+	return vec4<f32>(csm_debug_tint(world_pos) * sample_csm_shadow(world_pos, vec3<f32>(0.0, 1.0, 0.0)), 1.0);
+}
+`} {
+		if _, err := gpu.CompileWGSL(src); err != nil {
+			t.Errorf("CompileWGSL: %v", err)
+		}
+	}
+
+	// Update refuses a frame fitted for another atlas: its tiles, viewports, texel size or filter would not match the atlas and sampler.
+	if err := csm.Update(dev, frame); err != nil {
+		t.Fatalf("Update(matching frame) = %v", err)
+	}
 	badFrame := frame
 	badFrame.CascadeCount = 0
 	if err := csm.Update(dev, badFrame); !errors.Is(err, render3d.ErrInvalidCSM) {
 		t.Errorf("Update(0 cascades) = %v, want ErrInvalidCSM", err)
+	}
+	mismatched := map[string]func(*render3d.CSMConfig){
+		"fewer cascades":    func(c *render3d.CSMConfig) { c.CascadeCount = 2 },
+		"larger resolution": func(c *render3d.CSMConfig) { c.Resolution = 128 },
+		"other filter":      func(c *render3d.CSMConfig) { c.Filter = render3d.ShadowFilterHard },
+	}
+	for name, mutate := range mismatched {
+		other := cfg
+		mutate(&other)
+		f := render3d.FitCascades(camView, camProj, 0.5, 60, lightDir, other)
+		if err := csm.Update(dev, f); !errors.Is(err, render3d.ErrInvalidCSM) {
+			t.Errorf("Update(%s) = %v, want ErrInvalidCSM", name, err)
+		}
+		if got := csm.CascadeCount(); got != cfg.CascadeCount {
+			t.Errorf("after Update(%s): CascadeCount() = %d, want %d", name, got, cfg.CascadeCount)
+		}
+		if got := csm.Frame(); got != frame {
+			t.Errorf("Update(%s) replaced the uploaded frame", name)
+		}
+	}
+	for i := range csm.CascadeCount() {
+		pass := csm.BeginCascadePass(dev.BeginEncoder(), i)
+		if pass == nil {
+			t.Fatalf("BeginCascadePass(%d) = nil for i < CascadeCount()", i)
+		}
+		pass.End()
 	}
 	if err := csm.Update(nil, frame); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("Update(nil dev) = %v, want ErrDeviceLost", err)
@@ -684,7 +783,7 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 	cfg.NormalBias = 0.03
 	cfg.CascadeBlendRange = 0.1
 	cfg.TexelSnap = true
-	cfg.Filter = render3d.CSMFilterPCF3x3
+	cfg.Filter = render3d.ShadowFilterPCF3x3
 	cfg.CasterPadding = 25.0
 
 	// Compare near cascade texel density vs single-map equivalent at same resolution.
@@ -709,17 +808,14 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 	for _, p := range profiles {
 		t.Run(p.name, func(t *testing.T) {
 			var (
-				dev         *gpu.Device
-				camBuf      *render3d.CameraBuffer
-				csm         *render3d.CascadedShadowMap
-				litPipe     *gpu.Pipeline
-				groundMesh  *render3d.GPUMesh
-				pillarMesh  *render3d.GPUMesh
-				groundGroup *gpu.BindGroup
-				pillarGroup *gpu.BindGroup
-				activeCfg   = cfg
-				lastFrame   render3d.CSMFrame
-				depthAtlas  render3d.CSMDepthAtlas
+				dev        *gpu.Device
+				lit        csmTestLit
+				csm        *render3d.CascadedShadowMap
+				groundMesh *render3d.GPUMesh
+				pillarMesh *render3d.GPUMesh
+				activeCfg  = cfg
+				lastFrame  render3d.CSMFrame
+				depthAtlas render3d.CSMDepthAtlas
 			)
 
 			opts := append([]nsgotest.Option{nsgotest.Size(csmTestWidth, csmTestHeight), nsgotest.ManualFrames()}, p.opts...)
@@ -731,29 +827,14 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 					OnReady: func(d *gpu.Device) {
 						dev = d
 						var err error
-						camBuf, err = render3d.NewCameraBuffer(cx, dev)
-						if err != nil {
-							t.Fatalf("NewCameraBuffer: %v", err)
-						}
 						csm, err = render3d.NewCascadedShadowMap(cx, dev, cfg)
 						if err != nil {
 							t.Fatalf("NewCascadedShadowMap: %v", err)
 						}
-						objLayout, err := render3d.NewCSMObjectLayout(cx, dev)
-						if err != nil {
-							t.Fatalf("NewCSMObjectLayout: %v", err)
-						}
-						litPipe, err = render3d.NewCSMLitPipeline(cx, dev, render3d.CSMLitPipelineOptions{
-							Label:        "csm-large-scene",
-							CameraLayout: camBuf.Layout(),
-							CSMLayout:    csm.Layout(),
-							ObjectLayout: objLayout,
-							DepthFormat:  gpu.FormatDepth24Plus,
-							CullMode:     gpu.CullBack,
-						})
-						if err != nil {
-							t.Fatalf("NewCSMLitPipeline: %v", err)
-						}
+						lit = csmTestNewLit(t, cx, dev, csm, scene.rig, []render3d.PBRDrawUniform{
+							render3d.NewPBRDrawUniform(math3d.Mat4Identity(), scene.groundMat),
+							render3d.NewPBRDrawUniform(math3d.Mat4Identity(), scene.pillarMat),
+						}, false)
 						groundMesh, err = render3d.UploadMesh(cx, dev, scene.ground, render3d.MeshUpload{Label: "csm-ground"})
 						if err != nil {
 							t.Fatalf("UploadMesh ground: %v", err)
@@ -762,11 +843,9 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 						if err != nil {
 							t.Fatalf("UploadMesh pillars: %v", err)
 						}
-						groundGroup = csmTestCreateObjectGroup(t, cx, dev, objLayout, scene.groundMat, false)
-						pillarGroup = csmTestCreateObjectGroup(t, cx, dev, objLayout, scene.pillarMat, false)
 					},
 					OnFrame: func(frame *gpu.Frame) {
-						lastFrame = render3d.FitCascadesFromCamera(scene.cam, scene.lightDir, activeCfg)
+						lastFrame = render3d.FitCascadesFromCamera(scene.cam, scene.rig.Directional[0].Direction, activeCfg)
 						if err := csm.Update(dev, lastFrame); err != nil {
 							t.Fatalf("csm.Update: %v", err)
 						}
@@ -776,30 +855,9 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 							sp.End()
 						}
 
-						camBuf.WriteCamera(scene.cam)
-						pass := frame.BeginRenderPass(gpu.RenderPassDesc{
-							Label: "csm-main",
-							ColorAttachments: []gpu.ColorAttachment{{
-								LoadOp:     gpu.LoadClear,
-								StoreOp:    gpu.StoreStore,
-								ClearColor: core.RGB(0x5278a8),
-							}},
-							DepthStencil: &gpu.DepthStencilAttachment{
-								DepthLoadOp:  gpu.LoadClear,
-								DepthStoreOp: gpu.StoreDiscard,
-								ClearDepth:   1.0,
-							},
-						})
-						pass.SetPipeline(litPipe)
-						pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-						pass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
-
-						pass.SetBindGroup(render3d.CSMObjectGroup, groundGroup)
-						groundMesh.Draw(pass)
-
-						pass.SetBindGroup(render3d.CSMObjectGroup, pillarGroup)
-						pillarMesh.Draw(pass)
-
+						lit.camBuf.WriteCamera(scene.cam)
+						pass := csmTestMainPass(frame, core.RGB(0x5278a8))
+						lit.draw(pass, csm, groundMesh, pillarMesh)
 						pass.End()
 						frame.Submit()
 					},
@@ -833,9 +891,7 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 				t.Fatal("ReadCSMDepthAtlasAsync callback did not complete")
 			}
 
-			// Sample world points on the ground plane near both a near pillar (cascade 0)
-			// and a far pillar (cascade 3): each pillar casts its shadow along
-			// (+lightDir.X / -lightDir.Y, +lightDir.Z / -lightDir.Y) on Y = 0.
+			// Sample world points on the ground plane near both a near pillar (cascade 0) and a far pillar (cascade 3): each pillar casts its shadow along (+lightDir.X / -lightDir.Y, +lightDir.Z / -lightDir.Y) on Y = 0.
 			dxPerH := scene.lightDir.X / (-scene.lightDir.Y)
 			dzPerH := scene.lightDir.Z / (-scene.lightDir.Y)
 
@@ -895,8 +951,7 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 					t.Fatalf("probe %q at %v is not visible in viewport", pr.name, pr.world)
 				}
 				px, py := int(scr.X), int(scr.Y)
-				// Intersect the exact GPU pixel-center ray with Y = 0 so CPU EvaluateCSM
-				// samples the exact world point rasterized at pixel (px, py).
+				// Intersect the exact GPU pixel-center ray with Y = 0 so CPU EvaluateCSM samples the exact world point rasterized at pixel (px, py).
 				ray := scene.cam.ScreenRay(float32(px)+0.5, float32(py)+0.5, csmTestWidth, csmTestHeight)
 				tHit := -ray.Origin.Y / ray.Dir.Y
 				exactWorld := ray.Origin.Add(ray.Dir.Scale(tHit))
@@ -907,8 +962,8 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 					t.Errorf("probe %q (viewDepth=%.2f): cascade = %d, want %d", pr.name, viewDepth, gotCasc, pr.wantCasc)
 				}
 
-				// Compare CPU reference shadow factor & shaded RGB against GPU pixel.
-				cpuShadow := render3d.EvaluateCSMShadow(lastFrame, depthAtlas, exactWorld, math3d.Vec3Up(), viewDepth)
+				// Compare the CPU reference shadow factor and shaded color with the GPU pixel.
+				want, cpuShadow := csmTestExpected(lastFrame, depthAtlas, scene.cam, scene.rig, scene.groundMat, exactWorld, viewDepth)
 				if pr.wantShadow && cpuShadow > 0.35 {
 					t.Errorf("probe %q: CPU shadow factor = %.3f, want <= 0.35 (in shadow)", pr.name, cpuShadow)
 				}
@@ -916,15 +971,10 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 					t.Errorf("probe %q: CPU shadow factor = %.3f, want >= 0.85 (lit)", pr.name, cpuShadow)
 				}
 
-				cpuRGB := render3d.EvaluateCSM(lastFrame, depthAtlas, exactWorld, math3d.Vec3Up(), viewDepth, scene.groundMat)
 				gpuPix := got.RGBAAt(px, py)
-				wantR := int(math.Round(float64(cpuRGB[0]) * 255))
-				wantG := int(math.Round(float64(cpuRGB[1]) * 255))
-				wantB := int(math.Round(float64(cpuRGB[2]) * 255))
 				const tol = 4
-				if csmTestAbsInt(int(gpuPix.R)-wantR) > tol || csmTestAbsInt(int(gpuPix.G)-wantG) > tol || csmTestAbsInt(int(gpuPix.B)-wantB) > tol {
-					t.Errorf("probe %q at (%d,%d): GPU RGB=(%d,%d,%d), CPU EvaluateCSM=(%d,%d,%d) (shadow=%.2f)",
-						pr.name, px, py, gpuPix.R, gpuPix.G, gpuPix.B, wantR, wantG, wantB, cpuShadow)
+				if csmTestAbsInt(int(gpuPix.R)-want[0]) > tol || csmTestAbsInt(int(gpuPix.G)-want[1]) > tol || csmTestAbsInt(int(gpuPix.B)-want[2]) > tol {
+					t.Errorf("probe %q at (%d,%d): GPU RGB=(%d,%d,%d), CPU reference=%v (shadow=%.2f)", pr.name, px, py, gpuPix.R, gpuPix.G, gpuPix.B, want, cpuShadow)
 				}
 			}
 
@@ -949,164 +999,158 @@ func TestCSMLargeSceneReferenceRender(t *testing.T) {
 				if farC.R <= farC.B+20 || farC.G <= farC.B+20 {
 					t.Errorf("debug cascade 3 pixel %+v expected yellow tint (R,G > B)", farC)
 				}
+				if !lastFrame.Config.DebugCascades {
+					t.Fatal("debug frame was not fitted with DebugCascades")
+				}
+				for _, pr := range []probe{probes[1], probes[5]} {
+					scr, _, _ := scene.cam.WorldToScreen(pr.world, csmTestWidth, csmTestHeight)
+					px, py := int(scr.X), int(scr.Y)
+					ray := scene.cam.ScreenRay(float32(px)+0.5, float32(py)+0.5, csmTestWidth, csmTestHeight)
+					wp := ray.Origin.Add(ray.Dir.Scale(-ray.Origin.Y / ray.Dir.Y))
+					want, _ := csmTestExpected(lastFrame, depthAtlas, scene.cam, scene.rig, scene.groundMat, wp, -camView.TransformPoint(wp).Z)
+					c := dbgImg.RGBAAt(px, py)
+					if csmTestAbsInt(int(c.R)-want[0]) > 4 || csmTestAbsInt(int(c.G)-want[1]) > 4 || csmTestAbsInt(int(c.B)-want[2]) > 4 {
+						t.Errorf("debug probe %q at (%d,%d): GPU RGB=(%d,%d,%d), CPU reference with DebugTint=%v", pr.name, px, py, c.R, c.G, c.B, want)
+					}
+				}
 			}
 		})
 	}
 }
 
-func TestCSMHardVsPCFAndNonIdentityCasterTransform(t *testing.T) {
-	// Render a unit box positioned via non-identity model transform over a ground
-	// plane under both CSMFilterHard and CSMFilterPCF3x3, verifying that:
-	// 1. DrawCaster properly transforms meshes with a non-identity model matrix.
-	// 2. CSMFilterHard produces strictly crisp binary shadows, while CSMFilterPCF3x3
-	//    produces soft intermediate penumbra values along the shadow edge.
-	renderWithFilter := func(filter render3d.CSMFilterMode) (*image.RGBA, render3d.CSMFrame, render3d.CSMDepthAtlas) {
-		sr := gpu.NewSoftwareRenderer(96, 96, gpu.FormatDepth24Plus)
-		t.Cleanup(sr.Close)
-		dev := sr.Device()
+// csmTestSmallScene renders a box placed by a non-identity model matrix over a ground plane into a 2-cascade map, drawing the casters into the cascades in the given order.
+type csmTestSmallScene struct {
+	cam         *scene3d.Camera
+	rig         render3d.LightRig
+	groundMat   render3d.PBRMaterial
+	casterModel math3d.Mat4
+}
 
-		cfg := render3d.DefaultCSMConfig()
-		cfg.CascadeCount = 2
-		cfg.Resolution = 128
-		cfg.MaxShadowDistance = 30
-		cfg.DepthBias = 0.002
-		cfg.NormalBias = 0.01
-		cfg.Filter = filter
-		cfg.CascadeBlendRange = 0
-
-		camBuf, err := render3d.NewCameraBuffer(nil, dev)
-		if err != nil {
-			t.Fatalf("NewCameraBuffer: %v", err)
-		}
-		t.Cleanup(func() { _ = camBuf.Close() })
-
-		csm, err := render3d.NewCascadedShadowMap(nil, dev, cfg)
-		if err != nil {
-			t.Fatalf("NewCascadedShadowMap: %v", err)
-		}
-		t.Cleanup(func() { _ = csm.Close() })
-
-		objLayout, err := render3d.NewCSMObjectLayout(nil, dev)
-		if err != nil {
-			t.Fatalf("NewCSMObjectLayout: %v", err)
-		}
-		t.Cleanup(func() { _ = objLayout.Close() })
-
-		litPipe, err := render3d.NewCSMLitPipeline(nil, dev, render3d.CSMLitPipelineOptions{
-			CameraLayout: camBuf.Layout(),
-			CSMLayout:    csm.Layout(),
-			ObjectLayout: objLayout,
-			DepthFormat:  gpu.FormatDepth24Plus,
-		})
-		if err != nil {
-			t.Fatalf("NewCSMLitPipeline: %v", err)
-		}
-		t.Cleanup(func() { _ = litPipe.Close() })
-
-		groundMesh, err := render3d.UploadMesh(nil, dev, csmTestGroundMesh(-8, 8, -14, 4), render3d.MeshUpload{})
-		if err != nil {
-			t.Fatalf("UploadMesh ground: %v", err)
-		}
-		t.Cleanup(func() { _ = groundMesh.Close() })
-
-		// Unit cube at origin, placed into the scene purely via model transform!
-		unitCube, err := render3d.UploadMesh(nil, dev, csmTestBoxMesh(math3d.Vec3{X: -0.75, Y: 0, Z: -0.75}, math3d.Vec3{X: 0.75, Y: 2.4, Z: 0.75}), render3d.MeshUpload{})
-		if err != nil {
-			t.Fatalf("UploadMesh cube: %v", err)
-		}
-		t.Cleanup(func() { _ = unitCube.Close() })
-
-		casterModel := math3d.Translate(math3d.Vec3{X: -0.8, Y: 0, Z: -4.0})
-		groundMat := render3d.CSMLitMaterial{
-			Model:    math3d.Mat4Identity(),
-			Albedo:   [3]float32{0.85, 0.85, 0.85},
-			Ambient:  [3]float32{0.15, 0.15, 0.15},
-			SunColor: [3]float32{0.85, 0.85, 0.85},
-		}
-		pillarMat := groundMat
-		pillarMat.Model = casterModel
-		pillarMat.Albedo = [3]float32{0.8, 0.3, 0.2}
-
-		groundGroup := csmTestCreateObjectGroup(t, nil, dev, objLayout, groundMat, false)
-		pillarGroup := csmTestCreateObjectGroup(t, nil, dev, objLayout, pillarMat, false)
-
-		cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 6.0, Z: 2.5}, math3d.DegToRad(50), 1, 0.5, 30)
-		cam.LookAt(math3d.Vec3{X: 0, Y: 0, Z: -4.5}, math3d.Vec3Up())
-		lightDir := math3d.Vec3{X: 0.55, Y: -0.85, Z: 0.0}.Norm()
-
-		frame := render3d.FitCascadesFromCamera(cam, lightDir, cfg)
-		if err := csm.Update(dev, frame); err != nil {
-			t.Fatalf("csm.Update: %v", err)
-		}
-
-		enc := dev.BeginEncoder()
-		for i := range csm.CascadeCount() {
-			sp := csm.BeginCascadePass(enc, i)
-			csm.DrawCaster(sp, unitCube, casterModel)
-			sp.End()
-		}
-		camBuf.WriteCamera(cam)
-		mp := enc.BeginRenderPass(gpu.RenderPassDesc{
-			ColorAttachments: []gpu.ColorAttachment{{
-				LoadOp:     gpu.LoadClear,
-				StoreOp:    gpu.StoreStore,
-				ClearColor: core.RGB(0x101820),
-			}},
-			DepthStencil: &gpu.DepthStencilAttachment{
-				DepthLoadOp:  gpu.LoadClear,
-				DepthStoreOp: gpu.StoreDiscard,
-				ClearDepth:   1.0,
-			},
-		})
-		mp.SetPipeline(litPipe)
-		mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-		mp.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
-		mp.SetBindGroup(render3d.CSMObjectGroup, groundGroup)
-		groundMesh.Draw(mp)
-		mp.SetBindGroup(render3d.CSMObjectGroup, pillarGroup)
-		unitCube.Draw(mp)
-		mp.End()
-
-		dev.Submit(enc.Finish())
-		if sr.LastError() != nil {
-			t.Fatalf("SoftwareRenderer: %v", sr.LastError())
-		}
-		atlas, err := render3d.ReadCSMDepthAtlas(dev, csm)
-		if err != nil {
-			t.Fatalf("ReadCSMDepthAtlas: %v", err)
-		}
-		return csmTestCloneRGBA(sr.Image()), frame, atlas
+func newCSMTestSmallScene() csmTestSmallScene {
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 6.0, Z: 2.5}, math3d.DegToRad(50), 1, 0.5, 30)
+	cam.LookAt(math3d.Vec3{X: 0, Y: 0, Z: -4.5}, math3d.Vec3Up())
+	return csmTestSmallScene{
+		cam: cam,
+		// A white sun and gray ambient keep the gray ground neutral, so penumbra pixels are easy to tell from the red caster.
+		rig: render3d.LightRig{
+			Ambient:     render3d.AmbientLight{Color: math3d.Vec3{X: 0.15, Y: 0.15, Z: 0.15}, Intensity: 1},
+			Directional: []render3d.DirectionalLight{{Direction: math3d.Vec3{X: 0.55, Y: -0.85, Z: 0.0}, Color: math3d.Vec3{X: 1, Y: 1, Z: 1}, Intensity: 2.5}},
+		},
+		groundMat:   render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.85, Y: 0.85, Z: 0.85}, Roughness: 1},
+		casterModel: math3d.Translate(math3d.Vec3{X: -0.8, Y: 0, Z: -4.0}),
 	}
+}
 
-	hardImg, _, _ := renderWithFilter(render3d.CSMFilterHard)
-	pcfImg, _, _ := renderWithFilter(render3d.CSMFilterPCF3x3)
+func (sc csmTestSmallScene) render(t *testing.T, filter render3d.ShadowFilter, order []int) (*image.RGBA, render3d.CSMFrame, render3d.CSMDepthAtlas) {
+	t.Helper()
+	sr := gpu.NewSoftwareRenderer(96, 96, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
 
-	// Count neutral-gray ground pixels with intermediate brightness (penumbra)
-	// between shadowed (~33) and fully lit (~185).
-	countPenumbra := func(img *image.RGBA) (shadowed, penumbra, lit int) {
+	cfg := render3d.DefaultCSMConfig()
+	cfg.CascadeCount = 2
+	cfg.Resolution = 128
+	cfg.MaxShadowDistance = 30
+	cfg.DepthBias = 0.002
+	cfg.NormalBias = 0.01
+	cfg.Filter = filter
+	cfg.CascadeBlendRange = 0
+
+	csm, err := render3d.NewCascadedShadowMap(nil, dev, cfg)
+	if err != nil {
+		t.Fatalf("NewCascadedShadowMap: %v", err)
+	}
+	t.Cleanup(func() { _ = csm.Close() })
+	casterMat := render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.8, Y: 0.3, Z: 0.2}, Roughness: 1}
+	lit := csmTestNewLit(t, nil, dev, csm, sc.rig, []render3d.PBRDrawUniform{
+		render3d.NewPBRDrawUniform(math3d.Mat4Identity(), sc.groundMat),
+		render3d.NewPBRDrawUniform(sc.casterModel, casterMat),
+	}, false)
+
+	groundMesh, err := render3d.UploadMesh(nil, dev, csmTestGroundMesh(-8, 8, -14, 4), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadMesh ground: %v", err)
+	}
+	t.Cleanup(func() { _ = groundMesh.Close() })
+	// A box at the origin, placed in the scene only by its model matrix.
+	box, err := render3d.UploadMesh(nil, dev, csmTestBoxMesh(math3d.Vec3{X: -0.75, Y: 0, Z: -0.75}, math3d.Vec3{X: 0.75, Y: 2.4, Z: 0.75}), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadMesh box: %v", err)
+	}
+	t.Cleanup(func() { _ = box.Close() })
+
+	frame := render3d.FitCascadesFromCamera(sc.cam, sc.rig.Directional[0].Direction, cfg)
+	if err := csm.Update(dev, frame); err != nil {
+		t.Fatalf("csm.Update: %v", err)
+	}
+	enc := dev.BeginEncoder()
+	for _, i := range order {
+		sp := csm.BeginCascadePass(enc, i)
+		if !csm.DrawCaster(sp, box, sc.casterModel) {
+			t.Fatalf("DrawCaster into cascade %d returned false", i)
+		}
+		sp.End()
+	}
+	lit.camBuf.WriteCamera(sc.cam)
+	mp := csmTestMainPass(enc, core.RGB(0x101820))
+	lit.draw(mp, csm, groundMesh, box)
+	mp.End()
+	dev.Submit(enc.Finish())
+	if sr.LastError() != nil {
+		t.Fatalf("SoftwareRenderer: %v", sr.LastError())
+	}
+	atlas, err := render3d.ReadCSMDepthAtlas(dev, csm)
+	if err != nil {
+		t.Fatalf("ReadCSMDepthAtlas: %v", err)
+	}
+	return csmTestCloneRGBA(sr.Image()), frame, atlas
+}
+
+func TestCSMHardVsPCFAndNonIdentityCasterTransform(t *testing.T) {
+	// Under ShadowFilterHard every ground pixel is either fully shadowed or fully lit; ShadowFilterPCF3x3 adds a penumbra along the shadow edge. The box is placed only by its model matrix, so a shadow at all shows DrawCaster applied it.
+	sc := newCSMTestSmallScene()
+	camView := sc.cam.ViewMatrix()
+	e := sc.cam.Eye()
+	eye := math3d.Vec3{X: e.X, Y: e.Y, Z: e.Z}
+
+	classify := func(img *image.RGBA, frame render3d.CSMFrame, atlas render3d.CSMDepthAtlas) (shadowed, penumbra, lit, mismatched int) {
 		b := img.Bounds()
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := b.Min.X; x < b.Max.X; x++ {
 				c := img.RGBAAt(x, y)
-				// Ground pixels are neutral gray (R==G==B within 2) and brighter than clear color.
+				// Ground pixels are neutral gray; the caster is red and the clear color is blue-black.
 				if csmTestAbsInt(int(c.R)-int(c.G)) > 2 || csmTestAbsInt(int(c.R)-int(c.B)) > 2 || c.R < 25 {
 					continue
 				}
+				ray := sc.cam.ScreenRay(float32(x)+0.5, float32(y)+0.5, 96, 96)
+				if ray.Dir.Y >= 0 {
+					continue
+				}
+				wp := ray.Origin.Add(ray.Dir.Scale(-ray.Origin.Y / ray.Dir.Y))
+				dark := render3d.LinearToSRGB(render3d.ShadePointShadowed(wp, math3d.Vec3Up(), eye.Sub(wp), sc.groundMat, sc.rig, 0)).X * 255
+				bright := render3d.LinearToSRGB(render3d.ShadePointShadowed(wp, math3d.Vec3Up(), eye.Sub(wp), sc.groundMat, sc.rig, 1)).X * 255
+				f := (float32(c.R) - dark) / (bright - dark)
 				switch {
-				case c.R <= 45:
+				case f < 0.1:
 					shadowed++
-				case c.R >= 165:
+				case f > 0.9:
 					lit++
 				default:
 					penumbra++
 				}
+				want, _ := csmTestExpected(frame, atlas, sc.cam, sc.rig, sc.groundMat, wp, -camView.TransformPoint(wp).Z)
+				if csmTestAbsInt(int(c.R)-want[0]) > 4 {
+					mismatched++
+				}
 			}
 		}
-		return shadowed, penumbra, lit
+		return shadowed, penumbra, lit, mismatched
 	}
 
-	hShad, hPen, hLit := countPenumbra(hardImg)
-	pShad, pPen, pLit := countPenumbra(pcfImg)
+	hardImg, hardFrame, hardAtlas := sc.render(t, render3d.ShadowFilterHard, []int{0, 1})
+	pcfImg, pcfFrame, pcfAtlas := sc.render(t, render3d.ShadowFilterPCF3x3, []int{0, 1})
+	hShad, hPen, hLit, hBad := classify(hardImg, hardFrame, hardAtlas)
+	pShad, pPen, pLit, pBad := classify(pcfImg, pcfFrame, pcfAtlas)
 	if hShad < 50 || hLit < 200 {
 		t.Fatalf("hard shadow render missing shadow/lit ground: shadowed=%d lit=%d", hShad, hLit)
 	}
@@ -1114,10 +1158,126 @@ func TestCSMHardVsPCFAndNonIdentityCasterTransform(t *testing.T) {
 		t.Fatalf("PCF shadow render missing shadow/lit ground: shadowed=%d lit=%d", pShad, pLit)
 	}
 	if hPen != 0 {
-		t.Errorf("CSMFilterHard produced %d penumbra pixels, want 0", hPen)
+		t.Errorf("ShadowFilterHard produced %d penumbra pixels, want 0", hPen)
 	}
 	if pPen < 20 {
-		t.Errorf("CSMFilterPCF3x3 produced only %d penumbra pixels, want >= 20", pPen)
+		t.Errorf("ShadowFilterPCF3x3 produced only %d penumbra pixels, want >= 20", pPen)
+	}
+	// A pixel right on a shadow edge can land on the other side of a depth comparison on the CPU, so allow a handful.
+	if hBad > 4 || pBad > 4 {
+		t.Errorf("ground pixels off the CPU reference by more than 4: hard %d, PCF %d", hBad, pBad)
+	}
+
+	// The first pass after Update clears the atlas whichever cascade it draws, so drawing cascade 1 before cascade 0 gives the same atlas and image.
+	revImg, _, revAtlas := sc.render(t, render3d.ShadowFilterPCF3x3, []int{1, 0})
+	if d := csmTestDiffPixels(pcfImg, revImg); d != 0 {
+		t.Errorf("rendering cascades in reverse order changed %d pixels", d)
+	}
+	for i := range pcfAtlas.Depth {
+		if pcfAtlas.Depth[i] != revAtlas.Depth[i] {
+			t.Fatalf("rendering cascades in reverse order changed atlas texel %d: %v, want %v", i, revAtlas.Depth[i], pcfAtlas.Depth[i])
+		}
+	}
+}
+
+func TestCSMDrawCasterSlots(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	cfg := render3d.DefaultCSMConfig()
+	cfg.Resolution = 32
+	cfg.MaxCasters = 4 // slot 0 is the identity, so three distinct models fit
+	csm, err := render3d.NewCascadedShadowMap(nil, dev, cfg)
+	if err != nil {
+		t.Fatalf("NewCascadedShadowMap: %v", err)
+	}
+	t.Cleanup(func() { _ = csm.Close() })
+	mesh, err := render3d.UploadMesh(nil, dev, csmTestBoxMesh(math3d.Vec3{X: -0.5, Y: 0, Z: -0.5}, math3d.Vec3{X: 0.5, Y: 1, Z: 0.5}), render3d.MeshUpload{})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = mesh.Close() })
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 4, Z: 4}, math3d.DegToRad(60), 1, 0.5, 40)
+	cam.LookAt(math3d.Vec3{}, math3d.Vec3Up())
+	frame := render3d.FitCascadesFromCamera(cam, math3d.Vec3{X: 0.3, Y: -1, Z: -0.2}, csm.Config())
+
+	models := []math3d.Mat4{
+		math3d.Translate(math3d.Vec3{X: 1}),
+		math3d.Translate(math3d.Vec3{X: 2}),
+		math3d.Translate(math3d.Vec3{X: 3}),
+	}
+	extra := math3d.Translate(math3d.Vec3{X: 4})
+	for round := range 2 {
+		if err := csm.Update(dev, frame); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		enc := dev.BeginEncoder()
+		// Each of the three models is drawn into all four cascades: twelve draws, three slots.
+		for i := range csm.CascadeCount() {
+			pass := csm.BeginCascadePass(enc, i)
+			for _, m := range models {
+				if !csm.DrawCaster(pass, mesh, m) {
+					t.Fatalf("round %d cascade %d: DrawCaster(%v) = false with a slot per model", round, i, m[12])
+				}
+			}
+			if !csm.DrawCaster(pass, mesh, math3d.Mat4Identity()) {
+				t.Fatalf("round %d cascade %d: DrawCaster(identity) = false", round, i)
+			}
+			if csm.DrawCaster(pass, mesh, extra) {
+				t.Fatalf("round %d cascade %d: DrawCaster(fourth model) = true past MaxCasters", round, i)
+			}
+			pass.End()
+		}
+		dev.Submit(enc.Finish())
+		if sr.LastError() != nil {
+			t.Fatalf("SoftwareRenderer: %v", sr.LastError())
+		}
+	}
+	if csm.DrawCaster(nil, mesh, extra) {
+		t.Error("DrawCaster(nil pass) = true")
+	}
+}
+
+func TestCSMOrthographicCamera(t *testing.T) {
+	cfg := render3d.DefaultCSMConfig()
+	cfg.CascadeCount = 2
+	cfg.Resolution = 64
+	lightDir := math3d.Vec3{X: 0.3, Y: -1, Z: -0.2}
+	eye := math3d.Vec3{Y: 10, Z: 10}
+	target := math3d.Vec3{}
+
+	// An orthographic camera whose near plane is behind it: cascades start at 0.1 and still cover the stretch of the view frustum they claim.
+	cam := scene3d.NewOrthographicCamera(eye, 20, 1, -10, 50)
+	cam.LookAt(target, math3d.Vec3Up())
+	frame := render3d.FitCascadesFromCamera(cam, lightDir, cfg)
+	if frame.Splits[0] != 0.1 || frame.Splits[2] != 50 {
+		t.Fatalf("splits = %v, want them to span [0.1, 50]", frame.Splits[:3])
+	}
+	view := cam.ViewMatrix()
+	inv, ok := view.Inverse()
+	if !ok {
+		t.Fatal("camera view matrix is singular")
+	}
+	for i := range frame.CascadeCount {
+		c := frame.Cascades[i]
+		for _, d := range []float32{c.Near, c.Far} {
+			for _, xy := range [][2]float32{{-10, -10}, {10, -10}, {10, 10}, {-10, 10}} {
+				// The view-space corner of the camera's box at depth d, in world space, must project inside the cascade.
+				wp := inv.TransformPoint(math3d.Vec3{X: xy[0], Y: xy[1], Z: -d})
+				ndc := c.LightViewProj.TransformPoint(wp)
+				const eps = 1e-3
+				if ndc.X < -1-eps || ndc.X > 1+eps || ndc.Y < -1-eps || ndc.Y > 1+eps || ndc.Z < -eps || ndc.Z > 1+eps {
+					t.Errorf("cascade %d: frustum corner %v at depth %v projects to %v, outside the cascade", i, xy, d, ndc)
+				}
+			}
+		}
+	}
+
+	// Near and Far both zero take the 0.1 and 1000 defaults ProjMatrix uses.
+	def := scene3d.NewOrthographicCamera(eye, 20, 1, 0, 0)
+	def.LookAt(target, math3d.Vec3Up())
+	if f := render3d.FitCascadesFromCamera(def, lightDir, cfg); f.Splits[0] != 0.1 || f.Splits[2] != 1000 {
+		t.Errorf("default orthographic splits = %v, want them to span [0.1, 1000]", f.Splits[:3])
 	}
 }
 
@@ -1129,19 +1289,16 @@ func TestCSMRetainedDeviceLossAndClose(t *testing.T) {
 	cfg.CascadeCount = 2
 	cfg.Resolution = 64
 	cfg.MaxShadowDistance = 30
-	cfg.Filter = render3d.CSMFilterHard
+	cfg.Filter = render3d.ShadowFilterHard
 	cfg.Retained = true
 
 	const size = 64
 	var (
-		dev         *gpu.Device
-		camBuf      *render3d.CameraBuffer
-		csm         *render3d.CascadedShadowMap
-		litPipe     *gpu.Pipeline
-		groundMesh  *render3d.GPUMesh
-		pillarMesh  *render3d.GPUMesh
-		groundGroup *gpu.BindGroup
-		pillarGroup *gpu.BindGroup
+		dev        *gpu.Device
+		lit        csmTestLit
+		csm        *render3d.CascadedShadowMap
+		groundMesh *render3d.GPUMesh
+		pillarMesh *render3d.GPUMesh
 	)
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -1152,30 +1309,16 @@ func TestCSMRetainedDeviceLossAndClose(t *testing.T) {
 			OnReady: func(d *gpu.Device) {
 				dev = d
 				var err error
-				camBuf, err = render3d.NewCameraBuffer(cx, dev)
-				if err != nil {
-					t.Fatalf("NewCameraBuffer: %v", err)
-				}
 				if csm == nil {
 					csm, err = render3d.NewCascadedShadowMap(cx, dev, cfg)
 					if err != nil {
 						t.Fatalf("NewCascadedShadowMap: %v", err)
 					}
 				}
-				objLayout, err := render3d.NewCSMObjectLayout(cx, dev)
-				if err != nil {
-					t.Fatalf("NewCSMObjectLayout: %v", err)
-				}
-				litPipe, err = render3d.NewCSMLitPipeline(cx, dev, render3d.CSMLitPipelineOptions{
-					CameraLayout: camBuf.Layout(),
-					CSMLayout:    csm.Layout(),
-					ObjectLayout: objLayout,
-					DepthFormat:  gpu.FormatDepth24Plus,
-					Retained:     true,
-				})
-				if err != nil {
-					t.Fatalf("NewCSMLitPipeline: %v", err)
-				}
+				lit = csmTestNewLit(t, cx, dev, csm, scene.rig, []render3d.PBRDrawUniform{
+					render3d.NewPBRDrawUniform(math3d.Mat4Identity(), scene.groundMat),
+					render3d.NewPBRDrawUniform(math3d.Mat4Identity(), scene.pillarMat),
+				}, true)
 				if groundMesh == nil {
 					groundMesh, err = render3d.UploadMesh(cx, dev, scene.ground, render3d.MeshUpload{Label: "g", Retained: true})
 					if err != nil {
@@ -1186,8 +1329,6 @@ func TestCSMRetainedDeviceLossAndClose(t *testing.T) {
 						t.Fatalf("UploadMesh pillars: %v", err)
 					}
 				}
-				groundGroup = csmTestCreateObjectGroup(t, cx, dev, objLayout, scene.groundMat, true)
-				pillarGroup = csmTestCreateObjectGroup(t, cx, dev, objLayout, scene.pillarMat, true)
 			},
 			OnFrame: func(frame *gpu.Frame) {
 				f := render3d.FitCascadesFromCamera(scene.cam, scene.lightDir, cfg)
@@ -1199,26 +1340,9 @@ func TestCSMRetainedDeviceLossAndClose(t *testing.T) {
 					csm.DrawCaster(sp, pillarMesh, math3d.Mat4Identity())
 					sp.End()
 				}
-				camBuf.WriteCamera(scene.cam)
-				pass := frame.BeginRenderPass(gpu.RenderPassDesc{
-					ColorAttachments: []gpu.ColorAttachment{{
-						LoadOp:     gpu.LoadClear,
-						StoreOp:    gpu.StoreStore,
-						ClearColor: core.RGB(0x5278a8),
-					}},
-					DepthStencil: &gpu.DepthStencilAttachment{
-						DepthLoadOp:  gpu.LoadClear,
-						DepthStoreOp: gpu.StoreDiscard,
-						ClearDepth:   1.0,
-					},
-				})
-				pass.SetPipeline(litPipe)
-				pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-				pass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
-				pass.SetBindGroup(render3d.CSMObjectGroup, groundGroup)
-				groundMesh.Draw(pass)
-				pass.SetBindGroup(render3d.CSMObjectGroup, pillarGroup)
-				pillarMesh.Draw(pass)
+				lit.camBuf.WriteCamera(scene.cam)
+				pass := csmTestMainPass(frame, core.RGB(0x5278a8))
+				lit.draw(pass, csm, groundMesh, pillarMesh)
 				pass.End()
 				frame.Submit()
 			},

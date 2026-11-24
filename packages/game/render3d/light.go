@@ -957,11 +957,13 @@ type LitPBRPipelineOptions struct {
 	SpotShadowLayout *gpu.BindGroupLayout
 	// PointShadowLayout, when set, compiles [LitPBRPointShadowWGSL] with this layout ([PointShadowMap.Layout]) at [LocalShadowGroup], as [NewLitPBRPointShadowPipeline] does, so the first point light of the [LightRig] is attenuated by the point shadow atlas. It uses bind group 3 like the directional shadow, fog, IBL and skinning, so it cannot be combined with any of them.
 	PointShadowLayout *gpu.BindGroupLayout
+	// CSMLayout, when set, compiles [LitPBRCSMWGSL] with this layout ([CascadedShadowMap.Layout]) at [CSMGroup], as [NewLitPBRCSMPipeline] does, so the first directional light of the [LightRig] is attenuated by the cascaded shadow map. It uses bind group 3 like the single directional shadow, spot and point shadows, fog, IBL and skinning, so it cannot be combined with any of them.
+	CSMLayout *gpu.BindGroupLayout
 	// LinearOutput skips the final linear-to-sRGB encoding and its clamp to [0, 1] and writes the lit linear radiance ([ShadePoint], plus [EvaluateIBL] or [Fog.Apply] when enabled), for drawing into an [HDRTarget] that a [ToneMapPass] then resolves to the display.
 	LinearOutput bool
 }
 
-// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline], [NewLitPBRIBLPipeline], [NewLitPBRShadowPipeline], [NewLitPBRSpotShadowPipeline] or [NewLitPBRPointShadowPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
+// NewLitPBRPipelineWithOptions creates a lit PBR pipeline like [NewLitPBRPipeline], [NewLitPBRFogPipeline], [NewLitPBRIBLPipeline], [NewLitPBRShadowPipeline], [NewLitPBRSpotShadowPipeline], [NewLitPBRPointShadowPipeline] or [NewLitPBRCSMPipeline], with a configurable color format, with [LitPBRPipelineOptions].LinearOutput linear HDR output for an [HDRTarget], and with [LitPBRPipelineOptions].SkinLayout GPU skinning.
 func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout *gpu.BindGroupLayout, opts LitPBRPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -984,6 +986,13 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 		}
 		if group3 > 1 {
 			return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: spot and point shadows use bind group 3 like the directional shadow, fog, IBL and skinning; set at most one of them"}
+		}
+	}
+	if opts.CSMLayout != nil {
+		for _, l := range [...]*gpu.BindGroupLayout{opts.FogLayout, opts.IBLLayout, opts.SkinLayout, opts.ShadowLayout, opts.SpotShadowLayout, opts.PointShadowLayout} {
+			if l != nil {
+				return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: the cascaded shadow map uses bind group 3 like the directional, spot and point shadows, fog, IBL and skinning; set CSMLayout without any of them"}
+			}
 		}
 	}
 	label, src, linearSrc := "render3d.lit_pbr", LitPBRWGSL, litPBRLinearWGSL
@@ -1012,6 +1021,9 @@ func NewLitPBRPipelineWithOptions(cx *core.Scope, dev *gpu.Device, camLayout, li
 	case opts.PointShadowLayout != nil:
 		label, src, linearSrc = "render3d.lit_pbr_point_shadow", LitPBRPointShadowWGSL, litPBRPointShadowLinearWGSL
 		layouts = append(layouts, opts.PointShadowLayout)
+	case opts.CSMLayout != nil:
+		label, src, linearSrc = "render3d.lit_pbr_csm", LitPBRCSMWGSL, litPBRCSMLinearWGSL
+		layouts = append(layouts, opts.CSMLayout)
 	}
 	layouts[CameraGroup] = camLayout
 	layouts[LightGroup] = lightLayout

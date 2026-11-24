@@ -1141,6 +1141,49 @@ for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
 - **第 3 绑定组**：`LocalShadowGroup` 即 `ShadowGroup`（3），方向光阴影、雾、IBL 与蒙皮也使用该组，因此一条带光照的 PBR 管线只能选用其中之一（`LitPBRPipelineOptions.SpotShadowLayout` 或 `PointShadowLayout`）。需要同时使用两种阴影、或第 3 组另有用途的自定义着色器，可用 `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` 放置绑定，并用 `LightWGSL` 中的 `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` 缩放各光源。
 - **设备丢失与 CPU 参考实现**：设置 `Retained: true` 后，深度目标、采样器、缓冲、绑定组与深度管线会在设备丢失后恢复。`EvaluateSpotShadow`、`EvaluatePointShadow` 与 `PointShadowSelectFace` 与 WGSL 一一对应，`ShadePointVisibility` 配合 `LightVisibility` 可复现带光照的像素；测试将它们与 GPU 结果以及参考渲染图 `render3d/testdata/golden/local_shadow_spot.png` 和 `local_shadow_point.png`（`UPDATE_GOLDEN=1` 可重写）进行比较。
 
+## 级联阴影贴图（`CascadedShadowMap`、`CSMConfig`）
+
+`CascadedShadowMap` 用最多四级级联（`MaxCascades`）为 `LightRig` 的第一盏方向光（`rig.Directional[0]`）投射阴影，使阴影在相机附近保持清晰，同时覆盖到地平线。它是 `DirectionalShadowMap` 面向大场景的替代方案：受光 PBR 管线与 `LitPBRWGSL` 完全一样地着色整个光照组，只把这一盏灯乘以级联阴影，其他光源、环境光与自发光不受阴影影响。全部功能在每个 NSGo 后端上运行，包括 WebGL 2 / OpenGL ES 3.0 配置（`nsgotest.NoGPUCompute`）与软件渲染器：
+
+```go
+cfg := render3d.DefaultCSMConfig() // 4 级级联、每级 1024 texel、3x3 PCF、texel 对齐
+cfg.MaxShadowDistance = 80
+cfg.Retained = true
+csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
+litPipe, err := render3d.NewLitPBRCSMPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBufs[0].Layout(), csm.Layout(), gpu.FormatDepth24Plus)
+
+// 每帧在 OnFrame(frame *gpu.Frame) 中：
+shadowFrame := render3d.FitCascadesFromCamera(cam, rig.Directional[0].Direction, csm.Config()) // 级联所遮挡的那盏灯
+_ = csm.Update(dev, shadowFrame)
+for i := range csm.CascadeCount() {
+	if pass := csm.BeginCascadePass(frame, i); pass != nil {
+		for j, mesh := range casterMeshes {
+			csm.DrawCaster(pass, mesh, casterModels[j]) // 占满 MaxCasters 个不同模型矩阵后返回 false
+		}
+		pass.End()
+	}
+}
+
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{ /* 颜色 + 深度 */ })
+mp.SetPipeline(litPipe)
+mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+mp.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
+for i, mesh := range meshes {
+	mp.SetBindGroup(render3d.PBRDrawGroup, drawBufs[i].BindGroup())
+	mesh.Draw(mp)
+}
+mp.End()
+```
+
+- **分割（`ComputeCSMSplits`）**：用实用分割方案划分 `[near, min(far, MaxShadowDistance)]`，以 `SplitLambda`（默认 0.75）混合对数分割与均匀分割。
+- **拟合（`FitCascades`、`FitCascadesFromCamera`）**：每级级联在相机视锥中所占的一段按投影自身的近、远平面截取，因此透视与正交相机都适用。`FitCascadesFromCamera` 使用 `Camera.ProjMatrix` 所用的近、远平面；正交相机的近平面位于相机处或其后方时，阴影从视深 0.1 开始。开启 `TexelSnap`（默认）时，每级级联按包围球确定大小并对齐到整 texel，相机移动或转动时阴影边缘不会闪烁。`CasterPadding` 把每级级联的近平面向光源方向拉远，使视野外的投射体仍能把阴影投进视野。拟合与 `CSMFrame.EncodeUniforms` 都不分配内存。
+- **单张 2D 深度图集**：各级级联是同一张 `FormatDepth32Float` 纹理中的图块（1 级为 1x1、2 级为 2x1、3 或 4 级为 2x2），因此不需要深度纹理数组。如果某帧拟合时使用的级联数、分辨率或滤波方式与图集不同，`Update` 会以 `ErrInvalidCSM` 拒绝它，因为其图块、texel 大小与滤波方式无法与图集及其采样器对应。`Update` 之后的第一次 `BeginCascadePass` 无论绘制哪一级都会清空整张图集；每次 `Update` 之后请渲染全部级联，顺序不限。
+- **投射体**：`DrawCaster` 每帧把每个不同的模型矩阵写入各自的 256 字节动态偏移槽位，并在其他级联中复用，因此 `MaxCasters`（默认 256）统计的是两次 `Update` 之间不同模型矩阵的数量，而不是绘制次数。槽位用尽时它不绘制并返回 false。`DrawCasterGroup` 则使用调用方自有的变换。
+- **滤波与混合**：`ShadowFilterHard`（一次最近点比较采样）或 `ShadowFilterPCF3x3`（九次线性采样，限制在该级图块内），与单张方向光阴影贴图使用同一个 `ShadowFilter`。`CascadeBlendRange` 在每级级联的这一比例范围内向下一级交叉淡入，并让最后一级朝 `MaxShadowDistance` 淡出；`DebugCascades` 按级联给表面着色（红、绿、蓝、黄）。
+- **绑定组 3**：`CSMGroup` 就是 `ShadowGroup`（3），因此受光 PBR 管线只能在级联阴影贴图与方向光、聚光灯或点光源阴影、雾、IBL、蒙皮中取其一（`LitPBRPipelineOptions.CSMLayout`）。自定义着色器在前面拼接 `CameraWGSL` 与 `CSMWGSL`（绑定组 3 已有他用时用 `CSMWGSLForGroup(n)`），并把 `sample_csm_shadow(world_pos, world_normal)` 传给 `LightWGSL` 中的 `shade_pbr_shadowed`。
+- **设备丢失与 CPU 参考实现**：设置 `Retained: true` 时，图集、采样器、缓冲区、绑定组与深度管线会在设备丢失后恢复。`EvaluateCSMShadow` 在通过 `ReadCSMDepthAtlas` / `ReadCSMDepthAtlasAsync` 读回的图集上复现 WGSL，`ShadePointShadowed` 以该可见度计算、再乘以 `CSMFrame.DebugTint`，即可复现受光像素；测试在两种配置下把它们与 GPU 结果以及黄金渲染图 `render3d/testdata/golden/csm_large_scene.png` 比较（`UPDATE_GOLDEN=1` 会重写它）。
+
 ## 3D 后处理（`PostStack3D`、`BloomPass`、`SSAOPass`、`DepthOfFieldPass`）
 
 `PostStack3D` 通过离屏 3D 颜色+深度 `gpu.RenderTarget`（默认为 `FormatRGBA16Float` + `FormatDepth32Float`）组合屏幕空间环境光遮蔽（`SSAOPass`）、深度感知圆盘散景景深（`DepthOfFieldPass`）和 HDR 泛光（`BloomPass`），并将最终结果写入交换链或指定的目标纹理：
@@ -1218,37 +1261,3 @@ mesh.Draw(pass)
 - **CPU 参考实现**：`ShadeClusteredPoint` 是 `ShadePoint` 加上所有集群光源，`ShadeClusteredGridPoint` 只使用片元所在集群的光源，与 GPU 完全一致。测试在完整能力和 `NoGPUCompute` 配置下将 GPU 像素与它们比对，包括一个 256 光源的场景。
 - **上限**：`Validate` 将 `MaxLights` 限制在 `MaxClusterLights`（65,536）以内，要求 `MaxLightsPerCluster` 不超过 `MaxLights`，并将索引槽数（`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`）限制在 `MaxClusterIndexEntries` 以内；当某个存储缓冲区超过设备的 `MaxStorageBufferBindingSize` 时，`NewClusteredLightSystem` 返回 `ErrInvalidClusterConfig`。
 - **生命周期**：设置 `ClusterConfig.Retained` 可在 GPU 设备丢失后恢复缓冲区；`ByteSize()` 报告 GPU 缓冲区字节数，供 `RenderStats` 和预算使用，`Close()` 立即释放资源。
-
-## 级联阴影贴图（方向光）
-
-`CascadedShadowMap` 为大场景方向光提供可移植的级联阴影贴图（CSM），在近处与远处地平线上同时保持清晰阴影细节，并兼容 NSGo 全部 GPU 后端（Metal、Direct3D 11、OpenGL 3.3、WebGPU、WebGL 2、OpenGL ES 3.0 与软件 GPU 渲染器）。
-
-- **实用分割方案（`ComputeCSMSplits`）**：通过 `SplitLambda`（默认 `0.75`）混合对数与均匀分割，将 `[near, min(far, MaxShadowDistance)]` 划分为 1–4 级级联（`MaxCascades = 4`）。
-- **纹素对齐的稳定级联（`FitCascades`、`FitCascadesFromCamera`）**：将每级子视锥体反投影至世界空间，计算旋转不变的包围球，沿反光方向用 `CasterPadding` 向后拉远近裁剪面（确保相机后方或视锥体外的遮挡物仍能投射阴影），并将光空间正交投影原点按整纹素步长对齐（`TexelSnap: true`）以消除相机移动时的阴影游走。每帧零堆分配。
-- **可移植 2D 深度图集**：通过每块独立的 `SetViewport` 与 `SetScissor` 将所有级联打包至单张 `gpu.FormatDepth32Float` 2D 深度纹理（1 级为 `1×1`，2 级为 `2×1`，3–4 级为 `2×2`），仅依赖 `texture_depth_2d` 与 `sampler_comparison`，无需 `texture_depth_2d_array` 或计算着色器。启用 `CSMConfig.Retained` 可在 GPU 设备丢失恢复后自动重建图集、采样器、缓冲区与深度管线。
-- **可移植 WGSL 与纯 Go 参考实现**：在自定义光照着色器前拼接 `CameraWGSL + CSMWGSL`（将 `csm.BindGroup()` 绑定至 `CSMGroup = 1`），或使用 `NewCSMLitPipeline`（`CSMLitWGSL`、`NewCSMObjectLayout`、`CSMLitMaterial`）直接构建开箱即用的前向光照管线。`CSMWGSL` 支持硬阴影（`CSMFilterHard`）与限制在图块内的 3×3 PCF（`CSMFilterPCF3x3`），按 `CascadeBlendRange` 在相邻级联间平滑过渡并在 `MaxShadowDistance` 处自然淡出，同时支持 `DebugCascades: true` 级联染色调试。`EvaluateCSMShadow` 与 `EvaluateCSM` 以纯 Go 镜像 WGSL 计算，便于无头测试验证。
-
-```go
-cfg := render3d.DefaultCSMConfig()
-cfg.MaxShadowDistance = 80
-cfg.Retained = true
-
-csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
-if err != nil {
-	return err
-}
-
-// 每帧：
-frame := render3d.FitCascadesFromCamera(cam, sunDir, cfg)
-_ = csm.Update(dev, frame)
-for i := range csm.CascadeCount() {
-	pass := csm.BeginCascadePass(gpuFrame, i)
-	csm.DrawCaster(pass, casterMesh, casterModel)
-	pass.End()
-}
-
-// 主光照通道：
-mainPass.SetPipeline(litPipe)
-mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-mainPass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
-```
