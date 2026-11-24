@@ -182,23 +182,31 @@ type Material struct {
 	Extensions map[string]json.RawMessage
 }
 
-// EmissiveStrength returns the KHR_materials_emissive_strength multiplier for m,
-// defaulting to 1.0 when the extension or its emissiveStrength property is omitted.
+// EmissiveStrength returns the KHR_materials_emissive_strength multiplier for m, defaulting to 1.0 when the extension or its emissiveStrength property is omitted. A payload that is not an object, or an emissiveStrength that is not a finite number >= 0, returns an error.
 func (m Material) EmissiveStrength() (float32, error) {
 	raw, ok := m.Extensions["KHR_materials_emissive_strength"]
 	if !ok || len(raw) == 0 {
 		return 1, nil
 	}
+	if !isJSONObject(raw) {
+		return 0, errors.New("gltf: KHR_materials_emissive_strength must be a JSON object")
+	}
 	var ext struct {
-		EmissiveStrength *float32 `json:"emissiveStrength"`
+		EmissiveStrength json.RawMessage `json:"emissiveStrength"`
 	}
 	if err := json.Unmarshal(raw, &ext); err != nil {
 		return 0, fmt.Errorf("gltf: KHR_materials_emissive_strength: %w", err)
 	}
-	if ext.EmissiveStrength == nil {
+	if len(ext.EmissiveStrength) == 0 {
 		return 1, nil
 	}
-	s := *ext.EmissiveStrength
+	if isJSONNull(ext.EmissiveStrength) {
+		return 0, errors.New("gltf: KHR_materials_emissive_strength emissiveStrength must be a finite number >= 0")
+	}
+	var s float32
+	if err := json.Unmarshal(ext.EmissiveStrength, &s); err != nil {
+		return 0, fmt.Errorf("gltf: KHR_materials_emissive_strength emissiveStrength: %w", err)
+	}
 	if !finite32(s) || s < 0 {
 		return 0, fmt.Errorf("gltf: KHR_materials_emissive_strength emissiveStrength %v must be finite and >= 0", s)
 	}
