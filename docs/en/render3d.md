@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, and camera uniforms for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, camera uniforms, and distance and height fog for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -306,6 +306,53 @@ gpuMesh.Draw(pass)
 - **Extensions, metadata & default material**: `GLTFMaterialSet` always uploads a glTF 2.0 default material returned by `DefaultMaterial()` and `Material(-1)` for unassigned primitives. `KHR_materials_emissive_strength` is folded into `EmissiveFactor`, and a negative `normalTexture.scale` flips the normal map's X and Y as the specification allows. `Info(i)` / `InfoForVariant(prim, name)` expose `GLTFMaterialInfo` with the `KHR_materials_unlit` flag (`Unlit`) and per-slot `GLTFTextureSlot` UV metadata (`EffectiveTexCoord`, `Transform` for `KHR_texture_transform`).
 - **What `MaterialWGSL` does not draw**: the shader lights every material and samples every texture with the mesh's `TEXCOORD_0` and no transform. Unlit materials, texture transforms and other UV sets are recorded but not applied, so such assets draw wrong unless you handle them. `GLTFMaterialInfo.Unsupported()` lists these cases for a material and `GLTFTextureSlot.NeedsUVBake()` reports a slot that needs its UVs baked into the mesh (for example with `Document.TransformTexCoords`) or a custom shader.
 - **Khronos reference verification**: `render3d`'s tests render the Khronos `DamagedHelmet` sample and check it against the asset's own base color image: a probe texture reads back the UV of every pixel, and the render must match the decoded JPEG under glTF's UV origin, sRGB color and channel order far better than under a flipped V, a linear upload or swapped channels. The tests also compare the render with `render3d/testdata/damagedhelmet/reference.png` to catch regressions and verify `gpu.View` parity across both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles as well as `Retained` device-loss restoration. The model is licensed CC-BY-NC-4.0, so its directory is a separate module that is left out of the published `packages/game` module, and these tests skip when it is absent.
+
+
+## Distance and height fog (`Fog`, `GPUFogBuffer`, `FogPipeline`)
+
+`Fog` configures distance fog (`FogOff`, `FogLinear`, `FogExp`, `FogExp2`), analytical exponential height fog along the view ray (`HeightEnabled`, `HeightBase`, `HeightFalloff`, `HeightDensity`), or both combined. `Color` is linear RGB and `MaxOpacity` caps the final blend factor in `(0, 1]` (zero defaults to `1.0`). When both distance and height fog are enabled, their transmittances multiply:
+
+```text
+factor = clamp(1 - (1 - f_dist) * (1 - f_height), 0, MaxOpacity)
+```
+
+Height fog integrates vertical extinction `HeightDensity * exp(-HeightFalloff * (y - HeightBase))` analytically along the segment from `camPos` to `worldPos`, using a four-term Taylor expansion near horizontal rays so grazing and vertical rays stay smooth and symmetric without floating-point overflow.
+
+- **CPU reference**: `Fog.Factor(camPos, worldPos)` and `Fog.Apply(color, camPos, worldPos)` evaluate the exact same formulas on the CPU; `Fog.Validate` rejects non-finite or out-of-range fields with `ErrInvalidFog`, and `Fog.Sanitized` replaces invalid values with safe defaults.
+- **GPU uniforms and WGSL**: `Fog.Uniforms` packs the parameters into `FogUniforms` (`FogUniformSize` = 48 bytes, three `vec4<f32>` blocks), and `AppendFogUniforms` writes them with zero allocations when capacity suffices. `GPUFogBuffer` (`NewGPUFogBuffer`, `Update`, `Retained: true` for automatic device-loss restoration) manages the scope-owned uniform buffer and bind group at `FogGroup` (group 1). Prepend `FogWGSL` to any custom shader to call `fog_factor(cam_pos, world_pos, fog)` and `apply_fog(color, cam_pos, world_pos, fog)`, plus `FogBindingWGSL` when binding at `FogGroup`.
+- **Ready-to-use pipeline**: `NewFogPipeline` compiles `FogLitWGSL` for `MeshVertexLayout`, `CameraBuffer` (`CameraGroup`), `GPUFogBuffer` (`FogGroup`), and per-object transforms, base colors, and directional lighting via `FogPipeline.NewObjectBuffer` (`FogObjectGroup`), supporting both perspective and orthographic cameras.
+
+```go
+fog := render3d.Fog{
+	Mode:          render3d.FogExp,
+	Color:         [3]float32{0.62, 0.72, 0.86},
+	Density:       0.03,
+	MaxOpacity:    0.9,
+	HeightEnabled: true,
+	HeightBase:    2,
+	HeightFalloff: 0.25,
+	HeightDensity: 0.05,
+}
+fogBuf, err := render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "fog", Retained: true})
+pipe, err := render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+objBuf, err := pipe.NewObjectBuffer(cx, dev, render3d.FogObject{
+	Model:     worldMatrix,
+	BaseColor: [4]float32{0.85, 0.35, 0.2, 1},
+	LightDir:  math3d.Vec3{X: 0.4, Y: 0.8, Z: 0.4},
+	Ambient:   0.3,
+}, render3d.FogBufferOptions{Label: "crate"})
+
+// Each frame:
+_ = fogBuf.Update(frame.Device(), fog)
+pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
+objBuf.Bind(pass)
+mesh.Draw(pass)
+```
+
+The reference tests verify analytical distance and height fog formulas against rendered pixels on the software GPU and in `nsgotest` (`full` and `nsgotest.NoGPUCompute` profiles), and compare against `render3d/testdata/golden/fog_linear_distances.png` and `fog_height.png`.
 
 ## 3D debug draw and transform gizmos
 

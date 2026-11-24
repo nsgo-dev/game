@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质以及相机 uniform，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、相机 uniform 以及距离雾与高度雾，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -306,6 +306,53 @@ gpuMesh.Draw(pass)
 - **扩展、元数据与默认材质**：`GLTFMaterialSet` 始终创建一份 glTF 2.0 默认材质，通过 `DefaultMaterial()` 或 `Material(-1)` 供未指定材质的图元使用。`KHR_materials_emissive_strength` 已折算进 `EmissiveFactor`；按规范允许的负值 `normalTexture.scale` 会翻转法线贴图的 X 与 Y。`Info(i)` / `InfoForVariant(prim, name)` 返回包含 `KHR_materials_unlit` 标志（`Unlit`）以及各槽位 `GLTFTextureSlot` UV 元数据（`EffectiveTexCoord` 与 `KHR_texture_transform` 的 `Transform`）的 `GLTFMaterialInfo`。
 - **`MaterialWGSL` 不会绘制的内容**：该着色器对所有材质都做光照，并且所有纹理都用网格的 `TEXCOORD_0` 采样、不做变换。无光照材质、纹理变换和其他 UV 通道只被记录而不会生效，若不另行处理，这类资产会绘制错误。`GLTFMaterialInfo.Unsupported()` 列出某个材质的这些情况，`GLTFTextureSlot.NeedsUVBake()` 报告需要把 UV 烘焙进网格（例如用 `Document.TransformTexCoords`）或改用自定义着色器的槽位。
 - **Khronos 参考验证**：`render3d` 的测试渲染 Khronos `DamagedHelmet` 样本，并以资产自身的基础色图像为准进行校验：用探测纹理读回每个像素的 UV，渲染结果必须在 glTF 的 UV 原点、sRGB 色彩与通道顺序下与解码后的 JPEG 吻合，且明显优于 V 翻转、按线性上传或通道交换的情形。测试还会与 `render3d/testdata/damagedhelmet/reference.png` 比对以捕捉回归，并在 `gpu.View` 上验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置的像素一致性，以及 `Retained` 设备丢失恢复。该模型采用 CC-BY-NC-4.0 许可，因此其目录是独立模块，不包含在发布的 `packages/game` 模块中；目录缺失时这些测试会跳过。
+
+
+## 距离雾与高度雾（`Fog`、`GPUFogBuffer`、`FogPipeline`）
+
+`Fog` 用于配置距离雾（`FogOff`、`FogLinear`、`FogExp`、`FogExp2`）、沿视线解析积分的指数高度雾（`HeightEnabled`、`HeightBase`、`HeightFalloff`、`HeightDensity`），或将两者叠加。`Color` 为线性 RGB，`MaxOpacity` 将最终混雾系数限制在 `(0, 1]`（零值默认为 `1.0`）。同时启用距离雾与高度雾时，两者的透射率相乘：
+
+```text
+factor = clamp(1 - (1 - f_dist) * (1 - f_height), 0, MaxOpacity)
+```
+
+高度雾沿 `camPos` 到 `worldPos` 的线段对垂直消光系数 `HeightDensity * exp(-HeightFalloff * (y - HeightBase))` 进行解析积分，并在接近水平射线时采用四项泰勒展开，确保掠射与垂直射线平滑对称且不会浮点溢出。
+
+- **CPU 参考求值**：`Fog.Factor(camPos, worldPos)` 与 `Fog.Apply(color, camPos, worldPos)` 在 CPU 侧执行完全一致的公式；`Fog.Validate` 以 `ErrInvalidFog` 拒绝非有限值或越界参数，`Fog.Sanitized` 将非法值规范为安全默认值。
+- **GPU uniform 与 WGSL**：`Fog.Uniforms` 将参数打包为 `FogUniforms`（`FogUniformSize` = 48 字节，三个 `vec4<f32>` 块），`AppendFogUniforms` 在容量充足时零分配写出。`GPUFogBuffer`（`NewGPUFogBuffer`、`Update`，开启 `Retained: true` 可在设备丢失后自动恢复）管理归属于作用域的 uniform 缓冲与绑定组（默认位于 `FogGroup`，即第 1 组）。任意自定义着色器都可前置 `FogWGSL` 并调用 `fog_factor(cam_pos, world_pos, fog)` 与 `apply_fog(color, cam_pos, world_pos, fog)`；在 `FogGroup` 绑定时可一并前置 `FogBindingWGSL`。
+- **开箱即用管线**：`NewFogPipeline` 编译 `FogLitWGSL`，配合 `MeshVertexLayout`、`CameraBuffer`（`CameraGroup`）、`GPUFogBuffer`（`FogGroup`）以及通过 `FogPipeline.NewObjectBuffer` 创建的逐物体变换、基础色与方向光缓冲（`FogObjectGroup`），同时支持透视与正交相机。
+
+```go
+fog := render3d.Fog{
+	Mode:          render3d.FogExp,
+	Color:         [3]float32{0.62, 0.72, 0.86},
+	Density:       0.03,
+	MaxOpacity:    0.9,
+	HeightEnabled: true,
+	HeightBase:    2,
+	HeightFalloff: 0.25,
+	HeightDensity: 0.05,
+}
+fogBuf, err := render3d.NewGPUFogBuffer(cx, dev, fog, render3d.FogBufferOptions{Label: "fog", Retained: true})
+pipe, err := render3d.NewFogPipeline(cx, dev, camBuf.Layout(), fogBuf.Layout(), render3d.FogPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+objBuf, err := pipe.NewObjectBuffer(cx, dev, render3d.FogObject{
+	Model:     worldMatrix,
+	BaseColor: [4]float32{0.85, 0.35, 0.2, 1},
+	LightDir:  math3d.Vec3{X: 0.4, Y: 0.8, Z: 0.4},
+	Ambient:   0.3,
+}, render3d.FogBufferOptions{Label: "crate"})
+
+// 每帧：
+_ = fogBuf.Update(frame.Device(), fog)
+pipe.Bind(pass, camBuf.BindGroup(), fogBuf.BindGroup())
+objBuf.Bind(pass)
+mesh.Draw(pass)
+```
+
+参考测试在软件 GPU 以及 `nsgotest`（完整能力和 `nsgotest.NoGPUCompute` 配置）上逐像素校验距离雾与高度雾解析公式，并与 `render3d/testdata/golden/fog_linear_distances.png` 及 `fog_height.png` 对比。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 
