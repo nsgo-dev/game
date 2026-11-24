@@ -47,6 +47,7 @@ var notJSONFormats = map[string]string{
 	"accounts/token":      "decodes the JSON payload of a signed token, which is data on the wire",
 	"gameui":              "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
 	"idle":                "decodes a Number from a JSON value inside another format",
+	"internal/jsonedit":   "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",
 	"internal/samplegltf": "validates the sample glTF models, glTF being the gltf entry's format",
 	"loaderr":             "decodes a document only to find a field's line and column for an error",
 	"mcp":                 "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",

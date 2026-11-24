@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/internal/jsonedit"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/save"
 )
@@ -114,20 +114,18 @@ func RegisterCodec[T any](w *World, typeName string) error {
 				if err != nil || !bytes.Equal(bytes.TrimSpace(zeroJSON), []byte("null")) {
 					return errors.New("cannot decode null into non-nullable component")
 				}
-			} else if patch {
-				if cur, ok := Get[T](w, e); ok {
-					// Deep-copy via JSON so a partial decode error never mutates *cur's maps or slices.
-					curJSON, err := json.Marshal(*cur)
-					if err != nil {
-						return err
-					}
-					if err := json.Unmarshal(curJSON, &v); err != nil {
-						return err
-					}
+			} else if cur, ok := Get[T](w, e); patch && ok {
+				patched, err := jsonedit.Patch(cur, trimmed)
+				if err != nil {
+					return err
 				}
-			}
-			if err := decodeStrictJSON(trimmed, &v); err != nil {
+				v = patched
+			} else if err := jsonedit.DecodeStrict(trimmed, &v); err != nil {
 				return err
+			}
+			// A value the codec cannot encode, such as one holding a NaN produced by a custom UnmarshalJSON, would make every later EncodeComponent and Snapshot of e fail, so it is refused before it is stored.
+			if _, err := json.Marshal(v); err != nil {
+				return fmt.Errorf("decoded value cannot be encoded: %w", err)
 			}
 			Set[T](w, e, v)
 			return nil
@@ -198,27 +196,12 @@ func (w *World) EncodeComponent(e Entity, typeName string) (json.RawMessage, boo
 	return raw, present, nil
 }
 
-func decodeStrictJSON(trimmed []byte, dst any) error {
-	dec := json.NewDecoder(bytes.NewReader(trimmed))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return errors.New("unexpected trailing data")
-	}
-	return nil
-}
-
-// DecodeComponent strictly decodes raw JSON into the codec-registered component named typeName and attaches or replaces it on live entity e.
-// Unknown JSON fields, trailing data and invalid nulls for non-nullable component types are rejected without mutating e.
+// DecodeComponent strictly decodes raw JSON into the codec-registered component named typeName and attaches or replaces it on live entity e. Unknown JSON fields, trailing data, invalid nulls for non-nullable component types and values the codec cannot encode back, such as a NaN, are rejected without mutating e.
 func (w *World) DecodeComponent(e Entity, typeName string, raw json.RawMessage) error {
 	return w.decodeComponentStrict(e, typeName, raw, false)
 }
 
-// PatchComponent strictly decodes raw JSON into a copy of live entity e's existing codec-registered component (or its zero value when absent) and writes the result back atomically.
-// Unknown JSON fields and trailing data are rejected without mutating e.
+// PatchComponent strictly decodes raw JSON onto live entity e's existing codec-registered component (or its zero value when absent) and writes the result back atomically. Fields the patch does not change keep their current values, including unexported fields, fields tagged `json:"-"` and the identity of pointers, maps and slices. Unknown JSON fields, trailing data and values the codec cannot encode back, such as a NaN, are rejected without mutating e.
 func (w *World) PatchComponent(e Entity, typeName string, raw json.RawMessage) error {
 	return w.decodeComponentStrict(e, typeName, raw, true)
 }

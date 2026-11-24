@@ -3,6 +3,7 @@ package entities_test
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/entities"
@@ -118,5 +119,63 @@ func TestWorldDecodePatchRemoveComponent(t *testing.T) {
 	}
 	if _, err := w.RemoveComponent(e, "stats"); !errors.Is(err, entities.ErrWorldDisposed) {
 		t.Fatalf("disposed world remove = %v, want ErrWorldDisposed", err)
+	}
+}
+
+type codecNaN struct {
+	V float64 `json:"v"`
+}
+
+func (c *codecNaN) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil && s == "nan" {
+		c.V = math.NaN()
+		return nil
+	}
+	type plain codecNaN
+	return json.Unmarshal(data, (*plain)(c))
+}
+
+func TestWorldPatchComponentPreservesRuntimeFieldsAndRefusesUnencodable(t *testing.T) {
+	type handle struct{ id int }
+	type ai struct {
+		State   string         `json:"state"`
+		Mods    map[string]int `json:"mods,omitempty"`
+		Path    *handle        `json:"-"`
+		Scratch map[string]int `json:"-"`
+		cache   *handle
+	}
+
+	w := entities.NewWorld()
+	if err := entities.RegisterCodec[ai](w, "ai"); err != nil {
+		t.Fatal(err)
+	}
+	if err := entities.RegisterCodec[codecNaN](w, "nan"); err != nil {
+		t.Fatal(err)
+	}
+	e := w.Spawn()
+	path, cache := &handle{id: 1}, &handle{id: 2}
+	entities.Set(w, e, ai{State: "idle", Mods: map[string]int{"a": 1}, Path: path, Scratch: map[string]int{"n": 3}, cache: cache})
+
+	if err := w.PatchComponent(e, "ai", json.RawMessage(`{"state":"chase"}`)); err != nil {
+		t.Fatalf("PatchComponent: %v", err)
+	}
+	got, _ := entities.Get[ai](w, e)
+	if got.State != "chase" || got.Path != path || got.cache != cache || got.Scratch["n"] != 3 || got.Mods["a"] != 1 {
+		t.Fatalf("patch lost runtime fields: %+v", got)
+	}
+
+	entities.Set(w, e, codecNaN{V: 1})
+	if err := w.PatchComponent(e, "nan", json.RawMessage(`"nan"`)); err == nil {
+		t.Fatal("PatchComponent stored an unencodable NaN value")
+	}
+	if err := w.DecodeComponent(e, "nan", json.RawMessage(`"nan"`)); err == nil {
+		t.Fatal("DecodeComponent stored an unencodable NaN value")
+	}
+	if v, _ := entities.Get[codecNaN](w, e); v.V != 1 {
+		t.Fatalf("refused edit changed the component: %+v", v)
+	}
+	if _, err := w.Snapshot(); err != nil {
+		t.Fatalf("Snapshot after refused NaN edit: %v", err)
 	}
 }
