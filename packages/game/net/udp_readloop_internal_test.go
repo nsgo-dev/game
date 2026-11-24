@@ -158,3 +158,66 @@ func TestUDPServerReadLoopSurvivesDatagramErrorsAndReportsSocketFailure(t *testi
 		t.Fatalf("Send after the socket failed = %v, want ErrReceiveFailed", err)
 	}
 }
+
+// Close after a socket failure is the documented recovery, and Err is nil after Close.
+func TestUDPTransportErrIsClearedByClose(t *testing.T) {
+	conn := newScriptedPacketConn()
+	u := newUDPTransport(conn, 1)
+	conn.feed(t, scriptedRead{err: socketBroken()})
+	waitFor(t, "the socket failure to be reported", func() bool { return u.Err() != nil })
+	if err := u.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := u.Err(); err != nil {
+		t.Fatalf("Err after a failure and Close = %v, want nil", err)
+	}
+}
+
+func TestUDPServerErrIsClearedByClose(t *testing.T) {
+	conn := newScriptedPacketConn()
+	s := newUDPServer(conn, 1, Auth{})
+	conn.feed(t, scriptedRead{err: socketBroken()})
+	awaitChange(t, s.changed, "the socket failure to be reported", func() bool { return s.Err() != nil })
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := s.Err(); err != nil {
+		t.Fatalf("Err after a failure and Close = %v, want nil", err)
+	}
+}
+
+// scriptedConn is a scriptedPacketConn used as the connected socket a UDPClient reads from.
+type scriptedConn struct{ *scriptedPacketConn }
+
+func (c scriptedConn) Read(b []byte) (int, error) {
+	n, _, err := c.ReadFrom(b)
+	return n, err
+}
+func (c scriptedConn) Write(b []byte) (int, error) { return len(b), nil }
+func (c scriptedConn) RemoteAddr() stdnet.Addr {
+	return &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: 2}
+}
+
+// #546: UDPClient's socket is connected, so it is the one receive loop where the system reports an ICMP port unreachable, for example while the server restarts. The client dropped to ConnDisconnected on the first one instead of leaving it to the idle timeout.
+func TestUDPClientReadLoopSurvivesAnICMPError(t *testing.T) {
+	conn := scriptedConn{newScriptedPacketConn()}
+	c := &UDPClient{conn: conn, state: ConnOpen, changed: make(chan struct{}, 1)}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.readLoop(conn)
+	}()
+
+	conn.feed(t, scriptedRead{err: icmpRefused()})
+	// The loop is still reading: it takes this junk datagram, and then the next read.
+	conn.feed(t, scriptedRead{data: []byte{0xff}})
+	if c.State() != ConnOpen {
+		t.Fatalf("state after an ICMP error = %v (%v), want ConnOpen", c.State(), c.Err())
+	}
+
+	conn.feed(t, scriptedRead{err: socketBroken()})
+	<-done
+	if c.State() != ConnDisconnected || !errors.Is(c.Err(), ErrDisconnected) {
+		t.Fatalf("after a socket failure state = %v, Err = %v; want ConnDisconnected", c.State(), c.Err())
+	}
+}

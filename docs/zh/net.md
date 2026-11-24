@@ -20,9 +20,9 @@ import "github.com/nsgo-dev/game/packages/game/net"
 
 UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。
 
-一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。
+一个传输只能有一个消费者。`Recv` 把每个包只交给一个调用方，而 `ServerWorld`、`ClientWorld`、锁步与回滚会话、`Relay` 和 `RelayTransport` 都会取空所有等待中的包并丢弃不属于自己的包，所以两个消费者共用一个传输会互相抢走对方的包。请为每个消费者准备各自的传输，或在它们前面放一个分流器，为每个消费者各实现一个 `Transport`。无论队列中有多少包，`Recv` 的开销都相同，因此取空一批突发的包仍是线性的。收件队列没有上限：传输会保留每一个到达的包，直到 `Recv` 取走它，因此每一帧都要取空每个传输。
 
-`UDPTransport` 或 `UDPServer` 底层的套接字出错时，`Err` 返回包装了套接字错误的 `ErrReceiveFailed`，`Send` 也返回该错误；此时应关闭传输并重新监听。只涉及单个数据报的错误（例如之前某次发送引起的 ICMP 端口不可达）不会使其停止。
+`UDPTransport` 或 `UDPServer` 底层的套接字出错时，`Err` 返回包装了套接字错误的 `ErrReceiveFailed`，`Send` 也返回该错误；此时应关闭传输并重新监听；`Close` 之后 `Err` 返回 nil。只涉及单个数据报的错误（例如之前某次发送引起的 ICMP 端口不可达）不会使其停止。`UDPClient` 同样会在 ICMP 错误之后继续读取（例如服务端正在重启时），由空闲超时来判断服务端是否已经消失。
 
 ```go
 hub := net.NewLoopbackHub(net.LoopbackConfig{
@@ -85,7 +85,7 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 - 服务端最多保留 `Auth.MaxPeers` 个会话（默认 1024），处于宽限期内的 peer 也计算在内；超出后客户端会以原因 `server full` 被拒绝。不设置 `Verify` 时任何人都能加入，因此可从互联网访问的服务端务必设置它。
 - 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
 - 在浏览器中 `DialWebSocket` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
-- `WebSocketServer` 每隔 `Auth.IdleTimeout` 的三分之一（默认 10 秒，最少 3 秒）向每个客户端发送一次 ping，客户端在这段时间内什么都没发（连 pong 都没有）就会被判为掉线，这样网络消失却没有关闭 TCP 连接的客户端不会永远占着会话和 ID。浏览器会自动回应 ping。原生 `WebSocketTransport` 每 2 秒向服务端发送一次 ping，10 秒内没有收到任何帧就转为 `ConnDisconnected`。这些超时使用墙上时钟，而不是 `Auth.Now`。
+- `WebSocketServer` 每隔 `Auth.IdleTimeout` 的三分之一（默认 10 秒，最少 3 秒）向每个客户端发送一次 ping，在这段时间内没有收到客户端的任何字节（连 pong 都没有）就会把它判为掉线，这样网络消失却没有关闭 TCP 连接的客户端不会永远占着会话和 ID。浏览器会自动回应 ping。原生 `WebSocketTransport` 每 2 秒向服务端发送一次 ping，10 秒内没有收到任何字节就转为 `ConnDisconnected`。只要字节持续到达，慢慢传来的大帧也会被完整读取。这些超时使用墙上时钟，而不是 `Auth.Now`。`WebSocketServer.Close` 会同时向所有客户端发送关闭帧，对不读取数据的客户端最多等待一秒。
 - WebSocket 帧的负载按实际到达的字节读取，而不是按帧头声明的长度预先分配，握手请求也不能超过合法请求的长度，因此客户端声明一个很大的帧后再慢慢发送，也无法占用它尚未发送的内存。
 - UDP 握手之后，每个客户端都绑定到完成握手时的地址和一把会话密钥：每个数据报携带截断的 HMAC-SHA256 标签和一个按重放窗口检查的序号，伪造或重放的数据报会被丢弃，也无法改变该 peer 的地址。数据报经过认证但不加密。`UDPClient` 空闲时每秒发送一次心跳；静默超过 `Auth.IdleTimeout`（默认 10 秒，最少 3 秒）的客户端视为掉线。服务端只回应至少 128 字节的握手请求，且回复永远不超过收到的字节数。
 - 握手不加密：握手请求携带令牌，欢迎消息携带恢复密钥，UDP 的欢迎消息还携带会话密钥。生产环境的 WebSocket 请使用 `wss://`。UDP 没有这样一层加密，它的地址与密钥绑定只能防住看不到流量的攻击者：任何能观察到握手的人（共享 Wi-Fi、路径上的任一跳）都能伪造该会话的数据报，并从自己的地址恢复该会话。UDP 令牌应短期有效且只能使用一次；若需防范路径上的窃听者，优先使用 `wss://` 上的 WebSocket。
@@ -117,7 +117,7 @@ _ = renderEntities
 可通过 `server.Stats()`、`client.PredictedState(id)`、`client.Reconciliations()` 与 `client.LastReconcileError()` 监控带宽与纠偏误差。
 
 - `Step` 交给 `Transport.Send` 的负载永远不超过 `DefaultMaxSnapshotSize`（60000 字节，UDP、中继和 WebSocket 都能容纳），或通过 `server.SetMaxSnapshotSize(n)` 设置的大小。更大的完整快照会被拆成若干分片，`ClientWorld` 在全部到齐后重新组装再应用；超出上限的增量快照会改为发送拆分后的完整快照。丢失一个分片只损失这一份快照：客户端不会确认它，下一次 `Step` 会重新发送一份完整快照。`Stats().PacketsSent` 按分片计数，`SnapshotsSent` 按整份快照计数。单个实体自身就放不进一个分片时，`Step` 返回指明该实体的 `ErrPayloadTooLarge`。
-- tick 为 `uint32`，按序列号算术（serial number arithmetic）比较先后，因此计数器在 2^32 个 tick 后回绕（60 Hz 下约 2.27 年）时复制仍能继续工作。`Interpolate` 以最新快照的 tick 为基准、按模 2^32 解读 `renderTick`，所以 `float64(latest) - delay` 在回绕前后都能正常工作。
+- tick 为 `uint32`，按序列号算术（serial number arithmetic）比较先后，因此计数器在 2^32 个 tick 后回绕（60 Hz 下约 2.27 年）时复制仍能继续工作。`Interpolate` 以最新快照的 tick 为基准、按模 2^32 解读 `renderTick`，所以 `float64(latest) - delay` 在回绕前后都能正常工作。服务端为新一局或重启后从头计数 tick 时，客户端会把这些 tick 当作过期快照：请在新一局的第一份快照之前调用 `client.Reset()`，它会丢弃所有快照与预测，并通过 `OnDespawn` 报告每个已知实体。
 
 ## 确定性锁步与回滚同步
 

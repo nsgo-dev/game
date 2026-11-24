@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -76,8 +77,13 @@ func wsAcceptKey(key string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func writeWSFrameDeadline(conn stdnet.Conn, opcode byte, masked bool, payload []byte) error {
+// writeWSFrameDeadline writes one frame with wsWriteTimeout as its deadline, unless closing is set. Close sets closing before it breaks pending writes with a deadline of now, and this checks closing after setting its own deadline, so a writer that takes the lock after Close began either sees closing or set its deadline before Close's: it can never push the deadline past Close's and hold Close up for wsWriteTimeout.
+func writeWSFrameDeadline(conn stdnet.Conn, closing *atomic.Bool, opcode byte, masked bool, payload []byte) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	if closing.Load() {
+		_ = conn.SetWriteDeadline(time.Now())
+		return ErrClosed
+	}
 	err := writeWSFrame(conn, opcode, masked, payload)
 	_ = conn.SetWriteDeadline(time.Time{})
 	return err
@@ -155,8 +161,8 @@ func serverKeepAlive(auth Auth) wsKeepAlive {
 // clientKeepAlive is the native client's keepalive.
 var clientKeepAlive = wsKeepAlive{ping: wsClientPing, idle: wsClientIdle}
 
-// wsPingLoop pings the peer every ka.ping until stop closes. A ping that cannot be written closes the connection, so the read loop ends and reports the drop.
-func wsPingLoop(conn stdnet.Conn, writeMu *sync.Mutex, masked bool, every time.Duration, stop <-chan struct{}) {
+// wsPingLoop pings the peer every interval until stop closes or closing is set. A ping that cannot be written closes the connection, so the read loop ends and reports the drop.
+func wsPingLoop(conn stdnet.Conn, writeMu *sync.Mutex, closing *atomic.Bool, masked bool, every time.Duration, stop <-chan struct{}) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -165,14 +171,30 @@ func wsPingLoop(conn stdnet.Conn, writeMu *sync.Mutex, masked bool, every time.D
 			return
 		case <-ticker.C:
 			writeMu.Lock()
-			err := writeWSFrameDeadline(conn, wsOpPing, masked, nil)
+			err := writeWSFrameDeadline(conn, closing, wsOpPing, masked, nil)
 			writeMu.Unlock()
+			if errors.Is(err, ErrClosed) {
+				return // Close owns the connection now and sends the close frame itself
+			}
 			if err != nil {
 				_ = conn.Close()
 				return
 			}
 		}
 	}
+}
+
+// wsIdleReader reads from a connection and, once armed with an idle timeout, moves the read deadline to now plus that timeout before every read. A connection is dropped only when no byte at all arrives for the idle timeout, so a large frame that arrives slowly but steadily is read whole, while a stalled peer, or one whose network vanished, still times out (#546).
+type wsIdleReader struct {
+	conn stdnet.Conn
+	idle time.Duration // zero until the handshake is done, so the handshake's own deadline stays in force
+}
+
+func (r *wsIdleReader) Read(p []byte) (int, error) {
+	if r.idle > 0 {
+		_ = r.conn.SetReadDeadline(time.Now().Add(r.idle))
+	}
+	return r.conn.Read(p)
 }
 
 // readWSFrame reads one frame of at most maxWSMessageSize bytes.
@@ -238,6 +260,7 @@ type WebSocketTransport struct {
 
 	dialMu  sync.Mutex // serializes Reconnect
 	writeMu sync.Mutex
+	closing atomic.Bool // set by Close, see writeWSFrameDeadline
 	seq     [2]uint32
 
 	mu       sync.Mutex
@@ -330,7 +353,7 @@ func (wt *WebSocketTransport) connect() error {
 	res := wt.resume
 	wt.mu.Unlock()
 
-	conn, br, err := dialWebSocketConn(wt.rawURL)
+	conn, br, ir, err := dialWebSocketConn(wt.rawURL)
 	if err != nil {
 		return wt.fail(err)
 	}
@@ -340,6 +363,8 @@ func (wt *WebSocketTransport) connect() error {
 		return wt.fail(err)
 	}
 	_ = conn.SetDeadline(time.Time{})
+	// Any byte from the server, its pongs and pings included, proves the connection is alive.
+	ir.idle = wt.ka.idle
 
 	wt.mu.Lock()
 	if wt.state == ConnClosed {
@@ -358,7 +383,7 @@ func (wt *WebSocketTransport) connect() error {
 	wt.err = nil
 	wt.mu.Unlock()
 	stop := make(chan struct{})
-	go wsPingLoop(conn, &wt.writeMu, true, wt.ka.ping, stop)
+	go wsPingLoop(conn, &wt.writeMu, &wt.closing, true, wt.ka.ping, stop)
 	go wt.readLoop(conn, br, stop)
 	return nil
 }
@@ -393,15 +418,15 @@ func clientHandshake(conn stdnet.Conn, br *bufio.Reader, token []byte, res resum
 	return acceptServerHandshake(payload, h.nonce)
 }
 
-// dialWebSocketConn opens the TCP (or TLS) connection and performs the HTTP upgrade. The returned connection still has the handshake deadline set.
-func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, error) {
+// dialWebSocketConn opens the TCP (or TLS) connection and performs the HTTP upgrade. The returned connection still has the handshake deadline set, and the returned wsIdleReader, under the bufio.Reader, is not armed yet.
+func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, *wsIdleReader, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("net: parse websocket url: %w", err)
+		return nil, nil, nil, fmt.Errorf("net: parse websocket url: %w", err)
 	}
 	host, err := webSocketHostPort(u)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	dialer := &stdnet.Dialer{Timeout: wsDialTimeout}
@@ -412,7 +437,7 @@ func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, error) {
 		conn, err = dialer.Dial("tcp", host)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 
@@ -436,25 +461,26 @@ func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, error) {
 
 	if _, err := io.WriteString(conn, reqBuf.String()); err != nil {
 		_ = conn.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	br := bufio.NewReader(conn)
+	ir := &wsIdleReader{conn: conn}
+	br := bufio.NewReader(ir)
 	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodGet})
 	if err != nil {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("net: websocket handshake read: %w", err)
+		return nil, nil, nil, fmt.Errorf("net: websocket handshake read: %w", err)
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("net: websocket upgrade rejected with status %d", resp.StatusCode)
+		return nil, nil, nil, fmt.Errorf("net: websocket upgrade rejected with status %d", resp.StatusCode)
 	}
 	if strings.TrimSpace(resp.Header.Get("Sec-WebSocket-Accept")) != wsAcceptKey(secKey) {
 		_ = conn.Close()
-		return nil, nil, errors.New("net: websocket invalid Sec-WebSocket-Accept")
+		return nil, nil, nil, errors.New("net: websocket invalid Sec-WebSocket-Accept")
 	}
-	return conn, br, nil
+	return conn, br, ir, nil
 }
 
 func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop chan struct{}) {
@@ -479,8 +505,6 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop 
 	inFrag := false
 
 	for {
-		// Any frame, the server's pongs and pings included, proves the connection is alive.
-		_ = conn.SetReadDeadline(time.Now().Add(wt.ka.idle))
 		fin, op, payload, _, err := readWSFrame(br)
 		if err != nil {
 			cause = fmt.Errorf("%w: %w", ErrDisconnected, err)
@@ -489,13 +513,13 @@ func (wt *WebSocketTransport) readLoop(conn stdnet.Conn, br *bufio.Reader, stop 
 		switch op {
 		case wsOpPing:
 			wt.writeMu.Lock()
-			_ = writeWSFrameDeadline(conn, wsOpPong, true, payload)
+			_ = writeWSFrameDeadline(conn, &wt.closing, wsOpPong, true, payload)
 			wt.writeMu.Unlock()
 		case wsOpPong:
 			continue
 		case wsOpClose:
 			wt.writeMu.Lock()
-			_ = writeWSFrameDeadline(conn, wsOpClose, true, nil)
+			_ = writeWSFrameDeadline(conn, &wt.closing, wsOpClose, true, nil)
 			wt.writeMu.Unlock()
 			return
 		case wsOpBinary, wsOpText:
@@ -579,7 +603,7 @@ func (wt *WebSocketTransport) Send(to PeerID, ch Channel, payload []byte) error 
 	defer wt.writeMu.Unlock()
 	wt.seq[ch]++
 	frame := encodeWireFrame(ch, wt.seq[ch], payload)
-	return writeWSFrameDeadline(conn, wsOpBinary, true, frame)
+	return writeWSFrameDeadline(conn, &wt.closing, wsOpBinary, true, frame)
 }
 
 // Recv pops the next received packet without blocking.
@@ -649,8 +673,8 @@ func (wt *WebSocketTransport) Close() error {
 		return nil
 	}
 
-	// Break a Send already blocked on a client that does not read, then send
-	// the close frame with its own short deadline.
+	// Break a Send or ping already blocked on a server that does not read, then send the close frame with its own short deadline.
+	wt.closing.Store(true)
 	_ = conn.SetWriteDeadline(time.Now())
 	wt.writeMu.Lock()
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
@@ -664,6 +688,7 @@ type wsClientConn struct {
 	conn    stdnet.Conn
 	br      *bufio.Reader
 	writeMu sync.Mutex
+	closing atomic.Bool // set by WebSocketServer.Close, see writeWSFrameDeadline
 	seq     [2]uint32
 }
 
@@ -816,7 +841,8 @@ func (h *handshakeReader) unlimited() { h.n = -1 }
 func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 	// Bound the upgrade and the connection handshake so a client that connects and sends nothing cannot occupy a goroutine and socket forever, and cap the upgrade request's headers so it cannot stream an unbounded request into http.ReadRequest, which enforces no limit of its own.
 	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
-	hr := &handshakeReader{r: conn, n: maxWSHandshakeSize}
+	ir := &wsIdleReader{conn: conn}
+	hr := &handshakeReader{r: ir, n: maxWSHandshakeSize}
 	br := bufio.NewReader(hr)
 	req, err := http.ReadRequest(br)
 	if err != nil {
@@ -878,9 +904,11 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
+	// A client that sends nothing, not even the pong to the server's pings, for the idle timeout is gone: its network vanished without closing the TCP connection.
+	ir.idle = s.ka.idle
 	stop := make(chan struct{})
 	defer close(stop)
-	go wsPingLoop(conn, &client.writeMu, false, s.ka.ping, stop)
+	go wsPingLoop(conn, &client.writeMu, &client.closing, false, s.ka.ping, stop)
 	s.readClientLoop(client)
 }
 
@@ -956,8 +984,6 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 	inFrag := false
 
 	for {
-		// A client that sends nothing, not even the pong to the server's pings, for the idle timeout is gone: its network vanished without closing the TCP connection.
-		_ = c.conn.SetReadDeadline(time.Now().Add(s.ka.idle))
 		fin, op, payload, _, err := readWSFrame(c.br)
 		if err != nil {
 			return
@@ -965,13 +991,13 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 		switch op {
 		case wsOpPing:
 			c.writeMu.Lock()
-			_ = writeWSFrameDeadline(c.conn, wsOpPong, false, payload)
+			_ = writeWSFrameDeadline(c.conn, &c.closing, wsOpPong, false, payload)
 			c.writeMu.Unlock()
 		case wsOpPong:
 			continue
 		case wsOpClose:
 			c.writeMu.Lock()
-			_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
+			_ = writeWSFrameDeadline(c.conn, &c.closing, wsOpClose, false, nil)
 			c.writeMu.Unlock()
 			// A browser cannot drop its socket without a close frame, so a client that closes to reconnect says so with its close code.
 			goodbye = wsCloseCode(payload) != wsCloseReconnect
@@ -1072,7 +1098,7 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 		c.writeMu.Lock()
 		c.seq[ch]++
 		frame := encodeWireFrame(ch, c.seq[ch], payload)
-		err := writeWSFrameDeadline(c.conn, wsOpBinary, false, frame)
+		err := writeWSFrameDeadline(c.conn, &c.closing, wsOpBinary, false, frame)
 		c.writeMu.Unlock()
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -1109,7 +1135,7 @@ func (s *WebSocketServer) Peers() []PeerID {
 	return s.table.connectedIDs()
 }
 
-// Close stops accepting new clients and closes all active client connections.
+// Close stops accepting new clients and closes all active client connections. It sends each client a close frame, waiting at most a second for clients that do not read, all at once rather than one after another.
 func (s *WebSocketServer) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -1125,12 +1151,22 @@ func (s *WebSocketServer) Close() error {
 	}
 	s.mu.Unlock()
 
+	// Break every Send or ping already blocked on a client that does not read before waiting for any write lock.
 	for _, c := range clients {
-		c.writeMu.Lock()
-		_ = writeWSFrameDeadline(c.conn, wsOpClose, false, nil)
-		c.writeMu.Unlock()
-		_ = c.conn.Close()
+		c.closing.Store(true)
+		_ = c.conn.SetWriteDeadline(time.Now())
 	}
+	var wg sync.WaitGroup
+	for _, c := range clients {
+		wg.Go(func() {
+			c.writeMu.Lock()
+			_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+			_ = writeWSFrame(c.conn, wsOpClose, false, nil)
+			c.writeMu.Unlock()
+			_ = c.conn.Close()
+		})
+	}
+	wg.Wait()
 	return s.ln.Close()
 }
 

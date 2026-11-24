@@ -218,3 +218,53 @@ func TestClientWorldRejectsOlderTicksAcrossTheWrap(t *testing.T) {
 		t.Fatalf("latest tick = %d, want 5", latest)
 	}
 }
+
+// #546: a server that restarts its tick count, for a new match or a hot restart, sends ticks the client takes as stale. Reset lets the client start over.
+func TestClientWorldResetAcceptsATickCountThatStartsOver(t *testing.T) {
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{})
+	server := hub.AddPeer(1)
+	cli := gamenet.NewClientWorld(hub.AddPeer(2), 1)
+	var spawned, despawned []gamenet.EntityID
+	cli.OnSpawn = func(e gamenet.EntityState) { spawned = append(spawned, e.ID) }
+	cli.OnDespawn = func(id gamenet.EntityID) { despawned = append(despawned, id) }
+
+	old := gamenet.NewServerWorld(server)
+	a := old.Spawn(gamenet.EntityState{})
+	b := old.Spawn(gamenet.EntityState{})
+	if err := old.Step(100000); err != nil {
+		t.Fatal(err)
+	}
+	if got := cli.Poll(); got != 1 {
+		t.Fatalf("Poll applied %d snapshots of the first match, want 1", got)
+	}
+
+	next := gamenet.NewServerWorld(server)
+	c := next.Spawn(gamenet.EntityState{ComponentState: gamenet.ComponentState{X: 7}})
+	if err := next.Step(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := cli.Poll(); got != 0 {
+		t.Fatalf("Poll applied %d snapshots at tick 0 before Reset; serial-number order should take them as stale", got)
+	}
+
+	spawned = nil
+	cli.Reset()
+	if _, ok := cli.LatestTick(); ok {
+		t.Fatal("LatestTick reports a tick after Reset")
+	}
+	if len(despawned) != 2 || despawned[0] != min(a, b) || despawned[1] != max(a, b) {
+		t.Fatalf("Reset despawned %v, want %d and %d in order", despawned, a, b)
+	}
+	if err := next.Step(1); err != nil {
+		t.Fatal(err)
+	}
+	if got := cli.Poll(); got != 1 {
+		t.Fatalf("Poll applied %d snapshots after Reset, want 1", got)
+	}
+	if tick, ok := cli.LatestTick(); !ok || tick != 1 {
+		t.Fatalf("latest tick = %d, %v; want 1", tick, ok)
+	}
+	if e, ok := cli.Entity(c); !ok || e.X != 7 || len(spawned) != 1 || spawned[0] != c {
+		t.Fatalf("after Reset entity %d = %+v, %v; spawned %v", c, e, ok, spawned)
+	}
+}

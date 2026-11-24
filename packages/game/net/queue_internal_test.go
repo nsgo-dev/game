@@ -89,3 +89,21 @@ func BenchmarkLoopbackRecvDrain(b *testing.B) {
 		}
 	}
 }
+
+// A burst grows the buffer; once it is drained the queue gives the buffer back instead of holding the burst's capacity for good.
+func TestPacketQueueReleasesItsBufferAfterABurst(t *testing.T) {
+	var q packetQueue
+	for i := range 10 * packetQueueKeep {
+		q.push(Packet{Seq: uint32(i)})
+	}
+	for q.len() > 0 {
+		q.pop()
+	}
+	if c := cap(q.buf); c > packetQueueKeep {
+		t.Fatalf("drained queue keeps capacity %d, want at most %d", c, packetQueueKeep)
+	}
+	q.push(Packet{Seq: 1})
+	if p, ok := q.pop(); !ok || p.Seq != 1 {
+		t.Fatalf("pop after the burst = %+v, %v", p, ok)
+	}
+}

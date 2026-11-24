@@ -438,6 +438,7 @@ func (s *UDPServer) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.err = nil
 	s.mu.Unlock()
 	return s.conn.Close()
 }
@@ -613,6 +614,10 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
+			// The client's socket is connected, so an ICMP port unreachable, for example while the server restarts, comes back as ECONNREFUSED on the next read. It concerns one datagram: keep reading and let keepAlive's idle timeout decide whether the server is gone.
+			if udpReadRetry(err) {
+				continue
+			}
 			c.lost(conn, fmt.Errorf("%w: %w", ErrDisconnected, err))
 			return
 		}
