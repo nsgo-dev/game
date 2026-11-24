@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 )
 
 const (
@@ -86,7 +88,7 @@ func DefaultOptions() Options {
 	}
 }
 
-// Scan walks dir deterministically, skipping dot-prefixed entries and Go source files, and returns the discovered asset entries sorted by Path with unique Go identifiers.
+// Scan walks dir deterministically, skipping dot-prefixed entries, Go source files and import settings sidecars (files named *.import.yaml, as package importsettings names them), and returns the discovered asset entries sorted by Path with unique Go identifiers.
 func Scan(dir string, opts Options) ([]Entry, error) {
 	cfg, err := normalizeOptions(opts)
 	if err != nil {
@@ -111,7 +113,8 @@ func Scan(dir string, opts Options) ([]Entry, error) {
 			}
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") || strings.EqualFold(filepath.Ext(d.Name()), ".go") {
+		// An import settings sidecar says how game assets builds an asset; the game never loads it.
+		if strings.HasPrefix(d.Name(), ".") || strings.EqualFold(filepath.Ext(d.Name()), ".go") || importsettings.IsSidecar(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(dir, p)

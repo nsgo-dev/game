@@ -270,3 +270,54 @@ func TestOneGameYAMLServesReleaseEditorAndAssets(t *testing.T) {
 		t.Fatalf("assets stdout = %q", got)
 	}
 }
+
+// TestAssetsRereadsAnEditedSidecar holds issue #487's acceptance: changing a setting in the import settings sidecar beside an image changes the imported asset on the next game assets run.
+func TestAssetsRereadsAnEditedSidecar(t *testing.T) {
+	project := newAssetsProject(t)
+	root := filepath.Dir(project)
+	sidecar := filepath.Join(root, "art/ui/dot.png.import.yaml")
+	frames := func() string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(root, "assets/ui.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, name := range []string{`"dot.png"`, `"dot_0.png"`, `"dot_1.png"`, `"dot_3.png"`} {
+			if strings.Contains(string(data), name) {
+				names = append(names, name)
+			}
+		}
+		return strings.Join(names, " ")
+	}
+	runAssets := func(want string) {
+		t.Helper()
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"assets", "-in", project}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		if stdout.String() != want {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+
+	runAssets("built atlas assets/ui\nbuilt manifest gen/assets_gen.go\n2 built, 0 up to date\n")
+	if got := frames(); got != `"dot.png"` {
+		t.Fatalf("frames without a sidecar: %s", got)
+	}
+	if err := os.WriteFile(sidecar, []byte("version: 1\nimage:\n  slice: {width: 4, height: 4}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runAssets("built atlas assets/ui\n1 built, 1 up to date\n")
+	if got := frames(); got != `"dot_0.png" "dot_1.png" "dot_3.png"` {
+		t.Fatalf("frames after slicing into 4x4 cells: %s", got)
+	}
+	if err := os.WriteFile(sidecar, []byte("version: 1\nimage:\n  slice: {width: 4, height: 4, count: 2}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runAssets("built atlas assets/ui\n1 built, 1 up to date\n")
+	if got := frames(); got != `"dot_0.png" "dot_1.png"` {
+		t.Fatalf("frames after editing the count to 2: %s", got)
+	}
+	runAssets("0 built, 2 up to date\n")
+}
