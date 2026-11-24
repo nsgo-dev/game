@@ -6,7 +6,7 @@
 import "github.com/nsgo-dev/game/packages/game/render3d"
 ```
 
-All matrices, bounding boxes, rays, and frustums follow [math3d](math3d.md) conventions.
+All matrices, bounding boxes, rays, and frustums follow [math3d](math3d.md) conventions. To composite 2D sprite batches and screen-space layers over a 3D `gpu.View`, see [`Overlay3D` in `game/scene`](scene.md#2d-layers-over-a-3d-view-overlay3d).
 
 ## Frustum culling, draw sorting, instancing, and LOD (`Queue`)
 

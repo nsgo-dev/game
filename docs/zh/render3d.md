@@ -6,7 +6,7 @@
 import "github.com/nsgo-dev/game/packages/game/render3d"
 ```
 
-所有矩阵、包围盒、射线与视锥体均遵循 [math3d](math3d.md) 约定。
+所有矩阵、包围盒、射线与视锥体均遵循 [math3d](math3d.md) 约定。若要在 3D `gpu.View` 上叠加绘制 2D 精灵批次与屏幕空间图层，参见 [`game/scene` 中的 `Overlay3D`](scene.md#3d-视图上的-2d-图层overlay3d)。
 
 ## 视锥裁剪、绘制排序、实例化与 LOD（`Queue`）
 

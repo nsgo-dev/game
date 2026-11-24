@@ -115,3 +115,28 @@ mgr.Update(dt)
 // In Canvas.Draw (automatically subscribes to scene changes & transitions):
 mgr.Draw(d, size, alpha.Get())
 ```
+
+## 2D layers over a 3D view (`Overlay3D`)
+
+`Overlay3D` renders 2D screen-space layers (`SpaceScreen`), standalone `*sprite.Batch`es, and custom draw callbacks in a transparent `core.Canvas` stacked directly over a 3D `gpu.View` (and beneath any native NSGo HUD views in `gpu.ViewProps.Children`):
+
+```go
+ov := scene.NewOverlay3D(cx)
+ov.Scene = hudScene      // draws visible SpaceScreen layers (SpaceWorld layers are skipped)
+ov.AddLayer(crosshair)   // extra 2D layers merged by stable ascending Layer.Order
+ov.AddBatch(markerBatch) // standalone sprite batches drawn over the layers
+ov.Viewport = &screen.Viewport{Width: 320, Height: 180, Mode: screen.ModeFit}
+
+// Mount directly over a 3D gpu.View:
+return ov.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady:     onReady,
+	OnFrame:     onFrame,
+	Children:    nativeHUDViews, // rendered above the 2D overlay canvas
+})
+```
+
+- **Draw order**: visible `SpaceScreen` layers from `Scene` and visible `Layers` merge in stable ascending `Layer.Order`, followed by `Batches` in slice order and `OnDraw` (wrapped in `Save`/`Restore`). Call `Scene.DrawScreenLayers(d)` directly if you manage your own canvas.
+- **Transparency & virtual viewports**: the overlay canvas has no background fill so transparent regions reveal the 3D scene underneath and semi-transparent sprites alpha-blend over it. When `Viewport` is set with a zero `BarColor`, letterbox and pillarbox margins stay transparent instead of painting opaque black bars over the 3D view; set `BarColor` explicitly (such as `core.RGB(0x000000)`) to draw bars.
+- **Pointer pass-through & hit testing**: by default the overlay canvas sets `core.PointerEventsNone` so clicks and touches pass straight through to the 3D `gpu.View`. Set `Interactive: true` (or `OnPress`) to handle pointer events directly on the overlay canvas, or call `ov.HitTest`, `ov.HitTestAll`, `ov.DispatchPress`, and `ov.DispatchTouch` manually with the view size.
+- **3D-to-2D projection**: map a 3D world position into 2D overlay coordinates with `scene.ProjectToOverlay(cam, worldPos, viewW, viewH)` (or `ov.Project(cam, worldPos, windowSize)` to convert into `ov.Viewport`'s virtual coordinates) so 2D health bars, reticles, and markers track 3D objects accurately. Call `ov.Invalidate()` (or `ov.SetHidden(bool)`) whenever dynamic 2D overlay state changes.

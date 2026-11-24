@@ -115,3 +115,28 @@ mgr.Update(dt)
 // 在 Canvas.Draw 中（自动订阅场景切换与过渡帧）：
 mgr.Draw(d, size, alpha.Get())
 ```
+
+## 3D 视图上的 2D 图层（`Overlay3D`）
+
+`Overlay3D` 在透明的 `core.Canvas` 中绘制 2D 屏幕空间图层（`SpaceScreen`）、独立的 `*sprite.Batch` 与自定义绘制回调，并直接叠放在 3D `gpu.View` 之上（同时位于 `gpu.ViewProps.Children` 中原生 NSGo HUD 视图之下）：
+
+```go
+ov := scene.NewOverlay3D(cx)
+ov.Scene = hudScene      // 仅绘制可见的 SpaceScreen 图层（自动跳过 SpaceWorld 图层）
+ov.AddLayer(crosshair)   // 额外的 2D 图层，按 Layer.Order 稳定升序合并绘制
+ov.AddBatch(markerBatch) // 在图层之上绘制的独立精灵批次
+ov.Viewport = &screen.Viewport{Width: 320, Height: 180, Mode: screen.ModeFit}
+
+// 直接叠放在 3D gpu.View 之上：
+return ov.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady:     onReady,
+	OnFrame:     onFrame,
+	Children:    nativeHUDViews, // 渲染在 2D 叠加画布之上
+})
+```
+
+- **绘制顺序**：`Scene` 中可见的 `SpaceScreen` 图层与 `Layers` 中可见图层合并后按 `Layer.Order` 稳定升序绘制，随后按切片顺序绘制 `Batches`，最后在 `Save`/`Restore` 保护下执行 `OnDraw`。如果自行管理画布，也可直接调用 `Scene.DrawScreenLayers(d)`。
+- **透明叠层与虚拟视口**：叠加画布默认无背景填充，透明区域会完整透出下方的 3D 画面，半透明精灵则直接与 3D 画面进行 Alpha 混合。配置 `Viewport` 且 `BarColor` 为零值时，上下/左右黑边区域保持透明而不遮挡 3D 视图；如需绘制不透明黑边，请显式设置 `BarColor`（例如 `core.RGB(0x000000)`）。
+- **指针穿透与命中测试**：叠加画布默认设置 `core.PointerEventsNone`，点击和触摸会无阻挡地穿透到下方的 3D `gpu.View`。需要画布直接接收指针事件时可设置 `Interactive: true`（或提供 `OnPress`），也可结合视图尺寸手动调用 `ov.HitTest`、`ov.HitTestAll`、`ov.DispatchPress` 和 `ov.DispatchTouch`。
+- **3D 到 2D 投影**：使用 `scene.ProjectToOverlay(cam, worldPos, viewW, viewH)`（或使用 `ov.Project(cam, worldPos, windowSize)` 自动转换到 `ov.Viewport` 虚拟坐标）将 3D 世界坐标投影到 2D 叠加层，便于让血条、准星和标记精准跟随 3D 物体。动态 2D 叠加内容更新后调用 `ov.Invalidate()`（或 `ov.SetHidden(bool)`）即可触发重绘。
