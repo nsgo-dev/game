@@ -48,6 +48,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2，需要 `inherits`）。 |
 | `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2，需要 `inherits`）。 |
 | `layers` | 列表 | 有序图层列表，按 `order` 从小到大绘制，`order` 相同时保持文档顺序。 |
+| `connections` | 列表 | 可选，把一个对象的事件连接到另一个对象的处理函数，写在图层之后（两个版本均可用，见[连接](#连接490)）。 |
 
 ### 相机（Camera）
 
@@ -330,6 +331,75 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 默认值不会写回文档，因此加载后再保存场景不会改变任何内容；`reg.Resolve("body", fields)` 返回补齐默认值后的全部字段。`ValidateComponents` 用于检查在 Go 中构建的文档（没有位置信息），`CheckField` 检查单个值并把它规范化为 `bool`、`int`、`float64` 或 `string`。不带注册表的 `Parse` 仍不限制 `components` 的内容。
 
 在编辑器中，`Editor.SetComponentRegistry(reg)` 会先检查当前打开的场景，之后 `OpenFile` 报告组件错误时会带上文件和行号，`SetComponentField` 与 `PlaceObject` 会拒绝注册表不允许的字段。更换注册表会清空撤销/重做历史，因此新注册表不允许的已撤销编辑无法再重做。检查器按声明顺序列出组件的每个已注册字段，场景中未设置的字段显示其默认值；字段标签的提示信息给出说明、种类、范围和默认值，数值输入框受范围限制，并按字段的 `Step` 步进（未设置时整数为 1、浮点数为 0.1）。浮点数按完整精度显示，注册表拒绝的编辑会显示在状态栏中。没有注册类型的组件，或者没有设置注册表时的所有组件，仍按文件中的值显示。
+
+### 连接（#490）
+
+场景文件可以把一个对象发出的事件连接到另一个对象的处理函数，就像 Godot 在 `.tscn` 文件里写的 `[connection]` 条目，于是按钮能打开门，而不需要任何点名这两个对象的 Go 代码：
+
+```yaml
+layers:
+  - name: props
+    objects:
+      - id: button
+        components:
+          button: {}
+      - id: door
+        components:
+          door: {}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+    args:
+      speed: 2.5
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `from` | `string` | 必填，发出事件的对象 ID。 |
+| `event` | `string` | 必填，事件名，如 `pressed`；对象有多个组件声明了同名事件时写成 `button.pressed` 指明组件。 |
+| `to` | `string` | 必填，运行处理函数的对象 ID，可以就是 `from` 本身。 |
+| `handler` | `string` | 必填，处理函数名，如 `open`，或 `door.open`。 |
+| `args` | 映射 | 可选，按名称给处理函数的参数赋值，每个值是布尔、数字或字符串；没写的参数取默认值。 |
+| `once` | `bool` | 事件第一次触发后断开连接，相当于 Godot 的一次性连接。 |
+
+事件和处理函数来自组件注册表：`ComponentType` 列出带有该组件的对象会发出的 `Events` 和能运行的 `Handlers`，每个处理函数有带类型的 `Params`（声明与检查方式同字段）以及运行它的 `Func`。游戏只需为每种组件注册一次它做什么，哪些对象连在一起由场景文件决定。
+
+```go
+reg.MustRegister(sceneformat.ComponentType{
+	Name:   "button",
+	Events: []sceneformat.Event{{Name: "pressed", Doc: "The player pressed the button."}},
+})
+reg.MustRegister(sceneformat.ComponentType{
+	Name:   "door",
+	Fields: []sceneformat.Field{{Name: "open", Kind: sceneformat.FieldBool}},
+	Handlers: []sceneformat.Handler{{
+		Name:   "open",
+		Params: []sceneformat.Field{{Name: "speed", Kind: sceneformat.FieldFloat, Default: 1.0, Min: sceneformat.Float64(0)}},
+		Func: func(c sceneformat.Call) {
+			c.Target.Components["door"].(map[string]any)["open"] = true
+		},
+	}},
+})
+
+doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: "scenes/hall.scene.yaml", Components: reg})
+signals, err := sceneformat.Connect(doc, reg, game)
+// 在游戏处理“按下带 button 组件的对象”的地方：
+err = signals.Emit(objectID, "pressed", nil)
+```
+
+`Connect(doc, reg, ctx)` 检查场景的组件和连接，返回一个 `*Signals`。`Signals.Emit(from, event, payload)` 按文件中列出的顺序调用该事件每条连接的处理函数，已经运行过的 `once` 连接会跳过。每个处理函数收到一个 `Call`：`Signals` 本身（处理函数可以继续发出事件，最多嵌套 `MaxEmitDepth` 层）、传给 `Connect` 的 `ctx`（如游戏状态或 `*BuiltScene`）、场景中源对象与目标对象的 `*ObjectDoc`、事件与处理函数所属的组件和名称、包含全部参数的 `Args`（连接给的值或默认值），以及 `payload`。场景中没有的对象、其已注册组件都没有声明的事件，`Emit` 都会拒绝。实例化或继承了其他场景文件的场景要在 `Resolve` 之后连接（或使用 `BuiltScene.Doc`）；`Signals` 不能并发使用。
+
+`Parse` 检查连接的形式：四个名称都已填写，`event` 和 `handler` 写成名称或 `component.name`，参数是布尔、有限数字或字符串，没有重复的连接；场景不引用其他场景文件时，`from` 和 `to` 还必须是场景里的对象。提供注册表时，`ParseWith` 还会按注册表检查这些名称，并以带文件、行号和列号的 `*ConnectionError` 报告：对象的已注册组件都没有声明的事件或处理函数、被对象的两个组件同时声明的裸名称、处理函数没有对应参数的实参，以及类型不对或超出范围的实参。错误会列出该对象实际声明了什么：
+
+```text
+scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "door" opne): no registered component of object "door" declares handler "opne" (it has: door.open)
+```
+
+`ValidateConnections` 对已解析的文档做同样的检查，但不带位置。`Register` 拒绝名称为空、含有点号或与该类型已有名称重复的事件和处理函数，处理函数参数的检查规则与字段相同；只用于检查文件的注册表（如编辑器的）可以不设 `Func`，但 `Connect` 会拒绝它。
+
+`Resolve` 会带上连接：实例化场景的连接随实例一起进来，其中的对象名与对象 ID 一样加上前缀（`door_1/button`），因此预制件的每个副本都保留自己的连线；继承的场景保留基础场景的连接，并把自己的连接加在后面。场景可以连接它所实例化或继承的场景中的对象，这些名称在解析之后才检查。在编辑器中，`DeleteObject` 会同时删除来自或指向被删对象及其后代的连接，撤销删除时把它们放回原处。
 
 ### 项目
 
