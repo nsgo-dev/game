@@ -1,10 +1,13 @@
 package render3d_test
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/nsgo/gpu"
 )
 
 // tree returns a draw item for a 2x2x2 tree mesh centered at x, z.
@@ -57,4 +60,36 @@ func ExampleCheckBudget() {
 	}
 	// Output:
 	// draw_calls: 400 exceeds budget 200
+}
+
+// An Uploader decodes an asset on a background worker and spreads its GPU writes over frames, never writing more than BytesPerFrame in one Step. Here a quad's 128-byte vertex buffer and 12-byte index buffer stream at 64 bytes per frame; a game calls Step once per frame from OnFrame.
+func ExampleUploader() {
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
+	defer sr.Close()
+	u := render3d.NewUploader(nil, sr.Device(), render3d.UploaderOptions{BytesPerFrame: 64, Workers: 1})
+	defer func() { _ = u.Close() }()
+
+	u.QueueMesh(context.Background(), render3d.PriorityHigh, func(context.Context) (render3d.Mesh, error) {
+		// Read and parse the model file here, off the engine goroutine.
+		return render3d.Mesh{
+			Positions: []math3d.Vec3{{X: -1, Y: -1}, {X: 1, Y: -1}, {X: 1, Y: 1}, {X: -1, Y: 1}},
+			Indices:   []uint32{0, 1, 2, 0, 2, 3},
+		}, nil
+	}, func(m *render3d.GPUMesh, err error) {
+		fmt.Println("ready:", m.VertexCount(), "vertices,", m.IndexCount(), "indices, error:", err)
+	}, render3d.MeshUpload{Label: "quad"})
+
+	for u.Pending() > 0 {
+		stats := u.Step()
+		if stats.BytesUploaded == 0 {
+			time.Sleep(time.Millisecond) // still decoding
+			continue
+		}
+		fmt.Println("frame:", stats.BytesUploaded, "bytes")
+	}
+	// Output:
+	// frame: 64 bytes
+	// frame: 64 bytes
+	// ready: 4 vertices, 6 indices, error: <nil>
+	// frame: 12 bytes
 }
