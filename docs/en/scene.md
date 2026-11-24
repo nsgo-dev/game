@@ -140,3 +140,40 @@ return ov.View(cx, gpu.ViewProps{
 - **Transparency & virtual viewports**: the overlay canvas has no background fill so transparent regions reveal the 3D scene underneath and semi-transparent sprites alpha-blend over it. When `Viewport` is set with a zero `BarColor`, letterbox and pillarbox margins stay transparent instead of painting opaque black bars over the 3D view; set `BarColor` explicitly (such as `core.RGB(0x000000)`) to draw bars.
 - **Pointer pass-through & hit testing**: by default the overlay canvas sets `core.PointerEventsNone` so clicks and touches pass straight through to the 3D `gpu.View`. Set `Interactive: true` (or `OnPress`) to handle pointer events directly on the overlay canvas, or call `ov.HitTest`, `ov.HitTestAll`, `ov.DispatchPress`, and `ov.DispatchTouch` manually with the view size.
 - **3D-to-2D projection**: map a 3D world position through a column-major view-projection matrix (such as `cam.ViewProj()` from `game/scene3d`) into 2D overlay coordinates with `scene.ProjectToOverlay(cam.ViewProj(), p.X, p.Y, p.Z, viewW, viewH)` (or `ov.Project(cam.ViewProj(), p.X, p.Y, p.Z, windowSize)` to convert into `ov.Viewport`'s virtual coordinates) so 2D health bars, reticles, and markers track 3D objects accurately. Call `ov.Invalidate()` (or `ov.SetHidden(bool)`) whenever dynamic 2D overlay state changes.
+
+
+## Native HUD over a 3D view (`HUD3D`)
+
+`HUD3D` composes native NSGo views (`ui.Button`, `ui.Card`, `ui.Badge`, `ui.Progress`, `ui.Switch`, `core.Text`, and custom `core.View` trees) over a 3D `gpu.View` with automatic safe-area insets, reactive visibility toggling, and mouse/touch pass-through:
+
+```go
+hud := scene.NewHUD3D(cx)
+hud.Padding = core.All(12)
+
+// Decorative readout: mouse and touch pass straight through to the 3D scene.
+hud.AddPassThrough(scene.HUDTopLeft, ui.Badge{Text: "HP 100"})
+
+// Interactive controls anchored to safe-area corners:
+hud.AddAt(scene.HUDTopRight, ui.Button{
+	Text:    "Pause",
+	OnPress: togglePause,
+})
+hud.AddAt(scene.HUDBottomRight, ui.Button{
+	Text:    "Jump",
+	OnPress: triggerJump,
+})
+
+// Mount directly over a 3D gpu.View:
+return hud.View(cx, gpu.ViewProps{
+	DepthFormat: gpu.FormatDepth24Plus,
+	OnReady:     onReady,
+	OnFrame:     onFrame,
+	OnPress:     pick3DObject,
+})
+```
+
+- **Mouse and touch pass-through**: the HUD overlay container uses `core.PointerEventsBoxNone` so interactive HUD controls handle clicks and touches directly while open regions pass mouse and touch events unobstructed to the 3D view underneath. Mark decorative elements (such as crosshairs or score readouts) with `AddPassThrough` (or `HUDSlot{PassThrough: true}`) to apply `core.PointerEventsNone`.
+- **Anchors & custom layouts**: place widgets with `AddAt` / `AddPassThrough` / `AddSlot` at any of the 9 safe-area anchors (`HUDTopLeft`, `HUDTopCenter`, `HUDTopRight`, `HUDCenterLeft`, `HUDCenter`, `HUDCenterRight`, `HUDBottomLeft`, `HUDBottomCenter`, `HUDBottomRight`) or `HUDFull`, or add custom pass-through containers directly with `Add` / `Children`.
+- **Safe-area insets**: `core.EnvSafeArea` padding is applied automatically (combined with `HUD3D.Padding`) so HUD controls stay clear of notches, status bars, and home indicators and adapt reactively on rotation. Set `IgnoreSafeArea: true` or call `hud.SetSafeArea(false)` to disable it.
+- **Visibility toggle**: call `hud.SetHidden(true)`, `hud.SetVisible(false)`, or `hud.Toggle()` to hide the HUD (`core.DisplayNone` + `core.PointerEventsNone`) without remounting HUD state; while hidden, all clicks and touches reach the 3D view.
+- **Composing with 3D input wrappers or 2D overlays**: use `hud.Wrap(cx, view3D)` to Z-stack the HUD as a sibling over any already-built 3D view (for example a `gpu.View` wrapped in a `core.View` handling `OnMouseDown`, `OnMouseMove`, and `OnTouch` for 3D camera orbit), or mount `hud.Layer(cx)` directly inside `gpu.ViewProps.Children` above a 2D overlay canvas.
