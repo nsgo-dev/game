@@ -260,11 +260,11 @@ fn fs_outline(in: ToonOutlineOut) -> @location(0) vec4<f32> {
 
 // ToonMaterial defines cel/toon shading parameters: banded diffuse lighting (or a 1D ramp texture), hard stepped specular highlights, Fresnel rim lighting, and inverted-hull outline styling (#262).
 type ToonMaterial struct {
-	// BaseColor is the linear RGBA base surface color multiplier.
-	BaseColor [4]float32
-	// BaseColorTexture is an optional 2D albedo texture multiplied with BaseColor. When nil, a 1x1 opaque white fallback texture is bound automatically.
+	// BaseColorFactor is the linear RGBA base surface color multiplier, as in [Material]. Its alpha is written to the output alpha, which only a pipeline built with [NewToonPipeline] and a [ToonPipelineOptions.Blend] blends with: [ToonRenderer] draws opaque.
+	BaseColorFactor [4]float32
+	// BaseColorTexture is an optional 2D albedo texture multiplied with BaseColorFactor. When nil, [MaterialDefaults.WhiteSRGB] is bound.
 	BaseColorTexture *GPUTexture
-	// BaseColorSampler is the sampler for BaseColorTexture. When nil, a default linear-repeat sampler is created.
+	// BaseColorSampler is the sampler for BaseColorTexture. When nil, [MaterialDefaults.Sampler] (linear repeat) is bound.
 	BaseColorSampler *GPUSampler
 
 	// ShadowColor is the linear RGB tint applied to the darkest diffuse band.
@@ -276,7 +276,7 @@ type ToonMaterial struct {
 
 	// RampTexture is an optional 1D horizontal cel-ramp texture (height >= 1) sampled at u = clamp(N·L, 0, 1). When non-nil, its RGB value replaces analytical band quantization.
 	RampTexture *GPUTexture
-	// RampSampler is the sampler for RampTexture. When nil, a default linear-clamp sampler is created so ramp endpoints do not wrap.
+	// RampSampler is the sampler for RampTexture. When nil and RampTexture is set, the material creates a linear-clamp sampler so the ramp's ends do not wrap into each other.
 	RampSampler *GPUSampler
 
 	// SpecularColor is the linear RGB color of the stepped cel specular highlight. Zero disables specular highlights.
@@ -295,7 +295,7 @@ type ToonMaterial struct {
 	// RimSmoothness controls rim edge softness in [0, 0.5]. Zero gives a crisp rim step.
 	RimSmoothness float32
 
-	// OutlineColor is the linear RGBA color of the inverted-hull outline pass.
+	// OutlineColor is the linear RGBA color of the inverted-hull outline pass. An alpha of 0 turns the outline off; other alpha values only blend in a pipeline built with [NewToonOutlinePipeline] and a [ToonPipelineOptions.Blend], since [ToonRenderer] draws opaque.
 	OutlineColor [4]float32
 	// OutlineWidth is the normal-extrusion distance for the inverted-hull outline pass (in world units, or NDC fraction when OutlineClipSpace is true). Zero disables the outline pass.
 	OutlineWidth float32
@@ -306,7 +306,7 @@ type ToonMaterial struct {
 // DefaultToonMaterial returns a ready-to-use cel-shaded material with 3 crisp bands, a cool shadow tint, subtle specular and rim highlights, and a dark silhouette outline.
 func DefaultToonMaterial() ToonMaterial {
 	return ToonMaterial{
-		BaseColor:          [4]float32{1, 1, 1, 1},
+		BaseColorFactor:    [4]float32{1, 1, 1, 1},
 		ShadowColor:        [3]float32{0.25, 0.28, 0.38},
 		Bands:              DefaultToonBands,
 		BandSmoothness:     0,
@@ -345,13 +345,13 @@ func (m ToonMaterial) HasOutline() bool {
 
 // Validate checks every scalar, color, band count, threshold, and optional GPU handle on m. Every error wraps [ErrInvalidToonMaterial].
 func (m ToonMaterial) Validate() error {
-	for i, c := range m.BaseColor[:3] {
+	for i, c := range m.BaseColorFactor[:3] {
 		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: BaseColor[%d] = %v must be finite and >= 0", ErrInvalidToonMaterial, i, c)
+			return fmt.Errorf("%w: BaseColorFactor[%d] = %v must be finite and >= 0", ErrInvalidToonMaterial, i, c)
 		}
 	}
-	if !finite(m.BaseColor[3]) || m.BaseColor[3] < 0 || m.BaseColor[3] > 1 {
-		return fmt.Errorf("%w: BaseColor alpha %v must be in [0, 1]", ErrInvalidToonMaterial, m.BaseColor[3])
+	if !finite(m.BaseColorFactor[3]) || m.BaseColorFactor[3] < 0 || m.BaseColorFactor[3] > 1 {
+		return fmt.Errorf("%w: BaseColorFactor alpha %v must be in [0, 1]", ErrInvalidToonMaterial, m.BaseColorFactor[3])
 	}
 	for i, c := range m.ShadowColor {
 		if !finite(c) || c < 0 {
@@ -432,7 +432,7 @@ func (m ToonMaterial) AppendUniformData(dst []byte) []byte {
 
 	vals := [28]float32{
 		// base_color
-		m.BaseColor[0], m.BaseColor[1], m.BaseColor[2], m.BaseColor[3],
+		m.BaseColorFactor[0], m.BaseColorFactor[1], m.BaseColorFactor[2], m.BaseColorFactor[3],
 		// shadow_bands
 		m.ShadowColor[0], m.ShadowColor[1], m.ShadowColor[2], float32(m.EffectiveBands()),
 		// spec_color_pow
@@ -606,10 +606,10 @@ func EvaluateToon(mat ToonMaterial, in ToonEvalInput) [4]float32 {
 		tex = *in.BaseSample
 	}
 	albedo := [4]float32{
-		mat.BaseColor[0] * tex[0],
-		mat.BaseColor[1] * tex[1],
-		mat.BaseColor[2] * tex[2],
-		mat.BaseColor[3] * tex[3],
+		mat.BaseColorFactor[0] * tex[0],
+		mat.BaseColorFactor[1] * tex[1],
+		mat.BaseColorFactor[2] * tex[2],
+		mat.BaseColorFactor[3] * tex[3],
 	}
 
 	n, ok := toonNormalizeVec3(in.Normal)
@@ -818,30 +818,31 @@ type ToonMaterialOptions struct {
 	Label string
 	// Layout is an optional shared layout from [ToonMaterialBindingLayout] or [ToonRenderer.MaterialLayout]. When nil, the material creates and owns its own layout.
 	Layout *gpu.BindGroupLayout
-	// Retained keeps CPU shadow copies of owned buffers, fallback textures, and samplers so NSGo restores them automatically after a device loss. Any caller-supplied BaseColorTexture, RampTexture, or samplers must also be created with Retained for full restoration.
+	// Retained keeps a CPU shadow copy of the uniform buffer (and of the ramp sampler the material creates) so NSGo restores them after a device loss. The [MaterialDefaults] and any caller-supplied textures and samplers must be retained too for the bind group to come back.
 	Retained bool
 }
 
-// GPUToonMaterial holds a [ToonMaterial]'s uniform buffer, fallback 1x1 white textures/samplers when needed, and bind group for @group([ToonMaterialGroup]). Resources belong to the [core.Scope] passed to [NewGPUToonMaterial] and are released when that scope is disposed or when [GPUToonMaterial.Close] is called.
+// GPUToonMaterial holds a [ToonMaterial]'s uniform buffer and its bind group for @group([ToonMaterialGroup]). Omitted textures and samplers come from a shared [MaterialDefaults]. Resources belong to the [core.Scope] passed to [NewGPUToonMaterial] and are released when that scope is disposed or when [GPUToonMaterial.Close] is called.
 type GPUToonMaterial struct {
 	mat      ToonMaterial
 	layout   *gpu.BindGroupLayout
 	ownLay   bool
 	uniform  *gpu.Buffer
 	group    *gpu.BindGroup
-	whiteTex *gpu.Texture
-	baseSamp *gpu.Sampler
 	rampSamp *gpu.Sampler
 	scratch  [ToonUniformSize]byte
 }
 
-// NewGPUToonMaterial validates mat and allocates its GPU uniform buffer, any needed 1x1 white fallback texture or default samplers, and its @group(1) bind group on dev, scoped to cx. Invalid parameters return an error wrapping [ErrInvalidToonMaterial] before touching the device.
-func NewGPUToonMaterial(cx *core.Scope, dev *gpu.Device, mat ToonMaterial, opts ToonMaterialOptions) (*GPUToonMaterial, error) {
+// NewGPUToonMaterial validates mat and allocates its uniform buffer and @group(1) bind group on dev, scoped to cx, binding defaults' 1x1 white textures and sampler for omitted textures and samplers, as [NewGPUMaterial] does. Create one [MaterialDefaults] per device and share it. Invalid parameters or defaults return an error wrapping [ErrInvalidToonMaterial] before touching the device.
+func NewGPUToonMaterial(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, mat ToonMaterial, opts ToonMaterialOptions) (*GPUToonMaterial, error) {
 	if err := mat.Validate(); err != nil {
 		return nil, err
 	}
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	if !defaults.Valid() {
+		return nil, fmt.Errorf("%w: material defaults are not valid", ErrInvalidToonMaterial)
 	}
 	if opts.Layout != nil && !opts.Layout.Valid() {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: invalid toon material bind group layout"}
@@ -882,69 +883,31 @@ func NewGPUToonMaterial(cx *core.Scope, dev *gpu.Device, mat ToonMaterial, opts 
 		return nil, err
 	}
 
-	needWhite := mat.BaseColorTexture == nil || mat.RampTexture == nil
-	if needWhite {
-		gm.whiteTex, err = dev.CreateTexture(cx, gpu.TextureDesc{
-			Label:     label + " white",
-			Dimension: gpu.Dim2D,
-			Width:     1,
-			Height:    1,
-			MipLevels: 1,
-			Format:    gpu.FormatRGBA8Unorm,
-			Usage:     gpu.TextureSampled | gpu.TextureCopyDst,
-			Retained:  opts.Retained,
-		})
-		if err != nil {
-			return nil, err
-		}
-		dev.WriteTexture(
-			gm.whiteTex,
-			gpu.TextureCopy{Texture: gm.whiteTex},
-			[]byte{255, 255, 255, 255},
-			gpu.DataLayout{BytesPerRow: 4, RowsPerImage: 1},
-		)
-	}
-
-	var baseTex *gpu.Texture
+	baseTex := defaults.WhiteSRGB().Texture()
 	if mat.BaseColorTexture != nil {
 		baseTex = mat.BaseColorTexture.Texture()
-	} else {
-		baseTex = gm.whiteTex
 	}
-
-	var baseSamp *gpu.Sampler
+	baseSamp := defaults.Sampler().Sampler()
 	if mat.BaseColorSampler != nil {
 		baseSamp = mat.BaseColorSampler.Sampler()
-	} else {
-		baseOpts := SamplerLinearRepeat()
-		baseOpts.Label = label + " base sampler"
-		baseOpts.Retained = opts.Retained
-		gm.baseSamp, err = dev.CreateSampler(cx, baseOpts.Desc())
-		if err != nil {
-			return nil, err
-		}
-		baseSamp = gm.baseSamp
 	}
-
-	var rampTex *gpu.Texture
+	rampTex := defaults.WhiteLinear().Texture()
+	rampSamp := defaults.Sampler().Sampler()
 	if mat.RampTexture != nil {
 		rampTex = mat.RampTexture.Texture()
-	} else {
-		rampTex = gm.whiteTex
+		if mat.RampSampler == nil {
+			rampOpts := SamplerLinearClamp()
+			rampOpts.Label = label + " ramp sampler"
+			rampOpts.Retained = opts.Retained
+			gm.rampSamp, err = dev.CreateSampler(cx, rampOpts.Desc())
+			if err != nil {
+				return nil, err
+			}
+			rampSamp = gm.rampSamp
+		}
 	}
-
-	var rampSamp *gpu.Sampler
 	if mat.RampSampler != nil {
 		rampSamp = mat.RampSampler.Sampler()
-	} else {
-		rampOpts := SamplerLinearClamp()
-		rampOpts.Label = label + " ramp sampler"
-		rampOpts.Retained = opts.Retained
-		gm.rampSamp, err = dev.CreateSampler(cx, rampOpts.Desc())
-		if err != nil {
-			return nil, err
-		}
-		rampSamp = gm.rampSamp
 	}
 
 	gm.group, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
@@ -1031,16 +994,12 @@ func (m *GPUToonMaterial) BindGroup() *gpu.BindGroup {
 	return m.group
 }
 
-// ByteSize returns the GPU buffer memory owned by m (excluding caller-owned textures).
+// ByteSize returns the GPU buffer memory owned by m (excluding shared defaults and caller-owned textures).
 func (m *GPUToonMaterial) ByteSize() uint64 {
 	if m == nil || m.uniform == nil {
 		return 0
 	}
-	n := m.uniform.Size()
-	if m.whiteTex != nil {
-		n += 4
-	}
-	return n
+	return m.uniform.Size()
 }
 
 // Valid reports whether m's GPU resources are open and belong to a live device.
@@ -1051,19 +1010,13 @@ func (m *GPUToonMaterial) Valid() bool {
 	if !m.uniform.Valid() || !m.group.Valid() {
 		return false
 	}
-	if m.whiteTex != nil && !m.whiteTex.Valid() {
-		return false
-	}
-	if m.baseSamp != nil && !m.baseSamp.Valid() {
-		return false
-	}
 	if m.rampSamp != nil && !m.rampSamp.Valid() {
 		return false
 	}
 	return true
 }
 
-// Close releases all GPU resources owned by m (never closing caller-owned textures, samplers, or shared layouts). It is safe to call on a nil receiver or more than once.
+// Close releases all GPU resources owned by m (never closing the shared defaults, caller-owned textures and samplers, or shared layouts). It is safe to call on a nil receiver or more than once.
 func (m *GPUToonMaterial) Close() error {
 	if m == nil {
 		return nil
@@ -1074,12 +1027,6 @@ func (m *GPUToonMaterial) Close() error {
 	}
 	if m.uniform != nil {
 		err = errors.Join(err, m.uniform.Close())
-	}
-	if m.whiteTex != nil {
-		err = errors.Join(err, m.whiteTex.Close())
-	}
-	if m.baseSamp != nil {
-		err = errors.Join(err, m.baseSamp.Close())
 	}
 	if m.rampSamp != nil {
 		err = errors.Join(err, m.rampSamp.Close())
@@ -1236,7 +1183,7 @@ type ToonRendererOptions struct {
 	Retained bool
 }
 
-// ToonRenderer manages both the inverted-hull outline pipeline and main cel-shaded pipeline together with a dynamic-offset per-draw scene uniform buffer, drawing outlines first and cel-shaded surfaces second in a single render pass (#262).
+// ToonRenderer manages both the inverted-hull outline pipeline and main cel-shaded pipeline together with a dynamic-offset per-draw scene uniform buffer, drawing outlines first and cel-shaded surfaces second in a single render pass (#262). Both pipelines draw opaque, with depth writes; for blended toon surfaces build pipelines with [NewToonPipeline] and [NewToonOutlinePipeline] and a [ToonPipelineOptions.Blend].
 type ToonRenderer struct {
 	cx       *core.Scope
 	label    string
@@ -1348,11 +1295,11 @@ func (r *ToonRenderer) MaterialLayout() *gpu.BindGroupLayout {
 }
 
 // NewMaterial is a convenience wrapper around [NewGPUToonMaterial] that binds mat to r's [ToonRenderer.MaterialLayout] and inherits r's Retained setting.
-func (r *ToonRenderer) NewMaterial(cx *core.Scope, dev *gpu.Device, mat ToonMaterial, label string) (*GPUToonMaterial, error) {
+func (r *ToonRenderer) NewMaterial(cx *core.Scope, dev *gpu.Device, defaults *MaterialDefaults, mat ToonMaterial, label string) (*GPUToonMaterial, error) {
 	if r == nil || !r.Valid() {
 		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: toon renderer is not valid"}
 	}
-	return NewGPUToonMaterial(cx, dev, mat, ToonMaterialOptions{
+	return NewGPUToonMaterial(cx, dev, defaults, mat, ToonMaterialOptions{
 		Label:    label,
 		Layout:   r.matLayout,
 		Retained: r.retained,
