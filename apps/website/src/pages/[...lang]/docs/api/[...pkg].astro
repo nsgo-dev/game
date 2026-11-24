@@ -1,0 +1,23 @@
+---
+// A package's page of the API reference (lib/api-html.ts).
+import ApiPage from '../../../../components/api/ApiPage.astro';
+import type { ApiPackage } from '../../../../content/types.ts';
+import { copies } from '../../../../copy.ts';
+import { apiBuild } from '../../../../lib/api.ts';
+import { headings, packageHTML } from '../../../../lib/api-html.ts';
+import { langPaths } from '../../../../lib/paths.ts';
+import type { Lang } from '../../../../locales.ts';
+
+export function getStaticPaths() {
+	const build = apiBuild();
+	if (build.status !== 'ok') return [];
+	return langPaths().flatMap(({ params, props }) => build.ref.packages.map((pkg) => ({ params: { ...params, pkg: pkg.page }, props: { ...props, pkg } })));
+}
+const { lang, pkg } = Astro.props as { lang: Lang; pkg: ApiPackage };
+const copy = copies[lang].api;
+---
+
+<ApiPage lang={lang} title={`package ${pkg.name}`} description={pkg.synopsis} headings={headings(pkg, copy)}>
+	{copy.notice && <p class="api-notice">{copy.notice}</p>}
+	<Fragment set:html={packageHTML(pkg, copy)} />
+</ApiPage>

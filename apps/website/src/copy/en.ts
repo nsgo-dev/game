@@ -2,19 +2,10 @@
 
 export const en = {
   nav: {
-    skip: 'Skip to content',
-    primary: 'Primary',
-    home: 'Home',
     docs: 'Docs',
     playground: 'Playground',
     showcase: 'Showcase',
     roadmap: 'Roadmap',
-    nsgo: 'NSGo',
-    github: 'GitHub',
-    menu: 'Menu',
-    close: 'Close menu',
-    language: 'Language',
-    theme: { label: 'Appearance', light: 'Light', dark: 'Dark', system: 'System' },
   },
   site: {
     title: 'NSGo Game: a Go game layer for NSGo',
@@ -22,30 +13,11 @@ export const en = {
   },
   home: {
     badge: 'Early: APIs will change',
-    targets: 'Targets',
-    // Under the target chips: why consoles are not among them (#496).
-    consoles: 'Not consoles: Switch, PlayStation and Xbox SDKs are under NDA and need C toolchains.',
-    // The readouts under the hero's playfield: a short label shown, and the name a screen reader reads before the value.
-    hud: {
-      label: 'Playfield readouts',
-      step: 'Step',
-      stepName: 'Fixed update step',
-      fps: 'FPS',
-      fpsName: 'Measured frames per second',
-      sprites: 'Sprites',
-      spritesName: 'Sprites',
-      score: 'Score',
-      scoreName: 'Dots you lit',
-      // In place of a value while the field is not running.
-      idle: 'not running',
-    },
-    title: ['Games in Go,', 'on every NSGo target.'],
     // Around the link to NSGo.
     lead: [
       'A game layer for ',
       ' apps: a fixed-step loop, sprites and sound drawn into one native view, with the HUD and menus as ordinary NSGo views on top. It uses only NSGo’s public API, so an app that does not import it links none of it.',
     ],
-    docs: 'Read the docs',
     stages: {
       eyebrow: 'Roadmap',
       title: 'Five stages',
@@ -62,48 +34,8 @@ export const en = {
       ],
       more: 'Roadmap',
     },
-    packages: {
-      eyebrow: 'Packages',
-      title: 'Three packages so far',
-      lead: 'Each is its own import, tested, and described in the reference. The next ones are planned in issues.',
-      loop: 'Fixed-step updates on the display’s frames, one interpolated draw per frame. Pauses in the background.',
-      sprite: 'Atlases from TexturePacker or Aseprite, frame animations, and Z-ordered batches drawn into a Canvas.',
-      sound: 'A mixer with saved master and group volumes, per-sound limits, and music that crossfades.',
-      input: 'Named actions bound to keys, gamepads, touch regions and the mouse.',
-      tilemap: 'A camera, and tilemaps from Tiled drawn only where the camera sees.',
-      scene: 'Drawing layers, hit testing for touch and mouse, and switching between scenes.',
-      examples: 'Examples',
-      level: (n: number) => `Level ${String(n).padStart(2, '0')}`,
-      cleared: 'Cleared',
-      locked: 'Locked',
-      // Before the link to the issue a locked package is planned in.
-      plan: 'Plan',
-      // The closed issues of a locked package's area on the roadmap.
-      progress: (closed: number, total: number) => `${closed} of ${total} issues closed`,
-    },
-  },
-  cta: {
-    title: 'Make a game with NSGo',
-    body: 'Read how a frame runs, then follow the plan on GitHub.',
-  },
-  footer: {
-    tagline: 'A game layer for NSGo apps, written in Go.',
-    columns: { project: 'Project', nsgo: 'NSGo', community: 'Community', legal: 'Legal' },
-    website: 'Website',
-    plan: 'Plan (nsgo#1047)',
-    issues: 'Issues',
-    contributing: 'Contributing',
-    nsgoGithub: 'NSGo on GitHub',
-    license: 'License (Apache-2.0)',
-    llms: 'Docs for LLMs (llms.txt)',
-    llmsFull: 'Full docs for LLMs (llms-full.txt)',
-    bottom: '© 2026 ONEO. Apache-2.0.',
-    top: 'Back to top',
   },
   docs: {
-    titleSuffix: 'NSGo Game Docs',
-    nav: 'Docs',
-    pages: 'Pages',
     groups: {
       guides: 'Guides',
       tutorial: 'Tutorial',
@@ -114,17 +46,10 @@ export const en = {
       threeD: '3D',
       other: 'More',
     },
-    onThisPage: 'On this page',
-    previous: 'Previous',
-    next: 'Next',
-    edit: 'Edit this page',
-    fallback: 'This page is not translated yet, so it shows the English one.',
     reference: 'Reference',
-    status: { label: 'API stability', stable: 'Stable', experimental: 'Experimental' },
   },
   api: {
     title: 'API reference',
-    titleSuffix: 'NSGo Game API',
     description: 'Every exported identifier of the game’s Go packages, from their doc comments, with the same reference as JSON for agents.',
     // Around the link to the JSON.
     lead: ['Every package of the game layer, from the doc comments in its source, with an anchor for each exported identifier. Agents can read the same reference as JSON at ', '.'],
@@ -145,38 +70,12 @@ export const en = {
     unavailable: ['This build could not read the Go packages (', ').'],
   },
   roadmap: {
-    title: 'Roadmap — NSGo Game',
     description: 'The plan for games on NSGo in five stages: every open and closed issue under it in nsgo-dev/game and NSGo, by area.',
-    heading: 'Roadmap',
-    // Around the links to the repository's issues and to the plan.
-    intro: ['The issues of ', ' and NSGo under its plan, ', ', by stage and area.'],
-    // Around the date the issues were read.
-    asOf: [' As of ', '.'],
-    // Around the reason and the link to the plan.
-    unavailable: ['This build could not read the issues from GitHub (', '). See them on ', '.'],
-    stage: (n: number) => `Stage ${n}`,
-    // A stage's name by its number, in place of its issue's English title; empty where the title is shown as it is.
-    stageNames: [] as string[],
-    // A stage's description by its number, in place of the first paragraph of its issue's Context; empty where that English paragraph is shown as it is.
-    stageDescriptions: [] as string[],
-    closed: (closed: number, total: number) => `${closed} of ${total} closed`,
-    // The short label before a stage's closed and total issues, as a game shows experience.
-    xp: 'XP',
-    quest: 'Area',
-    open: 'Open',
-    closedState: 'Closed',
-    // The group of a stage's sub-issues that have none of their own.
-    single: 'Single issues',
-    unplanned: 'Unplanned',
-    unplannedCount: (n: number) => `${n} ${n === 1 ? 'issue' : 'issues'} of nsgo-dev/game in no stage of the plan.`,
-    dateLocale: 'en',
   },
   playground: {
-    title: 'Playground — NSGo Game',
     description: 'Run the examples in your browser beside their source, then run them on your machine to edit them.',
     heading: 'Playground',
     intro: 'The examples, built for the web, beside their source. To change one, run it on your machine: it rebuilds and reloads each time you save.',
-    exampleTitle: (name: string) => `${name} — Playground — NSGo Game`,
     examples: 'Examples',
     open: 'Open',
     files: (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`,
@@ -197,7 +96,6 @@ export const en = {
     },
   },
   showcase: {
-    title: 'Showcase — NSGo Game',
     description: 'Games, official examples, and starters built with NSGo Game across desktop, mobile, and the web.',
     heading: 'Showcase',
     intro: 'Games, built-in examples, and starter projects built on NSGo Game across desktop, mobile, and the web.',
@@ -221,13 +119,6 @@ export const en = {
       contributing: 'Contributing guide',
     },
   },
-  notFound: {
-    title: 'Page not found — NSGo Game',
-    heading: 'Page not found',
-    body: 'Nothing is at this address.',
-    where: 'Where to go',
-  },
-  ui: { copy: 'Copy', copied: 'Copied' },
 }
 
 export type Copy = typeof en

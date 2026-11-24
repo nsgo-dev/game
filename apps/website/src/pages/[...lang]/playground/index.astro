@@ -1,0 +1,41 @@
+---
+// The playground's examples, each opening its page with the game and its source.
+import { Page } from 'nsgo-website/components';
+import GameCard from '../../../components/GameCard.astro';
+import GameGrid from '../../../components/GameGrid.astro';
+import PageHead from '../../../components/PageHead.astro';
+import { copies } from '../../../copy.ts';
+import { langPaths, localePath } from '../../../lib/paths.ts';
+import { examples } from '../../../lib/playground.ts';
+import type { Lang } from '../../../locales.ts';
+
+export const getStaticPaths = langPaths;
+const { lang } = Astro.props as { lang: Lang };
+const copy = copies[lang].playground;
+---
+
+<Page lang={lang} title={copy.heading} description={copy.description}>
+	<div class="container own-page">
+		<PageHead title={copy.heading} text={copy.intro} />
+		<GameGrid label={copy.examples}>
+			{
+				examples().map((example) => {
+					const href = localePath(lang, `playground/${example.id}/`);
+					return (
+						<GameCard
+							level={2}
+							label={copy.files(example.files.length)}
+							kind="Web"
+							title={example.entry.title[lang]}
+							href={href}
+							description={example.entry.description[lang]}
+							tags={example.entry.tags}
+							meta={copy.lines(example.lines)}
+							links={[{ label: copy.open, href }]}
+						/>
+					);
+				})
+			}
+		</GameGrid>
+	</div>
+</Page>

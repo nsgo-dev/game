@@ -1,0 +1,47 @@
+---
+// The API reference's index: every package of the module, with its synopsis.
+import ApiPage from '../../../../components/api/ApiPage.astro';
+import { copies } from '../../../../copy.ts';
+import { apiBuild, groupPackages } from '../../../../lib/api.ts';
+import { platforms } from '../../../../lib/api-html.ts';
+import { BASE, langPaths, localePath } from '../../../../lib/paths.ts';
+import type { Lang } from '../../../../locales.ts';
+
+export const getStaticPaths = langPaths;
+const { lang } = Astro.props as { lang: Lang };
+const copy = copies[lang].api;
+const build = apiBuild();
+const groupTitle = (dir: string) => (dir === '' ? copy.packages : dir === 'tooling' ? copy.tooling : dir);
+---
+
+<ApiPage lang={lang} title={copy.title} description={copy.description}>
+	<p>
+		{copy.lead[0]}<a href={`${BASE}api.json`}><code>api.json</code></a>{copy.lead[1]}
+	</p>
+	{
+		build.status === 'ok' ? (
+			groupPackages(build.ref.packages).map((group) => (
+				<section class="api-section">
+					<h2 id={group.dir === '' ? 'packages' : group.dir}>{groupTitle(group.dir)}</h2>
+					<dl class="api-packages">
+						{group.items.map((pkg) => (
+							<>
+								<dt>
+									<a href={localePath(lang, `docs/api/${pkg.page}/`)}>{pkg.page}</a>
+									<Fragment set:html={platforms(copy, pkg.platforms)} />
+								</dt>
+								<dd lang="en">{pkg.synopsis}</dd>
+							</>
+						))}
+					</dl>
+				</section>
+			))
+		) : (
+			<p class="api-notice">
+				{copy.unavailable[0]}
+				{build.reason}
+				{copy.unavailable[1]}
+			</p>
+		)
+	}
+</ApiPage>
