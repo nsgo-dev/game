@@ -1447,7 +1447,7 @@ func NewLitPBRIBLPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayou
 	layouts[LightGroup] = lightLayout
 	layouts[PBRDrawGroup] = drawLayout
 	layouts[IBLGroup] = iblLayout
-	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_ibl", LitPBRIBLWGSL, layouts, dev.SurfaceFormat(), depthFormat)
+	return newLitPBRPipeline(cx, dev, "render3d.lit_pbr_ibl", LitPBRIBLWGSL, layouts, MeshVertexLayout(), dev.SurfaceFormat(), depthFormat)
 }
 
 // --- Internal math and sampling helpers ---
