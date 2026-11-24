@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: Cave Room
+virtualWidth: 320
+virtualHeight: 180
+backgroundColor: '#141824'
+camera:
+  x: 160
+  "y": 90
+  zoom: 1
+  bounds:
+    width: 320
+    height: 180
+tilemaps:
+  floor_grid:
+    tileWidth: 16
+    tileHeight: 16
+    width: 4
+    height: 2
+    tileset: cave_tiles
+    data: [1, 2, 2, 1, 1, 0, 0, 1]
+layers:
+  - name: hud
+    space: screen
+    order: 100
+    visible: true
+    objects:
+      - id: heart_1
+        name: Heart Slot 1
+        x: 8
+        "y": 8
+        sprite:
+          atlas: ui
+          frame: heart
+        properties:
+          slot: 1
+  - name: floor
+    space: world
+    tilemap:
+      ref: floor_grid
+  - name: actors
+    space: world
+    order: 10
+    objects:
+      - id: hero
+        name: Hero
+        prefab: prefabs/hero
+        x: 48
+        "y": 40
+        originX: 8
+        originY: 8
+        z: 5
+        sprite:
+          atlas: actors
+          frame: hero
+        components:
+          collider:
+            h: 14
+            w: 12
+          health:
+            current: 10
+            max: 10
+        properties:
+          spawn: true
+          tag: player
+      - id: torch
+        name: Wall Torch
+        x: 96
+        "y": 32
+        flipX: true
+        alpha: 0.75
+        z: 1
+        sprite:
+          atlas: actors
+          frame: torch
+        properties:
+          lit: true
+          radius: 48.5
+      - id: exit_trigger
+        name: Cave Exit
+        x: 280
+        "y": 90
+        components:
+          trigger:
+            height: 32
+            target: overworld
+            width: 16
+        properties:
+          locked: false
+  - name: debug_overlay
+    space: world
+    order: 50
+    visible: false
+    objects:
+      - id: debug_marker
+        x: 10
+        "y": 10
+        sprite:
+          atlas: actors
+          frame: hero

@@ -1,6 +1,6 @@
 // Package formattest checks, in a format package's tests, that a YAML format this repository defines follows the rules in AGENTS.md: it refuses unknown fields and versions it does not support, writes the same bytes every time it saves the same value, and loads and saves each of its testdata files without changing a byte.
 //
-// Every package that defines such a format runs [Run] from a test, and TestFormatPackagesRunConformance in package game fails a package that reads strict YAML and does not.
+// Every package that defines such a format runs [Run] from a test, and TestFormatPackagesRunConformance in package game fails a package that decodes YAML and does not, unless it is listed there as one that reads no format of its own.
 package formattest
 
 import (
@@ -28,7 +28,7 @@ const saves = 8
 
 // Format describes one YAML format for [Run]: how to load and save it, and the testdata files that hold documents in it.
 type Format[T any] struct {
-	// Decode loads a document, as the format's Parse function does. It must refuse a document with an unknown top-level field, with no version field and with a version newer than the one it supports, naming the field in its error.
+	// Decode loads a document, as the format's Parse function does. It must refuse a document with an unknown top-level field, with no version field, with a version of 0 and with a version newer than the one it supports, naming the field in its error.
 	Decode func(data []byte) (T, error)
 	// Encode saves a value, as the format's Encode function does.
 	Encode func(v T) ([]byte, error)
@@ -46,7 +46,7 @@ type check struct {
 	run  func() error
 }
 
-// Run checks f, each rule in a subtest of its own: that Decode refuses an unknown field, a missing version and a future version in each testdata file; that Encode writes the same bytes each time it saves a value, including one it loaded from its own output; and that each testdata file loads and saves to the same bytes.
+// Run checks f, each rule in a subtest of its own: that Decode refuses an unknown field, a missing version, a version of 0 and a future version in each testdata file; that Encode writes the same bytes each time it saves a value, including one it loaded from its own output; and that each testdata file loads and saves to the same bytes.
 func Run[T any](t *testing.T, f Format[T]) {
 	t.Helper()
 	checks, err := f.checks(os.Getenv(UpdateEnv) == "1")
