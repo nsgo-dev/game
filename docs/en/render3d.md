@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, and camera uniforms for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, and camera uniforms for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -195,6 +195,41 @@ morph.Draw(pass)
 - **Live object-space bounds**: `GPUMorphMesh.Bounds` evaluates pending CPU blends on demand (caching the result so `Update` does not blend twice) and keeps the underlying `GPUMesh.Bounds` in sync for frustum culling.
 - **Device-loss restore**: with `MeshUpload.Retained`, NSGo recreates the vertex buffer with the last uploaded morphed bytes after a device loss; if `SetWeights` is called while the device is lost, the mesh stays `Dirty` so the first `Update` after restore uploads the pending pose.
 
+## Metallic-roughness materials (`Material`, `MaterialDefaults`, `GPUMaterial`)
+
+`Material` (aliased as `MetallicRoughnessMaterial`) represents a glTF 2.0 metallic-roughness PBR surface with base color (`BaseColorFactor`, `BaseColorTexture`), metallic-roughness (`MetallicFactor`, `RoughnessFactor`, `MetallicRoughnessTexture` using the glTF G = roughness, B = metallic channel packing), tangent-space normal mapping (`NormalTexture`, `NormalScale`), ambient occlusion (`OcclusionTexture`, `OcclusionStrength`), emissive (`EmissiveFactor`, `EmissiveTexture`), alpha modes (`AlphaOpaque`, `AlphaMask` with `AlphaCutoff`, `AlphaBlend`), and `DoubleSided` back-face normal flipping.
+
+Create one shared `MaterialDefaults` per `gpu.Device` to own the `MaterialGroup` (group 1) bind group layout, default linear-repeat sampler, and 1×1 fallback textures (white sRGB for missing base color, white linear for missing metallic-roughness/occlusion, flat `(128, 128, 255, 255)` for missing normal maps, and black for missing emissive maps). Because every `GPUMaterial` binds those fallbacks for omitted slots, all materials share one bind group layout with zero pipeline permutations:
+
+```go
+defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+pipe, err := render3d.NewMaterialPipeline(cx, dev, camBuf.Layout(), defaults.Layout(), render3d.MaterialPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	AlphaMode:   render3d.AlphaOpaque,
+})
+
+mat := render3d.DefaultMaterial()
+mat.BaseColorFactor = [4]float32{0.95, 0.78, 0.34, 1}
+mat.MetallicFactor = 1.0
+mat.RoughnessFactor = 1.0
+mat.MetallicRoughnessTexture = mrTex // G = roughness, B = metallic
+mat.NormalTexture = normalTex        // tangent-space normal map (+X right, +Y up, +Z out)
+
+gpuMat, err := render3d.NewGPUMaterial(cx, dev, defaults, mat, render3d.MaterialUpload{
+	Label:    "brushed-gold",
+	Retained: true,
+})
+
+// In OnFrame, alongside CameraGroup (group 0):
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+gpuMat.Bind(pass) // binds at MaterialGroup (group 1)
+mesh.Draw(pass)
+```
+
+- **Zero-allocation uniform encoding and dynamic updates**: `MaterialUniforms.AppendUniformData` and `Encode` write the 16-byte-aligned 64-byte uniform block (`MaterialUniformSize`) with zero allocations when capacity is available. `GPUMaterial.Update(dev, m)` updates scalar factors and flags in place without recreating the bind group; passing `dev` explicitly lets retained materials stay updatable after a device loss and restore.
+- **Portable normal mapping and Cook-Torrance GGX shading**: `MaterialWGSL` (built from `CameraWGSL` + `MaterialBindingsWGSL`) derives an API-independent tangent frame from screen-space `dpdx`/`dpdy` derivatives (Cramer's rule across Metal, D3D11, OpenGL, WebGPU, WebGL 2, and GLES 3.0) and falls back to a deterministic orthonormal frame when derivatives or UVs are degenerate, so standard 32-byte `MeshVertexLayout` meshes get accurate normal mapping without extra vertex attributes.
+- **CPU reference and golden tests**: `EvaluateMaterial` implements the exact same Cook-Torrance GGX BRDF, hemisphere ambient, normal perturbation, alpha cutoff, and Reinhard + sRGB tone mapping in pure Go. `render3d`'s tests verify GPU pixel readback directly against `EvaluateMaterial`, golden reference renders (`pbr_metallic_roughness_ramp.png` and `pbr_textured_normal_maps.png`), and `gpu.View` execution on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles; `UPDATE_GOLDEN=1` rewrites the golden PNGs.
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:
