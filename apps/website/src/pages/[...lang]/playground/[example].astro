@@ -17,7 +17,8 @@ const copy = copies[lang].playground;
 const all = examples();
 const example = all.find((e) => e.id === id)!;
 const name = example.entry.title[lang];
-const build = `${BASE}${PLAYGROUND_BUILDS}/${example.id}/`;
+// The build's page by its file name: the dev server serves public/ without directory indexes.
+const build = `${BASE}${PLAYGROUND_BUILDS}/${example.id}/index.html`;
 const megabytes = (example.wasm / 1_000_000).toFixed(1);
 ---
 
