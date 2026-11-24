@@ -29,7 +29,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	ViewSizeFunc:    g.currentViewSize,
 	Console:         g.console,
 	Overlay:         g.debugOverlay,
-	RenderStatsFunc: func() render3d.RenderStats { return g.lastRenderStats },
+	RenderStatsFunc: func() mcp.PerfRender3DStats { return mcp.PerfRender3DStats(g.lastRenderStats) },
 })
 if err != nil {
 	return err
@@ -197,7 +197,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 通过 `Config.Overlay` 传入 [`debug.Overlay`](debug.md)，即可把调试 HUD 显示的帧耗时、绘制统计（`debug.Options.DrawStats` 或 `Overlay.SetDrawStats`）、GC 与每帧分配计数（`debug.GCMonitor`）、资源内存（`debug.MemoryTracker`）以及命名计时区间（`debug.Profiler`）以完全一致的数值暴露给智能体。
 
 - `Config.Profiler`、`Config.GC`、`Config.Memory` 与 `Config.DrawStatsFunc` 既可覆盖 `Config.Overlay` 上的对应组件，也可在不启用浮层时单独使用。
-- `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。
+- `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。`mcp.PerfRender3DStats` 与 `render3d.RenderStats` 字段相同，可直接用 `mcp.PerfRender3DStats(stats)` 转换；`game/mcp` 不导入 `game/render3d`，因此挂接桥接器的 2D 游戏不会链接 3D 渲染器。
 - `game_perf_readout` 始终返回 `sources` 对象，标明哪些遥测来源已启用（`overlay`、`profiler`、`gc`、`memory`、`draw_stats`、`render3d`）。
 
 ## 稳定的实体引用

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/debug"
-	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/nsgo/automation"
 )
 
@@ -50,7 +49,7 @@ type PerfZoneInfo struct {
 	Calls  int     `json:"calls"`
 }
 
-// PerfRender3DStats mirrors render3d.RenderStats in snake_case JSON form.
+// PerfRender3DStats is a 3D renderer's per-frame statistics in snake_case JSON form. It has the same fields in the same order as render3d.RenderStats, so a game converts one with mcp.PerfRender3DStats(stats) and game/mcp does not link the 3D renderer.
 type PerfRender3DStats struct {
 	TotalItems       int    `json:"total_items"`
 	CulledItems      int    `json:"culled_items"`
@@ -355,7 +354,7 @@ func (b *Bridge) handlePerfReadout(_ context.Context, raw json.RawMessage) (any,
 	if b.cfg.RenderStatsFunc != nil {
 		rs := b.cfg.RenderStatsFunc()
 		res.Sources.Render3D = true
-		res.Render3D = render3DStatsFrom(rs)
+		res.Render3D = &rs
 		if !res.Sources.DrawStats {
 			res.DrawCalls = rs.TotalDrawCalls
 			res.Batches = rs.InstancedBatches
@@ -463,25 +462,6 @@ func collectZones(p *debug.Profiler, limit int) ([]PerfZoneInfo, int) {
 		})
 	}
 	return zones, total
-}
-
-func render3DStatsFrom(rs render3d.RenderStats) *PerfRender3DStats {
-	return &PerfRender3DStats{
-		TotalItems:       rs.TotalItems,
-		CulledItems:      rs.CulledItems,
-		Occluded:         rs.Occluded,
-		VisibleItems:     rs.VisibleItems,
-		OpaqueDraws:      rs.OpaqueDraws,
-		TransparentDraws: rs.TransparentDraws,
-		InstancedBatches: rs.InstancedBatches,
-		TotalDrawCalls:   rs.TotalDrawCalls,
-		Triangles:        rs.Triangles,
-		Vertices:         rs.Vertices,
-		MaterialSwitches: rs.MaterialSwitches,
-		PipelineSwitches: rs.PipelineSwitches,
-		TextureBytes:     rs.TextureBytes,
-		BufferBytes:      rs.BufferBytes,
-	}
 }
 
 func memorySummaryFrom(mem *debug.MemoryTracker) *PerfMemorySummary {

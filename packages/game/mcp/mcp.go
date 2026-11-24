@@ -18,7 +18,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/random"
-	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/nsgo/automation"
@@ -143,8 +142,8 @@ type Config struct {
 	// DrawStatsFunc dynamically supplies per-frame draw statistics (draw calls, sprites, batches, triangles, vertices). When nil, performance tools fall back to Overlay.DrawStats() or RenderStatsFunc.
 	DrawStatsFunc func() debug.DrawStats
 
-	// RenderStatsFunc dynamically supplies 3D per-frame render statistics (culling, batching, state switches, geometry and GPU memory).
-	RenderStatsFunc func() render3d.RenderStats
+	// RenderStatsFunc supplies 3D per-frame render statistics (culling, batching, state switches, geometry and GPU memory). A game using game/render3d returns mcp.PerfRender3DStats(stats) for its latest render3d.RenderStats.
+	RenderStatsFunc func() PerfRender3DStats
 }
 
 type compTypeKey any
