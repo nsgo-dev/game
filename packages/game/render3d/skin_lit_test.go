@@ -337,3 +337,26 @@ func TestSkinnedPipelinesRejectSharedGroups(t *testing.T) {
 		_ = p.Close()
 	}
 }
+
+// TestSkinnedBoundsContainPosedMesh checks that SkinnedBounds contains every CPU-skinned vertex of the posed CesiumMan while the unskinned Bounds does not.
+func TestSkinnedBoundsContainPosedMesh(t *testing.T) {
+	sm, worldJoints, _, _ := posedCesiumMan(t)
+	_, posed := cpuSkinMesh(sm, worldJoints)
+	bind := sm.Bounds()
+	got := render3d.SkinnedBounds(bind, worldJoints)
+	const eps = 1e-4
+	if got.Min.X > posed.Min.X+eps || got.Min.Y > posed.Min.Y+eps || got.Min.Z > posed.Min.Z+eps ||
+		got.Max.X < posed.Max.X-eps || got.Max.Y < posed.Max.Y-eps || got.Max.Z < posed.Max.Z-eps {
+		t.Fatalf("SkinnedBounds = %v, does not contain posed mesh bounds %v", got, posed)
+	}
+	if bind.Min.Y <= posed.Min.Y && bind.Max.Y >= posed.Max.Y && bind.Min.Z <= posed.Min.Z && bind.Max.Z >= posed.Max.Z {
+		t.Fatalf("unskinned bounds %v already contain the posed mesh %v; the fixture does not exercise SkinnedBounds", bind, posed)
+	}
+	if b := render3d.SkinnedBounds(bind, nil); b != bind {
+		t.Errorf("SkinnedBounds(bind, nil) = %v, want %v", b, bind)
+	}
+	allocs := testing.AllocsPerRun(10, func() { _ = render3d.SkinnedBounds(bind, worldJoints) })
+	if allocs != 0 {
+		t.Errorf("SkinnedBounds allocated %v times, want 0", allocs)
+	}
+}

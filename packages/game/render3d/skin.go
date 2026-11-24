@@ -353,13 +353,25 @@ func (m SkinnedMesh) IndexFormat() gpu.IndexFormat {
 	return gpu.IndexUint32
 }
 
-// Bounds returns the object-space bind-pose axis-aligned box around m.Positions, or [math3d.AABBEmpty] when m has none.
+// Bounds returns the axis-aligned box around the unskinned m.Positions in the mesh's own space, or [math3d.AABBEmpty] when m has none. It is not where the mesh is drawn: the skinned pipelines place vertices with the joint matrices, which move, rotate and animate them, so cull and frame a skinned mesh with [SkinnedBounds] instead.
 func (m SkinnedMesh) Bounds() math3d.AABB {
 	b := math3d.AABBEmpty()
 	for _, p := range m.Positions {
 		b = b.ExpandPoint(p)
 	}
 	return b
+}
+
+// SkinnedBounds returns a conservative axis-aligned box around a skinned mesh drawn with joints: the union of bind (the mesh's [SkinnedMesh.Bounds] or [GPUSkinnedMesh.Bounds]) transformed by every joint matrix. Each skinned vertex is a weighted average of the vertex under its joints' matrices, so it lies inside that union for any pose. With an empty joints slice it returns bind unchanged, matching how [GPUSkinPalette] pads unused slots with identity matrices. It does not allocate.
+func SkinnedBounds(bind math3d.AABB, joints []math3d.Mat4) math3d.AABB {
+	if bind.Empty() || len(joints) == 0 {
+		return bind
+	}
+	out := math3d.AABBEmpty()
+	for i := range joints {
+		out = out.Union(bind.Transform(joints[i]))
+	}
+	return out
 }
 
 // VertexDataSize returns the byte length [SkinnedMesh.AppendVertexData] appends.
@@ -528,7 +540,7 @@ func (g *GPUSkinnedMesh) Triangles() uint32 {
 	return g.vertexCount / 3
 }
 
-// Bounds returns the bind-pose object-space box computed at upload.
+// Bounds returns the unskinned box [SkinnedMesh.Bounds] computed at upload. Pass it to [SkinnedBounds] with the frame's joint matrices to get a box around the drawn mesh for culling.
 func (g *GPUSkinnedMesh) Bounds() math3d.AABB { return g.bounds }
 
 // ByteSize returns the GPU memory held by the mesh's buffers, or 0 for a nil mesh.
