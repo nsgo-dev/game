@@ -143,5 +143,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/tooling/pack` | Experimental | |
 | `game/tween` | Stable | [tween](tween.md) |
 | `game/undo` | Experimental | [undo](undo.md) |
+| `game/vn` | Experimental | [vn](vn.md) |
+| `game/vn/cmd/vnsample` | Experimental | [vn](vn.md) |
 | `game/world3d` | Experimental | [world3d](world3d.md) |
 | `game/worldmap` | Experimental | [worldmap](worldmap.md) |
