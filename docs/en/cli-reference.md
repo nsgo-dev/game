@@ -86,7 +86,9 @@ Open the scene editor on a project or a YAML scene, and an animation clip on one
 game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
 ```
 
-No flags.
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-library string` |  | show the library panel, which installs packs into the open project, for this library index: an https URL such as https://raw.githubusercontent.com/nsgo-dev/game/main/library/index.yaml, an index file, or a directory holding index.yaml |
 
 ## game release
 
@@ -228,6 +230,21 @@ game index [flags] [dir]
 | --- | --- | --- |
 | `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (alternative to the positional argument; defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
+
+## game library
+
+Find asset, editor plugin and template packs in a library and install them into a project, remove them, or print a pack's digest for the library's index.
+
+```sh
+game library [flags] list [words] | install <pack>... | remove <pack>... | digest <pack-dir>
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-dir string` |  | install the pack into this directory of the project instead of the one its manifest names (one pack at a time) |
+| `-index string` | `https://raw.githubusercontent.com/nsgo-dev/game/main/library/index.yaml` | the library's index: an https URL, an index file, or a directory holding index.yaml |
+| `-kind string` |  | list only packs of this kind: asset, plugin, template |
+| `-project string` | `.` | the project directory holding game.yaml, which install and remove change and list marks installed packs from |
 
 ## game completion
 

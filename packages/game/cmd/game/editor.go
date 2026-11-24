@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"math"
@@ -12,22 +13,25 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
+// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named. With -library it shows the library panel, which installs packs from that library into the open project. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
 var editorCommand = &command{
 	name:    "editor",
 	args:    "[project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]",
 	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named",
 	define:  defineEditor,
 	complete: map[string]completion{
-		"": filePaths,
+		"library": filePaths,
+		"":        filePaths,
 	},
 }
 
 func defineEditor(a *app, fs *flag.FlagSet) func() error {
+	lib := fs.String("library", "", "show the library panel, which installs packs into the open project, for this library index: an https URL such as "+library.DefaultIndex+", an index file, or a directory holding index.yaml")
 	return func() error {
 		if fs.NArg() > 3 {
 			return usagef("expected at most a project or scene file, a clip file and an object ID, got %d arguments", fs.NArg())
@@ -35,6 +39,11 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 		ed, err := newDemoEditor()
 		if err != nil {
 			return err
+		}
+		if *lib != "" {
+			if ed.Library, err = library.Open(context.Background(), *lib); err != nil {
+				return err
+			}
 		}
 		if err := openArgs(ed, fs.Args()); err != nil {
 			return err

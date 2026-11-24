@@ -324,7 +324,7 @@ func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
 	if want := []string{"web"}; !reflect.DeepEqual(settings.Targets, want) {
 		t.Fatalf("targets %q, want %q", settings.Targets, want)
 	}
-	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets"}
+	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets", "packs"}
 	if !reflect.DeepEqual(gameFileKeys, want) {
 		t.Fatalf("gameFileKeys = %q, want %q", gameFileKeys, want)
 	}

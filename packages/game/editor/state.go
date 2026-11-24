@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -173,6 +174,8 @@ type Editor struct {
 	ProjectPath string
 	// ScenePath is the open scene's slash-separated path from the project root, as Resolver names scene files (for example "scenes/level.scene.yaml"), or empty when the scene has no such path. PlaceObject and PlaceScene resolve the edited scene under this path, so they refuse an instance that would lead back to the open scene and make the saved file instance itself. OpenYAML clears it, since the loaded scene may come from another file; set it again after OpenFile.
 	ScenePath string
+	// Library is the pack library the library panel lists and installs from into the open project (InstallPack); nil hides the panel.
+	Library *library.Library
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
@@ -216,6 +219,8 @@ type Editor struct {
 	nextID       int
 	nextListener uint64
 	listeners    map[uint64]func()
+	// fetching names the pack the library panel is fetching from a remote library, or is empty.
+	fetching string
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

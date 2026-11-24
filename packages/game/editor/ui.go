@@ -13,6 +13,7 @@ import (
 //   - Left Asset Browser panel
 //   - Center interactive Canvas viewport
 //   - Right Property Inspector panel
+//   - The library panel, when Editor.Library is set (LibraryView)
 //   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
 //   - Animation panel below them while a clip is open (AnimationPanelView)
 //   - Bottom status bar
@@ -52,19 +53,27 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 					FlexBasis: core.Pt(0),
 					Overflow:  core.Hidden,
 				},
-				Children: []core.Node{
-					AssetBrowserView(cx, ed, rev),
-					pluginDockView(cx, ed, rev, DockLeft),
-					ViewportView(cx, ed, rev),
-					InspectorView(cx, ed, rev),
-					pluginDockView(cx, ed, rev, DockRight),
-				},
+				Children: mainRow(cx, ed, rev),
 			},
 			pluginDockView(cx, ed, rev, DockBottom),
 			AnimationPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
+}
+
+// mainRow is the editor's middle row: the asset browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
+func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
+	row := []core.Node{AssetBrowserView(cx, ed, rev)}
+	if ed.Library != nil {
+		row = append(row, LibraryView(cx, ed, rev))
+	}
+	return append(row,
+		pluginDockView(cx, ed, rev, DockLeft),
+		ViewportView(cx, ed, rev),
+		InspectorView(cx, ed, rev),
+		pluginDockView(cx, ed, rev, DockRight),
+	)
 }
 
 func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
