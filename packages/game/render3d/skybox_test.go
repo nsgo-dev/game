@@ -91,10 +91,7 @@ func cardinalCubemap(size int) *render3d.Cubemap {
 	}
 }
 
-// studioEnvironmentCubemap constructs a deterministic high-contrast studio
-// environment with a bright warm key light in the upper-right hemisphere, a
-// sky-blue upper dome, a subtle horizon glow, and a cool dark studio floor so
-// reflections and diffuse irradiance clearly reveal roughness and metallicity.
+// studioEnvironmentCubemap constructs a deterministic high-contrast studio environment with a bright warm key light in the upper-right hemisphere, a sky-blue upper dome, a subtle horizon glow, and a cool dark studio floor so reflections and diffuse irradiance clearly reveal roughness and metallicity.
 func studioEnvironmentCubemap(size int) *render3d.Cubemap {
 	cm, err := render3d.GradientSkyCubemap(
 		[3]float32{0.18, 0.42, 0.88}, // zenith: rich blue sky
@@ -363,8 +360,7 @@ func TestIrradianceSH(t *testing.T) {
 		}
 	}
 
-	// 2. Upper hemisphere white (y > 0), lower black (y < 0):
-	//    E(+Y) = pi, E(horizon) = pi/2, E(-Y) = 0.
+	// 2. Upper hemisphere white (y > 0), lower black (y < 0): E(+Y) = pi, E(horizon) = pi/2, E(-Y) = 0.
 	hemi := &render3d.Cubemap{}
 	const sz = 16
 	for face := range gpu.CubeFace(6) {
@@ -456,9 +452,7 @@ func TestPrefilterEnvironment(t *testing.T) {
 		}
 	}
 
-	// 2. High-contrast studio environment blurs progressively with higher LOD
-	//    (variance across directions strictly decreases from mip 0 to max mip)
-	//    and is bit-for-bit deterministic across repeated runs.
+	// 2. High-contrast studio environment blurs progressively with higher LOD (variance across directions strictly decreases from mip 0 to max mip) and is bit-for-bit deterministic across repeated runs.
 	studio := studioEnvironmentCubemap(16)
 	opts := render3d.PrefilterOptions{BaseSize: 16, MipLevels: 4, SampleCount: 32}
 	prefA, err := render3d.PrefilterEnvironment(studio, opts)
@@ -521,8 +515,7 @@ func TestGenerateBRDFLUTAndEnvBRDFApprox(t *testing.T) {
 		t.Fatalf("LUT bounds = %v, want 32x32", lut.Bounds())
 	}
 
-	// Smooth surface at normal incidence (high NoV, low roughness):
-	// scale + bias ≈ 1.0 (white mirror reflects nearly 100%).
+	// Smooth surface at normal incidence (high NoV, low roughness): scale + bias ≈ 1.0 (white mirror reflects nearly 100%).
 	cNormalSmooth := lut.RGBAAt(31, 0)
 	sumNormalSmooth := float64(cNormalSmooth.R)/255.0 + float64(cNormalSmooth.G)/255.0
 	if math.Abs(sumNormalSmooth-1.0) > 0.05 {
@@ -535,9 +528,7 @@ func TestGenerateBRDFLUTAndEnvBRDFApprox(t *testing.T) {
 		t.Errorf("expected grazing Fresnel bias (%d) well above normal incidence (%d)", cGrazing.G, cNormalSmooth.G)
 	}
 
-	// Analytical EnvBRDFApprox (Karis 2014 mobile fit) agrees closely with the
-	// Monte Carlo LUT for dielectrics (f0=0.04) and tracks metallic energy
-	// attenuation (for f0=1.0, Karis's fit simplifies to 1.0 - 0.55*roughness).
+	// Analytical EnvBRDFApprox (Karis 2014 mobile fit) agrees closely with the Monte Carlo LUT for dielectrics (f0=0.04) and tracks metallic energy attenuation (for f0=1.0, Karis's fit simplifies to 1.0 - 0.55*roughness).
 	for _, py := range []int{2, 8, 16, 26} {
 		rough := float32((float64(py) + 0.5) / 32.0)
 		for _, px := range []int{4, 12, 24, 30} {
@@ -661,8 +652,7 @@ func TestSkyboxDrawsBehindSceneAndMatchesReference(t *testing.T) {
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
 
-	// 1. Verify cardinal cubemap faces align with camera look directions and are
-	//    invariant to camera translation.
+	// 1. Verify cardinal cubemap faces align with camera look directions and are invariant to camera translation.
 	cardCube, err := render3d.UploadCubemap(nil, dev, cardinalCubemap(8), render3d.CubemapUpload{Label: "cardinal"})
 	if err != nil {
 		t.Fatalf("UploadCubemap cardinal: %v", err)
@@ -721,16 +711,14 @@ func TestSkyboxDrawsBehindSceneAndMatchesReference(t *testing.T) {
 		img := renderSkyOnly(math3d.Vec3Zero(), tc.target, tc.up)
 		wantPixel(t, img, w/2, h/2, tc.want)
 	}
-	// Translating camera far away while looking in the same direction keeps the
-	// skybox identical.
+	// Translating camera far away while looking in the same direction keeps the skybox identical.
 	imgOrigin := renderSkyOnly(math3d.Vec3Zero(), math3d.Vec3{X: 1, Y: 0.2, Z: -0.5}, math3d.Vec3Up())
 	imgShifted := renderSkyOnly(math3d.Vec3{X: 50, Y: 25, Z: -80}, math3d.Vec3{X: 51, Y: 25.2, Z: -80.5}, math3d.Vec3Up())
 	if string(imgOrigin.Pix) != string(imgShifted.Pix) {
 		t.Fatal("camera translation changed skybox pixels")
 	}
 
-	// 2. Render studio skybox behind an opaque foreground mesh (drawn first
-	//    with depth write, then skybox with CompareLessEqual and DepthWrite: false).
+	// 2. Render studio skybox behind an opaque foreground mesh (drawn first with depth write, then skybox with CompareLessEqual and DepthWrite: false).
 	studioCM := studioEnvironmentCubemap(32)
 	studioGPU, err := render3d.UploadCubemap(nil, dev, studioCM, render3d.CubemapUpload{Label: "studio"})
 	if err != nil {
@@ -1012,12 +1000,10 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 	}
 	got := sr.Image()
 
-	// Ensure the skybox covered every background pixel (zero pure-black clear
-	// pixels leaked from depth-precision overshoot).
+	// Ensure the skybox covered every background pixel (zero pure-black clear pixels leaked from depth-precision overshoot).
 	assertNoClearPixels(t, got)
 
-	// Cross-check the exact analytical ray-hit normal at the tested pixel center
-	// of every sphere against CPU EvaluateIBL.
+	// Cross-check the exact analytical ray-hit normal at the tested pixel center of every sphere against CPU EvaluateIBL.
 	const sphereRadius = float32(0.85)
 	for _, sp := range specs {
 		front := sp.pos.Add(math3d.Vec3{Z: sphereRadius})
@@ -1049,8 +1035,7 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 		}
 	}
 
-	// Verify polished chrome reflects the bright blue/warm upper sky on its top
-	// hemisphere and the dark ground on its bottom hemisphere.
+	// Verify polished chrome reflects the bright blue/warm upper sky on its top hemisphere and the dark ground on its bottom hemisphere.
 	chromeTop, _, _ := cam.WorldToScreen(specs[0].pos.Add(math3d.Vec3{Y: 0.55, Z: 0.65}), w, h)
 	chromeBot, _, _ := cam.WorldToScreen(specs[0].pos.Add(math3d.Vec3{Y: -0.55, Z: 0.65}), w, h)
 	topC := got.RGBAAt(int(chromeTop.X), int(chromeTop.Y))
@@ -1072,8 +1057,7 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 }
 
 func TestSkyboxAndIBLInGPUViewProfiles(t *testing.T) {
-	// Verify both full and webgl2/gles3 (NoGPUCompute) profiles compile and draw
-	// the skybox + IBL-lit reflective sphere identically.
+	// Verify both full and webgl2/gles3 (NoGPUCompute) profiles compile and draw the skybox + IBL-lit reflective sphere identically.
 	profiles := []struct {
 		name string
 		opts []nsgotest.Option
@@ -1286,8 +1270,7 @@ func advanceAndReadSkyboxIBL(t *testing.T, app *nsgotest.App, frames *int) *imag
 func checkSkyboxIBLFrame(t *testing.T, img *image.RGBA) {
 	t.Helper()
 	assertNoClearPixels(t, img)
-	// Top-left corner is blue studio sky; bottom-left is darker ground-band sky;
-	// center is chrome sphere reflecting bright horizon/sun.
+	// Top-left corner is blue studio sky; bottom-left is darker ground-band sky; center is chrome sphere reflecting bright horizon/sun.
 	topSky := img.RGBAAt(2, 2)
 	botGround := img.RGBAAt(2, 61)
 	center := img.RGBAAt(32, 32)

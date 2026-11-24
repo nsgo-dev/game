@@ -165,9 +165,7 @@ const (
 	shConvA2 = math.Pi / 4.0
 )
 
-// CubeFaceDirection returns the unit 3D direction corresponding to face-local
-// coordinates (u, v) in [0, 1] on face ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ])
-// under the canonical WebGPU / Metal / Direct3D / OpenGL cubemap conventions.
+// CubeFaceDirection returns the unit 3D direction corresponding to face-local coordinates (u, v) in [0, 1] on face ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]) under the canonical WebGPU / Metal / Direct3D / OpenGL cubemap conventions.
 func CubeFaceDirection(face gpu.CubeFace, u, v float32) math3d.Vec3 {
 	s := 2*float64(u) - 1
 	t := 2*float64(v) - 1
@@ -196,9 +194,7 @@ func CubeFaceDirection(face gpu.CubeFace, u, v float32) math3d.Vec3 {
 	}
 }
 
-// CubeDirectionToFaceUV maps a 3D direction to its cubemap face index
-// ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]) and face-local [0, 1] coordinates,
-// matching the NSGo GPU cubemap sampler convention.
+// CubeDirectionToFaceUV maps a 3D direction to its cubemap face index ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]) and face-local [0, 1] coordinates, matching the NSGo GPU cubemap sampler convention.
 func CubeDirectionToFaceUV(dir math3d.Vec3) (face gpu.CubeFace, u, v float32) {
 	x, y, z := float64(dir.X), float64(dir.Y), float64(dir.Z)
 	ax, ay, az := math.Abs(x), math.Abs(y), math.Abs(z)
@@ -238,25 +234,16 @@ func CubeDirectionToFaceUV(dir math3d.Vec3) (face gpu.CubeFace, u, v float32) {
 	return face, float32(0.5 * (sc/ma + 1.0)), float32(0.5 * (tc/ma + 1.0))
 }
 
-// Cubemap holds a 6-face square cubemap on the CPU in canonical WebGPU / Metal
-// / Direct3D / OpenGL order ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]), ready to
-// upload with [UploadCubemap] or process into IBL data with
-// [ComputeIrradianceSH] and [PrefilterEnvironment].
+// Cubemap holds a 6-face square cubemap on the CPU in canonical WebGPU / Metal / Direct3D / OpenGL order ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]), ready to upload with [UploadCubemap] or process into IBL data with [ComputeIrradianceSH] and [PrefilterEnvironment].
 //
-// Faces holds mip level 0: six non-nil square RGBA images of equal dimensions.
-// Mips optionally holds additional precomputed mip levels starting at level 1
-// (so Mips[0] is mip level 1 of edge max(Size>>1, 1)), such as GGX-prefiltered
-// specular environment levels. When SRGB is true, texel RGB channels are
-// sRGB-encoded and CPU integration decodes to linear before filtering.
+// Faces holds mip level 0: six non-nil square RGBA images of equal dimensions. Mips optionally holds additional precomputed mip levels starting at level 1 (so Mips[0] is mip level 1 of edge max(Size>>1, 1)), such as GGX-prefiltered specular environment levels. When SRGB is true, texel RGB channels are sRGB-encoded and CPU integration decodes to linear before filtering.
 type Cubemap struct {
 	Faces [6]*image.RGBA
 	Mips  [][6]*image.RGBA
 	SRGB  bool
 }
 
-// Validate checks that c is non-nil, every base face is non-nil and square with
-// matching positive dimensions, and every optional mip level has the exact
-// expected dimensions down to 1x1. Every error wraps [ErrInvalidCubemap].
+// Validate checks that c is non-nil, every base face is non-nil and square with matching positive dimensions, and every optional mip level has the exact expected dimensions down to 1x1. Every error wraps [ErrInvalidCubemap].
 func (c *Cubemap) Validate() error {
 	if c == nil {
 		return fmt.Errorf("%w: nil cubemap", ErrInvalidCubemap)
@@ -310,8 +297,7 @@ func (c *Cubemap) Size() int {
 	return c.Faces[0].Bounds().Dx()
 }
 
-// MipLevels returns the total number of mip levels stored in c (1 when Mips is
-// empty), or 0 if c has no base face.
+// MipLevels returns the total number of mip levels stored in c (1 when Mips is empty), or 0 if c has no base face.
 func (c *Cubemap) MipLevels() int {
 	if c == nil || c.Faces[0] == nil {
 		return 0
@@ -333,8 +319,7 @@ func (c *Cubemap) faceAtMip(mip int, face gpu.CubeFace) *image.RGBA {
 	return c.Mips[idx][face]
 }
 
-// Sample bilinearly samples mip level 0 of c in direction dir and returns
-// linear RGB values.
+// Sample bilinearly samples mip level 0 of c in direction dir and returns linear RGB values.
 func (c *Cubemap) Sample(dir math3d.Vec3) [3]float32 {
 	if c == nil || c.Faces[0] == nil {
 		return [3]float32{}
@@ -343,8 +328,7 @@ func (c *Cubemap) Sample(dir math3d.Vec3) [3]float32 {
 	return sampleRGBAFace(c.Faces[face], u, v, c.SRGB)
 }
 
-// SampleLOD trilinearly samples c at mip level lod (clamped to [0, MipLevels-1])
-// in direction dir and returns linear RGB values.
+// SampleLOD trilinearly samples c at mip level lod (clamped to [0, MipLevels-1]) in direction dir and returns linear RGB values.
 func (c *Cubemap) SampleLOD(dir math3d.Vec3, lod float32) [3]float32 {
 	if c == nil || c.Faces[0] == nil {
 		return [3]float32{}
@@ -373,9 +357,7 @@ func (c *Cubemap) SampleLOD(dir math3d.Vec3, lod float32) [3]float32 {
 	}
 }
 
-// CubemapFromImages copies six square [image.Image] faces (+X, -X, +Y, -Y, +Z,
-// -Z) into a normalized [Cubemap]. Every face must be non-nil, square, and of
-// identical resolution.
+// CubemapFromImages copies six square [image.Image] faces (+X, -X, +Y, -Y, +Z, -Z) into a normalized [Cubemap]. Every face must be non-nil, square, and of identical resolution.
 func CubemapFromImages(faces [6]image.Image, srgb bool) (*Cubemap, error) {
 	var size int
 	out := &Cubemap{SRGB: srgb}
@@ -401,15 +383,9 @@ func CubemapFromImages(faces [6]image.Image, srgb bool) (*Cubemap, error) {
 	return out, nil
 }
 
-// CubemapFromEquirectangular projects a latitude-longitude (equirectangular)
-// panorama into a 6-face cubemap of resolution faceSize x faceSize per face
-// using seamless horizontal wrapping and bilinear filtering.
+// CubemapFromEquirectangular projects a latitude-longitude (equirectangular) panorama into a 6-face cubemap of resolution faceSize x faceSize per face using seamless horizontal wrapping and bilinear filtering.
 //
-// Longitude u = 0.5 + atan2(z, x) / (2*pi) maps +X to u = 0.5 and +Z to
-// u = 0.75; latitude v = acos(y) / pi maps +Y (zenith) to the top row (v = 0)
-// and -Y (nadir) to the bottom row (v = 1). Texels are copied unchanged, and
-// srgb marks them as sRGB-encoded, as in [CubemapFromImages]: pass true for a
-// typical PNG or JPEG panorama.
+// Longitude u = 0.5 + atan2(z, x) / (2*pi) maps +X to u = 0.5 and +Z to u = 0.75; latitude v = acos(y) / pi maps +Y (zenith) to the top row (v = 0) and -Y (nadir) to the bottom row (v = 1). Texels are copied unchanged, and srgb marks them as sRGB-encoded, as in [CubemapFromImages]: pass true for a typical PNG or JPEG panorama.
 func CubemapFromEquirectangular(img image.Image, faceSize int, srgb bool) (*Cubemap, error) {
 	if img == nil {
 		return nil, fmt.Errorf("%w: nil equirectangular image", ErrInvalidCubemap)
@@ -449,11 +425,7 @@ func CubemapFromEquirectangular(img image.Image, faceSize int, srgb bool) (*Cube
 	return cm, nil
 }
 
-// GradientSkyCubemap builds a procedural 3-band sky cubemap interpolating
-// smoothly from horizon to zenith across the upper hemisphere (y >= 0) and from
-// horizon to ground across the lower hemisphere (y < 0). Colors are linear RGB
-// values; they must be finite and non-negative, and the RGBA8 faces clamp them
-// to [0, 1].
+// GradientSkyCubemap builds a procedural 3-band sky cubemap interpolating smoothly from horizon to zenith across the upper hemisphere (y >= 0) and from horizon to ground across the lower hemisphere (y < 0). Colors are linear RGB values; they must be finite and non-negative, and the RGBA8 faces clamp them to [0, 1].
 func GradientSkyCubemap(zenith, horizon, ground [3]float32, faceSize int) (*Cubemap, error) {
 	if faceSize <= 0 {
 		return nil, fmt.Errorf("%w: faceSize %d must be positive", ErrInvalidCubemap, faceSize)
@@ -496,23 +468,15 @@ func GradientSkyCubemap(zenith, horizon, ground [3]float32, faceSize int) (*Cube
 type CubemapUpload struct {
 	// Label names the GPU texture and sampler in GPU capture tools.
 	Label string
-	// Format overrides the GPU texture format. When [gpu.FormatUndefined],
-	// [gpu.FormatRGBA8UnormSRGB] is selected when cm.SRGB is true and
-	// [gpu.FormatRGBA8Unorm] otherwise.
+	// Format overrides the GPU texture format. When [gpu.FormatUndefined], [gpu.FormatRGBA8UnormSRGB] is selected when cm.SRGB is true and [gpu.FormatRGBA8Unorm] otherwise.
 	Format gpu.TextureFormat
-	// GenerateMips builds a full 2x2 box-filtered mip chain on the CPU before
-	// uploading when cm only carries mip level 0. Ignored when cm already has
-	// precomputed Mips (such as from [PrefilterEnvironment]).
+	// GenerateMips builds a full 2x2 box-filtered mip chain on the CPU before uploading when cm only carries mip level 0. Ignored when cm already has precomputed Mips (such as from [PrefilterEnvironment]).
 	GenerateMips bool
-	// Retained keeps CPU shadow copies of the texture and sampler so NSGo
-	// recreates them automatically after a device loss.
+	// Retained keeps CPU shadow copies of the texture and sampler so NSGo recreates them automatically after a device loss.
 	Retained bool
 }
 
-// GPUCubemap is a 6-face cubemap texture and its trilinear clamp-to-edge
-// sampler uploaded to an NSGo [gpu.Device]. Its resources belong to the
-// [core.Scope] passed to [UploadCubemap] and are released when that scope is
-// disposed or when [GPUCubemap.Close] is called.
+// GPUCubemap is a 6-face cubemap texture and its trilinear clamp-to-edge sampler uploaded to an NSGo [gpu.Device]. Its resources belong to the [core.Scope] passed to [UploadCubemap] and are released when that scope is disposed or when [GPUCubemap.Close] is called.
 type GPUCubemap struct {
 	tex       *gpu.Texture
 	sampler   *gpu.Sampler
@@ -521,9 +485,7 @@ type GPUCubemap struct {
 	format    gpu.TextureFormat
 }
 
-// UploadCubemap validates cm and uploads all six faces and their mip chain to
-// dev, scoped to cx. A malformed cubemap returns an error wrapping
-// [ErrInvalidCubemap] before creating any GPU resources.
+// UploadCubemap validates cm and uploads all six faces and their mip chain to dev, scoped to cx. A malformed cubemap returns an error wrapping [ErrInvalidCubemap] before creating any GPU resources.
 func UploadCubemap(cx *core.Scope, dev *gpu.Device, cm *Cubemap, opts CubemapUpload) (*GPUCubemap, error) {
 	if err := cm.Validate(); err != nil {
 		return nil, err
@@ -648,8 +610,7 @@ func (g *GPUCubemap) MipLevels() uint32 {
 	return g.mipLevels
 }
 
-// MaxLOD returns float32(MipLevels - 1), the maximum valid LOD index for
-// textureSampleLevel.
+// MaxLOD returns float32(MipLevels - 1), the maximum valid LOD index for textureSampleLevel.
 func (g *GPUCubemap) MaxLOD() float32 {
 	if g == nil || g.mipLevels <= 1 {
 		return 0
@@ -678,14 +639,12 @@ func (g *GPUCubemap) ByteSize() uint64 {
 	return total
 }
 
-// Valid reports whether both the texture and sampler are open and belong to a
-// live device.
+// Valid reports whether both the texture and sampler are open and belong to a live device.
 func (g *GPUCubemap) Valid() bool {
 	return g != nil && g.tex.Valid() && g.sampler.Valid()
 }
 
-// Close releases the sampler and texture immediately. Safe to call more than
-// once.
+// Close releases the sampler and texture immediately. Safe to call more than once.
 func (g *GPUCubemap) Close() error {
 	if g == nil {
 		return nil
@@ -700,18 +659,14 @@ func (g *GPUCubemap) Close() error {
 	return err
 }
 
-// SkyboxUniform is the per-frame data [SkyboxWGSL] reads: the inverse of
-// Proj * ViewRotation (camera view with translation stripped) plus exposure and
-// mip LOD.
+// SkyboxUniform is the per-frame data [SkyboxWGSL] reads: the inverse of Proj * ViewRotation (camera view with translation stripped) plus exposure and mip LOD.
 type SkyboxUniform struct {
 	InvViewProj math3d.Mat4
 	Exposure    float32
 	LOD         float32
 }
 
-// NewSkyboxUniform builds a [SkyboxUniform] from cam's current rotation and
-// projection with Exposure = 1 and LOD = 0. Camera translation is removed so
-// the skybox stays infinitely far away as the viewer moves.
+// NewSkyboxUniform builds a [SkyboxUniform] from cam's current rotation and projection with Exposure = 1 and LOD = 0. Camera translation is removed so the skybox stays infinitely far away as the viewer moves.
 func NewSkyboxUniform(cam *scene3d.Camera) SkyboxUniform {
 	if cam == nil {
 		return SkyboxUniform{InvViewProj: math3d.Mat4Identity(), Exposure: 1}
@@ -719,9 +674,7 @@ func NewSkyboxUniform(cam *scene3d.Camera) SkyboxUniform {
 	return NewSkyboxUniformFromMatrices(cam.ViewMatrix(), cam.ProjMatrix())
 }
 
-// NewSkyboxUniformFromMatrices builds a [SkyboxUniform] from raw view and
-// projection matrices with translation stripped from view, Exposure = 1, and
-// LOD = 0.
+// NewSkyboxUniformFromMatrices builds a [SkyboxUniform] from raw view and projection matrices with translation stripped from view, Exposure = 1, and LOD = 0.
 func NewSkyboxUniformFromMatrices(view, proj math3d.Mat4) SkyboxUniform {
 	viewRot := view
 	viewRot[12], viewRot[13], viewRot[14], viewRot[15] = 0, 0, 0, 1
@@ -737,9 +690,7 @@ func NewSkyboxUniformFromMatrices(view, proj math3d.Mat4) SkyboxUniform {
 	}
 }
 
-// Encode writes u into dst as the little-endian [SkyboxUniformSize]-byte block
-// declared by [SkyboxWGSL] and returns dst[:SkyboxUniformSize]. It panics if
-// len(dst) < SkyboxUniformSize.
+// Encode writes u into dst as the little-endian [SkyboxUniformSize]-byte block declared by [SkyboxWGSL] and returns dst[:SkyboxUniformSize]. It panics if len(dst) < SkyboxUniformSize.
 func (u *SkyboxUniform) Encode(dst []byte) []byte {
 	if len(dst) < SkyboxUniformSize {
 		panic("render3d: SkyboxUniform.Encode: dst shorter than SkyboxUniformSize")
@@ -764,23 +715,17 @@ func (u *SkyboxUniform) Encode(dst []byte) []byte {
 type SkyboxPipelineDesc struct {
 	// Label names the GPU pipeline, uniform buffer, and layout in capture tools.
 	Label string
-	// ColorFormat is the render target color format; defaults to
-	// dev.SurfaceFormat() when [gpu.FormatUndefined].
+	// ColorFormat is the render target color format; defaults to dev.SurfaceFormat() when [gpu.FormatUndefined].
 	ColorFormat gpu.TextureFormat
 	// DepthFormat is the depth attachment format (for example [gpu.FormatDepth24Plus]). Leave [gpu.FormatUndefined] for color-only passes. When set, the pipeline uses [gpu.CompareLessEqual] with DepthWrite disabled and [SkyboxWGSL] emits depth 1 - 2^-24, so the skybox drawn after opaque geometry stays behind everything nearer than the far plane.
 	DepthFormat gpu.TextureFormat
 	// SampleCount is the MSAA sample count (0 or 1 for non-MSAA, 4 for 4x MSAA).
 	SampleCount int
-	// Retained opts the pipeline and uniform buffer into automatic recreation
-	// after a GPU device loss.
+	// Retained opts the pipeline and uniform buffer into automatic recreation after a GPU device loss.
 	Retained bool
 }
 
-// SkyboxPipeline renders any [GPUCubemap] as a fullscreen background skybox
-// without a vertex buffer. Create it once in OnReady, bind a cubemap with
-// [SkyboxPipeline.BindCubemap], update the view each frame with
-// [SkyboxPipeline.WriteCamera] or [SkyboxPipeline.Write], and record the draw
-// with [SkyboxPipeline.Draw].
+// SkyboxPipeline renders any [GPUCubemap] as a fullscreen background skybox without a vertex buffer. Create it once in OnReady, bind a cubemap with [SkyboxPipeline.BindCubemap], update the view each frame with [SkyboxPipeline.WriteCamera] or [SkyboxPipeline.Write], and record the draw with [SkyboxPipeline.Draw].
 type SkyboxPipeline struct {
 	dev     *gpu.Device
 	pipe    *gpu.Pipeline
@@ -789,8 +734,7 @@ type SkyboxPipeline struct {
 	scratch [SkyboxUniformSize]byte
 }
 
-// NewSkyboxPipeline compiles [SkyboxWGSL] and creates the skybox render
-// pipeline, bind group layout, and uniform buffer on dev, scoped to cx.
+// NewSkyboxPipeline compiles [SkyboxWGSL] and creates the skybox render pipeline, bind group layout, and uniform buffer on dev, scoped to cx.
 func NewSkyboxPipeline(cx *core.Scope, dev *gpu.Device, desc SkyboxPipelineDesc) (*SkyboxPipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -862,10 +806,7 @@ func NewSkyboxPipeline(cx *core.Scope, dev *gpu.Device, desc SkyboxPipelineDesc)
 	}, nil
 }
 
-// BindCubemap creates a [gpu.BindGroup] pairing the pipeline's uniform buffer
-// with cube's texture and sampler. When both the pipeline and cube were created
-// with Retained: true, NSGo restores this bind group automatically after a
-// device loss.
+// BindCubemap creates a [gpu.BindGroup] pairing the pipeline's uniform buffer with cube's texture and sampler. When both the pipeline and cube were created with Retained: true, NSGo restores this bind group automatically after a device loss.
 func (s *SkyboxPipeline) BindCubemap(cx *core.Scope, cube *GPUCubemap) (*gpu.BindGroup, error) {
 	if s == nil || !s.Valid() {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: skybox pipeline is not valid"}
@@ -884,18 +825,14 @@ func (s *SkyboxPipeline) BindCubemap(cx *core.Scope, cube *GPUCubemap) (*gpu.Bin
 	})
 }
 
-// SetDevice updates the device handle used by [SkyboxPipeline.Write] and
-// [SkyboxPipeline.BindCubemap] after a retained pipeline is restored on a new
-// device in OnReady.
+// SetDevice updates the device handle used by [SkyboxPipeline.Write] and [SkyboxPipeline.BindCubemap] after a retained pipeline is restored on a new device in OnReady.
 func (s *SkyboxPipeline) SetDevice(dev *gpu.Device) {
 	if s != nil && dev != nil {
 		s.dev = dev
 	}
 }
 
-// Write uploads u to the skybox uniform buffer. It encodes into storage the
-// SkyboxPipeline owns, so the only copy made is the one gpu.Device.WriteBuffer
-// takes of the bytes it queues.
+// Write uploads u to the skybox uniform buffer. It encodes into storage the SkyboxPipeline owns, so the only copy made is the one gpu.Device.WriteBuffer takes of the bytes it queues.
 func (s *SkyboxPipeline) Write(u SkyboxUniform) {
 	if s == nil || s.dev == nil || !s.uniform.Valid() {
 		return
@@ -903,15 +840,12 @@ func (s *SkyboxPipeline) Write(u SkyboxUniform) {
 	s.dev.WriteBuffer(s.uniform, 0, u.Encode(s.scratch[:]))
 }
 
-// WriteCamera uploads cam's rotation and projection to the skybox uniform
-// buffer with Exposure = 1 and LOD = 0.
+// WriteCamera uploads cam's rotation and projection to the skybox uniform buffer with Exposure = 1 and LOD = 0.
 func (s *SkyboxPipeline) WriteCamera(cam *scene3d.Camera) {
 	s.Write(NewSkyboxUniform(cam))
 }
 
-// Draw binds the skybox pipeline and cubemap bind group and issues the single
-// fullscreen-triangle draw (3 vertices, no vertex buffer). It records nothing
-// if either the pipeline or group is invalid.
+// Draw binds the skybox pipeline and cubemap bind group and issues the single fullscreen-triangle draw (3 vertices, no vertex buffer). It records nothing if either the pipeline or group is invalid.
 func (s *SkyboxPipeline) Draw(pass *gpu.RenderPass, group *gpu.BindGroup) {
 	if pass == nil || !s.Valid() || group == nil || !group.Valid() {
 		return
@@ -937,14 +871,12 @@ func (s *SkyboxPipeline) Layout() *gpu.BindGroupLayout {
 	return s.layout
 }
 
-// Valid reports whether the pipeline, layout, and uniform buffer are open and
-// belong to a live device.
+// Valid reports whether the pipeline, layout, and uniform buffer are open and belong to a live device.
 func (s *SkyboxPipeline) Valid() bool {
 	return s != nil && s.pipe.Valid() && s.layout.Valid() && s.uniform.Valid()
 }
 
-// Close releases the pipeline, layout, and uniform buffer. Safe to call more
-// than once.
+// Close releases the pipeline, layout, and uniform buffer. Safe to call more than once.
 func (s *SkyboxPipeline) Close() error {
 	if s == nil {
 		return nil
@@ -962,21 +894,14 @@ func (s *SkyboxPipeline) Close() error {
 	return err
 }
 
-// IrradianceSH stores the 9 pre-convolved L2 real spherical harmonic RGB
-// coefficients representing diffuse cosine-weighted irradiance E(n) =
-// integral L(w) * max(n·w, 0) dw (Ramamoorthi & Hanrahan 2001).
+// IrradianceSH stores the 9 pre-convolved L2 real spherical harmonic RGB coefficients representing diffuse cosine-weighted irradiance E(n) = integral L(w) * max(n·w, 0) dw (Ramamoorthi & Hanrahan 2001).
 //
-// For a uniform environment with linear radiance C, [IrradianceSH.Evaluate]
-// returns pi * C at every normal; Lambertian diffuse shading multiplies by
-// albedo / pi.
+// For a uniform environment with linear radiance C, [IrradianceSH.Evaluate] returns pi * C at every normal; Lambertian diffuse shading multiplies by albedo / pi.
 type IrradianceSH struct {
 	Coeff [9][3]float32
 }
 
-// ComputeIrradianceSH projects env's base mip level onto L2 spherical harmonics
-// using exact per-texel cubemap solid angles (which sum to exactly 4*pi across
-// all six faces) and applies the Lambertian cosine-lobe convolution weights
-// (pi, 2*pi/3, pi/4).
+// ComputeIrradianceSH projects env's base mip level onto L2 spherical harmonics using exact per-texel cubemap solid angles (which sum to exactly 4*pi across all six faces) and applies the Lambertian cosine-lobe convolution weights (pi, 2*pi/3, pi/4).
 func ComputeIrradianceSH(env *Cubemap) (IrradianceSH, error) {
 	if err := env.Validate(); err != nil {
 		return IrradianceSH{}, err
@@ -1031,9 +956,7 @@ func ComputeIrradianceSH(env *Cubemap) (IrradianceSH, error) {
 	return out, nil
 }
 
-// Evaluate evaluates the diffuse irradiance E(normal) from sh, matching
-// [IBLWGSL]'s evaluate_irradiance_sh. Negative values from high-contrast
-// ringing are clamped to zero.
+// Evaluate evaluates the diffuse irradiance E(normal) from sh, matching [IBLWGSL]'s evaluate_irradiance_sh. Negative values from high-contrast ringing are clamped to zero.
 func (sh IrradianceSH) Evaluate(normal math3d.Vec3) [3]float32 {
 	l := normal.Len()
 	if l < 1e-12 {
@@ -1066,9 +989,7 @@ func (sh IrradianceSH) Evaluate(normal math3d.Vec3) [3]float32 {
 	}
 }
 
-// ToCubemap renders sh into a low-resolution diffuse radiance cubemap storing
-// E(n) / pi per texel (so a uniform [0, 1] environment maps back into [0, 1]
-// without clipping).
+// ToCubemap renders sh into a low-resolution diffuse radiance cubemap storing E(n) / pi per texel (so a uniform [0, 1] environment maps back into [0, 1] without clipping).
 func (sh IrradianceSH) ToCubemap(faceSize int) (*Cubemap, error) {
 	if faceSize <= 0 {
 		return nil, fmt.Errorf("%w: faceSize %d must be positive", ErrInvalidCubemap, faceSize)
@@ -1098,23 +1019,15 @@ func (sh IrradianceSH) ToCubemap(faceSize int) (*Cubemap, error) {
 
 // PrefilterOptions configures [PrefilterEnvironment].
 type PrefilterOptions struct {
-	// BaseSize is the resolution of mip level 0 (roughness = 0). Defaults to
-	// env.Size() when <= 0.
+	// BaseSize is the resolution of mip level 0 (roughness = 0). Defaults to env.Size() when <= 0.
 	BaseSize int
-	// MipLevels is the number of roughness mip levels to generate, spanning
-	// roughness 0.0 (mip 0) through 1.0 (mip MipLevels-1). Defaults to
-	// min(MaxMipLevels(BaseSize, BaseSize), 5) when <= 0.
+	// MipLevels is the number of roughness mip levels to generate, spanning roughness 0.0 (mip 0) through 1.0 (mip MipLevels-1). Defaults to min(MaxMipLevels(BaseSize, BaseSize), 5) when <= 0.
 	MipLevels int
-	// SampleCount is the number of Hammersley GGX importance samples per texel
-	// on roughness > 0 levels. Defaults to 64 when <= 0.
+	// SampleCount is the number of Hammersley GGX importance samples per texel on roughness > 0 levels. Defaults to 64 when <= 0.
 	SampleCount int
 }
 
-// PrefilterEnvironment builds a split-sum GGX prefiltered specular cubemap mip
-// chain from env (Karis 2013). Mip level 0 corresponds to roughness 0 (mirror
-// reflection) and mip level MipLevels-1 corresponds to roughness 1. The process
-// is deterministic (Hammersley quasi-Monte-Carlo) and uses filtered source mip
-// lookups to suppress fireflies.
+// PrefilterEnvironment builds a split-sum GGX prefiltered specular cubemap mip chain from env (Karis 2013). Mip level 0 corresponds to roughness 0 (mirror reflection) and mip level MipLevels-1 corresponds to roughness 1. The process is deterministic (Hammersley quasi-Monte-Carlo) and uses filtered source mip lookups to suppress fireflies.
 func PrefilterEnvironment(env *Cubemap, opts PrefilterOptions) (*Cubemap, error) {
 	if err := env.Validate(); err != nil {
 		return nil, err
@@ -1136,8 +1049,7 @@ func PrefilterEnvironment(env *Cubemap, opts PrefilterOptions) (*Cubemap, error)
 		sampleCount = 64
 	}
 
-	// Build an internal linear float32 mip pyramid of the source environment so
-	// GGX importance samples can use solid-angle filtered LOD lookups.
+	// Build an internal linear float32 mip pyramid of the source environment so GGX importance samples can use solid-angle filtered LOD lookups.
 	srcPyr := buildLinearCubemapPyramid(env)
 	srcBaseSize := float64(env.Size())
 	saTexel := 4.0 * math.Pi / (6.0 * srcBaseSize * srcBaseSize)
@@ -1187,15 +1099,12 @@ func PrefilterEnvironment(env *Cubemap, opts PrefilterOptions) (*Cubemap, error)
 	return out, nil
 }
 
-// GenerateBRDFLUT generates a square 2D split-sum GGX BRDF integration lookup
-// table (NoV along X in [0, 1], roughness along Y in [0, 1]), storing the
-// Fresnel scale in R and bias in G using 128 Hammersley samples per texel.
+// GenerateBRDFLUT generates a square 2D split-sum GGX BRDF integration lookup table (NoV along X in [0, 1], roughness along Y in [0, 1]), storing the Fresnel scale in R and bias in G using 128 Hammersley samples per texel.
 func GenerateBRDFLUT(size int) (*image.RGBA, error) {
 	return GenerateBRDFLUTWithSamples(size, 128)
 }
 
-// GenerateBRDFLUTWithSamples generates a 2D split-sum GGX BRDF integration
-// lookup table with an explicit Hammersley sample count per texel.
+// GenerateBRDFLUTWithSamples generates a 2D split-sum GGX BRDF integration lookup table with an explicit Hammersley sample count per texel.
 func GenerateBRDFLUTWithSamples(size, sampleCount int) (*image.RGBA, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("%w: BRDF LUT size %d must be positive", ErrInvalidCubemap, size)
@@ -1220,8 +1129,7 @@ func GenerateBRDFLUTWithSamples(size, sampleCount int) (*image.RGBA, error) {
 	return img, nil
 }
 
-// EnvBRDFApprox evaluates the Karis (2014) analytical split-sum GGX BRDF
-// approximation, matching [IBLWGSL]'s env_brdf_approx.
+// EnvBRDFApprox evaluates the Karis (2014) analytical split-sum GGX BRDF approximation, matching [IBLWGSL]'s env_brdf_approx.
 func EnvBRDFApprox(f0 [3]float32, roughness, nDotV float32) [3]float32 {
 	r := float64(roughness)
 	nov := float64(nDotV)
@@ -1239,11 +1147,7 @@ func EnvBRDFApprox(f0 [3]float32, roughness, nDotV float32) [3]float32 {
 	}
 }
 
-// EvaluateIBL evaluates the exact CPU reference for [IBLWGSL]'s evaluate_ibl
-// function: L2 spherical harmonic diffuse irradiance combined with split-sum
-// GGX prefiltered specular reflection using [EnvBRDFApprox]. A NaN or infinite
-// metallic, roughness, ao or intensity counts as 0, and a negative intensity as
-// 0, so the result stays finite.
+// EvaluateIBL evaluates the exact CPU reference for [IBLWGSL]'s evaluate_ibl function: L2 spherical harmonic diffuse irradiance combined with split-sum GGX prefiltered specular reflection using [EnvBRDFApprox]. A NaN or infinite metallic, roughness, ao or intensity counts as 0, and a negative intensity as 0, so the result stays finite.
 func EvaluateIBL(
 	sh IrradianceSH,
 	prefilter *Cubemap,
@@ -1544,9 +1448,7 @@ func cubemapAreaElement(x, y float64) float64 {
 	return math.Atan2(x*y, math.Sqrt(x*x+y*y+1.0))
 }
 
-// cubemapTexelSolidAngle returns the exact analytical solid angle subtended by
-// texel (px, py) on one face of a size x size cubemap. Summing across all
-// 6 * size * size texels yields 4*pi to floating-point precision.
+// cubemapTexelSolidAngle returns the exact analytical solid angle subtended by texel (px, py) on one face of a size x size cubemap. Summing across all 6 * size * size texels yields 4*pi to floating-point precision.
 func cubemapTexelSolidAngle(px, py, size int) float64 {
 	inv := 1.0 / float64(size)
 	u0 := 2.0*float64(px)*inv - 1.0
