@@ -15,9 +15,9 @@ Add `examples/lantern3d` ("Lantern 3D"), a self-contained interactive glTF 2.0 s
 1. **Self-contained deterministic glTF 2.0 asset (`assets/lantern_shrine.glb`)**:
    - Generated deterministically using only the Go standard library by `examples/lantern3d/tools/genassets/main.go` and dedicated under `CC0-1.0` in `examples/lantern3d/CREDITS.md` (mirroring `examples/caverun/tools/genassets` and `examples/caverun/CREDITS.md`).
    - Contains a 15-node hierarchical glTF 2.0 scene (stone courtyard floor, two-tier octagonal dais, tiered lantern shrine with glowing emissive crystal core, four multi-primitive corner lantern bollards, rotated cedar crate, azure crystal cluster, and animated orbiting light wisp), 7 PBR materials, and 2 embedded 64×64 PNG textures (flagstone and cedar wood) decoded via `gltf.Document.DecodeImage`.
-2. **Portable forward-lit WGSL pipeline (`renderer.go`)**:
-   - Uses 4 bind groups within the WebGPU/WebGL 2 minimum (`maxBindGroups = 4`): `@group(0)` `render3d.CameraBuffer` (`render3d.CameraWGSL`), `@group(1)` `render3d.TextureBindingLayout` + `render3d.BindTexture` (falling back to a 1×1 white `GPUTexture` for untextured materials so one pipeline draws every mesh), `@group(2)` `SceneLights` uniform, and `@group(3)` per-drawable `ObjectUniform` (model matrix, normal matrix, base color, emissive + specular weight).
-   - Uses zero compute shaders, zero storage buffers, and zero transcendental builtins (`exp`, `exp2`, `log2`, `pow`—Blinn-Phong specular uses repeated squaring and horizon distance fog uses linear `clamp`), guaranteeing identical execution across WebGPU, Metal, Vulkan, D3D12, WebGL 2, GLES 3.0, and NSGo's software GPU VM.
+2. **Forward-lit pipeline on render3d lighting and PBR (`renderer.go`)**:
+   - Uses 4 bind groups within the WebGPU/WebGL 2 minimum (`maxBindGroups = 4`) and follows render3d's group indices: `@group(0)` `render3d.CameraBuffer` (`render3d.CameraWGSL`), `@group(1)` (`render3d.LightGroup`) the scene's `render3d.LightRig` in a retained `render3d.GPULightBuffer` (`render3d.LightWGSL`), `@group(2)` (`render3d.PBRDrawGroup`) one `render3d.PBRDrawBuffer` per drawable holding its model matrix and the glTF material's base color, metallic, roughness and emissive factors, and `@group(3)` the base-color texture through `render3d.TextureBindingLayout` + `render3d.BindTexture` (falling back to a 1×1 white `GPUTexture` for untextured materials so one pipeline draws every mesh).
+   - The shader is `render3d.LitPBRWGSL` plus a base-color texture sample and distance fog: it shades with LightWGSL's `shade_pbr` and encodes with `linear_to_srgb`, so the example uses the engine's lights and metallic-roughness BRDF instead of a parallel lighting stack. Base-color textures are uploaded with `SRGB: true`, so lighting and mipmap filtering happen in linear light. It uses no compute shaders and no storage buffers, so it runs on WebGPU, Metal, Vulkan, D3D12, WebGL 2, GLES 3.0 and NSGo's software GPU renderer.
    - Enables `RetainResources: true` on `gpu.ViewProps` and `Retained: true` on uploaded meshes, textures, samplers, and uniform buffers; `Renderer.Setup` validates handles and safely restores or recreates resources on `OnDeviceRestored` / `OnReady`.
 3. **Interactive camera, dynamic lights, and native HUD (`scene.go`, `game.go`)**:
    - Drives a `scene3d.Camera` via `scene3d.OrbitController` with fixed-step damping on `game.Loop`, camera interpolation (`PrevCamera.Lerp`), mouse drag, 1-finger touch drag, 2-finger pinch zoom, mouse wheel zoom, and keyboard shortcuts (`Arrows`/`WASD`, `=`/`-`, `Space`, `L`, `R`, `H`).
@@ -30,9 +30,9 @@ Add `examples/lantern3d` ("Lantern 3D"), a self-contained interactive glTF 2.0 s
 | Slot | Owner | Bindings | Update cadence |
 | --- | --- | --- | --- |
 | `@group(0)` | `render3d.CameraBuffer` | `0`: `Camera` uniform (`view`, `proj`, `view_proj`, `eye`) | Once per frame |
-| `@group(1)` | `render3d.BindTexture` | `0`: `texture_2d<f32>`, `1`: `sampler` | Per material (or 1×1 white fallback) |
-| `@group(2)` | `Renderer.lightsGroup` | `0`: `SceneLights` uniform (key light, orbiting point light, inner shrine glow, hemisphere ambient, linear fog) | Once per frame |
-| `@group(3)` | `gpuDrawable.objGroup` | `0`: `ObjectUniform` (`model`, `normal_mat`, `base_color`, `emissive_spec`) | Per drawable |
+| `@group(1)` | `render3d.GPULightBuffer` | `0`: `LightRigUniform` (ambient, directional moonlight, orbiting wisp and shrine glow point lights) | Once per frame |
+| `@group(2)` | `render3d.PBRDrawBuffer` | `0`: `PBRDrawUniform` (`model`, `normal_matrix`, `base_color`, `pbr_params`, `emissive`) | Per drawable |
+| `@group(3)` | `render3d.BindTexture` | `0`: `texture_2d<f32>` (sRGB), `1`: `sampler` | Per material (or 1×1 white fallback) |
 
 ## Alternatives considered
 
@@ -42,6 +42,12 @@ Strongest argument: reusing `placeholder.Model("crate.glb")` and `placeholder.Mo
 
 Rejected because the placeholder models are untextured single-object prototypes (`crate.glb` has no embedded image texture), so the example would neither exercise `gltf.Document.DecodeImage` -> `render3d.UploadTexture` (see [render3d textures and samplers](./2026-11-24-render3d-textures-and-samplers.md)) nor demonstrate a multi-node hierarchical glTF scene graph with multiple materials and embedded textures. Generating a compact ~51 KB `.glb` deterministically with `tools/genassets/main.go` and crediting it as `CC0-1.0` matches `examples/caverun`'s established pattern while demonstrating the full glTF + texture + lighting pipeline.
 
+### Drawing with render3d.NewMaterialPipeline and GPUMaterial
+
+Strongest argument: `render3d.GPUMaterial` binds every glTF metallic-roughness texture (base color, metallic-roughness, normal, occlusion, emissive), so the example would need no shader of its own.
+
+Rejected because `MaterialWGSL` lights every surface with the fixed `DefaultMaterialLight` rather than a `LightRig`, has no per-draw model matrix (it treats vertex positions as world space), and its `MaterialGroup` is the same index (1) as `LightGroup`, so it cannot be combined with `LightWGSL` in one pipeline. The example's materials only use factors and a base-color texture, which `PBRDrawBuffer` plus one texture group covers while keeping the scene's moving lights.
+
 ### Packing all drawable transforms into a dynamic storage buffer or instanced vertex buffer
 
 Strongest argument: a single storage buffer reduces per-drawable bind group updates and scales to thousands of instances.
@@ -50,7 +56,7 @@ Rejected because WebGL 2 and OpenGL ES 3.0 (`nsgotest.NoGPUCompute()`) do not su
 
 ## Consequences
 
-- **Benefit**: Exercises the complete Stage 2 3D pipeline (glTF loading, embedded PNG texture upload with CPU mipmaps, retained GPU buffers, `CameraBuffer`, `OrbitController`, multi-light portable WGSL, `HUD3D.Wrap` pass-through, and `NoGPU` fallback) in a single concise example.
+- **Benefit**: Exercises the complete Stage 2 3D pipeline (glTF loading, embedded PNG texture upload with CPU mipmaps, retained GPU buffers, `CameraBuffer`, `OrbitController`, render3d lights and PBR shading, `HUD3D.Wrap` pass-through, and `NoGPU` fallback) in a single concise example.
 - **Benefit**: Headless tests verify lit pixel output on both `full` and `nsgotest.NoGPUCompute()` (WebGL 2 / GLES 3.0) profiles, plus camera orbit, HUD pass-through, device loss/restore, and clean scope disposal.
 - **Cost**: Adds a 51 KB generated `.glb` binary under `examples/lantern3d/assets/` and a `lantern3d` CI job in `.github/workflows/examples.yml`. Any geometry/material changes must go through `examples/lantern3d/tools/genassets/main.go` so the binary stays reproducible.
 

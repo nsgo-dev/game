@@ -435,7 +435,10 @@ func (c *Controller) view(cx *core.Scope) core.Node {
 				OnFrame: func(frame *gpu.Frame) {
 					c.recordFPS(frame.Time())
 					cam := c.Scene.CameraFor(c.alpha)
-					c.Renderer.Draw(frame, c.Scene, cam)
+					if err := c.Renderer.Draw(frame, c.Scene, cam); err != nil {
+						c.gpuErrSig.Set(fmt.Sprintf("Failed to draw the 3D scene: %v", err))
+						return
+					}
 					c.RenderedFrames++
 				},
 				OnDeviceLost: func(gpu.DeviceLostEvent) {

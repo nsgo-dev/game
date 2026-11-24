@@ -118,10 +118,10 @@ func TestGLBAssetLoadsWithTexturesAndHierarchy(t *testing.T) {
 	}
 
 	// Advancing with AnimateLights moves the orbiting point light.
-	posBefore := sc.Lights.PointPos
+	posBefore := sc.Lights.Point[wispLight].Position
 	sc.Step(500 * time.Millisecond)
-	if sc.Lights.PointPos.ApproxEqual(posBefore, 1e-4) {
-		t.Fatalf("orbiting point light did not move: before=%v after=%v", posBefore, sc.Lights.PointPos)
+	if sc.Lights.Point[wispLight].Position.ApproxEqual(posBefore, 1e-4) {
+		t.Fatalf("orbiting point light did not move: before=%v after=%v", posBefore, sc.Lights.Point[wispLight].Position)
 	}
 }
 
