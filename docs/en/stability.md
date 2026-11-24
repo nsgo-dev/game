@@ -120,6 +120,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/physics` | Stable | [physics](physics.md) |
 | `game/physics3d` | Experimental | [physics3d](physics3d.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
+| `game/presence` | Experimental | [presence](presence.md) |
 | `game/procgen` | Experimental | [procgen](procgen.md) |
 | `game/project` | Experimental | [Project File](project.md) |
 | `game/quality` | Experimental | [quality](quality.md) |
