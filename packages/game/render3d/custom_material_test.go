@@ -1323,3 +1323,61 @@ func TestCustomMaterialMatchesMaterialAPI(t *testing.T) {
 		t.Fatalf("ByteSize after Close = %d, want 0", got)
 	}
 }
+
+func TestCustomMaterialRejectsScalarAfterVec3(t *testing.T) {
+	for _, kind := range []render3d.ShaderParamKind{render3d.ParamFloat, render3d.ParamInt, render3d.ParamBool} {
+		_, err := render3d.ComputeUniformLayout([]render3d.ShaderParamDesc{
+			{Name: "dir", Kind: render3d.ParamVec3},
+			{Name: "s", Kind: kind},
+		})
+		var cerr *render3d.CustomMaterialError
+		if !errors.As(err, &cerr) || cerr.Param != "s" || !strings.Contains(cerr.Message, "vec3") {
+			t.Fatalf("[vec3, %s] error = %v, want a CustomMaterialError on param s", kind, err)
+		}
+	}
+
+	// A texture between the vec3 and the scalar does not separate them in the uniform block.
+	if _, err := render3d.ComputeUniformLayout([]render3d.ShaderParamDesc{
+		{Name: "dir", Kind: render3d.ParamVec3},
+		{Name: "tex", Kind: render3d.ParamTexture},
+		{Name: "s", Kind: render3d.ParamFloat},
+	}); !errors.Is(err, render3d.ErrInvalidCustomMaterial) {
+		t.Fatalf("[vec3, texture, float] error = %v, want ErrInvalidCustomMaterial", err)
+	}
+
+	// Kage var declarations go through the same layout.
+	err := render3d.CompileCheck(`package main
+
+var Dir vec3
+var Gain float
+
+func Surface() vec4 {
+	return vec4(Dir*Gain, 1.0)
+}
+`, render3d.ShaderKage, nil)
+	if !errors.Is(err, render3d.ErrInvalidCustomMaterial) || !strings.Contains(err.Error(), "Gain") {
+		t.Fatalf("Kage [vec3, float] error = %v, want an error on Gain", err)
+	}
+
+	// Scalars before a vec3, and 16-byte or 8-byte members after it, keep the WGSL and Metal layouts identical.
+	layout, err := render3d.ComputeUniformLayout([]render3d.ShaderParamDesc{
+		{Name: "a", Kind: render3d.ParamFloat},
+		{Name: "dir", Kind: render3d.ParamVec3},
+		{Name: "uv", Kind: render3d.ParamVec2},
+		{Name: "b", Kind: render3d.ParamFloat},
+		{Name: "dir2", Kind: render3d.ParamVec3},
+		{Name: "tint", Kind: render3d.ParamVec4},
+	})
+	if err != nil {
+		t.Fatalf("ComputeUniformLayout: %v", err)
+	}
+	want := map[string]int{"a": 0, "dir": 16, "uv": 32, "b": 40, "dir2": 48, "tint": 64}
+	for name, off := range want {
+		if layout.Offsets[name] != off {
+			t.Fatalf("offset of %s = %d, want %d", name, layout.Offsets[name], off)
+		}
+	}
+	if layout.UniformSize != 80 {
+		t.Fatalf("UniformSize = %d, want 80", layout.UniformSize)
+	}
+}
