@@ -364,56 +364,48 @@ gpuMesh.Draw(pass)
 
 ## Budgeted async GPU uploads (`Uploader`)
 
-`Uploader` decodes meshes, textures, and raw GPU payloads on background worker goroutines and streams chunked writes onto the `gpu.Device` across frames during `Uploader.Step`, staying within a configurable per-frame byte budget so loading large 3D models does not cause frame-time hitches:
+`Uploader` runs the decoding and CPU packing of meshes, textures and raw GPU payloads on background worker goroutines, and `Uploader.Step`, called once per frame, writes the results to the `gpu.Device` in chunks within a per-frame byte budget, so loading a large 3D model does not stall a frame:
 
 ```go
 gpu.View(cx, gpu.ViewProps{
 	DepthFormat: gpu.FormatDepth24Plus,
 	OnReady: func(dev *gpu.Device) {
 		uploader = render3d.NewUploader(cx, dev, render3d.UploaderOptions{
-			BytesPerFrame: 2 * 1024 * 1024, // 2 MiB/frame cap (defaults to 4 MiB)
-			ChunkBytes:    256 * 1024,      // 256 KiB per write chunk
+			BytesPerFrame: 2 * 1024 * 1024, // 2 MiB per frame (default 4 MiB)
+			ChunkBytes:    256 * 1024,      // 256 KiB per write
 			Workers:       2,               // background decode goroutines
 		})
 
-		meshHandle = uploader.QueueMesh(ctx, func(ctx context.Context) (render3d.Mesh, error) {
+		meshHandle = uploader.QueueMesh(ctx, render3d.PriorityHigh, func(ctx context.Context) (render3d.Mesh, error) {
 			return loadAndDecodeMesh(ctx, "hero.glb")
 		}, func(g *render3d.GPUMesh, err error) {
 			if err == nil {
 				heroMesh = g
 			}
-		}, render3d.MeshUploadOptions{
-			Label:    "hero",
-			Retained: true,
-			Priority: render3d.PriorityHigh,
-		})
+		}, render3d.MeshUpload{Label: "hero", Retained: true})
 
-		texHandle = uploader.QueueTexture(ctx, func(ctx context.Context) (image.Image, gpu.TextureFormat, error) {
-			img, err := decodeTexturePNG(ctx, "hero_albedo.png")
-			return img, gpu.FormatRGBA8UnormSRGB, err
-		}, func(tex *gpu.Texture, err error) {
+		texHandle = uploader.QueueTexture(ctx, render3d.PriorityNormal, func(ctx context.Context) (image.Image, error) {
+			return decodeTexturePNG(ctx, "hero_albedo.png")
+		}, func(tex *render3d.GPUTexture, err error) {
 			if err == nil {
-				heroAlbedo = tex
+				heroAlbedo, _ = render3d.BindTexture(cx, dev, texLayout, tex, sampler)
 			}
-		}, render3d.TextureUploadOptions{
-			Label:           "hero_albedo",
-			GenerateMipmaps: true,
-			Retained:        true,
-		})
+		}, render3d.TextureUpload{Label: "hero_albedo", SRGB: true, Mipmaps: true, Retained: true})
 	},
 	OnFrame: func(frame *gpu.Frame) {
-		stats := uploader.Step() // advances GPU uploads on the engine goroutine within BytesPerFrame
+		stats := uploader.Step() // writes at most BytesPerFrame on the engine goroutine
 		_ = stats
-		// render frame using any ready meshes and textures...
+		// draw with whichever meshes and textures are ready...
 	},
 })
 ```
 
-- **Decode off-thread, upload on-thread**: decode callbacks, mesh validation/packing, image format conversion, and optional CPU mipmap generation (`TextureUploadOptions.GenerateMipmaps`) run on background worker goroutines. All GPU resource creation, chunked writes (`WriteBuffer`, `WriteTextureRegion`, `WriteTexture`), and async completion callbacks execute exclusively on the goroutine calling `Step()`.
-- **Per-frame byte budget**: `UploaderOptions.BytesPerFrame` (default `DefaultUploadBytesPerFrame`, 4 MiB) and `ChunkBytes` (default `DefaultUploadChunkBytes`, 256 KiB) cap GPU transfer work per `Step()` call and can be changed at runtime via `SetBytesPerFrame` and `SetChunkBytes` (for example, raising the budget on loading screens and lowering it during gameplay). Buffers split on 4-byte aligned offsets; uncompressed textures split across mip levels, row bands, and horizontal sub-row spans when a single row exceeds the remaining budget.
-- **Raw buffers and compressed textures**: use `QueueRawBuffer` for custom vertex/storage/uniform buffers (`RawBufferUpload`) and `QueueRawTexture` for pre-encoded or block-compressed mip chains (`RawTextureUpload`, `TextureMipData`).
-- **Priority and cancellation**: `PriorityHigh`, `PriorityNormal`, and `PriorityLow` order both decode and upload queues (FIFO within a priority), so high-priority assets preempt in-progress low-priority streams on the next chunk. Each `Queue*` call returns an `*UploadHandle` supporting thread-safe `State()`, `Progress()`, `Err()`, `Done()`, and `Cancel()`.
-- **Scope lifecycle**: passing a non-nil `*core.Scope` to `NewUploader` registers cleanup so disposing the scope calls `Close()`, cancels pending decodes, joins all worker goroutines with zero leaks, and releases any partially uploaded GPU resources. Pass `nil` in headless tests and call `Close()` explicitly. `UploaderOptions.MaxPending` optionally bounds queued work with `ErrUploadQueueFull`.
+- **Drop-in for the synchronous uploads**: `QueueMesh` takes the same `MeshUpload` options as `UploadMesh` and delivers a `GPUMesh`; `QueueTexture` and `QueueTexturePixels` take the same `TextureUpload` options as `UploadTexture` and `UploadTexturePixels` and deliver a `GPUTexture` with the same texels, the same straight-alpha conversion (`PixelBufferFromImage`) and the same mip chain (box-filtered in linear light for sRGB), so it works with `BindTexture` and counts in `GPUTexture.ByteSize`. Each `Queue*` call also takes an `UploadPriority`.
+- **Decode off-thread, upload on the engine goroutine**: decode callbacks, mesh validation and packing, image conversion and mip generation run on the workers. GPU resource creation, the chunked writes (`WriteBuffer`, `WriteTextureRegion`, `WriteTexture`) and the `onReady` callbacks run on the goroutine that calls `Step`. Errors a `Queue*` call can report at once (a nil decode function, a closed uploader, a full queue) call `onReady` before the call returns, on the caller's goroutine.
+- **Per-frame byte budget**: `UploaderOptions.BytesPerFrame` (default `DefaultUploadBytesPerFrame`, 4 MiB) and `ChunkBytes` (default `DefaultUploadChunkBytes`, 256 KiB) cap the bytes written per `Step`, and `SetBytesPerFrame` and `SetChunkBytes` change them at runtime, for example raising the budget on a loading screen and lowering it during play. The budget bounds the upload work in each frame; it is not a time limit. Buffers split at 4-byte aligned offsets; uncompressed textures split by mip level, row band and, when a row exceeds the remaining budget, part of a row; block-compressed textures split by block row.
+- **Raw buffers and textures**: `QueueRawBuffer` streams custom vertex, storage or uniform buffers (`RawBufferUpload`), and `QueueRawTexture` streams pre-encoded or block-compressed mip chains, array layers and cube faces (`RawTextureUpload`, `TextureMipData`) and delivers the `gpu.Texture`.
+- **Priority and cancellation**: `PriorityHigh`, `PriorityNormal` and `PriorityLow` order both the decode and the upload queue (FIFO within a priority), so a high-priority asset preempts a low-priority one that is partway through its upload at the next chunk. Each `Queue*` call returns an `*UploadHandle` whose `State()`, `Progress()`, `Err()`, `Done()` and `Cancel()` are safe from any goroutine.
+- **Lifecycle**: passing a `*core.Scope` to `NewUploader` closes the uploader when the scope is disposed. `Close` cancels pending decodes, joins every worker goroutine, releases partially uploaded GPU resources and calls the `onReady` of each unfinished upload with `ErrUploaderClosed`; call it on the goroutine that calls `Step`, as scope disposal does. Pass `nil` in headless tests and call `Close` yourself. `UploaderOptions.MaxPending` bounds the unfinished uploads, failing further ones with `ErrUploadQueueFull`.
 
 ## 3D debug draw and transform gizmos
 

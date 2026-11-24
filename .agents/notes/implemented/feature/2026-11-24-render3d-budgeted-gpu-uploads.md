@@ -12,7 +12,8 @@ Status: implemented
 
 - **Two-stage pipeline (background decode, engine-thread GPU step)**:
   - `NewUploader(cx, dev, opts)` spawns a fixed worker pool (`Workers`, defaulting to `min(runtime.GOMAXPROCS(0), 4)`, at least 1) fed by a priority min-heap (`decodeHeap`).
-  - Worker goroutines run caller decode callbacks plus all CPU-heavy preparation: `Mesh.Validate()`, vertex/index buffer packing (`AppendVertexData` / `AppendIndexData`), image conversion to tightly packed texel bytes (`RGBA8`, `BGRA8`, `RG8`, `R8`), optional CPU mipmap generation (`gpu.DownsampleRGBA2x`), and raw texture validation/repacking.
+  - Worker goroutines run caller decode callbacks plus all CPU-heavy preparation: `Mesh.Validate()`, vertex/index buffer packing (`AppendVertexData` / `AppendIndexData`), image conversion through `PixelBufferFromImage` (straight alpha, as `UploadTexture`), the CPU mip chain through the same `packPixelRows` / `downsamplePixelsBox(..., format.IsSRGB())` path `UploadTexturePixels` uses, and raw texture validation/repacking.
+  - The queue methods take the synchronous uploads' own options (`MeshUpload`, `TextureUpload`) plus an `UploadPriority`, and `QueueTexture` / `QueueTexturePixels` deliver a `*GPUTexture`, so a streamed asset is a drop-in replacement for `UploadMesh` / `UploadTexture` (binds with `BindTexture`, counts in `GPUTexture.ByteSize`).
   - Completed CPU staging payloads move into a second priority heap (`uploadHeap`). Calling `Uploader.Step()` once per frame on the engine goroutine pops ready items, lazily allocates GPU resources on first touch, streams chunks up to `BytesPerFrame` (default `DefaultUploadBytesPerFrame` = 4 MiB) in increments of `ChunkBytes` (default `DefaultUploadChunkBytes` = 256 KiB), and invokes `onReady` only once all bytes are uploaded.
 - **Deterministic chunked writes across all NSGo GPU backends**:
   - Buffers (`GPUMesh` vertex/index buffers and `RawBufferUpload`) write 4-byte aligned intermediate slices via `Device.WriteBuffer` so WebGPU alignment requirements hold on every chunk.
@@ -26,7 +27,8 @@ Status: implemented
 
 ### Invariants
 
-- All `gpu.Device` calls (`CreateBuffer`, `CreateTexture`, `WriteBuffer`, `WriteTexture`, `WriteTextureRegion`) and all asynchronous `onReady` callbacks run exclusively on the goroutine calling `Uploader.Step()` (immediate validation, queue-full, and closed errors return synchronously from `Queue*`).
+- All `gpu.Device` calls (`CreateBuffer`, `CreateTexture`, `WriteBuffer`, `WriteTexture`, `WriteTextureRegion`) and all asynchronous `onReady` callbacks run on the goroutine calling `Uploader.Step()`, which must also be the one calling `Close` (scope disposal does). Errors a `Queue*` call reports at once (nil decode, closed uploader, full queue) call `onReady` on the caller's goroutine before the call returns.
+- Every queued upload's `onReady` is called exactly once: on completion, on failure or cancellation in `Step`, or with `ErrUploaderClosed` from `Close`.
 - `UploadFrameStats.BytesUploaded` never exceeds `BytesPerFrame` unless `BytesPerFrame` is smaller than a single minimum GPU transfer unit (4 bytes for intermediate buffer chunks, 1 texel for uncompressed textures, or 1 block row for compressed textures) on a frame where zero bytes have been written yet, which guarantees forward progress without livelock.
 - After `Uploader.Close()` returns (or the owning `*core.Scope` is disposed), zero worker goroutines remain running and every `UploadHandle.Done()` channel is closed.
 
@@ -54,16 +56,20 @@ Restricting texture uploads to whole-row minimum units is simpler and avoids tra
 - **Benefit:** Existing `render3d` types (`GPUMesh`, `MeshVertexLayout`, `Mesh.Validate`, `UploadMesh`) remain untouched; streamed `GPUMesh` and `*gpu.Texture` values render identically to synchronously uploaded ones across both full and `NoGPUCompute` (WebGL 2 / GLES 3) profiles.
 - **Cost:** Decoded CPU staging slices stay resident in memory between decode completion and final GPU chunk upload (released immediately once complete, canceled, or closed). Games streaming many huge assets should bound memory with `UploaderOptions.MaxPending`.
 - **Cost:** Callers must invoke `Uploader.Step()` every frame on the engine goroutine; forgetting to call `Step()` leaves decoded payloads queued in `uploadHeap`.
+- **Cost:** `QueueTexture` supports what `UploadTexture` supports (RGBA8 linear or sRGB, RG8, R8). BGRA or other formats go through `QueueRawTexture`.
+- **Limit:** the byte budget bounds the upload work per frame, not its wall-clock time; tests assert the byte cap, not durations.
 
 ## Testing
 
 - `packages/game/render3d/uploader_test.go` verifies under `-race`:
-  - Pixel-identical rendering of a multi-megabyte streamed mesh (>65k vertices, `uint32` indices) and 512x512 texture vs synchronous `UploadMesh` / `WriteTextureRGBA` with strict `BytesUploaded <= BytesPerFrame` per frame.
+  - Pixel-identical rendering of a multi-megabyte streamed mesh (>65k vertices, `uint32` indices) and 512x512 texture vs synchronous `UploadMesh` / `UploadTexture` with strict `BytesUploaded <= BytesPerFrame` per frame.
+  - Byte-for-byte parity of every mip level with `UploadTexture` for a translucent `*image.RGBA`, an `RGBA64` image, a paletted image with transparency and sRGB mip chains.
+  - A BC1 mip chain streamed in block-row bands under a budget smaller than one mip, and a six-face cube map, read back against single writes.
   - End-to-end `gpu.View` streaming under both full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3) capability profiles.
-  - Large model (~6.7 MiB mesh + full mipmap chain) multi-frame pacing with bounded `Step()` duration and verified mip 0 / mip 1 pixels.
+  - Large model (~6.7 MiB mesh + full mipmap chain) multi-frame pacing under the byte cap, with every mip level matching `UploadTexture`.
   - Sub-row horizontal texture splitting when `BytesPerFrame` is a quarter of one row.
-  - `NRGBA`, `R8`, `RG8`, `BGRA8`, `QueueRawBuffer`, and padded-stride `QueueRawTexture` uploads.
-  - Priority ordering (`High` > `Normal` > `Low` + FIFO) and mid-upload preemption.
+  - `NRGBA`, `R8` and padded `RG8` pixel buffers, `QueueRawBuffer`, and padded-stride `QueueRawTexture` uploads.
+  - Priority ordering (`High` > `Normal` > `Low` + FIFO) and mid-upload preemption, synchronized on `InFlightDecodes` rather than sleeps.
   - Cancellation while queued, decoding, and mid-upload, plus pre-canceled caller contexts, decode/validation errors, `MaxPending` backpressure, runtime `SetBytesPerFrame` / `SetChunkBytes`, nil-device handling, and mid-upload device loss with retained-mesh recovery.
-  - Scope disposal cleanup, idempotent `Close()`, zero leaked goroutines, and high-concurrency producer/canceler/stepper stress testing.
+  - Scope disposal cleanup with every `onReady` called with `ErrUploaderClosed`, idempotent `Close()`, zero leaked goroutines, and high-concurrency producer/canceler/stepper stress testing.
 - Verified with `go tool nsgo test ./render3d -- -race`, `go tool nsgo check -target macos,windows,linux,android,web`, `go tool nsgo test -run TestStabilityTable .`, `go run ./cmd/gameschema -check`, `go run ./tools/changelog check`, and `bun run verify-notes`.
