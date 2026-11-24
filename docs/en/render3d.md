@@ -1138,3 +1138,35 @@ for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
 - **Filtering and bias**: `LocalShadowFilterHard` (one nearest comparison tap) or `LocalShadowFilterPCF3x3` (nine linear taps), with a constant `DepthBias` and a world-space `NormalBias`.
 - **Bind group 3**: `LocalShadowGroup` is `ShadowGroup` (3), the group the directional shadow, fog, IBL and skinning also use, so a lit PBR pipeline takes one of them (`LitPBRPipelineOptions.SpotShadowLayout` or `PointShadowLayout`). A custom shader that needs both, or group 3 for something else, places the bindings with `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` and scales its lights with `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` from `LightWGSL`.
 - **Device loss and CPU references**: with `Retained: true` the depth target, sampler, buffers, bind groups and depth pipeline come back after a device loss. `EvaluateSpotShadow`, `EvaluatePointShadow` and `PointShadowSelectFace` mirror the WGSL, and `ShadePointVisibility` with a `LightVisibility` reproduces the lit pixel; the tests compare them with the GPU and with the golden renders `render3d/testdata/golden/local_shadow_spot.png` and `local_shadow_point.png` (`UPDATE_GOLDEN=1` rewrites them).
+
+## 3D post-processing (`PostStack3D`, `BloomPass`, `SSAOPass`, `DepthOfFieldPass`)
+
+`PostStack3D` composes screen-space ambient occlusion (`SSAOPass`), depth-aware disc bokeh Depth of Field (`DepthOfFieldPass`), and HDR Bloom (`BloomPass`) over an offscreen 3D color+depth `gpu.RenderTarget` (`FormatRGBA16Float` + `FormatDepth32Float` by default) and writes the final image to the swapchain or a chosen destination texture:
+
+```go
+stack, err := render3d.NewPostStack3D(cx, dev, render3d.PostStack3DOptions{
+	Width:        uint32(w),
+	Height:       uint32(h),
+	OutputFormat: dev.SurfaceFormat(),
+	Retained:     true,
+	EnableSSAO:   true,
+	SSAO:         render3d.SSAOConfigFromCamera(cam),
+	EnableDoF:    true,
+	DoF:          render3d.DepthOfFieldConfigFromCamera(cam, 5.0, 2.0, 5.0),
+	EnableBloom:  true,
+	Bloom:        render3d.DefaultBloomConfig(),
+})
+
+// In OnFrame:
+pass := stack.BeginScenePass(frame, core.RGB(0x0c1018))
+// ... draw 3D meshes into stack.SceneTarget() ...
+pass.End()
+_ = stack.ApplyScene(frame.Device(), frame, nil) // SSAO -> Depth of Field -> Bloom -> swapchain
+frame.Submit()
+```
+
+- **Composable order and standalone passes**: `PostStack3D` runs enabled stages in fixed order — **SSAO -> Depth of Field -> Bloom** — routing intermediate results through ping-pong offscreen targets and writing the final stage directly in `OutputFormat` (or blitting cleanly when all stages are disabled). Each pass (`SSAOPass`, `DepthOfFieldPass`, `BloomPass`) can also be constructed and applied standalone against any caller-owned `gpu.Texture` color and depth attachments via `PostPassRecorder` (satisfied by both `*gpu.Frame` and `*gpu.Encoder`).
+- **SSAO (`SSAOConfig`, `SSAOPass`)**: reconstructs view-space positions and edge-preserving normals from the 3D depth buffer, evaluates a deterministic 4–16-sample hemisphere kernel with stratified 4×4 tangent rotation, applies an optional depth-aware bilateral blur (`BlurRadius`, `DepthThreshold`), and multiplies ambient occlusion into the scene color (`AOTexture` exposes the AO map for inspection).
+- **Depth of Field (`DepthOfFieldConfig`, `DepthOfFieldPass`)**: linearizes perspective or orthographic `[0, 1]` depth to compute a signed Circle of Confusion around `FocusDistance` ± `FocusRange`, then gathers an 18-tap two-ring disc bokeh blur that prevents blurred background pixels from bleeding across sharp in-focus silhouettes.
+- **Bloom (`BloomConfig`, `BloomPass`)**: extracts bright LDR or HDR (`> 1.0`) pixels with a quadratic `Threshold` / `SoftKnee` curve, runs `BlurPasses` separable 9-tap Gaussian horizontal and vertical passes (optionally at half resolution via `HalfRes`), and composites the glow additively with `Intensity`.
+- **Portability, lifecycle, and reference renders**: every pass uses fragment-only portable WGSL with explicit `textureSampleLevel` and algebraic/precomputed weights (no compute shaders or `exp`/`log2` instructions), running on both full and `nsgotest.NoGPUCompute` (WebGL 2 / OpenGL ES 3.0) profiles, supporting `Resize(dev, w, h)` and `Retained` device-loss recovery. Golden reference renders (`render3d/testdata/golden/post3d_bloom.png`, `post3d_ssao.png`, `post3d_dof.png`, and `post3d_combined.png`) verify each pass and the combined stack; `UPDATE_GOLDEN=1` rewrites them.
