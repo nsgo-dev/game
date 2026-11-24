@@ -17,8 +17,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// viewportSolidWGSL renders a MeshVertexLayout mesh transformed by CameraWGSL
-// at @group(0) with a flat per-object color uniform at @group(1) @binding(0).
+// viewportSolidWGSL renders a MeshVertexLayout mesh transformed by CameraWGSL at @group(0) with a flat per-object color uniform at @group(1) @binding(0).
 const viewportSolidWGSL = render3d.CameraWGSL + `
 struct SolidColor {
 	color: vec4<f32>,
@@ -49,9 +48,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-// viewportTexturedWGSL renders a MeshVertexLayout mesh transformed by CameraWGSL
-// at @group(0), sampling a material texture + sampler at @group(1) (compatible
-// with render3d.TextureBindingLayout and render3d.BindTexture).
+// viewportTexturedWGSL renders a MeshVertexLayout mesh transformed by CameraWGSL at @group(0), sampling a material texture + sampler at @group(1) (compatible with render3d.TextureBindingLayout and render3d.BindTexture).
 const viewportTexturedWGSL = render3d.CameraWGSL + `
 @group(1) @binding(0) var mat_tex: texture_2d<f32>;
 @group(1) @binding(1) var mat_samp: sampler;
@@ -259,11 +256,7 @@ func viewportProfiles() []struct {
 	}
 }
 
-// TestRenderTextureSampledAsMaterial proves acceptance criterion 1:
-// an offscreen camera renders 3D geometry into a RenderTexture and the main
-// camera samples rt.GPUTexture() as a material texture via render3d.BindTexture
-// on a 3D quad (mirror / minimap / portal pattern), on both full and
-// WebGL 2 / GLES 3.0 (NoGPUCompute) profiles.
+// TestRenderTextureSampledAsMaterial proves acceptance criterion 1: an offscreen camera renders 3D geometry into a RenderTexture and the main camera samples rt.GPUTexture() as a material texture via render3d.BindTexture on a 3D quad (mirror / minimap / portal pattern), on both full and WebGL 2 / GLES 3.0 (NoGPUCompute) profiles.
 func TestRenderTextureSampledAsMaterial(t *testing.T) {
 	const (
 		layerWorld  uint32 = 1 << 0
@@ -353,8 +346,7 @@ func TestRenderTextureSampledAsMaterial(t *testing.T) {
 					},
 					OnFrame: func(frame *gpu.Frame) {
 						frames++
-						// Deliberately list main view BEFORE offscreen view to prove
-						// ViewportRenderer always renders offscreen RenderTextures first.
+						// Deliberately list main view BEFORE offscreen view to prove ViewportRenderer always renders offscreen RenderTextures first.
 						views := []render3d.CameraView{
 							{
 								Name:       "main",
@@ -415,9 +407,7 @@ func TestRenderTextureSampledAsMaterial(t *testing.T) {
 	}
 }
 
-// TestRenderTextureMSAA4xSampledAsMaterial verifies that a 4x MSAA RenderTexture
-// automatically resolves into its single-sampled Resolve texture and is directly
-// sampleable via rt.GPUTexture() and BindTexture.
+// TestRenderTextureMSAA4xSampledAsMaterial verifies that a 4x MSAA RenderTexture automatically resolves into its single-sampled Resolve texture and is directly sampleable via rt.GPUTexture() and BindTexture.
 func TestRenderTextureMSAA4xSampledAsMaterial(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(64, 64, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
@@ -500,10 +490,7 @@ func TestRenderTextureMSAA4xSampledAsMaterial(t *testing.T) {
 	viewportAssertPixel(t, sr.Image(), 32, 32, color.RGBA{R: 255, G: 255, B: 0, A: 255})
 }
 
-// TestPerCameraLayerMasks proves acceptance criterion 2:
-// three cameras looking at the same 3D scene with different LayerMasks render
-// only Layer 1 (red), only Layer 2 (blue), and both Layer 1|2 respectively,
-// verified via pixel readback on both full and NoGPUCompute profiles.
+// TestPerCameraLayerMasks proves acceptance criterion 2: three cameras looking at the same 3D scene with different LayerMasks render only Layer 1 (red), only Layer 2 (blue), and both Layer 1|2 respectively, verified via pixel readback on both full and NoGPUCompute profiles.
 func TestPerCameraLayerMasks(t *testing.T) {
 	const (
 		layerRed  uint32 = 1 << 0
@@ -637,11 +624,7 @@ func TestPerCameraLayerMasks(t *testing.T) {
 	}
 }
 
-// TestSplitScreenSideBySideViewports proves acceptance criterion 3:
-// two 3D viewports render side by side in a single frame with independent
-// cameras, automatic per-viewport aspect adjustment (without mutating caller
-// cameras), and strict scissor clipping with zero bleed across the split seam,
-// on both full and WebGL 2 / GLES 3.0 (NoGPUCompute) profiles.
+// TestSplitScreenSideBySideViewports proves acceptance criterion 3: two 3D viewports render side by side in a single frame with independent cameras, automatic per-viewport aspect adjustment (without mutating caller cameras), and strict scissor clipping with zero bleed across the split seam, on both full and WebGL 2 / GLES 3.0 (NoGPUCompute) profiles.
 func TestSplitScreenSideBySideViewports(t *testing.T) {
 	const (
 		surfW = 128
@@ -660,8 +643,7 @@ func TestSplitScreenSideBySideViewports(t *testing.T) {
 				frames        int
 			)
 
-			// Give caller cameras a distinct initial aspect (2.5) to verify
-			// ViewportRenderer adjusts each per-view copy without mutating them.
+			// Give caller cameras a distinct initial aspect (2.5) to verify ViewportRenderer adjusts each per-view copy without mutating them.
 			camLeft := scene3d.NewPerspectiveCamera(math3d.Vec3{X: -10, Z: 4}, math3d.DegToRad(60), 2.5, 0.1, 50)
 			camLeft.LookAt(math3d.Vec3{X: -10, Z: 0}, math3d.Vec3Up())
 			camRight := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 10, Z: 4}, math3d.DegToRad(60), 2.5, 0.1, 50)
@@ -684,8 +666,7 @@ func TestSplitScreenSideBySideViewports(t *testing.T) {
 						colorLayout := viewportColorLayout(t, cx, dev)
 						solidPipe = viewportSolidPipeline(t, cx, dev, renderer.CameraLayout(), colorLayout, dev.SurfaceFormat(), gpu.FormatDepth24Plus, 1)
 
-						// Oversized quads centered in front of each camera so they fill
-						// past the viewport boundary — proving scissor prevents any bleed!
+						// Oversized quads centered in front of each camera so they fill past the viewport boundary — proving scissor prevents any bleed!
 						redQuad, err = render3d.UploadMesh(cx, dev, viewportFacingQuadMesh(math3d.Vec3{X: -10, Z: 0}, 8, 8), render3d.MeshUpload{Label: "left-quad"})
 						if err != nil {
 							t.Fatalf("UploadMesh left: %v", err)
@@ -738,8 +719,7 @@ func TestSplitScreenSideBySideViewports(t *testing.T) {
 				t.Fatalf("GPUReadPixels: %v", err)
 			}
 
-			// Verify entire left half [0..63] is red and entire right half [64..127] is blue,
-			// including right on the split seam (x=63 vs x=64).
+			// Verify entire left half [0..63] is red and entire right half [64..127] is blue, including right on the split seam (x=63 vs x=64).
 			for _, y := range []int{2, 32, 61} {
 				viewportAssertPixel(t, img, 1, y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 				viewportAssertPixel(t, img, 32, y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
@@ -752,10 +732,7 @@ func TestSplitScreenSideBySideViewports(t *testing.T) {
 	}
 }
 
-// TestPictureInPictureResetDepth verifies that an overlapping secondary viewport
-// (such as a corner 3D minimap) with ResetDepth: true preserves the main view's
-// color outside its scissor rect while clearing depth so its own farther 3D
-// geometry is not occluded by the main view's closer depth values.
+// TestPictureInPictureResetDepth verifies that an overlapping secondary viewport (such as a corner 3D minimap) with ResetDepth: true preserves the main view's color outside its scissor rect while clearing depth so its own farther 3D geometry is not occluded by the main view's closer depth values.
 func TestPictureInPictureResetDepth(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(64, 64, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
@@ -770,9 +747,7 @@ func TestPictureInPictureResetDepth(t *testing.T) {
 	colorLayout := viewportColorLayout(t, nil, dev)
 	pipe := viewportSolidPipeline(t, nil, dev, renderer.CameraLayout(), colorLayout, gpu.FormatRGBA8Unorm, gpu.FormatDepth24Plus, 1)
 
-	// Main view draws a VERY NEAR red quad (z = 4.0 -> small depth near 0).
-	// PiP overlay draws a FARTHER blue quad (z = -2.0 -> larger depth) that
-	// would be depth-rejected unless ResetDepth: true clears the depth buffer!
+	// Main view draws a VERY NEAR red quad (z = 4.0 -> small depth near 0). PiP overlay draws a FARTHER blue quad (z = -2.0 -> larger depth) that would be depth-rejected unless ResetDepth: true clears the depth buffer!
 	nearQuad, err := render3d.UploadMesh(nil, dev, viewportFacingQuadMesh(math3d.Vec3{Z: 4.0}, 3, 3), render3d.MeshUpload{})
 	if err != nil {
 		t.Fatalf("UploadMesh nearQuad: %v", err)
@@ -908,9 +883,7 @@ func TestInterleavedOffscreenTargetsKeepEarlierViews(t *testing.T) {
 	}
 }
 
-// TestRenderTextureResizeAndRebind verifies Resize no-op, reallocation,
-// generation increment, old GPUTexture invalidation, failed-resize preservation,
-// and sampling the resized render texture.
+// TestRenderTextureResizeAndRebind verifies Resize no-op, reallocation, generation increment, old GPUTexture invalidation, failed-resize preservation, and sampling the resized render texture.
 func TestRenderTextureResizeAndRebind(t *testing.T) {
 	sr := gpu.NewSoftwareRenderer(64, 64, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
@@ -1013,10 +986,7 @@ func TestRenderTextureResizeAndRebind(t *testing.T) {
 	viewportAssertPixel(t, sr.Image(), 32, 32, color.RGBA{R: 0, G: 255, B: 255, A: 255})
 }
 
-// TestRetainedRenderTextureAndViewportRendererAfterDeviceLoss verifies that
-// Retained: true on RenderTexture + ViewportRenderer survives GPU device loss
-// and restore without recreating the RenderTexture, its BindTexture bind group,
-// or the ViewportRenderer.
+// TestRetainedRenderTextureAndViewportRendererAfterDeviceLoss verifies that Retained: true on RenderTexture + ViewportRenderer survives GPU device loss and restore without recreating the RenderTexture, its BindTexture bind group, or the ViewportRenderer.
 func TestRetainedRenderTextureAndViewportRendererAfterDeviceLoss(t *testing.T) {
 	const size = 64
 	var (
