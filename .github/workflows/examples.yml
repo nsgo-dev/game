@@ -1,6 +1,6 @@
 name: Examples
 
-# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene; checks the scenes, maps and atlases of every sample game with game check.
+# Tests and cross-checks the Cave Run sample game and every chapter of the Star Catcher tutorial, and builds their web bundles; tests and cross-checks the Fountain particle stress scene; tests and cross-checks Field Medic, whose own editor command builds in an editor plugin; checks the scenes, maps and atlases of every sample game with game check.
 on:
   push:
     branches:
@@ -203,4 +203,29 @@ jobs:
         run: go tool nsgo test ./...
       - name: Check Fountain targets
         working-directory: examples/fountain
+        run: go tool nsgo check -target macos,windows,linux,android,web
+
+  fieldmedic:
+    name: Test and check Field Medic
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/fieldmedic/go.mod
+          cache: true
+          cache-dependency-path: |
+            examples/fieldmedic/go.sum
+            packages/game/go.sum
+      # The game, its health editor plugin in the scene editor, and the game's own editor command.
+      - name: Test Field Medic
+        working-directory: examples/fieldmedic
+        run: go tool nsgo test ./...
+      - name: Check Field Medic targets
+        working-directory: examples/fieldmedic
         run: go tool nsgo check -target macos,windows,linux,android,web

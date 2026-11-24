@@ -432,15 +432,18 @@ editor:
 A registered plugin the open project does not name stays off, and the order of `editor.plugins` is the order its panels and tools appear in. `OpenProject` names in the status bar the plugins the project lists that this binary was built without (`MissingPlugins`). `go tool game editor` registers no plugins, so a game that has its own builds its own editor command:
 
 ```go
+// cmd/editor/main.go: the game's own editor command.
+package main
+
 func main() {
-	ed, err := editor.New(nil, atlases)
+	ed, err := editor.New(nil, atlases) // the game's sprite atlases, as a sceneformat.AssetResolver
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := ed.SetComponentRegistry(components); err != nil {
+	if err := ed.SetComponentRegistry(health.Components()); err != nil {
 		log.Fatal(err)
 	}
-	if err := ed.RegisterPlugin(health.Plugin()); err != nil {
+	if err := ed.RegisterPlugin(healthplugin.Plugin()); err != nil {
 		log.Fatal(err)
 	}
 	if err := ed.OpenProject("."); err != nil {
@@ -462,7 +465,20 @@ A plugin changes the scene only through the editor's methods, such as `SetCompon
 
 `SetPluginEnabled(name, on)` adds a registered plugin to `editor.plugins` or removes it, as one undoable edit of the project that the toolbar's Save button writes; removing the last plugin removes the `editor` section when nothing else is left in it, including an `editor: {}` the author wrote, and Undo puts it back. `RegisteredPlugins`, `ActivePlugins` and `PluginEnabled` report which plugins the binary has and which are on.
 
-The editor's tests hold a sample plugin, `health`, that adds a panel listing every object's hit points with a button that heals them all, an inspector for its `health` component with a hit point field, and a tool that places a wounded object where the viewport is pressed (`packages/game/editor/plugin_test.go`).
+### Shipping an editor with plugins
+
+A game ships its editor as one more command in its own module, beside the game, and runs it with `go run ./cmd/editor` from the project directory. Keep the plugin in a package of its own that only the editor command imports, so the shipped game does not link the editor, and the component types in a package that both import, so the game and the editor check scenes against the same fields:
+
+| Package | Imports | Holds |
+| --- | --- | --- |
+| the component package | `sceneformat` | the component types (`ComponentType`), a registry for `ParseWith` and `SetComponentRegistry`, and helpers that read a component with its defaults (`ComponentRegistry.Resolve`) |
+| the plugin package | `editor` and the component package | `Plugin()`, returning the `editor.Plugin` |
+| the game (`main`) | the component package | loads its scenes with `sceneformat.ParseWith` and the registry |
+| `cmd/editor` | `editor`, the component and plugin packages | registers the component types and the plugin, then opens the project |
+
+`game.yaml` names the plugin under `editor.plugins`, so the plugin is on whenever the game's editor opens the project. An editor command that should not start without its plugins checks `MissingPlugins` after `OpenProject` and fails when it is not empty; `go tool game editor` on the same project still opens it, names the plugins it lacks in the status bar and shows the generic fields.
+
+[Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) (`examples/fieldmedic`) is a runnable game laid out this way. Its patients carry a `health` component (package `health`), and its `cmd/editor` registers the `health` plugin (package `healthplugin`): a Ward panel docked right of the inspector that lists every patient's hit points, with a Heal All button that heals them all in one undoable step it executes on `Editor.History`; an inspector for the `health` component with hit point and max fields and a bar of what is left; and an Admit tool that places a patient where the viewport is pressed and outlines every patient while it is active. Its tests open the game's own project in the editor and drive the panel, the inspector and the tool. The editor's own tests hold a smaller `health` plugin as well (`packages/game/editor/plugin_test.go`).
 
 ## Library panel (#493)
 
