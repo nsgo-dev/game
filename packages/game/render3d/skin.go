@@ -12,26 +12,18 @@ import (
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// Portable GPU skinning limits, uniform layout, bind group slot, and
-// interleaved vertex layout.
+// Portable GPU skinning limits, uniform layout, bind group slot, and interleaved vertex layout.
 const (
-	// MaxSkinJoints is the maximum number of joint matrices stored in one
-	// [GPUSkinPalette] uniform buffer. 128 mat4x4<f32> entries occupy 8192 bytes
-	// ([SkinUniformSize]), staying comfortably below WebGL 2 and OpenGL ES 3.0's
-	// 16 KiB minimum MAX_UNIFORM_BLOCK_SIZE while covering full character rigs.
+	// MaxSkinJoints is the maximum number of joint matrices stored in one [GPUSkinPalette] uniform buffer. 128 mat4x4<f32> entries occupy 8192 bytes ([SkinUniformSize]), staying comfortably below WebGL 2 and OpenGL ES 3.0's 16 KiB minimum MAX_UNIFORM_BLOCK_SIZE while covering full character rigs.
 	MaxSkinJoints = 128
 
-	// SkinUniformSize is the byte size of the skin uniform block that
-	// [AppendJointMatrices] writes and [SkinWGSL] declares: MaxSkinJoints * 64 = 8192 bytes.
+	// SkinUniformSize is the byte size of the skin uniform block that [AppendJointMatrices] writes and [SkinWGSL] declares: MaxSkinJoints * 64 = 8192 bytes.
 	SkinUniformSize = MaxSkinJoints * 64
 
-	// SkinGroup is the bind group index reserved for the skin joint palette
-	// ([GPUSkinPalette.BindGroup]) in [SkinWGSL] and [NewSkinnedMeshPipeline].
+	// SkinGroup is the bind group index reserved for the skin joint palette ([GPUSkinPalette.BindGroup]) in [SkinWGSL] and [NewSkinnedMeshPipeline].
 	SkinGroup = 1
 
-	// SkinnedVertexStride is the byte size of one interleaved skinned vertex:
-	// position (12 bytes), normal (12 bytes), UV (8 bytes), four joint indices
-	// (16 bytes), and four normalized weights (16 bytes).
+	// SkinnedVertexStride is the byte size of one interleaved skinned vertex: position (12 bytes), normal (12 bytes), UV (8 bytes), four joint indices (16 bytes), and four normalized weights (16 bytes).
 	SkinnedVertexStride = 64
 
 	// SkinnedPositionOffset is the byte offset of the float32x3 position inside a skinned vertex.
@@ -57,19 +49,12 @@ const (
 	SkinnedWeightsLocation = 4
 )
 
-// ErrInvalidSkin is wrapped by errors returned for malformed skinning attributes,
-// out-of-range joint indices, invalid glTF skin definitions, or oversized joint palettes.
+// ErrInvalidSkin is wrapped by errors returned for malformed skinning attributes, out-of-range joint indices, invalid glTF skin definitions, or oversized joint palettes.
 var ErrInvalidSkin = errors.New("render3d: invalid skin")
 
-// SkinWGSL declares the portable joint palette uniform block at @group(1) @binding(0)
-// and linear blend skinning helpers matching CPU [SkinVertex]. Prepend [CameraWGSL]
-// and [SkinWGSL] to a custom skinned vertex shader, or use [SkinnedMeshWGSL] via
-// [NewSkinnedMeshPipeline].
+// SkinWGSL declares the portable joint palette uniform block at @group(1) @binding(0) and linear blend skinning helpers matching CPU [SkinVertex]. Prepend [CameraWGSL] and [SkinWGSL] to a custom skinned vertex shader, or use [SkinnedMeshWGSL] via [NewSkinnedMeshPipeline].
 //
-// Blending is evaluated per-influence as sum_i (skin.joints[j_i] * v) * w_i rather
-// than summing scaled 4x4 matrices first, which is both fewer scalar operations on
-// GPU hardware and exact across every NSGo backend (Metal, D3D11, OpenGL 3.3,
-// WebGPU, WebGL 2, OpenGL ES 3.0, and the software rasterizer).
+// Blending is evaluated per-influence as sum_i (skin.joints[j_i] * v) * w_i rather than summing scaled 4x4 matrices first, which is both fewer scalar operations on GPU hardware and exact across every NSGo backend (Metal, D3D11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software rasterizer).
 const SkinWGSL = `struct SkinPalette {
 	joints: array<mat4x4<f32>, 128>,
 }
@@ -99,10 +84,7 @@ fn skin_normal(normal: vec3<f32>, joints: vec4<u32>, weights: vec4<f32>) -> vec3
 }
 `
 
-// SkinnedMeshWGSL is the default ready-to-use WGSL module compiled by
-// [NewSkinnedMeshPipeline]. It binds [CameraBuffer] at [CameraGroup] (group 0)
-// and [GPUSkinPalette] at [SkinGroup] (group 1), skins positions and normals
-// with [SkinWGSL], and applies view-aligned shading with normal-based coloring.
+// SkinnedMeshWGSL is the default ready-to-use WGSL module compiled by [NewSkinnedMeshPipeline]. It binds [CameraBuffer] at [CameraGroup] (group 0) and [GPUSkinPalette] at [SkinGroup] (group 1), skins positions and normals with [SkinWGSL], and applies view-aligned shading with normal-based coloring.
 const SkinnedMeshWGSL = CameraWGSL + "\n" + SkinWGSL + `
 struct SkinnedVertexIn {
 	@location(0) pos: vec3<f32>,
@@ -145,15 +127,9 @@ fn fs_main(in: SkinnedVertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-// SkinnedMesh is indexed or non-indexed triangle-list geometry with up to four
-// joint influences per vertex, ready to upload with [UploadSkinnedMesh].
+// SkinnedMesh is indexed or non-indexed triangle-list geometry with up to four joint influences per vertex, ready to upload with [UploadSkinnedMesh].
 //
-// Positions, Joints, and Weights are required and must have equal length.
-// Normals and UVs are optional (empty or one entry per position). Indices is
-// optional (empty for non-indexed triangle lists). JointCount optionally records
-// the skin's joint count; when > 0, [SkinnedMesh.Validate] enforces that every
-// joint index is strictly less than JointCount (and JointCount <= [MaxSkinJoints]).
-// When JointCount == 0, every joint index must be strictly less than [MaxSkinJoints].
+// Positions, Joints, and Weights are required and must have equal length. Normals and UVs are optional (empty or one entry per position). Indices is optional (empty for non-indexed triangle lists). JointCount optionally records the skin's joint count; when > 0, [SkinnedMesh.Validate] enforces that every joint index is strictly less than JointCount (and JointCount <= [MaxSkinJoints]). When JointCount == 0, every joint index must be strictly less than [MaxSkinJoints].
 type SkinnedMesh struct {
 	Positions  []math3d.Vec3
 	Normals    []math3d.Vec3
@@ -182,10 +158,7 @@ func NormalizeSkinWeights(w math3d.Vec4) math3d.Vec4 {
 	return math3d.Vec4{X: x * inv, Y: y * inv, Z: z * inv, W: ww * inv}
 }
 
-// SkinnedMeshFromGLTF extracts and validates a [SkinnedMesh] from a glTF 2.0
-// triangle primitive and its associated skin, normalizing vertex weights so their
-// four components sum to 1. Geometry errors wrap [ErrInvalidMesh] and skinning
-// errors wrap [ErrInvalidSkin].
+// SkinnedMeshFromGLTF extracts and validates a [SkinnedMesh] from a glTF 2.0 triangle primitive and its associated skin, normalizing vertex weights so their four components sum to 1. Geometry errors wrap [ErrInvalidMesh] and skinning errors wrap [ErrInvalidSkin].
 func SkinnedMeshFromGLTF(prim gltf.Primitive, skin gltf.Skin) (SkinnedMesh, error) {
 	if prim.Mode != gltf.ModeTriangles {
 		return SkinnedMesh{}, fmt.Errorf("%w: glTF primitive mode %d is not triangles", ErrInvalidMesh, prim.Mode)
@@ -222,8 +195,7 @@ func SkinnedMeshFromGLTF(prim gltf.Primitive, skin gltf.Skin) (SkinnedMesh, erro
 	return sm, nil
 }
 
-// SkinnedMeshesFromGLTFNode extracts every triangle primitive of doc's skinned
-// mesh node at nodeIndex against its referenced skin.
+// SkinnedMeshesFromGLTFNode extracts every triangle primitive of doc's skinned mesh node at nodeIndex against its referenced skin.
 func SkinnedMeshesFromGLTFNode(doc *gltf.Document, nodeIndex int) ([]SkinnedMesh, error) {
 	if doc == nil {
 		return nil, fmt.Errorf("%w: nil glTF document", ErrInvalidSkin)
@@ -254,10 +226,7 @@ func SkinnedMeshesFromGLTFNode(doc *gltf.Document, nodeIndex int) ([]SkinnedMesh
 	return out, nil
 }
 
-// Validate checks both the triangle geometry (wrapping [ErrInvalidMesh]) and the
-// skinning attributes (wrapping [ErrInvalidSkin]): matching Joints and Weights
-// counts, JointCount in [0, MaxSkinJoints], finite non-negative weights, and every
-// joint index strictly below JointCount (or [MaxSkinJoints] when JointCount == 0).
+// Validate checks both the triangle geometry (wrapping [ErrInvalidMesh]) and the skinning attributes (wrapping [ErrInvalidSkin]): matching Joints and Weights counts, JointCount in [0, MaxSkinJoints], finite non-negative weights, and every joint index strictly below JointCount (or [MaxSkinJoints] when JointCount == 0).
 func (m SkinnedMesh) Validate() error {
 	base := Mesh{
 		Positions: m.Positions,
@@ -316,8 +285,7 @@ func (m SkinnedMesh) VertexCount() int { return len(m.Positions) }
 // Indexed reports whether m has an index list.
 func (m SkinnedMesh) Indexed() bool { return len(m.Indices) != 0 }
 
-// IndexFormat returns [gpu.IndexUint16] when every vertex fits below 0xFFFF
-// (avoiding WebGL 2's fixed primitive restart index), otherwise [gpu.IndexUint32].
+// IndexFormat returns [gpu.IndexUint16] when every vertex fits below 0xFFFF (avoiding WebGL 2's fixed primitive restart index), otherwise [gpu.IndexUint32].
 func (m SkinnedMesh) IndexFormat() gpu.IndexFormat {
 	if len(m.Positions) <= maxUint16Vertices {
 		return gpu.IndexUint16
@@ -325,8 +293,7 @@ func (m SkinnedMesh) IndexFormat() gpu.IndexFormat {
 	return gpu.IndexUint32
 }
 
-// Bounds returns the object-space bind-pose axis-aligned box around m.Positions,
-// or [math3d.AABBEmpty] when m has none.
+// Bounds returns the object-space bind-pose axis-aligned box around m.Positions, or [math3d.AABBEmpty] when m has none.
 func (m SkinnedMesh) Bounds() math3d.AABB {
 	b := math3d.AABBEmpty()
 	for _, p := range m.Positions {
@@ -338,8 +305,7 @@ func (m SkinnedMesh) Bounds() math3d.AABB {
 // VertexDataSize returns the byte length [SkinnedMesh.AppendVertexData] appends.
 func (m SkinnedMesh) VertexDataSize() int { return len(m.Positions) * SkinnedVertexStride }
 
-// IndexDataSize returns the 4-byte-padded byte length [SkinnedMesh.AppendIndexData]
-// appends, or zero for a non-indexed mesh.
+// IndexDataSize returns the 4-byte-padded byte length [SkinnedMesh.AppendIndexData] appends, or zero for a non-indexed mesh.
 func (m SkinnedMesh) IndexDataSize() int {
 	n := len(m.Indices)
 	if m.IndexFormat() == gpu.IndexUint32 {
@@ -348,12 +314,7 @@ func (m SkinnedMesh) IndexDataSize() int {
 	return (n*2 + 3) &^ 3
 }
 
-// AppendVertexData appends m's skinned vertices to dst in the little-endian
-// interleaved layout of [SkinnedVertexLayout] and returns the extended slice.
-// Missing normals and UVs are written as zeros; joint weights are normalized
-// via [NormalizeSkinWeights] so every vertex sums to 1. It allocates only when
-// dst lacks capacity for [SkinnedMesh.VertexDataSize] more bytes. Call
-// [SkinnedMesh.Validate] before encoding untrusted data.
+// AppendVertexData appends m's skinned vertices to dst in the little-endian interleaved layout of [SkinnedVertexLayout] and returns the extended slice. Missing normals and UVs are written as zeros; joint weights are normalized via [NormalizeSkinWeights] so every vertex sums to 1. It allocates only when dst lacks capacity for [SkinnedMesh.VertexDataSize] more bytes. Call [SkinnedMesh.Validate] before encoding untrusted data.
 func (m SkinnedMesh) AppendVertexData(dst []byte) []byte {
 	start := len(dst)
 	dst = grow(dst, m.VertexDataSize())
@@ -397,19 +358,12 @@ func (m SkinnedMesh) AppendVertexData(dst []byte) []byte {
 	return dst
 }
 
-// AppendIndexData appends m's indices to dst at [SkinnedMesh.IndexFormat] width,
-// little-endian and zero-padded to a 4-byte multiple, allocating only when dst
-// lacks capacity.
+// AppendIndexData appends m's indices to dst at [SkinnedMesh.IndexFormat] width, little-endian and zero-padded to a 4-byte multiple, allocating only when dst lacks capacity.
 func (m SkinnedMesh) AppendIndexData(dst []byte) []byte {
 	return Mesh{Positions: m.Positions, Indices: m.Indices}.AppendIndexData(dst)
 }
 
-// SkinnedVertexLayout returns the vertex buffer layout of every [GPUSkinnedMesh]
-// for [gpu.PipelineDesc].VertexBuffers: one per-vertex buffer of
-// [SkinnedVertexStride] (64) bytes with position (@location(0)), normal
-// (@location(1)), UV (@location(2)), joint indices (@location(3), uint32x4),
-// and normalized weights (@location(4), float32x4). Each call returns a fresh
-// Attributes slice.
+// SkinnedVertexLayout returns the vertex buffer layout of every [GPUSkinnedMesh] for [gpu.PipelineDesc].VertexBuffers: one per-vertex buffer of [SkinnedVertexStride] (64) bytes with position (@location(0)), normal (@location(1)), UV (@location(2)), joint indices (@location(3), uint32x4), and normalized weights (@location(4), float32x4). Each call returns a fresh Attributes slice.
 func SkinnedVertexLayout() gpu.VertexBufferLayout {
 	return gpu.VertexBufferLayout{
 		Stride:   SkinnedVertexStride,
@@ -424,8 +378,7 @@ func SkinnedVertexLayout() gpu.VertexBufferLayout {
 	}
 }
 
-// GPUSkinnedMesh is a [SkinnedMesh] uploaded to GPU vertex and optional index
-// buffers scoped to the [*core.Scope] passed to [UploadSkinnedMesh].
+// GPUSkinnedMesh is a [SkinnedMesh] uploaded to GPU vertex and optional index buffers scoped to the [*core.Scope] passed to [UploadSkinnedMesh].
 type GPUSkinnedMesh struct {
 	vertices    *gpu.Buffer
 	indices     *gpu.Buffer
@@ -436,9 +389,7 @@ type GPUSkinnedMesh struct {
 	bounds      math3d.AABB
 }
 
-// UploadSkinnedMesh validates m and uploads its interleaved skinned vertex buffer
-// and optional index buffer to dev, owned by cx. Set opts.Retained to keep a CPU
-// copy so NSGo recreates the buffers automatically after a device loss.
+// UploadSkinnedMesh validates m and uploads its interleaved skinned vertex buffer and optional index buffer to dev, owned by cx. Set opts.Retained to keep a CPU copy so NSGo recreates the buffers automatically after a device loss.
 func UploadSkinnedMesh(cx *core.Scope, dev *gpu.Device, m SkinnedMesh, opts MeshUpload) (*GPUSkinnedMesh, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
@@ -540,8 +491,7 @@ func (g *GPUSkinnedMesh) Valid() bool {
 	return g.indices == nil || g.indices.Valid()
 }
 
-// Bind binds the vertex buffer to slot 0 and, for an indexed mesh, the index
-// buffer to pass. It binds nothing when the mesh is not [GPUSkinnedMesh.Valid].
+// Bind binds the vertex buffer to slot 0 and, for an indexed mesh, the index buffer to pass. It binds nothing when the mesh is not [GPUSkinnedMesh.Valid].
 func (g *GPUSkinnedMesh) Bind(pass *gpu.RenderPass) {
 	if !g.Valid() {
 		return
@@ -552,9 +502,7 @@ func (g *GPUSkinnedMesh) Bind(pass *gpu.RenderPass) {
 	}
 }
 
-// Draw binds the skinned mesh to pass and issues one draw call. The pass must
-// already have a pipeline whose vertex buffer 0 is [SkinnedVertexLayout] and a
-// [GPUSkinPalette] bound at [SkinGroup]. When the mesh is not valid it records nothing.
+// Draw binds the skinned mesh to pass and issues one draw call. The pass must already have a pipeline whose vertex buffer 0 is [SkinnedVertexLayout] and a [GPUSkinPalette] bound at [SkinGroup]. When the mesh is not valid it records nothing.
 func (g *GPUSkinnedMesh) Draw(pass *gpu.RenderPass) {
 	if !g.Valid() {
 		return
@@ -579,10 +527,7 @@ func (g *GPUSkinnedMesh) Close() error {
 	return err
 }
 
-// SkinVertex evaluates linear blend skinning on the CPU, matching [SkinWGSL]'s
-// skin_position and skin_normal helpers. Weights are normalized via
-// [NormalizeSkinWeights]; any joint index at or beyond len(matrices) evaluates
-// as the identity matrix, matching how [GPUSkinPalette] pads unused slots.
+// SkinVertex evaluates linear blend skinning on the CPU, matching [SkinWGSL]'s skin_position and skin_normal helpers. Weights are normalized via [NormalizeSkinWeights]; any joint index at or beyond len(matrices) evaluates as the identity matrix, matching how [GPUSkinPalette] pads unused slots.
 func SkinVertex(pos, normal math3d.Vec3, joints [4]uint16, weights math3d.Vec4, matrices []math3d.Mat4) (skinnedPos, skinnedNormal math3d.Vec3) {
 	w := NormalizeSkinWeights(weights)
 	ws := [4]float32{w.X, w.Y, w.Z, w.W}
@@ -613,22 +558,14 @@ func SkinVertex(pos, normal math3d.Vec3, joints [4]uint16, weights math3d.Vec4, 
 	return math3d.Vec3{X: outP.X, Y: outP.Y, Z: outP.Z}, outN
 }
 
-// SkinJointMatrices computes glTF 2.0 world-space joint skinning matrices for
-// doc.Skins[skinIndex] as jointNode.WorldMatrix * InverseBindMatrices[i] (with
-// identity when InverseBindMatrices is omitted). Per glTF 2.0 section 3.7.3.2,
-// only joint transforms apply to a skinned mesh and the mesh node's own
-// transform is ignored. Call [gltf.Document.ComputeWorldMatrices] before calling
-// SkinJointMatrices after modifying node transforms or applying an animation.
+// SkinJointMatrices computes glTF 2.0 world-space joint skinning matrices for doc.Skins[skinIndex] as jointNode.WorldMatrix * InverseBindMatrices[i] (with identity when InverseBindMatrices is omitted). Per glTF 2.0 section 3.7.3.2, only joint transforms apply to a skinned mesh and the mesh node's own transform is ignored. Call [gltf.Document.ComputeWorldMatrices] before calling SkinJointMatrices after modifying node transforms or applying an animation.
 //
-// Results are appended to dst[:0]; when cap(dst) >= len(skin.Joints), this
-// function performs zero heap allocations.
+// Results are appended to dst[:0]; when cap(dst) >= len(skin.Joints), this function performs zero heap allocations.
 func SkinJointMatrices(doc *gltf.Document, skinIndex int, dst []math3d.Mat4) ([]math3d.Mat4, error) {
 	return SkinJointMatricesWithTransform(doc, skinIndex, math3d.Mat4Identity(), dst)
 }
 
-// SkinJointMatricesWithTransform is like [SkinJointMatrices] but pre-multiplies
-// each joint matrix by worldTransform so the skinned character can be placed
-// anywhere in the scene. It performs zero heap allocations when cap(dst) >= len(skin.Joints).
+// SkinJointMatricesWithTransform is like [SkinJointMatrices] but pre-multiplies each joint matrix by worldTransform so the skinned character can be placed anywhere in the scene. It performs zero heap allocations when cap(dst) >= len(skin.Joints).
 func SkinJointMatricesWithTransform(doc *gltf.Document, skinIndex int, worldTransform math3d.Mat4, dst []math3d.Mat4) ([]math3d.Mat4, error) {
 	if doc == nil {
 		return dst, fmt.Errorf("%w: nil glTF document", ErrInvalidSkin)
@@ -670,12 +607,7 @@ func SkinJointMatricesWithTransform(doc *gltf.Document, skinIndex int, worldTran
 	return dst, nil
 }
 
-// AppendJointMatrices encodes joints into dst as the fixed [SkinUniformSize]
-// (8192-byte) little-endian uniform block declared by [SkinWGSL], padding slots
-// [len(joints), MaxSkinJoints) with identity matrices. It returns an error
-// wrapping [ErrInvalidSkin] when len(joints) > [MaxSkinJoints] or any matrix
-// entry is non-finite. It performs zero heap allocations when cap(dst)-len(dst)
-// is at least [SkinUniformSize].
+// AppendJointMatrices encodes joints into dst as the fixed [SkinUniformSize] (8192-byte) little-endian uniform block declared by [SkinWGSL], padding slots [len(joints), MaxSkinJoints) with identity matrices. It returns an error wrapping [ErrInvalidSkin] when len(joints) > [MaxSkinJoints] or any matrix entry is non-finite. It performs zero heap allocations when cap(dst)-len(dst) is at least [SkinUniformSize].
 func AppendJointMatrices(dst []byte, joints []math3d.Mat4) ([]byte, error) {
 	if len(joints) > MaxSkinJoints {
 		return dst, fmt.Errorf("%w: %d joints exceed MaxSkinJoints (%d)", ErrInvalidSkin, len(joints), MaxSkinJoints)
@@ -710,20 +642,13 @@ func putMat4(dst []byte, m *math3d.Mat4) {
 type SkinPaletteOptions struct {
 	// Label names the uniform buffer, bind group layout, and bind group in GPU capture tools.
 	Label string
-	// Retained keeps a CPU shadow copy of the palette uniform buffer so NSGo
-	// restores it with the latest joint matrices after a device loss.
+	// Retained keeps a CPU shadow copy of the palette uniform buffer so NSGo restores it with the latest joint matrices after a device loss.
 	Retained bool
 }
 
-// GPUSkinPalette holds up to [MaxSkinJoints] joint matrices in a portable
-// uniform buffer ([SkinUniformSize] = 8192 bytes, fitting WebGL 2 and OpenGL ES
-// 3.0's 16 KiB uniform block limit) together with the bind group layout and bind
-// group exposed at [SkinGroup].
+// GPUSkinPalette holds up to [MaxSkinJoints] joint matrices in a portable uniform buffer ([SkinUniformSize] = 8192 bytes, fitting WebGL 2 and OpenGL ES 3.0's 16 KiB uniform block limit) together with the bind group layout and bind group exposed at [SkinGroup].
 //
-// Create it once on device readiness, call [GPUSkinPalette.Update] or
-// [GPUSkinPalette.UpdateFromGLTF] when joint poses change, and bind
-// [GPUSkinPalette.BindGroup] at [SkinGroup]. Resources belong to the scope
-// passed to [NewGPUSkinPalette] and are released on scope disposal or Close.
+// Create it once on device readiness, call [GPUSkinPalette.Update] or [GPUSkinPalette.UpdateFromGLTF] when joint poses change, and bind [GPUSkinPalette.BindGroup] at [SkinGroup]. Resources belong to the scope passed to [NewGPUSkinPalette] and are released on scope disposal or Close.
 type GPUSkinPalette struct {
 	dev        *gpu.Device
 	buf        *gpu.Buffer
@@ -734,8 +659,7 @@ type GPUSkinPalette struct {
 	matScratch [MaxSkinJoints]math3d.Mat4
 }
 
-// NewGPUSkinPalette creates a [GPUSkinPalette] initialized to identity matrices
-// for all [MaxSkinJoints] slots on dev, owned by cx.
+// NewGPUSkinPalette creates a [GPUSkinPalette] initialized to identity matrices for all [MaxSkinJoints] slots on dev, owned by cx.
 func NewGPUSkinPalette(cx *core.Scope, dev *gpu.Device, opts SkinPaletteOptions) (*GPUSkinPalette, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
@@ -788,10 +712,7 @@ func NewGPUSkinPalette(cx *core.Scope, dev *gpu.Device, opts SkinPaletteOptions)
 	return p, nil
 }
 
-// Update validates and uploads joints into the palette's uniform buffer, filling
-// remaining slots up to [MaxSkinJoints] with identity matrices. If dev is nil,
-// the device passed to [NewGPUSkinPalette] is used. It encodes into internal
-// storage without heap allocations.
+// Update validates and uploads joints into the palette's uniform buffer, filling remaining slots up to [MaxSkinJoints] with identity matrices. If dev is nil, the device passed to [NewGPUSkinPalette] is used. It encodes into internal storage without heap allocations.
 func (p *GPUSkinPalette) Update(dev *gpu.Device, joints []math3d.Mat4) error {
 	if !p.Valid() {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: invalid skin palette"}
@@ -812,16 +733,12 @@ func (p *GPUSkinPalette) Update(dev *gpu.Device, joints []math3d.Mat4) error {
 	return nil
 }
 
-// UpdateFromGLTF computes joint matrices for doc.Skins[skinIndex] into internal
-// scratch storage and uploads them with [GPUSkinPalette.Update], with zero
-// steady-state heap allocations. Call [gltf.Document.ComputeWorldMatrices] first
-// whenever node transforms or animations change.
+// UpdateFromGLTF computes joint matrices for doc.Skins[skinIndex] into internal scratch storage and uploads them with [GPUSkinPalette.Update], with zero steady-state heap allocations. Call [gltf.Document.ComputeWorldMatrices] first whenever node transforms or animations change.
 func (p *GPUSkinPalette) UpdateFromGLTF(dev *gpu.Device, doc *gltf.Document, skinIndex int) error {
 	return p.UpdateFromGLTFWithTransform(dev, doc, skinIndex, math3d.Mat4Identity())
 }
 
-// UpdateFromGLTFWithTransform computes joint matrices for doc.Skins[skinIndex]
-// pre-multiplied by worldTransform and uploads them into the palette.
+// UpdateFromGLTFWithTransform computes joint matrices for doc.Skins[skinIndex] pre-multiplied by worldTransform and uploads them into the palette.
 func (p *GPUSkinPalette) UpdateFromGLTFWithTransform(dev *gpu.Device, doc *gltf.Document, skinIndex int, worldTransform math3d.Mat4) error {
 	if !p.Valid() {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: invalid skin palette"}
@@ -900,13 +817,11 @@ func (p *GPUSkinPalette) Close() error {
 type SkinnedMeshPipelineOptions struct {
 	// Label names the render pipeline in GPU capture tools.
 	Label string
-	// ColorFormat overrides the color attachment format; when FormatUndefined,
-	// dev.SurfaceFormat() is used.
+	// ColorFormat overrides the color attachment format; when FormatUndefined, dev.SurfaceFormat() is used.
 	ColorFormat gpu.TextureFormat
 	// DepthFormat enables depth testing and depth writes when not FormatUndefined.
 	DepthFormat gpu.TextureFormat
-	// DoubleSided disables back-face culling when true; by default CCW front faces
-	// are kept and back faces are culled.
+	// DoubleSided disables back-face culling when true; by default CCW front faces are kept and back faces are culled.
 	DoubleSided bool
 	// SampleCount sets the MSAA sample count (0 defaults to 1).
 	SampleCount int
@@ -914,9 +829,7 @@ type SkinnedMeshPipelineOptions struct {
 	Retained bool
 }
 
-// NewSkinnedMeshPipeline compiles [SkinnedMeshWGSL] and creates a render pipeline
-// using [SkinnedVertexLayout], camLayout at [CameraGroup] (group 0), and
-// skinLayout at [SkinGroup] (group 1).
+// NewSkinnedMeshPipeline compiles [SkinnedMeshWGSL] and creates a render pipeline using [SkinnedVertexLayout], camLayout at [CameraGroup] (group 0), and skinLayout at [SkinGroup] (group 1).
 func NewSkinnedMeshPipeline(cx *core.Scope, dev *gpu.Device, camLayout, skinLayout *gpu.BindGroupLayout, opts SkinnedMeshPipelineOptions) (*gpu.Pipeline, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
