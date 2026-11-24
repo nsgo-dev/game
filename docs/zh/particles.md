@@ -1,6 +1,6 @@
 # particles
 
-`game/particles` 提供由固定种子驱动的确定性 2D 粒子发射器 `Emitter`，由 `game.Loop` 推进并通过可复用的 `sprite.Batch` 绘制。
+`game/particles` 提供由固定种子驱动的确定性 2D 与 3D 粒子发射器：2D `Emitter` 通过可复用的 `sprite.Batch` 绘制，3D `Emitter3D` 与 `GPUParticles3D` 通过单次实例化 `gpu.View` 调用高效绘制。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/particles"
@@ -203,3 +203,104 @@ cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
 在 AMD Ryzen 9 3900X（Linux）上它们分别约需 1.7 ms（5000 次内存分配）和 1.8 ms（25 次内存分配）。这只是推进粒子并记录绘制操作的 CPU 开销：不包括平台每帧绘制约 5000 张图像的开销，对着色粒子也不包括垃圾回收器回收每次绘制所分配内存的开销，因此不能据此认为设备能保持 60 fps。macOS 上用 `--nsgo-fps` 测得的 60 fps 读数尚未记录（[nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)）。
+
+## 3D GPU 友好粒子
+
+`Emitter3D` 与 2D 发射器共享同一套核心模型（`Rate`、`MaxParticles`、`LifetimeMin`/`Max`、`SpeedMin`/`Max`、`SizeCurve`、`AlphaCurve`、`RotationCurve`、`ColorCurve`、`SimulationSpace`、`Seed`、`Burst`、`Clear`、`Reset`），并扩展了 3D 发射形状、3D 重力、线性阻力、散射角、多种公告板朝向模式、从远到近深度排序，以及面向 `gpu.View` 的紧凑实例化 GPU 上传管线。
+
+```go
+sparks := particles.NewEmitter3D(particles.Emitter3DConfig{
+	Position:     math3d.Vec3{Y: 1},
+	Direction:    math3d.Vec3Up(),
+	Shape:        particles.Cone(0.3, 0.4),
+	Billboard:    particles.BillboardStretched,
+	Blend:        particles.BlendAdditive,
+	Rate:         4000,
+	MaxParticles: 10000,
+	LifetimeMin:  600 * time.Millisecond,
+	LifetimeMax:  1400 * time.Millisecond,
+	SpeedMin:     3,
+	SpeedMax:     9,
+	Spread:       0.2,
+	Drag:         0.5,
+	Gravity:      math3d.Vec3{Y: -9.8},
+	SizeMin:      0.05,
+	SizeMax:      0.15,
+	ColorCurve: particles.ColorCurve{
+		{T: 0, Color: core.RGBA(0xffd166, 1)},
+		{T: 1, Color: core.RGBA(0xef476f, 0)},
+	},
+	Seed: 280,
+})
+```
+
+### 3D 发射形状
+
+`Emitter3D.Shape`（`Shape3D`）在发射器的 `(side, Direction, forward)` 局部坐标系中相对于 `Position` 生成粒子：
+
+| 形状 | 分布方式 |
+| --- | --- |
+| `Point3D()` | 精确出生在 `Position`（`Shape3D` 的零值）。 |
+| `Sphere(radius)` | 在半径为 `radius` 的球体内部均匀分布。 |
+| `Hemisphere(radius)` | 在沿 `Direction` 方向的上半球内部均匀分布。 |
+| `Box(width, height, depth)` | 在以 `Position` 为中心的 `width × height × depth` 长方体内均匀分布。 |
+| `Cone(radius, angle)` | 在垂直于 `Direction`、半径为 `radius` 的底面圆盘上均匀出生，并在半角 `angle`（弧度）范围内向外发散。 |
+| `Ring3D(radius)` | 在垂直于 `Direction`、半径为 `radius` 的圆周上均匀分布。 |
+
+### 公告板模式、混合模式与深度排序
+
+- **`BillboardSpherical`**（默认）：与相机视平面平行的全向公告板，支持逐粒子滚转（`InitialRotationMin`/`Max`、`RotationSpeedMin`/`Max`、`RotationCurve`）。
+- **`BillboardCylindrical`**：锁定到 `Emitter3D.Axis`（默认 `+Y`）轴的圆柱公告板，仅绕该轴转向相机。
+- **`BillboardStretched`**：沿粒子速度方向对齐并按速率拉伸的公告板（长度 `size + speed * StretchFactor`，`StretchFactor` 默认 `0.05` 秒）。
+- **`BlendAdditive`**（`gpu.BlendAdditive()`）：顺序无关的加法混合，适用于火焰、火花与光效，无需深度排序。
+- **`BlendAlpha`**（`gpu.BlendAlpha()`，默认）与 **`BlendPremultiplied`**（`gpu.BlendPremultipliedAlpha()`）：在打包上传前调用 `e.SortByDepth(camPos, camForward)`，使用确定性、零分配的 4 趟基数排序按从远到近排列粒子。
+
+### 实例化 GPU 绘制（`GPUParticles3D`）
+
+`GPUParticles3D` 持有共享的 4 顶点单位四边形缓冲（`StepVertex`）以及可自动扩容的 40 字节逐实例缓冲（`StepInstance`：`center: vec3<f32>`、`right: vec3<f32>`、`up: vec3<f32>`、`color: unorm8x4`），只需单次 `DrawIndexedInstanced` 调用即可绘制上万个粒子。它不依赖计算着色器或存储缓冲，因此可在 WebGL 2 / OpenGL ES 3.0、Metal、Vulkan、D3D11 与 WebGPU 上一致运行。
+
+`ParticleWGSL`、`ParticleSoftCircleWGSL` 与 `ParticleTexturedWGSL` 均在 `@group(0) @binding(0)` 绑定标准 3D 相机 uniform（`view`、`proj`、`view_proj`、`eye`），与 `render3d.CameraBuffer` 逐字节兼容：
+
+```go
+// 在 gpu.View 的 OnReady 中：
+pipe, err := particles.NewParticlePipeline(cx, dev, particles.ParticlePipelineOptions{
+	CameraLayout: camBuf.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Blend:        sparks.Blend,
+	SoftCircle:   true,
+})
+gpuParticles, err := particles.NewGPUParticles3D(cx, dev, particles.GPUParticles3DOptions{
+	Capacity: sparks.MaxParticles,
+})
+
+// 在固定步 Update 中：
+sparks.Step(dt)
+
+// 在 gpu.View 的 OnFrame 中：
+if sparks.Blend != particles.BlendAdditive {
+	sparks.SortByDepth(cam.Pos, cam.Forward())
+}
+_ = gpuParticles.Upload(sparks, cam.Right(), cam.Up())
+pass.SetPipeline(pipe)
+pass.SetBindGroup(0, camBuf.BindGroup())
+gpuParticles.Draw(pass) // 单次 DrawIndexedInstanced 绘制全部存活粒子
+```
+
+### 用 YAML 编写 3D 发射器定义
+
+`Emitter3DConfig` 遵循与 2D `Config` 相同的版本化 YAML（及 JSON）约定，提供 `LoadConfig3DFile`、`LoadConfig3DFS`、`UnmarshalConfig3DYAML`、`SaveConfig3DFile`、`MarshalConfig3DYAML`、`UnmarshalConfig3DJSON` 与 `MarshalConfig3DJSON`。保存时按固定键序确定性输出；读取时拒绝未知字段、错误或缺失的 `version`、空值、非有限浮点数以及与 `shape.kind` 不匹配的形状参数。
+
+### 3D 一万粒子性能基准
+
+`Emitter3D` 采用紧凑的数组结构体（SoA）存储、交换删除（swap-remove）过期回收与可复用基数排序缓冲：
+
+```sh
+cd packages/game && go tool nsgo test -run '^$' -bench BenchmarkEmitter3D10k ./particles
+```
+
+在 Apple Silicon 上对 10,000 个启用重力、指数阻力、自旋以及尺寸/透明度/颜色/旋转曲线的活跃粒子测得：
+
+- `BenchmarkEmitter3D10kStepAndPack`：约 `0.34 ms/帧`，`0 B/op`，`0 allocs/op`（加法混合 / 无需排序路径）。
+- `BenchmarkEmitter3D10kStepSortAndPack`：约 `0.44 ms/帧`，`0 B/op`，`0 allocs/op`（透明混合 + 从远到近基数排序路径）。
+
+两种路径均仅占用 16.6 ms（60 fps）桌面帧预算的不到 3%，全部 10,000 个实例合并为一次 400 KB 缓冲写入和单次 `DrawIndexedInstanced` 调用。
