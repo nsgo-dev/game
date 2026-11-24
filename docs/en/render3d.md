@@ -280,6 +280,30 @@ mesh.Draw(pass)
 - **Zero-allocation uniform encoding and dynamic updates**: `MaterialUniforms.AppendUniformData` and `Encode` write the 16-byte-aligned 64-byte uniform block (`MaterialUniformSize`) with zero allocations when capacity is available. `GPUMaterial.Update(dev, m)` updates scalar factors and flags in place without recreating the bind group; passing `dev` explicitly lets retained materials stay updatable after a device loss and restore.
 - **Portable normal mapping and Cook-Torrance GGX shading**: `MaterialWGSL` (built from `CameraWGSL` + `MaterialBindingsWGSL`) derives an API-independent tangent frame from screen-space `dpdx`/`dpdy` derivatives (Cramer's rule across Metal, D3D11, OpenGL, WebGPU, WebGL 2, and GLES 3.0) and falls back to a deterministic orthonormal frame when derivatives or UVs are degenerate, so standard 32-byte `MeshVertexLayout` meshes get accurate normal mapping without extra vertex attributes.
 - **CPU reference and golden tests**: `EvaluateMaterial` implements the exact same Cook-Torrance GGX BRDF, hemisphere ambient, normal perturbation, alpha cutoff, and Reinhard + sRGB tone mapping in pure Go. `render3d`'s tests verify GPU pixel readback directly against `EvaluateMaterial`, golden reference renders (`pbr_metallic_roughness_ramp.png` and `pbr_textured_normal_maps.png`), and `gpu.View` execution on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles; `UPDATE_GOLDEN=1` rewrites the golden PNGs.
+
+### glTF 2.0 materials and textures (`UploadGLTFMaterials`, `GLTFMaterialSet`)
+
+`UploadGLTFMaterials` maps every material, texture, image, and sampler in a loaded `*gltf.Document` onto `render3d`'s `Material`, `GPUMaterial`, `GPUTexture`, and `GPUSampler` types:
+
+```go
+doc, err := gltf.LoadFS(assetsFS, "DamagedHelmet.gltf")
+matSet, err := render3d.UploadGLTFMaterials(cx, dev, defaults, doc, render3d.GLTFMaterialUpload{
+	Label:    "DamagedHelmet",
+	Retained: true, // recovers uploaded textures, samplers, and materials across device loss
+})
+defer matSet.Close()
+
+// Resolve per-primitive material (with optional KHR_materials_variants support and -1 default fallback):
+gpuMat := matSet.MaterialForVariant(prim, "NightOps") // or matSet.MaterialForPrimitive(prim, -1)
+gpuMat.Bind(pass)
+gpuMesh.Draw(pass)
+```
+
+- **Automatic color-space separation & deduplication**: `baseColorTexture` and `emissiveTexture` upload with `SRGB: true` (`FormatRGBA8UnormSRGB`), while `metallicRoughnessTexture`, `normalTexture`, and `occlusionTexture` upload as linear (`FormatRGBA8Unorm`). Referenced glTF images are decoded once per image index and deduplicated on the GPU by `(imageIndex, sRGB)`, so packed ORM maps shared between `occlusionTexture` and `metallicRoughnessTexture` (or shared across multiple materials) upload only once; if the same image is used as both a color map and a data map, each color space receives its own GPU texture.
+- **glTF 2.0 samplers & mipmaps**: `SamplerOptionsFromGLTF` maps all six glTF filter modes and three wrap modes (`Repeat`, `ClampToEdge`, `MirroredRepeat`), defaulting omitted wrap modes to `AddressRepeat` (required by assets whose UVs wrap outside `[0, 1]`, such as `DamagedHelmet`'s `V ∈ [1, 2]`) and omitted filters to trilinear filtering with CPU-generated mipmaps. `GLTFMaterialUpload.MaxAnisotropy` applies anisotropy only to all-linear samplers so nearest samplers stay WebGPU-valid; `DisableMipmaps` turns off mip chains when desired.
+- **Extensions, metadata & default material**: `GLTFMaterialSet` always uploads a glTF 2.0 default material returned by `DefaultMaterial()` and `Material(-1)` for unassigned primitives. `Info(i)` / `InfoForVariant(prim, name)` expose `GLTFMaterialInfo` with `KHR_materials_unlit` (`Unlit`), `KHR_materials_emissive_strength` (folded into `EmissiveFactor`), and per-slot `GLTFTextureSlot` UV metadata (`EffectiveTexCoord`, `Transform` for `KHR_texture_transform`).
+- **Khronos reference verification**: `render3d`'s tests render the Khronos `DamagedHelmet` sample against `render3d/testdata/golden/damaged_helmet_reference.png` and verify `gpu.View` parity across both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles as well as `Retained` device-loss restoration.
+
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:
