@@ -157,6 +157,7 @@
 | `game/tooling/importsettings` | 实验性 | [命令行](cli.md) |
 | `game/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
 | `game/tooling/ktx2` | 实验性 | |
+| `game/tooling/library` | 实验性 | [资源与插件库](library.md) |
 | `game/tooling/manifest` | 实验性 | |
 | `game/tooling/pack` | 实验性 | |
 | `game/tween` | 稳定 | [tween](tween.md) |

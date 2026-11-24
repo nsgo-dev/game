@@ -79,6 +79,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `world3d` | `github.com/nsgo-dev/game/packages/game/world3d` | [world3d](world3d.md) | 高度图地形、多层 3D 导航网格、3D `GridMap`、程序化植被与浮点原点区块流式加载 |
 | `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | GPU 网格缓冲、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `tooling/jsonschema` | `github.com/nsgo-dev/game/packages/game/tooling/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |
+| `tooling/library` | `github.com/nsgo-dev/game/packages/game/tooling/library` | [资源与插件库](library.md) | 共享资源、编辑器插件和模板包的 YAML 索引，按摘要校验后安装到项目中，并记录其文件和 `game.yaml` 引用 |
 | `framedata` | `github.com/nsgo-dev/game/packages/game/framedata` | [framedata](framedata.md) | 以 YAML 编写的格斗游戏逐帧攻击框、受击框、硬直与取消窗口，每步确定性解析 |
 | `vehicle` | `github.com/nsgo-dev/game/packages/game/vehicle` | [vehicle](vehicle.md) | 基于 `physics3d` 的射线车辆：车轮悬挂、轮胎摩擦与车辆控制器，比赛检查点与圈数，以及 YAML 车辆文件和单圈幽灵 |
 
