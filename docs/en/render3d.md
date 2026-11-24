@@ -243,6 +243,60 @@ skyPipe.Draw(pass, skyGroup)
 - **CPU reference and device loss**: `EvaluateIBL` matches `evaluate_ibl` on the CPU, and `ShadePoint` plus `EvaluateIBL` matches `LitPBRIBLWGSL`. With `Retained: true` on `CubemapUpload`, `SkyboxPipelineDesc` and `IBLBufferOptions`, NSGo restores textures, samplers, pipelines and uniform buffers after a device loss; call `SkyboxPipeline.SetDevice(dev)` in `OnReady` and pass the new device to `GPUIBLBuffer.Update`.
 - **Reference renders**: headless software-GPU tests compare a skybox behind a mesh and 2x2 metallic/roughness spheres with `render3d/testdata/golden/skybox_scene.png` and `ibl_spheres.png` (`UPDATE_GOLDEN=1` rewrites them), check `LitPBRIBLWGSL` against the CPU reference, check that geometry just inside the far plane stays visible, and run on both the full and `nsgotest.NoGPUCompute` profiles.
 
+## Reflection probes and light probes (`ReflectionProbeSet`, `LightProbeVolume`, `GPUProbeIBLBuffer`)
+
+`render3d` extends its IBL pipeline with spatially varying local reflections and interpolated diffuse indirect lighting built directly on `Cubemap`, `GPUCubemap`, `PrefilterEnvironment`, and `IrradianceSH` — plugging into `LitPBRWGSL` at `IBLGroup` (group 3) so metallic, roughness, emissive, `LightRig` direct lights, inverse-transpose normal matrices, and sRGB output work in one pass across every backend including WebGL 2 and OpenGL ES 3.0 (`NoGPUCompute`).
+
+```go
+var probes render3d.ReflectionProbeSet
+room := &render3d.ReflectionProbe{
+	ID:            "hall",
+	Position:      math3d.Vec3{X: 0, Y: 1.5, Z: 0},
+	BoxMin:        math3d.Vec3{X: -6, Y: 0, Z: -6},
+	BoxMax:        math3d.Vec3{X: 6, Y: 4, Z: 6},
+	BlendDistance: 1.5,
+	BoxProjection: true,
+}
+probes.Add(room)
+
+// Bake on load or on request (runtime-only; re-baking closes any previous GPUCubemap):
+render3d.BakeReflectionProbeGPU(cx, dev, room, render3d.ProbeBakeOptions{
+	Size:       64,
+	ClearColor: core.RGB(0x101824),
+	SRGB:       false, // RGBA8Unorm target; set true for RGBA8UnormSRGB
+	Prefilter:  render3d.PrefilterOptions{BaseSize: 64, MipLevels: 5, SampleCount: 64},
+}, func(pass *gpu.RenderPass, face gpu.CubeFace, faceCam render3d.CameraUniform) {
+	camBuf.Write(faceCam)
+	drawStaticRoom(pass)
+}, func(err error) {
+	// Invoked asynchronously on the engine goroutine once all six face readbacks finish.
+})
+
+// Bake a 3D light probe grid of IrradianceSH for dynamic objects:
+grid, _ := render3d.NewLightProbeGrid(roomBounds, 4, 2, 4)
+_ = grid.Bake(16, sampleRoomRadiance)
+lightProbes := &render3d.LightProbeVolume{Grid: grid, FallbackSH: skySH}
+
+// Bind per-object probe IBL at IBLGroup (group 3) alongside LitPBRWGSL:
+probeIBL, _ := render3d.NewGPUProbeIBLBuffer(cx, dev, render3d.ProbeIBLBufferOptions{Label: "hero-ibl"})
+pipe, _ := render3d.NewLitPBRProbeIBLPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), probeIBL.Layout(), gpu.FormatDepth24Plus)
+
+// Each frame for a moving object:
+_ = probeIBL.UpdateForPoint(dev, heroPos, &probes, lightProbes, skyPrefCube, 1.0)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+probeIBL.Bind(pass)
+heroMesh.Draw(pass)
+```
+
+- **Local reflection selection, parallax and blending**: `ReflectionProbeSet.SelectReflectionProbes` picks up to two ready (enabled, baked, non-dirty) probes covering a world position by `Priority`, smoothstep `Influence` (over `BlendDistance`), and volume, returning normalized `(Weight0, Weight1, SkyWeight)` summing to 1. Probes with `BoxProjection: true` apply `BoxProjectDirection` (`box_project_dir` in WGSL) to correct reflections against `[BoxMin, BoxMax]`. Unbaked, dirty, or disabled probes are skipped during selection, and any missing probe or `nil` sky binds a 1x1 black `(0, 0, 0, 255)` fallback cubemap so CPU `EvaluateProbeIBL` and GPU `LitPBRProbeIBLWGSL` match identically.
+- **Light probes (`LightProbe`, `LightProbeGrid`, `LightProbeVolume`)**: store `IrradianceSH` coefficients (baked via `ComputeIrradianceSH` or `ComputeIrradianceSHFromFunc` and combined with `Add`, `Scale`, `Lerp`). `LightProbeGrid.Sample` interpolates trilinearly and `LightProbeVolume.SampleLightProbes` blends scattered `LightProbe` points (with optional finite `Radius`) smoothly over the grid or `FallbackSH`. Both validate `Counts` against `len(Probes)` and non-finite coordinates without panicking.
+- **Asynchronous GPU baking and target formats**: `BakeReflectionProbeGPU` renders the six faces with `ProbeFaceCamera` into temporary `FormatRGBA8Unorm` (when `SRGB` is false) or `FormatRGBA8UnormSRGB` (when `SRGB` is true) plus `FormatDepth24Plus` offscreen render targets, reads back all six faces asynchronously via `gpu.Device.ReadTexture`, flips rows to canonical cubemap orientation, prefilters roughness mips with `PrefilterEnvironment`, uploads via `UploadCubemap`, closes any previous `probe.GPUCubemap`, and invokes `onDone` on the engine goroutine. `BakeReflectionProbe` provides the matching CPU sampler bake.
+- **Runtime-only bakes**: reflection probe cubemaps and light probe SH data are runtime-only caches generated on load or on request rather than persisted in text scene files.
+- **Custom shaders and HDR**: prepend `ProbeIBLWGSL` (`IBLGroup`) or `ProbeIBLWGSLForGroup(group)` and call `evaluate_probe_ibl(world_pos, normal, view_dir, base_color, metallic, roughness, ao)`. Share one `ProbeIBLBindGroupLayout` across multiple per-object `GPUProbeIBLBuffer` instances via `ProbeIBLBufferOptions.Layout`, and use `NewLitPBRProbeIBLPipelineWithOptions` with `LinearOutput: true` for `HDRTarget`. `ShadePoint` plus `EvaluateProbeIBL` (followed by `LinearToSRGB`) is the exact CPU reference for `LitPBRProbeIBLWGSL`.
+
 ## Mesh buffers (`Mesh`, `GPUMesh`)
 
 A `Mesh` is triangle-list geometry on the CPU: `Positions` (required), `Normals` and `UVs` (each empty or one per position) and `Indices` (empty for a non-indexed mesh). The fields have the same types as a glTF primitive's `Positions`, `Normals`, `TexCoords0` and `Indices`, and front faces wind counter-clockwise as in glTF and [math3d](math3d.md). `UploadMesh` validates the mesh and creates its vertex buffer and, when indexed, its index buffer on the [NSGo GPU view](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md)'s `gpu.Device`. The buffers belong to the scope you pass and are released when it is disposed or when you call `GPUMesh.Close`:

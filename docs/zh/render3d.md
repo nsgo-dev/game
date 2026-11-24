@@ -243,6 +243,60 @@ skyPipe.Draw(pass, skyGroup)
 - **CPU 参考实现与设备丢失恢复**：`EvaluateIBL` 在 CPU 上匹配 `evaluate_ibl`，`ShadePoint` 加 `EvaluateIBL` 匹配 `LitPBRIBLWGSL`。在 `CubemapUpload`、`SkyboxPipelineDesc` 与 `IBLBufferOptions` 上设置 `Retained: true` 后，设备丢失时 NSGo 会恢复纹理、采样器、管线与 uniform 缓冲；请在 `OnReady` 中调用 `SkyboxPipeline.SetDevice(dev)`，并把新设备传给 `GPUIBLBuffer.Update`。
 - **参考渲染测试**：无头软件 GPU 测试将网格后方的天空盒以及 2×2 金属度/粗糙度球体与 `render3d/testdata/golden/skybox_scene.png` 和 `ibl_spheres.png` 对比（设置 `UPDATE_GOLDEN=1` 可重写），对照 CPU 参考实现检查 `LitPBRIBLWGSL`，检查紧靠远平面内侧的几何不被覆盖，并在完整能力与 `nsgotest.NoGPUCompute` 两种配置下运行。
 
+## 反射探针与光照探针（`ReflectionProbeSet`、`LightProbeVolume`、`GPUProbeIBLBuffer`）
+
+`render3d` 在现有的 `Cubemap`、`GPUCubemap`、`PrefilterEnvironment` 与 `IrradianceSH` 基础上扩展了随空间变化的局部反射与插值漫反射间接光照，并通过 `IBLGroup`（第 3 组）接入 `LitPBRWGSL`，使金属度、粗糙度、自发光、`LightRig` 直接光、逆转置法线矩阵与 sRGB 输出在一次绘制中协同工作，兼容包括 WebGL 2 与 OpenGL ES 3.0（`NoGPUCompute`）在内的所有后端。
+
+```go
+var probes render3d.ReflectionProbeSet
+room := &render3d.ReflectionProbe{
+	ID:            "hall",
+	Position:      math3d.Vec3{X: 0, Y: 1.5, Z: 0},
+	BoxMin:        math3d.Vec3{X: -6, Y: 0, Z: -6},
+	BoxMax:        math3d.Vec3{X: 6, Y: 4, Z: 6},
+	BlendDistance: 1.5,
+	BoxProjection: true,
+}
+probes.Add(room)
+
+// 加载时或按需烘焙（仅运行时存在；重烘焙会自动关闭旧的 GPUCubemap）：
+render3d.BakeReflectionProbeGPU(cx, dev, room, render3d.ProbeBakeOptions{
+	Size:       64,
+	ClearColor: core.RGB(0x101824),
+	SRGB:       false, // RGBA8Unorm 目标；设为 true 则使用 RGBA8UnormSRGB
+	Prefilter:  render3d.PrefilterOptions{BaseSize: 64, MipLevels: 5, SampleCount: 64},
+}, func(pass *gpu.RenderPass, face gpu.CubeFace, faceCam render3d.CameraUniform) {
+	camBuf.Write(faceCam)
+	drawStaticRoom(pass)
+}, func(err error) {
+	// 全部六个面的回读完成后在引擎 goroutine 上异步调用。
+})
+
+// 为动态物体烘焙三维 IrradianceSH 光照探针网格：
+grid, _ := render3d.NewLightProbeGrid(roomBounds, 4, 2, 4)
+_ = grid.Bake(16, sampleRoomRadiance)
+lightProbes := &render3d.LightProbeVolume{Grid: grid, FallbackSH: skySH}
+
+// 在 IBLGroup（第 3 组）绑定逐物体探针 IBL 缓冲并接入 LitPBRWGSL：
+probeIBL, _ := render3d.NewGPUProbeIBLBuffer(cx, dev, render3d.ProbeIBLBufferOptions{Label: "hero-ibl"})
+pipe, _ := render3d.NewLitPBRProbeIBLPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), probeIBL.Layout(), gpu.FormatDepth24Plus)
+
+// 每帧随移动物体更新：
+_ = probeIBL.UpdateForPoint(dev, heroPos, &probes, lightProbes, skyPrefCube, 1.0)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+probeIBL.Bind(pass)
+heroMesh.Draw(pass)
+```
+
+- **局部反射选择、视差盒投影与平滑混合**：`ReflectionProbeSet.SelectReflectionProbes` 按 `Priority`、基于 `BlendDistance` 的平滑步进权重 `Influence` 与包围盒体积，选取最多两个覆盖当前世界坐标的就绪探针（已启用、已烘焙且非 `Dirty`），返回总和为 1 的归一化权重 `(Weight0, Weight1, SkyWeight)`。开启 `BoxProjection: true` 的探针通过 `BoxProjectDirection`（着色器中为 `box_project_dir`）将反射方向投影到 `[BoxMin, BoxMax]`。未烘焙、标记为 `Dirty` 或禁用的探针会在选择时跳过；缺失探针槽位或 `nil` 天空会绑定 1×1 黑色 `(0, 0, 0, 255)` 回退立方体贴图，保证 CPU `EvaluateProbeIBL` 与 GPU `LitPBRProbeIBLWGSL` 结果严格一致。
+- **光照探针（`LightProbe`、`LightProbeGrid`、`LightProbeVolume`）**：存储 `IrradianceSH` 球谐系数（由 `ComputeIrradianceSH` 或 `ComputeIrradianceSHFromFunc` 烘焙，并支持 `Add`、`Scale`、`Lerp`）。`LightProbeGrid.Sample` 做三线性插值，`LightProbeVolume.SampleLightProbes` 将散点 `LightProbe`（可选有限 `Radius`）平滑混合到网格或 `FallbackSH` 上；两者都会校验 `Counts` 与 `len(Probes)` 及非有限坐标，不会 panic。
+- **异步 GPU 烘焙与渲染目标格式**：`BakeReflectionProbeGPU` 使用 `ProbeFaceCamera` 将六个面渲染到临时的 `FormatRGBA8Unorm`（`SRGB: false`）或 `FormatRGBA8UnormSRGB`（`SRGB: true`）配 `FormatDepth24Plus` 离屏渲染目标中，通过 `gpu.Device.ReadTexture` 异步回读六个面，翻转行序至标准立方体贴图方向，使用 `PrefilterEnvironment` 预过滤粗糙度 mip 链，经 `UploadCubemap` 上传，关闭旧的 `probe.GPUCubemap`，并在引擎 goroutine 上回调 `onDone`。`BakeReflectionProbe` 提供对应的 CPU 采样烘焙路径。
+- **仅运行时数据**：反射探针立方体贴图与光照探针球谐烘焙均属于运行时缓存，在加载时或按需生成，不会持久化到文本场景文件中。
+- **自定义着色器与 HDR**：在着色器前拼接 `ProbeIBLWGSL`（`IBLGroup`）或 `ProbeIBLWGSLForGroup(group)`，并调用 `evaluate_probe_ibl(world_pos, normal, view_dir, base_color, metallic, roughness, ao)`。多个逐物体 `GPUProbeIBLBuffer` 可通过 `ProbeIBLBufferOptions.Layout` 共享同一个 `ProbeIBLBindGroupLayout`，搭配 `HDRTarget` 时可使用 `NewLitPBRProbeIBLPipelineWithOptions` 并设置 `LinearOutput: true`。`ShadePoint` 加 `EvaluateProbeIBL`（再经 `LinearToSRGB`）与 `LitPBRProbeIBLWGSL` 在 CPU 上逐像素对应。
+
 ## 网格缓冲（`Mesh`、`GPUMesh`）
 
 `Mesh` 是 CPU 上的三角形列表几何体：`Positions`（必填）、`Normals` 与 `UVs`（各自为空或与顶点一一对应）以及 `Indices`（非索引网格留空）。这些字段与 glTF 图元的 `Positions`、`Normals`、`TexCoords0`、`Indices` 类型相同，正面按逆时针环绕，与 glTF 和 [math3d](math3d.md) 一致。`UploadMesh` 校验网格后，在 [NSGo GPU 视图](https://github.com/nsgo-dev/nsgo/blob/main/docs/architecture/gpu.md) 的 `gpu.Device` 上创建顶点缓冲，带索引时再创建索引缓冲。缓冲归属于传入的作用域，作用域销毁或调用 `GPUMesh.Close` 时释放：
