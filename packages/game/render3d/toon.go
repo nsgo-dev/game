@@ -13,9 +13,9 @@ import (
 
 // Bind group slots, uniform sizes, and defaults for cel/toon shading (#262).
 const (
-	// ToonMaterialGroup is the bind group index [ToonWGSL] and [ToonOutlineWGSL] reserve for [GPUToonMaterial] (uniform + base and ramp textures/samplers), alongside [CameraGroup] at group 0.
+	// ToonMaterialGroup is the bind group index [ToonWGSL] and [ToonOutlineWGSL] reserve for [GPUToonMaterial] (uniform + base and ramp textures/samplers), alongside [CameraGroup] at group 0. It is the same slot as [MaterialGroup], where the other material pipelines bind their material.
 	ToonMaterialGroup = 1
-	// ToonSceneGroup is the bind group index [ToonWGSL] and [ToonOutlineWGSL] reserve for per-draw transform and directional lighting uniforms ([ToonSceneUniform]).
+	// ToonSceneGroup is the bind group index [ToonWGSL] and [ToonOutlineWGSL] reserve for the per-draw transform and the key light ([ToonSceneUniform]). Toon shading bands the light of one key light, so it takes that light from a [ToonLight] in this per-draw block rather than binding a whole [LightRig] at [LightGroup].
 	ToonSceneGroup = 2
 
 	// ToonUniformSize is the little-endian byte size of the material uniform block [ToonMaterial.AppendUniformData] writes and [ToonWGSL] declares (7 vec4<f32> = 112 bytes).
@@ -37,7 +37,7 @@ const (
 	MaxToonDrawsPerFrame = 1 << 16
 )
 
-// ErrInvalidToonMaterial is wrapped by every error [ToonMaterial.Validate], [NewGPUToonMaterial], [GPUToonMaterial.Update], and [ToonLight.Validate] return for malformed material or lighting parameters.
+// ErrInvalidToonMaterial is wrapped by every error [ToonMaterial.Validate], [NewGPUToonMaterial], and [GPUToonMaterial.Update] return for malformed material parameters. Light errors wrap [ErrInvalidLight].
 var ErrInvalidToonMaterial = errors.New("render3d: invalid toon material")
 
 // ToonWGSL is the portable cel/toon shading WGSL shader (#262). It uses [CameraWGSL] at @group(0), [GPUToonMaterial] at @group(1), and [ToonSceneUniform] at @group(2), with [MeshVertexLayout] on vertex buffer 0. It uses only standard vertex/fragment stages and arithmetic/pow builtins so it runs identically on WebGPU, Metal, Vulkan, Direct3D 11, OpenGL 3.3, OpenGL ES 3.0, WebGL 2, and NSGo's software renderer.
@@ -55,7 +55,7 @@ struct ToonMaterialUniform {
 struct ToonSceneUniform {
 	model: mat4x4<f32>,
 	normal_mat: mat4x4<f32>,
-	light_dir: vec4<f32>,
+	to_light: vec4<f32>,
 	light_color: vec4<f32>,
 	ambient_color: vec4<f32>,
 }
@@ -123,10 +123,10 @@ fn fs_main(in: ToonVertexOut) -> @location(0) vec4<f32> {
 		n = in.world_normal / n_len;
 	}
 
-	let l_len = length(scene.light_dir.xyz);
+	let l_len = length(scene.to_light.xyz);
 	var l = vec3<f32>(0.0, 1.0, 0.0);
 	if (l_len > 0.00001) {
-		l = scene.light_dir.xyz / l_len;
+		l = scene.to_light.xyz / l_len;
 	}
 
 	let to_eye = camera.eye.xyz - in.world_pos * camera.eye.w;
@@ -205,7 +205,7 @@ struct ToonMaterialUniform {
 struct ToonSceneUniform {
 	model: mat4x4<f32>,
 	normal_mat: mat4x4<f32>,
-	light_dir: vec4<f32>,
+	to_light: vec4<f32>,
 	light_color: vec4<f32>,
 	ambient_color: vec4<f32>,
 }
@@ -452,74 +452,66 @@ func (m ToonMaterial) AppendUniformData(dst []byte) []byte {
 	return dst
 }
 
-// ToonLight configures the directional key light and ambient fill for [ToonSceneUniform] and [ToonRenderer].
+// ToonLight is the light a toon-shaded draw receives: one directional key light, whose N·L is quantized into bands, plus an ambient fill added to every band. Both use the same types and conventions as a [LightRig]: Key.Direction is the direction the light's rays travel, and an Intensity of 0 turns a light off.
 type ToonLight struct {
-	// Direction points toward the light source (normalized automatically; zero defaults to normalize(0.45, 0.8, 0.4)).
-	Direction math3d.Vec3
-	// Color is the linear RGB directional light color.
-	Color [3]float32
-	// Intensity scales Color; zero defaults to 1.
-	Intensity float32
-	// Ambient is the linear RGB ambient fill added across all diffuse bands.
-	Ambient [3]float32
+	Key     DirectionalLight
+	Ambient AmbientLight
 }
 
-// DefaultToonLight returns a neutral key light from upper-front-right with soft ambient fill.
+// DefaultToonLight returns a white key light shining down from the upper front right with a dim cool ambient fill.
 func DefaultToonLight() ToonLight {
 	return ToonLight{
-		Direction: math3d.Vec3{X: 0.45, Y: 0.8, Z: 0.4}.Norm(),
-		Color:     [3]float32{1, 1, 1},
-		Intensity: 1,
-		Ambient:   [3]float32{0.05, 0.06, 0.08},
+		Key: DirectionalLight{
+			Direction: math3d.Vec3{X: -0.45, Y: -0.8, Z: -0.4}.Norm(),
+			Color:     math3d.Vec3{X: 1, Y: 1, Z: 1},
+			Intensity: 1,
+		},
+		Ambient: AmbientLight{Color: math3d.Vec3{X: 0.05, Y: 0.06, Z: 0.08}, Intensity: 1},
 	}
 }
 
-// Validate checks that every light component is finite and non-negative. Every error wraps [ErrInvalidToonMaterial].
+// ToonLightFromRig returns the toon light for a scene lit by rig: its first directional light as the key light and its ambient fill. Point lights and further directional lights are not used. It returns an error wrapping [ErrInvalidLight] when rig is invalid or has no directional light.
+func ToonLightFromRig(rig LightRig) (ToonLight, error) {
+	if err := rig.Validate(); err != nil {
+		return ToonLight{}, err
+	}
+	if len(rig.Directional) == 0 {
+		return ToonLight{}, fmt.Errorf("%w: toon shading needs a directional key light", ErrInvalidLight)
+	}
+	return ToonLight{Key: rig.Directional[0], Ambient: rig.Ambient}, nil
+}
+
+// Validate reports whether the key light has a finite non-zero direction and both lights have finite non-negative colors and intensities. Every error wraps [ErrInvalidLight].
 func (l ToonLight) Validate() error {
-	if !finite3(l.Direction) {
-		return fmt.Errorf("%w: light Direction %v is not finite", ErrInvalidToonMaterial, l.Direction)
+	if err := l.Key.Validate(); err != nil {
+		return fmt.Errorf("toon key light: %w", err)
 	}
-	for i, c := range l.Color {
-		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: light Color[%d] = %v must be finite and >= 0", ErrInvalidToonMaterial, i, c)
-		}
-	}
-	if !finite(l.Intensity) || l.Intensity < 0 {
-		return fmt.Errorf("%w: light Intensity %v must be finite and >= 0", ErrInvalidToonMaterial, l.Intensity)
-	}
-	for i, c := range l.Ambient {
-		if !finite(c) || c < 0 {
-			return fmt.Errorf("%w: light Ambient[%d] = %v must be finite and >= 0", ErrInvalidToonMaterial, i, c)
-		}
+	if err := l.Ambient.Validate(); err != nil {
+		return fmt.Errorf("toon ambient light: %w", err)
 	}
 	return nil
 }
 
-func (l ToonLight) resolved() (dir math3d.Vec3, color, ambient [3]float32) {
-	if l == (ToonLight{}) {
-		l = DefaultToonLight()
+// resolved returns the unit vector toward the key light and the key and ambient radiance. A degenerate key direction yields zero key radiance, as [LightRig.AppendUniformData] does.
+func (l ToonLight) resolved() (toLight, color, ambient math3d.Vec3) {
+	ambient = l.Ambient.Color.Scale(l.Ambient.Intensity)
+	d, ok := toonNormalizeVec3(l.Key.Direction)
+	if !ok {
+		return math3d.Vec3{}, math3d.Vec3{}, ambient
 	}
-	if d, ok := toonNormalizeVec3(l.Direction); ok {
-		dir = d
-	} else {
-		dir = math3d.Vec3{X: 0.45, Y: 0.8, Z: 0.4}.Norm()
-	}
-	intensity := l.Intensity
-	if intensity == 0 {
-		intensity = 1
-	}
-	color = [3]float32{l.Color[0] * intensity, l.Color[1] * intensity, l.Color[2] * intensity}
-	ambient = l.Ambient
-	return dir, color, ambient
+	return d.Scale(-1), l.Key.Color.Scale(l.Key.Intensity), ambient
 }
 
-// ToonSceneUniform holds the per-draw model matrix, inverse-transpose normal matrix, and directional lighting packed for @group(2) in [ToonWGSL] and [ToonOutlineWGSL].
+// ToonSceneUniform holds the per-draw model matrix, inverse-transpose normal matrix, and key and ambient light packed for @group(2) in [ToonWGSL] and [ToonOutlineWGSL].
 type ToonSceneUniform struct {
 	Model        math3d.Mat4
 	NormalMatrix math3d.Mat4
-	LightDir     math3d.Vec3
-	LightColor   [3]float32
-	AmbientColor [3]float32
+	// ToLight is the unit vector from a surface toward the key light (the opposite of [DirectionalLight.Direction]).
+	ToLight math3d.Vec3
+	// LightColor is the key light's linear radiance (Color × Intensity).
+	LightColor math3d.Vec3
+	// AmbientColor is the ambient fill's linear radiance (Color × Intensity).
+	AmbientColor math3d.Vec3
 }
 
 // NewToonSceneUniform builds a [ToonSceneUniform] from a world transform (zero value means identity) and a [ToonLight].
@@ -527,11 +519,11 @@ func NewToonSceneUniform(model math3d.Mat4, light ToonLight) ToonSceneUniform {
 	if model == (math3d.Mat4{}) {
 		model = math3d.Mat4Identity()
 	}
-	dir, col, amb := light.resolved()
+	toLight, col, amb := light.resolved()
 	return ToonSceneUniform{
 		Model:        model,
 		NormalMatrix: toonNormalMatrix(model),
-		LightDir:     dir,
+		ToLight:      toLight,
 		LightColor:   col,
 		AmbientColor: amb,
 	}
@@ -552,9 +544,9 @@ func (u ToonSceneUniform) AppendUniformData(dst []byte) []byte {
 		off += 4
 	}
 	tail := [12]float32{
-		u.LightDir.X, u.LightDir.Y, u.LightDir.Z, 0,
-		u.LightColor[0], u.LightColor[1], u.LightColor[2], 0,
-		u.AmbientColor[0], u.AmbientColor[1], u.AmbientColor[2], 0,
+		u.ToLight.X, u.ToLight.Y, u.ToLight.Z, 0,
+		u.LightColor.X, u.LightColor.Y, u.LightColor.Z, 0,
+		u.AmbientColor.X, u.AmbientColor.Y, u.AmbientColor.Z, 0,
 	}
 	for _, f := range tail {
 		binary.LittleEndian.PutUint32(out[off:], math.Float32bits(f))
@@ -593,13 +585,14 @@ func ToonQuantizeBand(ndl float32, bands int, smoothness float32) float32 {
 	return (k - 1 + t) / (n - 1)
 }
 
-// ToonEvalInput supplies surface normal, light direction, view direction, and optional texture samples for [EvaluateToon].
+// ToonEvalInput supplies the surface normal, the directions toward the key light and the viewer, the light radiance, and optional texture samples for [EvaluateToon].
 type ToonEvalInput struct {
-	Normal       math3d.Vec3
-	LightDir     math3d.Vec3
+	Normal math3d.Vec3
+	// ToLight points from the surface toward the key light, like [ToonSceneUniform.ToLight].
+	ToLight      math3d.Vec3
 	ViewDir      math3d.Vec3
-	LightColor   [3]float32
-	AmbientColor [3]float32
+	LightColor   math3d.Vec3
+	AmbientColor math3d.Vec3
 	// BaseSample is an optional linear RGBA sample from BaseColorTexture. Nil means opaque white {1, 1, 1, 1}.
 	BaseSample *[4]float32
 	// RampSample is an optional linear RGB sample from RampTexture. When non-nil, it replaces analytical band quantization.
@@ -623,7 +616,7 @@ func EvaluateToon(mat ToonMaterial, in ToonEvalInput) [4]float32 {
 	if !ok {
 		n = math3d.Vec3{Y: 1}
 	}
-	l, ok := toonNormalizeVec3(in.LightDir)
+	l, ok := toonNormalizeVec3(in.ToLight)
 	if !ok {
 		l = math3d.Vec3{Y: 1}
 	}
@@ -673,10 +666,12 @@ func EvaluateToon(mat ToonMaterial, in ToonEvalInput) [4]float32 {
 		rimFactor = toonSmoothstep(mat.RimThreshold-mat.RimSmoothness, mat.RimThreshold+mat.RimSmoothness, fresnel)
 	}
 
+	lightColor := [3]float32{in.LightColor.X, in.LightColor.Y, in.LightColor.Z}
+	ambient := [3]float32{in.AmbientColor.X, in.AmbientColor.Y, in.AmbientColor.Z}
 	var out [4]float32
 	for c := range 3 {
-		diff := albedo[c] * (diffuseTint[c]*in.LightColor[c] + in.AmbientColor[c])
-		spec := mat.SpecularColor[c] * in.LightColor[c] * specFactor
+		diff := albedo[c] * (diffuseTint[c]*lightColor[c] + ambient[c])
+		spec := mat.SpecularColor[c] * lightColor[c] * specFactor
 		rim := mat.RimColor[c] * rimFactor
 		out[c] = clamp01(diff + spec + rim)
 	}
