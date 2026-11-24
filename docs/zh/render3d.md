@@ -363,30 +363,56 @@ morph.Draw(pass)
 | 骨骼索引 | 3（`SkinnedJointsLocation`） | `uint32x4` | 32 |
 | 骨骼权重 | 4（`SkinnedWeightsLocation`） | `float32x4` | 48 |
 
-`GPUSkinPalette` 在可移植 uniform 缓冲中保存最多 `MaxSkinJoints`（128）个骨骼矩阵（`SkinUniformSize` = 8,192 字节，远低于 WebGL 2 与 OpenGL ES 3.0 的 16 KiB `MAX_UNIFORM_BLOCK_SIZE` 下限），并绑定到 `SkinGroup`（第 1 组）。未使用的槽位自动填充单位矩阵。`AppendJointMatrices` 以及计算 glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]` 的 `SkinJointMatrices` / `SkinJointMatricesWithTransform` 均可复用调用方缓冲实现零分配。
+`GPUSkinPalette` 在可移植 uniform 缓冲中保存最多 `MaxSkinJoints`（128）个骨骼矩阵（`SkinUniformSize` = 8,192 字节，远低于 WebGL 2 与 OpenGL ES 3.0 的 16 KiB `MAX_UNIFORM_BLOCK_SIZE` 下限），未使用的槽位填充单位矩阵。`AppendJointMatrices` 以及根据 `doc.Nodes[].WorldMatrix` 计算 glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]` 的 `SkinJointMatrices` / `SkinJointMatricesWithTransform` 均可复用调用方缓冲实现零分配。
 
-`SkinWGSL` 声明 uniform 数据块（`skin: SkinPalette`）以及与 CPU 参考函数 `SkinVertex` 一致的 `skin_position` / `skin_normal` 顶点辅助函数。`NewSkinnedMeshPipeline` 编译内置的 `SkinnedMeshWGSL`（第 0 组为 `CameraWGSL`，第 1 组为 `SkinWGSL`），开箱即可绘制：
+有三种管线可以绘制 `GPUSkinnedMesh`，各自把骨骼矩阵组绑定在不同的组上：WebGPU 与 WebGL 2 只保证四个绑定组，而光照与材质管线已经占用了第 0 到第 2 组。
+
+| 管线 | 着色器 | 骨骼矩阵组 | 不能同时使用 |
+| --- | --- | --- | --- |
+| `NewSkinnedMeshPipeline`（无光照，按法线着色） | `SkinnedMeshWGSL` | `SkinGroup`（1） | |
+| `NewLitPBRPipelineWithOptions` 加 `LitPBRPipelineOptions.SkinLayout`（场景光源） | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup`（3） | `FogLayout`、`IBLLayout` |
+| `NewMaterialPipeline` 加 `MaterialPipelineOptions.SkinLayout`（带纹理的 glTF 材质） | `MaterialSkinnedWGSL` | `MaterialSkinGroup`（2） | `FogLayout` |
+
+`SkinWGSL` 在第 1 组声明 uniform 数据块，以及与 CPU `SkinVertex` 一致的 `skin_position` / `skin_normal` 顶点辅助函数，供第 1 组不绑定其他资源的自定义着色器使用。
+
+骨骼矩阵有两种约定。`SkinJointMatrices` 返回世界空间的骨骼矩阵，蒙皮后的顶点已在世界空间。anim3d 的 `Player.SkinMatricesForNode` 返回网格局部空间的矩阵 `inverse(meshWorld) * jointWorld * IBM`，且 Player 自己保存世界矩阵，不写入 `doc.Nodes`。网格局部的矩阵要用 `GPUSkinPalette.UpdateWithTransform` 配合网格节点的世界矩阵（`Player.WorldTransform`）上传，或者把该矩阵作为光照 PBR 绘制的 model 矩阵；否则网格节点自身的变换（CesiumMan 的 Z 轴朝上旋转）会丢失。用 anim3d 驱动、带光照的 CesiumMan：
 
 ```go
 doc, _ := gltf.LoadFS(assetsFS, "CesiumMan.gltf")
-_ = doc.ComputeWorldMatrices()
-meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, 2)
+const meshNode = 2
+meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, meshNode)
+player, _ := anim3d.NewPlayer(doc)
+_ = player.Play(0)
 
 // 在 gpu.View 的 OnReady 中：
 camBuf, _ := render3d.NewCameraBuffer(cx, dev)
+lights, _ := render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{})
+draw, _ := render3d.NewPBRDrawBuffer(cx, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), mat), true)
 palette, _ := render3d.NewGPUSkinPalette(cx, dev, render3d.SkinPaletteOptions{Label: "hero", Retained: true})
 gpuMesh, _ := render3d.UploadSkinnedMesh(cx, dev, meshes[0], render3d.MeshUpload{Label: "hero", Retained: true})
-pipe, _ := render3d.NewSkinnedMeshPipeline(cx, dev, camBuf.Layout(), palette.Layout(), render3d.SkinnedMeshPipelineOptions{
+pipe, _ := render3d.NewLitPBRPipelineWithOptions(cx, dev, camBuf.Layout(), lights.Layout(), draw.Layout(), render3d.LitPBRPipelineOptions{
 	DepthFormat: gpu.FormatDepth24Plus,
+	SkinLayout:  palette.Layout(),
 })
 
 // 每帧：
-_ = palette.UpdateFromGLTF(dev, doc, 0) // 零分配
+player.Step(dt)
+joints, _ := player.SkinMatricesForNode(meshNode) // 网格局部空间
+_ = palette.Update(frame.Device(), joints)
+draw.Write(frame.Device(), render3d.NewPBRDrawUniform(player.WorldTransform(meshNode), mat))
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-pass.SetBindGroup(render3d.SkinGroup, palette.BindGroup())
+lights.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, draw.BindGroup())
+pass.SetBindGroup(render3d.LitPBRSkinGroup, palette.BindGroup())
 gpuMesh.Draw(pass)
 ```
+
+不用 anim3d 时，用 `doc.Animations[i].Apply(doc, t)` 与 `doc.ComputeWorldMatrices()` 摆好文档的姿势，再调用 `palette.UpdateFromGLTF(dev, doc, skinIndex)`（零分配），并以单位矩阵作为 model 绘制。
+
+- **包围盒**：`SkinnedMesh.Bounds` 与 `GPUSkinnedMesh.Bounds` 覆盖的是网格自身空间中未蒙皮的顶点，而不是绘制出来的网格。视锥裁剪和相机取景请用 `SkinnedBounds(gpuMesh.Bounds(), joints)`：它是该包围盒在每个骨骼矩阵下变换结果的并集，在任何姿势下都包含蒙皮后的网格。
+- **权重**：权重先除以其中最大的分量再求和，因此很大的有限权重也能正常归一化，不会溢出。
+- **测试**：CesiumMan 与 RiggedSimple 在完整与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）两种配置下绘制，并与 CPU `SkinVertex` 的渲染结果比较；CesiumMan 的绑定姿势与网格节点的世界矩阵核对，光照与材质管线分别用两种骨骼矩阵约定验证。
 
 ## 金属度-粗糙度材质（`Material`、`MaterialDefaults`、`GPUMaterial`）
 
