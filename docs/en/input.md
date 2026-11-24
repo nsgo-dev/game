@@ -133,9 +133,39 @@ Buttons use the W3C Standard Gamepad layout; a button counts as pressed from 0.5
 | `Sensitivity` | Multiplies the dead-zoned value before clamping (1 when `<= 0`). |
 | `Invert` | Negates the value. |
 
-By default an `Actions` reads every connected controller: a button is pressed when it is pressed on any of them, and a stick axis takes the reading farthest from center. For local multiplayer, give each player an `Actions` and call `SelectGamepad(id)` with an ID from `gamepad.Pads`; `SelectAnyGamepad` goes back to every controller. Disconnecting a controller releases what it held, and reading stops once the scope passed to `WatchGamepads` is disposed.
+By default an `Actions` reads every connected controller: a button is pressed when it is pressed on any of them, and a stick axis takes the reading farthest from center. Call `SelectGamepad(id)` with an ID from `gamepad.Pads` to restrict one `Actions` to a single controller, or `SelectAnyGamepad` to go back to every controller; for multi-player setups, use `Players` below. Disconnecting a controller releases what it held, and reading stops once the scope passed to `WatchGamepads` is disposed.
 
 Controllers are polled once per step, so a press and release that both happen between two steps are not seen. Tests and replays can skip the live controllers and feed `[]gamepad.Pad` snapshots with `OnGamepads`, which latches presses between steps like touches; `Gamepads()` returns the state last read.
+
+## Local multiplayer
+
+`Players` manages several player slots (`0` to `Len()-1`), each with its own `Actions`, routing every connected game controller to at most one player and forwarding keyboard or pointer events only to the players assigned to them:
+
+```go
+players := input.NewPlayers(2)
+for _, p := range players.All() {
+	a := p.Actions()
+	a.Bind("jump", input.GamepadButton(gamepad.ButtonSouth))
+	a.Bind("left", input.GamepadButton(gamepad.ButtonDPadLeft))
+	a.Bind("right", input.GamepadButton(gamepad.ButtonDPadRight))
+	a.BindAxis("move_x", "left", "right")
+	a.BindGamepadAxis("move_x", gamepad.AxisLeftX, input.GamepadAxisOptions{})
+}
+
+players.AssignGamepad(0, pad1ID)
+players.AssignGamepad(1, pad2ID)
+players.WatchGamepads(cx)
+
+// In Loop.Update:
+players.Step()
+p0Move := players.Player(0).Axis("move_x")
+p1Jump := players.Player(1).JustPressed("jump")
+```
+
+- **Device isolation and exclusivity**: `AssignGamepad(index, padID)` assigns controller `padID` exclusively to player `index` (if another player owned `padID`, that player loses it and releases any held buttons). Assigning a controller ID before it connects remembers the slot; `p.GamepadConnected()` and `p.Gamepad()` report whether the assigned controller is currently present.
+- **Split keyboard and mixed devices**: Call `AssignKeyboard(index)` on one or more players and `WatchKeys(cx)` (or `Attach(&view)`) on `Players`. Several players can share one keyboard with disjoint key sets (such as WASD + Space for player 0 and arrow keys + Enter for player 1), or one player can use keyboard while another uses a gamepad — a gamepad-only player never reacts to keyboard events even when both players share the same binding template. Call `AssignPointer(index)` to route touch, mouse, and pointer-lock events to specific players (such as split-screen touch regions or player 0 on keyboard + mouse).
+- **Auto-assignment and drop-in lobbies**: Call `AssignUnassignedGamepads()` to assign unassigned connected controllers (in ascending ID order) to open slots with no device (`!p.HasDevice()`), or inspect `UnassignedGamepads()` and `NextUnassigned()` to implement press-to-join lobbies. Add slots dynamically with `Add()`, and clear assignments with `UnassignGamepad`, `UnassignKeyboard`, `UnassignPointer`, or `Unassign`.
+- **Single-step polling, reset, and persistence**: `players.Step()` polls `gamepad.Pads` once and steps every player's `Actions`; `players.Reset()` resets every player while preserving slots, bindings, and device assignments; tests and replays can feed snapshots with `players.OnGamepads(pads)`. Save and load each player's bindings independently through `p.Actions().Save` and `p.Actions().Load`.
 
 ## Sampling once per fixed step
 

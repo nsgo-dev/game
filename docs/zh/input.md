@@ -133,9 +133,39 @@ actions.WatchGamepads(cx)
 | `Sensitivity` | 在限制范围之前乘以经过死区处理的值（`<= 0` 时为 1）。 |
 | `Invert` | 取反。 |
 
-默认情况下一个 `Actions` 读取所有已连接的手柄：任一手柄按下某键即视为按下，摇杆轴取离中心最远的读数。本地多人游戏可为每位玩家创建一个 `Actions`，并以 `gamepad.Pads` 中的 ID 调用 `SelectGamepad(id)`；`SelectAnyGamepad` 恢复读取所有手柄。手柄断开时会释放它按住的输入，传给 `WatchGamepads` 的作用域销毁后停止读取。
+默认情况下一个 `Actions` 读取所有已连接的手柄：任一手柄按下某键即视为按下，摇杆轴取离中心最远的读数。调用 `SelectGamepad(id)`（传入 `gamepad.Pads` 中的 ID）可将单个 `Actions` 限制为只读取某一只手柄，`SelectAnyGamepad` 恢复读取所有手柄；多玩家场景请使用下文的 `Players`。手柄断开时会释放它按住的输入，传给 `WatchGamepads` 的作用域销毁后停止读取。
 
 手柄每个步长轮询一次，因此在两个步长之间完成的按下和松开不会被察觉。测试和回放可以不读取实际手柄，改用 `OnGamepads` 传入 `[]gamepad.Pad` 快照，它会像触摸一样锁存步长之间的按下；`Gamepads()` 返回最近一次读取的状态。
+
+## 本地多人
+
+`Players` 管理多个玩家槽位（`0` 到 `Len()-1`），每位玩家拥有各自的 `Actions`：每只已连接的手柄最多路由给一位玩家，键盘与指针事件也只转发给已分配对应设备的玩家：
+
+```go
+players := input.NewPlayers(2)
+for _, p := range players.All() {
+	a := p.Actions()
+	a.Bind("jump", input.GamepadButton(gamepad.ButtonSouth))
+	a.Bind("left", input.GamepadButton(gamepad.ButtonDPadLeft))
+	a.Bind("right", input.GamepadButton(gamepad.ButtonDPadRight))
+	a.BindAxis("move_x", "left", "right")
+	a.BindGamepadAxis("move_x", gamepad.AxisLeftX, input.GamepadAxisOptions{})
+}
+
+players.AssignGamepad(0, pad1ID)
+players.AssignGamepad(1, pad2ID)
+players.WatchGamepads(cx)
+
+// 在 Loop.Update 中：
+players.Step()
+p0Move := players.Player(0).Axis("move_x")
+p1Jump := players.Player(1).JustPressed("jump")
+```
+
+- **设备隔离与手柄独占**：`AssignGamepad(index, padID)` 将手柄 `padID` 独占分配给玩家 `index`（若其他玩家原先持有 `padID`，会先解除其分配并释放按住的按键）。在手柄连接前预分配 ID 会记住该槽位，`p.GamepadConnected()` 与 `p.Gamepad()` 用于查询已分配手柄当前是否在线。
+- **同键盘分键位与混合设备**：为一位或多位玩家调用 `AssignKeyboard(index)`，并在 `Players` 上调用 `WatchKeys(cx)`（或 `Attach(&view)`）。多位玩家可以共享同一把键盘并使用互不冲突的键位（例如玩家 0 用 WASD + 空格、玩家 1 用方向键 + 回车），也可以让一位玩家用键盘、另一位玩家用手柄——即使两位玩家套用同一套绑定模板，仅分配手柄的玩家也不会响应键盘事件。调用 `AssignPointer(index)` 可将触摸、鼠标和指针锁定事件路由给指定玩家（例如分屏触摸区域或玩家 0 使用键鼠）。
+- **自动分配与按键加入大厅**：调用 `AssignUnassignedGamepads()` 可按手柄 ID 升序将未分配的已连接手柄依次分配给尚未分配设备的空槽位（`!p.HasDevice()`）；也可以结合 `UnassignedGamepads()` 与 `NextUnassigned()` 实现“按任意键加入”的大厅流程。使用 `Add()` 动态新增槽位，使用 `UnassignGamepad`、`UnassignKeyboard`、`UnassignPointer` 或 `Unassign` 解除分配。
+- **单步轮询、重置与持久化**：`players.Step()` 每步仅轮询一次 `gamepad.Pads` 并步进所有玩家的 `Actions`；`players.Reset()` 重置所有玩家状态并保留槽位、绑定与设备分配；测试和回放可通过 `players.OnGamepads(pads)` 注入手柄快照。每位玩家的按键绑定可通过 `p.Actions().Save` 与 `p.Actions().Load` 各自保存和加载。
 
 ## 在固定步长中采样
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 )
 
 func touchAt(phase core.TouchPhase, id int, x, y core.Points) core.TouchEvent {
@@ -120,4 +121,27 @@ func ExampleMotionInput() {
 	// Output:
 	// calibrated: true tiltX 0.00
 	// tiltX 0.50 gyroZ 0.50
+}
+
+// Players routes separate game controllers (and optional shared keyboard key sets) to independent per-player Actions sampled once per step.
+func ExamplePlayers() {
+	players := input.NewPlayers(2)
+	for _, p := range players.All() {
+		p.Actions().Bind("jump", input.GamepadButton(gamepad.ButtonSouth))
+		p.Actions().BindGamepadAxis("move", gamepad.AxisLeftX, input.GamepadAxisOptions{DeadZone: -1})
+	}
+	players.AssignGamepad(0, 1)
+	players.AssignGamepad(1, 2)
+
+	pad1 := gamepad.Pad{ID: 1, Axes: [gamepad.AxisCount]float32{-0.5, 0, 0, 0}}
+	pad1.Buttons[gamepad.ButtonSouth] = 1
+	pad2 := gamepad.Pad{ID: 2, Axes: [gamepad.AxisCount]float32{0.75, 0, 0, 0}}
+
+	players.OnGamepads([]gamepad.Pad{pad1, pad2})
+	players.Step()
+	fmt.Printf("p0: jump=%v move=%.2f\n", players.Player(0).JustPressed("jump"), players.Player(0).Axis("move"))
+	fmt.Printf("p1: jump=%v move=%.2f\n", players.Player(1).JustPressed("jump"), players.Player(1).Axis("move"))
+	// Output:
+	// p0: jump=true move=-0.50
+	// p1: jump=false move=0.75
 }
