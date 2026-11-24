@@ -1141,6 +1141,49 @@ for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
 - **Bind group 3**: `LocalShadowGroup` is `ShadowGroup` (3), the group the directional shadow, fog, IBL and skinning also use, so a lit PBR pipeline takes one of them (`LitPBRPipelineOptions.SpotShadowLayout` or `PointShadowLayout`). A custom shader that needs both, or group 3 for something else, places the bindings with `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` and scales its lights with `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` from `LightWGSL`.
 - **Device loss and CPU references**: with `Retained: true` the depth target, sampler, buffers, bind groups and depth pipeline come back after a device loss. `EvaluateSpotShadow`, `EvaluatePointShadow` and `PointShadowSelectFace` mirror the WGSL, and `ShadePointVisibility` with a `LightVisibility` reproduces the lit pixel; the tests compare them with the GPU and with the golden renders `render3d/testdata/golden/local_shadow_spot.png` and `local_shadow_point.png` (`UPDATE_GOLDEN=1` rewrites them).
 
+## Cascaded shadow maps (`CascadedShadowMap`, `CSMConfig`)
+
+`CascadedShadowMap` shadows the first directional light of a `LightRig` (`rig.Directional[0]`) with up to four cascades (`MaxCascades`), so shadows stay sharp near the camera and still reach the horizon. It is the large-scene alternative to `DirectionalShadowMap`: the lit PBR pipelines shade the rig exactly like `LitPBRWGSL` and multiply that one light by the cascaded shadow, leaving the other lights, ambient and emission unshadowed. Everything runs on every NSGo backend, the WebGL 2 / OpenGL ES 3.0 profile (`nsgotest.NoGPUCompute`) and the software renderer included:
+
+```go
+cfg := render3d.DefaultCSMConfig() // 4 cascades, 1024 texels each, 3x3 PCF, texel snapping
+cfg.MaxShadowDistance = 80
+cfg.Retained = true
+csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
+litPipe, err := render3d.NewLitPBRCSMPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBufs[0].Layout(), csm.Layout(), gpu.FormatDepth24Plus)
+
+// Each frame in OnFrame(frame *gpu.Frame):
+shadowFrame := render3d.FitCascadesFromCamera(cam, rig.Directional[0].Direction, csm.Config()) // the light the cascades shadow
+_ = csm.Update(dev, shadowFrame)
+for i := range csm.CascadeCount() {
+	if pass := csm.BeginCascadePass(frame, i); pass != nil {
+		for j, mesh := range casterMeshes {
+			csm.DrawCaster(pass, mesh, casterModels[j]) // false once MaxCasters distinct models are taken
+		}
+		pass.End()
+	}
+}
+
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{ /* color + depth */ })
+mp.SetPipeline(litPipe)
+mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+mp.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
+for i, mesh := range meshes {
+	mp.SetBindGroup(render3d.PBRDrawGroup, drawBufs[i].BindGroup())
+	mesh.Draw(mp)
+}
+mp.End()
+```
+
+- **Splits (`ComputeCSMSplits`)**: `[near, min(far, MaxShadowDistance)]` is divided with the practical split scheme, blending logarithmic and uniform splits by `SplitLambda` (default 0.75).
+- **Fitting (`FitCascades`, `FitCascadesFromCamera`)**: each cascade's slice of the camera frustum is cut along the projection's own near and far planes, so perspective and orthographic cameras both work. `FitCascadesFromCamera` uses the near and far planes `Camera.ProjMatrix` uses; shadows start at view depth 0.1 when an orthographic camera's near plane is at or behind it. With `TexelSnap` (the default) each cascade is sized from a bounding sphere and snapped to whole texels, so shadow edges do not shimmer as the camera moves or turns. `CasterPadding` pulls each cascade's near plane toward the light so casters outside the view still cast into it. Fitting and `CSMFrame.EncodeUniforms` allocate nothing.
+- **One 2D depth atlas**: the cascades are tiles of one `FormatDepth32Float` texture (1x1 for one cascade, 2x1 for two, 2x2 for three or four), so no depth texture arrays are needed. `Update` refuses, with `ErrInvalidCSM`, a frame fitted with another cascade count, resolution or filter than the atlas, because its tiles, texel size and filter would not match the atlas and its sampler. The first `BeginCascadePass` after `Update`, whichever cascade it draws, clears the whole atlas; render every cascade after each `Update`, in any order.
+- **Casters**: `DrawCaster` writes each distinct model matrix into its own 256-byte dynamic-offset slot once per frame and reuses it in the other cascades, so `MaxCasters` (default 256) counts distinct models between two `Update` calls, not draws. When the slots run out it draws nothing and returns false. `DrawCasterGroup` draws with caller-owned transforms instead.
+- **Filtering and blending**: `ShadowFilterHard` (one nearest comparison tap) or `ShadowFilterPCF3x3` (nine linear taps clamped inside the cascade's tile), the same `ShadowFilter` the single directional shadow map uses. `CascadeBlendRange` cross-fades into the next cascade over that fraction of each cascade and fades the last one out toward `MaxShadowDistance`; `DebugCascades` tints surfaces by cascade (red, green, blue, yellow).
+- **Bind group 3**: `CSMGroup` is `ShadowGroup` (3), so a lit PBR pipeline takes the cascaded shadow map instead of the directional, spot or point shadow, fog, IBL or skinning (`LitPBRPipelineOptions.CSMLayout`). Custom shaders prepend `CameraWGSL` and `CSMWGSL` (or `CSMWGSLForGroup(n)` when group 3 holds something else) and pass `sample_csm_shadow(world_pos, world_normal)` to `shade_pbr_shadowed` from `LightWGSL`.
+- **Device loss and CPU references**: with `Retained: true` the atlas, sampler, buffers, bind groups and depth pipeline come back after a device loss. `EvaluateCSMShadow` mirrors the WGSL over an atlas read back with `ReadCSMDepthAtlas` / `ReadCSMDepthAtlasAsync`, and `ShadePointShadowed` with that visibility, times `CSMFrame.DebugTint`, reproduces the lit pixel; the tests compare them with the GPU on both profiles and with the golden render `render3d/testdata/golden/csm_large_scene.png` (`UPDATE_GOLDEN=1` rewrites it).
+
 ## 3D post-processing (`PostStack3D`, `BloomPass`, `SSAOPass`, `DepthOfFieldPass`)
 
 `PostStack3D` composes screen-space ambient occlusion (`SSAOPass`), depth-aware disc bokeh Depth of Field (`DepthOfFieldPass`), and HDR Bloom (`BloomPass`) over an offscreen 3D color+depth `gpu.RenderTarget` (`FormatRGBA16Float` + `FormatDepth32Float` by default) and writes the final image to the swapchain or a chosen destination texture:
@@ -1218,37 +1261,3 @@ mesh.Draw(pass)
 - **CPU reference**: `ShadeClusteredPoint` is `ShadePoint` plus every clustered light, and `ShadeClusteredGridPoint` uses only the lights of the fragment's cluster, exactly as the GPU does. Tests compare GPU pixels against them on the full and `NoGPUCompute` profiles, including a 256-light scene.
 - **Limits**: `Validate` caps `MaxLights` at `MaxClusterLights` (65,536), keeps `MaxLightsPerCluster` at or below `MaxLights`, and caps index slots (`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`) at `MaxClusterIndexEntries`; `NewClusteredLightSystem` returns `ErrInvalidClusterConfig` when a storage buffer would exceed the device's `MaxStorageBufferBindingSize`.
 - **Lifecycle**: set `ClusterConfig.Retained` to restore buffers across GPU device loss; `ByteSize()` reports GPU buffer bytes for `RenderStats` and budgets, and `Close()` releases resources eagerly.
-
-## Cascaded shadow maps (directional lights)
-
-`CascadedShadowMap` provides portable cascaded shadow maps (CSM) for directional lights over large 3D scenes, keeping shadow detail sharp both near the camera and far across the horizon across every NSGo GPU backend (Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software GPU renderer).
-
-- **Practical split scheme (`ComputeCSMSplits`)**: partitions `[near, min(far, MaxShadowDistance)]` into 1–4 cascades (`MaxCascades = 4`) by blending logarithmic and uniform splits via `SplitLambda` (default `0.75`).
-- **Texel-snapped stable cascades (`FitCascades`, `FitCascadesFromCamera`)**: unprojects each cascade's sub-frustum into world space, computes a rotation-invariant bounding sphere, extends the orthographic near plane backward by `CasterPadding` so off-frustum casters behind the camera still cast shadows into view, and snaps the light-space projection origin to whole shadow-map texels (`TexelSnap: true`) to eliminate shadow swimming during camera motion. Zero heap allocations per frame.
-- **Portable 2D depth atlas**: packs all cascades into a single `gpu.FormatDepth32Float` 2D depth texture (`1×1` for 1 cascade, `2×1` for 2, `2×2` for 3–4) using `SetViewport` and `SetScissor` per tile—requiring only `texture_depth_2d` and `sampler_comparison` without `texture_depth_2d_array` or compute shaders. Setting `CSMConfig.Retained` automatically restores the atlas, sampler, buffers, and depth pipeline across GPU device loss.
-- **Portable WGSL & CPU reference**: prepend `CameraWGSL + CSMWGSL` to custom lit shaders (binding `csm.BindGroup()` at `CSMGroup = 1`), or build a ready-to-use lit pipeline with `NewCSMLitPipeline` (`CSMLitWGSL`, `NewCSMObjectLayout`, `CSMLitMaterial`). `CSMWGSL` supports hard 1-tap shadows (`CSMFilterHard`) and tile-clamped 3×3 PCF (`CSMFilterPCF3x3`), smoothly cross-fades across adjacent cascade boundaries over `CascadeBlendRange`, fades out cleanly at `MaxShadowDistance`, and offers optional cascade tinting (`DebugCascades: true`). `EvaluateCSMShadow` and `EvaluateCSM` mirror the WGSL evaluation in pure Go for headless verification.
-
-```go
-cfg := render3d.DefaultCSMConfig()
-cfg.MaxShadowDistance = 80
-cfg.Retained = true
-
-csm, err := render3d.NewCascadedShadowMap(cx, dev, cfg)
-if err != nil {
-	return err
-}
-
-// Per frame:
-frame := render3d.FitCascadesFromCamera(cam, sunDir, cfg)
-_ = csm.Update(dev, frame)
-for i := range csm.CascadeCount() {
-	pass := csm.BeginCascadePass(gpuFrame, i)
-	csm.DrawCaster(pass, casterMesh, casterModel)
-	pass.End()
-}
-
-// In the main lit pass:
-mainPass.SetPipeline(litPipe)
-mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-mainPass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
-```

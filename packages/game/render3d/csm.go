@@ -13,128 +13,74 @@ import (
 )
 
 const (
-	// MaxCascades is the maximum number of shadow cascades supported by
-	// [CascadedShadowMap], [CSMFrame], and [CSMWGSL].
+	// MaxCascades is the maximum number of shadow cascades supported by [CascadedShadowMap], [CSMFrame], and [CSMWGSL].
 	MaxCascades = 4
 
-	// CSMGroup is the bind group slot reserved for cascaded shadow map resources
-	// in [CSMWGSL] and [CSMLitWGSL], paired with [CameraGroup] at slot 0.
-	CSMGroup = 1
+	// CSMGroup is the bind group index [CSMWGSL] and [LitPBRCSMWGSL] use for the cascaded shadow map (uniform buffer at binding 0, depth atlas at binding 1, comparison sampler at binding 2). It is [ShadowGroup] (3), after [CameraGroup], [LightGroup] and [PBRDrawGroup], so a lit PBR pipeline takes the cascaded shadow map instead of the single directional shadow map, fog, IBL or skinning. Custom shaders that need group 3 for something else place the bindings elsewhere with [CSMWGSLForGroup].
+	CSMGroup = ShadowGroup
 
-	// CSMObjectGroup is the bind group slot [CSMLitWGSL] uses for per-object
-	// model transform and lighting parameters.
-	CSMObjectGroup = 2
-
-	// CSMUniformSize is the byte size of the [CSMUniforms] block encoded by
-	// [CSMFrame.EncodeUniforms] and declared by [CSMWGSL]: four mat4x4<f32>
-	// matrices (256 bytes) plus ten vec4<f32> vectors (160 bytes).
+	// CSMUniformSize is the byte size of the CSMUniforms block encoded by [CSMFrame.EncodeUniforms] and declared by [CSMWGSL]: four mat4x4<f32> matrices (256 bytes) plus ten vec4<f32> vectors (160 bytes).
 	CSMUniformSize = 4*64 + 10*16
 
-	// CSMObjectUniformSize is the byte size of the per-object uniform block
-	// encoded by [CSMLitMaterial.Encode] and declared by [CSMLitWGSL]:
-	// one mat4x4<f32> model matrix (64 bytes) plus three vec4<f32> color vectors.
-	CSMObjectUniformSize = 64 + 3*16
-
-	// DefaultCSMCascadeCount is the default number of cascades used when
-	// [CSMConfig.CascadeCount] is zero.
+	// DefaultCSMCascadeCount is the default number of cascades used when [CSMConfig.CascadeCount] is zero.
 	DefaultCSMCascadeCount = 4
 
-	// DefaultCSMResolution is the default per-cascade shadow-map resolution in
-	// texels used when [CSMConfig.Resolution] is zero.
+	// DefaultCSMResolution is the default per-cascade shadow-map resolution in texels used when [CSMConfig.Resolution] is zero.
 	DefaultCSMResolution = 1024
 
-	// DefaultCSMSplitLambda is the practical split blend factor returned by
-	// [DefaultCSMConfig], blending 75% logarithmic and 25% uniform splits.
+	// DefaultCSMSplitLambda is the practical split blend factor returned by [DefaultCSMConfig], blending 75% logarithmic and 25% uniform splits.
 	DefaultCSMSplitLambda float32 = 0.75
 
-	// DefaultCSMDepthBias is the constant receiver depth bias returned by
-	// [DefaultCSMConfig].
+	// DefaultCSMDepthBias is the constant receiver depth bias returned by [DefaultCSMConfig].
 	DefaultCSMDepthBias float32 = 0.0015
 
-	// DefaultCSMNormalBias is the world-space normal offset bias (for cascade 0,
-	// scaled proportionally to texel size for farther cascades) returned by
-	// [DefaultCSMConfig].
+	// DefaultCSMNormalBias is the world-space normal offset bias (for cascade 0, scaled proportionally to texel size for farther cascades) returned by [DefaultCSMConfig].
 	DefaultCSMNormalBias float32 = 0.02
 
-	// DefaultCSMCascadeBlendRange is the fractional cascade transition zone
-	// ([0, 0.5] of each cascade's depth span) returned by [DefaultCSMConfig].
+	// DefaultCSMCascadeBlendRange is the fractional cascade transition zone ([0, 0.5] of each cascade's depth span) returned by [DefaultCSMConfig].
 	DefaultCSMCascadeBlendRange float32 = 0.1
 
-	// DefaultCSMCasterPadding is the distance in world units pulled back toward
-	// the light source when fitting cascade orthographic near planes, so
-	// off-frustum casters behind the camera still cast shadows into view.
+	// DefaultCSMCasterPadding is the distance in world units pulled back toward the light source when fitting cascade orthographic near planes, so off-frustum casters behind the camera still cast shadows into view.
 	DefaultCSMCasterPadding float32 = 25.0
 
-	// DefaultCSMMaxCasters is the default per-frame dynamic caster transform
-	// capacity allocated by [NewCascadedShadowMap] when [CSMConfig.MaxCasters] is 0.
+	// DefaultCSMMaxCasters is the default per-frame dynamic caster transform capacity allocated by [NewCascadedShadowMap] when [CSMConfig.MaxCasters] is 0.
 	DefaultCSMMaxCasters = 256
 )
 
-// ErrInvalidCSM is wrapped by every validation or invalid-argument error
-// returned by the cascaded shadow map API.
+// ErrInvalidCSM is wrapped by every validation or invalid-argument error returned by the cascaded shadow map API.
 var ErrInvalidCSM = errors.New("render3d: invalid cascaded shadow map")
-
-// CSMFilterMode selects shadow-map comparison filtering in [CSMWGSL].
-type CSMFilterMode uint8
-
-const (
-	// CSMFilterHard performs a single nearest-neighbor depth comparison sample.
-	CSMFilterHard CSMFilterMode = iota
-	// CSMFilterPCF3x3 averages a 3x3 grid of hardware-interpolated comparison
-	// taps clamped strictly inside the active cascade's atlas tile.
-	CSMFilterPCF3x3
-)
 
 // CSMConfig configures [FitCascades] and [NewCascadedShadowMap].
 //
-// Use [DefaultCSMConfig] for balanced outdoor defaults (4 cascades, 1024x1024
-// per cascade, lambda 0.75, texel snapping enabled, 3x3 PCF, 10% cascade blend).
-// Zero values for CascadeCount, Resolution, and MaxCasters fall back to
-// [DefaultCSMCascadeCount], [DefaultCSMResolution], and [DefaultCSMMaxCasters].
+// Use [DefaultCSMConfig] for balanced outdoor defaults (4 cascades, 1024x1024 per cascade, lambda 0.75, texel snapping enabled, 3x3 PCF, 10% cascade blend). Zero values for CascadeCount, Resolution, and MaxCasters fall back to [DefaultCSMCascadeCount], [DefaultCSMResolution], and [DefaultCSMMaxCasters].
 type CSMConfig struct {
 	// Label names GPU resources in capture tools.
 	Label string
 	// CascadeCount is the number of cascades in [1, MaxCascades]. Zero defaults to 4.
 	CascadeCount int
-	// Resolution is the width and height in texels of each cascade tile in the
-	// 2D depth atlas. Zero defaults to 1024.
+	// Resolution is the width and height in texels of each cascade tile in the 2D depth atlas. Zero defaults to 1024.
 	Resolution int
-	// SplitLambda blends uniform (0.0) and logarithmic (1.0) cascade split
-	// distances using the practical split scheme. Must lie in [0, 1].
+	// SplitLambda blends uniform (0.0) and logarithmic (1.0) cascade split distances using the practical split scheme. Must lie in [0, 1].
 	SplitLambda float32
-	// MaxShadowDistance caps the farthest view-space depth covered by shadows.
-	// When zero, the camera's far clip plane is used.
+	// MaxShadowDistance caps the farthest view-space depth covered by shadows. When zero, the camera's far clip plane is used.
 	MaxShadowDistance float32
-	// DepthBias subtracts a small constant (modulated by surface slope) from
-	// receiver light-space depth to prevent shadow acne. Must be >= 0.
+	// DepthBias subtracts a small constant (modulated by surface slope) from receiver light-space depth to prevent shadow acne. Must be >= 0.
 	DepthBias float32
-	// NormalBias offsets receiver world positions along their surface normal
-	// (scaled by each cascade's texel size relative to cascade 0) before
-	// projecting into light space. Must be >= 0.
+	// NormalBias offsets receiver world positions along their surface normal (scaled by each cascade's texel size relative to cascade 0) before projecting into light space. Must be >= 0.
 	NormalBias float32
-	// CascadeBlendRange is the fraction in [0, 0.5] of each cascade's depth
-	// interval used to smoothly cross-fade into the next cascade (and fade out
-	// shadows smoothly approaching MaxShadowDistance). Zero disables blending.
+	// CascadeBlendRange is the fraction in [0, 0.5] of each cascade's depth interval used to smoothly cross-fade into the next cascade (and fade out shadows smoothly approaching MaxShadowDistance). Zero disables blending.
 	CascadeBlendRange float32
-	// TexelSnap fits each cascade with a rotation-invariant bounding sphere and
-	// snaps its light-space projection origin to whole shadow-map texel
-	// increments, eliminating shadow-edge swimming as the camera moves.
+	// TexelSnap fits each cascade with a rotation-invariant bounding sphere and snaps its light-space projection origin to whole shadow-map texel increments, eliminating shadow-edge swimming as the camera moves.
 	TexelSnap bool
-	// Filter selects hard 1-tap shadows ([CSMFilterHard]) or 3x3 PCF
-	// ([CSMFilterPCF3x3]).
-	Filter CSMFilterMode
-	// CasterPadding extends each cascade's orthographic near plane backward
-	// along -lightDir by this many world units so tall or off-frustum casters
-	// behind the camera still cast shadows into view. Must be >= 0.
+	// Filter selects hard 1-tap shadows ([ShadowFilterHard]) or 3x3 PCF ([ShadowFilterPCF3x3]).
+	Filter ShadowFilter
+	// CasterPadding extends each cascade's orthographic near plane backward along -lightDir by this many world units so tall or off-frustum casters behind the camera still cast shadows into view. Must be >= 0.
 	CasterPadding float32
-	// DebugCascades tints lit surfaces by active cascade (0=red, 1=green,
-	// 2=blue, 3=yellow) in [CSMLitWGSL] for inspecting cascade boundaries.
+	// DebugCascades tints lit surfaces by active cascade (0=red, 1=green, 2=blue, 3=yellow) in [LitPBRCSMWGSL] for inspecting cascade boundaries; [CSMFrame.DebugTint] is its CPU reference.
 	DebugCascades bool
-	// MaxCasters sets the capacity of the internal per-draw caster transform
-	// ring buffer used by [CascadedShadowMap.DrawCaster]. Zero defaults to 256.
+	// MaxCasters is the number of distinct non-identity caster model matrices [CascadedShadowMap.DrawCaster] can hold between two [CascadedShadowMap.Update] calls. A model drawn into several cascades takes one slot. Zero defaults to [DefaultCSMMaxCasters] (256).
 	MaxCasters int
-	// Retained opts every GPU buffer, depth atlas, sampler, and pipeline owned
-	// by [CascadedShadowMap] into automatic recreation across GPU device loss.
+	// Retained opts every GPU buffer, depth atlas, sampler, and pipeline owned by [CascadedShadowMap] into automatic recreation across GPU device loss.
 	Retained bool
 }
 
@@ -148,14 +94,13 @@ func DefaultCSMConfig() CSMConfig {
 		NormalBias:        DefaultCSMNormalBias,
 		CascadeBlendRange: DefaultCSMCascadeBlendRange,
 		TexelSnap:         true,
-		Filter:            CSMFilterPCF3x3,
+		Filter:            ShadowFilterPCF3x3,
 		CasterPadding:     DefaultCSMCasterPadding,
 		MaxCasters:        DefaultCSMMaxCasters,
 	}
 }
 
-// Validate checks every field of c and returns an error wrapping [ErrInvalidCSM]
-// if any value is out of range or non-finite.
+// Validate checks every field of c and returns an error wrapping [ErrInvalidCSM] if any value is out of range or non-finite.
 func (c CSMConfig) Validate() error {
 	if c.CascadeCount < 0 || c.CascadeCount > MaxCascades {
 		return fmt.Errorf("%w: CascadeCount %d must be in [0, %d]", ErrInvalidCSM, c.CascadeCount, MaxCascades)
@@ -178,7 +123,7 @@ func (c CSMConfig) Validate() error {
 	if !finite(c.CascadeBlendRange) || c.CascadeBlendRange < 0 || c.CascadeBlendRange > 0.5 {
 		return fmt.Errorf("%w: CascadeBlendRange %v must be in [0, 0.5]", ErrInvalidCSM, c.CascadeBlendRange)
 	}
-	if c.Filter != CSMFilterHard && c.Filter != CSMFilterPCF3x3 {
+	if !validShadowFilter(c.Filter) {
 		return fmt.Errorf("%w: unknown filter mode %d", ErrInvalidCSM, c.Filter)
 	}
 	if !finite(c.CasterPadding) || c.CasterPadding < 0 {
@@ -240,24 +185,18 @@ func csmAtlasGrid(count int) (cols, rows int) {
 	}
 }
 
-// AtlasSize returns the pixel dimensions (width, height) of the 2D depth atlas
-// that packs c's cascades: 1x1 for 1 cascade, 2x1 for 2 cascades, and 2x2 for
-// 3 or 4 cascades.
+// AtlasSize returns the pixel dimensions (width, height) of the 2D depth atlas that packs c's cascades: 1x1 for 1 cascade, 2x1 for 2 cascades, and 2x2 for 3 or 4 cascades.
 func (c CSMConfig) AtlasSize() (width, height uint32) {
 	n := c.normalize()
 	cols, rows := csmAtlasGrid(n.CascadeCount)
 	return uint32(n.Resolution * cols), uint32(n.Resolution * rows)
 }
 
-// ComputeCSMSplits computes count+1 view-space split depths [d_0, ..., d_count]
-// spanning [near, far] using the practical split scheme (Zhang et al., 2006):
+// ComputeCSMSplits computes count+1 view-space split depths [d_0, ..., d_count] spanning [near, far] using the practical split scheme (Zhang et al., 2006):
 //
 //	d_i = lambda * near * (far/near)^(i/count) + (1 - lambda) * (near + (far - near) * i / count)
 //
-// lambda=0 produces uniform splits; lambda=1 produces logarithmic splits.
-// Returns nil when count <= 0, near <= 0, far <= near, or either bound is
-// non-finite. Non-finite lambda falls back to [DefaultCSMSplitLambda]; out-of-range
-// finite lambda is clamped to [0, 1].
+// lambda=0 produces uniform splits; lambda=1 produces logarithmic splits. Returns nil when count <= 0, near <= 0, far <= near, or either bound is non-finite. Non-finite lambda falls back to [DefaultCSMSplitLambda]; out-of-range finite lambda is clamped to [0, 1].
 func ComputeCSMSplits(near, far float32, count int, lambda float32) []float32 {
 	if count <= 0 || !finite(near) || !finite(far) || near <= 0 || far <= near {
 		return nil
@@ -292,21 +231,18 @@ func computeCSMSplitsInto(dst []float32, near, far float32, count int, lambda fl
 	}
 }
 
-// CSMCascade holds the fitted light-space projection, depth bounds, atlas tile
-// placement, and bounding sphere of a single shadow cascade.
+// CSMCascade holds the fitted light-space projection, depth bounds, atlas tile placement, and bounding sphere of a single shadow cascade.
 type CSMCascade struct {
 	// Near and Far are positive view-space distances covered by this cascade.
 	Near float32
 	Far  float32
 	// LightView transforms world space into light view space (origin at world 0).
 	LightView math3d.Mat4
-	// LightProj is the orthographic projection mapping light view space into
-	// [0, 1] NDC depth.
+	// LightProj is the orthographic projection mapping light view space into [0, 1] NDC depth.
 	LightProj math3d.Mat4
 	// LightViewProj is LightProj * LightView.
 	LightViewProj math3d.Mat4
-	// AtlasRect is the normalized UV sub-rectangle (u0, v0, uScale, vScale) of
-	// this cascade's tile inside the 2D depth atlas.
+	// AtlasRect is the normalized UV sub-rectangle (u0, v0, uScale, vScale) of this cascade's tile inside the 2D depth atlas.
 	AtlasRect math3d.Vec4
 	// Viewport is [x, y, width, height] in atlas pixels for SetViewport/SetScissor.
 	Viewport [4]float32
@@ -317,10 +253,7 @@ type CSMCascade struct {
 	Radius float32
 }
 
-// CSMFrame holds the complete per-frame cascade solution computed by
-// [FitCascades] or [FitCascadesFromCamera], ready to upload to a
-// [CascadedShadowMap] via [CascadedShadowMap.Update] or evaluate on the CPU
-// with [EvaluateCSMShadow] and [EvaluateCSM].
+// CSMFrame holds the complete per-frame cascade solution computed by [FitCascades] or [FitCascadesFromCamera], ready to upload to a [CascadedShadowMap] via [CascadedShadowMap.Update] or evaluate on the CPU with [EvaluateCSMShadow] and [CSMFrame.DebugTint].
 type CSMFrame struct {
 	CascadeCount      int
 	Cascades          [MaxCascades]CSMCascade
@@ -332,29 +265,27 @@ type CSMFrame struct {
 	Config            CSMConfig
 }
 
-// FitCascades fits directional shadow cascades to the camera frustum defined by
-// camView, camProj (using [0, 1] NDC depth as produced by [math3d.Perspective]
-// and [math3d.Ortho]), and positive view-space clip distances [near, far].
+// FitCascades fits directional shadow cascades to the camera frustum defined by camView, camProj (using [0, 1] NDC depth as produced by [math3d.Perspective] and [math3d.Ortho]), and positive view-space clip distances [near, far].
 //
-// lightDir is the world-space direction light rays travel (from the directional
-// light toward the scene, e.g. {0.3, -1, -0.4}). It is normalized internally;
-// a zero or non-finite vector falls back to (0, -1, 0).
+// lightDir is the world-space direction light rays travel (from the directional light toward the scene, e.g. {0.3, -1, -0.4}). It is normalized internally; a zero or non-finite vector falls back to (0, -1, 0).
 //
-// When cfg.TexelSnap is true, each cascade uses a rotation-invariant bounding
-// sphere quantized to 1/16 world unit and snaps its light-space projection
-// origin to whole shadow-map texel steps, preventing shadow-edge swimming under
-// camera motion. FitCascades performs zero heap allocations.
+// When cfg.TexelSnap is true, each cascade uses a rotation-invariant bounding sphere quantized to 1/16 world unit and snaps its light-space projection origin to whole shadow-map texel steps, preventing shadow-edge swimming under camera motion. FitCascades performs zero heap allocations.
 func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3d.Vec3, cfg CSMConfig) CSMFrame {
 	nCfg := cfg.normalize()
 	count := nCfg.CascadeCount
 	atlasW, atlasH := nCfg.AtlasSize()
 	cols, rows := csmAtlasGrid(count)
 
+	// rayNear and rayFar are the view-space distances of camProj's own near and far planes, which parameterise the frustum corner rays below. They can differ from near and far, which only bound the range shadows cover: an orthographic projection may put its near plane at or behind the camera (Near <= 0), while shadows start at a positive depth.
+	rayNear, rayFar, rayOK := projectionDepthRange(camProj)
 	if !finite(near) || near <= 0 {
 		near = 0.1
 	}
 	if !finite(far) || far <= near {
 		far = near + 100
+	}
+	if !rayOK {
+		rayNear, rayFar = near, far
 	}
 	shadowFar := far
 	if nCfg.MaxShadowDistance > 0 && nCfg.MaxShadowDistance < shadowFar {
@@ -380,9 +311,7 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 	}
 	computeCSMSplitsInto(frame.Splits[:count+1], near, shadowFar, count, nCfg.SplitLambda)
 
-	// Unproject the 8 corners of the full camera frustum (NDC z=0 near, z=1 far).
-	// For any perspective or orthographic frustum, every ray from a near corner to
-	// its matching far corner varies linearly with view-space distance d.
+	// Unproject the 8 corners of the full camera frustum (NDC z=0 near, z=1 far). For any perspective or orthographic frustum, every ray from a near corner to its matching far corner varies linearly with view-space distance d.
 	invVP, ok := camProj.Mul(camView).Inverse()
 	if !ok {
 		invVP = math3d.Mat4Identity()
@@ -399,15 +328,14 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 		fullFar[k] = invVP.TransformPoint(math3d.Vec3{X: ndcXY[k][0], Y: ndcXY[k][1], Z: 1})
 	}
 
-	// Build a world-anchored light view basis depending only on lightDir so the
-	// texel grid remains stable across camera translations and rotations.
+	// Build a world-anchored light view basis depending only on lightDir so the texel grid remains stable across camera translations and rotations.
 	lightUp := math3d.Vec3Up()
 	if absf32(lightDir.Y) > 0.99 {
 		lightUp = math3d.Vec3{Z: 1}
 	}
 	lightBasis := math3d.LookAt(math3d.Vec3Zero(), lightDir, lightUp)
 
-	fullSpan := far - near
+	fullSpan := rayFar - rayNear
 	resF := float32(nCfg.Resolution)
 	invCols := float32(1.0) / float32(cols)
 	invRows := float32(1.0) / float32(rows)
@@ -416,8 +344,8 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 	for i := range count {
 		cNear := frame.Splits[i]
 		cFar := frame.Splits[i+1]
-		t0 := (cNear - near) / fullSpan
-		t1 := (cFar - near) / fullSpan
+		t0 := (cNear - rayNear) / fullSpan
+		t1 := (cFar - rayNear) / fullSpan
 
 		var center math3d.Vec3
 		for k := range 4 {
@@ -441,9 +369,7 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 
 		var left, right, bottom, top, minZ, maxZ, texelSize float32
 		if nCfg.TexelSnap {
-			// Reserve 0.5 texel margin so snapping centerLS by up to +/-0.5 texel
-			// still strictly encloses every sub-frustum corner, then quantize the
-			// half-extent to 1/16 world unit so float rounding never jitters texelSize.
+			// Reserve 0.5 texel margin so snapping centerLS by up to +/-0.5 texel still strictly encloses every sub-frustum corner, then quantize the half-extent to 1/16 world unit so float rounding never jitters texelSize.
 			padded := radius
 			if nCfg.Resolution > 1 {
 				padded = radius * resF / (resF - 1.0)
@@ -505,10 +431,7 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 			texelSize = max(right-left, top-bottom) / resF
 		}
 
-		// In right-handed light view space, points closer to the light have larger +Z
-		// (since LookAt maps +lightDir to -Z). OrthoZO expects positive-forward near
-		// and far distances (-z_view), so near = -maxZ and far = -minZ maps
-		// z_view = maxZ (closest to light) -> NDC z = 0 and z_view = minZ -> NDC z = 1.
+		// In right-handed light view space, points closer to the light have larger +Z (since LookAt maps +lightDir to -Z). OrthoZO expects positive-forward near and far distances (-z_view), so near = -maxZ and far = -minZ maps z_view = maxZ (closest to light) -> NDC z = 0 and z_view = minZ -> NDC z = 1.
 		lightProj := math3d.Ortho(left, right, bottom, top, -maxZ, -minZ)
 		lightVP := lightProj.Mul(lightBasis)
 
@@ -544,30 +467,49 @@ func FitCascades(camView, camProj math3d.Mat4, near, far float32, lightDir math3
 	return frame
 }
 
-// FitCascadesFromCamera fits cascades directly from a [scene3d.Camera].
-// When cam is nil, a default perspective camera at the origin looking down -Z
-// is used.
+// FitCascadesFromCamera fits cascades to a [scene3d.Camera] with the same near and far planes its [scene3d.Camera.ProjMatrix] uses (the defaults [scene3d.Projection.Matrix] fills in for zero or out-of-range fields included). Shadows cover view depths from max(near, 0.1) to the far plane or [CSMConfig.MaxShadowDistance], so an orthographic camera whose near plane is at or behind it (Near <= 0) is shadowed from 0.1 on. When cam is nil, a default perspective camera at the origin looking down -Z is used. lightDir is the world-space direction light rays travel; with [LitPBRCSMWGSL] pass the Direction of the [LightRig]'s first directional light, the one the cascades shadow.
 func FitCascadesFromCamera(cam *scene3d.Camera, lightDir math3d.Vec3, cfg CSMConfig) CSMFrame {
 	if cam == nil {
 		cam = scene3d.NewPerspectiveCamera(math3d.Vec3Zero(), math3d.DegToRad(60), 1, 0.1, 100)
 	}
-	near := cam.Projection.Near
-	far := cam.Projection.Far
-	if near <= 0 {
+	near, far := cameraDepthRange(cam.Projection)
+	return FitCascades(cam.ViewMatrix(), cam.ProjMatrix(), near, far, lightDir, cfg)
+}
+
+// cameraDepthRange returns the near and far planes [scene3d.Projection.Matrix] uses for p.
+func cameraDepthRange(p scene3d.Projection) (near, far float32) {
+	near, far = p.Near, p.Far
+	if p.Kind == scene3d.ProjectionOrthographic {
+		if near == 0 && far == 0 {
+			return 0.1, 1000
+		}
+	} else if near <= 0 {
 		near = 0.1
 	}
 	if far <= near {
 		far = near + 1000
 	}
-	return FitCascades(cam.ViewMatrix(), cam.ProjMatrix(), near, far, lightDir, cfg)
+	return near, far
 }
 
-// SelectCascade returns the primary cascade index for a positive camera
-// view-space depth, along with the next cascade index (or -1 if none / fading
-// out past the final cascade) and blend factor in [0, 1].
+// projectionDepthRange returns the positive-forward view-space distances of proj's near (NDC z = 0) and far (NDC z = 1) planes along the view axis, and false when proj is singular or the planes are not finite and ordered.
+func projectionDepthRange(proj math3d.Mat4) (near, far float32, ok bool) {
+	inv, ok := proj.Inverse()
+	if !ok {
+		return 0, 0, false
+	}
+	n := inv.TransformPoint(math3d.Vec3{})
+	f := inv.TransformPoint(math3d.Vec3{Z: 1})
+	near, far = -n.Z, -f.Z
+	if !finite(near) || !finite(far) || far <= near {
+		return 0, 0, false
+	}
+	return near, far, true
+}
+
+// SelectCascade returns the primary cascade index for a positive camera view-space depth, along with the next cascade index (or -1 if none / fading out past the final cascade) and blend factor in [0, 1].
 //
-// When viewDepth <= 0 or viewDepth >= f.MaxShadowDistance (or f.CascadeCount <= 0),
-// SelectCascade returns (-1, -1, 0).
+// When viewDepth <= 0 or viewDepth >= f.MaxShadowDistance (or f.CascadeCount <= 0), SelectCascade returns (-1, -1, 0).
 func (f *CSMFrame) SelectCascade(viewDepth float32) (index int, nextIndex int, blend float32) {
 	if f == nil || f.CascadeCount <= 0 || viewDepth <= 0 || viewDepth >= f.MaxShadowDistance {
 		return -1, -1, 0
@@ -600,10 +542,7 @@ func (f *CSMFrame) SelectCascade(viewDepth float32) (index int, nextIndex int, b
 	return idx, -1, t
 }
 
-// EncodeUniforms writes f into dst as the little-endian [CSMUniformSize]-byte
-// uniform block matching [CSMWGSL]'s CSMUniforms struct and returns
-// dst[:CSMUniformSize]. It panics if len(dst) < [CSMUniformSize]. It makes
-// zero heap allocations.
+// EncodeUniforms writes f into dst as the little-endian [CSMUniformSize]-byte uniform block matching [CSMWGSL]'s CSMUniforms struct and returns dst[:CSMUniformSize]. It panics if len(dst) < [CSMUniformSize]. It makes zero heap allocations.
 func (f *CSMFrame) EncodeUniforms(dst []byte) []byte {
 	if len(dst) < CSMUniformSize {
 		panic("render3d: CSMFrame.EncodeUniforms: dst shorter than CSMUniformSize")
@@ -672,7 +611,7 @@ func (f *CSMFrame) EncodeUniforms(dst []byte) []byte {
 		invH = 1.0 / float32(f.AtlasHeight)
 	}
 	filterF := float32(0)
-	if f.Config.Filter == CSMFilterPCF3x3 {
+	if f.Config.Filter == ShadowFilterPCF3x3 {
 		filterF = 1
 	}
 	debugF := float32(0)
@@ -695,8 +634,7 @@ func (f *CSMFrame) EncodeUniforms(dst []byte) []byte {
 	return dst
 }
 
-// CSMDepthWGSL is the depth-only vertex shader used by [CascadedShadowMap] to
-// rasterize shadow casters into a cascade tile of the 2D depth atlas.
+// CSMDepthWGSL is the depth-only vertex shader used by [CascadedShadowMap] to rasterize shadow casters into a cascade tile of the 2D depth atlas.
 //
 // Bind groups:
 //   - @group(0) @binding(0): CSMCascadeUniform (light_view_proj: mat4x4<f32>)
@@ -727,16 +665,8 @@ fn vs_csm_depth(in: CSMDepthIn) -> @builtin(position) vec4<f32> {
 }
 `
 
-// CSMWGSL declares the cascaded shadow map uniform block, 2D depth atlas
-// texture, comparison sampler at @group(1) ([CSMGroup]), and portable helper
-// functions for sampling cascades with optional 3x3 PCF, smooth inter-cascade
-// blending, far-distance fade, and optional debug cascade tinting.
-//
-// Prepend [CameraWGSL] + [CSMWGSL] to custom 3D lit WGSL modules. It uses only
-// algebraic WGSL operations and textureSampleCompareLevel (no exp/exp2/log2 or
-// texture_depth_2d_array), so it runs identically across Metal, Direct3D 11,
-// OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software GPU renderer.
-const CSMWGSL = `struct CSMUniforms {
+// csmStructWGSL declares the CSMUniforms block shared by [CSMWGSL] and [CSMWGSLForGroup].
+const csmStructWGSL = `struct CSMUniforms {
 	light_vp0: mat4x4<f32>,
 	light_vp1: mat4x4<f32>,
 	light_vp2: mat4x4<f32>,
@@ -752,11 +682,10 @@ const CSMWGSL = `struct CSMUniforms {
 	atlas_params: vec4<f32>,
 	cascade_scales: vec4<f32>,
 }
+`
 
-@group(1) @binding(0) var<uniform> csm: CSMUniforms;
-@group(1) @binding(1) var csm_shadow_map: texture_depth_2d;
-@group(1) @binding(2) var csm_shadow_sampler: sampler_comparison;
-
+// csmSampleFnWGSL holds the cascade selection and sampling helpers shared by [CSMWGSL] and [CSMWGSLForGroup].
+const csmSampleFnWGSL = `
 fn csm_sample_cascade(idx: i32, world_pos: vec3<f32>, world_normal: vec3<f32>, ndotl: f32) -> f32 {
 	var light_vp: mat4x4<f32>;
 	var rect: vec4<f32>;
@@ -879,127 +808,88 @@ fn csm_cascade_tint(idx: i32) -> vec3<f32> {
 	}
 	return vec3<f32>(1.0, 0.9, 0.35);
 }
+
+fn csm_view_depth(world_pos: vec3<f32>) -> f32 {
+	return -(camera.view * vec4<f32>(world_pos, 1.0)).z;
+}
+
+fn sample_csm_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
+	var n = vec3<f32>(0.0, 1.0, 0.0);
+	let n_len = length(world_normal);
+	if (n_len > 0.000001) {
+		n = world_normal / n_len;
+	}
+	return csm_shadow_factor(world_pos, n, csm_view_depth(world_pos));
+}
+
+fn csm_debug_tint(world_pos: vec3<f32>) -> vec3<f32> {
+	let view_depth = csm_view_depth(world_pos);
+	if (csm.atlas_params.w < 0.5 || view_depth <= 0.0 || view_depth >= csm.light_dir.w) {
+		return vec3<f32>(1.0, 1.0, 1.0);
+	}
+	return mix(vec3<f32>(1.0, 1.0, 1.0), csm_cascade_tint(csm_select_cascade(view_depth)), 0.55);
+}
 `
 
-// CSMLitWGSL is a complete forward-lit WGSL shader module using [CameraWGSL]
-// (@group(0)), [CSMWGSL] (@group(1)), and per-object lighting uniforms
-// (@group(2) @binding(0), matching [CSMLitMaterial.Encode]) with
-// [MeshVertexLayout] at vertex slot 0.
-const CSMLitWGSL = CameraWGSL + "\n" + CSMWGSL + `
-struct CSMObjectUniforms {
-	model: mat4x4<f32>,
-	albedo: vec4<f32>,
-	ambient: vec4<f32>,
-	sun_color: vec4<f32>,
+// CSMWGSL declares the cascaded shadow map uniform block, 2D depth atlas and comparison sampler at [CSMGroup] (@group(3)), and portable helpers for sampling them with optional 3x3 PCF, smooth inter-cascade blending, a fade toward [CSMConfig.MaxShadowDistance] and optional debug cascade tinting. It equals CSMWGSLForGroup(CSMGroup).
+//
+// The helpers read the camera's view matrix, so prepend [CameraWGSL] first. sample_csm_shadow(world_pos, world_normal) returns the visibility in [0, 1] of the light the cascades were fitted to, like sample_directional_shadow in [ShadowWGSL]: pass it as the shadow_vis of shade_pbr_shadowed in [LightWGSL] to shadow the [LightRig]'s first directional light. csm_shadow_factor(world_pos, unit_normal, view_depth) takes the view depth directly, and csm_debug_tint(world_pos) returns the per-cascade color multiplier [CSMConfig.DebugCascades] enables (white when it is off). [LitPBRCSMWGSL] is the ready-made PBR shader built on it.
+//
+// It uses only algebraic WGSL operations and textureSampleCompareLevel (no exp, exp2, log2 or texture_depth_2d_array), so it runs identically on Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0 and the software GPU renderer.
+const CSMWGSL = csmStructWGSL + `
+@group(3) @binding(0) var<uniform> csm: CSMUniforms;
+@group(3) @binding(1) var csm_shadow_map: texture_depth_2d;
+@group(3) @binding(2) var csm_shadow_sampler: sampler_comparison;
+` + csmSampleFnWGSL
+
+// CSMWGSLForGroup returns [CSMWGSL] with its bindings placed at @group(group) instead of [CSMGroup], for custom shaders whose group 3 already holds something else.
+func CSMWGSLForGroup(group uint32) string {
+	return fmt.Sprintf(`%s
+@group(%[2]d) @binding(0) var<uniform> csm: CSMUniforms;
+@group(%[2]d) @binding(1) var csm_shadow_map: texture_depth_2d;
+@group(%[2]d) @binding(2) var csm_shadow_sampler: sampler_comparison;
+%[3]s`, csmStructWGSL, group, csmSampleFnWGSL)
 }
 
-@group(2) @binding(0) var<uniform> csm_obj: CSMObjectUniforms;
-
-struct CSMLitIn {
-	@location(0) pos: vec3<f32>,
-	@location(1) normal: vec3<f32>,
-	@location(2) uv: vec2<f32>,
+// LitPBRCSMWGSL is [LitPBRWGSL] with cascaded directional shadows: the same vertex stage, bind groups [CameraGroup], [LightGroup] and [PBRDrawGroup], and lighting, plus [CSMWGSL] at [CSMGroup]. The fragment stage multiplies the first directional light of the [LightRig] (lights.directional[0]) by sample_csm_shadow and the lit color by csm_debug_tint before encoding to sRGB; every other light, the ambient term and emission are unshadowed. [ShadePointShadowed] with [EvaluateCSMShadow] as the visibility, times [CSMFrame.DebugTint], is its CPU reference. Fit the cascades with that light's Direction. Use [NewLitPBRCSMPipeline] or [LitPBRPipelineOptions].CSMLayout to create a pipeline from it.
+const LitPBRCSMWGSL = litPBRPreludeWGSL + CSMWGSL + litPBRCSMFragmentHeadWGSL + `	return vec4<f32>(linear_to_srgb(lit), pbr_draw.base_color.a);
 }
+`
 
-struct CSMLitOut {
-	@builtin(position) clip: vec4<f32>,
-	@location(0) world_pos: vec3<f32>,
-	@location(1) world_normal: vec3<f32>,
-	@location(2) view_depth: f32,
+// litPBRCSMLinearWGSL is [LitPBRCSMWGSL] writing the lit linear color without sRGB encoding, compiled by [NewLitPBRPipelineWithOptions] when [LitPBRPipelineOptions].LinearOutput and CSMLayout are set.
+const litPBRCSMLinearWGSL = litPBRPreludeWGSL + CSMWGSL + litPBRCSMFragmentHeadWGSL + `	return vec4<f32>(lit, pbr_draw.base_color.a);
 }
+`
 
-@vertex
-fn vs_csm_lit(in: CSMLitIn) -> CSMLitOut {
-	var out: CSMLitOut;
-	let world_pos = csm_obj.model * vec4<f32>(in.pos, 1.0);
-	let view_pos = camera.view * world_pos;
-	out.clip = camera.proj * view_pos;
-	out.world_pos = world_pos.xyz;
-	out.world_normal = normalize((csm_obj.model * vec4<f32>(in.normal, 0.0)).xyz);
-	out.view_depth = -view_pos.z;
-	return out;
-}
-
+// litPBRCSMFragmentHeadWGSL opens fs_main for the cascaded-shadow lit PBR shaders and computes the lit linear color lit with directional light 0 attenuated by the cascades.
+const litPBRCSMFragmentHeadWGSL = `
 @fragment
-fn fs_csm_lit(in: CSMLitOut) -> @location(0) vec4<f32> {
-	let n = normalize(in.world_normal);
-	let l = normalize(-csm.light_dir.xyz);
-	let ndotl = max(dot(n, l), 0.0);
-	let shadow = csm_shadow_factor(in.world_pos, n, in.view_depth);
-	let lighting = csm_obj.ambient.rgb + csm_obj.sun_color.rgb * (csm_obj.sun_color.a * ndotl * shadow);
-	var rgb = csm_obj.albedo.rgb * lighting;
-	if (csm.atlas_params.w > 0.5 && in.view_depth > 0.0 && in.view_depth < csm.light_dir.w) {
-		let tint = csm_cascade_tint(csm_select_cascade(in.view_depth));
-		rgb = mix(rgb, rgb * tint, 0.55);
-	}
-	return vec4<f32>(clamp(rgb, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), csm_obj.albedo.a);
-}
+fn fs_main(in: PBRVertexOut) -> @location(0) vec4<f32> {
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let shadow_vis = sample_csm_shadow(in.world_pos, in.world_normal);
+	let lit = (shade_pbr_shadowed(
+		in.world_pos,
+		in.world_normal,
+		view_dir,
+		pbr_draw.base_color.rgb,
+		pbr_draw.pbr_params.x,
+		pbr_draw.pbr_params.y,
+		shadow_vis,
+	) + pbr_draw.emissive.rgb) * csm_debug_tint(in.world_pos);
 `
 
-// CSMLitMaterial holds per-object transform and directional lighting parameters
-// encoded for [CSMLitWGSL] at [CSMObjectGroup] and evaluated on the CPU by
-// [EvaluateCSM].
-type CSMLitMaterial struct {
-	// Model is the object's rigid/uniform-scale world matrix (zero defaults to Identity).
-	Model math3d.Mat4
-	// Albedo is the linear base color RGB in [0, 1].
-	Albedo [3]float32
-	// Alpha is the output opacity; zero defaults to 1.0.
-	Alpha float32
-	// Ambient is the ambient light RGB added independently of shadow visibility.
-	Ambient [3]float32
-	// SunColor is the directional light RGB.
-	SunColor [3]float32
-	// SunIntensity multiplies SunColor; zero defaults to 1.0.
-	SunIntensity float32
+// NewLitPBRCSMPipeline compiles [LitPBRCSMWGSL] and creates a pipeline configured like [NewLitPBRPipeline] with csmLayout ([CascadedShadowMap.Layout]) added at [CSMGroup].
+func NewLitPBRCSMPipeline(cx *core.Scope, dev *gpu.Device, camLayout, lightLayout, drawLayout, csmLayout *gpu.BindGroupLayout, depthFormat gpu.TextureFormat) (*gpu.Pipeline, error) {
+	if dev == nil {
+		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
+	}
+	if csmLayout == nil {
+		return nil, gpu.Error{Code: gpu.ErrInvalidDescriptor, Message: "render3d: NewLitPBRCSMPipeline requires a cascaded shadow map bind group layout"}
+	}
+	return NewLitPBRPipelineWithOptions(cx, dev, camLayout, lightLayout, drawLayout, LitPBRPipelineOptions{CSMLayout: csmLayout, DepthFormat: depthFormat})
 }
 
-// Encode writes m into dst as the little-endian [CSMObjectUniformSize]-byte
-// block matching [CSMLitWGSL]'s CSMObjectUniforms struct and returns
-// dst[:CSMObjectUniformSize]. It panics if len(dst) < [CSMObjectUniformSize].
-func (m CSMLitMaterial) Encode(dst []byte) []byte {
-	if len(dst) < CSMObjectUniformSize {
-		panic("render3d: CSMLitMaterial.Encode: dst shorter than CSMObjectUniformSize")
-	}
-	dst = dst[:CSMObjectUniformSize]
-	model := m.Model
-	if model == (math3d.Mat4{}) {
-		model = math3d.Mat4Identity()
-	}
-	alpha := m.Alpha
-	if alpha == 0 {
-		alpha = 1
-	}
-	intensity := m.SunIntensity
-	if intensity == 0 {
-		intensity = 1
-	}
-	off := 0
-	put := func(v float32) {
-		binary.LittleEndian.PutUint32(dst[off:], math.Float32bits(v))
-		off += 4
-	}
-	for _, v := range model {
-		put(v)
-	}
-	put(m.Albedo[0])
-	put(m.Albedo[1])
-	put(m.Albedo[2])
-	put(alpha)
-	put(m.Ambient[0])
-	put(m.Ambient[1])
-	put(m.Ambient[2])
-	put(1)
-	put(m.SunColor[0])
-	put(m.SunColor[1])
-	put(m.SunColor[2])
-	put(intensity)
-	return dst
-}
-
-// CSMDepthAtlas holds a CPU copy of a 2D float32 shadow depth atlas (row-major,
-// top-left origin, depth values in [0, 1]) for pure-Go reference evaluation via
-// [EvaluateCSMShadow] and [EvaluateCSM].
+// CSMDepthAtlas holds a CPU copy of a 2D float32 shadow depth atlas (row-major, top-left origin, depth values in [0, 1]) for pure-Go reference evaluation via [EvaluateCSMShadow].
 type CSMDepthAtlas struct {
 	Width  int
 	Height int
@@ -1081,7 +971,7 @@ func evaluateCSMCascade(frame *CSMFrame, atlas CSMDepthAtlas, idx int, worldPos,
 	baseU := rect.X + localU*rect.Z
 	baseV := rect.Y + localV*rect.W
 
-	if frame.Config.Filter == CSMFilterHard {
+	if frame.Config.Filter == ShadowFilterHard {
 		su := math3d.Clamp(baseU, uvMinU, uvMaxU)
 		sv := math3d.Clamp(baseV, uvMinV, uvMaxV)
 		return atlas.sampleCompare(su, sv, cmpDepth, false)
@@ -1098,10 +988,7 @@ func evaluateCSMCascade(frame *CSMFrame, atlas CSMDepthAtlas, idx int, worldPos,
 	return sum * (1.0 / 9.0)
 }
 
-// EvaluateCSMShadow is the pure-Go CPU reference matching csm_shadow_factor in
-// [CSMWGSL]. It returns the shadow visibility factor in [0, 1] (0 = fully in
-// shadow, 1 = fully lit) for a world-space surface point, unit world normal,
-// and positive camera view-space depth.
+// EvaluateCSMShadow is the pure-Go CPU reference matching csm_shadow_factor in [CSMWGSL]. It returns the shadow visibility factor in [0, 1] (0 = fully in shadow, 1 = fully lit) for a world-space surface point, unit world normal, and positive camera view-space depth.
 func EvaluateCSMShadow(frame CSMFrame, atlas CSMDepthAtlas, worldPos, worldNormal math3d.Vec3, viewDepth float32) float32 {
 	if frame.CascadeCount <= 0 || viewDepth <= 0 || viewDepth >= frame.MaxShadowDistance {
 		return 1.0
@@ -1126,43 +1013,18 @@ func EvaluateCSMShadow(frame CSMFrame, atlas CSMDepthAtlas, worldPos, worldNorma
 	return vis
 }
 
-// EvaluateCSM is the pure-Go CPU reference matching fs_csm_lit in [CSMLitWGSL].
-// It returns the clamped linear RGB color in [0, 1] for a surface point shaded
-// with mat and shadowed by frame and atlas.
-func EvaluateCSM(frame CSMFrame, atlas CSMDepthAtlas, worldPos, worldNormal math3d.Vec3, viewDepth float32, mat CSMLitMaterial) [3]float32 {
-	n := worldNormal
-	if n.LenSq() > 1e-12 {
-		n = n.Norm()
+// DebugTint returns the color multiplier csm_debug_tint in [CSMWGSL] applies at a positive camera view depth: white (1, 1, 1) when [CSMConfig.DebugCascades] is off or viewDepth is outside the shadowed range, otherwise the active cascade's tint (0 red, 1 green, 2 blue, 3 yellow) mixed 55% into white.
+func (f *CSMFrame) DebugTint(viewDepth float32) math3d.Vec3 {
+	white := math3d.Vec3{X: 1, Y: 1, Z: 1}
+	if f == nil || !f.Config.DebugCascades || viewDepth <= 0 || viewDepth >= f.MaxShadowDistance {
+		return white
 	}
-	l := frame.LightDir.Neg()
-	if l.LenSq() > 1e-12 {
-		l = l.Norm()
+	idx, _, _ := f.SelectCascade(viewDepth)
+	if idx < 0 {
+		return white
 	}
-	ndotl := max(n.Dot(l), float32(0))
-	shadow := EvaluateCSMShadow(frame, atlas, worldPos, n, viewDepth)
-	intensity := mat.SunIntensity
-	if intensity == 0 {
-		intensity = 1
-	}
-	k := intensity * ndotl * shadow
-	rgb := [3]float32{
-		mat.Albedo[0] * (mat.Ambient[0] + mat.SunColor[0]*k),
-		mat.Albedo[1] * (mat.Ambient[1] + mat.SunColor[1]*k),
-		mat.Albedo[2] * (mat.Ambient[2] + mat.SunColor[2]*k),
-	}
-	if frame.Config.DebugCascades && viewDepth > 0 && viewDepth < frame.MaxShadowDistance {
-		idx, _, _ := frame.SelectCascade(viewDepth)
-		if idx >= 0 {
-			tint := csmCascadeTint(idx)
-			for ch := range 3 {
-				rgb[ch] = math3d.Lerp(rgb[ch], rgb[ch]*tint[ch], 0.55)
-			}
-		}
-	}
-	for ch := range 3 {
-		rgb[ch] = math3d.Clamp(rgb[ch], 0, 1)
-	}
-	return rgb
+	t := csmCascadeTint(idx)
+	return math3d.Vec3{X: math3d.Lerp(1, t[0], 0.55), Y: math3d.Lerp(1, t[1], 0.55), Z: math3d.Lerp(1, t[2], 0.55)}
 }
 
 func csmCascadeTint(idx int) [3]float32 {
@@ -1178,27 +1040,24 @@ func csmCascadeTint(idx int) [3]float32 {
 	}
 }
 
-// RenderPassStarter is satisfied by both [*gpu.Encoder] and [*gpu.Frame],
-// allowing [CascadedShadowMap.BeginCascadePass] to record depth passes both on
-// a standalone [gpu.SoftwareRenderer] encoder and inside [gpu.ViewProps.OnFrame].
+// RenderPassStarter is satisfied by both [*gpu.Encoder] and [*gpu.Frame], allowing [CascadedShadowMap.BeginCascadePass] to record depth passes both on a standalone [gpu.SoftwareRenderer] encoder and inside [gpu.ViewProps.OnFrame].
 type RenderPassStarter interface {
 	BeginRenderPass(desc gpu.RenderPassDesc) *gpu.RenderPass
 }
 
-// CascadedShadowMap owns the portable 2D [gpu.FormatDepth32Float] depth atlas,
-// comparison sampler, uniform buffers, bind groups, and depth-only caster
-// pipeline for directional cascaded shadow maps on an NSGo [gpu.Device].
+// CascadedShadowMap owns the portable 2D [gpu.FormatDepth32Float] depth atlas, comparison sampler, uniform buffers, bind groups, and depth-only caster pipeline for directional cascaded shadow maps on an NSGo [gpu.Device].
 //
 // Typical per-frame usage:
 //
-//	frame := render3d.FitCascadesFromCamera(cam, sunDir, cfg)
-//	csm.Update(dev, frame)
+//	frame := render3d.FitCascadesFromCamera(cam, rig.Directional[0].Direction, csm.Config())
+//	_ = csm.Update(dev, frame)
 //	for i := range csm.CascadeCount() {
-//		pass := csm.BeginCascadePass(enc, i)
-//		csm.DrawCaster(pass, mesh, modelMat)
-//		pass.End()
+//		if pass := csm.BeginCascadePass(enc, i); pass != nil {
+//			csm.DrawCaster(pass, mesh, modelMat)
+//			pass.End()
+//		}
 //	}
-//	// Then in the main lit pass:
+//	// Then in the main lit pass, with a pipeline from NewLitPBRCSMPipeline:
 //	mainPass.SetBindGroup(render3d.CSMGroup, csm.BindGroup())
 type CascadedShadowMap struct {
 	dev *gpu.Device
@@ -1221,6 +1080,7 @@ type CascadedShadowMap struct {
 	casterStride uint64
 	maxCasters   int
 	casterSlot   int
+	casterSlots  map[math3d.Mat4]uint32
 
 	depthPipe *gpu.Pipeline
 
@@ -1231,12 +1091,9 @@ type CascadedShadowMap struct {
 	matScratch     [64]byte
 }
 
-// NewCascadedShadowMap validates cfg and allocates the 2D depth atlas,
-// comparison sampler, uniform buffers, bind groups, and depth-only caster
-// pipeline on dev, scoped to cx.
+// NewCascadedShadowMap validates cfg and allocates the 2D depth atlas, comparison sampler, uniform buffers, bind groups, and depth-only caster pipeline on dev, scoped to cx.
 //
-// Invalid configuration returns an error wrapping [ErrInvalidCSM] before any
-// GPU resource is created. A nil or lost device returns [gpu.ErrDeviceLost].
+// Invalid configuration returns an error wrapping [ErrInvalidCSM] before any GPU resource is created. A nil or lost device returns [gpu.ErrDeviceLost].
 func NewCascadedShadowMap(cx *core.Scope, dev *gpu.Device, cfg CSMConfig) (*CascadedShadowMap, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -1256,10 +1113,11 @@ func NewCascadedShadowMap(cx *core.Scope, dev *gpu.Device, cfg CSMConfig) (*Casc
 	}
 
 	c := &CascadedShadowMap{
-		dev:        dev,
-		cfg:        nCfg,
-		maxCasters: nCfg.MaxCasters,
-		casterSlot: 1,
+		dev:         dev,
+		cfg:         nCfg,
+		maxCasters:  nCfg.MaxCasters,
+		casterSlot:  1,
+		casterSlots: make(map[math3d.Mat4]uint32),
 	}
 	cleanup := func() {
 		_ = c.Close()
@@ -1279,7 +1137,7 @@ func NewCascadedShadowMap(cx *core.Scope, dev *gpu.Device, cfg CSMConfig) (*Casc
 	}
 
 	filter := gpu.FilterNearest
-	if nCfg.Filter == CSMFilterPCF3x3 {
+	if nCfg.Filter == ShadowFilterPCF3x3 {
 		filter = gpu.FilterLinear
 	}
 	c.sampler, err = dev.CreateSampler(cx, gpu.SamplerDesc{
@@ -1449,10 +1307,9 @@ func NewCascadedShadowMap(cx *core.Scope, dev *gpu.Device, cfg CSMConfig) (*Casc
 	return c, nil
 }
 
-// Update uploads frame's cascade matrices, split distances, atlas rects, and
-// shading parameters onto dev with zero heap allocations, and resets the
-// per-frame caster transform cursor. Call Update once per frame before
-// [CascadedShadowMap.BeginCascadePass].
+// Update uploads frame's cascade matrices, split distances, atlas rects and shading parameters onto dev with zero heap allocations, and frees every caster slot [CascadedShadowMap.DrawCaster] took since the last Update. Call it once per frame before [CascadedShadowMap.BeginCascadePass].
+//
+// frame must be fitted with c's cascade count, resolution and filter ([CascadedShadowMap.Config]), because its atlas tiles, viewports, texel size and filter mode index c's atlas and sampler; any other frame returns an error wrapping [ErrInvalidCSM] and leaves c unchanged. The other [CSMConfig] fields (splits, biases, blend range, padding, debug tint) may change from frame to frame.
 func (c *CascadedShadowMap) Update(dev *gpu.Device, frame CSMFrame) error {
 	if c == nil || !c.Valid() {
 		return fmt.Errorf("%w: cascaded shadow map is not valid", ErrInvalidCSM)
@@ -1460,12 +1317,19 @@ func (c *CascadedShadowMap) Update(dev *gpu.Device, frame CSMFrame) error {
 	if dev == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
-	if frame.CascadeCount <= 0 || frame.CascadeCount > c.cfg.CascadeCount {
-		return fmt.Errorf("%w: frame cascade count %d incompatible with atlas cascade count %d", ErrInvalidCSM, frame.CascadeCount, c.cfg.CascadeCount)
+	if frame.CascadeCount != c.cfg.CascadeCount || frame.Config.CascadeCount != c.cfg.CascadeCount {
+		return fmt.Errorf("%w: frame cascade count %d does not match the atlas cascade count %d", ErrInvalidCSM, frame.CascadeCount, c.cfg.CascadeCount)
+	}
+	if frame.Config.Resolution != c.cfg.Resolution || frame.AtlasWidth != c.rt.Width || frame.AtlasHeight != c.rt.Height {
+		return fmt.Errorf("%w: frame resolution %d (atlas %dx%d) does not match the atlas resolution %d (%dx%d)", ErrInvalidCSM, frame.Config.Resolution, frame.AtlasWidth, frame.AtlasHeight, c.cfg.Resolution, c.rt.Width, c.rt.Height)
+	}
+	if frame.Config.Filter != c.cfg.Filter {
+		return fmt.Errorf("%w: frame filter %v does not match the atlas sampler's filter %v", ErrInvalidCSM, frame.Config.Filter, c.cfg.Filter)
 	}
 	c.dev = dev
 	c.frame = frame
 	c.casterSlot = 1
+	clear(c.casterSlots)
 	c.atlasCleared = false
 
 	dev.WriteBuffer(c.uniformBuf, 0, c.frame.EncodeUniforms(c.uniformScratch[:]))
@@ -1476,21 +1340,15 @@ func (c *CascadedShadowMap) Update(dev *gpu.Device, frame CSMFrame) error {
 	return nil
 }
 
-// BeginCascadePass starts a depth-only render pass targeting cascadeIdx's tile
-// in the 2D depth atlas, sets the tile viewport and scissor rectangle, binds
-// the depth-only caster pipeline, and binds cascadeIdx's light view-projection
-// at group 0.
+// BeginCascadePass starts a depth-only render pass targeting cascadeIdx's tile in the 2D depth atlas, sets the tile viewport and scissor rectangle, binds the depth-only caster pipeline, and binds cascadeIdx's light view-projection at group 0.
 //
-// The first cascade pass after [CascadedShadowMap.Update] (or cascadeIdx == 0)
-// clears the depth atlas to 1.0; subsequent cascade passes preserve previously
-// rendered tiles with [gpu.LoadLoad]. Returns nil when c, enc, or cascadeIdx is
-// invalid.
+// The first cascade pass after [CascadedShadowMap.Update], whichever cascade it is, clears the whole depth atlas to 1.0 (a clear is not limited by the scissor); every later pass keeps the tiles already drawn with [gpu.LoadLoad]. Render every cascade after each Update, in any order. Returns nil when c, enc, or cascadeIdx is invalid.
 func (c *CascadedShadowMap) BeginCascadePass(enc RenderPassStarter, cascadeIdx int) *gpu.RenderPass {
 	if c == nil || enc == nil || !c.Valid() || cascadeIdx < 0 || cascadeIdx >= c.frame.CascadeCount {
 		return nil
 	}
 	loadOp := gpu.LoadLoad
-	if !c.atlasCleared || cascadeIdx == 0 {
+	if !c.atlasCleared {
 		loadOp = gpu.LoadClear
 		c.atlasCleared = true
 	}
@@ -1511,36 +1369,37 @@ func (c *CascadedShadowMap) BeginCascadePass(enc RenderPassStarter, cascadeIdx i
 	return pass
 }
 
-// DrawCaster renders mesh as a shadow caster inside a pass opened by
-// [CascadedShadowMap.BeginCascadePass], transforming its vertices by model
-// (zero or identity uses the pre-populated identity slot with zero GPU writes).
+// DrawCaster renders mesh as a shadow caster inside a pass opened by [CascadedShadowMap.BeginCascadePass], transforming its vertices by model, and reports whether it drew.
 //
-// If the internal caster ring buffer capacity ([CSMConfig.MaxCasters]) is
-// exceeded within a single frame, DrawCaster skips the draw rather than
-// overwriting earlier caster transforms in the same command buffer; increase
-// MaxCasters or use [CascadedShadowMap.DrawCasterGroup] for larger scenes.
-func (c *CascadedShadowMap) DrawCaster(pass *gpu.RenderPass, mesh *GPUMesh, model math3d.Mat4) {
+// A zero or identity model uses a pre-filled identity slot. Every other model takes one slot of the caster transform buffer the first time it is drawn after [CascadedShadowMap.Update]; drawing the same model again, for example into the next cascade, reuses that slot, so [CSMConfig.MaxCasters] counts distinct models per frame, not draws. Once every slot is taken, DrawCaster draws nothing and returns false rather than overwrite a transform an earlier draw of the same command buffer still reads; raise MaxCasters, or bind caller-owned transforms with [CascadedShadowMap.DrawCasterGroup].
+func (c *CascadedShadowMap) DrawCaster(pass *gpu.RenderPass, mesh *GPUMesh, model math3d.Mat4) bool {
 	if c == nil || pass == nil || !c.Valid() || !mesh.Valid() {
-		return
+		return false
 	}
 	var dynOffset uint32
 	if model != (math3d.Mat4{}) && model != math3d.Mat4Identity() {
-		if c.casterSlot >= c.maxCasters || c.dev == nil {
-			return
+		off, ok := c.casterSlots[model]
+		if !ok {
+			if c.casterSlot >= c.maxCasters || c.dev == nil {
+				return false
+			}
+			encodeMat4Into(c.matScratch[:], model)
+			byteOff := uint64(c.casterSlot) * c.casterStride
+			c.dev.WriteBuffer(c.casterBuf, byteOff, c.matScratch[:])
+			off = uint32(byteOff)
+			c.casterSlot++
+			if finiteMat4(model) {
+				c.casterSlots[model] = off
+			}
 		}
-		encodeMat4Into(c.matScratch[:], model)
-		byteOff := uint64(c.casterSlot) * c.casterStride
-		c.dev.WriteBuffer(c.casterBuf, byteOff, c.matScratch[:])
-		dynOffset = uint32(byteOff)
-		c.casterSlot++
+		dynOffset = off
 	}
 	pass.SetBindGroup(1, c.casterGroup, dynOffset)
 	mesh.Draw(pass)
+	return true
 }
 
-// DrawCasterGroup renders mesh inside a pass opened by
-// [CascadedShadowMap.BeginCascadePass] using a caller-owned model bind group
-// matching [CascadedShadowMap.CasterModelLayout] at group 1.
+// DrawCasterGroup renders mesh inside a pass opened by [CascadedShadowMap.BeginCascadePass] using a caller-owned model bind group matching [CascadedShadowMap.CasterModelLayout] at group 1.
 func (c *CascadedShadowMap) DrawCasterGroup(pass *gpu.RenderPass, mesh *GPUMesh, modelGroup *gpu.BindGroup, dynamicOffsets ...uint32) {
 	if c == nil || pass == nil || !c.Valid() || !mesh.Valid() || modelGroup == nil || !modelGroup.Valid() {
 		return
@@ -1565,12 +1424,12 @@ func (c *CascadedShadowMap) Frame() CSMFrame {
 	return c.frame
 }
 
-// CascadeCount returns the active cascade count of c.
+// CascadeCount returns the number of cascades of the frame last passed to [CascadedShadowMap.Update], which [CascadedShadowMap.BeginCascadePass] accepts; it always equals [CSMConfig.CascadeCount] of [CascadedShadowMap.Config].
 func (c *CascadedShadowMap) CascadeCount() int {
 	if c == nil {
 		return 0
 	}
-	return c.cfg.CascadeCount
+	return c.frame.CascadeCount
 }
 
 // AtlasWidth returns the depth atlas width in texels.
@@ -1637,8 +1496,7 @@ func (c *CascadedShadowMap) DepthPipeline() *gpu.Pipeline {
 	return c.depthPipe
 }
 
-// CascadeBindGroup returns the group-0 bind group holding cascade idx's
-// light_view_proj uniform buffer, or nil if idx is out of range.
+// CascadeBindGroup returns the group-0 bind group holding cascade idx's light_view_proj uniform buffer, or nil if idx is out of range.
 func (c *CascadedShadowMap) CascadeBindGroup(idx int) *gpu.BindGroup {
 	if c == nil || idx < 0 || idx >= c.cfg.CascadeCount {
 		return nil
@@ -1646,8 +1504,7 @@ func (c *CascadedShadowMap) CascadeBindGroup(idx int) *gpu.BindGroup {
 	return c.cascadeGroups[idx]
 }
 
-// CasterModelLayout returns the group-1 bind group layout expected by
-// [CascadedShadowMap.DepthPipeline] and [CascadedShadowMap.DrawCasterGroup].
+// CasterModelLayout returns the group-1 bind group layout expected by [CascadedShadowMap.DepthPipeline] and [CascadedShadowMap.DrawCasterGroup].
 func (c *CascadedShadowMap) CasterModelLayout() *gpu.BindGroupLayout {
 	if c == nil {
 		return nil
@@ -1655,8 +1512,7 @@ func (c *CascadedShadowMap) CasterModelLayout() *gpu.BindGroupLayout {
 	return c.casterLayout
 }
 
-// ByteSize returns the GPU memory held by c's depth atlas and uniform buffers,
-// for [RenderStats] and [Budget] accounting.
+// ByteSize returns the GPU memory held by c's depth atlas and uniform buffers, for [RenderStats] and [Budget] accounting.
 func (c *CascadedShadowMap) ByteSize() uint64 {
 	if c == nil {
 		return 0
@@ -1679,8 +1535,7 @@ func (c *CascadedShadowMap) ByteSize() uint64 {
 	return total
 }
 
-// Valid reports whether every GPU resource owned by c is open and belongs to a
-// live device.
+// Valid reports whether every GPU resource owned by c is open and belongs to a live device.
 func (c *CascadedShadowMap) Valid() bool {
 	if c == nil || c.rt == nil || !c.rt.Valid() ||
 		c.sampler == nil || !c.sampler.Valid() ||
@@ -1703,8 +1558,7 @@ func (c *CascadedShadowMap) Valid() bool {
 	return true
 }
 
-// Close releases every GPU resource owned by c now rather than waiting for its
-// owning scope. It is safe to call on a nil receiver or more than once.
+// Close releases every GPU resource owned by c now rather than waiting for its owning scope. It is safe to call on a nil receiver or more than once.
 func (c *CascadedShadowMap) Close() error {
 	if c == nil {
 		return nil
@@ -1735,9 +1589,7 @@ func (c *CascadedShadowMap) Close() error {
 	return errors.Join(errs...)
 }
 
-// ReadCSMDepthAtlasAsync asynchronously reads back c's [gpu.FormatDepth32Float]
-// shadow atlas into a CPU [CSMDepthAtlas] and invokes fn on the engine
-// goroutine (matching [gpu.Device.ReadTexture]).
+// ReadCSMDepthAtlasAsync asynchronously reads back c's [gpu.FormatDepth32Float] shadow atlas into a CPU [CSMDepthAtlas] and invokes fn on the engine goroutine (matching [gpu.Device.ReadTexture]).
 func ReadCSMDepthAtlasAsync(dev *gpu.Device, csm *CascadedShadowMap, fn func(CSMDepthAtlas, error)) {
 	if fn == nil {
 		return
@@ -1774,9 +1626,7 @@ func ReadCSMDepthAtlasAsync(dev *gpu.Device, csm *CascadedShadowMap, fn func(CSM
 	})
 }
 
-// ReadCSMDepthAtlas reads back c's [gpu.FormatDepth32Float] shadow atlas
-// synchronously (for [gpu.SoftwareRenderer] tests where [gpu.Device.ReadTexture]
-// completes immediately). Inside a [gpu.View], use [ReadCSMDepthAtlasAsync].
+// ReadCSMDepthAtlas reads back c's [gpu.FormatDepth32Float] shadow atlas synchronously (for [gpu.SoftwareRenderer] tests where [gpu.Device.ReadTexture] completes immediately). Inside a [gpu.View], use [ReadCSMDepthAtlasAsync].
 func ReadCSMDepthAtlas(dev *gpu.Device, csm *CascadedShadowMap) (CSMDepthAtlas, error) {
 	var (
 		atlas  CSMDepthAtlas
@@ -1794,95 +1644,18 @@ func ReadCSMDepthAtlas(dev *gpu.Device, csm *CascadedShadowMap) (CSMDepthAtlas, 
 	return atlas, gotErr
 }
 
-// NewCSMObjectLayout creates the bind group layout for [CSMLitWGSL]'s per-object
-// uniform block at [CSMObjectGroup] (@group(2) @binding(0)).
-func NewCSMObjectLayout(cx *core.Scope, dev *gpu.Device) (*gpu.BindGroupLayout, error) {
-	if dev == nil {
-		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
-	}
-	return dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
-		Label: "render3d.csm.object",
-		Entries: []gpu.BindGroupLayoutEntry{{
-			Binding:    0,
-			Visibility: gpu.StageVertex | gpu.StageFragment,
-			Type:       gpu.BindingUniform,
-		}},
-	})
-}
-
-// CSMLitPipelineOptions configures [NewCSMLitPipeline].
-type CSMLitPipelineOptions struct {
-	Label        string
-	CameraLayout *gpu.BindGroupLayout
-	CSMLayout    *gpu.BindGroupLayout
-	ObjectLayout *gpu.BindGroupLayout
-	ColorFormat  gpu.TextureFormat // defaults to dev.SurfaceFormat() (or FormatRGBA8Unorm)
-	DepthFormat  gpu.TextureFormat // defaults to FormatDepth24Plus
-	CullMode     gpu.CullMode
-	Retained     bool
-}
-
-// NewCSMLitPipeline compiles [CSMLitWGSL] and creates a forward-lit pipeline
-// expecting [CameraGroup] (0), [CSMGroup] (1), and [CSMObjectGroup] (2) with
-// [MeshVertexLayout] at vertex buffer slot 0.
-func NewCSMLitPipeline(cx *core.Scope, dev *gpu.Device, opts CSMLitPipelineOptions) (*gpu.Pipeline, error) {
-	if dev == nil {
-		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
-	}
-	if opts.CameraLayout == nil || !opts.CameraLayout.Valid() {
-		return nil, fmt.Errorf("%w: invalid camera bind group layout", ErrInvalidCSM)
-	}
-	if opts.CSMLayout == nil || !opts.CSMLayout.Valid() {
-		return nil, fmt.Errorf("%w: invalid CSM bind group layout", ErrInvalidCSM)
-	}
-	if opts.ObjectLayout == nil || !opts.ObjectLayout.Valid() {
-		return nil, fmt.Errorf("%w: invalid object bind group layout", ErrInvalidCSM)
-	}
-	mod, err := gpu.CompileWGSL(CSMLitWGSL)
-	if err != nil {
-		return nil, err
-	}
-	colorFmt := opts.ColorFormat
-	if colorFmt == gpu.FormatUndefined {
-		colorFmt = dev.SurfaceFormat()
-		if colorFmt == gpu.FormatUndefined {
-			colorFmt = gpu.FormatRGBA8Unorm
-		}
-	}
-	depthFmt := opts.DepthFormat
-	if depthFmt == gpu.FormatUndefined {
-		depthFmt = gpu.FormatDepth24Plus
-	}
-	label := opts.Label
-	if label == "" {
-		label = "render3d.csm.lit"
-	}
-	return dev.CreatePipeline(cx, gpu.PipelineDesc{
-		Label:   label,
-		Layouts: []*gpu.BindGroupLayout{opts.CameraLayout, opts.CSMLayout, opts.ObjectLayout},
-		Vertex:  gpu.ShaderStage{Module: mod, EntryPoint: "vs_csm_lit"},
-		Fragment: gpu.ShaderStage{
-			Module:     mod,
-			EntryPoint: "fs_csm_lit",
-		},
-		VertexBuffers: []gpu.VertexBufferLayout{MeshVertexLayout()},
-		Primitive: gpu.PrimitiveState{
-			Topology:  gpu.TopologyTriangleList,
-			FrontFace: gpu.FrontCCW,
-			CullMode:  opts.CullMode,
-		},
-		DepthStencil: &gpu.DepthStencilState{
-			Format:       depthFmt,
-			DepthWrite:   true,
-			DepthCompare: gpu.CompareLess,
-		},
-		Targets:  []gpu.ColorTargetState{{Format: colorFmt, WriteMask: gpu.ColorWriteAll}},
-		Retained: opts.Retained,
-	})
-}
-
 func encodeMat4Into(dst []byte, m math3d.Mat4) {
 	for i, v := range m {
 		binary.LittleEndian.PutUint32(dst[i*4:], math.Float32bits(v))
 	}
+}
+
+// finiteMat4 reports whether every element of m is finite, so it can serve as a map key that compares equal to itself.
+func finiteMat4(m math3d.Mat4) bool {
+	for _, v := range m {
+		if !finite(v) {
+			return false
+		}
+	}
+	return true
 }
