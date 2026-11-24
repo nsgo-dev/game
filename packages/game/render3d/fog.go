@@ -37,7 +37,7 @@ const FogWGSL = `struct Fog {
 	height_params: vec4<f32>,
 }
 
-// pow with base e instead of exp: NSGo v0.3.0's software GPU VM evaluates exp, exp2, log, log2 and atan as 0 (internal/driver/gpu_software.go evalCall has no case for them). Switch back to exp once NSGo handles it.
+// pow with base e instead of exp: NSGo v0.3.0's software GPU VM evaluates exp, exp2, log, log2 and atan as 0 (internal/driver/gpu_software.go evalCall has no case for them) (nsgo-dev/nsgo#2334). Switch back to exp once NSGo handles it.
 fn fog_exp(x: f32) -> f32 {
 	return pow(2.718281828, x);
 }

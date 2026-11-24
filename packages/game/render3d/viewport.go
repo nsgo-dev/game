@@ -71,7 +71,7 @@ func (d RenderTextureDesc) effectiveSampleCount() int {
 // Its underlying [*gpu.RenderTarget] belongs to the [*core.Scope] passed to [NewRenderTexture] and is released when that scope is disposed or earlier via [RenderTexture.Close]. Use it from the engine goroutine, like the [gpu.Device] it came from.
 type RenderTexture struct {
 	cx *core.Scope
-	// owner is a child of cx that holds only the current target's cleanups. gpu registers a cleanup on the scope for every texture it creates and closing the texture early does not remove it, so Resize disposes the old target's child scope instead of letting cx collect one set of cleanups per resize. It is nil when cx is nil.
+	// owner is a child of cx that holds only the current target's cleanups. gpu registers a cleanup on the scope for every texture it creates and closing the texture early does not remove it, so Resize disposes the old target's child scope instead of letting cx collect one set of cleanups per resize (nsgo-dev/nsgo#2339). It is nil when cx is nil.
 	owner       *core.Scope
 	target      *gpu.RenderTarget
 	gpuTex      *GPUTexture
@@ -877,7 +877,7 @@ func (r *ViewportRenderer) RenderFrame(frame *gpu.Frame, surface SurfaceDesc, vi
 	return r.renderWith(frame.Device(), surface, views, frame.BeginRenderPass, draw)
 }
 
-// RenderEncoder renders all active views in execution order (offscreen [RenderTexture] views first, then main-surface viewports) into enc (for example on [gpu.NewSoftwareRenderer]). dev is the device enc was begun on: a device restored after a loss is a new [*gpu.Device], and per-view camera bind groups created on any other device are dropped by the pass. The caller submits enc.Finish().
+// RenderEncoder renders all active views in execution order (offscreen [RenderTexture] views first, then main-surface viewports) into enc (for example on [gpu.NewSoftwareRenderer]). dev is the device enc was begun on: a device restored after a loss is a new [*gpu.Device], and per-view camera bind groups created on any other device are dropped by the pass (nsgo-dev/nsgo#2345). The caller submits enc.Finish().
 func (r *ViewportRenderer) RenderEncoder(dev *gpu.Device, enc *gpu.Encoder, surface SurfaceDesc, views []CameraView, draw func(ViewportContext)) error {
 	if enc == nil {
 		return gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil encoder"}

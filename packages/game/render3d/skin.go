@@ -20,6 +20,8 @@ const (
 	// SkinUniformSize is the byte size of the skin uniform block that [AppendJointMatrices] writes and [SkinWGSL] declares: MaxSkinJoints * 64 = 8192 bytes.
 	SkinUniformSize = MaxSkinJoints * 64
 
+	// The palette sits at each pipeline's first free group because gpu.PipelineDesc.Layouts refuses nil entries (nsgo-dev/nsgo#2337).
+
 	// SkinGroup is the bind group index of the joint palette ([GPUSkinPalette.BindGroup]) in [SkinWGSL] and the unlit [NewSkinnedMeshPipeline], which binds only [CameraGroup] and the palette. Lit and material pipelines keep group 1 for lights and materials, so they bind the palette at [LitPBRSkinGroup] or [MaterialSkinGroup] instead.
 	SkinGroup = 1
 

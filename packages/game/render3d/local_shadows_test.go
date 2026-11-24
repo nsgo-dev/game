@@ -24,7 +24,7 @@ const (
 
 var localShadowTestClear = core.RGB(0x0c1018)
 
-// localShadowTestSubdividedQuad builds a grid of subdivisions x subdivisions triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal. Subdividing large floors and walls ensures triangles never straddle w <= 0 of a point light's cube-face frustum in the software rasterizer.
+// localShadowTestSubdividedQuad builds a grid of subdivisions x subdivisions triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal. Subdividing large floors and walls ensures triangles never straddle w <= 0 of a point light's cube-face frustum in the software rasterizer (nsgo-dev/nsgo#2344).
 func localShadowTestSubdividedQuad(center, uAxis, vAxis, normal math3d.Vec3, halfU, halfV float32, subdiv int) render3d.Mesh {
 	var m render3d.Mesh
 	n := normal.Norm()

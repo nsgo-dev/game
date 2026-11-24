@@ -569,6 +569,7 @@ func postDestFormat(dst *gpu.Texture, colorFmt, outFmt gpu.TextureFormat) (gpu.T
 		return outFmt, nil
 	}
 	f := dst.Desc().Format
+	// Checked here because gpu.RenderPass.SetPipeline does not compare a pipeline's target formats with the pass attachments (nsgo-dev/nsgo#2341).
 	if f != colorFmt && f != outFmt {
 		return gpu.FormatUndefined, fmt.Errorf("%w: destination format %s is neither ColorFormat %s nor OutputFormat %s", ErrInvalidPostProcess, f, colorFmt, outFmt)
 	}

@@ -828,7 +828,7 @@ func (m LightmapMaterial) Validate() error {
 	return nil
 }
 
-// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer] for a non-sRGB color target. It encodes the linear result with linear_to_srgb before writing, as [LitPBRWGSL] does, so lightmapped and PBR-lit draws in one pass match; for an sRGB target the renderer compiles a variant that leaves the encode to the hardware. It uses only pow and algebraic math (no exp/exp2/log2) so it executes identically across hardware GPU backends and NSGo's software GPU VM.
+// LightmapWGSL is the WGSL shader module compiled by [NewLightmapRenderer] for a non-sRGB color target. It encodes the linear result with linear_to_srgb before writing, as [LitPBRWGSL] does, so lightmapped and PBR-lit draws in one pass match; for an sRGB target the renderer compiles a variant that leaves the encode to the hardware. It uses only pow and algebraic math (no exp/exp2/log2) so it executes identically across hardware GPU backends and NSGo's software GPU VM (nsgo-dev/nsgo#2334).
 const LightmapWGSL = lightmapBodyWGSL + `
 	return vec4<f32>(linear_to_srgb(lit), albedo.a);
 }

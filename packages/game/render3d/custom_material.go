@@ -272,7 +272,7 @@ func computeCustomLayout(label string, params []ShaderParamDesc) (CustomUniformL
 	for i, p := range params {
 		if p.Kind.IsUniform() {
 			align, size := p.Kind.UniformLayout()
-			// WGSL packs a 4-byte member into the last 4 bytes of a preceding vec3, but NSGo's Metal backend declares the struct with float3 members, which take 16 bytes, so every member after that would be read from the wrong offset on macOS and iOS.
+			// WGSL packs a 4-byte member into the last 4 bytes of a preceding vec3, but NSGo's Metal backend declares the struct with float3 members, which take 16 bytes, so every member after that would be read from the wrong offset on macOS and iOS (nsgo-dev/nsgo#2340).
 			if prevVec3 != "" && align == 4 {
 				return CustomUniformLayout{}, &CustomMaterialError{
 					Material: label,

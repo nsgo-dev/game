@@ -474,6 +474,7 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 		}
 		res.Path = cleanRelPath
 	} else {
+		// png_base64 reaches an MCP client as text, not an image, because app tools cannot return image content (nsgo-dev/nsgo#2343).
 		res.PNGBase64 = base64.StdEncoding.EncodeToString(pngBytes)
 	}
 	return res, nil

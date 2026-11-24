@@ -365,7 +365,7 @@ func appendToneMapUniforms(dst []byte, opts ToneMapOptions, region toneMapRegion
 //
 // Entry points: vs_main (vertexless full-screen triangle via @builtin(vertex_index), drawn with pass.Draw(3, 0)) and fs_main (exposure, operator dispatch across None/Reinhard/ACES/Neutral/AgX, and exact sRGB or power-law gamma encoding).
 //
-// All math uses only operations supported across WebGPU, Metal, D3D11, OpenGL 3.3, WebGL 2, OpenGL ES 3.0, and NSGo's software GPU VM (no exp or log2 builtins).
+// All math uses only operations supported across WebGPU, Metal, D3D11, OpenGL 3.3, WebGL 2, OpenGL ES 3.0, and NSGo's software GPU VM (no exp or log2 builtins) (nsgo-dev/nsgo#2334).
 const ToneMapWGSL = `struct ToneMapParams {
 	exposure: f32,
 	inv_gamma: f32,
@@ -446,7 +446,7 @@ fn tonemap_neutral(color: vec3<f32>) -> vec3<f32> {
 	return clamp(mix(c, vec3<f32>(new_peak, new_peak, new_peak), vec3<f32>(g, g, g)), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
 }
 
-// fast_log2_agx computes log2 over AgX's input range with power-of-two range reduction and an atanh series, because NSGo v0.3.0's software GPU has no case for the log2, exp2, log and exp builtins and silently returns 0 for them.
+// fast_log2_agx computes log2 over AgX's input range with power-of-two range reduction and an atanh series, because NSGo v0.3.0's software GPU has no case for the log2, exp2, log and exp builtins and silently returns 0 for them (nsgo-dev/nsgo#2334).
 fn fast_log2_agx(v: f32) -> f32 {
 	var m = clamp(v, 0.0001757761, 16.291573);
 	var e: f32 = 0.0;
@@ -529,7 +529,7 @@ fn tonemap_agx(c: vec3<f32>) -> vec3<f32> {
 	);
 }
 
-// sanitize_hdr maps NaN and non-positive values to 0 and clamps the rest to the largest finite half float, so overflowed RGBA16Float highlights (+Inf) and extreme exposures never reach the operators as Inf or NaN. It tests NaN with a strict comparison, which is false for NaN under IEEE 754, instead of relying on how max and min treat NaN; NSGo v0.3.0's software VM also treats NaN as equal to every value, so >= and <= would let it through there.
+// sanitize_hdr maps NaN and non-positive values to 0 and clamps the rest to the largest finite half float, so overflowed RGBA16Float highlights (+Inf) and extreme exposures never reach the operators as Inf or NaN. It tests NaN with a strict comparison, which is false for NaN under IEEE 754, instead of relying on how max and min treat NaN; NSGo v0.3.0's software VM also treats NaN as equal to every value, so >= and <= would let it through there (nsgo-dev/nsgo#2335).
 fn sanitize_hdr(x: f32) -> f32 {
 	if (x > 0.0) {
 		return min(x, 65504.0);
