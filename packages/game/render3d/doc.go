@@ -49,6 +49,10 @@
 //
 // [UploadTexture] converts any [image.Image] into a straight-alpha RGBA8 [PixelBuffer] ([PixelBufferFromImage]) and uploads it as a scope-owned [GPUTexture] on [gpu.Device]; [UploadTexturePixels] uploads raw RGBA8, RG8, or R8 pixel buffers directly with optional row padding. Setting [TextureUpload.SRGB] uses [gpu.FormatRGBA8UnormSRGB] for color maps while keeping linear formats for data maps; setting [TextureUpload.Mipmaps] builds a CPU area-weighted box mipmap chain (in linear light when sRGB) and uploads every level via [gpu.Device.WriteTextureMip], so mipmapping works on every GPU backend and survives device loss when Retained is set. [NewGPUSampler] validates filtering, wrapping, LOD bounds, and WebGPU anisotropy constraints from [SamplerOptions] (with presets such as [SamplerLinearRepeat] and [SamplerNearestClamp]); [TextureBindingLayout] and [BindTexture] bind a texture and sampler to a shader group.
 //
+// # Budgeted Async Uploads (#387)
+//
+// [Uploader] streams large assets without frame hitches: [Uploader.QueueMesh], [Uploader.QueueTexture], [Uploader.QueueTexturePixels], [Uploader.QueueRawBuffer] and [Uploader.QueueRawTexture] run the caller's decode function and the CPU packing (mesh validation and interleaving, image conversion, mip generation) on background workers, and [Uploader.Step], called once per frame on the engine goroutine, writes the results to the [gpu.Device] in chunks without exceeding a per-frame byte budget. Streamed meshes and textures are the same [GPUMesh] and [GPUTexture] that [UploadMesh] and [UploadTexture] return, uploads run in [UploadPriority] order, and each [UploadHandle] reports progress and can cancel its upload.
+//
 // # Effects (#281)
 //
 //   - Billboards: [Billboard] builds a quad facing a [CameraBasis] in view-plane, view-point or axis-locked mode, [BillboardQuad.DrawItem] feeds it to transparent sorting, and [BillboardRenderer] fills billboards back to front into [*core.Drawing] with near-plane clipping.
