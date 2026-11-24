@@ -556,6 +556,8 @@ func TestValidateNamesTheField(t *testing.T) {
 		{"alpha", "version: 1\nlayers:\n  - name: a\n  - name: b\n    objects:\n      - id: o\n        alpha: 2\n", []string{"layers", "1", "objects", "0", "alpha"}},
 		{"sprite", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        sprite:\n          atlas: actors\n", []string{"layers", "0", "objects", "0", "sprite"}},
 		{"material", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        material: ../stone.material.yaml\n", []string{"layers", "0", "objects", "0", "material"}},
+		{"child_id", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        children:\n          - id: c\n          - id: o\n", []string{"layers", "0", "objects", "0", "children", "1", "id"}},
+		{"child_alpha", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: o\n        children:\n          - id: c\n            alpha: 2\n", []string{"layers", "0", "objects", "0", "children", "0", "alpha"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
