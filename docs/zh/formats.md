@@ -2,7 +2,7 @@
 
 用这些包制作的游戏读写的每一种文件：它的文件名、它声明的版本、读写它的 Go 函数、说明其字段的指南，以及一个示例，让人或 AI 不读代码也能编辑它。
 
-游戏作者编写的文件都是 YAML。下面的示例都是各格式的规范形式，即其编码器写出的字节，并且每个示例都由该格式的测试加载再保存一遍，所以没有一个示例含有格式会拒绝的键或会被改写的排版。
+除了下文“JSON 文件”和“其他工具的格式”中列出的文件，游戏作者编写的文件都是 YAML。本页的每个示例都由测试检查：YAML 示例是其格式的规范形式，即其编码器写出的字节，加载再保存后不变，所以没有一个示例含有格式会拒绝的键或会被改写的排版；JSON 和 Yarn 示例能被该格式的读取函数加载。
 
 ## 每种 YAML 格式的共同规则
 
@@ -1126,12 +1126,33 @@ entities:
 | --- | --- | --- | --- |
 | 存档后端中的 `settings` 槽（如 `settings.json`）或 `core.Storage` 中的一个键，与存档槽分开 | 外层封装的 `version`，由设置存储的迁移函数逐级升级 | `save.SettingsStore` | `save.Settings`：`audio`、`bindings`、`display`、`locale`、`accessibility` 和 `custom`，或游戏自己的类型 |
 
+```json
+{"version":1,"data":{"audio":{"master":1,"groups":{"music":1,"sfx":1,"ui":1},"muted":false},"bindings":{"jump":["Space"]},"display":{"fullscreen":false,"display_index":0,"scale_mode":"fit","integer_scale":false,"frame_cap":0,"vsync":true,"auto_drop_low_power":true,"quality":"auto"},"locale":"en","accessibility":{"captions":false,"caption_scale":1,"color_blind_mode":"none","reduce_motion":false,"high_contrast":false,"screen_shake":1,"game_speed":1}}}
+```
+
 <!-- format: worldmap#state -->
 ### 世界地图探索状态
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
 | 存档槽内 | `version: 1` | `worldmap.State` 的 JSON 形式 | [worldmap](worldmap.md) |
+
+```json
+{"version":1,"current":"hall","visited":["cave","hall"],"revealed":["crypt"],"markers":[{"id":"m1","kind":"pin","room":"hall","x":12,"y":4,"label":"Key"}]}
+```
+
+<!-- format: quest#snapshot -->
+### 任务进度
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 存档槽内，JSON 或 YAML 形式 | `version: 1` | `quest.Log.Snapshot`、`quest.Log.Restore` | [quest](quest.md) |
+
+```json
+{"version":1,"quests":[{"id":"find-key","state":"active","progress":{"rats":3}},{"id":"intro","state":"completed"}]}
+```
+
+`state` 为 `active`、`completed`、`failed` 或 `abandoned`；尚未开始的任务不写出，没有进度的目标也不写出。
 
 <!-- format: fog -->
 ### 战争迷雾
@@ -1151,12 +1172,22 @@ entities:
 | --- | --- | --- | --- |
 | 存档槽内；只包含用 `RegisterCodec` 注册过的组件 | 无 | `entities.World.Snapshot`、`entities.World.Restore` | [entities](entities.md) |
 
+```json
+{"entities":[{"index":0,"generation":1,"components":[{"type":"health","data":{"hp":10}},{"type":"position","data":{"x":3,"y":4}}]},{"index":1,"generation":1,"components":[{"type":"position","data":{"x":-1,"y":0.5}}]}]}
+```
+
+`type` 是组件的编解码器用 `RegisterCodec` 注册时的名称，`data` 是 `encoding/json` 写出的组件。
+
 <!-- format: input -->
 ### 输入绑定
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
 | `core.Storage` 中的一个键 | `version: 1` | `input.Actions.Save`、`input.Actions.Load` | [input](input.md) |
+
+```json
+{"version":1,"actions":{"fire":[{"kind":"mouse_button","button":"left"}],"jump":[{"kind":"key","key":"space"},{"kind":"gamepad_button","button":"south"}]},"axes":{"move_x":{"negative":"left","positive":"right"}}}
+```
 
 <!-- format: debug -->
 ### 控制台可调参数
@@ -1165,6 +1196,12 @@ entities:
 | --- | --- | --- | --- |
 | `core.Storage` 中的一个键，默认为 `debug.console.tunables` | 无 | `debug.Console.SaveTunables`、`debug.Console.LoadTunables` | 以各参数名为键、参数值为值的对象 |
 
+```json
+{"cheat.god":false,"player.lives":3,"player.speed":1.5}
+```
+
+参数名是游戏用 `RegisterFloat`、`RegisterInt` 和 `RegisterBool` 注册的名称；`LoadTunables` 跳过没有注册的名称，并拒绝超出范围的值。
+
 <!-- format: tooling/devstate -->
 ### 开发会话快照
 
@@ -1172,12 +1209,45 @@ entities:
 | --- | --- | --- | --- |
 | 一个文件或 `core.Storage` 中的一个键，游戏重新构建后从中恢复状态 | 状态 Go 类型的哈希，类型变化时跳过恢复 | `devstate.Store.Save`、`devstate.Store.LoadSnapshot` | `devstate.SessionSnapshot` |
 
+```json
+{"scene_id":"level-1","schema_hash":"90b889efbda2b1fbe5fd7122b8919ac57b14cef258a4a60664a39e4ee3caee5b","loop_tick":1200,"loop_elapsed":20000000000,"payload":"eyJsZXZlbCI6Mn0=","saved_at":"2026-11-24T09:15:02Z"}
+```
+
+`payload` 是 `encoding/json` 写出的游戏状态，以 base64 编码；`loop_elapsed` 的单位是纳秒。
+
 <!-- format: liveops -->
 ### 云存档载荷
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
 | 平台云存储中的 `<前缀><槽>.json`，如 `save.main.json` | `version: 1` | `liveops.EncodeCloudSave`、`liveops.DecodeCloudSave` | [liveops](liveops.md) |
+
+```json
+{
+  "format": "nsgo-cloud-save",
+  "version": 1,
+  "revision": 3,
+  "hash": "sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01",
+  "modified": "2026-11-24T09:15:02Z",
+  "device": "phone-1",
+  "data": "{\"version\":2,\"data\":{\"level\":4}}"
+}
+```
+
+`hash` 是存档字节的 SHA-256；存档字节是 UTF-8 时以文本存放在 `data` 中，否则以 base64 存放在 `data_base64` 中。
+
+<!-- format: liveops#sync -->
+### 云同步状态
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `core.Storage` 中每个槽一个键 `<StateKey>.<槽>`，如 `liveops.cloudsync.main` | `version: 1` | `liveops.CloudSyncer`，仅供其自身使用 | [liveops](liveops.md) |
+
+```json
+{"version":1,"revision":3,"hash":"sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01","local_modified":"2026-11-24T09:15:02Z","local_hash":"sha256:b30e459ab9ad862b330d89d42e3422a3e3193071345b1de6b9e4038b27f2ee01"}
+```
+
+它记录上次同步后两端共有的云端修订号和内容哈希，以及本设备上次写入本地副本的时间。
 
 <!-- format: leaderboard/selfhost#records -->
 ### 排行榜记录
@@ -1212,6 +1282,35 @@ entities:
 | --- | --- | --- | --- |
 | 模型旁边的 JSON 旁注文件，或 glTF 动画的 `extras` | 旁注文件中为 `version: 1` | `anim3d.LoadEventsSidecar`、`anim3d.MarshalEventsSidecar`、`anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md)、[从 Blender 导入 3D 模型](3d-models-blender.md) |
 
+```json
+{
+  "version": 1,
+  "clips": {
+    "attack": [
+      {
+        "time": 0.4,
+        "name": "hit",
+        "data": {
+          "damage": 12
+        }
+      }
+    ],
+    "run": [
+      {
+        "time": 0.25,
+        "name": "footstep",
+        "payload": "left"
+      },
+      {
+        "time": 0.75,
+        "name": "footstep",
+        "payload": "right"
+      }
+    ]
+  }
+}
+```
+
 <!-- format: assets -->
 ### DLC 包清单
 
@@ -1224,16 +1323,37 @@ entities:
 ```
 
 <!-- format: cmd/sizecheck -->
-### 包体积预算
+### WebAssembly 体积预算
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 传给 `sizecheck -budget` 的 `.json` 文件 | 无 | `sizecheck` 命令（`cmd/sizecheck`） | [包体积预算](package-size-budgets.md) |
+| 检查 `.wasm` 时传给 `sizecheck -budget` 的 `.json` 文件，如 `benchmarks/web-budget.json` | 无 | `sizecheck` 命令（`cmd/sizecheck`） | [包体积预算](package-size-budgets.md) |
+
+```json
+{
+  "target": "./cmd/wasmprobe",
+  "ldflags": "-s -w",
+  "max_raw_bytes": 8388608,
+  "max_gzip_bytes": 2359296,
+  "note": "WebAssembly size budget for ./cmd/wasmprobe"
+}
+```
+
+<!-- format: cmd/sizecheck#mobile -->
+### 移动端包体积预算
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 检查 `.aab`、`.apk` 或 `.ipa` 时传给 `sizecheck -budget` 的 `.json` 文件，如 `benchmarks/android-aab-budget.json` | 无 | `sizecheck` 命令（`cmd/sizecheck`） | [包体积预算](package-size-budgets.md) |
 
 ```json
 {
   "max_total_bytes": 52428800,
   "max_per_abi_bytes": 20971520,
+  "max_category_bytes": {
+    "native_libs": 36700160,
+    "dex": 5242880
+  },
   "note": "Release budget for MyGame Android AAB"
 }
 ```
@@ -1244,6 +1364,36 @@ entities:
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
 | `api.json`，发布在 `https://game.nsgo.dev/api.json` | `version: 1` | `apiref.Marshal`、`apiref.Unmarshal` | [包](packages.md) |
+
+```json
+{
+  "version": 1,
+  "module": "example.com/mygame",
+  "packages": [
+    {
+      "importPath": "example.com/mygame/score",
+      "name": "score",
+      "dir": "score",
+      "page": "score",
+      "synopsis": "Package score keeps a player's score.",
+      "doc": "Package score keeps a player's score.\n",
+      "consts": [],
+      "vars": [],
+      "funcs": [
+        {
+          "name": "Add",
+          "anchor": "Add",
+          "decl": "func Add(a, b int) int",
+          "doc": "Add returns a plus b.\n",
+          "file": "score/score.go",
+          "line": 4
+        }
+      ],
+      "types": []
+    }
+  ]
+}
+```
 
 ## 其他工具的格式
 
@@ -1298,10 +1448,33 @@ entities:
 | --- | --- | --- |
 | Chrome 的跟踪事件 JSON，可在 Perfetto 或 `chrome://tracing` 中打开 | `debug.Profiler.WriteChromeTrace` | `debug.Profiler` |
 
+<!-- format: flow -->
+### Yarn 对话脚本
+
+| 文件 | 读取函数 | 指南 |
+| --- | --- | --- |
+| 手写的 Yarn Spinner 脚本（`.yarn`）：由台词、`->` 选项和 `<<命令>>` 组成的节点，每个节点以 `title:` 头开始，位于 `---` 和 `===` 之间 | `flow.ParseYarn`；由 `vn.Presenter` 播放 | [vn](vn.md) |
+
+```yarn
+title: Start
+---
+Aiko: Welcome to the old observatory. #line:obs_01
+-> Look through the telescope #line:obs_c1
+    Aiko: Careful, the lens is old. #line:obs_05
+    <<jump Telescope>>
+-> Leave #line:obs_c2
+===
+title: Telescope
+---
+<<set $looked = true>>
+Ren: The sky is the same size. #line:obs_06
+===
+```
+
 ## 二进制文件
 
 本身就是二进制的媒体仍保持二进制：图片（PNG）、声音（WAV、AAC、MP3）、字体页、glTF 缓冲区和 `.glb` 文件，以及 `game assets` 编码的 KTX2 纹理。`net` 的网络包（传输中的数据）和格斗输入识别器的回滚状态（只存在于内存）也是二进制。它们需要设置时，都由上面的某个文本文件描述：导入设置旁注文件、`game.yaml` 或 glTF 文档。
 
 ## 保持本页与代码一致
 
-每种 YAML 格式的一致性测试（`internal/formattest`）通过条目前的 `<!-- format: <包>[#<名称>] -->` 一行指明它在本页的条目，并检查该条目中的每个 YAML 示例（本页和英文页）加载再保存后字节不变。`packages/game` 中的 `TestFormatsPage` 会在某个包定义了本页未列出的格式、某个解码 JSON 的包在本页没有条目，或两种语言列出的条目不同时失败。新增格式时在同一次改动中把条目加到本页。
+每个条目以一行 `<!-- format: <包>[#<名称>] -->` 开始。每种 YAML 格式的一致性测试（`internal/formattest`）以此指明它的条目，并检查其中的每个 YAML 示例（本页和英文页）加载再保存后字节不变。其余由 `packages/game` 中的 `TestFormatsPage` 检查：两种语言列出相同的条目且顺序相同；其他每个条目都在该测试中登记了读取其格式的声明，该包必须仍有这个声明，且条目中的 JSON 和 Yarn 示例能被该格式的读取函数加载；每个解码 JSON 的包都有条目，除非测试说明了它为何不需要；每个名称以 `Version` 结尾的导出整数常量都是本页所列某种格式的版本。这些检查都发现不了的格式仍可能漏掉，例如某个已有条目的包中一种没有版本的文本格式，所以新增格式时在同一次改动中把条目加到本页。
