@@ -387,6 +387,39 @@ func (bo *BuiltObject) syncMaterial() {
 	bo.Sprite.Blend = bo.Material.BlendOp()
 }
 
+// Sync recomputes the object's World and WorldAlpha from its document and its parent's, copies its transform, origin, flip and alpha onto its sprite (times its material's opacity, as Build does), and does the same for its descendants, so an edit to the document fields of a built object, such as one an animation makes, shows on the next Draw. It reports false, and leaves the sprite's transform as it was, for a sprite whose composed transform is sheared, which a sprite cannot draw.
+func (bo *BuiltObject) Sync() bool {
+	od := bo.Doc
+	bo.World = od.LocalTransform()
+	bo.WorldAlpha = od.EffectiveAlpha()
+	if bo.Parent != nil {
+		bo.World = bo.Parent.World.Mul(bo.World)
+		bo.WorldAlpha *= bo.Parent.WorldAlpha
+	}
+	ok := true
+	if sp := bo.Sprite; sp != nil {
+		if bo.Parent == nil {
+			sp.X, sp.Y = od.X, od.Y
+			sp.Rotation = od.Rotation
+			sp.ScaleX, sp.ScaleY = od.EffectiveScaleX(), od.EffectiveScaleY()
+		} else if x, y, rot, sx, sy, drawable := decomposeTRS(bo.World); drawable {
+			sp.X, sp.Y, sp.Rotation, sp.ScaleX, sp.ScaleY = x, y, rot, sx, sy
+		} else {
+			ok = false
+		}
+		sp.OriginX, sp.OriginY = od.OriginX, od.OriginY
+		sp.FlipX, sp.FlipY = od.FlipX, od.FlipY
+		sp.Alpha = bo.WorldAlpha
+		bo.syncMaterial()
+	}
+	for _, c := range bo.Children {
+		if !c.Sync() {
+			ok = false
+		}
+	}
+	return ok
+}
+
 // SyncMaterials copies the current state of every object's material onto its sprite, so a material reloaded in place (resource.Library.Reload) shows on the next draw. Draw calls it first; call it directly to read the sprites without drawing.
 func (s *BuiltScene) SyncMaterials() {
 	if s == nil {

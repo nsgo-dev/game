@@ -55,7 +55,7 @@ player.Update(dt)
 `Binder` 把每条轨道连接到它驱动的对象。它接收轨道的目标和解析后的 `Property`，返回写入值的函数，传入的值已按属性四舍五入并钳制；返回错误会让 `NewPlayer` 失败，因此引用了不存在对象的片段在播放前就会被拒绝。
 
 - `BindDoc(doc, self)` 写入 `sceneformat.SceneDoc` 中的对象。
-- `BindScene(built, self)` 写入 `sceneformat.BuiltScene` 中的对象，并把写入的变换、翻转和透明度复制到对象的精灵上，透明度与 `Build` 一样乘以材质的不透明度，因此下一次 `Draw` 就会显示出来。
+- `BindScene(built, self)` 写入 `sceneformat.BuiltScene` 中的对象，并同步每个被写入的对象（`BuiltObject.Sync`），因此下一次 `Draw` 会按新的世界变换和透明度显示该对象及其子对象，透明度与 `Build` 一样乘以材质的不透明度。轨道的目标可以是嵌套子对象的 ID。
 
 组件字段以 `float64`、`int` 或 `bool` 写入对象的 `components` 映射，对象没有该组件的映射时会创建，因此用 `ComponentRegistry.Resolve` 读取它们的代码能看到动画后的值。自己维护状态的游戏可以用自己的 `Binder` 绑定：
 
