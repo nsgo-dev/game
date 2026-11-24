@@ -108,6 +108,7 @@ type Texture struct {
 	Height   int
 	Levels   []Level
 	SGD      []byte
+	etc1s    *basisLZGlobalData
 }
 
 // Encode encodes img into a spec-compliant KTX2 v2.0 byte slice.
@@ -701,7 +702,7 @@ func Validate(data []byte) error {
 	return nil
 }
 
-// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container. Supports SupercompressionNone (0), SupercompressionZstandard (2), and SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, and Basis Universal UASTC 4x4, as well as container inspection of BasisLZ/ETC1S.
+// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container. Supports SupercompressionNone (0), SupercompressionBasisLZ (1), SupercompressionZstandard (2), and SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S.
 func Decode(data []byte) (*Texture, error) {
 	if err := Validate(data); err != nil {
 		return nil, err
@@ -792,6 +793,17 @@ func Decode(data []byte) (*Texture, error) {
 		}
 	}
 
+	var etc1sGD *basisLZGlobalData
+	if format == FormatETC1S {
+		if h.SupercompressionScheme != SupercompressionBasisLZ {
+			return nil, fmt.Errorf("ktx2: ETC1S requires BasisLZ supercompression, got %d", h.SupercompressionScheme)
+		}
+		etc1sGD, err = parseBasisLZSGD(sgd, len(levels), hasAlpha)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &Texture{
 		Header:   h,
 		DFD:      dfd,
@@ -803,6 +815,7 @@ func Decode(data []byte) (*Texture, error) {
 		Height:   int(h.PixelHeight),
 		Levels:   levels,
 		SGD:      sgd,
+		etc1s:    etc1sGD,
 	}, nil
 }
 
@@ -836,6 +849,9 @@ func (t *Texture) DecodeLevelRGBA(level int) (*image.NRGBA, error) {
 	if level < 0 || level >= len(t.Levels) {
 		return nil, fmt.Errorf("ktx2: level %d out of range [0, %d)", level, len(t.Levels))
 	}
+	if t.Format == FormatETC1S {
+		return t.decodeETC1SLevelRGBA(level)
+	}
 	lvl := t.Levels[level]
 	return decodeLevelToRGBA(t.Format, lvl.Data, lvl.Width, lvl.Height, t.SRGB)
 }
@@ -851,9 +867,6 @@ func (t *Texture) Transcode(target Format) ([]Level, error) {
 	if target == FormatETC1S {
 		return nil, errors.New("ktx2: transcoding to FormatETC1S is not supported")
 	}
-	if t.Format == FormatETC1S || t.Header.SupercompressionScheme == SupercompressionBasisLZ {
-		return nil, errors.New("ktx2: BasisLZ/ETC1S pixel transcoding is not supported (encode KTX2 as UASTC, BC1/BC3/BC7, ETC2, ASTC 4x4, or RGBA8)")
-	}
 	if t.Format == target {
 		out := make([]Level, len(t.Levels))
 		for i, lvl := range t.Levels {
@@ -868,7 +881,7 @@ func (t *Texture) Transcode(target Format) ([]Level, error) {
 
 	out := make([]Level, len(t.Levels))
 	for i, lvl := range t.Levels {
-		rgba, err := decodeLevelToRGBA(t.Format, lvl.Data, lvl.Width, lvl.Height, t.SRGB)
+		rgba, err := t.DecodeLevelRGBA(i)
 		if err != nil {
 			return nil, fmt.Errorf("ktx2: transcode level %d: %w", i, err)
 		}
@@ -913,7 +926,7 @@ func decodeLevelToRGBA(format Format, raw []byte, w, ht int, srgb bool) (*image.
 	}
 }
 
-// DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA. Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, and Basis Universal UASTC 4x4 with uncompressed, Zstandard, or ZLIB supercompression.
+// DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA. Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S with uncompressed, BasisLZ, Zstandard, or ZLIB supercompression.
 func DecodeRGBA(data []byte, level int) (*image.NRGBA, error) {
 	tex, err := Decode(data)
 	if err != nil {

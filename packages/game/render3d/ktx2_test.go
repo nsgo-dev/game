@@ -5,6 +5,8 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/render3d"
@@ -342,6 +344,106 @@ func TestLoadKTX2ForceRGBA8OddSizeAndZLIB(t *testing.T) {
 	}
 }
 
+func readRefFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "tooling", "ktx2", "testdata", "ref", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// TestLoadKTX2TranscodesETC1S verifies that a real basisu BasisLZ/ETC1S KTX2 file loads and draws
+// on BC, ETC2, ASTC, and uncompressed devices, including sRGB and alpha-slice ETC1S textures.
+func TestLoadKTX2TranscodesETC1S(t *testing.T) {
+	const size = 32
+	srRef := gpu.NewSoftwareRenderer(size, size, gpu.FormatUndefined)
+	t.Cleanup(srRef.Close)
+	_, wantQuad := drawKTX2(t, srRef, encodeKTX2(t, quadrantImage(16, 255), ktx2.FormatRGBA8, false, false, "nearest"))
+
+	quadETC1S := readRefFixture(t, "etc1s_quad_linear.ktx2")
+	for _, tc := range []struct {
+		name     string
+		features gpu.Features
+		want     gpu.TextureFormat
+	}{
+		{"bc", features(true, false, false), gpu.FormatBC7RGBAUnorm},
+		{"etc2", features(false, true, false), gpu.FormatETC2RGB8Unorm},
+		{"astc", features(false, false, true), gpu.FormatASTC4x4Unorm},
+		{"uncompressed", features(false, false, false), gpu.FormatRGBA8Unorm},
+	} {
+		t.Run("quad_"+tc.name, func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, tc.features)
+			t.Cleanup(sr.Close)
+			tex, img := drawKTX2(t, sr, quadETC1S)
+			if tex.Format() != tc.want || tex.MipLevels() != 5 {
+				t.Fatalf("texture = %s with %d levels, want %s with 5", tex.Format(), tex.MipLevels(), tc.want)
+			}
+			assertSameQuadrants(t, img, wantQuad, 6)
+		})
+	}
+
+	// Also verify basisu sRGB opaque and sRGB alpha-slice ETC1S textures across all profiles.
+	for _, tc := range []struct {
+		name     string
+		fixture  string
+		features gpu.Features
+		want     gpu.TextureFormat
+	}{
+		{"opaque_srgb_bc", "etc1s_opaque_srgb.ktx2", features(true, false, false), gpu.FormatBC7RGBAUnormSRGB},
+		{"opaque_srgb_etc2_fallback", "etc1s_opaque_srgb.ktx2", features(false, true, false), gpu.FormatRGBA8UnormSRGB},
+		{"opaque_srgb_astc", "etc1s_opaque_srgb.ktx2", features(false, false, true), gpu.FormatASTC4x4UnormSRGB},
+		{"opaque_srgb_uncompressed", "etc1s_opaque_srgb.ktx2", features(false, false, false), gpu.FormatRGBA8UnormSRGB},
+		{"alpha_srgb_bc", "etc1s_alpha_srgb.ktx2", features(true, false, false), gpu.FormatBC7RGBAUnormSRGB},
+		{"alpha_srgb_astc", "etc1s_alpha_srgb.ktx2", features(false, false, true), gpu.FormatASTC4x4UnormSRGB},
+		{"alpha_srgb_uncompressed", "etc1s_alpha_srgb.ktx2", features(false, false, false), gpu.FormatRGBA8UnormSRGB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, tc.features)
+			t.Cleanup(sr.Close)
+			tex, _, err := render3d.LoadKTX2(nil, sr.Device(), readRefFixture(t, tc.fixture), render3d.KTX2Upload{Label: tc.name})
+			if err != nil {
+				t.Fatalf("LoadKTX2(%s): %v", tc.fixture, err)
+			}
+			if tex.Format() != tc.want || tex.Width() != 32 || tex.Height() != 32 || tex.MipLevels() != 6 {
+				t.Fatalf("texture = %s %dx%d %d mips, want %s 32x32 6 mips", tex.Format(), tex.Width(), tex.Height(), tex.MipLevels(), tc.want)
+			}
+		})
+	}
+}
+
+// TestLoadKTX2AstcencOnNonASTCDevice verifies that multi-partition, dual-plane astcenc ASTC 4x4 KTX2 files
+// decode on the CPU and load cleanly on a device without ASTC support.
+func TestLoadKTX2AstcencOnNonASTCDevice(t *testing.T) {
+	const size = 32
+	for _, tc := range []struct {
+		name    string
+		fixture string
+		want    gpu.TextureFormat
+		srgb    bool
+	}{
+		{"opaque_linear", "astc4x4_opaque_linear.ktx2", gpu.FormatRGBA8Unorm, false},
+		{"alpha_srgb", "astc4x4_alpha_srgb.ktx2", gpu.FormatRGBA8UnormSRGB, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sr := gpu.NewSoftwareRendererWithFeatures(size, size, gpu.FormatUndefined, features(false, false, false))
+			t.Cleanup(sr.Close)
+			tex, img := drawKTX2(t, sr, readRefFixture(t, tc.fixture))
+			if tex.Format() != tc.want || tex.SRGB() != tc.srgb || tex.Width() != 32 || tex.Height() != 32 {
+				t.Fatalf("texture = %s sRGB=%v %dx%d, want %s sRGB=%v 32x32", tex.Format(), tex.SRGB(), tex.Width(), tex.Height(), tc.want, tc.srgb)
+			}
+			// Top-left 8x8 of astc4x4_opaque_linear is solid {42, 187, 99, 255}; verify it actually rendered.
+			if !tc.srgb {
+				got := img.RGBAAt(4, 4)
+				near := func(a, b uint8) bool { return max(a, b)-min(a, b) <= 2 }
+				if !near(got.R, 42) || !near(got.G, 187) || !near(got.B, 99) {
+					t.Fatalf("top-left pixel = %v, want about {42 187 99 255}", got)
+				}
+			}
+		})
+	}
+}
+
 func FuzzLoadKTX2(f *testing.F) {
 	for _, format := range []ktx2.Format{ktx2.FormatUASTC, ktx2.FormatBC7, ktx2.FormatASTC4x4} {
 		data, err := ktx2.Encode(quadrantImage(8, 255), ktx2.Options{Format: format, Mipmaps: true})
@@ -349,6 +451,11 @@ func FuzzLoadKTX2(f *testing.F) {
 			f.Fatal(err)
 		}
 		f.Add(data)
+	}
+	for _, name := range []string{"etc1s_quad_linear.ktx2", "astc4x4_opaque_linear.ktx2"} {
+		if raw, err := os.ReadFile(filepath.Join("..", "tooling", "ktx2", "testdata", "ref", name)); err == nil {
+			f.Add(raw)
+		}
 	}
 	f.Add([]byte{})
 	f.Add(ktx2.Identifier[:])
