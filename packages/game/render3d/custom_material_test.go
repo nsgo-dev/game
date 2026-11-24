@@ -1381,3 +1381,76 @@ func Surface() vec4 {
 		t.Fatalf("UniformSize = %d, want 80", layout.UniformSize)
 	}
 }
+
+func TestCustomMaterialTextureSwapsReuseBindGroups(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(4, 4, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	mat, err := render3d.NewCustomMaterial(nil, dev, render3d.CustomShaderDesc{
+		Label:    "flipbook",
+		Language: render3d.ShaderWGSL,
+		Source:   customMatWGSLClip,
+		Params:   customMatWGSLParams(),
+	})
+	if err != nil {
+		t.Fatalf("NewCustomMaterial: %v", err)
+	}
+	t.Cleanup(func() { _ = mat.Close() })
+	frames := make([]*render3d.GPUTexture, 3)
+	for i := range frames {
+		frames[i], err = render3d.UploadTexturePixels(nil, dev, render3d.PixelBuffer{Width: 1, Height: 1, Format: gpu.FormatRGBA8Unorm, Pixels: []byte{byte(i * 80), 0, 0, 255}}, render3d.TextureUpload{Label: "frame"})
+		if err != nil {
+			t.Fatalf("UploadTexturePixels: %v", err)
+		}
+		t.Cleanup(func() { _ = frames[i].Close() })
+	}
+
+	groups := make(map[*gpu.BindGroup]bool)
+	swap := func(i int) {
+		t.Helper()
+		if err := mat.SetTexture("albedo", frames[i%len(frames)], nil); err != nil {
+			t.Fatalf("SetTexture: %v", err)
+		}
+		if err := mat.Sync(dev); err != nil {
+			t.Fatalf("Sync: %v", err)
+		}
+		groups[mat.BindGroup()] = true
+	}
+	for i := range len(frames) {
+		swap(i)
+	}
+	first := mat.BindGroup()
+	for i := range 300 {
+		swap(i)
+	}
+	if len(groups) != len(frames) {
+		t.Fatalf("cycling %d textures 300 times made %d bind groups, want %d", len(frames), len(groups), len(frames))
+	}
+	if !first.Valid() {
+		t.Fatal("a cached bind group was closed while still in use")
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = mat.SetTexture("albedo", frames[0], nil)
+		_ = mat.Sync(dev)
+		_ = mat.SetTexture("albedo", frames[1], nil)
+		_ = mat.Sync(dev)
+	})
+	if allocs != 0 {
+		t.Fatalf("swapping between cached textures allocated %.1f times per run, want 0", allocs)
+	}
+
+	// A closed texture's bind group is dropped, and binding it again is refused.
+	_ = frames[2].Close()
+	if err := mat.SetTexture("albedo", frames[2], nil); !errors.Is(err, render3d.ErrInvalidTexture) {
+		t.Fatalf("SetTexture(closed) error = %v, want ErrInvalidTexture", err)
+	}
+	if err := mat.SetTexture("albedo", nil, nil); err != nil {
+		t.Fatalf("SetTexture(nil): %v", err)
+	}
+	if err := mat.Sync(dev); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if !mat.Valid() {
+		t.Fatal("material invalid after dropping a closed texture's bind group")
+	}
+}
