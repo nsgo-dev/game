@@ -11,7 +11,7 @@ func TestApplyFullRejectsOversizedEntityCount(t *testing.T) {
 	src = binary.AppendUvarint(src, 2)
 	src = binary.AppendUvarint(src, MaxEntitiesPerSnapshot+1)
 	c := &ClientWorld{}
-	if c.applyFull(src) {
+	if c.applyFull(1, src) {
 		t.Fatal("oversized snapshot count was accepted")
 	}
 }
@@ -32,8 +32,8 @@ func FuzzApplyFullPart(f *testing.F) {
 	f.Add([]byte{7, 0, 1, 0})
 	f.Fuzz(func(t *testing.T, src []byte) {
 		c := NewClientWorld(nopTransport{}, 1)
-		c.applyFullPart(src)
-		c.applyFullPart(src)
+		c.applyFullPart(1, src)
+		c.applyFullPart(1, src)
 		if a := c.assembly; a != nil && (len(a.entities) > MaxEntitiesPerSnapshot || len(a.got) > maxSnapshotParts) {
 			t.Fatalf("assembly holds %d entities in %d parts", len(a.entities), len(a.got))
 		}
@@ -58,10 +58,10 @@ func TestSplitFullSnapshotPartsReassemble(t *testing.T) {
 		if len(parts[i]) > minSnapshotSize {
 			t.Fatalf("part %d is %d bytes, above %d", i, len(parts[i]), minSnapshotSize)
 		}
-		if i == len(parts)-1 && c.applyFullPart(parts[i][replHeaderSize:]) {
+		if i == len(parts)-1 && c.applyFullPart(1, parts[i][replHeaderSize:]) {
 			t.Fatal("a duplicate first part completed the snapshot")
 		}
-		done := c.applyFullPart(parts[i][replHeaderSize:])
+		done := c.applyFullPart(1, parts[i][replHeaderSize:])
 		if done != (i == 0) {
 			t.Fatalf("part %d completed = %v", i, done)
 		}
