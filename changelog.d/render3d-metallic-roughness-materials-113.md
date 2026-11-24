@@ -1,0 +1,3 @@
+### Added
+
+- `game/render3d`: glTF 2.0 metallic-roughness PBR materials on the NSGo GPU view (`Material` / `MetallicRoughnessMaterial`, `AlphaMode`, `MaterialDefaults`, `MaterialUniforms`, `GPUMaterial`, `MaterialBindingsWGSL`, `MaterialWGSL`, `NewMaterialPipeline`, and CPU reference `EvaluateMaterial`) with base color, metallic-roughness (G=roughness, B=metallic), tangent-space normal, occlusion, and emissive maps, shared 1×1 fallback textures under a single `MaterialGroup` (group 1) bind group layout, zero-allocation uniform encoding, dynamic `Update`, `Retained` device-loss recovery, and golden reference renders (#113).
