@@ -428,10 +428,9 @@ func (m *Manager) installValidated(incoming []validatedMod) error {
 	return nil
 }
 
-// SetGrant sets a per-mod capability grant for id, further narrowing its manifest capabilities
-// (and ManagerOptions.Grant if set).
+// SetGrant sets a per-mod capability grant for id, further narrowing its manifest capabilities (and ManagerOptions.Grant if set).
 //
-// On a loaded mod it takes effect at once (#546): the game module checks the new capabilities from the next call, and when the change reaches what the sandbox itself enforces ([CapAudio], [CapStorage]), the mod is unloaded and loaded again with a sandbox built for them, running its entry script again. The error is that load's.
+// On a loaded mod it takes effect at once (#546): the game module checks the new capabilities from the next call, revoking [CapUI] removes the panels the mod mounted, and when the change reaches what the sandbox itself enforces ([CapAudio], [CapStorage]), the mod is unloaded and loaded again with a sandbox built for them, running its entry script again. The error is that load's.
 func (m *Manager) SetGrant(id string, caps Capability) error {
 	mod, ok := m.mods[id]
 	if !ok {
@@ -445,6 +444,11 @@ func (m *Manager) SetGrant(id string, caps Capability) error {
 	prev := mod.api.caps
 	next := m.effectiveCapabilities(mod)
 	mod.api.caps = next
+	// A mod that loses CapUI could no longer unmount its panels, so they go with the capability.
+	if next&CapUI == 0 && len(mod.api.panels) > 0 {
+		mod.api.panels = nil
+		m.notifyPanelsChanged()
+	}
 	if prev&sandboxCapabilities == next&sandboxCapabilities {
 		return nil
 	}
@@ -457,7 +461,7 @@ func (m *Manager) SetGrant(id string, caps Capability) error {
 // sandboxCapabilities are the capabilities the tsx sandbox enforces itself, which loadSingle bakes into a mod's sandbox: changing them needs a new sandbox.
 const sandboxCapabilities = CapAudio | CapStorage
 
-// noStorageQuota is the partition quota a mod without CapStorage gets: the smallest NSGo accepts, since 0 means unlimited. NSGo's sandboxes always expose the "nsgo" module's Storage, with no capability to withhold it, so without this a mod could persist data in its partition whatever its capabilities say (#546).
+// noStorageQuota is the partition quota a mod without CapStorage gets: the smallest NSGo accepts, since 0 means unlimited. NSGo's sandboxes always expose the "nsgo" module's Storage, with no capability to withhold it, so without this a mod could persist data in its partition whatever its capabilities say (#546). NSGo counts each key (less the partition prefix) and value against the quota, so a mod without CapStorage can still keep one entry whose key and value total one byte, and can read what its partition already holds; withholding Storage entirely needs NSGo support.
 const noStorageQuota = 1
 
 // Enable marks mod id as enabled and persists the preference when StorageKey is configured.

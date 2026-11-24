@@ -36,6 +36,9 @@ func TestParsePackManifestRefusesUnknownFields(t *testing.T) {
 		{"top-level field", "{\n  \"packs\": [],\n  \"signature\": \"x\"\n}", 3},
 		{"array", "[\n  {\"id\": \"chapter-2\",\n   \"min_bulid\": 3}\n]", 3},
 		{"trailing data", "{\"packs\": []}\n{\"packs\": []}\n", 2},
+		{"duplicate key", "{\"packs\": [\n  {\"id\": \"a\", \"sha256\": \"ab\",\n   \"sha256\": \"cd\"}\n]}", 3},
+		{"duplicate key in another case", "{\"packs\": [\n  {\"id\": \"a\", \"signature\": \"ab\",\n   \"Signature\": \"cd\"}\n]}", 3},
+		{"duplicate top-level key", "{\n  \"packs\": [],\n  \"packs\": [{\"id\": \"a\"}]\n}", 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

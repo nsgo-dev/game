@@ -128,9 +128,9 @@ group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 ```
 
 - 未设置 `PublicKey` 时，所有资源包都会以 `ErrInvalidSignature` 被拒绝，否则提供 `PackSpec`（URL、大小和哈希）的一方就能决定挂载什么。开发期间，或 `PackSpec` 随应用一起发布时，可设置 `AllowUnsigned` 接受未签名的资源包。
-- 已缓存的资源包会在挂载所用的同一个读取器上再次校验。`DirPackCache` 通过一个保持打开的文件读取已挂载的资源包，因此之后替换或删除缓存文件不会改变挂载内容。
+- 已缓存的资源包会在挂载所用的同一个读取器上再次校验。`DirPackCache` 通过一个保持打开的文件读取已挂载的资源包，因此之后替换或删除缓存文件不会改变挂载内容（在 Windows 上，资源包释放前删除会失败）。
 - `Fetch` 返回的 `fs.FS` 同时也是 `io.Closer`。不再使用资源包时应关闭它；从未关闭的会在被垃圾回收时释放。`FetchGroup` 把资源包交给资源组，资源组在 `Group.Reset`、`Group.SetFS`、下一次向同一资源组 `FetchGroup`，或资源管理器的作用域被销毁时释放它。对仍在挂载中的资源包调用 `Remove`，会立即删除其未完成的下载，并在最后一个挂载释放时删除已缓存的资源包，因此不会从已加载的资源组下方抽走数据；在此之前再次 `Fetch` 该资源包会保留它。
 - `Limits` 限制条目数量、单个文件大小、解压后的总大小以及压缩包本身的大小（零值字段使用 `DefaultPackLimits()`：32768 个条目、256 MiB、1 GiB 和 1088 MiB）。超出限制的资源包在挂载前就会被拒绝。下载一旦将超过 `MaxPackBytes` 就会以 `ErrPackTooLarge` 停止，这也限制了没有 `Size` 的 `PackSpec` 的 `.part` 文件。已挂载的资源包在解压时逐步读取每个文件，缓冲区随实际到达的字节增长，而不是按头部声明的大小预先分配，超过 `MaxFileBytes` 时以 `ErrPackTooLarge` 失败。
 - 不可能通过校验的 `PackSpec`（格式错误的 `sha256` 或 `signature`，或负的 `size`）会在接触缓存之前就被拒绝，因此不会删除完好的缓存资源包。只有当缓存字节与 `PackSpec` 的大小或哈希不符时才会删除缓存；字节相符但签名或内容被拒绝的资源包会保留，因为重新下载得到的仍是相同的字节。
 - 续传时收到不带 `Content-Range` 头的 `206 Partial Content`，会从第一个字节重新下载，而不是追加一段无法核对范围的响应体。
-- `ParsePackManifest` 会拒绝它未定义的字段（例如拼错的 `sha265`）以及清单之后的多余内容，并给出行号与修复方法。
+- `ParsePackManifest` 会拒绝它未定义的字段（例如拼错的 `sha265`）、同一对象中重复出现的键，以及清单之后的多余内容，并给出行号与修复方法。

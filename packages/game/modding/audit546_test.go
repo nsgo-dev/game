@@ -176,3 +176,25 @@ Storage.setItem("score", "load " + loads).then(
 		t.Fatalf("StorageGet after revoking storage = %v, want ErrPermission", err)
 	}
 }
+
+func TestSetGrantRevokingUIRemovesPanels(t *testing.T) {
+	app, mgr := startMods(t, map[string]string{
+		"badge/mod.yaml": "manifestVersion: 1\nid: badge\nname: Badge\nversion: 1.0.0\nentry: mod.tsx\ncapabilities: [ui, emitEvent]\n",
+		"badge/mod.tsx":  `import { Text } from "nsgo"; import { mountPanel } from "game"; mountPanel("score", () => <Text>score</Text>, "hud");`,
+	})
+	if panels := mgr.Panels("hud"); len(panels) != 1 || panels[0].ID != "score" {
+		t.Fatalf("hud panels before SetGrant = %+v, want score", panels)
+	}
+	app.Post(func() {
+		if err := mgr.SetGrant("badge", modding.CapEmitEvent); err != nil {
+			t.Errorf("SetGrant: %v", err)
+		}
+	})
+	app.Settle()
+	if panels := mgr.Panels("hud"); len(panels) != 0 {
+		t.Fatalf("hud panels after revoking ui = %+v, want none", panels)
+	}
+	if info, _ := mgr.Info("badge"); info.State != modding.StateLoaded {
+		t.Fatalf("state after SetGrant = %v, want loaded", info.State)
+	}
+}

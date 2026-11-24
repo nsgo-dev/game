@@ -40,7 +40,7 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 
 权限由 `Capability` 位标志控制：`CapReadState`（`readState`）、`CapWriteState`（`writeState`）、`CapSpawnEntity`（`spawnEntity`）、`CapEmitEvent`（`emitEvent`）、`CapUI`（`ui`）、`CapAudio`（`audio`）和 `CapStorage`（`storage`）。超出授权范围的调用会返回 `*PermissionError`，不会导致宿主游戏崩溃。
 
-NSGo 为每个沙箱提供 `"nsgo"` 模块的 `Storage`，使用沙箱自己的分区，且没有可以收回它的权限能力。因此没有 `CapStorage` 的模组得到的分区配额是 1 字节，即 NSGo 接受的最小值，它的 `Storage.setItem` 调用会失败，无法借此持久化数据；读取仍能看到分区中已有的内容，例如该模组在拥有此能力时写入的数据。
+NSGo 为每个沙箱提供 `"nsgo"` 模块的 `Storage`，使用沙箱自己的分区，且没有可以收回它的权限能力。因此没有 `CapStorage` 的模组得到的分区配额是 1 字节，即 NSGo 接受的最小值，它最多只能保存一条键和值合计 1 字节的条目（例如 `setItem("a", "")`），更大的 `Storage.setItem` 调用都会失败；读取仍能看到分区中已有的内容，例如该模组在拥有此能力时写入的数据。
 
 ## `"game"` TSX 模块
 
@@ -110,7 +110,7 @@ _ = hudPanels
 
 `Reload` 会先校验更新后的 `mod.yaml`（语法、ID、游戏版本和依赖），再卸载任何内容，因此清单损坏时会返回错误，已加载的版本继续运行。
 
-对已加载的模组调用 `SetGrant` 会立即生效：`"game"` 模块从下一次调用起按新能力检查；当授权改变了沙箱自身执行的 `CapAudio` 或 `CapStorage` 时，模组会被卸载并在按新能力构建的沙箱中重新加载，入口脚本会再次运行。`Close` 卸载所有模组，之后 `Info` 把它们报告为 `StateDiscovered`（或 `StateDisabled`）；模组卸载后，它保留的 `onEvent` 或 `onStep` 取消订阅函数不再有任何作用。
+对已加载的模组调用 `SetGrant` 会立即生效：`"game"` 模块从下一次调用起按新能力检查，收回 `CapUI` 会移除该模组已挂载的面板；当授权改变了沙箱自身执行的 `CapAudio` 或 `CapStorage` 时，模组会被卸载并在按新能力构建的沙箱中重新加载，入口脚本会再次运行。`Close` 卸载所有模组，之后 `Info` 把它们报告为 `StateDiscovered`（或 `StateDisabled`）；模组卸载后，它保留的 `onEvent` 或 `onStep` 取消订阅函数不再有任何作用。
 
 浏览器无法把模组与页面隔离：在 Web 上运行的模组无论声明了哪些能力，都能使用页面自身的 API（`XMLHttpRequest`、`WebSocket`、`localStorage`）。因此在 Web 上加载模组会以 `ErrWebUnisolated` 失败，除非设置了 `ManagerOptions.WebUnisolated`；只有对像自己的代码一样可信的模组才应这样做。其他平台会隔离模组并忽略该选项。
 

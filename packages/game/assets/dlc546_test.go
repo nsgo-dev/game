@@ -376,3 +376,57 @@ func TestDirPackCacheMountSurvivesRemoveOnUnix(t *testing.T) {
 		t.Fatalf("read after the file was deleted = %q, %v", got, err)
 	}
 }
+
+func TestDLCFetchGroupKeepsThePackWhenRegisterSetsItAgain(t *testing.T) {
+	packBytes := buildTestZip(t, map[string][]byte{"notes/story.txt": []byte("chapter story")})
+	srv := httptest.NewServer(serveRangeBytes(packBytes, nil))
+	defer srv.Close()
+	cacheDir := t.TempDir()
+	dlc := assets.NewDLCManager(assets.DLCOptions{AllowUnsigned: true, Cache: assets.NewDirPackCache(cacheDir), HTTPClient: srv.Client()})
+	spec := assets.PackSpec{ID: "chapter", URL: srv.URL, Size: int64(len(packBytes)), SHA256: sha256Hex(packBytes)}
+
+	var mgr *assets.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = assets.NewManager(cx)
+		return core.View{}
+	})
+	type result struct {
+		g   *assets.Group
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		g, err := dlc.FetchGroup(context.Background(), mgr, spec, func(g *assets.Group, packFS fs.FS) error {
+			g.SetFS(packFS) // redundant: FetchGroup already mounted it
+			g.AddBytes("story", "asset:notes/story.txt")
+			return nil
+		}, nil)
+		done <- result{g, err}
+	}()
+	var res result
+	app.WaitUntil(5*time.Second, func() bool {
+		select {
+		case res = <-done:
+			return true
+		default:
+			return false
+		}
+	})
+	if res.err != nil {
+		t.Fatalf("FetchGroup: %v", res.err)
+	}
+	if b, ok := res.g.Bytes("story"); !ok || string(b) != "chapter story" {
+		t.Fatalf("story = %q, %v; setting the mounted pack again must not close it", b, ok)
+	}
+	if err := dlc.Remove(spec); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if got := cachedPacks(t, cacheDir); len(got) != 1 {
+		t.Fatalf("cache while the group is mounted = %v, want the pack kept", got)
+	}
+	app.Post(func() { res.g.Reset() })
+	app.Settle()
+	if got := cachedPacks(t, cacheDir); len(got) != 0 {
+		t.Fatalf("cache after Group.Reset = %v, want the removed pack gone", got)
+	}
+}
