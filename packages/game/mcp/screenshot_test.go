@@ -476,6 +476,7 @@ func TestScreenshotParallaxScaledOriginAndSceneManager(t *testing.T) {
 			SceneName:            func(c *scene.Controller) string { return names[c] },
 			NamedScenes:          map[string]*scene.Scene{"title": titleScene},
 			PhysicsFunc:          func() *physics.World { return pw },
+			ViewSizeFunc:         func() core.Size { return core.Size{Width: 100, Height: 80} },
 			ScreenshotBackground: bgColor,
 		}); err != nil {
 			t.Fatal(err)
@@ -612,9 +613,13 @@ func TestScreenshotValidationAndGracefulNilHandling(t *testing.T) {
 	sc := scene.NewScene(&tilemap.Camera{X: 32, Y: 24, Width: 64, Height: 48})
 	shotsDir := t.TempDir()
 
-	var cx *core.Scope
+	var (
+		cx  *core.Scope
+		win core.Size
+	)
 	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
 		cx = scope
+		win = scope.Env().Window()
 		if _, err := mcp.Attach(cx, mcp.Config{
 			Scene:         sc,
 			ScreenshotDir: shotsDir,
@@ -623,13 +628,16 @@ func TestScreenshotValidationAndGracefulNilHandling(t *testing.T) {
 		}
 		return core.View{}
 	})
+	if win.Width <= 0 || win.Height <= 0 {
+		t.Fatalf("test window size = %v", win)
+	}
 
-	// Graceful nil Physics: collision_shapes: true succeeds with 0 shapes drawn, dimensions inferred from Camera.
+	// Graceful nil Physics: collision_shapes: true succeeds with 0 shapes drawn, dimensions inferred from the window as game_input_pointer maps them.
 	graceful := callTool[mcp.ScreenshotResult](t, app, cx, mcp.ToolScreenshot, map[string]any{
 		"bounds":           true,
 		"collision_shapes": true,
 	})
-	if graceful.Width != 64 || graceful.Height != 48 || graceful.OverlaysDrawn.PhysicsBoxes != 0 || graceful.OverlaysDrawn.SpriteBounds != 0 {
+	if graceful.Width != int(math.Round(float64(win.Width))) || graceful.Height != int(math.Round(float64(win.Height))) || graceful.OverlaysDrawn.PhysicsBoxes != 0 || graceful.OverlaysDrawn.SpriteBounds != 0 {
 		t.Fatalf("graceful nil physics/empty scene = %+v", graceful)
 	}
 
@@ -653,6 +661,7 @@ func TestScreenshotValidationAndGracefulNilHandling(t *testing.T) {
 		{"width": 64},
 		{"height": 48},
 		{"width": 9000, "height": 9000},
+		{"width": 8192, "height": 2049},
 	} {
 		if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, bad); err == nil {
 			t.Errorf("expected error for bad dimensions %v", bad)
@@ -672,7 +681,7 @@ func TestScreenshotValidationAndGracefulNilHandling(t *testing.T) {
 	}
 
 	// Path traversal and unsafe paths refused.
-	for _, badPath := range []string{"../escape.png", "a/../../escape.png", "/tmp/abs.png", ".", "..", `sub\win.png`, "C:shot.png"} {
+	for _, badPath := range []string{"../escape.png", "a/../../escape.png", "/tmp/abs.png", ".", "..", `sub\win.png`, "C:shot.png", "notes.txt", "shot"} {
 		if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, map[string]any{"path": badPath}); err == nil {
 			t.Errorf("expected error for unsafe path %q", badPath)
 		}
@@ -690,10 +699,150 @@ func TestScreenshotValidationAndGracefulNilHandling(t *testing.T) {
 	if _, err := callToolRaw(t, appEmpty, cxEmpty, mcp.ToolScreenshot, map[string]any{"width": 32, "height": 32, "path": "a.png"}); err == nil || !strings.Contains(err.Error(), "ScreenshotDir") {
 		t.Fatalf("path without ScreenshotDir = %v", err)
 	}
-	if _, err := callToolRaw(t, appEmpty, cxEmpty, mcp.ToolScreenshot, nil); err == nil || !strings.Contains(err.Error(), "dimensions") {
-		t.Fatalf("no dimensions = %v", err)
+	if _, err := callToolRaw(t, appEmpty, cxEmpty, mcp.ToolScreenshot, nil); err == nil || !strings.Contains(err.Error(), "no screenshot source") {
+		t.Fatalf("no source, no dimensions = %v", err)
 	}
 	if _, err := callToolRaw(t, appEmpty, cxEmpty, mcp.ToolScreenshot, map[string]any{"width": 32, "height": 32}); err == nil || !strings.Contains(err.Error(), "no screenshot source") {
 		t.Fatalf("no source = %v", err)
+	}
+}
+
+func TestScreenshotCaptureFrameHiDPIViewportAlignment(t *testing.T) {
+	// A 160x90 integer-scaled viewport in a 400x225-point view at a 2x pixel ratio: the game scales by 2 points (4 pixels) with the canvas at (40, 22.5) points. Laying the viewport out on the 800x450 image instead would pick scale 5.
+	vp := &screen.Viewport{Width: 160, Height: 90, IntegerScale: true}
+	pw := &physics.World{}
+	pw.Add(&physics.Body{Shape: physics.BoxShape(physics.Box{X: 10, Y: 10, W: 20, H: 15})})
+	bg := color.RGBA{R: 30, G: 40, B: 50, A: 255}
+	captured := solidSpriteImage(800, 450, bg)
+
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		if _, err := mcp.Attach(cx, mcp.Config{
+			Physics:      pw,
+			ViewportFunc: func() screen.Viewport { return *vp },
+			ViewSizeFunc: func() core.Size { return core.Size{Width: 400, Height: 225} },
+			CaptureFrame: func(context.Context) (*image.RGBA, error) { return captured, nil },
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+
+	res := callTool[mcp.ScreenshotResult](t, app, cx, mcp.ToolScreenshot, map[string]any{"collision_shapes": true})
+	if res.Width != 800 || res.Height != 450 || res.OverlaysDrawn.PhysicsBoxes != 1 {
+		t.Fatalf("hidpi capture = %+v", res)
+	}
+	img := decodeBase64PNG(t, res.PNGBase64)
+	boxCol := coreColorToRGBA(mcp.DefaultOverlayStyle().BoxColor)
+	// Box [10, 30) x [10, 25) virtual -> [60, 100) x [42.5, 72.5) points -> [120, 200) x [85, 145) pixels.
+	assertPixel(t, img, 120, 85, boxCol, "hidpi box top-left")
+	assertPixel(t, img, 199, 144, boxCol, "hidpi box bottom-right")
+	assertPixel(t, img, 119, 85, bg, "hidpi left of box")
+	assertPixel(t, img, 120, 84, bg, "hidpi above box")
+}
+
+func TestScreenshotPartialRasterAndLimits(t *testing.T) {
+	// A 4x4-pixel image measuring 2x2 points: left half red, right half blue.
+	red := color.RGBA{R: 255, A: 255}
+	blue := color.RGBA{B: 255, A: 255}
+	half := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := range 4 {
+		for x := range 4 {
+			if x < 2 {
+				half.SetRGBA(x, y, red)
+			} else {
+				half.SetRGBA(x, y, blue)
+			}
+		}
+	}
+	sized := &core.ImageSource{Pixels: half, Size: core.Size{Width: 2, Height: 2}}
+	uri := &core.ImageSource{URI: "asset:sprites/hero.png"}
+
+	sc := scene.NewScene(nil)
+	custom := &scene.Controller{Draw: func(*core.Drawing, float64) {}}
+	gameplay := &scene.Controller{Scene: sc}
+	names := map[*scene.Controller]string{custom: "custom", gameplay: "gameplay"}
+
+	outside := t.TempDir()
+	shotsDir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(shotsDir, "out")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	var (
+		cx       *core.Scope
+		viewSize = core.Size{Width: 8, Height: 8}
+	)
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		mgr := scene.NewManager(cx)
+		mgr.Switch(gameplay, nil)
+		mgr.Push(custom)
+		if _, err := mcp.Attach(cx, mcp.Config{
+			Scenes:        mgr,
+			SceneName:     func(c *scene.Controller) string { return names[c] },
+			ViewSizeFunc:  func() core.Size { return viewSize },
+			ScreenshotDir: shotsDir,
+			DrawFrame: func(d *core.Drawing, w, h int) {
+				d.Ops = append(d.Ops,
+					core.DrawOp{Kind: core.DrawImage, Image: sized},
+					core.DrawOp{Kind: core.DrawImage, Image: uri, X: 4, Y: 4},
+					core.DrawOp{Kind: core.DrawFillText, Text: "HP"},
+					core.DrawOp{Kind: core.DrawEllipse, X: 4, Y: 4, R: 2, RY: 2},
+				)
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+
+	// Image Size: the source is read in its points, so the 2-point image covers 2 pixels and its right half shows at x=1.
+	res := callTool[mcp.ScreenshotResult](t, app, cx, mcp.ToolScreenshot, nil)
+	if res.Width != 8 || res.Height != 8 {
+		t.Fatalf("partial raster dims = %+v", res)
+	}
+	img := decodeBase64PNG(t, res.PNGBase64)
+	assertPixel(t, img, 0, 0, red, "sized image left point")
+	assertPixel(t, img, 1, 0, blue, "sized image right point")
+	assertPixel(t, img, 2, 0, color.RGBA{}, "sized image ends at 2 points")
+	// What the rasterizer left out is reported.
+	if res.SkippedImages != 1 || res.SkippedOps["DrawFillText"] != 1 || res.SkippedOps["DrawEllipse"] != 1 || len(res.SkippedOps) != 2 {
+		t.Fatalf("skipped = %d images, ops %v", res.SkippedImages, res.SkippedOps)
+	}
+
+	// A named scene without a scene.Scene is refused rather than rendered blank.
+	if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, map[string]any{"scene": "custom"}); err == nil || !strings.Contains(err.Error(), "custom Controller.Draw") {
+		t.Fatalf("scene without Scene = %v", err)
+	}
+
+	// Inferred dimensions are bounded like explicit ones, and non-finite sizes are refused.
+	for _, size := range []core.Size{
+		{Width: 10000, Height: 100},
+		{Width: 8192, Height: 2049},
+		{Width: core.Points(math.Inf(1)), Height: 100},
+	} {
+		viewSize = size
+		if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, nil); err == nil || !strings.Contains(err.Error(), "screenshot dimensions") {
+			t.Errorf("inferred size %v = %v, want a dimensions error", size, err)
+		}
+	}
+	viewSize = core.Size{Width: 8, Height: 8}
+
+	// A symbolic link inside ScreenshotDir cannot lead the write outside it.
+	if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, map[string]any{"path": "out/escape.png"}); err == nil {
+		t.Fatal("write through a symlink leaving ScreenshotDir succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escape.png")); !os.IsNotExist(err) {
+		t.Fatalf("file written outside ScreenshotDir: %v", err)
+	}
+
+	// grid_step at the top level matches the nested form, and conflicting values are refused.
+	if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, map[string]any{"grid": true, "grid_step": 4}); err != nil {
+		t.Fatalf("top-level grid_step = %v", err)
+	}
+	if _, err := callToolRaw(t, app, cx, mcp.ToolScreenshot, map[string]any{"grid": true, "grid_step": 4, "overlays": map[string]any{"grid_step": 8}}); err == nil || !strings.Contains(err.Error(), "disagree") {
+		t.Fatalf("conflicting grid_step = %v", err)
 	}
 }
