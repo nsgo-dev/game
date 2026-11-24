@@ -84,6 +84,8 @@ type gpuPrimitive struct {
 
 type gpuDrawable struct {
 	nodeIdx  int
+	meshIdx  int
+	primIdx  int
 	prim     gpuPrimitive
 	texGroup *gpu.BindGroup
 	draw     *render3d.PBRDrawBuffer
@@ -351,12 +353,14 @@ func (r *Renderer) buildDrawables(cx *core.Scope, dev *gpu.Device, doc *gltf.Doc
 			if mi < 0 || mi >= len(r.meshes) {
 				continue
 			}
-			for _, gp := range r.meshes[mi] {
+			for pi, gp := range r.meshes[mi] {
 				if gp.mesh == nil {
 					continue
 				}
 				r.drawables = append(r.drawables, gpuDrawable{
 					nodeIdx:  ni,
+					meshIdx:  mi,
+					primIdx:  pi,
 					prim:     gp,
 					material: pbrMaterial(doc, gp.materialID),
 				})
@@ -366,6 +370,7 @@ func (r *Renderer) buildDrawables(cx *core.Scope, dev *gpu.Device, doc *gltf.Doc
 
 	for i := range r.drawables {
 		d := &r.drawables[i]
+		d.prim = r.meshes[d.meshIdx][d.primIdx]
 		texBG := r.whiteBG
 		if d.prim.materialID >= 0 && d.prim.materialID < len(doc.Materials) {
 			mat := doc.Materials[d.prim.materialID]
@@ -393,6 +398,14 @@ func (r *Renderer) buildDrawables(cx *core.Scope, dev *gpu.Device, doc *gltf.Doc
 // Ready reports whether the GPU resources are initialized and valid.
 func (r *Renderer) Ready() bool {
 	return r != nil && r.ready && r.pipe != nil && r.pipe.Valid() && r.camBuf != nil && r.camBuf.Buffer().Valid() && r.lights.Valid()
+}
+
+// Reset clears GPU resource handles when the 3D scene's gpu.View unmounts (for example when switching to the 2D courtyard scene) so returning to 3D uploads fresh resources on the new view scope.
+func (r *Renderer) Reset() {
+	if r == nil {
+		return
+	}
+	*r = Renderer{}
 }
 
 // Draw uploads the frame's camera, lights and per-node transforms and renders every glTF mesh into frame. It returns an error when the scene's lights fail render3d's validation.

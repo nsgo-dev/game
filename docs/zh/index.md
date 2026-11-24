@@ -7,7 +7,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 ## 阶段
 
 1. **2D**：固定步长循环、输入动作、精灵、瓦片地图、场景和声音，以 60 fps 或显示器的刷新率绘制。
-2. **3D**：在 NSGo 为此新增的 GPU 视图上，带深度地绘制网格、相机、光照和 glTF 模型（[nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)）。坐标系约定、Blender 4.x 导出清单、FBX/OBJ 转换与示例 glTF 资产见[从 Blender 导入 3D 模型](3d-models-blender.md)；包含轨道相机、动态光照与原生 HUD 的可交互 glTF 3D 场景示例见 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
+2. **3D**：在 NSGo 为此新增的 GPU 视图上，带深度地绘制网格、相机、光照和 glTF 模型（[nsgo#1059](https://github.com/nsgo-dev/nsgo/issues/1059)）。坐标系约定、Blender 4.x 导出清单、FBX/OBJ 转换与示例 glTF 资产见[从 Blender 导入 3D 模型](3d-models-blender.md)；包含轨道相机、动态光照、原生 HUD 以及共享输入与音频的 2D ↔ 3D 场景切换示例见 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
 
 循环、输入动作、声音和场景切换由两个阶段共用，所以 3D 只是增加绘制，不会替换它们。开发计划是 [nsgo#1047](https://github.com/nsgo-dev/nsgo/issues/1047)，其中的任务就是本仓库的 issue，以及 NSGo 为它新增的引擎基础能力。
 

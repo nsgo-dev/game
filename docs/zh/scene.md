@@ -226,3 +226,5 @@ return mgr.View(scene.HostOptions{
 - **共享输入**：`Manager.View` 在被调用时把 `Manager.Actions` 附加到持久舞台视图，因此要先设置 `Actions`。按键事件只在舞台视图持有焦点时送达：传入 `HostOptions.Ref` 并在挂载后调用其 `Focus()`（焦点与指针锁定随后在每次切换中保持），或像上例那样调用 `Actions.WatchKeys`。`Switch`、`Push`、`Pop` 默认调用 `Actions.Reset()` 清理瞬态边沿与按住状态而不丢失绑定、轴和指针锁定（设置 `Manager.KeepInputOnSwitch = true` 可在切换时保留按住状态）。
 - **共享音频**：Manager 不需要自己的混音器。建在 Manager 作用域（或其祖先作用域）上的 `sound.Mixer` 不会随场景退出而销毁，因此背景音乐与音效组在每次 2D ↔ 3D 切换期间持续播放，各场景通过自身闭包访问该混音器。建在场景 `Enter` 作用域下的混音器会随该场景一起停止。
 - **2D 叠加层与按需重绘**：在 3D 场景上 `Push` 一个 `Transparent: true` 的 2D 控制器会保持下方 3D 画面可见，同时暂停其 `Update` 并将被暂停层的指针事件设为 `PointerEventsNone`。配置 `HostOptions.Viewport` 时，透明压入的 2D 叠加层会将零值 `BarColor` 视为 `core.Transparent` 以免黑边遮挡 3D 视图。调用 `mgr.Invalidate()` 可按需重绘已挂载的 2D 画布，而不会重建 3D 视图。
+
+如需查看完整的可运行示例（通过 `Manager.View` 在 2D 庭院大地图与 3D glTF 神龛之间淡入淡出切换、在 3D 视图上压入透明 2D 暂停叠层，并跨切换共享同一个 `*input.Actions` 与 `*sound.Mixer`），请参阅 [`examples/lantern3d`](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
