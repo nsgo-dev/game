@@ -21,6 +21,17 @@ type armorComp struct {
 	Mods   map[string]int `json:"mods,omitempty"`
 }
 
+type aiHandle struct{ id int }
+
+// aiComp mixes JSON fields with runtime-only state: an exported callback (which makes json.Marshal fail), a json:"-" pointer, and an unexported cache.
+type aiComp struct {
+	State   string         `json:"state"`
+	Mods    map[string]int `json:"mods,omitempty"`
+	OnEnter func()
+	Path    *aiHandle `json:"-"`
+	cache   *aiHandle
+}
+
 type nanFloatComp struct {
 	V float64
 }
@@ -39,10 +50,7 @@ func (n *nanFloatComp) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TestSpawnEditStepAndDestroyLifecycle exercises the full MCP mutation workflow:
-// listing prefabs, spawning prefabs (custom, entities.Prefab, sceneformat.SceneDoc, and empty),
-// editing components so changes take effect on the very next simulation step, removing components,
-// and destroying entities with every hierarchy policy.
+// TestSpawnEditStepAndDestroyLifecycle exercises the full MCP mutation workflow: listing prefabs, spawning prefabs (custom, entities.Prefab, sceneformat.SceneDoc, and empty), editing components so changes take effect on the very next simulation step, removing components, and destroying entities with every hierarchy policy.
 func TestSpawnEditStepAndDestroyLifecycle(t *testing.T) {
 	w := entities.NewWorld()
 	if err := entities.RegisterCodec[posComp](w, "position"); err != nil {
@@ -413,10 +421,12 @@ func TestSpawnEditStepAndDestroyLifecycle(t *testing.T) {
 		}
 	}
 
-	// 7b. Reparent policy: grandparent -> mid -> leaf; destroy mid with reparent -> leaf becomes child of grandparent.
+	// 7b. Reparent policy: grandparent -> mid -> leaf; destroy mid with reparent -> leaf becomes child of grandparent and keeps its world position (10 + 20 + 5 = 35), so its local X under the grandparent is 25.
 	gp := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, map[string]any{"x": 10, "y": 10})
 	mid := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, map[string]any{"parent": gp.Ref, "x": 20, "y": 0})
 	leaf := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, map[string]any{"parent": mid.Ref, "x": 5, "y": 0})
+	app.Post(func() { h.Sync() })
+	app.Settle()
 	repRes := callTool[mcp.EntityDestroyResult](t, app, cx, mcp.ToolEntityDestroy, map[string]any{
 		"ref":    mid.Ref,
 		"policy": "reparent",
@@ -428,8 +438,15 @@ func TestSpawnEditStepAndDestroyLifecycle(t *testing.T) {
 	if leafAfterReparent.Parent != gp.Ref {
 		t.Fatalf("leaf parent after reparent = %q, want %q", leafAfterReparent.Parent, gp.Ref)
 	}
+	var leafXform entities.Transform2D
+	if err := json.Unmarshal(leafAfterReparent.Components["transform2d"], &leafXform); err != nil {
+		t.Fatal(err)
+	}
+	if leafXform.X != 25 || leafXform.Y != 0 {
+		t.Fatalf("leaf local transform after reparent = (%v, %v), want (25, 0)", leafXform.X, leafXform.Y)
+	}
 
-	// 7c. keep_world policy: sync transforms, destroy gp with keep_world -> leaf becomes root with local X = 10 + 5 = 15.
+	// 7c. keep_world policy: sync transforms, destroy gp with keep_world -> leaf becomes root with local X = 10 + 25 = 35.
 	app.Post(func() { h.Sync() })
 	app.Settle()
 	kwRes := callTool[mcp.EntityDestroyResult](t, app, cx, mcp.ToolEntityDestroy, map[string]any{
@@ -443,12 +460,11 @@ func TestSpawnEditStepAndDestroyLifecycle(t *testing.T) {
 	if leafAfterKW.Parent != "" {
 		t.Fatalf("leaf parent after keep_world = %q, want root", leafAfterKW.Parent)
 	}
-	var leafXform entities.Transform2D
 	if err := json.Unmarshal(leafAfterKW.Components["transform2d"], &leafXform); err != nil {
 		t.Fatal(err)
 	}
-	if leafXform.X != 15 || leafXform.Y != 10 {
-		t.Fatalf("leaf local transform after keep_world = (%v, %v), want (15, 10)", leafXform.X, leafXform.Y)
+	if leafXform.X != 35 || leafXform.Y != 10 {
+		t.Fatalf("leaf local transform after keep_world = (%v, %v), want (35, 10)", leafXform.X, leafXform.Y)
 	}
 
 	// 7d. orphan policy: parent -> child; destroy parent with orphan -> child becomes root keeping local transform (3, 4).
@@ -472,10 +488,17 @@ func TestSpawnEditStepAndDestroyLifecycle(t *testing.T) {
 		t.Fatalf("child local transform after orphan = (%v, %v), want (3, 4)", leafXform.X, leafXform.Y)
 	}
 
-	// 7e. Default destroy on leaf and verify recycled slot rejects old ref.
+	// 7e. Default destroy of a parent reports the hierarchy's default policy (orphan), and of a childless leaf reports "none"; a recycled slot rejects the old ref.
+	pDef := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, nil)
+	cDef := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, map[string]any{"parent": pDef.Ref})
+	parentDefRes := callTool[mcp.EntityDestroyResult](t, app, cx, mcp.ToolEntityDestroy, map[string]any{"ref": pDef.Ref})
+	if parentDefRes.Destroyed != 1 || parentDefRes.Policy != "orphan" {
+		t.Fatalf("default parent destroy = %+v, want orphan", parentDefRes)
+	}
+	callTool[mcp.EntityDestroyResult](t, app, cx, mcp.ToolEntityDestroy, map[string]any{"ref": cDef.Ref})
 	defRes := callTool[mcp.EntityDestroyResult](t, app, cx, mcp.ToolEntityDestroy, map[string]any{"ref": leaf.Ref})
-	if defRes.Destroyed != 1 || defRes.Policy != "default" {
-		t.Fatalf("default destroy = %+v", defRes)
+	if defRes.Destroyed != 1 || defRes.Policy != "none" {
+		t.Fatalf("default destroy = %+v, want none", defRes)
 	}
 	reused := callTool[mcp.EntitySpawnResult](t, app, cx, mcp.ToolEntitySpawn, nil)
 	if reused.Ref == leaf.Ref {
@@ -619,6 +642,50 @@ func TestEditValidationAtomicityAndErrorCases(t *testing.T) {
 		t.Fatalf("failed patch corrupted armor map: %+v", gotArmor.Mods)
 	}
 
+	// Patching one field keeps the callback, json:"-" pointer and unexported cache, and a failed or rejected patch leaves the live map unchanged.
+	if err := mcp.RegisterMutableComponent[aiComp](b, "ai"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mcp.RegisterComponentEditor[aiComp](b, "ai_strict", func(*entities.World, entities.Entity, aiComp) error {
+		return errors.New("rejected by editor")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	aiEnt, err := mcp.ParseEntityRef(ent.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, cache := &aiHandle{id: 1}, &aiHandle{id: 2}
+	called := false
+	app.Post(func() {
+		entities.Set(w, aiEnt, aiComp{State: "idle", Mods: map[string]int{"a": 1}, OnEnter: func() { called = true }, Path: path, cache: cache})
+	})
+	app.Settle()
+	callTool[mcp.ComponentSetResult](t, app, cx, mcp.ToolComponentSet, map[string]any{"ref": ent.Ref, "component": "ai", "value": map[string]any{"state": "chase"}})
+	if _, err := callToolRaw(t, app, cx, mcp.ToolComponentSet, map[string]any{"ref": ent.Ref, "component": "ai", "value": map[string]any{"mods": map[string]int{"b": 2}, "bogus": 1}}); err == nil {
+		t.Fatal("patch with an unknown trailing field succeeded")
+	}
+	if _, err := callToolRaw(t, app, cx, mcp.ToolComponentSet, map[string]any{"ref": ent.Ref, "component": "ai_strict", "value": map[string]any{"mods": map[string]int{"c": 3}}}); err == nil || !strings.Contains(err.Error(), "rejected by editor") {
+		t.Fatalf("editor rejection = %v", err)
+	}
+	var gotAI aiComp
+	app.Post(func() {
+		if v, ok := entities.Get[aiComp](w, aiEnt); ok {
+			gotAI = *v
+		}
+	})
+	app.Settle()
+	if gotAI.State != "chase" || gotAI.Path != path || gotAI.cache != cache || gotAI.OnEnter == nil {
+		t.Fatalf("patch lost runtime fields: %+v", gotAI)
+	}
+	if len(gotAI.Mods) != 1 || gotAI.Mods["a"] != 1 {
+		t.Fatalf("failed or rejected patch mutated the live map: %v", gotAI.Mods)
+	}
+	gotAI.OnEnter()
+	if !called {
+		t.Fatal("patched component lost its callback")
+	}
+
 	// Reject NaN produced by custom unmarshaler, overflowing float32 in transform2d, null for struct, read-only & derived components, unknown component, missing required args, invalid policy.
 	if _, err := callToolRaw(t, app, cx, mcp.ToolComponentSet, map[string]any{
 		"ref":       ent.Ref,
@@ -687,8 +754,7 @@ func TestEditValidationAtomicityAndErrorCases(t *testing.T) {
 		t.Fatalf("invalid policy = %v", err)
 	}
 
-	// Upgrading a read-only RegisterComponent[posComp] via RegisterComponentEditor[posComp] works,
-	// while a mismatched type or duplicate editor is rejected!
+	// Upgrading a read-only RegisterComponent[posComp] via RegisterComponentEditor[posComp] works, while a mismatched type or duplicate editor is rejected!
 	if err := mcp.RegisterComponentEditor[velComp](b, "readonly_pos", func(*entities.World, entities.Entity, velComp) error { return nil }); !errors.Is(err, mcp.ErrDuplicateComponent) {
 		t.Fatalf("mismatched editor type = %v, want ErrDuplicateComponent", err)
 	}
@@ -736,6 +802,23 @@ func TestEditValidationAtomicityAndErrorCases(t *testing.T) {
 	}
 	if err := b.RegisterScenePrefab("empty_scene", &sceneformat.SceneDoc{Version: sceneformat.CurrentVersion, Name: "empty"}); err == nil {
 		t.Fatal("expected error for scene prefab with no objects")
+	}
+	twoRoots := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "two_roots",
+		Layers: []sceneformat.LayerDoc{
+			{Name: "a", Objects: []sceneformat.ObjectDoc{{ID: "one"}}},
+			{Name: "b", Objects: []sceneformat.ObjectDoc{{ID: "two"}}},
+		},
+	}
+	if err := b.RegisterScenePrefab("two_roots", twoRoots); err == nil || !strings.Contains(err.Error(), "2 top-level objects") {
+		t.Fatalf("scene prefab with two top-level objects = %v, want refusal", err)
+	}
+	if err := mcp.RegisterComponentFunc(b, "func_pos", func(*entities.World, entities.Entity) (any, bool, error) { return posComp{}, true, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := mcp.RegisterComponentEditor[posComp](b, "func_pos", func(*entities.World, entities.Entity, posComp) error { return nil }); !errors.Is(err, mcp.ErrDuplicateComponent) {
+		t.Fatalf("editor over RegisterComponentFunc = %v, want ErrDuplicateComponent", err)
 	}
 	if err := mcp.RegisterMutableComponent[posComp](nil, "p"); !errors.Is(err, mcp.ErrNilBridge) {
 		t.Fatalf("nil bridge RegisterMutableComponent = %v", err)

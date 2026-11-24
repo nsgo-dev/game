@@ -44,8 +44,8 @@ if err != nil {
 已在 [`entities.World`](entities.md) 上通过 `entities.RegisterCodec` 注册的组件会自动支持读取和编辑。此外：
 
 - 内置的 `entities.Transform2D`、`entities.WorldTransform2D` 和 `sceneformat.ObjectRef` 组件在未被同类型或同名注册覆盖时，会自动以 `"transform2d"`、`"world_transform2d"` 和 `"object_ref"` 的名称暴露。其中 `"transform2d"` 和 `"object_ref"` 可直接编辑（编辑 `"transform2d"` 会自动传播 `Hierarchy2D` 脏标记）；`"world_transform2d"` 由层级派生，为只读组件。
-- 未写入存档的瞬态运行时组件可以通过 `mcp.RegisterComponent[T](bridge, name)` 或 `mcp.RegisterComponentFunc(bridge, name, read)` 只读暴露，也可以通过 `mcp.RegisterMutableComponent[T](bridge, name)` 或 `mcp.RegisterComponentEditor[T](bridge, name, apply)` 同时支持读取与编辑。
-- `game_component_set` 使用 `DisallowUnknownFields` 严格解码，拒绝非有限浮点数（`NaN`、`±Inf`）及非法 `null`，默认以补丁模式更新现有字段（保留未传入字段，传入 `"replace": true` 时从零值整块替换），且解码失败时不会留下半修改状态。
+- 未写入存档的瞬态运行时组件可以通过 `mcp.RegisterComponent[T](bridge, name)` 或 `mcp.RegisterComponentFunc(bridge, name, read)` 只读暴露，也可以通过 `mcp.RegisterMutableComponent[T](bridge, name)` 或 `mcp.RegisterComponentEditor[T](bridge, name, apply)` 同时支持读取与编辑。`RegisterComponentEditor` 可以为此前同类型的 `RegisterComponent[T]` 注册补上编辑能力，但不能用于 `RegisterComponentFunc` 读取器，因为后者返回的值不一定以 `T` 存储。
+- `game_component_set` 使用 `DisallowUnknownFields` 严格解码，拒绝非有限浮点数（`NaN`、`±Inf`）及非法 `null`，默认以补丁模式更新现有字段（保留未传入字段，传入 `"replace": true` 时从零值整块替换），且解码失败时不会留下半修改状态。补丁不会改动它没有修改的字段，包括未导出字段、带 `json:"-"` 标签的字段（如回调和句柄），以及指针、map 和切片的同一性；被修改的字段会得到新分配的值，因此解码出错或编辑器拒绝该值时，存活组件保持原样。对于 codec 组件，解码结果若无法重新编码（例如自定义 `UnmarshalJSON` 产生的 `NaN`），会在写入前被拒绝。
 - 组件值默认用 `encoding/json` 序列化；若运行时值包含非有限浮点数（`NaN`、`+Inf`、`-Inf`）、回调函数字段、channel 或循环指针，`game/mcp` 会回退到安全的清洗编码（`"NaN"`、`"+Inf"`、`"-Inf"`、`"<func>"`、`"<chan>"`、`"<cycle>"`），使智能体在状态异常时仍能诊断问题。
 
 ```go
@@ -69,7 +69,7 @@ if err := mcp.RegisterComponentEditor[Health](bridge, "health", func(w *entities
 
 - `bridge.RegisterPrefab(name, spawn)`（或 `Config.Prefabs`）注册自定义 `mcp.PrefabSpawner`（`func(w *entities.World, overrides map[string]any) (entities.Entity, error)`）。
 - `bridge.RegisterEntityPrefab(p)` 按 `p.Name()` 注册 [`*entities.Prefab`](entities.md)。
-- `bridge.RegisterScenePrefab(name, doc)` 注册经过校验且自包含的 [`*sceneformat.SceneDoc`](editor.md) 模板，并通过 `sceneformat.SpawnEntities` 实例化。
+- `bridge.RegisterScenePrefab(name, doc)` 注册经过校验且自包含的 [`*sceneformat.SceneDoc`](editor.md) 模板，并通过 `sceneformat.SpawnEntities` 实例化。文档必须恰好有一个顶层对象作为生成的根实体，其余对象都应嵌套在它下面。每次生成都会原样附加文档中的 `sceneformat.ObjectRef` ID，因此多次生成的实体拥有相同的对象 ID；除非 `EntityName` 另有返回，`game_entities_list` 也会把它显示为实体名称。
 
 ```go
 if err := bridge.RegisterEntityPrefab(coinPrefab); err != nil {
@@ -80,7 +80,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 }
 ```
 
-如果在 `game_entity_spawn` 生成实体后，应用 `parent`、`x`/`y` 或 `components` 时发生错误，新生成的实体（以及场景预制体的子实体）会自动回滚销毁。
+如果在 `game_entity_spawn` 生成实体后，应用 `parent` 或 `components`、或回读新实体的组件时发生错误，新生成的实体（以及场景预制体的子实体）会自动回滚销毁。`x` 和 `y` 在生成任何实体之前就已校验。
 
 ## 已注册的工具
 
@@ -108,8 +108,8 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_console_exec` | `command`（必填） | 通过 `debug.Console` 执行一条命令行，返回 `command`、`ok`、`output`、`lines` 以及命令失败时的 `error`。 |
 | `game_prefabs_list` | `{}` | 已注册预制体的排序列表（`name` 与 `kind`：`"custom"`、`"entity_prefab"` 或 `"scene"`）。 |
 | `game_entity_spawn` | `prefab`、`overrides`、`parent`、`x`、`y`、`components`（均为可选） | 新生成存活实体的稳定引用 `ref`、`index`、`generation`、`prefab`、元数据、`parent`、`children` 及初始 `components` 快照。 |
-| `game_entity_destroy` | `ref`（必填）、`policy`（可选：`"cascade"`、`"orphan"`、`"keep_world"` 或 `"reparent"`） | 销毁结果，包含 `ref`、生效的 `policy` 与实际销毁实体数 `destroyed`。 |
-| `game_component_set` | `ref`（必填）、`component`（必填）、`value`（必填）、`replace`（可选，默认 `false`） | 回读自存活实体的更新后组件 `value`；修改会在下一次模拟步进中生效。 |
+| `game_entity_destroy` | `ref`（必填）、`policy`（可选：`"cascade"`、`"orphan"`、`"keep_world"` 或 `"reparent"`） | 销毁结果，包含 `ref`、应用于子实体的 `policy`（省略时为层级的默认策略，通常是 `"orphan"`；省略且实体没有子实体时为 `"none"`）与实际销毁实体数 `destroyed`。`"reparent"` 会保持子实体的世界变换。 |
+| `game_component_set` | `ref`（必填）、`component`（必填）、`value`（必填）、`replace`（可选，默认 `false`） | 回读自存活实体的更新后组件 `value`；修改会在下一次模拟步进中生效。若写入成功但回读失败，`value` 为 `null`，`read_error` 说明原因，修改依然有效。 |
 | `game_component_remove` | `ref`（必填）、`component`（必填） | 报告指定组件是否存在并已从存活实体移除（`removed`）。 |
 
 所有工具都会拒绝未知的参数字段。
