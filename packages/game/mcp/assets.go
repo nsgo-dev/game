@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"path"
 	"slices"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/automation"
-	"github.com/nsgo-dev/nsgo/core"
 )
 
 // Asset and hot-reload tool names registered by Bridge with github.com/nsgo-dev/nsgo/automation.
@@ -36,9 +34,7 @@ var (
 	ErrDuplicateAsset = errors.New("mcp: duplicate asset registration")
 )
 
-// CustomAsset registers a game-managed asset outside assets.Manager (such as a standalone
-// sprite.Atlas, scene file, or data table) so game_assets_list reports its memory and
-// game_asset_reload / game_assets_reload_group can reload it on demand.
+// CustomAsset registers a game-managed asset outside assets.Manager (such as a standalone sprite.Atlas, scene file, or data table) so game_assets_list reports its memory and game_asset_reload / game_assets_reload_group can reload it on demand.
 type CustomAsset struct {
 	// Key is the unique asset identifier (required).
 	Key string
@@ -101,7 +97,35 @@ type ReloadedItem struct {
 	URI    string `json:"uri,omitempty"`
 	Bytes  int64  `json:"bytes"`
 	Frames int    `json:"frames,omitempty"`
-	Error  string `json:"error,omitempty"`
+	// Skipped says why the asset was left unchanged without an error, such as a sound or an image with no file behind it.
+	Skipped string `json:"skipped,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func reloadedItem(r assets.ReloadedAsset) ReloadedItem {
+	item := ReloadedItem{
+		Key:     r.Name,
+		Group:   r.Group,
+		Kind:    r.Kind,
+		URI:     r.URI,
+		Bytes:   r.Bytes,
+		Frames:  r.Frames,
+		Skipped: r.Skipped,
+	}
+	if r.Err != nil {
+		item.Error = r.Err.Error()
+	}
+	return item
+}
+
+// anyReloaded reports whether at least one item was reloaded rather than skipped or failed.
+func anyReloaded(items []ReloadedItem) bool {
+	for _, it := range items {
+		if it.Error == "" && it.Skipped == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // AssetReloadResult is the JSON result of game_asset_reload.
@@ -123,6 +147,7 @@ type AssetsReloadGroupResult struct {
 	Reloaded   bool           `json:"reloaded"`
 	Count      int            `json:"count"`
 	Failed     int            `json:"failed,omitempty"`
+	Skipped    int            `json:"skipped,omitempty"`
 	Bytes      int64          `json:"bytes"`
 	DurationMS float64        `json:"duration_ms"`
 	Revision   int            `json:"revision,omitempty"`
@@ -183,8 +208,7 @@ var (
 	}`)
 )
 
-// SetAssets replaces the static Assets manager configured on b.
-// If Config.AssetsFunc is set and returns a non-nil manager, AssetsFunc continues to take precedence.
+// SetAssets replaces the static Assets manager configured on b. If Config.AssetsFunc is set and returns a non-nil manager, AssetsFunc continues to take precedence.
 func (b *Bridge) SetAssets(m *assets.Manager) {
 	if b == nil {
 		return
@@ -218,9 +242,7 @@ func (b *Bridge) RegisterAsset(asset CustomAsset) error {
 	return nil
 }
 
-// RegisterAtlas registers a standalone live *sprite.Atlas (not owned by an assets.Manager)
-// on b so game_assets_list reports its frame count and estimated memory, and game_asset_reload
-// re-parses jsonPath via readFile and updates *atlas in place without replacing the pointer.
+// RegisterAtlas registers a standalone live *sprite.Atlas (not owned by an assets.Manager) on b so game_assets_list reports its frame count and estimated memory, and game_asset_reload re-parses jsonPath via readFile and updates *atlas in place without replacing the pointer.
 func (b *Bridge) RegisterAtlas(key, group, jsonPath string, atlas *sprite.Atlas, readFile func(ctx context.Context, path string) ([]byte, error)) error {
 	if b == nil {
 		return ErrNilBridge
@@ -238,7 +260,7 @@ func (b *Bridge) RegisterAtlas(key, group, jsonPath string, atlas *sprite.Atlas,
 		Kind:  "atlas",
 		URI:   jsonPath,
 		Bytes: func() int64 {
-			return estimateStandaloneAtlasBytes(atlas, lastJSONBytes)
+			return assets.EstimateAtlasBytes(atlas, lastJSONBytes)
 		},
 		Frames: func() int {
 			return len(atlas.Frames)
@@ -272,7 +294,7 @@ func (b *Bridge) assetTools() []automation.Tool {
 		},
 		{
 			Name:        ToolAssetReload,
-			Description: "Reload a named asset, URI, or relative path (atlas, image, sound, bytes, custom asset, shader, material, or resource) in place, or reload all loaded assets when all=true. Surfaces parse/compile errors cleanly without crashing.",
+			Description: "Reload a named asset, URI, or relative path (atlas, image, bytes, custom asset, shader, material, or resource) in place, or reload all loaded assets when all=true. Surfaces parse/compile errors cleanly without crashing.",
 			InputSchema: schemaAssetReload,
 			Handler:     b.handleAssetReload,
 		},
@@ -569,6 +591,9 @@ func (b *Bridge) handleAssetReload(ctx context.Context, raw json.RawMessage) (an
 
 	start := time.Now()
 	if args.All {
+		if !b.hasAnyAssetSource() {
+			return nil, errors.New("mcp: all: true needs an asset manager, reloader or registered asset; Config.ReloadAsset reloads a single key only")
+		}
 		return b.reloadAllAssets(ctx, mgr, args.Group, start)
 	}
 
@@ -588,19 +613,10 @@ func (b *Bridge) handleAssetReload(ctx context.Context, raw json.RawMessage) (an
 			return nil, err
 		}
 		for _, r := range reloaded {
-			item := ReloadedItem{
-				Key:    r.Name,
-				Group:  r.Group,
-				Kind:   r.Kind,
-				URI:    r.URI,
-				Bytes:  r.Bytes,
-				Frames: r.Frames,
-			}
+			items = append(items, reloadedItem(r))
 			if r.Err != nil {
-				item.Error = r.Err.Error()
 				errs = append(errs, r.Err)
 			}
-			items = append(items, item)
 		}
 	}
 
@@ -706,7 +722,7 @@ func (b *Bridge) handleAssetReload(ctx context.Context, raw json.RawMessage) (an
 	}
 
 	res := AssetReloadResult{
-		Reloaded:   len(errs) == 0,
+		Reloaded:   len(errs) == 0 && anyReloaded(items),
 		Key:        key,
 		Group:      args.Group,
 		DurationMS: elapsedMS(start),
@@ -765,19 +781,10 @@ func (b *Bridge) reloadAllAssets(ctx context.Context, mgr *assets.Manager, group
 			}
 			reloaded, _ := mgr.ReloadGroup(ctx, gName)
 			for _, r := range reloaded {
-				item := ReloadedItem{
-					Key:    r.Name,
-					Group:  r.Group,
-					Kind:   r.Kind,
-					URI:    r.URI,
-					Bytes:  r.Bytes,
-					Frames: r.Frames,
-				}
+				items = append(items, reloadedItem(r))
 				if r.Err != nil {
-					item.Error = r.Err.Error()
 					errs = append(errs, r.Err)
 				}
-				items = append(items, item)
 			}
 		}
 	}
@@ -827,7 +834,13 @@ func (b *Bridge) reloadAllAssets(ctx context.Context, mgr *assets.Manager, group
 	}
 
 	if b.cfg.Materials != nil && (groupFilter == "" || groupFilter == "materials") {
+		seen := make(map[string]bool)
 		for _, name := range b.cfg.Materials.MaterialNames() {
+			p, ok := b.cfg.Materials.MaterialPath(name)
+			if !ok || seen[p] {
+				continue
+			}
+			seen[p] = true
 			p, sz, tracked, err := b.cfg.Materials.ReloadMaterialFile(name)
 			if !tracked {
 				continue
@@ -877,7 +890,7 @@ func (b *Bridge) reloadAllAssets(ctx context.Context, mgr *assets.Manager, group
 		totalBytes += it.Bytes
 	}
 	res := AssetReloadResult{
-		Reloaded:   len(items) > 0 && len(errs) == 0,
+		Reloaded:   len(errs) == 0 && anyReloaded(items),
 		Group:      groupFilter,
 		Bytes:      totalBytes,
 		DurationMS: elapsedMS(start),
@@ -928,19 +941,10 @@ func (b *Bridge) handleAssetsReloadGroup(ctx context.Context, raw json.RawMessag
 			return nil, fmt.Errorf("mcp: %w", err)
 		}
 		for _, r := range reloaded {
-			item := ReloadedItem{
-				Key:    r.Name,
-				Group:  r.Group,
-				Kind:   r.Kind,
-				URI:    r.URI,
-				Bytes:  r.Bytes,
-				Frames: r.Frames,
-			}
+			items = append(items, reloadedItem(r))
 			if r.Err != nil {
-				item.Error = r.Err.Error()
 				errs = append(errs, r.Err)
 			}
-			items = append(items, item)
 		}
 	}
 
@@ -989,7 +993,13 @@ func (b *Bridge) handleAssetsReloadGroup(ctx context.Context, raw json.RawMessag
 
 	if groupName == "materials" && b.cfg.Materials != nil && len(b.cfg.Materials.MaterialNames()) > 0 {
 		matched = true
+		seen := make(map[string]bool)
 		for _, name := range b.cfg.Materials.MaterialNames() {
+			p, ok := b.cfg.Materials.MaterialPath(name)
+			if !ok || seen[p] {
+				continue
+			}
+			seen[p] = true
 			p, sz, tracked, err := b.cfg.Materials.ReloadMaterialFile(name)
 			if !tracked {
 				continue
@@ -1046,12 +1056,16 @@ func (b *Bridge) handleAssetsReloadGroup(ctx context.Context, raw json.RawMessag
 		totalBytes int64
 		succeeded  int
 		failed     int
+		skipped    int
 	)
 	for _, it := range items {
 		totalBytes += it.Bytes
-		if it.Error != "" {
+		switch {
+		case it.Error != "":
 			failed++
-		} else {
+		case it.Skipped != "":
+			skipped++
+		default:
 			succeeded++
 		}
 	}
@@ -1061,6 +1075,7 @@ func (b *Bridge) handleAssetsReloadGroup(ctx context.Context, raw json.RawMessag
 		Reloaded:   failed == 0,
 		Count:      succeeded,
 		Failed:     failed,
+		Skipped:    skipped,
 		Bytes:      totalBytes,
 		DurationMS: elapsedMS(start),
 		Items:      items,
@@ -1151,55 +1166,4 @@ func normalizeRelKey(k string) string {
 
 func elapsedMS(start time.Time) float64 {
 	return float64(time.Since(start).Microseconds()) / 1000.0
-}
-
-func estimateStandaloneAtlasBytes(a *sprite.Atlas, jsonBytes int64) int64 {
-	if a == nil {
-		return 0
-	}
-	total := jsonBytes
-	if total == 0 {
-		total = int64(len(a.Frames)*128 + len(a.Animations)*64 + len(a.Slices)*64)
-	}
-	imgBytes := estimateStandaloneImageBytes(a.Image)
-	if imgBytes == 0 && len(a.Frames) > 0 {
-		var maxX, maxY float32
-		for _, f := range a.Frames {
-			if right := f.X + f.W; right > maxX {
-				maxX = right
-			}
-			if bottom := f.Y + f.H; bottom > maxY {
-				maxY = bottom
-			}
-		}
-		if maxX > 0 && maxY > 0 {
-			d := float64(a.Image.Density())
-			if d <= 0 {
-				d = 1
-			}
-			w := int64(math.Ceil(float64(maxX) * d))
-			h := int64(math.Ceil(float64(maxY) * d))
-			imgBytes = w * h * 4
-		}
-	}
-	return total + imgBytes
-}
-
-func estimateStandaloneImageBytes(img core.ImageSource) int64 {
-	if img.Pixels != nil {
-		return int64(len(img.Pixels.Pix))
-	}
-	if len(img.Data) > 0 {
-		return int64(len(img.Data))
-	}
-	if img.Size.Width > 0 && img.Size.Height > 0 {
-		d := float64(img.Density())
-		if d <= 0 {
-			d = 1
-		}
-		w := int64(math.Ceil(float64(img.Size.Width) * d))
-		h := int64(math.Ceil(float64(img.Size.Height) * d))
-		return w * h * 4
-	}
-	return 0
 }

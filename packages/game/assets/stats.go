@@ -63,8 +63,7 @@ func (m *Manager) LookupGroup(name string) (*Group, bool) {
 	return g, ok
 }
 
-// GroupStats returns a read-only stats snapshot for every registered group in registration order.
-// Reading GroupStats does not subscribe the caller to reactive signals.
+// GroupStats returns a read-only stats snapshot for every registered group in registration order. Reading GroupStats does not subscribe the caller to reactive signals.
 func (m *Manager) GroupStats() []GroupStats {
 	if m == nil || len(m.groupOrder) == 0 {
 		return nil
@@ -78,8 +77,7 @@ func (m *Manager) GroupStats() []GroupStats {
 	return out
 }
 
-// Stats returns a read-only snapshot of g's load state, registered assets, and estimated memory usage in bytes.
-// Calling Stats does not subscribe the caller to reactive signals.
+// Stats returns a read-only snapshot of g's load state, registered assets, and estimated memory usage in bytes. Calling Stats does not subscribe the caller to reactive signals.
 func (g *Group) Stats() GroupStats {
 	if g == nil {
 		return GroupStats{State: StateUnloaded}
@@ -118,7 +116,7 @@ func (g *Group) assetStats(spec assetSpec) AssetStats {
 		if a, ok := g.atlases[spec.name]; ok && a != nil {
 			as.Loaded = true
 			as.Frames = len(a.Frames)
-			as.Bytes = estimateAtlasBytes(a, g.rawBytes[spec.name])
+			as.Bytes = EstimateAtlasBytes(a, g.rawBytes[spec.name])
 		}
 	case kindSound:
 		if s, ok := g.sounds[spec.name]; ok && s != nil {
@@ -214,7 +212,8 @@ func estimateCustomBytes(v any, rawBytes int64) int64 {
 	return rawBytes
 }
 
-func estimateAtlasBytes(a *sprite.Atlas, rawJSONBytes int64) int64 {
+// EstimateAtlasBytes estimates the memory an atlas holds: rawJSONBytes (or a per-frame estimate when it is 0) plus the image bytes, which come from the image's pixels, data or size, or from the packed frame extents at 4 bytes per pixel when the image has only a URI. game/mcp uses it for atlases registered outside a Manager.
+func EstimateAtlasBytes(a *sprite.Atlas, rawJSONBytes int64) int64 {
 	if a == nil {
 		return 0
 	}
@@ -224,8 +223,7 @@ func estimateAtlasBytes(a *sprite.Atlas, rawJSONBytes int64) int64 {
 	}
 	imgBytes := estimateImageBytes(a.Image)
 	if imgBytes == 0 && len(a.Frames) > 0 {
-		// When Image has only a URI without inline Data/Pixels/Size, derive a conservative
-		// RGBA pixel estimate from the packed frame extents.
+		// When Image has only a URI without inline Data/Pixels/Size, derive a conservative RGBA pixel estimate from the packed frame extents.
 		var maxX, maxY float32
 		for _, f := range a.Frames {
 			if right := f.X + f.W; right > maxX {

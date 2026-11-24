@@ -103,8 +103,7 @@ func writeDiskFile(t *testing.T, root, rel, content string) string {
 	return full
 }
 
-// TestAssetsListAndAtlasHotReload verifies listing asset groups/memory and reloading
-// an on-disk sprite atlas through MCP updates the live running game in place.
+// TestAssetsListAndAtlasHotReload verifies listing asset groups/memory and reloading an on-disk sprite atlas through MCP updates the live running game in place.
 func TestAssetsListAndAtlasHotReload(t *testing.T) {
 	dir := t.TempDir()
 	writeDiskFile(t, dir, "sprites/hero.json", atlasV1)
@@ -289,10 +288,28 @@ func TestAssetsListAndAtlasHotReload(t *testing.T) {
 	groupRes := callTool[mcp.AssetsReloadGroupResult](t, app, cx, mcp.ToolAssetsReloadGroup, map[string]any{
 		"group": "level1",
 	})
-	// Note: "bg" has URI asset:images/bg.png which does not exist in dir, so bg reports an item error
-	// while hero, config, table, and jump reload cleanly without crashing!
-	if groupRes.Group != "level1" || groupRes.Count < 3 || groupRes.Failed != 1 || groupRes.Reloaded {
+	// "bg" names asset:images/bg.png, which is not in dir, and "jump" is a sound, so both are skipped rather than failed while hero, config and table reload.
+	if groupRes.Group != "level1" || groupRes.Count != 3 || groupRes.Failed != 0 || groupRes.Skipped != 2 || !groupRes.Reloaded {
 		t.Fatalf("group reload (with missing bg file) = %+v", groupRes)
+	}
+	skipped := map[string]string{}
+	for _, it := range groupRes.Items {
+		if it.Skipped != "" {
+			skipped[it.Key] = it.Skipped
+		}
+	}
+	if skipped["bg"] != assets.SkippedNoFile || skipped["jump"] != assets.SkippedSound {
+		t.Fatalf("group reload skipped = %v", skipped)
+	}
+
+	// Reloading the missing image by key reports the read error, and reloading the sound by key reports it as skipped, not reloaded.
+	bgRes := callTool[mcp.AssetReloadResult](t, app, cx, mcp.ToolAssetReload, map[string]any{"key": "bg"})
+	if bgRes.Reloaded || bgRes.Error == "" {
+		t.Fatalf("reload missing bg = %+v, want an error", bgRes)
+	}
+	jumpRes := callTool[mcp.AssetReloadResult](t, app, cx, mcp.ToolAssetReload, map[string]any{"key": "jump"})
+	if jumpRes.Reloaded || jumpRes.Error != "" || len(jumpRes.Items) != 1 || jumpRes.Items[0].Skipped != assets.SkippedSound {
+		t.Fatalf("reload jump = %+v, want skipped without error", jumpRes)
 	}
 	if len(liveAtlas.Frames) != 2 || liveAtlas.Frames["idle.png"].W != 16 {
 		t.Fatalf("liveAtlas after group reload = %+v, want V1 (2 frames, 16x16)", liveAtlas.Frames)
@@ -313,19 +330,17 @@ func TestAssetsListAndAtlasHotReload(t *testing.T) {
 		t.Fatalf("custom table after group reload = %v, want LEVEL-1-REMASTERED", gotTable)
 	}
 
-	// Provide images/bg.png on disk and verify full clean group reload succeeds with Failed==0.
+	// Provide images/bg.png on disk and verify the group reload now replaces bg too.
 	writeDiskFile(t, dir, "images/bg.png", "bg-png-v2")
 	cleanGroupRes := callTool[mcp.AssetsReloadGroupResult](t, app, cx, mcp.ToolAssetsReloadGroup, map[string]any{
 		"group": "level1",
 	})
-	if !cleanGroupRes.Reloaded || cleanGroupRes.Failed != 0 || cleanGroupRes.Count != 5 || cleanGroupRes.Error != "" {
+	if !cleanGroupRes.Reloaded || cleanGroupRes.Failed != 0 || cleanGroupRes.Count != 4 || cleanGroupRes.Skipped != 1 || cleanGroupRes.Error != "" {
 		t.Fatalf("clean group reload = %+v", cleanGroupRes)
 	}
 }
 
-// TestShadersMaterialsResourcesAndCustomAtlasReload verifies MCP listing and reloading
-// across hotreload.ShaderReloader, hotreload.MaterialReloader, resource.Library,
-// standalone RegisterAtlas, and Config.ReloadAsset fallback hook.
+// TestShadersMaterialsResourcesAndCustomAtlasReload verifies MCP listing and reloading across hotreload.ShaderReloader, hotreload.MaterialReloader, resource.Library, standalone RegisterAtlas, and Config.ReloadAsset fallback hook.
 func TestShadersMaterialsResourcesAndCustomAtlasReload(t *testing.T) {
 	dir := t.TempDir()
 	writeDiskFile(t, dir, "shaders/hero.wgsl", validWGSLV1)
@@ -563,5 +578,25 @@ func TestAssetsToolsValidationAndErrorCases(t *testing.T) {
 	}
 	if err := b.RegisterAtlas("a", "g", "p.json", nil, nil); err == nil {
 		t.Fatal("expected error for nil atlas in RegisterAtlas")
+	}
+}
+
+func TestAssetReloadAllNeedsMoreThanTheReloadAssetHook(t *testing.T) {
+	var cx *core.Scope
+	app := nsgotest.Start(t, func(scope *core.Scope) core.Node {
+		cx = scope
+		if _, err := mcp.Attach(cx, mcp.Config{
+			ReloadAsset: func(context.Context, string) error { return nil },
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return core.View{}
+	})
+	if _, err := callToolRaw(t, app, cx, mcp.ToolAssetReload, map[string]any{"all": true}); err == nil || !strings.Contains(err.Error(), "single key") {
+		t.Fatalf("reload all with only the ReloadAsset hook = %v, want an error", err)
+	}
+	res := callTool[mcp.AssetReloadResult](t, app, cx, mcp.ToolAssetReload, map[string]any{"key": "scenes/level1.scene.yaml"})
+	if !res.Reloaded || res.Error != "" {
+		t.Fatalf("reload one key through the hook = %+v", res)
 	}
 }
