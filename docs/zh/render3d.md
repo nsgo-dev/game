@@ -512,6 +512,43 @@ gpuMesh.Draw(pass)
 - **glTF 辅助函数**：`UnlitMaterialFromGLTF` 校验 glTF 材质是否声明 `KHR_materials_unlit`（未声明时返回包装 `ErrInvalidUnlitMaterial` 的错误）。`UploadGLTFUnlitMaterial` 以 sRGB 解码并上传内嵌或外部的 `baseColorTexture` 图像，采样器由 `SamplerOptionsFromGLTF` 转换（因此即使纹理带有 mipmap，非 mipmap 的 `minFilter` 也只采样第 0 级），并像 `UploadGLTFMaterials` 一样应用 `GLTFMaterialUpload` 的 mipmap、各向异性与 `Retained` 选项。若 `baseColorTexture` 的图像只通过 `KHR_texture_basisu` 等扩展提供，则返回 `ErrInvalidUnlitMaterial`，而不是绘制成白色。
 - **参考渲染验证**：`render3d` 的测试端到端绘制 Khronos `UnlitTest` 样例（加载器、`ColoredMeshFromGLTF`、`UploadGLTFUnlitMaterial`、`NewUnlitPipeline`），要求每个被覆盖的像素都是样例规定的纯色 `#FF7F00` 或 `#007FFF`；同时将涵盖不透明、顶点色、纹理叠加、镂空裁剪与半透明混合的场景与参考图 `render3d/testdata/golden/unlit_vertex_colors_scene.png` 比对，并在无界面 `gpu.View` 上同时验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置与 `EvaluateUnlit` 的像素一致性。
 
+## 卡通着色（`ToonMaterial`、`ToonRenderer`）
+
+`ToonMaterial` 与 `ToonRenderer` 绘制卡通/赛璐璐着色：分档的漫反射光照（或 1D 色阶纹理）、硬边阶梯 Blinn-Phong 高光、菲涅尔边缘光以及反转外壳描边。着色器（`ToonWGSL`、`ToonOutlineWGSL`）只用顶点与片元阶段，因此可在 WebGPU、Metal、Vulkan、Direct3D 11、OpenGL 3.3、OpenGL ES 3.0、WebGL 2 与 NSGo 软件渲染器上运行：
+
+```go
+defaults, err := render3d.NewMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+renderer, err := render3d.NewToonRenderer(cx, dev, render3d.ToonRendererOptions{
+	CameraLayout: camBuf.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Retained:     true,
+})
+spec := render3d.DefaultToonMaterial()
+spec.BaseColorFactor = [4]float32{0.94, 0.34, 0.24, 1}
+spec.OutlineWidth = 0.045
+heroMat, err := renderer.NewMaterial(cx, dev, defaults, spec, "hero")
+
+// 硬边网格（立方体、低模道具）需要共享棱角法线，描边才不会开裂：
+boxOutlineCPU, err := render3d.SmoothOutlineNormals(boxMesh)
+boxOutline, err := render3d.UploadMesh(cx, dev, boxOutlineCPU, render3d.MeshUpload{Label: "box-outline"})
+
+// 在 OnFrame 中、带深度附件的渲染通道内：
+light, err := render3d.ToonLightFromRig(rig) // 或 render3d.DefaultToonLight()
+err = renderer.Draw(dev, pass, camBuf.BindGroup(), light,
+	render3d.ToonDraw{Mesh: sphereMesh, Material: heroMat, Transform: sphereXform},
+	render3d.ToonDraw{Mesh: boxGPU, OutlineMesh: boxOutline, Material: boxMat, Transform: boxXform},
+)
+```
+
+- **分档与色阶纹理**：`Bands` 选择 2 到 8 档漫反射（`0` 表示 `3`），随 `N·L` 从 `ShadowColor` 过渡到完全受光；`BandSmoothness`（`[0, 0.5]`）柔化档位边界（`0` 为硬切分）。`RampTexture` 按 `u = clamp(N·L, 0, 1)` 采样，用美术绘制的色阶替代分档；未提供 `RampSampler` 时，材质会创建线性 clamp 采样器，避免色阶两端相互回绕。
+- **高光**：`SpecularColor`、`SpecularPower`（`0` 表示 `32`）、`SpecularThreshold` 与 `SpecularSmoothness` 在受光面添加阶梯 Blinn-Phong 高光；`RimColor`、`RimThreshold` 与 `RimSmoothness` 基于 `1 - N·V` 添加菲涅尔边缘光。
+- **光源**：`ToonLight` 包含一个 `DirectionalLight` 主光（对其 `N·L` 分档）和一个 `AmbientLight` 环境光，约定与 `LightRig` 相同：`Direction` 是光线行进的方向，方向为零是错误，强度 `0` 关闭该光源，错误都包装 `ErrInvalidLight`。`ToonLightFromRig` 取场景光照组的第一个平行光与环境光；点光源不参与。
+- **绑定组**：`CameraGroup`（0）、`ToonMaterialGroup`（1，与 `MaterialGroup` 同一槽位）和 `ToonSceneGroup`（2，每次绘制的模型矩阵与主光，在 `ToonRenderer` 中使用动态偏移）。
+- **材质**：`NewGPUToonMaterial` 与 `ToonRenderer.NewMaterial` 接收共享的 `MaterialDefaults`，省略的纹理与采样器绑定其中的白色纹理与采样器，与 `NewGPUMaterial` 一致。`GPUToonMaterial.Update` 零分配地重写 uniform，但不能替换纹理或采样器。
+- **描边**：描边管线（`NewToonOutlinePipeline`，`gpu.CullFront`）把背面沿法线外推 `OutlineWidth` 并以 `OutlineColor` 填充；描边 alpha 为 `0` 或宽度为 `0` 时关闭描边。宽度以世界单位计；开启 `OutlineClipSpace` 时以 NDC y 单位计，只要相机宽高比与视口一致，在任何距离、任何方向上都是 `OutlineWidth × 视口高度 / 2` 像素。`SmoothOutlineNormals` 对同一位置（坐标按 1e-5 取整后相等）的顶点法线按角的大小加权平均，网格无效时返回包装 `ErrInvalidMesh` 的错误。
+- **绘制**：`ToonRenderer.Draw` 先画描边再画卡通着色表面，均为不透明并写入深度。在一次提交前可以调用任意多次，绘入同一个或多个通道：每次调用把每次绘制的 uniform 写在本帧之前调用用过的槽位之后。在 `gpu.Frame` 中，`dev.FrameIndex()` 前进时槽位自动回到起点；直接用 `dev.Submit` 提交的代码每帧调用一次 `ToonRenderer.Begin`（两次调用之间最多 `MaxToonDrawsPerFrame` 次绘制）。渲染器、设备、通道或相机绑定组为 nil 或已关闭时，`Draw` 返回 `gpu.Error`。需要混合的卡通表面，用 `NewToonPipeline` 与 `NewToonOutlinePipeline` 并设置 `ToonPipelineOptions.Blend` 构建管线。
+- **CPU 参考与测试**：`EvaluateToon` 与 `ToonQuantizeBand` 用 Go 计算 `ToonWGSL` 的结果。`render3d` 的测试把多物体场景与 `render3d/testdata/golden/toon_scene.png` 比对（`UPDATE_GOLDEN=1` 重写参考图），在无界面 `gpu.View` 上分别以完整配置与 `nsgotest.NoGPUCompute` 绘制，验证 `Retained` 渲染器在设备丢失后恢复、一次提交前绘制两次，以及宽视口上的裁剪空间描边。
+
 ## 按预算跨帧异步 GPU 上传（`Uploader`）
 
 `Uploader` 在后台工作协程上完成网格、纹理和原始 GPU 数据的解码与 CPU 打包；每帧调用一次的 `Uploader.Step` 再按每帧字节预算把结果分块写入 `gpu.Device`，加载大型 3D 模型时不会卡住某一帧：
