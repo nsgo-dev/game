@@ -219,6 +219,8 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"fractional tile size":  {"version: 1\ntilemaps: {t: {tileWidth: 1.5}}\n", "/tilemaps/t/tileWidth: want integer, got the number 1.5"},
 		"order overflows int":   {"version: 1\nlayers: [{name: a, order: 1e20}]\n", "/layers/0/order: 100000000000000000000 is greater than the maximum 9223372036854776000"},
 		"tile overflows int":    {"version: 1\ntilemaps: {t: {data: [1e20]}}\n", "/tilemaps/t/data/0: 100000000000000000000 is greater than the maximum"},
+		"connection arg list":   {"version: 1\nlayers: [{name: a, objects: [{id: b}]}]\nconnections: [{from: b, event: e, to: b, handler: h, args: {a: [1]}}]\n", "/connections/0/args/a: want boolean or number or string"},
+		"connection no handler": {"version: 1\nlayers: [{name: a, objects: [{id: b}]}]\nconnections: [{from: b, event: e, to: b}]\n", `/connections/0: missing required key "handler"`},
 		"x overflows float32":   {"version: 1\nlayers: [{name: a, objects: [{id: o, x: 1e39}]}]\n", "/layers/0/objects/0/x: 1e+39 is greater than the maximum 3.4028234663852886e+38"},
 	}
 	for name, tc := range cases {
@@ -258,6 +260,7 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 	f.Add([]byte("version: 1\nlayers: [{name: a, space: screen, visible: false, objects: [{id: o, alpha: 0, scaleX: -1, components: {c: {k: [1]}}}]}]\n"))
 	f.Add([]byte("version: 1\ncamera: {zoom: 0.5, bounds: {width: 1, height: 2}}\ntilemaps: {g: {tileWidth: 1, tileHeight: 1, width: 1, height: 1, tileset: t, data: [0]}}\nlayers: [{name: a, tilemap: {ref: g}}, {name: b, tilemap: {source: m.tmj}}]\n"))
 	f.Add([]byte("version: 2\ninherits: base.scene.yaml\noverrides: {o: {x: 1, alpha: 0.5}}\nlayerOverrides: {a: {order: 2}}\nlayers: [{name: b, objects: [{id: e, scene: enemy.scene.yaml, overrides: {body: {z: 1}}}]}]\n"))
+	f.Add([]byte("version: 1\nlayers: [{name: a, objects: [{id: b}, {id: d}]}]\nconnections: [{from: b, event: e, to: d, handler: h, args: {s: 2.5, n: x, t: true}, once: true}]\n"))
 	schemas := sceneSchemas(f)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doc, err := sceneformat.Parse(data)

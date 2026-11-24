@@ -400,10 +400,16 @@ func (e *Editor) SetActiveTileID(id int) {
 	e.notify()
 }
 
-// SetComponentRegistry makes the editor check components against reg: the current document must already conform, later opens refuse files whose components do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off. Changing the registry clears undo/redo history, since commands recorded under the old registry could bring back components the new one refuses.
+// SetComponentRegistry makes the editor check components against reg: the current document's components and connections must already conform, later opens refuse files whose components or connections do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off. Changing the registry clears undo/redo history, since commands recorded under the old registry could bring back components the new one refuses.
 func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error {
 	if err := sceneformat.ValidateComponents(e.Doc, reg); err != nil {
 		return err
+	}
+	// OpenFile binds connections against the registry (sceneformat.ParseWith), so the open scene must pass the same check, or a scene the editor lets the user save would not open again. A scene that instances or inherits others is checked once resolved, as ParseWith leaves it.
+	if !e.Doc.RefersToScenes() {
+		if err := sceneformat.ValidateConnections(e.Doc, reg); err != nil {
+			return err
+		}
 	}
 	if reg == e.components {
 		return nil
@@ -1254,17 +1260,20 @@ type removedConnection struct {
 	conn  sceneformat.ConnectionDoc
 }
 
-// namesSubtree reports whether id is the ID of an object in ids, or of an object a scene instanced by one of them adds ("enemy_1/body").
-func namesSubtree(id string, ids map[string]struct{}) bool {
+// namesSubtree reports whether id is the ID of an object in ids, or of an object that a scene instanced by one of instancing adds ("enemy_1/body"). Only instancing objects get the prefix match, since an object ID may itself contain a slash: deleting "door" must keep a sibling written "door/x".
+func namesSubtree(id string, ids, instancing map[string]struct{}) bool {
+	if _, ok := ids[id]; ok {
+		return true
+	}
 	for {
-		if _, ok := ids[id]; ok {
-			return true
-		}
 		i := strings.LastIndexByte(id, '/')
 		if i < 0 {
 			return false
 		}
 		id = id[:i]
+		if _, ok := instancing[id]; ok {
+			return true
+		}
 	}
 }
 
@@ -1288,14 +1297,18 @@ func (c *deleteObjectCmd) Do() {
 	}
 	c.ed.Doc.Layers[li].Objects = objs
 	ids := make(map[string]struct{})
+	instancing := make(map[string]struct{})
 	sceneformat.WalkObjects([]sceneformat.ObjectDoc{c.obj}, func(o, _ *sceneformat.ObjectDoc) bool {
 		ids[o.ID] = struct{}{}
+		if o.Scene != "" {
+			instancing[o.ID] = struct{}{}
+		}
 		return true
 	})
 	c.conns = nil
 	var kept []sceneformat.ConnectionDoc
 	for i, conn := range c.ed.Doc.Connections {
-		if namesSubtree(conn.From, ids) || namesSubtree(conn.To, ids) {
+		if namesSubtree(conn.From, ids, instancing) || namesSubtree(conn.To, ids, instancing) {
 			c.conns = append(c.conns, removedConnection{index: i, conn: conn})
 			continue
 		}
