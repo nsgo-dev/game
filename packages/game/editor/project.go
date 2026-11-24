@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 )
@@ -14,7 +15,7 @@ import (
 // ErrNoProject is returned by EditProject and SaveProject before OpenProject has opened a game.yaml.
 var ErrNoProject = errors.New("editor: no project open")
 
-// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does. It empties the undo history either way, so no step can bring back a project opened before. On an error it leaves the editor as it was.
+// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does. It empties the undo history either way, so no step can bring back a project opened before. The registered plugins the project names under editor.plugins turn on, and the status bar names those it lists that this editor was built without (MissingPlugins). On an error it leaves the editor as it was.
 func (e *Editor) OpenProject(path string) error {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, project.FileName)
@@ -44,7 +45,11 @@ func (e *Editor) OpenProject(path string) error {
 	e.ProjectPath = path
 	e.projectSaved = saved
 	e.History.Clear()
+	e.dropStalePluginTool()
 	e.Status = "Opened project " + path
+	if missing := e.MissingPlugins(); len(missing) > 0 {
+		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
+	}
 	e.notify()
 	return nil
 }

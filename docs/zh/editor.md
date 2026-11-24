@@ -346,3 +346,47 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 - **撤销**：每一次片段编辑，包括打开和关闭，都与场景编辑共用同一个撤销/重做历史。
 
 `SaveClipYAML` 和 `SaveClipFile` 输出确定性的 YAML，因此打开后再次保存的片段不会改变。
+
+## 编辑器插件（#492）
+
+插件为场景编辑器添加自己的面板、自己组件类型的检查器以及 2D 视口工具，作用与 Godot 的 `EditorPlugin` 相同。Go 无法在所有平台上于运行时加载代码，因此插件是编译进编辑器程序的 Go 代码：编辑器程序用 `Editor.RegisterPlugin` 注册插件，项目在其[项目文件](project.md)中列出插件名即可启用：
+
+```yaml
+editor:
+  plugins: [health]
+```
+
+已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`go tool game editor` 不注册任何插件，因此有自己插件的游戏要构建自己的编辑器命令：
+
+```go
+func main() {
+	ed, err := editor.New(nil, atlases)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.SetComponentRegistry(components); err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.RegisterPlugin(health.Plugin()); err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.OpenProject("."); err != nil {
+		log.Fatal(err)
+	}
+	nsgo.Run(func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgo.WindowSize(1280, 800))
+}
+```
+
+`editor.Plugin` 有一个 `Name`，规则与 `game.yaml` 中其他名称相同（不含空白和控制字符），以及三个列表：
+
+- **面板**（`Panel`）：停靠在视口左侧（`DockLeft`，位于资源浏览器之后）、检查器右侧（`DockRight`）或视口下方（`DockBottom`）的视图，上方显示其 `Title`。`View(cx, ed, rev)` 在面板出现时构建一次；与编辑器自带的面板一样，它在响应式函数中读取 `rev`，以跟随编辑器状态的每一次变化。没有面板的停靠区不占空间。
+- **检查器**（`Inspector`）：检查器用 `View(cx, ed, rev, objectID)` 在组件标题下方绘制 `Component` 指定的组件，取代该组件的通用字段。`Editor.ComponentField` 读取一个字段；场景未设置该字段时返回其注册的默认值。两个已启用的插件绘制同一个组件时，`editor.plugins` 中排在前面的插件生效。
+- **工具**（`PluginTool`）：工具栏中位于内置 2D 工具旁的一个按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`），在视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换），设置了 `Draw` 时，它会在编辑模式下绘制在场景之上。选择其他工具或关闭插件都会结束该工具。
+
+插件只通过编辑器的方法修改场景，例如 `SetComponentField`、`PlaceObject` 和 `MoveObject`，或者在 `Editor.History` 上执行自己的 `Command`，因此它的每一次编辑都与其他编辑一起撤销和重做。`RegisterPlugin` 会拒绝没有名称或名称已注册的插件、缺少 ID、标题、标签、组件或函数的面板、检查器或工具、未知的停靠位置，以及 ID 或组件重复的面板、检查器或工具。
+
+`SetPluginEnabled(name, on)` 把已注册的插件加入 `editor.plugins` 或从中移除，作为项目的一次可撤销编辑，由工具栏的“Save”按钮写入；移除最后一个插件时会一并移除 `editor` 小节，使 `game.yaml` 恢复原样。`RegisteredPlugins`、`ActivePlugins` 和 `PluginEnabled` 报告程序包含哪些插件、哪些已启用。
+
+编辑器的测试中有一个示例插件 `health`：它添加一个列出每个对象生命值的面板（带有一键回满全部对象的按钮）、一个带生命值输入框的 `health` 组件检查器，以及一个在视口按下处放置受伤对象的工具（`packages/game/editor/plugin_test.go`）。

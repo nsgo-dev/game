@@ -32,6 +32,8 @@ const (
 	ToolPaintTile
 	ToolEraseTile
 	ToolFillTile
+	// ToolPlugin is a plugin's tool, chosen with Editor.SetPluginTool; SetTool(ToolPlugin) is ignored.
+	ToolPlugin
 )
 
 // String returns a human-readable label for the tool.
@@ -49,6 +51,8 @@ func (t Tool) String() string {
 		return "Erase Tile"
 	case ToolFillTile:
 		return "Fill Tile"
+	case ToolPlugin:
+		return "Plugin"
 	default:
 		return "Unknown"
 	}
@@ -202,7 +206,10 @@ type Editor struct {
 	clipErr     error
 	selKey      clipKeyRef
 
-	components   *sceneformat.ComponentRegistry
+	components *sceneformat.ComponentRegistry
+	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.
+	plugins      []*Plugin
+	pluginTool   pluginToolRef
 	drag3D       drag3DState
 	scope        *core.Scope
 	revision     uint64
@@ -301,6 +308,8 @@ func (e *Editor) afterMutate() {
 			e.SelectedID = ""
 		}
 	}
+	// An undone or redone project edit may have turned off the plugin whose tool is active.
+	e.dropStalePluginTool()
 	e.Rebuild()
 	e.notify()
 }
@@ -333,12 +342,13 @@ func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 	return e.Built
 }
 
-// SetTool switches the active viewport tool.
+// SetTool switches the active viewport tool. A plugin's tool is chosen with SetPluginTool instead, so SetTool(ToolPlugin) is ignored.
 func (e *Editor) SetTool(t Tool) {
-	if e.Tool == t {
+	if e.Tool == t || t == ToolPlugin {
 		return
 	}
 	e.Tool = t
+	e.pluginTool = pluginToolRef{}
 	e.Status = "Tool: " + t.String()
 	e.notify()
 }

@@ -227,6 +227,10 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
 			_ = e.FloodFillTile(e.ActiveLayer, col, row, e.ActiveTileID)
 		}
+	case ToolPlugin:
+		if t := e.activePluginTool(); t != nil {
+			t.Press(e, x, y)
+		}
 	}
 }
 
@@ -245,8 +249,7 @@ func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 	return e.CanvasToWorld(x, y)
 }
 
-// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode,
-// the appropriate editor overlays (tile grid + selection outline in 2D, grid + axes + boxes + gizmo in 3D).
+// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode, the appropriate editor overlays (tile grid, selection outline and the active plugin tool's Draw in 2D; grid, axes, boxes and gizmo in 3D).
 func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	if e == nil || d == nil {
 		return
@@ -264,6 +267,12 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 	e.drawTileGridOverlay(d)
 	e.drawSelectionOverlay(d, scene)
+	if t := e.activePluginTool(); t != nil && t.Draw != nil {
+		// Save and Restore keep a transform or style the tool leaves set from reaching the next frame's drawing.
+		d.Save()
+		t.Draw(e, d)
+		d.Restore()
+	}
 }
 
 func (e *Editor) drawTileGridOverlay(d *core.Drawing) {

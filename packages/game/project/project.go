@@ -44,6 +44,8 @@ type File struct {
 	Autoload *Autoload `yaml:"autoload,omitempty"`
 	// Export holds the build output directory and the export presets per platform, which nsgo.yaml's build section follows; nil leaves nsgo.yaml without them.
 	Export *Export `yaml:"export,omitempty"`
+	// Editor holds the scene editor's settings for this project; nil uses its defaults.
+	Editor *Editor `yaml:"editor,omitempty"`
 }
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
@@ -254,6 +256,12 @@ type Preset struct {
 	Targets []string `yaml:"targets,omitempty,flow"`
 }
 
+// Editor is the scene editor's settings for one project.
+type Editor struct {
+	// Plugins names the editor plugins the scene editor turns on for this project, in the order their panels and tools appear. A plugin is Go code built into the editor binary (editor.Plugin), so this list only turns plugins on; each name is unique and has no spaces or control characters.
+	Plugins []string `yaml:"plugins,omitempty,flow"`
+}
+
 // Bool returns a pointer to v for optional fields such as Window.Resizable.
 func Bool(v bool) *bool { return &v }
 
@@ -392,6 +400,9 @@ func (f *File) Clone() *File {
 		}
 		c.Export = &e
 	}
+	if f.Editor != nil {
+		c.Editor = &Editor{Plugins: append([]string(nil), f.Editor.Plugins...)}
+	}
 	return &c
 }
 
@@ -445,6 +456,11 @@ func Validate(f *File) error {
 	}
 	if f.Export != nil {
 		if err := validateExport(f.Export); err != nil {
+			return err
+		}
+	}
+	if f.Editor != nil {
+		if err := validateEditor(f.Editor); err != nil {
 			return err
 		}
 	}
@@ -779,7 +795,21 @@ func validateExport(e *Export) error {
 	return nil
 }
 
-// validateName refuses empty names and names with spaces or control characters, which input actions, axes, buses and autoload entries are looked up by.
+func validateEditor(e *Editor) error {
+	seen := make(map[string]struct{}, len(e.Plugins))
+	for i, name := range e.Plugins {
+		if err := validateName(fmt.Sprintf("editor plugin %d", i), name); err != nil {
+			return err
+		}
+		if _, dup := seen[name]; dup {
+			return fmt.Errorf("project: editor plugin %q is listed twice", name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
+// validateName refuses empty names and names with spaces or control characters, which input actions, axes, buses, autoload entries and editor plugins are looked up by.
 func validateName(where, name string) error {
 	if name == "" {
 		return fmt.Errorf("project: %s has an empty name", where)

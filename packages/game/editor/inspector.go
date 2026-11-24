@@ -288,7 +288,11 @@ func inspectorSchemaKey(ed *Editor) string {
 		for _, cn := range compNames {
 			b.WriteString(cn)
 			b.WriteByte('{')
-			if t, ok := ed.components.Lookup(cn); ok {
+			if _, plugin := ed.pluginInspector(cn); plugin != "" {
+				// A plugin's inspector follows the component's fields itself, so only a change of the plugin drawing it remounts it.
+				b.WriteString("plugin:")
+				b.WriteString(plugin)
+			} else if t, ok := ed.components.Lookup(cn); ok {
 				// A registered component always shows every field, so setting an unset one must not remount its controls.
 				b.WriteString("registered:")
 				b.WriteString(strings.Join(t.FieldNames(), ","))
@@ -328,7 +332,7 @@ func valueKindTag(v any) string {
 	}
 }
 
-// InspectorView renders the right-side Property Inspector panel for the selected object.
+// InspectorView renders the right-side Property Inspector panel for the selected object. A component that a plugin which is on has an Inspector for is drawn by that inspector instead of the generic fields.
 func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	schema := core.NewMemo(cx, func() string {
@@ -780,6 +784,18 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					FontWeight: 600,
 					Color:      colors.Text(),
 				},
+			}
+			if in, plugin := ed.pluginInspector(cn); in != nil {
+				title := core.Node(compTitle)
+				if t, ok := ed.components.Lookup(cn); ok {
+					title = withTooltip(compTitle, t.Doc)
+				}
+				nodes = append(nodes, core.View{
+					TestID:   "inspector-plugin-" + plugin + "-" + cn,
+					Style:    core.Style{Gap: 8},
+					Children: []core.Node{title, in.View(cx, ed, rev, objID)},
+				})
+				continue
 			}
 			if t, ok := ed.components.Lookup(cn); ok {
 				nodes = append(nodes, withTooltip(compTitle, t.Doc))

@@ -346,3 +346,47 @@ The editor's animation panel keys any registered property on a timeline and save
 - **Undo**: every clip edit, opening and closing included, goes through the same undo/redo history as scene edits.
 
 `SaveClipYAML` and `SaveClipFile` write deterministic YAML, so a clip that is opened and saved again does not change.
+
+## Editor plugins (#492)
+
+A plugin extends the scene editor with its own panels, an inspector for its own component types and 2D viewport tools, as Godot's `EditorPlugin` does. Go cannot load code at run time on every platform, so a plugin is Go code built into the editor binary: the binary registers it with `Editor.RegisterPlugin`, and a project turns it on by naming it in its [project file](project.md):
+
+```yaml
+editor:
+  plugins: [health]
+```
+
+A registered plugin the open project does not name stays off, and the order of `editor.plugins` is the order its panels and tools appear in. `OpenProject` names in the status bar the plugins the project lists that this binary was built without (`MissingPlugins`). `go tool game editor` registers no plugins, so a game that has its own builds its own editor command:
+
+```go
+func main() {
+	ed, err := editor.New(nil, atlases)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.SetComponentRegistry(components); err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.RegisterPlugin(health.Plugin()); err != nil {
+		log.Fatal(err)
+	}
+	if err := ed.OpenProject("."); err != nil {
+		log.Fatal(err)
+	}
+	nsgo.Run(func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgo.WindowSize(1280, 800))
+}
+```
+
+An `editor.Plugin` has a `Name`, which follows the rule of other names in `game.yaml` (no spaces or control characters), and three lists:
+
+- **Panels** (`Panel`): a view docked left of the viewport (`DockLeft`, after the asset browser), right of the inspector (`DockRight`) or below the viewport (`DockBottom`), under its `Title`. `View(cx, ed, rev)` builds it once when it appears; it reads `rev` inside reactive functions, as the editor's own panels do, to follow every change to the editor's state. A dock without panels takes no space.
+- **Inspectors** (`Inspector`): the inspector draws the component `Component` names with `View(cx, ed, rev, objectID)` below the component's title, in place of its generic fields. `Editor.ComponentField` reads a field, with its registered default when the scene leaves it unset. When two plugins that are on draw the same component, the one listed first in `editor.plugins` wins.
+- **Tools** (`PluginTool`): a button in the tool bar, beside the built-in 2D tools. While it is the active tool (`SetPluginTool`; `Tool` is then `ToolPlugin`), a press on the viewport calls `Press(ed, x, y)` with canvas coordinates (`CanvasToWorld` converts them), and `Draw`, when set, draws over the scene in edit mode. Choosing another tool, or turning the plugin off, ends it.
+
+A plugin changes the scene only through the editor's methods, such as `SetComponentField`, `PlaceObject` and `MoveObject`, or by executing its own `Command` on `Editor.History`, so every edit it makes is undone and redone with the rest. `RegisterPlugin` refuses a plugin without a name or with a name already registered, a panel, inspector or tool missing its ID, title, label, component or function, an unknown dock and two panels, inspectors or tools with the same ID or component.
+
+`SetPluginEnabled(name, on)` adds a registered plugin to `editor.plugins` or removes it, as one undoable edit of the project that the toolbar's Save button writes; removing the last plugin removes the `editor` section, so `game.yaml` reads as before. `RegisteredPlugins`, `ActivePlugins` and `PluginEnabled` report which plugins the binary has and which are on.
+
+The editor's tests hold a sample plugin, `health`, that adds a panel listing every object's hit points with a button that heals them all, an inspector for its `health` component with a hit point field, and a tool that places a wounded object where the viewport is pressed (`packages/game/editor/plugin_test.go`).

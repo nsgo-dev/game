@@ -13,6 +13,7 @@ import (
 //   - Left Asset Browser panel
 //   - Center interactive Canvas viewport
 //   - Right Property Inspector panel
+//   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
 //   - Animation panel below them while a clip is open (AnimationPanelView)
 //   - Bottom status bar
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
@@ -53,10 +54,13 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 				},
 				Children: []core.Node{
 					AssetBrowserView(cx, ed, rev),
+					pluginDockView(cx, ed, rev, DockLeft),
 					ViewportView(cx, ed, rev),
 					InspectorView(cx, ed, rev),
+					pluginDockView(cx, ed, rev, DockRight),
 				},
 			},
+			pluginDockView(cx, ed, rev, DockBottom),
 			AnimationPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
@@ -188,6 +192,15 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 											toolBtn("tool-fill", "Fill", ToolFillTile),
 										},
 									}
+								},
+							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.ViewMode == ViewMode2D
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return pluginToolsView(cx, ed, rev, notPlaying)
 								},
 							},
 						},
@@ -341,7 +354,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					if ed.ViewMode == ViewMode3D {
 						return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
 					}
-					return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.Tool.String(), ed.ActiveLayer)
+					return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.toolLabel(), ed.ActiveLayer)
 				},
 				Style: core.Style{
 					FontSize: 11,

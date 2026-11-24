@@ -1,6 +1,6 @@
 # Project File
 
-`github.com/nsgo-dev/game/packages/game/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, and its export presets per platform. The game reads it at startup, the `gameproject` command checks and applies it, and the editor opens, edits and saves it.
+`github.com/nsgo-dev/game/packages/game/project` reads, checks, writes and applies `game.yaml`, the one file at a game's root that holds its settings: its name, id and version, its window and virtual resolution, its input map, its audio buses, the scenes and resources it loads at startup, its export presets per platform, and the editor plugins it turns on. The game reads it at startup, the `gameproject` command checks and applies it, and the editor opens, edits and saves it.
 
 ## The file
 
@@ -73,6 +73,8 @@ export:
     - platform: windows
       targets: [windows_x64]
     - platform: web
+editor:
+  plugins: [health]
 ```
 
 | Field | What it holds |
@@ -85,6 +87,7 @@ export:
 | `audio` | The default `master` volume and the `buses`, each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`). |
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. |
+| `editor` | The scene editor's settings: `plugins`, the [editor plugins](editor.md#editor-plugins-492) it turns on for this project, in the order their panels and tools appear. A plugin is Go code built into the editor binary; this list only turns it on. |
 
 `Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform and values out of range, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `gameproject fmt` rewrites it in the canonical form, which keeps no comments.
 
@@ -151,7 +154,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## In the editor
 
-`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names, and empties the undo history. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project when it was edited, before the scene and even when the scene has no file to save to, and leaves an unedited `game.yaml` as written, comments included. `gameeditor <dir>` opens a project from the command line.
+`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names, and empties the undo history. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project when it was edited, before the scene and even when the scene has no file to save to, and leaves an unedited `game.yaml` as written, comments included. `SetPluginEnabled(name, on)` adds a plugin to `editor.plugins` or removes it as such a step. `gameeditor <dir>` opens a project from the command line.
 
 ## The starter and the examples
 
