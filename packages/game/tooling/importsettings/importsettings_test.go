@@ -19,6 +19,9 @@ func TestParseEncodeRoundTrip(t *testing.T) {
 		{Version: 1, Audio: &importsettings.Audio{}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 1, RMSDB: ptr(-14.5), Bitrate: 96, Loop: &importsettings.Loop{Start: 0, End: 4410}}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "mp3", PeakDB: ptr(-1.0)}},
+		{Version: 1, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
+		{Version: 1, Image: &importsettings.Image{Filter: "nearest"}, Credit: &importsettings.Credit{Author: "Ana Souza", License: "CC-BY-4.0", Source: "https://example.com/hero", Notice: "Hero by Ana Souza.\n\tLicensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/"}},
+		{Version: 1, Audio: &importsettings.Audio{Rate: 22050}, Credit: &importsettings.Credit{Author: "Studio: \"Night\" #1", License: "(MIT OR Apache-2.0) AND GPL-2.0-or-later WITH Classpath-exception-2.0", Notice: "Copyright: 2026 #1\n- not a list"}},
 	} {
 		data, err := importsettings.Encode(f)
 		if err != nil {
@@ -72,7 +75,7 @@ func TestParseRefuses(t *testing.T) {
 		{"no version", "image: {}\n", "version 0"},
 		{"unknown field", "version: 1\nimage: {filtre: nearest}\n", "filtre"},
 		{"unknown section", "version: 1\nfont: {}\n", "font"},
-		{"no section", "version: 1\n", "image or an audio section"},
+		{"no section", "version: 1\n", "an image, an audio or a credit section"},
 		{"both sections", "version: 1\nimage: {}\naudio: {}\n", "not both"},
 		{"trailing document", "version: 1\nimage: {}\n---\nversion: 1\n", "trailing"},
 		{"filter", "version: 1\nimage: {filter: cubic}\n", `filter "cubic"`},
@@ -134,5 +137,99 @@ func TestPath(t *testing.T) {
 	}
 	if !importsettings.IsSidecar("art/hero.png.import.yaml") || importsettings.IsSidecar("art/hero.png") || importsettings.IsSidecar("level.yaml") {
 		t.Fatal("IsSidecar misclassifies")
+	}
+}
+
+func TestEncodeCreditLast(t *testing.T) {
+	data, err := importsettings.Encode(&importsettings.File{Version: 1, Image: &importsettings.Image{Filter: "nearest"}, Credit: &importsettings.Credit{Notice: "Line one\nLine two", Source: "https://example.com", License: "CC-BY-4.0", Author: "Ana"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := importsettings.SchemaComment + `
+version: 1
+image:
+  filter: nearest
+credit:
+  author: Ana
+  license: CC-BY-4.0
+  source: https://example.com
+  notice: |-
+    Line one
+    Line two
+`
+	if string(data) != want {
+		t.Fatalf("Encode =\n%s\nwant\n%s", data, want)
+	}
+}
+
+func TestParseRefusesCredit(t *testing.T) {
+	for _, tc := range []struct{ name, yaml, want string }{
+		{"no author", "version: 1\ncredit: {license: MIT}\n", "author is required"},
+		{"no license", "version: 1\ncredit: {author: Ana}\n", "license is required"},
+		{"unknown field", "version: 1\ncredit: {author: Ana, license: MIT, licence: MIT}\n", "licence"},
+		{"padded author", "version: 1\ncredit: {author: ' Ana', license: MIT}\n", "spaces"},
+		{"two-line author", "version: 1\ncredit: {author: \"Ana\\nBo\", license: MIT}\n", "one line"},
+		{"two-line source", "version: 1\ncredit: {author: Ana, license: MIT, source: \"a\\nb\"}\n", "one line"},
+		{"notice control", "version: 1\ncredit: {author: Ana, license: MIT, notice: \"a\\u0007b\"}\n", "control character"},
+		{"notice blank end", "version: 1\ncredit: {author: Ana, license: MIT, notice: \"a\\n\"}\n", "blank lines"},
+		{"bad license with image", "version: 1\nimage: {}\ncredit: {author: Ana, license: CC BY 4.0}\n", "credit:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := importsettings.Parse([]byte(tc.yaml))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Parse error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateLicense(t *testing.T) {
+	for _, ok := range []string{
+		"CC0-1.0",
+		"CC-BY-4.0",
+		"OFL-1.1",
+		"GPL-2.0+",
+		"MIT OR Apache-2.0",
+		"(MIT OR Apache-2.0) AND BSD-3-Clause",
+		"GPL-2.0-or-later WITH Classpath-exception-2.0",
+		"((MIT))",
+		"LicenseRef-Studio-EULA",
+		"DocumentRef-pack:LicenseRef-Asset-Store.1",
+		"MIT AND (CC-BY-SA-4.0 OR LicenseRef-x)",
+	} {
+		if err := importsettings.ValidateLicense(ok); err != nil {
+			t.Errorf("ValidateLicense(%q) = %v", ok, err)
+		}
+	}
+	for _, tc := range []struct{ expr, want string }{
+		{"", "required"},
+		{"   ", "required"},
+		{"CC BY 4.0", "unexpected"},
+		{"MIT or Apache-2.0", "must be written OR"},
+		{"MIT OR", "ends where"},
+		{"OR MIT", "between two licenses"},
+		{"MIT AND AND BSD-2-Clause", "between two licenses"},
+		{"(MIT", "without its"},
+		{"MIT)", "unexpected"},
+		{")", "without its"},
+		{"()", "without its"},
+		{"MIT WITH", "exception identifier"},
+		{"MIT WITH (x)", "exception identifier"},
+		{"MIT WITH a+", "exception"},
+		{"NONE", "records no license"},
+		{"NOASSERTION", "records no license"},
+		{"LicenseRef-", "LicenseRef-"},
+		{"LicenseRef-a_b", "holds"},
+		{"DocumentRef-x:MIT", "DocumentRef-"},
+		{"Licence:MIT", "DocumentRef-"},
+		{"MIT++", "not a license identifier"},
+		{"+", "not a license identifier"},
+		{"MIT/X11", "holds"},
+		{"CC-BY-4.0é", "holds"},
+	} {
+		err := importsettings.ValidateLicense(tc.expr)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("ValidateLicense(%q) = %v, want it to mention %q", tc.expr, err, tc.want)
+		}
 	}
 }
