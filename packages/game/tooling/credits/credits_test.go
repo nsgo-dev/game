@@ -148,6 +148,8 @@ func TestCollect(t *testing.T) {
 	writeFile(t, root, "art/hero/idle.png.import.yaml", []byte("version: 1\ncredit: {author: Ana, license: CC-BY-4.0, source: 'https://example.com/hero'}\n"))
 	writeFile(t, root, "art/sky.png.import.yaml", []byte("version: 1\nimage: {filter: nearest}\n"))
 	writeFile(t, root, "assets/fonts/pixel.ttf.import.yaml", []byte("version: 1\ncredit:\n  author: Bo\n  license: OFL-1.1\n  notice: Copyright 2026 Bo\n"))
+	// A case-insensitive file system opens this one for run.png, but it credits run.png on none.
+	writeFile(t, root, "art/hero/RUN.png.import.yaml", []byte("version: 1\ncredit: {author: Ana, license: CC0-1.0}\n"))
 
 	entries, err := credits.Collect(root, a)
 	var missing *credits.MissingError
@@ -157,7 +159,7 @@ func TestCollect(t *testing.T) {
 	if want := []string{"art/hero/run.png", "art/sky.png", "assets/levels/one.tmj", "sfx/jump.wav"}; !slices.Equal(missing.Assets, want) {
 		t.Fatalf("missing = %v, want %v", missing.Assets, want)
 	}
-	for _, s := range []string{"4 assets have no credit", "\n\tart/sky.png.import.yaml", "\n\tsfx/jump.wav.import.yaml"} {
+	for _, s := range []string{"4 assets have no credit", "\n\tart/sky.png.import.yaml", "\n\tsfx/jump.wav.import.yaml", "leftover of an earlier build"} {
 		if !strings.Contains(err.Error(), s) {
 			t.Errorf("error %q does not mention %q", err, s)
 		}
@@ -166,6 +168,9 @@ func TestCollect(t *testing.T) {
 		t.Fatalf("entries = %+v", entries)
 	}
 
+	if err := os.Remove(filepath.Join(root, "art/hero/RUN.png.import.yaml")); err != nil {
+		t.Fatal(err)
+	}
 	for _, rel := range missing.Assets {
 		writeFile(t, root, importsettings.Path(rel), []byte("version: 1\ncredit: {author: Studio, license: LicenseRef-Studio}\n"))
 	}
@@ -199,12 +204,12 @@ func TestMarkdown(t *testing.T) {
 		{Asset: "art/hero|1.png", Credit: importsettings.Credit{Author: "Ana *Souza* <ana>", License: "CC-BY-4.0", Source: "Made for the jam | 2026", Notice: "Hero by Ana Souza\n```\nCC BY 4.0"}},
 		{Asset: "assets/fonts/pixel.ttf", Credit: importsettings.Credit{Author: "Bo", License: "MIT OR Apache-2.0"}},
 		{Asset: "assets/music/theme.ogg", Credit: importsettings.Credit{Author: "Studio", License: "LicenseRef-Studio-EULA", Notice: "All rights reserved."}},
-		{Asset: "art/sky.png", Credit: importsettings.Credit{Author: "Ana", License: "CC-BY-4.0"}},
+		{Asset: "art/sky.png", Credit: importsettings.Credit{Author: "Ana", License: "CC-BY-4.0", Source: "https://example.com/a|b"}},
 	}
 	want := "# Credits\n\n<!-- Generated from the credit section of each asset's import settings sidecar (*.import.yaml). DO NOT EDIT. -->\n\n" +
 		"| Asset | Author | License | Source |\n| --- | --- | --- | --- |\n" +
 		"| `art/hero\\|1.png` | Ana \\*Souza\\* \\<ana\\> | CC-BY-4.0 | Made for the jam \\| 2026 |\n" +
-		"| `art/sky.png` | Ana | CC-BY-4.0 |  |\n" +
+		"| `art/sky.png` | Ana | CC-BY-4.0 | <https://example.com/a%7Cb> |\n" +
 		"| `assets/fonts/pixel.ttf` | Bo | MIT OR Apache-2.0 |  |\n" +
 		"| `assets/music/theme.ogg` | Studio | LicenseRef-Studio-EULA |  |\n" +
 		"| `sfx/jump.wav` | Kenney | CC0-1.0 | <https://kenney.nl/assets> |\n" +
@@ -214,7 +219,7 @@ func TestMarkdown(t *testing.T) {
 		"| LicenseRef-Studio-EULA | 1 |\n" +
 		"| MIT OR Apache-2.0 | 1 |\n" +
 		"\n## Notices\n" +
-		"\n### `art/hero\\|1.png`\n\n````text\nHero by Ana Souza\n```\nCC BY 4.0\n````\n" +
+		"\n### `art/hero|1.png`\n\n````text\nHero by Ana Souza\n```\nCC BY 4.0\n````\n" +
 		"\n### `assets/music/theme.ogg`\n\n```text\nAll rights reserved.\n```\n"
 	got := string(credits.Markdown(entries))
 	if got != want {

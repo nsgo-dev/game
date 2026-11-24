@@ -114,17 +114,16 @@ type exportPreset struct {
 	Targets  []string `yaml:"targets"`
 }
 
+// noCreditsNote is what game release prints when game.yaml has no assets section, and so no credits file is written.
+const noCreditsNote = "game release: note: game.yaml has no assets section, so no " + credits.FileName + " is written; credit the assets the game ships yourself"
+
 // parseReleaseSettings reads the version and export section of a game.yaml, refusing unknown top-level fields, a version other than the integer 1, unknown fields in export, an empty preset list, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project. When the file has an assets section, which game release reads for the credits file, the whole file is parsed and validated by package project, as game assets parses it.
 func parseReleaseSettings(data []byte) (releaseSettings, error) {
-	settings, err := parseExportSettings(data)
+	settings, hasAssets, err := parseExportSettings(data)
 	if err != nil {
 		return releaseSettings{}, err
 	}
-	var head gameFileHead
-	if err := yaml.Unmarshal(data, &head); err != nil {
-		return releaseSettings{}, err
-	}
-	if assets := resolveAlias(&head.Assets); assets.Kind != 0 && assets.Tag != "!!null" {
+	if hasAssets {
 		f, err := project.Parse(data)
 		if err != nil {
 			return releaseSettings{}, err
@@ -134,79 +133,81 @@ func parseReleaseSettings(data []byte) (releaseSettings, error) {
 	return settings, nil
 }
 
-// parseExportSettings reads the version and export section of a game.yaml for parseReleaseSettings.
-func parseExportSettings(data []byte) (releaseSettings, error) {
+// parseExportSettings reads the version and export section of a game.yaml for parseReleaseSettings, and reports whether the file has an assets section.
+func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&doc); err != nil {
 		if errors.Is(err, io.EOF) {
-			return releaseSettings{}, errors.New("empty file")
+			return releaseSettings{}, false, errors.New("empty file")
 		}
-		return releaseSettings{}, err
+		return releaseSettings{}, false, err
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return releaseSettings{}, errors.New("unexpected trailing YAML document")
+			return releaseSettings{}, false, errors.New("unexpected trailing YAML document")
 		}
-		return releaseSettings{}, err
+		return releaseSettings{}, false, err
 	}
 	root := resolveAlias(doc.Content[0])
 	if root.Kind != yaml.MappingNode {
-		return releaseSettings{}, fmt.Errorf("line %d: the file must be a mapping of fields", root.Line)
+		return releaseSettings{}, false, fmt.Errorf("line %d: the file must be a mapping of fields", root.Line)
 	}
 	if err := knownFields(root, "game.yaml", gameFileKeys...); err != nil {
-		return releaseSettings{}, err
+		return releaseSettings{}, false, err
 	}
 	var head gameFileHead
 	if err := root.Decode(&head); err != nil {
-		return releaseSettings{}, err
+		return releaseSettings{}, false, err
 	}
+	assets := resolveAlias(&head.Assets)
+	hasAssets := assets.Kind != 0 && assets.Tag != "!!null"
 	version := resolveAlias(&head.Version)
 	if version.Kind == 0 {
-		return releaseSettings{}, errors.New("version is required")
+		return releaseSettings{}, false, errors.New("version is required")
 	}
 	// The tag is checked before decoding, since yaml.v3 would truncate a float such as 1.9 to the int 1.
 	var v int
 	if version.Kind != yaml.ScalarNode || version.Tag != "!!int" || version.Decode(&v) != nil {
-		return releaseSettings{}, fmt.Errorf("line %d: version %q must be the integer %d", version.Line, version.Value, gameFileVersion)
+		return releaseSettings{}, false, fmt.Errorf("line %d: version %q must be the integer %d", version.Line, version.Value, gameFileVersion)
 	}
 	if v != gameFileVersion {
-		return releaseSettings{}, fmt.Errorf("unsupported version %d (want %d)", v, gameFileVersion)
+		return releaseSettings{}, false, fmt.Errorf("unsupported version %d (want %d)", v, gameFileVersion)
 	}
 	if head.Export.Kind == 0 || head.Export.Tag == "!!null" {
-		return releaseSettings{}, nil
+		return releaseSettings{}, hasAssets, nil
 	}
 	// Node.Decode cannot refuse unknown fields, so the section's keys are checked first, keeping the file's line numbers in the errors.
 	if err := knownFields(&head.Export, "export", "output", "presets"); err != nil {
-		return releaseSettings{}, err
+		return releaseSettings{}, false, err
 	}
 	if presets := field(&head.Export, "presets"); presets != nil && presets.Kind == yaml.SequenceNode {
 		if len(presets.Content) == 0 {
-			return releaseSettings{}, fmt.Errorf("line %d: export presets must name at least one platform; leave presets out to build the default platforms", presets.Line)
+			return releaseSettings{}, false, fmt.Errorf("line %d: export presets must name at least one platform; leave presets out to build the default platforms", presets.Line)
 		}
 		for _, p := range presets.Content {
 			if err := knownFields(p, "export preset", "platform", "targets"); err != nil {
-				return releaseSettings{}, err
+				return releaseSettings{}, false, err
 			}
 		}
 	}
 	var export exportSection
 	if err := head.Export.Decode(&export); err != nil {
-		return releaseSettings{}, fmt.Errorf("export: %w", err)
+		return releaseSettings{}, false, fmt.Errorf("export: %w", err)
 	}
 	// A colon is refused as well as fs.ValidPath's rejects, since C:/builds is a valid slash path that Windows reads as a drive outside the project.
 	if o := export.Output; o != "" && (o == "." || !fs.ValidPath(o) || strings.ContainsAny(o, `\:`)) {
-		return releaseSettings{}, fmt.Errorf("export output %q must be a slash-separated directory inside the project", o)
+		return releaseSettings{}, false, fmt.Errorf("export output %q must be a slash-separated directory inside the project", o)
 	}
 	settings := releaseSettings{Output: export.Output}
 	seenPlatforms := make(map[string]bool, len(export.Presets))
 	for _, p := range export.Presets {
 		if !slices.Contains(exportPlatforms, p.Platform) {
-			return releaseSettings{}, fmt.Errorf("export platform %q must be one of %s", p.Platform, strings.Join(exportPlatforms, ", "))
+			return releaseSettings{}, false, fmt.Errorf("export platform %q must be one of %s", p.Platform, strings.Join(exportPlatforms, ", "))
 		}
 		if seenPlatforms[p.Platform] {
-			return releaseSettings{}, fmt.Errorf("duplicate export preset for platform %q", p.Platform)
+			return releaseSettings{}, false, fmt.Errorf("duplicate export preset for platform %q", p.Platform)
 		}
 		seenPlatforms[p.Platform] = true
 		if len(p.Targets) == 0 {
@@ -216,16 +217,16 @@ func parseExportSettings(data []byte) (releaseSettings, error) {
 		seenTargets := make(map[string]bool, len(p.Targets))
 		for _, t := range p.Targets {
 			if !slices.Contains(exportTargets, t) || platformOf(t) != p.Platform {
-				return releaseSettings{}, fmt.Errorf("export platform %q target %q must be one of %s", p.Platform, t, strings.Join(targetsOf(p.Platform), ", "))
+				return releaseSettings{}, false, fmt.Errorf("export platform %q target %q must be one of %s", p.Platform, t, strings.Join(targetsOf(p.Platform), ", "))
 			}
 			if seenTargets[t] {
-				return releaseSettings{}, fmt.Errorf("export platform %q lists target %q twice", p.Platform, t)
+				return releaseSettings{}, false, fmt.Errorf("export platform %q lists target %q twice", p.Platform, t)
 			}
 			seenTargets[t] = true
 			settings.Targets = append(settings.Targets, t)
 		}
 	}
-	return settings, nil
+	return settings, hasAssets, nil
 }
 
 // resolveAlias returns the node an alias node points to, or n itself.
@@ -472,6 +473,9 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 			if creditsDir, err = releaseOutput(dir, opts, settings, nsgo); err != nil {
 				return err
 			}
+		} else {
+			// Without an assets section the command knows of no asset, so it says so rather than leave the credits out silently.
+			fmt.Fprintln(a.stderr, noCreditsNote)
 		}
 		if *dryRun {
 			fmt.Fprintln(a.stdout, shellQuote(append([]string{"go"}, args...)))
