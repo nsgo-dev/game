@@ -101,6 +101,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/leaderboard/selfhost/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/lights2d` | Experimental | [lights2d](lights2d.md) |
 | `game/liveops` | Experimental | [liveops](liveops.md) |
+| `game/loot` | Experimental | [loot](loot.md) |
 | `game/math2d` | Stable | [math2d](math2d.md) |
 | `game/math3d` | Experimental | [math3d](math3d.md) |
 | `game/modding` | Experimental | [modding](modding.md) |
