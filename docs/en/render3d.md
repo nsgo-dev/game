@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, directional shadow maps, camera uniforms, offscreen render-to-texture cameras and multi-viewport split-screen rendering, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, directional, spot and point light shadow maps, camera uniforms, offscreen render-to-texture cameras and multi-viewport split-screen rendering, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -378,7 +378,7 @@ Three pipelines draw a `GPUSkinnedMesh`, each binding the palette at its own gro
 | Pipeline | Shader | Palette group | Not combinable with |
 | --- | --- | --- | --- |
 | `NewSkinnedMeshPipeline` (unlit, colored by normal) | `SkinnedMeshWGSL` | `SkinGroup` (1) | |
-| `NewLitPBRPipelineWithOptions` with `LitPBRPipelineOptions.SkinLayout` (scene lights) | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup` (3) | `FogLayout`, `IBLLayout`, `ShadowLayout` |
+| `NewLitPBRPipelineWithOptions` with `LitPBRPipelineOptions.SkinLayout` (scene lights) | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup` (3) | `FogLayout`, `IBLLayout`, `ShadowLayout`, `SpotShadowLayout`, `PointShadowLayout` |
 | `NewMaterialPipeline` with `MaterialPipelineOptions.SkinLayout` (glTF material with textures) | `MaterialSkinnedWGSL` | `MaterialSkinGroup` (2) | `FogLayout` |
 
 `SkinWGSL` declares the uniform block at group 1 and the portable `skin_position` / `skin_normal` vertex helpers matching CPU `SkinVertex`, for custom shaders that bind nothing else at group 1.
@@ -1095,41 +1095,46 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 
 ## Point and spot light shadows (`SpotShadowMap`, `PointShadowMap`)
 
-`SpotShadowMap` and `PointShadowMap` render depth-only `FormatDepth32Float` shadow maps for local lights and expose them alongside comparison samplers and WGSL helpers (`SpotShadowWGSL`, `PointShadowWGSL`) that run portably across Metal, Direct3D 11, OpenGL 3.3, WebGPU, WebGL 2, OpenGL ES 3.0, and the software GPU renderer (`nsgotest.NoGPUCompute` included):
-
-- **Spot light shadows (`SpotShadowMap`)**: builds a square `[0, 1]`-depth perspective projection matching `SpotShadowLight.Position`, `Direction`, `OuterConeAngle` (`fovY = 2 * OuterConeAngle`), `Near`, and `Range`. `BeginShadowPass` clears depth and binds the depth-only caster pipeline; `DrawCaster` writes each caster's `(lightViewProj, model)` transform into a 256-byte dynamic-offset uniform slot so any number of casters (up to `MaxCasters`) draw in one pass without overwriting earlier transforms.
-- **Omnidirectional point light shadows (`PointShadowMap`)**: packs all six 90° cube faces (`gpu.CubeFacePosX`..`gpu.CubeFaceNegZ`) into a single `3×2` `FormatDepth32Float` 2D depth atlas of size `(3 * FaceResolution) × (2 * FaceResolution)`. Calling `BeginFacePass(rec, face)` for `face` `0..5` clears the atlas on face 0, preserves earlier tiles on faces 1..5 (`LoadLoad`), and locks viewport and scissor to each face's tile. In `PointShadowWGSL`, `sample_point_shadow` selects the dominant cube face, computes analytic perspective NDC depth `(far/(far-near))*(1 - near/axisDist)` without uploading six matrices to the fragment shader, and clamps every tap inside `[0.51/faceRes, 1 - 0.51/faceRes]` so 3×3 PCF never bleeds across adjacent atlas tiles.
-- **Filtering, biasing, and ready-made pipelines**: choose `LocalShadowFilterHard` (single nearest comparison tap) or `LocalShadowFilterPCF3x3` (9 linear comparison taps) with configurable `DepthBias` and `NormalBias`. `BeginShadowPass` and `BeginFacePass` accept both `*gpu.Encoder` and `*gpu.Frame` (`LocalShadowPassRecorder`). Use `NewSpotShadowLitPipeline` or `NewPointShadowLitPipeline` for quick shadowed lighting with `CameraGroup` (0) and `LocalShadowGroup` (1), or prepend `CameraWGSL` + `SpotShadowWGSL` / `PointShadowWGSL` to custom fragment shaders.
-- **Device-loss recovery and CPU reference**: setting `Retained: true` recreates the depth render target, comparison sampler, uniform buffers, bind groups, and depth pipeline automatically after a device loss (`Update` and `DrawCaster` take the live `*gpu.Device` explicitly). Pure-Go evaluators `EvaluateSpotShadow`, `EvaluateSpotLighting`, `PointShadowSelectFace`, `EvaluatePointShadow`, and `EvaluatePointLighting` mirror the WGSL shaders for analytic verification, alongside golden reference renders `render3d/testdata/golden/local_shadow_spot.png` and `local_shadow_point.png` (`UPDATE_GOLDEN=1` rewrites them).
+`SpotShadowMap` and `PointShadowMap` shadow the first spot light (`rig.Spot[0]`) and the first point light (`rig.Point[0]`) of a `LightRig`. They render depth-only `FormatDepth32Float` maps from the rig's own `SpotLight` and `PointLight`, and the lit PBR pipelines multiply that light's contribution by the shadow, so a shadowed light is shaded exactly like the same light in `LitPBRWGSL` (Cook-Torrance GGX, energy-conserving Lambert, `PointLightAttenuation`, glTF cone falloff). Everything runs on every NSGo backend, the WebGL 2 / OpenGL ES 3.0 profile (`nsgotest.NoGPUCompute`) and the software renderer included:
 
 ```go
 spot, err := render3d.NewSpotShadowMap(cx, dev, render3d.DefaultSpotShadowConfig())
-litPipe, err := render3d.NewSpotShadowLitPipeline(cx, dev, camBuf.Layout(), spot.Layout(), render3d.LocalShadowLitPipelineOptions{
-	DepthFormat: gpu.FormatDepth24Plus,
-	CullMode:    gpu.CullBack,
-})
+litPipe, err := render3d.NewLitPBRSpotShadowPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBufs[0].Layout(), spot.Layout(), gpu.FormatDepth24Plus)
 
 // Each frame in OnFrame:
-_ = spot.Update(dev, spotLight)
-sp := spot.BeginShadowPass(frame)
-spot.DrawCaster(dev, sp, pillarMesh, pillarModel)
-sp.End()
+_ = spot.Update(dev, rig.Spot[0]) // the light the shadow attenuates
+if sp := spot.BeginShadowPass(dev, frame); sp != nil {
+	spot.DrawCaster(sp, pillarMesh, pillarModel) // false when the pass is full
+	sp.End()
+}
 
-mp := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{ /* color + depth */ })
 mp.SetPipeline(litPipe)
 mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
 mp.SetBindGroup(render3d.LocalShadowGroup, spot.BindGroup())
-sceneMesh.Draw(mp)
+for i, mesh := range meshes {
+	mp.SetBindGroup(render3d.PBRDrawGroup, drawBufs[i].BindGroup()) // per-draw model matrix and material
+	mesh.Draw(mp)
+}
 mp.End()
 ```
 
-For an omnidirectional point light, loop `face` from `0` to `render3d.PointShadowFaceCount-1`:
+For a point light, update from `rig.Point[0]`, draw with `NewLitPBRPointShadowPipeline`, and render the cube faces:
 
 ```go
-_ = point.Update(dev, pointLight)
+_ = point.Update(dev, rig.Point[0])
 for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
-	fp := point.BeginFacePass(frame, face)
-	point.DrawCaster(dev, fp, blockerMesh, blockerModel)
-	fp.End()
+	if fp := point.BeginFacePass(dev, frame, face); fp != nil {
+		point.DrawCaster(fp, blockerMesh, blockerModel)
+		fp.End()
+	}
 }
 ```
+
+- **Spot projection**: a square `[0, 1]`-depth perspective from the light's `Position` along its `Direction` with a field of view of `2 * OuterConeAngle` (`SpotShadowViewProj`). The far plane is the light's `Range`, or `SpotShadowConfig.Far` (default `DefaultLocalShadowFar`, 50) for a light with `Range` 0; `Near` defaults to 0.1. A cone wider than `MaxSpotShadowConeAngle` (just under 90°) cannot be projected and `Update` returns `ErrInvalidLocalShadow`.
+- **Point atlas**: the six 90° cube faces are packed into one `(3 * FaceResolution) × (2 * FaceResolution)` 2D depth atlas, because NSGo cannot attach a single face of a depth cube map. `sample_point_shadow` picks the dominant face, computes the perspective depth `(far/(far-near)) * (1 - near/axisDist)` directly, and clamps every tap inside its tile so 3×3 PCF never bleeds into a neighboring face. `BeginFacePass` with face 0 clears the whole atlas and faces 1..5 keep what is there, so a partial refresh either includes face 0 with every other face or skips it.
+- **Casters**: `DrawCaster` writes each caster's `(lightViewProj, model)` into its own 256-byte dynamic-offset slot, so many casters draw in one pass. `MaxCasters` (default 256, at most `MaxLocalShadowCasters`) applies per spot pass and per point face; each face has its own slots, so faces can be refreshed in any order. `DrawCaster` returns false when the pass or face is full or `Update` has not run yet.
+- **Filtering and bias**: `LocalShadowFilterHard` (one nearest comparison tap) or `LocalShadowFilterPCF3x3` (nine linear taps), with a constant `DepthBias` and a world-space `NormalBias`.
+- **Bind group 3**: `LocalShadowGroup` is `ShadowGroup` (3), the group the directional shadow, fog, IBL and skinning also use, so a lit PBR pipeline takes one of them (`LitPBRPipelineOptions.SpotShadowLayout` or `PointShadowLayout`). A custom shader that needs both, or group 3 for something else, places the bindings with `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` and scales its lights with `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` from `LightWGSL`.
+- **Device loss and CPU references**: with `Retained: true` the depth target, sampler, buffers, bind groups and depth pipeline come back after a device loss. `EvaluateSpotShadow`, `EvaluatePointShadow` and `PointShadowSelectFace` mirror the WGSL, and `ShadePointVisibility` with a `LightVisibility` reproduces the lit pixel; the tests compare them with the GPU and with the golden renders `render3d/testdata/golden/local_shadow_spot.png` and `local_shadow_point.png` (`UPDATE_GOLDEN=1` rewrites them).

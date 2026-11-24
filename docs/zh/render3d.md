@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、方向光阴影贴图、相机 uniform、离屏渲染到纹理相机与多视口分屏渲染、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、方向光、聚光灯与点光源阴影贴图、相机 uniform、离屏渲染到纹理相机与多视口分屏渲染、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -378,7 +378,7 @@ morph.Draw(pass)
 | 管线 | 着色器 | 骨骼矩阵组 | 不能同时使用 |
 | --- | --- | --- | --- |
 | `NewSkinnedMeshPipeline`（无光照，按法线着色） | `SkinnedMeshWGSL` | `SkinGroup`（1） | |
-| `NewLitPBRPipelineWithOptions` 加 `LitPBRPipelineOptions.SkinLayout`（场景光源） | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup`（3） | `FogLayout`、`IBLLayout`、`ShadowLayout` |
+| `NewLitPBRPipelineWithOptions` 加 `LitPBRPipelineOptions.SkinLayout`（场景光源） | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup`（3） | `FogLayout`、`IBLLayout`、`ShadowLayout`、`SpotShadowLayout`、`PointShadowLayout` |
 | `NewMaterialPipeline` 加 `MaterialPipelineOptions.SkinLayout`（带纹理的 glTF 材质） | `MaterialSkinnedWGSL` | `MaterialSkinGroup`（2） | `FogLayout` |
 
 `SkinWGSL` 在第 1 组声明 uniform 数据块，以及与 CPU `SkinVertex` 一致的 `skin_position` / `skin_normal` 顶点辅助函数，供第 1 组不绑定其他资源的自定义着色器使用。
@@ -1095,41 +1095,46 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 
 ## 点光源与聚光灯阴影（`SpotShadowMap`、`PointShadowMap`）
 
-`SpotShadowMap` 与 `PointShadowMap` 为局部光源渲染纯深度 `FormatDepth32Float` 阴影贴图，并提供比较采样器与可移植 WGSL 辅助代码（`SpotShadowWGSL`、`PointShadowWGSL`），可在 Metal、Direct3D 11、OpenGL 3.3、WebGPU、WebGL 2、OpenGL ES 3.0 及软件 GPU 渲染器（包括 `nsgotest.NoGPUCompute`）上一致运行：
-
-- **聚光灯阴影（`SpotShadowMap`）**：根据 `SpotShadowLight.Position`、`Direction`、`OuterConeAngle`（`fovY = 2 * OuterConeAngle`）、`Near` 与 `Range` 构建正方形 `[0, 1]` 深度透视投影。`BeginShadowPass` 清除深度并绑定纯深度投射管线；`DrawCaster` 将每个投射体的 `(lightViewProj, model)` 写入 256 字节对齐的动态偏移 uniform 槽位，使单次通道内可连续绘制多个投射体（上限 `MaxCasters`）而不互相覆盖。
-- **全向点光源阴影（`PointShadowMap`）**：将 6 个 90° 立方体贴图面（`gpu.CubeFacePosX`..`gpu.CubeFaceNegZ`）打包进一张尺寸为 `(3 * FaceResolution) × (2 * FaceResolution)` 的 `3×2` `FormatDepth32Float` 2D 深度图集。对 `face` `0..5` 调用 `BeginFacePass(rec, face)` 时，第 0 面清除整个图集，第 1..5 面通过 `LoadLoad` 保留已渲染的瓦片，并将视口与裁剪矩形严格锁定到当前面瓦片内。在 `PointShadowWGSL` 中，`sample_point_shadow` 选取主轴方向面，以解析公式 `(far/(far-near))*(1 - near/axisDist)` 计算透视 NDC 深度（无需向片元着色器上传 6 个矩阵），并将每次采样钳制在 `[0.51/faceRes, 1 - 0.51/faceRes]` 内，确保 3×3 PCF 不会跨瓦片渗色。
-- **滤波、偏移与开箱即用管线**：支持 `LocalShadowFilterHard`（单次最近邻比较采样）与 `LocalShadowFilterPCF3x3`（9 次线性比较采样），并可配置 `DepthBias` 与 `NormalBias`。`BeginShadowPass` 与 `BeginFacePass` 同时接受 `*gpu.Encoder` 与 `*gpu.Frame`（`LocalShadowPassRecorder`）。可直接用 `NewSpotShadowLitPipeline` / `NewPointShadowLitPipeline` 搭配 `CameraGroup`（0）和 `LocalShadowGroup`（1）渲染带阴影光照，或在自定义片元着色器前拼接 `CameraWGSL` 与 `SpotShadowWGSL` / `PointShadowWGSL`。
-- **设备丢失恢复与 CPU 参考实现**：开启 `Retained: true` 后，设备丢失恢复时 NSGo 会自动重建深度渲染目标、比较采样器、uniform 缓冲、绑定组与深度管线（`Update` 与 `DrawCaster` 显式接收存活的 `*gpu.Device`）。纯 Go 评估函数 `EvaluateSpotShadow`、`EvaluateSpotLighting`、`PointShadowSelectFace`、`EvaluatePointShadow` 与 `EvaluatePointLighting` 与 WGSL 着色器逐项对应，便于解析校验，并附带参考渲染图 `render3d/testdata/golden/local_shadow_spot.png` 与 `local_shadow_point.png`（`UPDATE_GOLDEN=1` 可重写）。
+`SpotShadowMap` 与 `PointShadowMap` 为 `LightRig` 的第一盏聚光灯（`rig.Spot[0]`）和第一盏点光源（`rig.Point[0]`）生成阴影。它们根据光照组自身的 `SpotLight` 与 `PointLight` 渲染纯深度 `FormatDepth32Float` 阴影贴图，带阴影的 PBR 管线再把该光源的贡献乘以阴影可见度，因此带阴影的光源与 `LitPBRWGSL` 中同一光源的着色完全一致（Cook-Torrance GGX、能量守恒的 Lambert、`PointLightAttenuation`、glTF 锥角衰减）。所有功能在每个 NSGo 后端上都能运行，包括 WebGL 2 / OpenGL ES 3.0 配置（`nsgotest.NoGPUCompute`）与软件渲染器：
 
 ```go
 spot, err := render3d.NewSpotShadowMap(cx, dev, render3d.DefaultSpotShadowConfig())
-litPipe, err := render3d.NewSpotShadowLitPipeline(cx, dev, camBuf.Layout(), spot.Layout(), render3d.LocalShadowLitPipelineOptions{
-	DepthFormat: gpu.FormatDepth24Plus,
-	CullMode:    gpu.CullBack,
-})
+litPipe, err := render3d.NewLitPBRSpotShadowPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), drawBufs[0].Layout(), spot.Layout(), gpu.FormatDepth24Plus)
 
 // 每帧在 OnFrame 中：
-_ = spot.Update(dev, spotLight)
-sp := spot.BeginShadowPass(frame)
-spot.DrawCaster(dev, sp, pillarMesh, pillarModel)
-sp.End()
+_ = spot.Update(dev, rig.Spot[0]) // 阴影作用的光源
+if sp := spot.BeginShadowPass(dev, frame); sp != nil {
+	spot.DrawCaster(sp, pillarMesh, pillarModel) // 通道已满时返回 false
+	sp.End()
+}
 
-mp := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{ /* 颜色 + 深度 */ })
 mp.SetPipeline(litPipe)
 mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
 mp.SetBindGroup(render3d.LocalShadowGroup, spot.BindGroup())
-sceneMesh.Draw(mp)
+for i, mesh := range meshes {
+	mp.SetBindGroup(render3d.PBRDrawGroup, drawBufs[i].BindGroup()) // 每次绘制的模型矩阵与材质
+	mesh.Draw(mp)
+}
 mp.End()
 ```
 
-对于全向点光源，遍历 `face` 从 `0` 到 `render3d.PointShadowFaceCount-1`：
+点光源则用 `rig.Point[0]` 更新，用 `NewLitPBRPointShadowPipeline` 绘制，并渲染各个立方体面：
 
 ```go
-_ = point.Update(dev, pointLight)
+_ = point.Update(dev, rig.Point[0])
 for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
-	fp := point.BeginFacePass(frame, face)
-	point.DrawCaster(dev, fp, blockerMesh, blockerModel)
-	fp.End()
+	if fp := point.BeginFacePass(dev, frame, face); fp != nil {
+		point.DrawCaster(fp, blockerMesh, blockerModel)
+		fp.End()
+	}
 }
 ```
+
+- **聚光灯投影**：从光源 `Position` 沿 `Direction` 看出的正方形 `[0, 1]` 深度透视投影，视场角为 `2 * OuterConeAngle`（`SpotShadowViewProj`）。远平面取光源的 `Range`；`Range` 为 0 的光源取 `SpotShadowConfig.Far`（默认 `DefaultLocalShadowFar`，即 50）；`Near` 默认为 0.1。锥角超过 `MaxSpotShadowConeAngle`（略小于 90°）时无法投影，`Update` 返回 `ErrInvalidLocalShadow`。
+- **点光源图集**：6 个 90° 立方体面打包进一张 `(3 * FaceResolution) × (2 * FaceResolution)` 的 2D 深度图集，因为 NSGo 无法把深度立方体贴图的单个面作为附件。`sample_point_shadow` 选取主轴方向的面，直接计算透视深度 `(far/(far-near)) * (1 - near/axisDist)`，并把每次采样钳制在所属瓦片内，使 3×3 PCF 不会渗入相邻面。`BeginFacePass` 渲染第 0 面时清除整个图集，第 1..5 面保留已有内容，因此只刷新部分面时，要么连同其他所有面一起刷新第 0 面，要么不刷新第 0 面。
+- **投射体**：`DrawCaster` 把每个投射体的 `(lightViewProj, model)` 写入各自的 256 字节动态偏移槽位，因此一个通道可以绘制多个投射体。`MaxCasters`（默认 256，最大 `MaxLocalShadowCasters`）对聚光灯按每个通道计算，对点光源按每个面计算；每个面有自己的槽位，因此各面可以按任意顺序刷新。通道或面已满、或尚未调用 `Update` 时，`DrawCaster` 返回 false。
+- **滤波与偏移**：`LocalShadowFilterHard`（一次最近邻比较采样）或 `LocalShadowFilterPCF3x3`（九次线性采样），配合常量 `DepthBias` 与世界空间 `NormalBias`。
+- **第 3 绑定组**：`LocalShadowGroup` 即 `ShadowGroup`（3），方向光阴影、雾、IBL 与蒙皮也使用该组，因此一条带光照的 PBR 管线只能选用其中之一（`LitPBRPipelineOptions.SpotShadowLayout` 或 `PointShadowLayout`）。需要同时使用两种阴影、或第 3 组另有用途的自定义着色器，可用 `SpotShadowWGSLForGroup` / `PointShadowWGSLForGroup` 放置绑定，并用 `LightWGSL` 中的 `shade_pbr_visibility(…, directional0_vis, point0_vis, spot0_vis)` 缩放各光源。
+- **设备丢失与 CPU 参考实现**：设置 `Retained: true` 后，深度目标、采样器、缓冲、绑定组与深度管线会在设备丢失后恢复。`EvaluateSpotShadow`、`EvaluatePointShadow` 与 `PointShadowSelectFace` 与 WGSL 一一对应，`ShadePointVisibility` 配合 `LightVisibility` 可复现带光照的像素；测试将它们与 GPU 结果以及参考渲染图 `render3d/testdata/golden/local_shadow_spot.png` 和 `local_shadow_point.png`（`UPDATE_GOLDEN=1` 可重写）进行比较。
