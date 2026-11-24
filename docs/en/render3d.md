@@ -407,6 +407,48 @@ gpu.View(cx, gpu.ViewProps{
 - **Priority and cancellation**: `PriorityHigh`, `PriorityNormal` and `PriorityLow` order both the decode and the upload queue (FIFO within a priority), so a high-priority asset preempts a low-priority one that is partway through its upload at the next chunk. Each `Queue*` call returns an `*UploadHandle` whose `State()`, `Progress()`, `Err()`, `Done()` and `Cancel()` are safe from any goroutine.
 - **Lifecycle**: passing a `*core.Scope` to `NewUploader` closes the uploader when the scope is disposed. `Close` cancels pending decodes, joins every worker goroutine, releases partially uploaded GPU resources and calls the `onReady` of each unfinished upload with `ErrUploaderClosed`; call it on the goroutine that calls `Step`, as scope disposal does. Pass `nil` in headless tests and call `Close` yourself. `UploaderOptions.MaxPending` bounds the unfinished uploads, failing further ones with `ErrUploadQueueFull`.
 
+## Skybox and image-based lighting (`Cubemap`, `SkyboxPipeline`, `IBLBuffer`)
+
+`render3d` provides 6-face cubemaps (`Cubemap`, `GPUCubemap`), a fullscreen-triangle background skybox (`SkyboxPipeline`), and split-sum image-based lighting (`IrradianceSH`, `PrefilterEnvironment`, `GenerateBRDFLUT`, `EnvBRDFApprox`, `IBLBuffer`, `IBLWGSL`) that run across every NSGo GPU backend including WebGL 2 and OpenGL ES 3.0 (`NoGPUCompute`).
+
+Build a `Cubemap` from six faces (`CubemapFromImages`), an equirectangular panorama (`CubemapFromEquirectangular`), or a procedural three-band sky (`GradientSkyCubemap`), then bake diffuse L2 spherical harmonic irradiance and a GGX-prefiltered specular mip chain on the CPU before uploading:
+
+```go
+env, err := render3d.GradientSkyCubemap(zenith, horizon, ground, 64)
+sh, err := render3d.ComputeIrradianceSH(env)
+prefilter, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{
+	BaseSize:    64,
+	MipLevels:   5,
+	SampleCount: 64,
+})
+
+skyCube, err := render3d.UploadCubemap(cx, dev, env, render3d.CubemapUpload{Label: "sky", Retained: true})
+prefCube, err := render3d.UploadCubemap(cx, dev, prefilter, render3d.CubemapUpload{Label: "ibl", Retained: true})
+
+skyPipe, err := render3d.NewSkyboxPipeline(cx, dev, render3d.SkyboxPipelineDesc{
+	ColorFormat: dev.SurfaceFormat(),
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
+})
+skyGroup, err := skyPipe.BindCubemap(cx, skyCube)
+
+iblBuf, err := render3d.NewIBLBuffer(cx, dev, render3d.IBLBufferDesc{
+	Prefilter: prefCube,
+	Uniform:   render3d.NewIBLUniform(sh, prefCube, 1.0),
+	Retained:  true,
+})
+
+// Each frame: draw opaque PBR meshes with IBLBuffer bound at IBLGroup (group 2),
+// then draw the skybox behind them without shading occluded foreground pixels:
+skyPipe.WriteCamera(&cam)
+skyPipe.Draw(pass, skyGroup)
+```
+
+- **Depth and translation**: `NewSkyboxUniform` strips camera translation so the sky stays infinitely distant as the viewer moves. `SkyboxWGSL` emits a single fullscreen triangle (`@builtin(vertex_index)`, zero vertex buffers) at `z = 0.999999` with `CompareLessEqual` and `DepthWrite: false`, so drawing the skybox after opaque geometry skips occluded foreground pixels without float32 depth-rounding dropouts against `ClearDepth = 1.0`.
+- **Diffuse + specular IBL**: Prepend `IBLWGSL` (or `IBLWGSLForGroup(group)`) to a PBR fragment shader and call `evaluate_ibl(normal, view_dir, base_color, metallic, roughness, ao)`. Diffuse lighting evaluates the 9 pre-convolved L2 spherical harmonic coefficients (`evaluate_irradiance_sh`), and specular lighting samples the GGX prefiltered cubemap at `roughness * ibl.max_lod` modulated by the Karis analytical `env_brdf_approx` (`EnvBRDFApprox`). For shaders that prefer a 2D BRDF integration lookup texture, `GenerateBRDFLUT` and `GenerateBRDFLUTWithSamples` bake the split-sum GGX LUT on the CPU.
+- **CPU reference & device loss**: `EvaluateIBL` matches `IBLWGSL`'s `evaluate_ibl` on the CPU for headless verification and tooling. Setting `Retained: true` on `CubemapUpload`, `SkyboxPipelineDesc`, and `IBLBufferDesc` restores textures, samplers, pipelines, and uniform buffers automatically after a GPU device loss (call `SetDevice(dev)` in `OnReady` before subsequent `Write` calls).
+- **Reference renders**: Headless software-GPU tests compare skybox-behind-scene and 2x2 metallic/roughness reflective sphere renders against `render3d/testdata/golden/skybox_scene.png` and `ibl_spheres.png` (`UPDATE_GOLDEN=1` rewrites them) and verify both full and `nsgotest.NoGPUCompute` profiles.
+
 ## 3D debug draw and transform gizmos
 
 `DebugDraw` projects 3D wireframes with near-plane clipping directly into an NSGo `*core.Drawing` overlay:
