@@ -1092,3 +1092,44 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **图集变换**：`LightmapRef.UVScale` / `UVOffset` 是唯一生效的图集变换；`LightmapRef.Texture` 不携带 scale 与 offset，因此不要再用 `TransformTexCoords` 对它应用一次。数值来源见[烘焙光照贴图](3d-models-blender.md#烘焙光照贴图)。
 - **纹理流式加载**：`BeginFrame` 会丢弃已关闭的光照贴图与反照率纹理对应的缓存绑定组，因此流式加载关卡或热重载光照贴图不会让缓存无限增长。
 - **适用范围**：`LightmapRenderer` 是独立的渲染路径，结果为反照率乘以（烘焙光照加一盏 Lambert 光源）。它不支持金属度-粗糙度、法线、遮蔽或自发光贴图，也不读取 `LightRig`。把光照贴图作为间接光项接入 PBR 材质路径的工作见 [#752](https://github.com/nsgo-dev/game/issues/752)。
+
+## 点光源与聚光灯阴影（`SpotShadowMap`、`PointShadowMap`）
+
+`SpotShadowMap` 与 `PointShadowMap` 为局部光源渲染纯深度 `FormatDepth32Float` 阴影贴图，并提供比较采样器与可移植 WGSL 辅助代码（`SpotShadowWGSL`、`PointShadowWGSL`），可在 Metal、Direct3D 11、OpenGL 3.3、WebGPU、WebGL 2、OpenGL ES 3.0 及软件 GPU 渲染器（包括 `nsgotest.NoGPUCompute`）上一致运行：
+
+- **聚光灯阴影（`SpotShadowMap`）**：根据 `SpotShadowLight.Position`、`Direction`、`OuterConeAngle`（`fovY = 2 * OuterConeAngle`）、`Near` 与 `Range` 构建正方形 `[0, 1]` 深度透视投影。`BeginShadowPass` 清除深度并绑定纯深度投射管线；`DrawCaster` 将每个投射体的 `(lightViewProj, model)` 写入 256 字节对齐的动态偏移 uniform 槽位，使单次通道内可连续绘制多个投射体（上限 `MaxCasters`）而不互相覆盖。
+- **全向点光源阴影（`PointShadowMap`）**：将 6 个 90° 立方体贴图面（`gpu.CubeFacePosX`..`gpu.CubeFaceNegZ`）打包进一张尺寸为 `(3 * FaceResolution) × (2 * FaceResolution)` 的 `3×2` `FormatDepth32Float` 2D 深度图集。对 `face` `0..5` 调用 `BeginFacePass(rec, face)` 时，第 0 面清除整个图集，第 1..5 面通过 `LoadLoad` 保留已渲染的瓦片，并将视口与裁剪矩形严格锁定到当前面瓦片内。在 `PointShadowWGSL` 中，`sample_point_shadow` 选取主轴方向面，以解析公式 `(far/(far-near))*(1 - near/axisDist)` 计算透视 NDC 深度（无需向片元着色器上传 6 个矩阵），并将每次采样钳制在 `[0.51/faceRes, 1 - 0.51/faceRes]` 内，确保 3×3 PCF 不会跨瓦片渗色。
+- **滤波、偏移与开箱即用管线**：支持 `LocalShadowFilterHard`（单次最近邻比较采样）与 `LocalShadowFilterPCF3x3`（9 次线性比较采样），并可配置 `DepthBias` 与 `NormalBias`。`BeginShadowPass` 与 `BeginFacePass` 同时接受 `*gpu.Encoder` 与 `*gpu.Frame`（`LocalShadowPassRecorder`）。可直接用 `NewSpotShadowLitPipeline` / `NewPointShadowLitPipeline` 搭配 `CameraGroup`（0）和 `LocalShadowGroup`（1）渲染带阴影光照，或在自定义片元着色器前拼接 `CameraWGSL` 与 `SpotShadowWGSL` / `PointShadowWGSL`。
+- **设备丢失恢复与 CPU 参考实现**：开启 `Retained: true` 后，设备丢失恢复时 NSGo 会自动重建深度渲染目标、比较采样器、uniform 缓冲、绑定组与深度管线（`Update` 与 `DrawCaster` 显式接收存活的 `*gpu.Device`）。纯 Go 评估函数 `EvaluateSpotShadow`、`EvaluateSpotLighting`、`PointShadowSelectFace`、`EvaluatePointShadow` 与 `EvaluatePointLighting` 与 WGSL 着色器逐项对应，便于解析校验，并附带参考渲染图 `render3d/testdata/golden/local_shadow_spot.png` 与 `local_shadow_point.png`（`UPDATE_GOLDEN=1` 可重写）。
+
+```go
+spot, err := render3d.NewSpotShadowMap(cx, dev, render3d.DefaultSpotShadowConfig())
+litPipe, err := render3d.NewSpotShadowLitPipeline(cx, dev, camBuf.Layout(), spot.Layout(), render3d.LocalShadowLitPipelineOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	CullMode:    gpu.CullBack,
+})
+
+// 每帧在 OnFrame 中：
+_ = spot.Update(dev, spotLight)
+sp := spot.BeginShadowPass(frame)
+spot.DrawCaster(dev, sp, pillarMesh, pillarModel)
+sp.End()
+
+mp := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mp.SetPipeline(litPipe)
+mp.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mp.SetBindGroup(render3d.LocalShadowGroup, spot.BindGroup())
+sceneMesh.Draw(mp)
+mp.End()
+```
+
+对于全向点光源，遍历 `face` 从 `0` 到 `render3d.PointShadowFaceCount-1`：
+
+```go
+_ = point.Update(dev, pointLight)
+for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
+	fp := point.BeginFacePass(frame, face)
+	point.DrawCaster(dev, fp, blockerMesh, blockerModel)
+	fp.End()
+}
+```
