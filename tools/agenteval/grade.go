@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -90,7 +92,11 @@ func gradeDocsContext(repoRoot string, task *Task) CriterionResult {
 	w := task.Checks.Weights.DocsContext
 	var missing []string
 	for _, rel := range task.ContextDocs {
-		p := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		p, err := safeJoin(repoRoot, rel)
+		if err != nil {
+			missing = append(missing, rel)
+			continue
+		}
 		info, err := os.Stat(p)
 		if err != nil || info.IsDir() || info.Size() == 0 {
 			missing = append(missing, rel)
@@ -116,7 +122,11 @@ func gradeYAMLFiles(workspaceDir string, task *Task) CriterionResult {
 	w := task.Checks.Weights.YAMLValid
 	var problems []string
 	for _, rel := range task.Checks.YAMLFiles {
-		p := filepath.Join(workspaceDir, filepath.FromSlash(rel))
+		p, err := safeJoin(workspaceDir, rel)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", rel, err))
+			continue
+		}
 		data, err := os.ReadFile(p)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", rel, err))
@@ -166,9 +176,23 @@ func gradeYAMLFiles(workspaceDir string, task *Task) CriterionResult {
 				problems = append(problems, fmt.Sprintf("%s: non-deterministic round-trip", rel))
 			}
 		default:
+			if len(bytes.TrimSpace(data)) == 0 {
+				problems = append(problems, fmt.Sprintf("%s: empty YAML document", rel))
+				continue
+			}
+			dec := yaml.NewDecoder(bytes.NewReader(data))
 			var node yaml.Node
-			if err := yaml.Unmarshal(data, &node); err != nil {
+			if err := dec.Decode(&node); err != nil {
 				problems = append(problems, fmt.Sprintf("%s: %v", rel, err))
+				continue
+			}
+			var extra any
+			if err := dec.Decode(&extra); err != io.EOF {
+				if err == nil {
+					problems = append(problems, fmt.Sprintf("%s: unexpected trailing YAML document", rel))
+				} else {
+					problems = append(problems, fmt.Sprintf("%s: %v", rel, err))
+				}
 			}
 		}
 	}
@@ -298,23 +322,34 @@ func gradePlatformerLevel(workspaceDir string, spec *PlatformerSpec, weight int)
 	})
 	minX := min(float64(playerObj.X), float64(goalObj.X))
 	maxX := max(float64(playerObj.X), float64(goalObj.X))
-	if platforms[0].start > minX+spec.MaxGap {
-		return CriterionResult{Name: name, Weight: weight, Detail: fmt.Sprintf("first platform starts at %.1f, unreachable from x=%.1f", platforms[0].start, minX)}
-	}
-	reach := platforms[0].end
-	for _, iv := range platforms[1:] {
+	reach := minX
+	bridged := false
+	for _, iv := range platforms {
+		if iv.end < minX {
+			continue
+		}
 		if iv.start > reach+spec.MaxGap {
+			if bridged && reach >= maxX {
+				break
+			}
+			if !bridged {
+				return CriterionResult{Name: name, Weight: weight, Detail: fmt.Sprintf("first reachable platform starts at %.1f, unreachable from x=%.1f", iv.start, minX)}
+			}
 			return CriterionResult{
 				Name:   name,
 				Weight: weight,
 				Detail: fmt.Sprintf("unjumpable gap of %.1f between %.1f and %.1f (max %.1f)", iv.start-reach, reach, iv.start, spec.MaxGap),
 			}
 		}
+		bridged = true
 		if iv.end > reach {
 			reach = iv.end
 		}
+		if reach >= maxX {
+			break
+		}
 	}
-	if reach+spec.MaxGap < maxX {
+	if !bridged || reach < maxX {
 		return CriterionResult{Name: name, Weight: weight, Detail: fmt.Sprintf("platforms reach %.1f, goal at %.1f is unreachable", reach, maxX)}
 	}
 
@@ -337,6 +372,9 @@ func gradeEnemySpec(workspaceDir string, spec *EnemySpec, weight int) CriterionR
 	enemies := 0
 	withComp := 0
 	for i := range doc.Layers {
+		if !doc.Layers[i].IsVisible() {
+			continue
+		}
 		walkLayerObjects(doc.Layers[i].Objects, func(o *sceneformat.ObjectDoc) {
 			if !isEnemyObject(o) {
 				return
@@ -425,6 +463,7 @@ func gradeBuildCheck(ctx context.Context, workspaceDir, workFile string, task *T
 	const name = "builds_cleanly"
 	w := task.Checks.Weights.BuildCheck
 	cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "check")
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = workspaceDir
 	cmd.Env = cleanGoEnv(workFile)
 	out, err := cmd.CombinedOutput()
@@ -463,6 +502,7 @@ func gradeMCPVerify(ctx context.Context, workspaceDir, workFile string, task *Ta
 	defer os.Remove(verifyPath)
 
 	cmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", ".", "--", "-v", "-run", "^TestAgentEvalMCPVerify$")
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = workspaceDir
 	cmd.Env = cleanGoEnv(workFile)
 	out, err := cmd.CombinedOutput()
@@ -483,7 +523,10 @@ func gradeMCPVerify(ctx context.Context, workspaceDir, workFile string, task *Ta
 }
 
 func loadSceneFile(workspaceDir, rel string) (*sceneformat.SceneDoc, error) {
-	p := filepath.Join(workspaceDir, filepath.FromSlash(rel))
+	p, err := safeJoin(workspaceDir, rel)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", rel, err)
+	}
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
@@ -603,7 +646,8 @@ func writeTempGoWork(repoRoot, workspaceDir string) (string, func(), error) {
 		absWS = resolved
 	}
 	workFile := filepath.Join(tmpDir, "go.work")
-	content := fmt.Sprintf("go 1.27.3\n\nuse (\n\t%q\n\t%q\n)\n", absGame, absWS)
+	goVer := readGoVersion(filepath.Join(absGame, "go.mod"))
+	content := fmt.Sprintf("go %s\n\nuse (\n\t%q\n\t%q\n)\n", goVer, absGame, absWS)
 	if err := os.WriteFile(workFile, []byte(content), 0o644); err != nil {
 		os.RemoveAll(tmpDir)
 		return "", nil, err
@@ -881,18 +925,22 @@ func TestAgentEvalMCPVerify(t *testing.T) {
 		}
 	}
 
+	// 4. Pause loop before reading baseline position so movement comes strictly from game_loop_step.
+	var paused mcp.LoopStatusResult
+	if spec.StepCount > 0 {
+		paused = evalCallMCP[mcp.LoopStatusResult](t, app, rootScope, mcp.ToolLoopPause, nil)
+		if !paused.Paused {
+			t.Fatalf("game_loop_pause returned paused=false")
+		}
+	}
+
 	var x0, y0 float64
 	if targetRef != "" {
 		before := evalCallMCP[mcp.EntityInspectResult](t, app, rootScope, mcp.ToolEntityInspect, map[string]any{"ref": targetRef})
 		x0, y0 = evalExtractPos(t, before.Components)
 	}
 
-	// 4. Verify deterministic loop controls via game_loop_pause & game_loop_step.
 	if spec.StepCount > 0 {
-		paused := evalCallMCP[mcp.LoopStatusResult](t, app, rootScope, mcp.ToolLoopPause, nil)
-		if !paused.Paused {
-			t.Fatalf("game_loop_pause returned paused=false")
-		}
 		stepped := evalCallMCP[mcp.LoopStepResult](t, app, rootScope, mcp.ToolLoopStep, map[string]any{"count": spec.StepCount})
 		if stepped.StepsAdvanced != spec.StepCount {
 			t.Fatalf("game_loop_step advanced %d steps, want %d", stepped.StepsAdvanced, spec.StepCount)
@@ -928,11 +976,28 @@ func TestAgentEvalMCPVerify(t *testing.T) {
 }
 `))
 
-// copyDir recursively copies src into dst, skipping hidden directories other than files explicitly present.
+func readGoVersion(goModPath string) string {
+	data, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "1.27.3"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "go" {
+			return fields[1]
+		}
+	}
+	return "1.27.3"
+}
+
+// copyDir recursively copies src into dst, refusing symlinks so staged fixtures cannot escape src.
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink in fixture: %s", p)
 		}
 		rel, err := filepath.Rel(src, p)
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -135,6 +136,9 @@ func (t *Task) Validate() error {
 	if strings.TrimSpace(t.ID) == "" {
 		return errors.New("task: id is required")
 	}
+	if err := validateTaskID(t.ID); err != nil {
+		return fmt.Errorf("task %q: %w", t.ID, err)
+	}
 	if strings.TrimSpace(t.Title) == "" {
 		return fmt.Errorf("task %q: title is required", t.ID)
 	}
@@ -150,14 +154,24 @@ func (t *Task) Validate() error {
 	if len(t.ContextDocs) == 0 {
 		return fmt.Errorf("task %q: context_docs must list at least one document", t.ID)
 	}
-	if strings.TrimSpace(t.StarterDir) == "" {
-		return fmt.Errorf("task %q: starter_dir is required", t.ID)
+	for _, doc := range t.ContextDocs {
+		if err := validateRelPath(doc); err != nil {
+			return fmt.Errorf("task %q: context_docs entry %q: %w", t.ID, doc, err)
+		}
 	}
-	if strings.TrimSpace(t.ReferenceDir) == "" {
-		return fmt.Errorf("task %q: reference_dir is required", t.ID)
+	if err := validateRelPath(t.StarterDir); err != nil {
+		return fmt.Errorf("task %q: starter_dir %q: %w", t.ID, t.StarterDir, err)
+	}
+	if err := validateRelPath(t.ReferenceDir); err != nil {
+		return fmt.Errorf("task %q: reference_dir %q: %w", t.ID, t.ReferenceDir, err)
 	}
 	if len(t.Checks.YAMLFiles) == 0 {
 		return fmt.Errorf("task %q: checks.yaml_files must list at least one file", t.ID)
+	}
+	for _, yf := range t.Checks.YAMLFiles {
+		if err := validateRelPath(yf); err != nil {
+			return fmt.Errorf("task %q: checks.yaml_files entry %q: %w", t.ID, yf, err)
+		}
 	}
 
 	domainCount := 0
@@ -185,8 +199,8 @@ func (t *Task) Validate() error {
 	if t.Checks.MCPVerify == nil {
 		return fmt.Errorf("task %q: checks.mcp_verify is required", t.ID)
 	}
-	if t.Checks.MCPVerify.StepCount < 0 || t.Checks.MCPVerify.StepCount > 3600 {
-		return fmt.Errorf("task %q: checks.mcp_verify.step_count must be in [0, 3600] (got %d)", t.ID, t.Checks.MCPVerify.StepCount)
+	if err := t.Checks.MCPVerify.validate(t.ID); err != nil {
+		return err
 	}
 	if err := t.Checks.Weights.validate(t.ID); err != nil {
 		return err
@@ -194,9 +208,72 @@ func (t *Task) Validate() error {
 	return nil
 }
 
+func (m *MCPVerifySpec) validate(taskID string) error {
+	if m.StepCount < 0 || m.StepCount > 3600 {
+		return fmt.Errorf("task %q: checks.mcp_verify.step_count must be in [0, 3600] (got %d)", taskID, m.StepCount)
+	}
+	if m.ExpectMovedEntity != "" && m.StepCount == 0 {
+		return fmt.Errorf("task %q: checks.mcp_verify.expect_moved_entity requires step_count > 0", taskID)
+	}
+	if m.ExpectComponent != "" && m.ExpectMovedEntity == "" {
+		return fmt.Errorf("task %q: checks.mcp_verify.expect_component requires expect_moved_entity", taskID)
+	}
+	return nil
+}
+
+func validateTaskID(id string) error {
+	if strings.Contains(id, "..") {
+		return errors.New("id must not contain '..'")
+	}
+	for i, r := range id {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		isPunct := r == '-' || r == '_'
+		if (i == 0 && !isAlnum) || (!isAlnum && !isPunct) {
+			return fmt.Errorf("id must match [A-Za-z0-9][A-Za-z0-9_-]* (got %q)", id)
+		}
+	}
+	return nil
+}
+
+func validateRelPath(p string) error {
+	if strings.TrimSpace(p) == "" {
+		return errors.New("path is required")
+	}
+	if strings.ContainsRune(p, '\\') || strings.ContainsRune(p, 0) {
+		return errors.New("path must use forward slashes without NUL bytes")
+	}
+	if strings.HasPrefix(p, "/") || filepath.IsAbs(p) || filepath.VolumeName(filepath.FromSlash(p)) != "" {
+		return errors.New("path must be relative")
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return errors.New("path must not escape its root directory")
+	}
+	return nil
+}
+
+func safeJoin(base, rel string) (string, error) {
+	if err := validateRelPath(rel); err != nil {
+		return "", fmt.Errorf("invalid relative path %q: %w", rel, err)
+	}
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(absBase, filepath.FromSlash(path.Clean(rel)))
+	relCheck, err := filepath.Rel(absBase, target)
+	if err != nil {
+		return "", err
+	}
+	if relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) || filepath.IsAbs(relCheck) {
+		return "", fmt.Errorf("path %q escapes base %q", rel, base)
+	}
+	return target, nil
+}
+
 func (p *PlatformerSpec) validate(taskID string) error {
-	if strings.TrimSpace(p.SceneFile) == "" {
-		return fmt.Errorf("task %q: platformer_level.scene_file is required", taskID)
+	if err := validateRelPath(p.SceneFile); err != nil {
+		return fmt.Errorf("task %q: platformer_level.scene_file %q: %w", taskID, p.SceneFile, err)
 	}
 	if p.MinPlatforms <= 0 {
 		return fmt.Errorf("task %q: platformer_level.min_platforms must be > 0", taskID)
@@ -211,8 +288,8 @@ func (p *PlatformerSpec) validate(taskID string) error {
 }
 
 func (e *EnemySpec) validate(taskID string) error {
-	if strings.TrimSpace(e.SceneFile) == "" {
-		return fmt.Errorf("task %q: enemy_spec.scene_file is required", taskID)
+	if err := validateRelPath(e.SceneFile); err != nil {
+		return fmt.Errorf("task %q: enemy_spec.scene_file %q: %w", taskID, e.SceneFile, err)
 	}
 	if e.MinEnemies <= 0 {
 		return fmt.Errorf("task %q: enemy_spec.min_enemies must be > 0", taskID)
@@ -221,8 +298,8 @@ func (e *EnemySpec) validate(taskID string) error {
 }
 
 func (m *MenuSpec) validate(taskID string) error {
-	if strings.TrimSpace(m.SceneFile) == "" {
-		return fmt.Errorf("task %q: menu_spec.scene_file is required", taskID)
+	if err := validateRelPath(m.SceneFile); err != nil {
+		return fmt.Errorf("task %q: menu_spec.scene_file %q: %w", taskID, m.SceneFile, err)
 	}
 	if m.MinMenuItems <= 0 {
 		return fmt.Errorf("task %q: menu_spec.min_menu_items must be > 0", taskID)
