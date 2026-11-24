@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、相机 uniform、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
+`game/render3d` 提供 NSGo GPU 视图的网格缓冲、纹理与采样器、金属度-粗糙度 PBR 材质、方向光阴影贴图、相机 uniform、距离雾与高度雾，以及 HDR 渲染目标与色调映射 pass，以及与后端无关、稳态零分配的 CPU 侧 3D 渲染管线与开发工具：视锥体裁剪、不透明/半透明绘制排序、自动实例化合批、带滞回防抖动的 LOD 选择、面向相机的公告板与 3D 条带拖尾、3D 调试线框与变换手柄（Gizmo）、帧性能分析器，以及移动端/桌面端 GPU 预算检查。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -746,6 +746,53 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 - 开启 `Retained` 的 `MSAATarget` 或 `FXAAPass` 在设备丢失恢复后，需在 `OnReady` / `OnDeviceRestored` 中调用 `SetDevice(dev)`，以便后续 `Resize` 或 uniform/绑定组更新指向恢复后的设备。
 - **色彩空间**：FXAA 的阈值针对感知上的、经过 gamma 编码的亮度调校，`ApplyFXAA` 也直接处理存储的字节。请给该 pass 输入保存 gamma 编码颜色（例如色调映射后的 LDR 颜色）的非 sRGB 源纹理，并绘制到同类目标上。sRGB 源纹理会以线性值被采样，边缘检测因此与 `ApplyFXAA` 不再一致；gamma 编码的源绘制到 sRGB 目标上则会被编码两次。`TargetFormat` 默认取 `dev.SurfaceFormat()`，在某些平台上是 sRGB 格式，因此请显式设置。
 - **参考渲染**：软件渲染器测试将场景与 `render3d/testdata/golden/` 中的 `aa_baseline.png`、`aa_msaa4x.png`、`aa_fxaa.png` 比对（设置 `UPDATE_GOLDEN=1` 可重写参考图），并校验 `FXAAPass` 与 `ApplyFXAA` 的一致性。在完整与 `NoGPUCompute` 两种档位下，测试将 MSAA 输出与软件渲染器的参考渲染比对，并将 `FXAAPass` 输出与 `ApplyFXAA` 比对。
+
+## 方向光阴影（`DirectionalShadowMap`、`DirectionalShadowConfig`）
+
+`DirectionalShadowMap` 在 NSGo 的 `gpu.Device` 上管理离屏 `FormatDepth32Float` 阴影贴图渲染目标、仅写深度的投影管线（`ShadowDepthWGSL`）及动态偏移投影变换缓冲、96 字节的 `ShadowUniforms` 缓冲，以及最近邻（硬阴影）和线性（PCF）两种比较采样器。`ShadowWGSL` 在 `ShadowGroup`（第 2 组，保留 `CameraGroup` 第 0 组给相机、第 1 组给材质或物体数据）声明对应绑定并提供可移植的 `sample_directional_shadow(world_pos, world_normal)` 辅助函数；`NewShadowLitPipeline` 则构建开箱即用的前向光照阴影管线（`ShadowLitWGSL`）：
+
+```go
+sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
+	Resolution:          1024,
+	PCFKernel:           render3d.ShadowFilterPCF3x3, // 或 ShadowFilterHard
+	DepthBias:           2,
+	DepthBiasSlopeScale: 2.0,
+	CullMode:            gpu.CullBack,
+	Retained:            true, // GPU 设备丢失后自动恢复
+})
+litPipe, err := render3d.NewShadowLitPipeline(cx, dev, render3d.ShadowLitPipelineOptions{
+	CameraLayout: camBuf.Layout(),
+	ObjectLayout: objLayout,
+	ShadowLayout: sm.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	CullMode:     gpu.CullBack,
+})
+
+// 每帧在 OnFrame(frame *gpu.Frame) 中：
+dev := frame.Device()
+cfg := render3d.DefaultDirectionalShadowConfig()
+cfg.Direction = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
+_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // 紧密包围场景并按纹素对齐防抖动
+
+// 1. 仅深度阴影通道：
+shadowPass := sm.BeginShadowPass(dev, frame)
+sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
+sm.DrawCaster(shadowPass, crateMesh, crateModel)
+shadowPass.End()
+
+// 2. 主光照通道：
+mainPass := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mainPass.SetPipeline(litPipe)
+mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.ShadowGroup, sm.BindGroup())
+// 绑定第 1 组材质/物体数据并绘制受影网格……
+mainPass.End()
+```
+
+- **紧密正交包围与纹素吸附**：`DirectionalShadowConfig.LightViewProj()` 围绕 `Target` 构建边长为 `OrthoSize` 的正交光空间视锥体；`FitBounds(lightDir, sceneBounds)` 紧密包住 `AABB`，并支持向光源方向延伸的 `CasterPadding`。开启 `TexelSnap: true` 后，光空间 XY 中心在纯旋转光源基底下按阴影贴图纹素步长对齐，避免目标移动时阴影边缘抖动（shadow swimming）。
+- **硬阴影单点采样与 3x3 PCF 柔化**：`ShadowFilterHard` 使用最近邻比较采样器执行单次 `textureSampleCompareLevel`；`ShadowFilterPCF3x3` 配合线性比较采样器对 3x3 共 9 个偏移点求平均（每点叠加硬件 2x2 双线性 PCF），生成平滑半影过渡。通过 `WriteUniforms`、`Update` 或 `UpdateBounds` 切换 `PCFKernel` 时，`BindGroup()` 会零分配自动切换，无需重建 GPU 资源。
+- **消除自阴影伪影与全后端兼容**：着色器中的斜率缩放 `DepthBias`（按 `1 + 2*(1 - NdotL)` 缩放）、世界空间 `NormalBias` 与硬件光栅深度偏移（`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`）共同消除平面与掠射角表面的阴影痤疮。自定义着色器只需前置 `ShadowWGSL`（或使用 `ShadowWGSLForGroup(n)` 指定其他组号）并调用 `sample_directional_shadow(world_pos, world_normal)`。整个流程不依赖计算着色器或存储缓冲，可在包括 WebGL 2 与 OpenGL ES 3.0 在内的所有 NSGo 目标上运行。
+- **零分配编码与 CPU 参考实现**：`AppendShadowUniforms` 与 `ShadowUniforms.Encode` 无堆分配打包 96 字节 uniform 数据；`EvaluateDirectionalShadow` 在 `ShadowDepthGrid`（可由 `ShadowDepthGridFromBytes` 从 GPU 深度回读解码）上提供与 WGSL 逐项一致的纯 Go 参考实现。测试覆盖硬阴影与 3x3 PCF 参考图比对（`render3d/testdata/golden/shadow_directional_hard.png` 与 `shadow_directional_pcf.png`）、完整与 `nsgotest.NoGPUCompute` 两种 `gpu.View` 配置、`Retained` 设备丢失恢复及作用域销毁。
 
 ## 3D 调试线框与变换手柄（Gizmo）
 

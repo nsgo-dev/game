@@ -1,6 +1,6 @@
 # render3d
 
-`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, camera uniforms, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
+`game/render3d` provides mesh buffers, textures and samplers, metallic-roughness PBR materials, directional shadow maps, camera uniforms, distance and height fog, and an HDR render target with a tone-mapping pass for the NSGo GPU view alongside the GPU-agnostic, zero-steady-state-allocation CPU 3D render pipeline and developer tools: frustum culling, opaque/transparent draw sorting, automatic instancing, LOD selection with hysteresis, camera-facing billboards and 3D ribbon trails, 3D debug wireframes and transform gizmos, frame profiling, and mobile/desktop GPU budgets.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/render3d"
@@ -746,6 +746,53 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 - If a `Retained` `MSAATarget` or `FXAAPass` survives a device loss, call `SetDevice(dev)` in `OnReady` / `OnDeviceRestored` so subsequent `Resize` or uniform/bind-group updates target the restored device.
 - **Color space**: FXAA's thresholds are tuned for perceptual, gamma-encoded luma, and `ApplyFXAA` works on the stored bytes. Feed the pass a non-sRGB source holding gamma-encoded (for example tone-mapped LDR) color, and draw into a target of the same kind. An sRGB source is sampled as linear values, so edge detection no longer matches `ApplyFXAA`, and a gamma-encoded source drawn into an sRGB target is encoded twice. `TargetFormat` defaults to `dev.SurfaceFormat()`, which is sRGB on some platforms, so set it explicitly.
 - **Reference renders**: the software-renderer tests compare the scene with `aa_baseline.png`, `aa_msaa4x.png`, and `aa_fxaa.png` under `render3d/testdata/golden/` (`UPDATE_GOLDEN=1` rewrites them) and check `FXAAPass` against `ApplyFXAA`. On both the full and `NoGPUCompute` profiles, the tests check the MSAA output against the software renderer's reference render and the `FXAAPass` output against `ApplyFXAA`.
+
+## Directional light shadows (`DirectionalShadowMap`, `DirectionalShadowConfig`)
+
+`DirectionalShadowMap` manages an offscreen `FormatDepth32Float` shadow map render target, a depth-only caster pipeline (`ShadowDepthWGSL`) with a dynamic-offset caster transform buffer, a 96-byte `ShadowUniforms` buffer, and both nearest (hard) and linear (PCF) comparison samplers on an NSGo `gpu.Device`. `ShadowWGSL` declares the matching bindings at `ShadowGroup` (group 2, leaving `CameraGroup` at group 0 and group 1 for materials or per-object data) together with a portable `sample_directional_shadow(world_pos, world_normal)` helper, and `NewShadowLitPipeline` builds a ready-to-use forward-lit shadowed pipeline (`ShadowLitWGSL`):
+
+```go
+sm, err := render3d.NewDirectionalShadowMap(cx, dev, render3d.ShadowMapOptions{
+	Resolution:          1024,
+	PCFKernel:           render3d.ShadowFilterPCF3x3, // or ShadowFilterHard
+	DepthBias:           2,
+	DepthBiasSlopeScale: 2.0,
+	CullMode:            gpu.CullBack,
+	Retained:            true, // survives GPU device loss automatically
+})
+litPipe, err := render3d.NewShadowLitPipeline(cx, dev, render3d.ShadowLitPipelineOptions{
+	CameraLayout: camBuf.Layout(),
+	ObjectLayout: objLayout,
+	ShadowLayout: sm.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	CullMode:     gpu.CullBack,
+})
+
+// Each frame in OnFrame(frame *gpu.Frame):
+dev := frame.Device()
+cfg := render3d.DefaultDirectionalShadowConfig()
+cfg.Direction = math3d.Vec3{X: -0.55, Y: -1.0, Z: -0.35}.Norm()
+_, err = sm.UpdateBounds(dev, cfg, sceneBounds) // tightly fits orthographic frustum with texel snapping
+
+// 1. Depth-only shadow pass:
+shadowPass := sm.BeginShadowPass(dev, frame)
+sm.DrawCaster(shadowPass, pillarMesh, pillarModel)
+sm.DrawCaster(shadowPass, crateMesh, crateModel)
+shadowPass.End()
+
+// 2. Main lit pass:
+mainPass := frame.BeginRenderPass(gpu.RenderPassDesc{})
+mainPass.SetPipeline(litPipe)
+mainPass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+mainPass.SetBindGroup(render3d.ShadowGroup, sm.BindGroup())
+// bind per-object/material group 1 and draw receivers...
+mainPass.End()
+```
+
+- **Tight orthographic framing and texel snapping**: `DirectionalShadowConfig.LightViewProj()` builds an orthographic frustum of width `OrthoSize` around `Target`; `FitBounds(lightDir, sceneBounds)` tightly encloses an `AABB` with optional `CasterPadding` toward the light. Setting `TexelSnap: true` locks the light-space XY center to exact shadow-map texel increments in a rotation-only light basis so moving targets never cause shadow-edge shimmering ("shadow swimming").
+- **Hard 1-tap vs 3x3 PCF filtering**: `ShadowFilterHard` uses a nearest comparison sampler with a single `textureSampleCompareLevel` tap; `ShadowFilterPCF3x3` averages 9 comparison taps with a linear comparison sampler (combining hardware 2x2 PCF per tap with a 3x3 neighborhood) for soft penumbras. Switching `PCFKernel` via `WriteUniforms`, `Update`, or `UpdateBounds` swaps `BindGroup()` dynamically without allocating or recreating GPU resources.
+- **Acne control and portability**: `DepthBias` (slope-scaled in the shader by `1 + 2*(1 - NdotL)`), world-space `NormalBias`, and hardware rasterizer bias (`ShadowMapOptions.DepthBias` / `DepthBiasSlopeScale`) suppress shadow acne across flat and grazing surfaces. Custom shaders can prepend `ShadowWGSL` (or `ShadowWGSLForGroup(n)` for another bind group index) and call `sample_directional_shadow(world_pos, world_normal)`. No compute shaders or storage buffers are used, so directional shadows run on every NSGo target including WebGL 2 and OpenGL ES 3.0.
+- **Zero-allocation uniforms and CPU reference**: `AppendShadowUniforms` and `ShadowUniforms.Encode` pack the 96-byte uniform block with zero heap allocations. `EvaluateDirectionalShadow` implements the matching pure-Go CPU reference over a `ShadowDepthGrid` (decoded from GPU depth readback via `ShadowDepthGridFromBytes`), and `render3d`'s tests verify hard and 3x3 PCF renders against golden reference PNGs (`render3d/testdata/golden/shadow_directional_hard.png` and `shadow_directional_pcf.png`), both `gpu.View` profiles (`full` and `nsgotest.NoGPUCompute`), `Retained` device-loss restoration, and scope disposal.
 
 ## 3D debug draw and transform gizmos
 
