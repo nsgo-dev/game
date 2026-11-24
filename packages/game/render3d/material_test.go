@@ -185,7 +185,7 @@ func TestMaterialValidation(t *testing.T) {
 		{"metallic Inf", func(m *render3d.Material) { m.MetallicFactor = inf }},
 		{"roughness negative", func(m *render3d.Material) { m.RoughnessFactor = -0.1 }},
 		{"roughness > 1", func(m *render3d.Material) { m.RoughnessFactor = 1.5 }},
-		{"normal scale negative", func(m *render3d.Material) { m.NormalScale = -1 }},
+		{"normal scale Inf", func(m *render3d.Material) { m.NormalScale = -inf }},
 		{"normal scale NaN", func(m *render3d.Material) { m.NormalScale = nan }},
 		{"occlusion negative", func(m *render3d.Material) { m.OcclusionStrength = -0.2 }},
 		{"occlusion > 1", func(m *render3d.Material) { m.OcclusionStrength = 1.1 }},
@@ -212,6 +212,12 @@ func TestMaterialValidation(t *testing.T) {
 	hdr.NormalScale = 2.5
 	if err := hdr.Validate(); err != nil {
 		t.Errorf("HDR emissive / NormalScale > 1 failed validation: %v", err)
+	}
+	// glTF 2.0 sets no minimum on normalTextureInfo.scale: a negative scale flips the normal map's X and Y.
+	flipped := render3d.DefaultMaterial()
+	flipped.NormalScale = -1
+	if err := flipped.Validate(); err != nil {
+		t.Errorf("negative NormalScale failed validation: %v", err)
 	}
 
 	// Closed GPU texture / sampler handles must be rejected.
