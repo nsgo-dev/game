@@ -49,6 +49,7 @@ Import the packages from `github.com/nsgo-dev/game/packages/game`:
 - [Tutorial: Star Catcher](docs/en/tutorial.md) ([中文](docs/zh/tutorial.md)), nine chapters from an empty project to a shipped game, with each chapter's code in [`examples/tutorial`](examples/tutorial/)
 - [Packages](docs/en/packages.md) ([中文](docs/zh/packages.md)): [Loop](docs/en/loop.md), [sprite](docs/en/sprite.md), [sound](docs/en/sound.md)
 - [API Stability](docs/en/stability.md) ([中文](docs/zh/stability.md))
+- [Agent Skill](docs/en/agent-skill.md) ([中文](docs/zh/agent-skill.md)) — installable via `bunx skills add nsgo-dev/game`
 - [3D Models from Blender](docs/en/3d-models-blender.md) ([中文](docs/zh/3d-models-blender.md))
 - [Building and Shipping](docs/en/shipping.md) ([中文](docs/zh/shipping.md))
 
