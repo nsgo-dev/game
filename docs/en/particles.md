@@ -1,6 +1,6 @@
 # particles
 
-`game/particles` provides a deterministic, seeded 2D particle `Emitter` stepped on `game.Loop` and drawn through a reusable `sprite.Batch`.
+`game/particles` provides deterministic, seeded particle emitters for both 2D (`Emitter`, drawn through `sprite.Batch`) and 3D (`Emitter3D` + `GPUParticles3D`, drawn in a single instanced `gpu.View` draw call).
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/particles"
@@ -203,3 +203,104 @@ cd examples/fountain && go tool nsgo test -run '^$' -bench Scene5000 .
 ```
 
 On an AMD Ryzen 9 3900X (Linux) they take about 1.7 ms with 5000 allocations and 1.8 ms with 25 allocations. That is only the CPU cost of stepping the particles and recording their draw operations: it leaves out the platform drawing about 5000 images per frame, and for tinted particles the garbage collector reclaiming the allocation each draw makes, so it is not evidence that a device holds 60 fps. A 60 fps reading on macOS with `--nsgo-fps` has not been recorded yet ([nsgo-dev/game#85](https://github.com/nsgo-dev/game/issues/85)).
+
+## 3D GPU-friendly particles
+
+`Emitter3D` shares the 2D emitter model (`Rate`, `MaxParticles`, `LifetimeMin`/`Max`, `SpeedMin`/`Max`, `SizeCurve`, `AlphaCurve`, `RotationCurve`, `ColorCurve`, `SimulationSpace`, `Seed`, `Burst`, `Clear`, `Reset`) and adds 3D shapes, 3D gravity, linear drag, spread, billboard orientation modes, back-to-front depth sorting, and packed instanced GPU upload for `gpu.View`.
+
+```go
+sparks := particles.NewEmitter3D(particles.Emitter3DConfig{
+	Position:     math3d.Vec3{Y: 1},
+	Direction:    math3d.Vec3Up(),
+	Shape:        particles.Cone(0.3, 0.4),
+	Billboard:    particles.BillboardStretched,
+	Blend:        particles.BlendAdditive,
+	Rate:         4000,
+	MaxParticles: 10000,
+	LifetimeMin:  600 * time.Millisecond,
+	LifetimeMax:  1400 * time.Millisecond,
+	SpeedMin:     3,
+	SpeedMax:     9,
+	Spread:       0.2,
+	Drag:         0.5,
+	Gravity:      math3d.Vec3{Y: -9.8},
+	SizeMin:      0.05,
+	SizeMax:      0.15,
+	ColorCurve: particles.ColorCurve{
+		{T: 0, Color: core.RGBA(0xffd166, 1)},
+		{T: 1, Color: core.RGBA(0xef476f, 0)},
+	},
+	Seed: 280,
+})
+```
+
+### 3D emission shapes
+
+`Emitter3D.Shape` (`Shape3D`) places spawned particles relative to `Position` in the emitter's `(side, Direction, forward)` frame:
+
+| Shape | Spawn distribution |
+| --- | --- |
+| `Point3D()` | Exactly at `Position` (the zero value of `Shape3D`). |
+| `Sphere(radius)` | Uniformly throughout a sphere of `radius`. |
+| `Hemisphere(radius)` | Uniformly throughout the upper hemisphere along `Direction`. |
+| `Box(width, height, depth)` | Uniformly inside a `width × height × depth` box centered on `Position`. |
+| `Cone(radius, angle)` | Uniformly on a base disk of `radius` perpendicular to `Direction`, firing outward up to half-angle `angle` (radians). |
+| `Ring3D(radius)` | Uniformly on a circle of `radius` perpendicular to `Direction`. |
+
+### Billboard modes, blending, and depth sorting
+
+- **`BillboardSpherical`** (default): camera-facing quads parallel to the view plane, supporting per-particle roll (`InitialRotationMin`/`Max`, `RotationSpeedMin`/`Max`, `RotationCurve`).
+- **`BillboardCylindrical`**: quads locked to `Emitter3D.Axis` (defaults to `+Y`), rotating only around that axis toward the camera.
+- **`BillboardStretched`**: quads aligned and stretched along each particle's velocity vector (`length = size + speed * StretchFactor`, defaulting `StretchFactor` to `0.05`s).
+- **`BlendAdditive`** (`gpu.BlendAdditive()`): order-independent blending for fire, sparks, and magic; no depth sorting required.
+- **`BlendAlpha`** (`gpu.BlendAlpha()`, default) and **`BlendPremultiplied`** (`gpu.BlendPremultipliedAlpha()`): call `e.SortByDepth(camPos, camForward)` before packing/uploading to order particles back-to-front with a deterministic, zero-allocation 4-pass radix sort.
+
+### Instanced GPU rendering (`GPUParticles3D`)
+
+`GPUParticles3D` owns a 4-vertex unit quad buffer (`StepVertex`) and a growable 40-byte-per-instance buffer (`StepInstance`: `center: vec3<f32>`, `right: vec3<f32>`, `up: vec3<f32>`, `color: unorm8x4`), drawing up to tens of thousands of particles in a single `DrawIndexedInstanced` call. It requires no compute shaders or storage buffers, so it runs identically on WebGL 2 / OpenGL ES 3.0 as well as Metal, Vulkan, D3D11, and WebGPU.
+
+`ParticleWGSL`, `ParticleSoftCircleWGSL`, and `ParticleTexturedWGSL` all bind the standard 3D camera uniform (`view`, `proj`, `view_proj`, `eye`) at `@group(0) @binding(0)`, matching `render3d.CameraBuffer`:
+
+```go
+// In gpu.View OnReady:
+pipe, err := particles.NewParticlePipeline(cx, dev, particles.ParticlePipelineOptions{
+	CameraLayout: camBuf.Layout(),
+	DepthFormat:  gpu.FormatDepth24Plus,
+	Blend:        sparks.Blend,
+	SoftCircle:   true,
+})
+gpuParticles, err := particles.NewGPUParticles3D(cx, dev, particles.GPUParticles3DOptions{
+	Capacity: sparks.MaxParticles,
+})
+
+// In fixed Update:
+sparks.Step(dt)
+
+// In gpu.View OnFrame:
+if sparks.Blend != particles.BlendAdditive {
+	sparks.SortByDepth(cam.Pos, cam.Forward())
+}
+_ = gpuParticles.Upload(sparks, cam.Right(), cam.Up())
+pass.SetPipeline(pipe)
+pass.SetBindGroup(0, camBuf.BindGroup())
+gpuParticles.Draw(pass) // 1 DrawIndexedInstanced call for all live particles
+```
+
+### 3D emitter definitions in YAML
+
+`Emitter3DConfig` uses the same versioned YAML (and JSON) conventions as 2D `Config`: `LoadConfig3DFile`, `LoadConfig3DFS`, `UnmarshalConfig3DYAML`, `SaveConfig3DFile`, `MarshalConfig3DYAML`, `UnmarshalConfig3DJSON`, and `MarshalConfig3DJSON`. Saving is deterministic with fixed key order, and loading refuses unknown fields, missing/wrong `version`, null values, non-finite floats, and shape parameters that do not apply to `shape.kind`.
+
+### 3D 10k particle benchmarks
+
+`Emitter3D` stores particles in dense structure-of-arrays slices with swap-remove expiration and reusable radix-sort scratch buffers:
+
+```sh
+cd packages/game && go tool nsgo test -run '^$' -bench BenchmarkEmitter3D10k ./particles
+```
+
+On Apple Silicon (10,000 active particles with gravity, exponential drag, spin, and size/alpha/color/rotation curves):
+
+- `BenchmarkEmitter3D10kStepAndPack`: ~0.34 ms/frame, `0 B/op`, `0 allocs/op` (additive / unsorted path).
+- `BenchmarkEmitter3D10kStepSortAndPack`: ~0.44 ms/frame, `0 B/op`, `0 allocs/op` (alpha-blended path with back-to-front radix sort).
+
+Both leave over 97% of a 16.6 ms (60 fps) desktop frame budget available, and all 10,000 instances upload as a single 400 KB buffer write and render in one `DrawIndexedInstanced` call.
