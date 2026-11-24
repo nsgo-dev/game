@@ -363,30 +363,56 @@ Every skinned mesh shares one interleaved little-endian layout (`SkinnedVertexLa
 | joints | 3 (`SkinnedJointsLocation`) | `uint32x4` | 32 |
 | weights | 4 (`SkinnedWeightsLocation`) | `float32x4` | 48 |
 
-`GPUSkinPalette` stores up to `MaxSkinJoints` (128) joint matrices in a portable uniform buffer (`SkinUniformSize` = 8,192 bytes, fitting comfortably below WebGL 2 and OpenGL ES 3.0's 16 KiB `MAX_UNIFORM_BLOCK_SIZE` minimum) and binds it at `SkinGroup` (group 1). Unused joint slots are padded with identity matrices. `AppendJointMatrices` and `SkinJointMatrices` / `SkinJointMatricesWithTransform` (which compute glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]`) reuse caller storage with zero allocations.
+`GPUSkinPalette` stores up to `MaxSkinJoints` (128) joint matrices in a portable uniform buffer (`SkinUniformSize` = 8,192 bytes, fitting comfortably below WebGL 2 and OpenGL ES 3.0's 16 KiB `MAX_UNIFORM_BLOCK_SIZE` minimum). Unused joint slots are padded with identity matrices. `AppendJointMatrices` and `SkinJointMatrices` / `SkinJointMatricesWithTransform` (which compute glTF 2.0 `jointNode.WorldMatrix * InverseBindMatrices[i]` from `doc.Nodes[].WorldMatrix`) reuse caller storage with zero allocations.
 
-`SkinWGSL` declares the uniform block (`skin: SkinPalette`) and portable `skin_position` / `skin_normal` vertex helpers matching CPU `SkinVertex`. `NewSkinnedMeshPipeline` compiles `SkinnedMeshWGSL` (`CameraWGSL` at group 0 + `SkinWGSL` at group 1) for immediate rendering:
+Three pipelines draw a `GPUSkinnedMesh`, each binding the palette at its own group, because WebGPU and WebGL 2 guarantee only four bind groups and the lit and material pipelines already use groups 0 to 2:
+
+| Pipeline | Shader | Palette group | Not combinable with |
+| --- | --- | --- | --- |
+| `NewSkinnedMeshPipeline` (unlit, colored by normal) | `SkinnedMeshWGSL` | `SkinGroup` (1) | |
+| `NewLitPBRPipelineWithOptions` with `LitPBRPipelineOptions.SkinLayout` (scene lights) | `LitPBRSkinnedWGSL` | `LitPBRSkinGroup` (3) | `FogLayout`, `IBLLayout` |
+| `NewMaterialPipeline` with `MaterialPipelineOptions.SkinLayout` (glTF material with textures) | `MaterialSkinnedWGSL` | `MaterialSkinGroup` (2) | `FogLayout` |
+
+`SkinWGSL` declares the uniform block at group 1 and the portable `skin_position` / `skin_normal` vertex helpers matching CPU `SkinVertex`, for custom shaders that bind nothing else at group 1.
+
+Joint matrices come in two conventions. `SkinJointMatrices` returns world-space joints, so the skinned vertex is already in world space. anim3d's `Player.SkinMatricesForNode` returns mesh-local joints, `inverse(meshWorld) * jointWorld * IBM`, and the Player keeps its own world matrices instead of writing `doc.Nodes`. Upload mesh-local joints with `GPUSkinPalette.UpdateWithTransform` and the mesh node's world matrix (`Player.WorldTransform`), or pass that matrix as the lit PBR draw's model; otherwise the mesh node's own transform (CesiumMan's Z-up rotation) is lost. A lit CesiumMan animated by anim3d:
 
 ```go
 doc, _ := gltf.LoadFS(assetsFS, "CesiumMan.gltf")
-_ = doc.ComputeWorldMatrices()
-meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, 2)
+const meshNode = 2
+meshes, _ := render3d.SkinnedMeshesFromGLTFNode(doc, meshNode)
+player, _ := anim3d.NewPlayer(doc)
+_ = player.Play(0)
 
 // In gpu.View OnReady:
 camBuf, _ := render3d.NewCameraBuffer(cx, dev)
+lights, _ := render3d.NewLightBuffer(cx, dev, rig, render3d.LightBufferOptions{})
+draw, _ := render3d.NewPBRDrawBuffer(cx, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), mat), true)
 palette, _ := render3d.NewGPUSkinPalette(cx, dev, render3d.SkinPaletteOptions{Label: "hero", Retained: true})
 gpuMesh, _ := render3d.UploadSkinnedMesh(cx, dev, meshes[0], render3d.MeshUpload{Label: "hero", Retained: true})
-pipe, _ := render3d.NewSkinnedMeshPipeline(cx, dev, camBuf.Layout(), palette.Layout(), render3d.SkinnedMeshPipelineOptions{
+pipe, _ := render3d.NewLitPBRPipelineWithOptions(cx, dev, camBuf.Layout(), lights.Layout(), draw.Layout(), render3d.LitPBRPipelineOptions{
 	DepthFormat: gpu.FormatDepth24Plus,
+	SkinLayout:  palette.Layout(),
 })
 
 // Each frame:
-_ = palette.UpdateFromGLTF(dev, doc, 0) // 0 allocations
+player.Step(dt)
+joints, _ := player.SkinMatricesForNode(meshNode) // mesh-local
+_ = palette.Update(frame.Device(), joints)
+draw.Write(frame.Device(), render3d.NewPBRDrawUniform(player.WorldTransform(meshNode), mat))
 pass.SetPipeline(pipe)
 pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-pass.SetBindGroup(render3d.SkinGroup, palette.BindGroup())
+lights.Bind(pass)
+pass.SetBindGroup(render3d.PBRDrawGroup, draw.BindGroup())
+pass.SetBindGroup(render3d.LitPBRSkinGroup, palette.BindGroup())
 gpuMesh.Draw(pass)
 ```
+
+Without anim3d, pose the document with `doc.Animations[i].Apply(doc, t)` and `doc.ComputeWorldMatrices()`, then call `palette.UpdateFromGLTF(dev, doc, skinIndex)` (zero allocations) and draw with an identity model.
+
+- **Bounds**: `SkinnedMesh.Bounds` and `GPUSkinnedMesh.Bounds` cover the unskinned positions in the mesh's own space, not the drawn mesh. For culling and camera framing use `SkinnedBounds(gpuMesh.Bounds(), joints)`, the union of that box under every joint matrix, which contains the skinned mesh in any pose.
+- **Weights**: weights are divided by their largest component before they are summed, so large finite weights normalize instead of overflowing.
+- **Tests**: CesiumMan and RiggedSimple are drawn on the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles and compared with CPU `SkinVertex` renders; CesiumMan's bind pose is checked against the mesh node's world matrix, and the lit and material pipelines are checked with both joint conventions.
 
 ## Metallic-roughness materials (`Material`, `MaterialDefaults`, `GPUMaterial`)
 

@@ -11,9 +11,11 @@ Status: implemented
 `packages/game/render3d/skin.go` implements portable vertex-shader linear blend skinning using a fixed-layout interleaved skinned vertex buffer and an 8 KiB uniform joint palette:
 
 - **Vertex layout (`SkinnedVertexLayout`, 64 bytes/vertex)**: extends `MeshVertexLayout` locations 0..2 (`pos`, `normal`, `uv`) with `@location(3) joints: vec4<u32>` (`gpu.VertexUint32x4`, offset 32) and `@location(4) weights: vec4<f32>` (`gpu.VertexFloat32x4`, offset 48). `SkinnedMesh.Validate` enforces geometry validity (wrapping `ErrInvalidMesh`) and skinning invariants (wrapping `ErrInvalidSkin`): finite non-negative weights and every joint index strictly below `JointCount` (or `MaxSkinJoints` when `JointCount == 0`), preventing out-of-bounds uniform array reads in shaders. `SkinnedMeshFromGLTF` and `AppendVertexData` normalize weights via `NormalizeSkinWeights` (falling back to `(1, 0, 0, 0)` when all four weights sum to zero).
-- **Joint palette (`GPUSkinPalette`, `SkinGroup = 1`)**: stores `MaxSkinJoints = 128` column-major `mat4x4<f32>` entries in a `SkinUniformSize = 8192`-byte uniform buffer (`UsageUniform | UsageCopyDst`), fitting well inside WebGL 2 / GLES 3.0's 16 KiB UBO minimum while covering humanoid character rigs. Unused slots `[len(joints), 128)` are padded with identity matrices. `AppendJointMatrices`, `SkinJointMatrices`, `SkinJointMatricesWithTransform`, and `GPUSkinPalette.UpdateFromGLTF` reuse pre-allocated buffers for zero steady-state heap allocations.
+- **Joint palette (`GPUSkinPalette`)**: stores `MaxSkinJoints = 128` column-major `mat4x4<f32>` entries in a `SkinUniformSize = 8192`-byte uniform buffer (`UsageUniform | UsageCopyDst`), fitting well inside WebGL 2 / GLES 3.0's 16 KiB UBO minimum while covering humanoid character rigs. Unused slots `[len(joints), 128)` are padded with identity matrices. `AppendJointMatrices`, `SkinJointMatrices`, `SkinJointMatricesWithTransform`, and `GPUSkinPalette.UpdateFromGLTF` reuse pre-allocated buffers for zero steady-state heap allocations.
 - **glTF 2.0 matrix convention**: `SkinJointMatrices` computes `doc.Nodes[jointNode].WorldMatrix.Mul(skin.InverseBindMatrices[i])` (using identity when `InverseBindMatrices` is omitted), ignoring the skinned mesh node's own transform per glTF 2.0 section 3.7.3.2 so skeletons rooted under axis-conversion nodes such as `CesiumMan`'s `Z_UP` stand upright in Y-up world space.
 - **Shader & CPU parity (`SkinWGSL`, `NewSkinnedMeshPipeline`, `SkinVertex`)**: `skin_position` and `skin_normal` evaluate linear blend skinning as `sum_i (skin.joints[j_i] * v) * w_i` rather than summing weighted 4x4 matrices first. Normal skinning uses `vec4<f32>(normal, 0.0)` and guards normalization with `dot(blended, blended) > 1e-12` so zero normals never produce `NaN`. `SkinVertex` executes the identical formula on the CPU.
+- **Bind group per pipeline**: the unlit `NewSkinnedMeshPipeline` binds the palette at `SkinGroup` (1); the lit PBR pipeline (`LitPBRPipelineOptions.SkinLayout`) binds it at `LitPBRSkinGroup` (3, shared with fog and IBL) and the material pipeline (`MaterialPipelineOptions.SkinLayout`) at `MaterialSkinGroup` (2, shared with material fog), so a skinned mesh draws with scene lights or a textured glTF material.
+- **anim3d convention**: anim3d's `Player.SkinMatricesForNode` returns mesh-local joints (`inverse(meshWorld) * jointWorld * IBM`); `GPUSkinPalette.UpdateWithTransform` multiplies them by the mesh node's world matrix, and the lit PBR pipeline can take that matrix as the draw's model instead.
 - **Device loss (`Retained`)**: `UploadSkinnedMesh`, `NewGPUSkinPalette`, and `NewSkinnedMeshPipeline` forward `Retained` to NSGo GPU descriptors, and `GPUSkinPalette.Update` updates its cached device pointer whenever a non-nil `*gpu.Device` is passed so post-restore pose updates write cleanly to the restored buffer.
 
 ## Alternatives considered
@@ -34,11 +36,16 @@ Computing a single blended `mat4x4<f32>` before transforming both position and n
 
 Storing a second palette of 128 `mat3x3`/`mat4x4` normal matrices would double the uniform block to 16 KiB (hitting WebGL 2 / GLES 3.0's exact limit with zero headroom) and double per-frame CPU uploads. For rigid and uniformly scaled skeletal joints—which cover standard glTF character rigs—transforming normals by the upper-left 3x3 of the blended joint matrix and renormalizing produces exact results at half the uniform bandwidth. Non-uniformly scaled bones with extreme shear would need inverse-transpose normal matrices in a future extension.
 
+### Why not one fixed bind group for the palette?
+
+WebGPU and WebGL 2 guarantee four bind groups. Lit PBR already uses groups 0 to 2 and puts fog or IBL at 3; the material pipeline uses 0 and 1 and puts fog at 2. NSGo v0.3.0 also refuses a nil entry in `PipelineDesc.Layouts`, so the palette cannot sit at group 3 in a pipeline that leaves group 2 empty. Each pipeline therefore binds the palette at its first free group and refuses the layout that would share it.
+
 ## Consequences
 
 - **Benefit:** Khronos `CesiumMan` (19 joints, 3,273 vertices) and `RiggedSimple` (2 joints) render identically on GPU and CPU across both full and `NoGPUCompute` (WebGL 2 / GLES 3.0) profiles, with zero steady-state allocations on joint updates.
 - **Benefit:** Malformed meshes, negative/non-finite weights, and out-of-range joint indices are rejected upfront before GPU upload, keeping uniform indexing memory-safe.
 - **Cost:** A single draw call is capped at `MaxSkinJoints = 128` joints; characters exceeding 128 joints must be split into multiple sub-meshes with per-sub-mesh joint subsets.
+- **Cost:** A skinned lit PBR draw has no fog or IBL, and a skinned material draw has no fog, because the palette takes their bind group.
 - **Cost:** Normals transformed by heavily non-uniform joint scales are approximate because the upper-left 3x3 is used instead of an inverse-transpose normal palette.
 
 ## Testing
