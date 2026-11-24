@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -68,8 +69,10 @@ type Call struct {
 	Handler string
 	// Args holds every param of the handler: the connection's value normalized to the param's Go type (bool, int, float64 or string), or the param's default. The map is the handler's own to change.
 	Args map[string]any
-	// Payload is the value passed to Signals.Emit.
+	// Payload is the value passed to Signals.Emit or Signals.Enqueue.
 	Payload any
+	// SourceEntity and TargetEntity are the entities Source and Target were spawned as when SpawnConnected made the Signals, or entities.Zero when Connect made it.
+	SourceEntity, TargetEntity entities.Entity
 }
 
 // ConnectionError reports a connection (SceneDoc.Connections) that names an event, handler or argument its objects' registered component types do not declare. File, Line and Column locate it in a scene file when it came from ParseWith; they are empty or zero otherwise.
@@ -131,7 +134,7 @@ func ValidateConnections(doc *SceneDoc, reg *ComponentRegistry) error {
 // MaxEmitDepth is how deeply Signals.Emit nests: a handler that emits an event is one level, and a handler that event runs and emits another is two. Emit refuses to go deeper, which stops connections that trigger each other from looping forever.
 const MaxEmitDepth = 64
 
-// Signals dispatches the events a scene's objects emit to the handlers its connections name. Connect makes one. It is not safe for concurrent use: emit from the goroutine that runs the game's update.
+// Signals dispatches the events a scene's objects emit to the handlers its connections name. Connect makes one, and SpawnConnected makes one whose events also address the entities the objects were spawned as. Emit runs the handlers at once; Enqueue holds the event until Flush, which a game calls once per update step so that events raised during the step run after it, in the order they were raised. It is not safe for concurrent use: emit from the goroutine that runs the game's update.
 type Signals struct {
 	ctx any
 	// names maps every object ID to the events its registered components declare, keyed both "component.event" and by the bare event name; a bare name two components declare maps to an empty key.
@@ -139,6 +142,20 @@ type Signals struct {
 	// bindings maps an object ID and its event's "component.event" key to its connections in document order.
 	bindings map[bindKey][]*binding
 	depth    int
+	// queue holds the events Enqueue added since the last Flush began, and spare the backing array of the batch the last Flush ran, reused for the next queue.
+	queue, spare []queued
+	flushing     bool
+	// world, entityOf and objectOf are set by SpawnConnected: the world the objects were spawned into, each object ID's entity, and each entity's object ID.
+	world    *entities.World
+	entityOf map[string]entities.Entity
+	objectOf map[entities.Entity]string
+}
+
+// queued is an event Enqueue added: the object's ID and event as written, for errors, the binding key they name and the payload.
+type queued struct {
+	from, event string
+	key         bindKey
+	payload     any
 }
 
 // memberRef names an event or handler of one component.
@@ -198,6 +215,33 @@ func Connect(doc *SceneDoc, reg *ComponentRegistry, ctx any) (*Signals, error) {
 	return s, nil
 }
 
+// SpawnConnected checks doc as Connect does and spawns its objects into w as SpawnEntities does, and returns each object ID's entity and the Signals that runs doc's connections between those entities: EmitEntity and EnqueueEntity address an object by its entity, and every Call carries the entities at both ends. doc must be valid and refer to no other scene file (pass it through Resolve first, or use BuiltScene.Doc). Every check runs before the first entity is spawned, so a scene whose connections name a missing object, event, handler or Func, or whose components break their registered types, spawns nothing.
+//
+// Once an entity is destroyed, its object emits nothing: Emit, Enqueue and their entity forms refuse it, Flush drops the events it enqueued before, and the connections to it are skipped, a once connection staying connected.
+func SpawnConnected(doc *SceneDoc, w *entities.World, reg *ComponentRegistry, ctx any) (map[string]entities.Entity, *Signals, error) {
+	if w == nil {
+		return nil, nil, errors.New("sceneformat: nil entity world")
+	}
+	if w.Disposed() {
+		return nil, nil, fmt.Errorf("sceneformat: spawn entities: %w", entities.ErrWorldDisposed)
+	}
+	s, err := Connect(doc, reg, ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	spawned, err := SpawnEntities(doc, w)
+	if err != nil {
+		return nil, nil, err
+	}
+	s.world = w
+	s.entityOf = spawned
+	s.objectOf = make(map[entities.Entity]string, len(spawned))
+	for id, e := range spawned {
+		s.objectOf[e] = id
+	}
+	return spawned, s, nil
+}
+
 // eventNames returns the events o's registered components declare, keyed as Signals.names keeps them.
 func eventNames(o *ObjectDoc, reg *ComponentRegistry) map[string]memberRef {
 	var out map[string]memberRef
@@ -222,32 +266,153 @@ func eventNames(o *ObjectDoc, reg *ComponentRegistry) map[string]memberRef {
 	return out
 }
 
-// Emit fires the event named event of the object with ID from, passing payload, and calls the handler of every connection from that event, in the order the scene lists them. event is a bare name, such as "pressed", or "button.pressed" to say which component when several of the object's components declare it. A once connection runs the first time only. An event no connection names does nothing.
+// Emit fires the event named event of the object with ID from, passing payload, and calls the handler of every connection from that event, in the order the scene lists them. event is a bare name, such as "pressed", or "button.pressed" to say which component when several of the object's components declare it. A once connection runs the first time only. An event no connection names does nothing. Handlers run before Emit returns, so a handler that emits runs the next handlers inside the first; use Enqueue to run them after the current step instead.
 //
-// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, and when handlers that emit events have nested more than MaxEmitDepth levels.
+// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, when the object's entity has been destroyed (SpawnConnected), and when handlers that emit events have nested more than MaxEmitDepth levels.
 func (s *Signals) Emit(from, event string, payload any) error {
 	if s == nil {
 		return errors.New("sceneformat: emit on nil Signals")
 	}
-	names, ok := s.names[from]
-	if !ok {
-		return fmt.Errorf("sceneformat: emit %q: the scene has no object %q", event, from)
-	}
-	m, ok := names[event]
-	if !ok {
-		return fmt.Errorf("sceneformat: emit %q: no registered component of object %q declares the event", event, from)
-	}
-	if m.component == "" {
-		return fmt.Errorf("sceneformat: emit %q: several components of object %q declare the event; name it as component.%s", event, from, event)
+	k, err := s.lookup("emit", from, event)
+	if err != nil {
+		return err
 	}
 	if s.depth >= MaxEmitDepth {
 		return fmt.Errorf("sceneformat: emit %q of object %q: handlers emitting events nest deeper than %d levels", event, from, MaxEmitDepth)
 	}
+	s.dispatch(k, payload)
+	return nil
+}
+
+// Enqueue checks the event as Emit does and holds it, with payload, until the next Flush, which runs its handlers in the order the events were enqueued. A handler may enqueue events, its own included, without re-entering the handlers that are running: they wait for the Flush after the one that runs it.
+//
+// Enqueue returns an error, and queues nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, and when the object's entity has been destroyed (SpawnConnected).
+func (s *Signals) Enqueue(from, event string, payload any) error {
+	if s == nil {
+		return errors.New("sceneformat: enqueue on nil Signals")
+	}
+	k, err := s.lookup("enqueue", from, event)
+	if err != nil {
+		return err
+	}
+	s.queue = append(s.queue, queued{from: from, event: event, key: k, payload: payload})
+	return nil
+}
+
+// Pending returns how many events Enqueue holds for the next Flush.
+func (s *Signals) Pending() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.queue)
+}
+
+// Flush runs the events enqueued before it began, in enqueue order, each as Emit would run it. Events their handlers enqueue are held for the next Flush, so one Flush always ends, even when handlers keep enqueueing each other. An event whose object's entity was destroyed after it was enqueued is dropped (SpawnConnected). Call it once per update step, such as at the end of game.Loop's Update, to run what the step raised after it.
+//
+// Flush returns an error, and runs nothing, when a handler calls it: events then run only from the update, never inside another event's handlers.
+func (s *Signals) Flush() error {
+	if s == nil {
+		return errors.New("sceneformat: flush on nil Signals")
+	}
+	if s.flushing || s.depth > 0 {
+		return errors.New("sceneformat: flush from a handler; Flush runs from the game's update, and events a handler enqueues wait for the next one")
+	}
+	if len(s.queue) == 0 {
+		return nil
+	}
+	batch := s.queue
+	s.queue = s.spare[:0]
+	s.spare = nil
+	s.flushing = true
+	defer func() {
+		clear(batch) // drop the payloads, so the reused array keeps nothing alive
+		s.spare = batch[:0]
+		s.flushing = false
+	}()
+	for _, q := range batch {
+		if s.world != nil && !s.world.Alive(s.entityOf[q.key.from]) {
+			continue
+		}
+		s.dispatch(q.key, q.payload)
+	}
+	return nil
+}
+
+// Entity returns the entity the object with ID id was spawned as, and whether there is one: false when Connect made s, or the scene has no object id.
+func (s *Signals) Entity(id string) (entities.Entity, bool) {
+	if s == nil {
+		return entities.Zero, false
+	}
+	e, ok := s.entityOf[id]
+	return e, ok
+}
+
+// EmitEntity is Emit for the object that SpawnConnected spawned as e. It returns an error when e is not one of those entities or is no longer alive.
+func (s *Signals) EmitEntity(e entities.Entity, event string, payload any) error {
+	id, err := s.objectOfEntity("emit", e, event)
+	if err != nil {
+		return err
+	}
+	return s.Emit(id, event, payload)
+}
+
+// EnqueueEntity is Enqueue for the object that SpawnConnected spawned as e. It returns an error when e is not one of those entities or is no longer alive.
+func (s *Signals) EnqueueEntity(e entities.Entity, event string, payload any) error {
+	id, err := s.objectOfEntity("enqueue", e, event)
+	if err != nil {
+		return err
+	}
+	return s.Enqueue(id, event, payload)
+}
+
+// objectOfEntity returns the object ID of the spawned entity e, for the operation verb of event.
+func (s *Signals) objectOfEntity(verb string, e entities.Entity, event string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("sceneformat: %s on nil Signals", verb)
+	}
+	if s.world == nil {
+		return "", fmt.Errorf("sceneformat: %s %q of entity %v: the Signals was not made by SpawnConnected", verb, event, e)
+	}
+	id, ok := s.objectOf[e]
+	if !ok {
+		return "", fmt.Errorf("sceneformat: %s %q: entity %v was not spawned from the scene", verb, event, e)
+	}
+	return id, nil
+}
+
+// lookup finds the binding key of the event named event of the object from, for the operation verb, refusing what Emit refuses before it calls anything.
+func (s *Signals) lookup(verb, from, event string) (bindKey, error) {
+	names, ok := s.names[from]
+	if !ok {
+		return bindKey{}, fmt.Errorf("sceneformat: %s %q: the scene has no object %q", verb, event, from)
+	}
+	m, ok := names[event]
+	if !ok {
+		return bindKey{}, fmt.Errorf("sceneformat: %s %q: no registered component of object %q declares the event", verb, event, from)
+	}
+	if m.component == "" {
+		return bindKey{}, fmt.Errorf("sceneformat: %s %q: several components of object %q declare the event; name it as component.%s", verb, event, from, event)
+	}
+	if s.world != nil && !s.world.Alive(s.entityOf[from]) {
+		return bindKey{}, fmt.Errorf("sceneformat: %s %q: the entity of object %q has been destroyed", verb, event, from)
+	}
+	return bindKey{from, m.key()}, nil
+}
+
+// dispatch calls the handlers of the connections from the event k names, one level deeper. A connection whose target's entity has been destroyed is skipped, and a once connection it skips stays connected.
+func (s *Signals) dispatch(k bindKey, payload any) {
 	s.depth++
 	defer func() { s.depth-- }()
-	for _, b := range s.bindings[bindKey{from, m.key()}] {
+	for _, b := range s.bindings[k] {
 		if b.done {
 			continue
+		}
+		var src, dst entities.Entity
+		if s.world != nil {
+			src, dst = s.entityOf[b.source.ID], s.entityOf[b.target.ID]
+			if !s.world.Alive(dst) {
+				continue
+			}
 		}
 		if b.once {
 			b.done = true
@@ -263,9 +428,10 @@ func (s *Signals) Emit(from, event string, payload any) error {
 			Handler:         b.handler.name,
 			Args:            maps.Clone(b.args),
 			Payload:         payload,
+			SourceEntity:    src,
+			TargetEntity:    dst,
 		})
 	}
-	return nil
 }
 
 // bindConnections checks the connections of doc, a valid scene that refers to no other scene file, against reg and returns them ready to call, in document order.

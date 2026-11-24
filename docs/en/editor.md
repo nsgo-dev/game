@@ -401,6 +401,47 @@ scenes/hall.scene.yaml:16:14: sceneformat: connection 0 ("button" pressed -> "do
 
 `Resolve` carries connections along: an instanced scene's connections come with the instance, the objects they name prefixed like its objects' IDs (`door_1/button`), so every copy of a prefab keeps its own wiring; an inheriting scene keeps its base's connections and adds its own after them. A scene may connect objects of the scenes it instances or inherits, and those names are checked once it is resolved. In the editor, `DeleteObject` also removes the connections from or to the deleted object and its descendants, and undoing the delete puts them back.
 
+#### Queued events
+
+`Emit` runs the handlers before it returns, so a handler that emits runs the next handlers inside itself. To keep a step's order plain, emit with `Signals.Enqueue(from, event, payload)` instead and call `Signals.Flush()` once per step, such as at the end of `game.Loop`'s `Update`:
+
+```go
+loop.Update = func(dt time.Duration) {
+	world.Update(dt) // input and systems call signals.Enqueue
+	if err := signals.Flush(); err != nil {
+		log.Print(err)
+	}
+}
+```
+
+`Enqueue` refuses what `Emit` refuses before it holds anything, so a misspelled event fails where it is raised. `Flush` runs the events enqueued before it began, in the order they were enqueued, each as `Emit` runs it; an event a handler enqueues, its own included, waits for the next `Flush`, so one `Flush` always ends and a handler never re-enters itself. `Flush` from a handler is refused, and `Pending` says how many events wait. Once the queue has grown to a step's events, a step allocates nothing more than emitting them would.
+
+#### Spawning connected entities
+
+`SpawnConnected(doc, world, reg, ctx)` checks the scene as `Connect` does and spawns its objects as `SpawnEntities` does, then returns each object ID's entity and the `*Signals` that connects those entities. Every check runs before the first entity is spawned, so a scene whose connection names a missing object, event, handler or `Func`, or whose components break their types, spawns nothing. `EmitEntity(e, event, payload)` and `EnqueueEntity` address an object by its entity, `Entity(id)` returns an object's entity, and each `Call` carries `SourceEntity` and `TargetEntity`, so a handler reaches the target's components with `entities.Get`. A destroyed entity emits nothing: `Emit`, `Enqueue` and their entity forms refuse it, `Flush` drops the events it enqueued, and connections to it are skipped. A scene that instances or inherits others is spawned after `Resolve`, its instances' connections reaching the instances' entities (`west/door`).
+
+#### Checking connections
+
+`go tool game check` resolves each scene that instances or inherits others and has connections of its own, and fails on a connection whose `from` or `to` names no object of the resolved scene, at the line that names it. The events and handlers are declared in Go, which the command cannot load, so a game checks them in its own tests with `assetcheck.CheckWith` and its registry; that reports a connection naming an event, handler or argument its objects do not declare, and a component that breaks its type, at the file and line, in scenes that instance or inherit others too:
+
+```go
+func TestScenesCheck(t *testing.T) {
+	report, err := assetcheck.CheckWith(os.DirFS("."), assetcheck.Options{Components: Components})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range report.Problems {
+		t.Error(p)
+	}
+}
+```
+
+```text
+scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/door" open): no registered component of object "lever" declares event "held" (it has: button.pressed)
+```
+
+The connections of the scenes a scene instances or inherits are checked in those files, so each fault is reported once.
+
 ### Projects
 
 The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `go tool game mv` does ([Stable references](project.md#stable-references)).

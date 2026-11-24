@@ -93,3 +93,22 @@ func TestCheckErrors(t *testing.T) {
 		}
 	}
 }
+
+// A connection to an object an instanced scene does not hold fails game check at the line that names it.
+func TestCheckReportsConnectionsAcrossScenes(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"nsgo.yaml":              "name: test\n",
+		"scenes/pair.scene.yaml": "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: button\n      - id: door\n",
+		"scenes/level.scene.yaml": "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: west\n        scene: scenes/pair.scene.yaml\n" +
+			"connections:\n  - from: west/button\n    event: pressed\n    to: west/gate\n    handler: open\n",
+	})
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	want := filepath.Join(dir, "scenes", "level.scene.yaml") + `:10: sceneformat: connection 0 ("west/button" pressed -> "west/gate" open): the scene has no object "west/gate", counting those of the scenes it instances and inherits` + "\ngame check: 1 problem\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
+}

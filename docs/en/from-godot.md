@@ -17,7 +17,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | Instantiating a scene as a template | `entities.Prefab`, or a scene object's `prefab` field | [Entities](entities.md) |
 | `Resource`, `.tres`, `ResourceLoader` | YAML resource files in a `resource.Library`; images and sounds under `resources/`; data through `assets.Manager` with `WithFS` | [resource](resources.md), [assets](assets.md) |
 | Signals, `connect`, `emit` | `flow.Bus` with `Subscribe` and `Publish`; `core.Signal` for UI state | [flow](flow.md) |
-| `[connection]` in a `.tscn` | A scene file's `connections`, run by `sceneformat.Connect` and `Signals.Emit` | [Editor & Scene Format](editor.md#connections-490) |
+| `[connection]` in a `.tscn` | A scene file's `connections`, run by `sceneformat.Connect` and `Signals.Emit`, or deferred, as `CONNECT_DEFERRED` does, with `Signals.Enqueue` and `Flush`; `SpawnConnected` binds them to entities | [Editor & Scene Format](editor.md#connections-490) |
 | `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`, `tween.Timeline` | [tween](tween.md) |
 | Input Map, `Input.is_action_just_pressed` | `input.Actions`, `JustPressed` | [input](input.md) |

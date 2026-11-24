@@ -2,7 +2,7 @@
 //
 // Check walks a directory and reads:
 //
-//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, and whose sprite frames and tile IDs must be in their atlases;
+//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose sprite frames and tile IDs must be in their atlases, and whose connections must name objects of the scene, counting in a scene that instances or inherits other scenes the objects they bring once sceneformat.Resolve has merged them, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
@@ -31,6 +31,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
 // Problem is one thing wrong with a file Check read.
@@ -62,16 +63,28 @@ type Report struct {
 // OK reports whether Check found no problems.
 func (r *Report) OK() bool { return len(r.Problems) == 0 }
 
-// Check walks fsys, such as os.DirFS of a game's directory, checks every scene, map, tileset and atlas in it as the package comment describes, and returns what it found. It returns an error only when fsys's root cannot be read; a file it cannot read or parse is a Problem.
+// Options configures CheckWith.
+type Options struct {
+	// Components, when non-nil, are the game's component types, whose events and handlers a scene's connections name: every object's components are checked against them, as sceneformat.ParseWith checks them, and so is every connection, in a scene that instances or inherits other scenes once they are resolved, so a connection naming an event or handler its object does not declare, or a handler argument it does not take, is a Problem at the line that names it. Nil checks a connection's objects only, since the command line cannot know the types a game registers in Go.
+	Components *sceneformat.ComponentRegistry
+}
+
+// Check is CheckWith without Options: it checks that every connection names objects that exist, but not their events and handlers.
 func Check(fsys fs.FS) (*Report, error) {
+	return CheckWith(fsys, Options{})
+}
+
+// CheckWith walks fsys, such as os.DirFS of a game's directory, checks every scene, map, tileset and atlas in it as the package comment describes, and returns what it found. It returns an error only when fsys's root cannot be read; a file it cannot read or parse is a Problem.
+func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	c := &checker{
-		fsys:      fsys,
-		atlases:   make(map[string]*atlasInfo),
-		checked:   make(map[string]bool),
-		broken:    make(map[string]bool),
-		images:    make(map[string]*imageInfo),
-		materials: make(map[string]bool),
-		roots:     make(map[string]string),
+		fsys:       fsys,
+		components: opts.Components,
+		atlases:    make(map[string]*atlasInfo),
+		checked:    make(map[string]bool),
+		broken:     make(map[string]bool),
+		images:     make(map[string]*imageInfo),
+		materials:  make(map[string]bool),
+		roots:      make(map[string]string),
 	}
 	var scenes, tiledMaps, tilesets, ldtks, jsons []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
@@ -159,6 +172,8 @@ type checker struct {
 	roots map[string]string
 	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.
 	refs *refs.Project
+	// components are Options.Components.
+	components *sceneformat.ComponentRegistry
 }
 
 // problem records a problem in file at line (0 for none).

@@ -17,7 +17,7 @@
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |
 | `Resource`、`.tres`、`ResourceLoader` | 放进 `resource.Library` 的 YAML 资源文件；`resources/` 下的图像和声音；数据通过带 `WithFS` 的 `assets.Manager` 读取 | [resource](resources.md)、[assets](assets.md) |
 | 信号、`connect`、`emit` | `flow.Bus` 的 `Subscribe` 与 `Publish`；界面状态用 `core.Signal` | [flow](flow.md) |
-| `.tscn` 里的 `[connection]` | 场景文件的 `connections`，由 `sceneformat.Connect` 与 `Signals.Emit` 运行 | [编辑器与场景格式](editor.md#连接490) |
+| `.tscn` 里的 `[connection]` | 场景文件的 `connections`，由 `sceneformat.Connect` 与 `Signals.Emit` 运行，或者像 `CONNECT_DEFERRED` 那样用 `Signals.Enqueue` 与 `Flush` 延后运行；`SpawnConnected` 把它们绑定到实体 | [编辑器与场景格式](editor.md#连接490) |
 | `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
 | 输入映射、`Input.is_action_just_pressed` | `input.Actions`、`JustPressed` | [input](input.md) |
