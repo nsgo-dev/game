@@ -55,4 +55,9 @@ func ExampleNew() {
 	// game_tunable_set
 	// game_console_commands_list
 	// game_console_exec
+	// game_prefabs_list
+	// game_entity_spawn
+	// game_entity_destroy
+	// game_component_set
+	// game_component_remove
 }
