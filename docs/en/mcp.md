@@ -35,16 +35,19 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 	Shaders:         g.shaderReloader,
 	Materials:       g.materialReloader,
 	ReloadAsset:     g.reloadCustomAsset,
+	PhysicsFunc:     func() *physics.World { return g.physics },
+	ScreenshotDir:   g.screenshotDir,
 })
 if err != nil {
 	return err
 }
 ```
 
-- When a game replaces its `*scene.Scene`, `*entities.World`, `*game.Loop` or `*debug.Console` across level restarts, supply `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` (or call `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole`).
+- When a game replaces its `*scene.Scene`, `*entities.World`, `*game.Loop`, `*debug.Console` or `*physics.World` across level restarts, supply `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc` (or call `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`).
 - To support `game_loop_seed`, configure `Random` (`*random.Stream`), `RandomStreams` (`*random.Streams`) and/or a custom `SetSeed` callback; if none is set, `game_loop_seed` returns an actionable error.
 - When a `scene.Manager` controller draws via a custom `Controller.Draw` without setting `Controller.Scene`, `SceneFunc` / `Scene` provides the current scene's layers automatically.
 - When `EntityName` or `EntityLayer` is omitted (or returns `""`), `game/mcp` falls back to [`sceneformat.ObjectRef`](editor.md) if the entity carries one.
+- For `game_screenshot`, supply `CaptureFrame` (to composite overlays onto an already-rendered `*image.RGBA`), `DrawFrame` (to record custom `core.Drawing` ops), or let `game/mcp` render the active `Scenes`/`Scene` directly under `Viewport` (with optional `ScreenshotBackground`). Set `ScreenshotDir` to allow writing PNGs to relative paths via the `path` argument; otherwise screenshots return `png_base64` inline.
 
 ## Inspecting and editing components
 
@@ -130,6 +133,7 @@ If `game_entity_spawn` fails while applying `parent` or `components`, or while r
 | `game_assets_list` | `group` (optional), `state` (`loaded`/`loading`/`unloaded`/`failed`), `kind` (optional) | Deterministically sorted asset groups (`assets.Manager` groups, `resource.Library`, `hotreload.ShaderReloader`, `hotreload.MaterialReloader`, and custom registered assets) with load states, asset keys/kinds/URIs, frame counts, per-group estimated bytes, and `total_bytes`. |
 | `game_asset_reload` | `key` (name, URI or relative path), `group` (optional), `all` (boolean, optional) | Reloads a matching asset in place (or all loaded assets when `all: true`), returning `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`; each item carries `skipped` when it was left unchanged without an error. Parse and compile errors are returned in the structured result while keeping the previously loaded working asset intact. `all: true` needs an asset manager, reloader or registered asset; `Config.ReloadAsset` only reloads a single key. |
 | `game_assets_reload_group` | `group` (required) | Reloads every loaded asset in the named group in place, reporting per-item results, `count` reloaded, `failed`, `skipped`, memory bytes, duration, and any item errors without crashing the running game. |
+| `game_screenshot` | `scene`, `width`, `height`, `format` (`"png"`), `path`, `bounds`, `collision_shapes`, `physics`, `grid`, `camera`, `labels`, `overlays` (`{bounds, collision_shapes, physics, grid, grid_step, camera, labels}`) | Captures the game view as PNG (`width`, `height`, `format`, `bytes`, `png_base64` or relative `path`, and `overlays_drawn` summary), optionally compositing pixel-aligned sprite bounds, 2D physics collision shapes, reference grid, camera frame and labels in the same camera and viewport transforms. |
 
 All tools reject unknown argument fields.
 
@@ -217,6 +221,17 @@ Wire `Config.Assets` (or `Config.AssetsFunc` / `bridge.SetAssets`), `Config.Reso
 - **Safe failure handling**: Syntax, schema, or shader compilation errors leave the previous working atlas, shader, material, or resource active and return `reloaded: false` with the diagnostic message in `error`.
 - **Skipped assets**: Sounds are not replaced in place, images with no file behind them (such as generated textures) have nothing to reload, and a file at a density the screen does not show (the 1x file on a 2x screen) would change nothing on screen. These items carry `skipped` with the reason (`assets.SkippedSound`, `assets.SkippedNoFile`, `assets.SkippedDensity`) and count neither as reloaded nor as failed. A group reload also skips an image whose file the group's reader cannot find; reloading that image by key reports the read error.
 - **Off the engine goroutine**: `Manager.ReloadAsset` and `Manager.ReloadGroup` read files, parse atlases and run custom loaders on another goroutine, as `Group.Load` does, and apply the results on the engine goroutine once they finish. The tool call waits for them, so a custom reader or loader must not wait on the engine goroutine; when the call's context ends first, nothing is replaced and the tool returns the context's error.
+
+## Screenshots and diagnostic overlays
+
+`game_screenshot` renders or captures the current game view and composites requested overlays in the exact same `screen.Viewport` clip/scale/letterbox and `tilemap.Camera` (including parallax and `SpaceScreen` HUD layers) transforms as the game itself:
+
+- **`bounds`**: Draws 1-pixel cyan (`#00e5ff`) bounding outlines around every visible sprite in the rendered scene(s).
+- **`collision_shapes` / `physics`**: Draws 2D collision shapes from `Config.Physics` (box bodies in green `#22c55e`, circle bodies with `+X` orientation tick in sky blue `#38bdf8`, triggers in pink `#f472b6`, solid tiles in amber `#f59e0b`, one-way tiles in purple `#c084fc`) and `Config.RigidPhysics` (rotated rigid bodies). Colors match `physics.DefaultDebugStyle()` and `mcp.DefaultOverlayStyle()`.
+- **`grid`**: Draws a world-space reference grid spaced by `overlays.grid_step` (default `32` points).
+- **`camera`**: Draws the active camera's visible frame and center crosshair (`#facc15`).
+- **`labels`**: Draws compact bitmap labels for sprite frames and tagged physics bodies.
+- **`path`**: When set, writes the PNG confined inside `Config.ScreenshotDir` (rejecting absolute paths and `..` traversal) and omits `png_base64` from the response. When omitted, returns `png_base64` directly in JSON.
 
 ## Stable entity references
 
