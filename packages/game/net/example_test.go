@@ -86,6 +86,50 @@ func ExampleLockstepSession() {
 	// 33 33
 }
 
+// The host admits a peer to a running lockstep match: the newcomer loads the host's state at the join tick, and the others expect its inputs from that tick on. RemovePeer reverses it: from the leave tick nobody waits for the peer.
+func ExampleLockstepSession_AddPeer() {
+	const latency = 10 * time.Millisecond
+	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{Latency: latency})
+	bits := map[gamenet.PeerID]uint64{1: 1, 2: 10, 3: 100}
+	sims := map[gamenet.PeerID]*tally{1: {}, 2: {}, 3: {}}
+	sessions := map[gamenet.PeerID]*gamenet.LockstepSession{}
+	for _, id := range []gamenet.PeerID{1, 2} {
+		sessions[id] = gamenet.NewLockstepSession(gamenet.LockstepConfig{Transport: hub.AddPeer(id), Sim: sims[id], Peers: []gamenet.PeerID{1, 2}})
+	}
+	host := sessions[1]
+	play := func(ticks int) {
+		for range ticks {
+			for id, s := range sessions {
+				s.SubmitInput(gamenet.InputFrame{Tick: s.Tick(), Bits: bits[id]})
+			}
+			hub.Advance(latency)
+			for _, s := range sessions {
+				s.Step()
+			}
+		}
+	}
+	play(2)
+
+	sessions[3] = gamenet.NewLockstepSession(gamenet.LockstepConfig{Transport: hub.AddPeer(3), Sim: sims[3], Host: 1, Join: true})
+	join, _ := host.AddPeer(3)
+	hub.Advance(latency)
+	for _, s := range sessions {
+		s.Poll()
+	}
+	fmt.Println("joined at", join, sessions[3].Active(), sims[3].total == sims[1].total)
+	play(3)
+	fmt.Println(host.Members(), sims[1].total, sims[3].total)
+
+	leave, _ := host.RemovePeer(2)
+	delete(sessions, 2)
+	play(2)
+	fmt.Println("left at", leave, host.Members(), sims[1].total, sims[3].total)
+	// Output:
+	// joined at 2 true true
+	// [1 2 3] 355 355
+	// left at 5 [1 3] 557 557
+}
+
 // ChecksumBytes hashes a saved state so peers can compare their simulations cheaply.
 func ExampleChecksumBytes() {
 	a := gamenet.ChecksumBytes([]byte("state at tick 120"))
