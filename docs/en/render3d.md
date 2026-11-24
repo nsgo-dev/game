@@ -1093,7 +1093,41 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **Output encoding**: the shader encodes its linear result to sRGB, as `LitPBRWGSL` and the material pipeline do, so lightmapped geometry and PBR-lit props drawn into the same pass match. For an sRGB color format (`LightmapRendererOptions.ColorFormat` or the surface format) the encode is left to the hardware.
 - **Atlas transform**: `LightmapRef.UVScale` / `UVOffset` are the authoritative atlas transform; `LightmapRef.Texture` carries no scale or offset, so do not also apply it with `TransformTexCoords`. See [Baked lightmaps](3d-models-blender.md#baked-lightmaps) for where the values come from.
 - **Texture streaming**: `BeginFrame` drops cached bind groups of lightmap and albedo textures that have been closed, so streaming levels or hot-reloading lightmaps does not grow the cache.
-- **Scope**: `LightmapRenderer` is a standalone path, albedo times (baked irradiance plus one Lambertian light). It has no metallic-roughness, normal, occlusion or emissive maps and does not read a `LightRig`. Feeding lightmaps into the PBR material path as its indirect term is tracked in [#752](https://github.com/nsgo-dev/game/issues/752).
+- **Scope**: `LightmapRenderer` is a standalone Lambertian path, albedo times (baked irradiance plus one optional `DirectionalLight`). It has no metallic-roughness, normal, occlusion, or emissive maps and does not read a `LightRig`.
+
+### PBR lightmap path (`GPUPBRLightmap`, `NewPBRLightmapPipeline`, `UploadGLTFPBRLightmaps`)
+
+To keep full glTF 2.0 metallic-roughness PBR materials (base color, metallic-roughness, normal, occlusion, emissive, alpha modes, double-sided faces) and dynamic `LightRig` lighting (directional, point, and spot lights) on baked geometry, use `NewPBRLightmapPipeline` together with `GPUMaterial` and `GPUPBRLightmap`:
+
+```go
+matSet, err := render3d.UploadGLTFMaterials(cx, dev, defaults, doc, render3d.GLTFMaterialUpload{Retained: true})
+lmSet, err := render3d.UploadGLTFPBRLightmaps(cx, dev, doc, render3d.GLTFPBRLightmapUpload{Retained: true})
+lmMeshData, err := render3d.LightmapMeshFromGLTF(doc, prim)
+lmMesh, err := render3d.UploadLightmapMesh(cx, dev, lmMeshData, render3d.MeshUpload{Retained: true})
+
+pipe, err := render3d.NewPBRLightmapPipeline(
+	cx, dev,
+	camBuf.Layout(), lightBuf.Layout(), defaults.Layout(), lmSet.Layout(),
+	render3d.PBRLightmapPipelineOptions{DepthFormat: gpu.FormatDepth24Plus, Retained: true},
+)
+
+// Inside OnFrame:
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRLightmapMaterialGroup, matSet.Material(prim.Material).BindGroup())
+lmSet.Lightmap(prim.Material).Bind(pass) // or a per-node instance from lmSet.NewInstance(...)
+lmMesh.Draw(pass)
+```
+
+- **Bind groups & vertex layout**: reuses `LightmapVertexLayout` (40 bytes: `Position`, `Normal`, `UV0`, `UV1`) with `CameraGroup` (0), `LightGroup` (1, `GPULightBuffer`), `PBRLightmapMaterialGroup` (2, `GPUMaterial` from `NewGPUMaterial` or `UploadGLTFMaterials`), and `PBRLightmapGroup` (3, `GPUPBRLightmap` carrying model/normal matrices, atlas `UVTransform`, `LightmapEncoding`, `Intensity`, `RGBMMaxRange`, and the lightmap texture/sampler).
+- **Shading equation**: the decoded lightmap replaces the ambient / indirect diffuse term as `(1 - metallic) * baseColor * decodedLightmap * intensity * occlusion` (so `LightRig.Ambient` is not double-counted on baked geometry), while `LightRig`'s directional, point, and spot lights supply the Cook-Torrance GGX direct term plus emissive, encoded with `linear_to_srgb` (or unclamped linear when `LinearOutput` is set or `ColorFormat` is sRGB). For a dielectric (`metallic = 0`), rough (`roughness = 1`), untextured material with no dynamic lights it matches `LightmapRenderer`; adding a `LightRig` light adds the exact direct term of `LitPBRWGSL`. `EvaluatePBRLightmap` is the CPU reference.
+- **glTF integration**: `UploadGLTFPBRLightmaps` reads `MOZ_lightmap`, `EXT_lightmap`, and `extras.lightmap` (including `KHR_texture_transform`, `scaleOffset`, `uvScale`, `uvOffset`, `intensity`, `encoding`, `rgbmMaxRange`), deduplicates lightmap textures/samplers, and returns a `GLTFPBRLightmapSet` matching `GLTFMaterialSet` (use `NewInstance` for multiple nodes sharing one material at different transforms).
+
+### When to use `LightmapRenderer` vs the PBR lightmap path
+
+- **Use `LightmapRenderer`** for lightweight static architecture, low-end/mobile fill-rate budgets, or diffuse-only baked geometry that only needs an albedo texture (`UV0`), a baked lightmap (`UV1`), and at most one dynamic Lambertian directional sun light — it binds only 2 textures per draw and handles per-frame dynamic uniform ring offsets automatically via `BeginFrame` / `Draw`.
+- **Use the PBR lightmap path (`NewPBRLightmapPipeline` + `GPUPBRLightmap`)** whenever baked geometry also needs metallic-roughness maps, tangent-space normal maps, ambient occlusion maps, emissive maps, alpha masking/blending, double-sided surfaces, HDR `LinearOutput`, or dynamic directional/point/spot specular and diffuse lighting from a `LightRig` in a single pipeline.
 
 ## Point and spot light shadows (`SpotShadowMap`, `PointShadowMap`)
 
