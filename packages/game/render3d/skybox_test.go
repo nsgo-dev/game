@@ -17,8 +17,10 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// iblSphereWGSL shades a Mesh using CameraWGSL (@group(0)), a per-draw material
-// uniform (@group(1)), and IBLWGSL (@group(2)).
+// testIBLGroup is where iblSphereWGSL binds the IBL resources, exercising IBLWGSLForGroup.
+const testIBLGroup = 2
+
+// iblSphereWGSL shades a Mesh using CameraWGSL (@group(0)), a per-draw material uniform (@group(1)), and IBLWGSLForGroup(testIBLGroup).
 const iblSphereWGSL = render3d.CameraWGSL + `
 struct MaterialParams {
 	model: mat4x4<f32>,
@@ -33,7 +35,7 @@ struct MaterialParams {
 ` + "\n"
 
 func makeIBLSphereWGSL() string {
-	return iblSphereWGSL + render3d.IBLWGSL + `
+	return iblSphereWGSL + render3d.IBLWGSLForGroup(testIBLGroup) + `
 struct VertexIn {
 	@location(0) pos: vec3<f32>,
 	@location(1) normal: vec3<f32>,
@@ -264,7 +266,7 @@ func TestCubemapFromEquirectangular(t *testing.T) {
 		}
 	}
 
-	cm, err := render3d.CubemapFromEquirectangular(pano, 16)
+	cm, err := render3d.CubemapFromEquirectangular(pano, 16, false)
 	if err != nil {
 		t.Fatalf("CubemapFromEquirectangular: %v", err)
 	}
@@ -289,10 +291,10 @@ func TestCubemapFromEquirectangular(t *testing.T) {
 		}
 	}
 
-	if _, err := render3d.CubemapFromEquirectangular(nil, 16); !errors.Is(err, render3d.ErrInvalidCubemap) {
+	if _, err := render3d.CubemapFromEquirectangular(nil, 16, false); !errors.Is(err, render3d.ErrInvalidCubemap) {
 		t.Fatalf("nil image err = %v, want ErrInvalidCubemap", err)
 	}
-	if _, err := render3d.CubemapFromEquirectangular(pano, 0); !errors.Is(err, render3d.ErrInvalidCubemap) {
+	if _, err := render3d.CubemapFromEquirectangular(pano, 0, false); !errors.Is(err, render3d.ErrInvalidCubemap) {
 		t.Fatalf("faceSize 0 err = %v, want ErrInvalidCubemap", err)
 	}
 }
@@ -872,13 +874,9 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 	t.Cleanup(func() { _ = prefGPU.Close() })
 
 	iblUniform := render3d.NewIBLUniform(sh, prefGPU, 1.0)
-	iblBuf, err := render3d.NewIBLBuffer(nil, dev, render3d.IBLBufferDesc{
-		Label:     "studio-ibl",
-		Prefilter: prefGPU,
-		Uniform:   iblUniform,
-	})
+	iblBuf, err := render3d.NewGPUIBLBuffer(nil, dev, prefGPU, iblUniform, render3d.IBLBufferOptions{Label: "studio-ibl"})
 	if err != nil {
-		t.Fatalf("NewIBLBuffer: %v", err)
+		t.Fatalf("NewGPUIBLBuffer: %v", err)
 	}
 	t.Cleanup(func() { _ = iblBuf.Close() })
 
@@ -919,10 +917,10 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileWGSL IBL sphere: %v", err)
 	}
-	layouts := make([]*gpu.BindGroupLayout, render3d.IBLGroup+1)
+	layouts := make([]*gpu.BindGroupLayout, testIBLGroup+1)
 	layouts[render3d.CameraGroup] = camBuf.Layout()
 	layouts[1] = matLayout
-	layouts[render3d.IBLGroup] = iblBuf.Layout()
+	layouts[testIBLGroup] = iblBuf.Layout()
 
 	pbrPipe, err := dev.CreatePipeline(nil, gpu.PipelineDesc{
 		Label:         "pbr-ibl",
@@ -1000,7 +998,7 @@ func TestIBLReflectiveSpheresMatchCPUAndReference(t *testing.T) {
 	})
 	pass.SetPipeline(pbrPipe)
 	pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
-	pass.SetBindGroup(render3d.IBLGroup, iblBuf.BindGroup())
+	pass.SetBindGroup(testIBLGroup, iblBuf.BindGroup())
 	for _, bg := range matGroups {
 		pass.SetBindGroup(1, bg)
 		sphereGPU.Draw(pass)
@@ -1128,7 +1126,7 @@ type skyboxViewHandles struct {
 	pref     *render3d.GPUCubemap
 	sky      *render3d.SkyboxPipeline
 	skyGroup *gpu.BindGroup
-	ibl      *render3d.IBLBuffer
+	ibl      *render3d.GPUIBLBuffer
 	camBuf   *render3d.CameraBuffer
 	mesh     *render3d.GPUMesh
 	pbrPipe  *gpu.Pipeline
@@ -1187,14 +1185,9 @@ func skyboxIBLViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*ns
 					if err != nil {
 						t.Fatalf("BindCubemap: %v", err)
 					}
-					h.ibl, err = render3d.NewIBLBuffer(cx, dev, render3d.IBLBufferDesc{
-						Label:     "ibl",
-						Prefilter: h.pref,
-						Uniform:   render3d.NewIBLUniform(sh, h.pref, 1.0),
-						Retained:  retained,
-					})
+					h.ibl, err = render3d.NewGPUIBLBuffer(cx, dev, h.pref, render3d.NewIBLUniform(sh, h.pref, 1.0), render3d.IBLBufferOptions{Label: "ibl", Retained: retained})
 					if err != nil {
-						t.Fatalf("NewIBLBuffer: %v", err)
+						t.Fatalf("NewGPUIBLBuffer: %v", err)
 					}
 					h.mesh, err = render3d.UploadMesh(cx, dev, sphere, render3d.MeshUpload{Label: "sphere", Retained: retained})
 					if err != nil {
@@ -1202,7 +1195,9 @@ func skyboxIBLViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*ns
 					}
 				} else {
 					h.sky.SetDevice(dev)
-					h.ibl.SetDevice(dev)
+					if err := h.ibl.Update(dev, render3d.NewIBLUniform(sh, h.pref, 1.0)); err != nil {
+						t.Fatalf("GPUIBLBuffer.Update after restore: %v", err)
+					}
 				}
 				// Recreate non-retained per-device objects (CameraBuffer + material + pipeline).
 				h.camBuf, err = render3d.NewCameraBuffer(cx, dev)
@@ -1235,10 +1230,10 @@ func skyboxIBLViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*ns
 				if err != nil {
 					t.Fatalf("CompileWGSL: %v", err)
 				}
-				layouts := make([]*gpu.BindGroupLayout, render3d.IBLGroup+1)
+				layouts := make([]*gpu.BindGroupLayout, testIBLGroup+1)
 				layouts[render3d.CameraGroup] = h.camBuf.Layout()
 				layouts[1] = matLayout
-				layouts[render3d.IBLGroup] = h.ibl.Layout()
+				layouts[testIBLGroup] = h.ibl.Layout()
 				h.pbrPipe, err = dev.CreatePipeline(cx, gpu.PipelineDesc{
 					Label:         "pbr",
 					Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
@@ -1263,7 +1258,7 @@ func skyboxIBLViewApp(t *testing.T, retained bool, opts ...nsgotest.Option) (*ns
 				pass.SetPipeline(h.pbrPipe)
 				pass.SetBindGroup(render3d.CameraGroup, h.camBuf.BindGroup())
 				pass.SetBindGroup(1, h.matBG)
-				pass.SetBindGroup(render3d.IBLGroup, h.ibl.BindGroup())
+				pass.SetBindGroup(testIBLGroup, h.ibl.BindGroup())
 				h.mesh.Draw(pass)
 				h.sky.Draw(pass, h.skyGroup)
 				pass.End()
@@ -1342,28 +1337,35 @@ func TestGPUCubemapAndIBLLifecycle(t *testing.T) {
 		t.Fatalf("ByteSize = %d, want 2040", got)
 	}
 
-	ibl, err := render3d.NewIBLBuffer(nil, dev, render3d.IBLBufferDesc{
-		Prefilter: g,
-		Uniform:   render3d.NewIBLUniform(render3d.IrradianceSH{}, g, 1.0),
-	})
+	ibl, err := render3d.NewGPUIBLBuffer(nil, dev, g, render3d.NewIBLUniform(render3d.IrradianceSH{}, g, 1.0), render3d.IBLBufferOptions{})
 	if err != nil {
-		t.Fatalf("NewIBLBuffer: %v", err)
+		t.Fatalf("NewGPUIBLBuffer: %v", err)
 	}
 	if !ibl.Valid() || ibl.Buffer() == nil || ibl.Layout() == nil || ibl.BindGroup() == nil {
-		t.Fatal("IBLBuffer not valid after creation")
+		t.Fatal("GPUIBLBuffer not valid after creation")
 	}
-	// Write uploads updated IBL parameters cleanly.
+	if got := ibl.ByteSize(); got != render3d.IBLUniformSize {
+		t.Fatalf("GPUIBLBuffer.ByteSize = %d, want %d", got, render3d.IBLUniformSize)
+	}
+	// Update uploads updated IBL parameters cleanly and refuses invalid ones.
 	u := render3d.NewIBLUniform(render3d.IrradianceSH{}, g, 0.8)
-	ibl.Write(u)
+	if err := ibl.Update(nil, u); err != nil {
+		t.Fatalf("GPUIBLBuffer.Update: %v", err)
+	}
+	bad := u
+	bad.Intensity = float32(math.NaN())
+	if err := ibl.Update(nil, bad); !errors.Is(err, render3d.ErrInvalidIBL) {
+		t.Fatalf("GPUIBLBuffer.Update(NaN intensity) = %v, want ErrInvalidIBL", err)
+	}
 
 	if err := ibl.Close(); err != nil {
-		t.Fatalf("IBLBuffer.Close: %v", err)
+		t.Fatalf("GPUIBLBuffer.Close: %v", err)
 	}
 	if err := ibl.Close(); err != nil {
-		t.Fatalf("IBLBuffer second Close: %v", err)
+		t.Fatalf("GPUIBLBuffer second Close: %v", err)
 	}
 	if ibl.Valid() {
-		t.Fatal("IBLBuffer still valid after Close")
+		t.Fatal("GPUIBLBuffer still valid after Close")
 	}
 
 	if err := g.Close(); err != nil {
@@ -1379,15 +1381,15 @@ func TestGPUCubemapAndIBLLifecycle(t *testing.T) {
 	// Nil receivers and invalid inputs fail cleanly.
 	var nilCube *render3d.GPUCubemap
 	var nilSky *render3d.SkyboxPipeline
-	var nilIBL *render3d.IBLBuffer
+	var nilIBL *render3d.GPUIBLBuffer
 	if nilCube.Valid() || nilCube.Close() != nil || nilCube.ByteSize() != 0 {
 		t.Error("nil GPUCubemap should be safe and invalid")
 	}
 	if nilSky.Valid() || nilSky.Close() != nil {
 		t.Error("nil SkyboxPipeline should be safe and invalid")
 	}
-	if nilIBL.Valid() || nilIBL.Close() != nil {
-		t.Error("nil IBLBuffer should be safe and invalid")
+	if nilIBL.Valid() || nilIBL.Close() != nil || nilIBL.ByteSize() != 0 {
+		t.Error("nil GPUIBLBuffer should be safe and invalid")
 	}
 	if _, err := render3d.UploadCubemap(nil, nil, cm, render3d.CubemapUpload{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("UploadCubemap(nil dev) = %v, want ErrDeviceLost", err)
@@ -1398,8 +1400,8 @@ func TestGPUCubemapAndIBLLifecycle(t *testing.T) {
 	if _, err := render3d.NewSkyboxPipeline(nil, nil, render3d.SkyboxPipelineDesc{}); !errors.Is(err, gpu.ErrDeviceLost) {
 		t.Errorf("NewSkyboxPipeline(nil dev) = %v, want ErrDeviceLost", err)
 	}
-	if _, err := render3d.NewIBLBuffer(nil, dev, render3d.IBLBufferDesc{}); !errors.Is(err, render3d.ErrInvalidCubemap) {
-		t.Errorf("NewIBLBuffer(nil prefilter) = %v, want ErrInvalidCubemap", err)
+	if _, err := render3d.NewGPUIBLBuffer(nil, dev, nil, render3d.IBLUniform{}, render3d.IBLBufferOptions{}); !errors.Is(err, render3d.ErrInvalidCubemap) {
+		t.Errorf("NewGPUIBLBuffer(nil prefilter) = %v, want ErrInvalidCubemap", err)
 	}
 
 	// Custom group index WGSL helper compiles cleanly.
@@ -1524,4 +1526,195 @@ fn fs_main() -> @location(0) vec4<f32> {
 		t.Fatalf("software renderer: %v", err)
 	}
 	wantPixel(t, sr.Image(), w/2, h/2, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+}
+
+// TestLitPBRIBLMatchesCPUReference renders a front-facing quad through NewLitPBRIBLPipeline with a GPUIBLBuffer at IBLGroup and checks the pixels against LinearToSRGB(ShadePoint + EvaluateIBL).
+func TestLitPBRIBLMatchesCPUReference(t *testing.T) {
+	const w, h = 64, 64
+	sr := gpu.NewSoftwareRenderer(w, h, gpu.FormatDepth24Plus)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	env := studioEnvironmentCubemap(16)
+	sh, err := render3d.ComputeIrradianceSH(env)
+	if err != nil {
+		t.Fatalf("ComputeIrradianceSH: %v", err)
+	}
+	prefCM, err := render3d.PrefilterEnvironment(env, render3d.PrefilterOptions{BaseSize: 16, MipLevels: 4, SampleCount: 24})
+	if err != nil {
+		t.Fatalf("PrefilterEnvironment: %v", err)
+	}
+	pref, err := render3d.UploadCubemap(nil, dev, prefCM, render3d.CubemapUpload{Label: "pref"})
+	if err != nil {
+		t.Fatalf("UploadCubemap: %v", err)
+	}
+	t.Cleanup(func() { _ = pref.Close() })
+	const intensity = 0.9
+	iblBuf, err := render3d.NewGPUIBLBuffer(nil, dev, pref, render3d.NewIBLUniform(sh, pref, intensity), render3d.IBLBufferOptions{Label: "ibl"})
+	if err != nil {
+		t.Fatalf("NewGPUIBLBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = iblBuf.Close() })
+
+	camBuf, err := render3d.NewCameraBuffer(nil, dev)
+	if err != nil {
+		t.Fatalf("NewCameraBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = camBuf.Close() })
+	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Z: 3}, math3d.DegToRad(50), 1, 0.1, 20)
+	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
+	camBuf.WriteCamera(cam)
+
+	lightBuf, err := render3d.NewLightBuffer(nil, dev, render3d.LightRig{}, render3d.LightBufferOptions{Label: "lights"})
+	if err != nil {
+		t.Fatalf("NewLightBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = lightBuf.Close() })
+	drawBuf, err := render3d.NewPBRDrawBuffer(nil, dev, nil, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), render3d.PBRMaterial{BaseColor: math3d.Vec3One()}), false)
+	if err != nil {
+		t.Fatalf("NewPBRDrawBuffer: %v", err)
+	}
+	t.Cleanup(func() { _ = drawBuf.Close() })
+
+	pipe, err := render3d.NewLitPBRIBLPipeline(nil, dev, camBuf.Layout(), lightBuf.Layout(), drawBuf.Layout(), iblBuf.Layout(), gpu.FormatDepth24Plus)
+	if err != nil {
+		t.Fatalf("NewLitPBRIBLPipeline: %v", err)
+	}
+	plane, err := render3d.UploadMesh(nil, dev, render3d.Mesh{
+		Positions: []math3d.Vec3{{X: -3, Y: -3}, {X: 3, Y: -3}, {X: 3, Y: 3}, {X: -3, Y: 3}},
+		Normals:   []math3d.Vec3{{Z: 1}, {Z: 1}, {Z: 1}, {Z: 1}},
+		UVs:       []math3d.Vec2{{}, {X: 1}, {X: 1, Y: 1}, {Y: 1}},
+		Indices:   []uint32{0, 1, 2, 0, 2, 3},
+	}, render3d.MeshUpload{Label: "plane"})
+	if err != nil {
+		t.Fatalf("UploadMesh: %v", err)
+	}
+	t.Cleanup(func() { _ = plane.Close() })
+
+	cases := []struct {
+		name string
+		mat  render3d.PBRMaterial
+		rig  render3d.LightRig
+	}{
+		{"rough dielectric", render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.8, Y: 0.3, Z: 0.2}, Roughness: 0.8}, render3d.LightRig{}},
+		{"smooth metal", render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.95, Y: 0.8, Z: 0.4}, Metallic: 1, Roughness: 0.15}, render3d.LightRig{}},
+		{"directional light plus environment", render3d.PBRMaterial{BaseColor: math3d.Vec3{X: 0.5, Y: 0.55, Z: 0.6}, Metallic: 0.4, Roughness: 0.5}, render3d.LightRig{
+			Directional: []render3d.DirectionalLight{{Direction: math3d.Vec3{X: -0.3, Y: -0.4, Z: -1}, Color: math3d.Vec3One(), Intensity: 1.2}},
+		}},
+	}
+	samplePixels := [][2]int{{16, 16}, {48, 16}, {32, 32}, {16, 48}, {48, 48}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := lightBuf.Update(dev, tc.rig); err != nil {
+				t.Fatalf("lightBuf.Update: %v", err)
+			}
+			drawBuf.Write(dev, render3d.NewPBRDrawUniform(math3d.Mat4Identity(), tc.mat))
+			enc := dev.BeginEncoder()
+			pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+				ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGB(0x000000)}},
+				DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+			})
+			pass.SetPipeline(pipe)
+			pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+			lightBuf.Bind(pass)
+			pass.SetBindGroup(render3d.PBRDrawGroup, drawBuf.BindGroup())
+			iblBuf.Bind(pass)
+			plane.Draw(pass)
+			pass.End()
+			dev.Submit(enc.Finish())
+			sr.WaitIdle()
+			if err := sr.LastError(); err != nil {
+				t.Fatalf("software renderer: %v", err)
+			}
+			img := sr.Image()
+			for _, px := range samplePixels {
+				ray := cam.ScreenRay(float32(px[0])+0.5, float32(px[1])+0.5, w, h)
+				worldPos := ray.At(-ray.Origin.Z / ray.Dir.Z)
+				n := math3d.Vec3{Z: 1}
+				v := cam.Pos.Sub(worldPos).Norm()
+				direct := render3d.ShadePoint(worldPos, n, v, tc.mat, tc.rig)
+				env := render3d.EvaluateIBL(sh, prefCM, intensity, n, v, [3]float32{tc.mat.BaseColor.X, tc.mat.BaseColor.Y, tc.mat.BaseColor.Z}, tc.mat.Metallic, tc.mat.Roughness, 1)
+				srgb := render3d.LinearToSRGB(math3d.Vec3{X: direct.X + env[0], Y: direct.Y + env[1], Z: direct.Z + env[2]})
+				got := img.RGBAAt(px[0], px[1])
+				want := [3]uint8{uint8(math.Round(float64(srgb.X) * 255)), uint8(math.Round(float64(srgb.Y) * 255)), uint8(math.Round(float64(srgb.Z) * 255))}
+				if absDiffU8(got.R, want[0]) > 6 || absDiffU8(got.G, want[1]) > 6 || absDiffU8(got.B, want[2]) > 6 {
+					t.Errorf("pixel %v = %v, want about %v", px, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestIBLValidationAndNonFiniteInputs(t *testing.T) {
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	valid := render3d.IBLUniform{Intensity: 1, MaxLOD: 3}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid IBLUniform.Validate = %v", err)
+	}
+	for name, mutate := range map[string]func(*render3d.IBLUniform){
+		"NaN intensity":      func(u *render3d.IBLUniform) { u.Intensity = nan },
+		"infinite intensity": func(u *render3d.IBLUniform) { u.Intensity = inf },
+		"negative intensity": func(u *render3d.IBLUniform) { u.Intensity = -1 },
+		"NaN max LOD":        func(u *render3d.IBLUniform) { u.MaxLOD = nan },
+		"negative max LOD":   func(u *render3d.IBLUniform) { u.MaxLOD = -1 },
+		"infinite SH":        func(u *render3d.IBLUniform) { u.SH.Coeff[4][1] = inf },
+	} {
+		u := valid
+		mutate(&u)
+		if err := u.Validate(); !errors.Is(err, render3d.ErrInvalidIBL) {
+			t.Errorf("%s: Validate = %v, want ErrInvalidIBL", name, err)
+		}
+	}
+
+	sr := gpu.NewSoftwareRenderer(8, 8, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+	cube, err := render3d.UploadCubemap(nil, dev, cardinalCubemap(4), render3d.CubemapUpload{})
+	if err != nil {
+		t.Fatalf("UploadCubemap: %v", err)
+	}
+	t.Cleanup(func() { _ = cube.Close() })
+	if _, err := render3d.NewGPUIBLBuffer(nil, dev, cube, render3d.IBLUniform{Intensity: nan}, render3d.IBLBufferOptions{}); !errors.Is(err, render3d.ErrInvalidIBL) {
+		t.Errorf("NewGPUIBLBuffer(NaN intensity) = %v, want ErrInvalidIBL", err)
+	}
+
+	cm := cardinalCubemap(4)
+	sh, err := render3d.ComputeIrradianceSH(cm)
+	if err != nil {
+		t.Fatalf("ComputeIrradianceSH: %v", err)
+	}
+	n, v := math3d.Vec3{Y: 1}, math3d.Vec3{Z: 1}
+	base := [3]float32{0.5, 0.5, 0.5}
+	for name, args := range map[string][4]float32{
+		"NaN metallic":       {nan, 0.5, 1, 1},
+		"NaN roughness":      {0.5, nan, 1, 1},
+		"infinite ao":        {0.5, 0.5, inf, 1},
+		"NaN intensity":      {0.5, 0.5, 1, nan},
+		"negative intensity": {0.5, 0.5, 1, -2},
+	} {
+		got := render3d.EvaluateIBL(sh, cm, args[3], n, v, base, args[0], args[1], args[2])
+		for ch, c := range got {
+			if math.IsNaN(float64(c)) || math.IsInf(float64(c), 0) || c < 0 {
+				t.Errorf("%s: EvaluateIBL channel %d = %v, want finite and non-negative", name, ch, c)
+			}
+		}
+	}
+
+	for _, bad := range [][3]float32{{-0.1, 0, 0}, {nan, 0, 0}, {0, inf, 0}} {
+		if _, err := render3d.GradientSkyCubemap(bad, [3]float32{0.5, 0.5, 0.5}, [3]float32{0.1, 0.1, 0.1}, 4); !errors.Is(err, render3d.ErrInvalidCubemap) {
+			t.Errorf("GradientSkyCubemap(%v) = %v, want ErrInvalidCubemap", bad, err)
+		}
+	}
+
+	pano := image.NewRGBA(image.Rect(0, 0, 8, 4))
+	for _, srgb := range []bool{false, true} {
+		got, err := render3d.CubemapFromEquirectangular(pano, 4, srgb)
+		if err != nil {
+			t.Fatalf("CubemapFromEquirectangular: %v", err)
+		}
+		if got.SRGB != srgb {
+			t.Errorf("CubemapFromEquirectangular(srgb=%v).SRGB = %v", srgb, got.SRGB)
+		}
+	}
 }
