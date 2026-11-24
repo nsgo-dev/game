@@ -17,9 +17,12 @@ var ErrSlotTooLarge = errors.New("liveops: cloud save slot too large")
 // ErrTooManySlots is returned by a CloudSync implementation whose backend refuses a new slot because the player already has as many as it keeps. The slot is not created.
 var ErrTooManySlots = errors.New("liveops: too many cloud save slots")
 
+// ErrCloudConflict is returned by PlatformCloud when the native cloud backend (iCloud NSFileVersion or Google Play Games Saved Games) holds unresolved conflicting versions of a slot. Resolve it through PlatformCloud.OnConflict or by writing the winning payload.
+var ErrCloudConflict = errors.New("liveops: platform cloud save conflict")
+
 // CloudSync is the provider-agnostic cloud-save interface for NSGo games (#196).
 //
-// Built-in platform adapters (iCloud, Google Play Games, Steam Cloud) wait on platform cloud-save bindings; CloudClient talks to the self-hosted backend in package cloudsave, and games can supply their own backend or an in-memory mock against this interface.
+// PlatformCloud adapts NSGo's cloud package (iCloud on macOS and iOS, Google Play Games Saved Games on Android, and the in-memory store under nsgotest); DirCloud adapts a local directory synced by a desktop storefront such as Steam Auto-Cloud; CloudClient talks to the self-hosted backend in package cloudsave; and games can also supply their own backend or an in-memory mock against this interface.
 type CloudSync interface {
 	// Load reads the raw bytes stored in slot, returning ErrSlotNotFound if slot does not exist.
 	Load(ctx context.Context, slot string) ([]byte, error)
