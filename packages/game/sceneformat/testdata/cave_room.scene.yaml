@@ -3,14 +3,12 @@ version: 1
 name: Cave Room
 virtualWidth: 320
 virtualHeight: 180
-backgroundColor: "#141824"
+backgroundColor: '#141824'
 camera:
   x: 160
-  y: 90
+  "y": 90
   zoom: 1
   bounds:
-    x: 0
-    y: 0
     width: 320
     height: 180
 tilemaps:
@@ -30,7 +28,7 @@ layers:
       - id: heart_1
         name: Heart Slot 1
         x: 8
-        y: 8
+        "y": 8
         sprite:
           atlas: ui
           frame: heart
@@ -38,7 +36,6 @@ layers:
           slot: 1
   - name: floor
     space: world
-    order: 0
     tilemap:
       ref: floor_grid
   - name: actors
@@ -49,7 +46,7 @@ layers:
         name: Hero
         prefab: prefabs/hero
         x: 48
-        y: 40
+        "y": 40
         originX: 8
         originY: 8
         z: 5
@@ -58,8 +55,8 @@ layers:
           frame: hero
         components:
           collider:
-            w: 12
             h: 14
+            w: 12
           health:
             current: 10
             max: 10
@@ -69,7 +66,7 @@ layers:
       - id: torch
         name: Wall Torch
         x: 96
-        y: 32
+        "y": 32
         flipX: true
         alpha: 0.75
         z: 1
@@ -82,7 +79,7 @@ layers:
       - id: exit_trigger
         name: Cave Exit
         x: 280
-        y: 90
+        "y": 90
         components:
           trigger:
             height: 32
@@ -97,7 +94,7 @@ layers:
     objects:
       - id: debug_marker
         x: 10
-        y: 10
+        "y": 10
         sprite:
           atlas: actors
           frame: hero

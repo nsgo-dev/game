@@ -1,5 +1,6 @@
 type: material
 version: 1
+uid: mat0000000004
 name: Stone
 baseColor: '#8a8f99'
 texture: textures/stone.png

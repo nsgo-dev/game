@@ -1,0 +1,18 @@
+version: 1
+transition:
+  kind: slide
+  duration: 300ms
+rooms:
+  - id: entrance
+    x: 0
+    "y": 0
+    width: 320
+    height: 180
+  - id: hall
+    x: 320
+    "y": 0
+    width: 640
+    height: 180
+    transition:
+      kind: fade
+      color: '#102030'

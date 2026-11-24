@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+uid: scene00000007
+name: Hall
+layers:
+  - name: props
+    objects:
+      - id: button
+        x: 40
+        components:
+          button: {}
+      - id: door
+        x: 120
+        components:
+          door: {}
+connections:
+  - from: button
+    event: pressed
+    to: door
+    handler: open
+    args:
+      speed: 2.5

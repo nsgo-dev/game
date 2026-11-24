@@ -1,0 +1,15 @@
+version: 1
+title: Opening
+offsetMs: 120
+tempos:
+  - beat: 0
+    bpm: 120
+  - beat: 62.5
+    bpm: 140
+  - beat: 128
+    bpm: 87.25
+meters:
+  - beat: 0
+    beatsPerBar: 4
+  - beat: 64
+    beatsPerBar: 3

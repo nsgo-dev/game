@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/import.v1.json
+version: 1
+image:
+  filter: nearest
+  slice:
+    width: 16
+    height: 16
+    count: 6
+credit:
+  author: Kenney
+  license: CC0-1.0
+  source: https://kenney.nl/assets/kenney-fonts

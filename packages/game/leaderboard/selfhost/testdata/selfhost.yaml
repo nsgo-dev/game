@@ -1,0 +1,16 @@
+version: 1
+proofTTL: 10m
+boards:
+  - name: high-score
+    order: descending
+    reset: allTime
+  - name: weekly-sprint
+    order: ascending
+    reset: weekly
+    weekStart: sunday
+    keep: 4
+    min: 1
+    max: 3600000
+  - name: daily
+    order: descending
+    reset: daily

@@ -1,0 +1,6 @@
+version: 1
+source: asset:cutscenes/intro.mp4
+group: cutscenes
+skippable: true
+skipAfter: 1.5s
+fit: cover

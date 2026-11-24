@@ -1,0 +1,10 @@
+version: 1
+name: de
+decimal: ','
+group: .
+exponent: E
+units:
+  - exp: 3
+    suffix: ' Tsd.'
+  - exp: 6
+    suffix: ' Mio.'

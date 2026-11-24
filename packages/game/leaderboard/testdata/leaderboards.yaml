@@ -1,0 +1,9 @@
+version: 1
+leaderboards:
+  - name: high-score
+    gameCenter: dev.nsgo.game.example.high_score
+    playGames: CgkI6v7z8vQREAIQAQ
+  - name: fastest-run
+    gameCenter: dev.nsgo.game.example.fastest_run
+  - name: daily
+    playGames: CgkI6v7z8vQREAIQAw

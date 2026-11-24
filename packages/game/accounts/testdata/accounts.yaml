@@ -1,0 +1,11 @@
+version: 1
+issuer: https://accounts.example.com
+audience: my-game
+tokenTTL: 1h30m30s
+disableGuests: true
+password:
+  minLength: 10
+  argon2id:
+    time: 2
+    memoryKiB: 19456
+    threads: 1

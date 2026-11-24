@@ -1,0 +1,7 @@
+version: 1
+maxSlotBytes: 1048576
+maxSlots: 32
+keepVersions: 5
+allowedOrigins:
+  - https://play.example.com
+  - http://localhost:8080
