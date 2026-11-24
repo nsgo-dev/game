@@ -474,6 +474,44 @@ gpuMesh.Draw(pass)
 - **What `MaterialWGSL` does not draw**: the shader lights every material and samples every texture with the mesh's `TEXCOORD_0` and no transform. Unlit materials, texture transforms and other UV sets are recorded but not applied, so such assets draw wrong unless you handle them. `GLTFMaterialInfo.Unsupported()` lists these cases for a material and `GLTFTextureSlot.NeedsUVBake()` reports a slot that needs its UVs baked into the mesh (for example with `Document.TransformTexCoords`) or a custom shader.
 - **Khronos reference verification**: `render3d`'s tests render the Khronos `DamagedHelmet` sample and check it against the asset's own base color image: a probe texture reads back the UV of every pixel, and the render must match the decoded JPEG under glTF's UV origin, sRGB color and channel order far better than under a flipped V, a linear upload or swapped channels. The tests also compare the render with `render3d/testdata/damagedhelmet/reference.png` to catch regressions and verify `gpu.View` parity across both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles as well as `Retained` device-loss restoration. The model is licensed CC-BY-NC-4.0, so its directory is a separate module that is left out of the published `packages/game` module, and these tests skip when it is absent.
 
+## Unlit materials and vertex colors (`UnlitMaterial`, `ColoredMesh`)
+
+`ColoredMesh` and `GPUColoredMesh` extend `MeshVertexLayout` (locations 0–2) with a linear RGBA vertex color attribute at `@location(3)` (`ColoredVertexLayout`, stride 48 bytes) for glTF `COLOR_0`. When `Colors` is empty, `AppendVertexData` writes linear opaque white `(1, 1, 1, 1)` per vertex so colored and uncolored meshes share one pipeline. `ColoredMeshFromGLTF` extracts triangle primitives from a `gltf.Document` including `COLOR_0` (expanding VEC3 RGB to alpha `1.0`) and `KHR_texture_transform` UVs on `baseColorTexture`.
+
+`UnlitMaterial`, `GPUUnlitMaterial`, `UnlitWGSL`, and `NewUnlitPipeline` implement glTF `KHR_materials_unlit` surfaces unaffected by scene lighting (`baseColorFactor * baseColorTexture * vertexColor` in linear space, followed by alpha handling and IEC 61966-2-1 linear-to-sRGB encoding):
+
+```go
+cm, err := render3d.ColoredMeshFromGLTF(doc, 0, 0)
+gpuMesh, err := render3d.UploadColoredMesh(cx, dev, cm, render3d.MeshUpload{Label: "sign", Retained: true})
+
+matLayout, err := render3d.UnlitMaterialBindingLayout(cx, dev)
+gpuMat, err := render3d.UploadGLTFUnlitMaterial(cx, dev, matLayout, doc, 0, render3d.UnlitMaterialOptions{
+	Label:    "sign-unlit",
+	Retained: true,
+})
+pipe, err := render3d.NewUnlitPipeline(cx, dev, render3d.UnlitPipelineOptions{
+	CameraLayout:   camBuf.Layout(),
+	MaterialLayout: matLayout,
+	AlphaMode:      gpuMat.Material().AlphaMode,
+	DoubleSided:    gpuMat.Material().DoubleSided,
+	DepthFormat:    gpu.FormatDepth24Plus,
+	Retained:       true,
+})
+
+// In OnFrame:
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+gpuMat.Bind(pass) // binds @group(1) (UnlitMaterialGroup)
+gpuMesh.Draw(pass)
+```
+
+- **Fallback texture and sampler**: when `UnlitMaterial.BaseColorTexture` or `BaseColorSampler` is nil, `NewGPUUnlitMaterial` binds a material-owned 1×1 white sRGB texture and/or linear-repeat sampler automatically (closed with the material).
+- **Alpha modes and culling**: `UnlitAlphaOpaque` forces output alpha to `1.0` with depth writes enabled; `UnlitAlphaMask` discards fragments with combined alpha `< AlphaCutoff` (default `0.5`) and outputs `1.0`; `UnlitAlphaBlend` enables straight-alpha blending (`gpu.BlendAlpha`) with depth writes disabled. `DoubleSided` switches culling from `gpu.CullBack` to `gpu.CullNone`. `AlphaMode.BlendMode()` maps directly to `Queue`'s `BlendOpaque` / `BlendAlphaMask` / `BlendAlphaBlend`.
+- **Target color space and CPU parity**: `NewUnlitPipeline` selects `fs_main` (linear-to-sRGB in shader) for non-sRGB targets such as `FormatRGBA8Unorm`, and `fs_linear` for hardware sRGB swapchain targets (`TargetFormat.IsSRGB()`) to avoid double gamma encoding. `EvaluateUnlit` provides the matching pure-Go CPU reference (`Linear`, `SRGB`, `Discarded`, `RGBA8()`, `BlendOver()`).
+- **Zero-allocation uniform updates and device-loss recovery**: `AppendUnlitUniforms` writes the 32-byte uniform block with zero allocations when given capacity; `GPUUnlitMaterial.Update(dev, mat)` updates parameters in place without caching a `*gpu.Device` pointer, so materials created with `Retained: true` survive device loss and remain updatable after restoration.
+- **glTF helpers**: `UnlitMaterialFromGLTF` validates that a glTF material declares `KHR_materials_unlit` (returning `ErrInvalidUnlitMaterial` otherwise), `UnlitSamplerFromGLTF` maps glTF filter/wrap enums to `SamplerOptions`, and `UploadGLTFUnlitMaterial` decodes and uploads embedded/external `baseColorTexture` images in sRGB.
+- **Reference renders**: `render3d`'s tests compare a multi-mode unlit + vertex-color scene against `render3d/testdata/golden/unlit_vertex_colors_scene.png` and verify `gpu.View` pixel parity against `EvaluateUnlit` on both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles.
+
 ## Budgeted async GPU uploads (`Uploader`)
 
 `Uploader` runs the decoding and CPU packing of meshes, textures and raw GPU payloads on background worker goroutines, and `Uploader.Step`, called once per frame, writes the results to the `gpu.Device` in chunks within a per-frame byte budget, so loading a large 3D model does not stall a frame:
