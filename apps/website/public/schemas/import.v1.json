@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/import.v1.json",
+  "title": "NSGo game import settings (version 1)",
+  "description": "File is one asset's import settings. Exactly one of Image and Audio is set, the one of the asset's kind.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal CurrentVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "image": {
+      "description": "Image holds the settings of an image (PNG or JPEG).",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Image"
+        }
+      ]
+    },
+    "audio": {
+      "description": "Audio holds the settings of a sound (WAV).",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Audio"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "Audio": {
+      "description": "Audio holds how a sound is converted by an audio target. Each field left out keeps the target's setting in game.yaml.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "Format is the output format: \"wav\", \"aac\" or \"mp3\".",
+          "type": "string",
+          "enum": [
+            "wav",
+            "aac",
+            "mp3"
+          ]
+        },
+        "rate": {
+          "description": "Rate is the output sample rate in Hz.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "channels": {
+          "description": "Channels is 1 for mono or 2 for stereo.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "peakDB": {
+          "description": "PeakDB normalizes the peak to this level in dBFS; it may not be set with RMSDB. Setting either replaces the target's normalization.",
+          "type": "number"
+        },
+        "rmsDB": {
+          "description": "RMSDB normalizes the loudness to this level in dBFS with soft clipping; it may not be set with PeakDB.",
+          "type": "number"
+        },
+        "bitrate": {
+          "description": "Bitrate is the AAC or MP3 bitrate in kbps.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "loop": {
+          "description": "Loop is the region a player repeats, written into a WAV output's smpl chunk; AAC and MP3 carry no loop points, so a sound with a loop must be converted to WAV.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Loop"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Image": {
+      "description": "Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey: \"linear\" or \"nearest\".",
+          "type": "string",
+          "enum": [
+            "linear",
+            "nearest"
+          ]
+        },
+        "format": {
+          "description": "Format is the KTX2 compression format: \"rgba8\", \"bc1\", \"bc3\" or \"etc2\".",
+          "type": "string",
+          "enum": [
+            "rgba8",
+            "bc1",
+            "bc3",
+            "etc2"
+          ]
+        },
+        "mipmaps": {
+          "description": "Mipmaps writes the whole mipmap chain down to 1x1 when true and only the full-size image when false.",
+          "type": "boolean"
+        },
+        "srgb": {
+          "description": "SRGB marks the texture sRGB and filters its mipmaps in linear light when true.",
+          "type": "boolean"
+        },
+        "slice": {
+          "description": "Slice cuts a sprite sheet into frames on a grid before an atlas packs them; nil packs the image as one frame.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Slice"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Loop": {
+      "description": "Loop is a region of a sound in sample frames of the source file, from Start up to, but not including, End. A target that resamples the sound scales it to the new rate.",
+      "type": "object",
+      "properties": {
+        "start": {
+          "description": "Start is the first frame of the loop.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "end": {
+          "description": "End is the frame after the loop's last one; 0 is the end of the sound.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "Slice": {
+      "description": "Slice is the grid a sprite sheet is cut into, in pixels. Its cells are taken row by row from the top left, and frame i of the image name.png is packed as name_i.png.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "description": "Width and Height are each cell's size; both must be positive.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854776000
+        },
+        "height": {
+          "description": "Width and Height are each cell's size; both must be positive.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854776000
+        },
+        "margin": {
+          "description": "Margin is the gap between the image's top and left edges and the first row and column of cells.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "spacing": {
+          "description": "Spacing is the gap between neighboring cells.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "count": {
+          "description": "Count is how many cells are frames, counted from the first; 0 takes every cell that fits.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
