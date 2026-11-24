@@ -46,6 +46,8 @@ type File struct {
 	Export *Export `yaml:"export,omitempty"`
 	// Editor holds the scene editor's settings for this project; nil uses its defaults.
 	Editor *Editor `yaml:"editor,omitempty"`
+	// Assets declares the atlases, textures, audio and asset manifest game assets builds; nil declares none.
+	Assets *Assets `yaml:"assets,omitempty"`
 }
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
@@ -289,6 +291,9 @@ func Parse(data []byte) (*File, error) {
 	if err := Validate(&f); err != nil {
 		return nil, err
 	}
+	if f.Assets != nil {
+		f.Assets.normalize()
+	}
 	return &f, nil
 }
 
@@ -403,6 +408,7 @@ func (f *File) Clone() *File {
 	if f.Editor != nil {
 		c.Editor = &Editor{Plugins: append([]string(nil), f.Editor.Plugins...)}
 	}
+	c.Assets = f.Assets.clone()
 	return &c
 }
 
@@ -464,7 +470,7 @@ func Validate(f *File) error {
 			return err
 		}
 	}
-	return nil
+	return f.Assets.Validate()
 }
 
 // validateText refuses control characters and surrounding spaces, and an empty value when required.

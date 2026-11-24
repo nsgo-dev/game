@@ -87,6 +87,21 @@ func TestParseReadsEveryField(t *testing.T) {
 	if f.Editor == nil || !reflect.DeepEqual(f.Editor.Plugins, []string{"health", "waypoints"}) {
 		t.Fatalf("Editor = %+v, want plugins health and waypoints", f.Editor)
 	}
+	if f.Assets == nil || f.Assets.CachePath() != "build/assets-cache.yaml" {
+		t.Fatalf("Assets = %+v", f.Assets)
+	}
+	if got := f.Assets.Atlases[0]; got.Name != "ui" || got.Padding == nil || *got.Padding != 0 || got.Trim == nil || *got.Trim {
+		t.Fatalf("Assets.Atlases[0] = %+v", got)
+	}
+	if got := f.Assets.Textures[0]; got.Format != "bc1" || !got.Mipmaps || !got.SRGB {
+		t.Fatalf("Assets.Textures[0] = %+v", got)
+	}
+	if got := f.Assets.Audio[0]; got.PeakDB == nil || *got.PeakDB != -1 {
+		t.Fatalf("Assets.Audio[0] = %+v", got)
+	}
+	if got := f.Assets.Manifest; got == nil || got.Package != "gameassets" || got.Prefix != "res:" || !got.Embed {
+		t.Fatalf("Assets.Manifest = %+v", got)
+	}
 }
 
 func TestDefaultsOfAMinimalFile(t *testing.T) {
@@ -125,73 +140,81 @@ func TestDefaultsOfAMinimalFile(t *testing.T) {
 func TestValidateRefusesInvalidFiles(t *testing.T) {
 	const head = "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow: {width: 640, height: 360}\n"
 	cases := map[string]string{
-		"empty":                  "",
-		"version":                strings.Replace(head, "version: 1", "version: 2", 1),
-		"unknown field":          head + "colour: red\n",
-		"unknown nested field":   head + "display: {width: 1, height: 1, zoom: 2}\n",
-		"trailing document":      head + "---\nversion: 1\n",
-		"no name":                strings.Replace(head, "name: Game", "name: ''", 1),
-		"name spaces":            strings.Replace(head, "name: Game", "name: ' Game'", 1),
-		"bad id":                 strings.Replace(head, "dev.example.game", "game", 1),
-		"id digit":               strings.Replace(head, "dev.example.game", "dev.1game", 1),
-		"id char":                strings.Replace(head, "dev.example.game", "dev.ex ample", 1),
-		"no app version":         strings.Replace(head, "appVersion: 1.0.0", "appVersion: ''", 1),
-		"window size":            strings.Replace(head, "width: 640", "width: 0", 1),
-		"window below minimum":   strings.Replace(head, "height: 360}", "height: 360, minHeight: 400}", 1),
-		"window max below min":   strings.Replace(head, "height: 360}", "height: 360, minWidth: 100, maxWidth: 50}", 1),
-		"window appearance":      strings.Replace(head, "height: 360}", "height: 360, appearance: dim}", 1),
-		"window nan":             strings.Replace(head, "width: 640", "width: .nan", 1),
-		"display size":           head + "display: {width: 320, height: -1}\n",
-		"display mode":           head + "display: {width: 320, height: 180, mode: zoom}\n",
-		"display bar color":      head + "display: {width: 320, height: 180, barColor: 'not a color'}\n",
-		"action name":            head + "input: {actions: [{name: ''}]}\n",
-		"action spaces":          head + "input: {actions: [{name: 'go left'}]}\n",
-		"duplicate action":       head + "input: {actions: [{name: a}, {name: a}]}\n",
-		"binding kind":           head + "input: {actions: [{name: a, bindings: [{kind: key}]}]}\n",
-		"touch without region":   head + "input: {actions: [{name: a, bindings: [{kind: touchRegion}]}]}\n",
-		"touch with button":      head + "input: {actions: [{name: a, bindings: [{kind: touchRegion, button: left, region: {width: 1, height: 1}}]}]}\n",
-		"mouse with region":      head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: left, region: {width: 1, height: 1}}]}]}\n",
-		"mouse button":           head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: thumb}]}]}\n",
-		"region size":            head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, region: {width: 0, height: 1}}]}]}\n",
-		"axis without actions":   head + "input: {axes: [{name: x}]}\n",
-		"axis undeclared action": head + "input: {actions: [{name: a}], axes: [{name: x, negative: a, positive: b}]}\n",
-		"duplicate axis":         head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}, {name: x, positive: a}]}\n",
-		"duplicate motion axis":  head + "input: {motionAxes: [{name: m, axis: tiltX}, {name: m, axis: tiltY}]}\n",
-		"motion axis":            head + "input: {motionAxes: [{name: m, axis: tilt}]}\n",
-		"motion dead zone":       head + "input: {motionAxes: [{name: m, axis: tiltX, deadZone: 1}]}\n",
-		"motion sensitivity":     head + "input: {motionAxes: [{name: m, axis: gyroZ, sensitivity: -1}]}\n",
-		"master":                 head + "audio: {master: 1.5}\n",
-		"bus name":               head + "audio: {buses: [{name: ''}]}\n",
-		"duplicate bus":          head + "audio: {buses: [{name: music}, {name: music}]}\n",
-		"bus volume":             head + "audio: {buses: [{name: music, volume: -0.1}]}\n",
-		"no effect":              head + "audio: {buses: [{name: music, effects: [{}]}]}\n",
-		"two effects":            head + "audio: {buses: [{name: music, effects: [{gain: {factor: 1}, bitcrush: {bits: 4}}]}]}\n",
-		"cutoff":                 head + "audio: {buses: [{name: music, effects: [{lowPass: {cutoffHz: 0}}]}]}\n",
-		"q":                      head + "audio: {buses: [{name: music, effects: [{highPass: {cutoffHz: 10, q: -1}}]}]}\n",
-		"delay time":             head + "audio: {buses: [{name: music, effects: [{delay: {time: 0s}}]}]}\n",
-		"delay feedback":         head + "audio: {buses: [{name: music, effects: [{delay: {time: 1s, feedback: 1}}]}]}\n",
-		"reverb wet":             head + "audio: {buses: [{name: music, effects: [{reverb: {wet: 2}}]}]}\n",
-		"gain":                   head + "audio: {buses: [{name: music, effects: [{gain: {factor: -1}}]}]}\n",
-		"bits":                   head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 16}}]}]}\n",
-		"downsample":             head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 4, downsample: -1}}]}]}\n",
-		"scene name":             head + "autoload: {scenes: [{name: '', path: a.yaml}]}\n",
-		"duplicate scene":        head + "autoload: {scenes: [{name: a, path: a.yaml}, {name: a, path: b.yaml}]}\n",
-		"scene extension":        head + "autoload: {scenes: [{name: a, path: a.json}]}\n",
-		"absolute path":          head + "autoload: {resources: [{name: a, path: /etc/passwd}]}\n",
-		"escaping path":          head + "autoload: {resources: [{name: a, path: ../secret.txt}]}\n",
-		"backslash path":         head + "autoload: {resources: [{name: a, path: 'data\\a.csv'}]}\n",
-		"dot path":               head + "autoload: {resources: [{name: a, path: .}]}\n",
-		"main scene":             head + "autoload: {mainScene: b, scenes: [{name: a, path: a.yaml}]}\n",
-		"output":                 head + "export: {output: ../dist}\n",
-		"platform":               head + "export: {presets: [{platform: amiga}]}\n",
-		"duplicate platform":     head + "export: {presets: [{platform: web}, {platform: web}]}\n",
-		"foreign target":         head + "export: {presets: [{platform: macos, targets: [linux_x64]}]}\n",
-		"unknown target":         head + "export: {presets: [{platform: macos, targets: [macos_ppc]}]}\n",
-		"duplicate target":       head + "export: {presets: [{platform: macos, targets: [macos_arm64, macos_arm64]}]}\n",
-		"plugin name":            head + "editor: {plugins: ['']}\n",
-		"plugin spaces":          head + "editor: {plugins: ['level tools']}\n",
-		"duplicate plugin":       head + "editor: {plugins: [health, health]}\n",
-		"unknown editor field":   head + "editor: {plugins: [health], theme: dark}\n",
+		"empty":                    "",
+		"version":                  strings.Replace(head, "version: 1", "version: 2", 1),
+		"unknown field":            head + "colour: red\n",
+		"unknown nested field":     head + "display: {width: 1, height: 1, zoom: 2}\n",
+		"trailing document":        head + "---\nversion: 1\n",
+		"no name":                  strings.Replace(head, "name: Game", "name: ''", 1),
+		"name spaces":              strings.Replace(head, "name: Game", "name: ' Game'", 1),
+		"bad id":                   strings.Replace(head, "dev.example.game", "game", 1),
+		"id digit":                 strings.Replace(head, "dev.example.game", "dev.1game", 1),
+		"id char":                  strings.Replace(head, "dev.example.game", "dev.ex ample", 1),
+		"no app version":           strings.Replace(head, "appVersion: 1.0.0", "appVersion: ''", 1),
+		"window size":              strings.Replace(head, "width: 640", "width: 0", 1),
+		"window below minimum":     strings.Replace(head, "height: 360}", "height: 360, minHeight: 400}", 1),
+		"window max below min":     strings.Replace(head, "height: 360}", "height: 360, minWidth: 100, maxWidth: 50}", 1),
+		"window appearance":        strings.Replace(head, "height: 360}", "height: 360, appearance: dim}", 1),
+		"window nan":               strings.Replace(head, "width: 640", "width: .nan", 1),
+		"display size":             head + "display: {width: 320, height: -1}\n",
+		"display mode":             head + "display: {width: 320, height: 180, mode: zoom}\n",
+		"display bar color":        head + "display: {width: 320, height: 180, barColor: 'not a color'}\n",
+		"action name":              head + "input: {actions: [{name: ''}]}\n",
+		"action spaces":            head + "input: {actions: [{name: 'go left'}]}\n",
+		"duplicate action":         head + "input: {actions: [{name: a}, {name: a}]}\n",
+		"binding kind":             head + "input: {actions: [{name: a, bindings: [{kind: key}]}]}\n",
+		"touch without region":     head + "input: {actions: [{name: a, bindings: [{kind: touchRegion}]}]}\n",
+		"touch with button":        head + "input: {actions: [{name: a, bindings: [{kind: touchRegion, button: left, region: {width: 1, height: 1}}]}]}\n",
+		"mouse with region":        head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: left, region: {width: 1, height: 1}}]}]}\n",
+		"mouse button":             head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: thumb}]}]}\n",
+		"region size":              head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, region: {width: 0, height: 1}}]}]}\n",
+		"axis without actions":     head + "input: {axes: [{name: x}]}\n",
+		"axis undeclared action":   head + "input: {actions: [{name: a}], axes: [{name: x, negative: a, positive: b}]}\n",
+		"duplicate axis":           head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}, {name: x, positive: a}]}\n",
+		"duplicate motion axis":    head + "input: {motionAxes: [{name: m, axis: tiltX}, {name: m, axis: tiltY}]}\n",
+		"motion axis":              head + "input: {motionAxes: [{name: m, axis: tilt}]}\n",
+		"motion dead zone":         head + "input: {motionAxes: [{name: m, axis: tiltX, deadZone: 1}]}\n",
+		"motion sensitivity":       head + "input: {motionAxes: [{name: m, axis: gyroZ, sensitivity: -1}]}\n",
+		"master":                   head + "audio: {master: 1.5}\n",
+		"bus name":                 head + "audio: {buses: [{name: ''}]}\n",
+		"duplicate bus":            head + "audio: {buses: [{name: music}, {name: music}]}\n",
+		"bus volume":               head + "audio: {buses: [{name: music, volume: -0.1}]}\n",
+		"no effect":                head + "audio: {buses: [{name: music, effects: [{}]}]}\n",
+		"two effects":              head + "audio: {buses: [{name: music, effects: [{gain: {factor: 1}, bitcrush: {bits: 4}}]}]}\n",
+		"cutoff":                   head + "audio: {buses: [{name: music, effects: [{lowPass: {cutoffHz: 0}}]}]}\n",
+		"q":                        head + "audio: {buses: [{name: music, effects: [{highPass: {cutoffHz: 10, q: -1}}]}]}\n",
+		"delay time":               head + "audio: {buses: [{name: music, effects: [{delay: {time: 0s}}]}]}\n",
+		"delay feedback":           head + "audio: {buses: [{name: music, effects: [{delay: {time: 1s, feedback: 1}}]}]}\n",
+		"reverb wet":               head + "audio: {buses: [{name: music, effects: [{reverb: {wet: 2}}]}]}\n",
+		"gain":                     head + "audio: {buses: [{name: music, effects: [{gain: {factor: -1}}]}]}\n",
+		"bits":                     head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 16}}]}]}\n",
+		"downsample":               head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 4, downsample: -1}}]}]}\n",
+		"scene name":               head + "autoload: {scenes: [{name: '', path: a.yaml}]}\n",
+		"duplicate scene":          head + "autoload: {scenes: [{name: a, path: a.yaml}, {name: a, path: b.yaml}]}\n",
+		"scene extension":          head + "autoload: {scenes: [{name: a, path: a.json}]}\n",
+		"absolute path":            head + "autoload: {resources: [{name: a, path: /etc/passwd}]}\n",
+		"escaping path":            head + "autoload: {resources: [{name: a, path: ../secret.txt}]}\n",
+		"backslash path":           head + "autoload: {resources: [{name: a, path: 'data\\a.csv'}]}\n",
+		"dot path":                 head + "autoload: {resources: [{name: a, path: .}]}\n",
+		"main scene":               head + "autoload: {mainScene: b, scenes: [{name: a, path: a.yaml}]}\n",
+		"output":                   head + "export: {output: ../dist}\n",
+		"platform":                 head + "export: {presets: [{platform: amiga}]}\n",
+		"duplicate platform":       head + "export: {presets: [{platform: web}, {platform: web}]}\n",
+		"foreign target":           head + "export: {presets: [{platform: macos, targets: [linux_x64]}]}\n",
+		"unknown target":           head + "export: {presets: [{platform: macos, targets: [macos_ppc]}]}\n",
+		"duplicate target":         head + "export: {presets: [{platform: macos, targets: [macos_arm64, macos_arm64]}]}\n",
+		"assets atlas name":        head + "assets: {atlases: [{name: a/b, in: art, out: assets}]}\n",
+		"assets atlas self scan":   head + "assets: {atlases: [{name: ui, in: art, out: art/pages}]}\n",
+		"assets atlas page clash":  head + "assets: {atlases: [{name: ui, in: a, out: assets}, {name: ui-1, in: b, out: assets}]}\n",
+		"assets texture format":    head + "assets: {textures: [{in: a.png, out: a.ktx2, format: dxt1}]}\n",
+		"assets audio both levels": head + "assets: {audio: [{in: a.wav, out: b.wav, peakDB: -1, rmsDB: -14}]}\n",
+		"assets shared output":     head + "assets: {textures: [{in: a.png, out: x}], audio: [{in: a.wav, out: x}]}\n",
+		"assets cache in manifest": head + "assets: {cache: assets/cache.yaml, manifest: {in: assets, out: gen/assets.go}}\n",
+		"assets manifest not go":   head + "assets: {manifest: {in: assets, out: gen/assets.txt}}\n",
+		"plugin name":              head + "editor: {plugins: ['']}\n",
+		"plugin spaces":            head + "editor: {plugins: ['level tools']}\n",
+		"duplicate plugin":         head + "editor: {plugins: [health, health]}\n",
+		"unknown editor field":     head + "editor: {plugins: [health], theme: dark}\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -247,6 +270,12 @@ func TestCloneIsDeep(t *testing.T) {
 	c.Autoload.Scenes[0].Path = "x.yaml"
 	c.Export.Presets[1].Targets[0] = "windows_arm64"
 	c.Editor.Plugins[0] = "other"
+	*c.Assets.Atlases[0].Padding = 3
+	*c.Assets.Atlases[0].Trim = true
+	c.Assets.Textures[0].Format = "etc2"
+	*c.Assets.Audio[0].PeakDB = -3
+	*c.Assets.Audio[1].RMSDB = -20
+	c.Assets.Manifest.Package = "other"
 	if !reflect.DeepEqual(f, project.MustParse(readGolden(t))) {
 		t.Fatal("changing the clone changed the original")
 	}

@@ -204,10 +204,14 @@ go tool game assets -check
 
 Builds every asset target that `game.yaml` (or the file `-in` names) declares, in one run: it packs the atlases, encodes the textures and converts the audio as `pack`, `tex` and `audio` do, then regenerates the manifest as `manifest` does. Each target is rebuilt only when it changed: a second run with nothing changed writes no file, and changing one image repacks only the atlas it belongs to. It prints a line for each target it built and then the counts, such as `1 built, 4 up to date`.
 
-`game.yaml` is versioned YAML, and the command refuses a field it does not know. Its paths are slash-separated, relative to the file's directory, and may not leave it:
+The targets are the `assets` section of `game.yaml`, the project file, which the command reads through package `project` as the game and the editor do, and which `release` accepts too, so one `game.yaml` holds them beside the window, input, autoload and export settings ([Project File](project.md)). The file is versioned YAML and the command refuses a field it does not know, a file without an `assets` section, and a file the project schema refuses. The section's paths are slash-separated, relative to the file's directory, and may not leave it:
 
 ```yaml
 version: 1
+name: Cave Run
+id: dev.nsgo.caverun
+appVersion: 0.1.0
+window: {width: 480, height: 640}
 assets:
   atlases:
     - name: ui            # pages ui.png and ui.json

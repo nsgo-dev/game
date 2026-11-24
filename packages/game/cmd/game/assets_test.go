@@ -6,9 +6,15 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/project"
 )
+
+// assetsProjectHead is the identity and window every game.yaml carries, which the assets tests extend.
+const assetsProjectHead = "version: 1\nname: Test Game\nid: dev.example.test\nappVersion: 0.1.0\nwindow: {width: 320, height: 240}\n"
 
 // newAssetsProject writes a game.yaml declaring one atlas and the manifest of its output folder, with the atlas's one image, and returns the game.yaml path.
 func newAssetsProject(t *testing.T) string {
@@ -18,7 +24,7 @@ func newAssetsProject(t *testing.T) string {
 		t.Fatal(err)
 	}
 	writeDot(t, filepath.Join(root, "art/ui/dot.png"), color.NRGBA{R: 255, A: 255})
-	yaml := "version: 1\nassets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  manifest:\n    in: assets\n    out: gen/assets_gen.go\n"
+	yaml := assetsProjectHead + "assets:\n  atlases:\n    - name: ui\n      in: art/ui\n      out: assets\n  manifest:\n    in: assets\n    out: gen/assets_gen.go\n"
 	path := filepath.Join(root, "game.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
@@ -139,7 +145,7 @@ func TestAssetsErrors(t *testing.T) {
 		{"force with check", []string{"-force", "-check"}, 2, "game assets: -force and -check are mutually exclusive"},
 		{"stray argument", []string{"extra"}, 2, "game assets: unexpected arguments"},
 		{"empty -in", []string{"-in", ""}, 2, "game assets: -in is required"},
-		{"missing file", []string{"-in", filepath.Join(t.TempDir(), "game.yaml")}, 1, "game assets: assetbuild: open"},
+		{"missing file", []string{"-in", filepath.Join(t.TempDir(), "game.yaml")}, 1, "game assets: open"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, _, stderr := newTestApp(t)
@@ -153,7 +159,7 @@ func TestAssetsErrors(t *testing.T) {
 	}
 
 	project := filepath.Join(t.TempDir(), "game.yaml")
-	if err := os.WriteFile(project, []byte("version: 1\nassets:\n  atlases:\n    - name: ui\n      in: missing\n      out: assets\n"), 0o644); err != nil {
+	if err := os.WriteFile(project, []byte(assetsProjectHead+"assets:\n  atlases:\n    - name: ui\n      in: missing\n      out: assets\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	a, _, stderr := newTestApp(t)
@@ -162,5 +168,105 @@ func TestAssetsErrors(t *testing.T) {
 	}
 	if !strings.HasPrefix(stderr.String(), "game assets: assetbuild: atlas assets/ui: ") {
 		t.Fatalf("stderr = %q, want the target named", stderr)
+	}
+}
+
+func TestAssetsRefusesProjectsWithoutAssets(t *testing.T) {
+	for _, tc := range []struct{ name, src, want string }{
+		{"no assets section", assetsProjectHead, "has no assets section"},
+		{"invalid project file", "version: 1\nassets: {}\n", "project: "},
+		{"misspelt assets field", assetsProjectHead + "assets:\n  atlas: []\n", "field atlas not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "game.yaml")
+			if err := os.WriteFile(path, []byte(tc.src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			a, _, stderr := newTestApp(t)
+			if code := run([]string{"assets", "-in", path}, a); code != 1 {
+				t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", stderr, tc.want)
+			}
+		})
+	}
+}
+
+// fullGameYAML has an export section, which game release reads, an autoload section naming the main scene the editor opens, and an assets section, which game assets reads.
+const fullGameYAML = assetsProjectHead + `autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.yaml
+export:
+  output: build/release
+  presets:
+    - platform: web
+assets:
+  atlases:
+    - name: ui
+      in: art/ui
+      out: assets
+  manifest:
+    in: assets
+    out: gen/assets_gen.go
+`
+
+// TestOneGameYAMLServesReleaseEditorAndAssets checks that a game.yaml with export, editor and assets settings is accepted by game release, the editor and game assets alike, and that saving it from the editor keeps the assets section.
+func TestOneGameYAMLServesReleaseEditorAndAssets(t *testing.T) {
+	dir := newGameDir(t, fullGameYAML)
+	if err := os.MkdirAll(filepath.Join(dir, "art/ui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeDot(t, filepath.Join(dir, "art/ui/dot.png"), color.NRGBA{R: 255, A: 255})
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenes/room.yaml"), []byte("version: 1\nname: room\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gameYAML := filepath.Join(dir, "game.yaml")
+
+	calls := recordNSGo(t, nil)
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"release", dir}, a); code != 0 {
+		t.Fatalf("release exit %d (stderr: %s)", code, stderr)
+	}
+	want := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "web", "-output", filepath.FromSlash("build/release")}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Fatalf("release ran %q, want %q", *calls, want)
+	}
+
+	ed, err := newDemoEditor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := open(ed, gameYAML); err != nil {
+		t.Fatalf("editor: %v", err)
+	}
+	if ed.Project.Assets == nil || len(ed.Project.Assets.Atlases) != 1 || ed.Project.Export == nil {
+		t.Fatalf("editor opened assets %+v and export %+v", ed.Project.Assets, ed.Project.Export)
+	}
+	if err := ed.EditProject("rename", func(f *project.File) { f.Window.Title = "Renamed" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SaveProject(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(gameYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, err := project.Parse(saved); err != nil || f.Window.Title != "Renamed" || !reflect.DeepEqual(f.Assets, ed.Project.Assets) {
+		t.Fatalf("the editor saved %s (%v)", saved, err)
+	}
+
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"assets", "-in", gameYAML}, a); code != 0 {
+		t.Fatalf("assets exit %d (stderr: %s)", code, stderr)
+	}
+	if got := stdout.String(); !strings.HasSuffix(got, "2 built, 0 up to date\n") {
+		t.Fatalf("assets stdout = %q", got)
 	}
 }
