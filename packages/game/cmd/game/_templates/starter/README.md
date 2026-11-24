@@ -64,5 +64,5 @@ go tool nsgo build -target ios,android_arm64
 - `project.go` — embeds `game.yaml` as `Project`.
 - `main.go` — entry point (`nsgo.Run(Root, ...)` with the window from `Project`).
 - `game.go` — fixed-step `game.Loop`, procedural two-frame `sprite.Atlas`, `core.Canvas`, and native HUD overlay.
-- `game_test.go`, `project_test.go` — headless `nsgotest` and unit tests, and a check that `game.yaml` is canonical and `nsgo.yaml` agrees with it.
+- `game_test.go`, `project_test.go` — headless `nsgotest` and unit tests, and a check that `game.yaml` is canonical, `nsgo.yaml` agrees with it and the files it autoloads load.
 - `nsgo.yaml` — NSGo app metadata and dev settings; its name, id, version, appearance and build output and targets follow `game.yaml`.

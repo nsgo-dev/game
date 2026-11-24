@@ -6,6 +6,8 @@
 import "github.com/nsgo-dev/game/packages/game/entities"
 ```
 
+`go tool game generate component <name>`、`system <name>` 和 `prefab <name>` 向游戏写入新的组件、系统或预制体，连同其注册和测试；见[命令行](cli.md#generate)。
+
 ## 架构决策
 
 在实现 `entities`（[#136](https://github.com/nsgo-dev/game/issues/136)）之前，我们对比了三种用于表达游戏对象的架构方案：

@@ -1,0 +1,16 @@
+package {{.Package}}
+
+import (
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/entities"
+)
+
+// {{.Go}}System runs once per fixed step of dt over w, in the order Systems gives it: read and change the components it works on with queries such as entities.Each2.
+func {{.Go}}System(w *entities.World, dt time.Duration) {}
+
+func init() {
+	if err := Systems.AddSystem("{{.Camel}}", {{.Go}}System); err != nil {
+		panic(err)
+	}
+}
