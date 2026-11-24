@@ -12,9 +12,10 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | --- | --- | --- |
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 图片或声音旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取（见[命令行](cli.md#assets)） |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
-其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、导入旁注文件（#487）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。
+其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。
 
 Schema 的 URL 带有格式版本号。`scene.v2.json` 已在 `scene.v1.json` 旁发布，写着 `version: 1` 的文件仍按 `scene.v1.json` 校验，它拒绝版本 2 新增的键；`Encode` 写入的是文档自身版本的 Schema。
 
@@ -28,7 +29,7 @@ version: 1
 name: Cave Room
 ```
 
-YAML 语言服务器（`yaml-language-server`）会读取这条注释，VS Code 的 YAML 扩展（`redhat.vscode-yaml`）运行的就是它，配置了它的 Neovim、Helix 和 Zed 也一样，因此文件无需其他配置即可校验。`Parse` 会像对待其他注释一样忽略它。
+YAML 语言服务器（`yaml-language-server`）会读取这条注释，VS Code 的 YAML 扩展（`redhat.vscode-yaml`）运行的就是它，配置了它的 Neovim、Helix 和 Zed 也一样，因此文件无需其他配置即可校验。`Parse` 会像对待其他注释一样忽略它。`importsettings.Encode` 也会在导入设置附属文件的开头写一行同样的注释，指向 `import.v1.json`。
 
 没有这条注释的文件，可以在编辑器设置里把文件模式映射到 Schema，例如 VS Code 的 `.vscode/settings.json`：
 

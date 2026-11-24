@@ -153,6 +153,7 @@
 | `game/tooling/datatable` | 实验性 | |
 | `game/tooling/devstate` | 实验性 | |
 | `game/tooling/hotreload` | 实验性 | |
+| `game/tooling/importsettings` | 实验性 | [命令行](cli.md) |
 | `game/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
 | `game/tooling/ktx2` | 实验性 | |
 | `game/tooling/manifest` | 实验性 | |
