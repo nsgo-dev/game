@@ -1,6 +1,6 @@
 # scene3d
 
-`game/scene3d` 提供 3D 场景树（含脏标记传播）、命名插槽与类型化附件、用于大规模裁剪与查询的动态胖 AABB / SAH `BVH`、透视与正交相机及轨道/第一人称/第三人称控制器，以及屏幕空间 3D 拾取。
+`game/scene3d` 提供 3D 场景树（含脏标记传播）、命名插槽与类型化附件、用于大规模裁剪与查询的动态胖 AABB / SAH `BVH`、透视与正交相机及轨道/第一人称/第三人称控制器、屏幕空间 3D 拾取，以及面向移动端前向管线的盒投影 3D 贴花。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/scene3d"
@@ -106,3 +106,33 @@ if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.La
 ```
 
 需要按由近到远获取全部命中时使用 `PickAll`，底层基于 `cam.ScreenRay(screenX, screenY, viewW, viewH)`；将 3D 世界坐标投影回 2D 视口坐标请使用 `cam.WorldToScreen`。
+
+## 盒投影 3D 贴花
+
+使用 `Decal`、`DecalPool`、`ProjectDecal` 与 `GPUDecalRenderer` 在场景几何体表面投射弹痕、焦痕、圆形脚底阴影（blob shadow）与溅射贴花。贴花沿自身局部 `-Z` 方向投射到朝向 `+Z` 的表面，借助 BVH 盒体重叠查询与 6 平面 Sutherland–Hodgman 多边形裁剪直接生成前向渲染三角形网格——无需延迟渲染 G-Buffer、计算着色器或深度缓冲回读，因此在 WebGPU、Metal、Vulkan、OpenGL ES 3.0 和 WebGL 2 上行为完全一致。
+
+- **法线约束与角度淡出**：法线夹角在 `AngleFadeStart` 以内的表面保持完整不透明度；介于 `AngleFadeStart` 与 `AngleFadeEnd` 之间按表面法线平滑淡出；垂直或背面三角形会被直接剔除，防止贴花穿透到侧壁或墙背。`DepthFade` 用于在投影盒前后两端平滑衰减。
+- **图层掩码过滤**：`Decal.LayerMask` 按位匹配节点的 `Node.Layer`（`LayerAll` 匹配全部非零图层，`0` 排除全部对象），并自动跳过隐藏或禁用子树。挂载 `*MeshCollider` 或 `DecalReceiver`（如 `node.SetDecalReceiver(&scene3d.DecalReceiverMesh{...})`）的节点均可接收贴花。
+- **定容对象池**：`NewDecalPool(maxDecals)` 严格限制存活贴花数量，满容量时按确定性规则淘汰（优先淘汰 `SortOrder` 最低者，同优先级淘汰最早生成者）；`Step(dt)` 推进年龄、计算 `FadeIn`/`FadeOut` 并自动清理过期贴花，稳态下的 `Spawn`、`Step` 与 `BuildGeometry` 复用内部缓存，实现零堆分配。
+
+```go
+pool := scene3d.NewDecalPool(64)
+
+// 从射线命中点放置红色弹痕，仅投射到默认世界图层，排除角色图层：
+mark := scene3d.NewDecalOnSurface(hit.Point, hit.Normal, math3d.Vec3Up(), math3d.Vec3{X: 0.35, Y: 0.35, Z: 0.25})
+mark.Albedo = core.RGB(0xdd2222)
+mark.LayerMask = scene3d.LayerDefault
+mark.Lifetime = 10 * time.Second
+mark.FadeOut = 2 * time.Second
+pool.Spawn(mark)
+
+// 每帧更新并重建贴花几何体：
+pool.Step(dt)
+var geom scene3d.DecalGeometry
+pool.BuildGeometry(sc, &geom)
+_ = decalRenderer.Upload(&geom)
+// 在前向渲染通道绘制完不透明场景几何体后叠加贴花：
+decalRenderer.DrawWithCamera(pass, camBuf.BindGroup())
+```
+
+在 `gpu.View` 的 `OnReady` 中通过 `NewGPUDecalRenderer(cx, dev, opts)` 创建一次渲染器即可。传入 `render3d.CameraBuffer.Layout()` 作为 `CameraLayout` 可直接共享帧相机绑定组（`DrawWithCamera`），留空则使用内部相机缓冲（`WriteCamera` + `Draw`）。通过 `SetTexture` 或 `UploadTextureRGBA` 按 `Decal.TextureID` 绑定贴图；相邻使用同一贴图的批次会自动合并为单次 `DrawIndexed` 调用。

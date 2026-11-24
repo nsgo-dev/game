@@ -1,6 +1,6 @@
 # scene3d
 
-`game/scene3d` provides a 3D scene graph with dirty-propagated transforms, named sockets and typed attachments, a dynamic fat-AABB / SAH `BVH` for fast spatial queries, perspective/orthographic cameras with Orbit/FPS/ThirdPerson controllers, and screen-space 3D picking.
+`game/scene3d` provides a 3D scene graph with dirty-propagated transforms, named sockets and typed attachments, a dynamic fat-AABB / SAH `BVH` for fast spatial queries, perspective/orthographic cameras with Orbit/FPS/ThirdPerson controllers, screen-space 3D picking, and box-projected 3D decals for the mobile forward path.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/scene3d"
@@ -106,3 +106,33 @@ if hit, ok := scene3d.Pick(sc, cam, pointerX, pointerY, viewW, viewH, scene3d.La
 ```
 
 Use `PickAll` when you need every hit sorted front-to-back along `cam.ScreenRay(screenX, screenY, viewW, viewH)`, and `cam.WorldToScreen` to project 3D points into 2D viewport coordinates.
+
+## Box-projected 3D decals
+
+Place impact marks, scorches, blob shadows, and splats onto scene geometry with `Decal`, `DecalPool`, `ProjectDecal`, and `GPUDecalRenderer`. Decals project along their local `-Z` axis onto surfaces facing `+Z`, using BVH box overlap and 6-plane Sutherland–Hodgman polygon clipping to emit forward-path triangle geometry—no deferred G-buffer, compute shaders, or depth-buffer readback are needed, so decals run identically on WebGPU, Metal, Vulkan, OpenGL ES 3.0, and WebGL 2.
+
+- **Normals and angle fade**: surfaces within `AngleFadeStart` receive full opacity; surfaces between `AngleFadeStart` and `AngleFadeEnd` fade smoothly by surface normal; perpendicular and back-facing surfaces are discarded so decals never bleed onto side or rear faces. `DepthFade` fades smoothly near the front and back faces of the projection box.
+- **Layer masks**: `Decal.LayerMask` filters receiver nodes against `Node.Layer` (`LayerAll` matches everything, `0` matches nothing); hidden and disabled subtrees are skipped automatically. Any node with a `*MeshCollider` or an attached `DecalReceiver` (`node.SetDecalReceiver(&scene3d.DecalReceiverMesh{...})`) can receive decals.
+- **Fixed-capacity pool**: `NewDecalPool(maxDecals)` caps the live decal count with deterministic eviction (lowest `SortOrder`, then oldest spawn order), ages and expires decals in `Step(dt)` with `FadeIn`/`FadeOut`, and reuses scratch buffers so steady-state `Spawn`, `Step`, and `BuildGeometry` allocate zero times per frame.
+
+```go
+pool := scene3d.NewDecalPool(64)
+
+// Place a red impact mark from a raycast hit, excluding character layers:
+mark := scene3d.NewDecalOnSurface(hit.Point, hit.Normal, math3d.Vec3Up(), math3d.Vec3{X: 0.35, Y: 0.35, Z: 0.25})
+mark.Albedo = core.RGB(0xdd2222)
+mark.LayerMask = scene3d.LayerDefault
+mark.Lifetime = 10 * time.Second
+mark.FadeOut = 2 * time.Second
+pool.Spawn(mark)
+
+// Each update & frame:
+pool.Step(dt)
+var geom scene3d.DecalGeometry
+pool.BuildGeometry(sc, &geom)
+_ = decalRenderer.Upload(&geom)
+// Inside the forward render pass after opaque geometry:
+decalRenderer.DrawWithCamera(pass, camBuf.BindGroup())
+```
+
+Create `GPUDecalRenderer` once in `gpu.View`'s `OnReady` with `NewGPUDecalRenderer(cx, dev, opts)`. Pass `render3d.CameraBuffer.Layout()` as `CameraLayout` to share the frame's camera bind group (`DrawWithCamera`), or leave `CameraLayout` nil to use the renderer's own camera buffer (`WriteCamera` + `Draw`). Bind custom textures per `Decal.TextureID` with `SetTexture` or `UploadTextureRGBA`; consecutive batches sharing a texture merge into a single `DrawIndexed` call.
