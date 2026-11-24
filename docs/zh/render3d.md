@@ -1045,3 +1045,36 @@ target.RecordPassTimings(frame.PassTimings()) // 或 target.RecordFrameTime(gpuD
 - **零重分配子视口缩放**：`DynamicResolutionTarget` 按原生尺寸分配离屏颜色+深度 `gpu.RenderTarget`，每次 `Begin3D` 仅将 `SetViewport` 与 `SetScissor` 设为 `[0, 0, scaledW, scaledH]`，缩放比例逐帧变化时不会反复重建 GPU 纹理；`Upscale` 将采样 UV 钳制在有效子视口向内半纹素范围内，防止未使用区域的边缘纹素渗色。
 - **原生分辨率 HUD**：在 `gpu.View` 上挂载 [`scene.Overlay3D`](scene.md#3d-视图上的-2d-图层overlay3d) 以在 1:1 原生 `core.Canvas` 上绘制 2D HUD，或在 `Upscale` 后追加一个 `gpu.LoadLoad` 的原生 GPU HUD 通道，或在单个原生颜色通道内调用 `UpscaleIntoPass` 后紧接着绘制原生 GPU HUD 元素。
 - **上采样滤波模式**：可在运行时通过 `SetFilter` 与 `SetSharpness` 在 `DynamicResolutionBilinear`、`DynamicResolutionNearest` 和 `DynamicResolutionSharpen`（受局部邻域最值钳制的 5 点对比度自适应锐化，避免振铃光晕）之间零重分配切换。
+
+## 烘焙光照贴图（`LightmapMesh`、`LightmapRenderer`）
+
+`LightmapMesh` 与 `GPULightmapMesh` 在 40 字节交错顶点布局（`LightmapVertexLayout`、`LightmapVertex`）中同时保存主材质 UV（`UV0`，对应 glTF `TEXCOORD_0`）与独立的第二套光照贴图 UV（`UV1`，对应 glTF `TEXCOORD_1`）。当 `UV1` 为空时，`UploadLightmapMesh` 会平滑回退到 `UV0`，并通过 `GPULightmapMesh.UsedUV0Fallback()` 告知调用方。在 `game/gltf` 中，`Document.MaterialLightmap` 可从 `MOZ_lightmap`、`EXT_lightmap` 或 `extras.lightmap` 提取烘焙光照贴图绑定（包括 `KHR_texture_transform` / 图集 `uvScale` 与 `uvOffset`），`Document.LightmapTexCoords` 与 `PrimitiveLightmapUVs` 则解析 `TEXCOORD_1` 并在缺失时回退到 `TEXCOORD_0`。
+
+```go
+lmRef, err := doc.MaterialLightmap(prim.Material)
+lmUVs, _, err := doc.LightmapTexCoords(prim, lmRef)
+
+lmMesh, err := render3d.UploadLightmapMesh(cx, dev, render3d.LightmapMeshFromAttributes(
+	prim.Positions, prim.Normals, prim.TexCoords0, lmUVs, prim.Indices,
+), render3d.MeshUpload{Label: "room", Retained: true})
+
+renderer, err := render3d.NewLightmapRenderer(cx, dev, camBuf.Layout(), render3d.LightmapRendererOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
+})
+
+// 每帧在 OnFrame 中调用：
+renderer.BeginFrame()
+camBuf.WriteCamera(cam)
+mat := render3d.DefaultLightmapMaterial()
+mat.BaseColorTexture = albedoTex
+mat.Lightmap = lightmapTex
+mat.Encoding = render3d.LightmapRGBM // LightmapLinear、LightmapSRGB、LightmapRGBM 或 LightmapRGBD
+mat.RGBMMaxRange = render3d.DefaultRGBMMaxRange
+mat.SetUVTransform(render3d.UVTransform{Scale: lmRef.UVScale, Offset: lmRef.UVOffset})
+_ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
+```
+
+- **HDR 与 LDR 编码**：支持线性 8 位或 float16 HDR 纹理（`LightmapLinear`，配合 `UploadLightmapRGBA16F` 上传 float16）、sRGB LDR 纹理（`LightmapSRGB`，以 `TextureUpload{SRGB: true}` 上传时自动避免重复解码），以及面向 WebGL 2 与移动端的 8 位打包 HDR 格式（通过 `EncodeRGBM` / `EncodeRGBMImage` 使用 `LightmapRGBM`，以及通过 `EncodeRGBD` / `EncodeRGBDImage` 使用 `LightmapRGBD`）。
+- **共享光照图集**：通过 `LightmapMaterial.UVScale` 与 `UVOffset`（或 `SetUVTransform`）指定子矩形变换，借助动态 uniform 偏移在同一渲染通道中让多个网格共享同一张烘焙光照图集。
+- **环境回退与动态光叠加**：`LightmapMaterial.Lightmap` 为 nil 时使用 `AmbientFallback` 作为环境光；可选配置 `LightmapMaterial.DirectLight` 将动态方向光以相加方式与烘焙间接光融合。

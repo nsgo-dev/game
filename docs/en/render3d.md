@@ -1045,3 +1045,36 @@ target.RecordPassTimings(frame.PassTimings()) // or target.RecordFrameTime(gpuDu
 - **Zero-reallocation sub-viewport scaling**: `DynamicResolutionTarget` allocates its offscreen color+depth `gpu.RenderTarget` at native capacity and sets `SetViewport` and `SetScissor` to `[0, 0, scaledW, scaledH]` on each `Begin3D` call, so scale changes never churn GPU textures. `Upscale` clamps UVs to half-texel inset bounds of the active sub-rectangle so unused padding texels never bleed into the edges.
 - **Native-resolution HUD**: mount [`scene.Overlay3D`](scene.md#2d-layers-over-a-3d-view-overlay3d) over `gpu.View` so 2D HUD layers draw in a crisp 1:1 native `core.Canvas`, record a follow-up `gpu.LoadLoad` native HUD pass after `Upscale`, or call `UpscaleIntoPass` inside a single native color pass and draw GPU HUD elements right after it.
 - **Upscale filters**: switch between `DynamicResolutionBilinear`, `DynamicResolutionNearest`, and `DynamicResolutionSharpen` (a 5-tap contrast-adaptive sharpening pass clamped to the local neighborhood min/max) at runtime via `SetFilter` and `SetSharpness` without reallocating pipelines or textures.
+
+## Baked lightmaps (`LightmapMesh`, `LightmapRenderer`)
+
+`LightmapMesh` and `GPULightmapMesh` add a dedicated secondary UV channel (`UV1`, matching glTF `TEXCOORD_1`) alongside primary material UVs (`UV0`, `TEXCOORD_0`) in a 40-byte interleaved vertex layout (`LightmapVertexLayout`, `LightmapVertex`). When `UV1` is empty, `UploadLightmapMesh` falls back cleanly to `UV0` and reports `GPULightmapMesh.UsedUV0Fallback()`. In `game/gltf`, `Document.MaterialLightmap` extracts baked lightmap bindings from `MOZ_lightmap`, `EXT_lightmap`, or `extras.lightmap` (including `KHR_texture_transform` / atlas `uvScale` and `uvOffset`), and `Document.LightmapTexCoords` / `PrimitiveLightmapUVs` resolve `TEXCOORD_1` with `TEXCOORD_0` fallback.
+
+```go
+lmRef, err := doc.MaterialLightmap(prim.Material)
+lmUVs, _, err := doc.LightmapTexCoords(prim, lmRef)
+
+lmMesh, err := render3d.UploadLightmapMesh(cx, dev, render3d.LightmapMeshFromAttributes(
+	prim.Positions, prim.Normals, prim.TexCoords0, lmUVs, prim.Indices,
+), render3d.MeshUpload{Label: "room", Retained: true})
+
+renderer, err := render3d.NewLightmapRenderer(cx, dev, camBuf.Layout(), render3d.LightmapRendererOptions{
+	DepthFormat: gpu.FormatDepth24Plus,
+	Retained:    true,
+})
+
+// Each frame inside OnFrame:
+renderer.BeginFrame()
+camBuf.WriteCamera(cam)
+mat := render3d.DefaultLightmapMaterial()
+mat.BaseColorTexture = albedoTex
+mat.Lightmap = lightmapTex
+mat.Encoding = render3d.LightmapRGBM // LightmapLinear, LightmapSRGB, LightmapRGBM, or LightmapRGBD
+mat.RGBMMaxRange = render3d.DefaultRGBMMaxRange
+mat.SetUVTransform(render3d.UVTransform{Scale: lmRef.UVScale, Offset: lmRef.UVOffset})
+_ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
+```
+
+- **HDR and LDR encodings**: supports linear 8-bit or float16 HDR textures (`LightmapLinear`, with `UploadLightmapRGBA16F` for float16 upload), sRGB LDR textures (`LightmapSRGB`, avoiding double-decode when uploaded with `TextureUpload{SRGB: true}`), and 8-bit packed HDR formats (`LightmapRGBM` via `EncodeRGBM` / `EncodeRGBMImage` and `LightmapRGBD` via `EncodeRGBD` / `EncodeRGBDImage`) for full WebGL 2 and mobile compatibility.
+- **Shared lightmap atlases**: set `LightmapMaterial.UVScale` and `UVOffset` (or `SetUVTransform`) so multiple meshes sample distinct sub-rectangles of one baked lightmap atlas within a single render pass using dynamic uniform offsets.
+- **Fallback and dynamic light blend**: leave `LightmapMaterial.Lightmap` nil to shade with `AmbientFallback`, and optionally set `LightmapMaterial.DirectLight` to sum a dynamic directional light additively with baked indirect irradiance.
