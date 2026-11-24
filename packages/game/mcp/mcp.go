@@ -15,8 +15,10 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/random"
 	"github.com/nsgo-dev/game/packages/game/scene"
+	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/nsgo/automation"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -78,7 +80,6 @@ type Config struct {
 
 	// EntityLayer returns the scene layer name an entity belongs to. When nil or returning "", inspection falls back to sceneformat.ObjectRef.Layer if attached.
 	EntityLayer func(entities.Entity) string
-
 	// Loop is the game's fixed-step loop for pause, resume, synchronous stepping and time-scale tools.
 	Loop *game.Loop
 
@@ -93,6 +94,25 @@ type Config struct {
 
 	// SetSeed is a custom callback invoked by game_loop_seed to apply a deterministic random seed.
 	SetSeed func(uint64)
+
+	// Actions is the game's input action map driven by game_input_action, game_input_axis, game_input_actions_list and game_input_pointer.
+	Actions *input.Actions
+
+	// ActionsFunc dynamically resolves the active input.Actions on each tool call. When non-nil and returning a non-nil *input.Actions, it overrides Actions.
+	ActionsFunc func() *input.Actions
+
+	// Viewport maps virtual game coordinates to view coordinates for game_input_pointer.
+	Viewport *screen.Viewport
+
+	// ViewportFunc dynamically resolves the active screen.Viewport on each tool call. When non-nil and returning a viewport with positive dimensions, it overrides Viewport.
+	ViewportFunc func() screen.Viewport
+
+	// ViewSizeFunc returns the current canvas/view size in points for Viewport.Layout and Viewport.GameToView.
+	// When nil or returning a non-positive size, pointer mapping falls back to the attached scope's Env().Window(), and then to the viewport's virtual size.
+	ViewSizeFunc func() core.Size
+
+	// OnPointer is called whenever game_input_pointer injects a pointer press, release or move, after viewport mapping and scene hit testing.
+	OnPointer func(PointerEvent)
 }
 
 type compTypeKey any
@@ -117,9 +137,10 @@ type Bridge struct {
 	cfg Config
 	sub *core.Scope
 
-	components map[string]componentEntry
-	compOrder  []string
-	compByType map[compTypeKey]string
+	components    map[string]componentEntry
+	compOrder     []string
+	compByType    map[compTypeKey]string
+	pointerButton core.MouseButton
 }
 
 // New constructs a Bridge for cfg without registering its tools yet.
@@ -190,6 +211,7 @@ func (b *Bridge) Detach() {
 	}
 	sub := b.sub
 	b.sub = nil
+	b.pointerButton = core.MouseButtonNone
 	if !sub.Disposed() {
 		sub.Dispose()
 	}
@@ -218,6 +240,24 @@ func (b *Bridge) SetScene(s *scene.Scene) {
 	b.cfg.Scene = s
 }
 
+// SetActions replaces the static Actions configured on b.
+// If Config.ActionsFunc is set and returns a non-nil *input.Actions, ActionsFunc continues to take precedence.
+func (b *Bridge) SetActions(a *input.Actions) {
+	if b == nil {
+		return
+	}
+	b.cfg.Actions = a
+}
+
+// SetViewport replaces the static Viewport configured on b.
+// If Config.ViewportFunc is set and returns a viewport with positive dimensions, ViewportFunc continues to take precedence.
+func (b *Bridge) SetViewport(vp *screen.Viewport) {
+	if b == nil {
+		return
+	}
+	b.cfg.Viewport = vp
+}
+
 // Tools returns the full set of automation.Tool definitions owned by b, assembled from each tool group.
 func (b *Bridge) Tools() []automation.Tool {
 	if b == nil {
@@ -226,6 +266,7 @@ func (b *Bridge) Tools() []automation.Tool {
 	var out []automation.Tool
 	out = append(out, b.inspectTools()...)
 	out = append(out, b.loopTools()...)
+	out = append(out, b.inputTools()...)
 	return out
 }
 

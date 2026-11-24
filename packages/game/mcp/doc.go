@@ -13,6 +13,10 @@
 //   - game_loop_step: synchronously advance the game loop by N fixed updates (1..3600, default 1), advancing exact simulated game time.
 //   - game_loop_time_scale: set the game loop's simulation time scale (finite, >= 0; 0 resets to the default 1x speed).
 //   - game_loop_seed: set the deterministic random seed via Config.Random, Config.RandomStreams and/or Config.SetSeed.
+//   - game_input_action: inject a press, release, tap, or analog axis value for a named action on [input.Actions].
+//   - game_input_axis: inject or clear 1D or multi-axis analog values in [-1, 1] on [input.Actions].
+//   - game_input_pointer: inject a pointer press, release, move, or click in game (or camera world) coordinates, mapped through [screen.Viewport] and hit-tested/dispatched on the active [scene.Scene].
+//   - game_input_actions_list: list configured action and axis names with their current step state.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable automatically. Transient or non-saved components can also be exposed with [RegisterComponent] or [RegisterComponentFunc], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name.
 //
