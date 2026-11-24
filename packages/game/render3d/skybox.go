@@ -237,6 +237,8 @@ func CubeDirectionToFaceUV(dir math3d.Vec3) (face gpu.CubeFace, u, v float32) {
 // Cubemap holds a 6-face square cubemap on the CPU in canonical WebGPU / Metal / Direct3D / OpenGL order ([gpu.CubeFacePosX]..[gpu.CubeFaceNegZ]), ready to upload with [UploadCubemap] or process into IBL data with [ComputeIrradianceSH] and [PrefilterEnvironment].
 //
 // Faces holds mip level 0: six non-nil square RGBA images of equal dimensions. Mips optionally holds additional precomputed mip levels starting at level 1 (so Mips[0] is mip level 1 of edge max(Size>>1, 1)), such as GGX-prefiltered specular environment levels. When SRGB is true, texel RGB channels are sRGB-encoded and CPU integration decodes to linear before filtering.
+//
+// Texels are 8 bits per channel, so a Cubemap holds a low dynamic range environment: radiance above 1 is clamped, here and in the faces [PrefilterEnvironment] and [IrradianceSH.ToCubemap] write, which flattens bright sun or sky highlights in image-based lighting. High dynamic range environments are not supported yet.
 type Cubemap struct {
 	Faces [6]*image.RGBA
 	Mips  [][6]*image.RGBA
