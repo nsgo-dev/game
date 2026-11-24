@@ -39,8 +39,7 @@ func TestUASTCPartitionTablesMatchAnchors(t *testing.T) {
 }
 
 func TestUASTCDecodeAllModesAndErrorBlocks(t *testing.T) {
-	// Verify every mode 0..18 decodes cleanly (all-zero endpoints/weights after mode prefix)
-	// and produces expected opaque/alpha behavior without panicking or hitting error magenta.
+	// Verify every mode 0..18 decodes cleanly (all-zero endpoints/weights after mode prefix) and produces expected opaque/alpha behavior without panicking or hitting error magenta.
 	for mode := range 19 {
 		var blk [16]byte
 		info := uastcModes[mode]
