@@ -173,7 +173,41 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## In the editor
 
-`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names, and empties the undo history. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project when it was edited, before the scene and even when the scene has no file to save to, and leaves an unedited `game.yaml` as written, comments included. `SetPluginEnabled(name, on)` adds a plugin to `editor.plugins` or removes it as such a step. `gameeditor <dir>` opens a project from the command line.
+`Editor.OpenProject(path)` opens a `game.yaml`, or the directory holding one, and the main scene it names, and empties the undo history. `EditProject(label, edit)` changes a copy of the project and keeps it when it validates, as one undoable step. `SaveProject()` writes the project in canonical form and syncs the `nsgo.yaml` beside it. The toolbar's Save button saves the project when it was edited, before the scene and even when the scene has no file to save to, and leaves an unedited `game.yaml` as written, comments included. `SetPluginEnabled(name, on)` adds a plugin to `editor.plugins` or removes it as such a step. `gameeditor <dir>` opens a project from the command line. `MoveFile(from, to)` moves a file of the project and rewrites the references to it (see Stable references below).
+
+## Stable references
+
+Files refer to each other by path: `game.yaml` autoloads scenes and resources, a scene inherits or instances other scenes and names materials and Tiled maps, a material names its texture, and Tiled and LDtk files name their tilesets and images. Package `game/refs` keeps those references working when files are renamed or moved.
+
+Every scene and resource file carries a stable ID in its header, a `uid` written once and never changed, so it travels with the file:
+
+```yaml
+version: 2
+uid: 4kq0w8m2c7d9x
+name: Cave
+```
+
+A uid is 13 characters of `0`-`9` and `a`-`z` without `i`, `l`, `o` and `u` (`resource.NewUID`), and `sceneformat` and `resource` refuse any other value. The project index, `game.index.yaml` beside `game.yaml`, records where each file was the last time a tool looked: each scene and resource file's path with its uid, and every other file a reference names, such as an image or a Tiled map, with the SHA-256 of its contents. The tools keep it, in path order so that it changes only when files do; keep it in version control with the files it describes.
+
+```yaml
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: art/stone.png
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - path: materials/stone.material.yaml
+    uid: 4kq0w8m2c7d9x
+```
+
+- `go tool game mv <from> <to>` moves or renames a file or a directory and rewrites every reference to what it moves, including the paths a moved Tiled or LDtk file writes relative to itself, and updates the index. `-n` prints the changes without making them. The editor does the same with `Editor.MoveFile(from, to)`, which also updates the open scene, project and clip, unsaved edits included.
+- `go tool game index` gives every scene and resource file without a uid one, as a line after its `version`; points each reference to a file that was moved without the tools at the file's new path; gives a copied file that kept its original's uid a new one; and writes the index. Run it once to start, and again after moving files by hand or with Git.
+- `go tool game check` fails on a reference to a file that is gone, at the file and line that holds it, and says where the file went when the index finds it again: the scene or resource file that now holds the uid the index lists for the old path, or the one other file with the same extension and contents.
+
+```
+scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
+```
+
+A reference is rewritten in place: its quotes are kept, and the rest of the file, comments and formatting included, is left byte for byte, so a move shows in review as the lines it changes. A move that would leave a reference broken is refused before anything changes: one that would lead out of the project root, one written over several lines, or one in a scene that does not parse. Atlas, tileset and prefab names in scenes are names the game's resolver looks up rather than paths, so they are not rewritten.
 
 ## The starter and the examples
 

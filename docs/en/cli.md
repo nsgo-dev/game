@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project, move files while keeping the references to them working, keep the project index of stable file IDs and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -30,6 +30,8 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `check` | Checks the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to, reporting each problem with its file and line |
 | `assets` | Packs atlases, encodes textures, converts audio and generates the manifest from `game.yaml`, rebuilding only what changed |
 | `generate` | Writes a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration |
+| `mv` | Moves or renames a file or directory of a project and rewrites every reference to it, keeping the project index up to date |
+| `index` | Gives every scene and resource file a uid, points references at files moved without the tools, and writes the project index |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
@@ -189,10 +191,18 @@ game check: 1 problem
 | Tiled maps (`.tmj`) and tilesets (`.tsj`) | External tilesets are JSON tilesets (`.tsj`, or `.json` as older Tiled versions named them; not `.tsx`) that exist; tileset and image-layer images exist, also inside group layers; the map loads with `tilemap.LoadTiled` |
 | LDtk projects (`.ldtk`) | Tileset images and level backgrounds exist; no level is saved in a separate `.ldtkl` file, which `tilemap.LoadLDtkAll` does not read (turn off "Save levels to separate files" in LDtk); the project loads with `tilemap.LoadLDtkAll` |
 | Sprite atlases (JSON with top-level `frames` and `meta`, as TexturePacker and Aseprite export) | `meta.image` exists; every frame lies inside the image; the atlas loads with `sprite.LoadAtlas` |
+| `game.yaml` and the scenes other files name | Each autoloaded scene and resource exists, as does the scene a scene `inherits` and the scene an object instances (`scene`), whatever its file is called |
+| Project indexes (`game.index.yaml`) | They parse, and no two scene or resource files share a `uid`, as a copied file does until `game index` gives it its own |
 
-A path a map, tileset or atlas writes is relative to that file, as Tiled, LDtk and texture packers write them. A scene's tilemap `source` and `material`, and a material's `texture`, are relative to the project root: the nearest directory above the scene holding `nsgo.yaml` or `go.mod`, or the checked directory when there is none. A scene names an atlas the way its game's `sceneformat.AssetResolver` does, so the check finds it by file name: the atlas JSON in the same project whose base name without `.json` is the name (`actors` is `art/actors.json`), or whose path from the project root is (`art/actors`). When several match, the one nearest the scene wins, counting the directories up from the scene and down to the atlas, so an atlas beside the scene beats one in a subdirectory, and two equally near are reported as ambiguous until the scene names one by its path. When no atlas matches but a JSON file of that name does not parse or is not an atlas, that file's fault is reported. A path must be relative and use forward slashes, and must not lead outside the checked directory. PNG, JPEG and GIF images must decode; other images only have to exist.
+A path a map, tileset or atlas writes is relative to that file, as Tiled, LDtk and texture packers write them. A scene's tilemap `source` and `material`, and a material's `texture`, are relative to the project root: the nearest directory above the scene holding `game.yaml`, `nsgo.yaml` or `go.mod`, or the checked directory when there is none. A scene names an atlas the way its game's `sceneformat.AssetResolver` does, so the check finds it by file name: the atlas JSON in the same project whose base name without `.json` is the name (`actors` is `art/actors.json`), or whose path from the project root is (`art/actors`). When several match, the one nearest the scene wins, counting the directories up from the scene and down to the atlas, so an atlas beside the scene beats one in a subdirectory, and two equally near are reported as ambiguous until the scene names one by its path. When no atlas matches but a JSON file of that name does not parse or is not an atlas, that file's fault is reported. A path must be relative and use forward slashes, and must not lead outside the checked directory. PNG, JPEG and GIF images must decode; other images only have to exist.
 
 Directories whose names start with `.` or `_`, and those named `testdata`, are skipped, as the go command skips them. Other JSON and YAML files are not read. A problem the loader of a map or atlas reports names no line, so it is printed as `file: message`; the check runs that loader only once the file's references resolve, so one fault is not reported twice.
+
+When a reference names a file that is gone and the project index knows where it went, the problem says so, and [`game index`](#index) updates the reference:
+
+```text
+scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
+```
 
 The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `go tool game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values.
 
@@ -274,6 +284,24 @@ Writes the code and files of a new component, system, scene or prefab into the g
 The registries are declared once, in `components.go`, `systems.go` and `prefabs.go`, which the first component, system, scene or prefab that needs one writes. Each generated file adds itself to its registry in an `init` function, so `generate` never edits a file that is already there. The game uses them where it loads scenes and runs its loop: `sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` refuses a component or field a scene sets that no component describes, and `Systems.Step(world, dt)` in the `game.Loop`'s `Update` runs the systems in their order, which `entities.After` and `entities.Before` set where each one is added. Fill in the generated code from there: a component's fields and the `sceneformat.Field` of each one a scene may set, a system's queries, a prefab's components with `entities.With`.
 
 What `generate` writes builds, passes the tests `go tool nsgo test` runs and passes `game check` as it is. It writes nothing and fails with 1 when a file it would write already exists, or when the package already declares an identifier it would declare, in any of its files, tests and files for other platforms included; choose another name then. It also fails when the package declares `Components`, `Systems` or `Prefabs` as something other than a variable, or declares a name a generated file imports a package as, such as `entities` or `time`, and refuses `components`, `systems` and `prefabs` as names, since their Go names are the registries'. `-autoload` and `-main` rewrite `game.yaml` in the form `gameproject fmt` writes, so they refuse a `game.yaml` in another form, such as one with comments, which rewriting would lose, until `gameproject fmt` has rewritten it, and refuse a name `game.yaml` already autoloads. The starter's `TestAutoloadsLoad` checks the files `game.yaml` autoloads, so an autoloaded scene that goes missing fails the game's tests; it reads them from the project directory, so it is skipped under `nsgo test -target` on a phone, a simulator or the web, where the generated tests read only the scene files their code embeds.
+
+### mv
+
+```sh
+go tool game mv materials/stone.material.yaml materials/rock.material.yaml
+go tool game mv -n art gfx
+```
+
+Moves or renames a file or directory and rewrites every reference to what it moves: in `game.yaml`, scenes, resource files, and Tiled and LDtk files, whose own paths relative to themselves are rewritten too when they move. Each reference is changed in place, keeping its quotes and the rest of its file byte for byte, comments included. The project index, `game.index.yaml`, is brought up to date. The paths are taken from the working directory and must lie inside the project, the directory `-in` names or else the nearest one at or above the working directory that holds `game.yaml`, `nsgo.yaml` or `go.mod`. Each change is printed; `-n` prints them without making them. A move that would leave a reference broken is refused before anything changes, as are moving `game.yaml` or the index, a move onto an existing file and a move out of the project. See [Stable references](project.md#stable-references).
+
+### index
+
+```sh
+go tool game index
+go tool game index -n examples/caverun
+```
+
+Gives every scene and resource file without a `uid` one, as a line after its `version`, points every reference to a file that was moved without the tools at the file's new path, gives a copied file that kept its original's uid a new one, and writes `game.index.yaml` at each project root, listing each scene and resource file's path and uid and each other referenced file's path and SHA-256. It prints each change, or that the index is up to date; `-n` prints them without making them. The directory is the one named, `-in`, or else the nearest at or above the working directory holding `game.yaml`, `nsgo.yaml` or `go.mod`. Run it once to start keeping an index, and again after moving files by hand or with Git; commit the index with the files.
 
 ### completion
 

@@ -173,7 +173,41 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 在编辑器中
 
-`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。`SetPluginEnabled(name, on)` 以同样的可撤销步骤把插件加入 `editor.plugins` 或从中移除。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。
+`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。`SetPluginEnabled(name, on)` 以同样的可撤销步骤把插件加入 `editor.plugins` 或从中移除。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。`MoveFile(from, to)` 移动项目中的文件并改写指向它的引用（见下文“稳定引用”）。
+
+## 稳定引用
+
+文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，场景继承或实例化其他场景并引用材质和 Tiled 地图，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。
+
+每个场景文件和资源文件的文件头里都有一个稳定 ID，即 `uid`：只写入一次、此后不再改变，因此会跟着文件一起移动：
+
+```yaml
+version: 2
+uid: 4kq0w8m2c7d9x
+name: Cave
+```
+
+uid 由 13 个字符组成，取自 `0`-`9` 和去掉 `i`、`l`、`o`、`u` 的 `a`-`z`（`resource.NewUID`），`sceneformat` 和 `resource` 会拒绝其他取值。项目索引 `game.index.yaml` 位于 `game.yaml` 旁边，记录工具上一次看到的各文件位置：每个场景文件和资源文件记录路径和 uid，引用指向的其他文件（如图片或 Tiled 地图）记录路径和内容的 SHA-256。索引由工具维护，按路径排序，只有文件变化时才会变化；请把它和它描述的文件一起纳入版本控制。
+
+```yaml
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: art/stone.png
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - path: materials/stone.material.yaml
+    uid: 4kq0w8m2c7d9x
+```
+
+- `go tool game mv <from> <to>` 移动或重命名一个文件或目录，改写所有指向被移动内容的引用（包括被移动的 Tiled 或 LDtk 文件中相对自身书写的路径），并更新索引。`-n` 只打印将要做的修改而不实际执行。编辑器中的 `Editor.MoveFile(from, to)` 做同样的事，并同时更新当前打开的场景、项目和动画片段，未保存的编辑也会保留。
+- `go tool game index` 给每个还没有 uid 的场景文件和资源文件加上 uid（写在 `version` 之后的一行）；把指向“未经工具移动的文件”的引用改到文件的新路径；给保留了原文件 uid 的副本换一个新 uid；然后写出索引。首次使用时运行一次，之后每次手动或用 Git 移动文件后再运行。
+- `go tool game check` 会对指向已不存在文件的引用报错，给出引用所在的文件和行号；如果索引能重新找到该文件，还会说明它移到了哪里：即现在持有索引中旧路径对应 uid 的场景或资源文件，或者扩展名和内容都相同的唯一另一个文件。
+
+```
+scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
+```
+
+引用是原地改写的：保留原有的引号，文件其余部分（包括注释和格式）逐字节不变，因此一次移动在代码审查中只显示它改动的那几行。会导致引用失效的移动会在做任何修改之前被拒绝：引用会指到项目根目录之外、引用跨多行书写，或者引用所在的场景无法解析。场景中的图集、图块集和预制体名称是由游戏的解析器查找的名称而不是路径，因此不会被改写。
 
 ## 起手模板与示例
 

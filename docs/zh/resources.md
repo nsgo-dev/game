@@ -8,12 +8,13 @@ import "github.com/nsgo-dev/game/packages/game/resource"
 
 ## 公共文件头
 
-每个资源文件都是一个 YAML 文档，开头是相同的两个字段：
+每个资源文件都是一个 YAML 文档，开头是相同的几个字段：
 
 | 字段 | 说明 |
 | --- | --- |
 | `type` | 资源类型：`material`、`curve`、`gradient`、`animation`、`theme`、`busLayout` 或 `physicsMaterial`。 |
 | `version` | 模式版本，必须为 `1`。 |
+| `uid` | 可选的稳定 ID，文件改名或移动后保持不变，由 13 个字符组成，取自 `0`-`9` 和去掉 `i`、`l`、`o`、`u` 的 `a`-`z`。由 `go tool game index` 写入，见[稳定引用](project.md#稳定引用)。 |
 
 其后是该类型自己的字段。`Parse` 先读取文件头，遇到未知类型或 `1` 以外的版本时直接给出相应的错误信息，然后把整个文档解码成对应的 Go 类型（`*resource.Material`、`*resource.Curve` 等），并拒绝未知字段、多余的 YAML 文档和越界的值。`Encode` 先写文件头，其余字段按固定顺序写出，省略取默认值的字段，因此它写出的文件读回后再编码得到的字节完全相同，diff 里只会出现真正改动的部分。
 

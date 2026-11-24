@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -30,6 +30,8 @@ go tool game help
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
 | `assets` | 从 `game.yaml` 打包图集、编码纹理、转换音频并生成资源清单，只重建有改动的部分 |
 | `generate` | 向游戏项目写入新的组件、系统、场景或预制体：它的 Go 代码和测试、场景或预制体的场景文件，以及它的注册 |
+| `mv` | 移动或重命名项目中的文件或目录，改写所有指向它的引用，并保持项目索引最新 |
+| `index` | 给每个场景文件和资源文件分配 uid，把引用指向未经工具移动的文件的新位置，并写出项目索引 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -189,10 +191,18 @@ game check: 1 problem
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
+| `game.yaml` 以及其他文件引用的场景 | 每个自动加载的场景和资源都存在；场景 `inherits` 的场景和对象实例化的场景（`scene`）也必须存在，不论其文件名是什么 |
+| 项目索引（`game.index.yaml`） | 能够解析，且没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况） |
 
-地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
+地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
 
 名字以 `.` 或 `_` 开头的目录以及名为 `testdata` 的目录会被跳过，与 go 命令的做法一致。其他 JSON 和 YAML 文件不会被读取。地图或图集的加载器报告的问题不带行号，因此打印为 `file: message`；只有当文件的引用都能解析时，检查才会运行这个加载器，同一个错误不会被报告两次。
+
+如果引用指向的文件已不存在，而项目索引知道它移到了哪里，问题信息会说明这一点，[`game index`](#index) 会更新该引用：
+
+```text
+scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
+```
 
 Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题。
 
@@ -274,6 +284,24 @@ go tool game generate prefab enemy
 这些注册表各只声明一次，分别在 `components.go`、`systems.go` 和 `prefabs.go` 中，由第一个需要它的组件、系统、场景或预制体写出。每个生成的文件在 `init` 函数中把自己加入注册表，因此 `generate` 从不修改已经存在的文件。游戏在加载场景和运行循环的地方使用它们：`sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` 拒绝场景中设置了却没有任何组件描述的组件或字段，`game.Loop` 的 `Update` 中调用 `Systems.Step(world, dt)` 按顺序运行各个系统，顺序由加入每个系统时的 `entities.After` 和 `entities.Before` 决定。之后在生成的代码上继续填写：组件的字段以及场景可设置的每个字段对应的 `sceneformat.Field`、系统的查询、用 `entities.With` 给预制体添加的组件。
 
 `generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。包中把 `Components`、`Systems` 或 `Prefabs` 声明成变量以外的东西，或者声明了生成的文件导入包时使用的名称（例如 `entities` 或 `time`）时，它同样失败；名称 `components`、`systems` 和 `prefabs` 也会被拒绝，因为它们的 Go 名称就是注册表的名称。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestAutoloadsLoad` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败；它从项目目录读取这些文件，所以在手机、模拟器或 Web 上用 `nsgo test -target` 运行时会跳过，而生成的测试只读取其代码嵌入的场景文件。
+
+### mv
+
+```sh
+go tool game mv materials/stone.material.yaml materials/rock.material.yaml
+go tool game mv -n art gfx
+```
+
+移动或重命名一个文件或目录，并改写所有指向被移动内容的引用：包括 `game.yaml`、场景、资源文件以及 Tiled 和 LDtk 文件；Tiled 和 LDtk 文件本身被移动时，其中相对自身书写的路径也会改写。每个引用都原地修改，保留引号，文件其余部分（包括注释）逐字节不变。项目索引 `game.index.yaml` 会随之更新。路径从工作目录算起，且必须位于项目之内：即 `-in` 指定的目录，未指定时为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。每项修改都会打印出来；`-n` 只打印而不执行。会导致引用失效的移动会在做任何修改之前被拒绝，移动 `game.yaml` 或索引、移动到已存在的文件以及移出项目也会被拒绝。见[稳定引用](project.md#稳定引用)。
+
+### index
+
+```sh
+go tool game index
+go tool game index -n examples/caverun
+```
+
+给每个还没有 `uid` 的场景文件和资源文件加上 uid（写在 `version` 之后的一行），把指向未经工具移动的文件的引用改到文件的新路径，给保留了原文件 uid 的副本换一个新 uid，并在每个项目根目录写出 `game.index.yaml`，其中列出每个场景和资源文件的路径与 uid，以及其他被引用文件的路径与 SHA-256。命令会打印每项修改，或者打印索引已是最新；`-n` 只打印而不执行。目录为所指定的目录或 `-in`，否则为从工作目录往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录。首次使用时运行一次以开始维护索引，之后每次手动或用 Git 移动文件后再运行；把索引和文件一起提交。
 
 ### completion
 
