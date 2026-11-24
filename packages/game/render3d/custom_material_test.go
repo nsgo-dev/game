@@ -496,9 +496,7 @@ func TestCustomMaterialDrawsInGPUViewProfiles(t *testing.T) {
 }
 
 func TestCustomMaterialCompilesForEveryBackend(t *testing.T) {
-	// Verify CompileCheck passes for both WGSL and Kage shaders, and inspect the
-	// PipelineCache artifacts to confirm all 5 NSGo backend targets (MSL, HLSL,
-	// GLSL 3.30, GLSL ES 3.00 / WebGL 2, and WGSL) emit non-empty sources.
+	// Verify CompileCheck passes for both WGSL and Kage shaders, and inspect the PipelineCache artifacts to confirm all 5 NSGo backend targets (MSL, HLSL, GLSL 3.30, GLSL ES 3.00 / WebGL 2, and WGSL) emit non-empty sources.
 	cases := []struct {
 		name string
 		desc render3d.CustomShaderDesc
