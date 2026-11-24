@@ -43,7 +43,7 @@ Allocating a separate `gpu.Buffer` and `gpu.BindGroup` per draw call would simpl
   - Zero edits to existing `gltf` or `render3d` Go files keep the implementation isolated and low-conflict.
 - **Costs and limitations**:
   - Callers drawing lightmapped meshes across frames should call `LightmapRenderer.BeginFrame()` once per frame; omitting it causes the dynamic ring buffer to grow until `Close()` is called.
-  - `LightmapRenderer` implements Lambertian baked indirect + optional single directional light; its output is encoded with the same `linear_to_srgb` as `LitPBRWGSL` so both match in one pass. Feeding lightmaps into the PBR material path as the indirect term (reusing `LightmapVertexLayout`, `GPULightmapMesh`, `LightmapEncoding`, and the RGBM/RGBD/RGBA16F helpers) is follow-up #752.
+  - `LightmapRenderer` implements Lambertian baked indirect + optional single directional light; its output is encoded with the same `linear_to_srgb` as `LitPBRWGSL` so both match in one pass. Feeding lightmaps into the PBR material path as the indirect term (reusing `LightmapVertexLayout`, `GPULightmapMesh`, `LightmapEncoding`, and the RGBM/RGBD/RGBA16F helpers) is implemented in [baked lightmaps in the PBR material path](2026-11-25-render3d-pbr-lightmaps.md).
   - `UploadLightmapRGBA16F` uploads mip level 0 only (no CPU float16 mip chain generation yet).
 
 ## Verification

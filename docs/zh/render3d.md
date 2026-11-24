@@ -1094,7 +1094,41 @@ _ = renderer.Draw(pass, camBuf, lmMesh, worldMat, mat)
 - **输出编码**：着色器会把线性结果编码为 sRGB，与 `LitPBRWGSL` 和材质管线一致，因此同一通道中绘制的光照贴图几何与 PBR 光照物体颜色一致。颜色格式（`LightmapRendererOptions.ColorFormat` 或表面格式）为 sRGB 时，编码交给硬件完成。
 - **图集变换**：`LightmapRef.UVScale` / `UVOffset` 是唯一生效的图集变换；`LightmapRef.Texture` 不携带 scale 与 offset，因此不要再用 `TransformTexCoords` 对它应用一次。数值来源见[烘焙光照贴图](3d-models-blender.md#烘焙光照贴图)。
 - **纹理流式加载**：`BeginFrame` 会丢弃已关闭的光照贴图与反照率纹理对应的缓存绑定组，因此流式加载关卡或热重载光照贴图不会让缓存无限增长。
-- **适用范围**：`LightmapRenderer` 是独立的渲染路径，结果为反照率乘以（烘焙光照加一盏 Lambert 光源）。它不支持金属度-粗糙度、法线、遮蔽或自发光贴图，也不读取 `LightRig`。把光照贴图作为间接光项接入 PBR 材质路径的工作见 [#752](https://github.com/nsgo-dev/game/issues/752)。
+- **适用范围**：`LightmapRenderer` 是独立的 Lambertian 渲染路径，结果为反照率乘以（烘焙光照加可选的一盏 `DirectionalLight`）。它不支持金属度-粗糙度、法线、遮蔽或自发光贴图，也不读取 `LightRig`。
+
+### PBR 光照贴图路径（`GPUPBRLightmap`、`NewPBRLightmapPipeline`、`UploadGLTFPBRLightmaps`）
+
+如果希望在烘焙几何体上同时保留完整的 glTF 2.0 金属度-粗糙度 PBR 材质（基础色、金属度-粗糙度、法线、遮蔽、自发光、透明模式、双面渲染）以及 `LightRig` 的动态光源（方向光、点光源、聚光灯），请将 `NewPBRLightmapPipeline` 与 `GPUMaterial`、`GPUPBRLightmap` 配合使用：
+
+```go
+matSet, err := render3d.UploadGLTFMaterials(cx, dev, defaults, doc, render3d.GLTFMaterialUpload{Retained: true})
+lmSet, err := render3d.UploadGLTFPBRLightmaps(cx, dev, doc, render3d.GLTFPBRLightmapUpload{Retained: true})
+lmMeshData, err := render3d.LightmapMeshFromGLTF(doc, prim)
+lmMesh, err := render3d.UploadLightmapMesh(cx, dev, lmMeshData, render3d.MeshUpload{Retained: true})
+
+pipe, err := render3d.NewPBRLightmapPipeline(
+	cx, dev,
+	camBuf.Layout(), lightBuf.Layout(), defaults.Layout(), lmSet.Layout(),
+	render3d.PBRLightmapPipelineOptions{DepthFormat: gpu.FormatDepth24Plus, Retained: true},
+)
+
+// 在 OnFrame 中：
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+lightBuf.Bind(pass)
+pass.SetBindGroup(render3d.PBRLightmapMaterialGroup, matSet.Material(prim.Material).BindGroup())
+lmSet.Lightmap(prim.Material).Bind(pass) // 或用 lmSet.NewInstance(...) 为不同节点创建独立变换实例
+lmMesh.Draw(pass)
+```
+
+- **绑定组与顶点布局**：复用 40 字节 `LightmapVertexLayout`（`Position`、`Normal`、`UV0`、`UV1`），绑定组依次为 `CameraGroup`（0）、`LightGroup`（1，`GPULightBuffer`）、`PBRLightmapMaterialGroup`（2，由 `NewGPUMaterial` 或 `UploadGLTFMaterials` 创建的 `GPUMaterial`）以及 `PBRLightmapGroup`（3，`GPUPBRLightmap`，携带模型/法线矩阵、图集 `UVTransform`、`LightmapEncoding`、`Intensity`、`RGBMMaxRange` 与光照贴图纹理/采样器）。
+- **着色公式**：解码后的光照贴图替换环境光 / 间接漫反射项，计算为 `(1 - metallic) * baseColor * decodedLightmap * intensity * occlusion`（因此绑定光照贴图时不会重复叠加 `LightRig.Ambient`）；`LightRig` 的方向光、点光源与聚光灯继续提供 Cook-Torrance GGX 直接光项并加上自发光，输出使用 `linear_to_srgb` 编码（开启 `LinearOutput` 或目标格式为 sRGB 时输出未钳制的线性值）。对于无动态光的非金属（`metallic = 0`）、粗糙（`roughness = 1`）、无贴图材质，结果与 `LightmapRenderer` 一致；加入 `LightRig` 光源时叠加的直接光项与 `LitPBRWGSL` 一致。CPU 参考实现为 `EvaluatePBRLightmap`。
+- **glTF 集成**：`UploadGLTFPBRLightmaps` 解析 `MOZ_lightmap`、`EXT_lightmap` 与 `extras.lightmap`（含 `KHR_texture_transform`、`scaleOffset`、`uvScale`、`uvOffset`、`intensity`、`encoding`、`rgbmMaxRange`），对光照贴图纹理与采样器去重，并返回与 `GLTFMaterialSet` 配对的 `GLTFPBRLightmapSet`（多个节点共享同一材质但变换不同时可用 `NewInstance`）。
+
+### 何时使用 `LightmapRenderer`，何时使用 PBR 光照贴图路径
+
+- **使用 `LightmapRenderer`**：适合轻量级静态建筑、移动端/低端设备填充率预算紧张的场景，或只需要反照率贴图（`UV0`）、烘焙光照贴图（`UV1`）以及至多一盏 Lambert 方向光的纯漫反射烘焙几何——每次绘制只绑定两张纹理，并通过 `BeginFrame` / `Draw` 自动管理动态 uniform 环形缓冲。
+- **使用 PBR 光照贴图路径（`NewPBRLightmapPipeline` + `GPUPBRLightmap`）**：只要烘焙几何还需要金属度-粗糙度贴图、切线空间法线贴图、环境遮蔽贴图、自发光贴图、Alpha Mask/Blend、双面材质、HDR `LinearOutput`，或需要在同一条管线中叠加 `LightRig` 的方向光、点光源与聚光灯动态直接光，就应选择 PBR 光照贴图路径。
 
 ## 点光源与聚光灯阴影（`SpotShadowMap`、`PointShadowMap`）
 
