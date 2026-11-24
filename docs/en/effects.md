@@ -35,7 +35,7 @@ func Effect(pos vec2) vec4 {
 `
 ```
 
-An effect does not declare `Input`, `InputSize` or `Fragment`, imports nothing, reads the frame only through `Input` (not `image0At`), works in the frame's pixels (not the view's `rectSize` or `pixelScale`), and uses no name that starts with `__`, which the shader compiler keeps, or with `p` or `P`, digits and `_`, which the chain gives its declarations.
+An effect does not declare `Input`, `InputSize`, `Texture`, `TextureSize` or `Fragment`, imports nothing, reads the frame only through `Input` (not `image0At`), reads an optional extra texture through `Texture(pos)` and `TextureSize()` (up to 3 textured effects per chain, bound to `image1` through `image3`), works in the frame's pixels (not the view's `rectSize` or `pixelScale`), and uses no name that starts with `__`, which the shader compiler keeps, or with `p` or `P`, digits and `_`, which the chain gives its declarations.
 
 ## Chain effects
 
@@ -158,6 +158,34 @@ return effects.View{
 ```
 
 Flashes and shakes follow reduced motion: `Trigger` does nothing and returns false while `ReduceMotion` reports true. Pass `a11y.Assist`'s `ReduceMotion`, which follows the player's choice and else the platform's; when `ReduceMotion` is nil, the platform's setting is asked. A peak, amplitude or duration of 0 or less does not start one either, and leaves a running one alone: `Stop` ends it, unlike `tilemap.Camera.Shake`, which a zero intensity cancels.
+
+## Palette swap
+
+Two ready effects map colors through a palette texture, bound to `Effect.Texture` and read through `Texture(pos)` and `TextureSize()`. Both carry their own `Reference`, so a chain with them draws reference pictures headless whenever the palette has `Pixels` or PNG `Data`.
+
+- `PaletteSwap(palette)` swaps colors by key: row `0` holds up to 256 source colors (transparent cells are skipped), and each row from `0` to `height - 1` holds a target palette. Its uniforms are `Amount`, 0 to 1 (0 or less, the default, passes its input through unchanged); `Row`, from `0` to `height - 1`, where fractional values blend linearly between adjacent rows; and `Tolerance`, the largest per-channel difference in straight RGB that matches a key in row `0`. Values at or below `0.002/alpha` (including 0, the default) match exact 8-bit colors; larger values pick the nearest matching key in Euclidean RGB distance, and `1` snaps every non-transparent color to its nearest key. Unmatched colors and transparent pixels pass through unchanged.
+- `PaletteRamp(palette)` maps each pixel's straight Rec. 709 luminance into a dark-to-light palette row of any width (`0` at column `0`, `1` at column `width - 1`), with `Amount` (0 to 1) and `Row` (0 to `height - 1`, fractional values blending adjacent rows).
+
+`PaletteImage(rows...)` builds a premultiplied `*image.RGBA` palette texture from rows of `core.Color` values:
+
+```go
+pal := effects.PaletteImage(
+	[]core.Color{core.RGB(0xd03030), core.RGB(0xf0c030), core.RGB(0x3060d0)}, // row 0: keys
+	[]core.Color{core.RGB(0x40c8f0), core.RGB(0xe0f8ff), core.RGB(0x205090)}, // row 1: ice theme
+	[]core.Color{core.RGB(0x8838c8), core.RGB(0xb8f040), core.RGB(0x386030)}, // row 2: poison theme
+)
+post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+
+return effects.View{
+	Chain:    post,
+	Frame:    src,
+	Uniforms: []core.Uniforms{{"Amount": 1, "Row": 1}},
+}
+```
+
+- Colors stay premultiplied: a matched pixel's alpha multiplies the target palette entry's premultiplied color, so translucent sprites keep their alpha and a palette entry may be translucent or transparent.
+- Animate `Amount` or `Row` with a `core.AnimatedNode` to fade or crossfade palettes on the frame clock with no texture re-upload.
+- To replace a textured effect's image per view without recompiling the chain, set `View.Textures` or `View.TexturesFunc` (or call `Chain.Images` when building a `core.Shader` yourself, and `Chain.ReferenceWithTextures` in headless tests).
 
 ## Reference pictures
 

@@ -48,10 +48,20 @@ func ExampleBloom() {
 	fmt.Println(len(u), post.HasUniform(0, "Radius"))
 	// Output: 3 true
 }
-
 func ExampleCRT() {
 	post := effects.MustCompile(effects.CRT())
 	u := post.Uniforms([]core.Uniforms{{"Curvature": 0.25, "Scanlines": 0.35}})
 	fmt.Println(len(u), post.HasUniform(0, "Curvature"))
+	// Output: 2 true
+}
+
+func ExamplePaletteSwap() {
+	pal := effects.PaletteImage(
+		[]core.Color{core.RGB(0xd03030), core.RGB(0x3060d0)},
+		[]core.Color{core.RGB(0x40c8f0), core.RGB(0x8838c8)},
+	)
+	post := effects.MustCompile(effects.PaletteSwap(core.ImageSource{Pixels: pal, Version: 1}))
+	u := post.Uniforms([]core.Uniforms{{"Amount": 1, "Row": 1}})
+	fmt.Println(len(u), post.HasTexture(0))
 	// Output: 2 true
 }

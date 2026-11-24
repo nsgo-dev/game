@@ -17,6 +17,9 @@ type View struct {
 	// Uniforms are each effect's uniforms, in the chain's order, as Chain.Uniforms takes them: an AnimatedNode among them follows the platform's frame clock with no commit per frame. UniformsFunc, when set, follows the graph, its values over Uniforms'.
 	Uniforms     []core.Uniforms
 	UniformsFunc func() []core.Uniforms
+	// Textures overrides each textured effect's Texture, in the chain's order, as Chain.Images takes them; a zero entry keeps the effect's own Texture. TexturesFunc, when set, follows the graph instead.
+	Textures     []core.ImageSource
+	TexturesFunc func() []core.ImageSource
 	// Class is Tailwind CSS classes, as core.View's.
 	Class     string
 	Style     core.Style
@@ -41,7 +44,6 @@ func (v View) Render(*core.Scope) core.Node {
 	s := core.Shader{
 		Program:   c.program,
 		Uniforms:  c.Uniforms(v.Uniforms),
-		Images:    []core.ImageSource{v.Frame},
 		Class:     v.Class,
 		Style:     v.Style,
 		StyleFunc: v.StyleFunc,
@@ -56,9 +58,22 @@ func (v View) Render(*core.Scope) core.Node {
 	if f := v.UniformsFunc; f != nil {
 		s.UniformsFunc = func() core.Uniforms { return c.Uniforms(f()) }
 	}
-	if f := v.FrameFunc; f != nil {
-		s.Images = nil
-		s.ImagesFunc = func() []core.ImageSource { return []core.ImageSource{f()} }
+	if v.FrameFunc != nil || v.TexturesFunc != nil {
+		frameFunc, texturesFunc := v.FrameFunc, v.TexturesFunc
+		staticFrame, staticTextures := v.Frame, v.Textures
+		s.ImagesFunc = func() []core.ImageSource {
+			frame := staticFrame
+			if frameFunc != nil {
+				frame = frameFunc()
+			}
+			textures := staticTextures
+			if texturesFunc != nil {
+				textures = texturesFunc()
+			}
+			return c.Images(frame, textures)
+		}
+	} else {
+		s.Images = c.Images(v.Frame, v.Textures)
 	}
 	return s
 }

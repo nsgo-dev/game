@@ -1,8 +1,11 @@
 package effects
 
 import (
+	"bytes"
 	"fmt"
 	"image"
+	"image/draw"
+	_ "image/png"
 	"maps"
 	"math"
 	"slices"
@@ -10,10 +13,12 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Input is what an effect's Reference reads: the pass before it, or the frame for the first, as Input and InputSize read them in its source.
+// Input is what an effect's Reference reads: the pass before it, or the frame for the first, as Input and InputSize read them in its source, plus the effect's extra texture as Texture and TextureSize read it.
 type Input struct {
-	at   func(x, y float64) [4]float64
-	w, h float64
+	at     func(x, y float64) [4]float64
+	w, h   float64
+	texAt  func(x, y float64) [4]float64
+	tw, th float64
 }
 
 // At returns the premultiplied color of the input at (x, y), in the frame's pixels: for the frame, the pixel under the point, transparent outside it.
@@ -22,10 +27,26 @@ func (in Input) At(x, y float64) [4]float64 { return in.at(x, y) }
 // Size returns the frame's size in pixels.
 func (in Input) Size() (w, h float64) { return in.w, in.h }
 
+// TextureAt returns the premultiplied color of the effect's extra texture at (x, y), in its pixels: the pixel under the point, transparent outside it, as Texture(pos) reads it in its source.
+func (in Input) TextureAt(x, y float64) [4]float64 {
+	if in.texAt == nil {
+		return [4]float64{}
+	}
+	return in.texAt(x, y)
+}
+
+// TextureSize returns the size of the effect's extra texture in pixels, as TextureSize() reads it in its source.
+func (in Input) TextureSize() (w, h float64) { return in.tw, in.th }
+
 // Reference draws frame through the chain on the CPU into a picture of width by height pixels, with each effect's Reference, as View draws it on the GPU into a box of that many pixels with the same uniforms: each pixel's center is mapped onto the frame and drawn by the last effect. perEffect[i] is effect i's uniforms, as Chain.Uniforms and View.Uniforms take them. It is the picture a test compares a chain's output with, and a screenshot of it where no GPU draws. Colors are clamped to 0 to 1 and rounded to 8 bits.
 //
-// It returns an error when an effect has no Reference, when perEffect names a uniform an effect does not declare or has more entries than the chain has effects, and for a uniform set to an AnimatedNode other than a core.Constant, whose value only the platform knows.
+// It returns an error when an effect has no Reference, when perEffect names a uniform an effect does not declare or has more entries than the chain has effects, when a textured effect's Texture has neither Pixels nor Data, and for a uniform set to an AnimatedNode other than a core.Constant, whose value only the platform knows.
 func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core.Uniforms) (*image.RGBA, error) {
+	return c.ReferenceWithTextures(frame, width, height, perEffect, nil)
+}
+
+// ReferenceWithTextures is Reference with per-effect texture overrides, as View.Textures and Chain.Images take them: a non-zero entry in textures[i] replaces effect i's own Texture.
+func (c *Chain) ReferenceWithTextures(frame *image.RGBA, width, height int, perEffect []core.Uniforms, textures []core.ImageSource) (*image.RGBA, error) {
 	for i, e := range c.effects {
 		if e.Reference == nil {
 			return nil, fmt.Errorf("effects: %s has no Reference", e.label(i))
@@ -33,6 +54,9 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core
 	}
 	if len(perEffect) > len(c.effects) {
 		return nil, fmt.Errorf("effects: uniforms for %d effects, but the chain has %d", len(perEffect), len(c.effects))
+	}
+	if len(textures) > len(c.effects) {
+		return nil, fmt.Errorf("effects: textures for %d effects, but the chain has %d", len(textures), len(c.effects))
 	}
 	for i, u := range perEffect {
 		for _, name := range slices.Sorted(maps.Keys(u)) {
@@ -43,6 +67,28 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core
 				return nil, fmt.Errorf("effects: %s: uniform %s follows an animated node, whose value only the platform knows", c.effects[i].label(i), name)
 			}
 		}
+	}
+	resolvedTex := make([]*image.RGBA, len(c.effects))
+	for i, e := range c.effects {
+		var override core.ImageSource
+		if i < len(textures) {
+			override = textures[i]
+		}
+		if !isZeroImageSource(override) && c.texSlots[i] == 0 {
+			return nil, fmt.Errorf("effects: %s reads no texture", e.label(i))
+		}
+		if c.texSlots[i] == 0 {
+			continue
+		}
+		src := e.Texture
+		if !isZeroImageSource(override) {
+			src = override
+		}
+		tex, err := resolveTexture(src)
+		if err != nil {
+			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
+		}
+		resolvedTex[i] = tex
 	}
 	out := image.NewRGBA(image.Rect(0, 0, max(width, 0), max(height, 0)))
 	if width <= 0 || height <= 0 {
@@ -59,6 +105,13 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core
 			u = perEffect[i]
 		}
 		prev, ref := in, e.Reference
+		if tex := resolvedTex[i]; tex != nil {
+			prev.texAt = framePixel(tex)
+			prev.tw = float64(tex.Rect.Dx())
+			prev.th = float64(tex.Rect.Dy())
+		} else {
+			prev.texAt, prev.tw, prev.th = nil, 0, 0
+		}
 		in = Input{at: func(x, y float64) [4]float64 { return ref(prev, u, x, y) }, w: fw, h: fh}
 	}
 	sx, sy := fw/float64(width), fh/float64(height)
@@ -72,6 +125,30 @@ func (c *Chain) Reference(frame *image.RGBA, width, height int, perEffect []core
 		}
 	}
 	return out, nil
+}
+
+// resolveTexture returns the premultiplied RGBA pixels of src for Reference, decoding embedded image bytes when Pixels is nil.
+func resolveTexture(src core.ImageSource) (*image.RGBA, error) {
+	if src.Pixels != nil {
+		return src.Pixels, nil
+	}
+	if len(src.Data) > 0 {
+		img, _, err := image.Decode(bytes.NewReader(src.Data))
+		if err != nil {
+			return nil, fmt.Errorf("decode texture: %w", err)
+		}
+		if rgba, ok := img.(*image.RGBA); ok {
+			return rgba, nil
+		}
+		b := img.Bounds()
+		rgba := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+		draw.Draw(rgba, rgba.Rect, img, b.Min, draw.Src)
+		return rgba, nil
+	}
+	if isZeroImageSource(src) {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("texture %q has no Pixels or Data for Reference", src.URI)
 }
 
 // framePixel reads frame's pixel under a point, premultiplied from 0 to 1, transparent outside it, as image0At reads the frame's texture.

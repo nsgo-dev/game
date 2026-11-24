@@ -4,7 +4,7 @@
 //
 //	func Effect(pos vec2) vec4
 //
-// the premultiplied color of the frame's point pos, in the frame's pixels from its top left corner, and reads the pass before it with Input(pos) and the frame's size in pixels with InputSize(). The first effect's Input reads the frame itself: the pixel under pos, transparent outside the frame. Exported variables at the package level are the effect's uniforms.
+// the premultiplied color of the frame's point pos, in the frame's pixels from its top left corner, and reads the pass before it with Input(pos) and the frame's size in pixels with InputSize(). The first effect's Input reads the frame itself: the pixel under pos, transparent outside the frame. An effect that reads an extra texture, such as a palette, calls Texture(pos) and TextureSize(), bound to image1 through image3 in the chain's order (at most 3 textured effects per chain). Exported variables at the package level are the effect's uniforms.
 //
 // Compile fuses a chain's effects into one program, in which each effect's Input calls the effect before it, so the passes run in one draw with no texture between them: a pass that reads its input at several points runs the passes before it at each of them. View draws a frame, usually a pixel buffer the game writes (core.ImageSource.Pixels), through a chain.
 package effects
@@ -31,6 +31,8 @@ type Effect struct {
 	Source string
 	// Reference draws the effect on the CPU for Chain.Reference: the premultiplied color, red, green, blue and alpha from 0 to 1, of the frame's point (x, y) given the pass before it and the effect's uniforms, by the names its source declares, as Chain.Reference is given them (Float reads a number). A uniform left out is 0, as on the GPU. It is nil for an effect that has none, which a chain draws on the GPU only.
 	Reference func(in Input, u core.Uniforms, x, y float64) [4]float64
+	// Texture is the effect's extra texture, read in its source with Texture(pos) and TextureSize(), and in its Reference with Input.TextureAt and Input.TextureSize. View binds it automatically and may replace it via View.Textures or View.TexturesFunc.
+	Texture core.ImageSource
 }
 
 // Chain is effects compiled into one program, which View draws a frame through.
@@ -39,14 +41,20 @@ type Chain struct {
 	source   string
 	effects  []Effect
 	uniforms []map[string]bool
+	texSlots []int
+	texCount int
 }
 
 // The names an effect's source declares or reads that the chain gives meaning to.
 const (
-	entryName     = "Effect"
-	inputName     = "Input"
-	inputSizeName = "InputSize"
-	fragmentName  = "Fragment"
+	entryName       = "Effect"
+	inputName       = "Input"
+	inputSizeName   = "InputSize"
+	textureName     = "Texture"
+	textureSizeName = "TextureSize"
+	fragmentName    = "Fragment"
+	// maxEffectImages is the most extra textures a chain may bind besides image0 (the frame): NSGo shaders read image0 through image3.
+	maxEffectImages = 3
 )
 
 // reservedName matches the names the chain gives effects' own declarations, which no source may use itself.
@@ -62,7 +70,11 @@ var viewNames = map[string]bool{"rectSize": true, "pixelScale": true}
 //
 // Each effect's source is checked and compiled on its own first, so an error names the effect and gives the line and column in its source.
 func Compile(effects ...Effect) (*Chain, error) {
-	c := &Chain{effects: slices.Clone(effects), uniforms: make([]map[string]bool, len(effects))}
+	c := &Chain{
+		effects:  slices.Clone(effects),
+		uniforms: make([]map[string]bool, len(effects)),
+		texSlots: make([]int, len(effects)),
+	}
 	var fused strings.Builder
 	fused.WriteString("package main\n")
 	for i, e := range effects {
@@ -70,12 +82,25 @@ func Compile(effects ...Effect) (*Chain, error) {
 		if err != nil {
 			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
 		}
+		slot := 0
+		if usesTexture(f) {
+			c.texCount++
+			if c.texCount > maxEffectImages {
+				return nil, fmt.Errorf("effects: %s: a chain reads at most %d effect textures besides the frame", e.label(i), maxEffectImages)
+			}
+			slot = c.texCount
+			c.texSlots[i] = slot
+		}
 		// The effect alone, with the frame as its input, keeps its source's lines and columns in the compiler's errors.
-		if _, err := core.CompileShader(e.Source + alone); err != nil {
+		suffix := alone
+		if slot > 0 {
+			suffix = aloneWithTexture
+		}
+		if _, err := core.CompileShader(e.Source + suffix); err != nil {
 			return nil, fmt.Errorf("effects: %s: %w", e.label(i), err)
 		}
 		c.uniforms[i] = uniformsOf(f)
-		fmt.Fprintf(&fused, "\n// Effect %d.\n%s\n", i, rename(f, e.Source, i))
+		fmt.Fprintf(&fused, "\n// Effect %d.\n%s\n", i, rename(f, e.Source, i, slot))
 	}
 	last := inputOf(len(effects))
 	fmt.Fprintf(&fused, `
@@ -118,18 +143,64 @@ func Fragment(dst vec4, pos vec2) vec4 {
 }
 `
 
+// aloneWithTexture is alone plus an effect texture on image1, for compiling an effect that reads Texture or TextureSize on its own.
+const aloneWithTexture = alone + `
+func Texture(pos vec2) vec4 {
+	return image1At(pos)
+}
+
+func TextureSize() vec2 {
+	return image1Size()
+}
+`
+
 // Len returns how many effects the chain draws.
 func (c *Chain) Len() int { return len(c.effects) }
 
 // Source returns the Kage program the chain's effects compile into, which is the same for the same effects.
 func (c *Chain) Source() string { return c.source }
 
-// Program returns the chain's compiled program, which reads the frame as image0 and the effects' uniforms under the names Uniforms gives them.
+// Program returns the chain's compiled program, which reads the frame as image0, any textured effects' images as image1 through image3, and the effects' uniforms under the names Uniforms gives them.
 func (c *Chain) Program() *core.ShaderProgram { return c.program }
 
 // HasUniform reports whether effect i of the chain declares a uniform named name.
 func (c *Chain) HasUniform(i int, name string) bool {
 	return i >= 0 && i < len(c.uniforms) && c.uniforms[i][name]
+}
+
+// HasTexture reports whether effect i of the chain reads an extra texture through Texture or TextureSize.
+func (c *Chain) HasTexture(i int) bool {
+	return i >= 0 && i < len(c.texSlots) && c.texSlots[i] > 0
+}
+
+// Images returns the shader's Images slice for frame (image0) and each textured effect's image (image1 through image3 in chain order). A non-zero entry in perEffect[i] replaces effect i's own Texture. It panics when perEffect has more entries than the chain has effects, or when a non-zero entry targets an effect that reads no texture.
+func (c *Chain) Images(frame core.ImageSource, perEffect []core.ImageSource) []core.ImageSource {
+	if len(perEffect) > len(c.effects) {
+		panic(fmt.Sprintf("effects: textures for %d effects, but the chain has %d", len(perEffect), len(c.effects)))
+	}
+	for i, src := range perEffect {
+		if !isZeroImageSource(src) && c.texSlots[i] == 0 {
+			panic(fmt.Sprintf("effects: %s reads no texture", c.effects[i].label(i)))
+		}
+	}
+	out := make([]core.ImageSource, 1+c.texCount)
+	out[0] = frame
+	for i, slot := range c.texSlots {
+		if slot == 0 {
+			continue
+		}
+		src := c.effects[i].Texture
+		if i < len(perEffect) && !isZeroImageSource(perEffect[i]) {
+			src = perEffect[i]
+		}
+		out[slot] = src
+	}
+	return out
+}
+
+// isZeroImageSource reports whether s names no image data, pixels, URI, offscreen canvas or variants.
+func isZeroImageSource(s core.ImageSource) bool {
+	return s.URI == "" && len(s.Data) == 0 && s.Pixels == nil && s.Offscreen == nil && len(s.Variants) == 0
 }
 
 // Uniforms returns the program's uniforms from each effect's own, in the chain's order: perEffect[i] sets effect i's uniforms by the names its source declares. A value is what core.Uniforms takes, an AnimatedNode among them, which follows the platform's frame clock. It panics when an effect has no uniform of a name, or when perEffect has more entries than the chain has effects.
@@ -190,7 +261,7 @@ func parseEffect(src string) (*ast.File, error) {
 	if len(f.Imports) > 0 {
 		return nil, fmt.Errorf("%s: an effect imports nothing", fset.Position(f.Imports[0].Pos()))
 	}
-	for _, name := range []string{inputName, inputSizeName, fragmentName} {
+	for _, name := range []string{inputName, inputSizeName, textureName, textureSizeName, fragmentName} {
 		if o := f.Scope.Lookup(name); o != nil {
 			return nil, fmt.Errorf("%s: %s is the chain's, which an effect does not declare", fset.Position(o.Pos()), name)
 		}
@@ -230,8 +301,34 @@ func uniformsOf(f *ast.File) map[string]bool {
 	return out
 }
 
-// rename returns effect i's source, f parsed, without its package clause, with its package-level names prefixed for the chain and its Input and InputSize calling what it reads.
-func rename(f *ast.File, src string, i int) string {
+// usesTexture reports whether f references the chain's Texture or TextureSize built-ins.
+func usesTexture(f *ast.File) bool {
+	found := false
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.SelectorExpr:
+			ast.Inspect(n.X, visit)
+			return false
+		case *ast.Ident:
+			if n.Obj == nil && (n.Name == textureName || n.Name == textureSizeName) {
+				found = true
+				return false
+			}
+		}
+		return true
+	}
+	for _, d := range f.Decls {
+		ast.Inspect(d, visit)
+	}
+	return found
+}
+
+// rename returns effect i's source, f parsed, without its package clause, with its package-level names prefixed for the chain, its Input and InputSize calling what it reads, and its Texture and TextureSize calling its assigned image slot when slot > 0.
+func rename(f *ast.File, src string, i, slot int) string {
 	type edit struct {
 		at, end int
 		to      string
@@ -256,6 +353,10 @@ func rename(f *ast.File, src string, i int) string {
 				to = inputOf(i)
 			case n.Obj == nil && n.Name == inputSizeName:
 				to = "image0Size"
+			case slot > 0 && n.Obj == nil && n.Name == textureName:
+				to = fmt.Sprintf("image%dAt", slot)
+			case slot > 0 && n.Obj == nil && n.Name == textureSizeName:
+				to = fmt.Sprintf("image%dSize", slot)
 			}
 			if to != "" {
 				at := pos(n.Pos())
