@@ -160,7 +160,7 @@ type LockstepConfig struct {
 	Peers            []PeerID
 	ChecksumInterval int
 	OnDesync         func(DesyncEvent)
-	// Host is the peer that admits and removes peers while the match runs, with AddPeer and RemovePeer. Zero means the lowest ID of Peers, leaving out the local peer when Join is set. Every peer of a match must name the same host, and the host stays for the whole match.
+	// Host is the peer that admits and removes peers while the match runs, with AddPeer and RemovePeer. Zero means the lowest ID of Peers, leaving out the local peer when Join is set; a joining session that finds no other peer there, or that names itself, takes the lowest other ID the transport reports on each Poll until its join state arrives. Set it explicitly when joining over a relay, whose peer list may still be empty or include other newcomers. Every peer of a match must name the same host, and the host stays for the whole match.
 	Host PeerID
 	// Join starts the session as a peer joining a match already running. It takes no part until the host's join state arrives with the tick it joins at, the peers and the simulation's state, which it loads into Sim; until then Step does nothing and Active reports false. Peers then only serves to find the host when Host is zero.
 	Join bool
@@ -228,7 +228,7 @@ func (s *LockstepSession) Desyncs() []DesyncEvent {
 	return out
 }
 
-// SubmitInput records the local peer's input for in.Tick and sends it to every other peer taking part in that tick. An input for a tick already run or more than 256 ticks ahead, or for a tick the local peer takes no part in, is ignored, as is any input once the host has removed the local peer: the host's leave change carries the inputs every peer uses. A send the transport cannot make right now, to a peer that is reconnecting or that a relay has not announced yet, is kept and retried by Poll.
+// SubmitInput records the local peer's input for in.Tick and sends it to every other peer taking part in that tick. An input for a tick already run or more than 256 ticks ahead, or for a tick the local peer takes no part in, is ignored, as is any input once the host has removed the local peer: the host's leave change carries the inputs every peer uses. A send the transport cannot make right now, to a peer that is reconnecting or that a relay has not announced yet, is kept and retried by Poll; once too many wait for one peer, SubmitInput returns ErrSessionBacklog.
 func (s *LockstepSession) SubmitInput(in InputFrame) error {
 	in.Peer = s.localID
 	if !s.joined || !s.accepts(in) || in.Tick < s.tick || in.Tick > s.tick+maxLockstepLeadTicks {
@@ -246,7 +246,7 @@ func (s *LockstepSession) SubmitInput(in InputFrame) error {
 			firstErr = err
 		}
 	}
-	return firstErr
+	return errors.Join(firstErr, s.takeBacklog())
 }
 
 // AddPeer admits a peer to the running match and returns the tick it joins at. Only the host may call it, typically when its transport reports the peer (PeerJoined, or a new member in a RelayTransport's Peers). The tick is the host's next own input tick, so no peer has run it yet; the other peers learn of the change before the host's input for that tick, and inputs before it are not expected from the new peer. Once the host's simulation stands at the start of the join tick, Step sends the new peer the state, which must be no larger than MaxJoinStateSize, the tick and the peers.
@@ -269,7 +269,7 @@ func (s *LockstepSession) AddPeer(id PeerID) (uint32, error) {
 
 // RemovePeer removes a peer from the running match and returns the tick from which no peer waits for it. Only the host may call it, typically once its transport reports the peer gone (PeerLeft, or a RelayTransport's Peers no longer listing it). The tick is the host's next own input tick or the peer's join tick, whichever is later. The change carries the inputs the host holds from the peer for the ticks before it and a zero input for each tick the host never received, so every peer runs those ticks alike; a peer still sending when removed may have reached another peer with an input the host never saw, so remove a peer after it has stopped sending.
 //
-// Removing a peer that is already leaving returns its leave tick. It returns ErrNotHost on any other peer, ErrHostLeave for the host and ErrUnknownPeer for a peer not in the match.
+// Removing a peer that is already leaving, or that left, returns its leave tick. It returns ErrNotHost on any other peer, ErrHostLeave for the host and ErrUnknownPeer for a peer not in the match.
 func (s *LockstepSession) RemovePeer(id PeerID) (uint32, error) {
 	mm, tick, done, err := s.checkRemove(id)
 	if err != nil || done {
@@ -291,6 +291,7 @@ func (s *LockstepSession) RemovePeer(id PeerID) (uint32, error) {
 
 // Poll drains all pending input, checksum and membership messages from the Transport, first sending again the messages kept for peers the transport could not reach.
 func (s *LockstepSession) Poll() {
+	s.resolveHost()
 	s.flush()
 	for {
 		pkt, ok := s.transport.Recv()
@@ -447,6 +448,10 @@ func (s *LockstepSession) join(blob []byte) {
 	s.tick = js.tick
 	s.nextInput = js.tick
 	clear(s.inputs)
+	// The inputs of members already leaving come from the host's declaration, which the changes announcing their leave carried before this peer joined.
+	for _, in := range js.inputs {
+		s.storeInput(in)
+	}
 	for _, mm := range s.members {
 		for _, in := range s.takeStrays(mm.id) {
 			if s.accepts(in) && in.Tick <= s.tick+maxLockstepLeadTicks {
@@ -462,12 +467,18 @@ func (s *LockstepSession) sendDueJoinStates() {
 		if mm := s.member(p.peer); mm == nil || mm.until <= p.tick {
 			continue
 		}
-		state := s.sim.Save()
-		if len(state) > MaxJoinStateSize {
+		js, ok := s.joinStateFor(p, s.sim.Save(), func(id PeerID, t uint32) (InputFrame, bool) {
+			if in, ok := s.inputs[t][id]; ok {
+				return in, true
+			}
+			in, ok := s.history[t][id]
+			return in, ok
+		})
+		if !ok {
 			_, _ = s.RemovePeer(p.peer)
 			continue
 		}
-		s.sendJoinState(p, state)
+		s.sendJoinState(p.peer, js)
 	}
 }
 
@@ -495,8 +506,7 @@ func (s *LockstepSession) storeInput(in InputFrame) {
 	m[in.Peer] = in
 }
 
-// pruneChecksums drops checksum, desync and input history older than the retention
-// window so a long session does not accumulate it forever.
+// pruneChecksums drops checksum, desync and input history older than the retention window so a long session does not accumulate it forever.
 func (s *LockstepSession) pruneChecksums(executedTick uint32) {
 	if executedTick < lockstepChecksumHistory {
 		return
@@ -575,7 +585,7 @@ type RollbackConfig struct {
 	InputDelay       int
 	ChecksumInterval int
 	OnDesync         func(DesyncEvent)
-	// Host is the peer that admits and removes peers while the match runs, with AddPeer and RemovePeer. Zero means the lowest ID of Peers, leaving out the local peer when Join is set. Every peer of a match must name the same host, and the host stays for the whole match.
+	// Host is the peer that admits and removes peers while the match runs, with AddPeer and RemovePeer. Zero means the lowest ID of Peers, leaving out the local peer when Join is set; a joining session that finds no other peer there, or that names itself, takes the lowest other ID the transport reports on each Poll until its join state arrives. Set it explicitly when joining over a relay, whose peer list may still be empty or include other newcomers. Every peer of a match must name the same host, and the host stays for the whole match.
 	Host PeerID
 	// Join starts the session as a peer joining a match already running. It takes no part until the host's join state arrives with the tick it joins at, the peers and the simulation's state, which it loads into Sim; until then Step only polls and Active reports false. Peers then only serves to find the host when Host is zero.
 	Join bool
@@ -722,13 +732,29 @@ func (s *RollbackSession) AddPeer(id PeerID) (uint32, error) {
 
 // RemovePeer removes a peer from the running match and returns the tick from which no peer waits for or predicts it. Only the host may call it, typically once its transport reports the peer gone (PeerLeft, or a RelayTransport's Peers no longer listing it). The tick is the one the host's next local input applies to, or the peer's join tick, whichever is later. The change carries the inputs the host holds from the peer and a zero input for each unconfirmed tick the host never received, so every peer confirms those ticks alike, rolling back where it predicted otherwise; a peer still sending when removed may have reached another peer with an input the host never saw, so remove a peer after it has stopped sending.
 //
-// Removing a peer that is already leaving returns its leave tick. It returns ErrNotHost on any other peer, ErrHostLeave for the host, ErrUnknownPeer for a peer not in the match, and ErrRollbackWindowExceeded when the host would have to roll back further than MaxRollback or the change would carry more inputs than fit one message.
+// Removing a peer that is already leaving, or that left, returns its leave tick. It returns ErrNotHost on any other peer, ErrHostLeave for the host, ErrUnknownPeer for a peer not in the match, and ErrRollbackWindowExceeded when the host would have to roll back further than MaxRollback or the change would carry more inputs than fit one message.
 func (s *RollbackSession) RemovePeer(id PeerID) (uint32, error) {
 	mm, tick, done, err := s.checkRemove(id)
 	if err != nil || done {
 		return tick, err
 	}
+	return s.removeAt(mm, max(s.currentTick+uint32(s.inputDelay), mm.from))
+}
+
+// dropJoin removes a joining peer whose join state cannot be sent, so no peer waits for or predicts it. Its leave tick is the one RemovePeer picks when the change fits one message. Otherwise it is the first tick after the peer's preconfirmed zero inputs, or the first tick the host has not confirmed if that is later: the peer never sent an input, so no peer can have confirmed a tick from there on, and the change carries at most InputDelay inputs.
+func (s *RollbackSession) dropJoin(p pendingJoin) error {
+	mm := s.member(p.peer)
 	leave := max(s.currentTick+uint32(s.inputDelay), mm.from)
+	if declareFrom := uint32(s.confirmedTick + 1); leave-declareFrom > maxLeaveInputs {
+		leave = max(mm.from+uint32(s.inputDelay), declareFrom)
+	}
+	_, err := s.removeAt(mm, leave)
+	return err
+}
+
+// removeAt announces that mm leaves at tick leave, which no peer can have confirmed yet, with the inputs the host holds from it and a zero input for each unconfirmed tick it never received.
+func (s *RollbackSession) removeAt(mm *matchMember, leave uint32) (uint32, error) {
+	id := mm.id
 	declareFrom := uint32(s.confirmedTick + 1)
 	if leave > declareFrom && leave-declareFrom > maxLeaveInputs {
 		return 0, ErrRollbackWindowExceeded
@@ -757,10 +783,7 @@ func (s *RollbackSession) RemovePeer(id PeerID) (uint32, error) {
 	return leave, nil
 }
 
-// Step submits the local input (applied at currentTick + InputDelay), drains
-// incoming packets (executing any needed rollbacks), simulates the next tick,
-// and exchanges checksums for newly confirmed ticks. While the local peer takes
-// no part (see Active) it only polls.
+// Step submits the local input (applied at currentTick + InputDelay), drains incoming packets (executing any needed rollbacks), simulates the next tick, and exchanges checksums for newly confirmed ticks. While the local peer takes no part (see Active) it only polls. It returns ErrSessionBacklog, after simulating the tick, when a remote peer has become unreachable for too long (see Poll).
 func (s *RollbackSession) Step(localInput InputFrame) error {
 	if !s.Active() {
 		return s.Poll()
@@ -774,11 +797,11 @@ func (s *RollbackSession) Step(localInput InputFrame) error {
 		s.broadcastLocalInput(localInput)
 	}
 
-	if err := s.Poll(); err != nil {
+	if err := s.poll(); err != nil {
 		return err
 	}
 	if !s.Active() {
-		return nil
+		return s.takeBacklog()
 	}
 
 	// Save pre-step snapshot before simulating currentTick.
@@ -801,14 +824,16 @@ func (s *RollbackSession) Step(localInput InputFrame) error {
 	}
 	s.pruneHistory()
 	s.pruneMembers(s.currentTick)
-	return nil
+	return s.takeBacklog()
 }
 
-// Poll drains incoming remote inputs, checksums and membership messages from
-// the Transport, rolling back and re-simulating if any late remote input or
-// membership change diverges from what was previously simulated. It first sends
-// again the messages kept for peers the transport could not reach.
+// Poll drains incoming remote inputs, checksums and membership messages from the Transport, rolling back and re-simulating if any late remote input or membership change diverges from what was previously simulated. It first sends again the messages kept for peers the transport could not reach, and returns ErrSessionBacklog once for a peer that more such messages wait for than a session keeps: that peer misses the messages sent to it from then on.
 func (s *RollbackSession) Poll() error {
+	return errors.Join(s.poll(), s.takeBacklog())
+}
+
+func (s *RollbackSession) poll() error {
+	s.resolveHost()
 	s.flush()
 	earliestMispredict := uint32(0)
 	hasMispredict := false
@@ -1011,6 +1036,12 @@ func (s *RollbackSession) join(blob []byte) {
 	s.localHistory = nil
 	for _, mm := range s.members {
 		s.preconfirm(mm)
+	}
+	// The inputs of members already leaving come from the host's declaration, which the changes announcing their leave carried before this peer joined.
+	for _, in := range js.inputs {
+		s.storeConfirmed(in)
+	}
+	for _, mm := range s.members {
 		for _, in := range s.takeStrays(mm.id) {
 			if s.accepts(in) && in.Tick <= s.currentTick+maxRollbackLeadTicks {
 				s.confirmInput(in)
@@ -1029,13 +1060,20 @@ func (s *RollbackSession) sendDueJoinStates() error {
 		if p.tick == s.currentTick {
 			state, ok = s.sim.Save(), true
 		}
-		if !ok || len(state) > MaxJoinStateSize {
-			if _, err := s.RemovePeer(p.peer); err != nil {
+		var js joinState
+		if ok {
+			js, ok = s.joinStateFor(p, state, func(id PeerID, t uint32) (InputFrame, bool) {
+				in, ok := s.confirmedInputs[t][id]
+				return in, ok
+			})
+		}
+		if !ok {
+			if err := s.dropJoin(p); err != nil {
 				return err
 			}
 			continue
 		}
-		s.sendJoinState(p, state)
+		s.sendJoinState(p.peer, js)
 	}
 	return nil
 }

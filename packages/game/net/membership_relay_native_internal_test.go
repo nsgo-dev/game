@@ -124,3 +124,105 @@ func TestRelayLockstepPeerJoinsAndLeaves(t *testing.T) {
 		})
 	}
 }
+
+// TestRelayRollbackPeerJoinsAndLeaves runs a rollback match between clients of a relay. The host admits a third client as soon as it dials, before the relay has told the host about it, so the join state waits until the host's transport knows the newcomer. Later the newcomer closes its connection and the host removes it. Every tick is confirmed alike on every peer taking part.
+func TestRelayRollbackPeerJoinsAndLeaves(t *testing.T) {
+	for _, proto := range []string{"websocket", "udp"} {
+		t.Run(proto, func(t *testing.T) {
+			_, dial := startRelay(t, proto, RelayConfig{}, Auth{})
+			a := mustDialRelay(t, dial, "match/alice")
+			b := mustDialRelay(t, dial, "match/bob")
+			awaitPeers(t, a, b.LocalID())
+			awaitPeers(t, b, a.LocalID())
+
+			type player struct {
+				c   *relayClient
+				sim *relaySim
+				s   *RollbackSession
+			}
+			players := []*player{{c: a, sim: &relaySim{}}, {c: b, sim: &relaySim{}}}
+			for _, p := range players {
+				p.s = NewRollbackSession(RollbackConfig{Transport: p.c, Sim: p.sim, MaxRollback: 8, ChecksumInterval: 5})
+			}
+			host := players[0]
+			clients := func() []*relayClient {
+				var out []*relayClient
+				for _, p := range players {
+					out = append(out, p.c)
+				}
+				return out
+			}
+			pollAll := func() {
+				for _, p := range players {
+					if err := p.s.Poll(); err != nil {
+						t.Fatalf("poll: %v", err)
+					}
+				}
+			}
+			// playTo steps every player that takes part, one tick at a time, waiting each time until they all confirm it.
+			playTo := func(end uint32) {
+				for tick := host.s.Tick(); tick < end; tick++ {
+					for _, p := range players {
+						if p.s.Active() && p.s.Tick() == tick {
+							if err := p.s.Step(relayInput(p.c.LocalID(), tick)); err != nil {
+								t.Fatalf("step %d: %v", tick, err)
+							}
+						}
+					}
+					awaitAny(t, clients(), "every player to confirm the tick", func() bool {
+						pollAll()
+						for _, p := range players {
+							if p.s.Active() && p.s.ConfirmedTick() < int64(tick) {
+								return false
+							}
+						}
+						return true
+					})
+				}
+			}
+			playTo(10)
+
+			c := mustDialRelay(t, dial, "match/carol")
+			carol := &player{c: c, sim: &relaySim{}}
+			carol.s = NewRollbackSession(RollbackConfig{Transport: c, Sim: carol.sim, MaxRollback: 8, ChecksumInterval: 5, Host: a.LocalID(), Join: true})
+			players = append(players, carol)
+			join, err := host.s.AddPeer(c.LocalID())
+			if err != nil || join != 10 {
+				t.Fatalf("AddPeer = %d, %v; want 10", join, err)
+			}
+			awaitAny(t, clients(), "the newcomer's join state", func() bool {
+				pollAll()
+				return carol.s.Active()
+			})
+			if carol.s.Tick() != join || carol.sim.tick != join || carol.s.ConfirmedTick() != int64(join)-1 {
+				t.Fatalf("newcomer at tick %d (confirmed %d) with a state at %d, want %d", carol.s.Tick(), carol.s.ConfirmedTick(), carol.sim.tick, join)
+			}
+			playTo(25)
+			if carol.sim.Checksum() != host.sim.Checksum() || players[1].sim.Checksum() != host.sim.Checksum() {
+				t.Fatalf("states differ at tick 25: %+v %+v %+v", host.sim, players[1].sim, carol.sim)
+			}
+
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+			players = players[:2]
+			awaitPeers(t, a, b.LocalID())
+			leave, err := host.s.RemovePeer(c.LocalID())
+			if err != nil || leave != 25 {
+				t.Fatalf("RemovePeer = %d, %v; want 25", leave, err)
+			}
+			playTo(40)
+			if host.sim.tick != 40 || players[1].sim.Checksum() != host.sim.Checksum() {
+				t.Fatalf("states differ at tick 40: %+v %+v", host.sim, players[1].sim)
+			}
+			if got := players[1].s.Members(); !slices.Equal(got, []PeerID{a.LocalID(), b.LocalID()}) {
+				t.Fatalf("members after the leave = %v", got)
+			}
+			for _, p := range append(players, carol) {
+				if d := p.s.Desyncs(); len(d) != 0 {
+					t.Fatalf("desyncs: %+v", d)
+				}
+			}
+		})
+	}
+}

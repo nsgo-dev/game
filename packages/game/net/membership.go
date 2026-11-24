@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"slices"
 )
 
@@ -18,8 +19,10 @@ var (
 	ErrNotHost = errors.New("net: only the match's host changes its peers")
 	// ErrHostLeave is returned by RemovePeer for the host itself. The host cannot leave a running match; end the match instead.
 	ErrHostLeave = errors.New("net: the host cannot leave the match")
-	// ErrPeerRejoin is returned by AddPeer for a peer that has left the match: a peer that comes back joins under a new ID, as a relay or server assigns one.
+	// ErrPeerRejoin is returned by AddPeer for a peer that has left the match, however long ago: a peer that comes back joins under a new ID, as a relay or server assigns one.
 	ErrPeerRejoin = errors.New("net: a peer that left cannot rejoin under the same ID")
+	// ErrSessionBacklog is returned once per peer, wrapped with the peer's ID, by the next LockstepSession.SubmitInput or RollbackSession.Step or Poll after more messages wait for that remote peer than a session keeps for a peer the transport cannot reach (4096). Messages to that peer are dropped from then on, so it has missed part of the match and cannot go on in it: the host removes it, or the match ends.
+	ErrSessionBacklog = errors.New("net: too many messages wait for an unreachable peer")
 )
 
 // MaxJoinStateSize is the largest snapshot, as returned by SimState.Save, that a host sends a joining peer. AddPeer refuses a peer with ErrPayloadTooLarge while the state is larger, and a join whose state has grown past it by the join tick is turned into a leave at that tick.
@@ -30,7 +33,7 @@ const MaxJoinStateSize = 16 << 20
 //	change:     syncMsgMembership(1) kind(1) peer(4) tick(4) count(2) input(20)...
 //	join state: syncMsgJoinState(1) part(2) parts(2) data
 //
-// A change of kind memberJoin carries no inputs; one of kind memberLeave carries the leaving peer's inputs for ticks before tick. The parts of a join state concatenate to: tick(4) count(2) {peer(4) from(4) until(4)}... state, the members sorted by ID, until noLeave for a member with no leave scheduled.
+// A change of kind memberJoin carries no inputs; one of kind memberLeave carries the leaving peer's inputs for ticks before tick. The parts of a join state concatenate to: tick(4) count(2) {peer(4) from(4) until(4)}... inputs(4) input(20)... state, the members sorted by ID, until noLeave for a member with no leave scheduled, and the inputs those with a leave scheduled play from the join tick to their leave tick, as the host declared them, sorted by peer and tick.
 const (
 	syncMsgMembership byte = 13
 	syncMsgJoinState  byte = 14
@@ -44,11 +47,14 @@ const (
 	joinPartHeader   = 1 + 2 + 2
 	joinBlobHeader   = 4 + 2
 	joinMemberSize   = 12
+	joinInputsHeader = 4
 
 	// joinPartSize is the most state bytes in one join-state part, so a part fits a relay, WebSocket or loopback payload.
 	joinPartSize = 48000
-	// maxJoinParts bounds the parts a joining peer assembles: the state limit plus room for a full member list.
-	maxJoinParts = (MaxJoinStateSize+joinBlobHeader+joinMemberSize*0xFFFF)/joinPartSize + 1
+	// maxJoinInputs bounds the leaving members' inputs a join state carries.
+	maxJoinInputs = 1 << 16
+	// maxJoinParts bounds the parts a joining peer assembles: the state limit plus room for a full member list and maxJoinInputs inputs.
+	maxJoinParts = (MaxJoinStateSize+joinBlobHeader+joinMemberSize*0xFFFF+joinInputsHeader+inputFrameWireSize*maxJoinInputs)/joinPartSize + 1
 	// maxLeaveInputs is the most inputs a leave change carries, so the message fits MaxRelayPayload.
 	maxLeaveInputs = (MaxRelayPayload - membershipHeader) / inputFrameWireSize
 
@@ -116,15 +122,16 @@ func decodeMemberChange(b []byte) (memberChange, bool) {
 	return c, true
 }
 
-// joinState is what a host sends a joining peer: the tick it joins at, the members from that tick on, and the simulation's state at the start of the tick.
+// joinState is what a host sends a joining peer: the tick it joins at, the members from that tick on, the inputs the host declared for the members with a leave scheduled from that tick to their leave, and the simulation's state at the start of the tick. A leave the host announced before the newcomer joined never reaches it as a change, and the leaving peer's own inputs are refused, so the newcomer takes them from here.
 type joinState struct {
 	tick    uint32
 	members []matchMember
+	inputs  []InputFrame
 	state   []byte
 }
 
 func encodeJoinState(js joinState) []byte {
-	b := make([]byte, joinBlobHeader, joinBlobHeader+joinMemberSize*len(js.members)+len(js.state))
+	b := make([]byte, joinBlobHeader, joinBlobHeader+joinMemberSize*len(js.members)+joinInputsHeader+inputFrameWireSize*len(js.inputs)+len(js.state))
 	binary.BigEndian.PutUint32(b[0:4], js.tick)
 	binary.BigEndian.PutUint16(b[4:6], uint16(len(js.members)))
 	for _, m := range js.members {
@@ -132,10 +139,14 @@ func encodeJoinState(js joinState) []byte {
 		b = binary.BigEndian.AppendUint32(b, m.from)
 		b = binary.BigEndian.AppendUint32(b, m.until)
 	}
+	b = binary.BigEndian.AppendUint32(b, uint32(len(js.inputs)))
+	for _, in := range js.inputs {
+		b = appendInputFrame(b, in)
+	}
 	return append(b, js.state...)
 }
 
-// decodeJoinState parses an assembled join state. The members must be sorted, distinct and non-zero, each must take part for at least one tick, and none may have left by the join tick.
+// decodeJoinState parses an assembled join state. The members must be sorted, distinct and non-zero, each must take part for at least one tick, and none may have left by the join tick. The inputs must be sorted by peer and tick, distinct, and each must belong to a member with a leave scheduled, for a tick from the join tick on that the member takes part in.
 func decodeJoinState(b []byte) (joinState, bool) {
 	if len(b) < joinBlobHeader {
 		return joinState{}, false
@@ -158,7 +169,35 @@ func decodeJoinState(b []byte) (joinState, bool) {
 		}
 		js.members[i] = m
 	}
-	js.state = slices.Clone(b[joinBlobHeader+n*joinMemberSize:])
+	rest := b[joinBlobHeader+n*joinMemberSize:]
+	if len(rest) < joinInputsHeader {
+		return joinState{}, false
+	}
+	count := binary.BigEndian.Uint32(rest[:joinInputsHeader])
+	rest = rest[joinInputsHeader:]
+	if count > maxJoinInputs || uint64(len(rest)) < uint64(count)*inputFrameWireSize {
+		return joinState{}, false
+	}
+	if count > 0 {
+		js.inputs = make([]InputFrame, count)
+	}
+	for i := range js.inputs {
+		in, _ := decodeInputFrame(rest[i*inputFrameWireSize:])
+		if i > 0 {
+			prev := js.inputs[i-1]
+			if in.Peer < prev.Peer || (in.Peer == prev.Peer && in.Tick <= prev.Tick) {
+				return joinState{}, false
+			}
+		}
+		j, found := slices.BinarySearchFunc(js.members, in.Peer, func(mm matchMember, id PeerID) int {
+			return cmp.Compare(mm.id, id)
+		})
+		if !found || js.members[j].until == noLeave || in.Tick < js.tick || !js.members[j].activeAt(in.Tick) {
+			return joinState{}, false
+		}
+		js.inputs[i] = in
+	}
+	js.state = slices.Clone(rest[int(count)*inputFrameWireSize:])
 	return js, true
 }
 
@@ -240,9 +279,14 @@ type match struct {
 	strays   map[PeerID]map[uint32]InputFrame
 	assembly joinAssembly
 	outbox   map[PeerID][][]byte
+	// departed holds the leave tick of every member forgotten after memberRetention, so its ID is never admitted again.
+	departed map[PeerID]uint32
+	// lost holds the peers whose outbox overflowed: messages to them are dropped. backlog lists those not reported yet.
+	lost    map[PeerID]bool
+	backlog []PeerID
 }
 
-// newMatch sets up the members: the given peers from tick 0, or none when join is set, in which case the session waits for the host's join state. A zero host is the lowest of peers, leaving out the local peer when joining.
+// newMatch sets up the members: the given peers from tick 0, or none when join is set, in which case the session waits for the host's join state. A zero host is the lowest of peers, leaving out the local peer when joining; a joining peer that finds none, or that names itself, looks for one in the transport's peers on every Poll until its join state arrives (resolveHost).
 func newMatch(transport Transport, peers []PeerID, host PeerID, join bool) match {
 	m := match{transport: transport, joined: !join}
 	if transport != nil {
@@ -253,16 +297,34 @@ func newMatch(transport Transport, peers []PeerID, host PeerID, join bool) match
 			m.members = append(m.members, matchMember{id: id, until: noLeave})
 		}
 	}
+	if join && host == m.localID {
+		host = 0
+	}
 	if host == 0 {
-		for _, id := range peers {
-			if !join || id != m.localID {
-				host = id
-				break
-			}
-		}
+		host = m.lowestOther(peers)
 	}
 	m.host = host
 	return m
+}
+
+// lowestOther returns the lowest of the sorted peers, leaving out the local peer while it waits to join, or 0.
+func (m *match) lowestOther(peers []PeerID) PeerID {
+	for _, id := range peers {
+		if id != 0 && (m.joined || id != m.localID) {
+			return id
+		}
+	}
+	return 0
+}
+
+// resolveHost takes the lowest of the transport's peers as the host of a match the local peer waits to join and whose host is not known yet, as over a relay that has not reported the other peers when the session is created.
+func (m *match) resolveHost() {
+	if m.joined || m.host != 0 || m.transport == nil {
+		return
+	}
+	peers := slices.Clone(m.transport.Peers())
+	slices.Sort(peers)
+	m.host = m.lowestOther(peers)
 }
 
 func (m *match) member(id PeerID) *matchMember {
@@ -310,7 +372,7 @@ func (m *match) accepts(in InputFrame) bool {
 
 // stray keeps an input from a sender that is not a member yet, such as a joining peer whose inputs overtake the host's announcement, or every sender while the local peer waits for its join state.
 func (m *match) stray(in InputFrame) {
-	if in.Peer == m.localID {
+	if _, gone := m.departed[in.Peer]; gone || in.Peer == m.localID {
 		return
 	}
 	if m.strays == nil {
@@ -359,27 +421,48 @@ func retryable(err error) bool {
 	return errors.Is(err, ErrUnknownPeer) || errors.Is(err, ErrDisconnected) || errors.Is(err, ErrRelayBacklog)
 }
 
-// send sends a reliable message to a remote peer. A message the transport cannot take right now is kept and sent again by flush, and every later message to that peer queues behind it, so the peer still receives them in order: a membership change must reach a peer before the host's input for the change's tick.
+// send sends a reliable message to a remote peer. A message the transport cannot take right now is kept and sent again by flush, and every later message to that peer queues behind it, so the peer still receives them in order: a membership change must reach a peer before the host's input for the change's tick. Once maxOutbox messages wait for a peer, the peer is lost: the stream to it would have a gap, so send drops every later message to it, and takeBacklog reports it.
 func (m *match) send(to PeerID, payload []byte) error {
-	if q := m.outbox[to]; len(q) > 0 {
-		m.enqueue(to, payload)
+	if m.lost[to] {
 		return nil
+	}
+	if q := m.outbox[to]; len(q) > 0 {
+		return m.enqueue(to, payload)
 	}
 	err := m.transport.Send(to, ChannelReliableOrdered, payload)
 	if err != nil && retryable(err) {
-		m.enqueue(to, payload)
-		return nil
+		return m.enqueue(to, payload)
 	}
 	return err
 }
 
-func (m *match) enqueue(to PeerID, payload []byte) {
+func (m *match) enqueue(to PeerID, payload []byte) error {
 	if m.outbox == nil {
 		m.outbox = make(map[PeerID][][]byte)
 	}
-	if len(m.outbox[to]) < maxOutbox {
-		m.outbox[to] = append(m.outbox[to], payload)
+	if len(m.outbox[to]) >= maxOutbox {
+		if m.lost == nil {
+			m.lost = make(map[PeerID]bool)
+		}
+		m.lost[to] = true
+		m.backlog = append(m.backlog, to)
+		return nil
 	}
+	m.outbox[to] = append(m.outbox[to], payload)
+	return nil
+}
+
+// takeBacklog returns ErrSessionBacklog for each peer lost since the last call, whichever message overflowed its outbox: an input, a checksum or a membership change.
+func (m *match) takeBacklog() error {
+	if len(m.backlog) == 0 {
+		return nil
+	}
+	errs := make([]error, len(m.backlog))
+	for i, id := range m.backlog {
+		errs[i] = fmt.Errorf("%w: peer %d", ErrSessionBacklog, id)
+	}
+	m.backlog = nil
+	return errors.Join(errs...)
 }
 
 // flush sends the kept messages, in ID order, stopping at a peer's first one that still fails.
@@ -431,16 +514,33 @@ func (m *match) announce(c memberChange, now uint32) {
 	}
 }
 
-// sendJoinState sends a joining peer the state at the start of its join tick and the members from then on.
-func (m *match) sendJoinState(p pendingJoin, state []byte) {
+// joinStateFor builds a joining peer's join state: the state at the start of its join tick, the members from then on, and the inputs held, as held reports them, for each member with a leave scheduled from the join tick to its leave. It reports false when the state is larger than MaxJoinStateSize or the inputs more than maxJoinInputs, so the join must be dropped.
+func (m *match) joinStateFor(p pendingJoin, state []byte, held func(PeerID, uint32) (InputFrame, bool)) (joinState, bool) {
 	js := joinState{tick: p.tick, state: state}
 	for _, mm := range m.members {
-		if mm.until > p.tick && mm.from < mm.until {
-			js.members = append(js.members, mm)
+		if mm.until <= p.tick || mm.from >= mm.until {
+			continue
+		}
+		js.members = append(js.members, mm)
+		if mm.until == noLeave {
+			continue
+		}
+		for t := max(p.tick, mm.from); t < mm.until; t++ {
+			if in, ok := held(mm.id, t); ok {
+				js.inputs = append(js.inputs, in)
+			}
+			if len(js.inputs) > maxJoinInputs {
+				return joinState{}, false
+			}
 		}
 	}
+	return js, len(state) <= MaxJoinStateSize
+}
+
+// sendJoinState sends a joining peer its join state.
+func (m *match) sendJoinState(to PeerID, js joinState) {
 	for _, part := range encodeJoinParts(encodeJoinState(js)) {
-		_ = m.send(p.peer, part)
+		_ = m.send(to, part)
 	}
 }
 
@@ -454,12 +554,17 @@ func (m *match) acceptJoinState(js joinState) bool {
 	return self && host
 }
 
-// pruneMembers forgets members that left more than memberRetention ticks before tick, with the messages kept for them.
+// pruneMembers forgets members that left more than memberRetention ticks before tick, with the messages kept for them, keeping only their leave ticks in departed.
 func (m *match) pruneMembers(tick uint32) {
 	m.members = slices.DeleteFunc(m.members, func(mm matchMember) bool {
 		gone := mm.until != noLeave && tick > mm.until && tick-mm.until > memberRetention
 		if gone {
+			if m.departed == nil {
+				m.departed = make(map[PeerID]uint32)
+			}
+			m.departed[mm.id] = mm.until
 			delete(m.outbox, mm.id)
+			delete(m.lost, mm.id)
 		}
 		return gone
 	})
@@ -486,6 +591,9 @@ func (m *match) checkAdd(id PeerID) (uint32, bool, error) {
 	if id == 0 {
 		return 0, false, ErrUnknownPeer
 	}
+	if _, gone := m.departed[id]; gone {
+		return 0, false, ErrPeerRejoin
+	}
 	if mm := m.member(id); mm != nil {
 		if mm.until != noLeave {
 			return 0, false, ErrPeerRejoin
@@ -502,6 +610,9 @@ func (m *match) checkRemove(id PeerID) (*matchMember, uint32, bool, error) {
 	}
 	if id == m.host {
 		return nil, 0, false, ErrHostLeave
+	}
+	if tick, gone := m.departed[id]; gone {
+		return nil, tick, true, nil
 	}
 	mm := m.member(id)
 	if mm == nil {
