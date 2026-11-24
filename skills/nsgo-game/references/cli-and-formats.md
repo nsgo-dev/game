@@ -1,0 +1,87 @@
+# CLI Commands and Text File Formats
+
+## `go tool game` CLI
+
+Install the tool once per module:
+
+```sh
+go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
+```
+
+### Project and development workflow
+
+| Command | Usage | Purpose |
+| --- | --- | --- |
+| `game new` | `game new [-name -module -template -version] <dir>` | Scaffold a game project (`go.mod`, `game.yaml`, `nsgo.yaml`, starter code and tests) |
+| `game dev` | `game dev [-assets -fps -target] [dir] [nsgo dev flags]` | Run `nsgo dev` with live asset hot reload (`hotreload.DevAssetsDir`) |
+| `game generate` | `game generate [-in -autoload -main] component\|system\|scene\|prefab <name>` | Generate Go code, tests, `.scene.yaml` files and registrations into a project |
+| `game editor` | `game editor [-library] [project-dir \| game.yaml \| scene.yaml] [clip.animation.yaml [object-id]]` | Open the scene and animation clip editor |
+| `game check` | `game check [-in] [dir]` | Validate scenes, Tiled/LDtk maps, sprite atlases and every referenced file |
+| `game index` | `game index [-dry-run -in] [dir]` | Assign stable UIDs to scene/resource files and update the project index |
+| `game mv` | `game mv [-dry-run -in] <from> <to>` | Move/rename a file or folder and rewrite every reference in the project |
+| `game library` | `game library [-dir -index -kind -project] list\|install\|remove\|digest ...` | Browse and install digest-checked asset, plugin or template packs into `game.yaml` |
+
+### Asset pipeline
+
+| Command | Usage | Purpose |
+| --- | --- | --- |
+| `game assets` | `game assets [-in game.yaml -check -force]` | Incrementally build all atlases, textures, audio and manifests declared in `game.yaml` |
+| `game pack` | `game pack -in <dir> [-out -name -padding -extrude -trim -max-width -max-height -scale]` | Pack a folder of PNGs into sprite atlas pages + TexturePacker JSON |
+| `game audio` | `game audio -in <wav> -out <file> [-format wav\|aac\|mp3 -rate -channels -bitrate -peak-db -rms-db]` | Normalize, resample and convert audio |
+| `game tex` | `game tex [-format bc1\|bc3\|etc2\|rgba8 -mipmaps -srgb -o] <input.png\|jpg>` | Encode textures into KTX2 containers |
+| `game manifest` | `game manifest [-in assets -out -pkg -prefix -embed -embed-dir -check]` | Generate a typed Go asset manifest so missing assets fail compilation |
+| `game credits` | `game credits [-in game.yaml -out file]` | Generate the asset author/license credits file from `.import.yaml` sidecars |
+
+### Testing, performance, shipping and shell support
+
+| Command | Usage | Purpose |
+| --- | --- | --- |
+| `game replay` | `game replay [-run Replay] [dir ...]` | Validate YAML input recordings and run their headless replay tests |
+| `game bench` | `game bench [-baseline -bench -benchtime -count -in -update] [dir ...]` | Run headless benchmarks and fail on regressions against a YAML baseline |
+| `game release` | `game release [-target -channel -output -jobs -release-notes -dry-run] [dir]` | Build release packages for `game.yaml` export presets via `nsgo build` with credits |
+| `game completion` | `game completion zsh\|bash\|fish` | Output shell completion scripts |
+| `game help` | `game help [command]` | Show commands or a subcommand's flags |
+
+### Companion module tools
+
+- `go run github.com/nsgo-dev/game/packages/game/cmd/gameschema` — regenerate or `-check` published JSON Schemas (`scene.v1.json`, `import.v1.json`).
+- `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
+- `go run github.com/nsgo-dev/game/packages/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
+
+## Text file formats contract
+
+Every file authored by a human or coding agent is plain-text YAML:
+
+1. **Top-level `version` integer** (or `manifestVersion` in `mod.yaml`). Missing `version`, `version: 0`, or an unsupported future version is rejected.
+2. **Strict schema validation.** Unknown keys, duplicate keys, and multi-document YAML streams are refused with `loaderr` errors naming file, line, field and fix.
+3. **Canonical deterministic round-trip.** Encoders write fixed key order, sort unordered collections, and omit timestamps or random IDs so load -> save produces identical bytes.
+4. **Editor & agent JSON Schemas.** Add `# yaml-language-server: $schema=...` headers (for example `https://game.nsgo.dev/schemas/scene.v1.json` and `https://game.nsgo.dev/schemas/import.v1.json`) or validate programmatically via `tooling/jsonschema`.
+
+### Common authored YAML formats
+
+| File / pattern | Package | Purpose |
+| --- | --- | --- |
+| `game.yaml` | `project` | Project name/ID, window, virtual resolution, input map, audio buses, autoloads, asset targets, export presets (`version: 1`) |
+| `<asset>.import.yaml` | `tooling/importsettings` | Per-asset texture filter, slicing, audio settings and license/author credits (`version: 1`) |
+| `*.scene.yaml` | `sceneformat` | Scenes and prefabs: camera, layers, hierarchical objects, components and prefab instances (`version: 1`) |
+| `*.resource.yaml` | `resource` | Shared materials, curves, gradients, animation clips, UI themes, audio bus layouts, physics materials |
+| `*.replay.yaml` | `replay` | Editable deterministic input recordings (seed, step rate, per-step action/axis transitions; `version: 2`) |
+| `*.table.yaml` | `tooling/datatable` | Typed game data tables (also supports CSV/JSON) |
+| `mod.yaml` | `modding` | Mod metadata, capabilities and dependencies (`manifestVersion: 1`) |
+| Gameplay YAML configs | `particles`, `skeletal`, `cutscene`, `rooms`, `worldmap`, `cards`, `stats`, `ability`, `inventory`, `quest`, `loot`, `achievements`, `leaderboard`, `fighting`, `framedata`, `platformer`, `vehicle`, `bullets`, `rts`, `procgen`, `vn`, `rhythm`, `idle`, `quality`, `voxel` | Domain-specific versioned YAML assets validated by each package's `Parse`/`Encode` |
+
+### Program-written text formats (YAML / JSON)
+
+- **YAML**: asset build cache (`tooling/assetbuild`), benchmark baselines (`tooling/bench`), achievement progress (`achievements`), latency calibrations (`rhythm`), ghost laps (`vehicle`), undo logs (`undo`), headless state dumps (`statedump`), project index (`refs`).
+- **JSON**: versioned save slots & player settings (`save`), world map discovery (`worldmap`), quest snapshots (`quest`), fog state (`fog`), ECS world snapshots (`entities`), persisted input bindings (`input`), debug console tunables (`debug`), dev session state (`tooling/devstate`), cloud sync (`liveops`), string tables (`l10n`).
+
+### External tool exports read directly
+
+- **Tiled** `.tmj` maps and **LDtk** `.ldtk` projects (`tilemap`)
+- **TexturePacker** and **Aseprite** JSON sprite atlases (`sprite`)
+- **AngelCode BMFont** and **MSDF** fonts (`text`)
+- **glTF 2.0** `.gltf` / `.glb` 3D models (`gltf`)
+- **Yarn Spinner** `.yarn` dialogue scripts (`flow`)
+- **Chrome trace** JSON profiler exports (`debug`)
+
+Binary files are used only for inherently binary media (PNG/KTX2 images, WAV/AAC/MP3 audio, fonts, glTF buffers) and network packets (`net`).

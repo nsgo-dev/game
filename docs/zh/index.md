@@ -137,3 +137,5 @@ macOS、iOS、Windows、Linux、Android 和 Web。鸿蒙、小程序、watchOS �
 ## 面向语言模型
 
 与 [nsgo.dev](https://nsgo.dev/llms.txt) 一样，本站为语言模型和编程智能体发布英文文档：[llms.txt](https://game.nsgo.dev/llms.txt) 列出每个页面并附一句简介，[llms-full.txt](https://game.nsgo.dev/llms-full.txt) 把每个页面的 Markdown 合在一个文件里。两者都随网站从 `docs/en` 构建，因此始终与这些页面一致。面向贡献者的[智能体评测套件](agent-eval.md)用 YAML、构建与 `game/mcp` 检查为固定的游戏任务评分，也可以让编程智能体来完成这些任务。
+
+对于支持 Agent Skills 的编程智能体，可通过 `bunx skills add nsgo-dev/game` 安装游戏层技能，详见[智能体技能](agent-skill.md)。
