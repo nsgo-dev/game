@@ -72,19 +72,18 @@ func Read(o *sceneformat.ObjectDoc) (Stats, bool, error) {
 	return s, true, nil
 }
 
-// Objects returns the IDs of the objects in doc with a health component, children included, in document order.
+// Objects returns the IDs of the patients in doc: its top-level objects with a health component, in document order. A nested child with a health component is not a patient: the game plays only top-level objects, and the editor's FindObject and ComponentField see only those.
 func Objects(doc *sceneformat.SceneDoc) []string {
 	if doc == nil {
 		return nil
 	}
 	var ids []string
 	for _, layer := range doc.Layers {
-		sceneformat.WalkObjects(layer.Objects, func(o, _ *sceneformat.ObjectDoc) bool {
-			if _, ok := o.Components[Name]; ok {
-				ids = append(ids, o.ID)
+		for i := range layer.Objects {
+			if _, ok := layer.Objects[i].Components[Name]; ok {
+				ids = append(ids, layer.Objects[i].ID)
 			}
-			return true
-		})
+		}
 	}
 	return ids
 }
