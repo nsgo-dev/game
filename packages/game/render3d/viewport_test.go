@@ -1151,6 +1151,7 @@ func TestRenderTextureScopeDisposal(t *testing.T) {
 		rt       *render3d.RenderTexture
 		renderer *render3d.ViewportRenderer
 		show     *core.Signal[bool]
+		device   *gpu.Device
 	)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		show = core.NewSignal(cx, true)
@@ -1159,6 +1160,7 @@ func TestRenderTextureScopeDisposal(t *testing.T) {
 				Style: core.Style{Width: core.Pt(8), Height: core.Pt(8)},
 				OnReady: func(dev *gpu.Device) {
 					var err error
+					device = dev
 					rt, err = render3d.NewRenderTexture(cx, dev, render3d.RenderTextureDesc{Width: 16, Height: 16, DepthFormat: gpu.FormatDepth24Plus})
 					if err != nil {
 						t.Fatalf("NewRenderTexture: %v", err)
@@ -1175,11 +1177,36 @@ func TestRenderTextureScopeDisposal(t *testing.T) {
 	if !rt.Valid() || !renderer.Valid() {
 		t.Fatal("RenderTexture and ViewportRenderer must be valid while mounted")
 	}
+	// Each Resize moves the target into a fresh child scope and disposes the previous one; the latest target still belongs to the view's scope.
+	app.Post(func() {
+		for i := range 4 {
+			old := rt.GPUTexture()
+			if resized, err := rt.Resize(device, uint32(17+i), 16); err != nil || !resized {
+				t.Errorf("Resize %d = (%v, %v), want (true, nil)", i, resized, err)
+			}
+			if old.Valid() {
+				t.Errorf("Resize %d left the previous texture valid", i)
+			}
+		}
+	})
+	app.Settle()
+	if !rt.Valid() || rt.Width() != 20 || rt.Generation() != 5 {
+		t.Fatalf("after resizes: valid=%v width=%d generation=%d, want valid 20 5", rt.Valid(), rt.Width(), rt.Generation())
+	}
 	app.Post(func() { show.Set(false) })
 	app.Settle()
 	if rt.Valid() || renderer.Valid() {
 		t.Errorf("resources still valid after scope disposal: rt=%v renderer=%v", rt.Valid(), renderer.Valid())
 	}
+	app.Post(func() {
+		if _, err := rt.Resize(device, 32, 32); !errors.Is(err, render3d.ErrInvalidRenderTexture) {
+			t.Errorf("Resize after scope disposal = %v, want ErrInvalidRenderTexture", err)
+		}
+		if err := rt.Close(); err != nil {
+			t.Errorf("Close after scope disposal: %v", err)
+		}
+	})
+	app.Settle()
 }
 
 func TestViewportRectSplitHelpersAndSeamTiling(t *testing.T) {
