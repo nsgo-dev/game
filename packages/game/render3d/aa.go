@@ -408,9 +408,8 @@ func (t *MSAATarget) Close() error {
 	return err
 }
 
-// FXAAUniformSize is the byte size of the FXAAParams uniform block declared by
-// [FXAAWGSL] (two vec4<f32> fields = 32 bytes).
-const FXAAUniformSize = 32
+// FXAAUniformSize is the byte size of the FXAAParams uniform block declared by [FXAAWGSL] (one vec4<f32> = 16 bytes: subpixel quality, edge threshold, edge threshold minimum, and padding). The source's texel size is not part of it: the shader reads it with textureDimensions, so one pass can filter sources of different sizes in the same frame.
+const FXAAUniformSize = 16
 
 const (
 	defaultFXAASubpixelQuality  = float32(0.75)
@@ -478,19 +477,9 @@ func (o FXAAOptions) Sanitize() FXAAOptions {
 	return out
 }
 
-func encodeFXAAUniform(dst *[FXAAUniformSize]byte, width, height uint32, opts FXAAOptions) {
+func encodeFXAAUniform(dst *[FXAAUniformSize]byte, opts FXAAOptions) {
 	s := opts.Sanitize()
-	var invW, invH float32
-	if width > 0 {
-		invW = 1.0 / float32(width)
-	}
-	if height > 0 {
-		invH = 1.0 / float32(height)
-	}
-	vals := [8]float32{
-		invW, invH, s.SubpixelQuality, s.EdgeThreshold,
-		s.EdgeThresholdMin, 0, 0, 0,
-	}
+	vals := [4]float32{s.SubpixelQuality, s.EdgeThreshold, s.EdgeThresholdMin, 0}
 	for i, f := range vals {
 		binary.LittleEndian.PutUint32(dst[i*4:], math.Float32bits(f))
 	}
@@ -506,12 +495,11 @@ func encodeFXAAUniform(dst *[FXAAUniformSize]byte, width, height uint32, opts FX
 // device), and matches [ApplyFXAA] on the CPU.
 //
 // Bind group 0 layout:
-//   - @binding(0): uniform FXAAParams (32 bytes: params0 = (1/w, 1/h, subpixel, edgeThreshold), params1 = (edgeThresholdMin, 0, 0, 0))
+//   - @binding(0): uniform FXAAParams (16 bytes: params = (subpixel, edgeThreshold, edgeThresholdMin, 0)); the texel size comes from textureDimensions(fxaa_tex)
 //   - @binding(1): texture_2d<f32> source color texture (single-sampled)
 //   - @binding(2): sampler (FilterLinear, AddressClampToEdge)
 const FXAAWGSL = `struct FXAAParams {
-	params0: vec4<f32>,
-	params1: vec4<f32>,
+	params: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> fxaa_params: FXAAParams;
@@ -555,10 +543,11 @@ fn fxaa_step(i: i32) -> f32 {
 
 @fragment
 fn fs_main(in: FXAAVertexOut) -> @location(0) vec4<f32> {
-	let inv = fxaa_params.params0.xy;
-	let subpixQuality = fxaa_params.params0.z;
-	let edgeThreshold = fxaa_params.params0.w;
-	let edgeThresholdMin = fxaa_params.params1.x;
+	let dims = textureDimensions(fxaa_tex);
+	let inv = vec2<f32>(1.0 / f32(dims.x), 1.0 / f32(dims.y));
+	let subpixQuality = fxaa_params.params.x;
+	let edgeThreshold = fxaa_params.params.y;
+	let edgeThresholdMin = fxaa_params.params.z;
 
 	let uv = in.uv;
 	let center = textureSampleLevel(fxaa_tex, fxaa_sampler, uv, 0.0);
@@ -656,6 +645,7 @@ fn fs_main(in: FXAAVertexOut) -> @location(0) vec4<f32> {
 	let lumaCenterSmaller = lumaM < lumaLocalAvg;
 	let endLuma = select(lumaEnd2, lumaEnd1, isDir1);
 	let endSmaller = endLuma < 0.0;
+	// Spelled out instead of endSmaller != lumaCenterSmaller: NSGo v0.3.0's software VM compares bool operands as equal (cmpVal in internal/driver/gpu_software.go ignores irVal.b).
 	let correctVariation = (endSmaller && !lumaCenterSmaller) || (!endSmaller && lumaCenterSmaller);
 
 	var pixelOffset = 0.0;
@@ -690,15 +680,11 @@ type FXAAPassDesc struct {
 	Retained bool
 }
 
-// FXAAPass owns the compiled pipeline, sampler, uniform buffer, and cached
-// bind group for full-screen FXAA 3.11 post-processing on a [gpu.Device] (#249).
+// FXAAPass owns the compiled pipeline, sampler, uniform buffer, and cached bind groups for full-screen FXAA 3.11 post-processing on a [gpu.Device] (#249).
 //
-// Create it once in OnReady and call [FXAAPass.Draw] (inside an open single-sampled
-// render pass) or [FXAAPass.Encode] (to open and close the render pass
-// automatically) with any single-sampled color texture (such as an offscreen
-// render target or [MSAATarget.OutputTexture]). Calling Draw repeatedly with
-// the same texture reuses the cached bind group and uniform data without
-// allocating.
+// Create it once in OnReady and call [FXAAPass.Draw] (inside an open single-sampled render pass) or [FXAAPass.Encode] (to open and close the render pass automatically) with any single-sampled color texture (such as an offscreen render target or [MSAATarget.OutputTexture]). The pass keeps one bind group per source texture, so it can filter several sources of different sizes in the same frame, and steady-state draws of sources it has seen do not allocate.
+//
+// The options are one uniform block, and buffer writes are applied before the submission's commands, so every draw one pass records into a submission uses the options set at its last draw. To filter several views with different options in one frame, create one FXAAPass per option set.
 type FXAAPass struct {
 	cx           *core.Scope
 	dev          *gpu.Device
@@ -712,11 +698,16 @@ type FXAAPass struct {
 	layout     *gpu.BindGroupLayout
 	pipeline   *gpu.Pipeline
 
-	boundTex     *gpu.Texture
-	bindGroup    *gpu.BindGroup
+	bindings     []fxaaBinding
 	lastUniform  [FXAAUniformSize]byte
 	uniformValid bool
 	uniformEpoch uint32
+}
+
+// fxaaBinding is one cached bind group of an [FXAAPass], keyed by its source texture. The pass keeps one per source instead of a single slot because closing a bind group queues its destruction ahead of the frame's passes, so replacing it while an earlier draw of the same frame still uses it would destroy that draw's bindings.
+type fxaaBinding struct {
+	tex   *gpu.Texture
+	group *gpu.BindGroup
 }
 
 // NewFXAAPass compiles [FXAAWGSL] and creates the sampler, uniform buffer,
@@ -905,7 +896,7 @@ func (p *FXAAPass) prepare(src *gpu.Texture) (*gpu.BindGroup, error) {
 	}
 
 	var encoded [FXAAUniformSize]byte
-	encodeFXAAUniform(&encoded, td.Width, td.Height, p.options)
+	encodeFXAAUniform(&encoded, p.options)
 	epoch := p.uniformBuf.Epoch()
 	if !p.uniformValid || p.uniformEpoch != epoch || encoded != p.lastUniform {
 		if p.dev == nil || p.dev.IsLost() {
@@ -917,8 +908,17 @@ func (p *FXAAPass) prepare(src *gpu.Texture) (*gpu.BindGroup, error) {
 		p.uniformValid = true
 	}
 
-	if p.boundTex == src && p.bindGroup != nil && p.bindGroup.Valid() && p.bindGroup.Epoch() == src.Epoch() {
-		return p.bindGroup, nil
+	slot := -1
+	for i := range p.bindings {
+		b := &p.bindings[i]
+		if b.tex != src {
+			continue
+		}
+		if b.group != nil && b.group.Valid() && b.group.Epoch() == src.Epoch() {
+			return b.group, nil
+		}
+		slot = i
+		break
 	}
 	if p.dev == nil || p.dev.IsLost() {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: FXAAPass device is lost; call SetDevice after restoration"}
@@ -935,11 +935,22 @@ func (p *FXAAPass) prepare(src *gpu.Texture) (*gpu.BindGroup, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.bindGroup != nil {
-		_ = p.bindGroup.Close()
+	if slot >= 0 {
+		_ = p.bindings[slot].group.Close()
+		p.bindings[slot].group = bg
+		return bg, nil
 	}
-	p.boundTex = src
-	p.bindGroup = bg
+	// Drop the bind groups of sources that have since been closed, so a pass fed a new texture after every resize does not keep growing.
+	kept := p.bindings[:0]
+	for _, b := range p.bindings {
+		if b.tex.Valid() {
+			kept = append(kept, b)
+			continue
+		}
+		_ = b.group.Close()
+	}
+	clear(p.bindings[len(kept):])
+	p.bindings = append(kept, fxaaBinding{tex: src, group: bg})
 	return bg, nil
 }
 
@@ -993,11 +1004,10 @@ func (p *FXAAPass) Close() error {
 		return nil
 	}
 	var err error
-	if p.bindGroup != nil {
-		err = errors.Join(err, p.bindGroup.Close())
-		p.bindGroup = nil
-		p.boundTex = nil
+	for _, b := range p.bindings {
+		err = errors.Join(err, b.group.Close())
 	}
+	p.bindings = nil
 	if p.pipeline != nil {
 		err = errors.Join(err, p.pipeline.Close())
 		p.pipeline = nil

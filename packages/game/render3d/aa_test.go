@@ -635,6 +635,84 @@ func TestApplyFXAAAndGPUParity(t *testing.T) {
 	assertReference(t, "aa_fxaa", gpuFXAA)
 }
 
+// TestFXAAPassSourcesOfDifferentSizesInOneSubmission draws two sources of different sizes through one FXAAPass in a single submission, alternating A, B, A, and checks each output against ApplyFXAA: each draw needs its own texel size and a bind group that is still alive when the pass runs.
+func TestFXAAPassSourcesOfDifferentSizesInOneSubmission(t *testing.T) {
+	sr := gpu.NewSoftwareRenderer(aaTestWidth, aaTestHeight, gpu.FormatUndefined)
+	defer sr.Close()
+	dev := sr.Device()
+
+	imgA, targetA := renderAASceneOffscreen(t, sr, render3d.AANone.SampleCount())
+
+	const bw, bh = 64, 40
+	imgB := image.NewRGBA(image.Rect(0, 0, bw, bh))
+	for y := range bh {
+		for x := range bw {
+			if y*5 < x*3+2 {
+				imgB.SetRGBA(x, y, aaWarmRGBA)
+			} else {
+				imgB.SetRGBA(x, y, aaClearRGBA)
+			}
+		}
+	}
+	texB, err := dev.CreateTexture(nil, gpu.TextureDesc{
+		Label:  "fxaa-src-b",
+		Width:  bw,
+		Height: bh,
+		Format: gpu.FormatRGBA8Unorm,
+		Usage:  gpu.TextureSampled | gpu.TextureCopyDst,
+	})
+	if err != nil {
+		t.Fatalf("CreateTexture: %v", err)
+	}
+	defer func() { _ = texB.Close() }()
+	dev.WriteTextureRGBA(texB, 0, 0, imgB)
+
+	newDst := func(label string, w, h uint32) *gpu.RenderTarget {
+		rt, err := dev.CreateRenderTarget(nil, gpu.RenderTargetDesc{Label: label, Width: w, Height: h, ColorFormat: gpu.FormatRGBA8Unorm, SampleCount: 1})
+		if err != nil {
+			t.Fatalf("CreateRenderTarget(%s): %v", label, err)
+		}
+		t.Cleanup(func() { _ = rt.Close() })
+		return rt
+	}
+	dstA1 := newDst("fxaa-a1", aaTestWidth, aaTestHeight)
+	dstB := newDst("fxaa-b", bw, bh)
+	dstA2 := newDst("fxaa-a2", aaTestWidth, aaTestHeight)
+
+	fxaa, err := render3d.NewFXAAPass(nil, dev, render3d.FXAAPassDesc{TargetFormat: gpu.FormatRGBA8Unorm})
+	if err != nil {
+		t.Fatalf("NewFXAAPass: %v", err)
+	}
+	defer func() { _ = fxaa.Close() }()
+
+	enc := dev.BeginEncoder()
+	for _, d := range []struct {
+		src, dst *gpu.Texture
+	}{
+		{targetA.OutputTexture(), dstA1.Color},
+		{texB, dstB.Color},
+		{targetA.OutputTexture(), dstA2.Color},
+	} {
+		if err := fxaa.Encode(enc, d.src, d.dst); err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+	}
+	dev.Submit(enc.Finish())
+	sr.WaitIdle()
+	if err := sr.LastError(); err != nil {
+		t.Fatalf("software renderer: %v", err)
+	}
+
+	refA := render3d.ApplyFXAA(imgA, render3d.DefaultFXAAOptions())
+	refB := render3d.ApplyFXAA(imgB, render3d.DefaultFXAAOptions())
+	if _, d := diffMaxChannel(imgB, refB); d == 0 {
+		t.Fatal("ApplyFXAA left source B unchanged; the test pattern has no edge to smooth")
+	}
+	assertFXAAParity(t, "source-a-first", readTextureRGBA(t, dev, dstA1.Color), refA)
+	assertFXAAParity(t, "source-b", readTextureRGBA(t, dev, dstB.Color), refB)
+	assertFXAAParity(t, "source-a-again", readTextureRGBA(t, dev, dstA2.Color), refA)
+}
+
 func TestApplyFXAAEdgeCases(t *testing.T) {
 	if render3d.ApplyFXAA(nil, render3d.DefaultFXAAOptions()) != nil {
 		t.Fatal("ApplyFXAA(nil) != nil")

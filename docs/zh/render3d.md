@@ -646,7 +646,7 @@ resolved := target.OutputTexture()
 
 多重采样时，`ColorAttachment` 会自动把 `ResolveTarget` 指向解析纹理，并将 `StoreOp` 设为 `gpu.StoreDiscard`，避免移动端/图块 GPU 写回临时多重采样缓冲；回退到 `1x` 时则使用 `gpu.StoreStore` 直接写入颜色纹理。
 
-需要后处理抗锯齿时，`FXAAPass` 会编译 `FXAAWGSL`（无顶点缓冲的全屏三角形 FXAA 3.11 Quality 着色器，仅使用 `textureSampleLevel(..., 0.0)`，无需计算着色器，可在完整能力与 `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 档位下运行），并跨帧缓存源纹理的绑定组：
+需要后处理抗锯齿时，`FXAAPass` 会编译 `FXAAWGSL`（无顶点缓冲的全屏三角形 FXAA 3.11 Quality 着色器，仅使用 `textureSampleLevel(..., 0.0)`，无需计算着色器，可在完整能力与 `NoGPUCompute` / WebGL 2 / OpenGL ES 3.0 档位下运行），并为每个源纹理各缓存一个绑定组，稳态绘制不分配内存。着色器通过 `textureDimensions` 从源纹理读取纹素尺寸，因此同一个 pass 可以在一帧内处理尺寸不同的多个源：
 
 ```go
 fxaa, err := render3d.NewFXAAPass(cx, dev, render3d.FXAAPassDesc{
@@ -659,6 +659,7 @@ err = fxaa.Draw(swapchainPass, target.OutputTexture())
 ```
 
 - `FXAAOptions` 可配置 `SubpixelQuality`（默认 `0.75`，设 `DisableSubpixel: true` 仅平滑边缘）、`EdgeThreshold`（默认 `0.166`）和 `EdgeThresholdMin`（默认 `0.0833`）；越界或非有限值会由 `Sanitize()` 规范化。
+- **每次提交一组参数**：参数只占一个 uniform 块，而缓冲写入会在本次提交的命令之前生效，因此同一个 `FXAAPass` 在一帧内记录的所有绘制都使用最后一次绘制的参数。要在一帧内以不同参数处理多个视图，请为每组参数各建一个 `FXAAPass`。
 - `ApplyFXAA(src, opts)` 在 CPU 上对 `*image.RGBA` 运行与 GPU 一致的纯 Go FXAA 3.11 参考实现，低于对比度阈值的平坦内部区域保持原样，斜边得到平滑抗锯齿。
 - 开启 `Retained` 的 `MSAATarget` 或 `FXAAPass` 在设备丢失恢复后，需在 `OnReady` / `OnDeviceRestored` 中调用 `SetDevice(dev)`，以便后续 `Resize` 或 uniform/绑定组更新指向恢复后的设备。
 - 本包参考测试会在 `full` 与 `NoGPUCompute` 两种档位下校验 `render3d/testdata/golden/` 中的 `aa_baseline.png`、`aa_msaa4x.png`、`aa_fxaa.png` 以及 GPU `FXAAPass` 与 CPU `ApplyFXAA` 的一致性（设置 `UPDATE_GOLDEN=1` 可重写基准图）。
