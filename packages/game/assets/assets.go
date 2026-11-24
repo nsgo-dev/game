@@ -396,6 +396,7 @@ func (m *Manager) dispose() {
 	for _, name := range m.groupOrder {
 		if g, ok := m.groups[name]; ok {
 			g.releaseResources(false)
+			g.releasePack()
 		}
 	}
 	for p := range pending {
