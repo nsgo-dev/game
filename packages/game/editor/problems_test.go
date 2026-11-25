@@ -557,3 +557,78 @@ func itoa(n int) string {
 	}
 	return string(b[i:])
 }
+
+// TestProblemRowAsksBeforeOpeningAnotherScene presses a problem in another scene while the open one has unsaved edits: the editor asks first, Cancel keeps the edits and Discard opens the problem's scene and clears the OnSave of the scene open before, and a problem in the scene already open selects it without reloading it.
+func TestProblemRowAsksBeforeOpeningAnotherScene(t *testing.T) {
+	dir := t.TempDir()
+	writeFixtureFiles(t, dir, map[string]string{
+		project.FileName:          fixtureProjectYAML,
+		project.NSGoFileName:      fixtureNSGoYAML,
+		"art/actors.json":         fixtureAtlasJSON,
+		"scenes/room.scene.yaml":  fixtureBrokenFrameScene,
+		"scenes/other.scene.yaml": fixtureCleanOtherScene,
+	}, map[string][]byte{
+		"art/actors.png": encodeTestPNG(t, 32, 16),
+	})
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ed.WaitForProblems)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	app.Post(func() {
+		if err := ed.OpenProject(dir); err != nil {
+			t.Error(err)
+		}
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		return !ed.CheckingProblems() && ed.ProblemCount() == 1
+	})
+	app.Settle()
+
+	edit := func(id string, x float32) {
+		app.Post(func() {
+			if err := ed.MoveObject(id, x, x); err != nil {
+				t.Error(err)
+			}
+		})
+		app.Settle()
+	}
+	app.Post(func() {
+		if err := ed.OpenScene("scenes/other.scene.yaml"); err != nil {
+			t.Error(err)
+		}
+		// An app that persists the open scene itself: the problem's scene must not go to this callback.
+		ed.OnSave = func([]byte) error { return nil }
+	})
+	app.Settle()
+	edit("slime", 33)
+
+	app.Press("id:problems-row-0")
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening the problem's scene over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if ed.ScenePath != "scenes/other.scene.yaml" || !ed.SceneDirty() || !ed.History.CanUndo() {
+		t.Fatalf("after Cancel: scene %q, dirty %v, undo %v", ed.ScenePath, ed.SceneDirty(), ed.History.CanUndo())
+	}
+
+	app.Press("id:problems-row-0")
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if ed.ScenePath != "scenes/room.scene.yaml" || ed.Doc.Name != "Room" || ed.HasUnsavedChanges() || ed.OnSave != nil {
+		t.Fatalf("after Discard: scene %q named %q, unsaved %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	}
+
+	edit("hero", 44)
+	app.Press("id:problems-row-0")
+	app.Settle()
+	if app.Exists("id:unsaved-dialog") || !ed.SceneDirty() || !ed.History.CanUndo() || ed.SelectedFile != "scenes/room.scene.yaml" {
+		t.Fatalf("a problem in the open scene: prompt %v, dirty %v, undo %v, selected %q", app.Exists("id:unsaved-dialog"), ed.SceneDirty(), ed.History.CanUndo(), ed.SelectedFile)
+	}
+}

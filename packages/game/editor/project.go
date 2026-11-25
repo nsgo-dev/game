@@ -52,6 +52,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.projectSavedOnce = false
 	e.selectFile("")
 	e.resetSearchForProject()
+	e.syncScenePath()
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()

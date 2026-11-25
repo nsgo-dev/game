@@ -103,7 +103,7 @@ func (c *moveFileCmd) do() error {
 		return err
 	}
 	c.made, c.written, c.untouched = made, written, untouched
-	c.ed.followMove(c.root, c.from, c.to)
+	c.ed.followMove(c.root, c.from, c.to, plan.Writes)
 	return nil
 }
 
@@ -149,7 +149,7 @@ func (c *moveFileCmd) undo() error {
 		}
 	}
 	c.removeEmpty(c.made)
-	c.ed.followMove(c.root, c.to, c.from)
+	c.ed.followMove(c.root, c.to, c.from, plan.Writes)
 	return nil
 }
 
@@ -175,8 +175,8 @@ func movedPath(from, to string) func(string) string {
 	}
 }
 
-// followMove moves the paths the editor holds as the files moved from from to to in the project at root.
-func (e *Editor) followMove(root, from, to string) {
+// followMove moves the paths the editor holds as the files moved from from to to in the project at root, where the move wrote the files written, at their paths after it.
+func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	forth := movedPath(from, to)
 	movePath := func(p *string) { *p = forth(*p) }
 	// An OS path inside the project follows the move too.
@@ -202,6 +202,15 @@ func (e *Editor) followMove(root, from, to string) {
 	}
 	moveScenePaths(e.Doc, movePath)
 	moveFile(&e.FilePath)
+	// When the move rewrote the open scene's file, the saved scene changed on disk as the open one did, so the move leaves it as clean or dirty as it was. A file the move did not write, such as one refs does not read as a scene, or a scene kept through OnSave or outside the project, still holds the old paths, so the scene is left dirty for the author to save.
+	if rel, ok := e.projectRel(e.FilePath); ok && slices.ContainsFunc(written, func(w refs.Write) bool { return w.Path == rel }) {
+		if saved, err := sceneformat.Parse(e.sceneSaved); err == nil {
+			moveScenePaths(saved, movePath)
+			if data, err := sceneformat.Encode(saved); err == nil {
+				e.sceneSaved = data
+			}
+		}
+	}
 	movePath(&e.ScenePath)
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)

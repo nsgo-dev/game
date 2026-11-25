@@ -10,7 +10,7 @@ import (
 )
 
 // EditorView returns the root NSGo UI node for ed, composing:
-//   - Top toolbar (scene title, tool selector, Undo/Redo, Run/Stop Game, Play/Stop, Save)
+//   - Top toolbar (scene title, the open scene's path with a marker while edits are unsaved, New, Save As and Revert, tool selector, Undo/Redo, Run/Stop Game, Play/Stop, Save)
 //   - Scene tree panel listing the layers and their nested objects (SceneTreeView)
 //   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
@@ -24,6 +24,8 @@ import (
 //   - Problems panel below them while a project is open (ProblemsView)
 //   - Output / Log panel below them (OutputPanelView)
 //   - Bottom status bar (including the live problem count while a project is open)
+//
+// Mod+S saves (Editor.Save), and the window title follows the open scene and its unsaved marker (Editor.WindowTitle). Opening a scene from the file browser, the Problems panel or the Search and References panel, New Scene, a user's request to quit and closing the window ask first while the scene or project has unsaved edits (Editor.HasUnsavedChanges): Save saves them and goes on, Discard drops them and goes on, and Cancel keeps them.
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	ed.AttachScope(cx)
 	rev := core.NewSignal(cx, ed.Revision())
@@ -52,6 +54,10 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	colors := ui.ColorsOf(cx)
 	ed.bindShortcuts(cx, rev)
 	ed.bindApplicationMenu(cx, rev)
+	dirty := unsavedMemo(cx, ed, rev)
+	pathMode := core.NewSignal(cx, pathNone)
+	pathTarget := core.NewSignal(cx, "")
+	files := sceneFileView(cx, ed, rev, dirty, pathMode, pathTarget)
 
 	return core.View{
 		TestID: "scene-editor",
@@ -60,8 +66,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			Height:     core.Pct(100),
 			Background: colors.Surface(),
 		},
-		Children: []core.Node{
-			toolbarView(cx, ed, rev),
+		Children: append([]core.Node{
+			toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
 			core.View{
 				// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
 				Style: core.Style{
@@ -85,7 +91,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			OutputPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 			CommandPaletteView(cx, ed, rev),
-		},
+		}, files...),
 	}
 }
 
@@ -115,7 +121,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 	)
 }
 
-func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButtons []core.Node) core.Node {
 	colors := ui.ColorsOf(cx)
 	notPlaying := func() bool {
 		_ = rev.Get()
@@ -205,6 +211,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							Color:      colors.Text(),
 						},
 					},
+					ui.HStack{Gap: 6, Children: fileButtons},
 					ui.Toolbar{
 						Label: "Editor Tools",
 						Children: []core.Node{
@@ -495,9 +502,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonOutline,
 						Disabled: notPlaying,
-						OnPress: func() {
-							_ = ed.Save()
-						},
+						OnPress:  func() { ed.saveFromUI() },
 					},
 				},
 			},

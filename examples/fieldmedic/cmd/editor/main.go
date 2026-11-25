@@ -29,8 +29,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// EditorView titles the window after the open scene, ending with the editor's name.
+	ed.AppName = "Field Medic Editor"
 	nsgo.Run(func(cx *core.Scope) core.Node {
-		cx.SetTitle("Field Medic Editor")
 		return editor.EditorView(cx, ed)
 	}, nsgo.WindowSize(1280, 800))
 }

@@ -326,7 +326,7 @@ func (e *Editor) ClearReferences() {
 	e.notify()
 }
 
-// OpenSearchResult activates a search result: if it refers to a scene file (or an object inside one), it opens that scene when it is not already open (preserving unsaved edits when it is already open), updates ScenePath and SelectedFile, and selects the matching object, nested children included, or its top-level ancestor when the child cannot be selected. For any non-scene file, it selects the file in the file browser. It returns ErrNoProject when no project is open.
+// OpenSearchResult activates a search result: if it refers to a scene file (or an object inside one), it opens that scene when it is not already open (preserving unsaved edits when it is already open), updates ScenePath and SelectedFile, and selects the matching object, nested children included, or its top-level ancestor when the child cannot be selected. For any non-scene file, it selects the file in the file browser. It returns ErrNoProject when no project is open. Opening another scene goes through OpenScene, which clears OnSave and loses the open scene's unsaved edits; SearchPanelView asks first (HasUnsavedChanges).
 func (e *Editor) OpenSearchResult(r SearchResult) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
@@ -336,13 +336,12 @@ func (e *Editor) OpenSearchResult(r SearchResult) error {
 	}
 	if r.ObjectID != "" || e.isKnownSceneFile(r.File) {
 		if !e.isOpenScene(r.File) {
-			abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(r.File))
-			if err := e.OpenFile(abs); err != nil {
+			// OpenScene clears OnSave, which persisted the scene open before.
+			if err := e.OpenScene(r.File); err != nil {
 				e.selectFile(r.File)
 				e.notify()
 				return err
 			}
-			e.ScenePath = r.File
 		} else if e.ScenePath == "" {
 			e.ScenePath = r.File
 		}
@@ -372,7 +371,8 @@ func (e *Editor) OpenSearchResult(r SearchResult) error {
 // file, it opens that scene (unless already open), selects the top-level object
 // at r.Line when one owns that line, and selects r.File in the file browser;
 // otherwise it selects r.File in the file browser. It returns ErrNoProject when
-// no project is open.
+// no project is open. Opening another scene goes through OpenScene, as
+// OpenSearchResult does, and SearchPanelView asks first while edits are unsaved.
 func (e *Editor) OpenReference(r refs.Ref) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
@@ -383,12 +383,12 @@ func (e *Editor) OpenReference(r refs.Ref) error {
 	if e.isKnownSceneFile(r.File) {
 		abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(r.File))
 		if !e.isOpenScene(r.File) {
-			if err := e.OpenFile(abs); err != nil {
+			// OpenScene clears OnSave, which persisted the scene open before.
+			if err := e.OpenScene(r.File); err != nil {
 				e.selectFile(r.File)
 				e.notify()
 				return err
 			}
-			e.ScenePath = r.File
 		} else if e.ScenePath == "" {
 			e.ScenePath = r.File
 		}

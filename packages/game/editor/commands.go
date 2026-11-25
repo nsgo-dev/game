@@ -748,57 +748,6 @@ func (e *Editor) TriggerShortcut(shortcut string) bool {
 	return false
 }
 
-// Save persists any dirty project file first and then saves the open scene via OnSave or FilePath.
-// It is the shared action invoked by the Save toolbar button, File > Save menu item,
-// Save keyboard shortcut, and Command Palette.
-func (e *Editor) Save() error {
-	if e.playing {
-		return ErrPlaying
-	}
-	// An edited project file is saved first, whether or not the scene can be; an unedited one is left as written, comments included.
-	if e.ProjectDirty() {
-		if err := e.SaveProject(); err != nil {
-			e.Status = "Save error: " + err.Error()
-			e.notify()
-			return err
-		}
-		if e.OnSave == nil && e.FilePath == "" {
-			// Only the project has a file to save to: the scene was never opened from or saved to one.
-			return nil
-		}
-	}
-	data, err := e.SaveYAML()
-	if err != nil {
-		e.Status = "Save error: " + err.Error()
-		e.notify()
-		return err
-	}
-	if e.OnSave != nil {
-		if err := e.OnSave(data); err != nil {
-			e.Status = "Save error: " + err.Error()
-			e.notify()
-			return err
-		}
-		e.invalidateProjectIndex()
-		e.CheckProblems()
-		return nil
-	}
-	if e.FilePath != "" {
-		if err := e.SaveFile(e.FilePath); err != nil {
-			e.Status = "Save error: " + err.Error()
-			e.notify()
-			return err
-		}
-		return nil
-	}
-	// Nothing was asked to persist the scene: say so
-	// instead of reporting a save that never happened.
-	err = errors.New("no save path; open or save the scene to a file first")
-	e.Status = "Save error: " + err.Error()
-	e.notify()
-	return err
-}
-
 // DeleteSelected deletes the currently selected object as an undoable command.
 // When nothing is selected, it returns nil without modifying history.
 func (e *Editor) DeleteSelected() error {

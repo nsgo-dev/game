@@ -171,13 +171,7 @@ func (e *Editor) selectFile(relPath string) {
 	e.selectedFileRev++
 }
 
-// OpenProblem navigates to problem p in the open project: if p.File names a
-// scene file (*.scene.yaml, *.scene.yml, or a scene listed under
-// Project.Autoload.Scenes), it opens that scene with OpenFile (and updates
-// ScenePath and SelectedFile); if opening the scene fails (for example because
-// the YAML does not parse), it still selects p.File in the file browser and
-// returns the error. For any non-scene file, it selects p.File in the file
-// browser. It returns ErrNoProject when no project is open.
+// OpenProblem navigates to problem p in the open project: if p.File names a scene file (*.scene.yaml, *.scene.yml, or a scene listed under Project.Autoload.Scenes), it opens that scene with OpenScene (and updates ScenePath and SelectedFile, and clears OnSave), unless it is the scene already open (ScenePath), which keeps its edits and undo history and is only selected; if opening the scene fails (for example because the YAML does not parse), it still selects p.File in the file browser and returns the error. For any non-scene file, it selects p.File in the file browser. It returns ErrNoProject when no project is open. Opening another scene loses the open one's unsaved edits; ProblemsView asks first (HasUnsavedChanges).
 func (e *Editor) OpenProblem(p assetcheck.Problem) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
@@ -185,14 +179,13 @@ func (e *Editor) OpenProblem(p assetcheck.Problem) error {
 	if p.File == "" {
 		return nil
 	}
-	if isProjectScene(e.Project, p.File) {
-		abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(p.File))
-		if err := e.OpenFile(abs); err != nil {
+	if isProjectScene(e.Project, p.File) && p.File != e.ScenePath {
+		// OpenScene, as the file browser opens scenes, so OnSave, which persisted the scene open before, does not get this one.
+		if err := e.OpenScene(p.File); err != nil {
 			e.selectFile(p.File)
 			e.notify()
 			return err
 		}
-		e.ScenePath = p.File
 		e.selectFile(p.File)
 		if p.Line > 0 {
 			e.Status = fmt.Sprintf("Opened %s:%d", p.File, p.Line)
