@@ -19,6 +19,8 @@ type History struct {
 	commands []Command
 	cursor   int
 	onChange func()
+	// group collects the commands executed while Group runs, or is nil outside one.
+	group *groupCmd
 }
 
 // NewHistory returns an empty undo/redo History.
@@ -42,6 +44,13 @@ func (h *History) execute(cmd Command) error {
 		}
 	} else {
 		cmd.Do()
+	}
+	if h.group != nil {
+		h.group.cmds = append(h.group.cmds, cmd)
+		if h.onChange != nil {
+			h.onChange()
+		}
+		return nil
 	}
 	if h.cursor < len(h.commands) {
 		clear(h.commands[h.cursor:])
@@ -124,6 +133,10 @@ func (h *History) Clear() {
 	}
 	h.commands = nil
 	h.cursor = 0
+	if h.group != nil {
+		// What the group did belongs to the document the clear left behind.
+		h.group.cmds = nil
+	}
 	if h.onChange != nil {
 		h.onChange()
 	}
@@ -159,4 +172,109 @@ func (h *History) RedoLabel() string {
 		return ""
 	}
 	return h.commands[h.cursor].Label()
+}
+
+// Group runs fn and records every command fn executes through h as one step labeled label, so that one Undo reverts them all, last first, and one Redo applies them again. When fn returns an error, Group undoes the commands fn executed, last first, records nothing and returns the error, leaving the history as it was. A group in which fn executes nothing records nothing. While fn runs, a nested Group joins the outer one, and a Clear drops what the group collected, since it belonged to the document the clear left behind; fn must not call Undo or Redo.
+func (h *History) Group(label string, fn func() error) error {
+	if h == nil {
+		return fn()
+	}
+	if h.group != nil {
+		return fn()
+	}
+	g := &groupCmd{label: label}
+	h.group = g
+	err := func() (err error) {
+		defer func() {
+			if failure := recover(); failure != nil {
+				h.group = nil
+				g.rollback(len(g.cmds))
+				panic(failure)
+			}
+		}()
+		return fn()
+	}()
+	h.group = nil
+	if err != nil {
+		if len(g.cmds) > 0 {
+			g.rollback(len(g.cmds))
+			if h.onChange != nil {
+				h.onChange()
+			}
+		}
+		return err
+	}
+	if len(g.cmds) == 0 {
+		return nil
+	}
+	if h.cursor < len(h.commands) {
+		clear(h.commands[h.cursor:])
+		h.commands = h.commands[:h.cursor]
+	}
+	h.commands = append(h.commands, g)
+	h.cursor = len(h.commands)
+	if h.onChange != nil {
+		h.onChange()
+	}
+	return nil
+}
+
+// groupCmd is the step Group records: its commands in the order they ran.
+type groupCmd struct {
+	label string
+	cmds  []Command
+}
+
+func (g *groupCmd) Label() string { return g.label }
+
+func (g *groupCmd) Do() { _ = g.do() }
+
+func (g *groupCmd) Undo() { _ = g.undo() }
+
+// do applies the commands in order; when one that can fail fails, it reverts those it applied and returns the error.
+func (g *groupCmd) do() error {
+	for i, c := range g.cmds {
+		if f, ok := c.(fallibleCommand); ok {
+			if err := f.do(); err != nil {
+				g.rollback(i)
+				return err
+			}
+			continue
+		}
+		c.Do()
+	}
+	return nil
+}
+
+// undo reverts the commands last first; when one that can fail fails, it applies again those it reverted and returns the error.
+func (g *groupCmd) undo() error {
+	for i := len(g.cmds) - 1; i >= 0; i-- {
+		c := g.cmds[i]
+		if f, ok := c.(fallibleCommand); ok {
+			if err := f.undo(); err != nil {
+				for _, r := range g.cmds[i+1:] {
+					if f, ok := r.(fallibleCommand); ok {
+						_ = f.do()
+					} else {
+						r.Do()
+					}
+				}
+				return err
+			}
+			continue
+		}
+		c.Undo()
+	}
+	return nil
+}
+
+// rollback reverts the first n commands, last first, as a failed group or a failed do leaves them.
+func (g *groupCmd) rollback(n int) {
+	for i := n - 1; i >= 0; i-- {
+		if f, ok := g.cmds[i].(fallibleCommand); ok {
+			_ = f.undo()
+		} else {
+			g.cmds[i].Undo()
+		}
+	}
 }
