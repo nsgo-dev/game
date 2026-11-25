@@ -51,12 +51,13 @@ A `Geometry` holds world-space triangles, each on layers a `Settings.LayerMask` 
 | Method | Adds |
 | --- | --- |
 | `AddTriangle`, `AddMesh` | Triangles, or an indexed triangle list at a world matrix; a mirroring matrix flips the winding back |
+| `AddPrimitive` | Built-in 3D primitive shapes (`box`, `plane`, `sphere`, `capsule`, `cylinder`) at a world matrix; closed shapes are baked as solids and `plane` as a surface |
 | `AddGLTF` | Every mesh of a glTF document's default scene at its node's world transform; strips and fans are expanded, points and lines skipped |
 | `AddScene` | Every enabled `scene3d` node outside a disabled node's subtree whose `Layer` shares a bit with the mask, its triangles from a `NodeMesh` (`ColliderMesh` reads a `*scene3d.MeshCollider`) |
-| `AddSceneFile` | A [scene file](editor.md): it resolves instanced and inherited scenes, builds the 3D node tree, loads the glTF model each object's `model` names (`SceneMeshes`), and extracts every authored `nav_link` off-mesh connection |
+| `AddSceneFile` | A [scene file](editor.md): resolves instanced and inherited scenes, skips screen-space layers and dynamic or kinematic `body3d` objects (and their descendants), adds glTF models (respecting `modelNode` and `modelMesh`), built-in `mesh` primitives, and static non-trigger `collider3d` shapes, and extracts every authored `nav_link` off-mesh connection |
 | `AddOffMeshLink` | A point-to-point `OffMeshLink` (jump, drop, ladder, or teleport) carried into every baked `Mesh.Links` |
-| `AddHeightmap` | A `world3d.Heightmap`, triangulated as its `BuildMesh` does |
-| `AddGridMap` | The collider boxes of every occupied cell of a `world3d.GridMap` |
+| `AddHeightmap`, `AddTerrainFile` | A `world3d.Heightmap` (or a `*.terrain.yaml` file loaded through `world3d.LoadTerrainFS`), triangulated as its `BuildMesh` does |
+| `AddGridMap`, `AddGridMapFile` | The collider boxes of every occupied cell of a `world3d.GridMap` (or a `*.gridmap.yaml` file loaded through `world3d.LoadGridMapFS`) |
 | `AddPhysicsWorld` | The static bodies, triangle meshes, heightfields and voxel colliders of a `physics3d.World` whose layers share a bit with the mask; dynamic and kinematic bodies and triggers are left out, as is a voxel collider whose grid does not implement `physics3d.VoxelBoundsGrid`, since its solid voxels cannot be listed |
 
 Triangles are surfaces, as in Recast, so a closed mesh tall enough to stand in is hollow, and its inside floor is baked as an island no path reaches, unless it is smaller than `MinRegionArea`. The collider shapes `AddPhysicsWorld` and `AddGridMap` add, boxes, spheres, capsules and voxels, are filled instead: each column they cross is solid from their lowest to their highest point.
@@ -146,4 +147,8 @@ navbake3d.DrawDebug(d, viewProj, viewport, mesh, navbake3d.DefaultDebugStyle())
 nsgo game navmesh scenes/level1.scene.yaml
 ```
 
-[`game navmesh`](cli.md#navmesh) bakes a scene's glTF models for every agent type in the `navigation` section of the [project file](project.md) and writes the file the scene's `navMesh` names.
+[`game navmesh`](cli.md#navmesh) bakes a scene's static 3D geometry (glTF models, built-in primitives, and static `collider3d` shapes) for every agent type in the `navigation` section of the [project file](project.md) and writes the file the scene's `navMesh` names.
+
+## In the editor
+
+In 3D view mode, the [scene editor](editor.md#3d-navigation-mesh-baking-901) opens the **NavMesh** bake panel (`NavMeshPanelView`) to edit agent radius, height, step height, max slope, voxel cell size/height, and output path, bake the open scene into a deterministic `.navmesh.yaml` file (undoably updating `SceneDoc.NavMesh`), and toggle a live translucent polygon-and-edge overlay over the 3D viewport.

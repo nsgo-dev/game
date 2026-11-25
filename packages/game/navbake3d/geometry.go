@@ -119,6 +119,19 @@ func (g *Geometry) AddHeightmap(h *world3d.Heightmap, layer uint32) {
 	g.AddMesh(m.Positions, m.Indices, math3d.Mat4Identity(), layer)
 }
 
+// AddTerrainFile loads the versioned YAML terrain definition at name in fsys (world3d.LoadTerrainFS) and adds its heightmap on layer.
+func (g *Geometry) AddTerrainFile(fsys fs.FS, name string, layer uint32) error {
+	if fsys == nil {
+		return errors.New("navbake3d: no file system to load terrain from")
+	}
+	hm, _, err := world3d.LoadTerrainFS(fsys, name)
+	if err != nil {
+		return err
+	}
+	g.AddHeightmap(hm, layer)
+	return nil
+}
+
 // AddGridMap adds the collider boxes of every occupied cell of gm, on layer, each baked as a solid. A tile without ColliderBoxes adds nothing, so a GridMap's floors and walls need collider boxes to be baked.
 func (g *Geometry) AddGridMap(gm *world3d.GridMap, layer uint32) {
 	if gm == nil {
@@ -131,6 +144,19 @@ func (g *Geometry) AddGridMap(gm *world3d.GridMap, layer uint32) {
 	for _, b := range gm.CollisionBoxesIn(bounds) {
 		g.addBox(b.Center(), b.HalfExtents(), math3d.QuatIdentity(), layer)
 	}
+}
+
+// AddGridMapFile loads the versioned YAML 3D grid map at name in fsys (world3d.LoadGridMapFS) and adds its occupied cells' collider boxes on layer.
+func (g *Geometry) AddGridMapFile(fsys fs.FS, name string, layer uint32) error {
+	if fsys == nil {
+		return errors.New("navbake3d: no file system to load grid map from")
+	}
+	gm, _, err := world3d.LoadGridMapFS(fsys, name)
+	if err != nil {
+		return err
+	}
+	g.AddGridMap(gm, layer)
+	return nil
 }
 
 // boxFaces are the corners of each face of a unit box, counter-clockwise seen from outside, as signs of the half extents.
@@ -264,10 +290,21 @@ func (g *Geometry) addShape(s physics3d.Shape, layer uint32) {
 
 // addCapsule adds a solid faceted capsule from a to b with radius r: two hemispheres joined by a cylinder, a sphere when a equals b.
 func (g *Geometry) addCapsule(a, b math3d.Vec3, r float32, layer uint32) {
-	if !(r > 0) || math.IsInf(float64(r), 0) {
+	tris := capsuleTriangles(a, b, r)
+	if len(tris) == 0 {
 		return
 	}
 	defer g.endSolid(g.beginSolid())
+	for i := 0; i+2 < len(tris); i += 3 {
+		g.AddTriangle(tris[i], tris[i+1], tris[i+2], layer)
+	}
+}
+
+// capsuleTriangles returns the deterministic faceted triangles of a capsule from a to b with radius r (a sphere when a equals b), three vertices per triangle.
+func capsuleTriangles(a, b math3d.Vec3, r float32) []math3d.Vec3 {
+	if !(r > 0) || math.IsInf(float64(r), 0) {
+		return nil
+	}
 	up := math3d.Vec3{Y: 1}
 	if axis := b.Sub(a); lenSq(axis) > 1e-12 {
 		up = norm(axis)
@@ -302,15 +339,85 @@ func (g *Geometry) addCapsule(a, b math3d.Vec3, r float32, layer uint32) {
 			rows = append(rows, ring(a, 0), ring(b, 0))
 		}
 	}
+	out := make([]math3d.Vec3, 0, (len(rows)-1)*roundSegments*6)
 	for i := 0; i+1 < len(rows); i++ {
 		for j := range roundSegments {
 			j1 := (j + 1) % roundSegments
 			p00, p01 := rows[i][j], rows[i][j1]
 			p10, p11 := rows[i+1][j], rows[i+1][j1]
-			g.AddTriangle(p00, p01, p11, layer)
-			g.AddTriangle(p00, p11, p10, layer)
+			out = append(out, p00, p01, p11, p00, p11, p10)
 		}
 	}
+	return out
+}
+
+// primitiveMeshTriangles returns the local-space triangles (three vertices per triangle) and whether the primitive is a closed convex solid, sized to match scenemodel.PrimitiveMesh: box (1x1x1), plane (1x1 in XZ facing +Y), sphere (diameter 1), capsule (diameter 1, height 2), cylinder (diameter 1, height 1).
+func primitiveMeshTriangles(name string) (tris []math3d.Vec3, solid bool, err error) {
+	switch name {
+	case sceneformat.MeshBox:
+		out := make([]math3d.Vec3, 0, 36)
+		for _, f := range boxFaces {
+			var p [4]math3d.Vec3
+			for i, s := range f {
+				p[i] = math3d.Vec3{X: s[0] * 0.5, Y: s[1] * 0.5, Z: s[2] * 0.5}
+			}
+			out = append(out, p[0], p[1], p[2], p[0], p[2], p[3])
+		}
+		return out, true, nil
+	case sceneformat.MeshPlane:
+		a := math3d.Vec3{X: -0.5, Z: -0.5}
+		b := math3d.Vec3{X: -0.5, Z: 0.5}
+		c := math3d.Vec3{X: 0.5, Z: 0.5}
+		d := math3d.Vec3{X: 0.5, Z: -0.5}
+		return []math3d.Vec3{a, b, c, a, c, d}, false, nil
+	case sceneformat.MeshSphere:
+		return capsuleTriangles(math3d.Vec3{}, math3d.Vec3{}, 0.5), true, nil
+	case sceneformat.MeshCapsule:
+		return capsuleTriangles(math3d.Vec3{Y: -0.5}, math3d.Vec3{Y: 0.5}, 0.5), true, nil
+	case sceneformat.MeshCylinder:
+		return cylinderTriangles(0.5, 1), true, nil
+	default:
+		return nil, false, fmt.Errorf("navbake3d: unknown primitive mesh %q", name)
+	}
+}
+
+// cylinderTriangles returns the deterministic faceted triangles of a vertical cylinder centered on the origin with radius r and height h.
+func cylinderTriangles(r, h float32) []math3d.Vec3 {
+	half := h * 0.5
+	top := make([]math3d.Vec3, roundSegments)
+	bot := make([]math3d.Vec3, roundSegments)
+	for i := range roundSegments {
+		x := r * stepSin(i)
+		z := r * stepCos(i)
+		top[i] = math3d.Vec3{X: x, Y: half, Z: z}
+		bot[i] = math3d.Vec3{X: x, Y: -half, Z: z}
+	}
+	topCenter := math3d.Vec3{Y: half}
+	botCenter := math3d.Vec3{Y: -half}
+	out := make([]math3d.Vec3, 0, roundSegments*12)
+	for i := range roundSegments {
+		i1 := (i + 1) % roundSegments
+		// Top cap (+Y normal)
+		out = append(out, topCenter, top[i], top[i1])
+		// Bottom cap (-Y normal)
+		out = append(out, botCenter, bot[i1], bot[i])
+		// Side wall (outward normal)
+		out = append(out, top[i], bot[i], bot[i1], top[i], bot[i1], top[i1])
+	}
+	return out
+}
+
+// AddPrimitive adds the built-in 3D primitive named name (one of sceneformat.MeshPrimitives: "box", "plane", "sphere", "capsule", or "cylinder") transformed by world on layer. Closed primitives are baked as solids; "plane" is baked as a surface.
+func (g *Geometry) AddPrimitive(name string, world math3d.Mat4, layer uint32) error {
+	tris, solid, err := primitiveMeshTriangles(name)
+	if err != nil {
+		return err
+	}
+	if solid {
+		defer g.endSolid(g.beginSolid())
+	}
+	g.AddMesh(tris, nil, world, layer)
+	return nil
 }
 
 // AddGLTF adds the triangles of every mesh in doc's default scene (its first scene when it names none, or every node without a parent when it has no scenes), each at its node's world transform and then at world, on layer. Point and line primitives add nothing; skins and morph targets are left at their bind pose.
@@ -458,41 +565,224 @@ func IsModelPath(p string) bool {
 	return ext == ".gltf" || ext == ".glb"
 }
 
-// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Model names a glTF model in fsys, by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; any other node bakes its *scene3d.MeshCollider.
+// gltfObjectTriangles returns the local-space triangles of doc selected by modelNode or modelMesh (or the default scene when both are empty).
+func gltfObjectTriangles(doc *gltf.Document, modelPath, modelNode, modelMesh string) ([]math3d.Vec3, error) {
+	if doc == nil {
+		return nil, nil
+	}
+	var g Geometry
+	switch {
+	case modelMesh != "":
+		mi := -1
+		for i := range doc.Meshes {
+			if doc.Meshes[i].Name == modelMesh {
+				mi = i
+				break
+			}
+		}
+		if mi < 0 {
+			return nil, fmt.Errorf("navbake3d: model %q has no mesh %q", modelPath, modelMesh)
+		}
+		for _, prim := range doc.Meshes[mi].Primitives {
+			g.AddMesh(prim.Positions, primitiveTriangles(prim), math3d.Mat4Identity(), LayerAll)
+		}
+	case modelNode != "":
+		ni := -1
+		for i := range doc.Nodes {
+			if doc.Nodes[i].Name == modelNode {
+				ni = i
+				break
+			}
+		}
+		if ni < 0 {
+			return nil, fmt.Errorf("navbake3d: model %q has no node %q", modelPath, modelNode)
+		}
+		seen := make([]bool, len(doc.Nodes))
+		var visit func(idx int, rel math3d.Mat4)
+		visit = func(idx int, rel math3d.Mat4) {
+			if idx < 0 || idx >= len(doc.Nodes) || seen[idx] {
+				return
+			}
+			seen[idx] = true
+			n := &doc.Nodes[idx]
+			if n.Mesh >= 0 && n.Mesh < len(doc.Meshes) {
+				for _, prim := range doc.Meshes[n.Mesh].Primitives {
+					g.AddMesh(prim.Positions, primitiveTriangles(prim), rel, LayerAll)
+				}
+			}
+			for _, c := range n.Children {
+				if c >= 0 && c < len(doc.Nodes) {
+					visit(c, rel.Mul(doc.Nodes[c].LocalMatrix))
+				}
+			}
+		}
+		visit(ni, math3d.Mat4Identity())
+	default:
+		g.AddGLTF(doc, math3d.Mat4Identity(), LayerAll)
+	}
+	return g.verts, nil
+}
+
+// isMovingBody3D reports whether o declares a dynamic or kinematic body3d component (so it moves at runtime and is not static level geometry).
+func isMovingBody3D(o *sceneformat.ObjectDoc) bool {
+	if o == nil || len(o.Components) == 0 {
+		return false
+	}
+	raw, ok := o.Components[sceneformat.Body3DComponentName]
+	if !ok {
+		return false
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	kind := "dynamic"
+	if k, ok := m["kind"].(string); ok && k != "" {
+		kind = k
+	}
+	switch kind {
+	case "static":
+		return false
+	case "kinematic":
+		return true
+	case "dynamic":
+		if mass, hasMass := m["mass"]; hasMass {
+			switch v := mass.(type) {
+			case int:
+				return v > 0
+			case int64:
+				return v > 0
+			case float32:
+				return v > 0
+			case float64:
+				return v > 0
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Model names a glTF model in fsys (respecting ModelNode and ModelMesh), by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; an object whose Mesh names a built-in primitive bakes that primitive; objects with a dynamic or kinematic body3d component are skipped; any other node bakes its *scene3d.MeshCollider.
 func SceneMeshes(fsys fs.FS) NodeMesh {
-	models := map[string][]math3d.Vec3{}
+	docs := map[string]*gltf.Document{}
 	return func(n *scene3d.Node) ([]math3d.Vec3, error) {
-		if o, ok := n.UserData.(*sceneformat.ObjectDoc); ok && o != nil && IsModelPath(o.Model) {
-			if tris, ok := models[o.Model]; ok {
-				return tris, nil
+		if o, ok := n.UserData.(*sceneformat.ObjectDoc); ok && o != nil {
+			if isMovingBody3D(o) {
+				return nil, nil
 			}
-			if fsys == nil {
-				return nil, errors.New("navbake3d: no file system to load models from")
+			if IsModelPath(o.Model) {
+				doc, ok := docs[o.Model]
+				if !ok {
+					if fsys == nil {
+						return nil, errors.New("navbake3d: no file system to load models from")
+					}
+					var err error
+					doc, err = gltf.LoadFS(fsys, o.Model)
+					if err != nil {
+						return nil, err
+					}
+					docs[o.Model] = doc
+				}
+				return gltfObjectTriangles(doc, o.Model, o.ModelNode, o.ModelMesh)
 			}
-			doc, err := gltf.LoadFS(fsys, o.Model)
-			if err != nil {
-				return nil, err
+			if o.Mesh != "" {
+				tris, _, err := primitiveMeshTriangles(o.Mesh)
+				return tris, err
 			}
-			tris := GLTFTriangles(doc)
-			models[o.Model] = tris
-			return tris, nil
 		}
 		return ColliderMesh(n)
 	}
 }
 
-// AddSceneFile adds the geometry and authored nav_link off-mesh links of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree, adds every object whose Model names a glTF model (as SceneMeshes loads it) on scene3d.LayerDefault, and extracts every nav_link component into the geometry's off-mesh links.
+// AddSceneFile adds the static 3D geometry and authored nav_link off-mesh links of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree, skips screen-space layers and dynamic or kinematic body3d objects (along with their descendants), adds each remaining object's glTF model (respecting ModelNode and ModelMesh), built-in 3D primitive Mesh, and static non-trigger collider3d shapes on scene3d.LayerDefault, and extracts every nav_link component into the geometry's off-mesh links.
 func (g *Geometry) AddSceneFile(doc *sceneformat.SceneDoc, fsys fs.FS) error {
-	resolved, err := sceneformat.Resolve(doc, sceneformat.FSScenes{FS: fsys})
+	if doc == nil {
+		return nil
+	}
+	var scenes sceneformat.SceneResolver
+	if fsys != nil {
+		scenes = sceneformat.FSScenes{FS: fsys}
+	}
+	resolved, err := sceneformat.Resolve(doc, scenes)
 	if err != nil {
 		return err
 	}
 	s := scene3d.NewScene()
-	if _, err := sceneformat.BuildNodes3D(resolved, s.Root()); err != nil {
+	nodes, err := sceneformat.BuildNodes3D(resolved, s.Root())
+	if err != nil {
 		return err
 	}
-	if err := g.AddScene(s, LayerAll, SceneMeshes(fsys)); err != nil {
-		return err
+	docs := map[string]*gltf.Document{}
+	loadGLTF := func(p string) (*gltf.Document, error) {
+		if d, ok := docs[p]; ok {
+			return d, nil
+		}
+		if fsys == nil {
+			return nil, errors.New("navbake3d: no file system to load models from")
+		}
+		d, err := gltf.LoadFS(fsys, p)
+		if err != nil {
+			return nil, err
+		}
+		docs[p] = d
+		return d, nil
+	}
+
+	var walk func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform) error
+	walk = func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform) error {
+		for i := range objs {
+			o := &objs[i]
+			if isMovingBody3D(o) {
+				continue
+			}
+			worldTr := parentWorld.Mul(sceneformat.ObjectLocalTransform3D(o))
+			node := nodes.Objects[o.ID]
+			worldMat := math3d.TRS(worldTr.Pos, worldTr.Rot, worldTr.Scale)
+			if node != nil {
+				worldMat = node.WorldMatrix()
+			}
+			if IsModelPath(o.Model) {
+				gd, err := loadGLTF(o.Model)
+				if err != nil {
+					return fmt.Errorf("navbake3d: node %q: %w", o.ID, err)
+				}
+				tris, err := gltfObjectTriangles(gd, o.Model, o.ModelNode, o.ModelMesh)
+				if err != nil {
+					return fmt.Errorf("navbake3d: node %q: %w", o.ID, err)
+				}
+				if len(tris) >= 3 {
+					g.AddMesh(tris[:len(tris)-len(tris)%3], nil, worldMat, scene3d.LayerDefault)
+				}
+			} else if o.Mesh != "" {
+				if err := g.AddPrimitive(o.Mesh, worldMat, scene3d.LayerDefault); err != nil {
+					return fmt.Errorf("navbake3d: node %q: %w", o.ID, err)
+				}
+			}
+			for _, item := range sceneformat.ExtractPhysicsDebug3DAt(o, worldTr) {
+				if item.IsTrigger {
+					continue
+				}
+				g.addShape(item.Shape, scene3d.LayerDefault)
+			}
+			if len(o.Children) > 0 {
+				if err := walk(o.Children, worldTr); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for li := range resolved.Layers {
+		l := &resolved.Layers[li]
+		if l.EffectiveSpace() == sceneformat.SpaceScreen {
+			continue
+		}
+		if err := walk(l.Objects, math3d.TransformIdentity()); err != nil {
+			return err
+		}
 	}
 	links, err := sceneformat.ExtractNavLinks3D(resolved)
 	if err != nil {

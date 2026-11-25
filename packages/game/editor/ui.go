@@ -104,6 +104,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 							DataTablePanelView(cx, ed, rev),
 							AnimationPanelView(cx, ed, rev),
 							StatesPanelView(cx, ed, rev),
+							NavMeshPanelView(cx, ed, rev),
 							ProjectSettingsPanelView(cx, ed, rev),
 							AudioMixerPanelView(cx, ed, rev),
 							InputMapPanelView(cx, ed, rev),
@@ -359,6 +360,43 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									gridMapBtn("gridmap-tool-erase", "Erase", GridMapToolErase),
 									gridMapBtn("gridmap-tool-pick", "Pick", GridMapToolPick),
 									gridMapBtn("gridmap-tool-boxfill", "Box", GridMapToolBoxFill),
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: "3D NavMesh",
+								Children: []core.Node{
+									ui.ToggleButton{
+										TestID: "toolbar-navmesh-panel",
+										Text:   "NavMesh",
+										Label:  "Toggle the 3D Navigation Mesh bake panel",
+										On: func() bool {
+											_ = rev.Get()
+											return ed.NavMeshPanelOpen()
+										},
+										OnChange: func(on bool) {
+											ed.SetNavMeshPanelOpen(on)
+										},
+									},
+									ui.ToggleButton{
+										TestID: "toolbar-navmesh-overlay",
+										Text:   "Nav Overlay",
+										Label:  "Toggle the 3D navigation mesh overlay in the viewport",
+										On: func() bool {
+											_ = rev.Get()
+											return ed.ShowNavMesh3D
+										},
+										OnChange: func(on bool) {
+											ed.SetShowNavMesh3D(on)
+										},
+									},
 								},
 							}
 						},

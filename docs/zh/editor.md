@@ -666,6 +666,14 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的几何体和包围盒由其祖先的变换确定位置（[3D 视口](#3d-视口890)）。
 
+## 3D 导航网格烘焙（#901）
+
+在 3D 视图模式下，编辑器可直接从当前打开场景的静态几何体烘焙 Recast 风格的 3D 导航网格（`navbake3d`），并在 3D 视口上实时预览：
+
+- **NavMesh 烘焙面板**（`NavMeshPanelView`，可通过 3D 工具栏的 **NavMesh** 按钮、**View > 3D NavMesh Bake...**、命令 `CmdNavMeshPanel` 或 `SetNavMeshPanelOpen` 开关）：配置代理名称、半径、身高、可攀爬高度（`MaxClimb`）、最大可行走坡度（`MaxSlope`）、体素单元尺寸（`CellSize`）、单元高度（`CellHeight`）和输出 `.navmesh.yaml` 路径（`NavMeshBakeConfig` / `SetNavMeshBakeConfig`）。打开包含 `navigation` 配置的项目时，面板会自动以 `game.yaml` 中的设置为初始值。
+- **烘焙与场景关联**（**Bake** 按钮、`CmdBakeNavMesh3D` 或 `BakeNavMesh3D`）：从当前打开场景的 glTF 模型（支持 `modelNode` 与 `modelMesh`）、内置 `mesh` 基本形体、静态非触发器 `collider3d` 形状（跳过动态/运动学 `body3d`、触发器与屏幕空间图层）以及可选回调 `Editor.OnBakeNavMesh3DGeometry` 提供的地形高度图、`GridMap` 或物理碰撞体收集静态 3D 几何体；以原子方式写出确定性的 `.navmesh.yaml`，在未设置或路径变化时以单步可撤销操作更新 `SceneDoc.NavMesh`（`SetSceneNavMesh`，亦可在场景设置检查器中编辑），并立即加载烘焙结果到视口预览。重新打开已关联 `.navmesh.yaml` 的场景时会自动加载预览（`LoadNavMesh3D`）。
+- **3D 视口叠加层**（工具栏 **Nav Overlay** 按钮、面板 **Overlay** 开关、**View > Show 3D NavMesh**、命令 `CmdNavMeshOverlay` 或 `ShowNavMesh3D` / `SetShowNavMesh3D`）：通过 `Camera3D` 在 3D 场景视口上绘制半透明青色可行走多边形填充、细节边和清晰的多边形外轮廓。
+
 ## 场景文件与未保存的修改（#866）
 
 编辑器一次编辑一个场景，无需重启即可在项目的场景之间切换。在文件浏览器中选中一个场景（`*.scene.yaml` 或 `*.scene.yml` 文件，或 `autoload.scenes` 中列出的场景）后点击“Open”，或者连按两下，即可打开它（`OpenScene`）。无论从文件浏览器、Problems 面板、搜索与引用面板、命令面板还是通过 `OpenScene` 打开场景，都会清除 `OnSave`，因为它负责保存的是之前打开的场景。`OpenFile`、`SaveFile`、`OpenProject` 和 `OpenProjectScene` 会在场景文件位于打开的项目中时设置 `ScenePath`，否则将其清空。工具栏的“File”菜单中有：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径（`NewScene`）；“Save As”，把场景另存到另一个路径，并让该文件成为场景的文件（`SaveSceneAs`）；“Revert”，把场景恢复为其文件中保存的样子（`RevertScene`）。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。

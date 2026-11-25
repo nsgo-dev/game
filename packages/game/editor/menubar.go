@@ -143,6 +143,9 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdFrameSelection, "Frame Selection", false),
 			cmdItem(CmdToggleLightingPreview, "2D Lighting Preview", false),
 			sep,
+			cmdItem(CmdNavMeshOverlay, "Show 3D NavMesh", false),
+			cmdItem(CmdNavMeshPanel, "3D NavMesh Bake...", false),
+			sep,
 			{Label: "Tools", Items: toolItems},
 			{Label: "3D Gizmo", Items: gizmoItems},
 			{Label: "3D Shading", Items: shadingItems},
@@ -195,7 +198,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v",
 			e.StartScreenOpen(),
 			e.Playing(),
 			e.History.CanUndo(),
@@ -214,6 +217,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ExportPanelOpen(),
 			e.ProfilerOpen(),
 			e.ShowLightingPreview,
+			e.ShowNavMesh3D,
+			e.NavMeshPanelOpen(),
 		)
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')
