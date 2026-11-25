@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -593,6 +594,92 @@ func TestBTSchemaShapeAndValidation(t *testing.T) {
 	for _, bad := range badDocs {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("bt schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestCutsceneSchemasShapeAndValidation(t *testing.T) {
+	s1 := schemaAt(t, cutscene.SchemaURL)
+	if s1.Schema != jsonschema.Draft07 || s1.ID != cutscene.SchemaURL {
+		t.Fatalf("v1 $schema %q, $id %q", s1.Schema, s1.ID)
+	}
+	if version := s1.Property("version"); version == nil || version.Const != int64(cutscene.MinVersion) {
+		t.Fatalf("v1 version property = %+v", version)
+	}
+	for _, key := range []string{"kind", "scene", "length", "tracks"} {
+		if s1.Property(key) != nil {
+			t.Errorf("v1 cutscene schema has v2 key %q", key)
+		}
+	}
+	if b, ok := s1.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("v1 cutscene schema accepts unknown top-level keys")
+	}
+	v1Data, err := os.ReadFile(filepath.Join(root, "cutscene", "testdata", "intro.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.ValidateYAML(v1Data); err != nil {
+		t.Fatalf("v1 schema refused intro.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\n",
+		"version: 1\nsource: asset:a.mp4\nextra: true\n",
+		"version: 1\nsource: asset:a.mp4\nkind: video\n",
+		"version: 1\nsource: asset:a.mp4\nskipAfter: 2\n",
+	} {
+		if err := s1.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("v1 cutscene schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+
+	s2 := schemaAt(t, cutscene.SchemaURLV2)
+	if s2.Schema != jsonschema.Draft07 || s2.ID != cutscene.SchemaURLV2 {
+		t.Fatalf("v2 $schema %q, $id %q", s2.Schema, s2.ID)
+	}
+	if version := s2.Property("version"); version == nil || version.Const != int64(cutscene.CurrentVersion) {
+		t.Fatalf("v2 version property = %+v", version)
+	}
+	if b, ok := s2.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("v2 cutscene schema accepts unknown top-level keys")
+	}
+	for _, p := range s2.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("Cutscene.%s has no description", p.Name)
+		}
+	}
+	for _, name := range []string{"Track", "Clip"} {
+		def := s2.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", name, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", name)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", name, p.Name)
+			}
+		}
+	}
+	v2Data, err := os.ReadFile(filepath.Join(root, "cutscene", "testdata", "floor1_intro.cutscene.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(v2Data, []byte(cutscene.SchemaCommentV2+"\n")) {
+		t.Fatalf("floor1_intro.cutscene.yaml does not start with %q", cutscene.SchemaCommentV2)
+	}
+	if err := s2.ValidateYAML(v2Data); err != nil {
+		t.Fatalf("v2 schema refused floor1_intro.cutscene.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 2\nkind: audio\nlength: 5s\n",
+		"version: 2\nkind: timeline\nlength: 5s\nunknownKey: true\n",
+		"version: 2\nkind: timeline\nlength: 5s\ntracks:\n  - kind: lights\n",
+		"version: 2\nkind: timeline\nlength: 5s\ntracks:\n  - kind: dialogue\n    clips:\n      - start: 0s\n        duration: 1s\n        line: intro.01\n        text: inline\n",
+		"version: 2\nkind: timeline\nlength: 5\n",
+	} {
+		if err := s2.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("v2 cutscene schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

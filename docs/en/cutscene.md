@@ -1,6 +1,6 @@
 # cutscene
 
-`game/cutscene` plays video cutscenes in a game, in a scene or between scenes. The video plays in NSGo's own video view (`core.Video`) over the game's view, the game's `Loop` and `Mixer` pause while it plays, the player can skip it, and the game is called back when it ends.
+`game/cutscene` plays both pre-rendered video cutscenes and in-engine timeline cutscenes in a game, in a scene or between scenes. Video cutscenes play in NSGo's own video view (`core.Video`) over the game's view while pausing `Loop` and `Mixer`. Timeline cutscenes run deterministically on `game.Loop` fixed steps against a `sceneformat.BuiltScene` or `sceneformat.SceneDoc`, driving camera, actor, localized dialogue, sound effect and music tracks. Both kinds are skippable and call the game back when they end.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/cutscene"
@@ -8,7 +8,9 @@ import "github.com/nsgo-dev/game/packages/game/cutscene"
 
 ## Cutscene files
 
-A cutscene is a `Cutscene`, and a game's author writes one as a YAML file:
+A cutscene is a `Cutscene`, written in YAML as either version 1 (video only, `cutscene.MinVersion`) or version 2 (video or timeline, `cutscene.CurrentVersion`). Published JSON Schemas live at `https://game.nsgo.dev/schemas/cutscene.v1.json` and `https://game.nsgo.dev/schemas/cutscene.v2.json`.
+
+### Video cutscenes (version 1 and 2)
 
 ```yaml
 version: 1
@@ -21,17 +23,174 @@ fit: cover
 
 | Key | Meaning |
 | --- | --- |
-| `version` | The file format's version, `1` (`cutscene.CurrentVersion`). |
-| `source` | The video: an `asset:` path in the app's resources, a file path or a URL, as `core.Video` takes. Required. |
+| `version` | `1` (`cutscene.MinVersion`) or `2` (`cutscene.CurrentVersion`). |
+| `kind` | Optional in version 2: `video` (default when `source` is set) or `timeline`. Forbidden in version 1. |
+| `source` | The video: an `asset:` path in the app's resources, a project-relative path or a URL, as `core.Video` takes. Required for video cutscenes. |
 | `group` | The mixer group whose volume, times the master volume, the video plays at. Left out: the master volume alone. |
 | `skippable` | Whether the player can skip it. Left out: `false`. |
-| `skipAfter` | How far into the video a skippable cutscene must play before a skip works, written as Go writes durations (`500ms`, `2s`), so a press meant for the game just before it does not skip it at once. Left out: from the start. |
+| `skipAfter` | How far into the cutscene a skippable cutscene must play before a skip works, written as Go writes durations (`500ms`, `2s`), so a press meant for the game just before it does not skip it at once. Left out: from the start. |
 | `fit` | How the picture fits the screen: `contain` (the default, with bars), `cover` (cropped) or `stretch` (distorted). |
 | `transparent` | Leave the screen behind the picture clear rather than black, so the game shows in the bars and through a video with an alpha channel where the platform keeps it. |
 
-`cutscene.Parse(data)` reads a file and refuses unknown keys, a second YAML document, a version other than `1`, a missing source, an unknown fit and a negative or non-string `skipAfter`. `cutscene.Encode(c)` writes one with its keys in that fixed order and zero values left out, so a file reads and writes back unchanged. A cutscene made in code may leave `Version` at 0, which `Player.Play` ignores.
+### Timeline cutscenes (version 2)
 
-## Playing a cutscene
+A version 2 timeline cutscene (`*.cutscene.yaml`) sets `kind: timeline`, `length` and ordered `tracks` of clips, each with a `start`, `duration` and optional `easing` (`linear`, `easeIn`, `easeOut`, `easeInOut`, `hold`):
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json
+version: 2
+kind: timeline
+scene: scenes/level_01.scene.yaml
+length: 12s
+skippable: true
+skipAfter: 1s
+tracks:
+  - id: camera
+    name: Camera
+    kind: camera
+    clips:
+      - id: cam1
+        start: 0s
+        duration: 1.6s
+        easing: hold
+        action: hold
+        target: door
+      - id: cam2
+        start: 1.6s
+        duration: 2.4s
+        easing: easeInOut
+        action: pan
+        target: knight
+      - id: cam3
+        start: 4s
+        duration: 8s
+        action: follow
+        target: knight
+  - id: knight
+    name: Knight
+    kind: actor
+    target: knight
+    clips:
+      - id: kn1
+        start: 1s
+        duration: 2.4s
+        easing: easeOut
+        action: walk
+        fromX: 60
+        toX: 220
+        state: run
+      - id: kn2
+        start: 3.4s
+        duration: 4.6s
+        action: state
+        state: idle
+  - id: slime
+    name: slime_01
+    kind: actor
+    target: slime_01
+    clips:
+      - id: sl1
+        start: 6s
+        duration: 800ms
+        easing: easeIn
+        action: drop
+        fromY: -40
+        toY: 276
+      - id: sl2
+        start: 6.8s
+        duration: 5.2s
+        action: patrol
+        fromX: 420
+        toX: 520
+        speed: 40
+  - id: dialogue
+    name: Dialogue
+    kind: dialogue
+    clips:
+      - id: dl1
+        start: 3.6s
+        duration: 2.4s
+        line: intro.knight.01
+  - id: sfx
+    name: Sound
+    kind: sound
+    group: sfx
+    clips:
+      - id: sx1
+        start: 200ms
+        duration: 600ms
+        source: audio/door_slam.wav
+  - id: music
+    name: Music
+    kind: music
+    group: music
+    clips:
+      - id: mu1
+        start: 2s
+        duration: 10s
+        source: audio/cellar_theme.ogg
+        fadeIn: 2s
+```
+
+| Track kind | Track fields | Clip actions & fields |
+| --- | --- | --- |
+| `camera` | `id`, `name`, `kind`, `clips` | `action: hold` (`target` or `toX`/`toY`, optional `offsetX`/`offsetY`, `zoom`), `action: pan` (`target` or `toX`/`toY`, optional `fromX`/`fromY`, `offsetX`/`offsetY`, `zoom`, `easing`), `action: follow` (`target`, optional `offsetX`/`offsetY`, `zoom`). |
+| `actor` | `id`, `name`, `kind`, `target` (scene object ID), `clips` | `action: walk` (`toX`/`toY`, optional `fromX`/`fromY`, `state`, `easing`), `action: state` (`state`), `action: drop` (`toY`, optional `fromY`/`fromX`/`toX`, `state`, `easing`), `action: patrol` (`toX`/`toY`, optional `fromX`/`fromY`, `speed`, `state`, `easing`). |
+| `dialogue` | `id`, `name`, `kind`, `clips` | `line` (required l10n key — text lives in the localization tables, never inline), optional `speaker`. |
+| `sound` | `id`, `name`, `kind`, optional `group` (default `sfx`), `clips` | `source` (audio path or URI), optional `group`, `volume` (`[0, 1]`). |
+| `music` | `id`, `name`, `kind`, optional `group` (default `music`), `clips` | `source`, optional `group`, `volume` (`[0, 1]`), `fadeIn`, `fadeOut`, `loop`. |
+
+`cutscene.Parse(data)` reads both versions strictly, refusing unknown keys, a second YAML document, unsupported versions, timeline fields in version 1, mixing video and timeline fields, overlapping clips on non-sound tracks, non-finite numbers and negative or non-string durations. `cutscene.Encode(c)` writes canonical 2-space YAML (prefixing version 2 files with `SchemaCommentV2` and keeping version 1 output unchanged) so files round-trip byte for byte. A cutscene constructed in code may leave `Version` at 0.
+
+## Playing a timeline cutscene
+
+`NewTimelinePlayer(c, target)` runs a timeline cutscene deterministically on `game.Loop`'s fixed steps against a `*sceneformat.BuiltScene` (or `*sceneformat.SceneDoc`), resolving dialogue line IDs through an `*l10n.Catalog` and triggering sound/music cues:
+
+```go
+tl, err := cutscene.NewTimelinePlayer(c, cutscene.TimelineTarget{
+	Scene:   builtScene,
+	Catalog: catalog,
+	Locale:  "en",
+	Mixer:   mixer,
+	OnActorState: func(actorID, state string) { setAnim(actorID, state) },
+	OnSound:      func(clip cutscene.Clip, group string, vol float32) { playSFX(clip.Source, group, vol) },
+	OnDone:       func(r cutscene.Result) { resumeGameplay() },
+})
+if err != nil {
+	return err
+}
+tl.Play()
+
+// Inside game.Loop.Update:
+tl.Update(dt)
+```
+
+`tl.Seek(at)` scrubs directly to any timestamp in `[0, Length]` and evaluates actor, camera and dialogue states purely without firing sound, music or completion callbacks. `tl.Reset()` rewinds to time 0 and restores initial actor and camera positions.
+
+To wire the same skip keys, press-to-skip, back handling, `CanSkip()`, reactive `Dialogue()` and between-scene transitions (`TimelineScene`) as video cutscenes, play through `Player`:
+
+```go
+_, err := player.PlayTimeline(c, cutscene.TimelineTarget{Scene: builtScene, Catalog: catalog}, func(r cutscene.Result) {
+	resumeGameplay()
+})
+// Inside game.Loop.Update:
+player.Step(dt)
+```
+
+Unlike video cutscenes, `PlayTimeline` leaves `Options.Loop` and `Options.Mixer` running so the scene continues drawing and playing cutscene audio while `Player.View()` captures skip input.
+
+## Validation with `game check` and `refs`
+
+`game check` (package `tooling/assetcheck`) validates every `*.cutscene.yaml` / `*.cutscene.yml` file in a project:
+
+- Parses and validates the cutscene schema.
+- Verifies that `scene` (when set) and every project-relative video or audio `source` exists.
+- Verifies that every actor track `target` and camera clip `target` names an object in the referenced scene (including inherited and instanced scenes).
+- Verifies that every dialogue clip `line` ID exists in the project's YAML localization string tables (`l10n.ParseYAML`), reporting missing IDs with file and line.
+
+`refs` (`game mv` and `game index`) tracks `scene`, project-relative video `source` and timeline audio `source` paths in `*.cutscene.yaml` files so moving a scene or audio asset rewrites cutscene references in place.
+
+## Playing a video cutscene
 
 Make one `Player` for the game and mount its `View` over the game's view, as the last child of the view that holds the canvas:
 

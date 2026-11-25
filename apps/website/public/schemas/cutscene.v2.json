@@ -1,0 +1,259 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/cutscene.v2.json",
+  "title": "NSGo game cutscene (version 2)",
+  "description": "Cutscene is one video or timeline cutscene, and the document a cutscene file holds.\n\nVersion 1 holds a video cutscene:\n\nversion: 1 source: asset:cutscenes/intro.mp4 group: cutscenes skippable: true skipAfter: 1.5s fit: cover\n\nVersion 2 holds either a video cutscene or an in-engine timeline cutscene with camera, actor, dialogue, sound and music tracks:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json version: 2 kind: timeline scene: scenes/level_01.scene.yaml length: 12s skippable: true tracks: - kind: camera clips: - start: 0s duration: 1.6s easing: hold action: hold target: door\n\nParse reads such a file and Encode writes one, keys in the order of the fields below and zero values left out, so a file Encode wrote reads back and writes again unchanged.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the file format's version, from MinVersion (1) to CurrentVersion (2), which Parse and Encode check. Player.Play and NewTimelinePlayer ignore it, so a cutscene made in code may leave it 0.",
+      "type": "integer",
+      "const": 2
+    },
+    "kind": {
+      "description": "Kind selects whether a version 2 cutscene plays a video (\"video\") or an in-engine timeline (\"timeline\"). Version 1 files leave it empty.",
+      "type": "string",
+      "enum": [
+        "video",
+        "timeline"
+      ]
+    },
+    "source": {
+      "description": "Source is the video for a video cutscene: an \"asset:\" path in the app's resources, a file path or a URL, as core.Video takes. Omitted on timeline cutscenes.",
+      "type": "string"
+    },
+    "scene": {
+      "description": "Scene optionally names the scene file a timeline cutscene plays against, as a slash-separated path from the project root (for example \"scenes/level_01.scene.yaml\"). Used by game check and refs to validate object IDs. Version 2 timeline cutscenes only.",
+      "type": "string"
+    },
+    "length": {
+      "description": "Length is the total duration of a timeline cutscene, written as a Go duration string such as \"12s\". Version 2 timeline cutscenes only.",
+      "type": "string"
+    },
+    "group": {
+      "description": "Group is the mixer group whose volume, times the master volume, the cutscene's audio plays at; empty for the master volume alone (video) or per-track defaults (timeline).",
+      "type": "string"
+    },
+    "skippable": {
+      "description": "Skippable lets the player skip the cutscene by a press, a skip key or back.",
+      "type": "boolean"
+    },
+    "skipAfter": {
+      "description": "SkipAfter is how far into the cutscene a skippable cutscene must play before it can be skipped, so a press meant for the game before it does not skip it at once; 0 for from the start.",
+      "type": "string"
+    },
+    "fit": {
+      "description": "Fit is how a video cutscene's picture fits the screen, FitContain when empty. Video cutscenes only.",
+      "type": "string",
+      "enum": [
+        "contain",
+        "cover",
+        "stretch"
+      ]
+    },
+    "transparent": {
+      "description": "Transparent leaves the screen behind a video cutscene clear rather than black, so the game shows in the bars and through a video with an alpha channel, where the platform keeps it (core.Video). Video cutscenes only.",
+      "type": "boolean"
+    },
+    "tracks": {
+      "description": "Tracks are the ordered timeline tracks (camera, actor, dialogue, sound and music) of a timeline cutscene. Version 2 timeline cutscenes only.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Track"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "Clip": {
+      "description": "Clip is one timed action or cue on a cutscene timeline track.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID optionally identifies the clip for tools and editors; non-empty clip IDs must be unique within the cutscene.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Label is an optional human-readable label for the clip.",
+          "type": "string"
+        },
+        "start": {
+          "description": "Start is when the clip begins on the timeline, as a Go duration string such as \"1.6s\".",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Duration is how long the clip lasts, as a Go duration string such as \"2.4s\".",
+          "type": "string"
+        },
+        "easing": {
+          "description": "Easing is the interpolation curve for motion and camera pans: \"linear\" (default), \"easeIn\", \"easeOut\", \"easeInOut\" or \"hold\".",
+          "type": "string",
+          "enum": [
+            "linear",
+            "easeIn",
+            "easeOut",
+            "easeInOut",
+            "hold"
+          ]
+        },
+        "action": {
+          "description": "Action selects the operation on a camera track (\"hold\", \"pan\", \"follow\") or actor track (\"walk\", \"state\", \"drop\", \"patrol\").",
+          "type": "string",
+          "enum": [
+            "hold",
+            "pan",
+            "follow",
+            "walk",
+            "state",
+            "drop",
+            "patrol"
+          ]
+        },
+        "target": {
+          "description": "Target is the scene object ID a camera clip holds on, pans to or follows.",
+          "type": "string"
+        },
+        "fromX": {
+          "description": "FromX is the optional starting X coordinate for a camera pan or an actor walk, drop or patrol clip.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "fromY": {
+          "description": "FromY is the optional starting Y coordinate for a camera pan or an actor walk, drop or patrol clip.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "toX": {
+          "description": "ToX is the destination X coordinate for a camera hold/pan or an actor walk, drop or patrol clip.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "toY": {
+          "description": "ToY is the destination Y coordinate for a camera hold/pan or an actor walk, drop or patrol clip.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "offsetX": {
+          "description": "OffsetX is an optional horizontal camera offset applied when holding on, panning to or following a target object.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "offsetY": {
+          "description": "OffsetY is an optional vertical camera offset applied when holding on, panning to or following a target object.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "zoom": {
+          "description": "Zoom is the optional target camera zoom factor (positive) on a camera clip.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "state": {
+          "description": "State is the animation state name played by an actor clip (required for \"state\" clips, optional for \"walk\", \"drop\" and \"patrol\").",
+          "type": "string"
+        },
+        "speed": {
+          "description": "Speed is the optional travel speed in world units per second for an actor \"patrol\" clip; when omitted, patrol completes one full round-trip over Duration.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "line": {
+          "description": "Line is the localization key (for example \"intro.knight.01\") shown by a dialogue clip; text lives in the l10n tables, not in the cutscene file.",
+          "type": "string"
+        },
+        "speaker": {
+          "description": "Speaker optionally names who speaks a dialogue clip.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source is the audio path or URI for a sound or music clip (for example \"audio/door_slam.wav\").",
+          "type": "string"
+        },
+        "group": {
+          "description": "Group overrides the track's mixer group for a sound or music clip.",
+          "type": "string"
+        },
+        "volume": {
+          "description": "Volume is the optional volume multiplier in [0, 1] for a sound or music clip; defaults to 1 when omitted.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fadeIn": {
+          "description": "FadeIn is the fade-in duration for a music clip, as a Go duration string such as \"2s\".",
+          "type": "string"
+        },
+        "fadeOut": {
+          "description": "FadeOut is the fade-out duration for a music clip, as a Go duration string such as \"1s\".",
+          "type": "string"
+        },
+        "loop": {
+          "description": "Loop repeats a music clip until its duration ends.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "start",
+        "duration"
+      ],
+      "additionalProperties": false
+    },
+    "Track": {
+      "description": "Track is one lane on a timeline cutscene (camera, actor, dialogue, sound or music) holding timed clips.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID optionally identifies the track for tools and editors; non-empty track IDs must be unique within the cutscene.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is an optional human-readable display label for the track.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind selects what the track's clips drive: \"camera\", \"actor\", \"dialogue\", \"sound\" or \"music\".",
+          "type": "string",
+          "enum": [
+            "camera",
+            "actor",
+            "dialogue",
+            "sound",
+            "music"
+          ]
+        },
+        "target": {
+          "description": "Target is the scene object ID an actor track drives; required for \"actor\" tracks and omitted on other track kinds.",
+          "type": "string"
+        },
+        "group": {
+          "description": "Group is the default mixer group for audio clips on a \"sound\" or \"music\" track (defaults to \"sfx\" for sound and \"music\" for music).",
+          "type": "string"
+        },
+        "clips": {
+          "description": "Clips are the timed clips on this track, in non-decreasing start order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Clip"
+          }
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

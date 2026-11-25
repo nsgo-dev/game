@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json
+version: 2
+kind: timeline
+scene: scenes/level_01.scene.yaml
+length: 12s
+skippable: true
+skipAfter: 1s
+tracks:
+  - id: camera
+    name: Camera
+    kind: camera
+    clips:
+      - id: cam1
+        label: Hold on door
+        start: 0s
+        duration: 1.6s
+        easing: hold
+        action: hold
+        target: door
+      - id: cam2
+        label: Pan to knight
+        start: 1.6s
+        duration: 2.4s
+        easing: easeInOut
+        action: pan
+        target: knight
+      - id: cam3
+        label: Follow knight
+        start: 4s
+        duration: 8s
+        easing: linear
+        action: follow
+        target: knight
+  - id: knight
+    name: Knight
+    kind: actor
+    target: knight
+    clips:
+      - id: kn1
+        label: Walk in
+        start: 1s
+        duration: 2.4s
+        easing: easeOut
+        action: walk
+        fromX: 60
+        toX: 220
+        state: run
+      - id: kn2
+        label: Idle
+        start: 3.4s
+        duration: 4.6s
+        action: state
+        state: idle
+      - id: kn3
+        label: Run right
+        start: 8s
+        duration: 4s
+        easing: easeIn
+        action: walk
+        fromX: 220
+        toX: 600
+        state: run
+  - id: slime
+    name: slime_01
+    kind: actor
+    target: slime_01
+    clips:
+      - id: sl1
+        label: Drop
+        start: 6s
+        duration: 800ms
+        easing: easeIn
+        action: drop
+        fromY: -40
+        toY: 276
+      - id: sl2
+        label: Patrol
+        start: 6.8s
+        duration: 5.2s
+        action: patrol
+        fromX: 420
+        toX: 520
+        speed: 40
+  - id: dialogue
+    name: Dialogue
+    kind: dialogue
+    clips:
+      - id: dl1
+        start: 3.6s
+        duration: 2.4s
+        line: intro.knight.01
+      - id: dl2
+        start: 8.2s
+        duration: 2.2s
+        line: intro.knight.02
+  - id: sfx
+    name: Sound
+    kind: sound
+    group: sfx
+    clips:
+      - id: sx1
+        label: door_slam
+        start: 200ms
+        duration: 600ms
+        source: audio/door_slam.wav
+      - id: sx2
+        label: slime_drop
+        start: 6s
+        duration: 500ms
+        source: audio/slime_drop.wav
+  - id: music
+    name: Music
+    kind: music
+    group: music
+    clips:
+      - id: mu1
+        label: cellar_theme
+        start: 2s
+        duration: 10s
+        source: audio/cellar_theme.ogg
+        fadeIn: 2s

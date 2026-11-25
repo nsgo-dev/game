@@ -112,3 +112,23 @@ func TestCheckReportsConnectionsAcrossScenes(t *testing.T) {
 		t.Fatalf("stderr = %q, want %q", stderr, want)
 	}
 }
+
+// Acceptance: A missing line id is reported by game check with file and line.
+func TestCheckReportsMissingCutsceneLineID(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"nsgo.yaml":                  "name: test\n",
+		"scenes/level_01.scene.yaml": "version: 2\nlayers:\n  - name: world\n    objects:\n      - id: knight\n",
+		"loc/en.yaml":                "version: 1\nlocale: en\nstrings:\n  intro.knight.01: Hello\n",
+		"cutscenes/floor1_intro.cutscene.yaml": "version: 2\nkind: timeline\nscene: scenes/level_01.scene.yaml\nlength: 5s\ntracks:\n" +
+			"  - kind: dialogue\n    clips:\n      - start: 1s\n        duration: 2s\n        line: intro.knight.missing\n",
+	})
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	want := filepath.Join(dir, "cutscenes", "floor1_intro.cutscene.yaml") + `:10: dialogue line "intro.knight.missing": not found in localization tables` + "\ngame check: 1 problem\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
+}

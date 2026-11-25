@@ -22,6 +22,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 导航网格，版本 1 | `https://game.nsgo.dev/schemas/navmesh.v1.json` | `game navmesh` 烘焙、场景 `navMesh` 指定的 `*.navmesh.yaml`，由 `navbake3d.Parse` 和 `navbake3d.LoadFS` 读取（见 [navbake3d](navbake3d.md)） |
 | 项目文件，版本 1 | `https://game.nsgo.dev/schemas/game.v1.json` | 项目根目录的 `game.yaml`，由 `project.Parse` 读取 |
 | 行为树，版本 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`，由 `ai.ParseBehaviorTree` 和 `ai.LoadBehaviorTreeFS` 读取 |
+| 过场动画，版本 1 | `https://game.nsgo.dev/schemas/cutscene.v1.json` | `*.cutscene.yaml` 视频过场动画，由 `cutscene.Parse` 读取 |
+| 过场动画，版本 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` 视频或时间轴过场动画，由 `cutscene.Parse` 读取 |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。

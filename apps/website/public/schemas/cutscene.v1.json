@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/cutscene.v1.json",
+  "title": "NSGo game cutscene (version 1)",
+  "description": "Cutscene is one video or timeline cutscene, and the document a cutscene file holds.\n\nVersion 1 holds a video cutscene:\n\nversion: 1 source: asset:cutscenes/intro.mp4 group: cutscenes skippable: true skipAfter: 1.5s fit: cover\n\nVersion 2 holds either a video cutscene or an in-engine timeline cutscene with camera, actor, dialogue, sound and music tracks:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json version: 2 kind: timeline scene: scenes/level_01.scene.yaml length: 12s skippable: true tracks: - kind: camera clips: - start: 0s duration: 1.6s easing: hold action: hold target: door\n\nParse reads such a file and Encode writes one, keys in the order of the fields below and zero values left out, so a file Encode wrote reads back and writes again unchanged.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the file format's version, from MinVersion (1) to CurrentVersion (2), which Parse and Encode check. Player.Play and NewTimelinePlayer ignore it, so a cutscene made in code may leave it 0.",
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "description": "Source is the video for a video cutscene: an \"asset:\" path in the app's resources, a file path or a URL, as core.Video takes. Omitted on timeline cutscenes.",
+      "type": "string"
+    },
+    "group": {
+      "description": "Group is the mixer group whose volume, times the master volume, the cutscene's audio plays at; empty for the master volume alone (video) or per-track defaults (timeline).",
+      "type": "string"
+    },
+    "skippable": {
+      "description": "Skippable lets the player skip the cutscene by a press, a skip key or back.",
+      "type": "boolean"
+    },
+    "skipAfter": {
+      "description": "SkipAfter is how far into the cutscene a skippable cutscene must play before it can be skipped, so a press meant for the game before it does not skip it at once; 0 for from the start.",
+      "type": "string"
+    },
+    "fit": {
+      "description": "Fit is how a video cutscene's picture fits the screen, FitContain when empty. Video cutscenes only.",
+      "type": "string",
+      "enum": [
+        "contain",
+        "cover",
+        "stretch"
+      ]
+    },
+    "transparent": {
+      "description": "Transparent leaves the screen behind a video cutscene clear rather than black, so the game shows in the bars and through a video with an alpha channel, where the platform keeps it (core.Video). Video cutscenes only.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "version",
+    "source"
+  ],
+  "additionalProperties": false
+}
