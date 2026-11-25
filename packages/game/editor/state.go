@@ -224,6 +224,8 @@ type Editor struct {
 	fetch *packFetch
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
 	filesRev uint64
+	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
+	audioMixer audioMixerState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -318,6 +320,7 @@ func (e *Editor) afterMutate() {
 	}
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
+	e.syncAudioMixer()
 	e.Rebuild()
 	e.notify()
 }

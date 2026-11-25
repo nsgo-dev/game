@@ -42,12 +42,14 @@ func (e *Editor) OpenProject(path string) error {
 		}
 	}
 	e.stopFetch()
+	e.stopAudioAudition()
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
+	e.syncAudioMixer()
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
