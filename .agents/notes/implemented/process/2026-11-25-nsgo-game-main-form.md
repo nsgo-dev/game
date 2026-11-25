@@ -20,4 +20,4 @@ What runs the command itself stays `go tool game`: the editor's Run button (`edi
 ## Consequences
 
 - **Benefits**: one entry point, `nsgo game`, for creating and working on a game, with the module's pinned version inside a project.
-- **Costs and known limits**: until NSGo releases #2366, the docs' main form needs `nsgo` from main, in the project's `tool` line too. Shell completion completes a command named `game`, not `nsgo game`.
+- **Costs and known limits**: until NSGo releases #2366, the docs' main form needs `nsgo` from main, in the project's `tool` line too. Shell completion completes `game` and `nsgo game`, not `go tool game` ([completion for nsgo game](../feature/2026-11-25-completion-nsgo-game.md)).

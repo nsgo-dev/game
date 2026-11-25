@@ -116,8 +116,8 @@ type completionCase struct {
 	want []string
 }
 
-// completionCases run in a directory holding a.png, scene.yaml and the directory sub.
-var completionCases = []completionCase{
+// gameCompletionCases run in a directory holding a.png, scene.yaml and the directory sub.
+var gameCompletionCases = []completionCase{
 	{"game ", []string{"assets", "audio", "bench", "check", "completion", "credits", "dev", "editor", "generate", "help", "index", "library", "manifest", "mcp", "mv", "navmesh", "new", "pack", "pixelfx", "playtest", "release", "replay", "tex"}},
 	{"game pa", []string{"pack"}},
 	{"game pack -", []string{"-extrude", "-in", "-max-height", "-max-width", "-name", "-out", "-padding", "-scale", "-trim"}},
@@ -147,9 +147,43 @@ var completionCases = []completionCase{
 	{"game pixelfx explosions/sm", []string{"explosions/small-explosion", "explosions/smoke-bomb"}},
 	{"game pixelfx -f", []string{"-flip", "-fps"}},
 	{"game help t", []string{"tex"}},
+	{"game new -", []string{"-list", "-module", "-name", "-template", "-version"}},
 }
 
-// completionDir returns a directory holding the files completionCases expect.
+// nsgoCompletionCases complete nsgo's own words, and after nsgo game every line of gameCompletionCases as game does.
+func nsgoCompletionCases() []completionCase {
+	cases := []completionCase{
+		{"nsgo ", []string{"build", "certify", "check", "dev", "doctor", "game", "help", "i18n", "init", "keygen", "mcp", "publish", "revoke", "test", "verify", "version"}},
+		{"nsgo g", []string{"game"}},
+		{"nsgo dev ", []string{"a.png", "scene.yaml", "sub/"}},
+	}
+	for _, tc := range gameCompletionCases {
+		cases = append(cases, completionCase{"nsgo " + tc.line, tc.want})
+	}
+	return cases
+}
+
+// completionCases returns the cases shell runs: game's and nsgo's, but in fish not nsgo alone, since the fish script adds to a completion of nsgo rather than replacing it, so there fish offers file paths beside game.
+func completionCases(shell string) []completionCase {
+	var cases []completionCase
+	for _, tc := range append(slices.Clone(gameCompletionCases), nsgoCompletionCases()...) {
+		if shell != "fish" || tc.line != "nsgo " {
+			cases = append(cases, tc)
+		}
+	}
+	return cases
+}
+
+// completionLines returns the lines of cases.
+func completionLines(cases []completionCase) []string {
+	lines := make([]string, len(cases))
+	for i, tc := range cases {
+		lines[i] = tc.line
+	}
+	return lines
+}
+
+// completionDir returns a directory holding the files the completion cases expect.
 func completionDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -184,8 +218,8 @@ func runShell(t *testing.T, dir, shell string, args ...string) string {
 	return stdout.String()
 }
 
-// checkCompletions compares out, each case's sorted words under a "## line" header, with completionCases.
-func checkCompletions(t *testing.T, shell, out string) {
+// checkCompletions compares out, each case's sorted words under a "## line" header, with cases.
+func checkCompletions(t *testing.T, shell, out string, cases []completionCase) {
 	t.Helper()
 	got := map[string][]string{}
 	var line string
@@ -198,7 +232,7 @@ func checkCompletions(t *testing.T, shell, out string) {
 			got[line] = append(got[line], l)
 		}
 	}
-	for _, tc := range completionCases {
+	for _, tc := range cases {
 		words, ok := got[tc.line]
 		if !ok {
 			t.Errorf("%s: %q was not completed:\n%s", shell, tc.line, out)
@@ -212,7 +246,7 @@ func checkCompletions(t *testing.T, shell, out string) {
 	}
 }
 
-// zshCapture drives an interactive zsh in a pseudo-terminal for each line it is given, presses Tab and prints the matches the completion system adds, under a "## line" header, finding each match by the byte \x01 it is printed after, which the echo of what was typed does not hold. It loads the script either from $fpath, the way a saved _game file is found, or with source after compinit, as `source <(game completion zsh)` does. What it types into the terminal is indented with spaces, since a tab there would complete.
+// zshCapture drives an interactive zsh in a pseudo-terminal for each line it is given, presses Tab and prints the matches the completion system adds, under a "## line" header, finding each match by the byte \x01 it is printed after, which the echo of what was typed does not hold. It loads the script either from $fpath (mode fpath, followed by directories to put after it on $fpath), the way a saved _game file is found, or with source after compinit, as `source <(game completion zsh)` does. What it types into the terminal is indented with spaces, since a tab there would complete.
 const zshCapture = `
 zmodload zsh/zpty || exit 3
 script=$1 mode=$2
@@ -220,8 +254,8 @@ shift 2
 for line in "$@"; do
 	zpty z zsh -f -i
 	zpty -w z 'PROMPT= RPROMPT= ; unsetopt zle_bracketed_paste 2>/dev/null; bindkey "^I" complete-word'
-	if [[ $mode == fpath ]]; then
-		zpty -w z "fpath=(${script:h} \$fpath); autoload -Uz compinit; compinit -D -u"
+	if [[ $mode == fpath* ]]; then
+		zpty -w z "fpath=(${script:h} \$fpath ${mode#fpath}); autoload -Uz compinit; compinit -D -u"
 	else
 		zpty -w z "autoload -Uz compinit; compinit -D -u; source $script"
 	fi
@@ -269,27 +303,48 @@ func TestZshCompletion(t *testing.T) {
 	if out := runShell(t, dir, "zsh", "-f", "-n", script); out != "" {
 		t.Fatalf("zsh -n: %s", out)
 	}
-	lines := make([]string, len(completionCases))
-	for i, tc := range completionCases {
-		lines[i] = tc.line
-	}
+	cases := completionCases("zsh")
 	for _, mode := range []string{"source", "fpath"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			out := runShell(t, dir, "zsh", append([]string{"-f", "-c", zshCapture, "zsh", script, mode}, lines...)...)
-			checkCompletions(t, "zsh "+mode, out)
+			out := runShell(t, dir, "zsh", append([]string{"-f", "-c", zshCapture, "zsh", script, mode}, completionLines(cases)...)...)
+			checkCompletions(t, "zsh "+mode, out, cases)
 		})
 	}
 }
 
-// bashCapture sources the script and, for each line, sets COMP_WORDS and COMP_CWORD as bash does when Tab is pressed, splitting = into a word of its own, calls _game and prints COMPREPLY under a "## line" header. A directory gets the / that bash adds only when the script marked the results as file names, either with compopt -o filenames (which works only inside real completion, so a function stands in for it and records the call) or, in bash 3.2 where there is no compopt, by registering _game with -o filenames.
+// TestZshCompletionKeepsOwnNsgo checks that the script leaves a completion of nsgo's own in place: one registered before it is sourced, one compinit registers from earlier on $fpath, and one later on $fpath, which completes nsgo's words while nsgo game still completes game's commands.
+func TestZshCompletionKeepsOwnNsgo(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is not installed")
+	}
+	dir := completionDir(t)
+	scriptDir, ownDir := t.TempDir(), t.TempDir()
+	script := filepath.Join(scriptDir, "_game")
+	if err := os.WriteFile(script, []byte(completionScript(t, "zsh")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ownDir, "_nsgo"), []byte("#compdef nsgo\ncompadd -- own\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, setup, want string }{
+		{"sourced", "autoload -Uz compinit; compinit -D -u; _mine() { }; compdef _mine nsgo; source " + script, "_mine _game"},
+		{"fpath before", "fpath=(" + ownDir + " " + scriptDir + " $fpath); autoload -Uz compinit; compinit -D -u", "_nsgo _game"},
+	} {
+		out := runShell(t, dir, "zsh", "-f", "-c", tc.setup+"; print -r -- $_comps[nsgo] $_comps[game]")
+		if got := strings.TrimSpace(out); got != tc.want {
+			t.Errorf("%s: nsgo and game complete with %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	cases := []completionCase{{"nsgo ", []string{"own"}}, {"nsgo game pa", []string{"pack"}}}
+	out := runShell(t, dir, "zsh", append([]string{"-f", "-c", zshCapture, "zsh", script, "fpath " + ownDir}, completionLines(cases)...)...)
+	checkCompletions(t, "zsh fpath after", out, cases)
+}
+
+// bashCapture sources the script and, for each line, sets COMP_WORDS and COMP_CWORD as bash does when Tab is pressed, splitting = into a word of its own, calls the function registered for the line's command and prints COMPREPLY under a "## line" header. A directory gets the / that bash adds only when the script marked the results as file names, either with compopt -o filenames (which works only inside real completion, so a function stands in for it and records the call) or, in bash 3.2 where there is no compopt, by registering the function with -o filenames.
 const bashCapture = `
 source "$1" || exit 3
 shift
-case $(complete -p game) in
-*'-o filenames'*) registered=1 ;;
-*) registered= ;;
-esac
 if type compopt >/dev/null 2>&1; then
 	compopt() {
 		case " $* " in
@@ -305,8 +360,13 @@ for line in "$@"; do
 	esac
 	COMP_CWORD=$((${#COMP_WORDS[@]} - 1))
 	COMPREPLY=()
-	marked=$registered
-	_game
+	spec=$(complete -p "${COMP_WORDS[0]}")
+	case $spec in
+	*'-o filenames'*) marked=1 ;;
+	*) marked= ;;
+	esac
+	fn=${spec##*-F }
+	${fn%% *}
 	echo "## $line"
 	for w in "${COMPREPLY[@]}"; do
 		if [ -n "$marked" ] && [ -d "$w" ]; then w="$w/"; fi
@@ -327,10 +387,8 @@ func TestBashCompletion(t *testing.T) {
 	if out := runShell(t, dir, "bash", "-n", script); out != "" {
 		t.Fatalf("bash -n: %s", out)
 	}
-	args := []string{"--norc", "--noprofile", "-c", bashCapture, "bash", script}
-	for _, tc := range completionCases {
-		args = append(args, tc.line)
-	}
+	cases := completionCases("bash")
+	args := append([]string{"--norc", "--noprofile", "-c", bashCapture, "bash", script}, completionLines(cases)...)
 	// macOS ships bash 3.2 as /bin/bash, which has no compopt, while bash on $PATH may be a newer one, so both run where they differ.
 	shells := []string{"bash"}
 	if path, err := exec.LookPath("bash"); err == nil {
@@ -341,7 +399,27 @@ func TestBashCompletion(t *testing.T) {
 		}
 	}
 	for _, shell := range shells {
-		checkCompletions(t, shell, runShell(t, dir, shell, args...))
+		checkCompletions(t, shell, runShell(t, dir, shell, args...), cases)
+	}
+}
+
+// TestBashCompletionKeepsOwnNsgo checks that the script leaves a completion of nsgo's own in place: one registered before it is sourced, and one bash-completion has not loaded yet, which a stand-in for bash-completion's loader registers. It also checks that the loader does not load the script again when the script is that completion.
+func TestBashCompletionKeepsOwnNsgo(t *testing.T) {
+	dir := completionDir(t)
+	script := filepath.Join(t.TempDir(), "game.bash")
+	if err := os.WriteFile(script, []byte(completionScript(t, "bash")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, setup, want string }{
+		{"registered", "complete -W own nsgo", "complete -W 'own' nsgo"},
+		{"not loaded", "_comp_load() { complete -W own \"$1\"; }", "complete -W 'own' nsgo"},
+		{"loaded as nsgo", "_comp_load() { loads=$((loads + 1)); source " + shQuote(script) + "; }", "1 complete -F __game_nsgo nsgo"},
+	} {
+		out := runShell(t, dir, "bash", "--norc", "--noprofile", "-c", tc.setup+"; source "+shQuote(script)+"; echo ${loads-} $(complete -p nsgo)")
+		// bash 3.2 registers the script's function with -o filenames as well.
+		if got := strings.Replace(strings.TrimSpace(out), "-o filenames ", "", 1); got != tc.want {
+			t.Errorf("%s: nsgo completes with %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -356,10 +434,11 @@ func TestFishCompletion(t *testing.T) {
 	}
 	var prog strings.Builder
 	prog.WriteString("source " + fishQuote(script) + "\n")
-	for _, tc := range completionCases {
+	cases := completionCases("fish")
+	for _, tc := range cases {
 		prog.WriteString("echo " + fishQuote("## "+tc.line) + "\n")
 		// string replace fails when it replaces nothing, as for words without a description, and fish -c exits with the last command's status, so its status is dropped.
 		prog.WriteString("complete -C " + fishQuote(tc.line) + " | string replace -r '\\t.*' ''; or true\n")
 	}
-	checkCompletions(t, "fish", runShell(t, dir, "fish", "--no-config", "-c", prog.String()))
+	checkCompletions(t, "fish", runShell(t, dir, "fish", "--no-config", "-c", prog.String()), cases)
 }
