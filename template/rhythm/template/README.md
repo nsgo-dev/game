@@ -22,10 +22,10 @@ It demonstrates:
 | Hit lanes 1 to 4 | D F J K, or ← ↓ ↑ → | D-pad left, D-pad down, South, East, or the shoulders and triggers | Tap or click the lane |
 | Move in a menu | ↑ ↓ or W S | D-pad up and down | |
 | Pick, resume, save a calibration | Enter or Space | South | The button |
-| Back to the menu | Escape or Backspace | East | Menu, Back |
+| Back to the menu | Escape or Backspace | East, or Back (Select); only Back in a calibration, where East is a lane | Menu, Back |
 | Pause | Escape or P | Start | Pause |
 
-The keyboard and game controller bindings are the input map in `game.yaml`; edit them there. The lanes' touch and mouse regions are bound in `layoutField`, from the playfield's layout.
+The keyboard and game controller bindings are the input map in `game.yaml`; edit them there. The lanes' touch and mouse regions are bound in `layoutField`, from the playfield's layout. South and East are lanes as well as confirm and back, so a calibration takes them as taps until it is done, and the result ignores a lane tap on them for a moment after it shows, so a player still tapping as a chart fails reads the result first.
 
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 

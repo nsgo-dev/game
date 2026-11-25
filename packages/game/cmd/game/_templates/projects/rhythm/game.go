@@ -38,6 +38,8 @@ const (
 	hitFlash = 200 * time.Millisecond
 	// hitVolume is how loud a hit's click plays, under the music.
 	hitVolume = 0.35
+	// resultGuard is how long the result ignores confirm and back in a step a lane is hit in, after it shows. On a controller those are South and East, which are lane buttons too, so a player still tapping the lanes as a chart fails does not retry or leave before reading the result; Enter and Escape, which are no lanes, act at once.
+	resultGuard = 750 * time.Millisecond
 )
 
 // screen is which of the game's screens shows.
@@ -133,6 +135,8 @@ type rhythmGame struct {
 	hits  [Lanes]laneHit
 
 	calScreen *rhythm.CalibrationScreen
+	// resultAt is when the result showed, which resultGuard counts from.
+	resultAt time.Time
 
 	screen     *core.Signal[screen]
 	cursor     *core.Signal[int]
@@ -267,7 +271,7 @@ func (g *rhythmGame) update(time.Duration) {
 	case screenPlay:
 		g.playStep(now)
 	case screenResult:
-		g.resultInput()
+		g.resultInput(now)
 	case screenCalibrate:
 		g.calibrateInput(now)
 	}
@@ -476,6 +480,7 @@ func (g *rhythmGame) finish() {
 		}
 	}
 	g.result.Set(res)
+	g.resultAt = audio.Now(g.cx)
 	g.cursor.Set(resultRetry)
 	g.actions.Reset()
 	g.screen.Set(screenResult)
@@ -533,8 +538,11 @@ func (g *rhythmGame) pausePick(i int) {
 	}
 }
 
-// resultInput acts on the result: confirm retries or goes back as highlighted, and back goes to the menu.
-func (g *rhythmGame) resultInput() {
+// resultInput acts on the result at now: confirm retries or goes back as highlighted, and back goes to the menu, except in a step a lane is hit in before resultGuard has passed since the result showed.
+func (g *rhythmGame) resultInput(now time.Time) {
+	if now.Sub(g.resultAt) < resultGuard && slices.ContainsFunc(laneActions[:], g.actions.JustPressed) {
+		return
+	}
 	if g.actions.JustPressed(actionBack) {
 		g.showMenu()
 		return
@@ -583,17 +591,27 @@ func (g *rhythmGame) startCalibration(kind rhythm.CalibrationKind) {
 }
 
 // calibrateInput taps the calibration with the lanes, by when each went down, as a chart judges them; confirm keeps a steady result or starts an unsteady one over, and back leaves.
+//
+// On a controller South and East are lane buttons as well as confirm and back, so a step a lane is hit in is a tap and nothing else: back never acts in it, and confirm acts only once the calibration was done before the step. A controller leaves a calibration with its Back (Select) button.
 func (g *rhythmGame) calibrateInput(now time.Time) {
 	s := g.calScreen
-	if g.actions.JustPressed(actionBack) {
+	cal := s.Calibration()
+	done := cal.Calibrator.Done()
+	tapped := false
+	for l, name := range laneActions {
+		if g.actions.JustPressed(name) {
+			tapped = true
+			if !done {
+				cal.Calibrator.Tap(g.pressTime(l, now))
+			}
+		}
+	}
+	if !tapped && g.actions.JustPressed(actionBack) {
 		g.showMenu()
 		return
 	}
-	cal := s.Calibration()
-	for l, name := range laneActions {
-		if g.actions.JustPressed(name) {
-			cal.Calibrator.Tap(g.pressTime(l, now))
-		}
+	if tapped && !done {
+		return
 	}
 	if g.actions.JustPressed(actionConfirm) {
 		if r, done := cal.Result(); done && r.Steady() {
@@ -604,7 +622,9 @@ func (g *rhythmGame) calibrateInput(now time.Time) {
 	}
 }
 
-// layoutField lays the playfield out at size and binds each lane's column to touches and the left mouse button, beside the inputs game.yaml binds.
+// layoutField lays the playfield out at size and binds each lane's column to touches and the left mouse button, beside the inputs game.yaml binds. It runs as the playfield's view is laid out.
+//
+// Binding an action drops the press it latched since the last step, so a lane stamped since then, by a key, a touch or a click that went down before the playfield changed size, is triggered again and its hit is not lost.
 func (g *rhythmGame) layoutField(size core.Size) {
 	if size == g.field {
 		return
@@ -614,6 +634,9 @@ func (g *rhythmGame) layoutField(size core.Size) {
 	for lane, name := range laneActions {
 		b := l.laneBounds(lane)
 		g.actions.Bind(name, append(slices.Clone(g.laneInputs[lane]), input.TouchRegion(b), input.MouseRegion(b, core.MouseButtonLeft))...)
+		if !g.stamps[lane].IsZero() {
+			g.actions.Trigger(name)
+		}
 	}
 }
 

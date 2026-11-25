@@ -72,11 +72,11 @@ func (l layout) noteY(ahead time.Duration) float32 {
 
 // drawField draws the chart being played at the clock's draw position: the lanes, the beat lines, the notes still to hit and each lane's glow.
 func (g *rhythmGame) drawField(d *core.Drawing, size core.Size) {
-	g.layoutField(size)
 	l := layoutFor(size)
 	w, h := float32(size.Width), float32(size.Height)
 	d.SetFillColor(colorBackground).FillRect(0, 0, w, h)
-	if g.run == nil {
+	// A playfield with no height, such as in a collapsed window, has nothing to draw.
+	if g.run == nil || l.hitY <= 0 {
 		return
 	}
 	now := audio.Now(g.cx)
@@ -87,11 +87,9 @@ func (g *rhythmGame) drawField(d *core.Drawing, size core.Size) {
 	// A line on each beat and a brighter one on each bar, from the beat timing so they move with the music.
 	timing := g.track.Timing
 	first := math.Ceil(timing.Beat(pos - approach/4))
-	for b := first; ; b++ {
+	// The lines end at the top of the playfield, an approach ahead, by time rather than by where they are drawn, so the loop ends whatever the playfield's size.
+	for b := first; timing.Time(b)-pos <= approach; b++ {
 		y := l.noteY(timing.Time(b) - pos)
-		if y < 0 {
-			break
-		}
 		c := colorBeatLine
 		if _, in := timing.Bar(b); in == 0 {
 			c = colorBarLine
