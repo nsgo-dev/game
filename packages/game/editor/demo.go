@@ -173,6 +173,8 @@ func (e *Editor) OpenDemo() error {
 	e.table = nil
 	e.tableSaved = nil
 	e.l10n = nil
+	e.tileset = nil
+	e.ActiveTerrain = ""
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.filesRev++

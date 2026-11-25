@@ -1,7 +1,7 @@
 package editor_test
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -548,5 +548,187 @@ func TestTilesetEditorAssignsEdgesAndCornersAndSaves(t *testing.T) {
 	if ed.TilesetOpen() || app.Exists("id:tileset-editor-panel") {
 		t.Fatal("Tileset Editor did not close")
 	}
-	_ = fmt.Sprint()
+}
+
+func TestTilesetUndoDoesNotCorruptNewlyOpenedTileset(t *testing.T) {
+	ed, _ := terrainTestEditor(t, fullBlobTilesetDoc(), 3, 3)
+
+	rawA, err := tilemap.EncodeTileset(fullBlobTilesetDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawB, err := tilemap.EncodeTileset(fullCardinalTilesetDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ed.OpenTilesetYAML("tilesets/a.tileset.yaml", rawA); err != nil {
+		t.Fatalf("OpenTilesetYAML A: %v", err)
+	}
+	if err := ed.AddTilesetTerrain("mud", "cardinal"); err != nil {
+		t.Fatalf("AddTilesetTerrain on A: %v", err)
+	}
+
+	// Open a completely different tileset B without clearing history, then Undo.
+	if err := ed.OpenTilesetYAML("tilesets/b.tileset.yaml", rawB); err != nil {
+		t.Fatalf("OpenTilesetYAML B: %v", err)
+	}
+	if !ed.Undo() {
+		t.Fatal("expected Undo to step history")
+	}
+	docB := ed.TilesetDoc()
+	if docB == nil || docB.Name != "stone_cardinal" {
+		t.Fatalf("Undo of tileset A overwrote tileset B: got %+v, want stone_cardinal", docB)
+	}
+	if ed.TilesetDirty() {
+		t.Fatal("tileset B became dirty after undoing tileset A's edit")
+	}
+}
+
+func TestTilesetSymlinkEscapeRefusedOnOpenAndSave(t *testing.T) {
+	projDir := writeBareProject(t, "Tileset Symlink Test")
+	outsideDir := t.TempDir()
+
+	rawTS, err := tilemap.EncodeTileset(fullCardinalTilesetDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.Join(outsideDir, "secret.tileset.yaml")
+	if err := os.WriteFile(outsideFile, rawTS, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(projDir, "tilesets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(projDir, "tilesets", "escape.tileset.yaml")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(projDir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// Opening a symlink pointing outside the project root must be refused.
+	if err := ed.OpenTilesetProjectFile("tilesets/escape.tileset.yaml"); err == nil {
+		t.Fatal("OpenTilesetProjectFile accepted symlink escaping project root")
+	}
+
+	// Opening a legitimate file, then replacing it with an escaping symlink before SaveTileset must refuse to write outside the project.
+	legitPath := filepath.Join(projDir, "tilesets", "legit.tileset.yaml")
+	if err := os.WriteFile(legitPath, rawTS, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenTilesetProjectFile("tilesets/legit.tileset.yaml"); err != nil {
+		t.Fatalf("OpenTilesetProjectFile legit: %v", err)
+	}
+	if err := ed.AddTilesetTerrain("sand", "cardinal"); err != nil {
+		t.Fatalf("AddTilesetTerrain: %v", err)
+	}
+	if err := os.Remove(legitPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideFile, legitPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SaveTileset(); err == nil {
+		t.Fatal("SaveTileset wrote through symlink escaping project root")
+	}
+	gotOutside, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotOutside) != string(rawTS) {
+		t.Fatal("outside file was modified despite symlink rejection")
+	}
+}
+
+func TestTilesetClearedOnOpenProjectAndDemo(t *testing.T) {
+	projA := writeBareProject(t, "Project A")
+	projB := writeBareProject(t, "Project B")
+	rawTS, err := tilemap.EncodeTileset(fullCardinalTilesetDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projA, "ground.tileset.yaml"), rawTS, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(projA); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenTilesetProjectFile("ground.tileset.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetActiveTerrain("stone")
+	if !ed.TilesetOpen() || ed.ActiveTerrain != "stone" {
+		t.Fatalf("expected tileset open and ActiveTerrain=stone, got open=%v terrain=%q", ed.TilesetOpen(), ed.ActiveTerrain)
+	}
+
+	// Switching to another project must clear the open tileset and active terrain.
+	if err := ed.OpenProject(projB); err != nil {
+		t.Fatal(err)
+	}
+	if ed.TilesetOpen() || ed.ActiveTerrain != "" {
+		t.Fatalf("after OpenProject(projB): open=%v terrain=%q, want false/empty", ed.TilesetOpen(), ed.ActiveTerrain)
+	}
+
+	// OpenDemo must also clear any open tileset and active terrain.
+	if err := ed.OpenTilesetYAML("temp.tileset.yaml", rawTS); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetActiveTerrain("stone")
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.TilesetOpen() || ed.ActiveTerrain != "" {
+		t.Fatalf("after OpenDemo: open=%v terrain=%q, want false/empty", ed.TilesetOpen(), ed.ActiveTerrain)
+	}
+}
+
+func TestTilesetPlayModeReassignAndNilEditorGuards(t *testing.T) {
+	var nilEd *editor.Editor
+	if err := nilEd.PaintTerrain("ground", 0, 0, "grass"); err == nil {
+		t.Fatal("nil Editor PaintTerrain should return error")
+	}
+	if err := nilEd.EraseTerrain("ground", 0, 0, "grass"); err == nil {
+		t.Fatal("nil Editor EraseTerrain should return error")
+	}
+
+	ed, _ := terrainTestEditor(t, fullCardinalTilesetDoc(), 3, 3)
+	if err := ed.OpenActiveLayerTileset(); err != nil {
+		t.Fatalf("OpenActiveLayerTileset: %v", err)
+	}
+	// Select tile 0 (mask 0) and toggle North -> conflicts with tile 1 (mask North).
+	ed.SetTilesetSelectedTile(0)
+	if err := ed.ToggleTilesetEdgeOrCorner(tilemap.MaskNorth); err != nil {
+		t.Fatalf("ToggleTilesetEdgeOrCorner: %v", err)
+	}
+	if ed.TilesetMaskConflictTile() != 1 {
+		t.Fatalf("conflict tile = %d, want 1", ed.TilesetMaskConflictTile())
+	}
+
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 720))
+
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	defer func() { _ = ed.Stop() }()
+
+	if err := ed.ReassignTilesetEditMask(); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("ReassignTilesetEditMask during Play = %v, want ErrPlaying", err)
+	}
+	if ed.TilesetMaskConflictTile() != 1 {
+		t.Fatalf("ReassignTilesetEditMask cleared conflict tile during Play: got %d, want 1", ed.TilesetMaskConflictTile())
+	}
 }

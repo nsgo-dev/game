@@ -574,6 +574,9 @@ func (e *Editor) drawGhostTerrainTile(d *core.Drawing, layer string, col, row in
 	}
 	values := g.values()
 	w, h := g.tm.Width, g.tm.Height
+	if w <= 0 || h <= 0 || len(values) != w*h {
+		return
+	}
 	match := func(c, r int) bool {
 		if c == col && r == row {
 			return true
@@ -581,7 +584,7 @@ func (e *Editor) drawGhostTerrainTile(d *core.Drawing, layer string, col, row in
 		if c < 0 || r < 0 || c >= w || r >= h {
 			return false
 		}
-		return t.Contains(uint32(values[r*w+c]))
+		return t.Contains(cellGID(values[r*w+c]))
 	}
 	gid := int(t.Autotile.Tile(t.Autotile.ComputeMask(match, col, row)) & tilemap.TileIDMask)
 	if gid <= 0 {

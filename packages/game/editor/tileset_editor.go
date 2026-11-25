@@ -137,6 +137,41 @@ func (e *Editor) TilesetMaskConflictTile() int {
 	return e.tileset.conflictTile
 }
 
+func ensurePathWithinDir(root, target string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot, err = filepath.Abs(root)
+		if err != nil {
+			return err
+		}
+	}
+	cur := target
+	var suffix []string
+	for {
+		realCur, err := filepath.EvalSymlinks(cur)
+		if err == nil {
+			realTarget := realCur
+			for i := len(suffix) - 1; i >= 0; i-- {
+				realTarget = filepath.Join(realTarget, suffix[i])
+			}
+			rel, relErr := filepath.Rel(realRoot, realTarget)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+				return fmt.Errorf("editor: path %q resolves outside project root", target)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return err
+		}
+		suffix = append(suffix, filepath.Base(cur))
+		cur = parent
+	}
+}
+
 // OpenTilesetFile reads the YAML tileset at filePath and opens it in the Tileset Editor panel.
 func (e *Editor) OpenTilesetFile(filePath string) error {
 	if e == nil {
@@ -152,8 +187,10 @@ func (e *Editor) OpenTilesetFile(filePath string) error {
 	rel := ""
 	if e.ProjectPath != "" {
 		root := filepath.Dir(e.ProjectPath)
-		if r, err := filepath.Rel(root, filePath); err == nil && !strings.HasPrefix(r, "..") {
-			rel = filepath.ToSlash(r)
+		if ensurePathWithinDir(root, filePath) == nil {
+			if r, err := filepath.Rel(root, filePath); err == nil && !strings.HasPrefix(r, "..") {
+				rel = filepath.ToSlash(r)
+			}
 		}
 	}
 	return e.openTileset(filePath, rel, data, true)
@@ -170,6 +207,9 @@ func (e *Editor) OpenTilesetProjectFile(relPath string) error {
 	if e.Project != nil && e.ProjectPath != "" {
 		full, err := e.projectFile(relPath)
 		if err != nil {
+			return err
+		}
+		if err := ensurePathWithinDir(filepath.Dir(e.ProjectPath), full); err != nil {
 			return err
 		}
 		data, err := os.ReadFile(full)
@@ -300,6 +340,13 @@ func (e *Editor) SaveTileset() error {
 	} else {
 		if !e.tileset.fromDisk || e.tileset.path == "" {
 			return errors.New("editor: open tileset has no file path to save to")
+		}
+		if e.Project != nil && e.ProjectPath != "" && e.tileset.relPath != "" {
+			if err := ensurePathWithinDir(filepath.Dir(e.ProjectPath), e.tileset.path); err != nil {
+				e.tileset.lastErr = err
+				e.notify()
+				return err
+			}
 		}
 		if err := writeFileAtomic(e.tileset.path, data); err != nil {
 			e.tileset.lastErr = err
@@ -484,6 +531,7 @@ func (e *Editor) commitTilesetEdit(label string, edit func(doc *tilemap.TilesetD
 	e.tileset.lastErr = nil
 	e.History.Execute(&tilesetDocCmd{
 		ed:     e,
+		target: e.tileset,
 		label:  label,
 		before: before,
 		after:  after,
@@ -710,6 +758,9 @@ func (e *Editor) ReassignTilesetEditMask() error {
 	if !e.TilesetOpen() {
 		return ErrNoTileset
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	st := e.tileset
 	if st.selectedTerrain == "" || st.selectedTile < 0 {
 		return errors.New("editor: no tile or terrain selected")
@@ -747,6 +798,7 @@ func (e *Editor) tilesetTileVisual(tileID int) (core.ImageSource, sprite.Frame, 
 
 type tilesetDocCmd struct {
 	ed            *Editor
+	target        *tilesetEditorState
 	label         string
 	before, after *tilemap.TilesetDoc
 }
@@ -754,7 +806,7 @@ type tilesetDocCmd struct {
 func (c *tilesetDocCmd) Label() string { return c.label }
 
 func (c *tilesetDocCmd) Do() {
-	if c.ed.tileset == nil {
+	if c.ed.tileset == nil || c.ed.tileset != c.target {
 		return
 	}
 	c.ed.tileset.doc = c.after.Clone()
@@ -764,7 +816,7 @@ func (c *tilesetDocCmd) Do() {
 }
 
 func (c *tilesetDocCmd) Undo() {
-	if c.ed.tileset == nil {
+	if c.ed.tileset == nil || c.ed.tileset != c.target {
 		return
 	}
 	c.ed.tileset.doc = c.before.Clone()

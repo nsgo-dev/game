@@ -352,6 +352,13 @@ func (e *Editor) resolveTerrainForLayer(layer, terrainName string) (layerName, t
 	return layerName, tileLayer, g, name, t, nil
 }
 
+func cellGID(v int64) uint32 {
+	if v <= 0 {
+		return 0
+	}
+	return uint32(v & int64(tilemap.TileIDMask))
+}
+
 // applyTerrainCell places (placed=true) or removes (placed=false) terrain t at (col, row) in values (w x h)
 // and updates that cell and its 8 surrounding terrain neighbors using the exact same rules as tilemap.Tilemap.SetAutotile.
 // It updates values in place and returns only the cells whose tile value changed.
@@ -373,7 +380,7 @@ func applyTerrainCell(values []int64, w, h, col, row int, placed bool, t *tilema
 				continue
 			}
 			if inBounds(nc, nr) {
-				grid[dy+2][dx+2] = t.Contains(uint32(values[nr*w+nc]))
+				grid[dy+2][dx+2] = t.Contains(cellGID(values[nr*w+nc]))
 			}
 		}
 	}
@@ -386,7 +393,7 @@ func applyTerrainCell(values []int64, w, h, col, row int, placed bool, t *tilema
 		if !inBounds(c, r) {
 			return false
 		}
-		return t.Contains(uint32(values[r*w+c]))
+		return t.Contains(cellGID(values[r*w+c]))
 	}
 
 	var changes []tileChange
@@ -435,6 +442,9 @@ func (e *Editor) EraseTerrain(layer string, col, row int, terrainName string) er
 }
 
 func (e *Editor) editTerrainCell(layer string, col, row int, terrainName string, placed bool) error {
+	if e == nil {
+		return fmt.Errorf("editor: nil editor")
+	}
 	if e.playing {
 		return ErrPlaying
 	}

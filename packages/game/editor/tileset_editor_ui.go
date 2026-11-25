@@ -115,11 +115,12 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						modeLabel = "8-bit"
 					}
 					btns = append(btns, ui.ToggleButton{
-						TestID: "tileset-terrain-" + name,
-						Text:   fmt.Sprintf("%s (%s)", name, modeLabel),
-						On:     func() bool { return sel == name },
+						TestID:   "tileset-terrain-" + name,
+						Text:     fmt.Sprintf("%s (%s)", name, modeLabel),
+						Disabled: disabled,
+						On:       func() bool { return sel == name },
 						OnChange: func(on bool) {
-							if on {
+							if on && !ed.Playing() {
 								ed.SetTilesetSelectedTerrain(name)
 							}
 						},
@@ -319,7 +320,9 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						Background:   colors.Surface(),
 					},
 					OnPress: func(core.PressEvent) {
-						ed.SetTilesetSelectedTile(tileID)
+						if !ed.Playing() {
+							ed.SetTilesetSelectedTile(tileID)
+						}
 					},
 					Children: []core.Node{
 						core.Canvas{

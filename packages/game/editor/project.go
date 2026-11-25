@@ -119,6 +119,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.table = nil
 	e.tableSaved = nil
 	e.l10n = nil
+	e.tileset = nil
+	e.ActiveTerrain = ""
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
