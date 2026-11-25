@@ -40,7 +40,9 @@ func TestSceneTreeSelectsMovesAndRenamesADeepChild(t *testing.T) {
 	}
 
 	app.Press("id:tool-move")
-	app.Touch("id:editor-viewport", core.Point{X: 100, Y: 50}).Lift()
+	// The canvas shows the scene through the 2D view, so the world point (100, 50) is where WorldToCanvas puts it.
+	px, py := ed.WorldToCanvas(100, 50)
+	app.Touch("id:editor-viewport", core.Point{X: core.Points(px), Y: core.Points(py)}).Lift()
 
 	app.Key("f2")
 	app.Clear("id:scene-tree-name-barrel")

@@ -326,12 +326,7 @@ func (e *Editor) ClearReferences() {
 	e.notify()
 }
 
-// OpenSearchResult activates a search result: if it refers to a scene file
-// (or an object inside one), it opens that scene when it is not already open
-// (preserving unsaved edits when it is already open), updates ScenePath and
-// SelectedFile, and selects the matching object (or its top-level ancestor for
-// a nested child). For any non-scene file, it selects the file in the file
-// browser. It returns ErrNoProject when no project is open.
+// OpenSearchResult activates a search result: if it refers to a scene file (or an object inside one), it opens that scene when it is not already open (preserving unsaved edits when it is already open), updates ScenePath and SelectedFile, and selects the matching object, nested children included, or its top-level ancestor when the child cannot be selected. For any non-scene file, it selects the file in the file browser. It returns ErrNoProject when no project is open.
 func (e *Editor) OpenSearchResult(r SearchResult) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject

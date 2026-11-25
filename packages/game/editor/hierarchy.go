@@ -71,8 +71,8 @@ func objectPath(doc *sceneformat.SceneDoc, id string) []*sceneformat.ObjectDoc {
 	return nil
 }
 
-// indexedObject is where an object of the open scene sits: its location and its path from its top-level ancestor down to it.
-type indexedObject struct {
+// objectIndexEntry is where an object of the open scene sits: its location and its path from its top-level ancestor down to it.
+type objectIndexEntry struct {
 	loc  objectLoc
 	path []*sceneformat.ObjectDoc
 }
@@ -81,11 +81,11 @@ type indexedObject struct {
 type objectIndex struct {
 	rev  uint64
 	doc  *sceneformat.SceneDoc
-	objs map[string]indexedObject
+	objs map[string]objectIndexEntry
 }
 
 // lookupObject finds the object id as locateObject and objectPath do, from an index of the open scene built once per revision, so a view that looks up each of its objects on every change, as the scene tree's rows do, stays linear in their number.
-func (e *Editor) lookupObject(id string) indexedObject {
+func (e *Editor) lookupObject(id string) objectIndexEntry {
 	ix := &e.objIndex
 	fresh := false
 	if ix.objs == nil || ix.rev != e.revision || ix.doc != e.Doc {
@@ -99,14 +99,14 @@ func (e *Editor) lookupObject(id string) indexedObject {
 		entry, ok = ix.objs[id]
 	}
 	if !ok || entry.loc.obj.ID != id {
-		return indexedObject{loc: objectLoc{layer: -1, index: -1}}
+		return objectIndexEntry{loc: objectLoc{layer: -1, index: -1}}
 	}
 	return entry
 }
 
 func (e *Editor) rebuildObjectIndex() {
 	ix := &e.objIndex
-	ix.rev, ix.doc, ix.objs = e.revision, e.Doc, make(map[string]indexedObject)
+	ix.rev, ix.doc, ix.objs = e.revision, e.Doc, make(map[string]objectIndexEntry)
 	if e.Doc == nil {
 		return
 	}
@@ -118,7 +118,7 @@ func (e *Editor) rebuildObjectIndex() {
 			path = append(path, o)
 			// The first object with an ID wins, as locateObject finds it.
 			if _, dup := ix.objs[o.ID]; !dup {
-				ix.objs[o.ID] = indexedObject{loc: objectLoc{obj: o, layer: li, parent: parent, index: i, depth: len(path)}, path: slices.Clone(path)}
+				ix.objs[o.ID] = objectIndexEntry{loc: objectLoc{obj: o, layer: li, parent: parent, index: i, depth: len(path)}, path: slices.Clone(path)}
 			}
 			walk(o.Children, li, o)
 			path = path[:len(path)-1]
