@@ -540,6 +540,18 @@ func main() {
 
 当 `Editor.Library` 设为一个包库（`library.Open`）时（`go tool game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
 
+## 项目设置面板（#907）
+
+打开项目后，工具栏的 **Settings** 按钮（`ProjectSettingsOpen` / `SetProjectSettingsOpen`）会在视口下方切换显示 `ProjectSettingsPanelView`，完全通过 `EditProject` 编辑 `game.yaml`：每一次修改都经过 `project.Validate` 校验，纳入撤销/重做历史，并在点击 **Save**（`SaveProject`）时同时写回 `game.yaml` 与同步更新的 `nsgo.yaml`：
+
+- **常规（General）**：编辑 `name`、`id` 和 `appVersion`（`SetProjectName`、`SetProjectID`、`SetProjectAppVersion`）。
+- **窗口（Window）**：编辑 `window.title`、`width`/`height`、`minWidth`/`minHeight`/`maxWidth`/`maxHeight` 尺寸限制、`resizable` 和 `appearance`（`SetProjectWindowTitle`、`SetProjectWindowSize`、`SetProjectWindowLimits`、`SetProjectWindowResizable`、`SetProjectWindowAppearance`）。
+- **显示（Display）**：开关可选的 `display` 小节（`SetProjectDisplayEnabled`），并编辑虚拟分辨率 `width`/`height`、`mode`（`fit`、`fill`、`stretch`、`expand`）、`integerScale`、`pixelSnap` 与 `barColor`（`SetProjectDisplaySize`、`SetProjectDisplayMode`、`SetProjectDisplayIntegerScale`、`SetProjectDisplayPixelSnap`、`SetProjectDisplayBarColor`）。
+- **自动加载（Autoload）**：选择 `autoload.mainScene`（`SetProjectMainScene`），并增改删 `autoload.scenes` 与 `autoload.resources` 条目（`AddProjectAutoloadScene`、`UpdateProjectAutoloadScene`、`RemoveProjectAutoloadScene`、`AddProjectAutoloadResource`、`UpdateProjectAutoloadResource`、`RemoveProjectAutoloadResource`），文件路径可从当前项目文件列表中搜索选择（`ProjectSceneFiles`、`ProjectResourceFiles`）。
+- **编辑器插件（Plugins）**：为每个已注册插件（`RegisteredPlugins`）提供调用 `SetPluginEnabled` 的开关，同时列出 `game.yaml` 中声明但当前编辑器程序未内置的插件（`MissingPlugins`）并支持移除。
+
+输入、音频与导出设置各自拥有独立面板，此处不重复提供。任何被 `project.Validate` 拒绝的值都会在对应字段旁显示校验错误，且不会改动项目或撤销历史。在打开项目首次保存之前（`ProjectCanonicalSavePending`），面板顶部会显示明确提示，说明保存将以规范 YAML 形式写出 `game.yaml`，不会保留注释。
+
 ## 音频总线混音器（#909）
 
 打开项目后，工具栏的 **Mixer** 按钮（`AudioMixerOpen` / `SetAudioMixerOpen`）会在视口下方切换显示 `AudioMixerPanelView`，通过 `EditProject` 直接编辑 `game.yaml` 的 `audio` 小节：每一次修改都经过 `project.Validate` 校验，纳入编辑器的撤销/重做历史，并在点击 **Save**（`SaveProject`）时写回文件：

@@ -16,6 +16,7 @@ import (
 //   - The library panel, when Editor.Library is set (LibraryView)
 //   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
 //   - Animation panel below them while a clip is open (AnimationPanelView)
+//   - Project Settings panel below them while open (ProjectSettingsPanelView)
 //   - Problems panel below them while a project is open (ProblemsView)
 //   - Bottom status bar (including the live problem count while a project is open)
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
@@ -60,6 +61,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			pluginDockView(cx, ed, rev, DockBottom),
 			DataTablePanelView(cx, ed, rev),
 			AnimationPanelView(cx, ed, rev),
+			ProjectSettingsPanelView(cx, ed, rev),
 			AudioMixerPanelView(cx, ed, rev),
 			LocalizationPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
@@ -154,10 +156,11 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		TestID: "editor-toolbar",
 		Style: core.Style{
 			Direction:      core.Row,
+			Wrap:           core.Wrap,
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifySpaceBetween,
 			Padding:        core.Symmetric(8, 12),
-			Gap:            10,
+			Gap:            8,
 			Background:     colors.Raised(),
 			Borders:        core.Edges{Bottom: 1},
 			BorderColor:    colors.Line(),
@@ -274,6 +277,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						OnPress: func() {
 							ed.report(ed.NewClip("", "New clip", time.Second))
+						},
+					},
+					ui.ToggleButton{
+						TestID: "toolbar-project-settings",
+						Text:   "Settings",
+						Label:  "Toggle the Project Settings panel",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil
+						},
+						On: func() bool {
+							_ = rev.Get()
+							return ed.ProjectSettingsOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetProjectSettingsOpen(on)
 						},
 					},
 					ui.ToggleButton{

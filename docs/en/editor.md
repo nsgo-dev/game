@@ -540,6 +540,18 @@ A game ships its editor as one more command in its own module, beside the game, 
 
 With `Editor.Library` set to a pack library (`library.Open`), as `go tool game editor -library <index>` sets it, a panel beside the asset browser lists every pack in the library, with its kind, version, description and the version the open project has installed. Its Install, Update and Remove buttons call `InstallPack` and `RemovePack`, which write the pack's files beside `game.yaml`, record the pack and the autoload entries and plugins it adds in the project, and save the project; a registered plugin a plugin pack names turns on at once. They refuse while playing, without a project and while the project has unsaved edits (`ErrProjectDirty`), and they empty the undo history, since the files they write cannot be undone. A pack from a library over https is fetched off the event loop, with its button busy until it arrives (`FetchingPack`). The library format and what an install writes are in [Asset and Plugin Library](library.md).
 
+## Project Settings panel (#907)
+
+While a project is open, the toolbar's **Settings** button (`ProjectSettingsOpen` / `SetProjectSettingsOpen`) toggles `ProjectSettingsPanelView` below the viewport to edit `game.yaml` exclusively through `EditProject`, so every change is validated by `project.Validate`, participates in Undo/Redo, and writes both `game.yaml` and the synced `nsgo.yaml` beside it on **Save** (`SaveProject`):
+
+- **General**: edits `name`, `id`, and `appVersion` (`SetProjectName`, `SetProjectID`, `SetProjectAppVersion`).
+- **Window**: edits `window.title`, `width`/`height`, `minWidth`/`minHeight`/`maxWidth`/`maxHeight` limits, `resizable`, and `appearance` (`SetProjectWindowTitle`, `SetProjectWindowSize`, `SetProjectWindowLimits`, `SetProjectWindowResizable`, `SetProjectWindowAppearance`).
+- **Display**: toggles the optional `display` section (`SetProjectDisplayEnabled`) and edits its virtual `width`/`height`, `mode` (`fit`, `fill`, `stretch`, `expand`), `integerScale`, `pixelSnap`, and `barColor` (`SetProjectDisplaySize`, `SetProjectDisplayMode`, `SetProjectDisplayIntegerScale`, `SetProjectDisplayPixelSnap`, `SetProjectDisplayBarColor`).
+- **Autoload**: selects `autoload.mainScene` (`SetProjectMainScene`) and adds, updates, or removes `autoload.scenes` and `autoload.resources` entries (`AddProjectAutoloadScene`, `UpdateProjectAutoloadScene`, `RemoveProjectAutoloadScene`, `AddProjectAutoloadResource`, `UpdateProjectAutoloadResource`, `RemoveProjectAutoloadResource`) with searchable file pickers populated from the open project's files (`ProjectSceneFiles`, `ProjectResourceFiles`).
+- **Editor plugins**: shows every registered plugin (`RegisteredPlugins`) with a toggle switch backed by `SetPluginEnabled`, plus any plugins listed in `game.yaml` that this editor binary lacks (`MissingPlugins`) with an option to remove them.
+
+Input, audio, and export settings have their own panels and are not duplicated here. Any value `project.Validate` refuses displays the validation error next to the offending field without mutating the project or history. Before the first save of the open project (`ProjectCanonicalSavePending`), the panel displays a notice explaining that saving writes `game.yaml` in canonical YAML form, which does not preserve comments.
+
 ## Audio bus mixer (#909)
 
 While a project is open, the toolbar's **Mixer** button (`AudioMixerOpen` / `SetAudioMixerOpen`) toggles `AudioMixerPanelView` below the viewport to edit `game.yaml`'s `audio` section directly through `EditProject`, so every edit validates against `project.Validate`, participates in the editor's Undo/Redo history, and writes cleanly on **Save** (`SaveProject`):

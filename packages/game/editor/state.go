@@ -203,6 +203,8 @@ type Editor struct {
 
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
 	projectSaved []byte
+	// projectSavedOnce reports whether SaveProject has written the currently open project at least once.
+	projectSavedOnce bool
 
 	// The animation editor: the open clip, its file and target, the playhead, the selected key, and the preview scene posed by the clip.
 	clip        *resource.Animation
@@ -237,6 +239,8 @@ type Editor struct {
 	filesRev uint64
 	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
 	audioMixer audioMixerState
+	// projectSettings holds the Project Settings panel visibility and active section.
+	projectSettings projectSettingsState
 	// selectedFileRev bumps whenever SelectFile or OpenProblem updates SelectedFile so FilesView resets its target path draft.
 	selectedFileRev uint64
 	// problems holds the asynchronous assetcheck and project.Check state for the open project.
