@@ -37,6 +37,49 @@ func (m SymMat3) Solve(rhs Vec3) Vec3 {
 	return out
 }
 
+func safeInv32(v float32) float32 {
+	if !isFinite32(v) || v <= 0 {
+		return 0
+	}
+	inv := 1 / v
+	if !isFinite32(inv) {
+		return 0
+	}
+	return inv
+}
+
+func safeInv64To32(v float64) float32 {
+	if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 0
+	}
+	inv := float32(1.0 / v)
+	if !isFinite32(inv) {
+		return 0
+	}
+	return inv
+}
+
+// isPositiveDefiniteSymMat3 reports whether m is finite and strictly symmetric
+// positive-definite via Sylvester's criterion in FMA-free float64.
+func isPositiveDefiniteSymMat3(m SymMat3) bool {
+	if !isFiniteSymMat3(m) {
+		return false
+	}
+	a, b, c := float64(m.XX), float64(m.XY), float64(m.XZ)
+	d, e, f := float64(m.YY), float64(m.YZ), float64(m.ZZ)
+	if a <= 0 || d <= 0 || f <= 0 {
+		return false
+	}
+	if float64(a*d)-float64(b*b) <= 0 {
+		return false
+	}
+	c00 := float64(d*f) - float64(e*e)
+	c01 := float64(c*e) - float64(b*f)
+	c02 := float64(b*e) - float64(c*d)
+	det := float64(float64(a*c00)+float64(b*c01)) + float64(c*c02)
+	return !math.IsNaN(det) && !math.IsInf(det, 0) && det > 1e-18
+}
+
 // parallelAxisShift shifts a body-space inertia tensor loc (computed about
 // centroid) to a new reference point com using the parallel-axis theorem,
 // floors the diagonal entries to minI, and returns its inverse.
@@ -65,9 +108,9 @@ func invertShiftedInertia(loc SymMat3, m float64, d Vec3) SymMat3 {
 	}
 	if ixy == 0 && ixz == 0 && iyz == 0 {
 		return SymMat3{
-			XX: float32(1.0 / ixx),
-			YY: float32(1.0 / iyy),
-			ZZ: float32(1.0 / izz),
+			XX: safeInv64To32(ixx),
+			YY: safeInv64To32(iyy),
+			ZZ: safeInv64To32(izz),
 		}
 	}
 	inertia := SymMat3{
@@ -78,13 +121,15 @@ func invertShiftedInertia(loc SymMat3, m float64, d Vec3) SymMat3 {
 		XZ: float32(ixz),
 		YZ: float32(iyz),
 	}
-	if inv, ok := inertia.Inverse(); ok {
-		return inv
+	if isPositiveDefiniteSymMat3(inertia) {
+		if inv, ok := inertia.Inverse(); ok {
+			return inv
+		}
 	}
 	return SymMat3{
-		XX: float32(1.0 / ixx),
-		YY: float32(1.0 / iyy),
-		ZZ: float32(1.0 / izz),
+		XX: safeInv64To32(ixx),
+		YY: safeInv64To32(iyy),
+		ZZ: safeInv64To32(izz),
 	}
 }
 
@@ -171,21 +216,16 @@ func (b *Body) SetCenterOfMass(com Vec3) {
 
 // SetInertia overrides b's body-space diagonal inertia tensor (Ix, Iy, Iz) about
 // CenterOfMass. Each positive finite component sets the inverse inertia along
-// that local axis to 1/I; non-positive or non-finite components lock rotation
-// about that local axis (inverse inertia 0).
+// that local axis to 1/I; non-positive, non-finite, or overflowing components
+// lock rotation about that local axis (inverse inertia 0).
 func (b *Body) SetInertia(diag Vec3) {
 	if b == nil {
 		return
 	}
-	var inv SymMat3
-	if isFinite32(diag.X) && diag.X > 0 {
-		inv.XX = 1 / diag.X
-	}
-	if isFinite32(diag.Y) && diag.Y > 0 {
-		inv.YY = 1 / diag.Y
-	}
-	if isFinite32(diag.Z) && diag.Z > 0 {
-		inv.ZZ = 1 / diag.Z
+	inv := SymMat3{
+		XX: safeInv32(diag.X),
+		YY: safeInv32(diag.Y),
+		ZZ: safeInv32(diag.Z),
 	}
 	b.InvInertiaTensor = inv
 	b.InvInertia = scalarInvInertiaFromTensor(inv)
@@ -196,27 +236,23 @@ func (b *Body) SetInertia(diag Vec3) {
 }
 
 // SetInertiaTensor overrides b's body-space 3x3 symmetric inertia tensor about
-// CenterOfMass. If inertia is singular, positive diagonal entries are inverted
-// per axis.
+// CenterOfMass. Full inversion requires a symmetric positive-definite tensor;
+// if inertia is singular or not positive-definite, positive finite diagonal
+// entries are inverted per axis.
 func (b *Body) SetInertiaTensor(inertia SymMat3) {
 	if b == nil {
 		return
 	}
 	var inv SymMat3
-	if isFiniteSymMat3(inertia) {
+	if isPositiveDefiniteSymMat3(inertia) {
 		if m, ok := inertia.Inverse(); ok {
 			inv = m
-		} else {
-			if inertia.XX > 0 {
-				inv.XX = 1 / inertia.XX
-			}
-			if inertia.YY > 0 {
-				inv.YY = 1 / inertia.YY
-			}
-			if inertia.ZZ > 0 {
-				inv.ZZ = 1 / inertia.ZZ
-			}
 		}
+	}
+	if inv.IsZero() && isFiniteSymMat3(inertia) {
+		inv.XX = safeInv32(inertia.XX)
+		inv.YY = safeInv32(inertia.YY)
+		inv.ZZ = safeInv32(inertia.ZZ)
 	}
 	b.InvInertiaTensor = inv
 	b.InvInertia = scalarInvInertiaFromTensor(inv)
