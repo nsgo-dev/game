@@ -1390,3 +1390,33 @@ mesh.Draw(pass)
 - **上限**：`Validate` 将 `MaxLights` 限制在 `MaxClusterLights`（65,536）以内，要求 `MaxLightsPerCluster` 不超过 `MaxLights`，并将索引槽数（`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`）限制在 `MaxClusterIndexEntries` 以内；当某个存储缓冲区超过设备的 `MaxStorageBufferBindingSize` 时，`NewClusteredLightSystem` 返回 `ErrInvalidClusterConfig`。
 - **桌面 GPU 实测性能**：在 MacBook Pro（Apple M4 Pro，Metal 4，macOS arm64，`2560 × 1440` 可绘制表面，120 Hz 显示器）上实测 256 盏动态集群点光源（约 250 盏可见、约 475 个活跃集群）：集群存储缓冲路径持续稳定在 `120.0 fps`，CPU 集群分配与缓冲区上传耗时约 145 µs/帧。
 - **生命周期**：设置 `ClusterConfig.Retained` 可在 GPU 设备丢失后恢复缓冲区；`ByteSize()` 报告 GPU 缓冲区字节数，供 `RenderStats` 和预算使用，`Close()` 立即释放资源。
+
+## 权重图地形材质（`TerrainMaterial`、`GPUTerrainMaterial`）
+
+为高度图地形（[world3d](world3d.md)）渲染最多 8 层由 1–2 张 RGBA 权重图（splat map）驱动的 PBR 材质，支持逐层 UV 平铺、基于高度图的锐利过渡、陡坡三平面投影（triplanar），以及与其他 `render3d` 材质一致的动态光照和阴影：
+
+```go
+gpuTerrain, err := render3d.NewGPUTerrainMaterial(cx, dev, render3d.TerrainMaterial{
+	Layers:              layers, // 1..8 个 TerrainLayer（反照率、法线、金属度/粗糙度、高度图、UVScale、HeightBias）
+	SplatMap0:           splatImg0,
+	SplatMap1:           splatImg1, // <= 4 层时可省略
+	HeightBlendContrast: 0.65,
+	Triplanar:           render3d.DefaultTerrainTriplanar(),
+}, render3d.TerrainMaterialUpload{Label: "alpine", Mipmaps: true, Retained: true})
+
+pipe, err := render3d.NewTerrainMaterialPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), gpuTerrain.Layout(), render3d.TerrainPipelineOptions{
+	DepthFormat:  gpu.FormatDepth24Plus,
+	ShadowLayout: shadowMap.Layout(), // 或在 group 3 使用 CSMLayout / FogLayout
+})
+
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+gpuTerrain.Bind(pass) // TerrainMaterialGroup（group 2）
+pass.SetBindGroup(render3d.ShadowGroup, shadowMap.BindGroup())
+terrainMesh.Draw(pass)
+```
+
+- **纹理数组布局**：`GPUTerrainMaterial` 将各层反照率（sRGB）、切线空间法线以及打包的高度/粗糙度/金属度贴图装入三张 `gpu.Dim2DArray` 纹理数组（`TerrainAlbedoArrayBinding`、`TerrainNormalArrayBinding`、`TerrainMRHeightArrayBinding`），连同两张 RGBA 权重图一起绑定在 `TerrainMaterialGroup`（group 2）。片元着色器仅占用 5 个纹理槽位（加阴影为 6 个），在 WebGL 2 / GLES 3 上均留有充裕余量，且 1–8 层共享单一管线布局。
+- **光照、阴影、雾效与 HDR**：`NewTerrainMaterialPipeline` 按选项编译 `TerrainMaterialWGSL`、`TerrainMaterialShadowWGSL`（`ShadowLayout`）、`TerrainMaterialCSMWGSL`（`CSMLayout`）或 `TerrainMaterialFogWGSL`（`FogLayout`），并支持配合 `HDRTarget` / `ToneMapPass` 的 `LinearOutput` 变体。
+- **动态更新与 CPU 参考**：调用 `UpdateUniforms` 可原地更新变换矩阵、高度混合对比度、三平面参数或各层因子与平铺比例而不重建纹理；调用 `UpdateSplatMaps` 可原地上传重新绘制的权重图；`EvaluateTerrainMaterial` 提供与 WGSL 着色器一致的纯 Go CPU 参考求值器。

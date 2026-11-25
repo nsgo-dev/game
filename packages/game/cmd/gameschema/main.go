@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 func main() {
@@ -93,6 +94,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[l10n.StringTable](),
 		pkg:     "l10n",
 		version: l10n.StringTableVersion,
+	},
+	{
+		url:     world3d.TerrainSchemaURL,
+		title:   "NSGo game terrain definition (version 1)",
+		typ:     reflect.TypeFor[world3d.TerrainDoc](),
+		pkg:     "world3d",
+		version: world3d.TerrainFormatVersion,
 	},
 }
 

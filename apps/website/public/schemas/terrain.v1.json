@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/terrain.v1.json",
+  "title": "NSGo game terrain definition (version 1)",
+  "description": "TerrainDoc is the root of a versioned YAML terrain definition specifying heightmap dimensions, splat (weight) map asset paths, height-blending and triplanar settings, and up to 8 PBR material layers.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; must be 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is an optional human-readable name for the terrain.",
+      "type": "string"
+    },
+    "heightmap": {
+      "description": "Heightmap is the asset path to the grayscale heightmap image.",
+      "type": "string"
+    },
+    "cellSize": {
+      "description": "CellSize is the world-space XZ spacing between adjacent heightmap samples; omitted or 0 defaults to 1.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "exclusiveMinimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "heightScale": {
+      "description": "HeightScale scales normalized [0, 1] heightmap samples into world-space Y units.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "origin": {
+      "description": "Origin is the world-space [x, y, z] origin of heightmap sample (0, 0); omitted defaults to [0, 0, 0].",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -3.4028234663852886e+38,
+        "maximum": 3.4028234663852886e+38
+      }
+    },
+    "splatMaps": {
+      "description": "SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "heightBlendContrast": {
+      "description": "HeightBlendContrast enables height-based layer blending when > 0 in [0, 1]; higher values sharpen layer transitions using per-layer height maps, and 0 uses linear splat blending.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "triplanar": {
+      "description": "Triplanar configures slope-driven triplanar texture projection on steep terrain faces.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/TerrainTriplanarDoc"
+        }
+      ]
+    },
+    "layers": {
+      "description": "Layers lists 1 to 8 PBR terrain material layers in splat-channel order (0..3 from splatMaps[0] RGBA, 4..7 from splatMaps[1] RGBA).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/TerrainLayerDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "layers"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "TerrainLayerDoc": {
+      "description": "TerrainLayerDoc describes one PBR terrain material layer in a [TerrainDoc].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique gameplay and authoring identifier for this layer (such as \"grass\", \"dirt\", \"rock\", \"snow\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "albedo": {
+          "description": "Albedo is the asset path to the sRGB base-color texture.",
+          "type": "string"
+        },
+        "normal": {
+          "description": "Normal is the asset path to the linear tangent-space normal map.",
+          "type": "string"
+        },
+        "metallicRoughness": {
+          "description": "MetallicRoughness is the asset path to the glTF metallic-roughness map (G = roughness, B = metallic).",
+          "type": "string"
+        },
+        "height": {
+          "description": "Height is the asset path to the optional grayscale height map used for height-based blending.",
+          "type": "string"
+        },
+        "color": {
+          "description": "Color is the linear RGB tint multiplier in [0, 1]^3; omitted defaults to [1, 1, 1].",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "roughness": {
+          "description": "Roughness is the layer roughness factor in [0, 1]; omitted defaults to 1 when metallicRoughness is set or 0.85 otherwise.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metallic": {
+          "description": "Metallic is the layer metallic factor in [0, 1]; omitted defaults to 0.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "normalScale": {
+          "description": "NormalScale scales the XY components of the tangent-space normal map; omitted defaults to 1.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "uvScale": {
+          "description": "UVScale is the per-layer UV tiling multiplier [u, v] across the terrain; omitted defaults to [1, 1].",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "heightBias": {
+          "description": "HeightBias biases this layer's height map during height-based blending in [-1, 1].",
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "TerrainTriplanarDoc": {
+      "description": "TerrainTriplanarDoc configures slope-driven triplanar projection in a [TerrainDoc].",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Enabled activates triplanar projection on steep slopes whose upward normal falls below SlopeThreshold.",
+          "type": "boolean"
+        },
+        "slopeThreshold": {
+          "description": "SlopeThreshold is the world normal Y threshold in [0, 1] below which triplanar projection begins blending in; omitted or 0 defaults to 0.7.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "slopeBlend": {
+          "description": "SlopeBlend is the transition width in [0, 1] over which planar UVs cross-fade into triplanar projection; omitted or 0 defaults to 0.15.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sharpness": {
+          "description": "Sharpness controls triplanar axis blend sharpness (typically 1..16); omitted or 0 defaults to 4.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "scale": {
+          "description": "Scale is the world-space triplanar repeat rate (repeats per world unit); omitted or 0 defaults to 0.25.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

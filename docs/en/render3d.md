@@ -1390,3 +1390,33 @@ mesh.Draw(pass)
 - **Limits**: `Validate` caps `MaxLights` at `MaxClusterLights` (65,536), keeps `MaxLightsPerCluster` at or below `MaxLights`, and caps index slots (`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`) at `MaxClusterIndexEntries`; `NewClusteredLightSystem` returns `ErrInvalidClusterConfig` when a storage buffer would exceed the device's `MaxStorageBufferBindingSize`.
 - **Desktop GPU performance**: measured on a MacBook Pro (Apple M4 Pro, Metal 4, macOS arm64, `2560 × 1440` drawable, 120 Hz display) with 256 animated clustered point lights (~250 visible, ~475 active clusters): sustained `120.0 fps` on the clustered storage-buffer path, with CPU cluster assignment and buffer upload taking ~145 µs/frame.
 - **Lifecycle**: set `ClusterConfig.Retained` to restore buffers across GPU device loss; `ByteSize()` reports GPU buffer bytes for `RenderStats` and budgets, and `Close()` releases resources eagerly.
+
+## Splat-map terrain materials (`TerrainMaterial`, `GPUTerrainMaterial`)
+
+Render multi-layer heightmap terrain ([world3d](world3d.md)) blending up to 8 PBR layers from 1 or 2 RGBA weight (splat) maps with per-layer UV tiling, optional height-based contrast blending, optional slope-driven triplanar projection on steep cliffs, and full scene lighting plus shadows:
+
+```go
+gpuTerrain, err := render3d.NewGPUTerrainMaterial(cx, dev, render3d.TerrainMaterial{
+	Layers:              layers, // 1..8 TerrainLayer values (albedo, normal, metallic-roughness, height, UVScale, HeightBias)
+	SplatMap0:           splatImg0,
+	SplatMap1:           splatImg1, // optional for <= 4 layers
+	HeightBlendContrast: 0.65,
+	Triplanar:           render3d.DefaultTerrainTriplanar(),
+}, render3d.TerrainMaterialUpload{Label: "alpine", Mipmaps: true, Retained: true})
+
+pipe, err := render3d.NewTerrainMaterialPipeline(cx, dev, camBuf.Layout(), lightBuf.Layout(), gpuTerrain.Layout(), render3d.TerrainPipelineOptions{
+	DepthFormat:  gpu.FormatDepth24Plus,
+	ShadowLayout: shadowMap.Layout(), // or CSMLayout / FogLayout at group 3
+})
+
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.LightGroup, lightBuf.BindGroup())
+gpuTerrain.Bind(pass) // TerrainMaterialGroup (group 2)
+pass.SetBindGroup(render3d.ShadowGroup, shadowMap.BindGroup())
+terrainMesh.Draw(pass)
+```
+
+- **Texture-array layout**: `GPUTerrainMaterial` packs layer albedo (sRGB), tangent-space normal, and height/roughness/metallic maps into three `gpu.Dim2DArray` textures (`TerrainAlbedoArrayBinding`, `TerrainNormalArrayBinding`, `TerrainMRHeightArrayBinding`) plus the two RGBA splat maps at `TerrainMaterialGroup` (group 2). Total fragment texture bindings stay at 5 (6 with shadows), well within WebGL 2 / GLES 3 limits with zero pipeline permutations across 1–8 layers.
+- **Lighting, shadows, fog, and HDR**: `NewTerrainMaterialPipeline` compiles `TerrainMaterialWGSL`, `TerrainMaterialShadowWGSL` (`ShadowLayout`), `TerrainMaterialCSMWGSL` (`CSMLayout`), or `TerrainMaterialFogWGSL` (`FogLayout`), plus `LinearOutput` variants for `HDRTarget` / `ToneMapPass`.
+- **Live updates & CPU reference**: call `UpdateUniforms` to tweak transforms, blend contrast, triplanar settings, or per-layer factors/tiling without reallocating textures, `UpdateSplatMaps` to upload repainted splat maps in place, and `EvaluateTerrainMaterial` as the pure-Go CPU reference matching the WGSL shader.
