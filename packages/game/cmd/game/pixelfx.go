@@ -11,6 +11,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/pixelfx"
 	// The categories whose effects game pixelfx renders; each category's port adds its import here.
+	_ "github.com/nsgo-dev/game/packages/game/pixelfx/critters"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/explosions"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/fire"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/impacts"

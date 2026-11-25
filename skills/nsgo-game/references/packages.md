@@ -29,6 +29,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/text` | Experimental | AngelCode BMFont bitmap fonts, 2D/3D MSDF/SDF fonts and `DrawPlatform` |
 | `game/particles` | Experimental | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and YAML definitions |
 | `game/pixelfx` | Experimental | Go port of pixelfx: painter, frames and light, simulation, rig and acts, effect registry, sprite sheet export, `View` |
+| `game/pixelfx/critters` | Experimental | pixelfx critters loops (bat, bird, butterfly, eyeball, fish school, flying skull, frog, ghost, jellyfish, slime, snake, wisp) |
 | `game/pixelfx/explosions` | Experimental | pixelfx explosions (small explosion so far) |
 | `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet, shield block) |
