@@ -60,6 +60,10 @@ type BlockDoc struct {
 	NonSolid bool `yaml:"nonSolid,omitempty"`
 	// MaterialID groups emitted faces into SubMesh ranges when meshing.
 	MaterialID uint32 `yaml:"materialId,omitempty"`
+	// Emissive is the block light level (0..15) emitted into the block-light channel.
+	Emissive uint8 `yaml:"emissive,omitempty" schema:"minimum=0,maximum=15"`
+	// LightOpacity is the light attenuation (0..15) for transparent blocks; 0 lets direct sky light pass and attenuates propagated light by 1.
+	LightOpacity uint8 `yaml:"lightOpacity,omitempty" schema:"minimum=0,maximum=15"`
 }
 
 // ChunkDoc stores one non-empty chunk using run-length encoded block runs in (y, z, x) order.
@@ -211,6 +215,22 @@ func Validate(doc *WorldDoc) error {
 			}
 		}
 		seenName[b.Name] = i
+		if b.Emissive > MaxLightLevel {
+			return &loaderr.Error{
+				Field:    loaderr.Path("palette", i, "emissive"),
+				Problem:  fmt.Sprintf("voxel: palette block emissive %d exceeds max %d", b.Emissive, MaxLightLevel),
+				Expected: fmt.Sprintf("integer in 0..%d", MaxLightLevel),
+				Fix:      fmt.Sprintf("set emissive to a value between 0 and %d", MaxLightLevel),
+			}
+		}
+		if b.LightOpacity > MaxLightLevel {
+			return &loaderr.Error{
+				Field:    loaderr.Path("palette", i, "lightOpacity"),
+				Problem:  fmt.Sprintf("voxel: palette block lightOpacity %d exceeds max %d", b.LightOpacity, MaxLightLevel),
+				Expected: fmt.Sprintf("integer in 0..%d", MaxLightLevel),
+				Fix:      fmt.Sprintf("set lightOpacity to a value between 0 and %d", MaxLightLevel),
+			}
+		}
 	}
 
 	expectedVoxels := doc.ChunkSize * doc.ChunkSize * doc.ChunkSize
@@ -311,11 +331,13 @@ func (w *World) ToDoc(name string) *WorldDoc {
 		doc.Palette = make([]BlockDoc, len(defs))
 		for i, d := range defs {
 			doc.Palette[i] = BlockDoc{
-				ID:          d.ID,
-				Name:        d.Name,
-				Transparent: d.Transparent,
-				NonSolid:    d.NonSolid,
-				MaterialID:  d.MaterialID,
+				ID:           d.ID,
+				Name:         d.Name,
+				Transparent:  d.Transparent,
+				NonSolid:     d.NonSolid,
+				MaterialID:   d.MaterialID,
+				Emissive:     d.Emissive,
+				LightOpacity: d.LightOpacity,
 			}
 		}
 	}
@@ -346,11 +368,13 @@ func FromDoc(doc *WorldDoc) (*World, error) {
 	reg := NewRegistry()
 	for _, b := range doc.Palette {
 		if _, err := reg.Register(BlockDef{
-			ID:          b.ID,
-			Name:        b.Name,
-			Transparent: b.Transparent,
-			NonSolid:    b.NonSolid,
-			MaterialID:  b.MaterialID,
+			ID:           b.ID,
+			Name:         b.Name,
+			Transparent:  b.Transparent,
+			NonSolid:     b.NonSolid,
+			MaterialID:   b.MaterialID,
+			Emissive:     b.Emissive,
+			LightOpacity: b.LightOpacity,
 		}); err != nil {
 			return nil, err
 		}
@@ -386,6 +410,7 @@ func FromDoc(doc *WorldDoc) (*World, error) {
 			w.markDirtyChunk(ch)
 		}
 	}
+	w.recomputeLightInternal(false)
 	return w, nil
 }
 

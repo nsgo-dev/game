@@ -32,7 +32,7 @@ Add a dedicated `packages/game/voxel` package (listed as `Experimental` in `docs
   - Editing an interior block in a 256×256 terrain remeshes only 1 chunk in ~36 µs (`BenchmarkRemeshSingleEdit256x256`), and remeshing all 256 chunks from scratch takes ~7.9 ms (`BenchmarkMeshFull256x256Area`) — well within a 16.6 ms (60 fps) desktop frame budget.
   - YAML saves are deterministic across insertion orders, round-trip byte-for-byte identically, and validate against the published `voxel.v1.json` schema.
 - **Costs and known limits**:
-  - `ChunkMesh.AO` is returned as a separate `[]uint8` slice rather than packed into `render3d.Mesh` because `render3d.MeshVertexLayout` has fixed position/normal/UV attributes (`32` bytes). Games that render AO either upload `AO` in a secondary vertex buffer slot or pack it in a custom voxel shader. If `render3d.Mesh` later adds vertex colors, `ChunkMesh` can optionally populate them.
+  - `ChunkMesh.AO` is returned as a separate `[]uint8` slice alongside `render3d.Mesh` because `render3d.MeshVertexLayout` has fixed position/normal/UV attributes (`32` bytes). Per-voxel sky/block lighting and `render3d.ColoredMesh` vertex colors are now layered on top in [Voxel sky and block light propagation](./2026-11-25-voxel-sky-and-block-lighting.md).
   - RLE YAML files expand linearly on high-entropy random noise chunks (one token per differing adjacent voxel). If large procedural worlds require streaming region files, a multi-file per-region YAML layout can be layered on top of `ChunkDoc`.
 
 ## Verification

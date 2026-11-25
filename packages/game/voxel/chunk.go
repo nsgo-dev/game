@@ -39,11 +39,14 @@ type WorldConfig struct {
 }
 
 // Chunk stores a dense cubic N x N x N grid of [BlockID] values in (y, z, x)
-// order (index = (y*N + z)*N + x).
+// order (index = (y*N + z)*N + x), alongside per-voxel sky and block light
+// levels packed into one byte per voxel (high nibble: sky 0..15, low nibble:
+// block 0..15).
 type Chunk struct {
 	coord    ChunkCoord
 	size     int
 	blocks   []BlockID
+	light    []uint8
 	nonAir   int
 	dirty    bool
 	revision uint64
@@ -54,6 +57,7 @@ func newChunk(coord ChunkCoord, size int) *Chunk {
 		coord:  coord,
 		size:   size,
 		blocks: make([]BlockID, size*size*size),
+		light:  newLightSlice(size),
 	}
 }
 
@@ -107,6 +111,36 @@ func (c *Chunk) Get(lx, ly, lz int) BlockID {
 	return c.blocks[c.index(lx, ly, lz)]
 }
 
+// SkyLight returns the stored sky light level (0..15) at chunk-local
+// coordinates (lx, ly, lz), or 0 if out of bounds. Use [World.SkyLight] for
+// cross-chunk world-coordinate queries.
+func (c *Chunk) SkyLight(lx, ly, lz int) uint8 {
+	if c == nil || lx < 0 || ly < 0 || lz < 0 || lx >= c.size || ly >= c.size || lz >= c.size {
+		return 0
+	}
+	return unpackSky(c.light[c.index(lx, ly, lz)])
+}
+
+// BlockLight returns the stored block light level (0..15) at chunk-local
+// coordinates (lx, ly, lz), or 0 if out of bounds. Use [World.BlockLight] for
+// cross-chunk world-coordinate queries.
+func (c *Chunk) BlockLight(lx, ly, lz int) uint8 {
+	if c == nil || lx < 0 || ly < 0 || lz < 0 || lx >= c.size || ly >= c.size || lz >= c.size {
+		return 0
+	}
+	return unpackBlock(c.light[c.index(lx, ly, lz)])
+}
+
+// Light returns both the stored sky light and block light levels (0..15 each)
+// at chunk-local coordinates (lx, ly, lz), or (0, 0) if out of bounds.
+func (c *Chunk) Light(lx, ly, lz int) (sky, block uint8) {
+	if c == nil || lx < 0 || ly < 0 || lz < 0 || lx >= c.size || ly >= c.size || lz >= c.size {
+		return 0, 0
+	}
+	b := c.light[c.index(lx, ly, lz)]
+	return unpackSky(b), unpackBlock(b)
+}
+
 // Blocks returns the chunk's underlying block slice in (y, z, x) order
 // (index = (y*N + z)*N + x). Callers should treat it as read-only; edit blocks
 // via [World.SetBlock] so dirty tracking stays accurate.
@@ -135,16 +169,24 @@ func (c *Chunk) Bounds(voxelSize float32) math3d.AABB {
 }
 
 // World holds a sparse collection of cubic voxel chunks indexed by [ChunkCoord],
-// tracks which chunks need remeshing after edits, and provides raycasting and
-// YAML persistence.
+// tracks which chunks need remeshing after edits, maintains incremental per-voxel
+// sky and block light propagation, and provides raycasting and YAML persistence.
 type World struct {
-	chunks    map[ChunkCoord]*Chunk
-	dirty     map[ChunkCoord]struct{}
-	chunkSize int
-	shift     uint
-	mask      int
-	voxelSize float32
-	registry  *Registry
+	chunks       map[ChunkCoord]*Chunk
+	airLight     map[ChunkCoord]*airLightChunk
+	dirty        map[ChunkCoord]struct{}
+	chunkSize    int
+	shift        uint
+	mask         int
+	voxelSize    float32
+	registry     *Registry
+	hasMinChunkY bool
+	minChunkY    int
+
+	lightAddQ []BlockCoord
+	lightRemQ []lightRemNode
+	lightSeed []BlockCoord
+	origLight map[BlockCoord]uint8
 }
 
 // NewWorld constructs an empty World with cfg.
@@ -170,6 +212,7 @@ func NewWorld(cfg WorldConfig) (*World, error) {
 	}
 	return &World{
 		chunks:    make(map[ChunkCoord]*Chunk),
+		airLight:  make(map[ChunkCoord]*airLightChunk),
 		dirty:     make(map[ChunkCoord]struct{}),
 		chunkSize: size,
 		shift:     uint(bits.TrailingZeros(uint(size))),
@@ -261,9 +304,10 @@ func (w *World) Block(pos BlockCoord) BlockID {
 
 // SetBlock sets the voxel at pos to id and returns whether the block changed.
 //
-// When the block changes, SetBlock marks only its chunk dirty, plus an adjacent
-// existing chunk only when pos lies on a shared chunk boundary and changing
-// oldID -> id alters neighbor face visibility or ambient occlusion.
+// When the block changes, SetBlock updates sky and block light incrementally,
+// marks the edited chunk dirty, and marks adjacent existing chunks dirty only
+// when face visibility, cross-chunk ambient occlusion, or voxel lighting
+// changes across their boundaries.
 func (w *World) SetBlock(pos BlockCoord, id BlockID) bool {
 	if w == nil {
 		return false
@@ -275,6 +319,10 @@ func (w *World) SetBlock(pos BlockCoord, id BlockID) bool {
 			return false
 		}
 		ch = newChunk(cc, w.chunkSize)
+		if al, ok := w.airLight[cc]; ok {
+			ch.light = al.light
+			delete(w.airLight, cc)
+		}
 		w.chunks[cc] = ch
 	}
 	idx := ch.index(lx, ly, lz)
@@ -283,14 +331,32 @@ func (w *World) SetBlock(pos BlockCoord, id BlockID) bool {
 		return false
 	}
 	ch.blocks[idx] = id
+	skyMinChanged := false
 	if oldID == Air {
 		ch.nonAir++
+		if ch.nonAir == 1 {
+			if !w.hasMinChunkY {
+				w.hasMinChunkY = true
+				w.minChunkY = cc.Y
+			} else if cc.Y < w.minChunkY {
+				w.minChunkY = cc.Y
+				skyMinChanged = true
+			}
+		}
 	} else if id == Air {
 		ch.nonAir--
+		if ch.nonAir == 0 && w.hasMinChunkY && cc.Y == w.minChunkY {
+			oldMin := w.minChunkY
+			w.recomputeMinChunkY()
+			if !w.hasMinChunkY || w.minChunkY != oldMin {
+				skyMinChanged = true
+			}
+		}
 	}
 	ch.revision++
 	w.markDirtyChunk(ch)
 	w.markAffectedNeighbors(cc, lx, ly, lz, oldID, id)
+	w.updateLightOnEdit(pos, oldID, id, skyMinChanged)
 	return true
 }
 
@@ -575,7 +641,8 @@ func (w *World) ClearDirty(cc ChunkCoord) {
 }
 
 // PruneEmptyChunks removes all allocated chunks that contain only [Air] and
-// are not dirty, returning the number of chunks freed.
+// are not dirty, returning the number of chunks freed. Any non-default light
+// passing through a pruned air chunk is preserved seamlessly.
 func (w *World) PruneEmptyChunks() int {
 	if w == nil {
 		return 0
@@ -583,6 +650,12 @@ func (w *World) PruneEmptyChunks() int {
 	pruned := 0
 	for cc, ch := range w.chunks {
 		if ch.nonAir == 0 && !ch.dirty {
+			if nonDef := countNonDefaultLight(ch.light); nonDef > 0 {
+				w.airLight[cc] = &airLightChunk{
+					light:      ch.light,
+					nonDefault: nonDef,
+				}
+			}
 			delete(w.chunks, cc)
 			pruned++
 		}
@@ -605,12 +678,16 @@ func (w *World) Bounds() math3d.AABB {
 	return b
 }
 
-// Clear removes all chunks and dirty flags from w while keeping its
+// Clear removes all chunks, light data, and dirty flags from w while keeping its
 // ChunkSize, VoxelSize, and Registry.
 func (w *World) Clear() {
 	if w == nil {
 		return
 	}
 	clear(w.chunks)
+	clear(w.airLight)
 	clear(w.dirty)
+	clear(w.origLight)
+	w.hasMinChunkY = false
+	w.minChunkY = 0
 }
