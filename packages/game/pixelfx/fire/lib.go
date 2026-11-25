@@ -13,6 +13,12 @@ import (
 
 // Shared by the fire effects: flame tongues, licks, flame puffs that cool into smoke and embers, with their motion in closed form so looping effects can draw them from t alone and stay seamless.
 
+// pi and tau are variables so expressions combining them with constants round step by step as JavaScript's do, rather than folding exactly at compile time.
+var (
+	pi  = math.Pi
+	tau = pixelfx.Tau
+)
+
 // pnoise is smooth value noise in [-1, 1] that repeats every period cells (a whole number).
 func pnoise(x, period, seed float64) float64 {
 	i := math.Floor(x)
@@ -86,6 +92,29 @@ func flameTongue(p *pixelfx.Painter, x, y, h, w, sx float64, N func(rate, seed, 
 			cx, Y := x+sx*u*u*l.h+N(4, n+7, r*0.2)*u*wob, pixelfx.Round(y-r)
 			for px, x1 := pixelfx.Round(cx-half), pixelfx.Round(cx+half); px <= x1; px++ {
 				p.Px(px, Y, c)
+			}
+		}
+	}
+}
+
+// flameBlade draws the same tongue as flameTongue lying along any direction (ux, uy) from its root (x, y): for jets, breath and comet tails. ln is its length, w its half-width at the root, bend how far (px) its tip is swept sideways, to the left of the direction.
+func flameBlade(p *pixelfx.Painter, x, y, ux, uy, ln, w, bend float64, N func(rate, seed, off float64) float64, n float64, H []uint32, ls []layer, jit, wob float64) {
+	if ln < 1 {
+		return
+	}
+	nx, ny := -uy, ux
+	for _, l := range ls {
+		L, c := ln*l.h, H[l.ri]
+		for r := 0.0; r <= L; r += 0.5 {
+			u := r / math.Max(1, L)
+			half := w*l.w*math.Pow(1-u, 0.85)*math.Min(1, (r+1.5)/3.5) + N(9, n, r*0.45)*jit
+			if half < 0.3 {
+				continue
+			}
+			off := bend*u*u*l.h + N(4, n+7, r*0.2)*u*wob
+			cx, cy := x+ux*r+nx*off, y+uy*r+ny*off
+			for q := -half; q <= half; q += 0.5 {
+				p.Px(cx+nx*q, cy+ny*q, c)
 			}
 		}
 	}
@@ -235,6 +264,28 @@ func ember(p *pixelfx.Painter, x, y, k, size float64, cols [4]uint32, ph float64
 	p.Glow(x, y, 3+size, c, 0.35*k)
 }
 
+// spark draws a spark: a streak stretched along its velocity, a hot head and a cooler tail (cols: hot, warm, cool, tail), and a point of light.
+func spark(p *pixelfx.Painter, x, y, vx, vy, k float64, cols [4]uint32) {
+	sp := pixelfx.Hypot(vx, vy)
+	if sp == 0 {
+		sp = 1
+	}
+	ux, uy, ln := vx/sp, vy/sp, math.Min(9, 1+sp*0.022)
+	head := cols[2]
+	if k > 0.6 {
+		head = cols[0]
+	} else if k > 0.3 {
+		head = cols[1]
+	}
+	tail := cols[3]
+	if k > 0.5 {
+		tail = head
+	}
+	p.Line(x-ux*ln, y-uy*ln, x-ux*ln*0.4, y-uy*ln*0.4, tail, 1)
+	p.Line(x-ux*ln*0.45, y-uy*ln*0.45, x, y, head, 1)
+	p.Glow(x, y, 3, head, 0.45*k)
+}
+
 func along(x, v, a, k, t float64) (float64, float64) {
 	if k <= 0 {
 		return x + v*t + 0.5*a*t*t, v + a*t
@@ -249,6 +300,130 @@ func drift(x, y, vx, vy, t, ax, ay, kx, ky float64) (float64, float64, float64, 
 	Y, VY := along(y, vy, ay, ky, t)
 	return X, Y, VX, VY
 }
+
+// sparkAt returns where a spark is t seconds after launch from (x, y) at (vx, vy): it falls under g px/s², drags by k (1/s) and bounces up to three times off the floor at y = floor, losing speed each time (pixelfx's defaults are floor 0, g 427 and k 2.2). It returns x, y, vx, vy.
+func sparkAt(x, y, vx, vy, t, floor, g, k float64) (float64, float64, float64, float64) {
+	s, left := [4]float64{x, y, vx, vy}, t
+	at := func(tt float64) [4]float64 {
+		X, Y, VX, VY := drift(s[0], s[1], s[2], s[3], tt, 0, g, k, k)
+		return [4]float64{X, Y, VX, VY}
+	}
+	for range 3 {
+		e := at(left)
+		if e[1] < floor || s[1] >= floor {
+			return e[0], e[1], e[2], e[3]
+		}
+		lo, hi := 0.0, left
+		for range 16 {
+			m := (lo + hi) / 2
+			if at(m)[1] < floor {
+				lo = m
+			} else {
+				hi = m
+			}
+		}
+		c := at(hi)
+		s = [4]float64{c[0], floor - 0.25, c[2] * 0.7, -math.Abs(c[3]) * 0.45}
+		left -= hi
+	}
+	e := at(left)
+	if e[1] < floor {
+		return e[0], e[1], e[2], e[3]
+	}
+	return e[0], floor - 0.25, e[2], 0
+}
+
+// floorLight draws a pool of light on the floor: an ellipse of glow of color c, k at its middle falling to 0 at its rim.
+func floorLight(p *pixelfx.Painter, x, y, rx, ry float64, c uint32, k float64) {
+	if k <= 0.004 || rx < 1 || ry < 0.5 {
+		return
+	}
+	p.Shade(x-rx, y-ry, x+rx, y+ry, func(px, py float64, out *pixelfx.Out) uint32 {
+		dx, dy := (px-x)/rx, (py-y)/ry
+		d := dx*dx + dy*dy
+		if d >= 1 {
+			return 0
+		}
+		f := 1 - math.Sqrt(d)
+		out.L = c
+		out.K = f * f * k
+		return 0
+	})
+}
+
+// simDraw draws a core particle system with its fire recolored down the hot-first ramp H as flame puffs (the core draws fire in its own colors): for layer LayerBack its soft and back particles and then the puffs flagged Back, for LayerFront the other puffs and then the rest on top, for LayerBoth both.
+func simDraw(p *pixelfx.Painter, ps *pixelfx.Particles, H []uint32, layer pixelfx.Layer) {
+	all := ps.List
+	rest, fire := make([]pixelfx.Particle, 0, len(all)), make([]pixelfx.Particle, 0, len(all))
+	for _, q := range all {
+		if q.K == pixelfx.Fire {
+			fire = append(fire, q)
+		} else {
+			rest = append(rest, q)
+		}
+	}
+	puffs := func(back bool) {
+		for i := range fire {
+			q := &fire[i]
+			if q.Delay <= 0 && (q.Flag&pixelfx.Back != 0) == back {
+				firePuff(p, q.X, q.Y, q.Life/q.Max, q.Size, math.Mod(q.Seed, 1), H, 0.18, 0, -1)
+			}
+		}
+	}
+	ps.List = rest
+	if layer != pixelfx.LayerFront {
+		ps.Draw(p, pixelfx.LayerBack)
+		puffs(true)
+	}
+	if layer != pixelfx.LayerBack {
+		puffs(false)
+		ps.Draw(p, pixelfx.LayerFront)
+	}
+	ps.List = all
+}
+
+// stoneCols are the shades of a stone color: its lit side, body, shaded side and dust.
+type stoneCols struct{ light, body, shade, dust uint32 }
+
+func stoneOf(c uint32) stoneCols {
+	return stoneCols{
+		light: pixelfx.Mix(pixelfx.Scale(c, 1.35), pixelfx.White, 0.08),
+		body:  c,
+		shade: pixelfx.Scale(c, 0.64),
+		dust:  pixelfx.Mix(pixelfx.Scale(c, 1.2), pixelfx.RGB(150, 140, 150), 0.3),
+	}
+}
+
+// rock draws a thrown rock: a lit side, a shaded side and an outline, spinning, fading out over its last half second.
+func rock(p *pixelfx.Painter, b *pixelfx.Bit, st stoneCols) {
+	r, fade := 0.6+b.S*0.75, math.Min(1, b.Life/0.5)
+	lx, ly := math.Cos(b.A)*r*0.4, math.Sin(b.A)*r*0.4
+	p.Shade(b.X-r-1, b.Y-r-1, b.X+r+1, b.Y+r+1, func(x, y float64, out *pixelfx.Out) uint32 {
+		dx, dy := x-b.X, y-b.Y
+		d := pixelfx.Hypot(dx*1.15, dy)
+		if d > r+0.9 {
+			return 0
+		}
+		lit := dx*lx + dy*ly
+		switch {
+		case d > r:
+			out.C = outline
+		case lit < -0.4:
+			out.C = st.light
+		case lit > 0.6:
+			out.C = st.shade
+		default:
+			out.C = st.body
+		}
+		out.A = fade
+		return 0
+	})
+}
+
+var (
+	soot, soot2, outline = pixelfx.Hex("#0d0a12"), pixelfx.Hex("#17121d"), pixelfx.Hex("#1a1422")
+	warm                 = pixelfx.RGB(255, 176, 96)
+)
 
 var smoke1 = pixelfx.Hex("#5b5566")
 
@@ -436,3 +611,32 @@ func burn(p *pixelfx.Painter, t float64, T []tongue, o burnOpts) float64 {
 	}
 	return fl
 }
+
+// cmpDesc orders by a number, largest first, as JavaScript's sort((a, b) => b - a) does.
+func cmpDesc(a, b float64) int {
+	switch {
+	case a > b:
+		return -1
+	case a < b:
+		return 1
+	}
+	return 0
+}
+
+// cmpAsc orders by a number, smallest first, as JavaScript's sort((a, b) => a - b) does.
+func cmpAsc(a, b float64) int { return cmpDesc(b, a) }
+
+// sign is JavaScript's Math.sign for numbers that are not NaN.
+func sign(x float64) float64 {
+	switch {
+	case x > 0:
+		return 1
+	case x < 0:
+		return -1
+	}
+	return x
+}
+
+// farHalf and nearHalf pick the far and near halves of a pixelfx.Band, so the far half can go behind a character and the near half in front.
+func farHalf(g float64) bool  { return math.Sin(g) < 0 }
+func nearHalf(g float64) bool { return math.Sin(g) >= 0 }
