@@ -187,7 +187,7 @@ func viewRotation(yaw, pitch float32) math3d.Quat {
 	return math3d.QuatFromAxisAngle(worldUp, yaw).Mul(math3d.QuatFromAxisAngle(math3d.Vec3{X: 1}, pitch))
 }
 
-// levelMeshes bakes the level into one mesh per material: a floor tile under every open cell, a box on every wall cell and a slightly smaller one on every crate cell. Tiles rather than one floor slab keep every triangle small, so none spans from in front of the camera to behind it.
+// levelMeshes bakes the level into one mesh per material: a floor tile under every open cell, a box on every wall cell and a slightly smaller one on every crate cell. Tiles rather than one floor slab keep every triangle small, so none spans from in front of the camera to behind it. NSGo's headless software GPU drops a triangle with a vertex behind the camera instead of clipping it (https://github.com/nsgo-dev/nsgo/issues/2344), and small tiles keep the floor drawn there as on real GPUs.
 func levelMeshes(a *Arena) []staticMesh {
 	s := a.CellSize
 	var floor, walls, crates []math3d.Mat4
@@ -238,6 +238,17 @@ func bakeBoxes(boxes []math3d.Mat4) render3d.Mesh {
 
 // dynamicDraws appends the enemies, pickups, rounds, tracers and the player's weapon to dst.
 func dynamicDraws(dst []draw, m *match, cam scene3d.Camera, alpha float32) []draw {
+	// The weapon sits in view space, kicked back by recoil, and is longer for the launcher. It comes first, so it is never the draw maxDynamicDraws drops.
+	length := float32(0.5)
+	if m.player.weapons[m.player.weapon].cfg.Kind == WeaponProjectile {
+		length = 0.65
+	}
+	offset := viewmodelOffset.Add(math3d.Vec3{Z: m.player.recoil * 0.08})
+	if m.player.reloading > 0 {
+		offset.Y -= 0.12
+	}
+	gun := math3d.TRS(cam.Pos, cam.Rot, unitCubeSize).Mul(box(offset, math3d.Vec3{X: 0.1, Y: 0.12, Z: length}))
+	dst = append(dst, draw{model: gun, material: gunMaterial})
 	for _, e := range m.enemies {
 		feet := toMath(lerpVec(e.prevFeet, e.ctrl.Pos, alpha))
 		k := e.kind
@@ -282,17 +293,7 @@ func dynamicDraws(dst []draw, m *match, cam scene3d.Camera, alpha float32) []dra
 		rot := math3d.LookRotation(to.Sub(from), worldUp)
 		dst = append(dst, draw{model: math3d.TRS(from.Lerp(to, 0.5), rot, math3d.Vec3{X: 0.03, Y: 0.03, Z: length}), material: tracerMaterial})
 	}
-	// The weapon sits in view space, kicked back by recoil, and is longer for the launcher.
-	length := float32(0.5)
-	if m.player.weapons[m.player.weapon].cfg.Kind == WeaponProjectile {
-		length = 0.65
-	}
-	offset := viewmodelOffset.Add(math3d.Vec3{Z: m.player.recoil * 0.08})
-	if m.player.reloading > 0 {
-		offset.Y -= 0.12
-	}
-	gun := math3d.TRS(cam.Pos, cam.Rot, unitCubeSize).Mul(box(offset, math3d.Vec3{X: 0.1, Y: 0.12, Z: length}))
-	return append(dst, draw{model: gun, material: gunMaterial})
+	return dst
 }
 
 // keyLight is the arena's one directional light.

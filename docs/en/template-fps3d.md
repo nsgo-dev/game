@@ -14,13 +14,13 @@ go tool nsgo dev
 - Shooting: the rifle is hitscan, a `RaycastFirstLayer` through the wall and enemy layers the moment it fires; the launcher fires a round that flies a segment each step and bursts with splash damage. Magazines, reserves, reloads and fire rate come from the arena file, and an empty magazine reloads by itself.
 - Enemies: each one runs an `ai` behavior tree, a selector of guarded branches that attacks the player in sight, hunts the place the player was last seen or heard (a shot alerts every enemy within earshot), and otherwise patrols the arena's route. It walks A* paths over an `ai.BoolGrid` of the layout, smoothed with `ai.SmoothGridPath`, and fires bolts the player can dodge. An enemy sees along a line that clears every wall edge by a margin, so it never shoots at the player through a corner the player cannot see back around.
 - Waves: a countdown, then each wave's enemies enter at the spawns one at a time, with a pause between waves.
-- Rendering: `render3d`'s lit PBR pipeline draws every object as one unit cube, scaled and placed per draw, under a `render3d.LightRig` of a sky fill, a key light and glows over the spawns and pickups, inside a `gpu.View`. The weapon is drawn in view space and kicks back on each shot. A native HUD and an overlay `core.Canvas` with the crosshair, the hit marker, the hurt flash and the touch controls sit on top.
+- Rendering: `render3d`'s lit PBR pipeline draws the level as three baked meshes (floor tiles, walls and crates) and every moving thing, the enemies, rounds, tracers, pickups and the weapon, as one unit cube scaled and placed per draw, under a `render3d.LightRig` of a sky fill, a key light and glows over the spawns and pickups, inside a `gpu.View`. The weapon is drawn in view space and kicks back on each shot. A native HUD and an overlay `core.Canvas` with the crosshair, the hit marker, the hurt flash and the touch controls sit on top.
 - Input: one `input.Actions` hears all three devices. `game.yaml`'s input map binds the keys, the mouse button and the controller's buttons and sticks; mouselook reads locked pointer motion (`BindPointerAxis` and `LockPointer`, requested on each press of the arena); an `input.VirtualPad` adds a floating move stick, a floating look stick and fire, jump, reload and swap buttons on touch screens.
 
 | | Keyboard and mouse | Game controller | Touch |
 | --- | --- | --- | --- |
 | Move | W A S D | Left stick | Left stick |
-| Look | Mouse with the pointer locked, or the arrow keys | Right stick | Right stick |
+| Look | Mouse with the pointer locked, or the arrow keys | Right stick | Look stick (drag in the lower middle) |
 | Fire | Left button or F | Right trigger | Fire |
 | Jump | Space | South | Jump |
 | Reload | R | West | Reload |
@@ -37,7 +37,7 @@ go tool nsgo dev
 | `match.go` | One match: the world, the player's movement and weapons, rounds in flight, pickups and waves. It takes a `controls` value each step and never reads a device, so it is deterministic and tests drive it directly. |
 | `enemy.go` | An enemy's body, behavior tree, sight and path following. |
 | `controls.go` | The actions, the touch pad's layout and how a step's input becomes `controls`. |
-| `render.go` | The renderer: the unit cube, the materials, the lights and the per-frame draws. |
+| `render.go` | The renderer: the baked level meshes, the unit cube, the materials, the lights and the per-frame draws. |
 | `game.go` | The root component, the 60 Hz `game.Loop`, pause and play again, the HUD, the overlay and the end panel. |
 | `*_test.go` | The arena file's round trip, refusals and fuzz test; the rules of the match; a bot that aims, fires, strafes and heals; playthroughs that win with the keyboard and mouse and with a controller and lose by standing still; the touch controls; and a frame rendered on the headless GPU. |
 

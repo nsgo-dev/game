@@ -37,7 +37,7 @@ type controls struct {
 	moveX, moveY float32
 	// turn turns the view left and tilt raises it, in radians for this step.
 	turn, tilt float32
-	// jump, fire and reload are held this step; next is pressed this step.
+	// jump and fire are held this step; reload and next are pressed this step.
 	jump, fire, reload, next bool
 	// slot, from 1, draws that weapon this step; 0 keeps the current one.
 	slot int
@@ -228,18 +228,23 @@ func (m *match) step(c controls, dt time.Duration) {
 	m.movePlayer(c, dt)
 	m.useWeapon(c, secs)
 	m.runWaves(secs)
+	// Clearing the last wave ends the match at once, so a bolt still in flight from an enemy that has since died cannot turn the win into a loss.
+	if m.over() {
+		return
+	}
 	for _, e := range m.enemies {
 		e.think(m, dt)
 	}
 	m.world.Step(dt)
 	m.flyShots(secs)
-	m.collectPickups(secs)
-	m.fadeTracers(secs)
-
+	// A lethal hit ends the match before pickups, so a health pickup taken in the same step cannot undo it.
 	if m.player.health <= 0 || m.player.ctrl.Pos.Y < fallLimit {
 		m.player.health = max(0, m.player.health)
 		m.phase = phaseLost
+		return
 	}
+	m.collectPickups(secs)
+	m.fadeTracers(secs)
 }
 
 // movePlayer turns the view and walks, strafes and jumps the player's capsule through the world.

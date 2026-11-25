@@ -45,6 +45,7 @@ type enemy struct {
 	path     []core.Point
 	pathAt   int
 	pathGoal ai.Cell
+	partial  bool // the path ends short of pathGoal, which the grid cannot reach
 	repath   float32
 	wish     physics3d.Vec3
 }
@@ -153,11 +154,10 @@ func (e *enemy) attack(m *match) ai.Status {
 	return ai.StatusRunning
 }
 
-// hunt walks to the lead and gives it up after waiting there without seeing the player.
+// hunt walks to the lead and gives it up after waiting there without seeing the player. A lead the grid cannot reach, such as the top of a crate, counts as reached once the enemy stands as close to it as the grid allows, so it expires like any other.
 func (e *enemy) hunt(m *match, dt time.Duration) ai.Status {
 	e.state = stateHunt
-	if horizontalDist(e.ctrl.Pos, e.lead) > m.arena.CellSize {
-		e.walkTo(m, e.lead)
+	if horizontalDist(e.ctrl.Pos, e.lead) > m.arena.CellSize && e.walkTo(m, e.lead) {
 		return ai.StatusRunning
 	}
 	e.yaw = wrapAngle(e.yaw + float32(dt.Seconds())*2)
@@ -179,14 +179,16 @@ func (e *enemy) patrol(m *match) ai.Status {
 	return ai.StatusRunning
 }
 
-// walkTo sets e's wish to follow an A* path over the navigation grid toward target, searching again when the goal cell changes or the path goes stale.
-func (e *enemy) walkTo(m *match, target physics3d.Vec3) {
+// walkTo sets e's wish to follow an A* path over the navigation grid toward target, searching again when the goal cell changes or the path goes stale, and reports whether e has anywhere left to walk. When target's cell is not walkable, such as a crate the player stands on, the path ends at the reachable cell closest to it.
+func (e *enemy) walkTo(m *match, target physics3d.Vec3) bool {
 	goal := m.cellAt(target)
 	if goal != e.pathGoal || e.repath <= 0 || e.pathAt >= len(e.path) {
 		e.pathGoal, e.repath, e.pathAt = goal, repathInterval, 0
 		e.path = e.path[:0]
-		if cells, _, ok := m.astar.Find(m.nav, m.cellAt(e.ctrl.Pos), goal); ok {
-			e.path = ai.SmoothGridPathInto(e.path, m.nav, cells, ai.GridPathOptions{CellSize: m.arena.CellSize, Radius: e.kind.Radius})
+		e.partial = false
+		if r := m.astar.FindWithOptions(m.nav, m.cellAt(e.ctrl.Pos), goal, ai.PathOptions{AllowPartial: true}); r.Found {
+			e.partial = r.Partial
+			e.path = ai.SmoothGridPathInto(e.path, m.nav, r.Path, ai.GridPathOptions{CellSize: m.arena.CellSize, Radius: e.kind.Radius})
 			// The first point is e's own cell; head for the next one.
 			if len(e.path) > 1 {
 				e.pathAt = 1
@@ -196,18 +198,20 @@ func (e *enemy) walkTo(m *match, target physics3d.Vec3) {
 	for e.pathAt < len(e.path) {
 		next := e.path[e.pathAt]
 		p := physics3d.Vec3{X: float32(next.X), Z: float32(next.Y)}
-		if e.pathAt == len(e.path)-1 {
+		last := e.pathAt == len(e.path)-1
+		if last && !e.partial {
 			p.X, p.Z = target.X, target.Z
 		}
 		dir := p.Sub(e.ctrl.Pos)
 		dir.Y = 0
-		if l := dir.Len(); l > waypointReach || (e.pathAt == len(e.path)-1 && l > 0.05) {
+		if l := dir.Len(); l > waypointReach || (last && l > 0.05) {
 			e.wish = dir.Scale(e.kind.Speed / l)
 			if e.state != stateAttack {
 				e.yaw = yawTo(e.ctrl.Pos, p)
 			}
-			return
+			return true
 		}
 		e.pathAt++
 	}
+	return false
 }

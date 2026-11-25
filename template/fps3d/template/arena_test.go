@@ -48,6 +48,9 @@ func TestParseArenaRefusesBadFiles(t *testing.T) {
 		{"pickup symbol", edit("symbol: A", "symbol: S"), "symbol"},
 		{"color", edit("[0.85, 0.32, 0.22]", "[1.5, 0.32, 0.22]"), "color"},
 		{"no waves", noWaves(), "at least one wave"},
+		{"huge amount", edit("amount: 35", "amount: 9223372036854775807"), "amount must be 1 to"},
+		{"huge damage", edit("damage: 20", "damage: 100000"), "damage and magazine must be 1 to"},
+		{"crowded wave", edit("count: 4", "count: 15"), "more than 16 enemies"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
