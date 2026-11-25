@@ -130,6 +130,7 @@
 | `game/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/ice` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/lightning` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/melee` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/moves` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/nature` | 实验性 | [pixelfx](pixelfx.md) |

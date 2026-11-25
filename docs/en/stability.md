@@ -130,6 +130,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/pixelfx/fire` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/ice` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pixelfx/lightning` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/melee` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/moves` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/nature` | Experimental | [pixelfx](pixelfx.md) |
