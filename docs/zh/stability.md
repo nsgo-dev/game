@@ -92,6 +92,7 @@
 | `game/cutscene` | 实验性 | [cutscene](cutscene.md) |
 | `game/debug` | 实验性 | [debug](debug.md) |
 | `game/editor` | 实验性 | [editor](editor.md) |
+| `game/editor/editormcp` | 实验性 | [mcp](mcp.md) |
 | `game/effects` | 实验性 | [effects](effects.md) |
 | `game/entities` | 实验性 | [entities](entities.md) |
 | `game/fighting` | 实验性 | [fighting](fighting.md) |

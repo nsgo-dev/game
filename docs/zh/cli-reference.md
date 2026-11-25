@@ -90,6 +90,18 @@ game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml 
 | --- | --- | --- |
 | `-library string` |  | show the library panel, which installs packs into the open project, for this library index: an https URL such as https://raw.githubusercontent.com/nsgo-dev/game/main/library/index.yaml, an index file, or a directory holding index.yaml |
 
+## game mcp
+
+Serve the editor's MCP tools on standard input and output for an agent, forwarding each call to the editor that has the project open.
+
+```sh
+game mcp [flags]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-project string` | `.` | the project: its directory, a directory inside it, or its game.yaml |
+
 ## game release
 
 Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build, with a credits file of its assets' licenses.

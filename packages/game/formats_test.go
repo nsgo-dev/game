@@ -45,6 +45,7 @@ const jsonImport = "encoding/json"
 var notJSONFormats = map[string]string{
 	"accounts":            "decodes the JSON bodies of its HTTP API, which is data on the wire",
 	"accounts/token":      "decodes the JSON payload of a signed token, which is data on the wire",
+	"editor/editormcp":    "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
 	"gameui":              "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
 	"idle":                "decodes a Number from a JSON value inside another format",
 	"internal/jsonedit":   "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",

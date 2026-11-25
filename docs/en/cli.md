@@ -22,6 +22,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `manifest` | Generates a typed Go asset manifest from a directory of assets, so a missing asset fails the build |
 | `tex` | Encodes a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps |
 | `editor` | Opens the scene editor on a project or a YAML scene, or on a demo scene when none is named |
+| `mcp` | Serves the editor's MCP tools to an agent on standard input and output, forwarding each call to the editor that has the project open |
 | `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build`, with a credits file of its assets' licenses |
 | `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
 | `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
@@ -88,7 +89,15 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. With a project open, the editor opens the project's other scenes from its file browser, makes new ones, saves them under other paths, and asks before quitting or opening another scene loses unsaved edits ([Scene files and unsaved changes](editor.md#scene-files-and-unsaved-changes)). `-library` adds a panel that installs packs from that [library](library.md) into the open project. It has no [editor plugins](editor.md) built in: a game with its own builds its own editor command, as [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) does. The scene format is described in [Editor & Scene Format](editor.md).
+Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. With a project open, the editor opens the project's other scenes from its file browser, makes new ones, saves them under other paths, and asks before quitting or opening another scene loses unsaved edits ([Scene files and unsaved changes](editor.md#scene-files-and-unsaved-changes)). `-library` adds a panel that installs packs from that [library](library.md) into the open project. It has no [editor plugins](editor.md) built in: a game with its own builds its own editor command, as [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) does. The scene format is described in [Editor & Scene Format](editor.md). The editor serves its open project to agents on a local endpoint, which `mcp` reaches.
+
+### mcp
+
+```sh
+claude mcp add game-editor -- go tool game mcp
+```
+
+An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check`, and its change stream; while no editor has the project open, each call answers with how to open it. [mcp](mcp.md#editor-tools) describes the tools.
 
 ### release
 

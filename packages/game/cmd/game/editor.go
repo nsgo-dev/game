@@ -53,9 +53,10 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 	}
 }
 
-// runEditor shows ed in the NSGo Scene Editor window and returns once it closes.
+// runEditor shows ed in the NSGo Scene Editor window, serving its MCP server on the open project's endpoint for go tool game mcp, and returns once it closes.
 func runEditor(ed *editor.Editor) {
 	nsgo.Run(func(cx *core.Scope) core.Node {
+		serveEditor(cx, ed, os.Stderr)
 		// EditorView titles the window after the open scene.
 		return editor.EditorView(cx, ed)
 	}, nsgo.WindowSize(1120, 680))

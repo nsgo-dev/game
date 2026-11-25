@@ -255,3 +255,84 @@ app.Post(func() {
 })
 app.Settle()
 ```
+
+## 把绘制渲染为 PNG
+
+`mcp.RenderPNG(ops, width, height, background)` 用 `game_screenshot` 自行绘制画面时所用的软件光栅化器，把录制好的 `core.Drawing` 的绘制操作渲染成 PNG，并在 `SkippedOps` 和 `SkippedImages` 中报告它略去的内容（文字，以及不是以 `Pixels` 或 `Data` 形式驻留内存的图片）。编辑器的 `viewport_image` 用的就是它，因此在每个平台和无头模式下得到的画面都一样。
+
+## 编辑器工具
+
+上面的工具连接的是运行中的游戏。NSGo 游戏编辑器有自己的 MCP 服务器，即 `game/editor/editormcp` 包，智能体通过它读取和编辑编辑器中打开的项目：每次编辑都经过检查器、场景树和视口所用的同一批 `Editor` 方法，因此会立刻出现在场景树和视口中，用户按一次撤销即可撤回。
+
+```go
+import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
+```
+
+### 连接智能体
+
+`go tool game editor .` 会在项目自己的本地端点上提供所打开的项目：一个只有当前用户能打开的 Unix 域套接字，以项目路径的哈希命名，位于用户缓存目录下的 `nsgo-game/editor` 中（设置了 `$NSGO_GAME_EDITOR_ENDPOINTS` 时位于该目录）。它从不是网络端口。编辑器打开另一个项目时，端点随之切换；在同一项目上再开一个编辑器，第一个编辑器继续提供服务，第二个会在 stderr 上说明原因。
+
+智能体在项目目录（或其中任一子目录）里启动 `go tool game mcp`，或用 `-project` 指定项目：
+
+```sh
+claude mcp add game-editor -- go tool game mcp
+```
+
+`go tool game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`。
+
+### 工具
+
+| 工具 | 动作 | 参数 | 作用 |
+| --- | --- | --- | --- |
+| `scene_read` | read | `file`、`offset`、`limit`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。打开的场景和 `game.yaml` 按编辑器当前持有的内容读取，包括未保存的编辑，有未保存编辑时回复会注明；其他文件从磁盘读取。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。 |
+| `scene_edit` | edit | `edits`（必填）、`file`、`label`（可选） | 按顺序把这些编辑应用到编辑器中打开的场景，作为一个撤销步骤，标签为 `label`（或由编辑内容生成）。这些编辑在用户保存前一直未保存。 |
+| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、文件浏览器中选中的文件、当前工具和视图模式。 |
+| `viewport_image` | read | `scale`（可选，0.25 到 4） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格和选择框，尺寸为视口的点尺寸乘以 `scale`。文字和不在内存中的图片会被略去，回复会给出数量。 |
+| `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`），返回其中的问题，每条带文件、行号和消息。它读取磁盘上的文件；打开的场景有检查未看到的未保存编辑时，回复会写出该场景。 |
+
+`scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
+
+| `op` | 字段 | 编辑器方法 |
+| --- | --- | --- |
+| `add` | `object`（写法同场景文件）、`layer`、`parent` | `PlaceObject`，有 `parent` 时再 `ReparentObject` |
+| `remove` | `id` | `DeleteObject` |
+| `move` | `id`、`x`、`y` | `MoveObject` |
+| `set` | `id`、`fields` | 对象的各个设置方法：`id`、`name`、`x`、`y`、`z`、`rotation`、`scaleX`、`scaleY`、`alpha`、`originX`、`originY`、`flipX`、`flipY`、`sprite`、`material`、`posZ`、`rotX`、`rotY`、`rotZ`、`scaleZ`、`depth`、`mesh` |
+| `set` | `id`、`component`、`fields` | 对每个字段调用 `SetComponentField` |
+| `add_component` | `id`、`component`、`fields` | `AddComponent`，然后 `SetComponentField` |
+| `remove_component` | `id`、`component` | `RemoveComponent` |
+| `set_property`、`remove_property` | `id`、`key`、`value` | `SetProperty`、`DeleteProperty` |
+| `reparent` | `id`、`parent`、`index` | `ReparentObject` |
+| `move_to_layer` | `id`、`layer`、`index` | `MoveObjectToLayer` |
+
+`add` 的对象由场景格式自己的读取器配合编辑器的组件注册表读取，因此会像打开文件时那样被拒绝。一次调用中只要有一项编辑被编辑器拒绝，所有编辑都不生效：场景、其撤销历史和磁盘上的文件都保持原样，工具错误会写出文件、编辑序号、对象、组件和字段以及修正方法，例如 `scene_edit: scenes/room.scene.yaml: edit 2 (set) on object "hero" component "body" field "sped": unknown field (registered: friction, layer, solid, speed); use a component and fields the project registers, as the message lists them. Nothing was changed.` 结构化结果以 `editormcp.EditError` 的形式包含同样的信息。
+
+把智能体的一次请求归为一个由用户保留或还原的回合、以及实时绘制智能体的编辑，会在各自的改动中基于这个服务器实现；在那之前，每次 `scene_edit` 调用就是一个普通的撤销步骤。
+
+### 变更流
+
+服务器有两个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
+
+### 添加工具
+
+工具是一个注册表，编辑器的其他部分通过 `Server.AddTool` 加入，使每个带按钮或快捷键的操作都有对应的工具。`Tool` 有名称、描述、参数的 JSON Schema、`Action`（`ActionRead`、`ActionEdit` 或 `ActionRun`，编辑器的权限规则据此判断）以及处理函数。处理函数运行在服务器的某个 goroutine 上，通过 `Call.Editor` 访问编辑器：它把一个函数交给编辑器的 goroutine 执行并等待完成，因此工具可以等待别处的工作，也可以返回图片。工具列表变化时会通知客户端。
+
+```go
+s := editormcp.New(ed, editormcp.Options{Run: cx.Post})
+_ = s.AddTool(editormcp.Tool{
+	Name:   "scene_name",
+	Action: editormcp.ActionRead,
+	Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
+		var name string
+		err := c.Editor(ctx, func(ed *editor.Editor) error { name = ed.Doc.Name; return nil })
+		return &editormcp.Result{Text: name}, err
+	},
+})
+_ = s.Open()
+```
+
+`Options.Run` 把函数交给编辑器的 goroutine（窗口中的编辑器用 `cx.Post`）；不设置时，服务器在调用者的 goroutine 上逐个执行，适用于没有窗口驱动的编辑器。`Server.Connect` 在任意 MCP 传输上提供一个会话，测试中可配合 `mcp.NewInMemoryTransports` 使用。
+
+### 为什么有自己的服务器
+
+NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应用工具，而 `nsgo mcp` 只能连接 `nsgo dev -automation` 运行的应用；编辑器是普通构建。应用工具的处理函数还会在图 goroutine 上同步运行（nsgo-dev/nsgo#2342），无法在不卡住编辑器的情况下等待项目检查，并且只能返回 JSON，截图只能以 base64 文本而不是图片的形式到达智能体（nsgo-dev/nsgo#2343）。编辑器的服务器使用官方 MCP Go SDK（NSGo 自己的 `nsgo mcp` 也基于它），因此工具可以在编辑器 goroutine 之外等待，`viewport_image` 返回真正的图片。对于在 `go tool nsgo dev -automation` 下运行的编辑器，`Server.RegisterAutomation` 仍会把同样的工具提供给 `nsgo mcp`，每个工具在图 goroutine 上从头运行到尾，返回 PNG 为 base64 的 `AutomationResult`。
