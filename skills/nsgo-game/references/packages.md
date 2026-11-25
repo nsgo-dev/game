@@ -32,6 +32,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/critters` | Experimental | pixelfx critters loops (bat, bird, butterfly, eyeball, fish school, flying skull, frog, ghost, jellyfish, slime, snake, wisp) |
 | `game/pixelfx/explosions` | Experimental | pixelfx explosions (small explosion so far) |
 | `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
+| `game/pixelfx/ice` | Experimental | pixelfx ice effects (blizzard vortex, freeze, frost breath, frost nova, ice crystal, ice lance, ice shatter, ice spikes, icicle fall, snowflake burst) |
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet, shield block) |
 | `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
 | `game/pixelfx/nature` | Experimental | pixelfx nature effects (acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle, vine whip) |
