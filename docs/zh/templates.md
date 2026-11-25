@@ -14,6 +14,7 @@
 | `platformer2d` | 一个横版平台跳跃游戏（[说明](template-platformer2d.md)）：带土狼时间和跳跃缓冲的控制器、三个各有相机边界的房间、尖刺、深坑、可收集的火花、一个检查点和一个终点，可用键盘、手柄或触屏操作。 | `github.com/nsgo-dev/game/template/platformer2d` |
 | `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
+| `roguelike2d` | 一个回合制 roguelike（[指南](template-roguelike2d.md)）：五层由本局种子生成的 BSP 房间与洞穴、撞击即攻击的战斗、带保底的加权掉落、带装备与限时药剂的属性、按回合冷却的饮药与横扫两个技能、永久死亡和本局总结，可用键盘、手柄或触屏游玩。 | `github.com/nsgo-dev/game/template/roguelike2d` |
 | `rpg2d` | 一个俯视角 RPG：可以行走的小镇和草地、带分支对话的人物、带装备的物品栏、一个任务、回合制战斗和三个存档槽。[指南](template-rpg2d.md)。 | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | 一场 2D 即时战略遭遇战：采集水晶、建造兵营、训练三种单位并摧毁电脑对手的总部，带战争迷雾、框选、编队以及键盘、手柄和触屏操作（[指南](template-rts2d.md)）。 | `github.com/nsgo-dev/game/template/rts2d` |
 | `shmup2d` | 一个纵向卷轴射击游戏：YAML 写的敌机波次和关卡、弹幕、强化道具、炸弹、三个阶段的 Boss、残机和分数，可用键盘、鼠标、手柄或触屏操作。 | `github.com/nsgo-dev/game/template/shmup2d` |

@@ -1,0 +1,54 @@
+version: 1
+stats:
+  - name: maxHealth
+    base: 24
+    min: 1
+  - name: attack
+    base: 3
+    min: 1
+  - name: defense
+    base: 0
+    min: 0
+effects:
+  - name: rusty-pick
+    modifiers:
+      - stat: attack
+        op: add
+        value: 1
+  - name: iron-spike
+    modifiers:
+      - stat: attack
+        op: add
+        value: 3
+  - name: glimmer-blade
+    modifiers:
+      - stat: attack
+        op: add
+        value: 5
+  - name: hide-vest
+    modifiers:
+      - stat: defense
+        op: add
+        value: 1
+  - name: chain-shirt
+    modifiers:
+      - stat: defense
+        op: add
+        value: 2
+  - name: warden-plate
+    modifiers:
+      - stat: defense
+        op: add
+        value: 3
+  - name: fury
+    steps: 20
+    modifiers:
+      - stat: attack
+        op: mul
+        value: 1.5
+  - name: stoneskin
+    steps: 20
+    modifiers:
+      - stat: defense
+        op: add
+        value: 2
