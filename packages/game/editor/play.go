@@ -136,6 +136,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.resetInputMapTransient()
 	e.connPick = nil
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	e.playSnapshot = snap
 	e.Doc = playDoc

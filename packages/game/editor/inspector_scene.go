@@ -615,6 +615,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				}
 			},
 		},
+		roomsSceneSection(cx, ed, rev, disabled, sectionHeader, fieldRow),
 	}
 
 	return core.View{

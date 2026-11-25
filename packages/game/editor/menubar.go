@@ -208,7 +208,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.Playing(),
 			e.History.CanUndo(),
 			e.History.CanRedo(),
-			e.SelectedID != "",
+			e.SelectedID != "" || e.SelectedRoomID() != "",
 			e.ViewMode,
 			e.Tool,
 			e.GizmoMode,

@@ -63,15 +63,15 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, localization workspace, animation clip, or data table has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
+// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, room map, localization workspace, animation clip, or data table has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
 	}
-	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty()
+	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty()
 }
 
-// SaveAll persists all currently dirty editors (project, scene, GridMap, terrain, localizations, clip, and data table) that have a save destination configured.
+// SaveAll persists all currently dirty editors (project, scene, GridMap, terrain, room map, localizations, clip, and data table) that have a save destination configured.
 func (e *Editor) SaveAll() error {
 	if e == nil {
 		return nil
@@ -79,7 +79,7 @@ func (e *Editor) SaveAll() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() || e.TerrainDirty() {
+	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() {
 		if err := e.Save(); err != nil {
 			return err
 		}
@@ -159,6 +159,8 @@ func (e *Editor) Save() error {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
@@ -186,9 +188,19 @@ func (e *Editor) Save() error {
 		}
 		terrainSaved = true
 	}
+	roomsSaved := false
+	if e.RoomsDirty() && (e.OnSaveRooms != nil || (e.rooms != nil && e.rooms.path != "")) {
+		if err := e.SaveRooms(); err != nil {
+			return err
+		}
+		roomsSaved = true
+	}
 	if !e.SceneDirty() && (e.OnSave != nil || e.FilePath == "" || fileExists(e.FilePath)) {
 		// Rewriting an unedited scene would only drop its comments and hand-kept layout.
-		if !projectSaved && !gridMapSaved && !terrainSaved {
+		if e.RoomsDirty() {
+			return ErrNoRoomsFile
+		}
+		if !projectSaved && !gridMapSaved && !terrainSaved && !roomsSaved {
 			e.Status = "No unsaved changes"
 			e.notify()
 		}
@@ -208,9 +220,18 @@ func (e *Editor) Save() error {
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
+		if e.RoomsDirty() {
+			return ErrNoRoomsFile
+		}
 		return nil
 	case e.FilePath != "":
-		return e.SaveFile(e.FilePath)
+		if err := e.SaveFile(e.FilePath); err != nil {
+			return err
+		}
+		if e.RoomsDirty() {
+			return ErrNoRoomsFile
+		}
+		return nil
 	default:
 		return ErrNoSceneFile
 	}
@@ -277,6 +298,8 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
@@ -327,6 +350,8 @@ func (e *Editor) RevertScene() error {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	e.CancelTileStroke()
 	e.connPick = nil

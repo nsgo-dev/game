@@ -53,6 +53,9 @@ func (e *Editor) View2D() View2D {
 	if e.cameraDrag.active && !e.playing {
 		return e.cameraDrag.startView
 	}
+	if e.cameraBoundsDrag.active && !e.playing {
+		return e.cameraBoundsDrag.startView
+	}
 	if e.view2DFree && !e.playing {
 		return e.view2D
 	}

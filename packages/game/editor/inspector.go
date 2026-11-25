@@ -317,6 +317,9 @@ func inspectorSchemaKey(ed *Editor) string {
 	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
+		if ed != nil && ed.SelectedRoomID() != "" {
+			return "room"
+		}
 		if ed != nil && ed.inspectLayer {
 			if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
 				l := &ed.Doc.Layers[li]
@@ -488,6 +491,12 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						if strings.HasPrefix(key, "L:") {
 							if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
 								return layerInspectorView(cx, ed, rev, ed.Doc.Layers[li].Name)
+							}
+							return nil
+						}
+						if key == "room" {
+							if ed.SelectedRoomID() != "" {
+								return roomInspectorView(cx, ed, rev)
 							}
 							return nil
 						}

@@ -300,6 +300,8 @@ type Editor struct {
 	OnSaveTileset func(data []byte) error
 	// OnSaveParticleEmitter is invoked by the Particle Emitter panel's Save button with the encoded emitter YAML; when nil the button writes to ParticleEmitterPath.
 	OnSaveParticleEmitter func(data []byte) error
+	// OnSaveRooms is invoked by SaveRooms / Save with the encoded *.rooms.yaml bytes; when nil SaveRooms writes to RoomsPath.
+	OnSaveRooms func(data []byte) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -389,8 +391,11 @@ type Editor struct {
 	// fly3DOrtho says the camera was orthographic when the flight began, and fly3DMoved that the flight has turned or moved it, so a flight that did neither puts the projection back.
 	fly3DOrtho   bool
 	fly3DMoved   bool
-	cameraDrag   cameraDragState
-	bgPreview    bgPreviewState
+	cameraDrag       cameraDragState
+	cameraBoundsDrag cameraBoundsDragState
+	rooms            *roomMapState
+	roomDrag         roomDragState
+	bgPreview        bgPreviewState
 	scope        *core.Scope
 	revision     uint64
 	nextID       int
@@ -622,6 +627,12 @@ func (e *Editor) afterMutate() {
 			e.SelectedID = ""
 		}
 	}
+	// Ensure SelectedRoomID still points to an existing room in the open room map.
+	if e.rooms != nil && e.rooms.selectedRoomID != "" {
+		if e.rooms.doc == nil || e.rooms.doc.Room(e.rooms.selectedRoomID) == nil {
+			e.rooms.selectedRoomID = ""
+		}
+	}
 	// Undoing a layer's addition, or redoing its removal, may take the active layer away.
 	e.keepActiveLayer()
 	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
@@ -687,6 +698,8 @@ func (e *Editor) SetTool(t Tool) {
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.endTileStrokeForChange()
 	e.Tool = t
 	e.pluginTool = pluginToolRef{}
@@ -710,6 +723,8 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
 	e.notify()
@@ -756,6 +771,11 @@ func (e *Editor) SetActiveLayer(name string) bool {
 		e.endTileStrokeForChange()
 	}
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
+	if e.rooms != nil {
+		e.rooms.selectedRoomID = ""
+	}
 	e.ActiveLayer = name
 	e.inspectAssetFile = false
 	e.inspectLayer = true
@@ -908,6 +928,9 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
 	e.cameraDrag = cameraDragState{}
+	e.cameraBoundsDrag = cameraBoundsDragState{}
+	e.roomDrag = roomDragState{}
+	e.rooms = nil
 	e.bgPreview = bgPreviewState{}
 	// A stroke under way edits the scene being replaced, whose history goes with it.
 	e.stroke = nil
@@ -979,6 +1002,8 @@ func (e *Editor) SaveFile(path string) error {
 		e.CancelShapeDrag2D()
 		e.CancelPluginDrag2D()
 		e.CancelCameraDrag()
+		e.CancelCameraBoundsDrag()
+		e.CancelRoomDrag()
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
 		e.endGridMapStrokeForChange()
@@ -1040,6 +1065,8 @@ func (e *Editor) Undo() bool {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
 	e.endTileStrokeForChange()
@@ -1065,6 +1092,8 @@ func (e *Editor) Redo() bool {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
@@ -1084,11 +1113,16 @@ func (e *Editor) Redo() bool {
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
 	if id == "" {
-		if e.SelectedID != "" || e.inspectAssetFile || e.inspectLayer || e.connPick != nil {
+		hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
+		if e.SelectedID != "" || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
+			e.CancelRoomDrag()
 			e.SelectedID = ""
 			e.inspectAssetFile = false
 			e.inspectLayer = false
 			e.connPick = nil
+			if e.rooms != nil {
+				e.rooms.selectedRoomID = ""
+			}
 			e.notify()
 		}
 		return true
@@ -1103,12 +1137,18 @@ func (e *Editor) SelectObject(id string) bool {
 		e.notify()
 		return true
 	}
-	if e.SelectedID != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil {
+	hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
+	if e.SelectedID != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
 		e.CancelCameraDrag()
+		e.CancelCameraBoundsDrag()
+		e.CancelRoomDrag()
 		e.SelectedID = id
 		e.inspectAssetFile = false
 		e.inspectLayer = false
 		e.connPick = nil
+		if e.rooms != nil {
+			e.rooms.selectedRoomID = ""
+		}
 		e.Status = "Selected " + id
 		e.notify()
 	}
@@ -1367,6 +1407,8 @@ func (e *Editor) DeleteObject(id string) error {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
