@@ -558,8 +558,8 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// TestProblemRowAsksBeforeOpeningAnotherScene presses a problem in another scene while the open one has unsaved edits: the editor asks first, Cancel keeps the edits and Discard opens the problem's scene and clears the OnSave of the scene open before, and a problem in the scene already open selects it without reloading it.
-func TestProblemRowAsksBeforeOpeningAnotherScene(t *testing.T) {
+// TestProblemRowOpensAnotherSceneInATab presses a problem in another scene while the active tab has unsaved edits: the problem's scene switches to its tab without prompting, keeping the other tab's edits, undo history and OnSave intact, and a problem in the active tab selects it without reloading it.
+func TestProblemRowOpensAnotherSceneInATab(t *testing.T) {
 	dir := t.TempDir()
 	writeFixtureFiles(t, dir, map[string]string{
 		project.FileName:          fixtureProjectYAML,
@@ -600,7 +600,7 @@ func TestProblemRowAsksBeforeOpeningAnotherScene(t *testing.T) {
 		if err := ed.OpenScene("scenes/other.scene.yaml"); err != nil {
 			t.Error(err)
 		}
-		// An app that persists the open scene itself: the problem's scene must not go to this callback.
+		// An app that persists this tab itself: switching to the problem's scene must not attach this callback there.
 		ed.OnSave = func([]byte) error { return nil }
 	})
 	app.Settle()
@@ -608,21 +608,11 @@ func TestProblemRowAsksBeforeOpeningAnotherScene(t *testing.T) {
 
 	app.Press("id:problems-row-0")
 	app.Settle()
-	if !app.Exists("id:unsaved-dialog") {
-		t.Fatal("opening the problem's scene over unsaved edits did not ask")
+	if app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening the problem's scene in a tab should not prompt")
 	}
-	app.Press("id:unsaved-cancel")
-	app.Settle()
-	if ed.ScenePath != "scenes/other.scene.yaml" || !ed.SceneDirty() || !ed.History.CanUndo() {
-		t.Fatalf("after Cancel: scene %q, dirty %v, undo %v", ed.ScenePath, ed.SceneDirty(), ed.History.CanUndo())
-	}
-
-	app.Press("id:problems-row-0")
-	app.Settle()
-	app.Press("id:unsaved-discard")
-	app.Settle()
-	if ed.ScenePath != "scenes/room.scene.yaml" || ed.Doc.Name != "Room" || ed.HasUnsavedChanges() || ed.OnSave != nil {
-		t.Fatalf("after Discard: scene %q named %q, unsaved %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	if ed.ScenePath != "scenes/room.scene.yaml" || ed.Doc.Name != "Room" || ed.TabCount() != 2 || !ed.TabDirty(1) || ed.SceneDirty() || ed.OnSave != nil {
+		t.Fatalf("after problem press: scene %q named %q, tabs %d, tab1 dirty %v, active dirty %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.TabCount(), ed.TabDirty(1), ed.SceneDirty(), ed.OnSave != nil)
 	}
 
 	edit("hero", 44)

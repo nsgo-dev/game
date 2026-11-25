@@ -444,6 +444,14 @@ type Editor struct {
 	listeners        map[uint64]func()
 	// askUnsaved asks the author, through the prompt EditorView shows, whether to save or discard unsaved edits before something loses them; nil without an EditorView.
 	askUnsaved func(proceed, cancel func())
+	// askCloseTab asks the author whether to save, discard or cancel closing a dirty scene tab; nil without an EditorView.
+	askCloseTab func(tabID uint64, label string)
+	// tabs holds all open scene tabs; tabs[activeTab] mirrors the active scene fields on Editor.
+	tabs      []*sceneTab
+	activeTab int
+	tabSeq    uint64
+	// scenesRev bumps whenever any scene tab is saved so 3D views of tabs that instance or inherit it rebuild.
+	scenesRev uint64
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
 	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
@@ -586,6 +594,7 @@ func DefaultSceneDoc() *sceneformat.SceneDoc {
 
 // New constructs an Editor over doc and resolver. If doc is nil, DefaultSceneDoc() is used.
 func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor, error) {
+	isPlaceholder := doc == nil
 	if doc == nil {
 		doc = DefaultSceneDoc()
 	}
@@ -594,7 +603,6 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 	}
 	ed := &Editor{
 		Doc:                 doc,
-		History:             NewHistory(),
 		Resolver:            resolver,
 		Prefabs:             make(map[string]Prefab),
 		Tool:                ToolSelect,
@@ -626,17 +634,16 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			overlays: DefaultHUDOverlays(),
 		},
 	}
+	ed.History = ed.newTabHistory()
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
 	}
 	ed.keepTileInPalette()
 	// The scene the editor starts on is clean: an error here leaves it dirty, which only asks before losing it.
 	ed.sceneSaved, _ = sceneformat.Encode(doc)
-	ed.History.onChange = func() {
-		ed.afterMutate()
-	}
 	ed.initBuiltinCommands()
 	ed.Rebuild()
+	ed.resetTabsToActive(isPlaceholder)
 	return ed, nil
 }
 
@@ -718,6 +725,12 @@ func (e *Editor) afterMutate() {
 	e.syncExportPanel()
 	e.syncHUDAfterMutate()
 	e.Rebuild()
+	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
+		if e.History.Len() > 0 || e.SceneDirty() {
+			e.tabs[e.activeTab].placeholder = false
+		}
+		e.syncActiveTab()
+	}
 	e.refreshOpenSceneSearch()
 	e.notify()
 }
@@ -908,23 +921,39 @@ func (e *Editor) SetActiveTerrain(name string) {
 	e.notify()
 }
 
-// SetComponentRegistry makes the editor check components against reg: the current document's components and connections must already conform, later opens refuse files whose components or connections do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off. Changing the registry clears undo/redo history, since commands recorded under the old registry could bring back components the new one refuses.
+// SetComponentRegistry makes the editor check components against reg: every open scene's components and connections must already conform, later opens refuse files whose components or connections do not, SetComponentField and PlaceObject refuse unregistered fields, and the inspector lists every registered field of a component. Nil turns the checks off. Changing the registry clears undo/redo history across open tabs, since commands recorded under the old registry could bring back components the new one refuses.
 func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error {
-	if err := sceneformat.ValidateComponents(e.Doc, reg); err != nil {
-		return err
-	}
-	// OpenFile binds connections against the registry (sceneformat.ParseWith), so the open scene must pass the same check, or a scene the editor lets the user save would not open again. A scene that instances or inherits others is checked once resolved, as ParseWith leaves it.
-	if !e.Doc.RefersToScenes() {
-		if err := sceneformat.ValidateConnections(e.Doc, reg); err != nil {
+	e.syncActiveTab()
+	for _, t := range e.tabs {
+		if t.doc == nil {
+			continue
+		}
+		if err := sceneformat.ValidateComponents(t.doc, reg); err != nil {
 			return err
+		}
+		// OpenFile binds connections against the registry (sceneformat.ParseWith), so each open scene must pass the same check, or a scene the editor lets the user save would not open again. A scene that instances or inherits others is checked once resolved, as ParseWith leaves it.
+		if !t.doc.RefersToScenes() {
+			if err := sceneformat.ValidateConnections(t.doc, reg); err != nil {
+				return err
+			}
 		}
 	}
 	if reg == e.components {
 		return nil
 	}
 	e.components = reg
+	for i, t := range e.tabs {
+		if i != e.activeTab && t.history != nil {
+			t.history.commands = nil
+			t.history.cursor = 0
+			if t.history.group != nil {
+				t.history.group.cmds = nil
+			}
+		}
+	}
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
+	e.rebuildAllInactiveTabs()
 	if e.Project != nil && e.ProjectPath != "" {
 		e.CheckProblems()
 	}
@@ -1046,9 +1075,13 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	}
 	e.keepTileInPalette()
 	e.resetNavMeshForScene()
+	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
+		e.tabs[e.activeTab].placeholder = false
+	}
 	e.Status = "Opened scene"
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
+	e.syncActiveTab()
 	return nil
 }
 
@@ -1064,30 +1097,48 @@ func (e *Editor) SaveYAML() ([]byte, error) {
 	return sceneformat.Encode(e.Doc)
 }
 
-// OpenFile reads a YAML scene file from path and loads it into the editor. A scene that does not parse returns sceneformat.Parse's *loaderr.Error, naming path.
+// OpenFile reads a YAML scene file from path and opens it in a tab, or switches to its existing tab when that file is already open, preserving every open tab's undo history. A scene that does not parse returns sceneformat.Parse's *loaderr.Error, naming path.
 func (e *Editor) OpenFile(path string) error {
 	return e.openFileWithLayers(path, e.PhysicsLayers())
 }
 
 func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLayerTable) error {
+	rel, _ := e.projectRel(path)
+	if idx := e.findTabByPath(rel, path); idx >= 0 {
+		if e.playing {
+			if err := e.Stop(); err != nil {
+				return err
+			}
+		}
+		return e.SelectTab(idx)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
 	}
-	if err := e.openYAMLWithLayers(data, path, layers); err != nil {
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{
+		File:          path,
+		Components:    e.components,
+		PhysicsLayers: layers,
+	})
+	if err != nil {
 		return loaderr.WithFile(err, path)
 	}
-	e.FilePath = path
-	e.syncScenePath()
-	e.navMesh3D.config.OutputPath = e.derivedNavMeshPath()
-	e.tryAutoloadNavMesh3D()
-	e.Status = "Opened " + path
-	e.restoreViewState()
+	saved, err := sceneformat.Encode(doc)
+	if err != nil {
+		return loaderr.WithFile(err, path)
+	}
+	if e.playing {
+		if err := e.Stop(); err != nil {
+			return err
+		}
+	}
+	e.activateNewTab(doc, saved, path)
 	e.notify()
 	return nil
 }
 
-// SaveFile encodes the scene to YAML and writes it to path.
+// SaveFile encodes the scene to YAML and writes it to path, then rebuilds any other open tabs that instance or inherit scenes.
 func (e *Editor) SaveFile(path string) error {
 	if !e.playing {
 		e.CancelShapeDrag2D()
@@ -1108,10 +1159,15 @@ func (e *Editor) SaveFile(path string) error {
 	}
 	e.FilePath = path
 	e.sceneSaved = append([]byte(nil), data...)
+	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
+		e.tabs[e.activeTab].placeholder = false
+	}
 	e.syncScenePath()
+	e.syncActiveTab()
 	e.saveViewStateQuietly()
 	e.filesRev++
 	e.invalidateProjectIndex()
+	e.rebuildDependentTabs(e.activeTabID())
 	e.Status = "Saved " + path
 	e.notify()
 	e.CheckProblems()

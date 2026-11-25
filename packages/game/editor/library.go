@@ -78,9 +78,19 @@ func (e *Editor) applyPackChange(dir string, c *library.Change, done string) err
 		e.Project = prev
 		return errors.Join(err, undo())
 	}
+	for i, t := range e.tabs {
+		if i != e.activeTab && t.history != nil {
+			t.history.commands = nil
+			t.history.cursor = 0
+			if t.history.group != nil {
+				t.history.group.cmds = nil
+			}
+		}
+	}
 	e.History.Clear()
 	e.filesRev++
 	e.assetsRev++
+	e.rebuildAllInactiveTabs()
 	e.invalidateProjectIndex()
 	e.dropStalePluginTool()
 	e.Status = done

@@ -417,16 +417,6 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			OnSelect: func(id string) {
 				query.Set("")
 				ed.CloseCommandPalette()
-				// Opening another scene asks first while edits are unsaved, as the file browser does.
-				if rel, ok := strings.CutPrefix(id, palettePrefixFile); ok && isProjectScene(ed.Project, rel) && !ed.isOpenScene(rel) && !ed.Playing() {
-					ed.whenSaved(func() {
-						if ed.ExecutePaletteItem(id) == nil {
-							ed.discardProject()
-							ed.notify()
-						}
-					}, nil)
-					return
-				}
 				_ = ed.ExecutePaletteItem(id)
 			},
 		},

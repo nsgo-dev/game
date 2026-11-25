@@ -210,11 +210,14 @@ func (e *Editor) OpenDemo() error {
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
 	e.ActiveLayer = "actors"
 	e.SelectedID = "hero"
+	e.Camera3D = DefaultOrbitCamera3D()
+	e.History = e.newTabHistory()
 	e.keepTileInPalette()
 	e.attachDemoPlayUpdate()
 	e.Rebuild()
 	e.History.Clear()
 	e.markSceneSaved()
+	e.resetTabsToActive(false)
 	e.setStartScreenEntered()
 	e.Status = "Opened Demo Room"
 	e.notify()

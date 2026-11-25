@@ -355,6 +355,43 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 
 		sectionHeader(ed.T("inspector.section.scene")),
+		core.Show{
+			When: func() bool {
+				_ = rev.Get()
+				return ed.Doc != nil && ed.Doc.Inherits != ""
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return core.View{
+					Style: core.Style{Gap: 6},
+					Children: []core.Node{
+						fieldRow("Inherits", core.Text{
+							TestID: "inspector-scene-inherits",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								if ed.Doc != nil {
+									return ed.Doc.Inherits
+								}
+								return ""
+							},
+							MaxLines: 1,
+							Style:    core.Style{FontSize: 12, Color: colors.Muted()},
+						}),
+						ui.Button{
+							TestID:  "inspector-open-base-scene",
+							Text:    "Open Base Scene",
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonSecondary,
+							Disabled: func() bool {
+								return disabled() || ed.Project == nil || ed.ProjectPath == "" || ed.Doc == nil || ed.Doc.Inherits == ""
+							},
+							OnPress: func() {
+								ed.report(ed.OpenBaseScene())
+							},
+						},
+					},
+				}
+			},
+		},
 		fieldRow(ed.T("inspector.name"), ui.Input{
 			TestID:   "inspector-scene-name",
 			Label:    ed.T("inspector.sceneName"),

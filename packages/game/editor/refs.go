@@ -200,19 +200,26 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 			e.projectSaved = data
 		}
 	}
-	moveScenePaths(e.Doc, movePath)
-	moveFile(&e.FilePath)
-	// When the move rewrote the open scene's file, the saved scene changed on disk as the open one did, so the move leaves it as clean or dirty as it was. A file the move did not write, such as one refs does not read as a scene, or a scene kept through OnSave or outside the project, still holds the old paths, so the scene is left dirty for the author to save.
-	if rel, ok := e.projectRel(e.FilePath); ok && slices.ContainsFunc(written, func(w refs.Write) bool { return w.Path == rel }) {
-		if saved, err := sceneformat.Parse(e.sceneSaved); err == nil {
-			moveScenePaths(saved, movePath)
-			if data, err := sceneformat.Encode(saved); err == nil {
-				e.sceneSaved = data
+	e.syncActiveTab()
+	for _, t := range e.tabs {
+		moveScenePaths(t.doc, movePath)
+		moveFile(&t.filePath)
+		// When the move rewrote an open scene's file, the saved scene changed on disk as the open one did, so the move leaves it as clean or dirty as it was. A file the move did not write, such as one refs does not read as a scene, or a scene kept through OnSave or outside the project, still holds the old paths, so the scene is left dirty for the author to save.
+		if rel, ok := e.projectRel(t.filePath); ok && slices.ContainsFunc(written, func(w refs.Write) bool { return w.Path == rel }) {
+			if saved, err := sceneformat.Parse(t.sceneSaved); err == nil {
+				moveScenePaths(saved, movePath)
+				if data, err := sceneformat.Encode(saved); err == nil {
+					t.sceneSaved = data
+				}
 			}
 		}
+		movePath(&t.scenePath)
 	}
-	movePath(&e.ScenePath)
+	e.loadActiveTab()
 	e.syncProjectAssets()
+	e.scenesRev++
+	e.baseLayers = baseLayerCache{}
+	e.rebuildAllInactiveTabs()
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)
 	e.followGridMapMove(moveFile, movePath)

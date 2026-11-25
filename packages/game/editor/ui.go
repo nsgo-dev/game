@@ -264,6 +264,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				Overflow:  core.Hidden,
 			},
 			Children: []core.Node{
+				SceneTabsView(cx, ed, rev),
 				ViewportView(cx, ed, rev),
 				ProfilerStripView(cx, ed, rev),
 			},

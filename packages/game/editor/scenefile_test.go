@@ -314,7 +314,7 @@ func TestMovingAnAssetOfAnUnreadSceneLeavesItDirty(t *testing.T) {
 	}
 
 	// The main scene, which game.yaml names, is one refs reads and rewrites.
-	if err := ed.OpenScene("scenes/room.yaml"); err != nil {
+	if err := ed.RevertScene(); err != nil {
 		t.Fatal(err)
 	}
 	if err := ed.MoveFile("materials/stone.material.yaml", "materials/rock.material.yaml"); err != nil {
@@ -430,8 +430,8 @@ func TestUnsavedMarkerAndModS(t *testing.T) {
 	}
 }
 
-// TestOpenFromTheFileBrowserAsksFirst opens another scene from the file browser while the scene has unsaved edits: Cancel keeps them, Save saves them and opens the scene, and Discard drops them, the project's too.
-func TestOpenFromTheFileBrowserAsksFirst(t *testing.T) {
+// TestOpenFromTheFileBrowserOpensTabs opens scenes from the file browser into tabs without prompting or losing edits, switches to an already-open tab, and asks only when closing a dirty tab.
+func TestOpenFromTheFileBrowserOpensTabs(t *testing.T) {
 	ed, dir := openTestProject(t)
 	app := startEditorApp(t, ed)
 	edit := func(x float32) {
@@ -443,36 +443,41 @@ func TestOpenFromTheFileBrowserAsksFirst(t *testing.T) {
 		app.Settle()
 	}
 
-	// A clean scene opens at once.
+	// Double-pressing another scene opens it in a second tab without prompting.
 	app.DoublePress("id:files-row-scenes/other.scene.yaml")
 	app.Settle()
-	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/other.scene.yaml" {
-		t.Fatalf("opening from a clean scene: prompt %v, ScenePath %q", app.Exists("id:unsaved-dialog"), ed.ScenePath)
+	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/other.scene.yaml" || ed.TabCount() != 2 {
+		t.Fatalf("opening a second scene: prompt %v, ScenePath %q, tabs %d", app.Exists("id:unsaved-dialog"), ed.ScenePath, ed.TabCount())
 	}
 
 	edit(33)
+	// Opening an already-open scene from the file browser switches to its tab without prompting and keeps the first tab's dirty edit and undo history.
 	app.Press("id:files-row-scenes/room.yaml")
 	app.Settle()
 	app.Press("id:files-open")
 	app.Settle()
+	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/room.yaml" || ed.TabCount() != 2 || !ed.TabDirty(1) {
+		t.Fatalf("switching via file browser: prompt %v, ScenePath %q, tabs %d, tab1 dirty %v", app.Exists("id:unsaved-dialog"), ed.ScenePath, ed.TabCount(), ed.TabDirty(1))
+	}
+
+	// Closing the dirty tab asks: Cancel keeps it open and dirty, Save saves it and closes it.
+	app.Press("id:scene-tab-close-1")
+	app.Settle()
 	if !app.Exists("id:unsaved-dialog") {
-		t.Fatal("opening another scene over unsaved edits did not ask")
+		t.Fatal("closing a dirty tab did not ask")
 	}
 	app.Press("id:unsaved-cancel")
 	app.Settle()
-	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/other.scene.yaml" || !ed.SceneDirty() {
-		t.Fatalf("after Cancel: prompt %v, ScenePath %q, dirty %v", app.Exists("id:unsaved-dialog"), ed.ScenePath, ed.SceneDirty())
-	}
-	if obj, _, _ := ed.FindObject("hero"); obj.X != 33 || !ed.History.CanUndo() {
-		t.Fatalf("Cancel lost the edit: hero at %v, undo %v", obj.X, ed.History.CanUndo())
+	if app.Exists("id:unsaved-dialog") || ed.TabCount() != 2 || !ed.TabDirty(1) {
+		t.Fatalf("after Cancel: prompt %v, tabs %d, tab1 dirty %v", app.Exists("id:unsaved-dialog"), ed.TabCount(), ed.TabDirty(1))
 	}
 
-	app.Press("id:files-open")
+	app.Press("id:scene-tab-close-1")
 	app.Settle()
 	app.Press("id:unsaved-save")
 	app.Settle()
-	if ed.ScenePath != "scenes/room.yaml" || ed.SceneDirty() {
-		t.Fatalf("after Save: ScenePath %q, dirty %v, status %q", ed.ScenePath, ed.SceneDirty(), ed.Status)
+	if ed.TabCount() != 1 || ed.ScenePath != "scenes/room.yaml" || ed.HasUnsavedChanges() {
+		t.Fatalf("after Save close: tabs %d, ScenePath %q, unsaved %v, status %q", ed.TabCount(), ed.ScenePath, ed.HasUnsavedChanges(), ed.Status)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "scenes", "other.scene.yaml"))
 	if err != nil || !strings.Contains(string(data), "x: 33") {
@@ -480,12 +485,13 @@ func TestOpenFromTheFileBrowserAsksFirst(t *testing.T) {
 	}
 
 	edit(44)
-	// Double-pressing the open scene's row does not reload it, which would ask to drop the edit or empty the undo history.
+	// Double-pressing the open scene's row does not reload it or clear its undo history.
 	app.DoublePress("id:files-row-scenes/room.yaml")
 	app.Settle()
 	if app.Exists("id:unsaved-dialog") || !ed.History.CanUndo() {
 		t.Fatalf("double-pressing the open scene: prompt %v, undo %v", app.Exists("id:unsaved-dialog"), ed.History.CanUndo())
 	}
+	// Editing the shared project and discarding a dirty scene tab keeps the shared project edit intact.
 	app.Post(func() {
 		if err := ed.EditProject("rename", func(f *project.File) { f.Name = "Renamed" }); err != nil {
 			t.Error(err)
@@ -494,10 +500,12 @@ func TestOpenFromTheFileBrowserAsksFirst(t *testing.T) {
 	app.Settle()
 	app.DoublePress("id:files-row-scenes/other.scene.yaml")
 	app.Settle()
+	app.Press("id:scene-tab-close-0")
+	app.Settle()
 	app.Press("id:unsaved-discard")
 	app.Settle()
-	if ed.ScenePath != "scenes/other.scene.yaml" || ed.HasUnsavedChanges() || ed.Project.Name != "Demo" {
-		t.Fatalf("after Discard: ScenePath %q, unsaved %v, project %q", ed.ScenePath, ed.HasUnsavedChanges(), ed.Project.Name)
+	if ed.ScenePath != "scenes/other.scene.yaml" || ed.TabCount() != 1 || ed.SceneDirty() || !ed.ProjectDirty() || ed.Project.Name != "Renamed" {
+		t.Fatalf("after Discard tab close: ScenePath %q, tabs %d, sceneDirty %v, projectDirty %v, project %q", ed.ScenePath, ed.TabCount(), ed.SceneDirty(), ed.ProjectDirty(), ed.Project.Name)
 	}
 	data, err = os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
 	if err != nil || strings.Contains(string(data), "x: 44") {
@@ -565,7 +573,7 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 	}
 	checkProject(t, dir)
 
-	// New over unsaved edits asks first; Cancel keeps the scene open.
+	// New Scene while the active tab has unsaved edits opens the new scene in a new tab without prompting and keeps the previous tab dirty.
 	app.Post(func() {
 		if err := ed.MoveObject("door", 1, 2); err != nil {
 			t.Error(err)
@@ -581,13 +589,11 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 	app.Settle()
 	app.Press("id:scene-path-confirm")
 	app.Settle()
-	app.Press("id:unsaved-cancel")
-	app.Settle()
-	if ed.ScenePath != "levels/second.scene.yaml" || !ed.SceneDirty() {
-		t.Fatalf("after Cancel: ScenePath %q, dirty %v", ed.ScenePath, ed.SceneDirty())
+	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "levels/third.scene.yaml" || ed.TabCount() != 2 || !ed.TabDirty(0) || ed.SceneDirty() {
+		t.Fatalf("after New in tab: prompt %v, ScenePath %q, tabs %d, tab0 dirty %v, active dirty %v", app.Exists("id:unsaved-dialog"), ed.ScenePath, ed.TabCount(), ed.TabDirty(0), ed.SceneDirty())
 	}
-	if _, err := os.Stat(filepath.Join(dir, "levels", "third.scene.yaml")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Cancel still made the scene: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "levels", "third.scene.yaml")); err != nil {
+		t.Fatalf("New did not create levels/third.scene.yaml: %v", err)
 	}
 }
 
@@ -685,7 +691,7 @@ func TestAppNameTitlesTheWindow(t *testing.T) {
 	}
 }
 
-// TestDiscardFollowsTheProjectBack discards a project edit that added an audio bus being auditioned, opening another scene: the audition through the bus that is gone stops, as it does when the edit is undone.
+// TestDiscardFollowsTheProjectBack discards a project edit that added an audio bus being auditioned when switching away from the project: the audition through the bus that is gone stops, as it does when the edit is undone.
 func TestDiscardFollowsTheProjectBack(t *testing.T) {
 	ed, dir := openTestProject(t)
 	rawWAV, _, _ := makeTestAudioWAV(t)
@@ -708,12 +714,16 @@ func TestDiscardFollowsTheProjectBack(t *testing.T) {
 	if ed.AuditionBus() != "sfx2" || !ed.ProjectDirty() {
 		t.Fatalf("auditioning %q, project dirty %v, want the new bus and a dirty project", ed.AuditionBus(), ed.ProjectDirty())
 	}
-	app.DoublePress("id:files-row-scenes/other.scene.yaml")
+	app.Post(func() {
+		if err := ed.RequestOpenDemo(); err != nil {
+			t.Error(err)
+		}
+	})
 	app.Settle()
 	app.Press("id:unsaved-discard")
 	app.Settle()
-	if ed.ScenePath != "scenes/other.scene.yaml" || ed.HasUnsavedChanges() {
-		t.Fatalf("after Discard: ScenePath %q, unsaved %v", ed.ScenePath, ed.HasUnsavedChanges())
+	if ed.HasUnsavedChanges() {
+		t.Fatalf("after Discard: unsaved %v", ed.HasUnsavedChanges())
 	}
 	if ed.Auditioning() || ed.AuditionBus() != "" || len(ed.AudioBuses()) != 0 {
 		t.Fatalf("after Discard: auditioning %v through %q, buses %v, want the audition stopped with its bus", ed.Auditioning(), ed.AuditionBus(), ed.AudioBuses())
@@ -788,8 +798,8 @@ func TestClosingTheWindowAsksWhileEditsAreUnsaved(t *testing.T) {
 	}
 }
 
-// TestSearchResultAsksBeforeOpeningAnotherScene presses a search result in a scene that is not open while the project has unsaved edits: the editor asks first, Cancel keeps the edits, and Discard opens the result's scene and clears the OnSave of the scene open before.
-func TestSearchResultAsksBeforeOpeningAnotherScene(t *testing.T) {
+// TestSearchResultOpensAnotherSceneInATab presses a search result in a scene that is not open while the project has unsaved edits: the result's scene opens in a new tab without prompting, clears OnSave on the new tab, and keeps the previous tab and shared project edits intact.
+func TestSearchResultOpensAnotherSceneInATab(t *testing.T) {
 	dir := writeSearchFixture(t)
 	ed, err := editor.New(nil, testResolver())
 	if err != nil {
@@ -816,25 +826,16 @@ func TestSearchResultAsksBeforeOpeningAnotherScene(t *testing.T) {
 
 	app.Press("id:search-result-0")
 	app.Settle()
-	if !app.Exists("id:unsaved-dialog") {
-		t.Fatal("opening a search result's scene over unsaved edits did not ask")
+	if app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening a search result's scene in a tab should not prompt")
 	}
-	app.Press("id:unsaved-cancel")
-	app.Settle()
-	if ed.ScenePath != "scenes/room.scene.yaml" || !ed.ProjectDirty() {
-		t.Fatalf("after Cancel: scene %q, project dirty %v", ed.ScenePath, ed.ProjectDirty())
-	}
-	app.Press("id:search-result-0")
-	app.Settle()
-	app.Press("id:unsaved-discard")
-	app.Settle()
-	if ed.ScenePath != "scenes/dungeon.scene.yaml" || ed.SelectedID != "goblin_king" || ed.HasUnsavedChanges() || ed.OnSave != nil {
-		t.Fatalf("after Discard: scene %q, selected %q, unsaved %v, OnSave kept %v", ed.ScenePath, ed.SelectedID, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	if ed.ScenePath != "scenes/dungeon.scene.yaml" || ed.SelectedID != "goblin_king" || ed.TabCount() != 2 || !ed.ProjectDirty() || ed.OnSave != nil {
+		t.Fatalf("after opening search result: scene %q, selected %q, tabs %d, projectDirty %v, OnSave kept %v", ed.ScenePath, ed.SelectedID, ed.TabCount(), ed.ProjectDirty(), ed.OnSave != nil)
 	}
 }
 
-// TestCommandPaletteAsksBeforeOpeningAnotherScene opens another scene from the Command Palette while the scene has unsaved edits: the editor asks first, Cancel keeps the edits, and Discard opens the scene and clears the OnSave of the scene open before.
-func TestCommandPaletteAsksBeforeOpeningAnotherScene(t *testing.T) {
+// TestCommandPaletteOpensAnotherSceneInATab opens another scene from the Command Palette while the active tab has unsaved edits: the scene opens in a new tab without prompting, keeping the first tab dirty with its OnSave and undo history, and giving the new tab OnSave == nil.
+func TestCommandPaletteOpensAnotherSceneInATab(t *testing.T) {
 	ed, _ := openTestProject(t)
 	app := startEditorApp(t, ed)
 	app.Post(func() {
@@ -844,26 +845,15 @@ func TestCommandPaletteAsksBeforeOpeningAnotherScene(t *testing.T) {
 		}
 	})
 	app.Settle()
-	open := func() {
-		app.Post(ed.OpenCommandPalette)
-		app.Settle()
-		app.Type("id:editor-command-palette >> role:textbox", "other.scene")
-		app.Key("enter")
-		app.Settle()
-	}
-	open()
-	if !app.Exists("id:unsaved-dialog") {
-		t.Fatal("opening a scene from the palette over unsaved edits did not ask")
-	}
-	app.Press("id:unsaved-cancel")
+	app.Post(ed.OpenCommandPalette)
 	app.Settle()
-	if ed.ScenePath != "scenes/room.yaml" || !ed.SceneDirty() || ed.OnSave == nil {
-		t.Fatalf("after Cancel: scene %q, dirty %v, OnSave kept %v", ed.ScenePath, ed.SceneDirty(), ed.OnSave != nil)
-	}
-	open()
-	app.Press("id:unsaved-discard")
+	app.Type("id:editor-command-palette >> role:textbox", "other.scene")
+	app.Key("enter")
 	app.Settle()
-	if ed.ScenePath != "scenes/other.scene.yaml" || ed.Doc.Name != "Other" || ed.HasUnsavedChanges() || ed.OnSave != nil {
-		t.Fatalf("after Discard: scene %q (%q), unsaved %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	if app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening a scene from the palette in a tab should not prompt")
+	}
+	if ed.ScenePath != "scenes/other.scene.yaml" || ed.Doc.Name != "Other" || ed.TabCount() != 2 || !ed.TabDirty(0) || ed.SceneDirty() || ed.OnSave != nil {
+		t.Fatalf("after palette open: scene %q (%q), tabs %d, tab0 dirty %v, active dirty %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.TabCount(), ed.TabDirty(0), ed.SceneDirty(), ed.OnSave != nil)
 	}
 }

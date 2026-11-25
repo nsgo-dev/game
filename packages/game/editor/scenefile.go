@@ -27,6 +27,7 @@ func (e *Editor) markSceneSaved() {
 	}
 	if data, err := e.SaveYAML(); err == nil {
 		e.sceneSaved = data
+		e.syncActiveTab()
 	}
 }
 
@@ -63,15 +64,15 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, room map, localization workspace, animation clip, cutscene, data table, or skeletal rig has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
+// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, localization workspace, animation clip, cutscene, data table, or skeletal rig has edits that are not saved, which switching projects or quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
 	}
-	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty()
+	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty()
 }
 
-// SaveAll persists all currently dirty editors (project, scene, GridMap, terrain, room map, localizations, clip, data table, and skeletal rig) that have a save destination configured.
+// SaveAll persists all currently dirty editors (project, every dirty open scene tab, GridMap, terrain, room map, localizations, clip, data table, and skeletal rig) that have a save destination configured.
 func (e *Editor) SaveAll() error {
 	if e == nil {
 		return nil
@@ -79,9 +80,32 @@ func (e *Editor) SaveAll() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() {
-		if err := e.Save(); err != nil {
+	if e.ProjectDirty() {
+		if err := e.SaveProject(); err != nil {
 			return err
+		}
+	}
+	if e.GridMapDirty() && (e.OnSaveGridMap != nil || e.gridMap.filePath != "") {
+		if err := e.SaveGridMap(); err != nil {
+			return err
+		}
+	}
+	if e.TerrainDirty() && e.TerrainPath() != "" {
+		if err := e.SaveTerrain(); err != nil {
+			return err
+		}
+	}
+	if e.RoomsDirty() && (e.OnSaveRooms != nil || (e.rooms != nil && e.rooms.path != "")) {
+		if err := e.SaveRooms(); err != nil {
+			return err
+		}
+	}
+	e.syncActiveTab()
+	for i := range e.tabs {
+		if e.tabDirtyAt(i) {
+			if err := e.SaveTab(i); err != nil {
+				return err
+			}
 		}
 	}
 	if e.LocalizationDirty() {
@@ -223,7 +247,9 @@ func (e *Editor) Save() error {
 			return err
 		}
 		e.sceneSaved = data
+		e.syncActiveTab()
 		e.invalidateProjectIndex()
+		e.rebuildDependentTabs(e.activeTabID())
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
@@ -250,16 +276,25 @@ func fileExists(p string) bool {
 	return err == nil
 }
 
-// OpenScene opens the scene file at rel, a slash-separated path from the root of the open project (the directory of ProjectPath), as OpenFile does, and sets ScenePath to rel. It replaces the scene and empties the undo history, so unsaved edits are lost: ask first while HasUnsavedChanges, as EditorView does. The scene's OnSave, which persisted the scene opened before, is cleared. It returns ErrNoProject without a project.
+// OpenScene opens the scene file at rel, a slash-separated path from the root of the open project (the directory of ProjectPath), in a tab with ScenePath set to rel, or switches to its tab when it is already open. Switching or opening tabs never clears any tab's undo history; the newly opened tab starts with OnSave nil while previously open tabs keep theirs. It returns ErrNoProject without a project.
 func (e *Editor) OpenScene(rel string) error {
 	abs, err := e.projectFile(rel)
 	if err != nil {
 		return err
 	}
+	if idx := e.findTabByPath(rel, abs); idx >= 0 {
+		if e.playing {
+			if err := e.Stop(); err != nil {
+				return err
+			}
+		}
+		return e.SelectTab(idx)
+	}
 	if err := e.OpenFile(abs); err != nil {
 		return err
 	}
 	e.OnSave = nil
+	e.syncActiveTab()
 	return nil
 }
 
@@ -329,6 +364,7 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 		return "", err
 	}
 	e.OnSave = nil
+	e.syncActiveTab()
 	return rel, nil
 }
 
@@ -368,18 +404,6 @@ func (e *Editor) RevertScene() error {
 	e.Status = "Reverted " + e.SceneLabel()
 	e.notify()
 	return nil
-}
-
-// discardProject puts back the project as it was opened or last saved, for an author who chose to discard its edits.
-func (e *Editor) discardProject() {
-	if !e.ProjectDirty() {
-		return
-	}
-	if f, err := project.Parse(e.projectSaved); err == nil {
-		e.Project = f
-		// Everything derived from the project, such as the audio mixer's selected bus and audition, and the export panel's preset, follows it back, as it follows an undone project edit.
-		e.afterMutate()
-	}
 }
 
 // projectFile returns the OS path of rel, a slash-separated path from the root of the open project, refusing a path outside it.
