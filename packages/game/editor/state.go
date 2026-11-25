@@ -266,6 +266,8 @@ type Editor struct {
 	commands           []EditorCommand
 	paletteOpen        bool
 	drag3D             drag3DState
+	cameraDrag         cameraDragState
+	bgPreview          bgPreviewState
 	scope              *core.Scope
 	revision           uint64
 	nextID             int
@@ -479,6 +481,7 @@ func (e *Editor) SetTool(t Tool) {
 		return
 	}
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
 	e.endTileStrokeForChange()
 	e.Tool = t
 	e.pluginTool = pluginToolRef{}
@@ -494,6 +497,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.endTileStrokeForChange()
 	e.CancelGizmoDrag3D()
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
 	e.notify()
@@ -652,6 +656,8 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 		return err
 	}
 	e.drag2D = drag2DState{}
+	e.cameraDrag = cameraDragState{}
+	e.bgPreview = bgPreviewState{}
 	// A stroke under way edits the scene being replaced, whose history goes with it.
 	e.stroke = nil
 	e.Doc = doc
@@ -713,6 +719,8 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 // SaveFile encodes the scene to YAML and writes it to path.
 func (e *Editor) SaveFile(path string) error {
 	if !e.playing {
+		e.CancelCameraDrag()
+		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
 	}
 	data, err := e.SaveYAML()
@@ -768,6 +776,8 @@ func (e *Editor) Undo() bool {
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
 	e.endTileStrokeForChange()
 	ok, err := e.History.undo()
@@ -787,6 +797,8 @@ func (e *Editor) Redo() bool {
 		return false
 	}
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	ok, err := e.History.redo()
 	if err != nil {
@@ -815,6 +827,7 @@ func (e *Editor) SelectObject(id string) bool {
 		return false
 	}
 	if e.SelectedID != id || e.inspectAssetFile || e.connPick != nil {
+		e.CancelCameraDrag()
 		e.SelectedID = id
 		e.inspectAssetFile = false
 		e.connPick = nil
@@ -1073,6 +1086,7 @@ func (e *Editor) DeleteObject(id string) error {
 	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)

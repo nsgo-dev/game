@@ -6,7 +6,7 @@
 //     and deletion (Editor, PlaceObject, MoveObject, RotateObject, ScaleObject, DeleteObject).
 //   - Inline tilemap editing with paint, erase, and BFS flood fill (PaintTile, EraseTile, FloodFillTile).
 //   - A layers panel that picks the active layer and adds, removes, renames, reorders, hides and locks layers, each edit but the session's lock undoable (Layers, AddLayer, RemoveLayer, RenameLayer, MoveLayer, SetLayerVisible, SetLayerSpace, SetLayerLocked, LayersView).
-//   - Typed property and component inspection and editing (SetProperty, SetComponentField, InspectorView).
+//   - Typed property, component, and scene settings inspection and editing (SetProperty, SetComponentField, SetSceneName, SetVirtualSize, SetBackground, SetCamera, SetCameraPosition, SetCameraZoom, SetCameraRotation, SetCameraBounds, ClearCameraBounds, InspectorView), including a draggable 2D camera position handle when scene settings are active.
 //   - Play-in-editor preview powered by game.Loop with exact pre-play YAML snapshot restoration (Play, PlayIn, Stop).
 //   - An animation editor that keys any registered property on a timeline, previews the clip with animclip and saves it as an animation resource file (NewClip, KeyProperty, SeekClip, PlayClip, SaveClipFile, AnimationPanelView).
 //   - A Data Table editor that opens versioned datatable YAML files from the file browser as a sortable, filterable grid with inferred value kinds, undo/redo, lossless round-trip saves and optional per-pattern Go row-type validation (OpenDataTableFile, RegisterDataTableType, SetDataTableCellText, DataTablePanelView).

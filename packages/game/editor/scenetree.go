@@ -127,6 +127,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	var ignorePickKey sceneTreeKey
 	cx.Effect(func() {
 		cur, _ := selection.Cursor().(sceneTreeKey)
+		chosen := selection.Has(cur)
 		cx.Untrack(func() {
 			if ed.PickingConnectionTarget() {
 				if cur == (sceneTreeKey{}) {
@@ -153,6 +154,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				return
 			}
 			ignorePickKey = sceneTreeKey{}
+			if !chosen {
+				return
+			}
 			switch {
 			case cur.id != "":
 				if ed.SelectedID != cur.id {
@@ -175,6 +179,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			if ed.SelectedID == "" {
 				if cur.id != "" {
 					selection.Clear()
+					selection.SetCursor(nil)
 				}
 				return
 			}
