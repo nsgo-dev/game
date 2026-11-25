@@ -222,6 +222,9 @@ func applyEdit(ed *editor.Editor, e editArgs) (string, error) {
 		}
 		return nil
 	}
+	if !slices.Contains(editOps, e.Op) {
+		return "", refuse("", "unknown op "+quote(e.Op), "use "+opList())
+	}
 	if e.Op != "add" {
 		if err := need("id", e.ID); err != nil {
 			return "", err
@@ -272,7 +275,11 @@ func applyEdit(ed *editor.Editor, e editArgs) (string, error) {
 		}
 		v, err := scalarValue(e.Value)
 		if err != nil {
-			return "", refuse(e.Key, err.Error(), "give the property a string, number or boolean value")
+			fix := "give the property a string, number or boolean value"
+			if errors.Is(err, errNotFinite) {
+				fix = "give " + e.Key + " a finite number"
+			}
+			return "", refuse(e.Key, err.Error(), fix)
 		}
 		return "", ed.SetProperty(e.ID, e.Key, v)
 	case "remove_property":
@@ -305,8 +312,16 @@ func applyEdit(ed *editor.Editor, e editArgs) (string, error) {
 		}
 		return "", ed.MoveObjectToLayer(e.ID, e.Layer, index)
 	default:
-		return "", refuse("", "unknown op "+quote(e.Op), "use add, remove, move, set, add_component, remove_component, set_property, remove_property, reparent or move_to_layer")
+		return "", refuse("", "unknown op "+quote(e.Op), "use "+opList())
 	}
+}
+
+// editOps are the ops scene_edit applies, in the order its description lists them.
+var editOps = []string{"add", "remove", "move", "set", "add_component", "remove_component", "set_property", "remove_property", "reparent", "move_to_layer"}
+
+// opList is editOps as a sentence, "add, remove, … or move_to_layer".
+func opList() string {
+	return strings.Join(editOps[:len(editOps)-1], ", ") + " or " + editOps[len(editOps)-1]
 }
 
 // addObject places e.Object, read through the scene format as the file would hold it, on e.Layer, and under e.Parent when it names one.
@@ -409,7 +424,8 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 			return refuse(name, "set cannot change "+quote(name), fix)
 		}
 	}
-	obj, _, _ := ed.FindObject(id)
+	// obj is the object as the step running now finds it, refetched before each step below.
+	var obj *sceneformat.ObjectDoc
 	num := func(name string, cur float32) (float32, bool, error) {
 		raw, ok := fields[name]
 		if !ok {
@@ -449,7 +465,7 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 		}
 		return *p
 	}
-	// Each step reads the object afresh: an earlier one may have replaced it, as a changed id does.
+	// Each step reads the object afresh, as the loop below refetches it, since an earlier step may have replaced or changed it.
 	steps := []func() error{
 		func() error {
 			if s, ok, err := str("name"); err != nil || !ok {
@@ -559,8 +575,7 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 			if err != nil || !ok {
 				return err
 			}
-			cur, _, _ := ed.FindObject(id)
-			return wrapField("posZ", ed.MoveObject3D(id, cur.X, cur.Y, z))
+			return wrapField("posZ", ed.MoveObject3D(id, obj.X, obj.Y, z))
 		},
 		func() error {
 			rx, okX, err := num("rotX", obj.RotX)
@@ -582,8 +597,7 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 			if err != nil || !ok {
 				return err
 			}
-			cur, _, _ := ed.FindObject(id)
-			return wrapField("scaleZ", ed.ScaleObject3D(id, orOne(cur.ScaleX), orOne(cur.ScaleY), sz))
+			return wrapField("scaleZ", ed.ScaleObject3D(id, orOne(obj.ScaleX), orOne(obj.ScaleY), sz))
 		},
 		func() error {
 			d, ok, err := num("depth", obj.Depth)
@@ -609,6 +623,9 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 		},
 	}
 	for _, step := range steps {
+		if obj, _, _ = ed.FindObject(id); obj == nil {
+			return refuse("", "the open scene has no object "+quote(id), "use an ID scene_read or selection_get shows")
+		}
 		if err := step(); err != nil {
 			return err
 		}
@@ -672,7 +689,7 @@ func editError(file string, n int, e editArgs, err error) *EditError {
 	return out
 }
 
-// fieldValue decodes a component field's JSON value: a whole number as int, any other number as float64, and strings, booleans, lists and maps as JSON decodes them.
+// fieldValue decodes a component field's JSON value: a whole number as int, any other number as float64, and strings, booleans, lists and maps as JSON decodes them. It refuses a number out of float64's range, such as 1e400, which would otherwise become an infinity.
 func fieldValue(raw json.RawMessage) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -680,30 +697,44 @@ func fieldValue(raw json.RawMessage) (any, error) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("not a JSON value: %v", err)
 	}
-	return normalizeNumbers(v), nil
+	return normalizeNumbers(v)
 }
 
-// normalizeNumbers replaces each json.Number in v with an int when it is whole and fits, else a float64.
-func normalizeNumbers(v any) any {
+// errNotFinite is normalizeNumbers' refusal of a number float64 cannot hold.
+var errNotFinite = errors.New("must be a finite number")
+
+// normalizeNumbers replaces each json.Number in v with an int when it is whole and fits, else a float64, and refuses one that is out of float64's range.
+func normalizeNumbers(v any) (any, error) {
 	switch x := v.(type) {
 	case json.Number:
 		if i, err := x.Int64(); err == nil && i >= math.MinInt && i <= math.MaxInt {
-			return int(i)
+			return int(i), nil
 		}
-		f, _ := x.Float64()
-		return f
+		f, err := x.Float64()
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil, fmt.Errorf("%s %w", x, errNotFinite)
+		}
+		return f, nil
 	case []any:
 		for i := range x {
-			x[i] = normalizeNumbers(x[i])
+			n, err := normalizeNumbers(x[i])
+			if err != nil {
+				return nil, err
+			}
+			x[i] = n
 		}
-		return x
+		return x, nil
 	case map[string]any:
 		for k := range x {
-			x[k] = normalizeNumbers(x[k])
+			n, err := normalizeNumbers(x[k])
+			if err != nil {
+				return nil, err
+			}
+			x[k] = n
 		}
-		return x
+		return x, nil
 	}
-	return v
+	return v, nil
 }
 
 // scalarValue decodes a property's value, which must be a string, a number or a boolean.

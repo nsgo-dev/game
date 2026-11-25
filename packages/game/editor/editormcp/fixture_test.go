@@ -25,7 +25,8 @@ import (
 // heroColor is the colour of every pixel of the fixture's sprite image.
 var heroColor = color.RGBA{R: 0x40, G: 0x80, B: 0xc0, A: 0xff}
 
-const fixtureProject = `version: 1
+const fixtureProject = `# The fixture's project file.
+version: 1
 name: Fixture
 id: dev.example.fixture
 appVersion: 1.0.0

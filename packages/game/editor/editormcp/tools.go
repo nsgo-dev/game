@@ -48,7 +48,7 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolSceneRead,
 			Title:       "Read a file",
-			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them, with edits not yet saved; any other file is read from disk. With no file it reads the open scene.",
+			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them while it has edits to them that are not saved, whose line numbers then differ from the file's; otherwise, and for any other file, the file is read from disk, comments included. With no file it reads the open scene.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"file":{"type":"string","description":"Slash-separated path from the project root, such as scenes/level.scene.yaml; empty for the scene open in the editor"},"offset":{"type":"integer","minimum":1,"description":"First line to return, 1-based; 1 when absent"},"limit":{"type":"integer","minimum":1,"description":"How many lines to return; 2000 when absent"}}}`),
 			Action:      ActionRead,
 			Handler:     sceneRead,
@@ -186,7 +186,7 @@ type sceneReadArgs struct {
 type FileText struct {
 	// File is the file's slash-separated path from the project root, or the open scene's name when it has no file.
 	File string `json:"file"`
-	// Source is "editor" when the text is what the editor holds, unsaved edits included, and "disk" when it is the file on disk.
+	// Source is "editor" when the text is what the editor holds, with its unsaved edits, and "disk" when it is the file on disk, as it is whenever the editor holds no unsaved edits to it.
 	Source string `json:"source"`
 	// Unsaved reports that the editor holds edits to the file that are not saved.
 	Unsaved bool `json:"unsaved"`
@@ -195,6 +195,8 @@ type FileText struct {
 	// From and To are the first and last line returned, 1-based; both are 0 for an empty file.
 	From int `json:"from"`
 	To   int `json:"to"`
+	// hasFile reports that the text has a file on disk, whose line numbers unsaved edits make differ.
+	hasFile bool
 }
 
 // sceneRead runs scene_read.
@@ -242,12 +244,13 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 			}
 			text, info.File, info.Source = data, clean, "editor"
 			fromDisk = ed.FilePath
-		case clean == project.FileName && ed.Project != nil:
+		case clean == project.FileName && ed.ProjectDirty():
+			// An unedited game.yaml is read from disk below, comments and line numbers as the person wrote them and game_check reports them.
 			data, err := project.Encode(ed.Project)
 			if err != nil {
 				return err
 			}
-			text, info.File, info.Source, info.Unsaved = data, clean, "editor", ed.ProjectDirty()
+			text, info.File, info.Source, info.Unsaved, info.hasFile = data, clean, "editor", true, true
 		}
 		return nil
 	})
@@ -262,7 +265,15 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 		}
 		text, info.File, info.Source = data, rel, "disk"
 	case fromDisk != "":
-		info.Unsaved = unsaved(text, fromDisk, reg)
+		info.Unsaved, info.hasFile = unsaved(text, fromDisk, reg), true
+		if !info.Unsaved {
+			// The editor holds no edits, so the file on disk is the scene: read it, comments and line numbers as game_check reports them.
+			data, err := os.ReadFile(fromDisk)
+			if err != nil {
+				return nil, fmt.Errorf("scene_read: %w", err)
+			}
+			text, info.Source = data, "disk"
+		}
 	case info.Source == "editor" && rel == "":
 		info.Unsaved = true
 	}
@@ -316,13 +327,17 @@ func numberLines(text []byte, info FileText, offset, limit int) *Result {
 		limit = defaultReadLines
 	}
 	from := min(offset, len(lines)+1)
-	to := min(len(lines), from+limit-1)
+	// limit is clamped before the addition, so a huge limit cannot overflow it.
+	to := from + min(limit, len(lines)-from+1) - 1
 	var b strings.Builder
 	b.WriteString(info.File)
 	if info.Source == "editor" {
 		b.WriteString(" (as the editor holds it")
 		if info.Unsaved {
 			b.WriteString(", with unsaved edits")
+			if info.hasFile {
+				b.WriteString("; its line numbers are not those of the file on disk, which game_check reports")
+			}
 		}
 		b.WriteString(")")
 	}
@@ -457,12 +472,29 @@ func selectionGet(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("selection_get: %w", err)
 	}
-	var sel Selection
+	var (
+		sel   Selection
+		file  string
+		scene []byte
+		reg   *sceneformat.ComponentRegistry
+	)
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		sel = readSelection(ed)
+		if sel.Object != nil {
+			file, reg = ed.FilePath, ed.ComponentRegistry()
+			scene, _ = sceneYAML(ed)
+		}
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+	// While the editor holds no unsaved edits, scene_read numbers the file on disk, so the object's lines come from it too when it holds the object in the layout objectBlock finds.
+	if file != "" && !unsaved(scene, file, reg) {
+		if data, err := os.ReadFile(file); err == nil {
+			if line, block := objectBlock(data, sel.Object.ID); line > 0 {
+				sel.Object.Line, sel.Object.YAML = line, block
+			}
+		}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Scene %s, active layer %s, tool %s, %s view", sel.Scene, sel.ActiveLayer, sel.Tool, sel.ViewMode)

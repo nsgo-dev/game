@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
+	"github.com/nsgo-dev/game/packages/game/project"
 )
 
 // The server lists the five tools named as Settings › Tools names them, each with its action, and the two resources of the change stream.
@@ -60,21 +62,34 @@ func TestServerListsToolsAndResources(t *testing.T) {
 // scene_read returns the open scene with line numbers as the editor holds it, other files from disk, game.yaml as the editor holds it, and refuses paths outside the project.
 func TestSceneRead(t *testing.T) {
 	f := openFixture(t)
+	// The person wrote the scene by hand, with a comment the editor's encoding would drop.
+	if err := os.WriteFile(f.scenePath(), []byte("# The room the hero starts in.\n"+fixtureRoom), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	s := editormcp.New(f.ed, editormcp.Options{})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
 
-	out := mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}))
-	if !strings.HasPrefix(out, "scenes/room.scene.yaml (as the editor holds it): lines 1-") || !strings.Contains(out, "\n     2\tversion: 2\n") || !strings.Contains(out, "\t      - id: hero\n") {
-		t.Fatalf("open scene:\n%s", out)
+	res := call(t, cs, editormcp.ToolSceneRead, map[string]any{})
+	out := mustOK(t, res)
+	var info editormcp.FileText
+	structured(t, res, &info)
+	// With no unsaved edits the open scene is the file on disk, its comment and line numbers as game_check reports them.
+	if info.Source != "disk" || info.Unsaved || !strings.HasPrefix(out, "scenes/room.scene.yaml: lines 1-") || !strings.Contains(out, "\n     1\t# The room the hero starts in.\n") || !strings.Contains(out, "\n     2\tversion: 2\n") || !strings.Contains(out, "\t      - id: hero\n") {
+		t.Fatalf("open scene %+v:\n%s", info, out)
+	}
+	res = call(t, cs, editormcp.ToolSceneRead, map[string]any{"offset": 2, "limit": math.MaxInt})
+	out = mustOK(t, res)
+	structured(t, res, &info)
+	if info.From != 2 || info.To != info.Lines || info.Lines < 10 {
+		t.Fatalf("the largest limit %+v:\n%s", info, out)
 	}
 
 	if err := f.ed.MoveObject("hero", 70, 40); err != nil {
 		t.Fatal(err)
 	}
-	res := call(t, cs, editormcp.ToolSceneRead, map[string]any{"file": "scenes/room.scene.yaml", "offset": 2, "limit": 3})
+	res = call(t, cs, editormcp.ToolSceneRead, map[string]any{"file": "scenes/room.scene.yaml", "offset": 2, "limit": 3})
 	out = mustOK(t, res)
-	var info editormcp.FileText
 	structured(t, res, &info)
 	if !info.Unsaved || info.Source != "editor" || info.From != 2 || info.To != 4 || !strings.Contains(out, "with unsaved edits") || !strings.Contains(out, "call again with offset 5") || strings.Contains(out, "\n     1\t") {
 		t.Fatalf("moved scene %+v:\n%s", info, out)
@@ -85,8 +100,15 @@ func TestSceneRead(t *testing.T) {
 		t.Fatalf("data file:\n%s", out)
 	}
 	out = mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{"file": "game.yaml"}))
-	if !strings.Contains(out, "game.yaml (as the editor holds it)") || !strings.Contains(out, "mainScene: room") {
-		t.Fatalf("project file:\n%s", out)
+	if !strings.HasPrefix(out, "game.yaml: lines 1-") || !strings.Contains(out, "\t# The fixture's project file.\n") || !strings.Contains(out, "mainScene: room") {
+		t.Fatalf("unedited project file:\n%s", out)
+	}
+	if err := f.ed.EditProject("Rename", func(p *project.File) { p.Name = "Renamed" }); err != nil {
+		t.Fatal(err)
+	}
+	out = mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{"file": "game.yaml"}))
+	if !strings.Contains(out, "game.yaml (as the editor holds it, with unsaved edits") || !strings.Contains(out, "name: Renamed") {
+		t.Fatalf("edited project file:\n%s", out)
 	}
 
 	for file, want := range map[string]string{
@@ -253,6 +275,14 @@ func TestSceneEditRefusalChangesNothing(t *testing.T) {
 		}, []string{`field "speed"`}, "speed"},
 		{"another scene", nil, []string{"scenes/other.scene.yaml", "open scenes/other.scene.yaml in the editor first"}, ""},
 		{"unknown op", []any{map[string]any{"op": "explode", "id": "hero"}}, []string{`unknown op "explode"`}, ""},
+		{"unknown op without an id", []any{map[string]any{"op": "bogus"}}, []string{`unknown op "bogus"`, "move_to_layer"}, ""},
+		{"unknown op on a missing object", []any{map[string]any{"op": "bogus", "id": "nope"}}, []string{`unknown op "bogus"`}, ""},
+		{"property out of float range", []any{
+			map[string]any{"op": "set_property", "id": "hero", "key": "k", "value": json.RawMessage(`1e400`)},
+		}, []string{`field "k"`, "finite number"}, "k"},
+		{"component field out of float range", []any{
+			map[string]any{"op": "set", "id": "hero", "component": "body", "fields": map[string]any{"speed": json.RawMessage(`1e400`)}},
+		}, []string{`component "body" field "speed"`}, "speed"},
 	}
 	for _, c := range cases {
 		args := map[string]any{"edits": c.edits}
@@ -463,6 +493,37 @@ func TestChangeStream(t *testing.T) {
 	var sel editormcp.Selection
 	if err := json.Unmarshal([]byte(read.Contents[0].Text), &sel); err != nil || sel.Object == nil || sel.Object.ID != "hero" {
 		t.Fatalf("selection resource %s: %v", read.Contents[0].Text, err)
+	}
+}
+
+// A session that ends without unsubscribing no longer counts as subscribed, so the editor stops encoding the scene and the selection for it on every change.
+func TestEndedSessionDropsItsSubscriptions(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	for range 2 {
+		st, ct := mcp.NewInMemoryTransports()
+		ss, err := s.Connect(context.Background(), st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{ResourceUpdatedHandler: func(context.Context, *mcp.ResourceUpdatedNotificationRequest) {}}).Connect(context.Background(), ct, &mcp.ClientSessionOptions{ProtocolVersion: legacyProtocol})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, uri := range []string{editormcp.SceneURI, editormcp.SelectionURI} {
+			if err := cs.Subscribe(context.Background(), &mcp.SubscribeParams{URI: uri}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if scene, selection := s.Subscribed(); !scene || !selection {
+			t.Fatalf("subscribed scene %v, selection %v, want both", scene, selection)
+		}
+		_ = cs.Close()
+		_ = ss.Wait()
+		if scene, selection := s.Subscribed(); scene || selection {
+			t.Fatalf("after the session ended: subscribed scene %v, selection %v, want neither", scene, selection)
+		}
 	}
 }
 
