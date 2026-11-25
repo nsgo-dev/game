@@ -88,6 +88,9 @@ func TestTheCommandLineOpensAClipOnAPatient(t *testing.T) {
 		if shown == nil || shown.Doc.Name != "Ward" || shown.AppName != "Field Medic Editor" || !reflect.DeepEqual(shown.ActivePlugins(), []string{"health"}) || shown.OnSaveClip == nil {
 			t.Fatalf("Run(%q) showed %+v", args, shown)
 		}
+		if o := options(); o.WindowWidth != 1280 || o.WindowHeight != 800 {
+			t.Fatalf("the editor opens a %vx%v window, want 1280x800", o.WindowWidth, o.WindowHeight)
+		}
 		if got := shown.SelectedID; got != "ada" {
 			t.Fatalf("Run(%q) selected %q, want ada", args, got)
 		}

@@ -398,13 +398,13 @@ func excludeFromEditor(dir, pkg string) ([]projectFile, error) {
 	}
 	fset := token.NewFileSet()
 	var out []projectFile
+	var mains []*ast.File
+	// used holds every name the files that stay in the editor build refer to, test files included.
+	used := make(map[string]bool)
 	// IgnoredGoFiles holds the package's files for other platforms and tags, which build.ImportDir leaves out for this one.
-	names := slices.Concat(bp.GoFiles, bp.IgnoredGoFiles)
+	names := slices.Concat(bp.GoFiles, bp.IgnoredGoFiles, bp.TestGoFiles)
 	slices.Sort(names)
 	for _, name := range names {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
 		src, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return nil, err
@@ -413,7 +413,27 @@ func excludeFromEditor(dir, pkg string) ([]projectFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		if f.Name.Name != pkg || !declaresMain(f) || neverBuilds(f) {
+		if f.Name.Name != pkg || neverBuilds(f) {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") || !declaresMain(f) {
+			var visit func(n ast.Node) bool
+			visit = func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.SelectorExpr:
+					// A field or method name after a dot names no package-level declaration.
+					ast.Inspect(n.X, visit)
+					return false
+				case *ast.Field:
+					// Nor does the name a struct field, parameter or result declares.
+					ast.Inspect(n.Type, visit)
+					return false
+				case *ast.Ident:
+					used[n.Name] = true
+				}
+				return true
+			}
+			ast.Inspect(f, visit)
 			continue
 		}
 		content, err := withoutTag(src, f, fset, gameEditorTag)
@@ -421,11 +441,88 @@ func excludeFromEditor(dir, pkg string) ([]projectFile, error) {
 			return nil, fmt.Errorf("%s: %w", filepath.Join(dir, name), err)
 		}
 		out = append(out, projectFile{name: name, content: content})
+		mains = append(mains, f)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("package main in %s declares no main function for the editor command to stand in for", dir)
 	}
+	// The editor build leaves out the whole of each file declaring main, so a name such a file declares that the rest of the package uses, or an init function it runs, such as one registering a component, would be missing from the editor.
+	for i, f := range mains {
+		if name, ok := keptDecl(f, used); ok {
+			return nil, fmt.Errorf("%s declares main and also %s, which the editor build, leaving out the whole file, would lose; move it into another file, so the file declaring main declares nothing else the package needs", filepath.Join(dir, out[i].name), name)
+		}
+	}
 	return out, nil
+}
+
+// keptDecl returns the first declaration of f, a file declaring main, that the rest of the package needs: an init function, a blank var, whose initializer runs, a method on a type another file declares, or a top-level name in used, the names the package's other files refer to.
+func keptDecl(f *ast.File, used map[string]bool) (string, bool) {
+	own := make(map[string]bool)
+	for _, d := range f.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.TYPE {
+			for _, spec := range g.Specs {
+				own[spec.(*ast.TypeSpec).Name.Name] = true
+			}
+		}
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			switch {
+			case d.Recv != nil:
+				if recv := receiverType(d.Recv); !own[recv] || used[recv] {
+					return "the method " + recv + "." + d.Name.Name, true
+				}
+			case d.Name.Name == "init":
+				return "an init function", true
+			case d.Name.Name != "main" && used[d.Name.Name]:
+				return d.Name.Name, true
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				var ids []*ast.Ident
+				switch spec := spec.(type) {
+				case *ast.ValueSpec:
+					ids = spec.Names
+				case *ast.TypeSpec:
+					ids = []*ast.Ident{spec.Name}
+				}
+				for _, id := range ids {
+					if id.Name != "_" && used[id.Name] {
+						return id.Name, true
+					}
+					if id.Name == "_" && d.Tok == token.VAR {
+						return "a blank var, which runs its initializer", true
+					}
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// receiverType returns the name of the type a method's receiver list recv declares it on, without its pointer or type parameters.
+func receiverType(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+	t := recv.List[0].Type
+	for {
+		switch e := t.(type) {
+		case *ast.StarExpr:
+			t = e.X
+		case *ast.IndexExpr:
+			t = e.X
+		case *ast.IndexListExpr:
+			t = e.X
+		case *ast.ParenExpr:
+			t = e.X
+		case *ast.Ident:
+			return e.Name
+		default:
+			return ""
+		}
+	}
 }
 
 // neverBuilds reports whether f's //go:build constraint names the ignore tag, as a program go run runs by name, such as a go:generate tool, does, so that the file is no part of the package's build.

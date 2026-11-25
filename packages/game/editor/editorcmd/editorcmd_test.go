@@ -66,6 +66,25 @@ func TestOpenChecksTheProjectsComponents(t *testing.T) {
 		t.Fatalf("opened %q at %q", ed.Doc.Name, ed.ScenePath)
 	}
 
+	// The game's registry is checked together with the built-in physics components, which the registry itself need not register.
+	body := filepath.Join(dir, "scenes", "body.scene.yaml")
+	if err := os.WriteFile(body, []byte("version: 2\nname: Body\nlayers:\n  - name: main\n    objects:\n      - id: crate\n        components:\n          health: {hp: 2}\n          body2d: {kind: static}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := editorcmd.Open(ed, []string{body}); err != nil {
+		t.Fatalf("Open of a scene with a physics body: %v", err)
+	}
+	if _, ok := ed.ComponentRegistry().Lookup("body2d"); !ok {
+		t.Fatalf("registry %v lacks body2d", ed.ComponentRegistry().Names())
+	}
+	game := healthComponents()
+	if _, err := editorcmd.New(editorcmd.Options{Components: game}); err != nil {
+		t.Fatal(err)
+	}
+	if names := game.Names(); len(names) != 1 {
+		t.Fatalf("New changed the game's registry to %v", names)
+	}
+
 	// Without a registry, components are free-form.
 	free, err := editorcmd.New(editorcmd.Options{})
 	if err != nil {

@@ -1,8 +1,10 @@
 package project_test
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -113,7 +115,7 @@ func TestResolverRefusesAmbiguousAndBrokenAtlases(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"noimage":   "noimage.json: meta.image",
-		"escape":    "leaves the project",
+		"escape":    "leads outside",
 		"badframes": "badframes.json",
 	} {
 		if _, err := r.Atlas(name); err == nil || !strings.Contains(err.Error(), want) {
@@ -169,6 +171,117 @@ func TestResolverLoadsScenesAndMaterials(t *testing.T) {
 	}
 	if again, _ := r.ForScene("scenes/crate.scene.yaml").Material("materials/stone.material.yaml"); again != m {
 		t.Fatal("Material returned another value for the same file")
+	}
+}
+
+func TestResolverNamesAScenesAtlasesFromItsOwnDirectory(t *testing.T) {
+	fsys := fstest.MapFS{
+		"prefabs/actors.json":       file(atlasJSON("crate", "actors.png")),
+		"prefabs/actors.png":        file("prefab"),
+		"levels/forest/actors.json": file(atlasJSON("crate", "actors.png")),
+		"levels/forest/actors.png":  file("forest"),
+		"a/tiles.json":              file(atlasJSON("1", "tiles.png")),
+		"b/tiles.json":              file(atlasJSON("1", "tiles.png")),
+		"prefabs/crate.scene.yaml": file(`version: 2
+name: Crate
+layers:
+  - name: main
+    tilemap: {tileWidth: 16, tileHeight: 16, width: 1, height: 1, tileset: actors, data: [1]}
+    objects:
+      - id: box
+        sprite: {atlas: actors, frame: crate}
+        children:
+          - id: lid
+            sprite: {atlas: actors, frame: crate}
+          - id: missing
+            sprite: {atlas: nowhere, frame: crate}
+          - id: ambiguous
+            sprite: {atlas: tiles, frame: "1"}
+`),
+	}
+	r := project.NewResolver(fsys)
+	// The resolver the editor uses for a scene in levels/forest names the crate's atlas as the crate's file finds it.
+	doc, err := r.ForScene("levels/forest/a.scene.yaml").Scene("prefabs/crate.scene.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := doc.Layers[0].Objects[0]
+	got := []string{doc.Layers[0].Tilemap.Tileset, box.Sprite.Atlas, box.Children[0].Sprite.Atlas, box.Children[1].Sprite.Atlas, box.Children[2].Sprite.Atlas}
+	if want := []string{"prefabs/actors", "prefabs/actors", "prefabs/actors", "nowhere", "tiles"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("atlas names = %q, want %q", got, want)
+	}
+	a, err := r.ForScene("levels/forest/a.scene.yaml").Atlas(box.Sprite.Atlas)
+	if err != nil || string(a.Image.Data) != "prefab" {
+		t.Fatalf("Atlas(%s) = %v, %v; want the prefab's atlas", box.Sprite.Atlas, a, err)
+	}
+}
+
+func TestResolveRef(t *testing.T) {
+	cases := []struct {
+		dir, ref, want, err string
+	}{
+		{"maps", "tiles.tsj", "maps/tiles.tsj", ""},
+		{"maps", "../art/a.png", "art/a.png", ""},
+		{".", "a.png", "a.png", ""},
+		// A colon is refused only as a drive letter or a scheme, so game check and the editor both read this image.
+		{"sprites", "hero 1:2.png", "sprites/hero 1:2.png", ""},
+		{"maps", "../../a.png", "", "leads outside"},
+		{"maps", "/a.png", "", "absolute path"},
+		{"maps", "D:/a.png", "", "absolute path"},
+		{"maps", `art\a.png`, "", "backslashes"},
+		{"maps", "asset:a.png", "", "is a URI"},
+		{"maps", "https://x/a.png", "", "is a URI"},
+	}
+	for _, tc := range cases {
+		got, err := project.ResolveRef(tc.dir, tc.ref)
+		switch {
+		case tc.err == "" && (err != nil || got != tc.want):
+			t.Errorf("ResolveRef(%q, %q) = %q, %v; want %q", tc.dir, tc.ref, got, err, tc.want)
+		case tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err)):
+			t.Errorf("ResolveRef(%q, %q) error = %v, want %q", tc.dir, tc.ref, err, tc.err)
+		}
+	}
+	fsys := fstest.MapFS{"sprites/hero.json": file(atlasJSON("hero", "hero 1:2.png")), "sprites/hero 1:2.png": file("hero")}
+	if a, err := project.NewResolver(fsys).Atlas("hero"); err != nil || string(a.Image.Data) != "hero" {
+		t.Fatalf("Atlas(hero) = %v, %v", a, err)
+	}
+}
+
+func TestResolverIsSafeForConcurrentUse(t *testing.T) {
+	fsys := fstest.MapFS{
+		"sprites/actors.json":           file(atlasJSON("hero", "actors.png")),
+		"sprites/actors.png":            file("actors"),
+		"scenes/a.scene.yaml":           file("version: 2\nname: A\nlayers:\n  - name: main\n    objects:\n      - id: hero\n        sprite: {atlas: actors, frame: hero}\n"),
+		"materials/stone.material.yaml": file("type: material\nversion: 1\nname: Stone\nbaseColor: '#8a8f99'\n"),
+	}
+	r := project.NewResolver(fsys)
+	scene := r.ForScene("scenes/a.scene.yaml")
+	var wg sync.WaitGroup
+	errs := make(chan error, 8*5)
+	for range 8 {
+		wg.Go(func() {
+			if _, err := r.Atlas("actors"); err != nil {
+				errs <- err
+			}
+			if _, err := scene.Atlas("sprites/actors"); err != nil {
+				errs <- err
+			}
+			if names := scene.AtlasNames(); len(names) != 1 {
+				errs <- fmt.Errorf("AtlasNames = %q", names)
+			}
+			if _, err := scene.Material("materials/stone.material.yaml"); err != nil {
+				errs <- err
+			}
+			if _, err := r.Scene("scenes/a.scene.yaml"); err != nil {
+				errs <- err
+			}
+			r.Refresh()
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 

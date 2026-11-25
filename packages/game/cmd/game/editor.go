@@ -58,6 +58,9 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 			if ok {
 				return runOwnEditor(a, root, run, *lib, args)
 			}
+			if p, err := build.ImportDir(filepath.Join(root, "cmd", "editor"), 0); err == nil && p.Name == "main" {
+				fmt.Fprintf(a.stderr, "editor: %s does not use package editorcmd, so it may not take game editor's arguments; game editor opens the project itself instead. Run that command with go run ./cmd/editor\n", filepath.Join(root, "cmd", "editor"))
+			}
 			// Without an editor of its own, a project's components are free-form, since only the game's Go code registers their types.
 			if ed, err = editorcmd.New(editorcmd.Options{Library: *lib}); err != nil {
 				return err
@@ -93,9 +96,12 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 // gameEditorTag is the build tag that builds a project's package as its editor command, as `game generate editor` writes it.
 const gameEditorTag = "gameeditor"
 
-// projectEditor returns the go command's arguments that run the editor command of the project in root, and false when it has none, and an error only when a Go file that would hold it does not parse: the main package in cmd/editor, as Field Medic's is, or the project's own main package built with the gameeditor tag, when that tag swaps its main function for one, as `game generate editor` writes it.
+// editorcmdPath is the import path of package editorcmd, whose command line game editor runs a project's editor command with.
+const editorcmdPath = "github.com/nsgo-dev/game/packages/game/editor/editorcmd"
+
+// projectEditor returns the go command's arguments that run the editor command of the project in root, and false when it has none, and an error only when a Go file that would hold it does not parse: the main package in cmd/editor that imports package editorcmd, so it takes the command line game editor passes on, as Field Medic's does, or the project's own main package built with the gameeditor tag, when that tag swaps its main function for one, as `game generate editor` writes it.
 func projectEditor(root string) ([]string, bool, error) {
-	if p, err := build.ImportDir(filepath.Join(root, "cmd", "editor"), 0); err == nil && p.Name == "main" {
+	if p, err := build.ImportDir(filepath.Join(root, "cmd", "editor"), 0); err == nil && p.Name == "main" && slices.Contains(p.Imports, editorcmdPath) {
 		return []string{"run", "./cmd/editor"}, true, nil
 	}
 	plain, err := build.ImportDir(root, 0)

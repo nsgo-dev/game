@@ -310,7 +310,7 @@ func TestEditorRunsTheProjectsOwnEditor(t *testing.T) {
 		}, []string{"run", "-tags", "gameeditor", "."}},
 		{"cmd/editor", map[string]string{
 			"main.go":            "package main\n\nfunc main() {}\n",
-			"cmd/editor/main.go": "package main\n\nfunc main() {}\n",
+			"cmd/editor/main.go": "package main\n\nimport \"github.com/nsgo-dev/game/packages/game/editor/editorcmd\"\n\nfunc main() { editorcmd.Main(editorcmd.Options{}) }\n",
 		}, []string{"run", "./cmd/editor"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,10 +345,24 @@ func TestEditorRunsTheProjectsOwnEditor(t *testing.T) {
 		})
 	}
 
+	// A cmd/editor that does not use package editorcmd may not take game editor's arguments, so game editor opens the project itself and says why.
+	other := generateProject(t, map[string]string{"cmd/editor/main.go": "package main\n\nfunc main() {}\n"})
+	writeFiles(t, other, map[string]string{"scenes/room.scene.yaml": "version: 2\nname: Room\nlayers: []\n"})
+	a, _, stderr := newTestApp(t)
+	a.goRun = func(string, []string, io.Writer, io.Writer) error {
+		t.Error("ran a cmd/editor without editorcmd")
+		return nil
+	}
+	var shown *editor.Editor
+	a.launch = func(opened *editor.Editor) { shown = opened }
+	if code := run([]string{"editor", filepath.Join(other, "scenes", "room.scene.yaml")}, a); code != 0 || shown == nil || !strings.Contains(stderr.String(), "does not use package editorcmd") {
+		t.Fatalf("exit %d (stderr: %s), opened %v", code, stderr, shown != nil)
+	}
+
 	// A project without one opens in game editor itself.
 	dir := generateProject(t, nil)
 	writeFiles(t, dir, map[string]string{"scenes/room.scene.yaml": "version: 2\nname: Room\nlayers: []\n"})
-	a, _, stderr := newTestApp(t)
+	a, _, stderr = newTestApp(t)
 	var ed *editor.Editor
 	a.launch = func(opened *editor.Editor) { ed = opened }
 	if code := run([]string{"editor", filepath.Join(dir, "scenes", "room.scene.yaml")}, a); code != 0 || ed == nil || ed.Doc.Name != "Room" {

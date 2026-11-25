@@ -332,9 +332,9 @@ type Editor struct {
 	layerLocked map[string]bool
 	// baseLayers caches the names of the layers of the scene the open scene inherits (inheritedLayers).
 	baseLayers baseLayerCache
-	// assetsScene is the ScenePath the project.Resolver of ProjectAssets finds atlases nearest, and assetsFilesRev the filesRev it last listed the project's atlases at (syncProjectAssets).
-	assetsScene    string
-	assetsFilesRev uint64
+	// assetsScene is the ScenePath the project.Resolver of ProjectAssets finds atlases nearest, and assetsResolverRev the assetsRev it last read the project's atlases and materials at (syncProjectAssets).
+	assetsScene       string
+	assetsResolverRev uint64
 	// objIndex is where every object of the open scene sits, rebuilt when the revision or the document changes (lookupObject).
 	objIndex objectIndex
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.

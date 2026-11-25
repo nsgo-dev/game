@@ -16,12 +16,14 @@ func main() {
 	editorcmd.Main(options())
 }
 
-// options are Field Medic's editor: its component types and plugin, its name in the window title, and a refusal to open a project that lists a plugin it lacks.
+// options are Field Medic's editor: its component types and plugin, its name in the window title, its window size, and a refusal to open a project that lists a plugin it lacks.
 func options() editorcmd.Options {
 	return editorcmd.Options{
 		Components:     health.Components(),
 		Plugins:        []editor.Plugin{healthplugin.Plugin()},
 		AppName:        "Field Medic Editor",
+		WindowWidth:    1280,
+		WindowHeight:   800,
 		RequirePlugins: true,
 	}
 }

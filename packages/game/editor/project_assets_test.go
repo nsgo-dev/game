@@ -154,13 +154,71 @@ func TestProjectAssetsListTheProjectsAtlasesAgainAfterAChange(t *testing.T) {
 	if n := len(ed.Assets()); n != 2 {
 		t.Fatalf("Assets() has %d frames, want 2", n)
 	}
-	writeFiles(t, dir, map[string]string{"ui/icons.json": `{"frames": {"coin": {"frame": {"x": 0, "y": 0, "w": 8, "h": 8}}}, "meta": {"image": "icons.png"}}`, "ui/icons.png": "icons"})
-	// The editor lists the atlases again once it changes the project's files, as saving a scene does.
+	writeFiles(t, dir, map[string]string{
+		"ui/icons.json":                 `{"frames": {"coin": {"frame": {"x": 0, "y": 0, "w": 8, "h": 8}}}, "meta": {"image": "icons.png"}}`,
+		"ui/icons.png":                  "icons",
+		"materials/stone.material.yaml": "type: material\nversion: 1\nname: Stone\nbaseColor: '#8a8f99'\n",
+	})
+	materials, ok := ed.Resolver.(sceneformat.MaterialResolver)
+	if !ok {
+		t.Fatalf("Resolver = %T, not a MaterialResolver", ed.Resolver)
+	}
+	stone, err := materials.Material("materials/stone.material.yaml")
+	if err != nil || stone.Name != "Stone" {
+		t.Fatalf("Material = %+v, %v", stone, err)
+	}
+	// Saving a scene writes no atlas or material, so the editor keeps what it has read.
 	if err := ed.SaveFile(ed.FilePath); err != nil {
 		t.Fatal(err)
 	}
+	if got := ed.Assets(); len(got) != 2 {
+		t.Fatalf("after a save Assets() = %+v, want the atlases read before it", got)
+	}
+	// Rescanning the project, as installing a pack, moving files or ReloadAssets does, reads its atlases and materials again.
+	writeFiles(t, dir, map[string]string{"materials/stone.material.yaml": "type: material\nversion: 1\nname: Granite\nbaseColor: '#8a8f99'\n"})
+	if err := ed.RefreshSearch(); err != nil {
+		t.Fatal(err)
+	}
 	if got := ed.Assets(); len(got) != 3 || got[2].Key() != "icons/coin" {
-		t.Fatalf("after a save Assets() = %+v, want the new atlas listed", got)
+		t.Fatalf("after a rescan Assets() = %+v, want the new atlas listed", got)
+	}
+	materials = ed.Resolver.(sceneformat.MaterialResolver)
+	if m, err := materials.Material("materials/stone.material.yaml"); err != nil || m.Name != "Granite" {
+		t.Fatalf("after a rescan Material = %+v, %v; want the file read again", m, err)
+	}
+}
+
+func TestProjectAssetsDrawAnInstancedSceneFromTheAtlasNearestItsFile(t *testing.T) {
+	dir := t.TempDir()
+	atlas := func(frame string) string {
+		return `{"frames": {"` + frame + `": {"frame": {"x": 0, "y": 0, "w": 16, "h": 16}}}, "meta": {"image": "actors.png"}}`
+	}
+	writeFiles(t, dir, map[string]string{
+		project.FileName:             "version: 1\nname: Levels\nid: dev.example.levels\nappVersion: 1.0.0\nwindow:\n  width: 320\n  height: 180\nautoload:\n  mainScene: forest\n  scenes:\n    - name: forest\n      path: levels/forest/a.scene.yaml\n",
+		"prefabs/actors.json":        atlas("crate"),
+		"prefabs/actors.png":         "the prefab's actors",
+		"levels/forest/actors.json":  atlas("tree"),
+		"levels/forest/actors.png":   "the forest's actors",
+		"prefabs/crate.scene.yaml":   "version: 2\nname: Crate\nlayers:\n  - name: main\n    objects:\n      - id: box\n        sprite: {atlas: actors, frame: crate}\n",
+		"levels/forest/a.scene.yaml": "version: 2\nname: Forest\nlayers:\n  - name: main\n    objects:\n      - id: tree\n        sprite: {atlas: actors, frame: tree}\n      - id: crate_1\n        scene: prefabs/crate.scene.yaml\n",
+	})
+	ed := newAssetsEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("build: %v", ed.BuildErr)
+	}
+	// As game check finds them, the forest's tree draws the atlas beside the forest and the crate the one beside its own file.
+	for id, want := range map[string]string{"tree": "the forest's actors", "crate_1/box": "the prefab's actors"} {
+		obj := ed.Built.Object(id)
+		if obj == nil || obj.Atlas == nil || string(obj.Atlas.Image.Data) != want {
+			t.Errorf("%s did not draw %q", id, want)
+		}
+	}
+	// The open scene keeps the names it was written with.
+	if got := ed.Doc.Layers[0].Objects[0].Sprite.Atlas; got != "actors" {
+		t.Errorf("the open scene's tree names atlas %q, want actors", got)
 	}
 }
 
