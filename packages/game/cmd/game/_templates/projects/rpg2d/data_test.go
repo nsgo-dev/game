@@ -146,6 +146,14 @@ func TestParseWorldRefusesBrokenWorlds(t *testing.T) {
 		{"patrol on a tree", "[[2, 2]]", "[[0, 2]]", "solid"},
 		{"foe without hp", "hp: 3", "hp: 0", "positive hp"},
 		{"second document", "patrol: [[2, 2]]", "patrol: [[2, 2]]\n---\nversion: 1", "second"},
+		{"patrol through a tree", "patrol: [[2, 2]]", "patrol: [[3, 2]]", "the patrol of foe s at [3 1] is on a solid tile"},
+		{"patrol through a still foe", "patrol: [[2, 2]]\n", "patrol: [[2, 2]]\n      - {id: t, kind: slime, at: [2, 2]}\n", `foe "t" stands still`},
+		{"two foes on a tile", "patrol: [[2, 2]]\n", "patrol: [[2, 2]]\n      - {id: t, kind: slime, at: [2, 1], patrol: [[1, 1]]}\n", `starts on [2 1] with foe "s"`},
+		{"two people on a tile", "    foes:\n      - id: s", "    people:\n      - {id: p, art: p, at: [1, 2], node: N}\n      - {id: q, art: q, at: [1, 2], node: N}\n    foes:\n      - id: s", `with "p"`},
+		{"foe on a person", "    foes:\n      - id: s", "    people:\n      - {id: p, art: p, at: [2, 1], node: N}\n    foes:\n      - id: s", `foe s at [2 1] is where person "p" stands`},
+		{"item under a person", "    foes:\n      - id: s", "    people:\n      - {id: p, art: p, at: [1, 2], node: N}\n    items:\n      - {id: i, item: x, at: [1, 2]}\n    foes:\n      - id: s", `item i at [1 2] is where person "p" stands`},
+		{"exit into a person", "    foes:\n      - id: s", "    people:\n      - {id: p, art: p, at: [3, 2], node: N}\n    foes:\n      - id: s", `an exit at [3 2] is where person "p" stands`},
+		{"patrol through a person", "    foes:\n      - id: s", "    people:\n      - {id: p, art: p, at: [2, 2], node: N}\n    foes:\n      - id: s", `the patrol of foe s at [2 2] is where person "p" stands`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := strings.Replace(validWorld(), tc.old, tc.new, 1)
@@ -160,9 +168,51 @@ func TestParseWorldRefusesBrokenWorlds(t *testing.T) {
 	}
 }
 
+// emptyListWorlds returns worlds that write explicit empty lists, or leave out the foe kinds, which EncodeWorld writes differently, so the round trip has to load both forms as the same World.
+func emptyListWorlds() []string {
+	mapFoes := "    foes:\n      - id: s\n        kind: slime\n        at: [2, 1]\n        patrol: [[2, 2]]\n"
+	exits := "    exits:\n      - at: [3, 2]\n        to:\n          map: a\n          at: [1, 1]\n"
+	kinds := "foes:\n  - id: slime\n    name: Slime\n    art: slime\n    hp: 3\n    attack: 1\n    defense: 0\n"
+	return []string{
+		strings.Replace(validWorld(), mapFoes, "    people: []\n    foes: []\n    items: []\n", 1),
+		strings.Replace(validWorld(), "patrol: [[2, 2]]", "patrol: []", 1),
+		strings.NewReplacer(mapFoes, "", exits, "    exits: []\n", kinds, "").Replace(validWorld()),
+		strings.NewReplacer(mapFoes, "", kinds, "foes: []\n").Replace(validWorld()),
+	}
+}
+
+func TestParseWorldLoadsEmptyListsAsNone(t *testing.T) {
+	for i, src := range emptyListWorlds() {
+		if src == validWorld() {
+			t.Fatalf("world %d changes nothing", i)
+		}
+		w, err := ParseWorld([]byte(src))
+		if err != nil {
+			t.Fatalf("world %d: %v\n%s", i, err, src)
+		}
+		out, err := EncodeWorld(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := ParseWorld(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(again, w) {
+			t.Fatalf("world %d: the round trip changed it:\n%s", i, out)
+		}
+		if strings.Contains(string(out), "[]") {
+			t.Fatalf("world %d: EncodeWorld wrote an empty list:\n%s", i, out)
+		}
+	}
+}
+
 // FuzzParseWorld checks that ParseWorld never panics and that every world it accepts encodes to a form that parses back to the same world and encodes the same again.
 func FuzzParseWorld(f *testing.F) {
 	f.Add([]byte(validWorld()))
+	for _, src := range emptyListWorlds() {
+		f.Add([]byte(src))
+	}
 	if src, err := dataFS.ReadFile(worldFile); err == nil {
 		f.Add(src)
 	}

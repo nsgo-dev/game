@@ -84,7 +84,7 @@ func (g *Game) drawMap(d *core.Drawing) {
 	d.Restore()
 }
 
-// drawField draws the map, the touch pad on a touch screen and, during a conversation, its text box, portraits and options.
+// drawField draws the map, the on-screen pad when touch is set and, during a conversation, its text box, portraits and options.
 func (g *Game) drawField(d *core.Drawing, touch bool) {
 	g.drawMap(d)
 	if g.mode == modeTalk {

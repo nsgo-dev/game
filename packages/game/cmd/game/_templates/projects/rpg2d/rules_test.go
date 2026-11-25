@@ -222,3 +222,59 @@ func TestRestoreRefusesASaveThatDoesNotFit(t *testing.T) {
 		}
 	}
 }
+
+func TestABattleStartedMidStepFinishesTheStepAfterwards(t *testing.T) {
+	g := newTestGame(t)
+	g.enter(Place{Map: "field", At: Cell{33, 9}})
+	var slime *foeState
+	for _, f := range g.foes {
+		if f.ID == "slime-river" {
+			slime = f
+		}
+	}
+	// The slime stands below the glowcap at [34, 9], walking up its patrol, and takes its next step one fixed step after the player starts stepping onto the glowcap.
+	dt := time.Second / 60
+	slime.at, slime.from, slime.stop, slime.wait = Cell{34, 10}, Cell{34, 10}, 1, dt+time.Millisecond
+	g.update(dt, intent{dir: dirRight, turned: true})
+	if g.pos != (Cell{34, 9}) || g.walk == 0 {
+		t.Fatalf("the player is at %v, walk %v; want stepping onto [34, 9]", g.pos, g.walk)
+	}
+	g.update(dt, intent{dir: dirRight})
+	if g.mode != modeBattle || g.battle.foe != slime {
+		t.Fatalf("mode %v; want a battle with the slime", g.mode)
+	}
+	if g.bag.Count("glowcap") != 0 {
+		t.Fatal("the glowcap was picked up before the battle")
+	}
+	for g.mode == modeBattle {
+		g.pick("attack")
+	}
+	if g.mode != modeField || g.bag.Count("glowcap") != 1 || !g.taken["glowcap-river"] {
+		t.Fatalf("after the battle: mode %v, glowcaps %d; want the glowcap picked up", g.mode, g.bag.Count("glowcap"))
+	}
+}
+
+func TestBattlePotionWaitsForAWound(t *testing.T) {
+	g := newTestGame(t)
+	check(g.bag.AddAll(itemPotion, 1))
+	g.enter(Place{Map: "field", At: Cell{1, 6}})
+	g.startBattle(g.foes[0])
+	if g.pick("potion"); g.bag.Count(itemPotion) != 1 {
+		t.Fatal("a potion was drunk at full HP")
+	}
+	g.hp--
+	if g.pick("potion"); g.bag.Count(itemPotion) != 0 {
+		t.Fatal("no potion was drunk when wounded")
+	}
+}
+
+func TestAmountChoosesTheArticle(t *testing.T) {
+	for name, want := range map[string]string{"Potion": "a Potion", "Iron Sword": "an Iron Sword"} {
+		if got := amount(name, 1); got != want {
+			t.Errorf("amount(%q, 1) = %q, want %q", name, got, want)
+		}
+	}
+	if got := amount("Coin", 3); got != "3 Coin" {
+		t.Errorf("amount(Coin, 3) = %q", got)
+	}
+}
