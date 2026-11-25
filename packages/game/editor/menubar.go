@@ -135,6 +135,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdGizmoTranslate, e.T("menu.translate"), true),
 		cmdItem(CmdGizmoRotate, e.T("menu.rotate"), true),
 		cmdItem(CmdGizmoScale, e.T("menu.scale"), true),
+		cmdItem(CmdGizmoCollider, "Collider", true),
 	}
 
 	// View > 3D Shading submenu

@@ -112,7 +112,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	if err != nil {
 		return fmt.Errorf("editor: build play scene: %w", err)
 	}
-	playPhys, err := sceneformat.BuildPhysics(playBuilt, e.physicsSettings(), e.Resolver)
+	playPhys, err := sceneformat.BuildPhysics(playBuilt, e.physicsSettings(), e.physicsResolver())
 	if err != nil {
 		return fmt.Errorf("editor: build play physics: %w", err)
 	}

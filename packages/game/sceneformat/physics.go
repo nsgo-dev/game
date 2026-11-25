@@ -30,23 +30,25 @@ const (
 	Collider2DComponentName = "collider2d"
 	// Trigger2DComponentName is the built-in 2D non-solid trigger sensor component (box or circle).
 	Trigger2DComponentName = "trigger2d"
-	// Body3DComponentName is the built-in 3D physics body component (static, kinematic or dynamic).
+	// Body3DComponentName is the built-in 3D physics body component (static, kinematic, dynamic, or trigger).
 	Body3DComponentName = "body3d"
-	// Collider3DComponentName is the built-in 3D collision shape component (box, sphere or capsule).
+	// Collider3DComponentName is the built-in 3D collision shape component (box, sphere, capsule, cylinder, convex, trimesh, or heightfield).
 	Collider3DComponentName = "collider3d"
-	// Trigger3DComponentName is the built-in 3D non-solid trigger sensor component (box, sphere or capsule).
+	// Trigger3DComponentName is the built-in 3D non-solid trigger sensor component (box, sphere, capsule, cylinder, or convex).
 	Trigger3DComponentName = "trigger3d"
 )
 
 // PhysicsMaterialResolver may optionally be implemented by an AssetResolver (such as *resource.Library)
-// to load shared .physics.yaml materials named by body2d.material and body3d.material.
+// to load shared .physics.yaml materials named by body2d.material and body3d.material / body3d.physicsMaterial.
 type PhysicsMaterialResolver interface {
 	PhysicsMaterial(path string) (*resource.PhysicsMaterial, error)
 }
 
 var physicsBodyKinds = []string{"static", "kinematic", "dynamic"}
+var physicsBody3DKinds = []string{"static", "kinematic", "dynamic", "trigger"}
 var physicsShapes2D = []string{"box", "circle"}
-var physicsShapes3D = []string{"box", "sphere", "capsule"}
+var physicsShapes3D = []string{"box", "sphere", "capsule", "cylinder", "convex", "trimesh", "heightfield"}
+var physicsTriggerShapes3D = []string{"box", "sphere", "capsule", "cylinder", "convex"}
 
 // PhysicsComponentNames returns the names of all built-in physics component types in canonical order.
 func PhysicsComponentNames() []string {
@@ -74,7 +76,7 @@ func IsPhysicsComponent(name string) bool {
 func isLayeredPhysicsComponent(name string) bool {
 	switch name {
 	case Collider2DComponentName, Trigger2DComponentName,
-		Collider3DComponentName, Trigger3DComponentName:
+		Body3DComponentName, Collider3DComponentName, Trigger3DComponentName:
 		return true
 	default:
 		return false
@@ -155,10 +157,10 @@ func Trigger2DComponent() ComponentType {
 func Body3DComponent() ComponentType {
 	return ComponentType{
 		Name: Body3DComponentName,
-		Doc:  "3D physics body: static, kinematic, or dynamic rigid body settings.",
+		Doc:  "3D physics body: static, kinematic, dynamic, or trigger body settings with optional layer, mask, and physics material.",
 		Fields: []Field{
 			{Name: "version", Kind: FieldInt, Default: PhysicsComponentVersion, Min: Float64(PhysicsComponentVersion), Max: Float64(PhysicsComponentVersion), Step: 1, Doc: "Component schema version (1)."},
-			{Name: "kind", Kind: FieldString, Default: "dynamic", Enum: physicsBodyKinds, Doc: `Body motion type: "static", "kinematic", or "dynamic".`},
+			{Name: "kind", Kind: FieldString, Default: "dynamic", Enum: physicsBody3DKinds, Doc: `Body motion type: "static", "kinematic", "dynamic", or "trigger".`},
 			{Name: "mass", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.5, Doc: "Body mass in kilograms for dynamic bodies (0 behaves as static)."},
 			{Name: "gravityScale", Kind: FieldFloat, Default: 1.0, Step: 0.1, Doc: "Multiplier applied to 3D world gravity."},
 			{Name: "vx", Kind: FieldFloat, Default: 0.0, Step: 0.5, Doc: "Initial linear velocity along X in units per second."},
@@ -169,7 +171,15 @@ func Body3DComponent() ComponentType {
 			{Name: "linearDamping", Kind: FieldFloat, Default: 0.01, Min: Float64(0), Step: 0.01, Doc: "Linear velocity damping per second (>= 0)."},
 			{Name: "angularDamping", Kind: FieldFloat, Default: 0.05, Min: Float64(0), Step: 0.01, Doc: "Angular velocity damping per second (>= 0)."},
 			{Name: "lockRotation", Kind: FieldBool, Default: false, Doc: "Prevents rotation impulses on dynamic bodies."},
+			{Name: "layer", Kind: FieldString, Default: "", Doc: "Named collision layer declared in game.yaml physics.layers (empty falls back to collider3d.layer or all)."},
+			{Name: "mask", Kind: FieldStringList, Doc: "Named collision layers this body interacts with (empty falls back to collider3d.mask or all)."},
 			{Name: "material", Kind: FieldString, Default: "", Doc: "Optional project-relative path to a shared .physics.yaml PhysicsMaterial resource."},
+			{Name: "physicsMaterial", Kind: FieldString, Default: "", Doc: "Optional project-relative path to a shared .physics.yaml PhysicsMaterial resource."},
+		},
+		Events: []Event{
+			{Name: "enter", Doc: "Emitted when kind is trigger and a matching body starts overlapping this body."},
+			{Name: "stay", Doc: "Emitted each step while kind is trigger and a matching body stays overlapping this body."},
+			{Name: "exit", Doc: "Emitted when kind is trigger and a matching body stops overlapping this body."},
 		},
 	}
 }
@@ -178,17 +188,22 @@ func Body3DComponent() ComponentType {
 func Collider3DComponent() ComponentType {
 	return ComponentType{
 		Name: Collider3DComponentName,
-		Doc:  "3D collision shape (box, sphere, or capsule) with named collision layer and mask.",
+		Doc:  "3D collision shape (box, sphere, capsule, cylinder, convex, trimesh, or heightfield) with local offset, rotation, layer, and mask.",
 		Fields: []Field{
 			{Name: "version", Kind: FieldInt, Default: PhysicsComponentVersion, Min: Float64(PhysicsComponentVersion), Max: Float64(PhysicsComponentVersion), Step: 1, Doc: "Component schema version (1)."},
-			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes3D, Doc: `Collider shape: "box", "sphere", or "capsule".`},
+			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes3D, Doc: `Collider shape: "box", "sphere", "capsule", "cylinder", "convex", "trimesh", or "heightfield".`},
 			{Name: "width", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along X."},
-			{Name: "height", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Y or total capsule height."},
+			{Name: "height", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Y, or total capsule or cylinder height."},
 			{Name: "depth", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Z."},
-			{Name: "radius", Kind: FieldFloat, Default: 0.5, Min: Float64(0), Step: 0.1, Doc: "Sphere or capsule radius."},
+			{Name: "radius", Kind: FieldFloat, Default: 0.5, Min: Float64(0), Step: 0.1, Doc: "Sphere, capsule, or cylinder radius."},
 			{Name: "offsetX", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local X center offset."},
 			{Name: "offsetY", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local Y center offset."},
 			{Name: "offsetZ", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local Z center offset."},
+			{Name: "rotX", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local X rotation in radians."},
+			{Name: "rotY", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local Y rotation in radians."},
+			{Name: "rotZ", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local Z rotation in radians."},
+			{Name: "terrain", Kind: FieldString, Default: "", Doc: "Project-relative path to a *.terrain.yaml file for heightfield colliders."},
+			{Name: "maxVertices", Kind: FieldInt, Default: 0, Min: Float64(0), Max: Float64(physics3d.MaxHullVertices), Step: 8, Doc: "Maximum vertex count for convex hull colliders (0 uses physics3d.DefaultHullVertices)."},
 			{Name: "layer", Kind: FieldString, Default: "", Doc: "Named collision layer declared in game.yaml physics.layers (empty matches all)."},
 			{Name: "mask", Kind: FieldStringList, Doc: "Named collision layers this collider interacts with (empty matches all)."},
 			{Name: "isTrigger", Kind: FieldBool, Default: false, Doc: "When true, acts as a non-solid trigger sensor instead of blocking movement."},
@@ -205,17 +220,21 @@ func Collider3DComponent() ComponentType {
 func Trigger3DComponent() ComponentType {
 	return ComponentType{
 		Name: Trigger3DComponentName,
-		Doc:  "3D non-solid trigger sensor (box, sphere, or capsule) that fires enter, stay, and exit events.",
+		Doc:  "3D non-solid trigger sensor (box, sphere, capsule, cylinder, or convex) that fires enter, stay, and exit events.",
 		Fields: []Field{
 			{Name: "version", Kind: FieldInt, Default: PhysicsComponentVersion, Min: Float64(PhysicsComponentVersion), Max: Float64(PhysicsComponentVersion), Step: 1, Doc: "Component schema version (1)."},
-			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsShapes3D, Doc: `Trigger shape: "box", "sphere", or "capsule".`},
+			{Name: "shape", Kind: FieldString, Default: "box", Enum: physicsTriggerShapes3D, Doc: `Trigger shape: "box", "sphere", "capsule", "cylinder", or "convex".`},
 			{Name: "width", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along X."},
-			{Name: "height", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Y or total capsule height."},
+			{Name: "height", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Y, or total capsule or cylinder height."},
 			{Name: "depth", Kind: FieldFloat, Default: 1.0, Min: Float64(0), Step: 0.25, Doc: "Box extent along Z."},
-			{Name: "radius", Kind: FieldFloat, Default: 0.5, Min: Float64(0), Step: 0.1, Doc: "Sphere or capsule radius."},
+			{Name: "radius", Kind: FieldFloat, Default: 0.5, Min: Float64(0), Step: 0.1, Doc: "Sphere, capsule, or cylinder radius."},
 			{Name: "offsetX", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local X center offset."},
 			{Name: "offsetY", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local Y center offset."},
 			{Name: "offsetZ", Kind: FieldFloat, Default: 0.0, Step: 0.25, Doc: "Local Z center offset."},
+			{Name: "rotX", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local X rotation in radians."},
+			{Name: "rotY", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local Y rotation in radians."},
+			{Name: "rotZ", Kind: FieldFloat, Default: 0.0, Step: 0.1, Doc: "Local Z rotation in radians."},
+			{Name: "maxVertices", Kind: FieldInt, Default: 0, Min: Float64(0), Max: Float64(physics3d.MaxHullVertices), Step: 8, Doc: "Maximum vertex count for convex hull triggers (0 uses physics3d.DefaultHullVertices)."},
 			{Name: "layer", Kind: FieldString, Default: "", Doc: "Named collision layer declared in game.yaml physics.layers (empty matches all)."},
 			{Name: "mask", Kind: FieldStringList, Doc: "Named collision layers this trigger detects (empty matches all)."},
 		},
@@ -678,6 +697,10 @@ type PhysicsScene struct {
 	Triggers2D map[string]*physics.Trigger
 	// Bodies3D maps object IDs to their 3D Body (including 3D triggers with IsTrigger == true).
 	Bodies3D map[string]*physics3d.Body
+	// TriMeshes3D maps object IDs to their static 3D triangle-mesh colliders.
+	TriMeshes3D map[string]*physics3d.TriMeshCollider
+	// Heightfields3D maps object IDs to their static 3D terrain heightfield colliders.
+	Heightfields3D map[string]*physics3d.HeightfieldCollider
 
 	// OnTrigger is called deterministically for every 2D and 3D trigger enter/stay/exit transition during Step.
 	OnTrigger func(PhysicsTriggerEvent)
@@ -696,7 +719,7 @@ func (ps *PhysicsScene) HasPhysics() bool {
 	if ps == nil {
 		return false
 	}
-	return len(ps.bindings2D) > 0 || len(ps.bindings3D) > 0
+	return len(ps.bindings2D) > 0 || len(ps.bindings3D) > 0 || len(ps.TriMeshes3D) > 0 || len(ps.Heightfields3D) > 0
 }
 
 // TriggerEvents returns the trigger events produced by the most recent Step call.
@@ -741,18 +764,21 @@ func BuildPhysics(scene *BuiltScene, settings *PhysicsSettings, resolver AssetRe
 	}
 
 	ps := &PhysicsScene{
-		Scene:         scene,
-		World2D:       w2,
-		Rigid2D:       rw2,
-		World3D:       w3,
-		Bodies2D:      make(map[string]*physics.Body),
-		RigidBodies2D: make(map[string]*physics.RigidBody),
-		Triggers2D:    make(map[string]*physics.Trigger),
-		Bodies3D:      make(map[string]*physics3d.Body),
-		bodyID3D:      make(map[int]string),
-		triggerComp3D: make(map[int]string),
+		Scene:          scene,
+		World2D:        w2,
+		Rigid2D:        rw2,
+		World3D:        w3,
+		Bodies2D:       make(map[string]*physics.Body),
+		RigidBodies2D:  make(map[string]*physics.RigidBody),
+		Triggers2D:     make(map[string]*physics.Trigger),
+		Bodies3D:       make(map[string]*physics3d.Body),
+		TriMeshes3D:    make(map[string]*physics3d.TriMeshCollider),
+		Heightfields3D: make(map[string]*physics3d.HeightfieldCollider),
+		bodyID3D:       make(map[int]string),
+		triggerComp3D:  make(map[int]string),
 	}
 
+	assetCache := newPhysics3DAssetCache(resolver)
 	pmCache := make(map[string]*resource.PhysicsMaterial)
 	getPhysicsMat := func(matPath string) (*resource.PhysicsMaterial, error) {
 		if m, ok := pmCache[matPath]; ok {
@@ -783,7 +809,7 @@ func BuildPhysics(scene *BuiltScene, settings *PhysicsSettings, resolver AssetRe
 			if err := ps.buildObject2D(bo, layers, getPhysicsMat); err != nil {
 				return err
 			}
-			if err := ps.buildObject3D(bo, world3D, layers, getPhysicsMat); err != nil {
+			if err := ps.buildObject3D(bo, world3D, layers, getPhysicsMat, assetCache); err != nil {
 				return err
 			}
 			if len(bo.Children) > 0 {
@@ -1030,6 +1056,7 @@ func (ps *PhysicsScene) buildObject3D(
 	world math3d.Transform,
 	layers *PhysicsLayerTable,
 	getPhysicsMat func(string) (*resource.PhysicsMaterial, error),
+	assetCache *physics3DAssetCache,
 ) error {
 	o := bo.Doc
 	rawBody, hasBody := o.Components[Body3DComponentName]
@@ -1059,7 +1086,7 @@ func (ps *PhysicsScene) buildObject3D(
 		if err != nil {
 			return err
 		}
-		shape, err := buildShape3D(o.ID, Trigger3DComponentName, resolved, sx, sy, sz)
+		shape, err := buildShape3D(o, Trigger3DComponentName, resolved, sx, sy, sz, assetCache)
 		if err != nil {
 			return err
 		}
@@ -1101,16 +1128,6 @@ func (ps *PhysicsScene) buildObject3D(
 		colResolved, _ = builtinPhysicsReg.Resolve(Collider3DComponentName, nil)
 	}
 
-	shape, err := buildShape3D(o.ID, Collider3DComponentName, colResolved, sx, sy, sz)
-	if err != nil {
-		return err
-	}
-	layerMask, maskBits, err := resolveLayerMask3D(o.ID, Collider3DComponentName, colResolved, layers)
-	if err != nil {
-		return err
-	}
-	isTrigger := hasCol && colResolved["isTrigger"].(bool)
-
 	kind := "static"
 	var bodyResolved map[string]any
 	var rawBodyMap map[string]any
@@ -1124,6 +1141,70 @@ func (ps *PhysicsScene) buildObject3D(
 		kind = bodyResolved["kind"].(string)
 	} else {
 		bodyResolved, _ = builtinPhysicsReg.Resolve(Body3DComponentName, map[string]any{"kind": "static"})
+	}
+
+	matPath, err := body3DMaterialPath(o.ID, bodyResolved)
+	if err != nil {
+		return err
+	}
+	var physMat *resource.PhysicsMaterial
+	if matPath != "" {
+		physMat, err = getPhysicsMat(matPath)
+		if err != nil {
+			return fmt.Errorf("sceneformat: object %q component %q: %w", o.ID, Body3DComponentName, err)
+		}
+	}
+
+	layerMask, maskBits, err := resolveBodyAndColliderLayerMask3D(o.ID, colResolved, bodyResolved, layers)
+	if err != nil {
+		return err
+	}
+	isTrigger := (hasCol && colResolved["isTrigger"].(bool)) || kind == "trigger"
+
+	shapeKind := colResolved["shape"].(string)
+	if shapeKind == "trimesh" || shapeKind == "heightfield" {
+		if kind != "static" || isTrigger {
+			return fmt.Errorf("sceneformat: object %q component %q: %s collider must be static and non-trigger", o.ID, Collider3DComponentName, shapeKind)
+		}
+		friction := float32(bodyResolved["friction"].(float64))
+		restitution := float32(bodyResolved["restitution"].(float64))
+		if physMat != nil {
+			if !hasKey(rawBodyMap, "friction") && physMat.Friction != nil {
+				friction = *physMat.Friction
+			}
+			if !hasKey(rawBodyMap, "restitution") && physMat.Restitution != nil {
+				restitution = *physMat.Restitution
+			}
+		}
+		if shapeKind == "trimesh" {
+			tm, err := buildTriMesh3D(o, Collider3DComponentName, colResolved, world, assetCache)
+			if err != nil {
+				return err
+			}
+			tm.Layer = layerMask
+			tm.Mask = maskBits
+			tm.Friction = friction
+			tm.Restitution = restitution
+			stored := ps.World3D.AddTriMesh(tm)
+			ps.TriMeshes3D[o.ID] = stored
+			return nil
+		}
+		hf, err := buildHeightfield3D(o, Collider3DComponentName, colResolved, world, assetCache)
+		if err != nil {
+			return err
+		}
+		hf.Layer = layerMask
+		hf.Mask = maskBits
+		hf.Friction = friction
+		hf.Restitution = restitution
+		stored := ps.World3D.AddHeightfield(hf)
+		ps.Heightfields3D[o.ID] = stored
+		return nil
+	}
+
+	shape, err := buildShape3D(o, Collider3DComponentName, colResolved, sx, sy, sz, assetCache)
+	if err != nil {
+		return err
 	}
 
 	var b physics3d.Body
@@ -1140,7 +1221,7 @@ func (ps *PhysicsScene) buildObject3D(
 			Kinematic: true,
 			Friction:  0.5,
 		}
-	default:
+	default: // "static" or "trigger"
 		b = physics3d.NewStaticBody(shape, pos)
 	}
 	b.Tag = o.ID
@@ -1156,33 +1237,90 @@ func (ps *PhysicsScene) buildObject3D(
 		}
 	}
 
-	if matPath, _ := bodyResolved["material"].(string); matPath != "" {
-		pm, err := getPhysicsMat(matPath)
-		if err != nil {
-			return fmt.Errorf("sceneformat: object %q component %q: %w", o.ID, Body3DComponentName, err)
-		}
-		pm.ApplyTo3D(&b)
+	if physMat != nil {
+		physMat.ApplyTo3D(&b)
 	}
-	applyBody3DMaterialFields(&b, bodyResolved, rawBodyMap)
+	applyBody3DMaterialFields(&b, bodyResolved, rawBodyMap, physMat != nil)
 
 	stored := ps.World3D.AddBody(b)
 	ps.Bodies3D[o.ID] = stored
 	ps.bodyID3D[stored.ID] = o.ID
+	trigComp := Collider3DComponentName
+	if kind == "trigger" && !(hasCol && colResolved["isTrigger"].(bool)) {
+		trigComp = Body3DComponentName
+	}
 	if isTrigger {
-		ps.triggerComp3D[stored.ID] = Collider3DComponentName
+		ps.triggerComp3D[stored.ID] = trigComp
 	}
 	ps.bindings3D = append(ps.bindings3D, &physicsBinding3D{
 		bo:          bo,
 		kind:        kind,
 		body:        stored,
 		isTrigger:   isTrigger,
-		triggerComp: Collider3DComponentName,
+		triggerComp: trigComp,
 	})
 	return nil
 }
 
-func applyBody3DMaterialFields(b *physics3d.Body, resolved, raw map[string]any) {
-	hasMat := resolved["material"].(string) != ""
+func body3DMaterialPath(objID string, resolved map[string]any) (string, error) {
+	matPath, _ := resolved["material"].(string)
+	pmPath, _ := resolved["physicsMaterial"].(string)
+	if matPath != "" && pmPath != "" && matPath != pmPath {
+		return "", &ComponentError{
+			Object:    objID,
+			Component: Body3DComponentName,
+			Field:     "physicsMaterial",
+			Msg:       fmt.Sprintf("cannot set both material (%q) and physicsMaterial (%q) to different paths", matPath, pmPath),
+		}
+	}
+	if pmPath != "" {
+		return pmPath, nil
+	}
+	return matPath, nil
+}
+
+func resolveBodyAndColliderLayerMask3D(objID string, colResolved, bodyResolved map[string]any, layers *PhysicsLayerTable) (physics3d.LayerMask, physics3d.LayerMask, error) {
+	colLayer, _ := colResolved["layer"].(string)
+	colMask, _ := colResolved["mask"].([]string)
+	bodyLayer, _ := bodyResolved["layer"].(string)
+	bodyMask, _ := bodyResolved["mask"].([]string)
+
+	layerComp := Collider3DComponentName
+	layerName := colLayer
+	if layerName == "" && bodyLayer != "" {
+		layerComp = Body3DComponentName
+		layerName = bodyLayer
+	}
+	maskComp := Collider3DComponentName
+	maskNames := colMask
+	if len(maskNames) == 0 && len(bodyMask) > 0 {
+		maskComp = Body3DComponentName
+		maskNames = bodyMask
+	}
+
+	var layer physics3d.LayerMask
+	if layerName != "" {
+		bit, ok := layers.Bit(layerName)
+		if !ok {
+			return 0, 0, unknownLayerErr(0, 0, loaderr.Path("components", layerComp, "layer"), objID, layerComp, layerName, false, layers)
+		}
+		layer = physics3d.LayerBit(bit)
+	}
+	var mask physics3d.LayerMask
+	for i, n := range maskNames {
+		if n == "" {
+			continue
+		}
+		bit, ok := layers.Bit(n)
+		if !ok {
+			return 0, 0, unknownLayerErr(0, 0, loaderr.Path("components", maskComp, "mask", i), objID, maskComp, n, true, layers)
+		}
+		mask |= physics3d.LayerBit(bit)
+	}
+	return layer, mask, nil
+}
+
+func applyBody3DMaterialFields(b *physics3d.Body, resolved, raw map[string]any, hasMat bool) {
 	if !hasMat || hasKey(raw, "friction") {
 		b.Friction = float32(resolved["friction"].(float64))
 	}
@@ -1248,13 +1386,18 @@ func buildShape2D(objID, compName string, resolved map[string]any, wx, wy, asx, 
 	}
 }
 
-func buildShape3D(objID, compName string, resolved map[string]any, sx, sy, sz float32) (physics3d.Shape, error) {
+func buildShape3D(o *ObjectDoc, compName string, resolved map[string]any, sx, sy, sz float32, cache *physics3DAssetCache) (physics3d.Shape, error) {
+	objID := ""
+	if o != nil {
+		objID = o.ID
+	}
 	shapeKind := resolved["shape"].(string)
 	center := physics3d.Vec3{
 		X: float32(resolved["offsetX"].(float64)) * sx,
 		Y: float32(resolved["offsetY"].(float64)) * sy,
 		Z: float32(resolved["offsetZ"].(float64)) * sz,
 	}
+	qLocal := colliderLocalRot3D(resolved)
 	switch shapeKind {
 	case "sphere":
 		r := float32(resolved["radius"].(float64)) * max(sx, max(sy, sz))
@@ -1268,7 +1411,25 @@ func buildShape3D(objID, compName string, resolved map[string]any, sx, sy, sz fl
 		if r <= 0 {
 			return physics3d.Shape{}, &ComponentError{Object: objID, Component: compName, Field: "radius", Msg: "radius must be positive for capsule shape"}
 		}
-		return physics3d.CapsuleShape(physics3d.VerticalCapsule(center, r, h)), nil
+		capShape := physics3d.VerticalCapsule(physics3d.Vec3{}, r, h)
+		capShape.A = rotateLocalVec3D(qLocal, capShape.A).Add(center)
+		capShape.B = rotateLocalVec3D(qLocal, capShape.B).Add(center)
+		return physics3d.CapsuleShape(capShape), nil
+	case "cylinder":
+		r := float32(resolved["radius"].(float64)) * max(sx, sz)
+		h := float32(resolved["height"].(float64)) * sy
+		if r <= 0 {
+			return physics3d.Shape{}, &ComponentError{Object: objID, Component: compName, Field: "radius", Msg: "radius must be positive for cylinder shape"}
+		}
+		if h <= 0 {
+			return physics3d.Shape{}, &ComponentError{Object: objID, Component: compName, Field: "height", Msg: "height must be positive for cylinder shape"}
+		}
+		cyl := physics3d.VerticalCylinder(physics3d.Vec3{}, r, h)
+		cyl.A = rotateLocalVec3D(qLocal, cyl.A).Add(center)
+		cyl.B = rotateLocalVec3D(qLocal, cyl.B).Add(center)
+		return physics3d.CylinderShape(cyl), nil
+	case "convex":
+		return buildConvexHull3D(o, compName, resolved, sx, sy, sz, center, qLocal, cache)
 	default: // "box"
 		w := float32(resolved["width"].(float64)) * sx
 		h := float32(resolved["height"].(float64)) * sy
@@ -1276,10 +1437,14 @@ func buildShape3D(objID, compName string, resolved map[string]any, sx, sy, sz fl
 		if w <= 0 || h <= 0 || d <= 0 {
 			return physics3d.Shape{}, &ComponentError{Object: objID, Component: compName, Field: "width", Msg: "width, height, and depth must be positive for box shape"}
 		}
-		return physics3d.BoxShape(physics3d.Box{
-			Center:      center,
-			HalfExtents: physics3d.Vec3{X: w * 0.5, Y: h * 0.5, Z: d * 0.5},
-		}), nil
+		return physics3d.Shape{
+			Kind: physics3d.ShapeBox,
+			Box: physics3d.Box{
+				Center:      center,
+				HalfExtents: physics3d.Vec3{X: w * 0.5, Y: h * 0.5, Z: d * 0.5},
+			},
+			Rot: qLocal,
+		}, nil
 	}
 }
 
@@ -1506,17 +1671,49 @@ func (ps *PhysicsScene) stepKinematic3D(b3 *physicsBinding3D, dtSec float32) {
 		return
 	}
 	b.Pos = b.Pos.Add(delta)
+	pushOut := func(c physics3d.Contact) {
+		if !c.Hit {
+			return
+		}
+		b.Pos = b.Pos.Add(c.Normal.Scale(c.Depth))
+		if vn := b.Vel.Dot(c.Normal); vn < 0 {
+			b.Vel = b.Vel.Sub(c.Normal.Scale(vn))
+		}
+	}
 	for _, other := range ps.World3D.Bodies() {
 		if other == nil || other == b || other.IsTrigger || !physics3d.CanCollide(b, other) {
 			continue
 		}
-		if c := physics3d.TestShapes(b.WorldShape(), other.WorldShape()); c.Hit {
-			b.Pos = b.Pos.Add(c.Normal.Scale(c.Depth))
-			if vn := b.Vel.Dot(c.Normal); vn < 0 {
-				b.Vel = b.Vel.Sub(c.Normal.Scale(vn))
-			}
-		}
+		pushOut(physics3d.TestShapes(b.WorldShape(), other.WorldShape()))
 	}
+	for _, tm := range ps.World3D.TriMeshes() {
+		if tm == nil || !layersMatch3D(b.Layer, b.Mask, tm.Layer, tm.Mask) {
+			continue
+		}
+		pushOut(tm.TestShape(b.WorldShape()))
+	}
+	for _, hf := range ps.World3D.Heightfields() {
+		if hf == nil || !layersMatch3D(b.Layer, b.Mask, hf.Layer, hf.Mask) {
+			continue
+		}
+		pushOut(hf.TestShape(b.WorldShape()))
+	}
+}
+
+func layersMatch3D(aLayer, aMask, bLayer, bMask physics3d.LayerMask) bool {
+	if aLayer == 0 {
+		aLayer = physics3d.LayerAll
+	}
+	if aMask == 0 {
+		aMask = physics3d.LayerAll
+	}
+	if bLayer == 0 {
+		bLayer = physics3d.LayerAll
+	}
+	if bMask == 0 {
+		bMask = physics3d.LayerAll
+	}
+	return (aLayer&bMask) != 0 && (bLayer&aMask) != 0
 }
 
 func shapeCenter2D(s physics.Shape) (float32, float32) {
@@ -1681,9 +1878,11 @@ type PhysicsDebugShape2D struct {
 
 // PhysicsDebugShape3D describes a 3D collider or trigger wireframe extracted from an ObjectDoc for editor debug drawing.
 type PhysicsDebugShape3D struct {
-	Shape     physics3d.Shape
-	IsTrigger bool
-	BodyKind  string
+	Shape       physics3d.Shape
+	TriMesh     *physics3d.TriMeshCollider
+	Heightfield *physics3d.HeightfieldCollider
+	IsTrigger   bool
+	BodyKind    string
 }
 
 // ExtractPhysicsDebug2D extracts any 2D collider and trigger shapes from o at its current transform for debug drawing.
@@ -1750,6 +1949,12 @@ func ExtractPhysicsDebug3D(o *ObjectDoc) []PhysicsDebugShape3D {
 
 // ExtractPhysicsDebug3DAt extracts any 3D collider and trigger shapes from o at the given composed world transform.
 func ExtractPhysicsDebug3DAt(o *ObjectDoc, world math3d.Transform) []PhysicsDebugShape3D {
+	return ExtractPhysicsDebug3DAtWithResolver(o, world, nil)
+}
+
+// ExtractPhysicsDebug3DAtWithResolver extracts any 3D collider and trigger shapes from o at the given composed world transform,
+// using resolver (when non-nil) to load glTF models for convex/trimesh colliders and terrains for heightfield colliders.
+func ExtractPhysicsDebug3DAtWithResolver(o *ObjectDoc, world math3d.Transform, resolver AssetResolver) []PhysicsDebugShape3D {
 	if o == nil || len(o.Components) == 0 {
 		return nil
 	}
@@ -1775,21 +1980,42 @@ func ExtractPhysicsDebug3DAt(o *ObjectDoc, world math3d.Transform) []PhysicsDebu
 		}
 	}
 
+	cache := newPhysics3DAssetCache(resolver)
 	var out []PhysicsDebugShape3D
 	if rawCol, ok := o.Components[Collider3DComponentName]; ok {
 		if res, err := resolvePhysicsComponent(o.ID, Collider3DComponentName, rawCol); err == nil {
-			if sh, err := buildShape3D(o.ID, Collider3DComponentName, res, sx, sy, sz); err == nil {
-				out = append(out, PhysicsDebugShape3D{
-					Shape:     sh.Transformed(pos, rot),
-					IsTrigger: res["isTrigger"].(bool),
-					BodyKind:  bodyKind,
-				})
+			isTrig := res["isTrigger"].(bool) || bodyKind == "trigger"
+			switch res["shape"].(string) {
+			case "trimesh":
+				if tm, err := buildTriMesh3D(o, Collider3DComponentName, res, world, cache); err == nil {
+					out = append(out, PhysicsDebugShape3D{
+						TriMesh:   tm,
+						IsTrigger: isTrig,
+						BodyKind:  bodyKind,
+					})
+				}
+			case "heightfield":
+				if hf, err := buildHeightfield3D(o, Collider3DComponentName, res, world, cache); err == nil {
+					out = append(out, PhysicsDebugShape3D{
+						Heightfield: hf,
+						IsTrigger:   isTrig,
+						BodyKind:    bodyKind,
+					})
+				}
+			default:
+				if sh, err := buildShape3D(o, Collider3DComponentName, res, sx, sy, sz, cache); err == nil {
+					out = append(out, PhysicsDebugShape3D{
+						Shape:     sh.Transformed(pos, rot),
+						IsTrigger: isTrig,
+						BodyKind:  bodyKind,
+					})
+				}
 			}
 		}
 	}
 	if rawTrig, ok := o.Components[Trigger3DComponentName]; ok {
 		if res, err := resolvePhysicsComponent(o.ID, Trigger3DComponentName, rawTrig); err == nil {
-			if sh, err := buildShape3D(o.ID, Trigger3DComponentName, res, sx, sy, sz); err == nil {
+			if sh, err := buildShape3D(o, Trigger3DComponentName, res, sx, sy, sz, cache); err == nil {
 				out = append(out, PhysicsDebugShape3D{
 					Shape:     sh.Transformed(pos, rot),
 					IsTrigger: true,

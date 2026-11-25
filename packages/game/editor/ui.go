@@ -392,6 +392,10 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 			},
 			ui.Toolbar{
 				Label: ed.T("toolbar.label"),
+				Style: core.Style{
+					Wrap:     core.Wrap,
+					MaxWidth: core.Pct(100),
+				},
 				Children: []core.Node{
 					ui.ToolbarGroup{
 						Label: ed.T("toolbar.group.viewMode"),
@@ -406,79 +410,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ed.ViewMode == ViewMode3D
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return ui.HStack{
-								Gap: 6,
-								Children: []core.Node{
-									place3DToolsView(rev, ed, notPlaying),
-									ui.ToolbarGroup{
-										Label: ed.T("toolbar.group.gizmo3d"),
-										Children: []core.Node{
-											gizmoBtn("gizmo-translate", ed.T("toolbar.translate"), Gizmo3DTranslate),
-											gizmoBtn("gizmo-rotate", ed.T("toolbar.rotate"), Gizmo3DRotate),
-											gizmoBtn("gizmo-scale", ed.T("toolbar.scale"), Gizmo3DScale),
-										},
-									},
-									ui.ToolbarGroup{
-										Label: ed.T("toolbar.group.shading3d"),
-										Children: []core.Node{
-											shadingBtn("shading-lit", ed.T("toolbar.shadingLit"), Shading3DLit),
-											shadingBtn("shading-unlit", ed.T("toolbar.shadingUnlit"), Shading3DUnlit),
-											shadingBtn("shading-wireframe", ed.T("toolbar.shadingWireframe"), Shading3DWireframe),
-										},
-									},
-									ui.ToolbarGroup{
-										Label: "3D Overlays",
-										Children: []core.Node{
-											ui.ToggleButton{
-												TestID: "viewport3d-toggle-lod",
-												Text:   "LOD",
-												Label:  "Toggle active LOD indicators in the 3D viewport",
-												On: func() bool {
-													_ = rev.Get()
-													return ed.ShowLODOverlay
-												},
-												OnChange: ed.SetShowLODOverlay,
-											},
-											ui.ToggleButton{
-												TestID: "viewport3d-toggle-occluders",
-												Text:   "Occluders",
-												Label:  "Toggle occluder volume visualization in the 3D viewport",
-												On: func() bool {
-													_ = rev.Get()
-													return ed.ShowOccluders
-												},
-												OnChange: ed.SetShowOccluders,
-											},
-											ui.ToggleButton{
-												TestID: "viewport3d-toggle-stats",
-												Text:   "Stats",
-												Label:  "Toggle RenderStats overlay in the 3D viewport",
-												On: func() bool {
-													_ = rev.Get()
-													return ed.ShowRenderStats
-												},
-												OnChange: ed.SetShowRenderStats,
-											},
-										},
-									},
-									ui.ToggleButton{
-										TestID:   "toolbar-terrain",
-										Text:     "Terrain",
-										Disabled: notPlaying,
-										On: func() bool {
-											_ = rev.Get()
-											return ed.TerrainOpen()
-										},
-										OnChange: func(on bool) {
-											if on && !ed.TerrainOpen() {
-												ed.report(ed.NewTerrain(NewTerrainOptions{}))
-											} else if !on && ed.TerrainOpen() {
-												ed.CloseTerrain()
-											}
-										},
-									},
-								},
-							}
+							return place3DToolsView(rev, ed, notPlaying)
 						},
 						Else: func(cx *core.Scope) core.Node {
 							return ui.ToolbarGroup{
@@ -492,6 +424,106 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									toolBtn("tool-fill", ed.T("toolbar.fill"), ToolFillTile),
 									toolBtn("tool-pick", ed.T("toolbar.pick"), ToolPickTile),
 									toolBtn("tool-terrain", ed.T("toolbar.terrain"), ToolTerrain),
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: ed.T("toolbar.group.gizmo3d"),
+								Children: []core.Node{
+									gizmoBtn("gizmo-translate", ed.T("toolbar.translate"), Gizmo3DTranslate),
+									gizmoBtn("gizmo-rotate", ed.T("toolbar.rotate"), Gizmo3DRotate),
+									gizmoBtn("gizmo-scale", ed.T("toolbar.scale"), Gizmo3DScale),
+									gizmoBtn("gizmo-collider", "Collider", Gizmo3DCollider),
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: ed.T("toolbar.group.shading3d"),
+								Children: []core.Node{
+									shadingBtn("shading-lit", ed.T("toolbar.shadingLit"), Shading3DLit),
+									shadingBtn("shading-unlit", ed.T("toolbar.shadingUnlit"), Shading3DUnlit),
+									shadingBtn("shading-wireframe", ed.T("toolbar.shadingWireframe"), Shading3DWireframe),
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: "3D Overlays",
+								Children: []core.Node{
+									ui.ToggleButton{
+										TestID: "viewport3d-toggle-lod",
+										Text:   "LOD",
+										Label:  "Toggle active LOD indicators in the 3D viewport",
+										On: func() bool {
+											_ = rev.Get()
+											return ed.ShowLODOverlay
+										},
+										OnChange: ed.SetShowLODOverlay,
+									},
+									ui.ToggleButton{
+										TestID: "viewport3d-toggle-occluders",
+										Text:   "Occluders",
+										Label:  "Toggle occluder volume visualization in the 3D viewport",
+										On: func() bool {
+											_ = rev.Get()
+											return ed.ShowOccluders
+										},
+										OnChange: ed.SetShowOccluders,
+									},
+									ui.ToggleButton{
+										TestID: "viewport3d-toggle-stats",
+										Text:   "Stats",
+										Label:  "Toggle RenderStats overlay in the 3D viewport",
+										On: func() bool {
+											_ = rev.Get()
+											return ed.ShowRenderStats
+										},
+										OnChange: ed.SetShowRenderStats,
+									},
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToggleButton{
+								TestID:   "toolbar-terrain",
+								Text:     "Terrain",
+								Disabled: notPlaying,
+								On: func() bool {
+									_ = rev.Get()
+									return ed.TerrainOpen()
+								},
+								OnChange: func(on bool) {
+									if on && !ed.TerrainOpen() {
+										ed.report(ed.NewTerrain(NewTerrainOptions{}))
+									} else if !on && ed.TerrainOpen() {
+										ed.CloseTerrain()
+									}
 								},
 							}
 						},

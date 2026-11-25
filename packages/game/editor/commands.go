@@ -40,6 +40,8 @@ const (
 	CmdGizmoTranslate        = "gizmo.translate"
 	CmdGizmoRotate           = "gizmo.rotate"
 	CmdGizmoScale            = "gizmo.scale"
+	CmdGizmoCollider         = "gizmo.collider"
+	CmdFitCollider3D         = "edit.fitCollider3d"
 	CmdView2D                = "view.mode2d"
 	CmdView3D                = "view.mode3d"
 	CmdShadingLit            = "view.shading.lit"
@@ -594,6 +596,37 @@ func (e *Editor) initBuiltinCommands() {
 			Run: func() error {
 				e.SetGizmoMode3D(Gizmo3DScale)
 				return nil
+			},
+		},
+		{
+			ID:          CmdGizmoCollider,
+			Label:       "3D Gizmo: Collider",
+			Description: "Switch the 3D gizmo to Collider size handles",
+			Category:    "3D Gizmo",
+			Keywords:    []string{"gizmo", "collider", "physics", "handles", "size", "3d"},
+			Shortcut:    "c",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.GizmoMode == Gizmo3DCollider },
+			Run: func() error {
+				e.SetGizmoMode3D(Gizmo3DCollider)
+				return nil
+			},
+		},
+		{
+			ID:          CmdFitCollider3D,
+			Label:       "Fit 3D Collider to Model Bounds",
+			Description: "Fit the selected object's 3D collider to its mesh or glTF model bounds",
+			Category:    "3D Gizmo",
+			Keywords:    []string{"collider", "fit", "bounds", "model", "physics", "3d"},
+			Enabled: func() bool {
+				if !notPlaying() || e.SelectedID == "" {
+					return false
+				}
+				o, _, _ := e.FindObject(e.SelectedID)
+				return o != nil && (o.Model != "" || o.Mesh != "")
+			},
+			Run: func() error {
+				return e.FitCollider3DToBounds(e.SelectedID)
 			},
 		},
 		{

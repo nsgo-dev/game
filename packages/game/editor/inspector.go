@@ -1430,6 +1430,24 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						},
 					})
 				}
+				if cn == sceneformat.Collider3DComponentName || cn == sceneformat.Trigger3DComponentName {
+					nodes = append(nodes, ui.Button{
+						TestID:  "inspector-comp-" + cn + "-fit-bounds",
+						Text:    "Fit to Model Bounds",
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						Disabled: func() bool {
+							if disabled() {
+								return true
+							}
+							o, _, _ := ed.FindObject(objID)
+							return o == nil || (o.Model == "" && o.Mesh == "")
+						},
+						OnPress: func() {
+							ed.report(ed.FitCollider3DToBounds(objID))
+						},
+					})
+				}
 				continue
 			}
 			m, ok := obj.Components[cn].(map[string]any)
