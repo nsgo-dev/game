@@ -3,6 +3,7 @@ package ai_test
 import (
 	"math"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -512,4 +513,68 @@ func BenchmarkTiledNavMeshFindPath(b *testing.B) {
 			b.Fatal("FindPath missed")
 		}
 	}
+}
+
+func TestTiledNavMeshConcurrentNearestPolygonRaceFree(t *testing.T) {
+	tm := buildLargeTiledMesh2D(6, 32)
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := range 32 {
+				q := pt2(float32(-20+id*25+i), float32(-10+i*6))
+				if _, _, ok := tm.NearestPolygon(q); !ok {
+					t.Errorf("goroutine %d: NearestPolygon(%v) failed", id, q)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+func TestTiledNavMeshTightenRespectsCheapRoadCost(t *testing.T) {
+	// L-shaped cheap road around a default-cost square:
+	// Road goes (0,0)-(32,10), (22,10)-(32,32), (0,22)-(22,32); default fills (0,10)-(22,22).
+	polys := []ai.NavPolygonInput{
+		{Vertices: rect2D(0, 0, 32, 10), Area: ai.NavAreaRoad, Flags: ai.NavFlagWalk},
+		{Vertices: rect2D(22, 10, 32, 32), Area: ai.NavAreaRoad, Flags: ai.NavFlagWalk},
+		{Vertices: rect2D(0, 22, 22, 32), Area: ai.NavAreaRoad, Flags: ai.NavFlagWalk},
+		{Vertices: rect2D(0, 10, 22, 22), Area: ai.NavAreaDefault, Flags: ai.NavFlagWalk},
+	}
+	tm := ai.BuildTiledNavMeshWithAreas(polys, 16)
+	filter := ai.DefaultNavFilter()
+	// Only NavAreaRoad is set in AreaCosts (< 1.0); NavAreaDefault has implicit cost 1.0.
+	filter.SetAreaCost(ai.NavAreaRoad, 0.2)
+
+	res := tm.FindPathWithFilterAndOptions(pt2(4, 5), pt2(4, 27), filter, ai.PathOptions{})
+	if !res.Found {
+		t.Fatal("expected path along cheap road")
+	}
+	// If tightening erroneously shortcut across implicit-cost NavAreaDefault (1.0),
+	// the path would be a straight 2-point segment (4,5)->(4,27) through x=4, y=16.
+	if len(res.Path) <= 2 {
+		t.Fatalf("tightenTiledPath2D erroneously shortcut across higher-cost implicit NavAreaDefault: %v", res.Path)
+	}
+	for _, p := range res.Path {
+		if p.X < 21 && p.Y > 11 && p.Y < 21 {
+			t.Fatalf("path entered expensive default interior at %v: %v", p, res.Path)
+		}
+	}
+}
+
+func TestTiledNavMeshOversizedObstacleAndExtremeCoordsSafe(t *testing.T) {
+	tm := ai.BuildTiledNavMesh([][]core.Point{rect2D(0, 0, 32, 32)}, 16)
+	// Huge obstacle spanning far more than maxNavObstacleTiles2D must be rejected cleanly.
+	if id, ok := tm.AddObstacle(ai.NavBoxObstacle(pt2(-1e9, -1e9), pt2(1e9, 1e9))); ok || id != 0 {
+		t.Fatalf("AddObstacle accepted oversized box: id=%d ok=%v", id, ok)
+	}
+	if tm.ObstacleCount() != 0 {
+		t.Fatalf("ObstacleCount = %d after rejected obstacle, want 0", tm.ObstacleCount())
+	}
+	// Extreme TileCoordAt and TileBounds must not panic or overflow int32.
+	c := tm.TileCoordAt(pt2(float32(math.MaxFloat32/2), float32(-math.MaxFloat32/2)))
+	_, _ = tm.TileBounds(c)
+	_, _ = tm.TileBounds(ai.NavTileCoord{X: math.MaxInt32, Y: math.MaxInt32})
 }
