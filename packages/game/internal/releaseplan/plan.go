@@ -236,6 +236,10 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 		}
 		p.Credits = entries
 		p.CreditsPath = filepath.Join(outDir, credits.FileName)
+	} else {
+		if _, err := credits.CheckGeneratedLicenses(absDir); err != nil {
+			return nil, err
+		}
 	}
 	return p, nil
 }

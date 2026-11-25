@@ -812,6 +812,31 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							policyYouOnly,
 							nil,
 						),
+						settingsRow(
+							curPal,
+							ed,
+							"editor-settings-tools",
+							ed.T("settings.tools"),
+							ed.T("settings.toolsHelp"),
+							core.Text{
+								TestID: "editor-settings-tools-list",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									servers := ed.AssetGenerators()
+									if len(servers) == 0 {
+										return ed.T("settings.toolsNone")
+									}
+									names := make([]string, 0, len(servers))
+									for _, s := range servers {
+										names = append(names, s.Config.Name+" ("+string(s.Config.Kind)+")")
+									}
+									return strings.Join(names, ", ")
+								},
+								Style: core.Style{FontSize: 11.5, Color: curPal.TextMuted},
+							},
+							policyYouOnly,
+							nil,
+						),
 					},
 				}
 			}),

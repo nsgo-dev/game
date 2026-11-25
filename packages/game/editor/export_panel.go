@@ -648,17 +648,22 @@ func (e *Editor) CheckExportCredits() ExportCreditsReport {
 		return ExportCreditsReport{}
 	}
 	report := ExportCreditsReport{}
-	if e.Project != nil && e.ProjectPath != "" && e.Project.Assets != nil {
-		report.Configured = true
-		entries, err := credits.Collect(filepath.Dir(e.ProjectPath), e.Project.Assets)
-		report.Entries = entries
-		if err != nil {
-			var missing *credits.MissingError
-			if errors.As(err, &missing) {
-				report.Missing = slices.Clone(missing.Assets)
-			} else {
-				report.Err = err
+	if e.Project != nil && e.ProjectPath != "" {
+		root := filepath.Dir(e.ProjectPath)
+		if e.Project.Assets != nil {
+			report.Configured = true
+			entries, err := credits.Collect(root, e.Project.Assets)
+			report.Entries = entries
+			if err != nil {
+				var missing *credits.MissingError
+				if errors.As(err, &missing) {
+					report.Missing = slices.Clone(missing.Assets)
+				} else {
+					report.Err = err
+				}
 			}
+		} else if _, err := credits.CheckGeneratedLicenses(root); err != nil {
+			report.Err = err
 		}
 	}
 	e.refreshAppleTeamIDCache()

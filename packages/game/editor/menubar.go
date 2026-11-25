@@ -235,6 +235,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		sep,
 		cmdItem(CmdFindUsages, e.T("menu.findUsages"), false),
 		cmdItem(CmdCheckProblems, e.T("menu.checkProblems"), false),
+		cmdItem(CmdGeneratedAssets, e.T("menu.generatedAssets"), false),
 		cmdItem(CmdPlaytestReport, e.T("menu.playtestReport"), false),
 		cmdItem(CmdChanges, e.T("menu.changes"), false),
 		cmdItem(CmdMergeConflicts, e.T("menu.mergeConflicts"), false),
@@ -275,7 +276,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -288,6 +289,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.PlaytestReportOpen(),
 			e.UsagesScreenOpen(),
 			e.SelectedFile,
+			e.AssetGeneratorOpen(),
 			e.Playing(),
 			e.canUndo(),
 			e.canRedo(),

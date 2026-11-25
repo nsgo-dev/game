@@ -1219,7 +1219,6 @@ func main() {
 - **用户级持久化**：切换任意叠加层（`SetViewportOverlay`、`ToggleViewportOverlay`、`SetViewportOverlays`）都会把 `viewportOverlays` 写入项目之外的 `Editor.SettingsPath`（`EditorSettings` YAML），绝不改动任何项目或场景文件，重启后保持不变（全部关闭时显式写为 `[]`）。
 - **与 `editormcp` 的 `viewport_image` 共用**：`Editor.DrawViewportWithOverlays(d, size, overlayIDs)` 将完全一致的叠加层渲染进 `viewport_image`。省略 `viewport_overlays` 时默认使用编辑器当前已开启的叠加层；传入名称列表（或 `[]`）时仅覆盖本次截图而不修改编辑器设置。
 
-
 ## 分节检查器、字段筛选、拖拽微调、打开 YAML 与请智能体添加（#1038）
 
 对象检查器（`InspectorView`）采用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
@@ -1231,3 +1230,13 @@ func main() {
 - **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
+
+## 通过 MCP 生成器服务器生成资源（#1053）
+
+通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
+
+- **MCP 生成器服务器（`GENERATORS · MCP`）**：在 **设置 › 工具**（`EditorSettingsDialogView`）中配置服务器（`GeneratorServerConfig`、`SetGeneratorServerConfigs`），通过 `ConnectAssetGenerator`（任意 `mcp.Transport`，与 `ConnectRemote` 一致）或 `ConnectAssetGeneratorCommand`（桌面端 stdio 进程）连接。`AssetGenerators` 列出所有已连接或已配置的 `images` / `sound` 服务器及实时连接状态。
+- **不信任输出仅在内存中解码**：`GenerateAsset` 严格在内存中将图像负载解码为光栅像素（重新编码为干净的 PNG 字节、限制尺寸并拒绝 SVG/HTML/非图像负载），并在内存中校验 WAV（`audioconv.DecodeWAV`）或 OGG 音频。在用户执行 **Pick** 之前不会向磁盘写入任何内容。
+- **背景预览、`brief.yaml` 风格检查与音效试听**：图像候选与参考资源并排显示在可切换的背景上（`PREVIEW ON`：Floor 3、Floor 1、Checker，`SetAssetGenPreviewBackground`），逐项展示**调色板色数（Palette）**、**像素网格对齐（Pixel grid）**、**相对参考资源的尺寸（Size）**以及**相对关卡墙面的对比度（Contrast）**通过/失败结论与原因（`LoadAssetStyleBrief`、`SetAssetStyleBrief`）。音效候选展示波形、时长、RMS 响度（`dBFS`）、峰值与响度检查结果，并支持内存试听（`PlayGeneratedSoundCandidate`、`StopGeneratedSoundCandidate`）。
+- **单步原子可撤销的选定与来源旁注文件（`<file>.source.yaml`）**：点击 **Pick**（`PickGeneratedCandidate`）在 `Editor.History` 的**单个可撤销步骤**中原子写出选定的媒体文件及其确定性的版本 1 `<file>.source.yaml` 旁注文件（`importsettings.AssetSource`、`AssetSourceVersion = 1`、Schema `https://game.nsgo.dev/schemas/source.v1.json`），记录 `version`、`generator`、`model`、`prompt`、`seed`、`references`、`license`、`commercialUse` 与 `approvedBy`；执行一次 `Editor.Undo()` 即可同时移除两个文件。**Vary this**（`VaryGeneratedCandidate`）、**Refine**（`RefineGeneratedAsset`）与 **Regenerate N**（`RegenerateAsset`）使用相同参考重新调用生成器，同样不写磁盘。
+- **导出许可证门禁（`LICENSES · CHECKED AT EXPORT`）**：`credits.ScanGeneratedLicenses`、`credits.CheckGeneratedLicenses`、`credits.Collect`、`releaseplan.Build`、`game release` 以及编辑器的导出面板（`CheckExportCredits`）会扫描项目中的所有 `*.source.yaml` 文件。任何许可证为空或未知（`license: ""` 或 `license: unknown`）的生成资源都会以 `*credits.UnknownLicenseError` 阻止发布构建并在错误信息中列出其路径，直到通过 `SetGeneratedAssetLicense` / **Set license** 设置合法许可证为止。

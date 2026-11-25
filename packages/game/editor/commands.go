@@ -95,6 +95,7 @@ const (
 	CmdMakeInstanceLocal      = "scene.makeLocal"
 	CmdApplyOverridesToSource = "scene.applyOverridesToSource"
 	CmdRevertOverrides        = "scene.revertOverrides"
+	CmdGeneratedAssets        = "project.generatedAssets"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -1585,6 +1586,19 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.PlaytestReportOpen() },
 			Run: func() error {
 				e.SetPlaytestReportOpen(!e.PlaytestReportOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdGeneratedAssets,
+			Label:       "Generated Assets",
+			Description: "Generate image and sound candidates via MCP generator servers, inspect style and licenses, and pick a candidate",
+			Category:    "Project",
+			Keywords:    []string{"generate", "assets", "mcp", "candidates", "license", "source", "brief", "sprite", "sound"},
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() },
+			Checked:     func() bool { return e.AssetGeneratorOpen() },
+			Run: func() error {
+				e.SetAssetGeneratorOpen(!e.AssetGeneratorOpen())
 				return nil
 			},
 		},

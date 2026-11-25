@@ -366,6 +366,7 @@ strings:
   menu.fillTile: Fill Tile
   menu.findUsages: Find Usages
   menu.frameSelection: Frame Selection
+  menu.generatedAssets: Generated Assets
   menu.gizmo3d: 3D Gizmo
   menu.group: Group
   menu.lightingPreview: 2D Lighting Preview
@@ -601,6 +602,9 @@ strings:
   settings.system: System
   settings.thisComputer: This computer
   settings.title: Editor Settings
+  settings.tools: Tools · MCP Generators
+  settings.toolsHelp: Configured MCP servers for image and sound generation.
+  settings.toolsNone: None configured
   shortcutsSheet.customize: Customize Shortcuts…
   shortcutsSheet.subtitleMac: macOS keys. Rebind any command in Settings › Shortcuts.
   shortcutsSheet.subtitleOther: Windows and Linux keys. Rebind any command in Settings › Shortcuts.
