@@ -285,6 +285,8 @@ type Editor struct {
 	output outputPanelState
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
+	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).
+	drag2D drag2DState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -431,6 +433,7 @@ func (e *Editor) SetTool(t Tool) {
 	if e.Tool == t || t == ToolPlugin {
 		return
 	}
+	e.CancelDrag2D()
 	e.Tool = t
 	e.pluginTool = pluginToolRef{}
 	e.Status = "Tool: " + t.String()
@@ -443,6 +446,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 		return
 	}
 	e.CancelGizmoDrag3D()
+	e.CancelDrag2D()
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
 	e.notify()
@@ -527,6 +531,7 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	if err != nil {
 		return err
 	}
+	e.drag2D = drag2DState{}
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""
@@ -630,6 +635,8 @@ func (e *Editor) Undo() bool {
 	if e.playing {
 		return false
 	}
+	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
+	e.CancelDrag2D()
 	ok, err := e.History.undo()
 	if err != nil {
 		e.reportStatusError("Undo failed: " + err.Error())
@@ -646,6 +653,7 @@ func (e *Editor) Redo() bool {
 	if e.playing {
 		return false
 	}
+	e.CancelDrag2D()
 	ok, err := e.History.redo()
 	if err != nil {
 		e.reportStatusError("Redo failed: " + err.Error())
@@ -925,6 +933,8 @@ func (e *Editor) DeleteObject(id string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
+	e.CancelDrag2D()
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
