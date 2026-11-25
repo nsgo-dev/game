@@ -112,16 +112,19 @@ func sameImage(a, b core.ImageSource) bool {
 	return len(a.Data) == 0 || &a.Data[0] == &b.Data[0]
 }
 
-// paletteWidth is the tile palette panel's width in points, and paletteInner the width its tiles wrap in.
+// paletteWidth is the tile palette panel's width in points, and paletteInner the width its tiles wrap in: the panel less its padding on both sides and its left border, which NSGo lays out inside the panel's box.
 const (
 	paletteWidth   = 224
 	palettePadding = 10
-	paletteInner   = paletteWidth - 2*palettePadding
-	// paletteBorder is the width of the ring around each tile, which shows the selected one.
-	paletteBorder = 2
+	paletteInner   = paletteWidth - 2*palettePadding - 1
+	// paletteBorder is the width of the ring around each tile, which shows the selected one, and paletteTilePadding the gap between the ring and the tile's picture.
+	paletteBorder      = 2
+	paletteTilePadding = 2
+	// paletteTileLimit is the widest a tile's picture shows at: a tile's ring and padding sit inside its box, so the box stays within paletteInner.
+	paletteTileLimit = paletteInner - 2*(paletteBorder+paletteTilePadding)
 )
 
-// TilePaletteView renders the tile palette panel, shown right of the viewport while a tile tool (Paint, Erase or Fill) is active in 2D: the active layer's tileset (Editor.TilePalette) as a grid of its tiles in ID order at the tilemap's tile size, scaled down only when a tile is wider than the panel. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill use (Editor.SetActiveTileID); the selected tile is ringed. A layer without tiles to pick shows why instead of an empty grid.
+// TilePaletteView renders the tile palette panel, shown right of the viewport while a tile tool (Paint, Erase or Fill) is active in 2D: the active layer's tileset (Editor.TilePalette) as a grid of its tiles in ID order at the tilemap's tile size, scaled down only when a tile is wider than the panel. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill use (Editor.SetActiveTileID); as in base.RadioGroup, every arrow key steps through the tiles in ID order rather than by rows. The selected tile is ringed. A layer without tiles to pick shows why instead of an empty grid.
 func TilePaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	shown := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
@@ -158,7 +161,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		}
 		// A tile wider than the panel is scaled down to fit it; others show at the tilemap's tile size.
 		cellW, cellH := float32(max(p.TileWidth, 1)), float32(max(p.TileHeight, 1))
-		if limit := float32(paletteInner - 2*paletteBorder); cellW > limit {
+		if limit := float32(paletteTileLimit); cellW > limit {
 			cellH *= limit / cellW
 			cellW = limit
 		}
@@ -182,7 +185,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						ring = colors.Accent()
 					}
 					return core.Style{
-						Padding:      core.All(paletteBorder),
+						Padding:      core.All(paletteTilePadding),
 						BorderWidth:  paletteBorder,
 						BorderColor:  ring,
 						CornerRadius: 3,
