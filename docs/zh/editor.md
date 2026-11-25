@@ -534,7 +534,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 拾取会把某个格子里的瓦片设为要绘制的瓦片，调色板也会选中它：在任何瓦片工具下 Alt+单击（或 Alt+拖动），或使用 Pick 工具，拾取后会切换到 Paint。拾取空格子时所选瓦片保持不变。拾取不算编辑，不进入撤销历史。
 
-在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase` 或 `TileStrokePick`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；选择工具或图层、切换视图、Undo、Redo 和 Play 都会先结束正在进行的一笔。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
+在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase` 或 `TileStrokePick`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；绘制与擦除会拒绝锁定或隐藏的图层，选择工具或图层、修改图层、切换视图、保存、Undo、Redo 和 Play 都会先结束正在进行的一笔（Revert 则会取消它）。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
 
 ## 场景树（#861）
 

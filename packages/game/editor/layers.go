@@ -281,6 +281,7 @@ func (e *Editor) RemoveLayer(name string) error {
 	if _, err := e.checkLayerEdit(candidate); err != nil {
 		return err
 	}
+	e.endTileStrokeForChange()
 	e.History.Execute(&removeLayerCmd{
 		ed:           e,
 		index:        li,
@@ -406,6 +407,7 @@ func (e *Editor) RenameLayer(oldName, newName string) error {
 	if _, err := e.checkLayerEdit(candidate); err != nil {
 		return err
 	}
+	e.endTileStrokeForChange()
 	e.History.Execute(&renameLayerCmd{ed: e, oldName: oldName, newName: newName})
 	return nil
 }
@@ -569,6 +571,8 @@ func (e *Editor) SetLayerVisible(name string, visible bool) error {
 	label := "Hide layer " + name
 	if visible {
 		label = "Show layer " + name
+	} else {
+		e.endTileStrokeForChange()
 	}
 	e.History.Execute(&layerVisibleCmd{ed: e, name: name, label: label, old: clonePtr(l.Visible), new: v})
 	return nil
@@ -661,6 +665,9 @@ func (e *Editor) SetLayerLocked(name string, locked bool) error {
 	}
 	if e.layerLocked[name] == locked {
 		return nil
+	}
+	if locked && e.stroke != nil && e.stroke.layer == name && e.stroke.mode != TileStrokePick {
+		e.endTileStrokeForChange()
 	}
 	e.setLayerLockedFlag(name, locked)
 	e.notify()

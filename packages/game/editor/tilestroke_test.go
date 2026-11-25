@@ -1,10 +1,14 @@
 package editor_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -521,5 +525,156 @@ func TestClickAfterPaintTapReachesTheTool(t *testing.T) {
 	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
 	if got := floorData(ed)[5]; got != 3 {
 		t.Fatalf("after a paint tap and a Fill click (1,1) = %d, want 3", got)
+	}
+}
+
+// Painting and erasing strokes refuse a locked or hidden active layer and leave its tiles and history untouched, while picking still reads a locked layer.
+func TestTileStrokeRefusesLockedAndHiddenLayers(t *testing.T) {
+	ed := floorEditor(t)
+	ed.SetActiveTileID(2)
+	before := slices.Clone(floorData(ed))
+	x, y := ed.WorldToCanvas(24, 24)
+	px, py := ed.WorldToCanvas(8, 8) // cell (0,0) holds tile 1
+
+	if err := ed.SetLayerLocked("floor", true); err != nil {
+		t.Fatalf("SetLayerLocked: %v", err)
+	}
+	if ed.BeginTileStroke(editor.TileStrokePaint, x, y) {
+		t.Fatal("BeginTileStroke painted on a locked layer")
+	}
+	if !strings.Contains(ed.Status, `layer "floor" is locked`) {
+		t.Fatalf("locked paint status = %q, want locked reason", ed.Status)
+	}
+	if ed.BeginTileStroke(editor.TileStrokeErase, px, py) {
+		t.Fatal("BeginTileStroke erased on a locked layer")
+	}
+	if !slices.Equal(floorData(ed), before) || ed.History.Len() != 0 {
+		t.Fatalf("locked strokes modified the map or history: data=%v steps=%d", floorData(ed), ed.History.Len())
+	}
+	if !ed.BeginTileStroke(editor.TileStrokePick, px, py) {
+		t.Fatal("BeginTileStroke refused to pick on a locked layer")
+	}
+	ed.EndTileStroke()
+	if ed.ActiveTileID != 1 {
+		t.Fatalf("picked ActiveTileID = %d, want 1", ed.ActiveTileID)
+	}
+
+	if err := ed.SetLayerLocked("floor", false); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	ed.SetActiveTileID(2)
+	if err := ed.SetLayerVisible("floor", false); err != nil {
+		t.Fatalf("SetLayerVisible(false): %v", err)
+	}
+	histAfterHide := ed.History.Len()
+	if ed.BeginTileStroke(editor.TileStrokePaint, x, y) {
+		t.Fatal("BeginTileStroke painted on a hidden layer")
+	}
+	if !strings.Contains(ed.Status, `layer "floor" is hidden`) {
+		t.Fatalf("hidden paint status = %q, want hidden reason", ed.Status)
+	}
+	if ed.BeginTileStroke(editor.TileStrokeErase, px, py) {
+		t.Fatal("BeginTileStroke erased on a hidden layer")
+	}
+	if !slices.Equal(floorData(ed), before) || ed.History.Len() != histAfterHide {
+		t.Fatalf("hidden strokes modified the map or history: data=%v steps=%d", floorData(ed), ed.History.Len())
+	}
+
+	if err := ed.SetLayerVisible("floor", true); err != nil {
+		t.Fatalf("SetLayerVisible(true): %v", err)
+	}
+	if !ed.BeginTileStroke(editor.TileStrokePaint, x, y) {
+		t.Fatal("BeginTileStroke refused to paint after showing the layer")
+	}
+	ed.EndTileStroke()
+	if floorData(ed)[5] != 2 {
+		t.Fatalf("cell (1,1) = %d after painting the visible unlocked layer, want 2", floorData(ed)[5])
+	}
+}
+
+// Saving mid-stroke records the stroke before writing so the file, SceneDirty and History agree; reverting mid-stroke cancels the in-progress stroke first.
+func TestTileStrokeSaveAndRevertMidStroke(t *testing.T) {
+	ed := floorEditor(t)
+	dir := t.TempDir()
+	sceneFile := filepath.Join(dir, "level.scene.yaml")
+	if err := ed.SaveFile(sceneFile); err != nil {
+		t.Fatalf("SaveFile initial: %v", err)
+	}
+	if err := ed.OpenFile(sceneFile); err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	ed.SetActiveLayer("floor")
+	ed.SetCanvasSize(640, 480)
+	ed.SetActiveTileID(2)
+
+	// Mid-stroke Save records the stroke to History, writes the painted tiles and marks the scene clean.
+	x0, y0 := ed.WorldToCanvas(24, 24)
+	x1, y1 := ed.WorldToCanvas(40, 24)
+	if !ed.BeginTileStroke(editor.TileStrokePaint, x0, y0) {
+		t.Fatal("BeginTileStroke failed")
+	}
+	ed.ContinueTileStroke(x1, y1)
+	if err := ed.Save(); err != nil {
+		t.Fatalf("Save mid-stroke: %v", err)
+	}
+	if _, active := ed.TileStrokeActive(); active {
+		t.Fatal("tile stroke remained active after Save")
+	}
+	if ed.History.Len() != 1 {
+		t.Fatalf("History.Len() = %d after Save mid-stroke, want 1", ed.History.Len())
+	}
+	if ed.SceneDirty() {
+		t.Fatal("SceneDirty() is true immediately after Save mid-stroke")
+	}
+	raw, err := os.ReadFile(sceneFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	diskDoc, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse saved scene: %v", err)
+	}
+	if got := diskDoc.Layers[0].Tilemap.Data; got[5] != 2 || got[6] != 2 {
+		t.Fatalf("saved tiles (1,1),(2,1) = (%d,%d), want (2,2)", got[5], got[6])
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo after Save mid-stroke returned false")
+	}
+	if floorData(ed)[5] != 0 || floorData(ed)[6] != 0 || !ed.SceneDirty() {
+		t.Fatalf("Undo did not restore pre-stroke tiles cleanly: data=%v dirty=%v", floorData(ed), ed.SceneDirty())
+	}
+	ed.Redo()
+
+	// Mid-stroke SaveFile also records the stroke before writing.
+	ed.SetActiveTileID(3)
+	x2, y2 := ed.WorldToCanvas(24, 40)
+	if !ed.BeginTileStroke(editor.TileStrokePaint, x2, y2) {
+		t.Fatal("second BeginTileStroke failed")
+	}
+	if err := ed.SaveFile(sceneFile); err != nil {
+		t.Fatalf("SaveFile mid-stroke: %v", err)
+	}
+	if _, active := ed.TileStrokeActive(); active || ed.History.Len() != 2 || ed.SceneDirty() {
+		t.Fatalf("after SaveFile mid-stroke: active=%v hist=%d dirty=%v", active, ed.History.Len(), ed.SceneDirty())
+	}
+
+	// Mid-stroke RevertScene cancels the in-progress stroke first and restores the saved scene cleanly.
+	ed.SetActiveTileID(1)
+	x3, y3 := ed.WorldToCanvas(40, 40)
+	if !ed.BeginTileStroke(editor.TileStrokePaint, x3, y3) {
+		t.Fatal("third BeginTileStroke failed")
+	}
+	if floorData(ed)[10] != 1 {
+		t.Fatalf("cell (2,2) = %d during stroke, want 1", floorData(ed)[10])
+	}
+	if err := ed.RevertScene(); err != nil {
+		t.Fatalf("RevertScene mid-stroke: %v", err)
+	}
+	if _, active := ed.TileStrokeActive(); active {
+		t.Fatal("tile stroke remained active after RevertScene")
+	}
+	ed.EndTileStroke()
+	if floorData(ed)[10] != 0 || ed.SceneDirty() {
+		t.Fatalf("after RevertScene mid-stroke: cell (2,2)=%d dirty=%v, want 0 and clean", floorData(ed)[10], ed.SceneDirty())
 	}
 }

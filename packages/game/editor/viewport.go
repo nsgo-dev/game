@@ -601,6 +601,10 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 
 // touchStroke draws a tile stroke with one finger: it begins as the finger goes down, follows it and ends as it lifts. A second finger turns the touch into a two-finger pan, so the stroke is cancelled and its cells put back, as is a stroke whose touches the system takes.
 func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bool), end func(at core.Point), ed *Editor) {
+	if ev.Phase == core.TouchCancel {
+		ed.CancelTileStroke()
+		return
+	}
 	_, active := ed.TileStrokeActive()
 	if len(ev.Touches) != 1 {
 		if active && len(ev.Touches) > 1 {
@@ -616,8 +620,6 @@ func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bo
 		ed.ContinueTileStroke(float32(at.X), float32(at.Y))
 	case core.TouchEnd:
 		end(at)
-	case core.TouchCancel:
-		ed.CancelTileStroke()
 	}
 }
 
@@ -656,13 +658,13 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			ed.BeginTileStroke(mode, float32(at.X), float32(at.Y))
 		}
 	}
-	endStroke := func(at core.Point) {
+	endStroke := func(at core.Point, mayPress bool) {
 		if _, ok := ed.TileStrokeActive(); !ok {
 			return
 		}
 		ed.ContinueTileStroke(float32(at.X), float32(at.Y))
 		ed.EndTileStroke()
-		strokeTookPress = true
+		strokeTookPress = mayPress
 	}
 	cx.OnKey("f", func() {
 		if in2D() {
@@ -722,7 +724,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					if _, ok := ed.TileStrokeActive(); ok {
 						if ev.PressedButton == core.MouseButtonNone {
 							// The button came up where the viewport did not hear it.
-							endStroke(ev.Position)
+							endStroke(ev.Position, false)
 						} else {
 							ed.ContinueTileStroke(float32(ev.Position.X), float32(ev.Position.Y))
 						}
@@ -742,7 +744,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					case core.MouseButtonMiddle:
 						g.middle = false
 					case core.MouseButtonLeft, core.MouseButtonRight:
-						endStroke(ev.Position)
+						endStroke(ev.Position, ev.Button == core.MouseButtonLeft)
 					}
 				},
 				OnMouseLeave: func(core.MouseEvent) {
@@ -751,7 +753,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				OnTouch: func(ev core.TouchEvent) {
 					if ed.ViewMode != ViewMode3D {
 						g.touch(ed, ev)
-						touchStroke(ev, beginStroke, endStroke, ed)
+						touchStroke(ev, beginStroke, func(at core.Point) { endStroke(at, true) }, ed)
 						return
 					}
 					switch ev.Phase {

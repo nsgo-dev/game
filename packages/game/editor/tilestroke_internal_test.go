@@ -188,6 +188,17 @@ func TestTouchStrokeCancelsOnASecondFinger(t *testing.T) {
 		t.Fatalf("history holds %d steps after a cancelled stroke, want none", ed.History.Len())
 	}
 
+	// A TouchCancel with an empty Touches slice still cancels an active stroke and restores its cells.
+	touchStroke(one(core.TouchStart, x0, y0), begin, end, ed)
+	touchStroke(one(core.TouchMove, x1, y1), begin, end, ed)
+	touchStroke(core.TouchEvent{Phase: core.TouchCancel}, begin, end, ed)
+	if _, ok := ed.TileStrokeActive(); ok {
+		t.Fatal("the stroke stayed active after TouchCancel with no touches")
+	}
+	if data[0] != 0 || data[1] != 0 || data[2] != 0 || ed.History.Len() != 0 {
+		t.Fatalf("row 0 = %v, history = %d after empty TouchCancel, want empty and 0", data[:4], ed.History.Len())
+	}
+
 	// A lifted finger ends a stroke and records it.
 	touchStroke(one(core.TouchStart, x0, y0), begin, end, ed)
 	touchStroke(one(core.TouchEnd, x1, y1), begin, end, ed)

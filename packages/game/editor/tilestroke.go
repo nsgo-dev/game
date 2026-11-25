@@ -59,7 +59,7 @@ type tileHover struct {
 
 // BeginTileStroke starts a stroke of mode on the active layer's inline tilemap at the canvas point (x, y), and applies it to the cell there: a paint stroke writes ActiveTileID, an erase stroke clears the cell and a pick stroke makes the cell's tile the active tile. ContinueTileStroke carries the stroke on to each point the pointer moves to, and EndTileStroke records what it changed as one undo step. A stroke that starts off the map applies nothing until it reaches the map.
 //
-// It returns false and starts nothing while playing, in 3D, while another stroke is under way, when the active layer has no inline tilemap to edit, and for a paint stroke whose ActiveTileID is negative.
+// It returns false and starts nothing while playing, in 3D, while another stroke is under way, when the active layer has no inline tilemap to edit, for a paint or erase stroke on a locked or hidden layer (reporting why in the status bar), and for a paint stroke whose ActiveTileID is negative.
 func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.stroke != nil {
 		return false
@@ -70,6 +70,16 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 	layer, tm, err := e.resolveInlineTilemap(e.ActiveLayer)
 	if err != nil || layer != e.ActiveLayer || tm.TileWidth <= 0 || tm.TileHeight <= 0 {
 		return false
+	}
+	if mode != TileStrokePick {
+		if err := e.lockedLayerErr(); err != nil {
+			e.report(err)
+			return false
+		}
+		if !e.layerDrawn(layer) {
+			e.report(fmt.Errorf("editor: layer %q is hidden", layer))
+			return false
+		}
 	}
 	lx, ly := e.layerCoordsForActive(x, y)
 	e.stroke = &tileStroke{mode: mode, layer: layer, tileID: e.ActiveTileID, lastX: lx, lastY: ly, changed: map[int]bool{}, pickedAt: -1}
@@ -176,7 +186,7 @@ func (e *Editor) PickTile(layer string, col, row int) bool {
 	return true
 }
 
-// endTileStrokeForChange ends a stroke under way before a change that would leave it editing a layer, tool or history it did not start on: choosing a tool or layer, switching views, undoing, redoing and playing.
+// endTileStrokeForChange ends a stroke under way before a change that would leave it editing a layer, tool or history it did not start on: choosing a tool or layer, changing layers, switching views, saving, undoing, redoing and playing.
 func (e *Editor) endTileStrokeForChange() {
 	if e.stroke != nil {
 		e.EndTileStroke()

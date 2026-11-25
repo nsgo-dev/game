@@ -534,7 +534,7 @@ While a tile tool is active, the cell under the mouse is outlined, snapped to th
 
 Picking takes the tile in a cell as the tile to paint, and the palette selects it: Alt+click (or Alt+drag) with any tile tool, or the Pick tool, which then hands over to Paint. An empty cell leaves the selected tile as it was. Picking is not an edit and does not go into the undo history.
 
-In Go, `BeginTileStroke(mode, x, y)`, `ContinueTileStroke` and `EndTileStroke` draw a stroke (`TileStrokePaint`, `TileStrokeErase` or `TileStrokePick`) at canvas points, `CancelTileStroke` puts it back and `TileStrokeActive` reports one under way; choosing a tool or layer, switching views, Undo, Redo and Play end a stroke under way first. `PickTile(layer, col, row)` picks, `SetTileHover` and `ClearTileHover` move the outline and `HoveredTile` returns the cell it is on.
+In Go, `BeginTileStroke(mode, x, y)`, `ContinueTileStroke` and `EndTileStroke` draw a stroke (`TileStrokePaint`, `TileStrokeErase` or `TileStrokePick`) at canvas points, `CancelTileStroke` puts it back and `TileStrokeActive` reports one under way; painting and erasing refuse locked or hidden layers, and choosing a tool or layer, changing layers, switching views, saving, Undo, Redo and Play end a stroke under way first (while Revert cancels it). `PickTile(layer, col, row)` picks, `SetTileHover` and `ClearTileHover` move the outline and `HoveredTile` returns the cell it is on.
 
 ## Scene tree (#861)
 

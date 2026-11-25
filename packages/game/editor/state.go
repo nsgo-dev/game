@@ -667,6 +667,9 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 
 // SaveFile encodes the scene to YAML and writes it to path.
 func (e *Editor) SaveFile(path string) error {
+	if !e.playing {
+		e.endTileStrokeForChange()
+	}
 	data, err := e.SaveYAML()
 	if err != nil {
 		return err
