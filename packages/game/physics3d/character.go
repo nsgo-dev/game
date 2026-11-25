@@ -314,14 +314,18 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	// Prepare velocity for this tick, applying PlatformOnLeave when jumping off
 	// a moving ground body.
 	appliedLeaveVel := false
-	if wasGrounded && wishMove.Y > 0 && prevGroundBody != nil {
+	if wasGrounded && jumping && prevGroundBody != nil {
 		gVel := stepGroundVel
 		if gVel.LenSq() == 0 {
 			gVel = prevGroundVel
 		}
 		leaveVel := platformLeaveVelocity(gVel, c.PlatformOnLeave)
 		c.airCarryVel = Vec3{X: leaveVel.X, Z: leaveVel.Z}
-		c.Vel.Y = wishMove.Y + leaveVel.Y
+		if wishMove.Y > 0 {
+			c.Vel.Y = wishMove.Y + leaveVel.Y
+		} else {
+			c.Vel.Y += leaveVel.Y
+		}
 		appliedLeaveVel = true
 	} else if wasGrounded {
 		c.airCarryVel = Vec3{}
@@ -362,8 +366,6 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	horizDist := horizDisp.Len()
 	startPos := c.Pos
 	horizGrounded := false
-	var horizGroundNormal Vec3
-	var horizGroundBody *Body
 	var groundPoint Vec3
 	hasGroundPoint := false
 
@@ -415,8 +417,6 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 			}
 			if normalRes.hitGround {
 				horizGrounded = true
-				horizGroundNormal = normalRes.groundNormal
-				horizGroundBody = normalRes.groundBody
 			}
 		}
 	}
@@ -476,9 +476,6 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 					groundPoint = probeHit.point
 					hasGroundPoint = true
 					c.Vel.Y = 0
-				} else {
-					_ = horizGroundNormal
-					_ = horizGroundBody
 				}
 			}
 		}
@@ -550,13 +547,11 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 }
 
 type slideResult struct {
-	pos          Vec3
-	hitGround    bool
-	groundNormal Vec3
-	groundBody   *Body
-	hitWall      bool
-	wallNormal   Vec3
-	hitCeiling   bool
+	pos        Vec3
+	hitGround  bool
+	hitWall    bool
+	wallNormal Vec3
+	hitCeiling bool
 }
 
 // slideHorizontal moves from startPos by disp, gliding up walkable slopes and
@@ -596,8 +591,6 @@ func (c *CharacterController) slideHorizontal(world *World, startPos, disp Vec3,
 				// continue sliding along the plane.
 				res.pos = candPos.Add(n.Scale(contact.Depth + contactSkin))
 				res.hitGround = true
-				res.groundNormal = n
-				res.groundBody = body
 				rem = projectOnPlane(rem, n)
 			} else if n.Y <= ceilingNormalY {
 				res.pos = candPos.Add(n.Scale(contact.Depth + contactSkin))
@@ -1437,7 +1430,7 @@ func (c *CharacterController) resolveKinematicIntrusions(world *World, skipBody 
 		}
 
 		linDist := curPos.Sub(prev.pos).Len()
-		angDist := prev.rot.AngleTo(curRot) * maxShapeExtent(b.Shape)
+		angDist := float32(prev.rot.AngleTo(curRot) * maxShapeExtent(b.Shape))
 		travel := linDist + angDist
 		steps := int(math.Ceil(float64(travel / stepSize)))
 		if steps < 1 {
@@ -1546,7 +1539,7 @@ func quatYawDelta(dq Quat) float32 {
 	if abs32(u.Y) <= 1e-8 && abs32(u.W) <= 1e-8 {
 		return 0
 	}
-	return float32(2 * math.Atan2(float64(u.Y), float64(u.W)))
+	return float32(2 * detmath.Atan2(float64(u.Y), float64(u.W)))
 }
 
 func maxShapeExtent(s Shape) float32 {

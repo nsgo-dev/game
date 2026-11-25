@@ -320,6 +320,55 @@ func TestCharacterControllerPlatformOnLeaveModes(t *testing.T) {
 			t.Fatalf("DoNothing walk-off kept velocity: dz=%v vz=%v, want ~0", dzNone, vzNone)
 		}
 	})
+
+	t.Run("JumpViaDirectVelYMatchesWishMoveY", func(t *testing.T) {
+		platVel := physics3d.Vec3{X: 4.0, Y: 2.0}
+		for _, mode := range []physics3d.PlatformOnLeave{
+			physics3d.PlatformLeaveAddVelocity,
+			physics3d.PlatformLeaveAddUpwardVelocity,
+			physics3d.PlatformLeaveDoNothing,
+		} {
+			dispWish, peakWish, velWish := runJump(mode, platVel)
+
+			w := physics3d.NewWorld()
+			plat := w.AddBody(physics3d.Body{
+				Shape:     physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 3, Y: 0.5, Z: 3}}),
+				Pos:       physics3d.Vec3{Y: -0.5},
+				Kinematic: true,
+			})
+			cc := physics3d.NewCharacterController(physics3d.Vec3{Y: 0}, 0.3, 1.8)
+			cc.PlatformOnLeave = mode
+
+			dtSec := float32(step60.Seconds())
+			for i := 0; i < 10; i++ {
+				if i > 0 {
+					plat.Pos = plat.Pos.Add(platVel.Scale(dtSec))
+				}
+				cc.Move(w, physics3d.Vec3{}, step60)
+			}
+
+			// Jump by setting cc.Vel.Y directly with wishMove.Y == 0.
+			plat.Pos = plat.Pos.Add(platVel.Scale(dtSec))
+			startX := cc.Pos.X
+			cc.Vel.Y = 6.0
+			res := cc.Move(w, physics3d.Vec3{}, step60)
+			velDirect := cc.Vel
+			peakDirect := res.Pos.Y
+			for i := 0; i < 29; i++ {
+				plat.Pos = plat.Pos.Add(platVel.Scale(dtSec))
+				res = cc.Move(w, physics3d.Vec3{}, step60)
+				if res.Pos.Y > peakDirect {
+					peakDirect = res.Pos.Y
+				}
+			}
+			dispDirect := physics3d.Vec3{X: cc.Pos.X - startX, Y: cc.Pos.Y, Z: cc.Pos.Z}
+
+			if dispDirect != dispWish || peakDirect != peakWish || velDirect != velWish {
+				t.Fatalf("mode %v: direct Vel.Y jump diverged from wishMove.Y:\ndirect: disp=%v peak=%v vel=%v\nwish:   disp=%v peak=%v vel=%v",
+					mode, dispDirect, peakDirect, velDirect, dispWish, peakWish, velWish)
+			}
+		}
+	})
 }
 
 func TestCharacterControllerKinematicWallPush(t *testing.T) {
