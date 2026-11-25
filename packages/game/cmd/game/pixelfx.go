@@ -16,6 +16,7 @@ import (
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/impacts"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/moves"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/pickups"
+	_ "github.com/nsgo-dev/game/packages/game/pixelfx/projectiles"
 )
 
 // pixelfxCommand renders a pixelfx effect to a PNG sprite sheet and its Aseprite JSON, which sprite.LoadAtlas reads, as pixelfx's own sheets are laid out.
