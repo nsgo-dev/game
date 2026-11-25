@@ -76,25 +76,11 @@ func (p *xmlPos) at(off int) (int, int) {
 }
 
 func xmlAttrErr(line, col int, field, expected, fix string, problem string, err error) error {
-	return &loaderr.Error{
-		Line:     line,
-		Column:   col,
-		Field:    field,
-		Problem:  problem,
-		Expected: expected,
-		Fix:      fix,
-		Err:      err,
-	}
+	return tiledErr(line, col, field, problem, expected, fix, err)
 }
 
 func xmlEOFErr(line, col int, field, tag string) error {
-	return &loaderr.Error{
-		Line:    line,
-		Column:  col,
-		Field:   field,
-		Problem: "unexpected end of <" + tag + "> element",
-		Fix:     loaderr.FixTruncated,
-	}
+	return tiledErr(line, col, field, "unexpected end of <"+tag+"> element", "", loaderr.FixTruncated, nil)
 }
 
 func parseXMLInt(val string, line, col int, field, fix string) (int, error) {
@@ -173,7 +159,7 @@ func parseXMLChildLayer(r *xmlReader, t xmlStartElement, cl, cc, depth int, prop
 		idx := len(*layers)
 		child, err := parseXMLLayer(r, t, cl, cc, depth)
 		if err != nil {
-			return true, nest(err, loaderr.Path("layers", idx))
+			return true, nest(err, idxPath("layers", idx, ""))
 		}
 		*layers = append(*layers, child)
 		return true, nil
@@ -214,7 +200,7 @@ func parseXMLRoot(data []byte, want, emptyMsg, fix string) (*xmlReader, xmlStart
 	for {
 		tok, line, col, err := r.nextToken()
 		if errors.Is(err, io.EOF) {
-			return nil, xmlStartElement{}, 0, 0, &loaderr.Error{Line: 1, Column: 1, Problem: emptyMsg, Fix: fix}
+			return nil, xmlStartElement{}, 0, 0, tiledErr(1, 1, "", emptyMsg, "", fix, nil)
 		}
 		if err != nil {
 			return nil, xmlStartElement{}, 0, 0, err
@@ -224,13 +210,7 @@ func parseXMLRoot(data []byte, want, emptyMsg, fix string) (*xmlReader, xmlStart
 			continue
 		}
 		if se.Name.Local != want {
-			return nil, xmlStartElement{}, 0, 0, &loaderr.Error{
-				Line:     line,
-				Column:   col,
-				Problem:  "unexpected root element <" + se.Name.Local + ">",
-				Expected: "<" + want + ">",
-				Fix:      fix,
-			}
+			return nil, xmlStartElement{}, 0, 0, tiledErr(line, col, "", "unexpected root element <"+se.Name.Local+">", "<"+want+">", fix, nil)
 		}
 		return r, se, line, col, nil
 	}
@@ -295,7 +275,7 @@ func parseXMLMap(r *xmlReader, start xmlStartElement, line, col int) (tiledMap, 
 			idx := len(m.Tilesets)
 			ts, err := parseXMLTileset(r, t, cl, cc, true)
 			if err != nil {
-				return true, nest(err, loaderr.Path("tilesets", idx))
+				return true, nest(err, idxPath("tilesets", idx, ""))
 			}
 			m.Tilesets = append(m.Tilesets, ts)
 			return true, nil
@@ -351,7 +331,7 @@ func parseXMLTileset(r *xmlReader, start xmlStartElement, line, col int, embedde
 			ti := len(ref.Tiles)
 			tile, err := parseXMLTile(r, t, cl, cc, fix)
 			if err != nil {
-				return true, nest(err, loaderr.Path("tiles", ti))
+				return true, nest(err, idxPath("tiles", ti, ""))
 			}
 			ref.Tiles = append(ref.Tiles, tile)
 			return true, nil
@@ -380,7 +360,7 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 		}
 	}
 	if !hasID {
-		return tiledTile{}, &loaderr.Error{Line: line, Column: col, Field: "id", Problem: "<tile> missing id attribute", Fix: fix}
+		return tiledTile{}, tiledErr(line, col, "id", "<tile> missing id attribute", "", fix, nil)
 	}
 
 	err := r.walkChildren(line, col, "", "tile", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
@@ -419,9 +399,9 @@ func parseXMLAnimation(r *xmlReader, line, col int, fix string) ([]tiledAnimFram
 			var err error
 			switch a.Name.Local {
 			case "tileid":
-				f.TileID, err = parseXMLUint32(a.Value, cl, cc, loaderr.Path(fi, "tileid"), fix)
+				f.TileID, err = parseXMLUint32(a.Value, cl, cc, idxPath("", fi, "tileid"), fix)
 			case "duration":
-				f.Duration, err = parseXMLInt(a.Value, cl, cc, loaderr.Path(fi, "duration"), fix)
+				f.Duration, err = parseXMLInt(a.Value, cl, cc, idxPath("", fi, "duration"), fix)
 			}
 			if err != nil {
 				return true, err
@@ -524,12 +504,7 @@ func parseXMLLayer(r *xmlReader, start xmlStartElement, line, col, depth int) (t
 	if tag == "layer" {
 		typ = "tilelayer"
 	} else if tag == "group" && depth > maxXMLDepth {
-		return tiledLayer{}, &loaderr.Error{
-			Line:    line,
-			Column:  col,
-			Problem: fmt.Sprintf("group layers nested deeper than %d", maxXMLDepth),
-			Fix:     "flatten deeply nested group layers in Tiled",
-		}
+		return tiledLayer{}, tiledErr(line, col, "", "group layers nested deeper than 64", "", "flatten deeply nested group layers in Tiled", nil)
 	}
 	l := tiledLayer{Type: typ, isXML: true, line: line, col: col}
 	if err := parseXMLLayerCommon(start.Attr, line, col, &l); err != nil {
@@ -556,7 +531,7 @@ func parseXMLLayer(r *xmlReader, start xmlStartElement, line, col, depth int) (t
 				oi := len(l.Objects)
 				obj, err := parseXMLObject(r, t, cl, cc)
 				if err != nil {
-					return true, nest(err, loaderr.Path("objects", oi))
+					return true, nest(err, idxPath("objects", oi, ""))
 				}
 				l.Objects = append(l.Objects, obj)
 				return true, nil
@@ -586,7 +561,7 @@ func parseXMLData(r *xmlReader, start xmlStartElement, line, col int, l *tiledLa
 			ci := len(l.Chunks)
 			ch, err := parseXMLChunk(r, t, cl, cc)
 			if err != nil {
-				return true, nest(err, loaderr.Path("chunks", ci))
+				return true, nest(err, idxPath("chunks", ci, ""))
 			}
 			l.Chunks = append(l.Chunks, ch)
 			return true, nil
@@ -732,64 +707,29 @@ func validateLayerEncoding(raw tiledLayer, li int) error {
 	case "", "csv", "base64":
 	case "xml":
 		if !raw.isXML {
-			return &loaderr.Error{
-				Line:     line,
-				Column:   col,
-				Field:    loaderr.Path(li, "encoding"),
-				Problem:  fmt.Sprintf("layer %q uses unsupported encoding %q", raw.Name, raw.Encoding),
-				Expected: `"", "csv" or "base64"`,
-				Fix:      fixEncoding,
-			}
+			return tiledErr(line, col, idxPath("", li, "encoding"), "layer "+raw.Name+" uses unsupported encoding "+raw.Encoding, `"", "csv" or "base64"`, fixEncoding, nil)
 		}
 	default:
 		expected := `"", "csv" or "base64"`
 		if raw.isXML {
 			expected = `"", "xml", "csv" or "base64"`
 		}
-		return &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    loaderr.Path(li, "encoding"),
-			Problem:  fmt.Sprintf("layer %q uses unsupported encoding %q", raw.Name, raw.Encoding),
-			Expected: expected,
-			Fix:      fixEncoding,
-		}
+		return tiledErr(line, col, idxPath("", li, "encoding"), "layer "+raw.Name+" uses unsupported encoding "+raw.Encoding, expected, fixEncoding, nil)
 	}
 
 	if raw.Compression == "" {
 		return nil
 	}
 	if raw.Encoding != "base64" {
-		return &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    loaderr.Path(li, "compression"),
-			Problem:  fmt.Sprintf("layer %q sets compression %q without base64 encoding", raw.Name, raw.Compression),
-			Expected: `encoding="base64" when compression is set`,
-			Fix:      fixEncoding,
-		}
+		return tiledErr(line, col, idxPath("", li, "compression"), "layer "+raw.Name+" sets compression "+raw.Compression+" without base64 encoding", `encoding="base64" when compression is set`, fixEncoding, nil)
 	}
 	switch raw.Compression {
 	case "zlib", "gzip":
 		return nil
 	case "zstd":
-		return &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    loaderr.Path(li, "compression"),
-			Problem:  fmt.Sprintf("layer %q uses zstd compression, which is not supported", raw.Name),
-			Expected: `"zlib", "gzip" or uncompressed`,
-			Fix:      fixZstd,
-		}
+		return tiledErr(line, col, idxPath("", li, "compression"), "layer "+raw.Name+" uses zstd compression, which is not supported", `"zlib", "gzip" or uncompressed`, fixZstd, nil)
 	default:
-		return &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    loaderr.Path(li, "compression"),
-			Problem:  fmt.Sprintf("layer %q uses unsupported compression %q", raw.Name, raw.Compression),
-			Expected: `"", "zlib" or "gzip"`,
-			Fix:      fixEncoding,
-		}
+		return tiledErr(line, col, idxPath("", li, "compression"), "layer "+raw.Name+" uses unsupported compression "+raw.Compression, `"", "zlib" or "gzip"`, fixEncoding, nil)
 	}
 }
 
@@ -801,28 +741,15 @@ func decodeCSVTileData(s string, field string, line, col int, label string) ([]u
 	}
 	parts := strings.Split(trimmed, ",")
 	out := make([]uint32, 0, len(parts))
+	const fixCSV = "save or export the map again from Tiled; CSV tile data must be comma-separated tile GIDs"
 	for _, p := range parts {
 		tok := strings.TrimSpace(p)
 		if tok == "" {
-			return nil, &loaderr.Error{
-				Line:    line,
-				Column:  col,
-				Field:   field,
-				Problem: fmt.Sprintf("%s has an empty CSV tile entry", label),
-				Fix:     "save or export the map again from Tiled; CSV tile data must be comma-separated tile GIDs",
-			}
+			return nil, tiledErr(line, col, field, label+" has an empty CSV tile entry", "", fixCSV, nil)
 		}
 		gid, err := strconv.ParseUint(tok, 10, 32)
 		if err != nil {
-			return nil, &loaderr.Error{
-				Line:     line,
-				Column:   col,
-				Field:    field,
-				Problem:  fmt.Sprintf("%s has invalid CSV tile GID %q", label, tok),
-				Expected: "an unsigned 32-bit integer",
-				Fix:      "save or export the map again from Tiled; CSV tile data must be comma-separated tile GIDs",
-				Err:      err,
-			}
+			return nil, tiledErr(line, col, field, label+" has invalid CSV tile GID "+tok, "an unsigned 32-bit integer", fixCSV, err)
 		}
 		out = append(out, uint32(gid))
 	}
@@ -833,23 +760,11 @@ func decodeCSVTileData(s string, field string, line, col int, label string) ([]u
 // enforcing both the expected tile count and a per-map decompression budget to defend against decompression bombs.
 func decodeBase64TileData(encoded, compression string, expectedTiles int, budget *int64, field string, line, col int, label string) ([]uint32, error) {
 	if expectedTiles < 0 || expectedTiles > maxTiledLayerTiles {
-		return nil, &loaderr.Error{
-			Line:    line,
-			Column:  col,
-			Field:   field,
-			Problem: fmt.Sprintf("%s size (%d tiles) exceeds maximum allowed tile count (%d)", label, expectedTiles, maxTiledLayerTiles),
-			Fix:     "reduce the layer or chunk dimensions in Tiled",
-		}
+		return nil, tiledErr(line, col, field, fmt.Sprintf("%s size (%d tiles) exceeds maximum allowed tile count (%d)", label, expectedTiles, maxTiledLayerTiles), "", "reduce the layer or chunk dimensions in Tiled", nil)
 	}
 	expectedBytes := int64(expectedTiles) * 4
 	if compression != "" && expectedBytes > *budget {
-		return nil, &loaderr.Error{
-			Line:    line,
-			Column:  col,
-			Field:   field,
-			Problem: fmt.Sprintf("%s decompressed size (%d bytes) exceeds maximum allowed budget (%d bytes)", label, expectedBytes, maxMapDecompressedBytes),
-			Fix:     "reduce the map dimensions or split the map into smaller files",
-		}
+		return nil, tiledErr(line, col, field, fmt.Sprintf("%s decompressed size (%d bytes) exceeds maximum allowed budget (%d bytes)", label, expectedBytes, maxMapDecompressedBytes), "", "reduce the map dimensions or split the map into smaller files", nil)
 	}
 
 	clean := stripASCIIWhitespace(encoded)
@@ -858,14 +773,7 @@ func decodeBase64TileData(encoded, compression string, expectedTiles int, budget
 	}
 	raw, err := base64.StdEncoding.DecodeString(clean)
 	if err != nil {
-		return nil, &loaderr.Error{
-			Line:    line,
-			Column:  col,
-			Field:   field,
-			Problem: fmt.Sprintf("%s has invalid base64 tile data: %v", label, err),
-			Fix:     "save or export the map again from Tiled; the base64 tile data is corrupted",
-			Err:     err,
-		}
+		return nil, tiledErr(line, col, field, label+" has invalid base64 tile data: "+err.Error(), "", "save or export the map again from Tiled; the base64 tile data is corrupted", err)
 	}
 
 	if compression != "" {
@@ -878,58 +786,24 @@ func decodeBase64TileData(encoded, compression string, expectedTiles int, budget
 		case "gzip":
 			decompressed, oversized, err = decompressGzip(raw, limit)
 		default:
-			return nil, &loaderr.Error{
-				Line:    line,
-				Column:  col,
-				Field:   field,
-				Problem: fmt.Sprintf("%s uses unsupported compression %q", label, compression),
-				Fix:     fixEncoding,
-			}
+			return nil, tiledErr(line, col, field, label+" uses unsupported compression "+compression, "", fixEncoding, nil)
 		}
 		if oversized {
-			return nil, &loaderr.Error{
-				Line:     line,
-				Column:   col,
-				Field:    field,
-				Problem:  fmt.Sprintf("%s %s tile data expands past %d bytes (oversized or corrupted stream)", label, compression, limit),
-				Expected: fmt.Sprintf("%d bytes (%d tiles)", expectedBytes, expectedTiles),
-				Fix:      "save or export the map again from Tiled so the compressed tile data matches the layer dimensions",
-			}
+			return nil, tiledErr(line, col, field, fmt.Sprintf("%s %s tile data expands past %d bytes (oversized or corrupted stream)", label, compression, limit), fmt.Sprintf("%d bytes (%d tiles)", expectedBytes, expectedTiles), "save or export the map again from Tiled so the compressed tile data matches the layer dimensions", nil)
 		}
 		if err != nil {
-			return nil, &loaderr.Error{
-				Line:    line,
-				Column:  col,
-				Field:   field,
-				Problem: fmt.Sprintf("%s has corrupted %s tile data: %v", label, compression, err),
-				Fix:     "save or export the map again from Tiled; the compressed tile data is corrupted",
-				Err:     err,
-			}
+			return nil, tiledErr(line, col, field, label+" has corrupted "+compression+" tile data: "+err.Error(), "", "save or export the map again from Tiled; the compressed tile data is corrupted", err)
 		}
 		*budget -= int64(len(decompressed))
 		raw = decompressed
 	}
 
 	if len(raw)%4 != 0 {
-		return nil, &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    field,
-			Problem:  fmt.Sprintf("%s decoded to %d bytes, which is not a multiple of 4", label, len(raw)),
-			Expected: fmt.Sprintf("%d bytes (%d tiles)", expectedBytes, expectedTiles),
-			Fix:      "save or export the map again from Tiled so tile data contains 4-byte little-endian GIDs",
-		}
+		return nil, tiledErr(line, col, field, fmt.Sprintf("%s decoded to %d bytes, which is not a multiple of 4", label, len(raw)), fmt.Sprintf("%d bytes (%d tiles)", expectedBytes, expectedTiles), "save or export the map again from Tiled so tile data contains 4-byte little-endian GIDs", nil)
 	}
 	count := len(raw) / 4
 	if count != expectedTiles {
-		return nil, &loaderr.Error{
-			Line:     line,
-			Column:   col,
-			Field:    field,
-			Problem:  fmt.Sprintf("%s has %d tiles", label, count),
-			Expected: fmt.Sprintf("%d tiles", expectedTiles),
-			Fix:      "save or export the map again from Tiled so data has one GID per tile",
-		}
+		return nil, tiledErr(line, col, field, fmt.Sprintf("%s has %d tiles", label, count), fmt.Sprintf("%d tiles", expectedTiles), "save or export the map again from Tiled so data has one GID per tile", nil)
 	}
 	if count == 0 {
 		return nil, nil

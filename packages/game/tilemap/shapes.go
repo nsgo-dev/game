@@ -3,7 +3,6 @@ package tilemap
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -95,7 +94,7 @@ func tiledTileShapes(objects []tiledObject) ([]TileShape, error) {
 		}
 		props, err := parseProperties(o.Properties)
 		if err != nil {
-			return nil, nest(err, loaderr.Path("objectgroup", "objects", i, "properties"))
+			return nil, nest(err, idxPath("objectgroup.objects", i, "properties"))
 		}
 		typ := o.Type
 		if typ == "" {
