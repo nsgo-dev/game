@@ -664,10 +664,13 @@ type Editor struct {
 	// terrain holds the open 3D terrain editing session (heightmap, layer weights, foliage density maps) and active brush state.
 	terrain      *terrainState
 	terrainBrush TerrainBrush
-	// settings holds the per-user editor language and appearance preferences.
-	settings           EditorSettings
-	editorSettingsOpen bool
-	catalog            *l10n.Catalog
+	// settings holds the per-user editor language, appearance, and shortcut override preferences.
+	settings              EditorSettings
+	editorSettingsOpen    bool
+	editorSettingsTab     EditorSettingsTab
+	shortcutsSheetOpen    bool
+	shortcutCaptureActive bool
+	catalog               *l10n.Catalog
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
 	hud hudLayoutState
 	// lookThroughCamera3D makes the 3D viewport render and project through the scene's active 3D camera (LookThroughCamera3D) instead of Camera3D.

@@ -1057,9 +1057,15 @@ func main() {
   version: 1
   language: system
   appearance: system
+  shortcuts:
+    view.frame: g
   ```
 - **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在**编辑器设置**对话框（`EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
+- **快捷键：按作用域搜索与重绑（#1061）**：
+  - **命令作用域**：每个 `EditorCommand` 和 `PluginCommand` 都带有 `Scope`（`ScopeGlobal`、`ScopeViewport`、`ScopeViewport2D`、`ScopeViewport3D`、`ScopeSceneTree`、`ScopeTile`、`ScopeAnimation`、`ScopePlay`，未指定时默认为 `ScopeGlobal`）。
+  - **设置 › 快捷键（`EditorSettingsTabShortcuts`、`OpenShortcutsSettings`、`CmdShortcutsSettings`）**：列出所有已注册的内置、自定义与已启用插件命令及其作用域和当前按键，支持按命令名称、按键或作用域搜索（`FilterShortcutCommands`）。点击命令的按键按钮即可进入按键录制模式（`ShortcutFromKeyEvent`，按 `Escape` 可取消录制而不关闭设置对话框）。若按键在**同一作用域**中已被占用（`ShortcutConflict` / `*ShortcutConflictError`），会在行内原地提示并提供**交换**按钮（`SwapShortcut`，交换后两条命令互换按键且均保持绑定）；若按键仅在**不同作用域**中被使用（`RebindShortcut`），则会立即绑定而不弹出冲突提示。支持单行**重置**（`ResetShortcut`）与顶部**全部重置**（`ResetAllShortcuts`）。
+  - **持久化与全界面即时同步**：自定义按键保存在 `EditorSettings` 的 `shortcuts` 字段（`editor.yaml`，位于所有项目之外），重绑后立即同步到 `EffectiveShortcut`、工具栏提示与无障碍标签、桌面菜单栏（`ApplicationMenu`）、命令面板（`CommandPaletteView`）、实时按键调度以及 **`⌘/` 快捷键速查表**（`ShortcutsSheetView`、`CmdShortcutsSheet` / `mod+/`）。
 - **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。
 
 ## 2D 骨骼绑定编辑器（#886）

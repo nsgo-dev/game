@@ -1186,14 +1186,6 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		ed.EndTileStroke()
 		strokeTookPress = mayPress
 	}
-	cx.OnKey("f", func() {
-		switch {
-		case ed.ViewMode == ViewMode3D:
-			ed.FrameSelection()
-		case in2D():
-			ed.FrameSelection2D()
-		}
-	})
 	cx.OnKey("home", func() {
 		if in2D() {
 			ed.FrameAll2D()

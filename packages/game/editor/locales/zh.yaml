@@ -88,6 +88,10 @@ strings:
   cmd.shadingUnlit.label: 3D 着色：无光照
   cmd.shadingWire.desc: 照亮 3D 视口几何体并在其上方叠加三角形边线
   cmd.shadingWire.label: 3D 着色：线框
+  cmd.shortcutsSettings.desc: 按作用域搜索、重绑、交换并重置键盘快捷键
+  cmd.shortcutsSettings.label: 设置：键盘快捷键
+  cmd.shortcutsSheet.desc: 显示按作用域分组的键盘快捷键速查表
+  cmd.shortcutsSheet.label: 键盘快捷键
   cmd.startScreen.desc: 显示包含最近项目、模板与演示的开始界面
   cmd.startScreen.label: 开始界面
   cmd.toolEraseTile.desc: 切换为擦除瓦片工具
@@ -343,6 +347,8 @@ strings:
   menu.shadingLit: 光照
   menu.shadingUnlit: 无光照
   menu.shadingWireframe: 线框
+  menu.shortcutsSettings: 键盘快捷键…
+  menu.shortcutsSheet: 键盘快捷键
   menu.startScreen: 开始界面
   menu.stop: 停止
   menu.terrain: 地形
@@ -457,6 +463,14 @@ strings:
   sceneTree.ungroup: 取消编组
   sceneTree.unlock: 解锁
   sceneTree.unlockNamed: 解锁 {id}
+  scope.animation: 动画
+  scope.global: 全局
+  scope.play: 运行
+  scope.sceneTree: 场景树
+  scope.tile: 瓦片
+  scope.viewport: 视口
+  scope.viewport2d: 2D 视口
+  scope.viewport3d: 3D 视口
   search.close: 关闭
   search.closeLabel: 关闭搜索面板
   search.emptyPrompt: 输入以搜索项目文件、UID、场景对象、组件、预制体与场景引用
@@ -473,15 +487,36 @@ strings:
   settings.appearance: 外观
   settings.appearanceHelp: 深色、浅色或跟随系统。
   settings.dark: 深色
-  settings.description: 此计算机的语言与外观设置。
+  settings.description: 此计算机的语言、外观与键盘快捷键设置。
   settings.done: 完成
+  settings.general: 通用
+  settings.generalHelp: 语言与外观。
   settings.langChinese: 简体中文
   settings.langEnglish: English
   settings.language: 语言
   settings.languageHelp: 编辑器界面语言；智能体也会使用该语言回复。
   settings.light: 浅色
+  settings.sectionEditor: 编辑器 · 此计算机
+  settings.shortcuts: 快捷键
+  settings.shortcutsCaptureCancel: 取消
+  settings.shortcutsCapturePrompt: 请按下按键…
+  settings.shortcutsConflict: '{key} 在“{scope}”作用域中已被“{other}”占用。'
+  settings.shortcutsCustom: 自定义
+  settings.shortcutsEmpty: 没有匹配的命令
+  settings.shortcutsHelp: 所有命令均可搜索并重新绑定。
+  settings.shortcutsReset: 重置
+  settings.shortcutsResetAll: 全部重置
+  settings.shortcutsSearchLabel: 搜索快捷键
+  settings.shortcutsSearchPlaceholder: 按命令名、按键或作用域搜索…
+  settings.shortcutsSwap: 交换
+  settings.shortcutsUnbound: 未绑定
   settings.system: 跟随系统
+  settings.thisComputer: 此计算机
   settings.title: 编辑器设置
+  shortcutsSheet.customize: 自定义快捷键…
+  shortcutsSheet.subtitleMac: macOS 按键。可在“设置 › 快捷键”中重新绑定任意命令。
+  shortcutsSheet.subtitleOther: Windows 与 Linux 按键。可在“设置 › 快捷键”中重新绑定任意命令。
+  shortcutsSheet.title: 键盘快捷键
   snap.auto: 自动
   snap.autoLabel: 跟随当前图层的瓦片尺寸
   snap.grid: 网格

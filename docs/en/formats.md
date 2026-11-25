@@ -57,6 +57,8 @@ viewportOverlays:
   - connections
   - navigation
   - triggers
+shortcuts:
+  view.frame: g
 ```
 
 <!-- format: tooling/importsettings -->

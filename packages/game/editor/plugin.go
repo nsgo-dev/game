@@ -159,6 +159,8 @@ type PluginCommand struct {
 	CategoryKey string
 	// Keywords are extra search terms matched by the command palette.
 	Keywords []string
+	// Scope names the keyboard scope for shortcut conflict checks (for example ScopeGlobal, ScopeViewport, ScopeTile, ScopeViewport3D). Empty defaults to ScopeGlobal.
+	Scope string
 	// Shortcut is an optional NSGo key shortcut (such as "mod+shift+h" or "alt+h"). Clashing with any built-in, custom, or other registered plugin shortcut is refused at RegisterPlugin time.
 	Shortcut string
 	// Enabled, when set, reports whether the command can run right now; nil means always enabled.
@@ -175,8 +177,9 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	if e.plugin(p.Name) != nil {
 		return fmt.Errorf("editor: plugin %q is already registered", p.Name)
 	}
-	owners := e.registeredShortcutOwners()
-	localShortcuts := make(map[string]string)
+	ownersAll := e.registeredShortcutOwners()
+	localAll := make(map[string]string)
+	localByScope := make(map[string]map[string]string)
 	clonedCmds := make([]PluginCommand, len(p.Commands))
 	for i, c := range p.Commands {
 		fullID := pluginCommandID(p.Name, c.ID)
@@ -187,15 +190,30 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 		if err != nil {
 			return fmt.Errorf("editor: plugin %s: command %q: %w", p.Name, c.ID, err)
 		}
+		explicitScope := strings.TrimSpace(c.Scope) != ""
+		scope := normalizeCommandScope(c.Scope)
+		owners := ownersAll
+		if explicitScope {
+			owners = e.registeredShortcutOwnersInScope(scope)
+		}
+		if localByScope[scope] == nil {
+			localByScope[scope] = make(map[string]string)
+		}
 		for _, ck := range shortcutCollisionKeys(norm) {
 			if existing, clash := owners[ck]; clash {
 				return fmt.Errorf("editor: plugin %s: command %q shortcut %q clashes with command %q", p.Name, c.ID, norm, existing)
 			}
-			if prev, clash := localShortcuts[ck]; clash {
+			if explicitScope {
+				if prev, clash := localByScope[scope][ck]; clash {
+					return fmt.Errorf("editor: plugin %s: command %q shortcut %q clashes with command %q", p.Name, c.ID, norm, prev)
+				}
+			} else if prev, clash := localAll[ck]; clash {
 				return fmt.Errorf("editor: plugin %s: command %q shortcut %q clashes with command %q", p.Name, c.ID, norm, prev)
 			}
-			localShortcuts[ck] = fullID
+			localAll[ck] = fullID
+			localByScope[scope][ck] = fullID
 		}
+		c.Scope = scope
 		c.Shortcut = norm
 		c.Keywords = slices.Clone(c.Keywords)
 		clonedCmds[i] = c

@@ -72,6 +72,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdOpenBaseScene, e.T("menu.openBaseScene"), false),
 			sep,
 			cmdItem(CmdEditorSettings, e.T("menu.editorSettings"), false),
+			cmdItem(CmdShortcutsSettings, e.T("menu.shortcutsSettings"), false),
 			sep,
 			cmdItem(CmdExport, e.T("menu.export"), false),
 		},
@@ -185,6 +186,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		Label: e.T("menu.view"),
 		Items: []desktop.MenuItem{
 			cmdItem(CmdCommandPalette, e.T("menu.commandPalette"), false),
+			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
 			sep,
 			cmdItem(CmdView2D, e.T("menu.view2d"), true),
 			cmdItem(CmdView3D, e.T("menu.view3d"), true),
@@ -270,9 +272,11 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d",
+		fmt.Fprintf(&b, "%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
+			e.EditorSettingsTab(),
+			e.ShortcutsSheetOpen(),
 			e.StartScreenOpen(),
 			e.ChangesOpen(),
 			e.MergeConflictOpen(),
@@ -323,6 +327,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.selectedObjectInstancesScene(),
 			e.ObjectHasAnyOverride(e.SelectedID),
 			e.InstanceOverrideCount(e.SelectedID),
+			e.shortcutsDigest(),
 		)
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')
