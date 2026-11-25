@@ -84,3 +84,30 @@ func TestActSheetCarriesItsTiming(t *testing.T) {
 		t.Fatal("the meta does not say the frames are acted out")
 	}
 }
+
+func TestSheetRefusesMalformedFrames(t *testing.T) {
+	ok := func() pixelfx.Frames {
+		return pixelfx.Frames{Effect: fire.Torch, W: 2, H: 2, FPS: 10, Pixels: [][]byte{make([]byte, 16)}}
+	}
+	for _, c := range []struct {
+		name string
+		edit func(*pixelfx.Frames)
+	}{
+		{"no frames", func(f *pixelfx.Frames) { f.Pixels = nil }},
+		{"no effect", func(f *pixelfx.Frames) { f.Effect = nil }},
+		{"zero fps", func(f *pixelfx.Frames) { f.FPS = 0 }},
+		{"negative fps", func(f *pixelfx.Frames) { f.FPS = -1 }},
+		{"short frame", func(f *pixelfx.Frames) { f.Pixels = append(f.Pixels, make([]byte, 15)) }},
+		{"long frame", func(f *pixelfx.Frames) { f.Pixels[0] = make([]byte, 17) }},
+	} {
+		fr := ok()
+		c.edit(&fr)
+		if _, _, err := fr.Sheet("x", "x.png"); err == nil {
+			t.Errorf("%s: Sheet succeeded", c.name)
+		}
+	}
+	fr := ok()
+	if _, _, err := fr.Sheet("x", "x.png"); err != nil {
+		t.Errorf("well-formed frames: %v", err)
+	}
+}

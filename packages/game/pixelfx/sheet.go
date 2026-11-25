@@ -204,6 +204,17 @@ func (fr *Frames) Sheet(name, image string) (*image.NRGBA, []byte, error) {
 	if n == 0 || w <= 0 || h <= 0 {
 		return nil, nil, fmt.Errorf("pixelfx: no frames to lay out")
 	}
+	if fr.Effect == nil {
+		return nil, nil, fmt.Errorf("pixelfx: frames without an effect")
+	}
+	if fr.FPS <= 0 {
+		return nil, nil, fmt.Errorf("pixelfx: frames at %d fps, which is not above 0", fr.FPS)
+	}
+	for i, px := range fr.Pixels {
+		if len(px) != w*h*4 {
+			return nil, nil, fmt.Errorf("pixelfx: frame %d has %d bytes, not %d for %dx%d", i, len(px), w*h*4, w, h)
+		}
+	}
 	cols := min(n, max(1, int(math.Ceil(math.Sqrt(float64(n*h)/float64(w))))))
 	rows := (n + cols - 1) / cols
 	img := newNRGBA(cols*w, rows*h)

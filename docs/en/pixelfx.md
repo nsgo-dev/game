@@ -25,7 +25,7 @@ Effects live in one subpackage per category, which registers its effects as `"<c
 
 ## Playing an effect
 
-An `Effect` holds its `Meta` (name, description, tags, frame size, the origin its local (0, 0) sits at, duration, loop or one-shot, frame rate, preview backdrop, stock actor and its options with their defaults) and `New`, which starts it. `NewPlayer` starts one with `Options`: `X` and `Y` place its origin in the frame, `Flip` mirrors it, `Angle` turns it, `Light` scales its glow, and `Values` sets its own options by name over the defaults, such as `seed` and `palette`. A palette of a different length than the default is resampled to it, so any ramp recolors any effect.
+An `Effect` holds its `Meta` (name, description, tags, frame size, the origin its local (0, 0) sits at, duration, loop or one-shot, frame rate, preview backdrop, stock actor and its options with their defaults) and `New`, which starts it. `NewPlayer` starts one with `Options`: `X` and `Y` place its origin in the frame, `Flip` mirrors it, `Angle` turns it, `Light` scales its glow, and `Values` sets its own options by name over the defaults, such as `seed` and `palette`. A palette of a different length than the default is resampled to it, so any ramp recolors any effect. `Set` checks nothing itself: a value whose kind the option does not take (a number stands for a bool, and a color for a palette of that one color) or an empty palette is ignored and the default kept, so compare a value with `Meta.Default` first to report a mistake.
 
 ```go
 e, _ := pixelfx.Lookup("fire/torch")
@@ -46,7 +46,7 @@ A frame holds opaque color (`Color`) and additive light (`Light`). `Composite` p
 
 ## Showing frames in NSGo
 
-`Image` turns frames into an NSGo image source: `Set` composites a frame over transparency into premultiplied pixels and steps the source's version, so the same `core.Image`, canvas or shader shows each new frame in place. `View` is a canvas that draws a source scaled up by a whole number with smoothing off, as pixel art wants:
+`Image` turns frames into an NSGo image source: `Set` composites a frame over transparency into premultiplied pixels and steps the source's version, so the same `core.Image`, canvas or shader shows each new frame in place. `View` is a canvas that draws a source scaled up with smoothing off, as pixel art wants; any scale is accepted, and a whole number keeps every pixel the same size:
 
 ```go
 var img pixelfx.Image

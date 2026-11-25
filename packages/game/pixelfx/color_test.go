@@ -29,10 +29,16 @@ func TestColorsMatchPixelfx(t *testing.T) {
 			t.Errorf("Fit step %d is %s, want %s", i, pixelfx.ToHex(got[i]), want[i])
 		}
 	}
-	for _, bad := range []string{"", "#12", "#zzzzzz", "red"} {
+	for _, bad := range []string{"", "#12", "#zzzzzz", "red", "fff", "ffffff", "#123456zz", "#1234567", "#-12345", "#+12345"} {
 		if _, err := pixelfx.ParseHex(bad); err == nil {
 			t.Errorf("ParseHex(%q) succeeded", bad)
 		}
+	}
+	if c, err := pixelfx.ParseHex("#11223344"); err != nil || pixelfx.ToHex(c) != "#112233" {
+		t.Errorf("ParseHex(#11223344) gives %s, %v; want #112233 with its alpha ignored", pixelfx.ToHex(c), err)
+	}
+	if got := pixelfx.Fit(nil, 3); got != nil {
+		t.Errorf("Fit of an empty ramp gives %v, want nil", got)
 	}
 }
 

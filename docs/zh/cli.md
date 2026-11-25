@@ -458,7 +458,7 @@ go tool game pixelfx -act -fps 30 -out assets/fx moves/ground-pound
 go tool game pixelfx -list
 ```
 
-把命令内置的某个 [pixelfx](pixelfx.md) 特效渲染为 PNG 精灵表及其 Aseprite JSON，即 `-out` 下的 `<name>.png` 和 `<name>.json`，可供 `sprite.LoadAtlas` 读取：每一帧按特效自身的帧率（或 `-fps`）渲染并排成网格，带有每帧的时长和位于特效原点的轴心，以及一个动画标签（循环特效循环播放，一次性特效只播放一次）。名字默认取特效名（`torch`），可用 `-name` 指定。`-set name=value` 设置特效的一个选项，值可以是数字、`true` 或 `false`、颜色（如 `#4a3f69`）、用逗号分隔的一串颜色（调色板）或文本；`-flip` 镜像特效。`-act` 改为渲染表演版本：内置角色带着稻草靶表演该特效，除非用 `-fps` 指定，否则帧率为 60，JSON 中带有表演的时间信息，供有自己角色的游戏使用。`-list` 列出所有特效及其尺寸、时长和选项。命令不认识的特效、选项或取值以 2 退出。它能渲染的类别是目前已移植的类别，每个类别移植时会把自己加进来。
+把命令内置的某个 [pixelfx](pixelfx.md) 特效渲染为 PNG 精灵表及其 Aseprite JSON，即 `-out` 下的 `<name>.png` 和 `<name>.json`，可供 `sprite.LoadAtlas` 读取：每一帧按特效自身的帧率（或 `-fps`）渲染并排成网格，带有每帧的时长和位于特效原点的轴心，以及一个动画标签（循环特效循环播放，一次性特效只播放一次）。名字默认取特效名（`torch`），可用 `-name` 指定，但必须是不带目录的文件名。`-set name=value` 设置特效的一个选项，值可以是数字、`true` 或 `false`、颜色（如 `#4a3f69`，可写作 `#rgb`、`#rrggbb`，或忽略透明度的 `#rrggbbaa`）、用逗号分隔的一串颜色（调色板）或文本；`-flip` 镜像特效。`-act` 改为渲染表演版本：内置角色带着稻草靶表演该特效，除非用 `-fps` 指定，否则帧率为 60，JSON 中带有表演的时间信息，供有自己角色的游戏使用。`-list` 列出所有特效及其尺寸、时长和选项。命令不认识的特效、选项或取值以 2 退出。它能渲染的类别是目前已移植的类别，每个类别移植时会把自己加进来。
 
 ### completion
 
