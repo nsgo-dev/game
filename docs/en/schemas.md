@@ -17,6 +17,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Light probe grid, version 1 | `https://game.nsgo.dev/schemas/lightprobes.v1.json` | `*.probes.yaml` baked by the editor and named by `lightProbeGrid.data`, read by `render3d.ParseLightProbeGrid` and `render3d.LoadLightProbeGridFS` |
 | Tileset, version 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`, read by `tilemap.ParseTileset` and `tilemap.LoadTilesetFS` |
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
+| Generated asset source, version 1 | `https://game.nsgo.dev/schemas/source.v1.json` | `*.source.yaml` beside a generated asset, written when picking a candidate in the editor and checked for licenses by `credits` and `game release`, read by `importsettings.ParseAssetSource` |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |
 | Localization string table, version 1 | `https://game.nsgo.dev/schemas/l10n.v1.json` | per-locale `*.yaml` files such as `locales/en.yaml`, read by `l10n.ParseYAML` and `l10n.Catalog.LoadYAML` |
 | Terrain definition, version 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`, read by `world3d.ParseTerrain` and `world3d.LoadTerrainFS` |

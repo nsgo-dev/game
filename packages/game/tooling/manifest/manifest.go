@@ -113,8 +113,8 @@ func Scan(dir string, opts Options) ([]Entry, error) {
 			}
 			return nil
 		}
-		// An import settings sidecar says how game assets builds an asset; the game never loads it.
-		if strings.HasPrefix(d.Name(), ".") || strings.EqualFold(filepath.Ext(d.Name()), ".go") || importsettings.IsSidecar(d.Name()) {
+		// Import settings and generated asset source sidecars describe how an asset is built or where it came from; the game never loads them.
+		if strings.HasPrefix(d.Name(), ".") || strings.EqualFold(filepath.Ext(d.Name()), ".go") || importsettings.IsSidecar(d.Name()) || importsettings.IsAssetSource(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(dir, p)

@@ -129,8 +129,16 @@ func Assets(root string, a *project.Assets) ([]string, error) {
 	return out, nil
 }
 
-// Collect returns the credit of every asset Assets returns, in its order, read from the credit section of the import settings sidecar beside each one. A sidecar counts only under exactly its asset's name and the suffix, so a case-insensitive file system, which would open Hero.PNG.import.yaml for hero.png, credits the same assets as a case-sensitive one. When some assets have none, it returns the entries of the others with a *MissingError naming them; a sidecar that fails to parse is an error of its own.
+// Collect returns the credit of every asset Assets returns, in its order, read from the credit section of the import settings sidecar beside each one (or a generated asset's *.source.yaml sidecar when its license is known). It also checks every *.source.yaml sidecar under root and fails with *UnknownLicenseError if any generated asset has an unknown or empty license. A sidecar counts only under exactly its asset's name and the suffix, so a case-insensitive file system, which would open Hero.PNG.import.yaml for hero.png, credits the same assets as a case-sensitive one. When some assets have none, it returns the entries of the others with a *MissingError naming them; a sidecar that fails to parse is an error of its own.
 func Collect(root string, a *project.Assets) ([]Entry, error) {
+	generated, err := CheckGeneratedLicenses(root)
+	if err != nil {
+		return nil, err
+	}
+	genByAsset := make(map[string]GeneratedAssetLicense, len(generated))
+	for _, g := range generated {
+		genByAsset[g.Asset] = g
+	}
 	assets, err := Assets(root, a)
 	if err != nil {
 		return nil, err
@@ -139,10 +147,32 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 	var missing []string
 	// names caches each folder's file names, for the exact-name check.
 	names := map[string]map[string]bool{}
+	creditFromSource := func(asset string) (Entry, bool) {
+		g, ok := genByAsset[asset]
+		if !ok || g.UnknownLicense {
+			return Entry{}, false
+		}
+		srcDesc := g.Generator
+		if g.Model != "" {
+			srcDesc += " (" + g.Model + ")"
+		}
+		return Entry{
+			Asset: asset,
+			Credit: importsettings.Credit{
+				Author:  g.Generator,
+				License: g.License,
+				Source:  srcDesc,
+			},
+		}, true
+	}
 	for _, asset := range assets {
 		sidecar := importsettings.Path(asset)
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(sidecar)))
 		if errors.Is(err, fs.ErrNotExist) {
+			if ent, ok := creditFromSource(asset); ok {
+				entries = append(entries, ent)
+				continue
+			}
 			missing = append(missing, asset)
 			continue
 		}
@@ -161,6 +191,10 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 			}
 		}
 		if !names[dir][path.Base(sidecar)] {
+			if ent, ok := creditFromSource(asset); ok {
+				entries = append(entries, ent)
+				continue
+			}
 			missing = append(missing, asset)
 			continue
 		}
@@ -169,6 +203,10 @@ func Collect(root string, a *project.Assets) ([]Entry, error) {
 			return nil, fmt.Errorf("credits: %s: %w", sidecar, err)
 		}
 		if f.Credit == nil {
+			if ent, ok := creditFromSource(asset); ok {
+				entries = append(entries, ent)
+				continue
+			}
 			missing = append(missing, asset)
 			continue
 		}

@@ -34,7 +34,7 @@ const (
 
 // AssetImportKindFor classifies a project-relative file path by its extension, returning AssetImportNone for sidecars and non-asset files.
 func AssetImportKindFor(relPath string) AssetImportKind {
-	if relPath == "" || importsettings.IsSidecar(relPath) {
+	if relPath == "" || importsettings.IsSidecar(relPath) || importsettings.IsAssetSource(relPath) {
 		return AssetImportNone
 	}
 	switch strings.ToLower(path.Ext(relPath)) {

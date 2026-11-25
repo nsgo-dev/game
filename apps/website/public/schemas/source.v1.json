@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/source.v1.json",
+  "title": "NSGo game generated asset source (version 1)",
+  "description": "AssetSource records the provenance, generation parameters, license, and approval of an asset generated through an MCP generator server. It is written beside the picked asset as <file>.source.yaml in deterministic YAML.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal AssetSourceVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "generator": {
+      "description": "Generator is the MCP generator server name that produced the asset, such as \"pixel-gen\" or \"sfx-gen\".",
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "description": "Model is the generator model identifier reported by the server, such as \"pixflux-1\".",
+      "type": "string"
+    },
+    "prompt": {
+      "description": "Prompt is the text prompt sent to the generator.",
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "description": "Seed is the random seed that produced this candidate, when reported by the generator.",
+      "type": "integer",
+      "minimum": -9223372036854776000,
+      "maximum": 9223372036854776000
+    },
+    "references": {
+      "description": "References lists the project-relative asset or brief paths passed to the generator as references (for example \"art/characters/slime.png\", \"brief.yaml#art\").",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "license": {
+      "description": "License names the license under which the generated asset is used (for example \"pixellab-commercial-1.2\" or \"CC0-1.0\"); an empty or \"unknown\" license blocks release builds until resolved.",
+      "type": "string"
+    },
+    "commercialUse": {
+      "description": "CommercialUse records whether the asset's license permits commercial use.",
+      "type": "boolean"
+    },
+    "approvedBy": {
+      "description": "ApprovedBy names the person who picked and approved the generated candidate.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "generator",
+    "prompt"
+  ],
+  "additionalProperties": false
+}

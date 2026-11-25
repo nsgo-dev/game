@@ -91,3 +91,41 @@ assets:
 		t.Fatalf("WriteDryRun = %q", buf.String())
 	}
 }
+
+func TestBuildRefusesGeneratedAssetWithUnknownLicense(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: Demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "audio", "sfx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "audio", "sfx", "torch_flicker.wav"), []byte("RIFF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "audio", "sfx", "torch_flicker.wav.source.yaml"), []byte("version: 1\ngenerator: sfx-gen\nprompt: torch flicker\nlicense: unknown\ncommercialUse: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := project.MustParse([]byte(`version: 1
+name: Demo
+id: dev.example.demo
+appVersion: 1.0.0
+window: {width: 640, height: 360}
+`))
+	_, err := Build(dir, Options{}, SettingsFromProject(f))
+	var unk *credits.UnknownLicenseError
+	if !errors.As(err, &unk) {
+		t.Fatalf("Build error = %v, want *credits.UnknownLicenseError", err)
+	}
+	if !strings.Contains(err.Error(), "audio/sfx/torch_flicker.wav") {
+		t.Fatalf("Build error %q does not include blocked asset path", err.Error())
+	}
+
+	// Resolving the license in .source.yaml unblocks the release build.
+	if err := os.WriteFile(filepath.Join(dir, "audio", "sfx", "torch_flicker.wav.source.yaml"), []byte("version: 1\ngenerator: sfx-gen\nprompt: torch flicker\nlicense: CC0-1.0\ncommercialUse: true\napprovedBy: kim\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(dir, Options{}, SettingsFromProject(f)); err != nil {
+		t.Fatalf("Build after resolving license: %v", err)
+	}
+}

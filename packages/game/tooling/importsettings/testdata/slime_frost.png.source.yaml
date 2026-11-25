@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/source.v1.json
+version: 1
+generator: pixel-gen
+model: pixflux-1
+prompt: ice slime, 16 px pixel art, 4-colour shading, 1 px dark outline, facing right
+seed: 81515
+references:
+  - art/characters/slime.png
+  - brief.yaml#art
+license: pixellab-commercial-1.2
+commercialUse: true
+approvedBy: kim

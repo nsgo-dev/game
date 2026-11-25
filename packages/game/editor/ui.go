@@ -85,6 +85,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopDiskWatcher()
 		ed.CloseObjectContextMenu()
 		_ = ed.DisconnectProfiler()
+		ed.DisconnectAllAssetGenerators()
 		ed.cancelCreateProject()
 		_ = ed.DisconnectRemote()
 		_ = ed.StopGame()
@@ -134,6 +135,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.BuildReleaseScreenOpen() ||
 			ed.UsagesScreenOpen() ||
 			ed.PlaytestReportOpen() ||
+			ed.AssetGeneratorOpen() ||
 			ed.HUDLayoutOpen() ||
 			(ed.CutsceneOpen() && !ed.Playing())
 	}
@@ -222,87 +224,98 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																return core.Show{
 																	When: func() bool {
 																		_ = rev.Get()
-																		return ed.HUDLayoutOpen()
+																		return ed.AssetGeneratorOpen()
 																	},
 																	Then: func(cx *core.Scope) core.Node {
-																		return HUDLayoutView(cx, ed, rev)
+																		return AssetGeneratorView(cx, ed, rev)
 																	},
 																	Else: func(cx *core.Scope) core.Node {
-																		return core.View{
-																			Style: core.Style{
-																				Width:  core.Pct(100),
-																				Height: core.Pct(100),
+																		return core.Show{
+																			When: func() bool {
+																				_ = rev.Get()
+																				return ed.HUDLayoutOpen()
 																			},
-																			Children: []core.Node{
-																				toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-																				remotePlayBarView(cx, ed, rev),
-																				diskWatchBannerView(cx, ed, rev),
-																				core.Show{
-																					When: func() bool {
-																						_ = rev.Get()
-																						return ed.CutsceneOpen() && !ed.Playing()
+																			Then: func(cx *core.Scope) core.Node {
+																				return HUDLayoutView(cx, ed, rev)
+																			},
+																			Else: func(cx *core.Scope) core.Node {
+																				return core.View{
+																					Style: core.Style{
+																						Width:  core.Pct(100),
+																						Height: core.Pct(100),
 																					},
-																					Then: func(cx *core.Scope) core.Node {
-																						return CutscenePanelView(cx, ed, rev)
-																					},
-																					Else: func(cx *core.Scope) core.Node {
-																						return core.View{
-																							Style: core.Style{
-																								FlexGrow:  1,
-																								FlexBasis: core.Pt(0),
-																								Overflow:  core.Hidden,
+																					Children: []core.Node{
+																						toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+																						remotePlayBarView(cx, ed, rev),
+																						diskWatchBannerView(cx, ed, rev),
+																						core.Show{
+																							When: func() bool {
+																								_ = rev.Get()
+																								return ed.CutsceneOpen() && !ed.Playing()
 																							},
-																							Children: []core.Node{
-																								core.View{
-																									Disabled:                    settingsOpen,
-																									AccessibilityElementsHidden: settingsOpen,
+																							Then: func(cx *core.Scope) core.Node {
+																								return CutscenePanelView(cx, ed, rev)
+																							},
+																							Else: func(cx *core.Scope) core.Node {
+																								return core.View{
 																									Style: core.Style{
 																										FlexGrow:  1,
 																										FlexBasis: core.Pt(0),
 																										Overflow:  core.Hidden,
 																									},
-																									StyleFunc: func() core.Style {
-																										if settingsOpen() {
-																											return core.Style{PointerEvents: core.PointerEventsNone}
-																										}
-																										return core.Style{}
-																									},
 																									Children: []core.Node{
 																										core.View{
-																											// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																											Disabled:                    settingsOpen,
+																											AccessibilityElementsHidden: settingsOpen,
 																											Style: core.Style{
-																												Direction: core.Row,
 																												FlexGrow:  1,
 																												FlexBasis: core.Pt(0),
 																												Overflow:  core.Hidden,
 																											},
-																											// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																											Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																											StyleFunc: func() core.Style {
+																												if settingsOpen() {
+																													return core.Style{PointerEvents: core.PointerEventsNone}
+																												}
+																												return core.Style{}
+																											},
+																											Children: []core.Node{
+																												core.View{
+																													// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																													Style: core.Style{
+																														Direction: core.Row,
+																														FlexGrow:  1,
+																														FlexBasis: core.Pt(0),
+																														Overflow:  core.Hidden,
+																													},
+																													// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																													Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																												},
+																												pluginDockView(cx, ed, rev, DockBottom),
+																												TilesetEditorPanelView(cx, ed, rev),
+																												TerrainPanelView(cx, ed, rev),
+																												RigPanelView(cx, ed, rev),
+																												DataTablePanelView(cx, ed, rev),
+																												ParticleEditorPanelView(cx, ed, rev),
+																												MaterialEditorPanelView(cx, ed, rev),
+																												AnimationPanelView(cx, ed, rev),
+																												EnvironmentPanelView(cx, ed, rev),
+																												StatesPanelView(cx, ed, rev),
+																												NavMeshPanelView(cx, ed, rev),
+																												LocalizationPanelView(cx, ed, rev),
+																												SearchPanelView(cx, ed, rev),
+																												ProblemsView(cx, ed, rev),
+																												ProfilerPanelView(cx, ed, rev),
+																												OutputPanelView(cx, ed, rev),
+																											},
 																										},
-																										pluginDockView(cx, ed, rev, DockBottom),
-																										TilesetEditorPanelView(cx, ed, rev),
-																										TerrainPanelView(cx, ed, rev),
-																										RigPanelView(cx, ed, rev),
-																										DataTablePanelView(cx, ed, rev),
-																										ParticleEditorPanelView(cx, ed, rev),
-																										MaterialEditorPanelView(cx, ed, rev),
-																										AnimationPanelView(cx, ed, rev),
-																										EnvironmentPanelView(cx, ed, rev),
-																										StatesPanelView(cx, ed, rev),
-																										NavMeshPanelView(cx, ed, rev),
-																										LocalizationPanelView(cx, ed, rev),
-																										SearchPanelView(cx, ed, rev),
-																										ProblemsView(cx, ed, rev),
-																										ProfilerPanelView(cx, ed, rev),
-																										OutputPanelView(cx, ed, rev),
+																										SettingsView(cx, ed, rev),
 																									},
-																								},
-																								SettingsView(cx, ed, rev),
+																								}
 																							},
-																						}
+																						},
+																						statusBarView(cx, ed, rev),
 																					},
-																				},
-																				statusBarView(cx, ed, rev),
+																				}
 																			},
 																		}
 																	},

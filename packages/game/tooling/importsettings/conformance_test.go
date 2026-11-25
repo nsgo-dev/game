@@ -15,3 +15,12 @@ func TestFormatConformance(t *testing.T) {
 		Doc:    "tooling/importsettings",
 	})
 }
+
+func TestAssetSourceFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*importsettings.AssetSource]{
+		Decode: importsettings.ParseAssetSource,
+		Encode: importsettings.EncodeAssetSource,
+		Files:  []string{"testdata/*.source.yaml"},
+		Doc:    "tooling/importsettings#source",
+	})
+}

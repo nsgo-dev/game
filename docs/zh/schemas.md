@@ -17,6 +17,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 光照探针网格，版本 1 | `https://game.nsgo.dev/schemas/lightprobes.v1.json` | 由编辑器烘焙、场景 `lightProbeGrid.data` 指定的 `*.probes.yaml`，由 `render3d.ParseLightProbeGrid` 和 `render3d.LoadLightProbeGridFS` 读取 |
 | 图块集，版本 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`，由 `tilemap.ParseTileset` 和 `tilemap.LoadTilesetFS` 读取 |
 | 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 资源旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取，其中的署名由 `game release` 和 `game credits` 读取（见[命令行](cli.md#assets)） |
+| 生成资源来源，版本 1 | `https://game.nsgo.dev/schemas/source.v1.json` | 生成资源旁的 `*.source.yaml`，在编辑器中选定候选资源时写入并由 `credits` 与 `game release` 检查许可证，由 `importsettings.ParseAssetSource` 读取 |
 | 体素世界，版本 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`，由 `voxel.Parse` 和 `voxel.LoadYAML` 读取 |
 | 本地化字符串表，版本 1 | `https://game.nsgo.dev/schemas/l10n.v1.json` | 每种语言一个 `*.yaml` 文件（如 `locales/en.yaml`），由 `l10n.ParseYAML` 和 `l10n.Catalog.LoadYAML` 读取 |
 | 地形定义，版本 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`，由 `world3d.ParseTerrain` 和 `world3d.LoadTerrainFS` 读取 |

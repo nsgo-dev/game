@@ -88,6 +88,28 @@ credit:
   source: https://kenney.nl/assets/kenney-fonts
 ```
 
+<!-- format: tooling/importsettings#source -->
+### 生成资源来源旁注文件
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 生成图片或声音旁边的 `<资源>.source.yaml`，如 `slime_frost.png.source.yaml` | `version: 1` | `importsettings.ParseAssetSource`、`importsettings.EncodeAssetSource` | [编辑器](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/source.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/source.v1.json
+version: 1
+generator: pixel-gen
+model: pixflux-1
+prompt: ice slime, 16 px pixel art, 4-colour shading, 1 px dark outline, facing right
+seed: 81515
+references:
+  - art/characters/slime.png
+  - brief.yaml#art
+license: pixellab-commercial-1.2
+commercialUse: true
+approvedBy: kim
+```
+
 <!-- format: refs -->
 ### 项目索引
 

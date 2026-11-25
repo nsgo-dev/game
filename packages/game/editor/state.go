@@ -751,6 +751,8 @@ type Editor struct {
 	disk diskWatchState
 	// playtest holds the Playtest Report screen state, active report entries, chart view-model, and playtest_define proposal reviews.
 	playtest playtestReportState
+	// assetGen holds the MCP asset generator client sessions, in-memory candidate previews, style brief checks, and license status.
+	assetGen assetGenState
 	// snapInvert temporarily inverts snapping while a modifier key (Ctrl/Cmd) is held during a drag or press.
 	snapInvert bool
 	// builtinOverlays and customOverlays hold the 2D viewport overlay definitions shown in the Overlays popover and editormcp's viewport_image.

@@ -162,6 +162,13 @@ var formats = []format{
 		version: importsettings.CurrentVersion,
 	},
 	{
+		url:     importsettings.AssetSourceSchemaURL,
+		title:   "NSGo game generated asset source (version 1)",
+		typ:     reflect.TypeFor[importsettings.AssetSource](),
+		pkg:     "tooling/importsettings",
+		version: importsettings.AssetSourceVersion,
+	},
+	{
 		url:     voxel.SchemaURL,
 		title:   "NSGo game voxel world (version 1)",
 		typ:     reflect.TypeFor[voxel.WorldDoc](),

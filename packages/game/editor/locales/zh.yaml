@@ -366,6 +366,7 @@ strings:
   menu.fillTile: 填充瓦片
   menu.findUsages: 查找用法
   menu.frameSelection: 聚焦选中
+  menu.generatedAssets: 生成资源
   menu.gizmo3d: 3D 操纵杆
   menu.group: 编组
   menu.lightingPreview: 2D 光照预览
@@ -596,6 +597,9 @@ strings:
   settings.system: 跟随系统
   settings.thisComputer: 此计算机
   settings.title: 编辑器设置
+  settings.tools: 工具 · MCP 生成器
+  settings.toolsHelp: 已配置的图像与音效生成 MCP 服务器。
+  settings.toolsNone: 未配置
   shortcutsSheet.customize: 自定义快捷键…
   shortcutsSheet.subtitleMac: macOS 按键。可在“设置 › 快捷键”中重新绑定任意命令。
   shortcutsSheet.subtitleOther: Windows 与 Linux 按键。可在“设置 › 快捷键”中重新绑定任意命令。
