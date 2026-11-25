@@ -2,6 +2,7 @@ package ai_test
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
@@ -167,4 +168,37 @@ func ExampleCooldown() {
 	fmt.Println("shots:", shots)
 	// Output:
 	// shots: 2
+}
+
+// A PerceptionSystem steps each guard's senses: a target in its sight cone with a clear line of sight is seen, a noise within hearing range is remembered where it was made, and memories are forgotten once nothing has sensed them for ForgetAfter.
+func ExamplePerceptionSystem() {
+	guard := &ai.Perception{
+		Self:        1,
+		Team:        1,
+		Facing:      core.Point{X: 1},
+		Sight:       ai.SightConfig{Range: 100, HalfAngle: math.Pi / 4},
+		Hearing:     ai.HearingConfig{Range: 60},
+		ForgetAfter: time.Second,
+	}
+	sys := ai.PerceptionSystem{Budget: 32}
+	sys.Add(guard)
+
+	const dt = time.Second / 4
+	sys.Step(dt, []ai.Target{{ID: 7, Team: 2, Pos: core.Point{X: 50, Y: 10}}})
+	sys.PostNoise(ai.Noise{Source: 8, Team: 2, Pos: core.Point{X: -30}, Loudness: 1})
+	sys.Step(dt, nil)
+	for _, ev := range guard.Events() {
+		fmt.Println(ev.Kind, ev.Memory.ID, ev.Memory.Sense, ev.Memory.Pos)
+	}
+	for range 4 {
+		sys.Step(dt, nil)
+		for _, ev := range guard.Events() {
+			fmt.Println(ev.Kind, ev.Memory.ID, ev.Memory.Age)
+		}
+	}
+	// Output:
+	// lost 7 sight {50 10}
+	// gained 8 hearing {-30 0}
+	// forgotten 7 1s
+	// forgotten 8 1s
 }

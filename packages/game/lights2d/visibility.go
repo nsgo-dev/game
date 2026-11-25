@@ -296,6 +296,13 @@ func Visible(origin, target core.Point, occluders []Occluder) bool {
 	return visibleSegments(float64(origin.X), float64(origin.Y), float64(target.X), float64(target.Y), segs)
 }
 
+// LineOfSight returns a function that reports Visible against *occluders, reading the slice on every call so a game that rebuilds its occluders keeps one function. It has the shape of ai.LineOfSight, so the occluders that cast shadows also block an agent's sight.
+func LineOfSight(occluders *[]Occluder) func(from, to core.Point) bool {
+	return func(from, to core.Point) bool {
+		return Visible(from, to, *occluders)
+	}
+}
+
 func visibleSegments(ox, oy, tx, ty float64, segs []seg64) bool {
 	dx, dy := tx-ox, ty-oy
 	if dx*dx+dy*dy < 1e-18 {

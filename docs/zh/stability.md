@@ -73,6 +73,7 @@
 | `game/accounts/token` | 实验性 | [accounts](accounts.md) |
 | `game/achievements` | 实验性 | [achievements](achievements.md) |
 | `game/ai` | 稳定 | [ai](ai.md) |
+| `game/ai/perception3d` | 实验性 | [ai](ai.md) |
 | `game/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/animclip` | 实验性 | [animclip](animclip.md) |
 | `game/assets` | 实验性 | [assets](assets.md) |

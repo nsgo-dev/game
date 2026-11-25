@@ -73,6 +73,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/accounts/token` | Experimental | [accounts](accounts.md) |
 | `game/achievements` | Experimental | [achievements](achievements.md) |
 | `game/ai` | Stable | [ai](ai.md) |
+| `game/ai/perception3d` | Experimental | [ai](ai.md) |
 | `game/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/animclip` | Experimental | [animclip](animclip.md) |
 | `game/assets` | Experimental | [assets](assets.md) |

@@ -37,6 +37,19 @@ func ExampleVisible() {
 	// true
 }
 
+// LineOfSight turns the occluders into a line-of-sight check, such as ai.PerceptionSystem.LineOfSight, that follows the slice as the level changes.
+func ExampleLineOfSight() {
+	occluders := []lights2d.Occluder{}
+	clear := lights2d.LineOfSight(&occluders)
+	guard, intruder := core.Point{X: 0, Y: 50}, core.Point{X: 100, Y: 50}
+	fmt.Println(clear(guard, intruder))
+	occluders = append(occluders, lights2d.SegmentOccluder(lights2d.Segment{A: core.Point{X: 50, Y: 0}, B: core.Point{X: 50, Y: 100}}))
+	fmt.Println(clear(guard, intruder))
+	// Output:
+	// true
+	// false
+}
+
 // VisibilityPolygon returns the area a light or viewer sees around the occluders, which PointInPolygon then tests points against.
 func ExampleVisibilityPolygon() {
 	box := lights2d.RectOccluder(core.Bounds{Origin: core.Point{X: 20, Y: -5}, Size: core.Size{Width: 10, Height: 10}})
