@@ -462,7 +462,6 @@ func TestManifoldsAndInertiaDeterminism(t *testing.T) {
 		w.AddBody(capBody)
 
 		plank := NewDynamicBody(BoxShape(Box{HalfExtents: Vec3{X: 0.8, Y: 0.3, Z: 0.1}}), Vec3{X: 0, Y: 6}, 3)
-		plank.GravityScale = -1 // zero gravity via GravityScale? Wait: use GravityScale=0? No, let's let it fall & spin!
 		plank.GravityScale = 0.01
 		plank.AngVel = Vec3{X: 0.1, Y: 10, Z: 0}
 		w.AddBody(plank)
@@ -476,5 +475,88 @@ func TestManifoldsAndInertiaDeterminism(t *testing.T) {
 	h2 := run()
 	if h1 != h2 {
 		t.Fatalf("determinism mismatch: %#016x != %#016x", h1, h2)
+	}
+}
+
+func TestInertiaSettersRejectNonSPDAndSubnormalOverflow(t *testing.T) {
+	// 1. Subnormal, negative, zero, and NaN diagonal inertia must never store Inf/NaN or negative values.
+	b := NewDynamicBody(BoxShape(Box{HalfExtents: Vec3{X: 0.5, Y: 0.5, Z: 0.5}}), Vec3{Y: 2}, 1)
+	b.SetInertia(Vec3{X: 1e-40, Y: -2, Z: float32(math.NaN())})
+	if !isFiniteSymMat3(b.InvInertiaTensor) || b.InvInertiaTensor != (SymMat3{}) || b.InvInertia != 0 {
+		t.Fatalf("SetInertia(subnormal/neg/NaN) = tensor %+v scalar %v, want zero", b.InvInertiaTensor, b.InvInertia)
+	}
+	b.SetInertia(Vec3{X: 1e-40, Y: 4, Z: 0})
+	if !isFiniteSymMat3(b.InvInertiaTensor) || b.InvInertiaTensor.XX != 0 || math.Abs(float64(b.InvInertiaTensor.YY)-0.25) > 1e-6 || b.InvInertiaTensor.ZZ != 0 {
+		t.Fatalf("SetInertia(mixed subnormal/valid/zero) = %+v, want {YY:0.25}", b.InvInertiaTensor)
+	}
+
+	// 2. Negative-definite and indefinite full tensors must not invert to negative/indefinite InvInertiaTensor.
+	cases := []struct {
+		name    string
+		tensor  SymMat3
+		wantPos bool
+	}{
+		{"negative-definite", DiagSymMat3(Vec3{X: -1, Y: -2, Z: -3}), false},
+		{"indefinite", SymMat3{XX: 1, YY: 1, ZZ: 1, XY: 10}, true},
+		{"singular-psd", SymMat3{XX: 2, YY: 2, ZZ: 4, XY: 2}, true},
+		{"subnormal-diag", DiagSymMat3(Vec3{X: 1e-40, Y: 2, Z: 4}), true},
+		{"nan-entry", SymMat3{XX: 1, YY: 1, ZZ: 1, XY: float32(math.NaN())}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewWorld()
+			w.AddBody(NewStaticBody(BoxShape(Box{HalfExtents: Vec3{X: 10, Y: 1, Z: 10}}), Vec3{Y: -1}))
+			dyn := w.AddBody(NewDynamicBody(BoxShape(Box{HalfExtents: Vec3{X: 0.5, Y: 0.5, Z: 0.5}}), Vec3{Y: 0.5}, 1))
+			dyn.SetInertiaTensor(tc.tensor)
+			inv := dyn.InvInertiaTensor
+			if !isFiniteSymMat3(inv) || !isFinite32(dyn.InvInertia) {
+				t.Fatalf("non-finite inverse inertia: tensor=%+v scalar=%v", inv, dyn.InvInertia)
+			}
+			if inv.XX < 0 || inv.YY < 0 || inv.ZZ < 0 {
+				t.Fatalf("negative diagonal in InvInertiaTensor: %+v", inv)
+			}
+			if !tc.wantPos && !inv.IsZero() {
+				t.Fatalf("expected zero InvInertiaTensor for %s, got %+v", tc.name, inv)
+			}
+			// Stepping with impacts and angular velocity must stay finite.
+			dyn.AngVel = Vec3{X: 3, Y: -2, Z: 1.5}
+			for range 60 {
+				w.Step(testStep60)
+			}
+			if !isFiniteVec(dyn.Pos) || !isFiniteVec(dyn.Vel) || !isFiniteVec(dyn.AngVel) {
+				t.Fatalf("non-finite kinematics after stepping %s: pos=%v vel=%v ang=%v", tc.name, dyn.Pos, dyn.Vel, dyn.AngVel)
+			}
+		})
+	}
+
+	// 3. Subnormal mass in invertShiftedInertia must not produce +Inf.
+	tinyInv := computeShapeInvInertiaTensor(BoxShape(Box{HalfExtents: Vec3{X: 0.5, Y: 0.5, Z: 0.5}}), 1e-40, Vec3{})
+	if !isFiniteSymMat3(tinyInv) {
+		t.Fatalf("computeShapeInvInertiaTensor(subnormal mass) produced non-finite tensor: %+v", tinyInv)
+	}
+
+	// 4. Save/Restore round-trip preserves custom overrides and multi-point warm-start cache bit-for-bit.
+	w1 := NewWorld()
+	w1.AddBody(NewStaticBody(BoxShape(Box{HalfExtents: Vec3{X: 10, Y: 1, Z: 10}}), Vec3{Y: -1}))
+	b1 := w1.AddBody(NewDynamicBody(BoxShape(Box{HalfExtents: Vec3{X: 0.5, Y: 0.5, Z: 0.5}}), Vec3{Y: 0.55}, 2))
+	b1.SetCenterOfMass(Vec3{Y: -0.1})
+	b1.SetInertia(Vec3{X: 0.8, Y: 1.2, Z: 2.0})
+	for range 30 {
+		w1.Step(testStep60)
+	}
+	snap := w1.Save()
+	w2 := NewWorld()
+	if err := w2.Restore(snap); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if w1.Checksum() != w2.Checksum() {
+		t.Fatalf("post-Restore checksum mismatch: %#016x != %#016x", w1.Checksum(), w2.Checksum())
+	}
+	for range 60 {
+		w1.Step(testStep60)
+		w2.Step(testStep60)
+	}
+	if w1.Checksum() != w2.Checksum() {
+		t.Fatalf("post-Restore stepped checksum mismatch: %#016x != %#016x", w1.Checksum(), w2.Checksum())
 	}
 }

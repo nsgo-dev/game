@@ -277,10 +277,10 @@ func boxBoxManifold(a, b Shape, c Contact, dst []manifoldPoint) []manifoldPoint 
 	if nKept == 0 {
 		return dst
 	}
-	chosen := reduceManifoldCandidates(kept[:nKept], refN)
+	chosenBuf, nChosen := reduceManifoldCandidates(kept[:nKept], refN)
 	refPt3 := refFaceCenter.vec3()
 	refN3 := refN.vec3().Norm()
-	for _, mc := range chosen {
+	for _, mc := range chosenBuf[:nChosen] {
 		dst = append(dst, manifoldPoint{
 			point:     mc.point.vec3(),
 			depth:     float32(mc.depth),
@@ -498,11 +498,12 @@ type manifoldCandidate struct {
 }
 
 // reduceManifoldCandidates reduces candidates to at most 4 points in a
-// deterministic order, keeping the deepest point first and then selecting up to
-// 3 more points that maximize the projected contact polygon area.
-func reduceManifoldCandidates(cands []manifoldCandidate, n dv) []manifoldCandidate {
+// deterministic order without heap allocation, keeping the deepest point first
+// and then selecting up to 3 more points that maximize the projected contact
+// polygon area.
+func reduceManifoldCandidates(cands []manifoldCandidate, n dv) (out [4]manifoldCandidate, count int) {
 	if len(cands) <= 4 {
-		return cands
+		return out, copy(out[:], cands)
 	}
 	n = n.norm()
 	// 1. Deepest point (lowest index breaks ties).
@@ -530,7 +531,8 @@ func reduceManifoldCandidates(cands []manifoldCandidate, n dv) []manifoldCandida
 		}
 	}
 	if i1 < 0 {
-		return cands[i0 : i0+1]
+		out[0] = cands[i0]
+		return out, 1
 	}
 	// 3. Point maximizing triangle area with (i0, i1).
 	triArea2 := func(a, b, c dv) float64 {
@@ -548,7 +550,8 @@ func reduceManifoldCandidates(cands []manifoldCandidate, n dv) []manifoldCandida
 		}
 	}
 	if i2 < 0 {
-		return []manifoldCandidate{cands[i0], cands[i1]}
+		out[0], out[1] = cands[i0], cands[i1]
+		return out, 2
 	}
 	// Orient (i0, i1, i2) positively around n so exterior triangles have positive area.
 	if triArea2(cands[i0].point, cands[i1].point, cands[i2].point) < 0 {
@@ -572,9 +575,11 @@ func reduceManifoldCandidates(cands []manifoldCandidate, n dv) []manifoldCandida
 		}
 	}
 	if i3 < 0 {
-		return []manifoldCandidate{cands[i0], cands[i1], cands[i2]}
+		out[0], out[1], out[2] = cands[i0], cands[i1], cands[i2]
+		return out, 3
 	}
-	return []manifoldCandidate{cands[i0], cands[i1], cands[i2], cands[i3]}
+	out[0], out[1], out[2], out[3] = cands[i0], cands[i1], cands[i2], cands[i3]
+	return out, 4
 }
 
 // convexShapeManifold computes up to 4 contact points with per-point depths and
@@ -638,11 +643,11 @@ func convexShapeManifold(a, b Shape, c Contact, dst []manifoldPoint) []manifoldP
 	if nCands == 0 {
 		return dst
 	}
-	chosen := reduceManifoldCandidates(cands[:nCands], fn)
+	chosenBuf, nChosen := reduceManifoldCandidates(cands[:nCands], fn)
 	refPt3 := ref[0].vec3()
 	refN3 := fn.vec3().Norm()
 	usePlane := cosN >= 0.95
-	for _, mc := range chosen {
+	for _, mc := range chosenBuf[:nChosen] {
 		dst = append(dst, manifoldPoint{
 			point:     mc.point.vec3(),
 			depth:     float32(mc.depth),
@@ -703,11 +708,11 @@ func shapeOnTriangleManifold(s Shape, tri Triangle, c Contact, dst []manifoldPoi
 	if nCands == 0 {
 		return dst
 	}
-	chosen := reduceManifoldCandidates(cands[:nCands], fn)
+	chosenBuf, nChosen := reduceManifoldCandidates(cands[:nCands], fn)
 	refPt3 := t[0].vec3()
 	refN3 := fn.vec3().Norm()
 	usePlane := cosN >= 0.95
-	for _, mc := range chosen {
+	for _, mc := range chosenBuf[:nChosen] {
 		dst = append(dst, manifoldPoint{
 			point:     mc.point.vec3(),
 			depth:     float32(mc.depth),

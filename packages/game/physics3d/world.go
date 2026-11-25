@@ -408,6 +408,9 @@ type World struct {
 	manifoldBuf     []manifoldPoint
 	shockOrderBuf   []int
 	shockHeightsBuf []float32
+	shockStackAbove map[int]int
+	shockColBuf     map[int]bool
+	shockMaskBuf    []bool
 	curKeysBuf      []contactKey
 	exitKeysBuf     []contactKey
 }
@@ -1289,7 +1292,7 @@ func (w *World) Step(dt time.Duration) {
 	var shockMask []bool
 	if haveUp && !w.disableShock {
 		shock = w.shockOrder(contacts, up)
-		shockMask = computeShockMask(contacts, shock, up)
+		shockMask = w.computeShockMask(contacts, shock, up)
 		if shockMask != nil {
 			propagateShockVelocity(contacts, shock, shockMask, up)
 		}
@@ -1930,12 +1933,16 @@ func manifoldGroupEnd(contacts []solverContact, start int) int {
 // shockStackThreshold stacked bodies. It returns nil when no contact qualifies,
 // so ordinary stacks (including 10-box uniform towers) bypass shock propagation
 // completely with zero overhead and zero hysteresis.
-func computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
+func (w *World) computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
 	if len(order) == 0 {
 		return nil
 	}
-	var stackAbove map[int]int
-	var colShock map[int]bool
+	if w.shockStackAbove != nil {
+		clear(w.shockStackAbove)
+	}
+	if w.shockColBuf != nil {
+		clear(w.shockColBuf)
+	}
 	anyShock := false
 
 	// Pass 1 (top-down): accumulate stack depth above each dynamic body and
@@ -1958,27 +1965,27 @@ func computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
 		}
 		if side != 0 && upper != nil && !upper.Static && !upper.Kinematic {
 			chain := 1
-			if stackAbove != nil {
-				chain = stackAbove[upper.ID] + 1
+			if w.shockStackAbove != nil {
+				chain = w.shockStackAbove[upper.ID] + 1
 			}
 			heavyOnLight := lower != nil && !lower.Static && !lower.Kinematic && lower.Mass > 0 && upper.Mass > shockMassRatio*lower.Mass
-			need := heavyOnLight || chain > shockStackThreshold || (colShock != nil && colShock[upper.ID])
+			need := heavyOnLight || chain > shockStackThreshold || (w.shockColBuf != nil && w.shockColBuf[upper.ID])
 			if need {
-				if colShock == nil {
-					colShock = make(map[int]bool)
+				if w.shockColBuf == nil {
+					w.shockColBuf = make(map[int]bool)
 				}
-				colShock[upper.ID] = true
+				w.shockColBuf[upper.ID] = true
 				anyShock = true
 			}
 			if lower != nil && !lower.Static && !lower.Kinematic {
-				if stackAbove == nil {
-					stackAbove = make(map[int]int)
+				if w.shockStackAbove == nil {
+					w.shockStackAbove = make(map[int]int)
 				}
-				if chain > stackAbove[lower.ID] {
-					stackAbove[lower.ID] = chain
+				if chain > w.shockStackAbove[lower.ID] {
+					w.shockStackAbove[lower.ID] = chain
 				}
 				if need {
-					colShock[lower.ID] = true
+					w.shockColBuf[lower.ID] = true
 				}
 			}
 		}
@@ -1990,7 +1997,13 @@ func computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
 
 	// Pass 2 (bottom-up): propagate column flag upward so every pair in a
 	// qualifying tall/heavy column receives consistent bottom-up shock help.
-	mask := make([]bool, len(contacts))
+	if cap(w.shockMaskBuf) < len(contacts) {
+		w.shockMaskBuf = make([]bool, len(contacts))
+	} else {
+		w.shockMaskBuf = w.shockMaskBuf[:len(contacts)]
+		clear(w.shockMaskBuf)
+	}
+	mask := w.shockMaskBuf
 	for idx := 0; idx < len(order); {
 		i0 := order[idx]
 		c0 := &contacts[i0]
@@ -2008,9 +2021,9 @@ func computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
 			upper, lower = c0.b, c0.a
 		}
 		if side != 0 && upper != nil && !upper.Static && !upper.Kinematic {
-			inCol := colShock[upper.ID] || (lower != nil && colShock[lower.ID])
+			inCol := w.shockColBuf[upper.ID] || (lower != nil && w.shockColBuf[lower.ID])
 			if inCol {
-				colShock[upper.ID] = true
+				w.shockColBuf[upper.ID] = true
 				for k := idx; k < endIdx; k++ {
 					mask[order[k]] = true
 				}
