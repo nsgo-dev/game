@@ -3,6 +3,8 @@ package physics3d
 import (
 	"math"
 	"slices"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 )
 
 // ShapeCastOptions configures filtering for World.ShapeCastWith and World.ShapeCastAllWith.
@@ -127,7 +129,7 @@ func (w *World) shapeCastFirst(shape Shape, origin Vec3, rot Quat, delta Vec3, m
 			continue
 		}
 		target := b.WorldShape()
-		if !aabbOverlap(sweptBounds, target.Bounds()) {
+		if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
 			continue
 		}
 		if h, ok := sweepShapeVsShape3D(ws, delta, target); ok {
@@ -197,7 +199,7 @@ func (w *World) shapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3, mas
 			continue
 		}
 		target := b.WorldShape()
-		if !aabbOverlap(sweptBounds, target.Bounds()) {
+		if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
 			continue
 		}
 		if h, ok := sweepShapeVsShape3D(ws, delta, target); ok {
@@ -508,11 +510,11 @@ func sweepPointVsSphere3D(p, d, c vec3d, r float64) (t float64, normal vec3d, ok
 	if qb >= 0 {
 		return 0, vec3d{}, false
 	}
-	qc := o.lenSq() - r*r
+	qc := o.lenSq() - float64(r*r)
 	if qc <= 0 {
 		return 0, o.norm(), true
 	}
-	disc := qb*qb - qa*qc
+	disc := float64(qb*qb) - float64(qa*qc)
 	if disc <= 0 {
 		return 0, vec3d{}, false
 	}
@@ -560,12 +562,12 @@ func sweepPointVsSegmentCylinder3D(p, d, segA, segB vec3d, r float64) (t float64
 	if qb >= 0 {
 		return 0, vec3d{}, vec3d{}, false
 	}
-	qc := aoPerp.lenSq() - r*r
+	qc := aoPerp.lenSq() - float64(r*r)
 	var hitT float64
 	if qc <= 0 {
 		hitT = 0
 	} else {
-		disc := qb*qb - qa*qc
+		disc := float64(qb*qb) - float64(qa*qc)
 		if disc <= 0 {
 			return 0, vec3d{}, vec3d{}, false
 		}
@@ -659,7 +661,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	if d.x > 0 {
 		t := (bMin.x - r - p.x) / d.x
 		if t >= 0 && t <= 1 {
-			hy, hz := p.y+d.y*t, p.z+d.z*t
+			hy, hz := p.y+float64(d.y*t), p.z+float64(d.z*t)
 			if hy >= bMin.y && hy <= bMax.y && hz >= bMin.z && hz <= bMax.z {
 				consider(t, vec3d{bMin.x, hy, hz}, vec3d{-1, 0, 0})
 			}
@@ -667,7 +669,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	} else if d.x < 0 {
 		t := (bMax.x + r - p.x) / d.x
 		if t >= 0 && t <= 1 {
-			hy, hz := p.y+d.y*t, p.z+d.z*t
+			hy, hz := p.y+float64(d.y*t), p.z+float64(d.z*t)
 			if hy >= bMin.y && hy <= bMax.y && hz >= bMin.z && hz <= bMax.z {
 				consider(t, vec3d{bMax.x, hy, hz}, vec3d{1, 0, 0})
 			}
@@ -677,7 +679,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	if d.y > 0 {
 		t := (bMin.y - r - p.y) / d.y
 		if t >= 0 && t <= 1 {
-			hx, hz := p.x+d.x*t, p.z+d.z*t
+			hx, hz := p.x+float64(d.x*t), p.z+float64(d.z*t)
 			if hx >= bMin.x && hx <= bMax.x && hz >= bMin.z && hz <= bMax.z {
 				consider(t, vec3d{hx, bMin.y, hz}, vec3d{0, -1, 0})
 			}
@@ -685,7 +687,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	} else if d.y < 0 {
 		t := (bMax.y + r - p.y) / d.y
 		if t >= 0 && t <= 1 {
-			hx, hz := p.x+d.x*t, p.z+d.z*t
+			hx, hz := p.x+float64(d.x*t), p.z+float64(d.z*t)
 			if hx >= bMin.x && hx <= bMax.x && hz >= bMin.z && hz <= bMax.z {
 				consider(t, vec3d{hx, bMax.y, hz}, vec3d{0, 1, 0})
 			}
@@ -695,7 +697,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	if d.z > 0 {
 		t := (bMin.z - r - p.z) / d.z
 		if t >= 0 && t <= 1 {
-			hx, hy := p.x+d.x*t, p.y+d.y*t
+			hx, hy := p.x+float64(d.x*t), p.y+float64(d.y*t)
 			if hx >= bMin.x && hx <= bMax.x && hy >= bMin.y && hy <= bMax.y {
 				consider(t, vec3d{hx, hy, bMin.z}, vec3d{0, 0, -1})
 			}
@@ -703,7 +705,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	} else if d.z < 0 {
 		t := (bMax.z + r - p.z) / d.z
 		if t >= 0 && t <= 1 {
-			hx, hy := p.x+d.x*t, p.y+d.y*t
+			hx, hy := p.x+float64(d.x*t), p.y+float64(d.y*t)
 			if hx >= bMin.x && hx <= bMax.x && hy >= bMin.y && hy <= bMax.y {
 				consider(t, vec3d{hx, hy, bMax.z}, vec3d{0, 0, 1})
 			}
@@ -719,7 +721,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	for _, ey := range ys {
 		for _, ez := range zs {
 			if t, ny, nz, ok := sweepPointVsDisk2D3D(p.y, p.z, d.y, d.z, ey, ez, r); ok {
-				hx := p.x + d.x*t
+				hx := p.x + float64(d.x*t)
 				if hx >= bMin.x && hx <= bMax.x {
 					consider(t, vec3d{hx, ey, ez}, vec3d{0, ny, nz})
 				}
@@ -730,7 +732,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	for _, ex := range xs {
 		for _, ez := range zs {
 			if t, nx, nz, ok := sweepPointVsDisk2D3D(p.x, p.z, d.x, d.z, ex, ez, r); ok {
-				hy := p.y + d.y*t
+				hy := p.y + float64(d.y*t)
 				if hy >= bMin.y && hy <= bMax.y {
 					consider(t, vec3d{ex, hy, ez}, vec3d{nx, 0, nz})
 				}
@@ -741,7 +743,7 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 	for _, ex := range xs {
 		for _, ey := range ys {
 			if t, nx, ny, ok := sweepPointVsDisk2D3D(p.x, p.y, d.x, d.y, ex, ey, r); ok {
-				hz := p.z + d.z*t
+				hz := p.z + float64(d.z*t)
 				if hz >= bMin.z && hz <= bMax.z {
 					consider(t, vec3d{ex, ey, hz}, vec3d{nx, ny, 0})
 				}
@@ -774,22 +776,27 @@ func sweepSphereVsAABB3D(s Sphere, delta Vec3, dist float32, b Box) (RaycastHit,
 
 func sweepPointVsDisk2D3D(px, py, dx, dy, cx, cy, r float64) (t, nx, ny float64, ok bool) {
 	ox, oy := px-cx, py-cy
-	qa := dx*dx + dy*dy
+	qa := float64(dx*dx) + float64(dy*dy)
 	if qa == 0 {
 		return 0, 0, 0, false
 	}
-	qb := ox*dx + oy*dy
+	qb := float64(ox*dx) + float64(oy*dy)
 	if qb >= 0 {
 		return 0, 0, 0, false
 	}
-	qc := ox*ox + oy*oy - r*r
+	qc := float64(float64(ox*ox)+float64(oy*oy)) - float64(r*r)
 	if qc <= 0 {
-		if l := math.Hypot(ox, oy); l > 0 {
+		if l := detmath.Hypot(ox, oy); l > 0 {
 			nx, ny = ox/l, oy/l
 		}
 		return 0, nx, ny, true
 	}
-	disc := qb*qb - qa*qc
+	perp := math.Abs(float64(ox*dy) - float64(oy*dx))
+	rDist := float64(r * math.Sqrt(qa))
+	if perp >= rDist {
+		return 0, 0, 0, false
+	}
+	disc := float64(rDist-perp) * float64(rDist+perp)
 	if disc <= 0 {
 		return 0, 0, 0, false
 	}
@@ -797,8 +804,8 @@ func sweepPointVsDisk2D3D(px, py, dx, dy, cx, cy, r float64) (t, nx, ny float64,
 	if t < 0 || t > 1 {
 		return 0, 0, 0, false
 	}
-	hx, hy := ox+dx*t, oy+dy*t
-	if l := math.Hypot(hx, hy); l > 0 {
+	hx, hy := ox+float64(dx*t), oy+float64(dy*t)
+	if l := detmath.Hypot(hx, hy); l > 0 {
 		nx, ny = hx/l, hy/l
 	}
 	return t, nx, ny, true
@@ -891,7 +898,7 @@ func sweepOBBVsOBB3D(a Box, rotA Quat, delta Vec3, dist float32, b Box, rotB Qua
 	vel := toVec3d(delta)
 
 	project := func(axes [3]vec3d, e vec3d, l vec3d) float64 {
-		return e.x*math.Abs(axes[0].dot(l)) + e.y*math.Abs(axes[1].dot(l)) + e.z*math.Abs(axes[2].dot(l))
+		return float64(float64(e.x*math.Abs(axes[0].dot(l)))+float64(e.y*math.Abs(axes[1].dot(l)))) + float64(e.z*math.Abs(axes[2].dot(l)))
 	}
 
 	tEnter := math.Inf(-1)
@@ -966,9 +973,9 @@ func sweepOBBVsOBB3D(a Box, rotA Quat, delta Vec3, dist float32, b Box, rotB Qua
 	} else {
 		// Crossed faces with no corner inside the other box: project midpoint onto B's support plane.
 		bSupport := b.Center.Add(nf.Scale(
-			b.HalfExtents.X*abs32(bxF[0].Dot(nf)) +
-				b.HalfExtents.Y*abs32(bxF[1].Dot(nf)) +
-				b.HalfExtents.Z*abs32(bxF[2].Dot(nf)),
+			float32(float32(b.HalfExtents.X*abs32(bxF[0].Dot(nf)))+
+				float32(b.HalfExtents.Y*abs32(bxF[1].Dot(nf)))) +
+				float32(b.HalfExtents.Z*abs32(bxF[2].Dot(nf))),
 		))
 		mid := aCenterAt.Add(b.Center).Scale(0.5)
 		pt = mid.Add(nf.Scale(bSupport.Sub(mid).Dot(nf)))
@@ -1252,7 +1259,7 @@ func sweepAABBVsTriangle3D(b Box, delta Vec3, dist float32, tri Triangle) (Rayca
 			return true
 		}
 		l = l.scale(1.0 / math.Sqrt(ls))
-		rBox := e.x*math.Abs(l.x) + e.y*math.Abs(l.y) + e.z*math.Abs(l.z)
+		rBox := float64(float64(e.x*math.Abs(l.x))+float64(e.y*math.Abs(l.y))) + float64(e.z*math.Abs(l.z))
 		cProj := c.dot(l)
 		p0, p1, p2 := v0.dot(l), v1.dot(l), v2.dot(l)
 		tMin := min(p0, min(p1, p2))

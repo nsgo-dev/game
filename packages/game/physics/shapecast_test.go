@@ -174,6 +174,110 @@ func TestShapeCastCorridorTiles(t *testing.T) {
 	}
 }
 
+func TestShapeCastTilesExactBoundaryFractionOne(t *testing.T) {
+	// 8x8 grid of 16x16 tiles with solid walls around a central open area and a one-way platform.
+	grid := physics.NewGrid(8, 8, 16, 16)
+	grid.Set(5, 3, physics.TileSolid)  // +X target at x=[80, 96], y=[48, 64]
+	grid.Set(1, 3, physics.TileSolid)  // -X target at x=[16, 32], y=[48, 64]
+	grid.Set(3, 5, physics.TileSolid)  // +Y target at x=[48, 64], y=[80, 96]
+	grid.Set(3, 1, physics.TileSolid)  // -Y target at x=[48, 64], y=[16, 32]
+	grid.Set(6, 5, physics.TileOneWay) // +Y one-way at x=[96, 112], y=[80, 96]
+
+	w := &physics.World{Tiles: grid}
+	center := physics.BoxShape(physics.Box{X: 48, Y: 48, W: 16, H: 16})
+
+	cases := []struct {
+		name      string
+		shape     physics.Shape
+		dx, dy    float32
+		mask      physics.QueryMask
+		wantCol   int
+		wantRow   int
+		wantNX    float32
+		wantNY    float32
+		wantFlags physics.TileFlags
+	}{
+		{"+X solid", center, 16, 0, physics.QueryTiles, 5, 3, -1, 0, physics.TileSolid},
+		{"-X solid", center, -16, 0, physics.QueryTiles, 1, 3, 1, 0, physics.TileSolid},
+		{"+Y solid", center, 0, 16, physics.QueryTiles, 3, 5, 0, -1, physics.TileSolid},
+		{"-Y solid", center, 0, -16, physics.QueryTiles, 3, 1, 0, 1, physics.TileSolid},
+		{"+Y one-way", physics.BoxShape(physics.Box{X: 96, Y: 48, W: 16, H: 16}), 0, 16, physics.QueryOneWay, 6, 5, 0, -1, physics.TileOneWay},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, ok := w.ShapeCast(tc.shape, tc.dx, tc.dy, tc.mask)
+			if !ok {
+				t.Fatalf("expected hit at Fraction == 1.0, got miss")
+			}
+			if !h.Tile || h.Col != tc.wantCol || h.Row != tc.wantRow || h.TileFlags != tc.wantFlags {
+				t.Fatalf("hit = %+v, want tile (%d,%d) flags=%v", h, tc.wantCol, tc.wantRow, tc.wantFlags)
+			}
+			if !nearF32(h.Fraction, 1.0, 1e-5) || h.NormalX != tc.wantNX || h.NormalY != tc.wantNY {
+				t.Fatalf("frac/normal = (%v, %v, %v), want (1.0, %v, %v)", h.Fraction, h.NormalX, h.NormalY, tc.wantNX, tc.wantNY)
+			}
+		})
+	}
+}
+
+func TestShapeCastRejectsNonFiniteShapesAndPoses(t *testing.T) {
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+
+	grid := physics.NewGrid(4, 4, 16, 16)
+	grid.Set(2, 1, physics.TileSolid)
+	w := &physics.World{Tiles: grid}
+	w.Add(physics.NewBoxBody(32, 16, 16, 16))
+	// Body with NaN dimensions must be skipped cleanly.
+	w.Add(&physics.Body{Shape: physics.BoxShape(physics.Box{X: 0, Y: 0, W: nan, H: 10})})
+
+	badShapes := []physics.Shape{
+		physics.BoxShape(physics.Box{X: nan, Y: 0, W: 10, H: 10}),
+		physics.BoxShape(physics.Box{X: 0, Y: 0, W: nan, H: 10}),
+		physics.BoxShape(physics.Box{X: inf, Y: 0, W: 10, H: 10}),
+		physics.CircleShape(physics.Circle{X: nan, Y: 0, R: 5}),
+		physics.CircleShape(physics.Circle{X: 0, Y: 0, R: nan}),
+		physics.CircleShape(physics.Circle{X: 0, Y: inf, R: 5}),
+	}
+	validBox := physics.BoxShape(physics.Box{X: 0, Y: 16, W: 10, H: 10})
+
+	for i, s := range badShapes {
+		if h, ok := physics.ShapeCastShape(s, 50, 0, validBox); ok {
+			t.Fatalf("badShapes[%d] unexpectedly hit ShapeCastShape: %+v", i, h)
+		}
+		if h, ok := physics.ShapeCastShape(validBox, 50, 0, s); ok {
+			t.Fatalf("badShapes[%d] target unexpectedly hit ShapeCastShape: %+v", i, h)
+		}
+		if h, ok := w.ShapeCast(s, 50, 0, physics.QueryAll); ok {
+			t.Fatalf("badShapes[%d] unexpectedly hit World.ShapeCast: %+v", i, h)
+		}
+		if hits := w.ShapeCastAll(s, 50, 0, physics.QueryAll); len(hits) != 0 {
+			t.Fatalf("badShapes[%d] unexpectedly hit World.ShapeCastAll: %+v", i, hits)
+		}
+	}
+
+	// RigidWorld with rotated OBB and non-finite poses must not produce NaN hits.
+	rw := &physics.RigidWorld{}
+	diamond := physics.NewStaticRigidBox(50, 0, 20, 20)
+	diamond.Angle = float32(math.Pi / 4)
+	badPose := physics.NewStaticRigidBox(nan, 0, 20, 20)
+	badPose.Angle = float32(math.Pi / 4)
+	badAngle := physics.NewStaticRigidBox(20, 0, 20, 20)
+	badAngle.Angle = nan
+	rw.AddBody(badPose, badAngle, diamond)
+
+	for i, s := range badShapes {
+		if h, ok := rw.ShapeCast(s, 100, 0, physics.LayerAll); ok {
+			t.Fatalf("badShapes[%d] unexpectedly hit RigidWorld.ShapeCast: %+v", i, h)
+		}
+	}
+	// Valid cast skips badPose and badAngle and hits diamond cleanly.
+	h, ok := rw.ShapeCast(physics.BoxShape(physics.Box{X: -5, Y: -5, W: 10, H: 10}), 100, 0, physics.LayerAll)
+	if !ok || h.RigidBody != diamond {
+		t.Fatalf("valid RigidWorld cast after bad bodies = (%+v, %v), want diamond", h, ok)
+	}
+}
+
 func TestShapeCastTileGridOriginNegative(t *testing.T) {
 	grid := physics.NewGrid(6, 4, 16, 16)
 	grid.OriginX = -80

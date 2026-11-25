@@ -140,7 +140,7 @@ for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
 沿位移 `(dx, dy)` 扫掠 `Box` 或 `Circle`，计算精确解析碰撞时间（针对物体、旋转 `RigidBody` 以及支持 `TileGridOrigin` 的瓦片网格执行闵可夫斯基和扫掠）：
 
 - **`World`**：`ShapeCast(shape, dx, dy, mask)` 返回最早命中的 `ShapeCastHit`（包含 `Fraction`、`Point`、`NormalX`/`NormalY`、`Body` 或 `Tile`/`Col`/`Row`/`TileFlags`），`ShapeCastAll` 按 `Fraction` 升序返回全部命中（相同分数时按 `World.Bodies` 顺序物体优先于按 `(Row, Col)` 行主序排列的瓦片）。使用 `ShapeCastLayer`/`ShapeCastAllLayer` 按 `LayerMask` 过滤，或使用 `ShapeCastWith`/`ShapeCastAllWith`（`ShapeCastOptions`）组合 `QueryMask`、`LayerMask` 与 `IgnoreBody`。
-- **`RigidWorld`**：`ShapeCast(shape, dx, dy, layerMask)`、`ShapeCastAll`、`ShapeCastWith` 与 `ShapeCastAllWith` 针对静态与动态 `*RigidBody`（包含通过 2D 运动分离轴定理精确解算的旋转 OBB）扫掠，并填充 `ShapeCastHit.RigidBody`。
+- **`RigidWorld`**：`ShapeCast(shape, dx, dy, layerMask)`、`ShapeCastAll`、`ShapeCastWith` 与 `ShapeCastAllWith` 针对静态与动态 `*RigidBody`（包含通过 2D 运动分离轴定理精确解算的旋转 OBB）扫掠，支持通过 `ShapeCastOptions.IgnoreRigidBody` 忽略指定刚体，并填充 `ShapeCastHit.RigidBody`。
 - **独立接口**：`ShapeCastShape(moving, dx, dy, target)` 直接测试单对形状。初始重叠在 `Fraction == 0` 处返回 `TestShapes` 接触；紧贴墙面或地面平行滑过时不会误卡住。
 
 ```go

@@ -140,7 +140,7 @@ See [tilemap](tilemap.md) for how each object maps to a shape.
 Sweep a `Box` or `Circle` along a displacement `(dx, dy)` to get exact analytic times of impact (Minkowski sweeps for box/circle against bodies, oriented `RigidBody` shapes, and tiles, including `TileGridOrigin`):
 
 - **`World`**: `ShapeCast(shape, dx, dy, mask)` returns the earliest `ShapeCastHit` (`Fraction`, `Point`, `NormalX`, `NormalY`, `Body`, or `Tile`/`Col`/`Row`/`TileFlags`) and `ShapeCastAll` returns all hits sorted by ascending `Fraction` (bodies in `World.Bodies` order before tiles in row-major `(Row, Col)` order on ties). Use `ShapeCastLayer`/`ShapeCastAllLayer` for `LayerMask` filtering or `ShapeCastWith`/`ShapeCastAllWith` (`ShapeCastOptions`) to combine `QueryMask`, `LayerMask`, and `IgnoreBody`.
-- **`RigidWorld`**: `ShapeCast(shape, dx, dy, layerMask)`, `ShapeCastAll`, `ShapeCastWith`, and `ShapeCastAllWith` sweep against static and dynamic `*RigidBody` shapes (including rotated OBBs via exact 2D moving SAT) and populate `ShapeCastHit.RigidBody`.
+- **`RigidWorld`**: `ShapeCast(shape, dx, dy, layerMask)`, `ShapeCastAll`, `ShapeCastWith`, and `ShapeCastAllWith` sweep against static and dynamic `*RigidBody` shapes (including rotated OBBs via exact 2D moving SAT), supporting `ShapeCastOptions.IgnoreRigidBody`, and populate `ShapeCastHit.RigidBody`.
 - **Standalone**: `ShapeCastShape(moving, dx, dy, target)` tests a single pair directly. Initial overlaps return `Fraction == 0` with the overlap contact from `TestShapes`, while grazing parallel motion along walls or floors does not snag.
 
 ```go

@@ -284,6 +284,15 @@ func TestShapeCastLayerIgnoreAndTriggers(t *testing.T) {
 	if len(all) != 2 || all[0].Body != trigger || all[1].Body != wall {
 		t.Fatalf("ShapeCastAllLayer = %+v, want [trigger, wall]", all)
 	}
+
+	// Non-finite body in world is skipped without breaking valid casts.
+	nan := float32(math.NaN())
+	badBody := w.AddBody(physics3d.NewStaticBody(physics3d.SphereShape(physics3d.Sphere{Radius: nan}), physics3d.Vec3{X: 1}))
+	_ = badBody
+	h, ok = w.ShapeCastLayer(sphere, physics3d.Vec3{}, physics3d.QuatIdentity(), physics3d.Vec3{X: 10}, layerWall, nil)
+	if !ok || h.Body != wall {
+		t.Fatalf("cast with bad body in world = (%+v, %v), want wall", h, ok)
+	}
 }
 
 func TestCameraSpringArmNeverClips(t *testing.T) {

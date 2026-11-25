@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -41,11 +42,25 @@ type ShapeCastOptions struct {
 	IgnoreRigidBody *RigidBody
 }
 
+func shapeValid2D(s Shape) bool {
+	switch s.Kind {
+	case ShapeBox:
+		return isFinite32(s.Box.X) && isFinite32(s.Box.Y) &&
+			isFinite32(s.Box.W) && isFinite32(s.Box.H) &&
+			s.Box.W > 0 && s.Box.H > 0
+	case ShapeCircle:
+		return isFinite32(s.Circle.X) && isFinite32(s.Circle.Y) &&
+			isFinite32(s.Circle.R) && s.Circle.R > 0
+	default:
+		return false
+	}
+}
+
 // ShapeCastShape sweeps moving by (dx, dy) against stationary target and returns the exact
 // time of impact, contact point, and outward unit normal pointing from target toward moving.
 // Initial overlaps report Fraction == 0 with the overlap contact from TestShapes.
 func ShapeCastShape(moving Shape, dx, dy float32, target Shape) (ShapeCastHit, bool) {
-	if moving.Empty() || target.Empty() || !isFinite32(dx) || !isFinite32(dy) {
+	if !shapeValid2D(moving) || !shapeValid2D(target) || !isFinite32(dx) || !isFinite32(dy) {
 		return ShapeCastHit{}, false
 	}
 	return sweepShapeVsShape(moving, float64(dx), float64(dy), target)
@@ -80,7 +95,7 @@ func (w *World) ShapeCastAllLayer(shape Shape, dx, dy float32, mask QueryMask, l
 // ShapeCastWith sweeps shape by (dx, dy) against targets in w matching opts and returns the
 // earliest hit with deterministic tie-breaking.
 func (w *World) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions) (ShapeCastHit, bool) {
-	if w == nil || shape.Empty() || !isFinite32(dx) || !isFinite32(dy) {
+	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return ShapeCastHit{}, false
 	}
 	mask := opts.QueryMask
@@ -96,7 +111,7 @@ func (w *World) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions
 
 	if mask&QueryBodies != 0 {
 		for _, b := range w.Bodies {
-			if b == nil || b == opts.IgnoreBody || b.Shape.Empty() || (b.layer()&layerMask) == 0 {
+			if b == nil || b == opts.IgnoreBody || !shapeValid2D(b.Shape) || (b.layer()&layerMask) == 0 {
 				continue
 			}
 			if h, ok := sweepShapeVsShape(shape, fx, fy, b.Shape); ok {
@@ -126,7 +141,7 @@ func (w *World) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions
 // every hit sorted by ascending Fraction in [0, 1]. Equal fractions keep bodies (in World.Bodies
 // order) before tiles (in row-major Row, Col order).
 func (w *World) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOptions) []ShapeCastHit {
-	if w == nil || shape.Empty() || !isFinite32(dx) || !isFinite32(dy) {
+	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return nil
 	}
 	mask := opts.QueryMask
@@ -139,7 +154,7 @@ func (w *World) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOpti
 	var hits []ShapeCastHit
 	if mask&QueryBodies != 0 {
 		for _, b := range w.Bodies {
-			if b == nil || b == opts.IgnoreBody || b.Shape.Empty() || (b.layer()&layerMask) == 0 {
+			if b == nil || b == opts.IgnoreBody || !shapeValid2D(b.Shape) || (b.layer()&layerMask) == 0 {
 				continue
 			}
 			if h, ok := sweepShapeVsShape(shape, fx, fy, b.Shape); ok {
@@ -176,7 +191,7 @@ func (w *RigidWorld) ShapeCastAll(shape Shape, dx, dy float32, layerMask LayerMa
 // ShapeCastWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
 // the earliest hit. Ties break in RigidWorld.Bodies order.
 func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions) (ShapeCastHit, bool) {
-	if w == nil || shape.Empty() || !isFinite32(dx) || !isFinite32(dy) {
+	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return ShapeCastHit{}, false
 	}
 	if opts.QueryMask != 0 && opts.QueryMask&QueryBodies == 0 {
@@ -188,7 +203,7 @@ func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOp
 	var best ShapeCastHit
 	hasBest := false
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || b.Shape.Empty() || (effectiveLayer(b.Layer)&layerMask) == 0 {
+		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {
@@ -205,7 +220,7 @@ func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOp
 // ShapeCastAllWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
 // all hits sorted by ascending Fraction in [0, 1]. Equal fractions preserve RigidWorld.Bodies order.
 func (w *RigidWorld) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOptions) []ShapeCastHit {
-	if w == nil || shape.Empty() || !isFinite32(dx) || !isFinite32(dy) {
+	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return nil
 	}
 	if opts.QueryMask != 0 && opts.QueryMask&QueryBodies == 0 {
@@ -216,7 +231,7 @@ func (w *RigidWorld) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCas
 
 	var hits []ShapeCastHit
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || b.Shape.Empty() || (effectiveLayer(b.Layer)&layerMask) == 0 {
+		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {
@@ -251,17 +266,24 @@ func sweepShapeVsShape(moving Shape, dx, dy float64, target Shape) (ShapeCastHit
 }
 
 func sweepShapeVsRigidBody(moving Shape, dx, dy float64, b *RigidBody) (ShapeCastHit, bool) {
+	if !isFinite32(b.X) || !isFinite32(b.Y) || !isFinite32(b.Angle) {
+		return ShapeCastHit{}, false
+	}
 	switch b.Shape.Kind {
 	case ShapeCircle:
-		c := Circle{X: b.X, Y: b.Y, R: b.Shape.Circle.R}
+		r := b.Shape.Circle.R
+		if !isFinite32(r) || r <= 0 {
+			return ShapeCastHit{}, false
+		}
+		c := Circle{X: b.X, Y: b.Y, R: r}
 		return sweepShapeVsShape(moving, dx, dy, CircleShape(c))
 	case ShapeBox:
 		w, h := b.Shape.Box.W, b.Shape.Box.H
-		if w <= 0 || h <= 0 {
+		if !isFinite32(w) || !isFinite32(h) || w <= 0 || h <= 0 {
 			return ShapeCastHit{}, false
 		}
 		if b.Angle == 0 {
-			box := Box{X: b.X - w*0.5, Y: b.Y - h*0.5, W: w, H: h}
+			box := Box{X: b.X - float32(w*0.5), Y: b.Y - float32(h*0.5), W: w, H: h}
 			return sweepShapeVsShape(moving, dx, dy, BoxShape(box))
 		}
 		switch moving.Kind {
@@ -353,8 +375,8 @@ func sweepBoxVsBox2D(a Box, dx, dy float64, b Box) (ShapeCastHit, bool) {
 		return ShapeCastHit{}, false
 	}
 
-	axT := ax + dx*tEnter
-	ayT := ay + dy*tEnter
+	axT := ax + float64(dx*tEnter)
+	ayT := ay + float64(dy*tEnter)
 	var px, py float64
 	if nx < 0 {
 		px = bx
@@ -404,7 +426,7 @@ func sweepCircleVsCircle2D(a Circle, dx, dy float64, b Circle) (ShapeCastHit, bo
 	}
 	return ShapeCastHit{
 		Fraction: float32(t),
-		Point:    core.Point{X: core.Points(bx + nx*br), Y: core.Points(by + ny*br)},
+		Point:    core.Point{X: core.Points(bx + float64(nx*br)), Y: core.Points(by + float64(ny*br))},
 		NormalX:  float32(nx),
 		NormalY:  float32(ny),
 	}, true
@@ -414,26 +436,33 @@ func sweepCircleVsCircle2D(a Circle, dx, dy float64, b Circle) (ShapeCastHit, bo
 // assuming the point is not strictly inside the disk. Grazing tangents (disc <= 0) do not hit.
 func sweepPointVsDisk2D(px, py, dx, dy, cx, cy, r float64) (t, nx, ny float64, ok bool) {
 	ox, oy := px-cx, py-cy
-	rSq := r * r
-	distSq := ox*ox + oy*oy
-	qa := dx*dx + dy*dy
+	rSq := float64(r * r)
+	distSq := float64(ox*ox) + float64(oy*oy)
+	qa := float64(dx*dx) + float64(dy*dy)
 	if qa == 0 {
 		return 0, 0, 0, false
 	}
-	qb := ox*dx + oy*dy
+	qb := float64(ox*dx) + float64(oy*dy)
 	if qb >= 0 {
 		return 0, 0, 0, false
 	}
 	qc := distSq - rSq
 	if qc <= 0 {
 		// Touching the disk surface at t == 0 and moving inward (qb < 0).
-		l := math.Hypot(ox, oy)
+		l := detmath.Hypot(ox, oy)
 		if l > 0 {
 			nx, ny = ox/l, oy/l
 		}
 		return 0, nx, ny, true
 	}
-	disc := qb*qb - qa*qc
+	// Use Lagrange's identity (r*|d|)^2 - |o x d|^2 == qb^2 - qa*qc to avoid catastrophic
+	// cancellation and guarantee cardinal grazing tangents reject bit-for-bit.
+	perp := math.Abs(float64(ox*dy) - float64(oy*dx))
+	rDist := float64(r * math.Sqrt(qa))
+	if perp >= rDist {
+		return 0, 0, 0, false
+	}
+	disc := float64(rDist-perp) * float64(rDist+perp)
 	if disc <= 0 {
 		return 0, 0, 0, false
 	}
@@ -441,9 +470,9 @@ func sweepPointVsDisk2D(px, py, dx, dy, cx, cy, r float64) (t, nx, ny float64, o
 	if t < 0 || t > 1 {
 		return 0, 0, 0, false
 	}
-	hx := ox + dx*t
-	hy := oy + dy*t
-	if l := math.Hypot(hx, hy); l > 0 {
+	hx := ox + float64(dx*t)
+	hy := oy + float64(dy*t)
+	if l := detmath.Hypot(hx, hy); l > 0 {
 		nx, ny = hx/l, hy/l
 	}
 	return t, nx, ny, true
@@ -489,7 +518,7 @@ func sweepCircleVsBox2D(c Circle, dx, dy float64, b Box) (ShapeCastHit, bool) {
 	if dx > 0 {
 		t := (minX - r - cx) / dx
 		if t >= 0 && t <= 1 {
-			hy := cy + dy*t
+			hy := cy + float64(dy*t)
 			if hy >= minY && hy <= maxY {
 				consider(t, minX, hy, -1, 0)
 			}
@@ -497,7 +526,7 @@ func sweepCircleVsBox2D(c Circle, dx, dy float64, b Box) (ShapeCastHit, bool) {
 	} else if dx < 0 {
 		t := (maxX + r - cx) / dx
 		if t >= 0 && t <= 1 {
-			hy := cy + dy*t
+			hy := cy + float64(dy*t)
 			if hy >= minY && hy <= maxY {
 				consider(t, maxX, hy, 1, 0)
 			}
@@ -508,7 +537,7 @@ func sweepCircleVsBox2D(c Circle, dx, dy float64, b Box) (ShapeCastHit, bool) {
 	if dy > 0 {
 		t := (minY - r - cy) / dy
 		if t >= 0 && t <= 1 {
-			hx := cx + dx*t
+			hx := cx + float64(dx*t)
 			if hx >= minX && hx <= maxX {
 				consider(t, hx, minY, 0, -1)
 			}
@@ -516,7 +545,7 @@ func sweepCircleVsBox2D(c Circle, dx, dy float64, b Box) (ShapeCastHit, bool) {
 	} else if dy < 0 {
 		t := (maxY + r - cy) / dy
 		if t >= 0 && t <= 1 {
-			hx := cx + dx*t
+			hx := cx + float64(dx*t)
 			if hx >= minX && hx <= maxX {
 				consider(t, hx, maxY, 0, 1)
 			}
@@ -577,8 +606,8 @@ func sweepBoxVsCircle2D(a Box, dx, dy float64, c Circle) (ShapeCastHit, bool) {
 	return ShapeCastHit{
 		Fraction: h.Fraction,
 		Point: core.Point{
-			X: core.Points(float64(c.X) + float64(nx)*float64(c.R)),
-			Y: core.Points(float64(c.Y) + float64(ny)*float64(c.R)),
+			X: core.Points(float64(c.X) + float64(float64(nx)*float64(c.R))),
+			Y: core.Points(float64(c.Y) + float64(float64(ny)*float64(c.R))),
 		},
 		NormalX: nx,
 		NormalY: ny,
@@ -589,15 +618,15 @@ func sweepCircleVsOBB2D(c Circle, dx, dy, bx, by, hw, hh, angle float64) (ShapeC
 	if c.Empty() || hw <= 0 || hh <= 0 {
 		return ShapeCastHit{}, false
 	}
-	cosA, sinA := math.Cos(angle), math.Sin(angle)
+	sinA, cosA := detmath.Sincos(angle)
 	relX := float64(c.X) - bx
 	relY := float64(c.Y) - by
 
 	// Transform circle center and displacement into OBB local frame.
-	lcx := relX*cosA + relY*sinA
-	lcy := -relX*sinA + relY*cosA
-	ldx := dx*cosA + dy*sinA
-	ldy := -dx*sinA + dy*cosA
+	lcx := float64(relX*cosA) + float64(relY*sinA)
+	lcy := float64(-relX*sinA) + float64(relY*cosA)
+	ldx := float64(dx*cosA) + float64(dy*sinA)
+	ldy := float64(-dx*sinA) + float64(dy*cosA)
 
 	localCircle := Circle{X: float32(lcx), Y: float32(lcy), R: c.R}
 	localBox := Box{X: float32(-hw), Y: float32(-hh), W: float32(hw * 2), H: float32(hh * 2)}
@@ -608,10 +637,10 @@ func sweepCircleVsOBB2D(c Circle, dx, dy, bx, by, hw, hh, angle float64) (ShapeC
 
 	lpx, lpy := float64(h.Point.X), float64(h.Point.Y)
 	lnx, lny := float64(h.NormalX), float64(h.NormalY)
-	wpx := bx + lpx*cosA - lpy*sinA
-	wpy := by + lpx*sinA + lpy*cosA
-	wnx := lnx*cosA - lny*sinA
-	wny := lnx*sinA + lny*cosA
+	wpx := float64(bx+float64(lpx*cosA)) - float64(lpy*sinA)
+	wpy := float64(by+float64(lpx*sinA)) + float64(lpy*cosA)
+	wnx := float64(lnx*cosA) - float64(lny*sinA)
+	wny := float64(lnx*sinA) + float64(lny*cosA)
 	return ShapeCastHit{
 		Fraction: h.Fraction,
 		Point:    core.Point{X: core.Points(wpx), Y: core.Points(wpy)},
@@ -626,10 +655,10 @@ func sweepBoxVsOBB2D(a Box, dx, dy, bx, by, hBx, hBy, angle float64) (ShapeCastH
 	if a.Empty() || hBx <= 0 || hBy <= 0 {
 		return ShapeCastHit{}, false
 	}
-	hAx, hAy := float64(a.W)*0.5, float64(a.H)*0.5
+	hAx, hAy := float64(float64(a.W)*0.5), float64(float64(a.H)*0.5)
 	aCX, aCY := float64(a.X)+hAx, float64(a.Y)+hAy
 
-	cosB, sinB := math.Cos(angle), math.Sin(angle)
+	sinB, cosB := detmath.Sincos(angle)
 	uA, vA := vec2{1, 0}, vec2{0, 1}
 	uB, vB := vec2{cosB, sinB}, vec2{-sinB, cosB}
 
@@ -643,11 +672,18 @@ func sweepBoxVsOBB2D(a Box, dx, dy, bx, by, hBx, hBy, angle float64) (ShapeCastH
 			px = (m.points[0].px + m.points[1].px) * 0.5
 			py = (m.points[0].py + m.points[1].py) * 0.5
 		}
+		nx, ny := float32(-m.nx), float32(-m.ny)
+		if nx == 0 {
+			nx = 0
+		}
+		if ny == 0 {
+			ny = 0
+		}
 		return ShapeCastHit{
 			Fraction: 0,
 			Point:    core.Point{X: core.Points(px), Y: core.Points(py)},
-			NormalX:  float32(-m.nx),
-			NormalY:  float32(-m.ny),
+			NormalX:  nx,
+			NormalY:  ny,
 		}, true
 	}
 	if dx == 0 && dy == 0 {
@@ -663,8 +699,8 @@ func sweepBoxVsOBB2D(a Box, dx, dy, bx, by, hBx, hBy, angle float64) (ShapeCastH
 	var hitNormal vec2
 
 	for _, axis := range axes {
-		rA := hAx*math.Abs(dot2(uA, axis)) + hAy*math.Abs(dot2(vA, axis))
-		rB := hBx*math.Abs(dot2(uB, axis)) + hBy*math.Abs(dot2(vB, axis))
+		rA := float64(hAx*math.Abs(dot2(uA, axis))) + float64(hAy*math.Abs(dot2(vA, axis)))
+		rB := float64(hBx*math.Abs(dot2(uB, axis))) + float64(hBy*math.Abs(dot2(vB, axis)))
 		rSum := rA + rB
 		d0 := dot2(rel, axis)
 		dv := dot2(vel, axis)
@@ -700,14 +736,21 @@ func sweepBoxVsOBB2D(a Box, dx, dy, bx, by, hBx, hBy, angle float64) (ShapeCastH
 	}
 
 	// Compute the exact contact point at tEnter along the support features facing hitNormal.
-	aAt := vec2{aCX + dx*tEnter, aCY + dy*tEnter}
+	aAt := vec2{aCX + float64(dx*tEnter), aCY + float64(dy*tEnter)}
 	bPos := vec2{bx, by}
 	px, py := obb2DContactPoint(aAt, uA, vA, hAx, hAy, bPos, uB, vB, hBx, hBy, hitNormal)
+	nx, ny := float32(hitNormal.x), float32(hitNormal.y)
+	if nx == 0 {
+		nx = 0
+	}
+	if ny == 0 {
+		ny = 0
+	}
 	return ShapeCastHit{
 		Fraction: float32(tEnter),
 		Point:    core.Point{X: core.Points(px), Y: core.Points(py)},
-		NormalX:  float32(hitNormal.x),
-		NormalY:  float32(hitNormal.y),
+		NormalX:  nx,
+		NormalY:  ny,
 	}, true
 }
 
@@ -727,15 +770,17 @@ func obb2DContactPoint(cA, uA, vA vec2, hAx, hAy float64, cB, uB, vB vec2, hBx, 
 	if len(bPts) == 1 && len(aPts) == 1 {
 		return bPts[0].x, bPts[0].y
 	}
-	return n.x*planeOffset + tangent.x*tMid, n.y*planeOffset + tangent.y*tMid
+	return float64(n.x*planeOffset) + float64(tangent.x*tMid), float64(n.y*planeOffset) + float64(tangent.y*tMid)
 }
 
 func obb2DSupportRange(c, u, v vec2, hx, hy float64, dir, tangent vec2) (lo, hi float64, pts []vec2) {
+	ux, uy := float64(u.x*hx), float64(u.y*hx)
+	vx, vy := float64(v.x*hy), float64(v.y*hy)
 	corners := [4]vec2{
-		{c.x - u.x*hx - v.x*hy, c.y - u.y*hx - v.y*hy},
-		{c.x + u.x*hx - v.x*hy, c.y + u.y*hx - v.y*hy},
-		{c.x + u.x*hx + v.x*hy, c.y + u.y*hx + v.y*hy},
-		{c.x - u.x*hx + v.x*hy, c.y - u.y*hx + v.y*hy},
+		{c.x - ux - vx, c.y - uy - vy},
+		{c.x + ux - vx, c.y + uy - vy},
+		{c.x + ux + vx, c.y + uy + vy},
+		{c.x - ux + vx, c.y - uy + vy},
 	}
 	maxProj := math.Inf(-1)
 	var projs [4]float64
@@ -745,7 +790,7 @@ func obb2DSupportRange(c, u, v vec2, hx, hy float64, dir, tangent vec2) (lo, hi 
 			maxProj = projs[i]
 		}
 	}
-	tol := 1e-5 * max(1.0, hx+hy)
+	tol := float64(1e-5 * max(1.0, hx+hy))
 	lo = math.Inf(1)
 	hi = math.Inf(-1)
 	for i, p := range corners {
@@ -817,10 +862,11 @@ func forEachSweptTile(bounds Box, dx, dy float64, grid TileGrid, visit func(col,
 	sMinY := min(y0, y0+dy)
 	sMaxY := max(y0, y0+dy) + h
 
-	minCol := max(0, int(math.Floor(sMinX/tw)))
-	maxCol := min(cols-1, int(math.Ceil(sMaxX/tw))-1)
-	minRow := max(0, int(math.Floor(sMinY/th)))
-	maxRow := min(rows-1, int(math.Ceil(sMaxY/th))-1)
+	// Closed-interval bounds include tiles touched flush at Fraction == 1.0.
+	minCol := max(0, int(math.Ceil(sMinX/tw))-1)
+	maxCol := min(cols-1, int(math.Floor(sMaxX/tw)))
+	minRow := max(0, int(math.Ceil(sMinY/th))-1)
+	maxRow := min(rows-1, int(math.Floor(sMaxY/th)))
 	if minCol > maxCol || minRow > maxRow {
 		return
 	}
@@ -847,10 +893,10 @@ func forEachSweptTile(bounds Box, dx, dy float64, grid TileGrid, visit func(col,
 			cellHiX := float64(col+1) * tw
 			tLo, tHi := intervalOverlap1D(x0, w, dx, cellLoX, cellHiX)
 			if tLo <= tHi {
-				ry0 := y0 + dy*tLo
-				ry1 := y0 + dy*tHi
-				rMin := max(minRow, int(math.Floor(min(ry0, ry1)/th)))
-				rMax := min(maxRow, int(math.Ceil((max(ry0, ry1)+h)/th))-1)
+				ry0 := y0 + float64(dy*tLo)
+				ry1 := y0 + float64(dy*tHi)
+				rMin := max(minRow, int(math.Ceil(min(ry0, ry1)/th))-1)
+				rMax := min(maxRow, int(math.Floor((max(ry0, ry1)+h)/th)))
 				for row := rMin; row <= rMax; row++ {
 					if !visit(col, row, tLo) {
 						return
@@ -873,10 +919,10 @@ func forEachSweptTile(bounds Box, dx, dy float64, grid TileGrid, visit func(col,
 		cellHiY := float64(row+1) * th
 		tLo, tHi := intervalOverlap1D(y0, h, dy, cellLoY, cellHiY)
 		if tLo <= tHi {
-			rx0 := x0 + dx*tLo
-			rx1 := x0 + dx*tHi
-			cMin := max(minCol, int(math.Floor(min(rx0, rx1)/tw)))
-			cMax := min(maxCol, int(math.Ceil((max(rx0, rx1)+w)/tw))-1)
+			rx0 := x0 + float64(dx*tLo)
+			rx1 := x0 + float64(dx*tHi)
+			cMin := max(minCol, int(math.Ceil(min(rx0, rx1)/tw))-1)
+			cMax := min(maxCol, int(math.Floor((max(rx0, rx1)+w)/tw)))
 			for col := cMin; col <= cMax; col++ {
 				if !visit(col, row, tLo) {
 					return
@@ -930,8 +976,8 @@ func sweepTilesFirst(shape Shape, dx, dy float64, grid TileGrid, mask QueryMask,
 			return true
 		}
 		tileBox := Box{
-			X: ox32 + float32(col)*tileW,
-			Y: oy32 + float32(row)*tileH,
+			X: ox32 + float32(float32(col)*tileW),
+			Y: oy32 + float32(float32(row)*tileH),
 			W: tileW,
 			H: tileH,
 		}
@@ -977,8 +1023,8 @@ func sweepTilesAll(shape Shape, dx, dy float64, grid TileGrid, mask QueryMask) [
 			return true
 		}
 		tileBox := Box{
-			X: ox32 + float32(col)*tileW,
-			Y: oy32 + float32(row)*tileH,
+			X: ox32 + float32(float32(col)*tileW),
+			Y: oy32 + float32(float32(row)*tileH),
 			W: tileW,
 			H: tileH,
 		}
