@@ -88,7 +88,11 @@ func TestRelayLockstepPeerJoinsAndLeaves(t *testing.T) {
 			if err != nil || join != 10 {
 				t.Fatalf("AddPeer = %d, %v; want 10", join, err)
 			}
+			// Over UDP the newcomer may learn the session's members only from the relay's resend a second later, and it drops the join state that arrives before then. The host retransmits it only while its transport is polled, so poll every player, as the rollback test does, and not just the newcomer.
 			awaitAny(t, clients(), "the newcomer's join state", func() bool {
+				for _, p := range players[:2] {
+					p.s.Poll()
+				}
 				carol.s.Step()
 				return carol.s.Active()
 			})
