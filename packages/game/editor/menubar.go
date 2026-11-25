@@ -270,7 +270,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -284,6 +284,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.canRedo(),
 			e.SelectedID != "" || e.SelectedRoomID() != "",
 			len(e.SelectedIDs()),
+			e.allSelectedObjectsAreLocal(),
+			e.selectedObjectIsLocal(),
 			canUngroup,
 			e.ViewMode,
 			e.Tool,

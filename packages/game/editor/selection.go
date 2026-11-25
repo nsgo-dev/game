@@ -18,7 +18,7 @@ func (e *Editor) IsSelected(id string) bool {
 }
 
 // SelectedObjects returns the ObjectDoc pointers for every selected object currently
-// present in e.Doc, in selection order.
+// present in e.Doc or the resolved scene, in selection order.
 func (e *Editor) SelectedObjects() []*sceneformat.ObjectDoc {
 	if e == nil || e.Doc == nil {
 		return nil
@@ -29,7 +29,7 @@ func (e *Editor) SelectedObjects() []*sceneformat.ObjectDoc {
 	}
 	out := make([]*sceneformat.ObjectDoc, 0, len(ids))
 	for _, id := range ids {
-		if obj, _, _ := e.FindObject(id); obj != nil {
+		if obj, _ := e.FindResolvedObject(id); obj != nil {
 			out = append(out, obj)
 		}
 	}
@@ -57,7 +57,7 @@ func (e *Editor) SelectObjectsWithPrimary(ids []string, primary string) bool {
 		if id == "" || slices.Contains(valid, id) {
 			continue
 		}
-		if obj, _, _ := e.FindObject(id); obj != nil {
+		if obj, _ := e.FindResolvedObject(id); obj != nil {
 			valid = append(valid, id)
 		}
 	}
@@ -105,7 +105,7 @@ func (e *Editor) AddToSelection(ids ...string) bool {
 		if id == "" {
 			continue
 		}
-		if obj, _, _ := e.FindObject(id); obj == nil {
+		if obj, _ := e.FindResolvedObject(id); obj == nil {
 			continue
 		}
 		foundAny = true
@@ -205,7 +205,7 @@ func (e *Editor) pruneSelection() {
 	ids := e.SelectedIDs()
 	kept := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if obj, _, _ := e.FindObject(id); obj != nil {
+		if obj, _ := e.FindResolvedObject(id); obj != nil {
 			kept = append(kept, id)
 		}
 	}
@@ -246,7 +246,7 @@ func (e *Editor) topSelectedIDs() []string {
 	}
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
-		path := objectPath(e.Doc, id)
+		path := e.resolvedObjectPath(id)
 		if len(path) == 0 {
 			continue
 		}
@@ -317,7 +317,7 @@ func (e *Editor) SetSelectedName(name string) error {
 // SetSelectedX sets the X position on every selected object in one undo step, preserving each object's Y.
 func (e *Editor) SetSelectedX(x float32) error {
 	return e.EditSelected("Set X on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -328,7 +328,7 @@ func (e *Editor) SetSelectedX(x float32) error {
 // SetSelectedY sets the Y position on every selected object in one undo step, preserving each object's X.
 func (e *Editor) SetSelectedY(y float32) error {
 	return e.EditSelected("Set Y on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -346,7 +346,7 @@ func (e *Editor) SetSelectedRotation(radians float32) error {
 // SetSelectedScaleX sets ScaleX on every selected object in one undo step, preserving each object's ScaleY.
 func (e *Editor) SetSelectedScaleX(sx float32) error {
 	return e.EditSelected("Set Scale X on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -357,7 +357,7 @@ func (e *Editor) SetSelectedScaleX(sx float32) error {
 // SetSelectedScaleY sets ScaleY on every selected object in one undo step, preserving each object's ScaleX.
 func (e *Editor) SetSelectedScaleY(sy float32) error {
 	return e.EditSelected("Set Scale Y on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -382,7 +382,7 @@ func (e *Editor) SetSelectedZ(z int) error {
 // SetSelectedPosZ sets PosZ on every selected object in one undo step, preserving X and Y.
 func (e *Editor) SetSelectedPosZ(posZ float32) error {
 	return e.EditSelected("Set Pos Z on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -393,7 +393,7 @@ func (e *Editor) SetSelectedPosZ(posZ float32) error {
 // SetSelectedRotX sets RotX on every selected object in one undo step.
 func (e *Editor) SetSelectedRotX(rotX float32) error {
 	return e.EditSelected("Set Rot X on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -404,7 +404,7 @@ func (e *Editor) SetSelectedRotX(rotX float32) error {
 // SetSelectedRotY sets RotY on every selected object in one undo step.
 func (e *Editor) SetSelectedRotY(rotY float32) error {
 	return e.EditSelected("Set Rot Y on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -415,7 +415,7 @@ func (e *Editor) SetSelectedRotY(rotY float32) error {
 // SetSelectedRotZ sets RotZ on every selected object in one undo step.
 func (e *Editor) SetSelectedRotZ(rotZ float32) error {
 	return e.EditSelected("Set Rot Z on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -426,7 +426,7 @@ func (e *Editor) SetSelectedRotZ(rotZ float32) error {
 // SetSelectedScaleZ sets ScaleZ on every selected object in one undo step.
 func (e *Editor) SetSelectedScaleZ(sz float32) error {
 	return e.EditSelected("Set Scale Z on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -463,7 +463,7 @@ func (e *Editor) SetSelectedSprite(sprite *sceneformat.SpriteRef) error {
 // SetSelectedOriginX sets OriginX on every selected object in one undo step.
 func (e *Editor) SetSelectedOriginX(ox float32) error {
 	return e.EditSelected("Set Origin X on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -474,7 +474,7 @@ func (e *Editor) SetSelectedOriginX(ox float32) error {
 // SetSelectedOriginY sets OriginY on every selected object in one undo step.
 func (e *Editor) SetSelectedOriginY(oy float32) error {
 	return e.EditSelected("Set Origin Y on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -485,7 +485,7 @@ func (e *Editor) SetSelectedOriginY(oy float32) error {
 // SetSelectedFlipX sets FlipX on every selected object in one undo step.
 func (e *Editor) SetSelectedFlipX(flipX bool) error {
 	return e.EditSelected("Set Flip X on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}
@@ -496,7 +496,7 @@ func (e *Editor) SetSelectedFlipX(flipX bool) error {
 // SetSelectedFlipY sets FlipY on every selected object in one undo step.
 func (e *Editor) SetSelectedFlipY(flipY bool) error {
 	return e.EditSelected("Set Flip Y on selected objects", func(id string) error {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			return fmt.Errorf("editor: object %q not found", id)
 		}

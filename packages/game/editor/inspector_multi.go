@@ -19,7 +19,7 @@ const mixedSelectSentinel = "\x00mixed"
 func multiInspectorSchemaKey(ed *Editor, ids []string) string {
 	objs := make([]*sceneformat.ObjectDoc, 0, len(ids))
 	for _, id := range ids {
-		if o, _, _ := ed.FindObject(id); o != nil {
+		if o, _ := ed.FindResolvedObject(id); o != nil {
 			objs = append(objs, o)
 		}
 	}
@@ -242,7 +242,7 @@ func multiInspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		_ = rev.Get()
 		out := make([]*sceneformat.ObjectDoc, 0, len(ids))
 		for _, id := range ids {
-			if o, _, _ := ed.FindObject(id); o != nil {
+			if o, _ := ed.FindResolvedObject(id); o != nil {
 				out = append(out, o)
 			}
 		}
@@ -951,7 +951,7 @@ func multiRegisteredFieldControl(
 				},
 				func(v float64) {
 					ed.report(ed.EditSelected("Set "+compName+"."+f.Name+"."+suffix+" on selected objects", func(id string) error {
-						o, _, _ := ed.FindObject(id)
+						o, _ := ed.FindResolvedObject(id)
 						if o == nil {
 							return fmt.Errorf("editor: object %q not found", id)
 						}

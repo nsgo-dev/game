@@ -46,7 +46,7 @@ type PasteOptions struct {
 
 // SelectedIDs returns the IDs of all currently selected objects in selection order,
 // or nil when no object is selected. When SelectedID was set directly without SelectObjects,
-// it returns a single-element slice holding SelectedID if that object exists in Doc.
+// it returns a single-element slice holding SelectedID if that object exists in Doc or the resolved scene.
 func (e *Editor) SelectedIDs() []string {
 	if e == nil || e.Doc == nil || e.SelectedID == "" {
 		return nil
@@ -54,18 +54,46 @@ func (e *Editor) SelectedIDs() []string {
 	if len(e.selectedIDs) > 0 && slices.Contains(e.selectedIDs, e.SelectedID) {
 		var out []string
 		for _, id := range e.selectedIDs {
-			if id != "" && locateObject(e.Doc, id).obj != nil && !slices.Contains(out, id) {
-				out = append(out, id)
+			if id != "" && !slices.Contains(out, id) {
+				if obj, _ := e.FindResolvedObject(id); obj != nil {
+					out = append(out, id)
+				}
 			}
 		}
 		if len(out) > 0 {
 			return out
 		}
 	}
-	if locateObject(e.Doc, e.SelectedID).obj != nil {
+	if obj, _ := e.FindResolvedObject(e.SelectedID); obj != nil {
 		return []string{e.SelectedID}
 	}
 	return nil
+}
+
+// allSelectedObjectsAreLocal reports whether at least one object is selected and every
+// selected object is defined directly in Editor.Doc (required by Copy/Cut/Delete/Duplicate/Group).
+func (e *Editor) allSelectedObjectsAreLocal() bool {
+	if e == nil || e.Doc == nil {
+		return false
+	}
+	ids := e.SelectedIDs()
+	if len(ids) == 0 {
+		return false
+	}
+	for _, id := range ids {
+		if locateObject(e.Doc, id).obj == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// selectedObjectIsLocal reports whether SelectedID exists directly in Editor.Doc.
+func (e *Editor) selectedObjectIsLocal() bool {
+	if e == nil || e.Doc == nil || e.SelectedID == "" {
+		return false
+	}
+	return locateObject(e.Doc, e.SelectedID).obj != nil
 }
 
 // IsObjectSelected reports whether id is in the current object selection.
@@ -87,7 +115,7 @@ func (e *Editor) SelectObjects(ids []string) bool {
 		if id == "" || slices.Contains(valid, id) {
 			continue
 		}
-		if locateObject(e.Doc, id).obj != nil {
+		if obj, _ := e.FindResolvedObject(id); obj != nil {
 			valid = append(valid, id)
 		}
 	}
@@ -125,7 +153,7 @@ func (e *Editor) ToggleSelectObject(id string) bool {
 	if e == nil || e.Doc == nil || id == "" {
 		return false
 	}
-	if locateObject(e.Doc, id).obj == nil {
+	if obj, _ := e.FindResolvedObject(id); obj == nil {
 		return false
 	}
 	cur := e.SelectedIDs()

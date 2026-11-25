@@ -691,20 +691,37 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 			},
 		}
 	}
-	layerFieldRow := func(fieldKey, label string, control core.Node) core.Node {
+	layerFieldsRow := func(fieldKeys []string, label string, control core.Node) core.Node {
 		var labelPrefix core.Node
 		var revertBtn core.Node
-		if fieldKey != "" {
+		if len(fieldKeys) > 0 {
+			primaryKey := fieldKeys[0]
 			hasOv := func() bool {
 				_ = rev.Get()
-				return ed.HasLayerOverride(layerName, fieldKey)
+				for _, fk := range fieldKeys {
+					if ed.HasLayerOverride(layerName, fk) {
+						return true
+					}
+				}
+				return false
 			}
 			labelPrefix = core.Show{
 				When: hasOv,
 				Then: func(cx *core.Scope) core.Node {
-					tip := ed.T("overrides.overridesSource", l10n.Param("value", ed.LayerBaseValue(layerName, fieldKey)))
+					var parts []string
+					for _, fk := range fieldKeys {
+						if len(fieldKeys) == 1 || ed.HasLayerOverride(layerName, fk) {
+							v := ed.LayerBaseValue(layerName, fk)
+							if len(fieldKeys) > 1 {
+								parts = append(parts, fk+"="+v)
+							} else {
+								parts = append(parts, v)
+							}
+						}
+					}
+					tip := ed.T("overrides.overridesSource", l10n.Param("value", strings.Join(parts, ", ")))
 					return withTooltip(core.View{
-						TestID: "inspector-layer-override-dot-" + fieldKey,
+						TestID: "inspector-layer-override-dot-" + primaryKey,
 						Style: core.Style{
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
@@ -719,13 +736,28 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				When: hasOv,
 				Then: func(cx *core.Scope) core.Node {
 					return ui.IconButton{
-						TestID:   "inspector-layer-revert-" + fieldKey,
+						TestID:   "inspector-layer-revert-" + primaryKey,
 						Icon:     lucide.RotateCcw,
 						Size:     20,
 						IconSize: 12,
 						Label:    ed.T("overrides.revertField", l10n.Param("field", label)),
 						Disabled: func() bool { _ = rev.Get(); return ed.Playing() },
-						OnPress:  func() { ed.report(ed.RevertLayerOverrideField(layerName, fieldKey)) },
+						OnPress: func() {
+							if len(fieldKeys) == 1 {
+								ed.report(ed.RevertLayerOverrideField(layerName, primaryKey))
+								return
+							}
+							ed.report(ed.History.Group("Revert "+label+" on layer "+layerName, func() error {
+								for _, fk := range fieldKeys {
+									if ed.HasLayerOverride(layerName, fk) {
+										if err := ed.RevertLayerOverrideField(layerName, fk); err != nil {
+											return err
+										}
+									}
+								}
+								return nil
+							}))
+						},
 					}
 				},
 			}
@@ -765,6 +797,12 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 			},
 			Children: children,
 		}
+	}
+	layerFieldRow := func(fieldKey, label string, control core.Node) core.Node {
+		if fieldKey == "" {
+			return layerFieldsRow(nil, label, control)
+		}
+		return layerFieldsRow([]string{fieldKey}, label, control)
 	}
 	fieldRow := func(label string, control core.Node) core.Node {
 		return layerFieldRow("", label, control)
@@ -899,7 +937,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 		}),
 
 		sectionHeader("REPEAT"),
-		layerFieldRow("repeatX", "Repeat", ui.HStack{
+		layerFieldsRow([]string{"repeatX", "repeatY"}, "Repeat", ui.HStack{
 			Gap: 12,
 			Children: []core.Node{
 				ui.Checkbox{

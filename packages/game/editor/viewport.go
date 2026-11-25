@@ -327,11 +327,11 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 				}
 				_ = e.History.Group(fmt.Sprintf("Move %d objects", len(draggable)), func() error {
 					for _, id := range draggable {
-						obj, li, _ := e.FindObject(id)
+						obj, layerName := e.FindResolvedObject(id)
 						if obj == nil {
 							continue
 						}
-						path := objectPath(e.Doc, id)
+						path := e.resolvedObjectPath(id)
 						parentChain := chain2(path[:max(len(path)-1, 0)])
 						inv, ok := parentChain.invert()
 						if !ok {
@@ -342,7 +342,7 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 							lx0, ly0 := parentChain.apply(float64(obj.X), float64(obj.Y))
 							nx, ny = inv.apply(lx0+snappedLDX, ly0+snappedLDY)
 						} else {
-							space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+							space, px, py := e.layerSpaceAndParallax(layerName)
 							gx, gy := e.canvasToLayerFor(space, px, py, g.origin.X, g.origin.Y)
 							dx, dy := e.canvasToLayerFor(space, px, py, x, y)
 							gpx, gpy := inv.apply(float64(gx), float64(gy))

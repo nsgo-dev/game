@@ -63,6 +63,16 @@ type baseSceneCache struct {
 	resolved  map[string]*sceneformat.SceneDoc
 }
 
+// instanceCountCache caches per-file scene instance counts scanned from disk for one (ProjectPath, filesRev, scenesRev).
+type instanceCountCache struct {
+	projectPath string
+	filesRev    uint64
+	scenesRev   uint64
+	// perFile maps clean project scene path -> map[referencedScenePath]count.
+	perFile   map[string]map[string]int
+	diskScans uint64
+}
+
 // resolvedDoc returns the scene document as resolved (Built.Doc when valid), falling back to e.Doc.
 func (e *Editor) resolvedDoc() *sceneformat.SceneDoc {
 	if e == nil {
@@ -225,7 +235,8 @@ func (e *Editor) baseLayerFor(layerName string) (*sceneformat.LayerDoc, error) {
 }
 
 // checkCandidateScene validates candidate and, if it references other scenes, resolves it
-// (serving candidate for e.ScenePath when set so cycles are caught).
+// (serving candidate for e.ScenePath when set so cycles are caught) and validates components,
+// physics layers, and connections on the resolved scene as well.
 func (e *Editor) checkCandidateScene(candidate *sceneformat.SceneDoc) (*sceneformat.SceneDoc, error) {
 	if err := sceneformat.Validate(candidate); err != nil {
 		return nil, err
@@ -235,7 +246,18 @@ func (e *Editor) checkCandidateScene(candidate *sceneformat.SceneDoc) (*scenefor
 			return nil, err
 		}
 	}
+	layers := e.PhysicsLayers()
+	if layers != nil {
+		if err := sceneformat.ValidatePhysicsLayers(candidate, layers); err != nil {
+			return nil, err
+		}
+	}
 	if !candidate.RefersToScenes() {
+		if e.components != nil && len(candidate.Connections) > 0 {
+			if err := sceneformat.ValidateConnections(candidate, e.components); err != nil {
+				return nil, err
+			}
+		}
 		return candidate, nil
 	}
 	scenes, ok := e.Resolver.(sceneformat.SceneResolver)
@@ -257,6 +279,21 @@ func (e *Editor) checkCandidateScene(candidate *sceneformat.SceneDoc) (*scenefor
 	}
 	if err := sceneformat.Validate(res); err != nil {
 		return nil, err
+	}
+	if e.components != nil {
+		if err := sceneformat.ValidateComponents(res, e.components); err != nil {
+			return nil, err
+		}
+	}
+	if layers != nil {
+		if err := sceneformat.ValidatePhysicsLayers(res, layers); err != nil {
+			return nil, err
+		}
+	}
+	if e.components != nil && len(res.Connections) > 0 {
+		if err := sceneformat.ValidateConnections(res, e.components); err != nil {
+			return nil, err
+		}
 	}
 	return res, nil
 }
@@ -1239,7 +1276,13 @@ func (e *Editor) MakeInstanceLocal(objectID string) error {
 	}
 	localObj := expanded.Layers[0].Objects[0].Clone()
 	localObj.Children = append(localObj.Children, ownChildren...)
-	addedConns := slices.Clone(expanded.Connections)
+	var addedConns []sceneformat.ConnectionDoc
+	if len(expanded.Connections) > 0 {
+		addedConns = make([]sceneformat.ConnectionDoc, len(expanded.Connections))
+		for i, conn := range expanded.Connections {
+			addedConns[i] = cloneConnectionDoc(conn)
+		}
+	}
 
 	candidate := e.Doc.Clone()
 	candLoc := locateObject(candidate, targetID)
@@ -1247,8 +1290,8 @@ func (e *Editor) MakeInstanceLocal(objectID string) error {
 		return fmt.Errorf("editor: object %q not found", targetID)
 	}
 	*candLoc.obj = localObj.Clone()
-	if len(addedConns) > 0 {
-		candidate.Connections = append(candidate.Connections, addedConns...)
+	for _, conn := range addedConns {
+		candidate.Connections = append(candidate.Connections, cloneConnectionDoc(conn))
 	}
 	if candidate.Version < sceneformat.CurrentVersion && (drawsModel(&localObj) || hasOccluder(&localObj) || hasParticles(&localObj) || usesScene3DFeatures(&localObj)) {
 		candidate.Version = sceneformat.CurrentVersion
@@ -1260,29 +1303,31 @@ func (e *Editor) MakeInstanceLocal(objectID string) error {
 	e.CancelDrag2D()
 	e.CancelGizmoDrag3D()
 	e.History.Execute(&makeInstanceLocalCmd{
-		ed:           e,
-		targetID:     targetID,
-		before:       loc.obj.Clone(),
-		after:        localObj,
-		addedConns:   addedConns,
-		wasNilConns:  e.Doc.Connections == nil,
-		prevVersion:  e.Doc.Version,
-		nextVersion:  candidate.Version,
-		prevSelected: e.SelectedID,
+		ed:              e,
+		targetID:        targetID,
+		before:          loc.obj.Clone(),
+		after:           localObj,
+		addedConns:      addedConns,
+		wasNilConns:     e.Doc.Connections == nil,
+		prevVersion:     e.Doc.Version,
+		nextVersion:     candidate.Version,
+		prevSelected:    e.SelectedID,
+		prevSelectedIDs: slices.Clone(e.SelectedIDs()),
 	})
 	return nil
 }
 
 type makeInstanceLocalCmd struct {
-	ed           *Editor
-	targetID     string
-	before       sceneformat.ObjectDoc
-	after        sceneformat.ObjectDoc
-	addedConns   []sceneformat.ConnectionDoc
-	wasNilConns  bool
-	prevVersion  int
-	nextVersion  int
-	prevSelected string
+	ed              *Editor
+	targetID        string
+	before          sceneformat.ObjectDoc
+	after           sceneformat.ObjectDoc
+	addedConns      []sceneformat.ConnectionDoc
+	wasNilConns     bool
+	prevVersion     int
+	nextVersion     int
+	prevSelected    string
+	prevSelectedIDs []string
 }
 
 func (c *makeInstanceLocalCmd) Label() string { return "Make " + c.targetID + " local" }
@@ -1293,8 +1338,8 @@ func (c *makeInstanceLocalCmd) Do() {
 		return
 	}
 	*loc.obj = c.after.Clone()
-	if len(c.addedConns) > 0 {
-		c.ed.Doc.Connections = append(c.ed.Doc.Connections, c.addedConns...)
+	for _, conn := range c.addedConns {
+		c.ed.Doc.Connections = append(c.ed.Doc.Connections, cloneConnectionDoc(conn))
 	}
 	if c.ed.Doc.Version < c.nextVersion {
 		c.ed.Doc.Version = c.nextVersion
@@ -1316,6 +1361,7 @@ func (c *makeInstanceLocalCmd) Undo() {
 	}
 	c.ed.Doc.Version = c.prevVersion
 	c.ed.SelectedID = c.prevSelected
+	c.ed.selectedIDs = slices.Clone(c.prevSelectedIDs)
 }
 
 // --- Apply Overrides to Source ---
@@ -1354,8 +1400,18 @@ func (e *Editor) ApplyOverridesToSource(objectID string) error {
 		return fmt.Errorf("editor: instance %q has no overrides to apply", targetID)
 	}
 
-	sourceRel := inst.Scene
-	sourceDisk := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(sourceRel))
+	sourceRel, err := normalizeProjectAssetPath(inst.Scene)
+	if err != nil {
+		return fmt.Errorf("editor: invalid source scene %q: %w", inst.Scene, err)
+	}
+	if e.ScenePath != "" && sourceRel == e.ScenePath {
+		return fmt.Errorf("editor: cannot apply overrides onto the active scene %q", sourceRel)
+	}
+	rootDir := filepath.Dir(e.ProjectPath)
+	sourceDisk := filepath.Join(rootDir, filepath.FromSlash(sourceRel))
+	if err := verifyFileWithinRoot(rootDir, sourceDisk, sourceRel); err != nil {
+		return err
+	}
 	if idx := e.findTabByPath(sourceRel, sourceDisk); idx >= 0 && e.TabDirty(idx) {
 		return fmt.Errorf("editor: save or discard unsaved edits in %q before applying overrides", sourceRel)
 	}
@@ -1387,6 +1443,12 @@ func (e *Editor) ApplyOverridesToSource(objectID string) error {
 			return fmt.Errorf("editor: updated source scene %q components invalid: %w", sourceRel, err)
 		}
 	}
+	layers := e.PhysicsLayers()
+	if layers != nil {
+		if err := sceneformat.ValidatePhysicsLayers(afterDoc, layers); err != nil {
+			return fmt.Errorf("editor: updated source scene %q physics layers invalid: %w", sourceRel, err)
+		}
+	}
 	afterBytes, err := sceneformat.Encode(afterDoc)
 	if err != nil {
 		return fmt.Errorf("editor: encode source scene %q: %w", sourceRel, err)
@@ -1401,13 +1463,31 @@ func (e *Editor) ApplyOverridesToSource(objectID string) error {
 	candLoc := locateObject(candidate, targetID)
 	candLoc.obj.Overrides = nil
 	resWithUpdated := editedScene{SceneResolver: scenes, path: sourceRel, doc: afterDoc}
+	var resolved *sceneformat.SceneDoc
 	if e.ScenePath != "" {
 		probe := &sceneformat.SceneDoc{Version: max(candidate.Version, sceneformat.CurrentVersion), Inherits: e.ScenePath}
-		if _, err := sceneformat.Resolve(probe, editedScene{SceneResolver: resWithUpdated, path: e.ScenePath, doc: candidate}); err != nil {
+		resolved, err = sceneformat.Resolve(probe, editedScene{SceneResolver: resWithUpdated, path: e.ScenePath, doc: candidate})
+	} else {
+		resolved, err = sceneformat.Resolve(candidate, resWithUpdated)
+	}
+	if err != nil {
+		return err
+	}
+	if err := sceneformat.Validate(resolved); err != nil {
+		return err
+	}
+	if e.components != nil {
+		if err := sceneformat.ValidateComponents(resolved, e.components); err != nil {
 			return err
 		}
-	} else {
-		if _, err := sceneformat.Resolve(candidate, resWithUpdated); err != nil {
+	}
+	if layers != nil {
+		if err := sceneformat.ValidatePhysicsLayers(resolved, layers); err != nil {
+			return err
+		}
+	}
+	if e.components != nil && len(resolved.Connections) > 0 {
+		if err := sceneformat.ValidateConnections(resolved, e.components); err != nil {
 			return err
 		}
 	}
@@ -1416,6 +1496,7 @@ func (e *Editor) ApplyOverridesToSource(objectID string) error {
 	cmd := &applyOverridesToSourceCmd{
 		ed:           e,
 		instanceID:   targetID,
+		rootDir:      rootDir,
 		sourceRel:    sourceRel,
 		sourceDisk:   sourceDisk,
 		beforeBytes:  beforeBytes,
@@ -1430,6 +1511,7 @@ func (e *Editor) ApplyOverridesToSource(objectID string) error {
 type applyOverridesToSourceCmd struct {
 	ed           *Editor
 	instanceID   string
+	rootDir      string
 	sourceRel    string
 	sourceDisk   string
 	beforeBytes  []byte
@@ -1443,10 +1525,28 @@ func (c *applyOverridesToSourceCmd) Label() string {
 	return "Apply overrides from " + c.instanceID + " to " + c.sourceRel
 }
 
-func (c *applyOverridesToSourceCmd) Do()   { _ = c.do() }
-func (c *applyOverridesToSourceCmd) Undo() { _ = c.undo() }
+func (c *applyOverridesToSourceCmd) Do() {
+	if err := c.do(); err != nil {
+		c.ed.report(err)
+	}
+}
+
+func (c *applyOverridesToSourceCmd) Undo() {
+	if err := c.undo(); err != nil {
+		c.ed.report(err)
+	}
+}
 
 func (c *applyOverridesToSourceCmd) do() error {
+	if c.ed.ScenePath != "" && c.sourceRel == c.ed.ScenePath {
+		return fmt.Errorf("editor: cannot apply overrides onto the active scene %q", c.sourceRel)
+	}
+	if err := verifyFileWithinRoot(c.rootDir, c.sourceDisk, c.sourceRel); err != nil {
+		return err
+	}
+	if idx := c.ed.findTabByPath(c.sourceRel, c.sourceDisk); idx >= 0 && c.ed.TabDirty(idx) {
+		return fmt.Errorf("editor: save or discard unsaved edits in %q before applying overrides", c.sourceRel)
+	}
 	if err := writeFileAtomic(c.sourceDisk, c.afterBytes); err != nil {
 		return err
 	}
@@ -1459,6 +1559,15 @@ func (c *applyOverridesToSourceCmd) do() error {
 }
 
 func (c *applyOverridesToSourceCmd) undo() error {
+	if c.ed.ScenePath != "" && c.sourceRel == c.ed.ScenePath {
+		return fmt.Errorf("editor: cannot revert applied overrides on the active scene %q", c.sourceRel)
+	}
+	if err := verifyFileWithinRoot(c.rootDir, c.sourceDisk, c.sourceRel); err != nil {
+		return err
+	}
+	if idx := c.ed.findTabByPath(c.sourceRel, c.sourceDisk); idx >= 0 && c.ed.TabDirty(idx) {
+		return fmt.Errorf("editor: save or discard unsaved edits in %q before reverting applied overrides", c.sourceRel)
+	}
 	if err := writeFileAtomic(c.sourceDisk, c.beforeBytes); err != nil {
 		return err
 	}
@@ -1480,7 +1589,21 @@ func (c *applyOverridesToSourceCmd) syncSourceTabs(data []byte) {
 		}); err == nil {
 			t := e.tabs[idx]
 			t.doc = doc
-			t.sceneSaved = append([]byte(nil), data...)
+			t.history = e.newTabHistory()
+			if encoded, err := sceneformat.Encode(doc); err == nil {
+				t.sceneSaved = encoded
+			} else {
+				t.sceneSaved = append([]byte(nil), data...)
+			}
+			diskPath := t.filePath
+			if diskPath == "" {
+				diskPath = c.sourceDisk
+			}
+			t.sceneDisk = makeDiskSnapshot(diskPath, data)
+			if e.disk.saveConflict != nil && e.disk.saveConflictTabID == t.id {
+				e.disk.saveConflict = nil
+				e.disk.saveConflictTabID = 0
+			}
 			if built, err := sceneformat.Build(doc, e.resolverForScene(t.scenePath)); err == nil {
 				built.DrawAllTiles = true
 				t.built = built
@@ -1494,6 +1617,7 @@ func (c *applyOverridesToSourceCmd) syncSourceTabs(data []byte) {
 	e.baseLayers = baseLayerCache{}
 	e.baseScenes = baseSceneCache{}
 	e.invalidateProjectIndex()
+	e.snapshotProjectTree()
 	e.rebuildDependentTabs(e.activeTabID())
 }
 
@@ -1785,8 +1909,9 @@ func (e *Editor) SceneInstances(scenePath string) []string {
 	return ids
 }
 
-// CountSceneInstances counts how many objects across the open project (or the active scene when no project is open)
+// CountSceneInstances counts how many objects across the open project (or open tabs when no project is open)
 // instance scenePath, returning (totalInstances, affectedScenes).
+// Disk-backed scene files are scanned once per (ProjectPath, filesRev, scenesRev) and overlaid with all open tabs' live in-memory documents.
 func (e *Editor) CountSceneInstances(scenePath string) (instances, scenes int) {
 	if e == nil || scenePath == "" {
 		return 0, 0
@@ -1807,48 +1932,111 @@ func (e *Editor) CountSceneInstances(scenePath string) (instances, scenes int) {
 		return n
 	}
 	if e.Project == nil || e.ProjectPath == "" {
-		n := countDoc(e.Doc)
-		if n > 0 {
+		if len(e.tabs) > 0 {
+			for i, t := range e.tabs {
+				doc := t.doc
+				if i == e.activeTab {
+					doc = e.Doc
+				}
+				if n := countDoc(doc); n > 0 {
+					instances += n
+					scenes++
+				}
+			}
+			return instances, scenes
+		}
+		if n := countDoc(e.Doc); n > 0 {
 			return n, 1
 		}
 		return 0, 0
 	}
-	files, err := e.ProjectFiles()
-	if err != nil {
-		n := countDoc(e.Doc)
-		if n > 0 {
-			return n, 1
+
+	// Rebuild per-file disk cache only when project/files/scenes revisions change.
+	c := &e.instanceCounts
+	if c.perFile == nil || c.projectPath != e.ProjectPath || c.filesRev != e.filesRev || c.scenesRev != e.scenesRev {
+		perFile := make(map[string]map[string]int)
+		if files, err := e.ProjectFiles(); err == nil {
+			root := filepath.Dir(e.ProjectPath)
+			for _, f := range files {
+				if f.Dir || !isProjectScene(e.Project, f.Path) {
+					continue
+				}
+				data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Path)))
+				if err != nil || !bytes.Contains(data, []byte("scene:")) {
+					perFile[f.Path] = nil
+					continue
+				}
+				doc, err := sceneformat.Parse(data)
+				if err != nil {
+					perFile[f.Path] = nil
+					continue
+				}
+				counts := make(map[string]int)
+				for li := range doc.Layers {
+					sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+						if o.Scene != "" {
+							counts[o.Scene]++
+						}
+						return true
+					})
+				}
+				perFile[f.Path] = counts
+			}
 		}
-		return 0, 0
+		c.projectPath = e.ProjectPath
+		c.filesRev = e.filesRev
+		c.scenesRev = e.scenesRev
+		c.perFile = perFile
+		c.diskScans++
 	}
-	root := filepath.Dir(e.ProjectPath)
-	seenActive := false
-	for _, f := range files {
-		if f.Dir || !isProjectScene(e.Project, f.Path) {
-			continue
+
+	// Overlay live in-memory docs from all open tabs (active and inactive).
+	openDocs := make(map[string]*sceneformat.SceneDoc)
+	var untitledDocs []*sceneformat.SceneDoc
+	if len(e.tabs) > 0 {
+		for i, t := range e.tabs {
+			doc := t.doc
+			sp := t.scenePath
+			if i == e.activeTab {
+				doc = e.Doc
+				sp = e.ScenePath
+			}
+			if doc == nil {
+				continue
+			}
+			if sp != "" {
+				openDocs[sp] = doc
+			} else {
+				untitledDocs = append(untitledDocs, doc)
+			}
 		}
-		var n int
-		if f.Path == e.ScenePath && e.Doc != nil {
-			n = countDoc(e.Doc)
-			seenActive = true
+	} else if e.Doc != nil {
+		if e.ScenePath != "" {
+			openDocs[e.ScenePath] = e.Doc
 		} else {
-			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Path)))
-			if err != nil || !bytes.Contains(data, []byte(scenePath)) {
-				continue
-			}
-			doc, err := sceneformat.Parse(data)
-			if err != nil {
-				continue
-			}
-			n = countDoc(doc)
+			untitledDocs = append(untitledDocs, e.Doc)
 		}
-		if n > 0 {
+	}
+
+	seen := make(map[string]bool, len(openDocs))
+	for sp, doc := range openDocs {
+		seen[sp] = true
+		if n := countDoc(doc); n > 0 {
 			instances += n
 			scenes++
 		}
 	}
-	if !seenActive && e.Doc != nil {
-		if n := countDoc(e.Doc); n > 0 {
+	for _, doc := range untitledDocs {
+		if n := countDoc(doc); n > 0 {
+			instances += n
+			scenes++
+		}
+	}
+	for filePath, counts := range c.perFile {
+		if seen[filePath] {
+			continue
+		}
+		if n := counts[scenePath]; n > 0 {
 			instances += n
 			scenes++
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -639,5 +640,435 @@ func TestFileBrowserPlaceSceneButton(t *testing.T) {
 	obj, _, _ := ed.FindObject(ed.SelectedID)
 	if obj == nil || obj.Scene != "scenes/slime.scene.yaml" {
 		t.Fatalf("object placed via files-place-scene = %+v, want scenes/slime.scene.yaml", obj)
+	}
+}
+
+func TestApplyOverridesToSourcePathContainment(t *testing.T) {
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.scene.yaml")
+	outsideContent := []byte(`version: 2
+layers:
+  - name: actors
+    objects:
+      - id: body
+        x: 10
+        "y": 20
+`)
+	if err := os.WriteFile(outsideFile, outsideContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir, ed := setupOverrideProject(t, nil)
+	// Create a symlink inside the project pointing outside the project root.
+	escapeLink := filepath.Join(dir, "scenes", "escape.scene.yaml")
+	if err := os.Symlink(outsideFile, escapeLink); err != nil {
+		t.Skipf("symlink creation unsupported: %v", err)
+	}
+
+	// Case 1: Path traversal (../outside.scene.yaml) must be refused.
+	ed.Doc.Layers[0].Objects = append(ed.Doc.Layers[0].Objects, sceneformat.ObjectDoc{
+		ID:    "trav_inst",
+		Scene: "../outside.scene.yaml",
+		Overrides: map[string]sceneformat.ObjectOverride{
+			"body": {X: sceneformat.Float32(99)},
+		},
+	})
+	if err := ed.ApplyOverridesToSource("trav_inst"); err == nil {
+		t.Fatal("expected ApplyOverridesToSource to reject traversal path")
+	}
+
+	// Case 2: Symlink resolving outside project root must be refused via EvalSymlinks.
+	ed.Doc.Layers[0].Objects = append(ed.Doc.Layers[0].Objects, sceneformat.ObjectDoc{
+		ID:    "sym_inst",
+		Scene: "scenes/escape.scene.yaml",
+		Overrides: map[string]sceneformat.ObjectOverride{
+			"body": {X: sceneformat.Float32(99)},
+		},
+	})
+	if err := ed.ApplyOverridesToSource("sym_inst"); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("ApplyOverridesToSource on escaping symlink = %v, want outside-root error", err)
+	}
+
+	// Case 3: Self-reference (sourceRel == ed.ScenePath) must be refused.
+	ed.Doc.Layers[0].Objects = append(ed.Doc.Layers[0].Objects, sceneformat.ObjectDoc{
+		ID:    "self_inst",
+		Scene: ed.ScenePath,
+		Overrides: map[string]sceneformat.ObjectOverride{
+			"marker": {X: sceneformat.Float32(99)},
+		},
+	})
+	if err := ed.ApplyOverridesToSource("self_inst"); err == nil {
+		t.Fatal("expected ApplyOverridesToSource to reject active scene self-reference")
+	}
+
+	gotOutside, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotOutside, outsideContent) {
+		t.Fatalf("outside file was modified!\ngot:\n%s\nwant:\n%s", gotOutside, outsideContent)
+	}
+}
+
+func TestApplyOverridesToSourceDirtyTabRefusesUndoAndSyncsDiskSnapshot(t *testing.T) {
+	dir, ed := setupOverrideProject(t, nil)
+	slimePath := filepath.Join(dir, "scenes", "slime.scene.yaml")
+	slimeOriginal, err := os.ReadFile(slimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ed.SetActiveLayer("actors")
+	instID, err := ed.PlaceScene("actors", "scenes/slime.scene.yaml", 50, 50)
+	if err != nil {
+		t.Fatalf("PlaceScene: %v", err)
+	}
+	// Open slime.scene.yaml in a second tab (clean), then return to level tab.
+	if err := ed.OpenInstancedScene(instID); err != nil {
+		t.Fatalf("OpenInstancedScene: %v", err)
+	}
+	slimeTabIdx := ed.ActiveTab()
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+
+	// Override body X and apply to source.
+	if err := ed.MoveObject(instID+"/body", 88, 20); err != nil {
+		t.Fatalf("MoveObject: %v", err)
+	}
+	if err := ed.ApplyOverridesToSource(instID); err != nil {
+		t.Fatalf("ApplyOverridesToSource: %v", err)
+	}
+	slimeAfterApply, err := os.ReadFile(slimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Switch to source tab: its disk snapshot must be synced (no false disk conflict)
+	// and its history must have been reset cleanly.
+	if err := ed.SelectTab(slimeTabIdx); err != nil {
+		t.Fatalf("SelectTab(slime): %v", err)
+	}
+	if ed.TabDirty(slimeTabIdx) {
+		t.Fatal("source tab should remain clean after ApplyOverridesToSource")
+	}
+	if ed.History.CanUndo() {
+		t.Fatal("source tab history should be reset after ApplyOverridesToSource")
+	}
+	ed.PollDiskChanges()
+	if conflicts := ed.DiskConflicts(); len(conflicts) != 0 {
+		t.Fatalf("expected no false disk conflicts on synced source tab, got %+v", conflicts)
+	}
+
+	// Make the source tab dirty, then switch back to level and try Undo.
+	if err := ed.MoveObject("body", 123, 45); err != nil {
+		t.Fatalf("MoveObject in source tab: %v", err)
+	}
+	if !ed.TabDirty(slimeTabIdx) {
+		t.Fatal("expected source tab to be dirty after local edit")
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if ed.Undo() {
+		t.Fatal("expected Undo of ApplyOverridesToSource to fail while source tab is dirty")
+	}
+	// Source file on disk and instance overrides must remain untouched.
+	slimeStillApplied, err := os.ReadFile(slimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(slimeStillApplied, slimeAfterApply) {
+		t.Fatal("failed Undo must not overwrite source file on disk")
+	}
+	if instObj, _, _ := ed.FindObject(instID); instObj == nil || instObj.Overrides != nil {
+		t.Fatalf("failed Undo mutated instance overrides: %+v", instObj)
+	}
+
+	// Undo the dirty edit on the source tab so it is clean again, then Undo on level succeeds.
+	if err := ed.SelectTab(slimeTabIdx); err != nil {
+		t.Fatalf("SelectTab(slime): %v", err)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo in source tab failed")
+	}
+	if ed.TabDirty(slimeTabIdx) {
+		t.Fatal("expected source tab to be clean after undoing edit")
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if !ed.Undo() {
+		t.Fatal("expected Undo of ApplyOverridesToSource to succeed once source tab is clean")
+	}
+	slimeRestored, err := os.ReadFile(slimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(slimeRestored, slimeOriginal) {
+		t.Fatalf("source file not restored after Undo:\ngot:\n%s\nwant:\n%s", slimeRestored, slimeOriginal)
+	}
+	if !ed.HasObjectOverride(instID+"/body", "x") {
+		t.Fatal("expected x override to be restored after Undo")
+	}
+}
+
+func TestInstancedAndInheritedSelectionAndCommandGuards(t *testing.T) {
+	_, ed := setupOverrideProject(t, map[string]string{
+		"scenes/level.scene.yaml": `version: 3
+inherits: scenes/base.scene.yaml
+layers:
+  - name: actors
+    objects:
+      - id: local_box
+        x: 10
+        "y": 10
+      - id: slime_1
+        scene: scenes/slime.scene.yaml
+        x: 40
+        "y": 20
+`,
+	})
+
+	localOnlyCmds := []string{
+		editor.CmdCopy,
+		editor.CmdCut,
+		editor.CmdPasteInto,
+		editor.CmdDelete,
+		editor.CmdDuplicate,
+		editor.CmdGroup,
+	}
+	assertCmdsEnabled := func(want bool, ctx string) {
+		t.Helper()
+		for _, id := range localOnlyCmds {
+			cmd, ok := ed.Command(id)
+			if !ok {
+				t.Fatalf("command %q not registered", id)
+			}
+			got := cmd.Enabled == nil || cmd.Enabled()
+			if got != want {
+				t.Fatalf("%s: command %q Enabled() = %v, want %v", ctx, id, got, want)
+			}
+		}
+	}
+
+	app := startEditorView(t, ed)
+
+	// 1. Selecting an instanced child keeps it in SelectedIDs() and SceneTreeView, and disables local-only commands.
+	app.Post(func() { ed.SelectObject("slime_1/body") })
+	app.Settle()
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"slime_1/body"}) {
+		t.Fatalf("SelectedIDs() for instanced child = %v, want [slime_1/body]", got)
+	}
+	app.Find("id:scene-tree-row-slime_1/body")
+	assertCmdsEnabled(false, "instanced child selected")
+
+	// 2. Selecting an inherited object keeps it in SelectedIDs() and SceneTreeView, and disables local-only commands.
+	app.Post(func() { ed.SelectObject("hero") })
+	app.Settle()
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"hero"}) {
+		t.Fatalf("SelectedIDs() for inherited object = %v, want [hero]", got)
+	}
+	app.Find("id:scene-tree-row-hero")
+	assertCmdsEnabled(false, "inherited object selected")
+
+	// 3. Multi-selecting instanced + inherited via SelectObjects / ToggleSelectObject preserves both.
+	if !ed.SelectObjects([]string{"slime_1/body", "hero"}) {
+		t.Fatal("SelectObjects([slime_1/body, hero]) returned false")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"slime_1/body", "hero"}) {
+		t.Fatalf("SelectedIDs() after SelectObjects = %v, want [slime_1/body hero]", got)
+	}
+	assertCmdsEnabled(false, "instanced+inherited multi-selection")
+
+	// 4. Mixed selection (local + inherited) keeps local-only edit commands disabled (except PasteInto depends on primary).
+	if !ed.ToggleSelectObject("local_box") {
+		t.Fatal("ToggleSelectObject(local_box) returned false")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"slime_1/body", "hero", "local_box"}) {
+		t.Fatalf("SelectedIDs() after ToggleSelectObject = %v", got)
+	}
+	for _, id := range []string{editor.CmdCopy, editor.CmdCut, editor.CmdDelete, editor.CmdDuplicate, editor.CmdGroup} {
+		cmd, _ := ed.Command(id)
+		if cmd.Enabled() {
+			t.Fatalf("mixed selection: command %q should be disabled when selection includes non-local objects", id)
+		}
+	}
+
+	// 5. Local-only selection enables all local-only edit commands.
+	if !ed.SelectObject("local_box") {
+		t.Fatal("SelectObject(local_box) returned false")
+	}
+	assertCmdsEnabled(true, "local object selected")
+}
+
+func TestOverrideValidationRejectsInvalidComponentAndPhysicsLayer(t *testing.T) {
+	_, ed := setupOverrideProject(t, map[string]string{
+		"scenes/slime.scene.yaml": `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: body
+        x: 10
+        "y": 20
+        components:
+          health:
+            hp: 30
+            armor: 2
+          collider2d:
+            layer: enemy
+`,
+		"scenes/level.scene.yaml": `version: 3
+inherits: scenes/base.scene.yaml
+layers:
+  - name: actors
+    objects:
+      - id: slime_1
+        scene: scenes/slime.scene.yaml
+`,
+	})
+
+	reg := sceneformat.NewComponentRegistry()
+	if err := reg.Register(sceneformat.ComponentType{
+		Name: "health",
+		Fields: []sceneformat.Field{
+			{Name: "hp", Kind: sceneformat.FieldInt, Default: 100},
+			{Name: "armor", Kind: sceneformat.FieldInt, Default: 0},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(sceneformat.ComponentType{
+		Name: sceneformat.Collider2DComponentName,
+		Fields: []sceneformat.Field{
+			{Name: "layer", Kind: sceneformat.FieldString, Default: "enemy"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetComponentRegistry(reg); err != nil {
+		t.Fatalf("SetComponentRegistry: %v", err)
+	}
+	layers, err := sceneformat.NewPhysicsLayerTable([]sceneformat.PhysicsLayerDef{
+		{Name: "player", Bit: 0},
+		{Name: "enemy", Bit: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.SetPhysicsLayers(layers)
+
+	histBefore := ed.History.Len()
+
+	// Invalid component value type on instanced child must be rejected by checkCandidateScene.
+	if err := ed.SetComponentField("slime_1/body", "health", "hp", "not-an-int"); err == nil {
+		t.Fatal("expected invalid component type override on instanced child to be rejected")
+	}
+	// Invalid component value type on inherited object must be rejected by checkCandidateScene.
+	if err := ed.SetComponentField("hero", "health", "hp", "not-an-int"); err == nil {
+		t.Fatal("expected invalid component type override on inherited object to be rejected")
+	}
+	// Unknown physics layer name on instanced child must be rejected by ValidatePhysicsLayers.
+	if err := ed.SetComponentField("slime_1/body", sceneformat.Collider2DComponentName, "layer", "nonexistent_layer"); err == nil {
+		t.Fatal("expected unknown physics layer override on instanced child to be rejected")
+	}
+	if ed.History.Len() != histBefore {
+		t.Fatalf("rejected overrides polluted History: got %d, want %d", ed.History.Len(), histBefore)
+	}
+
+	// Valid overrides must still succeed.
+	if err := ed.SetComponentField("slime_1/body", "health", "hp", 75); err != nil {
+		t.Fatalf("valid component override failed: %v", err)
+	}
+	if err := ed.SetComponentField("slime_1/body", sceneformat.Collider2DComponentName, "layer", "player"); err != nil {
+		t.Fatalf("valid physics layer override failed: %v", err)
+	}
+}
+
+func TestMakeInstanceLocalClonesConnectionArgsAndRestoresSelection(t *testing.T) {
+	_, ed := setupOverrideProject(t, map[string]string{
+		"scenes/slime.scene.yaml": `version: 2
+layers:
+  - name: actors
+    objects:
+      - id: body
+        x: 10
+        "y": 20
+      - id: eye
+        x: 4
+        "y": 2
+connections:
+  - from: body
+    event: hit
+    to: eye
+    handler: blink
+    args:
+      damage: 5
+`,
+	})
+	ed.SetActiveLayer("actors")
+	instID, err := ed.PlaceScene("actors", "scenes/slime.scene.yaml", 80, 60)
+	if err != nil {
+		t.Fatalf("PlaceScene: %v", err)
+	}
+	// Select multiple objects before MakeInstanceLocal.
+	if !ed.SelectObjects([]string{"marker", instID + "/body"}) {
+		t.Fatal("SelectObjects failed")
+	}
+	if err := ed.MakeInstanceLocal(instID); err != nil {
+		t.Fatalf("MakeInstanceLocal: %v", err)
+	}
+	if len(ed.Doc.Connections) != 1 || ed.Doc.Connections[0].Args["damage"] != 5 {
+		t.Fatalf("expected cloned connection with damage=5, got %+v", ed.Doc.Connections)
+	}
+	// Mutate Doc.Connections[0].Args in place; Undo + Redo must NOT see the mutation!
+	ed.Doc.Connections[0].Args["damage"] = 999
+
+	if !ed.Undo() {
+		t.Fatal("Undo MakeInstanceLocal failed")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"marker", instID + "/body"}) {
+		t.Fatalf("SelectedIDs after Undo MakeInstanceLocal = %v, want [marker %s/body]", got, instID)
+	}
+	if !ed.Redo() {
+		t.Fatal("Redo MakeInstanceLocal failed")
+	}
+	if len(ed.Doc.Connections) != 1 || ed.Doc.Connections[0].Args["damage"] != 5 {
+		t.Fatalf("Redo MakeInstanceLocal saw aliased Args mutation: got %+v, want damage=5", ed.Doc.Connections)
+	}
+}
+
+func TestLayerInspectorRepeatYOverrideDotAndRevert(t *testing.T) {
+	_, ed := setupOverrideProject(t, map[string]string{
+		"scenes/level.scene.yaml": `version: 3
+inherits: scenes/base.scene.yaml
+layers:
+  - name: ground
+`,
+	})
+	// Override only repeatY on inherited layer "sky".
+	if err := ed.SetLayerRepeat("sky", false, true, 0, 0); err != nil {
+		t.Fatalf("SetLayerRepeat: %v", err)
+	}
+	if !ed.HasLayerOverride("sky", "repeatY") {
+		t.Fatal("expected HasLayerOverride(sky, repeatY) = true")
+	}
+	if ed.HasLayerOverride("sky", "repeatX") {
+		t.Fatal("expected HasLayerOverride(sky, repeatX) = false")
+	}
+
+	ed.SelectObject("")
+	if !ed.SetActiveLayer("sky") {
+		t.Fatal("SetActiveLayer(sky) returned false")
+	}
+
+	app := startEditorView(t, ed)
+	app.Settle()
+
+	// The combined Repeat row must show the override dot and revert button for repeatY alone.
+	app.Find("id:inspector-layer-override-dot-repeatX")
+	app.Press("id:inspector-layer-revert-repeatX")
+	if ed.HasLayerOverride("sky", "repeatY") {
+		t.Fatal("expected repeatY override to be cleared after pressing Repeat revert button")
 	}
 }

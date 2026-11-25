@@ -469,10 +469,10 @@ func (e *Editor) initBuiltinCommands() {
 				if !notPlaying() {
 					return false
 				}
-				return len(e.SelectedIDs()) > 0 || (e.ViewMode == ViewMode2D && e.hasTileSel)
+				return e.allSelectedObjectsAreLocal() || (e.ViewMode == ViewMode2D && e.hasTileSel)
 			},
 			Run: func() error {
-				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || len(e.SelectedIDs()) == 0) {
+				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || !e.allSelectedObjectsAreLocal()) {
 					_, err := e.CopySelectedTileRegion()
 					return err
 				}
@@ -491,10 +491,10 @@ func (e *Editor) initBuiltinCommands() {
 				if !notPlaying() {
 					return false
 				}
-				return len(e.SelectedIDs()) > 0 || (e.ViewMode == ViewMode2D && e.hasTileSel)
+				return e.allSelectedObjectsAreLocal() || (e.ViewMode == ViewMode2D && e.hasTileSel)
 			},
 			Run: func() error {
-				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || len(e.SelectedIDs()) == 0) {
+				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || !e.allSelectedObjectsAreLocal()) {
 					_, err := e.CutSelectedTileRegion()
 					return err
 				}
@@ -533,7 +533,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"paste", "child", "parent", "clipboard", "yaml", "object"},
 			Shortcut:    "mod+shift+v",
-			Enabled:     func() bool { return notPlaying() && e.SelectedID != "" },
+			Enabled:     func() bool { return notPlaying() && e.selectedObjectIsLocal() },
 			Run: func() error {
 				_, err := e.PasteInto(e.SelectedID)
 				return err
@@ -548,10 +548,10 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:           "delete",
 			AlternateShortcuts: []string{"backspace"},
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.Playing() && (e.SelectedID != "" || e.SelectedRoomID() != "")
+				return notPlaying() && (e.allSelectedObjectsAreLocal() || e.SelectedRoomID() != "")
 			},
 			Run: func() error {
-				if e.SelectedID != "" {
+				if e.allSelectedObjectsAreLocal() {
 					return e.DeleteSelected()
 				}
 				if rid := e.SelectedRoomID(); rid != "" {
@@ -567,7 +567,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"clone", "copy", "object"},
 			Shortcut:    "mod+d",
-			Enabled:     func() bool { return notPlaying() && e.SelectedID != "" },
+			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
 				_, err := e.DuplicateSelected()
 				return err
@@ -580,7 +580,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"group", "parent", "container", "hierarchy", "object"},
 			Shortcut:    "mod+g",
-			Enabled:     func() bool { return notPlaying() && len(e.SelectedIDs()) > 0 },
+			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
 				_, err := e.GroupSelected()
 				return err

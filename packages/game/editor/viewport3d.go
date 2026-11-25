@@ -1073,7 +1073,7 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	}
 
 	if st.overrideInfo.Origin != ObjectLocal {
-		nextOv := cloneObjectOverride(st.overrideOld)
+		nextOv := cloneResolvedObjectOverride(st.overrideOld)
 		switch st.mode {
 		case Gizmo3DTranslate:
 			nextOv.X = sceneformat.Float32(next.X)

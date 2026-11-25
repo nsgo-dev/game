@@ -765,7 +765,7 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		return
 	}
 	if st.overrideInfo.Origin != ObjectLocal {
-		nextOv := cloneObjectOverride(st.overrideOld)
+		nextOv := cloneResolvedObjectOverride(st.overrideOld)
 		switch h := st.handle; {
 		case h == Handle2DBody || h == Handle2DMove || h == Handle2DMoveX || h == Handle2DMoveY:
 			nextOv.X = sceneformat.Float32(next.X)
@@ -1196,6 +1196,14 @@ func (e *Editor) EndDrag2D() bool {
 		nextVer := st.overridePrevVer
 		if hasAfter && nextVer < 2 {
 			nextVer = 2
+		}
+		candidate := e.Doc.Clone()
+		candidate.Version = nextVer
+		setOverrideOnDoc(candidate, st.overrideInfo, afterOv, hasAfter, st.overrideWasNil)
+		if _, err := e.checkCandidateScene(candidate); err != nil {
+			e.Rebuild()
+			e.report(err)
+			return false
 		}
 		e.History.Execute(&objectOverrideCmd{
 			ed:          e,
