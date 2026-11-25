@@ -1492,7 +1492,11 @@ func (ps *PhysicsScene) stepKinematic2D(b2 *physicsBinding2D, dtSec float32) {
 		b2.rigid.Y = cy
 		syncRigidShape2D(b2.rigid)
 	}
-	syncBuiltObject2D(b2.bo, cx-b2.offsetX, cy-b2.offsetY, b2.bo.Doc.Rotation)
+	wrot := b2.bo.Doc.Rotation
+	if _, _, dr, _, _, ok := decomposeTRS(b2.bo.World); ok {
+		wrot = dr
+	}
+	syncBuiltObject2D(b2.bo, cx-b2.offsetX, cy-b2.offsetY, wrot)
 }
 
 func (ps *PhysicsScene) stepKinematic3D(b3 *physicsBinding3D, dtSec float32) {
@@ -1560,7 +1564,7 @@ func syncBuiltObject2D(bo *BuiltObject, wx, wy, wrot float32) {
 		bo.Doc.Y = wy
 		bo.Doc.Rotation = wrot
 	} else {
-		// Convert world position back into parent's local space.
+		// Convert world position and rotation back into parent's local space.
 		if inv, ok := bo.Parent.World.Invert(); ok {
 			lp := inv.TransformPoint(math2d.Vec2{X: wx, Y: wy})
 			bo.Doc.X = lp.X
@@ -1569,19 +1573,58 @@ func syncBuiltObject2D(bo *BuiltObject, wx, wy, wrot float32) {
 			bo.Doc.X = wx
 			bo.Doc.Y = wy
 		}
-		bo.Doc.Rotation = wrot
+		if _, _, prot, psx, psy, ok := decomposeTRS(bo.Parent.World); ok {
+			if psx*psy < 0 {
+				bo.Doc.Rotation = prot - wrot
+			} else {
+				bo.Doc.Rotation = wrot - prot
+			}
+		} else {
+			bo.Doc.Rotation = wrot
+		}
 	}
 	bo.Sync()
+}
+
+func builtObjectWorldTransform3D(bo *BuiltObject) math3d.Transform {
+	if bo == nil || bo.Doc == nil {
+		return math3d.TransformIdentity()
+	}
+	local := ObjectLocalTransform3D(bo.Doc)
+	if bo.Parent == nil {
+		return local
+	}
+	return composeTransform3D(builtObjectWorldTransform3D(bo.Parent), local)
 }
 
 func syncBuiltObject3D(bo *BuiltObject, pos physics3d.Vec3, rot physics3d.Quat) {
 	if bo == nil || bo.Doc == nil {
 		return
 	}
-	bo.Doc.X = pos.X
-	bo.Doc.Y = pos.Y
-	bo.Doc.PosZ = pos.Z
-	rx, ry, rz := quatToEulerXYZ(rot)
+	localPos := pos
+	localRot := rot
+	if bo.Parent != nil {
+		parentWorld := builtObjectWorldTransform3D(bo.Parent)
+		parentPos := physics3d.Vec3{X: parentWorld.Pos.X, Y: parentWorld.Pos.Y, Z: parentWorld.Pos.Z}
+		parentRot := physics3d.Quat{X: parentWorld.Rot.X, Y: parentWorld.Rot.Y, Z: parentWorld.Rot.Z, W: parentWorld.Rot.W}
+		invParentRot := parentRot.Conjugate().Norm()
+		rel := invParentRot.RotateVec(pos.Sub(parentPos))
+		if parentWorld.Scale.X != 0 {
+			rel.X /= parentWorld.Scale.X
+		}
+		if parentWorld.Scale.Y != 0 {
+			rel.Y /= parentWorld.Scale.Y
+		}
+		if parentWorld.Scale.Z != 0 {
+			rel.Z /= parentWorld.Scale.Z
+		}
+		localPos = rel
+		localRot = invParentRot.Mul(rot).Norm()
+	}
+	bo.Doc.X = localPos.X
+	bo.Doc.Y = localPos.Y
+	bo.Doc.PosZ = localPos.Z
+	rx, ry, rz := quatToEulerXYZ(localRot)
 	bo.Doc.RotX = rx
 	bo.Doc.RotY = ry
 	bo.Doc.RotZ = rz
@@ -1697,17 +1740,24 @@ func ExtractPhysicsDebug2D(o *ObjectDoc, world *math2d.Affine) []PhysicsDebugSha
 	return out
 }
 
-// ExtractPhysicsDebug3D extracts any 3D collider and trigger shapes from o in world space for editor debug drawing.
+// ExtractPhysicsDebug3D extracts any 3D collider and trigger shapes from o using its local transform.
 func ExtractPhysicsDebug3D(o *ObjectDoc) []PhysicsDebugShape3D {
+	if o == nil {
+		return nil
+	}
+	return ExtractPhysicsDebug3DAt(o, ObjectLocalTransform3D(o))
+}
+
+// ExtractPhysicsDebug3DAt extracts any 3D collider and trigger shapes from o at the given composed world transform.
+func ExtractPhysicsDebug3DAt(o *ObjectDoc, world math3d.Transform) []PhysicsDebugShape3D {
 	if o == nil || len(o.Components) == 0 {
 		return nil
 	}
-	tr := ObjectLocalTransform3D(o)
-	pos := physics3d.Vec3{X: tr.Pos.X, Y: tr.Pos.Y, Z: tr.Pos.Z}
-	rot := physics3d.Quat{X: tr.Rot.X, Y: tr.Rot.Y, Z: tr.Rot.Z, W: tr.Rot.W}
-	sx := float32(math.Abs(float64(tr.Scale.X)))
-	sy := float32(math.Abs(float64(tr.Scale.Y)))
-	sz := float32(math.Abs(float64(tr.Scale.Z)))
+	pos := physics3d.Vec3{X: world.Pos.X, Y: world.Pos.Y, Z: world.Pos.Z}
+	rot := physics3d.Quat{X: world.Rot.X, Y: world.Rot.Y, Z: world.Rot.Z, W: world.Rot.W}
+	sx := float32(math.Abs(float64(world.Scale.X)))
+	sy := float32(math.Abs(float64(world.Scale.Y)))
+	sz := float32(math.Abs(float64(world.Scale.Z)))
 	if sx == 0 {
 		sx = 1
 	}

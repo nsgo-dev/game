@@ -214,4 +214,4 @@ _ = hashAtSave
 
 ## 在场景文件中编写物理
 
-2D 物理刚体、碰撞体与触发器可以直接在 `*.scene.yaml` 场景文件中使用 [`sceneformat`](editor.md#内置物理组件817) 内置的 `body2d`、`collider2d` 和 `trigger2d` 组件编写，并在 [`game.yaml`](project.md) 的 `physics:` 小节配置项目级重力、求解器迭代次数与具名碰撞层。调用 `sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` 即可构建对应的 `physics.World` 和 `physics.RigidWorld`，将具名 `layer`/`mask` 列表解析为 `physics.layers` 掩码，应用可选的 `*.physicsMaterial.yaml` 资源，并在每步更新中与 `BuiltScene` 保持同步（编辑器运行模式中也会自动步进）。
+2D 物理刚体、碰撞体与触发器可以直接在 `*.scene.yaml` 场景文件中使用 [`sceneformat`](editor.md#内置物理组件817) 内置的 `body2d`、`collider2d` 和 `trigger2d` 组件编写，并在 [`game.yaml`](project.md) 的 `physics:` 小节配置项目级重力、求解器迭代次数与具名碰撞层。调用 `sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` 即可构建对应的 `physics.World` 和 `physics.RigidWorld`，将具名 `layer`/`mask` 列表解析为 `physics.layers` 掩码，应用可选的 `*.physics.yaml` 资源，并在每步更新中与 `BuiltScene` 保持同步（编辑器运行模式中也会自动步进）。

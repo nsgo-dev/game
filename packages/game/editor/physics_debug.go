@@ -3,6 +3,7 @@ package editor
 import (
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/physics3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -100,22 +101,30 @@ func (e *Editor) drawPhysicsDebug3D(d *core.Drawing, w, h float32) {
 	if !e.ShowPhysicsDebug || d == nil || e.Doc == nil {
 		return
 	}
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
-		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
-			continue
-		}
-		for oi := range layer.Objects {
-			o := &layer.Objects[oi]
+	var walk func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform)
+	walk = func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform) {
+		for oi := range objs {
+			o := &objs[oi]
 			if e.clipScene != nil {
 				if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
 					o = bo.Doc
 				}
 			}
-			for _, item := range sceneformat.ExtractPhysicsDebug3D(o) {
+			world := parentWorld.Mul(sceneformat.ObjectLocalTransform3D(o))
+			for _, item := range sceneformat.ExtractPhysicsDebug3DAt(o, world) {
 				e.drawPhysicsShape3D(d, item, w, h)
 			}
+			if len(o.Children) > 0 {
+				walk(o.Children, world)
+			}
 		}
+	}
+	for li := range e.Doc.Layers {
+		layer := &e.Doc.Layers[li]
+		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
+			continue
+		}
+		walk(layer.Objects, math3d.TransformIdentity())
 	}
 }
 
