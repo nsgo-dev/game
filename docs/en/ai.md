@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, and EQS-style tactical position queries with cover points and reservations.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -724,3 +724,109 @@ Each `CoverPoint` records a world standing position (`Pos`), a unit `Facing` vec
 
 - **`PointReservations`**: guarantees two agents never reserve the same `CoverID` or non-cover positions closer than `MinSeparation`. `RunAndReserve` selects and reserves the best unreserved candidate while atomically replacing that agent's prior reservation; `Release(agentID)` frees a spot on death, `ReleaseCover(coverID)` frees destroyed cover, `Refresh` extends a timeout, and `Step(dt)` expires timed reservations deterministically.
 - **`QueryBudget`**: caps `MaxRaycasts` (for `LOSTest`) and `MaxPathQueries` (for `PathDistanceTest`) per simulation step across all agents sharing the budget. Before running a budgeted test, surviving candidates are ordered deterministically by preliminary score so the highest-ranked spots consume the step budget first. Call `Reset()` once per step, and use `Best`, `RunInto(dst, ctx)`, or `RunAndReserve` for zero heap allocations after warm-up.
+
+## Perception
+
+A `Perception` gives one agent sight, hearing and a memory of what it sensed, so a guard can see the player right now, go to where it last heard a noise, and give up after a while. A `PerceptionSystem` steps the perceptions of many agents together on `game.Loop`'s fixed steps:
+
+```go
+walls := []lights2d.Occluder{lights2d.RectOccluder(wallBounds)}
+
+guard := &ai.Perception{
+	Self:   guardID, // never senses itself
+	Team:   teamGuards,
+	Facing: core.Point{X: 1},
+	Sight: ai.SightConfig{
+		Range:           160,
+		HalfAngle:       math.Pi / 4, // a 90° cone
+		PeripheralRange: 24,          // all around, unless PeripheralHalfAngle narrows it
+	},
+	Hearing:     ai.HearingConfig{Range: 120},
+	ForgetAfter: 5 * time.Second,
+}
+
+senses := ai.PerceptionSystem{
+	LineOfSight: lights2d.LineOfSight(&walls),
+	Budget:      32, // line-of-sight checks per step, shared by every agent
+}
+senses.Add(guard)
+
+// Inside game.Loop.Update:
+guard.Pos = guardAgent.Pos
+if guardAgent.Vel != (core.Point{}) {
+	guard.Facing = guardAgent.Vel
+}
+if player.Running {
+	senses.PostNoise(ai.Noise{Source: playerID, Team: teamPlayer, Pos: player.Pos, Loudness: 1})
+}
+senses.Step(dt, []ai.Target{{ID: playerID, Team: teamPlayer, Pos: player.Pos, Vel: player.Vel}})
+
+for _, ev := range guard.Events() {
+	switch ev.Kind {
+	case ai.EventGained, ai.EventUpdated:
+		chase(ev.Memory.Pos)
+	case ai.EventLost:
+		search(ev.Memory.Pos, ev.Memory.Vel)
+	case ai.EventForgotten:
+		resumePatrol()
+	}
+}
+```
+
+### Sight
+
+A target is in view when it lies within `Range` of the eye and within `HalfAngle` (radians) of `Facing`, or within the shorter `PeripheralRange` and within `PeripheralHalfAngle`, which is zero for all around. The eye is `Pos + EyeOffset`, in world space; hearing measures from the same point. A target in view is seen when the system's `LineOfSight` reports the segment from the eye to the target clear; a nil `LineOfSight` lets every target in view be seen. Three adapters cover the usual occluders:
+
+| Adapter | Occluders |
+| --- | --- |
+| `ai.PhysicsLineOfSight(world, query, layers)` | Bodies and tiles of a `physics.World`, through `RaycastFirstLayer`. |
+| `lights2d.LineOfSight(&occluders)` | The `lights2d` occluders that cast shadows, through `lights2d.Visible`; it reads the slice on every call, so the level can change it. |
+| `perception3d.PhysicsLineOfSight(world, layers)` | Bodies and static colliders of a `physics3d.World`, for 3D agents. |
+
+A ray that starts inside the agent's body or ends inside the target's hits that body, so keep agents and targets off the layers that block sight, for example by putting walls on a layer of their own.
+
+### Hearing
+
+`PostNoise` queues a `Noise` with a position, a `Loudness` and its source's ID and team, and the next `Step` hears it: an agent hears a noise within `Hearing.Range × Loudness` of its eye, with no line of sight needed. Noises are heard in the order they were posted, and a step consumes them.
+
+### Memory and events
+
+Each agent keeps one `Memory` per `StimulusID`, so a target seen and later heard refreshes one memory. A memory holds the last known `Pos` and `Vel` (zero when heard), the `Sense` that last refreshed it, its `Age` since it was last sensed, whether it is `Visible` now, and a `Strength` that is 1 when seen, `1 - distance/reach` when heard, and falls linearly to 0 over `ForgetAfter`. A memory is forgotten once `Age` reaches `ForgetAfter`. Read memories with `Memories`, `AppendMemories`, `Memory(id)` and `Sees(id)`, and drop them with `Forget(id)` and `Clear`.
+
+After each `Step`, `Events` lists what changed:
+
+| Kind | When |
+| --- | --- |
+| `EventGained` | A stimulus is sensed with no memory of it before. |
+| `EventUpdated` | A remembered stimulus is seen again after being out of sight, is seen moving, or is heard. A still target in sight makes no events. |
+| `EventLost` | A stimulus in sight leaves it; the memory stays. |
+| `EventForgotten` | A memory reaches `ForgetAfter` and is dropped. |
+
+### Teams
+
+`Team` is a small team number. The system's `Attitude` function, `DefaultAttitude` when nil, decides whether an agent regards a stimulus as `Hostile`, `Neutral` or `Friendly`: the same team is friendly, `NoTeam` on either side is neutral, and other teams are hostile. `SightConfig.Detect` and `HearingConfig.Detect` choose the attitudes each sense notices, with `DetectHostile`, `DetectNeutral`, `DetectFriendly` and `DetectAll`; zero detects hostile stimuli only.
+
+### Budget and determinism
+
+With hundreds of agents, casting a ray for every agent and target on every step is too much. `Budget` caps the line-of-sight checks of a step: the pairs in view are ordered by the order agents were added and then by target ID, a step checks `Budget` of them starting after the last pair checked, and the next step carries on from there, so every agent gets its turn in a fixed order. A pair not yet rechecked keeps its previous result. `Stats` reports a step's candidates, checks and deferred pairs. With a deterministic `LineOfSight`, every run with the same inputs produces the same memories and events.
+
+### 3D
+
+The experimental package `game/ai/perception3d` runs the same engine on `math3d.Vec3`, so its senses, memory, events, teams and budget behave exactly as above. Its `Perception` points the cone along `Forward` (zero faces -Z), with angles measured in 3D, and `EyeOffset` is typically head height on +Y; `System`, `Target`, `Noise`, `Memory`, `Event` and `LineOfSight` mirror the 2D types, and it reuses `ai.SightConfig`, `ai.HearingConfig`, `ai.StimulusID`, `ai.Team` and the event kinds:
+
+```go
+import "github.com/nsgo-dev/game/packages/game/ai/perception3d"
+
+guard := &perception3d.Perception{
+	Team:        teamGuards,
+	Forward:     math3d.Vec3{Z: -1},
+	EyeOffset:   math3d.Vec3{Y: 1.7},
+	Sight:       ai.SightConfig{Range: 40, HalfAngle: math.Pi / 4},
+	ForgetAfter: 5 * time.Second,
+}
+senses := perception3d.System{LineOfSight: perception3d.PhysicsLineOfSight(world, layerWalls), Budget: 64}
+senses.Add(guard)
+
+// Inside game.Loop.Update:
+senses.Step(dt, []perception3d.Target{{ID: playerID, Team: teamPlayer, Pos: playerPos}})
+```

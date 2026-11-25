@@ -80,7 +80,8 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 
 | Package | Status | Purpose |
 | --- | --- | --- |
-| `game/ai` | Stable | Grid `AStar`, 2D `NavMesh`, steering behaviors and behavior trees |
+| `game/ai` | Stable | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception (sight, hearing, memory) |
+| `game/ai/perception3d` | Experimental | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
 | `game/platformer` | Experimental | Platformer `Controller` (coyote time, jump buffer, variable jump, wall slide/jump) from YAML |
 | `game/bullets` | Experimental | Pooled shooter bullet patterns (rings, spirals, aimed bursts) from YAML |
 | `game/cards` | Experimental | Board slot drag-and-drop, fanned hands, decks, piles, grids and YAML boards |

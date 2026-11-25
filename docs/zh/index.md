@@ -44,7 +44,8 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `animclip` | `github.com/nsgo-dev/game/packages/game/animclip` | [animclip](animclip.md) | 为任何已注册属性打关键帧的动画片段，通过 `tween.Timeline` 在场景对象上播放 |
 | `cards` | `github.com/nsgo-dev/game/packages/game/cards` | [cards](cards.md) | 在牌桌槽位间拖放并吸附或弹回，扇形手牌、牌堆、叠放牌列与网格布局，以及 YAML 牌桌文件 |
 | `rooms` | `github.com/nsgo-dev/game/packages/game/rooms` | [rooms](rooms.md) | 房间地图：每个房间独立的相机边界，以及房间之间的切换、滑动或淡入淡出过渡 |
-| `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为与行为树 |
+| `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为、行为树与感知 |
+| `ai/perception3d` | `github.com/nsgo-dev/game/packages/game/ai/perception3d` | [ai](ai.md#3d) | 面向 3D 智能体的 `ai` 感知，基于 `math3d.Vec3`，用 `physics3d` 判定视线 |
 | `rts` | `github.com/nsgo-dev/game/packages/game/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
 | `procgen` | `github.com/nsgo-dev/game/packages/game/procgen` | [procgen](procgen.md) | 带种子的 BSP 房间、元胞自动机洞穴与基于 YAML 规则的波函数坍缩，附连通性检查与 tilemap 绘制 |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |

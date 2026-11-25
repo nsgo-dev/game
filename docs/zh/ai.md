@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps），以及 EQS 风格的战术位置查询、掩体点与占位预订系统。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -724,3 +724,109 @@ reservations.Release(agentID)
 
 - **`PointReservations`**：保证任意两个智能体不会同时预订同一 `CoverID`，也不会预订间距小于 `MinSeparation` 的位置。`RunAndReserve` 自动选取并预订最优未占用点，同时原子替换该智能体的旧预订；死亡时调用 `Release(agentID)`、掩体摧毁时调用 `ReleaseCover(coverID)`、`Refresh` 续期，`Step(dt)` 确定性过期超时预订。
 - **`QueryBudget`**：对共享同一预算的所有智能体严格限制单步 `MaxRaycasts`（`LOSTest`）与 `MaxPathQueries`（`PathDistanceTest`）。进入高开销测试前，存活候选会按前置低开销测试得分确定性排序，确保有限预算优先花在最优候选上。每步开始调用一次 `Reset()`；使用 `Best`、`RunInto(dst, ctx)` 或 `RunAndReserve` 在预热后每次查询零堆分配。
+
+## 感知
+
+`Perception` 为一个智能体提供视觉、听觉以及对所感知事物的记忆：守卫能看到眼前的玩家，能走到最后听见声响的地方，也会在一段时间后放弃搜寻。`PerceptionSystem` 在 `game.Loop` 的固定步长上统一推进多个智能体的感知：
+
+```go
+walls := []lights2d.Occluder{lights2d.RectOccluder(wallBounds)}
+
+guard := &ai.Perception{
+	Self:   guardID, // 不会感知到自己
+	Team:   teamGuards,
+	Facing: core.Point{X: 1},
+	Sight: ai.SightConfig{
+		Range:           160,
+		HalfAngle:       math.Pi / 4, // 90° 视锥
+		PeripheralRange: 24,          // 默认覆盖四周，可用 PeripheralHalfAngle 收窄
+	},
+	Hearing:     ai.HearingConfig{Range: 120},
+	ForgetAfter: 5 * time.Second,
+}
+
+senses := ai.PerceptionSystem{
+	LineOfSight: lights2d.LineOfSight(&walls),
+	Budget:      32, // 每步的视线检测次数上限，由所有智能体共享
+}
+senses.Add(guard)
+
+// 在 game.Loop.Update 中：
+guard.Pos = guardAgent.Pos
+if guardAgent.Vel != (core.Point{}) {
+	guard.Facing = guardAgent.Vel
+}
+if player.Running {
+	senses.PostNoise(ai.Noise{Source: playerID, Team: teamPlayer, Pos: player.Pos, Loudness: 1})
+}
+senses.Step(dt, []ai.Target{{ID: playerID, Team: teamPlayer, Pos: player.Pos, Vel: player.Vel}})
+
+for _, ev := range guard.Events() {
+	switch ev.Kind {
+	case ai.EventGained, ai.EventUpdated:
+		chase(ev.Memory.Pos)
+	case ai.EventLost:
+		search(ev.Memory.Pos, ev.Memory.Vel)
+	case ai.EventForgotten:
+		resumePatrol()
+	}
+}
+```
+
+### 视觉
+
+目标位于眼睛 `Range` 范围内且与 `Facing` 的夹角不超过 `HalfAngle`（弧度），或位于较短的 `PeripheralRange` 范围内且夹角不超过 `PeripheralHalfAngle`（为零时覆盖四周）时，即处于视野中。眼睛位置为 `Pos + EyeOffset`（世界坐标），听觉也从这一点测量距离。处于视野中的目标，在系统的 `LineOfSight` 判定从眼睛到目标的线段畅通时才算被看见；`LineOfSight` 为 nil 时，视野中的目标都会被看见。三个适配器覆盖常见的遮挡来源：
+
+| 适配器 | 遮挡物 |
+| --- | --- |
+| `ai.PhysicsLineOfSight(world, query, layers)` | `physics.World` 中的刚体与瓦片，通过 `RaycastFirstLayer` 检测。 |
+| `lights2d.LineOfSight(&occluders)` | 投射阴影的 `lights2d` 遮挡物，通过 `lights2d.Visible` 检测；每次调用都会读取该切片，因此关卡可以随时修改它。 |
+| `perception3d.PhysicsLineOfSight(world, layers)` | `physics3d.World` 中的刚体与静态碰撞体，供 3D 智能体使用。 |
+
+从智能体自身刚体内部出发、或终点落在目标刚体内的射线会击中该刚体，因此应让智能体和目标不处于阻挡视线的层上，例如把墙体单独放在一层。
+
+### 听觉
+
+`PostNoise` 将一个 `Noise`（位置、`Loudness` 响度、声源 ID 与阵营）加入队列，由下一次 `Step` 处理：声源距智能体眼睛不超过 `Hearing.Range × Loudness` 时即被听见，无需视线。噪声按投递顺序处理，并在该步中被消耗。
+
+### 记忆与事件
+
+每个智能体按 `StimulusID` 为每个刺激保存一条 `Memory`，因此先被看见、后被听见的同一目标只刷新同一条记忆。记忆包含最后已知的 `Pos` 与 `Vel`（听到时速度为零）、最近一次刷新它的感官 `Sense`、自上次感知以来的 `Age`、当前是否 `Visible`，以及强度 `Strength`：看见时为 1，听见时为 `1 - 距离/可听范围`，并在 `ForgetAfter` 内线性衰减到 0。`Age` 达到 `ForgetAfter` 时记忆被遗忘。可用 `Memories`、`AppendMemories`、`Memory(id)` 与 `Sees(id)` 读取记忆，用 `Forget(id)` 与 `Clear` 删除记忆。
+
+每次 `Step` 之后，`Events` 列出发生的变化：
+
+| 类型 | 时机 |
+| --- | --- |
+| `EventGained` | 感知到此前没有记忆的刺激。 |
+| `EventUpdated` | 已记住的刺激在离开视野后被再次看见、被看见在移动，或被听见。视野中静止的目标不产生事件。 |
+| `EventLost` | 视野中的刺激离开视野，记忆仍保留。 |
+| `EventForgotten` | 记忆的 `Age` 达到 `ForgetAfter` 并被删除。 |
+
+### 阵营
+
+`Team` 是一个小整数阵营编号。系统的 `Attitude` 函数（为 nil 时使用 `DefaultAttitude`）决定智能体把刺激视为 `Hostile`、`Neutral` 还是 `Friendly`：同阵营为友方，任一方为 `NoTeam` 时为中立，其余为敌对。`SightConfig.Detect` 与 `HearingConfig.Detect` 用 `DetectHostile`、`DetectNeutral`、`DetectFriendly` 和 `DetectAll` 选择各感官关注的态度；为零时只感知敌对刺激。
+
+### 预算与确定性
+
+智能体多达数百个时，每步为每对智能体与目标都发射射线开销过大。`Budget` 限制一步内的视线检测次数：处于视野中的智能体—目标对先按智能体加入顺序、再按目标 ID 排序，每步从上次检测到的位置之后检测 `Budget` 对，下一步接着继续，因此每个智能体都按固定顺序轮到。尚未重新检测的对沿用上一次的结果。`Stats` 报告一步内的候选数、检测数与延后数。只要 `LineOfSight` 是确定性的，相同输入的每次运行都会得到相同的记忆与事件。
+
+### 3D
+
+实验性包 `game/ai/perception3d` 在 `math3d.Vec3` 上运行同一个引擎，因此其感官、记忆、事件、阵营与预算的行为与上文完全一致。其 `Perception` 的视锥沿 `Forward` 方向（为零时朝向 -Z），角度在 3D 空间中测量，`EyeOffset` 通常为 +Y 方向的头部高度；`System`、`Target`、`Noise`、`Memory`、`Event` 与 `LineOfSight` 与对应的 2D 类型一一对应，并复用 `ai.SightConfig`、`ai.HearingConfig`、`ai.StimulusID`、`ai.Team` 与事件类型：
+
+```go
+import "github.com/nsgo-dev/game/packages/game/ai/perception3d"
+
+guard := &perception3d.Perception{
+	Team:        teamGuards,
+	Forward:     math3d.Vec3{Z: -1},
+	EyeOffset:   math3d.Vec3{Y: 1.7},
+	Sight:       ai.SightConfig{Range: 40, HalfAngle: math.Pi / 4},
+	ForgetAfter: 5 * time.Second,
+}
+senses := perception3d.System{LineOfSight: perception3d.PhysicsLineOfSight(world, layerWalls), Budget: 64}
+senses.Add(guard)
+
+// 在 game.Loop.Update 中：
+senses.Step(dt, []perception3d.Target{{ID: playerID, Team: teamPlayer, Pos: playerPos}})
+```

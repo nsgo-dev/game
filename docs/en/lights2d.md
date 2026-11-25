@@ -54,6 +54,7 @@ When `light.CastShadows` is `true`, `Scene.Draw` clips that light against `Visib
 | --- | --- |
 | `VisibilityPolygon(origin, radius, occluders)` | Returns the ordered 2D polygon visible from `origin` within `radius`. |
 | `Visible(origin, target, occluders)` | Reports whether the segment from `origin` to `target` is unobstructed. |
+| `LineOfSight(&occluders)` | Returns `Visible` against the occluders as an `ai.LineOfSight`, so they block AI perception too ([ai](ai.md#perception)). |
 | `PointInPolygon(p, poly)` | Tests whether point `p` lies inside a visibility polygon. |
 
 ## Normal-mapped sprites

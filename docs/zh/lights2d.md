@@ -54,6 +54,7 @@ lighting.Occluders = []lights2d.Occluder{
 | --- | --- |
 | `VisibilityPolygon(origin, radius, occluders)` | 计算从 `origin` 出发在 `radius` 范围内的有序 2D 可见多边形。 |
 | `Visible(origin, target, occluders)` | 判断 `origin` 到 `target` 的连线是否被遮挡体阻断。 |
+| `LineOfSight(&occluders)` | 以 `ai.LineOfSight` 的形式返回针对这些遮挡体的 `Visible`，让它们同样遮挡 AI 感知（[ai](ai.md#感知)）。 |
 | `PointInPolygon(p, poly)` | 测试点 `p` 是否位于可见多边形内。 |
 
 ## 法线贴图精灵
