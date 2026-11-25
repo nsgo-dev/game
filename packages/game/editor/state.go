@@ -247,6 +247,8 @@ type Editor struct {
 	audioMixer audioMixerState
 	// projectSettings holds the Project Settings panel visibility and active section.
 	projectSettings projectSettingsState
+	// inputMap holds the Input Map panel state, key capture mode, and region canvas drag preview.
+	inputMap inputMapState
 	// selectedFileRev bumps whenever SelectFile or OpenProblem updates SelectedFile so FilesView resets its target path draft.
 	selectedFileRev uint64
 	// problems holds the asynchronous assetcheck and project.Check state for the open project.

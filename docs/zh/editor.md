@@ -560,6 +560,15 @@ func main() {
 - **单总线 DSP 效果链**：为每条总线添加（`AddAudioBusEffect` / `AddAudioBusEffectKind`）、移除（`RemoveAudioBusEffect`）、重排（`MoveAudioBusEffect`）和编辑（`SetAudioBusEffect`）`project.Effect` 支持的全部六种效果（`lowPass`、`highPass`、`delay`、`reverb`、`gain`、`bitcrush`）。数值控件将参数约束在 `project.Validate` 允许的范围内（配合 `ClampAudioEffect`），Go API 则会拒绝越界值且不改动项目或历史。
 - **实时试听**：从当前项目中选择音频文件（`ProjectAudioFiles`、`SelectAudioFile`），点击 **Audition**（`AuditionAudioBus`、`StopAudition`、`SetAuditionLoop`）即可经由 `project.File.ConfigureMixer` 配置好的编辑器 `sound.Mixer` 通过选中总线播放。调节主音量或总线音量会立即作用于正在播放的音频而不中断播放；修改效果链或撤销/重做会立即通过 `sound.Mixer.ProcessSource` 重新处理并播放，使听感与游戏运行时完全一致。
 
+## 输入映射编辑器（#908）
+
+打开项目后，工具栏的 **Input** 按钮（`InputMapOpen` / `SetInputMapOpen`）会在视口下方切换显示 `InputMapPanelView`，通过 `EditProject` 直接编辑 `game.yaml` 的 `input` 小节，提供完整的撤销/重做与 `project.Validate` 校验：
+
+- **动作与绑定**：新增（`AddInputAction`）、重命名（`RenameInputAction`）和删除（`DeleteInputAction`）动作，并添加（`AddInputBinding`）、编辑（`SetInputBinding`）或移除（`RemoveInputBinding`）`game/input` 支持的全部绑定类型：`key`、`keyCode`、`gamepadButton`、`mouseButton`、`touchRegion` 与 `mouseRegion`。重命名动作时会在同一步可撤销操作中原子更新 `input.axes` 中所有引用该动作的轴，撤销与重做也会保持一致。
+- **按键捕获**：点击 **Press a key**（`BeginKeyCapture`，`project.KindKey`）或 **Press code**（`project.KindKeyCode`）进入捕获模式，将下一次硬件按键（`CaptureKeyEvent`）直接绑定到当前动作，点击 **Cancel**（`CancelKeyCapture`）可退出而不改动项目。
+- **虚拟显示尺寸上的区域绘制与拖拽**：区域画布按项目的 `display` 虚拟分辨率等比缩放（未配置 `display` 时回退到 `window` 尺寸，`InputMapDisplaySize`），绘制全部 `touchRegion` 和 `mouseRegion` 区域；可拖拽已有区域移动、拖拽选中区域右下角手柄调整大小，或在空白处拖拽绘制新区域（`BeginRegionDrag` / `UpdateRegionDrag` / `EndRegionDrag` / `SetInputRegion`），每次拖拽作为单个可撤销的 `EditProject` 步骤提交。
+- **动作轴、运动轴与手柄摇杆轴**：**Axes** 标签页可编辑动作轴（`AddInputAxis`、`SetInputAxis`、`DeleteInputAxis`）、设备运动传感器轴（`AddInputMotionAxis`、`SetInputMotionAxis`、`DeleteInputMotionAxis`）和手柄模拟摇杆轴（`AddInputGamepadAxis`、`SetInputGamepadAxis`、`DeleteInputGamepadAxis`）。`BuildInputActions` 通过 `project.File.BindInput` 将当前项目的输入映射绑定到实时的 `*input.Actions`。
+
 ## 本地化面板（#917）
 
 本地化面板（`LocalizationPanelView`）在视口下方以表格形式并排编辑各语言的 YAML 字符串表：行为消息键，列为项目语言。

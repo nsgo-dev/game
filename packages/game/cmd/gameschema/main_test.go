@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
@@ -462,5 +463,52 @@ func TestWorld3DSchemasShapeAndValidation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestProjectSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, project.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != project.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(project.CurrentVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("project schema accepts unknown top-level keys")
+	}
+	for _, name := range []string{"Window", "Display", "Input", "Action", "Binding", "Rect", "Axis", "MotionAxis", "GamepadAxis"} {
+		def := s.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", name, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", name)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", name, p.Name)
+			}
+		}
+	}
+	for _, file := range []string{"game.yaml", "input_bindings.yaml"} {
+		data, err := os.ReadFile(filepath.Join(root, "project", "testdata", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ValidateYAML(data); err != nil {
+			t.Fatalf("project schema refused testdata/%s: %v", file, err)
+		}
+	}
+	const head = "version: 1\nname: G\nid: dev.nsgo.g\nappVersion: 1.0.0\nwindow: {width: 640, height: 360}\n"
+	for name, src := range map[string]string{
+		"unknown top-level key": head + "extra: true\n",
+		"unknown binding kind":  head + "input: {actions: [{name: a, bindings: [{kind: voice}]}]}\n",
+		"unknown binding key":   head + "input: {actions: [{name: a, bindings: [{kind: key, key: space, extra: 1}]}]}\n",
+		"unknown gamepad axis":  head + "input: {gamepadAxes: [{name: g, axis: triggerL}]}\n",
+	} {
+		if err := s.ValidateYAML([]byte(src)); err == nil {
+			t.Fatalf("project schema accepted %s", name)
+		}
 	}
 }

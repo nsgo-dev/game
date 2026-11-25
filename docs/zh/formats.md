@@ -18,7 +18,7 @@
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 项目根目录的 `game.yaml` | `version: 1` | `project.Parse`、`project.Encode` | [项目文件](project.md) |
+| 项目根目录的 `game.yaml` | `version: 1` | `project.Parse`、`project.Encode` | [项目文件](project.md)；Schema 为 `https://game.nsgo.dev/schemas/game.v1.json` |
 
 ```yaml
 version: 1

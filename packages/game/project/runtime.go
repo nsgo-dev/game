@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 )
 
 // Title returns the window's title: Window.Title, or Name when it is empty.
@@ -72,7 +73,7 @@ func (f *File) Viewport() (screen.Viewport, bool) {
 	return v, true
 }
 
-// BindInput binds every action with bindings, axis and motion axis of the input map into a, replacing a's bindings of the same names and leaving others, such as ones the game binds in code, as they are.
+// BindInput binds every action with bindings, axis, motion axis and gamepad axis of the input map into a, replacing a's bindings of the same names and leaving others, such as ones the game binds in code, as they are.
 func (f *File) BindInput(a *input.Actions) {
 	if f.Input == nil {
 		return
@@ -99,6 +100,14 @@ func (f *File) BindInput(a *input.Actions) {
 			Invert:      m.Invert,
 		})
 	}
+	for _, g := range f.Input.GamepadAxes {
+		a.BindGamepadAxis(g.Name, gamepadAxis(g.Axis), input.GamepadAxisOptions{
+			DeadZone:    g.DeadZone,
+			Axial:       g.Axial,
+			Sensitivity: g.Sensitivity,
+			Invert:      g.Invert,
+		})
+	}
 }
 
 // Input returns b as an input.Input; a Binding Validate refused returns the zero Input, which is never active.
@@ -114,6 +123,22 @@ func (b Binding) Input() input.Input {
 		return input.MouseButton(mouseButton(b.Button))
 	case KindMouseRegion:
 		return input.MouseRegion(region, mouseButton(b.Button))
+	case KindKey:
+		if b.Key == "" {
+			return input.Input{}
+		}
+		return input.Key(b.Key)
+	case KindKeyCode:
+		if b.Code == "" {
+			return input.Input{}
+		}
+		return input.KeyCode(b.Code)
+	case KindGamepadButton:
+		btn, ok := gamepadButton(b.Button)
+		if !ok {
+			return input.Input{}
+		}
+		return input.GamepadButton(btn)
 	default:
 		return input.Input{}
 	}
@@ -170,6 +195,62 @@ func motionAxis(s string) input.MotionAxis {
 		return input.GyroZ
 	default:
 		return input.MotionAxisNone
+	}
+}
+
+func gamepadButton(s string) (gamepad.Button, bool) {
+	switch s {
+	case "south":
+		return gamepad.ButtonSouth, true
+	case "east":
+		return gamepad.ButtonEast, true
+	case "west":
+		return gamepad.ButtonWest, true
+	case "north":
+		return gamepad.ButtonNorth, true
+	case "leftShoulder":
+		return gamepad.ButtonLB, true
+	case "rightShoulder":
+		return gamepad.ButtonRB, true
+	case "leftTrigger":
+		return gamepad.ButtonLT, true
+	case "rightTrigger":
+		return gamepad.ButtonRT, true
+	case "back":
+		return gamepad.ButtonBack, true
+	case "start":
+		return gamepad.ButtonStart, true
+	case "leftStick":
+		return gamepad.ButtonLeftStick, true
+	case "rightStick":
+		return gamepad.ButtonRightStick, true
+	case "dpadUp":
+		return gamepad.ButtonDPadUp, true
+	case "dpadDown":
+		return gamepad.ButtonDPadDown, true
+	case "dpadLeft":
+		return gamepad.ButtonDPadLeft, true
+	case "dpadRight":
+		return gamepad.ButtonDPadRight, true
+	case "home":
+		return gamepad.ButtonHome, true
+	default:
+		return 0, false
+	}
+}
+
+func gamepadAxis(s string) gamepad.Axis {
+	switch s {
+	case "leftX":
+		return gamepad.AxisLeftX
+	case "leftY":
+		return gamepad.AxisLeftY
+	case "rightX":
+		return gamepad.AxisRightX
+	case "rightY":
+		return gamepad.AxisRightY
+	default:
+		return gamepad.Axis(gamepad.AxisCount)
 	}
 }
 
