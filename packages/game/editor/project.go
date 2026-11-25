@@ -248,6 +248,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.merge.session = nil
 	e.merge.rev++
 	e.refreshDetectedMergeConflicts()
+	e.resetChangesState()
+	e.RefreshChangesCount()
 	if conflictedScene != "" {
 		if merr := e.OpenMergeConflict(conflictedScene); merr != nil {
 			e.Status = "Opened project " + path + "; " + merr.Error()

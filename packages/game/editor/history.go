@@ -14,13 +14,35 @@ type fallibleCommand interface {
 	undo() error
 }
 
-// History records executed Commands and supports linear undo and redo.
+// History records executed Commands and supports linear undo and redo, plus non-destructive commit milestones.
 type History struct {
 	commands []Command
 	cursor   int
 	onChange func()
 	// group collects the commands executed while Group runs, or is nil outside one.
-	group *groupCmd
+	group      *groupCmd
+	milestones []CommitMilestone
+}
+
+// RecordMilestone records a Git commit milestone in history without altering the undo/redo command stack.
+func (h *History) RecordMilestone(m CommitMilestone) {
+	if h == nil {
+		return
+	}
+	h.milestones = append([]CommitMilestone{m}, h.milestones...)
+	if h.onChange != nil {
+		h.onChange()
+	}
+}
+
+// Milestones returns a copy of all recorded commit milestones, most recent first.
+func (h *History) Milestones() []CommitMilestone {
+	if h == nil || len(h.milestones) == 0 {
+		return nil
+	}
+	out := make([]CommitMilestone, len(h.milestones))
+	copy(out, h.milestones)
+	return out
 }
 
 // NewHistory returns an empty undo/redo History.

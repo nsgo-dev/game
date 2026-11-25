@@ -190,6 +190,7 @@ func (e *Editor) OpenDemo() error {
 	e.lookThroughCamera3D = false
 	e.envPanelOpen = false
 	e.merge = mergeConflictState{}
+	e.resetChangesState()
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.clearAllDiskState()

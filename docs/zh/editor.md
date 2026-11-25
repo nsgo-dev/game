@@ -1094,6 +1094,19 @@ func main() {
 - **轨道泳道与片段检查器**：为 Camera、每个角色、Dialogue、Sound 和 Music 轨道分别显示泳道与片段块。选中片段（`SelectCutsceneClip`、`SelectCutsceneClipByID`）后，可通过 `±0.1 s` 步进按钮调整 **Start** 和 **Duration**（`AdjustCutsceneClipStart`、`AdjustCutsceneClipDuration`、`SetCutsceneClipTiming`），并在相机和角色轨道上切换 **Easing**（`Linear`、`In`、`Out`、`In-out`、`Hold`，`SetCutsceneClipEasing`）。选中对白片段时会展示行 ID、中英文译文，并提示文本存放在 `loc/en.yaml` 与 `loc/zh.yaml` 中、过场文件只保存 ID。
 - **智能体变更审查（`OpenCutsceneReview`）**：在不提前改写磁盘文件的前提下对比修改前（`Before`）与智能体提议（`After`）。支持切换 **Before** / **After**（`SetCutsceneReviewViewMode`）或按住 **B** 键快速窥视修改前状态（`SetCutsceneReviewPeekBefore`、`CutsceneHandleKeyEvent`）；使用虚线/实线样式与图例区分新增（绿色虚线）、修改（琥珀色虚线）与选中（蓝色实线）片段；右侧 `N CHANGES` 列表支持逐条 **Revert** / **Restore**（`ToggleCutsceneReviewChange`）及点击跳转定位（`FocusCutsceneReviewChange`）；审查期间用户的手动微调会自动并入本次审查且可用 `⌘Z` 撤销（`"Your edit joins this review · ⌘Z undoes it"`）；点击 **Revert all**（`RevertAllCutsceneReview`）可放弃全部提议，点击 **Keep N of M**（`KeepCutsceneReview`）则将保留的变更与手动微调作为**单个原子撤销步骤**一并写入内存与磁盘。
 
+## 变更与提交面板（#1057）
+
+点击状态栏中的 **变更** 入口（实时显示工作区已改动文件数量）、执行 `项目 > 变更与提交` 或通过命令面板（`CmdChanges` / `OpenChangesPanel` / `CloseChangesPanel`）即可打开全窗口的**变更与提交**界面（`ChangesPanelView`），布局对应 `docs/design/editor/VersionControl.dc.html` 第 1 屏并严格采用 `Spec.dc.html` 设计令牌：
+
+- **分支切换、领先/落后计数与 Pull**：顶部栏显示 `<项目名> / <场景名>`、分支切换下拉菜单（`GitSwitchBranch`，同时显示当前分支与 `ahead N` / `behind M` 计数）、**Refresh**（`RefreshChanges`）、**Pull**（`GitPull`，仅快进拉取）与 **Play**。
+- **按类别分组的 CHANGES 列表**：将相对于 `HEAD` 的工作区改动（`git status --porcelain=v1 -uall`）按 **SCENES**、**DATA**、**CODE** 与 **ASSETS**（`ChangesCategory`）分组展示，每行提供纳入提交勾选框（`SetChangeIncluded`、`ToggleChangeIncluded`）、状态徽章（`M`、`A`、`D`、`R`）以及简明摘要（如 `4 added · 3 changed objects`、`+7 -4 lines` 或音频时长与大小）。
+- **Review 布局下的逐文件 `HEAD` 对比**：
+  - **场景（`*.scene.yaml` / `*.scene.yml`）**：对比 `HEAD`（`git show HEAD:<path>`）与工作区场景文档，提供并排的 **HEAD** 与 **Now** 2D 场景预览（亦可通过 `SetChangesSceneView` 切换单视图 **HEAD** / **Now**），用绿色虚线标出新增对象、琥珀色虚线标出改动对象、红色虚线标出移除对象，并在下方显示逐对象变更徽章（如 `added · ...`、`changed · Door (x 584 → 560)`、`removed · ...`）。
+  - **数据与 Go 代码**：顶部展示最近一次 `nsgo check` 与 `nsgo test` 的结果及相对运行时间（`RunChangesChecks`，可通过 `Editor.ChangesCheckRunner` 注入），下方展示带增删着色的逐行统一差异（`git diff HEAD -- <path>`，未跟踪文件则显示完整新增行）以及 **Open in editor** 按钮（`OpenChangedFileInEditor`）。
+  - **音频资源**：提供可播放的试听卡片（`AuditionChangedAudio`、`StopChangedAudio`），展示时长、格式/采样率、60 条波形柱以及来自项目引用索引和场景对象的入向引用（`Used by ...`）。
+- **选择性提交卡片与历史里程碑**：结合已勾选文件、审查与试玩上下文（`SetChangesContext`）以及检查结果，通过 `Editor.CommitMessageDrafter` 或确定性的 `DefaultCommitDraft` 起草提交摘要与描述，支持 **Redraft**（`RedraftCommitMessage`）、可编辑摘要与描述输入框（`SetCommitSummary`、`SetCommitDescription`）、`"Made from N agent requests, reviewed and kept"` 归属行、已勾选文件与增删行数统计、**Commit**（`CommitSelectedChanges`）、**Commit and push**（`CommitAndPushSelectedChanges`）以及 **Push N commits**（`PushCommits`）。提交时**仅**暂存并提交已勾选文件（`git add -A -- <included>` + `git commit --only -m ... -- <included>`），未勾选文件始终保留为未提交状态；提交后在 `Editor.History`（`History.Milestones` / `CommitMilestones`）中记为一个里程碑。未经用户点击按钮，编辑器绝不会自动提交或推送。
+- **SHARE**：提供 **Copy as PR description**（`CopyPRDescription` / `BuildPRDescription`，经由 `core.Scope.SetClipboard` 或 `Editor.ChangesClipboard` 复制包含摘要、变更文件、检查结果与试玩数据的结构化 Markdown）和 **Open pull request**（`OpenPullRequest`，当 `PATH` 中存在 `gh` 或注入 `Editor.GHRunner` 时启用）。
+
 ## 逐对象场景合并冲突解决（#1059）
 
 当 Git 存在未合并的场景文件（通常由 #1058 的逐对象合并驱动 `go tool game merge` 产生）时，打开项目（`OpenProject`）、点击状态栏中的冲突徽章或执行 `Project > Resolve Scene Merge Conflicts`（`CmdMergeConflicts` / `OpenMergeConflict`）会进入全窗口的**场景合并冲突**界面（`MergeConflictView`，严格采用 `docs/design/editor/Spec.dc.html` 令牌并对应 `VersionControl.dc.html` 第 2 屏）：
