@@ -109,6 +109,8 @@ type Enemy struct {
 	ID int
 	// Def is the enemy's kind.
 	Def *EnemyDef
+	// Wave is the index in data/level.yaml of the wave that sent it.
+	Wave int
 	// Stats holds its health, speed and armor, slowed by frost.
 	Stats *stats.Sheet
 	// Health is its hit points left.
@@ -360,7 +362,7 @@ func (w *World) spawn() {
 	for _, s := range w.spawners {
 		s.wait -= stepTime
 		for s.left > 0 && s.wait <= 0 {
-			w.addEnemy(s.def)
+			w.addEnemy(s.def, s.waveIdx)
 			s.left--
 			s.wait += s.every
 		}
@@ -373,11 +375,11 @@ func (w *World) spawn() {
 	w.spawners = w.spawners[:n]
 }
 
-func (w *World) addEnemy(def *EnemyDef) {
+func (w *World) addEnemy(def *EnemyDef, wave int) {
 	// Validate checked the enemy's stats.
 	sheet, _ := stats.NewSheet(def.Stats...)
 	w.nextID++
-	e := &Enemy{ID: w.nextID, Def: def, Stats: sheet, Health: sheet.Value(statHealth)}
+	e := &Enemy{ID: w.nextID, Def: def, Wave: wave, Stats: sheet, Health: sheet.Value(statHealth)}
 	e.X, e.Y = w.routePoint(0)
 	w.Enemies = append(w.Enemies, e)
 }
@@ -507,18 +509,31 @@ func (w *World) settle() {
 		w.spawners = nil
 		return
 	}
-	if w.Spawning() || len(w.Enemies) > 0 {
-		return
-	}
+	// A wave is cleared once it has sent every enemy and none of them is left, even while a later wave is still on the road.
 	for i := range w.Wave {
-		if !w.paid[i] {
+		if !w.paid[i] && w.waveCleared(i) {
 			w.paid[i] = true
 			w.Money += w.Data.Level.Waves[i].Bonus
 		}
 	}
-	if w.Wave == w.Waves() {
+	if w.Wave == w.Waves() && !w.Spawning() && len(w.Enemies) == 0 {
 		w.Outcome = Won
 	}
+}
+
+// waveCleared reports whether wave i has no enemy left to send and none on the road.
+func (w *World) waveCleared(i int) bool {
+	for _, s := range w.spawners {
+		if s.waveIdx == i {
+			return false
+		}
+	}
+	for _, e := range w.Enemies {
+		if e.Wave == i {
+			return false
+		}
+	}
+	return true
 }
 
 func dist(ax, ay, bx, by float32) float32 {

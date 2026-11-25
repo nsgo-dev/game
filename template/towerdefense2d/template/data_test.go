@@ -48,6 +48,7 @@ func TestParseLevelRefusesBadLevels(t *testing.T) {
 		{"unknown field", "lives: 10\n", "lives: 10\nscore: 3\n", "field score not found"},
 		{"version", "version: 1\n", "version: 2\n", "version 2"},
 		{"no lives", "lives: 10\n", "lives: 0\n", "lives 0"},
+		{"huge tiles", "tileSize: 32\n", "tileSize: 32000\n", "at most 256"},
 		{"ragged map", `  - "^.............."`, `  - "^............."`, "has 15 tiles, want 14"},
 		{"unknown tile", `  - "^.............."`, `  - "^.............#"`, "unknown tile"},
 		{"two spawns", `  - "^.............."`, `  - "S.............."`, "2 spawn"},
@@ -89,6 +90,7 @@ func TestParseTowersRefusesBadTowers(t *testing.T) {
 		{"no range", "      - name: range\n        base: 80\n", "      - name: reach\n        base: 80\n", "no range stat"},
 		{"upgrade of an unknown stat", "          - stat: damage\n            op: add\n            value: 4\n", "          - stat: power\n            op: add\n            value: 4\n", "power"},
 		{"no pattern", "pattern: bolt\n", "pattern: \"\"\n", "no pattern"},
+		{"upgrade to no range", "          - stat: range\n            op: add\n            value: 16\n", "          - stat: range\n            op: override\n            value: 0\n", "stay positive after upgrade 2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := strings.Replace(string(good), tc.old, tc.new, 1)
@@ -175,6 +177,7 @@ func TestLoadDataChecksTheFilesAgainstEachOther(t *testing.T) {
 		{"no frame", "data/projectiles.yaml", "    frame: bolt\n", "", "needs a frame"},
 		{"a burst", "data/projectiles.yaml", "shots: 1\n", "shots: 3\n    interval: 50ms\n", "shots: 1"},
 		{"missing file", "data/level.yaml", "", "", "level"},
+		{"map unlike the display", "data/level.yaml", "tileSize: 32\n", "tileSize: 40\n", "game.yaml's display is 480 by 320"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			broken := fstest.MapFS{}
