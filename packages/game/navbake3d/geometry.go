@@ -650,7 +650,15 @@ func isMovingBody3D(o *sceneformat.ObjectDoc) bool {
 			switch v := mass.(type) {
 			case int:
 				return v > 0
+			case int32:
+				return v > 0
 			case int64:
+				return v > 0
+			case uint:
+				return v > 0
+			case uint32:
+				return v > 0
+			case uint64:
 				return v > 0
 			case float32:
 				return v > 0
@@ -664,14 +672,24 @@ func isMovingBody3D(o *sceneformat.ObjectDoc) bool {
 	}
 }
 
-// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Model names a glTF model in fsys (respecting ModelNode and ModelMesh), by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; an object whose Mesh names a built-in primitive bakes that primitive; objects with a dynamic or kinematic body3d component are skipped; any other node bakes its *scene3d.MeshCollider.
+// inMovingBody3DSubtree reports whether n or any ancestor node carries a dynamic or kinematic body3d ObjectDoc.
+func inMovingBody3DSubtree(n *scene3d.Node) bool {
+	for cur := n; cur != nil; cur = cur.Parent() {
+		if o, ok := cur.UserData.(*sceneformat.ObjectDoc); ok && isMovingBody3D(o) {
+			return true
+		}
+	}
+	return false
+}
+
+// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Model names a glTF model in fsys (respecting ModelNode and ModelMesh), by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; an object whose Mesh names a built-in primitive bakes that primitive; objects with a dynamic or kinematic body3d component (and their descendants) are skipped; any other node bakes its *scene3d.MeshCollider.
 func SceneMeshes(fsys fs.FS) NodeMesh {
 	docs := map[string]*gltf.Document{}
 	return func(n *scene3d.Node) ([]math3d.Vec3, error) {
+		if inMovingBody3DSubtree(n) {
+			return nil, nil
+		}
 		if o, ok := n.UserData.(*sceneformat.ObjectDoc); ok && o != nil {
-			if isMovingBody3D(o) {
-				return nil, nil
-			}
 			if IsModelPath(o.Model) {
 				doc, ok := docs[o.Model]
 				if !ok {

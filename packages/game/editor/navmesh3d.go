@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -54,11 +55,21 @@ func DefaultNavMeshBakeConfig() NavMeshBakeConfig {
 }
 
 type navMesh3DState struct {
-	panelOpen bool
-	config    NavMeshBakeConfig
-	file      *navbake3d.File
-	lastError string
-	lastPath  string
+	panelOpen      bool
+	config         NavMeshBakeConfig
+	file           *navbake3d.File
+	lastError      string
+	lastPath       string
+	cachedMesh     *navbake3d.Mesh
+	cachedAllLines [][2]math3d.Vec3
+	cachedOutlines int
+}
+
+func (s *navMesh3DState) setFile(f *navbake3d.File) {
+	s.file = f
+	s.cachedMesh = nil
+	s.cachedAllLines = nil
+	s.cachedOutlines = 0
 }
 
 // NavMeshPanelOpen reports whether the 3D NavMesh bake settings panel is visible.
@@ -124,7 +135,7 @@ func (e *Editor) SetNavMesh3DFile(f *navbake3d.File) {
 	if e == nil {
 		return
 	}
-	e.navMesh3D.file = f
+	e.navMesh3D.setFile(f)
 	e.navMesh3D.lastError = ""
 	e.notify()
 }
@@ -160,6 +171,8 @@ func (e *Editor) SetSceneNavMesh(navPath string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	e.CancelDrag2D()
+	e.CancelCameraDrag()
 	navPath = strings.TrimSpace(navPath)
 	if err := e.validateSceneEdit(func(d *sceneformat.SceneDoc) {
 		d.NavMesh = navPath
@@ -185,25 +198,36 @@ type setSceneNavMeshCmd struct {
 
 func (c *setSceneNavMeshCmd) Label() string { return "Set scene navMesh" }
 
-func (c *setSceneNavMeshCmd) Do() {
+func (c *setSceneNavMeshCmd) apply(navPath string) {
 	if c.ed.Doc == nil {
 		return
 	}
-	c.ed.Doc.NavMesh = c.newPath
-	if c.newPath != "" {
-		c.ed.navMesh3D.config.OutputPath = c.newPath
+	c.ed.Doc.NavMesh = navPath
+	if navPath == "" {
+		c.ed.navMesh3D.setFile(nil)
+		c.ed.navMesh3D.lastPath = ""
+		c.ed.navMesh3D.lastError = ""
+		c.ed.navMesh3D.config.OutputPath = c.ed.derivedNavMeshPath()
+		return
 	}
-	c.ed.Status = "Updated scene navMesh"
+	c.ed.navMesh3D.config.OutputPath = navPath
+	if c.ed.navMesh3D.lastPath != navPath {
+		c.ed.navMesh3D.setFile(nil)
+		c.ed.navMesh3D.lastPath = ""
+		c.ed.navMesh3D.lastError = ""
+		c.ed.tryAutoloadNavMesh3D()
+	}
+}
+
+func (c *setSceneNavMeshCmd) Do() {
+	c.apply(c.newPath)
+	if c.ed.Doc != nil {
+		c.ed.Status = "Updated scene navMesh"
+	}
 }
 
 func (c *setSceneNavMeshCmd) Undo() {
-	if c.ed.Doc == nil {
-		return
-	}
-	c.ed.Doc.NavMesh = c.oldPath
-	if c.oldPath != "" {
-		c.ed.navMesh3D.config.OutputPath = c.oldPath
-	}
+	c.apply(c.oldPath)
 }
 
 // navMeshAssetFS returns the file system used to load glTF models, instanced scenes, and existing .navmesh.yaml files.
@@ -252,7 +276,7 @@ func sceneToNavMeshPath(p string) string {
 }
 
 func (e *Editor) resetNavMeshForScene() {
-	e.navMesh3D.file = nil
+	e.navMesh3D.setFile(nil)
 	e.navMesh3D.lastError = ""
 	e.navMesh3D.lastPath = ""
 	if e.navMesh3D.config == (NavMeshBakeConfig{}) {
@@ -314,7 +338,7 @@ func (e *Editor) tryAutoloadNavMesh3D() {
 	if err != nil {
 		return
 	}
-	e.navMesh3D.file = f
+	e.navMesh3D.setFile(f)
 	e.navMesh3D.lastPath = rel
 	e.navMesh3D.lastError = ""
 }
@@ -329,6 +353,9 @@ func (e *Editor) LoadNavMesh3D() (*navbake3d.File, error) {
 	if rel == "" {
 		return nil, errors.New("editor: scene has no navMesh path set")
 	}
+	if !validScenePath(rel) || strings.ContainsRune(rel, '\\') {
+		return nil, fmt.Errorf("editor: invalid navMesh path %q", rel)
+	}
 	fsys := e.navMeshAssetFS()
 	if fsys == nil {
 		return nil, errors.New("editor: no project or directory open to load navMesh from")
@@ -339,7 +366,7 @@ func (e *Editor) LoadNavMesh3D() (*navbake3d.File, error) {
 		e.notify()
 		return nil, err
 	}
-	e.navMesh3D.file = f
+	e.navMesh3D.setFile(f)
 	e.navMesh3D.lastPath = rel
 	e.navMesh3D.lastError = ""
 	e.Status = "Loaded navmesh " + rel
@@ -347,11 +374,71 @@ func (e *Editor) LoadNavMesh3D() (*navbake3d.File, error) {
 	return f, nil
 }
 
+// resolveNavMeshOutputPath validates outPath as a slash-separated relative path strictly inside rootDir,
+// refusing reserved project file names (game.yaml, nsgo.yaml, game.index.yaml, go.mod), absolute paths,
+// path traversal, and symlinks resolving outside rootDir.
+func resolveNavMeshOutputPath(rootDir, outPath string) (rel, abs string, err error) {
+	if strings.ContainsRune(outPath, '\\') || filepath.IsAbs(outPath) || !validScenePath(outPath) {
+		return "", "", fmt.Errorf("editor: invalid navMesh path %q", outPath)
+	}
+	rel = path.Clean(outPath)
+	if !validScenePath(rel) {
+		return "", "", fmt.Errorf("editor: invalid navMesh path %q", outPath)
+	}
+	if base := path.Base(rel); base == project.FileName || base == project.NSGoFileName || base == refs.IndexFileName || base == "go.mod" {
+		return "", "", fmt.Errorf("editor: %q is a reserved project file name, not a navmesh output path", rel)
+	}
+
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", "", err
+	}
+	resolvedRoot := rootAbs
+	if r, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		resolvedRoot = r
+	}
+
+	abs = filepath.Join(rootAbs, filepath.FromSlash(rel))
+	if fi, err := os.Lstat(abs); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", "", fmt.Errorf("editor: navMesh output path %q must not be a symlink", rel)
+		}
+		if fi.IsDir() {
+			return "", "", fmt.Errorf("editor: navMesh output path %q is a directory", rel)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", "", err
+	}
+
+	// Verify the deepest existing ancestor directory resolves inside resolvedRoot so
+	// os.MkdirAll and writeFileAtomic cannot escape via symlinks.
+	cur := filepath.Dir(abs)
+	for {
+		resolvedCur, err := filepath.EvalSymlinks(cur)
+		if err == nil {
+			checkRel, err := filepath.Rel(resolvedRoot, resolvedCur)
+			if err != nil || checkRel == ".." || strings.HasPrefix(checkRel, ".."+string(filepath.Separator)) || filepath.IsAbs(checkRel) {
+				return "", "", fmt.Errorf("editor: navMesh output path %q escapes root via symlink", rel)
+			}
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", "", err
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return rel, abs, nil
+}
+
 // BakeNavMesh3D bakes a 3D navigation mesh from the open scene's static geometry (glTF models,
 // built-in 3D primitives, static 3D physics colliders, and any geometry supplied by
 // OnBakeNavMesh3DGeometry) using the current NavMeshBakeConfig.
 //
-// When an output path resolves inside the open project (or beside FilePath, or as an absolute path),
+// When an output path resolves inside the open project (or beside FilePath),
 // the deterministic .navmesh.yaml file is written atomically and SceneDoc.NavMesh is linked via
 // History as an undoable edit when unset or changed. The baked file is loaded into the 3D viewport
 // preview overlay immediately.
@@ -374,6 +461,46 @@ func (e *Editor) BakeNavMesh3D() (*navbake3d.File, error) {
 	agentName := strings.TrimSpace(cfg.AgentName)
 	if agentName == "" {
 		agentName = project.DefaultNavAgent
+	}
+
+	// Resolve and validate the output path and scene link before baking and writing to disk.
+	outPath := strings.TrimSpace(cfg.OutputPath)
+	if outPath == "" {
+		outPath = e.derivedNavMeshPath()
+	}
+	var writeAbs, writtenPath, linkPath string
+	inProject := false
+	if outPath != "" {
+		switch {
+		case e.Project != nil && e.ProjectPath != "":
+			rel, abs, err := resolveNavMeshOutputPath(filepath.Dir(e.ProjectPath), outPath)
+			if err != nil {
+				return fail(err)
+			}
+			writeAbs = abs
+			writtenPath = rel
+			linkPath = rel
+			inProject = true
+		case e.FilePath != "":
+			rel, abs, err := resolveNavMeshOutputPath(filepath.Dir(e.FilePath), outPath)
+			if err != nil {
+				return fail(err)
+			}
+			writeAbs = abs
+			writtenPath = rel
+			linkPath = rel
+		default:
+			if filepath.IsAbs(outPath) || strings.ContainsRune(outPath, '\\') || !validScenePath(outPath) {
+				return fail(fmt.Errorf("editor: invalid navMesh path %q", outPath))
+			}
+		}
+	}
+	if linkPath != "" && e.Doc.NavMesh != linkPath {
+		if err := e.validateSceneEdit(func(d *sceneformat.SceneDoc) {
+			d.NavMesh = linkPath
+		}); err != nil {
+			return fail(err)
+		}
 	}
 
 	settings := navbake3d.Settings{
@@ -432,56 +559,19 @@ func (e *Editor) BakeNavMesh3D() (*navbake3d.File, error) {
 		return fail(err)
 	}
 
-	outPath := strings.TrimSpace(cfg.OutputPath)
-	if outPath == "" {
-		outPath = e.derivedNavMeshPath()
-	}
-
-	writtenPath := ""
-	linkPath := ""
-	if outPath != "" {
-		switch {
-		case e.Project != nil && e.ProjectPath != "":
-			rel := path.Clean(strings.ReplaceAll(outPath, "\\", "/"))
-			abs, err := e.projectFile(rel)
-			if err != nil {
-				return fail(err)
-			}
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return fail(err)
-			}
-			if err := writeFileAtomic(abs, yml); err != nil {
-				return fail(err)
-			}
+	if writeAbs != "" {
+		if err := os.MkdirAll(filepath.Dir(writeAbs), 0o755); err != nil {
+			return fail(err)
+		}
+		if err := writeFileAtomic(writeAbs, yml); err != nil {
+			return fail(err)
+		}
+		if inProject {
 			e.filesRev++
-			writtenPath = rel
-			linkPath = rel
-		case filepath.IsAbs(outPath):
-			if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-				return fail(err)
-			}
-			if err := writeFileAtomic(outPath, yml); err != nil {
-				return fail(err)
-			}
-			writtenPath = outPath
-		case e.FilePath != "":
-			rel := path.Clean(strings.ReplaceAll(outPath, "\\", "/"))
-			if !validScenePath(rel) {
-				return fail(fmt.Errorf("editor: invalid navMesh path %q", outPath))
-			}
-			abs := filepath.Join(filepath.Dir(e.FilePath), filepath.FromSlash(rel))
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				return fail(err)
-			}
-			if err := writeFileAtomic(abs, yml); err != nil {
-				return fail(err)
-			}
-			writtenPath = rel
-			linkPath = rel
 		}
 	}
 
-	e.navMesh3D.file = file
+	e.navMesh3D.setFile(file)
 	e.navMesh3D.lastError = ""
 	e.navMesh3D.lastPath = writtenPath
 	if linkPath != "" {
@@ -548,9 +638,14 @@ func (e *Editor) drawNavMeshOverlay3D(d *core.Drawing, w, h float32) {
 	}
 	d.Restore()
 
-	// 2. Detail edges and polygon boundary outlines via navbake3d.Mesh.DebugLines.
-	allLines := mesh.DebugLines(false)
-	outlines := len(mesh.DebugLines(true))
+	// 2. Detail edges and polygon boundary outlines via cached navbake3d.Mesh.DebugLines.
+	if e.navMesh3D.cachedMesh != mesh {
+		e.navMesh3D.cachedMesh = mesh
+		e.navMesh3D.cachedAllLines = mesh.DebugLines(false)
+		e.navMesh3D.cachedOutlines = len(mesh.DebugLines(true))
+	}
+	allLines := e.navMesh3D.cachedAllLines
+	outlines := e.navMesh3D.cachedOutlines
 
 	drawLines := func(segs [][2]math3d.Vec3, col core.Color, lw float32) {
 		if len(segs) == 0 {
@@ -581,12 +676,13 @@ func (e *Editor) drawNavMeshOverlay3D(d *core.Drawing, w, h float32) {
 }
 
 // projectTriangle transforms a world-space 3D triangle into camera space, clips it against the
-// near plane, and projects the resulting convex polygon (3 or 4 vertices) into viewport pixels.
+// near plane, and projects the resulting convex polygon (3 or 4 vertices) into viewport pixels,
+// matching projectSegment in both perspective and orthographic modes.
 func (c OrbitCamera3D) projectTriangle(tri [3][3]float32, w, h float32) [][2]float32 {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	_, fov, near, far := c.effectiveParams()
+	_, _, near, far := c.effectiveParams()
 	eye := c.eye64()
 	right, up, forward := c.basis64()
 	clipNear := near + 1e-3
@@ -627,14 +723,9 @@ func (c OrbitCamera3D) projectTriangle(tri [3][3]float32, w, h float32) [][2]flo
 		return nil
 	}
 
-	tanHalf := math.Tan(fov * 0.5)
-	aspect := float64(w) / float64(h)
 	out := make([][2]float32, 0, len(clipped))
 	for _, p := range clipped {
-		ndcX := p[0] / (p[2] * tanHalf * aspect)
-		ndcY := p[1] / (p[2] * tanHalf)
-		sx := float32((ndcX + 1) * 0.5 * float64(w))
-		sy := float32((1 - ndcY) * 0.5 * float64(h))
+		sx, sy := c.screen64(p, w, h)
 		if math.IsNaN(float64(sx)) || math.IsInf(float64(sx), 0) || math.IsNaN(float64(sy)) || math.IsInf(float64(sy), 0) {
 			return nil
 		}

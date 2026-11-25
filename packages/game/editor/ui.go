@@ -367,10 +367,33 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
-							return ed.ViewMode == ViewMode3D
+							return ed.ViewMode == ViewMode2D
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return ui.ToolbarGroup{
+							return pluginToolsView(cx, ed, rev, notPlaying)
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode2D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return view2DToolsView(cx, ed, rev, notPlaying)
+						},
+					},
+				},
+			},
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.ViewMode == ViewMode3D
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return ui.Toolbar{
+						Label: "3D NavMesh",
+						Children: []core.Node{
+							ui.ToolbarGroup{
 								Label: "3D NavMesh",
 								Children: []core.Node{
 									ui.ToggleButton{
@@ -398,27 +421,9 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 										},
 									},
 								},
-							}
+							},
 						},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.ViewMode == ViewMode2D
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return pluginToolsView(cx, ed, rev, notPlaying)
-						},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.ViewMode == ViewMode2D
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return view2DToolsView(cx, ed, rev, notPlaying)
-						},
-					},
+					}
 				},
 			},
 			ui.HStack{
