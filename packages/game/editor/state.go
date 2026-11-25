@@ -176,6 +176,8 @@ type Editor struct {
 	ProjectPath string
 	// ScenePath is the open scene's slash-separated path from the project root, as Resolver names scene files (for example "scenes/level.scene.yaml"), or empty when the scene has no such path. PlaceObject and PlaceScene resolve the edited scene under this path, so they refuse an instance that would lead back to the open scene and make the saved file instance itself. OpenYAML clears it, since the loaded scene may come from another file; set it again after OpenFile.
 	ScenePath string
+	// SelectedFile is the slash-separated path of the file selected in the file browser (FilesView), relative to the open project's root, or empty when none is selected.
+	SelectedFile string
 	// Library is the pack library the library panel lists and installs from into the open project (InstallPack); nil hides the panel.
 	Library *library.Library
 
@@ -235,6 +237,10 @@ type Editor struct {
 	filesRev uint64
 	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
 	audioMixer audioMixerState
+	// selectedFileRev bumps whenever SelectFile or OpenProblem updates SelectedFile so FilesView resets its target path draft.
+	selectedFileRev uint64
+	// problems holds the asynchronous assetcheck and project.Check state for the open project.
+	problems problemState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -308,9 +314,10 @@ func (e *Editor) Subscribe(fn func()) func() {
 	}
 }
 
-// AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls.
+// AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls and background checks can post updates to the UI goroutine.
 func (e *Editor) AttachScope(cx *core.Scope) {
 	e.scope = cx
+	e.problems.setScope(cx)
 }
 
 func (e *Editor) notify() {
@@ -431,6 +438,9 @@ func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error 
 	e.components = reg
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
+	if e.Project != nil && e.ProjectPath != "" {
+		e.CheckProblems()
+	}
 	return nil
 }
 
@@ -512,6 +522,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.filesRev++
 	e.Status = "Saved " + path
 	e.notify()
+	e.CheckProblems()
 	return nil
 }
 

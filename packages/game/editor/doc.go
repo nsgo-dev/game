@@ -13,5 +13,6 @@
 //   - Editor plugins built into the editor binary and turned on by the project's game.yaml, which add docked panels, inspectors for their component types and viewport tools (Plugin, RegisterPlugin, SetPluginEnabled).
 //   - A file browser that lists the open project's files and moves or renames them with every reference to them rewritten, on disk and in the open scene and project, as one undoable step (ProjectFiles, MoveFile through package refs, FilesView).
 //   - An audio bus mixer over game.yaml's audio section with undoable bus and effect-chain editing and live audition through sound.Mixer (AudioMixerPanelView, AddAudioBus, AddAudioBusEffect, AuditionAudioBus).
-//   - A native NSGo UI root view (EditorView) combining toolbar, asset browser, file browser, interactive canvas viewport, property inspector and the plugins' panels.
+//   - A Problems panel that runs assetcheck.CheckWith (with the editor's component registry) and project.Check over the open project off the UI goroutine on open, save and file move, shows one row per problem with file, line and message, navigates to scenes or selects files on press, and displays the live problem count in the status bar (CheckProblems, Problems, OpenProblem, ProblemsView).
+//   - A native NSGo UI root view (EditorView) combining toolbar, asset browser, file browser, interactive canvas viewport, property inspector, problems panel and the plugins' panels.
 package editor

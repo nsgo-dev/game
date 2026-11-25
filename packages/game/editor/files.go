@@ -13,8 +13,19 @@ import (
 // FilesView renders the file browser: the files and directories of the open project (ProjectFiles), and a path field with a Move button that renames or moves the selected one through MoveFile, so every reference to it follows and Undo moves it back. Pressing a row selects it and puts its path in the field; Refresh lists the files again after something outside the editor changed them. It renders nothing while no project is open.
 func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
-	selected := core.NewSignal(cx, "")
-	target := core.NewSignal(cx, "")
+	type targetDraft struct {
+		rev  uint64
+		text string
+	}
+	draft := core.NewSignal(cx, targetDraft{})
+	targetText := func() string {
+		_ = rev.Get()
+		d := draft.Get()
+		if d.rev == ed.selectedFileRev && ed.selectedFileRev != 0 {
+			return d.text
+		}
+		return ed.SelectedFile
+	}
 	refresh := core.NewSignal(cx, 0)
 	// The listing reads the disk, so it is made again only when the project or its files change, not on every edit.
 	listing := core.NewMemo(cx, func() string {
@@ -32,7 +43,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	}, func(a, b listed) bool { return slices.Equal(a.files, b.files) && a.err == b.err })
 	// current is the selected path while the project still holds it: after an undo moves it away, nothing is selected and the field is empty.
 	current := core.NewMemo(cx, func() string {
-		s := selected.Get()
+		_ = rev.Get()
+		s := ed.SelectedFile
 		if s == "" || !slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == s }) {
 			return ""
 		}
@@ -74,8 +86,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					}
 				},
 				OnPress: func(core.PressEvent) {
-					selected.Set(p)
-					target.Set(p)
+					ed.SelectFile(p)
 				},
 				Children: []core.Node{core.Text{
 					Content: name,
@@ -129,9 +140,11 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							if current.Get() == "" {
 								return ""
 							}
-							return target.Get()
+							return targetText()
 						},
-						OnChange: target.Set,
+						OnChange: func(v string) {
+							draft.Set(targetDraft{rev: ed.selectedFileRev, text: v})
+						},
 					},
 					ui.HStack{
 						Gap: 6,
@@ -144,11 +157,11 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
 									_ = rev.Get()
-									from, to := current.Get(), strings.TrimSpace(target.Get())
+									from, to := current.Get(), strings.TrimSpace(targetText())
 									return ed.Playing() || from == "" || to == "" || to == from
 								},
 								OnPress: func() {
-									from, to := current.Get(), strings.TrimSpace(target.Get())
+									from, to := current.Get(), strings.TrimSpace(targetText())
 									if from == "" {
 										return
 									}
@@ -156,8 +169,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 										ed.report(err)
 										return
 									}
-									selected.Set(to)
-									target.Set(to)
+									ed.SelectFile(to)
 								},
 							},
 							ui.Button{

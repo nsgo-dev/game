@@ -46,6 +46,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
+	e.selectFile("")
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
@@ -55,6 +56,7 @@ func (e *Editor) OpenProject(path string) error {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
 	}
 	e.notify()
+	e.CheckProblems()
 	return nil
 }
 
@@ -115,6 +117,7 @@ func (e *Editor) SaveProject() error {
 	e.projectSaved = data
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
+	e.CheckProblems()
 	return nil
 }
 
