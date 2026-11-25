@@ -516,6 +516,10 @@ func TestWireframesAlignWithProjectedMeshVertices(t *testing.T) {
 			checkShape("box", physics3d.BoxShape(box), boxEdges[:], style.BoxColor)
 			checkShape("sphere", physics3d.SphereShape(sphere), physics3d.SphereEdges(sphere, style.SphereSegments), style.SphereColor)
 			checkShape("capsule", physics3d.CapsuleShape(capsule), physics3d.CapsuleEdges(capsule, style.SphereSegments), style.CapsuleColor)
+			cyl := physics3d.VerticalCylinder(physics3d.Vec3{X: 2.5, Y: 0.5, Z: -0.5}, 0.4, 1)
+			checkShape("cylinder", physics3d.CylinderShape(cyl), physics3d.CylinderEdges(cyl, style.SphereSegments), style.CylinderColor)
+			hullShape := physics3d.ConvexHullShape(wedgeHull(t).Translated(physics3d.Vec3{X: -3, Y: 0.5})).Transformed(physics3d.Vec3{}, physics3d.QuatFromAxisAngle(physics3d.Vec3{Y: 1}, 0.3))
+			checkShape("hull", hullShape, physics3d.ConvexHullEdges(hullShape.Hull, hullShape.Rot), style.HullColor)
 		})
 	}
 }

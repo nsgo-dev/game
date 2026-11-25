@@ -335,6 +335,11 @@ func (vc *VoxelCollider) testVoxelWithMask(s Shape, vb Box, occluded voxelFaceMa
 		deepInside = pointBoxDistSq(p, bMin, bMax) <= 1e-10
 	case ShapeBox:
 		deepInside = pointInsideBox(s.Box.Center, bMin, bMax)
+	case ShapeConvexHull:
+		c := toCvx(s)
+		deepInside = c.valid() && pointInsideBox(c.centroid().vec3(), bMin, bMax)
+	case ShapeCylinder:
+		deepInside = pointInsideBox(s.Cylinder.Center(), bMin, bMax)
 	}
 
 	if exposed, ok := bestExposedFaceContact(s, vb, bMin, bMax, occluded, deepInside, raw.Point); ok {

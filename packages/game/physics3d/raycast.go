@@ -27,7 +27,7 @@ type RaycastHit struct {
 	Distance float32
 	// Point is the world-space intersection point.
 	Point Vec3
-	// Normal is the outward unit surface normal at Point. A ray that starts inside a box, sphere or capsule hits at T 0 with Point at the origin and Normal facing back along the ray (-Dir), since no surface was crossed.
+	// Normal is the outward unit surface normal at Point. A ray that starts inside a box, sphere, capsule, convex hull or cylinder hits at T 0 with Point at the origin and Normal facing back along the ray (-Dir), since no surface was crossed.
 	Normal Vec3
 }
 
@@ -50,6 +50,10 @@ func RaycastShape(ray Ray, s Shape) (RaycastHit, bool) {
 		return RaycastSphere(ray, s.Sphere)
 	case ShapeCapsule:
 		return RaycastCapsule(ray, s.Capsule)
+	case ShapeConvexHull:
+		return RaycastConvexHull(ray, s.Hull, s.Rot)
+	case ShapeCylinder:
+		return RaycastCylinder(ray, s.Cylinder)
 	default:
 		return RaycastHit{}, false
 	}

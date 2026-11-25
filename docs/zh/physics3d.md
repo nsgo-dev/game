@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 - **零 FFI 开销**：重叠查询、射线检测、刚体步进和角色移动直接在 Go 值上运行，没有 cgo 调用边界成本。
 - **按位一致的确定性**：配合 `game.Loop` 的固定步长推进 `World`，宽相、窄相、冲量求解和位置修正都按固定的刚体与接触顺序执行，不依赖 map 遍历顺序或墙钟时间，相同的初始状态在多次运行中产生完全一致的轨迹。
 
-包的能力范围保持克制和清晰：盒体（轴对齐或带朝向的 Box）、球体（Sphere）和胶囊体（Capsule），可以与物体和角色控制器碰撞的静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）、高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）与体素网格（`VoxelCollider`，用 `World.AddVoxelCollider` 加入），精确的重叠、射线与体素扫掠查询，带线性与角动力学的刚体、关节、布娃娃，以及胶囊角色控制器。刚体使用标量（各向同性）惯量而非完整的惯性张量，每对刚体的接触只用一个代表点。
+包的能力范围保持克制和清晰：盒体（轴对齐或带朝向的 Box）、球体（Sphere）、胶囊体（Capsule）、凸包（ConvexHull）和圆柱体（Cylinder），可以与物体和角色控制器碰撞的静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）、高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）与体素网格（`VoxelCollider`，用 `World.AddVoxelCollider` 加入），精确的重叠、射线与体素扫掠查询，带线性与角动力学的刚体、关节、布娃娃，以及胶囊角色控制器。刚体使用标量（各向同性）惯量而非完整的惯性张量。盒体、球体与胶囊体之间每对刚体的接触只用一个代表点；涉及凸包或圆柱体的一对刚体最多得到四个分布在接触区域上的点。
 
 ## 坐标系约定
 
@@ -24,19 +24,44 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 
 ## 形状、重叠查询与射线检测
 
-三种基本形状通过带标签的 `Shape` 封装（`BoxShape`、`SphereShape`、`CapsuleShape`）：
+五种基本形状通过带标签的 `Shape` 封装（`BoxShape`、`SphereShape`、`CapsuleShape`、`ConvexHullShape`、`CylinderShape`）：
 
 - `Box`：由 `Center` 和 `HalfExtents` 定义的盒体（也可用 `BoxFromMinMax(min, max)` 构造）。默认轴对齐；外层 `Shape` 设置 `Rot` 后，盒体绕自身 `Center` 旋转。`Shape.Transformed(pos, rot)` 与 `Body.WorldShape()` 会保留旋转刚体的盒体朝向，重叠检测、射线检测和调试绘制都按真实的角点计算；`Shape.Bounds()` 返回用于宽相的外接轴对齐包围盒。
 - `Sphere`：由 `Center` 和 `Radius` 定义的球体。
 - `Capsule`：由线段 `A` 到 `B` 沿半径 `Radius` 扫略而成的胶囊体（也可用 `VerticalCapsule(center, radius, height)` 构造竖直胶囊）。
+- `ConvexHull`：凸多面体，用于岩石、碎块、家具、楔形块和低多边形载具外壳等道具，由 `NewConvexHull(points, maxVertices)` 构建一次，之后被所有使用它的形状和刚体只读共享。顶点相对于 `Center`，外层 `Shape` 的 `Rot` 让它像盒体一样绕 `Center` 旋转。
+- `Cylinder`：两端为平面端盖的实心圆柱体，轴线从 `A` 到 `B`，半径为 `Radius`（也可用 `VerticalCylinder(center, radius, height)` 构造），用于木桶、车轮和柱子。`A` 与 `B` 重合或 `Radius` 不为正的圆柱体没有体积，碰撞、射线检测和区域都会忽略它。
+
+### 凸包
+
+`NewConvexHull` 用 quickhull 构建凸包：先取极值点组成四面体，再不断加入离当前凸包最远的外部点，直到没有外部点或顶点数达到 `maxVertices`（上限 ≤ 0 时取 `DefaultHullVertices`，即 64，最多 `MaxHullVertices`，即 256；上限为 1 到 3 时提高到 4，这是有体积的凸包最少的顶点数）。上限提前终止构建时，凸包保留最突出的角点，并位于完整凸包之内。凸包内部或离某个面在很小容差以内的点会被丢弃，共面的三角形合并为多边形面，所以立方体得到 8 个顶点和 6 个正方形面。结果只取决于点及其顺序，相同输入总是得到相同的凸包。不能张成体积的点（少于四个、全部共面或共线、或不是有限值）返回 `ErrDegenerateHull`。
+
+`ConvexHullFromMesh(positions, indices, maxVertices)` 从三角网格构建凸包，只使用索引引用到的顶点，所以 glTF 图元或 `render3d.Mesh` 的 `Positions` 和 `Indices` 可以直接传入：
+
+```go
+doc, _ := gltf.LoadFS(assets, "rock.gltf")
+prim := doc.Meshes[0].Primitives[0]
+hull, err := physics3d.ConvexHullFromMesh(prim.Positions, prim.Indices, 32)
+if err != nil {
+	return err
+}
+// Move the hull's centroid to the body's origin, so the body rotates about its center of mass.
+hull = hull.Recentered()
+pos := hull.Center
+hull.Center = physics3d.Vec3{}
+rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), pos, 40))
+```
+
+凸包可以给出 `Vertices`、`Faces`（从外侧看逆时针排列的顶点索引）、`FaceNormals`、`Edges`、`Volume`、`Centroid`，以及均匀密度下的 `InertiaTensor(mass)`。刚体的惯量取自凸包的精确惯性张量（取其主惯量的平均值，即上文的标量惯量），圆柱体的惯量取自实心圆柱公式。
 
 重叠检测返回 `Contact`，其中单位法线 `Normal` 从 `B` 指向 `A`（将 `A` 沿 `Normal` 移动 `Depth` 即可分离两者）：
 
 - `TestBoxBox`、`TestOrientedBoxBox`（在 15 条面轴与边轴上做分离轴测试）、`TestSphereSphere`、`TestCapsuleCapsule`、`TestBoxSphere`、`TestBoxCapsule`、`TestSphereCapsule`，以及能处理带朝向盒体的 `TestShapes(a, b)`。
+- 涉及凸包或圆柱体的每一对形状，无论另一方是什么形状，`TestShapes` 都用 GJK 求距离、用 EPA 求穿透深度与法线，以 float64 和固定的迭代顺序计算，相同的形状总是得到相同的接触。`Point` 是接触区域的中心（一个面贴在另一个面上时报告重叠部分的中点，而不是某个角点）。同样的检测也用于 `TriMeshCollider` 和 `HeightfieldCollider` 的每个三角形，以及体素碰撞体。
 - 胶囊的线段穿过盒体时，`TestBoxCapsule` 在盒体各面轴与“边轴叉乘线段方向”中取穿透最浅的轴，因此把盒体沿 `Normal*Depth` 移动即可让整个胶囊分离。两个交叉的胶囊，以及球心落在胶囊轴线上的球，得到垂直于轴线的法线，而不是任意方向。
 - `world.QueryOverlap(shape)` 按确定的插入顺序返回所有重叠的刚体。
 
-射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。起点位于盒体、球体或胶囊内部的射线在 `T` 为 0 处命中，`Point` 为起点，`Normal` 沿射线反方向（`-Dir`）。
+射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastConvexHull`、`RaycastCylinder`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。起点位于任意形状内部的射线在 `T` 为 0 处命中，`Point` 为起点，`Normal` 沿射线反方向（`-Dir`）。
 
 ## 刚体动力学
 
@@ -89,6 +114,7 @@ loop := &game.Loop{
 - **重力模式与优先级**：`GravityMode` 支持 `AreaOverrideCombine`、`AreaOverrideReplace` 和 `AreaOverrideAdd`，按 `Priority` 降序解算（同优先级按刚体插入顺序确定性决胜）。支持定向 `Gravity`，也支持 `PointGravity` 向 `GravityPoint` 施加中心点引力，并配置 `GravityStrength`、`GravityFalloff`（`GravityFalloffNone`、`GravityFalloffLinear`、`GravityFalloffInverse`、`GravityFalloffInverseSquare`）与 `GravityUnitDistance`。
 - **阻尼覆盖**：`LinearDampingMode` / `LinearDamping` 与 `AngularDampingMode` / `AngularDamping` 使用相同的优先级和合并/替换/叠加规则覆盖刚体自身阻尼。
 - **浮力与流体阻力**：设置 `FluidDensity`（kg/m³）后，根据刚体包围盒的浸没比例施加阿基米德浮力，使隐含密度为 `Mass / Volume` 的刚体稳定悬浮在浸没比例 `(Mass / Volume) / FluidDensity` 处，并配合 `FluidLinearDrag`、`FluidAngularDrag` 以及可选的水流速度 `FluidVelocity`。
+- **区域形状**：区域可以是任意形状。判断点是否在凸包或圆柱体区域内时按其精确形状而非包围盒，凸包和圆柱体的浮力体积也取其自身体积（`ConvexHull.Volume`，或 πr²h）。
 - **查询与角色控制器**：可通过 `world.GravityAt(point)` 或 `world.AreaEffectAtShape(shape, layer, mask)` 直接查询解算后的区域效果。`CharacterController.Move` 自动应用重叠区域的重力（乘以 `CharacterController.GravityScale`）、流体阻力与线性阻尼，并通过 `CharacterController.EffectiveGravity(world)` 返回当前生效的重力向量。
 
 ```go
@@ -140,7 +166,7 @@ loop := &game.Loop{
 
 ## 调试绘制
 
-`DrawWorld`、`DrawBody`、`DrawShape`、`DrawCharacter`、`DrawContact` 和 `DrawRaycast` 通过视图投影矩阵把碰撞体线框、接触和射线画到 `core.Drawing` 上，样式由 `DebugStyle` 决定；`DrawLine3D` 绘制单条线段。release 构建中它们编译为空操作。
+`DrawWorld`、`DrawBody`、`DrawShape`、`DrawCharacter`、`DrawContact` 和 `DrawRaycast` 通过视图投影矩阵把碰撞体线框、接触和射线画到 `core.Drawing` 上，样式由 `DebugStyle` 决定；`DrawLine3D` 绘制单条线段。凸包以 `HullColor` 绘制每一条棱，圆柱体以 `CylinderColor` 绘制两端端盖的圆环和四条侧边线；`ConvexHullEdges` 和 `CylinderEdges` 返回这些线段，供其他渲染器使用。release 构建中它们编译为空操作。
 
 线段在投影前先按相机视锥裁剪。默认的近平面是裁剪空间 `z >= -w`，与本包的 `Mat4Perspective` 和 `Mat4Ortho`（`[-1, 1]` 深度）一致。对于 `[0, 1]` 深度的投影，例如 `math3d.Perspective`、`math3d.Ortho` 或 `render3d` 的相机，请设置 `DebugStyle.DepthZO`（单条线段用 `DrawLine3DZO`）：它在 `z >= 0` 处裁剪，与 `render3d.ProjectSegment` 相同。不设置时，`w` 处处为 1 的 `[0, 1]` 正交相机会画出相机背后的碰撞体。
 

@@ -183,6 +183,19 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 		lSq := shape.Capsule.B.Sub(shape.Capsule.A).LenSq()
 		inertia = float32(mass * (float32(float32(0.4*r)*r) + float32(lSq/12.0)))
 		center = shape.Capsule.A.Add(shape.Capsule.B).Scale(0.5)
+	case ShapeConvexHull:
+		// The mean of the hull's principal moments, from its exact inertia tensor for uniform density (#808).
+		if g := shape.Hull.geom; g != nil {
+			inertia = mass * float32((g.inertia[0][0]+g.inertia[1][1]+g.inertia[2][2])/3)
+			c := toCvx(shape)
+			center = c.centroid().vec3()
+		}
+	case ShapeCylinder:
+		// The mean of a solid cylinder's moments: m(3r²+h²)/12 about the two axes across it and mr²/2 about its own, which averages to m(6r²+h²)/18 (#808).
+		r := shape.Cylinder.Radius
+		h := shape.Cylinder.Height()
+		inertia = mass * (6*r*r + h*h) / 18
+		center = shape.Cylinder.Center()
 	}
 	inertia = float32(inertia) + float32(mass*center.LenSq())
 	minI := 1e-4 * mass
@@ -600,38 +613,45 @@ func (w *World) Step(dt time.Duration) {
 				continue
 			}
 
-			// Compute restitution bias once from the pre-solver closing velocity at the contact point.
-			rA, rB := c.Point.Sub(a.Pos), c.Point.Sub(b.Pos)
-			rv := pointVel(a, rA).Sub(pointVel(b, rB))
-			vn := rv.Dot(c.Normal)
+			// A pair with a convex hull or a cylinder gets up to four points spread over the touching area, so a face or a cap resting on another body stays flat instead of rocking about the single point TestShapes reports (#808).
+			points := []Contact{c}
+			if isConvexKind(shapes[i]) || isConvexKind(shapes[j]) {
+				points = shapeManifold(shapes[i], shapes[j], c)
+			}
 			restitution := max(a.Restitution, b.Restitution)
-			var bias float32
-			if vn < -restitutionVelThreshold {
-				bias = -restitution * vn
-			}
 			friction := sqrt32(a.Friction * b.Friction)
-
-			sc := solverContact{
-				a:           a,
-				b:           b,
-				normal:      c.Normal,
-				depth:       c.Depth,
-				point:       c.Point,
-				rA:          rA,
-				rB:          rB,
-				restitution: restitution,
-				friction:    friction,
-				bias:        bias,
-			}
-
-			// Warm-start from the previous step's accumulated impulse when the
-			// contact normal remains aligned.
 			cacheKey := pairKey{a: a.ID, b: b.ID}
-			if cached, ok := w.cache[cacheKey]; ok && cached.normal.Dot(c.Normal) > 0.95 {
-				sc.normalImpulse = cached.normalImpulse
-				sc.tangentImpulse = cached.tangentImpulse.Sub(c.Normal.Scale(cached.tangentImpulse.Dot(c.Normal)))
+			cached, warm := w.cache[cacheKey]
+			warm = warm && cached.normal.Dot(c.Normal) > 0.95
+			for _, pc := range points {
+				// Compute restitution bias once from the pre-solver closing velocity at the contact point.
+				rA, rB := pc.Point.Sub(a.Pos), pc.Point.Sub(b.Pos)
+				rv := pointVel(a, rA).Sub(pointVel(b, rB))
+				vn := rv.Dot(pc.Normal)
+				var bias float32
+				if vn < -restitutionVelThreshold {
+					bias = -restitution * vn
+				}
+				sc := solverContact{
+					a:           a,
+					b:           b,
+					normal:      pc.Normal,
+					depth:       pc.Depth,
+					point:       pc.Point,
+					rA:          rA,
+					rB:          rB,
+					restitution: restitution,
+					friction:    friction,
+					bias:        bias,
+				}
+				// Warm-start from the previous step's accumulated impulse, shared among the pair's points, when the contact normal remains aligned.
+				if warm {
+					share := 1 / float32(len(points))
+					sc.normalImpulse = cached.normalImpulse * share
+					sc.tangentImpulse = cached.tangentImpulse.Sub(c.Normal.Scale(cached.tangentImpulse.Dot(c.Normal))).Scale(share)
+				}
+				contacts = append(contacts, sc)
 			}
-			contacts = append(contacts, sc)
 		}
 	}
 
@@ -653,30 +673,28 @@ func (w *World) Step(dt time.Duration) {
 					if !aabbOverlap(bounds[i], tri.Bounds()) {
 						return
 					}
-					c := TestShapeTriangle(shapes[i], tri)
-					if !c.Hit {
-						return
+					for _, c := range shapeTriangleContacts(shapes[i], tri, false) {
+						rA := c.Point.Sub(a.Pos)
+						vn := pointVel(a, rA).Dot(c.Normal)
+						restitution := max(a.Restitution, tm.Restitution)
+						var bias float32
+						if vn < -restitutionVelThreshold {
+							bias = -restitution * vn
+						}
+						contacts = append(contacts, solverContact{
+							a:           a,
+							normal:      c.Normal,
+							depth:       c.Depth,
+							point:       c.Point,
+							rA:          rA,
+							restitution: restitution,
+							friction:    sqrt32(a.Friction * tm.Friction),
+							bias:        bias,
+							isStaticTri: true,
+							tri:         tri,
+							staticID:    tm.ID,
+						})
 					}
-					rA := c.Point.Sub(a.Pos)
-					vn := pointVel(a, rA).Dot(c.Normal)
-					restitution := max(a.Restitution, tm.Restitution)
-					var bias float32
-					if vn < -restitutionVelThreshold {
-						bias = -restitution * vn
-					}
-					contacts = append(contacts, solverContact{
-						a:           a,
-						normal:      c.Normal,
-						depth:       c.Depth,
-						point:       c.Point,
-						rA:          rA,
-						restitution: restitution,
-						friction:    sqrt32(a.Friction * tm.Friction),
-						bias:        bias,
-						isStaticTri: true,
-						tri:         tri,
-						staticID:    tm.ID,
-					})
 				})
 			}
 			for _, hf := range w.heightfields {
@@ -690,31 +708,29 @@ func (w *World) Step(dt time.Duration) {
 					if !aabbOverlap(bounds[i], tri.Bounds()) {
 						return
 					}
-					c := testShapeHeightfieldTriangle(shapes[i], tri)
-					if !c.Hit {
-						return
+					for _, c := range shapeTriangleContacts(shapes[i], tri, true) {
+						rA := c.Point.Sub(a.Pos)
+						vn := pointVel(a, rA).Dot(c.Normal)
+						restitution := max(a.Restitution, hf.Restitution)
+						var bias float32
+						if vn < -restitutionVelThreshold {
+							bias = -restitution * vn
+						}
+						contacts = append(contacts, solverContact{
+							a:             a,
+							normal:        c.Normal,
+							depth:         c.Depth,
+							point:         c.Point,
+							rA:            rA,
+							restitution:   restitution,
+							friction:      sqrt32(a.Friction * hf.Friction),
+							bias:          bias,
+							isStaticTri:   true,
+							isHeightfield: true,
+							tri:           tri,
+							staticID:      hf.ID,
+						})
 					}
-					rA := c.Point.Sub(a.Pos)
-					vn := pointVel(a, rA).Dot(c.Normal)
-					restitution := max(a.Restitution, hf.Restitution)
-					var bias float32
-					if vn < -restitutionVelThreshold {
-						bias = -restitution * vn
-					}
-					contacts = append(contacts, solverContact{
-						a:             a,
-						normal:        c.Normal,
-						depth:         c.Depth,
-						point:         c.Point,
-						rA:            rA,
-						restitution:   restitution,
-						friction:      sqrt32(a.Friction * hf.Friction),
-						bias:          bias,
-						isStaticTri:   true,
-						isHeightfield: true,
-						tri:           tri,
-						staticID:      hf.ID,
-					})
 				})
 			}
 			for _, vc := range w.voxels {
@@ -870,7 +886,15 @@ func (w *World) Step(dt time.Duration) {
 		if c.isStaticTri || c.isVoxel || c.b == nil {
 			continue
 		}
-		w.cache[pairKey{a: c.a.ID, b: c.b.ID}] = cachedImpulse{
+		// A pair with several manifold points caches their total, which the next step shares out again.
+		k := pairKey{a: c.a.ID, b: c.b.ID}
+		if prev, ok := w.cache[k]; ok {
+			prev.normalImpulse += c.normalImpulse
+			prev.tangentImpulse = prev.tangentImpulse.Add(c.tangentImpulse)
+			w.cache[k] = prev
+			continue
+		}
+		w.cache[k] = cachedImpulse{
 			normal:         c.normal,
 			normalImpulse:  c.normalImpulse,
 			tangentImpulse: c.tangentImpulse,
@@ -1098,6 +1122,23 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 			b.Wake()
 		}
 	}
+}
+
+// shapeTriangleContacts returns the contacts a body's world shape s makes with a static triangle: the manifold for a convex hull or cylinder, and the single contact of TestShapeTriangle (with the heightfield correction when heightfield is set) otherwise.
+func shapeTriangleContacts(s Shape, tri Triangle, heightfield bool) []Contact {
+	if isConvexKind(s) {
+		return triangleManifold(s, tri, heightfield)
+	}
+	var c Contact
+	if heightfield {
+		c = testShapeHeightfieldTriangle(s, tri)
+	} else {
+		c = TestShapeTriangle(s, tri)
+	}
+	if !c.Hit {
+		return nil
+	}
+	return []Contact{c}
 }
 
 // current re-tests c's pair at the bodies' present poses.

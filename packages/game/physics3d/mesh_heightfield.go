@@ -372,6 +372,8 @@ func TestShapeTriangle(s Shape, tri Triangle) Contact {
 			return f.contactToWorld(TestBoxTriangle(Box{HalfExtents: s.Box.HalfExtents}, local))
 		}
 		return TestBoxTriangle(s.Box, tri)
+	case ShapeConvexHull, ShapeCylinder:
+		return testConvexTriangle(toCvx(s), tri)
 	default:
 		return Contact{}
 	}
@@ -997,7 +999,7 @@ func testShapeHeightfieldTriangle(s Shape, tri Triangle) Contact {
 	return c
 }
 
-// shapeUnderTriangle reports whether a reference point of s (a sphere's or box's center, or a point of a capsule's segment) lies inside tri's XZ footprint and below its plane, whose upward unit normal is n.
+// shapeUnderTriangle reports whether a reference point of s (a sphere's or box's center, a hull's centroid, or a point of a capsule's or cylinder's axis) lies inside tri's XZ footprint and below its plane, whose upward unit normal is n.
 func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
 	under := func(p Vec3) bool {
 		return p.Sub(tri.A).Dot(n) < 0 && pointInTriangleXZ(p, tri)
@@ -1010,6 +1012,15 @@ func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
 		return under(a) || under(b) || under(a.Add(b).Scale(0.5))
 	case ShapeBox:
 		return under(s.Box.Center)
+	case ShapeConvexHull:
+		if s.Hull.geom == nil {
+			return false
+		}
+		c := toCvx(s)
+		return under(c.centroid().vec3())
+	case ShapeCylinder:
+		a, b := s.Cylinder.A, s.Cylinder.B
+		return under(a) || under(b) || under(a.Add(b).Scale(0.5))
 	default:
 		return false
 	}
@@ -1047,6 +1058,13 @@ func shapeMinAlong(s Shape, n Vec3) float32 {
 			r = float32(float32(e.X*abs32(ax[0].Dot(n)))+float32(e.Y*abs32(ax[1].Dot(n)))) + float32(e.Z*abs32(ax[2].Dot(n)))
 		}
 		return s.Box.Center.Dot(n) - r
+	case ShapeConvexHull, ShapeCylinder:
+		c := toCvx(s)
+		if !c.valid() {
+			return 0
+		}
+		nd := toDV(n)
+		return float32(c.support(nd.neg()).dot(nd))
 	default:
 		return 0
 	}

@@ -432,3 +432,34 @@ func TestVoxelColliderOriginCapsuleSweepAndRemoval(t *testing.T) {
 		t.Fatalf("crate did not fall after RemoveVoxelCollider: Y=%.3f", crate.Pos.Y)
 	}
 }
+
+// TestVoxelColliderConvexBodiesRest drops a convex hull and a standing and a lying cylinder onto a voxel floor (#808).
+func TestVoxelColliderConvexBodiesRest(t *testing.T) {
+	grid := newTestVoxelGrid(1.0)
+	grid.fillBox(-4, 0, -4, 4, 0, 4, true)
+	w := NewWorld()
+	w.AddVoxelCollider(NewVoxelCollider(grid))
+	hull, err := NewConvexHull([]Vec3{
+		{X: -0.4, Y: -0.4, Z: -0.4}, {X: 0.4, Y: -0.4, Z: -0.4}, {X: -0.4, Y: -0.4, Z: 0.4}, {X: 0.4, Y: -0.4, Z: 0.4},
+		{X: -0.4, Y: 0.4, Z: -0.4}, {X: -0.4, Y: 0.4, Z: 0.4},
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := []struct {
+		b     *Body
+		restY float32
+	}{
+		{w.AddBody(NewDynamicBody(ConvexHullShape(hull), Vec3{X: -2.5, Y: 2, Z: 0.5}, 1)), 1.4},
+		{w.AddBody(NewDynamicBody(CylinderShape(VerticalCylinder(Vec3{}, 0.3, 0.8)), Vec3{X: 0.5, Y: 2, Z: 0.5}, 1)), 1.4},
+		{w.AddBody(NewDynamicBody(CylinderShape(Cylinder{A: Vec3{Z: -0.4}, B: Vec3{Z: 0.4}, Radius: 0.3}), Vec3{X: 2.5, Y: 2, Z: 0.5}, 1)), 1.3},
+	}
+	for range 300 {
+		w.Step(time.Second / 60)
+	}
+	for i, c := range bodies {
+		if !c.b.Sleeping || abs32(c.b.Pos.Y-c.restY) > 0.02 {
+			t.Errorf("body %d at %v (sleeping %v), want resting at y = %v", i, c.b.Pos, c.b.Sleeping, c.restY)
+		}
+	}
+}

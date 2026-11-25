@@ -19,6 +19,12 @@ func resolveDebugStyle(s DebugStyle) DebugStyle {
 	if s.CapsuleColor == 0 {
 		s.CapsuleColor = def.CapsuleColor
 	}
+	if s.HullColor == 0 {
+		s.HullColor = def.HullColor
+	}
+	if s.CylinderColor == 0 {
+		s.CylinderColor = def.CylinderColor
+	}
 	if s.ContactColor == 0 {
 		s.ContactColor = def.ContactColor
 	}
@@ -200,6 +206,10 @@ func DrawShape(d *core.Drawing, viewProj Mat4, viewport core.Bounds, s Shape, st
 		drawEdges(d, viewProj, viewport, SphereEdges(s.Sphere, st.SphereSegments), st.SphereColor, st.LineWidth, st.DepthZO)
 	case ShapeCapsule:
 		drawEdges(d, viewProj, viewport, CapsuleEdges(s.Capsule, st.SphereSegments), st.CapsuleColor, st.LineWidth, st.DepthZO)
+	case ShapeConvexHull:
+		drawEdges(d, viewProj, viewport, ConvexHullEdges(s.Hull, s.Rot), st.HullColor, st.LineWidth, st.DepthZO)
+	case ShapeCylinder:
+		drawEdges(d, viewProj, viewport, CylinderEdges(s.Cylinder, st.SphereSegments), st.CylinderColor, st.LineWidth, st.DepthZO)
 	}
 }
 

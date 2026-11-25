@@ -6,7 +6,7 @@ import "math"
 
 const maxSweepSteps = 32
 
-// shapeMinExtent returns half the smallest dimension of s: the radius for spheres and capsules and the smallest half-extent for boxes.
+// shapeMinExtent returns half the smallest dimension of s: the radius for spheres and capsules, the smallest half-extent for boxes, half the smallest width across a face for convex hulls, and the smaller of the radius and half the height for cylinders.
 func shapeMinExtent(s Shape) float32 {
 	switch s.Kind {
 	case ShapeSphere:
@@ -15,6 +15,13 @@ func shapeMinExtent(s Shape) float32 {
 		return s.Capsule.Radius
 	case ShapeBox:
 		return min(s.Box.HalfExtents.X, s.Box.HalfExtents.Y, s.Box.HalfExtents.Z)
+	case ShapeConvexHull:
+		if s.Hull.geom == nil {
+			return 0
+		}
+		return float32(s.Hull.geom.halfWidth)
+	case ShapeCylinder:
+		return min(s.Cylinder.Radius, s.Cylinder.Height()*0.5)
 	default:
 		return 0
 	}

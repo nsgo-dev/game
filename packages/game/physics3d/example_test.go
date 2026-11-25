@@ -74,3 +74,36 @@ func ExampleTestShapes() {
 	// Output:
 	// true {-1 0 0} 0.5
 }
+
+// NewConvexHull turns a point cloud, such as a rock's or a crate's mesh vertices, into a collision shape that a dynamic body can use; points inside the hull are dropped.
+func ExampleNewConvexHull() {
+	// A ramp: a triangular prism, plus a point inside it.
+	hull, err := physics3d.NewConvexHull([]physics3d.Vec3{
+		{X: -0.5, Y: -0.5, Z: -0.5}, {X: 0.5, Y: -0.5, Z: -0.5}, {X: -0.5, Y: -0.5, Z: 0.5}, {X: 0.5, Y: -0.5, Z: 0.5},
+		{X: -0.5, Y: 0.5, Z: -0.5}, {X: -0.5, Y: 0.5, Z: 0.5},
+		{X: -0.2, Y: -0.2},
+	}, physics3d.DefaultHullVertices)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(hull.NumVertices(), "vertices,", len(hull.Faces()), "faces, volume", hull.Volume())
+
+	// Move the hull's centroid to the body's origin, so the body rotates about its center of mass.
+	hull = hull.Recentered()
+	offset := hull.Center
+	hull.Center = physics3d.Vec3{}
+	fmt.Printf("centroid offset (%.3f, %.3f, %.3f)\n", offset.X, offset.Y, offset.Z)
+
+	w := physics3d.NewWorld()
+	w.AddBody(ground())
+	ramp := w.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), physics3d.Vec3{Y: 2}.Add(offset), 3))
+	barrel := w.AddBody(physics3d.NewDynamicBody(physics3d.CylinderShape(physics3d.VerticalCylinder(physics3d.Vec3{}, 0.3, 0.9)), physics3d.Vec3{X: 3, Y: 2}, 10))
+	for range 240 {
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("ramp at y=%.2f, barrel at y=%.2f\n", ramp.Pos.Y, barrel.Pos.Y)
+	// Output:
+	// 6 vertices, 5 faces, volume 0.5
+	// centroid offset (-0.167, -0.167, 0.000)
+	// ramp at y=0.33, barrel at y=0.45
+}
