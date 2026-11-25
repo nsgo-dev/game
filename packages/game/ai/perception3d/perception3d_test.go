@@ -184,3 +184,36 @@ func TestLoopDeterminism(t *testing.T) {
 		t.Fatalf("not deterministic or no events:\n%v\n%v", a, b)
 	}
 }
+
+func TestNonFiniteInputsAndNilLineOfSight(t *testing.T) {
+	nan := float32(math.NaN())
+	g := guard()
+	g.Forward = math3d.Vec3{X: nan, Y: nan, Z: nan} // falls back to -Z
+	sys := perception3d.System{Budget: 1}
+	sys.Add(g)
+	targets := []perception3d.Target{
+		{ID: 10, Team: teamIntrude, Pos: math3d.Vec3{Y: 1.5, Z: -20}, Vel: math3d.Vec3{X: nan}},
+		{ID: 11, Team: teamIntrude, Pos: math3d.Vec3{X: 2, Y: 1.5, Z: -20}},
+		{ID: 12, Team: teamIntrude, Pos: math3d.Vec3{X: nan, Y: 1.5, Z: -20}},
+	}
+	sys.PostNoise(perception3d.Noise{Source: 20, Team: teamIntrude, Pos: math3d.Vec3{Z: float32(math.Inf(-1))}, Loudness: 1})
+	sys.Step(step, targets)
+	if !g.Sees(10) || !g.Sees(11) || g.Sees(12) {
+		t.Fatalf("seen 10 %v 11 %v 12 %v", g.Sees(10), g.Sees(11), g.Sees(12))
+	}
+	if _, heard := g.Memory(20); heard {
+		t.Fatal("a noise at an infinite distance was heard")
+	}
+	if got, want := sys.Stats(), (ai.PerceptionStats{Candidates: 2}); got != want {
+		t.Fatalf("stats = %+v, want %+v", got, want)
+	}
+	for s := range 3 {
+		sys.Step(step, targets)
+		if len(g.Events()) != 0 {
+			t.Fatalf("step %d: events %+v", s, g.Events())
+		}
+	}
+	if m, _ := g.Memory(10); m.Vel != (math3d.Vec3{}) {
+		t.Fatalf("remembered velocity = %v, want zero", m.Vel)
+	}
+}

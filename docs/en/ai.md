@@ -775,7 +775,7 @@ for _, ev := range guard.Events() {
 
 ### Sight
 
-A target is in view when it lies within `Range` of the eye and within `HalfAngle` (radians) of `Facing`, or within the shorter `PeripheralRange` and within `PeripheralHalfAngle`, which is zero for all around. The eye is `Pos + EyeOffset`, in world space; hearing measures from the same point. A target in view is seen when the system's `LineOfSight` reports the segment from the eye to the target clear; a nil `LineOfSight` lets every target in view be seen. Three adapters cover the usual occluders:
+A target is in view when it lies within `Range` of the eye and within `HalfAngle` (radians) of `Facing`, or within the shorter `PeripheralRange` and within `PeripheralHalfAngle`, which is zero for all around; a negative `PeripheralHalfAngle` disables the peripheral range. The eye is `Pos + EyeOffset`, in world space; hearing measures from the same point. A target in view is seen when the system's `LineOfSight` reports the segment from the eye to the target clear; a nil `LineOfSight` lets every target in view be seen. Three adapters cover the usual occluders:
 
 | Adapter | Occluders |
 | --- | --- |
@@ -791,7 +791,7 @@ A ray that starts inside the agent's body or ends inside the target's hits that 
 
 ### Memory and events
 
-Each agent keeps one `Memory` per `StimulusID`, so a target seen and later heard refreshes one memory. A memory holds the last known `Pos` and `Vel` (zero when heard), the `Sense` that last refreshed it, its `Age` since it was last sensed, whether it is `Visible` now, and a `Strength` that is 1 when seen, `1 - distance/reach` when heard, and falls linearly to 0 over `ForgetAfter`. A memory is forgotten once `Age` reaches `ForgetAfter`. Read memories with `Memories`, `AppendMemories`, `Memory(id)` and `Sees(id)`, and drop them with `Forget(id)` and `Clear`.
+Each agent keeps one `Memory` per `StimulusID`, so a target seen and later heard refreshes one memory. A memory holds the last known `Pos` and `Vel` (zero when heard), the `Sense` that last refreshed it, its `Age` since it was last sensed, whether it is `Visible` now, and a `Strength` that is 1 when seen, is raised to at least `1 - distance/reach` when heard (1 for an infinite reach), and falls linearly to 0 over `ForgetAfter`. A memory is forgotten once `Age` reaches `ForgetAfter`. Read memories with `Memories`, `AppendMemories`, `Memory(id)` and `Sees(id)`, and drop them with `Forget(id)` and `Clear`.
 
 After each `Step`, `Events` lists what changed:
 
@@ -808,7 +808,7 @@ After each `Step`, `Events` lists what changed:
 
 ### Budget and determinism
 
-With hundreds of agents, casting a ray for every agent and target on every step is too much. `Budget` caps the line-of-sight checks of a step: the pairs in view are ordered by the order agents were added and then by target ID, a step checks `Budget` of them starting after the last pair checked, and the next step carries on from there, so every agent gets its turn in a fixed order. A pair not yet rechecked keeps its previous result. `Stats` reports a step's candidates, checks and deferred pairs. With a deterministic `LineOfSight`, every run with the same inputs produces the same memories and events.
+With hundreds of agents, casting a ray for every agent and target on every step is too much. `Budget` caps the line-of-sight checks of a step: the pairs in view are ordered by the order agents were added and then by target ID, a step checks `Budget` of them starting after the last pair checked, and the next step carries on from there, so every agent gets its turn in a fixed order. A pair not yet rechecked keeps its previous result. `Stats` reports a step's candidates, checks and deferred pairs. A nil `LineOfSight` casts no rays, so the budget does not apply and every pair in view is seen at once. With a deterministic `LineOfSight`, every run with the same inputs produces the same memories and events.
 
 ### 3D
 

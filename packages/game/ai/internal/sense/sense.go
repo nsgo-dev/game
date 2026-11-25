@@ -50,6 +50,14 @@ func (a Vec) Add(b Vec) Vec { return Vec{a.X + b.X, a.Y + b.Y, a.Z + b.Z} }
 
 func (a Vec) dot(b Vec) float64 { return a.X*b.X + a.Y*b.Y + a.Z*b.Z }
 
+// finite returns a, or the zero vector when any component is NaN or infinite, so a bad velocity never makes a still target look changed on every step.
+func (a Vec) finite() Vec {
+	if math.IsNaN(a.X+a.Y+a.Z) || math.IsInf(a.X+a.Y+a.Z, 0) {
+		return Vec{}
+	}
+	return a
+}
+
 // Norm returns a scaled to unit length, or fallback when a has no finite non-zero length.
 func (a Vec) Norm(fallback Vec) Vec {
 	l := math.Sqrt(a.dot(a))
@@ -360,10 +368,16 @@ func (e *Engine) Step(dt time.Duration, budget int, attitude func(observer, othe
 	}
 }
 
-// checkLineOfSight resolves each candidate's visibility. When a positive budget cannot cover every candidate, it checks budget of them round-robin, starting from the first pair after the cursor in (agent, target ID) order, and the rest keep the visibility they had; otherwise it checks all of them in order.
+// checkLineOfSight resolves each candidate's visibility. A nil los sees every candidate without a check, so the budget does not apply. When a positive budget cannot cover every candidate, it checks budget of them round-robin, starting from the first pair after the cursor in (agent, target ID) order, and the rest keep the visibility they had; otherwise it checks all of them in order.
 func (e *Engine) checkLineOfSight(budget int, los func(from, to Vec) bool) {
 	n := len(e.cands)
 	e.Stats = Stats{Candidates: n}
+	if los == nil {
+		for i := range e.cands {
+			e.cands[i].visible = true
+		}
+		return
+	}
 	limited := budget > 0 && n > budget
 	start := 0
 	if limited && e.hasCursor {
@@ -381,7 +395,7 @@ func (e *Engine) checkLineOfSight(budget int, los func(from, to Vec) bool) {
 			e.Stats.Deferred++
 			continue
 		}
-		c.visible = los == nil || los(a.Eye, e.targets[c.target].Pos)
+		c.visible = los(a.Eye, e.targets[c.target].Pos)
 		e.Stats.Checks++
 		if limited {
 			e.cursor, e.hasCursor = e.key(i), true
@@ -396,17 +410,18 @@ func (e *Engine) key(i int) pairKey {
 
 func see(a *Agent, t *Target, att uint8) {
 	st := a.State
+	vel := t.Vel.finite()
 	i, ok := st.Find(t.ID)
 	if !ok {
-		m := Memory{ID: t.ID, Team: t.Team, Attitude: att, Sense: BySight, Pos: t.Pos, Vel: t.Vel, Visible: true, base: 1, sensed: true}
+		m := Memory{ID: t.ID, Team: t.Team, Attitude: att, Sense: BySight, Pos: t.Pos, Vel: vel, Visible: true, base: 1, sensed: true}
 		st.Mems = slices.Insert(st.Mems, i, m)
 		st.Events = append(st.Events, Event{Gained, m})
 		return
 	}
 	m := &st.Mems[i]
-	changed := !m.Visible || m.Sense != BySight || m.Pos != t.Pos || m.Vel != t.Vel || m.Team != t.Team || m.Attitude != att
+	changed := !m.Visible || m.Sense != BySight || m.Pos != t.Pos || m.Vel != vel || m.Team != t.Team || m.Attitude != att
 	m.Team, m.Attitude, m.Sense = t.Team, att, BySight
-	m.Pos, m.Vel = t.Pos, t.Vel
+	m.Pos, m.Vel = t.Pos, vel
 	m.Age, m.base = 0, 1
 	m.Visible, m.sensed = true, true
 	if changed {
@@ -418,8 +433,9 @@ func hear(a *Agent, n *Noise, attitude func(observer, other uint8) uint8) {
 	if a.HasSelf && n.ID == a.Self {
 		return
 	}
+	// An infinite reach hears every noise at a finite distance at full strength, as an infinite sight range sees everything.
 	reach := a.HearRange * n.Loudness
-	if !(reach > 0) || math.IsInf(reach, 0) {
+	if !(reach > 0) {
 		return
 	}
 	att := attitude(a.Team, n.Team)
@@ -428,10 +444,13 @@ func hear(a *Agent, n *Noise, attitude func(observer, other uint8) uint8) {
 	}
 	d := n.Pos.Sub(a.Eye)
 	dist := math.Sqrt(d.dot(d))
-	if !(dist <= reach) {
+	if math.IsNaN(dist) || math.IsInf(dist, 0) || dist > reach {
 		return
 	}
-	s := 1 - dist/reach
+	s := 1.0
+	if !math.IsInf(reach, 1) {
+		s = 1 - dist/reach
+	}
 	st := a.State
 	i, ok := st.Find(n.ID)
 	if !ok {

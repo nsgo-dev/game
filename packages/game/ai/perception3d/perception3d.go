@@ -69,7 +69,7 @@ type Memory struct {
 	Vel math3d.Vec3
 	// Age is the time since the stimulus was last sensed; zero while it is in sight.
 	Age time.Duration
-	// Strength is 1 when seen and 1 - distance/reach when heard, and falls linearly to 0 over ForgetAfter.
+	// Strength is 1 when seen, and hearing raises it to at least 1 - distance/reach (1 for an infinite reach); it falls linearly to 0 over ForgetAfter.
 	Strength float32
 	// Visible reports whether the stimulus is in sight now.
 	Visible bool
@@ -85,7 +85,7 @@ type Event struct {
 
 // Perception is one 3D agent's senses and memory. Set its exported fields, add it to a System, and step the system on game.Loop's fixed steps; the system reads the fields at the start of every Step.
 type Perception struct {
-	// Self is the agent's own StimulusID, so the agent never senses itself; zero means the agent is not a stimulus.
+	// Self is the agent's own StimulusID, so the agent never senses itself; zero means the agent is not a stimulus, so an agent that is one needs a non-zero ID.
 	Self ai.StimulusID
 	// Team is the agent's team.
 	Team ai.Team
@@ -180,7 +180,7 @@ type System struct {
 	LineOfSight LineOfSight
 	// Attitude decides how agents regard targets and noises; nil means ai.DefaultAttitude.
 	Attitude ai.AttitudeFunc
-	// Budget caps the line-of-sight checks of one step; zero or less checks every pair in view. When the cap is reached, the remaining pairs are checked first on the next step, round-robin, and keep their previous result until then.
+	// Budget caps the LineOfSight calls of one step; zero or less checks every pair in view, and a nil LineOfSight makes no calls, so the budget does not apply and every pair in view is seen at once. When the cap is reached, the remaining pairs are checked first on the next step, round-robin, and keep their previous result until then.
 	Budget int
 
 	agents []*Perception

@@ -6,7 +6,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/ai/internal/sense"
 )
 
-// StimulusID identifies something an agent can sense: a target it can see or the source of a noise it can hear. A memory is kept per StimulusID, so a target seen and later heard refreshes one memory. IDs are the game's own, such as entity IDs; zero is a valid ID, and anonymous noises usually share it.
+// StimulusID identifies something an agent can sense: a target it can see or the source of a noise it can hear. A memory is kept per StimulusID, so a target seen and later heard refreshes one memory. IDs are the game's own, such as entity IDs. Zero is a valid target or noise ID, and anonymous noises usually share it, but Perception.Self treats zero as "not a stimulus", so an agent that is also a target or a noise source needs a non-zero ID.
 type StimulusID uint64
 
 // Team is a team affiliation, compared by an AttitudeFunc to decide whether an agent treats a stimulus as hostile, neutral or friendly.
@@ -127,13 +127,13 @@ func (k EventKind) String() string {
 //
 // A target is in view when it lies within Range of the eye and within HalfAngle of the facing direction, or within PeripheralRange and within PeripheralHalfAngle. Angles are in radians; a half-angle of π or more covers every direction. Ranges are inclusive. A target in view is seen when the line of sight to it is clear.
 type SightConfig struct {
-	// Range is how far the agent sees inside its cone.
+	// Range is how far the agent sees inside its cone; +Inf sees any finite distance, and zero, less or NaN disables the cone.
 	Range float32
-	// HalfAngle is the half-angle of the sight cone around the facing direction; zero or less disables the cone.
+	// HalfAngle is the half-angle of the sight cone around the facing direction; zero, less or NaN disables the cone.
 	HalfAngle float32
 	// PeripheralRange is a shorter range seen over PeripheralHalfAngle, so a guard notices a target right beside it.
 	PeripheralRange float32
-	// PeripheralHalfAngle is the half-angle the peripheral range covers; zero means π, all around the agent.
+	// PeripheralHalfAngle is the half-angle the peripheral range covers; zero means π, all around the agent, and a negative or NaN value disables the peripheral range.
 	PeripheralHalfAngle float32
 	// Detect selects the attitudes sight detects; zero detects hostile targets only.
 	Detect AttitudeMask
@@ -141,7 +141,7 @@ type SightConfig struct {
 
 // HearingConfig describes an agent's hearing. The zero HearingConfig hears nothing.
 type HearingConfig struct {
-	// Range is how far away a noise of loudness 1 is heard; a noise's loudness scales it.
+	// Range is how far away a noise of loudness 1 is heard; a noise's loudness scales it. +Inf hears a noise at any finite distance at strength 1, and zero, less or NaN hears nothing.
 	Range float32
 	// Detect selects the attitudes hearing detects; zero detects hostile noises only.
 	Detect AttitudeMask
@@ -149,9 +149,9 @@ type HearingConfig struct {
 
 // PerceptionStats reports the line-of-sight work of the last step.
 type PerceptionStats struct {
-	// Candidates is the number of agent-target pairs in view that needed a line-of-sight check.
+	// Candidates is the number of agent-target pairs in view.
 	Candidates int
-	// Checks is the number of line-of-sight checks made, never more than a positive Budget.
+	// Checks is the number of LineOfSight calls made, never more than a positive Budget and zero when LineOfSight is nil.
 	Checks int
 	// Deferred is the number of candidates left to later steps by the budget; they keep their previous result meanwhile.
 	Deferred int
