@@ -171,9 +171,14 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		})
 	})
 	// Selecting an object elsewhere, such as in a viewport, selects its row and reveals it.
+	lastTabID := ed.activeTabID()
 	cx.Effect(func() {
 		_ = rev.Get()
 		cx.Untrack(func() {
+			if tabID := ed.activeTabID(); tabID != lastTabID {
+				lastTabID = tabID
+				editing.Set(treeEdit{})
+			}
 			cur, _ := selection.Cursor().(sceneTreeKey)
 			if ed.SelectedID == "" {
 				if cur.id != "" {
@@ -565,7 +570,19 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		}
 		return loc.index, len(objs), prev, parent
 	}
-	items := []core.Node{
+	var items []core.Node
+	if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Scene != "" {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   "scene-tree-open-scene-" + id,
+				Text:     "Open Instanced Scene",
+				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+				OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
+			},
+			ui.MenuSeparator{},
+		)
+	}
+	items = append(items,
 		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: ed.T("sceneTree.rename"), Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
 		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: ed.T("sceneTree.changeID"), Disabled: editsOff, OnSelect: func() { startEdit(k, editID) }},
 		ui.MenuSeparator{},
@@ -608,7 +625,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 				}
 				ed.report(ed.ReparentObject(id, grand, ploc.index+1))
 			}},
-	}
+	)
 	if ed.Doc != nil && len(ed.Doc.Layers) > 1 {
 		items = append(items, ui.MenuSeparator{})
 		for i := range ed.Doc.Layers {

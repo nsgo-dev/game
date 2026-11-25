@@ -1,0 +1,28 @@
+# Agent Note: Multi-scene tabs in the editor
+
+Status: implemented
+
+## Problem
+
+The editor held a single active scene (`Editor.Doc`, `History`, `SelectedID`, `FilePath`, `ScenePath`, view transforms and dirty state). Opening another scene replaced it and emptied the undo history, making simultaneous editing of an instanced or base scene and the level that uses it destructive and slow (#873).
+
+## Decision
+
+- **Active-tab mirror onto `Editor` fields**: `Editor` keeps a slice of open tabs (`tabs []*sceneTab`, `activeTab int`, always at least one tab after `New`) and mirrors the active tab's state onto the existing exported `Editor` fields (`Doc`, `Built`, `BuildErr`, `History`, `FilePath`, `ScenePath`, `OnSave`, `SelectedID`, `ActiveLayer`, `Camera3D`, tile selection, 2D view transform, and per-scene session visibility/lock maps). Every existing command in `History`, plugin, MCP tool, inspector, viewport, and Play session continues operating on `Editor`'s fields and therefore automatically acts on the active tab.
+- **Independent per-tab `History` and clean tab switches**: each tab owns its own `*History` whose `onChange` hook calls `Editor.afterMutate`. `SelectTab` saves the outgoing tab's view state (`SaveViewState`), cancels transient drags/previews, flushes tile/GridMap strokes, syncs the active tab back into `tabs[activeTab]`, loads the target tab, retargets `project.Resolver` via `syncProjectAssets`, and marks `s3d.stale` without touching any tab's `History`. `InspectorView`'s schema key includes the active tab ID (`T<id>:`) and `SceneTreeView` clears inline rename state on tab switches so identically named objects across tabs never reuse stale widget state.
+- **Opening deduplicates and replaces only a pristine placeholder**: `OpenScene` and `OpenFile` check open tabs by project-relative `ScenePath` and canonical `FilePath`; if already open, they switch to that tab (stopping Play first if needed) without reloading or clearing history. Otherwise they open a new tab, replacing the initial tab only when it is an untouched auto-generated untitled placeholder (`New(nil, ...)` or the replacement tab created after closing the last tab). `OpenInstancedScene` and `OpenBaseScene` route through `OpenScene` and are exposed in the inspector, scene tree context menu, File menu, desktop menu bar, and command palette.
+- **Immediate rebuild of dependent tabs on save**: saving any tab (`Save`, `SaveFile`, `SaveSceneAs`, `SaveTab`, `SaveAll`) increments `Editor.scenesRev`, clears `baseLayers`, and rebuilds every other open tab whose `SceneDoc.RefersToScenes()` is true using `resolverForScene(tab.scenePath)`. `scene3D()` tracks `scenesRev` so 3D viewports of instancing/inheriting tabs rebuild their geometry too when viewed.
+- **Per-tab close confirmation and shared project**: opening another scene from the file browser, Problems panel, Search/References panel, Command Palette, or New Scene no longer prompts because existing tabs stay open (partially superseding [editor-scene-files-unsaved](2026-11-25-editor-scene-files-unsaved.md)). Closing a dirty tab (`RequestCloseTab`) opens the unsaved prompt scoped to that single tab: Save saves only that tab (rebuilding dependent tabs) and closes it, Discard closes it without discarding shared `Editor.Project` edits, and Cancel keeps it open. Quitting, closing the window, and switching projects check `HasUnsavedChanges()` across all open tabs (`AnySceneDirty`) and save every dirty tab via `SaveAll()`. `MoveFile` updates paths and references across all open tabs.
+- **Play and Plugins act on the active tab**: `Play` runs on the active tab and blocks tab switching and closing with `ErrPlaying` until `Stop` restores the pre-play snapshot.
+
+## Alternatives considered
+
+- **Pass a `*SceneTab` handle to every editor method and command**: would eliminate field mirroring between `Editor` and `tabs[activeTab]`, making multi-tab state impossible to desync. Rejected because hundreds of exported `Editor` fields, methods, commands, plugins, MCP handlers, and tests depend on `Editor.Doc`, `Editor.History`, `Editor.SelectedID`, `Editor.FilePath`, and `Editor.ScenePath`; mirroring preserves full API compatibility while keeping per-tab isolation exact.
+- **Lazy rebuild of dependent tabs only on tab switch**: cheaper when saving repeatedly while editing a prefab scene. Rejected because inspecting an inactive tab's `Built` state or saving a background dirty tab via close-with-save should keep dependent tabs immediately consistent, and `sceneformat.Build` on open tabs referencing scenes is fast.
+- **Allow zero open tabs when the last tab closes**: avoids an empty placeholder tab. Rejected because many editor subsystems and plugins assume `Editor.Doc != nil`; replacing the last closed tab with a pristine placeholder `DefaultSceneDoc` (which the next opened scene replaces) keeps `Editor.Doc` always valid.
+
+## Consequences
+
+- **Benefits**: authors can edit instanced/base scenes side by side with levels, preserve separate undo stacks, selections, and 2D/3D view transforms per tab, jump directly via Open Instanced Scene / Open Base Scene, and see saved changes reflected live in dependent tabs without reopening.
+- **Costs**: callers that mutate `Editor` fields directly must stay on the active tab (as `syncActiveTab` snapshots live fields before tab switches or full-tab queries); `HasUnsavedChanges` and `SceneTabsView` encode each open tab once per editor revision (memoized and paused during Play frames) to compute exact dirty indicators.
+- Related: [editor-scene-files-unsaved](2026-11-25-editor-scene-files-unsaved.md).

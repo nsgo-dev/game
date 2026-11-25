@@ -104,7 +104,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						case isScreenFile(p):
 							ed.report(ed.OpenHUDScreen(p))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
-							ed.openSceneAsked(p)
+							ed.report(ed.OpenScene(p))
 						}
 					}
 				},
@@ -170,7 +170,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 										} else if isScreenFile(p) {
 											ed.report(ed.OpenHUDScreen(p))
 										} else {
-											ed.openSceneAsked(p)
+											ed.report(ed.OpenScene(p))
 										}
 									}
 								},

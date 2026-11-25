@@ -66,6 +66,10 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdStartScreen, e.T("menu.startScreen"), false),
 			sep,
 			cmdItem(CmdSave, e.T("menu.save"), false),
+			cmdItem(CmdCloseTab, "Close Scene Tab", false),
+			sep,
+			cmdItem(CmdOpenInstancedScene, "Open Instanced Scene", false),
+			cmdItem(CmdOpenBaseScene, "Open Base Scene", false),
 			sep,
 			cmdItem(CmdEditorSettings, e.T("menu.editorSettings"), false),
 			sep,
@@ -218,7 +222,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -250,6 +254,10 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.LookThroughCamera3D(),
 			e.HasSceneCamera3D(),
 			e.EnvironmentPanelOpen(),
+			e.TabCount(),
+			e.ActiveTab(),
+			e.Doc != nil && e.Doc.Inherits != "",
+			e.selectedObjectInstancesScene(),
 		)
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')

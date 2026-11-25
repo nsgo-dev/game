@@ -863,22 +863,39 @@ func (e *Editor) queryProjectIndex(ix *projectSearchIndex, query string) []Searc
 		return nil
 	}
 
-	openRel := e.openSceneRelPath()
-	var openScene indexedScene
-	hasOpenScene := false
-	if openRel != "" && e.Doc != nil {
-		openScene = indexSceneDoc(e.Doc)
-		hasOpenScene = true
+	e.syncActiveTab()
+	openScenes := make(map[string]indexedScene, len(e.tabs))
+	var openOrder []string
+	for i, t := range e.tabs {
+		if t.doc == nil {
+			continue
+		}
+		var rel string
+		if i == e.activeTab {
+			rel = e.openSceneRelPath()
+		} else if t.scenePath != "" {
+			rel = e.normalizeProjectPath(t.scenePath)
+		} else if t.filePath != "" {
+			rel = e.normalizeProjectPath(t.filePath)
+		}
+		if rel == "" {
+			continue
+		}
+		if _, dup := openScenes[rel]; !dup {
+			openOrder = append(openOrder, rel)
+		}
+		openScenes[rel] = indexSceneDoc(t.doc)
 	}
 
 	var hits []rankedResult
 
-	// Evaluate every indexed project file (and overlay live Doc metadata if open).
-	seenOpen := false
+	// Evaluate every indexed project file (and overlay live Doc metadata for every open tab).
+	seenOpen := make(map[string]bool, len(openScenes))
 	for _, f := range ix.files {
 		cur := f
-		if hasOpenScene && cur.path == openRel {
-			seenOpen = true
+		openScene, isOpen := openScenes[cur.path]
+		if isOpen {
+			seenOpen[cur.path] = true
 			if openScene.uid != "" {
 				cur.uid = openScene.uid
 			}
@@ -888,9 +905,9 @@ func (e *Editor) queryProjectIndex(ix *projectSearchIndex, query string) []Searc
 		if rr, ok := matchFile(cur, terms); ok {
 			hits = append(hits, rr)
 		}
-		if ix.sceneFiles[cur.path] || (hasOpenScene && cur.path == openRel) {
+		if ix.sceneFiles[cur.path] || isOpen {
 			sc := ix.scenes[cur.path]
-			if hasOpenScene && cur.path == openRel {
+			if isOpen {
 				sc = openScene
 			}
 			for _, obj := range sc.objects {
@@ -906,8 +923,12 @@ func (e *Editor) queryProjectIndex(ix *projectSearchIndex, query string) []Searc
 		}
 	}
 
-	// If the currently open scene has not been saved to disk yet but has a project-relative path.
-	if hasOpenScene && !seenOpen {
+	// Include any open tab with a project-relative path that has not been saved to disk yet.
+	for _, openRel := range openOrder {
+		if seenOpen[openRel] {
+			continue
+		}
+		openScene := openScenes[openRel]
 		cur := indexedFile{
 			path:      openRel,
 			uid:       openScene.uid,

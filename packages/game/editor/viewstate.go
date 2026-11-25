@@ -156,11 +156,32 @@ func (e *Editor) loadViewState() (*viewState, error) {
 
 // SaveViewState records the open scene's view, the 3D viewport's camera, in the open project's ViewStateFile, so opening the scene again shows it as it is now. The editor saves it itself as another scene opens, as the scene is saved and as the window closes; an app that ends the editor another way calls it first. It writes nothing without a project or for a scene outside it, and leaves the file as it is when it already holds this view. Creating the .game folder, it writes a .gitignore there that ignores everything in it, unless one is there already. Scenes the file lists whose files are gone are dropped from it, and a file that does not parse is written afresh; a file that does not read, or that a newer editor wrote, is left as it is and reported. A camera holding a value that is not finite is saved as DefaultOrbitCamera3D, so the file always loads.
 func (e *Editor) SaveViewState() error {
-	if e == nil || e.ScenePath == "" {
+	if e == nil {
 		return nil
 	}
 	p, ok := e.viewStatePath()
 	if !ok {
+		return nil
+	}
+	e.syncActiveTab()
+	root := filepath.Dir(e.ProjectPath)
+	cams := make(map[string]camera3DState, len(e.tabs))
+	for i, t := range e.tabs {
+		if t.scenePath == "" {
+			continue
+		}
+		if i != e.activeTab {
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(t.scenePath))); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+		}
+		cam := camera3DStateOf(t.camera3D)
+		if !cam.finite() {
+			cam = camera3DStateOf(DefaultOrbitCamera3D())
+		}
+		cams[t.scenePath] = cam
+	}
+	if len(cams) == 0 {
 		return nil
 	}
 	// A damaged file is replaced, as a lost one would be: it holds only views. One that could not be read, or that a newer editor wrote, is not this editor's to replace.
@@ -169,23 +190,21 @@ func (e *Editor) SaveViewState() error {
 	if errors.Is(err, errViewStateNewer) || errors.As(err, &pathErr) {
 		return err
 	}
-	root := filepath.Dir(e.ProjectPath)
-	cam := camera3DStateOf(e.Camera3D)
-	if !cam.finite() {
-		cam = camera3DStateOf(DefaultOrbitCamera3D())
-	}
-	found := false
+	seen := make(map[string]bool, len(cams))
 	kept := v.Scenes[:0]
 	for _, sc := range v.Scenes {
-		if sc.Path == e.ScenePath {
-			sc.Camera3D, found = cam, true
+		if cam, ok := cams[sc.Path]; ok {
+			sc.Camera3D = cam
+			seen[sc.Path] = true
 		} else if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(sc.Path))); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		kept = append(kept, sc)
 	}
-	if !found {
-		kept = append(kept, sceneViewState{Path: e.ScenePath, Camera3D: cam})
+	for sp, cam := range cams {
+		if !seen[sp] {
+			kept = append(kept, sceneViewState{Path: sp, Camera3D: cam})
+		}
 	}
 	v.Scenes = kept
 	data, err := encodeViewState(v)

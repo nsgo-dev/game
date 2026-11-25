@@ -25,8 +25,10 @@ const (
 	pathSaveAs
 )
 
-// unsavedPrompt is a question the unsaved-changes prompt is asking: proceed runs once the edits are saved or discarded, and cancel when the author keeps them.
+// unsavedPrompt is a question the unsaved-changes prompt is asking: proceed runs once the edits are saved or discarded, and cancel when the author keeps them. When description or save are set, they override the default prompt message and SaveAll handler (for closing one dirty tab without touching other tabs or the shared project).
 type unsavedPrompt struct {
+	description     string
+	save            func() bool
 	proceed, cancel func()
 }
 
@@ -46,46 +48,6 @@ func (e *Editor) whenSaved(proceed, cancel func()) {
 	}
 }
 
-// openSceneAsked opens the project's scene at rel, asking first while edits are unsaved; an author who chose Discard loses the project's unsaved edits too.
-func (e *Editor) openSceneAsked(rel string) {
-	e.whenSaved(func() {
-		if err := e.OpenScene(rel); err != nil {
-			e.report(err)
-			return
-		}
-		e.discardProject()
-		e.notify()
-	}, nil)
-}
-
-// newSceneAsked makes a new scene at rel, asking first while edits are unsaved, as openSceneAsked does.
-func (e *Editor) newSceneAsked(rel string) {
-	e.whenSaved(func() {
-		if _, err := e.NewScene(rel); err != nil {
-			e.report(err)
-			return
-		}
-		e.discardProject()
-		e.notify()
-	}, nil)
-}
-
-// openFromSearchAsked runs open, a Search or Find References result's navigation to file, asking first while edits are unsaved when it would open a scene other than the open one (object marks a result inside a scene), as the file browser and Problems panel do; Discard drops the project's unsaved edits too.
-func (e *Editor) openFromSearchAsked(file string, object bool, open func() error) {
-	if e.Project == nil || file == "" || e.isOpenScene(file) || (!object && !e.isKnownSceneFile(file)) {
-		e.report(open())
-		return
-	}
-	e.whenSaved(func() {
-		if err := open(); err != nil {
-			e.report(err)
-			return
-		}
-		e.discardProject()
-		e.notify()
-	}, nil)
-}
-
 // saveFromUI saves as the toolbar's Save button does, putting an error in the status bar, and reports whether it saved.
 func (e *Editor) saveFromUI() bool {
 	if err := e.Save(); err != nil {
@@ -96,7 +58,21 @@ func (e *Editor) saveFromUI() bool {
 	return true
 }
 
-// saveAllFromUI saves every dirty editor (project, scene, localizations, clip, data table), putting an error in the status bar, and reports whether it saved.
+// saveTabByIDFromUI saves the scene in tabID, putting an error in the status bar, and reports whether it saved.
+func (e *Editor) saveTabByIDFromUI(tabID uint64) bool {
+	idx := e.findTabByID(tabID)
+	if idx < 0 {
+		return true
+	}
+	if err := e.SaveTab(idx); err != nil {
+		e.Status = "Save error: " + err.Error()
+		e.notify()
+		return false
+	}
+	return true
+}
+
+// saveAllFromUI saves every dirty editor (project, all dirty scene tabs, GridMap, localizations, clip, data table), putting an error in the status bar, and reports whether it saved.
 func (e *Editor) saveAllFromUI() bool {
 	if err := e.SaveAll(); err != nil {
 		e.Status = "Save error: " + err.Error()
@@ -106,13 +82,13 @@ func (e *Editor) saveAllFromUI() bool {
 	return true
 }
 
-// unsavedState is what has unsaved edits, the scene (SceneDirty), the project (ProjectDirty), and auxiliary editors (clip, data table, localizations, skeletal rig), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
-type unsavedState struct{ scene, project, other bool }
+// unsavedState is what has unsaved edits: the active scene (SceneDirty), any open scene tab (AnySceneDirty), the project (ProjectDirty), and auxiliary editors (GridMap, terrain, room map, clip, data table, localizations, skeletal rig), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
+type unsavedState struct{ scene, anyScene, project, other bool }
 
 // either reports whether anything in the session has unsaved edits (HasUnsavedChanges).
-func (s unsavedState) either() bool { return s.scene || s.project || s.other }
+func (s unsavedState) either() bool { return s.anyScene || s.project || s.other }
 
-// unsavedMemo works out unsavedState once per revision of ed. Both checks encode a whole file, so while Play runs (or on pure rig-preview playback ticks), which make a revision every frame, it keeps what it already computed rather than re-encoding every document 60 times a second.
+// unsavedMemo works out unsavedState once per revision of ed. The checks encode documents, so while Play runs (or on pure rig-preview playback ticks), which make a revision every frame, it keeps what it already computed rather than re-encoding every document 60 times a second.
 func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Memo[unsavedState] {
 	var last unsavedState
 	computed, lastPlaying := false, false
@@ -121,10 +97,13 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 		playing := ed.Playing()
 		rigStepOnly := ed.RigPlaying() && r == ed.rigStepRev
 		if !computed || (!playing && !rigStepOnly) || (playing && !lastPlaying) {
+			sceneDirty := ed.SceneDirty()
+			anySceneDirty := sceneDirty || ed.AnySceneDirty()
 			last = unsavedState{
-				scene:   ed.SceneDirty(),
-				project: ed.ProjectDirty(),
-				other:   ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty() || ed.RigDirty(),
+				scene:    sceneDirty,
+				anyScene: anySceneDirty,
+				project:  ed.ProjectDirty(),
+				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty() || ed.RigDirty(),
 			}
 			computed = true
 		}
@@ -135,7 +114,7 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 
 // bindSceneFileHooks wires the editor's unsaved prompt callback, window title, window close guard, and quit request guard at the root EditorView scope.
 func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], prompt *core.Signal[*unsavedPrompt]) {
-	ed.askUnsaved = func(proceed, cancel func()) {
+	setPrompt := func(next *unsavedPrompt) {
 		// A question still open is answered Cancel before the new one replaces it.
 		if ed.UnsavedPromptOpen() {
 			ed.CancelPendingSwitch()
@@ -143,9 +122,29 @@ func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		if p := prompt.Get(); p != nil {
 			p.cancel()
 		}
-		prompt.Set(&unsavedPrompt{proceed: proceed, cancel: cancel})
+		prompt.Set(next)
 	}
-	cx.Cleanup(func() { ed.askUnsaved = nil })
+	ed.askUnsaved = func(proceed, cancel func()) {
+		setPrompt(&unsavedPrompt{proceed: proceed, cancel: cancel})
+	}
+	ed.askCloseTab = func(tabID uint64, label string) {
+		setPrompt(&unsavedPrompt{
+			description: "The scene " + label + " has unsaved changes.",
+			save: func() bool {
+				return ed.saveTabByIDFromUI(tabID)
+			},
+			proceed: func() {
+				if idx := ed.findTabByID(tabID); idx >= 0 {
+					ed.report(ed.CloseTab(idx))
+				}
+			},
+			cancel: func() {},
+		})
+	}
+	cx.Cleanup(func() {
+		ed.askUnsaved = nil
+		ed.askCloseTab = nil
+	})
 
 	// The title is a memo, so the window is retitled only when the title changes, not on every revision, which Play makes on every frame.
 	title := core.NewMemo(cx, func() string {
@@ -197,7 +196,9 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 		mode.Set(pathNone)
 		switch m {
 		case pathNewScene:
-			ed.newSceneAsked(p)
+			if _, err := ed.NewScene(p); err != nil {
+				ed.report(err)
+			}
 		case pathSaveAs:
 			if _, err := ed.SaveSceneAs(p); err != nil {
 				ed.report(err)
@@ -228,6 +229,9 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 				_ = rev.Get()
 				if pending, ok := ed.PendingProjectAction(); ok && pending.Summary != "" {
 					return fmt.Sprintf("You have unsaved edits. Save them before proceeding (%s)?", pending.Summary)
+				}
+				if p := prompt.Get(); p != nil && p.description != "" {
+					return p.description
 				}
 				return ed.T("dialog.unsavedDesc", l10n.Param("scene", ed.SceneLabel()))
 			},
@@ -282,7 +286,11 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 								p.cancel()
 								return
 							}
-							if ed.saveAllFromUI() {
+							saveFn := p.save
+							if saveFn == nil {
+								saveFn = ed.saveAllFromUI
+							}
+							if saveFn() {
 								p.proceed()
 							} else {
 								p.cancel()
@@ -413,6 +421,33 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 						return ed.Playing() || ed.FilePath == "" || !dirty.Get().scene
 					},
 					OnSelect: func() { ed.report(ed.RevertScene()) },
+				},
+				ui.MenuSeparator{},
+				ui.MenuItem{
+					TestID: "toolbar-open-instanced-scene",
+					Text:   "Open Instanced Scene",
+					Disabled: func() bool {
+						return noProject() || !ed.selectedObjectInstancesScene()
+					},
+					OnSelect: func() { ed.report(ed.OpenInstancedScene(ed.SelectedID)) },
+				},
+				ui.MenuItem{
+					TestID: "toolbar-open-base-scene",
+					Text:   "Open Base Scene",
+					Disabled: func() bool {
+						return noProject() || ed.Doc == nil || ed.Doc.Inherits == ""
+					},
+					OnSelect: func() { ed.report(ed.OpenBaseScene()) },
+				},
+				ui.MenuSeparator{},
+				ui.MenuItem{
+					TestID: "toolbar-close-tab",
+					Text:   "Close Tab",
+					Disabled: func() bool {
+						_ = rev.Get()
+						return ed.Playing()
+					},
+					OnSelect: func() { ed.report(ed.RequestCloseTab(ed.ActiveTab())) },
 				},
 			},
 		},

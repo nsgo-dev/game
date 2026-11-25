@@ -319,6 +319,7 @@ func inspectorSchemaKey(ed *Editor) string {
 	if rel, kind := ed.inspectedImportAsset(); rel != "" {
 		return "asset:" + string(kind) + ":" + rel
 	}
+	tabPrefix := fmt.Sprintf("T%d:", ed.activeTabID())
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
 		if ed != nil && ed.SelectedRoomID() != "" {
@@ -335,17 +336,18 @@ func inspectorSchemaKey(ed *Editor) string {
 							space = eff[i].EffectiveSpace()
 						}
 					}
-					return "L:" + l.Name + ":" + string(space) + ":inherited:" + layerTilemapSchemaTag(ed, l)
+					return tabPrefix + "L:" + l.Name + ":" + string(space) + ":inherited:" + layerTilemapSchemaTag(ed, l)
 				}
-				return "L:" + l.Name + ":" + string(space) + ":" + layerTilemapSchemaTag(ed, l)
+				return tabPrefix + "L:" + l.Name + ":" + string(space) + ":" + layerTilemapSchemaTag(ed, l)
 			}
 		}
 		if ed != nil && ed.Doc != nil {
-			return "scene"
+			return tabPrefix + "scene"
 		}
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString(tabPrefix)
 	b.WriteString("O:")
 	b.WriteString(ed.ViewMode.String())
 	b.WriteByte(':')
@@ -363,6 +365,10 @@ func inspectorSchemaKey(ed *Editor) string {
 		b.WriteString(string(obj.Camera.EffectiveProjection()))
 	} else {
 		b.WriteString("|C3:none")
+	}
+	if obj.Scene != "" {
+		b.WriteString("|S:")
+		b.WriteString(obj.Scene)
 	}
 
 	if len(obj.Properties) > 0 {
@@ -505,19 +511,25 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 							return nil
 						}
-						if strings.HasPrefix(key, "L:") {
+						subKey := key
+						if strings.HasPrefix(subKey, "T") {
+							if _, after, ok := strings.Cut(subKey, ":"); ok {
+								subKey = after
+							}
+						}
+						if strings.HasPrefix(subKey, "L:") {
 							if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
 								return layerInspectorView(cx, ed, rev, ed.Doc.Layers[li].Name)
 							}
 							return nil
 						}
-						if key == "room" {
+						if subKey == "room" {
 							if ed.SelectedRoomID() != "" {
 								return roomInspectorView(cx, ed, rev)
 							}
 							return nil
 						}
-						if key == "scene" {
+						if subKey == "scene" {
 							return sceneInspectorView(cx, ed, rev)
 						}
 						obj, layerName := ed.SelectedObject()
@@ -895,7 +907,31 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				_ = ed.SetObjectName(objID, text)
 			},
 		}),
-
+	}
+	if instObj, _, _ := ed.FindObject(objID); instObj != nil && instObj.Scene != "" {
+		nodes = append(nodes,
+			sectionHeader("INSTANCE"),
+			fieldRow("Scene", core.Text{
+				TestID:   "inspector-object-scene",
+				Content:  instObj.Scene,
+				MaxLines: 1,
+				Style:    core.Style{FontSize: 12, Color: colors.Muted()},
+			}),
+			ui.Button{
+				TestID:  "inspector-open-instanced-scene",
+				Text:    "Open Instanced Scene",
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonSecondary,
+				Disabled: func() bool {
+					return disabled() || ed.Project == nil || ed.ProjectPath == ""
+				},
+				OnPress: func() {
+					ed.report(ed.OpenInstancedScene(objID))
+				},
+			},
+		)
+	}
+	nodes = append(nodes,
 		sectionHeader(ed.T("inspector.section.transform")),
 		fieldRow("X", ui.NumberInput{
 			TestID:   "inspector-x",
@@ -1019,7 +1055,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				_ = ed.SetObjectZ(objID, int(math.Round(v)))
 			},
 		}),
-	}
+	)
 
 	if ed.ViewMode == ViewMode3D {
 		nodes = append(nodes,

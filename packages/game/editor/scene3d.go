@@ -29,11 +29,12 @@ type scene3DState struct {
 	err   error
 	// gen counts the builds, so the GPU renderer knows when to upload the geometry again.
 	gen uint64
-	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev, importRev, modelResolver and projectPath are what the last build was made from.
+	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev, scenesRev, importRev, modelResolver and projectPath are what the last build was made from.
 	stale         bool
 	doc           *sceneformat.SceneDoc
 	key           uint64
 	assetsRev     uint64
+	scenesRev     uint64
 	importRev     uint64
 	modelResolver scenemodel.ModelResolver
 	projectPath   string
@@ -155,13 +156,16 @@ func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
 	if e.Doc == nil {
 		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
-		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, importRev: s.importRev, modelResolver: s.modelResolver}
+		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, modelResolver: s.modelResolver}
 		return s
 	}
 	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
 		// Files the editor moved, installed or rescanned may be what the cached models and materials came from, including the materials a project.Resolver serves.
 		e.syncProjectAssets()
 		s.files = nil
+		s.stale = true
+	}
+	if e.scenesRev != s.scenesRev {
 		s.stale = true
 	}
 	if e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
@@ -173,11 +177,11 @@ func (e *Editor) scene3D() *scene3DState {
 	}
 	if s.stale || s.doc != e.Doc {
 		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
 			e.build3D(s)
 		}
 		s.doc, s.key, s.stale = e.Doc, key, false
-		s.projectPath, s.assetsRev, s.importRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.importRev, e.ModelResolver
+		s.projectPath, s.assetsRev, s.scenesRev, s.importRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.scenesRev, e.importRev, e.ModelResolver
 	}
 	if s.built != nil {
 		e.sync3D(s)

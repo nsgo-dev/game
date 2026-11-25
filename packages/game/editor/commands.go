@@ -19,6 +19,11 @@ const (
 	CmdOpenProject           = "file.openProject"
 	CmdStartScreen           = "file.startScreen"
 	CmdSave                  = "file.save"
+	CmdCloseTab              = "file.closeTab"
+	CmdNextTab               = "view.nextTab"
+	CmdPrevTab               = "view.prevTab"
+	CmdOpenInstancedScene    = "scene.openInstanced"
+	CmdOpenBaseScene         = "scene.openBase"
 	CmdUndo                  = "edit.undo"
 	CmdRedo                  = "edit.redo"
 	CmdDelete                = "edit.delete"
@@ -291,12 +296,70 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdSave,
 			Label:       "Save",
-			Description: "Save the open scene and project changes",
+			Description: "Save the active scene and project changes",
 			Category:    "File",
 			Keywords:    []string{"write", "persist", "yaml"},
 			Shortcut:    "mod+s",
 			Enabled:     notPlaying,
 			Run:         func() error { return e.Save() },
+		},
+		{
+			ID:          CmdCloseTab,
+			Label:       "Close Scene Tab",
+			Description: "Close the active scene tab, asking first if it has unsaved changes",
+			Category:    "File",
+			Keywords:    []string{"close", "tab", "scene"},
+			Shortcut:    "mod+w",
+			Enabled:     notPlaying,
+			Run:         func() error { return e.RequestCloseTab(e.ActiveTab()) },
+		},
+		{
+			ID:          CmdOpenInstancedScene,
+			Label:       "Open Instanced Scene",
+			Description: "Open the scene instanced by the selected object in a tab",
+			Category:    "File",
+			Keywords:    []string{"open", "instance", "prefab", "scene", "tab"},
+			Enabled:     func() bool { return hasProject() && !e.Playing() && e.selectedObjectInstancesScene() },
+			Run:         func() error { return e.OpenInstancedScene(e.SelectedID) },
+		},
+		{
+			ID:          CmdOpenBaseScene,
+			Label:       "Open Base Scene",
+			Description: "Open the base scene inherited by the active scene in a tab",
+			Category:    "File",
+			Keywords:    []string{"open", "base", "inherits", "parent", "scene", "tab"},
+			Enabled:     func() bool { return hasProject() && !e.Playing() && e.Doc != nil && e.Doc.Inherits != "" },
+			Run:         func() error { return e.OpenBaseScene() },
+		},
+		{
+			ID:          CmdNextTab,
+			Label:       "Next Scene Tab",
+			Description: "Switch to the next open scene tab",
+			Category:    "View",
+			Keywords:    []string{"tab", "next", "scene", "switch"},
+			Enabled:     func() bool { return notPlaying() && e.TabCount() > 1 },
+			Run: func() error {
+				n := e.TabCount()
+				if n <= 1 {
+					return nil
+				}
+				return e.SelectTab((e.ActiveTab() + 1) % n)
+			},
+		},
+		{
+			ID:          CmdPrevTab,
+			Label:       "Previous Scene Tab",
+			Description: "Switch to the previous open scene tab",
+			Category:    "View",
+			Keywords:    []string{"tab", "previous", "prev", "scene", "switch"},
+			Enabled:     func() bool { return notPlaying() && e.TabCount() > 1 },
+			Run: func() error {
+				n := e.TabCount()
+				if n <= 1 {
+					return nil
+				}
+				return e.SelectTab((e.ActiveTab() + n - 1) % n)
+			},
 		},
 		{
 			ID:          CmdUndo,

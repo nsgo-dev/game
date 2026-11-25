@@ -211,7 +211,7 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 				Background:   colors.Surface(),
 			},
 			OnPress: func(core.PressEvent) {
-				ed.openFromSearchAsked(r.File, r.ObjectID != "", func() error { return ed.OpenSearchResult(r) })
+				ed.report(ed.OpenSearchResult(r))
 			},
 			Children: []core.Node{
 				core.Text{
@@ -270,7 +270,7 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 				Background:   colors.Surface(),
 			},
 			OnPress: func(core.PressEvent) {
-				ed.openFromSearchAsked(r.File, false, func() error { return ed.OpenReference(r) })
+				ed.report(ed.OpenReference(r))
 			},
 			Children: []core.Node{
 				core.Text{
