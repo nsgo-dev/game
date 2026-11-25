@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent working</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+  <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff"></div>
+    <span style="font-weight: 600; color: #ffffff">dungeon-run</span><span style="color: #8b92a0">/</span><span style="color: #b4bac6">level_01</span>
+    <div style="flex: 1"></div>
+    <sc-if value="{{ waiting }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ focusRequest }}" aria-label="Waiting for you, 32 seconds. Show the request" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; border: 0; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f; color: #f2c14e">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>
+        <span style="font-weight: 500">Waiting for you · 0:32</span>
+        <span style="color: #d9dde5">· run the game?</span>
+      </button>
+    </sc-if>
+    <sc-if value="{{ working }}" hint-placeholder-val="{{ false }}">
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #d9dde5">
+        <span style="width: 7px; height: 7px; border-radius: 4px; background: #9b7bff; box-shadow: 0 0 0 4px rgba(155,123,255,0.25)"></span>
+        {{ pillText }}
+      </div>
+    </sc-if>
+    <div style="flex: 1"></div>
+    <button style="height: 30px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Play</button>
+  </div>
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+    <div style="border-right: 1px solid #1f232a; padding: 8px 4px; display: flex; flex-direction: column; gap: 0">
+      <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCENE</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #8b92a0"></span>Actors</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 24px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #e9a84a"></span>Knight</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 24px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4fd38a"></span><span style="flex: 1">slime_01</span><span style="font-size: 10px; font-weight: 600; color: #4fd38a">NEW</span></div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 24px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4fd38a"></span><span style="flex: 1">slime_02</span><span style="font-size: 10px; font-weight: 600; color: #4fd38a">NEW</span></div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 24px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4fd38a"></span><span style="flex: 1">slime_03</span><span style="font-size: 10px; font-weight: 600; color: #4fd38a">NEW</span></div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 24px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4fd38a"></span><span style="flex: 1">coins</span><span style="font-size: 10px; font-weight: 600; color: #4fd38a">NEW</span></div>
+    </div>
+    <div class="vp" style="position: relative; overflow: hidden">
+      <div style="{{ frameStyle }}"></div>
+      <div style="position: absolute; left: 56px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+      <div style="position: absolute; left: 400px; top: 320px; width: 176px; height: 14px; border-radius: 2px; background: #333a47"></div>
+      <div style="position: absolute; left: 452px; top: 286px; width: 24px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+      <div style="position: absolute; left: 236px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+      <div style="position: absolute; left: 300px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+      <div style="position: absolute; left: 520px; top: 300px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+      <div style="position: absolute; left: 584px; top: 368px; display: flex; gap: 16px">
+        <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #4fd38a; outline-offset: 2px"></span>
+        <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #4fd38a; outline-offset: 2px"></span>
+        <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #4fd38a; outline-offset: 2px"></span>
+      </div>
+      <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 56px; top: 36px; height: 20px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #d9dde5; font-size: 11px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9b7bff"></span>Playing headless · 0:03 of 0:10 · nothing is saved</div>
+      </sc-if>
+      <div style="position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; color: #8b92a0">
+        <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4fd38a"></span>added</span>
+        <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #e9a84a"></span>changed</span>
+        <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #9b7bff"></span>agent working here</span>
+      </div>
+      <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+        <div role="status" style="position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+          <span style="color: #ffffff">Added rule <span style="font-weight: 600">Run · playtests → Allow</span></span>
+          <span style="color: #8b92a0">Settings › Permissions</span>
+          <button onClick="{{ undoRule }}" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff">Undo</button>
+        </div>
+      </sc-if>
+    </div>
+    <div style="border-left: 1px solid #1f232a; display: flex; flex-direction: column; background: #12141a; min-height: 0">
+      <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-weight: 500">Agent</span>
+        <span style="color: #8b92a0">· Claude Code via MCP</span>
+        <div style="flex: 1"></div>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">0:46</span>
+      </div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+        <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #ffffff; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{ done }}" as="d" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 8px; color: #b4bac6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4fd38a; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>{{ d }}</div>
+          </sc-for>
+          <sc-if value="{{ waiting }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #ffffff"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #2a2414; color: #f2c14e; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M9 7v10M15 7v10"></path></svg></span>Play 10 s headless · waiting for you</div>
+          </sc-if>
+          <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #ffffff"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9b7bff; border-right-color: transparent; box-sizing: border-box"></span>Playing 10 s headless · {{ allowedHow }}</div>
+          </sc-if>
+          <sc-if value="{{ denied }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: flex-start; gap: 8px; color: #ffffff; line-height: 1.5">
+              <span style="width: 16px; height: 16px; flex: none; margin-top: 2px; border-radius: 8px; background: #262b35; color: #b4bac6; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"></path></svg></span>
+              <span style="flex: 1">You denied the playtest <span style="color: #8b92a0">· continued without it</span></span>
+              <button onClick="{{ allowNow }}" style="height: 28px; flex: none; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8fb3ff">Allow now</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; color: #ffffff"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9b7bff; border-right-color: transparent; box-sizing: border-box"></span>Writing the summary</div>
+          </sc-if>
+          <sc-if value="{{ stopped }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #ffffff"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #262b35; display: flex; align-items: center; justify-content: center"><span style="width: 6px; height: 6px; border-radius: 1px; background: #ffffff"></span></span><span style="flex: 1">You stopped before the playtest <span style="color: #8b92a0">· 4 steps kept for review</span></span><a href="#review">Review</a></div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ waiting }}" hint-placeholder-val="{{ true }}">
+          <div role="alertdialog" aria-modal="false" aria-labelledby="perm-title" aria-describedby="perm-body" style="border-radius: 12px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f, 0 0 0 3px rgba(242,193,78,0.14); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+            <div id="perm-title" style="display: flex; align-items: center; gap: 8px; color: #f2c14e; font-size: 14px; font-weight: 600">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg>
+              Allow the agent to run the game?
+            </div>
+            <div id="perm-body" style="color: #d9dde5; line-height: 1.55">It wants to play level_01 headless for 10 seconds to check the slimes stay on the floor. Nothing is saved.</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <button onClick="{{ allowOnce }}" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500; box-shadow: 0 0 0 2px #2a2414, 0 0 0 4px #8fb3ff">
+                <span style="flex: 1; text-align: left">Allow once</span>
+                <span style="height: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; padding: 0 4px; border-radius: 6px; background: rgba(255,255,255,0.18); font-family: 'JetBrains Mono', monospace; font-size: 11px">↵</span>
+              </button>
+              <button onClick="{{ allowAlways }}" aria-describedby="perm-rule" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #4a3f1f; color: #ffffff">
+                <span style="flex: 1; text-align: left">Always allow headless playtests</span>
+                <span style="height: 20px; display: flex; align-items: center; padding: 0 4px; border-radius: 6px; background: #262b35; color: #d9dde5; font-family: 'JetBrains Mono', monospace; font-size: 11px">⌥↵</span>
+              </button>
+              <button onClick="{{ deny }}" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 8px; border: 0; background: none; box-shadow: 0 0 0 1px #4a3f1f; color: #d9dde5">
+                <span style="flex: 1; text-align: left">Deny</span>
+                <span style="height: 20px; display: flex; align-items: center; padding: 0 4px; border-radius: 6px; background: #262b35; color: #d9dde5; font-family: 'JetBrains Mono', monospace; font-size: 11px">Esc</span>
+              </button>
+            </div>
+            <div id="perm-rule" style="display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 8px; background: #101216; line-height: 1.5">
+              <span style="color: #8b92a0">Always adds this rule to <a href="#settings-permissions">Settings › Permissions</a></span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">Run · playtests (headless) → Allow</span>
+              <span style="color: #8b92a0">Asked because the Cautious profile sets Run · playtests to Ask.</span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="padding: 12px; border-top: 1px solid #1f232a">
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 8px 8px 12px; display: flex; align-items: center; gap: 8px">
+          <label for="add-to-request" style="position: absolute; left: -9999px">Add to this request</label>
+          <input id="add-to-request" type="text" placeholder="Add to this request…" style="flex: 1; height: 28px; border: 0; background: none; color: #ffffff; outline: none">
+          <button onClick="{{ stop }}" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff"><span style="width: 9px; height: 9px; border-radius: 2px; background: #ffffff" aria-hidden="true"></span>Stop</button>
+        </div>
+        <div style="margin-top: 8px; color: #8b92a0; font-size: 11.5px">{{ footer }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { perm: 'ask', toast: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const p = s.perm;
+    const waiting = p === 'ask';
+    const playing = p === 'once' || p === 'always';
+    const frame = 'position: absolute; left: 56px; top: 64px; width: 704px; height: 396px; border-radius: 4px; background: linear-gradient(180deg,#1c2230,#181c24); ';
+    return {
+      waiting, playing, denied: p === 'denied', stopped: p === 'stopped', working: !waiting && p !== 'stopped',
+      pillText: playing ? 'Agent is playing level_01 headless · manual edits stay available' : 'Agent is finishing up · manual edits stay available',
+      done: ['Read level_01.scene.yaml, slime.prefab.yaml', 'Placed 3 slimes on the 120 px floor span, x 220–340', 'Placed 3 coins toward the door', 'Ran game check · no problems'],
+      allowedHow: p === 'always' ? 'allowed by your new rule' : 'allowed once',
+      toast: s.toast,
+      frameStyle: frame + (playing ? 'box-shadow: 0 0 0 1.5px #9b7bff, 0 24px 60px rgba(0,0,0,0.45)' : 'box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45)'),
+      footer: p === 'stopped' ? 'Stopped · nothing was saved; the review holds what was done' : waiting ? 'Esc denies the focused request · Esc again stops' : 'Esc stops · everything done so far stays reviewable',
+      focusRequest: () => this.setState({ perm: 'ask' }),
+      allowOnce: () => this.setState({ perm: 'once', toast: false }),
+      allowAlways: () => this.setState({ perm: 'always', toast: true }),
+      deny: () => this.setState({ perm: 'denied', toast: false }),
+      allowNow: () => this.setState({ perm: 'once', toast: false }),
+      undoRule: () => this.setState({ perm: 'once', toast: false }),
+      stop: () => this.setState({ perm: 'stopped', toast: false }),
+    };
+  }
+}
+</script>
+</body>
+</html>

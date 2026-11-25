@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Build and release</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+    <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF"></div>
+    <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">Release</span>
+    <label for="release-version" style="color: #8B92A0; margin-left: 12px">Version</label>
+    <input id="release-version" type="text" value="0.4.0" style="width: 64px; height: 28px; padding: 0 8px; border-radius: 6px; border: 0; outline: none; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+    <span style="color: #8B92A0">from <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">5b0e8a4</span> on main · last release 0.3.2</span>
+    <div style="flex: 1"></div>
+    <span style="{{ runChip }}"><span style="{{ runDot }}"></span>{{ runText }}</span>
+    <button onClick="{{ stopAll }}" style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #2a2f3a; color: #FFFFFF"><span style="width: 9px; height: 9px; border-radius: 2px; background: #FFFFFF"></span>{{ stopLabel }}</button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 520px minmax(0, 1fr); min-height: 0">
+
+    <div style="border-right: 1px solid #1F232A; display: flex; flex-direction: column; min-height: 0">
+      <div style="padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">BEFORE EVERY BUILD</div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+          <div style="padding: 10px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 4px">
+            <span style="display: flex; align-items: center; gap: 6px; color: #FFFFFF"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>nsgo check</span>
+            <span style="color: #8B92A0; font-size: 11.5px">0 problems · 4 s</span>
+          </div>
+          <div style="padding: 10px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 4px">
+            <span style="color: #FFFFFF">Smoke playtest</span>
+            <span style="color: #8B92A0; font-size: 11.5px">60 s per build, floor 1</span>
+          </div>
+          <div style="padding: 10px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 4px">
+            <span style="color: #FFFFFF">Budgets · Low profile</span>
+            <span style="color: #8B92A0; font-size: 11.5px">≤ 80 MB · p95 ≤ 16.7 ms</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 8px 8px 0; display: flex; flex-direction: column; gap: 2px">
+        <div style="height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>EXPORT PRESETS · export/</span><span style="font-weight: 500; letter-spacing: 0">size vs 0.3.2</span></div>
+        <sc-for list="{{ targets }}" as="t" hint-placeholder-count="6">
+          <div style="{{ t.row }}">
+            <button role="checkbox" aria-checked="{{ t.onStr }}" aria-label="{{ t.checkLabel }}" onClick="{{ t.toggle }}" style="{{ t.box }}">
+              <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+            </button>
+            <button onClick="{{ t.pick }}" style="flex: 1; min-width: 0; height: 52px; display: flex; align-items: center; gap: 12px; border: 0; background: none; color: inherit; text-align: left; padding: 0">
+              <span style="width: 28px; height: 28px; flex: none; border-radius: 8px; background: #1F232A; display: flex; align-items: center; justify-content: center; color: #B4BAC6">
+                <sc-if value="{{ t.isDesktop }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg></sc-if>
+                <sc-if value="{{ t.isWeb }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg></sc-if>
+                <sc-if value="{{ t.isPhone }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"></rect><path d="M11 18h2"></path></svg></sc-if>
+              </span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span style="color: #FFFFFF; font-weight: 500">{{ t.name }}</span>
+                <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.preset }}</span>
+              </span>
+              <span style="{{ t.chip }}">
+                <sc-if value="{{ t.isRunning }}" hint-placeholder-val="{{ false }}"><span style="width: 10px; height: 10px; border-radius: 5px; border: 1.5px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span></sc-if>
+                <sc-if value="{{ t.isDone }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                <sc-if value="{{ t.isFailed }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></sc-if>
+                {{ t.statusText }}</span>
+              <span style="width: 96px; flex: none; text-align: right; display: flex; flex-direction: column; gap: 2px">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">{{ t.size }}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ t.delta }}</span>
+              </span>
+            </button>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <label for="release-notes" style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">RELEASE NOTES</label>
+          <span style="height: 22px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 11px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Drafted from 14 commits since 0.3.2</span>
+        </div>
+        <textarea id="release-notes" style="flex: 1; min-height: 0; resize: none; padding: 10px 12px; border-radius: 12px; border: 0; outline: none; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; line-height: 1.6">Floor 1 has a slime guarding the plank and a coin trail to the door.
+
+- Coins are worth 25 points instead of 10
+- Slimes turn at ledges instead of walking off
+- The door creaks, and stays locked until you pull the lever
+- Fixed: the Knight was drawn behind slimes</textarea>
+      </div>
+
+      <div style="height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-top: 1px solid #1F232A">
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <span style="color: #FFFFFF">Publish to itch.io, Google Play internal, TestFlight</span>
+          <span style="color: #8B92A0; font-size: 11.5px">Each upload asks first, whatever the permission profile</span>
+        </div>
+        <button style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Review uploads…</button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0; background: #12141A">
+      <div style="height: 52px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-bottom: 1px solid #1F232A">
+        <span style="color: #FFFFFF; font-size: 14px; font-weight: 600">{{ sel.name }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8B92A0">{{ sel.file }}</span>
+        <div style="flex: 1"></div>
+        <sc-if value="{{ sel.isDone }}" hint-placeholder-val="{{ false }}">
+          <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Show in Finder</button>
+        </sc-if>
+        <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Edit preset</button>
+      </div>
+
+      <sc-if value="{{ sel.isRunning }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0">
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <sc-for list="{{ steps }}" as="st" hint-placeholder-count="6">
+              <div style="height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 8px; {{ st.bg }}">
+                <sc-if value="{{ st.done }}" hint-placeholder-val="{{ true }}"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span></sc-if>
+                <sc-if value="{{ st.now }}" hint-placeholder-val="{{ false }}"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span></sc-if>
+                <sc-if value="{{ st.wait }}" hint-placeholder-val="{{ false }}"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; box-shadow: inset 0 0 0 1.5px #262B35"></span></sc-if>
+                <span style="{{ st.labelStyle }}">{{ st.label }}</span>
+                <span style="color: #8B92A0">{{ st.detail }}</span>
+                <div style="flex: 1"></div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ st.time }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; border-radius: 12px; background: #0f1115; box-shadow: 0 0 0 1px #1F232A; overflow: hidden">
+            <div style="height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+              <span style="color: #B4BAC6">Log</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ logFile }}</span>
+              <div style="flex: 1"></div>
+              <button style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: #1F232A; color: #D9DDE5; font-size: 11.5px">Following</button>
+            </div>
+            <div style="flex: 1; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; color: #B4BAC6; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end">
+              <sc-for list="{{ log }}" as="lg" hint-placeholder-count="12">
+                <div style="{{ lg.style }}">{{ lg.text }}</div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sel.isFailed }}" hint-placeholder-val="{{ true }}">
+        <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0">
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, inset 3px 0 0 #FF6B6B; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5.5M12 16.5v.01"></path></svg>
+              <span style="color: #FFFFFF; font-weight: 500">Signing failed: keystore not found</span>
+              <div style="flex: 1"></div>
+              <span style="color: #8B92A0">step 4 of 6 · Sign the bundle · after 1:48</span>
+            </div>
+            <div style="border-radius: 8px; background: #0f1115; padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; color: #B4BAC6">
+              <div>bundletool build-bundle --modules=base.zip --output=dungeon-run-0.4.0.aab</div>
+              <div>apksigner sign --ks ~/keys/dungeon.jks --ks-key-alias upload</div>
+              <div style="color: #ffb9b9; background: rgba(255,107,107,0.08); margin: 0 -12px; padding: 0 12px">error: Failed to load signer: ~/keys/dungeon.jks (No such file or directory)</div>
+              <div>build android: exit status 1</div>
+            </div>
+            <div style="color: #8B92A0">Other platforms keep building. Nothing was uploaded.</div>
+          </div>
+
+          <div style="border-radius: 12px; background: #15141d; box-shadow: 0 0 0 1px #2c2640; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+              <span style="color: #FFFFFF; font-weight: 500">The agent found the key</span>
+            </div>
+            <div style="color: #D9DDE5; line-height: 1.6">The keystore moved when keys were put in the keychain on 18 November. The keychain item “dungeon-run upload” has alias <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">upload</span> and the SHA-256 fingerprint Google Play expects (5E:2A:…:C1), so the preset can point at it instead of a file.</div>
+            <div style="border-radius: 8px; background: #0f1115; padding: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75">
+              <div style="display: flex; gap: 6px; padding: 0 12px; color: #B4BAC6"><span style="width: 24px; text-align: right; color: #8B92A0">14</span><span style="width: 12px"></span><span style="white-space: pre">signing:</span></div>
+              <div style="display: flex; gap: 6px; padding: 0 12px; color: #ffb9b9; background: rgba(255,107,107,0.08)"><span style="width: 24px; text-align: right; color: #8B92A0">15</span><span style="width: 12px">-</span><span style="white-space: pre">  keystore: ~/keys/dungeon.jks</span></div>
+              <div style="display: flex; gap: 6px; padding: 0 12px; color: #b9f0cf; background: rgba(79,211,138,0.08)"><span style="width: 24px; text-align: right; color: #8B92A0">15</span><span style="width: 12px">+</span><span style="white-space: pre">  keystore: keychain:dungeon-run upload</span></div>
+              <div style="display: flex; gap: 6px; padding: 0 12px; color: #B4BAC6"><span style="width: 24px; text-align: right; color: #8B92A0">16</span><span style="width: 12px"></span><span style="white-space: pre">  alias: upload</span></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <button onClick="{{ applyFix }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Apply and rebuild Android</button>
+              <button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Whole log</button>
+              <div style="flex: 1"></div>
+              <span style="color: #8B92A0; font-size: 11.5px">Edits export/android.export.yaml · the key never leaves the keychain</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sel.isDone }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; overflow: hidden">
+                <div style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid #1F232A">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"></path><path d="M3 8l9 5 9-5M12 13v8"></path></svg>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ done.artifact }}</span>
+                  <div style="flex: 1"></div>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ done.size }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #E9A84A">{{ done.delta }}</span>
+                </div>
+                <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px">
+                  <div style="height: 10px; display: flex; gap: 2px; border-radius: 5px; overflow: hidden">
+                    <sc-for list="{{ done.parts }}" as="p" hint-placeholder-count="4"><span style="{{ p.bar }}"></span></sc-for>
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+                    <sc-for list="{{ done.parts }}" as="p" hint-placeholder-count="4">
+                      <span style="display: flex; flex-direction: column; gap: 2px"><span style="display: flex; align-items: center; gap: 6px; color: #B4BAC6"><span style="{{ p.swatch }}"></span>{{ p.label }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5; padding-left: 14px">{{ p.mb }}</span></span>
+                    </sc-for>
+                  </div>
+                  <div style="color: #8B92A0">{{ done.growth }}</div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+                <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+                  <span style="display: flex; justify-content: space-between"><span style="color: #B4BAC6">Download size</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ done.size }} / 80 MB</span></span>
+                  <span style="height: 6px; border-radius: 3px; background: #262B35"><span style="{{ done.sizeBar }}"></span></span>
+                </div>
+                <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+                  <span style="display: flex; justify-content: space-between"><span style="color: #B4BAC6">Frame time p95</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ done.frame }} / 16.7 ms</span></span>
+                  <span style="height: 6px; border-radius: 3px; background: #262B35"><span style="{{ done.frameBar }}"></span></span>
+                </div>
+              </div>
+
+              <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: center; gap: 8px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg><span style="color: #FFFFFF">Smoke playtest · 60 s on floor 1</span><div style="flex: 1"></div><span style="color: #8B92A0">{{ done.where }}</span></div>
+                <div style="color: #B4BAC6; line-height: 1.6">{{ done.playtest }}</div>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              <sc-if value="{{ done.hasQr }}" hint-placeholder-val="{{ true }}">
+                <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center">
+                  <div style="width: 160px; height: 160px; border-radius: 8px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; color: #101216; font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 500" role="img" aria-label="QR code for the test link">QR</div>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">http://192.168.1.24:8731/</span>
+                  <span style="color: #8B92A0; text-align: center; line-height: 1.55">Scan on a phone on this Wi-Fi. Play mode there connects to the MCP bridge, so the agent can debug it too.</span>
+                </div>
+              </sc-if>
+              <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 8px; display: flex; flex-direction: column; gap: 2px">
+                <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">RUN ON DEVICE</div>
+                <sc-for list="{{ devices }}" as="d" hint-placeholder-count="3">
+                  <button onClick="{{ d.pick }}" style="{{ d.style }}"><span style="{{ d.dot }}"></span><span style="flex: 1; text-align: left">{{ d.name }}</span><span style="color: #8B92A0; font-size: 11.5px">{{ d.note }}</span></button>
+                </sc-for>
+              </div>
+              <sc-if value="{{ done.hasQr }}" hint-placeholder-val="{{ true }}">
+                <button style="height: 32px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Make a public test link for 5b0e8a4</button>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sel.isSetup }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 16px; min-height: 0">
+          <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">READINESS · 2 to fix before iOS can build</div>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; overflow: hidden">
+            <sc-for list="{{ ready }}" as="r" hint-placeholder-count="6">
+              <div style="min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid #1F232A">
+                <sc-if value="{{ r.ok }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                <sc-if value="{{ r.bad }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5.5M12 16.5v.01"></path></svg></sc-if>
+                <sc-if value="{{ r.warn }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2C14E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17v.01"></path></svg></sc-if>
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="color: #FFFFFF">{{ r.label }}</span><span style="color: #8B92A0; font-size: 11.5px">{{ r.detail }}</span></span>
+                <sc-if value="{{ r.hasAction }}" hint-placeholder-val="{{ false }}"><button style="height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">{{ r.action }}</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #15141d; box-shadow: 0 0 0 1px #2c2640">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>
+            <span style="flex: 1; color: #D9DDE5; line-height: 1.55">The agent can write the privacy manifest from what the game uses. The provisioning profile needs your Apple account, so it opens Xcode’s sign-in for you.</span>
+            <button style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Set up iOS with the agent</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ sel.isQueued }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px">
+          <span style="color: #FFFFFF; font-weight: 500">{{ queuedTitle }}</span>
+          <span style="color: #8B92A0">{{ queuedText }}</span>
+          <button onClick="{{ queuedAct }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">{{ queuedLabel }}</button>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 'android', off: { ios: true }, androidFixed: false, stopped: false, device: 'browser' };
+  }
+  renderVals() {
+    const s = this.state;
+    const androidState = s.androidFixed ? 'running' : 'failed';
+    const defs = [
+      { id: 'macos', name: 'macOS', icon: 'desktop', file: 'export/macos.export.yaml', preset: 'universal · Developer ID · notarized', state: 'running', statusText: 'Notarizing', size: '—', delta: 'step 4 of 6' },
+      { id: 'windows', name: 'Windows', icon: 'desktop', file: 'export/windows.export.yaml', preset: 'x64 · signed installer', state: 'done', statusText: 'Done', size: '41.7 MB', delta: '+1.2 MB' },
+      { id: 'web', name: 'Web', icon: 'web', file: 'export/web.export.yaml', preset: 'wasm · itch.io HTML5 zip', state: 'done', statusText: 'Done', size: '18.9 MB', delta: '+0.4 MB' },
+      { id: 'android', name: 'Android', icon: 'phone', file: 'export/android.export.yaml', preset: 'arm64 · AAB for Google Play', state: androidState, statusText: s.androidFixed ? 'Building' : 'Failed', size: '—', delta: s.androidFixed ? 'step 1 of 6' : 'signing' },
+      { id: 'ios', name: 'iOS', icon: 'phone', file: 'export/ios.export.yaml', preset: 'arm64 · TestFlight', state: 'setup', statusText: 'Set up', size: '—', delta: '2 to fix' },
+      { id: 'linux', name: 'Linux', icon: 'desktop', file: 'export/linux.export.yaml', preset: 'x64 · AppImage', state: 'queued', statusText: 'Queued', size: '—', delta: '' },
+    ].map((d) => (s.stopped && (d.state === 'running' || d.state === 'queued') ? { ...d, state: 'queued', statusText: 'Stopped', delta: '' } : d));
+
+    const chipStyle = {
+      running: 'background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5',
+      done: 'box-shadow: 0 0 0 1px #262B35; color: #D9DDE5',
+      failed: 'background: rgba(255,107,107,0.10); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B',
+      setup: 'background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E',
+      queued: 'box-shadow: 0 0 0 1px #262B35; color: #B4BAC6',
+    };
+    const targets = defs.map((d) => {
+      const on = !s.off[d.id];
+      const selected = s.sel === d.id;
+      return {
+        ...d, on,
+        onStr: on ? 'true' : 'false',
+        checkLabel: 'Include ' + d.name + ' in this release',
+        isDesktop: d.icon === 'desktop', isWeb: d.icon === 'web', isPhone: d.icon === 'phone',
+        isRunning: d.state === 'running', isDone: d.state === 'done', isFailed: d.state === 'failed',
+        chip: 'flex: none; height: 22px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 11px; font-size: 11.5px; ' + chipStyle[d.state],
+        row: 'display: flex; align-items: center; gap: 12px; padding: 0 12px 0 10px; border-radius: 8px; ' + (selected ? 'background: #1C2638; box-shadow: inset 2px 0 0 #3B7BFF' : '') + (on ? '' : '; opacity: 0.6'),
+        box: 'width: 16px; height: 16px; flex: none; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 0; ' + (on ? 'background: #3B7BFF' : 'background: none; box-shadow: inset 0 0 0 1.5px #8B92A0'),
+        toggle: () => this.setState({ off: { ...s.off, [d.id]: on } }),
+        pick: () => this.setState({ sel: d.id }),
+      };
+    });
+    const cur = defs.find((d) => d.id === s.sel) || defs[0];
+    const sel = {
+      name: cur.name, file: cur.file,
+      isRunning: cur.state === 'running', isFailed: cur.state === 'failed', isDone: cur.state === 'done', isSetup: cur.state === 'setup', isQueued: cur.state === 'queued',
+    };
+
+    const stepDefs = cur.id === 'android'
+      ? [
+          { label: 'Check project', detail: 'nsgo check', time: '4 s', st: 'done' },
+          { label: 'Compile Go', detail: 'android/arm64', time: '0:21', st: 'now' },
+          { label: 'Pack assets', detail: 'ETC2 textures', time: '', st: 'wait' },
+          { label: 'Sign the bundle', detail: 'keychain:dungeon-run upload', time: '', st: 'wait' },
+          { label: 'Smoke playtest', detail: '60 s on an emulator', time: '', st: 'wait' },
+          { label: 'Measure', detail: 'size and frame time', time: '', st: 'wait' },
+        ]
+      : [
+          { label: 'Check project', detail: 'nsgo check', time: '4 s', st: 'done' },
+          { label: 'Compile Go', detail: 'darwin/arm64 and amd64', time: '0:38', st: 'done' },
+          { label: 'Pack assets', detail: '212 files · 46.0 MB', time: '0:06', st: 'done' },
+          { label: 'Sign and notarize', detail: 'waiting for Apple', time: '1:12', st: 'now' },
+          { label: 'Smoke playtest', detail: '60 s headless', time: '', st: 'wait' },
+          { label: 'Measure', detail: 'size and frame time', time: '', st: 'wait' },
+        ];
+    const steps = stepDefs.map((x) => ({
+      ...x, done: x.st === 'done', now: x.st === 'now', wait: x.st === 'wait',
+      bg: x.st === 'now' ? 'background: rgba(155,123,255,0.08)' : '',
+      labelStyle: x.st === 'wait' ? 'color: #8B92A0' : 'color: #FFFFFF',
+    }));
+    const logLines = cur.id === 'android'
+      ? [
+          'nsgo check ./...  ok (4.1s)',
+          'go build -buildmode=c-shared -o build/android/arm64-v8a/libgame.so ./cmd/dungeon-run',
+          '  GOOS=android GOARCH=arm64 CGO_ENABLED=0',
+          '  compiling 61 packages…',
+        ]
+      : [
+          'go build -o build/macos/arm64/dungeon-run ./cmd/dungeon-run   ok (21.4s)',
+          'go build -o build/macos/amd64/dungeon-run ./cmd/dungeon-run   ok (16.9s)',
+          'lipo -create → Dungeon Run.app/Contents/MacOS/dungeon-run',
+          'pack: 212 files, 46.0 MB (textures 31.2, audio 12.1, data 2.7)',
+          'codesign --sign "Developer ID Application" --options runtime Dungeon Run.app   ok',
+          'ditto -c -k → build/macos/dungeon-run-0.4.0.zip',
+          'notarytool submit dungeon-run-0.4.0.zip --wait',
+          '  id: 3f6b9c1e-82d4-4a07-b5e9-0c71d2a4f8a6',
+          '  status: In Progress (1:12)',
+        ];
+    const log = logLines.map((t, i, a) => ({ text: t, style: 'white-space: pre; ' + (i === a.length - 1 ? 'color: #D9DDE5' : '') }));
+
+    const doneData = {
+      windows: {
+        artifact: 'dungeon-run-0.4.0-setup.exe', size: '41.7 MB', delta: '+1.2 MB', where: 'Windows 11 VM · Low profile',
+        parts: [['Code', 9.4, '#3B7BFF'], ['Textures', 22.1, '#E9A84A'], ['Audio', 9.6, '#4FD38A'], ['Other', 0.6, '#8B92A0']],
+        growth: 'Grew 1.2 MB: audio/door_creak.ogg and 4 new torch sprites.', frame: 11.2,
+        playtest: '0 errors, 0 falls through the floor, 3 of 3 coins collected, door opened after the lever.',
+      },
+      web: {
+        artifact: 'dungeon-run-0.4.0-web.zip', size: '18.9 MB', delta: '+0.4 MB', where: 'headless Chromium · Low profile',
+        parts: [['Code', 6.1, '#3B7BFF'], ['Textures', 9.8, '#E9A84A'], ['Audio', 2.6, '#4FD38A'], ['Other', 0.4, '#8B92A0']],
+        growth: 'Grew 0.4 MB: audio/door_creak.ogg. Audio is Opus in the web build.', frame: 9.8,
+        playtest: '0 errors, 0 falls through the floor, 3 of 3 coins collected, door opened after the lever.',
+      },
+    };
+    const dd = doneData[cur.id] || doneData.web;
+    const total = dd.parts.reduce((a, p) => a + p[1], 0);
+    const done = {
+      ...dd,
+      hasQr: cur.id === 'web',
+      parts: dd.parts.map((p) => ({
+        label: p[0], mb: p[1].toFixed(1) + ' MB',
+        bar: 'height: 10px; flex: ' + p[1] + ' 0 0; background: ' + p[2],
+        swatch: 'width: 8px; height: 8px; border-radius: 2px; background: ' + p[2],
+      })),
+      sizeBar: 'display: block; height: 6px; border-radius: 3px; background: #4FD38A; width: ' + Math.round((parseFloat(dd.size) / 80) * 100) + '%',
+      frameBar: 'display: block; height: 6px; border-radius: 3px; background: #4FD38A; width: ' + Math.round((dd.frame / 16.7) * 100) + '%',
+      frame: dd.frame.toFixed(1),
+      size: total.toFixed(1) + ' MB',
+    };
+    const devices = [
+      { id: 'browser', name: 'This Mac’s browser', note: 'Web build', ok: true },
+      { id: 'iphone', name: 'iPhone 15 · Wi-Fi', note: 'Web build via QR', ok: true },
+      { id: 'pixel', name: 'Pixel 7 · USB', note: s.androidFixed ? 'after Android builds' : 'Android build failed', ok: false },
+    ].map((d) => ({
+      ...d,
+      style: 'height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; ' + (s.device === d.id ? 'background: #1C2638; box-shadow: inset 0 0 0 1px #3B7BFF; color: #FFFFFF' : 'background: none; color: ' + (d.ok ? '#D9DDE5' : '#8B92A0')),
+      dot: 'width: 6px; height: 6px; border-radius: 3px; flex: none; background: ' + (d.ok ? '#4FD38A' : '#8B92A0'),
+      pick: () => { if (d.ok) this.setState({ device: d.id }); },
+    }));
+
+    const ready = [
+      { ok: true, label: 'Bundle id dev.dungeonrun.game', detail: 'from game.yaml' },
+      { ok: true, label: 'App icon', detail: 'art/icon.png, 1024 × 1024, no transparency' },
+      { ok: true, label: 'Apple Distribution certificate', detail: 'in the login keychain, expires 3 March 2027' },
+      { bad: true, label: 'Provisioning profile', detail: 'none for dev.dungeonrun.game on this Mac', hasAction: true, action: 'Sign in to Apple…' },
+      { warn: true, label: 'Privacy manifest', detail: 'PrivacyInfo.xcprivacy is missing; the game reads no tracked data', hasAction: true, action: 'Let the agent write it' },
+      { ok: true, label: 'Touch controls', detail: 'input/touch.input.yaml covers move, jump and attack' },
+    ].map((r) => ({ ok: !!r.ok, bad: !!r.bad, warn: !!r.warn, label: r.label, detail: r.detail, hasAction: !!r.hasAction, action: r.action || '' }));
+
+    const running = defs.filter((d) => !s.off[d.id] && d.state === 'running').length;
+    const finished = defs.filter((d) => !s.off[d.id] && d.state === 'done').length;
+    const included = defs.filter((d) => !s.off[d.id]).length;
+    const busy = running > 0 && !s.stopped;
+
+    return {
+      targets, sel, steps, log, done, devices, ready,
+      logFile: cur.id === 'android' ? 'build/android.log' : 'build/macos.log',
+      runChip: 'height: 28px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; ' + (busy ? 'background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5' : 'box-shadow: 0 0 0 1px #262B35; color: #B4BAC6'),
+      runDot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + (busy ? '#9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)' : '#8B92A0'),
+      runText: busy ? 'Agent is building · ' + finished + ' of ' + included + ' done' : 'Stopped · ' + finished + ' of ' + included + ' done',
+      queuedTitle: s.stopped ? cur.name + ' stopped' : 'Queued after macOS',
+      queuedText: s.stopped ? 'Finished steps are kept; Resume continues from the step that was running.' : 'Builds run one at a time so the editor stays responsive.',
+      queuedLabel: s.stopped ? 'Resume' : 'Build ' + cur.name + ' next',
+      queuedAct: () => { if (s.stopped) this.setState({ stopped: false }); },
+      stopLabel: s.stopped ? 'Resume' : 'Stop',
+      stopAll: () => this.setState({ stopped: !s.stopped }),
+      applyFix: () => this.setState({ androidFixed: true, stopped: false }),
+    };
+  }
+}
+</script>
+</body>
+</html>

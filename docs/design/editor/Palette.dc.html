@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Command palette</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+input::placeholder{color:#8B92A0}
+</style>
+</helmet>
+<div style="height: 900px; position: relative; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div aria-hidden="true" style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+    <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF"></div>
+    <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">level_01</span>
+    <div style="flex: 1"></div>
+    <div style="width: 180px; height: 34px; border-radius: 9px; background: #171A21; box-shadow: 0 0 0 1px #262B35"></div>
+    <div style="flex: 1"></div>
+    <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #1C2638; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>Search<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6">⌘K</span>
+    </div>
+    <div style="width: 70px; height: 30px; border-radius: 8px; background: #FFFFFF"></div>
+  </div>
+  <div aria-hidden="true" style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+    <div style="border-right: 1px solid #1F232A; padding: 8px 6px; display: flex; flex-direction: column; gap: 2px">
+      <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCENE</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4f8cff"></span>Background</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4f8cff"></span>World</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #8B92A0"></span>Actors</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; border-radius: 6px; background: #1C2638; color: #FFFFFF"><span style="width: 7px; height: 7px; border-radius: 2px; background: #E9A84A"></span>Knight</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #6b5a45"></span>Door</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4FD38A"></span>slime_01</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4FD38A"></span>slime_02</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #B4BAC6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4FD38A"></span>slime_03</div>
+    </div>
+    <div class="vp" style="position: relative; overflow: hidden">
+      <div style="position: absolute; left: 56px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240; background: linear-gradient(180deg,#1c2230,#181c24)"></div>
+      <div style="position: absolute; left: 56px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+      <div style="position: absolute; left: 400px; top: 320px; width: 176px; height: 14px; border-radius: 2px; background: #333a47"></div>
+      <div style="position: absolute; left: 452px; top: 286px; width: 24px; height: 34px; border-radius: 5px; background: #E9A84A"></div>
+      <div style="position: absolute; left: 640px; top: 356px; width: 30px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+      <div style="position: absolute; left: 236px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.5)"></div>
+      <div style="position: absolute; left: 300px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.5)"></div>
+      <div style="position: absolute; left: 520px; top: 300px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.5)"></div>
+    </div>
+    <div style="border-left: 1px solid #1F232A; background: #12141A; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <div style="align-self: flex-end; width: 260px; height: 56px; border-radius: 12px; background: #1c2130"></div>
+      <div style="width: 300px; height: 10px; border-radius: 5px; background: #1F232A"></div>
+      <div style="width: 240px; height: 10px; border-radius: 5px; background: #1F232A"></div>
+      <div style="width: 280px; height: 10px; border-radius: 5px; background: #1F232A"></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(9,10,13,0.66)"></div>
+
+  <div role="dialog" aria-label="Command palette" style="position: absolute; left: 50%; top: 88px; transform: translateX(-50%); width: 640px; border-radius: 18px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 28px 80px rgba(0,0,0,0.6); overflow: hidden">
+    <div style="height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <sc-if value="{{ hasScope }}" hint-placeholder-val="{{ false }}">
+        <span style="height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px 0 8px; border-radius: 6px; background: #1C2638; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff; font-size: 11.5px; font-weight: 500; flex: none"><span style="font-family: 'JetBrains Mono', monospace">{{ scopePrefix }}</span>{{ scopeLabel }}<button onClick="{{ clearScope }}" aria-label="Search everything again" style="width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: none; color: #b9cfff"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></span>
+      </sc-if>
+      <label for="palette-query" style="position: absolute; left: -9999px">Search commands, nodes, files and settings, or ask the agent</label>
+      <input id="palette-query" type="text" value="{{ inputValue }}" onChange="{{ onQuery }}" placeholder="Search or ask the agent…   &gt; commands  @ nodes  # files" autocomplete="off" spellcheck="false" style="flex: 1; min-width: 0; height: 32px; border: 0; outline: none; background: none; color: #FFFFFF; font-size: 15px">
+      <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #1F232A; color: #B4BAC6; font-family: 'JetBrains Mono', monospace; font-size: 11px">Esc</span>
+    </div>
+
+    <div style="padding: 8px 8px 4px; display: flex; flex-direction: column">
+      <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 12px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center">
+          <span style="color: #FFFFFF; font-weight: 500">{{ noResultTitle }}</span>
+          <span style="color: #8B92A0">{{ noResultHint }}</span>
+        </div>
+      </sc-if>
+
+      <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+        <div style="padding: 8px 12px 4px; display: flex; align-items: center; justify-content: space-between; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>{{ g.label }}</span><span style="font-weight: 500; letter-spacing: 0">{{ g.more }}</span>
+        </div>
+        <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+          <button onClick="{{ it.pick }}" aria-label="{{ it.aria }}" style="{{ it.style }}">
+            <span style="width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center; color: #8B92A0">
+              <sc-if value="{{ it.isCmd }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7l5 5-5 5"></path><path d="M12 17h7"></path></svg></sc-if>
+              <sc-if value="{{ it.isNode }}" hint-placeholder-val="{{ false }}"><span style="{{ it.dot }}"></span></sc-if>
+              <sc-if value="{{ it.isFile }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></sc-if>
+              <sc-if value="{{ it.isHist }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg></sc-if>
+              <sc-if value="{{ it.isSet }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></sc-if>
+            </span>
+            <span style="flex: none; white-space: nowrap">{{ it.pre }}<span style="color: #FFFFFF; font-weight: 600; text-decoration: underline; text-decoration-color: #3B7BFF; text-underline-offset: 3px">{{ it.hit }}</span>{{ it.post }}</span>
+            <span style="flex: 1; min-width: 0; color: #8B92A0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">{{ it.detail }}</span>
+            <span style="flex: none; color: #8B92A0; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ it.tool }}</span>
+            <sc-if value="{{ it.hasKey }}" hint-placeholder-val="{{ true }}">
+              <span style="flex: none; min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; box-sizing: border-box; border-radius: 6px; background: #1F232A; color: #D9DDE5; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ it.key }}</span>
+            </sc-if>
+          </button>
+        </sc-for>
+      </sc-for>
+
+      <div style="height: 1px; background: #1F232A; margin: 6px 4px"></div>
+      <button onClick="{{ ask }}" aria-label="{{ askAria }}" style="{{ askStyle }}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+        <span style="flex: 1; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="color: #c9bcff">Ask the agent</span><span style="{{ askQueryStyle }}">{{ askQuery }}</span></span>
+        <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #1F232A; color: #D9DDE5; font-family: 'JetBrains Mono', monospace; font-size: 11px">Tab</span>
+        <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #1F232A; color: #D9DDE5; font-family: 'JetBrains Mono', monospace; font-size: 11px">⌘↵</span>
+      </button>
+
+      <sc-if value="{{ askedSelection }}" hint-placeholder-val="{{ false }}">
+        <div style="margin: 4px 4px 8px; border-radius: 12px; background: #15141d; box-shadow: 0 0 0 1px #2c2640; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="color: #FFFFFF; font-weight: 500">2 of 3 slimes are faster than 30</span>
+            <div style="flex: 1"></div>
+            <span style="color: #8B92A0; font-family: 'JetBrains Mono', monospace; font-size: 11px">scene_query</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #1C2638; box-shadow: 0 0 0 1px #3B7BFF"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4FD38A"></span><span style="color: #FFFFFF">slime_01</span><span style="flex: 1; color: #8B92A0">patrol.speed</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">36</span></div>
+            <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #1C2638; box-shadow: 0 0 0 1px #3B7BFF"><span style="width: 7px; height: 7px; border-radius: 2px; background: #4FD38A"></span><span style="color: #FFFFFF">slime_03</span><span style="flex: 1; color: #8B92A0">patrol.speed</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">42</span></div>
+            <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #8B92A0"><span style="width: 7px; height: 7px; border-radius: 2px; border: 1px solid #8B92A0; box-sizing: border-box"></span>slime_02<span style="flex: 1"></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">24</span></div>
+          </div>
+          <div style="display: flex; gap: 8px">
+            <button onClick="{{ selectFound }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">{{ selectFoundLabel }}</button>
+            <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Continue in Agent panel</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ askedRequest }}" hint-placeholder-val="{{ false }}">
+        <div style="margin: 4px 4px 8px; display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 32px; border-radius: 8px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5">
+          <span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Sent to the Agent panel · the palette closes and the request starts
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="height: 36px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">↑↓</span>Move</span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">↵</span>{{ enterHint }}</span>
+      <span style="display: flex; align-items: center; gap: 6px"><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">Tab</span>Ask the agent</span>
+      <div style="flex: 1"></div>
+      <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">&gt;</span> commands  <span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">@</span> nodes  <span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">#</span> files</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #262B35">
+    <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-right: 4px">TRY A QUERY</span>
+    <sc-for list="{{ tries }}" as="t" hint-placeholder-count="7">
+      <button onClick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}</button>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { q: 'slime', active: 0, asked: false, selected: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const all = [
+      { g: 'cmd', name: 'Keep review', detail: '6 changes in level_01', key: '⌘↵', tool: 'review_keep' },
+      { g: 'cmd', name: 'Revert review', detail: 'back to before the request', key: '⌘⌫', tool: 'review_revert' },
+      { g: 'cmd', name: 'Play level_01', detail: 'from the Knight’s spawn', key: '⌘P', tool: 'game_play' },
+      { g: 'cmd', name: 'Save', detail: 'level_01.scene.yaml', key: '⌘S', tool: 'scene_save' },
+      { g: 'cmd', name: 'Frame selection', detail: 'Knight', key: 'F', tool: 'viewport_frame' },
+      { g: 'cmd', name: 'Ask about the selection', detail: 'Knight', key: '⌘L', tool: 'agent_ask' },
+      { g: 'cmd', name: 'Run game check', detail: 'scenes, prefabs and data', key: '', tool: 'game_check' },
+      { g: 'cmd', name: 'Playtest 10 s headless', detail: 'level_01', key: '', tool: 'game_playtest' },
+      { g: 'cmd', name: 'Commit changes…', detail: '3 files since a41c9e2', key: '', tool: 'vcs_commit' },
+      { g: 'cmd', name: 'Build and release…', detail: '6 export presets', key: '', tool: 'build_release' },
+      { g: 'cmd', name: 'Open settings', detail: '', key: '⌘,', tool: 'settings_open' },
+      { g: 'node', name: 'Knight', detail: 'sprite · Actors', color: '#E9A84A' },
+      { g: 'node', name: 'slime_01', detail: 'prefab slime · Actors', color: '#4FD38A' },
+      { g: 'node', name: 'slime_02', detail: 'prefab slime · Actors', color: '#4FD38A' },
+      { g: 'node', name: 'slime_03', detail: 'prefab slime · guards the plank', color: '#4FD38A' },
+      { g: 'node', name: 'Door', detail: 'trigger · opens with lever_01', color: '#6b5a45' },
+      { g: 'node', name: 'lever_01', detail: 'trigger · upper ledge', color: '#6b5a45' },
+      { g: 'node', name: 'coins', detail: 'group · 3 pickups', color: '#f2d04b' },
+      { g: 'file', name: 'scenes/level_01.scene.yaml', detail: 'open · 6 unsaved changes' },
+      { g: 'file', name: 'prefabs/slime.prefab.yaml', detail: 'prefab' },
+      { g: 'file', name: 'prefabs/door.prefab.yaml', detail: 'prefab' },
+      { g: 'file', name: 'data/enemies.data.yaml', detail: 'data table · 4 rows' },
+      { g: 'file', name: 'scripts/slime.go', detail: 'Go · package enemies' },
+      { g: 'file', name: 'game.yaml', detail: 'project settings' },
+      { g: 'hist', name: 'Added 3 slimes and a coin trail', detail: 'agent · 4 min ago' },
+      { g: 'hist', name: 'Moved Door to x 640', detail: 'you · 12 min ago' },
+      { g: 'set', name: 'Snap to grid', detail: 'Editor › Viewport · 8 px' },
+      { g: 'set', name: 'Permissions', detail: 'Agent › Ask before running the game' },
+      { g: 'set', name: 'Export › Android', detail: 'Project · export/android.export.yaml' },
+    ];
+    const recent = ['Play level_01', 'Keep review', 'Commit changes…', 'prefabs/slime.prefab.yaml', 'Knight'];
+    const labels = { cmd: 'COMMANDS', node: 'NODES · level_01', file: 'FILES', hist: 'HISTORY', set: 'SETTINGS' };
+    const order = ['cmd', 'node', 'file', 'hist', 'set'];
+    const scopes = { '>': 'cmd', '@': 'node', '#': 'file' };
+    const scopeNames = { '>': 'Commands', '@': 'Nodes', '#': 'Files' };
+    const raw = s.q || '';
+    const trimmed = raw.trim();
+    let prefix = '';
+    let term = trimmed;
+    if (/^[>@#]/.test(trimmed)) { prefix = trimmed[0]; term = trimmed.slice(1).trim(); }
+    const t = term.toLowerCase();
+    const words = term.split(/\s+/).filter(Boolean);
+    const sentence = !prefix && words.length >= 3;
+    const empty = trimmed === '';
+
+    let groups = [];
+    if (empty) {
+      groups = [{ key: 'recent', label: 'RECENT', more: '', items: recent.map((n) => all.find((a) => a.name === n)) }];
+    } else {
+      groups = order
+        .filter((g) => !prefix || scopes[prefix] === g)
+        .map((g) => {
+          const hits = all.filter((a) => a.g === g && (t === '' || (a.name + ' ' + a.detail).toLowerCase().includes(t)));
+          const limit = prefix ? 8 : 4;
+          return { key: g, label: labels[g], more: hits.length > limit ? (hits.length - limit) + ' more' : '', items: hits.slice(0, limit) };
+        })
+        .filter((g) => g.items.length > 0);
+    }
+    const flat = [];
+    groups.forEach((g) => g.items.forEach((it) => flat.push(it)));
+    const noResults = !empty && flat.length === 0;
+    const askActive = noResults || s.active >= flat.length;
+    const activeIdx = askActive ? -1 : s.active;
+
+    let idx = 0;
+    const outGroups = groups.map((g) => ({
+      label: g.label,
+      more: g.more,
+      items: g.items.map((it) => {
+        const my = idx++;
+        const on = my === activeIdx;
+        const lower = it.name.toLowerCase();
+        const at = t && !empty ? lower.indexOf(t) : -1;
+        const pre = at >= 0 ? it.name.slice(0, at) : it.name;
+        const hit = at >= 0 ? it.name.slice(at, at + t.length) : '';
+        const post = at >= 0 ? it.name.slice(at + t.length) : '';
+        return {
+          pre, hit, post,
+          detail: it.detail,
+          tool: it.tool || '',
+          key: it.key || '',
+          hasKey: !!it.key,
+          isCmd: it.g === 'cmd', isNode: it.g === 'node', isFile: it.g === 'file', isHist: it.g === 'hist', isSet: it.g === 'set',
+          aria: it.name + (it.key ? ', ' + it.key : ''),
+          dot: 'width: 8px; height: 8px; border-radius: 2px; background: ' + (it.color || '#8B92A0'),
+          style: 'width: 100%; box-sizing: border-box; height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; border: 0; border-radius: 6px; text-align: left; ' + (on ? 'background: #1C2638; box-shadow: inset 2px 0 0 #3B7BFF; color: #FFFFFF' : 'background: none; color: #D9DDE5'),
+          pick: () => this.setState({ active: my, asked: false }),
+        };
+      }),
+    }));
+
+    const askOn = askActive;
+    const askText = prefix ? term : trimmed;
+    const askQuery = askText === '' ? '…' : ': ' + '“' + askText + '”';
+    const tries = [
+      { label: 'Empty', q: '' },
+      { label: 'slime', q: 'slime' },
+      { label: '> re', q: '> re' },
+      { label: '@door', q: '@door' },
+      { label: '#yaml', q: '#yaml' },
+      { label: 'slimes faster than 30', q: 'slimes faster than 30' },
+      { label: 'lava', q: 'lava' },
+    ].map((x) => ({
+      ...x,
+      style: 'height: 28px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px; border: 0; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; ' + (x.q === s.q ? 'background: #1C2638; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF' : 'background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5'),
+      pick: () => this.setState({ q: x.q, active: 0, asked: false, selected: false }),
+    }));
+
+    return {
+      q: raw,
+      inputValue: prefix ? term : raw,
+      onQuery: (e) => { const v = e && e.target ? e.target.value : ''; this.setState({ q: prefix && !/^[>@#]/.test(v.trim()) ? prefix + ' ' + v : v, active: 0, asked: false, selected: false }); },
+      scopePrefix: prefix,
+      clearScope: () => this.setState({ q: term, active: 0, asked: false, selected: false }),
+      hasScope: !!prefix,
+      scopeLabel: scopeNames[prefix] || '',
+      groups: outGroups,
+      noResults: noResults && !sentence,
+      noResultTitle: 'Nothing named “' + trimmed + '”',
+      noResultHint: 'No command, node, file or setting matches. ↵ asks the agent instead.',
+      ask: () => { if (askText !== '') this.setState({ asked: true, active: flat.length }); },
+      askAria: askText === '' ? 'Ask the agent' : 'Ask the agent: ' + askText,
+      askQuery,
+      askQueryStyle: askText === '' ? 'color: #8B92A0' : 'color: #FFFFFF',
+      askStyle: 'width: 100%; box-sizing: border-box; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; border: 0; border-radius: 8px; ' + (askOn ? 'background: rgba(155,123,255,0.12); box-shadow: inset 0 0 0 1px rgba(155,123,255,0.5); color: #FFFFFF' : 'background: none; color: #D9DDE5'),
+      askedSelection: s.asked && trimmed === 'slimes faster than 30',
+      askedRequest: s.asked && trimmed !== 'slimes faster than 30',
+      selectFound: () => this.setState({ selected: true }),
+      selectFoundLabel: s.selected ? 'Selected slime_01 and slime_03' : 'Select 2 in the scene',
+      enterHint: askOn ? 'Ask the agent' : (flat[activeIdx] && flat[activeIdx].g === 'cmd' ? 'Run' : 'Open'),
+      tries,
+    };
+  }
+}
+</script>
+</body>
+</html>

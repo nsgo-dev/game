@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Checkpoints</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 1000px; box-sizing: border-box; padding: 40px; display: flex; flex-direction: column; gap: 24px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216">
+
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Files changed elsewhere, saving, checkpoints and rewind</span>
+    <span style="color: #B4BAC6">Every change to the project lands somewhere you can see it, including ones made outside the editor, and every agent turn can be taken back.</span>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.85fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; min-height: 0">
+
+    <!-- Changed on disk, clean -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CHANGED ON DISK · NOTHING UNSAVED</div><div style="color: #B4BAC6; margin-top: 4px">The scene reloads quietly and says where the change came from.</div></div>
+      <div style="height: 360px; flex: none; position: relative; border-radius: 12px; box-shadow: 0 0 0 1px #1F232A; overflow: hidden" class="vp">
+        <div style="position: absolute; left: 24px; top: 32px; right: 24px; height: 220px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240; background: linear-gradient(180deg,#1c2230,#181c24)"></div>
+        <div style="position: absolute; left: 24px; right: 24px; top: 216px; height: 36px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+        <div style="position: absolute; left: 96px; top: 182px; width: 18px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+        <div style="position: absolute; left: 196px; top: 200px; width: 26px; height: 16px; border-radius: 8px 8px 3px 3px; background: rgba(79,211,138,0.5)"></div>
+        <div style="position: absolute; left: 330px; top: 176px; width: 22px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+        <div role="status" style="position: absolute; left: 16px; right: 16px; bottom: 16px; min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 12px 32px rgba(0,0,0,0.45)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path></svg>
+          <span style="flex: 1; color: #FFFFFF">level_01 changed on disk <span style="color: #8B92A0">· git pull · 3 objects</span></span>
+          <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Show diff</button>
+        </div>
+      </div>
+      <div style="color: #8B92A0; line-height: 1.55">A checkout, pull or merge becomes one History step: “Switched branch · main → boss-room · 4 files”.</div>
+
+      <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 12px">AN AGENT WROTE THE YAML DIRECTLY · SHOWN ONCE</div>
+      <sc-if value="{{ hintOpen }}" hint-placeholder-val="{{ true }}">
+        <div role="group" aria-labelledby="direct-title" style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+          <div id="direct-title" style="display: flex; align-items: center; gap: 8px; color: #FFFFFF; font-weight: 600">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M9 13h6M9 17h4"></path></svg>
+            Codex wrote level_01.scene.yaml itself
+          </div>
+          <div style="color: #D9DDE5; line-height: 1.55">Its 4 changes are in a review marked “Changed outside the editor”. Edits made through <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">scene_edit</span> show live in the viewport and can be kept one by one.</div>
+          <div style="padding: 8px 12px; border-radius: 8px; background: #101216; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; color: #B9F0CF">+ - Edit scenes through the editor's scene_edit tool, not by writing .scene.yaml files.</div>
+          <div style="display: flex; gap: 8px">
+            <button onClick="{{ addRule }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Add to AGENTS.md</button>
+            <button onClick="{{ dismissHint }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Not now</button>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ hintAdded }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg><span style="flex: 1">Added a line to AGENTS.md · in review</span><button onClick="{{ resetHint }}" style="height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Undo</button></div>
+      </sc-if>
+      <sc-if value="{{ hintDismissed }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35"><span style="flex: 1; color: #B4BAC6">Won't show again for this project</span><button onClick="{{ resetHint }}" style="height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Undo</button></div>
+      </sc-if>
+    </div>
+
+    <!-- Changed on disk with your edits -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CHANGED ON DISK · YOU HAVE UNSAVED EDITS</div><div style="color: #B4BAC6; margin-top: 4px">Nothing reloads under you. Pick per object when both sides touched it.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">level_01</span>
+          <span style="{{ dirtyDot }}" aria-label="{{ dirtyLabel }}"></span>
+        </div>
+        <sc-if value="{{ extAsk }}" hint-placeholder-val="{{ true }}">
+          <div role="alert" style="flex: none; display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; background: #2A2414; border-bottom: 1px solid #4A3F1F">
+            <div style="display: flex; align-items: flex-start; gap: 8px">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F2C14E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px; flex: none"><path d="M12 4 3 20h18z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg>
+              <span style="flex: 1; line-height: 1.55"><span style="color: #F2C14E; font-weight: 600">level_01.scene.yaml changed on disk</span><span style="color: #D9DDE5"> · git pull by you in Terminal, 3 objects · you have 2 unsaved edits, and 2 objects overlap</span></span>
+            </div>
+            <div style="display: flex; gap: 8px; padding-left: 24px">
+              <button onClick="{{ extCompare }}" style="{{ compareStyle }}">Compare</button>
+              <button onClick="{{ extReload }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #4A3F1F; color: #FFFFFF">Reload from disk</button>
+              <button onClick="{{ extKeep }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #4A3F1F; color: #FFFFFF">Keep mine</button>
+            </div>
+          </div>
+        </sc-if>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <sc-if value="{{ comparing }}" hint-placeholder-val="{{ true }}">
+            <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">4 OBJECTS · 2 TOUCHED ON BOTH SIDES</div>
+            <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; overflow: hidden">
+              <sc-for list="{{ conflicts }}" as="c" hint-placeholder-count="4">
+                <div style="{{ c.row }}">
+                  <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                    <span style="color: #FFFFFF">{{ c.name }}</span>
+                    <span style="color: #8B92A0; font-size: 11.5px">{{ c.note }}</span>
+                  </span>
+                  <div role="radiogroup" aria-label="{{ c.groupLabel }}" style="display: flex; gap: 4px; padding: 2px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #262B35">
+                    <button role="radio" aria-checked="{{ c.mineChecked }}" onClick="{{ c.pickMine }}" style="{{ c.mineStyle }}"><span style="color: #8B92A0; font-size: 11px">Mine</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ c.mine }}</span></button>
+                    <button role="radio" aria-checked="{{ c.diskChecked }}" onClick="{{ c.pickDisk }}" style="{{ c.diskStyle }}"><span style="color: #8B92A0; font-size: 11px">Disk</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ c.disk }}</span></button>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="flex: 1; color: #8B92A0">{{ mergeSummary }}</span>
+              <button onClick="{{ applyMerge }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Use these</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ extDone }}" hint-placeholder-val="{{ false }}">
+            <div role="status" style="display: flex; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.55">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 2px; flex: none"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+              <span style="flex: 1">{{ extDoneText }}</span>
+              <button onClick="{{ extReset }}" style="height: 28px; flex: none; margin-top: -4px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Undo</button>
+            </div>
+          </sc-if>
+          <div style="flex: 1"></div>
+          <div style="color: #8B92A0; line-height: 1.55">When an agent's review is still open, the outside change arrives as its own review, marked “Changed outside the editor”, and the same picker settles the overlap.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save status -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SAVE STATUS · STATUS BAR</div><div style="color: #B4BAC6; margin-top: 4px">Kept changes save after 2 s. A failure stays in the bar until it is fixed; it never shows as a toast.</div></div>
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-radius: 8px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; color: #8B92A0; font-size: 11.5px">
+            <span>Layer Actors</span><div style="flex: 1"></div>
+            <span style="display: flex; align-items: center; gap: 8px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Saved</span>
+          </div>
+          <div style="color: #8B92A0">Saved. Hover shows the time: 14:32:08.</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-radius: 8px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; color: #8B92A0; font-size: 11.5px">
+            <span>Layer Actors</span><div style="flex: 1"></div>
+            <span style="display: flex; align-items: center; gap: 8px; color: #D9DDE5"><span style="width: 12px; height: 12px; border-radius: 6px; border: 1.5px solid #8B92A0; border-right-color: transparent; box-sizing: border-box"></span>Saving…</span>
+          </div>
+          <div style="color: #8B92A0">Appears only after 300 ms, so quick saves don't flicker.</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">FAILED · TRY IT</div>
+          <sc-if value="{{ saveFailed }}" hint-placeholder-val="{{ true }}">
+            <div role="alert" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 16px; border-radius: 8px; background: rgba(255,107,107,0.08); box-shadow: 0 0 0 1px #FF6B6B; font-size: 11.5px">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5M12 16v.01"></path></svg>
+              <span style="flex: 1; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ saveError }}</span>
+              <button onClick="{{ retrySave }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF; font-size: 11.5px">Retry</button>
+              <button onClick="{{ saveAs }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF; font-size: 11.5px">Save as…</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ saveOk }}" hint-placeholder-val="{{ false }}">
+            <div style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 16px; border-radius: 8px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; color: #8B92A0; font-size: 11.5px">
+              <div style="flex: 1"></div>
+              <span style="display: flex; align-items: center; gap: 8px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>{{ saveOkText }}</span>
+              <button onClick="{{ breakSave }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF; font-size: 11.5px">Show failure again</button>
+            </div>
+          </sc-if>
+          <div role="radiogroup" aria-label="Failure cause" style="display: flex; gap: 8px">
+            <button role="radio" aria-checked="{{ readonlyChecked }}" onClick="{{ pickReadonly }}" style="{{ readonlyStyle }}">Read-only folder</button>
+            <button role="radio" aria-checked="{{ fullChecked }}" onClick="{{ pickFull }}" style="{{ fullStyle }}">Disk full</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.55">
+          <div style="color: #FFFFFF; font-weight: 600">While saving fails</div>
+          <div style="color: #D9DDE5">The unsaved dot beside the scene name turns problem red, quitting asks first, and the agent is told so it doesn't build on edits that aren't on disk.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project history -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PROJECT HISTORY · CHECKPOINTS</div><div style="color: #B4BAC6; margin-top: 4px">Each agent turn is a checkpoint over every file it touched, not just the open scene.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="flex: 1; color: #FFFFFF; font-size: 14px; font-weight: 600">History</span>
+          <div role="radiogroup" aria-label="Show" style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="3">
+              <button role="radio" aria-checked="{{ f.checked }}" onClick="{{ f.pick }}" style="{{ f.style }}">{{ f.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <sc-if value="{{ previewing }}" hint-placeholder-val="{{ true }}">
+          <div role="status" style="flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; background: rgba(59,123,255,0.10); border-bottom: 1px solid rgba(59,123,255,0.5)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8FB3FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <span style="flex: 1; color: #FFFFFF">Previewing {{ previewAgo }} <span style="color: #B4BAC6">· editing is off</span></span>
+            <button onClick="{{ restore }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Restore</button>
+            <button onClick="{{ exitPreview }}" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Back<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6">Esc</span></button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ restored }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; background: #171A21; border-bottom: 1px solid #262B35">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+            <span style="flex: 1; color: #FFFFFF">{{ restoredText }}</span>
+            <button onClick="{{ undoRestore }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Undo</button>
+          </div>
+        </sc-if>
+        <div style="flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: hidden">
+          <sc-for list="{{ historyRows }}" as="h" hint-placeholder-count="8">
+            <sc-if value="{{ h.isDay }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 28px; display: flex; align-items: flex-end; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ h.day }}</div>
+            </sc-if>
+            <sc-if value="{{ h.isRow }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ h.pick }}" aria-pressed="{{ h.pressed }}" style="{{ h.style }}">
+                <span style="width: 40px; flex: none; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ h.time }}</span>
+                <span style="{{ h.whoStyle }}">{{ h.who }}</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+                  <span style="color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ h.title }}</span>
+                  <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ h.files }}</span>
+                </span>
+              </button>
+            </sc-if>
+          </sc-for>
+        </div>
+        <div style="flex: none; padding: 12px 16px; border-top: 1px solid #1F232A; color: #8B92A0; line-height: 1.55">Stored in <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">.nsgo/checkpoints</span>, ignored by git. Autonomous tasks and automations always take one before they start.</div>
+      </div>
+    </div>
+
+    <!-- Rewind and undo -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">REWIND THE CONVERSATION · VISIBLE UNDO</div><div style="color: #B4BAC6; margin-top: 4px">Go back to before a message and ask it differently.</div></div>
+      <div style="flex: 1; position: relative; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+            <div style="max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+          </div>
+          <div style="color: #B4BAC6; line-height: 1.55">Done: 3 slimes and 3 coins, kept.</div>
+          <sc-if value="{{ convFull }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+              <div style="max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; line-height: 1.5">Make the coins spin and bob, and give each one a sparkle.</div>
+              <button onClick="{{ openRewind }}" aria-expanded="{{ rewindExpanded }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>Rewind to here</button>
+            </div>
+            <sc-if value="{{ rewindOpen }}" hint-placeholder-val="{{ true }}">
+              <div role="dialog" aria-labelledby="rewind-title" style="align-self: flex-end; width: 320px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+                <div id="rewind-title" style="color: #FFFFFF; font-weight: 600">Rewind to before this message</div>
+                <div role="radiogroup" aria-labelledby="rewind-title" style="display: flex; flex-direction: column; gap: 4px">
+                  <sc-for list="{{ rewindOpts }}" as="o" hint-placeholder-count="3">
+                    <button role="radio" aria-checked="{{ o.checked }}" onClick="{{ o.pick }}" style="{{ o.style }}">
+                      <span style="{{ o.dot }}"></span>
+                      <span style="display: flex; flex-direction: column; gap: 2px; text-align: left"><span style="color: #FFFFFF">{{ o.label }}</span><span style="color: #8B92A0; font-size: 11.5px">{{ o.detail }}</span></span>
+                    </button>
+                  </sc-for>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end">
+                  <button onClick="{{ closeRewind }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Cancel</button>
+                  <button onClick="{{ doRewind }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Rewind</button>
+                </div>
+              </div>
+            </sc-if>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; gap: 8px; color: #B4BAC6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Added spin and bob to prefabs/coin.prefab.yaml</div>
+              <div style="display: flex; gap: 8px; color: #B4BAC6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Wrote fx/sparkle.particles.yaml</div>
+            </div>
+            <div style="color: #B4BAC6; line-height: 1.55">Kept · 2 files. The sparkle is louder than you probably want.</div>
+          </sc-if>
+          <div style="flex: 1"></div>
+          <sc-if value="{{ undoToast }}" hint-placeholder-val="{{ false }}">
+            <div role="status" style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 12px 32px rgba(0,0,0,0.45)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path></svg>
+              <span style="flex: 1; color: #FFFFFF">{{ undoText }}</span>
+              <button onClick="{{ redo }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Redo</button>
+            </div>
+          </sc-if>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: {{ composerRing }}; padding: 8px 8px 8px 12px; display: flex; align-items: flex-end; gap: 8px">
+            <label for="rewind-ask" style="position: absolute; left: -9999px">Ask the agent</label>
+            <textarea id="rewind-ask" rows="2" placeholder="Describe a change…" style="flex: 1; resize: none; border: 0; outline: none; background: none; color: #FFFFFF; line-height: 1.5">{{ composerText }}</textarea>
+            <button aria-label="Send" style="width: 30px; height: 30px; flex: none; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">
+        <div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 600">What ⌘Z undoes</span><button onClick="{{ pressUndo }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF">Try <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">⌘Z</span></button></div>
+        <div style="display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 4px 12px">
+          <span style="color: #8B92A0">Idle</span><span>The last step, yours or the agent's whole turn.</span>
+          <span style="color: #8B92A0">Agent working</span><span>Only your own edits; the agent's turn is Stop.</span>
+          <span style="color: #8B92A0">In a review</span><span>Your edits inside the review first, then the review.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      hint: 'open', ext: 'compare', picks: { coin_02: 'mine', knight: 'disk' },
+      save: 'readonly', saved: false,
+      filter: 'all', sel: 'h2', hist: 'preview',
+      rewind: 'open', mode: 'both', conv: 'full', undo: false,
+    };
+  }
+  renderVals() {
+    const s = this.state;
+    const seg = (on) => 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #8B92A0');
+    const chip = (on) => 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; ' + (on ? 'background: #171A21; box-shadow: 0 0 0 1.5px #3B7BFF; color: #FFFFFF' : 'background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6');
+
+    const cdefs = [
+      { id: 'coin_02', name: 'coin_02', note: 'moved by you and by the pull', mine: 'x 548', disk: 'x 560', both: true },
+      { id: 'knight', name: 'Knight', note: 'z changed on both sides', mine: 'z 12', disk: 'z 10', both: true },
+      { id: 'lever', name: 'lever_door', note: 'only on disk · added', mine: '—', disk: 'added', both: false },
+      { id: 'slime', name: 'slime_02', note: 'only yours · speed 24 → 30', mine: 'speed 30', disk: '—', both: false },
+    ];
+    const opt = (on) => 'height: 40px; min-width: 76px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding: 0 8px; border-radius: 6px; border: 0; color: #FFFFFF; ' + (on ? 'background: #171A21; box-shadow: 0 0 0 1.5px #3B7BFF' : 'background: none');
+    const conflicts = cdefs.map((c, i) => {
+      const pick = c.both ? s.picks[c.id] : (c.mine === '—' ? 'disk' : 'mine');
+      return {
+        ...c,
+        row: 'display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 8px 8px 12px; ' + (i ? 'border-top: 1px solid #262B35; ' : '') + (c.both ? '' : 'opacity: 0.75'),
+        groupLabel: 'Version of ' + c.name,
+        mineChecked: String(pick === 'mine'), diskChecked: String(pick === 'disk'),
+        mineStyle: opt(pick === 'mine'), diskStyle: opt(pick === 'disk'),
+        pickMine: () => { if (c.both) this.setState({ picks: { ...s.picks, [c.id]: 'mine' } }); },
+        pickDisk: () => { if (c.both) this.setState({ picks: { ...s.picks, [c.id]: 'disk' } }); },
+      };
+    });
+    const mineN = cdefs.filter((c) => c.both && s.picks[c.id] === 'mine').length;
+    const extDoneText = s.ext === 'reloaded' ? 'Reloaded from disk. Your 2 edits are in History as “Unsaved edits before reload”.'
+      : s.ext === 'kept' ? 'Kept your version. The disk version is in History as “Changed outside the editor”; saving will replace it.'
+      : 'Merged: ' + mineN + ' of 2 overlaps yours, lever_door added from disk, slime_02 kept. Not saved yet.';
+
+    const failText = s.save === 'full' ? "Couldn't save: disk is full · 12 MB free" : "Couldn't save: folder is read-only";
+
+    const hdefs = [
+      { day: 'TODAY' },
+      { id: 'h1', time: '14:41', who: 'Agent', title: 'Coin spin, bob and sparkle', files: 'coin.prefab.yaml · sparkle.particles.yaml', ago: '2 min ago' },
+      { id: 'h2', time: '14:31', who: 'Agent', title: 'Slimes and coins · 6 changes', files: 'level_01.scene.yaml', ago: '12 min ago' },
+      { id: 'h3', time: '14:20', who: 'You', title: 'Moved Knight and the door', files: 'level_01.scene.yaml', ago: '23 min ago' },
+      { id: 'h4', time: '14:05', who: 'Agent', title: 'Slower patrol, documented', files: 'scripts/patrol.go · slime.prefab.yaml · AGENTS.md', ago: '38 min ago' },
+      { id: 'h5', time: '13:50', who: 'git', title: 'Switched branch · main → boss-room', files: '4 files · git checkout', ago: '53 min ago' },
+      { day: 'YESTERDAY' },
+      { id: 'h6', time: '02:00', who: 'Agent', title: 'Nightly 20-run playtest · checkpoint before start', files: 'playtests/2026-11-24.report.yaml', ago: 'yesterday 02:00' },
+      { id: 'h7', time: '18:12', who: 'You', title: 'Feel and difficulty: 3 hearts', files: 'brief.yaml · game.yaml', ago: 'yesterday 18:12' },
+    ];
+    const whoColor = { Agent: 'background: rgba(155,123,255,0.14); color: #C9BCFF', You: 'background: rgba(59,123,255,0.14); color: #B9CFFF', git: 'background: #262B35; color: #D9DDE5' };
+    const visible = hdefs.filter((h) => !h.id || s.filter === 'all' || (s.filter === 'you' ? h.who === 'You' : h.who === 'Agent'));
+    const historyRows = visible.filter((h, i) => h.id || (visible[i + 1] && visible[i + 1].id)).map((h) => h.id ? ({
+      ...h, isRow: true, isDay: false, pressed: String(s.sel === h.id && s.hist === 'preview'),
+      style: 'width: 100%; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-radius: 8px; border: 0; color: inherit; ' + (s.sel === h.id && s.hist !== 'none' ? 'background: rgba(59,123,255,0.10); box-shadow: inset 0 0 0 1.5px #3B7BFF' : 'background: none'),
+      whoStyle: 'width: 48px; height: 20px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 11px; font-weight: 500; ' + whoColor[h.who],
+      pick: () => this.setState({ sel: h.id, hist: 'preview' }),
+    }) : ({ ...h, isDay: true, isRow: false }));
+    const sel = hdefs.find((h) => h.id === s.sel) || hdefs[2];
+    const filters = [['all', 'All'], ['you', 'You'], ['agent', 'Agent']].map(([id, label]) => ({ label, checked: String(s.filter === id), style: seg(s.filter === id), pick: () => this.setState({ filter: id }) }));
+
+    const odefs = [
+      { id: 'both', label: 'Files and conversation', detail: 'Undo 2 files, drop the reply' },
+      { id: 'files', label: 'Files only', detail: 'Keep the conversation as it is' },
+      { id: 'conv', label: 'Conversation only', detail: 'Keep the files as they are' },
+    ];
+    const rewindOpts = odefs.map((o) => ({
+      ...o, checked: String(s.mode === o.id),
+      style: 'display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 8px; border: 0; color: inherit; ' + (s.mode === o.id ? 'background: rgba(59,123,255,0.10); box-shadow: inset 0 0 0 1.5px #3B7BFF' : 'background: none'),
+      dot: 'width: 14px; height: 14px; flex: none; border-radius: 7px; box-sizing: border-box; ' + (s.mode === o.id ? 'border: 4px solid #3B7BFF; background: #FFFFFF' : 'border: 1.5px solid #8B92A0'),
+      pick: () => this.setState({ mode: o.id }),
+    }));
+    const rewound = s.conv === 'rewound';
+    const modeText = { both: 'files and conversation', files: 'files only', conv: 'conversation only' }[s.mode];
+    let undoText = '';
+    if (s.undo === 'rewind') undoText = 'Rewound ' + modeText + ' to before “Make the coins spin…”';
+    if (s.undo === 'z') undoText = 'Undid Agent · slimes and coins (6 changes)';
+
+    return {
+      hintOpen: s.hint === 'open', hintAdded: s.hint === 'added', hintDismissed: s.hint === 'dismissed',
+      addRule: () => this.setState({ hint: 'added' }), dismissHint: () => this.setState({ hint: 'dismissed' }), resetHint: () => this.setState({ hint: 'open' }),
+
+      extAsk: s.ext === 'ask' || s.ext === 'compare', comparing: s.ext === 'compare',
+      extDone: s.ext === 'reloaded' || s.ext === 'kept' || s.ext === 'merged', extDoneText,
+      compareStyle: 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; font-weight: 500; ' + (s.ext === 'compare' ? 'background: #3B7BFF; color: #FFFFFF' : 'background: #171A21; box-shadow: 0 0 0 1px #4A3F1F; color: #FFFFFF'),
+      extCompare: () => this.setState({ ext: s.ext === 'compare' ? 'ask' : 'compare' }),
+      extReload: () => this.setState({ ext: 'reloaded' }), extKeep: () => this.setState({ ext: 'kept' }),
+      applyMerge: () => this.setState({ ext: 'merged' }), extReset: () => this.setState({ ext: 'ask' }),
+      conflicts, mergeSummary: mineN + ' of 2 overlaps use yours · lever_door comes from disk',
+      dirtyDot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + (s.ext === 'reloaded' ? '#4FD38A' : '#E9A84A'),
+      dirtyLabel: s.ext === 'reloaded' ? 'saved' : 'unsaved changes',
+
+      saveFailed: !s.saved, saveOk: s.saved, saveError: failText,
+      saveOkText: s.saved === 'as' ? 'Saved as ~/Documents/dungeon-run copy' : 'Saved',
+      retrySave: () => this.setState({ saved: 'retry' }), saveAs: () => this.setState({ saved: 'as' }), breakSave: () => this.setState({ saved: false }),
+      readonlyChecked: String(s.save === 'readonly'), fullChecked: String(s.save === 'full'),
+      readonlyStyle: chip(s.save === 'readonly'), fullStyle: chip(s.save === 'full'),
+      pickReadonly: () => this.setState({ save: 'readonly', saved: false }), pickFull: () => this.setState({ save: 'full', saved: false }),
+
+      filters, historyRows,
+      previewing: s.hist === 'preview', restored: s.hist === 'restored', previewAgo: sel.ago,
+      restoredText: 'Restored to ' + sel.ago + ' · ' + sel.title,
+      restore: () => this.setState({ hist: 'restored' }), exitPreview: () => this.setState({ hist: 'none' }), undoRestore: () => this.setState({ hist: 'none' }),
+
+      convFull: !rewound, rewindOpen: !rewound && s.rewind === 'open', rewindExpanded: String(s.rewind === 'open'),
+      openRewind: () => this.setState({ rewind: s.rewind === 'open' ? 'closed' : 'open' }),
+      closeRewind: () => this.setState({ rewind: 'closed' }),
+      rewindOpts,
+      doRewind: () => this.setState({ conv: 'rewound', rewind: 'closed', undo: 'rewind' }),
+      composerText: rewound ? 'Make the coins spin and bob, and give each one a sparkle.' : '',
+      composerRing: rewound ? '0 0 0 1.5px #3B7BFF' : '0 0 0 1px #262B35',
+      undoToast: !!s.undo, undoText,
+      redo: () => this.setState({ conv: 'full', undo: false, rewind: 'closed' }),
+      pressUndo: () => this.setState({ undo: 'z' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 1200px; box-sizing: border-box; padding: 40px; display: flex; flex-direction: column; gap: 24px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216">
+
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Agent states</span>
+    <span style="color: #B4BAC6">The chip in the Agent panel header, and what the panel shows when a request does not simply succeed. Manual tools keep working in every state.</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">STATUS CHIP · AGENT PANEL HEADER</div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 24px">
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Connected.</span> Idle and ready. Hover names the agent and transport: Claude Code over stdio.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Working · step 3 of 5</span>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Working.</span> The dot pulses at 1.2 s; with reduced motion it stays still and only the step count changes.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E; font-size: 11.5px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>Waiting for you · 0:32</span>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Waiting for you.</span> A permission or question is open. Clicking it focuses the request; after 30 s it also sends a system notification.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8"></path><path d="M4 3.5V8h4.5"></path><path d="M4 13a8 8 0 0 0 14.6 4.4L20 16"></path><path d="M20 20.5V16h-4.5"></path></svg>Reconnecting · try 3 of 5</span>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Reconnecting.</span> The MCP connection dropped. Retries after 1, 2, 4, 8 and 16 s, then gives up.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(255,107,107,0.10); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B; font-size: 11.5px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"></path><path d="M12 16v5"></path><path d="M3 3l18 18"></path></svg>Disconnected</span>
+          <button style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11.5px">Reconnect</button>
+          <button style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px">Troubleshoot</button>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Disconnected.</span> Five retries failed. Troubleshoot reopens Connect at the step that failed, not at the start.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 16px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11.5px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 17a8.5 8.5 0 1 1 15 0"></path><path d="M12 13l4.5-4.5"></path></svg>Limit reached · resets 00:00</span>
+          <a href="#settings-usage" style="height: 24px; display: inline-flex; align-items: center; padding: 0 8px; font-size: 11.5px; text-decoration: none">Usage</a>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55"><span style="color: #D9DDE5; font-weight: 500">Limit reached.</span> Today's $5.00 is used. Requests queue until the reset or until you raise the limit; only you can.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 24px; min-height: 0">
+
+    <!-- Partial -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PARTIAL</div><div style="color: #B4BAC6; margin-top: 4px">Some of the request could not be done.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <sc-if value="{{ partialWorking }}" hint-placeholder-val="{{ false }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Working · step 6</span>
+          </sc-if>
+          <sc-if value="{{ partialIdle }}" hint-placeholder-val="{{ true }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+          </sc-if>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Read level_01.scene.yaml and slime.prefab.yaml</div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Placed slime_01 and slime_02 · patrol x 220–340</div>
+            <div style="display: flex; gap: 8px; color: #D9DDE5; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #2A2414; color: #F2C14E; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" aria-hidden="true"><path d="M12 6v7M12 18v.01"></path></svg></span><span>slime_03: no free floor 48 px wide; the widest left is 32 px at x 590</span></div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Placed coin_01 to coin_03 toward the door</div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Ran game check · no problems</div>
+            <sc-if value="{{ partialAnother }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; gap: 8px; color: #D9DDE5; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span>Trying another way: slime_03 patrols the plank, Knight starts at x 360</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ partialOpen }}" hint-placeholder-val="{{ true }}">
+            <div role="group" aria-labelledby="partial-title" style="border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+              <div id="partial-title" style="display: flex; align-items: center; gap: 8px; color: #F2C14E; font-weight: 600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 3 20h18z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg>Done 2 of 3 · couldn't place slime_03</div>
+              <div style="color: #D9DDE5; line-height: 1.55">No floor is wide enough for a third patrol. The plank at x 400–576 has room, but the Knight starts on it.</div>
+              <sc-if value="{{ partialPointing }}" hint-placeholder-val="{{ false }}">
+                <div style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #3B7BFF; color: #D9DDE5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B7BFF" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"></circle><path d="M12 2v5M12 17v5M2 12h5M17 12h5"></path></svg>
+                  <span style="flex: 1">Click where slime_03 should patrol</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">Esc</span>
+                </div>
+              </sc-if>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <button onClick="{{ partialKeep }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Keep these</button>
+                <button onClick="{{ partialPoint }}" style="{{ partialPointStyle }}">Let me point</button>
+                <button onClick="{{ partialTry }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Try another way</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ partialKept }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #B4BAC6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>Kept 5 changes · slime_03 left out · ⌘Z undoes</div>
+          </sc-if>
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+            <span style="color: #FFFFFF">5 changes · 1 file</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px"><span style="color: #4FD38A">+31</span> <span style="color: #8B92A0">−0</span></span>
+            <a href="#review">Review</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stuck -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">STUCK</div><div style="color: #B4BAC6; margin-top: 4px">The same tool failed three times; it pauses.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <sc-if value="{{ stuckWaiting }}" hint-placeholder-val="{{ true }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E; font-size: 11.5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>Waiting for you · 0:12</span>
+          </sc-if>
+          <sc-if value="{{ stuckContinued }}" hint-placeholder-val="{{ false }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Working · step 3</span>
+          </sc-if>
+          <sc-if value="{{ stuckStopped }}" hint-placeholder-val="{{ false }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+          </sc-if>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Make the door open only after lever_01 is pulled.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Read door.prefab.yaml and lever.prefab.yaml</div>
+            <div style="display: flex; gap: 8px; color: #D9DDE5; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(255,107,107,0.14); color: #FF6B6B; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"></path></svg></span>scene_edit failed 3 times in a row</div>
+            <sc-if value="{{ stuckContinued }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; gap: 8px; color: #D9DDE5; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span>Linking Door.trigger.requires to lever_door, as you said</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ stuckWaiting }}" hint-placeholder-val="{{ true }}">
+            <div role="group" aria-labelledby="stuck-title" style="border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+              <div id="stuck-title" style="display: flex; align-items: center; gap: 8px; color: #F2C14E; font-weight: 600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 6v12M15 6v12"></path></svg>Paused instead of guessing again</div>
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 8px; background: #101216; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6">
+                <div style="color: #D9DDE5">1 add Door.lock</div><div style="color: #FF6B6B; padding-left: 16px">unknown component "lock"</div>
+                <div style="color: #D9DDE5">2 set Door.trigger.locked: true</div><div style="color: #FF6B6B; padding-left: 16px">unknown field "locked"</div>
+                <div style="color: #D9DDE5">3 set Door.trigger.requires: lever_01</div><div style="color: #FF6B6B; padding-left: 16px">no node "lever_01" in level_01</div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <label for="stuck-hint" style="color: #D9DDE5">Hint for the agent</label>
+                <input id="stuck-hint" type="text" value="The lever is lever_door, under Actors" style="height: 32px; padding: 0 12px; border-radius: 6px; border: 0; background: #101216; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF; outline: none">
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button onClick="{{ stuckContinue }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Continue with hint</button>
+                <button onClick="{{ stuckStop }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Stop here</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ stuckStopped }}" hint-placeholder-val="{{ false }}">
+            <div style="color: #B4BAC6; line-height: 1.55">Stopped. Nothing was changed; the failed edits were refused before they touched the file.</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lost -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">LOST</div><div style="color: #B4BAC6; margin-top: 4px">The connection or the model failed mid-request.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(255,107,107,0.10); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B; font-size: 11.5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0z"></path><path d="M12 16v5"></path><path d="M3 3l18 18"></path></svg>Disconnected</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Add a coin trail from the lever to the door.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; opacity: 0.75">
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Read level_01.scene.yaml</div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Placed coin_04 to coin_07</div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; box-shadow: inset 0 0 0 1.5px #8B92A0; color: #8B92A0; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" aria-hidden="true"><path d="M9 7v10M15 7v10"></path></svg></span>Placing coin_08 · cut off, nothing written</div>
+            <div style="display: flex; gap: 8px; color: #8B92A0; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; box-shadow: inset 0 0 0 1.5px #262B35"></span>Game check</div>
+          </div>
+          <div role="group" aria-labelledby="lost-title" style="border-radius: 12px; background: rgba(255,107,107,0.08); box-shadow: 0 0 0 1px rgba(255,107,107,0.4); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+            <div id="lost-title" style="color: #FF6B6B; font-weight: 600">Connection lost after step 2</div>
+            <div style="color: #D9DDE5; line-height: 1.55">Claude Code stopped answering at 14:02 during step 3. What was done is in a review; nothing is half-written.</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap">
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Reconnect</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Review 4 changes</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Troubleshoot</button>
+            </div>
+          </div>
+          <div style="color: #8B92A0; line-height: 1.55">After reconnecting, the agent asks before it picks up at step 3.</div>
+          <div style="height: 1px; background: #1F232A"></div>
+          <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SAME CARD, MODEL ERROR</div>
+          <div style="border-radius: 12px; background: rgba(255,107,107,0.08); box-shadow: 0 0 0 1px rgba(255,107,107,0.4); padding: 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #FF6B6B; font-weight: 600">Anthropic API is overloaded (529)</div>
+            <div style="color: #D9DDE5; line-height: 1.55">Retrying in 8 s · try 2 of 4. Playtest analysis can switch to Claude Code for now.</div>
+            <div style="display: flex; gap: 8px">
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Retry now</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Use Claude Code</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stopped -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">STOPPED</div><div style="color: #B4BAC6; margin-top: 4px">You pressed Esc or Stop.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <sc-if value="{{ resumed }}" hint-placeholder-val="{{ false }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Working · step 4 of 5</span>
+          </sc-if>
+          <sc-if value="{{ notResumed }}" hint-placeholder-val="{{ true }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+          </sc-if>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; gap: 8px; color: #FFFFFF; font-weight: 600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>{{ stoppedTitle }}</div>
+            <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">DONE</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; gap: 8px; color: #B4BAC6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Read the scene and the slime prefab</div>
+              <div style="display: flex; gap: 8px; color: #B4BAC6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Placed slime_01 to slime_03</div>
+              <div style="display: flex; gap: 8px; color: #B4BAC6"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Placed coin_01 to coin_03</div>
+            </div>
+            <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">NOT DONE</div>
+            <sc-for list="{{ todo }}" as="t" hint-placeholder-count="2">
+              <div style="{{ t.row }}"><span style="{{ t.mark }}"></span>{{ t.text }}</div>
+            </sc-for>
+            <sc-if value="{{ notResumed }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; gap: 8px">
+                <button onClick="{{ resume }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Resume</button>
+                <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Review 6 changes</button>
+              </div>
+            </sc-if>
+          </div>
+          <div style="color: #8B92A0; line-height: 1.55">Resume starts at game check; steps already done are not redone. The 6 changes stay unkept until you review them.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mismatch -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">MISMATCH</div><div style="color: #B4BAC6; margin-top: 4px">The summary says more than the diff shows.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+          <div style="line-height: 1.6">Done. <span style="color: #FFFFFF; text-decoration: underline dashed #F2C14E; text-underline-offset: 3px">Three slimes patrol the lower floor</span> and the coins lead to the door. I left the door untouched.</div>
+          <div role="group" aria-labelledby="mismatch-title" style="border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+            <div id="mismatch-title" style="display: flex; align-items: center; gap: 8px; color: #F2C14E; font-weight: 600"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 3 20h18z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg>Summary says 3, review has 2</div>
+            <div style="border-radius: 8px; background: #101216; overflow: hidden">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; padding: 8px 12px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>WHAT</span><span>SUMMARY</span><span>REVIEW</span></div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; padding: 8px 12px; border-top: 1px solid #1F232A"><span>Slimes added</span><span>3</span><span style="color: #F2C14E; font-weight: 600">2</span></div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; padding: 8px 12px; border-top: 1px solid #1F232A; color: #B4BAC6"><span>Coins added</span><span>3</span><span>3</span></div>
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; padding: 8px 12px; border-top: 1px solid #1F232A; color: #B4BAC6"><span>Door</span><span>untouched</span><span>untouched</span></div>
+            </div>
+            <div style="color: #D9DDE5; line-height: 1.55">slime_03 was added at step 3 and removed again by the agent's own retry at step 5.</div>
+            <div style="display: flex; gap: 8px">
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Ask why</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Open review</button>
+            </div>
+          </div>
+          <div style="color: #8B92A0; line-height: 1.55">The editor checks every summary against the actual diff. The review, not the summary, is what Keep applies.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Offline -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">OFFLINE</div><div style="color: #B4BAC6; margin-top: 4px">No network; requests wait in a queue.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(255,107,107,0.10); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B; font-size: 11.5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M8.5 16a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4-2.3M19 12.5a10 10 0 0 0-3-1.9M2 9a14 14 0 0 1 4.5-2.8M22 9a14 14 0 0 0-10-3.9"></path><path d="M12 19.5v.01"></path></svg>Disconnected · offline</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #FFFFFF; font-weight: 600">You're offline</div>
+            <div style="color: #D9DDE5; line-height: 1.55">Select, move, the inspector, game check and Play all work. Requests wait here.</div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">QUEUED · {{ queueCount }}</span></div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{ queue }}" as="q" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span>{{ q.text }}</span><span style="color: #8B92A0; font-size: 11.5px">{{ q.meta }}</span></span>
+                <button aria-label="{{ q.label }}" onClick="{{ q.remove }}" style="width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #B4BAC6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"></path></svg></button>
+              </div>
+            </sc-for>
+            <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="color: #8B92A0">Nothing queued.</div>
+            </sc-if>
+          </div>
+          <div style="color: #8B92A0; line-height: 1.55">Back online, nothing runs on its own: each queued request waits for you to send it.</div>
+          <div style="flex: 1"></div>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 8px 8px 8px 12px; display: flex; align-items: center; gap: 8px">
+            <label for="offline-ask" style="position: absolute; left: -9999px">Queue a request</label>
+            <input id="offline-ask" type="text" placeholder="Queue a request…" style="flex: 1; height: 28px; border: 0; background: none; color: #FFFFFF; outline: none">
+            <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Queue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":1200}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { partial: 'ask', stuck: 'waiting', resumed: false, queue: ['spin', 'lever'] };
+  }
+  renderVals() {
+    const s = this.state;
+    const queueDefs = [
+      { id: 'spin', text: 'Make the coins spin slowly', meta: 'queued 14:10' },
+      { id: 'lever', text: 'Add a lever beside the door', meta: 'queued 14:12' },
+    ];
+    const queue = queueDefs.filter((q) => s.queue.indexOf(q.id) >= 0).map((q) => ({
+      ...q,
+      label: 'Remove “' + q.text + '” from the queue',
+      remove: () => this.setState({ queue: s.queue.filter((id) => id !== q.id) }),
+    }));
+    const todo = [
+      { text: 'Run game check', running: s.resumed },
+      { text: 'Play 10 s headless', running: false },
+    ].map((t) => ({
+      ...t,
+      row: 'display: flex; gap: 8px; color: ' + (t.running ? '#D9DDE5' : '#8B92A0'),
+      mark: 'width: 16px; height: 16px; flex: none; border-radius: 8px; box-sizing: border-box; ' + (t.running ? 'border: 2px solid #9B7BFF; border-right-color: transparent' : 'box-shadow: inset 0 0 0 1.5px #262B35'),
+    }));
+    const p = s.partial;
+    return {
+      partialOpen: p === 'ask' || p === 'point',
+      partialPointing: p === 'point',
+      partialAnother: p === 'another',
+      partialKept: p === 'kept',
+      partialWorking: p === 'another',
+      partialIdle: p !== 'another',
+      partialPointStyle: 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; color: #D9DDE5; box-shadow: 0 0 0 ' + (p === 'point' ? '1.5px #3B7BFF' : '1px #262B35'),
+      partialKeep: () => this.setState({ partial: 'kept' }),
+      partialPoint: () => this.setState({ partial: p === 'point' ? 'ask' : 'point' }),
+      partialTry: () => this.setState({ partial: 'another' }),
+      stuckWaiting: s.stuck === 'waiting',
+      stuckContinued: s.stuck === 'continued',
+      stuckStopped: s.stuck === 'stopped',
+      stuckContinue: () => this.setState({ stuck: 'continued' }),
+      stuckStop: () => this.setState({ stuck: 'stopped' }),
+      resumed: s.resumed, notResumed: !s.resumed,
+      stoppedTitle: s.resumed ? 'Resumed at game check' : 'Stopped at step 3 of 5',
+      resume: () => this.setState({ resumed: true }),
+      todo,
+      queue, queueCount: queue.length, queueEmpty: queue.length === 0,
+    };
+  }
+}
+</script>
+</body>
+</html>

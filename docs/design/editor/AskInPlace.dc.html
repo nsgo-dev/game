@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ask in place and history</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+  <div style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff"></div>
+    <span style="font-weight: 600; color: #ffffff">dungeon-run</span><span style="color: #8b92a0">/</span><span style="color: #b4bac6">level_01</span>
+    <div style="flex: 1"></div>
+    <button style="height: 30px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Play</button>
+  </div>
+  <div style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0">
+    <div class="vp" style="position: relative; overflow: hidden">
+      <div style="position: absolute; left: 80px; top: 80px; width: 760px; height: 428px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230,#181c24)"></div>
+      <div style="position: absolute; left: 80px; top: 440px; width: 760px; height: 68px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+      <div style="position: absolute; left: 300px; top: 420px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #4fd38a"></div>
+      <div style="position: absolute; left: 380px; top: 420px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #4fd38a"></div>
+      <div style="position: absolute; left: 292px; top: 412px; width: 126px; height: 36px; border-radius: 8px; box-shadow: 0 0 0 1.5px #3b7bff; background: rgba(59,123,255,0.06)"></div>
+      <div style="position: absolute; left: 292px; top: 390px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; background: #3b7bff; color: #101216; font-size: 10.5px; font-weight: 500">2 selected</div>
+      <div style="position: absolute; left: 292px; top: 462px; width: 420px; border-radius: 14px; background: #171a21; box-shadow: 0 0 0 1px #2a3a5c, 0 20px 50px rgba(0,0,0,0.55); padding: 12px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; gap: 6px">
+          <span style="height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4fd38a"></span>slime_01</span>
+          <span style="height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4fd38a"></span>slime_02</span>
+        </div>
+        <div style="color: #e6e9ef; font-size: 13.5px">make these two hop instead of walk, and a bit faster<span style="display: inline-block; width: 1.5px; height: 16px; background: #3b7bff; vertical-align: -3px; margin-left: 1px"></span></div>
+        <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 11.5px">
+          <span>Suggested:</span>
+          <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; box-shadow: 0 0 0 1px #2c3240; color: #b4bac6">Make them a prefab variant</span>
+          <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; box-shadow: 0 0 0 1px #2c3240; color: #b4bac6">Space them evenly</span>
+          <div style="flex: 1"></div>
+          <span style="font-family: 'JetBrains Mono', monospace">↵</span>
+        </div>
+      </div>
+      <div style="position: absolute; left: 20px; bottom: 20px; height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #2c3240; color: #8b92a0">⌘L asks about the selection · ⌘K searches · right-click “Ask the agent”</div>
+    </div>
+    <div style="border-left: 1px solid #1f232a; display: flex; flex-direction: column; background: #12141a">
+      <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid #1f232a"><span style="color: #ffffff; font-weight: 500">History</span><span style="color: #8b92a0">your edits and the agent's, one timeline</span></div>
+      <div style="flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 0">
+        <div style="display: flex; gap: 12px"><div style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 5px; background: #3b7bff; box-shadow: 0 0 0 4px rgba(59,123,255,0.2)"></span><span style="flex: 1; width: 1.5px; background: #262b35; min-height: 44px"></span></div><div style="padding-bottom: 14px"><div style="color: #ffffff">Now</div><div style="color: #8b92a0">unsaved</div></div></div>
+        <div style="display: flex; gap: 12px"><div style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 5px; background: #12141a; box-shadow: 0 0 0 1.5px #9b7bff"></span><span style="flex: 1; width: 1.5px; background: #262b35; min-height: 44px"></span></div><div style="padding-bottom: 14px"><div style="color: #e6e9ef">Agent · slimes and coins</div><div style="color: #8b92a0">6 changes · kept 5 · 2 min ago</div></div></div>
+        <div style="display: flex; gap: 12px"><div style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 5px; background: #12141a; box-shadow: 0 0 0 1.5px #8b92a0"></span><span style="flex: 1; width: 1.5px; background: #262b35; min-height: 44px"></span></div><div style="padding-bottom: 14px"><div style="color: #e6e9ef">You · moved Knight</div><div style="color: #8b92a0">x 416 → 452 · 4 min ago</div></div></div>
+        <div style="display: flex; gap: 12px"><div style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 5px; background: #12141a; box-shadow: 0 0 0 1.5px #9b7bff"></span><span style="flex: 1; width: 1.5px; background: #262b35; min-height: 44px"></span></div><div style="padding-bottom: 14px"><div style="color: #e6e9ef">Agent · built the first room</div><div style="color: #8b92a0">from the template · 18 changes · 12 min ago</div></div></div>
+        <div style="display: flex; gap: 12px"><div style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 5px; background: #12141a; box-shadow: 0 0 0 1.5px #4fd38a"></span></div><div><div style="color: #e6e9ef">Saved</div><div style="color: #8b92a0">level_01.scene.yaml · 15 min ago</div></div></div>
+      </div>
+      <div style="padding: 12px 16px; border-top: 1px solid #1f232a; color: #8b92a0; line-height: 1.6">Click a step to preview the scene at that point; Restore rolls back to it as one new step, so nothing is ever lost.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

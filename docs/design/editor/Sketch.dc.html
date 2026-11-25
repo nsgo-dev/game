@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sketch for the agent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+input::placeholder,textarea::placeholder{color:#8B92A0}
+</style>
+</helmet>
+<div style="width: 2960px; height: 900px; display: flex; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; border-right: 1px solid #1F232A">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span>
+        <span style="color: #8B92A0">/</span>
+        <span style="color: #B4BAC6">level_01</span>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+        <button aria-label="Select" title="Select · V" onClick="{{ stopSketch }}" style="{{ selectStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></button>
+        <button aria-label="Move" title="Move · W" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></button>
+        <button aria-label="Rotate" title="Rotate · E" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></button>
+        <button aria-label="Scale" title="Scale · R" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></button>
+        <button aria-label="Sketch" aria-pressed="{{ sketchPressed }}" title="Sketch · D" onClick="{{ startSketch }}" style="{{ sketchStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path><path d="M13.5 7l3.5 3.5"></path></svg></button>
+      </div>
+      <div style="flex: 1"></div>
+      <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span>Search</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌘K</span>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1F232A; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>SCENE</span><span style="font-weight: 500; letter-spacing: 0">8 nodes</span>
+        </div>
+        <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column">
+          <sc-for list="{{ tree }}" as="n" hint-placeholder-count="8">
+            <div style="{{ n.style }}">
+              <span style="{{ n.indent }}"></span>
+              <span style="{{ n.dot }}"></span>
+              <span style="flex: 1">{{ n.name }}</span>
+              <span style="color: #8B92A0; font-size: 11px">{{ n.kind }}</span>
+            </div>
+          </sc-for>
+          <div style="margin-top: 16px; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SKETCH LAYER</div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path></svg>
+            <span style="flex: 1">{{ markCount }} marks</span><span style="color: #8B92A0; font-size: 11px">not saved</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0">
+        <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+          <div style="position: absolute; left: 48px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2C3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+          <div style="position: absolute; left: 48px; top: 42px; font-size: 11px; color: #8B92A0">Camera · 640 × 360</div>
+          <div style="position: absolute; left: 48px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 392px; top: 320px; width: 150px; height: 14px; border-radius: 2px; background: #333a47"></div>
+          <div style="position: absolute; left: 132px; top: 350px; width: 26px; height: 46px; border-radius: 6px; background: #4f8cff"></div>
+          <div style="position: absolute; left: 444px; top: 286px; width: 24px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+          <div style="position: absolute; left: 632px; top: 356px; width: 30px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+          <div style="position: absolute; left: 684px; top: 236px; width: 68px; height: 14px; border-radius: 2px; background: #333a47"></div>
+
+          <div style="{{ marksStyle }}">
+            <svg width="828" height="824" viewBox="0 0 828 824" aria-hidden="true" style="position: absolute; left: 0; top: 0">
+              <g fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="236" y="360" width="120" height="36" rx="3"></rect>
+                <path d="M584 252 C 600 238, 618 266, 636 250 S 668 236, 684 252 S 700 262, 712 250"></path>
+                <path d="M594 243 l-10 9 10 8 M702 241 l10 9 -9 8"></path>
+                <path d="M560 186 L634 330 M634.7 316.1 L634 330 L622.3 322.5"></path>
+              </g>
+              <g fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="236" y="360" width="120" height="36" rx="3"></rect>
+                <path d="M584 252 C 600 238, 618 266, 636 250 S 668 236, 684 252 S 700 262, 712 250"></path>
+                <path d="M594 243 l-10 9 10 8 M702 241 l10 9 -9 8"></path>
+                <path d="M560 186 L634 330 M634.7 316.1 L634 330 L622.3 322.5"></path>
+              </g>
+            </svg>
+            <span style="position: absolute; left: 226px; top: 350px; width: 18px; height: 18px; border-radius: 9px; background: #FFFFFF; color: #101216; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">1</span>
+            <span style="position: absolute; left: 248px; top: 334px; color: #FFFFFF; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.9)">3 spikes</span>
+            <span style="position: absolute; left: 566px; top: 242px; width: 18px; height: 18px; border-radius: 9px; background: #FFFFFF; color: #101216; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">2</span>
+            <span style="position: absolute; left: 596px; top: 212px; color: #FFFFFF; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.9)">platform, back and forth</span>
+            <span style="position: absolute; left: 550px; top: 172px; width: 18px; height: 18px; border-radius: 9px; background: #FFFFFF; color: #101216; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">3</span>
+            <span style="position: absolute; left: 432px; top: 150px; color: #FFFFFF; font-weight: 500; text-shadow: 0 1px 3px rgba(0,0,0,0.9)">locked until the lever</span>
+          </div>
+
+          <sc-if value="{{ sketching }}" hint-placeholder-val="{{ true }}">
+            <div style="position: absolute; left: 50%; top: 16px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px">
+              <div role="toolbar" aria-label="Sketch tools" style="display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(23,26,33,0.96); box-shadow: 0 0 0 1px #262B35, 0 10px 30px rgba(0,0,0,0.45)">
+                <sc-for list="{{ pens }}" as="t" hint-placeholder-count="4">
+                  <button aria-label="{{ t.label }}" aria-pressed="{{ t.pressed }}" title="{{ t.title }}" onClick="{{ t.pick }}" style="{{ t.style }}">
+                    <sc-if value="{{ t.isPen }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c3-6 5-9 7-9s1 7 4 7 3-5 7-8"></path></svg></sc-if>
+                    <sc-if value="{{ t.isArrow }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19L19 5M10 5h9v9"></path></svg></sc-if>
+                    <sc-if value="{{ t.isBox }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1.5"></rect></svg></sc-if>
+                    <sc-if value="{{ t.isText }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 7V5h14v2M12 5v14M9 19h6"></path></svg></sc-if>
+                  </button>
+                </sc-for>
+                <span style="width: 1px; height: 16px; background: #262B35; margin: 0 4px"></span>
+                <button aria-label="Undo last mark" title="Undo last mark · ⌘Z" style="width: 32px; height: 28px; border-radius: 6px; border: 0; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg></button>
+                <button aria-label="{{ eyeLabel }}" aria-pressed="{{ hiddenPressed }}" onClick="{{ toggleMarks }}" style="{{ eyeStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                <button style="display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6">Clear</button>
+                <span style="width: 1px; height: 16px; background: #262B35; margin: 0 4px"></span>
+                <button onClick="{{ stopSketch }}" style="display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 12px; border-radius: 6px; border: 0; background: #FFFFFF; color: #101216; font-weight: 500">Done</button>
+              </div>
+              <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: rgba(16,18,22,0.9); color: #B4BAC6; font-size: 11.5px">{{ penHint }}</span>
+            </div>
+          </sc-if>
+        </div>
+        <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+          <span>Sketch layer</span><span>scene 465, 111</span><span>{{ toolLabel }}</span>
+          <div style="flex: 1"></div>
+          <span>Esc finishes the sketch · marks stay until sent or cleared</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1F232A; min-height: 0; background: #12141A">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span>
+          <div style="flex: 1"></div>
+          <span title="Connected · Claude Code over MCP" style="display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #8B92A0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>MCP</span>
+        </div>
+        <div style="flex: 1; min-height: 0; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #D9DDE5"><span style="width: 16px; height: 16px; border-radius: 8px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span><span style="flex: 1">Ledge for the door side</span><span style="color: #8B92A0; font-size: 11.5px">kept 1 of 1 · 15:02</span></div>
+        </div>
+
+        <div style="padding: 12px; border-top: 1px solid #1F232A; position: relative">
+          <sc-if value="{{ previewOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="position: absolute; left: 12px; right: 12px; bottom: calc(100% - 4px); z-index: 4; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: baseline; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Sent with this request</span><span style="color: #8B92A0; font-size: 11.5px">scene coordinates</span></div>
+              <svg width="332" height="187" viewBox="48 64 704 396" role="img" aria-label="Viewport image with the three marks" style="border-radius: 8px; box-shadow: 0 0 0 1px #262B35; background: #1a1f2a">
+                <rect x="48" y="396" width="704" height="64" fill="#2a2f3a"></rect>
+                <rect x="392" y="320" width="150" height="14" fill="#333a47"></rect>
+                <rect x="684" y="236" width="68" height="14" fill="#333a47"></rect>
+                <rect x="132" y="350" width="26" height="46" rx="6" fill="#4f8cff"></rect>
+                <rect x="444" y="286" width="24" height="34" rx="5" fill="#e9a84a"></rect>
+                <rect x="632" y="356" width="30" height="40" rx="4" fill="#6b5a45"></rect>
+                <g fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="236" y="360" width="120" height="36" rx="3"></rect>
+                  <path d="M584 252 C 600 238, 618 266, 636 250 S 668 236, 684 252 S 700 262, 712 250"></path>
+                  <path d="M560 186 L634 330 M634.7 316.1 L634 330 L622.3 322.5"></path>
+                </g>
+              </svg>
+              <div style="display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.5">
+                <sc-for list="{{ shapes }}" as="h" hint-placeholder-count="3">
+                  <div style="display: flex; gap: 8px"><span style="color: #FFFFFF; width: 12px; flex: none">{{ h.n }}</span><span style="color: #B4BAC6">{{ h.geo }}</span></div>
+                  <div style="display: flex; gap: 8px; margin-bottom: 4px"><span style="width: 12px; flex: none"></span><span style="color: #8B92A0">“{{ h.label }}”</span></div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center">
+              <sc-if value="{{ hasSketch }}" hint-placeholder-val="{{ true }}">
+                <span style="{{ sketchChipStyle }}">
+                  <button onClick="{{ togglePreview }}" aria-expanded="{{ previewExpanded }}" aria-label="Sketch, 3 marks. Show what is sent" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 4px; border: 0; background: none; color: #FFFFFF; font-size: 11.5px">
+                    <svg width="40" height="24" viewBox="48 64 704 396" aria-hidden="true" style="border-radius: 4px; background: #1a1f2a"><rect x="48" y="396" width="704" height="64" fill="#2a2f3a"></rect><g fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="round"><rect x="236" y="360" width="120" height="36"></rect><path d="M584 252 C 620 230, 660 270, 712 250"></path><path d="M560 186 L634 330"></path></g></svg>
+                    Sketch · 3 marks
+                  </button>
+                  <button aria-label="Remove the sketch from the request" onClick="{{ removeSketch }}" style="width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"></path></svg></button>
+                </span>
+              </sc-if>
+              <sc-if value="{{ hasImage }}" hint-placeholder-val="{{ true }}">
+                <span style="height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 2px 0 4px; border-radius: 6px; background: #262B35; color: #FFFFFF; font-size: 11.5px">
+                  <span style="width: 32px; height: 24px; border-radius: 4px; background: linear-gradient(180deg,#3b3530,#2a2520); display: flex; align-items: flex-end; justify-content: center; gap: 2px; overflow: hidden"><span style="width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 12px solid #a26b45"></span><span style="width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 12px solid #a26b45"></span><span style="width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 12px solid #a26b45"></span></span>
+                  spikes_ref.png
+                  <button onClick="{{ togglePin }}" aria-pressed="{{ pinnedAttr }}" title="{{ pinTitle }}" style="{{ pinStyle }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"></path><path d="M12 15v6"></path></svg>{{ pinText }}</button>
+                  <button aria-label="Remove spikes_ref.png from the request" onClick="{{ removeImage }}" style="width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"></path></svg></button>
+                </span>
+              </sc-if>
+            </div>
+            <label for="sketch-prompt" style="position: absolute; left: -9999px">Ask the agent</label>
+            <textarea id="sketch-prompt" rows="3" style="resize: none; border: 0; outline: none; background: none; color: #FFFFFF; line-height: 1.5; padding: 0">Build what I sketched. Spikes should look like the reference image.</textarea>
+            <div style="display: flex; align-items: center; gap: 4px">
+              <button aria-label="Mention a file, object or asset" title="Mention · @" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path></svg></button>
+              <button aria-label="Attach an image" title="Attach an image · paste or drop" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="M21 16l-5-5-8 8"></path></svg></button>
+              <button aria-label="Sketch on the viewport" title="Sketch · D" onClick="{{ startSketch }}" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path><path d="M13.5 7l3.5 3.5"></path></svg></button>
+              <div style="flex: 1"></div>
+              <span title="Context · 22% used" style="display: flex; padding: 0 4px"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#262B35" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#B4BAC6" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="9.7 44" transform="rotate(-90 10 10)"></circle></svg></span>
+              <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-width: 0; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: baseline; gap: 16px">
+      <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Sketch for the agent</span>
+      <span style="color: #B4BAC6">Point at places that have nothing in them yet. The agent restates each mark before it edits, and review shows the sketch over the result.</span>
+    </div>
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 380px); gap: 48px">
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">THE AGENT'S READING</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+          <div style="align-self: flex-end; max-width: 300px; padding: 8px; border-radius: 12px 12px 4px 12px; background: #1c2130; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 4px">
+              <svg width="72" height="40" viewBox="48 64 704 396" aria-hidden="true" style="border-radius: 6px; background: #1a1f2a"><rect x="48" y="396" width="704" height="64" fill="#2a2f3a"></rect><g fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"><rect x="236" y="360" width="120" height="36"></rect><path d="M584 252 C 620 230, 660 270, 712 250"></path><path d="M560 186 L634 330"></path></g></svg>
+              <span style="width: 56px; height: 40px; border-radius: 6px; background: linear-gradient(180deg,#3b3530,#2a2520)"></span>
+            </div>
+            <span style="color: #FFFFFF; line-height: 1.5; padding: 0 4px">Build what I sketched. Spikes should look like the reference image.</span>
+          </div>
+          <div style="color: #D9DDE5">I read your sketch as:</div>
+          <sc-for list="{{ reading }}" as="r" hint-placeholder-count="3">
+            <div style="display: flex; gap: 8px; line-height: 1.5">
+              <span style="width: 18px; height: 18px; flex: none; border-radius: 9px; background: #FFFFFF; color: #101216; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{ r.n }}</span>
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="color: #8B92A0; font-size: 11.5px">{{ r.mark }}</span><span style="color: #D9DDE5">{{ r.text }}</span></span>
+            </div>
+          </sc-for>
+          <div style="border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; padding: 8px 12px; color: #F2C14E; line-height: 1.5">There is no lever in level_01 yet. I will add lever_01 left of the plank at x 295 unless you point somewhere else.</div>
+          <div style="display: flex; gap: 8px">
+            <button style="display: flex; align-items: center; justify-content: center; height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 500">Go ahead</button>
+            <button style="display: flex; align-items: center; justify-content: center; height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Correct a mark</button>
+          </div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">Numbers match the badges on the viewport. Correct a mark reopens the sketch with that mark selected; replying in words works too.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">REVIEW WITH THE SKETCH</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; overflow: hidden">
+          <div style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid #1F232A">
+            <span style="color: #FFFFFF; font-weight: 500; flex: 1">5 changes</span>
+            <button aria-pressed="true" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF; font-size: 11.5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path></svg>Sketch overlay</button>
+          </div>
+          <svg width="380" height="214" viewBox="48 64 704 396" role="img" aria-label="Result with the sketch drawn faintly over it" style="display: block; background: #1a1f2a">
+            <rect x="48" y="396" width="704" height="64" fill="#2a2f3a"></rect>
+            <rect x="392" y="320" width="150" height="14" fill="#333a47"></rect>
+            <rect x="684" y="236" width="68" height="14" fill="#333a47"></rect>
+            <rect x="132" y="350" width="26" height="46" rx="6" fill="#4f8cff"></rect>
+            <rect x="444" y="286" width="24" height="34" rx="5" fill="#e9a84a"></rect>
+            <path d="M248 396l16-28 16 28zM288 396l16-28 16 28zM328 396l16-28 16 28z" fill="rgba(79,211,138,0.35)"></path>
+            <rect x="242" y="362" width="124" height="38" rx="3" fill="none" stroke="#4FD38A" stroke-width="2.5" stroke-dasharray="8 6"></rect>
+            <rect x="590" y="246" width="70" height="12" rx="2" fill="rgba(79,211,138,0.35)" stroke="#4FD38A" stroke-width="2.5" stroke-dasharray="8 6"></rect>
+            <rect x="372" y="368" width="10" height="28" rx="3" fill="rgba(79,211,138,0.35)" stroke="#4FD38A" stroke-width="2.5" stroke-dasharray="8 6"></rect>
+            <rect x="632" y="356" width="30" height="40" rx="4" fill="#6b5a45"></rect>
+            <rect x="626" y="350" width="42" height="52" rx="6" fill="none" stroke="#E9A84A" stroke-width="2.5" stroke-dasharray="8 6"></rect>
+            <g fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 7">
+              <rect x="236" y="360" width="120" height="36" rx="3"></rect>
+              <path d="M584 252 C 600 238, 618 266, 636 250 S 668 236, 684 252 S 700 262, 712 250"></path>
+              <path d="M560 186 L634 330"></path>
+            </g>
+          </svg>
+          <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: #B4BAC6">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4FD38A"></span>added · spikes ×3, moving_platform, lever_01</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #E9A84A"></span>changed · Door.locked_until: lever_01</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 0; border-top: 2px dotted rgba(255,255,255,0.6)"></span>your sketch</span>
+          </div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">The sketch sits over the result so a mark the agent missed is easy to spot. Keep clears the sketch layer; Revert leaves it in place to send again.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PASTE OR DROP AN IMAGE</div>
+        <div style="height: 96px; border-radius: 12px; background: rgba(59,123,255,0.08); box-shadow: inset 0 0 0 1.5px #3B7BFF; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8fb3ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5"></path><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"></path></svg>
+          <span style="color: #FFFFFF; font-weight: 500">Drop to attach</span>
+          <span style="color: #B4BAC6; font-size: 11.5px">PNG, JPEG or WebP · sent with this request only</span>
+        </div>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 12px">PIN TO BRIEF</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+            <span style="color: #FFFFFF">Pinned spikes_ref.png</span>
+            <div style="flex: 1"></div>
+            <button style="display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px">Undo</button>
+          </div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #1F232A; padding: 8px 0">
+            <sc-for list="{{ briefDiff }}" as="l" hint-placeholder-count="7">
+              <div style="{{ l.style }}"><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="white-space: pre">{{ l.text }}</span></div>
+            </sc-for>
+          </div>
+          <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Copied to art/reference/spikes_ref.png. Every later request reads it through brief.yaml.</div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">An attached image is used once. Pin to brief keeps it for the whole project, as a file and a line of YAML anyone can review or delete.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sketching: true, pen: 'arrow', hidden: false, preview: true, sketch: true, image: true, pinned: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const treeDefs = [
+      { name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'Actors', kind: 'layer', depth: 0, color: '#8B92A0' },
+      { name: 'Player', kind: 'prefab', depth: 1, color: '#4f8cff' },
+      { name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45' },
+      { name: 'ledge_02', kind: 'tiles', depth: 1, color: '#8B92A0' },
+      { name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'HUD', kind: 'screen', depth: 0, color: '#8B92A0' },
+    ];
+    const tree = treeDefs.map((n) => ({
+      ...n,
+      style: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #B4BAC6',
+      indent: 'width: ' + (n.depth * 12) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+    }));
+    const penDefs = [
+      { id: 'pen', label: 'Pen', key: 'P', hint: 'Pen · drag to draw a free line' },
+      { id: 'arrow', label: 'Arrow', key: 'A', hint: 'Arrow · drag from where to where' },
+      { id: 'box', label: 'Box', key: 'B', hint: 'Box · drag to mark an area' },
+      { id: 'text', label: 'Text', key: 'T', hint: 'Text · click to write a short label' },
+    ];
+    const pens = penDefs.map((t) => ({
+      ...t,
+      title: t.label + ' · ' + t.key,
+      pressed: s.pen === t.id ? 'true' : 'false',
+      isPen: t.id === 'pen', isArrow: t.id === 'arrow', isBox: t.id === 'box', isText: t.id === 'text',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.pen === t.id ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      pick: () => this.setState({ pen: t.id, sketching: true }),
+    }));
+    const pen = penDefs.find((t) => t.id === s.pen) || penDefs[1];
+    const tool = (on) => 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (on ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #8B92A0');
+    const shapes = [
+      { n: '1', geo: 'rect 171,269 109×33', label: '3 spikes' },
+      { n: '2', geo: 'path 487,171 → 604,169 · 18 points', label: 'platform, back and forth' },
+      { n: '3', geo: 'arrow 465,111 → 533,242', label: 'locked until the lever' },
+    ];
+    const reading = [
+      { n: '1', mark: 'Box · “3 spikes”', text: 'Three spike tiles on the floor from x 171 to 280, using prefabs/spikes.prefab.yaml, 1 damage each.' },
+      { n: '2', mark: 'Line · “platform, back and forth”', text: 'A new moving_platform, 64 px wide, going back and forth between x 487 and 604 at 40 px/s.' },
+      { n: '3', mark: 'Arrow at Door · “locked until the lever”', text: 'Door stays locked until lever_01 is pulled once.' },
+    ];
+    const briefDiff = [
+      { sign: '', text: 'art:' },
+      { sign: '', text: '  direction: chunky pixel art, 16 px tiles' },
+      { sign: '', text: '  references:' },
+      { sign: '', text: '    - path: art/reference/torch_ref.png' },
+      { sign: '+', text: '    - path: art/reference/spikes_ref.png', add: true },
+      { sign: '+', text: '      note: rusty iron spikes, three per tile', add: true },
+    ].map((l) => ({ ...l, style: 'display: flex; padding: 0 12px; ' + (l.add ? 'background: rgba(79,211,138,0.08); color: #b9f0cf' : 'color: #8B92A0') }));
+    return {
+      tree, pens, shapes, reading, briefDiff,
+      markCount: s.sketch ? 3 : 0,
+      sketching: s.sketching,
+      sketchPressed: s.sketching ? 'true' : 'false',
+      selectStyle: tool(!s.sketching), sketchStyle: tool(s.sketching),
+      startSketch: () => this.setState({ sketching: true, sketch: true }),
+      stopSketch: () => this.setState({ sketching: false }),
+      toolLabel: s.sketching ? 'Sketch · ' + pen.label : 'Select',
+      penHint: pen.hint,
+      marksStyle: 'position: absolute; inset: 0; pointer-events: none; ' + (!s.sketch || s.hidden ? 'display: none' : s.sketching ? '' : 'opacity: 0.6'),
+      eyeLabel: s.hidden ? 'Show marks' : 'Hide marks',
+      hiddenPressed: s.hidden ? 'true' : 'false',
+      eyeStyle: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.hidden ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      toggleMarks: () => this.setState({ hidden: !s.hidden }),
+      hasSketch: s.sketch,
+      previewOpen: s.sketch && s.preview,
+      previewExpanded: s.preview ? 'true' : 'false',
+      togglePreview: () => this.setState({ preview: !s.preview }),
+      sketchChipStyle: 'height: 32px; display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 0; border-radius: 6px; background: #262B35; ' + (s.preview ? 'box-shadow: 0 0 0 1px #3B7BFF' : ''),
+      removeSketch: () => this.setState({ sketch: false, preview: false }),
+      hasImage: s.image,
+      removeImage: () => this.setState({ image: false }),
+      pinnedAttr: s.pinned ? 'true' : 'false',
+      pinText: s.pinned ? 'Pinned' : 'Pin to brief',
+      pinTitle: s.pinned ? 'Saved to art/reference/ and listed in brief.yaml' : 'Save to art/reference/ and add it to brief.yaml',
+      pinStyle: 'height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; border: 0; font-size: 11px; ' + (s.pinned ? 'background: #1f3a2b; color: #4FD38A' : 'background: #171A21; color: #D9DDE5'),
+      togglePin: () => this.setState({ pinned: !s.pinned }),
+    };
+  }
+}
+</script>
+</body>
+</html>

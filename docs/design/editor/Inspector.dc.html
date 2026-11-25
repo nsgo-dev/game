@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inspector and scene editing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+::placeholder{color:#8b92a0;opacity:1}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">level_01</span>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #e9a84a" aria-label="unsaved changes" role="img"></span>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="5">
+        <button aria-label="{{ t.label }}" aria-pressed="{{ t.on }}" title="{{ t.label }} · {{ t.key }}" onClick="{{ t.pick }}" style="{{ t.style }}">
+          <sc-if value="{{ t.isSelect }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></sc-if>
+          <sc-if value="{{ t.isMove }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></sc-if>
+          <sc-if value="{{ t.isRotate }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></sc-if>
+          <sc-if value="{{ t.isScale }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></sc-if>
+          <sc-if value="{{ t.isPan }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-7a1.5 1.5 0 0 1 3 0V12M14 12V6.5a1.5 1.5 0 0 1 3 0V13M8 13l-1.6-1.6a1.6 1.6 0 0 0-2.3 2.3L8 18c1.3 1.6 3 2.5 5 2.5h1a5 5 0 0 0 5-5V9.5a1.5 1.5 0 0 0-3 0"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="flex: 1"></div>
+    <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #b4bac6">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #b4bac6">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span>Search</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘K</span>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 220px minmax(0, 1fr) 316px 300px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>SCENE</span>
+        <span style="font-weight: 400; letter-spacing: 0; font-size: 11.5px">{{ nodeCount }}</span>
+      </div>
+      <div role="tree" aria-label="level_01 nodes" style="flex: 1; padding: 0 6px; display: flex; flex-direction: column; overflow: hidden">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="12">
+          <div role="treeitem" aria-selected="{{ n.selected }}" style="{{ n.row }}">
+            <button onClick="{{ n.pick }}" style="{{ n.btn }}">
+              <span style="{{ n.indent }}"></span>
+              <span style="{{ n.dot }}"></span>
+              <span style="{{ n.nameStyle }}">{{ n.name }}</span>
+              <sc-if value="{{ n.showKind }}" hint-placeholder-val="{{ true }}"><span style="color: #8b92a0; font-size: 11px; flex: none">{{ n.kind }}</span></sc-if>
+            </button>
+            <sc-if value="{{ n.showToggles }}" hint-placeholder-val="{{ false }}">
+              <button aria-label="{{ n.eyeLabel }}" title="{{ n.eyeLabel }} · H" onClick="{{ n.toggleEye }}" style="{{ n.eyeStyle }}">
+                <sc-if value="{{ n.hidden }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9M6.6 6.6C3.9 8.4 2 12 2 12s3.6 7 10 7c1.8 0 3.4-.5 4.8-1.3"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></sc-if>
+                <sc-if value="{{ n.visible }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></sc-if>
+              </button>
+              <button aria-label="{{ n.lockLabel }}" title="{{ n.lockTitle }}" onClick="{{ n.toggleLock }}" style="{{ n.lockStyle }}">
+                <sc-if value="{{ n.locked }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></sc-if>
+                <sc-if value="{{ n.unlocked }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 7.5-2"></path></svg></sc-if>
+              </button>
+            </sc-if>
+          </div>
+        </sc-for>
+        <div style="padding: 8px 8px 0; color: #8b92a0; font-size: 11.5px; line-height: 1.5">⇧ click adds to the selection · drag a row to reparent</div>
+      </div>
+      <div style="padding: 8px; border-top: 1px solid #1f232a; display: flex; flex-direction: column; gap: 4px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 4px">FILES</div>
+        <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4f8cff"></span>scenes/level_01.scene.yaml</div>
+        <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #9b7bff"></span>prefabs/slime.prefab.yaml</div>
+        <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #8b92a0"></span>game.yaml</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+      <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 36px; top: 48px; font-size: 11px; color: #8b92a0">Camera · 640 × 360</div>
+        <div style="position: absolute; left: 36px; top: 72px; width: 532px; height: 300px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+        <div style="position: absolute; left: 36px; top: 324px; width: 532px; height: 45px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+        <div style="position: absolute; left: 300px; top: 270px; width: 130px; height: 10px; border-radius: 2px; background: #333a47"></div>
+
+        <sc-if value="{{ ov.navigation }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 36px; top: 317px; width: 466px; height: 7px; background: rgba(180,186,198,0.18); border-top: 1px dotted #b4bac6"></div>
+          <div style="position: absolute; left: 300px; top: 263px; width: 130px; height: 7px; background: rgba(180,186,198,0.18); border-top: 1px dotted #b4bac6"></div>
+          <svg width="604" height="420" viewBox="0 0 604 420" style="position: absolute; left: 0; top: 0; pointer-events: none" aria-hidden="true">
+            <path d="M282 318 Q 286 262 302 264" fill="none" stroke="#b4bac6" stroke-width="1.2" stroke-dasharray="1.5 3"></path>
+            <path d="M430 264 Q 446 262 452 318" fill="none" stroke="#b4bac6" stroke-width="1.2" stroke-dasharray="1.5 3"></path>
+          </svg>
+          <div style="position: absolute; left: 236px; top: 248px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #b4bac6">jump</div>
+          <div style="position: absolute; left: 456px; top: 282px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #b4bac6">drop</div>
+        </sc-if>
+
+        <sc-if value="{{ ov.camera }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: 20px; top: 64px; width: 562px; height: 316px; border: 1px dotted #8b92a0; border-radius: 2px"></div>
+          <div style="position: absolute; left: 488px; top: 388px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8b92a0">bounds 1280 × 720</div>
+        </sc-if>
+
+        <sc-if value="{{ ov.triggers }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 494px; top: 274px; width: 58px; height: 50px; border-radius: 2px; border: 1px dotted #f2c14e; background: rgba(242,193,78,0.08)"></div>
+          <div style="position: absolute; left: 152px; top: 282px; width: 42px; height: 42px; border-radius: 21px; border: 1px dotted #f2c14e; background: rgba(242,193,78,0.08)"></div>
+          <div style="position: absolute; left: 494px; top: 258px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #f2c14e">on_enter</div>
+        </sc-if>
+
+        <sc-for list="{{ objs }}" as="o" hint-placeholder-count="10">
+          <div style="{{ o.style }}"></div>
+        </sc-for>
+
+        <sc-if value="{{ ov.collision }}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{ shapes }}" as="c" hint-placeholder-count="6">
+            <div style="{{ c.style }}"></div>
+          </sc-for>
+          <div style="position: absolute; left: 36px; top: 324px; width: 532px; height: 0; border-top: 1px solid rgba(180,186,198,0.85)"></div>
+          <div style="position: absolute; left: 300px; top: 270px; width: 130px; height: 10px; box-sizing: border-box; border: 1px solid rgba(180,186,198,0.85); border-radius: 2px"></div>
+        </sc-if>
+
+        <sc-if value="{{ ov.paths }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: 206px; top: 330px; width: 120px; height: 0; border-top: 1.2px dotted #b4bac6"></div>
+          <div style="position: absolute; left: 258px; top: 336px; width: 62px; height: 0; border-top: 1.2px dotted #b4bac6"></div>
+          <div style="position: absolute; left: 330px; top: 286px; width: 92px; height: 0; border-top: 1.2px dotted #b4bac6"></div>
+          <div style="position: absolute; left: 206px; top: 326px; width: 1px; height: 8px; background: #b4bac6"></div>
+          <div style="position: absolute; left: 326px; top: 326px; width: 1px; height: 8px; background: #b4bac6"></div>
+        </sc-if>
+
+        <sc-if value="{{ ov.connections }}" hint-placeholder-val="{{ true }}">
+          <svg width="604" height="420" viewBox="0 0 604 420" style="position: absolute; left: 0; top: 0; pointer-events: none" aria-hidden="true">
+            <path d="M173 296 C 250 170, 440 170, 520 280" fill="none" stroke="#8fb3ff" stroke-width="1.5"></path>
+            <path d="M513 270 L 520 281 L 524 268" fill="none" stroke="#8fb3ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            <circle cx="173" cy="296" r="3" fill="#8fb3ff"></circle>
+          </svg>
+          <div style="position: absolute; left: 290px; top: 190px; height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #2a3a5c; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #b9cfff">pulled → open</div>
+        </sc-if>
+
+        <sc-if value="{{ ov.labels }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ labels }}" as="l" hint-placeholder-count="6">
+            <div style="{{ l.style }}">{{ l.text }}</div>
+          </sc-for>
+        </sc-if>
+
+        <sc-for list="{{ selBoxes }}" as="b" hint-placeholder-count="1">
+          <div style="{{ b.style }}"></div>
+        </sc-for>
+        <sc-if value="{{ single }}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{ handles }}" as="h" hint-placeholder-count="4">
+            <div style="{{ h.style }}"></div>
+          </sc-for>
+        </sc-if>
+        <sc-if value="{{ hasSelChip }}" hint-placeholder-val="{{ true }}">
+          <div style="{{ selChipStyle }}">{{ selChipText }}</div>
+        </sc-if>
+
+        <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="position: absolute; left: 50%; top: 16px; transform: translateX(-50%); height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 30px rgba(0,0,0,0.45); color: #d9dde5; white-space: nowrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+            <span>{{ toastText }}</span>
+            <button aria-label="Dismiss" onClick="{{ dismissToast }}" style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #8b92a0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ menuContext }}" hint-placeholder-val="{{ true }}">
+          <div role="menu" aria-label="{{ menuTitle }}" style="position: absolute; left: 288px; top: 330px; width: 236px; padding: 4px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 16px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+            <div style="height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #8b92a0; font-size: 11.5px"><span>{{ menuTitle }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ menuSub }}</span></div>
+            <button role="menuitem" onClick="{{ act.copy }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: #20252f; color: #ffffff; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg><span style="flex: 1">Copy as YAML</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘C</span></button>
+            <button role="menuitem" onClick="{{ act.paste }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6v4H9z"></path><path d="M15 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path></svg><span style="flex: 1">Paste</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘V</span></button>
+            <button role="menuitem" onClick="{{ act.duplicate }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V6a2 2 0 0 1 2-2h9"></path><path d="M14.5 12v5M12 14.5h5"></path></svg><span style="flex: 1">Duplicate</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘D</span></button>
+            <div style="height: 1px; margin: 4px 8px; background: #262b35"></div>
+            <button role="menuitem" onClick="{{ act.group }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" stroke-dasharray="3 3"></rect><rect x="7" y="7" width="5" height="5" rx="1"></rect><rect x="12" y="12" width="5" height="5" rx="1"></rect></svg><span style="flex: 1">Group</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘G</span></button>
+            <button role="menuitem" aria-haspopup="menu" aria-expanded="{{ reparentOpen }}" onClick="{{ act.reparent }}" style="{{ reparentStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v8a4 4 0 0 0 4 4h9"></path><path d="m15 12 4 4-4 4"></path></svg><span style="flex: 1">Move under</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg></button>
+            <button role="menuitem" onClick="{{ act.sameprefab }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"></path><path d="m12 7 4 2.5v5L12 17l-4-2.5v-5z"></path></svg><span style="flex: 1">Select same prefab</span></button>
+            <div style="height: 1px; margin: 4px 8px; background: #262b35"></div>
+            <button role="menuitemcheckbox" aria-checked="{{ selHidden }}" onClick="{{ act.hide }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.1 3.9M6.6 6.6C3.9 8.4 2 12 2 12s3.6 7 10 7c1.8 0 3.4-.5 4.8-1.3"></path></svg><span style="flex: 1">{{ hideText }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">H</span></button>
+            <button role="menuitemcheckbox" aria-checked="{{ selLocked }}" onClick="{{ act.lock }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span style="flex: 1">{{ lockText }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">L</span></button>
+            <div style="height: 1px; margin: 4px 8px; background: #262b35"></div>
+            <button role="menuitem" onClick="{{ act.usages }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span style="flex: 1">Find usages</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⇧F12</span></button>
+            <button role="menuitem" onClick="{{ act.rename }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m14 6 4 4"></path></svg><span style="flex: 1">Rename</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">F2</span></button>
+            <div style="height: 1px; margin: 4px 8px; background: #262b35"></div>
+            <button role="menuitem" onClick="{{ act.ask }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg><span style="flex: 1">Ask the agent about this</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘L</span></button>
+          </div>
+          <sc-if value="{{ reparentOpen }}" hint-placeholder-val="{{ false }}">
+            <div role="menu" aria-label="Move under" style="position: absolute; left: 116px; top: 476px; width: 168px; padding: 4px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 16px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+              <sc-for list="{{ parents }}" as="p" hint-placeholder-count="4">
+                <button role="menuitem" onClick="{{ p.pick }}" style="{{ p.style }}"><span style="{{ p.dot }}"></span><span style="flex: 1">{{ p.name }}</span><span style="color: #8b92a0; font-size: 11px">{{ p.note }}</span></button>
+              </sc-for>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%)">
+          <div style="position: relative; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,33,0.94); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+            <button aria-label="Zoom out" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+            <span style="width: 48px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">166%</span>
+            <button aria-label="Zoom in" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+            <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+            <button aria-pressed="true" style="height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: #2a2f3a; color: #ffffff">Snap</button>
+            <button style="height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: #b4bac6">Fit</button>
+            <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+            <button aria-haspopup="menu" aria-expanded="{{ menuOverlays }}" onClick="{{ toggleOverlays }}" style="{{ overlaysBtnStyle }}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"></path><path d="m3 13 9 5 9-5"></path></svg>
+              <span>Overlays</span>
+              <span style="min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: #2a2f3a; color: #ffffff; font-size: 10.5px; display: flex; align-items: center; justify-content: center">{{ ovCount }}</span>
+            </button>
+
+            <sc-if value="{{ menuOverlays }}" hint-placeholder-val="{{ false }}">
+              <div role="menu" aria-label="Viewport overlays" style="position: absolute; right: 0; bottom: 44px; width: 264px; padding: 4px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 16px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+                <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SHOW IN VIEWPORT</div>
+                <sc-for list="{{ overlayItems }}" as="oi" hint-placeholder-count="7">
+                  <button role="menuitemcheckbox" aria-checked="{{ oi.on }}" onClick="{{ oi.toggle }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5; text-align: left">
+                    <span style="{{ oi.check }}"><sc-if value="{{ oi.on }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if></span>
+                    <span style="{{ oi.swatch }}"></span>
+                    <span style="flex: 1">{{ oi.label }}</span>
+                    <span style="color: #8b92a0; font-size: 11px">{{ oi.meta }}</span>
+                  </button>
+                </sc-for>
+                <div style="height: 1px; margin: 4px 8px; background: #262b35"></div>
+                <div style="padding: 4px 8px 8px; color: #8b92a0; font-size: 11.5px; line-height: 1.5">The agent's screenshots use the same set: <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">viewport_overlays</span></div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+      <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px; white-space: nowrap; overflow: hidden">
+        <span>Layer Actors</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ coords }}</span><span>{{ toolLabel }}</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a; position: relative">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-size: 14px; font-weight: 600">Inspector</span>
+        <div style="flex: 1"></div>
+        <button title="{{ yamlTitle }}" onClick="{{ openYaml }}" style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path><path d="m10 13-2 2 2 2M14 13l2 2-2 2"></path></svg>Open YAML
+        </button>
+      </div>
+
+      <div style="flex: 1; min-height: 0; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <span style="{{ headSwatch }}"></span>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <sc-if value="{{ headEditable }}" hint-placeholder-val="{{ true }}">
+              <label for="obj-name" style="position: absolute; left: -9999px">Object id</label>
+              <input id="obj-name" value="{{ headName }}" style="height: 24px; margin-left: -4px; padding: 0 4px; border: 0; border-radius: 6px; background: none; color: #ffffff; font-size: 14px; font-weight: 600; outline: none">
+            </sc-if>
+            <sc-if value="{{ headStatic }}" hint-placeholder-val="{{ false }}">
+              <span style="height: 24px; display: flex; align-items: center; color: #ffffff; font-size: 14px; font-weight: 600">{{ headName }}</span>
+            </sc-if>
+            <span style="color: #8b92a0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ headKind }}</span>
+          </div>
+        </div>
+
+        <sc-if value="{{ hasPrefabBar }}" hint-placeholder-val="{{ true }}">
+          <div style="border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 0 4px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linejoin="round" style="flex: none" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"></path><path d="m4 7.5 8 4.5 8-4.5M12 12v9"></path></svg>
+              <span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ prefabFile }}</span>
+              <span style="{{ prefabMetaStyle }}">{{ prefabMeta }}</span>
+            </div>
+            <sc-if value="{{ prefabAppliedNote }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 0 4px; color: #b4bac6; line-height: 1.5">{{ prefabNote }}</div>
+            </sc-if>
+            <div style="display: flex; gap: 4px">
+              <sc-for list="{{ prefabActions }}" as="a" hint-placeholder-count="3">
+                <button onClick="{{ a.run }}" title="{{ a.title }}" style="{{ a.style }}">{{ a.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ hasMultiNote }}" hint-placeholder-val="{{ false }}">
+          <div style="color: #8b92a0; font-size: 11.5px; line-height: 1.5; padding: 0 4px">{{ multiNote }}</div>
+        </sc-if>
+
+        <div style="height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: inset 0 0 0 1px #262b35">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <label for="field-filter" style="position: absolute; left: -9999px">Filter fields</label>
+          <input id="field-filter" placeholder="Filter fields" style="flex: 1; min-width: 0; height: 26px; border: 0; outline: none; background: none; color: #ffffff; padding: 0">
+        </div>
+
+        <div style="display: flex; flex-direction: column; min-height: 0">
+          <sc-for list="{{ items }}" as="it" hint-placeholder-count="16">
+            <sc-if value="{{ it.isSection }}" hint-placeholder-val="{{ false }}">
+              <button aria-expanded="{{ it.open }}" onClick="{{ it.toggle }}" style="{{ it.style }}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="{{ it.chev }}" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+                <span style="flex: 1; text-align: left">{{ it.title }}</span>
+                <span style="{{ it.metaStyle }}">{{ it.meta }}</span>
+              </button>
+            </sc-if>
+            <sc-if value="{{ it.isField }}" hint-placeholder-val="{{ true }}">
+              <div style="position: relative; display: grid; grid-template-columns: 88px minmax(0, 1fr) 24px; align-items: center; gap: 8px; height: 28px; padding-left: 8px; margin-top: 4px">
+                <sc-if value="{{ it.override }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: #e9a84a"></span></sc-if>
+                <label for="{{ it.fid }}" title="{{ it.labelTitle }}" style="{{ it.labelStyle }}">
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.label }}</span>
+                  <sc-if value="{{ it.agent }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="2" stroke-linejoin="round" style="flex: none" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg></sc-if>
+                  <sc-if value="{{ it.pending }}" hint-placeholder-val="{{ false }}"><span style="width: 6px; height: 6px; flex: none; border-radius: 3px; background: #e9a84a"></span></sc-if>
+                </label>
+                <div style="display: flex; gap: 4px; min-width: 0">
+                  <sc-if value="{{ it.isNum }}" hint-placeholder-val="{{ true }}">
+                    <div style="{{ it.boxA }}">
+                      <input id="{{ it.fid }}" value="{{ it.va }}" placeholder="{{ it.phA }}" inputmode="decimal" style="flex: 1; min-width: 0; width: 100%; height: 26px; border: 0; outline: none; background: none; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 0">
+                      <span style="color: #8b92a0; font-size: 11px; flex: none">{{ it.unit }}</span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ it.isNum2 }}" hint-placeholder-val="{{ false }}">
+                    <div style="{{ it.boxA }}">
+                      <span style="color: #8b92a0; font-size: 10.5px; flex: none">{{ it.ax }}</span>
+                      <input id="{{ it.fid }}" value="{{ it.va }}" placeholder="{{ it.phA }}" inputmode="decimal" style="flex: 1; min-width: 0; width: 100%; height: 26px; border: 0; outline: none; background: none; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 0">
+                    </div>
+                    <div style="{{ it.boxB }}">
+                      <span style="color: #8b92a0; font-size: 10.5px; flex: none">{{ it.bx }}</span>
+                      <input aria-label="{{ it.labelB }}" value="{{ it.vb }}" placeholder="{{ it.phB }}" inputmode="decimal" style="flex: 1; min-width: 0; width: 100%; height: 26px; border: 0; outline: none; background: none; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 0">
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ it.isPick }}" hint-placeholder-val="{{ false }}">
+                    <button id="{{ it.fid }}" aria-haspopup="listbox" style="{{ it.pickStyle }}">
+                      <sc-if value="{{ it.hasSwatch }}" hint-placeholder-val="{{ false }}"><span style="{{ it.swatch }}"></span></sc-if>
+                      <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.text }}</span>
+                      <sc-if value="{{ it.chevron }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="2" stroke-linecap="round" style="flex: none" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></sc-if>
+                    </button>
+                  </sc-if>
+                  <sc-if value="{{ it.isBool }}" hint-placeholder-val="{{ false }}">
+                    <button id="{{ it.fid }}" role="switch" aria-checked="{{ it.on }}" onClick="{{ it.flip }}" style="{{ it.track }}"><span style="{{ it.knob }}"></span></button>
+                  </sc-if>
+                </div>
+                <span style="display: flex; justify-content: center">
+                  <sc-if value="{{ it.override }}" hint-placeholder-val="{{ false }}">
+                    <button aria-label="{{ it.revertLabel }}" title="{{ it.revertLabel }}" onClick="{{ it.revert }}" style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #e9a84a">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg>
+                    </button>
+                  </sc-if>
+                </span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ it.isSub }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ it.subStyle }}">
+                <span>{{ it.text }}</span>
+                <sc-if value="{{ it.hasLink }}" hint-placeholder-val="{{ false }}"><button onClick="{{ it.link }}" style="height: 20px; padding: 0 4px; border: 0; border-radius: 6px; background: none; color: #8fb3ff; font-size: 11.5px">{{ it.linkText }}</button></sc-if>
+              </div>
+            </sc-if>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ hasSuggest }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">ARRANGE WITH THE AGENT</div>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap">
+              <sc-for list="{{ suggest }}" as="g" hint-placeholder-count="3">
+                <button onClick="{{ g.run }}" style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 14px; background: none; box-shadow: inset 0 0 0 1px #2c3240; color: #d9dde5"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>{{ g.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+        <div role="listbox" aria-label="Components" style="position: absolute; left: 12px; right: 12px; bottom: 56px; padding: 4px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 16px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+          <sc-for list="{{ registry }}" as="r" hint-placeholder-count="8">
+            <sc-if value="{{ r.isGroup }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ r.label }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isItem }}" hint-placeholder-val="{{ true }}">
+              <button role="option" aria-disabled="{{ r.has }}" onClick="{{ r.pick }}" style="{{ r.style }}"><span style="flex: 1">{{ r.label }}</span><span style="color: #8b92a0; font-size: 11px">{{ r.note }}</span></button>
+            </sc-if>
+          </sc-for>
+        </div>
+      </sc-if>
+      <div style="flex: none; padding: 12px; border-top: 1px solid #1f232a; display: flex; gap: 8px">
+        <div style="flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #171a21; box-shadow: inset 0 0 0 1px #262b35">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          <label for="add-comp" style="position: absolute; left: -9999px">Add component</label>
+          <input id="add-comp" placeholder="Add component…" onClick="{{ toggleAdd }}" aria-expanded="{{ addOpen }}" style="flex: 1; min-width: 0; height: 28px; border: 0; outline: none; background: none; color: #ffffff; padding: 0">
+        </div>
+        <button onClick="{{ askAdd }}" style="height: 30px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 8px; background: #20252f; color: #d9dde5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Ask to add
+        </button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-size: 14px; font-weight: 600">Agent</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected · MCP</span>
+      </div>
+      <div style="flex: 1; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 11.5px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+          <span>“Put three slimes patrolling…” · kept 6 changes</span>
+        </div>
+        <div style="height: 1px; background: #1f232a"></div>
+        <div style="align-self: flex-end; max-width: 236px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #ffffff; line-height: 1.5">slime_02 should be a bit faster than the other two.</div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Read slime_02 in level_01.scene.yaml</div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Overrode patrol.speed on the instance</div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Ran game check · no problems</div>
+        </div>
+        <div style="color: #d9dde5; line-height: 1.55">slime_02 now patrols at 30 px/s. I set it on this instance only, so slime.prefab.yaml and the other two slimes stay at 24.</div>
+
+        <sc-if value="{{ reviewPending }}" hint-placeholder-val="{{ true }}">
+          <div style="{{ cardStyle }}">
+            <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #262b35">
+              <span style="color: #ffffff; font-weight: 500">1 change · 1 file</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #4fd38a">+1</span> <span style="color: #8b92a0">−0</span></span>
+            </div>
+            <div style="padding: 8px 12px; display: flex; gap: 8px; color: #b4bac6; font-size: 12px"><span style="color: #e9a84a; width: 10px">~</span>slime_02 · patrol.speed 24 → 30</div>
+            <div style="display: flex; gap: 8px; padding: 8px 12px 12px">
+              <button onClick="{{ keep }}" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Keep</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Review</button>
+              <button onClick="{{ revertReview }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert</button>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ reviewDone }}" hint-placeholder-val="{{ false }}">
+          <div style="color: #8b92a0; font-size: 12px">{{ reviewDoneText }}</div>
+        </sc-if>
+      </div>
+
+      <div style="flex: none; padding: 12px; border-top: 1px solid #1f232a">
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; gap: 4px; flex-wrap: wrap">
+            <span style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #3b7bff"></span>{{ chipSel }}</span>
+            <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">Viewport · {{ ovCount }} overlays</span>
+          </div>
+          <label for="prompt" style="position: absolute; left: -9999px">Ask the agent</label>
+          <textarea id="prompt" rows="2" placeholder="{{ promptPlaceholder }}" style="resize: none; border: 0; outline: none; background: none; color: #ffffff; line-height: 1.5; padding: 0">{{ prompt }}</textarea>
+          <div style="display: flex; align-items: center; justify-content: flex-end">
+            <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      tool: 'select', sel: ['s2'], menu: 'context',
+      ov: { collision: true, triggers: true, connections: true, navigation: true, paths: false, camera: false, labels: false },
+      open: { transform: true, sprite: false, body: false, patrol: true, health: true, hurts: false, animator: false, player: true, scene: true, camera: true, lever: true, door: true, trigger: false, group: true, layer: true },
+      hidden: {}, locked: { bg: true, world: true },
+      ovr: { s2: { speed: true, max: true } }, review: 'pending', applied: null, ovrBefore: null,
+      parent: {}, order: null, extra: [], groups: 0, added: {}, flip: {},
+      toast: '', prompt: '', flash: false, addOpen: false,
+    };
+  }
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+
+    const defs = [
+      { id: 'select', label: 'Select', key: 'V' }, { id: 'move', label: 'Move', key: 'W' },
+      { id: 'rotate', label: 'Rotate', key: 'E' }, { id: 'scale', label: 'Scale', key: 'R' }, { id: 'pan', label: 'Pan', key: 'Space' },
+    ];
+    const tools = defs.map((t) => ({
+      ...t, on: s.tool === t.id,
+      isSelect: t.id === 'select', isMove: t.id === 'move', isRotate: t.id === 'rotate', isScale: t.id === 'scale', isPan: t.id === 'pan',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.tool === t.id ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6'),
+      pick: () => set({ tool: t.id }),
+    }));
+
+    // ---- scene model ----
+    const SLIME = '#5aa77a';
+    const base = [
+      { id: 'root', name: 'level_01', kind: 'scene', parent: null, color: '#3b7bff' },
+      { id: 'bg', name: 'Background', kind: 'tiles', parent: 'root', color: '#4f8cff' },
+      { id: 'world', name: 'World', kind: 'tiles', parent: 'root', color: '#4f8cff' },
+      { id: 'actors', name: 'Actors', kind: 'layer', parent: 'root', color: '#8b92a0' },
+      { id: 'knight', name: 'Knight', kind: 'sprite', parent: 'actors', color: '#e9a84a' },
+      { id: 'lever', name: 'lever_01', kind: 'prefab', parent: 'actors', color: '#b4bac6', prefab: 'lever' },
+      { id: 'door', name: 'door_01', kind: 'prefab', parent: 'actors', color: '#6b5a45', prefab: 'door' },
+      { id: 's1', name: 'slime_01', kind: 'prefab', parent: 'actors', color: SLIME, prefab: 'slime' },
+      { id: 's2', name: 'slime_02', kind: 'prefab', parent: 'actors', color: SLIME, prefab: 'slime' },
+      { id: 's3', name: 'slime_03', kind: 'prefab', parent: 'actors', color: SLIME, prefab: 'slime' },
+      { id: 'coins', name: 'coins', kind: 'group', parent: 'actors', color: '#f2d04b' },
+      { id: 'hud', name: 'HUD', kind: 'screen', parent: 'root', color: '#8b92a0' },
+    ];
+    const all = base.concat(s.extra);
+    const byId = {};
+    all.forEach((n) => { byId[n.id] = n; });
+    const parentOf = (n) => (s.parent[n.id] !== undefined ? s.parent[n.id] : n.parent);
+    const order = s.order || all.map((n) => n.id);
+    const flat = [];
+    const walk = (pid, depth) => {
+      order.forEach((id) => {
+        const n = byId[id];
+        if (n && parentOf(n) === pid) { flat.push({ n, depth }); walk(id, depth + 1); }
+      });
+    };
+    walk(null, 0);
+    const selSet = {};
+    s.sel.forEach((id) => { selSet[id] = true; });
+    const isHidden = (id) => !!s.hidden[id];
+    const isLocked = (id) => !!s.locked[id];
+
+    const tree = flat.map(({ n, depth }) => {
+      const selected = n.id === 'root' ? s.sel.length === 0 : !!selSet[n.id];
+      const hid = isHidden(n.id);
+      const lock = isLocked(n.id);
+      const isRoot = n.id === 'root';
+      return {
+        name: n.name, kind: n.kind, selected,
+        row: 'height: 28px; flex: none; display: flex; align-items: center; gap: 0; padding-right: 4px; border-radius: 6px; ' + (selected ? 'background: #1c2638' : 'background: none'),
+        btn: 'flex: 1; min-width: 0; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: ' + (selected ? '#ffffff' : '#b4bac6'),
+        indent: 'width: ' + (depth * 12) + 'px; flex: none',
+        dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color + (hid ? '; opacity: 0.4' : ''),
+        nameStyle: 'flex: 1; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis' + (hid ? '; color: #8b92a0' : '') + (isRoot ? '; font-weight: 500' : ''),
+        showToggles: !isRoot && (selected || hid || lock),
+        showKind: isRoot || !(selected || hid || lock),
+        hidden: hid, visible: !hid, locked: lock, unlocked: !lock,
+        eyeLabel: (hid ? 'Show ' : 'Hide ') + n.name,
+        lockLabel: (lock ? 'Unlock ' : 'Lock ') + n.name,
+        lockTitle: lock ? 'Locked · you and the agent cannot edit it · L' : 'Lock · L',
+        eyeStyle: 'width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: ' + (hid ? '#d9dde5' : '#8b92a0'),
+        lockStyle: 'width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: ' + (lock ? '#d9dde5' : '#8b92a0'),
+        toggleEye: () => set({ hidden: { ...s.hidden, [n.id]: !hid } }),
+        toggleLock: () => set({ locked: { ...s.locked, [n.id]: !lock } }),
+        pick: (e) => {
+          if (isRoot) { set({ sel: [], menu: null, addOpen: false }); return; }
+          const add = !!(e && (e.shiftKey || e.metaKey));
+          let next = [n.id];
+          if (add) next = selSet[n.id] ? s.sel.filter((x) => x !== n.id) : s.sel.concat([n.id]);
+          set({ sel: next, menu: null, addOpen: false });
+        },
+      };
+    });
+
+    // ---- viewport ----
+    const geo = {
+      knight: { l: 96, t: 292, w: 20, h: 32 }, lever: { l: 166, t: 296, w: 14, h: 28 }, door: { l: 508, t: 284, w: 30, h: 40 },
+      s1: { l: 206, t: 308, w: 26, h: 16 }, s2: { l: 258, t: 308, w: 26, h: 16 }, s3: { l: 352, t: 254, w: 26, h: 16 },
+      coins: { l: 444, t: 302, w: 44, h: 10 },
+    };
+    s.extra.forEach((x) => { if (x.geo) geo[x.id] = x.geo; });
+    const abs = (g) => 'position: absolute; left: ' + g.l + 'px; top: ' + g.t + 'px; width: ' + g.w + 'px; height: ' + g.h + 'px; ';
+    const slimeArt = 'border-radius: 9px 9px 4px 4px; background: ' + SLIME;
+    const objs = [];
+    const drawSlime = (id) => { if (!isHidden(id) && geo[id]) objs.push({ style: abs(geo[id]) + slimeArt }); };
+    if (!isHidden('knight')) objs.push({ style: abs(geo.knight) + 'border-radius: 5px; background: #e9a84a' });
+    if (!isHidden('lever')) {
+      objs.push({ style: 'position: absolute; left: 171px; top: 302px; width: 5px; height: 22px; border-radius: 2px; background: #8b92a0' });
+      objs.push({ style: 'position: absolute; left: 168px; top: 296px; width: 14px; height: 4px; border-radius: 2px; background: #b4bac6; transform: rotate(-30deg)' });
+    }
+    if (!isHidden('door')) objs.push({ style: abs(geo.door) + 'border-radius: 4px; background: #6b5a45' });
+    ['s1', 's2', 's3'].forEach(drawSlime);
+    s.extra.forEach((x) => { if (x.prefab === 'slime') drawSlime(x.id); });
+    if (!isHidden('coins')) [446, 462, 478].forEach((x) => objs.push({ style: 'position: absolute; left: ' + x + 'px; top: 303px; width: 8px; height: 8px; border-radius: 4px; background: #f2d04b' }));
+
+    const shapes = ['knight', 's1', 's2', 's3'].concat(s.extra.filter((x) => x.prefab === 'slime').map((x) => x.id))
+      .filter((id) => !isHidden(id) && geo[id])
+      .map((id) => { const g = geo[id]; const pad = 1; return { style: 'position: absolute; left: ' + (g.l - pad) + 'px; top: ' + (g.t - pad) + 'px; width: ' + (g.w + pad * 2) + 'px; height: ' + (g.h + pad * 2) + 'px; box-sizing: border-box; border: 1px solid rgba(180,186,198,0.85); border-radius: ' + (id === 'knight' ? '11px' : '9px 9px 4px 4px') }; });
+
+    const labels = Object.keys(geo).filter((id) => byId[id] && !isHidden(id)).map((id) => {
+      const g = geo[id];
+      const above = id === 'lever' || id === 'coins';
+      return {
+        text: byId[id].name,
+        style: 'position: absolute; left: ' + (g.l + g.w / 2) + 'px; top: ' + (above ? g.t - 30 : g.t + g.h + 6) + 'px; transform: translateX(-50%); font-family: JetBrains Mono, monospace; font-size: 10px; color: #b4bac6; white-space: nowrap',
+      };
+    });
+
+    const selDrawn = s.sel.filter((id) => geo[id] && !isHidden(id));
+    const selBoxes = selDrawn.map((id) => { const g = geo[id]; return { style: 'position: absolute; left: ' + (g.l - 4) + 'px; top: ' + (g.t - 4) + 'px; width: ' + (g.w + 8) + 'px; height: ' + (g.h + 8) + 'px; border-radius: 6px; box-shadow: 0 0 0 1.5px #3b7bff; background: rgba(59,123,255,0.06)' }; });
+    const single = selDrawn.length === 1 && s.sel.length === 1;
+    let handles = [];
+    let selChipStyle = '';
+    let selChipText = '';
+    if (selDrawn.length) {
+      const ls = selDrawn.map((id) => geo[id]);
+      const l = Math.min(...ls.map((g) => g.l)) - 4;
+      const t = Math.min(...ls.map((g) => g.t)) - 4;
+      const r = Math.max(...ls.map((g) => g.l + g.w)) + 4;
+      const b = Math.max(...ls.map((g) => g.t + g.h)) + 4;
+      if (single) handles = [[l, t], [r, t], [l, b], [r, b]].map(([x, y]) => ({ style: 'position: absolute; left: ' + (x - 4) + 'px; top: ' + (y - 4) + 'px; width: 8px; height: 8px; border-radius: 2px; background: #ffffff; box-shadow: 0 0 0 1.5px #3b7bff' }));
+      selChipStyle = 'position: absolute; left: ' + l + 'px; top: ' + (t - 24) + 'px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #3b7bff; color: #ffffff; font-size: 11px; font-weight: 500; white-space: nowrap';
+      selChipText = single ? byId[selDrawn[0]].name : s.sel.length + ' selected';
+    }
+
+    const ovDefs = [
+      { id: 'collision', label: 'Collision shapes', swatch: 'border: 1px solid #b4bac6' },
+      { id: 'triggers', label: 'Triggers', swatch: 'border: 1px dotted #f2c14e; background: rgba(242,193,78,0.12)' },
+      { id: 'connections', label: 'Connections', swatch: 'border-top: 1.5px solid #8fb3ff; height: 0; margin-top: 2px' },
+      { id: 'paths', label: 'Patrol paths', swatch: 'border-top: 1.2px dotted #b4bac6; height: 0; margin-top: 2px' },
+      { id: 'navigation', label: 'Navigation', swatch: 'background: rgba(180,186,198,0.3); border-top: 1px dotted #b4bac6' },
+      { id: 'camera', label: 'Camera bounds', swatch: 'border: 1px dotted #8b92a0' },
+      { id: 'labels', label: 'Labels', swatch: 'border-bottom: 2px solid #b4bac6; height: 4px' },
+    ];
+    const ovMeta = { collision: '5 shapes', triggers: '2', connections: '1', paths: '3', navigation: '2 regions', camera: '', labels: '' };
+    const overlayItems = ovDefs.map((o) => {
+      const on = !!s.ov[o.id];
+      return {
+        ...o, on, meta: ovMeta[o.id],
+        check: 'width: 14px; height: 14px; flex: none; box-sizing: border-box; border-radius: 4px; display: flex; align-items: center; justify-content: center; ' + (on ? 'background: #3b7bff' : 'box-shadow: inset 0 0 0 1.5px #3b4250'),
+        swatch: 'width: 14px; height: 8px; flex: none; box-sizing: border-box; border-radius: 1px; ' + o.swatch,
+        toggle: () => set({ ov: { ...s.ov, [o.id]: !on } }),
+      };
+    });
+    const ovOn = ovDefs.filter((o) => s.ov[o.id]);
+
+    // ---- inspector ----
+    const sel = s.sel.map((id) => byId[id]).filter(Boolean);
+    const applied = !!s.applied;
+    const prefabSpeed = applied && s.applied.speed ? 30 : 24;
+    const prefabMax = applied && s.applied.max ? 3 : 2;
+    const slimeTotal = all.filter((n) => n.prefab === 'slime').length;
+    const sv = (id) => {
+      const table = { s1: { x: 220, y: 340, from: 220, to: 340 }, s2: { x: 284, y: 340, from: 280, to: 340 }, s3: { x: 470, y: 270, from: 440, to: 520 } };
+      let src = id;
+      let dx = 0;
+      while (byId[src] && byId[src].copyOf) { src = byId[src].copyOf; dx += 32; }
+      const t = table[src] || { x: 300, y: 340, from: 280, to: 340 };
+      const o = s.ovr[id] || {};
+      return { ...t, x: t.x + dx, speed: o.speed ? 30 : prefabSpeed, max: o.max ? 3 : prefabMax, ovSpeed: !!o.speed, ovMax: !!o.max };
+    };
+    const reviewPending = s.review === 'pending' && !!(s.ovr.s2 && s.ovr.s2.speed);
+    const setOvr = (id, patch) => {
+      const next = { ...(s.ovr[id] || {}), ...patch };
+      const revertsReview = id === 's2' && patch.speed === false && s.review === 'pending';
+      set({ ovr: { ...s.ovr, [id]: next }, review: revertsReview ? 'reverted' : s.review });
+    };
+
+    const AGENT_TIP = 'Set by the agent for “Put three slimes patrolling the lower floor…” · drag to change';
+    const DRAG_TIP = 'Drag to change · ↑↓ steps, ⇧ ×10 · ↵ commits, Esc restores';
+    const num = (id, label, a, unit, o) => ({ id, label, type: 'num', a, unit: unit || '', ...(o || {}) });
+    const num2 = (id, label, a, b, ax, bx, o) => ({ id, label, type: 'num2', a, b, ax, bx, ...(o || {}) });
+    const pick = (id, label, text, o) => ({ id, label, type: 'pick', text, chevron: true, ...(o || {}) });
+    const bool = (id, label, on) => ({ id, label, type: 'bool', on });
+    const asset = (id, label, path, color) => pick(id, label, path, { mono: true, swatch: color });
+    const color = (id, label, hex) => pick(id, label, hex, { mono: true, swatch: hex, chevron: false });
+    const ref = (id, label, text) => pick(id, label, text, { mono: true, link: true });
+    const MIXED = null;
+    const mix = (vals) => (vals.every((v) => v === vals[0]) ? vals[0] : MIXED);
+    const flipOn = (k, d) => (s.flip[k] === undefined ? d : s.flip[k]);
+
+    const transform = (x, y, z) => ({ id: 'transform', title: 'TRANSFORM', fields: [
+      num2('pos', 'Position', x, y, 'X', 'Y'), num('rot', 'Rotation', 0, '°'), num2('scale', 'Scale', '1.00', '1.00', 'X', 'Y'), num('z', 'Z order', z),
+    ] });
+    const extraSections = (key) => (s.added[key] || []).map((cid) => addedDef(cid));
+    const addedDef = (cid) => ({
+      area: { id: 'c-area', title: 'AREA', fields: [pick('ashape', 'Shape', 'rect 32 × 32'), pick('alayer', 'Layer', 'triggers')] },
+      sound: { id: 'c-sound', title: 'SOUND EMITTER', fields: [asset('snd', 'Sound', 'audio/slime_squish.ogg', '#8b92a0'), num('vol', 'Volume', '0.8')] },
+      particles: { id: 'c-part', title: 'PARTICLES', fields: [asset('fx', 'Effect', 'fx/slime_drip.particles.yaml', '#9b7bff'), pick('emit', 'Emit', 'on hurt')] },
+      light: { id: 'c-light', title: 'LIGHT 2D', fields: [color('lcol', 'Color', '#F2D04B'), num('lrad', 'Radius', 48, 'px')] },
+      pickup: { id: 'c-pick', title: 'PICKUP', fields: [num('pval', 'Value', 1), pick('psnd', 'On pickup', 'play coin.ogg')] },
+    }[cid]);
+
+    let head = { name: '', kind: '', swatch: '#8b92a0', editable: true };
+    let sections = [];
+    let prefabBar = null;
+    let multiNote = '';
+    let suggest = [];
+    let coords = '—';
+    let selKey = s.sel.length === 1 ? s.sel[0] : '';
+    const isSlime = (n) => n && n.prefab === 'slime';
+
+    if (sel.length === 0) {
+      head = { name: 'level_01', kind: 'Scene · scenes/level_01.scene.yaml', swatch: '#3b7bff', editable: false };
+      sections = [
+        { id: 'scene', title: 'SCENE', fields: [num2('size', 'Size', 1280, 720, 'W', 'H'), num2('grav', 'Gravity', 0, 980, 'X', 'Y'), color('bgc', 'Background', '#1A1F2A'), asset('music', 'Music', 'audio/dungeon_loop.ogg', '#8b92a0')] },
+        { id: 'camera', title: 'CAMERA', fields: [ref('follow', 'Follows', 'Knight'), num('zoom', 'Zoom', '2.00', '×'), pick('bounds', 'Bounds', 'scene size'), num('smooth', 'Smoothing', '0.12', 's')] },
+      ];
+      coords = '—';
+    } else if (sel.length > 1) {
+      const allSlimes = sel.every(isSlime);
+      const vals = sel.map((n) => (isSlime(n) ? sv(n.id) : null));
+      head = { name: sel.length + ' objects', kind: sel.map((n) => n.name).join(', '), swatch: allSlimes ? SLIME : '#8b92a0', editable: false };
+      const xs = sel.map((n) => (isSlime(n) ? sv(n.id).x : (n.id === 'knight' ? 120 : 300)));
+      const ys = sel.map((n) => (isSlime(n) ? sv(n.id).y : 340));
+      sections = [transform(mix(xs), mix(ys), 10)];
+      if (allSlimes) {
+        const sp = mix(vals.map((v) => v.speed));
+        const mx = mix(vals.map((v) => v.max));
+        sections.push({ id: 'patrol', title: 'PATROL', fields: [
+          num2('range', 'Range', mix(vals.map((v) => v.from)), mix(vals.map((v) => v.to)), 'from', 'to', { agent: true }),
+          num('speed', 'Speed', sp, 'px/s', { override: vals.some((v) => v.ovSpeed) }),
+          num('wait', 'Wait at ends', '0.5', 's'),
+        ] });
+        sections.push({ id: 'health', title: 'HEALTH', fields: [num('max', 'Max', mx, '', { override: vals.some((v) => v.ovMax) }), num('iframes', 'Invulnerable', '0.6', 's')] });
+        sections.push({ id: 'sprite', title: 'SPRITE', fields: [asset('tex', 'Texture', 'enemies/slime_green.png', SLIME)] });
+        prefabBar = { file: 'prefabs/slime.prefab.yaml', meta: sel.length + ' instances', metaWarn: false, actions: [
+          { label: 'Open prefab', title: 'Edit slime.prefab.yaml in isolation', run: () => set({ toast: 'Opening slime.prefab.yaml · level_01 › slime' }) },
+        ] };
+        multiNote = 'Editing a Mixed field sets it on all ' + sel.length + '. Overrides stay marked per instance.';
+        suggest = [
+          { label: 'Space evenly on the floor', run: () => set({ prompt: 'Space ' + sel.map((n) => n.name).join(', ') + ' evenly along the lower floor' }) },
+          { label: 'Snap to the floor', run: () => set({ prompt: 'Snap ' + sel.map((n) => n.name).join(', ') + ' onto the nearest floor' }) },
+          { label: 'Make a prefab variant', run: () => set({ prompt: 'Make these slimes a prefab variant of slime.prefab.yaml' }) },
+        ];
+      } else {
+        multiNote = 'Only Transform is shared by these ' + sel.length + ' objects. Editing a Mixed field sets it on all of them.';
+      }
+      coords = sel.length + ' objects';
+    } else {
+      const n = sel[0];
+      if (isSlime(n)) {
+        const v = sv(n.id);
+        const pendingSpeed = n.id === 's2' && reviewPending;
+        const ovCountNow = (v.ovSpeed ? 1 : 0) + (v.ovMax ? 1 : 0);
+        head = { name: n.name, kind: 'Prefab instance · layer Actors', swatch: SLIME, editable: true };
+        sections = [
+          transform(v.x, v.y, 10),
+          { id: 'sprite', title: 'SPRITE', fields: [asset('tex', 'Texture', 'enemies/slime_green.png', SLIME), color('tint', 'Tint', '#FFFFFF'), bool('flip', 'Flip X', flipOn(n.id + 'flip', false))] },
+          { id: 'body', title: 'BODY', fields: [pick('btype', 'Type', 'kinematic'), pick('shape', 'Shape', 'capsule 26 × 16'), pick('blayer', 'Layer', 'enemies')] },
+          { id: 'patrol', title: 'PATROL', fields: [
+            num2('range', 'Range', v.from, v.to, 'from', 'to', { agent: true }),
+            num('speed', 'Speed', v.speed, 'px/s', v.ovSpeed ? {
+              override: true, pending: pendingSpeed, prefabVal: prefabSpeed, revert: () => setOvr(n.id, { speed: false }),
+              sub: pendingSpeed ? { text: 'was 24 · in review', link: 'Show', onLink: () => set({ flash: true }) } : null,
+            } : {}),
+            num('wait', 'Wait at ends', '0.5', 's'),
+          ] },
+          { id: 'health', title: 'HEALTH', fields: [
+            num('max', 'Max', v.max, '', v.ovMax ? { override: true, prefabVal: prefabMax, revert: () => setOvr(n.id, { max: false }) } : {}),
+            num('iframes', 'Invulnerable', '0.6', 's'),
+          ] },
+          { id: 'hurts', title: 'HURTS ON TOUCH', fields: [num('dmg', 'Damage', 1), num('kb', 'Knockback', 120, 'px/s')] },
+        ];
+        const acts = [
+          { label: 'Open prefab', title: 'Edit slime.prefab.yaml in isolation · double-click the instance', run: () => set({ toast: 'Opening slime.prefab.yaml · level_01 › slime' }) },
+        ];
+        if (ovCountNow) {
+          acts.push({ label: 'Revert all', title: 'Revert every override on ' + n.name, run: () => setOvr(n.id, { speed: false, max: false }) });
+          acts.push({ label: 'Apply to prefab', primary: true, title: 'Write these overrides into slime.prefab.yaml', run: () => set({ applied: { speed: v.ovSpeed, max: v.ovMax, from: n.name }, ovrBefore: s.ovr, ovr: {}, review: reviewPending ? 'kept' : s.review }) });
+        } else {
+          acts.push({ label: 'Select all ' + slimeTotal, title: 'Select every slime instance in this scene', run: () => set({ sel: all.filter((x) => x.prefab === 'slime').map((x) => x.id) }) });
+        }
+        prefabBar = {
+          file: 'prefabs/slime.prefab.yaml',
+          meta: applied ? 'in review' : (ovCountNow ? ovCountNow + (ovCountNow === 1 ? ' override' : ' overrides') : 'no overrides'),
+          metaWarn: ovCountNow > 0 || applied,
+          note: applied ? 'Applied ' + [s.applied.speed ? 'speed 30' : '', s.applied.max ? 'max 3' : ''].filter(Boolean).join(' and ') + ' from ' + s.applied.from + ' to the prefab. This changes 13 other instances in 5 scenes.' : '',
+          actions: applied ? [
+            { label: 'Review 5 scenes', primary: true, title: 'Open the prefab review', run: () => set({ toast: 'Prefab review · affects 13 instances in 5 scenes' }) },
+            { label: 'Undo', title: 'Put the overrides back on ' + s.applied.from, run: () => set({ applied: null, ovr: s.ovrBefore || {}, ovrBefore: null }) },
+          ] : acts,
+        };
+        coords = v.x + ', ' + v.y;
+      } else if (n.id === 'knight') {
+        head = { name: 'Knight', kind: 'Sprite · layer Actors', swatch: '#e9a84a', editable: true };
+        sections = [
+          transform(120, 340, 12),
+          { id: 'sprite', title: 'SPRITE', fields: [asset('tex', 'Texture', 'heroes/knight_idle_0.png', '#e9a84a'), bool('flip', 'Flip X', flipOn('kflip', false))] },
+          { id: 'animator', title: 'ANIMATOR', fields: [asset('rig', 'Animations', 'animations/knight.anim.yaml', '#9b7bff'), pick('clip', 'Start clip', 'idle')] },
+          { id: 'player', title: 'PLAYER CONTROLLER', fields: [
+            num('run', 'Run speed', 140, 'px/s'), num('jump', 'Jump height', 56, 'px'),
+            num('coyote', 'Coyote time', '-0.1', 's', { invalid: true, sub: { text: 'Must be 0 or more · Esc restores 0.08', error: true } }),
+            num('air', 'Air control', '0.6'),
+          ] },
+          { id: 'health', title: 'HEALTH', fields: [num('max', 'Max', 10), num('cur', 'Starts with', 7)] },
+        ];
+        coords = '120, 340';
+      } else {
+        const generic = {
+          lever: { kind: 'Prefab instance · layer Actors', file: 'prefabs/lever.prefab.yaml', secs: [{ id: 'lever', title: 'LEVER', fields: [bool('startp', 'Starts pulled', flipOn('startp', false)), ref('lconn', 'pulled →', 'door_01.open'), num('irad', 'Reach', 18, 'px')] }], xy: [170, 340] },
+          door: { kind: 'Prefab instance · layer Actors', file: 'prefabs/door.prefab.yaml', secs: [{ id: 'door', title: 'DOOR', fields: [bool('dlock', 'Locked', flipOn('dlock', true)), ref('dopen', 'Opens on', 'lever_01.pulled'), ref('dnext', 'Leads to', 'scenes/level_02.scene.yaml')] }, { id: 'trigger', title: 'TRIGGER', fields: [pick('tshape', 'Shape', 'rect 54 × 50')] }], xy: [520, 340] },
+          coins: { kind: 'Group · 3 children', secs: [{ id: 'group', title: 'GROUP', fields: [pick('gch', 'Children', 'coin_01, coin_02, coin_03', { chevron: false })] }], xy: [466, 330] },
+        }[n.id] || { kind: n.kind === 'tiles' ? 'Tile layer' : n.kind === 'screen' ? 'UI screen · ui/hud.ui.yaml' : 'Layer', secs: [{ id: 'layer', title: 'LAYER', fields: n.kind === 'tiles' ? [asset('tset', 'Tileset', 'tiles/dungeon.tileset.yaml', '#4f8cff'), num2('par', 'Parallax', n.id === 'bg' ? '0.5' : '1.0', n.id === 'bg' ? '0.5' : '1.0', 'X', 'Y')] : [num('zb', 'Z base', n.id === 'hud' ? 100 : 10)] }], xy: null };
+        head = { name: n.name, kind: generic.kind + (isLocked(n.id) ? ' · locked' : ''), swatch: n.color, editable: !isLocked(n.id) };
+        sections = (generic.xy ? [transform(generic.xy[0], generic.xy[1], 10)] : []).concat(generic.secs);
+        if (generic.file) prefabBar = { file: generic.file, meta: 'no overrides', metaWarn: false, actions: [{ label: 'Open prefab', title: 'Edit ' + generic.file + ' in isolation', run: () => set({ toast: 'Opening ' + generic.file + ' · level_01 › ' + n.name }) }] };
+        coords = generic.xy ? generic.xy.join(', ') : '—';
+        if (isLocked(n.id)) multiNote = 'Locked. Neither you nor the agent can change it until it is unlocked.';
+      }
+    }
+    if (selKey) sections = sections.concat(extraSections(selKey));
+
+    const items = [];
+    sections.forEach((sec) => {
+      const isOpen = s.open[sec.id] !== false;
+      const nOv = sec.fields.filter((f) => f.override).length;
+      const nBad = sec.fields.filter((f) => f.invalid).length;
+      items.push({
+        isSection: true, title: sec.title, open: isOpen,
+        meta: nBad ? '1 problem' : nOv ? nOv + (nOv === 1 ? ' override' : ' overrides') : isOpen ? '' : sec.fields.length + (sec.fields.length === 1 ? ' field' : ' fields'),
+        metaStyle: 'font-weight: 400; letter-spacing: 0; font-size: 11.5px; color: ' + (nBad ? '#ff6b6b' : nOv ? '#e9a84a' : '#8b92a0'),
+        style: 'width: 100%; height: 28px; margin-top: 8px; display: flex; align-items: center; gap: 4px; padding: 0 4px; border: 0; border-radius: 6px; background: none; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em',
+        chev: isOpen ? 'flex: none' : 'flex: none; transform: rotate(-90deg)',
+        toggle: () => set({ open: { ...s.open, [sec.id]: !isOpen } }),
+      });
+      if (!isOpen) return;
+      sec.fields.forEach((f) => {
+        const ring = f.invalid ? 'inset 0 0 0 1.5px #ff6b6b' : 'inset 0 0 0 1px #262b35';
+        const boxCss = 'height: 28px; flex: 1; min-width: 0; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: ' + ring;
+        const isMixA = f.a === MIXED;
+        const isMixB = f.b === MIXED;
+        const tip = f.override ? 'Overrides the prefab value ' + f.prefabVal + ' · ' + DRAG_TIP : f.agent ? AGENT_TIP : DRAG_TIP;
+        items.push({
+          isField: true, isNum: f.type === 'num', isNum2: f.type === 'num2', isPick: f.type === 'pick', isBool: f.type === 'bool',
+          fid: 'f-' + sec.id + '-' + f.id, label: f.label, labelB: f.label + ' ' + (f.bx || ''),
+          labelTitle: tip,
+          labelStyle: 'display: flex; align-items: center; gap: 4px; min-width: 0; cursor: ew-resize; ' + (f.override ? 'color: #ffffff; font-weight: 500' : f.invalid ? 'color: #ffffff' : 'color: #b4bac6'),
+          override: !!f.override, pending: !!f.pending, agent: !!f.agent,
+          va: isMixA ? '' : String(f.a), vb: isMixB ? '' : String(f.b),
+          phA: isMixA ? 'Mixed' : '', phB: isMixB ? 'Mixed' : '',
+          ax: f.ax || '', bx: f.bx || '', unit: f.unit || '',
+          boxA: boxCss, boxB: boxCss,
+          text: f.text || '', chevron: f.chevron !== false, hasSwatch: !!f.swatch,
+          swatch: 'width: 12px; height: 12px; flex: none; border-radius: 3px; background: ' + (f.swatch || '#000') + '; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12)',
+          pickStyle: 'height: 28px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: #171a21; box-shadow: inset 0 0 0 1px #262b35; text-align: left; color: ' + (f.link ? '#8fb3ff' : '#ffffff') + (f.mono ? "; font-family: 'JetBrains Mono', monospace; font-size: 11.5px" : ''),
+          on: !!f.on,
+          track: 'width: 32px; height: 18px; flex: none; position: relative; border: 0; border-radius: 9px; padding: 0; background: ' + (f.on ? '#3b7bff' : '#2a2f3a'),
+          knob: 'position: absolute; top: 2px; left: ' + (f.on ? '16px' : '2px') + '; width: 14px; height: 14px; border-radius: 7px; background: #ffffff',
+          flip: () => {
+            const key = f.id === 'flip' ? (selKey === 'knight' ? 'kflip' : selKey + 'flip') : f.id;
+            set({ flip: { ...s.flip, [key]: !f.on } });
+          },
+          revertLabel: f.override ? 'Revert ' + f.label + ' to prefab value ' + f.prefabVal : '',
+          revert: f.revert || (() => {}),
+        });
+        if (f.sub) {
+          items.push({
+            isSub: true, text: f.sub.text, hasLink: !!f.sub.link, linkText: f.sub.link || '', link: f.sub.onLink || (() => {}),
+            subStyle: 'min-height: 20px; display: flex; align-items: center; gap: 4px; padding-left: 104px; font-size: 11.5px; color: ' + (f.sub.error ? '#ff6b6b' : '#8b92a0'),
+          });
+        }
+      });
+    });
+
+    const prefabActions = prefabBar ? prefabBar.actions.map((a) => ({
+      ...a,
+      style: 'height: 28px; flex: ' + (a.primary ? '1' : 'none') + '; padding: 0 10px; border: 0; border-radius: 8px; white-space: nowrap; ' + (a.primary ? 'background: #3b7bff; color: #ffffff; font-weight: 500' : 'background: #22262f; color: #d9dde5'),
+    })) : [];
+
+    // ---- registry (add component) ----
+    const present = {};
+    sections.forEach((x) => { present[x.title] = true; });
+    const reg = [
+      { g: 'GAMEPLAY' }, { id: 'pickup', label: 'Pickup', title: 'PICKUP' }, { label: 'Patrol', title: 'PATROL' }, { label: 'Health', title: 'HEALTH' },
+      { g: 'PHYSICS' }, { id: 'area', label: 'Area', title: 'AREA' }, { label: 'Body', title: 'BODY' },
+      { g: 'AUDIO AND VISUAL' }, { id: 'sound', label: 'Sound emitter', title: 'SOUND EMITTER' }, { id: 'particles', label: 'Particles', title: 'PARTICLES' }, { id: 'light', label: 'Light 2D', title: 'LIGHT 2D' },
+    ];
+    const registry = reg.map((r) => {
+      if (r.g) return { isGroup: true, isItem: false, label: r.g };
+      const has = !!present[r.title];
+      const usable = !!r.id && !has && !!selKey;
+      return {
+        isGroup: false, isItem: true, label: r.label, has: !usable, note: has ? 'added' : '',
+        style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; text-align: left; color: ' + (usable ? '#d9dde5' : '#8b92a0'),
+        pick: () => {
+          if (!usable) return;
+          const list = (s.added[selKey] || []).concat([r.id]);
+          set({ added: { ...s.added, [selKey]: list }, addOpen: false, open: { ...s.open, ['c-' + (r.id === 'particles' ? 'part' : r.id === 'pickup' ? 'pick' : r.id)]: true } });
+        },
+      };
+    });
+
+    // ---- context menu actions ----
+    const names = sel.map((n) => n.name);
+    const selLabel = names.length === 0 ? 'level_01' : names.length === 1 ? names[0] : names.length + ' objects';
+    const slimeCount = s.extra.filter((x) => x.prefab === 'slime').length;
+    const dupe = (verb) => {
+      if (!sel.length) { set({ menu: null }); return; }
+      const extra = s.extra.slice();
+      const ord = order.slice();
+      const fresh = [];
+      const ovr = { ...s.ovr };
+      sel.forEach((n, i) => {
+        const id = 'x' + (extra.length + 1);
+        const g = geo[n.id];
+        const node = { id, name: n.prefab === 'slime' ? 'slime_' + String(4 + slimeCount + fresh.filter((f) => f.slime).length).padStart(2, '0') : n.name + '_copy', kind: n.kind, parent: parentOf(n), color: n.color, prefab: n.prefab, copyOf: n.prefab ? n.id : undefined, geo: g ? { ...g, l: g.l + 32 } : null };
+        extra.push(node);
+        ord.splice(ord.indexOf(n.id) + 1, 0, id);
+        fresh.push({ id, slime: n.prefab === 'slime' });
+        if (s.ovr[n.id]) ovr[id] = { ...s.ovr[n.id] };
+      });
+      set({ extra, ovr, order: ord, sel: fresh.map((f) => f.id), menu: null, toast: verb + ' ' + selLabel + ' · ⌘Z undoes it' });
+    };
+    const reparentTo = (pid) => {
+      const p = { ...s.parent };
+      sel.forEach((n) => { p[n.id] = pid; });
+      set({ parent: p, menu: null, toast: 'Moved ' + selLabel + ' under ' + byId[pid].name });
+    };
+    const groupable = sel.length > 0;
+    const act = {
+      copy: () => set({ menu: null, toast: 'Copied ' + selLabel + ' as YAML · ' + (sel.length || 1) * 9 + ' lines' }),
+      paste: () => dupe('Pasted a copy of'),
+      duplicate: () => dupe('Duplicated'),
+      group: () => {
+        if (!groupable) { set({ menu: null }); return; }
+        const gid = 'g' + (s.groups + 1);
+        const p = parentOf(sel[0]);
+        const node = { id: gid, name: 'group_0' + (s.groups + 1), kind: 'group', parent: p, color: '#8b92a0' };
+        const ord = order.slice();
+        ord.splice(ord.indexOf(sel[0].id), 0, gid);
+        const par = { ...s.parent };
+        sel.forEach((n) => { par[n.id] = gid; });
+        set({ extra: s.extra.concat([node]), order: ord, parent: par, groups: s.groups + 1, menu: null, toast: 'Grouped ' + selLabel + ' into ' + node.name });
+      },
+      reparent: () => set({ menu: s.menu === 'reparent' ? 'context' : 'reparent' }),
+      sameprefab: () => {
+        const pf = sel[0] && sel[0].prefab;
+        if (!pf) { set({ menu: null }); return; }
+        set({ sel: all.filter((n) => n.prefab === pf).map((n) => n.id), menu: null });
+      },
+      hide: () => { const h = { ...s.hidden }; const v = !sel.every((n) => s.hidden[n.id]); sel.forEach((n) => { h[n.id] = v; }); set({ hidden: h, menu: null }); },
+      lock: () => { const l = { ...s.locked }; const v = !sel.every((n) => s.locked[n.id]); sel.forEach((n) => { l[n.id] = v; }); set({ locked: l, menu: null }); },
+      usages: () => set({ menu: null, toast: sel[0] && sel[0].prefab === 'slime' ? '19 usages of slime.prefab.yaml in 9 files' : 'Finding usages of ' + selLabel }),
+      rename: () => set({ menu: null, toast: 'Rename ' + selLabel + ' · every reference is rewritten in one review' }),
+      ask: () => set({ menu: null, prompt: 'About ' + selLabel + ': ' }),
+    };
+    const parentChoices = [{ id: 'actors' }, { id: 'coins' }, { id: 'world' }, { id: 'hud' }].concat(s.extra.filter((x) => x.kind === 'group').map((x) => ({ id: x.id })));
+    const parents = parentChoices.map((p) => {
+      const n = byId[p.id];
+      const current = sel.length > 0 && sel.every((x) => parentOf(x) === p.id);
+      const locked = isLocked(p.id);
+      return {
+        name: n.name, note: current ? 'current' : locked ? 'locked' : '',
+        dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+        style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: none; text-align: left; color: ' + (current || locked ? '#8b92a0' : '#d9dde5'),
+        pick: () => { if (!current && !locked) reparentTo(p.id); },
+      };
+    });
+
+    const reviewDoneText = s.review === 'kept' ? (applied ? 'Kept · then applied to slime.prefab.yaml' : 'Kept · one undo step (⌘Z)') : 'Reverted · slime_02 patrols at 24 again';
+    const menuOpen = s.menu === 'context' || s.menu === 'reparent';
+    const allHidden = sel.length > 0 && sel.every((n) => s.hidden[n.id]);
+    const allLocked = sel.length > 0 && sel.every((n) => s.locked[n.id]);
+
+    return {
+      tools, tree, objs, shapes, labels, selBoxes, handles, single,
+      nodeCount: (flat.length - 1) + ' nodes',
+      hasSelChip: selDrawn.length > 0, selChipStyle, selChipText,
+      ov: s.ov, ovCount: ovOn.length, overlayItems,
+      menuContext: menuOpen, reparentOpen: s.menu === 'reparent', menuOverlays: s.menu === 'overlays',
+      menuTitle: selLabel, menuSub: sel.length === 1 && sel[0].prefab ? sel[0].prefab + '.prefab' : '',
+      reparentStyle: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; text-align: left; color: #d9dde5; background: ' + (s.menu === 'reparent' ? '#20252f' : 'none'),
+      parents, act,
+      selHidden: allHidden, selLocked: allLocked,
+      hideText: allHidden ? 'Show' : 'Hide', lockText: allLocked ? 'Unlock' : 'Lock',
+      overlaysBtnStyle: 'height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; border: 0; border-radius: 6px; color: #ffffff; background: ' + (s.menu === 'overlays' ? '#2a2f3a' : 'none'),
+      toggleOverlays: () => set({ menu: s.menu === 'overlays' ? null : 'overlays' }),
+      toast: !!s.toast, toastText: s.toast, dismissToast: () => set({ toast: '' }),
+      coords, toolLabel: (defs.find((t) => t.id === s.tool) || defs[0]).label,
+      yamlTitle: 'Open ' + (sel.length === 0 ? 'level_01.scene.yaml' : 'level_01.scene.yaml at ' + selLabel),
+      openYaml: () => set({ toast: 'Opened level_01.scene.yaml' + (sel.length === 1 ? ' at ' + sel[0].name : '') }),
+      headSwatch: 'width: 28px; height: 28px; flex: none; border-radius: 8px; background: ' + head.swatch + (sel.length > 1 ? '; box-shadow: 4px -4px 0 -1px #12141a, 4px -4px 0 0 ' + head.swatch : ''),
+      headName: head.name, headKind: head.kind, headEditable: head.editable, headStatic: !head.editable,
+      hasPrefabBar: !!prefabBar, prefabFile: prefabBar ? prefabBar.file : '', prefabMeta: prefabBar ? prefabBar.meta : '',
+      prefabMetaStyle: 'font-size: 11.5px; white-space: nowrap; color: ' + (prefabBar && prefabBar.metaWarn ? '#e9a84a' : '#8b92a0'),
+      prefabAppliedNote: !!(prefabBar && prefabBar.note), prefabNote: prefabBar ? prefabBar.note || '' : '',
+      prefabActions,
+      hasMultiNote: !!multiNote, multiNote,
+      items, hasSuggest: suggest.length > 0, suggest,
+      addOpen: s.addOpen, registry,
+      toggleAdd: () => set({ addOpen: !s.addOpen, menu: null }),
+      askAdd: () => set({ addOpen: false, prompt: 'Add a component to ' + selLabel + ' that ' }),
+      reviewPending: s.review === 'pending', reviewDone: s.review !== 'pending', reviewDoneText,
+      cardStyle: 'border-radius: 12px; background: #171a21; box-shadow: 0 0 0 ' + (s.flash ? '1.5px #3b7bff' : '1px #262b35') + '; overflow: hidden',
+      keep: () => set({ review: 'kept', flash: false }),
+      revertReview: () => set({ review: 'reverted', ovr: { ...s.ovr, s2: { ...(s.ovr.s2 || {}), speed: false } }, flash: false }),
+      chipSel: selLabel,
+      prompt: s.prompt,
+      promptPlaceholder: sel.length > 1 ? 'Ask about these ' + sel.length + ' objects…' : 'Ask about ' + selLabel + '…',
+    };
+  }
+}
+</script>
+</body>
+</html>

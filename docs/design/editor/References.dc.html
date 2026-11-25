@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Find usages and safe rename</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+::placeholder{color:#8b92a0;opacity:1}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <button aria-label="Back to the editor (Esc)" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #b4bac6">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+      <span>Editor</span>
+      <span style="height: 18px; display: inline-flex; align-items: center; padding: 0 5px; border-radius: 4px; box-shadow: 0 0 0 1px #262b35; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">Esc</span>
+    </button>
+    <span style="width: 1px; height: 20px; background: #1f232a"></span>
+    <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+      <span style="width: 18px; height: 18px; flex: none; border-radius: 9px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>
+    </sc-if>
+    <span style="color: #ffffff; font-weight: 600; font-size: 14px; white-space: nowrap">{{ title }}</span>
+    <span style="min-width: 0; color: #8b92a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ subtitle }}</span>
+    <div style="flex: 1"></div>
+
+    <sc-if value="{{ isUsages }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ startRename }}" title="Rename · F2" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #ffffff">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m14 6 4 4"></path></svg>Rename…
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">F2</span>
+      </button>
+    </sc-if>
+    <sc-if value="{{ isRename }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ cancelRename }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #d9dde5">Cancel</button>
+      <button onClick="{{ applyRename }}" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Rename {{ fileCount }} files<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #d8e4ff">⌘↵</span></button>
+    </sc-if>
+    <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ undoRename }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #d9dde5">Undo · ⌘Z</button>
+      <button style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Back to level_01</button>
+    </sc-if>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 360px minmax(0, 1fr) 440px; min-height: 0">
+
+    <div style="border-right: 1px solid #1f232a; display: flex; flex-direction: column; min-height: 0">
+      <sc-if value="{{ showNameField }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 12px; border-bottom: 1px solid #1f232a; display: flex; flex-direction: column; gap: 8px">
+          <label for="new-name" style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">NEW NAME</label>
+          <div style="height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; background: #171a21; box-shadow: inset 0 0 0 1.5px #3b7bff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+            <span style="color: #8b92a0">prefabs/</span>
+            <input id="new-name" value="{{ newStem }}" style="flex: 1; min-width: 0; height: 28px; border: 0; outline: none; background: none; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; padding: 0">
+            <span style="color: #8b92a0">.prefab.yaml</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #b4bac6; font-size: 11.5px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+            <span>Free name, snake_case as AGENTS.md asks</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; overflow: hidden">
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="14">
+          <sc-if value="{{ r.isGroup }}" hint-placeholder-val="{{ false }}">
+            <div style="height: 28px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 0; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>{{ r.label }}</span><span style="font-weight: 400; letter-spacing: 0; font-size: 11.5px">{{ r.meta }}</span></div>
+          </sc-if>
+          <sc-if value="{{ r.isFile }}" hint-placeholder-val="{{ true }}">
+            <button aria-expanded="{{ r.open }}" onClick="{{ r.pick }}" style="{{ r.style }}">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="2" stroke-linecap="round" style="{{ r.chev }}" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+              <span style="{{ r.dot }}"></span>
+              <span style="flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ r.path }}</span>
+              <sc-if value="{{ r.isWarn }}" hint-placeholder-val="{{ false }}">
+                <span style="height: 20px; flex: none; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f; color: #f2c14e; font-size: 11px">not rewritten</span>
+              </sc-if>
+              <sc-if value="{{ r.showCount }}" hint-placeholder-val="{{ true }}">
+                <span style="flex: none; color: #8b92a0; font-size: 11.5px">{{ r.count }}</span>
+              </sc-if>
+              <sc-if value="{{ r.showDiff }}" hint-placeholder-val="{{ false }}">
+                <span style="flex: none; font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #ff6b6b">−{{ r.n }}</span> <span style="color: #4fd38a">+{{ r.n }}</span></span>
+              </sc-if>
+              <sc-if value="{{ r.isMove }}" hint-placeholder-val="{{ false }}">
+                <span style="flex: none; color: #8b92a0; font-size: 11.5px">moved</span>
+              </sc-if>
+            </button>
+          </sc-if>
+          <sc-if value="{{ r.isRef }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ r.pick }}" style="{{ r.style }}">
+              <span style="width: 34px; flex: none; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ r.line }}</span>
+              <span style="flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.label }}</span>
+              <span style="{{ r.noteStyle }}">{{ r.note }}</span>
+            </button>
+          </sc-if>
+        </sc-for>
+      </div>
+      <div style="flex: none; padding: 12px 16px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px; line-height: 1.5">↑↓ moves through usages · ↵ opens the scene with the object framed</div>
+    </div>
+
+    <div style="min-width: 0; min-height: 0; padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+      <sc-if value="{{ showPlan }}" hint-placeholder-val="{{ false }}">
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 16px; display: flex; flex-direction: column">
+          <sc-for list="{{ plan }}" as="p" hint-placeholder-count="5">
+            <div style="min-height: 32px; display: flex; align-items: center; gap: 12px; border-bottom: {{ p.border }}">
+              <span style="{{ p.iconStyle }}">
+                <sc-if value="{{ p.isOk }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                <sc-if value="{{ p.isWarn }}" hint-placeholder-val="{{ false }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f2c14e" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 6v8M12 18v.5"></path></svg></sc-if>
+                <sc-if value="{{ p.isStep }}" hint-placeholder-val="{{ false }}"><span style="width: 6px; height: 6px; border-radius: 3px; background: #8b92a0"></span></sc-if>
+              </span>
+              <span style="flex: 1; color: #d9dde5">{{ p.text }}</span>
+              <span style="color: #8b92a0; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ p.meta }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <div style="display: flex; align-items: center; justify-content: space-between; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>{{ gridTitle }}</span>
+        <span style="font-weight: 400; letter-spacing: 0; font-size: 11.5px">{{ gridMeta }}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{ cards }}" as="c" hint-placeholder-count="5">
+          <button onClick="{{ c.pick }}" aria-pressed="{{ c.on }}" style="{{ c.style }}">
+            <span style="position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: {{ c.sky }}">
+              <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 16%; background: #2a2f3a; border-top: 2px solid #3b4250"></span>
+              <span style="{{ c.plat }}"></span>
+              <span style="{{ c.m0 }}"></span>
+              <span style="{{ c.m1 }}"></span>
+              <span style="{{ c.m2 }}"></span>
+              <span style="{{ c.m3 }}"></span>
+            </span>
+            <span style="display: flex; align-items: center; gap: 8px; padding: 0 4px">
+              <span style="flex: 1; min-width: 0; text-align: left; color: #ffffff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.name }}</span>
+              <span style="color: #8b92a0; font-size: 11.5px">{{ c.meta }}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="color: #8b92a0; font-size: 11.5px; line-height: 1.5">{{ gridNote }}</div>
+    </div>
+
+    <div style="border-left: 1px solid #1f232a; display: flex; flex-direction: column; background: #12141a; min-height: 0">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+        <span style="min-width: 0; color: #ffffff; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ codeTitle }}</span>
+        <div style="flex: 1"></div>
+        <span style="flex: none; color: #8b92a0; font-size: 11.5px">{{ codeMeta }}</span>
+      </div>
+      <div style="flex: 1; min-height: 0; padding: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; overflow: hidden">
+        <sc-for list="{{ code }}" as="l" hint-placeholder-count="14">
+          <div style="{{ l.style }}"><span style="width: 34px; color: #8b92a0; text-align: right; flex: none">{{ l.n }}</span><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="white-space: pre">{{ l.text }}</span></div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ showGoNote }}" hint-placeholder-val="{{ false }}">
+        <div style="margin: 0 16px 16px; padding: 12px; border-radius: 12px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f; display: flex; flex-direction: column; gap: 8px">
+          <div style="color: #f2c14e; font-weight: 500">Go code is not rewritten</div>
+          <div style="color: #d9dde5; line-height: 1.5">The rename only rewrites YAML. This constant keeps the old path, so assets.MustLoad fails the first time a pit spawns a slime.</div>
+          <div style="display: flex; gap: 8px">
+            <button onClick="{{ askAgent }}" style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 500"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>{{ askLabel }}</button>
+            <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #d9dde5">Open spawn.go</button>
+          </div>
+        </div>
+      </sc-if>
+      <div style="flex: none; padding: 12px 16px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px; line-height: 1.6">The agent finds and renames through the same path, <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">refs_find</span> and <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">refactor_rename</span>, so its renames land here as the same review.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'rename', file: 'l1', ref: 1, askSent: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const set = (p) => this.setState(p);
+    const OLD = 'prefabs/slime.prefab.yaml';
+    const NEW = 'prefabs/slime_green.prefab.yaml';
+    const SLIME = '#5aa77a';
+    const renaming = s.mode === 'rename';
+    const done = s.mode === 'done';
+    const after = done;
+
+    const scenes = [
+      { id: 'l1', path: 'scenes/level_01.scene.yaml', name: 'level_01', sky: 'linear-gradient(180deg,#1c2230,#181c24)', plat: [52, 58, 26], refs: [
+        { id: 'slime_01', line: 61, x: 30, y: 84, xy: [220, 340] }, { id: 'slime_02', line: 70, x: 40, y: 84, xy: [284, 340], ov: ['patrol: { speed: 30 }', 'health: { max: 3 }'] }, { id: 'slime_03', line: 84, x: 66, y: 58, xy: [470, 270] },
+      ] },
+      { id: 'l2', path: 'scenes/level_02.scene.yaml', name: 'level_02', sky: 'linear-gradient(180deg,#1c2230,#181c24)', plat: [18, 50, 30], refs: [
+        { id: 'slime_01', line: 34, x: 12, y: 84, xy: [96, 340] }, { id: 'slime_02', line: 41, x: 26, y: 46, xy: [210, 182] }, { id: 'slime_03', line: 48, x: 58, y: 84, xy: [470, 340] }, { id: 'slime_04', line: 112, x: 80, y: 84, xy: [640, 340], ov: ['sprite: { tint: "#9FD8B4" }'] },
+      ] },
+      { id: 'l3', path: 'scenes/level_03.scene.yaml', name: 'level_03', sky: 'linear-gradient(180deg,#1a1f2a,#15181d)', plat: [60, 44, 24], refs: [
+        { id: 'slime_pit_a', line: 27, x: 22, y: 84, xy: [176, 340] }, { id: 'slime_pit_b', line: 33, x: 66, y: 38, xy: [530, 150] },
+      ] },
+      { id: 'br', path: 'scenes/boss_room.scene.yaml', name: 'boss_room', sky: 'linear-gradient(180deg,#221c30,#1a1724)', plat: [0, 0, 0], refs: [
+        { id: 'minion_left', line: 58, x: 20, y: 84, xy: [160, 340] }, { id: 'minion_right', line: 64, x: 76, y: 84, xy: [610, 340] },
+      ] },
+      { id: 'sw', path: 'scenes/sewer_01.scene.yaml', name: 'sewer_01', sky: 'linear-gradient(180deg,#18211f,#141a19)', plat: [34, 52, 36], refs: [
+        { id: 'slime_01', line: 19, x: 16, y: 84, xy: [128, 340] }, { id: 'slime_02', line: 26, x: 44, y: 46, xy: [350, 182] }, { id: 'slime_03', line: 33, x: 84, y: 84, xy: [672, 340] },
+      ] },
+    ];
+    const others = [
+      { id: 'vb', group: 'variants', path: 'prefabs/slime_blue.prefab.yaml', refs: [{ id: 'inherits', line: 2 }] },
+      { id: 'vk', group: 'variants', path: 'prefabs/slime_king.prefab.yaml', refs: [{ id: 'inherits', line: 2 }] },
+      { id: 'dt', group: 'data', path: 'data/spawn_waves.yaml', refs: [{ id: 'wave_02', line: 14 }, { id: 'wave_05', line: 29 }] },
+      { id: 'go', group: 'go', path: 'game/spawn.go', warn: true, refs: [{ id: 'slimePrefab', line: 31 }] },
+    ];
+    const files = scenes.concat(others);
+    const byId = {};
+    files.forEach((f) => { byId[f.id] = f; });
+    const yamlFiles = files.filter((f) => !f.warn);
+    const yamlRefs = yamlFiles.reduce((n, f) => n + f.refs.length, 0);
+    const allRefs = files.reduce((n, f) => n + f.refs.length, 0);
+    const sceneRefs = scenes.reduce((n, f) => n + f.refs.length, 0);
+    const fileCount = yamlFiles.length + 1;
+    const focusId = s.file;
+    const focus = focusId === 'mv' ? null : byId[focusId] || byId.l1;
+    const refIdx = focus ? Math.min(s.ref, focus.refs.length - 1) : 0;
+    const path = after ? NEW : OLD;
+
+    // ---- left list ----
+    const rows = [];
+    const fileRow = (f) => {
+      const open = f.id === focusId;
+      rows.push({
+        isFile: true, isGroup: false, isRef: false, open,
+        path: f.path, count: String(f.refs.length), n: f.refs.length,
+        isWarn: !!f.warn, showCount: !renaming && !f.warn && !f.move, showDiff: renaming && !f.warn && !f.move, isMove: !!f.move,
+        style: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; color: ' + (open ? '#ffffff' : '#d9dde5') + '; background: ' + (open ? '#1c2638' : 'none'),
+        chev: 'flex: none' + (open ? '' : '; transform: rotate(-90deg)') + (f.move ? '; visibility: hidden' : ''),
+        dot: 'width: 6px; height: 6px; flex: none; border-radius: 2px; background: ' + (f.warn ? '#f2c14e' : f.path.indexOf('scenes/') === 0 ? '#4f8cff' : f.path.indexOf('prefabs/') === 0 ? '#9b7bff' : '#8b92a0'),
+        pick: () => set({ file: f.id, ref: 0 }),
+      });
+      if (open && !f.move) {
+        f.refs.forEach((r, i) => {
+          const on = i === refIdx;
+          rows.push({
+            isRef: true, isFile: false, isGroup: false, line: r.line,
+            label: f.warn ? 'slimePrefab = "' + OLD + '"' : r.id === 'inherits' ? 'inherits: ' + path : r.id,
+            note: r.ov ? r.ov.length + (r.ov.length === 1 ? ' override' : ' overrides') : r.xy ? r.xy.join(', ') : '',
+            noteStyle: 'flex: none; font-size: 11px; ' + (r.ov ? 'color: #e9a84a' : "color: #8b92a0; font-family: 'JetBrains Mono', monospace"),
+            style: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 18px; border: 0; border-radius: 6px; color: ' + (on ? '#ffffff' : '#b4bac6') + '; background: ' + (on ? '#171a21' : 'none') + '; box-shadow: ' + (on ? 'inset 2px 0 0 #3b7bff' : 'none') + (f.warn || r.id === 'inherits' ? "; font-family: 'JetBrains Mono', monospace; font-size: 11px" : ''),
+            pick: () => set({ ref: i }),
+          });
+        });
+      }
+    };
+    const group = (label, meta) => rows.push({ isGroup: true, isFile: false, isRef: false, label, meta });
+    if (renaming) {
+      group('MOVED', '');
+      fileRow({ id: 'mv', path: OLD + ' → slime_green', refs: [], move: true });
+    }
+    group('SCENES', sceneRefs + ' instances');
+    scenes.forEach(fileRow);
+    group('PREFAB VARIANTS', '2 inherit it');
+    others.filter((f) => f.group === 'variants').forEach(fileRow);
+    group('DATA TABLES', '2 rows');
+    others.filter((f) => f.group === 'data').forEach(fileRow);
+    group('GO CODE', '1 constant');
+    others.filter((f) => f.group === 'go').forEach(fileRow);
+
+    // ---- scene cards ----
+    const cards = scenes.map((f) => {
+      const on = f.id === focusId;
+      const marks = f.refs.map((r, i) => {
+        const hot = on && i === refIdx;
+        return { style: 'position: absolute; left: ' + r.x + '%; top: ' + r.y + '%; width: 7%; height: 9%; transform: translate(-50%, -100%); border-radius: 6px 6px 2px 2px; background: ' + SLIME + '; box-shadow: ' + (hot ? '0 0 0 2px #101216, 0 0 0 3.5px #3b7bff' : on ? '0 0 0 1.5px #3b7bff' : 'none') };
+      });
+      return {
+        name: f.name, on,
+        meta: renaming ? f.refs.length + (f.refs.length === 1 ? ' line' : ' lines') : f.refs.length + (f.refs.length === 1 ? ' instance' : ' instances'),
+        sky: f.sky,
+        plat: f.plat[2] ? 'position: absolute; left: ' + f.plat[0] + '%; top: ' + f.plat[1] + '%; width: ' + f.plat[2] + '%; height: 4%; border-radius: 1px; background: #333a47' : 'display: none',
+        m0: marks[0] ? marks[0].style : 'display: none', m1: marks[1] ? marks[1].style : 'display: none',
+        m2: marks[2] ? marks[2].style : 'display: none', m3: marks[3] ? marks[3].style : 'display: none',
+        style: 'display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 0; border-radius: 12px; text-align: left; color: inherit; background: #171a21; box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff' : '1px #262b35'),
+        pick: () => set({ file: f.id, ref: 0 }),
+      };
+    });
+
+    // ---- code panel ----
+    const L = (n, text, kind) => ({ n, text, kind: kind || '' });
+    let lines = [];
+    let codeTitle = '';
+    let codeMeta = '';
+    const refLine = (n, key) => {
+      const oldT = '    ' + key + ': ' + OLD;
+      const newT = '    ' + key + ': ' + NEW;
+      if (renaming) return [L(n, oldT, 'del'), L(n, newT, 'add')];
+      return [L(n, after ? newT : oldT, 'hit')];
+    };
+    if (!focus) {
+      codeTitle = OLD + ' → ' + NEW;
+      codeMeta = 'content unchanged';
+      lines = [
+        L(1, 'version: 1'), L(2, 'name: slime'), L(3, 'sprite: { texture: enemies/slime_green.png }'), L(4, 'components:'),
+        L(5, '  body: { type: kinematic, shape: { capsule: [26, 16] }, layer: enemies }'), L(6, '  patrol: { from: 0, to: 0, speed: 24, wait: 0.5 }'),
+        L(7, '  health: { max: 2, invulnerable: 0.6 }'), L(8, '  hurts_on_touch: { damage: 1, knockback: 120 }'),
+        L('', ''), L('', '# the file moves; the editor never edits its text', 'note'),
+      ];
+    } else if (focus.warn) {
+      codeTitle = focus.path;
+      codeMeta = 'line 31';
+      lines = [
+        L(29, ''), L(30, '// slimePrefab is dropped into every open pit.'), L(31, 'const slimePrefab = "' + OLD + '"', 'warn'), L(32, ''),
+        L(33, 'func spawnPitSlimes(w *game.World, pits []Vec) {'), L(34, '    for _, p := range pits {'), L(35, '        w.SpawnAt(assets.MustLoad(slimePrefab), p)'), L(36, '    }'), L(37, '}'),
+      ];
+    } else if (focus.group === 'variants') {
+      const nm = focus.path.replace('prefabs/', '').replace('.prefab.yaml', '');
+      codeTitle = focus.path;
+      codeMeta = renaming ? '−1 +1' : 'line 2';
+      lines = [L(1, 'version: 1')].concat(refLine(2, 'inherits').map((x) => ({ ...x, text: x.text.replace('    ', '') })), [
+        L(3, 'name: ' + nm),
+        L(4, 'components:'),
+        L(5, nm === 'slime_blue' ? '  sprite: { texture: enemies/slime_blue.png }' : '  sprite: { texture: enemies/slime_king.png, scale: 2 }'),
+        L(6, nm === 'slime_blue' ? '  patrol: { speed: 32 }' : '  health: { max: 12 }'),
+      ]);
+    } else if (focus.group === 'data') {
+      codeTitle = focus.path;
+      codeMeta = renaming ? '−2 +2' : '2 rows';
+      lines = [L(12, 'waves:'), L(13, '  - id: wave_02')].concat(refLine(14, 'prefab'), [L(15, '    count: 4'), L(16, '    every: 2.5'), L('', '⋯', 'gap'), L(28, '  - id: wave_05')], refLine(29, 'prefab'), [L(30, '    count: 8'), L(31, '    every: 1.5')]);
+    } else {
+      codeTitle = focus.path;
+      codeMeta = renaming ? '−' + focus.refs.length + ' +' + focus.refs.length : focus.refs.length + ' instances';
+      focus.refs.forEach((r, i) => {
+        if (i > 0) lines.push(L('', '⋯', 'gap'));
+        lines.push(L(r.line - 1, '  - id: ' + r.id));
+        lines = lines.concat(refLine(r.line, 'prefab').map((x) => ({ ...x, focus: i === refIdx })));
+        lines.push(L(r.line + 1, '    x: ' + r.xy[0]));
+        lines.push(L(r.line + 2, '    y: ' + r.xy[1]));
+        if (r.ov) {
+          lines.push(L(r.line + 3, '    overrides:'));
+          r.ov.forEach((o, k) => lines.push(L(r.line + 4 + k, '      ' + o)));
+        }
+      });
+    }
+    const code = lines.map((l) => {
+      const bg = l.kind === 'del' ? 'background: rgba(255,107,107,0.08); color: #ffb9b9'
+        : l.kind === 'add' ? 'background: rgba(79,211,138,0.08); color: #b9f0cf'
+        : l.kind === 'hit' ? 'background: ' + (l.focus === false ? 'rgba(59,123,255,0.07)' : 'rgba(59,123,255,0.16)') + '; color: #ffffff'
+        : l.kind === 'warn' ? 'background: #2a2414; color: #f2c14e'
+        : l.kind === 'gap' || l.kind === 'note' ? 'color: #8b92a0'
+        : 'color: #b4bac6';
+      return { n: l.n, text: l.text, sign: l.kind === 'del' ? '−' : l.kind === 'add' ? '+' : '', style: 'display: flex; gap: 6px; padding: 0 16px; ' + bg };
+    });
+
+    const plan = [
+      { kind: 'step', text: 'Move ' + OLD + ' to ' + NEW, meta: '1 file' },
+      { kind: 'step', text: 'Rewrite ' + yamlRefs + ' references in scenes, variants and data', meta: (fileCount - 1) + ' files' },
+      { kind: 'ok', text: 'Overrides on slime_02 and slime_04 are kept as they are', meta: '' },
+      { kind: 'warn', text: s.askSent ? 'The agent is updating game/spawn.go; it will ask before editing Go' : 'game/spawn.go loads the old path and is not rewritten', meta: 'line 31' },
+      { kind: 'ok', text: 'Then game check runs; nothing may point at the old name', meta: '' },
+    ].map((p, i, arr) => ({
+      ...p, isOk: p.kind === 'ok', isWarn: p.kind === 'warn', isStep: p.kind === 'step',
+      border: i === arr.length - 1 ? '0' : '1px solid #20242c',
+      iconStyle: 'width: 18px; height: 18px; flex: none; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: ' + (p.kind === 'ok' ? '#1f3a2b' : p.kind === 'warn' ? '#2a2414' : '#20252f'),
+    }));
+
+    const title = done ? 'Renamed to slime_green.prefab.yaml' : renaming ? 'Rename slime.prefab.yaml' : 'Usages of slime.prefab.yaml';
+    const subtitle = done ? fileCount + ' files rewritten · game check: 1 problem in game/spawn.go' : renaming ? 'every reference is rewritten in one review and one undo step' : allRefs + ' in ' + files.length + ' files · Find usages on slime_02';
+
+    return {
+      title, subtitle, isUsages: s.mode === 'usages', isRename: renaming, isDone: done,
+      showNameField: renaming, newStem: 'slime_green', fileCount,
+      rows, cards, code, codeTitle, codeMeta, plan, showPlan: renaming,
+      gridTitle: 'SCENES', gridMeta: sceneRefs + ' instances in ' + scenes.length + ' scenes',
+      gridNote: renaming ? 'Each scene keeps its instances and their overrides; only the prefab path in each line changes.' : 'Click a scene to see its usages; ↵ on a usage opens the scene with that object framed.',
+      showGoNote: !!(focus && focus.warn),
+      askLabel: s.askSent ? 'Asked · the agent is on it' : 'Ask the agent to update it',
+      askAgent: () => set({ askSent: true }),
+      startRename: () => set({ mode: 'rename' }),
+      cancelRename: () => set({ mode: 'usages' }),
+      applyRename: () => set({ mode: 'done' }),
+      undoRename: () => set({ mode: 'usages' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

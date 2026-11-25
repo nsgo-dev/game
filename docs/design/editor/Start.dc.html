@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Start screen</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16181d}
+a{color:#7aa7ff}a:hover{color:#a9c6ff}
+</style>
+</helmet>
+<div style="height: 900px; display: grid; grid-template-columns: 300px minmax(0, 1fr); font-family: Inter, system-ui, sans-serif; font-size: 13px; color: #d7dbe3; background: #16181d">
+  <div style="border-right: 1px solid #262a32; padding: 28px 20px; display: flex; flex-direction: column; gap: 18px; background: #131519">
+    <div style="font-size: 18px; font-weight: 600; color: #ffffff">NSGo Editor</div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <button style="height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; border: 0; background: #24324d; color: #ffffff">New project</button>
+      <button style="height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; border: 0; background: none; color: #c3c8d2">Open folder…</button>
+      <button style="height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; border: 0; background: none; color: #c3c8d2">Examples</button>
+      <button style="height: 34px; text-align: left; padding: 0 12px; border-radius: 6px; border: 0; background: none; color: #c3c8d2">Learn</button>
+    </div>
+    <div style="height: 1px; background: #262a32"></div>
+    <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em">RECENT</div>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="padding: 8px 12px; border-radius: 6px"><div style="color: #ffffff">dungeon-run</div><div style="color: #8b92a0; font-size: 11px">~/games/dungeon-run · 2 hours ago</div></div>
+      <div style="padding: 8px 12px; border-radius: 6px"><div style="color: #ffffff">kart-test</div><div style="color: #8b92a0; font-size: 11px">~/games/kart-test · yesterday</div></div>
+      <div style="padding: 8px 12px; border-radius: 6px"><div style="color: #ffffff">card-proto</div><div style="color: #8b92a0; font-size: 11px">~/games/card-proto · last week</div></div>
+    </div>
+  </div>
+  <div style="padding: 32px 40px; display: flex; flex-direction: column; gap: 20px; overflow: hidden">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="font-size: 22px; font-weight: 600; color: #ffffff">What do you want to make?</div>
+      <div style="border-radius: 14px; background: #1b1e25; box-shadow: 0 0 0 1px #2a2f39, 0 18px 50px rgba(0,0,0,0.35); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px">
+        <label for="idea" style="position: absolute; left: -9999px">Describe your game</label>
+        <textarea id="idea" rows="3" placeholder="A cozy farming game where you grow glowing mushrooms in a cave and trade them with moths at night…" style="resize: none; border: 0; outline: none; background: none; color: #e6e9ef; font: inherit; font-size: 15px; line-height: 1.55"></textarea>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span style="color: #8b92a0; font-size: 12px">The agent picks the closest template, sets up the project and builds a first playable scene you can review.</span>
+          <div style="flex: 1"></div>
+          <button style="height: 34px; padding: 0 16px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Start with AI</button>
+        </div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: flex-end; justify-content: space-between">
+      <div>
+        <div style="font-size: 15px; font-weight: 600; color: #ffffff">Or start from a template</div>
+        <div style="color: #8b92a0; margin-top: 4px">Each one is a small, playable game you grow into your own.</div>
+      </div>
+      <div style="display: flex; gap: 6px">
+        <sc-for list="{{ filters }}" as="f" hint-placeholder-count="3">
+          <button onClick="{{ f.pick }}" style="{{ f.style }}">{{ f.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+      <sc-for list="{{ cards }}" as="c" hint-placeholder-count="16">
+        <button onClick="{{ c.pick }}" style="{{ c.style }}">
+          <div style="{{ c.thumb }}"></div>
+          <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; text-align: left">
+            <div style="color: #ffffff; font-weight: 600">{{ c.name }}</div>
+            <div style="color: #8b92a0; font-size: 12px">{{ c.desc }}</div>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; padding-top: 6px; border-top: 1px solid #262a32">
+      <label for="pname" style="color: #8b92a0">Name</label>
+      <input id="pname" value="my-game" style="height: 32px; width: 220px; background: #121419; border: 1px solid #2c3038; border-radius: 6px; color: #e6e9ef; padding: 0 10px">
+      <span style="color: #8b92a0">in ~/games/my-game</span>
+      <div style="flex: 1"></div>
+      <span style="color: #a3a9b5">{{ pickedName }}</span>
+      <button style="height: 34px; padding: 0 18px; border-radius: 6px; border: 0; background: #2f6fed; color: #ffffff; font-weight: 600">Create</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { pick: 'platformer2d', filter: 'all' }; }
+  renderVals() {
+    const s = this.state;
+    const all = [
+      { id: 'starter', name: 'Starter', desc: 'An empty scene and a loop', d: '2d', c: '#3a3f4a' },
+      { id: 'platformer2d', name: '2D platformer', desc: 'Rooms, checkpoints, coyote time', d: '2d', c: '#35507a' },
+      { id: 'rpg2d', name: '2D RPG', desc: 'Town, dialogue, quests, saves', d: '2d', c: '#4d6b4f' },
+      { id: 'shmup2d', name: 'Scrolling shooter', desc: 'Waves, patterns, a boss', d: '2d', c: '#6b3f5a' },
+      { id: 'fighting2d', name: '2D fighter', desc: 'Motion inputs, combos, rounds', d: '2d', c: '#7a4a3a' },
+      { id: 'racing3d', name: '3D racer', desc: 'Laps, ghosts, AI drivers', d: '3d', c: '#3d5f7a' },
+      { id: 'fps3d', name: 'First-person shooter', desc: 'Weapons, enemies, waves', d: '3d', c: '#5a4a6b' },
+      { id: 'action3d', name: '3D action adventure', desc: 'Orbit camera, melee, a door', d: '3d', c: '#4a5f5a' },
+      { id: 'puzzle2d', name: 'Grid puzzle', desc: 'Levels in YAML, undo, stars', d: '2d', c: '#6b6040' },
+      { id: 'cards2d', name: 'Card game', desc: 'Deck, hand, drag and drop', d: '2d', c: '#5a3f3f' },
+      { id: 'rts2d', name: 'Real-time strategy', desc: 'Units, fog of war, an AI', d: '2d', c: '#3f5a4a' },
+      { id: 'roguelike2d', name: 'Roguelike', desc: 'Generated floors, loot', d: '2d', c: '#4a4060' },
+      { id: 'towerdefense2d', name: 'Tower defense', desc: 'Paths, waves, upgrades', d: '2d', c: '#5f5a3a' },
+      { id: 'idle', name: 'Idle game', desc: 'Generators, prestige', d: '2d', c: '#3a5f5f' },
+      { id: 'visualnovel', name: 'Visual novel', desc: 'Choices, backlog, saves', d: '2d', c: '#6b4a5f' },
+      { id: 'rhythm', name: 'Rhythm game', desc: 'Charts, judgements, calibration', d: '2d', c: '#40506b' },
+    ];
+    const filters = [{ id: 'all', label: 'All' }, { id: '2d', label: '2D' }, { id: '3d', label: '3D' }].map((f) => ({ ...f, style: 'height: 28px; padding: 0 12px; border-radius: 6px; border: 1px solid ' + (s.filter === f.id ? '#2f6fed' : '#2c3038') + '; background: ' + (s.filter === f.id ? 'rgba(47,111,237,0.18)' : '#1d2027') + '; color: ' + (s.filter === f.id ? '#ffffff' : '#c3c8d2'), pick: () => this.setState({ filter: f.id }) }));
+    const cards = all.filter((t) => s.filter === 'all' || t.d === s.filter).map((t) => ({
+      ...t,
+      style: 'padding: 0; border-radius: 10px; overflow: hidden; cursor: pointer; background: #1d2027; border: 2px solid ' + (s.pick === t.id ? '#2f6fed' : '#262a32'),
+      thumb: 'height: 96px; background: ' + t.c,
+      pick: () => this.setState({ pick: t.id }),
+    }));
+    const picked = all.find((t) => t.id === s.pick) || all[1];
+    return { filters, cards, pickedName: 'Template: ' + picked.name };
+  }
+}
+</script>
+</body>
+</html>

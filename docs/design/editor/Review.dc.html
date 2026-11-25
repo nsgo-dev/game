@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review changes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; position: relative; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <sc-if value="{{ inReview }}" hint-placeholder-val="{{ true }}">
+  <div style="height: 900px; display: flex; flex-direction: column">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+      <button onClick="{{ goBack }}" aria-label="Back to the editor, review stays open (Esc)" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+        <span>Editor</span>
+        <span style="height: 18px; display: inline-flex; align-items: center; padding: 0 5px; border-radius: 4px; box-shadow: 0 0 0 1px #262B35; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">Esc</span>
+      </button>
+      <span style="width: 1px; height: 20px; background: #1F232A"></span>
+      <span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Review</span>
+      <span style="min-width: 0; flex: 0 1 auto; color: #8B92A0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px">“Put slime patrols on the lower floors of level_01 and level_02, with a coin trail toward each door.”</span>
+      <sc-if value="{{ multiRound }}" hint-placeholder-val="{{ false }}">
+        <div role="group" aria-label="Review round" style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+          <button onClick="{{ viewRound1 }}" aria-pressed="{{ round1Pressed }}" style="{{ round1Style }}">Round 1</button>
+          <button onClick="{{ viewRound2 }}" aria-pressed="{{ round2Pressed }}" style="{{ round2Style }}">Round 2</button>
+        </div>
+      </sc-if>
+      <div style="flex: 1"></div>
+      <sc-if value="{{ hasBlocker }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ jumpBlocker }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 6px; border: 0; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 3 20h18z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg>{{ blockerText }}
+        </button>
+      </sc-if>
+      <button onClick="{{ askRevertAll }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Revert all</button>
+      <button onClick="{{ keep }}" aria-disabled="{{ keepDisabled }}" title="{{ keepTitle }}" style="{{ keepStyle }}">Keep {{ keptCount }} of {{ keepTotal }}</button>
+      <sc-if value="{{ hasComments }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ sendComments }}" style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14v10H10l-5 4z"></path></svg>{{ sendLabel }}
+        </button>
+      </sc-if>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 372px minmax(0, 1fr) 392px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1F232A; background: #12141A; min-height: 0">
+        <div style="padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid #1F232A">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <div style="flex: 1; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <label for="review-filter" style="position: absolute; left: -9999px">Filter changes by name, field or file</label>
+              <input id="review-filter" type="search" placeholder="Filter by name, field or file" style="flex: 1; min-width: 0; height: 26px; border: 0; outline: none; background: none; color: #FFFFFF">
+            </div>
+            <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap">{{ seenCount }} of 39 seen</span>
+            <button onClick="{{ prev }}" aria-label="Previous change (K)" title="Previous · K" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+            <button onClick="{{ next }}" aria-label="Next change (J)" title="Next · J" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+          </div>
+          <div role="group" aria-label="Show" style="display: flex; flex-wrap: wrap; gap: 4px">
+            <sc-for list="{{ chips }}" as="f" hint-placeholder-count="6">
+              <button onClick="{{ f.pick }}" aria-pressed="{{ f.pressed }}" style="{{ f.style }}">{{ f.label }} <span style="{{ f.countStyle }}">{{ f.count }}</span></button>
+            </sc-for>
+          </div>
+          <div style="height: 3px; border-radius: 2px; background: #1F232A; overflow: hidden"><div style="{{ seenBar }}"></div></div>
+        </div>
+
+        <sc-if value="{{ multiRound }}" hint-placeholder-val="{{ false }}">
+          <div style="margin: 8px 12px 0; padding: 8px 12px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; gap: 8px; color: #B4BAC6; line-height: 1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8"></path><path d="M4 3.5V8h4.5"></path><path d="M4 13a8 8 0 0 0 14.6 4.4L20 16"></path><path d="M20 20.5V16h-4.5"></path></svg>
+            <span>{{ roundBanner }}</span>
+          </div>
+        </sc-if>
+
+        <div style="flex: 1; min-height: 0; overflow: auto; padding: 4px 8px 12px">
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="14">
+            <sc-if value="{{ r.isFile }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 36px; margin-top: 4px; display: flex; align-items: center; gap: 4px; border-top: 1px solid #1F232A">
+                <button onClick="{{ r.toggleFold }}" aria-expanded="{{ r.expanded }}" aria-label="{{ r.foldLabel }}" style="flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 4px; border-radius: 6px; border: 0; background: none; color: #D9DDE5; text-align: left">
+                  <span style="{{ r.chev }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+                  <sc-if value="{{ r.isScene }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"></rect><path d="M3.5 15l5-4 4 3 3-2 5 4"></path></svg></sc-if>
+                  <sc-if value="{{ r.isPrefab }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5l8 4.5 8-4.5M12 12v9"></path></svg></sc-if>
+                  <sc-if value="{{ r.isData }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"></path></svg></sc-if>
+                  <sc-if value="{{ r.isGo }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"></path></svg></sc-if>
+                  <span title="{{ r.fullPath }}" style="min-width: 0; flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.path }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap"><span style="color: #4FD38A">{{ r.addTxt }}</span> <span style="color: #E9A84A">{{ r.chgTxt }}</span> <span style="color: #FF6B6B">{{ r.remTxt }}</span></span>
+                </button>
+                <sc-if value="{{ r.isGo }}" hint-placeholder-val="{{ false }}">
+                  <span style="{{ r.goBadge }}">{{ r.goBadgeText }}</span>
+                </sc-if>
+                <sc-if value="{{ r.canRevertFile }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ r.fileToggle }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px; white-space: nowrap">{{ r.fileToggleText }}</button>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ r.isKind }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 28px; display: flex; align-items: center; gap: 4px; padding-left: 16px">
+                <button onClick="{{ r.toggleFold }}" aria-expanded="{{ r.expanded }}" aria-label="{{ r.foldLabel }}" style="height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 4px; border-radius: 6px; border: 0; background: none; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+                  <span style="{{ r.chev }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+                  <span>{{ r.kindLabel }}</span><span style="font-weight: 500; letter-spacing: 0">{{ r.count }}</span>
+                </button>
+                <div style="flex: 1"></div>
+                <button onClick="{{ r.kindToggle }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px">{{ r.kindToggleText }}</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ r.isCard }}" hint-placeholder-val="{{ true }}">
+              <div style="{{ r.cardStyle }}">
+                <div style="height: 36px; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 8px">
+                  <button onClick="{{ r.focus }}" aria-label="{{ r.focusLabel }}" style="flex: 1; min-width: 0; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; text-align: left">
+                    <span style="{{ r.tickStyle }}"><sc-if value="{{ r.seen }}" hint-placeholder-val="{{ true }}"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if></span>
+                    <span style="{{ r.markStyle }}">
+                      <sc-if value="{{ r.isAdded }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></sc-if>
+                      <sc-if value="{{ r.isChanged }}" hint-placeholder-val="{{ false }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"></path></svg></sc-if>
+                      <sc-if value="{{ r.isRemoved }}" hint-placeholder-val="{{ false }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></sc-if>
+                    </span>
+                    <span style="{{ r.titleStyle }}">{{ r.title }}</span>
+                    <span style="flex: 1; min-width: 0; color: #8B92A0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.detail }}</span>
+                  </button>
+                  <button onClick="{{ r.comment }}" aria-label="{{ r.commentLabel }}" title="Note for the agent · C" style="{{ r.commentStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14v10H10l-5 4z"></path></svg></button>
+                  <sc-if value="{{ r.notGo }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ r.toggle }}" aria-label="{{ r.toggleLabel }}" title="X" style="{{ r.toggleStyle }}">{{ r.toggleText }}</button>
+                  </sc-if>
+                  <sc-if value="{{ r.isGoCard }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ r.focus }}" style="height: 26px; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11.5px">{{ r.goAction }}</button>
+                  </sc-if>
+                </div>
+
+                <sc-if value="{{ r.hasComment }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin: 0 8px 8px 50px; padding: 8px 12px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 4px">
+                    <div style="display: flex; align-items: center; gap: 8px; color: #8B92A0; font-size: 11.5px"><span style="flex: 1">Note for the agent · not sent</span><button onClick="{{ r.removeComment }}" style="height: 22px; padding: 0 4px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px">Remove</button></div>
+                    <div style="color: #FFFFFF; line-height: 1.5">{{ r.commentText }}</div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ r.composing }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin: 0 8px 8px 50px; display: flex; flex-direction: column; gap: 8px">
+                    <label for="note-input" style="position: absolute; left: -9999px">Note for the agent about {{ r.title }}</label>
+                    <textarea id="note-input" rows="2" style="resize: none; padding: 8px 12px; border-radius: 8px; border: 0; outline: none; background: #101216; box-shadow: 0 0 0 1.5px #3B7BFF; color: #FFFFFF; line-height: 1.5">{{ r.draft }}</textarea>
+                    <div style="display: flex; gap: 8px">
+                      <button onClick="{{ r.addComment }}" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Add note</button>
+                      <button onClick="{{ r.redo }}" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Revert and redo with this note</button>
+                      <button onClick="{{ r.cancelCompose }}" style="height: 28px; padding: 0 8px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Cancel</button>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ r.isConflict }}" hint-placeholder-val="{{ false }}">
+                  <div role="group" aria-label="Conflict on door_1" style="{{ r.conflictBox }}">
+                    <div style="{{ r.conflictHead }}"><sc-if value="{{ r.conflictOpen }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 3 20h18z"></path><path d="M12 10v4.5M12 17.5v.01"></path></svg></sc-if><sc-if value="{{ r.conflictDone }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>{{ r.conflictTitle }}</div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7; color: #D9DDE5">
+                      <div><span style="display: inline-block; width: 48px; color: #8B92A0">you</span>+ sound: sfx/door_creak.ogg</div>
+                      <div><span style="display: inline-block; width: 48px; color: #8B92A0">agent</span>+ reveal: coin_trail</div>
+                    </div>
+                    <div style="{{ r.conflictSeg }}">
+                      <button onClick="{{ r.pickMine }}" aria-pressed="{{ r.minePressed }}" style="{{ r.mineStyle }}">Mine</button>
+                      <button onClick="{{ r.pickAgent }}" aria-pressed="{{ r.agentPressed }}" style="{{ r.agentStyle }}">Agent's</button>
+                      <button onClick="{{ r.pickBoth }}" aria-pressed="{{ r.bothPressed }}" style="{{ r.bothStyle }}">Both</button>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ r.hasNote }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin: 0 8px 8px 50px; display: flex; gap: 8px; color: #8B92A0; font-size: 11.5px; line-height: 1.5">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8"></path><path d="M4 3.5V8h4.5"></path><path d="M4 13a8 8 0 0 0 14.6 4.4L20 16"></path><path d="M20 20.5V16h-4.5"></path></svg>
+                    <span><span style="color: #D9DDE5; font-weight: 500">Revised in round 2.</span> Your note: {{ r.noteText }}</span>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </sc-for>
+          <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 24px 12px; color: #8B92A0; text-align: center">Nothing left to look at here.</div>
+          </sc-if>
+        </div>
+
+        <div style="height: 36px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">J K</span> move</span>
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">C</span> note</span>
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">X</span> revert</span>
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">B</span> hold for before</span>
+          <span><span style="font-family: 'JetBrains Mono', monospace; color: #D9DDE5">⌘↵</span> keep</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+        <sc-if value="{{ centerScene }}" hint-placeholder-val="{{ true }}">
+          <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+            <div style="position: absolute; left: 24px; top: 16px; right: 24px; height: 28px; display: flex; align-items: center; gap: 8px">
+              <span style="height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 12px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px">{{ sceneLabel }}</span>
+              <div style="flex: 1"></div>
+              <button onClick="{{ togglePeek }}" aria-pressed="{{ peekPressed }}" aria-label="Show the scene before this request (hold B)" title="Before · hold B" style="{{ peekStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            </div>
+            <div style="{{ frameStyle }}">
+              <div style="position: absolute; left: 0; right: 0; top: 296px; height: 60px; background: #2A2F3A; border-top: 3px solid #3B4250"></div>
+              <sc-for list="{{ platforms }}" as="p" hint-placeholder-count="1">
+                <div style="{{ p.style }}"></div>
+              </sc-for>
+              <sc-for list="{{ objs }}" as="o" hint-placeholder-count="9">
+                <div style="{{ o.style }}"></div>
+              </sc-for>
+              <sc-for list="{{ pins }}" as="p" hint-placeholder-count="1">
+                <span style="{{ p.style }}" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v10H10l-5 4z"></path></svg></span>
+              </sc-for>
+              <sc-if value="{{ showFocusLabel }}" hint-placeholder-val="{{ true }}">
+                <div style="{{ focusLabelStyle }}">{{ focusTitle }}</div>
+              </sc-if>
+            </div>
+            <sc-if value="{{ peek }}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; left: 50%; top: 52px; transform: translateX(-50%); height: 26px; display: flex; align-items: center; padding: 0 12px; border-radius: 13px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #262B35; color: #FFFFFF">Before this request</div>
+            </sc-if>
+            <div style="position: absolute; left: 24px; bottom: 16px; display: flex; gap: 16px; font-size: 11.5px; color: #B4BAC6">
+              <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4FD38A"></span>added</span>
+              <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #E9A84A"></span>changed</span>
+              <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #FF6B6B"></span>removed</span>
+              <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #3B7BFF"></span>selected</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ centerPrefab }}" hint-placeholder-val="{{ false }}">
+          <div class="vp" style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px">
+            <div style="width: 440px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #262B35, 0 24px 60px rgba(0,0,0,0.45); overflow: hidden">
+              <div style="height: 160px; display: flex; align-items: flex-end; justify-content: center; gap: 48px; padding-bottom: 32px; background: #15181D; border-bottom: 1px solid #1F232A">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 60px; height: 36px; border-radius: 20px 20px 8px 8px; background: #3E9A68"></span><span style="color: #8B92A0; font-size: 11.5px">32 px/s</span></div>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-bottom: 32px"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 60px; height: 36px; border-radius: 20px 20px 8px 8px; background: #3E9A68; outline: 1.5px dashed #E9A84A; outline-offset: 4px"></span><span style="color: #FFFFFF; font-size: 11.5px">24 px/s</span></div>
+              </div>
+              <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px">
+                <div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 600; font-size: 14px">slime.prefab.yaml</span><span style="color: #8B92A0; font-size: 11.5px">Prefab</span></div>
+                <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 28px; padding: 0 12px; border-radius: 6px; background: rgba(233,168,74,0.08); outline: 1.5px dashed #E9A84A; outline-offset: -1px">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">patrol.speed</span>
+                  <span><span style="color: #8B92A0; text-decoration: line-through">32</span> <span style="color: #8B92A0">→</span> <span style="color: #FFFFFF">24</span></span>
+                  <span style="color: #E9A84A; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">−25%</span>
+                </div>
+                <div style="color: #B4BAC6; line-height: 1.55">Applies to all 11 slimes in this review, 3 in level_01 and 8 in level_02, and to the 6 slimes already in level_03.</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ centerData }}" hint-placeholder-val="{{ false }}">
+          <div style="flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 12px; background: #101216">
+            <div style="display: flex; align-items: center; gap: 8px"><span style="color: #FFFFFF; font-weight: 600; font-size: 14px">data/enemies.yaml</span><span style="color: #8B92A0">· table · 1 of 4 records changed</span></div>
+            <div role="table" aria-label="enemies" style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; overflow: hidden">
+              <div role="row" style="display: grid; grid-template-columns: 140px repeat(4, minmax(0, 1fr)); height: 32px; align-items: center; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span role="columnheader">ID</span><span role="columnheader">HP</span><span role="columnheader">SPEED</span><span role="columnheader">DAMAGE</span><span role="columnheader">XP</span></div>
+              <sc-for list="{{ enemyRows }}" as="e" hint-placeholder-count="4">
+                <div role="row" style="{{ e.rowStyle }}">
+                  <span role="cell" style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ e.id }}</span>
+                  <span role="cell" style="{{ e.hpStyle }}">{{ e.hp }}</span>
+                  <span role="cell">{{ e.speed }}</span><span role="cell">{{ e.dmg }}</span><span role="cell">{{ e.xp }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="color: #8B92A0; line-height: 1.55">Records keep or revert one at a time, the same as objects. Tables with more rows open sortable, with old → new and Δ% in every changed cell.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ centerGo }}" hint-placeholder-val="{{ false }}">
+          <div style="flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 12px; min-height: 0; background: #101216">
+            <div style="display: flex; align-items: center; gap: 12px">
+              <span style="color: #FFFFFF; font-weight: 600; font-size: 14px; font-family: 'JetBrains Mono', monospace">gameplay/patrol.go</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px"><span style="color: #4FD38A">+9</span> <span style="color: #FF6B6B">−3</span></span>
+              <div style="flex: 1"></div>
+              <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>Open in GoLand</button>
+            </div>
+            <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-radius: 8px; background: #12141A; box-shadow: 0 0 0 1px #1F232A">
+              <span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>nsgo check</span>
+              <span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>nsgo test · 42 passed</span>
+              <span style="color: #8B92A0">3.1 s</span>
+            </div>
+            <div style="flex: 1; min-height: 0; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; overflow: hidden">
+              <sc-for list="{{ goLines }}" as="l" hint-placeholder-count="14">
+                <div style="{{ l.style }}"><span style="width: 32px; flex: none; text-align: right; color: #8B92A0">{{ l.n }}</span><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="white-space: pre">{{ l.text }}</span></div>
+              </sc-for>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px">
+              <span style="flex: 1; color: #B4BAC6; line-height: 1.5">Go changes aren't part of Keep. Confirm each file once you've read it.</span>
+              <a href="#review-code" style="text-decoration: none">Full code review</a>
+              <button onClick="{{ confirmGo }}" style="{{ confirmGoStyle }}">{{ confirmGoText }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="min-height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 24px; border-top: 1px solid #1F232A; background: #12141A; color: #B4BAC6; line-height: 1.5">
+          <span style="color: #8B92A0; flex: none">Why</span><span>{{ why }}</span>
+        </div>
+      </div>
+
+      <div style="border-left: 1px solid #1F232A; display: flex; flex-direction: column; background: #12141A; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="min-width: 0; flex: 1; color: #B4BAC6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span style="color: #FFFFFF">{{ focusTitle }}</span> · {{ rightTitle }}</span>
+          <sc-if value="{{ canEdit }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ startEdit }}" style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"></path></svg>Edit</button>
+          </sc-if>
+          <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
+            <span style="color: #8B92A0; font-size: 11.5px">Editing</span>
+            <button onClick="{{ doneEdit }}" aria-disabled="{{ doneDisabled }}" style="{{ doneStyle }}">Done</button>
+          </sc-if>
+        </div>
+        <sc-if value="{{ rightYaml }}" hint-placeholder-val="{{ true }}">
+          <div style="{{ codeBox }}">
+            <sc-for list="{{ yaml }}" as="l" hint-placeholder-count="8">
+              <div style="{{ l.style }}"><span style="width: 32px; flex: none; text-align: right; color: #8B92A0">{{ l.n }}</span><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="{{ l.textStyle }}">{{ l.text }}</span><span style="flex: 1"></span><span style="color: #8B92A0; font-family: Inter, system-ui, sans-serif; font-size: 11px; padding-right: 4px">{{ l.tag }}</span></div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ yamlBroken }}" hint-placeholder-val="{{ false }}">
+            <div role="alert" style="margin: 0 16px 16px; padding: 12px; border-radius: 12px; background: #1D1416; box-shadow: 0 0 0 1px #4A2428; display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; align-items: center; gap: 8px; color: #FFB4B4; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 3px; background: #FF6B6B"></span>{{ yamlErrorTitle }}</div>
+              <div style="color: #D9DDE5; line-height: 1.5">Expected <span style="font-family: 'JetBrains Mono', monospace">key: value</span>; add a colon after <span style="font-family: 'JetBrains Mono', monospace">x</span>. Keep stays off until the file parses.</div>
+              <div style="display: flex; gap: 8px">
+                <button onClick="{{ fixYaml }}" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Add the colon</button>
+                <button onClick="{{ undoTyping }}" style="height: 28px; padding: 0 8px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Undo my typing</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ editingValid }}" hint-placeholder-val="{{ false }}">
+            <div style="margin: 0 16px 16px; color: #8B92A0; line-height: 1.5">Your edit joins this review; the agent sees it in round 2.</div>
+          </sc-if>
+        </sc-if>
+        <sc-if value="{{ rightChecks }}" hint-placeholder-val="{{ false }}">
+          <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CHECKS · ./gameplay</div>
+            <sc-for list="{{ checks }}" as="k" hint-placeholder-count="6">
+              <div style="height: 28px; display: flex; align-items: center; gap: 8px">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+                <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">{{ k.name }}</span>
+                <span style="color: #8B92A0; font-size: 11.5px">{{ k.t }}</span>
+              </div>
+            </sc-for>
+            <div style="margin-top: 8px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #FFFFFF; font-weight: 500">Same 10 s replay, old and new code</div>
+              <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 4px 16px; color: #B4BAC6"><span>Slimes off a ledge</span><span style="color: #8B92A0">3</span><span style="color: #FFFFFF">0</span><span>Coins the Knight reaches</span><span style="color: #8B92A0">16 of 19</span><span style="color: #FFFFFF">19 of 19</span></div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <sc-if value="{{ confirmRevert }}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; inset: 0; background: rgba(8,9,12,0.6); display: flex; align-items: center; justify-content: center">
+        <div role="alertdialog" aria-labelledby="revert-title" aria-describedby="revert-body" style="width: 440px; padding: 24px; border-radius: 18px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 24px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px">
+          <div id="revert-title" style="color: #FFFFFF; font-size: 14px; font-weight: 600">Revert all 39 changes?</div>
+          <div id="revert-body" style="color: #B4BAC6; line-height: 1.55">level_01, level_02, slime.prefab.yaml and enemies.yaml go back to how they were before this request, and patrol.go is restored. Your 2 notes are dropped. ⌘Z brings everything back.</div>
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px">
+            <button onClick="{{ cancelRevert }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #12141A; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Cancel</button>
+            <button onClick="{{ revertAll }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #FF6B6B; color: #101216; font-weight: 600">Revert all 39</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ inEditor }}" hint-placeholder-val="{{ false }}">
+  <div style="height: 900px; display: flex; flex-direction: column">
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg></div>
+      <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">level_01</span>
+      <div style="flex: 1"></div>
+      <button aria-label="Play" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play</button>
+    </div>
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+      <div style="border-right: 1px solid #1F232A; padding: 8px 4px; display: flex; flex-direction: column">
+        <div style="height: 28px; display: flex; align-items: center; padding: 0 12px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCENE</div>
+        <sc-for list="{{ editorTree }}" as="n" hint-placeholder-count="8">
+          <div style="{{ n.style }}"><span style="{{ n.dot }}"></span>{{ n.name }}</div>
+        </sc-for>
+      </div>
+      <div class="vp" style="position: relative; overflow: hidden">
+        <div style="position: absolute; left: 40px; top: 72px; width: 632px; height: 356px; border-radius: 4px; box-shadow: 0 0 0 1px #2C3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1C2230,#181C24); overflow: hidden">
+          <div style="position: absolute; left: 0; right: 0; top: 296px; height: 60px; background: #2A2F3A; border-top: 3px solid #3B4250"></div>
+          <div style="position: absolute; left: 336px; top: 226px; width: 160px; height: 12px; border-radius: 2px; background: #333A47"></div>
+          <sc-for list="{{ editorObjs }}" as="o" hint-placeholder-count="9">
+            <div style="{{ o.style }}"></div>
+          </sc-for>
+        </div>
+        <sc-if value="{{ showToast }}" hint-placeholder-val="{{ true }}">
+          <div role="status" style="position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+            <span style="color: #FFFFFF">{{ toastText }}</span>
+            <span style="width: 1px; height: 20px; background: #262B35"></span>
+            <button onClick="{{ undo }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF; font-weight: 500">Undo <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌘Z</span></button>
+            <button onClick="{{ dismissToast }}" aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8B92A0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+          </div>
+        </sc-if>
+      </div>
+      <div style="border-left: 1px solid #1F232A; display: flex; flex-direction: column; background: #12141A">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 10px; border-bottom: 1px solid #1F232A">
+          <span style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #1C2130; color: #FFFFFF; font-weight: 500">Agent<sc-if value="{{ isAway }}" hint-placeholder-val="{{ false }}"><span aria-label="review waiting" style="width: 6px; height: 6px; border-radius: 3px; background: #3B7BFF"></span></sc-if></span>
+          <span style="height: 30px; display: flex; align-items: center; padding: 0 12px; color: #8B92A0; font-weight: 500">Inspector</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+          <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">Put slime patrols on the lower floors of level_01 and level_02, with a coin trail toward each door.</div>
+          <sc-if value="{{ isAway }}" hint-placeholder-val="{{ false }}">
+            <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #FFFFFF; font-weight: 500">Review waiting · 39 changes, 5 files</div>
+              <div style="color: #B4BAC6">{{ awayLine }}</div>
+              <div style="display: flex; gap: 8px"><button onClick="{{ resume }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Resume review</button></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isKept }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #B4BAC6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>{{ keptLine }}</div>
+            <sc-if value="{{ goPending }}" hint-placeholder-val="{{ true }}">
+              <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                <div style="color: #FFFFFF; font-weight: 500">patrol.go is waiting for your OK</div>
+                <div style="color: #B4BAC6; line-height: 1.5">Go changes aren't kept with the rest. Until you confirm it, slimes still walk off ledges in play.</div>
+                <div><button onClick="{{ openGo }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF">Review patrol.go</button></div>
+              </div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ isReverted }}" hint-placeholder-val="{{ false }}">
+            <div style="color: #B4BAC6">Reverted all 39 · both levels are as they were before this request</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      screen: 'review',
+      focus: 'l1-s3',
+      off: { 'l2-spikes': true, 'l2-c19': true },
+      seen: { 'l1-s1': true, 'l1-s2': true, 'l1-s3': true, 'l1-c1': true, 'l1-k': true },
+      collapsed: { l2: true, pf: true, en: true, go: true },
+      filter: 'all',
+      comments: { 'l1-s3': 'This one sits where you land coming off the upper ledge. Move it about 40 px left.' },
+      composing: null,
+      round: 1, viewRound: 1, revised: {}, notes: {},
+      conflict: null,
+      edit: null, mine: {},
+      peek: false, confirmRevert: false, goOk: false, toast: true,
+    };
+  }
+  renderVals() {
+    const s = this.state;
+    const pad = (n) => (n < 10 ? '0' + n : '' + n);
+    const FILES = [
+      { id: 'l1', path: 'scenes/level_01.scene.yaml', type: 'scene' },
+      { id: 'l2', path: 'scenes/level_02.scene.yaml', type: 'scene' },
+      { id: 'pf', path: 'prefabs/slime.prefab.yaml', type: 'prefab' },
+      { id: 'en', path: 'data/enemies.yaml', type: 'data' },
+      { id: 'go', path: 'gameplay/patrol.go', type: 'go' },
+    ];
+    const defs = [
+      { id: 'l1-s1', file: 'l1', kind: 'added', title: 'slime_01', detail: 'patrols x 150–270', x: 160, y: 278, w: 30, h: 18, shape: 'slime', line: 58, why: 'Two slimes share the 120 px floor span, half a cycle apart, so there is always a gap to pass.', draft: 'Start this patrol at the wall so the corner is covered.', rev: { dx: -24, detail: 'patrols x 126–270' } },
+      { id: 'l1-s2', file: 'l1', kind: 'added', title: 'slime_02', detail: 'patrols x 150–270, half a cycle behind', x: 232, y: 278, w: 30, h: 18, shape: 'slime', line: 64, why: 'Two slimes share the 120 px floor span, half a cycle apart, so there is always a gap to pass.', draft: 'Make this one wait at each end for a second.', rev: { detail: 'patrols x 150–270, pauses 1 s at each end' } },
+      { id: 'l1-s3', file: 'l1', kind: 'added', title: 'slime_03', detail: 'patrols the plank x 440–490', x: 452, y: 208, w: 30, h: 18, shape: 'slime', line: 70, why: 'The plank is the only other floor wide enough for a patrol; this slime guards the coin trail from above.', draft: 'This one sits where you land coming off the upper ledge. Move it about 40 px left.', rev: { dx: -40, detail: 'patrols the plank x 400–450' } },
+      { id: 'l1-c1', file: 'l1', kind: 'added', title: 'coin_01', detail: 'value 1 · start of the trail', x: 486, y: 280, w: 10, h: 10, shape: 'coin', line: 76, why: 'Three coins lead from under the plank to door_1, spaced one jump apart.', draft: 'Lift the trail 8 px so it reads as a jump arc.', rev: { dy: -8, detail: 'value 1 · raised 8 px' } },
+      { id: 'l1-c2', file: 'l1', kind: 'added', title: 'coin_02', detail: 'value 1', x: 512, y: 270, w: 10, h: 10, shape: 'coin', line: 81, why: 'Three coins lead from under the plank to door_1, spaced one jump apart.', draft: 'Lift the trail 8 px so it reads as a jump arc.', rev: { dy: -8, detail: 'value 1 · raised 8 px' } },
+      { id: 'l1-c3', file: 'l1', kind: 'added', title: 'coin_03', detail: 'value 1 · at door_1', x: 538, y: 280, w: 10, h: 10, shape: 'coin', line: 86, why: 'Three coins lead from under the plank to door_1, spaced one jump apart.', draft: 'Make this last one worth 5.', rev: { detail: 'value 5 · at door_1' } },
+      { id: 'l1-k', file: 'l1', kind: 'changed', title: 'Knight', detail: 'z 10 → 12 · drawn above slimes', x: 352, y: 192, w: 24, h: 34, shape: 'knight', line: 41, why: 'Slimes are drawn at z 11; without this the Knight disappears behind slime_03 on the plank.', draft: 'Keep the Knight at z 10 and put the slimes at 9.', rev: { detail: 'z stays 10 · slimes moved to z 9' } },
+      { id: 'l1-door', file: 'l1', kind: 'changed', title: 'door_1', detail: 'on_open gains reveal coin_trail', x: 574, y: 248, w: 30, h: 48, shape: 'door', line: 49, conflict: true, why: 'The trail stays hidden until the door opens, so it reads as a reward rather than a hint.', draft: 'Reveal the coins when the lever is pulled, not when the door opens.', rev: { detail: 'lever_1 reveals coin_trail instead' } },
+      { id: 'l1-crate', file: 'l1', kind: 'removed', title: 'crate_04', detail: 'stood on the coin trail', x: 504, y: 270, w: 26, h: 26, shape: 'crate', line: 92, why: 'The crate blocked the second coin; nothing else references it.', draft: 'Move the crate to x 300 instead of deleting it.', rev: { detail: 'moved to x 300 instead' } },
+    ];
+    const l2s = [[70, 278], [150, 278], [230, 278], [310, 278], [380, 178], [440, 178], [540, 118], [590, 118]];
+    l2s.forEach((p, i) => defs.push({ id: 'l2-s' + (i + 4), file: 'l2', kind: 'added', title: 'slime_' + pad(i + 4), detail: 'patrols x ' + (p[0] - 30) + '–' + (p[0] + 40), x: p[0], y: p[1], w: 30, h: 18, shape: 'slime', line: 120 + i * 6, why: 'Four slimes on the floor and two on each platform, so every jump has one threat in view.', draft: 'Two slimes on this platform is one too many; drop this one.', rev: { detail: 'removed from the platform' } }));
+    for (let i = 0; i < 16; i++) {
+      defs.push({ id: 'l2-c' + (i + 4), file: 'l2', kind: 'added', title: 'coin_' + pad(i + 4), detail: 'value 1 · arc ' + (i + 1) + ' of 16', x: 60 + i * 18, y: Math.round(252 - 62 * Math.sin(Math.PI * i / 15)), w: 10, h: 10, shape: 'coin', line: 170 + i * 5, why: 'The arc traces a full-height jump from the spawn over the first two slimes.', draft: 'Drop this coin; the arc reads fine without it.', rev: { detail: 'value 1 · moved onto the jump line' } });
+    }
+    defs.push({ id: 'l2-spawn', file: 'l2', kind: 'changed', title: 'spawn', detail: 'x 64 → 48 · clear of slime_04', x: 24, y: 262, w: 16, h: 34, shape: 'spawn', line: 12, why: 'At x 64 the Knight spawned inside slime_04’s patrol and took a hit at once.', draft: 'Leave the spawn where it was.', rev: { detail: 'x stays 64 · slime_04 starts at x 110' } });
+    defs.push({ id: 'l2-door', file: 'l2', kind: 'changed', title: 'door_2', detail: 'trigger.width 30 → 36', x: 600, y: 236, w: 36, h: 60, shape: 'door', line: 30, why: 'The last coin sits at the door edge; a wider trigger lets the Knight take it and leave in one move.', draft: 'Keep the trigger at 30.', rev: { detail: 'trigger stays 30 · last coin moved 8 px left' } });
+    defs.push({ id: 'l2-spikes', file: 'l2', kind: 'removed', title: 'spikes_07', detail: 'under the coin arc', x: 330, y: 286, w: 40, h: 10, shape: 'spikes', line: 260, why: 'Landing on the arc’s lowest coin put the Knight on the spikes.', draft: 'Keep the spikes; raise the coins instead.', rev: { detail: 'kept · arc raised 12 px' } });
+    defs.push({ id: 'pf-speed', file: 'pf', kind: 'changed', title: 'patrol.speed', detail: '32 → 24 · −25% · every slime', shape: 'none', line: 18, why: 'Slower patrols leave time to collect the trail between passes.', draft: 'Only slow the slimes in these two levels, not the prefab.', rev: { detail: 'prefab stays 32 · 24 set on the 11 slimes' } });
+    defs.push({ id: 'en-slime', file: 'en', kind: 'changed', title: 'slime', detail: 'hp 3 → 2 · −33%', shape: 'none', line: 9, why: 'There are four times as many slimes on these floors; two hits each keeps clearing them quick.', draft: 'Keep hp at 3 for slimes on level_02.', rev: { detail: 'hp 3 → 2 in level_01 only' } });
+    defs.push({ id: 'go-patrol', file: 'go', kind: 'changed', title: 'patrol.go', detail: '+9 −3 · turn around at ledges', shape: 'none', go: true, line: 0, why: 'Slimes on the new platforms walked off the edge; patrols now probe the floor ahead and turn.', draft: 'Turn a little before the edge, not on it.', rev: { detail: '+11 −3 · turns 4 px before the edge' } });
+
+    const byId = {};
+    defs.forEach((d) => { byId[d.id] = d; });
+    const latest = s.viewRound === s.round;
+    const revisedNow = (d) => !!s.revised[d.id] && latest && d.rev;
+    const dx = (d) => (revisedNow(d) && d.rev.dx ? d.rev.dx : 0) + (s.mine[d.id] || 0);
+    const dy = (d) => (revisedNow(d) && d.rev.dy ? d.rev.dy : 0);
+    const detailOf = (d) => (revisedNow(d) ? d.rev.detail : d.detail);
+    const KC = { added: '#4FD38A', changed: '#E9A84A', removed: '#FF6B6B' };
+    const KB = { added: 'rgba(79,211,138,0.14)', changed: 'rgba(233,168,74,0.14)', removed: 'rgba(255,107,107,0.14)' };
+
+    const nonGo = defs.filter((d) => !d.go);
+    const keptCount = nonGo.filter((d) => !s.off[d.id]).length;
+    const nComments = Object.keys(s.comments).length;
+    const conflictOpen = !s.conflict && !s.off['l1-door'];
+    const yamlBroken = s.edit && s.edit.broken;
+    const blocker = yamlBroken ? 'Fix YAML on line ' + (byId[s.edit.id].line + 4) : (conflictOpen ? 'Choose how door_1 merges' : '');
+
+    const focusOn = (id) => {
+      const st = this.state;
+      const d = byId[id];
+      const collapsed = { ...st.collapsed, [d.file]: false, [d.file + '-' + d.kind]: false };
+      this.setState({ focus: id, seen: { ...st.seen, [id]: true }, collapsed, peek: false, edit: st.edit && st.edit.id !== id ? null : st.edit });
+    };
+
+    const match = (d) => {
+      const f = s.filter;
+      if (f === 'all') return true;
+      if (f === 'unseen') return !s.seen[d.id];
+      if (f === 'notes') return !!s.comments[d.id] || !!s.notes[d.id];
+      return d.kind === f;
+    };
+
+    const segBtn = (on, extra) => 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-weight: 500; ' + (extra || '') + (on ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6');
+
+    const rows = [];
+    FILES.forEach((f) => {
+      const all = defs.filter((d) => d.file === f.id);
+      const items = all.filter(match);
+      if (!items.length) return;
+      const fc = !!s.collapsed[f.id];
+      const cnt = (k) => all.filter((d) => d.kind === k).length;
+      const fileNonGo = all.filter((d) => !d.go);
+      const allOff = fileNonGo.length > 0 && fileNonGo.every((d) => s.off[d.id]);
+      rows.push({
+        key: f.id, isFile: true, isKind: false, isCard: false,
+        path: f.path.split('/').pop(), fullPath: f.path, isScene: f.type === 'scene', isPrefab: f.type === 'prefab', isData: f.type === 'data', isGo: f.type === 'go',
+        addTxt: cnt('added') ? '+' + cnt('added') : '', chgTxt: cnt('changed') ? '~' + cnt('changed') : '', remTxt: cnt('removed') ? '−' + cnt('removed') : '',
+        expanded: fc ? 'false' : 'true', foldLabel: (fc ? 'Expand ' : 'Collapse ') + f.path,
+        chev: 'flex: none; display: flex; transition: transform 120ms; transform: rotate(' + (fc ? 0 : 90) + 'deg)',
+        toggleFold: () => this.setState({ collapsed: { ...this.state.collapsed, [f.id]: !fc } }),
+        canRevertFile: f.type !== 'go' && fileNonGo.length > 1,
+        fileToggleText: allOff ? 'Restore file' : 'Revert file',
+        fileToggle: () => { const off = { ...this.state.off }; fileNonGo.forEach((d) => { off[d.id] = !allOff; }); this.setState({ off }); },
+        goBadge: 'height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; font-size: 11px; white-space: nowrap; ' + (s.goOk ? 'color: #4FD38A; box-shadow: 0 0 0 1px #1F3A2B' : 'color: #F2C14E; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F'),
+        goBadgeText: s.goOk ? 'Confirmed' : 'Needs your OK',
+      });
+      if (fc) return;
+      ['added', 'changed', 'removed'].forEach((k) => {
+        const ks = items.filter((d) => d.kind === k);
+        if (!ks.length) return;
+        const kk = f.id + '-' + k;
+        const kc = !!s.collapsed[kk];
+        const kindAllOff = ks.every((d) => s.off[d.id]);
+        if (all.length > 1) {
+          rows.push({
+            key: kk, isFile: false, isKind: true, isCard: false,
+            kindLabel: k.toUpperCase(), count: ks.length,
+            expanded: kc ? 'false' : 'true', foldLabel: (kc ? 'Expand ' : 'Collapse ') + k + ' in ' + f.path,
+            chev: 'flex: none; display: flex; transition: transform 120ms; transform: rotate(' + (kc ? 0 : 90) + 'deg)',
+            toggleFold: () => this.setState({ collapsed: { ...this.state.collapsed, [kk]: !kc } }),
+            kindToggleText: (kindAllOff ? 'Restore ' : 'Revert ') + ks.length,
+            kindToggle: () => { const off = { ...this.state.off }; ks.forEach((d) => { off[d.id] = !kindAllOff; }); this.setState({ off }); },
+          });
+          if (kc) return;
+        }
+        ks.forEach((d) => {
+          const on = !s.off[d.id];
+          const focused = s.focus === d.id;
+          const seen = !!s.seen[d.id];
+          const hasComment = !!s.comments[d.id];
+          rows.push({
+            key: d.id, isFile: false, isKind: false, isCard: true,
+            title: d.title, detail: detailOf(d), seen,
+            isAdded: k === 'added', isChanged: k === 'changed', isRemoved: k === 'removed',
+            cardStyle: 'margin: 2px 0 2px 8px; border-radius: 8px; ' + (focused ? 'background: #171A21; box-shadow: 0 0 0 1px #3B7BFF' : 'background: none') + (on || d.go ? '' : '; opacity: 0.55'),
+            tickStyle: 'width: 16px; height: 16px; flex: none; border-radius: 8px; display: flex; align-items: center; justify-content: center; ' + (seen ? 'background: #262B35' : 'box-shadow: inset 0 0 0 1px #8B92A0'),
+            markStyle: 'width: 18px; height: 18px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: ' + KB[k] + '; color: ' + KC[k],
+            titleStyle: 'flex: none; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #FFFFFF; font-weight: 500; ' + (on || d.go ? '' : 'text-decoration: line-through'),
+            focusLabel: d.title + ', ' + k + ', ' + detailOf(d) + (seen ? ', seen' : ', not seen'),
+            focus: () => focusOn(d.id),
+            commentLabel: (hasComment ? 'Edit note on ' : 'Note for the agent on ') + d.title + ' (C)',
+            commentStyle: 'width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; ' + (hasComment || s.composing === d.id ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #8B92A0'),
+            comment: () => { const st = this.state; this.setState({ composing: st.composing === d.id ? null : d.id, focus: d.id, seen: { ...st.seen, [d.id]: true } }); },
+            notGo: !d.go, isGoCard: !!d.go, goAction: s.goOk ? 'Confirmed' : 'Open',
+            toggleText: on ? 'Revert' : 'Restore',
+            toggleLabel: (on ? 'Revert ' : 'Restore ') + d.title + ' (X)',
+            toggleStyle: 'height: 26px; flex: none; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; font-size: 11.5px; color: ' + (on ? '#D9DDE5' : '#8FB3FF'),
+            toggle: () => this.setState({ off: { ...this.state.off, [d.id]: on } }),
+            hasComment: hasComment && s.composing !== d.id, commentText: s.comments[d.id] || '',
+            removeComment: () => { const c = { ...this.state.comments }; delete c[d.id]; this.setState({ comments: c }); },
+            composing: s.composing === d.id, draft: s.comments[d.id] || d.draft,
+            addComment: () => this.setState({ comments: { ...this.state.comments, [d.id]: d.draft }, composing: null }),
+            cancelCompose: () => this.setState({ composing: null }),
+            redo: () => { const st = this.state; this.send({ ...st.comments, [d.id]: d.draft }); },
+            isConflict: !!d.conflict && on && !s.revised[d.id],
+            conflictTitle: s.conflict === 'both' ? 'Merged both, yours first' : s.conflict === 'mine' ? 'Merged: your edit only' : s.conflict === 'agent' ? 'Merged: the agent’s edit only' : 'You also edited door_1',
+            conflictOpen: !s.conflict, conflictDone: !!s.conflict,
+            conflictBox: 'margin: 0 8px 8px 50px; padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; ' + (s.conflict ? 'background: #101216; box-shadow: 0 0 0 1px #262B35' : 'background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F'),
+            conflictHead: 'display: flex; align-items: center; gap: 8px; font-weight: 500; color: ' + (s.conflict ? '#FFFFFF' : '#F2C14E'),
+            conflictSeg: 'display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px ' + (s.conflict ? '#262B35' : '#4A3F1F'),
+            minePressed: s.conflict === 'mine' ? 'true' : 'false', agentPressed: s.conflict === 'agent' ? 'true' : 'false', bothPressed: s.conflict === 'both' ? 'true' : 'false',
+            mineStyle: segBtn(s.conflict === 'mine', 'flex: 1; '), agentStyle: segBtn(s.conflict === 'agent', 'flex: 1; '), bothStyle: segBtn(s.conflict === 'both', 'flex: 1; '),
+            pickMine: () => this.setState({ conflict: 'mine' }), pickAgent: () => this.setState({ conflict: 'agent' }), pickBoth: () => this.setState({ conflict: 'both' }),
+            hasNote: !!s.notes[d.id] && latest, noteText: s.notes[d.id] || '',
+          });
+        });
+      });
+    });
+    const cardOrder = rows.filter((r) => r.isCard).map((r) => r.key);
+    const step = (dir) => {
+      const i = cardOrder.indexOf(this.state.focus);
+      const j = i < 0 ? 0 : Math.max(0, Math.min(cardOrder.length - 1, i + dir));
+      if (cardOrder[j]) focusOn(cardOrder[j]);
+    };
+
+    const seenCount = defs.filter((d) => s.seen[d.id]).length;
+    const chipDefs = [
+      ['all', 'All', 39], ['added', 'Added', 30], ['changed', 'Changed', 7], ['removed', 'Removed', 2],
+      ['unseen', 'Unseen', 39 - seenCount], ['notes', 'Notes', defs.filter((d) => s.comments[d.id] || s.notes[d.id]).length],
+    ];
+    const chips = chipDefs.map(([id, label, count]) => ({
+      label, count, pressed: s.filter === id ? 'true' : 'false',
+      style: 'height: 24px; padding: 0 8px; border-radius: 6px; border: 0; font-size: 11.5px; ' + (s.filter === id ? 'background: #262B35; color: #FFFFFF' : 'background: none; box-shadow: inset 0 0 0 1px #1F232A; color: #B4BAC6'),
+      countStyle: 'color: ' + (s.filter === id ? '#B4BAC6' : '#8B92A0'),
+      pick: () => this.setState({ filter: id }),
+    }));
+
+    const fd = byId[s.focus] || byId['l1-s3'];
+    const inL2 = fd.file === 'l2';
+    const shapeCss = (shape, final) => ({
+      slime: 'border-radius: 10px 10px 4px 4px; background: ' + (final ? '#3E9A68' : 'rgba(79,211,138,0.40)'),
+      coin: 'border-radius: 5px; background: ' + (final ? '#F2D04B' : 'rgba(242,208,75,0.60)'),
+      knight: 'border-radius: 5px; background: #E9A84A',
+      door: 'border-radius: 4px; background: #6B5A45',
+      crate: 'border-radius: 3px; background: #7A6A52; box-shadow: inset 0 0 0 2px #5E503D',
+      spawn: 'border-radius: 4px; background: #4F8CFF',
+      spikes: 'border-radius: 2px; background: repeating-linear-gradient(90deg,#8B92A0 0 5px,#5D6472 5px 10px)',
+    }[shape] || '');
+    const box = (d, extra) => 'position: absolute; left: ' + (d.x + dx(d)) + 'px; top: ' + (d.y + dy(d)) + 'px; width: ' + d.w + 'px; height: ' + d.h + 'px; ' + extra;
+    const sceneDefs = defs.filter((d) => d.file === (inL2 ? 'l2' : 'l1'));
+    const objs = [];
+    sceneDefs.forEach((d) => {
+      const on = !s.off[d.id];
+      if (s.peek) {
+        if (d.kind !== 'added') objs.push({ style: box(d, shapeCss(d.shape, true)) });
+        return;
+      }
+      if (!on) {
+        if (d.kind !== 'added') objs.push({ style: box(d, shapeCss(d.shape, true) + (s.focus === d.id ? '; outline: 1.5px solid #3B7BFF; outline-offset: 3px' : '')) });
+        return;
+      }
+      const focused = s.focus === d.id;
+      const ol = focused ? 'outline: 1.5px solid #3B7BFF' : d.kind === 'removed' ? 'outline: 1.5px solid #FF6B6B' : 'outline: 1.5px dashed ' + KC[d.kind];
+      objs.push({ style: box(d, shapeCss(d.shape, d.kind !== 'added') + (d.kind === 'removed' ? '; opacity: 0.4' : '') + '; ' + ol + '; outline-offset: 3px') });
+    });
+    const pins = s.peek ? [] : sceneDefs.filter((d) => (s.comments[d.id] || (s.notes[d.id] && latest)) && !s.off[d.id]).map((d) => ({
+      style: 'position: absolute; left: ' + (d.x + dx(d) + d.w + 4) + 'px; top: ' + (d.y + dy(d) - 22) + 'px; width: 20px; height: 20px; border-radius: 10px 10px 10px 2px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4); color: #101216',
+    }));
+    const platforms = inL2
+      ? [{ style: 'position: absolute; left: 360px; top: 196px; width: 140px; height: 12px; border-radius: 2px; background: #333A47' }, { style: 'position: absolute; left: 520px; top: 136px; width: 100px; height: 12px; border-radius: 2px; background: #333A47' }]
+      : [{ style: 'position: absolute; left: 336px; top: 226px; width: 160px; height: 12px; border-radius: 2px; background: #333A47' }];
+    const centerScene = fd.file === 'l1' || fd.file === 'l2';
+    const flTop = centerScene ? fd.y + dy(fd) + fd.h + 8 : 0;
+
+    const L = (sign, text, tag, err) => ({ sign, text, tag: tag || '', err: !!err });
+    let ylines = [];
+    const X = fd.x + dx(fd);
+    const Y = fd.y + dy(fd);
+    const editing = s.edit && s.edit.id === fd.id;
+    if (fd.kind === 'added' && (fd.shape === 'slime' || fd.shape === 'coin')) {
+      const xLine = editing && s.edit.broken ? L('+', '    x ' + (X - 8), 'line ' + (fd.line + 4), true) : L('+', '    x: ' + X, s.mine[fd.id] ? 'you' : '');
+      ylines = [L('', '  - id: ' + (fd.file === 'l2' ? 'door_2' : 'door_1')), L('', '    ...'), L('+', '  - id: ' + fd.title), L('+', '    prefab: prefabs/' + fd.shape + '.prefab.yaml'), xLine, L('+', '    y: ' + Y)];
+      if (fd.shape === 'slime') ylines.push(L('+', '    patrol: { from: ' + (X - 12) + ', to: ' + (X + 38) + ' }'));
+      else ylines.push(L('+', '    pickup: { value: ' + (fd.id === 'l1-c3' && revisedNow(fd) ? 5 : 1) + ' }'));
+    } else if (fd.id === 'l1-k') {
+      ylines = revisedNow(fd) ? [L('', '  - id: knight'), L('', '    sprite: heroes/knight_idle_0'), L('', '    z: 10'), L('', '    components:')] : [L('', '  - id: knight'), L('', '    sprite: heroes/knight_idle_0'), L('-', '    z: 10'), L('+', '    z: 12'), L('', '    components:')];
+    } else if (fd.id === 'l1-door') {
+      ylines = [L('', '  - id: door_1'), L('', '    on_open:'), L('', '      - open: true')];
+      const c = s.conflict;
+      if (!c) { ylines.push(L('+', '      - sound: sfx/door_creak.ogg', 'you')); ylines.push(L('+', '      - reveal: coin_trail', 'agent')); }
+      if (c === 'mine' || c === 'both') ylines.push(L('+', '      - sound: sfx/door_creak.ogg', 'you'));
+      if (c === 'agent' || c === 'both') ylines.push(L('+', '      - reveal: coin_trail', 'agent'));
+    } else if (fd.kind === 'removed') {
+      ylines = [L('-', '  - id: ' + fd.title), L('-', '    prefab: prefabs/' + (fd.shape === 'crate' ? 'crate' : 'spikes') + '.prefab.yaml'), L('-', '    x: ' + fd.x), L('-', '    y: ' + fd.y)];
+    } else if (fd.id === 'l2-spawn') {
+      ylines = [L('', '  - id: spawn'), L('-', '    x: 64'), L('+', '    x: 48'), L('', '    y: 262')];
+    } else if (fd.id === 'l2-door') {
+      ylines = [L('', '  - id: door_2'), L('', '    trigger:'), L('-', '      width: 30'), L('+', '      width: 36'), L('', '      height: 60')];
+    } else if (fd.id === 'pf-speed') {
+      ylines = [L('', 'components:'), L('', '  patrol:'), L('-', '    speed: 32'), L('+', '    speed: 24'), L('', '    turn_pause: 0.4')];
+    } else if (fd.id === 'en-slime') {
+      ylines = [L('', '- id: slime'), L('-', '  hp: 3'), L('+', '  hp: 2'), L('', '  speed: 24'), L('', '  damage: 1'), L('', '  xp: 2')];
+    }
+    const yaml = ylines.map((l, i) => ({
+      n: fd.line + i, sign: l.sign, text: l.text, tag: l.tag,
+      style: 'display: flex; gap: 6px; padding: 0 16px 0 8px; ' + (l.err ? 'background: rgba(255,107,107,0.12); color: #FFFFFF' : l.sign === '+' ? 'background: rgba(79,211,138,0.08); color: #B9F0CF' : l.sign === '-' ? 'background: rgba(255,107,107,0.08); color: #FFB9B9' : (editing ? 'color: #D9DDE5' : 'color: #8B92A0')),
+      textStyle: 'white-space: pre' + (l.err ? '; text-decoration: underline wavy #FF6B6B; text-underline-offset: 4px' : ''),
+    }));
+    const canEdit = !editing && fd.kind === 'added' && (fd.shape === 'slime' || fd.shape === 'coin') && !s.off[fd.id];
+
+    const goRaw = [
+      ['', 24, 'func (s *Slime) Update(dt float64, lvl *Level) {'],
+      ['', 25, '\ts.X += s.Dir * s.Speed * dt'],
+      ['-', 26, '\tif s.X < s.From || s.X > s.To {'],
+      ['-', 27, '\t\ts.Dir = -s.Dir'],
+      ['-', 28, '\t}'],
+      ['+', 26, '\tif s.X < s.From || s.X > s.To || !s.floorAhead(lvl) {'],
+      ['+', 27, '\t\ts.Dir = -s.Dir'],
+      ['+', 28, '\t\ts.X = clamp(s.X, s.From, s.To)'],
+      ['+', 29, '\t}'],
+      ['', 30, '}'],
+      ['', 31, ''],
+      ['+', 32, '// floorAhead reports whether there is ground one pixel past the leading edge.'],
+      ['+', 33, 'func (s *Slime) floorAhead(lvl *Level) bool {'],
+      ['+', 34, '\treturn lvl.SolidAt(s.X+s.Dir*(s.W/2+1), s.Y+s.H+1)'],
+      ['+', 35, '}'],
+    ];
+    const goLines = goRaw.map(([sign, n, text]) => ({ sign, n, text: text.replace(/\t/g, '    '), style: 'display: flex; gap: 6px; padding: 0 16px 0 8px; ' + (sign === '+' ? 'background: rgba(79,211,138,0.08); color: #B9F0CF' : sign === '-' ? 'background: rgba(255,107,107,0.08); color: #FFB9B9' : 'color: #B4BAC6') }));
+    const checks = [
+      { name: 'nsgo check ./...', t: '0.8 s' }, { name: 'TestSlimeTurnsAtLedge', t: '0.02 s' }, { name: 'TestSlimePatrolBounds', t: '0.01 s' },
+      { name: 'TestCoinPickup', t: '0.01 s' }, { name: 'TestDoorOpensOnLever', t: '0.04 s' }, { name: '37 more passed', t: '3.0 s' },
+    ];
+    const enemyRows = [['bat', 2, 40, 1, 3], ['slime', 3, 24, 1, 2], ['skeleton', 5, 28, 2, 6], ['ghost', 4, 32, 1, 5]].map(([id, hp, speed, dmg, xp]) => {
+      const ch = id === 'slime' && !s.off['en-slime'];
+      return {
+        id, speed, dmg, xp,
+        hp: ch ? hp + ' → 2  −33%' : hp,
+        rowStyle: 'display: grid; grid-template-columns: 140px repeat(4, minmax(0, 1fr)); height: 32px; align-items: center; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #B4BAC6' + (ch ? '; background: #171A21; box-shadow: inset 2px 0 0 #3B7BFF' : ''),
+        hpStyle: ch ? 'justify-self: start; height: 24px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: rgba(233,168,74,0.10); outline: 1.5px dashed #E9A84A; outline-offset: -1px; color: #FFFFFF; white-space: pre' : '',
+      };
+    });
+
+    const keepDisabled = !!blocker;
+    const roundNotes = Object.keys(s.notes).length;
+    const l1 = defs.filter((d) => d.file === 'l1');
+    const editorObjs = [];
+    l1.forEach((d) => {
+      const on = !s.off[d.id];
+      if (s.screen === 'away' && on) {
+        const ol = d.kind === 'removed' ? 'outline: 1.5px solid #FF6B6B; opacity: 0.4' : 'outline: 1.5px dashed ' + KC[d.kind];
+        editorObjs.push({ style: box(d, shapeCss(d.shape, d.kind !== 'added') + '; ' + ol + '; outline-offset: 3px') });
+        return;
+      }
+      const applied = s.screen === 'kept' && on;
+      if (d.kind === 'added' && !applied) return;
+      if (d.kind === 'removed' && applied) return;
+      editorObjs.push({ style: box(d, shapeCss(d.shape, true)) });
+    });
+    const treeDefs = [['Background', '#4F8CFF', 0], ['World', '#4F8CFF', 0], ['Actors', '#8B92A0', 0], ['Knight', '#E9A84A', 1], ['door_1', '#6B5A45', 1]];
+    if (s.screen === 'kept') { l1.filter((d) => d.kind === 'added' && !s.off[d.id]).forEach((d) => treeDefs.push([d.title, d.shape === 'coin' ? '#F2D04B' : '#4FD38A', 1])); }
+    else treeDefs.push(['crate_04', '#7A6A52', 1]);
+    const editorTree = treeDefs.map(([name, c, depth]) => ({ name, style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 ' + (12 + depth * 14) + 'px; color: #B4BAC6', dot: 'width: 7px; height: 7px; border-radius: 2px; background: ' + c }));
+    const reverted = 38 - keptCount;
+
+    return {
+      inReview: s.screen === 'review', inEditor: s.screen !== 'review',
+      multiRound: s.round > 1,
+      round1Pressed: s.viewRound === 1 ? 'true' : 'false', round2Pressed: s.viewRound === 2 ? 'true' : 'false',
+      round1Style: segBtn(s.viewRound === 1), round2Style: segBtn(s.viewRound === 2),
+      viewRound1: () => this.setState({ viewRound: 1 }), viewRound2: () => this.setState({ viewRound: 2 }),
+      roundBanner: latest ? 'Round 2 · the agent redid only the ' + roundNotes + (roundNotes === 1 ? ' change' : ' changes') + ' you left notes on. Both rounds keep and undo as one step.' : 'Round 1, as the agent first did it. Keep always applies the latest round.',
+      hasBlocker: !!blocker, blockerText: blocker,
+      jumpBlocker: () => focusOn(yamlBroken ? s.edit.id : 'l1-door'),
+      keptCount, keepTotal: 38,
+      keepDisabled: keepDisabled ? 'true' : 'false',
+      keepTitle: keepDisabled ? blocker : 'Keep the changes not reverted · ⌘↵',
+      keepStyle: 'height: 32px; padding: 0 14px; border-radius: 8px; border: 0; font-weight: 500; ' + (nComments ? 'background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5' : 'background: #3B7BFF; color: #FFFFFF') + (keepDisabled ? '; opacity: 0.45; cursor: not-allowed' : ''),
+      keep: () => { if (keepDisabled) { focusOn(yamlBroken ? s.edit.id : 'l1-door'); return; } this.setState({ screen: 'kept', toast: true, comments: {}, composing: null }); },
+      hasComments: nComments > 0,
+      sendLabel: 'Send ' + nComments + (nComments === 1 ? ' note' : ' notes'),
+      sendComments: () => this.send(this.state.comments),
+      askRevertAll: () => this.setState({ confirmRevert: true }),
+      cancelRevert: () => this.setState({ confirmRevert: false }),
+      revertAll: () => this.setState({ confirmRevert: false, screen: 'reverted', toast: true }),
+      goBack: () => this.setState({ screen: 'away', toast: false }),
+      seenCount, seenBar: 'height: 3px; border-radius: 2px; background: #8B92A0; width: ' + Math.round(seenCount / 39 * 100) + '%',
+      prev: () => step(-1), next: () => step(1),
+      chips, rows, noRows: cardOrder.length === 0 && rows.length === 0,
+      centerScene, centerPrefab: fd.file === 'pf', centerData: fd.file === 'en', centerGo: fd.file === 'go',
+      sceneLabel: (inL2 ? 'level_02.scene.yaml' : 'level_01.scene.yaml') + ' · ' + (inL2 ? '27' : '9') + ' changes',
+      frameStyle: 'position: absolute; left: 24px; top: 50%; margin-top: -170px; width: 632px; height: 356px; border-radius: 4px; overflow: visible; box-shadow: 0 0 0 1px #2C3240, 0 24px 60px rgba(0,0,0,0.45); background: ' + (inL2 ? 'linear-gradient(180deg,#1E2030,#191B26)' : 'linear-gradient(180deg,#1C2230,#181C24)'),
+      platforms, objs, pins, peek: s.peek,
+      peekPressed: s.peek ? 'true' : 'false',
+      peekStyle: 'width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; ' + (s.peek ? 'background: #262B35; color: #FFFFFF; box-shadow: 0 0 0 1px #3B7BFF' : 'background: rgba(16,18,22,0.92); color: #B4BAC6; box-shadow: 0 0 0 1px #262B35'),
+      togglePeek: () => this.setState({ peek: !this.state.peek }),
+      showFocusLabel: centerScene && !s.peek && !s.off[fd.id],
+      focusLabelStyle: 'position: absolute; left: ' + (centerScene ? fd.x + dx(fd) - 4 : 0) + 'px; top: ' + flTop + 'px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; background: #3B7BFF; color: #FFFFFF; font-size: 10.5px; font-weight: 500; white-space: nowrap',
+      focusTitle: fd.title, why: revisedNow(fd) ? 'Redone from your note: ' + s.notes[fd.id] : fd.why,
+      rightTitle: fd.go ? 'checks' : 'YAML', rightYaml: !fd.go, rightChecks: !!fd.go,
+      codeBox: 'flex: 1; min-height: 0; margin: 0; padding: 12px 0; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; line-height: 1.75; overflow: auto' + (editing ? '; background: #0F1115; box-shadow: inset 0 0 0 1.5px ' + (yamlBroken ? '#FF6B6B' : '#3B7BFF') : ''),
+      yaml, canEdit, editing: !!editing, yamlBroken: !!(editing && yamlBroken), editingValid: !!(editing && !yamlBroken),
+      yamlErrorTitle: 'Line ' + (fd.line + 4) + ' isn’t valid YAML',
+      startEdit: () => this.setState({ edit: { id: fd.id, broken: true } }),
+      fixYaml: () => this.setState({ edit: { id: fd.id, broken: false }, mine: { ...this.state.mine, [fd.id]: (this.state.mine[fd.id] || 0) - 8 } }),
+      undoTyping: () => this.setState({ edit: null }),
+      doneDisabled: yamlBroken ? 'true' : 'false',
+      doneStyle: 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500' + (yamlBroken ? '; opacity: 0.45; cursor: not-allowed' : ''),
+      doneEdit: () => { if (!yamlBroken) this.setState({ edit: null }); },
+      goLines, checks, enemyRows,
+      confirmGo: () => this.setState({ goOk: !this.state.goOk }),
+      confirmGoText: s.goOk ? 'Confirmed · undo' : 'Confirm patrol.go',
+      confirmGoStyle: 'height: 32px; padding: 0 14px; border-radius: 8px; border: 0; font-weight: 500; ' + (s.goOk ? 'background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #4FD38A' : 'background: #3B7BFF; color: #FFFFFF'),
+      confirmRevert: s.confirmRevert,
+      editorTree, editorObjs,
+      showToast: s.toast && (s.screen === 'kept' || s.screen === 'reverted'),
+      toastText: s.screen === 'reverted' ? 'Reverted 39 changes' : 'Kept ' + keptCount + ' · reverted ' + reverted + (s.goOk ? ' · patrol.go confirmed' : ''),
+      undo: () => this.setState({ screen: 'review', toast: false }),
+      dismissToast: () => this.setState({ toast: false }),
+      isAway: s.screen === 'away', isKept: s.screen === 'kept', isReverted: s.screen === 'reverted',
+      awayLine: seenCount + ' of 39 seen' + (nComments ? ' · ' + nComments + (nComments === 1 ? ' note' : ' notes') + ' not sent' : '') + (blocker ? ' · ' + blocker.toLowerCase() : ''),
+      resume: () => this.setState({ screen: 'review' }),
+      keptLine: 'Kept ' + keptCount + ' · reverted ' + reverted + (s.round > 1 ? ' · ' + s.round + ' rounds' : '') + ' · one undo step',
+      goPending: !s.goOk,
+      openGo: () => { this.setState({ screen: 'review', toast: false }); focusOn('go-patrol'); },
+    };
+  }
+  send(comments) {
+    const st = this.state;
+    const ids = Object.keys(comments);
+    if (!ids.length) return;
+    const revised = { ...st.revised };
+    const notes = { ...st.notes };
+    const seen = { ...st.seen };
+    const off = { ...st.off };
+    ids.forEach((id) => { revised[id] = true; notes[id] = comments[id]; delete seen[id]; off[id] = false; });
+    const conflict = revised['l1-door'] ? 'agent' : st.conflict;
+    this.setState({ comments: {}, composing: null, revised, notes, seen, off, conflict, round: 2, viewRound: 2, edit: null });
+  }
+}
+</script>
+</body>
+</html>

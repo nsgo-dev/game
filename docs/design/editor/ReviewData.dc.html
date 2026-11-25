@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review a data table</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; position: relative; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+    <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ close }}" aria-label="Back to the editor, review stays open (Esc)" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #B4BAC6">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+        <span>Editor</span>
+        <span style="height: 18px; display: inline-flex; align-items: center; padding: 0 5px; border-radius: 4px; box-shadow: 0 0 0 1px #262B35; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">Esc</span>
+      </button>
+      <span style="width: 1px; height: 20px; background: #1F232A"></span>
+      <span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Review</span>
+      <span style="min-width: 0; color: #8B92A0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">“Rebalance the shop so nothing on floors 1–3 takes more than 12 minutes of coins to buy.”</span>
+      <div style="flex: 1"></div>
+      <button onClick="{{ revertAll }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Revert all</button>
+      <button onClick="{{ keep }}" style="height: 32px; padding: 0 14px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Keep {{ keptCount }} of 27</button>
+    </sc-if>
+    <sc-if value="{{ closed }}" hint-placeholder-val="{{ false }}">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg></div>
+      <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">data/items.yaml</span>
+      <div style="flex: 1"></div>
+      <button aria-label="Play" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play</button>
+    </sc-if>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 280px minmax(0, 1fr) 360px; min-height: 0">
+
+    <div style="border-right: 1px solid #1F232A; background: #12141A; padding: 12px 8px; display: flex; flex-direction: column; gap: 4px">
+      <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">DATA · 2 FILES</div>
+      <sc-for list="{{ files }}" as="f" hint-placeholder-count="2">
+        <button onClick="{{ f.pick }}" aria-current="{{ f.current }}" style="{{ f.style }}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"></path></svg>
+          <span style="flex: 1; min-width: 0; text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ f.name }}</span>
+          <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap">{{ f.meta }}</span>
+        </button>
+      </sc-for>
+      <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top: 12px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 8px">
+          <div style="color: #FFFFFF; font-weight: 500">Agent's check</div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; color: #B4BAC6; line-height: 1.4">
+            <span>Over 12 min, floors 1–3</span><span style="color: #FFFFFF">{{ overCount }}</span>
+            <span>Slowest to buy</span><span style="color: #FFFFFF">{{ slowest }}</span>
+            <span>Median price</span><span style="color: #FFFFFF">−20%</span>
+          </div>
+          <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Coin rate from 20 playtests of floor 3: 30 coins a minute.</div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+      <sc-if value="{{ hasRecords }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1F232A">
+          <div role="group" aria-label="Show rows" style="display: flex; gap: 4px">
+            <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
+              <button onClick="{{ c.pick }}" aria-pressed="{{ c.pressed }}" style="{{ c.style }}">{{ c.label }} <span style="{{ c.countStyle }}">{{ c.count }}</span></button>
+            </sc-for>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="width: 200px; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <label for="item-filter" style="position: absolute; left: -9999px">Filter items</label>
+            <input id="item-filter" type="search" placeholder="Filter items" style="flex: 1; min-width: 0; height: 26px; border: 0; outline: none; background: none; color: #FFFFFF">
+          </div>
+        </div>
+        <div role="table" aria-label="data/items.yaml" aria-rowcount="{{ rowCount }}" style="flex: 1; min-height: 0; display: flex; flex-direction: column">
+          <div role="row" style="height: 32px; flex: none; display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px 156px 120px 128px 76px; gap: 8px; align-items: center; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+            <span role="columnheader" style="position: relative"><span style="position: absolute; left: -9999px">Order</span></span>
+            <sc-for list="{{ heads }}" as="h" hint-placeholder-count="5">
+              <span role="columnheader" aria-sort="{{ h.ariaSort }}" style="{{ h.cellStyle }}">
+                <button onClick="{{ h.pick }}" style="{{ h.style }}">{{ h.label }}<span style="{{ h.arrowStyle }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span></button>
+              </span>
+            </sc-for>
+            <span role="columnheader" style="position: relative"><span style="position: absolute; left: -9999px">Action</span></span>
+          </div>
+          <div style="flex: 1; min-height: 0; overflow: auto">
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="20">
+              <div role="row" style="{{ r.rowStyle }}">
+                <span role="cell"><button aria-label="{{ r.moveLabel }}" title="Drag to reorder" style="width: 20px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; background: none; color: #8B92A0; cursor: grab"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg></button></span>
+                <span role="cell" style="min-width: 0"><button onClick="{{ r.focus }}" style="width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; text-align: left">
+                  <span style="{{ r.dot }}"></span>
+                  <span style="{{ r.nameStyle }}">{{ r.name }}</span>
+                  <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap">{{ r.kind }}</span>
+                </button></span>
+                <span role="cell" style="color: #B4BAC6">{{ r.floor }}</span>
+                <span role="cell">
+                  <sc-if value="{{ r.priceEditing }}" hint-placeholder-val="{{ false }}">
+                    <span style="height: 26px; display: flex; align-items: center; gap: 2px; padding: 0 2px; border-radius: 6px; background: #101216; box-shadow: 0 0 0 1.5px #3B7BFF">
+                      <button onClick="{{ r.dec }}" aria-label="{{ r.decLabel }}" style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: #171A21; color: #D9DDE5"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                      <span style="flex: 1; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ r.priceNow }}</span>
+                      <button onClick="{{ r.inc }}" aria-label="{{ r.incLabel }}" style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: #171A21; color: #D9DDE5"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+                      <button onClick="{{ r.doneEdit }}" aria-label="Done" style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: #3B7BFF; color: #FFFFFF"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></button>
+                    </span>
+                  </sc-if>
+                  <sc-if value="{{ r.priceShow }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ r.editPrice }}" aria-label="{{ r.priceLabel }}" style="{{ r.priceCell }}"><span style="{{ r.oldStyle }}">{{ r.priceOld }}</span><span style="{{ r.arrowStyle }}">→</span><span style="color: #FFFFFF">{{ r.priceNow }}</span><span style="{{ r.deltaStyle }}">{{ r.priceDelta }}</span></button>
+                  </sc-if>
+                </span>
+                <span role="cell"><span style="{{ r.powerCell }}"><span style="{{ r.oldStyle }}">{{ r.powerOld }}</span><span style="{{ r.powerArrow }}">→</span><span style="color: #FFFFFF">{{ r.powerNow }}</span><span style="{{ r.deltaStyle }}">{{ r.powerDelta }}</span></span></span>
+                <span role="cell"><span style="{{ r.dropCell }}"><span style="{{ r.oldStyle }}">{{ r.dropOld }}</span><span style="{{ r.dropArrow }}">→</span><span style="color: #FFFFFF">{{ r.dropNow }}</span><span style="{{ r.deltaStyle }}">{{ r.dropDelta }}</span></span></span>
+                <span role="cell" style="display: flex; justify-content: flex-end">
+                  <sc-if value="{{ r.changed }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ r.toggle }}" aria-label="{{ r.toggleLabel }}" style="{{ r.toggleStyle }}">{{ r.toggleText }}</button>
+                  </sc-if>
+                </span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noMatch }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 24px 16px; color: #8B92A0">No rows match this filter.</div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; color: #B4BAC6">No records — ask the agent to add some</div>
+      </sc-if>
+    </div>
+
+    <div style="border-left: 1px solid #1F232A; background: #12141A; display: flex; flex-direction: column; min-height: 0">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #B4BAC6"><span style="color: #FFFFFF">{{ focusName }}</span> · YAML</div>
+      <div style="flex: 1; padding: 12px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; overflow: auto">
+        <sc-for list="{{ yaml }}" as="l" hint-placeholder-count="9">
+          <div style="{{ l.style }}"><span style="width: 32px; flex: none; text-align: right; color: #8B92A0">{{ l.n }}</span><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="white-space: pre">{{ l.text }}</span><span style="flex: 1"></span><span style="color: #8B92A0; font-family: Inter, system-ui, sans-serif; font-size: 11px; padding-right: 4px">{{ l.tag }}</span></div>
+        </sc-for>
+      </div>
+      <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 12px 16px; border-top: 1px solid #1F232A; display: flex; flex-direction: column; gap: 4px; color: #8B92A0; font-size: 11.5px; line-height: 1.5">
+          <span><span style="color: #D9DDE5">Click a new value</span> to change it · <span style="color: #D9DDE5">drag a row</span> to reorder</span>
+          <span>Both join this review as your edits.</span>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <sc-if value="{{ showToast }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+      <span style="color: #FFFFFF">{{ toastText }}</span>
+      <span style="width: 1px; height: 20px; background: #262B35"></span>
+      <button onClick="{{ undo }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF; font-weight: 500">{{ undoLabel }} <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ undoKey }}</span></button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { screen: 'open', file: 'items', focus: 'plate_armor', off: { war_axe: true, torch: true }, sort: 'file', dir: 1, filter: 'all', editing: null, mine: { knight_blade: 340 } };
+  }
+  renderVals() {
+    const s = this.state;
+    const raw = [
+      ['rusty_sword', 'Rusty sword', 'weapon', 1, 40, 40, 2, 2, 6, 6],
+      ['dagger', 'Dagger', 'weapon', 1, 60, 60, 3, 3, 5, 5],
+      ['iron_sword', 'Iron sword', 'weapon', 1, 120, 90, 4, 4, 3, 3.5],
+      ['short_bow', 'Short bow', 'weapon', 1, 150, 120, 3, 3, 3, 3],
+      ['steel_sword', 'Steel sword', 'weapon', 2, 260, 190, 6, 6, 2, 2.5],
+      ['war_axe', 'War axe', 'weapon', 2, 300, 240, 8, 7, 1.5, 1.5],
+      ['long_bow', 'Long bow', 'weapon', 2, 340, 260, 6, 6, 1.5, 2],
+      ['crossbow', 'Crossbow', 'weapon', 3, 480, 340, 8, 8, 1, 1.5],
+      ['knight_blade', 'Knight’s blade', 'weapon', 3, 520, 350, 9, 9, 1, 1],
+      ['flame_sword', 'Flame sword', 'weapon', 4, 900, 900, 12, 12, 0.5, 0.5],
+      ['frost_spear', 'Frost spear', 'weapon', 4, 860, 860, 11, 11, 0.5, 0.5],
+      ['leather_cap', 'Leather cap', 'armor', 1, 30, 30, 1, 1, 6, 6],
+      ['leather_vest', 'Leather vest', 'armor', 1, 80, 70, 2, 2, 4, 4],
+      ['iron_helm', 'Iron helm', 'armor', 2, 160, 130, 3, 3, 2.5, 2.5],
+      ['chainmail', 'Chainmail', 'armor', 2, 280, 220, 5, 5, 1.5, 2],
+      ['iron_shield', 'Iron shield', 'armor', 2, 220, 180, 4, 4, 2, 2],
+      ['plate_armor', 'Plate armor', 'armor', 3, 600, 350, 8, 7, 0.5, 1],
+      ['tower_shield', 'Tower shield', 'armor', 3, 450, 330, 6, 6, 1, 1],
+      ['dragon_scale', 'Dragon scale', 'armor', 5, 1400, 1400, 12, 12, 0.2, 0.2],
+      ['small_potion', 'Small potion', 'potion', 1, 20, 20, 2, 2, 12, 12],
+      ['potion', 'Potion', 'potion', 1, 45, 35, 4, 4, 8, 9],
+      ['big_potion', 'Big potion', 'potion', 2, 90, 70, 6, 6, 4, 5],
+      ['elixir', 'Elixir', 'potion', 3, 400, 300, 12, 12, 1, 1.5],
+      ['antidote', 'Antidote', 'potion', 2, 35, 35, 0, 0, 6, 6],
+      ['bomb', 'Bomb', 'tool', 1, 50, 40, 5, 5, 5, 5],
+      ['rope', 'Rope', 'tool', 1, 25, 25, 0, 0, 7, 7],
+      ['lantern', 'Lantern', 'tool', 2, 140, 110, 0, 0, 2, 2],
+      ['lockpick', 'Lockpick', 'tool', 2, 70, 60, 0, 0, 4, 4],
+      ['grapple', 'Grappling hook', 'tool', 3, 380, 320, 0, 0, 0.5, 1],
+      ['bomb_bag', 'Bomb bag', 'tool', 3, 420, 340, 0, 0, 0.5, 0.5],
+      ['lucky_coin', 'Lucky coin', 'trinket', 1, 100, 90, 1, 1, 2, 2],
+      ['feather', 'Feather', 'trinket', 2, 240, 200, 1, 1, 1, 1.5],
+      ['dash_boots', 'Dash boots', 'trinket', 3, 560, 345, 1, 1, 0.3, 0.6],
+      ['ring_of_life', 'Ring of life', 'trinket', 3, 500, 350, 1, 1, 0.3, 0.3],
+      ['guard_amulet', 'Guard amulet', 'trinket', 4, 800, 800, 2, 2, 0.2, 0.2],
+      ['bronze_key', 'Bronze key', 'key', 1, 0, 0, 0, 0, 100, 100],
+      ['silver_key', 'Silver key', 'key', 3, 0, 0, 0, 0, 100, 100],
+      ['floor3_map', 'Floor 3 map', 'tool', 3, 150, 120, 0, 0, 0, 0],
+      ['crown', 'Crown of the deep', 'trinket', 5, 2000, 2000, 0, 0, 0, 0],
+      ['torch', 'Torch', 'tool', 1, 15, 15, 0, 0, 9, 10],
+    ];
+    const KIND = { weapon: '#E9A84A', armor: '#8FB3FF', potion: '#FF6B6B', tool: '#B4BAC6', trinket: '#9B7BFF', key: '#F2D04B' };
+    const items = raw.map((r, i) => {
+      const [id, name, kind, floor, p0, p1, w0, w1, d0, d1] = r;
+      const changed = p0 !== p1 || w0 !== w1 || d0 !== d1;
+      return { id, name, kind, floor, p0, p1, w0, w1, d0, d1, changed, i, line: 4 + i * 8 };
+    });
+    const open = s.screen === 'open';
+    const priceOf = (it) => (s.mine[it.id] !== undefined ? s.mine[it.id] : it.p1);
+    const live = (it) => open && it.changed && !s.off[it.id];
+    const now = (it) => (s.screen === 'closed' ? !s.off[it.id] : true);
+    const pct = (a, b) => (a ? Math.round((b - a) / a * 100) : 0);
+    const fmtPct = (n) => (n > 0 ? '+' + n + '%' : n < 0 ? '−' + Math.abs(n) + '%' : '');
+    const changedN = items.filter((it) => it.changed).length;
+    const keptCount = items.filter((it) => it.changed && !s.off[it.id]).length;
+    const yoursN = Object.keys(s.mine).length;
+    const filters = [['all', 'All', 40], ['changed', 'Changed', changedN], ['unchanged', 'Unchanged', 40 - changedN], ['reverted', 'Reverted', Object.keys(s.off).filter((k) => s.off[k]).length], ['yours', 'Yours', yoursN]];
+    const chips = (open ? filters : filters.slice(0, 1)).map(([id, label, count]) => ({
+      label, count, pressed: s.filter === id ? 'true' : 'false',
+      style: 'height: 28px; padding: 0 10px; border-radius: 6px; border: 0; ' + (s.filter === id ? 'background: #262B35; color: #FFFFFF' : 'background: none; box-shadow: inset 0 0 0 1px #1F232A; color: #B4BAC6'),
+      countStyle: 'color: ' + (s.filter === id ? '#B4BAC6' : '#8B92A0'),
+      pick: () => this.setState({ filter: id }),
+    }));
+    let list = items.filter((it) => {
+      if (!open) return true;
+      if (s.filter === 'changed') return it.changed;
+      if (s.filter === 'unchanged') return !it.changed;
+      if (s.filter === 'reverted') return !!s.off[it.id];
+      if (s.filter === 'yours') return s.mine[it.id] !== undefined;
+      return true;
+    });
+    const key = {
+      file: (it) => it.i, name: (it) => it.name, floor: (it) => it.floor,
+      price: (it) => pct(it.p0, priceOf(it)), power: (it) => pct(it.w0, it.w1), drop: (it) => pct(it.d0, it.d1),
+    }[s.sort];
+    list = list.slice().sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : a.i - b.i) * s.dir; });
+
+    const headDefs = [['name', 'ITEM', ''], ['floor', 'FLOOR', ''], ['price', 'PRICE Δ', ''], ['power', 'POWER Δ', ''], ['drop', 'DROP % Δ', '']];
+    const heads = headDefs.map(([id, label]) => {
+      const on = s.sort === id;
+      return {
+        label, ariaSort: on ? (s.dir === 1 ? 'ascending' : 'descending') : 'none',
+        cellStyle: 'min-width: 0',
+        style: 'height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; margin-left: -4px; border: 0; border-radius: 6px; background: none; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: ' + (on ? '#FFFFFF' : '#8B92A0'),
+        arrowStyle: 'display: flex; opacity: ' + (on ? 1 : 0) + '; transform: rotate(' + (on && s.dir === -1 ? 180 : 0) + 'deg)',
+        pick: () => { const st = this.state; this.setState(st.sort === id ? (st.dir === 1 ? { dir: -1 } : { sort: 'file', dir: 1 }) : { sort: id, dir: 1 }); },
+      };
+    });
+
+    const cell = (show, w) => 'height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; max-width: 100%; box-sizing: border-box; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: #B4BAC6; ' + (show ? 'background: rgba(233,168,74,0.10); outline: 1.5px dashed #E9A84A; outline-offset: -1px' : 'background: none');
+    const fmt = (v) => (v === 0 ? '—' : '' + v);
+    const rows = list.map((it) => {
+      const isLive = live(it);
+      const focused = s.focus === it.id;
+      const curP = s.off[it.id] ? it.p0 : priceOf(it);
+      const curW = s.off[it.id] ? it.w0 : it.w1;
+      const curD = s.off[it.id] ? it.d0 : it.d1;
+      const pCh = isLive && it.p0 !== curP;
+      const wCh = isLive && it.w0 !== it.w1;
+      const dCh = isLive && it.d0 !== it.d1;
+      const mineP = s.mine[it.id] !== undefined && open && !s.off[it.id];
+      const editing = s.editing === it.id && open;
+      const step = (dlt) => () => { const st = this.state; const v = Math.max(0, (st.mine[it.id] !== undefined ? st.mine[it.id] : it.p1) + dlt); this.setState({ mine: { ...st.mine, [it.id]: v } }); };
+      return {
+        name: it.name, kind: it.kind, floor: it.floor,
+        rowStyle: 'height: 36px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 52px 156px 120px 128px 76px; gap: 8px; align-items: center; padding: 0 16px; border-bottom: 1px solid #1F232A; ' + (focused ? 'background: #171A21; box-shadow: inset 2px 0 0 #3B7BFF' : '') + (open && it.changed && s.off[it.id] ? '; opacity: 0.55' : ''),
+        dot: 'width: 7px; height: 7px; flex: none; border-radius: 2px; background: ' + KIND[it.kind],
+        nameStyle: 'min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #FFFFFF; ' + (open && it.changed && s.off[it.id] ? 'text-decoration: line-through' : ''),
+        focus: () => this.setState({ focus: it.id }),
+        moveLabel: 'Move ' + it.name + ', row ' + (it.i + 1) + ' of 40',
+        priceEditing: editing, priceShow: !editing,
+        priceCell: cell(pCh || mineP) + '; border: 0; cursor: ' + (isLive ? 'text' : 'default') + (mineP ? '; outline-color: #3B7BFF; outline-style: solid' : ''),
+        priceLabel: it.name + ' price ' + (pCh ? it.p0 + ' to ' + curP + (isLive ? ', press to change' : '') : curP),
+        priceOld: pCh ? fmt(it.p0) : '', priceNow: fmt(curP), priceDelta: pCh ? fmtPct(pct(it.p0, curP)) : '',
+        editPrice: () => { if (live(it)) this.setState({ editing: it.id, focus: it.id }); },
+        dec: step(-5), inc: step(5), decLabel: 'Lower ' + it.name + ' price by 5', incLabel: 'Raise ' + it.name + ' price by 5',
+        doneEdit: () => this.setState({ editing: null }),
+        powerCell: cell(wCh), powerOld: wCh ? fmt(it.w0) : '', powerNow: fmt(curW), powerDelta: wCh ? fmtPct(pct(it.w0, it.w1)) : '',
+        dropCell: cell(dCh), dropOld: dCh ? it.d0 : '', dropNow: curD === 0 ? '—' : curD, dropDelta: dCh ? fmtPct(pct(it.d0, it.d1)) : '',
+        oldStyle: 'color: #8B92A0; text-decoration: line-through',
+        arrowStyle: 'color: #8B92A0; display: ' + (pCh ? 'inline' : 'none'),
+        powerArrow: 'color: #8B92A0; display: ' + (wCh ? 'inline' : 'none'),
+        dropArrow: 'color: #8B92A0; display: ' + (dCh ? 'inline' : 'none'),
+        deltaStyle: 'color: #E9A84A; font-size: 11px',
+        changed: open && it.changed,
+        toggleText: s.off[it.id] ? 'Restore' : 'Revert',
+        toggleLabel: (s.off[it.id] ? 'Restore ' : 'Revert ') + it.name,
+        toggleStyle: 'height: 26px; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; font-size: 11.5px; color: ' + (s.off[it.id] ? '#8FB3FF' : '#D9DDE5'),
+        toggle: () => this.setState({ off: { ...this.state.off, [it.id]: !this.state.off[it.id] }, editing: null }),
+      };
+    });
+
+    const minutes = (p) => p / 30;
+    const priced = items.filter((it) => it.floor <= 3).map((it) => ({ it, p: s.off[it.id] ? it.p0 : priceOf(it) }));
+    const over = priced.filter((x) => minutes(x.p) > 12);
+    const worst = priced.reduce((a, b) => (b.p > a.p ? b : a));
+
+    const fd = items.find((it) => it.id === s.focus) || items[16];
+    const L = (sign, text, tag) => ({ sign, text, tag: tag || '' });
+    const y = [L('', '  - id: ' + fd.id), L('', '    name: ' + fd.name), L('', '    kind: ' + fd.kind), L('', '    floor: ' + fd.floor)];
+    const fp = priceOf(fd);
+    const yl = (field, a, b, tag) => { if (live(fd) && a !== b) { y.push(L('-', '    ' + field + ': ' + a)); y.push(L('+', '    ' + field + ': ' + b, tag)); } else y.push(L('', '    ' + field + ': ' + (s.off[fd.id] ? a : b))); };
+    yl('price', fd.p0, fp, s.mine[fd.id] !== undefined ? 'you' : '');
+    yl('power', fd.w0, fd.w1);
+    yl('drop', fd.d0, fd.d1);
+    const yaml = y.map((l, i) => ({ n: fd.line + i, sign: l.sign, text: l.text, tag: l.tag, style: 'display: flex; gap: 6px; padding: 0 16px 0 8px; ' + (l.sign === '+' ? 'background: rgba(79,211,138,0.08); color: #B9F0CF' : l.sign === '-' ? 'background: rgba(255,107,107,0.08); color: #FFB9B9' : 'color: #8B92A0') }));
+
+    const fileStyle = (on) => 'height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; border: 0; color: #D9DDE5; ' + (on ? 'background: #1C2130' : 'background: none');
+    const files = [
+      { name: 'items.yaml', meta: open ? '27 of 40 changed' : '40 records', on: s.file === 'items', id: 'items' },
+      { name: 'shop_floor5.yaml', meta: 'new · 0 records', on: s.file === 'shop5', id: 'shop5' },
+    ].map((f) => ({ ...f, style: fileStyle(f.on), current: f.on ? 'true' : 'false', pick: () => this.setState({ file: f.id }) }));
+    const hasRecords = s.file === 'items';
+
+    return {
+      open, closed: !open, files, chips, heads, rows, rowCount: list.length + 1, noMatch: rows.length === 0,
+      hasRecords, empty: !hasRecords,
+      keptCount, overCount: (over.length === 0 ? 'none' : over.length) + ' · was 9',
+      slowest: worst.it.name + ' · ' + minutes(worst.p).toFixed(1) + ' min',
+      focusName: hasRecords ? fd.id : 'shop_floor5.yaml',
+      yaml: hasRecords ? yaml : [{ n: 1, sign: '+', text: 'records: []', tag: '', style: 'display: flex; gap: 6px; padding: 0 16px 0 8px; background: rgba(79,211,138,0.08); color: #B9F0CF' }],
+      keep: () => this.setState({ screen: 'closed', editing: null, filter: 'all', sort: 'file', dir: 1 }),
+      revertAll: () => { const off = {}; items.forEach((it) => { if (it.changed) off[it.id] = true; }); this.setState({ off, screen: 'closed', reverted: true, editing: null, filter: 'all' }); },
+      close: () => this.setState({ screen: 'closed', paused: true }),
+      showToast: !open,
+      toastText: s.paused ? 'Review paused · resume it from the Agent panel' : s.reverted ? 'Reverted 27 records' : 'Kept ' + keptCount + ' · reverted ' + (27 - keptCount) + (yoursN ? ' · ' + yoursN + ' of your edits' : ''),
+      undoLabel: s.paused ? 'Resume' : 'Undo', undoKey: s.paused ? '' : '⌘Z',
+      undo: () => this.setState({ screen: 'open', paused: false, reverted: false, off: s.reverted ? { war_axe: true, torch: true } : s.off }),
+    };
+  }
+}
+</script>
+</body>
+</html>

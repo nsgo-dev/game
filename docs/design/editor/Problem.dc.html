@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Problem and proposed fix</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+  <div style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff"></div>
+    <span style="font-weight: 600; color: #ffffff">dungeon-run</span><span style="color: #8b92a0">/</span><span style="color: #b4bac6">boss_room</span>
+    <div style="flex: 1"></div>
+    <span style="height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 13px; background: #2a1719; color: #ffb4b4; box-shadow: 0 0 0 1px #4a2428"><span style="width: 6px; height: 6px; border-radius: 3px; background: #ff6b6b"></span>1 problem</span>
+    <button style="height: 30px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Play</button>
+  </div>
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+    <div style="border-right: 1px solid #1f232a; padding: 10px 6px; display: flex; flex-direction: column; gap: 2px">
+      <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCENE</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #6f7684"></span>Arena</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #9b7bff"></span>Boss</div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; border-radius: 6px; background: #2a1719; color: #ffffff"><span style="width: 7px; height: 7px; border-radius: 2px; background: #ff6b6b"></span><span style="flex: 1">lever</span><span style="color: #ff9b9b; font-size: 11px">1</span></div>
+      <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 22px; color: #b4bac6"><span style="width: 7px; height: 7px; border-radius: 2px; background: #6b5a45"></span>gate</div>
+    </div>
+    <div class="vp" style="position: relative; overflow: hidden">
+      <div style="position: absolute; left: 56px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#221c30,#1a1724)"></div>
+      <div style="position: absolute; left: 56px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+      <div style="position: absolute; left: 330px; top: 290px; width: 80px; height: 106px; border-radius: 10px; background: #6a4fbf"></div>
+      <div style="position: absolute; left: 180px; top: 362px; width: 12px; height: 34px; border-radius: 3px; background: #b4bac6; outline: 1.5px solid #ff6b6b; outline-offset: 4px"></div>
+      <div style="position: absolute; left: 640px; top: 300px; width: 40px; height: 96px; background: #6b5a45"></div>
+      <div style="position: absolute; left: 196px; top: 372px; width: 448px; height: 0; border-top: 1.5px dashed #ff6b6b"></div>
+      <div style="position: absolute; left: 560px; top: 356px; height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #4a2428; color: #ffb4b4; font-size: 11px">target “door_3” not found</div>
+    </div>
+    <div style="border-left: 1px solid #1f232a; display: flex; flex-direction: column; background: #12141a">
+      <div style="height: 44px; display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid #1f232a; color: #ffffff; font-weight: 500">Agent</div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+        <div style="border-radius: 12px; background: #1d1416; box-shadow: 0 0 0 1px #4a2428; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 8px; color: #ffb4b4; font-weight: 500"><span style="width: 6px; height: 6px; border-radius: 3px; background: #ff6b6b"></span>game check found a problem</div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #e6c4c4; line-height: 1.6">boss_room.scene.yaml:42:7<br>lever.pulled → door_3.open: no object door_3</div>
+        </div>
+        <div style="color: #d9dde5; line-height: 1.6">The lever was wired to <span style="font-family: 'JetBrains Mono', monospace">door_3</span>, which was renamed to <span style="font-family: 'JetBrains Mono', monospace">gate</span> in your last edit. I can point the connection at <span style="font-family: 'JetBrains Mono', monospace">gate</span>, which is the only object here with an <span style="font-family: 'JetBrains Mono', monospace">open</span> handler.</div>
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+          <div style="padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7">
+            <div style="color: #ffb9b9; background: rgba(255,107,107,0.08); padding: 0 6px">-   to: door_3</div>
+            <div style="color: #b9f0cf; background: rgba(79,211,138,0.08); padding: 0 6px">+   to: gate</div>
+          </div>
+          <div style="display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #222731">
+            <button style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #101216; font-weight: 500">Apply fix</button>
+            <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Show me</button>
+            <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #8b92a0">Ignore</button>
+          </div>
+        </div>
+        <div style="color: #8b92a0; font-size: 11.5px; line-height: 1.6">Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.</div>
+      </div>
+      <div style="padding: 12px; border-top: 1px solid #1f232a">
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 12px; color: #8b92a0">Ask about this problem…</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

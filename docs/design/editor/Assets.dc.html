@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Assets</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+.ck{background-color:#171a21;background-image:conic-gradient(#1c2028 25%,transparent 0 50%,#1c2028 0 75%,transparent 0);background-size:12px 12px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 900px; display: flex; gap: 80px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216">
+
+  <!-- ============ Screen 1: browse, import, drag to the viewport ============ -->
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; overflow: hidden; background: #101216; box-shadow: 0 0 0 1px #1f232a">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">level_01</span>
+      </div>
+      <div style="flex: 1"></div>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #8b92a0">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span>Search</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">⌘K</span>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <!-- left: folders and filters -->
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; padding: 0 8px; border-bottom: 1px solid #1f232a">
+          <div style="flex: 1; display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+            <button style="flex: 1; height: 28px; border-radius: 6px; border: 0; background: none; color: #8b92a0; font-weight: 500">Scene</button>
+            <button aria-pressed="true" style="flex: 1; height: 28px; border-radius: 6px; border: 0; background: #262b35; color: #ffffff; font-weight: 500">Assets</button>
+          </div>
+        </div>
+        <div style="padding: 12px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">FOLDERS</div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <sc-for list="{{ folders }}" as="f" hint-placeholder-count="8">
+            <button onClick="{{ f.pick }}" style="{{ f.style }}">
+              <span style="{{ f.indent }}"></span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="flex: none; opacity: 0.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+              <span style="flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ f.label }}</span>
+              <span style="{{ f.countStyle }}">{{ f.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="padding: 16px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SHOW ONLY</div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <sc-for list="{{ statusFilters }}" as="sf" hint-placeholder-count="4">
+            <button aria-pressed="{{ sf.pressed }}" onClick="{{ sf.pick }}" style="{{ sf.style }}">
+              <span style="{{ sf.mark }}"></span>
+              <span style="flex: 1; text-align: left">{{ sf.label }}</span>
+              <span style="color: #8b92a0; font-size: 11px">{{ sf.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="flex: 1"></div>
+        <div style="margin: 12px; padding: 12px; border-radius: 12px; border: 1px dashed #2c3240; display: flex; align-items: center; gap: 12px; color: #8b92a0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M12 15V4M7 9l5-5 5 5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>
+          <span style="line-height: 1.45">Drop files anywhere to import</span>
+        </div>
+      </div>
+
+      <!-- center: viewport above, asset drawer below -->
+      <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+        <div class="vp" style="height: 290px; flex: none; position: relative; overflow: hidden">
+          <div style="position: absolute; left: 24px; top: 8px; font-size: 11px; color: #8b92a0">Camera · 640 × 360</div>
+          <div style="position: absolute; left: 24px; right: 24px; top: 28px; height: 236px; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)">
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background-color: #2a2f3a; background-image: linear-gradient(#1f232a 0 2px, transparent 2px), linear-gradient(90deg, #1f232a 0 2px, transparent 2px); background-size: 32px 32px"></div>
+            <div style="position: absolute; left: 452px; top: 124px; width: 160px; height: 12px; border-radius: 2px; background: #333a47; box-shadow: inset 0 2px 0 #3b4250"></div>
+            <div style="position: absolute; left: 96px; top: 162px"><div style="{{ vpKnight.box }}"><div style="{{ vpKnight.dot }}"></div></div></div>
+            <div style="position: absolute; left: 236px; top: 176px"><div style="{{ vpSlime.box }}"><div style="{{ vpSlime.dot }}"></div></div></div>
+            <div style="position: absolute; left: 330px; top: 176px"><div style="{{ vpSlime.box }}"><div style="{{ vpSlime.dot }}"></div></div></div>
+            <div style="position: absolute; left: 470px; top: 110px"><div style="{{ vpCoin.box }}"><div style="{{ vpCoin.dot }}"></div></div></div>
+            <div style="position: absolute; left: 500px; top: 110px"><div style="{{ vpCoin.box }}"><div style="{{ vpCoin.dot }}"></div></div></div>
+            <div style="position: absolute; left: 700px; top: 142px; width: 34px; height: 50px; border-radius: 4px 4px 0 0; background: #6b5a45; box-shadow: inset 0 0 0 2px #4d3f30"></div>
+
+            <div style="position: absolute; left: 528px; top: 92px; width: 32px; height: 32px; border-radius: 2px; background: rgba(79,211,138,0.12); outline: 1.5px dashed #4fd38a; outline-offset: 0"></div>
+            <div style="position: absolute; left: 538px; top: 98px; opacity: 0.9"><div style="{{ vpGhost.box }}"><div style="{{ vpGhost.dot }}"></div></div></div>
+            <svg width="16" height="18" viewBox="0 0 16 18" aria-hidden="true" style="position: absolute; left: 552px; top: 110px"><path d="M1 1l12 7-5 1.5L5.5 15z" fill="#ffffff" stroke="#101216" stroke-width="1.2" stroke-linejoin="round"></path></svg>
+            <div style="position: absolute; left: 268px; top: 62px; height: 22px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: rgba(16,18,22,0.94); box-shadow: 0 0 0 1px #262b35; font-size: 11.5px; white-space: nowrap">
+              <span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>
+              <span style="color: #ffffff">coin.png</span><span style="color: #8b92a0">new Sprite on Actors · snapped to 16 px</span>
+            </div>
+          </div>
+          <div style="position: absolute; right: 24px; bottom: 6px; font-size: 11px; color: #8b92a0">Drop on an object to swap its sprite · Esc cancels</div>
+        </div>
+
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid #1f232a; background: #12141a">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+            <span style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">ASSETS</span>
+            <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+              <sc-for list="{{ kinds }}" as="k" hint-placeholder-count="5">
+                <button aria-pressed="{{ k.pressed }}" onClick="{{ k.pick }}" style="{{ k.style }}">{{ k.label }}</button>
+              </sc-for>
+            </div>
+            <label for="assetsearch" style="position: absolute; left: -9999px">Filter assets by name</label>
+            <div style="flex: 1; min-width: 80px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <input id="assetsearch" placeholder="Name or path" style="flex: 1; min-width: 0; border: 0; outline: none; background: none; color: #d9dde5">
+            </div>
+            <button aria-label="Sort: recently changed" title="Sort: recently changed" style="width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: none; color: #b4bac6">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"></path></svg>
+            </button>
+            <button style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>Import
+            </button>
+            <button style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Generate
+            </button>
+          </div>
+
+          <div style="flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden">
+            <sc-if value="{{ importPending }}" hint-placeholder-val="{{ true }}">
+              <div style="flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 300px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+                <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span style="color: #ffffff; font-weight: 600">Import 2 dropped files</span>
+                    <span style="color: #8b92a0">· proposed by the agent · 4 files to write</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 12px">
+                    <div style="display: flex; gap: 4px">
+                      <sc-for list="{{ batThumbs }}" as="b" hint-placeholder-count="3">
+                        <div class="ck" style="width: 40px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center"><div style="{{ b.box }}"><div style="{{ b.dot }}"></div></div></div>
+                      </sc-for>
+                    </div>
+                    <div style="min-width: 0">
+                      <div style="color: #ffffff">bat.aseprite <span style="color: #8b92a0">· Aseprite, 3 tags, 10 frames</span></div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">clips fly, swoop, hurt → anim/bat.clips.yaml · characters.atlas.yaml</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 12px">
+                    <div style="width: 128px; height: 30px; flex: none; border-radius: 6px; background: #12141a; display: flex; align-items: center; justify-content: center"><div style="{{ batWave }}"></div></div>
+                    <div style="min-width: 0">
+                      <div style="color: #ffffff">bat_screech.wav <span style="color: #8b92a0">· 0.42 s, mono, 44.1 kHz</span></div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">audio/sfx/bat_screech.wav.import.yaml</div>
+                    </div>
+                  </div>
+                </div>
+                <div style="padding: 12px 16px; border-left: 1px solid #222731; display: flex; flex-direction: column; gap: 4px">
+                  <div style="line-height: 1.5"><span style="color: #ffffff">Nearest filter</span> <span style="color: #8b92a0">· 16 px pixel art, per the brief</span></div>
+                  <div style="line-height: 1.5"><span style="color: #ffffff">characters atlas</span> <span style="color: #8b92a0">· one draw call with slimes</span></div>
+                  <div style="line-height: 1.5"><span style="color: #ffffff">Bus sfx, −14 LUFS</span> <span style="color: #8b92a0">· like jump.wav</span></div>
+                  <div style="flex: 1"></div>
+                  <div style="display: flex; gap: 8px">
+                    <button onClick="{{ keepImport }}" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Keep</button>
+                    <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Review</button>
+                    <button onClick="{{ revertImport }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert</button>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ importResolved }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #b4bac6">
+                <span style="{{ importDot }}"></span>{{ importResult }}
+                <div style="flex: 1"></div>
+                <button onClick="{{ resetImport }}" style="height: 24px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8fb3ff">Undo</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ gridEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border-radius: 12px; border: 1px dashed #2c3240; color: #8b92a0">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V6l11-2v12"></path><circle cx="6" cy="18" r="3"></circle><circle cx="17" cy="16" r="3"></circle></svg>
+                <div style="color: #ffffff; font-size: 14px; font-weight: 600">{{ emptyTitle }}</div>
+                <div>{{ emptyHint }}</div>
+                <div style="display: flex; gap: 8px">
+                  <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Import</button>
+                  <button style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Ask for a cellar theme</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 12px; align-content: start">
+              <sc-for list="{{ cards }}" as="c" hint-placeholder-count="12">
+                <button onClick="{{ c.pick }}" aria-label="{{ c.aria }}" style="{{ c.style }}">
+                  <div class="ck" style="{{ c.thumbStyle }}">
+                    <sc-if value="{{ c.isSprite }}" hint-placeholder-val="{{ true }}"><div style="{{ c.spr.box }}"><div style="{{ c.spr.dot }}"></div></div></sc-if>
+                    <sc-if value="{{ c.isAudio }}" hint-placeholder-val="{{ false }}"><div style="{{ c.wave }}"></div></sc-if>
+                    <sc-if value="{{ c.isTiles }}" hint-placeholder-val="{{ false }}"><div style="width: 64px; height: 48px; border-radius: 2px; background-color: #3b4250; background-image: linear-gradient(#1f232a 0 2px, transparent 2px), linear-gradient(90deg, #1f232a 0 2px, transparent 2px), linear-gradient(135deg, #4a5262 0 30%, transparent 30%); background-size: 16px 16px, 16px 16px, 16px 16px"></div></sc-if>
+                    <sc-if value="{{ c.isFont }}" hint-placeholder-val="{{ false }}"><span style="{{ c.fontStyle }}">{{ c.sample }}</span></sc-if>
+                    <sc-if value="{{ c.isMissing }}" hint-placeholder-val="{{ false }}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m3 16 5-5 4 4M14 13l2-2 5 5M4 4l16 16"></path></svg></sc-if>
+                    <sc-if value="{{ c.isLoading }}" hint-placeholder-val="{{ false }}"><div style="width: 100%; height: 100%; border-radius: 8px; background: linear-gradient(100deg, #171a21 30%, #20252f 50%, #171a21 70%)"></div></sc-if>
+                    <sc-if value="{{ c.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="{{ c.badgeStyle }}">{{ c.badge }}</span></sc-if>
+                  </div>
+                  <span style="{{ c.nameStyle }}">{{ c.name }}</span>
+                  <span style="{{ c.metaStyle }}">{{ c.meta }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px">
+          <span>{{ assetCount }} assets</span><span>{{ shownCount }} shown</span>
+          <div style="flex: 1"></div>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #ff6b6b"></span>1 problem · door_open.png missing</span>
+          <span>Re-imports on save</span>
+        </div>
+      </div>
+
+      <!-- right: selected asset -->
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; background: #12141a; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+          <span style="color: #ffffff; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ selName }}</span>
+          <span style="color: #8b92a0; white-space: nowrap">{{ selKind }}</span>
+          <div style="flex: 1"></div>
+          <button aria-label="Open the import file" title="Open the import file" style="width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6 3 12l5 6M16 6l5 6-5 6"></path></svg>
+          </button>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: hidden">
+          <div class="ck" style="height: 168px; flex: none; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px #262b35">
+            <sc-if value="{{ prev.isSprite }}" hint-placeholder-val="{{ true }}"><div style="{{ prev.spr.box }}"><div style="{{ prev.spr.dot }}"></div></div></sc-if>
+            <sc-if value="{{ prev.isAudio }}" hint-placeholder-val="{{ false }}"><div style="{{ prev.wave }}"></div></sc-if>
+            <sc-if value="{{ prev.isTiles }}" hint-placeholder-val="{{ false }}"><div style="width: 192px; height: 128px; border-radius: 2px; background-color: #3b4250; background-image: linear-gradient(#1f232a 0 3px, transparent 3px), linear-gradient(90deg, #1f232a 0 3px, transparent 3px), linear-gradient(135deg, #4a5262 0 30%, transparent 30%); background-size: 32px 32px, 32px 32px, 32px 32px"></div></sc-if>
+            <sc-if value="{{ prev.isFont }}" hint-placeholder-val="{{ false }}"><span style="{{ prev.fontStyle }}">{{ prev.sample }}</span></sc-if>
+            <sc-if value="{{ prev.isMissing }}" hint-placeholder-val="{{ false }}"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m3 16 5-5 4 4M14 13l2-2 5 5M4 4l16 16"></path></svg></sc-if>
+            <sc-if value="{{ prev.isLoading }}" hint-placeholder-val="{{ false }}"><div style="width: 96px; height: 96px; border-radius: 8px; background: linear-gradient(100deg, #171a21 30%, #20252f 50%, #171a21 70%)"></div></sc-if>
+            <span style="position: absolute; left: 12px; top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ prev.dims }}</span>
+            <sc-if value="{{ hasClips }}" hint-placeholder-val="{{ true }}">
+              <button aria-label="{{ playLabel }}" onClick="{{ togglePlay }}" style="position: absolute; right: 8px; bottom: 8px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: rgba(16,18,22,0.9); box-shadow: 0 0 0 1px #262b35; color: #ffffff">
+                <sc-if value="{{ playing }}" hint-placeholder-val="{{ true }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"></path></svg></sc-if>
+                <sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg></sc-if>
+              </button>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ hasClips }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 8px; flex: none">
+              <div style="display: flex; gap: 4px; flex-wrap: wrap">
+                <sc-for list="{{ clipChips }}" as="cc" hint-placeholder-count="6">
+                  <button aria-pressed="{{ cc.pressed }}" onClick="{{ cc.pick }}" style="{{ cc.style }}">{{ cc.name }}</button>
+                </sc-for>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px">
+                <sc-for list="{{ frameStrip }}" as="fr" hint-placeholder-count="6">
+                  <button aria-label="{{ fr.aria }}" onClick="{{ fr.pick }}" class="ck" style="{{ fr.style }}"><div style="{{ fr.spr.box }}"><div style="{{ fr.spr.dot }}"></div></div></button>
+                </sc-for>
+                <div style="flex: 1"></div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ frameLabel }}</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ prev.note }}" hint-placeholder-val="{{ false }}">
+            <div style="{{ prev.noteStyle }}">
+              <span>{{ prev.noteText }}</span>
+              <div style="display: flex; gap: 8px">
+                <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">{{ prev.noteA }}</button>
+                <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #b4bac6">{{ prev.noteB }}</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ hasSettings }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 4px; flex: none">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 4px">
+                <span style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">IMPORT</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ importFile }}</span>
+              </div>
+              <sc-for list="{{ settings }}" as="st" hint-placeholder-count="5">
+                <div style="{{ st.rowStyle }}">
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span style="width: 92px; flex: none; color: #b4bac6">{{ st.label }}</span>
+                    <div style="display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                      <button aria-pressed="{{ st.o0.pressed }}" onClick="{{ st.o0.pick }}" style="{{ st.o0.style }}">{{ st.o0.label }}</button>
+                      <button aria-pressed="{{ st.o1.pressed }}" onClick="{{ st.o1.pick }}" style="{{ st.o1.style }}">{{ st.o1.label }}</button>
+                      <sc-if value="{{ st.has2 }}" hint-placeholder-val="{{ false }}"><button aria-pressed="{{ st.o2.pressed }}" onClick="{{ st.o2.pick }}" style="{{ st.o2.style }}">{{ st.o2.label }}</button></sc-if>
+                    </div>
+                  </div>
+                  <div style="{{ st.reasonStyle }}">{{ st.reason }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <div style="display: flex; flex-direction: column; gap: 2px; flex: none">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding-bottom: 4px">USED BY · {{ refCount }}</div>
+            <sc-for list="{{ refs }}" as="r" hint-placeholder-count="3">
+              <button style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #b4bac6; text-align: left">
+                <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.path }}</span>
+                <span style="color: #8b92a0; font-size: 11.5px; white-space: nowrap">{{ r.what }}</span>
+              </button>
+            </sc-for>
+            <sc-if value="{{ noRefs }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 4px 8px; color: #8b92a0; line-height: 1.5">{{ noRefsText }}</div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="{{ footStyle }}">
+          <span style="flex: 1">{{ footText }}</span>
+          <sc-if value="{{ dirty }}" hint-placeholder-val="{{ false }}"><button onClick="{{ resetSettings }}" style="height: 28px; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: #d9dde5">Use proposal</button></sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Screen 2: generate, pick, check style and license ============ -->
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; overflow: hidden; background: #101216; box-shadow: 0 0 0 1px #1f232a">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">Assets</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">Generated</span>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="{{ genPill }}">
+        <span style="{{ genPillDot }}"></span>{{ genPillText }}
+      </div>
+      <div style="flex: 1"></div>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>GENERATED</span><span style="font-weight: 500; letter-spacing: 0">4 assets</span>
+        </div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column; gap: 2px">
+          <sc-for list="{{ gens }}" as="g" hint-placeholder-count="4">
+            <button style="{{ g.style }}">
+              <span class="ck" style="width: 32px; height: 32px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center">
+                <sc-if value="{{ g.isSprite }}" hint-placeholder-val="{{ true }}"><span style="{{ g.spr.box }}"><span style="{{ g.spr.dot }}"></span></span></sc-if>
+                <sc-if value="{{ g.isAudio }}" hint-placeholder-val="{{ false }}"><span style="{{ g.wave }}"></span></sc-if>
+              </span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ g.name }}</span>
+                <span style="{{ g.statusStyle }}">{{ g.status }}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="padding: 16px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">GENERATORS · MCP</div>
+        <div style="padding: 0 14px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 8px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span><span style="flex: 1">pixel-gen</span><span style="color: #8b92a0">images</span></div>
+          <div style="display: flex; align-items: center; gap: 8px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span><span style="flex: 1">sfx-gen</span><span style="color: #8b92a0">sound</span></div>
+        </div>
+        <div style="flex: 1"></div>
+        <div style="padding: 12px 14px; border-top: 1px solid #1f232a; color: #8b92a0; line-height: 1.5">Each pick writes the file and its <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">.source.yaml</span>. <a href="#tools">Settings › Tools</a></div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px; padding: 24px; min-width: 0; min-height: 0; overflow: hidden">
+        <div style="display: flex; align-items: flex-start; gap: 16px">
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="color: #ffffff; font-size: 14px; font-weight: 600">slime_frost.png</span>
+              <span style="color: #8b92a0">· 4 candidates</span>
+            </div>
+            <div style="color: #b4bac6">“An ice slime for floor 3. Same size and rules as slime.png.”</div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8b92a0">pixel-gen · pixflux-1 · seeds 81514–81517 · 21 s</div>
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+            <span style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PREVIEW ON</span>
+            <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+              <sc-for list="{{ bgs }}" as="b" hint-placeholder-count="3">
+                <button aria-pressed="{{ b.pressed }}" onClick="{{ b.pick }}" style="{{ b.style }}">{{ b.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <sc-for list="{{ cands }}" as="c" hint-placeholder-count="4">
+            <div style="{{ c.card }}">
+              <button onClick="{{ c.select }}" aria-label="{{ c.aria }}" style="{{ c.scene }}">
+                <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background-color: #2a2f3a; background-image: linear-gradient(#1f232a 0 2px, transparent 2px), linear-gradient(90deg, #1f232a 0 2px, transparent 2px); background-size: 32px 32px"></span>
+                <span style="{{ c.glow }}"></span>
+                <span style="position: absolute; left: 18px; bottom: 34px; opacity: 0.85"><span style="{{ c.ref.box }}"><span style="{{ c.ref.dot }}"></span></span></span>
+                <span style="{{ c.candPos }}"><span style="{{ c.spr.box }}"><span style="{{ c.spr.dot }}"></span></span></span>
+                <span style="{{ c.letter }}">{{ c.id }}</span>
+                <sc-if value="{{ c.isPicked }}" hint-placeholder-val="{{ false }}"><span style="position: absolute; right: 8px; top: 8px; height: 20px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #3b7bff; color: #ffffff; font-size: 11px; font-weight: 600">Picked</span></sc-if>
+                <span style="position: absolute; left: 12px; bottom: 8px; font-size: 11px; color: #8b92a0">slime.png</span>
+              </button>
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 4px">
+                <div style="display: flex; align-items: center; gap: 8px; height: 20px">
+                  <sc-if value="{{ c.k0.ok }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="passes" role="img"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                  <sc-if value="{{ c.k0.bad }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2.4" stroke-linecap="round" aria-label="fails" role="img"><path d="M6 6l12 12M18 6 6 18"></path></svg></sc-if>
+                  <span style="{{ c.k0.textStyle }}">{{ c.k0.text }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; height: 20px">
+                  <sc-if value="{{ c.k1.ok }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="passes" role="img"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                  <sc-if value="{{ c.k1.bad }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2.4" stroke-linecap="round" aria-label="fails" role="img"><path d="M6 6l12 12M18 6 6 18"></path></svg></sc-if>
+                  <span style="{{ c.k1.textStyle }}">{{ c.k1.text }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; height: 20px">
+                  <sc-if value="{{ c.k2.ok }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="passes" role="img"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                  <sc-if value="{{ c.k2.bad }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2.4" stroke-linecap="round" aria-label="fails" role="img"><path d="M6 6l12 12M18 6 6 18"></path></svg></sc-if>
+                  <span style="{{ c.k2.textStyle }}">{{ c.k2.text }}</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button onClick="{{ c.pick }}" style="{{ c.pickStyle }}">{{ c.pickText }}</button>
+                <button onClick="{{ c.vary }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Vary this</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px">
+          <label for="refine" style="position: absolute; left: -9999px">Refine with words</label>
+          <div style="flex: 1; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>
+            <input id="refine" placeholder="Refine with words… e.g. frost only on top, same eyes as slime.png" style="flex: 1; min-width: 0; border: 0; outline: none; background: none; color: #d9dde5">
+          </div>
+          <button style="height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"></path><path d="M14 6l3 3"></path></svg>Sketch over
+          </button>
+          <button onClick="{{ regenerate }}" style="height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg>Regenerate 4
+          </button>
+        </div>
+        <sc-if value="{{ genNote }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top: -8px; color: #c9bcff; font-size: 11.5px">{{ genNoteText }}</div>
+        </sc-if>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid #1f232a">
+          <div style="display: flex; align-items: center; gap: 8px; padding-top: 8px">
+            <span style="color: #ffffff; font-size: 14px; font-weight: 600">slime_freeze.wav</span>
+            <span style="color: #8b92a0">· 3 candidates · “the ice slime's freeze attack, short and crisp”</span>
+            <div style="flex: 1"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8b92a0">sfx-gen · seeds 4410–4412</span>
+          </div>
+          <sc-for list="{{ sounds }}" as="sd" hint-placeholder-count="3">
+            <div style="{{ sd.row }}">
+              <button aria-label="{{ sd.aria }}" onClick="{{ sd.play }}" style="{{ sd.playStyle }}">
+                <sc-if value="{{ sd.isPlaying }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"></path></svg></sc-if>
+                <sc-if value="{{ sd.isIdle }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg></sc-if>
+              </button>
+              <span style="width: 16px; color: #ffffff; font-weight: 600">{{ sd.id }}</span>
+              <div style="flex: 1; min-width: 0; height: 32px; position: relative; overflow: hidden; display: flex; align-items: center"><div style="{{ sd.wave }}"></div><span style="{{ sd.head }}"></span></div>
+              <span style="width: 48px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">{{ sd.dur }}</span>
+              <span style="width: 96px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">{{ sd.lufs }}</span>
+              <span style="{{ sd.checkStyle }}">{{ sd.check }}</span>
+              <button onClick="{{ sd.pick }}" style="{{ sd.pickStyle }}">{{ sd.pickText }}</button>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; background: #12141a; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+          <span style="color: #ffffff; font-size: 14px; font-weight: 600">Candidate {{ candId }}</span>
+          <span style="color: #8b92a0">· seed {{ candSeed }}</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: hidden">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>STYLE AGAINST THE BRIEF</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; letter-spacing: 0">brief.yaml</span></div>
+            <div style="padding: 8px 12px; border-left: 2px solid #262b35; color: #b4bac6; line-height: 1.55">16 px pixel art, 4-colour shading, cold stone with warm torch light. 1 px dark outline on characters.</div>
+            <sc-for list="{{ styleChecks }}" as="sc" hint-placeholder-count="4">
+              <div style="display: flex; align-items: flex-start; gap: 8px; padding: 4px 0">
+                <span style="padding-top: 2px; flex: none">
+                  <sc-if value="{{ sc.ok }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="passes" role="img"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                  <sc-if value="{{ sc.bad }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="2.4" stroke-linecap="round" aria-label="fails" role="img"><path d="M6 6l12 12M18 6 6 18"></path></svg></sc-if>
+                </span>
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+                  <span style="color: #ffffff">{{ sc.title }}</span>
+                  <span style="{{ sc.detailStyle }}">{{ sc.detail }}</span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>SOURCE</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; letter-spacing: 0">slime_frost.png.source.yaml</span></div>
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7">
+              <sc-for list="{{ sourceLines }}" as="l" hint-placeholder-count="10">
+                <div style="{{ l.style }}"><span style="color: #8b92a0">{{ l.k }}</span><span>{{ l.v }}</span></div>
+              </sc-for>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 11.5px">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"></path></svg>
+              Generator output is untrusted: shown as pixels only, nothing is written before a pick
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding-bottom: 4px">LICENSES · CHECKED AT EXPORT</div>
+            <sc-for list="{{ licenses }}" as="lc" hint-placeholder-count="3">
+              <div style="{{ lc.row }}">
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ lc.file }}</span>
+                  <span style="{{ lc.noteStyle }}">{{ lc.note }}</span>
+                </span>
+                <sc-if value="{{ lc.blocked }}" hint-placeholder-val="{{ false }}"><button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: #d9dde5">Set license</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { folder: 'all', status: '', kind: 'all', sel: 'knight', clip: 'run', frame: 2, playing: true, over: {}, imp: 'pending', bg: 'floor3', cand: 'B', picked: '', note: '', sound: '', soundPicked: '' };
+  }
+  renderVals() {
+    const s = this.state;
+    const PAL = { o: '#191b22', L: '#d7deea', S: '#9aa5ba', D: '#5e677c', V: '#0f1116', P: '#e9a84a', Q: '#b8742a', B: '#6b4a33', W: '#e6ebf2', G: '#5fbf7a', H: '#b4efc2', E: '#3b8a55', Y: '#f2c14e', y: '#fff3b8', d: '#b8862a', R: '#ff6b6b', r: '#ffb3b3', k: '#b83b48', M: '#6d5a8c', T: '#8a5a3a', t: '#c08a5a', g: '#3b4250', s: '#4a5262' };
+    const FROST = { ...PAL, G: '#7cc4e8', H: '#e0f6ff', E: '#3f7fa8' };
+    const C7 = { ...FROST, J: '#9fd8f0', K: '#5aa0c8', N: '#c8b8ff', U: '#2f6a90' };
+    const FLASH = Object.fromEntries(Object.keys(PAL).map((k) => [k, k === 'o' ? PAL.o : '#f4f6fb']));
+    const spr = (rows, p, pal) => {
+      const P = pal || PAL; const sh = []; let w = 0;
+      rows.forEach((r, y) => { w = Math.max(w, r.length); for (let x = 0; x < r.length; x++) { const c = P[r[x]]; if (c) sh.push(((x + 1) * p) + 'px ' + ((y + 1) * p) + 'px 0 0 ' + c); } });
+      return { box: 'position: relative; display: block; flex: none; width: ' + (w * p) + 'px; height: ' + (rows.length * p) + 'px', dot: 'position: absolute; display: block; left: ' + (-p) + 'px; top: ' + (-p) + 'px; width: ' + p + 'px; height: ' + p + 'px; box-shadow: ' + sh.join(', ') };
+    };
+    const wave = (seed, n, w, h, color) => {
+      const im = [], sz = [], ps = []; const step = w / n;
+      for (let i = 0; i < n; i++) {
+        const t = i / n;
+        const env = Math.min(1, t * 9) * Math.pow(1 - t, 1.3);
+        const a = Math.max(0.06, env * (0.5 + 0.5 * Math.abs(Math.sin(i * seed * 0.7 + seed))));
+        im.push('linear-gradient(' + color + ',' + color + ')');
+        sz.push('2px ' + Math.max(2, Math.round(a * h)) + 'px');
+        ps.push(Math.round(i * step) + 'px center');
+      }
+      return 'flex: none; width: ' + w + 'px; height: ' + h + 'px; background-repeat: no-repeat; background-image: ' + im.join(', ') + '; background-size: ' + sz.join(', ') + '; background-position: ' + ps.join(', ');
+    };
+
+    const KT = ['....PP......', '...PQP......', '..oooooo....', '.oLLLSSo....', '.oLSVVVo....', '.oLSSSSo....', '..oooooo..W.', '.oLLSSSDo.W.', 'oLLSSSSDDoW.', 'oSSBBBBDDooo', '.oDSSSSDo.o.'];
+    const KA = ['..oooooo....', '.oLLSSSDo...', 'oLLSSSSDDoWWWW', 'oSSBBBBDDo..'];
+    const LEGS = { stand: ['..oDo.oDo...', '..oBo.oBo...', '..ooo.ooo...'], stride: ['.oDo...oDo..', '.oBo...oBo..', '.ooo...ooo..'], pass: ['...oDDo.....', '...oBBo.....', '...oooo.....'], tuck: ['..oDDDDo....', '..oBo.oBo...', '............'] };
+    const knight = (legs, bob, atk) => {
+      let top = KT.slice();
+      if (atk) top = top.slice(0, 6).concat(KA, top.slice(10));
+      const rows = top.concat(LEGS[legs]);
+      return bob ? rows.concat(['']) : [''].concat(rows);
+    };
+    const CLIPS = {
+      idle: { ms: 150, f: [['stand', 0], ['stand', 1], ['stand', 0], ['stand', 1]] },
+      run: { ms: 100, f: [['stride', 0], ['pass', 1], ['stand', 0], ['stride', 0], ['pass', 1], ['stand', 0]] },
+      jump: { ms: 120, f: [['tuck', 1], ['tuck', 0]] },
+      fall: { ms: 120, f: [['stride', 0], ['stride', 1]] },
+      attack: { ms: 80, f: [['stand', 0], ['stand', 0, 1], ['stand', 0, 1], ['stand', 0]] },
+      hurt: { ms: 90, f: [['stand', 0, 0, 1], ['stand', 0]] },
+    };
+    const SL = ['....ooo....', '..ooGGGoo..', '.oGHHGGGGo.', '.oGHGGVGVo.', 'oGGGGGGGGGo', 'oGGGGGGGGGo', 'oEEEEEEEEEo', '.ooooooooo.'];
+    const SLB = ['...o..o....', '..oHooHo...', '.oGHHGGGGo.', '.oGHGGVGVo.', 'oGGGGGGGGGo', 'oGGGGGGGGGo', 'oEEEEEEEEEo', '.ooooooooo.'];
+    const SLC = ['....ooo....', '..ooJJJoo..', '.oJHHGGKKo.', '.oGHGNVGVo.', 'oGGNGGKKKUo', 'oKKGGGKKUUo', 'oEEUUUUUEEo', '.ooooooooo.'];
+    const COIN = ['.oooo.', 'oYyYYo', 'oYyYdo', 'oYYYdo', 'oYYddo', '.oooo.'];
+    const HEART = ['.oo.oo.', 'oRroRRo', 'oRRRRRo', '.oRRRo.', '..oRo..', '...o...'];
+    const BAT1 = ['o........o', 'oo.oooo.oo', 'oMoMMMMoMo', '.oMRMMRMo.', '..oMMMMo..', '...o..o...'];
+    const BAT2 = ['...oooo...', '..oMMMMo..', '.oMRMMRMo.', 'oMMMMMMMMo', 'oo.oMMo.oo', 'o...oo...o'];
+    const BAT3 = ['..oooooo..', '.oMMMMMMo.', 'oMMRMMRMMo', '.ooMMMMoo.', '...oMMo...', '....oo....'];
+    const LEVER = ['......oo', '.....oto', '....oto.', '...oto..', '..oto...', '.oggggo.', 'oggsgggo', 'oooooooo'];
+    const TORCH = ['.oPo.', 'oPyPo', 'oPPPo', '.oQo.', '.oTo.', '.oTo.', '.oTo.', '.ooo.'];
+
+    const items = [
+      { id: 'bat', name: 'bat.aseprite', folder: 'characters', kind: 'sprites', thumb: 'sprite', rows: BAT1, p: 4, meta: '3 clips · 10 frames', proposed: true, dims: '16 × 16 · 3 tags' },
+      { id: 'batwav', name: 'bat_screech.wav', folder: 'sfx', kind: 'audio', thumb: 'audio', seed: 3.1, meta: '0.42 s', proposed: true, dims: '0.42 s · mono · 44.1 kHz' },
+      { id: 'frost', name: 'slime_frost.png', folder: 'characters', kind: 'sprites', thumb: 'sprite', rows: SLB, pal: FROST, p: 5, meta: s.picked ? 'Picked · ' + s.picked : 'Pick 1 of 4', gen: true, waiting: !s.picked, dims: '16 × 12' },
+      { id: 'lever', name: 'lever.aseprite', folder: 'props', kind: 'sprites', thumb: 'loading', meta: 'Re-importing…', dims: '' },
+      { id: 'knight', name: 'knight.aseprite', folder: 'characters', kind: 'sprites', thumb: 'sprite', rows: knight('stand', 0), p: 4, meta: '6 clips · used 3×', clips: true, dims: '16 × 16 · 6 tags · 20 frames' },
+      { id: 'door', name: 'door_open.png', folder: 'props', kind: 'sprites', thumb: 'missing', meta: 'Missing · used 2×', missing: true, dims: 'not on disk' },
+      { id: 'coin', name: 'coin.png', folder: 'props', kind: 'sprites', thumb: 'sprite', rows: COIN, p: 7, meta: '6 frames · used 31×', dims: '8 × 8 · 6 frames', dragging: true },
+      { id: 'slime', name: 'slime.png', folder: 'characters', kind: 'sprites', thumb: 'sprite', rows: SL, p: 5, meta: 'used 14×', dims: '16 × 12' },
+      { id: 'tiles', name: 'stone_tiles.png', folder: 'tiles', kind: 'tiles', thumb: 'tiles', meta: '48 tiles · 5 scenes', dims: '16 px · 8 × 6 tiles' },
+      { id: 'heart', name: 'heart.png', folder: 'ui', kind: 'sprites', thumb: 'sprite', rows: HEART, p: 7, meta: 'used 1× · HUD', dims: '8 × 8' },
+      { id: 'torch', name: 'torch_old.png', folder: 'props', kind: 'sprites', thumb: 'sprite', rows: TORCH, p: 6, meta: 'Not used', unused: true, dims: '8 × 16' },
+      { id: 'jump', name: 'jump.wav', folder: 'sfx', kind: 'audio', thumb: 'audio', seed: 1.7, meta: '0.31 s · used 1×', dims: '0.31 s · mono · 44.1 kHz' },
+      { id: 'coinwav', name: 'coin_pickup.wav', folder: 'sfx', kind: 'audio', thumb: 'audio', seed: 2.3, meta: '0.18 s · used 1×', dims: '0.18 s · mono · 44.1 kHz' },
+      { id: 'squish', name: 'slime_squish.ogg', folder: 'sfx', kind: 'audio', thumb: 'audio', seed: 4.6, meta: 'Generated · used 2×', gen: true, dims: '0.27 s · mono · 48 kHz' },
+      { id: 'pixop', name: 'PixelOperator.ttf', folder: 'fonts', kind: 'fonts', thumb: 'font', sample: 'Aa 12', meta: 'Latin · used 2×', dims: 'pixel font · 12 px' },
+      { id: 'zpix', name: 'zpix.ttf', folder: 'fonts', kind: 'fonts', thumb: 'font', sample: '地窖 Aa', meta: '中文 + Latin · used 2×', dims: 'pixel font · 12 px · 21 000 glyphs' },
+    ].filter((it) => !(it.proposed && s.imp === 'reverted'))
+      .map((it) => ({ ...it, proposed: it.proposed && s.imp === 'pending' }));
+
+    const folderDefs = [
+      { id: 'all', label: 'All assets', depth: 0 },
+      { id: 'art', label: 'art', depth: 0, group: ['characters', 'props', 'tiles', 'ui'] },
+      { id: 'characters', label: 'characters', depth: 1 },
+      { id: 'props', label: 'props', depth: 1 },
+      { id: 'tiles', label: 'tiles', depth: 1 },
+      { id: 'ui', label: 'ui', depth: 1 },
+      { id: 'audio', label: 'audio', depth: 0, group: ['sfx', 'music'] },
+      { id: 'sfx', label: 'sfx', depth: 1 },
+      { id: 'music', label: 'music', depth: 1 },
+      { id: 'fonts', label: 'fonts', depth: 0 },
+    ];
+    const inFolder = (it, fid) => { if (fid === 'all') return true; const fd = folderDefs.find((f) => f.id === fid); return fd && fd.group ? fd.group.includes(it.folder) : it.folder === fid; };
+    const folders = folderDefs.map((f) => {
+      const n = items.filter((it) => inFolder(it, f.id)).length;
+      const on = s.folder === f.id;
+      return { ...f, count: n, indent: 'width: ' + (f.depth * 14) + 'px; flex: none', style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (on ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'), countStyle: 'font-size: 11px; color: ' + (n === 0 ? '#8b92a0' : '#8b92a0'), pick: () => this.setState({ folder: f.id, status: '' }) };
+    });
+    const statusDefs = [
+      { id: 'unused', label: 'Not used', test: (it) => it.unused, mark: 'width: 10px; height: 10px; border-radius: 3px; flex: none; outline: 1.5px solid #8b92a0; outline-offset: -1.5px' },
+      { id: 'missing', label: 'Missing files', test: (it) => it.missing, mark: 'width: 10px; height: 10px; border-radius: 3px; flex: none; outline: 1.5px solid #ff6b6b; outline-offset: -1.5px' },
+      { id: 'gen', label: 'Generated', test: (it) => it.gen, mark: 'width: 10px; height: 10px; border-radius: 3px; flex: none; outline: 1.5px solid #9b7bff; outline-offset: -1.5px' },
+      { id: 'proposed', label: 'Import to review', test: (it) => it.proposed, mark: 'width: 10px; height: 10px; border-radius: 3px; flex: none; outline: 1.5px dashed #4fd38a; outline-offset: -1.5px' },
+    ];
+    const statusFilters = statusDefs.map((d) => {
+      const on = s.status === d.id;
+      return { ...d, count: items.filter(d.test).length, pressed: on ? 'true' : 'false', style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (on ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'), pick: () => this.setState({ status: on ? '' : d.id }) };
+    });
+    const kindDefs = [['all', 'All'], ['sprites', 'Sprites'], ['tiles', 'Tiles'], ['audio', 'Audio'], ['fonts', 'Fonts']];
+    const kinds = kindDefs.map(([id, label]) => ({ label, pressed: s.kind === id ? 'true' : 'false', style: 'height: 24px; padding: 0 10px; border-radius: 6px; border: 0; font-size: 12px; font-weight: 500; ' + (s.kind === id ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0'), pick: () => this.setState({ kind: id }) }));
+    const sd = statusDefs.find((d) => d.id === s.status);
+    const visible = items.filter((it) => inFolder(it, s.folder) && (s.kind === 'all' || it.kind === s.kind) && (!sd || sd.test(it)));
+
+    const cards = visible.map((it) => {
+      const on = s.sel === it.id;
+      let ring = 'box-shadow: 0 0 0 1px #262b35';
+      if (it.missing) ring = 'box-shadow: 0 0 0 1.5px #ff6b6b';
+      if (it.proposed) ring = 'box-shadow: none; outline: 1.5px dashed #4fd38a; outline-offset: -1.5px';
+      if (on) ring = 'box-shadow: 0 0 0 1.5px #3b7bff';
+      let badge = '', bc = '';
+      if (it.proposed) { badge = 'Proposed'; bc = '#4fd38a'; }
+      else if (it.gen && it.waiting) { badge = '4 to pick'; bc = '#9b7bff'; }
+      else if (it.gen) { badge = 'Generated'; bc = '#9b7bff'; }
+      else if (it.unused) { badge = 'Not used'; bc = '#b4bac6'; }
+      else if (it.missing) { badge = 'Missing'; bc = '#ff6b6b'; }
+      const isSprite = it.thumb === 'sprite';
+      return {
+        name: it.name, meta: it.meta,
+        aria: it.name + ', ' + it.meta,
+        style: 'display: flex; flex-direction: column; gap: 4px; padding: 6px 6px 8px; border: 0; border-radius: 12px; text-align: left; min-width: 0; background: ' + (on ? '#1a2030' : '#171a21') + '; ' + ring + (it.dragging ? '; opacity: 0.5' : ''),
+        thumbStyle: 'height: 72px; border-radius: 8px; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden',
+        isSprite, isAudio: it.thumb === 'audio', isTiles: it.thumb === 'tiles', isFont: it.thumb === 'font', isMissing: it.thumb === 'missing', isLoading: it.thumb === 'loading',
+        spr: isSprite ? spr(it.rows, it.p, it.pal) : { box: '', dot: '' },
+        wave: it.thumb === 'audio' ? wave(it.seed, 30, 90, 40, it.proposed ? '#4fd38a' : '#8fb3ff') : '',
+        sample: it.sample || '',
+        fontStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 18px; font-weight: 500; color: #ffffff; letter-spacing: 0.02em',
+        hasBadge: !!badge, badge,
+        badgeStyle: 'position: absolute; left: 4px; top: 4px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: rgba(16,18,22,0.92); font-size: 11px; font-weight: 600; color: ' + bc,
+        nameStyle: 'padding: 0 2px; color: ' + (on ? '#ffffff' : '#d9dde5') + '; white-space: nowrap; overflow: hidden; text-overflow: ellipsis',
+        metaStyle: 'padding: 0 2px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ' + (it.missing ? '#ff8f8f' : '#8b92a0'),
+        pick: () => this.setState({ sel: it.id, frame: 0, clip: it.id === 'knight' ? 'run' : 'fly' }),
+      };
+    });
+    const emptyFolder = s.folder === 'music';
+
+    // selected asset
+    const sel = items.find((it) => it.id === s.sel) || items.find((it) => it.id === 'knight');
+    const batClips = { fly: { ms: 90, rows: [BAT1, BAT2, BAT1, BAT2] }, swoop: { ms: 70, rows: [BAT3, BAT3, BAT1, BAT2] }, hurt: { ms: 90, rows: [BAT3, BAT1] } };
+    let hasClips = false, clipChips = [], frameStrip = [], frameLabel = '', bigRows = sel.rows, bigPal = sel.pal;
+    if (sel.id === 'knight' || sel.id === 'bat') {
+      hasClips = true;
+      const isK = sel.id === 'knight';
+      const names = isK ? Object.keys(CLIPS) : Object.keys(batClips);
+      const clipName = names.includes(s.clip) ? s.clip : names[isK ? 1 : 0];
+      const clip = isK ? CLIPS[clipName] : batClips[clipName];
+      const frameRows = isK ? clip.f.map((f) => ({ rows: knight(f[0], f[1], f[2]), pal: f[3] ? FLASH : PAL })) : clip.rows.map((r) => ({ rows: r, pal: PAL }));
+      const fi = Math.min(s.frame, frameRows.length - 1);
+      clipChips = names.map((n) => ({ name: n, pressed: n === clipName ? 'true' : 'false', style: 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-size: 12px; ' + (n === clipName ? 'background: #262b35; color: #ffffff' : 'background: #171a21; color: #b4bac6; box-shadow: 0 0 0 1px #262b35'), pick: () => this.setState({ clip: n, frame: 0 }) }));
+      frameStrip = frameRows.map((fr, i) => ({ aria: 'Frame ' + (i + 1), spr: spr(fr.rows, 2, fr.pal), style: 'width: 36px; height: 40px; flex: none; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; padding: 0; ' + (i === fi ? 'box-shadow: 0 0 0 1.5px #3b7bff' : 'box-shadow: 0 0 0 1px #262b35'), pick: () => this.setState({ frame: i, playing: false }) }));
+      frameLabel = (fi + 1) + ' / ' + frameRows.length + ' · ' + clip.ms + ' ms';
+      bigRows = frameRows[fi].rows; bigPal = frameRows[fi].pal;
+    }
+    const bigP = sel.thumb === 'sprite' ? Math.max(4, Math.floor(120 / Math.max(bigRows.length, (bigRows[0] || '').length))) : 0;
+    const prevNote = sel.missing
+      ? { note: true, noteText: 'door_open.png is not on disk. level_01 and level_02 still reference it; the build fails until it is back or replaced.', noteA: 'Replace with a file', noteB: 'Ask the agent', noteStyle: 'display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1.5px #ff6b6b; color: #ffb9b9; line-height: 1.5' }
+      : sel.gen && sel.waiting
+      ? { note: true, noteText: 'Four candidates are waiting. Nothing is written until you pick one.', noteA: 'Open the picker', noteB: 'Discard all', noteStyle: 'display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1.5px #9b7bff; color: #c9bcff; line-height: 1.5' }
+      : sel.thumb === 'loading'
+      ? { note: true, noteText: 'lever.aseprite changed on disk 2 s ago. Re-importing with the same settings.', noteA: 'Show the change', noteB: 'Cancel', noteStyle: 'display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #b4bac6; line-height: 1.5' }
+      : { note: false, noteText: '', noteA: '', noteB: '', noteStyle: '' };
+    const prev = {
+      isSprite: sel.thumb === 'sprite', isAudio: sel.thumb === 'audio', isTiles: sel.thumb === 'tiles', isFont: sel.thumb === 'font', isMissing: sel.thumb === 'missing', isLoading: sel.thumb === 'loading',
+      spr: sel.thumb === 'sprite' ? spr(bigRows, bigP, bigPal) : { box: '', dot: '' },
+      wave: sel.thumb === 'audio' ? wave(sel.seed, 60, 300, 96, sel.proposed ? '#4fd38a' : '#8fb3ff') : '',
+      sample: sel.thumb === 'font' ? (sel.id === 'zpix' ? '地窖之门 Floor 1' : 'Floor 1 · 12') : '',
+      fontStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 28px; font-weight: 500; color: #ffffff',
+      dims: sel.dims || '',
+      ...prevNote,
+    };
+
+    const SET = {
+      sprite: [
+        ['Filter', ['Nearest', 'Linear'], 'Nearest', '16 px pixel art, per the brief'],
+        ['Pixels / unit', ['8', '16', '32'], '16', 'matches stone_tiles.png'],
+        ['Atlas', ['characters', 'Own texture'], 'characters', 'one draw call with slimes and bats'],
+      ],
+      clips: [
+        ['Filter', ['Nearest', 'Linear'], 'Nearest', '16 px pixel art, per the brief'],
+        ['Pixels / unit', ['8', '16', '32'], '16', 'matches stone_tiles.png'],
+        ['Slices', ['Aseprite tags', 'Grid'], 'Aseprite tags', 'one clip per tag, into the clips file'],
+        ['Atlas', ['characters', 'Own texture'], 'characters', 'one draw call with slimes and bats'],
+        ['Compression', ['None', 'Lossy'], 'None', 'keeps the 4-colour palette exact'],
+      ],
+      audio: [
+        ['Bus', ['sfx', 'music', 'voice'], 'sfx', 'short effect, like jump.wav'],
+        ['Loudness', ['−14 LUFS', 'As recorded'], '−14 LUFS', 'same level as the other effects'],
+        ['Load', ['Memory', 'Stream'], 'Memory', 'under 1 s, played often'],
+      ],
+      tiles: [
+        ['Filter', ['Nearest', 'Linear'], 'Nearest', '16 px pixel art, per the brief'],
+        ['Tile size', ['8', '16', '32'], '16', 'the grid of every level'],
+        ['Padding', ['1 px', 'None'], '1 px', 'stops seams when the camera zooms'],
+      ],
+      fonts: [
+        ['Size', ['8', '12', '16'], '12', 'drawn for 12 px; other sizes blur'],
+        ['Glyphs', ['Used text', 'All'], 'Used text', 'only glyphs found in loc/*.yaml'],
+      ],
+    };
+    const setKey = sel.thumb === 'missing' || sel.thumb === 'loading' ? '' : (sel.clips || sel.id === 'bat') ? 'clips' : sel.thumb === 'audio' ? 'audio' : sel.thumb === 'tiles' ? 'tiles' : sel.thumb === 'font' ? 'fonts' : 'sprite';
+    const defs = setKey ? SET[setKey] : [];
+    let dirtyCount = 0;
+    const settings = defs.map(([label, opts, proposed, reason]) => {
+      const key = sel.id + ':' + label;
+      const val = s.over[key] || proposed;
+      const changed = val !== proposed;
+      if (changed) dirtyCount += 1;
+      return {
+        label,
+        reason: changed ? 'differs from the proposal (' + proposed + ')' : reason,
+        rowStyle: 'display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 8px; ' + (changed ? 'outline: 1.5px dashed #e9a84a; outline-offset: -1.5px' : ''),
+        reasonStyle: 'padding-left: 100px; font-size: 11.5px; line-height: 1.4; color: ' + (changed ? '#e9a84a' : '#8b92a0'),
+        has2: opts.length > 2,
+        ...Object.fromEntries([0, 1, 2].map((i) => {
+          const o = opts[i] || '';
+          return ['o' + i, { label: o, pressed: o === val ? 'true' : 'false', style: 'height: 22px; padding: 0 8px; border-radius: 4px; border: 0; font-size: 12px; ' + (o === val ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0'), pick: () => this.setState({ over: { ...s.over, [key]: o } }) }];
+        })),
+      };
+    });
+    const REFS = {
+      knight: [['prefabs/player.prefab.yaml', 'sprite'], ['anim/knight.clips.yaml', '6 clips'], ['anim/knight.states.yaml', 'state machine']],
+      slime: [['prefabs/slime.prefab.yaml', 'sprite'], ['scenes/*.scene.yaml', '13 placements']],
+      coin: [['prefabs/coin.prefab.yaml', 'sprite'], ['scenes/*.scene.yaml', '30 placements']],
+      tiles: [['tilesets/stone.tileset.yaml', 'tileset'], ['scenes/level_01 … 05', 'tile layers']],
+      heart: [['screens/hud.screen.yaml', 'health']],
+      door: [['scenes/level_01.scene.yaml', 'Door · open'], ['scenes/level_02.scene.yaml', 'Door · open']],
+      jump: [['prefabs/player.prefab.yaml', 'on jump']],
+      coinwav: [['prefabs/coin.prefab.yaml', 'on pickup']],
+      squish: [['prefabs/slime.prefab.yaml', 'on hurt, on death']],
+      pixop: [['screens/hud.screen.yaml', 'Latin text'], ['screens/pause.screen.yaml', 'Latin text']],
+      zpix: [['screens/hud.screen.yaml', '中文 text'], ['screens/pause.screen.yaml', '中文 text']],
+      lever: [['prefabs/lever.prefab.yaml', 'sprite']],
+    };
+    const refs = (REFS[sel.id] || []).map(([path, what]) => ({ path, what }));
+    const noRefsText = sel.unused ? 'Nothing references it. The agent can propose deleting it; deleting files always asks you.' : sel.proposed ? 'New file. The agent proposes the bat prefab next, after you keep the import.' : 'Nothing uses it yet.';
+    const importFile = setKey ? sel.name + '.import.yaml' : '';
+
+    const batThumbs = [spr(BAT1, 2), spr(BAT3, 2), spr(BAT2, 2)];
+    const impColor = s.imp === 'kept' ? '#4fd38a' : '#8b92a0';
+
+    // ---------- screen 2 ----------
+    const BG = {
+      floor3: 'background: linear-gradient(180deg,#1b2433 0%,#1a2130 70%,#171c26 100%)',
+      floor1: 'background: linear-gradient(180deg,#2a2220 0%,#231d1c 70%,#1c1817 100%)',
+      checker: 'background-color: #171a21; background-image: conic-gradient(#1c2028 25%, transparent 0 50%, #1c2028 0 75%, transparent 0); background-size: 12px 12px',
+    };
+    const bgs = [['floor3', 'Floor 3'], ['floor1', 'Floor 1'], ['checker', 'Checker']].map(([id, label]) => ({ label, pressed: s.bg === id ? 'true' : 'false', style: 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-size: 12px; font-weight: 500; ' + (s.bg === id ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0'), pick: () => this.setState({ bg: id }) }));
+    const candDefs = [
+      { id: 'A', seed: 81514, rows: SL, pal: FROST, p: 4, checks: [[1, '4 colours + outline'], [1, 'On the 16 px grid'], [1, '16 × 12, like slime.png']], style: [[1, 'Palette', '4 colours + 1 px outline'], [1, 'Pixel grid', 'every pixel on the grid, no anti-aliasing'], [1, 'Size', '16 × 12, same as slime.png'], [1, 'Contrast on floor 3', '5.1 : 1 against the wall']] },
+      { id: 'B', seed: 81515, rows: SLB, pal: FROST, p: 4, checks: [[1, '4 colours + outline'], [1, 'On the 16 px grid'], [1, '16 × 12, like slime.png']], style: [[1, 'Palette', '4 colours + 1 px outline'], [1, 'Pixel grid', 'every pixel on the grid, no anti-aliasing'], [1, 'Size', '16 × 12, same as slime.png'], [1, 'Contrast on floor 3', '4.8 : 1 against the wall']] },
+      { id: 'C', seed: 81516, rows: SLC, pal: C7, p: 4, checks: [[0, '7 colours, brief allows 4'], [1, 'On the 16 px grid'], [1, '16 × 12, like slime.png']], style: [[0, 'Palette', '7 colours; the brief allows 4-colour shading'], [1, 'Pixel grid', 'every pixel on the grid'], [1, 'Size', '16 × 12, same as slime.png'], [1, 'Contrast on floor 3', '4.6 : 1 against the wall']] },
+      { id: 'D', seed: 81517, rows: SL, pal: FROST, p: 6, checks: [[1, '4 colours + outline'], [0, 'Drawn at 1.5×, off the grid'], [0, '24 × 18, others are 16 × 12']], style: [[1, 'Palette', '4 colours + 1 px outline'], [0, 'Pixel grid', 'scaled 1.5×; pixels straddle the 16 px grid'], [0, 'Size', '24 × 18; enemies on this floor are 16 × 12'], [1, 'Contrast on floor 3', '5.0 : 1 against the wall']] },
+    ];
+    const refSpr = spr(SL, 4);
+    const cands = candDefs.map((c) => {
+      const on = s.cand === c.id;
+      const picked = s.picked === c.id;
+      const bad = c.checks.some((k) => !k[0]);
+      return {
+        id: c.id, aria: 'Candidate ' + c.id + (bad ? ', fails a style check' : ', passes the style checks'),
+        card: 'display: flex; flex-direction: column; gap: 12px; padding: 8px 8px 12px; border-radius: 12px; min-width: 0; background: ' + (on ? '#1a2030' : '#171a21') + '; box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff' : '1px #262b35') + (s.picked && !picked ? '; opacity: 0.55' : ''),
+        scene: 'position: relative; height: 176px; border: 0; padding: 0; border-radius: 8px; overflow: hidden; display: block; width: 100%; ' + BG[s.bg],
+        glow: 'position: absolute; right: -30px; top: -30px; width: 140px; height: 140px; border-radius: 70px; background: radial-gradient(circle, rgba(233,168,74,' + (s.bg === 'checker' ? '0' : '0.22') + ') 0%, transparent 70%)',
+        ref: refSpr,
+        spr: spr(c.rows, c.p, c.pal),
+        candPos: 'position: absolute; left: 50%; bottom: 34px; transform: translateX(-10%)',
+        letter: 'position: absolute; left: 8px; top: 8px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: rgba(16,18,22,0.92); color: #ffffff; font-weight: 600; font-size: 12px',
+        isPicked: picked,
+        ...Object.fromEntries(c.checks.map(([ok, text], i) => ['k' + i, { ok: !!ok, bad: !ok, text, textStyle: 'font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ' + (ok ? '#b4bac6' : '#ff8f8f') }])),
+        pickText: picked ? 'Undo pick' : 'Pick ' + c.id,
+        pickStyle: 'flex: 1; height: 30px; border-radius: 8px; border: 0; font-weight: 500; ' + (on && !picked ? 'background: #3b7bff; color: #ffffff' : 'background: #22262f; color: #d9dde5'),
+        pick: () => this.setState({ picked: picked ? '' : c.id, cand: c.id, note: '' }),
+        select: () => this.setState({ cand: c.id }),
+        vary: () => this.setState({ cand: c.id, note: 'Asked pixel-gen for 4 variations of ' + c.id + ' · seed ' + c.seed + ' kept, references unchanged' }),
+      };
+    });
+    const cd = candDefs.find((c) => c.id === s.cand) || candDefs[1];
+    const styleChecks = cd.style.map(([ok, title, detail]) => ({ ok: !!ok, bad: !ok, title, detail, detailStyle: 'font-size: 11.5px; line-height: 1.45; color: ' + (ok ? '#8b92a0' : '#ff8f8f') }));
+    const src = [
+      ['version: ', '1'],
+      ['generator: ', 'pixel-gen'],
+      ['model: ', 'pixflux-1'],
+      ['prompt: ', '"ice slime, 16 px pixel art, 4-colour shading, 1 px dark outline, facing right"'],
+      ['seed: ', String(cd.seed)],
+      ['references: ', '[slime.png, brief.yaml#art]'],
+      ['license: ', 'pixellab-commercial-1.2'],
+      ['commercial_use: ', 'true'],
+      ['approved_by: ', s.picked === cd.id ? 'kim' : 'null'],
+    ];
+    const sourceLines = src.map(([k, v]) => ({ k, v, style: 'padding: 0 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ' +(k === 'approved_by: ' && s.picked === cd.id ? 'background: rgba(79,211,138,0.08); color: #b9f0cf' : 'color: #d9dde5') }));
+    const licDefs = [
+      ['slime_frost.png', 'pixellab-commercial-1.2 · commercial use allowed', 'ok'],
+      ['slime_squish.ogg', 'sfx-gen standard · commercial use allowed', 'ok'],
+      ['torch_flicker.wav', 'License unknown · blocks export', 'blocked'],
+    ];
+    const licenses = licDefs.map(([file, note, st]) => ({ file, note, blocked: st === 'blocked', row: 'display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; ' + (st === 'blocked' ? 'background: #171a21; box-shadow: 0 0 0 1.5px #ff6b6b' : 'background: none'), noteStyle: 'font-size: 11.5px; color: ' + (st === 'blocked' ? '#ff8f8f' : '#8b92a0') }));
+    const gens = [
+      { name: 'slime_frost.png', status: s.picked ? 'Picked ' + s.picked + ' · written' : 'Pick 1 of 4', c: s.picked ? '#4fd38a' : '#c9bcff', on: true, sprite: true, rows: SLB, pal: FROST },
+      { name: 'slime_freeze.wav', status: s.soundPicked ? 'Picked ' + s.soundPicked + ' · written' : 'Pick 1 of 3', c: s.soundPicked ? '#4fd38a' : '#c9bcff', seed: 5.2 },
+      { name: 'slime_squish.ogg', status: 'In use · 2 prefabs', c: '#8b92a0', seed: 4.6 },
+      { name: 'torch_flicker.wav', status: 'License unknown', c: '#ff8f8f', seed: 6.1 },
+    ].map((g) => ({ ...g, isSprite: !!g.sprite, isAudio: !g.sprite, spr: g.sprite ? spr(g.rows, 2, g.pal) : { box: '', dot: '' }, wave: g.sprite ? '' : wave(g.seed, 10, 22, 18, '#8fb3ff'), statusStyle: 'font-size: 11.5px; color: ' + g.c, style: 'width: 100%; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 8px; ' + (g.on ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #d9dde5') }));
+    const soundDefs = [
+      { id: 'A', seed: 5.2, dur: '0.34 s', lufs: '−14.1 LUFS', check: 'Peak −1.2 dB', ok: true },
+      { id: 'B', seed: 7.9, dur: '0.29 s', lufs: '−13.8 LUFS', check: 'Peak −1.0 dB', ok: true },
+      { id: 'C', seed: 2.8, dur: '0.61 s', lufs: '−9.6 LUFS', check: '4 dB louder than jump.wav', ok: false },
+    ];
+    const sounds = soundDefs.map((d) => {
+      const playing = s.sound === d.id;
+      const picked = s.soundPicked === d.id;
+      return {
+        ...d,
+        aria: (playing ? 'Stop ' : 'Play ') + 'candidate ' + d.id,
+        isPlaying: playing, isIdle: !playing,
+        row: 'height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 6px; border-radius: 8px; ' + (picked ? 'background: #1a2030; box-shadow: 0 0 0 1.5px #3b7bff' : 'background: #171a21; box-shadow: 0 0 0 1px #262b35'),
+        playStyle: 'width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; ' + (playing ? 'background: #ffffff; color: #101216' : 'background: #22262f; color: #ffffff'),
+        wave: wave(d.seed, 110, 440, 28, d.ok ? '#8fb3ff' : '#ff8f8f'),
+        head: playing ? 'position: absolute; left: 38%; top: 0; bottom: 0; width: 1.5px; background: #ffffff' : 'display: none',
+        checkStyle: 'width: 170px; font-size: 11.5px; white-space: nowrap; color: ' + (d.ok ? '#8b92a0' : '#ff8f8f'),
+        pickText: picked ? 'Picked' : 'Pick',
+        pickStyle: 'height: 28px; padding: 0 12px; border-radius: 8px; border: 0; ' + (picked ? 'background: #3b7bff; color: #ffffff' : 'background: #22262f; color: #d9dde5'),
+        play: () => this.setState({ sound: playing ? '' : d.id }),
+        pick: () => this.setState({ soundPicked: picked ? '' : d.id }),
+      };
+    });
+
+    return {
+      folders, statusFilters, kinds, cards,
+      gridEmpty: emptyFolder || visible.length === 0,
+      emptyTitle: emptyFolder ? 'audio/music is empty' : 'Nothing matches',
+      emptyHint: emptyFolder ? 'Drop .ogg or .wav files here, or ask the agent.' : 'Clear a filter to see more assets.',
+      assetCount: items.length, shownCount: visible.length,
+      vpKnight: spr(knight('stand', 0), 2), vpSlime: spr(SL, 2), vpCoin: spr(COIN, 2), vpGhost: spr(COIN, 2),
+      batThumbs, batWave: wave(3.1, 30, 110, 22, '#4fd38a'),
+      importPending: s.imp === 'pending', importResolved: s.imp !== 'pending',
+      importResult: s.imp === 'kept' ? 'Imported bat.aseprite and bat_screech.wav · 4 files written · one undo step' : 'Import reverted · nothing was written',
+      importDot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + impColor,
+      keepImport: () => this.setState({ imp: 'kept' }), revertImport: () => this.setState({ imp: 'reverted', sel: s.sel === 'bat' || s.sel === 'batwav' ? 'knight' : s.sel }), resetImport: () => this.setState({ imp: 'pending' }),
+      selName: sel.name, selKind: sel.thumb === 'audio' ? 'Sound' : sel.thumb === 'font' ? 'Font' : sel.thumb === 'tiles' ? 'Tileset' : sel.clips || sel.id === 'bat' ? 'Aseprite' : 'Sprite',
+      prev, hasClips, clipChips, frameStrip, frameLabel,
+      playing: s.playing, paused: !s.playing, playLabel: s.playing ? 'Pause' : 'Play',
+      togglePlay: () => this.setState({ playing: !s.playing }),
+      hasSettings: settings.length > 0, settings, importFile,
+      refs, refCount: refs.length, noRefs: refs.length === 0, noRefsText,
+      dirty: dirtyCount > 0,
+      footText: dirtyCount > 0 ? dirtyCount + (dirtyCount === 1 ? ' setting differs' : ' settings differ') + ' from the agent’s proposal · ⌘S re-imports' : 'Re-imports by itself when the file changes on disk',
+      footStyle: 'height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid #1f232a; font-size: 11.5px; color: ' + (dirtyCount > 0 ? '#e9a84a' : '#8b92a0'),
+      resetSettings: () => { const o = { ...s.over }; Object.keys(o).forEach((k) => { if (k.startsWith(sel.id + ':')) delete o[k]; }); this.setState({ over: o }); },
+
+      bgs, cands, styleChecks, sourceLines, licenses, gens, sounds,
+      candId: cd.id, candSeed: cd.seed,
+      genPill: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; ' + (s.picked ? 'background: #171a21; color: #b4bac6; box-shadow: 0 0 0 1px #262b35' : 'background: #1e1a33; color: #c9bcff; box-shadow: 0 0 0 1px #3a2f5c'),
+      genPillDot: 'width: 7px; height: 7px; border-radius: 4px; background: ' + (s.picked ? '#4fd38a' : '#9b7bff'),
+      genPillText: s.picked ? 'Picked ' + s.picked + ' · slime_frost.png and its source file written · ⌘Z undoes' : 'pixel-gen returned 4 candidates · waiting for your pick',
+      genNote: !!s.note, genNoteText: s.note,
+      regenerate: () => this.setState({ note: 'Asked pixel-gen for 4 new candidates · seeds 81518–81521 · same prompt and references', picked: '' }),
+    };
+  }
+}
+</script>
+</body>
+</html>
