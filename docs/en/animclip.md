@@ -102,12 +102,12 @@ Play it on `game.Loop`'s fixed steps with `animclip.NewAnimator` (or `animclip.N
 
 ```go
 lib := resource.NewLibrary(os.DirFS("."))
-sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates(os.DirFS(".")), lib, components)
+sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates{FS: os.DirFS(".")}, lib, components)
 if err != nil {
 	return err
 }
 sm.OnTransition = func(from, to string) { /* ... */ }
-sm.OnEvent = func(name string) { /* ... */ }
+sm.OnEvent = func(state, event string) { /* ... */ }
 
 // Inside game.Loop.Update(dt):
 sm.SetFloat("move.x", vx)

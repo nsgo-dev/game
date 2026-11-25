@@ -11,27 +11,15 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec color tokens from docs/design/editor/Spec.dc.html and docs/design/editor/Animation.dc.html.
+// Additional Spec color tokens for docs/design/editor/Animation.dc.html (shared specPanel/specRaised/etc. live in profiler_ui.go).
 var (
-	specBG            = core.RGBA(0x101216, 1)
-	specPanel         = core.RGBA(0x12141A, 1)
-	specRaised        = core.RGBA(0x171A21, 1)
-	specActiveNode    = core.RGBA(0x1A2030, 1)
-	specViewportBG    = core.RGBA(0x15181D, 1)
-	specViewportDot   = core.RGBA(0x2A2F38, 1)
-	specLine          = core.RGBA(0x1F232A, 1)
-	specLineRaised    = core.RGBA(0x262B35, 1)
-	specEdgeLine      = core.RGBA(0x4A5262, 1)
-	specTextStrong    = core.RGBA(0xFFFFFF, 1)
-	specText          = core.RGBA(0xD9DDE5, 1)
-	specTextSecondary = core.RGBA(0xB4BAC6, 1)
-	specTextMuted     = core.RGBA(0x8B92A0, 1)
-	specAccent        = core.RGBA(0x3B7BFF, 1)
-	specAccentText    = core.RGBA(0xB9CFFF, 1)
-	specAdded         = core.RGBA(0x4FD38A, 1)
-	specChanged       = core.RGBA(0xE9A84A, 1)
-	specProblem       = core.RGBA(0xFF6B6B, 1)
-	specFloorFill     = core.RGBA(0x2A2F3A, 1)
+	specBG          = core.RGBA(0x101216, 1)
+	specActiveNode  = core.RGBA(0x1A2030, 1)
+	specViewportBG  = core.RGBA(0x15181D, 1)
+	specViewportDot = core.RGBA(0x2A2F38, 1)
+	specEdgeLine    = core.RGBA(0x4A5262, 1)
+	specAccentText  = core.RGBA(0xB9CFFF, 1)
+	specFloorFill   = core.RGBA(0x2A2F3A, 1)
 )
 
 const (
@@ -142,7 +130,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
-							return ed.StatesDriveWithKeys()
+							return ed.StatesDriveWithKeys() && !ed.Playing()
 						},
 						Then: func(cx *core.Scope) core.Node {
 							return ui.HStack{
@@ -152,6 +140,9 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 										_ = rev.Get()
 										return ed.StatesActionHeld("move_right") || ed.StatesActionHeld("move_left")
 									}, func() {
+										if ed.Playing() {
+											return
+										}
 										if ed.StatesActionHeld("move_right") {
 											ed.ReleaseStatesAction("move_right")
 										} else {
@@ -159,15 +150,27 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 										}
 									}),
 									driveKeyPill("states-key-jump", "Space", "Space: jump", func() bool { return false }, func() {
+										if ed.Playing() {
+											return
+										}
 										ed.TriggerStatesAction("jump")
 									}),
 									driveKeyPill("states-key-attack", "J", "J: attack", func() bool { return false }, func() {
+										if ed.Playing() {
+											return
+										}
 										ed.TriggerStatesAction("attack")
 									}),
 									driveKeyPill("states-key-hurt", "H", "H: hurt", func() bool { return false }, func() {
+										if ed.Playing() {
+											return
+										}
 										ed.TriggerStatesAction("hurt")
 									}),
 									driveKeyPill("states-key-release", "Release", "Release all keys: idle", func() bool { return false }, func() {
+										if ed.Playing() {
+											return
+										}
 										ed.ReleaseAllStatesActions()
 									}),
 								},
@@ -180,18 +183,29 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Role:   core.RoleSwitch,
 						Label:  "Drive with keys",
 						OnPress: func(core.PressEvent) {
+							if ed.Playing() {
+								return
+							}
 							ed.SetStatesDriveWithKeys(!ed.StatesDriveWithKeys())
 						},
-						Style: core.Style{
-							Height:       core.Pt(28),
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          8,
-							Padding:      core.Edges{Left: 6, Right: 10},
-							CornerRadius: 8,
-							Background:   specRaised,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							var op core.Opacity
+							if ed.Playing() {
+								op = core.Alpha(0.45)
+							}
+							return core.Style{
+								Height:       core.Pt(28),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+								Padding:      core.Edges{Left: 6, Right: 10},
+								CornerRadius: 8,
+								Background:   specRaised,
+								BorderWidth:  1,
+								BorderColor:  specLineRaised,
+								Opacity:      op,
+							}
 						},
 						Children: []core.Node{
 							core.View{
@@ -242,17 +256,26 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							return "Pause"
 						}
 						return "Play"
-					}, true, func() {
+					}, true, func() bool {
+						_ = rev.Get()
+						return ed.Playing()
+					}, func() {
 						if ed.StatesPlaying() {
 							ed.PauseStates()
 							return
 						}
 						ed.report(ed.PlayStates())
 					}),
-					specButton("states-save", func() string { return "Save" }, false, func() {
+					specButton("states-save", func() string { return "Save" }, false, func() bool {
+						_ = rev.Get()
+						return ed.Playing()
+					}, func() {
 						ed.report(ed.saveStatesFromPanel())
 					}),
-					specButton("states-close", func() string { return "Close" }, false, func() {
+					specButton("states-close", func() string { return "Close" }, false, func() bool {
+						_ = rev.Get()
+						return ed.Playing()
+					}, func() {
 						ed.report(ed.CloseStates())
 					}),
 				},
@@ -392,7 +415,7 @@ func driveKeyPill(testID, text, label string, active func() bool, onPress func()
 	}
 }
 
-func specButton(testID string, textFunc func() string, primary bool, onPress func()) core.Node {
+func specButton(testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
 	bg := specLineRaised
 	fg := specText
 	weight := core.FontWeight(500)
@@ -402,16 +425,28 @@ func specButton(testID string, textFunc func() string, primary bool, onPress fun
 		weight = 600
 	}
 	return core.View{
-		TestID:  testID,
-		Role:    core.RoleButton,
-		OnPress: func(core.PressEvent) { onPress() },
-		Style: core.Style{
-			Height:         core.Pt(28),
-			Padding:        core.Symmetric(0, 12),
-			CornerRadius:   8,
-			AlignItems:     core.AlignCenter,
-			JustifyContent: core.JustifyCenter,
-			Background:     bg,
+		TestID: testID,
+		Role:   core.RoleButton,
+		OnPress: func(core.PressEvent) {
+			if disabled != nil && disabled() {
+				return
+			}
+			onPress()
+		},
+		StyleFunc: func() core.Style {
+			var op core.Opacity
+			if disabled != nil && disabled() {
+				op = core.Alpha(0.45)
+			}
+			return core.Style{
+				Height:         core.Pt(28),
+				Padding:        core.Symmetric(0, 12),
+				CornerRadius:   8,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				Background:     bg,
+				Opacity:        op,
+			}
 		},
 		Children: []core.Node{
 			core.Text{

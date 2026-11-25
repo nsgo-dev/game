@@ -256,6 +256,9 @@ func SimulateStateMachine(doc *StateMachineDoc, clips ClipResolver, reg *scenefo
 	}
 
 	dt := time.Second / time.Duration(rate)
+	if dt <= 0 {
+		dt = 1
+	}
 	steps := int(math.Round(dur.Seconds() * float64(rate)))
 	if steps < 1 {
 		steps = 1

@@ -102,12 +102,12 @@ components:
 
 ```go
 lib := resource.NewLibrary(os.DirFS("."))
-sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates(os.DirFS(".")), lib, components)
+sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates{FS: os.DirFS(".")}, lib, components)
 if err != nil {
 	return err
 }
 sm.OnTransition = func(from, to string) { /* ... */ }
-sm.OnEvent = func(name string) { /* ... */ }
+sm.OnEvent = func(state, event string) { /* ... */ }
 
 // 在 game.Loop.Update(dt) 中：
 sm.SetFloat("move.x", vx)

@@ -302,4 +302,64 @@ transitions:
 			t.Fatalf("Summary = %q", report.Summary())
 		}
 	})
+
+	t.Run("whitespace-only when and non-ASCII parameter names refused consistently", func(t *testing.T) {
+		wsWhen := `version: 1
+entry: idle
+states:
+  - name: idle
+    clip: anim/knight_idle.animation.yaml
+  - name: run
+    clip: anim/knight_run.animation.yaml
+transitions:
+  - from: idle
+    to: run
+    when: "   "
+    onEnd: true
+`
+		if _, err := animclip.ParseStateMachine([]byte(wsWhen)); err == nil {
+			t.Fatal("expected whitespace-only when to be refused")
+		}
+
+		nonASCII := `version: 1
+entry: idle
+parameters:
+  - name: 速度
+    type: float
+states:
+  - name: idle
+    clip: anim/knight_idle.animation.yaml
+`
+		if _, err := animclip.ParseStateMachine([]byte(nonASCII)); err == nil {
+			t.Fatal("expected non-ASCII parameter name to be refused")
+		}
+	})
+
+	t.Run("huge speed multiplier clamps without duration overflow", func(t *testing.T) {
+		raw := `version: 1
+entry: attack
+states:
+  - name: attack
+    clip: anim/knight_attack.animation.yaml
+  - name: idle
+    clip: anim/knight_idle.animation.yaml
+transitions:
+  - from: attack
+    to: idle
+    onEnd: true
+`
+		doc, err := animclip.ParseStateMachine([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sm, err := animclip.NewStateMachine(doc, knightTestClips(t), nil, animclip.NoopBinder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sm.SetSpeed(1e18)
+		sm.Update(16 * time.Millisecond)
+		if got := sm.State(); got != "idle" {
+			t.Fatalf("State after clamped huge speed step = %q, want idle", got)
+		}
+	})
 }

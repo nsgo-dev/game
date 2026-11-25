@@ -42,10 +42,13 @@ type StatesOutgoing struct {
 	FromAny bool
 }
 
+const maxStatesTrace = 512
+
 type statesEditorState struct {
 	doc      *animclip.StateMachineDoc
 	meta     statesMeta
 	saved    []byte
+	dirty    bool
 	selected string
 
 	playing   bool
@@ -80,11 +83,18 @@ func (e *Editor) StatesError() error { return e.states.err }
 
 // StatesDirty reports whether the open state machine differs from its last opened or saved YAML bytes.
 func (e *Editor) StatesDirty() bool {
+	return e != nil && e.states.doc != nil && e.states.dirty
+}
+
+func (e *Editor) updateStatesDirty() {
 	if e == nil || e.states.doc == nil {
-		return false
+		if e != nil {
+			e.states.dirty = false
+		}
+		return
 	}
 	data, err := animclip.EncodeStateMachine(e.states.doc)
-	return err != nil || !bytes.Equal(data, e.states.saved)
+	e.states.dirty = err != nil || !bytes.Equal(data, e.states.saved)
 }
 
 // SelectedStatesNode returns the currently selected (or active preview) state name in the graph.
@@ -229,6 +239,9 @@ func (e *Editor) StatesDriveWithKeys() bool { return e != nil && e.states.driveK
 // SetStatesDriveWithKeys enables or disables Drive with keys in the state machine preview.
 func (e *Editor) SetStatesDriveWithKeys(on bool) {
 	if e == nil || e.states.driveKeys == on {
+		return
+	}
+	if on && e.playing {
 		return
 	}
 	e.states.driveKeys = on
@@ -378,6 +391,9 @@ func (e *Editor) SaveStatesYAML() ([]byte, error) {
 
 // SaveStatesFile writes the open state machine atomically to path and updates StatesPath.
 func (e *Editor) SaveStatesFile(path string) error {
+	if e.playing {
+		return ErrPlaying
+	}
 	data, err := e.SaveStatesYAML()
 	if err != nil {
 		return err
@@ -387,6 +403,7 @@ func (e *Editor) SaveStatesFile(path string) error {
 	}
 	e.states.meta.path = path
 	e.states.saved = data
+	e.states.dirty = false
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = "Saved state machine " + path
@@ -396,6 +413,9 @@ func (e *Editor) SaveStatesFile(path string) error {
 }
 
 func (e *Editor) saveStatesFromPanel() error {
+	if e.playing {
+		return ErrPlaying
+	}
 	if e.OnSaveStates != nil {
 		data, err := e.SaveStatesYAML()
 		if err != nil {
@@ -405,6 +425,7 @@ func (e *Editor) saveStatesFromPanel() error {
 			return err
 		}
 		e.states.saved = data
+		e.states.dirty = false
 		e.Status = "Saved state machine"
 		e.notify()
 		return nil
@@ -648,7 +669,7 @@ func (e *Editor) StepStates(dt time.Duration) {
 
 // PressStatesAction holds a named input action (such as "move_left", "move_right", "jump", "attack", "hurt") while Drive with keys is enabled.
 func (e *Editor) PressStatesAction(action string) {
-	if e == nil || e.states.doc == nil {
+	if e == nil || e.playing || e.states.doc == nil {
 		return
 	}
 	e.ensureStatesInput()
@@ -672,7 +693,7 @@ func (e *Editor) ReleaseStatesAction(action string) {
 
 // TriggerStatesAction pulses a one-shot action (such as "jump", "attack", "hurt") for the next fixed step.
 func (e *Editor) TriggerStatesAction(action string) {
-	if e == nil || e.states.doc == nil {
+	if e == nil || e.playing || e.states.doc == nil {
 		return
 	}
 	e.ensureStatesInput()
@@ -707,27 +728,43 @@ func (e *Editor) StatesActionHeld(action string) bool {
 }
 
 // StatesHandleKeyEvent forwards a hardware key event to the Drive with keys input actions when active.
+// It ignores events during Play mode, never swallows modifier shortcuts (Cmd/Ctrl/Alt) or unbound keys, and treats Escape as releasing keys and exiting Drive with keys.
 func (e *Editor) StatesHandleKeyEvent(ev core.KeyEvent, down bool) bool {
-	if e == nil || e.states.doc == nil || !e.states.driveKeys {
+	if e == nil || e.playing || e.states.doc == nil || !e.states.driveKeys {
+		return false
+	}
+	if ev.Modifiers.Platform || ev.Modifiers.Control || ev.Modifiers.Alt {
 		return false
 	}
 	e.ensureStatesInput()
 	key := strings.ToLower(strings.TrimSpace(ev.Key))
-	if key == "" {
+	if key == "" && strings.TrimSpace(ev.Code) == "" {
 		return false
 	}
+	if key == "escape" || key == "esc" {
+		if down {
+			e.SetStatesDriveWithKeys(false)
+		}
+		return true
+	}
+	norm := ev
+	norm.Key = key
 	if down {
-		e.states.actions.OnKeyDown(ev)
+		if !e.states.actions.OnKeyDown(norm) {
+			return false
+		}
 		if action, ok := defaultDriveKeyAction(key); ok {
 			e.states.heldKeys[action] = true
+			e.notify()
 		}
-	} else {
-		e.states.actions.OnKeyUp(ev)
-		if action, ok := defaultDriveKeyAction(key); ok {
-			delete(e.states.heldKeys, action)
-		}
+		return true
 	}
-	return true
+	e.states.actions.OnKeyUp(norm)
+	if action, ok := defaultDriveKeyAction(key); ok {
+		delete(e.states.heldKeys, action)
+		e.notify()
+	}
+	return false
 }
 
 func defaultDriveKeyAction(key string) (string, bool) {
@@ -758,13 +795,13 @@ func (e *Editor) ensureStatesInput() {
 			return len(a.Bindings(name)) > 0
 		}
 		if !hasAny("move_left") && !hasAny("left") {
-			a.Bind("move_left", input.Key("arrowleft"), input.Key("a"))
+			a.Bind("move_left", input.Key("left"), input.Key("arrowleft"), input.Key("a"), input.KeyCode("ArrowLeft"))
 		}
 		if !hasAny("move_right") && !hasAny("right") {
-			a.Bind("move_right", input.Key("arrowright"), input.Key("d"))
+			a.Bind("move_right", input.Key("right"), input.Key("arrowright"), input.Key("d"), input.KeyCode("ArrowRight"))
 		}
 		if !hasAny("jump") {
-			a.Bind("jump", input.Key("space"), input.Key(" "))
+			a.Bind("jump", input.Key("space"), input.Key(" "), input.KeyCode("Space"))
 		}
 		if !hasAny("attack") {
 			a.Bind("attack", input.Key("j"))
@@ -867,7 +904,12 @@ func (e *Editor) refreshStatesPreview() {
 	}
 	e.states.trace = []string{sm.State()}
 	sm.OnTransition = func(_, to string) {
-		e.states.trace = append(e.states.trace, to)
+		if len(e.states.trace) >= maxStatesTrace {
+			copy(e.states.trace, e.states.trace[1:])
+			e.states.trace[len(e.states.trace)-1] = to
+		} else {
+			e.states.trace = append(e.states.trace, to)
+		}
 		e.states.selected = to
 	}
 	sm.OnEvent = func(st, ev string) {
@@ -926,5 +968,6 @@ func (c *statesCmd) apply(doc *animclip.StateMachineDoc, meta *statesMeta, saved
 			e.states.selected = ""
 		}
 	}
+	e.updateStatesDirty()
 	e.Status = c.label
 }

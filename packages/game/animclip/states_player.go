@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"maps"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/resource"
@@ -168,9 +169,9 @@ func NewStateMachine(doc *StateMachineDoc, clips ClipResolver, reg *sceneformat.
 	sm.transitions = make([]compiledTransition, len(cloned.Transitions))
 	for i, tr := range cloned.Transitions {
 		var cond *Condition
-		if tr.When != "" {
+		if when := strings.TrimSpace(tr.When); when != "" {
 			var err error
-			cond, err = CompileCondition(tr.When, paramTypes)
+			cond, err = CompileCondition(when, paramTypes)
 			if err != nil {
 				return nil, fmt.Errorf("animclip: transition %d (%s -> %s): %w", i, tr.From, tr.To, err)
 			}
@@ -436,7 +437,13 @@ func (sm *StateMachine) Update(dt time.Duration) {
 		return
 	}
 
-	scaled := time.Duration(math.Round(float64(dt) * cs.speed * sm.speedMult))
+	var scaled time.Duration
+	scaledF := math.Round(float64(dt) * cs.speed * sm.speedMult)
+	if scaledF >= float64(math.MaxInt64) {
+		scaled = time.Duration(math.MaxInt64)
+	} else if scaledF > 0 {
+		scaled = time.Duration(scaledF)
+	}
 	if scaled > 0 {
 		cs.player.Update(scaled)
 	}
