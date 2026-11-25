@@ -2,6 +2,7 @@ package melee_test
 
 import (
 	"hash/fnv"
+	"math"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -92,6 +93,9 @@ func TestMeleeSizesAreClamped(t *testing.T) {
 			}
 			if !slices.Equal(at(-10), at(1)) {
 				t.Errorf("%s=-10 does not render as %s=1", tc.option, tc.option)
+			}
+			if !slices.Equal(at(math.NaN()), at(1)) {
+				t.Errorf("%s=NaN does not render as %s=1", tc.option, tc.option)
 			}
 			if !slices.Equal(at(1e9), at(416)) {
 				t.Errorf("%s=1e9 does not render as %s=416", tc.option, tc.option)

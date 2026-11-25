@@ -371,9 +371,13 @@ func newSim(seed float64, sparks []uint32) (*pixelfx.Rng, *pixelfx.Particles, *p
 // maxSize is the largest a melee effect's own size option (sword-slash's and spin-slash's radius, thrust's reach, whip-crack's length) is taken to be, in px: twice the widest melee frame (208 px), so a larger size only moves the shape further outside the frame while its per-pixel loops keep growing.
 const maxSize = 416
 
-// sizeOf returns o's size option called name, kept between 1 and maxSize px. pixelfx takes the value as given, but below 1 its shapes have no points (whip-crack then reads the tip of an empty path) or step backwards forever (sword-slash's dotted trace), and far above maxSize those loops take as long as a hang; every default lies inside, so the reference frames are unchanged.
+// sizeOf returns o's size option called name, kept between 1 and maxSize px. pixelfx takes the value as given, but below 1 (or NaN) its shapes have no points (whip-crack then reads the tip of an empty path) or step backwards forever (sword-slash's dotted trace), and far above maxSize those loops take as long as a hang; every default lies inside, so the reference frames are unchanged.
 func sizeOf(o *pixelfx.Options, name string) float64 {
-	return math.Min(maxSize, math.Max(1, o.Num(name)))
+	x := o.Num(name)
+	if !(x >= 1) {
+		return 1
+	}
+	return math.Min(maxSize, x)
 }
 
 // either returns a when c holds, else b: pixelfx's c ? a : b, as a call so that random draws in an argument list stay in pixelfx's order.
