@@ -5,7 +5,6 @@ import (
 	"compress/flate"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -72,6 +71,10 @@ func (r *xmlReader) syntaxErrAt(off int, msg string, truncated bool) error {
 		Problem: "invalid XML: " + msg,
 		Fix:     fix,
 	}
+}
+
+func (r *xmlReader) syntaxErrMsg(off int, truncated bool, prefix, name, suffix string) error {
+	return r.syntaxErrAt(off, prefix+name+suffix, truncated)
 }
 
 func (r *xmlReader) skip() error {
@@ -178,15 +181,15 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 				return nil, 0, 0, r.syntaxErrAt(start, "unexpected EOF in closing tag", true)
 			}
 			if r.data[r.off] != '>' {
-				return nil, 0, 0, r.syntaxErrAt(r.off, fmt.Sprintf("expected '>' to close </%s>", name), false)
+				return nil, 0, 0, r.syntaxErrMsg(r.off, false, "expected '>' to close </", name, ">")
 			}
 			r.off++
 			if len(r.stack) == 0 {
-				return nil, 0, 0, r.syntaxErrAt(start, fmt.Sprintf("unexpected closing tag </%s>", name), false)
+				return nil, 0, 0, r.syntaxErrMsg(start, false, "unexpected closing tag </", name, ">")
 			}
 			open := r.stack[len(r.stack)-1]
 			if open != name {
-				return nil, 0, 0, r.syntaxErrAt(start, fmt.Sprintf("element <%s> closed by </%s>", open, name), false)
+				return nil, 0, 0, r.syntaxErrMsg(start, false, "element <"+open+"> closed by </", name, ">")
 			}
 			r.stack = r.stack[:len(r.stack)-1]
 			line, col := r.pos.at(start)
@@ -204,7 +207,7 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 			for {
 				wsBefore := r.skipWS()
 				if r.off >= len(r.data) {
-					return nil, 0, 0, r.syntaxErrAt(start, fmt.Sprintf("unexpected EOF in <%s>", name), true)
+					return nil, 0, 0, r.syntaxErrMsg(start, true, "unexpected EOF in <", name, ">")
 				}
 				b := r.data[r.off]
 				if b == '>' {
@@ -213,7 +216,7 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 				}
 				if b == '/' {
 					if r.off+1 >= len(r.data) {
-						return nil, 0, 0, r.syntaxErrAt(start, fmt.Sprintf("unexpected EOF in <%s/>", name), true)
+						return nil, 0, 0, r.syntaxErrMsg(start, true, "unexpected EOF in <", name, "/>")
 					}
 					if r.data[r.off+1] != '>' {
 						return nil, 0, 0, r.syntaxErrAt(r.off, "expected '>' after '/'", false)
@@ -223,7 +226,7 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 					break
 				}
 				if !wsBefore {
-					return nil, 0, 0, r.syntaxErrAt(r.off, fmt.Sprintf("expected whitespace before attribute in <%s>", name), false)
+					return nil, 0, 0, r.syntaxErrMsg(r.off, false, "expected whitespace before attribute in <", name, ">")
 				}
 				attrName, err := r.scanName()
 				if err != nil {
@@ -231,26 +234,26 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 				}
 				r.skipWS()
 				if r.off >= len(r.data) || r.data[r.off] != '=' {
-					return nil, 0, 0, r.syntaxErrAt(r.off, fmt.Sprintf("expected '=' after attribute %q", attrName), r.off >= len(r.data))
+					return nil, 0, 0, r.syntaxErrMsg(r.off, r.off >= len(r.data), "expected '=' after attribute ", attrName, "")
 				}
 				r.off++
 				r.skipWS()
 				if r.off >= len(r.data) {
-					return nil, 0, 0, r.syntaxErrAt(r.off, fmt.Sprintf("unexpected EOF reading attribute %q", attrName), true)
+					return nil, 0, 0, r.syntaxErrMsg(r.off, true, "unexpected EOF reading attribute ", attrName, "")
 				}
 				quote := r.data[r.off]
 				if quote != '"' && quote != '\'' {
-					return nil, 0, 0, r.syntaxErrAt(r.off, fmt.Sprintf("attribute %q value must be quoted", attrName), false)
+					return nil, 0, 0, r.syntaxErrMsg(r.off, false, "attribute ", attrName, " value must be quoted")
 				}
 				r.off++
 				valStart := r.off
 				closeIdx := bytes.IndexByte(r.data[valStart:], quote)
 				if closeIdx < 0 {
-					return nil, 0, 0, r.syntaxErrAt(valStart, fmt.Sprintf("unterminated attribute %q", attrName), true)
+					return nil, 0, 0, r.syntaxErrMsg(valStart, true, "unterminated attribute ", attrName, "")
 				}
 				rawVal := r.data[valStart : valStart+closeIdx]
 				if bytes.IndexByte(rawVal, '<') >= 0 {
-					return nil, 0, 0, r.syntaxErrAt(valStart, fmt.Sprintf("unescaped '<' in attribute %q", attrName), false)
+					return nil, 0, 0, r.syntaxErrMsg(valStart, false, "unescaped '<' in attribute ", attrName, "")
 				}
 				val, err := unescapeXML(rawVal, valStart, r)
 				if err != nil {
@@ -271,7 +274,7 @@ func (r *xmlReader) nextToken() (any, int, int, error) {
 				r.pendingCol = col
 			} else {
 				if len(r.stack) >= maxXMLStackDepth {
-					return nil, 0, 0, r.syntaxErrAt(start, fmt.Sprintf("XML nesting depth exceeds %d", maxXMLStackDepth), false)
+					return nil, 0, 0, r.syntaxErrAt(start, "XML nesting depth exceeds 512", false)
 				}
 				r.stack = append(r.stack, name)
 			}
@@ -426,11 +429,11 @@ func unescapeXML(raw []byte, baseOff int, r *xmlReader) ([]byte, error) {
 					code, err = strconv.ParseUint(ent[1:], 10, 32)
 				}
 				if err != nil || code == 0 || code > utf8.MaxRune || !utf8.ValidRune(rune(code)) {
-					return nil, r.syntaxErrAt(baseOff+i, fmt.Sprintf("invalid numeric character reference &%s;", ent), false)
+					return nil, r.syntaxErrMsg(baseOff+i, false, "invalid numeric character reference &", ent, ";")
 				}
 				out = utf8.AppendRune(out, rune(code))
 			} else {
-				return nil, r.syntaxErrAt(baseOff+i, fmt.Sprintf("unknown XML entity &%s;", ent), false)
+				return nil, r.syntaxErrMsg(baseOff+i, false, "unknown XML entity &", ent, ";")
 			}
 		}
 		i += 1 + semi
