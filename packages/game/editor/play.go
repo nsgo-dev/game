@@ -224,6 +224,10 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelHUDTouchDrag()
 	e.hud.open = false
 	e.playtest.open = false
+	if e.usages.open {
+		e.usages.open = false
+		e.usages.rev++
+	}
 	e.cancelBackgroundPreview()
 	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap

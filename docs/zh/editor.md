@@ -1105,6 +1105,15 @@ func main() {
 - **校验与合并提交（`FinishMerge`）**：以规范的 `sceneformat.Encode` 写出解决后的场景，运行 `game check`（`runProjectCheck` 或 `Editor.MergeCheckRunner`）以及 10 秒确定性短试玩（`sceneformat.Build` + `Update` + `PhysicsScene.Step` 或 `Editor.MergePlaytestRunner`）；任一检查失败都会阻止提交并展示错误，全部通过后执行 `git add` 与 `git commit --no-edit` 生成真正的合并提交，显示 `Merged as <sha>` 并将解决后的场景重新载入编辑器。
 - **MCP 工具（`editormcp`）**：提供 `merge_status`、`merge_resolve`、`merge_finish` 和 `merge_abort`，供编程代理检查冲突对象、补充或更新建议与理由、选择方案或提交自定义 YAML，以及完成或中止合并。
 
+## 查找用法与安全重命名（#1041）
+
+按下 `Shift+F12`（`CmdFindUsages`）、从菜单栏或命令面板执行 **Project > 查找用法**、在文件浏览器右键文件（**查找用法** / **安全重命名…**）、在场景树右键实例化场景或预制体对象（**查找用法**），或调用 `OpenUsagesScreen(path)`，即可打开全窗口的**查找用法与安全重命名**界面（`ReferencesScreenView`，严格采用 `docs/design/editor/Spec.dc.html` 令牌并对应 `References.dc.html`）：
+
+- **分组用法列表（`FindUsages`）**：顶部栏显示返回编辑器按钮（`Esc`）、`"Usages of <file>"` 与 `"N usages in M files"`，左侧按 **SCENES**（每个场景实例的坐标与覆盖数）、**PREFAB VARIANTS**（`inherits:` 继承目标的文件）、**DATA TABLES**（引用该路径的数据表行）与 **GO CODE**（通过 `go/parser` + `go/ast` 解析项目 `*.go` 文件找到的字符串常量/字面量，标注 `not rewritten`）四类分组。支持 `↑`/`↓` 遍历用法、点击场景卡片在缩略图网格上聚焦该场景实例，以及按 `Enter` 打开场景并选中、聚焦对应对象。
+- **安全重命名预览与审查（`PreviewSafeRename` / `StartSafeRename` / `SetSafeRenameInput`）**：点击 **Rename…**（`F2`）后在固定的目录前缀与复合后缀之间显示 **NEW NAME** 输入框，按 `game mv` / `MoveFile` 路径规则实时校验（非空、合法相对路径、目标空闲），在不写入任何磁盘文件的前提下计算干跑计划。审查界面展示被移动的文件（`"content unchanged"`）、每个会被改写的 YAML 文件精确的 `−`（旧行）与 `+`（新行）差异并显示实例覆盖保持不变，同时将未改写的 Go 引用列为问题（`"<file> loads the old path and is not rewritten"`），提供 **Ask the agent to update it**（`AskAgentToUpdateUsage`，触发 `Editor.OnAskAgentUpdateRef`）与 **Open `<file>`**（`Editor.OnOpenSourceFile`）。
+- **单步保留与撤销（`ApplySafeRename` / `UndoSafeRename`）**：点击 **Keep · Rename N files**（`Mod+Enter`）仅通过 `MoveFile` 改写 YAML 并记录为 `Editor.History` 中的单个撤销步骤，完成后提供 **Undo · ⌘Z** 与 **Back to `<scene>`**。一次撤销即可按字节还原磁盘上全部移动与改写的文件以及所有打开的场景标签页。
+- **MCP 工具（`editormcp`）**：`refs_find` 返回跨场景、预制体变体、数据表与 Go 代码的分组用法（并可选择打开界面），`refactor_rename` 在编辑器中准备同样的安全重命名审查及精确行差异与 Go 未改写警告，除非显式传入 `apply: true`，否则在用户确认保留前不会改写磁盘文件。
+
 ## 材质编辑器（#896）
 
 在编辑器中直接为对象指定并编辑共享的 `*.material.yaml` 材质资源文件（见 [resource](resources.md)），支持实时预览与完整的撤销/重做：

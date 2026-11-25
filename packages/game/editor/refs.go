@@ -221,7 +221,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.baseLayers = baseLayerCache{}
 	e.rebuildAllInactiveTabs()
 	moveFile(&e.clipMeta.path)
-	e.followDataTableMove(moveFile)
+	e.followDataTableMove(moveFile, movePath, written)
 	e.followGridMapMove(moveFile, movePath)
 	e.followParticlesMove(moveFile)
 	e.followRigMove(moveFile)
@@ -230,6 +230,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.assetsRev++
 	e.refreshDiskSnapshotsAfterMove()
 	e.followSearchMove(forth)
+	e.followUsagesMove(from, to)
 	e.Status = "Moved " + from + " to " + to
 	e.CheckProblems()
 }
@@ -280,21 +281,26 @@ func moveProjectPaths(f *project.File, move func(*string)) {
 	f.EachPath(func(_ string, p *string) { move(p) })
 }
 
-// moveScenePaths applies move to every file path doc holds: the scene it inherits, its navigation mesh file, tilemap sources, and the scenes, materials and models of objects and the materials and models of overrides.
+// moveScenePaths applies move to every file path doc holds: the scene it inherits, its navigation mesh file, environment sky HDR, tilemap sources and tileset files, and the scenes, prefabs, materials, models, grid maps, particles, reflection probes, light probe grids, and skeletal rigs of objects and overrides.
 func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 	if doc == nil {
 		return
 	}
 	move(&doc.Inherits)
 	move(&doc.NavMesh)
+	if doc.Environment != nil && doc.Environment.Sky != nil {
+		move(&doc.Environment.Sky.HDR)
+	}
 	for _, tm := range doc.Tilemaps {
 		if tm != nil {
 			move(&tm.Source)
+			move(&tm.TilesetFile)
 		}
 	}
 	for name, lo := range doc.LayerOverrides {
 		if lo.Tilemap != nil {
 			move(&lo.Tilemap.Source)
+			move(&lo.Tilemap.TilesetFile)
 			doc.LayerOverrides[name] = lo
 		}
 	}
@@ -303,14 +309,22 @@ func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 		l := &doc.Layers[i]
 		if l.Tilemap != nil {
 			move(&l.Tilemap.Source)
+			move(&l.Tilemap.TilesetFile)
 		}
 		sceneformat.WalkObjects(l.Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			move(&o.Prefab)
 			move(&o.Scene)
 			move(&o.Material)
 			move(&o.Model)
 			move(&o.GridMap)
 			if o.Particles != nil {
 				move(&o.Particles.File)
+			}
+			if o.ReflectionProbe != nil {
+				move(&o.ReflectionProbe.Cubemap)
+			}
+			if o.LightProbeGrid != nil {
+				move(&o.LightProbeGrid.Data)
 			}
 			moveSkeletalComponentPath(o.Components, move)
 			moveOverrides(o.Overrides, move)
@@ -331,10 +345,10 @@ func moveSkeletalComponentPath(comps map[string]any, move func(*string)) {
 	}
 }
 
-// moveOverrides applies move to the material, model, gridMap, and skeletal rig paths of every override in ovs.
+// moveOverrides applies move to the prefab, material, model, gridMap, particles, reflectionProbe, lightProbeGrid, and skeletal rig paths of every override in ovs.
 func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)) {
 	for id, ov := range ovs {
-		for _, p := range []**string{&ov.Material, &ov.Model, &ov.GridMap} {
+		for _, p := range []**string{&ov.Prefab, &ov.Material, &ov.Model, &ov.GridMap} {
 			if *p != nil {
 				v := **p
 				move(&v)
@@ -345,6 +359,16 @@ func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)
 			cp := *ov.Particles
 			move(&cp.File)
 			ov.Particles = &cp
+		}
+		if ov.ReflectionProbe != nil {
+			cp := ov.ReflectionProbe.Clone()
+			move(&cp.Cubemap)
+			ov.ReflectionProbe = cp
+		}
+		if ov.LightProbeGrid != nil {
+			cp := ov.LightProbeGrid.Clone()
+			move(&cp.Data)
+			ov.LightProbeGrid = cp
 		}
 		moveSkeletalComponentPath(ov.Components, move)
 		ovs[id] = ov

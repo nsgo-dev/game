@@ -224,6 +224,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
 		cmdItem(CmdMaterialEditor, e.T("menu.materialEditor"), false),
 		sep,
+		cmdItem(CmdFindUsages, e.T("menu.findUsages"), false),
 		cmdItem(CmdCheckProblems, e.T("menu.checkProblems"), false),
 		cmdItem(CmdPlaytestReport, e.T("menu.playtestReport"), false),
 		cmdItem(CmdMergeConflicts, e.T("menu.mergeConflicts"), false),
@@ -264,12 +265,14 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
 			e.MergeConflictOpen(),
 			e.PlaytestReportOpen(),
+			e.UsagesScreenOpen(),
+			e.SelectedFile,
 			e.Playing(),
 			e.canUndo(),
 			e.canRedo(),

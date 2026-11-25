@@ -92,6 +92,8 @@ func ExampleServer_AddTool() {
 	// merge_status read
 	// playtest_define edit
 	// playtest_report edit
+	// refactor_rename edit
+	// refs_find read
 	// scene_edit edit
 	// scene_name read
 	// scene_read read

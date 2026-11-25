@@ -140,7 +140,7 @@ func builtinTools() []Tool {
 			Action:      ActionEdit,
 			Handler:     tilesetEdit,
 		},
-	}, append(playtestTools(), mergeTools()...)...)
+	}, append(append(playtestTools(), mergeTools()...), refsTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.

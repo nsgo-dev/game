@@ -298,6 +298,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `cutscene_scrub` | read | `file`（可选）、`timeSeconds`（可选）、`view`（可选：`"before"` 或 `"after"`） | 按需打开 `file` 并将过场时间轴播放头拖动到 `timeSeconds`，返回该时刻的相机姿态与标签、角色位置与状态、当前激活的本地化字幕以及审查状态。 |
 | `tileset_read` | read | `file`（可选） | 读取当前打开的 YAML 图块集（`*.tileset.yaml`，或相对于项目根的 `file`，未指定时回退到当前图层的 `tilesetFile`），返回规范 YAML 及结构化的瓦片规则（碰撞标志、形状、动画、地形、名称、权重与自定义属性）。 |
 | `tileset_edit` | edit | `ops`（必填）、`file`、`save`（可选） | 按顺序把图块集操作（`set_tile` 设置 `name`/`solid`/`oneWay`/`flags`/`weight`/`shapes`/`animation`/`terrain`/`neighbors`，以及 `set_property`、`remove_property`、`add_terrain`、`remove_terrain`）作为一个原子撤销步骤应用到 YAML 图块集；除非传入 `save: true`，否则改动在保存前保持未保存状态。 |
+| `refs_find` | read | `file`、`open`（可选） | 按场景（含实例覆盖计数）、预制体变体（`inherits`）、数据表行与 Go 代码（经 `go/parser` 查找并标记 `notRewritten` 的字符串常量）分组返回预制体、场景或项目文件的全部引用，并可选择在编辑器中打开查找用法界面。 |
+| `refactor_rename` | edit | `from`、`to`（必填）、`apply`（可选） | 在编辑器中准备仅改写 YAML 的安全重命名审查，返回精确的 `-`/`+` 行差异与未改写 Go 代码警告，在用户点击 Keep 前不写盘（传入 `apply: true` 时通过 `MoveFile` 作为单个撤销步骤应用）。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

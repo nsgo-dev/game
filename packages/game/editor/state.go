@@ -354,6 +354,10 @@ type Editor struct {
 	OnSaveRooms func(data []byte) error
 	// OnSaveRig is invoked by the Rig Editor panel's Save Rig button with the encoded .skel.yaml bytes; when nil the button writes to RigPath.
 	OnSaveRig func(data []byte) error
+	// OnAskAgentUpdateRef, when set, is called when the author clicks "Ask the agent to update it" for a non-rewritten reference (such as a Go string constant) in the References / Safe Rename review.
+	OnAskAgentUpdateRef func(req SafeRenameAgentRequest) error
+	// OnOpenSourceFile, when set, is called when the author clicks "Open <file>" for a non-scene source file (such as a Go file) in the References screen.
+	OnOpenSourceFile func(file string, line int) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -679,6 +683,8 @@ type Editor struct {
 	customOverlays      []ViewportOverlay
 	overlaysPopoverOpen bool
 	drawOverlayOverride map[string]bool
+	// usages holds the full-window Find Usages and Safe Rename review screen state.
+	usages referencesScreenState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

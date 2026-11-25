@@ -672,16 +672,37 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		return loc.obj != nil && len(loc.obj.Children) > 0
 	}
 	var items []core.Node
-	if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Scene != "" {
-		items = append(items,
-			ui.MenuItem{
-				TestID:   "scene-tree-open-scene-" + id,
-				Text:     "Open Instanced Scene",
-				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
-				OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
-			},
-			ui.MenuSeparator{},
-		)
+	if obj := ed.lookupObject(id).loc.obj; obj != nil {
+		var usageTarget string
+		if obj.Scene != "" {
+			usageTarget = obj.Scene
+			items = append(items,
+				ui.MenuItem{
+					TestID:   "scene-tree-open-scene-" + id,
+					Text:     "Open Instanced Scene",
+					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+					OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
+				},
+			)
+		} else if obj.Prefab != "" && isPathLikePrefab(obj.Prefab) {
+			usageTarget = obj.Prefab
+		}
+		if usageTarget != "" {
+			targetPath := usageTarget
+			items = append(items,
+				ui.MenuItem{
+					TestID:   "scene-tree-find-usages-" + id,
+					Text:     ed.T("sceneTree.findUsages"),
+					Shortcut: "⇧F12",
+					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+					OnSelect: func() {
+						ed.SelectObject(id)
+						ed.report(ed.OpenUsagesScreen(targetPath))
+					},
+				},
+				ui.MenuSeparator{},
+			)
+		}
 	}
 	items = append(items,
 		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: ed.T("sceneTree.rename"), Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
