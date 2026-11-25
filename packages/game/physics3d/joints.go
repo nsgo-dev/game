@@ -20,6 +20,110 @@ type collideConnectedJoint interface {
 	collideConnected() bool
 }
 
+type breakableJoint interface {
+	checkBreak() (JointBreakEvent, bool)
+}
+
+// JointBreakEvent reports a joint that broke during World.Step because its
+// reaction force or torque exceeded its BreakForce or BreakTorque threshold.
+type JointBreakEvent struct {
+	Joint  Joint3D
+	BodyA  *Body
+	BodyB  *Body
+	Force  Vec3
+	Torque Vec3
+}
+
+// jointReaction tracks per-step accumulated constraint impulses and broken state
+// shared by all built-in Joint3D implementations.
+type jointReaction struct {
+	stepLinearImpulse  Vec3
+	stepAngularImpulse Vec3
+	lastDt             float32
+	broken             bool
+}
+
+func (r *jointReaction) resetStepReaction(dt float32) {
+	r.stepLinearImpulse = Vec3{}
+	r.stepAngularImpulse = Vec3{}
+	r.lastDt = dt
+}
+
+func (r *jointReaction) addLinearImpulse(imp Vec3) {
+	r.stepLinearImpulse = r.stepLinearImpulse.Add(imp)
+}
+
+func (r *jointReaction) addAngularImpulse(imp Vec3) {
+	r.stepAngularImpulse = r.stepAngularImpulse.Add(imp)
+}
+
+// ReactionForce returns the world-space constraint force (in Newtons) applied to
+// BodyB during the most recent World.Step.
+func (r *jointReaction) ReactionForce() Vec3 {
+	if r.lastDt <= 0 {
+		return Vec3{}
+	}
+	return r.stepLinearImpulse.Scale(1 / r.lastDt)
+}
+
+// ReactionTorque returns the world-space constraint torque (in N*m) applied to
+// BodyB during the most recent World.Step.
+func (r *jointReaction) ReactionTorque() Vec3 {
+	if r.lastDt <= 0 {
+		return Vec3{}
+	}
+	return r.stepAngularImpulse.Scale(1 / r.lastDt)
+}
+
+// Broken reports whether the joint has exceeded its break threshold and been removed.
+func (r *jointReaction) Broken() bool {
+	return r.broken
+}
+
+func (r *jointReaction) evalBreak(j Joint3D, breakForce, breakTorque float32) (JointBreakEvent, bool) {
+	if r.broken || r.lastDt <= 0 {
+		return JointBreakEvent{}, false
+	}
+	if breakForce <= 0 && breakTorque <= 0 {
+		return JointBreakEvent{}, false
+	}
+	force := r.ReactionForce()
+	torque := r.ReactionTorque()
+	exceeded := (breakForce > 0 && force.LenSq() > breakForce*breakForce) ||
+		(breakTorque > 0 && torque.LenSq() > breakTorque*breakTorque)
+	if !exceeded {
+		return JointBreakEvent{}, false
+	}
+	r.broken = true
+	a, b := j.Bodies()
+	return JointBreakEvent{
+		Joint:  j,
+		BodyA:  a,
+		BodyB:  b,
+		Force:  force,
+		Torque: torque,
+	}, true
+}
+
+// softSpringParams computes implicit Euler ERP/CFM (gamma, bias) parameters for
+// a 1D spring-damper with stiffness k >= 0, damping c >= 0, position error err,
+// and step duration dt > 0.
+func softSpringParams(stiffness, damping, err, dt float32) (gamma, bias float32, active bool) {
+	if dt <= 0 {
+		return 0, 0, false
+	}
+	k := max(stiffness, 0)
+	c := max(damping, 0)
+	denom := c + dt*k
+	if denom <= 1e-8 {
+		return 0, 0, false
+	}
+	gamma = 1 / (dt * denom)
+	beta := (dt * k) / denom
+	bias = beta * err / dt
+	return gamma, bias, true
+}
+
 // AddJoint registers j in w so it is solved during World.Step and returns j.
 func (w *World) AddJoint(j Joint3D) Joint3D {
 	if j == nil {
@@ -226,11 +330,11 @@ func applyAngularPositionCorrection(a, b *Body, axis Vec3, angle float32) {
 	}
 }
 
-func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) {
+func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) Vec3 {
 	_, rotA, velA, angA, invMA, invIA := bodyKinematics(a)
 	_, rotB, velB, angB, invMB, invIB := bodyKinematics(b)
 	if invMA+invMB+invIA+invIB == 0 {
-		return
+		return Vec3{}
 	}
 	rA := rotA.RotateVec(localAnchorA)
 	rB := rotB.RotateVec(localAnchorB)
@@ -240,6 +344,7 @@ func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) {
 	k := pointConstraintMassMatrix(invMA, invIA, rA, invMB, invIB, rB)
 	j := k.solve(vRel.Neg())
 	applyAnchorImpulse(a, b, rA, rB, j)
+	return j
 }
 
 func solvePointAnchorPosition(a, b *Body, localAnchorA, localAnchorB Vec3, stiffness float32) {
@@ -259,15 +364,17 @@ func solvePointAnchorPosition(a, b *Body, localAnchorA, localAnchorB Vec3, stiff
 	applyAnchorPositionCorrection(a, b, rA, rB, p)
 }
 
-func solveFullOrientationVelocity(a, b *Body) {
+func solveFullOrientationVelocity(a, b *Body) Vec3 {
 	_, _, _, angA, _, invIA := bodyKinematics(a)
 	_, _, _, angB, _, invIB := bodyKinematics(b)
 	invISum := invIA + invIB
 	if invISum <= 0 {
-		return
+		return Vec3{}
 	}
 	wRel := angB.Sub(angA)
-	applyAngularImpulsePair(a, b, wRel.Scale(-1/invISum))
+	imp := wRel.Scale(-1 / invISum)
+	applyAngularImpulsePair(a, b, imp)
+	return imp
 }
 
 func solveFullOrientationPosition(a, b *Body, refRelRot Quat, stiffness float32) {
@@ -297,8 +404,11 @@ type DistanceJoint struct {
 	MaxDistance      float32
 	Stiffness        float32 // 0 = rigid constraint; > 0 = soft spring stiffness
 	Damping          float32 // >= 0 damping coefficient
+	BreakForce       float32 // max reaction force in N before breaking (<= 0 disables)
+	BreakTorque      float32 // max reaction torque in N*m before breaking (<= 0 disables)
 	CollideConnected bool
 
+	jointReaction
 	accImpulse float32
 	mode       int // 0 = slack, 1 = locked, 2 = min limit, 3 = max limit
 	targetDist float32
@@ -327,6 +437,10 @@ func NewDistanceJoint(a, b *Body, localAnchorA, localAnchorB Vec3, minDist, maxD
 
 func (j *DistanceJoint) collideConnected() bool { return j.CollideConnected }
 
+func (j *DistanceJoint) checkBreak() (JointBreakEvent, bool) {
+	return j.evalBreak(j, j.BreakForce, j.BreakTorque)
+}
+
 // Bodies returns the connected bodies.
 func (j *DistanceJoint) Bodies() (*Body, *Body) { return j.BodyA, j.BodyB }
 
@@ -344,6 +458,7 @@ func (j *DistanceJoint) effectiveLimits() (float32, float32) {
 
 // Prepare computes the active distance mode and spring ERP/CFM parameters for dt.
 func (j *DistanceJoint) Prepare(dt float32) {
+	j.resetStepReaction(dt)
 	j.accImpulse = 0
 	j.mode = 0
 	j.gamma = 0
@@ -445,7 +560,9 @@ func (j *DistanceJoint) SolveVelocity(dt float32) {
 	applied := newAcc - j.accImpulse
 	j.accImpulse = newAcc
 	if applied != 0 {
-		applyAnchorImpulse(j.BodyA, j.BodyB, rA, rB, n.Scale(applied))
+		imp := n.Scale(applied)
+		applyAnchorImpulse(j.BodyA, j.BodyB, rA, rB, imp)
+		j.addLinearImpulse(imp)
 	}
 }
 
@@ -505,8 +622,11 @@ type BallJoint struct {
 	ConeLimit        float32 // maximum half-angle in radians (> 0 enables cone limit)
 	LocalAxisA       Vec3    // cone reference axis in A's local space (defaults to +Y)
 	LocalAxisB       Vec3    // bone/body axis in B's local space (defaults to +Y)
+	BreakForce       float32 // max reaction force in N before breaking (<= 0 disables)
+	BreakTorque      float32 // max reaction torque in N*m before breaking (<= 0 disables)
 	CollideConnected bool
 
+	jointReaction
 	swingImpulse float32
 }
 
@@ -523,6 +643,10 @@ func NewBallJoint(a, b *Body, localAnchorA, localAnchorB Vec3) *BallJoint {
 }
 
 func (j *BallJoint) collideConnected() bool { return j.CollideConnected }
+
+func (j *BallJoint) checkBreak() (JointBreakEvent, bool) {
+	return j.evalBreak(j, j.BreakForce, j.BreakTorque)
+}
 
 // Bodies returns the connected bodies.
 func (j *BallJoint) Bodies() (*Body, *Body) { return j.BodyA, j.BodyB }
@@ -541,14 +665,14 @@ func (j *BallJoint) localAxes() (Vec3, Vec3) {
 
 // Prepare resets per-step accumulated limit impulses.
 func (j *BallJoint) Prepare(dt float32) {
-	_ = dt
+	j.resetStepReaction(dt)
 	j.swingImpulse = 0
 }
 
 // SolveVelocity solves the 3D socket point constraint and optional cone swing limit.
 func (j *BallJoint) SolveVelocity(dt float32) {
 	_ = dt
-	solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB)
+	j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
 
 	if j.ConeLimit <= 0 {
 		return
@@ -583,7 +707,9 @@ func (j *BallJoint) SolveVelocity(dt float32) {
 	applied := newAcc - j.swingImpulse
 	j.swingImpulse = newAcc
 	if applied != 0 {
-		applyAngularImpulsePair(j.BodyA, j.BodyB, swingAxis.Scale(applied))
+		imp := swingAxis.Scale(applied)
+		applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+		j.addAngularImpulse(imp)
 	}
 }
 
@@ -617,7 +743,8 @@ func (j *BallJoint) SolvePosition(dt float32) {
 }
 
 // HingeJoint constrains two bodies to rotate around a single shared axis at an
-// anchor point, with optional angular limits and an optional angular motor.
+// anchor point, with optional angular limits, velocity motor, spring/position
+// drive, and break thresholds.
 type HingeJoint struct {
 	BodyA, BodyB     *Body
 	LocalAnchorA     Vec3
@@ -629,12 +756,23 @@ type HingeJoint struct {
 	MaxAngle         float32 // radians
 	MotorTargetVel   float32 // desired angular velocity around hinge axis (rad/s)
 	MotorMaxTorque   float32 // max motor torque (N*m); motor active when > 0
+	DriveTargetAngle float32 // target angle in radians for spring/position drive
+	DriveStiffness   float32 // spring stiffness in N*m/rad (> 0 enables position spring)
+	DriveDamping     float32 // angular damping in N*m*s/rad (>= 0)
+	DriveMaxTorque   float32 // max drive torque in N*m (<= 0 means unlimited)
+	BreakForce       float32 // max reaction force in N before breaking (<= 0 disables)
+	BreakTorque      float32 // max reaction torque in N*m before breaking (<= 0 disables)
 	CollideConnected bool
 
+	jointReaction
 	refInitialized bool
 	refPerpA       Vec3
 	refPerpB       Vec3
 	motorImpulse   float32
+	driveImpulse   float32
+	driveGamma     float32
+	driveBias      float32
+	driveActive    bool
 	limitImpulse   float32
 	limitState     int // 0 = none, -1 = below min, +1 = above max
 	// angle is the unwrapped hinge angle at the last Prepare, so Angle can continue past ±pi instead of jumping to the other end of the range (#546).
@@ -660,6 +798,10 @@ func NewHingeJoint(a, b *Body, localAnchorA, localAnchorB, localAxis Vec3) *Hing
 }
 
 func (j *HingeJoint) collideConnected() bool { return j.CollideConnected }
+
+func (j *HingeJoint) checkBreak() (JointBreakEvent, bool) {
+	return j.evalBreak(j, j.BreakForce, j.BreakTorque)
+}
 
 // Bodies returns the connected bodies.
 func (j *HingeJoint) Bodies() (*Body, *Body) { return j.BodyA, j.BodyB }
@@ -730,12 +872,16 @@ func (j *HingeJoint) rawAngle() float32 {
 	return float32(math.Atan2(float64(sinA), float64(cosA)))
 }
 
-// Prepare initializes the reference frame, wakes motorized bodies, and checks limits.
+// Prepare initializes the reference frame, wakes motorized or spring-driven bodies, and checks limits.
 func (j *HingeJoint) Prepare(dt float32) {
-	_ = dt
+	j.resetStepReaction(dt)
 	j.initReference()
 	j.angle = j.Angle()
 	j.motorImpulse = 0
+	j.driveImpulse = 0
+	j.driveGamma = 0
+	j.driveBias = 0
+	j.driveActive = false
 	j.limitImpulse = 0
 	j.limitState = 0
 
@@ -744,8 +890,21 @@ func (j *HingeJoint) Prepare(dt float32) {
 		wakeIfDynamic(j.BodyB)
 	}
 
+	if (j.DriveStiffness > 0 || j.DriveDamping > 0) && dt > 0 {
+		err := j.angle - j.DriveTargetAngle
+		if gamma, bias, ok := softSpringParams(j.DriveStiffness, j.DriveDamping, err, dt); ok {
+			j.driveGamma = gamma
+			j.driveBias = bias
+			j.driveActive = true
+			if j.DriveStiffness > 0 && abs32(err) > 1e-4 {
+				wakeIfDynamic(j.BodyA)
+				wakeIfDynamic(j.BodyB)
+			}
+		}
+	}
+
 	if j.EnableLimits && j.MinAngle <= j.MaxAngle {
-		ang := j.Angle()
+		ang := j.angle
 		if ang <= j.MinAngle+1e-4 {
 			j.limitState = -1
 		} else if ang >= j.MaxAngle-1e-4 {
@@ -754,9 +913,9 @@ func (j *HingeJoint) Prepare(dt float32) {
 	}
 }
 
-// SolveVelocity solves the hinge anchor, axis alignment, motor, and angular limits.
+// SolveVelocity solves the hinge anchor, axis alignment, motor, spring/position drive, and angular limits.
 func (j *HingeJoint) SolveVelocity(dt float32) {
-	solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB)
+	j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
 
 	_, rotA, _, angA, _, invIA := bodyKinematics(j.BodyA)
 	_, _, _, angB, _, invIB := bodyKinematics(j.BodyB)
@@ -772,9 +931,11 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 	// 1. Lock the 2 rotational DOFs perpendicular to the hinge axis.
 	wRel := angB.Sub(angA)
 	perpErr := t1.Scale(wRel.Dot(t1)).Add(t2.Scale(wRel.Dot(t2)))
-	applyAngularImpulsePair(j.BodyA, j.BodyB, perpErr.Scale(-1/invISum))
+	perpImp := perpErr.Scale(-1 / invISum)
+	applyAngularImpulsePair(j.BodyA, j.BodyB, perpImp)
+	j.addAngularImpulse(perpImp)
 
-	// 2. Angular motor around the hinge axis.
+	// 2. Angular velocity motor around the hinge axis.
 	if j.MotorMaxTorque > 0 && dt > 0 {
 		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
 		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
@@ -785,11 +946,33 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 		applied := newAcc - j.motorImpulse
 		j.motorImpulse = newAcc
 		if applied != 0 {
-			applyAngularImpulsePair(j.BodyA, j.BodyB, a1.Scale(applied))
+			imp := a1.Scale(applied)
+			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+			j.addAngularImpulse(imp)
 		}
 	}
 
-	// 3. Angular limits (solved after motor so limits always override motor torque).
+	// 2b. Angular spring / position drive around the hinge axis.
+	if j.driveActive && dt > 0 {
+		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
+		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+		wAxis := angB.Sub(angA).Dot(a1)
+		dLambda := -(wAxis + j.driveBias + j.driveGamma*j.driveImpulse) / (invISum + j.driveGamma)
+		newAcc := j.driveImpulse + dLambda
+		if j.DriveMaxTorque > 0 {
+			maxImp := j.DriveMaxTorque * dt
+			newAcc = clamp32(newAcc, -maxImp, maxImp)
+		}
+		applied := newAcc - j.driveImpulse
+		j.driveImpulse = newAcc
+		if applied != 0 {
+			imp := a1.Scale(applied)
+			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+			j.addAngularImpulse(imp)
+		}
+	}
+
+	// 3. Angular limits (solved after motor and drive so limits always override them).
 	if j.limitState != 0 {
 		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
 		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
@@ -810,7 +993,9 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 		applied := newAcc - j.limitImpulse
 		j.limitImpulse = newAcc
 		if applied != 0 {
-			applyAngularImpulsePair(j.BodyA, j.BodyB, a1.Scale(applied))
+			imp := a1.Scale(applied)
+			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+			j.addAngularImpulse(imp)
 		}
 	}
 }
@@ -852,7 +1037,8 @@ func (j *HingeJoint) SolvePosition(dt float32) {
 }
 
 // SliderJoint constrains two bodies to translate along a single shared axis
-// without relative rotation, with optional linear limits and linear motor.
+// without relative rotation, with optional linear limits, velocity motor,
+// spring/position drive, and break thresholds.
 type SliderJoint struct {
 	BodyA, BodyB     *Body
 	LocalAnchorA     Vec3
@@ -863,11 +1049,22 @@ type SliderJoint struct {
 	MaxTranslation   float32
 	MotorTargetVel   float32 // desired linear speed along slide axis (units/s)
 	MotorMaxForce    float32 // max linear motor force (N); active when > 0
+	DriveTargetPos   float32 // target translation along slide axis for spring/position drive
+	DriveStiffness   float32 // linear spring stiffness in N/m (> 0 enables position spring)
+	DriveDamping     float32 // linear damping in N*s/m (>= 0)
+	DriveMaxForce    float32 // max drive force in N (<= 0 means unlimited)
+	BreakForce       float32 // max reaction force in N before breaking (<= 0 disables)
+	BreakTorque      float32 // max reaction torque in N*m before breaking (<= 0 disables)
 	CollideConnected bool
 
+	jointReaction
 	refRelRot      Quat
 	refInitialized bool
 	motorImpulse   float32
+	driveImpulse   float32
+	driveGamma     float32
+	driveBias      float32
+	driveActive    bool
 	limitImpulse   float32
 	limitState     int
 }
@@ -890,6 +1087,10 @@ func NewSliderJoint(a, b *Body, localAnchorA, localAnchorB, localAxis Vec3) *Sli
 }
 
 func (j *SliderJoint) collideConnected() bool { return j.CollideConnected }
+
+func (j *SliderJoint) checkBreak() (JointBreakEvent, bool) {
+	return j.evalBreak(j, j.BreakForce, j.BreakTorque)
+}
 
 // Bodies returns the connected bodies.
 func (j *SliderJoint) Bodies() (*Body, *Body) { return j.BodyA, j.BodyB }
@@ -922,11 +1123,15 @@ func (j *SliderJoint) Translation() float32 {
 	return diff.Dot(axis)
 }
 
-// Prepare initializes the reference rotation, wakes motorized bodies, and checks linear limits.
+// Prepare initializes the reference rotation, wakes motorized or spring-driven bodies, and checks linear limits.
 func (j *SliderJoint) Prepare(dt float32) {
-	_ = dt
+	j.resetStepReaction(dt)
 	j.initReference()
 	j.motorImpulse = 0
+	j.driveImpulse = 0
+	j.driveGamma = 0
+	j.driveBias = 0
+	j.driveActive = false
 	j.limitImpulse = 0
 	j.limitState = 0
 
@@ -935,8 +1140,21 @@ func (j *SliderJoint) Prepare(dt float32) {
 		wakeIfDynamic(j.BodyB)
 	}
 
+	tr := j.Translation()
+	if (j.DriveStiffness > 0 || j.DriveDamping > 0) && dt > 0 {
+		err := tr - j.DriveTargetPos
+		if gamma, bias, ok := softSpringParams(j.DriveStiffness, j.DriveDamping, err, dt); ok {
+			j.driveGamma = gamma
+			j.driveBias = bias
+			j.driveActive = true
+			if j.DriveStiffness > 0 && abs32(err) > 1e-4 {
+				wakeIfDynamic(j.BodyA)
+				wakeIfDynamic(j.BodyB)
+			}
+		}
+	}
+
 	if j.EnableLimits && j.MinTranslation <= j.MaxTranslation {
-		tr := j.Translation()
 		if tr <= j.MinTranslation+1e-4 {
 			j.limitState = -1
 		} else if tr >= j.MaxTranslation-1e-4 {
@@ -945,9 +1163,9 @@ func (j *SliderJoint) Prepare(dt float32) {
 	}
 }
 
-// SolveVelocity solves orientation lock, perpendicular linear lock, linear motor, and limits.
+// SolveVelocity solves orientation lock, perpendicular linear lock, linear motor, spring/position drive, and limits.
 func (j *SliderJoint) SolveVelocity(dt float32) {
-	solveFullOrientationVelocity(j.BodyA, j.BodyB)
+	j.addAngularImpulse(solveFullOrientationVelocity(j.BodyA, j.BodyB))
 
 	_, rotA, velA, angA, invMA, invIA := bodyKinematics(j.BodyA)
 	_, rotB, velB, angB, invMB, invIB := bodyKinematics(j.BodyB)
@@ -972,7 +1190,9 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		}
 		vRel := velB.Add(angB.Cross(rB)).Sub(velA.Add(angA.Cross(rA)))
 		jScalar := -vRel.Dot(dir) / w
-		applyAnchorImpulse(j.BodyA, j.BodyB, rA, rB, dir.Scale(jScalar))
+		imp := dir.Scale(jScalar)
+		applyAnchorImpulse(j.BodyA, j.BodyB, rA, rB, imp)
+		j.addLinearImpulse(imp)
 	}
 
 	// 1. Lock the 2 translational DOFs perpendicular to the slide axis.
@@ -983,7 +1203,7 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		return
 	}
 
-	// 2. Linear motor along axis.
+	// 2. Linear velocity motor along axis.
 	if j.MotorMaxForce > 0 && dt > 0 {
 		_, _, velA, angA, _, _ = bodyKinematics(j.BodyA)
 		_, _, velB, angB, _, _ = bodyKinematics(j.BodyB)
@@ -995,7 +1215,30 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		applied := newAcc - j.motorImpulse
 		j.motorImpulse = newAcc
 		if applied != 0 {
-			applyAnchorImpulse(j.BodyA, j.BodyB, Vec3{}, Vec3{}, axis.Scale(applied))
+			imp := axis.Scale(applied)
+			applyAnchorImpulse(j.BodyA, j.BodyB, Vec3{}, Vec3{}, imp)
+			j.addLinearImpulse(imp)
+		}
+	}
+
+	// 2b. Linear spring / position drive along axis.
+	if j.driveActive && dt > 0 {
+		_, _, velA, angA, _, _ = bodyKinematics(j.BodyA)
+		_, _, velB, angB, _, _ = bodyKinematics(j.BodyB)
+		vRel := velB.Add(angB.Cross(rB)).Sub(velA.Add(angA.Cross(rA)))
+		vAxis := vRel.Dot(axis)
+		dLambda := -(vAxis + j.driveBias + j.driveGamma*j.driveImpulse) / (invMSum + j.driveGamma)
+		newAcc := j.driveImpulse + dLambda
+		if j.DriveMaxForce > 0 {
+			maxImp := j.DriveMaxForce * dt
+			newAcc = clamp32(newAcc, -maxImp, maxImp)
+		}
+		applied := newAcc - j.driveImpulse
+		j.driveImpulse = newAcc
+		if applied != 0 {
+			imp := axis.Scale(applied)
+			applyAnchorImpulse(j.BodyA, j.BodyB, Vec3{}, Vec3{}, imp)
+			j.addLinearImpulse(imp)
 		}
 	}
 
@@ -1019,7 +1262,9 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		applied := newAcc - j.limitImpulse
 		j.limitImpulse = newAcc
 		if applied != 0 {
-			applyAnchorImpulse(j.BodyA, j.BodyB, Vec3{}, Vec3{}, axis.Scale(applied))
+			imp := axis.Scale(applied)
+			applyAnchorImpulse(j.BodyA, j.BodyB, Vec3{}, Vec3{}, imp)
+			j.addLinearImpulse(imp)
 		}
 	}
 }
@@ -1074,8 +1319,11 @@ type FixedJoint struct {
 	LocalAnchorA     Vec3
 	LocalAnchorB     Vec3
 	RefRelRot        Quat
+	BreakForce       float32 // max reaction force in N before breaking (<= 0 disables)
+	BreakTorque      float32 // max reaction torque in N*m before breaking (<= 0 disables)
 	CollideConnected bool
 
+	jointReaction
 	refInitialized bool
 }
 
@@ -1093,6 +1341,10 @@ func NewFixedJoint(a, b *Body, localAnchorA, localAnchorB Vec3) *FixedJoint {
 }
 
 func (j *FixedJoint) collideConnected() bool { return j.CollideConnected }
+
+func (j *FixedJoint) checkBreak() (JointBreakEvent, bool) {
+	return j.evalBreak(j, j.BreakForce, j.BreakTorque)
+}
 
 // Bodies returns the connected bodies.
 func (j *FixedJoint) Bodies() (*Body, *Body) { return j.BodyA, j.BodyB }
@@ -1114,15 +1366,15 @@ func (j *FixedJoint) initReference() {
 
 // Prepare captures the reference relative orientation if not already set.
 func (j *FixedJoint) Prepare(dt float32) {
-	_ = dt
+	j.resetStepReaction(dt)
 	j.initReference()
 }
 
 // SolveVelocity solves the 6-DOF linear and angular lock.
 func (j *FixedJoint) SolveVelocity(dt float32) {
 	_ = dt
-	solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB)
-	solveFullOrientationVelocity(j.BodyA, j.BodyB)
+	j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
+	j.addAngularImpulse(solveFullOrientationVelocity(j.BodyA, j.BodyB))
 }
 
 // SolvePosition corrects linear and angular drift from the locked relative pose.

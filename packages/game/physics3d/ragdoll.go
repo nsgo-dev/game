@@ -1,6 +1,9 @@
 package physics3d
 
-import "strings"
+import (
+	"math"
+	"strings"
+)
 
 // RagdollMode controls how a Ragdoll's bodies respond to animation vs physics.
 type RagdollMode int
@@ -27,8 +30,18 @@ type SkeletonJoint struct {
 	Radius     float32 // capsule radius (defaults to 0.08 when <= 0)
 	Length     float32 // bone length (defaults to 0.25 when <= 0)
 	Mass       float32 // bone mass in kg (defaults to 1.0 when <= 0)
-	SwingLimit float32 // optional cone/hinge swing limit in radians (> 0 enables)
+	SwingLimit float32 // optional symmetric cone/hinge swing limit in radians (> 0 enables)
 	HingeAxis  Vec3    // optional explicit hinge axis (non-zero selects HingeJoint)
+	// Optional asymmetric swing limits in radians for SwingTwistJoint.
+	// When any of these four fields is non-zero, they override symmetric SwingLimit
+	// on their respective axis (or all four when both axes are specified).
+	SwingMin1  float32
+	SwingMax1  float32
+	SwingMin2  float32
+	SwingMax2  float32
+	TwistLimit float32 // optional symmetric twist half-angle in radians (> 0 sets [-TwistLimit, +TwistLimit])
+	MinTwist   float32 // optional asymmetric lower twist limit in radians
+	MaxTwist   float32 // optional asymmetric upper twist limit in radians
 }
 
 // Ragdoll manages the rigid bodies and joint constraints generated from a
@@ -48,7 +61,7 @@ type Ragdoll struct {
 	hasAnimPose        bool
 }
 
-// BuildRagdoll spawns per-bone capsule/box bodies and connecting BallJoint /
+// BuildRagdoll spawns per-bone capsule/box bodies and connecting SwingTwistJoint /
 // HingeJoint constraints in world matching the skeleton hierarchy rooted at
 // (rootPos, rootRot).
 //
@@ -228,14 +241,54 @@ func BuildRagdoll(world *World, joints []SkeletonJoint, rootPos Vec3, rootRot Qu
 			}
 			r.Joints = append(r.Joints, world.AddJoint(hj))
 		} else {
-			bj := NewBallJoint(bodyP, bodyC, localAnchorP, localAnchorC)
-			bj.LocalAxisB = boneDirs[i]
 			worldAxisB := worldRot[i].RotateVec(boneDirs[i])
-			bj.LocalAxisA = worldRot[p].Conjugate().RotateVec(worldAxisB).Norm()
-			if sj.SwingLimit > 0 {
-				bj.ConeLimit = sj.SwingLimit
+			twistAxisA := worldRot[p].Conjugate().RotateVec(worldAxisB).Norm()
+			st := NewSwingTwistJoint(bodyP, bodyC, localAnchorP, localAnchorC, twistAxisA)
+
+			hasAsym1 := sj.SwingMin1 != 0 || sj.SwingMax1 != 0
+			hasAsym2 := sj.SwingMin2 != 0 || sj.SwingMax2 != 0
+			if hasAsym1 || hasAsym2 {
+				st.EnableSwingLimits = true
+				if hasAsym1 {
+					st.SwingMin1 = sj.SwingMin1
+					st.SwingMax1 = sj.SwingMax1
+				} else if sj.SwingLimit > 0 {
+					st.SwingMin1 = -sj.SwingLimit
+					st.SwingMax1 = sj.SwingLimit
+				}
+				if hasAsym2 {
+					st.SwingMin2 = sj.SwingMin2
+					st.SwingMax2 = sj.SwingMax2
+				} else if sj.SwingLimit > 0 {
+					st.SwingMin2 = -sj.SwingLimit
+					st.SwingMax2 = sj.SwingLimit
+				}
+			} else if sj.SwingLimit > 0 {
+				st.EnableSwingLimits = true
+				st.SwingMin1 = -sj.SwingLimit
+				st.SwingMax1 = sj.SwingLimit
+				st.SwingMin2 = -sj.SwingLimit
+				st.SwingMax2 = sj.SwingLimit
 			}
-			r.Joints = append(r.Joints, world.AddJoint(bj))
+
+			switch {
+			case sj.MinTwist != 0 || sj.MaxTwist != 0:
+				st.EnableTwistLimits = true
+				st.MinTwist = sj.MinTwist
+				st.MaxTwist = sj.MaxTwist
+			case sj.TwistLimit > 0:
+				st.EnableTwistLimits = true
+				st.MinTwist = -sj.TwistLimit
+				st.MaxTwist = sj.TwistLimit
+			case st.EnableSwingLimits:
+				// Default anatomically plausible twist range when swing limits are enabled
+				// so shoulders and hips cannot spin freely around their own bone axis.
+				const defaultTwist = float32(math.Pi / 4)
+				st.EnableTwistLimits = true
+				st.MinTwist = -defaultTwist
+				st.MaxTwist = defaultTwist
+			}
+			r.Joints = append(r.Joints, world.AddJoint(st))
 		}
 	}
 

@@ -72,7 +72,16 @@ A shape that ends up below a heightfield's surface is pushed out upward, by the 
 
 A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
 
-`HingeJoint.Angle` is tracked across steps, so a hinge that keeps turning reports angles past ±π and `MinAngle`/`MaxAngle` can span more than one turn. A `DistanceJoint` is slack while its distance is inside `[MinDistance, MaxDistance]`; `Stiffness` and `Damping` soften the limits, so for a spring with rest length `L` set both limits to `L`.
+## Joints and Ragdolls
+
+`World.AddJoint` solves `DistanceJoint`, `BallJoint`, `SwingTwistJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, and `SixDOFJoint` in deterministic insertion order:
+
+- `HingeJoint.Angle` is tracked across steps, so a hinge that keeps turning reports angles past ±π and `MinAngle`/`MaxAngle` can span more than one turn. Optional spring and position drives (`DriveTargetAngle`, `DriveStiffness`, `DriveDamping`, `DriveMaxTorque`) pull a hinge smoothly toward a target angle (for self-closing doors or active joints), alongside velocity motors (`MotorTargetVel`, `MotorMaxTorque`).
+- `SliderJoint` supports optional linear spring and position drives (`DriveTargetPos`, `DriveStiffness`, `DriveDamping`, `DriveMaxForce`) in addition to limits and velocity motors.
+- `DistanceJoint` is slack while its distance is inside `[MinDistance, MaxDistance]`; `Stiffness` and `Damping` soften the limits, so for a spring with rest length `L` set both limits to `L`.
+- `SwingTwistJoint` constrains a ball-and-socket pivot with a four-quadrant asymmetric elliptic swing cone (`SwingMin1`, `SwingMax1`, `SwingMin2`, `SwingMax2`) and an independent twist range (`MinTwist`, `MaxTwist`), readable via `SwingAngles()` and `TwistAngle()`. `BuildRagdoll` uses `SwingTwistJoint` for non-hinge limbs (shoulders, hips, spine, head) and `HingeJoint` for elbows, knees, and bones with an explicit `HingeAxis`; `SkeletonJoint` accepts optional asymmetric swing limits and `TwistLimit` / `MinTwist` / `MaxTwist` (defaulting to ±π/4 twist when `SwingLimit > 0` so limbs cannot spin freely around their own axis).
+- `SixDOFJoint` configures each of the 3 linear (`Linear[0..2]`) and 3 angular (`Angular[0..2]`) axes independently via `AxisConfig`: `Mode` (`AxisFree`, `AxisLocked`, `AxisLimited` with `Min`/`Max`), passive spring `Stiffness`/`Damping`, and `Drive` (`DriveNone`, `DrivePosition`, `DriveVelocity`) toward `TargetPos`/`TargetVel` clamped by `MaxForce`.
+- Every built-in joint reports its last-step world-space `ReactionForce()` (N) and `ReactionTorque()` (N·m) applied to `BodyB`, and supports optional `BreakForce` and `BreakTorque` thresholds. When a joint exceeds either threshold during `World.Step`, it is marked `Broken()`, removed from the world before positional correction, wakes dynamic bodies, and is reported deterministically in `World.JointBreakEvents()` and `World.OnJointBreak`.
 
 ## Character Controller
 
