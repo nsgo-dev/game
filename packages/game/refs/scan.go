@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -36,6 +37,8 @@ const (
 	KindLDtk FileKind = "ldtk"
 	// KindAtlas is a sprite atlas: a JSON file with top-level frames and meta objects, as TexturePacker and Aseprite write it.
 	KindAtlas FileKind = "atlas"
+	// KindGLTF is a glTF 2.0 model in JSON form (.gltf), whose buffers and images may be separate files.
+	KindGLTF FileKind = "gltf"
 )
 
 // Fields name what a reference is, in Ref.Field and in messages. A reference in game.yaml has the Field project.PathRefs gives it, such as project.FieldAtlasIn; the two autoload ones are repeated here.
@@ -46,6 +49,7 @@ const (
 	FieldNavMesh          = "navigation mesh"
 	FieldScene            = "scene"
 	FieldMaterial         = "material"
+	FieldModel            = "model"
 	FieldTilemapSource    = "tilemap source"
 	FieldTexture          = "texture"
 	FieldExternalTileset  = "external tileset"
@@ -55,6 +59,8 @@ const (
 	FieldLevelBackground  = "level background"
 	FieldExternalLevel    = "external level"
 	FieldAtlasImage       = "atlas image"
+	FieldModelBuffer      = "model buffer"
+	FieldModelImage       = "model image"
 )
 
 // Ref is one reference from a file to another.
@@ -77,6 +83,8 @@ type Ref struct {
 	Output bool
 
 	span span
+	// uri reports whether Value is a percent-encoded URI reference, as glTF writes its buffers' and images' uri, so a rewrite encodes the new path the same way.
+	uri bool
 }
 
 // File is one file Scan read references or a uid from.
@@ -182,7 +190,7 @@ func Scan(fsys fs.FS) (*Project, error) {
 			indexes = append(indexes, name)
 		case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
 			yamls = append(yamls, name)
-		case strings.HasSuffix(lower, ".tmj"), strings.HasSuffix(lower, ".tsj"), strings.HasSuffix(lower, ".ldtk"):
+		case strings.HasSuffix(lower, ".tmj"), strings.HasSuffix(lower, ".tsj"), strings.HasSuffix(lower, ".ldtk"), strings.HasSuffix(lower, ".gltf"):
 			jsons = append(jsons, name)
 		case strings.HasSuffix(lower, ".json"):
 			others = append(others, name)
@@ -435,6 +443,7 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 	}
 	for _, kv := range pairs(field(doc, "overrides")) {
 		p.ref(f, field(kv[1], "material"), FieldMaterial)
+		p.ref(f, field(kv[1], "model"), FieldModel)
 	}
 	for _, l := range items(field(doc, "layers")) {
 		p.ref(f, field(field(l, "tilemap"), "source"), FieldTilemapSource)
@@ -453,8 +462,10 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 	for _, o := range items(objs) {
 		p.ref(f, field(o, "scene"), FieldScene)
 		p.ref(f, field(o, "material"), FieldMaterial)
+		p.ref(f, field(o, "model"), FieldModel)
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
+			p.ref(f, field(kv[1], "model"), FieldModel)
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}
@@ -537,7 +548,7 @@ func deref(n *yaml.Node) *yaml.Node {
 // formatAtlas is the format readJSON reads a sprite atlas as.
 const formatAtlas = "atlas"
 
-// jsonFields are the paths, with "*" for any index or key and "**" for any run of layers' groups, of the string values in Tiled and LDtk files and sprite atlases that name a file relative to the file. format is the extension of the Tiled or LDtk file, ".tsj" also for a tileset named .json, or formatAtlas.
+// jsonFields are the paths, with "*" for any index or key and "**" for any run of layers' groups, of the string values in Tiled and LDtk files, glTF models and sprite atlases that name a file relative to the file. format is the extension of the Tiled, LDtk or glTF file, ".tsj" also for a tileset named .json, or formatAtlas.
 var jsonFields = []struct {
 	format string
 	path   []string
@@ -553,6 +564,8 @@ var jsonFields = []struct {
 	{".ldtk", []string{"levels", "*", "bgRelPath"}, FieldLevelBackground},
 	{".ldtk", []string{"levels", "*", "externalRelPath"}, FieldExternalLevel},
 	{formatAtlas, []string{"meta", "image"}, FieldAtlasImage},
+	{".gltf", []string{"buffers", "*", "uri"}, FieldModelBuffer},
+	{".gltf", []string{"images", "*", "uri"}, FieldModelImage},
 }
 
 // matchJSON reports whether path matches pattern: "*" matches one step, and a leading "**" matches one or more "layers", index pairs, as Tiled nests group layers.
@@ -581,7 +594,7 @@ func matchJSON(pattern, path []string) bool {
 	return true
 }
 
-// readJSON reads the references of the Tiled or LDtk file or sprite atlas at name, read as format, one of jsonFields' formats.
+// readJSON reads the references of the Tiled or LDtk file, glTF model or sprite atlas at name, read as format, one of jsonFields' formats. A glTF buffer or image held in a data URI names no file and is not a reference.
 func (p *Project) readJSON(name, format string) {
 	data, err := fs.ReadFile(p.fsys, name)
 	if err != nil {
@@ -593,11 +606,13 @@ func (p *Project) readJSON(name, format string) {
 		kind = KindLDtk
 	case formatAtlas:
 		kind = KindAtlas
+	case ".gltf":
+		kind = KindGLTF
 	}
 	f := &File{Path: name, Kind: kind, data: data, starts: lineStarts(data), Root: p.Root(name)}
 	var refs []Ref
 	err = jsonStrings(data, func(jp []string, s span, value string) {
-		if value == "" {
+		if value == "" || (format == ".gltf" && strings.HasPrefix(value, "data:")) {
 			return
 		}
 		for _, jf := range jsonFields {
@@ -606,7 +621,15 @@ func (p *Project) readJSON(name, format string) {
 			}
 			line, col := position(data, f.starts, s.start)
 			r := Ref{File: name, Line: line, Column: col, Field: jf.field, Value: value, FromFile: true, span: s}
-			r.Target, _ = resolveFrom(path.Dir(name), value)
+			target := value
+			if format == ".gltf" {
+				// A glTF URI is percent-encoded, as gltf.LoadFS reads it.
+				r.uri = true
+				if u, err := url.PathUnescape(value); err == nil {
+					target = u
+				}
+			}
+			r.Target, _ = resolveFrom(path.Dir(name), target)
 			refs = append(refs, r)
 			return
 		}
@@ -820,10 +843,26 @@ func (p *Project) MovedHint(r Ref) string {
 	return fmt.Sprintf("it moved to %q; run game index to update the reference", p.valueFor(r, r.File, to))
 }
 
+// uriFor returns the percent-encoded URI reference of the relative path rel, keeping value, the URI written now, when it already names rel, so that a reference whose path does not change keeps its spelling.
+func uriFor(value, rel string) string {
+	if u, err := url.PathUnescape(value); err == nil && u == rel {
+		return value
+	}
+	segs := strings.Split(rel, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
 // valueFor returns how r, held by the file now at file, writes the path of target.
 func (p *Project) valueFor(r Ref, file, target string) string {
 	if r.FromFile {
-		return RelPath(path.Dir(file), target)
+		rel := RelPath(path.Dir(file), target)
+		if r.uri {
+			return uriFor(r.Value, rel)
+		}
+		return rel
 	}
 	return strings.TrimPrefix(target, rootPrefix(p.Root(r.File)))
 }

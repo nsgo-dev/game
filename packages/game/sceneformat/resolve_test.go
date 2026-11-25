@@ -585,43 +585,64 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 		t.Errorf("ObjectOverride has %d fields, want %d", len(overrideKeys), ot.NumField()-len(notOverridable))
 	}
 
-	// Setting every override field changes every overridable field of a zero object.
-	var ov sceneformat.ObjectOverride
-	ovv := reflect.ValueOf(&ov).Elem()
-	for i := range ovv.NumField() {
-		f := ovv.Field(i)
-		switch f.Kind() {
-		case reflect.Pointer:
-			p := reflect.New(f.Type().Elem())
-			switch e := p.Elem(); e.Kind() {
-			case reflect.String:
-				e.SetString("v")
-			case reflect.Float32:
-				e.SetFloat(0.25)
-			case reflect.Int:
-				e.SetInt(2)
-			case reflect.Bool:
-				e.SetBool(true)
-			case reflect.Struct:
-				e.Set(reflect.ValueOf(sceneformat.SpriteRef{Atlas: "a", Frame: "f"}))
+	// Setting every override field changes every overridable field of a zero object. The 3D look fields exclude each other (a primitive, or a model narrowed to a node or to a mesh), so each variant sets one valid combination of them, and together they set them all.
+	variants := []map[string]string{
+		{"mesh": "box", "model": "", "modelNode": "", "modelMesh": ""},
+		{"mesh": "", "model": "m.glb", "modelNode": "n", "modelMesh": ""},
+		{"mesh": "", "model": "m.glb", "modelNode": "", "modelMesh": "m"},
+	}
+	set := make(map[string]bool)
+	for _, look := range variants {
+		var ov sceneformat.ObjectOverride
+		ovv := reflect.ValueOf(&ov).Elem()
+		for i := range ovv.NumField() {
+			f := ovv.Field(i)
+			key := strings.Split(vt.Field(i).Tag.Get("yaml"), ",")[0]
+			switch f.Kind() {
+			case reflect.Pointer:
+				p := reflect.New(f.Type().Elem())
+				switch e := p.Elem(); e.Kind() {
+				case reflect.String:
+					v, ok := look[key]
+					if !ok {
+						v = "v"
+					}
+					if v == "" {
+						continue
+					}
+					e.SetString(v)
+				case reflect.Float32:
+					e.SetFloat(0.25)
+				case reflect.Int:
+					e.SetInt(2)
+				case reflect.Bool:
+					e.SetBool(true)
+				case reflect.Struct:
+					e.Set(reflect.ValueOf(sceneformat.SpriteRef{Atlas: "a", Frame: "f"}))
+				}
+				f.Set(p)
+			case reflect.Map:
+				f.Set(reflect.ValueOf(map[string]any{"k": 1}))
 			}
-			f.Set(p)
-		case reflect.Map:
-			f.Set(reflect.ValueOf(map[string]any{"k": 1}))
+		}
+		doc, err := sceneformat.Resolve(&sceneformat.SceneDoc{
+			Version:   2,
+			Inherits:  "base.yaml",
+			Overrides: map[string]sceneformat.ObjectOverride{"o": ov},
+		}, newMemScenes(map[string]string{"base.yaml": "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: o\n"}))
+		if err != nil {
+			t.Fatalf("Resolve with look %v: %v", look, err)
+		}
+		got := reflect.ValueOf(doc.Layers[0].Objects[0])
+		for i := range got.NumField() {
+			if !got.Field(i).IsZero() {
+				set[strings.Split(ot.Field(i).Tag.Get("yaml"), ",")[0]] = true
+			}
 		}
 	}
-	doc, err := sceneformat.Resolve(&sceneformat.SceneDoc{
-		Version:   2,
-		Inherits:  "base.yaml",
-		Overrides: map[string]sceneformat.ObjectOverride{"o": ov},
-	}, newMemScenes(map[string]string{"base.yaml": "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: o\n"}))
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	got := reflect.ValueOf(doc.Layers[0].Objects[0])
-	for i := range got.NumField() {
+	for i := range ot.NumField() {
 		key := strings.Split(ot.Field(i).Tag.Get("yaml"), ",")[0]
-		if !notOverridable[key] && got.Field(i).IsZero() {
+		if !notOverridable[key] && !set[key] {
 			t.Errorf("override left %q unset", key)
 		}
 	}

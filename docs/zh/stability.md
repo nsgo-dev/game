@@ -158,6 +158,7 @@
 | `game/scene` | 稳定 | [scene](scene.md) |
 | `game/scene3d` | 实验性 | [scene3d](scene3d.md) |
 | `game/sceneformat` | 实验性 | [editor](editor.md) |
+| `game/scenemodel` | 实验性 | [scenemodel](scenemodel.md) |
 | `game/screen` | 稳定 | [screen](screen.md) |
 | `game/server` | 实验性 | [server](server.md) |
 | `game/server/cmd/dedicatedserver` | 实验性 | [server](server.md) |

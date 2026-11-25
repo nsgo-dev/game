@@ -1,0 +1,5 @@
+type: material
+version: 1
+name: Stone
+baseColor: '#8a8f99'
+roughness: 0.9

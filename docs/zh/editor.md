@@ -85,6 +85,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 - 变换：`x`、`y`、`originX`、`originY`、`rotation`（弧度，顺时针）、`scaleX`（默认 `1`）、`scaleY`（默认 `1`）、`flipX`、`flipY`、`alpha`（范围 `[0, 1]`，默认 `1`）、`z`（图层内绘制顺序，越小越先绘制）
 - `sprite`：可选的 `{atlas, frame}`，引用 `sprite.Atlas` 及其中的帧名
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
+- 3D 外观：`mesh` 是内置基本形体 `box`、`sphere`、`plane`、`capsule`、`cylinder` 之一；`model`（版本 2）是从项目根目录起、以斜杠分隔的 glTF 2.0 文件路径（`.gltf` 或 `.glb`），可以用 `modelNode` 缩小到其中一个节点，或用 `modelMesh` 缩小到其中一个网格；对象的 `material` 会替换模型的材质，或作为基本形体的表面。`scenemodel.Build` 把它们变成几何体（[scenemodel](scenemodel.md)）
 - `components`：可选的映射，键是组件类型名，值是它的字段；未提供组件注册表时内容不受约束（见[组件类型](#组件类型)）
 - `properties`：可选的 `map[string]any`，存放自定义元数据
 - `scene`：可选，从项目根目录起、以斜杠分隔的场景文件路径，本对象实例化该场景（版本 2，见下文“实例化与继承”）
@@ -120,6 +121,7 @@ layers:
 - `Build` 把每个 `BuiltObject` 与其 `Parent`、`Children` 关联起来，把 `World` 设为复合后的 2D 仿射变换、`WorldAlpha` 设为复合后的透明度，并按世界位置、旋转和缩放绘制每个子对象的精灵。复合变换带有切变（非等比缩放的父对象下有旋转的子对象）的精灵无法作为精灵绘制，`Validate` 会拒绝它，`Parse`、`Encode` 和 `Build` 因此也会拒绝；`CheckObjectTree` 对单棵树做同样的检查以及嵌套层数检查。父对象在某一轴上缩放为零（例如 `scaleX: 0`）不算切变：其子对象的精灵以零缩放绘制。没有精灵的对象则在 `World` 中保留精确矩阵。`BuiltLayer.Objects` 列出图层的顶层对象，`BuiltScene.Objects` 按 ID 索引所有对象。修改已构建对象的文档字段后，`BuiltObject.Sync` 会重新复合它及其后代的 `World`、`WorldAlpha` 和精灵，若修改会使精灵产生切变则返回 false。
 - `SpawnEntities(doc, world)` 为每个对象在 `entities.World` 中生成一个实体，按对象的嵌套关系在其 `Hierarchy2D` 中设置父子关系，并写入对象的局部 `Transform2D` 和一个记录对象 ID 及所在图层的 `ObjectRef` 组件。隐藏图层的顶层对象生成时即为隐藏，因此其整棵子树在世界中不可见。
 - `BuildNodes3D(doc, scene.Root())` 构建 `scene3d` 节点树：每个图层一个分组节点（带有图层的可见性），每个对象一个以其 ID 命名的节点，`UserData` 指向对应的 `ObjectDoc`。`ObjectLocalTransform3D` 给出每个节点的局部变换；`rotX`、`rotY`、`rotZ` 按此顺序绕固定轴旋转，与编辑器 3D 视口使用的顺序相同。
+- `scenemodel.Build(doc, scene.Root(), assets)` 构建同样的节点树，并把每个对象 `mesh` 或 `model` 的几何体和材质挂到它的节点上，用几何体设置节点的 `LocalBounds`，可直接交给 `render3d.Queue`（[scenemodel](scenemodel.md)）。
 
 ```go
 spawned, err := sceneformat.SpawnEntities(doc, world)

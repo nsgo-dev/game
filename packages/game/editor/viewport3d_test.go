@@ -578,10 +578,16 @@ func TestEditor3DViewportUIRenderingAndControls(t *testing.T) {
 	app.Find("id:inspector-depth")
 	app.Find("id:inspector-mesh")
 
-	// Edit Mesh field through the 3D Inspector UI.
-	app.Type("id:inspector-mesh", "cube")
-	if obj, _, _ := ed.FindObject("box_a"); obj == nil || obj.Mesh != "cube" {
-		t.Fatalf("box_a.Mesh after inspector edit = %+v, want cube", obj)
+	// Pick a built-in primitive in the 3D Inspector's Mesh field.
+	app.Press("id:inspector-mesh")
+	app.Press("role:option sphere")
+	app.Settle()
+	if obj, _, _ := ed.FindObject("box_a"); obj == nil || obj.Mesh != "sphere" {
+		t.Fatalf("box_a.Mesh after inspector edit = %+v, want sphere", obj)
+	}
+	// A name that is not a built-in primitive is refused.
+	if err := ed.SetObjectMesh("box_a", "cube"); err == nil {
+		t.Fatal("SetObjectMesh accepted cube, which is not a built-in primitive")
 	}
 
 	// Verify Translate, Rotate, and Scale gizmo buttons render cleanly with canvas draw ops.

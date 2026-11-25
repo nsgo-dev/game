@@ -26,7 +26,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
   },
   { key: 'extended2d', slugs: ['math2d', 'gameui', 'lights2d', 'quality', 'effects', 'worldmap', 'fog', 'a11y', 'l10n', 'perf'] },
   { key: 'multiplayerModding', slugs: ['net', 'modding'] },
-  { key: 'threeD', slugs: ['math3d', 'scene3d', 'anim3d', 'world3d', 'navbake3d', 'voxel', 'render3d'] },
+  { key: 'threeD', slugs: ['math3d', 'scene3d', 'anim3d', 'world3d', 'navbake3d', 'voxel', 'render3d', 'scenemodel'] },
 ]
 
 // groupDocs sorts pages into the sidebar's groups, each in the group's order, and puts every page no group names in "other", in the order given; a group with no pages is left out.

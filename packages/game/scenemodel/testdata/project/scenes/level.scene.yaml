@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Courtyard
+layers:
+  - name: level
+    objects:
+      - id: floor
+        scaleX: 6
+        scaleZ: 6
+        mesh: plane
+        material: materials/stone.material.yaml
+      - id: crate
+        x: -1
+        "y": 0.5
+        rotY: 0.4
+        model: models/crate.glb
+      - id: lid
+        x: 1.5
+        "y": 0.1
+        posZ: -1.2
+        model: models/crate.glb
+        modelNode: Lid
+      - id: ball
+        x: 0.9
+        "y": 0.5
+        posZ: 0.6
+        mesh: sphere
+        material: materials/teal.material.yaml
+      - id: glass
+        x: -0.2
+        "y": 0.6
+        posZ: 1.5
+        scaleX: 0.4
+        scaleY: 0.4
+        scaleZ: 0.4
+        mesh: capsule
+        material: materials/glass.material.yaml

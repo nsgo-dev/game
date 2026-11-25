@@ -5,10 +5,9 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/packages/game/gltf"
-	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
+	"github.com/nsgo-dev/game/packages/game/scenemodel"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )
@@ -77,17 +76,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 }
 `
 
-type gpuPrimitive struct {
-	mesh       *render3d.GPUMesh
-	materialID int
-}
-
+// gpuDrawable is one part of the level: the node it is drawn at, its mesh, its base color texture (nil for none) and its draw buffer.
 type gpuDrawable struct {
-	nodeIdx  int
-	meshIdx  int
-	primIdx  int
-	prim     gpuPrimitive
-	texGroup *gpu.BindGroup
+	node     *scene3d.Node
+	meshID   uint32
+	texture  *scenemodel.Texture
 	draw     *render3d.PBRDrawBuffer
 	material render3d.PBRMaterial
 }
@@ -105,21 +98,21 @@ type Renderer struct {
 	sampler   *render3d.GPUSampler
 	whiteTex  *render3d.GPUTexture
 	whiteBG   *gpu.BindGroup
-	textures  []*render3d.GPUTexture
-	texGroups []*gpu.BindGroup
-	meshes    [][]gpuPrimitive
+	textures  map[*scenemodel.Texture]*render3d.GPUTexture
+	texGroups map[*scenemodel.Texture]*gpu.BindGroup
+	meshes    []*render3d.GPUMesh
 	drawables []gpuDrawable
 
 	ready bool
 }
 
-// Setup uploads the glTF meshes, embedded textures, samplers, uniform buffers and render pipeline onto dev. It reuses valid retained resources when called again after a GPU device restore.
+// Setup uploads the level's meshes and textures (Scene.Level), samplers, uniform buffers and render pipeline onto dev. It reuses valid retained resources when called again after a GPU device restore.
 func (r *Renderer) Setup(cx *core.Scope, dev *gpu.Device, s *Scene) error {
 	if dev == nil {
 		return fmt.Errorf("lantern3d: nil gpu device")
 	}
 	r.dev = dev
-	doc := s.Doc
+	level := s.Level
 
 	// Camera uniform buffer (render3d.CameraGroup).
 	if r.camBuf == nil || !r.camBuf.Buffer().Valid() {
@@ -167,7 +160,7 @@ func (r *Renderer) Setup(cx *core.Scope, dev *gpu.Device, s *Scene) error {
 		r.texLayout = tl
 	}
 
-	// Shared sampler, white fallback texture and the embedded glTF PNG textures. Base color is sRGB, so the textures are uploaded as sRGB and sampled (and mipmapped) in linear light.
+	// Shared sampler, white fallback texture and the diorama's PNG textures. Base color is sRGB, so the textures are uploaded as sRGB and sampled (and mipmapped) in linear light.
 	if r.sampler == nil || !r.sampler.Valid() {
 		sOpts := render3d.SamplerLinearRepeat()
 		sOpts.Label = "lantern3d.linear_repeat"
@@ -200,79 +193,61 @@ func (r *Renderer) Setup(cx *core.Scope, dev *gpu.Device, s *Scene) error {
 		r.whiteBG = bg
 	}
 
-	if len(r.textures) != len(doc.Textures) {
-		r.textures = make([]*render3d.GPUTexture, len(doc.Textures))
-		r.texGroups = make([]*gpu.BindGroup, len(doc.Textures))
+	// The level's base color textures, once each, and their bind groups.
+	if r.textures == nil {
+		r.textures = make(map[*scenemodel.Texture]*render3d.GPUTexture)
+		r.texGroups = make(map[*scenemodel.Texture]*gpu.BindGroup)
 	}
-	for i, gt := range doc.Textures {
-		if r.textures[i] == nil || !r.textures[i].Valid() {
-			if gt.Source < 0 || gt.Source >= len(doc.Images) {
-				r.textures[i] = r.whiteTex
-			} else {
-				img, err := doc.DecodeImage(gt.Source)
-				if err != nil {
-					return fmt.Errorf("decode gltf image %d: %w", gt.Source, err)
-				}
-				label := doc.Images[gt.Source].Name
-				if label == "" {
-					label = fmt.Sprintf("lantern3d.tex.%d", i)
-				}
-				tex, err := render3d.UploadTexture(cx, dev, img, render3d.TextureUpload{
-					Label:    label,
+	for _, d := range level.Drawables {
+		for _, p := range d.Parts {
+			t := p.Material.BaseColorTexture
+			if t == nil {
+				continue
+			}
+			if gt := r.textures[t]; gt == nil || !gt.Valid() {
+				tex, err := render3d.UploadTexture(cx, dev, t.Image, render3d.TextureUpload{
+					Label:    "lantern3d " + t.Name,
 					SRGB:     true,
 					Mipmaps:  true,
 					Retained: true,
 				})
 				if err != nil {
-					return fmt.Errorf("upload gltf texture %d: %w", i, err)
+					return fmt.Errorf("upload texture %s: %w", t.Name, err)
 				}
-				r.textures[i] = tex
+				r.textures[t] = tex
 			}
-		}
-		if r.texGroups[i] == nil || !r.texGroups[i].Valid() {
-			bg, err := render3d.BindTexture(cx, dev, r.texLayout, r.textures[i], r.sampler)
-			if err != nil {
-				return fmt.Errorf("bind gltf texture %d: %w", i, err)
+			if bg := r.texGroups[t]; bg == nil || !bg.Valid() {
+				bg, err := render3d.BindTexture(cx, dev, r.texLayout, r.textures[t], r.sampler)
+				if err != nil {
+					return fmt.Errorf("bind texture %s: %w", t.Name, err)
+				}
+				r.texGroups[t] = bg
 			}
-			r.texGroups[i] = bg
 		}
 	}
 
-	// glTF meshes as retained GPUMesh handles.
-	if len(r.meshes) != len(doc.Meshes) {
-		r.meshes = make([][]gpuPrimitive, len(doc.Meshes))
+	// The level's meshes as retained GPUMesh handles, once per scenemodel.Part.MeshID.
+	if len(r.meshes) != level.Meshes {
+		r.meshes = make([]*render3d.GPUMesh, level.Meshes)
 	}
-	for mi, gm := range doc.Meshes {
-		if len(r.meshes[mi]) != len(gm.Primitives) {
-			r.meshes[mi] = make([]gpuPrimitive, len(gm.Primitives))
-		}
-		for pi, prim := range gm.Primitives {
-			if prim.Mode != gltf.ModeTriangles {
+	for _, d := range level.Drawables {
+		for _, p := range d.Parts {
+			if m := r.meshes[p.MeshID]; m != nil && m.Valid() {
 				continue
 			}
-			if r.meshes[mi][pi].mesh == nil || !r.meshes[mi][pi].mesh.Valid() {
-				uploaded, err := render3d.UploadMesh(cx, dev, render3d.Mesh{
-					Positions: prim.Positions,
-					Normals:   prim.Normals,
-					UVs:       prim.TexCoords0,
-					Indices:   prim.Indices,
-				}, render3d.MeshUpload{
-					Label:    fmt.Sprintf("%s[%d]", gm.Name, pi),
-					Retained: true,
-				})
-				if err != nil {
-					return fmt.Errorf("upload mesh %q[%d]: %w", gm.Name, pi, err)
-				}
-				r.meshes[mi][pi] = gpuPrimitive{
-					mesh:       uploaded,
-					materialID: prim.Material,
-				}
+			uploaded, err := render3d.UploadMesh(cx, dev, p.Mesh, render3d.MeshUpload{
+				Label:    fmt.Sprintf("lantern3d.mesh.%d (%s)", p.MeshID, d.Node.Name),
+				Retained: true,
+			})
+			if err != nil {
+				return fmt.Errorf("upload mesh of %q: %w", d.Node.Name, err)
 			}
+			r.meshes[p.MeshID] = uploaded
 		}
 	}
 
-	// Per-node drawables with their PBR draw buffers.
-	if err := r.buildDrawables(cx, dev, doc); err != nil {
+	// Per-part drawables with their PBR draw buffers.
+	if err := r.buildDrawables(cx, dev, level); err != nil {
 		return err
 	}
 
@@ -318,74 +293,35 @@ func (r *Renderer) Setup(cx *core.Scope, dev *gpu.Device, s *Scene) error {
 	return nil
 }
 
-// pbrMaterial converts a glTF metallic-roughness material into render3d's per-draw PBR parameters. A primitive without a material gets glTF's default material: white, fully metallic and fully rough.
-func pbrMaterial(doc *gltf.Document, materialID int) render3d.PBRMaterial {
-	if materialID < 0 || materialID >= len(doc.Materials) {
-		return render3d.PBRMaterial{BaseColor: math3d.Vec3One(), Alpha: 1, Metallic: 1, Roughness: 1}
-	}
-	m := doc.Materials[materialID]
+// pbrMaterial converts a part's metallic-roughness material into render3d's per-draw PBR parameters.
+func pbrMaterial(m scenemodel.Material) render3d.PBRMaterial {
 	return render3d.PBRMaterial{
-		BaseColor: math3d.Vec3{X: m.BaseColorFactor.X, Y: m.BaseColorFactor.Y, Z: m.BaseColorFactor.Z},
-		Alpha:     m.BaseColorFactor.W,
-		Metallic:  m.MetallicFactor,
-		Roughness: m.RoughnessFactor,
-		Emissive:  m.EmissiveFactor,
+		BaseColor: m.BaseColor.XYZ(),
+		Alpha:     m.BaseColor.W,
+		Metallic:  m.Metallic,
+		Roughness: m.Roughness,
+		Emissive:  m.Emissive,
 	}
 }
 
-func (r *Renderer) buildDrawables(cx *core.Scope, dev *gpu.Device, doc *gltf.Document) error {
-	expected := 0
-	for i := range doc.Nodes {
-		mi := doc.Nodes[i].Mesh
-		if mi >= 0 && mi < len(r.meshes) {
-			for _, gp := range r.meshes[mi] {
-				if gp.mesh != nil {
-					expected++
-				}
-			}
-		}
-	}
-
-	if len(r.drawables) != expected {
-		r.drawables = make([]gpuDrawable, 0, expected)
-		for ni := range doc.Nodes {
-			mi := doc.Nodes[ni].Mesh
-			if mi < 0 || mi >= len(r.meshes) {
-				continue
-			}
-			for pi, gp := range r.meshes[mi] {
-				if gp.mesh == nil {
-					continue
-				}
+// buildDrawables makes a drawable for every part of the level, once, and its draw buffer, again after a device restore invalidates it.
+func (r *Renderer) buildDrawables(cx *core.Scope, dev *gpu.Device, level *scenemodel.Built) error {
+	if r.drawables == nil {
+		for _, d := range level.Drawables {
+			for _, p := range d.Parts {
 				r.drawables = append(r.drawables, gpuDrawable{
-					nodeIdx:  ni,
-					meshIdx:  mi,
-					primIdx:  pi,
-					prim:     gp,
-					material: pbrMaterial(doc, gp.materialID),
+					node:     d.Node,
+					meshID:   p.MeshID,
+					texture:  p.Material.BaseColorTexture,
+					material: pbrMaterial(p.Material),
 				})
 			}
 		}
 	}
-
 	for i := range r.drawables {
 		d := &r.drawables[i]
-		d.prim = r.meshes[d.meshIdx][d.primIdx]
-		texBG := r.whiteBG
-		if d.prim.materialID >= 0 && d.prim.materialID < len(doc.Materials) {
-			mat := doc.Materials[d.prim.materialID]
-			if mat.BaseColorTexture != nil {
-				ti := mat.BaseColorTexture.TextureIndex
-				if ti >= 0 && ti < len(r.texGroups) && r.texGroups[ti] != nil {
-					texBG = r.texGroups[ti]
-				}
-			}
-		}
-		d.texGroup = texBG
-
 		if !d.draw.Valid() {
-			world := doc.Nodes[d.nodeIdx].WorldMatrix
-			db, err := render3d.NewPBRDrawBuffer(cx, dev, r.drawLayout, render3d.NewPBRDrawUniform(world, d.material), true)
+			db, err := render3d.NewPBRDrawBuffer(cx, dev, r.drawLayout, render3d.NewPBRDrawUniform(d.node.WorldMatrix(), d.material), true)
 			if err != nil {
 				return fmt.Errorf("draw buffer %d: %w", i, err)
 			}
@@ -408,7 +344,7 @@ func (r *Renderer) Reset() {
 	*r = Renderer{}
 }
 
-// Draw uploads the frame's camera, lights and per-node transforms and renders every glTF mesh into frame. It returns an error when the scene's lights fail render3d's validation.
+// Draw uploads the frame's camera, lights and per-node transforms and renders every part of the level into frame. It returns an error when the scene's lights fail render3d's validation.
 func (r *Renderer) Draw(frame *gpu.Frame, s *Scene, cam scene3d.Camera) error {
 	if !r.Ready() || frame == nil || s == nil {
 		return nil
@@ -424,7 +360,7 @@ func (r *Renderer) Draw(frame *gpu.Frame, s *Scene, cam scene3d.Camera) error {
 	}
 	for i := range r.drawables {
 		d := &r.drawables[i]
-		d.draw.Write(dev, render3d.NewPBRDrawUniform(s.Doc.Nodes[d.nodeIdx].WorldMatrix, d.material))
+		d.draw.Write(dev, render3d.NewPBRDrawUniform(d.node.WorldMatrix(), d.material))
 	}
 
 	pass := frame.BeginRenderPass(gpu.RenderPassDesc{
@@ -438,12 +374,19 @@ func (r *Renderer) Draw(frame *gpu.Frame, s *Scene, cam scene3d.Camera) error {
 
 	for i := range r.drawables {
 		d := &r.drawables[i]
-		if !d.prim.mesh.Valid() || !d.draw.Valid() || !d.texGroup.Valid() {
+		if !d.node.EffectiveVisible() {
+			continue
+		}
+		mesh, texGroup := r.meshes[d.meshID], r.whiteBG
+		if d.texture != nil {
+			texGroup = r.texGroups[d.texture]
+		}
+		if !mesh.Valid() || !d.draw.Valid() || !texGroup.Valid() {
 			continue
 		}
 		pass.SetBindGroup(render3d.PBRDrawGroup, d.draw.BindGroup())
-		pass.SetBindGroup(baseColorGroup, d.texGroup)
-		d.prim.mesh.Draw(pass)
+		pass.SetBindGroup(baseColorGroup, texGroup)
+		mesh.Draw(pass)
 	}
 
 	pass.End()

@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+uid: crssymqft8e92
+name: Lantern Shrine
+layers:
+  - name: courtyard
+    objects:
+      - id: diorama
+        model: assets/lantern_shrine.glb

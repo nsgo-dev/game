@@ -2,7 +2,7 @@
 //
 // Check walks a directory and reads:
 //
-//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose sprite frames and tile IDs must be in their atlases, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
+//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose glTF models (.gltf or .glb) must exist and load with gltf.LoadFS and hold the node or mesh an object names, whose sprite frames and tile IDs must be in their atlases, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
 //   - 3D world files named *.gridmap.yaml/.yml, *.terrain.yaml/.yml and *.foliage.yaml/.yml, parsed and validated by world3d, whose referenced mesh libraries (and their tile names for .gltf libraries), heightmaps, splat maps, layer textures, terrain definitions, foliage meshes, materials and density maps must exist and decode;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -88,6 +89,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		images:     make(map[string]*imageInfo),
 		materials:  make(map[string]bool),
 		meshLibs:   make(map[string]*meshLibInfo),
+		models:     make(map[string]*gltf.Document),
 		roots:      make(map[string]string),
 	}
 	var scenes, gridMaps, terrains, foliages, tiledMaps, tilesets, ldtks, jsons []string
@@ -189,6 +191,8 @@ type checker struct {
 	materials map[string]bool
 	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
 	meshLibs map[string]*meshLibInfo
+	// models holds each glTF model loaded so far, nil for one that does not load.
+	models map[string]*gltf.Document
 	// roots caches the project root of each directory.
 	roots map[string]string
 	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.

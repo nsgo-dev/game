@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -146,14 +147,25 @@ func TestGLBAssetLoadsWithTexturesAndHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewScene: %v", err)
 	}
-	if len(sc.Doc.Nodes) < 10 {
-		t.Fatalf("glTF nodes = %d, want >= 10", len(sc.Doc.Nodes))
+	if len(sc.Model.Nodes) < 10 {
+		t.Fatalf("glTF nodes = %d, want >= 10", len(sc.Model.Nodes))
 	}
-	if len(sc.Doc.Images) < 2 || len(sc.Doc.Textures) < 2 {
-		t.Fatalf("glTF images=%d textures=%d, want >= 2 each", len(sc.Doc.Images), len(sc.Doc.Textures))
+	if len(sc.Model.Images) < 2 || len(sc.Model.Textures) < 2 {
+		t.Fatalf("glTF images=%d textures=%d, want >= 2 each", len(sc.Model.Images), len(sc.Model.Textures))
 	}
-	for i := range sc.Doc.Images {
-		img, err := sc.Doc.DecodeImage(i)
+	// The level's scene file draws the whole diorama: a node for each of the model's nodes under the diorama object, every one that draws with its geometry's bounds.
+	nodes := 0
+	sc.Level.Objects["diorama"].Walk(func(*scene3d.Node) bool { nodes++; return true })
+	if nodes != len(sc.Model.Nodes)+1 {
+		t.Fatalf("diorama object has %d nodes, want the object and the model's %d", nodes, len(sc.Model.Nodes))
+	}
+	for _, d := range sc.Level.Drawables {
+		if d.Object != "diorama" || d.Node.WorldBounds().Empty() {
+			t.Fatalf("drawable %q of object %q has bounds %v", d.Node.Name, d.Object, d.Node.WorldBounds())
+		}
+	}
+	for i := range sc.Model.Images {
+		img, err := sc.Model.DecodeImage(i)
 		if err != nil {
 			t.Fatalf("DecodeImage(%d): %v", i, err)
 		}
@@ -164,8 +176,8 @@ func TestGLBAssetLoadsWithTexturesAndHierarchy(t *testing.T) {
 	if sc.MeshCount() < 10 || sc.TriangleCount() < 100 {
 		t.Fatalf("scene meshes=%d tris=%d, want >= 10 meshes and >= 100 tris", sc.MeshCount(), sc.TriangleCount())
 	}
-	if sc.wispNodeIdx < 0 || sc.coreNodeIdx < 0 {
-		t.Fatalf("missing animated nodes: wisp=%d core=%d", sc.wispNodeIdx, sc.coreNodeIdx)
+	if sc.wisp == nil || sc.core == nil {
+		t.Fatalf("missing animated nodes: wisp=%v core=%v", sc.wisp, sc.core)
 	}
 
 	// Advancing with AnimateLights moves the orbiting point light.
@@ -183,25 +195,17 @@ func TestLightsFollowTheirNodesUnderAMovedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewScene: %v", err)
 	}
-	root := -1
-	for i := range sc.Doc.Nodes {
-		if sc.Doc.Nodes[i].Name == "CourtyardRoot" {
-			root = i
-		}
+	root := sc.World.Root().FindByName("CourtyardRoot")
+	if root == nil {
+		t.Fatal("the level lacks CourtyardRoot")
 	}
-	if root < 0 {
-		t.Fatal("glb lacks CourtyardRoot")
-	}
-	sc.Doc.Nodes[root].Translation = math3d.Vec3{X: 3, Y: 0.5, Z: -2}
-	sc.Doc.Nodes[root].Rotation = math3d.QuatFromAxisAngle(math3d.Vec3Up(), 0.7)
-	if err := sc.Doc.ComputeWorldMatrices(); err != nil {
-		t.Fatalf("ComputeWorldMatrices: %v", err)
-	}
+	root.SetPosition(math3d.Vec3{X: 3, Y: 0.5, Z: -2})
+	root.SetRotation(math3d.QuatFromAxisAngle(math3d.Vec3Up(), 0.7))
 	if err := sc.Step(fixedStep); err != nil {
 		t.Fatalf("Step: %v", err)
 	}
 
-	wisp := sc.Doc.Nodes[sc.wispNodeIdx].WorldMatrix.TransformPoint(math3d.Vec3{})
+	wisp := sc.wisp.WorldMatrix().TransformPoint(math3d.Vec3{})
 	if got := sc.Lights.Point[wispLight].Position; !got.ApproxEqual(wisp, 1e-4) {
 		t.Fatalf("wisp light at %v, wisp mesh at %v", got, wisp)
 	}
@@ -210,7 +214,7 @@ func TestLightsFollowTheirNodesUnderAMovedRoot(t *testing.T) {
 		t.Fatalf("wisp orbit radius = %.4f, want 1.95", r)
 	}
 
-	glow := sc.Doc.Nodes[sc.coreNodeIdx].WorldMatrix.TransformPoint(shrineGlowLocal)
+	glow := sc.core.WorldMatrix().TransformPoint(shrineGlowLocal)
 	if got := sc.Lights.Point[shrineLight].Position; !got.ApproxEqual(glow, 1e-4) {
 		t.Fatalf("shrine glow light at %v, shrine core at %v", got, glow)
 	}

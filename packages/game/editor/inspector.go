@@ -742,10 +742,12 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					_ = ed.SetObjectDepth(objID, float32(v))
 				},
 			}),
-			fieldRow("Mesh", ui.Input{
-				TestID:   "inspector-mesh",
-				Label:    "Mesh",
-				Disabled: disabled,
+			fieldRow("Mesh", ui.Select[string]{
+				TestID:      "inspector-mesh",
+				Label:       "Mesh",
+				Placeholder: "None",
+				Disabled:    disabled,
+				Options:     meshOptions(),
 				Value: func() string {
 					_ = rev.Get()
 					if o, _, _ := ed.FindObject(objID); o != nil {
@@ -753,8 +755,8 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 					return ""
 				},
-				OnChange: func(text string) {
-					_ = ed.SetObjectMesh(objID, text)
+				OnChange: func(mesh string) {
+					_ = ed.SetObjectMesh(objID, mesh)
 				},
 			}),
 		)
@@ -1081,4 +1083,13 @@ func registeredFieldControl(
 			OnChange: func(text string) { set(text) },
 		}
 	}
+}
+
+// meshOptions are the choices of the inspector's Mesh field: none, then each built-in primitive sceneformat.ObjectDoc.Mesh accepts.
+func meshOptions() []ui.Option[string] {
+	opts := []ui.Option[string]{{Value: "", Label: "None"}}
+	for _, m := range sceneformat.MeshPrimitives() {
+		opts = append(opts, ui.Option[string]{Value: m, Label: m})
+	}
+	return opts
 }

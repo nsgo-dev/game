@@ -1,0 +1,4 @@
+version: 1
+name: Scene Model Test
+id: dev.nsgo.scenemodeltest
+appVersion: 0.1.0

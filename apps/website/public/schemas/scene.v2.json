@@ -393,7 +393,26 @@
           "maximum": 3.4028234663852886e+38
         },
         "mesh": {
-          "description": "Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.",
+          "description": "Mesh optionally names the built-in primitive the object draws in 3D: \"box\", \"sphere\", \"plane\", \"capsule\" or \"cylinder\" (MeshPrimitives lists them, and package scenemodel builds them). It cannot be combined with Model; scale the object to size the primitive.",
+          "type": "string",
+          "enum": [
+            "box",
+            "sphere",
+            "plane",
+            "capsule",
+            "cylinder"
+          ]
+        },
+        "model": {
+          "description": "Model optionally names the glTF 2.0 model the object draws in 3D, a .gltf or .glb file named by its slash-separated path from the project root, such as \"models/crate.glb\". Without ModelNode or ModelMesh the object draws every node of the model's default scene; package scenemodel loads it through a ModelResolver. Version 2.",
+          "type": "string"
+        },
+        "modelNode": {
+          "description": "ModelNode optionally names one node of Model, the first with that name in the file, which the object draws with its descendants in place of the whole model; the object's own transform replaces the node's. It requires Model and cannot be combined with ModelMesh. Version 2.",
+          "type": "string"
+        },
+        "modelMesh": {
+          "description": "ModelMesh optionally names one mesh of Model, the first with that name in the file, which the object draws at its origin in place of the whole model. It requires Model and cannot be combined with ModelNode. Version 2.",
           "type": "string"
         },
         "flipX": {
@@ -425,7 +444,7 @@
           ]
         },
         "material": {
-          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.",
+          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).",
           "type": "string"
         },
         "components": {
@@ -553,7 +572,26 @@
           "maximum": 3.4028234663852886e+38
         },
         "mesh": {
-          "description": "Mesh replaces the 3D mesh primitive or asset path the object names.",
+          "description": "Mesh replaces the built-in 3D primitive the object draws.",
+          "type": "string",
+          "enum": [
+            "box",
+            "sphere",
+            "plane",
+            "capsule",
+            "cylinder"
+          ]
+        },
+        "model": {
+          "description": "Model replaces the glTF model the object draws, a slash-separated path from the project root.",
+          "type": "string"
+        },
+        "modelNode": {
+          "description": "ModelNode replaces the node of the model the object draws.",
+          "type": "string"
+        },
+        "modelMesh": {
+          "description": "ModelMesh replaces the mesh of the model the object draws.",
           "type": "string"
         },
         "flipX": {

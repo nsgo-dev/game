@@ -1259,10 +1259,13 @@ func (e *Editor) SetObjectDepth(id string, depth float32) error {
 	return nil
 }
 
-// SetObjectMesh sets object id's optional 3D mesh name as an undoable command.
+// SetObjectMesh sets the built-in primitive object id draws in 3D, one of sceneformat.MeshPrimitives or "" for none, as an undoable command. It refuses any other name, and a primitive on an object that names a model.
 func (e *Editor) SetObjectMesh(id, mesh string) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if mesh != "" && !slices.Contains(sceneformat.MeshPrimitives(), mesh) {
+		return fmt.Errorf("editor: mesh %q is not a built-in primitive (want one of %s)", mesh, strings.Join(sceneformat.MeshPrimitives(), ", "))
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
@@ -1270,6 +1273,9 @@ func (e *Editor) SetObjectMesh(id, mesh string) error {
 	}
 	if obj.Mesh == mesh {
 		return nil
+	}
+	if mesh != "" && obj.Model != "" {
+		return fmt.Errorf("editor: object %q draws model %q; it cannot also draw mesh %q", id, obj.Model, mesh)
 	}
 	e.History.Execute(&meshObjectCmd{
 		ed:      e,

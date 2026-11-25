@@ -8,8 +8,10 @@ import (
 	"io/fs"
 	"maps"
 	"math"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -230,8 +232,14 @@ type ObjectDoc struct {
 	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
 	// Depth is the optional 3D extent along the Z axis in world units; 0 uses a default extent.
 	Depth float32 `yaml:"depth,omitempty" schema:"minimum=0"`
-	// Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.
-	Mesh string `yaml:"mesh,omitempty"`
+	// Mesh optionally names the built-in primitive the object draws in 3D: "box", "sphere", "plane", "capsule" or "cylinder" (MeshPrimitives lists them, and package scenemodel builds them). It cannot be combined with Model; scale the object to size the primitive.
+	Mesh string `yaml:"mesh,omitempty" schema:"enum=box|sphere|plane|capsule|cylinder"`
+	// Model optionally names the glTF 2.0 model the object draws in 3D, a .gltf or .glb file named by its slash-separated path from the project root, such as "models/crate.glb". Without ModelNode or ModelMesh the object draws every node of the model's default scene; package scenemodel loads it through a ModelResolver. Version 2.
+	Model string `yaml:"model,omitempty"`
+	// ModelNode optionally names one node of Model, the first with that name in the file, which the object draws with its descendants in place of the whole model; the object's own transform replaces the node's. It requires Model and cannot be combined with ModelMesh. Version 2.
+	ModelNode string `yaml:"modelNode,omitempty"`
+	// ModelMesh optionally names one mesh of Model, the first with that name in the file, which the object draws at its origin in place of the whole model. It requires Model and cannot be combined with ModelNode. Version 2.
+	ModelMesh string `yaml:"modelMesh,omitempty"`
 	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
 	FlipX bool `yaml:"flipX,omitempty"`
 	FlipY bool `yaml:"flipY,omitempty"`
@@ -241,7 +249,7 @@ type ObjectDoc struct {
 	Z int `yaml:"z,omitempty"`
 	// Sprite optionally binds the object to a frame in a sprite.Atlas.
 	Sprite *SpriteRef `yaml:"sprite,omitempty"`
-	// Material optionally names a shared material resource file by its slash-separated path from the project root, such as "materials/stone.material.yaml". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.
+	// Material optionally names a shared material resource file by its slash-separated path from the project root, such as "materials/stone.material.yaml". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).
 	Material string `yaml:"material,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
@@ -287,8 +295,14 @@ type ObjectOverride struct {
 	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
 	// Depth replaces the object's 3D extent along the Z axis.
 	Depth *float32 `yaml:"depth,omitempty" schema:"minimum=0"`
-	// Mesh replaces the 3D mesh primitive or asset path the object names.
-	Mesh *string `yaml:"mesh,omitempty"`
+	// Mesh replaces the built-in 3D primitive the object draws.
+	Mesh *string `yaml:"mesh,omitempty" schema:"enum=box|sphere|plane|capsule|cylinder"`
+	// Model replaces the glTF model the object draws, a slash-separated path from the project root.
+	Model *string `yaml:"model,omitempty"`
+	// ModelNode replaces the node of the model the object draws.
+	ModelNode *string `yaml:"modelNode,omitempty"`
+	// ModelMesh replaces the mesh of the model the object draws.
+	ModelMesh *string `yaml:"modelMesh,omitempty"`
 	// FlipX replaces whether the sprite is mirrored horizontally.
 	FlipX *bool `yaml:"flipX,omitempty"`
 	// FlipY replaces whether the sprite is mirrored vertically.
@@ -719,8 +733,22 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 			return fieldErr(at(op, "id"), "sceneformat: duplicate object id %q", o.ID)
 		}
 		ids[o.ID] = struct{}{}
-		if err := validateObject(op, fmt.Sprintf("layer %q object %q", layer, o.ID), o); err != nil {
+		where := fmt.Sprintf("layer %q object %q", layer, o.ID)
+		if err := validateObject(op, where, o); err != nil {
 			return err
+		}
+		if err := checkModelRefs(op, where, o); err != nil {
+			return err
+		}
+		if version < 2 && (o.Model != "" || o.ModelNode != "" || o.ModelMesh != "") {
+			field := "model"
+			if o.Model == "" {
+				field = "modelNode"
+				if o.ModelNode == "" {
+					field = "modelMesh"
+				}
+			}
+			return fieldErr(at(op, field), "sceneformat: %s: model, modelNode and modelMesh need version 2, not %d", where, version)
 		}
 		if err := validateInstance(version, op, layer, o); err != nil {
 			return err
@@ -885,6 +913,70 @@ func validateObject(path []string, where string, o *ObjectDoc) error {
 	}
 	if o.Material != "" && !validFilePath(o.Material) {
 		return fieldErr(at(path, "material"), "sceneformat: %s material %q must be a slash-separated path relative to the project root", where, o.Material)
+	}
+	return validateModel(path, where, o)
+}
+
+// The built-in primitives ObjectDoc.Mesh names.
+const (
+	// MeshBox is a 1 by 1 by 1 cube centered on the object's origin.
+	MeshBox = "box"
+	// MeshSphere is a sphere 1 across centered on the object's origin.
+	MeshSphere = "sphere"
+	// MeshPlane is a 1 by 1 square in the object's XZ plane, centered on its origin and facing +Y.
+	MeshPlane = "plane"
+	// MeshCapsule is a capsule 1 across and 2 tall along the object's Y axis, centered on its origin.
+	MeshCapsule = "capsule"
+	// MeshCylinder is a cylinder 1 across and 1 tall along the object's Y axis, centered on its origin.
+	MeshCylinder = "cylinder"
+)
+
+// meshPrimitives are the values ObjectDoc.Mesh accepts, sorted.
+var meshPrimitives = []string{MeshBox, MeshCapsule, MeshCylinder, MeshPlane, MeshSphere}
+
+// MeshPrimitives returns the built-in primitive names ObjectDoc.Mesh accepts, sorted.
+func MeshPrimitives() []string { return slices.Clone(meshPrimitives) }
+
+// modelExtensions are the file extensions ObjectDoc.Model accepts, compared without case.
+var modelExtensions = []string{".glb", ".gltf"}
+
+// IsModelPath reports whether p names a glTF 2.0 file by its extension, .gltf or .glb in any case, as ObjectDoc.Model requires.
+func IsModelPath(p string) bool {
+	return slices.Contains(modelExtensions, strings.ToLower(path.Ext(p)))
+}
+
+// validateModel checks the 3D look fields of o, found at path in the document; where names it in errors.
+func validateModel(p []string, where string, o *ObjectDoc) error {
+	if o.Mesh != "" && !slices.Contains(meshPrimitives, o.Mesh) {
+		return fieldErr(at(p, "mesh"), "sceneformat: %s mesh %q is not a built-in primitive (want one of %s); name a glTF file in model instead", where, o.Mesh, strings.Join(meshPrimitives, ", "))
+	}
+	if o.Model != "" {
+		if !validFilePath(o.Model) {
+			return fieldErr(at(p, "model"), "sceneformat: %s model %q must be a slash-separated path relative to the project root", where, o.Model)
+		}
+		if !IsModelPath(o.Model) {
+			return fieldErr(at(p, "model"), "sceneformat: %s model %q must be a glTF file ending in .gltf or .glb", where, o.Model)
+		}
+		if o.Mesh != "" {
+			return fieldErr(at(p, "mesh"), "sceneformat: %s names both mesh %q and model %q; keep one", where, o.Mesh, o.Model)
+		}
+	}
+	if o.ModelNode != "" && o.ModelMesh != "" {
+		return fieldErr(at(p, "modelMesh"), "sceneformat: %s names both modelNode %q and modelMesh %q; keep one", where, o.ModelNode, o.ModelMesh)
+	}
+	return nil
+}
+
+// checkModelRefs checks that o's ModelNode and ModelMesh name a part of a Model it has, which an override may set alone on an object of another file and so is only checked on a whole object.
+func checkModelRefs(p []string, where string, o *ObjectDoc) error {
+	if o.Model != "" {
+		return nil
+	}
+	switch {
+	case o.ModelNode != "":
+		return fieldErr(at(p, "modelNode"), "sceneformat: %s modelNode %q requires model", where, o.ModelNode)
+	case o.ModelMesh != "":
+		return fieldErr(at(p, "modelMesh"), "sceneformat: %s modelMesh %q requires model", where, o.ModelMesh)
 	}
 	return nil
 }

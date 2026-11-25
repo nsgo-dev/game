@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"go.yaml.in/yaml/v3"
@@ -294,8 +296,80 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 		if o.Material != "" {
 			s.material(o.Material, append(slices.Clip(op), "material")...)
 		}
+		if o.Model != "" {
+			s.model(o.Model, o.ModelNode, o.ModelMesh, op)
+		}
+		for _, id := range slices.Sorted(maps.Keys(o.Overrides)) {
+			ov := o.Overrides[id]
+			if ov.Model != nil && *ov.Model != "" {
+				s.model(*ov.Model, deref(ov.ModelNode), deref(ov.ModelMesh), append(slices.Clip(op), "overrides", id))
+			}
+		}
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
 	}
+}
+
+// deref returns *p, or "" when p is nil.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// model checks that a glTF model file exists in the project and loads, and that the node and mesh the object at steps names, when it names one, are in it. A model that does not load is reported against the model file itself.
+func (s *sceneCheck) model(ref, node, mesh string, steps []string) {
+	p, ok := s.fileRef(s.path, s.line(append(slices.Clip(steps), "model")...), s.project, ref, "model")
+	if !ok {
+		return
+	}
+	doc := s.loadModel(p)
+	if doc == nil {
+		return
+	}
+	if node != "" && !slices.ContainsFunc(doc.Nodes, func(n gltf.Node) bool { return n.Name == node }) {
+		s.problem(s.path, s.line(append(slices.Clip(steps), "modelNode")...), "modelNode %q is not a node of model %q (%s)", node, ref, p)
+	}
+	if mesh != "" && !slices.ContainsFunc(doc.Meshes, func(m gltf.Mesh) bool { return m.Name == mesh }) {
+		s.problem(s.path, s.line(append(slices.Clip(steps), "modelMesh")...), "modelMesh %q is not a mesh of model %q (%s)", mesh, ref, p)
+	}
+}
+
+// loadModel loads the glTF model at p once, recording a problem against it and returning nil when it does not load.
+func (c *checker) loadModel(p string) *gltf.Document {
+	if doc, ok := c.models[p]; ok {
+		return doc
+	}
+	doc, err := gltf.LoadFS(c.fsys, p)
+	if err != nil && c.modelFileMissing(p) {
+		// checkRefs reports the missing buffer or image at the line of the .gltf file that names it, which says more than the load error.
+		err = nil
+		doc = nil
+	}
+	if err != nil {
+		line := 0
+		if e, ok := loaderr.As(err); ok {
+			// A line counts the JSON of a .gltf file; a .glb is binary and has none.
+			if strings.EqualFold(path.Ext(p), ".gltf") {
+				line = e.Line
+			}
+			err = &loaderr.Error{Field: e.Field, Problem: e.Problem, Expected: e.Expected, Fix: e.Fix, Err: e.Err}
+		}
+		c.problem(p, line, "%v", err)
+		doc = nil
+	}
+	c.models[p] = doc
+	return doc
+}
+
+// modelFileMissing reports whether a buffer or image file the glTF model at p names (refs.FieldModelBuffer, refs.FieldModelImage) cannot be read.
+func (c *checker) modelFileMissing(p string) bool {
+	for _, r := range c.refs.Refs {
+		if r.File == p && r.Target != "" && (r.Field == refs.FieldModelBuffer || r.Field == refs.FieldModelImage) && c.fileMissing(r.Target) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // sceneCheck checks the references of one valid scene.

@@ -70,6 +70,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/math3d` | Experimental | 3D vectors, matrices, quaternions, transforms, AABBs, rays and frustums |
 | `game/scene3d` | Experimental | 3D node tree, sockets/attachments, dynamic BVH, Orbit/FPS/ThirdPerson cameras, picking, decals |
 | `game/render3d` | Experimental | GPU mesh buffers, textures/samplers, culling, sorting, 0-alloc instancing, LODs, gizmos, trails, `RenderStats` |
+| `game/scenemodel` | Experimental | Scene file objects drawn in 3D: built-in primitives (`mesh`) and glTF models (`model`, `modelNode`, `modelMesh`) with material overrides, built into a `scene3d` tree with bounds, and a lit, textured `Renderer` |
 | `game/anim3d` | Experimental | 3D pose state machines, 1D/2D blend spaces, bone masks, clip events, IK, root motion |
 | `game/physics3d` | Experimental | 3D rigid bodies, shapes, raycasts, sweeps and character movement |
 | `game/world3d` | Experimental | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, foliage, floating-origin streaming |
