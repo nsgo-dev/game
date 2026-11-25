@@ -79,6 +79,18 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					Background:   colors.Surface(),
 				},
 				OnPress: func(core.PressEvent) {
+					// Opening another scene loses the open one's unsaved edits, so it asks first, as opening from the file browser does.
+					if ed.Project != nil && isProjectScene(ed.Project, p.File) && p.File != ed.ScenePath {
+						ed.whenSaved(func() {
+							if err := ed.OpenProblem(p); err != nil {
+								ed.report(err)
+								return
+							}
+							ed.discardProject()
+							ed.notify()
+						}, nil)
+						return
+					}
 					ed.report(ed.OpenProblem(p))
 				},
 				Children: []core.Node{

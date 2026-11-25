@@ -3,7 +3,6 @@ package editor
 import (
 	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -94,9 +93,7 @@ func (e *Editor) dropStaleFocusedPluginPanel() {
 	}
 }
 
-// OpenProjectFile opens or selects relPath, a slash-separated path relative to the open project root:
-// scene files open in the scene editor (updating ScenePath and SelectedFile), game.yaml opens
-// Project Settings and selects the file, and other files are selected in the file browser.
+// OpenProjectFile opens or selects relPath, a slash-separated path relative to the open project root: scene files open in the scene editor through OpenScene (updating ScenePath and SelectedFile, clearing OnSave and losing the open scene's unsaved edits; CommandPaletteView asks first), game.yaml opens Project Settings and selects the file, and other files are selected in the file browser.
 func (e *Editor) OpenProjectFile(relPath string) error {
 	if e.playing {
 		return ErrPlaying
@@ -109,8 +106,7 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 		return nil
 	}
 	if isProjectScene(e.Project, relPath) {
-		abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(relPath))
-		if err := e.OpenFile(abs); err != nil {
+		if err := e.OpenScene(relPath); err != nil {
 			e.selectFile(relPath)
 			e.notify()
 			return err
@@ -400,6 +396,16 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			OnSelect: func(id string) {
 				query.Set("")
 				ed.CloseCommandPalette()
+				// Opening another scene asks first while edits are unsaved, as the file browser does.
+				if rel, ok := strings.CutPrefix(id, palettePrefixFile); ok && isProjectScene(ed.Project, rel) && !ed.isOpenScene(rel) && !ed.Playing() {
+					ed.whenSaved(func() {
+						if ed.ExecutePaletteItem(id) == nil {
+							ed.discardProject()
+							ed.notify()
+						}
+					}, nil)
+					return
+				}
 				_ = ed.ExecutePaletteItem(id)
 			},
 		},

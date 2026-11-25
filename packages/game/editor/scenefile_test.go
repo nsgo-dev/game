@@ -1,0 +1,869 @@
+package editor_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+// openTestProject opens the project writeEditorProject writes, with its main scene scenes/room.yaml, and a second scene scenes/other.scene.yaml, and returns the editor and the project's directory.
+func openTestProject(t *testing.T) (*editor.Editor, string) {
+	t.Helper()
+	dir := writeEditorProject(t)
+	other := testSceneDoc()
+	other.Name = "Other"
+	data, err := sceneformat.Encode(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "other.scene.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Opening the project starts the Problems check in the background, which must finish before the directory goes.
+	t.Cleanup(ed.WaitForProblems)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	return ed, dir
+}
+
+// checkProject runs what `game check` runs on dir and fails on any problem.
+func checkProject(t *testing.T, dir string) {
+	t.Helper()
+	report, err := assetcheck.Check(os.DirFS(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range report.Problems {
+		t.Errorf("game check: %v", p)
+	}
+}
+
+func TestSceneDirtyFollowsEditsUndoAndSave(t *testing.T) {
+	ed, dir := openTestProject(t)
+	if ed.SceneDirty() || ed.HasUnsavedChanges() {
+		t.Fatal("a scene just opened is dirty")
+	}
+	if ed.ScenePath != "scenes/room.yaml" || ed.SceneLabel() != "scenes/room.yaml" {
+		t.Fatalf("ScenePath %q, SceneLabel %q, want the main scene's path in the project", ed.ScenePath, ed.SceneLabel())
+	}
+	if err := ed.MoveObject("hero", 99, 98); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.SceneDirty() || !ed.HasUnsavedChanges() || !strings.HasPrefix(ed.WindowTitle(), "scenes/room.yaml*") {
+		t.Fatalf("after an edit: dirty %v, title %q", ed.SceneDirty(), ed.WindowTitle())
+	}
+	ed.Undo()
+	if ed.SceneDirty() || strings.Contains(ed.WindowTitle(), "*") {
+		t.Fatalf("undoing back to the saved state leaves the scene dirty, title %q", ed.WindowTitle())
+	}
+	ed.Redo()
+	if !ed.SceneDirty() {
+		t.Fatal("redoing the edit leaves the scene clean")
+	}
+	if err := ed.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SceneDirty() {
+		t.Fatal("a saved scene is dirty")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := ed.SaveYAML(); string(data) != string(want) {
+		t.Fatalf("the file holds\n%s\nwant\n%s", data, want)
+	}
+	// Undoing past the save makes the scene differ from the file again.
+	ed.Undo()
+	if !ed.SceneDirty() {
+		t.Fatal("undoing past the save leaves the scene clean")
+	}
+}
+
+func TestSaveThroughOnSaveMarksTheSceneSaved(t *testing.T) {
+	ed := newTestEditor(t)
+	if ed.SceneDirty() {
+		t.Fatal("the scene the editor starts on is dirty")
+	}
+	if err := ed.MoveObject("hero", 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.Save(); !errors.Is(err, editor.ErrNoSceneFile) || !ed.SceneDirty() {
+		t.Fatalf("Save without a file = %v (dirty %v), want ErrNoSceneFile", err, ed.SceneDirty())
+	}
+	var saved []byte
+	ed.OnSave = func(data []byte) error {
+		saved = data
+		return nil
+	}
+	if err := ed.Save(); err != nil || ed.SceneDirty() || len(saved) == 0 {
+		t.Fatalf("Save through OnSave = %v, dirty %v, %d bytes", err, ed.SceneDirty(), len(saved))
+	}
+	ed.OnSave = func([]byte) error { return errors.New("disk full") }
+	if err := ed.MoveObject("hero", 3, 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.Save(); err == nil || !ed.SceneDirty() {
+		t.Fatalf("a failed OnSave = %v, dirty %v, want its error and the scene still dirty", err, ed.SceneDirty())
+	}
+}
+
+func TestOpenNewAndSaveSceneAs(t *testing.T) {
+	ed, dir := openTestProject(t)
+	ed.OnSave = func([]byte) error { return errors.New("OnSave persisted the scene opened before") }
+
+	if err := ed.OpenScene("scenes/other.scene.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if ed.Doc.Name != "Other" || ed.ScenePath != "scenes/other.scene.yaml" || ed.FilePath != filepath.Join(dir, "scenes", "other.scene.yaml") || ed.OnSave != nil || ed.SceneDirty() {
+		t.Fatalf("after OpenScene: %q at %q (%q), OnSave kept %v, dirty %v", ed.Doc.Name, ed.ScenePath, ed.FilePath, ed.OnSave != nil, ed.SceneDirty())
+	}
+	for _, bad := range []string{"../outside.scene.yaml", "/abs.scene.yaml", "", `scenes\win.scene.yaml`} {
+		if err := ed.OpenScene(bad); err == nil {
+			t.Errorf("OpenScene(%q) succeeded", bad)
+		}
+		if _, err := ed.NewScene(bad); err == nil {
+			t.Errorf("NewScene(%q) succeeded", bad)
+		}
+	}
+
+	// The project's own file names are refused even where no such file exists yet, since the project's tools would read a scene there as something else.
+	for _, bad := range []string{project.NSGoFileName, "sub/" + project.NSGoFileName, "sub/" + project.FileName} {
+		if _, err := ed.NewScene(bad); err == nil || errors.Is(err, editor.ErrFileExists) {
+			t.Errorf("NewScene(%q) = %v, want the project file's name refused", bad, err)
+		}
+		if _, err := ed.SaveSceneAs(bad); err == nil || errors.Is(err, editor.ErrFileExists) {
+			t.Errorf("SaveSceneAs(%q) = %v, want the project file's name refused", bad, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sub")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused path made its directory: %v", err)
+	}
+
+	// A path ending in .scene gets .yaml, and an extension in upper case is trimmed from the scene's name.
+	for _, c := range []struct{ in, rel, name string }{
+		{"levels/Hall.scene", "levels/Hall.scene.yaml", "Hall"},
+		{"levels/Big.YAML", "levels/Big.YAML", "Big"},
+		{"levels/Loud.Scene.YML", "levels/Loud.Scene.YML", "Loud"},
+	} {
+		rel, err := ed.NewScene(c.in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel != c.rel || ed.Doc.Name != c.name {
+			t.Errorf("NewScene(%q) = %q named %q, want %q named %q", c.in, rel, ed.Doc.Name, c.rel, c.name)
+		}
+	}
+
+	rel, err := ed.NewScene("levels/cave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel != "levels/cave.scene.yaml" || ed.ScenePath != rel || ed.Doc.Name != "cave" || ed.SceneDirty() || ed.History.CanUndo() {
+		t.Fatalf("after NewScene: %q, ScenePath %q, name %q, dirty %v", rel, ed.ScenePath, ed.Doc.Name, ed.SceneDirty())
+	}
+	// The project's window is 640x360 and it has no display, so the scene takes the window's size.
+	if ed.Doc.VirtualWidth != 640 || ed.Doc.VirtualHeight != 360 {
+		t.Fatalf("the new scene is %vx%v, want the project's 640x360", ed.Doc.VirtualWidth, ed.Doc.VirtualHeight)
+	}
+	if _, err := ed.NewScene("levels/cave.scene.yaml"); !errors.Is(err, editor.ErrFileExists) {
+		t.Fatalf("NewScene over a file = %v, want ErrFileExists", err)
+	}
+
+	if _, err := ed.PlaceObject("main", sceneformat.ObjectDoc{ID: "torch", X: 4, Y: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.SaveSceneAs("scenes/other.scene.yaml"); !errors.Is(err, editor.ErrFileExists) {
+		t.Fatalf("SaveSceneAs over another file = %v, want ErrFileExists", err)
+	}
+	rel, err = ed.SaveSceneAs("levels/deep/cave2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel != "levels/deep/cave2.scene.yaml" || ed.ScenePath != rel || ed.FilePath != filepath.Join(dir, "levels", "deep", "cave2.scene.yaml") || ed.SceneDirty() {
+		t.Fatalf("after SaveSceneAs: %q, ScenePath %q, FilePath %q, dirty %v", rel, ed.ScenePath, ed.FilePath, ed.SceneDirty())
+	}
+	// Saving as the scene's own path saves it.
+	if err := ed.MoveObject("torch", 6, 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.SaveSceneAs(rel); err != nil || ed.SceneDirty() {
+		t.Fatalf("SaveSceneAs to its own path = %v, dirty %v", err, ed.SceneDirty())
+	}
+	if _, err := ed.SaveSceneAs("levels/"); err == nil {
+		t.Fatal("SaveSceneAs to a directory succeeded")
+	}
+}
+
+func TestSceneFileOperationsNeedAProject(t *testing.T) {
+	ed := newTestEditor(t)
+	if err := ed.OpenScene("scenes/a.scene.yaml"); !errors.Is(err, editor.ErrNoProject) {
+		t.Errorf("OpenScene = %v, want ErrNoProject", err)
+	}
+	if _, err := ed.NewScene("scenes/a.scene.yaml"); !errors.Is(err, editor.ErrNoProject) {
+		t.Errorf("NewScene = %v, want ErrNoProject", err)
+	}
+	if _, err := ed.SaveSceneAs("scenes/a.scene.yaml"); !errors.Is(err, editor.ErrNoProject) {
+		t.Errorf("SaveSceneAs = %v, want ErrNoProject", err)
+	}
+	if err := ed.RevertScene(); !errors.Is(err, editor.ErrNoSceneFile) {
+		t.Errorf("RevertScene = %v, want ErrNoSceneFile", err)
+	}
+	if ed.SceneLabel() != "Untitled" {
+		t.Errorf("SceneLabel = %q, want Untitled", ed.SceneLabel())
+	}
+}
+
+func TestRevertSceneIsUndoable(t *testing.T) {
+	ed, dir := openTestProject(t)
+	if err := ed.MoveObject("hero", 50, 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertScene(); err != nil {
+		t.Fatal(err)
+	}
+	if obj, _, _ := ed.FindObject("hero"); obj == nil || obj.X == 50 || ed.SceneDirty() {
+		t.Fatalf("after RevertScene: hero %+v, dirty %v", obj, ed.SceneDirty())
+	}
+	if !ed.Undo() {
+		t.Fatal("RevertScene left nothing to undo")
+	}
+	if obj, _, _ := ed.FindObject("hero"); obj == nil || obj.X != 50 || obj.Y != 60 || !ed.SceneDirty() {
+		t.Fatalf("after undoing the revert: hero %+v, dirty %v", obj, ed.SceneDirty())
+	}
+
+	// A file changed on disk since it was opened is what Revert puts back, and the scene is clean against it.
+	changed := testSceneDoc()
+	changed.Name = "Changed Outside"
+	data, err := sceneformat.Encode(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "room.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertScene(); err != nil || ed.Doc.Name != "Changed Outside" || ed.SceneDirty() {
+		t.Fatalf("RevertScene after an outside change = %v: %q, dirty %v", err, ed.Doc.Name, ed.SceneDirty())
+	}
+
+	// A file that no longer parses changes nothing.
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "room.yaml"), []byte("version: 2\nbogus: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveObject("hero", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertScene(); err == nil || !ed.SceneDirty() {
+		t.Fatalf("RevertScene of a broken file = %v, dirty %v", err, ed.SceneDirty())
+	}
+}
+
+func TestMovingTheOpenSceneKeepsItClean(t *testing.T) {
+	ed, _ := openTestProject(t)
+	if err := ed.MoveFile("scenes/room.yaml", "levels/room.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if ed.ScenePath != "levels/room.yaml" || ed.SceneDirty() {
+		t.Fatalf("after the move: ScenePath %q, dirty %v", ed.ScenePath, ed.SceneDirty())
+	}
+}
+
+// TestMovingAnAssetOfAnUnreadSceneLeavesItDirty moves an asset that the open scene names while refs does not read the scene's file, which then keeps the old path on disk: the scene shows as dirty, so the rewritten reference is not lost, while a scene whose file the move rewrote stays clean.
+func TestMovingAnAssetOfAnUnreadSceneLeavesItDirty(t *testing.T) {
+	ed, dir := openTestProject(t)
+	room := testSceneDoc()
+	room.Layers[1].Objects[0].Material = "materials/stone.material.yaml"
+	plain := testSceneDoc()
+	plain.Name = "Plain"
+	plain.Layers[1].Objects[0].Material = "materials/moss.material.yaml"
+	files := map[string]*sceneformat.SceneDoc{"scenes/room.yaml": room, "levels/plain.yaml": plain}
+	for name, doc := range files {
+		data, err := sceneformat.Encode(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "materials"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"stone", "moss"} {
+		if err := os.WriteFile(filepath.Join(dir, "materials", name+".material.yaml"), []byte("type: material\nversion: 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The main scene, which game.yaml names, is one refs reads and rewrites.
+	if err := ed.OpenScene("scenes/room.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveFile("materials/stone.material.yaml", "materials/rock.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SceneDirty() {
+		t.Fatal("moving an asset of a scene whose file the move rewrote left it dirty")
+	}
+
+	// levels/plain.yaml has no .scene.yaml name and nothing names it, so the move does not touch it.
+	if err := ed.OpenScene("levels/plain.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.MoveFile("materials/moss.material.yaml", "materials/lichen.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "levels", "plain.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "materials/moss.material.yaml") {
+		t.Fatalf("the move rewrote levels/plain.yaml, which this test needs left alone:\n%s", data)
+	}
+	if hero, _, _ := ed.FindObject("hero"); hero == nil || hero.Material != "materials/lichen.material.yaml" || !ed.SceneDirty() {
+		t.Fatalf("after moving the asset: hero %+v, dirty %v, want the new path and a dirty scene", hero, ed.SceneDirty())
+	}
+	if !ed.Undo() || ed.SceneDirty() {
+		t.Fatalf("undoing the move leaves the scene dirty %v", ed.SceneDirty())
+	}
+}
+
+// startEditorApp shows ed in an EditorView at the size `game editor` opens.
+func startEditorApp(t *testing.T, ed *editor.Editor) *nsgotest.App {
+	t.Helper()
+	return nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680))
+}
+
+// TestUnsavedMarkerAndModS edits a scene in the editor: the toolbar's marker and the window title show the unsaved edit, Undo back to the saved state clears them, and Mod+S saves.
+func TestUnsavedMarkerAndModS(t *testing.T) {
+	ed, dir := openTestProject(t)
+	app := startEditorApp(t, ed)
+	if app.Exists("id:toolbar-unsaved") || app.Title != "scenes/room.yaml - NSGo Scene Editor" {
+		t.Fatalf("a clean scene shows the marker (%v), title %q", app.Exists("id:toolbar-unsaved"), app.Title)
+	}
+	if got := app.Find("id:toolbar-scene-path").Text; got != "scenes/room.yaml" {
+		t.Fatalf("the toolbar shows %q, want the scene's path", got)
+	}
+	app.Press("id:toolbar-file")
+	app.Settle()
+	if app.Enabled("id:toolbar-revert") {
+		t.Fatal("Revert is enabled on a clean scene")
+	}
+	app.Key("escape")
+	app.Settle()
+
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 70, 80); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if !app.Exists("id:toolbar-unsaved") || app.Title != "scenes/room.yaml* - NSGo Scene Editor" {
+		t.Fatalf("an edit shows no marker (%v), title %q", app.Exists("id:toolbar-unsaved"), app.Title)
+	}
+	app.Press("id:toolbar-undo")
+	app.Settle()
+	if app.Exists("id:toolbar-unsaved") || strings.Contains(app.Title, "*") {
+		t.Fatalf("undoing back to the saved state keeps the marker, title %q", app.Title)
+	}
+	app.Press("id:toolbar-redo")
+	app.Settle()
+	if !app.Exists("id:toolbar-unsaved") {
+		t.Fatal("redoing the edit shows no marker")
+	}
+
+	app.Key("mod+s")
+	app.Settle()
+	if app.Exists("id:toolbar-unsaved") || ed.SceneDirty() {
+		t.Fatalf("Mod+S left the marker, status %q", ed.Status)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := sceneformat.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hero := doc.Layers[1].Objects[0]; hero.X != 70 || hero.Y != 80 {
+		t.Fatalf("Mod+S wrote hero at %v,%v", hero.X, hero.Y)
+	}
+
+	// Revert puts back the file, and Undo the edit it reverted.
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 1, 1); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:toolbar-file")
+	app.Settle()
+	app.Press("id:toolbar-revert")
+	app.Settle()
+	if obj, _, _ := ed.FindObject("hero"); obj.X != 70 || app.Exists("id:toolbar-unsaved") {
+		t.Fatalf("after Revert hero is at %v, marker %v", obj.X, app.Exists("id:toolbar-unsaved"))
+	}
+	app.Press("id:toolbar-undo")
+	app.Settle()
+	if obj, _, _ := ed.FindObject("hero"); obj.X != 1 || !app.Exists("id:toolbar-unsaved") {
+		t.Fatalf("after undoing Revert hero is at %v, marker %v", obj.X, app.Exists("id:toolbar-unsaved"))
+	}
+}
+
+// TestOpenFromTheFileBrowserAsksFirst opens another scene from the file browser while the scene has unsaved edits: Cancel keeps them, Save saves them and opens the scene, and Discard drops them, the project's too.
+func TestOpenFromTheFileBrowserAsksFirst(t *testing.T) {
+	ed, dir := openTestProject(t)
+	app := startEditorApp(t, ed)
+	edit := func(x float32) {
+		app.Post(func() {
+			if err := ed.MoveObject("hero", x, x); err != nil {
+				t.Error(err)
+			}
+		})
+		app.Settle()
+	}
+
+	// A clean scene opens at once.
+	app.DoublePress("id:files-row-scenes/other.scene.yaml")
+	app.Settle()
+	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/other.scene.yaml" {
+		t.Fatalf("opening from a clean scene: prompt %v, ScenePath %q", app.Exists("id:unsaved-dialog"), ed.ScenePath)
+	}
+
+	edit(33)
+	app.Press("id:files-row-scenes/room.yaml")
+	app.Settle()
+	app.Press("id:files-open")
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening another scene over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if app.Exists("id:unsaved-dialog") || ed.ScenePath != "scenes/other.scene.yaml" || !ed.SceneDirty() {
+		t.Fatalf("after Cancel: prompt %v, ScenePath %q, dirty %v", app.Exists("id:unsaved-dialog"), ed.ScenePath, ed.SceneDirty())
+	}
+	if obj, _, _ := ed.FindObject("hero"); obj.X != 33 || !ed.History.CanUndo() {
+		t.Fatalf("Cancel lost the edit: hero at %v, undo %v", obj.X, ed.History.CanUndo())
+	}
+
+	app.Press("id:files-open")
+	app.Settle()
+	app.Press("id:unsaved-save")
+	app.Settle()
+	if ed.ScenePath != "scenes/room.yaml" || ed.SceneDirty() {
+		t.Fatalf("after Save: ScenePath %q, dirty %v, status %q", ed.ScenePath, ed.SceneDirty(), ed.Status)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "scenes", "other.scene.yaml"))
+	if err != nil || !strings.Contains(string(data), "x: 33") {
+		t.Fatalf("Save did not write the edit (%v):\n%s", err, data)
+	}
+
+	edit(44)
+	// Double-pressing the open scene's row does not reload it, which would ask to drop the edit or empty the undo history.
+	app.DoublePress("id:files-row-scenes/room.yaml")
+	app.Settle()
+	if app.Exists("id:unsaved-dialog") || !ed.History.CanUndo() {
+		t.Fatalf("double-pressing the open scene: prompt %v, undo %v", app.Exists("id:unsaved-dialog"), ed.History.CanUndo())
+	}
+	app.Post(func() {
+		if err := ed.EditProject("rename", func(f *project.File) { f.Name = "Renamed" }); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.DoublePress("id:files-row-scenes/other.scene.yaml")
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if ed.ScenePath != "scenes/other.scene.yaml" || ed.HasUnsavedChanges() || ed.Project.Name != "Demo" {
+		t.Fatalf("after Discard: ScenePath %q, unsaved %v, project %q", ed.ScenePath, ed.HasUnsavedChanges(), ed.Project.Name)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
+	if err != nil || strings.Contains(string(data), "x: 44") {
+		t.Fatalf("Discard wrote the edit (%v):\n%s", err, data)
+	}
+}
+
+// TestNewSceneAndSaveAsFromTheToolbar makes a scene with New, which `game check` passes once saved, and saves it under another path with Save As.
+func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
+	dir := writeBareProject(t, "Bare")
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	app := startEditorApp(t, ed)
+
+	app.Press("id:toolbar-file")
+	app.Settle()
+	app.Press("id:toolbar-new")
+	app.Settle()
+	if !app.Exists("id:scene-path-dialog") {
+		t.Fatal("New shows no path dialog")
+	}
+	app.Clear("id:scene-path-input")
+	app.Type("id:scene-path-input", "levels/first")
+	app.Settle()
+	app.Press("id:scene-path-confirm")
+	app.Settle()
+	if ed.ScenePath != "levels/first.scene.yaml" || app.Find("id:toolbar-scene-path").Text != "levels/first.scene.yaml" {
+		t.Fatalf("after New: ScenePath %q, status %q", ed.ScenePath, ed.Status)
+	}
+	app.Post(func() {
+		if _, err := ed.PlaceObject("main", sceneformat.ObjectDoc{ID: "door", X: 10, Y: 20}); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:toolbar-save")
+	app.Settle()
+	if ed.SceneDirty() {
+		t.Fatalf("Save left the new scene dirty, status %q", ed.Status)
+	}
+	checkProject(t, dir)
+
+	app.Press("id:toolbar-file")
+	app.Settle()
+	app.Press("id:toolbar-save-as")
+	app.Settle()
+	app.Clear("id:scene-path-input")
+	app.Type("id:scene-path-input", "levels/second.scene.yaml")
+	app.Settle()
+	app.Press("id:scene-path-confirm")
+	app.Settle()
+	if ed.ScenePath != "levels/second.scene.yaml" || ed.SceneDirty() {
+		t.Fatalf("after Save As: ScenePath %q, dirty %v, status %q", ed.ScenePath, ed.SceneDirty(), ed.Status)
+	}
+	for _, name := range []string{"first", "second"} {
+		data, err := os.ReadFile(filepath.Join(dir, "levels", name+".scene.yaml"))
+		if err != nil || !strings.Contains(string(data), "id: door") {
+			t.Fatalf("%s.scene.yaml (%v):\n%s", name, err, data)
+		}
+	}
+	checkProject(t, dir)
+
+	// New over unsaved edits asks first; Cancel keeps the scene open.
+	app.Post(func() {
+		if err := ed.MoveObject("door", 1, 2); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:toolbar-file")
+	app.Settle()
+	app.Press("id:toolbar-new")
+	app.Settle()
+	app.Clear("id:scene-path-input")
+	app.Type("id:scene-path-input", "levels/third")
+	app.Settle()
+	app.Press("id:scene-path-confirm")
+	app.Settle()
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if ed.ScenePath != "levels/second.scene.yaml" || !ed.SceneDirty() {
+		t.Fatalf("after Cancel: ScenePath %q, dirty %v", ed.ScenePath, ed.SceneDirty())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "levels", "third.scene.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Cancel still made the scene: %v", err)
+	}
+}
+
+// TestQuitAsksWhileEditsAreUnsaved quits with and without unsaved edits.
+func TestQuitAsksWhileEditsAreUnsaved(t *testing.T) {
+	ed, _ := openTestProject(t)
+	app := startEditorApp(t, ed)
+
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 5, 5); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.RequestQuit(false)
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") || app.Quits != 0 {
+		t.Fatalf("quitting over unsaved edits: prompt %v, quits %d", app.Exists("id:unsaved-dialog"), app.Quits)
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if app.Quits != 0 || !ed.SceneDirty() {
+		t.Fatalf("after Cancel: quits %d, dirty %v", app.Quits, ed.SceneDirty())
+	}
+
+	// A forced quit, as at logout, cannot wait for an answer.
+	app.RequestQuit(true)
+	app.Settle()
+	if app.Exists("id:unsaved-dialog") {
+		t.Fatal("a forced quit asked")
+	}
+
+	app.RequestQuit(false)
+	app.Settle()
+	quits := app.Quits
+	app.Press("id:unsaved-save")
+	app.Settle()
+	if ed.SceneDirty() || app.Quits != quits+1 {
+		t.Fatalf("Save before quitting: dirty %v, quits %d, want %d, status %q", ed.SceneDirty(), app.Quits, quits+1, ed.Status)
+	}
+	quits = app.Quits
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 6, 6); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.RequestQuit(false)
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if app.Quits != quits+1 {
+		t.Fatalf("Discard did not quit: quits %d, want %d", app.Quits, quits+1)
+	}
+}
+
+// TestQuitDuringPlaySaves asks to quit while Play runs over unsaved edits: Save stops Play, saves the scene as it was before Play, and quits.
+func TestQuitDuringPlaySaves(t *testing.T) {
+	ed, dir := openTestProject(t)
+	app := startEditorApp(t, ed)
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 9, 9); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:toolbar-play")
+	app.Settle()
+	if !ed.Playing() {
+		t.Fatal("Play did not start")
+	}
+	app.RequestQuit(false)
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("quitting during Play over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-save")
+	app.Settle()
+	if ed.Playing() || ed.SceneDirty() || app.Quits != 1 {
+		t.Fatalf("after Save: playing %v, dirty %v, quits %d, status %q", ed.Playing(), ed.SceneDirty(), app.Quits, ed.Status)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "scenes", "room.yaml"))
+	if err != nil || !strings.Contains(string(data), "x: 9") {
+		t.Fatalf("Save did not write the edit made before Play (%v):\n%s", err, data)
+	}
+}
+
+// TestAppNameTitlesTheWindow gives the editor its own name, as an editor built on this package does, and the window title ends with it.
+func TestAppNameTitlesTheWindow(t *testing.T) {
+	ed, _ := openTestProject(t)
+	ed.AppName = "Field Medic Editor"
+	app := startEditorApp(t, ed)
+	if app.Title != "scenes/room.yaml - Field Medic Editor" {
+		t.Fatalf("title %q, want the editor's own name", app.Title)
+	}
+}
+
+// TestDiscardFollowsTheProjectBack discards a project edit that added an audio bus being auditioned, opening another scene: the audition through the bus that is gone stops, as it does when the edit is undone.
+func TestDiscardFollowsTheProjectBack(t *testing.T) {
+	ed, dir := openTestProject(t)
+	rawWAV, _, _ := makeTestAudioWAV(t)
+	if err := os.MkdirAll(filepath.Join(dir, "audio"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "audio", "impulse.wav"), rawWAV, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := startEditorApp(t, ed)
+	app.Post(func() {
+		if err := ed.AddAudioBus("sfx2"); err != nil {
+			t.Error(err)
+		}
+		if err := ed.AuditionAudioBus("sfx2", "audio/impulse.wav"); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if ed.AuditionBus() != "sfx2" || !ed.ProjectDirty() {
+		t.Fatalf("auditioning %q, project dirty %v, want the new bus and a dirty project", ed.AuditionBus(), ed.ProjectDirty())
+	}
+	app.DoublePress("id:files-row-scenes/other.scene.yaml")
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if ed.ScenePath != "scenes/other.scene.yaml" || ed.HasUnsavedChanges() {
+		t.Fatalf("after Discard: ScenePath %q, unsaved %v", ed.ScenePath, ed.HasUnsavedChanges())
+	}
+	if ed.Auditioning() || ed.AuditionBus() != "" || len(ed.AudioBuses()) != 0 {
+		t.Fatalf("after Discard: auditioning %v through %q, buses %v, want the audition stopped with its bus", ed.Auditioning(), ed.AuditionBus(), ed.AudioBuses())
+	}
+}
+
+// TestSaveLeavesAnUneditedSceneAsWritten saves with only the project edited: the scene file, comments included, is not rewritten.
+func TestSaveLeavesAnUneditedSceneAsWritten(t *testing.T) {
+	ed, dir := openTestProject(t)
+	scene := filepath.Join(dir, "scenes", "room.yaml")
+	data, err := os.ReadFile(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := append([]byte("# kept by hand\n"), data...)
+	if err := os.WriteFile(scene, written, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenScene("scenes/room.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.EditProject("rename", func(f *project.File) { f.Name = "Renamed" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.Save(); err != nil || ed.HasUnsavedChanges() {
+		t.Fatalf("Save = %v, unsaved %v", err, ed.HasUnsavedChanges())
+	}
+	got, err := os.ReadFile(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(written) {
+		t.Fatalf("Save rewrote the unedited scene:\n%s", got)
+	}
+}
+
+// TestClosingTheWindowAsksWhileEditsAreUnsaved closes the window, as its close button does, over unsaved edits on macOS, where closing the last window ends the app without asking OnQuitRequest: Cancel keeps the window and the edits, and Discard closes it.
+func TestClosingTheWindowAsksWhileEditsAreUnsaved(t *testing.T) {
+	if nsgotest.Target() != "" {
+		t.Skip("closes the headless model's window")
+	}
+	ed, _ := openTestProject(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680), nsgotest.Environment(core.Environment{OS: core.OSMacOS}))
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 5, 5); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if app.CloseWindow() {
+		t.Fatal("the window closed over unsaved edits without asking")
+	}
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("closing the window over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if !ed.SceneDirty() || app.Exists("id:unsaved-dialog") {
+		t.Fatalf("after Cancel: dirty %v, prompt %v", ed.SceneDirty(), app.Exists("id:unsaved-dialog"))
+	}
+	if app.CloseWindow() {
+		t.Fatal("the window closed over unsaved edits without asking")
+	}
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if len(app.Query("id:scene-editor")) != 0 {
+		t.Fatal("Discard left the window open")
+	}
+}
+
+// TestSearchResultAsksBeforeOpeningAnotherScene presses a search result in a scene that is not open while the project has unsaved edits: the editor asks first, Cancel keeps the edits, and Discard opens the result's scene and clears the OnSave of the scene open before.
+func TestSearchResultAsksBeforeOpeningAnotherScene(t *testing.T) {
+	dir := writeSearchFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ed.WaitForProblems)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	app.Post(func() {
+		if err := ed.OpenProject(dir); err != nil {
+			t.Error(err)
+		}
+		ed.OnSave = func([]byte) error { return nil }
+		if err := ed.EditProject("rename", func(f *project.File) { f.Name = "Renamed" }); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:files-search")
+	app.Settle()
+	app.Type("id:project-search-input", "goblin_king")
+	app.Settle()
+
+	app.Press("id:search-result-0")
+	app.Settle()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening a search result's scene over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if ed.ScenePath != "scenes/room.scene.yaml" || !ed.ProjectDirty() {
+		t.Fatalf("after Cancel: scene %q, project dirty %v", ed.ScenePath, ed.ProjectDirty())
+	}
+	app.Press("id:search-result-0")
+	app.Settle()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if ed.ScenePath != "scenes/dungeon.scene.yaml" || ed.SelectedID != "goblin_king" || ed.HasUnsavedChanges() || ed.OnSave != nil {
+		t.Fatalf("after Discard: scene %q, selected %q, unsaved %v, OnSave kept %v", ed.ScenePath, ed.SelectedID, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	}
+}
+
+// TestCommandPaletteAsksBeforeOpeningAnotherScene opens another scene from the Command Palette while the scene has unsaved edits: the editor asks first, Cancel keeps the edits, and Discard opens the scene and clears the OnSave of the scene open before.
+func TestCommandPaletteAsksBeforeOpeningAnotherScene(t *testing.T) {
+	ed, _ := openTestProject(t)
+	app := startEditorApp(t, ed)
+	app.Post(func() {
+		ed.OnSave = func([]byte) error { return nil }
+		if err := ed.MoveObject("hero", 70, 80); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	open := func() {
+		app.Post(ed.OpenCommandPalette)
+		app.Settle()
+		app.Type("id:editor-command-palette >> role:textbox", "other.scene")
+		app.Key("enter")
+		app.Settle()
+	}
+	open()
+	if !app.Exists("id:unsaved-dialog") {
+		t.Fatal("opening a scene from the palette over unsaved edits did not ask")
+	}
+	app.Press("id:unsaved-cancel")
+	app.Settle()
+	if ed.ScenePath != "scenes/room.yaml" || !ed.SceneDirty() || ed.OnSave == nil {
+		t.Fatalf("after Cancel: scene %q, dirty %v, OnSave kept %v", ed.ScenePath, ed.SceneDirty(), ed.OnSave != nil)
+	}
+	open()
+	app.Press("id:unsaved-discard")
+	app.Settle()
+	if ed.ScenePath != "scenes/other.scene.yaml" || ed.Doc.Name != "Other" || ed.HasUnsavedChanges() || ed.OnSave != nil {
+		t.Fatalf("after Discard: scene %q (%q), unsaved %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.HasUnsavedChanges(), ed.OnSave != nil)
+	}
+}

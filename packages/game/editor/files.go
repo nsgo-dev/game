@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// FilesView renders the file browser: the files and directories of the open project (ProjectFiles), and a path field with a Move button that renames or moves the selected one through MoveFile, so every reference to it follows and Undo moves it back. Pressing a row selects it and puts its path in the field; Refresh lists the files again after something outside the editor changed them. It renders nothing while no project is open.
+// FilesView renders the file browser: the files and directories of the open project (ProjectFiles), an Open button that opens the selected scene in the editor (OpenScene), and a path field with a Move button that renames or moves the selected file through MoveFile, so every reference to it follows and Undo moves it back. Pressing a row selects it and puts its path in the field, and pressing a scene file (*.scene.yaml, *.scene.yml, or one listed under autoload.scenes, as OpenProblem names scenes) twice opens it as Open does; while the scene or project has unsaved edits, opening asks first in EditorView, which shows the prompt, and is refused elsewhere. Refresh lists the files again after something outside the editor changed them. It renders nothing while no project is open.
 func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	type targetDraft struct {
@@ -85,8 +85,11 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Background:   bg,
 					}
 				},
-				OnPress: func(core.PressEvent) {
+				OnPress: func(ev core.PressEvent) {
 					ed.SelectFile(p)
+					if ev.Clicks == 2 && !f.Dir && isProjectScene(ed.Project, p) && p != ed.ScenePath && !ed.Playing() {
+						ed.openSceneAsked(p)
+					}
 				},
 				Children: []core.Node{core.Text{
 					Content: name,
@@ -118,6 +121,23 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							core.Text{
 								Content: "Files",
 								Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
+							},
+							ui.Button{
+								TestID:  "files-open",
+								Text:    "Open",
+								Label:   "Open the selected scene",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									p := current.Get()
+									return ed.Playing() || p == "" || p == ed.ScenePath || !isProjectScene(ed.Project, p) || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir })
+								},
+								OnPress: func() {
+									if p := current.Get(); p != "" {
+										ed.openSceneAsked(p)
+									}
+								},
 							},
 							ui.Button{
 								TestID:  "files-refresh",

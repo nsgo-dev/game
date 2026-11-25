@@ -87,7 +87,7 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。
 
 ### release
 

@@ -176,12 +176,14 @@ type Editor struct {
 	Project *project.File
 	// ProjectPath is the game.yaml path OpenProject opened Project from.
 	ProjectPath string
-	// ScenePath is the open scene's slash-separated path from the project root, as Resolver names scene files (for example "scenes/level.scene.yaml"), or empty when the scene has no such path. PlaceObject and PlaceScene resolve the edited scene under this path, so they refuse an instance that would lead back to the open scene and make the saved file instance itself. OpenYAML clears it, since the loaded scene may come from another file; set it again after OpenFile.
+	// ScenePath is the open scene's slash-separated path from the project root, as Resolver names scene files (for example "scenes/level.scene.yaml"), or empty when the scene has no such path. PlaceObject and PlaceScene resolve the edited scene under this path, so they refuse an instance that would lead back to the open scene and make the saved file instance itself. OpenFile, SaveFile and OpenProject set it when FilePath lies in the open project's directory and clear it otherwise; OpenYAML clears it, since the loaded scene may come from another file.
 	ScenePath string
 	// SelectedFile is the slash-separated path of the file selected in the file browser (FilesView), relative to the open project's root, or empty when none is selected.
 	SelectedFile string
 	// Library is the pack library the library panel lists and installs from into the open project (InstallPack); nil hides the panel.
 	Library *library.Library
+	// AppName is the editor's name, which the window title EditorView sets ends with (WindowTitle); empty means "NSGo Scene Editor". An editor built on this package, such as a game's own, sets it to its own name, since EditorView owns the window title.
+	AppName string
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
@@ -216,6 +218,8 @@ type Editor struct {
 	projectSaved []byte
 	// projectSavedOnce reports whether SaveProject has written the currently open project at least once.
 	projectSavedOnce bool
+	// sceneSaved is Doc's encoding when it was opened or last saved, which SceneDirty compares against.
+	sceneSaved []byte
 
 	// The animation editor: the open clip, its file and target, the playhead, the selected key, and the preview scene posed by the clip.
 	clip        *resource.Animation
@@ -247,6 +251,8 @@ type Editor struct {
 	nextID             int
 	nextListener       uint64
 	listeners          map[uint64]func()
+	// askUnsaved asks the author, through the prompt EditorView shows, whether to save or discard unsaved edits before something loses them; nil without an EditorView.
+	askUnsaved func(proceed, cancel func())
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
 	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
@@ -329,6 +335,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		ed.ActiveLayer = doc.Layers[0].Name
 	}
 	ed.keepTileInPalette()
+	// The scene the editor starts on is clean: an error here leaves it dirty, which only asks before losing it.
+	ed.sceneSaved, _ = sceneformat.Encode(doc)
 	ed.History.onChange = func() {
 		ed.afterMutate()
 	}
@@ -515,7 +523,12 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	if err != nil {
 		return err
 	}
+	saved, err := sceneformat.Encode(doc)
+	if err != nil {
+		return err
+	}
 	e.Doc = doc
+	e.sceneSaved = saved
 	e.SelectedID = ""
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
@@ -558,6 +571,7 @@ func (e *Editor) OpenFile(path string) error {
 		return loaderr.WithFile(err, path)
 	}
 	e.FilePath = path
+	e.syncScenePath()
 	e.Status = "Opened " + path
 	e.notify()
 	return nil
@@ -573,6 +587,8 @@ func (e *Editor) SaveFile(path string) error {
 		return err
 	}
 	e.FilePath = path
+	e.sceneSaved = data
+	e.syncScenePath()
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = "Saved " + path

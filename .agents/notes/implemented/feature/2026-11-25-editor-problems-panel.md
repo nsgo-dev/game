@@ -23,7 +23,7 @@ Implement the Problems panel in `packages/game/editor/problems.go` and `packages
 - `CheckProblems()` captures immutable inputs (`projectPath`, `dir`, `reg := e.components`), increments `gen`, replaces `done` with a fresh channel, and launches a goroutine running `runProjectCheck(dir, reg)`.
 - When a goroutine finishes, it locks `mu` and drops its results if `p.gen != gen` (a newer check or project switch superseded it). Otherwise it publishes `problems`/`checkErr`, enqueues `scope.Post(e.notify)` when a `core.Scope` is attached, and closes its `done` channel *after* posting so `WaitForProblems()` followed by `app.Settle()` observes the UI update deterministically.
 - `Problems()`, `ProblemCount()`, `ProblemErr()`, `CheckingProblems()`, and `WaitForProblems()` are safe to call from any goroutine (including `nsgotest.App.WaitUntil`).
-- Automatic triggers fire on `OpenProject`, `SaveFile`, `SaveProject` (which also covers `InstallPack`/`RemovePack`), `SaveClipFile`, `toolbar-save` with custom `OnSave`, `followMove` (covering `MoveFile`, Undo, and Redo), and `SetComponentRegistry` when a project is open.
+- Automatic triggers fire on `OpenProject`, `SaveFile`, `SaveProject` (which also covers `InstallPack`/`RemovePack`), `SaveClipFile`, `Editor.Save` (the toolbar's Save and Mod+S) with custom `OnSave`, `followMove` (covering `MoveFile`, Undo, and Redo), and `SetComponentRegistry` when a project is open.
 
 ### 2. Combined `assetcheck.CheckWith` + `project.Check` with targeted deduplication
 
@@ -36,7 +36,7 @@ Implement the Problems panel in `packages/game/editor/problems.go` and `packages
 
 ### 3. Shared file selection via `Editor.SelectedFile` and revision-tagged draft
 
-Promote the file browser's selected path to `Editor.SelectedFile` (updated via `SelectFile` / `selectedFileRev`), while keeping `FilesView`'s editable destination path as a local `targetDraft{rev, text}` signal that falls back to `ed.SelectedFile` whenever `selectedFileRev` advances. `OpenProblem` opens `*.scene.yaml`/`*.scene.yml` or autoloaded scenes with `OpenFile` (falling back to `SelectFile` on parse failure) and selects any non-scene file in `FilesView`. `followMove` deliberately leaves `SelectedFile` unchanged so undoing a file move still clears selection when the moved path disappears from disk.
+Promote the file browser's selected path to `Editor.SelectedFile` (updated via `SelectFile` / `selectedFileRev`), while keeping `FilesView`'s editable destination path as a local `targetDraft{rev, text}` signal that falls back to `ed.SelectedFile` whenever `selectedFileRev` advances. `OpenProblem` opens `*.scene.yaml`/`*.scene.yml` or autoloaded scenes with `OpenScene`, which also clears `OnSave` (falling back to `SelectFile` on parse failure) and selects any non-scene file in `FilesView`. `followMove` deliberately leaves `SelectedFile` unchanged so undoing a file move still clears selection when the moved path disappears from disk.
 
 ## Alternatives considered
 

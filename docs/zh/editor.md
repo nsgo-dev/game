@@ -502,6 +502,12 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的包围盒由其祖先的变换确定位置。
 
+## 场景文件与未保存的修改（#866）
+
+编辑器一次编辑一个场景，无需重启即可在项目的场景之间切换。在文件浏览器中选中一个场景（`*.scene.yaml` 或 `*.scene.yml` 文件，或 `autoload.scenes` 中列出的场景）后点击“Open”，或者连按两下，即可打开它（`OpenScene`）。无论从文件浏览器、Problems 面板、搜索与引用面板、命令面板还是通过 `OpenScene` 打开场景，都会清除 `OnSave`，因为它负责保存的是之前打开的场景。`OpenFile`、`SaveFile` 和 `OpenProject` 会在场景文件位于打开的项目中时设置 `ScenePath`，否则将其清空。工具栏的“File”菜单中有：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径（`NewScene`）；“Save As”，把场景另存到另一个路径，并让该文件成为场景的文件（`SaveSceneAs`）；“Revert”，把场景恢复为其文件中保存的样子（`RevertScene`）。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
+
+`SceneDirty` 报告场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml` 那样比较编码结果，所以撤销回到已保存的状态后，场景又会变为未修改。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。工具栏显示打开的场景的路径（`SceneLabel`），场景或项目有未保存的修改（`HasUnsavedChanges`）时还会显示一个 `*`，窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。“Save”按钮、菜单栏的 File > Save、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存修改过的内容：项目、场景或两者；未修改的文件保持原样，注释也会保留。有未保存的修改时，打开另一个场景（从文件浏览器、Problems 面板、搜索与引用结果或命令面板）、New Scene、退出编辑器和关闭其窗口都会先询问：“Save”保存修改后继续，“Discard”丢弃修改（项目的修改也一并丢弃）后继续，“Cancel”保留修改并停留在当前场景。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
+
 ## 动画编辑器
 
 编辑器的动画面板在时间轴上为任何已注册属性打关键帧，并把片段保存为 [`animation` 资源文件](resources.md#animation)，由 [animclip](animclip.md) 在游戏中播放（相当于 AnimationPlayer）。打开片段时，面板显示在视口下方。
@@ -622,7 +628,7 @@ func main() {
 
 打开项目后，视口下方的问题面板（`ProblemsView`）会在 UI 协程之外对项目目录运行 `assetcheck.CheckWith`（使用编辑器的组件注册表）和 `project.Check`，并在状态栏实时显示问题总数（`Problems: N`）。打开项目（`OpenProject`）、保存场景（`SaveFile`）、保存项目（`SaveProject`）、保存动画片段（`SaveClipFile`）、移动文件（`MoveFile`，包括撤销与重做）以及更换组件注册表（`SetComponentRegistry`）后都会自动重新检查。在编辑器之外修改了文件后，可点击面板上的 Check 按钮（`CheckProblems`）手动触发检查。
 
-每行显示一条问题的文件路径、从 1 开始的行号（有行号时）和错误信息，与在同一项目上运行 `go tool game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则直接打开该场景；若是其他项目文件或无法解析的场景，则在文件浏览器中选中该文件（`SelectedFile`、`SelectFile`）。在 Go 代码中，可从任意协程安全调用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems` 和 `WaitForProblems` 读取或等待后台检查结果。
+每行显示一条问题的文件路径、从 1 开始的行号（有行号时）和错误信息，与在同一项目上运行 `go tool game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则直接打开该场景；若是其他项目文件或无法解析的场景，则在文件浏览器中选中该文件（`SelectedFile`、`SelectFile`）。问题位于已打开的场景时只选中该文件，不会重新加载场景；有未保存的修改时打开另一个场景，会像文件浏览器那样先询问保存、丢弃还是取消。在 Go 代码中，可从任意协程安全调用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems` 和 `WaitForProblems` 读取或等待后台检查结果。
 
 ## 导出与发布构建（#916）
 
