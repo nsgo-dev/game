@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
@@ -44,6 +45,34 @@ func (l TilesetLoader) loadTilesetFn() func(string) ([]byte, error) {
 // Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, layer tint colors, embedded and external grid and image-collection tilesets (with tileoffset, objectalignment, and cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers (including tile objects, text objects, and .tx/.tj templates), custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset or template names that file's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
+var tiledMapPool = sync.Pool{
+	New: func() any { return new(tiledMap) },
+}
+
+func getTiledMap() *tiledMap {
+	return tiledMapPool.Get().(*tiledMap)
+}
+
+func putTiledMap(m *tiledMap) {
+	layers := m.Layers
+	tilesets := m.Tilesets
+	props := m.Properties
+	clear(layers)
+	clear(tilesets)
+	clear(props)
+	*m = tiledMap{}
+	if cap(layers) <= 64 {
+		m.Layers = layers[:0]
+	}
+	if cap(tilesets) <= 32 {
+		m.Tilesets = tilesets[:0]
+	}
+	if cap(props) <= 64 {
+		m.Properties = props[:0]
+	}
+	tiledMapPool.Put(m)
+}
+
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	if isXML(data) {
 		raw, err := parseTMX(data)
@@ -53,11 +82,12 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 		m, err := buildTiledMap(raw, resolve)
 		return m, loaderr.LocateJSON(err, "", nil, fixTiledXML)
 	}
-	var raw tiledMap
-	if err := json.Unmarshal(data, &raw); err != nil {
+	raw := getTiledMap()
+	defer putTiledMap(raw)
+	if err := json.Unmarshal(data, raw); err != nil {
 		return nil, loaderr.LocateJSON(err, "", data, fixTiled)
 	}
-	m, err := buildTiledMap(raw, resolve)
+	m, err := buildTiledMap(*raw, resolve)
 	return m, loaderr.LocateJSON(err, "", data, fixTiled)
 }
 
@@ -583,16 +613,13 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			}
 			if len(group.Objects) > 0 || group.Name != "" || len(group.Properties) > 0 {
 				if ts.TileCollisions == nil {
-					ts.TileCollisions = make(map[uint32]ObjectLayer)
+					ts.TileCollisions = make(map[uint32]*ObjectLayer)
 				}
-				ts.TileCollisions[tile.ID] = group
+				g := group
+				ts.TileCollisions[tile.ID] = &g
 			}
-			if len(tile.ObjectGroup.Objects) > 0 {
-				shapes, err := tiledTileShapes(tile.ObjectGroup.Objects)
-				if err != nil {
-					return nil, nest(err, idxPath("tiles", ti, ""))
-				}
-				if len(shapes) > 0 {
+			if len(group.Objects) > 0 {
+				if shapes := tileShapesFromObjects(group.Objects); len(shapes) > 0 {
 					if ts.Shapes == nil {
 						ts.Shapes = make(map[uint32][]TileShape)
 					}
@@ -1533,33 +1560,53 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 		}
 		switch typ {
 		case "string", "color", "file":
-			var s string
-			if err := json.Unmarshal(rp.Value, &s); err != nil {
-				return nil, bad(err)
-			}
-			val = s
-		case "int", "object":
-			var n int
-			if err := json.Unmarshal(rp.Value, &n); err != nil {
-				var f float64
-				if err2 := json.Unmarshal(rp.Value, &f); err2 != nil {
+			if s, ok := fastJSONString(rp.Value); ok {
+				val = s
+			} else {
+				var s string
+				if err := json.Unmarshal(rp.Value, &s); err != nil {
 					return nil, bad(err)
 				}
-				n = int(f)
+				val = s
 			}
-			val = n
+		case "int", "object":
+			if n, ok := fastJSONInt(rp.Value); ok {
+				val = n
+			} else {
+				var n int
+				if err := json.Unmarshal(rp.Value, &n); err != nil {
+					var f float64
+					if err2 := json.Unmarshal(rp.Value, &f); err2 != nil {
+						return nil, bad(err)
+					}
+					n = int(f)
+				}
+				val = n
+			}
 		case "float":
-			var f float64
-			if err := json.Unmarshal(rp.Value, &f); err != nil {
-				return nil, bad(err)
+			if f, ok := fastJSONFloat(rp.Value); ok {
+				val = f
+			} else {
+				var f float64
+				if err := json.Unmarshal(rp.Value, &f); err != nil {
+					return nil, bad(err)
+				}
+				val = f
 			}
-			val = f
 		case "bool":
-			var b bool
-			if err := json.Unmarshal(rp.Value, &b); err != nil {
-				return nil, bad(err)
+			trimmed := bytes.TrimSpace(rp.Value)
+			switch {
+			case len(trimmed) == 4 && string(trimmed) == "true":
+				val = true
+			case len(trimmed) == 5 && string(trimmed) == "false":
+				val = false
+			default:
+				var b bool
+				if err := json.Unmarshal(rp.Value, &b); err != nil {
+					return nil, bad(err)
+				}
+				val = b
 			}
-			val = b
 		default:
 			if err := json.Unmarshal(rp.Value, &val); err != nil {
 				return nil, bad(err)
@@ -1586,6 +1633,71 @@ func nest(err error, base string) error {
 		c.Field = base + "." + c.Field
 	}
 	return &c
+}
+
+// fastJSONString decodes a plain unescaped ASCII JSON string without invoking json.Unmarshal.
+func fastJSONString(raw json.RawMessage) (string, bool) {
+	b := bytes.TrimSpace(raw)
+	if len(b) < 2 || b[0] != '"' || b[len(b)-1] != '"' {
+		return "", false
+	}
+	inner := b[1 : len(b)-1]
+	for _, c := range inner {
+		if c < 0x20 || c >= 0x7f || c == '"' || c == '\\' {
+			return "", false
+		}
+	}
+	return string(inner), true
+}
+
+// fastJSONInt decodes a plain JSON integer without invoking json.Unmarshal.
+func fastJSONInt(raw json.RawMessage) (int, bool) {
+	b := bytes.TrimSpace(raw)
+	if len(b) == 0 {
+		return 0, false
+	}
+	start := 0
+	if b[0] == '-' {
+		if len(b) == 1 {
+			return 0, false
+		}
+		start = 1
+	}
+	if len(b)-start > 1 && b[start] == '0' {
+		return 0, false
+	}
+	for _, c := range b[start:] {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// fastJSONFloat decodes a plain JSON number without invoking json.Unmarshal.
+func fastJSONFloat(raw json.RawMessage) (float64, bool) {
+	b := bytes.TrimSpace(raw)
+	if len(b) == 0 {
+		return 0, false
+	}
+	c0 := b[0]
+	if c0 != '-' && (c0 < '0' || c0 > '9') {
+		return 0, false
+	}
+	for _, c := range b {
+		if (c < '0' || c > '9') && c != '-' && c != '+' && c != '.' && c != 'e' && c != 'E' {
+			return 0, false
+		}
+	}
+	f, err := strconv.ParseFloat(string(b), 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	return f, true
 }
 
 // typeName is a Tiled property type, "string" when the export leaves it out.

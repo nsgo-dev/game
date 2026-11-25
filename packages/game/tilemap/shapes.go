@@ -52,7 +52,10 @@ func (m *Tilemap) TileCollisionGroup(gid uint32) (ObjectLayer, bool) {
 		return ObjectLayer{}, false
 	}
 	g, ok := ts.TileCollisions[localID]
-	return g, ok
+	if !ok || g == nil {
+		return ObjectLayer{}, false
+	}
+	return *g, true
 }
 
 // TileShapes returns the collision shapes of gid's tile, flipped and rotated by gid's flip bits in the coordinates of its tileset's tile, or nil when the tile has none.
@@ -112,6 +115,66 @@ func (m *Tilemap) tileBox(ts *Tileset, localID uint32) (float32, float32) {
 		}
 	}
 	return tw, th
+}
+
+// tileShapesFromObjects converts already-parsed Objects of a tile's collision object group into TileShapes without re-parsing properties or polygon points.
+func tileShapesFromObjects(objects []Object) []TileShape {
+	var shapes []TileShape
+	for _, o := range objects {
+		if o.Shape == ObjectPoint || o.Shape == ObjectTile || o.Shape == ObjectText || o.GID != 0 {
+			continue
+		}
+		s := TileShape{Name: o.Name, Type: o.Type, Properties: o.Properties}
+		switch o.Shape {
+		case ObjectEllipse:
+			if o.Width <= 0 || o.Height <= 0 {
+				continue
+			}
+			s.Shape = ObjectEllipse
+			rx, ry := float64(o.Width)/2, float64(o.Height)/2
+			s.Points = make([]core.Point, EllipseShapeSegments)
+			for k := range s.Points {
+				a := 2 * math.Pi * float64(k) / EllipseShapeSegments
+				s.Points[k] = core.Point{X: core.Points(rx + rx*math.Cos(a)), Y: core.Points(ry + ry*math.Sin(a))}
+			}
+		case ObjectPolygon:
+			if len(o.Points) < 3 {
+				continue
+			}
+			s.Shape = ObjectPolygon
+			if o.X == 0 && o.Y == 0 && o.Rotation == 0 {
+				s.Points = o.Points
+				shapes = append(shapes, s)
+				continue
+			}
+			s.Points = append([]core.Point(nil), o.Points...)
+		case ObjectPolyline:
+			if len(o.Points) < 2 {
+				continue
+			}
+			s.Shape = ObjectPolyline
+			if o.X == 0 && o.Y == 0 && o.Rotation == 0 {
+				s.Points = o.Points
+				shapes = append(shapes, s)
+				continue
+			}
+			s.Points = append([]core.Point(nil), o.Points...)
+		default:
+			if o.Width <= 0 || o.Height <= 0 {
+				continue
+			}
+			s.Shape = ObjectRect
+			s.Points = []core.Point{
+				{X: 0, Y: 0},
+				{X: core.Points(o.Width), Y: 0},
+				{X: core.Points(o.Width), Y: core.Points(o.Height)},
+				{X: 0, Y: core.Points(o.Height)},
+			}
+		}
+		placeObjectPoints(s.Points, float64(o.X), float64(o.Y), float64(o.Rotation))
+		shapes = append(shapes, s)
+	}
+	return shapes
 }
 
 // tiledTileShapes converts the objects of a tile's collision object group into TileShapes. Points and tile objects are skipped, as are rectangles and ellipses with no area and polygons or polylines with too few points to make an edge. The fields its errors name are relative to the tile.
