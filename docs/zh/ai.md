@@ -107,17 +107,69 @@ force := ai.Combine(agent.MaxForce,
 agent.Step(force, dt)
 ```
 
-内置转向函数：
+内置 2D 转向函数：
 
 | 函数 | 行为 |
 | --- | --- |
 | `Seek(a, target)` | 以 `MaxSpeed` 全速朝 `target` 加速。 |
 | `Arrive(a, target, slowRadius)` | 进入 `slowRadius` 后平滑减速直至停稳。 |
 | `Flee(a, threat, panicRadius)` | 距离小于 `panicRadius`（或 `<= 0` 时始终）远离 `threat`。 |
+| `Pursue(a, target, maxLookAhead)` | 按 `target.Vel` 预测目标未来位置进行拦截；`maxLookAhead > 0` 时限制最大提前量（秒）。 |
+| `Evade(a, pursuer, panicRadius, maxLookAhead)` | 距离小于 `panicRadius`（或 `<= 0` 时始终）规避 `pursuer` 的预测位置。 |
+| `OffsetPursuit(a, leader, localOffset, slowRadius, maxLookAhead)` | 以 `leader` 朝向为局部坐标系（`X` 向前、`Y` 向左）跟随指定偏移位，并用 `Arrive` 平滑就位。 |
 | `FollowPath(a, path, &state, radius, loop)` | 沿航点前进；`loop` 为 `false` 时在终点自动使用 `Arrive`。 |
 | `Separation(a, neighbors, desiredSep)` | 推开过近的邻居（`<= 0` 时默认取 `a.Radius + neighbor.Radius`）。 |
+| `Alignment(a, neighbors, radius)` | 对齐 `radius` 范围内邻居的平均朝向。 |
+| `Cohesion(a, neighbors, radius)` | 朝 `radius` 范围内邻居的质心聚拢。 |
+| `ObstacleAvoidance(a, obstacles, maxAhead)` | 绕开进入前方探测走廊的最近圆形 `Obstacle`。 |
+| `WallAvoidance(a, walls, feelerLength)` | 通过三条前向触须与半径间隙约束避开 `Wall` 墙体线段。 |
+| `Hide(a, pursuer, obstacles, standoff, slowRadius)` | 在圆形 `Obstacle` 背离 `pursuer` 的一侧选取最近藏匿点（无可用障碍物时回退到 `Evade`）。 |
+| `Interpose(a, targetA, targetB, slowRadius)` | 预测两个移动智能体的中点位置并切入拦截。 |
 | `Wander(a, &state, radius, dist, jitter, nextRand)` | 使用你传入的确定性 `nextRand() float32`（`[0, 1)`）平滑漫游。 |
 | `Combine(maxForce, forces...)` | 加权求和并限制合力模长不超过 `maxForce`。 |
+| `CombinePrioritized(maxForce, forces...)` | 按优先级顺序分配 `maxForce` 预算（例如优先满足 `WallAvoidance` 再执行 `FollowPath`），预算用尽后忽略低优先级转向力。 |
+
+### 使用 `NeighborGrid` 实现零分配集群（Flocking）
+
+大规模集群场景中，每步通过 `NeighborGrid` 重建一次空间索引，`Rebuild`、`Query` 与 `QueryInto` 均复用内部缓冲区，预热后每步零堆分配：
+
+```go
+grid := ai.NewNeighborGrid(48)
+
+// 在 game.Loop.Update 中：
+grid.Rebuild(agents)
+for i := range agents {
+	neighbors := grid.Query(agents[i].Pos, 48)
+	forces[i] = ai.CombinePrioritized(agents[i].MaxForce,
+		ai.WeightedForce{Force: ai.Separation(agents[i], neighbors, 18), Weight: 1.6},
+		ai.WeightedForce{Force: ai.Alignment(agents[i], neighbors, 45), Weight: 1.0},
+		ai.WeightedForce{Force: ai.Cohesion(agents[i], neighbors, 48), Weight: 0.9},
+	)
+}
+for i := range agents {
+	agents[i].Step(forces[i], dt)
+}
+```
+
+### 3D 与 XZ 平面转向
+
+`Agent3D`、`Vec3`、`Obstacle3D`、`Wall3D`、`WeightedForce3D` 和 `NeighborGrid3D` 提供与 2D 对称的 3D 转向行为（`Seek3D`、`Arrive3D`、`Flee3D`、`Pursue3D`、`Evade3D`、`OffsetPursuit3D`、`FollowPath3D`、`Separation3D`、`Alignment3D`、`Cohesion3D`、`ObstacleAvoidance3D`、`WallAvoidance3D`、`Hide3D`、`Interpose3D`、`Combine3D`、`CombinePrioritized3D`）。
+
+`ai.Vec3` 与 `math3d.Vec3` 具有完全相同的 `X, Y, Z float32` 布局（右手 Y-up：`+X` 向右、`+Y` 向上、`-Z` 向前），可通过 `ai.Vec3(v)` 零成本转换，同时保持稳定的 `game/ai` 不依赖实验性包。将 `Agent3D.PlanarXZ` 设为 `true` 时，地面智能体在水平 XZ 平面上跟踪 `world3d.NavMesh` 路径：
+
+```go
+rawPath, ok := navMesh3D.FindPath(start, goal)
+if ok {
+	path := make([]ai.Vec3, len(rawPath))
+	for i, p := range rawPath {
+		path[i] = ai.Vec3(p)
+	}
+	agent := ai.Agent3D{Pos: ai.Vec3(start), MaxSpeed: 12, MaxForce: 40, Radius: 0.5, PlanarXZ: true}
+	var st ai.PathFollowState
+	force := ai.FollowPath3D(agent, path, &st, 0.8, false)
+	agent.Step(force, dt)
+}
+```
 
 ## 行为树
 

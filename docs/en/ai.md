@@ -107,17 +107,69 @@ force := ai.Combine(agent.MaxForce,
 agent.Step(force, dt)
 ```
 
-Built-in steering functions:
+Built-in 2D steering functions:
 
 | Function | Behavior |
 | --- | --- |
 | `Seek(a, target)` | Accelerates toward `target` at `MaxSpeed`. |
 | `Arrive(a, target, slowRadius)` | Scales desired speed smoothly down to zero inside `slowRadius`. |
 | `Flee(a, threat, panicRadius)` | Accelerates away from `threat` while closer than `panicRadius` (or always if `<= 0`). |
+| `Pursue(a, target, maxLookAhead)` | Intercepts a moving `target` by predicting its position from `target.Vel`, capped to `maxLookAhead` seconds when positive. |
+| `Evade(a, pursuer, panicRadius, maxLookAhead)` | Flees the predicted position of `pursuer` while closer than `panicRadius` (or always if `<= 0`). |
+| `OffsetPursuit(a, leader, localOffset, slowRadius, maxLookAhead)` | Follows `leader` at a heading-frame offset (`X` forward, `Y` left) using `Arrive`. |
 | `FollowPath(a, path, &state, radius, loop)` | Follows waypoints, using `Arrive` on the final waypoint when `loop` is `false`. |
 | `Separation(a, neighbors, desiredSep)` | Pushes away from close neighbors (defaults to `a.Radius + neighbor.Radius` when `<= 0`). |
+| `Alignment(a, neighbors, radius)` | Steers toward the average heading of neighbors within `radius`. |
+| `Cohesion(a, neighbors, radius)` | Steers toward the center of mass of neighbors within `radius`. |
+| `ObstacleAvoidance(a, obstacles, maxAhead)` | Deflects around the nearest circular `Obstacle` intersecting the forward detection corridor. |
+| `WallAvoidance(a, walls, feelerLength)` | Keeps clear of `Wall` line segments using three forward feelers and direct radius containment. |
+| `Hide(a, pursuer, obstacles, standoff, slowRadius)` | Picks the closest hiding spot behind a circular `Obstacle` opposite `pursuer` (falls back to `Evade` if none exist). |
+| `Interpose(a, targetA, targetB, slowRadius)` | Intercepts the predicted midpoint between two moving agents. |
 | `Wander(a, &state, radius, dist, jitter, nextRand)` | Smooth random wandering using your deterministic `nextRand() float32` in `[0, 1)`. |
 | `Combine(maxForce, forces...)` | Sums weighted forces and clamps magnitude to `maxForce`. |
+| `CombinePrioritized(maxForce, forces...)` | Spends `maxForce` in priority order (e.g. `WallAvoidance` before `FollowPath`), ignoring lower-priority forces once the budget is saturated. |
+
+### Zero-allocation flocking with `NeighborGrid`
+
+For large flocks, index agents once per step in a `NeighborGrid` so `Rebuild`, `Query`, and `QueryInto` reuse internal buffers with zero heap allocations after warm-up:
+
+```go
+grid := ai.NewNeighborGrid(48)
+
+// Inside game.Loop.Update:
+grid.Rebuild(agents)
+for i := range agents {
+	neighbors := grid.Query(agents[i].Pos, 48)
+	forces[i] = ai.CombinePrioritized(agents[i].MaxForce,
+		ai.WeightedForce{Force: ai.Separation(agents[i], neighbors, 18), Weight: 1.6},
+		ai.WeightedForce{Force: ai.Alignment(agents[i], neighbors, 45), Weight: 1.0},
+		ai.WeightedForce{Force: ai.Cohesion(agents[i], neighbors, 48), Weight: 0.9},
+	)
+}
+for i := range agents {
+	agents[i].Step(forces[i], dt)
+}
+```
+
+### 3D and XZ-plane steering
+
+`Agent3D`, `Vec3`, `Obstacle3D`, `Wall3D`, `WeightedForce3D`, and `NeighborGrid3D` provide the matching 3D steering suite (`Seek3D`, `Arrive3D`, `Flee3D`, `Pursue3D`, `Evade3D`, `OffsetPursuit3D`, `FollowPath3D`, `Separation3D`, `Alignment3D`, `Cohesion3D`, `ObstacleAvoidance3D`, `WallAvoidance3D`, `Hide3D`, `Interpose3D`, `Combine3D`, `CombinePrioritized3D`).
+
+`ai.Vec3` shares the exact `X, Y, Z float32` layout of `math3d.Vec3` (right-handed Y-up: `+X` right, `+Y` up, `-Z` forward), so values convert with `ai.Vec3(v)` at zero cost while keeping `game/ai` free of experimental imports. Set `Agent3D.PlanarXZ = true` for grounded agents following `world3d.NavMesh` paths on the horizontal XZ plane:
+
+```go
+rawPath, ok := navMesh3D.FindPath(start, goal)
+if ok {
+	path := make([]ai.Vec3, len(rawPath))
+	for i, p := range rawPath {
+		path[i] = ai.Vec3(p)
+	}
+	agent := ai.Agent3D{Pos: ai.Vec3(start), MaxSpeed: 12, MaxForce: 40, Radius: 0.5, PlanarXZ: true}
+	var st ai.PathFollowState
+	force := ai.FollowPath3D(agent, path, &st, 0.8, false)
+	agent.Step(force, dt)
+}
+```
 
 ## Behavior trees
 
