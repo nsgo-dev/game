@@ -107,8 +107,8 @@ type Server struct {
 
 	mu    sync.Mutex
 	tools map[string]Tool
-	// subs counts the subscriptions to each resource URI.
-	subs map[string]int
+	// subs holds the resource URIs each session subscribes to. A session that ends without unsubscribing is dropped the next time changed looks (subscribed), so its subscriptions stop costing the editor anything.
+	subs map[*mcp.ServerSession]map[string]bool
 	// listener and root are the endpoint Open serves on and the project root it belongs to.
 	listener net.Listener
 	root     string
@@ -139,7 +139,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 		ed:      ed,
 		run:     opts.Run,
 		tools:   map[string]Tool{},
-		subs:    map[string]int{},
+		subs:    map[*mcp.ServerSession]map[string]bool{},
 		conns:   map[net.Conn]struct{}{},
 		done:    make(chan struct{}),
 		pending: map[string]mcp.Meta{},

@@ -70,24 +70,45 @@ func (s *Server) addResources() {
 	})
 }
 
-// subscribe counts a client's subscription to a resource.
+// subscribe records a session's subscription to a resource.
 func (s *Server) subscribe(_ context.Context, req *mcp.SubscribeRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.subs[req.Params.URI]++
+	if s.subs[req.Session] == nil {
+		s.subs[req.Session] = map[string]bool{}
+	}
+	s.subs[req.Session][req.Params.URI] = true
 	return nil
 }
 
-// unsubscribe counts a client's subscription off.
+// unsubscribe forgets a session's subscription to a resource.
 func (s *Server) unsubscribe(_ context.Context, req *mcp.UnsubscribeRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.subs[req.Params.URI] > 1 {
-		s.subs[req.Params.URI]--
-	} else {
-		delete(s.subs, req.Params.URI)
+	delete(s.subs[req.Session], req.Params.URI)
+	if len(s.subs[req.Session]) == 0 {
+		delete(s.subs, req.Session)
 	}
 	return nil
+}
+
+// subscribed reports whether a session still connected subscribes to the scene and to the selection, first dropping the subscriptions of sessions that ended without unsubscribing.
+func (s *Server) subscribed() (scene, selection bool) {
+	live := map[*mcp.ServerSession]bool{}
+	for ss := range s.sdk.Sessions() {
+		live[ss] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ss, uris := range s.subs {
+		if !live[ss] {
+			delete(s.subs, ss)
+			continue
+		}
+		scene = scene || uris[SceneURI]
+		selection = selection || uris[SelectionURI]
+	}
+	return scene, selection
 }
 
 // changed runs on the editor's goroutine after every change to the editor's state: it follows the project to its endpoint and queues a notice for each subscribed resource whose content changed, saying whether the agent or the person changed it.
@@ -95,9 +116,7 @@ func (s *Server) changed() {
 	if s.opened && s.ed.ProjectPath != s.projectPath {
 		s.follow()
 	}
-	s.mu.Lock()
-	wantScene, wantSelection := s.subs[SceneURI] > 0, s.subs[SelectionURI] > 0
-	s.mu.Unlock()
+	wantScene, wantSelection := s.subscribed()
 	if !wantScene && !wantSelection {
 		return
 	}

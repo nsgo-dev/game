@@ -22,6 +22,9 @@ func FuzzSceneEdit(f *testing.F) {
 		`{"file":"../x","edits":[]}`,
 		`{"edits":[{"op":"add_component","id":"hero","component":"body"}]}`,
 		`[]`,
+		`{"edits":[{"op":"set_property","id":"hero","key":"k","value":1e400}]}`,
+		`{"edits":[{"op":"set","id":"hero","component":"body","fields":{"speed":-1e400}}]}`,
+		`{"edits":[{"op":"bogus"}]}`,
 	} {
 		f.Add([]byte(seed))
 	}
