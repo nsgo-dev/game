@@ -24,14 +24,23 @@ type History struct {
 	milestones []CommitMilestone
 }
 
-// RecordMilestone records a Git commit milestone in history without altering the undo/redo command stack.
+// RecordMilestone records a Git commit milestone in history without altering the undo/redo command stack or rebuilding the scene.
 func (h *History) RecordMilestone(m CommitMilestone) {
 	if h == nil {
 		return
 	}
 	h.milestones = append([]CommitMilestone{m}, h.milestones...)
-	if h.onChange != nil {
-		h.onChange()
+}
+
+// MarkBranchPushed marks all recorded milestones on branch as pushed.
+func (h *History) MarkBranchPushed(branch string) {
+	if h == nil {
+		return
+	}
+	for i := range h.milestones {
+		if h.milestones[i].Branch == branch {
+			h.milestones[i].Pushed = true
+		}
 	}
 }
 

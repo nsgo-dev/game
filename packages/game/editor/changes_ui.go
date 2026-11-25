@@ -33,6 +33,10 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		_ = rev.Get()
 		return ed.changesStateRev()
 	})
+	draftRev := core.NewMemo(cx, func() uint64 {
+		_ = rev.Get()
+		return ed.changesDraftRev()
+	})
 
 	return core.View{
 		TestID: "changes-panel",
@@ -56,7 +60,7 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Children: []core.Node{
 					changesSidebarView(cx, ed, changesRev),
 					changesCenterView(cx, ed, rev, changesRev),
-					changesCommitPaneView(cx, ed, changesRev),
+					changesCommitPaneView(cx, ed, changesRev, draftRev),
 				},
 			},
 		},
@@ -266,8 +270,11 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 							Icon:    lucide.Download,
 							Variant: ui.ButtonGhost,
 							Size:    ui.SizeSmall,
-							Color:   func() core.Color { return specLineRaised },
-							Tint:    func() core.Color { return specText },
+							Disabled: func() bool {
+								return ed.ChangesBusy()
+							},
+							Color: func() core.Color { return specLineRaised },
+							Tint:  func() core.Color { return specText },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
@@ -279,7 +286,7 @@ func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]
 								Padding:      core.Symmetric(0, 12),
 							},
 							OnPress: func() {
-								ed.report(ed.GitPull())
+								ed.report(ed.GitPullAsync(cx))
 							},
 						},
 						ui.Button{
@@ -713,7 +720,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 		case cur.Category == ChangesCategoryAssets:
 			body = changesGenericAssetView(cur)
 		default:
-			body = changesTextDiffView(ed, sess, cur)
+			body = changesTextDiffView(cx, ed, sess, cur)
 		}
 
 		// Bottom bar inside Changes screen matching VersionControl.dc.html.
@@ -1064,7 +1071,7 @@ func changesObjectBadge(label string, bg, border, fg core.Color) core.Node {
 	}
 }
 
-func changesTextDiffView(ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
+func changesTextDiffView(cx *core.Scope, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
 	// Check status bar (nsgo check & nsgo test + timestamp).
 	checkIconColor := specTextMuted
 	checkText := "nsgo check · not run"
@@ -1153,7 +1160,10 @@ func changesTextDiffView(ed *Editor, sess *ChangesSession, f *ChangedFile) core.
 				Text:    "Run checks",
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
+				Disabled: func() bool {
+					return ed.ChangesBusy()
+				},
+				Color: func() core.Color { return specRaised },
 				TextStyle: core.Style{
 					FontSize: 11.5,
 					Color:    specText,
@@ -1166,7 +1176,7 @@ func changesTextDiffView(ed *Editor, sess *ChangesSession, f *ChangedFile) core.
 					BorderColor:  specLineRaised,
 				},
 				OnPress: func() {
-					ed.report(ed.RunChangesChecks())
+					ed.report(ed.RunChangesChecksAsync(cx))
 				},
 			},
 		},
@@ -1451,19 +1461,27 @@ func changesGenericAssetView(f *ChangedFile) core.Node {
 	}
 }
 
-func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
+func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64], draftRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
 		}
+		busy := ed.ChangesBusy()
 
 		var bodyChildren []core.Node
 
 		if !sess.Committed {
 			inc, total, plus, minus := sess.IncludedSummary()
-			canCommit := inc > 0 && strings.TrimSpace(sess.DraftSummary) != ""
+			canCommitNow := func() bool {
+				_ = draftRev.Get()
+				if ed.ChangesBusy() || inc == 0 {
+					return false
+				}
+				s := ed.ChangesSession()
+				return s != nil && strings.TrimSpace(s.DraftSummary) != ""
+			}
 
 			provenance := nonEmpty(sess.DraftProvenance, fmt.Sprintf("Drafted from %d changed files", inc))
 			bodyChildren = append(bodyChildren,
@@ -1531,7 +1549,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Label:       "Commit summary",
 							Placeholder: "Describe what changed",
 							Value: func() string {
-								_ = changesRev.Get()
+								_ = draftRev.Get()
 								if s := ed.ChangesSession(); s != nil {
 									return s.DraftSummary
 								}
@@ -1566,7 +1584,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Multiline:   true,
 							Placeholder: "Details, playtest notes, and context",
 							Value: func() string {
-								_ = changesRev.Get()
+								_ = draftRev.Get()
 								if s := ed.ChangesSession(); s != nil {
 									return s.DraftDescription
 								}
@@ -1631,12 +1649,6 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 				},
 			})
 
-			commitBg := specLine
-			commitFg := specTextMuted
-			if canCommit {
-				commitBg = specAccent
-				commitFg = specBg // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
-			}
 			commitText := "Commit"
 			if inc == 0 {
 				commitText = "Select files to commit"
@@ -1650,13 +1662,18 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Disabled: func() bool {
-							return !canCommit
+							return !canCommitNow()
 						},
-						Color: func() core.Color { return commitBg },
+						Color: func() core.Color {
+							if canCommitNow() {
+								return specAccent
+							}
+							return specLine
+						},
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
-							Color:      commitFg,
+							Color:      specBg, // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
 						},
 						Style: core.Style{
 							FlexGrow:       1,
@@ -1676,7 +1693,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Disabled: func() bool {
-							return !canCommit
+							return !canCommitNow()
 						},
 						Color: func() core.Color { return specLineRaised },
 						TextStyle: core.Style{
@@ -1690,8 +1707,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 							Padding:      core.Symmetric(0, 12),
 						},
 						OnPress: func() {
-							_, err := ed.CommitAndPushSelectedChanges()
-							ed.report(err)
+							ed.report(ed.CommitAndPushSelectedChangesAsync(cx))
 						},
 					},
 				},
@@ -1708,8 +1724,11 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Icon:    lucide.Upload,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specRaised },
-					Tint:    func() core.Color { return specAccent },
+					Disabled: func() bool {
+						return busy
+					},
+					Color: func() core.Color { return specRaised },
+					Tint:  func() core.Color { return specAccent },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
@@ -1724,12 +1743,12 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						BorderColor:  specAccentEdge,
 					},
 					OnPress: func() {
-						ed.report(ed.PushCommits())
+						ed.report(ed.PushCommitsAsync(cx))
 					},
 				})
 			}
 
-			bodyChildren = append(bodyChildren, changesShareSection(ed, sess))
+			bodyChildren = append(bodyChildren, changesShareSection(cx, ed, sess))
 		} else {
 			// Post-commit confirmation card, SHARE, and HISTORY matching VersionControl.dc.html.
 			sha := sess.HeadSHA
@@ -1788,8 +1807,11 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					Icon:    lucide.Upload,
 					Variant: ui.ButtonGhost,
 					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return specAccent },
-					Tint:    func() core.Color { return specBg },
+					Disabled: func() bool {
+						return busy
+					},
+					Color: func() core.Color { return specAccent },
+					Tint:  func() core.Color { return specBg },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 600,
@@ -1802,7 +1824,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 						Padding:      core.Symmetric(0, 12),
 					},
 					OnPress: func() {
-						ed.report(ed.PushCommits())
+						ed.report(ed.PushCommitsAsync(cx))
 					},
 				})
 			}
@@ -1820,7 +1842,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 					},
 					Children: cardChildren,
 				},
-				changesShareSection(ed, sess),
+				changesShareSection(cx, ed, sess),
 				changesHistorySection(ed, sess),
 				ui.Button{
 					TestID:  "changes-back-to-draft",
@@ -1844,7 +1866,24 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 			)
 		}
 
-		if sess.LastErr != "" {
+		if busyLabel := ed.ChangesBusyLabel(); busyLabel != "" {
+			bodyChildren = append(bodyChildren, core.View{
+				TestID: "changes-busy",
+				Style: core.Style{
+					Padding:      core.All(10),
+					CornerRadius: 8,
+					Background:   specRaised,
+					BorderWidth:  1,
+					BorderColor:  specAccentEdge,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: busyLabel,
+						Style:   core.Style{FontSize: 11.5, Color: specText},
+					},
+				},
+			})
+		} else if sess.LastErr != "" {
 			bodyChildren = append(bodyChildren, core.View{
 				TestID: "changes-error",
 				Style: core.Style{
@@ -1926,8 +1965,9 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 	})
 }
 
-func changesShareSection(ed *Editor, sess *ChangesSession) core.Node {
+func changesShareSection(cx *core.Scope, ed *Editor, sess *ChangesSession) core.Node {
 	ghAvailable := ed.ChangesGHAvailable()
+	busy := ed.ChangesBusy()
 	base := nonEmpty(sess.BaseBranch, "main")
 	openSubtitle := fmt.Sprintf("%s into %s with gh, using the same description", sess.Branch, base)
 	if !ghAvailable {
@@ -2013,10 +2053,9 @@ func changesShareSection(ed *Editor, sess *ChangesSession) core.Node {
 				"Open pull request",
 				openSubtitle,
 				lucide.GitPullRequest,
-				!ghAvailable,
+				!ghAvailable || busy,
 				func() {
-					_, err := ed.OpenPullRequest()
-					ed.report(err)
+					ed.report(ed.OpenPullRequestAsync(cx))
 				},
 			),
 		},
