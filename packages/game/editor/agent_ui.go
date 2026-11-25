@@ -65,14 +65,14 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										p := SpecPaletteFor(darkMemo.Get())
 										return core.View{
 											TestID: "right-rail-history-wrap",
-											Style: core.Style{
+											Style: dockedStyle(cx, core.Style{
 												Width:       core.Pt(380),
 												FlexShrink:  0,
 												Background:  p.Panel,
 												Borders:     core.Edges{Left: 1},
 												BorderColor: p.Line,
 												Overflow:    core.Hidden,
-											},
+											}),
 											Children: []core.Node{
 												rightRailTabBar(cx, ed, rev, p, true),
 												AgentHistoryView(cx, ed, rev),
@@ -89,13 +89,13 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										p := SpecPaletteFor(darkMemo.Get())
 										return core.View{
 											TestID: "right-rail-inspector-wrap",
-											Style: core.Style{
+											Style: dockedStyle(cx, core.Style{
 												Width:       core.Pt(380),
 												FlexShrink:  0,
 												Background:  p.Panel,
 												Borders:     core.Edges{Left: 1},
 												BorderColor: p.Line,
-											},
+											}),
 											Children: []core.Node{
 												rightRailTabBar(cx, ed, rev, p, true),
 												core.View{
@@ -1311,14 +1311,14 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		Focusable: func() bool { return true },
 		StyleFunc: func() core.Style {
 			p := SpecPaletteFor(darkMemo.Get())
-			return core.Style{
+			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(380),
 				FlexShrink:  0,
 				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
 				BorderColor: p.Line,
 				Overflow:    core.Hidden,
-			}
+			})
 		},
 		Children: []core.Node{
 			permissionCardKeyScope,

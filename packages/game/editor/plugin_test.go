@@ -216,11 +216,13 @@ func TestSamplePluginAddsAPanelAnInspectorAndATool(t *testing.T) {
 	}, nsgotest.Size(1400, 900))
 
 	// The panel docks right of the inspector and lists the hero's hit points.
-	if !app.Exists("id:plugin-dock-right") || !app.Exists("id:plugin-panel-health-overview") {
+	if !app.Exists("id:plugin-panel-health-overview") {
 		t.Fatal("the health panel is not docked")
 	}
-	if app.Exists("id:plugin-dock-left") || app.Exists("id:plugin-dock-bottom") {
-		t.Fatal("a dock without panels is shown")
+	inspBounds := app.Find("id:editor-inspector").Bounds()
+	healthBounds := app.Find("id:plugin-panel-health-overview").Bounds()
+	if healthBounds.Origin.X < inspBounds.Origin.X+inspBounds.Size.Width-2 {
+		t.Fatalf("health panel %+v is not right of the inspector %+v", healthBounds, inspBounds)
 	}
 	if got := app.Find("id:health-overview").Text; got != "hero 3/12" {
 		t.Fatalf("overview = %q, want hero 3/12", got)
@@ -535,8 +537,8 @@ func TestPluginPanelsDockLeftAndBelow(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
-	if app.Exists("id:plugin-dock-left") || app.Exists("id:plugin-dock-bottom") {
-		t.Fatal("docks are shown before any plugin is on")
+	if app.Exists("id:plugin-panel-outline-tree") || app.Exists("id:plugin-panel-console-log") {
+		t.Fatal("plugin panels are shown before any plugin is on")
 	}
 	app.Post(func() {
 		for _, name := range []string{"console", "outline"} {
@@ -546,19 +548,19 @@ func TestPluginPanelsDockLeftAndBelow(t *testing.T) {
 		}
 	})
 	app.Settle()
-	if !app.Exists("id:plugin-dock-left") || !app.Exists("id:outline-tree") || !app.Exists("id:plugin-dock-bottom") || !app.Exists("id:console-log") {
+	if !app.Exists("id:plugin-panel-outline-tree") || !app.Exists("id:outline-tree") || !app.Exists("id:plugin-panel-console-log") || !app.Exists("id:console-log") {
 		t.Fatal("the left and bottom panels are not docked")
 	}
 	if got := ed.ActivePlugins(); !reflect.DeepEqual(got, []string{"console", "outline"}) {
 		t.Fatalf("ActivePlugins = %v, want the order they were turned on", got)
 	}
-	left, view := app.Find("id:plugin-dock-left").Bounds(), app.Find("id:editor-viewport").Bounds()
-	if left.Origin.X+left.Size.Width > view.Origin.X {
-		t.Fatalf("left dock %+v overlaps the viewport %+v", left, view)
+	left, view := app.Find("id:plugin-panel-outline-tree").Bounds(), app.Find("id:editor-viewport").Bounds()
+	if left.Origin.X+left.Size.Width > view.Origin.X+2 {
+		t.Fatalf("left plugin panel %+v overlaps the viewport %+v", left, view)
 	}
-	bottom := app.Find("id:plugin-dock-bottom").Bounds()
-	if bottom.Origin.Y < view.Origin.Y+view.Size.Height {
-		t.Fatalf("bottom dock %+v is not below the viewport %+v", bottom, view)
+	bottom := app.Find("id:plugin-panel-console-log").Bounds()
+	if bottom.Origin.Y < view.Origin.Y+view.Size.Height-2 {
+		t.Fatalf("bottom plugin panel %+v is not below the viewport %+v", bottom, view)
 	}
 }
 

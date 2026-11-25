@@ -281,6 +281,8 @@ strings:
   cmd.redo.label: Redo
   cmd.replayTips.desc: Reset dismissed first-run review tips so they show again
   cmd.replayTips.label: Replay tips
+  cmd.resetLayout.desc: Restore the default dock panel layout
+  cmd.resetLayout.label: Reset Layout
   cmd.revertAgentTurn.desc: Revert all files touched by the open agent turn to their pre-request state
   cmd.revertAgentTurn.label: Revert Agent Turn
   cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
@@ -772,6 +774,7 @@ strings:
   menu.overlays: Overlays
   menu.paintTile: Paint Tile
   menu.pan: Pan
+  menu.panels: Panels
   menu.particleEditor: Particle Emitter Editor
   menu.paste: Paste
   menu.pasteInto: Paste as Child
@@ -786,6 +789,7 @@ strings:
   menu.projectSettings: Project Settings
   menu.redo: Redo
   menu.replayTips: Replay tips
+  menu.resetLayout: Reset Layout
   menu.revertOverrides: Revert All Overrides
   menu.rotate: Rotate
   menu.runGame: Run Game

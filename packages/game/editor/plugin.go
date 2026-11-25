@@ -236,6 +236,11 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	}
 	p.catalog = cat
 	e.plugins = append(e.plugins, &p)
+	if e.dock.initialized {
+		e.dock.lastSyncKey = ""
+		e.dock.rev++
+		e.syncDockLayout(true)
+	}
 	if e.Project != nil && e.Project.Editor != nil && slices.Contains(e.Project.Editor.Plugins, p.Name) {
 		e.Status = "Plugin " + p.Name + " is on"
 	}
@@ -919,75 +924,21 @@ type dockedPanel struct {
 	panel  *Panel
 }
 
-// dockedPanels returns the panels of the plugins that are on at dock, in the project's order and each plugin's order.
-func (e *Editor) dockedPanels(dock Dock) []dockedPanel {
-	var out []dockedPanel
-	for _, p := range e.activePlugins() {
-		for i := range p.Panels {
-			if p.Panels[i].Dock == dock {
-				out = append(out, dockedPanel{p.Name, p, &p.Panels[i]})
-			}
-		}
-	}
-	return out
-}
-
-// pluginDockView lays out the panels docked at dock: a column for each side dock and a row below the viewport for the bottom dock, or nothing when no plugin that is on docks a panel there. Each panel is keyed by its plugin and ID, so a panel mounts when it appears and stays mounted while other panels come and go.
-func pluginDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dock Dock) core.Node {
-	shown := core.NewMemo(cx, func() bool {
-		_ = rev.Get()
-		return len(ed.dockedPanels(dock)) > 0
-	})
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		if !shown.Get() {
-			return nil
-		}
-		colors := ui.ColorsOf(cx)
-		style := core.Style{
-			Background:  colors.Inset(),
-			BorderColor: colors.Line(),
-		}
-		switch dock {
-		case DockBottom:
-			style.Direction = core.Row
-			style.Height = core.Pt(180)
-			style.Borders = core.Edges{Top: 1}
-		case DockLeft:
-			style.Width = core.Pt(224)
-			style.Borders = core.Edges{Right: 1}
-		default:
-			style.Width = core.Pt(224)
-			style.Borders = core.Edges{Left: 1}
-		}
-		panels := core.Each(
-			func() []dockedPanel {
-				_ = rev.Get()
-				return ed.dockedPanels(dock)
-			},
-			func(dp dockedPanel) panelRef { return panelRef{dp.plugin, dp.panel.ID} },
-			func(cx *core.Scope, item func() dockedPanel, _ func() int) core.Node {
-				return pluginPanelView(cx, ed, rev, item())
-			},
-		)
-		return core.View{
-			TestID:   "plugin-dock-" + dock.String(),
-			Style:    style,
-			Children: []core.Node{panels},
-		}
-	})
-}
-
-// pluginPanelView is one docked panel: its title above its content, which scrolls.
+// pluginPanelView is one docked plugin panel: its title above its content, which scrolls.
 func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp dockedPanel) core.Node {
 	colors := ui.ColorsOf(cx)
 	ref := panelRef{dp.plugin, dp.panel.ID}
 	return core.View{
 		TestID: "plugin-panel-" + dp.plugin + "-" + dp.panel.ID,
 		Style: core.Style{
-			FlexGrow:  1,
-			FlexBasis: core.Pt(0),
-			Padding:   core.All(10),
-			Gap:       8,
+			FlexGrow:   1,
+			FlexShrink: 1,
+			FlexBasis:  core.Pt(0),
+			MinWidth:   core.Pt(0),
+			MinHeight:  core.Pt(0),
+			Background: colors.Inset(),
+			Padding:    core.All(10),
+			Gap:        8,
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
@@ -1012,7 +963,7 @@ func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp do
 				},
 			},
 			ui.ScrollView{
-				Style:        core.Style{FlexGrow: 1},
+				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 				ContentStyle: core.Style{Gap: 6},
 				Children:     []core.Node{dp.panel.View(cx, ed, rev)},
 			},

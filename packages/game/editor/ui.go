@@ -390,33 +390,26 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																																		return core.Style{}
 																																	},
 																																	Children: []core.Node{
-																																		core.View{
-																																			// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
-																																			Style: core.Style{
-																																				Direction: core.Row,
-																																				FlexGrow:  1,
-																																				FlexBasis: core.Pt(0),
-																																				Overflow:  core.Hidden,
+																																		core.Show{
+																																			When: func() bool {
+																																				_ = rev.Get()
+																																				return ed.LeftRailMode() == LeftRailAssets
 																																			},
-																																			// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																																			Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																																			Then: func(cx *core.Scope) core.Node {
+																																				return core.View{
+																																					Style: core.Style{
+																																						Direction: core.Row,
+																																						FlexGrow:  1,
+																																						FlexBasis: core.Pt(0),
+																																						Overflow:  core.Hidden,
+																																					},
+																																					Children: []core.Node{dragdrop.Area{Children: assetsWorkspaceRow(cx, ed, rev)}},
+																																				}
+																																			},
+																																			Else: func(cx *core.Scope) core.Node {
+																																				return editorDockView(cx, ed, rev)
+																																			},
 																																		},
-																																		pluginDockView(cx, ed, rev, DockBottom),
-																																		TilesetEditorPanelView(cx, ed, rev),
-																																		TerrainPanelView(cx, ed, rev),
-																																		RigPanelView(cx, ed, rev),
-																																		DataTablePanelView(cx, ed, rev),
-																																		ParticleEditorPanelView(cx, ed, rev),
-																																		MaterialEditorPanelView(cx, ed, rev),
-																																		AnimationPanelView(cx, ed, rev),
-																																		EnvironmentPanelView(cx, ed, rev),
-																																		StatesPanelView(cx, ed, rev),
-																																		NavMeshPanelView(cx, ed, rev),
-																																		LocalizationPanelView(cx, ed, rev),
-																																		SearchPanelView(cx, ed, rev),
-																																		ProblemsView(cx, ed, rev),
-																																		ProfilerPanelView(cx, ed, rev),
-																																		OutputPanelView(cx, ed, rev),
 																																	},
 																																},
 																																SettingsView(cx, ed, rev),
@@ -489,13 +482,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	}
 }
 
-// mainRow is the editor's middle row: the scene tree over the layers panel, the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock. When the left rail is switched to Assets mode, it renders the Assets left rail, the viewport over the bottom Asset Drawer, and the selected-asset inspector.
-func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	assetsMode := core.NewMemo(cx, func() bool {
-		_ = rev.Get()
-		return ed.LeftRailMode() == LeftRailAssets
-	})
-
+// assetsWorkspaceRow renders the dedicated Assets mode workspace: the Assets left rail, the compact viewport over the bottom Asset Drawer, and the selected-asset inspector (or History panel).
+func assetsWorkspaceRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 	return []core.Node{
 		core.View{
 			Ref:    ed.focus.ctrl.rootRef(RegionSceneTree),
@@ -522,87 +510,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				}
 				return ed.focus.ctrl.regionOutlineStyle(RegionSceneTree, base)
 			},
-			Children: []core.Node{
-				core.Show{
-					When: assetsMode.Get,
-					Then: func(cx *core.Scope) core.Node {
-						return AssetsLeftRailView(cx, ed, rev)
-					},
-					Else: func(cx *core.Scope) core.Node {
-						children := []core.Node{
-							leftRailSceneView(cx, ed, rev),
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.LayersPanelOpen()
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return core.View{
-										Style: core.Style{
-											Width:       core.Pt(220),
-											FlexShrink:  0,
-											Borders:     core.Edges{Right: 1},
-											BorderColor: ed.SpecPalette(cx).Line,
-										},
-										Children: []core.Node{LayersView(cx, ed, rev)},
-									}
-								},
-							},
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.AssetBrowserOpen() || ed.FileBrowserOpen()
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return core.View{
-										TestID: "editor-left",
-										Style:  core.Style{Width: core.Pt(224), FlexShrink: 0},
-										Children: []core.Node{
-											core.Show{
-												When: func() bool {
-													_ = rev.Get()
-													return ed.AssetBrowserOpen()
-												},
-												Then: func(cx *core.Scope) core.Node {
-													return core.View{
-														Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
-														Children: []core.Node{AssetBrowserView(cx, ed, rev)},
-													}
-												},
-											},
-											core.Show{
-												When: func() bool {
-													_ = rev.Get()
-													return ed.FileBrowserOpen()
-												},
-												Then: func(cx *core.Scope) core.Node {
-													return FilesView(cx, ed, rev)
-												},
-											},
-										},
-									}
-								},
-							},
-						}
-						if ed.Library != nil {
-							children = append(children, core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.LibraryPanelOpen()
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return LibraryView(cx, ed, rev)
-								},
-							})
-						}
-						children = append(children, pluginDockView(cx, ed, rev, DockLeft))
-						return core.View{
-							Style:    core.Style{Direction: core.Row, FlexShrink: 0},
-							Children: children,
-						}
-					},
-				},
-			},
+			Children: []core.Node{AssetsLeftRailView(cx, ed, rev)},
 		},
 		core.View{
 			TestID: "editor-center-column",
@@ -633,20 +541,10 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 						}
 					},
 					StyleFunc: func() core.Style {
-						var base core.Style
-						if assetsMode.Get() {
-							base = core.Style{
-								Height:     core.Pt(290),
-								FlexShrink: 0,
-								Overflow:   core.Hidden,
-							}
-						} else {
-							base = core.Style{
-								FlexGrow:  1,
-								FlexBasis: core.Pt(0),
-								MinHeight: core.Pt(88),
-								Overflow:  core.Hidden,
-							}
+						base := core.Style{
+							Height:     core.Pt(290),
+							FlexShrink: 0,
+							Overflow:   core.Hidden,
 						}
 						if ed.focus.ctrl == nil {
 							return base
@@ -681,21 +579,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 						},
 					},
 				},
-				core.Show{
-					When: func() bool {
-						_ = rev.Get()
-						return ed.ViewMode == ViewMode3D && !assetsMode.Get() && !ed.Playing()
-					},
-					Then: func(cx *core.Scope) core.Node {
-						return Viewport3DModelsStripView(cx, ed, rev)
-					},
-				},
-				core.Show{
-					When: assetsMode.Get,
-					Then: func(cx *core.Scope) core.Node {
-						return AssetDrawerView(cx, ed, rev)
-					},
-				},
+				AssetDrawerView(cx, ed, rev),
 				ProfilerStripView(cx, ed, rev),
 			},
 		},
@@ -726,75 +610,15 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 			},
 			Children: []core.Node{
 				core.Show{
-					When: assetsMode.Get,
+					When: func() bool {
+						_ = rev.Get()
+						return !ed.Playing() && ed.HistoryPanelOpen()
+					},
 					Then: func(cx *core.Scope) core.Node {
-						return core.Show{
-							When: func() bool {
-								_ = rev.Get()
-								return !ed.Playing() && ed.HistoryPanelOpen()
-							},
-							Then: func(cx *core.Scope) core.Node {
-								return HistoryPanelView(cx, ed, rev)
-							},
-							Else: func(cx *core.Scope) core.Node {
-								return AssetInspectorView(cx, ed, rev)
-							},
-						}
+						return HistoryPanelView(cx, ed, rev)
 					},
 					Else: func(cx *core.Scope) core.Node {
-						return core.View{
-							Style: core.Style{Direction: core.Row, FlexShrink: 0},
-							Children: []core.Node{
-								TilePaletteView(cx, ed, rev),
-								GridMapPaletteView(cx, ed, rev),
-								core.Show{
-									When: func() bool {
-										_ = rev.Get()
-										return !ed.Playing() && ed.HistoryPanelOpen()
-									},
-									Then: func(cx *core.Scope) core.Node {
-										return HistoryPanelView(cx, ed, rev)
-									},
-									Else: func(cx *core.Scope) core.Node {
-										return core.Show{
-											When: func() bool {
-												_ = rev.Get()
-												return !ed.Playing() && ed.ProblemAgentPanelOpen()
-											},
-											Then: func(cx *core.Scope) core.Node {
-												return ProblemAgentPanelView(cx, ed, rev)
-											},
-											Else: func(cx *core.Scope) core.Node {
-												return core.Show{
-													When: func() bool {
-														_ = rev.Get()
-														return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
-													},
-													Then: func(cx *core.Scope) core.Node {
-														return TileReviewPanelView(cx, ed, rev)
-													},
-													Else: func(cx *core.Scope) core.Node {
-														return core.Show{
-															When: func() bool {
-																_ = rev.Get()
-																return ed.SketchPanelOpen()
-															},
-															Then: func(cx *core.Scope) core.Node {
-																return SketchPanelView(cx, ed, rev)
-															},
-															Else: func(cx *core.Scope) core.Node {
-																return RightRailView(cx, ed, rev)
-															},
-														}
-													},
-												}
-											},
-										}
-									},
-								},
-								pluginDockView(cx, ed, rev, DockRight),
-							},
-						}
+						return AssetInspectorView(cx, ed, rev)
 					},
 				},
 			},

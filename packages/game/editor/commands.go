@@ -81,6 +81,7 @@ const (
 	CmdShortcutsSheet         = "view.shortcuts"
 	CmdToggleTasks            = "agent.tasks"
 	CmdHistoryPanel           = "view.history"
+	CmdResetLayout            = "view.resetLayout"
 	CmdPlayStop               = "project.play"
 	CmdRunGame                = "project.run"
 	CmdProjectSettings        = "project.settings"
@@ -1479,6 +1480,18 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdResetLayout,
+			Label:       "Reset Layout",
+			Description: "Restore the default dock panel layout",
+			Category:    "View",
+			Keywords:    []string{"reset", "layout", "dock", "panels", "default", "restore"},
+			Enabled:     inEditor,
+			Run: func() error {
+				e.ResetLayout()
+				return nil
+			},
+		},
+		{
 			ID:          CmdShortcutsSheet,
 			Label:       "Keyboard Shortcuts",
 			Description: "Show the keyboard shortcuts reference sheet grouped by scope",
@@ -2684,6 +2697,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdAgentTab:                  {"cmd.agentTab.label", "cmd.agentTab.desc", "cmd.category.view"},
 	CmdInspectorTab:              {"cmd.inspectorTab.label", "cmd.inspectorTab.desc", "cmd.category.view"},
 	CmdCommandPalette:            {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
+	CmdResetLayout:               {"cmd.resetLayout.label", "cmd.resetLayout.desc", "cmd.category.view"},
 	CmdShortcutsSheet:            {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
 	CmdToggleTasks:               {"cmd.tasks.label", "cmd.tasks.desc", "cmd.category.view"},
 	CmdHistoryPanel:              {"cmd.historyPanel.label", "cmd.historyPanel.desc", "cmd.category.view"},

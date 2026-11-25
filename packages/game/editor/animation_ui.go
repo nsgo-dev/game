@@ -468,7 +468,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	}
 
 	lanes := ui.ScrollView{
-		Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+		Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 		ContentStyle: core.Style{
 			Padding: core.Edges{Left: specSpace16, Right: specSpace16, Bottom: specSpace8},
 			Gap:     specSpace8,
@@ -507,7 +507,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		},
 	}
 
-	return specPanelContainer(p, "anim-panel", "Animation", 284, header, controls, lanes)
+	return specPanelContainer(cx, p, "anim-panel", "Animation", 284, header, controls, lanes)
 }
 
 // keyTarget is the track target the Key button writes: the selected object when it is not the one the clip plays on, and empty (the clip's target) otherwise.

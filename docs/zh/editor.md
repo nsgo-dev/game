@@ -1601,7 +1601,6 @@ func main() {
 - **上下文标签与精确悬停预览**：输入框上方依次展示已附加标签（点击 `×` 通过 `RemoveComposerChip` 移除，或在空输入框中按 `⌫` 通过 `RemoveLastComposerChip` 移除）、**始终附加**标签（项目根目录中的 `brief.yaml` 与 `AGENTS.md`）以及可开关的 **视口图像** 标签（`SetViewportImageIncluded` / `ToggleViewportImage`）。在视口或场景树中选中对象只会显示虚线建议标签 `+ <名称> · 已选中`（`SuggestedChip`），除非主动添加（`AcceptSuggestedChip`），否则绝不会随请求发送；`TriggerAskAgentShortcut` 会在选中对象时附加该对象，未选中任何对象时附加整个打开的场景（`AttachWholeSceneChip`）并聚焦输入框。悬停任意标签（`SetHoveredChip` / `HoveredChipPayload`）都会通过 `ResolveChipPayload` 显示实际发送的精确头部（如 `# level_01.scene.yaml · lines 72–78`）及对应的 YAML 文本或图像。
 - **单一数据源的请求组装**：`AssembleAgentRequest` 仅从当前生效的标签组装 `AgentRequest`（调用与悬停预览完全相同的 `ResolveChipPayload`），并统一供 `SendComposerPrompt`（`Editor.OnSendAgentComposerRequest`）与 `SubmitAgentPrompt`（`Editor.AgentRunner`）使用。
 - **上下文计量环、明细、压缩与新开线程**：20×20 环形进度指示器根据智能体回报的 token 用量（`SetAgentTokenUsage` 或 `AgentResponse.Usage`）呈现三种规范状态（正常 `≤ 70%`、超过 70% 警告 `71–89%`、以及 `≥ 90%` 的“立即压缩”状态）。点击计量环可展开 6 项明细（**Conversation**、**Open scene**、**Attached**、**Always**、**Tools and instructions**、**Viewport image**），并提供 **压缩线程**（`CompactAgentThread`，将较早请求折叠为摘要并完整保留最后一条请求，同时降低计量环占比）与 **使用摘要新开**（`StartFreshAgentThread`，以该摘要启动新线程）。
-
 ## AI 优先的主界面布局（#1007）
 
 编辑器主窗口（`main_layout_ui.go`、`ui.go`、`agent_ui.go`、`overlays_ui.go`、`scenetree.go`）按 `docs/design/editor/Main.dc.html` 实现 AI 优先工作区，并严格使用 `docs/design/editor/Spec.dc.html` 的颜色令牌、尺寸比例与无障碍控件：
@@ -1623,3 +1622,12 @@ func main() {
 - **焦点纪律与键盘规则（规范规则 02、04、05）**：除非焦点已在智能体面板内部（`Editor.ShouldFocusAgentPrompt`），否则权限确认卡绝不抢夺焦点；点击顶部**等待你确认**状态条可按需聚焦到卡片。卡片获得焦点时，`⌘↵` 仅允许一次，`⌥↵` 通过 `Editor.ApproveAlwaysPermission` 将**始终允许**规则持久化写入 `permissions.yaml`（并弹出带**查看**与**撤销**按钮的提示条），后续同类调用不再弹窗，`⌘⌫` 拒绝，`↑`/`↓` 切换按钮，`Esc` 保持卡片未回答状态而智能体继续等待。
 - **拒绝后永不自动重试**：拒绝权限确认卡会在当前请求中记录对应的 `(action, target)` 键，将该步骤显示为 *“你拒绝了 … · 已跳过继续”* 并提供显式的**立即允许**操作，在回合审查摘要中标明未检查项（例如 *“Not playtested”*），并对同一请求中重复发起的相同调用立即返回非致命的结构化 `denied` 结果而不再次弹出卡片。发起新请求时才会清除单次请求的拒绝记录。
 - **补充到此请求、停止（`⌘.`）与并发手动编辑**：智能体工作或等待期间，手动编辑始终可用，底部状态栏会实时显示智能体当前动作（*“manual edits stay available”*）。工作态页脚的「补充到此请求」输入框（`Editor.AddToAgentRequest`）在步骤流式更新时保持焦点稳定。从任何位置（包括模态对话框内）点击**停止**或按下 `⌘.` 都会立即取消运行中的请求与等待中的权限确认（`Editor.StopAgent`），保留已完成步骤与场景编辑等待审查（期间暂停自动保存，直到保留或还原），并弹出带**审查**操作的**代理已停止**提示条；`Esc` 绝不会停止智能体。
+
+## 可停靠面板与布局（#919）
+
+`EditorView` 基于 NSGo 的 `ui.DockArea` 构建编辑器工作区，将场景树、图层、资源浏览器、文件、资源库、检查器（含右侧栏智能体、草图、任务、历史、问题修复与瓦片审查视图）、问题、输出、性能分析器、动画、状态机、瓦片集、3D 地形、2D 骨骼、粒子发射器、材质编辑器、场景环境、数据表、搜索、3D 导航网格、本地化以及所有已启用的插件面板统一为围绕视口（视口画布上方保留 `SceneTabsView` 场景标签栏）的可停靠、可调整大小的面板：
+
+- **拖拽缩放、移动与标签页合并**：拖动任意分割或停靠区手柄调整面板尺寸，拖动任意面板标签页到另一面板组内合并为标签页或拖至边缘进行分割，并通过标签页关闭按钮隐藏面板（`viewport` 视口面板保持不可关闭）。
+- **菜单显示、隐藏与重置**：通过 **View > Panels** 菜单勾选或取消显示任意内置面板与已启用插件面板（`PanelVisible`、`SetPanelVisible`、`TogglePanel`、`Panels`），或选择 **View > Reset Layout** / **View > Panels > Reset Layout**（`CmdResetLayout`、`ResetLayout`）恢复默认布局。
+- **按用户保存布局（`LayoutFile`、`ParseLayout`、`EncodeLayout`）**：布局改动会自动以严格版本化 YAML 保存在所有项目之外的用户配置目录 `<UserConfigDir>/nsgo-game/layout.yaml`（`DefaultLayoutPath`，通过 `Editor.LayoutPath` / `Editor.SetLayoutPath` 配置，并由 `game editor` 与 `editorcmd` 自动接入）。下次启动时恢复已保存的分割、标签组、当前活动标签页、尺寸与隐藏面板；不再存在的面板（例如已卸载插件的面板）会在恢复时自动丢弃。
+- **插件面板位置**：插件面板（`Plugin.Panels`）首次使用时出现在其声明的默认 `Dock`（`DockLeft`、`DockRight` 或 `DockBottom`）；一旦用户将其移动或合并到其他位置，之后每次启动都会恢复到用户移动后的位置。

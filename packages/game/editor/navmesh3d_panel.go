@@ -54,13 +54,13 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Then: func(cx *core.Scope) core.Node {
 			return core.View{
 				TestID: "navmesh-panel",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					Background:  colors.Inset(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
 					Padding:     core.Symmetric(8, 12),
 					Gap:         8,
-				},
+				}),
 				Children: []core.Node{
 					// Header row: title, baked summary, overlay switch, Bake button, Close button.
 					core.View{

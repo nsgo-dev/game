@@ -239,7 +239,7 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		})},
 	}
 
-	return specPanelContainer(p, "datatable-panel", "Data Table", 256, header, errorBanner, grid)
+	return specPanelContainer(cx, p, "datatable-panel", "Data Table", 256, header, errorBanner, grid)
 }
 
 func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], cols []DataTableColumn) core.Node {

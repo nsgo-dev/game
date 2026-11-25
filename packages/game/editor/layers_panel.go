@@ -98,7 +98,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 
 	return core.View{
 		TestID: "layers-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(200),
 			FlexShrink:  0,
 			Background:  colors.Inset(),
@@ -106,7 +106,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 			BorderColor: colors.Line(),
 			Padding:     core.All(8),
 			Gap:         6,
-		},
+		}),
 		Children: []core.Node{
 			core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},

@@ -187,6 +187,46 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		})
 	}
 
+	// View > Panels submenu (show/hide built-in panels, active plugin panels, and Reset Layout)
+	dockHidden := e.StartScreenOpen() ||
+		e.FirstRunFullScreenOpen() ||
+		e.MergeConflictOpen() ||
+		e.ChangesOpen() ||
+		e.BuildReleaseScreenOpen() ||
+		e.UsagesScreenOpen() ||
+		e.PlaytestReportOpen() ||
+		e.AssetGeneratorOpen() ||
+		e.HUDLayoutOpen() ||
+		(e.CutsceneOpen() && !e.Playing()) ||
+		(e.SettingsOpen() && !e.Playing()) ||
+		e.LeftRailMode() == LeftRailAssets
+	var builtinPanelItems []desktop.MenuItem
+	var pluginPanelItems []desktop.MenuItem
+	for _, info := range e.Panels() {
+		key := info.Key
+		item := desktop.MenuItem{
+			Label:     info.Title,
+			Disabled:  dockHidden || !info.Available,
+			Checkable: true,
+			Checked:   info.Visible,
+			When:      core.MenuNotEditing,
+			OnSelect: func() {
+				e.TogglePanel(key)
+			},
+		}
+		if info.Plugin != "" {
+			pluginPanelItems = append(pluginPanelItems, item)
+		} else {
+			builtinPanelItems = append(builtinPanelItems, item)
+		}
+	}
+	panelItems := builtinPanelItems
+	if len(pluginPanelItems) > 0 {
+		panelItems = append(panelItems, sep)
+		panelItems = append(panelItems, pluginPanelItems...)
+	}
+	panelItems = append(panelItems, sep, cmdItem(CmdResetLayout, e.T("menu.resetLayout"), false))
+
 	// View menu
 	viewMenu := desktop.MenuItem{
 		Label: e.T("menu.view"),
@@ -196,6 +236,9 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
 			cmdItem(CmdToggleTasks, e.T("menu.tasks"), true),
 			cmdItem(CmdHistoryPanel, e.T("menu.history"), false),
+			sep,
+			{Label: e.T("menu.panels"), Items: panelItems},
+			cmdItem(CmdResetLayout, e.T("menu.resetLayout"), false),
 			sep,
 			cmdItem(CmdAgentTab, e.T("menu.agentPanel"), false),
 			cmdItem(CmdInspectorTab, e.T("menu.inspectorPanel"), false),
@@ -325,7 +368,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v|%v|%d|%d|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -402,7 +445,31 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.SketchHoldState(),
 			e.SketchReviewOpen(),
 			e.SketchReviewOverlayVisible(),
+			e.CutsceneOpen(),
+			e.LeftRailMode(),
+			e.dock.rev,
+			e.OutputPanelOpen(),
+			e.SearchOpen(),
+			e.clip != nil,
+			e.States() != nil,
+			e.Library != nil,
+			e.TerrainOpen(),
+			e.RigOpen(),
 		)
+		for _, info := range e.Panels() {
+			b.WriteByte('|')
+			b.WriteString(info.Key)
+			if info.Visible {
+				b.WriteString(":1")
+			} else {
+				b.WriteString(":0")
+			}
+			if info.Available {
+				b.WriteString(":a")
+			} else {
+				b.WriteString(":u")
+			}
+		}
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')
 			b.WriteString(ov.ID)

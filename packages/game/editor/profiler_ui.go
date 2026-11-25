@@ -529,7 +529,7 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				TestID: "profiler-panel",
 				Role:   core.RoleRegion,
 				Label:  "Profiler",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					Height:      core.Pt(300),
 					FlexShrink:  0,
 					Background:  specPanel,
@@ -537,7 +537,7 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					BorderColor: specLine,
 					Padding:     core.Symmetric(12, 16),
 					Gap:         12,
-				},
+				}),
 				Children: []core.Node{
 					// Top bar: title, connection pill, metric tabs, Reset, Export Trace, Close.
 					core.View{

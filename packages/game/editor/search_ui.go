@@ -193,7 +193,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			)
 
 			scroll := ui.ScrollView{
-				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 				ContentStyle: core.Style{
 					Padding: core.Symmetric(specSpace8, specSpace16),
 					Gap:     specSpace8,
@@ -201,7 +201,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				Children: []core.Node{body},
 			}
 
-			return specPanelContainer(p, "search-panel", ed.T("search.search"), 204, header, scroll)
+			return specPanelContainer(cx, p, "search-panel", ed.T("search.search"), 204, header, scroll)
 		},
 	}
 }

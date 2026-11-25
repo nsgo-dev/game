@@ -213,6 +213,13 @@ func show(ed *editor.Editor, width, height core.Points) {
 			fmt.Fprintf(os.Stderr, "editor settings: %v\n", err)
 		}
 	}
+	if ed != nil && ed.LayoutPath == "" {
+		if p, err := editor.DefaultLayoutPath(); err != nil {
+			fmt.Fprintf(os.Stderr, "editor layout: %v\n", err)
+		} else if err := ed.SetLayoutPath(p); err != nil {
+			fmt.Fprintf(os.Stderr, "editor layout: %v\n", err)
+		}
+	}
 	nsgo.Run(func(cx *core.Scope) core.Node {
 		Serve(cx, ed, os.Stderr)
 		// EditorView titles the window after the open scene.

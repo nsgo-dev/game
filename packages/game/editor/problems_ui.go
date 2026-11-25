@@ -314,7 +314,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			)
 
 			body := ui.ScrollView{
-				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 				ContentStyle: core.Style{
 					Padding: core.Symmetric(specSpace8, specSpace16),
 					Gap:     specSpace8,
@@ -322,7 +322,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				Children: []core.Node{list},
 			}
 
-			return specPanelContainer(p, "problems-panel", ed.T("problems.title", l10n.Param("count", 0)), 164, header, body)
+			return specPanelContainer(cx, p, "problems-panel", ed.T("problems.title", l10n.Param("count", 0)), 164, header, body)
 		},
 	}
 }
@@ -766,11 +766,11 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 		Then: func(cx *core.Scope) core.Node {
 			return core.View{
 				TestID: "problem-agent-panel",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					Width:      core.Pt(380),
 					FlexShrink: 0,
 					Borders:    core.Edges{Left: 1},
-				},
+				}),
 				StyleFunc: func() core.Style {
 					p := ed.SpecPalette(cx)
 					return core.Style{

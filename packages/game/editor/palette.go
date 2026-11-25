@@ -60,6 +60,7 @@ func (e *Editor) FocusPluginPanel(plugin, id string) error {
 	for i := range p.Panels {
 		if p.Panels[i].ID == id {
 			e.focusedPluginPanel = panelRef{plugin, id}
+			e.SetPanelVisible(PluginPanelKey(plugin, id), true)
 			e.Status = "Panel: " + p.Panels[i].Title
 			e.notify()
 			return nil

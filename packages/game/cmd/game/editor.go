@@ -120,6 +120,26 @@ func configureEditorStartScreen(ed *editor.Editor, a *app) {
 	if recentPath != "" {
 		_ = ed.SetRecentProjectsPath(recentPath)
 	}
+	errOut := io.Writer(os.Stderr)
+	if a != nil && a.stderr != nil {
+		errOut = a.stderr
+	}
+	layoutPath := ""
+	if a != nil {
+		layoutPath = a.layoutPath
+	}
+	if layoutPath == "" {
+		if p, err := editor.DefaultLayoutPath(); err != nil {
+			fmt.Fprintf(errOut, "editor layout: %v\n", err)
+		} else {
+			layoutPath = p
+		}
+	}
+	if layoutPath != "" {
+		if err := ed.SetLayoutPath(layoutPath); err != nil {
+			fmt.Fprintf(errOut, "editor layout: %v\n", err)
+		}
+	}
 }
 
 // editorTemplatesFromRegistry builds the Start Screen template cards directly from `game new`'s projectTemplates registry.

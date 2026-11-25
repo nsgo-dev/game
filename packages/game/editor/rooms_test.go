@@ -118,12 +118,12 @@ func TestViewportCameraBoundsDragSavesReloadsAndUndoes(t *testing.T) {
 	histBeforeCancel := ed.History.Len()
 	eX, eY, _ := ed.CameraBoundsHandleCanvasPos(editor.RectHandleE)
 	app.MouseDownAt("id:editor-viewport-frame", core.Point{X: core.Points(eX), Y: core.Points(eY)}, core.MouseButtonLeft)
-	app.HoverAt("id:editor-viewport-frame", core.Point{X: core.Points(eX + 50), Y: core.Points(eY)})
+	app.HoverAt("id:editor-viewport-frame", core.Point{X: core.Points(eX + 30), Y: core.Points(eY)})
 	if ed.Doc.Camera.Bounds.Width == wantAfterMove.Width {
 		t.Fatal("expected live bounds width update during E handle drag")
 	}
 	app.Key("escape")
-	app.MouseUpAt("id:editor-viewport-frame", core.Point{X: core.Points(eX + 50), Y: core.Points(eY)}, core.MouseButtonLeft)
+	app.MouseUpAt("id:editor-viewport-frame", core.Point{X: core.Points(eX + 30), Y: core.Points(eY)}, core.MouseButtonLeft)
 	if *ed.Doc.Camera.Bounds != wantAfterMove || ed.History.Len() != histBeforeCancel {
 		t.Fatalf("after Escape cancel: bounds=%+v history=%d (want %+v / %d)", ed.Doc.Camera.Bounds, ed.History.Len(), wantAfterMove, histBeforeCancel)
 	}

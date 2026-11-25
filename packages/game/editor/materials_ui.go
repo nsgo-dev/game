@@ -501,14 +501,14 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	return core.View{
 		TestID: "material-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(272),
 			Background:  colors.Raised(),
 			Borders:     core.Edges{Top: 1},
 			BorderColor: colors.Line(),
 			Padding:     core.Symmetric(8, 12),
 			Gap:         8,
-		},
+		}),
 		Children: []core.Node{
 			header,
 			core.View{

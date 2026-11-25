@@ -1,0 +1,33 @@
+version: 1
+center:
+  panels:
+    - viewport
+left:
+  size: 444
+  root:
+    axis: horizontal
+    sizes: [220, 224]
+    children:
+      - axis: vertical
+        sizes: [0, 200]
+        children:
+          - panels:
+              - scene_tree
+          - panels:
+              - layers
+      - axis: vertical
+        children:
+          - panels:
+              - assets
+          - panels:
+              - files
+              - inspector
+            active: 1
+bottom:
+  size: 164
+  root:
+    panels:
+      - problems
+      - output
+hidden:
+  - layers

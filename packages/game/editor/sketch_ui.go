@@ -532,14 +532,14 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			TestID: "sketch-agent-panel",
 			Role:   core.RoleRegion,
 			Label:  "Agent Sketch",
-			Style: core.Style{
+			Style: dockedStyle(cx, core.Style{
 				Width:       core.Pt(360),
 				FlexShrink:  0,
 				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
 				BorderColor: p.Line,
 				Overflow:    core.Hidden,
-			},
+			}),
 			Children: []core.Node{
 				// Panel Header ("Agent" + MCP dot + Inspector toggle).
 				core.View{

@@ -26,14 +26,14 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			})
 			return core.View{
 				TestID: "environment-panel",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					Height:      core.Pt(250),
 					Background:  colors.Inset(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
 					Padding:     core.All(10),
 					Gap:         8,
-				},
+				}),
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{
