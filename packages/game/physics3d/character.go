@@ -49,8 +49,13 @@ type CharacterController struct {
 	//
 	// The controller is not a body in the World, so dynamic bodies do not collide with it on their own; to let them, add a kinematic body that follows Pos and set IgnoreBodyID to its ID (#546).
 	PushForce float32
+	// GravityScale multiplies the effective gravity applied during Move.
+	// NewCharacterController initializes it to 1; on a zero-initialized
+	// CharacterController literal it defaults to 1 unless SetGravityScale(0) is called.
+	GravityScale float32
 
-	pushes []characterPush
+	gravityScaleSet bool
+	pushes          []characterPush
 }
 
 // characterPush is a dynamic body the character walked into during one Move, with the horizontal wall normal facing the character.
@@ -84,12 +89,24 @@ func NewCharacterController(pos Vec3, radius, height float32) *CharacterControll
 		height = 2 * radius
 	}
 	return &CharacterController{
-		Pos:           pos,
-		Radius:        radius,
-		Height:        height,
-		StepHeight:    defaultStepHeight,
-		MaxSlopeAngle: defaultMaxSlopeAngle,
+		Pos:             pos,
+		Radius:          radius,
+		Height:          height,
+		StepHeight:      defaultStepHeight,
+		MaxSlopeAngle:   defaultMaxSlopeAngle,
+		GravityScale:    1,
+		gravityScaleSet: true,
 	}
+}
+
+// EffectiveGravity returns the scaled gravity acceleration acting on c in world,
+// combining world.Gravity with any overlapping active trigger areas.
+func (c *CharacterController) EffectiveGravity(world *World) Vec3 {
+	if c == nil || world == nil || c.Radius <= 0 {
+		return Vec3{}
+	}
+	eff := world.evaluateShapeAreasForCharacter(c.Shape(), c.IgnoreBodyID, c.effectiveMask())
+	return eff.Gravity.Scale(c.EffectiveGravityScale())
 }
 
 // Capsule returns the controller's world-space capsule at Pos.
@@ -162,9 +179,17 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	c.OnCeiling = false
 	steppedUp := false
 
+	// Resolve area gravity, damping, and fluid drag at the character's current pose.
+	eff := world.evaluateShapeAreasForCharacter(c.Shape(), c.IgnoreBodyID, c.effectiveMask())
+	effGravity := eff.Gravity.Scale(c.EffectiveGravityScale())
+
 	// Prepare velocity for this tick.
-	c.Vel.X = wishMove.X
-	c.Vel.Z = wishMove.Z
+	if wishMove.X != 0 || effGravity.X == 0 {
+		c.Vel.X = wishMove.X
+	}
+	if wishMove.Z != 0 || effGravity.Z == 0 {
+		c.Vel.Z = wishMove.Z
+	}
 	jumping := false
 	if wishMove.Y != 0 {
 		c.Vel.Y = wishMove.Y
@@ -175,10 +200,17 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		jumping = true
 	}
 
-	c.Vel = c.Vel.Add(world.Gravity.Scale(dtSec))
-	if wasGrounded && !jumping && c.Vel.Y < 0 {
+	c.Vel = c.Vel.Add(effGravity.Scale(dtSec))
+	if eff.FluidLinearDrag > 0 {
+		factor := 1 / (1 + eff.FluidLinearDrag*dtSec)
+		c.Vel = eff.FluidVelocity.Add(c.Vel.Sub(eff.FluidVelocity).Scale(factor))
+	}
+	if eff.HasLinearDamping && eff.LinearDamping > 0 {
+		c.Vel = c.Vel.Scale(1 / (1 + eff.LinearDamping*dtSec))
+	}
+	if wasGrounded && !jumping && c.Vel.Y < 0 && effGravity.Y < 0 {
 		// Prevent unbounded negative velocity accumulation while walking on ground.
-		c.Vel.Y = world.Gravity.Y * dtSec
+		c.Vel.Y = effGravity.Y * dtSec
 	}
 
 	// Phase 1: Horizontal move with walkable-slope gliding and stair step-up.
@@ -267,7 +299,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 
 		if !snapped {
 			gravDisp := Vec3{Y: c.Vel.Y * dtSec}
-			c.slideVertical(world, gravDisp, dtSec, minGroundY)
+			c.slideVertical(world, gravDisp, dtSec, minGroundY, effGravity.Y)
 			if !c.Grounded && horizGrounded {
 				// Keep ground contact if we just moved onto a walkable surface
 				// and the downward sweep did not hit anything lower.
@@ -503,7 +535,7 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 
 // slideVertical moves along a downward gravity displacement, landing cleanly on
 // walkable ground or sliding downhill on slopes steeper than MaxSlopeAngle.
-func (c *CharacterController) slideVertical(world *World, disp Vec3, dtSec, minGroundY float32) {
+func (c *CharacterController) slideVertical(world *World, disp Vec3, dtSec, minGroundY, gravityY float32) {
 	rem := disp
 	c.Grounded = false
 	c.GroundNormal = Vec3{}
@@ -544,7 +576,7 @@ func (c *CharacterController) slideVertical(world *World, disp Vec3, dtSec, minG
 				} else {
 					// Already sliding on the slope: cancel only the normal component of
 					// this tick's gravity so velocity accelerates smoothly downhill.
-					c.Vel.Y -= world.Gravity.Y * hitNormal.Y * hitNormal.Y * dtSec
+					c.Vel.Y -= gravityY * hitNormal.Y * hitNormal.Y * dtSec
 				}
 				remFrac := float32(1)
 				if totalLen := rem.Len(); totalLen > 1e-6 {

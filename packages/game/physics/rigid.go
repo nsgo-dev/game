@@ -32,24 +32,32 @@ type RigidBody struct {
 	Friction       float32
 	LinearDamping  float32
 	AngularDamping float32
-	Static         bool
-	Layer          LayerMask
-	Mask           LayerMask
-	UserData       any
+	// GravityScale multiplies the effective gravity applied to this body during
+	// RigidWorld.Step. NewRigidBox and NewRigidCircle initialize it to 1; on a
+	// zero-initialized RigidBody literal it defaults to 1 unless SetGravityScale(0)
+	// is called or GravityScale is modified after AddBody.
+	GravityScale float32
+	Static       bool
+	Layer        LayerMask
+	Mask         LayerMask
+	UserData     any
 
-	forceX float64
-	forceY float64
-	torque float64
+	gravityScaleSet bool
+	forceX          float64
+	forceY          float64
+	torque          float64
 }
 
 // NewRigidBox returns a dynamic rectangular RigidBody centered at (x, y) with size (w, h) and mass.
 // If mass <= 0, the body is created as Static.
 func NewRigidBox(x, y, w, h, mass float32) *RigidBody {
 	b := &RigidBody{
-		Shape:    BoxShape(Box{X: x - w*0.5, Y: y - h*0.5, W: w, H: h}),
-		X:        x,
-		Y:        y,
-		Friction: 0.4,
+		Shape:           BoxShape(Box{X: x - w*0.5, Y: y - h*0.5, W: w, H: h}),
+		X:               x,
+		Y:               y,
+		Friction:        0.4,
+		GravityScale:    1,
+		gravityScaleSet: true,
 	}
 	if mass <= 0 {
 		b.Static = true
@@ -74,10 +82,12 @@ func NewStaticRigidBox(x, y, w, h float32) *RigidBody {
 // If mass <= 0, the body is created as Static.
 func NewRigidCircle(x, y, r, mass float32) *RigidBody {
 	b := &RigidBody{
-		Shape:    CircleShape(Circle{X: x, Y: y, R: r}),
-		X:        x,
-		Y:        y,
-		Friction: 0.4,
+		Shape:           CircleShape(Circle{X: x, Y: y, R: r}),
+		X:               x,
+		Y:               y,
+		Friction:        0.4,
+		GravityScale:    1,
+		gravityScaleSet: true,
 	}
 	if mass <= 0 {
 		b.Static = true
@@ -250,6 +260,7 @@ func CanCollideRigid(a, b *RigidBody) bool {
 type RigidWorld struct {
 	Bodies           []*RigidBody
 	Joints           []Joint
+	Triggers         []*Trigger
 	GravityX         float32
 	GravityY         float32
 	SolverIterations int
@@ -259,6 +270,10 @@ type RigidWorld struct {
 func (w *RigidWorld) AddBody(bodies ...*RigidBody) {
 	for _, b := range bodies {
 		if b != nil {
+			if !isFinite32(b.GravityScale) || (b.GravityScale == 0 && !b.gravityScaleSet) {
+				b.GravityScale = 1
+			}
+			b.gravityScaleSet = true
 			w.Bodies = append(w.Bodies, b)
 		}
 	}
@@ -331,8 +346,9 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		iters = DefaultSolverIterations
 	}
 
-	// 1. Prepare body mass/inertia and integrate forces + gravity into velocities.
+	// 1. Prepare body mass/inertia and integrate forces + gravity/areas into velocities.
 	gx, gy := float64(w.GravityX), float64(w.GravityY)
+	activeAreas := collectActiveTriggers(w.Triggers)
 	for _, b := range w.Bodies {
 		if b == nil {
 			continue
@@ -343,18 +359,47 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		}
 		invM := float64(b.InvMass)
 		invI := float64(b.InvInertia)
-		vx := float64(b.VX) + (gx+b.forceX*invM)*h
-		vy := float64(b.VY) + (gy+b.forceY*invM)*h
-		av := float64(b.AngularVel) + (b.torque*invI)*h
+		gScale := float64(b.EffectiveGravityScale())
 
-		if b.LinearDamping > 0 {
-			factor := 1.0 / (1.0 + float64(b.LinearDamping)*h)
-			vx *= factor
-			vy *= factor
-		}
-		if b.AngularDamping > 0 {
-			factor := 1.0 / (1.0 + float64(b.AngularDamping)*h)
-			av *= factor
+		var vx, vy, av float64
+		if len(activeAreas) == 0 {
+			vx = float64(b.VX) + (gx*gScale+b.forceX*invM)*h
+			vy = float64(b.VY) + (gy*gScale+b.forceY*invM)*h
+			av = float64(b.AngularVel) + (b.torque*invI)*h
+
+			if b.LinearDamping > 0 {
+				factor := 1.0 / (1.0 + float64(b.LinearDamping)*h)
+				vx *= factor
+				vy *= factor
+			}
+			if b.AngularDamping > 0 {
+				factor := 1.0 / (1.0 + float64(b.AngularDamping)*h)
+				av *= factor
+			}
+		} else {
+			eff := w.evaluateRigidBodyAreas(b, activeAreas)
+			effGX := (float64(eff.GravityX) + float64(eff.BuoyancyAccelX)) * gScale
+			effGY := (float64(eff.GravityY) + float64(eff.BuoyancyAccelY)) * gScale
+			vx = float64(b.VX) + (effGX+b.forceX*invM)*h
+			vy = float64(b.VY) + (effGY+b.forceY*invM)*h
+			av = float64(b.AngularVel) + (b.torque*invI)*h
+
+			if eff.FluidLinearDrag > 0 {
+				fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
+				factor := 1.0 / (1.0 + float64(eff.FluidLinearDrag)*h)
+				vx = fvx + (vx-fvx)*factor
+				vy = fvy + (vy-fvy)*factor
+			}
+			if eff.LinearDamping > 0 {
+				factor := 1.0 / (1.0 + float64(eff.LinearDamping)*h)
+				vx *= factor
+				vy *= factor
+			}
+			angDamp := float64(eff.AngularDamping) + float64(eff.FluidAngularDrag)
+			if angDamp > 0 {
+				factor := 1.0 / (1.0 + angDamp*h)
+				av *= factor
+			}
 		}
 
 		b.VX = float32(vx)

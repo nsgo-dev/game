@@ -107,20 +107,45 @@ type CharacterBody struct {
 	GroundNormal core.Point
 	// Riding is the MovingPlatform currently carrying the character, or nil.
 	Riding *MovingPlatform
+	// World is an optional physics World whose GravityX/GravityY and Triggers
+	// override gravity and damping for this character during Move.
+	World *World
+	// GravityScale multiplies the effective gravity applied when World is set.
+	// NewCharacterBody initializes it to 1; on a zero-initialized CharacterBody
+	// literal it defaults to 1 unless SetGravityScale(0) is called.
+	GravityScale float32
+
+	gravityScaleSet bool
 }
 
 // NewCharacterBody returns a CharacterBody wrapping body with DefaultMaxSlopeAngle and a default SnapDist of 8.
 func NewCharacterBody(body *Body) *CharacterBody {
 	return &CharacterBody{
-		Body:          body,
-		MaxSlopeAngle: DefaultMaxSlopeAngle,
-		SnapDist:      8,
+		Body:            body,
+		MaxSlopeAngle:   DefaultMaxSlopeAngle,
+		SnapDist:        8,
+		GravityScale:    1,
+		gravityScaleSet: true,
 	}
+}
+
+// EffectiveGravity returns the scaled gravity acceleration acting on c from
+// c.World and any overlapping Triggers, or (0, 0) when c.World is nil.
+func (c *CharacterBody) EffectiveGravity() (gx, gy float32) {
+	if c == nil || c.Body == nil || c.World == nil || c.Body.Shape.Empty() {
+		return 0, 0
+	}
+	eff := c.World.AreaEffectAtShape(c.Body.Shape, c.Body.Layer, c.Body.Mask)
+	scale := c.EffectiveGravityScale()
+	return eff.GravityX * scale, eff.GravityY * scale
 }
 
 // Move advances c by carrying it with any riding MovingPlatform and then moving by (Body.VX*dt, Body.VY*dt),
 // resolving solid and one-way tiles, moving platforms, walkable slopes (up to MaxSlopeAngle),
 // downhill slope snapping (up to SnapDist), and blocking steeper slopes.
+// When c.World is non-nil, Move integrates effective gravity (world gravity combined
+// with overlapping Trigger.Area overrides, scaled by GravityScale) along with area
+// linear damping and fluid linear drag into Body.VX/Body.VY before moving.
 func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration) MoveResult {
 	if c == nil || c.Body == nil {
 		return MoveResult{}
@@ -139,6 +164,27 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 
 	if b.Shape.Empty() || dt <= 0 {
 		return MoveResult{}
+	}
+
+	secs := dt.Seconds()
+	if c.World != nil && !math.IsNaN(secs) && !math.IsInf(secs, 0) && secs > 0 {
+		eff := c.World.AreaEffectAtShape(b.Shape, b.Layer, b.Mask)
+		gScale := float64(c.EffectiveGravityScale())
+		vx := float64(b.VX) + float64(eff.GravityX)*gScale*secs
+		vy := float64(b.VY) + float64(eff.GravityY)*gScale*secs
+		if eff.FluidLinearDrag > 0 {
+			fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
+			factor := 1.0 / (1.0 + float64(eff.FluidLinearDrag)*secs)
+			vx = fvx + (vx-fvx)*factor
+			vy = fvy + (vy-fvy)*factor
+		}
+		if eff.HasLinearDamping && eff.LinearDamping > 0 {
+			factor := 1.0 / (1.0 + float64(eff.LinearDamping)*secs)
+			vx *= factor
+			vy *= factor
+		}
+		b.VX = float32(vx)
+		b.VY = float32(vy)
 	}
 
 	maxSlope := float64(c.MaxSlopeAngle)
@@ -371,7 +417,6 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	}
 
 	// 2. Subdivide character's own displacement to prevent tunneling through tiles, platforms, or slopes.
-	secs := dt.Seconds()
 	totalDX := float64(b.VX) * secs
 	totalDY := float64(b.VY) * secs
 	if math.IsNaN(totalDX) || math.IsInf(totalDX, 0) {
