@@ -72,7 +72,7 @@ A file that cannot be read has no line: its error names the file, keeps the read
 ## Writing a loader
 
 1. Validate the decoded document with `loaderr.Errorf(field, fix, format, args...)`, building `field` with `loaderr.Path("layers", i, "objects", j)` or extending one with `loaderr.Join(at, "alpha")`. A validator does not know lines, so it names the field instead.
-2. In the loader's entry point, pass every error through `loaderr.Locate(err, file, data, fix)` once. It finds the field's line and column in the YAML or JSON text, turns decode errors from `encoding/json` and YAML (syntax, unknown fields, wrong types, duplicate keys, an early end) into an `Error` with their line and a fix, names the file, and gives the loader's `fix` to an error that has none.
+2. In the loader's entry point, pass every error through `loaderr.Locate(err, file, data, fix)` once (or `loaderr.LocateJSON(err, file, data, fix)` for JSON-only loaders that do not need YAML support). It finds the field's line and column in the YAML or JSON text, turns decode errors from `encoding/json` and YAML (syntax, unknown fields, wrong types, duplicate keys, an early end) into an `Error` with their line and a fix, names the file, and gives the loader's `fix` to an error that has none.
 3. For a line-based format that is neither YAML nor JSON, such as BMFont text or Yarn, set `Line` directly.
 4. Write a fix as an instruction: what to write, where, or which tool to export from again. "Set space to world or screen" helps; "invalid value" does not.
 5. Walk maps in sorted key order, so the same problem is reported on every run when a file has several.

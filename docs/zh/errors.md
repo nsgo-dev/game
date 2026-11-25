@@ -72,7 +72,7 @@ if err != nil {
 ## 编写加载器
 
 1. 用 `loaderr.Errorf(field, fix, format, args...)` 校验解码后的文档，用 `loaderr.Path("layers", i, "objects", j)` 构造 `field`，或用 `loaderr.Join(at, "alpha")` 在已有路径上延伸。校验器不知道行号，所以给出字段。
-2. 在加载器的入口处，让每个错误都经过一次 `loaderr.Locate(err, file, data, fix)`。它在 YAML 或 JSON 文本中找到字段所在的行和列，把 `encoding/json` 和 YAML 的解码错误（语法错误、未知字段、类型不符、重复键、提前结束）转换为带行号和修复方法的 `Error`，填入文件名，并给没有修复方法的错误补上加载器的 `fix`。
+2. 在加载器的入口处，让每个错误都经过一次 `loaderr.Locate(err, file, data, fix)`（只需 JSON 而不需要 YAML 支持的加载器可使用 `loaderr.LocateJSON(err, file, data, fix)`）。它在 YAML 或 JSON 文本中找到字段所在的行和列，把 `encoding/json` 和 YAML 的解码错误（语法错误、未知字段、类型不符、重复键、提前结束）转换为带行号和修复方法的 `Error`，填入文件名，并给没有修复方法的错误补上加载器的 `fix`。
 3. 对既非 YAML 也非 JSON 的按行格式，例如 BMFont 文本和 Yarn，直接设置 `Line`。
 4. 把修复方法写成指令：写什么、写在哪里，或者用哪个工具重新导出。“把 space 设为 world 或 screen”有用；“值无效”没用。
 5. 按排序后的键遍历映射，这样文件中有多处问题时，每次运行报告的都是同一处。

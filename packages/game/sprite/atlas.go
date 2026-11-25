@@ -69,7 +69,7 @@ func (f Frame) Size() math2d.Vec2 {
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {
 	a, err := loadAtlas(img, data)
-	return a, loaderr.Locate(err, "", data, "export the atlas again from TexturePacker (JSON Hash or Array) or Aseprite (json-hash or json-array)")
+	return a, loaderr.LocateJSON(err, "", data, "export the atlas again from TexturePacker (JSON Hash or Array) or Aseprite (json-hash or json-array)")
 }
 
 func loadAtlas(img core.ImageSource, data []byte) (*Atlas, error) {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,14 +59,59 @@ func Locate(err error, file string, data []byte, fix string) error {
 	return &Error{File: file, Problem: err.Error(), Fix: fix, Err: err}
 }
 
+// LocateJSON is like Locate for loaders that only decode JSON, XML, or CSV documents
+// and never YAML. Using LocateJSON lets dead-code elimination omit the YAML parser
+// from WebAssembly builds that do not load YAML files.
+func LocateJSON(err error, file string, data []byte, fix string) error {
+	if err == nil {
+		return nil
+	}
+	if e, ok := As(err); ok {
+		c := *e
+		if c.File == "" {
+			c.File = file
+		}
+		if c.Line == 0 && data != nil {
+			c.Line, c.Column = findFieldJSON(data, c.Field)
+		}
+		if c.Fix == "" {
+			c.Fix = fix
+		}
+		return &c
+	}
+	if d := fromJSONDecode(err, data); d != nil {
+		d.File = file
+		if d.Fix == "" {
+			d.Fix = fix
+		}
+		return d
+	}
+	return &Error{File: file, Problem: err.Error(), Fix: fix, Err: err}
+}
+
 // FindField returns the 1-based line and column of the value at field (a path as Path writes it) in data, a YAML or JSON document. For a mapping key it is the key's position. When field is not in data it returns the position of the nearest enclosing value that is, the document's start for an empty field, and 0, 0 when data does not parse.
 func FindField(data []byte, field string) (line, column int) {
+	return findFieldWith(data, field, walk)
+}
+
+func findFieldJSON(data []byte, field string) (line, column int) {
+	return findFieldWith(data, field, walkJSONOnly)
+}
+
+func walkJSONOnly(data []byte, visit func([]segment, int, int) bool) {
+	trimmed := bytes.TrimLeft(data, " \t\r\n\ufeff")
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		walkJSON(data, visit)
+	}
+}
+
+func findFieldWith(data []byte, field string, walkFn func([]byte, func([]segment, int, int) bool)) (line, column int) {
 	segs, ok := parsePath(field)
 	if !ok {
 		return 0, 0
 	}
 	best := -1
-	walk(data, func(path []segment, l, c int) bool {
+	walkFn(data, func(path []segment, l, c int) bool {
 		n := commonPrefix(path, segs)
 		if n == len(path) && n > best {
 			best, line, column = n, l, c
@@ -95,8 +139,12 @@ func fieldAt(data []byte, line int) string {
 
 // findKey returns the position of the mapping key named key in data when data has exactly one key of that name. When it has none, or several and so the one meant is not known, it returns 0, 0 and "".
 func findKey(data []byte, key string) (line, column int, field string) {
+	return findKeyWith(data, key, walk)
+}
+
+func findKeyWith(data []byte, key string, walkFn func([]byte, func([]segment, int, int) bool)) (line, column int, field string) {
 	found := 0
-	walk(data, func(path []segment, l, c int) bool {
+	walkFn(data, func(path []segment, l, c int) bool {
 		if len(path) > 0 && !path[len(path)-1].isIndex && path[len(path)-1].key == key {
 			found++
 			if found > 1 {
@@ -283,16 +331,100 @@ func walkYAML(data []byte, visit func([]segment, int, int) bool) {
 	}
 }
 
-var (
-	jsonUnknownField = regexp.MustCompile(`json: unknown field "((?:[^"\\]|\\.)*)"`)
-	yamlLine         = regexp.MustCompile(`^(?:yaml: )?line (\d+): (.*)$`)
-	yamlNotFound     = regexp.MustCompile(`^field (\S+) not found in type`)
-	yamlDuplicate    = regexp.MustCompile(`^mapping key "?(.*?)"? already defined`)
-	yamlCannot       = regexp.MustCompile("^cannot unmarshal (\\S+)(?: `(.*)`)? into (.+)$")
-)
+func matchJSONUnknownField(msg string) (string, bool) {
+	const prefix = `json: unknown field "`
+	i := strings.Index(msg, prefix)
+	if i < 0 {
+		return "", false
+	}
+	s := msg[i+len(prefix):]
+	for j := 0; j < len(s); j++ {
+		if s[j] == '\\' {
+			j++
+			if j >= len(s) {
+				return "", false
+			}
+			continue
+		}
+		if s[j] == '"' {
+			return s[:j], true
+		}
+	}
+	return "", false
+}
 
-// fromDecode returns the Error for a decode error from encoding/json or YAML in err's chain, or nil when there is none.
-func fromDecode(err error, data []byte) *Error {
+func matchYAMLLine(msg string) (int, string, bool) {
+	s := strings.TrimPrefix(msg, "yaml: ")
+	s, ok := strings.CutPrefix(s, "line ")
+	if !ok {
+		return 0, "", false
+	}
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || !strings.HasPrefix(s[i:], ": ") {
+		return 0, "", false
+	}
+	line, _ := strconv.Atoi(s[:i])
+	return line, s[i+2:], true
+}
+
+func matchYAMLNotFound(problem string) (string, bool) {
+	s, ok := strings.CutPrefix(problem, "field ")
+	if !ok {
+		return "", false
+	}
+	i := 0
+	for i < len(s) && s[i] != ' ' && s[i] != '\t' && s[i] != '\n' && s[i] != '\r' && s[i] != '\f' && s[i] != '\v' {
+		i++
+	}
+	if i == 0 || !strings.HasPrefix(s[i:], " not found in type") {
+		return "", false
+	}
+	return s[:i], true
+}
+
+func matchYAMLDuplicate(problem string) bool {
+	s, ok := strings.CutPrefix(problem, "mapping key ")
+	return ok && strings.Contains(s, " already defined")
+}
+
+func matchYAMLCannot(problem string) (kind, val, target string, ok bool) {
+	s, hasPrefix := strings.CutPrefix(problem, "cannot unmarshal ")
+	if !hasPrefix {
+		return "", "", "", false
+	}
+	i := 0
+	for i < len(s) && s[i] != ' ' && s[i] != '\t' && s[i] != '\n' && s[i] != '\r' && s[i] != '\f' && s[i] != '\v' {
+		i++
+	}
+	if i == 0 {
+		return "", "", "", false
+	}
+	kind = s[:i]
+	rest := s[i:]
+	if strings.HasPrefix(rest, " `") {
+		if end := strings.LastIndex(rest[2:], "` into "); end >= 0 {
+			val = rest[2 : 2+end]
+			target = rest[2+end+len("` into "):]
+			if target != "" {
+				return kind, val, target, true
+			}
+		}
+	}
+	if target, ok := strings.CutPrefix(rest, " into "); ok && target != "" {
+		return kind, "", target, true
+	}
+	return "", "", "", false
+}
+
+// fromJSONDecode returns the Error for a decode error from encoding/csv, encoding/json, or io.ErrUnexpectedEOF without referencing YAML.
+func fromJSONDecode(err error, data []byte) *Error {
+	return fromJSONDecodeWith(err, data, walkJSONOnly)
+}
+
+func fromJSONDecodeWith(err error, data []byte, walkFn func([]byte, func([]segment, int, int) bool)) *Error {
 	var csvErr *csv.ParseError
 	if errors.As(err, &csvErr) {
 		return &Error{Line: csvErr.Line, Column: csvErr.Column, Problem: "invalid CSV: " + csvErr.Err.Error(), Fix: FixSyntax, Err: err}
@@ -330,27 +462,20 @@ func fromDecode(err error, data []byte) *Error {
 			Err:      err,
 		}
 		if e.Field != "" {
-			e.Line, e.Column = FindField(data, e.Field)
+			e.Line, e.Column = findFieldWith(data, e.Field, walkFn)
 		}
 		if e.Line == 0 && data != nil {
 			e.Line, e.Column = offsetPosition(data, int(typ.Offset)-1)
 		}
 		return e
 	}
-	if m := jsonUnknownField.FindStringSubmatch(err.Error()); m != nil {
-		name, uerr := strconv.Unquote(`"` + m[1] + `"`)
+	if rawName, ok := matchJSONUnknownField(err.Error()); ok {
+		name, uerr := strconv.Unquote(`"` + rawName + `"`)
 		if uerr != nil {
-			name = m[1]
+			name = rawName
 		}
 		e := &Error{Problem: fmt.Sprintf("unknown field %q", name), Fix: FixUnknownField, Err: err}
-		e.Line, e.Column, e.Field = findKey(data, name)
-		return e
-	}
-	var yt *yaml.TypeError
-	if errors.As(err, &yt) && len(yt.Errors) > 0 {
-		return fromYAMLMessage(yt.Errors[0], data, err)
-	}
-	if e := fromYAMLMessage(err.Error(), data, err); e != nil {
+		e.Line, e.Column, e.Field = findKeyWith(data, name, walkFn)
 		return e
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) {
@@ -358,6 +483,21 @@ func fromDecode(err error, data []byte) *Error {
 		if data != nil {
 			e.Line, e.Column = offsetPosition(data, len(data))
 		}
+		return e
+	}
+	return nil
+}
+
+// fromDecode returns the Error for a decode error from encoding/json or YAML in err's chain, or nil when there is none.
+func fromDecode(err error, data []byte) *Error {
+	if e := fromJSONDecodeWith(err, data, walk); e != nil {
+		return e
+	}
+	var yt *yaml.TypeError
+	if errors.As(err, &yt) && len(yt.Errors) > 0 {
+		return fromYAMLMessage(yt.Errors[0], data, err)
+	}
+	if e := fromYAMLMessage(err.Error(), data, err); e != nil {
 		return e
 	}
 	return nil
@@ -385,9 +525,8 @@ func fromYAMLMessage(msg string, data []byte, err error) *Error {
 	}
 	var line int
 	var problem string
-	if m := yamlLine.FindStringSubmatch(msg); m != nil {
-		line, _ = strconv.Atoi(m[1])
-		problem = m[2]
+	if n, prob, ok := matchYAMLLine(msg); ok {
+		line, problem = n, prob
 		if isYAMLParserProblem(problem) {
 			line++
 		}
@@ -402,27 +541,24 @@ func fromYAMLMessage(msg string, data []byte, err error) *Error {
 		line = n
 	}
 	e := &Error{Line: line, Err: err}
-	switch {
-	case yamlNotFound.MatchString(problem):
-		name := yamlNotFound.FindStringSubmatch(problem)[1]
+	if name, ok := matchYAMLNotFound(problem); ok {
 		e.Problem = fmt.Sprintf("unknown field %q", name)
 		e.Fix = FixUnknownField
 		e.Field = fieldAt(data, line)
-	case yamlDuplicate.MatchString(problem):
+	} else if matchYAMLDuplicate(problem) {
 		e.Problem = problem
 		e.Fix = FixDuplicateKey
 		e.Field = fieldAt(data, line)
-	case yamlCannot.MatchString(problem):
-		c := yamlCannot.FindStringSubmatch(problem)
-		if c[2] != "" {
-			e.Problem = fmt.Sprintf("cannot use %s `%s` here", c[1], c[2])
+	} else if kind, val, target, ok := matchYAMLCannot(problem); ok {
+		if val != "" {
+			e.Problem = fmt.Sprintf("cannot use %s `%s` here", kind, val)
 		} else {
-			e.Problem = fmt.Sprintf("cannot use a %s here", c[1])
+			e.Problem = fmt.Sprintf("cannot use a %s here", kind)
 		}
-		e.Expected = c[3]
+		e.Expected = target
 		e.Fix = FixType
 		e.Field = fieldAt(data, line)
-	default:
+	} else {
 		e.Problem = "invalid YAML: " + problem
 		e.Fix = FixSyntax
 	}

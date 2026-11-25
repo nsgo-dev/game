@@ -46,17 +46,17 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	if isXML(data) {
 		raw, err := parseTMX(data)
 		if err != nil {
-			return nil, loaderr.Locate(err, "", nil, fixTiledXML)
+			return nil, loaderr.LocateJSON(err, "", nil, fixTiledXML)
 		}
 		m, err := buildTiledMap(raw, resolve)
-		return m, loaderr.Locate(err, "", nil, fixTiledXML)
+		return m, loaderr.LocateJSON(err, "", nil, fixTiledXML)
 	}
 	var raw tiledMap
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, loaderr.Locate(err, "", data, fixTiled)
+		return nil, loaderr.LocateJSON(err, "", data, fixTiled)
 	}
 	m, err := buildTiledMap(raw, resolve)
-	return m, loaderr.Locate(err, "", data, fixTiled)
+	return m, loaderr.LocateJSON(err, "", data, fixTiled)
 }
 
 // fixTiled is the fix for a Tiled JSON map error that has no more specific one.
@@ -150,18 +150,18 @@ func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 				extFix = fixTilesetXML
 				tsRaw, err = parseTSX(ext)
 				if err != nil {
-					return nil, loaderr.Locate(err, ref.Source, nil, extFix)
+					return nil, loaderr.LocateJSON(err, ref.Source, nil, extFix)
 				}
 			} else {
 				extLocData = ext
 				if err := json.Unmarshal(ext, &tsRaw); err != nil {
-					return nil, loaderr.Locate(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
+					return nil, loaderr.LocateJSON(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
 				}
 			}
 			ts, err := buildTileset(m, ref.FirstGID, tsRaw, path.Dir(ref.Source), resolve)
 			if err != nil {
 				// The error is about the tileset's own file.
-				return nil, loaderr.Locate(err, ref.Source, extLocData, extFix)
+				return nil, loaderr.LocateJSON(err, ref.Source, extLocData, extFix)
 			}
 			m.Tilesets = append(m.Tilesets, ts)
 			continue
