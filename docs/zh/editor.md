@@ -481,7 +481,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - 触控板双指滚动、鼠标滚轮的横向滚动（Shift+滚轮或可左右拨动的滚轮）、鼠标中键拖动、按住 Space 拖动，或在触摸屏上双指拖动，都会平移视图（`PanView2D`）。
 - F 或 Frame Selection 按钮框住选中的对象（`FrameSelection2D`，没有选中时框住全部）；Home 或 Frame All 按钮框住所有可见图层的对象、它们的内联瓦片地图以及相机画面（`FrameAll2D`）；Mod+0 或 Scene Camera View 按钮回到场景相机的视图（`ResetView2D`）。
 
-在作者平移或缩放之前，以及 `ResetView2D` 或打开另一个场景之后，视图就是场景相机的视图：虚拟屏幕以相机的缩放和旋转居中于画布，并随场景变化跟随相机（`View2DFollowsCamera`）。画布会描出相机画面（即玩家看到的虚拟屏幕）的轮廓，并以虚线画出相机的 `bounds`。屏幕空间图层绘制在该画面内。在 Play 模式下只显示这个画面，无论作者留下的是什么视图，都按相机的视图居中，与游戏中一致；在 Stop 恢复作者的视图之前，视图不会平移或缩放。
+在作者平移或缩放之前，以及 `ResetView2D` 或打开另一个场景之后，视图就是场景相机的视图：虚拟屏幕以相机的缩放和旋转居中于画布，并随场景变化跟随相机（`View2DFollowsCamera`）。编辑模式下整块画布都填充场景的 `backgroundColor`，远离相机的对象也以游戏的清屏颜色为底显示；画布会描出相机画面（即玩家看到的虚拟屏幕）的轮廓，并以虚线画出相机的 `bounds`。屏幕空间图层绘制在该画面内。在 Play 模式下只显示这个画面，无论作者留下的是什么视图，都按相机的视图居中，与游戏中一致；在 Stop 恢复作者的视图之前，视图不会平移或缩放。
 
 命中测试、放置、移动、瓦片绘制、选中轮廓和插件工具都经过该视图。`CanvasToWorld` 与 `WorldToCanvas` 在画布坐标与世界坐标之间转换；`CanvasToScreen` 与 `ScreenToCanvas` 在画布坐标与场景的虚拟屏幕（屏幕空间图层所在的空间）之间转换；`ScreenToWorld` 与 `WorldToScreen` 只应用场景相机，与游戏中相同。`CanvasSize` 是画布布局后的尺寸，在视口完成布局（`SetCanvasSize`）之前为场景的虚拟尺寸；3D 视口填满同一块画布。
 

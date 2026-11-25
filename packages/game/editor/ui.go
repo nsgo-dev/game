@@ -158,6 +158,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		}
 	}
 
+	// The edit tools and the 2D view group make the bar wider than a narrow window; it wraps, moving the file and play buttons to a second row rather than past the window's edge, where they cannot be pressed.
 	return core.View{
 		TestID: "editor-toolbar",
 		Style: core.Style{
@@ -244,7 +245,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									return ed.ViewMode == ViewMode2D
 								},
 								Then: func(cx *core.Scope) core.Node {
-									return view2DToolsView(ed, notPlaying)
+									return view2DToolsView(cx, ed, notPlaying)
 								},
 							},
 						},
@@ -456,8 +457,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 }
 
-// view2DToolsView is the tool bar's group of icon buttons that frame the 2D view on the selection or on everything, or return it to the scene camera's view.
-func view2DToolsView(ed *Editor, playing func() bool) core.Node {
+// view2DToolsView is the tool bar's group of icon buttons that frame the 2D view on the selection or on everything, or return it to the scene camera's view; each label names its shortcut as the platform shows it.
+func view2DToolsView(cx *core.Scope, ed *Editor, playing func() bool) core.Node {
 	btn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
 		return ui.Button{
 			TestID:   testID,
@@ -472,9 +473,9 @@ func view2DToolsView(ed *Editor, playing func() bool) core.Node {
 	return ui.ToolbarGroup{
 		Label: "2D View",
 		Children: []core.Node{
-			btn("view-frame-selection", lucide.Focus, "Frame Selection (F)", func() { ed.FrameSelection2D() }),
-			btn("view-frame-all", lucide.Maximize, "Frame All (Home)", func() { ed.FrameAll2D() }),
-			btn("view-reset", lucide.Video, "Scene Camera View", func() { ed.ResetView2D() }),
+			btn("view-frame-selection", lucide.Focus, "Frame Selection ("+cx.KeyLabel("f")+")", func() { ed.FrameSelection2D() }),
+			btn("view-frame-all", lucide.Maximize, "Frame All ("+cx.KeyLabel("home")+")", func() { ed.FrameAll2D() }),
+			btn("view-reset", lucide.Video, "Scene Camera View ("+cx.KeyLabel("mod+0")+")", func() { ed.ResetView2D() }),
 		},
 	}
 }

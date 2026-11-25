@@ -181,6 +181,9 @@ func TestPlayShowsTheCameraViewWhateverTheFreeView(t *testing.T) {
 	ed.PanView2D(-2000, 0)
 	ed.ZoomView2DAt(cw/2, ch/2, 4)
 	free := ed.View2D()
+	if ed.View2DFollowsCamera() {
+		t.Fatal("after a pan and a zoom View2DFollowsCamera reports true")
+	}
 
 	app.Post(func() {
 		if err := ed.Play(); err != nil {
@@ -190,6 +193,9 @@ func TestPlayShowsTheCameraViewWhateverTheFreeView(t *testing.T) {
 	app.Settle()
 	if !ed.Playing() {
 		t.Fatal("the scene is not playing")
+	}
+	if !ed.View2DFollowsCamera() {
+		t.Fatal("while playing View2DFollowsCamera reports false, though the view is the scene camera's")
 	}
 	for _, c := range [][2]float32{{0, 0}, {vw, vh}} {
 		x, y := ed.ScreenToCanvas(c[0], c[1])
@@ -210,9 +216,74 @@ func TestPlayShowsTheCameraViewWhateverTheFreeView(t *testing.T) {
 		}
 	})
 	app.Settle()
-	if ed.View2D() != free {
-		t.Fatalf("after Stop the view is %+v, want the author's %+v", ed.View2D(), free)
+	if ed.View2D() != free || ed.View2DFollowsCamera() {
+		t.Fatalf("after Stop the view is %+v (following the camera: %v), want the author's %+v", ed.View2D(), ed.View2DFollowsCamera(), free)
 	}
+}
+
+// canvasBackgroundFilled reports whether d fills the rectangle (0, 0, w, h) with c before its first transform, so in the canvas's own coordinates.
+func canvasBackgroundFilled(d *core.Drawing, w, h float32, c core.Color) bool {
+	var fill core.Color
+	var rect bool
+	for _, op := range d.Ops {
+		switch op.Kind {
+		case core.DrawTransform:
+			return false
+		case core.DrawFillColor:
+			fill = op.Color
+		case core.DrawRect:
+			rect = op.X == 0 && op.Y == 0 && op.W == w && op.H == h
+		case core.DrawFill:
+			if rect && fill == c {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestEditModeFillsTheWholeCanvasWithTheSceneBackground(t *testing.T) {
+	ed := newFarEditor(t)
+	bg, err := core.ParseColor(ed.Doc.BackgroundColor)
+	if err != nil {
+		t.Fatalf("ParseColor(%q): %v", ed.Doc.BackgroundColor, err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680))
+	cw, ch := ed.CanvasSize()
+	size := core.Size{Width: core.Points(cw), Height: core.Points(ch)}
+	// Pan to the far object so the camera's frame is off the canvas: the canvas is still the scene's background, not the editor's surface.
+	ed.PanView2D(-2000, 0)
+	if x, _ := ed.ScreenToCanvas(ed.Doc.VirtualWidth, 0); x >= 0 {
+		t.Fatalf("the camera frame's right edge is at canvas x %v, want it off the canvas", x)
+	}
+	d := &core.Drawing{}
+	ed.DrawViewport(d, size)
+	if !canvasBackgroundFilled(d, cw, ch, bg) {
+		t.Fatal("in edit mode the canvas is not filled with the scene's background before the scene is drawn")
+	}
+
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if !ed.Playing() {
+		t.Fatal("the scene is not playing")
+	}
+	d = &core.Drawing{}
+	ed.DrawViewport(d, size)
+	if canvasBackgroundFilled(d, cw, ch, bg) {
+		t.Fatal("while playing the whole canvas is filled with the scene's background, though only the camera's frame is the game's")
+	}
+	app.Post(func() {
+		if err := ed.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	})
+	app.Settle()
 }
 
 func TestZoomView2DAtKeepsTheWorldPointUnderThePointer(t *testing.T) {
