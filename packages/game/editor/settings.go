@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -103,7 +104,19 @@ type EditorSettings struct {
 	// ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order.
 	// When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.
 	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
+	// Shortcuts overrides default command shortcuts keyed by command ID (for example "view.frame": "g"). An empty string explicitly unbinds a command.
+	Shortcuts map[string]string `yaml:"shortcuts,omitempty"`
 }
+
+// EditorSettingsTab selects which page is active in EditorSettingsDialogView.
+type EditorSettingsTab int
+
+const (
+	// EditorSettingsTabGeneral shows language and appearance settings.
+	EditorSettingsTabGeneral EditorSettingsTab = iota
+	// EditorSettingsTabShortcuts shows searchable, scope-aware shortcut rebinding.
+	EditorSettingsTabShortcuts
+)
 
 // DefaultEditorSettings returns the default per-user editor settings: version 1, following the system language and appearance.
 func DefaultEditorSettings() EditorSettings {
@@ -242,6 +255,19 @@ func ValidateEditorSettings(s *EditorSettings) error {
 			seen[id] = struct{}{}
 		}
 	}
+	for _, cmdID := range slices.Sorted(maps.Keys(s.Shortcuts)) {
+		raw := s.Shortcuts[cmdID]
+		if err := validateCommandID(cmdID); err != nil {
+			return loaderr.Errorf("shortcuts."+cmdID, "use a valid command ID without spaces or control characters", "%v", err)
+		}
+		norm, err := NormalizeShortcut(raw)
+		if err != nil {
+			return loaderr.Errorf("shortcuts."+cmdID, "write a valid shortcut such as f, mod+s, or empty to unbind", "%v", err)
+		}
+		if err := validateRebindableShortcut(norm); err != nil {
+			return loaderr.Errorf("shortcuts."+cmdID, "choose a non-reserved shortcut (escape, tab, and OS system keys cannot be bound)", "%v", err)
+		}
+	}
 	return nil
 }
 
@@ -250,10 +276,22 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 	if err := ValidateEditorSettings(s); err != nil {
 		return nil, err
 	}
+	var shortcuts map[string]string
+	if len(s.Shortcuts) > 0 {
+		shortcuts = make(map[string]string, len(s.Shortcuts))
+		for cmdID, raw := range s.Shortcuts {
+			norm, err := NormalizeShortcut(raw)
+			if err != nil {
+				return nil, err
+			}
+			shortcuts[cmdID] = norm
+		}
+	}
 	out := EditorSettings{
 		Version:    s.Version,
 		Language:   s.Language,
 		Appearance: s.Appearance,
+		Shortcuts:  shortcuts,
 	}
 	if s.ViewportOverlays != nil {
 		sorted := slices.Clone(*s.ViewportOverlays)
@@ -335,6 +373,11 @@ func (e *Editor) Settings() EditorSettings {
 			cp = []string{}
 		}
 		s.ViewportOverlays = &cp
+	}
+	if len(s.Shortcuts) > 0 {
+		s.Shortcuts = maps.Clone(s.Shortcuts)
+	} else {
+		s.Shortcuts = nil
 	}
 	return s
 }
@@ -428,6 +471,19 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 		slices.Sort(cp)
 		s.ViewportOverlays = &cp
 	}
+	if len(s.Shortcuts) > 0 {
+		normalized := make(map[string]string, len(s.Shortcuts))
+		for cmdID, raw := range s.Shortcuts {
+			norm, err := NormalizeShortcut(raw)
+			if err != nil {
+				return err
+			}
+			normalized[cmdID] = norm
+		}
+		s.Shortcuts = normalized
+	} else {
+		s.Shortcuts = nil
+	}
 	e.settings = s
 	e.syncOverlaysFromSettings()
 	if e.scope != nil {
@@ -491,6 +547,11 @@ func (e *Editor) SetEditorSettingsOpen(open bool) {
 		return
 	}
 	e.editorSettingsOpen = open
+	if open {
+		e.shortcutsSheetOpen = false
+	} else {
+		e.shortcutCaptureActive = false
+	}
 	e.notify()
 }
 
@@ -500,4 +561,61 @@ func (e *Editor) ToggleEditorSettings() {
 		return
 	}
 	e.SetEditorSettingsOpen(!e.editorSettingsOpen)
+}
+
+// EditorSettingsTab returns the active page in the Editor Settings dialog.
+func (e *Editor) EditorSettingsTab() EditorSettingsTab {
+	if e == nil {
+		return EditorSettingsTabGeneral
+	}
+	return e.editorSettingsTab
+}
+
+// SetEditorSettingsTab switches the active page in the Editor Settings dialog.
+func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
+	if e == nil || e.editorSettingsTab == tab {
+		return
+	}
+	e.editorSettingsTab = tab
+	if tab != EditorSettingsTabShortcuts {
+		e.shortcutCaptureActive = false
+	}
+	e.notify()
+}
+
+// OpenShortcutsSettings opens the Editor Settings dialog directly to the Shortcuts page.
+func (e *Editor) OpenShortcutsSettings() {
+	if e == nil {
+		return
+	}
+	e.shortcutsSheetOpen = false
+	e.editorSettingsTab = EditorSettingsTabShortcuts
+	e.editorSettingsOpen = true
+	e.notify()
+}
+
+// ShortcutsSheetOpen reports whether the ⌘/ Keyboard Shortcuts reference sheet is open.
+func (e *Editor) ShortcutsSheetOpen() bool {
+	return e != nil && e.shortcutsSheetOpen
+}
+
+// SetShortcutsSheetOpen opens or closes the ⌘/ Keyboard Shortcuts reference sheet.
+func (e *Editor) SetShortcutsSheetOpen(open bool) {
+	if e == nil || e.shortcutsSheetOpen == open {
+		return
+	}
+	e.shortcutsSheetOpen = open
+	if open {
+		e.editorSettingsOpen = false
+		e.shortcutCaptureActive = false
+	}
+	e.notify()
+}
+
+// ToggleShortcutsSheet toggles the ⌘/ Keyboard Shortcuts reference sheet open or closed.
+func (e *Editor) ToggleShortcutsSheet() {
+	if e == nil {
+		return
+	}
+	e.SetShortcutsSheetOpen(!e.shortcutsSheetOpen)
 }

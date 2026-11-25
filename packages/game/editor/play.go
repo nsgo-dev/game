@@ -229,6 +229,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 		e.usages.open = false
 		e.usages.rev++
 	}
+	e.shortcutCaptureActive = false
+	e.editorSettingsOpen = false
+	e.shortcutsSheetOpen = false
 	e.cancelBackgroundPreview()
 	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap

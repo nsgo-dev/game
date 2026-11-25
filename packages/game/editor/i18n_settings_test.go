@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -204,7 +205,7 @@ func TestEditorSettingsParseEncodeAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseEditorSettings: %v", err)
 	}
-	if *parsed != def {
+	if !reflect.DeepEqual(*parsed, def) {
 		t.Fatalf("round-trip mismatch: got %+v, want %+v", *parsed, def)
 	}
 
@@ -247,7 +248,7 @@ func TestEditorSettingsParseEncodeAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEditorSettings: %v", err)
 	}
-	if *loaded != want {
+	if !reflect.DeepEqual(*loaded, want) {
 		t.Fatalf("loaded = %+v, want %+v", *loaded, want)
 	}
 

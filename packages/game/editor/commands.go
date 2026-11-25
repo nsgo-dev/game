@@ -72,6 +72,7 @@ const (
 	CmdToggleNavMesh2D        = "view.navmesh2d"
 	CmdViewportOverlays       = "view.overlays"
 	CmdCommandPalette         = "view.palette"
+	CmdShortcutsSheet         = "view.shortcuts"
 	CmdPlayStop               = "project.play"
 	CmdRunGame                = "project.run"
 	CmdProjectSettings        = "project.settings"
@@ -85,6 +86,7 @@ const (
 	CmdCheckProblems          = "project.check"
 	CmdFindUsages             = "project.findUsages"
 	CmdEditorSettings         = "editor.settings"
+	CmdShortcutsSettings      = "editor.shortcuts"
 	CmdChanges                = "git.changes"
 	CmdMergeConflicts         = "git.mergeConflicts"
 	CmdPlaytestReport         = "project.playtestReport"
@@ -127,6 +129,8 @@ type EditorCommand struct {
 	Category string
 	// Keywords are extra search terms matched by the command palette.
 	Keywords []string
+	// Scope identifies the keyboard scope this command belongs to (for example ScopeGlobal, ScopeViewport, ScopeViewport2D, ScopeViewport3D, ScopeTile, ScopeSceneTree, ScopeAnimation, ScopePlay). Empty defaults to ScopeGlobal.
+	Scope string
 	// Shortcut is the canonical primary NSGo key shortcut (using "mod" for Command on Apple platforms and Ctrl elsewhere), or empty when unbound.
 	Shortcut string
 	// AlternateShortcuts are optional additional shortcuts that invoke the same command (such as "backspace" alongside "delete").
@@ -157,6 +161,9 @@ func NormalizeShortcut(raw string) (string, error) {
 	key := strings.TrimSpace(parts[len(parts)-1])
 	if key == "" {
 		return "", fmt.Errorf("editor: shortcut %q is missing a key", raw)
+	}
+	if strings.IndexFunc(key, unicode.IsSpace) >= 0 {
+		return "", fmt.Errorf("editor: shortcut %q key %q must not contain spaces", raw, key)
 	}
 	switch key {
 	case "return":
@@ -545,6 +552,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description:        "Remove the currently selected object from the scene",
 			Category:           "Edit",
 			Keywords:           []string{"remove", "object", "erase"},
+			Scope:              ScopeViewport,
 			Shortcut:           "delete",
 			AlternateShortcuts: []string{"backspace"},
 			Enabled: func() bool {
@@ -566,6 +574,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Clone the currently selected object on the same layer",
 			Category:    "Edit",
 			Keywords:    []string{"clone", "copy", "object"},
+			Scope:       ScopeViewport,
 			Shortcut:    "mod+d",
 			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
@@ -579,6 +588,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Wrap the selected objects under a new empty parent at their common centre",
 			Category:    "Edit",
 			Keywords:    []string{"group", "parent", "container", "hierarchy", "object"},
+			Scope:       ScopeViewport,
 			Shortcut:    "mod+g",
 			Enabled:     func() bool { return notPlaying() && e.allSelectedObjectsAreLocal() },
 			Run: func() error {
@@ -592,6 +602,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Lift the selected object's children out while keeping their world transforms",
 			Category:    "Edit",
 			Keywords:    []string{"ungroup", "unparent", "children", "hierarchy", "object"},
+			Scope:       ScopeViewport,
 			Shortcut:    "mod+shift+g",
 			Enabled: func() bool {
 				if !notPlaying() || e.SelectedID == "" {
@@ -611,6 +622,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Select viewport tool",
 			Category:    "Tools",
 			Keywords:    []string{"select", "pointer", "cursor", "2d"},
+			Scope:       ScopeViewport,
 			Shortcut:    "v",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolSelect },
@@ -625,6 +637,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Move viewport tool",
 			Category:    "Tools",
 			Keywords:    []string{"move", "translate", "drag", "2d"},
+			Scope:       ScopeViewport,
 			Shortcut:    "m",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolMove },
@@ -639,6 +652,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Place viewport tool: an object in 2D, the selected model in 3D",
 			Category:    "Tools",
 			Keywords:    []string{"place", "spawn", "add", "object", "model", "2d", "3d"},
+			Scope:       ScopeViewport,
 			Shortcut:    "p",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.Tool == ToolPlace },
@@ -653,6 +667,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Paint Tile brush",
 			Category:    "Tools",
 			Keywords:    []string{"paint", "brush", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "b",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolPaintTile },
@@ -667,6 +682,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Erase Tile tool",
 			Category:    "Tools",
 			Keywords:    []string{"erase", "clear", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "e",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolEraseTile },
@@ -681,6 +697,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Flood Fill Tile tool",
 			Category:    "Tools",
 			Keywords:    []string{"fill", "bucket", "flood", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "g",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolFillTile },
@@ -695,6 +712,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Terrain autotile brush",
 			Category:    "Tools",
 			Keywords:    []string{"terrain", "autotile", "blob", "brush", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "t",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolTerrain },
@@ -709,6 +727,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Rectangle Tile brush (drag to fill, right-drag to erase)",
 			Category:    "Tools",
 			Keywords:    []string{"rect", "rectangle", "box", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "u",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolRectTile },
@@ -723,6 +742,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Line Tile brush (Bresenham line; right-drag to erase)",
 			Category:    "Tools",
 			Keywords:    []string{"line", "bresenham", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "l",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolLineTile },
@@ -737,6 +757,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Stamp Tile brush (paint patterns, right-drag to select region)",
 			Category:    "Tools",
 			Keywords:    []string{"stamp", "pattern", "paste", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "c",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolStampTile },
@@ -751,6 +772,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch to the Random Tile brush (deterministic weighted tile pick)",
 			Category:    "Tools",
 			Keywords:    []string{"random", "scatter", "weighted", "seed", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
 			Shortcut:    "n",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolRandomTile },
@@ -765,6 +787,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Copy the selected tilemap region to the tile clipboard",
 			Category:    "Edit",
 			Keywords:    []string{"copy", "tile", "region", "stamp", "clipboard"},
+			Scope:       ScopeTile,
 			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.hasTileSel },
 			Run: func() error {
 				_, err := e.CopySelectedTileRegion()
@@ -777,6 +800,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Cut the selected tilemap region to the tile clipboard",
 			Category:    "Edit",
 			Keywords:    []string{"cut", "tile", "region", "stamp", "clipboard"},
+			Scope:       ScopeTile,
 			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.hasTileSel },
 			Run: func() error {
 				_, err := e.CutSelectedTileRegion()
@@ -789,6 +813,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Paste the tile clipboard at the hovered cell or activate it as the Stamp brush",
 			Category:    "Edit",
 			Keywords:    []string{"paste", "tile", "region", "stamp", "clipboard"},
+			Scope:       ScopeTile,
 			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && !e.tileClipboard.Empty() },
 			Run: func() error {
 				if col, row, ok := e.HoveredTile(); ok {
@@ -808,6 +833,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Press start and end points in the 2D viewport to preview the path ai.NavMesh finds",
 			Category:    "Tools",
 			Keywords:    []string{"nav", "navmesh", "path", "test", "preview", "ai", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolNavTestPath },
 			Run: func() error {
@@ -822,6 +848,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D transform gizmo to Translate mode",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "translate", "move", "3d"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "w",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DTranslate },
@@ -836,6 +863,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D transform gizmo to Rotate mode",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "rotate", "turn", "3d"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "r",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DRotate },
@@ -850,6 +878,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D transform gizmo to Scale mode",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "scale", "resize", "3d"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "s",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DScale },
@@ -864,6 +893,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D gizmo to Collider size handles",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "collider", "physics", "handles", "size", "3d"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "shift+c",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DCollider },
@@ -878,6 +908,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Fit the selected object's 3D collider to its mesh or glTF model bounds",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"collider", "fit", "bounds", "model", "physics", "3d"},
+			Scope:       ScopeViewport3D,
 			Enabled: func() bool {
 				if !notPlaying() || e.SelectedID == "" {
 					return false
@@ -923,6 +954,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Light the 3D viewport's geometry with the scene's lights",
 			Category:    "View",
 			Keywords:    []string{"shading", "lit", "lights", "3d"},
+			Scope:       ScopeViewport3D,
 			Checked:     func() bool { return e.Shading3D == Shading3DLit },
 			Run: func() error {
 				e.SetShading3D(Shading3DLit)
@@ -935,6 +967,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Draw the 3D viewport's geometry at its base colors, without lights",
 			Category:    "View",
 			Keywords:    []string{"shading", "unlit", "albedo", "flat", "3d"},
+			Scope:       ScopeViewport3D,
 			Checked:     func() bool { return e.Shading3D == Shading3DUnlit },
 			Run: func() error {
 				e.SetShading3D(Shading3DUnlit)
@@ -947,6 +980,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Light the 3D viewport's geometry and draw its triangle edges over it",
 			Category:    "View",
 			Keywords:    []string{"shading", "wireframe", "edges", "triangles", "3d"},
+			Scope:       ScopeViewport3D,
 			Checked:     func() bool { return e.Shading3D == Shading3DWireframe },
 			Run: func() error {
 				e.SetShading3D(Shading3DWireframe)
@@ -959,6 +993,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle the 3D navigation mesh bake settings panel",
 			Category:    "View",
 			Keywords:    []string{"navmesh", "navigation", "bake", "3d", "panel"},
+			Scope:       ScopeViewport3D,
 			Checked:     func() bool { return e.NavMeshPanelOpen() },
 			Run: func() error {
 				e.SetNavMeshPanelOpen(!e.NavMeshPanelOpen())
@@ -971,6 +1006,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle drawing the baked 3D navigation mesh over the 3D viewport",
 			Category:    "View",
 			Keywords:    []string{"navmesh", "navigation", "overlay", "3d", "debug"},
+			Scope:       ScopeViewport3D,
 			Checked:     func() bool { return e.ShowNavMesh3D },
 			Run: func() error {
 				e.SetShowNavMesh3D(!e.ShowNavMesh3D)
@@ -995,6 +1031,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Center the viewport camera on the selected object or scene",
 			Category:    "View",
 			Keywords:    []string{"focus", "camera", "center", "zoom"},
+			Scope:       ScopeViewport,
 			Shortcut:    "f",
 			Enabled:     inEditor,
 			Run: func() error {
@@ -1014,6 +1051,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D viewport between perspective and orthographic projection",
 			Category:    "View",
 			Keywords:    []string{"orthographic", "ortho", "perspective", "projection", "3d"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "5",
 			Enabled:     func() bool { return e.ViewMode == ViewMode3D },
 			Checked:     func() bool { return e.Camera3D.Orthographic },
@@ -1028,6 +1066,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport",
 			Category:    "View",
 			Keywords:    []string{"light", "lighting", "shadow", "ambient", "occluder", "preview", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
 			Checked:     func() bool { return e.ShowLightingPreview },
 			Run: func() error {
@@ -1041,6 +1080,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle drawing component shape fields for all visible objects in the 2D viewport",
 			Category:    "View",
 			Keywords:    []string{"shapes", "collider", "trigger", "polygon", "handles", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ShowAllShapes },
 			Run: func() error {
@@ -1054,6 +1094,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle grid snapping for object placement, drags, 2D handles, and 3D translate gizmos",
 			Category:    "View",
 			Keywords:    []string{"snap", "grid", "align", "handles", "2d", "3d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.SnapToGrid },
 			Run: func() error {
@@ -1067,6 +1108,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle the 2D snap grid overlay in the 2D viewport",
 			Category:    "View",
 			Keywords:    []string{"grid", "overlay", "snap", "lines", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.ShowGrid },
 			Run: func() error {
@@ -1080,6 +1122,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle whole-point (pixel) snapping for object placement and drags",
 			Category:    "View",
 			Keywords:    []string{"snap", "pixel", "integer", "whole", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.SnapToPixel },
 			Run: func() error {
@@ -1093,6 +1136,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle rotation step snapping for 2D and 3D rotation drags",
 			Category:    "View",
 			Keywords:    []string{"snap", "rotation", "angle", "degrees", "2d", "3d"},
+			Scope:       ScopeViewport,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.SnapRotation },
 			Run: func() error {
@@ -1106,6 +1150,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle scale step snapping for 2D and 3D scale drags",
 			Category:    "View",
 			Keywords:    []string{"snap", "scale", "resize", "step", "2d", "3d"},
+			Scope:       ScopeViewport,
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.SnapScale },
 			Run: func() error {
@@ -1119,6 +1164,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the left rail between Scene and Assets drawer mode",
 			Category:    "View",
 			Keywords:    []string{"assets", "drawer", "sprites", "audio", "fonts", "tiles", "unused", "missing"},
+			Scope:       ScopeGlobal,
 			Enabled:     inEditor,
 			Checked:     func() bool { return e.LeftRailMode() == LeftRailAssets },
 			Run: func() error {
@@ -1136,6 +1182,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Look through the scene's active 3D camera",
 			Category:    "View",
 			Keywords:    []string{"camera", "scene", "look", "through", "3d", "preview"},
+			Scope:       ScopeViewport3D,
 			Shortcut:    "0",
 			Enabled:     func() bool { return e.ViewMode == ViewMode3D && (e.LookThroughCamera3D() || e.HasSceneCamera3D()) },
 			Checked:     func() bool { return e.LookThroughCamera3D() },
@@ -1162,6 +1209,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport",
 			Category:    "View",
 			Keywords:    []string{"nav", "navmesh", "navigation", "region", "overlay", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
 			Checked:     func() bool { return e.ShowNavMesh2D },
 			Run: func() error {
@@ -1175,6 +1223,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Open or close the 2D viewport Overlays popover (collision shapes, triggers, connections, patrol paths, navigation, camera bounds, labels)",
 			Category:    "View",
 			Keywords:    []string{"overlays", "collision", "triggers", "connections", "patrol", "navigation", "camera", "bounds", "labels", "2d"},
+			Scope:       ScopeViewport2D,
 			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
 			Checked:     func() bool { return e.OverlaysPopoverOpen() },
 			Run: func() error {
@@ -1188,6 +1237,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Place a 3D reflection probe on the active world layer",
 			Category:    "Edit",
 			Keywords:    []string{"reflection", "probe", "cubemap", "ibl", "3d", "bake"},
+			Scope:       ScopeViewport3D,
 			Enabled:     func() bool { return notPlaying() && e.Doc != nil },
 			Run: func() error {
 				_, err := e.AddReflectionProbe3D()
@@ -1200,6 +1250,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Place a 3D light probe grid on the active world layer",
 			Category:    "Edit",
 			Keywords:    []string{"light", "probe", "grid", "irradiance", "sh", "gi", "3d", "bake"},
+			Scope:       ScopeViewport3D,
 			Enabled:     func() bool { return notPlaying() && e.Doc != nil },
 			Run: func() error {
 				_, err := e.AddLightProbeGrid3D()
@@ -1212,6 +1263,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Bake all reflection probe cubemaps and light probe grids in the scene",
 			Category:    "Project",
 			Keywords:    []string{"bake", "reflection", "light", "probe", "cubemap", "sh", "hdr", "ibl", "3d"},
+			Scope:       ScopeViewport3D,
 			Enabled:     func() bool { return notPlaying() && e.HasProbes3D() },
 			Run: func() error {
 				_, err := e.BakeAllProbes3D()
@@ -1224,9 +1276,24 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Search and run editor commands, plugin tools, panels, and project files",
 			Category:    "View",
 			Keywords:    []string{"commands", "search", "quick", "open", "palette"},
+			Scope:       ScopeGlobal,
 			Shortcut:    "mod+k",
 			Run: func() error {
 				e.ToggleCommandPalette()
+				return nil
+			},
+		},
+		{
+			ID:          CmdShortcutsSheet,
+			Label:       "Keyboard Shortcuts",
+			Description: "Show the keyboard shortcuts reference sheet grouped by scope",
+			Category:    "View",
+			Keywords:    []string{"shortcuts", "keybindings", "keys", "cheatsheet", "help"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+/",
+			Checked:     func() bool { return e.ShortcutsSheetOpen() },
+			Run: func() error {
+				e.ToggleShortcutsSheet()
 				return nil
 			},
 		},
@@ -1236,6 +1303,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Toggle play-in-editor simulation",
 			Category:    "Project",
 			Keywords:    []string{"play", "stop", "preview", "simulate"},
+			Scope:       ScopePlay,
 			Shortcut:    "f5",
 			Enabled:     inEditor,
 			Run:         func() error { return e.TogglePlay() },
@@ -1246,6 +1314,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor",
 			Category:    "Project",
 			Keywords:    []string{"run", "launch", "start", "game"},
+			Scope:       ScopePlay,
 			Shortcut:    "mod+r",
 			Enabled:     inEditor,
 			Run:         func() error { return e.runGameCommand() },
@@ -1385,6 +1454,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Find every usage of the selected prefab, scene, or file across scenes, variants, data tables, and Go code, and rename it safely in one review",
 			Category:    "Project",
 			Keywords:    []string{"usages", "references", "find", "rename", "refactor", "prefab", "scene"},
+			Scope:       ScopeGlobal,
 			Shortcut:    "shift+f12",
 			Enabled: func() bool {
 				if e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() || e.HUDLayoutOpen() || e.Playing() || e.Project == nil {
@@ -1404,13 +1474,27 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdEditorSettings,
 			Label:       "Editor Settings",
-			Description: "Configure editor language and appearance",
+			Description: "Configure editor language, appearance, and keyboard shortcuts",
 			Category:    "File",
-			Keywords:    []string{"preferences", "language", "chinese", "english", "appearance", "theme", "dark", "light"},
+			Keywords:    []string{"preferences", "language", "chinese", "english", "appearance", "theme", "dark", "light", "shortcuts"},
+			Scope:       ScopeGlobal,
 			Shortcut:    "mod+shift+,",
 			Checked:     func() bool { return e.EditorSettingsOpen() },
 			Run: func() error {
 				e.ToggleEditorSettings()
+				return nil
+			},
+		},
+		{
+			ID:          CmdShortcutsSettings,
+			Label:       "Settings: Keyboard Shortcuts",
+			Description: "Search, rebind, swap, and reset keyboard shortcuts per scope",
+			Category:    "File",
+			Keywords:    []string{"shortcuts", "keybindings", "rebind", "keys", "preferences", "settings"},
+			Scope:       ScopeGlobal,
+			Checked:     func() bool { return e.EditorSettingsOpen() && e.EditorSettingsTab() == EditorSettingsTabShortcuts },
+			Run: func() error {
+				e.OpenShortcutsSettings()
 				return nil
 			},
 		},
@@ -1420,6 +1504,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Compare modified scenes, data, code, and assets against HEAD and commit with a drafted message",
 			Category:    "Project",
 			Keywords:    []string{"changes", "git", "diff", "commit", "push", "pull", "branch", "pr"},
+			Scope:       ScopeGlobal,
 			Enabled: func() bool {
 				return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "")
 			},
@@ -1454,6 +1539,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Open the Playtest Report screen with goals met or missed, charts, and the agent's read",
 			Category:    "Project",
 			Keywords:    []string{"playtest", "report", "bot", "goals", "metrics", "chart", "heatmap", "replay"},
+			Scope:       ScopeGlobal,
 			Shortcut:    "mod+shift+y",
 			Enabled:     func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() },
 			Checked:     func() bool { return e.PlaytestReportOpen() },
@@ -1483,6 +1569,35 @@ func (e *Editor) registeredShortcutOwners() map[string]string {
 	for _, p := range e.plugins {
 		for _, pc := range p.Commands {
 			if pc.Shortcut != "" {
+				add(pluginCommandID(p.Name, pc.ID), pc.Shortcut)
+			}
+		}
+	}
+	return owners
+}
+
+// registeredShortcutOwnersInScope returns a map from platform-resolved shortcut key to the command ID
+// that owns it within scope across all built-in, custom, and registered plugin commands.
+func (e *Editor) registeredShortcutOwnersInScope(scope string) map[string]string {
+	e.initBuiltinCommands()
+	wantScope := normalizeCommandScope(scope)
+	owners := make(map[string]string, len(e.commands))
+	add := func(id string, shortcuts ...string) {
+		for _, sc := range shortcuts {
+			for _, ck := range shortcutCollisionKeys(sc) {
+				owners[ck] = id
+			}
+		}
+	}
+	for _, c := range e.commands {
+		if normalizeCommandScope(c.Scope) != wantScope {
+			continue
+		}
+		add(c.ID, shortcutsForCommand(c)...)
+	}
+	for _, p := range e.plugins {
+		for _, pc := range p.Commands {
+			if pc.Shortcut != "" && normalizeCommandScope(pc.Scope) == wantScope {
 				add(pluginCommandID(p.Name, pc.ID), pc.Shortcut)
 			}
 		}
@@ -1543,7 +1658,12 @@ func (e *Editor) RegisterCommand(cmd EditorCommand) error {
 	}
 	cmd.AlternateShortcuts = normAlts
 
+	explicitScope := strings.TrimSpace(cmd.Scope) != ""
+	cmd.Scope = normalizeCommandScope(cmd.Scope)
 	owners := e.registeredShortcutOwners()
+	if explicitScope {
+		owners = e.registeredShortcutOwnersInScope(cmd.Scope)
+	}
 	local := make(map[string]bool)
 	for _, sc := range shortcutsForCommand(cmd) {
 		for _, ck := range shortcutCollisionKeys(sc) {
@@ -1606,6 +1726,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdToggleLightingPreview: {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
 	CmdToggleNavMesh2D:       {"cmd.navMesh2dOverlay.label", "cmd.navMesh2dOverlay.desc", "cmd.category.view"},
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
+	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
 	CmdRunGame:               {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},
 	CmdProjectSettings:       {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
@@ -1617,12 +1738,14 @@ var builtinCommandKeys = map[string][3]string{
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
 	CmdFindUsages:            {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
 	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
+	CmdShortcutsSettings:     {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 }
 
 // Commands returns all currently active commands in deterministic order:
-// built-in and custom commands followed by the commands of active plugins.
+// built-in and custom commands followed by the commands of active plugins,
+// with each command's normalized Scope and effective user shortcut applied.
 func (e *Editor) Commands() []EditorCommand {
 	e.initBuiltinCommands()
 	out := make([]EditorCommand, 0, len(e.commands))
@@ -1632,11 +1755,19 @@ func (e *Editor) Commands() []EditorCommand {
 			c.Description = e.T(keys[1])
 			c.Category = e.T(keys[2])
 		}
+		c.Scope = normalizeCommandScope(c.Scope)
+		if e.settings.Shortcuts != nil {
+			if custom, overridden := e.settings.Shortcuts[c.ID]; overridden {
+				c.Shortcut = custom
+				c.AlternateShortcuts = nil
+			}
+		}
 		out = append(out, c)
 	}
 	for _, p := range e.activePlugins() {
 		for _, pc := range p.Commands {
 			cmd := pc
+			fullID := pluginCommandID(p.Name, cmd.ID)
 			cat := e.translatePluginText(p, cmd.CategoryKey, cmd.Category)
 			if cat == "" {
 				cat = p.Name
@@ -1648,13 +1779,20 @@ func (e *Editor) Commands() []EditorCommand {
 			}
 			runFn := cmd.Run
 			keywords := append([]string{p.Name, cmd.ID}, cmd.Keywords...)
+			sc := cmd.Shortcut
+			if e.settings.Shortcuts != nil {
+				if custom, overridden := e.settings.Shortcuts[fullID]; overridden {
+					sc = custom
+				}
+			}
 			out = append(out, EditorCommand{
-				ID:          pluginCommandID(p.Name, cmd.ID),
+				ID:          fullID,
 				Label:       e.translatePluginText(p, cmd.LabelKey, cmd.Label),
 				Description: e.translatePluginText(p, cmd.DescriptionKey, cmd.Description),
 				Category:    cat,
 				Keywords:    keywords,
-				Shortcut:    cmd.Shortcut,
+				Scope:       normalizeCommandScope(cmd.Scope),
+				Shortcut:    sc,
 				Enabled:     enabled,
 				Run:         func() error { return runFn(e) },
 			})
@@ -1690,43 +1828,21 @@ func (e *Editor) ExecuteCommand(id string) error {
 	return err
 }
 
-// TriggerShortcut finds the active command bound to shortcut and runs it if enabled.
+// TriggerShortcut finds the highest-priority enabled active command bound to shortcut and runs it.
 // It returns true if a matching enabled command executed.
 func (e *Editor) TriggerShortcut(shortcut string) bool {
 	norm, err := NormalizeShortcut(shortcut)
 	if err != nil || norm == "" {
 		return false
 	}
-	want := shortcutCollisionKeys(norm)
-	for _, cmd := range e.Commands() {
-		matched := false
-		for _, sc := range shortcutsForCommand(cmd) {
-			if sc == norm {
-				matched = true
-				break
-			}
-			for _, ck := range shortcutCollisionKeys(sc) {
-				if slices.Contains(want, ck) {
-					matched = true
-					break
-				}
-			}
-			if matched {
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if cmd.Enabled != nil && !cmd.Enabled() {
-			return false
-		}
-		if err := cmd.Run(); err != nil {
-			e.report(err)
-		}
-		return true
+	cmd, ok := e.resolveShortcutCommand(norm)
+	if !ok {
+		return false
 	}
-	return false
+	if err := cmd.Run(); err != nil {
+		e.report(err)
+	}
+	return true
 }
 
 // DeleteSelected deletes the currently selected object(s) as one undoable step.
@@ -1923,6 +2039,7 @@ func view3DCommand(e *Editor, id string, v View3D, shortcut string, keywords ...
 		Description: "Look at the 3D viewport's target from the " + strings.ToLower(v.String()),
 		Category:    "View",
 		Keywords:    append([]string{"axis", "view", "camera", "3d"}, keywords...),
+		Scope:       ScopeViewport3D,
 		Shortcut:    shortcut,
 		Enabled:     func() bool { return e.ViewMode == ViewMode3D },
 		Checked: func() bool {
@@ -1938,7 +2055,8 @@ func view3DCommand(e *Editor, id string, v View3D, shortcut string, keywords ...
 
 // bindShortcuts registers NSGo keyboard bindings for every active command in EditorView.
 // Every binding uses core.KeyNotEditing so shortcuts are ignored while any text field has focus,
-// and re-binds automatically only when the set of active shortcuts changes (such as when a plugin turns on or off).
+// deduplicates keys shared across different scopes with scope-aware priority dispatch,
+// and re-binds automatically whenever active plugins or user shortcut overrides change.
 func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
@@ -1955,22 +2073,26 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 	})
 	cx.Effect(func() {
 		_ = sig.Get()
+		seen := make(map[string]struct{})
 		for _, cmd := range e.Commands() {
-			cmdID := cmd.ID
 			for _, sc := range shortcutsForCommand(cmd) {
+				if _, dup := seen[sc]; dup {
+					continue
+				}
+				seen[sc] = struct{}{}
 				key := sc
 				cx.OnKeyWith(key, core.KeyOptions{When: core.KeyNotEditing}, func() {
-					if cmdID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
-						if !e.GameRunning() {
-							e.report(e.RunGame())
-						}
+					if e.shortcutCaptureActive {
 						return
 					}
-					active, ok := e.Command(cmdID)
+					active, ok := e.resolveShortcutCommand(key)
 					if !ok {
 						return
 					}
-					if active.Enabled != nil && !active.Enabled() {
+					if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
+						if !e.GameRunning() {
+							e.report(e.RunGame())
+						}
 						return
 					}
 					if err := active.Run(); err != nil {

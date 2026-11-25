@@ -88,6 +88,10 @@ strings:
   cmd.shadingUnlit.label: '3D Shading: Unlit'
   cmd.shadingWire.desc: Light the 3D viewport's geometry and draw its triangle edges over it
   cmd.shadingWire.label: '3D Shading: Wireframe'
+  cmd.shortcutsSettings.desc: Search, rebind, swap, and reset keyboard shortcuts per scope
+  cmd.shortcutsSettings.label: 'Settings: Keyboard Shortcuts'
+  cmd.shortcutsSheet.desc: Show the keyboard shortcuts reference sheet grouped by scope
+  cmd.shortcutsSheet.label: Keyboard Shortcuts
   cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
   cmd.startScreen.label: Start Screen
   cmd.toolEraseTile.desc: Switch to the Erase Tile tool
@@ -343,6 +347,8 @@ strings:
   menu.shadingLit: Lit
   menu.shadingUnlit: Unlit
   menu.shadingWireframe: Wireframe
+  menu.shortcutsSettings: Keyboard Shortcuts...
+  menu.shortcutsSheet: Keyboard Shortcuts
   menu.startScreen: Start Screen
   menu.stop: Stop
   menu.terrain: Terrain
@@ -457,6 +463,14 @@ strings:
   sceneTree.ungroup: Ungroup
   sceneTree.unlock: Unlock
   sceneTree.unlockNamed: Unlock {id}
+  scope.animation: Animation
+  scope.global: Global
+  scope.play: Play
+  scope.sceneTree: Scene Tree
+  scope.tile: Tile
+  scope.viewport: Viewport
+  scope.viewport2d: 2D Viewport
+  scope.viewport3d: 3D Viewport
   search.close: Close
   search.closeLabel: Close the search panel
   search.emptyPrompt: Type to search project files, UIDs, scene objects, components, prefabs, and scene references
@@ -473,15 +487,36 @@ strings:
   settings.appearance: Appearance
   settings.appearanceHelp: Dark, light, or follow the system.
   settings.dark: Dark
-  settings.description: Language and appearance for this computer.
+  settings.description: Language, appearance, and keyboard shortcuts for this computer.
   settings.done: Done
+  settings.general: General
+  settings.generalHelp: Language and appearance.
   settings.langChinese: 简体中文
   settings.langEnglish: English
   settings.language: Language
   settings.languageHelp: Editor text; the agent answers in it too.
   settings.light: Light
+  settings.sectionEditor: EDITOR · THIS COMPUTER
+  settings.shortcuts: Shortcuts
+  settings.shortcutsCaptureCancel: Cancel
+  settings.shortcutsCapturePrompt: Press a key…
+  settings.shortcutsConflict: '{key} is already used by {other} in {scope}.'
+  settings.shortcutsCustom: Custom
+  settings.shortcutsEmpty: No matching commands
+  settings.shortcutsHelp: Every command, searchable and rebindable.
+  settings.shortcutsReset: Reset
+  settings.shortcutsResetAll: Reset all
+  settings.shortcutsSearchLabel: Search shortcuts
+  settings.shortcutsSearchPlaceholder: Search by command, key, or scope…
+  settings.shortcutsSwap: Swap
+  settings.shortcutsUnbound: Unbound
   settings.system: System
+  settings.thisComputer: This computer
   settings.title: Editor Settings
+  shortcutsSheet.customize: Customize Shortcuts…
+  shortcutsSheet.subtitleMac: macOS keys. Rebind any command in Settings › Shortcuts.
+  shortcutsSheet.subtitleOther: Windows and Linux keys. Rebind any command in Settings › Shortcuts.
+  shortcutsSheet.title: Keyboard Shortcuts
   snap.auto: Auto
   snap.autoLabel: Follow the active layer's tilemap tile size
   snap.grid: Grid

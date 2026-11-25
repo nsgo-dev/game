@@ -281,6 +281,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		Children: []core.Node{
 			workspace,
 			EditorSettingsDialogView(cx, ed, rev),
+			ShortcutsSheetView(cx, ed, rev),
 		},
 	}
 }
@@ -531,14 +532,24 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.HStack{Gap: 6, Children: fileButtons},
-					ui.Button{
-						TestID:  "toolbar-editor-settings",
-						Icon:    lucide.Settings,
-						Label:   ed.T("toolbar.editorSettingsLabel"),
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						OnPress: func() {
-							ed.ToggleEditorSettings()
+					ui.Tooltip{
+						TextFunc: func() string {
+							_ = rev.Get()
+							base := ed.T("toolbar.editorSettingsLabel")
+							if sc := ed.EffectiveShortcut(CmdEditorSettings); sc != "" {
+								return base + " · " + FormatShortcut(sc, cx.Env().OS())
+							}
+							return base
+						},
+						Trigger: ui.Button{
+							TestID:  "toolbar-editor-settings",
+							Icon:    lucide.Settings,
+							Label:   ed.T("toolbar.editorSettingsLabel"),
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonGhost,
+							OnPress: func() {
+								ed.ToggleEditorSettings()
+							},
 						},
 					},
 				},
@@ -1075,10 +1086,30 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 			OnPress:  fn,
 		}
 	}
+	frameLabel := func() string {
+		_ = rev.Get()
+		if sc := ed.EffectiveShortcut(CmdFrameSelection); sc != "" {
+			return ed.T("toolbar.frameSelection", l10n.Param("key", FormatShortcut(sc, cx.Env().OS())))
+		}
+		return ed.T("cmd.frameSelection.label")
+	}
 	return ui.ToolbarGroup{
 		Label: ed.T("toolbar.group.view2d"),
 		Children: []core.Node{
-			btn("view-frame-selection", lucide.Focus, ed.T("toolbar.frameSelection", l10n.Param("key", cx.KeyLabel("f"))), func() { ed.FrameSelection2D() }),
+			ui.Tooltip{
+				TestID:   "view-frame-selection-tooltip",
+				TextFunc: frameLabel,
+				Trigger: ui.Button{
+					TestID:    "view-frame-selection",
+					Icon:      lucide.Focus,
+					LabelFunc: frameLabel,
+					Size:      ui.SizeSmall,
+					Side:      28,
+					Variant:   ui.ButtonGhost,
+					Disabled:  playing,
+					OnPress:   func() { ed.FrameSelection2D() },
+				},
+			},
 			btn("view-frame-all", lucide.Maximize, ed.T("toolbar.frameAll", l10n.Param("key", cx.KeyLabel("home"))), func() { ed.FrameAll2D() }),
 			btn("view-reset", lucide.Video, ed.T("toolbar.sceneCameraView", l10n.Param("key", cx.KeyLabel("mod+0"))), func() { ed.ResetView2D() }),
 			ui.ToggleButton{

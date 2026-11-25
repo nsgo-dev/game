@@ -34,6 +34,13 @@
       "items": {
         "type": "string"
       }
+    },
+    "shortcuts": {
+      "description": "Shortcuts overrides default command shortcuts keyed by command ID (for example \"view.frame\": \"g\"). An empty string explicitly unbinds a command.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "required": [
