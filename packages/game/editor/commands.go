@@ -42,6 +42,7 @@ const (
 	CmdCopyTileRegion        = "tile.copy"
 	CmdCutTileRegion         = "tile.cut"
 	CmdPasteTileRegion       = "tile.paste"
+	CmdToolNavTestPath       = "tool.navTestPath"
 	CmdGizmoTranslate        = "gizmo.translate"
 	CmdGizmoRotate           = "gizmo.rotate"
 	CmdGizmoScale            = "gizmo.scale"
@@ -59,6 +60,7 @@ const (
 	CmdToggleLightingPreview = "view.lighting"
 	CmdToggleAllShapes       = "view.shapes"
 	CmdToggleSnapGrid        = "view.snap"
+	CmdToggleNavMesh2D       = "view.navmesh2d"
 	CmdCommandPalette        = "view.palette"
 	CmdPlayStop              = "project.play"
 	CmdRunGame               = "project.run"
@@ -622,6 +624,20 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdToolNavTestPath,
+			Label:       "Tool: Test Nav Path",
+			Description: "Press start and end points in the 2D viewport to preview the path ai.NavMesh finds",
+			Category:    "Tools",
+			Keywords:    []string{"nav", "navmesh", "path", "test", "preview", "ai", "2d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolNavTestPath },
+			Run: func() error {
+				e.SetViewMode(ViewMode2D)
+				e.SetTool(ToolNavTestPath)
+				return nil
+			},
+		},
+		{
 			ID:          CmdGizmoTranslate,
 			Label:       "3D Gizmo: Translate",
 			Description: "Switch the 3D transform gizmo to Translate mode",
@@ -889,6 +905,19 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.EnvironmentPanelOpen() },
 			Run: func() error {
 				e.SetEnvironmentPanelOpen(!e.EnvironmentPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleNavMesh2D,
+			Label:       "Toggle 2D NavMesh Overlay",
+			Description: "Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport",
+			Category:    "View",
+			Keywords:    []string{"nav", "navmesh", "navigation", "region", "overlay", "2d"},
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
+			Checked:     func() bool { return e.ShowNavMesh2D },
+			Run: func() error {
+				e.SetShowNavMesh2D(!e.ShowNavMesh2D)
 				return nil
 			},
 		},
@@ -1169,6 +1198,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdToolPaintTile:         {"cmd.toolPaintTile.label", "cmd.toolPaintTile.desc", "cmd.category.tools"},
 	CmdToolEraseTile:         {"cmd.toolEraseTile.label", "cmd.toolEraseTile.desc", "cmd.category.tools"},
 	CmdToolFillTile:          {"cmd.toolFillTile.label", "cmd.toolFillTile.desc", "cmd.category.tools"},
+	CmdToolNavTestPath:       {"cmd.toolNavTestPath.label", "cmd.toolNavTestPath.desc", "cmd.category.tools"},
 	CmdGizmoTranslate:        {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoRotate:           {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoScale:            {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
@@ -1183,6 +1213,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdFrameSelection:        {"cmd.frameSelection.label", "cmd.frameSelection.desc", "cmd.category.view"},
 	CmdView3DOrthographic:    {"cmd.view3dOrtho.label", "cmd.view3dOrtho.desc", "cmd.category.view"},
 	CmdToggleLightingPreview: {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
+	CmdToggleNavMesh2D:       {"cmd.navMesh2dOverlay.label", "cmd.navMesh2dOverlay.desc", "cmd.category.view"},
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
 	CmdRunGame:               {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},

@@ -165,6 +165,8 @@ func (e *Editor) localizedToolName(t Tool) string {
 		return e.T("tool.plugin")
 	case ToolPickTile:
 		return e.T("tool.pickTile")
+	case ToolNavTestPath:
+		return e.T("tool.navTestPath")
 	default:
 		return t.String()
 	}

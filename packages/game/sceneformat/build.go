@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/lights2d"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/navbake"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/skeletal"
@@ -79,6 +81,10 @@ type BuiltScene struct {
 	SkipLights2D bool
 	// Lights2DBounds optionally overrides the world-space bounds passed to Lights2D.Draw inside Draw. Nil uses the scene's virtual viewport through Camera (or the union of light/occluder extents when the virtual size is 0).
 	Lights2DBounds *core.Bounds
+	// NavBake2D is the baked 2D navigation mesh produced from built-in navregion2d components (and optional tilemap collision subtraction), or nil when the scene defines none.
+	NavBake2D *navbake.Mesh
+	// NavMesh2D is the runtime 2D ai.NavMesh constructed from NavBake2D (including any authored 2D nav_link components), or nil when the scene defines no navregion2d components.
+	NavMesh2D *ai.NavMesh
 	// Camera is the active camera transform for world-space layers; nil leaves world space untransformed.
 	Camera *CameraDoc
 	// Layers are the scene's layers in draw order (lowest Order first, ties in document order).
@@ -350,6 +356,13 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		return nil, err
 	}
 	built.Lights2D = lights
+
+	navBake, navMesh, err := BuildNavMesh2D(built)
+	if err != nil {
+		return nil, err
+	}
+	built.NavBake2D = navBake
+	built.NavMesh2D = navMesh
 
 	return built, nil
 }

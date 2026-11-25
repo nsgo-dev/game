@@ -213,12 +213,12 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 		return u >= 0 && u <= bo.Sprite.Frame.Width && v >= 0 && v <= bo.Sprite.Frame.Height
 	}
 
-	// Non-sprite marker object: default centered hit box, or inside an occluder2d shape.
+	// Non-sprite marker object: default centered hit box, or inside an occluder2d or navregion2d shape.
 	if dx >= -defaultMarkerHalfSize && dx <= defaultMarkerHalfSize &&
 		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize {
 		return true
 	}
-	return hitTestOccluder2D(o, dx, dy)
+	return hitTestOccluder2D(o, dx, dy) || hitTestNavRegion2D(o, dx, dy)
 }
 
 // HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why. With the Pick tool, a press on a painted cell makes its tile the active tile and Paint the active tool.
@@ -286,6 +286,8 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok && e.PickTile(e.ActiveLayer, col, row) {
 			e.SetTool(ToolPaintTile)
 		}
+	case ToolNavTestPath:
+		e.handleNavTestPathPress(x, y)
 	case ToolPlugin:
 		if t := e.activePluginTool(); t != nil && t.Press != nil {
 			t.Press(e, x, y)
@@ -396,6 +398,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 	e.drawLightingOverlays2D(d, scene)
 	e.drawRoomsOverlay(d)
+	e.drawNavMesh2DOverlay(d, scene)
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
@@ -1194,13 +1197,18 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					_, gmActive := ed.GridMapStrokeActive()
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible
+					navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
+						hadDrag := ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active
+						_, gmActive := ed.GridMapStrokeActive()
+						_, tileActive := ed.TileStrokeActive()
+						terrainActive := ed.terrain != nil && ed.terrain.stroke != nil
 						ed.CancelPluginDrag2D()
 						ed.CancelShapeDrag2D()
-						if _, active := ed.TileStrokeActive(); active {
+						if tileActive {
 							ed.CancelTileStroke()
 							strokeTookPress = true
 						} else if ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel {
@@ -1218,6 +1226,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						g.panBoundsDrag = false
 						g.roomDrag = false
 						g.panRoomDrag = false
+						if !hadDrag && !gmActive && !tileActive && !terrainActive && ed.Tool == ToolNavTestPath {
+							ed.ClearNavPathPreview2D()
+						}
 					})
 					return core.View{
 						PointerEvents: core.PointerEventsNone,

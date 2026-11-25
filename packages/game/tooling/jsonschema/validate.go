@@ -315,6 +315,9 @@ func (val *validator) check(s *Schema, v any, path string, depth int) {
 		if s.MinItems != nil && len(v) < *s.MinItems {
 			val.fail(path, "array has %d items, want at least %d", len(v), *s.MinItems)
 		}
+		if s.MaxItems != nil && len(v) > *s.MaxItems {
+			val.fail(path, "array has %d items, want at most %d", len(v), *s.MaxItems)
+		}
 		if s.Items != nil {
 			for i, item := range v {
 				val.check(s.Items, item, path+"/"+strconv.Itoa(i), depth+1)

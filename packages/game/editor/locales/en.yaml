@@ -39,6 +39,8 @@ strings:
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
   cmd.localization.label: Localization Strings
+  cmd.navMesh2dOverlay.desc: Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport
+  cmd.navMesh2dOverlay.label: Toggle 2D NavMesh Overlay
   cmd.navMeshOverlay.desc: Toggle drawing the baked 3D navigation mesh over the 3D viewport
   cmd.navMeshOverlay.label: Show 3D NavMesh Overlay
   cmd.navMeshPanel.desc: Toggle the 3D navigation mesh bake settings panel
@@ -73,6 +75,8 @@ strings:
   cmd.toolFillTile.label: 'Tool: Fill Tile'
   cmd.toolMove.desc: Switch to the Move viewport tool
   cmd.toolMove.label: 'Tool: Move'
+  cmd.toolNavTestPath.desc: Press start and end points in the 2D viewport to preview the path ai.NavMesh finds
+  cmd.toolNavTestPath.label: 'Tool: Test Nav Path'
   cmd.toolPaintTile.desc: Switch to the Paint Tile brush
   cmd.toolPaintTile.label: 'Tool: Paint Tile'
   cmd.toolPlace.desc: Switch to the Place object viewport tool
@@ -147,6 +151,7 @@ strings:
   inspector.material: Material
   inspector.mesh: Mesh
   inspector.name: Name
+  inspector.navRegionResetPolygon: Reset to Default Polygon
   inspector.newProperty: New property
   inspector.newPropertyKey: New property key
   inspector.newPropertyKind: New property kind
@@ -232,8 +237,10 @@ strings:
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
   menu.move: Move
+  menu.navMesh2dOverlay: 2D NavMesh Overlay
   menu.navMeshOverlay: Show 3D NavMesh
   menu.navMeshPanel: 3D NavMesh Bake...
+  menu.navTestPath: Test Nav Path
   menu.newProject: New Project...
   menu.openBaseScene: Open Base Scene
   menu.openInstancedScene: Open Instanced Scene
@@ -369,6 +376,7 @@ strings:
   tool.eraseTile: Erase Tile
   tool.fillTile: Fill Tile
   tool.move: Move
+  tool.navTestPath: Test Path
   tool.paintTile: Paint Tile
   tool.pickTile: Pick Tile
   tool.place: Place
@@ -406,6 +414,8 @@ strings:
   toolbar.mixer: Mixer
   toolbar.mixerLabel: Toggle the Audio Bus Mixer panel
   toolbar.move: Move
+  toolbar.navMesh2dOverlayLabel: Toggle 2D navigation mesh overlay
+  toolbar.navTestPathLabel: Test 2D navigation path
   toolbar.newScene: New Scene…
   toolbar.output: Output
   toolbar.outputLabel: Toggle the Output log panel

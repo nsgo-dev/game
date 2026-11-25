@@ -428,6 +428,17 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 - **自动构建 `lights2d.Scene`**：`sceneformat.Build` 会把 `SceneDoc.AmbientColor`、可见世界空间图层上的所有 `light2d` 与 `occluder2d`，以及 `shape: "tilemap"` 遮挡体（通过 [`tileshape.View`](tileshape.md) 从瓦片地图碰撞形状提取）组装为 `BuiltScene.Lights2D`（`*lights2d.Scene`）。除非设置了 `SkipLights2D`，`BuiltScene.Draw` 会在场景相机变换下将 `Lights2D` 绘制在世界空间图层之上（屏幕空间 HUD 图层之下）；运行时移动光源或遮挡体后调用 `BuiltScene.SyncLights2D()` 同步。
 - **2D 光照预览与交互手柄**：2D 视口工具栏提供 **Lighting** 切换按钮（`Editor.ShowLightingPreview`、`SetShowLightingPreview`、命令 `CmdToggleLightingPreview`），在编辑模式下实时预览与游戏完全一致的 `lights2d.Scene` 阴影与环境暗场。选中 `light2d` 对象时会显示半径（`Handle2DLightRadius`）、聚光灯张角（`Handle2DLightSpotAngle`）与聚光灯方向（`Handle2DLightSpotDirection`）手柄；选中 `occluder2d` 对象时，矩形遮挡体显示四边缩放手柄（`Handle2DOccluderRectN/E/S/W`），多边形遮挡体显示可拖动顶点手柄（`Handle2DOccluderVertex`）与边中点插点手柄（`Handle2DOccluderEdgeMid`，以及 `SetOccluderPolygonPoints`、`InsertOccluderVertex`、`RemoveOccluderVertex`、`ConvertOccluderToPolygon`）。每次拖动记录为一个可撤销步骤，按 Escape 可取消；`SetAmbientColor`（或检查器中的 Scene Lighting 区域）可撤销地编辑 `ambientColor`。
 
+### 内置 2D 导航区域组件（#888）
+
+`sceneformat` 内置带版本号的 2D 导航区域组件（`NavRegion2DComponentVersion = 1`），可通过 `RegisterNavRegion2DComponent(reg)` 或 `NavRegion2DComponentRegistry()` 注册（在编辑器检查器以及 `scene.v1.json` / `scene.v2.json` / `scene.v3.json` Schema 中默认自动可用）：
+
+| 组件 | 主要字段 |
+| --- | --- |
+| `navregion2d` | `version`（`1`）、`mode`（`walkable`、`obstacle`）、`points`（`[][2]float64`，流式 YAML `[[x, y], ...]`）、`offsetX`、`offsetY`、`subtractTileCollision`（`bool`）、`tileLayer`（`string`）、`tileLayers`（`[]string`）、`agentRadius`（`float`，`>= 0`）、`enabled`（`bool`） |
+
+- **自动构建 `ai.NavMesh`（`BuildNavMesh2D`）**：`sceneformat.Build` 会收集可见世界空间图层上所有启用的 `navregion2d` 组件（统一绕序，确保重叠的可行走区域求并、障碍物区域挖洞），按需通过 [`tileshape.View`](tileshape.md) 及非矩形实心瓦片形状扣除场景瓦片地图中的实心碰撞，附加场景中声明的 2D `nav_link` 离网连接，并调用 [`game/navbake`](navbake.md) 烘焙凸多边形，填充 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`）。不含 `navregion2d` 的场景会将两字段保持为 `nil`；运行时修改后可调用 `BuiltScene.SyncNavMesh2D()` 重新同步。
+- **2D 导航网格叠加层、多边形手柄与路径测试工具**：开启 `Editor.ShowNavMesh2D`（默认开启，可通过工具栏 `view-navmesh2d-overlay`、`SetShowNavMesh2D` 或 `CmdToggleNavMesh2D` 切换）时，2D 视口会绘制已构建 `NavBake2D` 的凸多边形、相邻门户以及作者编辑的 `navregion2d` 轮廓。选中 `navregion2d` 对象会显示可拖动顶点手柄（`Handle2DNavRegionVertex`）与边中点插点手柄（`Handle2DNavRegionEdgeMid`），并提供 `PlaceNavRegion2D`、`InitNavRegionPolygon`、`SetNavRegionPoints`、`InsertNavRegionVertex` 与 `RemoveNavRegionVertex`；拖动顶点时叠加层实时刷新，松手后记录为单个可撤销步骤（按 Escape 取消）。选择 **Test Path** 工具（`ToolNavTestPath`，工具栏 `tool-nav-test-path`，命令 `CmdToolNavTestPath`）后，在视口依次点选起点与终点即可绘制 `BuiltScene.NavMesh2D.FindPath` 找到的路径（随顶点或瓦片修改实时重算，按 Escape 或调用 `ClearNavPathPreview2D` 清除）。
+
 ### 连接（#490）
 
 场景文件可以把一个对象发出的事件连接到另一个对象的处理函数，就像 Godot 在 `.tscn` 文件里写的 `[connection]` 条目，于是按钮能打开门，而不需要任何点名这两个对象的 Go 代码：

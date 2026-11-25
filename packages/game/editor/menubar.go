@@ -106,6 +106,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdToolLineTile, "Line Tile", true),
 		cmdItem(CmdToolStampTile, "Stamp Tile", true),
 		cmdItem(CmdToolRandomTile, "Random Tile", true),
+		cmdItem(CmdToolNavTestPath, e.T("menu.navTestPath"), true),
 	}
 	var pluginToolItems []desktop.MenuItem
 	for _, p := range e.activePlugins() {
@@ -161,6 +162,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdEnvironmentPanel, "Scene Environment", false),
 			cmdItem(CmdFrameSelection, e.T("menu.frameSelection"), false),
 			cmdItem(CmdToggleLightingPreview, e.T("menu.lightingPreview"), false),
+			cmdItem(CmdToggleNavMesh2D, e.T("menu.navMesh2dOverlay"), false),
 			sep,
 			cmdItem(CmdNavMeshOverlay, e.T("menu.navMeshOverlay"), false),
 			cmdItem(CmdNavMeshPanel, e.T("menu.navMeshPanel"), false),
@@ -222,7 +224,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -245,6 +247,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ExportPanelOpen(),
 			e.ProfilerOpen(),
 			e.ShowLightingPreview,
+			e.ShowNavMesh2D,
 			e.ShowNavMesh3D,
 			e.NavMeshPanelOpen(),
 			e.ShowAllShapes,

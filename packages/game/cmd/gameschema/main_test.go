@@ -131,7 +131,7 @@ func TestSceneSchemaShape(t *testing.T) {
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
 		t.Fatal("scene schema accepts unknown top-level keys")
 	}
-	for _, name := range []string{"CameraDoc", "BoundsDoc", "LayerDoc", "TilemapDoc", "ObjectDoc", "SpriteRef", "Point", "Rect", "Circle"} {
+	for _, name := range []string{"CameraDoc", "BoundsDoc", "LayerDoc", "TilemapDoc", "ObjectDoc", "SpriteRef", "Point", "Rect", "Circle", "NavRegion2DComponent"} {
 		def := s.Definitions[name]
 		if def == nil || def.Description == "" {
 			t.Fatalf("definition %s = %+v, want one with a description", name, def)
@@ -147,6 +147,17 @@ func TestSceneSchemaShape(t *testing.T) {
 	}
 	if poly := s.Definitions["Polygon"]; poly == nil || poly.Description == "" || poly.Items == nil || poly.Items.Ref != "#/definitions/Point" {
 		t.Fatalf("definition Polygon = %+v", poly)
+	}
+	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("components").Property(sceneformat.NavRegion2DComponentName) == nil {
+		t.Fatal("ObjectDoc.components missing navregion2d property")
+	}
+	navPts := s.Definitions["NavRegion2DComponent"].Property("points")
+	if navPts == nil || navPts.Items == nil || navPts.Items.MinItems == nil || *navPts.Items.MinItems != 2 || navPts.Items.MaxItems == nil || *navPts.Items.MaxItems != 2 {
+		t.Fatalf("NavRegion2DComponent.points items = %+v, want minItems=2 and maxItems=2", navPts)
+	}
+	badPointYAML := []byte("version: 1\nname: Bad\nlayers:\n  - name: world\n    objects:\n      - id: r1\n        components:\n          navregion2d:\n            version: 1\n            points: [[0, 0, 1], [10, 0], [10, 10]]\n")
+	if err := s.ValidateYAML(badPointYAML); err == nil {
+		t.Fatal("expected schema to reject 3-element point tuple in navregion2d.points")
 	}
 }
 

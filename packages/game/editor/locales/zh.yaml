@@ -39,6 +39,8 @@ strings:
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
   cmd.localization.label: 本地化字符串
+  cmd.navMesh2dOverlay.desc: 在 2D 视口中显示或隐藏已构建的 2D 导航网格多边形、门户与区域轮廓
+  cmd.navMesh2dOverlay.label: 切换 2D 导航网格叠加层
   cmd.navMeshOverlay.desc: 切换在 3D 视口上绘制已烘焙的 3D 导航网格
   cmd.navMeshOverlay.label: 显示 3D 导航网格叠加层
   cmd.navMeshPanel.desc: 切换 3D 导航网格烘焙设置面板
@@ -73,6 +75,8 @@ strings:
   cmd.toolFillTile.label: 工具：填充瓦片
   cmd.toolMove.desc: 切换为移动视口工具
   cmd.toolMove.label: 工具：移动
+  cmd.toolNavTestPath.desc: 在 2D 视口中依次点选起点与终点，预览 ai.NavMesh 计算出的路径
+  cmd.toolNavTestPath.label: 工具：测试导航路径
   cmd.toolPaintTile.desc: 切换为绘制瓦片画笔
   cmd.toolPaintTile.label: 工具：绘制瓦片
   cmd.toolPlace.desc: 切换为放置对象视口工具
@@ -147,6 +151,7 @@ strings:
   inspector.material: 材质
   inspector.mesh: 网格
   inspector.name: 名称
+  inspector.navRegionResetPolygon: 重置为默认多边形
   inspector.newProperty: 新属性
   inspector.newPropertyKey: 新属性键名
   inspector.newPropertyKind: 新属性类型
@@ -232,8 +237,10 @@ strings:
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
   menu.move: 移动
+  menu.navMesh2dOverlay: 2D 导航网格叠加层
   menu.navMeshOverlay: 显示 3D 导航网格
   menu.navMeshPanel: 烘焙 3D 导航网格…
+  menu.navTestPath: 测试导航路径
   menu.newProject: 新建项目…
   menu.openBaseScene: 打开基础场景
   menu.openInstancedScene: 打开实例化场景
@@ -369,6 +376,7 @@ strings:
   tool.eraseTile: 擦除瓦片
   tool.fillTile: 填充瓦片
   tool.move: 移动
+  tool.navTestPath: 测试路径
   tool.paintTile: 绘制瓦片
   tool.pickTile: 吸取瓦片
   tool.place: 放置
@@ -406,6 +414,8 @@ strings:
   toolbar.mixer: 混音器
   toolbar.mixerLabel: 切换音频总线混音器面板
   toolbar.move: 移动
+  toolbar.navMesh2dOverlayLabel: 切换 2D 导航网格叠加层
+  toolbar.navTestPathLabel: 测试 2D 导航路径
   toolbar.newScene: 新建场景…
   toolbar.output: 输出
   toolbar.outputLabel: 切换输出日志面板

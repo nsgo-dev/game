@@ -331,15 +331,18 @@ func applyTag(s *Schema, f reflect.StructField) (required bool, err error) {
 			default:
 				s.ExclusiveMaximum = &n
 			}
-		case "minLength", "minItems":
+		case "minLength", "minItems", "maxItems":
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
 				return false, fmt.Errorf("schema tag %s=%q is not a non-negative integer", key, value)
 			}
-			if key == "minLength" {
+			switch key {
+			case "minLength":
 				s.MinLength = &n
-			} else {
+			case "minItems":
 				s.MinItems = &n
+			default:
+				s.MaxItems = &n
 			}
 		default:
 			return false, fmt.Errorf("unknown schema tag entry %q", entry)
