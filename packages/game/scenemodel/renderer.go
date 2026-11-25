@@ -328,10 +328,13 @@ func drawUniform(d *Drawable, p *Part) render3d.PBRDrawUniform {
 	return u
 }
 
-// Prepare writes cam and lights to their buffers and each visible part's world transform to its draw buffer, and plans the frame with the renderer's render3d.Queue: frustum culling and draw order. Call it once a frame before the render pass that Draw records into. It returns the plan's statistics, and an error when lights fails render3d's validation.
+// Prepare writes cam and lights to their buffers and each visible part's world transform to its draw buffer, and plans the frame with the renderer's render3d.Queue: frustum culling and draw order. Call it once a frame before the render pass that Draw records into. It returns the plan's statistics, and an error when lights fails render3d's validation or the renderer is closed.
 func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (render3d.RenderStats, error) {
 	if r == nil || cam == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: Prepare needs a renderer and a camera")
+	}
+	if r.cam == nil {
+		return render3d.RenderStats{}, errors.New("scenemodel: Prepare on a closed renderer")
 	}
 	if err := r.lights.Update(r.dev, lights); err != nil {
 		return render3d.RenderStats{}, fmt.Errorf("scenemodel: lights: %w", err)
@@ -347,9 +350,9 @@ func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (rende
 	return r.plan.Stats, nil
 }
 
-// Draw records the parts Prepare planned into pass: the opaque and cutout ones first, then the blended ones back to front. pass must have a color attachment of RendererOptions.ColorFormat and a depth attachment of its DepthFormat.
+// Draw records the parts Prepare planned into pass: the opaque and cutout ones first, then the blended ones back to front. pass must have a color attachment of RendererOptions.ColorFormat and a depth attachment of its DepthFormat. It records nothing once the renderer is closed.
 func (r *Renderer) Draw(pass *gpu.RenderPass) {
-	if r == nil || pass == nil {
+	if r == nil || pass == nil || r.cam == nil {
 		return
 	}
 	pass.SetBindGroup(render3d.CameraGroup, r.cam.BindGroup())
@@ -373,7 +376,7 @@ func (r *Renderer) Draw(pass *gpu.RenderPass) {
 	}
 }
 
-// Close releases every GPU resource of r now instead of when its scope is disposed. It is safe to call on nil and more than once.
+// Close releases every GPU resource of r now instead of when its scope is disposed. It is safe to call on nil and more than once; after it, Prepare returns an error and Draw records nothing.
 func (r *Renderer) Close() error {
 	if r == nil {
 		return nil

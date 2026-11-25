@@ -44,7 +44,7 @@ layers:
 | `modelMesh` | 版本 2，需要 `model`，不能与 `modelNode` 同时使用。模型中第一个叫这个名字的网格，画在对象原点。 |
 | `material` | 一个[材质文件](resources.md)。用在基本形体上时它就是表面，没有时为白色、非金属、完全粗糙；用在模型上时它替换模型的所有材质。它的基础色和自发光颜色是 sRGB，会转换为线性光；不透明度乘到基础色的 alpha 上，小于 1 时表面按混合绘制；`metallic`、`roughness`、`doubleSided` 和 `texture` 按原样使用。它的 2D 混合模式和 `unlit` 在 3D 中不适用。 |
 
-覆盖项（`overrides`）可以在被实例化或被继承的场景的对象上替换上面每个字段。`scene.v2.json` 为编辑器和 AI 工具描述了这些字段（[schemas](schemas.md)）。
+覆盖项（`overrides`）可以在被实例化或被继承的场景的对象上替换上面每个字段。合并后的对象仍要遵守上面的规则，所以把基本形体换成模型的覆盖项要在 `model` 旁边写上 `mesh: ""`；只改 `model` 而保留 `modelNode` 或 `modelMesh` 的覆盖项，新模型里也要有那个部分。`scene.v2.json` 为编辑器和 AI 工具描述了这些字段（[schemas](schemas.md)）。
 
 ## 构建
 
@@ -93,7 +93,7 @@ pass.End()
 
 ## 检查与移动
 
-- `game check` 会在指定模型的场景文件和行号处，报告缺失或无法加载的模型，以及模型中没有的 `modelNode` 或 `modelMesh`；模型的加载错误，或 `.gltf` 文件引用的缓冲区或图片缺失，则报告在模型文件上（[CLI](cli.md)）。
+- `game check` 会在指定模型的场景文件和行号处，报告缺失或无法加载的模型，以及模型中没有的 `modelNode` 或 `modelMesh`，覆盖项对被实例化或被继承的场景做的改动则报告在该覆盖项处；模型的加载错误，或 `.gltf` 文件引用的缓冲区或图片缺失，则报告在模型文件上（[CLI](cli.md)）。
 - `game mv`、`game index` 和编辑器的 `MoveFile` 把 `model` 当作引用：移动模型会改写所有指定它的场景和覆盖项，移动 `.gltf` 文件的缓冲区或图片会改写该 `.gltf` 文件，并按 glTF 的要求对新名字做百分号编码（[项目文件](project.md)）。
 
 ## 示例

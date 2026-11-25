@@ -44,7 +44,7 @@ layers:
 | `modelMesh` | Version 2, with `model`, not with `modelNode`. The first mesh of the model with this name, drawn at the object's origin. |
 | `material` | A [material file](resources.md). On a primitive it is the surface, white, non-metallic and fully rough without one; on a model it replaces every material of the model. Its base color and emissive colors are sRGB and are converted to linear light, its opacity multiplies the base color's alpha and blends the surface when below 1, and its `metallic`, `roughness`, `doubleSided` and `texture` are used as written. Its 2D blend mode and `unlit` do not apply in 3D. |
 
-An override (`overrides`) can replace each of these fields on an object of an instanced or inherited scene. `scene.v2.json` describes them for editors and AI tools ([schemas](schemas.md)).
+An override (`overrides`) can replace each of these fields on an object of an instanced or inherited scene. The merged object must still follow the rules above, so an override that turns a primitive into a model writes `mesh: ""` beside its `model`, and one that keeps a `modelNode` or `modelMesh` while it changes `model` needs that part in the new model. `scene.v2.json` describes them for editors and AI tools ([schemas](schemas.md)).
 
 ## Building
 
@@ -93,7 +93,7 @@ Its shader (`ShaderWGSL`) is render3d's metallic-roughness lighting with a base 
 
 ## Checking and moving
 
-- `game check` reports a model that is missing or does not load, and a `modelNode` or `modelMesh` the model does not have, at the scene file and line that names it; a model's load error, or a buffer or image a `.gltf` file names that is missing, is reported against the model file ([CLI](cli.md)).
+- `game check` reports a model that is missing or does not load, and a `modelNode` or `modelMesh` the model does not have, at the scene file and line that names it, including what an override of an instanced or inherited scene changes, at the override; a model's load error, or a buffer or image a `.gltf` file names that is missing, is reported against the model file ([CLI](cli.md)).
 - `game mv`, `game index` and the editor's `MoveFile` treat `model` as a reference: moving a model rewrites every scene and override that names it, and moving a `.gltf` file's buffer or image rewrites the `.gltf` file, percent-encoding the new name as glTF requires ([Project File](project.md)).
 
 ## Example

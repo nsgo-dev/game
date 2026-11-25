@@ -295,8 +295,8 @@ type ObjectOverride struct {
 	ScaleZ *float32 `yaml:"scaleZ,omitempty"`
 	// Depth replaces the object's 3D extent along the Z axis.
 	Depth *float32 `yaml:"depth,omitempty" schema:"minimum=0"`
-	// Mesh replaces the built-in 3D primitive the object draws.
-	Mesh *string `yaml:"mesh,omitempty" schema:"enum=box|sphere|plane|capsule|cylinder"`
+	// Mesh replaces the built-in 3D primitive the object draws; "" removes it, as an override that gives the object a Model in place of a primitive must.
+	Mesh *string `yaml:"mesh,omitempty" schema:"enum=|box|sphere|plane|capsule|cylinder"`
 	// Model replaces the glTF model the object draws, a slash-separated path from the project root.
 	Model *string `yaml:"model,omitempty"`
 	// ModelNode replaces the node of the model the object draws.
@@ -734,21 +734,27 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 		}
 		ids[o.ID] = struct{}{}
 		where := fmt.Sprintf("layer %q object %q", layer, o.ID)
+		if version < 2 {
+			if o.Model != "" || o.ModelNode != "" || o.ModelMesh != "" {
+				field := "model"
+				if o.Model == "" {
+					field = "modelNode"
+					if o.ModelNode == "" {
+						field = "modelMesh"
+					}
+				}
+				return fieldErr(at(op, field), "sceneformat: %s: model, modelNode and modelMesh need version 2, not %d", where, version)
+			}
+			if o.Mesh != "" && !slices.Contains(meshPrimitives, o.Mesh) {
+				// validateModel's hint names model, which version 1 refuses.
+				return fieldErr(at(op, "mesh"), "sceneformat: %s mesh %q is not a built-in primitive (want one of %s); to draw a glTF file, move the scene to version 2 and name the file in model", where, o.Mesh, strings.Join(meshPrimitives, ", "))
+			}
+		}
 		if err := validateObject(op, where, o); err != nil {
 			return err
 		}
 		if err := checkModelRefs(op, where, o); err != nil {
 			return err
-		}
-		if version < 2 && (o.Model != "" || o.ModelNode != "" || o.ModelMesh != "") {
-			field := "model"
-			if o.Model == "" {
-				field = "modelNode"
-				if o.ModelNode == "" {
-					field = "modelMesh"
-				}
-			}
-			return fieldErr(at(op, field), "sceneformat: %s: model, modelNode and modelMesh need version 2, not %d", where, version)
 		}
 		if err := validateInstance(version, op, layer, o); err != nil {
 			return err
@@ -965,6 +971,15 @@ func validateModel(p []string, where string, o *ObjectDoc) error {
 		return fieldErr(at(p, "modelMesh"), "sceneformat: %s names both modelNode %q and modelMesh %q; keep one", where, o.ModelNode, o.ModelMesh)
 	}
 	return nil
+}
+
+// CheckObjectModel checks the fields of o that say what it draws in 3D, as Validate checks them in a version 2 scene: Mesh is "" or one of MeshPrimitives, Model is "" or a slash-separated path to a .gltf or .glb file, Mesh and Model are not both set, nor ModelNode and ModelMesh, and ModelNode and ModelMesh require Model. It does not check o's descendants, and lets a caller such as an editor refuse an object before it reaches a document.
+func CheckObjectModel(o *ObjectDoc) error {
+	where := fmt.Sprintf("object %q", o.ID)
+	if err := validateModel(nil, where, o); err != nil {
+		return err
+	}
+	return checkModelRefs(nil, where, o)
 }
 
 // checkModelRefs checks that o's ModelNode and ModelMesh name a part of a Model it has, which an override may set alone on an object of another file and so is only checked on a whole object.

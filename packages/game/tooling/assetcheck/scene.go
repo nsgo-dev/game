@@ -108,6 +108,12 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 			return true
 		})
 	}
+	overrides := s.overrides(doc)
+	for _, ov := range overrides {
+		if o := byID[ov.id]; o != nil && o.Model != "" && (ov.model != nil || ov.modelNode != nil || ov.modelMesh != nil) {
+			s.overrideModel(o, ov)
+		}
+	}
 	missing := false
 	for i, c := range conns {
 		for _, end := range []struct{ field, id string }{{"from", c.From}, {"to", c.To}} {
@@ -120,7 +126,6 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 	if missing || reg == nil {
 		return
 	}
-	overrides := s.overrides(doc)
 	for _, ov := range overrides {
 		o := byID[ov.id]
 		if o == nil {
@@ -203,22 +208,30 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 // duplicatePrefix starts the message of a sceneformat.ConnectionError for a connection that repeats an earlier one, which ends with the earlier one's index.
 const duplicatePrefix = "connects the same event and handler as connection "
 
-// objectOverride is an override a scene applies to an object of a scene it instances or inherits: the object's ID in the resolved scene, the components it changes, and the steps to it in the scene file.
+// objectOverride is an override a scene applies to an object of a scene it instances or inherits: the object's ID in the resolved scene, the components it changes, the model, node and mesh it sets, nil when it leaves them, and the steps to it in the scene file.
 type objectOverride struct {
-	id         string
-	components map[string]any
-	steps      []string
+	id                          string
+	components                  map[string]any
+	model, modelNode, modelMesh *string
+	steps                       []string
+}
+
+// newObjectOverride returns the objectOverride for ov, which changes the object id of the resolved scene and is found at steps in the scene file.
+func newObjectOverride(id string, ov *sceneformat.ObjectOverride, steps []string) objectOverride {
+	return objectOverride{id: id, components: ov.Components, model: ov.Model, modelNode: ov.ModelNode, modelMesh: ov.ModelMesh, steps: steps}
 }
 
 // overrides returns the overrides doc applies, those of SceneDoc.Overrides first and then those of its instances in document order, each sorted by ID.
 func (s *sceneCheck) overrides(doc *sceneformat.SceneDoc) []objectOverride {
 	var out []objectOverride
 	for _, id := range slices.Sorted(maps.Keys(doc.Overrides)) {
-		out = append(out, objectOverride{id: id, components: doc.Overrides[id].Components, steps: []string{"overrides", id}})
+		ov := doc.Overrides[id]
+		out = append(out, newObjectOverride(id, &ov, []string{"overrides", id}))
 	}
 	walkInstances(doc, func(o *sceneformat.ObjectDoc, steps []string) {
 		for _, id := range slices.Sorted(maps.Keys(o.Overrides)) {
-			out = append(out, objectOverride{id: o.ID + "/" + id, components: o.Overrides[id].Components, steps: append(slices.Clip(steps), "overrides", id)})
+			ov := o.Overrides[id]
+			out = append(out, newObjectOverride(o.ID+"/"+id, &ov, append(slices.Clip(steps), "overrides", id)))
 		}
 	})
 	return out
@@ -297,41 +310,60 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 			s.material(o.Material, append(slices.Clip(op), "material")...)
 		}
 		if o.Model != "" {
-			s.model(o.Model, o.ModelNode, o.ModelMesh, op)
-		}
-		for _, id := range slices.Sorted(maps.Keys(o.Overrides)) {
-			ov := o.Overrides[id]
-			if ov.Model != nil && *ov.Model != "" {
-				s.model(*ov.Model, deref(ov.ModelNode), deref(ov.ModelMesh), append(slices.Clip(op), "overrides", id))
-			}
+			at := func(key string) int { return s.line(append(slices.Clip(op), key)...) }
+			s.model(o.Model, o.ModelNode, o.ModelMesh, at("model"), at("modelNode"), at("modelMesh"), true)
 		}
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
 	}
 }
 
-// deref returns *p, or "" when p is nil.
-func deref(p *string) string {
-	if p == nil {
-		return ""
+// overrideModel checks the model that o, an object of the resolved scene, draws after ov, an override of this scene that sets its model, node or mesh, changed it. An override that sets the model is checked like an object that names it, a node or mesh it keeps from the object it overrides reported at the model line; one that sets only the node or mesh is checked against the model the overridden object names, whose own faults its scene reports.
+func (s *sceneCheck) overrideModel(o *sceneformat.ObjectDoc, ov objectOverride) {
+	at := func(key string) int { return s.line(append(slices.Clip(ov.steps), key)...) }
+	if ov.model != nil {
+		ref, node, mesh := at("model"), at("model"), at("model")
+		if ov.modelNode != nil {
+			node = at("modelNode")
+		}
+		if ov.modelMesh != nil {
+			mesh = at("modelMesh")
+		}
+		s.model(o.Model, o.ModelNode, o.ModelMesh, ref, node, mesh, true)
+		return
 	}
-	return *p
+	var node, mesh string
+	if ov.modelNode != nil {
+		node = o.ModelNode
+	}
+	if ov.modelMesh != nil {
+		mesh = o.ModelMesh
+	}
+	s.model(o.Model, node, mesh, 0, at("modelNode"), at("modelMesh"), false)
 }
 
-// model checks that a glTF model file exists in the project and loads, and that the node and mesh the object at steps names, when it names one, are in it. A model that does not load is reported against the model file itself.
-func (s *sceneCheck) model(ref, node, mesh string, steps []string) {
-	p, ok := s.fileRef(s.path, s.line(append(slices.Clip(steps), "model")...), s.project, ref, "model")
-	if !ok {
-		return
+// model checks that ref, a glTF model file named from the project root, loads, and that node and mesh, when not "", are a node and a mesh of it, reporting them at refLine, nodeLine and meshLine of the scene. When own is true the scene names ref, and a ref that is not a usable path or names no file is reported at refLine; otherwise the scene that names it reports that and model checks nothing more. A model that does not load is reported against the model file itself.
+func (s *sceneCheck) model(ref, node, mesh string, refLine, nodeLine, meshLine int, own bool) {
+	var p string
+	if own {
+		var ok bool
+		if p, ok = s.fileRef(s.path, refLine, s.project, ref, "model"); !ok {
+			return
+		}
+	} else {
+		var err error
+		if p, err = resolve(s.project, ref); err != nil || s.fileMissing(p) != nil {
+			return
+		}
 	}
 	doc := s.loadModel(p)
 	if doc == nil {
 		return
 	}
 	if node != "" && !slices.ContainsFunc(doc.Nodes, func(n gltf.Node) bool { return n.Name == node }) {
-		s.problem(s.path, s.line(append(slices.Clip(steps), "modelNode")...), "modelNode %q is not a node of model %q (%s)", node, ref, p)
+		s.problem(s.path, nodeLine, "modelNode %q is not a node of model %q (%s)", node, ref, p)
 	}
 	if mesh != "" && !slices.ContainsFunc(doc.Meshes, func(m gltf.Mesh) bool { return m.Name == mesh }) {
-		s.problem(s.path, s.line(append(slices.Clip(steps), "modelMesh")...), "modelMesh %q is not a mesh of model %q (%s)", mesh, ref, p)
+		s.problem(s.path, meshLine, "modelMesh %q is not a mesh of model %q (%s)", mesh, ref, p)
 	}
 }
 

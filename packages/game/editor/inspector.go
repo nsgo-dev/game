@@ -746,8 +746,15 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				TestID:      "inspector-mesh",
 				Label:       "Mesh",
 				Placeholder: "None",
-				Disabled:    disabled,
-				Options:     meshOptions(),
+				// An object that draws a glTF model cannot also draw a primitive, which SetObjectMesh refuses.
+				Disabled: func() bool {
+					if disabled() {
+						return true
+					}
+					o, _, _ := ed.FindObject(objID)
+					return o != nil && o.Model != ""
+				},
+				Options: meshOptions(),
 				Value: func() string {
 					_ = rev.Get()
 					if o, _, _ := ed.FindObject(objID); o != nil {
@@ -756,7 +763,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					return ""
 				},
 				OnChange: func(mesh string) {
-					_ = ed.SetObjectMesh(objID, mesh)
+					if err := ed.SetObjectMesh(objID, mesh); err != nil {
+						ed.Status = err.Error()
+						ed.notify()
+					}
 				},
 			}),
 		)
