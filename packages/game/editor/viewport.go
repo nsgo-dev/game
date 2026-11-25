@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/particles"
@@ -305,10 +306,30 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 			path := objectPath(e.Doc, id)
 			if inv, ok := chain2(path[:max(len(path)-1, 0)]).invert(); ok {
 				lx, ly := inv.apply(float64(wx), float64(wy))
-				_ = e.MoveObject(id, float32(lx), float32(ly))
+				sx, sy := e.SnapPosition2D(lx, ly)
+				_ = e.MoveObject(id, float32(sx), float32(sy))
 			}
 		} else if len(draggable) > 1 {
 			if g, ok := e.gizmo2D(); ok {
+				anchorID := draggable[0]
+				if slices.Contains(draggable, e.SelectedID) {
+					anchorID = e.SelectedID
+				}
+				var snappedLDX, snappedLDY float64
+				useSnappedDelta := false
+				if grid, pixel := e.positionSnapMode(); grid || pixel {
+					if aObj, aLI, _ := e.FindObject(anchorID); aObj != nil {
+						aPath := objectPath(e.Doc, anchorID)
+						aChain := chain2(aPath[:max(len(aPath)-1, 0)])
+						alx0, aly0 := aChain.apply(float64(aObj.X), float64(aObj.Y))
+						aSpace, apx, apy := e.layerSpaceAndParallax(e.Doc.Layers[aLI].Name)
+						gx, gy := e.canvasToLayerFor(aSpace, apx, apy, g.origin.X, g.origin.Y)
+						dx, dy := e.canvasToLayerFor(aSpace, apx, apy, x, y)
+						nx, ny := e.SnapPosition2D(alx0+float64(dx-gx), aly0+float64(dy-gy))
+						snappedLDX, snappedLDY = nx-alx0, ny-aly0
+						useSnappedDelta = true
+					}
+				}
 				_ = e.History.Group(fmt.Sprintf("Move %d objects", len(draggable)), func() error {
 					for _, id := range draggable {
 						obj, li, _ := e.FindObject(id)
@@ -316,16 +337,24 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 							continue
 						}
 						path := objectPath(e.Doc, id)
-						inv, ok := chain2(path[:max(len(path)-1, 0)]).invert()
+						parentChain := chain2(path[:max(len(path)-1, 0)])
+						inv, ok := parentChain.invert()
 						if !ok {
 							continue
 						}
-						space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
-						gx, gy := e.canvasToLayerFor(space, px, py, g.origin.X, g.origin.Y)
-						dx, dy := e.canvasToLayerFor(space, px, py, x, y)
-						gpx, gpy := inv.apply(float64(gx), float64(gy))
-						dpx, dpy := inv.apply(float64(dx), float64(dy))
-						if err := e.MoveObject(id, float32(float64(obj.X)+(dpx-gpx)), float32(float64(obj.Y)+(dpy-gpy))); err != nil {
+						var nx, ny float64
+						if useSnappedDelta {
+							lx0, ly0 := parentChain.apply(float64(obj.X), float64(obj.Y))
+							nx, ny = inv.apply(lx0+snappedLDX, ly0+snappedLDY)
+						} else {
+							space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+							gx, gy := e.canvasToLayerFor(space, px, py, g.origin.X, g.origin.Y)
+							dx, dy := e.canvasToLayerFor(space, px, py, x, y)
+							gpx, gpy := inv.apply(float64(gx), float64(gy))
+							dpx, dpy := inv.apply(float64(dx), float64(dy))
+							nx, ny = float64(obj.X)+(dpx-gpx), float64(obj.Y)+(dpy-gpy)
+						}
+						if err := e.MoveObject(id, float32(nx), float32(ny)); err != nil {
 							return err
 						}
 					}
@@ -357,10 +386,12 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 	switch e.Tool {
 	case ToolPlace:
 		wx, wy := e.layerCoordsForActive(x, y)
+		sx, sy := e.SnapPosition2D(float64(wx), float64(wy))
+		px, py := float32(sx), float32(sy)
 		if e.SelectedAsset != nil {
-			_, _ = e.DropAtlasFrame(e.SelectedAsset.Atlas, e.SelectedAsset.Frame, wx, wy)
+			_, _ = e.DropAtlasFrame(e.SelectedAsset.Atlas, e.SelectedAsset.Frame, px, py)
 		} else {
-			_, _ = e.PlaceObject(e.ActiveLayer, sceneformat.ObjectDoc{X: wx, Y: wy})
+			_, _ = e.PlaceObject(e.ActiveLayer, sceneformat.ObjectDoc{X: px, Y: py})
 		}
 	case ToolPaintTile:
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
@@ -460,6 +491,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawLightingOverlays2D(d, scene)
 	e.drawRoomsOverlay(d)
 	e.drawNavMesh2DOverlay(d, scene)
+	e.drawSnapGridOverlay(d)
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
@@ -821,6 +853,7 @@ type viewportGestures struct {
 	panBoundsDrag bool
 	panRoomDrag   bool
 	suppressPress bool
+	snapInvert    func() bool
 }
 
 // wheel pans the 2D view by a touchpad's scroll and zooms it about the pointer by a mouse wheel's turn or a scroll with Control or Command held. A mouse wheel's sideways scroll (Shift+wheel, or a tilting wheel) pans sideways.
@@ -846,6 +879,7 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		}
 		return MarqueeEnclose
 	}
+	invert := func() bool { return g.snapInvert != nil && g.snapInvert() }
 	switch ev.Phase {
 	case core.GestureBegan:
 		g.spacePan = spaceHeld()
@@ -882,13 +916,13 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		if ed.SelectionCount() <= 1 {
 			if _, ok := ed.BeginShapeDrag2D(downX, downY); ok {
 				x, y := at()
-				ed.UpdateShapeDrag2D(x, y)
+				ed.withSnapInvert(invert(), func() { ed.UpdateShapeDrag2D(x, y) })
 				return
 			}
 		}
 		if ed.BeginDrag2D(downX, downY) != Handle2DNone {
 			x, y := at()
-			ed.UpdateDrag2D(x, y, shiftHeld())
+			ed.withSnapInvert(invert(), func() { ed.UpdateDrag2D(x, y, shiftHeld()) })
 			return
 		}
 		if g.hasTouchCam {
@@ -950,10 +984,10 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			ed.UpdatePluginDrag2D(x, y)
 		} else if ed.DraggingShape2D() {
 			x, y := at()
-			ed.UpdateShapeDrag2D(x, y)
+			ed.withSnapInvert(invert(), func() { ed.UpdateShapeDrag2D(x, y) })
 		} else if ed.Dragging2D() != Handle2DNone {
 			x, y := at()
-			ed.UpdateDrag2D(x, y, shiftHeld())
+			ed.withSnapInvert(invert(), func() { ed.UpdateDrag2D(x, y, shiftHeld()) })
 		} else if ed.MarqueeActive() {
 			x, y := at()
 			ed.UpdateMarquee2D(x, y, marqueeMode())
@@ -985,13 +1019,13 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			g.suppressPress = true
 		} else if !g.spacePan && ed.DraggingShape2D() {
 			x, y := at()
-			ed.UpdateShapeDrag2D(x, y)
+			ed.withSnapInvert(invert(), func() { ed.UpdateShapeDrag2D(x, y) })
 			if ed.EndShapeDrag2D() {
 				g.suppressPress = true
 			}
 		} else if !g.spacePan && ed.Dragging2D() != Handle2DNone {
 			x, y := at()
-			ed.UpdateDrag2D(x, y, shiftHeld())
+			ed.withSnapInvert(invert(), func() { ed.UpdateDrag2D(x, y, shiftHeld()) })
 			ed.EndDrag2D()
 		} else if !g.spacePan && ed.MarqueeActive() {
 			x, y := at()
@@ -1121,10 +1155,16 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	// The first read of the held keys asks the platform to report every key, so Space is known to be held when a drag begins.
 	spaceHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "space") }) }
 	spaceHeld()
-	// A pan event carries no modifiers, so Shift, Mod and Alt are read from the held keys.
+	// A pan event carries no modifiers, so Shift (aspect ratio / 3D pan / multi-select), Mod/Ctrl (toggle / invert snapping), and Alt (tile pick / marquee touch) are read from the held keys.
 	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
 	modHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "mod") }) }
 	altHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }) }
+	snapInvertHeld := func() bool {
+		return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "ctrl") || core.KeyHeld(cx, "mod") })
+	}
+	snapInvertHeld()
+	g.snapInvert = snapInvertHeld
+	g3.snapInvert = snapInvertHeld
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
 	in3DGridMap := func() bool { return ed.ViewMode == ViewMode3D && ed.GridMapTool() != GridMapToolNone && !ed.Playing() }
 	// strokeTookPress says the tile or GridMap stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more. Every pointer-down clears it, so a stroke that no press followed, such as a drag the frame's pan took or a right-button drag, cannot swallow the next click.
@@ -1226,7 +1266,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			}
 			shift := ev.Modifiers.Shift || shiftHeld()
 			mod := ev.Modifiers.Platform || ev.Modifiers.Control || modHeld()
-			ed.HandleCanvasPressWith(x, y, shift, mod)
+			ed.withSnapInvert(ev.Modifiers.Control || ev.Modifiers.Platform || snapInvertHeld(), func() {
+				ed.HandleCanvasPressWith(x, y, shift, mod)
+			})
 		},
 		Draw: func(d *core.Drawing, size core.Size) {
 			_ = rev.Get()

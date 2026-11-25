@@ -330,7 +330,11 @@ strings:
   menu.stop: Stop
   menu.terrain: Terrain
   menu.toggleAllShapes: Show All Component Shapes
+  menu.toggleShowGrid: Show Snap Grid
   menu.toggleSnapGrid: Snap to Grid
+  menu.toggleSnapPixel: Snap to Pixels
+  menu.toggleSnapRotation: Snap Rotation
+  menu.toggleSnapScale: Snap Scale
   menu.tools: Tools
   menu.translate: Translate
   menu.undo: Undo
@@ -428,6 +432,18 @@ strings:
   settings.light: Light
   settings.system: System
   settings.title: Editor Settings
+  snap.auto: Auto
+  snap.autoLabel: Follow the active layer's tilemap tile size
+  snap.grid: Grid
+  snap.gridStep: Grid step
+  snap.modifierHint: Hold Ctrl or Cmd during a drag to invert snapping
+  snap.pixel: Pixel snap (1 pt)
+  snap.rotation: Rotation (°)
+  snap.rotationStep: Rotation step in degrees
+  snap.scale: Scale
+  snap.scaleStep: Scale step
+  snap.showGrid: Show 2D grid overlay
+  snap.title: Snapping
   status.buildError: 'Build error: {error}'
   status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
   status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} | Layer: {layer}'
@@ -511,6 +527,8 @@ strings:
   toolbar.shadingLit: Lit
   toolbar.shadingUnlit: Unlit
   toolbar.shadingWireframe: Wireframe
+  toolbar.snapGridLabel: Snap to grid
+  toolbar.snapSettingsLabel: Snap settings
   toolbar.stop: Stop
   toolbar.stopGame: Stop Game (Running)
   toolbar.stopGameLabel: Stop the running game (Shift+F5)

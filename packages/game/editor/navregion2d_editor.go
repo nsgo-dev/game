@@ -540,7 +540,8 @@ func (e *Editor) updateNavRegionDrag2D(x, y float32) {
 		return
 	}
 	pts := slices.Clone(reg.Points)
-	pts[st.vertexIndex] = [2]float64{px - float64(reg.OffsetX), py - float64(reg.OffsetY)}
+	vx, vy := e.SnapPosition2D(px-float64(reg.OffsetX), py-float64(reg.OffsetY))
+	pts[st.vertexIndex] = [2]float64{vx, vy}
 	cm["points"] = pts
 
 	e.Rebuild()

@@ -242,7 +242,8 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								cx = ed.Doc.VirtualWidth / 2
 								cy = ed.Doc.VirtualHeight / 2
 							}
-							_, _ = ed.DropAtlasFrame(ent.Atlas, ent.Frame, cx, cy)
+							sx, sy := ed.SnapPosition2D(float64(cx), float64(cy))
+							_, _ = ed.DropAtlasFrame(ent.Atlas, ent.Frame, float32(sx), float32(sy))
 						},
 					},
 				},

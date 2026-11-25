@@ -310,10 +310,22 @@ type Editor struct {
 	ShowRenderStats bool
 	// ShowAllShapes controls whether the 2D viewport draws component shape fields of every visible object (true) or only the selected object (false).
 	ShowAllShapes bool
-	// SnapToGrid snaps 2D viewport component shape handle edits to GridSize increments when true.
+	// SnapToGrid snaps object placement, drags, 2D handles, and 3D translate gizmos to EffectiveGridStep increments when true.
 	SnapToGrid bool
-	// GridSize is the grid spacing in object-local units used when SnapToGrid is true. New initializes it to 8.
+	// GridSize is an explicit grid spacing in world/layer units used when SnapToGrid is true; 0 follows the active layer's tilemap tile size (or 8 when it has none).
 	GridSize float32
+	// SnapToPixel snaps positions to whole points (1-unit increments) when SnapToGrid is false.
+	SnapToPixel bool
+	// SnapRotation snaps 2D and 3D rotation drags to RotationSnapDeg-degree increments.
+	SnapRotation bool
+	// RotationSnapDeg is the rotation snap step in degrees. New initializes it to 15.
+	RotationSnapDeg float32
+	// SnapScale snaps 2D and 3D scale drags to ScaleSnapStep increments.
+	SnapScale bool
+	// ScaleSnapStep is the scale snap increment. New initializes it to 0.25.
+	ScaleSnapStep float32
+	// ShowGrid draws an optional 2D grid overlay at the active snap step in the 2D edit viewport.
+	ShowGrid bool
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -650,6 +662,8 @@ type Editor struct {
 	disk diskWatchState
 	// playtest holds the Playtest Report screen state, active report entries, chart view-model, and playtest_define proposal reviews.
 	playtest playtestReportState
+	// snapInvert temporarily inverts snapping while a modifier key (Ctrl/Cmd) is held during a drag or press.
+	snapInvert bool
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -698,7 +712,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		ShowLODOverlay:      true,
 		ShowOccluders:       true,
 		ShowRenderStats:     true,
-		GridSize:            defaultGridSize2D,
+		RotationSnapDeg:     defaultRotationStepDeg,
+		ScaleSnapStep:       defaultScaleStep,
 		terrainBrush:        DefaultTerrainBrush(),
 		selKey:              clipKeyRef{-1, -1},
 		cutscene:            cutsceneEditorState{selTrack: -1, selClip: -1},

@@ -375,6 +375,9 @@ func (e *Editor) updateColliderDrag3D(obj *sceneformat.ObjectDoc, st *drag3DStat
 		// Box width/height/depth and capsule/cylinder total height span both +/- sides around center.
 		newVal = st.colliderStartVal + 2*localDelta
 	}
+	if grid, pixel := e.positionSnapMode(); grid || pixel {
+		newVal = e.SnapValue(newVal)
+	}
 	minVal := st.colliderMinVal
 	if minVal < minColliderSize3D {
 		minVal = minColliderSize3D

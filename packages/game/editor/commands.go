@@ -65,6 +65,10 @@ const (
 	CmdToggleLightingPreview = "view.lighting"
 	CmdToggleAllShapes       = "view.shapes"
 	CmdToggleSnapGrid        = "view.snap"
+	CmdToggleShowGrid        = "view.grid"
+	CmdToggleSnapPixel       = "view.snap.pixel"
+	CmdToggleSnapRotation    = "view.snap.rotation"
+	CmdToggleSnapScale       = "view.snap.scale"
 	CmdToggleNavMesh2D       = "view.navmesh2d"
 	CmdCommandPalette        = "view.palette"
 	CmdPlayStop              = "project.play"
@@ -997,13 +1001,65 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdToggleSnapGrid,
 			Label:       "Snap to Grid",
-			Description: "Toggle grid snapping for 2D viewport shape handle edits",
+			Description: "Toggle grid snapping for object placement, drags, 2D handles, and 3D translate gizmos",
 			Category:    "View",
-			Keywords:    []string{"snap", "grid", "shapes", "handles", "2d"},
+			Keywords:    []string{"snap", "grid", "align", "handles", "2d", "3d"},
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.SnapToGrid },
 			Run: func() error {
 				e.SetSnapToGrid(!e.SnapToGrid)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleShowGrid,
+			Label:       "Show Snap Grid",
+			Description: "Toggle the 2D snap grid overlay in the 2D viewport",
+			Category:    "View",
+			Keywords:    []string{"grid", "overlay", "snap", "lines", "2d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ShowGrid },
+			Run: func() error {
+				e.SetShowGrid(!e.ShowGrid)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleSnapPixel,
+			Label:       "Snap to Pixels",
+			Description: "Toggle whole-point (pixel) snapping for object placement and drags",
+			Category:    "View",
+			Keywords:    []string{"snap", "pixel", "integer", "whole", "2d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.SnapToPixel },
+			Run: func() error {
+				e.SetSnapToPixel(!e.SnapToPixel)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleSnapRotation,
+			Label:       "Snap Rotation",
+			Description: "Toggle rotation step snapping for 2D and 3D rotation drags",
+			Category:    "View",
+			Keywords:    []string{"snap", "rotation", "angle", "degrees", "2d", "3d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.SnapRotation },
+			Run: func() error {
+				e.SetSnapRotation(!e.SnapRotation)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleSnapScale,
+			Label:       "Snap Scale",
+			Description: "Toggle scale step snapping for 2D and 3D scale drags",
+			Category:    "View",
+			Keywords:    []string{"snap", "scale", "resize", "step", "2d", "3d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.SnapScale },
+			Run: func() error {
+				e.SetSnapScale(!e.SnapScale)
 				return nil
 			},
 		},

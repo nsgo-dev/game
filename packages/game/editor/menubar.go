@@ -175,7 +175,11 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdNavMeshPanel, e.T("menu.navMeshPanel"), false),
 			sep,
 			cmdItem(CmdToggleAllShapes, e.T("menu.toggleAllShapes"), false),
+			cmdItem(CmdToggleShowGrid, e.T("menu.toggleShowGrid"), false),
 			cmdItem(CmdToggleSnapGrid, e.T("menu.toggleSnapGrid"), false),
+			cmdItem(CmdToggleSnapPixel, e.T("menu.toggleSnapPixel"), false),
+			cmdItem(CmdToggleSnapRotation, e.T("menu.toggleSnapRotation"), false),
+			cmdItem(CmdToggleSnapScale, e.T("menu.toggleSnapScale"), false),
 			sep,
 			{Label: e.T("menu.tools"), Items: toolItems},
 			{Label: e.T("menu.gizmo3d"), Items: gizmoItems},
@@ -240,7 +244,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -272,7 +276,11 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ShowNavMesh3D,
 			e.NavMeshPanelOpen(),
 			e.ShowAllShapes,
+			e.ShowGrid,
 			e.SnapToGrid,
+			e.SnapToPixel,
+			e.SnapRotation,
+			e.SnapScale,
 			e.hasTileSel,
 			!e.tileClipboard.Empty(),
 			e.LookThroughCamera3D(),

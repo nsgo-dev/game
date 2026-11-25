@@ -200,6 +200,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetHUDForProject()
 	e.hud.open = false
 	e.resetPlaytestForProject()
+	e.applyViewStateSnap(nil)
 
 	e.Doc = DemoSceneDoc()
 	e.Resolver = DemoAtlasMap()

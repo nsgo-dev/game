@@ -681,10 +681,10 @@ func (e *Editor) updateLightingDrag2D(x, y float32, keepAspect bool) {
 			return
 		}
 		dx, dy := px-float64(dbg.OffsetX), py-float64(dbg.OffsetY)
-		r := math.Max(minLightRadius, math.Hypot(dx, dy))
+		r := math.Max(minLightRadius, e.SnapValue(math.Hypot(dx, dy)))
 		cm["radius"] = r
 		if keepAspect && dbg.Kind == "spot" && r > 1e-6 {
-			cm["direction"] = math.Atan2(dy, dx)
+			cm["direction"] = e.SnapRotationRadians(math.Atan2(dy, dx))
 		}
 	case Handle2DLightSpotAngle:
 		_, dbg, err := sceneformat.ExtractLight2D(obj, nil)
@@ -697,7 +697,7 @@ func (e *Editor) updateLightingDrag2D(x, y float32, keepAspect bool) {
 		}
 		a := math.Atan2(dy, dx)
 		diff := math.Abs(math.Remainder(a-float64(dbg.Direction), 2*math.Pi))
-		spread := min(max(2*diff, minSpotAngle), maxSpotAngle)
+		spread := min(max(e.SnapRotationRadians(2*diff), minSpotAngle), maxSpotAngle)
 		cm["angle"] = spread
 	case Handle2DLightSpotDirection:
 		_, dbg, err := sceneformat.ExtractLight2D(obj, nil)
@@ -708,28 +708,29 @@ func (e *Editor) updateLightingDrag2D(x, y float32, keepAspect bool) {
 		if math.Hypot(dx, dy) < 1e-6 {
 			return
 		}
-		cm["direction"] = math.Atan2(dy, dx)
+		cm["direction"] = e.SnapRotationRadians(math.Atan2(dy, dx))
 	case Handle2DOccluderVertex, Handle2DOccluderEdgeMid:
 		occ, has, err := sceneformat.ExtractOccluder2D(obj, nil)
 		if err != nil || !has || st.vertexIndex < 0 || st.vertexIndex >= len(occ.Points) {
 			return
 		}
 		pts := slices.Clone(occ.Points)
-		pts[st.vertexIndex] = [2]float64{px - float64(occ.OffsetX), py - float64(occ.OffsetY)}
+		vx, vy := e.SnapPosition2D(px-float64(occ.OffsetX), py-float64(occ.OffsetY))
+		pts[st.vertexIndex] = [2]float64{vx, vy}
 		cm["points"] = pts
 	case Handle2DOccluderRectE, Handle2DOccluderRectW:
 		occ, has, err := sceneformat.ExtractOccluder2D(obj, nil)
 		if err != nil || !has {
 			return
 		}
-		w := math.Max(minOccluderRectSide, 2*math.Abs(px-float64(occ.OffsetX)))
+		w := math.Max(minOccluderRectSide, e.SnapAxis2D(2*math.Abs(px-float64(occ.OffsetX)), 0))
 		cm["width"] = w
 	case Handle2DOccluderRectN, Handle2DOccluderRectS:
 		occ, has, err := sceneformat.ExtractOccluder2D(obj, nil)
 		if err != nil || !has {
 			return
 		}
-		h := math.Max(minOccluderRectSide, 2*math.Abs(py-float64(occ.OffsetY)))
+		h := math.Max(minOccluderRectSide, e.SnapAxis2D(2*math.Abs(py-float64(occ.OffsetY)), 1))
 		cm["height"] = h
 	}
 

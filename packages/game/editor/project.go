@@ -211,6 +211,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.syncScenePath()
+	e.restoreProjectSnapState()
 	if opened {
 		e.navMesh3D.config.OutputPath = e.derivedNavMeshPath()
 		e.tryAutoloadNavMesh3D()
