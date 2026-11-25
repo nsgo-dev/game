@@ -558,8 +558,8 @@ func TestEditor3DViewportUIRenderingAndControls(t *testing.T) {
 		t.Fatalf("ViewMode = %v, want ViewMode3D", ed.ViewMode)
 	}
 
-	// Select box_a by clicking its projected 3D center on the canvas.
-	vw, vh := ed.ViewportSize()
+	// Select box_a by clicking its projected 3D center on the canvas, which fills its panel.
+	vw, vh := ed.CanvasSize()
 	sx, sy, _, vis := ed.Camera3D.Project([3]float32{0, 8, 0}, vw, vh)
 	if !vis {
 		t.Fatal("box_a not visible in default 3D camera")
@@ -669,7 +669,7 @@ func TestEditor3DGizmoDragThroughMountedUI(t *testing.T) {
 		t.Fatalf("ViewMode = %v, want ViewMode3D", ed.ViewMode)
 	}
 
-	vw, vh := ed.ViewportSize()
+	vw, vh := ed.CanvasSize()
 	gLen := ed.GizmoLength3D([3]float32{0, 0, 0})
 	startPt := [3]float32{gLen * 0.6, 0, 0}
 	endPt := [3]float32{gLen*0.6 + 25, 0, 0}
@@ -732,7 +732,11 @@ func TestEditor3DViewportShowsTheClipPose(t *testing.T) {
 	}
 	app.Post(func() { _ = ed.CloseClip() })
 	app.Settle()
-	if got := fmt.Sprint(app.Find("id:editor-viewport").Ops); got != start {
+	// Closing the clip closes the animation panel, so the canvas, which fills its panel, grows: the scene as edited is drawn at the new size.
+	view := app.Find("id:editor-viewport")
+	want := &core.Drawing{}
+	ed.DrawViewport(want, view.Bounds().Size)
+	if got := fmt.Sprint(view.Ops); got != fmt.Sprint(want.Ops) || got == end {
 		t.Fatal("after closing the clip the 3D viewport does not draw the scene as edited")
 	}
 }

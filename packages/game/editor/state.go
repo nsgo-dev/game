@@ -257,6 +257,11 @@ type Editor struct {
 	exportPanel exportPanelState
 	// search holds the cached project search index, active search results and Find References state.
 	search projectSearchState
+	// view2D is the 2D viewport's own view while view2DFree is set, after the author panned or zoomed; until then the view is the scene camera's (View2D).
+	view2D     View2D
+	view2DFree bool
+	// canvasW and canvasH are the viewport canvas's laid-out size (SetCanvasSize), zero until it lays out.
+	canvasW, canvasH float32
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -485,6 +490,8 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	}
 	e.Doc = doc
 	e.SelectedID = ""
+	// Another scene opens at its own camera's view.
+	e.view2DFree = false
 	// The loaded scene did not come from the current path, so a later Save must
 	// not overwrite the previously opened file with unrelated content.
 	e.FilePath = ""

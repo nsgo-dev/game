@@ -581,7 +581,9 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 		t.Fatalf("Tool = %v, want ToolPlace", ed.Tool)
 	}
 
-	app.PressAt("id:editor-viewport", core.Point{X: 104, Y: 68})
+	// The canvas fills its panel and shows the scene camera's view, so world (104, 68) is where WorldToCanvas puts it.
+	px, py := ed.WorldToCanvas(104, 68)
+	app.PressAt("id:editor-viewport", core.Point{X: core.Points(px), Y: core.Points(py)})
 
 	// Verify a sprite object referencing actors/slime was created at (104, 68).
 	droppedObj, _ := ed.SelectedObject()
@@ -589,7 +591,7 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 		t.Fatalf("expected dropped sprite object to be selected, got %+v", droppedObj)
 	}
 	if droppedObj.Sprite.Atlas != "actors" || droppedObj.Sprite.Frame != "slime" ||
-		droppedObj.X != 104 || droppedObj.Y != 68 {
+		math.Abs(float64(droppedObj.X-104)) > 1e-3 || math.Abs(float64(droppedObj.Y-68)) > 1e-3 {
 		t.Fatalf("unexpected dropped object: %+v", droppedObj)
 	}
 
@@ -599,14 +601,14 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 	for _, im := range gametest.ImageDraws(ops) {
 		if im.Image.URI == "asset:actors.png" &&
 			im.SX == 16 && im.SY == 0 &&
-			math.Abs(float64(im.Corners[0].X-104)) < 1e-3 &&
-			math.Abs(float64(im.Corners[0].Y-68)) < 1e-3 {
+			math.Abs(float64(float32(im.Corners[0].X)-px)) < 1e-3 &&
+			math.Abs(float64(float32(im.Corners[0].Y)-py)) < 1e-3 {
 			foundSlimeDraw = true
 			break
 		}
 	}
 	if !foundSlimeDraw {
-		t.Fatalf("expected dropped slime drawn at (104,68) in viewport ops: %+v", ops)
+		t.Fatalf("expected dropped slime drawn at (%v,%v) in viewport ops: %+v", px, py, ops)
 	}
 
 	// Also verify direct DropAtlasFrame + Undo via toolbar Undo button.
@@ -635,12 +637,14 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680))
 
-	// Switch to Fill tool via toolbar and click interior tile (1, 1) -> canvas (24, 24).
+	// Switch to Fill tool via toolbar and click interior tile (1, 1), at world (24, 24).
+	tx, ty := ed.WorldToCanvas(24, 24)
+	tile := core.Point{X: core.Points(tx), Y: core.Points(ty)}
 	app.Press("id:tool-fill")
 	if ed.Tool != editor.ToolFillTile {
 		t.Fatalf("Tool = %v, want ToolFillTile", ed.Tool)
 	}
-	app.PressAt("id:editor-viewport", core.Point{X: 24, Y: 24})
+	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 2 {
 		t.Fatalf("filled tile (1,1) = %d, want 2", got)
 	}
@@ -650,7 +654,7 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 
 	// Switch to Erase tool and click tile (1, 1).
 	app.Press("id:tool-erase")
-	app.PressAt("id:editor-viewport", core.Point{X: 24, Y: 24})
+	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 0 {
 		t.Fatalf("erased tile (1,1) = %d, want 0", got)
 	}
@@ -659,7 +663,7 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 	app.Post(func() { ed.SetActiveTileID(3) })
 	app.Settle()
 	app.Press("id:tool-paint")
-	app.PressAt("id:editor-viewport", core.Point{X: 24, Y: 24})
+	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 3 {
 		t.Fatalf("painted tile (1,1) = %d, want 3", got)
 	}
