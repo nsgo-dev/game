@@ -83,10 +83,10 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 
 // ContinueTileStroke carries the stroke under way on from the pointer's last point to the canvas point (x, y): a paint or erase stroke applies to every cell the straight line between them crosses, so a fast move leaves no gaps, and a pick stroke picks the tile in the cell at (x, y). It does nothing when no stroke is under way.
 func (e *Editor) ContinueTileStroke(x, y float32) {
-	s := e.stroke
-	if s == nil {
+	if e == nil || e.stroke == nil {
 		return
 	}
+	s := e.stroke
 	lx, ly := e.layerCoordsForActive(x, y)
 	if s.mode == TileStrokePick {
 		e.pickAt(lx, ly)
@@ -98,10 +98,10 @@ func (e *Editor) ContinueTileStroke(x, y float32) {
 
 // EndTileStroke ends the stroke under way, recording the cells it changed as one undo step ("Paint 12 tiles"); a stroke that changed nothing records none. A pick stroke made with the Pick tool that picked a tile makes Paint the active tool, so the picked tile paints next. It does nothing when no stroke is under way.
 func (e *Editor) EndTileStroke() {
-	s := e.stroke
-	if s == nil {
+	if e == nil || e.stroke == nil {
 		return
 	}
+	s := e.stroke
 	e.stroke = nil
 	if s.mode == TileStrokePick {
 		if s.picked && e.Tool == ToolPickTile {
@@ -125,10 +125,10 @@ func (e *Editor) EndTileStroke() {
 
 // CancelTileStroke ends the stroke under way without recording it, putting back every cell it changed, as when a second finger turns a one-finger paint into a two-finger pan. It does nothing when no stroke is under way.
 func (e *Editor) CancelTileStroke() {
-	s := e.stroke
-	if s == nil {
+	if e == nil || e.stroke == nil {
 		return
 	}
+	s := e.stroke
 	e.stroke = nil
 	if len(s.changes) == 0 {
 		return
@@ -152,9 +152,9 @@ func (e *Editor) TileStrokeActive() (TileStrokeMode, bool) {
 	return e.stroke.mode, true
 }
 
-// PickTile makes the tile in cell (col, row) of layer's inline tilemap (the active layer's when layer is empty) the active tile, as SetActiveTileID does, and reports whether the cell held one; an empty cell or one off the map leaves the active tile as it was.
+// PickTile makes the tile in cell (col, row) of layer's inline tilemap (the active layer's when layer is empty) the active tile, as SetActiveTileID does, and reports whether the cell held one; an empty cell, one off the map, or a call while the scene plays leaves the active tile as it was and reports false.
 func (e *Editor) PickTile(layer string, col, row int) bool {
-	if e == nil {
+	if e == nil || e.playing {
 		return false
 	}
 	_, tm, err := e.resolveInlineTilemap(layer)
