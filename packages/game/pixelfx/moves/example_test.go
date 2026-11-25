@@ -31,3 +31,11 @@ func ExampleGroundPound_perform() {
 	fmt.Println(frames > 4*60, len(pf.Targets))
 	// Output: true 1
 }
+
+// A move's hits say what each one leaves on the target: the rocket lands, freezes the picture and scorches it.
+func ExampleRocketLauncher() {
+	tm := pixelfx.ActTiming(moves.RocketLauncher)
+	h := tm.Hits[1]
+	fmt.Printf("wind-up %.2f s, lands at %.2f s freezing %.2f s, leaves %q\n", tm.Windup, h.T, h.Freeze, h.Skin)
+	// Output: wind-up 0.52 s, lands at 1.16 s freezing 0.20 s, leaves "char"
+}
