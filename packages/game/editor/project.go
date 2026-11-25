@@ -106,6 +106,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopClipLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
+	e.stopParticlePreviewLoop()
+	e.stopSceneEmitterLoop()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
@@ -122,6 +124,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.l10n = nil
 	e.tileset = nil
 	e.ActiveTerrain = ""
+	e.particles = nil
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved

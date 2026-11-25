@@ -447,6 +447,7 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	setValue(&o.Z, ov.Z)
 	setPointer(&o.Sprite, ov.Sprite)
 	setValue(&o.Material, ov.Material)
+	setPointer(&o.Particles, ov.Particles)
 	o.Components = mergeAnyMap(o.Components, ov.Components)
 	o.Properties = mergeAnyMap(o.Properties, ov.Properties)
 }
@@ -621,6 +622,7 @@ func cloneObjectFields(o *ObjectDoc) ObjectDoc {
 	out.Alpha = clonePtr(o.Alpha)
 	out.Sprite = clonePtr(o.Sprite)
 	out.Occluder = cloneOccluder(o.Occluder)
+	out.Particles = clonePtr(o.Particles)
 	out.Components = cloneAnyMap(o.Components)
 	out.Properties = cloneAnyMap(o.Properties)
 	out.Overrides = cloneOverrides(o.Overrides)
@@ -662,6 +664,7 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 		c.Z = clonePtr(ov.Z)
 		c.Sprite = clonePtr(ov.Sprite)
 		c.Material = clonePtr(ov.Material)
+		c.Particles = clonePtr(ov.Particles)
 		c.Components = cloneAnyMap(ov.Components)
 		c.Properties = cloneAnyMap(ov.Properties)
 		out[k] = c

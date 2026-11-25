@@ -93,6 +93,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ed.report(ed.OpenStatesProjectFile(p))
 						case isTerrainFile(p):
 							ed.report(ed.OpenTerrainProjectFile(p))
+						case isParticleFilePath(p):
+							ed.report(ed.OpenParticleEmitterProjectFile(p))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
 							ed.openSceneAsked(p)
 						}
@@ -118,8 +120,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					Background:  colors.Inset(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
-					Padding:     core.All(10),
-					Gap:         8,
+					Padding:     core.All(6),
+					Gap:         4,
 				},
 				Children: []core.Node{
 					ui.HStack{
@@ -132,7 +134,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ui.Button{
 								TestID:  "files-open",
 								Text:    "Open",
-								Label:   "Open the selected scene",
+								Label:   "Open the selected scene, state machine, or particle emitter",
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -141,7 +143,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
 										return true
 									}
-									if isStatesFile(p) {
+									if isStatesFile(p) || isParticleFilePath(p) {
 										return false
 									}
 									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
@@ -150,6 +152,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if p := current.Get(); p != "" {
 										if isStatesFile(p) {
 											ed.report(ed.OpenStatesProjectFile(p))
+										} else if isParticleFilePath(p) {
+											ed.report(ed.OpenParticleEmitterProjectFile(p))
 										} else {
 											ed.openSceneAsked(p)
 										}
@@ -169,7 +173,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						},
 					},
 					ui.ScrollView{
-						Style:    core.Style{FlexGrow: 1},
+						Style:    core.Style{FlexGrow: 1, MinHeight: core.Pt(48)},
 						Children: []core.Node{list},
 					},
 					ui.Input{
@@ -287,6 +291,33 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}
 								},
 							},
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							from := current.Get()
+							return from != "" && isParticleFilePath(from)
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "files-open-emitter",
+								Text:    "Open Emitter",
+								Label:   "Open the selected YAML file in the Particle Emitter editor",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Playing()
+								},
+								OnPress: func() {
+									if from := current.Get(); from != "" {
+										if err := ed.OpenParticleEmitterProjectFile(from); err != nil {
+											ed.report(err)
+										}
+									}
+								},
+							}
 						},
 					},
 					ui.HStack{

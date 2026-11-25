@@ -34,6 +34,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/gltf"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -100,6 +101,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		materials:   make(map[string]bool),
 		clips:       make(map[string]bool),
 		statesDocs:  make(map[string]*animclip.StateMachineDoc),
+		particles:   make(map[string]*particles.Config),
 		meshLibs:    make(map[string]*meshLibInfo),
 		models:      make(map[string]*gltf.Document),
 		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
@@ -231,6 +233,8 @@ type checker struct {
 	clips map[string]bool
 	// statesDocs caches parsed *.states.yaml files (nil when invalid).
 	statesDocs map[string]*animclip.StateMachineDoc
+	// particles caches each particle emitter file checked, nil for one that did not parse.
+	particles map[string]*particles.Config
 	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
 	meshLibs map[string]*meshLibInfo
 	// models holds each glTF model loaded so far, nil for one that does not load.

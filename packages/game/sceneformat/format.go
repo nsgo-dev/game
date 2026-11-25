@@ -467,6 +467,8 @@ type ObjectDoc struct {
 	Sprite *SpriteRef `yaml:"sprite,omitempty"`
 	// Material optionally names a shared material resource file by its slash-separated path from the project root, such as "materials/stone.material.yaml". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).
 	Material string `yaml:"material,omitempty"`
+	// Particles optionally binds the object to a 2D particle emitter YAML file (particles.Config) and optional sprite atlas, so Build constructs a live particles.Emitter that BuiltScene.Update steps and BuiltScene.Draw renders at the object's world transform. Version 2.
+	Particles *ParticlesRef `yaml:"particles,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.
@@ -535,6 +537,8 @@ type ObjectOverride struct {
 	Sprite *SpriteRef `yaml:"sprite,omitempty"`
 	// Material replaces the material resource file the object names, a slash-separated path from the project root.
 	Material *string `yaml:"material,omitempty"`
+	// Particles replaces the particle emitter file and optional atlas the object runs.
+	Particles *ParticlesRef `yaml:"particles,omitempty"`
 	// Components replaces the object's components key by key, keeping the others.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties replaces the object's custom properties key by key, keeping the others.
@@ -636,6 +640,14 @@ func (o *OccluderDoc) LocalBounds() (lo, hi [3]float32) {
 	hx, hy, hz := sz[0]*0.5, sz[1]*0.5, sz[2]*0.5
 	c := o.EffectiveCenter()
 	return [3]float32{c[0] - hx, c[1] - hy, c[2] - hz}, [3]float32{c[0] + hx, c[1] + hy, c[2] + hz}
+}
+
+// ParticlesRef binds an object to a versioned 2D particle emitter YAML file (particles.Config) and an optional sprite atlas for its frameNames.
+type ParticlesRef struct {
+	// File is the slash-separated path from the project root to a particle emitter YAML file, such as "fx/fire.particles.yaml".
+	File string `yaml:"file" schema:"required,minLength=1"`
+	// Atlas optionally names the sprite.Atlas an AssetResolver looks up to resolve the emitter's frameNames.
+	Atlas string `yaml:"atlas,omitempty"`
 }
 
 // MaxObjectDepth is how many levels of objects a layer may nest: a top-level object is at depth 1, its children at depth 2, and so on. Validate refuses a deeper tree.
@@ -1082,6 +1094,9 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 		ids[o.ID] = struct{}{}
 		where := fmt.Sprintf("layer %q object %q", layer, o.ID)
 		if version < 2 {
+			if o.Particles != nil {
+				return fieldErr(at(op, "particles"), "sceneformat: %s: particles needs version 2, not %d", where, version)
+			}
 			if o.Model != "" || o.ModelNode != "" || o.ModelMesh != "" {
 				field := "model"
 				if o.Model == "" {
@@ -1355,6 +1370,14 @@ func validateObject(path []string, where string, o *ObjectDoc) error {
 	}
 	if o.Material != "" && !validFilePath(o.Material) {
 		return fieldErr(at(path, "material"), "sceneformat: %s material %q must be a slash-separated path relative to the project root", where, o.Material)
+	}
+	if o.Particles != nil {
+		if o.Particles.File == "" {
+			return fieldErr(at(path, "particles", "file"), "sceneformat: %s particles requires a file", where)
+		}
+		if !validFilePath(o.Particles.File) {
+			return fieldErr(at(path, "particles", "file"), "sceneformat: %s particles file %q must be a slash-separated path relative to the project root", where, o.Particles.File)
+		}
 	}
 	return validateModel(path, where, o)
 }

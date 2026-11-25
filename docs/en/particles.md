@@ -68,6 +68,8 @@ fire.Draw(d)
 | `Ring(radius)` | Uniformly on the circumference of a circle of `radius`. |
 | `Rect(width, height)` | Uniformly inside a `width × height` rectangle centered on `(X, Y)`. |
 
+Inspect an existing `Shape` with `Kind()` (`"point"`, `"circle"`, `"ring"`, `"rect"`), `Radius()`, `Width()`, and `Height()`.
+
 ## Lifetime curves
 
 Curves evaluate a particle's normalized age `t = Age / Lifetime` in `[0, 1]` by linear interpolation between stops ordered by `T`:
@@ -92,6 +94,8 @@ For one-shot impacts (explosions, coin pickups, dust puffs), leave `Rate: 0` and
 sparks.X, sparks.Y = hit.X, hit.Y
 sparks.Burst(24) // emits immediately, stopping at MaxParticles
 ```
+
+For timed or repeating bursts, configure `Bursts` (`[]Burst`, YAML key `bursts`) with `Time` (delay from start/reset), `Count` (particles per trigger), `Cycles` (`0` or `1` for one-shot, `> 1` for a fixed repeat count, `< 0` to repeat indefinitely), and `Interval` (time between cycles). `Update(dt)` fires due bursts deterministically, `ReloadConfig` updates burst schedules without clearing live particles, and `Clear()` / `Reset()` reset the schedule clock.
 
 Other methods on `*Emitter`:
 
@@ -160,6 +164,7 @@ fire.ReloadConfig(cfg) // frameNames resolve against fire.Atlas
 - `shape.kind` is `point`, `circle`, `ring` or `rect`; `space` is `world` or `local`; `collision.mode` is `none`, `stop`, `bounce` or `kill`; a sub-emitter's `trigger` is `birth`, `death` or `collision`.
 - A runtime `Collider` is not part of the file, and a trail texture is saved by its URI (`trail.textureURI`).
 - `MarshalConfigJSON` and `UnmarshalConfigJSON` encode the same schema as JSON for programs that exchange definitions as JSON; files people write are YAML.
+- Its JSON Schema is published at `https://game.nsgo.dev/schemas/particles.v1.json` (`particles.SchemaURL`; see [Schemas for YAML files](schemas.md)). Emitter files (`*.particles.yaml` / `*.emitter.yaml`) can also be authored interactively with live preview in the [Particle emitter editor](editor.md#particle-emitter-editor-883) and placed directly on objects in version 2 scenes (`ObjectDoc.Particles`).
 
 ### Hot reload
 

@@ -399,7 +399,7 @@ layers:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, `version: 2` (instancing, inheritance, glTF models, layered tilemaps, LDtk levels), or `version: 3` (parallax and repeating layers); built-in physics components `version: 1`; built-in 2D lighting components `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json` and `scene.v3.json` |
+| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, `version: 2` (instancing, inheritance, glTF models, particle emitters, layered tilemaps, LDtk levels), or `version: 3` (parallax and repeating layers); built-in physics components `version: 1`; built-in 2D lighting components `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json` and `scene.v3.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
@@ -763,7 +763,7 @@ transitions:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| Any `.yaml` file the game loads, such as `sparks.yaml` | `version: 1` | `particles.UnmarshalConfigYAML`, `particles.MarshalConfigYAML`; the same fields as JSON with `UnmarshalConfigJSON` and `MarshalConfigJSON` | [particles](particles.md) |
+| `*.particles.yaml` / `*.emitter.yaml` (or any `.yaml` file the game loads, such as `sparks.yaml`) | `version: 1` | `particles.UnmarshalConfigYAML`, `particles.MarshalConfigYAML`; the same fields as JSON with `UnmarshalConfigJSON` and `MarshalConfigJSON` | [particles](particles.md); schema `https://game.nsgo.dev/schemas/particles.v1.json` |
 
 ```yaml
 version: 1

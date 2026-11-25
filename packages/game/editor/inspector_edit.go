@@ -187,6 +187,135 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	}
 }
 
+// particlesFields builds the inspector's particles rows for objID: the emitter YAML file, optional atlas override, and a button to open the emitter in the Particle Emitter panel.
+func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, core.Node) core.Node) []core.Node {
+	object := func() *sceneformat.ObjectDoc {
+		_ = rev.Get()
+		o, _, _ := ed.FindObject(objID)
+		return o
+	}
+	var filesKey string
+	var particleFiles []string
+	currentFile := func() string {
+		if o := object(); o != nil && o.Particles != nil {
+			return o.Particles.File
+		}
+		return ""
+	}
+	currentAtlas := func() string {
+		if o := object(); o != nil && o.Particles != nil {
+			return o.Particles.Atlas
+		}
+		return ""
+	}
+	fileSelect := ui.Select[string]{
+		TestID:      "inspector-particles-file",
+		Label:       "Particle Emitter File",
+		Placeholder: "None",
+		Searchable:  true,
+		Disabled: func() bool {
+			return disabled() || (!ed.canLoadParticles() && currentFile() == "")
+		},
+		Style: core.Style{Width: core.Pct(100)},
+		OptionsFunc: func() []ui.Option[string] {
+			cur := currentFile()
+			if key := ed.ProjectPath + "\x00" + strconv.FormatUint(ed.filesRev, 10); key != filesKey {
+				filesKey, particleFiles = key, ed.projectParticles()
+			}
+			var offered []string
+			if ed.canLoadParticles() {
+				offered = particleFiles
+			}
+			opts := make([]ui.Option[string], 0, len(offered)+1)
+			listed := false
+			for _, f := range offered {
+				listed = listed || f == cur
+				opts = append(opts, ui.Option[string]{Value: f, Label: f})
+			}
+			if cur != "" && !listed {
+				opts = append([]ui.Option[string]{{Value: cur, Label: cur}}, opts...)
+			}
+			return opts
+		},
+		Value: currentFile,
+		OnChange: func(file string) {
+			if file == "" {
+				ed.report(ed.SetObjectParticles(objID, nil))
+				return
+			}
+			ed.report(ed.SetObjectParticles(objID, &sceneformat.ParticlesRef{File: file, Atlas: currentAtlas()}))
+		},
+		OnClear: func() { ed.report(ed.SetObjectParticles(objID, nil)) },
+	}
+	atlasSelect := ui.Select[string]{
+		TestID:      "inspector-particles-atlas",
+		Label:       "Particle Atlas",
+		Placeholder: "None",
+		Searchable:  true,
+		Disabled: func() bool {
+			return disabled() || currentFile() == ""
+		},
+		Style: core.Style{Width: core.Pct(100)},
+		OptionsFunc: func() []ui.Option[string] {
+			cur := currentAtlas()
+			names := ed.ParticleAtlasNames()
+			opts := make([]ui.Option[string], 0, len(names)+1)
+			listed := false
+			for _, a := range names {
+				listed = listed || a == cur
+				opts = append(opts, ui.Option[string]{Value: a, Label: a})
+			}
+			if cur != "" && !listed {
+				opts = append([]ui.Option[string]{{Value: cur, Label: cur}}, opts...)
+			}
+			return opts
+		},
+		Value: currentAtlas,
+		OnChange: func(atlas string) {
+			if f := currentFile(); f != "" {
+				ed.report(ed.SetObjectParticles(objID, &sceneformat.ParticlesRef{File: f, Atlas: atlas}))
+			}
+		},
+		OnClear: func() {
+			if f := currentFile(); f != "" {
+				ed.report(ed.SetObjectParticles(objID, &sceneformat.ParticlesRef{File: f}))
+			}
+		},
+	}
+	editBtn := ui.Button{
+		TestID:  "inspector-particles-edit",
+		Text:    "Edit Emitter",
+		Size:    ui.SizeSmall,
+		Variant: ui.ButtonSecondary,
+		Disabled: func() bool {
+			return disabled() || currentFile() == ""
+		},
+		OnPress: func() {
+			o, _, _ := ed.FindObject(objID)
+			if o == nil || o.Particles == nil || o.Particles.File == "" {
+				return
+			}
+			if ed.Project != nil && ed.ProjectPath != "" {
+				ed.report(ed.openParticleEmitterProjectFile(o.Particles.File, o.Particles.Atlas))
+				return
+			}
+			if fr, ok := ed.Resolver.(sceneformat.FileResolver); ok {
+				data, err := fr.ReadFile(o.Particles.File)
+				if err != nil {
+					ed.report(err)
+					return
+				}
+				ed.report(ed.openParticleEmitter(data, "", o.Particles.Atlas))
+			}
+		},
+	}
+	return []core.Node{
+		fieldRow("Emitter", fileSelect),
+		fieldRow("Atlas", atlasSelect),
+		editBtn,
+	}
+}
+
 // withTrailing lays control out with trailing, such as a delete button, at its end.
 func withTrailing(control, trailing core.Node) core.Node {
 	return core.View{

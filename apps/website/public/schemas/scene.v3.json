@@ -527,6 +527,14 @@
           "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).",
           "type": "string"
         },
+        "particles": {
+          "description": "Particles optionally binds the object to a 2D particle emitter YAML file (particles.Config) and optional sprite atlas, so Build constructs a live particles.Emitter that BuiltScene.Update steps and BuiltScene.Draw renders at the object's world transform. Version 2.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParticlesRef"
+            }
+          ]
+        },
         "components": {
           "description": "Components holds structured component data keyed by component type name.",
           "type": "object",
@@ -719,6 +727,14 @@
           "description": "Material replaces the material resource file the object names, a slash-separated path from the project root.",
           "type": "string"
         },
+        "particles": {
+          "description": "Particles replaces the particle emitter file and optional atlas the object runs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParticlesRef"
+            }
+          ]
+        },
         "components": {
           "description": "Components replaces the object's components key by key, keeping the others.",
           "type": "object",
@@ -769,6 +785,25 @@
       },
       "required": [
         "mode"
+      ],
+      "additionalProperties": false
+    },
+    "ParticlesRef": {
+      "description": "ParticlesRef binds an object to a versioned 2D particle emitter YAML file (particles.Config) and an optional sprite atlas for its frameNames.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "File is the slash-separated path from the project root to a particle emitter YAML file, such as \"fx/fire.particles.yaml\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "atlas": {
+          "description": "Atlas optionally names the sprite.Atlas an AssetResolver looks up to resolve the emitter's frameNames.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
       ],
       "additionalProperties": false
     },

@@ -23,6 +23,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -58,7 +59,7 @@ type format struct {
 }
 
 // sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
-var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Model": true, "ModelNode": true, "ModelMesh": true, "GridMap": true, "Occluder": true, "Level": true, "TilesetFile": true, "TileLayers": true}
+var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Model": true, "ModelNode": true, "ModelMesh": true, "GridMap": true, "Occluder": true, "Particles": true, "Level": true, "TilesetFile": true, "TileLayers": true}
 
 // sceneV3Fields names the Go fields of the scene document types that scene format version 3 added; the version 1 and version 2 schemas leave them out, since Validate refuses them in older versions.
 var sceneV3Fields = map[string]bool{"ParallaxX": true, "ParallaxY": true, "RepeatX": true, "RepeatY": true, "RepeatWidth": true, "RepeatHeight": true}
@@ -222,6 +223,14 @@ var formats = []format{
 		typ:     reflect.TypeFor[animclip.StateMachineDoc](),
 		pkg:     "animclip",
 		version: animclip.StateMachineVersion,
+	},
+	{
+		url:     particles.SchemaURL,
+		title:   "NSGo game 2D particle emitter (version 1)",
+		typ:     reflect.TypeFor[particles.EmitterDoc](),
+		pkg:     "particles",
+		version: particles.FormatVersion,
+		types:   durationStringTypes,
 	},
 }
 

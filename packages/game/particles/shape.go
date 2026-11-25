@@ -34,6 +34,29 @@ func Ring(radius float32) Shape { return Shape{kind: shapeRing, radius: radius} 
 // Rect returns a shape that emits particles uniformly inside a width by height rectangle centered on X, Y.
 func Rect(width, height float32) Shape { return Shape{kind: shapeRect, width: width, height: height} }
 
+// Kind returns the canonical name of s: "point", "circle", "ring" or "rect".
+func (s Shape) Kind() string {
+	switch s.kind {
+	case shapeCircle:
+		return "circle"
+	case shapeRing:
+		return "ring"
+	case shapeRect:
+		return "rect"
+	default:
+		return "point"
+	}
+}
+
+// Radius returns the radius of a circle or ring shape, or 0 for other kinds.
+func (s Shape) Radius() float32 { return s.radius }
+
+// Width returns the width of a rect shape, or 0 for other kinds.
+func (s Shape) Width() float32 { return s.width }
+
+// Height returns the height of a rect shape, or 0 for other kinds.
+func (s Shape) Height() float32 { return s.height }
+
 func (s Shape) sample(rng *rand.Rand) (dx, dy float32) {
 	switch s.kind {
 	case shapeCircle:

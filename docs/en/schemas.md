@@ -11,8 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Format | Schema | Files |
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
-| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, name glTF models, or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
-| Scene, version 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | `*.scene.yaml` with parallax or repeating layers, read by `sceneformat.Parse` |
+| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, name glTF models, place particle emitters, or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
+| Scene, version 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | `*.scene.yaml` with parallax or repeating layers (and all version 2 features), read by `sceneformat.Parse` |
 | Tileset, version 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`, read by `tilemap.ParseTileset` and `tilemap.LoadTilesetFS` |
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |
@@ -28,9 +28,10 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Playtest configuration, version 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`, read by `playtest.ParseConfig`, `nsgo game playtest` and `game_playtest` ([playtest](playtest.md)) |
 | Game UI screen, version 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`, read by `gameui.ParseScreen` and `gameui.LoadScreenFS` |
 | Sprite state machine, version 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`, read by `animclip.ParseStateMachine` and `animclip.FSStates` |
+| Particle emitter (2D), version 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`, read by `particles.UnmarshalConfigYAML` and `particles.LoadConfigFS` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
-The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
+The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), skeletal rigs (#475) and localization tables (#473).
 
 A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json` (which refuses keys versions 2 and 3 added), and a `version: 2` file validates against `scene.v2.json` (which refuses keys version 3 added), now that `scene.v3.json` is published beside them; `Encode` names the schema of the document's own version.
 

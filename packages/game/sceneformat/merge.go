@@ -815,6 +815,7 @@ func (m *sceneMerger) mergeObjectOverrideFields(st *sideTracker, ctx conflictCtx
 		Z:          mergePtr(m, st, ctx, fn("z"), b.Z, o.Z, t.Z),
 		Sprite:     m.mergeSprite(st, ctx, fn("sprite"), b.Sprite, o.Sprite, t.Sprite),
 		Material:   mergePtr(m, st, ctx, fn("material"), b.Material, o.Material, t.Material),
+		Particles:  m.mergeParticles(st, ctx, fn("particles"), b.Particles, o.Particles, t.Particles),
 		Components: m.mergeAnyMap(st, ctx, fn("components"), b.Components, o.Components, t.Components),
 		Properties: m.mergeAnyMap(st, ctx, fn("properties"), b.Properties, o.Properties, t.Properties),
 	}
@@ -925,6 +926,49 @@ func (m *sceneMerger) mergeOccluder(st *sideTracker, ctx conflictCtx, prefix str
 	}
 }
 
+func (m *sceneMerger) mergeParticles(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *ParticlesRef) *ParticlesRef {
+	if particlesEqual(ours, theirs) {
+		if !particlesEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return cloneParticles(ours)
+	}
+	if particlesEqual(ours, base) {
+		st.mark(false, true)
+		return cloneParticles(theirs)
+	}
+	if particlesEqual(theirs, base) {
+		st.mark(true, false)
+		return cloneParticles(ours)
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return cloneParticles(ours)
+	}
+	b := base
+	if b == nil {
+		b = &ParticlesRef{}
+	}
+	return &ParticlesRef{
+		File:  mergeScalar(m, st, ctx, prefix+".file", b.File, ours.File, theirs.File),
+		Atlas: mergeScalar(m, st, ctx, prefix+".atlas", b.Atlas, ours.Atlas, theirs.Atlas),
+	}
+}
 func (m *sceneMerger) mergeAnyMap(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs map[string]any) map[string]any {
 	keys := unionKeys(base, ours, theirs)
 	if len(keys) == 0 {
@@ -1522,6 +1566,7 @@ func (m *sceneMerger) mergeObjectFields(st *sideTracker, ctx conflictCtx, b, o, 
 		Z:          mergeScalar(m, st, ctx, "z", b.Z, o.Z, t.Z),
 		Sprite:     m.mergeSprite(st, ctx, "sprite", b.Sprite, o.Sprite, t.Sprite),
 		Material:   mergeScalar(m, st, ctx, "material", b.Material, o.Material, t.Material),
+		Particles:  m.mergeParticles(st, ctx, "particles", b.Particles, o.Particles, t.Particles),
 		Components: m.mergeAnyMap(st, ctx, "components", b.Components, o.Components, t.Components),
 		Properties: m.mergeAnyMap(st, ctx, "properties", b.Properties, o.Properties, t.Properties),
 		Scene:      mergeScalar(m, st, ctx, "scene", b.Scene, o.Scene, t.Scene),
@@ -1867,6 +1912,13 @@ func spriteEqual(a, b *SpriteRef) bool {
 	return *a == *b
 }
 
+func particlesEqual(a, b *ParticlesRef) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 func layerMetaEqual(a, b *LayerDoc) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -1916,6 +1968,7 @@ func objectOverrideEqual(a, b ObjectOverride) bool {
 		ptrEqual(a.Z, b.Z) &&
 		spriteEqual(a.Sprite, b.Sprite) &&
 		ptrEqual(a.Material, b.Material) &&
+		particlesEqual(a.Particles, b.Particles) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties)
 }
@@ -1952,6 +2005,7 @@ func objectOwnEqual(a, b *ObjectDoc) bool {
 		a.Z == b.Z &&
 		spriteEqual(a.Sprite, b.Sprite) &&
 		a.Material == b.Material &&
+		particlesEqual(a.Particles, b.Particles) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties) &&
 		a.Scene == b.Scene &&
@@ -2011,6 +2065,9 @@ func occluderEqual(a, b *OccluderDoc) bool {
 		a.DoubleSided == b.DoubleSided
 }
 
+func cloneParticles(p *ParticlesRef) *ParticlesRef {
+	return clonePtr(p)
+}
 func cloneLayerMeta(l *LayerDoc) *LayerDoc {
 	if l == nil {
 		return nil
@@ -2074,6 +2131,7 @@ func cloneObjectOverride(o ObjectOverride) ObjectOverride {
 		Z:          clonePtr(o.Z),
 		Sprite:     cloneSprite(o.Sprite),
 		Material:   clonePtr(o.Material),
+		Particles:  cloneParticles(o.Particles),
 		Components: cloneAnyMap(o.Components),
 		Properties: cloneAnyMap(o.Properties),
 	}
@@ -2090,6 +2148,7 @@ func cloneObjectOwn(o *ObjectDoc) *ObjectDoc {
 	cp.Alpha = clonePtr(o.Alpha)
 	cp.Sprite = cloneSprite(o.Sprite)
 	cp.Occluder = cloneOccluder(o.Occluder)
+	cp.Particles = cloneParticles(o.Particles)
 	cp.Components = cloneAnyMap(o.Components)
 	cp.Properties = cloneAnyMap(o.Properties)
 	if len(o.Overrides) > 0 {

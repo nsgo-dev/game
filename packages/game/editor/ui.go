@@ -67,6 +67,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		unsub()
 		ed.stopClipLoop()
 		ed.stopStatesLoop()
+		ed.stopParticlePreviewLoop()
+		ed.stopSceneEmitterLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
@@ -131,6 +133,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 							TilesetEditorPanelView(cx, ed, rev),
 							TerrainPanelView(cx, ed, rev),
 							DataTablePanelView(cx, ed, rev),
+							ParticleEditorPanelView(cx, ed, rev),
 							AnimationPanelView(cx, ed, rev),
 							StatesPanelView(cx, ed, rev),
 							NavMeshPanelView(cx, ed, rev),
@@ -294,8 +297,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 			Wrap:           core.Wrap,
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifySpaceBetween,
-			Padding:        core.Symmetric(8, 12),
-			Gap:            8,
+			Padding:        core.Symmetric(4, 10),
+			Gap:            4,
 			Background:     colors.Raised(),
 			Borders:        core.Edges{Bottom: 1},
 			BorderColor:    colors.Line(),
@@ -507,8 +510,15 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					}
 				},
 			},
-			ui.HStack{
-				Gap: 4,
+			core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					Wrap:       core.Wrap,
+					AlignItems: core.AlignCenter,
+					MaxWidth:   core.Pct(100),
+					FlexShrink: 1,
+					Gap:        4,
+				},
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "toolbar-undo",
@@ -628,6 +638,23 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 						OnPress: func() {
 							ed.report(ed.NewClip("", "New clip", time.Second))
+						},
+					},
+					ui.ToggleButton{
+						TestID:   "toolbar-particles",
+						Text:     "Particles",
+						Label:    "Toggle the Particle Emitter Editor panel",
+						Disabled: notPlaying,
+						On: func() bool {
+							_ = rev.Get()
+							return ed.ParticleEmitterOpen()
+						},
+						OnChange: func(on bool) {
+							if on {
+								ed.report(ed.NewParticleEmitter())
+							} else {
+								ed.report(ed.CloseParticleEmitter())
+							}
 						},
 					},
 					ui.ToggleButton{

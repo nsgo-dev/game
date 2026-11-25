@@ -89,6 +89,7 @@ type Config struct {
 	Space              SimulationSpace
 	Shape              Shape
 	Rate               float32
+	Bursts             []Burst
 	MaxParticles       int
 	LifetimeMin        time.Duration
 	LifetimeMax        time.Duration
@@ -116,6 +117,9 @@ type Config struct {
 
 func (c Config) clone() Config {
 	out := c
+	if len(c.Bursts) > 0 {
+		out.Bursts = append([]Burst(nil), c.Bursts...)
+	}
 	if len(c.SizeCurve) > 0 {
 		out.SizeCurve = append(FloatCurve(nil), c.SizeCurve...)
 	}
@@ -160,6 +164,7 @@ func (e *Emitter) Config() Config {
 		Space:              e.Space,
 		Shape:              e.Shape,
 		Rate:               e.Rate,
+		Bursts:             e.Bursts,
 		MaxParticles:       e.MaxParticles,
 		LifetimeMin:        e.LifetimeMin,
 		LifetimeMax:        e.LifetimeMax,

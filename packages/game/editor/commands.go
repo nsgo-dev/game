@@ -51,6 +51,7 @@ const (
 	CmdProjectSettings       = "project.settings"
 	CmdAudioMixer            = "project.mixer"
 	CmdLocalization          = "project.l10n"
+	CmdParticleEditor        = "project.particles"
 	CmdExport                = "project.export"
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
@@ -718,6 +719,21 @@ func (e *Editor) initBuiltinCommands() {
 					return e.CloseLocalizations()
 				}
 				return e.openDefaultLocalizations()
+			},
+		},
+		{
+			ID:          CmdParticleEditor,
+			Label:       "Particle Emitter Editor",
+			Description: "Toggle the Particle Emitter Editor panel with live preview",
+			Category:    "Project",
+			Keywords:    []string{"particles", "emitter", "vfx", "fx", "curves", "panel"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ParticleEmitterOpen() },
+			Run: func() error {
+				if e.ParticleEmitterOpen() {
+					return e.CloseParticleEmitter()
+				}
+				return e.NewParticleEmitter()
 			},
 		},
 		{
