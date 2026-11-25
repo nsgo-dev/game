@@ -13,6 +13,7 @@
 | `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
 | `rpg2d` | 一个俯视角 RPG：可以行走的小镇和草地、带分支对话的人物、带装备的物品栏、一个任务、回合制战斗和三个存档槽。[指南](template-rpg2d.md)。 | `github.com/nsgo-dev/game/template/rpg2d` |
+| `rts2d` | 一场 2D 即时战略遭遇战：采集水晶、建造兵营、训练三种单位并摧毁电脑对手的总部，带战争迷雾、框选、编队以及键盘、手柄和触屏操作（[指南](template-rts2d.md)）。 | `github.com/nsgo-dev/game/template/rts2d` |
 
 `go tool game new -list` 由命令自身打印同样的列表，默认模板排在最前。
 

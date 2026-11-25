@@ -13,6 +13,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `puzzle2d` | Spark Slide, a 2D grid puzzle: slide a spark across the board to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress; plays with the keyboard, a game controller, touch and the mouse. | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | A 3D racer: two laps of a closed circuit against racing-line rivals, with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen, played with keyboard, gamepad or touch. [Racing 3D template](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
 | `rpg2d` | A top-down RPG: a town and a meadow to walk, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots. [Guide](template-rpg2d.md). | `github.com/nsgo-dev/game/template/rpg2d` |
+| `rts2d` | A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's headquarters, with fog of war, box selection, control groups and keyboard, gamepad and touch controls ([guide](template-rts2d.md)). | `github.com/nsgo-dev/game/template/rts2d` |
 
 `go tool game new -list` prints the same list from the command itself, the default first.
 
