@@ -760,6 +760,11 @@ func (c *objectIDCmd) rename(from, to string) {
 	if e.SelectedID == from {
 		e.SelectedID = to
 	}
+	for i := range e.selectedIDs {
+		if e.selectedIDs[i] == from {
+			e.selectedIDs[i] = to
+		}
+	}
 	if e.clipMeta.target == from {
 		e.clipMeta.target = to
 	}

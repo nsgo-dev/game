@@ -805,6 +805,7 @@ func (e *Editor) CopyTileRegion(layer string, col0, row0, col1, row1 int) (TileS
 	}
 	stamp := readTileStamp(g, r)
 	e.tileClipboard = stamp.Clone()
+	e.lastClipboardKind = clipboardTile
 	e.activeStamp = stamp.Clone()
 	e.paletteStampRect = TileRect{}
 	e.hasPaletteStampRect = false
@@ -836,6 +837,7 @@ func (e *Editor) CutTileRegion(layer string, col0, row0, col1, row1 int) (TileSt
 	}
 	stamp := readTileStamp(g, r)
 	e.tileClipboard = stamp.Clone()
+	e.lastClipboardKind = clipboardTile
 	e.activeStamp = stamp.Clone()
 	e.paletteStampRect = TileRect{}
 	e.hasPaletteStampRect = false

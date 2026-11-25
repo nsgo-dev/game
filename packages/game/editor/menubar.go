@@ -84,8 +84,15 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdUndo, e.T("menu.undo"), false),
 			cmdItem(CmdRedo, e.T("menu.redo"), false),
 			sep,
+			cmdItem(CmdCut, e.T("menu.cut"), false),
+			cmdItem(CmdCopy, e.T("menu.copy"), false),
+			cmdItem(CmdPaste, e.T("menu.paste"), false),
+			cmdItem(CmdPasteInto, e.T("menu.pasteInto"), false),
 			cmdItem(CmdDuplicate, e.T("menu.duplicate"), false),
 			cmdItem(CmdDelete, e.T("menu.delete"), false),
+			sep,
+			cmdItem(CmdGroup, e.T("menu.group"), false),
+			cmdItem(CmdUngroup, e.T("menu.ungroup"), false),
 			sep,
 			cmdItem(CmdCopyTileRegion, "Copy Tile Region", false),
 			cmdItem(CmdCutTileRegion, "Cut Tile Region", false),
@@ -225,8 +232,14 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
+		canUngroup := false
+		if e.SelectedID != "" {
+			if o, _, _ := e.FindObject(e.SelectedID); o != nil && len(o.Children) > 0 {
+				canUngroup = true
+			}
+		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -235,6 +248,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.canUndo(),
 			e.canRedo(),
 			e.SelectedID != "" || e.SelectedRoomID() != "",
+			len(e.SelectedIDs()),
+			canUngroup,
 			e.ViewMode,
 			e.Tool,
 			e.GizmoMode,

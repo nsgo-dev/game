@@ -381,6 +381,10 @@ type Editor struct {
 	MergeCheckRunner func(dir, scenePath string, doc *sceneformat.SceneDoc) ([]assetcheck.Problem, error)
 	// MergePlaytestRunner overrides the short playtest run during FinishMerge; when nil, a deterministic 10 s headless Build/Update/Physics step runs.
 	MergePlaytestRunner func(dir, scenePath string, doc *sceneformat.SceneDoc) (MergePlaytestResult, error)
+	// WriteClipboard, when set, overrides writing text to the system clipboard (used by Copy and Cut); when nil and a UI scope is attached, core.Scope.SetClipboard is used.
+	WriteClipboard func(text string)
+	// ReadClipboard, when set, overrides reading text from the system clipboard (used by Paste); when nil and a UI scope is attached, core.Scope.ReadClipboard is used.
+	ReadClipboard func(done func(text string))
 
 	playing           bool
 	playSnapshot      []byte
@@ -615,6 +619,18 @@ type Editor struct {
 	envPanelOpen bool
 	// merge holds the object-by-object Scene Merge Conflict resolution screen state.
 	merge mergeConflictState
+	// selectedIDs holds the multi-object selection in selection order; SelectedID is the primary selection.
+	selectedIDs []string
+	// clipboardText holds an in-memory copy of the last scene YAML copied when no UI scope or clipboard hook is attached.
+	clipboardText     string
+	lastClipboardKind clipboardKind
+	lastPasteYAML     string
+	pasteStreak       int
+	// pointer2D and pointer3D track the last hovered viewport canvas point for Paste at pointer.
+	pointer2D    math2d.Vec2
+	hasPointer2D bool
+	pointer3D    [2]float32
+	hasPointer3D bool
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -779,11 +795,28 @@ func (e *Editor) notify() {
 }
 
 func (e *Editor) afterMutate() {
-	// Ensure SelectedID still points to an existing object.
+	// Ensure SelectedID and selectedIDs still point to existing objects.
+	if len(e.selectedIDs) > 0 {
+		var kept []string
+		for _, id := range e.selectedIDs {
+			if id != "" && locateObject(e.Doc, id).obj != nil && !slices.Contains(kept, id) {
+				kept = append(kept, id)
+			}
+		}
+		e.selectedIDs = kept
+	}
 	if e.SelectedID != "" {
 		if obj, _, _ := e.FindObject(e.SelectedID); obj == nil {
-			e.SelectedID = ""
+			if len(e.selectedIDs) > 0 {
+				e.SelectedID = e.selectedIDs[len(e.selectedIDs)-1]
+			} else {
+				e.SelectedID = ""
+			}
+		} else if len(e.selectedIDs) == 0 {
+			e.selectedIDs = []string{e.SelectedID}
 		}
+	} else {
+		e.selectedIDs = nil
 	}
 	// Ensure SelectedRoomID still points to an existing room in the open room map.
 	if e.rooms != nil && e.rooms.selectedRoomID != "" {
@@ -1153,6 +1186,8 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""
+	e.selectedIDs = nil
+	e.pasteStreak = 0
 	e.inspectAssetFile = false
 	e.inspectLayer = false
 	e.connPick = nil
@@ -1386,9 +1421,10 @@ func (e *Editor) SelectObject(id string) bool {
 	}
 	if id == "" {
 		hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
-		if e.SelectedID != "" || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
+		if e.SelectedID != "" || len(e.selectedIDs) > 0 || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
 			e.CancelRoomDrag()
 			e.SelectedID = ""
+			e.selectedIDs = nil
 			e.inspectAssetFile = false
 			e.inspectLayer = false
 			e.connPick = nil
@@ -1404,17 +1440,19 @@ func (e *Editor) SelectObject(id string) bool {
 	} else if obj.GridMap != "" && e.gridMap.relPath != obj.GridMap && !e.GridMapDirty() {
 		// Selecting an object that names a GridMap loads it automatically when a project or GridMapFS is available.
 		e.SelectedID = id
+		e.selectedIDs = []string{id}
 		e.Status = "Selected " + id
 		e.autoOpenSceneGridMap()
 		e.notify()
 		return true
 	}
 	hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
-	if e.SelectedID != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
+	if e.SelectedID != id || len(e.selectedIDs) != 1 || e.selectedIDs[0] != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
 		e.SelectedID = id
+		e.selectedIDs = []string{id}
 		e.inspectAssetFile = false
 		e.inspectLayer = false
 		e.connPick = nil
