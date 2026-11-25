@@ -1,6 +1,6 @@
 # Command Line
 
-`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project, move files while keeping the references to them working, keep the project index of stable file IDs and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
+`game` is the game layer's command-line tool: one command whose subcommands pack sprite atlases, convert audio, generate asset manifests, encode textures, open the scene editor, build release packages, play input recordings headless, check benchmarks against a stored baseline, create projects, run the game with asset hot reload, check a game's scenes, maps and atlases, build all of a game's assets from `game.yaml`, rebuilding only what changed, write new components, systems, scenes and prefabs into a project, move files while keeping the references to them working, keep the project index of stable file IDs, render pixelfx effects to sprite sheets and write shell completion scripts. They share how they are called: flags before arguments, `-in` for what a command reads and `-out` for what it writes, and the same help.
 
 ## Install
 
@@ -34,6 +34,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `index` | Gives every scene and resource file a uid, points references at files moved without the tools, and writes the project index |
 | `library` | Finds asset, editor plugin and template packs in a library and installs them into a project, updates or removes them, or prints a pack's digest |
 | `credits` | Writes the credits file `release` ships: every asset's author and license, from the import settings sidecar beside it, failing when an asset has none |
+| `pixelfx` | Renders a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for `sprite.LoadAtlas` |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
@@ -448,6 +449,17 @@ Licensed under the SIL Open Font License, Version 1.1.
 
 The assets are sorted by path. The licenses table counts the assets under each license expression and links each single SPDX identifier to its page in the SPDX license list, and every notice follows word for word. Package `github.com/nsgo-dev/game/packages/game/tooling/credits` collects the credits and writes the file, for a game that shows them on a screen of its own.
 
+### pixelfx
+
+```sh
+go tool game pixelfx -out assets/fx fire/torch
+go tool game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -name frost-torch -out assets/fx fire/torch
+go tool game pixelfx -act -fps 30 -out assets/fx moves/ground-pound
+go tool game pixelfx -list
+```
+
+Renders one of the [pixelfx](pixelfx.md) effects the command was built with to a PNG sprite sheet and its Aseprite JSON, `<name>.png` and `<name>.json` in `-out`, which `sprite.LoadAtlas` reads: every frame at the effect's own frame rate (or `-fps`), laid out in a grid, with each frame's duration and its pivot at the effect's origin, and one animation tag that loops a loop and plays a one-shot once. The name is the effect's (`torch`) unless `-name` gives one. `-set name=value` sets one of the effect's options, as a number, `true` or `false`, a color such as `#4a3f69`, colors separated by commas for a palette, or text, and `-flip` mirrors it. `-act` renders the effect acted out instead: the stock character performing it, with its straw target, at 60 frames per second unless `-fps` says otherwise, and the JSON carries the act's timing for a game with its own character. `-list` lists the effects with their size, length and options. An effect, option or value the command does not know exits with 2. The categories it renders are the ones ported so far; each category's port adds its own.
+
 ### completion
 
 ```sh
@@ -455,7 +467,7 @@ mkdir -p ~/.zfunc
 go tool game completion zsh > ~/.zfunc/_game
 ```
 
-Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, the kinds `generate` writes (offered for its name too, since a command's arguments complete alike at every position), and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
+Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, the kinds `generate` writes (offered for its name too, since a command's arguments complete alike at every position), the effects `pixelfx` renders, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
 
 The script completes a command named `game`. Typed as `go tool game`, the shell completes `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which works inside the game's module and keeps the version its `go.mod` pins. Save the script to a file once rather than generating it each time a shell starts, since `go tool game` only runs inside the module.
 

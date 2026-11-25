@@ -259,6 +259,24 @@ game credits [flags]
 | `-in string` | `game.yaml` | project file whose assets section names the assets |
 | `-out file` |  | the credits file to write (default: print it) |
 
+## game pixelfx
+
+Render a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for sprite.LoadAtlas.
+
+```sh
+game pixelfx [flags] <category/name>
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-act` |  | render the effect acted out: the stock character performing it, with its target |
+| `-flip` |  | mirror the effect |
+| `-fps int` |  | frames per second (default: the effect's own, or 60 acted out) |
+| `-list` |  | list the effects and their options instead of rendering one |
+| `-name string` |  | base file name and animation tag (default: the effect's name, such as torch) |
+| `-out directory` | `.` | the directory to write \<name>.png and \<name>.json into |
+| `-set name=value` |  | set one of the effect's options as name=value, such as seed=4 or palette=#102,#215,#fff; repeat it for more |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

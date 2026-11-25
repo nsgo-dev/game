@@ -31,6 +31,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `text` | `github.com/nsgo-dev/game/packages/game/text` | [text](text.md) | AngelCode BMFont 位图字体、2D 与 3D 世界空间中的有向距离场字体，以及 `DrawPlatform` 平台矢量文本 |
 | `placeholder` | `github.com/nsgo-dev/game/packages/game/placeholder` | [占位素材](placeholder.md) | 用于原型制作的 CC0 素材包：精灵表、图块集与关卡、像素字体、声音和 glTF 模型，附带导入设置旁车文件 |
 | `particles` | `github.com/nsgo-dev/game/packages/game/particles` | [particles](particles.md) | 确定性 2D 粒子发射器 `Emitter`、发射形状、爆发与生命周期曲线 |
+| `pixelfx` | `github.com/nsgo-dev/game/packages/game/pixelfx` | [pixelfx](pixelfx.md) | pixelfx 像素风特效的 Go 移植：画笔、模拟和表演系统，按类别分包的特效（`pixelfx/fire`、`pixelfx/explosions` 等），换色、镜像与精灵表导出 |
 | `bullets` | `github.com/nsgo-dev/game/packages/game/bullets` | [bullets](bullets.md) | 射击游戏弹幕（环形、螺旋、瞄准连发），由 YAML 定义，对象池复用并通过精灵批次绘制 |
 | `save` | `github.com/nsgo-dev/game/packages/game/save` | [save](save.md) | 带版本号的 JSON 存档槽、结构迁移与原子备份恢复 |
 | `achievements` | `github.com/nsgo-dev/game/packages/game/achievements` | [achievements](achievements.md) | 在带版本号的 YAML 中声明成就、只增不减并保存在 `core.Storage` 的进度，以及上报到 Game Center 和 Play Games |
