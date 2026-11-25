@@ -280,10 +280,14 @@ func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool
 	return builtinPhysicsComponents.Lookup(cn)
 }
 
-// inspectorSchemaKey computes a stable signature of the selected object ID and its
+// inspectorSchemaKey computes a stable signature of either the selected asset file
+// (when inspecting import settings) or the selected object ID and its
 // property/component field names + kinds so InspectorView only remounts controls when
 // selection or field layout changes (preserving input focus during value edits).
 func inspectorSchemaKey(ed *Editor) string {
+	if rel, kind := ed.inspectedImportAsset(); rel != "" {
+		return "asset:" + string(kind) + ":" + rel
+	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
 		return ""
@@ -394,7 +398,8 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						if schema.Get() == "" {
+						key := schema.Get()
+						if key == "" {
 							return core.Text{
 								TestID:  "inspector-empty",
 								Content: "No object selected",
@@ -403,6 +408,12 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									Color:    colors.Muted(),
 								},
 							}
+						}
+						if strings.HasPrefix(key, "asset:") {
+							if rel, kind := ed.inspectedImportAsset(); rel != "" {
+								return assetImportInspectorView(cx, ed, rev, rel, kind)
+							}
+							return nil
 						}
 						obj, layerName := ed.SelectedObject()
 						if obj == nil {

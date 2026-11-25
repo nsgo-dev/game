@@ -44,6 +44,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopExportBuild()
+	e.stopAssetsBuild()
 	e.resetInputMapTransient()
 	_ = e.StopGame()
 	e.Project = f
@@ -53,6 +54,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.syncScenePath()
+	e.snapshotAssetOutputs()
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()

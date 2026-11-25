@@ -42,6 +42,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopClipLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
+		ed.stopAssetsBuild()
 		_ = ed.StopGame()
 		if ed.Playing() {
 			_ = ed.Stop()
@@ -383,6 +384,20 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							} else {
 								ed.report(ed.CloseLocalizations())
 							}
+						},
+					},
+					ui.Button{
+						TestID:  "toolbar-build-assets",
+						Text:    "Build Assets",
+						Label:   "Run go tool game assets for the open project and reload changed atlases and textures",
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil || ed.Playing() || ed.AssetsBuilding()
+						},
+						OnPress: func() {
+							ed.report(ed.BuildAssets())
 						},
 					},
 					ui.ToggleButton{

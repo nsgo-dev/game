@@ -169,6 +169,7 @@ func (e *Editor) SelectFile(relPath string) {
 func (e *Editor) selectFile(relPath string) {
 	e.SelectedFile = relPath
 	e.selectedFileRev++
+	e.inspectAssetFile = relPath != "" && e.AssetImportKind(relPath) != AssetImportNone
 }
 
 // OpenProblem navigates to problem p in the open project: if p.File names a scene file (*.scene.yaml, *.scene.yml, or a scene listed under Project.Autoload.Scenes), it opens that scene with OpenScene (and updates ScenePath and SelectedFile, and clears OnSave), unless it is the scene already open (ScenePath), which keeps its edits and undo history and is only selected; if opening the scene fails (for example because the YAML does not parse), it still selects p.File in the file browser and returns the error. For any non-scene file, it selects p.File in the file browser. It returns ErrNoProject when no project is open. Opening another scene loses the open one's unsaved edits; ProblemsView asks first (HasUnsavedChanges).
