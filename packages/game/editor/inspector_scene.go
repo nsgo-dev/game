@@ -420,6 +420,22 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		}),
 		fieldRow("Background", bgControl),
+		fieldRow("NavMesh", ui.Input{
+			TestID:      "inspector-scene-navmesh",
+			Label:       "Scene NavMesh Path",
+			Placeholder: "levels/level.navmesh.yaml",
+			Disabled:    disabled,
+			Value: func() string {
+				_ = rev.Get()
+				if ed.Doc != nil {
+					return ed.Doc.NavMesh
+				}
+				return ""
+			},
+			OnSubmit: func(text string) {
+				ed.report(ed.SetSceneNavMesh(text))
+			},
+		}),
 
 		sectionHeader("SCENE LIGHTING"),
 		fieldRow("Ambient", ambientControl),

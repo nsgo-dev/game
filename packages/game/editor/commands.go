@@ -37,6 +37,9 @@ const (
 	CmdShadingLit            = "view.shading.lit"
 	CmdShadingUnlit          = "view.shading.unlit"
 	CmdShadingWire           = "view.shading.wireframe"
+	CmdNavMeshPanel          = "view.navmesh"
+	CmdNavMeshOverlay        = "view.navmesh.overlay"
+	CmdBakeNavMesh3D         = "project.bakeNavMesh3D"
 	CmdFrameSelection        = "view.frame"
 	CmdToggleLightingPreview = "view.lighting"
 	CmdCommandPalette        = "view.palette"
@@ -516,6 +519,42 @@ func (e *Editor) initBuiltinCommands() {
 			Run: func() error {
 				e.SetShading3D(Shading3DWireframe)
 				return nil
+			},
+		},
+		{
+			ID:          CmdNavMeshPanel,
+			Label:       "3D NavMesh Bake Panel",
+			Description: "Toggle the 3D navigation mesh bake settings panel",
+			Category:    "View",
+			Keywords:    []string{"navmesh", "navigation", "bake", "3d", "panel"},
+			Checked:     func() bool { return e.NavMeshPanelOpen() },
+			Run: func() error {
+				e.SetNavMeshPanelOpen(!e.NavMeshPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdNavMeshOverlay,
+			Label:       "Show 3D NavMesh Overlay",
+			Description: "Toggle drawing the baked 3D navigation mesh over the 3D viewport",
+			Category:    "View",
+			Keywords:    []string{"navmesh", "navigation", "overlay", "3d", "debug"},
+			Checked:     func() bool { return e.ShowNavMesh3D },
+			Run: func() error {
+				e.SetShowNavMesh3D(!e.ShowNavMesh3D)
+				return nil
+			},
+		},
+		{
+			ID:          CmdBakeNavMesh3D,
+			Label:       "Bake 3D NavMesh",
+			Description: "Bake a 3D navigation mesh from the open scene's static geometry",
+			Category:    "Project",
+			Keywords:    []string{"navmesh", "navigation", "bake", "3d", "recast"},
+			Enabled:     notPlaying,
+			Run: func() error {
+				_, err := e.BakeNavMesh3D()
+				return err
 			},
 		},
 		{

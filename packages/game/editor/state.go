@@ -16,6 +16,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/resource"
@@ -252,6 +253,12 @@ type Editor struct {
 	ShowPhysicsDebug bool
 	// ShowLightingPreview controls whether 2D lights, occluder shadows, and ambient darkness draw live in the 2D edit viewport. New initializes it to true.
 	ShowLightingPreview bool
+	// ShowNavMesh3D controls whether the baked 3D navigation mesh overlay draws in the 3D viewport. New initializes it to true.
+	ShowNavMesh3D bool
+	// OnBakeNavMesh3DGeometry, when set, is called by BakeNavMesh3D after collecting the open scene's static geometry so games can add programmatic terrain, GridMaps, or physics colliders.
+	OnBakeNavMesh3DGeometry func(g *navbake3d.Geometry) error
+	// NavMesh3DAssetFS is an optional fallback file system used by BakeNavMesh3D and LoadNavMesh3D to resolve glTF models and instanced scenes when no project directory is open.
+	NavMesh3DAssetFS fs.FS
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -429,6 +436,8 @@ type Editor struct {
 	startScreen startScreenState
 	// unsavedPrompt tracks a pending project switch waiting for user confirmation of unsaved edits.
 	unsavedPrompt unsavedPromptState
+	// navMesh3D holds the 3D navigation mesh bake settings, panel visibility, and cached preview mesh.
+	navMesh3D navMesh3DState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -470,6 +479,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		Status:              "Ready",
 		ShowPhysicsDebug:    true,
 		ShowLightingPreview: true,
+		ShowNavMesh3D:       true,
+		navMesh3D:           navMesh3DState{config: DefaultNavMeshBakeConfig()},
 		selKey:              clipKeyRef{-1, -1},
 		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
@@ -829,6 +840,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 		e.ActiveLayer = ""
 	}
 	e.keepTileInPalette()
+	e.resetNavMeshForScene()
 	e.Status = "Opened scene"
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
@@ -862,6 +874,8 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 	}
 	e.FilePath = path
 	e.syncScenePath()
+	e.navMesh3D.config.OutputPath = e.derivedNavMeshPath()
+	e.tryAutoloadNavMesh3D()
 	e.Status = "Opened " + path
 	e.restoreViewState()
 	e.notify()

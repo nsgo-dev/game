@@ -1057,6 +1057,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	// 4b. Projected 3D physics collider and trigger debug wireframes.
 	e.drawPhysicsDebug3D(d, w, h)
 
+	// 4c. Projected 3D navigation mesh walkable polygons and edges.
+	e.drawNavMeshOverlay3D(d, w, h)
+
 	// 5. The edges of the geometry the GPU view draws, in wireframe shading.
 	if overlay && e.Shading3D == Shading3DWireframe {
 		e.drawWireframe3D(d, s3, w, h)

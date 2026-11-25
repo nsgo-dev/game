@@ -51,12 +51,13 @@ data, err := navbake3d.Encode(file) // 写入 levels/level1.navmesh.yaml
 | 方法 | 添加的内容 |
 | --- | --- |
 | `AddTriangle`、`AddMesh` | 三角形，或按世界矩阵变换的带索引三角形列表；镜像矩阵会把绕序翻转回来 |
+| `AddPrimitive` | 按世界矩阵变换的内置 3D 基本形体（`box`、`plane`、`sphere`、`capsule`、`cylinder`）；封闭形体按实心烘焙，`plane` 按表面烘焙 |
 | `AddGLTF` | glTF 文档默认场景中的每个网格，按其节点的世界变换放置；展开三角形带和三角扇，跳过点和线 |
 | `AddScene` | 每个不在已禁用节点子树中、`Layer` 与掩码有共同位的已启用 `scene3d` 节点，三角形来自一个 `NodeMesh`（`ColliderMesh` 读取 `*scene3d.MeshCollider`） |
-| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，构建 3D 节点树，加载每个对象的 `model` 指定的 glTF 模型（`SceneMeshes`），并提取所有配置的 `nav_link` 离网连接 |
+| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，跳过屏幕空间图层以及动态或运动学 `body3d` 对象（及其子对象），添加 glTF 模型（支持 `modelNode` 和 `modelMesh`）、内置 `mesh` 基本形体和静态非触发器 `collider3d` 形状，并提取所有配置的 `nav_link` 离网连接 |
 | `AddOffMeshLink` | 添加一条点对点 `OffMeshLink`（跳跃、跌落、梯子或传送门），烘焙时写入每个 `Mesh.Links` |
-| `AddHeightmap` | 一个 `world3d.Heightmap`，按其 `BuildMesh` 的方式三角化 |
-| `AddGridMap` | `world3d.GridMap` 每个已占用格子的碰撞盒 |
+| `AddHeightmap`、`AddTerrainFile` | 一个 `world3d.Heightmap`（或通过 `world3d.LoadTerrainFS` 加载的 `*.terrain.yaml` 文件），按其 `BuildMesh` 的方式三角化 |
+| `AddGridMap`、`AddGridMapFile` | `world3d.GridMap`（或通过 `world3d.LoadGridMapFS` 加载的 `*.gridmap.yaml` 文件）每个已占用格子的碰撞盒 |
 | `AddPhysicsWorld` | `physics3d.World` 中层与掩码有共同位的静态刚体、三角网格、高度场和体素碰撞体；动态刚体、运动学刚体和触发器不计入，网格未实现 `physics3d.VoxelBoundsGrid` 的体素碰撞体也不计入，因为无法列出其实心体素 |
 
 与 Recast 一样，三角形只是表面，所以高到能站进去的封闭网格是中空的，其内部地面会烘焙成一个没有路径能到达的孤岛，除非它小于 `MinRegionArea`。`AddPhysicsWorld` 和 `AddGridMap` 添加的碰撞形状（盒、球、胶囊和体素）则是实心的：它们经过的每一列从最低点到最高点都是实心的。
@@ -146,4 +147,8 @@ navbake3d.DrawDebug(d, viewProj, viewport, mesh, navbake3d.DefaultDebugStyle())
 nsgo game navmesh scenes/level1.scene.yaml
 ```
 
-[`game navmesh`](cli.md#navmesh) 为[项目文件](project.md)中 `navigation` 部分的每种代理类型烘焙场景的 glTF 模型，并写入场景的 `navMesh` 指定的文件。
+[`game navmesh`](cli.md#navmesh) 为[项目文件](project.md)中 `navigation` 部分的每种代理类型烘焙场景的静态 3D 几何体（glTF 模型、内置基本形体和静态 `collider3d` 形状），并写入场景的 `navMesh` 指定的文件。
+
+## 在编辑器中烘焙
+
+在 3D 视图模式下，[场景编辑器](editor.md#3d-导航网格烘焙-901)提供 **NavMesh** 烘焙面板（`NavMeshPanelView`），可编辑代理半径、身高、可攀爬高度、最大坡度、体素单元尺寸与高度以及输出路径，直接把当前场景烘焙为确定性的 `.navmesh.yaml`（以可撤销步骤更新 `SceneDoc.NavMesh`），并在 3D 视口上开关半透明可行走多边形与边界线叠加层。
