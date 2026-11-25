@@ -107,6 +107,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ed.report(ed.OpenRigProjectFile(p, ""))
 						case isScreenFile(p):
 							ed.report(ed.OpenHUDScreen(p))
+						case isPlaytestReportFile(p):
+							ed.report(ed.OpenPlaytestReportFile(p))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
 							ed.report(ed.OpenScene(p))
 						}
@@ -156,7 +158,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
 										return true
 									}
-									if isMaterialFile(p) || isStatesFile(p) || isCutsceneFile(p) || isTilesetFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
+									if isMaterialFile(p) || isStatesFile(p) || isCutsceneFile(p) || isTilesetFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) || isPlaytestReportFile(p) {
 										return false
 									}
 									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
@@ -178,6 +180,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 											ed.report(ed.OpenRoomsProjectFile(p))
 										case isScreenFile(p):
 											ed.report(ed.OpenHUDScreen(p))
+										case isPlaytestReportFile(p):
+											ed.report(ed.OpenPlaytestReportFile(p))
 										default:
 											ed.report(ed.OpenScene(p))
 										}

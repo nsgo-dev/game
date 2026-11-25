@@ -311,6 +311,7 @@ strings:
   menu.pasteInto: 粘贴为子级
   menu.place: 放置
   menu.play: 播放
+  menu.playtestReport: 试玩报告
   menu.plugins: 插件
   menu.profiler: 性能分析器
   menu.project: 项目

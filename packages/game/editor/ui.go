@@ -158,67 +158,78 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 										return HUDLayoutView(cx, ed, rev)
 									},
 									Else: func(cx *core.Scope) core.Node {
-										return core.View{
-											Style: core.Style{
-												Width:  core.Pct(100),
-												Height: core.Pct(100),
+										return core.Show{
+											When: func() bool {
+												_ = rev.Get()
+												return ed.PlaytestReportOpen()
 											},
-											Children: []core.Node{
-												toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-												remotePlayBarView(cx, ed, rev),
-												diskWatchBannerView(cx, ed, rev),
-												core.Show{
-													When: func() bool {
-														_ = rev.Get()
-														return ed.CutsceneOpen() && !ed.Playing()
+											Then: func(cx *core.Scope) core.Node {
+												return PlaytestReportView(cx, ed, rev)
+											},
+											Else: func(cx *core.Scope) core.Node {
+												return core.View{
+													Style: core.Style{
+														Width:  core.Pct(100),
+														Height: core.Pct(100),
 													},
-													Then: func(cx *core.Scope) core.Node {
-														return CutscenePanelView(cx, ed, rev)
-													},
-													Else: func(cx *core.Scope) core.Node {
-														return core.View{
-															Style: core.Style{
-																FlexGrow:  1,
-																FlexBasis: core.Pt(0),
-																Overflow:  core.Hidden,
+													Children: []core.Node{
+														toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+														remotePlayBarView(cx, ed, rev),
+														diskWatchBannerView(cx, ed, rev),
+														core.Show{
+															When: func() bool {
+																_ = rev.Get()
+																return ed.CutsceneOpen() && !ed.Playing()
 															},
-															Children: []core.Node{
-																core.View{
-																	// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+															Then: func(cx *core.Scope) core.Node {
+																return CutscenePanelView(cx, ed, rev)
+															},
+															Else: func(cx *core.Scope) core.Node {
+																return core.View{
 																	Style: core.Style{
-																		Direction: core.Row,
 																		FlexGrow:  1,
 																		FlexBasis: core.Pt(0),
 																		Overflow:  core.Hidden,
 																	},
-																	// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																	Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
-																},
-																pluginDockView(cx, ed, rev, DockBottom),
-																TilesetEditorPanelView(cx, ed, rev),
-																TerrainPanelView(cx, ed, rev),
-																RigPanelView(cx, ed, rev),
-																DataTablePanelView(cx, ed, rev),
-																ParticleEditorPanelView(cx, ed, rev),
-																MaterialEditorPanelView(cx, ed, rev),
-																AnimationPanelView(cx, ed, rev),
-																EnvironmentPanelView(cx, ed, rev),
-																StatesPanelView(cx, ed, rev),
-																NavMeshPanelView(cx, ed, rev),
-																ProjectSettingsPanelView(cx, ed, rev),
-																AudioMixerPanelView(cx, ed, rev),
-																InputMapPanelView(cx, ed, rev),
-																LocalizationPanelView(cx, ed, rev),
-																SearchPanelView(cx, ed, rev),
-																ProblemsView(cx, ed, rev),
-																ExportPanelView(cx, ed, rev),
-																ProfilerPanelView(cx, ed, rev),
-																OutputPanelView(cx, ed, rev),
+																	Children: []core.Node{
+																		core.View{
+																			// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																			Style: core.Style{
+																				Direction: core.Row,
+																				FlexGrow:  1,
+																				FlexBasis: core.Pt(0),
+																				Overflow:  core.Hidden,
+																			},
+																			// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																			Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																		},
+																		pluginDockView(cx, ed, rev, DockBottom),
+																		TilesetEditorPanelView(cx, ed, rev),
+																		TerrainPanelView(cx, ed, rev),
+																		RigPanelView(cx, ed, rev),
+																		DataTablePanelView(cx, ed, rev),
+																		ParticleEditorPanelView(cx, ed, rev),
+																		MaterialEditorPanelView(cx, ed, rev),
+																		AnimationPanelView(cx, ed, rev),
+																		EnvironmentPanelView(cx, ed, rev),
+																		StatesPanelView(cx, ed, rev),
+																		NavMeshPanelView(cx, ed, rev),
+																		ProjectSettingsPanelView(cx, ed, rev),
+																		AudioMixerPanelView(cx, ed, rev),
+																		InputMapPanelView(cx, ed, rev),
+																		LocalizationPanelView(cx, ed, rev),
+																		SearchPanelView(cx, ed, rev),
+																		ProblemsView(cx, ed, rev),
+																		ExportPanelView(cx, ed, rev),
+																		ProfilerPanelView(cx, ed, rev),
+																		OutputPanelView(cx, ed, rev),
+																	},
+																}
 															},
-														}
+														},
+														statusBarView(cx, ed, rev),
 													},
-												},
-												statusBarView(cx, ed, rev),
+												}
 											},
 										}
 									},
@@ -281,6 +292,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 			},
 			Children: []core.Node{
 				SceneTabsView(cx, ed, rev),
+				playReplayBannerView(ed, rev),
 				ViewportView(cx, ed, rev),
 				ProfilerStripView(cx, ed, rev),
 			},
@@ -1197,6 +1209,52 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 						},
 					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ActivePlaytestReport() != nil
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "status-playtest-report",
+								Variant: ui.ButtonGhost,
+								Size:    ui.SizeSmall,
+								TextFunc: func() string {
+									_ = rev.Get()
+									rep := ed.ActivePlaytestReport()
+									if rep == nil {
+										return "Playtest"
+									}
+									if missed := len(rep.MissedMetrics()); missed > 0 {
+										return fmt.Sprintf("Playtest · %d missed", missed)
+									}
+									return "Playtest · met"
+								},
+								Color: func() core.Color {
+									_ = rev.Get()
+									if rep := ed.ActivePlaytestReport(); rep != nil && len(rep.MissedMetrics()) > 0 {
+										return specPlaytestMissedFill
+									}
+									return specAddedFill
+								},
+								TextStyle: core.Style{
+									FontSize:   11,
+									FontWeight: 600,
+									Color:      specText,
+								},
+								Style: core.Style{
+									Height:       core.Pt(22),
+									CornerRadius: 6,
+									Padding:      core.Symmetric(0, 8),
+									BorderWidth:  1,
+									BorderColor:  specLineRaised,
+								},
+								OnPress: func() {
+									ed.SetPlaytestReportOpen(true)
+								},
+							}
+						},
+					},
 				},
 			},
 			core.Text{
@@ -1216,6 +1274,78 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					Color:    colors.Muted(),
 				},
 			},
+		},
+	}
+}
+
+func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
+	return core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return ed.Playing() && ed.PlayReplay() != nil
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return core.View{
+				TestID: "play-replay-banner",
+				Style: core.Style{
+					Direction:   core.Row,
+					AlignItems:  core.AlignCenter,
+					Height:      core.Pt(32),
+					FlexShrink:  0,
+					Padding:     core.Symmetric(0, 12),
+					Gap:         10,
+					Background:  specPanel,
+					Borders:     core.Edges{Bottom: 1},
+					BorderColor: specLine,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID: "play-replay-info",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							p := ed.PlayReplayPlayer()
+							if p == nil {
+								return ""
+							}
+							runIdx := ed.PlayReplayRunIndex()
+							if runIdx > 0 {
+								return fmt.Sprintf("Watching run %d · step %d / %d · seed %d · %s", runIdx, p.StepIndex(), p.TotalSteps(), p.Seed(), ed.PlayReplayPath())
+							}
+							return fmt.Sprintf("Watching replay · step %d / %d · seed %d · %s", p.StepIndex(), p.TotalSteps(), p.Seed(), ed.PlayReplayPath())
+						},
+						Style: core.Style{
+							FontFamily: core.FontMonospace,
+							FontSize:   11.5,
+							Color:      specTextSecondary,
+							FlexGrow:   1,
+						},
+					},
+					ui.Button{
+						TestID:  "play-replay-back-report",
+						Text:    "Back to Playtest",
+						Variant: ui.ButtonGhost,
+						Size:    ui.SizeSmall,
+						Color:   func() core.Color { return specRaised },
+						TextStyle: core.Style{
+							FontSize:   11.5,
+							FontWeight: 500,
+							Color:      specText,
+						},
+						Style: core.Style{
+							Height:       core.Pt(24),
+							CornerRadius: 6,
+							Padding:      core.Symmetric(0, 10),
+							BorderWidth:  1,
+							BorderColor:  specLineRaised,
+							FocusVisible: specFocusRingStyle,
+						},
+						OnPress: func() {
+							ed.report(ed.Stop())
+							ed.SetPlaytestReportOpen(true)
+						},
+					},
+				},
+			}
 		},
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/debug"
 	"github.com/nsgo-dev/game/packages/game/mcp"
+	"github.com/nsgo-dev/game/packages/game/replay"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -58,6 +59,71 @@ func (e *Editor) PlayFrames() int {
 		return 0
 	}
 	return e.playFrames
+}
+
+// PlayReplay returns the active replay.Recording while watching a playtest run in Play mode, or nil otherwise.
+func (e *Editor) PlayReplay() *replay.Recording {
+	if e == nil || !e.playing {
+		return nil
+	}
+	return e.playReplay
+}
+
+// PlayReplayPlayer returns the active replay.Player driving Play mode while watching a recording, or nil otherwise.
+func (e *Editor) PlayReplayPlayer() *replay.Player {
+	if e == nil || !e.playing {
+		return nil
+	}
+	return e.playReplayPlayer
+}
+
+// PlayReplayPath returns the slash-separated path of the recording currently playing in Play mode, or empty.
+func (e *Editor) PlayReplayPath() string {
+	if e == nil || !e.playing {
+		return ""
+	}
+	return e.playReplayPath
+}
+
+// PlayReplayRunIndex returns the 1-based playtest run index being watched in Play mode, or 0.
+func (e *Editor) PlayReplayRunIndex() int {
+	if e == nil || !e.playing {
+		return 0
+	}
+	return e.playReplayRunIndex
+}
+
+// PlayReplayIn starts Play mode on cx driven by rec (such as a recording opened from the Playtest Report screen's "Watch run N" button).
+func (e *Editor) PlayReplayIn(cx *core.Scope, rec *replay.Recording, recordingPath string, runIndex int) error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if rec == nil {
+		return errors.New("editor: replay recording is nil")
+	}
+	if e.playing {
+		if err := e.Stop(); err != nil {
+			return err
+		}
+	}
+	e.playReplay = rec
+	e.playReplayPlayer = replay.NewPlayer(rec)
+	e.playReplayPath = recordingPath
+	e.playReplayRunIndex = runIndex
+	if err := e.PlayIn(cx); err != nil {
+		e.playReplay = nil
+		e.playReplayPlayer = nil
+		e.playReplayPath = ""
+		e.playReplayRunIndex = 0
+		return err
+	}
+	if runIndex > 0 {
+		e.Status = fmt.Sprintf("Watching run %d (%s)", runIndex, recordingPath)
+	} else if recordingPath != "" {
+		e.Status = fmt.Sprintf("Watching replay (%s)", recordingPath)
+	}
+	e.notify()
+	return nil
 }
 
 // Play snapshots the current SceneDoc and starts a live game.Loop on the editor's attached core.Scope.
@@ -152,6 +218,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelRoomDrag()
 	e.CancelHUDTouchDrag()
 	e.hud.open = false
+	e.playtest.open = false
 	e.cancelBackgroundPreview()
 	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap
@@ -186,14 +253,25 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	var updateCost time.Duration
 	var lastDrawEnd time.Time
 
+	rate := e.PlayRate
+	if rate <= 0 && e.playReplayPlayer != nil && e.playReplayPlayer.Rate() > 0 {
+		rate = e.playReplayPlayer.Rate()
+	}
+
 	loop := &game.Loop{
-		Rate: e.PlayRate,
+		Rate: rate,
 		Update: func(dt time.Duration) {
 			if !e.playing {
 				return
 			}
 			tStart := time.Now()
 			e.playSteps++
+			if e.playReplayPlayer != nil {
+				e.playReplayPlayer.Step()
+				if e.OnPlayReplayStep != nil {
+					e.OnPlayReplayStep(e.playReplayPlayer, e.playScene, dt)
+				}
+			}
 			if e.playPhysics != nil && e.playPhysics.HasPhysics() {
 				tok := playProf.Begin("physics")
 				e.playPhysics.Step(dt)
@@ -268,6 +346,10 @@ func (e *Editor) Stop() error {
 	e.playing = false
 	e.playScene = nil
 	e.playPhysics = nil
+	e.playReplay = nil
+	e.playReplayPlayer = nil
+	e.playReplayPath = ""
+	e.playReplayRunIndex = 0
 	e.detachPlayProfiler()
 
 	snap := e.playSnapshot

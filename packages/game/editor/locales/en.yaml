@@ -311,6 +311,7 @@ strings:
   menu.pasteInto: Paste as Child
   menu.place: Place
   menu.play: Play
+  menu.playtestReport: Playtest Report
   menu.plugins: Plugins
   menu.profiler: Profiler
   menu.project: Project
