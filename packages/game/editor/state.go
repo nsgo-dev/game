@@ -418,6 +418,14 @@ type Editor struct {
 	OnAssetReplaceMissing func(missingPath string)
 	// OnAssetAskAgent, when set, handles "Ask the agent" actions from the Asset Drawer and selected-asset inspector.
 	OnAssetAskAgent func(assetPath, prompt string)
+	// ChangesCheckRunner overrides `nsgo check` and `nsgo test` in the Changes panel; when nil, the editor invokes `go tool nsgo check` and `go tool nsgo test`.
+	ChangesCheckRunner func(dir string) (ChangesCheckStatus, error)
+	// CommitMessageDrafter generates the commit summary and description for the Changes panel; when nil, DefaultCommitDraft is used.
+	CommitMessageDrafter func(ctx context.Context, req CommitDraftRequest) (CommitDraft, error)
+	// GHRunner invokes the GitHub CLI (`gh`) with args in dir for OpenPullRequest; when nil, os/exec runs `gh` when installed on PATH.
+	GHRunner func(dir string, args ...string) (string, error)
+	// ChangesClipboard overrides clipboard writes from CopyPRDescription; when nil, falls back to WriteClipboard or core.Scope.SetClipboard.
+	ChangesClipboard func(text string)
 
 	playing            bool
 	playSnapshot       []byte
@@ -685,6 +693,8 @@ type Editor struct {
 	drawOverlayOverride map[string]bool
 	// usages holds the full-window Find Usages and Safe Rename review screen state.
 	usages referencesScreenState
+	// changes holds the Changes & Commit screen state, working-tree file diffing, and commit milestones.
+	changes changesState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

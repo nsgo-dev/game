@@ -85,6 +85,7 @@ const (
 	CmdCheckProblems         = "project.check"
 	CmdFindUsages            = "project.findUsages"
 	CmdEditorSettings        = "editor.settings"
+	CmdChanges               = "git.changes"
 	CmdMergeConflicts        = "git.mergeConflicts"
 	CmdPlaytestReport        = "project.playtestReport"
 	CmdToggleAssetsMode      = "view.assets"
@@ -277,13 +278,13 @@ func (e *Editor) initBuiltinCommands() {
 		return
 	}
 	notPlaying := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
 	inEditor := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
 	}
 	hasProject := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
 	}
 
 	e.commands = []EditorCommand{
@@ -1367,6 +1368,22 @@ func (e *Editor) initBuiltinCommands() {
 			Run: func() error {
 				e.ToggleEditorSettings()
 				return nil
+			},
+		},
+		{
+			ID:          CmdChanges,
+			Label:       "Changes & Commit",
+			Description: "Compare modified scenes, data, code, and assets against HEAD and commit with a drafted message",
+			Category:    "Project",
+			Keywords:    []string{"changes", "git", "diff", "commit", "push", "pull", "branch", "pr"},
+			Enabled:     func() bool { return !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "") },
+			Checked:     func() bool { return e.ChangesOpen() },
+			Run: func() error {
+				if e.ChangesOpen() {
+					e.CloseChangesPanel()
+					return nil
+				}
+				return e.OpenChangesPanel()
 			},
 		},
 		{

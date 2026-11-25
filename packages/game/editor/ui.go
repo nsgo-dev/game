@@ -77,6 +77,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopTileAnimLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.cleanupAssetDrawerScope(cx)
+		ed.stopChangedAudioPlayback()
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
 		ed.stopDiskWatcher()
@@ -153,91 +154,102 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 								return core.Show{
 									When: func() bool {
 										_ = rev.Get()
-										return ed.UsagesScreenOpen()
+										return ed.ChangesOpen()
 									},
 									Then: func(cx *core.Scope) core.Node {
-										return ReferencesScreenView(cx, ed, rev)
+										return ChangesPanelView(cx, ed, rev)
 									},
 									Else: func(cx *core.Scope) core.Node {
 										return core.Show{
 											When: func() bool {
 												_ = rev.Get()
-												return ed.PlaytestReportOpen()
+												return ed.UsagesScreenOpen()
 											},
 											Then: func(cx *core.Scope) core.Node {
-												return PlaytestReportView(cx, ed, rev)
+												return ReferencesScreenView(cx, ed, rev)
 											},
 											Else: func(cx *core.Scope) core.Node {
 												return core.Show{
 													When: func() bool {
 														_ = rev.Get()
-														return ed.HUDLayoutOpen()
+														return ed.PlaytestReportOpen()
 													},
 													Then: func(cx *core.Scope) core.Node {
-														return HUDLayoutView(cx, ed, rev)
+														return PlaytestReportView(cx, ed, rev)
 													},
 													Else: func(cx *core.Scope) core.Node {
-														return core.View{
-															Style: core.Style{
-																Width:  core.Pct(100),
-																Height: core.Pct(100),
+														return core.Show{
+															When: func() bool {
+																_ = rev.Get()
+																return ed.HUDLayoutOpen()
 															},
-															Children: []core.Node{
-																toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-																remotePlayBarView(cx, ed, rev),
-																diskWatchBannerView(cx, ed, rev),
-																core.Show{
-																	When: func() bool {
-																		_ = rev.Get()
-																		return ed.CutsceneOpen() && !ed.Playing()
+															Then: func(cx *core.Scope) core.Node {
+																return HUDLayoutView(cx, ed, rev)
+															},
+															Else: func(cx *core.Scope) core.Node {
+																return core.View{
+																	Style: core.Style{
+																		Width:  core.Pct(100),
+																		Height: core.Pct(100),
 																	},
-																	Then: func(cx *core.Scope) core.Node {
-																		return CutscenePanelView(cx, ed, rev)
-																	},
-																	Else: func(cx *core.Scope) core.Node {
-																		return core.View{
-																			Style: core.Style{
-																				FlexGrow:  1,
-																				FlexBasis: core.Pt(0),
-																				Overflow:  core.Hidden,
+																	Children: []core.Node{
+																		toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+																		remotePlayBarView(cx, ed, rev),
+																		diskWatchBannerView(cx, ed, rev),
+																		core.Show{
+																			When: func() bool {
+																				_ = rev.Get()
+																				return ed.CutsceneOpen() && !ed.Playing()
 																			},
-																			Children: []core.Node{
-																				core.View{
-																					// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																			Then: func(cx *core.Scope) core.Node {
+																				return CutscenePanelView(cx, ed, rev)
+																			},
+																			Else: func(cx *core.Scope) core.Node {
+																				return core.View{
 																					Style: core.Style{
-																						Direction: core.Row,
 																						FlexGrow:  1,
 																						FlexBasis: core.Pt(0),
 																						Overflow:  core.Hidden,
 																					},
-																					// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-																					Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
-																				},
-																				pluginDockView(cx, ed, rev, DockBottom),
-																				TilesetEditorPanelView(cx, ed, rev),
-																				TerrainPanelView(cx, ed, rev),
-																				RigPanelView(cx, ed, rev),
-																				DataTablePanelView(cx, ed, rev),
-																				ParticleEditorPanelView(cx, ed, rev),
-																				MaterialEditorPanelView(cx, ed, rev),
-																				AnimationPanelView(cx, ed, rev),
-																				EnvironmentPanelView(cx, ed, rev),
-																				StatesPanelView(cx, ed, rev),
-																				NavMeshPanelView(cx, ed, rev),
-																				ProjectSettingsPanelView(cx, ed, rev),
-																				AudioMixerPanelView(cx, ed, rev),
-																				InputMapPanelView(cx, ed, rev),
-																				LocalizationPanelView(cx, ed, rev),
-																				SearchPanelView(cx, ed, rev),
-																				ProblemsView(cx, ed, rev),
-																				ExportPanelView(cx, ed, rev),
-																				ProfilerPanelView(cx, ed, rev),
-																				OutputPanelView(cx, ed, rev),
+																					Children: []core.Node{
+																						core.View{
+																							// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																							Style: core.Style{
+																								Direction: core.Row,
+																								FlexGrow:  1,
+																								FlexBasis: core.Pt(0),
+																								Overflow:  core.Hidden,
+																							},
+																							// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																							Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																						},
+																						pluginDockView(cx, ed, rev, DockBottom),
+																						TilesetEditorPanelView(cx, ed, rev),
+																						TerrainPanelView(cx, ed, rev),
+																						RigPanelView(cx, ed, rev),
+																						DataTablePanelView(cx, ed, rev),
+																						ParticleEditorPanelView(cx, ed, rev),
+																						MaterialEditorPanelView(cx, ed, rev),
+																						AnimationPanelView(cx, ed, rev),
+																						EnvironmentPanelView(cx, ed, rev),
+																						StatesPanelView(cx, ed, rev),
+																						NavMeshPanelView(cx, ed, rev),
+																						ProjectSettingsPanelView(cx, ed, rev),
+																						AudioMixerPanelView(cx, ed, rev),
+																						InputMapPanelView(cx, ed, rev),
+																						LocalizationPanelView(cx, ed, rev),
+																						SearchPanelView(cx, ed, rev),
+																						ProblemsView(cx, ed, rev),
+																						ExportPanelView(cx, ed, rev),
+																						ProfilerPanelView(cx, ed, rev),
+																						OutputPanelView(cx, ed, rev),
+																					},
+																				}
 																			},
-																		}
+																		},
+																		statusBarView(cx, ed, rev),
 																	},
-																},
-																statusBarView(cx, ed, rev),
+																}
 															},
 														}
 													},
@@ -1242,6 +1254,51 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						},
 					},
 					remoteStatusView(cx, ed, rev),
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.Project != nil && ed.ProjectPath != ""
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "status-changes",
+								Icon:    lucide.GitBranch,
+								Variant: ui.ButtonGhost,
+								Size:    ui.SizeSmall,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Playing()
+								},
+								TextFunc: func() string {
+									_ = rev.Get()
+									if n := ed.ChangesCount(); n > 0 {
+										return ed.T("status.changesCount", l10n.Param("count", n))
+									}
+									return ed.T("status.changes")
+								},
+								LabelFunc: func() string {
+									_ = rev.Get()
+									if n := ed.ChangesCount(); n > 0 {
+										return ed.T("status.changesCount", l10n.Param("count", n))
+									}
+									return ed.T("status.changes")
+								},
+								TextStyle: core.Style{
+									FontSize:   11,
+									FontWeight: 500,
+									Color:      colors.Muted(),
+								},
+								Style: core.Style{
+									Height:       core.Pt(22),
+									CornerRadius: 6,
+									Padding:      core.Symmetric(0, 8),
+								},
+								OnPress: func() {
+									ed.report(ed.OpenChangesPanel())
+								},
+							}
+						},
+					},
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()

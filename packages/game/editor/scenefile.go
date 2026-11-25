@@ -160,6 +160,7 @@ func (e *Editor) SaveAll() error {
 			return err
 		}
 	}
+	e.RefreshChangesCount()
 	return nil
 }
 
@@ -259,7 +260,9 @@ func (e *Editor) Save() error {
 		if e.RoomsDirty() {
 			return ErrNoRoomsFile
 		}
-		if !projectSaved && !gridMapSaved && !terrainSaved && !roomsSaved && !materialSaved {
+		if projectSaved || gridMapSaved || terrainSaved || roomsSaved || materialSaved {
+			e.RefreshChangesCount()
+		} else {
 			e.Status = "No unsaved changes"
 			e.notify()
 		}
@@ -289,6 +292,7 @@ func (e *Editor) Save() error {
 		if err := e.SaveFile(e.FilePath); err != nil {
 			return err
 		}
+		e.RefreshChangesCount()
 		if e.RoomsDirty() {
 			return ErrNoRoomsFile
 		}

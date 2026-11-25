@@ -282,6 +282,7 @@ strings:
   material.shape.sprite: 精灵
   material.title: 材质编辑器
   menu.audioMixer: 音频总线混音器
+  menu.changes: 变更与提交
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
   menu.commandPalette: 命令面板…
@@ -470,6 +471,8 @@ strings:
   snap.showGrid: 显示 2D 网格叠加层
   snap.title: 吸附设置
   status.buildError: 构建错误：{error}
+  status.changes: 变更
+  status.changesCount: 变更：{count}
   status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
   status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} | 图层：{layer}
   status.mode3dGridMap: 模式：{mode} | 视图：3D {view}（GridMap {tool}，Y={floor}，朝向={orient}/24）| 图层：{layer}

@@ -216,6 +216,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelRigDrag()
 	e.stopModelPreviewLoop()
 	e.stopAudioAudition()
+	e.stopChangedAudioPlayback()
 	e.resetInputMapTransient()
 	e.connPick = nil
 	e.CancelCameraDrag()

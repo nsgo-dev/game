@@ -282,6 +282,7 @@ strings:
   material.shape.sprite: Sprite
   material.title: Material Editor
   menu.audioMixer: Audio Bus Mixer
+  menu.changes: Changes & Commit
   menu.checkProblems: Check Problems
   menu.closeTab: Close Scene Tab
   menu.commandPalette: Command Palette...
@@ -470,6 +471,8 @@ strings:
   snap.showGrid: Show 2D grid overlay
   snap.title: Snapping
   status.buildError: 'Build error: {error}'
+  status.changes: Changes
+  status.changesCount: 'Changes: {count}'
   status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
   status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} | Layer: {layer}'
   status.mode3dGridMap: 'Mode: {mode} | View: 3D {view} (GridMap {tool}, Y={floor}, Orient={orient}/24) | Layer: {layer}'
