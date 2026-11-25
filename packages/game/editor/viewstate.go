@@ -193,16 +193,21 @@ func (e *Editor) SaveViewState() error {
 		cams[t.scenePath] = cam
 	}
 	snap := e.SnapSettings().normalizedForViewState()
-	if len(cams) == 0 && snap == nil {
-		if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-	}
-	// A damaged file is replaced, as a lost one would be: it holds only views. One that could not be read, or that a newer editor wrote, is not this editor's to replace.
+	// A damaged file is replaced when there is new view state to write, as a lost one would be:
+	// it holds only views. One that could not be read, or that a newer editor wrote, is not this
+	// editor's to replace. When this editor has neither open scenes nor non-default snap settings,
+	// leave missing, damaged, unreadable, newer, or already-clean files untouched (only rewrite to
+	// clear a stale snap block from a valid file).
 	v, err := e.loadViewState()
 	var pathErr *fs.PathError
 	if errors.Is(err, errViewStateNewer) || errors.As(err, &pathErr) {
+		if len(cams) == 0 && snap == nil {
+			return nil
+		}
 		return err
+	}
+	if len(cams) == 0 && snap == nil && (err != nil || v.Snap == nil) {
+		return nil
 	}
 	seen := make(map[string]bool, len(cams))
 	kept := v.Scenes[:0]
