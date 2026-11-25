@@ -590,7 +590,7 @@ func jsonFieldPath(data []byte, field string) string {
 		return Path(segs...)
 	}
 	paths := map[string]bool{}
-	walk(data, func(path []segment, _, _ int) bool {
+	walkJSONOnly(data, func(path []segment, _, _ int) bool {
 		paths[formatPath(path)] = true
 		return true
 	})

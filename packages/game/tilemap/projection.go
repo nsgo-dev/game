@@ -470,7 +470,7 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			d.Save().SetAlpha(layer.Opacity)
 			savedLayer = true
 		}
-		drawPlacedTile(d, img, layer.TintColor, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th, gid&FlipMask)
+		drawPlacedTile(d, img, layer.TintColor, layer.Tinted, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th, gid&FlipMask)
 	}
 
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)

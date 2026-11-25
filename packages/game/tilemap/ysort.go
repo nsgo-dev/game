@@ -39,23 +39,24 @@ type YSortTile struct {
 	tw, th       float32
 	opacity      float32
 	tint         core.Color
+	tinted       bool
 	flags        uint32
 }
 
 // Draw draws this single tile into d, applying its layer opacity, tint, and flip flags while leaving d's state unchanged.
 func (t *YSortTile) Draw(d *core.Drawing) {
-	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint) {
+	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint, t.tinted) {
 		return
 	}
 	img := t.imageSource()
 	if t.flags == 0 {
 		if t.opacity < 1 {
 			d.Save().SetAlpha(t.opacity)
-			drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
+			drawTileImage(d, img, t.tint, t.tinted, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
 			d.Restore()
 			return
 		}
-		drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
+		drawTileImage(d, img, t.tint, t.tinted, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
 		return
 	}
 	a, b, c, dd, e, f := flipMatrix(t.flags, t.dstX, t.dstY, t.tw, t.th)
@@ -64,7 +65,7 @@ func (t *YSortTile) Draw(d *core.Drawing) {
 		d.SetAlpha(t.opacity)
 	}
 	d.Transform(a, b, c, dd, e, f)
-	drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.ox, t.oy, t.sw, t.sh)
+	drawTileImage(d, img, t.tint, t.tinted, t.sx, t.sy, t.sw, t.sh, t.ox, t.oy, t.sw, t.sh)
 	d.Restore()
 }
 
@@ -100,10 +101,10 @@ type YSortDrawer struct {
 
 // Push queues tile t into d, flushing any incompatible run first.
 func (dr *YSortDrawer) Push(d *core.Drawing, t *YSortTile) {
-	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint) {
+	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint, t.tinted) {
 		return
 	}
-	if t.flags != 0 || isTinted(t.tint) {
+	if t.flags != 0 || isTinted(t.tint, t.tinted) {
 		dr.Flush(d)
 		t.Draw(d)
 		return
@@ -438,6 +439,7 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			th:           th,
 			opacity:      layer.Opacity,
 			tint:         layer.TintColor,
+			tinted:       layer.Tinted,
 			flags:        gid & FlipMask,
 		})
 	}

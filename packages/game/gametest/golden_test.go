@@ -222,3 +222,23 @@ func TestRenderOpsAppliesImageTint(t *testing.T) {
 		t.Fatalf("tinted pixel = %+v, want approx {50, 100, 0, 255}", px)
 	}
 }
+
+func TestRenderOpsZeroTintSkipsDrawing(t *testing.T) {
+	white := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := range 4 {
+		for x := range 4 {
+			white.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	src := core.ImageSource{Pixels: white}
+	var d core.Drawing
+	d.DrawTintedImageFrom(src, core.Color(0), 0, 0, 4, 4, 0, 0, 4, 4)
+	d.DrawTintedImageIn(src, core.Color(0), 0, 0, 4, 4)
+	bg := color.RGBA{R: 12, G: 34, B: 56, A: 255}
+	out := gametest.RenderOps(4, 4, d.Ops, gametest.RenderOptions{
+		Background: bg,
+	})
+	if px := out.RGBAAt(2, 2); px != bg {
+		t.Fatalf("zero-tint pixel = %+v, want unchanged background %+v", px, bg)
+	}
+}

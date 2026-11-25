@@ -606,9 +606,9 @@ func (m *Tilemap) drawCachedLayer(d *core.Drawing, layer *TileLayer, cache *Laye
 
 	if layer.Opacity < 1 {
 		d.Save().SetAlpha(layer.Opacity)
-		drawTileImage(d, cache.Source, layer.TintColor, sx, sy, sw, sh, dstX, dstY, sw, sh)
+		drawTileImage(d, cache.Source, layer.TintColor, layer.Tinted, sx, sy, sw, sh, dstX, dstY, sw, sh)
 		d.Restore()
 		return
 	}
-	drawTileImage(d, cache.Source, layer.TintColor, sx, sy, sw, sh, dstX, dstY, sw, sh)
+	drawTileImage(d, cache.Source, layer.TintColor, layer.Tinted, sx, sy, sw, sh, dstX, dstY, sw, sh)
 }

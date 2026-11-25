@@ -1026,4 +1026,293 @@ func TestCollectionTemplatesTextAndTintErrors(t *testing.T) {
 			t.Errorf("Field = %q, want tilesets[0].objectalignment", e.Field)
 		}
 	})
+
+	t.Run("TX and TJ template text errors name template file and line", func(t *testing.T) {
+		tx := []byte("<?xml version=\"1.0\"?>\n<template>\n <object name=\"lbl\" width=\"80\" height=\"20\">\n  <text color=\"notacolor\">Hi</text>\n </object>\n</template>\n")
+		tmx := []byte("<?xml version=\"1.0\"?>\n<map width=\"1\" height=\"1\" tilewidth=\"16\" tileheight=\"16\">\n <objectgroup name=\"o\">\n  <object id=\"1\" template=\"tmpl/bad_text.tx\" x=\"0\" y=\"0\"/>\n </objectgroup>\n</map>\n")
+		_, err := tilemap.LoadTiled(tmx, tilemap.TilesetLoader{
+			LoadTemplate: func(string) ([]byte, error) { return tx, nil },
+		})
+		e := loaderrtest.Expect(t, loaderr.WithFile(err, "level.tmx"), "tmpl/bad_text.tx", 4)
+		if e.Field != "object.text.color" {
+			t.Errorf("TX Field = %q, want object.text.color", e.Field)
+		}
+
+		tj := loaderrtest.Indent(`{"type": "template", "object": {"name": "lbl", "text": {"text": "Hi", "halign": "bogus"}}}`)
+		tmj := loaderrtest.Indent(`{` + base + `, "layers": [{"type": "objectgroup", "objects": [{"id": 1, "template": "tmpl/bad_text.tj"}]}]}`)
+		_, err = tilemap.LoadTiled(tmj, tilemap.TilesetLoader{
+			LoadTemplate: func(string) ([]byte, error) { return tj, nil },
+		})
+		loaderrtest.ExpectField(t, loaderr.WithFile(err, "level.tmj"), "tmpl/bad_text.tj", tj, "object.text.halign")
+	})
+
+	t.Run("template GID overflow past TileIDMask returns loaderr", func(t *testing.T) {
+		tmplTJ := loaderrtest.Indent(`{
+			"type": "template",
+			"tileset": {"firstgid": 1, "name": "extra", "image": "e.png", "tilewidth": 16, "tileheight": 16, "columns": 1, "tilecount": 1},
+			"object": {"gid": 1, "width": 16, "height": 16}
+		}`)
+		tmj := loaderrtest.Indent(`{
+			` + base + `,
+			"tilesets": [{"firstgid": 268435455, "name": "huge", "image": "h.png", "tilewidth": 16, "tileheight": 16, "columns": 2, "tilecount": 4}],
+			"layers": [{"type": "objectgroup", "objects": [{"id": 1, "template": "tmpl/overflow.tj"}]}]
+		}`)
+		_, err := tilemap.LoadTiled(tmj, tilemap.TilesetLoader{
+			LoadTemplate: func(string) ([]byte, error) { return tmplTJ, nil },
+		})
+		var le *loaderr.Error
+		if !errors.As(err, &le) {
+			t.Fatalf("expected *loaderr.Error for template firstgid overflow, got %v", err)
+		}
+		if le.File != "tmpl/overflow.tj" {
+			t.Errorf("File = %q, want tmpl/overflow.tj", le.File)
+		}
+	})
+}
+
+func TestTemplateOverridesBoolsEmptyTextAndZeroNumericFields(t *testing.T) {
+	tmplTJ := []byte(`{
+		"type": "template",
+		"object": {
+			"name": "Sign",
+			"width": 120,
+			"height": 40,
+			"rotation": 45,
+			"text": {
+				"text": "Hello",
+				"fontfamily": "Georgia",
+				"pixelsize": 20,
+				"wrap": true,
+				"bold": true,
+				"italic": true,
+				"underline": true,
+				"strikeout": true,
+				"kerning": false
+			}
+		}
+	}`)
+	tmplTX := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<template>
+ <object name="Sign" width="120" height="40" rotation="45">
+  <text fontfamily="Georgia" pixelsize="20" wrap="1" bold="1" italic="1" underline="1" strikeout="1" kerning="0">Hello</text>
+ </object>
+</template>`)
+
+	mapTMJ := []byte(`{
+		"width": 2, "height": 2, "tilewidth": 16, "tileheight": 16,
+		"layers": [{
+			"name": "o", "type": "objectgroup", "opacity": 1, "visible": true,
+			"objects": [
+				{
+					"id": 1, "template": "tmpl/sign.tj", "x": 10, "y": 20,
+					"rotation": 0,
+					"text": {
+						"text": "",
+						"wrap": false,
+						"bold": false,
+						"italic": false,
+						"underline": false,
+						"strikeout": false,
+						"kerning": true
+					}
+				},
+				{
+					"id": 2, "template": "tmpl/sign.tj", "x": 30, "y": 40,
+					"width": 0, "height": 0,
+					"text": {
+						"bold": false
+					}
+				}
+			]
+		}]
+	}`)
+	mapTMX := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<map orientation="orthogonal" width="2" height="2" tilewidth="16" tileheight="16">
+ <objectgroup name="o" opacity="1" visible="1">
+  <object id="1" template="tmpl/sign.tx" x="10" y="20" rotation="0">
+   <text wrap="0" bold="0" italic="0" underline="0" strikeout="0" kerning="1"></text>
+  </object>
+  <object id="2" template="tmpl/sign.tx" x="30" y="40" width="0" height="0">
+   <text bold="0"/>
+  </object>
+ </objectgroup>
+</map>`)
+
+	loader := tilemap.TilesetLoader{
+		LoadTemplate: func(source string) ([]byte, error) {
+			switch source {
+			case "tmpl/sign.tj":
+				return tmplTJ, nil
+			case "tmpl/sign.tx":
+				return tmplTX, nil
+			default:
+				return nil, errors.New("unknown template: " + source)
+			}
+		},
+	}
+
+	mTMJ, err := tilemap.LoadTiled(mapTMJ, loader)
+	if err != nil {
+		t.Fatalf("LoadTiled TMJ: %v", err)
+	}
+	mTMX, err := tilemap.LoadTiled(mapTMX, loader)
+	if err != nil {
+		t.Fatalf("LoadTiled TMX: %v", err)
+	}
+	assertEqualTilemaps(t, mTMX, mTMJ)
+
+	objs := mTMJ.ObjectLayer("o").Objects
+	// Object 1: rotation overridden to 0, width/height inherited, all text bools flipped back, text cleared to "".
+	o1 := objs[0]
+	if o1.Rotation != 0 || o1.Width != 120 || o1.Height != 40 {
+		t.Fatalf("o1 geom = (w=%g h=%g rot=%g), want (120, 40, 0)", o1.Width, o1.Height, o1.Rotation)
+	}
+	if o1.Text == nil || o1.Text.Text != "" || o1.Text.FontFamily != "Georgia" || o1.Text.PixelSize != 20 ||
+		o1.Text.Wrap || o1.Text.Bold || o1.Text.Italic || o1.Text.Underline || o1.Text.Strikeout || !o1.Text.Kerning {
+		t.Fatalf("o1.Text = %+v", o1.Text)
+	}
+
+	// Object 2: width/height overridden to 0, rotation inherited (45), self-closing <text bold="0"/> inherits "Hello" and other bools.
+	o2 := objs[1]
+	if o2.Rotation != 45 || o2.Width != 0 || o2.Height != 0 {
+		t.Fatalf("o2 geom = (w=%g h=%g rot=%g), want (0, 0, 45)", o2.Width, o2.Height, o2.Rotation)
+	}
+	if o2.Text == nil || o2.Text.Text != "Hello" || o2.Text.Bold ||
+		!o2.Text.Wrap || !o2.Text.Italic || !o2.Text.Underline || !o2.Text.Strikeout || o2.Text.Kerning {
+		t.Fatalf("o2.Text = %+v", o2.Text)
+	}
+}
+
+func TestTransparentZeroTintSkipsDrawing(t *testing.T) {
+	tmj := []byte(`{
+		"width": 2, "height": 1, "tilewidth": 16, "tileheight": 16,
+		"tilesets": [
+			{"firstgid": 1, "name": "t", "image": "t.png", "tilewidth": 16, "tileheight": 16, "columns": 1, "tilecount": 1}
+		],
+		"layers": [
+			{"name": "direct", "type": "tilelayer", "width": 2, "height": 1, "tintcolor": "#00000000", "data": [1, 1]},
+			{
+				"name": "grp", "type": "group", "tintcolor": "#00ff0000",
+				"layers": [
+					{"name": "tiles", "type": "tilelayer", "width": 2, "height": 1, "tintcolor": "#ff00ff00", "data": [1, 0]},
+					{"name": "bg", "type": "imagelayer", "image": "bg.png", "imagewidth": 16, "imageheight": 16, "tintcolor": "#ff00ff00"},
+					{"name": "objs", "type": "objectgroup", "tintcolor": "#ff00ff00", "objects": [{"id": 1, "gid": 1, "x": 0, "y": 16, "width": 16, "height": 16}]}
+				]
+			}
+		]
+	}`)
+	tmx := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<map orientation="orthogonal" width="2" height="1" tilewidth="16" tileheight="16">
+ <tileset firstgid="1" name="t" tilewidth="16" tileheight="16" tilecount="1" columns="1">
+  <image source="t.png" width="16" height="16"/>
+ </tileset>
+ <layer name="direct" width="2" height="1" tintcolor="#00000000">
+  <data encoding="csv">1,1</data>
+ </layer>
+ <group name="grp" tintcolor="#00ff0000">
+  <layer name="tiles" width="2" height="1" tintcolor="#ff00ff00">
+   <data encoding="csv">1,0</data>
+  </layer>
+  <imagelayer name="bg" tintcolor="#ff00ff00">
+   <image source="bg.png" width="16" height="16"/>
+  </imagelayer>
+  <objectgroup name="objs" tintcolor="#ff00ff00">
+   <object id="1" gid="1" x="0" y="16" width="16" height="16"/>
+  </objectgroup>
+ </group>
+</map>`)
+
+	mTMJ, err := tilemap.LoadTiled(tmj, tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatalf("LoadTiled TMJ: %v", err)
+	}
+	mTMX, err := tilemap.LoadTiled(tmx, tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatalf("LoadTiled TMX: %v", err)
+	}
+	assertEqualTilemaps(t, mTMX, mTMJ)
+
+	if !mTMJ.Layers[0].Tinted || mTMJ.Layers[0].TintColor != core.Transparent {
+		t.Fatalf("direct tile layer tint = (%#08x, tinted=%v), want (%#08x, true)", uint32(mTMJ.Layers[0].TintColor), mTMJ.Layers[0].Tinted, uint32(core.Transparent))
+	}
+	if !mTMJ.Layers[1].Tinted || mTMJ.Layers[1].TintColor != 0 {
+		t.Fatalf("multiplied tile layer tint = (%#08x, tinted=%v), want (0, true)", uint32(mTMJ.Layers[1].TintColor), mTMJ.Layers[1].Tinted)
+	}
+	if !mTMJ.ImageLayers[0].Tinted || mTMJ.ImageLayers[0].TintColor != 0 {
+		t.Fatalf("image layer tint = (%#08x, tinted=%v), want (0, true)", uint32(mTMJ.ImageLayers[0].TintColor), mTMJ.ImageLayers[0].Tinted)
+	}
+	if !mTMJ.Objects[0].Tinted || mTMJ.Objects[0].TintColor != 0 {
+		t.Fatalf("object layer tint = (%#08x, tinted=%v), want (0, true)", uint32(mTMJ.Objects[0].TintColor), mTMJ.Objects[0].Tinted)
+	}
+
+	var d core.Drawing
+	mTMJ.Draw(&d, nil)
+	if len(d.Ops) != 0 {
+		t.Fatalf("expected 0 draw ops for #00000000 tinted layers, got %d: %+v", len(d.Ops), d.Ops)
+	}
+
+	// Verify static cache and YSort also respect #00000000 tint and emit 0 ops.
+	tileImg := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := range 16 {
+		for x := range 16 {
+			tileImg.SetRGBA(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+	if _, _, err := mTMJ.CacheStaticLayer(0, map[string]image.Image{"t.png": tileImg}); err != nil {
+		t.Fatalf("CacheStaticLayer: %v", err)
+	}
+	mTMJ.Layers[1].YSort = true
+	mTMJ.Draw(&d, nil)
+	if len(d.Ops) != 0 {
+		t.Fatalf("expected 0 draw ops for cached/YSort #00000000 layers, got %d: %+v", len(d.Ops), d.Ops)
+	}
+}
+
+func TestDrawObjectLayerGuardsNonFiniteRotationAndCoords(t *testing.T) {
+	ts := tilemap.NewGridTileset(1, core.ImageSource{URI: "a.png"}, 16, 16, 1, 1)
+	m := tilemap.New(4, 4, 16, 16, ts)
+	nan := float32(math.NaN())
+	posInf := float32(math.Inf(1))
+	negInf := float32(math.Inf(-1))
+	m.Objects = []tilemap.ObjectLayer{{
+		Name:    "objs",
+		Opacity: 1,
+		Visible: true,
+		Objects: []tilemap.Object{
+			{ID: 1, Shape: tilemap.ObjectTile, X: 10, Y: 20, Width: 16, Height: 16, Rotation: nan, GID: 1, Visible: true},
+			{ID: 2, Shape: tilemap.ObjectTile, X: 30, Y: 20, Width: 16, Height: 16, Rotation: posInf, GID: 1, Visible: true},
+			{ID: 3, Shape: tilemap.ObjectTile, X: 50, Y: 20, Width: 16, Height: 16, Rotation: negInf, GID: 1, Visible: true},
+			{ID: 4, Shape: tilemap.ObjectTile, X: nan, Y: 20, Width: 16, Height: 16, GID: 1, Visible: true},
+			{ID: 5, Shape: tilemap.ObjectTile, X: 10, Y: posInf, Width: 16, Height: 16, GID: 1, Visible: true},
+			{ID: 6, Shape: tilemap.ObjectTile, X: 10, Y: 20, Width: nan, Height: 16, GID: 1, Visible: true},
+			{ID: 7, Shape: tilemap.ObjectTile, X: 10, Y: 20, Width: 16, Height: negInf, GID: 1, Visible: true},
+		},
+	}}
+
+	checkFinite := func(label string, ops []core.DrawOp) {
+		t.Helper()
+		imgCount := 0
+		for i, op := range ops {
+			if op.Kind == core.DrawImage {
+				imgCount++
+			}
+			for _, v := range []float32{op.X, op.Y, op.W, op.H, op.X1, op.Y1, op.X2, op.Y2, op.R} {
+				if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+					t.Fatalf("%s: op[%d] has non-finite field: %+v", label, i, op)
+				}
+			}
+		}
+		if imgCount != 3 {
+			t.Fatalf("%s: got %d DrawImage ops, want 3 (non-finite rotations drawn unrotated, non-finite coords skipped)", label, imgCount)
+		}
+	}
+
+	var d core.Drawing
+	m.Draw(&d, nil)
+	checkFinite("no-cam", d.Ops)
+
+	cam := &tilemap.Camera{X: 32, Y: 16, Zoom: 1, Width: 128, Height: 64}
+	d.Ops = d.Ops[:0]
+	m.Draw(&d, cam)
+	checkFinite("with-cam", d.Ops)
 }
