@@ -17,6 +17,9 @@ type BlockID uint16
 // Air is the reserved empty block ID (0).
 const Air BlockID = 0
 
+// MaxLightLevel is the maximum per-voxel sky or block light level (0..15).
+const MaxLightLevel uint8 = 15
+
 // Face identifies one of the six axis-aligned faces of a voxel cube.
 type Face uint8
 
@@ -157,6 +160,16 @@ type BlockDef struct {
 	NonSolid bool
 	// MaterialID groups emitted faces into SubMesh ranges during meshing.
 	MaterialID uint32
+	// Emissive is the block light level (0..15) emitted by this block into the
+	// block-light channel (for example 14 for a torch or 15 for lava/glowstone).
+	// Zero means the block emits no light.
+	Emissive uint8
+	// LightOpacity is the light attenuation (0..15) applied to light passing
+	// through a Transparent block (for example 1 for leaves or 2 for water).
+	// Zero lets direct sky light pass unattenuated and attenuates propagated
+	// light by 1 per voxel step. Opaque blocks (Transparent == false) always
+	// block incoming light completely (effective opacity 15).
+	LightOpacity uint8
 }
 
 // Sentinel errors returned by Registry operations.
@@ -175,8 +188,10 @@ const (
 )
 
 type blockEntry struct {
-	flags      blockFlags
-	materialID uint32
+	flags        blockFlags
+	emissive     uint8
+	lightOpacity uint8
+	materialID   uint32
 }
 
 // Registry maps block IDs and names to their [BlockDef] properties.
@@ -220,6 +235,12 @@ func (r *Registry) Register(def BlockDef) (BlockID, error) {
 	}
 	if def.Name == "air" {
 		return 0, fmt.Errorf("%w: name %q is reserved for Air (ID 0)", ErrDuplicateBlock, def.Name)
+	}
+	if def.Emissive > MaxLightLevel {
+		return 0, fmt.Errorf("%w: emissive light level %d exceeds max %d", ErrInvalidBlock, def.Emissive, MaxLightLevel)
+	}
+	if def.LightOpacity > MaxLightLevel {
+		return 0, fmt.Errorf("%w: light opacity %d exceeds max %d", ErrInvalidBlock, def.LightOpacity, MaxLightLevel)
 	}
 	if _, exists := r.byName[def.Name]; exists {
 		return 0, fmt.Errorf("%w: block name %q already registered", ErrDuplicateBlock, def.Name)
@@ -272,8 +293,10 @@ func (r *Registry) setFast(def BlockDef) {
 		flags |= flagNonSolid
 	}
 	r.fast[idx] = blockEntry{
-		flags:      flags,
-		materialID: def.MaterialID,
+		flags:        flags,
+		emissive:     def.Emissive,
+		lightOpacity: def.LightOpacity,
+		materialID:   def.MaterialID,
 	}
 }
 
@@ -341,6 +364,31 @@ func (r *Registry) MaterialID(id BlockID) uint32 {
 		return 0
 	}
 	return r.fast[id].materialID
+}
+
+// Emissive returns the block light emission level (0..15) of id, or 0 if Air or unregistered.
+func (r *Registry) Emissive(id BlockID) uint8 {
+	if id == Air || r == nil || int(id) >= len(r.fast) {
+		return 0
+	}
+	return r.fast[id].emissive
+}
+
+// LightOpacity returns the light attenuation (0..15) of id.
+// Air returns 0; opaque blocks (including unregistered non-zero IDs) return
+// [MaxLightLevel] (15); transparent blocks return their configured LightOpacity.
+func (r *Registry) LightOpacity(id BlockID) uint8 {
+	if id == Air {
+		return 0
+	}
+	if r == nil || int(id) >= len(r.fast) {
+		return MaxLightLevel
+	}
+	e := r.fast[id]
+	if e.flags&flagRegistered == 0 || e.flags&flagTransparent == 0 {
+		return MaxLightLevel
+	}
+	return e.lightOpacity
 }
 
 // All returns all registered non-air block definitions sorted by BlockID.
