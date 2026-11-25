@@ -58,7 +58,7 @@ func (m *Tilemap) TileShapes(gid uint32) []TileShape {
 	if len(shapes) == 0 || flags == 0 {
 		return shapes
 	}
-	tw, th := m.tileBox(ts)
+	tw, th := m.tileBox(ts, localID)
 	out := make([]TileShape, len(shapes))
 	for i, s := range shapes {
 		out[i] = s.Flipped(flags, tw, th)
@@ -68,13 +68,32 @@ func (m *Tilemap) TileShapes(gid uint32) []TileShape {
 
 // TileBox returns the size of gid's tile in its tileset, which is the box its collision shapes are measured in, falling back to the map's tile size when the tileset gives none or gid has no tileset.
 func (m *Tilemap) TileBox(gid uint32) (width, height float32) {
-	ts, _ := m.TilesetForGID(gid)
-	return m.tileBox(ts)
+	ts, localID := m.TilesetForGID(gid)
+	return m.tileBox(ts, localID)
 }
 
-func (m *Tilemap) tileBox(ts *Tileset) (float32, float32) {
+func (m *Tilemap) tileBox(ts *Tileset, localID uint32) (float32, float32) {
 	tw, th := m.TileWidth, m.TileHeight
 	if ts != nil {
+		if ti, ok := ts.TileImages[localID]; ok {
+			w, h := ti.Width, ti.Height
+			if w <= 0 || h <= 0 {
+				iw, ih := imageSourceSize(ti.Image)
+				if w <= 0 {
+					w = iw
+				}
+				if h <= 0 {
+					h = ih
+				}
+			}
+			if w > 0 {
+				tw = w
+			}
+			if h > 0 {
+				th = h
+			}
+			return tw, th
+		}
 		if ts.TileWidth > 0 {
 			tw = ts.TileWidth
 		}

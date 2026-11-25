@@ -57,10 +57,10 @@ Passing `cam` to `m.Draw(d, cam)` or `m.DrawLayer(d, layer, cam)` visits only th
 
 ## Loading Tiled maps
 
-`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, Tiled JSON Wang sets (`wangsets` in `.tmj`/`.tsj`) and per-tile probabilities, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
+`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` grid and image-collection tilesets (including per-tile images, optional sub-rectangles, `tileoffset`, `objectalignment`, and cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, layer `tintcolor` (multiplied across nested groups), Tiled JSON Wang sets (`wangsets` in `.tmj`/`.tsj`) and per-tile probabilities, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers (including drawn tile objects, text objects as data, and external `.tx`/`.tj` object templates), typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
 
 ```go
-//go:embed resources/maps/*.tmx resources/maps/*.tsx
+//go:embed resources/maps/*.tmx resources/maps/*.tsx resources/maps/*.tx
 var mapFS embed.FS
 
 raw, err := mapFS.ReadFile("resources/maps/level1.tmx")
@@ -70,6 +70,9 @@ if err != nil {
 
 m, err := tilemap.LoadTiled(raw, tilemap.TilesetLoader{
 	LoadTileset: func(source string) ([]byte, error) {
+		return mapFS.ReadFile("resources/maps/" + source)
+	},
+	LoadTemplate: func(source string) ([]byte, error) {
 		return mapFS.ReadFile("resources/maps/" + source)
 	},
 	LoadImage: func(imagePath string) (core.ImageSource, error) {
@@ -82,6 +85,13 @@ if err != nil {
 ```
 
 Existing callers that set `TilesetLoader.LoadJSON` continue to work for both `.tsj` and `.tsx` tilesets when `LoadTileset` is nil.
+
+### Image-collection tilesets, tile objects, templates, and text objects
+
+- **Image-collection tilesets**: tilesets with per-tile `<image>` entries load into `Tileset.TileImages` (`map[uint32]TileImage`, keyed by 0-based local tile ID), preserving each tile's own width, height, and optional sub-rectangle (`X`, `Y`, `Width`, `Height`) with paths resolved relative to external tilesets. `Tileset.TileOffsetX`/`TileOffsetY` shift rendered tiles on both tile layers and tile objects, and `Tileset.ObjectAlignment` (`ObjectAlignmentUnspecified`, `TopLeft`, `Top`, `TopRight`, `Left`, `Center`, `Right`, `BottomLeft`, `Bottom`, `BottomRight`) controls tile-object anchoring (`BottomLeft` by default on orthogonal/staggered/hex maps, `Bottom` on isometric maps).
+- **Drawing tile objects and layer tints**: `m.Draw(d, cam)` interleaves `ObjectLayer`s with tile and image layers in Tiled's layer order, drawing every visible `ObjectTile` via `m.DrawObjectLayer(d, layer, cam)` with layer visibility, opacity, `TintColor`, offset, parallax, object size, clockwise `Rotation`, GID flip bits, `tileoffset`, `objectalignment`, and camera frustum culling. `TileLayer.TintColor`, `ImageLayer.TintColor`, and `ObjectLayer.TintColor` multiply each layer's pixels when set.
+- **Object templates (`.tx` / `.tj`)**: when an object references a template, `LoadTiled` loads it through `TilesetLoader.LoadTemplate` (caching each template once per map), merges the template's fields, shape, and custom properties with the instance's overrides, and remaps any template tileset GIDs into the map's tilesets (reusing an already-loaded external tileset when the canonical path matches).
+- **Text objects**: Tiled `<text>` / `"text"` objects load with `Shape == ObjectText` and `Object.Text` (`*TextObject`: `Text`, `FontFamily`, `PixelSize`, `Wrap`, `Color`, `Bold`, `Italic`, `Underline`, `Strikeout`, `Kerning`, `HAlign`, `VAlign`) as structured data for game-side rendering.
 
 ### Building tilemaps in code
 
