@@ -66,7 +66,8 @@ fsm.Update(dt)
 ```
 
 - `Update(dt)` starts the machine on its first call (or call `fsm.Start()` explicitly), evaluates transitions in declaration order (taking at most one per step), advances `TimeInState()`, and runs the active state's `Update`.
-- Force an immediate switch with `fsm.SetState(to)`. Inspect `fsm.Current()`, `fsm.Previous()`, and `fsm.TimeInState()`.
+- Force an immediate switch with `fsm.SetState(to)`. Inspect `fsm.Current()`, `fsm.Previous()`, `fsm.TimeInState()`, and `fsm.Started()`.
+- **Save and restore**: `snap := fsm.Snapshot()` returns a plain `MachineSnapshot[S]` struct (`Version`, `Current`, `Previous`, `TimeInState`, `Started`) that marshals cleanly to YAML and JSON. `fsm.Restore(snap)` validates that `Current` (and any non-zero `Previous`) belongs to the machine before replacing its state, refuses unknown states or invalid timings with `ErrInvalidSnapshot` without mutating the machine, and never runs `Exit` or `Enter` hooks.
 
 ## Hierarchical state machines (`HSM[S]`)
 

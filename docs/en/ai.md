@@ -489,6 +489,35 @@ combat := ai.Service(250*time.Millisecond, refreshTarget,
 )
 ```
 
+### Saving and restoring behavior tree state
+
+Save mid-run behavior tree state (for save slots, rollback netcode, or state dumps) with `SnapshotBehaviorTree` / `RestoreBehaviorTree`, or wrap a root `Node` in `NewBehaviorTree(root)` to call `bt.Snapshot()` and `bt.Restore(snap)`:
+
+```go
+bt := ai.NewBehaviorTree(tree)
+bt.Tick(dt)
+
+// Capture every built-in stateful node by deterministic structural path ("0/1/2").
+snap, err := bt.Snapshot()
+if err != nil {
+	return err
+}
+data, err := yaml.Marshal(snap) // plain struct: marshals to YAML or JSON
+
+// Later, restore into a fresh tree of the exact same shape:
+var loaded ai.BehaviorTreeSnapshot
+if err := yaml.Unmarshal(data, &loaded); err != nil {
+	return err
+}
+if err := freshBT.Restore(loaded); err != nil {
+	return err // refuses mismatched tree shapes without mutating freshBT
+}
+```
+
+- **Complete built-in coverage**: captures progress for `Sequence`, `Selector`, `Parallel`, `Repeater`, `Cooldown`, `Wait`, `TimeLimit`, `Retry`, `RandomSelector`, `RandomSequence`, `WeightedSelector`, `Service`, `BlackboardCondition`, `Guard`, `WithAttackToken`, and `UtilitySelector`, plus wrapper/leaf kinds (`Inverter`, `Succeeder`, `Failer`, `UntilFail`, `Action`, `Condition`) so shape mismatches are always detected.
+- **Transactional shape validation**: `RestoreBehaviorTree` checks `Version`, every node's structural path and kind, `Parallel` policies, and state bounds before applying any change. Mismatched trees return an error wrapping `ErrInvalidBTSnapshot` naming the exact path and expected vs got kind without mutating the target tree.
+- **Custom and shared nodes**: custom `Node` implementations can participate by implementing `SnapshotNode` (`SnapshotKind`, `SnapshotState`, `RestoreState`), and custom composites or decorators can expose their children via `ChildNodes` (`Children() []Node`). If a tree uses `RandomSelector`, `RandomSequence`, or `WeightedSelector`, also save and restore the associated `*random.Stream` state for identical subsequent draws.
+
 ## Utility AI
 
 When agents weigh continuous factors (distance, health, ammo, threat) instead of fixed boolean priorities, score candidate `UtilityAction`s with a `Reasoner[C]` using Dave Mark's Infinite Axis Utility System (IAUS):

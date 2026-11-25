@@ -66,7 +66,8 @@ fsm.Update(dt)
 ```
 
 - `Update(dt)` 在首次调用时自动启动状态机（也可显式调用 `fsm.Start()`），按注册顺序评估转换（每步最多转换一次），累加 `TimeInState()`，再执行当前状态的 `Update`。
-- 调用 `fsm.SetState(to)` 立即切换状态；通过 `fsm.Current()`、`fsm.Previous()` 与 `fsm.TimeInState()` 读取状态信息。
+- 调用 `fsm.SetState(to)` 立即切换状态；通过 `fsm.Current()`、`fsm.Previous()`、`fsm.TimeInState()` 与 `fsm.Started()` 读取状态信息。
+- **保存与恢复**：`snap := fsm.Snapshot()` 返回可直接序列化为 YAML 或 JSON 的纯结构体 `MachineSnapshot[S]`（包含 `Version`、`Current`、`Previous`、`TimeInState` 与 `Started`）。`fsm.Restore(snap)` 会先校验 `Current`（以及非零 `Previous`）是否属于当前状态机；遇到未知状态或非法计时时返回 `ErrInvalidSnapshot` 且不修改状态机，并在恢复过程中绝不触发 `Exit` 或 `Enter` 回调。
 
 ## 层次状态机（`HSM[S]`）
 

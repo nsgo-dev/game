@@ -489,6 +489,35 @@ combat := ai.Service(250*time.Millisecond, refreshTarget,
 )
 ```
 
+### 保存与恢复行为树状态
+
+需要中途存档、网络回滚或状态转储时，可使用 `SnapshotBehaviorTree` / `RestoreBehaviorTree`，或用 `NewBehaviorTree(root)` 包装根节点并调用 `bt.Snapshot()` 与 `bt.Restore(snap)`：
+
+```go
+bt := ai.NewBehaviorTree(tree)
+bt.Tick(dt)
+
+// 按确定性结构路径（如 "0/1/2"）采集所有内置有状态节点的运行进度。
+snap, err := bt.Snapshot()
+if err != nil {
+	return err
+}
+data, err := yaml.Marshal(snap) // 纯结构体：可直接编码为 YAML 或 JSON
+
+// 稍后恢复到结构完全一致的新行为树实例中：
+var loaded ai.BehaviorTreeSnapshot
+if err := yaml.Unmarshal(data, &loaded); err != nil {
+	return err
+}
+if err := freshBT.Restore(loaded); err != nil {
+	return err // 若树结构不匹配则拒绝恢复且不修改 freshBT
+}
+```
+
+- **覆盖全部内置节点**：完整记录 `Sequence`、`Selector`、`Parallel`、`Repeater`、`Cooldown`、`Wait`、`TimeLimit`、`Retry`、`RandomSelector`、`RandomSequence`、`WeightedSelector`、`Service`、`BlackboardCondition`、`Guard`、`WithAttackToken` 与 `UtilitySelector` 的运行状态，同时记录无状态包装与叶节点（`Inverter`、`Succeeder`、`Failer`、`UntilFail`、`Action`、`Condition`）的类型以校验树结构。
+- **事务式结构校验**：`RestoreBehaviorTree` 在修改任何节点前先校验 `Version`、每个节点的结构路径与类型、`Parallel` 策略及各字段范围；树结构不一致时返回包装 `ErrInvalidBTSnapshot` 的错误，指明冲突路径与期望/实际节点类型，且不会部分修改目标树。
+- **自定义与共享节点**：自定义 `Node` 可实现可选接口 `SnapshotNode`（`SnapshotKind`、`SnapshotState`、`RestoreState`）参与快照，自定义组合或修饰节点可实现 `ChildNodes`（`Children() []Node`）暴露子节点。若树中使用了 `RandomSelector`、`RandomSequence` 或 `WeightedSelector`，同时保存并恢复对应的 `*random.Stream` 状态即可保证后续抽取完全一致。
+
 ## 效用 AI
 
 当角色需要根据连续态势（距离、生命值、弹药、威胁度等）而非固定布尔优先级做决策时，可使用基于 Dave Mark 无限轴效用模型（IAUS）的 `Reasoner[C]` 对候选 `UtilityAction` 评分：

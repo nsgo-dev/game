@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"fmt"
 	"slices"
 	"time"
 )
@@ -29,6 +30,36 @@ func (s Status) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// MarshalText encodes s as its lowercase name ("success", "failure", or "running")
+// so snapshots read clearly in YAML and JSON.
+func (s Status) MarshalText() ([]byte, error) {
+	switch s {
+	case StatusSuccess:
+		return []byte("success"), nil
+	case StatusFailure:
+		return []byte("failure"), nil
+	case StatusRunning:
+		return []byte("running"), nil
+	default:
+		return nil, fmt.Errorf("ai: unknown status %d", s)
+	}
+}
+
+// UnmarshalText decodes a status name written by [Status.MarshalText].
+func (s *Status) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "success":
+		*s = StatusSuccess
+	case "failure":
+		*s = StatusFailure
+	case "running":
+		*s = StatusRunning
+	default:
+		return fmt.Errorf("ai: unknown status %q", string(text))
+	}
+	return nil
 }
 
 // Node is one node in a behavior tree.

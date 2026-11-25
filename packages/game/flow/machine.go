@@ -23,6 +23,8 @@ type transition[S comparable] struct {
 type Machine[S comparable] struct {
 	states      map[S]State
 	transitions []transition[S]
+	initial     S
+	hasInitial  bool
 	current     S
 	previous    S
 	timeInState time.Duration
@@ -32,8 +34,10 @@ type Machine[S comparable] struct {
 // NewMachine returns a state machine whose initial state is initial. Call Start to run the initial state's Enter callback before the first Update, or let the first Update start it automatically.
 func NewMachine[S comparable](initial S) *Machine[S] {
 	return &Machine[S]{
-		states:  make(map[S]State),
-		current: initial,
+		states:     make(map[S]State),
+		initial:    initial,
+		hasInitial: true,
+		current:    initial,
 	}
 }
 
