@@ -71,6 +71,64 @@ func objectPath(doc *sceneformat.SceneDoc, id string) []*sceneformat.ObjectDoc {
 	return nil
 }
 
+// indexedObject is where an object of the open scene sits: its location and its path from its top-level ancestor down to it.
+type indexedObject struct {
+	loc  objectLoc
+	path []*sceneformat.ObjectDoc
+}
+
+// objectIndex maps every object ID of a document to where it sits, as of one revision of the editor.
+type objectIndex struct {
+	rev  uint64
+	doc  *sceneformat.SceneDoc
+	objs map[string]indexedObject
+}
+
+// lookupObject finds the object id as locateObject and objectPath do, from an index of the open scene built once per revision, so a view that looks up each of its objects on every change, as the scene tree's rows do, stays linear in their number.
+func (e *Editor) lookupObject(id string) indexedObject {
+	ix := &e.objIndex
+	fresh := false
+	if ix.objs == nil || ix.rev != e.revision || ix.doc != e.Doc {
+		e.rebuildObjectIndex()
+		fresh = true
+	}
+	entry, ok := ix.objs[id]
+	if ok && entry.loc.obj.ID != id && !fresh {
+		// The document changed within this revision, before the editor announced it, and moved the objects the index points at.
+		e.rebuildObjectIndex()
+		entry, ok = ix.objs[id]
+	}
+	if !ok || entry.loc.obj.ID != id {
+		return indexedObject{loc: objectLoc{layer: -1, index: -1}}
+	}
+	return entry
+}
+
+func (e *Editor) rebuildObjectIndex() {
+	ix := &e.objIndex
+	ix.rev, ix.doc, ix.objs = e.revision, e.Doc, make(map[string]indexedObject)
+	if e.Doc == nil {
+		return
+	}
+	var path []*sceneformat.ObjectDoc
+	var walk func(objs []sceneformat.ObjectDoc, li int, parent *sceneformat.ObjectDoc)
+	walk = func(objs []sceneformat.ObjectDoc, li int, parent *sceneformat.ObjectDoc) {
+		for i := range objs {
+			o := &objs[i]
+			path = append(path, o)
+			// The first object with an ID wins, as locateObject finds it.
+			if _, dup := ix.objs[o.ID]; !dup {
+				ix.objs[o.ID] = indexedObject{loc: objectLoc{obj: o, layer: li, parent: parent, index: i, depth: len(path)}, path: slices.Clone(path)}
+			}
+			walk(o.Children, li, o)
+			path = path[:len(path)-1]
+		}
+	}
+	for li := range e.Doc.Layers {
+		walk(e.Doc.Layers[li].Objects, li, nil)
+	}
+}
+
 // objectSlot names a place for an object: the top level of a layer when parent is empty, or the children of the object parent, at index among them.
 type objectSlot struct {
 	layer  string
@@ -141,6 +199,18 @@ func moveObjectIn(doc *sceneformat.SceneDoc, id string, slot objectSlot, t objec
 	return insertObject(doc, slot, o)
 }
 
+// checkTransformEdit reports whether the tree that holds the object id would still be valid (sceneformat.CheckObjectTree), from its top-level ancestor down, after edit changes id's fields: a nested child's sprite is sheared by its ancestors' scales and rotations, so checking the object's own subtree is not enough.
+func (e *Editor) checkTransformEdit(id string, edit func(o *sceneformat.ObjectDoc)) error {
+	path := objectPath(e.Doc, id)
+	if path == nil {
+		return fmt.Errorf("editor: object %q not found", id)
+	}
+	tree := []sceneformat.ObjectDoc{path[0].Clone()}
+	loc, _ := locateIn(tree, nil, id, 1)
+	edit(loc.obj)
+	return sceneformat.CheckObjectTree(&tree[0])
+}
+
 // subtreeHeight returns how many levels the tree rooted at o spans: 1 for an object without children.
 func subtreeHeight(o *sceneformat.ObjectDoc) int {
 	h := 0
@@ -165,7 +235,7 @@ func (t objectTransform) apply(o *sceneformat.ObjectDoc) {
 	o.Rotation = t.Rotation
 }
 
-// ReparentObject moves the object id, with its descendants, under the object parentID at index among its children, or to the top level of its own layer at index when parentID is empty, as one undoable command; an index below 0 or past the last sibling puts it last. A child belongs to its parent's layer, so moving under an object of another layer moves it to that layer. The object keeps its world transform: its local transform is recomputed under the new parent, in 3D as well as 2D when the scene uses 3D fields, and Undo restores the fields exactly. It refuses to move an object under itself or one of its descendants, a move that would nest deeper than sceneformat.MaxObjectDepth, and a move whose new world transform could not be written as a local one or would shear a sprite.
+// ReparentObject moves the object id, with its descendants, under the object parentID at index among its children, or to the top level of its own layer at index when parentID is empty, as one undoable command; an index below 0 or past the last sibling puts it last. A child belongs to its parent's layer, so moving under an object of another layer moves it to that layer. The object keeps its world transform: its local transform is recomputed under the new parent in 2D, its depth too when the object or an old or new ancestor sets a 3D field, and its whole 3D world transform instead when one of them sets a 3D rotation (see keepWorldTransform); Undo restores the fields exactly. It refuses to move an object under itself or one of its descendants, a move that would nest deeper than sceneformat.MaxObjectDepth, and a move whose new world transform could not be written as a local one or would shear a sprite.
 func (e *Editor) ReparentObject(id, parentID string, index int) error {
 	if e.playing {
 		return ErrPlaying
@@ -292,29 +362,27 @@ func (c *relocateCmd) Do() {
 
 func (c *relocateCmd) Undo() { moveObjectIn(c.ed.Doc, c.id, c.from, c.before) }
 
-// keepWorldTransform returns the transform that gives o, now under oldAncestors (top-level first, empty for a top-level object), the same world transform under newAncestors. A scene that uses 3D fields on any of these objects keeps the 3D world transform, which composes position, Euler rotation and scale the way sceneformat.ObjectLocalTransform3D does, and the 2D rotation as far as it can; otherwise the 2D world transform (sceneformat.ObjectDoc.LocalTransform) is kept and the 3D fields stay as they are.
+// keepWorldTransform returns the transform that gives o, now under oldAncestors (top-level first, empty for a top-level object), the same world transform under newAncestors. The 2D world transform (sceneformat.ObjectDoc.LocalTransform) is kept whenever it can be: X, Y, the 2D rotation and the X and Y scales come from it. When one of these objects sets a 3D field, the depth (PosZ, ScaleZ) is kept as well, from the 3D world transform that composes position, Euler rotation and scale the way sceneformat.ObjectLocalTransform3D does. When one of them sets a 3D rotation, the 2D and 3D world transforms no longer agree on where X and Y lead, and the 3D one is kept in full, with the 2D rotation kept as far as it can be.
 func keepWorldTransform(oldAncestors, newAncestors []*sceneformat.ObjectDoc, o *sceneformat.ObjectDoc) (objectTransform, error) {
 	t := captureTransform(o)
-	uses3D := uses3DFields(o)
-	for _, a := range oldAncestors {
-		uses3D = uses3D || uses3DFields(a)
-	}
-	for _, a := range newAncestors {
-		uses3D = uses3D || uses3DFields(a)
-	}
+	all := slices.Concat(oldAncestors, newAncestors, []*sceneformat.ObjectDoc{o})
+	uses3D := slices.ContainsFunc(all, uses3DFields)
+	rotates3D := slices.ContainsFunc(all, func(a *sceneformat.ObjectDoc) bool { return a.RotX != 0 || a.RotY != 0 || a.RotZ != 0 })
 
 	world2 := chain2(oldAncestors).mul(local2(o))
 	inv2, ok2 := chain2(newAncestors).invert()
 	var x2, y2, rot2, sx2, sy2 float64
 	if ok2 {
-		x2, y2, rot2, sx2, sy2, ok2 = inv2.mul(world2).decompose()
+		x2, y2, rot2, sx2, sy2, ok2 = inv2.mul(world2).decompose(o.EffectiveScaleX() < 0, o.EffectiveScaleY() < 0)
 	}
-	if !uses3D {
+	if !rotates3D {
 		if !ok2 {
 			return t, errNoLocalTransform
 		}
 		t.X, t.Y, t.Rotation = tidy(x2), tidy(y2), tidy(rot2)
 		t.ScaleX, t.ScaleY = tidyScale(t.ScaleX, sx2), tidyScale(t.ScaleY, sy2)
+	}
+	if !uses3D {
 		return t, nil
 	}
 
@@ -322,7 +390,17 @@ func keepWorldTransform(oldAncestors, newAncestors []*sceneformat.ObjectDoc, o *
 	if !ok {
 		return t, errNoLocalTransform
 	}
-	pos, rot, scale, ok := inv3.mul(chain3(oldAncestors).mul(local3(o))).decompose()
+	local := inv3.mul(chain3(oldAncestors).mul(local3(o)))
+	if !rotates3D {
+		// Without a 3D rotation the depth axis is never mixed with X and Y, so the local depth and its scale, sign included, are read straight off the matrix.
+		if math.Abs(local[2][2]) < 1e-12 {
+			return t, errNoLocalTransform
+		}
+		t.PosZ, t.ScaleZ = tidy(local[2][3]), tidyScale(t.ScaleZ, local[2][2])
+		return t, nil
+	}
+	mirrored := [3]bool{o.EffectiveScaleX() < 0, o.EffectiveScaleY() < 0, o.EffectiveScaleZ() < 0}
+	pos, rot, scale, ok := local.decompose(mirrored)
 	if !ok {
 		return t, errNoLocalTransform
 	}
@@ -413,14 +491,23 @@ func (m aff2) apply(x, y float64) (float64, float64) {
 	return m.a*x + m.c*y + m.tx, m.b*x + m.d*y + m.ty
 }
 
-// decompose splits m into a translation, a rotation and axis scales whose TRS is m, as sceneformat does for a child's sprite, and reports false for a shear or a collapsed axis.
-func (m aff2) decompose() (x, y, rot, sx, sy float64, ok bool) {
+// decompose splits m into a translation, a rotation and axis scales whose TRS is m, as sceneformat does for a child's sprite, and reports false for a shear or a collapsed axis. negX and negY say which scales the object had negative before: the signs are put back where they were when m allows it (a mirror on the y scale otherwise), so a flipped object keeps the fields it was written with.
+func (m aff2) decompose(negX, negY bool) (x, y, rot, sx, sy float64, ok bool) {
 	sx = math.Hypot(m.a, m.b)
 	sy = math.Hypot(m.c, m.d)
 	if sx < 1e-12 || sy < 1e-12 || math.Abs(m.a*m.c+m.b*m.d) > 1e-6*sx*sy {
 		return 0, 0, 0, 0, 0, false
 	}
-	if m.a*m.d-m.b*m.c < 0 {
+	mirrored := m.a*m.d-m.b*m.c < 0
+	// A negative sx turns the rotation's x axis, the first column divided by sx, the other way.
+	switch {
+	case mirrored && negX && !negY, !mirrored && negX && negY:
+		sx = -sx
+		if !mirrored {
+			sy = -sy
+		}
+		return m.tx, m.ty, math.Atan2(-m.b, -m.a), sx, sy, true
+	case mirrored:
 		sy = -sy
 	}
 	return m.tx, m.ty, math.Atan2(m.b, m.a), sx, sy, true
@@ -511,8 +598,8 @@ func (m aff3) vector(v [3]float64) [3]float64 {
 	return out
 }
 
-// decompose splits m into a translation, Euler angles (x, y, z) such that the rotation is Rz * Ry * Rx, and axis scales, and reports false for a shear or a collapsed axis. A mirror goes on the x scale.
-func (m aff3) decompose() (pos, rot, scale [3]float64, ok bool) {
+// decompose splits m into a translation, Euler angles (x, y, z) such that the rotation is Rz * Ry * Rx, and axis scales, and reports false for a shear or a collapsed axis. A mirror goes on the first axis marked in mirrored (the axes the object was flipped on before), or on the x scale when none is, so a flipped object keeps the fields it was written with.
+func (m aff3) decompose(mirrored [3]bool) (pos, rot, scale [3]float64, ok bool) {
 	pos = [3]float64{m[0][3], m[1][3], m[2][3]}
 	var cols [3][3]float64
 	for c := range 3 {
@@ -523,7 +610,8 @@ func (m aff3) decompose() (pos, rot, scale [3]float64, ok bool) {
 		}
 	}
 	if dot64(cols[0], cross64(cols[1], cols[2])) < 0 {
-		scale[0] = -scale[0]
+		axis := max(slices.Index(mirrored[:], true), 0)
+		scale[axis] = -scale[axis]
 	}
 	var r [3][3]float64 // r[row][col]
 	for c := range 3 {
@@ -547,7 +635,7 @@ func (m aff3) decompose() (pos, rot, scale [3]float64, ok bool) {
 	return pos, rot, scale, true
 }
 
-// SetObjectID changes the ID of the object oldID to newID as one undoable command, rewriting in the same step every connection (sceneformat.ConnectionDoc) and scene override (sceneformat.SceneDoc.Overrides) that names it, and, when the object instances a scene, the objects that scene adds ("enemy_1/body" becomes "boss/body"). The selection, the open clip's target and the object's hidden and locked toggles follow it. It refuses an empty ID and one any object of the scene already has, including one an instanced or inherited scene adds, and an ID under which the scene would no longer resolve.
+// SetObjectID changes the ID of the object oldID to newID as one undoable command, rewriting in the same step every connection (sceneformat.ConnectionDoc) and scene override (sceneformat.SceneDoc.Overrides) that names it, and, when the object instances a scene, the objects that scene adds ("enemy_1/body" becomes "boss/body"). The selection, the open clip's target and the targets of its tracks, and the object's hidden and locked toggles follow it. It refuses an empty ID and one any object of the scene already has, including one an instanced or inherited scene adds, and an ID under which the scene would no longer resolve.
 func (e *Editor) SetObjectID(oldID, newID string) error {
 	if e.playing {
 		return ErrPlaying
@@ -571,6 +659,13 @@ func (e *Editor) SetObjectID(oldID, newID string) error {
 		to, toOK := renameRef(conn.To, oldID, newID, cmd.instancing)
 		if fromOK || toOK {
 			cmd.conns = append(cmd.conns, connRename{index: i, oldFrom: conn.From, oldTo: conn.To, newFrom: from, newTo: to})
+		}
+	}
+	if e.clip != nil {
+		for i, tr := range e.clip.Tracks {
+			if _, ok := renameRef(tr.Target, oldID, newID, cmd.instancing); ok {
+				cmd.tracks = append(cmd.tracks, i)
+			}
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(e.Doc.Overrides)) {
@@ -619,6 +714,8 @@ type objectIDCmd struct {
 	conns        []connRename
 	// overrides are the scene override keys the change renames, each as {old, new}.
 	overrides [][2]string
+	// tracks are the indexes of the open clip's tracks whose target names the object; History being linear, the clip holds the same tracks whenever the command is done or undone.
+	tracks []int
 }
 
 func (c *objectIDCmd) Label() string { return "Change ID " + c.oldID + " to " + c.newID }
@@ -664,6 +761,13 @@ func (c *objectIDCmd) rename(from, to string) {
 	if e.clipMeta.target == from {
 		e.clipMeta.target = to
 	}
+	if e.clip != nil {
+		for _, i := range c.tracks {
+			if i < len(e.clip.Tracks) {
+				e.clip.Tracks[i].Target, _ = renameRef(e.clip.Tracks[i].Target, from, to, c.instancing)
+			}
+		}
+	}
 	for _, flags := range []map[string]bool{e.hidden, e.locked} {
 		if flags[from] {
 			delete(flags, from)
@@ -683,7 +787,7 @@ func (c *objectIDCmd) Undo() {
 	c.rename(c.newID, c.oldID)
 }
 
-// SetObjectHidden hides the object id, and with it its descendants, in the editor's 2D and 3D viewports, or shows it again. The toggle belongs to the editing session, like the camera of the 3D view: it is not an edit, is not undone, and is never written to the scene file, and Play draws every object. A hidden object cannot be picked in a viewport either, though the scene tree still selects it.
+// SetObjectHidden hides the object id, and with it its descendants, in the editor's 2D and 3D viewports, or shows it again. The toggle belongs to the editing session, like the camera of the 3D view: it is not an edit, is not undone, and is never written to the scene file, and Play draws every object. A hidden object cannot be picked or manipulated in a viewport either (no gizmo, no Move-tool drag), though the scene tree still selects it and the inspector edits it.
 func (e *Editor) SetObjectHidden(id string, hidden bool) error {
 	return e.setViewFlag(&e.hidden, id, hidden)
 }
@@ -691,7 +795,7 @@ func (e *Editor) SetObjectHidden(id string, hidden bool) error {
 // ObjectHidden reports whether the object id itself is hidden in the viewports (SetObjectHidden); a descendant of a hidden object is hidden too without being marked.
 func (e *Editor) ObjectHidden(id string) bool { return e.hidden[id] }
 
-// SetObjectLocked locks the object id, and with it its descendants, against picking in the editor's 2D and 3D viewports, or unlocks it, so a click goes to what lies under it. Like SetObjectHidden, the toggle belongs to the editing session and is never written to the scene file. A locked object can still be selected and edited from the scene tree and the inspector.
+// SetObjectLocked locks the object id, and with it its descendants, against picking in the editor's 2D and 3D viewports, or unlocks it, so a click goes to what lies under it, and against manipulation there: its gizmo is not shown and the Move tool does not move it. Like SetObjectHidden, the toggle belongs to the editing session and is never written to the scene file. A locked object can still be selected and edited from the scene tree and the inspector.
 func (e *Editor) SetObjectLocked(id string, locked bool) error {
 	return e.setViewFlag(&e.locked, id, locked)
 }
@@ -729,6 +833,15 @@ func viewFlagged(flags map[string]bool, bo *sceneformat.BuiltObject) bool {
 		}
 	}
 	return false
+}
+
+// viewportFrozen reports whether the object id, or one of its ancestors, is hidden or locked in the editor, so the viewports neither pick nor manipulate it: no gizmo handle, no Move-tool drag. The scene tree and the inspector still edit it.
+func (e *Editor) viewportFrozen(id string) bool {
+	if len(e.hidden) == 0 && len(e.locked) == 0 {
+		return false
+	}
+	path := objectPath(e.Doc, id)
+	return pathFlagged(e.hidden, path) || pathFlagged(e.locked, path)
 }
 
 // pathFlagged reports whether an object of path is marked in flags.

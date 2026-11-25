@@ -94,13 +94,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			}
 			return out
 		}
-		obj, li, _ := ed.FindObject(k.id)
-		if obj == nil {
+		loc := ed.lookupObject(k.id).loc
+		if loc.obj == nil {
 			return nil
 		}
-		out := make([]any, len(obj.Children))
-		for i := range obj.Children {
-			out[i] = sceneTreeKey{layer: ed.Doc.Layers[li].Name, id: obj.Children[i].ID}
+		out := make([]any, len(loc.obj.Children))
+		for i := range loc.obj.Children {
+			out[i] = sceneTreeKey{layer: ed.Doc.Layers[loc.layer].Name, id: loc.obj.Children[i].ID}
 		}
 		return out
 	}
@@ -395,7 +395,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						TestID: "scene-tree-label-" + id,
 						ContentFunc: func() string {
 							_ = rev.Get()
-							if obj, _, _ := ed.FindObject(id); obj != nil && obj.Name != "" {
+							if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Name != "" {
 								return obj.Name
 							}
 							return id
@@ -403,7 +403,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						Style: core.Style{FontSize: 12, Color: colors.Text(), FlexShrink: 1},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							if pathFlagged(ed.hidden, objectPath(ed.Doc, id)) {
+							if pathFlagged(ed.hidden, ed.lookupObject(id).path) {
 								return core.Style{Color: colors.Muted()}
 							}
 							return core.Style{}
@@ -412,7 +412,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					core.Text{
 						ContentFunc: func() string {
 							_ = rev.Get()
-							if obj, _, _ := ed.FindObject(id); obj != nil && obj.Name != "" && obj.Name != id {
+							if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Name != "" && obj.Name != id {
 								return id
 							}
 							return ""
@@ -463,7 +463,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
 	siblings := func() (index, count int, prev, parent string) {
-		loc := locateObject(ed.Doc, id)
+		loc := ed.lookupObject(id).loc
 		if loc.obj == nil {
 			return -1, 0, "", ""
 		}
@@ -527,8 +527,8 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			name := ed.Doc.Layers[i].Name
 			items = append(items, ui.MenuItem{TestID: "scene-tree-to-layer-" + id + "-" + name, Text: "Move to Layer " + name,
 				Disabled: func() bool {
-					_, li, _ := ed.FindObject(id)
-					return editsOff() || li < 0 || ed.Doc.Layers[li].Name == name && locateObject(ed.Doc, id).parent == nil
+					loc := ed.lookupObject(id).loc
+					return editsOff() || loc.obj == nil || ed.Doc.Layers[loc.layer].Name == name && loc.parent == nil
 				},
 				OnSelect: func() { ed.report(ed.MoveObjectToLayer(id, name, -1)) }})
 		}

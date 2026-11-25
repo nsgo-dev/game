@@ -256,6 +256,16 @@ func (e *Editor) parentWorld3D(id string) aff3 {
 	return chain3(path[:len(path)-1])
 }
 
+// posed3D returns o as the open animation clip poses it at the playhead, or o itself when no clip is open or the clip's scene lacks it.
+func (e *Editor) posed3D(o *sceneformat.ObjectDoc) *sceneformat.ObjectDoc {
+	if e.clipScene != nil {
+		if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
+			return bo.Doc
+		}
+	}
+	return o
+}
+
 // worldPosition3D returns where the origin of o, an object of the scene, sits in world space.
 func (e *Editor) worldPosition3D(o *sceneformat.ObjectDoc) [3]float32 {
 	return vec32(e.parentWorld3D(o.ID).point([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}))
@@ -280,29 +290,34 @@ func (e *Editor) objectBaseExtents3D(o *sceneformat.ObjectDoc) (w, h, d float32)
 
 // ObjectCorners3D returns the 8 world-space corners of object o's oriented 3D bounding box. A nested child's box is placed by the transforms of its ancestors too.
 func (e *Editor) ObjectCorners3D(o *sceneformat.ObjectDoc) [8][3]float32 {
-	var corners [8][3]float32
 	if o == nil {
-		return corners
+		return [8][3]float32{}
 	}
+	return e.objectCorners3DUnder(o, e.parentWorld3D(o.ID))
+}
+
+// boxSigns3D are the corners of a unit box around its center, in the order ObjectCorners3D returns them.
+var boxSigns3D = [8][3]float64{
+	{-1, -1, -1},
+	{+1, -1, -1},
+	{+1, +1, -1},
+	{-1, +1, -1},
+	{-1, -1, +1},
+	{+1, -1, +1},
+	{+1, +1, +1},
+	{-1, +1, +1},
+}
+
+// objectCorners3DUnder is ObjectCorners3D for an object whose parent's local space maps to world space by parent, so a walk down the tree composes each parent once instead of looking up every object's ancestors.
+func (e *Editor) objectCorners3DUnder(o *sceneformat.ObjectDoc, parent aff3) [8][3]float32 {
+	var corners [8][3]float32
 	bw, bh, bd := e.objectBaseExtents3D(o)
 	hx := float64(bw) * 0.5 * math.Abs(float64(o.EffectiveScaleX()))
 	hy := float64(bh) * 0.5 * math.Abs(float64(o.EffectiveScaleY()))
 	hz := float64(bd) * 0.5 * math.Abs(float64(o.EffectiveScaleZ()))
-
-	signs := [8][3]float64{
-		{-1, -1, -1},
-		{+1, -1, -1},
-		{+1, +1, -1},
-		{-1, +1, -1},
-		{-1, -1, +1},
-		{+1, -1, +1},
-		{+1, +1, +1},
-		{-1, +1, +1},
-	}
 	pos := [3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}
 	rx, ry, rz := float64(o.RotX), float64(o.RotY), float64(o.RotZ)
-	parent := e.parentWorld3D(o.ID)
-	for i, s := range signs {
+	for i, s := range boxSigns3D {
 		local := [3]float64{s[0] * hx, s[1] * hy, s[2] * hz}
 		rot := rotateEulerXYZ64(local, rx, ry, rz)
 		wpt := add64(pos, rot)
@@ -319,7 +334,11 @@ func (e *Editor) ObjectAABB3D(o *sceneformat.ObjectDoc) (boxMin, boxMax [3]float
 	if o == nil {
 		return boxMin, boxMax
 	}
-	corners := e.ObjectCorners3D(o)
+	return aabbOfCorners3D(e.ObjectCorners3D(o))
+}
+
+// aabbOfCorners3D returns the axis-aligned box enclosing corners, with a minimal pickable thickness along degenerate axes.
+func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	boxMin = corners[0]
 	boxMax = corners[0]
 	for i := 1; i < 8; i++ {
@@ -363,24 +382,26 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 		// so they are neither drawn as 3D wireframes nor pickable in 3D; the
 		// flat index still advances for them to stay in step with Objects3D.
 		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen
-		var walk func(objs []sceneformat.ObjectDoc, skip bool)
-		walk = func(objs []sceneformat.ObjectDoc, skip bool) {
+		// Each level composes its parent's world transform once and hands it down, so picking stays linear in the number of objects.
+		var walk func(objs []sceneformat.ObjectDoc, parent aff3, skip bool)
+		walk = func(objs []sceneformat.ObjectDoc, parent aff3, skip bool) {
 			for oi := range objs {
 				o := &objs[oi]
+				posed := e.posed3D(o)
 				// A hidden or locked object takes its descendants with it.
 				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
 				if visible && !skipped {
-					bmin, bmax := e.ObjectAABB3D(o)
+					bmin, bmax := aabbOfCorners3D(e.objectCorners3DUnder(posed, parent))
 					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < bestT {
 						bestT = t
 						bestIdx = idx
 					}
 				}
 				idx++
-				walk(o.Children, skipped)
+				walk(o.Children, parent.mul(local3(posed)), skipped)
 			}
 		}
-		walk(layer.Objects, false)
+		walk(layer.Objects, ident3, false)
 	}
 	if bestIdx < 0 {
 		return -1, false
@@ -433,7 +454,7 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 		return Axis3DNone
 	}
 	obj, _ := e.SelectedObject()
-	if obj == nil {
+	if obj == nil || e.viewportFrozen(obj.ID) {
 		return Axis3DNone
 	}
 	origin := e.worldPosition3D(obj)
@@ -573,7 +594,7 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		return false
 	}
 	obj, _ := e.SelectedObject()
-	if obj == nil {
+	if obj == nil || e.viewportFrozen(obj.ID) {
 		return false
 	}
 	parentInv, ok := e.parentWorld3D(obj.ID).invert()
@@ -777,9 +798,7 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	// Restore pre-drag state before executing through History so Undo/Redo snapshots are exact.
 	applyTransform3D(obj, st.startTransform)
 	// A scale that would shear a descendant's sprite leaves a scene that cannot build, so the drag is dropped instead of committed.
-	changed := *obj
-	applyTransform3D(&changed, after)
-	if sceneformat.CheckObjectTree(&changed) != nil {
+	if e.checkTransformEdit(st.objectID, func(o *sceneformat.ObjectDoc) { applyTransform3D(o, after) }) != nil {
 		e.Rebuild()
 		e.notify()
 		return false
@@ -1010,6 +1029,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 	}
 	type drawable3D struct {
 		obj      *sceneformat.ObjectDoc
+		parent   aff3
 		depth    float32
 		selected bool
 	}
@@ -1022,8 +1042,9 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}
-		var walk func(objs []sceneformat.ObjectDoc)
-		walk = func(objs []sceneformat.ObjectDoc) {
+		// Each level composes its parent's world transform once and hands it down, so drawing stays linear in the number of objects.
+		var walk func(objs []sceneformat.ObjectDoc, parent aff3)
+		walk = func(objs []sceneformat.ObjectDoc, parent aff3) {
 			for oi := range objs {
 				o := &objs[oi]
 				// A hidden object is not drawn, nor are its descendants.
@@ -1032,22 +1053,19 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 				}
 				children := o.Children
 				// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
-				if e.clipScene != nil {
-					if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
-						o = bo.Doc
-					}
-				}
-				rel := sub64(vec64(e.worldPosition3D(o)), eye)
+				o = e.posed3D(o)
+				rel := sub64(parent.point([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}), eye)
 				depth := float32(dot64(rel, forward))
 				items = append(items, drawable3D{
 					obj:      o,
+					parent:   parent,
 					depth:    depth,
 					selected: o.ID == e.SelectedID,
 				})
-				walk(children)
+				walk(children, parent.mul(local3(o)))
 			}
 		}
-		walk(layer.Objects)
+		walk(layer.Objects, ident3)
 	}
 
 	// Sort back-to-front so nearer objects and the selected object draw last.
@@ -1062,7 +1080,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 	})
 
 	for _, item := range items {
-		corners := e.ObjectCorners3D(item.obj)
+		corners := e.objectCorners3DUnder(item.obj, item.parent)
 		color := core.RGBA(0xCBD5E1, 0.8)
 		lineWidth := float32(1.25)
 		if item.selected {
@@ -1095,7 +1113,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 
 func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	obj, _ := e.SelectedObject()
-	if obj == nil || pathFlagged(e.hidden, objectPath(e.Doc, obj.ID)) {
+	if obj == nil || e.viewportFrozen(obj.ID) {
 		return
 	}
 	origin := e.worldPosition3D(obj)

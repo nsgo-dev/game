@@ -248,7 +248,7 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 			e.SelectObject(hit)
 			return
 		}
-		if e.SelectedID != "" {
+		if e.SelectedID != "" && !e.viewportFrozen(e.SelectedID) {
 			wx, wy := e.layerCoordsForSelected(x, y)
 			// A nested child's position is in its parent's space.
 			path := objectPath(e.Doc, e.SelectedID)

@@ -246,6 +246,8 @@ type Editor struct {
 	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
 	hidden map[string]bool
 	locked map[string]bool
+	// objIndex is where every object of the open scene sits, rebuilt when the revision or the document changes (lookupObject).
+	objIndex objectIndex
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
 	filesRev uint64
 	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
@@ -944,7 +946,7 @@ func (e *Editor) MoveObject(id string, x, y float32) error {
 	return nil
 }
 
-// RotateObject sets object id's rotation (in radians) as an undoable command.
+// RotateObject sets object id's rotation (in radians) as an undoable command. It refuses a rotation under which the object's or a descendant's sprite would be sheared by a non-uniformly scaled ancestor (see sceneformat.CheckObjectTree).
 func (e *Editor) RotateObject(id string, radians float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -959,6 +961,9 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 	if obj.Rotation == radians {
 		return nil
 	}
+	if err := e.checkTransformEdit(id, func(o *sceneformat.ObjectDoc) { o.Rotation = radians }); err != nil {
+		return err
+	}
 	e.History.Execute(&rotateObjectCmd{
 		ed:     e,
 		id:     id,
@@ -968,7 +973,7 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 	return nil
 }
 
-// ScaleObject sets object id's scale to (sx, sy) as an undoable command. It refuses a scale under which a descendant's sprite would be sheared (see sceneformat.CheckObjectTree).
+// ScaleObject sets object id's scale to (sx, sy) as an undoable command. It refuses a scale under which the object's or a descendant's sprite would be sheared, taking its ancestors' transforms into account (see sceneformat.CheckObjectTree).
 func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -983,9 +988,7 @@ func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	if obj.ScaleX != nil && *obj.ScaleX == sx && obj.ScaleY != nil && *obj.ScaleY == sy {
 		return nil
 	}
-	changed := *obj
-	changed.ScaleX, changed.ScaleY = &sx, &sy
-	if err := sceneformat.CheckObjectTree(&changed); err != nil {
+	if err := e.checkTransformEdit(id, func(o *sceneformat.ObjectDoc) { o.ScaleX, o.ScaleY = &sx, &sy }); err != nil {
 		return err
 	}
 	e.History.Execute(&scaleObjectCmd{
@@ -1175,7 +1178,7 @@ func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
 	return nil
 }
 
-// ScaleObject3D sets object id's 3D scale (sx, sy, sz) as an undoable command. It refuses a scale under which a descendant's sprite would be sheared (see sceneformat.CheckObjectTree).
+// ScaleObject3D sets object id's 3D scale (sx, sy, sz) as an undoable command. It refuses a scale under which the object's or a descendant's sprite would be sheared, taking its ancestors' transforms into account (see sceneformat.CheckObjectTree).
 func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -1195,9 +1198,7 @@ func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	if equalTransform3D(before, after) {
 		return nil
 	}
-	changed := *obj
-	applyTransform3D(&changed, after)
-	if err := sceneformat.CheckObjectTree(&changed); err != nil {
+	if err := e.checkTransformEdit(id, func(o *sceneformat.ObjectDoc) { applyTransform3D(o, after) }); err != nil {
 		return err
 	}
 	e.History.Execute(&transform3DCmd{

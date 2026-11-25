@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -647,4 +648,181 @@ func center3D(corners [8][3]float32) [3]float32 {
 		}
 	}
 	return c
+}
+
+func TestEditsOfANestedChildAreRefusedWhenTheyWouldShearItsSprite(t *testing.T) {
+	ed := newNestedEditor(t)
+	// Stretching the turret along x is fine while the barrel under it is not turned.
+	if err := ed.ScaleObject("turret", 2, 1); err != nil {
+		t.Fatalf("ScaleObject turret: %v", err)
+	}
+	saved := mustSave(t, ed)
+	undo := ed.History.UndoLabel()
+	// Turning the barrel's sprite under the stretched turret would shear it, though the barrel's own subtree is fine.
+	if err := ed.RotateObject("barrel", 0.5); err == nil || !strings.Contains(err.Error(), "sheared") {
+		t.Fatalf("RotateObject barrel under a stretched parent: err = %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("a refused rotation broke the build: %v", ed.BuildErr)
+	}
+	if after := mustSave(t, ed); !bytes.Equal(after, saved) {
+		t.Fatal("a refused rotation changed the scene")
+	}
+	if ed.History.UndoLabel() != undo {
+		t.Fatalf("a refused rotation reached the history: %q", ed.History.UndoLabel())
+	}
+	// The same holds two levels up: turning the turret under a stretched ship shears the barrel.
+	if err := ed.ScaleObject("turret", 1, 1); err != nil {
+		t.Fatalf("ScaleObject turret back: %v", err)
+	}
+	if err := ed.ScaleObject("ship", 1, 3); err != nil {
+		t.Fatalf("ScaleObject ship: %v", err)
+	}
+	if err := ed.RotateObject("turret", 0.5); err == nil || !strings.Contains(err.Error(), "sheared") {
+		t.Fatalf("RotateObject turret under a stretched ship: err = %v", err)
+	}
+	if err := ed.ScaleObject3D("turret", 1, 1, 2); err != nil {
+		t.Fatalf("ScaleObject3D turret along z only: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("build error: %v", ed.BuildErr)
+	}
+}
+
+func TestReparentKeepsThe2DWorldTransformWhenOnlyDepthIs3D(t *testing.T) {
+	ed := newNestedEditor(t)
+	if err := ed.RotateObject("ship", math.Pi/2); err != nil {
+		t.Fatalf("RotateObject: %v", err)
+	}
+	if err := ed.MoveObject3D("ship", 60, 40, 5); err != nil {
+		t.Fatalf("MoveObject3D: %v", err)
+	}
+	before := worldOf(t, ed, "turret")
+	if err := ed.ReparentObject("turret", "", -1); err != nil {
+		t.Fatalf("ReparentObject: %v", err)
+	}
+	after := worldOf(t, ed, "turret")
+	for _, d := range []float32{after.A - before.A, after.B - before.B, after.C - before.C, after.D - before.D, after.Tx - before.Tx, after.Ty - before.Ty} {
+		if math.Abs(float64(d)) > 1e-3 {
+			t.Fatalf("the turret's 2D world transform moved from %+v to %+v", before, after)
+		}
+	}
+	turret, _, _ := ed.FindObject("turret")
+	if turret.PosZ != 5 || turret.ScaleZ != nil {
+		t.Fatalf("the turret's depth was not kept: posZ %v, scaleZ %v", turret.PosZ, turret.ScaleZ)
+	}
+}
+
+func TestReparentKeepsAFlippedObjectsFields(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		sx, sy *float32
+	}{
+		{"flipped on x", sceneformat.Float32(-1), nil},
+		{"flipped on y", nil, sceneformat.Float32(-2)},
+		{"flipped on both", sceneformat.Float32(-1), sceneformat.Float32(-1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ed := newNestedEditor(t)
+			crate, _, _ := ed.FindObject("crate")
+			crate.ScaleX, crate.ScaleY = tc.sx, tc.sy
+			ed.Rebuild()
+			if err := ed.ReparentObject("crate", "turret", -1); err != nil {
+				t.Fatalf("ReparentObject: %v", err)
+			}
+			crate, _, _ = ed.FindObject("crate")
+			if crate.Rotation != 0 || !reflect.DeepEqual(crate.ScaleX, tc.sx) || !reflect.DeepEqual(crate.ScaleY, tc.sy) {
+				t.Fatalf("crate under an untransformed parent: rotation %v, scale (%v, %v), want 0, (%v, %v)", crate.Rotation, fmtScale(crate.ScaleX), fmtScale(crate.ScaleY), fmtScale(tc.sx), fmtScale(tc.sy))
+			}
+		})
+	}
+}
+
+func fmtScale(p *float32) string {
+	if p == nil {
+		return "nil"
+	}
+	return strconv.FormatFloat(float64(*p), 'g', -1, 32)
+}
+
+func TestSetObjectIDRenamesTheOpenClipsTracks(t *testing.T) {
+	ed := newNestedEditor(t)
+	if err := ed.NewClip("ship", "sway", time.Second); err != nil {
+		t.Fatalf("NewClip: %v", err)
+	}
+	if _, _, err := ed.KeyProperty("barrel", "x", 0); err != nil {
+		t.Fatalf("KeyProperty: %v", err)
+	}
+	if err := ed.SetObjectID("barrel", "gun"); err != nil {
+		t.Fatalf("SetObjectID: %v", err)
+	}
+	if got := ed.Clip().Tracks[0].Target; got != "gun" {
+		t.Fatalf("track target after the rename = %q, want gun", got)
+	}
+	if ed.ClipError() != nil {
+		t.Fatalf("ClipError after the rename: %v", ed.ClipError())
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo failed")
+	}
+	if got := ed.Clip().Tracks[0].Target; got != "barrel" {
+		t.Fatalf("track target after Undo = %q, want barrel", got)
+	}
+}
+
+func TestViewportsDoNotManipulateAHiddenOrLockedSelection(t *testing.T) {
+	for _, flag := range []string{"hidden", "locked"} {
+		t.Run(flag, func(t *testing.T) {
+			ed := newNestedEditor(t)
+			set := ed.SetObjectHidden
+			if flag == "locked" {
+				set = ed.SetObjectLocked
+			}
+
+			// 3D: a press on where the gizmo's x handle would be neither picks nor drags it.
+			ed.SetViewMode(editor.ViewMode3D)
+			ed.SelectObject("crate")
+			crate, _, _ := ed.FindObject("crate")
+			origin := [3]float32{crate.X, crate.Y, crate.PosZ}
+			ed.Camera3D.Target = origin
+			vw, vh := ed.ViewportSize()
+			tip := origin
+			tip[0] += ed.GizmoLength3D(origin) * 0.8
+			sx, sy, _, ok := ed.Camera3D.Project(tip, vw, vh)
+			if !ok {
+				t.Fatal("the gizmo is not in view")
+			}
+			if axis := ed.PickGizmo3D(sx, sy, vw, vh); axis != editor.Axis3DX {
+				t.Fatalf("PickGizmo3D on a shown object = %v, want X", axis)
+			}
+			if err := set("crate", true); err != nil {
+				t.Fatal(err)
+			}
+			if axis := ed.PickGizmo3D(sx, sy, vw, vh); axis != editor.Axis3DNone {
+				t.Fatalf("PickGizmo3D on a %s object = %v", flag, axis)
+			}
+			ed.HandleViewport3DPress(sx, sy, vw, vh)
+			ed.UpdateGizmoDrag3D(sx+40, sy)
+			ed.EndGizmoDrag3D()
+			if crate, _, _ = ed.FindObject("crate"); crate.X != 20 || crate.Y != 90 {
+				t.Fatalf("a press on the %s crate's gizmo moved it to (%v, %v)", flag, crate.X, crate.Y)
+			}
+
+			// 2D: the Move tool does not move the selection to an empty press.
+			ed.SetViewMode(editor.ViewMode2D)
+			ed.SetTool(editor.ToolMove)
+			ed.SelectObject("crate")
+			ed.HandleCanvasPress(300, 300)
+			if crate, _, _ = ed.FindObject("crate"); crate.X != 20 || crate.Y != 90 {
+				t.Fatalf("the Move tool moved the %s crate to (%v, %v)", flag, crate.X, crate.Y)
+			}
+			if err := set("crate", false); err != nil {
+				t.Fatal(err)
+			}
+			ed.HandleCanvasPress(300, 300)
+			if crate, _, _ = ed.FindObject("crate"); crate.X == 20 && crate.Y == 90 {
+				t.Fatal("the Move tool did not move the crate once shown and unlocked")
+			}
+		})
+	}
 }
